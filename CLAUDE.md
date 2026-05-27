@@ -105,7 +105,7 @@ docs/
 ## Slice 1에서 배운 함정들
 
 - **axum 0.8 path syntax**: `/scenarios/:id` 아님, `/scenarios/{id}`. 0.7 문서/예제 검색하면 함정.
-- **serde_yaml 0.9 + externally-tagged enum w/ map variants**: derive(Serialize, Deserialize)가 round-trip 안 됨. `Assertion::Status(u16)` 같은 enum은 손수 `Serialize`/`Deserialize` 구현해서 `{key: value}` 맵 형태로 처리. (`crates/engine/src/scenario.rs::Assertion` 참고.)
+- **serde_yaml 0.9 + externally-tagged enum w/ map variants**: derive(Serialize, Deserialize)가 round-trip 안 됨. `Assertion::Status(u16)`, `Body::{Json|Form|Raw}` 같은 enum은 손수 `Serialize`/`Deserialize` 구현해서 `{key: value}` 맵 형태로 처리. derive 그대로 두면 직렬화 시 `!variant value` YAML 태그가 나오고, 사용자/UI가 만든 `{variant: value}` 맵을 역직렬화하려 하면 `invalid type: map, expected a YAML tag starting with '!'` 에러. Slice 1 fixture에 body가 없어서 Body 쪽은 Slice 3 UI(BodyEditor)가 처음 트리거할 때까지 잠복. **새 enum 추가할 때마다 이 패턴 확인.** (`crates/engine/src/scenario.rs::{Assertion, Body}` 참고.)
 - **mpsc 플러셔 종료**: 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
 - **tonic `Channel::from_shared` 오류 타입**: `tonic::transport::Error` 아니라 `tonic::codegen::http::uri::InvalidUri`. WorkerError에 따로 variant 필요.
 - **tokio JoinHandle drop ≠ abort**: handle을 drop해도 spawn된 task는 detached로 계속 돈다. 종료시키려면 명시적으로 `.abort()`.

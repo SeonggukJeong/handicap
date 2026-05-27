@@ -70,15 +70,67 @@ pub enum HttpMethod {
     Options,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+/// Request body variant. Serializes/deserializes as a single-entry YAML map
+/// `{json|form|raw: <value>}` to match the wire format the UI (`ui/src/scenario/`)
+/// emits and the format documented in ADR-0014.
+///
+/// Manual impl required for the same reason as [`Assertion`] below: serde_yaml 0.9
+/// derive on an externally-tagged enum with map-shaped variants emits/expects
+/// `!variant value` YAML tags, not `{variant: value}` maps. This was silently
+/// broken until Slice 3's BodyEditor became the first caller to actually use
+/// a body — the Slice 1 fixture had no body field.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Body {
-    #[serde(rename = "json")]
     Json(serde_json::Value),
-    #[serde(rename = "form")]
     Form(BTreeMap<String, String>),
-    #[serde(rename = "raw")]
     Raw(String),
+}
+
+impl Serialize for Body {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut map = s.serialize_map(Some(1))?;
+        match self {
+            Body::Json(v) => map.serialize_entry("json", v)?,
+            Body::Form(m) => map.serialize_entry("form", m)?,
+            Body::Raw(t) => map.serialize_entry("raw", t)?,
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Body {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct BodyVisitor;
+        impl<'de> Visitor<'de> for BodyVisitor {
+            type Value = Body;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a map with a single key: json, form, or raw")
+            }
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<Body, M::Error> {
+                let key: String = map
+                    .next_key()?
+                    .ok_or_else(|| de::Error::custom("empty body map"))?;
+                let body = match key.as_str() {
+                    "json" => Body::Json(map.next_value()?),
+                    "form" => Body::Form(map.next_value()?),
+                    "raw" => Body::Raw(map.next_value()?),
+                    other => {
+                        return Err(de::Error::unknown_field(other, &["json", "form", "raw"]));
+                    }
+                };
+                if map.next_key::<String>()?.is_some() {
+                    return Err(de::Error::custom(
+                        "body map must have exactly one key (json|form|raw)",
+                    ));
+                }
+                Ok(body)
+            }
+        }
+        d.deserialize_map(BodyVisitor)
+    }
 }
 
 /// Assertion variant. Serializes/deserializes as a YAML map `{status: <code>}`.
@@ -193,5 +245,166 @@ steps: []
 "#;
         let s = Scenario::from_yaml(y).unwrap();
         assert_eq!(s.cookie_jar, CookieJarMode::Off);
+    }
+
+    // Slice 3 UI writes `body: { form: {...} }` / `{ json: ... }` / `{ raw: ... }`
+    // as plain YAML maps (matching the ADR-0014 wire format). The engine must
+    // accept that shape — not require serde_yaml's `!form value` external tag
+    // form, which was the silent default of `derive(Deserialize)` on this enum
+    // before the manual impl was added.
+
+    #[test]
+    fn parses_body_form_in_map_shape() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: login
+    type: http
+    request:
+      method: POST
+      url: "/login"
+      body:
+        form:
+          user: "a"
+          pass: "b"
+    assert: []
+"#;
+        let s = Scenario::from_yaml(y).expect("parses with map-shaped body");
+        match s.steps[0].request.body.as_ref().expect("body present") {
+            Body::Form(m) => {
+                assert_eq!(m.get("user").map(String::as_str), Some("a"));
+                assert_eq!(m.get("pass").map(String::as_str), Some("b"));
+            }
+            other => panic!("expected Form, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_body_json_in_map_shape() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: POST
+      url: "/"
+      body:
+        json:
+          a: 1
+          b: [1, 2]
+    assert: []
+"#;
+        let s = Scenario::from_yaml(y).expect("parses");
+        match s.steps[0].request.body.as_ref().expect("body") {
+            Body::Json(v) => {
+                assert_eq!(v["a"], 1);
+                assert_eq!(v["b"], serde_json::json!([1, 2]));
+            }
+            other => panic!("expected Json, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_body_raw_in_map_shape() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: POST
+      url: "/"
+      body:
+        raw: "hello"
+    assert: []
+"#;
+        let s = Scenario::from_yaml(y).expect("parses");
+        match s.steps[0].request.body.as_ref().expect("body") {
+            Body::Raw(t) => assert_eq!(t, "hello"),
+            other => panic!("expected Raw, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn body_round_trips_map_shape() {
+        let original = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: POST
+      url: "/"
+      body:
+        form:
+          a: "1"
+    assert: []
+"#;
+        let parsed = Scenario::from_yaml(original).unwrap();
+        let re_serialized = parsed.to_yaml().unwrap();
+        assert!(
+            re_serialized.contains("form:"),
+            "serialized output should contain `form:` map key, got:\n{re_serialized}"
+        );
+        assert!(
+            !re_serialized.contains("!form"),
+            "serialized output should NOT contain external `!form` tag, got:\n{re_serialized}"
+        );
+        let re_parsed = Scenario::from_yaml(&re_serialized).unwrap();
+        assert_eq!(parsed, re_parsed);
+    }
+
+    #[test]
+    fn body_map_rejects_multiple_top_level_keys() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: POST
+      url: "/"
+      body:
+        form: { a: "1" }
+        bogus: 42
+    assert: []
+"#;
+        assert!(
+            Scenario::from_yaml(y).is_err(),
+            "body map must have exactly one key (json|form|raw)"
+        );
+    }
+
+    #[test]
+    fn body_map_rejects_unknown_variant() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: POST
+      url: "/"
+      body:
+        xml: "<a/>"
+    assert: []
+"#;
+        assert!(
+            Scenario::from_yaml(y).is_err(),
+            "unknown body variant must be rejected"
+        );
     }
 }
