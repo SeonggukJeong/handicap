@@ -52,9 +52,9 @@ just build && just lint && just test     # 18 tests must pass
 
 ## 검증 자동화 (Git + Claude hooks)
 
-`.git/hooks/pre-commit`이 모든 커밋에 대해 `cargo fmt --check + cargo build --workspace + cargo clippy --workspace --all-targets -- -D warnings + cargo test --workspace`를 실행한다 (워크스페이스가 coherent하지 않으면 per-crate 모드로 fallback). hook은 git common dir에 있어 모든 worktree에 적용된다. 새 머신에서는 `chmod +x .git/hooks/pre-commit`이 한 번 필요할 수 있다. Slice 4 후속에서 clippy gate가 추가됨 — `next_spawn += ...` 같은 `assign_op_pattern` 회귀가 prod로 안 들어오게 차단.
+`.git/hooks/pre-commit`이 모든 커밋에 대해 `cargo fmt --check + cargo build --workspace + cargo clippy --workspace --all-targets -- -D warnings + cargo test --workspace`를 실행한다 (워크스페이스가 coherent하지 않으면 per-crate 모드로 fallback). hook은 git common dir에 있어 모든 worktree에 적용된다. 새 머신에서는 `chmod +x .git/hooks/pre-commit`이 한 번 필요할 수 있다. Slice 4 후속에서 clippy gate가 추가됨 — `next_spawn += ...` 같은 `assign_op_pattern` 회귀가 prod로 안 들어오게 차단. **워크트리 안에서 `.git`은 디렉토리가 아니라 파일**이라 `.git/hooks/pre-commit`을 직접 호출하면 "Not a directory" — `bash $(git rev-parse --git-common-dir)/hooks/pre-commit`로 절대 경로 풀어 실행.
 
-`.claude/hooks/tdd-guard.sh`는 Claude의 PreToolUse 훅으로, Write/Edit가 `crates/*/src/*.rs` 또는 `ui/src/*.{ts,tsx,js,jsx}`를 만지려 할 때 작업트리에 pending test 파일(`tests/*.rs`, `*_test.rs`, `*.test.{ts,tsx}`, `*.spec.{ts,tsx}`, `__tests__/*`)이 하나도 없으면 차단한다. UI scaffolding처럼 그 작업 단위에 실제 동작 테스트가 없을 때는 `ui/src/__tests__/<name>.test.tsx`에 `it.todo("...")` 한 줄을 먼저 적어 pending diff를 만든 다음 production 파일을 작성하는 게 표준 패턴 — 진짜 테스트는 그 슬라이스의 testing 단계(예: Slice 2 Task 13)에서 채운다. 인라인 `#[cfg(test)] mod tests`가 있는 Rust 파일은 자동으로 통과.
+`.claude/hooks/tdd-guard.sh`는 Claude의 PreToolUse 훅으로, Write/Edit가 `crates/*/src/*.rs` 또는 `ui/src/*.{ts,tsx,js,jsx}`를 만지려 할 때 작업트리에 pending test 파일(`tests/*.rs`, `*_test.rs`, `*.test.{ts,tsx}`, `*.spec.{ts,tsx}`, `__tests__/*`)이 하나도 없으면 차단한다. UI scaffolding처럼 그 작업 단위에 실제 동작 테스트가 없을 때는 `ui/src/__tests__/<name>.test.tsx`에 `it.todo("...")` 한 줄을 먼저 적어 pending diff를 만든 다음 production 파일을 작성하는 게 표준 패턴 — 진짜 테스트는 그 슬라이스의 testing 단계(예: Slice 2 Task 13)에서 채운다. 인라인 `#[cfg(test)] mod tests`가 있는 Rust 파일은 자동으로 통과. **Rust 쪽도 같은 stub 패턴 사용 가능** — production 변경이 큰데 인라인 test가 없을 때 `crates/<x>/tests/<feature>_wiring.rs`에 컴파일만 되는 placeholder를 먼저 만들면 guard 통과 (Slice 4 본체에서 5회 사용). 다만 작업이 끝나면 인라인 `mod tests`로 정리하는 게 깔끔.
 
 `--no-verify`로 hook 우회 금지 (사용자 명시 요청 없이는). 회귀가 생긴 채로 커밋이 들어가면 후속 작업이 모두 빨갛게 됨.
 
@@ -102,7 +102,7 @@ docs/
 ## 코딩 컨벤션
 
 - **Rust**: `cargo fmt`, `cargo clippy -- -D warnings`, 테스트 `cargo test`. workspace `members = ["crates/*"]` glob — 새 crate는 `crates/<name>/Cargo.toml`만 만들면 자동 인식.
-- **TypeScript**: prettier + eslint, 테스트 vitest
+- **TypeScript**: prettier + eslint, 테스트 vitest. **`pnpm build`(`tsc -b && vite build`)가 최종 게이트** — `pnpm test`(jsdom + esbuild transpile)는 TS strict 에러를 안 잡는 경우가 있다. 예: `fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만 `Arbitrary<string>`으로 widening돼서 discriminated union과 안 맞아 `tsc -b`에서 깨짐 → 각 인자에 `as const` 또는 명시적 `fc.Arbitrary<"GET"|"POST"|...>` 선언. UI 변경 commit 전 `pnpm build`까지 한 번 돌리는 게 안전.
 
 ## Slice 1에서 배운 함정들
 
@@ -158,6 +158,12 @@ docs/
 - **clippy를 pre-commit에 안 넣으면 `assign_op_pattern`/`expect_fun_call` 같은 게 prod에 들어간다**: Slice 4에서 두 번 일어남. Follow-up F2에서 hook에 `cargo clippy --workspace --all-targets -- -D warnings` 추가. 단위/integration 테스트가 모두 통과해도 clippy가 다른 클래스의 문제를 잡으니 비용 대비 가치 좋음.
 - **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합**: Slice 3의 `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur (또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (F5의 `ExtractEditor`가 표준 패턴 — 다음 슬라이스의 새 editor도 따라가야 함.)
 - **proto enum 값 추가는 backward-compat 안전**: F3에서 `Phase::ABORTED = 4` 추가. 기존 클라이언트가 새 값을 모르면 `unspecified`로 떨어진다. 새 값을 모르는 worker → 새 controller 조합은 일어날 일이 없고, 새 worker → 옛 controller도 마찬가지(우리는 둘을 같이 배포). 새 phase가 필요하면 그냥 추가.
+
+## Subagent dispatch 노하우 (Slice 4 학습)
+
+- **워크트리에서 subagent를 띄울 땐 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 명시**: 안 하면 spec-reviewer 같은 lightweight 모델이 메인 체크아웃을 읽고 "코드가 없다"고 잘못 보고하는 사례가 있었다 (Slice 4 Task 5). 절대 경로로 박는 게 가장 안전.
+- **e2e 테스트는 워커 바이너리를 매번 빌드**: `crates/controller/tests/e2e_test.rs::worker_bin_path()` 헬퍼 패턴 — `cargo build -p handicap-worker` 호출 → `CARGO_BIN_EXE_worker` 또는 `target/debug/worker` 경로. 새 e2e 테스트 추가 시 그대로 차용.
+- **각 task마다 두 단계 review (spec compliance → code quality)**: Slice 4의 16개 task + 7개 follow-up 전부 이 패턴으로 진행. spec reviewer는 plan 대비 빠짐/추가를 보고, code quality reviewer는 idiom/race/test 품질을 본다. 두 reviewer가 모두 APPROVED여야 다음 task로.
 
 ## 새로운 아키텍처 결정이 생기면
 
