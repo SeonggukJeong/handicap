@@ -83,6 +83,7 @@ impl Coordinator for CoordinatorService {
                                     run_id: reg.run_id.clone(),
                                     scenario_yaml: a.scenario_yaml,
                                     profile: Some(a.profile),
+                                    env: Default::default(),
                                 };
                                 let _ = tx
                                     .send(Ok(ServerMessage {

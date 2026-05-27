@@ -70,11 +70,12 @@ message RunAssignment {
   string run_id = 1;
   string scenario_yaml = 2;     // canonical scenario YAML, snapshotted
   Profile profile = 3;
+  map<string, string> env = 4;
 }
 
 message Profile {
   uint32 vus = 1;
-  uint32 ramp_up_seconds = 2;   // populated but ignored in slice 1
+  uint32 ramp_up_seconds = 2;
   uint32 duration_seconds = 3;
 }
 
