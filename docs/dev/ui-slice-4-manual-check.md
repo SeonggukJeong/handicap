@@ -27,7 +27,7 @@ cd ui && pnpm dev
       headers: `Authorization: Bearer {{token}}`, assertion 200.
 - [ ] YAML 탭으로 전환해 `extract:` 블록이 step 1에 보이는지 확인. 다시 캔버스로.
 - [ ] **Create** → 생성된 scenario에서 **Runs** → **New run** → VUs 5 / duration 5s /
-      env: `BASE_URL=http://localhost:9090/__admin/mappings` (또는 wiremock 매핑 URL).
+      env: `BASE_URL=http://localhost:9090` (wiremock stub serving root — `__admin/...`은 관리 API).
 - [ ] wiremock에 미리 `/login` (200 + body `{"access_token":"T0K3N"}`) 및 `/me` (Bearer 검사 + 200) stub 등록.
 - [ ] 실행 페이지에서 status `running` → 종료 후 `completed`.
 - [ ] 1초 시계열 메트릭이 step별로 보이고 error_count == 0.
