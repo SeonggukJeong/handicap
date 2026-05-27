@@ -27,20 +27,24 @@ loader.config({ monaco });
 
 const DEBOUNCE_MS = 300;
 
-// Module-level timer ref so the test export shares state with itself between calls.
-// This helper is exported ONLY for tests — it mirrors the component's onChange
-// debounce logic without requiring a mounted component (Monaco is expensive).
-// The component's timerRef (useRef) is the production-path source of truth.
-let _testTimerHandle: ReturnType<typeof setTimeout> | null = null;
+// Shared debounce body — used by both the component's onChange and the test
+// helper. Keeps a single source of truth for the commit scheduling.
+function scheduleCommit(
+  timerSlot: { current: ReturnType<typeof setTimeout> | null },
+): void {
+  if (timerSlot.current !== null) clearTimeout(timerSlot.current);
+  timerSlot.current = setTimeout(() => {
+    useScenarioEditor.getState().commitPendingYaml();
+    timerSlot.current = null;
+  }, DEBOUNCE_MS);
+}
+
+const _testTimer: { current: ReturnType<typeof setTimeout> | null } = { current: null };
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function __test_handleChangeForTests(next: string): void {
-  const state = useScenarioEditor.getState();
-  state.setPendingYamlText(next);
-  if (_testTimerHandle !== null) clearTimeout(_testTimerHandle);
-  _testTimerHandle = setTimeout(() => {
-    useScenarioEditor.getState().commitPendingYaml();
-    _testTimerHandle = null;
-  }, DEBOUNCE_MS);
+  useScenarioEditor.getState().setPendingYamlText(next);
+  scheduleCommit(_testTimer);
 }
 
 export function MonacoYamlView() {
@@ -48,13 +52,13 @@ export function MonacoYamlView() {
   const pendingYamlText = useScenarioEditor((s) => s.pendingYamlText);
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const setPendingYamlText = useScenarioEditor((s) => s.setPendingYamlText);
-  const commitPendingYaml = useScenarioEditor((s) => s.commitPendingYaml);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const slot = timerRef;
     return () => {
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      if (slot.current !== null) clearTimeout(slot.current);
     };
   }, []);
 
@@ -63,11 +67,7 @@ export function MonacoYamlView() {
   const onChange = (next: string | undefined) => {
     if (next === undefined) return;
     setPendingYamlText(next);
-    if (timerRef.current !== null) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      commitPendingYaml();
-      timerRef.current = null;
-    }, DEBOUNCE_MS);
+    scheduleCommit(timerRef);
   };
 
   return (

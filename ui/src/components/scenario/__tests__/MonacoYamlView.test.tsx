@@ -110,6 +110,7 @@ describe("MonacoYamlView debounce behavior", () => {
           : never,
     });
 
+    // Import the view AFTER injecting spies so the module's getState() reads the spied refs.
     const view = await import("../MonacoYamlView");
     // The exported __test_handleChangeForTests helper mirrors the component's
     // onChange debounce logic. We test through it to avoid mounting Monaco.
@@ -146,6 +147,7 @@ describe("MonacoYamlView debounce behavior", () => {
         : never,
     });
 
+    // Import the view AFTER injecting spies so the module's getState() reads the spied refs.
     const view = await import("../MonacoYamlView");
     view.__test_handleChangeForTests("a");
     vi.advanceTimersByTime(100);
