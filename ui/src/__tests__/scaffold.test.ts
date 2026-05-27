@@ -48,3 +48,20 @@ describe("react-query hooks", () => {
   it.todo("useRun polls every 1s until status is terminal");
   it.todo("useRunMetrics polls until paused flag is set");
 });
+
+describe("Button primitive", () => {
+  it.todo("renders primary variant by default");
+  it.todo("applies variant class for secondary and danger");
+  it.todo("merges through native button attributes (disabled, onClick)");
+});
+
+describe("StatusBadge", () => {
+  it.todo("renders status text with color class per RunStatus");
+});
+
+describe("ScenarioListPage", () => {
+  it.todo("shows loading state while query is pending");
+  it.todo("shows error message on query failure");
+  it.todo("shows empty-state copy when scenarios is []");
+  it.todo("renders a row per scenario with edit and runs links");
+});
