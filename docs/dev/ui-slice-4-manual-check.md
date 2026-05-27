@@ -3,19 +3,26 @@
 머지 직전에 실행. 개발 루프:
 
 ```bash
-# T0 — wiremock 기반 가짜 API
+# T0 — wiremock 기반 가짜 API (별도 터미널)
 docker run --rm -p 9090:8080 \
   -e WIREMOCK_OPTIONS="--global-response-templating" \
   wiremock/wiremock:3.7.0
 
-# T1 — controller (UI 정적 서빙)
-cargo run -p handicap-controller -- --rest-addr 127.0.0.1:8080 --ui-dir ui/dist
+# 사전 — worker 바이너리 빌드 (controller의 --worker-bin 기본값이 target/debug/worker)
+cargo build -p handicap-worker
 
-# T2 — UI dev (proxy)
+# T1 — controller (REST + gRPC 만; UI는 vite가 띄움)
+cargo run -p handicap-controller -- \
+  --db ./handicap.db \
+  --rest 127.0.0.1:8080 \
+  --grpc 127.0.0.1:8081 \
+  --worker-bin target/debug/worker
+
+# T2 — UI dev 서버 (HMR + /api는 controller로 proxy)
 cd ui && pnpm dev
 ```
 
-`http://localhost:5173` 접속.
+`http://localhost:5173` 접속. (controller가 정적 SPA도 함께 서빙해야 한다면 `just run-controller-with-ui` — Slice 3 manual check 옵션 A 참고. Slice 4 점검은 vite dev로 진행 권장.)
 
 ## 1. 토큰 인증 멀티스텝
 
