@@ -96,4 +96,38 @@ describe("useScenarioEditor", () => {
     expect(s.yamlError).not.toBeNull();
     expect(s.model).toBe(initialModel);
   });
+
+  it("removeStep clears selection when the removed step was selected", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    useScenarioEditor.getState().removeStep("01HX0000000000000000000001");
+    const s = useScenarioEditor.getState();
+    expect(s.selectedStepId).toBeNull();
+    expect(s.model!.steps).toHaveLength(0);
+  });
+
+  it("removeStep keeps selection if a different step was selected", () => {
+    const TWO_STEPS = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "a"
+    type: http
+    request: { method: GET, url: "/a" }
+    assert: [{status: 200}]
+  - id: "01HX0000000000000000000002"
+    name: "b"
+    type: http
+    request: { method: GET, url: "/b" }
+    assert: [{status: 200}]
+`;
+    useScenarioEditor.getState().loadFromString(TWO_STEPS);
+    useScenarioEditor.getState().select("01HX0000000000000000000002");
+    useScenarioEditor.getState().removeStep("01HX0000000000000000000001");
+    const s = useScenarioEditor.getState();
+    expect(s.selectedStepId).toBe("01HX0000000000000000000002");
+    expect(s.model!.steps).toHaveLength(1);
+  });
 });

@@ -114,8 +114,8 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     return id;
   },
   removeStep(stepId) {
-    dispatch(set, get, { type: "removeStep", stepId });
     if (get().selectedStepId === stepId) set({ selectedStepId: null });
+    dispatch(set, get, { type: "removeStep", stepId });
   },
   moveStep(stepId, toIndex) {
     dispatch(set, get, { type: "moveStep", stepId, toIndex });
@@ -190,23 +190,30 @@ function dispatch(
 // It copies the plain data fields from INITIAL and keeps action references
 // from the live store (spreading is safe because Zustand stores plain objects,
 // not class instances).
+// Action references in Zustand v5 are stable (closed over set/get at store
+// creation time), so we capture them once at module load instead of calling
+// getState() once per action per getInitialState() call.
+const actions = (() => {
+  const s = useScenarioEditor.getState();
+  return {
+    loadFromString: s.loadFromString,
+    resetEmpty: s.resetEmpty,
+    setName: s.setName,
+    setCookieJar: s.setCookieJar,
+    setVariable: s.setVariable,
+    removeVariable: s.removeVariable,
+    addStep: s.addStep,
+    removeStep: s.removeStep,
+    moveStep: s.moveStep,
+    setStepField: s.setStepField,
+    setStepAssert: s.setStepAssert,
+    select: s.select,
+    setActiveTab: s.setActiveTab,
+    setPendingYamlText: s.setPendingYamlText,
+    commitPendingYaml: s.commitPendingYaml,
+    clearPendingYaml: s.clearPendingYaml,
+  };
+})();
+
 (useScenarioEditor as unknown as { getInitialState: () => ScenarioEditorState }).getInitialState =
-  () => ({
-    ...INITIAL,
-    loadFromString: useScenarioEditor.getState().loadFromString,
-    resetEmpty: useScenarioEditor.getState().resetEmpty,
-    setName: useScenarioEditor.getState().setName,
-    setCookieJar: useScenarioEditor.getState().setCookieJar,
-    setVariable: useScenarioEditor.getState().setVariable,
-    removeVariable: useScenarioEditor.getState().removeVariable,
-    addStep: useScenarioEditor.getState().addStep,
-    removeStep: useScenarioEditor.getState().removeStep,
-    moveStep: useScenarioEditor.getState().moveStep,
-    setStepField: useScenarioEditor.getState().setStepField,
-    setStepAssert: useScenarioEditor.getState().setStepAssert,
-    select: useScenarioEditor.getState().select,
-    setActiveTab: useScenarioEditor.getState().setActiveTab,
-    setPendingYamlText: useScenarioEditor.getState().setPendingYamlText,
-    commitPendingYaml: useScenarioEditor.getState().commitPendingYaml,
-    clearPendingYaml: useScenarioEditor.getState().clearPendingYaml,
-  });
+  () => ({ ...INITIAL, ...actions });
