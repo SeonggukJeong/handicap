@@ -37,3 +37,14 @@ describe("api client", () => {
   it.todo("updateScenario PUTs yaml + version");
   it.todo("throws ApiError with parsed message on 4xx");
 });
+
+describe("react-query hooks", () => {
+  it.todo("useScenarios caches under ['scenarios']");
+  it.todo("useScenario is disabled when id is undefined");
+  it.todo("useCreateScenario invalidates scenarios list on success");
+  it.todo("useUpdateScenario invalidates list and sets cache for the scenario");
+  it.todo("useScenarioRuns is disabled when scenarioId is undefined");
+  it.todo("useCreateRun invalidates the scenario's runs list");
+  it.todo("useRun polls every 1s until status is terminal");
+  it.todo("useRunMetrics polls until paused flag is set");
+});
