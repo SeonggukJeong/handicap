@@ -74,3 +74,15 @@ describe("ScenarioNewPage", () => {
   it.todo("renders backend error message when mutation fails");
   it.todo("Cancel navigates back to /");
 });
+
+describe("ScenarioEditPage", () => {
+  it.todo("shows Loading state while query is pending");
+  it.todo("shows error message when query fails");
+  it.todo("shows 'Not found' when data is undefined and not loading");
+  it.todo("populates textarea from data.yaml after load");
+  it.todo("disables Save when yaml is unchanged");
+  it.todo("disables Save while mutation is pending");
+  it.todo("PUTs with the loaded version and bumps loadedVersion on success");
+  it.todo("renders 409 conflict message from backend on stale PUT");
+  it.todo("Back navigates to /");
+});
