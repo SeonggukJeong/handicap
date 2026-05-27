@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
-import type { Body, HttpMethod, Step } from "../../scenario/model";
+import type { Assertion, HttpMethod, Step } from "../../scenario/model";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -191,14 +191,9 @@ function BodyEditor({ step }: { step: Step }) {
       setStepField(step.id, ["request", "body"], undefined);
       return;
     }
-    let next: Body;
-    if (k === "json") next = { kind: "json", value: {} };
-    else if (k === "form") next = { kind: "form", value: {} };
-    else next = { kind: "raw", value: "" };
     // YAML representation: body: { json: ... } not { kind: 'json', value: ... }
-    const yamlShape: Record<string, unknown> = {};
-    yamlShape[k] = next.value;
-    setStepField(step.id, ["request", "body"], yamlShape);
+    const value: unknown = k === "json" ? {} : k === "form" ? {} : "";
+    setStepField(step.id, ["request", "body"], { [k]: value });
   };
 
   return (
@@ -230,8 +225,9 @@ function JsonBodyField({ step }: { step: Step }) {
   const [text, setText] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep textarea in sync if the step changes from elsewhere.
   useEffect(() => {
+    // Reset local textarea only when the user switches to a different step,
+    // not on every body change (which would overwrite in-progress edits).
     setText(body?.kind === "json" ? JSON.stringify(body.value, null, 2) : "{}");
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -345,7 +341,7 @@ function AssertEditor({
   setStepAssert,
 }: {
   step: Step;
-  setStepAssert: (id: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>) => void;
+  setStepAssert: (id: string, asserts: ReadonlyArray<Assertion>) => void;
 }) {
   const [newCode, setNewCode] = useState("");
   return (
@@ -353,7 +349,7 @@ function AssertEditor({
       <legend className="px-1 text-xs font-semibold text-slate-600">Assertions</legend>
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
-          <li key={idx} className="flex items-center gap-2 text-xs">
+          <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
             <span className="font-mono text-slate-600 w-16">status</span>
             <input
               type="number"
