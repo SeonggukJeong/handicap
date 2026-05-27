@@ -21,6 +21,8 @@
 | [0013](0013-scenario-runconfig-separation.md) | Scenario와 Run Config 분리 | Accepted |
 | [0014](0014-template-notation.md) | 변수·env·시스템 변수 표기 분리 (`{{}}` vs `${}`) | Accepted |
 | [0015](0015-bidirectional-sync-impl.md) | 양방향 sync 구현: Zustand + Zod + YAML AST | Accepted |
+| [0016](0016-vu-execution-model-task-per-vu.md) | VU 실행 모델: tokio task per VU | Accepted |
+| [0017](0017-mvp-report-scope.md) | MVP 리포트 스코프 (시계열 + 스텝별 + status 분포) | Accepted |
 
 ## 새 ADR 추가 절차
 

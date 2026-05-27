@@ -54,6 +54,8 @@ docs/
 - **0013** Scenario와 Run Config 분리 (시나리오는 git/YAML, run config는 DB)
 - **0014** 변수 표기 분리: `{{var}}` 흐름, `${ENV}` 환경, `${vu_id}` 시스템
 - **0015** 양방향 sync 구현: Zustand store + Zod 검증 + YAML AST round-trip
+- **0016** VU 실행 모델: tokio task per VU (OS 스레드/work-stealing 아님)
+- **0017** MVP 리포트: 1s 시계열 + 스텝별 + status 분포 (run간 비교·SLA는 후속)
 
 ## 코딩 컨벤션
 
