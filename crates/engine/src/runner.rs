@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, mpsc};
@@ -6,7 +7,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{Aggregator, StepWindow};
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
 use crate::scenario::Scenario;
 use crate::template::TemplateContext;
@@ -26,14 +27,17 @@ pub async fn run_scenario(
 ) -> Result<()> {
     let agg = Arc::new(Mutex::new(Aggregator::new()));
     let deadline = Instant::now() + plan.duration;
+    let failed = Arc::new(AtomicU32::new(0));
 
     let mut set = JoinSet::new();
     for vu_id in 0..plan.vus {
         let scenario = scenario.clone();
         let agg = agg.clone();
+        let failed = failed.clone();
         set.spawn(async move {
             if let Err(e) = run_vu(scenario, vu_id, agg, deadline).await {
                 warn!(vu_id, error = ?e, "vu failed");
+                failed.fetch_add(1, Ordering::Relaxed);
             }
         });
     }
@@ -63,6 +67,7 @@ pub async fn run_scenario(
     while let Some(res) = set.join_next().await {
         if let Err(e) = res {
             warn!(error = %e, "vu join error");
+            failed.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -77,7 +82,25 @@ pub async fn run_scenario(
     flusher.abort();
     let _ = flusher.await; // JoinError::Cancelled is fine
 
-    info!("run finished");
+    let failed_count = failed.load(Ordering::Relaxed);
+    if plan.vus > 0 && failed_count >= plan.vus {
+        // Every VU errored before completing — surface so the worker reports
+        // RunStatus::Failed instead of pretending the run succeeded silently.
+        warn!(failed = failed_count, total = plan.vus, "all VUs failed");
+        return Err(EngineError::AllVusFailed {
+            failed: failed_count,
+            total: plan.vus,
+        });
+    }
+    if failed_count > 0 {
+        info!(
+            failed = failed_count,
+            total = plan.vus,
+            "run finished with partial VU failures"
+        );
+    } else {
+        info!("run finished");
+    }
     Ok(())
 }
 

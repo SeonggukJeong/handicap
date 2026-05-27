@@ -16,6 +16,8 @@ pub enum EngineError {
         expected: String,
         got: String,
     },
+    #[error("all VUs failed ({failed}/{total})")]
+    AllVusFailed { failed: u32, total: u32 },
     #[error("histogram: {0}")]
     Histogram(String),
     #[error("io: {0}")]
