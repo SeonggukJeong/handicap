@@ -35,6 +35,37 @@ export const AssertionModel = z.discriminatedUnion("kind", [
 ]);
 export type Assertion = z.infer<typeof AssertionModel>;
 
+export const ExtractModel = z.discriminatedUnion("from", [
+  z
+    .object({
+      var: z.string().min(1),
+      from: z.literal("body"),
+      path: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      var: z.string().min(1),
+      from: z.literal("header"),
+      name: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      var: z.string().min(1),
+      from: z.literal("cookie"),
+      name: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      var: z.string().min(1),
+      from: z.literal("status"),
+    })
+    .strict(),
+]);
+export type Extract = z.infer<typeof ExtractModel>;
+
 export const StepModel = z
   .object({
     id: z.string().regex(ULID_RE, "step id must be a ULID"),
@@ -42,6 +73,7 @@ export const StepModel = z
     type: z.literal("http"),
     request: RequestModel,
     assert: z.array(AssertionModel).default([]),
+    extract: z.array(ExtractModel).default([]),
   })
   .strict();
 export type Step = z.infer<typeof StepModel>;

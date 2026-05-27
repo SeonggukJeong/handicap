@@ -2,13 +2,15 @@
 
 사내 QA·운영팀을 위한 부하 테스트 도구. REST API를 대상으로, **QA는 드래그-드롭으로 시나리오를 만들고**, **개발자는 같은 시나리오를 YAML/DSL로 편집** 한다 (두 뷰가 같은 모델의 양방향 sync). LoadRunner/JMeter를 사내에서 대체하는 것이 목표.
 
-**상태: Slice 3(캔버스 + Monaco + 양방향 sync) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
+**상태: Slice 4(extract + 변수 체이닝 + ${ENV} + ramp-up + abort) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
 
 Slice 1 결과: REST API(`/api/scenarios`, `/api/runs`, `/api/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작.
 
 Slice 2 결과: Vite + React + TS + Tailwind UI (`ui/`). 시나리오 목록·생성·편집(YAML textarea), run 다이얼로그, run 상세(1초 폴링 + 메트릭 표). 컨트롤러가 `--ui-dir` 경로의 SPA를 정적 서빙(unknown path는 index.html로 fallback). 캔버스·Monaco·양방향 sync는 Slice 3, 차트·HTML 리포트는 Slice 5, multi-step·extract·ramp-up은 Slice 4, K8s 배포는 Slice 6.
 
 Slice 3 결과: React Flow 캔버스(HTTP 노드 1종, 선형 chain, drag-drop add, inspector) + Monaco YAML 에디터(syntax highlighting only) + Zustand store + Zod 검증 + `yaml` 패키지 Document API targeted edit. 양방향 sync는 탭 전환 모델: 캔버스/YAML 둘 중 하나가 active. Monaco 편집은 300ms debounce → 검증 통과 시 doc swap, 실패 시 pendingYamlText에 유지하고 inline 에러 표시. extract/multi-step variable chaining은 Slice 4, K8s 배포는 Slice 6.
+
+Slice 4 결과: 엔진이 multi-step extract(JSONPath body / header / cookie / status)와 ${ENV:-default} 템플릿, 1초 단위 linear ramp-up, CancellationToken 기반 abort를 지원. 컨트롤러 `POST /api/runs/{id}/abort` → 워커가 in-flight run 취소. UI Inspector에 ExtractEditor, RunDetail에 Abort 버튼. 테스트: Rust unit + wiremock multi-step integration + proptest properties, UI RTL + fast-check round-trip. K8s 배포는 Slice 6, 차트·HTML 리포트는 Slice 5.
 
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
@@ -50,9 +52,9 @@ just build && just lint && just test     # 18 tests must pass
 
 ## 검증 자동화 (Git + Claude hooks)
 
-`.git/hooks/pre-commit`이 모든 커밋에 대해 `cargo fmt --check + cargo build --workspace + cargo test --workspace`를 실행한다 (워크스페이스가 coherent하지 않으면 per-crate 모드로 fallback). hook은 git common dir에 있어 모든 worktree에 적용된다. 새 머신에서는 `chmod +x .git/hooks/pre-commit`이 한 번 필요할 수 있다.
+`.git/hooks/pre-commit`이 모든 커밋에 대해 `cargo fmt --check + cargo build --workspace + cargo clippy --workspace --all-targets -- -D warnings + cargo test --workspace`를 실행한다 (워크스페이스가 coherent하지 않으면 per-crate 모드로 fallback). hook은 git common dir에 있어 모든 worktree에 적용된다. 새 머신에서는 `chmod +x .git/hooks/pre-commit`이 한 번 필요할 수 있다. Slice 4 후속에서 clippy gate가 추가됨 — `next_spawn += ...` 같은 `assign_op_pattern` 회귀가 prod로 안 들어오게 차단. **워크트리 안에서 `.git`은 디렉토리가 아니라 파일**이라 `.git/hooks/pre-commit`을 직접 호출하면 "Not a directory" — `bash $(git rev-parse --git-common-dir)/hooks/pre-commit`로 절대 경로 풀어 실행.
 
-`.claude/hooks/tdd-guard.sh`는 Claude의 PreToolUse 훅으로, Write/Edit가 `crates/*/src/*.rs` 또는 `ui/src/*.{ts,tsx,js,jsx}`를 만지려 할 때 작업트리에 pending test 파일(`tests/*.rs`, `*_test.rs`, `*.test.{ts,tsx}`, `*.spec.{ts,tsx}`, `__tests__/*`)이 하나도 없으면 차단한다. UI scaffolding처럼 그 작업 단위에 실제 동작 테스트가 없을 때는 `ui/src/__tests__/<name>.test.tsx`에 `it.todo("...")` 한 줄을 먼저 적어 pending diff를 만든 다음 production 파일을 작성하는 게 표준 패턴 — 진짜 테스트는 그 슬라이스의 testing 단계(예: Slice 2 Task 13)에서 채운다. 인라인 `#[cfg(test)] mod tests`가 있는 Rust 파일은 자동으로 통과.
+`.claude/hooks/tdd-guard.sh`는 Claude의 PreToolUse 훅으로, Write/Edit가 `crates/*/src/*.rs` 또는 `ui/src/*.{ts,tsx,js,jsx}`를 만지려 할 때 작업트리에 pending test 파일(`tests/*.rs`, `*_test.rs`, `*.test.{ts,tsx}`, `*.spec.{ts,tsx}`, `__tests__/*`)이 하나도 없으면 차단한다. UI scaffolding처럼 그 작업 단위에 실제 동작 테스트가 없을 때는 `ui/src/__tests__/<name>.test.tsx`에 `it.todo("...")` 한 줄을 먼저 적어 pending diff를 만든 다음 production 파일을 작성하는 게 표준 패턴 — 진짜 테스트는 그 슬라이스의 testing 단계(예: Slice 2 Task 13)에서 채운다. 인라인 `#[cfg(test)] mod tests`가 있는 Rust 파일은 자동으로 통과. **Rust 쪽도 같은 stub 패턴 사용 가능** — production 변경이 큰데 인라인 test가 없을 때 `crates/<x>/tests/<feature>_wiring.rs`에 컴파일만 되는 placeholder를 먼저 만들면 guard 통과 (Slice 4 본체에서 5회 사용). 다만 작업이 끝나면 인라인 `mod tests`로 정리하는 게 깔끔.
 
 `--no-verify`로 hook 우회 금지 (사용자 명시 요청 없이는). 회귀가 생긴 채로 커밋이 들어가면 후속 작업이 모두 빨갛게 됨.
 
@@ -100,7 +102,7 @@ docs/
 ## 코딩 컨벤션
 
 - **Rust**: `cargo fmt`, `cargo clippy -- -D warnings`, 테스트 `cargo test`. workspace `members = ["crates/*"]` glob — 새 crate는 `crates/<name>/Cargo.toml`만 만들면 자동 인식.
-- **TypeScript**: prettier + eslint, 테스트 vitest
+- **TypeScript**: prettier + eslint, 테스트 vitest. **`pnpm build`(`tsc -b && vite build`)가 최종 게이트** — `pnpm test`(jsdom + esbuild transpile)는 TS strict 에러를 안 잡는 경우가 있다. 예: `fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만 `Arbitrary<string>`으로 widening돼서 discriminated union과 안 맞아 `tsc -b`에서 깨짐 → 각 인자에 `as const` 또는 명시적 `fc.Arbitrary<"GET"|"POST"|...>` 선언. UI 변경 commit 전 `pnpm build`까지 한 번 돌리는 게 안전.
 
 ## Slice 1에서 배운 함정들
 
@@ -137,6 +139,31 @@ docs/
 - **React Flow의 control vs uncontrolled**: 노드 위치를 직접 계산해서 넘기면 React Flow 안에서 drag로 옮긴 위치는 반영되지 않는다. Slice 3은 의도적으로 drag 비활성화(`draggable: false`) — 위치는 매번 재계산됨.
 - **`removeStep`은 selection clear가 dispatch보다 먼저**: 순서를 반대로 하면 subscriber가 잠깐 "삭제된 step을 가리키는 selectedStepId" 상태를 본다 → Inspector가 stale step을 deref. 그래서 store action에서 `if (get().selectedStepId === stepId) set({ selectedStepId: null })`를 dispatch보다 먼저 호출.
 - **`yaml` 라이브러리 재직렬화의 dirty-flag false positive**: `parseDocument(text)` → `String(doc)` 이 들여쓰기·인용을 정규화한다 (예: 평탄 list `- a`를 `  - a`로). 따라서 `originalText !== currentText` 단순 비교로 dirty를 판단하면, EditorShell mount 직후 첫 onChange가 정규화된 텍스트를 푸시하는 순간 dirty=true가 된다 (사용자가 한 글자도 안 쳤는데 Save 활성). 해결: `originalYaml`을 prop이 아니라 **EditorShell의 첫 onChange 콜백에서 seed** 한다 (ref 플래그로 1회만). 저장 성공 시는 server canonical(`next.yaml`)로 다시 seed. (`ui/src/pages/ScenarioEditPage.tsx::baselineSeededRef` 참고.)
+
+## Slice 4에서 배운 함정들
+
+- **serde_yaml 0.9 + internally-tagged enum w/ struct variants은 round-trip OK**: Slice 1에서 외부 태그(externally-tagged) map-shape enum이 깨지는 버그가 있었지만 (`Body`, `Assertion`), `#[serde(tag = "from")]` 형태의 internally-tagged + struct 변형은 정상 동작. `Extract`는 이 패턴으로 모델링.
+- **`reqwest::Response::cookies()` vs Set-Cookie 헤더 직접 읽기**: 자동 쿠키 jar가 활성화돼도 응답의 raw Set-Cookie 헤더는 그대로 노출된다. 우리는 `from: cookie` extract에서 raw Set-Cookie 헤더를 파싱(첫 `key=value` 페어)한다 — jar에서 끄집어내려고 하면 reqwest 내부 jar 인터페이스가 stable하지 않음.
+- **JSONPath 라이브러리 선택**: `serde_json_path` (RFC 9535 compliant). `jsonpath-rust`는 의존성이 더 무겁고 API가 변동적. `JsonPath::parse(path).query(json).first()` 패턴이면 충분.
+- **`u32::div_ceil`은 Rust 1.79+**: workspace MSRV 1.85라 OK. `ceil_div(a, b)` 헬퍼를 손수 작성할 필요 없음.
+- **CancellationToken은 `tokio_util::sync` 모듈에서**: tonic이 transitively 가져오긴 하지만 dev에 명시적으로 의존 추가하는 게 안전 (tonic minor 업데이트로 token 사라질 위험 회피).
+- **Ramp-up 테스트의 flakiness 한계**: 1초 윈도우 단위에서 "first window count < later window count" 검증은 환경 부하에 민감. 매 초마다 정확히 `floor(target/ramp)` VU spawn을 검사하지 말고 monotonic non-decreasing trend만 검사.
+- **`@testing-library/react` + Zustand의 store reset 패턴**: 각 `it` 전에 `useScenarioEditor.setState(useScenarioEditor.getInitialState())`로 초기화. RTL는 React 트리만 재마운트하므로 모듈 스코프 store는 직접 비워야 한다.
+- **`fast-check` + Vitest의 default `numRuns`**: 100. CI 시간을 아끼려고 우리는 round-trip 프로퍼티에서 40으로 줄였다. 의도적 — 셔링크 발생 시 numRuns를 다시 올려 재현.
+- **userEvent.setup()를 it마다 호출**: v14에서 글로벌 default user-event는 deprecated. 매 테스트에서 `const user = userEvent.setup()` 명시.
+- **`@monaco-editor/react` & `vitest` 환경에서 `?worker` 임포트**: Slice 3 vitest.config.ts의 `workerQueryPlugin`이 Slice 4 RTL 테스트에서도 그대로 사용된다 — Inspector / RunDetail은 Monaco를 직접 마운트하지 않으므로 worker 모킹은 불필요.
+- **`PATCH /scenarios/{id}` 의 optimistic lock과 Slice 4 extract 변경**: extract만 바뀌어도 yamlText가 달라지므로 dirty 플래그가 켜진다. EditorShell의 baselineSeededRef 패턴이 그대로 적용되어 추가 작업 없음 — 단 회귀 점검은 manual check §1에서 한 번 한다.
+- **abort 흐름의 belt-and-suspenders는 의도된 중복**: REST endpoint가 DB에 'aborted'를 찍고 (Task 10), worker는 `EngineError::Aborted`를 `Phase::Aborted`로 보내고 (F3), `set_status` SQL은 `WHERE status != 'aborted'` guard를 가진다 (Task 10 fix). 두 메커니즘은 서로 다른 실패 모드를 막는다 — REST 경로는 worker가 닿지 않을 때 (crash, network 단절)도 abort UX가 동작하게 하고, gRPC 경로는 worker가 자기 상태를 정확히 보고할 수 있게 한다. e2e 테스트로 회귀를 잡으려면 두 safeguard를 동시에 깨야 RED가 난다 — 단일 safeguard 회귀는 다른 쪽이 막아준다. (`docs/superpowers/plans/2026-05-28-slice-4-follow-ups.md` F4 참고.)
+- **gRPC bidi stream의 클린 셧다운 = mpsc drain ≠ wire deliver**: `tx.send().await`는 채널 버퍼 진입만 보장, wire 전송은 아니다. tokio runtime이 main 종료로 spawn된 task를 cancel하면 tonic 내부 송신 머신도 함께 죽어 HTTP/2 END_STREAM이 안 나간다. 패턴: 마지막 메시지 send → `drop(tx)` (outbound EOF 신호) → 상대가 우리 EOF 보고 자기 쪽 close → 우리 `inbound_fwd.await` 완료 시점이 곧 "far end가 처리 완료" sync point. 200ms `sleep` 같은 fixed delay는 둘 다 race-prone하고 슬로우 (F6 참고).
+- **clippy를 pre-commit에 안 넣으면 `assign_op_pattern`/`expect_fun_call` 같은 게 prod에 들어간다**: Slice 4에서 두 번 일어남. Follow-up F2에서 hook에 `cargo clippy --workspace --all-targets -- -D warnings` 추가. 단위/integration 테스트가 모두 통과해도 clippy가 다른 클래스의 문제를 잡으니 비용 대비 가치 좋음.
+- **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합**: Slice 3의 `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur (또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (F5의 `ExtractEditor`가 표준 패턴 — 다음 슬라이스의 새 editor도 따라가야 함.)
+- **proto enum 값 추가는 backward-compat 안전**: F3에서 `Phase::ABORTED = 4` 추가. 기존 클라이언트가 새 값을 모르면 `unspecified`로 떨어진다. 새 값을 모르는 worker → 새 controller 조합은 일어날 일이 없고, 새 worker → 옛 controller도 마찬가지(우리는 둘을 같이 배포). 새 phase가 필요하면 그냥 추가.
+
+## Subagent dispatch 노하우 (Slice 4 학습)
+
+- **워크트리에서 subagent를 띄울 땐 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 명시**: 안 하면 spec-reviewer 같은 lightweight 모델이 메인 체크아웃을 읽고 "코드가 없다"고 잘못 보고하는 사례가 있었다 (Slice 4 Task 5). 절대 경로로 박는 게 가장 안전.
+- **e2e 테스트는 워커 바이너리를 매번 빌드**: `crates/controller/tests/e2e_test.rs::worker_bin_path()` 헬퍼 패턴 — `cargo build -p handicap-worker` 호출 → `CARGO_BIN_EXE_worker` 또는 `target/debug/worker` 경로. 새 e2e 테스트 추가 시 그대로 차용.
+- **각 task마다 두 단계 review (spec compliance → code quality)**: Slice 4의 16개 task + 7개 follow-up 전부 이 패턴으로 진행. spec reviewer는 plan 대비 빠짐/추가를 보고, code quality reviewer는 idiom/race/test 품질을 본다. 두 reviewer가 모두 APPROVED여야 다음 task로.
 
 ## 새로운 아키텍처 결정이 생기면
 

@@ -32,6 +32,16 @@ export type Edit =
       type: "setStepAssert";
       stepId: string;
       asserts: ReadonlyArray<{ kind: "status"; code: number }>;
+    }
+  | {
+      type: "setStepExtract";
+      stepId: string;
+      extract: ReadonlyArray<
+        | { var: string; from: "body"; path: string }
+        | { var: string; from: "header"; name: string }
+        | { var: string; from: "cookie"; name: string }
+        | { var: string; from: "status" }
+      >;
     };
 
 export function parseScenarioDoc(yamlText: string): ParseResult {
@@ -128,6 +138,16 @@ export function applyEdit(doc: Document, edit: Edit): void {
       doc.setIn(["steps", idx, "assert"], doc.createNode(arr));
       return;
     }
+    case "setStepExtract": {
+      const idx = findStepIndex(doc, edit.stepId);
+      if (idx === -1) return;
+      if (edit.extract.length === 0) {
+        doc.deleteIn(["steps", idx, "extract"]);
+        return;
+      }
+      doc.setIn(["steps", idx, "extract"], doc.createNode(edit.extract));
+      return;
+    }
   }
 }
 
@@ -166,7 +186,7 @@ function ensureSeq(doc: Document, path: ReadonlyArray<string | number>): void {
 }
 
 // Convert the doc's plain JS into the shape ScenarioModel expects:
-//   - drop `extract` (Slice 4)
+//   - pass `extract` through (Slice 4 — wired in normalizeStep)
 //   - convert `assert: [{status: 200}, ...]` → [{kind:"status", code:200}]
 //   - convert `body: {json|form|raw: value}` → {kind:"json"|"form"|"raw", value}
 //   - apply defaults that the Rust side has but YAML may omit (cookie_jar)
@@ -193,12 +213,14 @@ function normalizeStep(s: unknown): unknown {
   const assert = Array.isArray(src.assert)
     ? src.assert.map(normalizeAssertion)
     : [];
+  const extract = Array.isArray(src.extract) ? src.extract : [];
   return {
     id: src.id,
     name: src.name,
     type: src.type,
     request,
     assert,
+    extract,
   };
 }
 

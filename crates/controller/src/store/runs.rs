@@ -161,7 +161,7 @@ pub async fn set_status(
     ended: Option<i64>,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "UPDATE runs SET status = ?, started_at = COALESCE(?, started_at), ended_at = COALESCE(?, ended_at) WHERE id = ?",
+        "UPDATE runs SET status = ?, started_at = COALESCE(?, started_at), ended_at = COALESCE(?, ended_at) WHERE id = ? AND status != 'aborted'",
     )
     .bind(status.as_str())
     .bind(started)
@@ -169,6 +169,16 @@ pub async fn set_status(
     .bind(id)
     .execute(db)
     .await?;
+    Ok(())
+}
+
+pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
+    let now = now_ms();
+    sqlx::query("UPDATE runs SET status = 'aborted', ended_at = ? WHERE id = ?")
+        .bind(now)
+        .bind(id)
+        .execute(db)
+        .await?;
     Ok(())
 }
 

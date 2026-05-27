@@ -195,3 +195,346 @@ async fn full_slice_1_e2e() {
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_step_with_env_e2e() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Ensure worker binary is built.
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "handicap-worker"])
+        .status()
+        .expect("cargo build -p handicap-worker");
+    assert!(status.success(), "worker build failed");
+    let worker_bin = worker_bin_path();
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Mock target: /login returns {"access_token":"T"} and /me checks Bearer header.
+    let target = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/login"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"access_token":"T"}"#)
+                .insert_header("content-type", "application/json"),
+        )
+        .mount(&target)
+        .await;
+    // /me must receive Authorization: Bearer T header — wiremock can't check header values
+    // easily without a custom matcher, so we just respond 200 to any request.
+    Mock::given(method("GET"))
+        .and(path("/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+        .mount(&target)
+        .await;
+
+    // 2. Pick free ports.
+    let rest_addr = pick_addr().await;
+    let grpc_addr = pick_addr().await;
+
+    // 3. Spin up controller in-process.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        worker_bin: worker_bin.to_string_lossy().to_string(),
+        grpc_addr,
+        ui_dir: None,
+    });
+    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve(grpc_addr)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. Two-step scenario using ${BASE_URL} env var and extract flow variable.
+    //    BASE_URL will be provided in the run env.
+    let scenario_yaml = r#"version: 1
+name: "two-step env e2e"
+steps:
+  - id: "login"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "${BASE_URL}/login"
+    assert:
+      - status: 200
+    extract:
+      - var: token
+        from: body
+        path: "$.access_token"
+  - id: "profile"
+    name: "profile"
+    type: http
+    request:
+      method: GET
+      url: "${BASE_URL}/me"
+      headers:
+        Authorization: "Bearer {{token}}"
+    assert:
+      - status: 200
+"#;
+
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run with BASE_URL env pointing at wiremock.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 1, "duration_seconds": 2 },
+            "env": { "BASE_URL": target.uri() }
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap().to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status}"
+    );
+
+    // 7. Verify metrics: both steps should have count > 0 and error_count == 0.
+    let metrics: Value = http
+        .get(format!("{}/api/runs/{}/metrics", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let windows = metrics["windows"].as_array().expect("windows array");
+    assert!(!windows.is_empty(), "expected metric windows");
+
+    // Both step ids should appear somewhere in the windows.
+    let step_ids: std::collections::HashSet<&str> = windows
+        .iter()
+        .filter_map(|w| w["step_id"].as_str())
+        .collect();
+    assert!(
+        step_ids.contains("login"),
+        "expected login step metrics, got: {:?}",
+        step_ids
+    );
+    assert!(
+        step_ids.contains("profile"),
+        "expected profile step metrics, got: {:?}",
+        step_ids
+    );
+
+    let total: u64 = windows
+        .iter()
+        .map(|w| w["count"].as_u64().unwrap_or(0))
+        .sum();
+    assert!(total > 0, "total count should be positive");
+
+    let errors: u64 = windows
+        .iter()
+        .map(|w| w["error_count"].as_u64().unwrap_or(0))
+        .sum();
+    assert_eq!(errors, 0, "no assertion errors expected");
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn abort_e2e_marks_run_aborted() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // Build the worker binary (same pattern as full_slice_1_e2e).
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "handicap-worker"])
+        .status()
+        .expect("cargo build -p handicap-worker");
+    assert!(status.success(), "worker build failed");
+    let worker_bin = worker_bin_path();
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    let ui_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        ui_dir.path().join("index.html"),
+        "<!doctype html><html><body></body></html>",
+    )
+    .unwrap();
+
+    // Mock target with a slow response so the run won't finish before abort.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(50)),
+        )
+        .mount(&target)
+        .await;
+
+    let rest_addr = pick_addr().await;
+    let grpc_addr = pick_addr().await;
+
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        worker_bin: worker_bin.to_string_lossy().to_string(),
+        grpc_addr,
+        ui_dir: Some(ui_dir.path().to_path_buf()),
+    });
+    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve(grpc_addr)
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    let scenario_yaml = format!(
+        "version: 1\nname: abort-e2e\nvariables:\n  base: \"{}\"\nsteps:\n  - id: ping\n    name: GET /\n    type: http\n    request:\n      method: GET\n      url: \"{{{{base}}}}/\"\n    assert:\n      - status: 200\n",
+        target.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // Long-running run — 30s — so we have time to abort.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 2, "duration_seconds": 30 },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // Wait until the run is observed as running.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut saw_running = false;
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if v["status"].as_str() == Some("running") {
+            saw_running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(saw_running, "expected run to reach 'running' status");
+
+    // Fire the abort.
+    let abort_resp = http
+        .post(format!("{}/api/runs/{}/abort", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(abort_resp.status(), 200, "abort POST should succeed");
+
+    // Within 10s, status must reach 'aborted' (NOT 'completed' or 'failed').
+    // 10s headroom because the worker is a real subprocess that has to observe
+    // the cancellation, drain in-flight requests, and ship the final RunStatus.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut final_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        final_status = v["status"].as_str().unwrap().to_string();
+        if final_status == "aborted" {
+            break;
+        }
+        // Fail fast if the worker reports a terminal non-aborted state — that's
+        // exactly the regression class this test catches.
+        if final_status == "completed" || final_status == "failed" {
+            panic!(
+                "run ended in '{}' instead of 'aborted' — abort flow regression",
+                final_status
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(
+        final_status, "aborted",
+        "run should end in 'aborted'; got '{}'",
+        final_status
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}

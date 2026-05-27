@@ -39,6 +39,8 @@ pub struct Step {
     pub request: Request,
     #[serde(default)]
     pub assert: Vec<Assertion>,
+    #[serde(default)]
+    pub extract: Vec<Extract>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,6 +187,15 @@ impl<'de> Deserialize<'de> for Assertion {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "from", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Extract {
+    Body { var: String, path: String },
+    Header { var: String, name: String },
+    Cookie { var: String, name: String },
+    Status { var: String },
+}
+
 impl Scenario {
     pub fn from_yaml(s: &str) -> Result<Self> {
         Ok(serde_yaml::from_str(s)?)
@@ -200,6 +211,103 @@ mod tests {
     use super::*;
 
     const FIXTURE: &str = include_str!("../tests/fixtures/single_step.yaml");
+    const TWO_STEP_FIXTURE: &str = include_str!("../tests/fixtures/two_step.yaml");
+
+    #[test]
+    fn parses_two_step_fixture() {
+        let s = Scenario::from_yaml(TWO_STEP_FIXTURE).expect("parses");
+        assert_eq!(s.steps.len(), 2);
+        let login = &s.steps[0];
+        assert_eq!(login.extract.len(), 1);
+        match &login.extract[0] {
+            Extract::Body { var, path } => {
+                assert_eq!(var, "token");
+                assert_eq!(path, "$.access_token");
+            }
+            other => panic!("expected Body extract, got {:?}", other),
+        }
+        assert_eq!(s.steps[1].extract.len(), 0);
+    }
+
+    #[test]
+    fn parses_each_extract_variant() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request:
+      method: GET
+      url: "/"
+    assert: []
+    extract:
+      - var: t
+        from: body
+        path: "$.a"
+      - var: h
+        from: header
+        name: X-Trace
+      - var: c
+        from: cookie
+        name: JSESSIONID
+      - var: s
+        from: status
+"#;
+        let s = Scenario::from_yaml(y).expect("parses");
+        let xs = &s.steps[0].extract;
+        assert_eq!(xs.len(), 4);
+        assert!(matches!(xs[0], Extract::Body { .. }));
+        assert!(matches!(xs[1], Extract::Header { .. }));
+        assert!(matches!(xs[2], Extract::Cookie { .. }));
+        assert!(matches!(xs[3], Extract::Status { .. }));
+    }
+
+    #[test]
+    fn extract_round_trips() {
+        let s = Scenario::from_yaml(TWO_STEP_FIXTURE).unwrap();
+        let yaml = s.to_yaml().unwrap();
+        let s2 = Scenario::from_yaml(&yaml).unwrap();
+        assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn rejects_extract_with_unknown_from() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    assert: []
+    extract:
+      - var: t
+        from: nope
+        path: "$.a"
+"#;
+        assert!(Scenario::from_yaml(y).is_err());
+    }
+
+    #[test]
+    fn rejects_body_extract_without_path() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    assert: []
+    extract:
+      - var: t
+        from: body
+"#;
+        assert!(Scenario::from_yaml(y).is_err());
+    }
 
     #[test]
     fn parses_single_step_fixture() {

@@ -49,6 +49,15 @@ pub async fn create(
     )
     .await?;
 
+    // Parse env_json to HashMap<String,String> for the proto assignment.
+    // Non-string values are silently dropped (ADR-0014: env vars are always strings).
+    let env: std::collections::HashMap<String, String> =
+        serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(body.env.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
+            .collect();
+
     // Enqueue the assignment so the coordinator can hand it to the worker when it registers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
         scenario_yaml: scenario.yaml.clone(),
@@ -57,6 +66,7 @@ pub async fn create(
             ramp_up_seconds: body.profile.ramp_up_seconds,
             duration_seconds: body.profile.duration_seconds,
         },
+        env,
     };
     state.coord.enqueue(row.id.clone(), assignment).await;
 
@@ -106,6 +116,27 @@ pub async fn list_for_scenario(
     Ok(Json(RunListResponse {
         runs: rows.into_iter().map(to_response).collect(),
     }))
+}
+
+pub async fn abort_run(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    match row.status {
+        runs::RunStatus::Running | runs::RunStatus::Pending => {}
+        _ => {
+            return Err(ApiError::Conflict(format!(
+                "run is {} and cannot be aborted",
+                row.status.as_str()
+            )));
+        }
+    }
+    // Best-effort: send AbortRun to the worker if it is already connected.
+    // If the worker hasn't registered yet (still pending), mark_aborted below is sufficient.
+    state.coord.abort(&id).await;
+    runs::mark_aborted(&state.db, &id).await?;
+    Ok(axum::http::StatusCode::OK)
 }
 
 fn to_response(r: runs::RunRow) -> RunResponse {

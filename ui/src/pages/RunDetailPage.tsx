@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom";
-import { useRun, useRunMetrics } from "../api/hooks";
+import { useAbortRun, useRun, useRunMetrics } from "../api/hooks";
 import { StatusBadge } from "../components/StatusBadge";
 import type { RunStatus } from "../api/schemas";
 
@@ -8,6 +8,7 @@ const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const run = useRun(id);
+  const abort = useAbortRun(id ?? "");
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
 
@@ -37,6 +38,16 @@ export function RunDetailPage() {
             </Link>
           </p>
         </div>
+        {r.status === "running" && (
+          <button
+            type="button"
+            onClick={() => abort.mutate()}
+            disabled={abort.isPending}
+            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+          >
+            {abort.isPending ? "Aborting…" : "Abort"}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">

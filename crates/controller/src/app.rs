@@ -32,7 +32,8 @@ pub fn router(state: AppState) -> Router {
         .route("/scenarios/{id}/runs", get(runs_api::list_for_scenario))
         .route("/runs", post(runs_api::create))
         .route("/runs/{id}", get(runs_api::get))
-        .route("/runs/{id}/metrics", get(runs_api::metrics));
+        .route("/runs/{id}/metrics", get(runs_api::metrics))
+        .route("/runs/{id}/abort", post(runs_api::abort_run));
 
     let mut app = Router::new().nest("/api", api);
 

@@ -1,0 +1,31 @@
+version: 1
+name: "two step token flow"
+variables:
+  base: "http://placeholder"
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "{{base}}/login"
+      body:
+        json:
+          username: "${USERNAME:-demo}"
+          password: "${PASSWORD:-pw}"
+    assert:
+      - status: 200
+    extract:
+      - var: token
+        from: body
+        path: "$.access_token"
+  - id: "01HX0000000000000000000002"
+    name: "profile"
+    type: http
+    request:
+      method: GET
+      url: "{{base}}/me"
+      headers:
+        Authorization: "Bearer {{token}}"
+    assert:
+      - status: 200

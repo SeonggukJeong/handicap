@@ -3,7 +3,7 @@ use handicap_proto::v1 as pb;
 use pb::coordinator_client::CoordinatorClient;
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{Register, RunAssignment, WorkerMessage};
+use pb::{Register, RunAssignment, ServerMessage, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
@@ -14,12 +14,21 @@ use crate::error::WorkerError;
 /// Wraps the worker's side of the bidi stream. After `register`, the worker
 /// receives a single `RunAssignment` from the server, then the same `tx` is
 /// used for ongoing `MetricBatch` / `RunStatus` sends.
+///
+/// `inbound_rx` delivers all subsequent `ServerMessage`s that arrive after the
+/// initial `RunAssignment`.  The caller is responsible for draining it (e.g.
+/// to detect `AbortRun`).
 pub struct WorkerLink {
     pub tx: mpsc::Sender<WorkerMessage>,
     pub assignment: RunAssignment,
-    // Held to keep the inbound consumer task alive; never read in Slice 1.
-    #[allow(dead_code)]
-    pub inbound: tokio::task::JoinHandle<()>,
+    /// Receives post-assignment messages from the controller (AbortRun, Ping, …).
+    pub inbound_rx: mpsc::Receiver<ServerMessage>,
+    /// Completes when the controller closes the inbound stream (i.e. after the
+    /// controller has processed the outbound EOF we sent by dropping `tx`).
+    /// Awaiting this after `drop(tx)` ensures the tokio runtime does not shut
+    /// down before tonic has flushed the final HTTP/2 DATA frame and
+    /// END_STREAM to the wire.
+    pub inbound_fwd: tokio::task::JoinHandle<()>,
 }
 
 pub async fn connect_and_register(
@@ -50,7 +59,7 @@ pub async fn connect_and_register(
     .map_err(|_| WorkerError::SendFailed)?;
     info!(%worker_id, %run_id, "registered with controller");
 
-    // Wait for the first ServerMessage — must be RunAssignment in slice 1.
+    // Wait for the first ServerMessage — must be RunAssignment.
     let first = inbound.next().await;
     let assignment = match first {
         Some(Ok(msg)) => match msg.payload {
@@ -64,11 +73,19 @@ pub async fn connect_and_register(
         None => return Err(WorkerError::NoAssignment),
     };
 
-    // Spawn an inbound consumer so we drain pings/aborts (no-op in slice 1).
-    let handle = tokio::spawn(async move {
+    // Forward all remaining inbound messages through a channel so that
+    // `main` can listen for AbortRun without blocking on the raw gRPC stream.
+    let (fwd_tx, fwd_rx) = mpsc::channel::<ServerMessage>(16);
+    let fwd_handle = tokio::spawn(async move {
         while let Some(msg) = inbound.next().await {
             match msg {
-                Ok(m) => tracing::debug!(?m.payload, "controller msg"),
+                Ok(m) => {
+                    tracing::debug!(?m.payload, "controller msg");
+                    if fwd_tx.send(m).await.is_err() {
+                        // Receiver dropped — main is done; stop forwarding.
+                        break;
+                    }
+                }
                 Err(e) => {
                     warn!(error = %e, "inbound stream closed");
                     break;
@@ -80,6 +97,7 @@ pub async fn connect_and_register(
     Ok(WorkerLink {
         tx,
         assignment,
-        inbound: handle,
+        inbound_rx: fwd_rx,
+        inbound_fwd: fwd_handle,
     })
 }

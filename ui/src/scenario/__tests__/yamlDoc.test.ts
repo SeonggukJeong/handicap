@@ -48,11 +48,9 @@ describe("parseScenarioDoc", () => {
     expect(out.model.steps[0].assert).toEqual([{ kind: "status", code: 200 }]);
   });
 
-  it("strips extract from the model but keeps it in the doc", () => {
+  it("doc preserves the raw yaml extract key and comment", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");
-    // model has no extract field on Step
-    expect("extract" in out.model.steps[0]).toBe(false);
     // doc still has it
     const round = serializeDoc(out.doc);
     expect(round).toContain("extract:");
@@ -183,5 +181,50 @@ describe("applyEdit — setVariable / removeVariable / setName / setCookieJar", 
     applyEdit(out.doc, { type: "setCookieJar", value: "off" });
     const round = serializeDoc(out.doc);
     expect(round).toContain("cookie_jar: off");
+  });
+});
+
+describe("extract — model integration", () => {
+  it("model now exposes extract on the step", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    expect(out.model.steps[0].extract).toEqual([
+      { var: "token", from: "body", path: "$.token" },
+    ]);
+  });
+
+  it("round-trips extract through model+doc edits", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+
+    applyEdit(out.doc, {
+      type: "setStepExtract",
+      stepId: "01HX0000000000000000000001",
+      extract: [
+        { var: "token", from: "body", path: "$.access_token" },
+        { var: "trace", from: "header", name: "X-Trace" },
+      ],
+    });
+    const round = serializeDoc(out.doc);
+    expect(round).toContain("X-Trace");
+    expect(round).toContain("access_token");
+    const out2 = parseScenarioDoc(round);
+    if ("error" in out2) throw new Error("re-parse failed");
+    expect(out2.model.steps[0].extract).toEqual([
+      { var: "token", from: "body", path: "$.access_token" },
+      { var: "trace", from: "header", name: "X-Trace" },
+    ]);
+  });
+
+  it("setting empty extract clears the key", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setStepExtract",
+      stepId: "01HX0000000000000000000001",
+      extract: [],
+    });
+    const round = serializeDoc(out.doc);
+    expect(round).not.toMatch(/extract:\s/);
   });
 });

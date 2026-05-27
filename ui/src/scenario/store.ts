@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 import { Document } from "yaml";
-import { type Scenario } from "./model";
+import { type Extract, type Scenario } from "./model";
 import { newStepId } from "./ulid";
 import {
   applyEdit,
@@ -42,6 +42,7 @@ export interface ScenarioEditorState {
   moveStep(stepId: string, toIndex: number): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
   setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
+  setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
 
   // UI state
   select(id: string | null): void;
@@ -126,6 +127,9 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   setStepAssert(stepId, asserts) {
     dispatch(set, get, { type: "setStepAssert", stepId, asserts });
   },
+  setStepExtract(stepId, extract) {
+    dispatch(set, get, { type: "setStepExtract", stepId, extract });
+  },
 
   select(id) {
     set({ selectedStepId: id });
@@ -207,6 +211,7 @@ const actions = (() => {
     moveStep: s.moveStep,
     setStepField: s.setStepField,
     setStepAssert: s.setStepAssert,
+    setStepExtract: s.setStepExtract,
     select: s.select,
     setActiveTab: s.setActiveTab,
     setPendingYamlText: s.setPendingYamlText,

@@ -39,12 +39,17 @@ steps:
     let (tx, mut rx) = mpsc::channel(64);
     let plan = RunPlan {
         vus: 5,
+        ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(2),
+        env: std::collections::BTreeMap::new(),
     };
 
+    let cancel = tokio_util::sync::CancellationToken::new();
     let scenario_clone = scenario.clone();
     let run = tokio::spawn(async move {
-        run_scenario(scenario_clone, plan, tx).await.expect("runs");
+        run_scenario(scenario_clone, plan, tx, cancel)
+            .await
+            .expect("runs");
     });
 
     let mut total: u64 = 0;

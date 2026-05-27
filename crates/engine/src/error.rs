@@ -22,6 +22,10 @@ pub enum EngineError {
     Histogram(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("extract failed: {0}")]
+    ExtractFailed(String),
+    #[error("aborted")]
+    Aborted,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;

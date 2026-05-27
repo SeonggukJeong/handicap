@@ -75,4 +75,6 @@ export const api = {
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
+  abortRun: (id: string) =>
+    request(`/runs/${encodeURIComponent(id)}/abort`, { method: "POST" }, z.object({}).passthrough()),
 };
