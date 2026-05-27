@@ -1,12 +1,18 @@
+use std::net::SocketAddr;
+
 use axum::Router;
 use axum::routing::{get, post};
 
 use crate::api::{runs as runs_api, scenarios as scenarios_api};
+use crate::grpc::coordinator::CoordinatorState;
 use crate::store::Db;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
+    pub coord: CoordinatorState,
+    pub worker_bin: String,
+    pub grpc_addr: SocketAddr,
 }
 
 pub fn router(state: AppState) -> Router {

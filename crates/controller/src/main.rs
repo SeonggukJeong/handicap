@@ -2,11 +2,12 @@ use std::net::SocketAddr;
 
 use anyhow::Context;
 use clap::Parser;
+use handicap_controller::grpc::coordinator::{CoordinatorService, CoordinatorState};
+use handicap_controller::{app, store};
+use handicap_proto::v1::coordinator_server::CoordinatorServer;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-
-use handicap_controller::{app, store};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -16,7 +17,6 @@ struct Args {
     rest: SocketAddr,
     #[arg(long, default_value = "127.0.0.1:8081")]
     grpc: SocketAddr,
-    /// Path to the worker binary. Used to spawn workers per run.
     #[arg(long, default_value = "target/debug/worker")]
     worker_bin: String,
 }
@@ -33,11 +33,35 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = store::url_from_path(&args.db);
     let db = store::connect(&db_url).await?;
-    let state = app::AppState { db };
-    let app = app::router(state);
+    let coord_state = CoordinatorState::new(db.clone());
 
-    let listener = TcpListener::bind(args.rest).await.context("bind REST")?;
+    let state = app::AppState {
+        db: db.clone(),
+        coord: coord_state.clone(),
+        worker_bin: args.worker_bin.clone(),
+        grpc_addr: args.grpc,
+    };
+    let app_router = app::router(state);
+
+    let rest_listener = TcpListener::bind(args.rest).await.context("bind REST")?;
     info!(addr = %args.rest, "REST listening");
-    axum::serve(listener, app).await.context("serve")?;
+
+    let grpc_svc = CoordinatorServer::new(CoordinatorService { state: coord_state });
+
+    let rest_fut = async {
+        axum::serve(rest_listener, app_router)
+            .await
+            .context("serve REST")
+    };
+    let grpc_fut = async {
+        info!(addr = %args.grpc, "gRPC listening");
+        tonic::transport::Server::builder()
+            .add_service(grpc_svc)
+            .serve(args.grpc)
+            .await
+            .context("serve gRPC")
+    };
+
+    tokio::try_join!(rest_fut, grpc_fut)?;
     Ok(())
 }

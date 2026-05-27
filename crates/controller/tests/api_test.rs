@@ -1,5 +1,6 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -7,7 +8,13 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn create_and_get_scenario() {
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let app = app::router(app::AppState { db });
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db,
+        coord,
+        worker_bin: "/nonexistent".to_string(),
+        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+    });
 
     let body = json!({
         "yaml": "version: 1\nname: t\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n"
@@ -38,7 +45,13 @@ async fn create_and_get_scenario() {
 #[tokio::test]
 async fn rejects_invalid_yaml() {
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let app = app::router(app::AppState { db });
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db,
+        coord,
+        worker_bin: "/nonexistent".to_string(),
+        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+    });
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
         .method(Method::POST)
@@ -53,7 +66,13 @@ async fn rejects_invalid_yaml() {
 #[tokio::test]
 async fn create_run_for_scenario() {
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let app = app::router(app::AppState { db });
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db,
+        coord,
+        worker_bin: "/nonexistent".to_string(),
+        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+    });
 
     // 1. create scenario
     let body = json!({
