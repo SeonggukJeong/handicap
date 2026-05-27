@@ -2,11 +2,13 @@
 
 사내 QA·운영팀을 위한 부하 테스트 도구. REST API를 대상으로, **QA는 드래그-드롭으로 시나리오를 만들고**, **개발자는 같은 시나리오를 YAML/DSL로 편집** 한다 (두 뷰가 같은 모델의 양방향 sync). LoadRunner/JMeter를 사내에서 대체하는 것이 목표.
 
-**상태: Slice 2(UI skeleton + 정적 서빙) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
+**상태: Slice 3(캔버스 + Monaco + 양방향 sync) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
 
 Slice 1 결과: REST API(`/api/scenarios`, `/api/runs`, `/api/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작.
 
 Slice 2 결과: Vite + React + TS + Tailwind UI (`ui/`). 시나리오 목록·생성·편집(YAML textarea), run 다이얼로그, run 상세(1초 폴링 + 메트릭 표). 컨트롤러가 `--ui-dir` 경로의 SPA를 정적 서빙(unknown path는 index.html로 fallback). 캔버스·Monaco·양방향 sync는 Slice 3, 차트·HTML 리포트는 Slice 5, multi-step·extract·ramp-up은 Slice 4, K8s 배포는 Slice 6.
+
+Slice 3 결과: React Flow 캔버스(HTTP 노드 1종, 선형 chain, drag-drop add, inspector) + Monaco YAML 에디터(syntax highlighting only) + Zustand store + Zod 검증 + `yaml` 패키지 Document API targeted edit. 양방향 sync는 탭 전환 모델: 캔버스/YAML 둘 중 하나가 active. Monaco 편집은 300ms debounce → 검증 통과 시 doc swap, 실패 시 pendingYamlText에 유지하고 inline 에러 표시. extract/multi-step variable chaining은 Slice 4, K8s 배포는 Slice 6.
 
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
@@ -117,6 +119,23 @@ docs/
 - **TDD-guard 훅의 worktree 인식**: `.claude/hooks/tdd-guard.sh`는 편집되는 파일의 디렉터리에서 `git rev-parse --show-toplevel`로 working tree를 찾는다. 그래서 worktree 안에서 작업해도 pending test 검사가 worktree의 working tree를 보고, primary checkout의 working tree와 혼선이 없다. (Slice 2 작업 초기에 hook이 worktree를 못 봐서 패치함.)
 - **`/api` 프리픽스로 옮긴 이유**: SPA가 `/scenarios/:id` 같은 client-side route를 갖기 때문에 REST 경로와 충돌. 슬라이스 1 테스트도 함께 업데이트해야 통과.
 - **오프라인 런타임 제약**: 사내망/에어갭 staging에서도 UI가 떠야 한다 (ADR-0001 — 1차 사용자 사내 QA). 그래서 `index.html`에 `Content-Security-Policy` 메타 태그로 `default-src 'self'` 강제, Tailwind 기본 시스템 폰트 스택만 사용 (Google Fonts 같은 CDN 폰트 금지), 외부 아이콘·스크립트 패키지 도입 시에도 npm 번들로만. 어기면 CSP가 브라우저 콘솔에서 즉시 실패시키므로 회귀가 조용히 들어오지 않는다. 향후 폰트 커스텀 필요하면 `@fontsource/*` 같은 로컬 번들 패키지로.
+
+## Slice 3에서 배운 함정들
+
+- **`@xyflow/react` v12의 패키지 이름 변경**: 이전 `reactflow` 패키지가 `@xyflow/react`로 rename. import 경로도 `@xyflow/react` + `@xyflow/react/dist/style.css`. v11 예제는 함정.
+- **`@xyflow/react` v12의 `NodeProps` 시그니처**: v11의 `NodeProps<Data>` 가 아니라 `NodeProps<Node<Data, "type-string">>` 형태. `node_modules/@xyflow/react/dist/esm/types/index.d.ts` 확인 후 맞춰야 함.
+- **`@monaco-editor/react`는 기본적으로 JSDelivr에서 monaco를 fetch**: 오프라인 런타임 제약을 어김. 반드시 `loader.config({ monaco })` 로 로컬 번들을 강제. 안 그러면 dev에서는 동작하지만 air-gapped staging에서 흰 화면. 빌드된 dist에는 jsdelivr URL 문자열이 dead code로 남지만 (loader 1.7.0 default), `loader.config({monaco})`가 init 전에 state.monaco를 채워두므로 fetch 분기는 도달 불가능.
+- **Monaco 워커는 Vite의 `?worker` import로 등록**: `import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker"` + `self.MonacoEnvironment.getWorker = () => new editorWorker()`. 이 등록을 모듈 스코프에서 해야 첫 mount 이전에 실행됨. 컴포넌트 안에 useEffect로 두면 race.
+- **Vitest는 `?worker` 쿼리를 Vite처럼 처리하지 못함**: 별도 worker query plugin이 vitest.config.ts에 필요. resolveId 훅으로 `?worker` 접미사를 strip하고 일반 모듈로 넘기는 식. `vi.mock("...editor.worker?worker", ...)`는 위 plugin 없이는 안 듣는다.
+- **Vite `resolve.alias`의 string key prefix matching 함정**: `{ "monaco-editor": "/path/to/api.js" }` 는 `monaco-editor/esm/...` 도 매칭해서 ENOTDIR 에러를 낸다. 정확히 패키지명만 잡으려면 regex form: `{ find: /^monaco-editor$/, replacement: "..." }`.
+- **CSP `worker-src` 필요**: `default-src 'self'`만 있으면 Chrome이 module worker를 blob: URL로 만들 때 차단할 수 있다. `worker-src 'self' blob:`로 명시. style-src의 unsafe-inline은 Slice 2부터 이미 있음.
+- **`yaml` 패키지 Document API의 targeted edit으로 코멘트 보존**: `doc.setIn(['steps', 0, 'request', 'method'], 'POST')` 식으로 부분 수정 시 다른 키 옆 코멘트 그대로 유지. 단, `steps[i]`를 통째로 교체하면 그 안의 모든 코멘트는 사라진다 — `addStep`/`removeStep`/`moveStep`은 그 한도에서 동작 (§2.8의 한계 그대로).
+- **`yaml` 패키지의 `doc.setIn(["name"], value)`은 기존 노드의 quote style을 상속**: 원본이 `name: "demo"`였으면 새 값도 `"renamed"`로 quote가 붙는다. 테스트가 unquoted를 기대하면 `Scalar.PLAIN`을 새로 만들어 setIn. `plainScalar()` 헬퍼 참고 (`ui/src/scenario/yamlDoc.ts`).
+- **`extract` 키 보존**: TS 모델 (`ScenarioModel`)은 `.strict()`로 `extract`를 거부하지만, `normalizeForModel`이 doc.toJS() 후 모델 입력 단계에서 `extract`를 떨궈 검증을 통과시킨다. 원본 Doc은 그대로 — round-trip 시 `extract`가 유지됨. Slice 4에서 `extract`를 모델에 추가할 때 이 노멀라이저만 손보면 된다.
+- **Zod `.strict()` + `default()`의 조합**: `.strict()`가 `default()`로 채워진 키를 거부하지 않는다 — default는 input 단계에서 적용되고 strict는 unknown 키 검사이므로 충돌 없음. 헷갈리지 말 것.
+- **Zustand v5는 getInitialState 미제공**: 테스트에서 store를 reset하려면 직접 INITIAL 객체를 보관하고 setState로 덮어쓰는 작은 헬퍼가 필요. 액션 ref는 v5에서 stable하므로 모듈 로드 시 한 번만 `getState()`로 캡쳐하면 된다.
+- **React Flow의 control vs uncontrolled**: 노드 위치를 직접 계산해서 넘기면 React Flow 안에서 drag로 옮긴 위치는 반영되지 않는다. Slice 3은 의도적으로 drag 비활성화(`draggable: false`) — 위치는 매번 재계산됨.
+- **`removeStep`은 selection clear가 dispatch보다 먼저**: 순서를 반대로 하면 subscriber가 잠깐 "삭제된 step을 가리키는 selectedStepId" 상태를 본다 → Inspector가 stale step을 deref. 그래서 store action에서 `if (get().selectedStepId === stepId) set({ selectedStepId: null })`를 dispatch보다 먼저 호출.
 
 ## 새로운 아키텍처 결정이 생기면
 
