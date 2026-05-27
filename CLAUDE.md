@@ -153,6 +153,11 @@ docs/
 - **userEvent.setup()를 it마다 호출**: v14에서 글로벌 default user-event는 deprecated. 매 테스트에서 `const user = userEvent.setup()` 명시.
 - **`@monaco-editor/react` & `vitest` 환경에서 `?worker` 임포트**: Slice 3 vitest.config.ts의 `workerQueryPlugin`이 Slice 4 RTL 테스트에서도 그대로 사용된다 — Inspector / RunDetail은 Monaco를 직접 마운트하지 않으므로 worker 모킹은 불필요.
 - **`PATCH /scenarios/{id}` 의 optimistic lock과 Slice 4 extract 변경**: extract만 바뀌어도 yamlText가 달라지므로 dirty 플래그가 켜진다. EditorShell의 baselineSeededRef 패턴이 그대로 적용되어 추가 작업 없음 — 단 회귀 점검은 manual check §1에서 한 번 한다.
+- **abort 흐름의 belt-and-suspenders는 의도된 중복**: REST endpoint가 DB에 'aborted'를 찍고 (Task 10), worker는 `EngineError::Aborted`를 `Phase::Aborted`로 보내고 (F3), `set_status` SQL은 `WHERE status != 'aborted'` guard를 가진다 (Task 10 fix). 두 메커니즘은 서로 다른 실패 모드를 막는다 — REST 경로는 worker가 닿지 않을 때 (crash, network 단절)도 abort UX가 동작하게 하고, gRPC 경로는 worker가 자기 상태를 정확히 보고할 수 있게 한다. e2e 테스트로 회귀를 잡으려면 두 safeguard를 동시에 깨야 RED가 난다 — 단일 safeguard 회귀는 다른 쪽이 막아준다. (`docs/superpowers/plans/2026-05-28-slice-4-follow-ups.md` F4 참고.)
+- **gRPC bidi stream의 클린 셧다운 = mpsc drain ≠ wire deliver**: `tx.send().await`는 채널 버퍼 진입만 보장, wire 전송은 아니다. tokio runtime이 main 종료로 spawn된 task를 cancel하면 tonic 내부 송신 머신도 함께 죽어 HTTP/2 END_STREAM이 안 나간다. 패턴: 마지막 메시지 send → `drop(tx)` (outbound EOF 신호) → 상대가 우리 EOF 보고 자기 쪽 close → 우리 `inbound_fwd.await` 완료 시점이 곧 "far end가 처리 완료" sync point. 200ms `sleep` 같은 fixed delay는 둘 다 race-prone하고 슬로우 (F6 참고).
+- **clippy를 pre-commit에 안 넣으면 `assign_op_pattern`/`expect_fun_call` 같은 게 prod에 들어간다**: Slice 4에서 두 번 일어남. Follow-up F2에서 hook에 `cargo clippy --workspace --all-targets -- -D warnings` 추가. 단위/integration 테스트가 모두 통과해도 clippy가 다른 클래스의 문제를 잡으니 비용 대비 가치 좋음.
+- **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합**: Slice 3의 `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur (또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (F5의 `ExtractEditor`가 표준 패턴 — 다음 슬라이스의 새 editor도 따라가야 함.)
+- **proto enum 값 추가는 backward-compat 안전**: F3에서 `Phase::ABORTED = 4` 추가. 기존 클라이언트가 새 값을 모르면 `unspecified`로 떨어진다. 새 값을 모르는 worker → 새 controller 조합은 일어날 일이 없고, 새 worker → 옛 controller도 마찬가지(우리는 둘을 같이 배포). 새 phase가 필요하면 그냥 추가.
 
 ## 새로운 아키텍처 결정이 생기면
 
