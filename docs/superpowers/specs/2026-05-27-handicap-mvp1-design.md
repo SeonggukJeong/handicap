@@ -115,6 +115,7 @@ flowchart TD
 **IN — MVP 1단계에 포함**
 - 시나리오 노드 1종: `HTTP request` (method, URL, headers, body, basic assertion: status code)
 - 변수: env vars + 한 응답에서 JSON path로 값 추출 → 다음 요청에서 사용
+- **인증 방식**: 토큰(JWT/Bearer) 기반과 세션(쿠키) 기반 둘 다 지원 ([ADR-0018](../../adr/0018-vu-scoped-cookie-jar.md)) — VU별 자동 cookie jar가 기본 ON
 - 실행: 컨트롤러 1 + 워커 1, kind 단일 노드 (ADR-0007)에서 1k VU
 - 메트릭: 1초 윈도우 RPS, 응답시간 p50/p95/p99, status code 분포, 에러 카운트
 - UI: 드래그-드롭 캔버스 (1종 노드만), YAML 뷰, 양방향 sync, run 시작·진행률·리포트 페이지
@@ -204,7 +205,46 @@ MVP 필드 참조:
 - `steps[].type`: MVP는 `http`만
 - `steps[].request.body`: `json` / `form` / `raw` 중 택일
 - `steps[].assert[]`: MVP는 `status: <code>` 만
-- `steps[].extract[]`: `from = body | header | status`; `path`는 JSONPath(body) 또는 헤더 이름
+- `steps[].extract[]`: `from = body | header | status | cookie`; `path`는 JSONPath(body) / 헤더 이름 / cookie 이름
+- 시나리오 최상위 `cookie_jar`: `auto`(기본) | `off`. `auto` 면 VU별 jar가 생성되어 Set-Cookie 자동 저장 → 다음 요청에 자동 첨부 ([ADR-0018](../../adr/0018-vu-scoped-cookie-jar.md))
+
+**두 가지 인증 방식 예시**
+
+토큰(JWT) 기반 — 위의 메인 예시와 같이 `extract: from: body` 로 token 꺼내 다음 요청 header에 사용.
+
+세션(쿠키) 기반:
+```yaml
+version: 1
+name: "Session-based login"
+cookie_jar: auto              # 기본값이라 생략 가능. VU당 jar 생성
+steps:
+  - id: login
+    type: http
+    request:
+      method: POST
+      url: "{{base_url}}/login"
+      body:
+        form:                 # 세션 로그인은 보통 form-encoded
+          username: "${USERNAME}"
+          password: "${PASSWORD}"
+    assert:
+      - status: 302           # 또는 200
+    # Set-Cookie: JSESSIONID=...; ... 가 자동으로 jar에 저장됨
+    # 명시적 제어 필요 시:
+    # extract:
+    #   - var: jsession
+    #     from: cookie
+    #     name: "JSESSIONID"
+
+  - id: profile
+    type: http
+    request:
+      method: GET
+      url: "{{base_url}}/profile"
+      # Cookie 헤더는 jar에서 자동 첨부 — 별도 헤더 설정 불필요
+    assert:
+      - status: 200
+```
 
 ### 2.4 Run Config 스키마
 
@@ -332,7 +372,7 @@ crates/
 | 용도 | 선택 | 근거 |
 |---|---|---|
 | Async runtime | tokio | Rust async 사실상 표준, tonic·reqwest 모두 tokio 기반 |
-| HTTP client | reqwest (rustls TLS) | 친숙한 API, connection pool 내장. hyper 직접 사용은 MVP overkill |
+| HTTP client | reqwest (rustls TLS, cookie_store=ON) | 친숙한 API, connection pool 내장, cookie jar 내장 ([ADR-0018](../../adr/0018-vu-scoped-cookie-jar.md)). hyper 직접 사용은 MVP overkill |
 | gRPC | tonic | tokio 기반, 검증됨 |
 | HTTP server (Controller) | axum | tower middleware, tokio 친화 |
 | K8s client | kube-rs | Rust K8s 표준 |
@@ -343,7 +383,7 @@ crates/
 | YAML | serde_yaml | 시나리오 deserialize (UI의 yaml 패키지와는 다름) |
 | Error | thiserror (라이브러리) + anyhow (binary edges) | 표준 패턴 |
 
-**VU 실행 모델**: VU 1개당 tokio task 1개 — [ADR-0016](../../adr/0016-vu-execution-model-task-per-vu.md). 시나리오는 `async fn run(vu_id, ctx, scenario)` 형태.
+**VU 실행 모델**: VU 1개당 tokio task 1개 — [ADR-0016](../../adr/0016-vu-execution-model-task-per-vu.md). 시나리오는 `async fn run(vu_id, ctx, scenario)` 형태. 각 VU task는 시작 시 자기만의 cookie jar를 만들어 그 jar로 reqwest client를 build (세션 인증 격리) — ADR-0018.
 
 **Ramp-up 곡선**: MVP는 linear. 매 초마다 `floor(target_vus / ramp_up_seconds)` 개의 task spawn.
 
@@ -427,6 +467,7 @@ VU task ─┘                                                       │
 
 - [ADR-0016](../../adr/0016-vu-execution-model-task-per-vu.md) — VU 1개당 tokio task 1개
 - [ADR-0017](../../adr/0017-mvp-report-scope.md) — MVP 리포트 스코프
+- [ADR-0018](../../adr/0018-vu-scoped-cookie-jar.md) — VU별 자동 cookie jar (세션·토큰 둘 다 지원)
 
 ---
 
@@ -443,6 +484,7 @@ VU task ─┘                                                       │
 - [ ] 실행 중 페이지에서 1초마다 진행률 % 와 현재 RPS 갱신
 - [ ] 실행 종료 후 같은 페이지가 리포트로 전환: 요약 카드·시계열 3개·스텝별 테이블·status 분포 모두 표시
 - [ ] 같은 시나리오를 1000 VU / ramp-up 30초 / duration 5분으로 재실행 가능, 새 run 페이지가 별도로 생성됨
+- [ ] **인증 방식 두 가지 모두 동작**: (a) 토큰 — `extract: from: body, path: $.access_token` 후 다음 요청 `Authorization: Bearer {{token}}` 헤더; (b) 세션 — `cookie_jar: auto` (기본)로 login 후 다음 요청에 Cookie 자동 첨부, 그리고 VU 간 세션 격리 확인 (1000 VU 각자 다른 세션)
 
 ### 4.2 기술 (배포·운영)
 

@@ -23,6 +23,7 @@
 | [0015](0015-bidirectional-sync-impl.md) | 양방향 sync 구현: Zustand + Zod + YAML AST | Accepted |
 | [0016](0016-vu-execution-model-task-per-vu.md) | VU 실행 모델: tokio task per VU | Accepted |
 | [0017](0017-mvp-report-scope.md) | MVP 리포트 스코프 (시계열 + 스텝별 + status 분포) | Accepted |
+| [0018](0018-vu-scoped-cookie-jar.md) | VU별 자동 cookie jar (세션 + 토큰 둘 다 지원) | Accepted |
 
 ## 새 ADR 추가 절차
 
