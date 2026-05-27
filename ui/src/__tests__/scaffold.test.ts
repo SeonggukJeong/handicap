@@ -20,3 +20,20 @@ describe("AppRouter", () => {
   it.todo("renders ScenarioRunsPage at /scenarios/:id/runs");
   it.todo("renders RunDetailPage at /runs/:id");
 });
+
+describe("ScenarioSchema", () => {
+  it.todo("parses a valid scenario response");
+  it.todo("rejects missing required fields");
+});
+
+describe("RunSchema", () => {
+  it.todo("accepts pending run with null timestamps");
+  it.todo("rejects unknown status");
+});
+
+describe("api client", () => {
+  it.todo("listScenarios GETs /api/scenarios");
+  it.todo("createScenario POSTs yaml as JSON");
+  it.todo("updateScenario PUTs yaml + version");
+  it.todo("throws ApiError with parsed message on 4xx");
+});
