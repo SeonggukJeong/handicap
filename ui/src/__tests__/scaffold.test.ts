@@ -65,3 +65,12 @@ describe("ScenarioListPage", () => {
   it.todo("shows empty-state copy when scenarios is []");
   it.todo("renders a row per scenario with edit and runs links");
 });
+
+describe("ScenarioNewPage", () => {
+  it.todo("renders starter YAML in the textarea on mount");
+  it.todo("disables Create button when yaml is whitespace-only");
+  it.todo("disables Create button while mutation is pending");
+  it.todo("navigates to /scenarios/:id on successful create");
+  it.todo("renders backend error message when mutation fails");
+  it.todo("Cancel navigates back to /");
+});
