@@ -18,4 +18,15 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: true,
   },
+  optimizeDeps: {
+    // Monaco ships many small ESM modules. Pre-bundling them speeds up
+    // first-time dev startup and prevents the worker-loader from racing.
+    include: [
+      "monaco-editor/esm/vs/editor/editor.api",
+      "monaco-editor/esm/vs/editor/editor.worker",
+    ],
+  },
+  worker: {
+    format: "es",
+  },
 });
