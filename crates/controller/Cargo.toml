@@ -37,3 +37,5 @@ ulid.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true, default-features = false, features = ["rustls-tls", "json"] }
+wiremock.workspace = true
+serde_json.workspace = true
