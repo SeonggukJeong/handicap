@@ -48,6 +48,26 @@ pub async fn create(
         &body.env,
     )
     .await?;
+
+    // Enqueue the assignment so the coordinator can hand it to the worker when it registers.
+    let assignment = crate::grpc::coordinator::PendingAssignment {
+        scenario_yaml: scenario.yaml.clone(),
+        profile: handicap_proto::v1::Profile {
+            vus: body.profile.vus,
+            ramp_up_seconds: body.profile.ramp_up_seconds,
+            duration_seconds: body.profile.duration_seconds,
+        },
+    };
+    state.coord.enqueue(row.id.clone(), assignment).await;
+
+    // Spawn the worker subprocess. If this fails we still return the run row;
+    // the run will be left in `pending` and the operator can investigate.
+    if let Err(e) =
+        crate::worker_proc::spawn_worker(&state.worker_bin, state.grpc_addr, &row.id).await
+    {
+        tracing::warn!(run_id = %row.id, error = %e, "failed to spawn worker");
+    }
+
     Ok((StatusCode::CREATED, Json(to_response(row))))
 }
 
