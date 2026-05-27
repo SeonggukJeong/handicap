@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
@@ -118,8 +119,10 @@ async fn run_vu(
             if Instant::now() >= deadline {
                 return Ok(());
             }
+            let empty_env: BTreeMap<String, String> = BTreeMap::new();
             let ctx = TemplateContext {
                 vars: &scenario.variables,
+                env: &empty_env,
                 vu_id,
                 iter_id,
             };
