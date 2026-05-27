@@ -51,25 +51,32 @@ describe("ScenarioModel", () => {
     expect(() => StepModel.parse(step)).toThrow();
   });
 
-  it("accepts each body variant", () => {
-    const base = {
-      id: "01HX0000000000000000000001",
-      name: "x",
-      type: "http" as const,
-      assert: [],
-    };
+  const base: Pick<Step, "id" | "name" | "type" | "assert"> = {
+    id: "01HX0000000000000000000001",
+    name: "x",
+    type: "http",
+    assert: [],
+  };
+
+  it("accepts a json body variant", () => {
     expect(() =>
       StepModel.parse({
         ...base,
         request: { method: "POST", url: "/", body: { kind: "json", value: { a: 1 } } },
       }),
     ).not.toThrow();
+  });
+
+  it("accepts a form body variant", () => {
     expect(() =>
       StepModel.parse({
         ...base,
         request: { method: "POST", url: "/", body: { kind: "form", value: { a: "1" } } },
       }),
     ).not.toThrow();
+  });
+
+  it("accepts a raw body variant", () => {
     expect(() =>
       StepModel.parse({
         ...base,
@@ -97,7 +104,3 @@ describe("ScenarioModel", () => {
     expect(s.cookie_jar).toBe("auto");
   });
 });
-
-// Unused import kept to exercise the export
-const _unused: Step | undefined = undefined;
-void _unused;
