@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
-import type { Assertion, HttpMethod, Step } from "../../scenario/model";
+import type { Assertion, Extract, HttpMethod, Step } from "../../scenario/model";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -107,6 +107,7 @@ function StepInspector({ step }: StepInspectorProps) {
       </fieldset>
 
       <AssertEditor step={step} setStepAssert={setStepAssert} />
+      <ExtractEditor step={step} />
     </aside>
   );
 }
@@ -408,6 +409,138 @@ function AssertEditor({
           Add
         </button>
       </div>
+    </fieldset>
+  );
+}
+
+// Draft type mirrors Extract but allows empty strings during editing.
+type DraftExtract =
+  | { var: string; from: "body"; path: string }
+  | { var: string; from: "header"; name: string }
+  | { var: string; from: "cookie"; name: string }
+  | { var: string; from: "status" };
+
+function draftFromExtract(e: Extract): DraftExtract {
+  return e as DraftExtract;
+}
+
+function ExtractEditor({ step }: { step: Step }) {
+  const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
+
+  // Local drafts let us show in-progress rows before they pass Zod validation.
+  const [drafts, setDrafts] = useState<DraftExtract[]>(() =>
+    step.extract.map(draftFromExtract),
+  );
+
+  // Reset drafts when the selected step changes.
+  useEffect(() => {
+    setDrafts(step.extract.map(draftFromExtract));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step.id]);
+
+  // Push valid rows to the store after every draft change.
+  const commitDrafts = (next: DraftExtract[]) => {
+    // Rows that satisfy Zod (var non-empty + required second field non-empty).
+    const valid = next.filter((d) => {
+      if (!d.var) return false;
+      if (d.from === "body") return d.path.length > 0;
+      if (d.from === "header" || d.from === "cookie") return d.name.length > 0;
+      return true; // status needs no extra field
+    }) as Extract[];
+    setStepExtract(step.id, valid);
+  };
+
+  const setRow = (idx: number, next: DraftExtract) => {
+    const list = drafts.slice();
+    list[idx] = next;
+    setDrafts(list);
+    commitDrafts(list);
+  };
+
+  const remove = (idx: number) => {
+    const list = drafts.filter((_, i) => i !== idx);
+    setDrafts(list);
+    setStepExtract(step.id, list as Extract[]);
+  };
+
+  const append = () => {
+    const list: DraftExtract[] = [...drafts, { var: "", from: "body", path: "$." }];
+    setDrafts(list);
+    // Don't commit yet — the new row is empty and won't pass validation.
+  };
+
+  return (
+    <fieldset
+      className="flex flex-col gap-2 border border-slate-200 rounded p-3"
+      aria-label="Extracts"
+    >
+      <legend className="px-1 text-xs font-semibold text-slate-600">Extracts</legend>
+      <ul className="flex flex-col gap-2">
+        {drafts.map((x, idx) => (
+          <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
+            <input
+              placeholder="var"
+              className="border border-slate-300 rounded px-2 py-1 font-mono w-24"
+              value={x.var}
+              onChange={(e) => setRow(idx, { ...x, var: e.target.value })}
+            />
+            <select
+              aria-label={`extract-from-${idx}`}
+              className="border border-slate-300 rounded px-2 py-1"
+              value={x.from}
+              onChange={(e) => {
+                const from = e.target.value as Extract["from"];
+                if (from === "body") setRow(idx, { var: x.var, from, path: "$." });
+                else if (from === "header") setRow(idx, { var: x.var, from, name: "" });
+                else if (from === "cookie") setRow(idx, { var: x.var, from, name: "" });
+                else setRow(idx, { var: x.var, from: "status" });
+              }}
+            >
+              <option value="body">body</option>
+              <option value="header">header</option>
+              <option value="cookie">cookie</option>
+              <option value="status">status</option>
+            </select>
+            {x.from === "body" && (
+              <input
+                placeholder="$.path"
+                className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
+                value={x.path}
+                onChange={(e) => setRow(idx, { ...x, path: e.target.value })}
+              />
+            )}
+            {(x.from === "header" || x.from === "cookie") && (
+              <input
+                placeholder={x.from === "header" ? "header name" : "cookie name"}
+                className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
+                value={x.name}
+                onChange={(e) => setRow(idx, { ...x, name: e.target.value })}
+              />
+            )}
+            {x.from === "status" && (
+              <span className="text-slate-400 italic flex-1">no extra field</span>
+            )}
+            <button
+              type="button"
+              aria-label={`Remove extract ${idx}`}
+              className="text-slate-500 hover:text-red-600"
+              onClick={() => remove(idx)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+        {drafts.length === 0 && (
+          <li className="text-xs text-slate-400 italic">No extracts</li>
+        )}
+      </ul>
+      <button
+        type="button"
+        className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+        onClick={append}
+      >
+        Add
+      </button>
     </fieldset>
   );
 }
