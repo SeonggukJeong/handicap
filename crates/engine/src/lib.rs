@@ -1,7 +1,9 @@
 pub mod error;
+pub mod executor;
 pub mod scenario;
 pub mod template;
 
 pub use error::{EngineError, Result};
+pub use executor::{ExecOutcome, VuClient, client_for_scenario, execute_step};
 pub use scenario::{Assertion, Body, CookieJarMode, HttpMethod, Request, Scenario, Step, StepKind};
 pub use template::{TemplateContext, render};
