@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useScenario, useUpdateScenario } from "../api/hooks";
 import { Button } from "../components/Button";
@@ -12,14 +12,25 @@ export function ScenarioEditPage() {
   const [yamlText, setYamlText] = useState<string>("");
   const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
   const [originalYaml, setOriginalYaml] = useState<string>("");
+  const baselineSeededRef = useRef(false);
 
   useEffect(() => {
     if (data) {
-      setYamlText(data.yaml);
-      setOriginalYaml(data.yaml);
       setLoadedVersion(data.version);
+      baselineSeededRef.current = false; // re-seed when data changes
     }
   }, [data]);
+
+  // EditorShell calls this after every store yamlText change. The first call
+  // after a fresh data load captures the canonical (re-serialized) form as
+  // our baseline — so the dirty flag stays false until the user actually edits.
+  const handleEditorChange = useCallback((next: string) => {
+    setYamlText(next);
+    if (!baselineSeededRef.current) {
+      baselineSeededRef.current = true;
+      setOriginalYaml(next);
+    }
+  }, []);
 
   if (isLoading) return <p className="text-slate-500">Loading…</p>;
   if (error) return <p className="text-red-600">Failed: {(error as Error).message}</p>;
@@ -43,7 +54,7 @@ export function ScenarioEditPage() {
         </div>
       </div>
 
-      <EditorShell initialYaml={data.yaml} onChange={setYamlText} />
+      <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
 
       {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
 
@@ -57,6 +68,7 @@ export function ScenarioEditPage() {
                 onSuccess: (next) => {
                   setLoadedVersion(next.version);
                   setOriginalYaml(next.yaml);
+                  baselineSeededRef.current = true; // server form is canonical; don't re-seed from next onChange
                 },
               },
             )
