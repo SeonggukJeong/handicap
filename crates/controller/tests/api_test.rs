@@ -322,6 +322,42 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
 }
 
 #[tokio::test]
+async fn aborted_status_not_overwritten_by_completed() {
+    // Regression: the worker sends RunStatus::Completed after observing cancel,
+    // but set_status must not clobber a terminal 'aborted' written by the REST abort path.
+    use handicap_controller::store::runs::{RunStatus, mark_aborted, set_status};
+
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    // 1. Create a scenario and a run.
+    let yaml = "version: 1\nname: abort-overwrite-guard\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let run_id = create_run(&app, &scenario_id).await;
+
+    // 2. REST abort path marks it aborted.
+    mark_aborted(&db, &run_id).await.unwrap();
+    let status_after_abort = get_run_status(&app, &run_id).await;
+    assert_eq!(status_after_abort, "aborted");
+
+    // 3. Worker's late Completed message arrives — must NOT overwrite 'aborted'.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    set_status(&db, &run_id, RunStatus::Completed, None, Some(now_ms))
+        .await
+        .unwrap();
+
+    // 4. Verify 'aborted' survived.
+    let status_final = get_run_status(&app, &run_id).await;
+    assert_eq!(
+        status_final, "aborted",
+        "aborted status must survive a late Completed update from the worker"
+    );
+}
+
+#[tokio::test]
 async fn list_runs_by_scenario() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let coord = handicap_controller::grpc::coordinator::CoordinatorState::new(db.clone());

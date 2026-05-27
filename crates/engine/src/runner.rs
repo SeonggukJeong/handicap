@@ -83,7 +83,7 @@ pub async fn run_scenario(
             spawned += 1;
             spawn_now -= 1;
         }
-        next_spawn = next_spawn + Duration::from_secs(1);
+        next_spawn += Duration::from_secs(1);
     }
 
     // Flusher: drain completed 1s windows until the run ends.

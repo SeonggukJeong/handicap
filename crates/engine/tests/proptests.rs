@@ -113,7 +113,7 @@ proptest! {
     #[test]
     fn scenario_yaml_round_trip(s in arb_scenario()) {
         let y = s.to_yaml().expect("serialize");
-        let s2 = Scenario::from_yaml(&y).expect(&format!("deserialize:\n{y}"));
+        let s2 = Scenario::from_yaml(&y).unwrap_or_else(|_| panic!("deserialize:\n{y}"));
         prop_assert_eq!(s, s2);
     }
 
