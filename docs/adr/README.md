@@ -18,6 +18,9 @@
 | [0010](0010-controller-worker-grpc-pull.md) | Controller ↔ Worker: gRPC bidi, 워커 pull/등록 | Accepted |
 | [0011](0011-mvp-storage-sqlite.md) | MVP 저장소: SQLite (PostgreSQL 마이그레이션 경로) | Accepted |
 | [0012](0012-worker-side-metric-aggregation.md) | 워커가 메트릭 사전 집계 (1초 윈도우, HDR Histogram) | Accepted |
+| [0013](0013-scenario-runconfig-separation.md) | Scenario와 Run Config 분리 | Accepted |
+| [0014](0014-template-notation.md) | 변수·env·시스템 변수 표기 분리 (`{{}}` vs `${}`) | Accepted |
+| [0015](0015-bidirectional-sync-impl.md) | 양방향 sync 구현: Zustand + Zod + YAML AST | Accepted |
 
 ## 새 ADR 추가 절차
 

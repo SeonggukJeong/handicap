@@ -1,6 +1,6 @@
 # Handicap MVP 1단계 — 설계 명세
 
-- **상태**: 작성 진행 중 (섹션 1 완료)
+- **상태**: 작성 진행 중 (섹션 1–2 완료)
 - **날짜**: 2026-05-27
 - **대상 범위**: MVP 1단계 (수직 슬라이스 전략, [ADR-0008](../../adr/0008-mvp-strategy-vertical-slice.md))
 - **참조**: 전반 결정은 [ADR 인덱스](../../adr/README.md)
@@ -143,7 +143,173 @@ flowchart TD
 
 ## 2. 시나리오 데이터 모델
 
-*(다음 세션에서 작성)*
+### 2.1 핵심 원칙
+
+**하나의 canonical model. GUI와 YAML은 그 모델의 두 뷰일 뿐, 어느 쪽도 진실의 단독 소유자가 아니다.** 이 원칙이 깨지면 sync는 결국 깨진다. 구체적 구현은 [ADR-0015](../../adr/0015-bidirectional-sync-impl.md).
+
+### 2.2 Scenario vs Run Config (분리)
+
+[ADR-0013](../../adr/0013-scenario-runconfig-separation.md) 에 따라 분리한다.
+
+| 개념 | 무엇인가 | 누가 만드나 | 어디 저장 |
+|---|---|---|---|
+| **Scenario** | "VU 한 명이 무엇을 하는가" — HTTP 스텝·변수·추출 | QA가 GUI로 (개발자는 YAML로) | YAML, git |
+| **Run Config** | "몇 명, 얼마나 빠르게, 얼마나 오래" — VU·ramp-up·duration·env | QA가 실행 다이얼로그에서 | DB (runs 테이블) |
+| **Run** | 실제 실행 인스턴스 | 시스템 | DB + 메트릭 |
+
+### 2.3 Scenario 스키마 (canonical YAML)
+
+```yaml
+version: 1
+name: "User login then fetch profile"
+variables:
+  base_url: "https://api.internal.example.com"
+steps:
+  - id: "login"               # stable ULID (모델 ↔ 캔버스 매칭)
+    name: "Login"
+    type: http
+    request:
+      method: POST
+      url: "{{base_url}}/auth/login"
+      headers:
+        Content-Type: application/json
+      body:
+        json:
+          username: "${USERNAME}"
+          password: "${PASSWORD}"
+    assert:
+      - status: 200
+    extract:
+      - var: token
+        from: body
+        path: "$.access_token"
+
+  - id: "profile"
+    name: "Get profile"
+    type: http
+    request:
+      method: GET
+      url: "{{base_url}}/users/me"
+      headers:
+        Authorization: "Bearer {{token}}"
+    assert:
+      - status: 200
+```
+
+MVP 필드 참조:
+
+- `version`: 스키마 버전 (integer)
+- `name`: 사람이 읽는 시나리오 이름
+- `variables`: 시나리오 전체 기본 변수 map
+- `steps[]`: 순차 실행 스텝 배열 (loop/conditional은 후속 단계)
+- `steps[].id`: stable ULID, 자동 생성
+- `steps[].type`: MVP는 `http`만
+- `steps[].request.body`: `json` / `form` / `raw` 중 택일
+- `steps[].assert[]`: MVP는 `status: <code>` 만
+- `steps[].extract[]`: `from = body | header | status`; `path`는 JSONPath(body) 또는 헤더 이름
+
+### 2.4 Run Config 스키마
+
+```yaml
+scenario_id: "01HX..."
+profile:
+  vus: 100
+  ramp_up_seconds: 30
+  duration_seconds: 300
+env:
+  BASE_URL: "https://staging.internal.example.com"
+  USERNAME: "loadtest_user_${vu_id}"
+  PASSWORD: "..."
+```
+
+### 2.5 변수·env·시스템 변수 표기
+
+[ADR-0014](../../adr/0014-template-notation.md).
+
+| 표기 | 의미 | 평가 시점 |
+|---|---|---|
+| `{{var}}` | `scenario.variables` 또는 extract된 흐름 변수 | 매 요청 직전, VU별 컨텍스트 |
+| `${ENV}` | run config env var | run 시작 시 한 번 |
+| `${ENV:-default}` | env var, 없으면 default | run 시작 시 한 번 |
+| `${vu_id}` | 시스템: VU 순번 | 매 VU 시작 |
+| `${iter_id}` | 시스템: VU의 iteration 순번 | 매 iteration |
+
+### 2.6 GUI ↔ 모델 매핑
+
+| 모델 요소 | 캔버스에서 |
+|---|---|
+| `scenario.variables` | 좌측 패널 Variables 섹션, 키-값 폼 |
+| `scenario.steps[i]` | 캔버스 노드 1개 (id 기준) |
+| `steps[i].name` | 노드 라벨 |
+| `steps[i].type` | 노드 색상/아이콘 (MVP는 모두 `http` 동일) |
+| `steps[i+1].id` | 노드 i에서 그어진 화살표의 대상 |
+| 선택된 노드 | 우측 인스펙터에 request/assert/extract 폼 |
+| `extract[].var` | 노드 우상단 "exports: token" 뱃지 |
+
+후속 단계의 `loop`/`conditional` 노드는 모델에 `type: loop` 추가, 내부 `do: [...]` 중첩 — 캔버스에서는 컨테이너 노드로 시각화.
+
+### 2.7 양방향 sync 메커니즘
+
+[ADR-0015](../../adr/0015-bidirectional-sync-impl.md) 결정:
+
+- **Zustand** 단일 store가 canonical state
+- **Zod** schema로 TypeScript 타입과 런타임 validation 동시
+- **`yaml` 패키지 Document API** 로 AST 기반 round-trip (코멘트·키 순서 보존)
+- Monaco 편집은 **300ms 디바운스**, validation 실패 시 inline 에러 (store 미반영, 자유 편집 허용)
+- 모든 스텝에 **stable ULID** — 편집·재정렬에도 노드 추적
+
+### 2.8 알려진 MVP 한계
+
+- YAML 코멘트가 "지워진 키 옆"에 있던 경우는 GUI 편집 후 손실 가능
+- GUI가 표현하지 못하는 unknown 필드는 strict validation으로 거부 (k6 같은 자유 JS는 불가능)
+- Binary body (파일 업로드) 미지원 — 후속 단계
+
+### 2.9 SQLite 스키마 (MVP)
+
+```sql
+-- 시나리오 (YAML이 진실, DB는 캐시 + 검색용)
+CREATE TABLE scenarios (
+  id          TEXT PRIMARY KEY,        -- ULID
+  name        TEXT NOT NULL,
+  yaml        TEXT NOT NULL,           -- canonical YAML
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  version     INTEGER NOT NULL         -- 낙관적 락
+);
+
+-- run config + 실행 인스턴스
+CREATE TABLE runs (
+  id              TEXT PRIMARY KEY,
+  scenario_id     TEXT NOT NULL REFERENCES scenarios(id),
+  scenario_yaml   TEXT NOT NULL,       -- 실행 시점 snapshot
+  profile_json    TEXT NOT NULL,       -- vus, ramp_up, duration
+  env_json        TEXT NOT NULL,
+  status          TEXT NOT NULL,       -- pending|running|completed|failed|aborted
+  started_at      INTEGER,
+  ended_at        INTEGER,
+  created_at      INTEGER NOT NULL
+);
+
+-- 워커가 보낸 1초 윈도우 집계 메트릭
+CREATE TABLE run_metrics (
+  run_id           TEXT NOT NULL REFERENCES runs(id),
+  ts_second        INTEGER NOT NULL,   -- unix timestamp, 1초 정렬
+  step_id          TEXT NOT NULL,      -- scenario step id, 또는 "_all"
+  count            INTEGER NOT NULL,
+  error_count      INTEGER NOT NULL,
+  hdr_histogram    BLOB NOT NULL,      -- HDR Histogram 직렬화 (응답시간 µs)
+  status_counts    TEXT NOT NULL,      -- JSON: {"200": 950, "500": 50}
+  PRIMARY KEY (run_id, ts_second, step_id)
+);
+```
+
+`runs.scenario_yaml`을 snapshot으로 두는 이유: 시나리오가 수정돼도 과거 run 결과의 해석이 깨지지 않음 (git commit과 같은 원리).
+
+### 2.10 이 섹션에서 추가된 ADR
+
+- [ADR-0013](../../adr/0013-scenario-runconfig-separation.md) — Scenario / Run Config 분리
+- [ADR-0014](../../adr/0014-template-notation.md) — 변수·env·시스템 변수 표기 분리
+- [ADR-0015](../../adr/0015-bidirectional-sync-impl.md) — Zustand + Zod + YAML AST round-trip
 
 ## 3. Rust 엔진 구조
 

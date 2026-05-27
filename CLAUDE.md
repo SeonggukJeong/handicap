@@ -51,6 +51,9 @@ docs/
 - **0010** Controller ↔ Worker: gRPC bidi stream, 워커 pull/등록 모델
 - **0011** MVP 저장소: SQLite (HA·대용량 시 PostgreSQL 마이그레이션)
 - **0012** 워커가 메트릭 사전 집계 (1초 윈도우, HDR Histogram)
+- **0013** Scenario와 Run Config 분리 (시나리오는 git/YAML, run config는 DB)
+- **0014** 변수 표기 분리: `{{var}}` 흐름, `${ENV}` 환경, `${vu_id}` 시스템
+- **0015** 양방향 sync 구현: Zustand store + Zod 검증 + YAML AST round-trip
 
 ## 코딩 컨벤션
 
