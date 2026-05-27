@@ -4,7 +4,7 @@
 
 **상태: Slice 1(backend skeleton) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
 
-Slice 1 결과: REST API(`/scenarios`, `/runs`, `/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작. UI·K8s·라이브 대시보드·ramp-up·multi-step은 후속 슬라이스.
+Slice 1 결과: REST API(`/scenarios`, `/runs`, `/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작. UI·K8s·ramp-up·multi-step은 후속 슬라이스. 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
 ## 한 줄 아키텍처
 
