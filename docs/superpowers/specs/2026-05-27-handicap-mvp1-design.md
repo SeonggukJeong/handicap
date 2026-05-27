@@ -28,7 +28,7 @@ flowchart TD
     UI["Web UI (React SPA)<br/>React Flow + Monaco + Zustand"]
   end
 
-  subgraph K8s["Kubernetes (kind/k3s dev · 사내 K8s prod)"]
+  subgraph K8s["Kubernetes (kind for dev · 사내 K8s for prod, ADR-0007)"]
     subgraph Ctrl["Controller Pod (1 replica)"]
       API["HTTP API<br/>axum"]
       Coord["Worker Coordinator<br/>gRPC server (tonic)"]
@@ -115,7 +115,7 @@ flowchart TD
 **IN — MVP 1단계에 포함**
 - 시나리오 노드 1종: `HTTP request` (method, URL, headers, body, basic assertion: status code)
 - 변수: env vars + 한 응답에서 JSON path로 값 추출 → 다음 요청에서 사용
-- 실행: 컨트롤러 1 + 워커 1, k3s/kind 단일 노드에서 1k VU
+- 실행: 컨트롤러 1 + 워커 1, kind 단일 노드 (ADR-0007)에서 1k VU
 - 메트릭: 1초 윈도우 RPS, 응답시간 p50/p95/p99, status code 분포, 에러 카운트
 - UI: 드래그-드롭 캔버스 (1종 노드만), YAML 뷰, 양방향 sync, run 시작·진행률·리포트 페이지
 - 저장: SQLite (컨트롤러 내장)
@@ -439,10 +439,10 @@ VU task ─┘                                                       │
 - [ ] QA가 빈 캔버스에 HTTP 노드 1개 끌어다 놓고 URL·method·헤더 입력 후 시나리오 저장 가능
 - [ ] 저장된 시나리오를 YAML 탭에서 열면 같은 내용이 보임 (양방향 sync 1차 확인)
 - [ ] 개발자가 YAML 탭에서 헤더 1줄 추가·저장 후 캔버스 탭으로 돌아가면 인스펙터에 반영
-- [ ] "Run" 다이얼로그에서 100 VU / 30초 / env 1개 입력 후 실행 가능
+- [ ] "Run" 다이얼로그에서 100 VU / ramp-up 10초 / duration 30초 / env 1개 입력 후 실행 가능
 - [ ] 실행 중 페이지에서 1초마다 진행률 % 와 현재 RPS 갱신
 - [ ] 실행 종료 후 같은 페이지가 리포트로 전환: 요약 카드·시계열 3개·스텝별 테이블·status 분포 모두 표시
-- [ ] 같은 시나리오를 1000 VU / 5분으로 재실행 가능, 새 run 페이지가 별도로 생성됨
+- [ ] 같은 시나리오를 1000 VU / ramp-up 30초 / duration 5분으로 재실행 가능, 새 run 페이지가 별도로 생성됨
 
 ### 4.2 기술 (배포·운영)
 
@@ -455,7 +455,7 @@ VU task ─┘                                                       │
 ### 4.3 성능
 
 - [ ] 단일 워커가 5,000 RPS 이상 유지 (대상: 1KB JSON 응답 GET, 동일 호스트)
-- [ ] 메트릭 집계로 인한 throughput 오버헤드 5% 미만 (raw 비교)
+- [ ] 메트릭 집계 활성/비활성 비교 시 throughput 차이 5% 미만 (메트릭 비활성 baseline 대비)
 - [ ] 컨트롤러 idle 메모리 256MB 이하, run 중 512MB 이하
 - [ ] 1만 행 메트릭이 저장된 SQLite에서 리포트 페이지 초기 렌더 2초 이내
 
@@ -470,7 +470,7 @@ VU task ─┘                                                       │
 
 ### 4.5 의도적으로 MVP 외 (다음 단계의 첫 후보)
 
-- HTTP 외 다른 노드 종류 (POST 변형은 들어가지만 loop·conditional·parallel은 아님)
+- HTTP 외 다른 노드 종류 (loop, conditional, parallel, WebSocket 등). 참고: HTTP request 노드 자체는 GET·POST·PUT·DELETE 등 method를 모두 지원하므로 별도 노드가 아니다.
 - 다중 워커 자동 스케일링 (워커는 1대 고정)
 - LoadRunner급 리포트 깊이 (run 비교·SLA·트랜잭션 분해)
 - 인증·RBAC·사용자 계정
