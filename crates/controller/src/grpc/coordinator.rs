@@ -179,6 +179,15 @@ impl Coordinator for CoordinatorService {
                                 Some(now_ms()),
                             )
                             .await;
+                        } else if s.phase == pb::run_status::Phase::Aborted as i32 {
+                            let _ = runs::set_status(
+                                &state.db,
+                                &s.run_id,
+                                RunStatus::Aborted,
+                                None,
+                                Some(now_ms()),
+                            )
+                            .await;
                         }
                     }
                     Some(WorkerPayload::Pong(_)) => {}

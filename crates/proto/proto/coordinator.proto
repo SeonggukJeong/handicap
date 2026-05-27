@@ -53,6 +53,7 @@ message RunStatus {
     PHASE_STARTED = 1;
     PHASE_COMPLETED = 2;
     PHASE_FAILED = 3;
+    PHASE_ABORTED = 4;
   }
 }
 

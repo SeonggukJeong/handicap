@@ -1,4 +1,5 @@
-/// Tests for Task 9: env/ramp-up wiring and abort via CancellationToken.
+/// Tests for Task 9 + F3: env/ramp-up wiring, abort via CancellationToken,
+/// and phase mapping (phase_for_result helper).
 ///
 /// These tests exercise the RunPlan construction logic and abort signalling
 /// without requiring a real gRPC server. They validate that:

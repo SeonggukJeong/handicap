@@ -138,20 +138,15 @@ async fn main() -> anyhow::Result<()> {
 
     forwarder.await.ok();
 
-    // Determine final phase.  Aborted is not a failure from the worker's
-    // perspective: the controller already marks the run aborted, so we send
-    // Completed to close the stream cleanly without cluttering logs.
-    let (phase, message) = match &run_res {
-        Ok(()) => (pb::run_status::Phase::Completed as i32, String::new()),
-        Err(EngineError::Aborted) => {
-            info!(run_id = %args.run_id, "run aborted");
-            (pb::run_status::Phase::Completed as i32, String::new())
-        }
-        Err(e) => {
-            tracing::warn!(run_id = %args.run_id, error = ?e, "run failed");
-            (pb::run_status::Phase::Failed as i32, e.to_string())
-        }
-    };
+    // Phase::Aborted signals the controller to mark the run as aborted (matching
+    // the REST abort path). The store's set_status has a guard against overwriting
+    // an already-aborted row, so this is idempotent.
+    if matches!(&run_res, Err(EngineError::Aborted)) {
+        info!(run_id = %args.run_id, "run aborted");
+    } else if let Err(e) = &run_res {
+        tracing::warn!(run_id = %args.run_id, error = ?e, "run failed");
+    }
+    let (phase, message) = phase_for_result(&run_res);
     let msg = WorkerMessage {
         payload: Some(WorkerPayload::RunStatus(RunStatus {
             run_id: args.run_id.clone(),
@@ -165,4 +160,48 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
     info!("worker done");
     Ok(())
+}
+
+/// Map an engine result to the gRPC `Phase` discriminant and error message string.
+///
+/// `Phase::Aborted` signals the controller to mark the run as aborted (matching
+/// the REST abort path). The store's `set_status` has a SQL guard against
+/// overwriting an already-aborted row, so the round-trip is idempotent.
+fn phase_for_result(res: &Result<(), EngineError>) -> (i32, String) {
+    match res {
+        Ok(()) => (pb::run_status::Phase::Completed as i32, String::new()),
+        Err(EngineError::Aborted) => (pb::run_status::Phase::Aborted as i32, String::new()),
+        Err(e) => (pb::run_status::Phase::Failed as i32, e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use handicap_engine::EngineError;
+
+    #[test]
+    fn phase_for_aborted_is_aborted() {
+        let res: Result<(), EngineError> = Err(EngineError::Aborted);
+        let (phase, msg) = phase_for_result(&res);
+        assert_eq!(phase, pb::run_status::Phase::Aborted as i32);
+        assert_eq!(msg, "");
+    }
+
+    #[test]
+    fn phase_for_ok_is_completed() {
+        let (phase, _) = phase_for_result(&Ok(()));
+        assert_eq!(phase, pb::run_status::Phase::Completed as i32);
+    }
+
+    #[test]
+    fn phase_for_other_error_is_failed() {
+        let res: Result<(), EngineError> = Err(EngineError::AllVusFailed {
+            failed: 5,
+            total: 5,
+        });
+        let (phase, msg) = phase_for_result(&res);
+        assert_eq!(phase, pb::run_status::Phase::Failed as i32);
+        assert!(!msg.is_empty(), "failure message should be non-empty");
+    }
 }

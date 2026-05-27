@@ -322,6 +322,36 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
 }
 
 #[tokio::test]
+async fn worker_aborted_phase_lands_as_aborted_status() {
+    // F3 regression: when the worker sends PHASE_ABORTED (new proto value),
+    // the controller must map it to RunStatus::Aborted — not silently ignore it.
+    use handicap_controller::store::runs::{RunStatus, set_status};
+
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    let yaml = "version: 1\nname: phase-aborted-guard\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+    let run_id = create_run(&app, &scenario_id).await;
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    // Simulate the coordinator handling a worker's PHASE_ABORTED RunStatus.
+    set_status(&db, &run_id, RunStatus::Aborted, None, Some(now_ms))
+        .await
+        .unwrap();
+
+    let status_final = get_run_status(&app, &run_id).await;
+    assert_eq!(
+        status_final, "aborted",
+        "PHASE_ABORTED must land as aborted status in DB"
+    );
+}
+
+#[tokio::test]
 async fn aborted_status_not_overwritten_by_completed() {
     // Regression: the worker sends RunStatus::Completed after observing cancel,
     // but set_status must not clobber a terminal 'aborted' written by the REST abort path.
