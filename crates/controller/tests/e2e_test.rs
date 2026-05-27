@@ -47,6 +47,13 @@ async fn full_slice_1_e2e() {
     let worker_bin = worker_bin_path();
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
+    let ui_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        ui_dir.path().join("index.html"),
+        "<!doctype html><html><body><div id=\"root\">slice2-marker</div></body></html>",
+    )
+    .unwrap();
+
     // 1. Mock target.
     let target = MockServer::start().await;
     Mock::given(method("GET"))
@@ -67,6 +74,7 @@ async fn full_slice_1_e2e() {
         coord: coord.clone(),
         worker_bin: worker_bin.to_string_lossy().to_string(),
         grpc_addr,
+        ui_dir: Some(ui_dir.path().to_path_buf()),
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
@@ -92,7 +100,7 @@ async fn full_slice_1_e2e() {
         target.uri()
     );
     let v: Value = http
-        .post(format!("{}/scenarios", rest_base))
+        .post(format!("{}/api/scenarios", rest_base))
         .json(&json!({ "yaml": scenario_yaml }))
         .send()
         .await
@@ -104,7 +112,7 @@ async fn full_slice_1_e2e() {
 
     // 5. Create a run (2 VUs, 2s duration).
     let v: Value = http
-        .post(format!("{}/runs", rest_base))
+        .post(format!("{}/api/runs", rest_base))
         .json(&json!({
             "scenario_id": scenario_id,
             "profile": { "vus": 2, "duration_seconds": 2 },
@@ -123,7 +131,7 @@ async fn full_slice_1_e2e() {
     let mut last_status = String::new();
     while std::time::Instant::now() < deadline {
         let v: Value = http
-            .get(format!("{}/runs/{}", rest_base, run_id))
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
             .send()
             .await
             .unwrap()
@@ -143,7 +151,7 @@ async fn full_slice_1_e2e() {
 
     // 7. Metrics endpoint returns at least one window with non-zero count.
     let metrics: Value = http
-        .get(format!("{}/runs/{}/metrics", rest_base, run_id))
+        .get(format!("{}/api/runs/{}/metrics", rest_base, run_id))
         .send()
         .await
         .unwrap()
@@ -162,6 +170,27 @@ async fn full_slice_1_e2e() {
         .map(|w| w["error_count"].as_u64().unwrap_or(0))
         .sum();
     assert_eq!(errors, 0, "no assertion errors expected");
+
+    // Bonus: SPA fallback works for unknown route.
+    let resp = http
+        .get(format!("{}/scenarios/nope", rest_base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("slice2-marker"),
+        "SPA fallback should serve index.html"
+    );
+
+    // API still works under /api after we added ui_dir.
+    let resp = http
+        .get(format!("{}/api/health", rest_base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
 
     rest_handle.abort();
     grpc_handle.abort();

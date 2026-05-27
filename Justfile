@@ -19,3 +19,28 @@ run-controller:
 # Direct worker run for manual testing (controller normally spawns it)
 run-worker run_id worker_id:
     RUST_LOG=info,handicap_worker=debug,handicap_engine=debug cargo run -p handicap-worker -- --controller http://127.0.0.1:8081 --run-id {{run_id}} --worker-id {{worker_id}}
+
+ui-install:
+    cd ui && pnpm install --frozen-lockfile
+
+ui-dev:
+    cd ui && pnpm dev
+
+ui-build:
+    cd ui && pnpm build
+
+ui-lint:
+    cd ui && pnpm lint
+
+ui-test:
+    cd ui && pnpm test
+
+# Run the controller with the UI dir set (build the UI first if needed).
+run-controller-with-ui:
+    @if [ ! -f ui/dist/index.html ]; then just ui-build; fi
+    RUST_LOG=info,handicap=debug cargo run -p handicap-controller -- \
+      --db ./handicap.db \
+      --rest 127.0.0.1:8080 \
+      --grpc 127.0.0.1:8081 \
+      --worker-bin target/debug/worker \
+      --ui-dir ui/dist
