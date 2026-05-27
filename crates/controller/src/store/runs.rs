@@ -122,6 +122,37 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     }))
 }
 
+pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
+    let rows = sqlx::query(
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at \
+         FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
+    )
+    .bind(scenario_id)
+    .fetch_all(db)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let profile: Profile =
+            serde_json::from_str(r.get::<String, _>("profile_json").as_str()).unwrap();
+        let env: serde_json::Value =
+            serde_json::from_str(r.get::<String, _>("env_json").as_str()).unwrap();
+        let status =
+            RunStatus::parse(r.get::<String, _>("status").as_str()).unwrap_or(RunStatus::Failed);
+        out.push(RunRow {
+            id: r.get("id"),
+            scenario_id: r.get("scenario_id"),
+            scenario_yaml: r.get("scenario_yaml"),
+            profile,
+            env,
+            status,
+            started_at: r.get("started_at"),
+            ended_at: r.get("ended_at"),
+            created_at: r.get("created_at"),
+        });
+    }
+    Ok(out)
+}
+
 pub async fn set_status(
     db: &Db,
     id: &str,

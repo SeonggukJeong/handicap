@@ -18,8 +18,15 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/scenarios", post(scenarios_api::create))
-        .route("/scenarios/{id}", get(scenarios_api::get))
+        .route(
+            "/scenarios",
+            post(scenarios_api::create).get(scenarios_api::list),
+        )
+        .route(
+            "/scenarios/{id}",
+            get(scenarios_api::get).put(scenarios_api::update),
+        )
+        .route("/scenarios/{id}/runs", get(runs_api::list_for_scenario))
         .route("/runs", post(runs_api::create))
         .route("/runs/{id}", get(runs_api::get))
         .route("/runs/{id}/metrics", get(runs_api::metrics));

@@ -89,6 +89,25 @@ pub async fn metrics(
     Ok(Json(s))
 }
 
+#[derive(Debug, Serialize)]
+pub struct RunListResponse {
+    pub runs: Vec<RunResponse>,
+}
+
+pub async fn list_for_scenario(
+    State(state): State<AppState>,
+    Path(scenario_id): Path<String>,
+) -> Result<Json<RunListResponse>, ApiError> {
+    // 404 if scenario doesn't exist (so the UI distinguishes empty from missing).
+    let _ = scenarios::get(&state.db, &scenario_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let rows = runs::list_by_scenario(&state.db, &scenario_id).await?;
+    Ok(Json(RunListResponse {
+        runs: rows.into_iter().map(to_response).collect(),
+    }))
+}
+
 fn to_response(r: runs::RunRow) -> RunResponse {
     RunResponse {
         id: r.id,

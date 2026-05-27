@@ -58,3 +58,55 @@ pub async fn get(
         updated_at: row.updated_at,
     }))
 }
+
+#[derive(Debug, Serialize)]
+pub struct ScenarioListResponse {
+    pub scenarios: Vec<ScenarioResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRequest {
+    pub yaml: String,
+    pub version: i64,
+}
+
+pub async fn list(State(state): State<AppState>) -> Result<Json<ScenarioListResponse>, ApiError> {
+    let rows = scenarios::list(&state.db).await?;
+    Ok(Json(ScenarioListResponse {
+        scenarios: rows
+            .into_iter()
+            .map(|r| ScenarioResponse {
+                id: r.id,
+                name: r.name,
+                yaml: r.yaml,
+                version: r.version,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateRequest>,
+) -> Result<Json<ScenarioResponse>, ApiError> {
+    let parsed = Scenario::from_yaml(&body.yaml)?;
+    let outcome = scenarios::update(&state.db, &id, &parsed.name, &body.yaml, body.version).await?;
+    match outcome {
+        scenarios::UpdateOutcome::Updated(row) => Ok(Json(ScenarioResponse {
+            id: row.id,
+            name: row.name,
+            yaml: row.yaml,
+            version: row.version,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })),
+        scenarios::UpdateOutcome::NotFound => Err(ApiError::NotFound),
+        scenarios::UpdateOutcome::VersionMismatch { current } => Err(ApiError::Conflict(format!(
+            "stale version: client sent {}, current is {}",
+            body.version, current
+        ))),
+    }
+}

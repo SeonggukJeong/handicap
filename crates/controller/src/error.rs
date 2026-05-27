@@ -8,6 +8,8 @@ use thiserror::Error;
 pub enum ApiError {
     #[error("not found")]
     NotFound,
+    #[error("conflict: {0}")]
+    Conflict(String),
     #[error("bad request: {0}")]
     BadRequest(String),
     #[error("db: {0}")]
@@ -22,6 +24,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, msg) = match &self {
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string()),
+            ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             ApiError::Scenario(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             ApiError::Db(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
