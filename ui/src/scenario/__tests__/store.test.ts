@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { useScenarioEditor } from "../store";
+import type { Extract } from "../model";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -129,5 +130,23 @@ steps:
     const s = useScenarioEditor.getState();
     expect(s.selectedStepId).toBe("01HX0000000000000000000002");
     expect(s.model!.steps).toHaveLength(1);
+  });
+});
+
+describe("setStepExtract", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("replaces the extract list and reflects in yamlText", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const stepId = "01HX0000000000000000000001";
+    const extracts: Extract[] = [
+      { var: "token", from: "body", path: "$.access_token" },
+    ];
+    useScenarioEditor.getState().setStepExtract(stepId, extracts);
+    const s = useScenarioEditor.getState();
+    expect(s.model!.steps[0].extract).toEqual(extracts);
+    expect(s.yamlText).toContain("$.access_token");
   });
 });
