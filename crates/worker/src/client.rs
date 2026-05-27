@@ -17,6 +17,8 @@ use crate::error::WorkerError;
 pub struct WorkerLink {
     pub tx: mpsc::Sender<WorkerMessage>,
     pub assignment: RunAssignment,
+    // Held to keep the inbound consumer task alive; never read in Slice 1.
+    #[allow(dead_code)]
     pub inbound: tokio::task::JoinHandle<()>,
 }
 
