@@ -7,3 +7,16 @@ describe("vitest scaffold", () => {
     expect(1 + 1).toBe(2);
   });
 });
+
+describe("Layout", () => {
+  it.todo("renders Handicap brand link to /");
+  it.todo("renders Outlet for routed pages");
+});
+
+describe("AppRouter", () => {
+  it.todo("renders ScenarioListPage at /");
+  it.todo("renders ScenarioNewPage at /scenarios/new");
+  it.todo("renders ScenarioEditPage at /scenarios/:id");
+  it.todo("renders ScenarioRunsPage at /scenarios/:id/runs");
+  it.todo("renders RunDetailPage at /runs/:id");
+});
