@@ -2,7 +2,9 @@
 
 사내 QA·운영팀을 위한 부하 테스트 도구. REST API를 대상으로, **QA는 드래그-드롭으로 시나리오를 만들고**, **개발자는 같은 시나리오를 YAML/DSL로 편집** 한다 (두 뷰가 같은 모델의 양방향 sync). LoadRunner/JMeter를 사내에서 대체하는 것이 목표.
 
-**상태: pre-MVP, 설계 단계.** 디자인 문서 → `docs/superpowers/specs/`. 결정 기록 → `docs/adr/`.
+**상태: Slice 1(backend skeleton) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
+
+Slice 1 결과: REST API(`/scenarios`, `/runs`, `/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작. UI·K8s·라이브 대시보드·ramp-up·multi-step은 후속 슬라이스.
 
 ## 한 줄 아키텍처
 
@@ -17,6 +19,34 @@ Rust 엔진(컨트롤러 + 워커, K8s Pod로 배포) + TypeScript/React 웹 UI.
 | **프로덕션** | 사내 K8s 도입 후 | upstream Kubernetes에 Helm 배포 |
 
 **로컬 dev에서 docker-compose나 k3s를 쓰지 말 것.** 이유는 [ADR-0007](docs/adr/0007-local-k8s-kind-not-k3s.md).
+
+## 개발 환경 세팅
+
+처음 클론한 머신에서:
+
+```bash
+# Rust toolchain (workspace는 edition 2024 + MSRV 1.85)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+  --default-toolchain stable --component rustfmt --component clippy
+. "$HOME/.cargo/env"
+
+# protoc (tonic-build이 빌드 타임에 사용) + just (태스크 러너)
+brew install protobuf just
+
+# 확인
+cargo --version && rustc --version && protoc --version && just --version
+
+# 슬라이스 1 acceptance
+just build && just lint && just test     # 18 tests must pass
+```
+
+`rust-toolchain.toml`이 stable 채널을 고정하므로 `cargo` 호출만 해도 올바른 toolchain을 잡는다.
+
+## 검증 자동화 (git pre-commit hook)
+
+`.git/hooks/pre-commit`이 모든 커밋에 대해 `cargo fmt --check + cargo build --workspace + cargo test --workspace`를 실행한다 (워크스페이스가 coherent하지 않으면 per-crate 모드로 fallback). hook은 git common dir에 있어 모든 worktree에 적용된다. 새 머신에서는 `chmod +x .git/hooks/pre-commit`이 한 번 필요할 수 있다.
+
+`--no-verify`로 hook 우회 금지 (사용자 명시 요청 없이는). 회귀가 생긴 채로 커밋이 들어가면 후속 작업이 모두 빨갛게 됨.
 
 ## 디렉토리 (MVP 계획)
 
@@ -60,8 +90,18 @@ docs/
 
 ## 코딩 컨벤션
 
-- **Rust**: `cargo fmt`, `cargo clippy -- -D warnings`, 테스트 `cargo test`
+- **Rust**: `cargo fmt`, `cargo clippy -- -D warnings`, 테스트 `cargo test`. workspace `members = ["crates/*"]` glob — 새 crate는 `crates/<name>/Cargo.toml`만 만들면 자동 인식.
 - **TypeScript**: prettier + eslint, 테스트 vitest
+
+## Slice 1에서 배운 함정들
+
+- **axum 0.8 path syntax**: `/scenarios/:id` 아님, `/scenarios/{id}`. 0.7 문서/예제 검색하면 함정.
+- **serde_yaml 0.9 + externally-tagged enum w/ map variants**: derive(Serialize, Deserialize)가 round-trip 안 됨. `Assertion::Status(u16)` 같은 enum은 손수 `Serialize`/`Deserialize` 구현해서 `{key: value}` 맵 형태로 처리. (`crates/engine/src/scenario.rs::Assertion` 참고.)
+- **mpsc 플러셔 종료**: 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
+- **tonic `Channel::from_shared` 오류 타입**: `tonic::transport::Error` 아니라 `tonic::codegen::http::uri::InvalidUri`. WorkerError에 따로 variant 필요.
+- **tokio JoinHandle drop ≠ abort**: handle을 drop해도 spawn된 task는 detached로 계속 돈다. 종료시키려면 명시적으로 `.abort()`.
+
+## 새로운 아키텍처 결정이 생기면
 
 ## 새로운 아키텍처 결정이 생기면
 
