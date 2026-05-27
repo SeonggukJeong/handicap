@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{Aggregator, StepWindow};
@@ -16,7 +17,9 @@ use crate::template::TemplateContext;
 #[derive(Debug, Clone)]
 pub struct RunPlan {
     pub vus: u32,
+    pub ramp_up: Duration,
     pub duration: Duration,
+    pub env: BTreeMap<String, String>,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -25,25 +28,65 @@ pub async fn run_scenario(
     scenario: Arc<Scenario>,
     plan: RunPlan,
     out: mpsc::Sender<Vec<StepWindow>>,
+    cancel: CancellationToken,
 ) -> Result<()> {
     let agg = Arc::new(Mutex::new(Aggregator::new()));
-    let deadline = Instant::now() + plan.duration;
+    let started_at = Instant::now();
+    let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
+    let env = Arc::new(plan.env);
 
     let mut set = JoinSet::new();
-    for vu_id in 0..plan.vus {
-        let scenario = scenario.clone();
-        let agg = agg.clone();
-        let failed = failed.clone();
-        set.spawn(async move {
-            if let Err(e) = run_vu(scenario, vu_id, agg, deadline).await {
-                warn!(vu_id, error = ?e, "vu failed");
-                failed.fetch_add(1, Ordering::Relaxed);
+
+    let ramp_secs = plan.ramp_up.as_secs();
+    let per_tick: u32 = if ramp_secs == 0 || plan.vus == 0 {
+        plan.vus
+    } else {
+        plan.vus.div_ceil(ramp_secs as u32).max(1)
+    };
+
+    let mut spawned: u32 = 0;
+    let mut next_spawn = started_at;
+
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+        if spawned >= plan.vus {
+            break;
+        }
+        if Instant::now() < next_spawn {
+            // Sleep until the next tick OR until cancel fires.
+            let until = next_spawn.saturating_duration_since(Instant::now());
+            tokio::select! {
+                _ = tokio::time::sleep(until) => {}
+                _ = cancel.cancelled() => break,
             }
-        });
+            continue;
+        }
+        let mut spawn_now = per_tick.min(plan.vus - spawned);
+        while spawn_now > 0 {
+            let vu_id = spawned;
+            let scenario = scenario.clone();
+            let agg = agg.clone();
+            let failed = failed.clone();
+            let env = env.clone();
+            let cancel_vu = cancel.clone();
+            set.spawn(async move {
+                if let Err(e) = run_vu(scenario, vu_id, agg, deadline, env, cancel_vu).await {
+                    if !matches!(e, EngineError::Aborted) {
+                        warn!(vu_id, error = ?e, "vu failed");
+                    }
+                    failed.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            spawned += 1;
+            spawn_now -= 1;
+        }
+        next_spawn = next_spawn + Duration::from_secs(1);
     }
 
-    // Flush loop — until all VUs finish.
+    // Flusher: drain completed 1s windows until the run ends.
     let flush_agg = agg.clone();
     let flush_out = out.clone();
     let flusher = tokio::spawn(async move {
@@ -72,21 +115,20 @@ pub async fn run_scenario(
         }
     }
 
-    // Final drain after all VUs are done.
     let final_windows = agg.lock().await.drain_all();
     if !final_windows.is_empty() {
         let _ = out.send(final_windows).await;
     }
-    // Drop out (last sender) so the receiver side sees EOF, then abort the
-    // flusher which still holds its own clone of the sender.
     drop(out);
     flusher.abort();
-    let _ = flusher.await; // JoinError::Cancelled is fine
+    let _ = flusher.await;
+
+    if cancel.is_cancelled() {
+        return Err(EngineError::Aborted);
+    }
 
     let failed_count = failed.load(Ordering::Relaxed);
     if plan.vus > 0 && failed_count >= plan.vus {
-        // Every VU errored before completing — surface so the worker reports
-        // RunStatus::Failed instead of pretending the run succeeded silently.
         warn!(failed = failed_count, total = plan.vus, "all VUs failed");
         return Err(EngineError::AllVusFailed {
             failed: failed_count,
@@ -105,28 +147,38 @@ pub async fn run_scenario(
     Ok(())
 }
 
-#[instrument(skip(scenario, agg), fields(vu_id))]
+#[instrument(skip(scenario, agg, env), fields(vu_id))]
 async fn run_vu(
     scenario: Arc<Scenario>,
     vu_id: u32,
     agg: Arc<Mutex<Aggregator>>,
     deadline: Instant,
+    env: Arc<BTreeMap<String, String>>,
+    cancel: CancellationToken,
 ) -> Result<()> {
     let client = VuClient::new(scenario.cookie_jar)?;
     let mut iter_id: u32 = 0;
     while Instant::now() < deadline {
+        if cancel.is_cancelled() {
+            return Err(EngineError::Aborted);
+        }
+        // Per-iteration flow vars: start fresh from the scenario base.
+        let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
         for step in &scenario.steps {
             if Instant::now() >= deadline {
                 return Ok(());
             }
-            let empty_env: BTreeMap<String, String> = BTreeMap::new();
+            if cancel.is_cancelled() {
+                return Err(EngineError::Aborted);
+            }
             let ctx = TemplateContext {
-                vars: &scenario.variables,
-                env: &empty_env,
+                vars: &iter_vars,
+                env: env.as_ref(),
                 vu_id,
                 iter_id,
             };
             let outcome = execute_step(&client, step, &ctx).await?;
+            iter_vars.extend(outcome.extracted.clone());
             let mut a = agg.lock().await;
             a.record(
                 &outcome.step_id,

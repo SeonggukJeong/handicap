@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,6 +9,7 @@ use handicap_proto::v1 as pb;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{MetricBatch, MetricWindow, RunStatus, WorkerMessage};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -53,7 +55,9 @@ async fn main() -> anyhow::Result<()> {
     let profile = assignment.profile.expect("assignment must include profile");
     let plan = RunPlan {
         vus: profile.vus,
+        ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(profile.duration_seconds as u64),
+        env: BTreeMap::new(),
     };
     info!(
         vus = plan.vus,
@@ -104,7 +108,9 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let run_res = run_scenario(scenario, plan, win_tx).await;
+    // Task 9 will wire real abort plumbing; for now use a no-op token.
+    let cancel = CancellationToken::new();
+    let run_res = run_scenario(scenario, plan, win_tx, cancel).await;
     forwarder.await.ok();
 
     let phase = if run_res.is_ok() {

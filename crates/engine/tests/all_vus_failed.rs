@@ -28,11 +28,14 @@ steps:
     let scenario = Arc::new(Scenario::from_yaml(yaml).unwrap());
     let plan = RunPlan {
         vus: 3,
+        ramp_up: std::time::Duration::from_secs(0),
         duration: Duration::from_millis(200),
+        env: std::collections::BTreeMap::new(),
     };
     let (tx, _rx) = mpsc::channel(64);
+    let cancel = tokio_util::sync::CancellationToken::new();
 
-    let res = run_scenario(scenario, plan, tx).await;
+    let res = run_scenario(scenario, plan, tx, cancel).await;
 
     match res {
         Err(EngineError::AllVusFailed { failed, total }) => {
