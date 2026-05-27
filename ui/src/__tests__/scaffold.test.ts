@@ -103,3 +103,14 @@ describe("ScenarioRunsPage", () => {
   it.todo("renders empty-runs copy when 0 runs");
   it.todo("renders one row per run with status badge and view link");
 });
+
+describe("RunDetailPage", () => {
+  it.todo("Loading state while run query pending");
+  it.todo("renders error message when run query fails");
+  it.todo("derives terminal flag from status and passes paused to useRunMetrics");
+  it.todo("computes totalCount, totalErrors, rps from metric windows");
+  it.todo("renders summary cards (VUs, Duration, Total requests, Errors, RPS, Created)");
+  it.todo("renders 'Waiting for first batch…' before metrics arrive when not terminal");
+  it.todo("renders 'No metrics recorded.' when terminal and no windows");
+  it.todo("renders one row per metric window, status codes joined as 'CODE:count' tokens");
+});
