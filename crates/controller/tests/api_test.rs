@@ -21,7 +21,7 @@ async fn create_and_get_scenario() {
     });
     let req = Request::builder()
         .method(Method::POST)
-        .uri("/scenarios")
+        .uri("/api/scenarios")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
@@ -35,7 +35,7 @@ async fn create_and_get_scenario() {
 
     let req = Request::builder()
         .method(Method::GET)
-        .uri(format!("/scenarios/{id}"))
+        .uri(format!("/api/scenarios/{id}"))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -55,7 +55,7 @@ async fn rejects_invalid_yaml() {
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
         .method(Method::POST)
-        .uri("/scenarios")
+        .uri("/api/scenarios")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
@@ -80,7 +80,7 @@ async fn create_run_for_scenario() {
     });
     let req = Request::builder()
         .method(Method::POST)
-        .uri("/scenarios")
+        .uri("/api/scenarios")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
@@ -99,7 +99,7 @@ async fn create_run_for_scenario() {
     });
     let req = Request::builder()
         .method(Method::POST)
-        .uri("/runs")
+        .uri("/api/runs")
         .header("content-type", "application/json")
         .body(Body::from(run_body.to_string()))
         .unwrap();

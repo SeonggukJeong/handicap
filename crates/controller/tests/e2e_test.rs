@@ -92,7 +92,7 @@ async fn full_slice_1_e2e() {
         target.uri()
     );
     let v: Value = http
-        .post(format!("{}/scenarios", rest_base))
+        .post(format!("{}/api/scenarios", rest_base))
         .json(&json!({ "yaml": scenario_yaml }))
         .send()
         .await
@@ -104,7 +104,7 @@ async fn full_slice_1_e2e() {
 
     // 5. Create a run (2 VUs, 2s duration).
     let v: Value = http
-        .post(format!("{}/runs", rest_base))
+        .post(format!("{}/api/runs", rest_base))
         .json(&json!({
             "scenario_id": scenario_id,
             "profile": { "vus": 2, "duration_seconds": 2 },
@@ -123,7 +123,7 @@ async fn full_slice_1_e2e() {
     let mut last_status = String::new();
     while std::time::Instant::now() < deadline {
         let v: Value = http
-            .get(format!("{}/runs/{}", rest_base, run_id))
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
             .send()
             .await
             .unwrap()
@@ -143,7 +143,7 @@ async fn full_slice_1_e2e() {
 
     // 7. Metrics endpoint returns at least one window with non-zero count.
     let metrics: Value = http
-        .get(format!("{}/runs/{}/metrics", rest_base, run_id))
+        .get(format!("{}/api/runs/{}/metrics", rest_base, run_id))
         .send()
         .await
         .unwrap()
