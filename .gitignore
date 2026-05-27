@@ -5,3 +5,7 @@
 *.db-shm
 *.db-wal
 .DS_Store
+ui/node_modules
+ui/dist
+ui/.vite
+ui/coverage
