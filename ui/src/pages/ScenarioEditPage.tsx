@@ -2,18 +2,21 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useScenario, useUpdateScenario } from "../api/hooks";
 import { Button } from "../components/Button";
+import { EditorShell } from "../components/scenario/EditorShell";
 
 export function ScenarioEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, isLoading, error } = useScenario(id);
   const update = useUpdateScenario(id ?? "");
-  const [yaml, setYaml] = useState<string>("");
+  const [yamlText, setYamlText] = useState<string>("");
   const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
+  const [originalYaml, setOriginalYaml] = useState<string>("");
 
   useEffect(() => {
     if (data) {
-      setYaml(data.yaml);
+      setYamlText(data.yaml);
+      setOriginalYaml(data.yaml);
       setLoadedVersion(data.version);
     }
   }, [data]);
@@ -22,11 +25,11 @@ export function ScenarioEditPage() {
   if (error) return <p className="text-red-600">Failed: {(error as Error).message}</p>;
   if (!data) return <p className="text-slate-500">Not found.</p>;
 
-  const dirty = data.yaml !== yaml;
+  const dirty = originalYaml !== yamlText;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">{data.name}</h2>
           <p className="text-sm text-slate-600">
@@ -40,24 +43,20 @@ export function ScenarioEditPage() {
         </div>
       </div>
 
-      <textarea
-        className="w-full h-96 font-mono text-sm border border-slate-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-slate-400"
-        value={yaml}
-        onChange={(e) => setYaml(e.target.value)}
-        spellCheck={false}
-      />
+      <EditorShell initialYaml={data.yaml} onChange={setYamlText} />
 
-      {update.error && <p className="mt-3 text-red-600">{(update.error as Error).message}</p>}
+      {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
 
-      <div className="mt-4 flex gap-2">
+      <div className="flex gap-2">
         <Button
           onClick={() =>
             loadedVersion !== null &&
             update.mutate(
-              { yaml, version: loadedVersion },
+              { yaml: yamlText, version: loadedVersion },
               {
                 onSuccess: (next) => {
                   setLoadedVersion(next.version);
+                  setOriginalYaml(next.yaml);
                 },
               },
             )
