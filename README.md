@@ -29,3 +29,5 @@ cargo run -p handicap-controller -- --db ./handicap.db --worker-bin target/debug
 just ui-dev                                                                                # in another
 # Browse http://127.0.0.1:5173/
 ```
+
+Click-through walkthrough + troubleshooting: see [docs/dev/ui-manual-check.md](docs/dev/ui-manual-check.md).
