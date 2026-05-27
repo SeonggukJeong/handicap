@@ -42,12 +42,15 @@ pub fn router(state: AppState) -> Router {
         // `/scenarios/01ABC`) hand the request off to `index.html` so the SPA
         // router can take over.
         //
-        // Use `ServeDir::fallback`, not `not_found_service`: in tower-http 0.6
-        // `not_found_service` only fires for a narrow set of 404 conditions
-        // (file exists but is e.g. a directory listing miss) and does *not*
-        // fire when the requested path doesn't exist on disk at all. `fallback`
-        // catches every non-2xx response from ServeDir, which is what an SPA
-        // needs. (See CLAUDE.md "Slice 2 gotchas".)
+        // Use `ServeDir::fallback`, NOT `not_found_service`. Both wire the
+        // same fallback service, but `not_found_service` wraps it in
+        // `SetStatus<_, 404>` (see tower-http 0.6 ServeDir source), forcing
+        // the response status to 404 regardless of what the inner service
+        // returned. So `index.html` would still be served, but the browser
+        // would observe HTTP 404 — breaking React Router on hard refresh
+        // and lighting up any frontend error monitor watching for 4xx.
+        // `fallback` preserves the inner ServeFile's 200, which is what an
+        // SPA actually wants. (Captured in CLAUDE.md Slice 2 gotchas.)
         let index = dir.join("index.html");
         let serve = ServeDir::new(dir).fallback(ServeFile::new(index));
         app = app.fallback_service(serve);
