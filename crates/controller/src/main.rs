@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
@@ -9,6 +8,7 @@ use tracing_subscriber::EnvFilter;
 
 mod app;
 mod error;
+mod store;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -33,9 +33,9 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     info!(?args, "controller starting");
 
-    let state = app::AppState {
-        _placeholder: Arc::new(()),
-    };
+    let db_url = store::url_from_path(&args.db);
+    let db = store::connect(&db_url).await?;
+    let state = app::AppState { db };
     let app = app::router(state);
 
     let listener = TcpListener::bind(args.rest).await.context("bind REST")?;

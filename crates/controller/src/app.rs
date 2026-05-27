@@ -1,12 +1,11 @@
-use std::sync::Arc;
-
 use axum::Router;
 use axum::routing::get;
 
+use crate::store::Db;
+
 #[derive(Clone)]
 pub struct AppState {
-    // populated in later tasks
-    pub _placeholder: Arc<()>,
+    pub db: Db,
 }
 
 pub fn router(state: AppState) -> Router {
