@@ -49,3 +49,46 @@ async fn rejects_invalid_yaml() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn create_run_for_scenario() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = app::router(app::AppState { db });
+
+    // 1. create scenario
+    let body = json!({
+        "yaml": "version: 1\nname: t\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n"
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/scenarios")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 2. create run
+    let run_body = json!({
+        "scenario_id": scenario_id,
+        "profile": { "vus": 5, "duration_seconds": 2 },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(run_body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["status"], "pending");
+}

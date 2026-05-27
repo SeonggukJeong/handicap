@@ -1,3 +1,4 @@
+pub mod runs;
 pub mod scenarios;
 
 use std::path::Path;
