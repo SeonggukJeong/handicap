@@ -1,0 +1,13 @@
+version: 1
+name: "GET status root"
+variables:
+  base_url: "http://localhost:9999"
+steps:
+  - id: "root"
+    name: "GET /"
+    type: http
+    request:
+      method: GET
+      url: "{{base_url}}/"
+    assert:
+      - status: 200
