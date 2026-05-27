@@ -112,12 +112,9 @@ Create `Cargo.toml` at repo root:
 ```toml
 [workspace]
 resolver = "2"
-members = [
-    "crates/proto",
-    "crates/engine",
-    "crates/controller",
-    "crates/worker",
-]
+# Glob so partial workspaces resolve during the incremental bootstrap
+# (Tasks 2/3/8/15 each add one crate).
+members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
