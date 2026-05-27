@@ -6,9 +6,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-mod app;
-mod error;
-mod store;
+use handicap_controller::{app, store};
 
 #[derive(Debug, Parser)]
 struct Args {
