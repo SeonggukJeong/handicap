@@ -105,12 +105,27 @@ impl Coordinator for CoordinatorService {
                         }
                     }
                     Some(WorkerPayload::MetricBatch(batch)) => {
-                        // Persistence wired in Task 14.
-                        info!(
-                            run_id = %batch.run_id,
-                            windows = batch.windows.len(),
-                            "received metric batch (persistence pending Task 14)"
-                        );
+                        let rows: Vec<crate::store::metrics::MetricRow> = batch
+                            .windows
+                            .iter()
+                            .map(|w| {
+                                let status_json = serde_json::to_string(&w.status_counts)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                crate::store::metrics::MetricRow {
+                                    run_id: batch.run_id.clone(),
+                                    ts_second: w.ts_second,
+                                    step_id: w.step_id.clone(),
+                                    count: w.count as i64,
+                                    error_count: w.error_count as i64,
+                                    hdr_histogram: w.hdr_histogram.clone(),
+                                    status_counts: status_json,
+                                }
+                            })
+                            .collect();
+                        if let Err(e) = crate::store::metrics::insert_batch(&state.db, &rows).await
+                        {
+                            warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
+                        }
                     }
                     Some(WorkerPayload::RunStatus(s)) => {
                         info!(run_id = %s.run_id, phase = ?s.phase, "worker run status");

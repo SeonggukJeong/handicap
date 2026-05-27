@@ -22,5 +22,6 @@ pub fn router(state: AppState) -> Router {
         .route("/scenarios/{id}", get(scenarios_api::get))
         .route("/runs", post(runs_api::create))
         .route("/runs/{id}", get(runs_api::get))
+        .route("/runs/{id}/metrics", get(runs_api::metrics))
         .with_state(state)
 }

@@ -79,6 +79,16 @@ pub async fn get(
     Ok(Json(to_response(row)))
 }
 
+pub async fn metrics(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::store::metrics::MetricSummary>, ApiError> {
+    // 404 if the run doesn't exist.
+    let _ = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    let s = crate::store::metrics::summary(&state.db, &id).await?;
+    Ok(Json(s))
+}
+
 fn to_response(r: runs::RunRow) -> RunResponse {
     RunResponse {
         id: r.id,
