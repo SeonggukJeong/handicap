@@ -1,0 +1,133 @@
+import { describe, expect, it, beforeEach } from "vitest";
+import { useScenarioEditor } from "../store";
+
+const VALID_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables:
+  base_url: "http://localhost"
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: GET
+      url: "{{base_url}}/"
+    assert:
+      - status: 200
+`;
+
+describe("useScenarioEditor", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("loadFromString sets model and yamlText", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const s = useScenarioEditor.getState();
+    expect(s.model?.steps).toHaveLength(1);
+    expect(s.yamlError).toBeNull();
+    expect(s.yamlText).toContain("01HX0000000000000000000001");
+  });
+
+  it("loadFromString with invalid yaml sets yamlError and keeps prior model null", () => {
+    useScenarioEditor.getState().loadFromString(":\n::");
+    const s = useScenarioEditor.getState();
+    expect(s.yamlError).not.toBeNull();
+    expect(s.model).toBeNull();
+  });
+
+  it("setStepField mutates the doc and rederives the model", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["request", "method"], "POST");
+    const s = useScenarioEditor.getState();
+    expect(s.model?.steps[0].request.method).toBe("POST");
+    expect(s.yamlText).toContain("method: POST");
+  });
+
+  it("addStep appends a new step", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const before = useScenarioEditor.getState().model!.steps.length;
+    useScenarioEditor.getState().addStep("New step");
+    const s = useScenarioEditor.getState();
+    expect(s.model!.steps).toHaveLength(before + 1);
+    expect(s.model!.steps[before].name).toBe("New step");
+  });
+
+  it("removeStep drops by id", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().removeStep("01HX0000000000000000000001");
+    expect(useScenarioEditor.getState().model!.steps).toHaveLength(0);
+  });
+
+  it("selection state is updated by select()", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000001");
+    useScenarioEditor.getState().select(null);
+    expect(useScenarioEditor.getState().selectedStepId).toBeNull();
+  });
+
+  it("setPendingYamlText holds invalid edits without changing model", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const initialModel = useScenarioEditor.getState().model;
+    useScenarioEditor.getState().setPendingYamlText("garbage:::\n::");
+    const s = useScenarioEditor.getState();
+    // pending text held; model unchanged because pending text is invalid
+    expect(s.pendingYamlText).toBe("garbage:::\n::");
+    expect(s.model).toBe(initialModel);
+  });
+
+  it("commitPendingYaml swaps the doc when text is valid", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const NEW_YAML = VALID_YAML.replace("method: GET", "method: PUT");
+    useScenarioEditor.getState().setPendingYamlText(NEW_YAML);
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().model!.steps[0].request.method).toBe("PUT");
+    expect(useScenarioEditor.getState().pendingYamlText).toBeNull();
+  });
+
+  it("commitPendingYaml leaves yamlError set when text is invalid", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const initialModel = useScenarioEditor.getState().model;
+    useScenarioEditor.getState().setPendingYamlText(":\n::");
+    useScenarioEditor.getState().commitPendingYaml();
+    const s = useScenarioEditor.getState();
+    expect(s.yamlError).not.toBeNull();
+    expect(s.model).toBe(initialModel);
+  });
+
+  it("removeStep clears selection when the removed step was selected", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    useScenarioEditor.getState().removeStep("01HX0000000000000000000001");
+    const s = useScenarioEditor.getState();
+    expect(s.selectedStepId).toBeNull();
+    expect(s.model!.steps).toHaveLength(0);
+  });
+
+  it("removeStep keeps selection if a different step was selected", () => {
+    const TWO_STEPS = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "a"
+    type: http
+    request: { method: GET, url: "/a" }
+    assert: [{status: 200}]
+  - id: "01HX0000000000000000000002"
+    name: "b"
+    type: http
+    request: { method: GET, url: "/b" }
+    assert: [{status: 200}]
+`;
+    useScenarioEditor.getState().loadFromString(TWO_STEPS);
+    useScenarioEditor.getState().select("01HX0000000000000000000002");
+    useScenarioEditor.getState().removeStep("01HX0000000000000000000001");
+    const s = useScenarioEditor.getState();
+    expect(s.selectedStepId).toBe("01HX0000000000000000000002");
+    expect(s.model!.steps).toHaveLength(1);
+  });
+});

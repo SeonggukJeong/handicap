@@ -18,4 +18,11 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: true,
   },
+  optimizeDeps: {
+    // Pre-bundle Monaco's main editor entry to speed up first-time dev startup.
+    include: ["monaco-editor/esm/vs/editor/editor.api"],
+  },
+  worker: {
+    format: "es",
+  },
 });
