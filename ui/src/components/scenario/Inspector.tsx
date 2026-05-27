@@ -440,21 +440,42 @@ function ExtractEditor({ step }: { step: Step }) {
 
   // Push valid rows to the store after every draft change.
   const commitDrafts = (next: DraftExtract[]) => {
-    // Rows that satisfy Zod (var non-empty + required second field non-empty).
+    // Rows that satisfy Zod (var non-empty + required second field non-empty and
+    // not just the bare "$." default sentinel that append() inserts).
     const valid = next.filter((d) => {
       if (!d.var) return false;
-      if (d.from === "body") return d.path.length > 0;
+      if (d.from === "body") return d.path.length > 0 && d.path !== "$.";
       if (d.from === "header" || d.from === "cookie") return d.name.length > 0;
       return true; // status needs no extra field
     }) as Extract[];
     setStepExtract(step.id, valid);
   };
 
-  const setRow = (idx: number, next: DraftExtract) => {
+  // Update a single draft row locally — does NOT commit to the store.
+  const updateDraft = (idx: number, next: DraftExtract) => {
     const list = drafts.slice();
     list[idx] = next;
     setDrafts(list);
-    commitDrafts(list);
+  };
+
+  // Commit the current drafts to the store (called on input blur).
+  const commitFromBlur = () => {
+    commitDrafts(drafts);
+  };
+
+  // Structural from-kind change: update draft AND commit immediately.
+  const setFromKind = (idx: number, from: Extract["from"]) => {
+    const x = drafts[idx];
+    const list = drafts.slice();
+    if (from === "body")
+      list[idx] = { var: x.var, from, path: (x as { path?: string }).path ?? "$." };
+    else if (from === "header")
+      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "" };
+    else if (from === "cookie")
+      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "" };
+    else list[idx] = { var: x.var, from: "status" };
+    setDrafts(list);
+    commitDrafts(list); // structural change — commit immediately
   };
 
   const remove = (idx: number) => {
@@ -482,19 +503,14 @@ function ExtractEditor({ step }: { step: Step }) {
               placeholder="var"
               className="border border-slate-300 rounded px-2 py-1 font-mono w-24"
               value={x.var}
-              onChange={(e) => setRow(idx, { ...x, var: e.target.value })}
+              onChange={(e) => updateDraft(idx, { ...x, var: e.target.value })}
+              onBlur={commitFromBlur}
             />
             <select
               aria-label={`extract-from-${idx}`}
               className="border border-slate-300 rounded px-2 py-1"
               value={x.from}
-              onChange={(e) => {
-                const from = e.target.value as Extract["from"];
-                if (from === "body") setRow(idx, { var: x.var, from, path: "$." });
-                else if (from === "header") setRow(idx, { var: x.var, from, name: "" });
-                else if (from === "cookie") setRow(idx, { var: x.var, from, name: "" });
-                else setRow(idx, { var: x.var, from: "status" });
-              }}
+              onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
             >
               <option value="body">body</option>
               <option value="header">header</option>
@@ -506,7 +522,8 @@ function ExtractEditor({ step }: { step: Step }) {
                 placeholder="$.path"
                 className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
                 value={x.path}
-                onChange={(e) => setRow(idx, { ...x, path: e.target.value })}
+                onChange={(e) => updateDraft(idx, { ...x, path: e.target.value })}
+                onBlur={commitFromBlur}
               />
             )}
             {(x.from === "header" || x.from === "cookie") && (
@@ -514,7 +531,8 @@ function ExtractEditor({ step }: { step: Step }) {
                 placeholder={x.from === "header" ? "header name" : "cookie name"}
                 className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
                 value={x.name}
-                onChange={(e) => setRow(idx, { ...x, name: e.target.value })}
+                onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
+                onBlur={commitFromBlur}
               />
             )}
             {x.from === "status" && (
