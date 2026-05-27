@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +19,32 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Build (incl. worker bin, needed by e2e)
+      - name: Build
         run: cargo build --workspace
       - name: Test
         run: cargo test --workspace -- --nocapture
         env:
           RUST_LOG: info
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        working-directory: ui
+        run: pnpm lint
+      - name: Test
+        working-directory: ui
+        run: pnpm test
+      - name: Build
+        working-directory: ui
+        run: pnpm build
