@@ -13,13 +13,13 @@ const ULID_ARB = fc.string({ minLength: 26, maxLength: 26 }).map((s) =>
 );
 
 const httpMethod = fc.constantFrom(
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
+  "GET" as const,
+  "POST" as const,
+  "PUT" as const,
+  "PATCH" as const,
+  "DELETE" as const,
+  "HEAD" as const,
+  "OPTIONS" as const,
 );
 
 const ident = fc.stringMatching(/^[a-z][a-z0-9_]{0,8}$/);
