@@ -48,11 +48,12 @@ describe("parseScenarioDoc", () => {
     expect(out.model.steps[0].assert).toEqual([{ kind: "status", code: 200 }]);
   });
 
-  it("strips extract from the model but keeps it in the doc", () => {
+  it("model has extract field (defaulted to []) and doc preserves the raw yaml", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");
-    // model has no extract field on Step
-    expect("extract" in out.model.steps[0]).toBe(false);
+    // extract is now part of the StepModel schema (Task 11), so the field exists
+    // (defaulted to [] because the normalizer still strips it — Task 12 will wire it through)
+    expect("extract" in out.model.steps[0]).toBe(true);
     // doc still has it
     const round = serializeDoc(out.doc);
     expect(round).toContain("extract:");
