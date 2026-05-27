@@ -1,0 +1,88 @@
+syntax = "proto3";
+package handicap.coordinator.v1;
+
+// Single bidi stream:
+//   Worker  --> Register, MetricBatch, RunStatus
+//   Server  --> RunAssignment, AbortRun, Pong
+service Coordinator {
+  rpc Channel(stream WorkerMessage) returns (stream ServerMessage);
+}
+
+// ---------- Worker → Server ----------
+
+message WorkerMessage {
+  oneof payload {
+    Register register = 1;
+    Pong pong = 2;
+    MetricBatch metric_batch = 3;
+    RunStatus run_status = 4;
+  }
+}
+
+message Register {
+  string worker_id = 1;
+  string run_id = 2;        // worker is spawned per-run in slice 1
+  uint32 capacity_vus = 3;  // max VUs this worker is willing to run
+}
+
+message Pong {
+  uint64 nonce = 1;
+}
+
+message MetricBatch {
+  string run_id = 1;
+  string worker_id = 2;
+  repeated MetricWindow windows = 3;
+}
+
+message MetricWindow {
+  int64 ts_second = 1;
+  string step_id = 2;           // scenario step id, or "_all"
+  uint64 count = 3;
+  uint64 error_count = 4;
+  bytes hdr_histogram = 5;      // hdrhistogram V2 serialized
+  map<string, uint64> status_counts = 6;
+}
+
+message RunStatus {
+  string run_id = 1;
+  Phase phase = 2;
+  string message = 3;
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_STARTED = 1;
+    PHASE_COMPLETED = 2;
+    PHASE_FAILED = 3;
+  }
+}
+
+// ---------- Server → Worker ----------
+
+message ServerMessage {
+  oneof payload {
+    RunAssignment assignment = 1;
+    AbortRun abort = 2;
+    Ping ping = 3;
+  }
+}
+
+message RunAssignment {
+  string run_id = 1;
+  string scenario_yaml = 2;     // canonical scenario YAML, snapshotted
+  Profile profile = 3;
+}
+
+message Profile {
+  uint32 vus = 1;
+  uint32 ramp_up_seconds = 2;   // populated but ignored in slice 1
+  uint32 duration_seconds = 3;
+}
+
+message AbortRun {
+  string run_id = 1;
+  string reason = 2;
+}
+
+message Ping {
+  uint64 nonce = 1;
+}
