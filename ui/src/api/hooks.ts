@@ -86,6 +86,16 @@ export function useRun(id: string | undefined) {
   });
 }
 
+export function useAbortRun(runId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.abortRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
+    },
+  });
+}
+
 export function useRunMetrics(id: string | undefined, paused: boolean) {
   return useQuery({
     queryKey: id ? queryKeys.runMetrics(id) : ["runs", "missing", "metrics"],
