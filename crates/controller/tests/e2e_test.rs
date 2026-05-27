@@ -67,6 +67,7 @@ async fn full_slice_1_e2e() {
         coord: coord.clone(),
         worker_bin: worker_bin.to_string_lossy().to_string(),
         grpc_addr,
+        ui_dir: None,
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {

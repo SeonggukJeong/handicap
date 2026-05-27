@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::Parser;
@@ -19,6 +20,9 @@ struct Args {
     grpc: SocketAddr,
     #[arg(long, default_value = "target/debug/worker")]
     worker_bin: String,
+    /// Directory of built UI assets (e.g. ui/dist). If omitted, no static SPA is served.
+    #[arg(long)]
+    ui_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -31,6 +35,15 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     info!(?args, "controller starting");
 
+    if let Some(d) = &args.ui_dir {
+        if !d.exists() {
+            anyhow::bail!("--ui-dir {:?} does not exist", d);
+        }
+        if !d.join("index.html").exists() {
+            anyhow::bail!("--ui-dir {:?} has no index.html", d);
+        }
+    }
+
     let db_url = store::url_from_path(&args.db);
     let db = store::connect(&db_url).await?;
     let coord_state = CoordinatorState::new(db.clone());
@@ -40,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
         coord: coord_state.clone(),
         worker_bin: args.worker_bin.clone(),
         grpc_addr: args.grpc,
+        ui_dir: args.ui_dir.clone(),
     };
     let app_router = app::router(state);
 

@@ -14,6 +14,7 @@ async fn create_and_get_scenario() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
 
     let body = json!({
@@ -51,6 +52,7 @@ async fn rejects_invalid_yaml() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
@@ -72,6 +74,7 @@ async fn create_run_for_scenario() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
 
     // 1. create scenario
@@ -121,6 +124,7 @@ async fn list_scenarios_returns_what_was_created() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
 
     // empty initially
@@ -173,6 +177,7 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
 
     let create_body = json!({
@@ -233,6 +238,7 @@ async fn list_runs_by_scenario() {
         coord,
         worker_bin: "/nonexistent".to_string(),
         grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        ui_dir: None,
     });
 
     let create_body = json!({

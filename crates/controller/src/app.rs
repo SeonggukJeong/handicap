@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use axum::Router;
 use axum::routing::{get, post};
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{runs as runs_api, scenarios as scenarios_api};
 use crate::grpc::coordinator::CoordinatorState;
@@ -13,6 +15,7 @@ pub struct AppState {
     pub coord: CoordinatorState,
     pub worker_bin: String,
     pub grpc_addr: SocketAddr,
+    pub ui_dir: Option<PathBuf>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -31,5 +34,24 @@ pub fn router(state: AppState) -> Router {
         .route("/runs/{id}", get(runs_api::get))
         .route("/runs/{id}/metrics", get(runs_api::metrics));
 
-    Router::new().nest("/api", api).with_state(state)
+    let mut app = Router::new().nest("/api", api);
+
+    if let Some(dir) = &state.ui_dir {
+        // SPA fallback: serve static files from `dir`, and for any path that
+        // doesn't resolve to a file (e.g. client-side routes like
+        // `/scenarios/01ABC`) hand the request off to `index.html` so the SPA
+        // router can take over.
+        //
+        // Use `ServeDir::fallback`, not `not_found_service`: in tower-http 0.6
+        // `not_found_service` only fires for a narrow set of 404 conditions
+        // (file exists but is e.g. a directory listing miss) and does *not*
+        // fire when the requested path doesn't exist on disk at all. `fallback`
+        // catches every non-2xx response from ServeDir, which is what an SPA
+        // needs. (See CLAUDE.md "Slice 2 gotchas".)
+        let index = dir.join("index.html");
+        let serve = ServeDir::new(dir).fallback(ServeFile::new(index));
+        app = app.fallback_service(serve);
+    }
+
+    app.with_state(state)
 }
