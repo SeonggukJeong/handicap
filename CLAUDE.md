@@ -136,6 +136,7 @@ docs/
 - **Zustand v5는 getInitialState 미제공**: 테스트에서 store를 reset하려면 직접 INITIAL 객체를 보관하고 setState로 덮어쓰는 작은 헬퍼가 필요. 액션 ref는 v5에서 stable하므로 모듈 로드 시 한 번만 `getState()`로 캡쳐하면 된다.
 - **React Flow의 control vs uncontrolled**: 노드 위치를 직접 계산해서 넘기면 React Flow 안에서 drag로 옮긴 위치는 반영되지 않는다. Slice 3은 의도적으로 drag 비활성화(`draggable: false`) — 위치는 매번 재계산됨.
 - **`removeStep`은 selection clear가 dispatch보다 먼저**: 순서를 반대로 하면 subscriber가 잠깐 "삭제된 step을 가리키는 selectedStepId" 상태를 본다 → Inspector가 stale step을 deref. 그래서 store action에서 `if (get().selectedStepId === stepId) set({ selectedStepId: null })`를 dispatch보다 먼저 호출.
+- **`yaml` 라이브러리 재직렬화의 dirty-flag false positive**: `parseDocument(text)` → `String(doc)` 이 들여쓰기·인용을 정규화한다 (예: 평탄 list `- a`를 `  - a`로). 따라서 `originalText !== currentText` 단순 비교로 dirty를 판단하면, EditorShell mount 직후 첫 onChange가 정규화된 텍스트를 푸시하는 순간 dirty=true가 된다 (사용자가 한 글자도 안 쳤는데 Save 활성). 해결: `originalYaml`을 prop이 아니라 **EditorShell의 첫 onChange 콜백에서 seed** 한다 (ref 플래그로 1회만). 저장 성공 시는 server canonical(`next.yaml`)로 다시 seed. (`ui/src/pages/ScenarioEditPage.tsx::baselineSeededRef` 참고.)
 
 ## 새로운 아키텍처 결정이 생기면
 
