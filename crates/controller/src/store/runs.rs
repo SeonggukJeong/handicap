@@ -172,6 +172,16 @@ pub async fn set_status(
     Ok(())
 }
 
+pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
+    let now = now_ms();
+    sqlx::query("UPDATE runs SET status = 'aborted', ended_at = ? WHERE id = ?")
+        .bind(now)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

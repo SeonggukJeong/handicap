@@ -13,7 +13,7 @@ use handicap_proto::v1 as pb;
 use pb::coordinator_server::Coordinator;
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{Profile, RunAssignment, ServerMessage, WorkerMessage};
+use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
@@ -23,12 +23,18 @@ use crate::store::runs::{self, RunStatus};
 pub struct PendingAssignment {
     pub scenario_yaml: String,
     pub profile: Profile,
+    pub env: HashMap<String, String>,
 }
+
+/// Outbound channel to an active (connected) worker.
+type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 
 #[derive(Clone)]
 pub struct CoordinatorState {
     pub db: Db,
     pub pending: Arc<Mutex<HashMap<String, PendingAssignment>>>,
+    /// run_id → tx channel for workers that have registered and are active.
+    pub active: Arc<Mutex<HashMap<String, WorkerTx>>>,
 }
 
 impl CoordinatorState {
@@ -36,11 +42,30 @@ impl CoordinatorState {
         Self {
             db,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            active: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub async fn enqueue(&self, run_id: String, a: PendingAssignment) {
         self.pending.lock().await.insert(run_id, a);
+    }
+
+    /// Send an AbortRun message to the worker handling `run_id`.
+    /// Returns `true` if the message was dispatched, `false` if no active worker found.
+    pub async fn abort(&self, run_id: &str) -> bool {
+        let tx = self.active.lock().await.get(run_id).cloned();
+        if let Some(tx) = tx {
+            let msg = ServerMessage {
+                payload: Some(ServerPayload::Abort(AbortRun {
+                    run_id: run_id.to_string(),
+                    reason: "user requested abort".to_string(),
+                })),
+            };
+            let _ = tx.send(Ok(msg)).await;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -76,6 +101,12 @@ impl Coordinator for CoordinatorService {
                     Some(WorkerPayload::Register(reg)) => {
                         run_id = Some(reg.run_id.clone());
                         info!(worker_id = %reg.worker_id, run_id = %reg.run_id, "worker registered");
+                        // Register the outbound channel so abort() can reach this worker.
+                        state
+                            .active
+                            .lock()
+                            .await
+                            .insert(reg.run_id.clone(), tx.clone());
                         let pending = state.pending.lock().await.remove(&reg.run_id);
                         match pending {
                             Some(a) => {
@@ -83,7 +114,7 @@ impl Coordinator for CoordinatorService {
                                     run_id: reg.run_id.clone(),
                                     scenario_yaml: a.scenario_yaml,
                                     profile: Some(a.profile),
-                                    env: Default::default(),
+                                    env: a.env,
                                 };
                                 let _ = tx
                                     .send(Ok(ServerMessage {
@@ -153,6 +184,10 @@ impl Coordinator for CoordinatorService {
                     Some(WorkerPayload::Pong(_)) => {}
                     None => {}
                 }
+            }
+            // Remove from active map when stream closes.
+            if let Some(ref rid) = run_id {
+                state.active.lock().await.remove(rid);
             }
             info!(?run_id, "worker stream closed");
         });
