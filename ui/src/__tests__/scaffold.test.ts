@@ -86,3 +86,20 @@ describe("ScenarioEditPage", () => {
   it.todo("renders 409 conflict message from backend on stale PUT");
   it.todo("Back navigates to /");
 });
+
+describe("RunDialog", () => {
+  it.todo("defaults vus=2 and duration=5");
+  it.todo("disables Run when vus < 1 or duration < 1 or pending");
+  it.todo("fires onCreated with run id on success");
+  it.todo("renders mutation error message");
+  it.todo("Cancel triggers onCancel");
+});
+
+describe("ScenarioRunsPage", () => {
+  it.todo("Loading state while scenario query pending");
+  it.todo("renders scenario name + edit link");
+  it.todo("opens RunDialog on click, hides Run button while open");
+  it.todo("on RunDialog onCreated navigates to /runs/:id");
+  it.todo("renders empty-runs copy when 0 runs");
+  it.todo("renders one row per run with status badge and view link");
+});
