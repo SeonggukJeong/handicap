@@ -23,9 +23,12 @@ pub struct WorkerLink {
     pub assignment: RunAssignment,
     /// Receives post-assignment messages from the controller (AbortRun, Ping, …).
     pub inbound_rx: mpsc::Receiver<ServerMessage>,
-    // Keeps the background forwarder alive.
-    #[allow(dead_code)]
-    _inbound_fwd: tokio::task::JoinHandle<()>,
+    /// Completes when the controller closes the inbound stream (i.e. after the
+    /// controller has processed the outbound EOF we sent by dropping `tx`).
+    /// Awaiting this after `drop(tx)` ensures the tokio runtime does not shut
+    /// down before tonic has flushed the final HTTP/2 DATA frame and
+    /// END_STREAM to the wire.
+    pub inbound_fwd: tokio::task::JoinHandle<()>,
 }
 
 pub async fn connect_and_register(
@@ -95,6 +98,6 @@ pub async fn connect_and_register(
         tx,
         assignment,
         inbound_rx: fwd_rx,
-        _inbound_fwd: fwd_handle,
+        inbound_fwd: fwd_handle,
     })
 }

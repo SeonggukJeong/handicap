@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let assignment = link.assignment;
     let tx = link.tx;
     let mut inbound_rx = link.inbound_rx;
+    let inbound_fwd = link.inbound_fwd;
 
     let scenario: Scenario =
         Scenario::from_yaml(&assignment.scenario_yaml).context("parse scenario YAML")?;
@@ -156,8 +157,19 @@ async fn main() -> anyhow::Result<()> {
     };
     let _ = tx.send(msg).await;
 
-    // Allow the controller a moment to receive the final status before we drop the stream.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Drop the sender explicitly: the gRPC client's ReceiverStream drains the
+    // buffered message first, then signals HTTP/2 END_STREAM. HTTP/2 guarantees
+    // the DATA frame (final RunStatus) arrives before END_STREAM on the same
+    // stream. After the controller receives EOF it closes the inbound leg, which
+    // causes `inbound_fwd` to complete — we await that as the synchronization
+    // point. This replaces the previous fixed 200ms sleep with a deterministic
+    // signal: we exit only after the protocol confirms the far end received EOF.
+    //
+    // The await is capped at 2s so a misbehaving controller can't hang the
+    // worker process forever; that ceiling matches the previous sleep's
+    // worst-case behavior while letting the happy path exit in milliseconds.
+    drop(tx);
+    let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
     info!("worker done");
     Ok(())
 }
