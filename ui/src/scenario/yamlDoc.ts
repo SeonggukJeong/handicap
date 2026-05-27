@@ -112,7 +112,8 @@ export function applyEdit(doc: Document, edit: Edit): void {
         doc.deleteIn(fullPath);
         return;
       }
-      // For complex values (objects), create a node so the AST is well-formed.
+      // Objects/arrays must be wrapped in a Node so the AST stays well-formed.
+      // Primitives fall through and yaml's setIn handles them natively.
       const node =
         typeof edit.value === "object" && edit.value !== null
           ? doc.createNode(edit.value)
@@ -137,6 +138,9 @@ function plainScalar(value: string): Scalar {
   return s;
 }
 
+// Returns -1 if no step matches; callers no-op on -1 because stale stepIds can
+// arrive after a step has been removed (e.g., via the YAML pane). The store
+// re-derives the model after each edit, so a stale click resolves to no change.
 function findStepIndex(doc: Document, stepId: string): number {
   const steps = doc.getIn(["steps"]);
   if (!isSeq(steps)) return -1;
