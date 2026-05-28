@@ -35,6 +35,10 @@ export const RunSchema = z.object({
   started_at: z.number().int().nullable(),
   ended_at: z.number().int().nullable(),
   created_at: z.number().int(),
+  // Crash-recovery message set by the controller when a pending/running run is
+  // flipped to failed on startup (Slice 6). Optional + nullable for backward
+  // compat with older controllers that don't include the column.
+  message: z.string().nullable().optional(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

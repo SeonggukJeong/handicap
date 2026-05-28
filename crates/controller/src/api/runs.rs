@@ -26,6 +26,7 @@ pub struct RunResponse {
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
     pub created_at: i64,
+    pub message: Option<String>,
 }
 
 pub async fn create(
@@ -163,5 +164,6 @@ fn to_response(r: runs::RunRow) -> RunResponse {
         started_at: r.started_at,
         ended_at: r.ended_at,
         created_at: r.created_at,
+        message: r.message,
     }
 }

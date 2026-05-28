@@ -107,6 +107,15 @@ export function RunDetailPage() {
         <Card label="Created">{new Date(r.created_at).toLocaleString()}</Card>
       </div>
 
+      {r.status === "failed" && typeof r.message === "string" && r.message.length > 0 && (
+        <div
+          role="alert"
+          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
+        >
+          <span className="font-semibold">실패 사유:</span> {r.message}
+        </div>
+      )}
+
       {terminal && report.data ? (
         <ReportView report={report.data} />
       ) : (

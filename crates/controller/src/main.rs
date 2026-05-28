@@ -72,6 +72,15 @@ async fn main() -> anyhow::Result<()> {
 
     let db_url = store::url_from_path(&args.db);
     let db = store::connect(&db_url).await?;
+    let recovered = handicap_controller::store::runs::mark_orphans_failed(
+        &db,
+        "controller restarted while run was in progress",
+    )
+    .await
+    .context("mark_orphans_failed")?;
+    if recovered > 0 {
+        info!(count = recovered, "marked orphan runs as failed on startup");
+    }
     let coord_state = CoordinatorState::new(db.clone());
 
     let dispatcher: SharedDispatcher = match args.worker_mode {

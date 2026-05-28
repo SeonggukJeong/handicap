@@ -214,6 +214,7 @@ mod tests {
             started_at: Some(100_000),
             ended_at: Some(102_000),
             created_at: 99_000,
+            message: None,
         }
     }
 

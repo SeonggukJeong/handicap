@@ -10,7 +10,8 @@ use sqlx::{Pool, Sqlite};
 
 pub type Db = Pool<Sqlite>;
 
-const MIGRATION_SQL: &str = include_str!("migrations/0001_initial.sql");
+const MIGRATION_SQL_0001: &str = include_str!("migrations/0001_initial.sql");
+const MIGRATION_SQL_0002: &str = include_str!("migrations/0002_run_message.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -21,7 +22,15 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
         .max_connections(8)
         .connect_with(opts)
         .await?;
-    sqlx::query(MIGRATION_SQL).execute(&pool).await?;
+    sqlx::query(MIGRATION_SQL_0001).execute(&pool).await?;
+    // ALTER TABLE ADD COLUMN is not idempotent on SQLite. Detect first.
+    let has_message: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'message'")
+            .fetch_one(&pool)
+            .await?;
+    if has_message == 0 {
+        sqlx::query(MIGRATION_SQL_0002).execute(&pool).await?;
+    }
     Ok(pool)
 }
 

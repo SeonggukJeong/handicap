@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReportSchema } from "../schemas";
+import { ReportSchema, RunSchema } from "../schemas";
 
 describe("ReportSchema", () => {
   it("parses a minimal valid bundle", () => {
@@ -55,5 +55,33 @@ describe("ReportSchema", () => {
   it("rejects extra top-level keys (strict)", () => {
     const sample = { foo: 1 };
     expect(() => ReportSchema.parse(sample)).toThrow();
+  });
+});
+
+describe("RunSchema.message", () => {
+  const base = {
+    id: "R1",
+    scenario_id: "S1",
+    status: "failed" as const,
+    profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+    env: {},
+    started_at: 100,
+    ended_at: 102,
+    created_at: 99,
+  };
+
+  it("accepts a non-empty message string", () => {
+    const parsed = RunSchema.parse({ ...base, message: "boom" });
+    expect(parsed.message).toBe("boom");
+  });
+
+  it("accepts an explicit null message", () => {
+    const parsed = RunSchema.parse({ ...base, message: null });
+    expect(parsed.message).toBeNull();
+  });
+
+  it("accepts an absent message field (backward compat)", () => {
+    const parsed = RunSchema.parse(base);
+    expect(parsed.message).toBeUndefined();
   });
 });

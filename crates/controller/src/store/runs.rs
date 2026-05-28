@@ -55,6 +55,7 @@ pub struct RunRow {
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
     pub created_at: i64,
+    pub message: Option<String>,
 }
 
 pub async fn insert(
@@ -91,12 +92,13 @@ pub async fn insert(
         started_at: None,
         ended_at: None,
         created_at: now,
+        message: None,
     })
 }
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -119,12 +121,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
         started_at: r.get("started_at"),
         ended_at: r.get("ended_at"),
         created_at: r.get("created_at"),
+        message: r.get("message"),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -148,6 +151,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
             started_at: r.get("started_at"),
             ended_at: r.get("ended_at"),
             created_at: r.get("created_at"),
+            message: r.get("message"),
         });
     }
     Ok(out)
@@ -180,6 +184,22 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
         .execute(db)
         .await?;
     Ok(())
+}
+
+/// Mark any run currently in `pending` or `running` as `failed` with a
+/// message. Called on controller startup to recover from crash.
+pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
+    let now = now_ms();
+    let res = sqlx::query(
+        "UPDATE runs
+            SET status = 'failed', ended_at = ?, message = ?
+            WHERE status IN ('pending', 'running')",
+    )
+    .bind(now)
+    .bind(message)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
 }
 
 fn now_ms() -> i64 {
