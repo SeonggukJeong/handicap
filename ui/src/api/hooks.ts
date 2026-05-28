@@ -8,6 +8,7 @@ export const queryKeys = {
   scenarioRuns: (id: string) => ["scenarios", id, "runs"] as const,
   run: (id: string) => ["runs", id] as const,
   runMetrics: (id: string) => ["runs", id, "metrics"] as const,
+  runReport: (id: string) => ["runs", id, "report"] as const,
 };
 
 export function useScenarios() {
@@ -103,5 +104,17 @@ export function useRunMetrics(id: string | undefined, paused: boolean) {
     enabled: Boolean(id),
     // Same 1s cadence while live; once paused (terminal status) refetch once and stop.
     refetchInterval: paused ? false : 1000,
+  });
+}
+
+export function useRunReport(id: string | undefined, terminal: boolean) {
+  return useQuery({
+    queryKey: id ? queryKeys.runReport(id) : ["runs", "missing", "report"],
+    queryFn: () => api.getRunReport(id!),
+    enabled: terminal && Boolean(id),
+    // Report is immutable after terminal — fetch once and cache forever.
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
   });
 }

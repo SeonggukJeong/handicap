@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ApiErrorSchema,
   MetricSummarySchema,
+  ReportSchema,
   RunListSchema,
   RunSchema,
   ScenarioListSchema,
@@ -75,6 +76,8 @@ export const api = {
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
+  getRunReport: (id: string) =>
+    request(`/runs/${encodeURIComponent(id)}/report`, { method: "GET" }, ReportSchema),
   abortRun: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/abort`, { method: "POST" }, z.object({}).passthrough()),
 };
