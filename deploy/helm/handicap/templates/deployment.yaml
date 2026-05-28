@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "handicap.controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "handicap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "handicap.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  strategy:
+    type: Recreate   # SQLite PV is RWO; rolling update would deadlock.
+  template:
+    metadata:
+      labels:
+        {{- include "handicap.labels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: {{ include "handicap.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: controller
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/controller"]
+          args:
+            - "--db"
+            - "{{ .Values.persistence.mountPath }}/handicap.db"
+            - "--rest"
+            - "0.0.0.0:{{ .Values.controller.rest.port }}"
+            - "--grpc"
+            - "0.0.0.0:{{ .Values.controller.grpc.port }}"
+            - "--ui-dir"
+            - "/srv/ui"
+            - "--worker-mode"
+            - "kubernetes"
+            - "--namespace"
+            - "{{ .Release.Namespace }}"
+            - "--release-name"
+            - "{{ .Release.Name }}"
+            - "--worker-image"
+            - "{{ include "handicap.workerImage" . }}"
+            - "--controller-grpc-url"
+            - "http://{{ include "handicap.controller.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.controller.grpc.port }}"
+          ports:
+            - name: rest
+              containerPort: {{ .Values.controller.rest.port }}
+            - name: grpc
+              containerPort: {{ .Values.controller.grpc.port }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: rest
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: rest
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "handicap.controller.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
