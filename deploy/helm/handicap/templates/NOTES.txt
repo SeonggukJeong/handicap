@@ -1,0 +1,11 @@
+handicap deployed.
+
+Controller Service: {{ include "handicap.controller.fullname" . }}
+REST port: {{ .Values.controller.rest.port }}
+gRPC port: {{ .Values.controller.grpc.port }}
+
+To reach the UI from your host:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "handicap.controller.fullname" . }} {{ .Values.controller.rest.port }}:{{ .Values.controller.rest.port }}
+
+then open http://127.0.0.1:{{ .Values.controller.rest.port }}/
