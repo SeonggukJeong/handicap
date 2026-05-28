@@ -38,6 +38,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ulid.workspace = true
 
+[features]
+slice6-k8s = []
+
 [dev-dependencies]
 reqwest = { workspace = true, default-features = false, features = ["rustls-tls", "json"] }
 wiremock.workspace = true

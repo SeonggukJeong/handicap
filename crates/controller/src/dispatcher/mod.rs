@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 pub mod k8s_spec;
+pub mod kubernetes;
 pub mod subprocess;
 
 /// A `WorkerDispatcher` knows how to start a worker process for a run, and
