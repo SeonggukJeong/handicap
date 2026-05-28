@@ -893,6 +893,7 @@ dependencies = [
  "futures",
  "handicap-engine",
  "handicap-proto",
+ "hdrhistogram",
  "reqwest",
  "serde",
  "serde_json",
