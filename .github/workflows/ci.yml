@@ -48,3 +48,15 @@ jobs:
       - name: Build
         working-directory: ui
         run: pnpm build
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      - name: Helm lint
+        run: helm lint deploy/helm/handicap
+      - name: Chart snapshot
+        run: ./deploy/helm/handicap/tests/snapshot_test.sh

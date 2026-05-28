@@ -1,0 +1,60 @@
+name: e2e-kind
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc and just
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      - uses: helm/kind-action@v1.10.0
+        with:
+          version: v0.24.0
+          cluster_name: handicap
+          config: deploy/kind/cluster.yaml
+          wait: 60s
+      - name: Build image
+        run: just build-image
+      - name: Load image into kind
+        run: kind load docker-image handicap:dev --name handicap
+      - name: Helm install
+        run: |
+          kubectl create ns handicap || true
+          helm upgrade --install handicap deploy/helm/handicap \
+            --namespace handicap --wait --timeout 5m
+      - name: Run e2e driver
+        run: |
+          kubectl apply -f deploy/kind/wiremock.yaml
+          kubectl -n handicap-test rollout status deploy/wiremock --timeout=120s
+          kubectl -n handicap port-forward svc/handicap-handicap-controller 18080:8080 &
+          kubectl -n handicap-test port-forward svc/wiremock 19001:8080 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:18080/api/health && break; sleep 1; done
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:19001/__admin/health && break; sleep 1; done
+          HANDICAP_BASE=http://127.0.0.1:18080 \
+          WIREMOCK_ADMIN_BASE=http://127.0.0.1:19001 \
+          WIREMOCK_CLUSTER_BASE=http://wiremock.handicap-test.svc.cluster.local:8080 \
+          cargo run -p handicap-controller --bin e2e_kind_driver
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n handicap describe pods || true
+          kubectl -n handicap logs deploy/handicap-handicap-controller --tail=200 || true
+          kubectl -n handicap get jobs -l app.kubernetes.io/component=worker || true
