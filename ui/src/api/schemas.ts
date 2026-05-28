@@ -58,3 +58,71 @@ export const MetricSummarySchema = z.object({
 export type MetricSummary = z.infer<typeof MetricSummarySchema>;
 
 export const ApiErrorSchema = z.object({ error: z.string() });
+
+export const StatusDistributionSchema = z.record(z.string(), z.number().int().nonnegative());
+
+export const ReportWindowSchema = z
+  .object({
+    ts_second: z.number().int(),
+    step_id: z.string(),
+    count: z.number().int().nonnegative(),
+    error_count: z.number().int().nonnegative(),
+    status_counts: StatusDistributionSchema,
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ReportStepSchema = z
+  .object({
+    step_id: z.string(),
+    count: z.number().int().nonnegative(),
+    error_count: z.number().int().nonnegative(),
+    status_counts: StatusDistributionSchema,
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ReportSummarySchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    errors: z.number().int().nonnegative(),
+    rps: z.number().nonnegative(),
+    duration_seconds: z.number().int().nonnegative(),
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ReportRunSchema = z
+  .object({
+    id: z.string(),
+    scenario_id: z.string(),
+    status: z.string(),
+    profile: z.unknown(),
+    env: z.unknown(),
+    started_at: z.number().int().nullable(),
+    ended_at: z.number().int().nullable(),
+    created_at: z.number().int(),
+  })
+  .strict();
+
+export const ReportSchema = z
+  .object({
+    run: ReportRunSchema,
+    scenario_yaml: z.string(),
+    summary: ReportSummarySchema,
+    windows: z.array(ReportWindowSchema),
+    steps: z.array(ReportStepSchema),
+    status_distribution: StatusDistributionSchema,
+  })
+  .strict();
+
+export type Report = z.infer<typeof ReportSchema>;
+export type ReportWindow = z.infer<typeof ReportWindowSchema>;
+export type ReportStep = z.infer<typeof ReportStepSchema>;
+export type ReportSummary = z.infer<typeof ReportSummarySchema>;
