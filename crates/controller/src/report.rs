@@ -122,12 +122,15 @@ pub fn build_report(run: &RunRow, scenario_yaml: &str, rows: &[WindowWithHdr]) -
     let overall_p = percentiles_of(&overall);
     let profile_val = serde_json::to_value(&run.profile).unwrap_or(serde_json::Value::Null);
     let env_val = run.env.clone();
-    let duration = run
+    // runs.started_at / ended_at are wall-clock milliseconds (now_ms in store/runs.rs).
+    // Convert to seconds for the report; keep ms for rps so sub-second resolution survives.
+    let duration_ms = run
         .ended_at
         .unwrap_or(0)
         .saturating_sub(run.started_at.unwrap_or(0));
-    let rps = if duration > 0 {
-        total_count as f64 / duration as f64
+    let duration_seconds = duration_ms / 1_000;
+    let rps = if duration_ms > 0 {
+        total_count as f64 * 1_000.0 / duration_ms as f64
     } else {
         0.0
     };
@@ -168,7 +171,7 @@ pub fn build_report(run: &RunRow, scenario_yaml: &str, rows: &[WindowWithHdr]) -
             count: total_count,
             errors: total_errors,
             rps,
-            duration_seconds: duration,
+            duration_seconds,
             p50_ms: overall_p.p50_ms,
             p95_ms: overall_p.p95_ms,
             p99_ms: overall_p.p99_ms,
@@ -207,9 +210,10 @@ mod tests {
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,
-            started_at: Some(100),
-            ended_at: Some(102),
-            created_at: 99,
+            // ms wall-clock — a 2-second run (now_ms semantics from store/runs.rs).
+            started_at: Some(100_000),
+            ended_at: Some(102_000),
+            created_at: 99_000,
         }
     }
 
