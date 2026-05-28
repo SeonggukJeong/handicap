@@ -34,7 +34,14 @@ async fn worker_exits_promptly_on_sigterm() {
         .spawn()
         .expect("spawn");
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait long enough for the worker's tokio runtime to start and install
+    // the SIGTERM handler. On cold caches the runtime + signal driver setup
+    // can take >500 ms; 1.5 s leaves margin while keeping the test snappy.
+    // Without this, SIGTERM arrives before the handler is armed and the
+    // kernel's default action (terminate with status 15) kicks in, which
+    // is precisely the bug this test guards against — so the wait must
+    // exceed handler-install latency for the assertion below to be honest.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let pid = child.id().expect("pid");
     let _ = std::process::Command::new("kill")
@@ -45,5 +52,14 @@ async fn worker_exits_promptly_on_sigterm() {
         .await
         .expect("worker should exit within 3s of SIGTERM")
         .expect("wait");
-    let _ = exit;
+    // After installing the SIGTERM handler before `connect_with_backoff`,
+    // SIGTERM during the backoff sleep cancels the retry loop, which returns
+    // `Err(WorkerError::Cancelled)`. main.rs maps that to `return Ok(())`,
+    // i.e. exit 0. If the handler had not run (the kernel default SIGTERM
+    // action) the exit status would be 143 (128 + SIGTERM=15) instead.
+    assert_eq!(
+        exit.code(),
+        Some(0),
+        "expected clean exit from SIGTERM handler, got {exit:?}"
+    );
 }

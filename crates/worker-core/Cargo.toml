@@ -16,6 +16,10 @@ futures.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
+# `tokio-util` is back as a direct dep so the reconnect loop can take a
+# `CancellationToken` and abort an in-flight backoff sleep when SIGTERM
+# arrives during the initial connect. See `reconnect::retry_with_backoff`.
+tokio-util = { workspace = true, features = ["rt"] }
 tonic.workspace = true
 tracing.workspace = true
 

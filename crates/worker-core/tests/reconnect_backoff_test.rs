@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use handicap_worker_core::WorkerError;
 use handicap_worker_core::reconnect::{SCHEDULE, TOTAL_CAP, retry_with_backoff};
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn schedule_matches_spec() {
@@ -39,13 +40,16 @@ async fn give_up_returns_last_error_after_60s() {
     let attempts_clone = attempts.clone();
 
     let real_started = std::time::Instant::now();
-    let result: Result<(), WorkerError> = retry_with_backoff(|| {
-        let attempts = attempts_clone.clone();
-        async move {
-            attempts.fetch_add(1, Ordering::SeqCst);
-            Err(WorkerError::SendFailed)
-        }
-    })
+    let result: Result<(), WorkerError> = retry_with_backoff(
+        || {
+            let attempts = attempts_clone.clone();
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err(WorkerError::SendFailed)
+            }
+        },
+        CancellationToken::new(),
+    )
     .await;
     let real_elapsed = real_started.elapsed();
 
@@ -63,5 +67,38 @@ async fn give_up_returns_last_error_after_60s() {
         attempts.load(Ordering::SeqCst) >= 4,
         "expected several attempts before give-up, got {}",
         attempts.load(Ordering::SeqCst)
+    );
+}
+
+/// SIGTERM during `connect_with_backoff` should abort the in-flight backoff
+/// sleep promptly (not wait the full 8 s for the next loop iteration). We
+/// simulate this by handing `retry_with_backoff` a cancel token, advancing
+/// virtual time into the first sleep, then cancelling.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn cancel_during_backoff_returns_cancelled() {
+    let cancel = CancellationToken::new();
+    let cancel_trigger = cancel.clone();
+
+    // Spawn a watchdog that cancels after ~500 ms of virtual time — well
+    // inside the first 1 s sleep — so the `select!` inside `retry_with_backoff`
+    // takes the `cancel` arm instead of the `sleep` arm.
+    let watchdog = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        cancel_trigger.cancel();
+    });
+
+    let real_started = std::time::Instant::now();
+    let result: Result<(), WorkerError> =
+        retry_with_backoff(|| async { Err::<(), _>(WorkerError::SendFailed) }, cancel).await;
+    let real_elapsed = real_started.elapsed();
+    watchdog.await.ok();
+
+    assert!(
+        matches!(result, Err(WorkerError::Cancelled)),
+        "expected Err(Cancelled), got {result:?}"
+    );
+    assert!(
+        real_elapsed < Duration::from_secs(5),
+        "paused-time cancel path should be near-instant in real time; took {real_elapsed:?}"
     );
 }

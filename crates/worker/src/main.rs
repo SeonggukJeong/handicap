@@ -6,7 +6,7 @@ use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{EngineError, RunPlan, Scenario, StepWindow, run_scenario};
 use handicap_proto::v1 as pb;
-use handicap_worker_core::connect_with_backoff;
+use handicap_worker_core::{WorkerError, connect_with_backoff};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{MetricBatch, MetricWindow, RunStatus, WorkerMessage};
@@ -37,14 +37,49 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     info!(?args, "worker starting");
 
-    let link = connect_with_backoff(
+    // Install the cancel token + SIGTERM handler BEFORE connect_with_backoff
+    // so a K8s pod-termination signal during the initial backoff sleep (the
+    // common shutdown case while the controller Service has no endpoint yet)
+    // is caught by our handler instead of the kernel's default SIGTERM action.
+    // Without this, SIGTERM during connect would kill the process with exit
+    // 143 and skip any cleanup. See worker-core::reconnect for the matching
+    // cancel-aware backoff sleep.
+    let cancel = CancellationToken::new();
+    let cancel_for_signal = cancel.clone();
+    let signal_task = tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to install SIGTERM handler");
+                return;
+            }
+        };
+        if sigterm.recv().await.is_some() {
+            tracing::info!("SIGTERM received, cancelling run");
+            cancel_for_signal.cancel();
+        }
+    });
+
+    let link = match connect_with_backoff(
         &args.controller,
         &args.worker_id,
         &args.run_id,
         args.capacity_vus,
+        cancel.clone(),
     )
     .await
-    .context("connect_with_backoff")?;
+    {
+        Ok(link) => link,
+        Err(WorkerError::Cancelled) => {
+            // SIGTERM during connect: exit cleanly (no run was ever started,
+            // so there's nothing to report back to the controller).
+            info!("SIGTERM during connect, exiting cleanly");
+            signal_task.abort();
+            return Ok(());
+        }
+        Err(e) => return Err(anyhow::Error::from(e).context("connect_with_backoff")),
+    };
     let assignment = link.assignment;
     let tx = link.tx;
     let mut inbound_rx = link.inbound_rx;
@@ -114,24 +149,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Abort listener: watch inbound messages for AbortRun addressed to our run.
-    let cancel = CancellationToken::new();
-    // SIGTERM = K8s pod termination. Cancel the run so we emit Phase::Aborted
-    // cleanly and let the existing inbound_fwd sync ensure the message lands.
-    let cancel_for_signal = cancel.clone();
-    let signal_task = tokio::spawn(async move {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = match signal(SignalKind::terminate()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to install SIGTERM handler");
-                return;
-            }
-        };
-        if sigterm.recv().await.is_some() {
-            tracing::info!("SIGTERM received, cancelling run");
-            cancel_for_signal.cancel();
-        }
-    });
+    // Reuses the same `cancel` token installed at startup — SIGTERM and an
+    // inbound AbortRun both cancel the in-flight scenario via the same token,
+    // which the engine watches for `EngineError::Aborted` → Phase::Aborted.
     let cancel_for_listener = cancel.clone();
     let assignment_run_id = assignment.run_id.clone();
     let abort_listener = tokio::spawn(async move {

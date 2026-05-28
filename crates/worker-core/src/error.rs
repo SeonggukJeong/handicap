@@ -14,4 +14,9 @@ pub enum WorkerError {
     SendFailed,
     #[error("missing assignment after register")]
     NoAssignment,
+    /// Connect/backoff was cancelled before it could succeed — typically a
+    /// SIGTERM arrived during the initial connect retry loop. The worker
+    /// treats this as a clean shutdown (exit 0) rather than a failure.
+    #[error("cancelled before connect")]
+    Cancelled,
 }
