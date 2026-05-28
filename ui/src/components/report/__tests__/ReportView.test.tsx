@@ -92,7 +92,7 @@ describe("ReportView", () => {
     expect(screen.getByRole("region", { name: /Time series — Errors/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Status distribution/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Per-step stats/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Download JSON/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Download JSON/ })).toBeInTheDocument();
   });
 
   it("resolves env in step URLs (resolveForDisplay)", () => {
