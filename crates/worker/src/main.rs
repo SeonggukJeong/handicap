@@ -6,6 +6,7 @@ use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{EngineError, RunPlan, Scenario, StepWindow, run_scenario};
 use handicap_proto::v1 as pb;
+use handicap_worker_core::connect_and_register;
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{MetricBatch, MetricWindow, RunStatus, WorkerMessage};
@@ -13,9 +14,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-
-mod client;
-mod error;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -39,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     info!(?args, "worker starting");
 
-    let link = client::connect_and_register(
+    let link = connect_and_register(
         &args.controller,
         &args.worker_id,
         &args.run_id,

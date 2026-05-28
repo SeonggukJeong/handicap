@@ -950,8 +950,20 @@ name = "handicap-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "clap",
+ "handicap-engine",
+ "handicap-proto",
+ "handicap-worker-core",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "handicap-worker-core"
+version = "0.1.0"
+dependencies = [
  "futures",
  "handicap-engine",
  "handicap-proto",
@@ -961,8 +973,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
- "tracing-subscriber",
- "ulid",
 ]
 
 [[package]]

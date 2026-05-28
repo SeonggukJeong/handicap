@@ -1,21 +1,21 @@
 [package]
-name = "handicap-worker"
+name = "handicap-worker-core"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
 
-[[bin]]
-name = "worker"
-path = "src/main.rs"
+[lib]
+name = "handicap_worker_core"
+path = "src/lib.rs"
 
 [dependencies]
 handicap-engine = { path = "../engine" }
 handicap-proto = { path = "../proto" }
-handicap-worker-core = { path = "../worker-core" }
-anyhow.workspace = true
-clap.workspace = true
+futures.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tokio-util.workspace = true
+tonic.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
