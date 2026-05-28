@@ -18,7 +18,7 @@ Slice 4 매뉴얼의 **사전 — wiremock stub 등록** 절차로 `/login` + `/
    - Status codes 바 차트: `200` 막대가 보임. 5xx 가 있으면 빨강(현재 단일색이지만 향후 확장).
    - Per-step stats 테이블: 각 스텝의 이름·method·resolved URL·요청수·에러수·p50/p95/p99.
    - Scenario YAML (run-time snapshot): 토글 버튼으로 펼침. 실행 시점의 YAML이 그대로 보임.
-   - **Download JSON** 버튼: 클릭 시 `run-{id}.json` 파일이 저장됨. Chrome/Edge는 저장 위치를 묻는 "Save As" 다이얼로그가 뜨고 (File System Access API), Firefox/Safari는 기본 다운로드 폴더로 자동 저장. 열어서 `summary.count`, `windows[]`, `steps[]` 가 들어있는지 확인. **오프라인 환경에서도 동작해야 정상** — `<a download>` 방식은 Chrome Safe Browsing의 phone-home 검증 때문에 사내망에서 "인터넷 연결 없음"으로 실패했었다 (ADR-0001 대응).
+   - **Download JSON** 버튼: 클릭 시 `run-{id}.json` 파일이 저장됨. Chrome/Edge는 저장 위치를 묻는 "Save As" 다이얼로그가 뜨고 (File System Access API), Firefox/Safari는 기본 다운로드 폴더로 자동 저장. 열어서 `summary.count`, `windows[]`, `steps[]` 가 들어있는지 확인. (Chrome `<a download>`에서 가끔 "Check Internet Connection"으로 실패하는 transient 케이스가 있어 `showSaveFilePicker` 방식으로 우회함 — CLAUDE.md Slice 5 함정 참고.)
 
 ## §2 — 세션(쿠키) 시나리오로 리포트 생성
 
