@@ -57,5 +57,8 @@ chart-snapshot:
 deploy-kind:
     ./scripts/deploy-kind.sh
 
+e2e-kind:
+    ./scripts/e2e-kind.sh
+
 kind-down:
     kind delete cluster --name handicap
