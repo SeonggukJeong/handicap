@@ -53,3 +53,9 @@ helm-lint:
 
 chart-snapshot:
     ./deploy/helm/handicap/tests/snapshot_test.sh
+
+deploy-kind:
+    ./scripts/deploy-kind.sh
+
+kind-down:
+    kind delete cluster --name handicap

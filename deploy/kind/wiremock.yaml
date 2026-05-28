@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: handicap-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiremock
+  namespace: handicap-test
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: wiremock}}
+  template:
+    metadata:
+      labels: {app: wiremock}
+    spec:
+      containers:
+        - name: wiremock
+          image: wiremock/wiremock:3.5.4
+          args: ["--port", "8080", "--verbose"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /__admin/health, port: 8080}
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiremock
+  namespace: handicap-test
+spec:
+  selector: {app: wiremock}
+  ports:
+    - port: 8080
+      targetPort: 8080
