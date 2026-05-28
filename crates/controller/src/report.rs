@@ -2,10 +2,10 @@ use crate::store::metrics::WindowWithHdr;
 use crate::store::runs::RunRow;
 use handicap_engine::percentiles::{Percentiles, decode_hdr, merge_into, percentiles_of};
 use hdrhistogram::Histogram;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportJson {
     pub run: ReportRun,
     pub scenario_yaml: String,
@@ -15,7 +15,7 @@ pub struct ReportJson {
     pub status_distribution: BTreeMap<String, u64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportRun {
     pub id: String,
     pub scenario_id: String,
@@ -27,7 +27,7 @@ pub struct ReportRun {
     pub created_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportSummary {
     pub count: u64,
     pub errors: u64,
@@ -38,7 +38,7 @@ pub struct ReportSummary {
     pub p99_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportWindow {
     pub ts_second: i64,
     pub step_id: String,
@@ -50,7 +50,7 @@ pub struct ReportWindow {
     pub p99_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportStep {
     pub step_id: String,
     pub count: u64,

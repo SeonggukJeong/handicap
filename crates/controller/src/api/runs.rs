@@ -99,6 +99,20 @@ pub async fn metrics(
     Ok(Json(s))
 }
 
+pub async fn report(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::report::ReportJson>, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    let rows = crate::store::metrics::windows_with_hdr(&state.db, &id).await?;
+    let scenario_yaml = row.scenario_yaml.clone();
+    Ok(Json(crate::report::build_report(
+        &row,
+        &scenario_yaml,
+        &rows,
+    )))
+}
+
 #[derive(Debug, Serialize)]
 pub struct RunListResponse {
     pub runs: Vec<RunResponse>,
