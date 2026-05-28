@@ -538,3 +538,183 @@ async fn abort_e2e_marks_run_aborted() {
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn report_e2e_smoke() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker bin (same pattern as the other e2e tests).
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "handicap-worker"])
+        .status()
+        .expect("cargo build -p handicap-worker");
+    assert!(status.success(), "worker build failed");
+    let worker_bin = worker_bin_path();
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Single wiremock stub: GET /ping → 200, with a small delay so p95_ms > 0
+    //    (HDR histogram stores microseconds; sub-millisecond responses round to 0 ms).
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ping"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("pong")
+                .set_delay(Duration::from_millis(5)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Pick free ports.
+    let rest_addr = pick_addr().await;
+    let grpc_addr = pick_addr().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        worker_bin: worker_bin.to_string_lossy().to_string(),
+        grpc_addr,
+        ui_dir: None,
+    });
+    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve(grpc_addr)
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. One-step scenario hitting wiremock /ping via ${BASE_URL}.
+    let scenario_yaml = r#"version: 1
+name: "report-smoke"
+steps:
+  - id: "ping"
+    name: "ping"
+    type: http
+    request:
+      method: GET
+      url: "${BASE_URL}/ping"
+    assert:
+      - status: 200
+"#;
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run with 2 VUs over 3 seconds and BASE_URL env.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 2, "duration_seconds": 3 },
+            "env": { "BASE_URL": target.uri() }
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap().to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status}"
+    );
+
+    // 7. GET /report and assert.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    // (a) top-level keys
+    for key in [
+        "run",
+        "scenario_yaml",
+        "summary",
+        "windows",
+        "steps",
+        "status_distribution",
+    ] {
+        assert!(
+            report.get(key).is_some(),
+            "report missing top-level key '{}'; got: {}",
+            key,
+            report
+        );
+    }
+
+    // (b) scenario_yaml matches what we POSTed
+    assert_eq!(
+        report["scenario_yaml"].as_str().unwrap(),
+        scenario_yaml,
+        "scenario snapshot drift"
+    );
+
+    // (c) summary.count >= 2 (each VU should have made at least one request in 3s)
+    let count = report["summary"]["count"].as_u64().unwrap();
+    assert!(count >= 2, "summary.count = {} (expected >= 2)", count);
+
+    // (d) exactly 1 step, id "ping"
+    let steps = report["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1, "expected 1 step, got {}", steps.len());
+    assert_eq!(steps[0]["step_id"].as_str().unwrap(), "ping");
+
+    // (e) at least one window with p95_ms > 0 (HDR decode worked end-to-end)
+    let windows = report["windows"].as_array().unwrap();
+    let any_p95 = windows
+        .iter()
+        .any(|w| w["p95_ms"].as_u64().unwrap_or(0) > 0);
+    assert!(any_p95, "no window had p95_ms > 0 — HDR decode broken?");
+
+    // (f) status_distribution["200"] == summary.count (all requests were 200)
+    let two_hundred = report["status_distribution"]["200"].as_u64().unwrap_or(0);
+    assert_eq!(
+        two_hundred, count,
+        "status_distribution.200 ({}) != summary.count ({})",
+        two_hundred, count
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
