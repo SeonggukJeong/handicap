@@ -1,0 +1,92 @@
+import { useMemo } from "react";
+import type { Report } from "../../api/schemas";
+import { parseScenarioDoc } from "../../scenario/yamlDoc";
+import { resolveForDisplay } from "../../scenario/template";
+import { Summary } from "./Summary";
+import { TimeSeriesChart } from "./TimeSeriesChart";
+import { StatusDistribution } from "./StatusDistribution";
+import { StepStatsTable } from "./StepStatsTable";
+import { ScenarioSnapshot } from "./ScenarioSnapshot";
+import { DownloadJsonButton } from "./DownloadJsonButton";
+
+type Props = { report: Report };
+
+type Sec = { ts_second: number; count: number; errors: number; p95_ms: number };
+
+function bySecond(report: Report): Sec[] {
+  const buckets = new Map<number, Sec>();
+  for (const w of report.windows) {
+    const cur = buckets.get(w.ts_second) ?? {
+      ts_second: w.ts_second,
+      count: 0,
+      errors: 0,
+      p95_ms: 0,
+    };
+    cur.count += w.count;
+    cur.errors += w.error_count;
+    // For p95 time series, use the max across steps in the same second as a coarse signal.
+    // Per-second per-step p95 charts are deferred (ADR-0017 OUT: percentile histogram view).
+    if (w.p95_ms > cur.p95_ms) cur.p95_ms = w.p95_ms;
+    buckets.set(w.ts_second, cur);
+  }
+  return Array.from(buckets.values()).sort((a, b) => a.ts_second - b.ts_second);
+}
+
+export function ReportView({ report }: Props) {
+  const seconds = useMemo(() => bySecond(report), [report]);
+  const envMap = useMemo<Record<string, string>>(() => {
+    const env = report.run.env;
+    if (env && typeof env === "object" && !Array.isArray(env)) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(env as Record<string, unknown>)) {
+        if (typeof v === "string") out[k] = v;
+      }
+      return out;
+    }
+    return {};
+  }, [report.run.env]);
+
+  const stepMeta = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; method: string; url: string }>();
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    if ("model" in parsed) {
+      for (const s of parsed.model.steps) {
+        m.set(s.id, {
+          id: s.id,
+          name: s.name,
+          method: s.request.method,
+          url: resolveForDisplay(s.request.url, envMap),
+        });
+      }
+    }
+    return m;
+  }, [report.scenario_yaml, envMap]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-semibold">Report</h3>
+        <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
+      </div>
+      <Summary summary={report.summary} />
+      <TimeSeriesChart
+        title="Requests / second"
+        yLabel="req/s"
+        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
+      />
+      <TimeSeriesChart
+        title="p95 response time"
+        yLabel="ms"
+        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
+      />
+      <TimeSeriesChart
+        title="Errors / second"
+        yLabel="errors"
+        data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
+      />
+      <StatusDistribution distribution={report.status_distribution} />
+      <StepStatsTable steps={report.steps} meta={stepMeta} />
+      <ScenarioSnapshot yaml={report.scenario_yaml} />
+    </div>
+  );
+}
