@@ -298,4 +298,36 @@ describe("RunDetailPage — report on terminal", () => {
     );
     expect(reportCalls.length).toBe(0);
   });
+
+  it("surfaces report fetch error as an alert when terminal", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R11")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R11",
+            scenario_id: "S9",
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R11/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R11", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R11/report")) {
+        return Promise.resolve(jsonResponse({ error: "boom" }, 500));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R11");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Report 로드 실패/);
+    expect(alert).toHaveTextContent(/boom/);
+    // Live sections still render as fallback so the page isn't blank.
+    expect(screen.getByRole("heading", { name: /Metric windows/i })).toBeInTheDocument();
+  });
 });

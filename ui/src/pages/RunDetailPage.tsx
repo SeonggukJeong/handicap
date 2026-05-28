@@ -111,6 +111,22 @@ export function RunDetailPage() {
         <ReportView report={report.data} />
       ) : (
         <>
+          {terminal && report.error && (
+            <div
+              role="alert"
+              className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
+            >
+              Report 로드 실패: {(report.error as Error).message}
+            </div>
+          )}
+          {terminal && report.isLoading && (
+            <div
+              role="status"
+              className="mb-4 p-3 border border-slate-200 bg-slate-50 text-sm text-slate-600 rounded"
+            >
+              리포트 생성 중…
+            </div>
+          )}
           <EnvBlock env={r.env} />
 
           <section aria-label="Profile" className="mb-6 text-sm">
