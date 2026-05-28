@@ -6,7 +6,7 @@ use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{EngineError, RunPlan, Scenario, StepWindow, run_scenario};
 use handicap_proto::v1 as pb;
-use handicap_worker_core::connect_and_register;
+use handicap_worker_core::connect_with_backoff;
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{MetricBatch, MetricWindow, RunStatus, WorkerMessage};
@@ -37,14 +37,14 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     info!(?args, "worker starting");
 
-    let link = connect_and_register(
+    let link = connect_with_backoff(
         &args.controller,
         &args.worker_id,
         &args.run_id,
         args.capacity_vus,
     )
     .await
-    .context("register")?;
+    .context("connect_with_backoff")?;
     let assignment = link.assignment;
     let tx = link.tx;
     let mut inbound_rx = link.inbound_rx;

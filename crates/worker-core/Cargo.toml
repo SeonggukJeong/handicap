@@ -18,3 +18,9 @@ tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+# `test-util` enables `tokio::test(start_paused = true)` and friends — needed
+# for the reconnect backoff test to advance virtual time without burning real
+# wall-clock seconds. Not in the `full` meta-feature.
+tokio = { workspace = true, features = ["test-util"] }
