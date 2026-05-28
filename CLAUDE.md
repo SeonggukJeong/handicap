@@ -102,6 +102,7 @@ docs/
 - **0016** VU 실행 모델: tokio task per VU (OS 스레드/work-stealing 아님)
 - **0017** MVP 리포트: 1s 시계열 + 스텝별 + status 분포 (run간 비교·SLA는 후속)
 - **0018** VU별 자동 cookie jar — 세션(쿠키)·토큰(JWT) 인증 둘 다 지원
+- **0019** Worker dispatcher 추상화 (subprocess local-dev / K8s Job prod)
 
 ## 코딩 컨벤션
 
