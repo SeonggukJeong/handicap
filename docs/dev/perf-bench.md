@@ -18,6 +18,7 @@ This document tracks the manual-bench numbers for MVP §4.3 acceptance:
 | Date | Slice | Variant | RPS | p50 ms | p95 ms | p99 ms | Ctrl RSS | Worker RSS | Notes |
 |---|---|---|---:|---:|---:|---:|---|---|---|
 | 2026-05-28 | pre-6 | host process | 18326 | 1 | 6 | 10 | 14 MB | 33 MB | Baseline. 100 VUs / 30 s / `GET /ping` (small JSON, not the 1 KB target — Task 17 will switch). Last-20s mean RPS. Worker RSS sampled mid-run (process exits on terminal). Wiremock 3.5.4 on `:19001`, controller on `:18080/:18081`. |
+| 2026-05-29 | 6 | subprocess + 1KB | 20389 | 8 | 17 | 24 | 14.5 MB | n/a (post-bench worker exited) | Post-Slice-6 baseline via `just bench-throughput`. 200 VUs / 30 s + 2 s ramp / `GET /big` (≈1 KB random base64 body). count=611,893; rps from `summary.rps` (entire-run mean). Wiremock 3.5.4 in Docker on `:9001`, controller on `:18080/:18081`, subprocess dispatcher, release binaries. Meets §4.3 (≥5,000 RPS, p95 < 100 ms) on M-series macOS. Worker RSS not sampled — the worker exits when the run terminates and the script only measures the controller. |
 
 ## Why this is manual, not CI
 

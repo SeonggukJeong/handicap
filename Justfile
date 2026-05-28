@@ -62,3 +62,6 @@ e2e-kind:
 
 kind-down:
     kind delete cluster --name handicap
+
+bench-throughput vus='200' duration='30':
+    VUS={{vus}} DURATION={{duration}} ./scripts/bench-throughput.sh
