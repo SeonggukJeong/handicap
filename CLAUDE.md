@@ -12,6 +12,8 @@ Slice 3 결과: React Flow 캔버스(HTTP 노드 1종, 선형 chain, drag-drop a
 
 Slice 4 결과: 엔진이 multi-step extract(JSONPath body / header / cookie / status)와 ${ENV:-default} 템플릿, 1초 단위 linear ramp-up, CancellationToken 기반 abort를 지원. 컨트롤러 `POST /api/runs/{id}/abort` → 워커가 in-flight run 취소. UI Inspector에 ExtractEditor, RunDetail에 Abort 버튼. 테스트: Rust unit + wiremock multi-step integration + proptest properties, UI RTL + fast-check round-trip. K8s 배포는 Slice 6, 차트·HTML 리포트는 Slice 5.
 
+Slice 4 post-merge manual check: `RunDialog`가 `env`·`ramp_up_seconds`를 하드코딩하던 UI 갭을 메우고(M1), Run 상세에 Steps/Env/Profile 진단 패널을 추가(M2), 시나리오 URL을 env로 풀어 표시하는 client-side `resolveForDisplay` 도입(M3). 매뉴얼에 wiremock stub 등록 절차 명시(M4). 자세한 내용 → `docs/superpowers/plans/2026-05-28-slice-4-manual-check-fixes.md`.
+
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
 ## 한 줄 아키텍처
@@ -158,6 +160,13 @@ docs/
 - **clippy를 pre-commit에 안 넣으면 `assign_op_pattern`/`expect_fun_call` 같은 게 prod에 들어간다**: Slice 4에서 두 번 일어남. Follow-up F2에서 hook에 `cargo clippy --workspace --all-targets -- -D warnings` 추가. 단위/integration 테스트가 모두 통과해도 clippy가 다른 클래스의 문제를 잡으니 비용 대비 가치 좋음.
 - **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합**: Slice 3의 `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur (또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (F5의 `ExtractEditor`가 표준 패턴 — 다음 슬라이스의 새 editor도 따라가야 함.)
 - **proto enum 값 추가는 backward-compat 안전**: F3에서 `Phase::ABORTED = 4` 추가. 기존 클라이언트가 새 값을 모르면 `unspecified`로 떨어진다. 새 값을 모르는 worker → 새 controller 조합은 일어날 일이 없고, 새 worker → 옛 controller도 마찬가지(우리는 둘을 같이 배포). 새 phase가 필요하면 그냥 추가.
+- **plan에 있던 UI 갭이 manual check에서 처음 드러나는 패턴**: Slice 4 plan은 ramp_up/env를 엔진·controller·proto에 다 넣었지만 `RunDialog`가 두 값을 하드코딩(`ramp_up_seconds: 0`, `env: {}`)으로 보내고 있었다. 단위/통합 테스트는 백엔드만 검증해서 회귀가 안 잡혔고, 매뉴얼 §1·§3을 실제로 돌리는 단계에서 발견. 다음 슬라이스부터 새 런타임 옵션이 추가될 때마다 **RunDialog 입력 + 페이로드까지 같은 task 단위로 묶어서** 미루지 말 것. (M1 참고.)
+- **엔진과 UI에 같은 템플릿 문법을 두 번 구현**: 엔진 `crates/engine/src/template.rs`는 runtime/엄격, UI `ui/src/scenario/template.ts::resolveForDisplay`는 display/관대(미해결 토큰은 그대로 둠). Run 상세 화면이 시나리오 원본 `${BASE_URL}/login`을 그대로 보여주면 사용자가 "env가 안 들어간 듯" 오해하기에 도입. 새 토큰(`${session_id}` 등)이나 새 문법을 엔진에 추가하면 **반드시 UI resolver도 동시에**, 아니면 진단 표시가 거짓말을 한다. (M3 참고.)
+- **key-value 입력 폼은 한 칸짜리 add row를 만들지 말 것**: RunDialog의 Env 입력 1차 구현이 placeholder="BASE_URL" 한 칸 + Add였는데, 사용자가 URL을 키 칸에 통째로 적어 `key=http://..., value=""`라는 잘못된 entry를 만들었다 (M5). 두 칸 동시 입력 + key 비어있으면 Add disabled가 표준. `VariablesPanel`은 이미 이 패턴이었는데 RunDialog만 빠져 있었음.
+- **Run 상세 화면의 step_id 진단성**: ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다. 시나리오 YAML을 같이 fetch해서 `step.id → {name, method, url}`로 매핑하고 URL은 `resolveForDisplay`로 풀어 표시하면 status 0 같은 비정상 상태에서 root cause(시나리오 설정 vs connectivity) 분간이 한 화면에서 가능해진다. (M2 참고.)
+- **status=0 + 비정상적으로 높은 RPS = HTTP 도달 전 단계 실패**: connection refused / URL parse / DNS 등 fail-fast. 진짜 5xx는 RPS가 정상 범위(타겟이 답을 주긴 함). 매뉴얼 §1 점검에서 3번 마주침 — 시나리오 URL이 host 없는 `/login`인지, wiremock이 죽었는지, env가 빈 채로 `${BASE_URL}`이 unresolved인지 순서로 확인.
+- **Zod 중첩 `.default()`의 input 타입 누출**: `ProfileSchema.ramp_up_seconds: z.number().default(0)`이 output에선 `number`지만, `RunSchema.profile`로 nested되면 부모의 `z.infer`에서 `number | undefined`로 추론된다. 별도 `Profile` 타입을 받는 컴포넌트로 props 분리하면 TS 에러. `pnpm test`(esbuild transpile)는 통과하고 **`pnpm build`(`tsc -b`)에서만 잡힘** — UI 변경 commit 전 build 게이트 한 번 더 확인.
+- **vite dev `/api` 프록시 타깃**: `ui/vite.config.ts`가 `/api` → `http://127.0.0.1:8080`(controller) 프록시. UI에서 네트워크 404/CORS가 나면 controller 살아있는지 먼저 (`curl http://127.0.0.1:8080/api/scenarios`). `HANDICAP_API` env로 오버라이드 가능.
 
 ## Subagent dispatch 노하우 (Slice 4 학습)
 

@@ -1,9 +1,14 @@
+import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useAbortRun, useRun, useRunMetrics } from "../api/hooks";
+import { useAbortRun, useRun, useRunMetrics, useScenario } from "../api/hooks";
 import { StatusBadge } from "../components/StatusBadge";
 import type { RunStatus } from "../api/schemas";
+import { parseScenarioDoc } from "../scenario/yamlDoc";
+import { resolveForDisplay } from "../scenario/template";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
+
+type StepMeta = { name: string; method: string; url: string };
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -11,12 +16,50 @@ export function RunDetailPage() {
   const abort = useAbortRun(id ?? "");
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
+  const scenario = useScenario(run.data?.scenario_id);
+
+  const stepOrder = useMemo<Array<{ id: string } & StepMeta>>(() => {
+    const yaml = scenario.data?.yaml;
+    if (!yaml) return [];
+    const parsed = parseScenarioDoc(yaml);
+    if (!("model" in parsed)) return [];
+    return parsed.model.steps.map((s) => ({
+      id: s.id,
+      name: s.name,
+      method: s.request.method,
+      url: s.request.url,
+    }));
+  }, [scenario.data?.yaml]);
+
+  const stepMap = useMemo(() => {
+    const m = new Map<string, StepMeta>();
+    for (const s of stepOrder) m.set(s.id, s);
+    return m;
+  }, [stepOrder]);
+
+  const stepTotals = useMemo(() => {
+    const m = new Map<string, { count: number; errors: number }>();
+    for (const w of metrics.data?.windows ?? []) {
+      const cur = m.get(w.step_id) ?? { count: 0, errors: 0 };
+      m.set(w.step_id, {
+        count: cur.count + w.count,
+        errors: cur.errors + w.error_count,
+      });
+    }
+    return m;
+  }, [metrics.data]);
 
   if (run.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (run.error) return <p className="text-red-600">{(run.error as Error).message}</p>;
   if (!run.data) return <p className="text-slate-500">Not found.</p>;
 
   const r = run.data;
+  const envMap: Record<string, string> = {};
+  if (r.env && typeof r.env === "object" && !Array.isArray(r.env)) {
+    for (const [k, v] of Object.entries(r.env as Record<string, unknown>)) {
+      if (typeof v === "string") envMap[k] = v;
+    }
+  }
   const totalCount = metrics.data?.windows.reduce((acc, w) => acc + w.count, 0) ?? 0;
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
   const rps =
@@ -62,6 +105,58 @@ export function RunDetailPage() {
         <Card label="Created">{new Date(r.created_at).toLocaleString()}</Card>
       </div>
 
+      <EnvBlock env={r.env} />
+
+      <section aria-label="Profile" className="mb-6 text-sm">
+        <h3 className="text-lg font-semibold mb-2">Profile</h3>
+        <ul className="font-mono text-slate-700">
+          <li>vus = {r.profile.vus}</li>
+          <li>duration = {r.profile.duration_seconds}s</li>
+          <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
+        </ul>
+      </section>
+
+      {stepOrder.length > 0 && (
+        <section aria-label="Steps" className="mb-6">
+          <h3 className="text-lg font-semibold mb-2">Steps</h3>
+          <table className="min-w-full text-sm">
+            <thead className="border-b border-slate-200 text-left text-slate-600">
+              <tr>
+                <th className="py-2 pr-4 font-medium">#</th>
+                <th className="py-2 pr-4 font-medium">Name</th>
+                <th className="py-2 pr-4 font-medium">Method</th>
+                <th className="py-2 pr-4 font-medium">URL</th>
+                <th className="py-2 pr-4 font-medium">Requests</th>
+                <th className="py-2 pr-4 font-medium">Errors</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stepOrder.map((s, idx) => {
+                const totals = stepTotals.get(s.id);
+                const resolved = resolveForDisplay(s.url, envMap);
+                return (
+                  <tr key={s.id} className="border-b border-slate-100">
+                    <td className="py-2 pr-4 text-slate-500">{idx + 1}</td>
+                    <td className="py-2 pr-4 font-medium">{s.name}</td>
+                    <td className="py-2 pr-4 font-mono text-xs">{s.method}</td>
+                    <td className="py-2 pr-4 font-mono text-xs break-all">
+                      <div>{resolved}</div>
+                      {resolved !== s.url && (
+                        <div className="text-slate-500 text-[10px]">
+                          template: {s.url}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">{totals?.count ?? 0}</td>
+                    <td className="py-2 pr-4">{totals?.errors ?? 0}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <h3 className="text-lg font-semibold mb-2">Metric windows</h3>
       {!metrics.data || metrics.data.windows.length === 0 ? (
         <p className="text-slate-500 text-sm">
@@ -79,19 +174,33 @@ export function RunDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {metrics.data.windows.map((w) => (
-              <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
-                <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
-                <td className="py-2 pr-4">{w.step_id}</td>
-                <td className="py-2 pr-4">{w.count}</td>
-                <td className="py-2 pr-4">{w.error_count}</td>
-                <td className="py-2 pr-4 font-mono text-xs">
-                  {Object.entries(w.status_counts)
-                    .map(([s, c]) => `${s}:${c}`)
-                    .join(" ")}
-                </td>
-              </tr>
-            ))}
+            {metrics.data.windows.map((w) => {
+              const meta = stepMap.get(w.step_id);
+              return (
+                <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
+                  <td className="py-2 pr-4">
+                    {meta ? (
+                      <span>
+                        <span className="font-medium">{meta.name}</span>{" "}
+                        <span className="font-mono text-xs text-slate-500">
+                          {meta.method} {resolveForDisplay(meta.url, envMap)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs">{w.step_id}</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">{w.count}</td>
+                  <td className="py-2 pr-4">{w.error_count}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">
+                    {Object.entries(w.status_counts)
+                      .map(([s, c]) => `${s}:${c}`)
+                      .join(" ")}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -107,3 +216,29 @@ function Card({ label, children }: { label: string; children: React.ReactNode })
     </div>
   );
 }
+
+function EnvBlock({ env }: { env: unknown }) {
+  const entries =
+    env && typeof env === "object" && !Array.isArray(env)
+      ? Object.entries(env as Record<string, unknown>)
+      : [];
+  return (
+    <section aria-label="Env" className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">Env</h3>
+      {entries.length === 0 ? (
+        <p className="text-slate-500 text-sm italic">No env vars were sent.</p>
+      ) : (
+        <ul className="text-sm font-mono">
+          {entries.map(([k, v]) => (
+            <li key={k} className="py-0.5">
+              <span className="text-slate-600">{k}</span>
+              <span className="text-slate-400"> = </span>
+              <span>{typeof v === "string" ? v : JSON.stringify(v)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
