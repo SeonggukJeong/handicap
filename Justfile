@@ -47,3 +47,9 @@ run-controller-with-ui:
 
 build-image image='handicap:dev':
     IMAGE={{image}} ./scripts/build-image.sh
+
+helm-lint:
+    helm lint deploy/helm/handicap
+
+chart-snapshot:
+    ./deploy/helm/handicap/tests/snapshot_test.sh

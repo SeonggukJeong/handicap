@@ -1,0 +1,206 @@
+---
+# Source: handicap/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: handicap-handicap-controller
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+---
+# Source: handicap/templates/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: handicap-handicap-controller-data
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: "fast-ssd"
+---
+# Source: handicap/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: handicap-handicap-controller
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+# Source: handicap/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: handicap-handicap-controller
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: handicap-handicap-controller
+subjects:
+  - kind: ServiceAccount
+    name: handicap-handicap-controller
+    namespace: load-testing
+---
+# Source: handicap/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: handicap-handicap-controller
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/component: controller
+  ports:
+    - name: rest
+      port: 8080
+      targetPort: rest
+      protocol: TCP
+    - name: grpc
+      port: 8081
+      targetPort: grpc
+      protocol: TCP
+
+---
+# Source: handicap/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: handicap-handicap-controller
+  namespace: load-testing
+  labels:
+    app.kubernetes.io/name: handicap
+    app.kubernetes.io/instance: handicap
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: handicap-0.1.0
+    app.kubernetes.io/component: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: handicap
+      app.kubernetes.io/instance: handicap
+      app.kubernetes.io/component: controller
+  strategy:
+    type: Recreate   # SQLite PV is RWO; rolling update would deadlock.
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: handicap
+        app.kubernetes.io/instance: handicap
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: handicap-0.1.0
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: handicap-handicap-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: controller
+          image: "ghcr.io/example/handicap:1.2.3"
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/controller"]
+          args:
+            - "--db"
+            - "/data/handicap.db"
+            - "--rest"
+            - "0.0.0.0:8080"
+            - "--grpc"
+            - "0.0.0.0:8081"
+            - "--ui-dir"
+            - "/srv/ui"
+            - "--worker-mode"
+            - "kubernetes"
+            - "--namespace"
+            - "load-testing"
+            - "--release-name"
+            - "handicap"
+            - "--worker-image"
+            - "ghcr.io/example/handicap-worker:1.2.3"
+            - "--controller-grpc-url"
+            - "http://handicap-handicap-controller.load-testing.svc.cluster.local:8081"
+          ports:
+            - name: rest
+              containerPort: 8080
+            - name: grpc
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: rest
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: rest
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: 8
+              memory: 4Gi
+            requests:
+              cpu: 1
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: handicap-handicap-controller-data
+        - name: tmp
+          emptyDir: {}

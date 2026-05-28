@@ -1,0 +1,17 @@
+image:
+  repository: ghcr.io/example/handicap
+  tag: "1.2.3"
+persistence:
+  size: 10Gi
+  storageClass: fast-ssd
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 1
+      memory: 512Mi
+    limits:
+      cpu: 8
+      memory: 4Gi
+worker:
+  image: ghcr.io/example/handicap-worker:1.2.3
