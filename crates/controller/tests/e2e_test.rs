@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::{CoordinatorService, CoordinatorState};
 use handicap_controller::{app, store};
 use handicap_proto::v1::coordinator_server::CoordinatorServer;
@@ -72,8 +74,10 @@ async fn full_slice_1_e2e() {
     let app = app::router(app::AppState {
         db: db.clone(),
         coord: coord.clone(),
-        worker_bin: worker_bin.to_string_lossy().to_string(),
-        grpc_addr,
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
@@ -238,8 +242,10 @@ async fn two_step_with_env_e2e() {
     let app = app::router(app::AppState {
         db: db.clone(),
         coord: coord.clone(),
-        worker_bin: worker_bin.to_string_lossy().to_string(),
-        grpc_addr,
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
         ui_dir: None,
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
@@ -422,8 +428,10 @@ async fn abort_e2e_marks_run_aborted() {
     let app = app::router(app::AppState {
         db: db.clone(),
         coord: coord.clone(),
-        worker_bin: worker_bin.to_string_lossy().to_string(),
-        grpc_addr,
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
@@ -575,8 +583,10 @@ async fn report_e2e_smoke() {
     let app = app::router(app::AppState {
         db: db.clone(),
         coord: coord.clone(),
-        worker_bin: worker_bin.to_string_lossy().to_string(),
-        grpc_addr,
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
         ui_dir: None,
     });
     let rest_listener = TcpListener::bind(rest_addr).await.unwrap();

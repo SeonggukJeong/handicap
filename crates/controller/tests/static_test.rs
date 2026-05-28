@@ -1,7 +1,9 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::{app, store};
 use tower::ServiceExt;
 
@@ -18,11 +20,14 @@ fn write_fixture(tmp: &std::path::Path) {
 async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let coord = handicap_controller::grpc::coordinator::CoordinatorState::new(db.clone());
+    let dispatcher = Arc::new(SubprocessDispatcher::new(
+        "/nonexistent".to_string(),
+        "127.0.0.1:0".parse().unwrap(),
+    ));
     app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher,
         ui_dir,
     }
 }

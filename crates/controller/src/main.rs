@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
@@ -48,11 +49,16 @@ async fn main() -> anyhow::Result<()> {
     let db = store::connect(&db_url).await?;
     let coord_state = CoordinatorState::new(db.clone());
 
+    let dispatcher: handicap_controller::dispatcher::SharedDispatcher = Arc::new(
+        handicap_controller::dispatcher::subprocess::SubprocessDispatcher::new(
+            args.worker_bin.clone(),
+            args.grpc,
+        ),
+    );
     let state = app::AppState {
         db: db.clone(),
         coord: coord_state.clone(),
-        worker_bin: args.worker_bin.clone(),
-        grpc_addr: args.grpc,
+        dispatcher: dispatcher.clone(),
         ui_dir: args.ui_dir.clone(),
     };
     let app_router = app::router(state);

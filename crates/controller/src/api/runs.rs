@@ -70,12 +70,12 @@ pub async fn create(
     };
     state.coord.enqueue(row.id.clone(), assignment).await;
 
-    // Spawn the worker subprocess. If this fails we still return the run row;
-    // the run will be left in `pending` and the operator can investigate.
-    if let Err(e) =
-        crate::worker_proc::spawn_worker(&state.worker_bin, state.grpc_addr, &row.id).await
-    {
-        tracing::warn!(run_id = %row.id, error = %e, "failed to spawn worker");
+    // Dispatch the worker (subprocess locally, K8s Job in prod). If this
+    // fails we still return the run row; the run will be left in `pending`
+    // and the operator can investigate.
+    let worker_id = ulid::Ulid::new().to_string();
+    if let Err(e) = state.dispatcher.dispatch(&row.id, &worker_id).await {
+        tracing::warn!(run_id = %row.id, error = %e, "failed to dispatch worker");
     }
 
     Ok((StatusCode::CREATED, Json(to_response(row))))

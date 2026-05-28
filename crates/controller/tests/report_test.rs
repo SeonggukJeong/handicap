@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::report::ReportJson;
 use handicap_controller::store::metrics::{MetricRow, insert_batch};
@@ -15,8 +18,10 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
     app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     })
 }

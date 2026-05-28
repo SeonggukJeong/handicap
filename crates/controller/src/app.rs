@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::Router;
@@ -6,6 +5,7 @@ use axum::routing::{get, post};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{runs as runs_api, scenarios as scenarios_api};
+use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
 use crate::store::Db;
 
@@ -13,8 +13,7 @@ use crate::store::Db;
 pub struct AppState {
     pub db: Db,
     pub coord: CoordinatorState,
-    pub worker_bin: String,
-    pub grpc_addr: SocketAddr,
+    pub dispatcher: SharedDispatcher,
     pub ui_dir: Option<PathBuf>,
 }
 

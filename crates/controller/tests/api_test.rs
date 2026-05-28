@@ -1,6 +1,9 @@
 // Test: mark_aborted must set ended_at unconditionally (idempotent fix)
+use std::sync::Arc;
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
 use serde_json::{Value, json};
@@ -11,8 +14,10 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
     app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     })
 }
@@ -104,8 +109,10 @@ async fn create_and_get_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
 
@@ -142,8 +149,10 @@ async fn rejects_invalid_yaml() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
@@ -164,8 +173,10 @@ async fn create_run_for_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
 
@@ -214,8 +225,10 @@ async fn list_scenarios_returns_what_was_created() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
 
@@ -267,8 +280,10 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
 
@@ -394,8 +409,10 @@ async fn list_runs_by_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        worker_bin: "/nonexistent".to_string(),
-        grpc_addr: "127.0.0.1:0".parse().unwrap(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
         ui_dir: None,
     });
 
