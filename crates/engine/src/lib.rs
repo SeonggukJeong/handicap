@@ -2,6 +2,7 @@ pub mod aggregator;
 pub mod error;
 pub mod executor;
 pub mod extract;
+pub mod percentiles;
 pub mod runner;
 pub mod scenario;
 pub mod template;
