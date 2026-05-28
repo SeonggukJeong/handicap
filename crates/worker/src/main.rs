@@ -115,6 +115,23 @@ async fn main() -> anyhow::Result<()> {
 
     // Abort listener: watch inbound messages for AbortRun addressed to our run.
     let cancel = CancellationToken::new();
+    // SIGTERM = K8s pod termination. Cancel the run so we emit Phase::Aborted
+    // cleanly and let the existing inbound_fwd sync ensure the message lands.
+    let cancel_for_signal = cancel.clone();
+    let signal_task = tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to install SIGTERM handler");
+                return;
+            }
+        };
+        if sigterm.recv().await.is_some() {
+            tracing::info!("SIGTERM received, cancelling run");
+            cancel_for_signal.cancel();
+        }
+    });
     let cancel_for_listener = cancel.clone();
     let assignment_run_id = assignment.run_id.clone();
     let abort_listener = tokio::spawn(async move {
@@ -134,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
     // Clean up the abort listener — it may still be blocked on recv().
     abort_listener.abort();
     abort_listener.await.ok();
+    signal_task.abort();
 
     forwarder.await.ok();
 
