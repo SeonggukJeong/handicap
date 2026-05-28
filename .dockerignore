@@ -1,0 +1,16 @@
+target/
+**/target/
+node_modules/
+**/node_modules/
+ui/dist/
+.git/
+.github/
+docs/
+*.md
+handicap.db
+handicap.db-journal
+handicap.db-wal
+handicap.db-shm
+.claude/
+.claire/
+.clone/

@@ -44,3 +44,6 @@ run-controller-with-ui:
       --grpc 127.0.0.1:8081 \
       --worker-bin target/debug/worker \
       --ui-dir ui/dist
+
+build-image image='handicap:dev':
+    IMAGE={{image}} ./scripts/build-image.sh
