@@ -14,6 +14,8 @@ Slice 4 결과: 엔진이 multi-step extract(JSONPath body / header / cookie / s
 
 Slice 4 post-merge manual check: `RunDialog`가 `env`·`ramp_up_seconds`를 하드코딩하던 UI 갭을 메우고(M1), Run 상세에 Steps/Env/Profile 진단 패널을 추가(M2), 시나리오 URL을 env로 풀어 표시하는 client-side `resolveForDisplay` 도입(M3). 매뉴얼에 wiremock stub 등록 절차 명시(M4). 자세한 내용 → `docs/superpowers/plans/2026-05-28-slice-4-manual-check-fixes.md`.
 
+Slice 5 결과: 종료된 run의 same-page Report 전환. Controller `GET /api/runs/{id}/report` 가 run + scenario_yaml snapshot + per-second windows(percentile 포함) + per-step + status 분포를 한 번에 번들. 엔진 `percentiles.rs` 가 V2 HDR Histogram BLOB을 deserialize + merge. UI Recharts (line/bar) + Summary + StepStatsTable + ScenarioSnapshot + JSON download. e2e `report_e2e_smoke` 가 워커 subprocess → 컨트롤러 → report 까지 검증. K8s 배포(Slice 6)는 아직.
+
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
 ## 한 줄 아키텍처
@@ -177,3 +179,16 @@ docs/
 ## 새로운 아키텍처 결정이 생기면
 
 `docs/adr/`에 새 ADR 파일 추가 (다음 번호 사용, MADR 포맷). 이 CLAUDE.md의 "알아둘 결정들" 목록에도 한 줄 추가.
+
+## Slice 5에서 배운 함정들
+
+- **Recharts ResponsiveContainer + jsdom**: ResponsiveContainer는 부모의 measured 사이즈를 읽어 자식 차트에 넘기는데 jsdom은 layout이 없어서 size=0 → SVG가 안 그려져 RTL assertion 실패. 컴포넌트에 explicit `width`/`height` prop을 받게 만들고 ResponsiveContainer는 (필요 시) 프로덕션 path에서만 사용. 테스트는 explicit size로.
+- **HDR Histogram V2 BLOB 의 partial-write 내성**: worker가 flush 중 죽으면 `hdr_histogram` 컬럼에 truncated bytes가 남을 수 있다. `decode_hdr` 는 `Result`로 실패를 표현하고 controller `build_report` 는 그 한 윈도만 p50/p95/p99=0 으로 두고 나머지 윈도를 정상 처리. crash-late-fail-soft 패턴. 단위 테스트 `build_report_tolerates_bad_hdr_blob` 가 contract.
+- **`/report` 는 polling 금지**: terminal 후 한 번만 fetch, `staleTime: Infinity`, `refetchInterval: false`. live polling은 기존 `/metrics` 가 담당. 두 endpoint를 분리한 이유는 hot path의 HDR deserialize 비용을 피하기 위함.
+- **Scenario snapshot vs current scenario**: M2의 follow-up에서 noted — Run 상세가 `runs.scenario_yaml` snapshot 컬럼을 봐야지 `GET /api/scenarios/{id}` 의 현재 YAML을 보면 시나리오 편집 후 과거 run의 step 라벨이 어긋난다. Slice 5는 `/report.scenario_yaml`을 snapshot으로 노출하는 쪽으로 결정.
+- **bySecond 시계열 derivation은 ReportView 안에서**: 시계열 max-over-steps 합산 같은 derivation 로직을 backend가 아니라 ReportView 안에 두기로. backend는 raw windows 만 보낸다. 이유: UI가 step 필터/색상 분리 같은 변형을 더하기 쉬움.
+- **`hdrhistogram` add 의 bound 일치**: `Histogram::add(other)` 는 두 히스토그램의 lo/hi/sigfig 가 같을 때 lossless. 다른 컨피그면 일부 샘플이 누락된다. `fresh_hist()` 헬퍼로 모든 누적용 히스토그램이 같은 bound 를 갖게 통일.
+- **blob URL 누수**: `URL.createObjectURL` 결과는 명시적 `revokeObjectURL` 호출 전까지 페이지 lifetime 내내 남는다. `useEffect cleanup`으로 `revokeObjectURL` 호출. DownloadJsonButton unmount 테스트로 contract 검증.
+- **jsdom은 `URL.createObjectURL`을 구현하지 않음**: DownloadJsonButton 테스트와 ReportView 테스트에서 `Object.defineProperty(URL, "createObjectURL", ...)` 폴리필을 모듈 스코프에 추가해야 한다. 폴리필은 conditional (`typeof URL.createObjectURL === "undefined"`)로 만들어 jsdom이 아닌 환경에서 덮어쓰지 않게.
+- **localhost HTTP RTT는 microsecond 단위 → p95_ms = 0**: e2e 테스트에서 wiremock /ping이 sub-millisecond로 응답하면 `value_at_quantile(0.95) / 1_000` 이 0이 된다. `set_delay(Duration::from_millis(5))` 같은 인공 지연으로 p95 > 0 보장. UI에는 영향 없음(빠른 prod 백엔드도 보통 ms 단위).
+- **`Deserialize`는 typed round-trip 테스트가 강제**: report.rs의 ReportJson/ReportRun/... 은 처음에 Serialize만 가졌는데 integration test 의 `serde_json::from_value::<ReportJson>` 어설션이 Deserialize 를 요구. 새 응답 타입 정의 시 양방향 derive를 함께.
