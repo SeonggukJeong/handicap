@@ -3,13 +3,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use handicap_controller::dispatcher::{
+    SharedDispatcher, kubernetes::KubernetesDispatcher, subprocess::SubprocessDispatcher,
+};
 use handicap_controller::grpc::coordinator::{CoordinatorService, CoordinatorState};
 use handicap_controller::{app, store};
 use handicap_proto::v1::coordinator_server::CoordinatorServer;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum WorkerMode {
+    Subprocess,
+    Kubernetes,
+}
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -19,8 +28,24 @@ struct Args {
     rest: SocketAddr,
     #[arg(long, default_value = "127.0.0.1:8081")]
     grpc: SocketAddr,
+    /// How to launch workers for new runs.
+    #[arg(long, value_enum, default_value_t = WorkerMode::Subprocess)]
+    worker_mode: WorkerMode,
+    /// Path to the worker binary (only used when --worker-mode=subprocess).
     #[arg(long, default_value = "target/debug/worker")]
     worker_bin: String,
+    /// Kubernetes namespace for worker Jobs (only used when --worker-mode=kubernetes).
+    #[arg(long, default_value = "handicap")]
+    namespace: String,
+    /// Helm release name used as a label prefix on worker Jobs (only used when --worker-mode=kubernetes).
+    #[arg(long, default_value = "handicap")]
+    release_name: String,
+    /// Container image for worker Pods (required when --worker-mode=kubernetes).
+    #[arg(long, default_value = "")]
+    worker_image: String,
+    /// gRPC URL workers should dial back to (required when --worker-mode=kubernetes).
+    #[arg(long, default_value = "")]
+    controller_grpc_url: String,
     /// Directory of built UI assets (e.g. ui/dist). If omitted, no static SPA is served.
     #[arg(long)]
     ui_dir: Option<PathBuf>,
@@ -49,12 +74,29 @@ async fn main() -> anyhow::Result<()> {
     let db = store::connect(&db_url).await?;
     let coord_state = CoordinatorState::new(db.clone());
 
-    let dispatcher: handicap_controller::dispatcher::SharedDispatcher = Arc::new(
-        handicap_controller::dispatcher::subprocess::SubprocessDispatcher::new(
+    let dispatcher: SharedDispatcher = match args.worker_mode {
+        WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
             args.worker_bin.clone(),
             args.grpc,
-        ),
-    );
+        )),
+        WorkerMode::Kubernetes => {
+            if args.worker_image.is_empty() {
+                anyhow::bail!("--worker-image is required when --worker-mode=kubernetes");
+            }
+            if args.controller_grpc_url.is_empty() {
+                anyhow::bail!("--controller-grpc-url is required when --worker-mode=kubernetes");
+            }
+            Arc::new(
+                KubernetesDispatcher::try_new(
+                    args.namespace.clone(),
+                    args.release_name.clone(),
+                    args.worker_image.clone(),
+                    args.controller_grpc_url.clone(),
+                )
+                .await?,
+            )
+        }
+    };
     let state = app::AppState {
         db: db.clone(),
         coord: coord_state.clone(),
