@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useAbortRun, useRun, useRunMetrics, useScenario } from "../api/hooks";
+import { useAbortRun, useRun, useRunMetrics, useRunReport, useScenario } from "../api/hooks";
 import { StatusBadge } from "../components/StatusBadge";
+import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { resolveForDisplay } from "../scenario/template";
@@ -16,6 +17,7 @@ export function RunDetailPage() {
   const abort = useAbortRun(id ?? "");
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
+  const report = useRunReport(id, terminal);
   const scenario = useScenario(run.data?.scenario_id);
 
   const stepOrder = useMemo<Array<{ id: string } & StepMeta>>(() => {
@@ -105,104 +107,110 @@ export function RunDetailPage() {
         <Card label="Created">{new Date(r.created_at).toLocaleString()}</Card>
       </div>
 
-      <EnvBlock env={r.env} />
-
-      <section aria-label="Profile" className="mb-6 text-sm">
-        <h3 className="text-lg font-semibold mb-2">Profile</h3>
-        <ul className="font-mono text-slate-700">
-          <li>vus = {r.profile.vus}</li>
-          <li>duration = {r.profile.duration_seconds}s</li>
-          <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
-        </ul>
-      </section>
-
-      {stepOrder.length > 0 && (
-        <section aria-label="Steps" className="mb-6">
-          <h3 className="text-lg font-semibold mb-2">Steps</h3>
-          <table className="min-w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-slate-600">
-              <tr>
-                <th className="py-2 pr-4 font-medium">#</th>
-                <th className="py-2 pr-4 font-medium">Name</th>
-                <th className="py-2 pr-4 font-medium">Method</th>
-                <th className="py-2 pr-4 font-medium">URL</th>
-                <th className="py-2 pr-4 font-medium">Requests</th>
-                <th className="py-2 pr-4 font-medium">Errors</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stepOrder.map((s, idx) => {
-                const totals = stepTotals.get(s.id);
-                const resolved = resolveForDisplay(s.url, envMap);
-                return (
-                  <tr key={s.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-4 text-slate-500">{idx + 1}</td>
-                    <td className="py-2 pr-4 font-medium">{s.name}</td>
-                    <td className="py-2 pr-4 font-mono text-xs">{s.method}</td>
-                    <td className="py-2 pr-4 font-mono text-xs break-all">
-                      <div>{resolved}</div>
-                      {resolved !== s.url && (
-                        <div className="text-slate-500 text-[10px]">
-                          template: {s.url}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4">{totals?.count ?? 0}</td>
-                    <td className="py-2 pr-4">{totals?.errors ?? 0}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      <h3 className="text-lg font-semibold mb-2">Metric windows</h3>
-      {!metrics.data || metrics.data.windows.length === 0 ? (
-        <p className="text-slate-500 text-sm">
-          {terminal ? "No metrics recorded." : "Waiting for first batch…"}
-        </p>
+      {terminal && report.data ? (
+        <ReportView report={report.data} />
       ) : (
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-slate-600">
-            <tr>
-              <th className="py-2 pr-4 font-medium">Second</th>
-              <th className="py-2 pr-4 font-medium">Step</th>
-              <th className="py-2 pr-4 font-medium">Count</th>
-              <th className="py-2 pr-4 font-medium">Errors</th>
-              <th className="py-2 pr-4 font-medium">Status codes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {metrics.data.windows.map((w) => {
-              const meta = stepMap.get(w.step_id);
-              return (
-                <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
-                  <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
-                  <td className="py-2 pr-4">
-                    {meta ? (
-                      <span>
-                        <span className="font-medium">{meta.name}</span>{" "}
-                        <span className="font-mono text-xs text-slate-500">
-                          {meta.method} {resolveForDisplay(meta.url, envMap)}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="font-mono text-xs">{w.step_id}</span>
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">{w.count}</td>
-                  <td className="py-2 pr-4">{w.error_count}</td>
-                  <td className="py-2 pr-4 font-mono text-xs">
-                    {Object.entries(w.status_counts)
-                      .map(([s, c]) => `${s}:${c}`)
-                      .join(" ")}
-                  </td>
+        <>
+          <EnvBlock env={r.env} />
+
+          <section aria-label="Profile" className="mb-6 text-sm">
+            <h3 className="text-lg font-semibold mb-2">Profile</h3>
+            <ul className="font-mono text-slate-700">
+              <li>vus = {r.profile.vus}</li>
+              <li>duration = {r.profile.duration_seconds}s</li>
+              <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
+            </ul>
+          </section>
+
+          {stepOrder.length > 0 && (
+            <section aria-label="Steps" className="mb-6">
+              <h3 className="text-lg font-semibold mb-2">Steps</h3>
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-slate-600">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">#</th>
+                    <th className="py-2 pr-4 font-medium">Name</th>
+                    <th className="py-2 pr-4 font-medium">Method</th>
+                    <th className="py-2 pr-4 font-medium">URL</th>
+                    <th className="py-2 pr-4 font-medium">Requests</th>
+                    <th className="py-2 pr-4 font-medium">Errors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stepOrder.map((s, idx) => {
+                    const totals = stepTotals.get(s.id);
+                    const resolved = resolveForDisplay(s.url, envMap);
+                    return (
+                      <tr key={s.id} className="border-b border-slate-100">
+                        <td className="py-2 pr-4 text-slate-500">{idx + 1}</td>
+                        <td className="py-2 pr-4 font-medium">{s.name}</td>
+                        <td className="py-2 pr-4 font-mono text-xs">{s.method}</td>
+                        <td className="py-2 pr-4 font-mono text-xs break-all">
+                          <div>{resolved}</div>
+                          {resolved !== s.url && (
+                            <div className="text-slate-500 text-[10px]">
+                              template: {s.url}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">{totals?.count ?? 0}</td>
+                        <td className="py-2 pr-4">{totals?.errors ?? 0}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          <h3 className="text-lg font-semibold mb-2">Metric windows</h3>
+          {!metrics.data || metrics.data.windows.length === 0 ? (
+            <p className="text-slate-500 text-sm">
+              {terminal ? "No metrics recorded." : "Waiting for first batch…"}
+            </p>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-slate-600">
+                <tr>
+                  <th className="py-2 pr-4 font-medium">Second</th>
+                  <th className="py-2 pr-4 font-medium">Step</th>
+                  <th className="py-2 pr-4 font-medium">Count</th>
+                  <th className="py-2 pr-4 font-medium">Errors</th>
+                  <th className="py-2 pr-4 font-medium">Status codes</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {metrics.data.windows.map((w) => {
+                  const meta = stepMap.get(w.step_id);
+                  return (
+                    <tr key={`${w.ts_second}-${w.step_id}`} className="border-b border-slate-100">
+                      <td className="py-2 pr-4 font-mono">{w.ts_second}</td>
+                      <td className="py-2 pr-4">
+                        {meta ? (
+                          <span>
+                            <span className="font-medium">{meta.name}</span>{" "}
+                            <span className="font-mono text-xs text-slate-500">
+                              {meta.method} {resolveForDisplay(meta.url, envMap)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-mono text-xs">{w.step_id}</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4">{w.count}</td>
+                      <td className="py-2 pr-4">{w.error_count}</td>
+                      <td className="py-2 pr-4 font-mono text-xs">
+                        {Object.entries(w.status_counts)
+                          .map(([s, c]) => `${s}:${c}`)
+                          .join(" ")}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
     </div>
   );

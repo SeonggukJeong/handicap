@@ -5,6 +5,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { RunDetailPage } from "../RunDetailPage";
 
+// jsdom does not implement URL.createObjectURL — DownloadJsonButton in ReportView needs it.
+if (typeof URL.createObjectURL === "undefined") {
+  Object.defineProperty(URL, "createObjectURL", { value: () => "blob:noop", writable: true });
+  Object.defineProperty(URL, "revokeObjectURL", { value: () => {}, writable: true });
+}
+
 function renderWithRouter(runId: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -193,5 +199,103 @@ describe("RunDetailPage — step metadata", () => {
     expect(stepsRegion).toHaveTextContent("${BASE_URL}/login");
     expect(stepsRegion).toHaveTextContent("15"); // total count
     expect(stepsRegion).toHaveTextContent("4");  // total errors
+  });
+});
+
+describe("RunDetailPage — report on terminal", () => {
+  it("mounts ReportView when status is completed and report loaded; hides Metric windows", async () => {
+    const reportBundle = {
+      run: {
+        id: "R9",
+        scenario_id: "S9",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: 30,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R9")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R9",
+            scenario_id: "S9",
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R9/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R9", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R9/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      if (url.endsWith("/api/scenarios/S9")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S9",
+            name: "x",
+            yaml: reportBundle.scenario_yaml,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R9");
+    await screen.findByRole("region", { name: /Report summary/ });
+    // The live "Metric windows" header should not be present in report mode.
+    expect(screen.queryByText(/Metric windows/)).toBeNull();
+  });
+
+  it("does NOT fetch /report while status is running", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R10")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R10",
+            scenario_id: "S9",
+            status: "running",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 30 },
+            env: {},
+            started_at: 100,
+            ended_at: null,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R10/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R10", windows: [] }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R10");
+    await screen.findByRole("heading", { name: /Metric windows/i });
+    const reportCalls = fetchMock.mock.calls.filter(
+      (c) => typeof c[0] === "string" && c[0].endsWith("/api/runs/R10/report"),
+    );
+    expect(reportCalls.length).toBe(0);
   });
 });
