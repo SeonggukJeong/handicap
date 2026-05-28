@@ -31,3 +31,28 @@ just ui-dev                                                                     
 ```
 
 Click-through walkthrough + troubleshooting: see [docs/dev/ui-manual-check.md](docs/dev/ui-manual-check.md).
+
+## Quickstart — kind cluster
+
+Prerequisites: Docker, `brew install kind helm kubernetes-cli just`.
+
+```bash
+just deploy-kind
+kubectl -n handicap port-forward svc/handicap-handicap-controller 8080:8080
+```
+
+Open http://127.0.0.1:8080/ — create a scenario, run it, watch the report.
+
+Tear down:
+
+```bash
+just kind-down
+```
+
+End-to-end test (creates scenario, runs it against in-cluster wiremock, asserts on report):
+
+```bash
+just e2e-kind
+```
+
+Manual-check runbook: see [docs/dev/slice-6-manual-check.md](docs/dev/slice-6-manual-check.md).
