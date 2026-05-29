@@ -204,6 +204,7 @@ mod tests {
             env: &env,
             vu_id: 0,
             iter_id: 0,
+            loop_index: None,
         };
         let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
         let outcome = execute_step(&client, &step, &ctx).await.unwrap();
@@ -246,6 +247,7 @@ mod tests {
             env: &env,
             vu_id: 0,
             iter_id: 0,
+            loop_index: None,
         };
         let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
         let outcome = execute_step(&client, &step, &ctx).await.unwrap();

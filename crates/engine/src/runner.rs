@@ -173,6 +173,7 @@ async fn run_vu(
             &env,
             vu_id,
             iter_id,
+            None,
             &cancel,
         )
         .await?;
@@ -209,6 +210,7 @@ async fn execute_steps(
     env: &Arc<BTreeMap<String, String>>,
     vu_id: u32,
     iter_id: u32,
+    loop_index: Option<u32>,
     cancel: &CancellationToken,
 ) -> Result<StepFlow> {
     for step in steps {
@@ -225,6 +227,7 @@ async fn execute_steps(
                     env: env.as_ref(),
                     vu_id,
                     iter_id,
+                    loop_index,
                 };
                 let outcome = execute_step(client, http, &ctx).await?;
                 iter_vars.extend(outcome.extracted.clone());
@@ -237,9 +240,24 @@ async fn execute_steps(
                 );
             }
             Step::Loop(lp) => {
-                for _ in 0..lp.repeat {
+                for i in 0..lp.repeat {
+                    if Instant::now() >= deadline {
+                        return Ok(StepFlow::DeadlineReached);
+                    }
+                    if cancel.is_cancelled() {
+                        return Ok(StepFlow::Aborted);
+                    }
                     let flow = Box::pin(execute_steps(
-                        client, &lp.do_, iter_vars, agg, deadline, env, vu_id, iter_id, cancel,
+                        client,
+                        &lp.do_,
+                        iter_vars,
+                        agg,
+                        deadline,
+                        env,
+                        vu_id,
+                        iter_id,
+                        Some(i),
+                        cancel,
                     ))
                     .await?;
                     match flow {

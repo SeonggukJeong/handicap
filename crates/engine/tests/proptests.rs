@@ -118,7 +118,7 @@ proptest! {
     fn template_render_never_panics(input in ".*") {
         let vars: BTreeMap<String, String> = BTreeMap::new();
         let env: BTreeMap<String, String> = BTreeMap::new();
-        let ctx = TemplateContext { vars: &vars, env: &env, vu_id: 0, iter_id: 0 };
+        let ctx = TemplateContext { vars: &vars, env: &env, vu_id: 0, iter_id: 0, loop_index: None };
         let _ = render(&input, &ctx);
     }
 
