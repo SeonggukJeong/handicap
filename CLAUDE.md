@@ -2,7 +2,7 @@
 
 사내 QA·운영팀을 위한 부하 테스트 도구. REST API를 대상으로, **QA는 드래그-드롭으로 시나리오를 만들고**, **개발자는 같은 시나리오를 YAML/DSL로 편집** 한다 (두 뷰가 같은 모델의 양방향 sync). LoadRunner/JMeter를 사내에서 대체하는 것이 목표.
 
-**상태: Slice 6 (K8s deploy + dispatcher abstraction) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`.
+**상태: Slice 6 (K8s deploy + dispatcher abstraction) 구현 완료.** 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`. **MVP 1단계 spec(`2026-05-27-handicap-mvp1-design.md`)은 슬라이스 1–6으로 전부 구현됨 — 후속은 그 spec §4.5 메뉴(노드 종류 확장 → 멀티 워커/HPA → LoadRunner급 리포트)에서 각자 새 spec/plan으로 나온다.**
 
 Slice 1 결과: REST API(`/api/scenarios`, `/api/runs`, `/api/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작.
 
@@ -192,6 +192,7 @@ docs/
 - **`/report` 는 polling 금지**: terminal 후 한 번만 fetch, `staleTime: Infinity`, `refetchInterval: false`. live polling은 기존 `/metrics` 가 담당. 두 endpoint를 분리한 이유는 hot path의 HDR deserialize 비용을 피하기 위함.
 - **Scenario snapshot vs current scenario**: M2의 follow-up에서 noted — Run 상세가 `runs.scenario_yaml` snapshot 컬럼을 봐야지 `GET /api/scenarios/{id}` 의 현재 YAML을 보면 시나리오 편집 후 과거 run의 step 라벨이 어긋난다. Slice 5는 `/report.scenario_yaml`을 snapshot으로 노출하는 쪽으로 결정.
 - **bySecond 시계열 derivation은 ReportView 안에서**: 시계열 max-over-steps 합산 같은 derivation 로직을 backend가 아니라 ReportView 안에 두기로. backend는 raw windows 만 보낸다. 이유: UI가 step 필터/색상 분리 같은 변형을 더하기 쉬움.
+- **리포트 step 라벨링은 controller가 아니라 UI**: `controller/src/report.rs::build_report` 는 run_metrics 를 step_id 로 group 만 한다 (시나리오 YAML 을 walk 하지 않음). step 라벨(name/method/url)은 UI 가 `ReportView.tsx`·`RunDetailPage.tsx` 에서 scenario_yaml 을 파싱해 만든다. **스텝 모델을 바꿔도(노드 종류 추가 등) 컨트롤러는 무변경 — 이 두 UI 사이트만 손대면 된다.**
 - **`hdrhistogram` add 의 bound 일치**: `Histogram::add(other)` 는 두 히스토그램의 lo/hi/sigfig 가 같을 때 lossless. 다른 컨피그면 일부 샘플이 누락된다. `fresh_hist()` 헬퍼로 모든 누적용 히스토그램이 같은 bound 를 갖게 통일.
 - **blob URL 누수**: `URL.createObjectURL` 결과는 명시적 `revokeObjectURL` 호출 전까지 페이지 lifetime 내내 남는다. `useEffect cleanup`으로 `revokeObjectURL` 호출. DownloadJsonButton unmount 테스트로 contract 검증.
 - **jsdom은 `URL.createObjectURL`을 구현하지 않음**: DownloadJsonButton 테스트와 ReportView 테스트에서 `Object.defineProperty(URL, "createObjectURL", ...)` 폴리필을 모듈 스코프에 추가해야 한다. 폴리필은 conditional (`typeof URL.createObjectURL === "undefined"`)로 만들어 jsdom이 아닌 환경에서 덮어쓰지 않게.
