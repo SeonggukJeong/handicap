@@ -547,6 +547,176 @@ async fn abort_e2e_marks_run_aborted() {
     grpc_handle.abort();
 }
 
+/// Full-stack regression guard for the loop node (Slice 7).
+///
+/// A scenario whose single top-level step is a `type: loop` with `repeat: 2`
+/// wrapping an inner `http` step goes through the controller HTTP API →
+/// subprocess worker → engine → metrics → report. We assert the report's
+/// per-step entry for the INNER step id reflects the loop repeat (count > 0,
+/// no errors). The controller needs no loop awareness — it groups run_metrics
+/// by step_id from the DB and never walks the scenario YAML — so this test
+/// exists purely to catch a regression anywhere in the full stack.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn loop_e2e_inner_step_counts() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker bin (same pattern as the other e2e tests).
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "handicap-worker"])
+        .status()
+        .expect("cargo build -p handicap-worker");
+    assert!(status.success(), "worker build failed");
+    let worker_bin = worker_bin_path();
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stub: GET /tick → 200, with a small delay so each loop body
+    //    takes nonzero time (matches the engine integration test, Task 3).
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tick"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(5)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Pick free ports.
+    let rest_addr = pick_addr().await;
+    let grpc_addr = pick_addr().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+    });
+    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve(grpc_addr)
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. Loop scenario: a top-level `type: loop` (repeat: 2) wrapping an inner
+    //    `tick` http step with a fixed, known ULID. Inner id == INNER_STEP_ID.
+    const INNER_STEP_ID: &str = "01HX0000000000000000000002";
+    let scenario_yaml = format!(
+        "version: 1\nname: loop-e2e\nvariables:\n  base: \"{}\"\nsteps:\n  - id: \"01HX0000000000000000000001\"\n    name: repeat\n    type: loop\n    repeat: 2\n    do:\n      - id: \"{}\"\n        name: tick\n        type: http\n        request:\n          method: GET\n          url: \"{{{{base}}}}/tick\"\n        assert:\n          - status: 200\n",
+        target.uri(),
+        INNER_STEP_ID,
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run: 1 VU over 2 seconds (comfortably fits many full loops).
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 1, "duration_seconds": 2 },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap().to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status}"
+    );
+
+    // 7. GET /report and assert on the INNER step's per-step entry.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    let steps = report["steps"].as_array().expect("steps array");
+    // Metrics are keyed by the step that actually issued the HTTP request — the
+    // INNER `tick` step. The loop wrapper itself emits no metrics.
+    let inner = steps
+        .iter()
+        .find(|s| s["step_id"].as_str() == Some(INNER_STEP_ID))
+        .unwrap_or_else(|| {
+            panic!(
+                "no per-step entry for inner step {}; got steps: {}",
+                INNER_STEP_ID, report["steps"]
+            )
+        });
+
+    let count = inner["count"].as_u64().expect("inner step count");
+    let error_count = inner["error_count"]
+        .as_u64()
+        .expect("inner step error_count");
+
+    // Primary invariant: the inner step ran (loop body executed) and all calls
+    // succeeded. We deliberately do NOT assert `count % 2 == 0`: the engine
+    // checks the deadline between loop iterations AND between body steps, so the
+    // final loop can be cut mid-body when the run window ends — making the inner
+    // count not a perfect multiple of `repeat`. The exact-multiple invariant is
+    // covered by the engine integration test (Task 3); here we guard the full
+    // create→run→report stack with the robust assertion.
+    assert!(count > 0, "inner step count = {} (expected > 0)", count);
+    assert_eq!(
+        error_count, 0,
+        "inner step error_count = {} (expected 0)",
+        error_count
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn report_e2e_smoke() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
