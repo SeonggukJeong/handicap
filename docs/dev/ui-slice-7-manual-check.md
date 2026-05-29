@@ -23,6 +23,13 @@ docker run --rm -p 9090:8080 \
 
 # 사전 — worker 바이너리 빌드 (controller의 --worker-bin 기본값이 target/debug/worker).
 #         안 하면 controller가 run 시작 시 worker를 spawn하지 못한다.
+#   ★ 엔진/시나리오 모델을 바꾼 브랜치를 pull·merge한 뒤에는 반드시 다시 빌드한다.
+#     `cargo run -p handicap-controller`는 controller만 다시 빌드하지 target/debug/worker는
+#     건드리지 않으므로, 워커 바이너리가 옛 버전이면 새 스텝 타입을 못 읽는다.
+#     예: loop 노드 추가 후 stale worker로 돌리면 worker가 run 시작 직후 exit 1 +
+#     controller 로그에 `scenario parse: steps[0].type: unknown variant 'loop'`.
+#     (이때 worker subprocess가 죽어도 run은 'running'에 멈춘 채 종료 처리가 안 되니,
+#      run이 영영 'running'이고 요청수 0이면 controller 로그에서 worker exit를 먼저 확인.)
 cargo build -p handicap-worker
 
 # T1 — controller (REST 8080 + gRPC 8081; UI는 vite가 띄움). = just run-controller
