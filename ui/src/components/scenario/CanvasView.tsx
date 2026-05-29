@@ -20,6 +20,9 @@ const CHILD_H = 64;
 const CHILD_GAP = 16;
 const LOOP_HEADER_H = 36;
 const LOOP_PAD = 12;
+// Body steps sit inside the loop container; bound their width so a long request
+// URL truncates instead of overflowing the dashed container.
+const CHILD_WIDTH = NODE_WIDTH - LOOP_PAD * 2;
 
 type AnyData = HttpStepNodeData | LoopStepNodeData;
 
@@ -65,6 +68,7 @@ export function CanvasView() {
               url: child.request.url,
               selected: child.id === selectedStepId,
             },
+            style: { width: CHILD_WIDTH },
             draggable: false,
             selectable: false,
           });
@@ -81,6 +85,7 @@ export function CanvasView() {
             url: step.request.url,
             selected: step.id === selectedStepId,
           },
+          style: { width: NODE_WIDTH },
           draggable: false,
           selectable: false,
         });

@@ -18,13 +18,13 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function renderDialog() {
+function renderDialog(hasLoop = true) {
   const onCreated = vi.fn();
   const onCancel = vi.fn();
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={qc}>
-      <RunDialog scenarioId="S1" onCreated={onCreated} onCancel={onCancel} />
+      <RunDialog scenarioId="S1" hasLoop={hasLoop} onCreated={onCreated} onCancel={onCancel} />
     </QueryClientProvider>,
   );
   return { ...utils, onCreated, onCancel };
@@ -219,6 +219,42 @@ describe("RunDialog — env & ramp_up", () => {
     await user.click(screen.getByRole("button", { name: /^Run$/ }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R3"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.loop_breakdown_cap).toBe(0);
+  });
+
+  it("hides the cap input when the scenario has no loop step", () => {
+    renderDialog(false);
+    expect(screen.queryByLabelText(/loop breakdown cap/i)).not.toBeInTheDocument();
+  });
+
+  it("posts loop_breakdown_cap=0 when there is no loop step", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: "R4",
+        scenario_id: "S1",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 0 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog(false);
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R4"));
 
     const call = fetchMock.mock.calls.find(
       ([url, init]) =>

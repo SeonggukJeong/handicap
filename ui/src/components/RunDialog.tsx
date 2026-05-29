@@ -4,13 +4,17 @@ import { Button } from "./Button";
 
 type Props = {
   scenarioId: string;
+  /** Whether the scenario contains a loop step. When false, the loop-breakdown
+   *  cap control is hidden and the run is created with cap = 0 (no breakdown
+   *  bookkeeping in the engine at all). */
+  hasLoop: boolean;
   onCreated: (runId: string) => void;
   onCancel: () => void;
 };
 
 type EnvEntry = { key: string; value: string };
 
-export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
+export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
   const [vus, setVus] = useState(2);
   const [duration, setDuration] = useState(5);
   const [rampUp, setRampUp] = useState(0);
@@ -21,7 +25,8 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
   const mutation = useCreateRun();
 
   const rampInvalid = rampUp > duration;
-  const loopCapInvalid = loopCap < 0 || loopCap > 10000;
+  // Only meaningful while the cap control is shown (scenario has a loop step).
+  const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const canSubmit = vus >= 1 && duration >= 1 && !rampInvalid && !loopCapInvalid && !mutation.isPending;
 
   const env: Record<string, string> = {};
@@ -68,23 +73,25 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
         </label>
       </div>
 
-      <div className="mb-3">
-        <label className="block text-sm">
-          Loop breakdown cap
-          <input
-            type="number"
-            min={0}
-            max={10000}
-            aria-label="loop breakdown cap"
-            value={loopCap}
-            onChange={(e) => setLoopCap(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            aria-invalid={loopCapInvalid}
-            aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
-          />
-          <span className="text-xs text-slate-500">0 = 끄기 · 루프 스텝의 loop_index별 집계 상한</span>
-        </label>
-      </div>
+      {hasLoop && (
+        <div className="mb-3">
+          <label className="block text-sm">
+            Loop breakdown cap
+            <input
+              type="number"
+              min={0}
+              max={10000}
+              aria-label="loop breakdown cap"
+              value={loopCap}
+              onChange={(e) => setLoopCap(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={loopCapInvalid}
+              aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+            />
+            <span className="text-xs text-slate-500">0 = 끄기 · 루프 스텝의 loop_index별 집계 상한</span>
+          </label>
+        </div>
+      )}
 
       {rampInvalid && (
         <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
@@ -188,7 +195,7 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
                   vus,
                   duration_seconds: duration,
                   ramp_up_seconds: rampUp,
-                  loop_breakdown_cap: loopCap,
+                  loop_breakdown_cap: hasLoop ? loopCap : 0,
                 },
                 env,
               },

@@ -630,7 +630,8 @@ function LoopInspector({ step }: { step: LoopStep }) {
             <li key={c.id}>
               <button
                 type="button"
-                className="text-left w-full px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
+                title={`${c.name} — ${c.request.method} ${c.request.url}`}
+                className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
                 onClick={() => select(c.id)}
               >
                 <span className="font-medium">{c.name}</span>{" "}

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useScenario, useScenarioRuns } from "../api/hooks";
 import { Button } from "../components/Button";
 import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
+import { parseScenarioDoc } from "../scenario/yamlDoc";
+import { isLoopStep } from "../scenario/model";
 
 export function ScenarioRunsPage() {
   const { id } = useParams<{ id: string }>();
@@ -11,6 +13,15 @@ export function ScenarioRunsPage() {
   const scenario = useScenario(id);
   const runs = useScenarioRuns(id);
   const [showDialog, setShowDialog] = useState(false);
+
+  // Whether the scenario has a loop step — drives the loop-breakdown cap control
+  // in the run dialog. Parse failures fall back to false (no loop → no cap UI).
+  const hasLoop = useMemo(() => {
+    const yaml = scenario.data?.yaml;
+    if (!yaml) return false;
+    const parsed = parseScenarioDoc(yaml);
+    return "model" in parsed && parsed.model.steps.some(isLoopStep);
+  }, [scenario.data?.yaml]);
 
   if (scenario.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (scenario.error) return <p className="text-red-600">{(scenario.error as Error).message}</p>;
@@ -35,6 +46,7 @@ export function ScenarioRunsPage() {
         <div className="mb-6">
           <RunDialog
             scenarioId={scenario.data.id}
+            hasLoop={hasLoop}
             onCreated={(runId) => {
               setShowDialog(false);
               navigate(`/runs/${runId}`);

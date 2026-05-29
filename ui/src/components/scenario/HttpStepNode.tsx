@@ -15,7 +15,9 @@ function HttpStepNodeImpl({ data }: NodeProps<HttpStepNodeType>) {
   return (
     <div
       className={
-        "px-3 py-2 rounded-md border bg-white text-sm shadow-sm min-w-[180px] " +
+        // w-full + box-border so the node fills the width set by CanvasView and
+        // its truncate-d name/URL lines clip instead of widening the node.
+        "box-border w-full px-3 py-2 rounded-md border bg-white text-sm shadow-sm " +
         (selected ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-300")
       }
     >
