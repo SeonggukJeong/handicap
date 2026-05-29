@@ -100,4 +100,62 @@ describe("ReportView", () => {
     const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
     expect(stepRegion).toHaveTextContent("http://x/login");
   });
+
+  it("labels a step nested inside a loop using its name", () => {
+    const OUTER_ID = "01HX0000000000000000000003"; // loop step id (valid ULID)
+    const INNER_ID = "01HX0000000000000000000002"; // inner http step id (valid ULID)
+    const scenarioYaml = [
+      "version: 1",
+      "name: x",
+      "cookie_jar: auto",
+      "variables: {}",
+      "steps:",
+      `  - id: ${OUTER_ID}`,
+      "    name: my-loop",
+      "    type: loop",
+      "    repeat: 2",
+      "    do:",
+      `      - id: ${INNER_ID}`,
+      "        name: inner-tick",
+      "        type: http",
+      "        request:",
+      "          method: GET",
+      "          url: ${BASE_URL}/tick",
+      "        assert: []",
+      "        extract: []",
+      "",
+    ].join("\n");
+    const report: Report = {
+      ...FIXTURE,
+      scenario_yaml: scenarioYaml,
+      windows: [
+        {
+          ts_second: 100,
+          step_id: INNER_ID,
+          count: 4,
+          error_count: 0,
+          status_counts: { "200": 4 },
+          p50_ms: 5,
+          p95_ms: 10,
+          p99_ms: 20,
+        },
+      ],
+      steps: [
+        {
+          step_id: INNER_ID,
+          count: 4,
+          error_count: 0,
+          status_counts: { "200": 4 },
+          p50_ms: 5,
+          p95_ms: 10,
+          p99_ms: 20,
+        },
+      ],
+      status_distribution: { "200": 4 },
+    };
+    render(<ReportView report={report} />);
+    const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
+    expect(stepRegion).toHaveTextContent("inner-tick");
+    expect(stepRegion).not.toHaveTextContent(INNER_ID);
+  });
 });

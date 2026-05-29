@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Report } from "../../api/schemas";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
+import { flattenHttpSteps } from "../../scenario/model";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
@@ -50,7 +51,7 @@ export function ReportView({ report }: Props) {
     const m = new Map<string, { id: string; name: string; method: string; url: string }>();
     const parsed = parseScenarioDoc(report.scenario_yaml);
     if ("model" in parsed) {
-      for (const s of parsed.model.steps) {
+      for (const s of flattenHttpSteps(parsed.model.steps)) {
         m.set(s.id, {
           id: s.id,
           name: s.name,

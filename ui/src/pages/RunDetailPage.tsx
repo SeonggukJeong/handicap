@@ -5,6 +5,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
+import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
@@ -25,7 +26,7 @@ export function RunDetailPage() {
     if (!yaml) return [];
     const parsed = parseScenarioDoc(yaml);
     if (!("model" in parsed)) return [];
-    return parsed.model.steps.map((s) => ({
+    return flattenHttpSteps(parsed.model.steps).map((s) => ({
       id: s.id,
       name: s.name,
       method: s.request.method,
