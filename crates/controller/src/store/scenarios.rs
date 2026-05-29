@@ -15,7 +15,7 @@ pub struct ScenarioRow {
 
 pub async fn insert(db: &Db, scenario: &Scenario, yaml: &str) -> sqlx::Result<ScenarioRow> {
     let id = Ulid::new().to_string();
-    let now = now_ms();
+    let now = super::now_ms();
     sqlx::query(
         "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,1)",
     )
@@ -100,7 +100,7 @@ pub async fn update(
         tx.commit().await?;
         return Ok(UpdateOutcome::VersionMismatch { current });
     }
-    let now = now_ms();
+    let now = super::now_ms();
     let new_version = current + 1;
     sqlx::query(
         "UPDATE scenarios SET name = ?, yaml = ?, updated_at = ?, version = ? \
@@ -127,11 +127,4 @@ pub async fn update(
         updated_at: now,
         version: new_version,
     }))
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

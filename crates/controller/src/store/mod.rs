@@ -5,6 +5,15 @@ pub mod scenarios;
 use std::path::Path;
 use std::str::FromStr;
 
+/// Wall-clock milliseconds since the Unix epoch.
+pub fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 
@@ -56,5 +65,14 @@ mod tests {
             .await
             .expect("query");
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn now_ms_is_positive_and_recent() {
+        let t = super::now_ms();
+        assert!(
+            t > 1_700_000_000_000,
+            "now_ms should be a ms-epoch timestamp"
+        );
     }
 }

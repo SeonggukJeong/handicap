@@ -72,7 +72,7 @@ pub async fn insert(
     env: &serde_json::Value,
 ) -> sqlx::Result<RunRow> {
     let id = Ulid::new().to_string();
-    let now = now_ms();
+    let now = super::now_ms();
     let profile_json = serde_json::to_string(profile).expect("serialize profile");
     let env_json = serde_json::to_string(env).expect("serialize env");
     sqlx::query(
@@ -183,7 +183,7 @@ pub async fn set_status(
 }
 
 pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
-    let now = now_ms();
+    let now = super::now_ms();
     sqlx::query("UPDATE runs SET status = 'aborted', ended_at = ? WHERE id = ?")
         .bind(now)
         .bind(id)
@@ -195,7 +195,7 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
 /// Mark any run currently in `pending` or `running` as `failed` with a
 /// message. Called on controller startup to recover from crash.
 pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
-    let now = now_ms();
+    let now = super::now_ms();
     let res = sqlx::query(
         "UPDATE runs
             SET status = 'failed', ended_at = ?, message = ?
@@ -206,11 +206,4 @@ pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
     .execute(db)
     .await?;
     Ok(res.rows_affected())
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

@@ -10,12 +10,6 @@ pub enum EngineError {
     MalformedTemplate(String),
     #[error("http: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("assert failed (step={step}, expected={expected}, got={got})")]
-    AssertFailed {
-        step: String,
-        expected: String,
-        got: String,
-    },
     #[error("all VUs failed ({failed}/{total})")]
     AllVusFailed { failed: u32, total: u32 },
     #[error("histogram: {0}")]

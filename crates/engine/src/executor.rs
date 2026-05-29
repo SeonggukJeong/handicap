@@ -7,7 +7,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::error::{EngineError, Result};
 use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
-use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep, Scenario};
+use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
 use crate::template::{TemplateContext, render};
 
 /// Per-VU HTTP client. Holds its own cookie jar so sessions are isolated.
@@ -154,11 +154,6 @@ pub async fn execute_step(
             extracted: BTreeMap::new(),
         }),
     }
-}
-
-/// Convenience for callers that always want the scenario's cookie_jar mode.
-pub fn client_for_scenario(s: &Scenario) -> Result<VuClient> {
-    VuClient::new(s.cookie_jar)
 }
 
 #[cfg(test)]

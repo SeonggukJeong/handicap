@@ -125,7 +125,7 @@ impl Coordinator for CoordinatorService {
                                     &state.db,
                                     &reg.run_id,
                                     RunStatus::Running,
-                                    Some(now_ms()),
+                                    Some(crate::store::now_ms()),
                                     None,
                                 )
                                 .await;
@@ -186,7 +186,7 @@ impl Coordinator for CoordinatorService {
                                 &s.run_id,
                                 RunStatus::Completed,
                                 None,
-                                Some(now_ms()),
+                                Some(crate::store::now_ms()),
                             )
                             .await;
                         } else if s.phase == pb::run_status::Phase::Failed as i32 {
@@ -195,7 +195,7 @@ impl Coordinator for CoordinatorService {
                                 &s.run_id,
                                 RunStatus::Failed,
                                 None,
-                                Some(now_ms()),
+                                Some(crate::store::now_ms()),
                             )
                             .await;
                         } else if s.phase == pb::run_status::Phase::Aborted as i32 {
@@ -204,7 +204,7 @@ impl Coordinator for CoordinatorService {
                                 &s.run_id,
                                 RunStatus::Aborted,
                                 None,
-                                Some(now_ms()),
+                                Some(crate::store::now_ms()),
                             )
                             .await;
                         }
@@ -223,11 +223,4 @@ impl Coordinator for CoordinatorService {
         let out: ChannelStream = Box::pin(ReceiverStream::new(rx));
         Ok(Response::new(out))
     }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
