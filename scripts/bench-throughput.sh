@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DURATION="${DURATION:-30}"
 VUS="${VUS:-200}"
+# SCENARIO_KIND=flat (default) is one bare GET; SCENARIO_KIND=loop wraps that
+# same GET in a one-iteration loop, so the request count is identical and only
+# the recursion / Box::pin path differs — an A/B for loop overhead (Slice 7).
+SCENARIO_KIND="${SCENARIO_KIND:-flat}"
 WIREMOCK_PORT="${WIREMOCK_PORT:-9001}"
 CTRL_REST="${CTRL_REST:-127.0.0.1:18080}"
 CTRL_GRPC="${CTRL_GRPC:-127.0.0.1:18081}"
@@ -44,12 +48,20 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-echo "==> seeding scenario"
+echo "==> seeding scenario (kind=$SCENARIO_KIND)"
+# Both variants hit the SAME /big endpoint exactly once per VU iteration. The
+# loop variant wraps that GET in a repeat:1 loop so request counts are identical
+# and only the engine's recursion/Box::pin path differs.
+if [[ "$SCENARIO_KIND" == "loop" ]]; then
+  STEPS_YAML="steps:\n  - id: l\n    name: loop\n    type: loop\n    repeat: 1\n    do:\n      - id: g\n        name: get\n        type: http\n        request:\n          method: GET\n          url: \\\"http://127.0.0.1:$WIREMOCK_PORT/big\\\"\n        assert:\n          - status: 200\n"
+else
+  STEPS_YAML="steps:\n  - id: g\n    name: get\n    type: http\n    request:\n      method: GET\n      url: \\\"http://127.0.0.1:$WIREMOCK_PORT/big\\\"\n    assert:\n      - status: 200\n"
+fi
 SCN=$(curl -sf -XPOST "http://$CTRL_REST/api/scenarios" -H 'Content-Type: application/json' \
   -d "$(cat <<EOF
 {
   "name":"bench",
-  "yaml":"version: 1\nname: bench\nvariables: {}\nsteps:\n  - id: g\n    name: get\n    type: http\n    request:\n      method: GET\n      url: \"http://127.0.0.1:$WIREMOCK_PORT/big\"\n    assert:\n      - status: 200\n"
+  "yaml":"version: 1\nname: bench\nvariables: {}\n$STEPS_YAML"
 }
 EOF
 )" | tee /dev/stderr | grep -o '"id":"[^"]*"' | head -1 | cut -d\" -f4)
