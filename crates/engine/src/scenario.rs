@@ -29,13 +29,41 @@ pub enum CookieJarMode {
     Off,
 }
 
+/// A scenario step. Internally-tagged on `type` so the YAML shape is
+/// `{type: http, ...}` / `{type: loop, ...}` — matching the UI wire format and
+/// ADR-0020. Internal tagging round-trips in serde_yaml 0.9 (proven by the
+/// `Extract` enum, Slice 4). NOTE: serde does not enforce `deny_unknown_fields`
+/// through internal tagging, so the engine is lenient about unknown fields
+/// inside a step; the UI Zod schema (`ui/src/scenario/model.ts`) is the strict
+/// authoring gate. `do_` is `Vec<Step>` (not `Vec<HttpStep>`) so the engine
+/// supports nesting for free; single-level is enforced UI-side for Slice 7.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Step {
+    Http(HttpStep),
+    Loop(LoopStep),
+}
+
+impl Step {
+    pub fn id(&self) -> &str {
+        match self {
+            Step::Http(h) => &h.id,
+            Step::Loop(l) => &l.id,
+        }
+    }
+    pub fn name(&self) -> &str {
+        match self {
+            Step::Http(h) => &h.name,
+            Step::Loop(l) => &l.name,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct Step {
+pub struct HttpStep {
     pub id: String,
     pub name: String,
-    #[serde(rename = "type")]
-    pub kind: StepKind,
     pub request: Request,
     #[serde(default)]
     pub assert: Vec<Assertion>,
@@ -43,10 +71,14 @@ pub struct Step {
     pub extract: Vec<Extract>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum StepKind {
-    Http,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LoopStep {
+    pub id: String,
+    pub name: String,
+    pub repeat: u32,
+    #[serde(rename = "do")]
+    pub do_: Vec<Step>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -214,10 +246,79 @@ mod tests {
     const TWO_STEP_FIXTURE: &str = include_str!("../tests/fixtures/two_step.yaml");
 
     #[test]
+    fn parses_loop_step() {
+        let y = r#"
+version: 1
+name: loopy
+steps:
+  - id: "01HX0000000000000000000001"
+    name: repeat-add
+    type: loop
+    repeat: 3
+    do:
+      - id: "01HX0000000000000000000002"
+        name: add
+        type: http
+        request: { method: POST, url: "/cart" }
+        assert:
+          - status: 200
+"#;
+        let s = Scenario::from_yaml(y).expect("parses loop");
+        assert_eq!(s.steps.len(), 1);
+        match &s.steps[0] {
+            Step::Loop(l) => {
+                assert_eq!(l.id, "01HX0000000000000000000001");
+                assert_eq!(l.repeat, 3);
+                assert_eq!(l.do_.len(), 1);
+                assert!(matches!(l.do_[0], Step::Http(_)));
+            }
+            other => panic!("expected loop, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loop_round_trips() {
+        let y = r#"
+version: 1
+name: loopy
+steps:
+  - id: "01HX0000000000000000000001"
+    name: repeat-add
+    type: loop
+    repeat: 2
+    do:
+      - id: "01HX0000000000000000000002"
+        name: add
+        type: http
+        request: { method: GET, url: "/x" }
+        assert: []
+"#;
+        let s = Scenario::from_yaml(y).unwrap();
+        let s2 = Scenario::from_yaml(&s.to_yaml().unwrap()).unwrap();
+        assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn inner_http_step_keeps_type_tag_when_serialized() {
+        let s = Scenario::from_yaml(
+            "version: 1\nname: x\nsteps:\n  - id: \"01HX0000000000000000000001\"\n    name: l\n    type: loop\n    repeat: 1\n    do:\n      - id: \"01HX0000000000000000000002\"\n        name: h\n        type: http\n        request: { method: GET, url: \"/\" }\n        assert: []\n",
+        )
+        .unwrap();
+        let out = s.to_yaml().unwrap();
+        assert!(
+            out.contains("type: http"),
+            "inner step must keep type tag:\n{out}"
+        );
+        assert!(out.contains("type: loop"));
+    }
+
+    #[test]
     fn parses_two_step_fixture() {
         let s = Scenario::from_yaml(TWO_STEP_FIXTURE).expect("parses");
         assert_eq!(s.steps.len(), 2);
-        let login = &s.steps[0];
+        let Step::Http(login) = &s.steps[0] else {
+            panic!("expected http step");
+        };
         assert_eq!(login.extract.len(), 1);
         match &login.extract[0] {
             Extract::Body { var, path } => {
@@ -226,7 +327,10 @@ mod tests {
             }
             other => panic!("expected Body extract, got {:?}", other),
         }
-        assert_eq!(s.steps[1].extract.len(), 0);
+        let Step::Http(second) = &s.steps[1] else {
+            panic!("expected http step");
+        };
+        assert_eq!(second.extract.len(), 0);
     }
 
     #[test]
@@ -256,7 +360,10 @@ steps:
         from: status
 "#;
         let s = Scenario::from_yaml(y).expect("parses");
-        let xs = &s.steps[0].extract;
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
+        let xs = &step.extract;
         assert_eq!(xs.len(), 4);
         assert!(matches!(xs[0], Extract::Body { .. }));
         assert!(matches!(xs[1], Extract::Header { .. }));
@@ -315,9 +422,10 @@ steps:
         assert_eq!(s.version, 1);
         assert_eq!(s.name, "GET status root");
         assert_eq!(s.steps.len(), 1);
-        let step = &s.steps[0];
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
         assert_eq!(step.id, "root");
-        assert_eq!(step.kind, StepKind::Http);
         assert_eq!(step.request.method, HttpMethod::Get);
         assert_eq!(step.request.url, "{{base_url}}/");
         assert_eq!(step.assert, vec![Assertion::Status(200)]);
@@ -380,7 +488,10 @@ steps:
     assert: []
 "#;
         let s = Scenario::from_yaml(y).expect("parses with map-shaped body");
-        match s.steps[0].request.body.as_ref().expect("body present") {
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
+        match step.request.body.as_ref().expect("body present") {
             Body::Form(m) => {
                 assert_eq!(m.get("user").map(String::as_str), Some("a"));
                 assert_eq!(m.get("pass").map(String::as_str), Some("b"));
@@ -408,7 +519,10 @@ steps:
     assert: []
 "#;
         let s = Scenario::from_yaml(y).expect("parses");
-        match s.steps[0].request.body.as_ref().expect("body") {
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
+        match step.request.body.as_ref().expect("body") {
             Body::Json(v) => {
                 assert_eq!(v["a"], 1);
                 assert_eq!(v["b"], serde_json::json!([1, 2]));
@@ -434,7 +548,10 @@ steps:
     assert: []
 "#;
         let s = Scenario::from_yaml(y).expect("parses");
-        match s.steps[0].request.body.as_ref().expect("body") {
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
+        match step.request.body.as_ref().expect("body") {
             Body::Raw(t) => assert_eq!(t, "hello"),
             other => panic!("expected Raw, got {:?}", other),
         }

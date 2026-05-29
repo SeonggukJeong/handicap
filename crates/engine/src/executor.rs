@@ -7,7 +7,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::error::{EngineError, Result};
 use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
-use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, Scenario, Step};
+use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep, Scenario};
 use crate::template::{TemplateContext, render};
 
 /// Per-VU HTTP client. Holds its own cookie jar so sessions are isolated.
@@ -40,7 +40,7 @@ pub struct ExecOutcome {
 
 pub async fn execute_step(
     client: &VuClient,
-    step: &Step,
+    step: &HttpStep,
     ctx: &TemplateContext<'_>,
 ) -> Result<ExecOutcome> {
     let url = render(&step.request.url, ctx)?;
@@ -164,7 +164,7 @@ pub fn client_for_scenario(s: &Scenario) -> Result<VuClient> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::{Extract, HttpMethod, Request, Step, StepKind};
+    use crate::scenario::{Extract, HttpMethod, HttpStep, Request};
     use std::collections::BTreeMap;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -182,10 +182,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let step = Step {
+        let step = HttpStep {
             id: "01HX0000000000000000000001".into(),
             name: "login".into(),
-            kind: StepKind::Http,
             request: Request {
                 method: HttpMethod::Post,
                 url: format!("{}/login", server.uri()),
@@ -225,10 +224,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let step = Step {
+        let step = HttpStep {
             id: "01HX0000000000000000000002".into(),
             name: "x".into(),
-            kind: StepKind::Http,
             request: Request {
                 method: HttpMethod::Get,
                 url: format!("{}/empty", server.uri()),

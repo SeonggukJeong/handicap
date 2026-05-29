@@ -11,7 +11,7 @@ use tracing::{debug, info, instrument, warn};
 use crate::aggregator::{Aggregator, StepWindow};
 use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
-use crate::scenario::Scenario;
+use crate::scenario::{Scenario, Step};
 use crate::template::TemplateContext;
 
 #[derive(Debug, Clone)]
@@ -164,32 +164,93 @@ async fn run_vu(
         }
         // Per-iteration flow vars: start fresh from the scenario base.
         let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
-        for step in &scenario.steps {
-            if Instant::now() >= deadline {
-                return Ok(());
-            }
-            if cancel.is_cancelled() {
-                return Err(EngineError::Aborted);
-            }
-            let ctx = TemplateContext {
-                vars: &iter_vars,
-                env: env.as_ref(),
-                vu_id,
-                iter_id,
-            };
-            let outcome = execute_step(&client, step, &ctx).await?;
-            iter_vars.extend(outcome.extracted.clone());
-            let mut a = agg.lock().await;
-            a.record(
-                &outcome.step_id,
-                outcome.latency.as_micros().min(u64::MAX as u128) as u64,
-                outcome.status,
-                outcome.error.is_some(),
-            );
+        let flow = execute_steps(
+            &client,
+            &scenario.steps,
+            &mut iter_vars,
+            &agg,
+            deadline,
+            &env,
+            vu_id,
+            iter_id,
+            &cancel,
+        )
+        .await?;
+        match flow {
+            StepFlow::Continue => {}
+            StepFlow::DeadlineReached => return Ok(()),
+            StepFlow::Aborted => return Err(EngineError::Aborted),
         }
         iter_id = iter_id.wrapping_add(1);
     }
     Ok(())
+}
+
+/// Control-flow signal threaded back up the recursive step tree.
+enum StepFlow {
+    Continue,
+    DeadlineReached,
+    Aborted,
+}
+
+/// Recursively execute a slice of steps for one VU iteration. Http leaves run a
+/// request + record a metric; loop nodes recurse over their body `repeat` times.
+/// Returns `Err` only for genuine engine errors (template/header build failures);
+/// deadline and cancellation are surfaced via `StepFlow` so the caller can decide
+/// whether to end the iteration cleanly or report an abort — byte-for-byte the
+/// same behavior the old flat loop had for the non-loop case.
+#[allow(clippy::too_many_arguments)]
+async fn execute_steps(
+    client: &VuClient,
+    steps: &[Step],
+    iter_vars: &mut BTreeMap<String, String>,
+    agg: &Arc<Mutex<Aggregator>>,
+    deadline: Instant,
+    env: &Arc<BTreeMap<String, String>>,
+    vu_id: u32,
+    iter_id: u32,
+    cancel: &CancellationToken,
+) -> Result<StepFlow> {
+    for step in steps {
+        if Instant::now() >= deadline {
+            return Ok(StepFlow::DeadlineReached);
+        }
+        if cancel.is_cancelled() {
+            return Ok(StepFlow::Aborted);
+        }
+        match step {
+            Step::Http(http) => {
+                let ctx = TemplateContext {
+                    vars: iter_vars,
+                    env: env.as_ref(),
+                    vu_id,
+                    iter_id,
+                };
+                let outcome = execute_step(client, http, &ctx).await?;
+                iter_vars.extend(outcome.extracted.clone());
+                let mut a = agg.lock().await;
+                a.record(
+                    &outcome.step_id,
+                    outcome.latency.as_micros().min(u64::MAX as u128) as u64,
+                    outcome.status,
+                    outcome.error.is_some(),
+                );
+            }
+            Step::Loop(lp) => {
+                for _ in 0..lp.repeat {
+                    let flow = Box::pin(execute_steps(
+                        client, &lp.do_, iter_vars, agg, deadline, env, vu_id, iter_id, cancel,
+                    ))
+                    .await?;
+                    match flow {
+                        StepFlow::Continue => {}
+                        other => return Ok(other),
+                    }
+                }
+            }
+        }
+    }
+    Ok(StepFlow::Continue)
 }
 
 fn chrono_second() -> i64 {

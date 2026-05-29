@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use handicap_engine::extract::ResponseFacts;
 use handicap_engine::scenario::{
-    Assertion, Body, CookieJarMode, Extract, HttpMethod, Request, Step, StepKind,
+    Assertion, Body, CookieJarMode, Extract, HttpMethod, HttpStep, LoopStep, Request, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{Scenario, evaluate_extracts};
@@ -57,7 +57,7 @@ fn arb_body() -> impl Strategy<Value = Body> {
     ]
 }
 
-fn arb_step() -> impl Strategy<Value = Step> {
+fn arb_http_step() -> impl Strategy<Value = HttpStep> {
     (
         "[0-9A-HJKMNP-TV-Z]{26}",
         arb_ident(),
@@ -69,10 +69,9 @@ fn arb_step() -> impl Strategy<Value = Step> {
         vec(arb_extract(), 0..3),
     )
         .prop_map(
-            |(id, name, method, url, headers, body, assert, extract)| Step {
+            |(id, name, method, url, headers, body, assert, extract)| HttpStep {
                 id,
                 name,
-                kind: StepKind::Http,
                 request: Request {
                     method,
                     url,
@@ -83,6 +82,19 @@ fn arb_step() -> impl Strategy<Value = Step> {
                 extract,
             },
         )
+}
+
+fn arb_step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        4 => arb_http_step().prop_map(Step::Http),
+        1 => (
+            "[0-9A-HJKMNP-TV-Z]{26}",
+            arb_ident(),
+            1u32..4u32,
+            vec(arb_http_step().prop_map(Step::Http), 1..3),
+        )
+            .prop_map(|(id, name, repeat, do_)| Step::Loop(LoopStep { id, name, repeat, do_ })),
+    ]
 }
 
 fn arb_scenario() -> impl Strategy<Value = Scenario> {
