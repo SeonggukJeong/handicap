@@ -9,7 +9,7 @@ use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{MetricBatch, MetricWindow, RunStatus, WorkerMessage};
+use pb::{LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
         ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
-        loop_breakdown_cap: 0, // Task 4 will wire profile.loop_breakdown_cap here
+        loop_breakdown_cap: profile.loop_breakdown_cap,
     };
     info!(
         vus = plan.vus,
@@ -113,7 +113,6 @@ async fn main() -> anyhow::Result<()> {
     let tx_metric = tx.clone();
     let forwarder = tokio::spawn(async move {
         while let Some(flush) = win_rx.recv().await {
-            let _ = flush.loop_stats; // Task 4 will wire these into pb::LoopStatBatch
             let windows: Vec<MetricWindow> = flush
                 .windows
                 .into_iter()
@@ -134,7 +133,17 @@ async fn main() -> anyhow::Result<()> {
                     })
                 })
                 .collect();
-            if windows.is_empty() {
+            let loop_stats: Vec<LoopStat> = flush
+                .loop_stats
+                .into_iter()
+                .map(|ls| LoopStat {
+                    step_id: ls.step_id,
+                    loop_index: ls.loop_index,
+                    count: ls.count,
+                    error_count: ls.error_count,
+                })
+                .collect();
+            if windows.is_empty() && loop_stats.is_empty() {
                 continue;
             }
             let msg = WorkerMessage {
@@ -142,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
                     run_id: run_id.clone(),
                     worker_id: worker_id.clone(),
                     windows,
-                    loop_stats: vec![],
+                    loop_stats,
                 })),
             };
             if tx_metric.send(msg).await.is_err() {
