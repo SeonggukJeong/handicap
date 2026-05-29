@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-29-slice-7-loop-node-design.md`
 
+**Performance (MVP §4.3 still applies — loop must not regress it):** The loop design is deliberately off the per-request hot path:
+- **Async recursion boxing:** `execute_steps` is awaited *directly* in `run_vu` (no box). Only the `Step::Loop` arm wraps its recursive call in `Box::pin` (required for async recursion). So **a scenario with no loop allocates zero extra boxes** — the Slice 6 throughput baseline (20,389 RPS / p95 17ms, single worker, 1KB body) is unaffected. Inside a loop, the cost is one heap allocation per iteration, dwarfed by that iteration's HTTP round-trip.
+- **No per-iteration cloning:** `iter_vars` is threaded by `&mut` through the recursion; the scenario is shared via `Arc`. Loop iterations reuse the same `iter_vars` (last-write-wins per §7) — no re-allocation per repeat.
+- **Template hot path:** `${loop_index}` adds one O(1) `match` arm in `render`; no measurable cost.
+- **Metric cardinality:** inner steps record under their own `step_id`, so `count` grows ×repeat but the number of *distinct* `step_id`s (→ aggregator buckets, report rows, `run_metrics` PK space) does **not** grow. The "≤10k rows → report <2s" and "<5% aggregation overhead" criteria are unaffected.
+- **Deferred optimization (YAGNI):** a tight single-level loop could be executed iteratively (no boxing) instead of recursively. Not worth it now — the allocation is negligible against HTTP latency and recursion keeps the code uniform for Slice 8/9. Revisit only if Task 11's bench shows a regression.
+
+This is **verified empirically in Task 11** (`just bench-throughput` with a loop scenario, compared against the Slice 6 baseline), not just argued here.
+
 **Deviation from spec §4.1:** spec wrote `LoopStep.do_: Vec<HttpStep>` to forbid nesting at the type level. This plan uses `do_: Vec<Step>` instead, because internal tagging on `Vec<HttpStep>` would strip `type: http` from serialized inner steps (contradicting the spec's own canonical YAML in §3, which shows `type: http` inside `do`). Single-level is enforced in the UI Zod schema (`do: z.array(HttpStepModel)`). Rationale recorded in ADR-0020 (Task 12).
 
 ---
@@ -1807,7 +1816,33 @@ Expected: all green. (This mirrors the pre-commit hook.)
 Run: `cd ui && pnpm test 2>&1 | tail -20 && pnpm build 2>&1 | tail -10`
 Expected: all tests pass, `tsc -b && vite build` clean.
 
-- [ ] **Step 3: Manual smoke (local dev)** — document results, do not commit binaries
+- [ ] **Step 3: Performance — loop overhead bench (MVP §4.3 no-regression)**
+
+The loop must not regress single-worker throughput. The cleanest A/B is *same request count, with vs without the loop arm*: wrap the bench GET in a `repeat: 1` loop so the request count is identical and only the recursion/`Box::pin` path differs.
+
+Extend `scripts/bench-throughput.sh` to honor a `SCENARIO_KIND` env (default `flat`):
+```bash
+# after the existing DURATION/VUS/... env reads:
+SCENARIO_KIND="${SCENARIO_KIND:-flat}"
+```
+and branch the seeded scenario YAML — `flat` keeps the current single GET; `loop` wraps that same GET in a one-iteration loop:
+```bash
+if [[ "$SCENARIO_KIND" == "loop" ]]; then
+  STEPS_YAML="steps:\n  - id: l\n    name: loop\n    type: loop\n    repeat: 1\n    do:\n      - id: g\n        name: get\n        type: http\n        request:\n          method: GET\n          url: \\\"http://127.0.0.1:$WIREMOCK_PORT/big\\\"\n        assert:\n          - status: 200\n"
+else
+  STEPS_YAML="steps:\n  - id: g\n    name: get\n    type: http\n    request:\n      method: GET\n      url: \\\"http://127.0.0.1:$WIREMOCK_PORT/big\\\"\n    assert:\n      - status: 200\n"
+fi
+```
+(substitute `$STEPS_YAML` into the scenario `yaml` field in place of the hardcoded `steps:` block).
+
+Run both and compare:
+```bash
+just bench-throughput            # SCENARIO_KIND=flat (baseline)
+SCENARIO_KIND=loop just bench-throughput
+```
+Expected: the `loop` variant's `rps_avg` is **within ~5% of the flat variant** and of the Slice 6 baseline (~20,389 RPS on the reference machine; absolute numbers are machine-dependent — compare the two runs on the SAME machine in the same session). p95/p99 should be statistically unchanged. If the loop variant is materially slower, the `Box::pin`-per-iteration path is hotter than expected → switch the single-level loop to an iterative executor (the deferred optimization noted in the Performance section) and re-bench. Record both numbers for the CLAUDE.md Slice 7 results (Task 12).
+
+- [ ] **Step 4: Manual smoke (local dev)** — document results, do not commit binaries
 
 Per CLAUDE.md "로컬 dev": run `cargo run --bin controller` + `cargo run --bin worker` + `cd ui && pnpm dev`, then:
 1. New scenario → canvas → "Add loop" → set repeat 3 → "Add step in loop" → set its URL to a wiremock path with `${loop_index}` → Save.
@@ -1835,7 +1870,7 @@ Content must record: the **internally-tagged `Step` enum** decision; **`do_: Vec
 - [ ] **Step 3: Update `CLAUDE.md`**
 - Add to "알아둘 결정들": `- **0020** Control-flow 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count)`.
 - Update the status line (top): Slice 7 구현 완료.
-- Add a "Slice 7 결과" paragraph (mirror the Slice 6 one): loop 노드, Step enum, `${loop_index}`, 캔버스 컨테이너, `Vec<Step>` 결정.
+- Add a "Slice 7 결과" paragraph (mirror the Slice 6 one): loop 노드, Step enum, `${loop_index}`, 캔버스 컨테이너, `Vec<Step>` 결정, **그리고 Task 11 Step 3의 flat vs loop 처리량 수치** (예: "loop(repeat:1) 처리량이 flat 대비 N% 이내 — Box::pin 오버헤드 무시 가능").
 - Add a "Slice 7에서 배운 함정들" section capturing real gotchas found during implementation — at minimum: serde internal-tagging does NOT enforce `deny_unknown_fields` (UI Zod is the strict gate); `async fn` recursion needs `Box::pin`; React Flow parent/child needs `extent: "parent"` + explicit parent `style` height; plus anything from the Task 11 manual smoke.
 
 - [ ] **Step 4: Commit**
@@ -1858,6 +1893,7 @@ git commit -m "docs(slice-7): ADR-0020 loop node + CLAUDE.md results & gotchas"
 - **§7 metrics ×repeat, abort mid-loop, extract persists** — Task 3 (count×repeat, cancel) + extract persistence is inherent to `iter_vars` threading (Task 1) and exercised by the existing multi_step extract behavior; loop body shares the same `iter_vars`. ✅
 - **§8 deferrals recorded** — ADR-0020 (Task 12). ✅
 - **§9 acceptance** — model/engine (T1–3), UI (T4–8), report/e2e (T9–10), docs (T12), gates (T11). ✅
+- **MVP §4.3 performance** — design kept off the non-loop hot path (Performance section); empirically verified in Task 11 Step 3 (flat vs `repeat:1` loop bench, ≤5% delta vs Slice 6 baseline). ✅
 - **§10 ADR-0020** — Task 12. ✅
 
 Type-consistency check: `Step` (TS) = `HttpStep | LoopStep`; `flattenHttpSteps` returns `HttpStep[]`; `isLoopStep`/`isHttpStep` guards used consistently in CanvasView/Inspector/ReportView/RunDetailPage. Engine `Step::{Http(HttpStep),Loop(LoopStep)}`, `LoopStep.do_: Vec<Step>`, `Step::id()/name()` accessors, `TemplateContext.loop_index: Option<u32>`. Edit variants `addLoopStep{id,name,childId}` / `addStepInLoop{loopId,id,name}` / `setLoopRepeat{loopId,repeat}` match across yamlDoc + store. No placeholders remain (the two "fill the fixture" notes in Tasks 9–10 point at concrete existing fixtures to copy).
