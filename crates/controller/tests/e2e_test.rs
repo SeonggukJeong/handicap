@@ -717,6 +717,229 @@ async fn loop_e2e_inner_step_counts() {
     grpc_handle.abort();
 }
 
+/// Full-stack guard for Slice 7-1 loop_breakdown: proves the chain
+///   RunDialog cap → profile → proto → engine Aggregator → MetricFlush
+///   → run_loop_metrics UPSERT → report `ReportStep.loop_breakdown`.
+///
+/// Scenario: repeat:3 loop around a single http step; each iteration targets
+/// a different wiremock path (`/item/0`, `/item/1`, `/item/2`) via
+/// `${loop_index}`.  The report's `steps[*].loop_breakdown` must have a
+/// bucket for each of the three loop indices with count > 0 and error_count
+/// == 0, and no overflow bucket (repeat=3 < cap=256).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn loop_breakdown_e2e() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary.
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "handicap-worker"])
+        .status()
+        .expect("cargo build -p handicap-worker");
+    assert!(status.success(), "worker build failed");
+    let worker_bin = worker_bin_path();
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stubs: GET /item/0, /item/1, /item/2 → 200.
+    //    Small delay so p95_ms > 0 (consistent with other e2e tests).
+    let target = MockServer::start().await;
+    for i in 0..3u32 {
+        Mock::given(method("GET"))
+            .and(path(format!("/item/{}", i)))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("ok")
+                    .set_delay(Duration::from_millis(5)),
+            )
+            .mount(&target)
+            .await;
+    }
+
+    // 2. Pick free ports.
+    let rest_addr = pick_addr().await;
+    let grpc_addr = pick_addr().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+    });
+    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve(grpc_addr)
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. Loop scenario: repeat:3, inner http step uses ${loop_index} in the
+    //    URL.  We reuse the same fixed ULID as in `loop_e2e_inner_step_counts`
+    //    so the inner step id is well-known.
+    const INNER_STEP_ID: &str = "01HX0000000000000000000002";
+    // Use the same raw-format-string approach as loop_e2e_inner_step_counts.
+    let scenario_yaml = format!(
+        "version: 1\nname: loop-breakdown-e2e\nvariables:\n  base: \"{}\"\nsteps:\n  - id: \"01HX0000000000000000000001\"\n    name: repeat\n    type: loop\n    repeat: 3\n    do:\n      - id: \"{}\"\n        name: item\n        type: http\n        request:\n          method: GET\n          url: \"{{{{base}}}}/item/${{loop_index}}\"\n        assert:\n          - status: 200\n",
+        target.uri(),
+        INNER_STEP_ID,
+    );
+
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run: 1 VU over 2 seconds, loop_breakdown_cap = 256.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": {
+                "vus": 1,
+                "duration_seconds": 2,
+                "ramp_up_seconds": 0,
+                "loop_breakdown_cap": 256
+            },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap().to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status}"
+    );
+
+    // 7. GET /report and assert loop_breakdown on the inner step.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    // Find the inner http step entry.
+    let steps = report["steps"].as_array().expect("steps array");
+    let inner = steps
+        .iter()
+        .find(|s| s["step_id"].as_str() == Some(INNER_STEP_ID))
+        .unwrap_or_else(|| {
+            panic!(
+                "no per-step entry for inner step {}; got steps: {}",
+                INNER_STEP_ID, report["steps"]
+            )
+        });
+
+    let step_count = inner["count"].as_u64().expect("step count");
+    assert!(step_count > 0, "inner step count should be > 0");
+    assert_eq!(
+        inner["error_count"].as_u64().unwrap_or(0),
+        0,
+        "inner step error_count should be 0"
+    );
+
+    // Assert loop_breakdown shape.
+    let breakdown = inner["loop_breakdown"]
+        .as_array()
+        .expect("loop_breakdown must be an array");
+    assert!(
+        !breakdown.is_empty(),
+        "loop_breakdown must be non-empty; step_count = {step_count}"
+    );
+
+    // Collect counts per loop_index bucket (non-overflow only).
+    let mut by_index: std::collections::HashMap<u64, (u64, u64)> = std::collections::HashMap::new();
+    let mut breakdown_total: u64 = 0;
+    let mut breakdown_errors: u64 = 0;
+    for bucket in breakdown {
+        let cnt = bucket["count"].as_u64().expect("bucket count");
+        let errs = bucket["error_count"].as_u64().expect("bucket error_count");
+        breakdown_total += cnt;
+        breakdown_errors += errs;
+        if !bucket["loop_index"].is_null() {
+            let idx = bucket["loop_index"].as_u64().expect("loop_index u64");
+            let e = by_index.entry(idx).or_insert((0, 0));
+            e.0 += cnt;
+            e.1 += errs;
+        }
+    }
+
+    // Each of loop_index 0, 1, 2 must have been executed at least once.
+    for i in 0u64..3 {
+        let (cnt, errs) = by_index.get(&i).copied().unwrap_or((0, 0));
+        assert!(
+            cnt > 0,
+            "loop_index {i} bucket must have count > 0; full breakdown: {breakdown:?}"
+        );
+        assert_eq!(errs, 0, "loop_index {i} bucket must have error_count = 0");
+    }
+
+    // No overflow bucket (loop_index null) because repeat=3 < cap=256.
+    let overflow_count: u64 = breakdown
+        .iter()
+        .filter(|b| b["loop_index"].is_null())
+        .map(|b| b["count"].as_u64().unwrap_or(0))
+        .sum();
+    assert_eq!(
+        overflow_count, 0,
+        "no overflow bucket expected (repeat=3, cap=256)"
+    );
+
+    // Total breakdown count == step count (the sum of per-index buckets == total
+    // requests; all requests belong to a loop_index because repeat < cap).
+    assert_eq!(
+        breakdown_total, step_count,
+        "sum of breakdown counts ({breakdown_total}) must equal step count ({step_count})"
+    );
+    assert_eq!(breakdown_errors, 0, "total breakdown error_count must be 0");
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn report_e2e_smoke() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
