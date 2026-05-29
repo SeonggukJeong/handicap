@@ -170,7 +170,7 @@ pub async fn set_status(
     started: Option<i64>,
     ended: Option<i64>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE runs SET status = ?, started_at = COALESCE(?, started_at), ended_at = COALESCE(?, ended_at) WHERE id = ? AND status != 'aborted'",
     )
     .bind(status.as_str())
@@ -179,6 +179,13 @@ pub async fn set_status(
     .bind(id)
     .execute(db)
     .await?;
+    let affected = result.rows_affected();
+    if affected != 1 {
+        tracing::warn!(
+            run_id = %id, status = %status.as_str(), affected,
+            "set_status updated {affected} rows (run already aborted, or unknown run_id)"
+        );
+    }
     Ok(())
 }
 
@@ -206,4 +213,72 @@ pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
     .execute(db)
     .await?;
     Ok(res.rows_affected())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store;
+
+    async fn test_db() -> Db {
+        store::connect("sqlite::memory:")
+            .await
+            .expect("in-memory db")
+    }
+
+    #[tokio::test]
+    async fn set_status_missing_run_is_ok_noop() {
+        let db = test_db().await;
+        // No scenario/run inserted. Updating a non-existent run must NOT error (warn-only).
+        let r = set_status(&db, "does-not-exist", RunStatus::Completed, None, None).await;
+        assert!(
+            r.is_ok(),
+            "set_status on missing run should be a warn-only no-op, not an error"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_status_happy_path_and_aborted_guard() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+
+        let db = test_db().await;
+
+        // Insert a minimal scenario so the FK constraint is satisfied.
+        let yaml = "version: 1\nname: test\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+
+        // Insert a run in pending state.
+        let profile = Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+        };
+        let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Pending);
+
+        // Normal transition: pending → running is Ok and reflected in DB.
+        set_status(&db, &run.id, RunStatus::Running, Some(1000), None)
+            .await
+            .unwrap();
+        let updated = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, RunStatus::Running);
+
+        // Mark aborted via mark_aborted (simulates REST abort path).
+        mark_aborted(&db, &run.id).await.unwrap();
+        let aborted = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(aborted.status, RunStatus::Aborted);
+
+        // set_status on already-aborted run must still return Ok (the guard keeps
+        // rows_affected == 0 — belt-and-suspenders contract must not be broken).
+        let r = set_status(&db, &run.id, RunStatus::Completed, None, Some(2000)).await;
+        assert!(r.is_ok(), "set_status on aborted run must return Ok");
+        // Status must remain aborted — the guard held.
+        let still_aborted = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(still_aborted.status, RunStatus::Aborted);
+    }
 }
