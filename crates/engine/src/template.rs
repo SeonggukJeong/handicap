@@ -22,9 +22,15 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
+    // Track the start of the current literal run so we can push it as a
+    // UTF-8 slice rather than byte-by-byte (which would corrupt multi-byte
+    // characters like Korean/emoji).
+    let mut lit_start = 0;
 
     while i < bytes.len() {
         if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            // Flush any pending literal bytes before this substitution.
+            out.push_str(&input[lit_start..i]);
             let end = find_pair(bytes, i + 2, b"}}").ok_or_else(|| {
                 EngineError::MalformedTemplate(format!("unclosed {{{{ at byte {i}"))
             })?;
@@ -37,9 +43,12 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
                 .ok_or_else(|| EngineError::UnknownVar(name.to_string()))?;
             out.push_str(value);
             i = end + 2;
+            lit_start = i;
             continue;
         }
         if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+            // Flush any pending literal bytes before this substitution.
+            out.push_str(&input[lit_start..i]);
             let end = find_byte(bytes, i + 2, b'}').ok_or_else(|| {
                 EngineError::MalformedTemplate(format!("unclosed ${{ at byte {i}"))
             })?;
@@ -66,11 +75,15 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
             };
             out.push_str(&value);
             i = end + 1;
+            lit_start = i;
             continue;
         }
-        out.push(bytes[i] as char);
+        // Advance one byte; the literal slice will be flushed at the next
+        // substitution boundary or at the end of input.
         i += 1;
     }
+    // Flush any remaining literal tail.
+    out.push_str(&input[lit_start..]);
     Ok(out)
 }
 
@@ -320,6 +333,28 @@ mod tests {
             render("${MISSING}", &ctx),
             Err(EngineError::UnknownVar(_))
         ));
+    }
+
+    #[test]
+    fn preserves_non_ascii_literals() {
+        // Non-ASCII in the literal segments, plus substitutions of both kinds.
+        // "상품" and "검색" are Korean (each char = 3 UTF-8 bytes).
+        // "값" is the substituted flow-var value (also non-ASCII).
+        let v = vars(&[("name", "값")]);
+        let env: BTreeMap<String, String> = [("BASE_URL".to_string(), "http://x".to_string())]
+            .into_iter()
+            .collect();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        assert_eq!(
+            render("${BASE_URL}/상품/{{name}}/검색", &ctx).unwrap(),
+            "http://x/상품/값/검색"
+        );
     }
 
     #[test]
