@@ -116,6 +116,55 @@ pub async fn windows_with_hdr(db: &Db, run_id: &str) -> sqlx::Result<Vec<WindowW
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct LoopMetricRow {
+    pub run_id: String,
+    pub step_id: String,
+    pub loop_index: i64, // u32 stored as i64 (SQLite INTEGER); overflow = 4294967295
+    pub count: i64,
+    pub error_count: i64,
+}
+
+pub async fn insert_loop_batch(db: &Db, rows: &[LoopMetricRow]) -> sqlx::Result<()> {
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_loop_metrics(run_id,step_id,loop_index,count,error_count) \
+             VALUES(?,?,?,?,?) \
+             ON CONFLICT(run_id,step_id,loop_index) DO UPDATE SET \
+               count = count + excluded.count, \
+               error_count = error_count + excluded.error_count",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(r.loop_index)
+        .bind(r.count)
+        .bind(r.error_count)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn loop_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<LoopMetricRow>> {
+    let rows = sqlx::query(
+        "SELECT step_id, loop_index, count, error_count FROM run_loop_metrics \
+         WHERE run_id = ? ORDER BY step_id, loop_index",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| LoopMetricRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            loop_index: r.get("loop_index"),
+            count: r.get("count"),
+            error_count: r.get("error_count"),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +248,41 @@ mod tests {
         let db = pool().await;
         let got = windows_with_hdr(&db, "NOPE").await.unwrap();
         assert!(got.is_empty());
+    }
+
+    #[tokio::test]
+    async fn loop_metrics_upsert_accumulates() {
+        let db = pool().await;
+        let rows = vec![
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 0,
+                count: 3,
+                error_count: 1,
+            },
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 0,
+                count: 2,
+                error_count: 0,
+            },
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 4_294_967_295,
+                count: 7,
+                error_count: 0,
+            },
+        ];
+        insert_loop_batch(&db, &rows).await.unwrap();
+        let got = loop_breakdown(&db, "r").await.unwrap();
+        let m: std::collections::HashMap<(String, i64), (i64, i64)> = got
+            .into_iter()
+            .map(|r| ((r.step_id, r.loop_index), (r.count, r.error_count)))
+            .collect();
+        assert_eq!(m.get(&("s".into(), 0)), Some(&(5, 1))); // 3+2 / 1+0
+        assert_eq!(m.get(&("s".into(), 4_294_967_295)), Some(&(7, 0)));
     }
 }

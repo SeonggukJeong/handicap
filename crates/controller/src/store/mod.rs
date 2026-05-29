@@ -12,6 +12,7 @@ pub type Db = Pool<Sqlite>;
 
 const MIGRATION_SQL_0001: &str = include_str!("migrations/0001_initial.sql");
 const MIGRATION_SQL_0002: &str = include_str!("migrations/0002_run_message.sql");
+const MIGRATION_SQL_0003: &str = include_str!("migrations/0003_run_loop_metrics.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -31,6 +32,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     if has_message == 0 {
         sqlx::query(MIGRATION_SQL_0002).execute(&pool).await?;
     }
+    sqlx::query(MIGRATION_SQL_0003).execute(&pool).await?;
     Ok(pool)
 }
 

@@ -158,6 +158,25 @@ impl Coordinator for CoordinatorService {
                         {
                             warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
                         }
+                        let loop_rows: Vec<crate::store::metrics::LoopMetricRow> = batch
+                            .loop_stats
+                            .iter()
+                            .map(|ls| crate::store::metrics::LoopMetricRow {
+                                run_id: batch.run_id.clone(),
+                                step_id: ls.step_id.clone(),
+                                loop_index: ls.loop_index as i64,
+                                count: ls.count as i64,
+                                error_count: ls.error_count as i64,
+                            })
+                            .collect();
+                        if !loop_rows.is_empty() {
+                            if let Err(e) =
+                                crate::store::metrics::insert_loop_batch(&state.db, &loop_rows)
+                                    .await
+                            {
+                                warn!(run_id = %batch.run_id, error = %e, "failed to insert loop metrics");
+                            }
+                        }
                     }
                     Some(WorkerPayload::RunStatus(s)) => {
                         info!(run_id = %s.run_id, phase = ?s.phase, "worker run status");
