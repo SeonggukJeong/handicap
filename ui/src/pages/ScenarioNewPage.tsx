@@ -4,11 +4,10 @@ import { useCreateScenario } from "../api/hooks";
 import { Button } from "../components/Button";
 import { EditorShell } from "../components/scenario/EditorShell";
 
-const STARTER_YAML = `version: 1
+export const STARTER_YAML = `version: 1
 name: "Untitled"
 cookie_jar: auto
-variables:
-  base_url: "http://localhost:8080"
+variables: {}
 steps: []
 `;
 

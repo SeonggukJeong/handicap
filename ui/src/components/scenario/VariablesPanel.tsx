@@ -19,7 +19,7 @@ export function VariablesPanel() {
               {key}
             </span>
             <input
-              className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
+              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
               value={value}
               onChange={(e) => setVariable(key, e.target.value)}
             />
@@ -27,7 +27,7 @@ export function VariablesPanel() {
               type="button"
               onClick={() => removeVariable(key)}
               aria-label={`Remove variable ${key}`}
-              className="text-slate-500 hover:text-red-600 text-sm"
+              className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
             >
               ×
             </button>
@@ -40,7 +40,7 @@ export function VariablesPanel() {
 
       <div className="flex gap-2">
         <input
-          className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
+          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
           placeholder="new_var"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
@@ -54,7 +54,7 @@ export function VariablesPanel() {
             setNewKey("");
           }}
           disabled={newKey.trim().length === 0}
-          className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
+          className="shrink-0 px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
         >
           Add
         </button>
