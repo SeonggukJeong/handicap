@@ -88,6 +88,15 @@ export const ReportStepSchema = z
     p50_ms: z.number().int().nonnegative(),
     p95_ms: z.number().int().nonnegative(),
     p99_ms: z.number().int().nonnegative(),
+    loop_breakdown: z
+      .array(
+        z.object({
+          loop_index: z.number().int().nullable(),
+          count: z.number(),
+          error_count: z.number(),
+        }),
+      )
+      .optional(),
   })
   .strict();
 

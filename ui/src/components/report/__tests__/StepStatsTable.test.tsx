@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 import { StepStatsTable } from "../StepStatsTable";
 
@@ -18,6 +19,7 @@ describe("StepStatsTable", () => {
             p50_ms: 10,
             p95_ms: 50,
             p99_ms: 90,
+            loop_breakdown: [],
           },
           {
             step_id: "stepB",
@@ -27,6 +29,7 @@ describe("StepStatsTable", () => {
             p50_ms: 5,
             p95_ms: 20,
             p99_ms: 40,
+            loop_breakdown: [],
           },
         ]}
         meta={meta}
@@ -38,5 +41,35 @@ describe("StepStatsTable", () => {
     expect(region).toHaveTextContent("http://x/login");
     expect(region).toHaveTextContent("100");
     expect(region).toHaveTextContent("stepB"); // missing meta → falls back to id
+  });
+
+  it("shows a per-loop drill-down when a step has loop_breakdown", async () => {
+    const user = userEvent.setup();
+    const steps = [{
+      step_id: "s", count: 6, error_count: 0, status_counts: { "200": 6 },
+      p50_ms: 1, p95_ms: 2, p99_ms: 3,
+      loop_breakdown: [
+        { loop_index: 0, count: 3, error_count: 0 },
+        { loop_index: 1, count: 2, error_count: 0 },
+        { loop_index: null, count: 1, error_count: 0 },
+      ],
+    }];
+    const meta = new Map([["s", { id: "s", name: "tick", method: "GET", url: "/items" }]]);
+    render(<StepStatsTable steps={steps as never} meta={meta} />);
+    expect(screen.queryByText(/loop_index/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /tick|expand|loop/i }));
+    // After expand: the drill-down table header and rows should appear
+    expect(screen.getByText(/그 외|상한 초과|overflow/i)).toBeInTheDocument();
+    // loop_index column header appears only when expanded
+    expect(screen.getByText("loop_index")).toBeInTheDocument();
+  });
+
+  it("renders no drill-down caret when loop_breakdown is empty", () => {
+    const steps = [{
+      step_id: "s", count: 6, error_count: 0, status_counts: {}, p50_ms: 1, p95_ms: 2, p99_ms: 3,
+      loop_breakdown: [],
+    }];
+    render(<StepStatsTable steps={steps as never} meta={new Map()} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
