@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
@@ -60,12 +60,13 @@ steps:
     );
 
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 4,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
 
     let cancel = CancellationToken::new();
@@ -80,8 +81,8 @@ steps:
     let mut total: u64 = 0;
     let mut errors: u64 = 0;
     let mut per_step: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             total += w.count;
             errors += w.error_count;
             let e = per_step.entry(w.step_id.clone()).or_insert((0, 0));
@@ -165,12 +166,13 @@ steps:
     );
 
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 3,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
 
     let cancel = CancellationToken::new();
@@ -184,8 +186,8 @@ steps:
 
     let mut errors: u64 = 0;
     let mut total: u64 = 0;
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             total += w.count;
             errors += w.error_count;
         }
@@ -224,12 +226,13 @@ steps:
     let env: BTreeMap<String, String> = [("BASE_URL".to_string(), server.uri())]
         .into_iter()
         .collect();
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 1,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(1),
         env,
+        loop_breakdown_cap: 0,
     };
 
     let cancel = CancellationToken::new();
@@ -243,8 +246,8 @@ steps:
 
     let mut errors: u64 = 0;
     let mut total: u64 = 0;
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             total += w.count;
             errors += w.error_count;
         }
@@ -283,12 +286,13 @@ steps:
         server.uri()
     );
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 3,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
 
     let cancel = CancellationToken::new();

@@ -7,11 +7,11 @@ pub mod runner;
 pub mod scenario;
 pub mod template;
 
-pub use aggregator::{Aggregator, StepWindow};
+pub use aggregator::{Aggregator, LoopStat, StepWindow};
 pub use error::{EngineError, Result};
 pub use executor::{ExecOutcome, VuClient, client_for_scenario, execute_step};
 pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
-pub use runner::{RunPlan, run_scenario};
+pub use runner::{MetricFlush, RunPlan, run_scenario};
 pub use scenario::{
     Assertion, Body, CookieJarMode, HttpMethod, HttpStep, LoopStep, Request, Scenario, Step,
 };

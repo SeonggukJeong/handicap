@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -54,12 +54,13 @@ steps:
     );
 
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 1,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(1),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -70,8 +71,8 @@ steps:
 
     let mut tick_count: u64 = 0;
     let mut errors: u64 = 0;
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             if w.step_id == "01HX0000000000000000000002" {
                 tick_count += w.count;
                 errors += w.error_count;
@@ -131,12 +132,13 @@ steps:
         server.uri()
     );
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 1,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(1),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 256,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -146,16 +148,32 @@ steps:
     });
     let mut errors: u64 = 0;
     let mut total: u64 = 0;
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    let mut by_index: std::collections::HashMap<u32, u64> = Default::default();
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             total += w.count;
             errors += w.error_count;
+        }
+        for ls in flush.loop_stats {
+            *by_index.entry(ls.loop_index).or_default() += ls.count;
         }
     }
     run.await.expect("join");
     assert!(total > 0);
     // All three /item/{i} are stubbed; an unrendered ${loop_index} would 404 → assert error.
     assert_eq!(errors, 0, "every /item/<loop_index> must match a stub");
+    assert!(
+        by_index.get(&0).copied().unwrap_or(0) > 0,
+        "index 0 recorded"
+    );
+    assert!(
+        by_index.get(&1).copied().unwrap_or(0) > 0,
+        "index 1 recorded"
+    );
+    assert!(
+        by_index.get(&2).copied().unwrap_or(0) > 0,
+        "index 2 recorded"
+    );
 }
 
 /// Cancellation lands quickly even with a large repeat (checked between iterations).
@@ -188,12 +206,13 @@ steps:
         server.uri()
     );
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 2,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

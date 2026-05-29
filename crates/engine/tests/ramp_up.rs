@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -37,12 +37,13 @@ steps:
     );
 
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 20,
         ramp_up: Duration::from_secs(2),
         duration: Duration::from_secs(4),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
 
     let cancel = CancellationToken::new();
@@ -55,8 +56,8 @@ steps:
     });
 
     let mut per_sec: BTreeMap<i64, u64> = BTreeMap::new();
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             *per_sec.entry(w.ts_second).or_insert(0) += w.count;
         }
     }

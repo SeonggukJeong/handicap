@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{EngineError, RunPlan, Scenario, run_scenario};
+use handicap_engine::{EngineError, MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -49,6 +49,7 @@ fn run_plan_env_and_ramp_up_wiring() {
         ramp_up: Duration::from_secs(5),
         duration: Duration::from_secs(10),
         env,
+        loop_breakdown_cap: 0,
     };
 
     assert_eq!(plan.ramp_up, Duration::from_secs(5));
@@ -67,8 +68,9 @@ async fn cancelled_token_aborts_run() {
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
-    let (win_tx, _win_rx) = mpsc::channel(8);
+    let (win_tx, _win_rx) = mpsc::channel::<MetricFlush>(8);
     let cancel = CancellationToken::new();
     // Cancel before run starts — engine should observe this immediately.
     cancel.cancel();

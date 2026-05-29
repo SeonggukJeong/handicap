@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{EngineError, RunPlan, Scenario, run_scenario};
+use handicap_engine::{EngineError, MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -31,8 +31,9 @@ steps:
         ramp_up: std::time::Duration::from_secs(0),
         duration: Duration::from_millis(200),
         env: std::collections::BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
-    let (tx, _rx) = mpsc::channel(64);
+    let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();
 
     let res = run_scenario(scenario, plan, tx, cancel).await;

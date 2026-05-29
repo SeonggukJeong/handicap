@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -36,12 +36,13 @@ steps:
     );
 
     let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
-    let (tx, mut rx) = mpsc::channel(64);
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let plan = RunPlan {
         vus: 5,
         ramp_up: Duration::from_secs(0),
         duration: Duration::from_secs(2),
         env: std::collections::BTreeMap::new(),
+        loop_breakdown_cap: 0,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
@@ -54,8 +55,8 @@ steps:
 
     let mut total: u64 = 0;
     let mut errors: u64 = 0;
-    while let Some(batch) = rx.recv().await {
-        for w in batch {
+    while let Some(flush) = rx.recv().await {
+        for w in flush.windows {
             total += w.count;
             errors += w.error_count;
         }

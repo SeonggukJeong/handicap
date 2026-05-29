@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
-use handicap_engine::{EngineError, RunPlan, Scenario, StepWindow, run_scenario};
+use handicap_engine::{EngineError, MetricFlush, RunPlan, Scenario, run_scenario};
 use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff};
 use pb::server_message::Payload as ServerPayload;
@@ -97,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
+        loop_breakdown_cap: 0, // Task 4 will wire profile.loop_breakdown_cap here
     };
     info!(
         vus = plan.vus,
@@ -105,14 +106,16 @@ async fn main() -> anyhow::Result<()> {
         "starting engine run"
     );
 
-    let (win_tx, mut win_rx) = mpsc::channel::<Vec<StepWindow>>(32);
+    let (win_tx, mut win_rx) = mpsc::channel::<MetricFlush>(32);
 
     let run_id = args.run_id.clone();
     let worker_id = args.worker_id.clone();
     let tx_metric = tx.clone();
     let forwarder = tokio::spawn(async move {
-        while let Some(batch) = win_rx.recv().await {
-            let windows: Vec<MetricWindow> = batch
+        while let Some(flush) = win_rx.recv().await {
+            let _ = flush.loop_stats; // Task 4 will wire these into pb::LoopStatBatch
+            let windows: Vec<MetricWindow> = flush
+                .windows
                 .into_iter()
                 .filter_map(|w| {
                     let hdr = w.serialize_histogram().ok()?;

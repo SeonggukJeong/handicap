@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use crate::aggregator::{Aggregator, StepWindow};
+use crate::aggregator::{Aggregator, LoopStat, StepWindow};
 use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
 use crate::scenario::{Scenario, Step};
@@ -20,6 +20,15 @@ pub struct RunPlan {
     pub ramp_up: Duration,
     pub duration: Duration,
     pub env: BTreeMap<String, String>,
+    pub loop_breakdown_cap: u32,
+}
+
+/// One flush from the engine to the worker: a batch of completed 1s windows
+/// plus the per-(step_id, loop_index) count deltas accumulated since the last flush.
+#[derive(Debug)]
+pub struct MetricFlush {
+    pub windows: Vec<StepWindow>,
+    pub loop_stats: Vec<LoopStat>,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -27,10 +36,10 @@ pub struct RunPlan {
 pub async fn run_scenario(
     scenario: Arc<Scenario>,
     plan: RunPlan,
-    out: mpsc::Sender<Vec<StepWindow>>,
+    out: mpsc::Sender<MetricFlush>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let agg = Arc::new(Mutex::new(Aggregator::new(0)));
+    let agg = Arc::new(Mutex::new(Aggregator::new(plan.loop_breakdown_cap)));
     let started_at = Instant::now();
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
@@ -95,10 +104,24 @@ pub async fn run_scenario(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let drained = flush_agg.lock().await.drain_completed(now_s);
-            if !drained.is_empty() {
-                debug!(count = drained.len(), "flushing windows");
-                if flush_out.send(drained).await.is_err() {
+            let (drained, loop_stats) = {
+                let mut g = flush_agg.lock().await;
+                (g.drain_completed(now_s), g.drain_loop_deltas())
+            };
+            if !drained.is_empty() || !loop_stats.is_empty() {
+                debug!(
+                    count = drained.len(),
+                    loops = loop_stats.len(),
+                    "flushing windows"
+                );
+                if flush_out
+                    .send(MetricFlush {
+                        windows: drained,
+                        loop_stats,
+                    })
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -115,9 +138,17 @@ pub async fn run_scenario(
         }
     }
 
-    let final_windows = agg.lock().await.drain_all();
-    if !final_windows.is_empty() {
-        let _ = out.send(final_windows).await;
+    let (final_windows, final_loops) = {
+        let mut g = agg.lock().await;
+        (g.drain_all(), g.drain_loop_deltas())
+    };
+    if !final_windows.is_empty() || !final_loops.is_empty() {
+        let _ = out
+            .send(MetricFlush {
+                windows: final_windows,
+                loop_stats: final_loops,
+            })
+            .await;
     }
     drop(out);
     flusher.abort();
