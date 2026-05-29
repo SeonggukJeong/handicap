@@ -3,8 +3,11 @@ import {
   ScenarioModel,
   StepModel,
   ExtractModel,
+  isLoopStep,
+  isHttpStep,
+  flattenHttpSteps,
   type Scenario,
-  type Step,
+  type HttpStep,
   type Extract,
   newEmptyScenario,
 } from "../model";
@@ -54,7 +57,7 @@ describe("ScenarioModel", () => {
     expect(() => StepModel.parse(step)).toThrow();
   });
 
-  const base: Pick<Step, "id" | "name" | "type" | "assert"> = {
+  const base: Pick<HttpStep, "id" | "name" | "type" | "assert"> = {
     id: "01HX0000000000000000000001",
     name: "x",
     type: "http",
@@ -133,6 +136,76 @@ describe("ExtractModel", () => {
     expect(() =>
       ExtractModel.parse({ var: "x", from: "headers", name: "X" }),
     ).toThrow();
+  });
+});
+
+const LOOP_YAML_JS = {
+  version: 1,
+  name: "x",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000001",
+      name: "loop",
+      type: "loop",
+      repeat: 3,
+      do: [
+        {
+          id: "01HX0000000000000000000002",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/x", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    },
+  ],
+};
+
+describe("loop step model", () => {
+  it("accepts a valid loop step", () => {
+    const r = ScenarioModel.safeParse(LOOP_YAML_JS);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      const s = r.data.steps[0];
+      expect(isLoopStep(s)).toBe(true);
+      expect(isHttpStep(s)).toBe(false);
+    }
+  });
+
+  it("rejects repeat = 0", () => {
+    const bad = structuredClone(LOOP_YAML_JS);
+    bad.steps[0].repeat = 0;
+    expect(ScenarioModel.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects a nested loop inside do (single-level)", () => {
+    const bad = structuredClone(LOOP_YAML_JS);
+    (bad.steps[0].do as unknown[]).push({
+      id: "01HX0000000000000000000003",
+      name: "inner-loop",
+      type: "loop",
+      repeat: 2,
+      do: [],
+    });
+    expect(ScenarioModel.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects request key on a loop step", () => {
+    const bad = structuredClone(LOOP_YAML_JS) as Record<string, unknown>;
+    (bad.steps as Record<string, unknown>[])[0].request = { method: "GET", url: "/" };
+    expect(ScenarioModel.safeParse(bad).success).toBe(false);
+  });
+
+  it("flattenHttpSteps recurses into loop bodies", () => {
+    const r = ScenarioModel.safeParse(LOOP_YAML_JS);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      const flat = flattenHttpSteps(r.data.steps);
+      expect(flat.map((s) => s.id)).toEqual(["01HX0000000000000000000002"]);
+    }
   });
 });
 

@@ -66,7 +66,7 @@ export const ExtractModel = z.discriminatedUnion("from", [
 ]);
 export type Extract = z.infer<typeof ExtractModel>;
 
-export const StepModel = z
+export const HttpStepModel = z
   .object({
     id: z.string().regex(ULID_RE, "step id must be a ULID"),
     name: z.string().min(1, "step name required"),
@@ -76,7 +76,39 @@ export const StepModel = z
     extract: z.array(ExtractModel).default([]),
   })
   .strict();
+export type HttpStep = z.infer<typeof HttpStepModel>;
+
+export const LoopStepModel = z
+  .object({
+    id: z.string().regex(ULID_RE, "step id must be a ULID"),
+    name: z.string().min(1, "step name required"),
+    type: z.literal("loop"),
+    repeat: z.number().int().min(1, "repeat must be >= 1"),
+    // do: http only — single-level for Slice 7. Nested loops rejected here.
+    do: z.array(HttpStepModel).min(1, "loop body needs at least one step"),
+  })
+  .strict();
+export type LoopStep = z.infer<typeof LoopStepModel>;
+
+export const StepModel = z.discriminatedUnion("type", [HttpStepModel, LoopStepModel]);
 export type Step = z.infer<typeof StepModel>;
+
+export function isLoopStep(s: Step): s is LoopStep {
+  return s.type === "loop";
+}
+export function isHttpStep(s: Step): s is HttpStep {
+  return s.type === "http";
+}
+
+/** Depth-first list of every http step, recursing into loop bodies. */
+export function flattenHttpSteps(steps: ReadonlyArray<Step>): HttpStep[] {
+  const out: HttpStep[] = [];
+  for (const s of steps) {
+    if (s.type === "http") out.push(s);
+    else out.push(...s.do);
+  }
+  return out;
+}
 
 export const CookieJarMode = z.enum(["auto", "off"]);
 export type CookieJarMode = z.infer<typeof CookieJarMode>;
