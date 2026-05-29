@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
-import type { Assertion, Extract, HttpMethod, Step } from "../../scenario/model";
+import type { Assertion, Extract, HttpMethod, HttpStep, LoopStep, Step } from "../../scenario/model";
+import { flattenHttpSteps, isLoopStep } from "../../scenario/model";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -11,10 +12,12 @@ export function Inspector() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
   const select = useScenarioEditor((s) => s.select);
 
-  const step = useMemo(
-    () => steps.find((s) => s.id === selectedStepId) ?? null,
-    [steps, selectedStepId],
-  );
+  const step = useMemo<Step | null>(() => {
+    const top = steps.find((s) => s.id === selectedStepId);
+    if (top) return top;
+    // The selection may be an http step nested inside a loop body.
+    return flattenHttpSteps(steps).find((s) => s.id === selectedStepId) ?? null;
+  }, [steps, selectedStepId]);
 
   useEffect(() => {
     if (selectedStepId !== null && step === null) select(null);
@@ -28,21 +31,26 @@ export function Inspector() {
     );
   }
 
-  return <StepInspector step={step} />;
+  return isLoopStep(step) ? <LoopInspector step={step} /> : <HttpStepInspector step={step} />;
 }
 
-interface StepInspectorProps {
-  step: Step;
-}
-
-function StepInspector({ step }: StepInspectorProps) {
+function HttpStepInspector({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
   const moveStep = useScenarioEditor((s) => s.moveStep);
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
 
-  const index = steps.findIndex((s) => s.id === step.id);
+  // Siblings = the sequence the step actually lives in: top-level steps if the
+  // step is top-level, else the `do` body of the loop that contains it. Move
+  // up/down must clamp against siblings, not the top-level list (a nested step
+  // has index -1 there, which would mis-disable the buttons).
+  const siblings = useMemo<ReadonlyArray<Step>>(() => {
+    if (steps.some((s) => s.id === step.id)) return steps;
+    const parent = steps.find((s) => isLoopStep(s) && s.do.some((c) => c.id === step.id));
+    return parent && isLoopStep(parent) ? parent.do : steps;
+  }, [steps, step.id]);
+  const index = siblings.findIndex((s) => s.id === step.id);
 
   return (
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
@@ -56,8 +64,8 @@ function StepInspector({ step }: StepInspectorProps) {
             title="Move up"
           />
           <SmallButton
-            onClick={() => moveStep(step.id, Math.min(steps.length - 1, index + 1))}
-            disabled={index === steps.length - 1}
+            onClick={() => moveStep(step.id, Math.min(siblings.length - 1, index + 1))}
+            disabled={index === siblings.length - 1}
             label="↓"
             title="Move down"
           />
@@ -112,7 +120,7 @@ function StepInspector({ step }: StepInspectorProps) {
   );
 }
 
-function HeadersEditor({ step }: { step: Step }) {
+function HeadersEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const [newKey, setNewKey] = useState("");
 
@@ -182,7 +190,7 @@ function HeadersEditor({ step }: { step: Step }) {
   );
 }
 
-function BodyEditor({ step }: { step: Step }) {
+function BodyEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
 
   const kind: BodyKind = step.request.body?.kind ?? "none";
@@ -218,7 +226,7 @@ function BodyEditor({ step }: { step: Step }) {
   );
 }
 
-function JsonBodyField({ step }: { step: Step }) {
+function JsonBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const body = step.request.body;
   const initial =
@@ -258,7 +266,7 @@ function JsonBodyField({ step }: { step: Step }) {
   );
 }
 
-function FormBodyField({ step }: { step: Step }) {
+function FormBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const body = step.request.body;
   const map = body?.kind === "form" ? body.value : {};
@@ -323,7 +331,7 @@ function FormBodyField({ step }: { step: Step }) {
   );
 }
 
-function RawBodyField({ step }: { step: Step }) {
+function RawBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const body = step.request.body;
   const value = body?.kind === "raw" ? body.value : "";
@@ -341,7 +349,7 @@ function AssertEditor({
   step,
   setStepAssert,
 }: {
-  step: Step;
+  step: HttpStep;
   setStepAssert: (id: string, asserts: ReadonlyArray<Assertion>) => void;
 }) {
   const [newCode, setNewCode] = useState("");
@@ -424,7 +432,7 @@ function draftFromExtract(e: Extract): DraftExtract {
   return e as DraftExtract;
 }
 
-function ExtractEditor({ step }: { step: Step }) {
+function ExtractEditor({ step }: { step: HttpStep }) {
   const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
 
   // Local drafts let us show in-progress rows before they pass Zod validation.
@@ -560,6 +568,84 @@ function ExtractEditor({ step }: { step: Step }) {
         Add
       </button>
     </fieldset>
+  );
+}
+
+function LoopInspector({ step }: { step: LoopStep }) {
+  const setStepField = useScenarioEditor((s) => s.setStepField);
+  const setLoopRepeat = useScenarioEditor((s) => s.setLoopRepeat);
+  const removeStep = useScenarioEditor((s) => s.removeStep);
+  const select = useScenarioEditor((s) => s.select);
+
+  // Numeric draft + commit-on-blur (F5 pattern): local state echoes every
+  // keystroke; the model is only updated when a valid integer is committed.
+  const [repeatDraft, setRepeatDraft] = useState(String(step.repeat));
+
+  useEffect(() => {
+    setRepeatDraft(String(step.repeat));
+  }, [step.id, step.repeat]);
+
+  const commitRepeat = () => {
+    const n = Number(repeatDraft);
+    if (Number.isInteger(n) && n >= 1) setLoopRepeat(step.id, n);
+    else setRepeatDraft(String(step.repeat));
+  };
+
+  return (
+    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+      <header className="flex items-center justify-between">
+        <h3 className="font-semibold text-slate-700">Loop</h3>
+        <SmallButton
+          onClick={() => removeStep(step.id)}
+          label="Delete"
+          title="Delete loop"
+          danger
+        />
+      </header>
+
+      <Field label="Name">
+        <input
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={step.name}
+          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
+        />
+      </Field>
+
+      <Field label="Repeat">
+        <input
+          type="number"
+          min={1}
+          aria-label="repeat"
+          className="w-24 border border-slate-300 rounded px-2 py-1"
+          value={repeatDraft}
+          onChange={(e) => setRepeatDraft(e.target.value)}
+          onBlur={commitRepeat}
+        />
+      </Field>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-600 mb-1">Body steps</div>
+        <ul className="flex flex-col gap-1">
+          {step.do.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                className="text-left w-full px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
+                onClick={() => select(c.id)}
+              >
+                <span className="font-medium">{c.name}</span>{" "}
+                <span className="font-mono text-slate-500">
+                  {c.request.method} {c.request.url}
+                </span>
+              </button>
+            </li>
+          ))}
+          {step.do.length === 0 && (
+            <li className="text-xs text-slate-400 italic">No steps</li>
+          )}
+        </ul>
+      </div>
+    </aside>
   );
 }
 

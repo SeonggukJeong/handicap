@@ -160,3 +160,60 @@ describe("Inspector — ExtractEditor", () => {
     expect(useScenarioEditor.getState().yamlText).not.toMatch(/path:\s*"?\$\.old"?/);
   });
 });
+
+describe("Inspector — loop", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("shows a repeat field when a loop is selected and updates the model", async () => {
+    const user = userEvent.setup();
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop A");
+    useScenarioEditor.getState().select(loopId);
+    render(<Inspector />);
+
+    const repeat = screen.getByLabelText(/repeat/i) as HTMLInputElement;
+    expect(repeat).toBeInTheDocument();
+    await user.clear(repeat);
+    await user.type(repeat, "6");
+    await user.tab(); // commit on blur
+
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    expect(loop.type).toBe("loop");
+    if (loop.type === "loop") expect(loop.repeat).toBe(6);
+  });
+
+  it("editing a step nested in a loop works (request URL)", async () => {
+    const user = userEvent.setup();
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop A");
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    const childId = loop.type === "loop" ? loop.do[0].id : "";
+    useScenarioEditor.getState().select(childId);
+    render(<Inspector />);
+
+    // The URL field commits onChange and reflects the model on each keystroke,
+    // so typing appends to the seeded "/" default. Appending proves the edit
+    // targets the NESTED step's request.url (not a top-level step).
+    const url = screen.getByDisplayValue("/") as HTMLInputElement;
+    await user.click(url);
+    await user.type(url, "inner");
+
+    const after = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    if (after.type === "loop" && after.do[0].type === "http")
+      expect(after.do[0].request.url).toBe("/inner");
+  });
+
+  it("lists loop body steps and selects one on click", async () => {
+    const user = userEvent.setup();
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop A");
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    const childId = loop.type === "loop" ? loop.do[0].id : "";
+    useScenarioEditor.getState().select(loopId);
+    render(<Inspector />);
+
+    const childButton = screen.getByRole("button", { name: /Step 1/i });
+    await user.click(childButton);
+    expect(useScenarioEditor.getState().selectedStepId).toBe(childId);
+  });
+});
