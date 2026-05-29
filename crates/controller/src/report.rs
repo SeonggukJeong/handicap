@@ -1,4 +1,4 @@
-use crate::store::metrics::WindowWithHdr;
+use crate::store::metrics::{LoopMetricRow, WindowWithHdr};
 use crate::store::runs::RunRow;
 use handicap_engine::percentiles::{Percentiles, decode_hdr, merge_into, percentiles_of};
 use hdrhistogram::Histogram;
@@ -51,6 +51,13 @@ pub struct ReportWindow {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct LoopBucket {
+    pub loop_index: Option<u32>, // None = overflow bucket (loop_index >= u32::MAX)
+    pub count: u64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportStep {
     pub step_id: String,
     pub count: u64,
@@ -59,6 +66,7 @@ pub struct ReportStep {
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
+    pub loop_breakdown: Vec<LoopBucket>,
 }
 
 fn parse_status_counts(s: &str) -> BTreeMap<String, u64> {
@@ -80,7 +88,26 @@ fn fresh_hist() -> Histogram<u64> {
         .expect("HDR bounds are valid")
 }
 
-pub fn build_report(run: &RunRow, scenario_yaml: &str, rows: &[WindowWithHdr]) -> ReportJson {
+pub fn build_report(
+    run: &RunRow,
+    scenario_yaml: &str,
+    rows: &[WindowWithHdr],
+    loops: &[LoopMetricRow],
+) -> ReportJson {
+    // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
+    let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
+    for r in loops {
+        let idx = r.loop_index as u32;
+        loop_by_step
+            .entry(r.step_id.clone())
+            .or_default()
+            .push(LoopBucket {
+                loop_index: if idx == u32::MAX { None } else { Some(idx) },
+                count: r.count as u64,
+                error_count: r.error_count as u64,
+            });
+    }
+
     let mut windows: Vec<ReportWindow> = Vec::with_capacity(rows.len());
     let mut overall = fresh_hist();
     let mut per_step: BTreeMap<String, Histogram<u64>> = BTreeMap::new();
@@ -142,6 +169,7 @@ pub fn build_report(run: &RunRow, scenario_yaml: &str, rows: &[WindowWithHdr]) -
                 .get(&step_id)
                 .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
+            let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             ReportStep {
                 step_id,
                 count,
@@ -150,6 +178,7 @@ pub fn build_report(run: &RunRow, scenario_yaml: &str, rows: &[WindowWithHdr]) -
                 p50_ms: p.p50_ms,
                 p95_ms: p.p95_ms,
                 p99_ms: p.p99_ms,
+                loop_breakdown: breakdown,
             }
         })
         .collect();
@@ -253,7 +282,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows);
+        let rpt = build_report(&r, &yaml, &rows, &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -277,10 +306,61 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad]);
+        let rpt = build_report(&r, &yaml, &[bad], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
         assert_eq!(rpt.summary.p95_ms, 0);
+    }
+
+    #[test]
+    fn build_report_attaches_loop_breakdown() {
+        use crate::store::metrics::LoopMetricRow;
+        let r = run_row();
+        let rows = vec![win(
+            100,
+            "s",
+            6,
+            0,
+            r#"{"200":6}"#,
+            &[10_000, 20_000, 15_000],
+        )];
+        let loops = vec![
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 0,
+                count: 3,
+                error_count: 0,
+            },
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 1,
+                count: 2,
+                error_count: 0,
+            },
+            LoopMetricRow {
+                run_id: "r".into(),
+                step_id: "s".into(),
+                loop_index: 4_294_967_295,
+                count: 1,
+                error_count: 0,
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &loops);
+        let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
+        assert_eq!(step.loop_breakdown.len(), 3);
+        assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
+        assert_eq!(step.loop_breakdown[1].loop_index, Some(1));
+        assert_eq!(
+            step.loop_breakdown[2].loop_index, None,
+            "overflow bucket should map to None"
+        );
+        assert_eq!(step.loop_breakdown[2].count, 1);
+        // typed round-trip: Serialize then Deserialize
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
 }

@@ -116,11 +116,13 @@ pub async fn report(
 ) -> Result<Json<crate::report::ReportJson>, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
     let rows = crate::store::metrics::windows_with_hdr(&state.db, &id).await?;
+    let loops = crate::store::metrics::loop_breakdown(&state.db, &id).await?;
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(Json(crate::report::build_report(
         &row,
         &scenario_yaml,
         &rows,
+        &loops,
     )))
 }
 
