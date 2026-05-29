@@ -78,7 +78,7 @@ default: 256 (`#[serde(default = "default_loop_breakdown_cap")]`).
 
 ### DB
 
-`run_loop_metrics (run_id TEXT, step_id TEXT, loop_index INTEGER, req_count INTEGER, err_count INTEGER,
+`run_loop_metrics (run_id TEXT, step_id TEXT, loop_index INTEGER, count INTEGER, error_count INTEGER,
 PRIMARY KEY (run_id, step_id, loop_index))`.
 
 Migration 0003: `CREATE TABLE IF NOT EXISTS run_loop_metrics (...)` — idempotent. `runs` 테이블

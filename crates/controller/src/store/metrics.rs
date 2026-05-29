@@ -126,6 +126,11 @@ pub struct LoopMetricRow {
 }
 
 pub async fn insert_loop_batch(db: &Db, rows: &[LoopMetricRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Single tx, individual upserts to handle late repeated keys.
+    let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
             "INSERT INTO run_loop_metrics(run_id,step_id,loop_index,count,error_count) \
@@ -139,10 +144,10 @@ pub async fn insert_loop_batch(db: &Db, rows: &[LoopMetricRow]) -> sqlx::Result<
         .bind(r.loop_index)
         .bind(r.count)
         .bind(r.error_count)
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
     }
-    Ok(())
+    tx.commit().await
 }
 
 pub async fn loop_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<LoopMetricRow>> {

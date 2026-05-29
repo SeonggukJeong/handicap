@@ -52,7 +52,7 @@ pub struct ReportWindow {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoopBucket {
-    pub loop_index: Option<u32>, // None = overflow bucket (loop_index >= u32::MAX)
+    pub loop_index: Option<u32>, // None = overflow bucket: loop_index was >= cap at record time (engine sentinel u32::MAX)
     pub count: u64,
     pub error_count: u64,
 }

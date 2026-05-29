@@ -183,6 +183,19 @@ describe("RunDialog — env & ramp_up", () => {
     expect(body.profile.loop_breakdown_cap).toBe(256);
   });
 
+  it("disables Run and shows error when loop_breakdown_cap > 10000", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const cap = screen.getByLabelText(/loop breakdown cap/i) as HTMLInputElement;
+    await user.clear(cap);
+    await user.type(cap, "10001");
+
+    const runBtn = screen.getByRole("button", { name: /^Run$/ });
+    expect(runBtn).toBeDisabled();
+    expect(screen.getByText(/0 ~ 10000 사이여야 합니다/)).toBeInTheDocument();
+  });
+
   it("lets the user set loop_breakdown_cap to 0 (off)", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

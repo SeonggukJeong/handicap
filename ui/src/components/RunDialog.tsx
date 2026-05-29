@@ -79,6 +79,8 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
             value={loopCap}
             onChange={(e) => setLoopCap(Number(e.target.value))}
             className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            aria-invalid={loopCapInvalid}
+            aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
           />
           <span className="text-xs text-slate-500">0 = 끄기 · 루프 스텝의 loop_index별 집계 상한</span>
         </label>
@@ -87,6 +89,12 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
       {rampInvalid && (
         <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
           Ramp-up must be ≤ duration.
+        </p>
+      )}
+
+      {loopCapInvalid && (
+        <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
+          0 ~ 10000 사이여야 합니다.
         </p>
       )}
 
