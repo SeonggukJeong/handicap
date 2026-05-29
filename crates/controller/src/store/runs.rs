@@ -37,12 +37,18 @@ impl RunStatus {
     }
 }
 
+fn default_loop_cap() -> u32 {
+    256
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub vus: u32,
     #[serde(default)]
     pub ramp_up_seconds: u32,
     pub duration_seconds: u32,
+    #[serde(default = "default_loop_cap")]
+    pub loop_breakdown_cap: u32,
 }
 
 pub struct RunRow {

@@ -207,6 +207,7 @@ mod tests {
                 vus: 1,
                 ramp_up_seconds: 0,
                 duration_seconds: 2,
+                loop_breakdown_cap: 256,
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,

@@ -29,6 +29,7 @@ fn profile() -> Profile {
         vus: 1,
         ramp_up_seconds: 0,
         duration_seconds: 1,
+        loop_breakdown_cap: 256,
     }
 }
 

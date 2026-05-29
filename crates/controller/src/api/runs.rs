@@ -29,6 +29,10 @@ pub struct RunResponse {
     pub message: Option<String>,
 }
 
+pub(crate) fn loop_cap_ok(cap: u32) -> bool {
+    cap <= 10_000
+}
+
 pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<CreateRunRequest>,
@@ -39,6 +43,11 @@ pub async fn create(
     if body.profile.vus == 0 || body.profile.duration_seconds == 0 {
         return Err(ApiError::BadRequest(
             "vus and duration_seconds must be > 0".into(),
+        ));
+    }
+    if !loop_cap_ok(body.profile.loop_breakdown_cap) {
+        return Err(ApiError::BadRequest(
+            "loop_breakdown_cap must be <= 10000 (0 disables breakdown)".into(),
         ));
     }
     let row = runs::insert(
@@ -66,7 +75,7 @@ pub async fn create(
             vus: body.profile.vus,
             ramp_up_seconds: body.profile.ramp_up_seconds,
             duration_seconds: body.profile.duration_seconds,
-            loop_breakdown_cap: 0,
+            loop_breakdown_cap: body.profile.loop_breakdown_cap,
         },
         env,
     };
@@ -166,5 +175,16 @@ fn to_response(r: runs::RunRow) -> RunResponse {
         ended_at: r.ended_at,
         created_at: r.created_at,
         message: r.message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn validates_loop_breakdown_cap_bounds() {
+        assert!(super::loop_cap_ok(0)); // off allowed
+        assert!(super::loop_cap_ok(256));
+        assert!(super::loop_cap_ok(10_000));
+        assert!(!super::loop_cap_ok(10_001)); // over cap rejected
     }
 }
