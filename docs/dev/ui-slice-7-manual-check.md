@@ -116,7 +116,10 @@ curl -s "http://localhost:9090/__admin/mappings" | python3 -m json.tool | grep -
 ## §4 — 실행 + 리포트
 
 1. **Run** 다이얼로그: `vus=1`, `duration=5`, `ramp_up=0`,
-   `env: BASE_URL=http://localhost:9090`.
+   `env: BASE_URL=http://localhost:9090`. **Loop breakdown cap**은 기본값
+   `256` 그대로 둔다(§4-1에서 0·2로 바꿔가며 확인). 10001 이상을 넣으면 입력
+   아래 `0 ~ 10000 사이여야 합니다.` 에러가 뜨고 Run 버튼이 비활성(서버도
+   400으로 거부 — client/server 이중 가드).
 2. 종료(`completed`) 후 Report 뷰 전환.
 3. **Per-step stats 테이블**: 루프 본문 안의 http 스텝이 **이름**으로 라벨됨
    (raw ULID 아님 — `flattenHttpSteps`가 `do:`를 재귀 평탄화). 그 스텝의 요청수
@@ -135,6 +138,51 @@ curl -s "http://localhost:9090/__admin/mappings" | python3 -m json.tool | grep -
 5. **Download JSON** → `steps[]`에 내부 스텝 id가 들어있고 `summary.count`가
    `count(per-step) × distinct path`만큼 잡히는지 가볍게 확인.
 
+## §4-1 — Loop breakdown drill-down (Slice 7-1)
+
+루프 본문 스텝의 `loop_index`별 요청수/에러수를 **접이식 drill-down**으로
+확인한다. 메인 Steps 표는 §4 그대로(접힌 상태) — 새 칸이 추가되거나 레이아웃이
+바뀌지 않아야 한다. 자세한 설계 → ADR-0021.
+
+### cap=256 (기본, overflow 없음)
+
+1. §4의 run(`Loop breakdown cap=256`, `repeat: 3`)이 `completed`된 Report 화면.
+2. Per-step stats 표에서 **루프 본문 http 스텝 행**의 이름 왼쪽에 caret(`▸`)
+   토글 버튼이 보이는지 확인. top-level(루프 밖) 스텝·http-only 시나리오에는
+   caret이 **없어야** 한다(`loop_breakdown`이 비어있으므로).
+3. caret 클릭 → 행 아래로 내부 표가 펼쳐짐(`▾`). 컬럼: `loop_index │ requests
+   │ errors`. `loop_index` 0·1·2 세 행이 각각 `requests > 0`, `errors = 0`.
+4. 세 버킷 requests 합 == 메인 행의 `count`(스텝 총 요청수)와 같아야 함.
+   (run window가 마지막 루프를 mid-body로 잘라도 두 수치는 같은 "완료된
+   요청"만 세므로 일치 — overflow가 없을 때 정확히 등호.)
+5. **`그 외 (상한 초과)` 행은 없어야 함** (repeat 3 < cap 256이라 overflow 버킷
+   미발생).
+6. caret 다시 클릭 → 접힘. 다른 스텝 caret과 독립적으로 토글되는지(여러 스텝이
+   루프면) 확인.
+
+### cap=2 (overflow 버킷 확인)
+
+1. 같은 시나리오를 **Loop breakdown cap=2**로 다시 Run → `completed` 후 Report.
+2. drill-down을 펼치면: `loop_index` 0·1 두 행 + 맨 아래 **`그 외 (상한 초과)`**
+   행 1개. index 2(>= cap 2)가 overflow 버킷으로 접혔다는 증거.
+3. overflow 행의 requests > 0, errors = 0. 0·1·overflow 합 == 스텝 `count`.
+
+### cap=0 (끄기)
+
+1. 같은 시나리오를 **Loop breakdown cap=0**으로 Run → `completed` 후 Report.
+2. 루프 본문 스텝 행에 **caret이 아예 없음**(집계 자체를 안 함 →
+   `loop_breakdown` 빈 배열 → 토글 미표시). 메인 표는 §4와 동일하게 동작.
+
+### JSON 다운로드 교차 확인
+
+1. Report의 **Download JSON** → `steps[]` 각 항목에 `loop_breakdown` 배열이 있고
+   (cap>0 run) 버킷의 `loop_index`(숫자, overflow는 `null`)·`count`·
+   `error_count`가 화면 drill-down과 일치하는지. cap=0 run은 `loop_breakdown`이
+   `[]`.
+2. wiremock 저널(§4.4의 `/__admin/requests` 카운트)과 cap=256 drill-down의
+   index별 requests가 (거의) 맞아떨어지는지 — `${loop_index}` 렌더와 집계가 같은
+   진실을 가리키는지 최종 교차 검증.
+
 ## §5 — 게이트
 
 - `cd ui && pnpm lint && pnpm test && pnpm build` 통과 (특히 `pnpm build`의
@@ -143,7 +191,12 @@ curl -s "http://localhost:9090/__admin/mappings" | python3 -m json.tool | grep -
   cargo test --workspace` 통과.
 - 처리량 회귀 점검(선택, Docker 필요): `just bench-throughput` (flat) 대비
   `SCENARIO_KIND=loop just bench-throughput` 가 ~5% 이내·p95/p99 동일.
-- CLAUDE.md "Slice 7 결과:" 단락 + "Slice 7에서 배운 함정들" 섹션, ADR-0020 존재.
+  breakdown ON/OFF A/B: `SCENARIO_KIND=loop LOOP_CAP=0 just bench-throughput`
+  대비 `SCENARIO_KIND=loop LOOP_CAP=256 just bench-throughput` 가 run-to-run
+  변동(±~5%) 내(post-impl baseline: cap0 ~19,086 RPS / cap256 ~21,254 RPS, p95
+  18→16ms — 회귀 없음).
+- CLAUDE.md "Slice 7 결과:"·"Slice 7-1 결과:" 단락 + "Slice 7에서/7-1에서 배운
+  함정들" 섹션, ADR-0020·ADR-0021 존재.
 
 ## 알려진 한계 (Slice 7 범위, ADR-0020 참고)
 
