@@ -25,6 +25,7 @@
 | [0017](0017-mvp-report-scope.md) | MVP 리포트 스코프 (시계열 + 스텝별 + status 분포) | Accepted |
 | [0018](0018-vu-scoped-cookie-jar.md) | VU별 자동 cookie jar (세션 + 토큰 둘 다 지원) | Accepted |
 | [0019](0019-worker-dispatcher-abstraction.md) | Worker dispatcher 추상화 (subprocess local-dev / K8s Job prod) | Accepted |
+| [0020](0020-control-flow-loop-node.md) | 첫 제어 흐름 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count) | Accepted |
 
 ## 새 ADR 추가 절차
 
