@@ -42,7 +42,8 @@ describe("useScenarioEditor", () => {
     useScenarioEditor.getState().loadFromString(VALID_YAML);
     useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["request", "method"], "POST");
     const s = useScenarioEditor.getState();
-    expect(s.model?.steps[0].request.method).toBe("POST");
+    const step0 = s.model!.steps[0];
+    if (step0.type === "http") expect(step0.request.method).toBe("POST");
     expect(s.yamlText).toContain("method: POST");
   });
 
@@ -84,7 +85,8 @@ describe("useScenarioEditor", () => {
     const NEW_YAML = VALID_YAML.replace("method: GET", "method: PUT");
     useScenarioEditor.getState().setPendingYamlText(NEW_YAML);
     useScenarioEditor.getState().commitPendingYaml();
-    expect(useScenarioEditor.getState().model!.steps[0].request.method).toBe("PUT");
+    const step0 = useScenarioEditor.getState().model!.steps[0];
+    if (step0.type === "http") expect(step0.request.method).toBe("PUT");
     expect(useScenarioEditor.getState().pendingYamlText).toBeNull();
   });
 
@@ -133,6 +135,35 @@ steps:
   });
 });
 
+describe("store loop actions", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("addLoopStep adds a loop containing one http step", () => {
+    const id = useScenarioEditor.getState().addLoopStep("Loop 1");
+    const steps = useScenarioEditor.getState().model!.steps;
+    const loop = steps.find((s) => s.id === id)!;
+    expect(loop.type).toBe("loop");
+    if (loop.type === "loop") expect(loop.do).toHaveLength(1);
+  });
+
+  it("addStepInLoop appends to the loop body", () => {
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    useScenarioEditor.getState().addStepInLoop(loopId, "inner-2");
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    if (loop.type === "loop") expect(loop.do).toHaveLength(2);
+  });
+
+  it("setLoopRepeat updates repeat", () => {
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    useScenarioEditor.getState().setLoopRepeat(loopId, 5);
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
+    if (loop.type === "loop") expect(loop.repeat).toBe(5);
+  });
+});
+
 describe("setStepExtract", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
@@ -146,7 +177,8 @@ describe("setStepExtract", () => {
     ];
     useScenarioEditor.getState().setStepExtract(stepId, extracts);
     const s = useScenarioEditor.getState();
-    expect(s.model!.steps[0].extract).toEqual(extracts);
+    const step0 = s.model!.steps[0];
+    if (step0.type === "http") expect(step0.extract).toEqual(extracts);
     expect(s.yamlText).toContain("$.access_token");
   });
 });

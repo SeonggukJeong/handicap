@@ -38,6 +38,9 @@ export interface ScenarioEditorState {
   setVariable(key: string, value: string): void;
   removeVariable(key: string): void;
   addStep(name: string): string; // returns new id
+  addLoopStep(name: string): string; // returns new loop id
+  addStepInLoop(loopId: string, name: string): string; // returns new child id
+  setLoopRepeat(loopId: string, repeat: number): void;
   removeStep(stepId: string): void;
   moveStep(stepId: string, toIndex: number): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
@@ -113,6 +116,20 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     const id = newStepId();
     dispatch(set, get, { type: "addStep", id, name });
     return id;
+  },
+  addLoopStep(name) {
+    const id = newStepId();
+    const childId = newStepId();
+    dispatch(set, get, { type: "addLoopStep", id, name, childId });
+    return id;
+  },
+  addStepInLoop(loopId, name) {
+    const id = newStepId();
+    dispatch(set, get, { type: "addStepInLoop", loopId, id, name });
+    return id;
+  },
+  setLoopRepeat(loopId, repeat) {
+    dispatch(set, get, { type: "setLoopRepeat", loopId, repeat });
   },
   removeStep(stepId) {
     if (get().selectedStepId === stepId) set({ selectedStepId: null });
@@ -207,6 +224,9 @@ const actions = (() => {
     setVariable: s.setVariable,
     removeVariable: s.removeVariable,
     addStep: s.addStep,
+    addLoopStep: s.addLoopStep,
+    addStepInLoop: s.addStepInLoop,
+    setLoopRepeat: s.setLoopRepeat,
     removeStep: s.removeStep,
     moveStep: s.moveStep,
     setStepField: s.setStepField,
