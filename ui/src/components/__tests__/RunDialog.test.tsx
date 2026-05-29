@@ -150,4 +150,71 @@ describe("RunDialog — env & ramp_up", () => {
     expect(runBtn).toBeDisabled();
     expect(screen.getByText(/Ramp-up must be ≤ duration/)).toBeInTheDocument();
   });
+
+  it("posts loop_breakdown_cap (default 256) on Run", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: "R2",
+        scenario_id: "S1",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 256 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R2"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.loop_breakdown_cap).toBe(256);
+  });
+
+  it("lets the user set loop_breakdown_cap to 0 (off)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: "R3",
+        scenario_id: "S1",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 0 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    const cap = screen.getByLabelText(/loop breakdown cap/i) as HTMLInputElement;
+    await user.clear(cap);
+    await user.type(cap, "0");
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R3"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.loop_breakdown_cap).toBe(0);
+  });
 });

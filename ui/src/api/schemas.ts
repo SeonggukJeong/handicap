@@ -21,6 +21,7 @@ export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
   duration_seconds: z.number().int().nonnegative(),
+  loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 

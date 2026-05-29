@@ -14,13 +14,15 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
   const [vus, setVus] = useState(2);
   const [duration, setDuration] = useState(5);
   const [rampUp, setRampUp] = useState(0);
+  const [loopCap, setLoopCap] = useState(256);
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvValue, setNewEnvValue] = useState("");
   const mutation = useCreateRun();
 
   const rampInvalid = rampUp > duration;
-  const canSubmit = vus >= 1 && duration >= 1 && !rampInvalid && !mutation.isPending;
+  const loopCapInvalid = loopCap < 0 || loopCap > 10000;
+  const canSubmit = vus >= 1 && duration >= 1 && !rampInvalid && !loopCapInvalid && !mutation.isPending;
 
   const env: Record<string, string> = {};
   for (const { key, value } of envEntries) {
@@ -63,6 +65,22 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
             aria-invalid={rampInvalid}
             aria-describedby={rampInvalid ? "ramp-up-error" : undefined}
           />
+        </label>
+      </div>
+
+      <div className="mb-3">
+        <label className="block text-sm">
+          Loop breakdown cap
+          <input
+            type="number"
+            min={0}
+            max={10000}
+            aria-label="loop breakdown cap"
+            value={loopCap}
+            onChange={(e) => setLoopCap(Number(e.target.value))}
+            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+          />
+          <span className="text-xs text-slate-500">0 = 끄기 · 루프 스텝의 loop_index별 집계 상한</span>
         </label>
       </div>
 
@@ -162,6 +180,7 @@ export function RunDialog({ scenarioId, onCreated, onCancel }: Props) {
                   vus,
                   duration_seconds: duration,
                   ramp_up_seconds: rampUp,
+                  loop_breakdown_cap: loopCap,
                 },
                 env,
               },
