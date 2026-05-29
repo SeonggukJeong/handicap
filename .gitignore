@@ -9,3 +9,4 @@ ui/node_modules
 ui/dist
 ui/.vite
 ui/coverage
+.claude/worktrees/
