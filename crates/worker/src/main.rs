@@ -142,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
                     run_id: run_id.clone(),
                     worker_id: worker_id.clone(),
                     windows,
+                    loop_stats: vec![],
                 })),
             };
             if tx_metric.send(msg).await.is_err() {

@@ -66,6 +66,7 @@ pub async fn create(
             vus: body.profile.vus,
             ramp_up_seconds: body.profile.ramp_up_seconds,
             duration_seconds: body.profile.duration_seconds,
+            loop_breakdown_cap: 0,
         },
         env,
     };

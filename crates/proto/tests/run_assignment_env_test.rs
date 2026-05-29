@@ -13,6 +13,7 @@ fn run_assignment_env_field_exists() {
             vus: 1,
             ramp_up_seconds: 0,
             duration_seconds: 10,
+            loop_breakdown_cap: 0,
         }),
         env,
     };
