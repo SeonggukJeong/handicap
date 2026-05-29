@@ -19,12 +19,19 @@ pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
-    // Single tx, individual upserts to handle late repeated keys.
+    // Single tx; each window is a complete per-second snapshot emitted exactly once by
+    // the engine (drain_completed). A duplicate key can only arrive from an at-least-once
+    // gRPC resend after reconnect (Slice 6) and carries identical data — keep-first is
+    // idempotent. Accumulate would double-count; INSERT OR REPLACE would delete/reinsert
+    // under foreign_keys=ON. ON CONFLICT DO NOTHING is the correct policy here.
+    // (Contrast with run_loop_metrics, which uses accumulate because those are incremental
+    // delta counts, not complete snapshots.)
     let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
-            "INSERT OR REPLACE INTO run_metrics(run_id,ts_second,step_id,count,error_count,hdr_histogram,status_counts) \
-             VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO run_metrics(run_id,ts_second,step_id,count,error_count,hdr_histogram,status_counts) \
+             VALUES(?,?,?,?,?,?,?) \
+             ON CONFLICT(run_id,ts_second,step_id) DO NOTHING",
         )
         .bind(&r.run_id)
         .bind(r.ts_second)
@@ -253,6 +260,77 @@ mod tests {
         let db = pool().await;
         let got = windows_with_hdr(&db, "NOPE").await.unwrap();
         assert!(got.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_metrics_insert_is_idempotent_keep_first() {
+        let db = pool().await;
+
+        // FK: run_metrics.run_id REFERENCES runs(id), runs.scenario_id REFERENCES scenarios(id)
+        sqlx::query(
+            "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+             VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S-idem")
+        .bind("idem-scenario")
+        .bind("version: 1\nname: idem\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO runs(id, scenario_id, scenario_yaml, profile_json, env_json, status, created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R-idem")
+        .bind("S-idem")
+        .bind("version: 1\nname: idem\nsteps: []\n")
+        .bind("{}")
+        .bind("{}")
+        .bind("completed")
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        // First insert: count=5, error_count=0
+        let first = vec![MetricRow {
+            run_id: "R-idem".into(),
+            ts_second: 1,
+            step_id: "step-x".into(),
+            count: 5,
+            error_count: 0,
+            hdr_histogram: vec![0xAA, 0xBB],
+            status_counts: r#"{"200":5}"#.into(),
+        }];
+        insert_batch(&db, &first).await.unwrap();
+
+        // Duplicate resend (same key, different payload — simulates at-least-once gRPC resend)
+        let second = vec![MetricRow {
+            run_id: "R-idem".into(),
+            ts_second: 1,
+            step_id: "step-x".into(),
+            count: 99,
+            error_count: 7,
+            hdr_histogram: vec![0xCC, 0xDD],
+            status_counts: r#"{"200":99}"#.into(),
+        }];
+        insert_batch(&db, &second).await.unwrap();
+
+        // Read back: must see the FIRST row (count=5), not the replaced (99) or accumulated (104)
+        let got = summary(&db, "R-idem").await.unwrap();
+        assert_eq!(got.windows.len(), 1);
+        assert_eq!(
+            got.windows[0].count, 5,
+            "duplicate window resend must be ignored (keep-first), not summed or replaced"
+        );
+        assert_eq!(
+            got.windows[0].error_count, 0,
+            "error_count must remain from first insert"
+        );
     }
 
     #[tokio::test]
