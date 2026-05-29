@@ -9,17 +9,37 @@ use handicap_controller::{app, store};
 use handicap_proto::v1::coordinator_server::CoordinatorServer;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
+use tokio_stream::wrappers::TcpListenerStream;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn worker_bin_path() -> PathBuf {
-    // CARGO_BIN_EXE_<name> is set for bins of crates listed in [dev-dependencies] OR
-    // when running tests via `cargo test -p ... --test e2e_test` and `worker` is a workspace member.
-    // To be robust across both, fall back to target/debug/worker.
+/// Build the worker binary once (off the async runtime to avoid blocking a
+/// tokio worker thread during a potentially cold build), then return the path.
+///
+/// Fix for followups-after-mvp1 #2: the previous inline
+/// `std::process::Command::new(env!("CARGO"))...status()` was synchronous and
+/// blocked the runtime for the full build duration.
+async fn worker_bin_path() -> PathBuf {
+    let cargo = env!("CARGO");
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+
+    tokio::task::spawn_blocking(move || {
+        let status = std::process::Command::new(cargo)
+            .args(["build", "-p", "handicap-worker"])
+            .status()
+            .expect("cargo build -p handicap-worker");
+        assert!(status.success(), "worker build failed");
+    })
+    .await
+    .expect("spawn_blocking for worker build panicked");
+
+    // CARGO_BIN_EXE_<name> is set for bins of crates listed in [dev-dependencies]
+    // OR when running via `cargo test -p ... --test e2e_test` and `worker` is a
+    // workspace member.  Fall back to target/debug/worker for robustness.
     if let Ok(p) = std::env::var("CARGO_BIN_EXE_worker") {
         return PathBuf::from(p);
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    PathBuf::from(manifest_dir)
         .parent()
         .unwrap()
         .parent()
@@ -27,26 +47,26 @@ fn worker_bin_path() -> PathBuf {
         .join("target/debug/worker")
 }
 
-async fn pick_addr() -> SocketAddr {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let a = l.local_addr().unwrap();
-    drop(l);
-    a
+/// Bind to an OS-assigned port and return the live listener.
+///
+/// Fix for followups-after-mvp1 #1: the previous `pick_addr()` helper bound,
+/// read the local addr, dropped the listener, and returned the SocketAddr —
+/// leaving a TOCTOU window where another process could steal the port before
+/// the caller re-bound it.  Now the caller holds the live socket from the
+/// start and passes it directly to the server (axum::serve / tonic
+/// serve_with_incoming), so the port is never released.
+async fn bind_local() -> (TcpListener, SocketAddr) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    (listener, addr)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn full_slice_1_e2e() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // 0. Ensure the worker binary exists. The user must `cargo build -p handicap-worker` first
-    //    OR rely on the workspace test runner having built it. To make this self-contained we
-    //    build it here.
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     let ui_dir = tempfile::tempdir().unwrap();
@@ -64,9 +84,9 @@ async fn full_slice_1_e2e() {
         .mount(&target)
         .await;
 
-    // 2. Pick free ports for REST + gRPC.
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // 2. Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     // 3. Spin up controller in-process.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -80,14 +100,13 @@ async fn full_slice_1_e2e() {
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
@@ -204,13 +223,8 @@ async fn full_slice_1_e2e() {
 async fn two_step_with_env_e2e() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // 0. Ensure worker binary is built.
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     // 1. Mock target: /login returns {"access_token":"T"} and /me checks Bearer header.
@@ -232,9 +246,9 @@ async fn two_step_with_env_e2e() {
         .mount(&target)
         .await;
 
-    // 2. Pick free ports.
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // 2. Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     // 3. Spin up controller in-process.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -248,14 +262,13 @@ async fn two_step_with_env_e2e() {
         )),
         ui_dir: None,
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
@@ -392,13 +405,8 @@ steps:
 async fn abort_e2e_marks_run_aborted() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // Build the worker binary (same pattern as full_slice_1_e2e).
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     let ui_dir = tempfile::tempdir().unwrap();
@@ -420,8 +428,9 @@ async fn abort_e2e_marks_run_aborted() {
         .mount(&target)
         .await;
 
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     let db = store::connect("sqlite::memory:").await.unwrap();
     let coord = CoordinatorState::new(db.clone());
@@ -434,14 +443,13 @@ async fn abort_e2e_marks_run_aborted() {
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
@@ -560,13 +568,8 @@ async fn abort_e2e_marks_run_aborted() {
 async fn loop_e2e_inner_step_counts() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // 0. Build worker bin (same pattern as the other e2e tests).
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     // 1. Wiremock stub: GET /tick → 200, with a small delay so each loop body
@@ -582,9 +585,9 @@ async fn loop_e2e_inner_step_counts() {
         .mount(&target)
         .await;
 
-    // 2. Pick free ports.
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // 2. Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     // 3. Boot controller.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -598,14 +601,13 @@ async fn loop_e2e_inner_step_counts() {
         )),
         ui_dir: None,
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
@@ -730,13 +732,8 @@ async fn loop_e2e_inner_step_counts() {
 async fn loop_breakdown_e2e() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // 0. Build worker binary.
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     // 1. Wiremock stubs: GET /item/0, /item/1, /item/2 → 200.
@@ -754,9 +751,9 @@ async fn loop_breakdown_e2e() {
             .await;
     }
 
-    // 2. Pick free ports.
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // 2. Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     // 3. Boot controller.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -770,14 +767,13 @@ async fn loop_breakdown_e2e() {
         )),
         ui_dir: None,
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
@@ -944,13 +940,8 @@ async fn loop_breakdown_e2e() {
 async fn report_e2e_smoke() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-    // 0. Build worker bin (same pattern as the other e2e tests).
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "handicap-worker"])
-        .status()
-        .expect("cargo build -p handicap-worker");
-    assert!(status.success(), "worker build failed");
-    let worker_bin = worker_bin_path();
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
     assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
 
     // 1. Single wiremock stub: GET /ping → 200, with a small delay so p95_ms > 0
@@ -966,9 +957,9 @@ async fn report_e2e_smoke() {
         .mount(&target)
         .await;
 
-    // 2. Pick free ports.
-    let rest_addr = pick_addr().await;
-    let grpc_addr = pick_addr().await;
+    // 2. Bind live listeners for REST + gRPC (followup #1 — no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
 
     // 3. Boot controller.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -982,14 +973,13 @@ async fn report_e2e_smoke() {
         )),
         ui_dir: None,
     });
-    let rest_listener = TcpListener::bind(rest_addr).await.unwrap();
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
     });
     let grpc_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
-            .serve(grpc_addr)
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
             .await
             .unwrap();
     });
