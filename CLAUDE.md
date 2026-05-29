@@ -226,6 +226,7 @@ docs/
 - **Snapshot test 는 label/format drift 도 잡는다**: `deploy/helm/handicap/tests/snapshot_test.sh` 가 default values + custom values 두 시나리오로 rendered manifest 를 비교. 1차 run 에서 `_helpers.tpl` 의 표준 label set 에 `app.kubernetes.io/instance` 가 빠져 있었는데 snapshot diff 가 바로 잡아냄. **의도된 변경 후에는 `UPDATE_SNAPSHOTS=1 ./snapshot_test.sh` 로 재생성** — 안 그러면 다음 PR 의 CI 가 빨갛게 뜬다.
 - **`dispatcher_kubernetes_test` 는 `slice6-k8s` feature 로 격리**: 진짜 kube context 를 요구하는 integration 테스트는 `#![cfg(feature = "slice6-k8s")]` 로 가둬서 일상 `cargo test --workspace` 가 kube 없이도 통과하게 했다. 진짜 K8s 경로의 회귀 방지는 (a) `build_job_spec` 의 순수 단위 테스트, (b) GitHub Actions `e2e-kind.yml` 의 kind 클러스터 e2e 두 층에서 한다 — 후자가 dispatcher trait 을 controller 전체 흐름 안에서 검증.
 - **kind 점검 시 wiremock은 두 주소로 같은 pod를 친다**: stub 등록은 호스트 port-forward `localhost:9001`, worker(in-cluster Job)는 RunDialog Env `BASE_URL`로 cluster DNS `http://wiremock.handicap-test.svc.cluster.local:8080`. pod 안에서 `localhost`는 자기 loopback이라 worker엔 `:9001`이 안 통함. (로컬 dev subprocess 모드면 worker가 호스트라 `:9001`이 맞아 더 헷갈림.) 상세 → `docs/dev/slice-6-manual-check.md`.
+- **`handicap-controller` 패키지엔 바이너리가 둘 (`controller` + `e2e_kind_driver`)**: Slice 6이 `e2e_kind_driver`를 추가하면서 `cargo run -p handicap-controller` 가 `error: could not determine which binary to run` 로 깨진다. 로컬 controller 실행은 **항상 `cargo run -p handicap-controller --bin controller -- …`**. `just run-controller`/`run-controller-with-ui` 레시피는 이미 `--bin controller` 로 고정돼 있으니 그걸 쓰는 게 안전. (Slice 7 작업 중 한 번 밟음.)
 
 ## Slice 7에서 배운 함정들
 
