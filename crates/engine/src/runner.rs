@@ -30,7 +30,7 @@ pub async fn run_scenario(
     out: mpsc::Sender<Vec<StepWindow>>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let agg = Arc::new(Mutex::new(Aggregator::new()));
+    let agg = Arc::new(Mutex::new(Aggregator::new(0)));
     let started_at = Instant::now();
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
@@ -237,6 +237,7 @@ async fn execute_steps(
                     outcome.latency.as_micros().min(u64::MAX as u128) as u64,
                     outcome.status,
                     outcome.error.is_some(),
+                    loop_index,
                 );
             }
             Step::Loop(lp) => {
