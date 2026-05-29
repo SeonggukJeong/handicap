@@ -26,8 +26,10 @@ docker run --rm -p 9090:8080 \
 cargo build -p handicap-worker
 
 # T1 — controller (REST 8080 + gRPC 8081; UI는 vite가 띄움). = just run-controller
+#      handicap-controller 패키지엔 controller + e2e_kind_driver 두 바이너리가
+#      있어 --bin controller 가 필수(없으면 "could not determine which binary").
 RUST_LOG=info,handicap_controller=debug,handicap_engine=debug \
-cargo run -p handicap-controller -- \
+cargo run -p handicap-controller --bin controller -- \
   --db ./handicap.db \
   --rest 127.0.0.1:8080 \
   --grpc 127.0.0.1:8081 \
