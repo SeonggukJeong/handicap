@@ -27,7 +27,11 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .busy_timeout(std::time::Duration::from_secs(5));
+        .busy_timeout(std::time::Duration::from_secs(5))
+        // sqlx 0.8 enables foreign_keys ON by default, but we set it explicitly so
+        // that enforcement is a documented invariant of this pool, not a library default
+        // that could silently change under us.
+        .foreign_keys(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(8)
         .connect_with(opts)
@@ -73,6 +77,30 @@ mod tests {
         assert!(
             t > 1_700_000_000_000,
             "now_ms should be a ms-epoch timestamp"
+        );
+    }
+
+    /// FK enforcement must be ON: inserting a run with a non-existent scenario_id must fail.
+    #[tokio::test]
+    async fn foreign_keys_enforced() {
+        let db = connect("sqlite::memory:").await.unwrap();
+        // Verify the pragma is actually ON.
+        let fk_on: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(fk_on, 1, "PRAGMA foreign_keys must be 1 after connect()");
+        // scenario_id 'NOPE' does not exist in scenarios — only the FK should cause failure.
+        let res = sqlx::query(
+            "INSERT INTO runs \
+             (id, scenario_id, scenario_yaml, profile_json, env_json, status, created_at) \
+             VALUES ('r1', 'NOPE', '', '{}', '{}', 'pending', 0)",
+        )
+        .execute(&db)
+        .await;
+        assert!(
+            res.is_err(),
+            "FK violation should be rejected when foreign_keys=ON"
         );
     }
 }
