@@ -64,6 +64,8 @@ just build && just lint && just test     # 18 tests must pass
 
 `--no-verify`로 hook 우회 금지 (사용자 명시 요청 없이는). 회귀가 생긴 채로 커밋이 들어가면 후속 작업이 모두 빨갛게 됨.
 
+**이 repo의 git 토폴로지**: 통합 브랜치는 `master` (`main` 없음 — 세션 시작 컨텍스트의 "Main branch: main"은 부정확), **remote 미설정**. 브랜치 마무리는 push/PR이 아니라 로컬 fast-forward: `git checkout master && git merge --ff-only <branch>`. 사내 K8s 도입 시 remote 붙이면 PR 흐름 가능. 슬라이스 작업은 `.claude/worktrees/<name>` worktree에서 진행.
+
 ## 디렉토리 (MVP 계획)
 
 ```
@@ -216,3 +218,4 @@ docs/
 - **`helm get manifest | grep -A1 'kind: Deployment$'` 는 `-A2` 가 맞음**: `scripts/deploy-kind.sh` 1차 구현이 plan 의 한 줄짜리 awk pipe 를 그대로 베꼈는데, 렌더된 chart 의 Deployment 블록은 `kind: Deployment\nmetadata:\n  name: …` 3줄 구조라 `-A1` 로는 `name:` 라인이 안 잡혀 wait target 이 빈 문자열이 된다. 항상 freshly rendered chart 로 한 번 dry-run 해서 grep 출력 확인하고 커밋.
 - **Snapshot test 는 label/format drift 도 잡는다**: `deploy/helm/handicap/tests/snapshot_test.sh` 가 default values + custom values 두 시나리오로 rendered manifest 를 비교. 1차 run 에서 `_helpers.tpl` 의 표준 label set 에 `app.kubernetes.io/instance` 가 빠져 있었는데 snapshot diff 가 바로 잡아냄. **의도된 변경 후에는 `UPDATE_SNAPSHOTS=1 ./snapshot_test.sh` 로 재생성** — 안 그러면 다음 PR 의 CI 가 빨갛게 뜬다.
 - **`dispatcher_kubernetes_test` 는 `slice6-k8s` feature 로 격리**: 진짜 kube context 를 요구하는 integration 테스트는 `#![cfg(feature = "slice6-k8s")]` 로 가둬서 일상 `cargo test --workspace` 가 kube 없이도 통과하게 했다. 진짜 K8s 경로의 회귀 방지는 (a) `build_job_spec` 의 순수 단위 테스트, (b) GitHub Actions `e2e-kind.yml` 의 kind 클러스터 e2e 두 층에서 한다 — 후자가 dispatcher trait 을 controller 전체 흐름 안에서 검증.
+- **kind 점검 시 wiremock은 두 주소로 같은 pod를 친다**: stub 등록은 호스트 port-forward `localhost:9001`, worker(in-cluster Job)는 RunDialog Env `BASE_URL`로 cluster DNS `http://wiremock.handicap-test.svc.cluster.local:8080`. pod 안에서 `localhost`는 자기 loopback이라 worker엔 `:9001`이 안 통함. (로컬 dev subprocess 모드면 worker가 호스트라 `:9001`이 맞아 더 헷갈림.) 상세 → `docs/dev/slice-6-manual-check.md`.
