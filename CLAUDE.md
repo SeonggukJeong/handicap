@@ -20,6 +20,8 @@ Slice 6 결과: kind 단일 노드 + Helm chart 1개로 controller + worker가 K
 
 Slice 7 결과: 첫 control-flow 노드 `type: loop` 를 end-to-end 추가. 엔진 `Step` 을 internally-tagged enum(`Step::Http`/`Step::Loop`, `#[serde(tag="type")]`)으로 확장하고, 인터프리터를 재귀 `execute_steps(steps, ctx)` 로 전환 — `Step::Loop` arm 만 `0..repeat` 를 돌며 `do_` 를 재귀 실행. `${loop_index}` 0-based 시스템 변수(loop 밖 참조 시 `EngineError::UnknownVar`). `LoopStep.do_: Vec<Step>` 결정(명세 §4.1 의 `Vec<HttpStep>` 에서 변경 — 엔진은 자유 중첩 허용, 단일 레벨 강제는 UI Zod `do: z.array(HttpStepModel)`; 이유는 internally-tagged + `Vec<HttpStep>` 이면 직렬화 시 내부 스텝 `type: http` 가 빠져 round-trip 깨짐, 그리고 Slice 8/9 컨테이너 노드 포석). UI 는 React Flow 부모/자식 subflow 컨테이너(loop 안에 http 자식). **컨트롤러 무변경** — 메트릭은 step_id 집계, step 라벨링은 UI `flattenHttpSteps` 가 `do:` 를 재귀 평탄화. 메트릭 의미: 내부 http 스텝 `count` 는 `repeat` 배 누적되나 distinct step_id 개수는 불변(리포트 행 수 영향 없음). 성능(Task 11 A/B, 200 VUs × 20s, 1KB body, 동일 머신): flat ~19,974 RPS / loop(repeat:1) ~19,449 RPS — ~2.6% 차이는 run-to-run 변동(±5–7%) 범위 내(한 페어에선 loop 가 flat 을 앞섬), p95 17–18ms / p99 24–25ms 양쪽 동일. `Box::pin`-per-iteration 오버헤드는 HTTP round-trip 대비 무시 가능. ADR-0020 추가.
 
+**Slice 7-1 결과:** loop 노드 리포트에 **반복 인덱스별(per-`loop_index`) 요청·오류 수 breakdown** 추가 (counts-only, 레이턴시 breakdown 없음). Run 다이얼로그에 `loop_breakdown_cap` 설정(0=off, default 256, max 10000; controller가 >10000 거부). cap 초과 `loop_index`는 엔진에서 `u32::MAX` sentinel 버킷으로 fold → report에서 `loop_index: null`, UI에서 "그 외 (상한 초과)" 행으로 렌더. 파이프라인: RunDialog → REST profile → proto `Profile.loop_breakdown_cap` → 엔진 `Aggregator` per-(step_id,loop_index) counts → `MetricFlush.loop_stats` → gRPC `MetricBatch.loop_stats` (delta) → controller `run_loop_metrics` 테이블(migration 0003, `CREATE TABLE IF NOT EXISTS` — idempotent) UPSERT-accumulate → `ReportStep.loop_breakdown` → UI StepStatsTable caret drill-down. `runs` 테이블 무변경 — profile은 `profile_json` JSON 컬럼이라 새 필드는 `#[serde(default)]`만으로 기존 행 호환. 성능 A/B(SCENARIO_KIND=loop, 200 VUs × 20s, 1KB body): cap=0(off) → 19,086 RPS p50/p95/p99=9/18/26ms, cap=256(on) → 21,254 RPS p50/p95/p99=8/16/23ms — breakdown ON은 run-to-run 변동 범위 내, 측정 가능한 회귀 없음. ADR-0021 추가.
+
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
 ## 한 줄 아키텍처
@@ -110,6 +112,7 @@ docs/
 - **0018** VU별 자동 cookie jar — 세션(쿠키)·토큰(JWT) 인증 둘 다 지원
 - **0019** Worker dispatcher 추상화 (subprocess local-dev / K8s Job prod)
 - **0020** Control-flow 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count)
+- **0021** loop 메트릭 breakdown: per-run cap + overflow sentinel, counts-only
 
 ## 코딩 컨벤션
 
@@ -233,3 +236,10 @@ docs/
 - **`Step` 을 discriminated union 으로 바꾸면 모든 consumer 가 union narrowing 을 거쳐야 한다**: `.request`/`.assert`/`.extract` 를 직접 읽던 TS 코드가 전부 `tsc` union 에러를 낸다. Task 4(모델)→5(yamlDoc)→6(store)→7(canvas)→8(inspector)→9(report) 순서로 좁혀가며 해소. `flattenHttpSteps(steps)` 가 "트리에서 http leaf 만 평탄화" 하는 표준 헬퍼(report 라벨링·inspector 중첩 선택에 재사용) — 새 컨테이너 노드(Slice 8/9) 추가 시 이 헬퍼의 walk 만 확장하면 된다.
 - **loop body 의 deadline 은 iteration 사이 AND body step 사이 둘 다 체크된다**: run window 끝에서 마지막 loop 이 mid-body 로 잘릴 수 있어 inner http 스텝의 `count` 가 정확히 `repeat` 의 배수가 아닐 수 있다(부분 iteration). 통합/e2e 테스트는 `count > 0 && error_count == 0` 만 단언하고, 정확한 `count % repeat == 0` 검증은 deadline 영향이 없는 엔진 통합 테스트(`crates/engine/tests/loop_node.rs`, fixed iteration 수)가 담당한다.
 - **subagent-driven 실행 중 리뷰는 read-only 로만**: reviewer 가 옛 버전을 보려고 `git checkout <sha>` 를 쓰자 HEAD 가 detach 되어 브랜치 ref 가 안 따라온 사례. 리뷰는 `git diff`/`git show <sha>` 같은 read-only 명령만 쓰고, `checkout`/`switch`/`stash` 는 worktree 의 attached HEAD 를 깨므로 금지.
+
+## Slice 7-1에서 배운 함정들
+
+- **`profile_json` 저장 방식 덕분에 runs 테이블 스키마 변경 없이 새 profile 필드 추가 가능**: `loops_breakdown_cap` 같은 새 profile 필드는 `#[serde(default)]` 하나로 기존 행 호환 — 옛 rows가 역직렬화될 때 default 값(256)이 자동 채워진다. Slice-6의 `ALTER TABLE ADD COLUMN` idempotency 함정(migration 재실행 시 `duplicate column name`)과 대조적. profile에 새 필드를 더할 때는 **runs 테이블 migration이 필요 없다** — schema 변경은 profile 구조체의 `#[serde(default)]`만으로 처리.
+- **엔진 메트릭 채널 payload를 `Vec<StepWindow>`에서 `MetricFlush`로 변경하면 모든 `run_scenario` 호출 사이트가 `flush.windows`로 바꿔야 한다**: `run_scenario`의 반환값/채널 타입을 교체하면 엔진을 직접 쓰는 모든 테스트(단위·통합·e2e)가 빌드 에러를 낸다. 새 타입으로 wrapping할 때 **모든 consumer를 한 PR에서 같이** 수정해야 한다 — 중간 상태 "일부만 새 타입" 은 컴파일이 안 됨.
+- **overflow는 엔진/proto/DB에서 `u32::MAX` sentinel, controller는 `null` 변환**: controller와 UI는 cap 값을 알 필요 없이 `u32::MAX`(DB integer의 최대값 근처)를 만나면 `null`로 변환. 이 설계 덕분에 cap을 바꿔도 controller/UI 코드는 무변경 — sentinel 의미를 아는 레이어는 엔진(`aggregator.rs`)과 controller report 변환(`build_report`)만. DB를 직접 읽을 때는 `loop_index = 4294967295`가 "상한 초과" 행임을 알아야 한다.
+- **prost 구조체는 exhaustive라 proto 필드 추가 시 literal construction 사이트를 모두 고쳐야 한다**: `MetricBatch`에 `loop_stats` 필드를 추가하면 `MetricBatch { windows: ..., /* loop_stats 빠짐 */ }` 형태의 struct literal이 전부 컴파일 에러를 낸다. prost-generated 타입은 `..Default::default()` spread가 동작하지 않으므로 각 literal 사이트에 `loop_stats: vec![]`(또는 실제 값)를 명시해야 한다. 새 proto 필드 추가 = crate-wide grep 필수.
