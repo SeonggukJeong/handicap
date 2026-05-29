@@ -20,6 +20,9 @@ export type Edit =
   | { type: "setVariable"; key: string; value: string }
   | { type: "removeVariable"; key: string }
   | { type: "addStep"; id: string; name: string }
+  | { type: "addLoopStep"; id: string; name: string; childId: string }
+  | { type: "addStepInLoop"; loopId: string; id: string; name: string }
+  | { type: "setLoopRepeat"; loopId: string; repeat: number }
   | { type: "removeStep"; stepId: string }
   | { type: "moveStep"; stepId: string; toIndex: number }
   | {
@@ -99,25 +102,70 @@ export function applyEdit(doc: Document, edit: Edit): void {
       steps.add(node);
       return;
     }
+    case "addLoopStep": {
+      ensureSeq(doc, ["steps"]);
+      const steps = doc.getIn(["steps"]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "loop",
+        repeat: 1,
+        do: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
+      });
+      steps.add(node);
+      return;
+    }
+    case "addStepInLoop": {
+      const loopPath = findStepPath(doc, edit.loopId);
+      if (loopPath === null) return;
+      ensureSeq(doc, [...loopPath, "do"]);
+      const body = doc.getIn([...loopPath, "do"]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "http",
+        request: { method: "GET", url: "/" },
+        assert: [{ status: 200 }],
+      });
+      body.add(node);
+      return;
+    }
+    case "setLoopRepeat": {
+      const loopPath = findStepPath(doc, edit.loopId);
+      if (loopPath === null) return;
+      doc.setIn([...loopPath, "repeat"], edit.repeat);
+      return;
+    }
     case "removeStep": {
-      const idx = findStepIndex(doc, edit.stepId);
-      if (idx === -1) return;
-      doc.deleteIn(["steps", idx]);
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
+      doc.deleteIn(path);
       return;
     }
     case "moveStep": {
-      const fromIdx = findStepIndex(doc, edit.stepId);
-      if (fromIdx === -1) return;
-      const steps = doc.getIn(["steps"]) as YAMLSeq;
-      const node = steps.items[fromIdx];
-      steps.items.splice(fromIdx, 1);
-      steps.items.splice(edit.toIndex, 0, node);
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
+      // Reorder within the step's own parent sequence (top-level or a loop body).
+      const parentPath = path.slice(0, -1);
+      const fromIdx = path[path.length - 1] as number;
+      const parent = doc.getIn(parentPath) as YAMLSeq;
+      const node = parent.items[fromIdx];
+      parent.items.splice(fromIdx, 1);
+      parent.items.splice(edit.toIndex, 0, node);
       return;
     }
     case "setStepField": {
-      const idx = findStepIndex(doc, edit.stepId);
-      if (idx === -1) return;
-      const fullPath: Array<string | number> = ["steps", idx, ...edit.path];
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
+      const fullPath: Array<string | number> = [...path, ...edit.path];
       if (edit.value === undefined) {
         doc.deleteIn(fullPath);
         return;
@@ -132,20 +180,20 @@ export function applyEdit(doc: Document, edit: Edit): void {
       return;
     }
     case "setStepAssert": {
-      const idx = findStepIndex(doc, edit.stepId);
-      if (idx === -1) return;
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
       const arr = edit.asserts.map((a) => ({ status: a.code }));
-      doc.setIn(["steps", idx, "assert"], doc.createNode(arr));
+      doc.setIn([...path, "assert"], doc.createNode(arr));
       return;
     }
     case "setStepExtract": {
-      const idx = findStepIndex(doc, edit.stepId);
-      if (idx === -1) return;
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
       if (edit.extract.length === 0) {
-        doc.deleteIn(["steps", idx, "extract"]);
+        doc.deleteIn([...path, "extract"]);
         return;
       }
-      doc.setIn(["steps", idx, "extract"], doc.createNode(edit.extract));
+      doc.setIn([...path, "extract"], doc.createNode(edit.extract));
       return;
     }
   }
@@ -158,19 +206,31 @@ function plainScalar(value: string): Scalar {
   return s;
 }
 
-// Returns -1 if no step matches; callers no-op on -1 because stale stepIds can
-// arrive after a step has been removed (e.g., via the YAML pane). The store
-// re-derives the model after each edit, so a stale click resolves to no change.
-function findStepIndex(doc: Document, stepId: string): number {
+// Tree-aware step locator: searches top-level steps and one level of loop `do`
+// bodies (single-level nesting for Slice 7). Returns the full doc path, or null
+// if no step matches. Callers no-op on null because stale stepIds can arrive
+// after a step has been removed (e.g., via the YAML pane); the store re-derives
+// the model after each edit, so a stale click resolves to no change.
+function findStepPath(
+  doc: Document,
+  stepId: string,
+): Array<string | number> | null {
   const steps = doc.getIn(["steps"]);
-  if (!isSeq(steps)) return -1;
+  if (!isSeq(steps)) return null;
   for (let i = 0; i < steps.items.length; i++) {
     const item = steps.items[i] as Node;
     if (!isMap(item)) continue;
-    const id = item.get("id");
-    if (id === stepId) return i;
+    if (item.get("id") === stepId) return ["steps", i];
+    const body = item.get("do");
+    if (isSeq(body)) {
+      for (let j = 0; j < body.items.length; j++) {
+        const inner = body.items[j] as Node;
+        if (isMap(inner) && inner.get("id") === stepId)
+          return ["steps", i, "do", j];
+      }
+    }
   }
-  return -1;
+  return null;
 }
 
 function ensureMap(doc: Document, path: ReadonlyArray<string | number>): void {
@@ -206,6 +266,15 @@ function normalizeForModel(input: unknown): unknown {
 function normalizeStep(s: unknown): unknown {
   if (typeof s !== "object" || s === null) return s;
   const src = s as Record<string, unknown>;
+  if (src.type === "loop") {
+    return {
+      id: src.id,
+      name: src.name,
+      type: "loop",
+      repeat: src.repeat,
+      do: Array.isArray(src.do) ? src.do.map(normalizeStep) : [],
+    };
+  }
   const request =
     typeof src.request === "object" && src.request !== null
       ? normalizeRequest(src.request as Record<string, unknown>)

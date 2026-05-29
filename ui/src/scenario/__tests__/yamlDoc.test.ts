@@ -44,8 +44,10 @@ describe("parseScenarioDoc", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error(`expected ok: ${out.error}`);
     expect(out.model.steps).toHaveLength(2);
-    expect(out.model.steps[0].request.method).toBe("POST");
-    expect(out.model.steps[0].assert).toEqual([{ kind: "status", code: 200 }]);
+    const s0 = out.model.steps[0];
+    if (s0.type !== "http") throw new Error("expected http step");
+    expect(s0.request.method).toBe("POST");
+    expect(s0.assert).toEqual([{ kind: "status", code: 200 }]);
   });
 
   it("doc preserves the raw yaml extract key and comment", () => {
@@ -188,7 +190,9 @@ describe("extract — model integration", () => {
   it("model now exposes extract on the step", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");
-    expect(out.model.steps[0].extract).toEqual([
+    const s0 = out.model.steps[0];
+    if (s0.type !== "http") throw new Error("expected http step");
+    expect(s0.extract).toEqual([
       { var: "token", from: "body", path: "$.token" },
     ]);
   });
@@ -210,7 +214,9 @@ describe("extract — model integration", () => {
     expect(round).toContain("access_token");
     const out2 = parseScenarioDoc(round);
     if ("error" in out2) throw new Error("re-parse failed");
-    expect(out2.model.steps[0].extract).toEqual([
+    const s0 = out2.model.steps[0];
+    if (s0.type !== "http") throw new Error("expected http step");
+    expect(s0.extract).toEqual([
       { var: "token", from: "body", path: "$.access_token" },
       { var: "trace", from: "header", name: "X-Trace" },
     ]);
@@ -226,5 +232,151 @@ describe("extract — model integration", () => {
     });
     const round = serializeDoc(out.doc);
     expect(round).not.toMatch(/extract:\s/);
+  });
+});
+
+const LOOP_BASE = `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: top
+    type: http
+    request:
+      method: GET
+      url: "/top" # keep this comment
+    assert: []
+`;
+
+function parseLoop(y: string) {
+  const r = parseScenarioDoc(y);
+  if ("error" in r) throw new Error(r.error);
+  return r;
+}
+
+describe("yamlDoc loop edits", () => {
+  it("addLoopStep appends a loop with one placeholder http step", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: "01HX0000000000000000000010",
+      name: "Loop 1",
+      childId: "01HX000000000000000000000C",
+    });
+    const r = parseScenarioDoc(serializeDoc(doc));
+    if ("error" in r) throw new Error(r.error);
+    const loop = r.model.steps[1];
+    expect(loop.type).toBe("loop");
+    if (loop.type === "loop") {
+      expect(loop.repeat).toBe(1);
+      expect(loop.do).toHaveLength(1);
+      expect(loop.do[0].id).toBe("01HX000000000000000000000C");
+    }
+  });
+
+  it("addStepInLoop appends an http step into the loop body", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: "01HX0000000000000000000010",
+      name: "Loop",
+      childId: "01HX000000000000000000000C",
+    });
+    applyEdit(doc, {
+      type: "addStepInLoop",
+      loopId: "01HX0000000000000000000010",
+      id: "01HX000000000000000000000D",
+      name: "second",
+    });
+    const r = parseLoop(serializeDoc(doc));
+    const loop = r.model.steps[1];
+    if (loop.type === "loop")
+      expect(loop.do.map((s) => s.id)).toEqual([
+        "01HX000000000000000000000C",
+        "01HX000000000000000000000D",
+      ]);
+  });
+
+  it("setLoopRepeat updates repeat", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: "01HX0000000000000000000010",
+      name: "Loop",
+      childId: "01HX000000000000000000000C",
+    });
+    applyEdit(doc, {
+      type: "setLoopRepeat",
+      loopId: "01HX0000000000000000000010",
+      repeat: 7,
+    });
+    const r = parseLoop(serializeDoc(doc));
+    const loop = r.model.steps[1];
+    if (loop.type === "loop") expect(loop.repeat).toBe(7);
+  });
+
+  it("setStepField targets a step nested inside a loop", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: "01HX0000000000000000000010",
+      name: "Loop",
+      childId: "01HX000000000000000000000C",
+    });
+    applyEdit(doc, {
+      type: "setStepField",
+      stepId: "01HX000000000000000000000C",
+      path: ["request", "url"],
+      value: "/inner",
+    });
+    const r = parseLoop(serializeDoc(doc));
+    const loop = r.model.steps[1];
+    if (loop.type === "loop" && loop.do[0].type === "http")
+      expect(loop.do[0].request.url).toBe("/inner");
+  });
+
+  it("preserves a comment on a sibling key after a nested edit", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "setStepField",
+      stepId: "01HX0000000000000000000001",
+      path: ["request", "method"],
+      value: "POST",
+    });
+    expect(serializeDoc(doc)).toContain("# keep this comment");
+  });
+
+  it("round-trips a loop step through doc edits (model deep-equal)", () => {
+    const { doc } = parseLoop(LOOP_BASE);
+    applyEdit(doc, {
+      type: "addLoopStep",
+      id: "01HX0000000000000000000010",
+      name: "warm up",
+      childId: "01HX000000000000000000000C",
+    });
+    applyEdit(doc, {
+      type: "setLoopRepeat",
+      loopId: "01HX0000000000000000000010",
+      repeat: 3,
+    });
+    applyEdit(doc, {
+      type: "addStepInLoop",
+      loopId: "01HX0000000000000000000010",
+      id: "01HX000000000000000000000D",
+      name: "second",
+    });
+    const first = parseLoop(serializeDoc(doc));
+    const second = parseLoop(serializeDoc(first.doc));
+    expect(second.model.steps).toEqual(first.model.steps);
+    const loop = first.model.steps[1];
+    expect(loop.type).toBe("loop");
+    if (loop.type === "loop") {
+      expect(loop.repeat).toBe(3);
+      expect(loop.do.map((s) => s.id)).toEqual([
+        "01HX000000000000000000000C",
+        "01HX000000000000000000000D",
+      ]);
+    }
   });
 });

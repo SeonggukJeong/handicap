@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { stringify as yamlStringify } from "yaml";
-import { type Extract, type Scenario } from "../model";
+import {
+  type Extract,
+  type HttpStep,
+  type LoopStep,
+  type Scenario,
+  type Step,
+} from "../model";
 import { parseScenarioDoc, serializeDoc } from "../yamlDoc";
 
 const ULID_ARB = fc.string({ minLength: 26, maxLength: 26 }).map((s) =>
@@ -48,7 +54,7 @@ const extractArb: fc.Arbitrary<Extract> = fc.oneof(
   }),
 );
 
-const stepArb = fc.record({
+const httpStepArb: fc.Arbitrary<HttpStep> = fc.record({
   id: ULID_ARB,
   name: ident,
   type: fc.constant("http" as const),
@@ -70,6 +76,20 @@ const stepArb = fc.record({
   ),
   extract: fc.array(extractArb, { maxLength: 2 }),
 });
+
+// A loop wraps 1-2 http steps (single-level nesting, Slice 7).
+const loopStepArb: fc.Arbitrary<LoopStep> = fc.record({
+  id: ULID_ARB,
+  name: ident,
+  type: fc.constant("loop" as const),
+  repeat: fc.integer({ min: 1, max: 20 }),
+  do: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
+});
+
+const stepArb: fc.Arbitrary<Step> = fc.oneof(
+  { weight: 3, arbitrary: httpStepArb },
+  { weight: 1, arbitrary: loopStepArb },
+);
 
 const scenarioArb: fc.Arbitrary<Scenario> = fc.record({
   version: fc.constant(1 as const),
@@ -104,34 +124,50 @@ describe("scenario round-trip property", () => {
   });
 });
 
+function httpStepToYaml(st: HttpStep): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: st.id,
+    name: st.name,
+    type: st.type,
+    request: {
+      method: st.request.method,
+      url: st.request.url,
+      headers: st.request.headers ?? {},
+    },
+    assert: st.assert.map((a) => ({ status: a.code })),
+  };
+  if (st.extract && st.extract.length > 0) {
+    out.extract = st.extract.map((e) => {
+      if (e.from === "body") return { var: e.var, from: "body", path: e.path };
+      if (e.from === "header") return { var: e.var, from: "header", name: e.name };
+      if (e.from === "cookie") return { var: e.var, from: "cookie", name: e.name };
+      return { var: e.var, from: "status" };
+    });
+  }
+  return out;
+}
+
+function loopStepToYaml(st: LoopStep): Record<string, unknown> {
+  return {
+    id: st.id,
+    name: st.name,
+    type: st.type,
+    repeat: st.repeat,
+    do: st.do.map(httpStepToYaml),
+  };
+}
+
+function stepToYaml(st: Step): Record<string, unknown> {
+  return st.type === "loop" ? loopStepToYaml(st) : httpStepToYaml(st);
+}
+
 function scenarioToCanonicalYaml(s: Scenario): string {
   const obj = {
     version: s.version,
     name: s.name,
     cookie_jar: s.cookie_jar,
     variables: s.variables,
-    steps: s.steps.map((st) => {
-      const out: Record<string, unknown> = {
-        id: st.id,
-        name: st.name,
-        type: st.type,
-        request: {
-          method: st.request.method,
-          url: st.request.url,
-          headers: st.request.headers ?? {},
-        },
-        assert: st.assert.map((a) => ({ status: a.code })),
-      };
-      if (st.extract && st.extract.length > 0) {
-        out.extract = st.extract.map((e) => {
-          if (e.from === "body") return { var: e.var, from: "body", path: e.path };
-          if (e.from === "header") return { var: e.var, from: "header", name: e.name };
-          if (e.from === "cookie") return { var: e.var, from: "cookie", name: e.name };
-          return { var: e.var, from: "status" };
-        });
-      }
-      return out;
-    }),
+    steps: s.steps.map(stepToYaml),
   };
   return yamlStringify(obj);
 }
