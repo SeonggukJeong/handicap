@@ -8,6 +8,7 @@ VUS="${VUS:-200}"
 # same GET in a one-iteration loop, so the request count is identical and only
 # the recursion / Box::pin path differs — an A/B for loop overhead (Slice 7).
 SCENARIO_KIND="${SCENARIO_KIND:-flat}"
+LOOP_CAP="${LOOP_CAP:-0}"   # 0 = loop_breakdown off (default); >0 = cap per-loop-index rows
 WIREMOCK_PORT="${WIREMOCK_PORT:-9001}"
 CTRL_REST="${CTRL_REST:-127.0.0.1:18080}"
 CTRL_GRPC="${CTRL_GRPC:-127.0.0.1:18081}"
@@ -66,9 +67,9 @@ SCN=$(curl -sf -XPOST "http://$CTRL_REST/api/scenarios" -H 'Content-Type: applic
 EOF
 )" | tee /dev/stderr | grep -o '"id":"[^"]*"' | head -1 | cut -d\" -f4)
 
-echo "==> creating run: $VUS VUs / $DURATION s"
+echo "==> creating run: $VUS VUs / $DURATION s / LOOP_CAP=$LOOP_CAP"
 RUN=$(curl -sf -XPOST "http://$CTRL_REST/api/runs" -H 'Content-Type: application/json' \
-  -d "{\"scenario_id\":\"$SCN\",\"profile\":{\"vus\":$VUS,\"ramp_up_seconds\":2,\"duration_seconds\":$DURATION},\"env\":{}}" \
+  -d "{\"scenario_id\":\"$SCN\",\"profile\":{\"vus\":$VUS,\"ramp_up_seconds\":2,\"duration_seconds\":$DURATION,\"loop_breakdown_cap\":$LOOP_CAP},\"env\":{}}" \
   | grep -o '"id":"[^"]*"' | head -1 | cut -d\" -f4)
 echo "    run id = $RUN"
 
