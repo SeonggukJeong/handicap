@@ -10,34 +10,85 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useScenarioEditor } from "../../scenario/store";
 import { HttpStepNode, type HttpStepNodeData } from "./HttpStepNode";
+import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
+import { isLoopStep } from "../../scenario/model";
 
-const NODE_TYPES = { http: HttpStepNode };
-const NODE_WIDTH = 200;
+const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode };
+const NODE_WIDTH = 220;
 const NODE_GAP = 60;
+const CHILD_H = 64;
+const CHILD_GAP = 16;
+const LOOP_HEADER_H = 36;
+const LOOP_PAD = 12;
+
+type AnyData = HttpStepNodeData | LoopStepNodeData;
 
 export function CanvasView() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
   const addStep = useScenarioEditor((s) => s.addStep);
+  const addLoopStep = useScenarioEditor((s) => s.addLoopStep);
+  const addStepInLoop = useScenarioEditor((s) => s.addStepInLoop);
 
-  const nodes = useMemo<Array<Node<HttpStepNodeData>>>(
-    () =>
-      steps.map((step, idx) => ({
-        id: step.id,
-        type: "http",
-        position: { x: idx * (NODE_WIDTH + NODE_GAP), y: 0 },
-        data: {
-          name: step.name,
-          method: step.request.method,
-          url: step.request.url,
-          selected: step.id === selectedStepId,
-        },
-        draggable: false,
-        selectable: false,
-      })),
-    [steps, selectedStepId],
-  );
+  const selectedLoopId = useMemo(() => {
+    const sel = steps.find((s) => s.id === selectedStepId);
+    return sel && isLoopStep(sel) ? sel.id : null;
+  }, [steps, selectedStepId]);
+
+  const nodes = useMemo<Array<Node<AnyData>>>(() => {
+    const out: Array<Node<AnyData>> = [];
+    let x = 0;
+    for (const step of steps) {
+      if (isLoopStep(step)) {
+        const bodyH = Math.max(1, step.do.length) * (CHILD_H + CHILD_GAP);
+        const height = LOOP_HEADER_H + LOOP_PAD + bodyH;
+        out.push({
+          id: step.id,
+          type: "loop",
+          position: { x, y: 0 },
+          data: { name: step.name, repeat: step.repeat, selected: step.id === selectedStepId },
+          style: { width: NODE_WIDTH, height },
+          draggable: false,
+          selectable: false,
+        });
+        step.do.forEach((child, j) => {
+          out.push({
+            id: child.id,
+            type: "http",
+            parentId: step.id,
+            extent: "parent",
+            position: { x: LOOP_PAD, y: LOOP_HEADER_H + j * (CHILD_H + CHILD_GAP) },
+            data: {
+              name: child.name,
+              method: child.request.method,
+              url: child.request.url,
+              selected: child.id === selectedStepId,
+            },
+            draggable: false,
+            selectable: false,
+          });
+        });
+        x += NODE_WIDTH + NODE_GAP;
+      } else {
+        out.push({
+          id: step.id,
+          type: "http",
+          position: { x, y: 0 },
+          data: {
+            name: step.name,
+            method: step.request.method,
+            url: step.request.url,
+            selected: step.id === selectedStepId,
+          },
+          draggable: false,
+          selectable: false,
+        });
+        x += NODE_WIDTH + NODE_GAP;
+      }
+    }
+    return out;
+  }, [steps, selectedStepId]);
 
   const edges = useMemo<Edge[]>(
     () =>
@@ -79,16 +130,31 @@ export function CanvasView() {
         <button
           type="button"
           onClick={() => {
-            const id = addStep(`Step ${steps.length + 1}`);
+            if (selectedLoopId) {
+              const id = addStepInLoop(selectedLoopId, `Step ${steps.length + 1}`);
+              select(id);
+            } else {
+              const id = addStep(`Step ${steps.length + 1}`);
+              select(id);
+            }
+          }}
+          className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+        >
+          {selectedLoopId ? "+ Add step in loop" : "+ Add step"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const id = addLoopStep(`Loop ${steps.length + 1}`);
             select(id);
           }}
           className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
         >
-          + Add step
+          + Add loop
         </button>
         {steps.length === 0 && (
           <span className="text-xs text-slate-400 self-center">
-            Canvas is empty. Click "Add step" to begin.
+            Canvas is empty. Add a step or a loop to begin.
           </span>
         )}
       </div>
