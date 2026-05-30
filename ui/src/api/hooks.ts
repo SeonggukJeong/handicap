@@ -126,6 +126,14 @@ export function useDatasets() {
   return useQuery({ queryKey: queryKeys.datasets(), queryFn: api.listDatasets });
 }
 
+export function useDataset(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? queryKeys.dataset(id) : ["datasets", "missing"],
+    queryFn: () => api.getDataset(id!),
+    enabled: Boolean(id),
+  });
+}
+
 export function useUploadDataset() {
   const qc = useQueryClient();
   return useMutation({
