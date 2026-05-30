@@ -1,5 +1,7 @@
 import { parseDocument, Document, isMap, isSeq, Scalar, YAMLMap, YAMLSeq, type Node } from "yaml";
-import { ScenarioModel, type Scenario } from "./model";
+import { ScenarioModel, type Scenario, type Condition } from "./model";
+
+export type BranchSel = { kind: "then" } | { kind: "else" } | { kind: "elif"; index: number };
 
 export type ParseOk = { doc: Document.Parsed; model: Scenario };
 export type ParseErr = { error: string };
@@ -14,6 +16,12 @@ export type Edit =
   | { type: "addLoopStep"; id: string; name: string; childId: string }
   | { type: "addStepInLoop"; loopId: string; id: string; name: string }
   | { type: "setLoopRepeat"; loopId: string; repeat: number }
+  | { type: "addIfStep"; id: string; name: string; childId: string }
+  | { type: "setIfCond"; ifId: string; cond: Condition }
+  | { type: "setElifCond"; ifId: string; index: number; cond: Condition }
+  | { type: "addStepInBranch"; ifId: string; branch: BranchSel; id: string; name: string }
+  | { type: "addElif"; ifId: string; childId: string }
+  | { type: "removeElif"; ifId: string; index: number }
   | { type: "removeStep"; stepId: string }
   | { type: "moveStep"; stepId: string; toIndex: number }
   | {
@@ -133,6 +141,81 @@ export function applyEdit(doc: Document, edit: Edit): void {
       doc.setIn([...loopPath, "repeat"], edit.repeat);
       return;
     }
+    case "addIfStep": {
+      ensureSeq(doc, ["steps"]);
+      const steps = doc.getIn(["steps"]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "if",
+        cond: { left: "", op: "eq", right: "" },
+        then: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
+      });
+      steps.add(node);
+      return;
+    }
+    case "setIfCond": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      doc.setIn([...ifPath, "cond"], doc.createNode(cleanCond(edit.cond)));
+      return;
+    }
+    case "setElifCond": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      doc.setIn([...ifPath, "elif", edit.index, "cond"], doc.createNode(cleanCond(edit.cond)));
+      return;
+    }
+    case "addStepInBranch": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      const bp = branchPath(edit.branch);
+      ensureSeq(doc, [...ifPath, ...bp]);
+      const body = doc.getIn([...ifPath, ...bp]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "http",
+        request: { method: "GET", url: "/" },
+        assert: [{ status: 200 }],
+      });
+      body.add(node);
+      return;
+    }
+    case "addElif": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      ensureSeq(doc, [...ifPath, "elif"]);
+      const elif = doc.getIn([...ifPath, "elif"]) as YAMLSeq;
+      const node = doc.createNode({
+        cond: { left: "", op: "eq", right: "" },
+        then: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
+      });
+      elif.add(node);
+      return;
+    }
+    case "removeElif": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      doc.deleteIn([...ifPath, "elif", edit.index]);
+      return;
+    }
     case "removeStep": {
       const path = findStepPath(doc, edit.stepId);
       if (path === null) return;
@@ -193,6 +276,24 @@ function plainScalar(value: string): Scalar {
   const s = new Scalar(value);
   s.type = Scalar.PLAIN;
   return s;
+}
+
+/** Doc path (relative to the if step) for a branch body. */
+function branchPath(branch: BranchSel): Array<string | number> {
+  if (branch.kind === "then") return ["then"];
+  if (branch.kind === "else") return ["else"];
+  return ["elif", branch.index, "then"];
+}
+
+// Build a plain JS condition tree for doc.createNode, omitting `right` for the
+// `exists`/`empty` ops (the engine serializes Compare without it for those) and
+// keeping `right: ""` visible for the other ops so the field stays editable.
+function cleanCond(c: Condition): unknown {
+  if ("all" in c) return { all: c.all.map(cleanCond) };
+  if ("any" in c) return { any: c.any.map(cleanCond) };
+  const out: Record<string, unknown> = { left: c.left, op: c.op };
+  if (c.op !== "exists" && c.op !== "empty") out.right = c.right ?? "";
+  return out;
 }
 
 // Tree-aware step locator: recursively searches top-level steps, loop `do` bodies,

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseScenarioDoc,
-  serializeDoc,
-  applyEdit,
-  type Edit,
-} from "../yamlDoc";
+import { parseScenarioDoc, serializeDoc, applyEdit, type Edit } from "../yamlDoc";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -84,7 +79,7 @@ describe("applyEdit — setStepField", () => {
     const round = serializeDoc(out.doc);
     expect(round).toContain("method: PUT");
     expect(round).toContain("# comment on a Slice-4 key we must not lose");
-    expect(round).toContain("path: \"$.token\"");
+    expect(round).toContain('path: "$.token"');
   });
 
   it("sets a nested header value", () => {
@@ -192,9 +187,7 @@ describe("extract — model integration", () => {
     if ("error" in out) throw new Error("expected ok");
     const s0 = out.model.steps[0];
     if (s0.type !== "http") throw new Error("expected http step");
-    expect(s0.extract).toEqual([
-      { var: "token", from: "body", path: "$.token" },
-    ]);
+    expect(s0.extract).toEqual([{ var: "token", from: "body", path: "$.token" }]);
   });
 
   it("round-trips extract through model+doc edits", () => {
@@ -378,5 +371,181 @@ describe("yamlDoc loop edits", () => {
         "01HX000000000000000000000D",
       ]);
     }
+  });
+});
+
+const IF_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    name: "branch"
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000011"
+        name: "ok"
+        type: http
+        request:
+          method: GET
+          url: "/ok"
+        assert:
+          - status: 200
+`;
+
+const EMPTY_YAML = `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps: []
+`;
+
+describe("applyEdit — if node", () => {
+  it("addIfStep appends a valid if with a seeded then child", () => {
+    const out = parseScenarioDoc(EMPTY_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addIfStep",
+      id: "01HX0000000000000000000010",
+      name: "branch",
+      childId: "01HX0000000000000000000011",
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    expect(s.type).toBe("if");
+    if (s.type === "if") expect(s.then).toHaveLength(1);
+  });
+
+  it("setIfCond replaces the condition tree and drops the old right", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "setIfCond",
+      ifId: "01HX0000000000000000000010",
+      cond: {
+        all: [
+          { left: "{{a}}", op: "eq", right: "1" },
+          { left: "{{b}}", op: "exists" },
+        ],
+      },
+    });
+    const txt = serializeDoc(out.doc);
+    expect(txt).toContain("all:");
+    const re = parseScenarioDoc(txt);
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    if (s.type === "if") expect("all" in s.cond).toBe(true);
+  });
+
+  it("setIfCond omits right for exists/empty ops", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "setIfCond",
+      ifId: "01HX0000000000000000000010",
+      cond: { left: "{{t}}", op: "exists", right: "ignored" },
+    });
+    expect(serializeDoc(out.doc)).not.toContain("right:");
+  });
+
+  it("addStepInBranch fills then / else / an elif branch", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addStepInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "else" },
+      id: "01HX0000000000000000000020",
+      name: "e1",
+    });
+    applyEdit(out.doc, {
+      type: "addElif",
+      ifId: "01HX0000000000000000000010",
+      childId: "01HX0000000000000000000021",
+    });
+    applyEdit(out.doc, {
+      type: "addStepInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "elif", index: 0 },
+      id: "01HX0000000000000000000022",
+      name: "e2",
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    if (s.type === "if") {
+      expect(s.else).toHaveLength(1);
+      expect(s.elif[0].then).toHaveLength(2); // seeded child + added
+    }
+  });
+
+  it("setElifCond updates only the targeted elif condition", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addElif",
+      ifId: "01HX0000000000000000000010",
+      childId: "01HX0000000000000000000021",
+    });
+    applyEdit(out.doc, {
+      type: "setElifCond",
+      ifId: "01HX0000000000000000000010",
+      index: 0,
+      cond: { left: "{{code}}", op: "eq", right: "404" },
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    if (s.type === "if" && !("all" in s.elif[0].cond) && !("any" in s.elif[0].cond)) {
+      expect(s.elif[0].cond.right).toBe("404");
+    } else throw new Error("expected compare elif cond");
+  });
+
+  it("removeElif drops the branch", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addElif",
+      ifId: "01HX0000000000000000000010",
+      childId: "01HX0000000000000000000021",
+    });
+    applyEdit(out.doc, {
+      type: "removeElif",
+      ifId: "01HX0000000000000000000010",
+      index: 0,
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    if (s.type === "if") expect(s.elif).toHaveLength(0);
+  });
+
+  it("removeStep deletes a step nested in an else branch (findStepPath recursion)", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addStepInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "else" },
+      id: "01HX0000000000000000000020",
+      name: "e1",
+    });
+    applyEdit(out.doc, {
+      type: "addStepInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "else" },
+      id: "01HX0000000000000000000021",
+      name: "e2",
+    });
+    applyEdit(out.doc, { type: "removeStep", stepId: "01HX0000000000000000000020" });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    if (s.type === "if") expect(s.else.map((c) => c.id)).toEqual(["01HX0000000000000000000021"]);
   });
 });
