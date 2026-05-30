@@ -27,8 +27,9 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
 /// with [`render`] but every unresolved token (`{{var}}`, undefined `${NAME}`,
 /// `${loop_index}` outside a loop) renders to the empty string, and an unclosed
 /// `{{`/`${` marker is emitted literally. It never returns `Err` — condition
-/// evaluation must never kill a run (extract failure → natural branching). Mirrors
-/// the UI `resolveForDisplay` philosophy (preserve/soften unresolved tokens).
+/// evaluation must never kill a run (extract failure → natural branching). It
+/// softens unresolved tokens to the empty string (unlike the UI `resolveForDisplay`,
+/// which preserves them literally for its diagnostic panel).
 pub fn render_lenient(input: &str, ctx: &TemplateContext) -> String {
     // `render_inner(.., true)` provably never returns Err; default-guard is defensive.
     render_inner(input, ctx, true).unwrap_or_default()
@@ -59,9 +60,16 @@ fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<Str
                     )));
                 }
             };
-            let name = std::str::from_utf8(&bytes[i + 2..end])
-                .map_err(|_| EngineError::MalformedTemplate("non-utf8 in {{ }}".into()))?
-                .trim();
+            let name = match std::str::from_utf8(&bytes[i + 2..end]) {
+                Ok(s) => s.trim(),
+                Err(_) => {
+                    if lenient {
+                        out.push_str(&input[i..]);
+                        return Ok(out);
+                    }
+                    return Err(EngineError::MalformedTemplate("non-utf8 in {{ }}".into()));
+                }
+            };
             match ctx.vars.get(name) {
                 Some(value) => out.push_str(value),
                 None => {
@@ -90,8 +98,16 @@ fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<Str
                     )));
                 }
             };
-            let inner = std::str::from_utf8(&bytes[i + 2..end])
-                .map_err(|_| EngineError::MalformedTemplate("non-utf8 in ${ }".into()))?;
+            let inner = match std::str::from_utf8(&bytes[i + 2..end]) {
+                Ok(s) => s,
+                Err(_) => {
+                    if lenient {
+                        out.push_str(&input[i..]);
+                        return Ok(out);
+                    }
+                    return Err(EngineError::MalformedTemplate("non-utf8 in ${ }".into()));
+                }
+            };
             let (name, default) = match inner.find(":-") {
                 Some(p) => (inner[..p].trim(), Some(inner[p + 2..].to_string())),
                 None => (inner.trim(), None),
@@ -473,6 +489,23 @@ mod tests {
             render_lenient("${H}/{{code}}/${vu_id}/${loop_index}", &ctx),
             "x/200/7/2"
         );
+    }
+
+    #[test]
+    fn lenient_adjacent_and_mixed_markers() {
+        let v = vars(&[("known", "K")]);
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        // two unknown markers collapse to empty, literal between them survives.
+        assert_eq!(render_lenient("{{a}}-{{b}}", &ctx), "-");
+        // resolved adjacent to unresolved.
+        assert_eq!(render_lenient("{{known}}{{missing}}", &ctx), "K");
     }
 
     #[test]
