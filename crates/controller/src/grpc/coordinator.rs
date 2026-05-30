@@ -115,6 +115,7 @@ impl Coordinator for CoordinatorService {
                                     scenario_yaml: a.scenario_yaml,
                                     profile: Some(a.profile),
                                     env: a.env,
+                                    data_binding: None,
                                 };
                                 let _ = tx
                                     .send(Ok(ServerMessage {

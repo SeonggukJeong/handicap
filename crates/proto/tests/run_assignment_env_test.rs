@@ -16,6 +16,7 @@ fn run_assignment_env_field_exists() {
             loop_breakdown_cap: 0,
         }),
         env,
+        data_binding: None,
     };
     assert_eq!(
         a.env.get("BASE_URL").map(String::as_str),
