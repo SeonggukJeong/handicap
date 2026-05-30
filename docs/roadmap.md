@@ -45,6 +45,17 @@
 - **성격**: controller(리포트 빌드) + UI 중심. 엔진/워커 변경 적음(트랜잭션 시간 분해 DNS/TCP/TLS/TTFB는 엔진 계측 필요 — 그 하위 항목만 엔진 손댐).
 - **참고**: ADR-0017 (MVP 리포트 스코프 — "run간 비교·SLA는 후속"을 명시). run 간 비교 = 다중 run 선택 UI + 델타 뷰, SLA = pass/fail 임계 정의 + 판정.
 
+### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **spec 작성됨, 구현 전**
+- **성격**: QoL/UX 슬라이스(§4.5 메뉴 밖, 사용자 요청 발). run 을 한 번 돌린 뒤 같은 설정을 매번 손으로 재입력하는 통증 해소.
+- **spec**: `docs/superpowers/specs/2026-05-30-run-presets-retry-design.md` (brainstorming 완료 2026-05-30).
+- **요지**: 별도 `run_presets` 테이블(scenario-scoped, migration 0005) + REST CRUD + RunDialog "프리셋 불러오기/저장" + 과거 run "다시 실행"(prefill) / "즉시 재실행". retry 는 `GET /api/runs/{id}` 가 이미 노출하는 profile+env 재사용 → 신규 저장 0. 시나리오 변경 시 경고 배지.
+- **다음 단계**: writing-plans 로 구현 계획 작성.
+
+### A6. 글로벌 변수 (영역 B) — **연기(영역 A 다음)**
+- **성격**: BASE_URL 등 자주 쓰는 변수를 전역 등록 → 아무 시나리오에서나 골라 주입. 영역 A 의 자매 기능(같은 "재입력 통증" 원천).
+- **연기 이유**: run 프리셋(A)과 변수 라이브러리는 다른 데이터 모델·UX 표면이라 별도 spec 으로 분리(brainstorming 2026-05-30 결정, 1안 = A 먼저).
+- **착수 시 설계 질문**: `scenario.variables`(모델 있으나 UI 없음)와 env 우선순위(ADR-0014: `{{var}}` 흐름 < `${ENV}` 환경)와의 관계, 전역 변수 주입 시점(run-create env 병합 vs 별도), 환경 묶음(dev/staging/prod) 개념 필요 여부.
+
 ### (메뉴에 있으나 당장 후보 아님)
 - WebSocket 노드 (§4.5) — REST 부하 도구의 1차 스코프 밖.
 - 인증·RBAC·사용자 계정 (§4.5) — 사내 단일 테넌트 가정에선 후순위.
@@ -65,6 +76,9 @@
 
 ### B2. Slice 8b (데이터셋 리소스) 연기 항목
 - **UploadPanel 미리보기 요청 시퀀싱 없음**: 빠르게 옵션 바꾸면 미리보기 응답이 경합할 수 있음(최신 요청만 반영하는 abort/seq 없음). → UI 폴리시 슬라이스.
+
+### B2'. Run 프리셋(영역 A) 연기 항목
+- **시나리오 복제**: run retry 가 변경된 시나리오에서 검증 실패하는 상황을 줄이는 보강책으로 brainstorming(2026-05-30)에서 제기됨. 그러나 이건 **시나리오 관리** 기능(scenarios CRUD/UI)이지 run 재사용이 아니라 영역 A 범위 밖 → **별도 spec**. 독립적으로 가치(실험용 시나리오 포크). → 시나리오 관리 슬라이스 또는 단독 spec.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
