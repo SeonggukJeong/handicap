@@ -38,6 +38,34 @@ pub struct ExecOutcome {
     pub extracted: BTreeMap<String, String>,
 }
 
+/// Recursively render `{{var}}`/`${ENV}` in every string leaf of a JSON value.
+/// Numbers, booleans, null, and object keys are preserved unchanged.
+fn render_json_value(
+    value: &serde_json::Value,
+    ctx: &TemplateContext<'_>,
+) -> Result<serde_json::Value> {
+    use serde_json::Value;
+    Ok(match value {
+        Value::String(s) => Value::String(render(s, ctx)?),
+        Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(render_json_value(item, ctx)?);
+            }
+            Value::Array(out)
+        }
+        Value::Object(map) => {
+            let mut out = serde_json::Map::with_capacity(map.len());
+            for (k, v) in map {
+                out.insert(k.clone(), render_json_value(v, ctx)?);
+            }
+            Value::Object(out)
+        }
+        // Number / Bool / Null — preserved as-is.
+        other => other.clone(),
+    })
+}
+
 pub async fn execute_step(
     client: &VuClient,
     step: &HttpStep,
@@ -68,7 +96,10 @@ pub async fn execute_step(
 
     if let Some(body) = &step.request.body {
         req = match body {
-            Body::Json(v) => req.json(v),
+            Body::Json(v) => {
+                let rendered = render_json_value(v, ctx)?;
+                req.json(&rendered)
+            }
             Body::Form(map) => {
                 let mut rendered = BTreeMap::new();
                 for (k, v) in map {
@@ -167,7 +198,7 @@ mod tests {
     use super::*;
     use crate::scenario::{Body, Extract, HttpMethod, HttpStep, Request};
     use std::collections::BTreeMap;
-    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::matchers::{body_json, body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn empty_env() -> BTreeMap<String, String> {
@@ -296,6 +327,51 @@ mod tests {
         assert_eq!(
             outcome.status, 200,
             "form value must be templated to user=alice"
+        );
+        assert!(outcome.error.is_none(), "no error: {:?}", outcome.error);
+    }
+
+    #[tokio::test]
+    async fn json_body_string_leaves_are_templated_numbers_preserved() {
+        let server = MockServer::start().await;
+        // user는 치환되어 "alice", age는 number 30 그대로여야 매칭 → 200.
+        Mock::given(method("POST"))
+            .and(path("/signup"))
+            .and(body_json(serde_json::json!({ "user": "alice", "age": 30 })))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let step = HttpStep {
+            id: "01HX0000000000000000000011".into(),
+            name: "signup".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: format!("{}/signup", server.uri()),
+                headers: BTreeMap::new(),
+                body: Some(Body::Json(serde_json::json!({
+                    "user": "{{username}}",
+                    "age": 30
+                }))),
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let mut vars = BTreeMap::new();
+        vars.insert("username".to_string(), "alice".to_string());
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert_eq!(
+            outcome.status, 200,
+            "JSON string leaf must template (user=alice) and number 30 must be preserved"
         );
         assert!(outcome.error.is_none(), "no error: {:?}", outcome.error);
     }
