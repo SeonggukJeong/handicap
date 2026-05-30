@@ -45,11 +45,12 @@
 - **성격**: controller(리포트 빌드) + UI 중심. 엔진/워커 변경 적음(트랜잭션 시간 분해 DNS/TCP/TLS/TTFB는 엔진 계측 필요 — 그 하위 항목만 엔진 손댐).
 - **참고**: ADR-0017 (MVP 리포트 스코프 — "run간 비교·SLA는 후속"을 명시). run 간 비교 = 다중 run 선택 UI + 델타 뷰, SLA = pass/fail 임계 정의 + 판정.
 
-### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **spec 작성됨, 구현 전**
+### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **spec 작성+리뷰 완료, 구현 전**
 - **성격**: QoL/UX 슬라이스(§4.5 메뉴 밖, 사용자 요청 발). run 을 한 번 돌린 뒤 같은 설정을 매번 손으로 재입력하는 통증 해소.
-- **spec**: `docs/superpowers/specs/2026-05-30-run-presets-retry-design.md` (brainstorming 완료 2026-05-30).
-- **요지**: 별도 `run_presets` 테이블(scenario-scoped, migration 0005) + REST CRUD + RunDialog "프리셋 불러오기/저장" + 과거 run "다시 실행"(prefill) / "즉시 재실행". retry 는 `GET /api/runs/{id}` 가 이미 노출하는 profile+env 재사용 → 신규 저장 0. 시나리오 변경 시 경고 배지.
-- **다음 단계**: writing-plans 로 구현 계획 작성.
+- **spec**: `docs/superpowers/specs/2026-05-30-run-presets-retry-design.md` (brainstorming 2026-05-30 + spec-plan-review 반영 2026-05-31).
+- **요지**: 별도 `run_presets` 테이블(scenario-scoped, UNIQUE(scenario_id,name), migration 0005) + REST CRUD + RunDialog "프리셋 불러오기/저장" + 과거 run "다시 실행"(prefill) / "즉시 재실행". retry 는 `GET /api/runs/{id}` 가 이미 노출하는 profile+env 재사용 → 신규 저장 0. 시나리오 변경 시 경고 배지(run retry 한정; 프리셋은 라이브 추종).
+- **두 하위 슬라이스로 분할**(spec §8): **A1 = Retry**(DB 변경 0, RunDialog prefill 이음새 구축 — 현재 RunDialog 는 prefill prop 이 없어 리팩터 필요), **A2 = 프리셋 CRUD**(검증 게이트 `validate_run_config` 추출 + 데이터셋 DELETE soft 가드 확장 포함).
+- **다음 단계**: A1 부터 writing-plans 로 구현 계획 작성.
 
 ### A6. 글로벌 변수 (영역 B) — **연기(영역 A 다음)**
 - **성격**: BASE_URL 등 자주 쓰는 변수를 전역 등록 → 아무 시나리오에서나 골라 주입. 영역 A 의 자매 기능(같은 "재입력 통증" 원천).
