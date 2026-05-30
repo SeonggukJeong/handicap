@@ -249,4 +249,4 @@ docs/
 
 ## Slice 8a에서 배운 함정들
 
-- **form/JSON body가 이제 템플릿팅된다**: `executor.rs`는 8a부터 `Body::Form` 값 전체와 `Body::Json` 문자열 leaf에 `render`를 적용한다(이전엔 url·header·`Body::Raw`만). JSON은 number/bool/null·object 키를 보존하고 문자열 leaf만 치환(`render_json_value`). 따라서 `{{var}}`/`${ENV}`를 form·JSON body에 써도 동작한다. 숫자 주입(`{"age": {{age}}}`로 number)은 미지원 — 값은 문자열로만 들어간다.
+- **form/JSON body가 이제 템플릿팅된다**: `executor.rs`는 8a부터 `Body::Form` 값 전체와 `Body::Json` 문자열 leaf에 `render`를 적용한다(이전엔 url·header·`Body::Raw`만). JSON은 number/bool/null·object 키를 보존하고 문자열 leaf만 치환(`render_json_value`). 따라서 `{{var}}`/`${ENV}`를 **form 값**·**JSON 문자열 leaf**에 써도 동작한다(form 키·JSON object 키는 렌더 안 됨 — authored 식별자로 그대로 전송). 숫자 주입(`{"age": {{age}}}`로 number)은 미지원 — 값은 문자열로만 들어간다.

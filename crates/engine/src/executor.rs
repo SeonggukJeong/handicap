@@ -57,7 +57,7 @@ fn render_json_value(
         Value::Object(map) => {
             let mut out = serde_json::Map::with_capacity(map.len());
             for (k, v) in map {
-                out.insert(k.clone(), render_json_value(v, ctx)?);
+                out.insert(k.clone(), render_json_value(v, ctx)?); // object keys preserved verbatim — only string-leaf values are rendered
             }
             Value::Object(out)
         }
@@ -103,7 +103,7 @@ pub async fn execute_step(
             Body::Form(map) => {
                 let mut rendered = BTreeMap::new();
                 for (k, v) in map {
-                    rendered.insert(k.clone(), render(v, ctx)?);
+                    rendered.insert(k.clone(), render(v, ctx)?); // keys are authored identifiers, not user data — render values only
                 }
                 req.form(&rendered)
             }
@@ -374,5 +374,96 @@ mod tests {
             "JSON string leaf must template (user=alice) and number 30 must be preserved"
         );
         assert!(outcome.error.is_none(), "no error: {:?}", outcome.error);
+    }
+
+    #[tokio::test]
+    async fn form_body_unknown_var_propagates_err() {
+        let mut form = BTreeMap::new();
+        form.insert("user".to_string(), "{{missing}}".to_string());
+        let step = HttpStep {
+            id: "01HX0000000000000000000012".into(),
+            name: "x".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: "http://127.0.0.1:1/x".into(),
+                headers: BTreeMap::new(),
+                body: Some(Body::Form(form)),
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let result = execute_step(&client, &step, &ctx).await;
+        assert!(
+            matches!(result, Err(EngineError::UnknownVar(_))),
+            "got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_body_unknown_var_propagates_err() {
+        let step = HttpStep {
+            id: "01HX0000000000000000000013".into(),
+            name: "x".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: "http://127.0.0.1:1/x".into(),
+                headers: BTreeMap::new(),
+                body: Some(Body::Json(serde_json::json!({ "user": "{{missing}}" }))),
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let result = execute_step(&client, &step, &ctx).await;
+        assert!(
+            matches!(result, Err(EngineError::UnknownVar(_))),
+            "got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn render_json_value_recurses_objects_and_arrays_preserving_types() {
+        let mut vars = BTreeMap::new();
+        vars.insert("name".to_string(), "alice".to_string());
+        vars.insert("tag".to_string(), "vip".to_string());
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({
+            "outer": { "user": "{{name}}", "age": 30, "active": true, "note": null },
+            "tags": ["{{tag}}", "static", 7]
+        });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "outer": { "user": "alice", "age": 30, "active": true, "note": null },
+                "tags": ["vip", "static", 7]
+            })
+        );
     }
 }
