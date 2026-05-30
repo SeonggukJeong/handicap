@@ -263,3 +263,85 @@ describe("Inspector — if route (stub)", () => {
     expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000011");
   });
 });
+
+describe("Inspector — IfInspector (builder)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(IF_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000010");
+  });
+
+  it("renders the condition leaf with current values", () => {
+    render(<Inspector />);
+    expect((screen.getByLabelText("left") as HTMLInputElement).value).toBe("{{code}}");
+    expect((screen.getByLabelText("op") as HTMLSelectElement).value).toBe("eq");
+    expect((screen.getByLabelText("right") as HTMLInputElement).value).toBe("200");
+  });
+
+  it("commits a changed right value on blur", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const right = screen.getByLabelText("right");
+    await user.clear(right);
+    await user.type(right, "404");
+    await user.tab();
+    const s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if" && !("all" in s.cond) && !("any" in s.cond)) {
+      expect(s.cond.right).toBe("404");
+    } else throw new Error("expected compare cond");
+  });
+
+  it("hides the right input and drops right when op is exists", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByLabelText("op"), "exists");
+    expect(screen.queryByLabelText("right")).toBeNull();
+    const s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if" && !("all" in s.cond) && !("any" in s.cond)) {
+      expect(s.cond.op).toBe("exists");
+      expect(s.cond.right).toBeUndefined();
+    } else throw new Error("expected compare cond");
+  });
+
+  it("warns on an invalid regex for the matches op", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByLabelText("op"), "matches");
+    const right = screen.getByLabelText("right");
+    await user.clear(right);
+    // user-event treats "[" as a key-descriptor delimiter; "[[" types a literal "[".
+    await user.type(right, "[[");
+    await user.tab();
+    expect(screen.getByText(/invalid regex/i)).toBeInTheDocument();
+  });
+
+  it("wraps a leaf in a group and adds a condition", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: /wrap in group/i }));
+    await user.click(screen.getByRole("button", { name: /\+ condition/i }));
+    const s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if" && "all" in s.cond) expect(s.cond.all).toHaveLength(2);
+    else throw new Error("expected all group");
+  });
+
+  it("adds a step to the else branch", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: /add step to else/i }));
+    const s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if") expect(s.else).toHaveLength(1);
+    else throw new Error("expected if step");
+  });
+
+  it("adds then removes an elif branch", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: /add elif/i }));
+    let s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if") expect(s.elif).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /remove elif 1/i }));
+    s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if") expect(s.elif).toHaveLength(0);
+  });
+});

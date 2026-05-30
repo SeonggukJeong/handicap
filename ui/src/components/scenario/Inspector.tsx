@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import type {
   Assertion,
+  CompareOp,
+  Condition,
   Extract,
   HttpMethod,
   HttpStep,
@@ -10,6 +12,7 @@ import type {
   Step,
 } from "../../scenario/model";
 import { flattenHttpSteps, findStepSiblings, isLoopStep, isIfStep } from "../../scenario/model";
+import type { BranchSel } from "../../scenario/yamlDoc";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -40,8 +43,54 @@ export function Inspector() {
   }
 
   if (isLoopStep(step)) return <LoopInspector step={step} />;
-  if (isIfStep(step)) return <IfInspectorStub step={step} />;
+  if (isIfStep(step)) return <IfInspector step={step} />;
   return <HttpStepInspector step={step} />;
+}
+
+const OPS: CompareOp[] = [
+  "eq",
+  "ne",
+  "contains",
+  "matches",
+  "lt",
+  "gt",
+  "lte",
+  "gte",
+  "exists",
+  "empty",
+];
+
+const NEW_LEAF = (): Condition => ({ left: "", op: "eq", right: "" });
+
+function isValidRegex(s: string): boolean {
+  try {
+    new RegExp(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Immutable edit of a condition tree by a path of child indices. Each path element
+// indexes into the current group's all/any children array.
+function setAtPath(node: Condition, path: number[], sub: Condition): Condition {
+  if (path.length === 0) return sub;
+  const key = "all" in node ? "all" : "any";
+  const children = (node as { all?: Condition[]; any?: Condition[] })[key]!;
+  const next = children.slice();
+  next[path[0]] = setAtPath(next[path[0]], path.slice(1), sub);
+  return { [key]: next } as Condition;
+}
+
+function removeAtPath(node: Condition, path: number[]): Condition {
+  const key = "all" in node ? "all" : "any";
+  const children = (node as { all?: Condition[]; any?: Condition[] })[key]!;
+  if (path.length === 1) {
+    return { [key]: children.filter((_, i) => i !== path[0]) } as Condition;
+  }
+  const next = children.slice();
+  next[path[0]] = removeAtPath(next[path[0]], path.slice(1));
+  return { [key]: next } as Condition;
 }
 
 function HttpStepInspector({ step }: { step: HttpStep }) {
@@ -648,18 +697,247 @@ function LoopInspector({ step }: { step: LoopStep }) {
   );
 }
 
-// Read-only stub: name editing + branch navigation. The recursive condition
-// builder and per-branch mutation land in Task 5 (needs Task 3 store actions).
-function IfInspectorStub({ step }: { step: IfStep }) {
-  const setStepField = useScenarioEditor((s) => s.setStepField);
-  const removeStep = useScenarioEditor((s) => s.removeStep);
-  const select = useScenarioEditor((s) => s.select);
+function ConditionEditor({
+  cond,
+  onCommit,
+}: {
+  cond: Condition;
+  onCommit: (c: Condition) => void;
+}) {
+  // Local draft tree (ExtractEditor pattern): text inputs update the draft and
+  // commit on blur; structural changes update + commit immediately.
+  const [draft, setDraft] = useState<Condition>(cond);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
-  const branches: Array<{ label: string; steps: ReadonlyArray<HttpStep> }> = [
-    { label: "Then", steps: step.then },
-    ...step.elif.map((e, i) => ({ label: `Elif ${i + 1}`, steps: e.then })),
-    { label: "Else", steps: step.else },
-  ];
+  // Reset when the selected step's committed cond changes (ref change). Commits set
+  // draft == cond first, so this is a no-op on self-commit and only resets on switch.
+  useEffect(() => {
+    setDraft(cond);
+  }, [cond]);
+
+  const editLocal = (path: number[], sub: Condition) => setDraft((d) => setAtPath(d, path, sub));
+  const editCommit = (path: number[], sub: Condition) => {
+    const next = setAtPath(draftRef.current, path, sub);
+    setDraft(next);
+    onCommit(next);
+  };
+  const removeChild = (path: number[]) => {
+    const next = removeAtPath(draftRef.current, path);
+    setDraft(next);
+    onCommit(next);
+  };
+  const commitText = () => onCommit(draftRef.current);
+
+  const isGroup = "all" in draft || "any" in draft;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <ConditionNode
+        value={draft}
+        path={[]}
+        editLocal={editLocal}
+        editCommit={editCommit}
+        removeChild={removeChild}
+        commitText={commitText}
+      />
+      {!isGroup && (
+        <button
+          type="button"
+          className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+          onClick={() => {
+            const next: Condition = { all: [draftRef.current] };
+            setDraft(next);
+            onCommit(next);
+          }}
+        >
+          Wrap in group
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ConditionNode({
+  value,
+  path,
+  editLocal,
+  editCommit,
+  removeChild,
+  commitText,
+}: {
+  value: Condition;
+  path: number[];
+  editLocal: (path: number[], sub: Condition) => void;
+  editCommit: (path: number[], sub: Condition) => void;
+  removeChild: (path: number[]) => void;
+  commitText: () => void;
+}) {
+  if ("all" in value || "any" in value) {
+    const kind: "all" | "any" = "all" in value ? "all" : "any";
+    const children = "all" in value ? value.all : (value as { any: Condition[] }).any;
+    const wrap = (next: Condition[]): Condition => (kind === "all" ? { all: next } : { any: next });
+    return (
+      <div className="flex flex-col gap-2 border-l-2 border-indigo-200 pl-2">
+        <select
+          aria-label="group-kind"
+          className="border border-slate-300 rounded px-2 py-1 text-xs w-32"
+          value={kind}
+          onChange={(e) => {
+            const k = e.target.value as "all" | "any";
+            editCommit(path, (k === "all" ? { all: children } : { any: children }) as Condition);
+          }}
+        >
+          <option value="all">ALL (AND)</option>
+          <option value="any">ANY (OR)</option>
+        </select>
+        {children.map((c, i) => (
+          <div key={i} className="flex gap-1 items-start">
+            <ConditionNode
+              value={c}
+              path={[...path, i]}
+              editLocal={editLocal}
+              editCommit={editCommit}
+              removeChild={removeChild}
+              commitText={commitText}
+            />
+            <button
+              type="button"
+              aria-label="remove condition"
+              className="text-slate-500 hover:text-red-600 shrink-0"
+              onClick={() => removeChild([...path, i])}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+            onClick={() => editCommit(path, wrap([...children, NEW_LEAF()]))}
+          >
+            + condition
+          </button>
+          <button
+            type="button"
+            className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+            onClick={() =>
+              editCommit(path, wrap([...children, { all: [NEW_LEAF()] } as Condition]))
+            }
+          >
+            + group
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const leaf = value as { left: string; op: CompareOp; right?: string };
+  const noRight = leaf.op === "exists" || leaf.op === "empty";
+  const regexBad = leaf.op === "matches" && !isValidRegex(leaf.right ?? "");
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap gap-1 items-center">
+        <input
+          aria-label="left"
+          placeholder="left"
+          className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
+          value={leaf.left}
+          onChange={(e) => editLocal(path, { ...leaf, left: e.target.value })}
+          onBlur={commitText}
+        />
+        <select
+          aria-label="op"
+          className="border border-slate-300 rounded px-2 py-1 text-xs"
+          value={leaf.op}
+          onChange={(e) => {
+            const op = e.target.value as CompareOp;
+            const next: Condition =
+              op === "exists" || op === "empty"
+                ? { left: leaf.left, op }
+                : { left: leaf.left, op, right: leaf.right ?? "" };
+            editCommit(path, next);
+          }}
+        >
+          {OPS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        {!noRight && (
+          <input
+            aria-label="right"
+            placeholder="right"
+            className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
+            value={leaf.right ?? ""}
+            onChange={(e) => editLocal(path, { ...leaf, right: e.target.value })}
+            onBlur={commitText}
+          />
+        )}
+      </div>
+      {regexBad && <span className="text-[11px] text-amber-600">⚠ invalid regex</span>}
+    </div>
+  );
+}
+
+function BranchPanel({
+  label,
+  branch,
+  steps,
+  ifId,
+}: {
+  label: string;
+  branch: BranchSel;
+  steps: ReadonlyArray<HttpStep>;
+  ifId: string;
+}) {
+  const addStepInBranch = useScenarioEditor((s) => s.addStepInBranch);
+  const select = useScenarioEditor((s) => s.select);
+  return (
+    <div>
+      <div className="text-xs font-semibold text-slate-600 mb-1">{label}</div>
+      <ul className="flex flex-col gap-1">
+        {steps.map((c) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              title={`${c.name} — ${c.request.method} ${c.request.url}`}
+              className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
+              onClick={() => select(c.id)}
+            >
+              <span className="font-medium">{c.name}</span>{" "}
+              <span className="font-mono text-slate-500">
+                {c.request.method} {c.request.url}
+              </span>
+            </button>
+          </li>
+        ))}
+        {steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
+      </ul>
+      <button
+        type="button"
+        aria-label={`Add step to ${label}`}
+        className="mt-1 px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+        onClick={() => {
+          const id = addStepInBranch(ifId, branch, "Step");
+          select(id);
+        }}
+      >
+        + Add step
+      </button>
+    </div>
+  );
+}
+
+function IfInspector({ step }: { step: IfStep }) {
+  const setStepField = useScenarioEditor((s) => s.setStepField);
+  const setIfCond = useScenarioEditor((s) => s.setIfCond);
+  const setElifCond = useScenarioEditor((s) => s.setElifCond);
+  const addElif = useScenarioEditor((s) => s.addElif);
+  const removeElif = useScenarioEditor((s) => s.removeElif);
+  const removeStep = useScenarioEditor((s) => s.removeStep);
 
   return (
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
@@ -676,29 +954,48 @@ function IfInspectorStub({ step }: { step: IfStep }) {
         />
       </Field>
 
-      {branches.map((b) => (
-        <div key={b.label}>
-          <div className="text-xs font-semibold text-slate-600 mb-1">{b.label}</div>
-          <ul className="flex flex-col gap-1">
-            {b.steps.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  title={`${c.name} — ${c.request.method} ${c.request.url}`}
-                  className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
-                  onClick={() => select(c.id)}
-                >
-                  <span className="font-medium">{c.name}</span>{" "}
-                  <span className="font-mono text-slate-500">
-                    {c.request.method} {c.request.url}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {b.steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
-          </ul>
-        </div>
+      <fieldset
+        className="flex flex-col gap-2 border border-slate-200 rounded p-3"
+        aria-label="Condition"
+      >
+        <legend className="px-1 text-xs font-semibold text-slate-600">Condition</legend>
+        <ConditionEditor cond={step.cond} onCommit={(c) => setIfCond(step.id, c)} />
+      </fieldset>
+
+      <BranchPanel label="Then" branch={{ kind: "then" }} steps={step.then} ifId={step.id} />
+
+      {step.elif.map((e, i) => (
+        <fieldset key={i} className="flex flex-col gap-2 border border-slate-200 rounded p-3">
+          <legend className="px-1 text-xs font-semibold text-slate-600 flex items-center gap-2">
+            <span>Elif {i + 1}</span>
+            <button
+              type="button"
+              aria-label={`Remove elif ${i + 1}`}
+              className="text-slate-500 hover:text-red-600"
+              onClick={() => removeElif(step.id, i)}
+            >
+              ×
+            </button>
+          </legend>
+          <ConditionEditor cond={e.cond} onCommit={(c) => setElifCond(step.id, i, c)} />
+          <BranchPanel
+            label={`Elif ${i + 1}`}
+            branch={{ kind: "elif", index: i }}
+            steps={e.then}
+            ifId={step.id}
+          />
+        </fieldset>
       ))}
+
+      <button
+        type="button"
+        className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+        onClick={() => addElif(step.id)}
+      >
+        + Add elif
+      </button>
+
+      <BranchPanel label="Else" branch={{ kind: "else" }} steps={step.else} ifId={step.id} />
     </aside>
   );
 }
