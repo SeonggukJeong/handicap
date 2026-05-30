@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDataset, useDatasets } from "../api/hooks";
-import type { BindingPolicy, DataBinding } from "../api/schemas";
+import type { BindingPolicy, DataBinding, Mapping } from "../api/schemas";
 import { flattenHttpSteps, type Scenario } from "../scenario/model";
 import { scanFlowVars } from "../scenario/scanVars";
 
 type Props = {
   scenario: Scenario;
+  /** Optional saved binding to re-hydrate the panel from (run/preset prefill).
+   *  The parent remounts this panel (via React key) when the prefill source
+   *  changes, so this is read once per mount. */
+  initialBinding?: DataBinding | null;
   onChange: (b: DataBinding | null) => void;
   onValidityChange: (ok: boolean) => void;
 };
@@ -27,12 +31,33 @@ function makeRow(varName: string, manual = false): MappingRow {
   return { varName, sourceKind: "none", column: "", literalValue: "", manual };
 }
 
-export function DataBindingPanel({ scenario, onChange, onValidityChange }: Props) {
+function applyMapping(row: MappingRow, m: Mapping | undefined): MappingRow {
+  if (!m) return row;
+  if (m.kind === "column") return { ...row, sourceKind: "column", column: m.column };
+  return { ...row, sourceKind: "literal", literalValue: m.value };
+}
+
+/** Build the initial mapping rows: one per scanned var (seeded from initialBinding
+ *  if present), plus manual rows for any mapped var the scan didn't surface. */
+function seedRows(vars: Iterable<string>, initial: DataBinding | null | undefined): MappingRow[] {
+  const byVar = new Map((initial?.mappings ?? []).map((m) => [m.var, m]));
+  const scanned = new Set(vars);
+  const out: MappingRow[] = [];
+  for (const v of scanned) out.push(applyMapping(makeRow(v), byVar.get(v)));
+  for (const m of initial?.mappings ?? []) {
+    if (!scanned.has(m.var)) out.push(applyMapping(makeRow(m.var, true), m));
+  }
+  return out;
+}
+
+export function DataBindingPanel({ scenario, initialBinding, onChange, onValidityChange }: Props) {
   const datasets = useDatasets();
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>(initialBinding?.dataset_id ?? "");
   const dataset = useDataset(selectedId || undefined);
-  const [policy, setPolicy] = useState<BindingPolicy>("per_vu");
-  const [rows, setRows] = useState<MappingRow[]>([]);
+  const [policy, setPolicy] = useState<BindingPolicy>(initialBinding?.policy ?? "per_vu");
+  const [rows, setRows] = useState<MappingRow[]>(() =>
+    seedRows(scanFlowVars(scenario), initialBinding),
+  );
   // Track which vars have been auto-matched for the current dataset selection.
   const [autoMatchedFor, setAutoMatchedFor] = useState<string>("");
 

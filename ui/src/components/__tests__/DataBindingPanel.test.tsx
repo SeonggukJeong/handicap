@@ -315,3 +315,130 @@ describe("DataBindingPanel", () => {
     expect(screen.queryByText(/매핑되지 않음/i)).not.toBeInTheDocument();
   });
 });
+
+describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
+  function mockDatasets() {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/datasets")) {
+        return Promise.resolve(
+          jsonResponse({
+            datasets: [
+              {
+                id: "D1",
+                name: "users",
+                columns: ["user"],
+                row_count: 3,
+                byte_size: 10,
+                created_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/datasets/D1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "D1",
+            name: "users",
+            columns: ["user"],
+            row_count: 3,
+            byte_size: 10,
+            created_at: 1,
+            sample: [{ user: "alice" }],
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  function renderPanelWithBinding(initialBinding: DataBinding | null) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <DataBindingPanel
+          scenario={makeScenario()}
+          initialBinding={initialBinding}
+          onChange={() => {}}
+          onValidityChange={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("preselects the dataset, policy, and column mapping from initialBinding", async () => {
+    mockDatasets();
+    renderPanelWithBinding({
+      dataset_id: "D1",
+      policy: "iter_random",
+      mappings: [{ kind: "column", var: "username", column: "user" }],
+    });
+
+    // The dataset <option> list loads async via useDatasets(); a controlled
+    // <select value="D1"> shows "" until its matching option exists, so wait.
+    await waitFor(() => expect(screen.getByLabelText("dataset")).toHaveValue("D1"));
+    await waitFor(() => expect(screen.getByLabelText("policy")).toHaveValue("iter_random"));
+    await waitFor(() => expect(screen.getByLabelText("source for username")).toHaveValue("user"));
+  });
+
+  it("seeds a literal mapping for a var that is not a scanned column", async () => {
+    mockDatasets();
+    renderPanelWithBinding({
+      dataset_id: "D1",
+      policy: "per_vu",
+      mappings: [{ kind: "literal", var: "username", value: "fixed" }],
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("literal value for username")).toHaveValue("fixed"),
+    );
+  });
+
+  it("does not duplicate a manual row seeded for an unscanned mapping var", async () => {
+    mockDatasets();
+    // `extra` is NOT referenced by makeScenario()'s {{username}} — it becomes a
+    // manual row. The existing merge effect must not re-append it on mount.
+    renderPanelWithBinding({
+      dataset_id: "D1",
+      policy: "per_vu",
+      mappings: [{ kind: "literal", var: "extra", value: "v" }],
+    });
+    await waitFor(() => expect(screen.getAllByLabelText("mapping var name")).toHaveLength(1));
+    expect(screen.getByLabelText("mapping var name")).toHaveValue("extra");
+  });
+
+  it("highlights a stale column mapping whose column is gone from the dataset (spec §6)", async () => {
+    mockDatasets();
+    renderPanelWithBinding({
+      dataset_id: "D1",
+      policy: "per_vu",
+      mappings: [{ kind: "column", var: "username", column: "gone" }],
+    });
+    expect(await screen.findByText(/선택한 컬럼이 현재 데이터셋에 없음/)).toBeInTheDocument();
+  });
+
+  it("emits the seeded binding to onChange after mount", async () => {
+    mockDatasets();
+    const onChange = vi.fn<(b: DataBinding | null) => void>();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <DataBindingPanel
+          scenario={makeScenario()}
+          initialBinding={{
+            dataset_id: "D1",
+            policy: "iter_random",
+            mappings: [{ kind: "column", var: "username", column: "user" }],
+          }}
+          onChange={onChange}
+          onValidityChange={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      const last = onChange.mock.lastCall?.[0];
+      expect(last?.dataset_id).toBe("D1");
+      expect(last?.policy).toBe("iter_random");
+      expect(last?.mappings).toContainEqual({ kind: "column", var: "username", column: "user" });
+    });
+  });
+});
