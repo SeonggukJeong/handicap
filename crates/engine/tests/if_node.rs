@@ -5,6 +5,14 @@
 //! branches never run, so they have no metric window at all. The lenient test proves
 //! an unbound `{{var}}` in the condition falls through to `else` instead of killing
 //! the run.
+//!
+//! Regression tests (added Slice 9a):
+//!   - `if_in_loop_loop_index_visible_in_cond_and_url`: proves that `Step::If` passes
+//!     the incoming `loop_index` through to child steps unchanged (the load-bearing
+//!     `loop_index` argument in `execute_steps`'s `Step::If` arm). Dropping it would
+//!     make `${loop_index}` render as "" in both condition and URL.
+//!   - `extract_driven_condition_reads_live_iter_vars`: proves that an `if` cond later
+//!     in the same iteration sees variables extracted by an earlier http step.
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -158,3 +166,237 @@ async fn unbound_var_in_cond_falls_through_lenient() {
         "unbound cond must fall through to else, run must not die"
     );
 }
+
+// ── Slice 9a regression tests ────────────────────────────────────────────────
+
+/// Step IDs used by the if-in-loop and extract-driven tests. All in the
+/// Crockford base32 safe range (no I / L / O / U).
+const LOOP_IF_ID: &str = "01HX0000000000000000000005";
+const LOOP_THEN_ID: &str = "01HX0000000000000000000006";
+const LOOP_ELSE_ID: &str = "01HX0000000000000000000007";
+
+const WHO_ID: &str = "01HX0000000000000000000008";
+const BRANCH_IF_ID: &str = "01HX0000000000000000000009";
+const ADMIN_STEP_ID: &str = "01HX0000000000000000000010";
+const USER_STEP_ID: &str = "01HX0000000000000000000011";
+
+/// **Test A — if-in-loop: `${loop_index}` is visible in BOTH the condition AND
+/// the branch child's URL.**
+///
+/// Scenario shape:
+/// ```yaml
+/// loop (repeat: 2)
+///   do:
+///     - if  cond: ${loop_index} == "0"
+///         then: GET /iter/${loop_index}   (LOOP_THEN_ID)
+///         else: GET /iter/${loop_index}   (LOOP_ELSE_ID)
+/// ```
+///
+/// - Iteration 0 (loop_index=0): cond true  → THEN branch → hits `/iter/0`
+/// - Iteration 1 (loop_index=1): cond false → ELSE branch → hits `/iter/1`
+///
+/// Assertions:
+/// 1. THEN step id has count > 0 (iteration 0 took `then`).
+/// 2. ELSE step id has count > 0 (iteration 1 took `else`).
+/// 3. wiremock received at least one request to `/iter/0` AND one to `/iter/1`.
+///    This proves `${loop_index}` rendered as "0" and "1" in the child URL, NOT
+///    as "" (which is what a dropped `loop_index → None` regression would produce,
+///    making both iterations hit the un-stubbed path `/iter/`).
+///
+/// If `execute_steps` passes `None` instead of `loop_index` in the `Step::If`
+/// arm, assertion 3 fails (and usually 1/2 too, since `/iter/` is not stubbed
+/// and the 200-assert errors out, causing `run_scenario` to return
+/// `AllVusFailed`).
+#[tokio::test]
+async fn if_in_loop_loop_index_visible_in_cond_and_url() {
+    let server = MockServer::start().await;
+    // Stub /iter/0 and /iter/1 (200). A dropped loop_index would hit /iter/ (not stubbed → 404).
+    for i in 0..2 {
+        Mock::given(method("GET"))
+            .and(path(format!("/iter/{i}")))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+    }
+
+    let base = server.uri();
+    let yaml = format!(
+        r#"
+version: 1
+name: if-in-loop
+variables:
+  base: "{base}"
+steps:
+  - id: "01HX0000000000000000000099"
+    name: outer-loop
+    type: loop
+    repeat: 2
+    do:
+      - id: "{LOOP_IF_ID}"
+        name: branch-on-index
+        type: if
+        cond: {{ left: "${{loop_index}}", op: eq, right: "0" }}
+        then:
+          - id: "{LOOP_THEN_ID}"
+            name: iter-then
+            type: http
+            request: {{ method: GET, url: "{{{{base}}}}/iter/${{loop_index}}" }}
+            assert: [ {{ status: 200 }} ]
+        else:
+          - id: "{LOOP_ELSE_ID}"
+            name: iter-else
+            type: http
+            request: {{ method: GET, url: "{{{{base}}}}/iter/${{loop_index}}" }}
+            assert: [ {{ status: 200 }} ]
+"#
+    );
+
+    let scenario = Arc::new(Scenario::from_yaml(&yaml).expect("parses"));
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    let plan = RunPlan {
+        vus: 1,
+        ramp_up: Duration::from_secs(0),
+        // Long enough to complete at least one full loop (2 iters × ~1ms each).
+        // Short enough not to slow CI: wiremock responds instantly.
+        duration: Duration::from_millis(500),
+        env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
+        data_binding: None,
+    };
+    let cancel = CancellationToken::new();
+    let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
+
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    while let Some(f) = rx.recv().await {
+        for w in f.windows {
+            *counts.entry(w.step_id).or_default() += w.count;
+        }
+    }
+    run.await.expect("join").expect("run ok — all stubs 200");
+
+    // 1 & 2: both branches were taken at least once.
+    assert!(
+        counts.get(LOOP_THEN_ID).copied().unwrap_or(0) > 0,
+        "THEN branch (loop_index==0) must have run; counts={counts:?}"
+    );
+    assert!(
+        counts.get(LOOP_ELSE_ID).copied().unwrap_or(0) > 0,
+        "ELSE branch (loop_index==1) must have run; counts={counts:?}"
+    );
+
+    // 3: wiremock actually received requests to /iter/0 AND /iter/1 — proving
+    //    ${loop_index} rendered to "0"/"1" in the child URL, not to "".
+    let reqs = server.received_requests().await.unwrap();
+    let paths: Vec<String> = reqs.iter().map(|r| r.url.path().to_string()).collect();
+    assert!(
+        paths.iter().any(|p| p == "/iter/0"),
+        "/iter/0 never hit — loop_index was not rendered in the branch child URL; paths={paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p == "/iter/1"),
+        "/iter/1 never hit — loop_index was not rendered in the branch child URL; paths={paths:?}"
+    );
+}
+
+/// **Test B — extract → condition: a var extracted by an earlier http step is
+/// visible to a later `if` condition in the same iteration.**
+///
+/// Scenario shape:
+/// ```yaml
+/// - GET /who   (extract `kind` from body via JSONPath $.kind)
+/// - if  cond: {{kind}} == "admin"
+///     then: GET /admin   (ADMIN_STEP_ID)
+///     else: GET /user    (USER_STEP_ID)
+/// ```
+///
+/// `/who` returns `{"kind":"admin"}` → `kind` is extracted → cond true → THEN (/admin) runs.
+/// Assert ADMIN step ran, USER step did not.
+#[tokio::test]
+async fn extract_driven_condition_reads_live_iter_vars() {
+    let server = MockServer::start().await;
+
+    // /who returns a JSON body; we extract $.kind from it.
+    Mock::given(method("GET"))
+        .and(path("/who"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"kind":"admin"}"#)
+                .insert_header("content-type", "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/admin"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/user"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let base = server.uri();
+    let yaml = format!(
+        r#"
+version: 1
+name: extract-cond
+variables:
+  base: "{base}"
+steps:
+  - id: "{WHO_ID}"
+    name: who
+    type: http
+    request:
+      method: GET
+      url: "{{{{base}}}}/who"
+    assert:
+      - status: 200
+    extract:
+      - var: kind
+        from: body
+        path: "$.kind"
+  - id: "{BRANCH_IF_ID}"
+    name: branch
+    type: if
+    cond: {{ left: "{{{{kind}}}}", op: eq, right: "admin" }}
+    then:
+      - id: "{ADMIN_STEP_ID}"
+        name: admin-path
+        type: http
+        request: {{ method: GET, url: "{{{{base}}}}/admin" }}
+        assert: [ {{ status: 200 }} ]
+    else:
+      - id: "{USER_STEP_ID}"
+        name: user-path
+        type: http
+        request: {{ method: GET, url: "{{{{base}}}}/user" }}
+        assert: [ {{ status: 200 }} ]
+"#
+    );
+
+    let counts = run_and_count(&yaml).await;
+
+    assert!(
+        counts.get(ADMIN_STEP_ID).copied().unwrap_or(0) > 0,
+        "admin branch must have run (kind=admin extracted → cond true); counts={counts:?}"
+    );
+    assert_eq!(
+        counts.get(USER_STEP_ID),
+        None,
+        "user branch must NOT run when kind=admin; counts={counts:?}"
+    );
+}
+
+// Test C (all/any group condition via scenario_yaml helper) is intentionally
+// omitted. The `scenario_yaml` helper interpolates `cond: {cond}` as a single
+// YAML flow-line — an `all:` / `any:` group requires a block-scalar nested list
+// that cannot be cleanly inline-substituted on one line without escaping
+// gymnastics. The `all`/`any` group evaluation logic is already exhaustively
+// unit-tested in `crates/engine/src/condition.rs` (the `all_any_short_circuit_and_empty_groups`
+// and `nested_tree_depth_two` tests). The coverage gap closed here (Test A / Test B)
+// is the if-in-loop `loop_index` passthrough and the extract → condition
+// live-vars path — both of which are integration-level concerns not covered by
+// condition.rs unit tests.
