@@ -1,0 +1,73 @@
+# UI (`ui/`) 함정
+
+이 파일은 `ui/` 파일을 건드릴 때 자동 로드되는 중첩 CLAUDE.md다. 프로젝트 전역 규칙·git 토폴로지·검증 훅·일하는 모드는 루트 `CLAUDE.md` 참고. 엔진/컨트롤러/워커 함정은 각 디렉토리의 CLAUDE.md.
+
+Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zustand store + Zod 검증 + `yaml` 패키지 Document API. 양방향 sync는 탭 전환 모델.
+
+## 빌드·타입 게이트
+
+- **`pnpm build`(`tsc -b && vite build`)가 최종 게이트** (코딩 컨벤션): `pnpm test`(jsdom + esbuild transpile)는 TS strict 에러를 안 잡는 경우가 있다. 예: `fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만 `Arbitrary<string>`으로 widening돼서 discriminated union과 안 맞아 `tsc -b`에서 깨짐 → 각 인자에 `as const` 또는 명시적 `fc.Arbitrary<"GET"|"POST"|...>` 선언. **UI 변경 commit 전 `pnpm build`까지 한 번 돌리는 게 안전.**
+- **Zod 중첩 `.default()`의 input 타입 누출** (Slice 4): `ProfileSchema.ramp_up_seconds: z.number().default(0)`이 output에선 `number`지만, `RunSchema.profile`로 nested되면 부모의 `z.infer`에서 `number | undefined`로 추론된다. 별도 `Profile` 타입을 받는 컴포넌트로 props 분리하면 TS 에러. `pnpm test`(esbuild transpile)는 통과하고 **`pnpm build`(`tsc -b`)에서만 잡힘**.
+- **Zod `.strict()` + `default()`의 조합** (Slice 3): `.strict()`가 `default()`로 채워진 키를 거부하지 않는다 — default는 input 단계에서 적용되고 strict는 unknown 키 검사이므로 충돌 없음. 헷갈리지 말 것.
+
+## React Flow 캔버스 (`@xyflow/react` v12)
+
+- **`@xyflow/react` v12의 패키지 이름 변경** (Slice 3): 이전 `reactflow` 패키지가 `@xyflow/react`로 rename. import 경로도 `@xyflow/react` + `@xyflow/react/dist/style.css`. v11 예제는 함정.
+- **`@xyflow/react` v12의 `NodeProps` 시그니처** (Slice 3): v11의 `NodeProps<Data>` 가 아니라 `NodeProps<Node<Data, "type-string">>` 형태. `node_modules/@xyflow/react/dist/esm/types/index.d.ts` 확인 후 맞춰야 함.
+- **React Flow의 control vs uncontrolled** (Slice 3): 노드 위치를 직접 계산해서 넘기면 React Flow 안에서 drag로 옮긴 위치는 반영되지 않는다. Slice 3은 의도적으로 drag 비활성화(`draggable: false`) — 위치는 매번 재계산됨.
+- **React Flow v12 parent/child(subflow)** (Slice 7): 자식 노드에 `parentId` + `extent: "parent"` 를 주고, **부모 노드에 명시적 `style` width/height** 를 줘야 자식이 컨테이너 bounds 안에 담긴다(부모 크기는 자동 산출 안 됨 — 자식 수에 맞춰 높이 계산). full `<ReactFlow>` 를 jsdom 에서 마운트하는 RTL 테스트는 `ResizeObserver` 폴리필 필요(xyflow 의 ZoomPane 이 요구) — `ui/src/test/setup.ts` 에 conditional 폴리필.
+- **`Step` 을 discriminated union 으로 바꾸면 모든 consumer 가 union narrowing 을 거쳐야 한다** (Slice 7): `.request`/`.assert`/`.extract` 를 직접 읽던 TS 코드가 전부 `tsc` union 에러를 낸다. `flattenHttpSteps(steps)` 가 "트리에서 http leaf 만 평탄화" 하는 표준 헬퍼(report 라벨링·inspector 중첩 선택에 재사용) — 새 컨테이너 노드(Slice 8/9) 추가 시 이 헬퍼의 walk 만 확장하면 된다.
+- **flexbox `min-width:auto` 오버플로우 + `truncate`는 bounded width 필요** (Slice 7-1): `flex` row에서 `flex-1` 입력 옆 버튼이 칸 밖으로 밀려나는 건 flex item 기본 `min-width:auto` 때문 — 입력에 `min-w-0`, 트레일링 버튼에 `shrink-0`. Tailwind `truncate`는 **조상에 확정 너비가 있어야** 클립된다 — React Flow 노드는 콘텐츠로 자라므로 `CanvasView`에서 노드 `style.width`를 박고 노드 root에 `w-full box-border`를 줘야 긴 URL이 컨테이너 밖으로 안 자란다. 새 key-value 폼·새 캔버스 노드 추가 시 둘 다 확인.
+
+## Monaco 에디터
+
+- **`@monaco-editor/react`는 기본적으로 JSDelivr에서 monaco를 fetch** (Slice 3): 오프라인 런타임 제약을 어김. 반드시 `loader.config({ monaco })` 로 로컬 번들을 강제. 안 그러면 dev에서는 동작하지만 air-gapped staging에서 흰 화면. `loader.config({monaco})`가 init 전에 state.monaco를 채워두므로 jsdelivr fetch 분기는 도달 불가능.
+- **Monaco 워커는 Vite의 `?worker` import로 등록** (Slice 3): `import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker"` + `self.MonacoEnvironment.getWorker = () => new editorWorker()`. 이 등록을 모듈 스코프에서 해야 첫 mount 이전에 실행됨. 컴포넌트 안에 useEffect로 두면 race.
+- **Vitest는 `?worker` 쿼리를 Vite처럼 처리하지 못함** (Slice 3): 별도 worker query plugin이 vitest.config.ts에 필요. resolveId 훅으로 `?worker` 접미사를 strip하고 일반 모듈로 넘기는 식. `vi.mock("...editor.worker?worker", ...)`는 위 plugin 없이는 안 듣는다. (Slice 4 RTL 테스트에서도 그대로 사용 — Inspector/RunDetail은 Monaco를 직접 마운트 안 하므로 worker 모킹은 불필요.)
+- **Vite `resolve.alias`의 string key prefix matching 함정** (Slice 3): `{ "monaco-editor": "/path/to/api.js" }` 는 `monaco-editor/esm/...` 도 매칭해서 ENOTDIR 에러. 정확히 패키지명만 잡으려면 regex form: `{ find: /^monaco-editor$/, replacement: "..." }`.
+- **CSP `worker-src` 필요** (Slice 3): `default-src 'self'`만 있으면 Chrome이 module worker를 blob: URL로 만들 때 차단할 수 있다. `worker-src 'self' blob:`로 명시.
+
+## YAML 양방향 sync / 편집 커밋 (`yamlDoc.ts`, EditorShell)
+
+- **`yaml` 패키지 Document API의 targeted edit으로 코멘트 보존** (Slice 3): `doc.setIn(['steps', 0, 'request', 'method'], 'POST')` 식으로 부분 수정 시 다른 키 옆 코멘트 그대로 유지. 단, `steps[i]`를 통째로 교체하면 그 안의 모든 코멘트는 사라진다 — `addStep`/`removeStep`/`moveStep`은 그 한도에서 동작.
+- **`yaml` 패키지의 `doc.setIn(["name"], value)`은 기존 노드의 quote style을 상속** (Slice 3): 원본이 `name: "demo"`였으면 새 값도 `"renamed"`로 quote가 붙는다. 테스트가 unquoted를 기대하면 `Scalar.PLAIN`을 새로 만들어 setIn. `plainScalar()` 헬퍼 참고.
+- **`extract` 키 보존** (Slice 3): TS 모델(`ScenarioModel`)은 `.strict()`로 `extract`를 거부하지만, `normalizeForModel`이 doc.toJS() 후 모델 입력 단계에서 `extract`를 떨궈 검증을 통과시킨다. 원본 Doc은 그대로 — round-trip 시 `extract`가 유지됨.
+- **`yaml` 라이브러리 재직렬화의 dirty-flag false positive** (Slice 3): `parseDocument(text)` → `String(doc)` 이 들여쓰기·인용을 정규화한다(예: 평탄 list `- a`를 `  - a`로). `originalText !== currentText` 단순 비교로 dirty를 판단하면 mount 직후 첫 onChange가 정규화 텍스트를 푸시하는 순간 거짓 dirty=true. 해결: `originalYaml`을 prop이 아니라 **EditorShell의 첫 onChange 콜백에서 seed**(ref 플래그로 1회만). 저장 성공 시는 server canonical(`next.yaml`)로 다시 seed. (`ScenarioEditPage.tsx::baselineSeededRef` 참고.)
+- **`PATCH /scenarios/{id}` 의 optimistic lock과 extract 변경** (Slice 4): extract만 바뀌어도 yamlText가 달라지므로 dirty 플래그가 켜진다. EditorShell의 baselineSeededRef 패턴이 그대로 적용되어 추가 작업 없음.
+- **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합** (Slice 4 F5): `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur(또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (`ExtractEditor`가 표준 패턴 — 새 editor도 따라갈 것.)
+
+## Zustand store
+
+- **Zustand v5는 getInitialState 미제공** (Slice 3): 테스트에서 store를 reset하려면 직접 INITIAL 객체를 보관하고 setState로 덮어쓰는 헬퍼가 필요. 액션 ref는 v5에서 stable하므로 모듈 로드 시 한 번만 `getState()`로 캡쳐.
+- **`removeStep`은 selection clear가 dispatch보다 먼저** (Slice 3): 순서를 반대로 하면 subscriber가 잠깐 "삭제된 step을 가리키는 selectedStepId" 상태를 본다 → Inspector가 stale step을 deref. store action에서 `if (get().selectedStepId === stepId) set({ selectedStepId: null })`를 dispatch보다 먼저 호출.
+- **`@testing-library/react` + Zustand의 store reset 패턴** (Slice 4): 각 `it` 전에 `useScenarioEditor.setState(useScenarioEditor.getInitialState())`로 초기화. RTL는 React 트리만 재마운트하므로 모듈 스코프 store는 직접 비워야 한다.
+
+## API client / React Query / fetch
+
+- **vite dev `/api` 프록시 타깃** (Slice 4): `ui/vite.config.ts`가 `/api` → `http://127.0.0.1:8080`(controller) 프록시. UI에서 네트워크 404/CORS가 나면 controller 살아있는지 먼저 (`curl http://127.0.0.1:8080/api/scenarios`). `HANDICAP_API` env로 오버라이드 가능.
+- **React Query v5 `refetchInterval`의 시그니처** (Slice 2): `(query) => number | false`. `query.state.data`로 마지막 데이터에 접근. 4.x의 `(data) => ...` 시그니처와 다름.
+- **terminal 후 `/report` fetch가 silent로 실패하면 사용자는 "전환 없음"으로만 본다** (Slice 5): RunDetailPage 조건부가 `terminal && report.data` 라 fetch 실패 시 `report.error` 가 있어도 라이브 섹션이 fallthrough. `role="alert"` 배너로 에러 메시지를, `role="status"` 로 로딩을 표시해야 "404 / Zod parse fail / 네트워크 hang" 원인을 즉시 본다.
+- **multipart 업로드 클라이언트는 content-type을 직접 설정하면 안 된다** (Slice 8b): `ui/src/api/client.ts`의 `request`는 `content-type: application/json`을 강제 → FormData엔 못 쓴다. 별도 `requestMultipart`(헤더 미지정)로 브라우저가 boundary를 자동 설정하게 한다. DELETE(204, 빈 본문)는 `request(..., z.undefined())`로 기존 빈-본문 분기를 타게 해서 공유 `request` 시그니처를 안 건드린다.
+- **UploadPanel 라이브 미리보기는 요청 시퀀싱이 없다(8b 알려진 한계)** (Slice 8b): 옵션을 빠르게 연속 변경하면 `previewDataset` 응답이 도착 순서대로 `setPreview`돼 stale 미리보기가 남을 수 있다. 단일 사용자 수동 조작 + 빠른 파싱이라 8b에선 무시 가능; 필요 시 seq-ref/AbortController로 가드.
+
+## 리포트 렌더링 · 다운로드 · 차트(jsdom)
+
+- **bySecond 시계열 derivation은 ReportView 안에서** (Slice 5): 시계열 max-over-steps 합산 같은 derivation 로직을 backend가 아니라 ReportView 안에 두기로. backend는 raw windows 만 보낸다. 이유: UI가 step 필터/색상 분리 같은 변형을 더하기 쉬움. (step 라벨링도 UI 책임 — `crates/controller/CLAUDE.md` 참고.)
+- **Recharts ResponsiveContainer + jsdom** (Slice 5): ResponsiveContainer는 부모의 measured 사이즈를 읽는데 jsdom은 layout이 없어 size=0 → SVG 미생성 → RTL assertion 실패. 컴포넌트에 explicit `width`/`height` prop을 받게 하고 ResponsiveContainer는 프로덕션 path에서만. 테스트는 explicit size로.
+- **blob URL 누수** (Slice 5): `URL.createObjectURL` 결과는 명시적 `revokeObjectURL` 전까지 페이지 lifetime 내내 남는다. `useEffect cleanup`으로 `revokeObjectURL`. DownloadJsonButton unmount 테스트로 contract 검증.
+- **jsdom은 `URL.createObjectURL`을 구현하지 않음** (Slice 5): DownloadJsonButton/ReportView 테스트에서 `Object.defineProperty(URL, "createObjectURL", ...)` 폴리필을 모듈 스코프에 추가. 폴리필은 conditional (`typeof URL.createObjectURL === "undefined"`)로.
+- **Chrome `<a href="blob:..." download>` 가 가끔 "Check Internet Connection"으로 실패** (Slice 5): **온라인에서도** 가끔 발생, 보통 retry로 해소되는 transient 실패(원인 추정: Chrome 다운로드 매니저의 Safe Browsing phone-home). 우회: **`window.showSaveFilePicker`**(File System Access API, Chrome/Edge 86+)는 다운로드 매니저를 거치지 않아 무관하고 저장 위치를 고를 수 있어 UX도 낫다. Firefox/Safari 미지원이라 blob URL anchor click fallback 유지. 패턴: `if (typeof window.showSaveFilePicker === "function") { ... } else { /* blob URL anchor click */ }`. (처음 "에어갭"으로 오진했었음 — 같은 함정 또 만나면 transient/retry 먼저 의심.)
+
+## 폼·입력 UX / 진단 표시 (RunDialog, RunDetail)
+
+- **plan에 있던 UI 갭이 manual check에서 처음 드러나는 패턴** (Slice 4 M1): Slice 4 plan은 ramp_up/env를 엔진·controller·proto에 다 넣었지만 `RunDialog`가 두 값을 하드코딩(`ramp_up_seconds: 0`, `env: {}`)으로 보내고 있었다. 단위/통합 테스트는 백엔드만 검증해 회귀가 안 잡혔다. **새 런타임 옵션은 RunDialog 입력 + 페이로드까지 같은 task 단위로 묶을 것.**
+- **key-value 입력 폼은 한 칸짜리 add row를 만들지 말 것** (Slice 4 M5): RunDialog Env 입력 1차 구현이 placeholder="BASE_URL" 한 칸 + Add였는데, 사용자가 URL을 키 칸에 통째로 적어 `key=http://..., value=""` 잘못된 entry를 만들었다. 두 칸 동시 입력 + key 비어있으면 Add disabled가 표준(`VariablesPanel` 패턴).
+- **Run 상세 화면의 step_id 진단성** (Slice 4 M2): ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다. 시나리오 YAML을 같이 fetch해서 `step.id → {name, method, url}`로 매핑하고 URL은 `resolveForDisplay`로 풀어 표시하면 status 0 같은 비정상 상태에서 root cause(시나리오 설정 vs connectivity) 분간이 한 화면에서 가능.
+- **`resolveForDisplay`는 display/관대 resolver** (Slice 4 M3): UI `ui/src/scenario/template.ts::resolveForDisplay`는 미해결 토큰을 그대로 둔다(엔진 `template.rs`는 runtime/엄격). 엔진에 새 토큰/문법 추가하면 **반드시 이 resolver도 동시에**, 아니면 진단 표시가 거짓말을 한다.
+
+## 오프라인(CSP) · 테스트 인프라
+
+- **오프라인 런타임 제약** (Slice 2): 사내망/에어갭 staging에서도 UI가 떠야 한다(ADR-0001). `index.html`에 `Content-Security-Policy` 메타 태그로 `default-src 'self'` 강제, Tailwind 기본 시스템 폰트 스택만 사용(CDN 폰트 금지), 외부 아이콘·스크립트도 npm 번들로만. 어기면 CSP가 브라우저 콘솔에서 즉시 실패시키므로 회귀가 조용히 안 들어온다. 폰트 커스텀 필요하면 `@fontsource/*` 같은 로컬 번들로.
+- **`pnpm install --frozen-lockfile` in CI** (Slice 2): `pnpm-lock.yaml`을 반드시 커밋해야 함. 안 하면 CI가 `ERR_PNPM_NO_LOCKFILE`로 실패.
+- **`fast-check` + Vitest의 default `numRuns`** (Slice 4): 100. CI 시간을 아끼려고 round-trip 프로퍼티에서 40으로 줄였다. 의도적 — 셔링크 발생 시 numRuns를 다시 올려 재현.
+- **userEvent.setup()를 it마다 호출** (Slice 4): v14에서 글로벌 default user-event는 deprecated. 매 테스트에서 `const user = userEvent.setup()` 명시.
