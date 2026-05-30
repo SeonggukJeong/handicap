@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
-use handicap_engine::{EngineError, MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{
+    BindingPolicy, DataSet, EngineError, MetricFlush, RunPlan, Scenario, run_scenario,
+};
 use handicap_proto::v1 as pb;
-use handicap_worker_core::{WorkerError, connect_with_backoff};
+use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
@@ -92,13 +94,84 @@ async fn main() -> anyhow::Result<()> {
 
     // Wire env and ramp_up from the assignment into RunPlan.
     let env: BTreeMap<String, String> = assignment.env.clone().into_iter().collect();
+
+    // Data-binding loading stage (spec §7.3): if the assignment carries a binding,
+    // drain DatasetBatch messages until we have row_count rows, THEN start the
+    // engine. An abort/cancel during loading exits cleanly; an early stream close
+    // is a failure.
+    //
+    // This block MUST come before spawning `abort_listener` (which moves
+    // `inbound_rx`) and before spawning `forwarder` (so early-return arms don't
+    // need to clean up either task).
+    let dataset: Option<Arc<DataSet>> = match &assignment.data_binding {
+        Some(b) if b.row_count > 0 => {
+            info!(rows = b.row_count, run_id = %args.run_id, "loading dataset before run");
+            match load_dataset(&mut inbound_rx, b.row_count, &args.run_id, &cancel).await {
+                Ok(rows) => {
+                    let policy = match pb::data_binding::Policy::try_from(b.policy) {
+                        Ok(pb::data_binding::Policy::PerVu) => BindingPolicy::PerVu,
+                        Ok(pb::data_binding::Policy::IterSequential) => {
+                            BindingPolicy::IterSequential
+                        }
+                        Ok(pb::data_binding::Policy::IterRandom) => BindingPolicy::IterRandom,
+                        _ => unreachable!(
+                            "proto DataBinding.policy {} not mapped — controller/worker version mismatch",
+                            b.policy
+                        ),
+                    };
+                    Some(Arc::new(DataSet {
+                        policy,
+                        seed: b.seed,
+                        rows,
+                    }))
+                }
+                Err(WorkerError::Cancelled) => {
+                    // Abort/SIGTERM during loading: report Aborted + clean shutdown
+                    // (mirror the end-of-main shutdown sequence).
+                    info!(run_id = %args.run_id, "aborted during dataset load");
+                    let msg = WorkerMessage {
+                        payload: Some(WorkerPayload::RunStatus(RunStatus {
+                            run_id: args.run_id.clone(),
+                            phase: pb::run_status::Phase::Aborted as i32,
+                            message: String::new(),
+                        })),
+                    };
+                    let _ = tx.send(msg).await;
+                    drop(tx);
+                    let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
+                    signal_task.abort();
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Stream closed early (e.g. controller crash mid-stream): report
+                    // Failed + clean shutdown so the run doesn't sit "running".
+                    let emsg = e.to_string();
+                    tracing::warn!(run_id = %args.run_id, error = %emsg, "dataset load failed");
+                    let msg = WorkerMessage {
+                        payload: Some(WorkerPayload::RunStatus(RunStatus {
+                            run_id: args.run_id.clone(),
+                            phase: pb::run_status::Phase::Failed as i32,
+                            message: emsg,
+                        })),
+                    };
+                    let _ = tx.send(msg).await;
+                    drop(tx);
+                    let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
+                    signal_task.abort();
+                    return Ok(());
+                }
+            }
+        }
+        _ => None,
+    };
+
     let plan = RunPlan {
         vus: profile.vus,
         ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
-        data_binding: None,
+        data_binding: dataset,
     };
     info!(
         vus = plan.vus,
