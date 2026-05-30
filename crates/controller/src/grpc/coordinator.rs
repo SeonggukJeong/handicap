@@ -15,8 +15,22 @@ use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
+use crate::binding::Mapping;
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
+
+/// Resolved binding the controller holds between run-create and worker-register.
+/// Row data is NOT held here (spec §7.2) — only what's needed to (a) fill
+/// RunAssignment.data_binding and (b) stream rows from the DB on Register (Task 6).
+#[derive(Debug, Clone)]
+pub struct PendingDataBinding {
+    pub dataset_id: String,
+    pub policy: pb::data_binding::Policy,
+    pub seed: u32,
+    pub mappings: Vec<Mapping>,
+    /// Rows the worker will receive after policy-aware slicing.
+    pub row_count: u64,
+}
 
 /// What a pending run needs to hand to its worker.
 #[derive(Debug, Clone)]
@@ -24,6 +38,7 @@ pub struct PendingAssignment {
     pub scenario_yaml: String,
     pub profile: Profile,
     pub env: HashMap<String, String>,
+    pub data_binding: Option<PendingDataBinding>,
 }
 
 /// Outbound channel to an active (connected) worker.
@@ -112,10 +127,16 @@ impl Coordinator for CoordinatorService {
                             Some(a) => {
                                 let assignment = RunAssignment {
                                     run_id: reg.run_id.clone(),
-                                    scenario_yaml: a.scenario_yaml,
+                                    scenario_yaml: a.scenario_yaml.clone(),
                                     profile: Some(a.profile),
-                                    env: a.env,
-                                    data_binding: None,
+                                    env: a.env.clone(),
+                                    data_binding: a.data_binding.as_ref().map(|b| {
+                                        pb::DataBinding {
+                                            policy: b.policy as i32,
+                                            seed: b.seed,
+                                            row_count: b.row_count,
+                                        }
+                                    }),
                                 };
                                 let _ = tx
                                     .send(Ok(ServerMessage {

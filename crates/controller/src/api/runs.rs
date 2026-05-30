@@ -52,7 +52,10 @@ pub async fn create(
     }
 
     // Data-binding validation gate (spec §11). `unique` is reserved for a later slice.
-    if let Some(b) = &body.profile.data_binding {
+    // On success, yields the validated (binding_ref, meta) so the resolution block
+    // below can reuse `meta` without a second get_meta call (avoids a TOCTOU panic
+    // if DELETE /datasets/{id} races between the two awaits).
+    let validated_binding = if let Some(b) = &body.profile.data_binding {
         use crate::binding::BindingPolicy;
         if matches!(b.policy, BindingPolicy::Unique) {
             return Err(ApiError::BadRequest(
@@ -89,7 +92,10 @@ pub async fn create(
                 meta.row_count, state.dataset_max_rows
             )));
         }
-    }
+        Some((b, meta))
+    } else {
+        None
+    };
 
     let row = runs::insert(
         &state.db,
@@ -109,6 +115,35 @@ pub async fn create(
             .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
             .collect();
 
+    // Resolve the binding for the worker (spec §4/§7): proto policy, a
+    // deterministic seed folded from the run id, and the sliced row count.
+    // Reuses the already-validated meta from the gate above — no second DB call.
+    let data_binding = validated_binding.map(|(b, meta)| {
+        use crate::binding::BindingPolicy;
+        let (policy, row_count) = match b.policy {
+            BindingPolicy::PerVu => (
+                handicap_proto::v1::data_binding::Policy::PerVu,
+                (body.profile.vus as u64).min(meta.row_count as u64),
+            ),
+            BindingPolicy::IterSequential => (
+                handicap_proto::v1::data_binding::Policy::IterSequential,
+                meta.row_count as u64,
+            ),
+            BindingPolicy::IterRandom => (
+                handicap_proto::v1::data_binding::Policy::IterRandom,
+                meta.row_count as u64,
+            ),
+            BindingPolicy::Unique => unreachable!("unique rejected by the gate"),
+        };
+        crate::grpc::coordinator::PendingDataBinding {
+            dataset_id: b.dataset_id.clone(),
+            policy,
+            seed: fold_seed(&row.id),
+            mappings: b.mappings.clone(),
+            row_count,
+        }
+    });
+
     // Enqueue the assignment so the coordinator can hand it to the worker when it registers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
         scenario_yaml: scenario.yaml.clone(),
@@ -119,6 +154,7 @@ pub async fn create(
             loop_breakdown_cap: body.profile.loop_breakdown_cap,
         },
         env,
+        data_binding,
     };
     state.coord.enqueue(row.id.clone(), assignment).await;
 
@@ -207,6 +243,19 @@ pub async fn abort_run(
     Ok(axum::http::StatusCode::OK)
 }
 
+/// Fold a run id (ULID, 26 Crockford chars) into a u32 PRNG seed. Determinism
+/// is all we need (spec §4) — collisions are harmless since the seed only
+/// drives `iter_random` reproducibility within a single run.
+fn fold_seed(run_id: &str) -> u32 {
+    // FNV-1a over the id bytes.
+    let mut h: u32 = 0x811C_9DC5;
+    for byte in run_id.as_bytes() {
+        h ^= *byte as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
 fn to_response(r: runs::RunRow) -> RunResponse {
     RunResponse {
         id: r.id,
@@ -229,5 +278,17 @@ mod tests {
         assert!(super::loop_cap_ok(256));
         assert!(super::loop_cap_ok(10_000));
         assert!(!super::loop_cap_ok(10_001)); // over cap rejected
+    }
+
+    #[test]
+    fn fold_seed_is_deterministic_and_varies() {
+        assert_eq!(
+            super::fold_seed("01HX0000000000000000000001"),
+            super::fold_seed("01HX0000000000000000000001")
+        );
+        assert_ne!(
+            super::fold_seed("01HX0000000000000000000001"),
+            super::fold_seed("01HX0000000000000000000002")
+        );
     }
 }
