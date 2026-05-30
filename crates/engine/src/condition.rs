@@ -28,15 +28,20 @@ fn eval_compare(left: &str, op: CompareOp, right: Option<&str>, ctx: &TemplateCo
                 CompareOp::Eq => l == r,
                 CompareOp::Ne => l != r,
                 CompareOp::Contains => l.contains(&r),
-                CompareOp::Matches => match regex::Regex::new(&r) {
-                    Ok(re) => re.is_match(&l),
-                    Err(e) => {
-                        // Runtime safety net (spec §3.3): bad regex → lenient false.
-                        // The authoring guard is UI 9b (`new RegExp` smoke check).
-                        tracing::warn!(pattern = %r, error = %e, "invalid regex in condition; treating as false");
-                        false
+                CompareOp::Matches => {
+                    // Compiled per-eval, not cached: `matches` is a rare op and `r` is the
+                    // *rendered* right operand (may contain ${ENV}/{{var}}), so it is not a
+                    // compile-time constant — a static/once_cell cache would be incorrect.
+                    match regex::Regex::new(&r) {
+                        Ok(re) => re.is_match(&l),
+                        Err(e) => {
+                            // Runtime safety net (spec §3.3): bad regex → lenient false.
+                            // The authoring guard is UI 9b (`new RegExp` smoke check).
+                            tracing::warn!(pattern = %r, error = %e, "invalid regex in condition; treating as false");
+                            false
+                        }
                     }
-                },
+                }
                 CompareOp::Lt | CompareOp::Gt | CompareOp::Lte | CompareOp::Gte => {
                     match (l.parse::<f64>(), r.parse::<f64>()) {
                         (Ok(a), Ok(b)) => match op {
@@ -250,5 +255,62 @@ mod tests {
         let ctx = ctx_with(&v, &e);
         // left renders "" , right None → "" , eq → true
         assert!(eval_condition(&cmp("{{x}}", CompareOp::Eq, None), &ctx));
+    }
+
+    #[test]
+    fn nested_tree_depth_two() {
+        // Any( All(a==1, b==2), c==9 ) — exercises recursion deeper than one level.
+        let v = vars(&[("a", "1"), ("b", "2"), ("c", "3")]);
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let inner_all = Condition::All(vec![
+            cmp("{{a}}", CompareOp::Eq, Some("1")),
+            cmp("{{b}}", CompareOp::Eq, Some("2")),
+        ]);
+        let cond = Condition::Any(vec![
+            inner_all.clone(),
+            cmp("{{c}}", CompareOp::Eq, Some("9")),
+        ]);
+        assert!(eval_condition(&cond, &ctx)); // inner_all true → Any true
+
+        // Now break the inner All so the whole Any is false.
+        let v2 = vars(&[("a", "0"), ("b", "2"), ("c", "3")]);
+        let ctx2 = ctx_with(&v2, &e);
+        assert!(!eval_condition(&cond, &ctx2));
+    }
+
+    #[test]
+    fn ne_with_unbound_left_is_true() {
+        // unbound {{ghost}} → lenient "" , "" != "x" → true.
+        let v = BTreeMap::new();
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        assert!(eval_condition(
+            &cmp("{{ghost}}", CompareOp::Ne, Some("x")),
+            &ctx
+        ));
+    }
+
+    #[test]
+    fn right_operand_is_templated() {
+        // The right operand is rendered too: a ${ENV} pattern resolves before matching.
+        let v = vars(&[("s", "abc123")]);
+        let e: BTreeMap<String, String> = [("PAT".to_string(), "[0-9]+".to_string())]
+            .into_iter()
+            .collect();
+        let ctx = ctx_with(&v, &e);
+        assert!(eval_condition(
+            &cmp("{{s}}", CompareOp::Matches, Some("${PAT}")),
+            &ctx
+        ));
+        // and an eq against a templated right operand.
+        let e2: BTreeMap<String, String> = [("WANT".to_string(), "abc123".to_string())]
+            .into_iter()
+            .collect();
+        let ctx2 = ctx_with(&v, &e2);
+        assert!(eval_condition(
+            &cmp("{{s}}", CompareOp::Eq, Some("${WANT}")),
+            &ctx2
+        ));
     }
 }
