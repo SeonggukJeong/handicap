@@ -66,7 +66,7 @@ export function useCreateRun() {
     }: {
       scenarioId: string;
       profile: Profile;
-      env: Record<string, unknown>;
+      env: Record<string, string>;
     }) => api.createRun(scenarioId, profile, env),
     onSuccess: (run) => {
       qc.invalidateQueries({ queryKey: queryKeys.scenarioRuns(run.scenario_id) });

@@ -46,6 +46,8 @@ export type Profile = z.infer<typeof ProfileSchema>;
 export const RunSchema = z.object({
   id: z.string(),
   scenario_id: z.string(),
+  // Immutable scenario snapshot the run executed against (retry drift warning).
+  scenario_yaml: z.string(),
   status: RunStatusEnum,
   profile: ProfileSchema,
   // Backend stores env as serde_json::Value (could be null, object, or anything).

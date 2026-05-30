@@ -32,6 +32,7 @@ describe("RunSchema", () => {
     const v = {
       id: "r",
       scenario_id: "s",
+      scenario_yaml: "version: 1\nname: t\nsteps: []\n",
       status: "pending",
       profile: { vus: 1, duration_seconds: 1, ramp_up_seconds: 0 },
       env: {},
@@ -46,6 +47,7 @@ describe("RunSchema", () => {
     const v = {
       id: "r",
       scenario_id: "s",
+      scenario_yaml: "version: 1\nname: t\nsteps: []\n",
       status: "weird",
       profile: { vus: 1, duration_seconds: 1, ramp_up_seconds: 0 },
       env: {},

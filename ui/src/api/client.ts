@@ -108,7 +108,7 @@ export const api = {
     ),
   listRunsForScenario: (id: string) =>
     request(`/scenarios/${encodeURIComponent(id)}/runs`, { method: "GET" }, RunListSchema),
-  createRun: (scenario_id: string, profile: Profile, env: Record<string, unknown>) =>
+  createRun: (scenario_id: string, profile: Profile, env: Record<string, string>) =>
     request(
       "/runs",
       { method: "POST", body: JSON.stringify({ scenario_id, profile, env }) },

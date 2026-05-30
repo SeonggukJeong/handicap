@@ -62,6 +62,7 @@ describe("RunSchema.message", () => {
   const base = {
     id: "R1",
     scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
     status: "failed" as const,
     profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
     env: {},

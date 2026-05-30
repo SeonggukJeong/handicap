@@ -46,6 +46,7 @@ describe("RunDetailPage — abort", () => {
           jsonResponse({
             id: "R1",
             scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
             status: phase,
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
             env: {},
@@ -96,6 +97,7 @@ describe("RunDetailPage — abort", () => {
           jsonResponse({
             id: "R2",
             scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
             status: "completed",
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
             env: {},
@@ -144,6 +146,7 @@ describe("RunDetailPage — step metadata", () => {
           jsonResponse({
             id: "R3",
             scenario_id: "S1",
+            scenario_yaml: yaml,
             status: "completed",
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
             env: {},
@@ -198,7 +201,7 @@ describe("RunDetailPage — step metadata", () => {
     expect(stepsRegion).toHaveTextContent("POST");
     expect(stepsRegion).toHaveTextContent("${BASE_URL}/login");
     expect(stepsRegion).toHaveTextContent("15"); // total count
-    expect(stepsRegion).toHaveTextContent("4");  // total errors
+    expect(stepsRegion).toHaveTextContent("4"); // total errors
   });
 });
 
@@ -235,6 +238,7 @@ describe("RunDetailPage — report on terminal", () => {
           jsonResponse({
             id: "R9",
             scenario_id: "S9",
+            scenario_yaml: reportBundle.scenario_yaml,
             status: "completed",
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
             env: {},
@@ -277,6 +281,7 @@ describe("RunDetailPage — report on terminal", () => {
           jsonResponse({
             id: "R10",
             scenario_id: "S9",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
             status: "running",
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 30 },
             env: {},
@@ -306,6 +311,7 @@ describe("RunDetailPage — report on terminal", () => {
           jsonResponse({
             id: "R11",
             scenario_id: "S9",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
             status: "completed",
             profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
             env: {},

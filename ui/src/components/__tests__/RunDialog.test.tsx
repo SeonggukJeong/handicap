@@ -66,6 +66,7 @@ describe("RunDialog — env & ramp_up", () => {
       jsonResponse({
         id: "R1",
         scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
         status: "pending",
         profile: { vus: 2, ramp_up_seconds: 2, duration_seconds: 5 },
         env: { BASE_URL: "http://localhost:9090" },
@@ -151,6 +152,7 @@ describe("RunDialog — env & ramp_up", () => {
       jsonResponse({
         id: "R2",
         scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
         status: "pending",
         profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 256 },
         env: {},
@@ -196,6 +198,7 @@ describe("RunDialog — env & ramp_up", () => {
       jsonResponse({
         id: "R3",
         scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
         status: "pending",
         profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 0 },
         env: {},
@@ -236,6 +239,7 @@ describe("RunDialog — env & ramp_up", () => {
       jsonResponse({
         id: "R4",
         scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
         status: "pending",
         profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 0 },
         env: {},
