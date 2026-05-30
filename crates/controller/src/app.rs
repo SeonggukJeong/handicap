@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -16,6 +17,9 @@ pub struct AppState {
     pub dispatcher: SharedDispatcher,
     pub ui_dir: Option<PathBuf>,
 }
+
+/// 데이터셋 업로드 본문 상한(8b). 행 수 제한은 run-create 게이트(8c)에서 — 여기선 넉넉한 메모리 천장만.
+const DATASET_UPLOAD_BODY_LIMIT: usize = 256 * 1024 * 1024; // 256 MiB
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
@@ -36,9 +40,14 @@ pub fn router(state: AppState) -> Router {
         .route("/runs/{id}/abort", post(runs_api::abort_run))
         .route(
             "/datasets",
-            post(datasets_api::upload).get(datasets_api::list),
+            post(datasets_api::upload)
+                .get(datasets_api::list)
+                .layer(DefaultBodyLimit::max(DATASET_UPLOAD_BODY_LIMIT)),
         )
-        .route("/datasets/preview", post(datasets_api::preview))
+        .route(
+            "/datasets/preview",
+            post(datasets_api::preview).layer(DefaultBodyLimit::max(DATASET_UPLOAD_BODY_LIMIT)),
+        )
         .route(
             "/datasets/{id}",
             get(datasets_api::get).delete(datasets_api::delete),

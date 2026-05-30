@@ -147,6 +147,29 @@ async fn dataset_preview_does_not_persist() {
 }
 
 #[tokio::test]
+async fn dataset_upload_allows_files_over_2mb() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    // header "a" + one row whose cell is ~3 MiB → total body > 2 MiB default limit
+    let big_cell = "x".repeat(3 * 1024 * 1024);
+    let csv = format!("a\n{big_cell}\n");
+    let (ct, body) = multipart(&[("file", Some("big.csv"), csv.as_bytes())]);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/datasets")
+        .header("content-type", ct)
+        .body(Body::from(body))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "upload >2MB must not be rejected by the default body limit"
+    );
+}
+
+#[tokio::test]
 async fn dataset_upload_rejects_no_file() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db.clone());

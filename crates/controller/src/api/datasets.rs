@@ -58,8 +58,10 @@ async fn read_multipart(mut mp: Multipart) -> Result<Upload, ApiError> {
         let fname = field.name().map(str::to_string);
         match fname.as_deref() {
             Some("file") => {
-                if let Some(filename) = field.file_name() {
-                    name = Some(strip_ext(filename));
+                if name.is_none() {
+                    if let Some(filename) = field.file_name() {
+                        name = Some(strip_ext(filename));
+                    }
                 }
                 let data = field
                     .bytes()
