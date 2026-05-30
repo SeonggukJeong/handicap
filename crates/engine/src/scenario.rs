@@ -898,4 +898,99 @@ steps:
         // Empty map has no discriminator → error.
         assert!(serde_yaml::from_str::<Condition>("{}").is_err());
     }
+
+    // ---- Slice 9a: IfStep / ElifBranch round-trip ----
+
+    #[test]
+    fn if_step_round_trips() {
+        // Case 1: minimal IfStep — empty elif and else_ verify that
+        // `#[serde(default)]` empty-vec behavior and the `then`/`else` renames
+        // hold in both directions.
+        let minimal = r#"
+version: 1
+name: if-minimal
+steps:
+  - id: "01HX0000000000000000000001"
+    name: check-status
+    type: if
+    cond: { left: "{{code}}", op: eq, right: "200" }
+    then:
+      - id: "01HX0000000000000000000002"
+        name: ok-step
+        type: http
+        request: { method: GET, url: "/ok" }
+        assert: []
+"#;
+        let s = Scenario::from_yaml(minimal).unwrap();
+        let yaml = s.to_yaml().unwrap();
+        let s2 = Scenario::from_yaml(&yaml).unwrap();
+        assert_eq!(s, s2, "minimal IfStep must round-trip:\n{yaml}");
+
+        // Serialized form must use `then:` (not `then_:`).
+        // `elif:` and `else:` are emitted even when empty (no skip_serializing_if),
+        // and the `#[serde(default)]` annotation means they round-trip correctly
+        // when deserialized from an empty list or when absent.
+        assert!(
+            yaml.contains("then:"),
+            "serialized form must use `then:` key:\n{yaml}"
+        );
+        assert!(
+            !yaml.contains("then_:"),
+            "serialized form must NOT use `then_:` key:\n{yaml}"
+        );
+
+        // Case 2: full IfStep — populated elif (≥1 ElifBranch) and non-empty else_
+        // to verify that the rename/default annotations survive a full round-trip.
+        let full = r#"
+version: 1
+name: if-full
+steps:
+  - id: "01HX0000000000000000000003"
+    name: branch
+    type: if
+    cond: { left: "{{code}}", op: eq, right: "200" }
+    then:
+      - id: "01HX0000000000000000000004"
+        name: then-step
+        type: http
+        request: { method: GET, url: "/then" }
+        assert: []
+    elif:
+      - cond: { left: "{{code}}", op: eq, right: "404" }
+        then:
+          - id: "01HX0000000000000000000005"
+            name: elif-step
+            type: http
+            request: { method: GET, url: "/not-found" }
+            assert: []
+    else:
+      - id: "01HX0000000000000000000006"
+        name: else-step
+        type: http
+        request: { method: GET, url: "/fallback" }
+        assert: []
+"#;
+        let s = Scenario::from_yaml(full).unwrap();
+        let yaml = s.to_yaml().unwrap();
+        let s2 = Scenario::from_yaml(&yaml).unwrap();
+        assert_eq!(s, s2, "full IfStep must round-trip:\n{yaml}");
+
+        // Confirm the serde renames appear in the wire form.
+        assert!(
+            yaml.contains("then:"),
+            "serialized form must use `then:` key:\n{yaml}"
+        );
+        assert!(
+            yaml.contains("else:"),
+            "non-empty else_ must serialize as `else:` key:\n{yaml}"
+        );
+        assert!(
+            !yaml.contains("then_:"),
+            "serialized form must NOT use `then_:` key:\n{yaml}"
+        );
+        assert!(
+            !yaml.contains("else_:"),
+            "serialized form must NOT use `else_:` key:\n{yaml}"
+        );
+    }
 }
