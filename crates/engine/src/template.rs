@@ -12,13 +12,29 @@ pub struct TemplateContext<'a> {
     pub loop_index: Option<u32>,
 }
 
-/// Substitute `{{var}}` (from `vars`) and `${NAME}` (system vars or env).
+/// Substitute `{{var}}` (from `vars`) and `${NAME}` (system vars or env). Strict:
+/// any unresolved token errors (fail-fast at request build time).
 /// - `${vu_id}` / `${iter_id}` resolve to their numeric values.
 /// - `${loop_index}` resolves to the current 0-based loop index, or errors outside a loop.
 /// - `${NAME}` resolves against `ctx.env`; unknown name with no default → error.
 /// - `${NAME:-default}` falls back to `default` when `NAME` is absent from env.
 /// - Unknown `{{name}}` → error.
 pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
+    render_inner(input, ctx, false)
+}
+
+/// Lenient variant for **condition evaluation** (spec §3.1). Shares the parser
+/// with [`render`] but every unresolved token (`{{var}}`, undefined `${NAME}`,
+/// `${loop_index}` outside a loop) renders to the empty string, and an unclosed
+/// `{{`/`${` marker is emitted literally. It never returns `Err` — condition
+/// evaluation must never kill a run (extract failure → natural branching). Mirrors
+/// the UI `resolveForDisplay` philosophy (preserve/soften unresolved tokens).
+pub fn render_lenient(input: &str, ctx: &TemplateContext) -> String {
+    // `render_inner(.., true)` provably never returns Err; default-guard is defensive.
+    render_inner(input, ctx, true).unwrap_or_default()
+}
+
+fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<String> {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -31,17 +47,30 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
         if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
             // Flush any pending literal bytes before this substitution.
             out.push_str(&input[lit_start..i]);
-            let end = find_pair(bytes, i + 2, b"}}").ok_or_else(|| {
-                EngineError::MalformedTemplate(format!("unclosed {{{{ at byte {i}"))
-            })?;
+            let end = match find_pair(bytes, i + 2, b"}}") {
+                Some(e) => e,
+                None => {
+                    if lenient {
+                        out.push_str(&input[i..]);
+                        return Ok(out);
+                    }
+                    return Err(EngineError::MalformedTemplate(format!(
+                        "unclosed {{{{ at byte {i}"
+                    )));
+                }
+            };
             let name = std::str::from_utf8(&bytes[i + 2..end])
                 .map_err(|_| EngineError::MalformedTemplate("non-utf8 in {{ }}".into()))?
                 .trim();
-            let value = ctx
-                .vars
-                .get(name)
-                .ok_or_else(|| EngineError::UnknownVar(name.to_string()))?;
-            out.push_str(value);
+            match ctx.vars.get(name) {
+                Some(value) => out.push_str(value),
+                None => {
+                    if !lenient {
+                        return Err(EngineError::UnknownVar(name.to_string()));
+                    }
+                    // lenient: push nothing (empty string).
+                }
+            }
             i = end + 2;
             lit_start = i;
             continue;
@@ -49,31 +78,42 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
         if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
             // Flush any pending literal bytes before this substitution.
             out.push_str(&input[lit_start..i]);
-            let end = find_byte(bytes, i + 2, b'}').ok_or_else(|| {
-                EngineError::MalformedTemplate(format!("unclosed ${{ at byte {i}"))
-            })?;
+            let end = match find_byte(bytes, i + 2, b'}') {
+                Some(e) => e,
+                None => {
+                    if lenient {
+                        out.push_str(&input[i..]);
+                        return Ok(out);
+                    }
+                    return Err(EngineError::MalformedTemplate(format!(
+                        "unclosed ${{ at byte {i}"
+                    )));
+                }
+            };
             let inner = std::str::from_utf8(&bytes[i + 2..end])
                 .map_err(|_| EngineError::MalformedTemplate("non-utf8 in ${ }".into()))?;
             let (name, default) = match inner.find(":-") {
                 Some(p) => (inner[..p].trim(), Some(inner[p + 2..].to_string())),
                 None => (inner.trim(), None),
             };
-            let value = match name {
-                "vu_id" => ctx.vu_id.to_string(),
-                "iter_id" => ctx.iter_id.to_string(),
-                "loop_index" => match ctx.loop_index {
-                    Some(i) => i.to_string(),
-                    None => return Err(EngineError::UnknownVar("loop_index".to_string())),
-                },
+            let value: Option<String> = match name {
+                "vu_id" => Some(ctx.vu_id.to_string()),
+                "iter_id" => Some(ctx.iter_id.to_string()),
+                "loop_index" => ctx.loop_index.map(|x| x.to_string()),
                 other => match ctx.env.get(other) {
-                    Some(v) => v.clone(),
-                    None => match default {
-                        Some(d) => d,
-                        None => return Err(EngineError::UnknownVar(other.to_string())),
-                    },
+                    Some(v) => Some(v.clone()),
+                    None => default,
                 },
             };
-            out.push_str(&value);
+            match value {
+                Some(v) => out.push_str(&v),
+                None => {
+                    if !lenient {
+                        return Err(EngineError::UnknownVar(name.to_string()));
+                    }
+                    // lenient: push nothing.
+                }
+            }
             i = end + 1;
             lit_start = i;
             continue;
@@ -371,5 +411,83 @@ mod tests {
             loop_index: None,
         };
         assert_eq!(render("${HOST}/${vu_id}", &ctx).unwrap(), "h/9");
+    }
+
+    #[test]
+    fn lenient_unknown_flow_var_is_empty() {
+        let v = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        assert_eq!(render_lenient("[{{missing}}]", &ctx), "[]");
+    }
+
+    #[test]
+    fn lenient_unknown_env_var_is_empty() {
+        let v = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        assert_eq!(render_lenient("[${NOPE}]", &ctx), "[]");
+        // ...but a default still resolves.
+        assert_eq!(render_lenient("${NOPE:-fb}", &ctx), "fb");
+    }
+
+    #[test]
+    fn lenient_loop_index_outside_loop_is_empty() {
+        let v = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        assert_eq!(render_lenient("i${loop_index}", &ctx), "i");
+    }
+
+    #[test]
+    fn lenient_resolves_known_vars_same_as_strict() {
+        let v = vars(&[("code", "200")]);
+        let env: BTreeMap<String, String> =
+            [("H".to_string(), "x".to_string())].into_iter().collect();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 7,
+            iter_id: 0,
+            loop_index: Some(2),
+        };
+        assert_eq!(
+            render_lenient("${H}/{{code}}/${vu_id}/${loop_index}", &ctx),
+            "x/200/7/2"
+        );
+    }
+
+    #[test]
+    fn lenient_unclosed_marker_is_literal_and_never_errors() {
+        let v = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        // No panic, no error path — unclosed braces pass through literally.
+        assert_eq!(render_lenient("a{{unclosed", &ctx), "a{{unclosed");
+        assert_eq!(render_lenient("b${unclosed", &ctx), "b${unclosed");
     }
 }

@@ -18,4 +18,4 @@ pub use scenario::{
     Assertion, Body, CompareOp, Condition, CookieJarMode, HttpMethod, HttpStep, LoopStep, Request,
     Scenario, Step,
 };
-pub use template::{TemplateContext, render};
+pub use template::{TemplateContext, render, render_lenient};
