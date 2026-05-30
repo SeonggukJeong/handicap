@@ -8,9 +8,12 @@ export function Layout() {
           <Link to="/" className="text-xl font-semibold tracking-tight">
             Handicap
           </Link>
-          <nav className="text-sm text-slate-600">
+          <nav className="flex gap-4 text-sm text-slate-600">
             <Link to="/" className="hover:text-slate-900">
               Scenarios
+            </Link>
+            <Link to="/datasets" className="hover:text-slate-900">
+              Datasets
             </Link>
           </nav>
         </div>

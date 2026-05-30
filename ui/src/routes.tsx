@@ -5,6 +5,7 @@ import { ScenarioNewPage } from "./pages/ScenarioNewPage";
 import { ScenarioEditPage } from "./pages/ScenarioEditPage";
 import { ScenarioRunsPage } from "./pages/ScenarioRunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
+import { DatasetsPage } from "./pages/DatasetsPage";
 
 const router = createBrowserRouter([
   {
@@ -16,6 +17,7 @@ const router = createBrowserRouter([
       { path: "scenarios/:id", element: <ScenarioEditPage /> },
       { path: "scenarios/:id/runs", element: <ScenarioRunsPage /> },
       { path: "runs/:id", element: <RunDetailPage /> },
+      { path: "datasets", element: <DatasetsPage /> },
     ],
   },
 ]);
