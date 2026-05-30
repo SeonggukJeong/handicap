@@ -1,6 +1,6 @@
 # Slice 9 — Conditional 노드 설계
 
-* Status: Draft (brainstorming 완료, spec-review 반영(SF-1~4·N-1/N-3/N-5), 구현 전)
+* Status: In progress (9a 엔진 구현·머지 완료 — ADR-0023; 9b UI / 9c 중첩 / 9d 메트릭 미구현)
 * Date: 2026-05-30
 * 관련 ADR: ADR-0020(control-flow loop), ADR-0021(loop 메트릭 breakdown), ADR-0014(변수 표기), ADR-0016(VU per tokio task), ADR-0017(리포트 스코프)
 * 후속 ADR: ADR-0023(conditional 노드) — 구현 시 추가
