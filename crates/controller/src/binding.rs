@@ -31,6 +31,27 @@ pub struct DataBinding {
     pub mappings: Vec<Mapping>,
 }
 
+/// Apply mappings to one source row (`{column: value}`) → `{var: value}`.
+/// Missing columns yield empty string (defensive; the gate ensures columns
+/// exist, but a short/ragged row could still lack a cell).
+pub fn apply_mappings(
+    mappings: &[Mapping],
+    source: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for m in mappings {
+        match m {
+            Mapping::Column { var, column } => {
+                out.insert(var.clone(), source.get(column).cloned().unwrap_or_default());
+            }
+            Mapping::Literal { var, value } => {
+                out.insert(var.clone(), value.clone());
+            }
+        }
+    }
+    out
+}
+
 impl DataBinding {
     /// Columns this binding reads from the dataset (literals excluded). Used by
     /// the validation gate to confirm every referenced column exists.
@@ -51,18 +72,7 @@ impl DataBinding {
         &self,
         source: &std::collections::BTreeMap<String, String>,
     ) -> std::collections::BTreeMap<String, String> {
-        let mut out = std::collections::BTreeMap::new();
-        for m in &self.mappings {
-            match m {
-                Mapping::Column { var, column } => {
-                    out.insert(var.clone(), source.get(column).cloned().unwrap_or_default());
-                }
-                Mapping::Literal { var, value } => {
-                    out.insert(var.clone(), value.clone());
-                }
-            }
-        }
-        out
+        apply_mappings(&self.mappings, source)
     }
 }
 

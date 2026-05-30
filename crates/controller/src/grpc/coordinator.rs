@@ -19,6 +19,8 @@ use crate::binding::Mapping;
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
 
+const DATASET_BATCH_ROWS: i64 = 1000;
+
 /// Resolved binding the controller holds between run-create and worker-register.
 /// Row data is NOT held here (spec §7.2) — only what's needed to (a) fill
 /// RunAssignment.data_binding and (b) stream rows from the DB on Register (Task 6).
@@ -30,6 +32,16 @@ pub struct PendingDataBinding {
     pub mappings: Vec<Mapping>,
     /// Rows the worker will receive after policy-aware slicing.
     pub row_count: u64,
+}
+
+impl PendingDataBinding {
+    /// Map one source row `{column: value}` → `{var: value}` using mappings.
+    pub fn mappings_apply(
+        &self,
+        source: &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String> {
+        crate::binding::apply_mappings(&self.mappings, source)
+    }
 }
 
 /// What a pending run needs to hand to its worker.
@@ -151,6 +163,83 @@ impl Coordinator for CoordinatorService {
                                     None,
                                 )
                                 .await;
+                                // Stream mapping-applied dataset rows to the worker (spec §7.3).
+                                // Row values are NEVER logged (spec §11).
+                                if let Some(binding) = &a.data_binding {
+                                    if binding.row_count > 0 {
+                                        let total = binding.row_count as i64;
+                                        let mut sent: i64 = 0;
+                                        let mut incomplete = false;
+                                        while sent < total {
+                                            let limit = DATASET_BATCH_ROWS.min(total - sent);
+                                            let src = match crate::store::datasets::get_rows_range(
+                                                &state.db,
+                                                &binding.dataset_id,
+                                                sent,
+                                                limit,
+                                            )
+                                            .await
+                                            {
+                                                Ok(r) => r,
+                                                Err(e) => {
+                                                    error!(run_id = %reg.run_id, error = %e, "dataset row fetch failed");
+                                                    incomplete = true;
+                                                    break;
+                                                }
+                                            };
+                                            if src.is_empty() {
+                                                // dataset shrank/deleted between run-create and register
+                                                error!(run_id = %reg.run_id, sent, total, "dataset shrank mid-stream; fewer rows than promised");
+                                                incomplete = true;
+                                                break;
+                                            }
+                                            let proto_rows: Vec<pb::DatasetRow> = src
+                                                .iter()
+                                                .map(|row| pb::DatasetRow {
+                                                    // mappings applied → {var: value}; NEVER log values (spec §11)
+                                                    values: binding
+                                                        .mappings_apply(row)
+                                                        .into_iter()
+                                                        .collect(),
+                                                })
+                                                .collect();
+                                            let n = proto_rows.len() as i64;
+                                            if tx
+                                                .send(Ok(ServerMessage {
+                                                    payload: Some(ServerPayload::DatasetBatch(
+                                                        pb::DatasetBatch {
+                                                            run_id: reg.run_id.clone(),
+                                                            rows: proto_rows,
+                                                        },
+                                                    )),
+                                                }))
+                                                .await
+                                                .is_err()
+                                            {
+                                                warn!(run_id = %reg.run_id, "worker disconnected during dataset stream");
+                                                incomplete = true;
+                                                break;
+                                            }
+                                            sent += n;
+                                        }
+                                        if incomplete {
+                                            // The worker's loading stage waits for exactly row_count rows; if we
+                                            // couldn't deliver them, unblock it via the abort path so it won't hang
+                                            // (no-op if the worker already disconnected). Worker reports Aborted.
+                                            let _ = tx
+                                                .send(Ok(ServerMessage {
+                                                    payload: Some(ServerPayload::Abort(AbortRun {
+                                                        run_id: reg.run_id.clone(),
+                                                        reason: "dataset streaming incomplete"
+                                                            .to_string(),
+                                                    })),
+                                                }))
+                                                .await;
+                                        } else {
+                                            info!(run_id = %reg.run_id, rows_sent = sent, "dataset rows streamed to worker");
+                                        }
+                                    }
+                                }
                             }
                             None => {
                                 error!(run_id = %reg.run_id, "no pending assignment for worker");
