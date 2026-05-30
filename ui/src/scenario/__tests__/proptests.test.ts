@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { stringify as yamlStringify } from "yaml";
 import {
+  type Condition,
   type Extract,
   type HttpStep,
   type IfStep,
@@ -87,9 +88,50 @@ const loopStepArb: fc.Arbitrary<LoopStep> = fc.record({
   do: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
 });
 
+// Condition tree (Slice 9b): leaf compares (with/without `right`) + all/any groups.
+const leafWithRight: fc.Arbitrary<Condition> = fc.record({
+  left: ident.map((v) => `{{${v}}}`),
+  op: fc.constantFrom(
+    "eq" as const,
+    "ne" as const,
+    "contains" as const,
+    "matches" as const,
+    "lt" as const,
+    "gt" as const,
+    "lte" as const,
+    "gte" as const,
+  ),
+  right: fc.stringMatching(/^[a-z0-9]{1,8}$/),
+});
+const leafNoRight: fc.Arbitrary<Condition> = fc.record({
+  left: ident.map((v) => `{{${v}}}`),
+  op: fc.constantFrom("exists" as const, "empty" as const),
+});
+const leafArb: fc.Arbitrary<Condition> = fc.oneof(leafWithRight, leafNoRight);
+const conditionArb: fc.Arbitrary<Condition> = fc.oneof(
+  { weight: 3, arbitrary: leafArb },
+  { weight: 1, arbitrary: fc.record({ all: fc.array(leafArb, { minLength: 1, maxLength: 2 }) }) },
+  { weight: 1, arbitrary: fc.record({ any: fc.array(leafArb, { minLength: 1, maxLength: 2 }) }) },
+);
+
+// An if step's branches are http-only in 9b (single-level nesting).
+const ifStepArb: fc.Arbitrary<IfStep> = fc.record({
+  id: ULID_ARB,
+  name: ident,
+  type: fc.constant("if" as const),
+  cond: conditionArb,
+  then: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
+  elif: fc.array(
+    fc.record({ cond: conditionArb, then: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }) }),
+    { maxLength: 2 },
+  ),
+  else: fc.array(httpStepArb, { maxLength: 2 }),
+});
+
 const stepArb: fc.Arbitrary<Step> = fc.oneof(
   { weight: 3, arbitrary: httpStepArb },
   { weight: 1, arbitrary: loopStepArb },
+  { weight: 1, arbitrary: ifStepArb },
 );
 
 const scenarioArb: fc.Arbitrary<Scenario> = fc.record({
@@ -154,20 +196,30 @@ function loopStepToYaml(st: LoopStep): Record<string, unknown> {
   };
 }
 
-// `stepArb` does not yet generate if steps (9b adds the model; the round-trip
-// arbitrary stays http/loop-only here), but the union is 3-way so this branch
-// keeps stepToYaml total. Serializes faithfully in case an `if` arbitrary is
-// added later.
+// Canonical condition serialization: omit `right` for exists/empty (mirrors the
+// engine's serde + the UI's cleanCond), recurse into all/any groups.
+function condToYaml(c: Condition): Record<string, unknown> {
+  if ("all" in c) return { all: c.all.map(condToYaml) };
+  if ("any" in c) return { any: c.any.map(condToYaml) };
+  const out: Record<string, unknown> = { left: c.left, op: c.op };
+  if (c.op !== "exists" && c.op !== "empty") out.right = c.right;
+  return out;
+}
+
+// elif/else only emitted when non-empty, matching IfStepModel's `.default([])`.
 function ifStepToYaml(st: IfStep): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     id: st.id,
     name: st.name,
     type: st.type,
-    cond: st.cond,
+    cond: condToYaml(st.cond),
     then: st.then.map(httpStepToYaml),
-    elif: st.elif.map((e) => ({ cond: e.cond, then: e.then.map(httpStepToYaml) })),
-    else: st.else.map(httpStepToYaml),
   };
+  if (st.elif.length > 0) {
+    out.elif = st.elif.map((e) => ({ cond: condToYaml(e.cond), then: e.then.map(httpStepToYaml) }));
+  }
+  if (st.else.length > 0) out.else = st.else.map(httpStepToYaml);
+  return out;
 }
 
 function stepToYaml(st: Step): Record<string, unknown> {
