@@ -36,6 +36,22 @@ describe("CanvasView loop node", () => {
   });
 });
 
+describe("CanvasView add if", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("has an Add if button that creates an if step and selects it", async () => {
+    const user = userEvent.setup();
+    render(<CanvasView />);
+    await user.click(screen.getByRole("button", { name: /add if/i }));
+    const state = useScenarioEditor.getState();
+    expect(state.model!.steps.some((s) => s.type === "if")).toBe(true);
+    expect(state.selectedStepId).not.toBeNull();
+  });
+});
+
 describe("CanvasView if node", () => {
   beforeEach(() => {
     reset();

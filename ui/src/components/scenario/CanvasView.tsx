@@ -36,6 +36,7 @@ export function CanvasView() {
   const select = useScenarioEditor((s) => s.select);
   const addStep = useScenarioEditor((s) => s.addStep);
   const addLoopStep = useScenarioEditor((s) => s.addLoopStep);
+  const addIfStep = useScenarioEditor((s) => s.addIfStep);
   const addStepInLoop = useScenarioEditor((s) => s.addStepInLoop);
 
   const selectedLoopId = useMemo(() => {
@@ -211,6 +212,16 @@ export function CanvasView() {
           className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
         >
           + Add loop
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const id = addIfStep(`If ${steps.length + 1}`);
+            select(id);
+          }}
+          className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+        >
+          + Add if
         </button>
         {steps.length === 0 && (
           <span className="text-xs text-slate-400 self-center">
