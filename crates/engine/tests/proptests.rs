@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use handicap_engine::extract::ResponseFacts;
 use handicap_engine::scenario::{
-    Assertion, Body, CookieJarMode, Extract, HttpMethod, HttpStep, LoopStep, Request, Step,
+    Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, Extract, HttpMethod,
+    HttpStep, IfStep, LoopStep, Request, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{Scenario, evaluate_extracts};
@@ -84,6 +85,67 @@ fn arb_http_step() -> impl Strategy<Value = HttpStep> {
         )
 }
 
+fn arb_compare_op() -> impl Strategy<Value = CompareOp> {
+    prop_oneof![
+        Just(CompareOp::Eq),
+        Just(CompareOp::Ne),
+        Just(CompareOp::Contains),
+        Just(CompareOp::Matches),
+        Just(CompareOp::Lt),
+        Just(CompareOp::Gt),
+        Just(CompareOp::Lte),
+        Just(CompareOp::Gte),
+        Just(CompareOp::Exists),
+        Just(CompareOp::Empty),
+    ]
+}
+
+fn arb_compare() -> impl Strategy<Value = Condition> {
+    (
+        "(\\{\\{[a-z]{1,5}\\}\\}|[a-z0-9]{0,8})",
+        arb_compare_op(),
+        option::of("[a-z0-9]{0,8}"),
+    )
+        .prop_map(|(left, op, right)| Condition::Compare { left, op, right })
+}
+
+// One level of grouping over leaves — bounded so the generator terminates.
+fn arb_condition() -> impl Strategy<Value = Condition> {
+    prop_oneof![
+        3 => arb_compare(),
+        1 => vec(arb_compare(), 1..3).prop_map(Condition::All),
+        1 => vec(arb_compare(), 1..3).prop_map(Condition::Any),
+    ]
+}
+
+fn arb_if_step() -> impl Strategy<Value = Step> {
+    (
+        "[0-9A-HJKMNP-TV-Z]{26}",
+        arb_ident(),
+        arb_condition(),
+        vec(arb_http_step().prop_map(Step::Http), 1..3),
+        vec(
+            (
+                arb_condition(),
+                vec(arb_http_step().prop_map(Step::Http), 1..2),
+            )
+                .prop_map(|(cond, then_)| ElifBranch { cond, then_ }),
+            0..2,
+        ),
+        vec(arb_http_step().prop_map(Step::Http), 0..2),
+    )
+        .prop_map(|(id, name, cond, then_, elif, else_)| {
+            Step::If(IfStep {
+                id,
+                name,
+                cond,
+                then_,
+                elif,
+                else_,
+            })
+        })
+}
+
 fn arb_step() -> impl Strategy<Value = Step> {
     prop_oneof![
         4 => arb_http_step().prop_map(Step::Http),
@@ -94,6 +156,7 @@ fn arb_step() -> impl Strategy<Value = Step> {
             vec(arb_http_step().prop_map(Step::Http), 1..3),
         )
             .prop_map(|(id, name, repeat, do_)| Step::Loop(LoopStep { id, name, repeat, do_ })),
+        1 => arb_if_step(),
     ]
 }
 
