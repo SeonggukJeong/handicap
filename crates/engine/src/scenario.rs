@@ -228,6 +228,160 @@ pub enum Extract {
     Status { var: String },
 }
 
+/// Comparison operator for a condition leaf. Data-free enum → `derive` round-trips
+/// (same class as the internally-tagged `Extract` struct variants — engine CLAUDE.md).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompareOp {
+    Eq,
+    Ne,
+    Contains,
+    Matches,
+    Lt,
+    Gt,
+    Lte,
+    Gte,
+    Exists,
+    Empty,
+}
+
+/// A recursive condition tree: a leaf comparison or an AND/OR group.
+///
+/// Map-shaped YAML (`{left, op, right?}` / `{all: [...]}` / `{any: [...]}`), so —
+/// like [`Body`] and [`Assertion`] — it needs a **manual** `Serialize`/`Deserialize`:
+/// serde_yaml 0.9 derive on an externally-tagged enum with map variants emits/expects
+/// `!variant value` tags, breaking round-trip (engine CLAUDE.md). The three shapes are
+/// disambiguated by key presence (`all` / `any` / `left`); `Compare` always carries
+/// `left`, which never collides with `all`/`any`, so there is no ambiguity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Condition {
+    Compare {
+        left: String,
+        op: CompareOp,
+        right: Option<String>,
+    },
+    All(Vec<Condition>),
+    Any(Vec<Condition>),
+}
+
+impl Serialize for Condition {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Condition::All(v) => {
+                let mut map = s.serialize_map(Some(1))?;
+                map.serialize_entry("all", v)?;
+                map.end()
+            }
+            Condition::Any(v) => {
+                let mut map = s.serialize_map(Some(1))?;
+                map.serialize_entry("any", v)?;
+                map.end()
+            }
+            Condition::Compare { left, op, right } => {
+                let n = if right.is_some() { 3 } else { 2 };
+                let mut map = s.serialize_map(Some(n))?;
+                map.serialize_entry("left", left)?;
+                map.serialize_entry("op", op)?;
+                if let Some(r) = right {
+                    map.serialize_entry("right", r)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Condition {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct CondVisitor;
+        impl<'de> Visitor<'de> for CondVisitor {
+            type Value = Condition;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a condition map: {all: [...]}, {any: [...]}, or {left, op, right?}")
+            }
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<Condition, M::Error> {
+                let mut left: Option<String> = None;
+                let mut op: Option<CompareOp> = None;
+                let mut right: Option<String> = None;
+                let mut all: Option<Vec<Condition>> = None;
+                let mut any: Option<Vec<Condition>> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "all" => {
+                            if all.is_some() {
+                                return Err(de::Error::duplicate_field("all"));
+                            }
+                            all = Some(map.next_value()?);
+                        }
+                        "any" => {
+                            if any.is_some() {
+                                return Err(de::Error::duplicate_field("any"));
+                            }
+                            any = Some(map.next_value()?);
+                        }
+                        "left" => {
+                            if left.is_some() {
+                                return Err(de::Error::duplicate_field("left"));
+                            }
+                            left = Some(map.next_value()?);
+                        }
+                        "op" => {
+                            if op.is_some() {
+                                return Err(de::Error::duplicate_field("op"));
+                            }
+                            op = Some(map.next_value()?);
+                        }
+                        "right" => {
+                            if right.is_some() {
+                                return Err(de::Error::duplicate_field("right"));
+                            }
+                            right = Some(map.next_value()?);
+                        }
+                        other => {
+                            return Err(de::Error::unknown_field(
+                                other,
+                                &["all", "any", "left", "op", "right"],
+                            ));
+                        }
+                    }
+                }
+                match (all, any, left) {
+                    (Some(v), None, None) => {
+                        if op.is_some() || right.is_some() {
+                            return Err(de::Error::custom(
+                                "`all` group cannot also have left/op/right",
+                            ));
+                        }
+                        Ok(Condition::All(v))
+                    }
+                    (None, Some(v), None) => {
+                        if op.is_some() || right.is_some() {
+                            return Err(de::Error::custom(
+                                "`any` group cannot also have left/op/right",
+                            ));
+                        }
+                        Ok(Condition::Any(v))
+                    }
+                    (None, None, Some(l)) => {
+                        let op = op.ok_or_else(|| de::Error::missing_field("op"))?;
+                        Ok(Condition::Compare { left: l, op, right })
+                    }
+                    (None, None, None) => Err(de::Error::custom(
+                        "condition must have `all`, `any`, or `left`",
+                    )),
+                    _ => Err(de::Error::custom(
+                        "condition must be exactly one of: all-group, any-group, or compare",
+                    )),
+                }
+            }
+        }
+        d.deserialize_map(CondVisitor)
+    }
+}
+
 impl Scenario {
     pub fn from_yaml(s: &str) -> Result<Self> {
         Ok(serde_yaml::from_str(s)?)
@@ -631,5 +785,84 @@ steps:
             Scenario::from_yaml(y).is_err(),
             "unknown body variant must be rejected"
         );
+    }
+
+    // ---- Slice 9a: Condition serde ----
+
+    fn cond_round_trip(yaml: &str) -> Condition {
+        let c: Condition = serde_yaml::from_str(yaml).expect("cond parses");
+        let out = serde_yaml::to_string(&c).expect("cond serializes");
+        let c2: Condition = serde_yaml::from_str(&out).expect("cond re-parses");
+        assert_eq!(c, c2, "condition must round-trip:\n{out}");
+        c
+    }
+
+    #[test]
+    fn condition_compare_round_trips() {
+        let c = cond_round_trip("{ left: \"{{code}}\", op: eq, right: \"200\" }");
+        assert_eq!(
+            c,
+            Condition::Compare {
+                left: "{{code}}".into(),
+                op: CompareOp::Eq,
+                right: Some("200".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn condition_exists_omits_right() {
+        let c = cond_round_trip("{ left: \"{{token}}\", op: exists }");
+        assert_eq!(
+            c,
+            Condition::Compare {
+                left: "{{token}}".into(),
+                op: CompareOp::Exists,
+                right: None,
+            }
+        );
+        // serialized form must NOT contain a `right:` key for exists.
+        let out = serde_yaml::to_string(&c).unwrap();
+        assert!(!out.contains("right"), "exists must omit right:\n{out}");
+    }
+
+    #[test]
+    fn condition_nested_all_any_round_trips() {
+        let c = cond_round_trip(
+            "all:\n  - { left: \"{{a}}\", op: eq, right: \"1\" }\n  - any:\n      - { left: \"{{b}}\", op: contains, right: \"x\" }\n      - { left: \"{{c}}\", op: gte, right: \"3\" }\n",
+        );
+        match c {
+            Condition::All(v) => {
+                assert_eq!(v.len(), 2);
+                assert!(matches!(v[0], Condition::Compare { .. }));
+                assert!(matches!(v[1], Condition::Any(_)));
+            }
+            other => panic!("expected All, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn condition_key_order_independent() {
+        // op/left/right in any order must parse to the same Compare.
+        let c: Condition =
+            serde_yaml::from_str("{ op: ne, right: \"x\", left: \"{{v}}\" }").unwrap();
+        assert_eq!(
+            c,
+            Condition::Compare {
+                left: "{{v}}".into(),
+                op: CompareOp::Ne,
+                right: Some("x".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn condition_rejects_malformed_map() {
+        // No `all`/`any`/`left` key → cannot disambiguate → error.
+        assert!(serde_yaml::from_str::<Condition>("{ op: eq, right: \"1\" }").is_err());
+        // Unknown key.
+        assert!(serde_yaml::from_str::<Condition>("{ left: \"a\", op: eq, bogus: 1 }").is_err());
+        // Mixing group + compare.
+        assert!(serde_yaml::from_str::<Condition>("{ all: [], left: \"a\", op: eq }").is_err());
     }
 }
