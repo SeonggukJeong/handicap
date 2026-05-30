@@ -241,7 +241,7 @@ describe("Inspector — loop", () => {
   });
 });
 
-describe("Inspector — if route (stub)", () => {
+describe("Inspector — if route", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().loadFromString(IF_YAML);
@@ -343,5 +343,24 @@ describe("Inspector — IfInspector (builder)", () => {
     await user.click(screen.getByRole("button", { name: /remove elif 1/i }));
     s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if") expect(s.elif).toHaveLength(0);
+  });
+
+  it("cannot remove a group's last child (no empty group)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    // Wrap the single leaf into a group → group now has exactly 1 child.
+    await user.click(screen.getByRole("button", { name: /wrap in group/i }));
+    // With one child, no remove-condition button is offered, so the group
+    // cannot be emptied into a vacuous-true {all: []}.
+    expect(screen.queryByRole("button", { name: /remove condition/i })).toBeNull();
+    // Add a second condition → now removal is allowed again (2 children).
+    await user.click(screen.getByRole("button", { name: /\+ condition/i }));
+    expect(screen.getAllByRole("button", { name: /remove condition/i }).length).toBe(2);
+    // Remove one → back to 1 child, group still non-empty, remove buttons gone.
+    await user.click(screen.getAllByRole("button", { name: /remove condition/i })[0]);
+    const s = useScenarioEditor.getState().model!.steps[0];
+    if (s.type === "if" && "all" in s.cond) expect(s.cond.all).toHaveLength(1);
+    else throw new Error("expected all group with one child");
+    expect(screen.queryByRole("button", { name: /remove condition/i })).toBeNull();
   });
 });

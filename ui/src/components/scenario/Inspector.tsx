@@ -710,8 +710,9 @@ function ConditionEditor({
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
-  // Reset when the selected step's committed cond changes (ref change). Commits set
-  // draft == cond first, so this is a no-op on self-commit and only resets on switch.
+  // Re-seed the draft when the committed cond changes. A self-commit re-parses the
+  // model, so cond is a new-but-structurally-equal object and this re-fires harmlessly;
+  // its real purpose is resetting the draft when the user switches to a different step/elif.
   useEffect(() => {
     setDraft(cond);
   }, [cond]);
@@ -801,14 +802,19 @@ function ConditionNode({
               removeChild={removeChild}
               commitText={commitText}
             />
-            <button
-              type="button"
-              aria-label="remove condition"
-              className="text-slate-500 hover:text-red-600 shrink-0"
-              onClick={() => removeChild([...path, i])}
-            >
-              ×
-            </button>
+            {/* Only offer removal when >1 child: a group must never reach zero
+                children (engine reads empty `all` as vacuous-true / empty `any`
+                as false), so a 1-child group has no removable child. */}
+            {children.length > 1 && (
+              <button
+                type="button"
+                aria-label="remove condition"
+                className="text-slate-500 hover:text-red-600 shrink-0"
+                onClick={() => removeChild([...path, i])}
+              >
+                ×
+              </button>
+            )}
           </div>
         ))}
         <div className="flex gap-2">
