@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{Aggregator, LoopStat, StepWindow};
+use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
@@ -329,6 +330,44 @@ async fn execute_steps(
                         StepFlow::Continue => {}
                         other => return Ok(other),
                     }
+                }
+            }
+            Step::If(if_step) => {
+                // Pick the branch. `ctx` borrows `iter_vars` immutably; scope it in a
+                // block so the borrow ends before we pass `iter_vars` mutably to the
+                // recursive call. `taken` borrows the scenario (`if_step`), not iter_vars.
+                let taken: &[Step] = {
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env: env.as_ref(),
+                        vu_id,
+                        iter_id,
+                        loop_index,
+                    };
+                    if eval_condition(&if_step.cond, &ctx) {
+                        &if_step.then_
+                    } else {
+                        let mut branch: &[Step] = &if_step.else_;
+                        for e in &if_step.elif {
+                            if eval_condition(&e.cond, &ctx) {
+                                branch = &e.then_;
+                                break;
+                            }
+                        }
+                        branch
+                    }
+                };
+                // Pass the *incoming* loop_index through unchanged — the If arm makes no
+                // new scope, so an if-in-loop's branch children still see the loop index
+                // (spec §4). Box::pin the recursion (If/Loop arms only — hot path unboxed).
+                let flow = Box::pin(execute_steps(
+                    client, taken, iter_vars, agg, deadline, env, vu_id, iter_id, loop_index,
+                    cancel,
+                ))
+                .await?;
+                match flow {
+                    StepFlow::Continue => {}
+                    other => return Ok(other),
                 }
             }
         }

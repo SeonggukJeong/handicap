@@ -42,6 +42,7 @@ pub enum CookieJarMode {
 pub enum Step {
     Http(HttpStep),
     Loop(LoopStep),
+    If(IfStep),
 }
 
 impl Step {
@@ -49,12 +50,14 @@ impl Step {
         match self {
             Step::Http(h) => &h.id,
             Step::Loop(l) => &l.id,
+            Step::If(i) => &i.id,
         }
     }
     pub fn name(&self) -> &str {
         match self {
             Step::Http(h) => &h.name,
             Step::Loop(l) => &l.name,
+            Step::If(i) => &i.name,
         }
     }
 }
@@ -79,6 +82,33 @@ pub struct LoopStep {
     pub repeat: u32,
     #[serde(rename = "do")]
     pub do_: Vec<Step>,
+}
+
+/// Branch control-flow node. `then` runs when `cond` is true; otherwise the first
+/// `elif` whose cond is true runs; otherwise `else` (a top-level catch-all). The
+/// engine type uses `Vec<Step>` for free nesting (single-level / mutual-1-level is
+/// the UI Zod gate — 9b/9c), same as `LoopStep.do_`. Per-variant
+/// `deny_unknown_fields` (internal `type` tag does not enforce it — engine CLAUDE.md).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct IfStep {
+    pub id: String,
+    pub name: String,
+    pub cond: Condition,
+    #[serde(rename = "then")]
+    pub then_: Vec<Step>,
+    #[serde(default)]
+    pub elif: Vec<ElifBranch>,
+    #[serde(rename = "else", default)]
+    pub else_: Vec<Step>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ElifBranch {
+    pub cond: Condition,
+    #[serde(rename = "then")]
+    pub then_: Vec<Step>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

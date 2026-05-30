@@ -17,7 +17,7 @@ pub use executor::{ExecOutcome, VuClient, execute_step};
 pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
 pub use runner::{MetricFlush, RunPlan, run_scenario};
 pub use scenario::{
-    Assertion, Body, CompareOp, Condition, CookieJarMode, HttpMethod, HttpStep, LoopStep, Request,
-    Scenario, Step,
+    Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep, IfStep,
+    LoopStep, Request, Scenario, Step,
 };
 pub use template::{TemplateContext, render, render_lenient};
