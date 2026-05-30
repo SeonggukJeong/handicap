@@ -67,6 +67,7 @@ steps:
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = CancellationToken::new();
@@ -173,6 +174,7 @@ steps:
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = CancellationToken::new();
@@ -233,6 +235,7 @@ steps:
         duration: Duration::from_secs(1),
         env,
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = CancellationToken::new();
@@ -293,6 +296,7 @@ steps:
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = CancellationToken::new();

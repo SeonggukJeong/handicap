@@ -98,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
+        data_binding: None,
     };
     info!(
         vus = plan.vus,

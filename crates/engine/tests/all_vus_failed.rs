@@ -32,6 +32,7 @@ steps:
         duration: Duration::from_millis(200),
         env: std::collections::BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();
