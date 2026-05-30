@@ -1,0 +1,79 @@
+# Post-MVP1 로드맵 (data-driven 이후)
+
+> **이 문서의 목적**: MVP1 슬라이스 1–6 + Slice 7(loop) + 7-1(loop breakdown) + Slice 8(data-driven 8a/8b/8c)이 모두 끝난 시점에서, **다음에 무엇을 할지 고를 때 가장 먼저 보는 단일 진입점**. 후보 슬라이스 + 각 슬라이스에서 의도적으로 연기한 자잘한 항목들을 한곳에 모은다.
+>
+> **언제 갱신**: 슬라이스를 하나 선택해 시작하면 그 슬라이스를 "진행 중"으로 표시하고, 끝나면 "완료"로 옮긴다. 새로 연기한 항목이 생기면 아래 §B에 출처 슬라이스와 함께 누적한다.
+>
+> **연관 문서**:
+> - 후보의 원천 메뉴 = MVP1 spec **§4.5 "의도적으로 MVP 외 (다음 단계의 첫 후보)"** → `docs/superpowers/specs/2026-05-27-handicap-mvp1-design.md:513`
+> - 기술 부채/소소한 후속(슬라이스 무관, batch 정리 대상) = `docs/followups-after-mvp1.md` (이 문서와 역할 분리: 저긴 *tech debt*, 여긴 *feature 로드맵*)
+> - 결정 기록 = `docs/adr/`
+> - 슬라이스 작업 흐름 = brainstorming → `docs/superpowers/specs/<날짜>-<이름>-design.md` → `docs/superpowers/plans/<날짜>-<이름>.md` → subagent-driven 구현
+
+---
+
+## 현재 상태 (2026-05-30)
+
+- **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체). master `6263625`까지 머지됨. 열린 슬라이스 작업 없음.
+- **진행 중**: **Slice 9 = Conditional 노드** (선택됨 2026-05-30, brainstorming 단계 진입 예정).
+
+---
+
+## A. 후보 슬라이스 (spec §4.5 메뉴)
+
+우선순위가 아니라 후보 목록이다. spec §4.5의 한 줄을 각 후보에 그대로 매핑하고, 이 코드베이스 기준의 착수 메모를 덧붙인다.
+
+### A1. Conditional 노드 — **← 다음으로 선택됨**
+- **spec 근거**: §4.5 "HTTP 외 다른 노드 종류 (loop, **conditional**, parallel, …)".
+- **성격**: control-flow 노드. Slice 7 loop가 깐 인프라(재귀 `Step` 트리, internally-tagged enum `#[serde(tag="type")]`, `execute_steps(steps, ctx)` 재귀 인터프리터, React Flow 컨테이너 노드)를 그대로 재사용하는 가장 자연스러운 다음 수.
+- **참고**: ADR-0020 (control-flow 노드: loop 패턴). spec §2 모델 노트 "후속 단계의 `loop`/`conditional` 노드는 모델에 `type` 추가, 내부 `do: [...]` 중첩 — 캔버스에서는 컨테이너 노드로 시각화" (`...mvp1-design.md:287`).
+- **열린 설계 질문(brainstorming에서 결정)**: 조건식 문법(`{{var}}` 비교? 표현식 엔진? status/extract 결과 기반?), then/else 두 분기 vs then-only, 캔버스 시각화(분기 컨테이너), 메트릭 라벨링(어느 분기를 탔는지 breakdown 필요 여부 — Slice 7-1 패턴 재사용 가능).
+
+### A2. Parallel 노드
+- **spec 근거**: §4.5 "… loop, conditional, **parallel** …".
+- **성격**: control-flow 노드(동시 분기). 단일 VU 안에서 여러 스텝을 병렬 실행.
+- **착수 시 주의**: VU 실행 모델(ADR-0016, tokio task per VU)과의 상호작용 설계 필요 — VU당 추가 동시성이 메트릭 집계(per-step 윈도)와 cookie jar(ADR-0018, VU별 jar) 공유에 주는 영향.
+
+### A3. 멀티 워커 + 자동 스케일(HPA)
+- **spec 근거**: §4.5 "다중 워커 자동 스케일링 (워커는 1대 고정)". spec §1 "OUT — 명시적으로 후속" 3단계 항목(`...mvp1-design.md:127`).
+- **성격**: 스케일아웃. §4.3 성능 목표(5,000 RPS)는 단일 워커로 이미 ~20,000 RPS 달성(Slice 6 baseline)이라, 이건 처리량보다 **분산 실행/조정** 슬라이스에 가깝다.
+- **잠금 해제**: 8c에서 `unique` 바인딩 정책을 "멀티-워커 전역 커서 필요"로 거부했는데(아래 §B1), 이 슬라이스에서 컨트롤러 중앙 커서로 풀 수 있다.
+- **참고**: ADR-0019 (워커 dispatcher 추상화 — subprocess/K8s Job), ADR-0010 (gRPC pull/등록 모델). 컨트롤러의 run→워커 분배(VU split, 메트릭 머지)가 핵심.
+
+### A4. LoadRunner급 리포트 깊이
+- **spec 근거**: §4.5 "LoadRunner급 리포트 깊이 (run 비교·SLA·트랜잭션 분해)". §3.3 "MVP 리포트 OUT" 의 트랜잭션 분해·워터폴·히스토그램·CSV/Excel export(`...mvp1-design.md:446`).
+- **성격**: controller(리포트 빌드) + UI 중심. 엔진/워커 변경 적음(트랜잭션 시간 분해 DNS/TCP/TLS/TTFB는 엔진 계측 필요 — 그 하위 항목만 엔진 손댐).
+- **참고**: ADR-0017 (MVP 리포트 스코프 — "run간 비교·SLA는 후속"을 명시). run 간 비교 = 다중 run 선택 UI + 델타 뷰, SLA = pass/fail 임계 정의 + 판정.
+
+### (메뉴에 있으나 당장 후보 아님)
+- WebSocket 노드 (§4.5) — REST 부하 도구의 1차 스코프 밖.
+- 인증·RBAC·사용자 계정 (§4.5) — 사내 단일 테넌트 가정에선 후순위.
+- 라이브 대시보드 (§4.5) — **ADR-0009로 MVP 범위에서 영구 제외**(종료 후 리포트 + APM). 되살리려면 ADR 재검토부터.
+
+---
+
+## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
+
+각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
+
+### B1. Slice 8c (data-driven) 연기 항목
+- **`unique` 바인딩 정책**: 행을 VU/반복 간 중복 없이 전역 소진. 멀티-워커 전역 커서가 필요해 단일 워커 8c에선 API에서 거부. → **A3(멀티 워커·HPA)에서 자연히 풀림**.
+- **민감값 마스킹**: 데이터셋 값이 로그/리포트/UI에 노출되지 않게(비밀번호 컬럼 등). 8c는 값 비로깅까지만. → 보안 강화 슬라이스 또는 A4(리포트) 곁다리.
+- **JSON 숫자 주입**: `{"age": {{age}}}`에서 값을 string이 아닌 number로. 8a/8c는 문자열 leaf만 치환(`render_json_value`). → body 템플릿팅 후속(엔진 `executor.rs`).
+- **Helm `datasetMaxRows` 노출**: 8c가 추가한 `--dataset-max-rows` CLI 플래그를 Helm values로. → **A3** 또는 deploy 정리 시.
+- **바인딩 throughput 실측 벤치**: `just bench-throughput` 하네스가 `data_binding` profile을 못 구동(8c 이전 작성). 8c는 해석적 no-op 논증만. → 벤치 하네스 개선 + binding 시나리오 추가.
+
+### B2. Slice 8b (데이터셋 리소스) 연기 항목
+- **UploadPanel 미리보기 요청 시퀀싱 없음**: 빠르게 옵션 바꾸면 미리보기 응답이 경합할 수 있음(최신 요청만 반영하는 abort/seq 없음). → UI 폴리시 슬라이스.
+
+### B3. 슬라이스 무관 tech-debt
+- → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
+
+---
+
+## 사용법 (다음 세션이 봐야 할 곳)
+
+1. **"다음 뭐 하지?"** → 이 문서 §현재 상태 + §A.
+2. 슬라이스 정하면 → `superpowers:brainstorming` 으로 시작 → spec(`docs/superpowers/specs/`) → plan(`docs/superpowers/plans/`).
+3. plan 작성 중 → 이 문서 §B에서 그 슬라이스가 흡수할 연기 항목을 체크(특히 control-flow면 Slice 7 ADR-0020/0021 패턴 재사용).
+4. 슬라이스 끝나면 → 이 문서 §A에서 "완료"로, 새 연기 항목은 §B에 추가, 새 ADR 번호 + CLAUDE.md 인덱스 갱신.

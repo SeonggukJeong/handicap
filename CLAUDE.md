@@ -4,7 +4,7 @@
 
 > **함정(gotcha) 노트는 도메인별 중첩 CLAUDE.md로 분할됨** — 각 디렉토리 파일을 그 디렉토리 작업 시 자동 로드한다. 이 루트 파일엔 전역 규칙·상태·크로스커팅 함정만 남긴다. 인덱스는 아래 [도메인별 함정 인덱스](#도메인별-함정-인덱스).
 
-**상태: Slice 8a/8b/8c(data-driven 전체) 구현 완료.** 다음 = spec §4.5 메뉴에서 선택 — Conditional 노드 / Parallel 노드 / 멀티 워커·HPA / LoadRunner급 리포트. (MVP 1단계 = 슬라이스 1–6, Slice 7 = loop 노드, Slice 8 = data-driven 3분할.) 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`. **MVP 1단계 spec(`2026-05-27-handicap-mvp1-design.md`)은 슬라이스 1–6으로 전부 구현됨 — 후속은 그 spec §4.5 메뉴(노드 종류 확장 → 멀티 워커/HPA → LoadRunner급 리포트)에서 각자 새 spec/plan으로 나온다.**
+**상태: Slice 8a/8b/8c(data-driven 전체) 구현 완료. 다음 슬라이스 = Conditional 노드(선택됨 2026-05-30).** 후보 메뉴·연기 항목·착수 메모는 **`docs/roadmap.md`(post-MVP1 단일 진입점)** 에 정리됨 — "다음 뭐 하지?"는 거기부터 본다. (후보: Conditional/Parallel 노드 / 멀티 워커·HPA / LoadRunner급 리포트, spec §4.5 메뉴.) (MVP 1단계 = 슬라이스 1–6, Slice 7 = loop 노드, Slice 8 = data-driven 3분할.) 디자인 문서 → `docs/superpowers/specs/`. 구현 계획 → `docs/superpowers/plans/`. 결정 기록 → `docs/adr/`. **MVP 1단계 spec(`2026-05-27-handicap-mvp1-design.md`)은 슬라이스 1–6으로 전부 구현됨 — 후속은 그 spec §4.5 메뉴(노드 종류 확장 → 멀티 워커/HPA → LoadRunner급 리포트)에서 각자 새 spec/plan으로 나온다.**
 
 Slice 1 결과: REST API(`/api/scenarios`, `/api/runs`, `/api/runs/{id}/metrics`) + gRPC Coordinator(bidi stream) + SQLite store + subprocess-spawn worker가 wiremock 타겟에 대해 end-to-end 동작.
 
