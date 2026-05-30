@@ -941,6 +941,165 @@ async fn loop_breakdown_e2e() {
     grpc_handle.abort();
 }
 
+/// End-to-end guard for Slice 8c data-binding injection (per_vu policy).
+///
+/// Pipeline exercised:
+///   REST run-create gate → PendingDataBinding → RunAssignment.data_binding
+///   → controller streams DatasetBatch on worker register
+///   → worker load_dataset → engine per-iteration overlay
+///   → real HTTP with the injected value reaching wiremock.
+///
+/// 2 VUs, 2 dataset rows (alice / bob) — per_vu maps vu 0 → alice, vu 1 →
+/// bob. We assert wiremock received at least one request for each user,
+/// proving the injection pipeline is wired end-to-end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn data_binding_per_vu_injects_distinct_values() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime.
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stub: GET /hit → 200 (records all requests by default).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hit"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+        .mount(&server)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC (no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller in-process.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // 4. Seed the dataset directly via the store (upload path tested in datasets_api_test.rs).
+    let dataset_id = handicap_controller::store::datasets::insert(
+        &db,
+        "users",
+        &["user".to_string()],
+        &[vec!["alice".to_string()], vec!["bob".to_string()]],
+        0,
+    )
+    .await
+    .unwrap();
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 5. Create the scenario. The URL embeds {{user}} as the only flow var —
+    //    the value comes purely from the dataset binding (no env override).
+    //    Step id uses Crockford base32 only (no I/L/O/U).
+    let scenario_yaml = format!(
+        "version: 1\nname: data-binding-e2e\nsteps:\n  - id: \"01HX0000000000000000000099\"\n    name: hit\n    type: http\n    request:\n      method: GET\n      url: \"{}/hit?u={{{{user}}}}\"\n",
+        server.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Create the run: 2 VUs, per_vu policy, dataset rows alice/bob.
+    //    per_vu with 2 VUs and 2 rows → vu 0 → alice, vu 1 → bob.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": {
+                "vus": 2,
+                "duration_seconds": 2,
+                "ramp_up_seconds": 0,
+                "data_binding": {
+                    "dataset_id": dataset_id,
+                    "policy": "per_vu",
+                    "mappings": [{"kind": "column", "var": "user", "column": "user"}]
+                }
+            },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 7. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    let mut last_message = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap_or("").to_string();
+        last_message = v["message"].as_str().unwrap_or("").to_string();
+        if last_status == "completed" || last_status == "failed" || last_status == "aborted" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got '{last_status}' (message: {last_message:?})"
+    );
+
+    // 8. Assert injection reached the target: both alice and bob must appear in
+    //    the query strings wiremock recorded.
+    let reqs = server.received_requests().await.unwrap();
+    let queries: Vec<String> = reqs
+        .iter()
+        .map(|r| r.url.query().unwrap_or("").to_string())
+        .collect();
+    assert!(
+        queries.iter().any(|q| q.contains("u=alice")),
+        "alice missing from wiremock requests: {queries:?}"
+    );
+    assert!(
+        queries.iter().any(|q| q.contains("u=bob")),
+        "bob missing from wiremock requests: {queries:?}"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn report_e2e_smoke() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
