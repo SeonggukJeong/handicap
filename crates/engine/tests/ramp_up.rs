@@ -44,6 +44,7 @@ steps:
         duration: Duration::from_secs(4),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = CancellationToken::new();

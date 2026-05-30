@@ -30,6 +30,7 @@ fn profile() -> Profile {
         ramp_up_seconds: 0,
         duration_seconds: 1,
         loop_breakdown_cap: 256,
+        data_binding: None,
     }
 }
 

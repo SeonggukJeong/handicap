@@ -17,11 +17,29 @@ export const ScenarioListSchema = z.object({
 export const RunStatusEnum = z.enum(["pending", "running", "completed", "failed", "aborted"]);
 export type RunStatus = z.infer<typeof RunStatusEnum>;
 
+export const BindingPolicyEnum = z.enum(["per_vu", "iter_sequential", "iter_random"]);
+export type BindingPolicy = z.infer<typeof BindingPolicyEnum>;
+
+// Matches Rust `Mapping` (#[serde(tag = "kind", rename_all = "snake_case")]).
+export const MappingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("column"), var: z.string().min(1), column: z.string().min(1) }),
+  z.object({ kind: z.literal("literal"), var: z.string().min(1), value: z.string() }),
+]);
+export type Mapping = z.infer<typeof MappingSchema>;
+
+export const DataBindingSchema = z.object({
+  dataset_id: z.string().min(1),
+  policy: BindingPolicyEnum,
+  mappings: z.array(MappingSchema),
+});
+export type DataBinding = z.infer<typeof DataBindingSchema>;
+
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
+  data_binding: DataBindingSchema.nullish(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 

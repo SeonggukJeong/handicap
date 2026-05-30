@@ -49,6 +49,10 @@ struct Args {
     /// Directory of built UI assets (e.g. ui/dist). If omitted, no static SPA is served.
     #[arg(long)]
     ui_dir: Option<PathBuf>,
+    /// Max dataset rows a per-iteration binding may stream into a worker
+    /// (per_vu is not capped). Guards worker memory. Spec §10.
+    #[arg(long, default_value_t = 1_000_000)]
+    dataset_max_rows: u64,
 }
 
 #[tokio::main]
@@ -111,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
         coord: coord_state.clone(),
         dispatcher: dispatcher.clone(),
         ui_dir: args.ui_dir.clone(),
+        dataset_max_rows: args.dataset_max_rows,
     };
     let app_router = app::router(state);
 

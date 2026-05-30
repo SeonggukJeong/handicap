@@ -223,11 +223,16 @@ pub async fn get(
     }))
 }
 
-/// DELETE /api/datasets/{id} — 8b는 무조건 삭제(참조 가드는 8c).
+/// DELETE /api/datasets/{id} — 8c: 비종료(pending/running) run이 참조하면 409.
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    if crate::store::runs::dataset_in_use(&state.db, &id).await? {
+        return Err(ApiError::Conflict(
+            "이 데이터셋을 참조하는 실행 중(pending/running) run이 있어 삭제할 수 없습니다".into(),
+        ));
+    }
     store::datasets::delete(&state.db, &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

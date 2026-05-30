@@ -43,6 +43,7 @@ steps:
         duration: Duration::from_secs(2),
         env: std::collections::BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();

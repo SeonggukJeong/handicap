@@ -19,4 +19,8 @@ pub enum WorkerError {
     /// treats this as a clean shutdown (exit 0) rather than a failure.
     #[error("cancelled before connect")]
     Cancelled,
+    /// The controller closed the stream before sending all expected dataset
+    /// rows. Treated as a run failure (the engine never started).
+    #[error("dataset stream ended early ({got}/{expected} rows)")]
+    DatasetIncomplete { got: u64, expected: u64 },
 }

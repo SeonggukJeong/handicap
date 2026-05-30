@@ -61,6 +61,7 @@ steps:
         duration: Duration::from_secs(1),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -139,6 +140,7 @@ steps:
         duration: Duration::from_secs(1),
         env: BTreeMap::new(),
         loop_breakdown_cap: 256,
+        data_binding: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -213,6 +215,7 @@ steps:
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

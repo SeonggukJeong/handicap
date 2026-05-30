@@ -50,6 +50,7 @@ fn run_plan_env_and_ramp_up_wiring() {
         duration: Duration::from_secs(10),
         env,
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
 
     assert_eq!(plan.ramp_up, Duration::from_secs(5));
@@ -69,6 +70,7 @@ async fn cancelled_token_aborts_run() {
         duration: Duration::from_secs(30),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        data_binding: None,
     };
     let (win_tx, _win_rx) = mpsc::channel::<MetricFlush>(8);
     let cancel = CancellationToken::new();

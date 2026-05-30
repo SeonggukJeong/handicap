@@ -16,6 +16,9 @@ pub struct AppState {
     pub coord: CoordinatorState,
     pub dispatcher: SharedDispatcher,
     pub ui_dir: Option<PathBuf>,
+    /// Maximum dataset rows a per-iteration binding may stream into a worker.
+    /// `per_vu` is not capped (sliced to min(vus, rows)). Guards worker memory. Spec §10.
+    pub dataset_max_rows: u64,
 }
 
 /// 데이터셋 업로드 본문 상한(8b). 행 수 제한은 run-create 게이트(8c)에서 — 여기선 넉넉한 메모리 천장만.

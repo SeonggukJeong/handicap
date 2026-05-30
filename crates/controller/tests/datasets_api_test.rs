@@ -5,7 +5,7 @@ use axum::http::{Method, Request, StatusCode};
 use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 fn make_app(db: store::Db) -> axum::Router {
@@ -18,6 +18,7 @@ fn make_app(db: store::Db) -> axum::Router {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     })
 }
 
@@ -182,4 +183,142 @@ async fn dataset_upload_rejects_no_file() {
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+// ─── Task 13: DELETE 409 guard (spec §10) ────────────────────────────────────
+
+/// Upload a dataset CSV and return its id.
+async fn upload_ds(app: &axum::Router, csv: &str) -> String {
+    let (ct, body) = multipart(&[("file", Some("data.csv"), csv.as_bytes())]);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/datasets")
+        .header("content-type", ct)
+        .body(Body::from(body))
+        .unwrap();
+    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "upload failed: {v:?}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+/// Create a minimal scenario and return its id.
+async fn create_sc(app: &axum::Router) -> String {
+    let yaml = "version: 1\nname: guard-test\nsteps:\n  - id: 01JBGRD00000000000000000001\n    type: http\n    name: s1\n    request:\n      method: GET\n      url: http://example.com/{{user}}\n";
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/scenarios")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "yaml": yaml }).to_string()))
+        .unwrap();
+    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
+    assert_eq!(status, StatusCode::CREATED, "create scenario failed: {v:?}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+/// POST /api/runs with a data_binding referencing `dataset_id`.
+/// No worker connects → run stays pending (non-terminal).
+async fn create_run_with_binding(
+    app: &axum::Router,
+    scenario_id: &str,
+    dataset_id: &str,
+) -> String {
+    let body = json!({
+        "scenario_id": scenario_id,
+        "profile": {
+            "vus": 1,
+            "duration_seconds": 1,
+            "data_binding": {
+                "dataset_id": dataset_id,
+                "policy": "per_vu",
+                "mappings": [{"kind": "column", "var": "user", "column": "name"}]
+            }
+        },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
+    assert_eq!(status, StatusCode::CREATED, "create run failed: {v:?}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+/// DELETE while a pending run references the dataset → 409.
+/// The dataset must still be retrievable afterwards (not deleted).
+#[tokio::test]
+async fn delete_rejects_dataset_referenced_by_active_run() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    // Dataset with column "name"
+    let dataset_id = upload_ds(&app, "name\nalice\nbob\n").await;
+    let scenario_id = create_sc(&app).await;
+
+    // Create a run with a binding to this dataset; no worker → stays pending.
+    let _run_id = create_run_with_binding(&app, &scenario_id, &dataset_id).await;
+
+    // DELETE the dataset → must be 409.
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(format!("/api/datasets/{dataset_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "expected 409 when dataset referenced by pending run, got: {v:?}"
+    );
+    let msg = v["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("pending") || msg.contains("running") || msg.contains("참조"),
+        "error message should mention the conflict: {msg}"
+    );
+
+    // Dataset must still exist (not deleted).
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/datasets/{dataset_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "dataset should still exist after rejected DELETE"
+    );
+}
+
+/// DELETE a dataset not referenced by any run → 204 (normal delete).
+#[tokio::test]
+async fn delete_allows_unreferenced_dataset() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    // Upload a dataset but create NO runs referencing it.
+    let dataset_id = upload_ds(&app, "name\nalice\n").await;
+
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(format!("/api/datasets/{dataset_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NO_CONTENT,
+        "unreferenced dataset should delete successfully"
+    );
+
+    // Confirm it's gone.
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/datasets/{dataset_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

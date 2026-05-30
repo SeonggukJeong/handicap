@@ -72,6 +72,7 @@ message ServerMessage {
     RunAssignment assignment = 1;
     AbortRun abort = 2;
     Ping ping = 3;
+    DatasetBatch dataset_batch = 4;
   }
 }
 
@@ -80,6 +81,7 @@ message RunAssignment {
   string scenario_yaml = 2;     // canonical scenario YAML, snapshotted
   Profile profile = 3;
   map<string, string> env = 4;
+  DataBinding data_binding = 5;   // absent → no data injection (back-compat)
 }
 
 message Profile {
@@ -96,4 +98,28 @@ message AbortRun {
 
 message Ping {
   uint64 nonce = 1;
+}
+
+// ---------- Data binding (Slice 8c) ----------
+
+message DataBinding {
+  Policy policy = 1;
+  uint32 seed = 2;        // controller folds run_id (ULID) → u32; determinism only
+  uint64 row_count = 3;   // rows the worker will receive after policy-aware slicing
+  enum Policy {
+    PER_VU = 0;
+    ITER_SEQUENTIAL = 1;
+    ITER_RANDOM = 2;
+    // UNIQUE reserved — rejected at the controller, see spec §12.
+  }
+}
+
+// One row with mappings already applied: keys are flow-var names, not columns.
+message DatasetRow {
+  map<string, string> values = 1;
+}
+
+message DatasetBatch {
+  string run_id = 1;
+  repeated DatasetRow rows = 2;
 }

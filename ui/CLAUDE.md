@@ -65,9 +65,16 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **Run 상세 화면의 step_id 진단성** (Slice 4 M2): ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다. 시나리오 YAML을 같이 fetch해서 `step.id → {name, method, url}`로 매핑하고 URL은 `resolveForDisplay`로 풀어 표시하면 status 0 같은 비정상 상태에서 root cause(시나리오 설정 vs connectivity) 분간이 한 화면에서 가능.
 - **`resolveForDisplay`는 display/관대 resolver** (Slice 4 M3): UI `ui/src/scenario/template.ts::resolveForDisplay`는 미해결 토큰을 그대로 둔다(엔진 `template.rs`는 runtime/엄격). 엔진에 새 토큰/문법 추가하면 **반드시 이 resolver도 동시에**, 아니면 진단 표시가 거짓말을 한다.
 
+## 데이터 바인딩 패널 (8c, `DataBindingPanel`)
+
+- **`scanFlowVars`는 loop `do:` 배열 안까지 재귀 스캔해야 한다** (Slice 8c): url/headers/body 외에 loop 스텝 `do:` 배열의 중첩 http 스텝도 스캔하지 않으면, loop body 안의 `{{var}}`가 패널에서 안 보여 사용자가 매핑을 못 만든다. `flattenHttpSteps` 헬퍼(Slice 7)를 재사용해 먼저 평탄화한 뒤 스캔하면 중복 구현 없이 해결.
+- **바인딩 검증은 extract/scenario.variables로 채워질 `{{var}}`를 false-alarm으로 막으면 안 된다** (Slice 8c): "매핑 안 된 `{{var}}`가 있으면 invalid" 로직을 단순하게 쓰면, 실제로는 extract나 scenario.variables로 런타임에 채워지는 변수를 missing으로 표시해 유효한 시나리오를 blocking한다. 데이터셋이 선택된 상태에서만, 그리고 column 매핑이 실재하지 않는 열을 참조할 때만 invalid 처리.
+- **`Mapping` JSON shape은 Rust ↔ TS 양쪽이 동일해야 한다** (Slice 8c): Rust `#[serde(tag="kind")]`가 생성하는 JSON(`{"kind":"column","var":"x","column":"col"}`)과 TS Zod `discriminatedUnion("kind", [{kind:"column",...},{kind:"literal",...}])` JSON이 1:1 매치해야 한다. 한쪽이 `type` 대신 `kind`를 쓰거나 필드명이 달라지면 `profile_json` 역직렬화가 조용히 실패. round-trip 통합 테스트(`datasets_binding_integration_test`, controller)가 이 contract를 검증.
+
 ## 오프라인(CSP) · 테스트 인프라
 
 - **오프라인 런타임 제약** (Slice 2): 사내망/에어갭 staging에서도 UI가 떠야 한다(ADR-0001). `index.html`에 `Content-Security-Policy` 메타 태그로 `default-src 'self'` 강제, Tailwind 기본 시스템 폰트 스택만 사용(CDN 폰트 금지), 외부 아이콘·스크립트도 npm 번들로만. 어기면 CSP가 브라우저 콘솔에서 즉시 실패시키므로 회귀가 조용히 안 들어온다. 폰트 커스텀 필요하면 `@fontsource/*` 같은 로컬 번들로.
 - **`pnpm install --frozen-lockfile` in CI** (Slice 2): `pnpm-lock.yaml`을 반드시 커밋해야 함. 안 하면 CI가 `ERR_PNPM_NO_LOCKFILE`로 실패.
 - **`fast-check` + Vitest의 default `numRuns`** (Slice 4): 100. CI 시간을 아끼려고 round-trip 프로퍼티에서 40으로 줄였다. 의도적 — 셔링크 발생 시 numRuns를 다시 올려 재현.
 - **userEvent.setup()를 it마다 호출** (Slice 4): v14에서 글로벌 default user-event는 deprecated. 매 테스트에서 `const user = userEvent.setup()` 명시.
+- **Playwright MCP `browser_file_upload`는 repo 루트 밖 경로를 거부한다** (Slice 8c): 허용 루트는 `/Users/sgj/develop/handicap`(워크트리 포함) + `.playwright-mcp/`뿐 — `/tmp`의 파일은 `File access denied`. 브라우저 업로드 점검(데이터셋 등) 시 업로드 대상 파일을 repo 안(예: `.playwright-mcp/`)에 써둔 뒤 절대경로로 넘길 것.

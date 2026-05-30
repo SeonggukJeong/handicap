@@ -49,6 +49,8 @@ pub struct Profile {
     pub duration_seconds: u32,
     #[serde(default = "default_loop_cap")]
     pub loop_breakdown_cap: u32,
+    #[serde(default)]
+    pub data_binding: Option<crate::binding::DataBinding>,
 }
 
 pub struct RunRow {
@@ -199,6 +201,26 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// Returns `true` if any non-terminal run (status `pending` or `running`)
+/// references `dataset_id` in its `profile_json.data_binding`.
+/// Used by the dataset DELETE guard (spec §10, Slice 8c Task 13).
+pub async fn dataset_in_use(db: &Db, dataset_id: &str) -> sqlx::Result<bool> {
+    let rows = sqlx::query("SELECT profile_json FROM runs WHERE status IN ('pending','running')")
+        .fetch_all(db)
+        .await?;
+    for r in rows {
+        let pj: String = r.get("profile_json");
+        if let Ok(profile) = serde_json::from_str::<Profile>(&pj) {
+            if let Some(b) = &profile.data_binding {
+                if b.dataset_id == dataset_id {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// Mark any run currently in `pending` or `running` as `failed` with a
 /// message. Called on controller startup to recover from crash.
 pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
@@ -255,6 +277,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 1,
             loop_breakdown_cap: 256,
+            data_binding: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await

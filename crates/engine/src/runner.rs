@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, mpsc};
@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{Aggregator, LoopStat, StepWindow};
+use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
 use crate::scenario::{Scenario, Step};
@@ -21,6 +22,8 @@ pub struct RunPlan {
     pub duration: Duration,
     pub env: BTreeMap<String, String>,
     pub loop_breakdown_cap: u32,
+    /// Optional data-driven binding. `None` → no injection (back-compat).
+    pub data_binding: Option<Arc<DataSet>>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -44,6 +47,12 @@ pub async fn run_scenario(
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
     let env = Arc::new(plan.env);
+    let dataset = plan.data_binding.clone();
+    // One shared worker-local counter for IterSequential, created once per run.
+    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
+        Some(BindingPolicy::IterSequential) => Some(Arc::new(AtomicU64::new(0))),
+        _ => None,
+    };
 
     let mut set = JoinSet::new();
 
@@ -81,8 +90,21 @@ pub async fn run_scenario(
             let failed = failed.clone();
             let env = env.clone();
             let cancel_vu = cancel.clone();
+            let dataset = dataset.clone();
+            let seq_counter = seq_counter.clone();
             set.spawn(async move {
-                if let Err(e) = run_vu(scenario, vu_id, agg, deadline, env, cancel_vu).await {
+                if let Err(e) = run_vu(
+                    scenario,
+                    vu_id,
+                    agg,
+                    deadline,
+                    env,
+                    cancel_vu,
+                    dataset,
+                    seq_counter,
+                )
+                .await
+                {
                     if !matches!(e, EngineError::Aborted) {
                         warn!(vu_id, error = ?e, "vu failed");
                     }
@@ -178,7 +200,8 @@ pub async fn run_scenario(
     Ok(())
 }
 
-#[instrument(skip(scenario, agg, env), fields(vu_id))]
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(scenario, agg, env, dataset, seq_counter), fields(vu_id))]
 async fn run_vu(
     scenario: Arc<Scenario>,
     vu_id: u32,
@@ -186,6 +209,8 @@ async fn run_vu(
     deadline: Instant,
     env: Arc<BTreeMap<String, String>>,
     cancel: CancellationToken,
+    dataset: Option<Arc<DataSet>>,
+    seq_counter: Option<Arc<AtomicU64>>,
 ) -> Result<()> {
     let client = VuClient::new(scenario.cookie_jar)?;
     let mut iter_id: u32 = 0;
@@ -195,6 +220,14 @@ async fn run_vu(
         }
         // Per-iteration flow vars: start fresh from the scenario base.
         let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+        if let Some(ds) = &dataset {
+            if !ds.rows.is_empty() {
+                let idx = ds.select_index(vu_id, iter_id, seq_counter.as_deref());
+                for (k, v) in &ds.rows[idx] {
+                    iter_vars.insert(k.clone(), v.clone());
+                }
+            }
+        }
         let flow = execute_steps(
             &client,
             &scenario.steps,

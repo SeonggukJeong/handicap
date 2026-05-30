@@ -18,3 +18,7 @@
 - **tokio JoinHandle drop ≠ abort** (Slice 1): handle을 drop해도 spawn된 task는 detached로 계속 돈다. 종료시키려면 명시적으로 `.abort()`.
 - **`tokio::time::pause()` 는 `tokio::time::Instant` 와 짝** (Slice 6): backoff retry 의 누적 시간을 `std::time::Instant::now()` 로 트래킹하면 paused clock 을 무시하고 wall-clock 으로 흘러서 "60초 cap 검증" 단위 테스트가 진짜 60초를 기다린다. `tokio::time::Instant` 로 바꾸고, 추가로 `tokio = { workspace = true, features = ["test-util"] }` 가 dev-deps 에 있어야 `#[tokio::test(start_paused = true)]` 가 활성화된다.
 - **Bare `tokio::time::sleep` 은 cancel 안 됨** (Slice 6): SIGTERM 핸들러 1차 구현이 `connect_with_backoff` **뒤에** 설치되어, backoff sleep 중에 SIGTERM 이 와도 process 가 정지하지 못했다. 테스트는 "어쨌든 kernel 의 default action 으로 죽음" 으로 잘못 green 이었음. Fix: (a) handler 를 main 맨 앞에 등록, (b) backoff 의 sleep 을 `tokio::select! { _ = sleep(d) => ..., _ = cancel.cancelled() => return Err(Cancelled) }` 로 감쌈, (c) `WorkerError::Cancelled` variant 추가해서 bin 이 `return Ok(())` (exit 0) 로 끝나게. (워커 SIGTERM 핸들러는 **connect 전에** 설치되어야 K8s `terminationGracePeriodSeconds` 안에 graceful `Phase::Aborted` 보고가 된다.)
+
+## 데이터셋 로딩 (8c)
+
+- **worker `load_dataset`은 `abort_listener` spawn 전에 호출해야 한다** (Slice 8c): `abort_listener`가 `inbound_rx`를 move하므로, 그 이후에 `load_dataset(&mut inbound_rx)`를 호출하면 빌림 에러. 실행 순서: `load_dataset` 완료(엔진 시작 전 `row_count` 행 수신 — abort/cancel→Aborted, 조기 종료→Failed) → `abort_listener` spawn.

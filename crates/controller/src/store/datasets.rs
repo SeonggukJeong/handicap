@@ -123,6 +123,32 @@ pub async fn get_sample(
         .collect())
 }
 
+/// Fetch up to `limit` rows starting at `start_idx` (inclusive), idx-ordered,
+/// as `{column: value}` maps. Streams a dataset to a worker in batches without
+/// loading the whole thing at once (spec §7.3).
+pub async fn get_rows_range(
+    db: &Db,
+    id: &str,
+    start_idx: i64,
+    limit: i64,
+) -> Result<Vec<BTreeMap<String, String>>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT row_json FROM dataset_rows WHERE dataset_id = ? AND idx >= ? ORDER BY idx LIMIT ?",
+    )
+    .bind(id)
+    .bind(start_idx)
+    .bind(limit)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let s: String = r.get("row_json");
+            serde_json::from_str::<BTreeMap<String, String>>(&s).unwrap_or_default()
+        })
+        .collect())
+}
+
 /// 데이터셋 + 행 삭제(앱 레벨 cascade).
 pub async fn delete(db: &Db, id: &str) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
@@ -190,5 +216,18 @@ mod tests {
         let sample = get_sample(&db, &id, 20).await.unwrap();
         assert_eq!(sample.len(), 20, "sample은 limit까지만");
         assert_eq!(sample[0].get("c").map(String::as_str), Some("0"));
+    }
+
+    #[tokio::test]
+    async fn get_rows_range_paginates() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let columns = vec!["c".to_string()];
+        let rows: Vec<Vec<String>> = (0..10).map(|i| vec![i.to_string()]).collect();
+        let id = insert(&db, "p", &columns, &rows, 0).await.unwrap();
+        let first = get_rows_range(&db, &id, 0, 4).await.unwrap();
+        assert_eq!(first.len(), 4);
+        assert_eq!(first[0].get("c").map(String::as_str), Some("0"));
+        let next = get_rows_range(&db, &id, 4, 4).await.unwrap();
+        assert_eq!(next[0].get("c").map(String::as_str), Some("4"));
     }
 }

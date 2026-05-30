@@ -23,6 +23,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     })
 }
 
@@ -71,6 +72,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         ramp_up_seconds: 0,
         duration_seconds: 2,
         loop_breakdown_cap: 256,
+        data_binding: None,
     };
     let row = store::runs::insert(db, "S-report-test", yaml, &profile, &env)
         .await
