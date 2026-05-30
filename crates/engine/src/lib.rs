@@ -1,4 +1,5 @@
 pub mod aggregator;
+pub mod condition;
 pub mod dataset;
 pub mod error;
 pub mod executor;
@@ -9,6 +10,7 @@ pub mod scenario;
 pub mod template;
 
 pub use aggregator::{Aggregator, LoopStat, StepWindow};
+pub use condition::eval_condition;
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
 pub use executor::{ExecOutcome, VuClient, execute_step};
