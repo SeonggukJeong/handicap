@@ -146,8 +146,7 @@ fn build(
     let rows: Vec<Vec<String>> = records
         .into_iter()
         .map(|mut cells| {
-            cells.resize(width, String::new()); // 짧으면 빈 문자열 패딩, 길면 truncate
-            cells.truncate(width);
+            cells.resize(width, String::new()); // 짧으면 빈 문자열 패딩, 길면 잘림 (resize가 양쪽 처리)
             cells
         })
         .collect();
@@ -329,6 +328,42 @@ mod tests {
         let d1 = parse_upload(&bytes, &o).unwrap();
         assert_eq!(d1.columns, vec!["y"]);
         assert_eq!(d1.rows[0], vec!["2"]);
+    }
+
+    #[test]
+    fn xlsx_unknown_sheet_returns_sheet_not_found() {
+        let bytes = make_xlsx(&[("Sheet1", vec![vec!["a"], vec!["1"]])]);
+        let mut o = opts();
+        o.sheet = Some("Nope".to_string());
+        let err = parse_upload(&bytes, &o).unwrap_err();
+        match err {
+            ParseError::SheetNotFound(name) => assert_eq!(name, "Nope"),
+            other => panic!("expected SheetNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn xlsx_cell_types_stringify() {
+        use rust_xlsxwriter::Workbook;
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        // header row (strings)
+        ws.write_string(0, 0, "n").unwrap();
+        ws.write_string(0, 1, "f").unwrap();
+        ws.write_string(0, 2, "b").unwrap();
+        // data row: integer-valued number, fractional number, boolean
+        ws.write_number(1, 0, 42.0).unwrap();
+        ws.write_number(1, 1, 3.5).unwrap();
+        ws.write_boolean(1, 2, true).unwrap();
+        let bytes = wb.save_to_buffer().unwrap();
+
+        let d = parse_upload(&bytes, &ParseOptions::default()).unwrap();
+        assert_eq!(d.columns, vec!["n", "f", "b"]);
+        assert_eq!(
+            d.rows[0],
+            vec!["42", "3.5", "true"],
+            "integer float drops .0; fractional kept; bool lowercased"
+        );
     }
 
     /// 테스트용 XLSX 바이트 생성(rust_xlsxwriter, dev-dep).
