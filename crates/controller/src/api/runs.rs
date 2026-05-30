@@ -13,13 +13,17 @@ pub struct CreateRunRequest {
     pub scenario_id: String,
     pub profile: Profile,
     #[serde(default)]
-    pub env: serde_json::Value,
+    pub env: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RunResponse {
     pub id: String,
     pub scenario_id: String,
+    /// Immutable snapshot of the scenario YAML this run executed against. The UI
+    /// compares it to the live scenario to warn when a retry would use drifted
+    /// settings (spec §4). Present on every run response, incl. the list.
+    pub scenario_yaml: String,
     pub status: RunStatus,
     pub profile: Profile,
     pub env: serde_json::Value,
@@ -97,23 +101,17 @@ pub async fn create(
         None
     };
 
+    // env is already map<string,string> (rejected at the API boundary otherwise).
+    // Serialize back to a JSON object for storage; clone the map for the proto.
+    let env_value = serde_json::to_value(&body.env).expect("env map serializes to a JSON object");
     let row = runs::insert(
         &state.db,
         &scenario.id,
         &scenario.yaml,
         &body.profile,
-        &body.env,
+        &env_value,
     )
     .await?;
-
-    // Parse env_json to HashMap<String,String> for the proto assignment.
-    // Non-string values are silently dropped (ADR-0014: env vars are always strings).
-    let env: std::collections::HashMap<String, String> =
-        serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(body.env.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
-            .collect();
 
     // Resolve the binding for the worker (spec §4/§7): proto policy, a
     // deterministic seed folded from the run id, and the sliced row count.
@@ -153,7 +151,7 @@ pub async fn create(
             duration_seconds: body.profile.duration_seconds,
             loop_breakdown_cap: body.profile.loop_breakdown_cap,
         },
-        env,
+        env: body.env.clone(),
         data_binding,
     };
     state.coord.enqueue(row.id.clone(), assignment).await;
@@ -260,6 +258,7 @@ fn to_response(r: runs::RunRow) -> RunResponse {
     RunResponse {
         id: r.id,
         scenario_id: r.scenario_id,
+        scenario_yaml: r.scenario_yaml,
         status: r.status,
         profile: r.profile,
         env: r.env,
