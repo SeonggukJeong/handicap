@@ -266,3 +266,61 @@ describe("RunDialog — env & ramp_up", () => {
     expect(body.profile.loop_breakdown_cap).toBe(0);
   });
 });
+
+import type { RunPrefill } from "../../api/runPrefill";
+
+function renderWithInitial(initial: RunPrefill, opts?: { scenarioChangedWarning?: boolean }) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <RunDialog
+        scenarioId="S1"
+        hasLoop={true}
+        scenario={null}
+        initial={initial}
+        scenarioChangedWarning={opts?.scenarioChangedWarning ?? false}
+        onCreated={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+describe("RunDialog — initial prefill (A1)", () => {
+  const initial: RunPrefill = {
+    profile: {
+      vus: 7,
+      duration_seconds: 9,
+      ramp_up_seconds: 3,
+      loop_breakdown_cap: 128,
+      data_binding: null,
+    },
+    env: { BASE_URL: "http://x", TOKEN: "abc" },
+  };
+
+  it("seeds vus / duration / ramp-up / loop cap from initial.profile", () => {
+    renderWithInitial(initial);
+    expect(screen.getByLabelText("VUs")).toHaveValue(7);
+    expect(screen.getByLabelText("Duration (s)")).toHaveValue(9);
+    expect(screen.getByLabelText("Ramp-up (s)")).toHaveValue(3);
+    expect(screen.getByLabelText("loop breakdown cap")).toHaveValue(128);
+  });
+
+  it("seeds env entries from initial.env", () => {
+    renderWithInitial(initial);
+    expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("env value 0")).toHaveValue("http://x");
+    expect(screen.getByLabelText("env key 1")).toHaveValue("TOKEN");
+    expect(screen.getByLabelText("env value 1")).toHaveValue("abc");
+  });
+
+  it("shows a drift warning when scenarioChangedWarning is set", () => {
+    renderWithInitial(initial, { scenarioChangedWarning: true });
+    expect(screen.getByRole("alert")).toHaveTextContent(/이 run 이후 수정됨/);
+  });
+
+  it("does not show the drift warning by default", () => {
+    renderWithInitial(initial);
+    expect(screen.queryByText(/이 run 이후 수정됨/)).toBeNull();
+  });
+});

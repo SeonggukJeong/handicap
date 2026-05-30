@@ -4,6 +4,7 @@ import type { DataBinding } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
+import type { RunPrefill } from "../api/runPrefill";
 
 type Props = {
   scenarioId: string;
@@ -14,21 +15,38 @@ type Props = {
   /** Parsed scenario model, used to power the DataBindingPanel. Pass null when
    *  the scenario YAML is unavailable or failed to parse (binding panel is hidden). */
   scenario: Scenario | null;
+  /** When set, seed every form field from this past run's profile + env (retry
+   *  prefill). The parent remounts the dialog (React key) to reseed; there is no
+   *  reseed effect. */
+  initial?: RunPrefill;
+  /** True when `initial` came from a run whose scenario snapshot differs from the
+   *  current live scenario — renders a drift warning. */
+  scenarioChangedWarning?: boolean;
   onCreated: (runId: string) => void;
   onCancel: () => void;
 };
 
 type EnvEntry = { key: string; value: string };
 
-export function RunDialog({ scenarioId, hasLoop, scenario, onCreated, onCancel }: Props) {
-  const [vus, setVus] = useState(2);
-  const [duration, setDuration] = useState(5);
-  const [rampUp, setRampUp] = useState(0);
-  const [loopCap, setLoopCap] = useState(256);
-  const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
+export function RunDialog({
+  scenarioId,
+  hasLoop,
+  scenario,
+  initial,
+  scenarioChangedWarning = false,
+  onCreated,
+  onCancel,
+}: Props) {
+  const [vus, setVus] = useState(initial?.profile.vus ?? 2);
+  const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
+  const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
+  const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
+  const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
+    initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
+  );
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvValue, setNewEnvValue] = useState("");
-  const [binding, setBinding] = useState<DataBinding | null>(null);
+  const [binding, setBinding] = useState<DataBinding | null>(initial?.profile.data_binding ?? null);
   const [bindingValid, setBindingValid] = useState(true);
   const mutation = useCreateRun();
 
@@ -52,6 +70,14 @@ export function RunDialog({ scenarioId, hasLoop, scenario, onCreated, onCancel }
   return (
     <div className="border border-slate-200 rounded-md p-4 bg-white">
       <h3 className="text-lg font-semibold mb-3">New run</h3>
+      {scenarioChangedWarning && (
+        <p
+          role="alert"
+          className="mb-3 p-2 rounded border border-amber-300 bg-amber-50 text-sm text-amber-800"
+        >
+          이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.
+        </p>
+      )}
       <div className="grid grid-cols-3 gap-4 mb-3">
         <label className="block text-sm">
           <span className="text-slate-600">VUs</span>
@@ -198,6 +224,7 @@ export function RunDialog({ scenarioId, hasLoop, scenario, onCreated, onCancel }
       {scenario && (
         <DataBindingPanel
           scenario={scenario}
+          initialBinding={initial?.profile.data_binding ?? null}
           onChange={setBinding}
           onValidityChange={setBindingValid}
         />
