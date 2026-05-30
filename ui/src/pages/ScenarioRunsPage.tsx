@@ -14,14 +14,16 @@ export function ScenarioRunsPage() {
   const runs = useScenarioRuns(id);
   const [showDialog, setShowDialog] = useState(false);
 
-  // Whether the scenario has a loop step — drives the loop-breakdown cap control
-  // in the run dialog. Parse failures fall back to false (no loop → no cap UI).
-  const hasLoop = useMemo(() => {
+  // Parse the scenario YAML once for both hasLoop + DataBindingPanel.
+  // Parse failures fall back to null (no binding panel, no cap UI).
+  const parsedScenario = useMemo(() => {
     const yaml = scenario.data?.yaml;
-    if (!yaml) return false;
+    if (!yaml) return null;
     const parsed = parseScenarioDoc(yaml);
-    return "model" in parsed && parsed.model.steps.some(isLoopStep);
+    return "model" in parsed ? parsed.model : null;
   }, [scenario.data?.yaml]);
+
+  const hasLoop = parsedScenario?.steps.some(isLoopStep) ?? false;
 
   if (scenario.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (scenario.error) return <p className="text-red-600">{(scenario.error as Error).message}</p>;
@@ -47,6 +49,7 @@ export function ScenarioRunsPage() {
           <RunDialog
             scenarioId={scenario.data.id}
             hasLoop={hasLoop}
+            scenario={parsedScenario}
             onCreated={(runId) => {
               setShowDialog(false);
               navigate(`/runs/${runId}`);

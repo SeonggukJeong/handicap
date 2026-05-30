@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { useCreateRun } from "../api/hooks";
+import type { DataBinding } from "../api/schemas";
+import type { Scenario } from "../scenario/model";
+import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 
 type Props = {
@@ -8,13 +11,16 @@ type Props = {
    *  cap control is hidden and the run is created with cap = 0 (no breakdown
    *  bookkeeping in the engine at all). */
   hasLoop: boolean;
+  /** Parsed scenario model, used to power the DataBindingPanel. Pass null when
+   *  the scenario YAML is unavailable or failed to parse (binding panel is hidden). */
+  scenario: Scenario | null;
   onCreated: (runId: string) => void;
   onCancel: () => void;
 };
 
 type EnvEntry = { key: string; value: string };
 
-export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
+export function RunDialog({ scenarioId, hasLoop, scenario, onCreated, onCancel }: Props) {
   const [vus, setVus] = useState(2);
   const [duration, setDuration] = useState(5);
   const [rampUp, setRampUp] = useState(0);
@@ -22,12 +28,20 @@ export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvValue, setNewEnvValue] = useState("");
+  const [binding, setBinding] = useState<DataBinding | null>(null);
+  const [bindingValid, setBindingValid] = useState(true);
   const mutation = useCreateRun();
 
   const rampInvalid = rampUp > duration;
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
-  const canSubmit = vus >= 1 && duration >= 1 && !rampInvalid && !loopCapInvalid && !mutation.isPending;
+  const canSubmit =
+    vus >= 1 &&
+    duration >= 1 &&
+    !rampInvalid &&
+    !loopCapInvalid &&
+    bindingValid &&
+    !mutation.isPending;
 
   const env: Record<string, string> = {};
   for (const { key, value } of envEntries) {
@@ -88,7 +102,9 @@ export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
               aria-invalid={loopCapInvalid}
               aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
             />
-            <span className="text-xs text-slate-500">0 = 끄기 · 루프 스텝의 loop_index별 집계 상한</span>
+            <span className="text-xs text-slate-500">
+              0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
+            </span>
           </label>
         </div>
       )}
@@ -133,9 +149,7 @@ export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
               />
               <button
                 type="button"
-                onClick={() =>
-                  setEnvEntries((prev) => prev.filter((_, i) => i !== idx))
-                }
+                onClick={() => setEnvEntries((prev) => prev.filter((_, i) => i !== idx))}
                 aria-label={`Remove env ${entry.key || idx}`}
                 className="text-slate-500 hover:text-red-600 text-sm"
               >
@@ -181,6 +195,14 @@ export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
         </div>
       </section>
 
+      {scenario && (
+        <DataBindingPanel
+          scenario={scenario}
+          onChange={setBinding}
+          onValidityChange={setBindingValid}
+        />
+      )}
+
       {mutation.error && (
         <p className="mb-3 text-red-600 text-sm">{(mutation.error as Error).message}</p>
       )}
@@ -196,6 +218,7 @@ export function RunDialog({ scenarioId, hasLoop, onCreated, onCancel }: Props) {
                   duration_seconds: duration,
                   ramp_up_seconds: rampUp,
                   loop_breakdown_cap: hasLoop ? loopCap : 0,
+                  data_binding: binding ?? undefined,
                 },
                 env,
               },

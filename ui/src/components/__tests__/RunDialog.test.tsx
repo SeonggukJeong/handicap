@@ -24,7 +24,13 @@ function renderDialog(hasLoop = true) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={qc}>
-      <RunDialog scenarioId="S1" hasLoop={hasLoop} onCreated={onCreated} onCancel={onCancel} />
+      <RunDialog
+        scenarioId="S1"
+        hasLoop={hasLoop}
+        scenario={null}
+        onCreated={onCreated}
+        onCancel={onCancel}
+      />
     </QueryClientProvider>,
   );
   return { ...utils, onCreated, onCancel };
@@ -78,10 +84,7 @@ describe("RunDialog — env & ramp_up", () => {
 
     await user.type(screen.getByPlaceholderText("BASE_URL"), "BASE_URL");
     await user.click(within(envSection()).getByRole("button", { name: "Add" }));
-    await user.type(
-      screen.getByLabelText("env value 0"),
-      "http://localhost:9090",
-    );
+    await user.type(screen.getByLabelText("env value 0"), "http://localhost:9090");
 
     await user.click(screen.getByRole("button", { name: /^Run$/ }));
 
@@ -107,16 +110,11 @@ describe("RunDialog — env & ramp_up", () => {
     renderDialog();
 
     await user.type(screen.getByLabelText("new env key"), "BASE_URL");
-    await user.type(
-      screen.getByLabelText("new env value"),
-      "http://localhost:9090",
-    );
+    await user.type(screen.getByLabelText("new env value"), "http://localhost:9090");
     await user.click(within(envSection()).getByRole("button", { name: "Add" }));
 
     expect(await screen.findByLabelText("env key 0")).toHaveValue("BASE_URL");
-    expect(screen.getByLabelText("env value 0")).toHaveValue(
-      "http://localhost:9090",
-    );
+    expect(screen.getByLabelText("env value 0")).toHaveValue("http://localhost:9090");
 
     expect(screen.getByLabelText("new env key")).toHaveValue("");
     expect(screen.getByLabelText("new env value")).toHaveValue("");
@@ -126,10 +124,7 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.type(
-      screen.getByLabelText("new env value"),
-      "http://localhost:9090",
-    );
+    await user.type(screen.getByLabelText("new env value"), "http://localhost:9090");
 
     expect(within(envSection()).getByRole("button", { name: "Add" })).toBeDisabled();
   });
