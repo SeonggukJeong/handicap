@@ -18,6 +18,7 @@ fn make_app(db: store::Db) -> axum::Router {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     })
 }
 

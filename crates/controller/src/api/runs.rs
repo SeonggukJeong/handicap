@@ -50,6 +50,47 @@ pub async fn create(
             "loop_breakdown_cap must be <= 10000 (0 disables breakdown)".into(),
         ));
     }
+
+    // Data-binding validation gate (spec §11). `unique` is reserved for a later slice.
+    if let Some(b) = &body.profile.data_binding {
+        use crate::binding::BindingPolicy;
+        if matches!(b.policy, BindingPolicy::Unique) {
+            return Err(ApiError::BadRequest(
+                "unique 정책은 아직 지원하지 않습니다 (다음 슬라이스)".into(),
+            ));
+        }
+        let meta = crate::store::datasets::get_meta(&state.db, &b.dataset_id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::BadRequest("data_binding.dataset_id가 존재하지 않습니다".into())
+            })?;
+        if meta.row_count == 0 {
+            return Err(ApiError::BadRequest(
+                "빈 데이터셋은 바인딩할 수 없습니다".into(),
+            ));
+        }
+        for col in b.referenced_columns() {
+            if !meta.columns.iter().any(|c| c == col) {
+                return Err(ApiError::BadRequest(format!(
+                    "매핑 컬럼 '{col}'이 데이터셋에 없습니다 (있는 컬럼: {:?})",
+                    meta.columns
+                )));
+            }
+        }
+        // per-iteration policies stream the whole dataset → cap.
+        // per_vu is sliced to min(vus, rows) so it is never capped (spec §11).
+        let per_iteration = matches!(
+            b.policy,
+            BindingPolicy::IterSequential | BindingPolicy::IterRandom
+        );
+        if per_iteration && (meta.row_count as u64) > state.dataset_max_rows {
+            return Err(ApiError::BadRequest(format!(
+                "per-iteration 바인딩 행 수 {}가 상한 {}을 초과합니다",
+                meta.row_count, state.dataset_max_rows
+            )));
+        }
+    }
+
     let row = runs::insert(
         &state.db,
         &scenario.id,

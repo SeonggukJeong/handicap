@@ -99,6 +99,7 @@ async fn full_slice_1_e2e() {
             grpc_addr,
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -261,6 +262,7 @@ async fn two_step_with_env_e2e() {
             grpc_addr,
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -442,6 +444,7 @@ async fn abort_e2e_marks_run_aborted() {
             grpc_addr,
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -600,6 +603,7 @@ async fn loop_e2e_inner_step_counts() {
             grpc_addr,
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -766,6 +770,7 @@ async fn loop_breakdown_e2e() {
             grpc_addr,
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -972,6 +977,7 @@ async fn report_e2e_smoke() {
             grpc_addr,
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();

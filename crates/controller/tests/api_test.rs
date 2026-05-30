@@ -19,6 +19,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     })
 }
 
@@ -114,6 +115,7 @@ async fn create_and_get_scenario() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
 
     let body = json!({
@@ -154,6 +156,7 @@ async fn rejects_invalid_yaml() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
@@ -178,6 +181,7 @@ async fn create_run_for_scenario() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
 
     // 1. create scenario
@@ -230,6 +234,7 @@ async fn list_scenarios_returns_what_was_created() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
 
     // empty initially
@@ -285,6 +290,7 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
 
     let create_body = json!({
@@ -414,6 +420,7 @@ async fn list_runs_by_scenario() {
             "127.0.0.1:0".parse().unwrap(),
         )),
         ui_dir: None,
+        dataset_max_rows: 1_000_000,
     });
 
     let create_body = json!({
