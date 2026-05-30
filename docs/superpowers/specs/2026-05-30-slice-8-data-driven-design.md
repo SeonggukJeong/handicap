@@ -171,6 +171,7 @@ message DatasetBatch{ repeated DatasetRow rows = 1; }
 - per-VU: 데이터 크기 무관 가벼움(슬라이스). per-iteration: 메모리 ∝ 행수(100만≈200MB), 상한 기본 100만(조정 가능).
 - 인덱싱: per-VU 모듈로 / 순차 `AtomicU64::fetch_add`(Relaxed, 락 없음) / 랜덤 PRNG 1회 — 모두 HTTP RTT 대비 무시 가능.
 - body 템플릿팅(JSON walk)은 요청당 1회 — 8a에서 A/B 측정(미바인딩 vs 바인딩, 200VU×20s, 1KB body), run-to-run 변동 범위 내 확인.
+  - **8a 구현 후 측정**: `just bench-throughput`(flat GET, body 없음, 200VU×30s, 1KB resp)는 **20,320 RPS / p50 8 / p95 17 / p99 24ms** — post-Slice-6 baseline(20,389 RPS / p95 17 / p99 24) 대비 ~0.3% 차로 변동 범위 내. 단 이 bench 시나리오는 **요청 body가 없어** 8a 코드 경로(form 맵 재구성 / JSON walk)를 타지 않는다 — `Body` arm 자체가 스킵되므로 8a는 이 경로에서 구조적 no-op. 실제 8a 비용은 body 보유 요청에만, body 크기에 비례해 요청당 1회 발생하고 직렬화 + HTTP RTT에 묻힌다(현 bench 하네스는 body 시나리오 미지원 — 별도 측정은 8c 데이터 주입에서).
 
 ## 11. 에러·경계·재현성 (단일 검증 게이트 — C2)
 
