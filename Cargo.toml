@@ -11,9 +11,13 @@ publish = false
 [workspace.dependencies]
 anyhow = "1"
 async-trait = "0.1"
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 bytes = "1"
+calamine = "0.26"
 clap = { version = "4", features = ["derive", "env"] }
+csv = "1"
+encoding_rs = "0.8"
+rust_xlsxwriter = "0.79"   # dev-only (test XLSX fixtures)
 futures = "0.3"
 hdrhistogram = { version = "7", features = ["serialization"] }
 hyper = "1"
