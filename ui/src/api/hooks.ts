@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import type { DatasetUploadOptions } from "./client";
 import type { Profile, RunStatus } from "./schemas";
 
 export const queryKeys = {
@@ -9,6 +10,8 @@ export const queryKeys = {
   run: (id: string) => ["runs", id] as const,
   runMetrics: (id: string) => ["runs", id, "metrics"] as const,
   runReport: (id: string) => ["runs", id, "report"] as const,
+  datasets: () => ["datasets"] as const,
+  dataset: (id: string) => ["datasets", id] as const,
 };
 
 export function useScenarios() {
@@ -116,5 +119,26 @@ export function useRunReport(id: string | undefined, terminal: boolean) {
     refetchInterval: false,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
+  });
+}
+
+export function useDatasets() {
+  return useQuery({ queryKey: queryKeys.datasets(), queryFn: api.listDatasets });
+}
+
+export function useUploadDataset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, opts }: { file: File; opts?: DatasetUploadOptions }) =>
+      api.uploadDataset(file, opts),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.datasets() }),
+  });
+}
+
+export function useDeleteDataset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteDataset(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.datasets() }),
   });
 }

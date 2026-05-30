@@ -140,3 +140,31 @@ export type Report = z.infer<typeof ReportSchema>;
 export type ReportWindow = z.infer<typeof ReportWindowSchema>;
 export type ReportStep = z.infer<typeof ReportStepSchema>;
 export type ReportSummary = z.infer<typeof ReportSummarySchema>;
+
+export const DatasetMetaSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  columns: z.array(z.string()),
+  row_count: z.number().int(),
+  byte_size: z.number().int(),
+  created_at: z.number().int(),
+});
+export type DatasetMeta = z.infer<typeof DatasetMetaSchema>;
+
+// upload/get 응답: 메타 + sample(+ xlsx면 sheets)
+export const DatasetSchema = DatasetMetaSchema.extend({
+  sample: z.array(z.record(z.string(), z.string())),
+  sheets: z.array(z.string()).optional(),
+});
+export type Dataset = z.infer<typeof DatasetSchema>;
+
+export const DatasetListSchema = z.object({ datasets: z.array(DatasetMetaSchema) });
+
+// preview 응답: 저장 안 됨 → id/메타 없음
+export const DatasetPreviewSchema = z.object({
+  columns: z.array(z.string()),
+  row_count: z.number().int(),
+  sample: z.array(z.record(z.string(), z.string())),
+  sheets: z.array(z.string()).optional(),
+});
+export type DatasetPreview = z.infer<typeof DatasetPreviewSchema>;
