@@ -35,3 +35,39 @@ describe("CanvasView loop node", () => {
     expect(steps.some((s) => s.type === "loop")).toBe(true);
   });
 });
+
+describe("CanvasView if node", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    name: "branch"
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000011"
+        name: "ok"
+        type: http
+        request:
+          method: GET
+          url: "/ok"
+        assert:
+          - status: 200
+`);
+  });
+
+  it("renders an if container with its condition summary and a THEN band", () => {
+    render(<CanvasView />);
+    expect(screen.getByText("branch")).toBeInTheDocument();
+    expect(screen.getByText("THEN")).toBeInTheDocument();
+    expect(screen.getByText(/\{\{code\}\} eq 200/)).toBeInTheDocument();
+    expect(screen.getByText("ok")).toBeInTheDocument(); // inner http child node
+  });
+});

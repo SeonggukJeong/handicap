@@ -1,13 +1,4 @@
-import {
-  parseDocument,
-  Document,
-  isMap,
-  isSeq,
-  Scalar,
-  YAMLMap,
-  YAMLSeq,
-  type Node,
-} from "yaml";
+import { parseDocument, Document, isMap, isSeq, Scalar, YAMLMap, YAMLSeq, type Node } from "yaml";
 import { ScenarioModel, type Scenario } from "./model";
 
 export type ParseOk = { doc: Document.Parsed; model: Scenario };
@@ -62,9 +53,7 @@ export function parseScenarioDoc(yamlText: string): ParseResult {
   const parsed = ScenarioModel.safeParse(normalized);
   if (!parsed.success) {
     return {
-      error: parsed.error.issues
-        .map((i) => `${i.path.join(".")}: ${i.message}`)
-        .join("; "),
+      error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
     };
   }
   return { doc, model: parsed.data };
@@ -206,27 +195,37 @@ function plainScalar(value: string): Scalar {
   return s;
 }
 
-// Tree-aware step locator: searches top-level steps and one level of loop `do`
-// bodies (single-level nesting for Slice 7). Returns the full doc path, or null
-// if no step matches. Callers no-op on null because stale stepIds can arrive
-// after a step has been removed (e.g., via the YAML pane); the store re-derives
-// the model after each edit, so a stale click resolves to no change.
-function findStepPath(
-  doc: Document,
+// Tree-aware step locator: recursively searches top-level steps, loop `do` bodies,
+// and if branches (then / elif[].then / else). Returns the full doc path or null.
+// Callers no-op on null (stale stepIds can arrive after a step is removed).
+function findStepPath(doc: Document, stepId: string): Array<string | number> | null {
+  return searchSeq(doc.getIn(["steps"]), ["steps"], stepId);
+}
+
+function searchSeq(
+  seq: unknown,
+  basePath: ReadonlyArray<string | number>,
   stepId: string,
 ): Array<string | number> | null {
-  const steps = doc.getIn(["steps"]);
-  if (!isSeq(steps)) return null;
-  for (let i = 0; i < steps.items.length; i++) {
-    const item = steps.items[i] as Node;
+  if (!isSeq(seq)) return null;
+  for (let i = 0; i < seq.items.length; i++) {
+    const item = seq.items[i] as Node;
     if (!isMap(item)) continue;
-    if (item.get("id") === stepId) return ["steps", i];
-    const body = item.get("do");
-    if (isSeq(body)) {
-      for (let j = 0; j < body.items.length; j++) {
-        const inner = body.items[j] as Node;
-        if (isMap(inner) && inner.get("id") === stepId)
-          return ["steps", i, "do", j];
+    const path = [...basePath, i];
+    if (item.get("id") === stepId) return path;
+    const inLoop = searchSeq(item.get("do"), [...path, "do"], stepId);
+    if (inLoop) return inLoop;
+    const inThen = searchSeq(item.get("then"), [...path, "then"], stepId);
+    if (inThen) return inThen;
+    const inElse = searchSeq(item.get("else"), [...path, "else"], stepId);
+    if (inElse) return inElse;
+    const elif = item.get("elif");
+    if (isSeq(elif)) {
+      for (let j = 0; j < elif.items.length; j++) {
+        const eb = elif.items[j] as Node;
+        if (!isMap(eb)) continue;
+        const inElif = searchSeq(eb.get("then"), [...path, "elif", j, "then"], stepId);
+        if (inElif) return inElif;
       }
     }
   }
@@ -275,13 +274,22 @@ function normalizeStep(s: unknown): unknown {
       do: Array.isArray(src.do) ? src.do.map(normalizeStep) : [],
     };
   }
+  if (src.type === "if") {
+    return {
+      id: src.id,
+      name: src.name,
+      type: "if",
+      cond: src.cond, // shape already matches ConditionModel — passthrough
+      then: Array.isArray(src.then) ? src.then.map(normalizeStep) : [],
+      elif: Array.isArray(src.elif) ? src.elif.map(normalizeElif) : [],
+      else: Array.isArray(src.else) ? src.else.map(normalizeStep) : [],
+    };
+  }
   const request =
     typeof src.request === "object" && src.request !== null
       ? normalizeRequest(src.request as Record<string, unknown>)
       : src.request;
-  const assert = Array.isArray(src.assert)
-    ? src.assert.map(normalizeAssertion)
-    : [];
+  const assert = Array.isArray(src.assert) ? src.assert.map(normalizeAssertion) : [];
   const extract = Array.isArray(src.extract) ? src.extract : [];
   return {
     id: src.id,
@@ -293,11 +301,17 @@ function normalizeStep(s: unknown): unknown {
   };
 }
 
+function normalizeElif(e: unknown): unknown {
+  if (typeof e !== "object" || e === null) return e;
+  const src = e as Record<string, unknown>;
+  return {
+    cond: src.cond,
+    then: Array.isArray(src.then) ? src.then.map(normalizeStep) : [],
+  };
+}
+
 function normalizeRequest(r: Record<string, unknown>): unknown {
-  const body =
-    r.body === undefined || r.body === null
-      ? undefined
-      : normalizeBody(r.body);
+  const body = r.body === undefined || r.body === null ? undefined : normalizeBody(r.body);
   return {
     method: r.method,
     url: r.url,

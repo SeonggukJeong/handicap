@@ -11,20 +11,24 @@ import "@xyflow/react/dist/style.css";
 import { useScenarioEditor } from "../../scenario/store";
 import { HttpStepNode, type HttpStepNodeData } from "./HttpStepNode";
 import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
-import { isLoopStep } from "../../scenario/model";
+import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
+import { isLoopStep, isIfStep, type Condition, type HttpStep } from "../../scenario/model";
 
-const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode };
+const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode };
 const NODE_WIDTH = 220;
 const NODE_GAP = 60;
 const CHILD_H = 64;
 const CHILD_GAP = 16;
 const LOOP_HEADER_H = 36;
 const LOOP_PAD = 12;
+const IF_HEADER_H = 44;
+const BAND_LABEL_H = 18;
+const BAND_PAD = 8;
 // Body steps sit inside the loop container; bound their width so a long request
 // URL truncates instead of overflowing the dashed container.
 const CHILD_WIDTH = NODE_WIDTH - LOOP_PAD * 2;
 
-type AnyData = HttpStepNodeData | LoopStepNodeData;
+type AnyData = HttpStepNodeData | LoopStepNodeData | IfStepNodeData;
 
 export function CanvasView() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
@@ -73,6 +77,57 @@ export function CanvasView() {
             selectable: false,
           });
         });
+        x += NODE_WIDTH + NODE_GAP;
+      } else if (isIfStep(step)) {
+        const bands: Array<{ label: string; children: HttpStep[] }> = [
+          { label: "THEN", children: step.then },
+          ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
+          ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
+        ];
+        let yy = IF_HEADER_H;
+        const bandMeta: Array<{ label: string; y: number }> = [];
+        const childPlacements: Array<{ child: HttpStep; y: number }> = [];
+        for (const band of bands) {
+          bandMeta.push({ label: band.label, y: yy });
+          yy += BAND_LABEL_H;
+          for (const child of band.children) {
+            childPlacements.push({ child, y: yy });
+            yy += CHILD_H + CHILD_GAP;
+          }
+          yy += BAND_PAD;
+        }
+        out.push({
+          id: step.id,
+          type: "if",
+          position: { x, y: 0 },
+          data: {
+            name: step.name,
+            condSummary: summarizeCondition(step.cond),
+            bands: bandMeta,
+            selected: step.id === selectedStepId,
+          },
+          style: { width: NODE_WIDTH, height: yy },
+          draggable: false,
+          selectable: false,
+        });
+        for (const { child, y } of childPlacements) {
+          out.push({
+            id: child.id,
+            type: "http",
+            parentId: step.id,
+            extent: "parent",
+            position: { x: LOOP_PAD, y },
+            data: {
+              name: child.name,
+              method: child.request.method,
+              url: child.request.url,
+              selected: child.id === selectedStepId,
+            },
+            style: { width: CHILD_WIDTH },
+            draggable: false,
+            selectable: false,
+          });
+        }
         x += NODE_WIDTH + NODE_GAP;
       } else {
         out.push({
@@ -165,4 +220,11 @@ export function CanvasView() {
       </div>
     </div>
   );
+}
+
+function summarizeCondition(c: Condition): string {
+  if ("all" in c) return c.all.map(summarizeCondition).join(" AND ");
+  if ("any" in c) return c.any.map(summarizeCondition).join(" OR ");
+  const noRight = c.op === "exists" || c.op === "empty";
+  return `${c.left || "?"} ${c.op}${noRight ? "" : ` ${c.right ?? ""}`}`;
 }

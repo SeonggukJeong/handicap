@@ -19,6 +19,29 @@ steps:
       - status: 200
 `;
 
+const IF_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    name: "branch"
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000011"
+        name: "ok"
+        type: http
+        request:
+          method: GET
+          url: "/ok"
+        assert:
+          - status: 200
+`;
+
 function loadAndSelect() {
   useScenarioEditor.setState(useScenarioEditor.getInitialState());
   useScenarioEditor.getState().loadFromString(VALID_YAML);
@@ -215,5 +238,28 @@ describe("Inspector — loop", () => {
     const childButton = screen.getByRole("button", { name: /Step 1/i });
     await user.click(childButton);
     expect(useScenarioEditor.getState().selectedStepId).toBe(childId);
+  });
+});
+
+describe("Inspector — if route (stub)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(IF_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000010");
+  });
+
+  it("shows the If heading and the branch name", () => {
+    render(<Inspector />);
+    expect(screen.getByRole("heading", { name: "If" })).toBeInTheDocument();
+    expect((screen.getByLabelText("Name") as HTMLInputElement) ?? null).toBeTruthy();
+  });
+
+  it("navigates to a then-branch step", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    // RTL normalizes the em-dash separator out of the title-derived accessible
+    // name ("ok — GET /ok" → "ok GET /ok"); match the normalized form.
+    await user.click(screen.getByRole("button", { name: /ok\s+GET \/ok/i }));
+    expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000011");
   });
 });

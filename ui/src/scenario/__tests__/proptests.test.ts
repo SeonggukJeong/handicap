@@ -4,6 +4,7 @@ import { stringify as yamlStringify } from "yaml";
 import {
   type Extract,
   type HttpStep,
+  type IfStep,
   type LoopStep,
   type Scenario,
   type Step,
@@ -95,11 +96,7 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc.record({
   version: fc.constant(1 as const),
   name: ident,
   cookie_jar: fc.constantFrom("auto" as const, "off" as const),
-  variables: fc.dictionary(
-    ident,
-    fc.stringMatching(/^[a-zA-Z0-9 .,:/_-]{0,30}$/),
-    { maxKeys: 3 },
-  ),
+  variables: fc.dictionary(ident, fc.stringMatching(/^[a-zA-Z0-9 .,:/_-]{0,30}$/), { maxKeys: 3 }),
   steps: fc.array(stepArb, { maxLength: 3 }),
 });
 
@@ -157,8 +154,26 @@ function loopStepToYaml(st: LoopStep): Record<string, unknown> {
   };
 }
 
+// `stepArb` does not yet generate if steps (9b adds the model; the round-trip
+// arbitrary stays http/loop-only here), but the union is 3-way so this branch
+// keeps stepToYaml total. Serializes faithfully in case an `if` arbitrary is
+// added later.
+function ifStepToYaml(st: IfStep): Record<string, unknown> {
+  return {
+    id: st.id,
+    name: st.name,
+    type: st.type,
+    cond: st.cond,
+    then: st.then.map(httpStepToYaml),
+    elif: st.elif.map((e) => ({ cond: e.cond, then: e.then.map(httpStepToYaml) })),
+    else: st.else.map(httpStepToYaml),
+  };
+}
+
 function stepToYaml(st: Step): Record<string, unknown> {
-  return st.type === "loop" ? loopStepToYaml(st) : httpStepToYaml(st);
+  if (st.type === "loop") return loopStepToYaml(st);
+  if (st.type === "if") return ifStepToYaml(st);
+  return httpStepToYaml(st);
 }
 
 function scenarioToCanonicalYaml(s: Scenario): string {

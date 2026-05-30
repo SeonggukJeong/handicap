@@ -5,10 +5,12 @@ import {
   ExtractModel,
   isLoopStep,
   isHttpStep,
+  isIfStep,
   flattenHttpSteps,
   type Scenario,
   type HttpStep,
   type Extract,
+  type IfStep,
   newEmptyScenario,
 } from "../model";
 
@@ -133,9 +135,7 @@ describe("ExtractModel", () => {
   });
 
   it("rejects unknown from", () => {
-    expect(() =>
-      ExtractModel.parse({ var: "x", from: "headers", name: "X" }),
-    ).toThrow();
+    expect(() => ExtractModel.parse({ var: "x", from: "headers", name: "X" })).toThrow();
   });
 });
 
@@ -228,5 +228,163 @@ describe("ScenarioModel + extract", () => {
       ],
     };
     expect(() => ScenarioModel.parse(value)).not.toThrow();
+  });
+});
+
+describe("if step model (9b)", () => {
+  const IF_JS = {
+    version: 1,
+    name: "x",
+    cookie_jar: "auto",
+    variables: {},
+    steps: [
+      {
+        id: "01HX0000000000000000000010",
+        name: "branch",
+        type: "if",
+        cond: { left: "{{code}}", op: "eq", right: "200" },
+        then: [
+          {
+            id: "01HX0000000000000000000011",
+            name: "ok",
+            type: "http",
+            request: { method: "GET", url: "/ok", headers: {} },
+            assert: [],
+            extract: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("accepts a single-condition if; elif/else default to []", () => {
+    const r = ScenarioModel.safeParse(IF_JS);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      const s = r.data.steps[0];
+      expect(isIfStep(s)).toBe(true);
+      if (isIfStep(s)) {
+        // Explicit annotation confirms the guard narrows to IfStep.
+        const ifStep: IfStep = s;
+        expect(ifStep.elif).toEqual([]);
+        expect(ifStep.else).toEqual([]);
+      }
+    }
+  });
+
+  it("accepts a nested all/any condition tree", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    (v.steps as Record<string, unknown>[])[0].cond = {
+      all: [
+        { left: "{{code}}", op: "eq", right: "200" },
+        {
+          any: [
+            { left: "{{b}}", op: "contains", right: "ok" },
+            { left: "{{r}}", op: "gte", right: "3" },
+          ],
+        },
+      ],
+    };
+    expect(ScenarioModel.safeParse(v).success).toBe(true);
+  });
+
+  it("accepts an exists op leaf with no right", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    (v.steps as Record<string, unknown>[])[0].cond = { left: "{{t}}", op: "exists" };
+    expect(ScenarioModel.safeParse(v).success).toBe(true);
+  });
+
+  it("accepts elif and else branches", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    const step = (v.steps as Record<string, unknown>[])[0];
+    step.elif = [
+      {
+        cond: { left: "{{code}}", op: "eq", right: "404" },
+        then: [
+          {
+            id: "01HX0000000000000000000012",
+            name: "retry",
+            type: "http",
+            request: { method: "GET", url: "/retry", headers: {} },
+            assert: [],
+            extract: [],
+          },
+        ],
+      },
+    ];
+    step.else = [
+      {
+        id: "01HX0000000000000000000013",
+        name: "report",
+        type: "http",
+        request: { method: "POST", url: "/err", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ];
+    expect(ScenarioModel.safeParse(v).success).toBe(true);
+  });
+
+  it("rejects an empty then branch (min 1)", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    (v.steps as Record<string, unknown>[])[0].then = [];
+    expect(ScenarioModel.safeParse(v).success).toBe(false);
+  });
+
+  it("rejects a loop nested in a branch (http-only gate)", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    ((v.steps as Record<string, unknown>[])[0].then as unknown[]).push({
+      id: "01HX0000000000000000000014",
+      name: "l",
+      type: "loop",
+      repeat: 2,
+      do: [],
+    });
+    expect(ScenarioModel.safeParse(v).success).toBe(false);
+  });
+
+  it("rejects a malformed condition (no left/all/any)", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    (v.steps as Record<string, unknown>[])[0].cond = { op: "eq", right: "x" };
+    expect(ScenarioModel.safeParse(v).success).toBe(false);
+  });
+
+  it("flattenHttpSteps walks then/elif/else branches in order", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    const step = (v.steps as Record<string, unknown>[])[0];
+    step.elif = [
+      {
+        cond: { left: "{{c}}", op: "eq", right: "1" },
+        then: [
+          {
+            id: "01HX0000000000000000000012",
+            name: "e",
+            type: "http",
+            request: { method: "GET", url: "/e", headers: {} },
+            assert: [],
+            extract: [],
+          },
+        ],
+      },
+    ];
+    step.else = [
+      {
+        id: "01HX0000000000000000000013",
+        name: "x",
+        type: "http",
+        request: { method: "GET", url: "/x", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ];
+    const r = ScenarioModel.safeParse(v);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(flattenHttpSteps(r.data.steps).map((s) => s.id)).toEqual([
+        "01HX0000000000000000000011",
+        "01HX0000000000000000000012",
+        "01HX0000000000000000000013",
+      ]);
+    }
   });
 });

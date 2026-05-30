@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
-import type { Assertion, Extract, HttpMethod, HttpStep, LoopStep, Step } from "../../scenario/model";
-import { flattenHttpSteps, isLoopStep } from "../../scenario/model";
+import type {
+  Assertion,
+  Extract,
+  HttpMethod,
+  HttpStep,
+  IfStep,
+  LoopStep,
+  Step,
+} from "../../scenario/model";
+import { flattenHttpSteps, findStepSiblings, isLoopStep, isIfStep } from "../../scenario/model";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -31,7 +39,9 @@ export function Inspector() {
     );
   }
 
-  return isLoopStep(step) ? <LoopInspector step={step} /> : <HttpStepInspector step={step} />;
+  if (isLoopStep(step)) return <LoopInspector step={step} />;
+  if (isIfStep(step)) return <IfInspectorStub step={step} />;
+  return <HttpStepInspector step={step} />;
 }
 
 function HttpStepInspector({ step }: { step: HttpStep }) {
@@ -41,15 +51,14 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
   const moveStep = useScenarioEditor((s) => s.moveStep);
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
 
-  // Siblings = the sequence the step actually lives in: top-level steps if the
-  // step is top-level, else the `do` body of the loop that contains it. Move
-  // up/down must clamp against siblings, not the top-level list (a nested step
-  // has index -1 there, which would mis-disable the buttons).
-  const siblings = useMemo<ReadonlyArray<Step>>(() => {
-    if (steps.some((s) => s.id === step.id)) return steps;
-    const parent = steps.find((s) => isLoopStep(s) && s.do.some((c) => c.id === step.id));
-    return parent && isLoopStep(parent) ? parent.do : steps;
-  }, [steps, step.id]);
+  // Siblings = the sequence the step actually lives in: top-level steps, a loop
+  // `do` body, or an if branch (then / elif[].then / else). Move up/down must
+  // clamp against siblings, not the top-level list (a nested step has index -1
+  // there, which would mis-disable the buttons).
+  const siblings = useMemo<ReadonlyArray<Step>>(
+    () => findStepSiblings(steps, step.id),
+    [steps, step.id],
+  );
   const index = siblings.findIndex((s) => s.id === step.id);
 
   return (
@@ -161,9 +170,7 @@ function HeadersEditor({ step }: { step: HttpStep }) {
             </button>
           </li>
         ))}
-        {entries.length === 0 && (
-          <li className="text-xs text-slate-400 italic">No headers</li>
-        )}
+        {entries.length === 0 && <li className="text-xs text-slate-400 italic">No headers</li>}
       </ul>
       <div className="flex gap-2 mt-1">
         <input
@@ -229,8 +236,7 @@ function BodyEditor({ step }: { step: HttpStep }) {
 function JsonBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const body = step.request.body;
-  const initial =
-    body?.kind === "json" ? JSON.stringify(body.value, null, 2) : "{}";
+  const initial = body?.kind === "json" ? JSON.stringify(body.value, null, 2) : "{}";
   const [text, setText] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -302,9 +308,7 @@ function FormBodyField({ step }: { step: HttpStep }) {
             </button>
           </li>
         ))}
-        {entries.length === 0 && (
-          <li className="text-xs text-slate-400 italic">No fields</li>
-        )}
+        {entries.length === 0 && <li className="text-xs text-slate-400 italic">No fields</li>}
       </ul>
       <div className="flex gap-2 mt-1">
         <input
@@ -436,9 +440,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
 
   // Local drafts let us show in-progress rows before they pass Zod validation.
-  const [drafts, setDrafts] = useState<DraftExtract[]>(() =>
-    step.extract.map(draftFromExtract),
-  );
+  const [drafts, setDrafts] = useState<DraftExtract[]>(() => step.extract.map(draftFromExtract));
 
   // Reset drafts when the selected step changes.
   useEffect(() => {
@@ -556,9 +558,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             </button>
           </li>
         ))}
-        {drafts.length === 0 && (
-          <li className="text-xs text-slate-400 italic">No extracts</li>
-        )}
+        {drafts.length === 0 && <li className="text-xs text-slate-400 italic">No extracts</li>}
       </ul>
       <button
         type="button"
@@ -641,11 +641,64 @@ function LoopInspector({ step }: { step: LoopStep }) {
               </button>
             </li>
           ))}
-          {step.do.length === 0 && (
-            <li className="text-xs text-slate-400 italic">No steps</li>
-          )}
+          {step.do.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
         </ul>
       </div>
+    </aside>
+  );
+}
+
+// Read-only stub: name editing + branch navigation. The recursive condition
+// builder and per-branch mutation land in Task 5 (needs Task 3 store actions).
+function IfInspectorStub({ step }: { step: IfStep }) {
+  const setStepField = useScenarioEditor((s) => s.setStepField);
+  const removeStep = useScenarioEditor((s) => s.removeStep);
+  const select = useScenarioEditor((s) => s.select);
+
+  const branches: Array<{ label: string; steps: ReadonlyArray<HttpStep> }> = [
+    { label: "Then", steps: step.then },
+    ...step.elif.map((e, i) => ({ label: `Elif ${i + 1}`, steps: e.then })),
+    { label: "Else", steps: step.else },
+  ];
+
+  return (
+    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+      <header className="flex items-center justify-between">
+        <h3 className="font-semibold text-slate-700">If</h3>
+        <SmallButton onClick={() => removeStep(step.id)} label="Delete" title="Delete if" danger />
+      </header>
+
+      <Field label="Name">
+        <input
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={step.name}
+          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
+        />
+      </Field>
+
+      {branches.map((b) => (
+        <div key={b.label}>
+          <div className="text-xs font-semibold text-slate-600 mb-1">{b.label}</div>
+          <ul className="flex flex-col gap-1">
+            {b.steps.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  title={`${c.name} — ${c.request.method} ${c.request.url}`}
+                  className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
+                  onClick={() => select(c.id)}
+                >
+                  <span className="font-medium">{c.name}</span>{" "}
+                  <span className="font-mono text-slate-500">
+                    {c.request.method} {c.request.url}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {b.steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
+          </ul>
+        </div>
+      ))}
     </aside>
   );
 }
