@@ -152,6 +152,7 @@ docs/
 - **0020** Control-flow 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count)
 - **0021** loop 메트릭 breakdown: per-run cap + overflow sentinel, counts-only
 - **0022** Data-driven 데이터셋: 독립 리소스 + 서버 파싱(8b) + 3정책 바인딩/주입(8c) — 완결
+- **0023** Conditional 노드: 평탄 if/elif/else + 재귀 조건 트리 + lenient 평가 + 상호 1레벨 중첩 (9a 엔진 출하, UI/중첩/메트릭은 9b–9d)
 
 ## 코딩 컨벤션
 
