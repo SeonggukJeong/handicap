@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod binding;
 pub mod datasets;
 pub mod dispatcher;
 pub mod error;

@@ -49,6 +49,8 @@ pub struct Profile {
     pub duration_seconds: u32,
     #[serde(default = "default_loop_cap")]
     pub loop_breakdown_cap: u32,
+    #[serde(default)]
+    pub data_binding: Option<crate::binding::DataBinding>,
 }
 
 pub struct RunRow {
@@ -255,6 +257,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 1,
             loop_breakdown_cap: 256,
+            data_binding: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
