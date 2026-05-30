@@ -228,8 +228,9 @@ pub enum Extract {
     Status { var: String },
 }
 
-/// Comparison operator for a condition leaf. Data-free enum → `derive` round-trips
-/// (same class as the internally-tagged `Extract` struct variants — engine CLAUDE.md).
+/// Comparison operator for a condition leaf. Plain unit-variant enum → `derive`
+/// round-trips in serde_yaml 0.9 (same class as `CookieJarMode`/`HttpMethod`,
+/// unlike the map-shaped `Condition` below which needs manual serde — engine CLAUDE.md).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CompareOp {
@@ -864,5 +865,7 @@ steps:
         assert!(serde_yaml::from_str::<Condition>("{ left: \"a\", op: eq, bogus: 1 }").is_err());
         // Mixing group + compare.
         assert!(serde_yaml::from_str::<Condition>("{ all: [], left: \"a\", op: eq }").is_err());
+        // Empty map has no discriminator → error.
+        assert!(serde_yaml::from_str::<Condition>("{}").is_err());
     }
 }
