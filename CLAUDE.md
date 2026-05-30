@@ -76,7 +76,7 @@ just build && just lint && just test     # 18 tests must pass
 
 `--no-verify`로 hook 우회 금지 (사용자 명시 요청 없이는). 회귀가 생긴 채로 커밋이 들어가면 후속 작업이 모두 빨갛게 됨.
 
-**이 repo의 git 토폴로지**: 통합 브랜치는 `master` (`main` 없음 — 세션 시작 컨텍스트의 "Main branch: main"은 부정확), **remote 미설정**. 브랜치 마무리는 push/PR이 아니라 로컬 fast-forward: `git checkout master && git merge --ff-only <branch>`. 사내 K8s 도입 시 remote 붙이면 PR 흐름 가능. 슬라이스 작업은 `.claude/worktrees/<name>` worktree에서 진행.
+**이 repo의 git 토폴로지**: 통합 브랜치는 `master` (`main` 없음 — 세션 시작 컨텍스트의 "Main branch: main"은 부정확), **remote 미설정**. 브랜치 마무리는 push/PR이 아니라 로컬 fast-forward: `git checkout master && git merge --ff-only <branch>`. 세션이 길어 그 사이 master가 전진하면 ff-only가 깨지므로 **브랜치를 master에 rebase 후 ff-merge**(Slice 9a 때 docs 커밋이 끼어듦; 파일 겹침 없으면 충돌 0). 사내 K8s 도입 시 remote 붙이면 PR 흐름 가능. 슬라이스 작업은 `.claude/worktrees/<name>` worktree에서 진행 — **네이티브 `EnterWorktree` 사용 시 remote가 없어 기본 `worktree.baseRef`(`fresh`=`origin/<default>`)가 실패**하니 `.claude/settings.local.json`(gitignored)에 `worktree.baseRef: head` 필요(로컬 HEAD에서 분기). 정리는 harness 소유 경로(`.claude/worktrees/`)라 `git worktree remove`가 아니라 **`ExitWorktree`** 로 — 단 ff-merge 후에도 `ExitWorktree(remove)`는 워크트리 *생성 base* 기준 커밋 수를 세어 "N commits discarded"로 거부하므로, master에 머지 끝났음을 확인한 뒤 `discard_changes: true`로 재호출(커밋은 이미 master에 안전).
 
 ## 디렉토리 (MVP 계획)
 
