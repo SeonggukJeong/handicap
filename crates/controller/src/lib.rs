@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod datasets;
 pub mod dispatcher;
 pub mod error;
 pub mod grpc;
