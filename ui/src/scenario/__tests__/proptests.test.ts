@@ -89,7 +89,7 @@ const loopStepArb: fc.Arbitrary<LoopStep> = fc.record({
 });
 
 // Condition tree (Slice 9b): leaf compares (with/without `right`) + all/any groups.
-const leafWithRight: fc.Arbitrary<Condition> = fc.record({
+const leafWithRightArb: fc.Arbitrary<Condition> = fc.record({
   left: ident.map((v) => `{{${v}}}`),
   op: fc.constantFrom(
     "eq" as const,
@@ -103,11 +103,14 @@ const leafWithRight: fc.Arbitrary<Condition> = fc.record({
   ),
   right: fc.stringMatching(/^[a-z0-9]{1,8}$/),
 });
-const leafNoRight: fc.Arbitrary<Condition> = fc.record({
+const leafNoRightArb: fc.Arbitrary<Condition> = fc.record({
   left: ident.map((v) => `{{${v}}}`),
   op: fc.constantFrom("exists" as const, "empty" as const),
 });
-const leafArb: fc.Arbitrary<Condition> = fc.oneof(leafWithRight, leafNoRight);
+const leafArb: fc.Arbitrary<Condition> = fc.oneof(leafWithRightArb, leafNoRightArb);
+// Groups use minLength 1: the model permits empty all/any, but the UI never authors them
+// (the condition builder seeds a leaf and blocks removing a group's last child), so the
+// round-trip mirrors real authored shapes.
 const conditionArb: fc.Arbitrary<Condition> = fc.oneof(
   { weight: 3, arbitrary: leafArb },
   { weight: 1, arbitrary: fc.record({ all: fc.array(leafArb, { minLength: 1, maxLength: 2 }) }) },

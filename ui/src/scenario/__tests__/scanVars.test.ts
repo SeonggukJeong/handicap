@@ -97,6 +97,21 @@ describe("scanFlowVars", () => {
               extract: [],
             },
           ],
+          elif: [
+            {
+              cond: { left: "{{code}}", op: "eq", right: "404" },
+              then: [
+                {
+                  id: "01HX0000000000000000000013",
+                  name: "el",
+                  type: "http",
+                  request: { method: "GET", url: "/{{elifvar}}", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+            },
+          ],
           else: [
             {
               id: "01HX0000000000000000000012",
@@ -110,7 +125,7 @@ describe("scanFlowVars", () => {
         },
       ],
     });
-    expect([...scanFlowVars(s)].sort()).toEqual(["other", "path", "tok"]);
+    expect([...scanFlowVars(s)].sort()).toEqual(["elifvar", "other", "path", "tok"]);
   });
 
   it("ignores ${ENV} and system tokens", () => {
