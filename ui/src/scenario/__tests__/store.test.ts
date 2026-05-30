@@ -40,7 +40,9 @@ describe("useScenarioEditor", () => {
 
   it("setStepField mutates the doc and rederives the model", () => {
     useScenarioEditor.getState().loadFromString(VALID_YAML);
-    useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["request", "method"], "POST");
+    useScenarioEditor
+      .getState()
+      .setStepField("01HX0000000000000000000001", ["request", "method"], "POST");
     const s = useScenarioEditor.getState();
     const step0 = s.model!.steps[0];
     if (step0.type === "http") expect(step0.request.method).toBe("POST");
@@ -172,13 +174,57 @@ describe("setStepExtract", () => {
   it("replaces the extract list and reflects in yamlText", () => {
     useScenarioEditor.getState().loadFromString(VALID_YAML);
     const stepId = "01HX0000000000000000000001";
-    const extracts: Extract[] = [
-      { var: "token", from: "body", path: "$.access_token" },
-    ];
+    const extracts: Extract[] = [{ var: "token", from: "body", path: "$.access_token" }];
     useScenarioEditor.getState().setStepExtract(stepId, extracts);
     const s = useScenarioEditor.getState();
     const step0 = s.model!.steps[0];
     if (step0.type === "http") expect(step0.extract).toEqual(extracts);
     expect(s.yamlText).toContain("$.access_token");
+  });
+});
+
+describe("useScenarioEditor — if actions", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+  });
+
+  it("addIfStep appends an if step and returns its id", () => {
+    const id = useScenarioEditor.getState().addIfStep("Branch");
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
+    expect(step?.type).toBe("if");
+  });
+
+  it("setIfCond replaces the condition", () => {
+    const id = useScenarioEditor.getState().addIfStep("Branch");
+    useScenarioEditor.getState().setIfCond(id, { left: "{{x}}", op: "eq", right: "1" });
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
+    if (step?.type === "if") expect(step.cond).toEqual({ left: "{{x}}", op: "eq", right: "1" });
+    else throw new Error("expected if step");
+  });
+
+  it("addStepInBranch adds an http step to else and returns its id", () => {
+    const id = useScenarioEditor.getState().addIfStep("Branch");
+    const childId = useScenarioEditor.getState().addStepInBranch(id, { kind: "else" }, "E");
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
+    if (step?.type === "if") {
+      expect(step.else).toHaveLength(1);
+      expect(step.else[0].id).toBe(childId);
+    } else throw new Error("expected if step");
+  });
+
+  it("addElif then setElifCond then removeElif", () => {
+    const id = useScenarioEditor.getState().addIfStep("Branch");
+    useScenarioEditor.getState().addElif(id);
+    useScenarioEditor.getState().setElifCond(id, 0, { left: "{{c}}", op: "eq", right: "2" });
+    let step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
+    if (step?.type === "if") {
+      expect(step.elif).toHaveLength(1);
+      const ec = step.elif[0].cond;
+      if (!("all" in ec) && !("any" in ec)) expect(ec.right).toBe("2");
+    } else throw new Error("expected if step");
+    useScenarioEditor.getState().removeElif(id, 0);
+    step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
+    if (step?.type === "if") expect(step.elif).toHaveLength(0);
   });
 });

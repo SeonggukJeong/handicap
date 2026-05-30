@@ -1,14 +1,9 @@
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 import { Document } from "yaml";
-import { type Extract, type Scenario } from "./model";
+import { type Extract, type Scenario, type Condition } from "./model";
 import { newStepId } from "./ulid";
-import {
-  applyEdit,
-  parseScenarioDoc,
-  serializeDoc,
-  type Edit,
-} from "./yamlDoc";
+import { applyEdit, parseScenarioDoc, serializeDoc, type Edit, type BranchSel } from "./yamlDoc";
 
 const STARTER_YAML = `version: 1
 name: "Untitled"
@@ -41,6 +36,12 @@ export interface ScenarioEditorState {
   addLoopStep(name: string): string; // returns new loop id
   addStepInLoop(loopId: string, name: string): string; // returns new child id
   setLoopRepeat(loopId: string, repeat: number): void;
+  addIfStep(name: string): string; // returns new if id
+  setIfCond(ifId: string, cond: Condition): void;
+  setElifCond(ifId: string, index: number, cond: Condition): void;
+  addStepInBranch(ifId: string, branch: BranchSel, name: string): string; // returns child id
+  addElif(ifId: string): void;
+  removeElif(ifId: string, index: number): void;
   removeStep(stepId: string): void;
   moveStep(stepId: string, toIndex: number): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
@@ -130,6 +131,30 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setLoopRepeat(loopId, repeat) {
     dispatch(set, get, { type: "setLoopRepeat", loopId, repeat });
+  },
+  addIfStep(name) {
+    const id = newStepId();
+    const childId = newStepId();
+    dispatch(set, get, { type: "addIfStep", id, name, childId });
+    return id;
+  },
+  setIfCond(ifId, cond) {
+    dispatch(set, get, { type: "setIfCond", ifId, cond });
+  },
+  setElifCond(ifId, index, cond) {
+    dispatch(set, get, { type: "setElifCond", ifId, index, cond });
+  },
+  addStepInBranch(ifId, branch, name) {
+    const id = newStepId();
+    dispatch(set, get, { type: "addStepInBranch", ifId, branch, id, name });
+    return id;
+  },
+  addElif(ifId) {
+    const childId = newStepId();
+    dispatch(set, get, { type: "addElif", ifId, childId });
+  },
+  removeElif(ifId, index) {
+    dispatch(set, get, { type: "removeElif", ifId, index });
   },
   removeStep(stepId) {
     if (get().selectedStepId === stepId) set({ selectedStepId: null });
@@ -227,6 +252,12 @@ const actions = (() => {
     addLoopStep: s.addLoopStep,
     addStepInLoop: s.addStepInLoop,
     setLoopRepeat: s.setLoopRepeat,
+    addIfStep: s.addIfStep,
+    setIfCond: s.setIfCond,
+    setElifCond: s.setElifCond,
+    addStepInBranch: s.addStepInBranch,
+    addElif: s.addElif,
+    removeElif: s.removeElif,
     removeStep: s.removeStep,
     moveStep: s.moveStep,
     setStepField: s.setStepField,
