@@ -12,10 +12,10 @@
 
 ---
 
-## 현재 상태 (2026-05-30)
+## 현재 상태 (2026-05-31)
 
-- **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체). master `6263625`까지 머지됨. 열린 슬라이스 작업 없음.
-- **진행 중**: **Slice 9 = Conditional 노드** (선택됨 2026-05-30, brainstorming 단계 진입 예정).
+- **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체). 열린 8 이전 슬라이스 작업 없음.
+- **진행 중**: **Slice 9 = Conditional(`type: if`) 노드** (4분할 9a–9d). **9a(엔진) + 9b(UI authoring) 구현·머지 완료.** 남은 하위 슬라이스: **9c = 상호 1레벨 중첩**(if↔loop; 9b 분기는 http-only) → **9d = 분기별 메트릭 breakdown**(Slice 7-1 패턴 재사용). 9c/9d plan 미작성.
 
 ---
 
@@ -23,11 +23,11 @@
 
 우선순위가 아니라 후보 목록이다. spec §4.5의 한 줄을 각 후보에 그대로 매핑하고, 이 코드베이스 기준의 착수 메모를 덧붙인다.
 
-### A1. Conditional 노드 — **← 다음으로 선택됨**
+### A1. Conditional 노드 — **← 진행 중 (9a+9b 완료, 9c/9d 남음)**
 - **spec 근거**: §4.5 "HTTP 외 다른 노드 종류 (loop, **conditional**, parallel, …)".
 - **성격**: control-flow 노드. Slice 7 loop가 깐 인프라(재귀 `Step` 트리, internally-tagged enum `#[serde(tag="type")]`, `execute_steps(steps, ctx)` 재귀 인터프리터, React Flow 컨테이너 노드)를 그대로 재사용하는 가장 자연스러운 다음 수.
 - **참고**: ADR-0020 (control-flow 노드: loop 패턴). spec §2 모델 노트 "후속 단계의 `loop`/`conditional` 노드는 모델에 `type` 추가, 내부 `do: [...]` 중첩 — 캔버스에서는 컨테이너 노드로 시각화" (`...mvp1-design.md:287`).
-- **열린 설계 질문(brainstorming에서 결정)**: 조건식 문법(`{{var}}` 비교? 표현식 엔진? status/extract 결과 기반?), then/else 두 분기 vs then-only, 캔버스 시각화(분기 컨테이너), 메트릭 라벨링(어느 분기를 탔는지 breakdown 필요 여부 — Slice 7-1 패턴 재사용 가능).
+- **결정·진행**: spec `docs/superpowers/specs/2026-05-30-slice-9-conditional-node-design.md`, ADR-0023. 4분할 — **9a(엔진: 평탄 if/elif/else + 재귀 조건 트리 + lenient 평가, 머지됨)**, **9b(UI authoring: Zod `ConditionModel`/`IfStepModel` + 캔버스 if 컨테이너 + 재귀 조건 빌더 inspector, 머지됨)**, **9c(상호 1레벨 중첩 if↔loop — 미착수, plan 미작성)**, **9d(분기별 메트릭 breakdown, Slice 7-1 패턴 재사용 — 미착수, plan 미작성)**.
 
 ### A2. Parallel 노드
 - **spec 근거**: §4.5 "… loop, conditional, **parallel** …".

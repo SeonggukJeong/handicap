@@ -9,6 +9,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **`pnpm build`(`tsc -b && vite build`)가 최종 게이트** (코딩 컨벤션): `pnpm test`(jsdom + esbuild transpile)는 TS strict 에러를 안 잡는 경우가 있다. 예: `fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만 `Arbitrary<string>`으로 widening돼서 discriminated union과 안 맞아 `tsc -b`에서 깨짐 → 각 인자에 `as const` 또는 명시적 `fc.Arbitrary<"GET"|"POST"|...>` 선언. **UI 변경 commit 전 `pnpm build`까지 한 번 돌리는 게 안전.**
 - **Zod 중첩 `.default()`의 input 타입 누출** (Slice 4): `ProfileSchema.ramp_up_seconds: z.number().default(0)`이 output에선 `number`지만, `RunSchema.profile`로 nested되면 부모의 `z.infer`에서 `number | undefined`로 추론된다. 별도 `Profile` 타입을 받는 컴포넌트로 props 분리하면 TS 에러. `pnpm test`(esbuild transpile)는 통과하고 **`pnpm build`(`tsc -b`)에서만 잡힘**.
 - **Zod `.strict()` + `default()`의 조합** (Slice 3): `.strict()`가 `default()`로 채워진 키를 거부하지 않는다 — default는 input 단계에서 적용되고 strict는 unknown 키 검사이므로 충돌 없음. 헷갈리지 말 것.
+- **`ConditionModel`은 모델 최초의 `z.lazy`** (Slice 9b): 재귀 `Condition`(leaf/all/any)을 `z.lazy`로 정의하되 **`discriminatedUnion`이 아니라 `z.union`** — 3 형태가 공통 discriminant 키가 없고 `left`/`all`/`any` 존재 여부로 구분된다. **명시적 `z.ZodType<Condition>` 주석을 안 달면 `tsc`가 `any`로 추론**한다. recursive 라 annotation 이 self-referential 타입을 끊어주는 역할.
+- **`then`/`else`는 유효한 객체 키지만 `else`를 binding으로 destructure 금지** (Slice 9b): `.then`이 **배열**이면 thenable이 아니라 안전(Promise로 안 샘); 하지만 `const { else } = ...`처럼 destructure하면 예약어 충돌 — 항상 member access(`branch.else`)로. `IfStepModel.elif`/`else`는 `.default([])`라 Slice-4 nested-default input-leak 함정 경계(discriminatedUnion narrowing)에 또 걸릴 수 있다 — 9b에선 우연히 cast 없이 깨끗이 타입됐지만 리스크 상존, `pnpm test`는 못 잡고 `pnpm build`(`tsc -b`)에서만 드러남.
 
 ## React Flow 캔버스 (`@xyflow/react` v12)
 
@@ -17,6 +19,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **React Flow의 control vs uncontrolled** (Slice 3): 노드 위치를 직접 계산해서 넘기면 React Flow 안에서 drag로 옮긴 위치는 반영되지 않는다. Slice 3은 의도적으로 drag 비활성화(`draggable: false`) — 위치는 매번 재계산됨.
 - **React Flow v12 parent/child(subflow)** (Slice 7): 자식 노드에 `parentId` + `extent: "parent"` 를 주고, **부모 노드에 명시적 `style` width/height** 를 줘야 자식이 컨테이너 bounds 안에 담긴다(부모 크기는 자동 산출 안 됨 — 자식 수에 맞춰 높이 계산). full `<ReactFlow>` 를 jsdom 에서 마운트하는 RTL 테스트는 `ResizeObserver` 폴리필 필요(xyflow 의 ZoomPane 이 요구) — `ui/src/test/setup.ts` 에 conditional 폴리필.
 - **`Step` 을 discriminated union 으로 바꾸면 모든 consumer 가 union narrowing 을 거쳐야 한다** (Slice 7): `.request`/`.assert`/`.extract` 를 직접 읽던 TS 코드가 전부 `tsc` union 에러를 낸다. `flattenHttpSteps(steps)` 가 "트리에서 http leaf 만 평탄화" 하는 표준 헬퍼(report 라벨링·inspector 중첩 선택에 재사용) — 새 컨테이너 노드(Slice 8/9) 추가 시 이 헬퍼의 walk 만 확장하면 된다.
+- **`StepModel`은 이제 http|loop|if 3-way discriminatedUnion** (Slice 9b): if 컨테이너 노드는 `IfStepNode.tsx`(헤더 + 조건 요약 + THEN/ELIF/ELSE 밴드 라벨), CanvasView `summarizeCondition` + if-layout + `NODE_TYPES.if`. **`flattenHttpSteps`는 if case에 한해 비재귀** — then/elif[].then/else 한 레벨만 평탄화하고 9c(상호 1레벨 중첩, spec SF-1)까지 그대로 둔다(분기는 9b에서 http-only). 반대로 `findStepPath`(`yamlDoc.ts`)는 9c 포석으로 이미 완전 재귀.
 - **flexbox `min-width:auto` 오버플로우 + `truncate`는 bounded width 필요** (Slice 7-1): `flex` row에서 `flex-1` 입력 옆 버튼이 칸 밖으로 밀려나는 건 flex item 기본 `min-width:auto` 때문 — 입력에 `min-w-0`, 트레일링 버튼에 `shrink-0`. Tailwind `truncate`는 **조상에 확정 너비가 있어야** 클립된다 — React Flow 노드는 콘텐츠로 자라므로 `CanvasView`에서 노드 `style.width`를 박고 노드 root에 `w-full box-border`를 줘야 긴 URL이 컨테이너 밖으로 안 자란다. 새 key-value 폼·새 캔버스 노드 추가 시 둘 다 확인.
 
 ## Monaco 에디터
@@ -35,6 +38,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **`yaml` 라이브러리 재직렬화의 dirty-flag false positive** (Slice 3): `parseDocument(text)` → `String(doc)` 이 들여쓰기·인용을 정규화한다(예: 평탄 list `- a`를 `  - a`로). `originalText !== currentText` 단순 비교로 dirty를 판단하면 mount 직후 첫 onChange가 정규화 텍스트를 푸시하는 순간 거짓 dirty=true. 해결: `originalYaml`을 prop이 아니라 **EditorShell의 첫 onChange 콜백에서 seed**(ref 플래그로 1회만). 저장 성공 시는 server canonical(`next.yaml`)로 다시 seed. (`ScenarioEditPage.tsx::baselineSeededRef` 참고.)
 - **`PATCH /scenarios/{id}` 의 optimistic lock과 extract 변경** (Slice 4): extract만 바뀌어도 yamlText가 달라지므로 dirty 플래그가 켜진다. EditorShell의 baselineSeededRef 패턴이 그대로 적용되어 추가 작업 없음.
 - **UI editor의 commit timing이 dirty-flag 휴리스틱과 결합** (Slice 4 F5): `baselineSeededRef`가 매 키 입력마다 yamlText diff를 보면 거짓 dirty가 뜬다. 동시에 partial-row가 Zod validation을 잠시 fail해서 yamlText에서 "깜빡"한다. 해법: input의 commit은 onBlur(또는 구조적 변경 시 즉시), 로컬 state는 onChange로 즉시 갱신. (`ExtractEditor`가 표준 패턴 — 새 editor도 따라갈 것.)
+- **조건 leaf의 `right`는 `exists`/`empty`에서 반드시 생략** (Slice 9b): 엔진이 이 두 단항 연산자에서 `right`를 떨군다 — `yamlDoc.ts::cleanCond`가 `createNode` 전에 `right`를 OMIT(다른 연산자는 편집 가능하게 `right:""`도 유지)하고, leaf inspector도 op-change 시 `right`를 떨군다. 두 군데 다 안 지키면 round-trip에 죽은 `right` 키가 남는다.
+- **`findStepPath`는 이제 완전 재귀(loop `do` + if 분기 then/else/elif[].then)** (Slice 9b): 9c(중첩) 포석. 단 step-tree edit 6종(addIfStep/setIfCond/setElifCond/addStepInBranch/addElif/removeElif)은 `BranchSel`/`branchPath`로 분기를 가리키고, `normalizeStep`(if)+`normalizeElif`가 if/elif 노드를 정규화. store action은 loop action을 미러한 thin wrapper.
 
 ## Zustand store
 
@@ -64,6 +69,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **key-value 입력 폼은 한 칸짜리 add row를 만들지 말 것** (Slice 4 M5): RunDialog Env 입력 1차 구현이 placeholder="BASE_URL" 한 칸 + Add였는데, 사용자가 URL을 키 칸에 통째로 적어 `key=http://..., value=""` 잘못된 entry를 만들었다. 두 칸 동시 입력 + key 비어있으면 Add disabled가 표준(`VariablesPanel` 패턴).
 - **Run 상세 화면의 step_id 진단성** (Slice 4 M2): ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다. 시나리오 YAML을 같이 fetch해서 `step.id → {name, method, url}`로 매핑하고 URL은 `resolveForDisplay`로 풀어 표시하면 status 0 같은 비정상 상태에서 root cause(시나리오 설정 vs connectivity) 분간이 한 화면에서 가능.
 - **`resolveForDisplay`는 display/관대 resolver** (Slice 4 M3): UI `ui/src/scenario/template.ts::resolveForDisplay`는 미해결 토큰을 그대로 둔다(엔진 `template.rs`는 runtime/엄격). 엔진에 새 토큰/문법 추가하면 **반드시 이 resolver도 동시에**, 아니면 진단 표시가 거짓말을 한다.
+- **재귀 `ConditionEditor`는 ExtractEditor 커밋 패턴을 index-path 불변 트리 위에 올린다** (Slice 9b): 로컬 `draft`+`draftRef`, 텍스트 input은 onBlur 커밋, 구조 변경(그룹/leaf 추가·삭제·op 변경)은 즉시 커밋. 편집은 immutable Condition 트리를 `setAtPath`/`removeAtPath`로 index-path 기반 교체. `useEffect([cond])`가 draft를 re-seed하는데 — self-commit이 모델을 re-parse해서 `cond`가 new-but-structurally-equal 객체가 되고 effect가 무해하게 re-fire한다; effect의 **진짜 목적은 step/elif 전환 시 reset**.
+- **조건 빌더는 빈 그룹을 절대 만들 수 없게** (Slice 9b): 엔진 `All([])`이 vacuous-true(항상 참)라, 사용자가 빈 `all:`/`any:`를 만들면 if가 무조건 then을 탄다. 두 겹 가드: "+ group"은 leaf 하나를 시드, child가 정확히 1개인 그룹은 그 child의 "×" 제거 버튼을 숨긴다(그룹을 비울 경로 자체를 봉쇄).
 
 ## 데이터 바인딩 패널 (8c, `DataBindingPanel`)
 
@@ -78,3 +85,5 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **`fast-check` + Vitest의 default `numRuns`** (Slice 4): 100. CI 시간을 아끼려고 round-trip 프로퍼티에서 40으로 줄였다. 의도적 — 셔링크 발생 시 numRuns를 다시 올려 재현.
 - **userEvent.setup()를 it마다 호출** (Slice 4): v14에서 글로벌 default user-event는 deprecated. 매 테스트에서 `const user = userEvent.setup()` 명시.
 - **Playwright MCP `browser_file_upload`는 repo 루트 밖 경로를 거부한다** (Slice 8c): 허용 루트는 `/Users/sgj/develop/handicap`(워크트리 포함) + `.playwright-mcp/`뿐 — `/tmp`의 파일은 `File access denied`. 브라우저 업로드 점검(데이터셋 등) 시 업로드 대상 파일을 repo 안(예: `.playwright-mcp/`)에 써둔 뒤 절대경로로 넘길 것.
+- **`title`+텍스트를 동시에 가진 버튼의 accessible name은 텍스트 콘텐츠가 이긴다** (Slice 9b): em-dash가 든 `title`을 단 nav 버튼이라도 visible text가 있으면 accessible name은 **텍스트 콘텐츠**(em-dash 없음)에서 온다 — `getByRole("button", {name})`은 `—`가 아니라 텍스트로 매치할 것.
+- **`@testing-library/user-event`의 `type()`은 `[`/`{`를 key-descriptor 구분자로 본다** (Slice 9b): 리터럴 `[`/`{`를 타이핑하려면 `[[`/`{{`로 escape(예: 테스트에서 `matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때). 안 그러면 `{Enter}`처럼 특수 키로 해석돼 입력이 사라진다.
