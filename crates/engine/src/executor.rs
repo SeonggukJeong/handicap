@@ -69,7 +69,13 @@ pub async fn execute_step(
     if let Some(body) = &step.request.body {
         req = match body {
             Body::Json(v) => req.json(v),
-            Body::Form(map) => req.form(map),
+            Body::Form(map) => {
+                let mut rendered = BTreeMap::new();
+                for (k, v) in map {
+                    rendered.insert(k.clone(), render(v, ctx)?);
+                }
+                req.form(&rendered)
+            }
             Body::Raw(s) => {
                 let rendered = render(s, ctx)?;
                 req.body(rendered)
@@ -159,9 +165,9 @@ pub async fn execute_step(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::{Extract, HttpMethod, HttpStep, Request};
+    use crate::scenario::{Body, Extract, HttpMethod, HttpStep, Request};
     use std::collections::BTreeMap;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn empty_env() -> BTreeMap<String, String> {
@@ -248,5 +254,49 @@ mod tests {
         let outcome = execute_step(&client, &step, &ctx).await.unwrap();
         assert!(outcome.error.is_some(), "expected error");
         assert!(outcome.extracted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn form_body_values_are_templated() {
+        let server = MockServer::start().await;
+        // 치환이 됐을 때만(user=alice) 200, 아니면 매칭 실패로 404.
+        Mock::given(method("POST"))
+            .and(path("/login"))
+            .and(body_string_contains("user=alice"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let mut form = BTreeMap::new();
+        form.insert("user".to_string(), "{{username}}".to_string());
+        let step = HttpStep {
+            id: "01HX0000000000000000000010".into(),
+            name: "login".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: format!("{}/login", server.uri()),
+                headers: BTreeMap::new(),
+                body: Some(Body::Form(form)),
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let mut vars = BTreeMap::new();
+        vars.insert("username".to_string(), "alice".to_string());
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert_eq!(
+            outcome.status, 200,
+            "form value must be templated to user=alice"
+        );
+        assert!(outcome.error.is_none(), "no error: {:?}", outcome.error);
     }
 }
