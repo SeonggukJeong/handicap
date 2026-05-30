@@ -100,6 +100,11 @@ fn arb_compare_op() -> impl Strategy<Value = CompareOp> {
     ]
 }
 
+// Operand alphabet is intentionally restricted to `[a-z0-9]` (+ `{{var}}` form): this
+// property pins the structural manual-serde round-trip, not YAML-special-string quoting.
+// Special operands (yaml keywords, `:` / `#` / leading-space, etc.) are covered by the
+// deterministic unit tests in `scenario.rs` (the Condition serde tests). All-digit
+// operands ARE generated here and provably round-trip (serde forces the typed String).
 fn arb_compare() -> impl Strategy<Value = Condition> {
     (
         "(\\{\\{[a-z]{1,5}\\}\\}|[a-z0-9]{0,8})",
@@ -123,11 +128,11 @@ fn arb_if_step() -> impl Strategy<Value = Step> {
         "[0-9A-HJKMNP-TV-Z]{26}",
         arb_ident(),
         arb_condition(),
-        vec(arb_http_step().prop_map(Step::Http), 1..3),
+        vec(arb_http_step().prop_map(Step::Http), 0..3),
         vec(
             (
                 arb_condition(),
-                vec(arb_http_step().prop_map(Step::Http), 1..2),
+                vec(arb_http_step().prop_map(Step::Http), 0..2),
             )
                 .prop_map(|(cond, then_)| ElifBranch { cond, then_ }),
             0..2,
