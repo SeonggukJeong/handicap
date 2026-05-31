@@ -201,20 +201,6 @@ async fn upload_ds(app: &axum::Router, csv: &str) -> String {
     v["id"].as_str().unwrap().to_string()
 }
 
-/// Create a minimal scenario and return its id.
-async fn create_sc(app: &axum::Router) -> String {
-    let yaml = "version: 1\nname: guard-test\nsteps:\n  - id: 01JBGRD00000000000000000001\n    type: http\n    name: s1\n    request:\n      method: GET\n      url: http://example.com/{{user}}\n";
-    let req = Request::builder()
-        .method(Method::POST)
-        .uri("/api/scenarios")
-        .header("content-type", "application/json")
-        .body(Body::from(json!({ "yaml": yaml }).to_string()))
-        .unwrap();
-    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
-    assert_eq!(status, StatusCode::CREATED, "create scenario failed: {v:?}");
-    v["id"].as_str().unwrap().to_string()
-}
-
 /// POST /api/runs with a data_binding referencing `dataset_id`.
 /// No worker connects → run stays pending (non-terminal).
 async fn create_run_with_binding(
@@ -255,7 +241,11 @@ async fn delete_rejects_dataset_referenced_by_active_run() {
 
     // Dataset with column "name"
     let dataset_id = upload_ds(&app, "name\nalice\nbob\n").await;
-    let scenario_id = create_sc(&app).await;
+    let scenario_id = create_scenario(
+        &app,
+        "version: 1\nname: guard-test\nsteps:\n  - id: 01JBGRD00000000000000000001\n    type: http\n    name: s1\n    request:\n      method: GET\n      url: http://example.com/{{user}}\n",
+    )
+    .await;
 
     // Create a run with a binding to this dataset; no worker → stays pending.
     let _run_id = create_run_with_binding(&app, &scenario_id, &dataset_id).await;
@@ -290,6 +280,81 @@ async fn delete_rejects_dataset_referenced_by_active_run() {
         StatusCode::OK,
         "dataset should still exist after rejected DELETE"
     );
+}
+
+// ─── Task 4: Soft guard — preset references ──────────────────────────────────
+
+/// Create a scenario with the given YAML and return its id.
+async fn create_scenario(app: &axum::Router, yaml: &str) -> String {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/scenarios")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "yaml": yaml }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    v["id"].as_str().unwrap().to_string()
+}
+
+const PRESET_YAML: &str = "version: 1\nname: ds-preset\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x/{{u}}\n";
+
+#[tokio::test]
+async fn delete_dataset_soft_blocks_when_referenced_by_preset() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, PRESET_YAML).await;
+    let dataset_id = upload_ds(&app, "user\nalice\nbob\n").await;
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/scenarios/{sid}/presets"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "bound",
+                "profile": {
+                    "vus": 1, "duration_seconds": 1,
+                    "data_binding": {
+                        "dataset_id": dataset_id,
+                        "policy": "per_vu",
+                        "mappings": [{ "kind": "column", "var": "u", "column": "user" }]
+                    }
+                },
+                "env": {}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // DELETE without force → soft 409 listing the preset
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(format!("/api/datasets/{dataset_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["presets"].as_array().unwrap().len(), 1);
+    assert_eq!(v["presets"][0]["name"], "bound");
+
+    // DELETE with ?force=true → 204
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(format!("/api/datasets/{dataset_id}?force=true"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 }
 
 /// DELETE a dataset not referenced by any run → 204 (normal delete).

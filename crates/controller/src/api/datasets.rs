@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -34,6 +34,12 @@ pub struct PreviewResponse {
 #[derive(Debug, Serialize)]
 pub struct DatasetListResponse {
     pub datasets: Vec<store::datasets::DatasetMeta>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DeleteQuery {
+    #[serde(default)]
+    pub force: bool,
 }
 
 const SAMPLE_LIMIT: usize = 20;
@@ -223,15 +229,27 @@ pub async fn get(
     }))
 }
 
-/// DELETE /api/datasets/{id} — 8c: 비종료(pending/running) run이 참조하면 409.
+/// DELETE /api/datasets/{id}
+/// - 비종료(pending/running) run이 참조 → hard 409 (force로도 못 지움).
+/// - 프리셋만 참조 → soft 409 + 참조 프리셋 목록. `?force=true`로 override.
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(q): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
     if crate::store::runs::dataset_in_use(&state.db, &id).await? {
         return Err(ApiError::Conflict(
             "이 데이터셋을 참조하는 실행 중(pending/running) run이 있어 삭제할 수 없습니다".into(),
         ));
+    }
+    if !q.force {
+        let refs = crate::store::presets::referencing_dataset(&state.db, &id).await?;
+        if !refs.is_empty() {
+            return Err(ApiError::ConflictJson(serde_json::json!({
+                "error": format!("{}개 프리셋이 이 데이터셋을 참조 중입니다", refs.len()),
+                "presets": refs,
+            })));
+        }
     }
     store::datasets::delete(&state.db, &id).await?;
     Ok(StatusCode::NO_CONTENT)
