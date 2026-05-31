@@ -325,6 +325,145 @@ describe("RunDialog — initial prefill (A1)", () => {
   });
 });
 
+describe("RunDialog — save/manage preset (A2)", () => {
+  function mockPresets(existing: Array<{ id: string; name: string }> = []) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: existing.map((p) => ({
+              id: p.id,
+              name: p.name,
+              vus: 1,
+              duration_seconds: 1,
+              created_at: 1,
+              updated_at: 1,
+            })),
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: "NEW",
+              scenario_id: "S1",
+              name: "saved",
+              profile: { vus: 2, duration_seconds: 5, ramp_up_seconds: 0, loop_breakdown_cap: 0 },
+              env: {},
+              created_at: 1,
+              updated_at: 1,
+            },
+            201,
+          ),
+        );
+      }
+      if (url.match(/\/api\/presets\/[^/]+$/) && init?.method === "PUT") {
+        return Promise.resolve(
+          jsonResponse({
+            id: "P1",
+            scenario_id: "S1",
+            name: "renamed",
+            profile: { vus: 1, duration_seconds: 1, ramp_up_seconds: 0, loop_breakdown_cap: 0 },
+            env: {},
+            created_at: 1,
+            updated_at: 2,
+          }),
+        );
+      }
+      if (url.match(/\/api\/presets\/P1$/) && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "P1",
+            scenario_id: "S1",
+            name: "loadme",
+            profile: { vus: 1, duration_seconds: 1, ramp_up_seconds: 0, loop_breakdown_cap: 0 },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  function renderDialog() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <RunDialog
+          scenarioId="S1"
+          hasLoop={false}
+          scenario={null}
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("POSTs a new preset from the current form state", async () => {
+    const user = userEvent.setup();
+    mockPresets([]);
+    renderDialog();
+    await user.type(screen.getByLabelText("preset name"), "saved");
+    await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/api/scenarios/S1/presets") && (i as RequestInit)?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.name).toBe("saved");
+      expect(body.profile.vus).toBe(2); // default form vus
+    });
+  });
+
+  it("confirms then PUTs when the name already exists", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockPresets([{ id: "P1", name: "dup" }]);
+    renderDialog();
+    await user.type(screen.getByLabelText("preset name"), "dup");
+    await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/api/presets/P1") && (i as RequestInit)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+    });
+    confirmSpy.mockRestore();
+  });
+
+  it("PUTs with the new name when renamePreset is called", async () => {
+    const user = userEvent.setup();
+    mockPresets([{ id: "P1", name: "loadme" }]);
+    renderDialog();
+
+    // Load preset P1 to set loadedPresetId and reveal the rename button
+    await user.selectOptions(await screen.findByLabelText("load preset"), "P1");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "이름 변경" })).toBeInTheDocument(),
+    );
+
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("renamed-name");
+
+    await user.click(screen.getByRole("button", { name: "이름 변경" }));
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/api/presets/P1") && (i as RequestInit)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+      expect(JSON.parse((put![1] as RequestInit).body as string).name).toBe("renamed-name");
+    });
+
+    promptSpy.mockRestore();
+  });
+});
+
 describe("RunDialog — load preset (A2)", () => {
   function mockPresets() {
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {

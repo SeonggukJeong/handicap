@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateRun, usePresets, queryKeys } from "../api/hooks";
+import {
+  useCreatePreset,
+  useCreateRun,
+  useDeletePreset,
+  usePresets,
+  useUpdatePreset,
+  queryKeys,
+} from "../api/hooks";
 import type { DataBinding } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
@@ -8,6 +15,7 @@ import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
 import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
 import { getPreset } from "../api/presets";
+import type { PresetInput } from "../api/presets";
 
 type Props = {
   scenarioId: string;
@@ -58,9 +66,9 @@ export function RunDialog({
     initial?.profile.data_binding ?? null,
   );
   const [panelKey, setPanelKey] = useState(0);
-  // _loadedPresetId / _presetName: state read by Task 7's save/rename/delete controls.
-  const [_loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
-  const [_presetName, setPresetName] = useState("");
+  // loadedPresetId / presetName: used by save/rename/delete preset controls.
+  const [loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
+  const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState<string | null>(null);
 
   const presets = usePresets(scenarioId);
@@ -93,6 +101,10 @@ export function RunDialog({
     }
   }
 
+  const createPreset = useCreatePreset(scenarioId);
+  const updatePreset = useUpdatePreset(scenarioId);
+  const deletePreset = useDeletePreset(scenarioId);
+
   const mutation = useCreateRun();
 
   const rampInvalid = rampUp > duration;
@@ -110,6 +122,76 @@ export function RunDialog({
   for (const { key, value } of envEntries) {
     const k = key.trim();
     if (k) env[k] = value;
+  }
+
+  function currentInput(): PresetInput {
+    return {
+      name: presetName.trim(),
+      profile: {
+        vus,
+        duration_seconds: duration,
+        ramp_up_seconds: rampUp,
+        loop_breakdown_cap: hasLoop ? loopCap : 0,
+        data_binding: binding ?? undefined,
+      },
+      env,
+    };
+  }
+
+  function savePreset() {
+    const name = presetName.trim();
+    if (!name) {
+      setPresetError("프리셋 이름을 입력하세요");
+      return;
+    }
+    setPresetError(null);
+    const existing = presets.data?.find((p) => p.name === name);
+    if (existing) {
+      if (!window.confirm(`'${name}' 프리셋을 덮어쓸까요?`)) return;
+      updatePreset.mutate(
+        { id: existing.id, body: currentInput() },
+        {
+          onError: (e) => setPresetError((e as Error).message),
+          onSuccess: () => setLoadedPresetId(existing.id),
+        },
+      );
+    } else {
+      createPreset.mutate(currentInput(), {
+        onError: (e) => setPresetError((e as Error).message),
+        onSuccess: (p) => setLoadedPresetId(p.id),
+      });
+    }
+  }
+
+  // NOTE (UX, spec §3 #12 deviation): rename PUTs currentInput() i.e. the live
+  // form state — so editing the form after loading then renaming also persists
+  // those edits ("save current state under a new name", not a pure metadata
+  // rename). Intentional and safe (rename only offered when a preset is loaded).
+  function renamePreset() {
+    if (!loadedPresetId) return;
+    const next = window.prompt("새 이름", presetName)?.trim();
+    if (!next) return;
+    setPresetError(null);
+    updatePreset.mutate(
+      { id: loadedPresetId, body: { ...currentInput(), name: next } },
+      {
+        onError: (e) => setPresetError((e as Error).message),
+        onSuccess: () => setPresetName(next),
+      },
+    );
+  }
+
+  function removePreset() {
+    if (!loadedPresetId) return;
+    if (!window.confirm(`'${presetName}' 프리셋을 삭제할까요?`)) return;
+    setPresetError(null);
+    deletePreset.mutate(loadedPresetId, {
+      onError: (e) => setPresetError((e as Error).message),
+      onSuccess: () => {
+        setLoadedPresetId(null);
+        setPresetName("");
+      },
+    });
   }
 
   return (
@@ -293,6 +375,44 @@ export function RunDialog({
           </button>
         </div>
       </section>
+
+      <div className="mb-3 flex items-center gap-2">
+        <input
+          aria-label="preset name"
+          className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"
+          placeholder="프리셋 이름"
+          value={presetName}
+          onChange={(e) => setPresetName(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={savePreset}
+          disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
+          className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
+        >
+          프리셋으로 저장
+        </button>
+        {loadedPresetId && (
+          <>
+            <button
+              type="button"
+              onClick={renamePreset}
+              disabled={updatePreset.isPending}
+              className="text-slate-700 hover:underline text-sm disabled:opacity-50"
+            >
+              이름 변경
+            </button>
+            <button
+              type="button"
+              onClick={removePreset}
+              disabled={deletePreset.isPending}
+              className="text-red-600 hover:underline text-sm disabled:opacity-50"
+            >
+              프리셋 삭제
+            </button>
+          </>
+        )}
+      </div>
 
       {scenario && (
         <DataBindingPanel
