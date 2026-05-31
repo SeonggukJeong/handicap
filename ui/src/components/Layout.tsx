@@ -15,6 +15,9 @@ export function Layout() {
             <Link to="/datasets" className="hover:text-slate-900">
               Datasets
             </Link>
+            <Link to="/environments" className="hover:text-slate-900">
+              Environments
+            </Link>
           </nav>
         </div>
       </header>
