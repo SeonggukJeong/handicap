@@ -287,6 +287,196 @@ describe("RunDetailPage — retry (A1)", () => {
   });
 });
 
+describe("RunDetailPage — save preset (A2)", () => {
+  it("saves the run's profile+env as a preset via prompt", async () => {
+    const user = userEvent.setup();
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("from-run");
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: "P1",
+              scenario_id: "S1",
+              name: "from-run",
+              profile: {
+                vus: 6,
+                duration_seconds: 12,
+                ramp_up_seconds: 0,
+                loop_breakdown_cap: 256,
+              },
+              env: { TOKEN: "abc" },
+              created_at: 1,
+              updated_at: 1,
+            },
+            201,
+          ),
+        );
+      }
+      if (url.endsWith("/api/runs/R1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/report")) {
+        return Promise.resolve(jsonResponse({}, 404));
+      }
+      if (url.endsWith("/api/runs/R1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+            status: "completed",
+            profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 },
+            env: { TOKEN: "abc" },
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "x",
+            yaml: "version: 1\nname: x\nsteps: []\n",
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R1");
+
+    await user.click(await screen.findByRole("button", { name: "프리셋으로 저장" }));
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/api/scenarios/S1/presets") && (i as RequestInit)?.method === "POST",
+      );
+      expect(post).toBeTruthy();
+      const body = JSON.parse((post![1] as RequestInit).body as string);
+      expect(body.name).toBe("from-run");
+      expect(body.profile.vus).toBe(6);
+      expect(body.env).toEqual({ TOKEN: "abc" });
+    });
+    promptSpy.mockRestore();
+  });
+
+  it("prompt cancel (null) → no POST fired", async () => {
+    const user = userEvent.setup();
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ id: "P1" }, 201));
+      }
+      if (url.endsWith("/api/runs/R1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/report")) {
+        return Promise.resolve(jsonResponse({}, 404));
+      }
+      if (url.endsWith("/api/runs/R1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+            status: "completed",
+            profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 },
+            env: { TOKEN: "abc" },
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "x",
+            yaml: "version: 1\nname: x\nsteps: []\n",
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R1");
+
+    const btn = await screen.findByRole("button", { name: "프리셋으로 저장" });
+    await user.click(btn);
+
+    // Button remains present/enabled — use it as a settled signal.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "프리셋으로 저장" })).toBeInTheDocument(),
+    );
+
+    const post = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        String(u).endsWith("/api/scenarios/S1/presets") && (i as RequestInit)?.method === "POST",
+    );
+    expect(post).toBeFalsy();
+    promptSpy.mockRestore();
+  });
+
+  it("server 409 → error banner shown", async () => {
+    const user = userEvent.setup();
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("dup");
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ error: "같은 이름의 프리셋이 이미 있습니다" }, 409));
+      }
+      if (url.endsWith("/api/runs/R1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/report")) {
+        return Promise.resolve(jsonResponse({}, 404));
+      }
+      if (url.endsWith("/api/runs/R1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+            status: "completed",
+            profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 },
+            env: { TOKEN: "abc" },
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "x",
+            yaml: "version: 1\nname: x\nsteps: []\n",
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R1");
+
+    await user.click(await screen.findByRole("button", { name: "프리셋으로 저장" }));
+
+    expect(await screen.findByText(/프리셋 저장 실패/)).toBeInTheDocument();
+    promptSpy.mockRestore();
+  });
+});
+
 describe("RunDetailPage — report on terminal", () => {
   it("mounts ReportView when status is completed and report loaded; hides Metric windows", async () => {
     const reportBundle = {

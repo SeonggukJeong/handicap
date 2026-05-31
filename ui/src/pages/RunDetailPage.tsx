@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   useAbortRun,
+  useCreatePreset,
   useCreateRun,
   useRun,
   useRunMetrics,
@@ -26,6 +27,7 @@ export function RunDetailPage() {
   const run = useRun(id);
   const abort = useAbortRun(id ?? "");
   const createRun = useCreateRun();
+  const createPreset = useCreatePreset(run.data?.scenario_id ?? "");
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
   const report = useRunReport(id, terminal);
@@ -80,6 +82,16 @@ export function RunDetailPage() {
       ? Math.round((totalCount / r.profile.duration_seconds) * 10) / 10
       : 0;
 
+  function saveAsPreset() {
+    const name = window.prompt("프리셋 이름")?.trim();
+    if (!name) return;
+    createPreset.mutate({
+      name,
+      profile: normalizeProfile(r.profile),
+      env: envValueToRecord(r.env),
+    });
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -130,6 +142,14 @@ export function RunDetailPage() {
               >
                 다시 실행
               </Link>
+              <button
+                type="button"
+                onClick={saveAsPreset}
+                disabled={createPreset.isPending}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-50"
+              >
+                {createPreset.isPending ? "저장 중…" : "프리셋으로 저장"}
+              </button>
             </>
           )}
         </div>
@@ -141,6 +161,14 @@ export function RunDetailPage() {
           className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
         >
           재실행 실패: {(createRun.error as Error).message}
+        </div>
+      )}
+      {createPreset.error && (
+        <div
+          role="alert"
+          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
+        >
+          프리셋 저장 실패: {(createPreset.error as Error).message}
         </div>
       )}
 
