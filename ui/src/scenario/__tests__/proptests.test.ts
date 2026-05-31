@@ -7,6 +7,8 @@ import {
   type HttpStep,
   type IfStep,
   type LoopStep,
+  type NestedIfStep,
+  type NestedLoopStep,
   type Scenario,
   type Step,
 } from "../model";
@@ -79,15 +81,6 @@ const httpStepArb: fc.Arbitrary<HttpStep> = fc.record({
   extract: fc.array(extractArb, { maxLength: 2 }),
 });
 
-// A loop wraps 1-2 http steps (single-level nesting, Slice 7).
-const loopStepArb: fc.Arbitrary<LoopStep> = fc.record({
-  id: ULID_ARB,
-  name: ident,
-  type: fc.constant("loop" as const),
-  repeat: fc.integer({ min: 1, max: 20 }),
-  do: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
-});
-
 // Condition tree (Slice 9b): leaf compares (with/without `right`) + all/any groups.
 const leafWithRightArb: fc.Arbitrary<Condition> = fc.record({
   left: ident.map((v) => `{{${v}}}`),
@@ -117,8 +110,16 @@ const conditionArb: fc.Arbitrary<Condition> = fc.oneof(
   { weight: 1, arbitrary: fc.record({ any: fc.array(leafArb, { minLength: 1, maxLength: 2 }) }) },
 );
 
-// An if step's branches are http-only in 9b (single-level nesting).
-const ifStepArb: fc.Arbitrary<IfStep> = fc.record({
+// Nested (http-only) container forms — what may appear one level down (9c gate).
+const nestedLoopArb: fc.Arbitrary<NestedLoopStep> = fc.record({
+  id: ULID_ARB,
+  name: ident,
+  type: fc.constant("loop" as const),
+  repeat: fc.integer({ min: 1, max: 20 }),
+  do: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
+});
+
+const nestedIfArb: fc.Arbitrary<NestedIfStep> = fc.record({
   id: ULID_ARB,
   name: ident,
   type: fc.constant("if" as const),
@@ -126,9 +127,44 @@ const ifStepArb: fc.Arbitrary<IfStep> = fc.record({
   then: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }),
   elif: fc.array(
     fc.record({ cond: conditionArb, then: fc.array(httpStepArb, { minLength: 1, maxLength: 2 }) }),
-    { maxLength: 2 },
+    { maxLength: 1 },
   ),
-  else: fc.array(httpStepArb, { maxLength: 2 }),
+  else: fc.array(httpStepArb, { maxLength: 1 }),
+});
+
+// A loop wraps 1-2 steps: http or nested-if (9c mutual nesting).
+const loopStepArb: fc.Arbitrary<LoopStep> = fc.record({
+  id: ULID_ARB,
+  name: ident,
+  type: fc.constant("loop" as const),
+  repeat: fc.integer({ min: 1, max: 20 }),
+  do: fc.array(
+    fc.oneof({ weight: 3, arbitrary: httpStepArb }, { weight: 1, arbitrary: nestedIfArb }),
+    {
+      minLength: 1,
+      maxLength: 2,
+    },
+  ),
+});
+
+// An if step's branches hold http or nested-loop (9c mutual nesting).
+const ifBranchArb: fc.Arbitrary<HttpStep | NestedLoopStep> = fc.oneof(
+  { weight: 3, arbitrary: httpStepArb },
+  { weight: 1, arbitrary: nestedLoopArb },
+);
+const ifStepArb: fc.Arbitrary<IfStep> = fc.record({
+  id: ULID_ARB,
+  name: ident,
+  type: fc.constant("if" as const),
+  cond: conditionArb,
+  then: fc.array(ifBranchArb, { minLength: 1, maxLength: 2 }),
+  elif: fc.array(
+    fc.record({ cond: conditionArb, then: fc.array(ifBranchArb, { minLength: 1, maxLength: 2 }) }),
+    {
+      maxLength: 2,
+    },
+  ),
+  else: fc.array(ifBranchArb, { maxLength: 2 }),
 });
 
 const stepArb: fc.Arbitrary<Step> = fc.oneof(

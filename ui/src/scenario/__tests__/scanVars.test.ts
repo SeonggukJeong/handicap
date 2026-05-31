@@ -128,6 +128,73 @@ describe("scanFlowVars", () => {
     expect([...scanFlowVars(s)].sort()).toEqual(["elifvar", "other", "path", "tok"]);
   });
 
+  it("scans {{vars}} inside nested loop-in-if and if-in-loop http steps (9c)", () => {
+    const s = ScenarioModel.parse({
+      version: 1,
+      name: "x",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [
+        // Direction 1: loop-in-if — http {{deep}} lives in a loop nested in an if's then.
+        {
+          id: "01HX0000000000000000000010",
+          name: "branch",
+          type: "if",
+          cond: { left: "{{code}}", op: "eq", right: "200" },
+          then: [
+            {
+              id: "01HX0000000000000000000020",
+              name: "lp",
+              type: "loop",
+              repeat: 2,
+              do: [
+                {
+                  id: "01HX0000000000000000000021",
+                  name: "h",
+                  type: "http",
+                  request: { method: "GET", url: "/{{deep}}", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+            },
+          ],
+          elif: [],
+          else: [],
+        },
+        // Direction 2: if-in-loop — http {{deep2}} lives in an if nested in a loop's body.
+        {
+          id: "01HX0000000000000000000030",
+          name: "lp2",
+          type: "loop",
+          repeat: 1,
+          do: [
+            {
+              id: "01HX0000000000000000000031",
+              name: "ifinner",
+              type: "if",
+              cond: { left: "{{code}}", op: "eq", right: "200" },
+              then: [
+                {
+                  id: "01HX0000000000000000000032",
+                  name: "h2",
+                  type: "http",
+                  request: { method: "GET", url: "/{{deep2}}", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+              elif: [],
+              else: [],
+            },
+          ],
+        },
+      ],
+    });
+    // Both nested http vars reached; condition operands ({{code}}) intentionally un-scanned (9b).
+    expect([...scanFlowVars(s)].sort()).toEqual(["deep", "deep2"]);
+  });
+
   it("ignores ${ENV} and system tokens", () => {
     const s = scenario([
       {
