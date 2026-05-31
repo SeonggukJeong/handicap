@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import type { Report } from "../../api/schemas";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
-import { flattenHttpSteps } from "../../scenario/model";
+import { flattenHttpSteps, findStepById } from "../../scenario/model";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { StepStatsTable } from "./StepStatsTable";
+import { BranchStatsTable } from "./BranchStatsTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
 
@@ -63,6 +64,18 @@ export function ReportView({ report }: Props) {
     return m;
   }, [report.scenario_yaml, envMap]);
 
+  const ifMeta = useMemo(() => {
+    const m = new Map<string, { name: string }>();
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    if ("model" in parsed) {
+      for (const b of report.if_breakdown ?? []) {
+        const step = findStepById(parsed.model.steps, b.step_id);
+        m.set(b.step_id, { name: step?.name ?? b.step_id });
+      }
+    }
+    return m;
+  }, [report.scenario_yaml, report.if_breakdown]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -87,6 +100,7 @@ export function ReportView({ report }: Props) {
       />
       <StatusDistribution distribution={report.status_distribution} />
       <StepStatsTable steps={report.steps} meta={stepMeta} />
+      <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />
       <ScenarioSnapshot yaml={report.scenario_yaml} />
     </div>
   );

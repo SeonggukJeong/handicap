@@ -102,6 +102,34 @@ describe("ReportView", () => {
     expect(stepRegion).toHaveTextContent("http://x/login");
   });
 
+  it("renders a Branch decisions section when if_breakdown is present", () => {
+    const report: Report = {
+      ...FIXTURE,
+      scenario_yaml: [
+        "version: 1",
+        "name: x",
+        "steps:",
+        '  - id: "01HX0000000000000000000001"',
+        "    name: branchy",
+        "    type: if",
+        '    cond: { left: "1", op: eq, right: "1" }',
+        "    then:",
+        '      - id: "01HX0000000000000000000002"',
+        "        name: then-step",
+        "        type: http",
+        '        request: { method: GET, url: "/then" }',
+        "        assert: []",
+        "",
+      ].join("\n"),
+      if_breakdown: [
+        { step_id: "01HX0000000000000000000001", branches: [{ branch: "then", count: 5 }] },
+      ],
+    };
+    render(<ReportView report={report} />);
+    expect(screen.getByText("Branch decisions")).toBeInTheDocument();
+    expect(screen.getByText(/branchy/)).toBeInTheDocument();
+  });
+
   it("labels a step nested inside a loop using its name", () => {
     const OUTER_ID = "01HX0000000000000000000003"; // loop step id (valid ULID)
     const INNER_ID = "01HX0000000000000000000002"; // inner http step id (valid ULID)
