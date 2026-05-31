@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReportSchema, RunSchema } from "../schemas";
+import { IfBreakdownSchema, ReportSchema, RunSchema } from "../schemas";
 
 describe("ReportSchema", () => {
   it("parses a minimal valid bundle", () => {
@@ -55,6 +55,51 @@ describe("ReportSchema", () => {
   it("rejects extra top-level keys (strict)", () => {
     const sample = { foo: 1 };
     expect(() => ReportSchema.parse(sample)).toThrow();
+  });
+});
+
+describe("if_breakdown schema", () => {
+  it("parses an IfBreakdown entry", () => {
+    const parsed = IfBreakdownSchema.parse({
+      step_id: "if1",
+      branches: [
+        { branch: "then", count: 930 },
+        { branch: "none", count: 0 },
+      ],
+    });
+    expect(parsed.branches).toHaveLength(2);
+    expect(parsed.branches[0].branch).toBe("then");
+  });
+
+  it("accepts a report carrying if_breakdown", () => {
+    const report = {
+      run: {
+        id: "r",
+        scenario_id: "s",
+        status: "completed",
+        profile: {},
+        env: {},
+        started_at: 1,
+        ended_at: 2,
+        created_at: 0,
+      },
+      scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+      summary: {
+        count: 0,
+        errors: 0,
+        rps: 0,
+        duration_seconds: 0,
+        p50_ms: 0,
+        p95_ms: 0,
+        p99_ms: 0,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: {},
+      if_breakdown: [{ step_id: "if1", branches: [{ branch: "then", count: 1 }] }],
+    };
+    const parsed = ReportSchema.parse(report);
+    expect(parsed.if_breakdown?.[0].step_id).toBe("if1");
   });
 });
 

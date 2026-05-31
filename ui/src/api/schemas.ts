@@ -120,6 +120,20 @@ export const ReportStepSchema = z
   })
   .strict();
 
+export const IfBranchBucketSchema = z
+  .object({
+    branch: z.string(),
+    count: z.number(),
+  })
+  .strict();
+
+export const IfBreakdownSchema = z
+  .object({
+    step_id: z.string(),
+    branches: z.array(IfBranchBucketSchema),
+  })
+  .strict();
+
 export const ReportSummarySchema = z
   .object({
     count: z.number().int().nonnegative(),
@@ -153,6 +167,7 @@ export const ReportSchema = z
     windows: z.array(ReportWindowSchema),
     steps: z.array(ReportStepSchema),
     status_distribution: StatusDistributionSchema,
+    if_breakdown: z.array(IfBreakdownSchema).optional(),
   })
   .strict();
 
@@ -160,6 +175,7 @@ export type Report = z.infer<typeof ReportSchema>;
 export type ReportWindow = z.infer<typeof ReportWindowSchema>;
 export type ReportStep = z.infer<typeof ReportStepSchema>;
 export type ReportSummary = z.infer<typeof ReportSummarySchema>;
+export type IfBreakdown = z.infer<typeof IfBreakdownSchema>;
 
 export const DatasetMetaSchema = z.object({
   id: z.string(),
