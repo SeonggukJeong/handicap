@@ -401,6 +401,143 @@ steps:
 // live-vars path — both of which are integration-level concerns not covered by
 // condition.rs unit tests.
 
+// ── Slice 9d branch-metric tests ─────────────────────────────────────────────
+
+/// The if-node id embedded in `scenario_yaml` helper.
+const IF_ID: &str = "01HX0000000000000000000001";
+
+/// Run the scenario for one VU / short window, return (if_id, branch) -> total decisions.
+async fn run_and_branches(yaml: &str) -> HashMap<(String, String), u64> {
+    let scenario = Arc::new(Scenario::from_yaml(yaml).expect("parses"));
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    let plan = RunPlan {
+        vus: 1,
+        ramp_up: Duration::from_secs(0),
+        duration: Duration::from_millis(400),
+        env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
+        data_binding: None,
+    };
+    let cancel = CancellationToken::new();
+    let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
+    let mut branches: HashMap<(String, String), u64> = HashMap::new();
+    while let Some(f) = rx.recv().await {
+        for b in f.branch_stats {
+            *branches.entry((b.step_id, b.branch)).or_default() += b.count;
+        }
+    }
+    run.await.expect("join").expect("run ok");
+    branches
+}
+
+#[tokio::test]
+async fn branch_metrics_record_then_when_cond_true() {
+    let server = server().await;
+    // top cond always true ("x" eq "x"); elif cond never true.
+    let cond = r#"{ left: "x", op: eq, right: "x" }"#;
+    let elif_cond = r#"{ left: "x", op: eq, right: "y" }"#;
+    let yaml = scenario_yaml(&server.uri(), cond, elif_cond);
+    let b = run_and_branches(&yaml).await;
+    let then: u64 = b
+        .iter()
+        .filter(|((id, br), _)| id == IF_ID && br == "then")
+        .map(|(_, c)| *c)
+        .sum();
+    assert!(then > 0, "then branch decisions recorded");
+    assert!(
+        !b.keys()
+            .any(|(id, br)| id == IF_ID && (br == "else" || br == "elif_0")),
+        "only the then branch should be taken"
+    );
+}
+
+#[tokio::test]
+async fn branch_metrics_record_none_when_no_match_and_no_else() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/then"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    // if with only `then`, cond false, NO elif, NO else → "none".
+    let base = server.uri();
+    let yaml = format!(
+        r#"
+version: 1
+name: nonebranch
+variables:
+  base: "{base}"
+steps:
+  - id: "{IF_ID}"
+    name: branch
+    type: if
+    cond: {{ left: "1", op: eq, right: "2" }}
+    then:
+      - id: "{THEN_ID}"
+        name: then-step
+        type: http
+        request: {{ method: GET, url: "{{{{base}}}}/then" }}
+        assert: [ {{ status: 200 }} ]
+"#
+    );
+    let b = run_and_branches(&yaml).await;
+    let none: u64 = b
+        .iter()
+        .filter(|((id, br), _)| id == IF_ID && br == "none")
+        .map(|(_, c)| *c)
+        .sum();
+    assert!(none > 0, "none branch (no match + no else) recorded");
+    assert_eq!(
+        b.keys()
+            .filter(|(id, br)| id == IF_ID && br == "then")
+            .count(),
+        0,
+        "then must not be recorded when cond is false"
+    );
+}
+
+#[tokio::test]
+async fn branch_metrics_record_elif_when_only_elif_true() {
+    let server = server().await;
+    // top false ("1" eq "2"), elif true ("a" eq "a") → only elif_0 taken.
+    let cond = r#"{ left: "1", op: eq, right: "2" }"#;
+    let elif_cond = r#"{ left: "a", op: eq, right: "a" }"#;
+    let yaml = scenario_yaml(&server.uri(), cond, elif_cond);
+    let b = run_and_branches(&yaml).await;
+    let elif: u64 = b
+        .iter()
+        .filter(|((id, br), _)| id == IF_ID && br == "elif_0")
+        .map(|(_, c)| *c)
+        .sum();
+    assert!(elif > 0, "elif_0 branch decisions recorded");
+    assert!(
+        !b.keys()
+            .any(|(id, br)| id == IF_ID && (br == "then" || br == "else" || br == "none")),
+        "only elif_0 branch should be taken"
+    );
+}
+
+#[tokio::test]
+async fn branch_metrics_record_else_when_all_false() {
+    let server = server().await;
+    // top false ("1" eq "2"), elif false ("a" eq "b") → else taken.
+    let cond = r#"{ left: "1", op: eq, right: "2" }"#;
+    let elif_cond = r#"{ left: "a", op: eq, right: "b" }"#;
+    let yaml = scenario_yaml(&server.uri(), cond, elif_cond);
+    let b = run_and_branches(&yaml).await;
+    let els: u64 = b
+        .iter()
+        .filter(|((id, br), _)| id == IF_ID && br == "else")
+        .map(|(_, c)| *c)
+        .sum();
+    assert!(els > 0, "else branch decisions recorded");
+    assert!(
+        !b.keys()
+            .any(|(id, br)| id == IF_ID && (br == "then" || br == "elif_0" || br == "none")),
+        "only else branch should be taken"
+    );
+}
+
 // ── Slice 9c regression tests ────────────────────────────────────────────────
 
 /// Step IDs used by the loop-in-if test. Crockford base32 safe (no I/L/O/U).

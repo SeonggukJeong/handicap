@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use crate::aggregator::{Aggregator, LoopStat, StepWindow};
+use crate::aggregator::{Aggregator, BranchStat, LoopStat, StepWindow};
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
@@ -28,11 +28,13 @@ pub struct RunPlan {
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
-/// plus the per-(step_id, loop_index) count deltas accumulated since the last flush.
+/// plus the per-(step_id, loop_index) count deltas accumulated since the last flush,
+/// plus per-(if_id, branch) decision-count deltas.
 #[derive(Debug)]
 pub struct MetricFlush {
     pub windows: Vec<StepWindow>,
     pub loop_stats: Vec<LoopStat>,
+    pub branch_stats: Vec<BranchStat>,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -127,20 +129,26 @@ pub async fn run_scenario(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats) = {
+            let (drained, loop_stats, branch_stats) = {
                 let mut g = flush_agg.lock().await;
-                (g.drain_completed(now_s), g.drain_loop_deltas())
+                (
+                    g.drain_completed(now_s),
+                    g.drain_loop_deltas(),
+                    g.drain_branch_deltas(),
+                )
             };
-            if !drained.is_empty() || !loop_stats.is_empty() {
+            if !drained.is_empty() || !loop_stats.is_empty() || !branch_stats.is_empty() {
                 debug!(
                     count = drained.len(),
                     loops = loop_stats.len(),
+                    branches = branch_stats.len(),
                     "flushing windows"
                 );
                 if flush_out
                     .send(MetricFlush {
                         windows: drained,
                         loop_stats,
+                        branch_stats,
                     })
                     .await
                     .is_err()
@@ -161,15 +169,20 @@ pub async fn run_scenario(
         }
     }
 
-    let (final_windows, final_loops) = {
+    let (final_windows, final_loops, final_branches) = {
         let mut g = agg.lock().await;
-        (g.drain_all(), g.drain_loop_deltas())
+        (
+            g.drain_all(),
+            g.drain_loop_deltas(),
+            g.drain_branch_deltas(),
+        )
     };
-    if !final_windows.is_empty() || !final_loops.is_empty() {
+    if !final_windows.is_empty() || !final_loops.is_empty() || !final_branches.is_empty() {
         let _ = out
             .send(MetricFlush {
                 windows: final_windows,
                 loop_stats: final_loops,
+                branch_stats: final_branches,
             })
             .await;
     }
@@ -333,10 +346,11 @@ async fn execute_steps(
                 }
             }
             Step::If(if_step) => {
-                // Pick the branch. `ctx` borrows `iter_vars` immutably; scope it in a
-                // block so the borrow ends before we pass `iter_vars` mutably to the
-                // recursive call. `taken` borrows the scenario (`if_step`), not iter_vars.
-                let taken: &[Step] = {
+                // Pick the branch AND label which one (for branch-decision metrics, 9d).
+                // `ctx` borrows `iter_vars` immutably; scope it in a block so the borrow
+                // ends before the recursive call takes `iter_vars` by &mut. `taken`
+                // borrows the scenario (`if_step`), `branch` is owned.
+                let (taken, branch): (&[Step], String) = {
                     let ctx = TemplateContext {
                         vars: iter_vars,
                         env: env.as_ref(),
@@ -345,18 +359,32 @@ async fn execute_steps(
                         loop_index,
                     };
                     if eval_condition(&if_step.cond, &ctx) {
-                        &if_step.then_
+                        (&if_step.then_, "then".to_string())
                     } else {
-                        let mut branch: &[Step] = &if_step.else_;
-                        for e in &if_step.elif {
+                        // Default: "else" when it has a body, "none" when no branch
+                        // matched and else is empty/absent (spec §7). An elif match
+                        // overrides this below.
+                        let mut sel: (&[Step], String) = if if_step.else_.is_empty() {
+                            (if_step.else_.as_slice(), "none".to_string())
+                        } else {
+                            (if_step.else_.as_slice(), "else".to_string())
+                        };
+                        for (j, e) in if_step.elif.iter().enumerate() {
                             if eval_condition(&e.cond, &ctx) {
-                                branch = &e.then_;
+                                sel = (e.then_.as_slice(), format!("elif_{j}"));
                                 break;
                             }
                         }
-                        branch
+                        sel
                     }
                 };
+                // Record the decision (counts-only, unconditional — see
+                // Aggregator::record_branch). Scope the lock so it drops before the
+                // recursive call re-locks `agg`.
+                {
+                    let mut a = agg.lock().await;
+                    a.record_branch(&if_step.id, &branch);
+                }
                 // Pass the *incoming* loop_index through unchanged — the If arm makes no
                 // new scope, so an if-in-loop's branch children still see the loop index
                 // (spec §4). Box::pin the recursion (If/Loop arms only — hot path unboxed).
