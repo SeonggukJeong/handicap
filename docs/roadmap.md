@@ -54,7 +54,7 @@
 
 ### A6. 글로벌 변수 = 환경(Environments) (영역 B) — **← B-1 머지 완료, B-2 진행 예정**
 - **성격**: BASE_URL 등 자주 쓰는 변수를 전역 등록 → 아무 시나리오에서나 골라 주입. 영역 A 의 자매 기능(같은 "재입력 통증" 원천).
-- **결정·진행**: spec `docs/superpowers/specs/2026-05-31-global-variables-environments-design.md`, ADR-0025. 2분할 — **B-1(환경 리소스 + 관리 UI: migration 0006 `environments` 테이블 + CRUD REST + `EnvironmentsPage` + 클라/hooks, 머지됨)**, **B-2(RunDialog 환경 오버레이: `resolveEnv` 순수 병합 + standalone `<EnvironmentPicker>` — env 미선택 = pre-B2 byte-identical, 진행 예정)**.
+- **결정·진행**: spec `docs/superpowers/specs/2026-05-31-global-variables-environments-design.md`, ADR-0025. 2분할 — **B-1(환경 리소스 + 관리 UI: migration 0007 `environments` 테이블 + CRUD REST + `EnvironmentsPage` + 클라/hooks, 머지됨)**, **B-2(RunDialog 환경 오버레이: `resolveEnv` 순수 병합 + standalone `<EnvironmentPicker>` — env 미선택 = pre-B2 byte-identical, 진행 예정)**.
 - **해소된 설계 질문**: 스코프 = `${ENV}` 네임스페이스만(`{{var}}` 흐름변수는 범위 밖). 주입 시점 = 클라이언트 병합 스냅샷(`POST /api/runs` 무변경, 우선순위 환경 < per-run override). 환경 묶음 = named environments(top-level 독립 리소스, scenario_id/FK 없음, 무가드 DELETE).
 
 ### (메뉴에 있으나 당장 후보 아님)

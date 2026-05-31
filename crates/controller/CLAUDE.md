@@ -58,7 +58,7 @@
 
 ## 환경 (`store/environments.rs`, `api/environments.rs`) (B-1)
 
-- **environments는 top-level, FK/delete-guard 없음 (presets와 정반대)** (B-1): `run_presets`는 `scenario_id` FK + dataset delete soft-guard가 있지만, `environments`는 scenario_id/FK 없는 cross-scenario 리소스이고 **DELETE 무가드**다. 이유 = 오버레이가 스냅샷(B-2: RunDialog가 env 값을 해석해 평탄 `env` 맵으로 제출)이라 어떤 run/preset도 environment_id를 참조하지 않음 → 고아화 경로 자체가 없다. presets 패턴을 미러하되 가드 코드는 의도적으로 뺄 것. migration 0006도 `CREATE TABLE IF NOT EXISTS`(멱등).
+- **environments는 top-level, FK/delete-guard 없음 (presets와 정반대)** (B-1): `run_presets`는 `scenario_id` FK + dataset delete soft-guard가 있지만, `environments`는 scenario_id/FK 없는 cross-scenario 리소스이고 **DELETE 무가드**다. 이유 = 오버레이가 스냅샷(B-2: RunDialog가 env 값을 해석해 평탄 `env` 맵으로 제출)이라 어떤 run/preset도 environment_id를 참조하지 않음 → 고아화 경로 자체가 없다. presets 패턴을 미러하되 가드 코드는 의도적으로 뺄 것. migration 0007(설계 시 0006 → 9d `run_if_metrics`가 0006 선점, 리넘버)도 `CREATE TABLE IF NOT EXISTS`(멱등).
 - **`validate_env`의 var 키 규칙: 공백·`}`·`:` 금지** (B-1): `${KEY}`로 쓸 수 있어야 하므로. `:`는 `${NAME:-default}` 기본값 구분자(template.rs)에 대한 보수적 가드(bare `:`는 필요보다 넓지만 규칙 단순). 예약 시스템 변수명(vu_id/iter_id/loop_index)은 **거절 안 함** — 엔진이 시스템 값으로 해석하므로 UI가 soft warning만 노출. 검증은 CRUD 엔드포인트에서만.
 - **`run_presets`는 `scenario_yaml` 스냅샷 없음** (A2): 프리셋은 라이브 시나리오를 추종(A1 retry의 "시나리오 변경 경고"가 프리셋엔 없는 이유). FK에 ON DELETE CASCADE 없음 — 현재 시나리오 삭제 엔드포인트 부재. 미래에 scenario-delete 추가 시 `ON DELETE CASCADE` 마이그레이션 필요(migration 0005 주석 참조).
 

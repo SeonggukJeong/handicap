@@ -29,12 +29,12 @@
 - ✅ **RunDialog env 입력창 존재.** `envEntries: EnvEntry[]`(`{key,value}`) 상태 + 행 추가/편집/삭제 + `aria-label="Environment variables"` 섹션(`ui/src/components/RunDialog.tsx:40,55-56,305+`). → 이 입력창이 **override 레이어**가 되고, 환경 dropdown 이 그 위에 붙는다.
 - ✅ **재사용 가능한 env 헬퍼 선례.** `ui/src/api/runPrefill.ts` 가 `envValueToRecord`/`normalizeProfile`/`RunPrefill` 을 RunDialog·RunDetail 공유 유틸로 분리. → `resolveEnv` 병합 유틸도 같은 자리/패턴.
 - ✅ **CRUD 페이지 + 클라이언트 선례.** `ui/src/pages/DatasetsPage.tsx`(목록/생성/삭제), `ui/src/api/presets.ts`(스키마+bare-fetch 클라이언트+React Query 훅). → `EnvironmentsPage`/`api/environments.ts` 가 그대로 미러.
-- ✅ **마이그레이션 등록 패턴.** `store/mod.rs` 가 `const MIGRATION_SQL_000N = include_str!(...)`(`:24-28`) + `connect()` 의 순차 `.execute()`(`:43-54`). 최고 = 0005 → 신규 **0006**. **SQL 파일 + const + execute 라인 셋 다** 필요(파일만 두면 적용 안 됨 — 영역 A2 0005 교훈).
+- ✅ **마이그레이션 등록 패턴.** `store/mod.rs` 가 `const MIGRATION_SQL_000N = include_str!(...)`(`:24-28`) + `connect()` 의 순차 `.execute()`(`:43-54`). 설계 시점 최고 = 0005 → 신규 0006이었으나, 구현 중 9d(`run_if_metrics`)가 0006으로 먼저 머지돼 **실제 0007로 리넘버**. **SQL 파일 + const + execute 라인 셋 다** 필요(파일만 두면 적용 안 됨 — 영역 A2 0005 교훈).
 - ✅ **라우팅 패턴.** `app.rs` 가 라우트를 빌드 후 `.nest("/api", api)`(`:71`). presets `/scenarios/{id}/presets`·`/presets/{id}`(`:60-69`), datasets `/datasets`·`/datasets/{id}`(`:46-59`). → `/environments`·`/environments/{id}` 추가. **주의(파일 위치 분리, 리뷰 I-2)**: `pub mod environments;` 는 `api/mod.rs`(`:1-4` 의 `pub mod` 목록)에, 별칭 import `environments as environments_api` 는 **`app.rs`**(`:8-10` 의 `datasets as datasets_api, presets as presets_api, …` 목록)에 추가 — 두 줄이 서로 다른 파일이다.
 
-## 2. 데이터 모델 — migration 0006 (신규)
+## 2. 데이터 모델 — migration 0007 (신규; 설계 시 0006, 9d 머지로 리넘버)
 
-`crates/controller/src/store/migrations/0006_environments.sql`:
+`crates/controller/src/store/migrations/0007_environments.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS environments (
@@ -50,7 +50,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_environments_name ON environments(name);
 - **`UNIQUE(name)`** — 환경은 top-level 이라 이름 전역 유일. dropdown 이 이름으로 구분. **중복 이름 POST = 409(덮어쓰기 아님, 리뷰 I-3)**, 편집은 `PUT /{id}`(presets `map_db_err` 와 동일 — **upsert 안 함**). UI 는 이름 충돌 시 자동 덮어쓰기를 하지 않고 "이미 존재하는 이름" 으로 409 를 안내. `CREATE UNIQUE INDEX IF NOT EXISTS` 로 멱등.
 - **scenario_id 컬럼 없음** — 환경은 cross-scenario(프리셋과 다름).
 - **FK 없음** — 어떤 시나리오·run·preset 도 참조 안 함(스냅샷 모델).
-- **마이그레이션 등록**: `store/mod.rs` 에 `const MIGRATION_SQL_0006 = include_str!("migrations/0006_environments.sql")` 추가 + `connect()` 의 `.execute()` 목록에 한 줄(0005 뒤). `pub mod environments;` 도 추가.
+- **마이그레이션 등록**: `store/mod.rs` 에 `const MIGRATION_SQL_0007 = include_str!("migrations/0007_environments.sql")` 추가 + `connect()` 의 `.execute()` 목록에 한 줄(0006 뒤). `pub mod environments;` 도 추가.
 - **저장소 모듈** `crates/controller/src/store/environments.rs`: `insert`(ULID = `ulid::Ulid::new().to_string()`, 서버 생성 — 클라이언트/UUID 금지, `runs.rs`/`presets.rs` 와 동일), `get`, `list`, `update`, `delete`. `EnvironmentRow { id, name, vars: serde_json::Value (또는 BTreeMap<String,String>), created_at, updated_at }`. **`referencing_*`·delete-guard 없음** — 참조하는 리소스가 없으므로(데이터셋 8c→A2 soft-guard 패턴 불필요).
 
 ## 3. REST API — 신규 `crates/controller/src/api/environments.rs`
@@ -127,7 +127,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_environments_name ON environments(name);
 
 **Rust (controller)**:
 - `store/environments.rs` insert→get→list→update→delete + `UNIQUE(name)` 위반 409; vars JSON round-trip.
-- migration 0006 멱등(`CREATE … IF NOT EXISTS` 두 번 적용 OK) + `connect()` 가 실제 적용.
+- migration 0007 멱등(`CREATE … IF NOT EXISTS` 두 번 적용 OK) + `connect()` 가 실제 적용.
 - API 통합(`tests/environments_api_test.rs`): 생성→목록→GET→PUT(이름 변경/vars 교체)→DELETE; 중복 이름 409; 빈 이름 400.
 - **fixture/ULID(리뷰 M-4)**: 환경 id 는 서버가 생성하므로 클라이언트 ULID 불필요. 단 시나리오/run fixture 가 필요하면 그 ULID 는 Crockford base32(`I`/`L`/`O`/`U` 제외)여야 ULID 파서를 통과한다(`crates/engine/CLAUDE.md` — `01HX000000000000000000000L` 류 INVALID).
 - **TDD-guard(프로세스)**: 새 `store/environments.rs`/`api/environments.rs`/`*.tsx` 는 작업트리에 pending test 파일이 있어야 PreToolUse 훅을 통과(루트 `CLAUDE.md`) — 테스트 파일 먼저.
@@ -150,7 +150,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_environments_name ON environments(name);
 
 백엔드 절반은 presets/datasets 의 near-verbatim 복제(저위험)이고, 진짜 새 UX 위험은 RunDialog 2-레이어 base/override(§4 I-4) 한 곳에 몰려 있다. A1/A2 분할 선례를 따라 두 plan 으로 나누길 권장(필수 아님):
 
-- **B-1 — 환경 리소스 + 관리 UI** (저위험, 순수 미러): migration 0006 + `store/environments.rs` + CRUD REST(`api/environments.rs` + 라우팅) + `api/environments.ts` + `EnvironmentsPage` + 라우트/네비. run-create·RunDialog 무변경.
+- **B-1 — 환경 리소스 + 관리 UI** (저위험, 순수 미러): migration 0007 + `store/environments.rs` + CRUD REST(`api/environments.rs` + 라우팅) + `api/environments.ts` + `EnvironmentsPage` + 라우트/네비. run-create·RunDialog 무변경.
 - **B-2 — RunDialog 환경 오버레이** (유일한 신규 UX, 설계 위험 집중): `<EnvironmentPicker>` + `resolveEnv` + base/override 렌더(§4 상호작용 표) + 제출 병합. B-1 의 클라이언트/훅 재사용.
 
 ## 9. 범위 밖 · 후속 (별도 spec)

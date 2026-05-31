@@ -49,7 +49,7 @@ RunDialog의 env 입력창에 `BASE_URL`·인증 호스트·API 키를 run마다
 
 - `${ENV}` 네임스페이스만. `{{var}}` 흐름변수 전역 등록은 범위 밖(별도 slice).
 
-### 스키마 (migration 0006)
+### 스키마 (migration 0007)
 
 ```sql
 CREATE TABLE IF NOT EXISTS environments (
@@ -65,8 +65,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_environments_name ON environments(name);
 - **scenario_id/FK 없음** — top-level, cross-scenario. presets와의 핵심 차이.
 - 서버 생성 ULID, `UNIQUE(name)` 위반 = 409.
 - `CREATE TABLE IF NOT EXISTS` — controller 재시작 무한 안전(0003/0004/0005와 동일).
-- migration 번호는 디스크 max+1로 도출 — 머지 시점 in-flight 9d(`run_if_metrics`)와의
-  충돌은 리넘버(순수 순서 라벨, 두 테이블 disjoint)로 해소. **실제 사용 번호 = 0006**.
+- migration 번호는 디스크 max+1로 도출 — 설계 시점 0006이었으나 9d(`run_if_metrics`)가
+  0006으로 먼저 머지돼, 리넘버(순수 순서 라벨, 두 테이블 disjoint)로 해소. **실제 사용 번호 = 0007**.
 
 ### REST API
 
