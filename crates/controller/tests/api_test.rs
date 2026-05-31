@@ -538,3 +538,33 @@ async fn create_run_rejects_non_string_env() {
         resp.status()
     );
 }
+
+#[tokio::test]
+async fn create_run_rejects_binding_to_missing_dataset() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: bind\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+
+    let body = json!({
+        "scenario_id": scenario_id,
+        "profile": {
+            "vus": 1,
+            "duration_seconds": 1,
+            "data_binding": { "dataset_id": "DOES_NOT_EXIST", "policy": "per_vu", "mappings": [] }
+        },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "binding to a non-existent dataset must be rejected by the validation gate"
+    );
+}
