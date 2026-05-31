@@ -70,18 +70,6 @@ export const HttpStepModel = z
   .strict();
 export type HttpStep = z.infer<typeof HttpStepModel>;
 
-export const LoopStepModel = z
-  .object({
-    id: z.string().regex(ULID_RE, "step id must be a ULID"),
-    name: z.string().min(1, "step name required"),
-    type: z.literal("loop"),
-    repeat: z.number().int().min(1, "repeat must be >= 1"),
-    // do: http only — single-level for Slice 7. Nested loops rejected here.
-    do: z.array(HttpStepModel).min(1, "loop body needs at least one step"),
-  })
-  .strict();
-export type LoopStep = z.infer<typeof LoopStepModel>;
-
 export const CompareOpModel = z.enum([
   "eq",
   "ne",
@@ -113,10 +101,62 @@ export const ConditionModel: z.ZodType<Condition> = z.lazy(() =>
   ]),
 );
 
-export const ElifBranchModel = z
+// ── Nested (one-level-down) container forms: bodies are http-only, so they
+//    cannot nest further. These are exactly the pre-9c Loop/If shapes. ──
+export const NestedLoopStepModel = z
+  .object({
+    id: z.string().regex(ULID_RE, "step id must be a ULID"),
+    name: z.string().min(1, "step name required"),
+    type: z.literal("loop"),
+    repeat: z.number().int().min(1, "repeat must be >= 1"),
+    do: z.array(HttpStepModel).min(1, "loop body needs at least one step"),
+  })
+  .strict();
+export type NestedLoopStep = z.infer<typeof NestedLoopStepModel>;
+
+export const NestedElifBranchModel = z
   .object({
     cond: ConditionModel,
     then: z.array(HttpStepModel).min(1, "elif branch needs at least one step"),
+  })
+  .strict();
+
+export const NestedIfStepModel = z
+  .object({
+    id: z.string().regex(ULID_RE, "step id must be a ULID"),
+    name: z.string().min(1, "step name required"),
+    type: z.literal("if"),
+    cond: ConditionModel,
+    then: z.array(HttpStepModel).min(1, "if branch needs at least one step"),
+    elif: z.array(NestedElifBranchModel).default([]),
+    else: z.array(HttpStepModel).default([]),
+  })
+  .strict();
+export type NestedIfStep = z.infer<typeof NestedIfStepModel>;
+
+// Body-element unions enforcing the §5 gate by construction:
+//   loop.do      = http | nested-if   (NEVER a loop → no loop-in-loop)
+//   if.branches  = http | nested-loop (NEVER an if  → no if-in-if)
+const LoopBodyStep = z.discriminatedUnion("type", [HttpStepModel, NestedIfStepModel]);
+const IfBranchStep = z.discriminatedUnion("type", [HttpStepModel, NestedLoopStepModel]);
+
+// ── Top-level container forms: accept exactly one level of the OTHER type. ──
+export const LoopStepModel = z
+  .object({
+    id: z.string().regex(ULID_RE, "step id must be a ULID"),
+    name: z.string().min(1, "step name required"),
+    type: z.literal("loop"),
+    repeat: z.number().int().min(1, "repeat must be >= 1"),
+    // do: http | if (single-level mutual nesting, Slice 9c). Loop-in-loop rejected.
+    do: z.array(LoopBodyStep).min(1, "loop body needs at least one step"),
+  })
+  .strict();
+export type LoopStep = z.infer<typeof LoopStepModel>;
+
+export const ElifBranchModel = z
+  .object({
+    cond: ConditionModel,
+    then: z.array(IfBranchStep).min(1, "elif branch needs at least one step"),
   })
   .strict();
 export type ElifBranch = z.infer<typeof ElifBranchModel>;
@@ -127,9 +167,10 @@ export const IfStepModel = z
     name: z.string().min(1, "step name required"),
     type: z.literal("if"),
     cond: ConditionModel,
-    then: z.array(HttpStepModel).min(1, "if branch needs at least one step"),
+    // branches: http | loop (single-level mutual nesting, Slice 9c). If-in-if rejected.
+    then: z.array(IfBranchStep).min(1, "if branch needs at least one step"),
     elif: z.array(ElifBranchModel).default([]),
-    else: z.array(HttpStepModel).default([]),
+    else: z.array(IfBranchStep).default([]),
   })
   .strict();
 export type IfStep = z.infer<typeof IfStepModel>;
@@ -147,38 +188,70 @@ export function isIfStep(s: Step): s is IfStep {
   return s.type === "if";
 }
 
-/** Depth-first list of every http step, recursing into loop bodies and walking
- *  if branches (then / elif[].then / else). Branches are http-only in 9b; 9c makes
- *  them Step[] and rewrites this into a true recursion (spec SF-1). */
+/** Depth-first list of every http leaf, recursing through both container types
+ *  to any depth (9c: bodies/branches are now Step[]). Return type unchanged. */
 export function flattenHttpSteps(steps: ReadonlyArray<Step>): HttpStep[] {
   const out: HttpStep[] = [];
   for (const s of steps) {
     if (s.type === "http") out.push(s);
-    else if (s.type === "loop") out.push(...s.do);
+    else if (s.type === "loop") out.push(...flattenHttpSteps(s.do));
     else {
-      out.push(...s.then);
-      for (const e of s.elif) out.push(...e.then);
-      out.push(...s.else);
+      out.push(...flattenHttpSteps(s.then));
+      for (const e of s.elif) out.push(...flattenHttpSteps(e.then));
+      out.push(...flattenHttpSteps(s.else));
     }
   }
   return out;
 }
 
-/** The sequence a step actually lives in — top-level steps, a loop `do` body, or
- *  an if branch — used by the inspector to clamp move up/down. Falls back to the
- *  top-level list if the step is not found nested. */
+/** The sequence a step actually lives in — used by the inspector to clamp move
+ *  up/down. Fully recursive (9c). Falls back to the top-level list if not found. */
 export function findStepSiblings(steps: ReadonlyArray<Step>, stepId: string): ReadonlyArray<Step> {
+  return siblingsOrNull(steps, stepId) ?? steps;
+}
+
+function siblingsOrNull(steps: ReadonlyArray<Step>, stepId: string): ReadonlyArray<Step> | null {
   if (steps.some((s) => s.id === stepId)) return steps;
   for (const s of steps) {
     if (s.type === "loop") {
-      if (s.do.some((c) => c.id === stepId)) return s.do;
+      const r = siblingsOrNull(s.do, stepId);
+      if (r) return r;
     } else if (s.type === "if") {
-      if (s.then.some((c) => c.id === stepId)) return s.then;
-      for (const e of s.elif) if (e.then.some((c) => c.id === stepId)) return e.then;
-      if (s.else.some((c) => c.id === stepId)) return s.else;
+      let r = siblingsOrNull(s.then, stepId);
+      if (r) return r;
+      for (const e of s.elif) {
+        r = siblingsOrNull(e.then, stepId);
+        if (r) return r;
+      }
+      r = siblingsOrNull(s.else, stepId);
+      if (r) return r;
     }
   }
-  return steps;
+  return null;
+}
+
+/** Find a step of ANY type by id, descending into both container types (9c).
+ *  Needed so the inspector can select a nested loop/if container, not just an
+ *  http leaf (flattenHttpSteps only returns leaves). */
+export function findStepById(steps: ReadonlyArray<Step>, stepId: string | null): Step | null {
+  if (stepId === null) return null;
+  for (const s of steps) {
+    if (s.id === stepId) return s;
+    if (s.type === "loop") {
+      const r = findStepById(s.do, stepId);
+      if (r) return r;
+    } else if (s.type === "if") {
+      let r = findStepById(s.then, stepId);
+      if (r) return r;
+      for (const e of s.elif) {
+        r = findStepById(e.then, stepId);
+        if (r) return r;
+      }
+      r = findStepById(s.else, stepId);
+      if (r) return r;
+    }
+  }
+  return null;
 }
 
 export const CookieJarMode = z.enum(["auto", "off"]);

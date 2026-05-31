@@ -12,7 +12,7 @@ import { useScenarioEditor } from "../../scenario/store";
 import { HttpStepNode, type HttpStepNodeData } from "./HttpStepNode";
 import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
 import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
-import { isLoopStep, isIfStep, type Condition, type HttpStep } from "../../scenario/model";
+import { isLoopStep, type Condition, type Step } from "../../scenario/model";
 
 const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode };
 const NODE_WIDTH = 220;
@@ -24,9 +24,6 @@ const LOOP_PAD = 12;
 const IF_HEADER_H = 44;
 const BAND_LABEL_H = 18;
 const BAND_PAD = 8;
-// Body steps sit inside the loop container; bound their width so a long request
-// URL truncates instead of overflowing the dashed container.
-const CHILD_WIDTH = NODE_WIDTH - LOOP_PAD * 2;
 
 type AnyData = HttpStepNodeData | LoopStepNodeData | IfStepNodeData;
 
@@ -48,105 +45,8 @@ export function CanvasView() {
     const out: Array<Node<AnyData>> = [];
     let x = 0;
     for (const step of steps) {
-      if (isLoopStep(step)) {
-        const bodyH = Math.max(1, step.do.length) * (CHILD_H + CHILD_GAP);
-        const height = LOOP_HEADER_H + LOOP_PAD + bodyH;
-        out.push({
-          id: step.id,
-          type: "loop",
-          position: { x, y: 0 },
-          data: { name: step.name, repeat: step.repeat, selected: step.id === selectedStepId },
-          style: { width: NODE_WIDTH, height },
-          draggable: false,
-          selectable: false,
-        });
-        step.do.forEach((child, j) => {
-          out.push({
-            id: child.id,
-            type: "http",
-            parentId: step.id,
-            extent: "parent",
-            position: { x: LOOP_PAD, y: LOOP_HEADER_H + j * (CHILD_H + CHILD_GAP) },
-            data: {
-              name: child.name,
-              method: child.request.method,
-              url: child.request.url,
-              selected: child.id === selectedStepId,
-            },
-            style: { width: CHILD_WIDTH },
-            draggable: false,
-            selectable: false,
-          });
-        });
-        x += NODE_WIDTH + NODE_GAP;
-      } else if (isIfStep(step)) {
-        const bands: Array<{ label: string; children: HttpStep[] }> = [
-          { label: "THEN", children: step.then },
-          ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
-          ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
-        ];
-        let yy = IF_HEADER_H;
-        const bandMeta: Array<{ label: string; y: number }> = [];
-        const childPlacements: Array<{ child: HttpStep; y: number }> = [];
-        for (const band of bands) {
-          bandMeta.push({ label: band.label, y: yy });
-          yy += BAND_LABEL_H;
-          for (const child of band.children) {
-            childPlacements.push({ child, y: yy });
-            yy += CHILD_H + CHILD_GAP;
-          }
-          yy += BAND_PAD;
-        }
-        out.push({
-          id: step.id,
-          type: "if",
-          position: { x, y: 0 },
-          data: {
-            name: step.name,
-            condSummary: summarizeCondition(step.cond),
-            bands: bandMeta,
-            selected: step.id === selectedStepId,
-          },
-          style: { width: NODE_WIDTH, height: yy },
-          draggable: false,
-          selectable: false,
-        });
-        for (const { child, y } of childPlacements) {
-          out.push({
-            id: child.id,
-            type: "http",
-            parentId: step.id,
-            extent: "parent",
-            position: { x: LOOP_PAD, y },
-            data: {
-              name: child.name,
-              method: child.request.method,
-              url: child.request.url,
-              selected: child.id === selectedStepId,
-            },
-            style: { width: CHILD_WIDTH },
-            draggable: false,
-            selectable: false,
-          });
-        }
-        x += NODE_WIDTH + NODE_GAP;
-      } else {
-        out.push({
-          id: step.id,
-          type: "http",
-          position: { x, y: 0 },
-          data: {
-            name: step.name,
-            method: step.request.method,
-            url: step.request.url,
-            selected: step.id === selectedStepId,
-          },
-          style: { width: NODE_WIDTH },
-          draggable: false,
-          selectable: false,
-        });
-        x += NODE_WIDTH + NODE_GAP;
-      }
+      emitStep(step, x, 0, NODE_WIDTH, undefined, out, selectedStepId);
+      x += NODE_WIDTH + NODE_GAP;
     }
     return out;
   }, [steps, selectedStepId]);
@@ -238,4 +138,108 @@ function summarizeCondition(c: Condition): string {
   if ("any" in c) return c.any.map(summarizeCondition).join(" OR ");
   const noRight = c.op === "exists" || c.op === "empty";
   return `${c.left || "?"} ${c.op}${noRight ? "" : ` ${c.right ?? ""}`}`;
+}
+
+function ifBands(step: Extract<Step, { type: "if" }>): Array<{ label: string; children: Step[] }> {
+  return [
+    { label: "THEN", children: step.then },
+    ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
+    ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
+  ];
+}
+
+// Rendered pixel height of a step's node (recursive — a nested container's height
+// drives its parent's height).
+function measureStep(step: Step): number {
+  if (step.type === "http") return CHILD_H;
+  if (step.type === "loop") {
+    const body = step.do.reduce((h, c) => h + measureStep(c) + CHILD_GAP, 0);
+    return LOOP_HEADER_H + LOOP_PAD + Math.max(body, CHILD_H + CHILD_GAP);
+  }
+  let h = IF_HEADER_H;
+  for (const b of ifBands(step)) {
+    h += BAND_LABEL_H;
+    for (const c of b.children) h += measureStep(c) + CHILD_GAP;
+    h += BAND_PAD;
+  }
+  return h;
+}
+
+// Emit a step (and, recursively, its children) as React Flow nodes. Children get
+// parentId + extent:"parent"; positions are relative to the immediate parent.
+function emitStep(
+  step: Step,
+  x: number,
+  y: number,
+  width: number,
+  parentId: string | undefined,
+  out: Array<Node<AnyData>>,
+  selectedStepId: string | null,
+): void {
+  const base = {
+    position: { x, y },
+    draggable: false as const,
+    selectable: false as const,
+    ...(parentId ? { parentId, extent: "parent" as const } : {}),
+  };
+  if (step.type === "http") {
+    out.push({
+      id: step.id,
+      type: "http",
+      data: {
+        name: step.name,
+        method: step.request.method,
+        url: step.request.url,
+        selected: step.id === selectedStepId,
+      },
+      style: { width },
+      ...base,
+    });
+    return;
+  }
+  const inner = width - LOOP_PAD * 2;
+  if (step.type === "loop") {
+    out.push({
+      id: step.id,
+      type: "loop",
+      data: { name: step.name, repeat: step.repeat, selected: step.id === selectedStepId },
+      style: { width, height: measureStep(step) },
+      ...base,
+    });
+    let cy = LOOP_HEADER_H;
+    for (const child of step.do) {
+      const h = measureStep(child);
+      emitStep(child, LOOP_PAD, cy, inner, step.id, out, selectedStepId);
+      cy += h + CHILD_GAP;
+    }
+    return;
+  }
+  // if
+  const bandMeta: Array<{ label: string; y: number }> = [];
+  const placements: Array<{ child: Step; y: number }> = [];
+  let cy = IF_HEADER_H;
+  for (const b of ifBands(step)) {
+    bandMeta.push({ label: b.label, y: cy });
+    cy += BAND_LABEL_H;
+    for (const child of b.children) {
+      placements.push({ child, y: cy });
+      cy += measureStep(child) + CHILD_GAP;
+    }
+    cy += BAND_PAD;
+  }
+  out.push({
+    id: step.id,
+    type: "if",
+    data: {
+      name: step.name,
+      condSummary: summarizeCondition(step.cond),
+      bands: bandMeta,
+      selected: step.id === selectedStepId,
+    },
+    style: { width, height: cy },
+    ...base,
+  });
+  for (const { child, y: cyy } of placements) {
+    emitStep(child, LOOP_PAD, cyy, inner, step.id, out, selectedStepId);
+  }
 }

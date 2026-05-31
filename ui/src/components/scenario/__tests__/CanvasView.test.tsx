@@ -92,3 +92,46 @@ steps:
     expect(screen.getByText("ok")).toBeInTheDocument(); // inner http child node
   });
 });
+
+describe("CanvasView nested (9c)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("renders a loop nested inside an if THEN branch (9c)", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    name: gate
+    type: if
+    cond:
+      left: "{{code}}"
+      op: eq
+      right: "200"
+    then:
+      - id: "01HX0000000000000000000020"
+        name: inner-loop
+        type: loop
+        repeat: 3
+        do:
+          - id: "01HX0000000000000000000021"
+            name: ping
+            type: http
+            request:
+              method: GET
+              url: "/ping"
+            assert:
+              - status: 200
+`);
+    render(<CanvasView />);
+    expect(screen.getByText("gate")).toBeInTheDocument();
+    expect(screen.getByText("THEN")).toBeInTheDocument();
+    expect(screen.getByText("inner-loop")).toBeInTheDocument(); // nested loop container
+    expect(screen.getByText(/×\s*3/)).toBeInTheDocument(); // nested loop repeat badge
+    expect(screen.getByText("ping")).toBeInTheDocument(); // depth-2 http leaf
+  });
+});

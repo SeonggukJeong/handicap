@@ -331,14 +331,94 @@ describe("if step model (9b)", () => {
     expect(ScenarioModel.safeParse(v).success).toBe(false);
   });
 
-  it("rejects a loop nested in a branch (http-only gate)", () => {
+  it("accepts a loop nested in an if branch (9c mutual nesting)", () => {
     const v = structuredClone(IF_JS) as Record<string, unknown>;
     ((v.steps as Record<string, unknown>[])[0].then as unknown[]).push({
       id: "01HX0000000000000000000014",
-      name: "l",
+      name: "inner-loop",
       type: "loop",
       repeat: 2,
-      do: [],
+      do: [
+        {
+          id: "01HX0000000000000000000015",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/x", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    });
+    expect(ScenarioModel.safeParse(v).success).toBe(true);
+  });
+
+  it("accepts an if nested in a loop body (9c mutual nesting)", () => {
+    const v = structuredClone(LOOP_YAML_JS) as Record<string, unknown>;
+    ((v.steps as Record<string, unknown>[])[0].do as unknown[]).push({
+      id: "01HX0000000000000000000016",
+      name: "inner-if",
+      type: "if",
+      cond: { left: "{{c}}", op: "eq", right: "1" },
+      then: [
+        {
+          id: "01HX0000000000000000000017",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/y", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    });
+    expect(ScenarioModel.safeParse(v).success).toBe(true);
+  });
+
+  it("rejects an if nested in an if branch (same-type forbidden)", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    ((v.steps as Record<string, unknown>[])[0].then as unknown[]).push({
+      id: "01HX0000000000000000000018",
+      name: "inner-if",
+      type: "if",
+      cond: { left: "{{c}}", op: "eq", right: "1" },
+      then: [
+        {
+          id: "01HX0000000000000000000019",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/z", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    });
+    expect(ScenarioModel.safeParse(v).success).toBe(false);
+  });
+
+  it("rejects two-level nesting: loop > if > loop", () => {
+    const v = structuredClone(LOOP_YAML_JS) as Record<string, unknown>;
+    ((v.steps as Record<string, unknown>[])[0].do as unknown[]).push({
+      id: "01HX000000000000000000001A",
+      name: "inner-if",
+      type: "if",
+      cond: { left: "{{c}}", op: "eq", right: "1" },
+      then: [
+        {
+          id: "01HX000000000000000000001B",
+          name: "deep-loop",
+          type: "loop",
+          repeat: 2,
+          do: [
+            {
+              id: "01HX000000000000000000001C",
+              name: "h",
+              type: "http",
+              request: { method: "GET", url: "/d", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+      ],
     });
     expect(ScenarioModel.safeParse(v).success).toBe(false);
   });
@@ -385,6 +465,63 @@ describe("if step model (9b)", () => {
         "01HX0000000000000000000012",
         "01HX0000000000000000000013",
       ]);
+    }
+  });
+
+  it("flattenHttpSteps recurses through loop-in-if (loop nested in a branch)", () => {
+    const v = structuredClone(IF_JS) as Record<string, unknown>;
+    // then = [ existing http (…011), loop{ http(…22) } ]
+    ((v.steps as Record<string, unknown>[])[0].then as unknown[]).push({
+      id: "01HX0000000000000000000021",
+      name: "lp",
+      type: "loop",
+      repeat: 2,
+      do: [
+        {
+          id: "01HX0000000000000000000022",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/x", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    });
+    const r = ScenarioModel.safeParse(v);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(flattenHttpSteps(r.data.steps).map((s) => s.id)).toEqual([
+        "01HX0000000000000000000011",
+        "01HX0000000000000000000022",
+      ]);
+    }
+  });
+
+  it("flattenHttpSteps recurses through if-in-loop (if nested in loop body)", () => {
+    const v = structuredClone(LOOP_YAML_JS) as Record<string, unknown>;
+    // do = [ existing http, if{ then: http(…2B) } ]
+    ((v.steps as Record<string, unknown>[])[0].do as unknown[]).push({
+      id: "01HX000000000000000000002A",
+      name: "inner-if",
+      type: "if",
+      cond: { left: "{{c}}", op: "eq", right: "1" },
+      then: [
+        {
+          id: "01HX000000000000000000002B",
+          name: "h",
+          type: "http",
+          request: { method: "GET", url: "/y", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+    });
+    const r = ScenarioModel.safeParse(v);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(flattenHttpSteps(r.data.steps).map((s) => s.id)).toContain(
+        "01HX000000000000000000002B",
+      );
     }
   });
 });

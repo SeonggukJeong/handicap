@@ -195,7 +195,7 @@ function loopStepToYaml(st: LoopStep): Record<string, unknown> {
     name: st.name,
     type: st.type,
     repeat: st.repeat,
-    do: st.do.map(httpStepToYaml),
+    do: st.do.map(stepToYaml),
   };
 }
 
@@ -216,12 +216,12 @@ function ifStepToYaml(st: IfStep): Record<string, unknown> {
     name: st.name,
     type: st.type,
     cond: condToYaml(st.cond),
-    then: st.then.map(httpStepToYaml),
+    then: st.then.map(stepToYaml),
   };
   if (st.elif.length > 0) {
-    out.elif = st.elif.map((e) => ({ cond: condToYaml(e.cond), then: e.then.map(httpStepToYaml) }));
+    out.elif = st.elif.map((e) => ({ cond: condToYaml(e.cond), then: e.then.map(stepToYaml) }));
   }
-  if (st.else.length > 0) out.else = st.else.map(httpStepToYaml);
+  if (st.else.length > 0) out.else = st.else.map(stepToYaml);
   return out;
 }
 

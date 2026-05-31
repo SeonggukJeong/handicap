@@ -11,7 +11,7 @@ import type {
   LoopStep,
   Step,
 } from "../../scenario/model";
-import { flattenHttpSteps, findStepSiblings, isLoopStep, isIfStep } from "../../scenario/model";
+import { findStepSiblings, findStepById, isLoopStep, isIfStep } from "../../scenario/model";
 import type { BranchSel } from "../../scenario/yamlDoc";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -23,12 +23,10 @@ export function Inspector() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
   const select = useScenarioEditor((s) => s.select);
 
-  const step = useMemo<Step | null>(() => {
-    const top = steps.find((s) => s.id === selectedStepId);
-    if (top) return top;
-    // The selection may be an http step nested inside a loop body.
-    return flattenHttpSteps(steps).find((s) => s.id === selectedStepId) ?? null;
-  }, [steps, selectedStepId]);
+  const step = useMemo<Step | null>(
+    () => findStepById(steps, selectedStepId),
+    [steps, selectedStepId],
+  );
 
   useEffect(() => {
     if (selectedStepId !== null && step === null) select(null);
@@ -620,6 +618,26 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   );
 }
 
+function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void }) {
+  const meta =
+    step.type === "http"
+      ? `${step.request.method} ${step.request.url}`
+      : step.type === "loop"
+        ? `loop ×${step.repeat}`
+        : "if";
+  return (
+    <button
+      type="button"
+      title={`${step.name} — ${meta}`}
+      className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
+      onClick={onClick}
+    >
+      <span className="font-medium">{step.name}</span>{" "}
+      <span className="font-mono text-slate-500">{meta}</span>
+    </button>
+  );
+}
+
 function LoopInspector({ step }: { step: LoopStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setLoopRepeat = useScenarioEditor((s) => s.setLoopRepeat);
@@ -677,17 +695,7 @@ function LoopInspector({ step }: { step: LoopStep }) {
         <ul className="flex flex-col gap-1">
           {step.do.map((c) => (
             <li key={c.id}>
-              <button
-                type="button"
-                title={`${c.name} — ${c.request.method} ${c.request.url}`}
-                className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
-                onClick={() => select(c.id)}
-              >
-                <span className="font-medium">{c.name}</span>{" "}
-                <span className="font-mono text-slate-500">
-                  {c.request.method} {c.request.url}
-                </span>
-              </button>
+              <ChildStepButton step={c} onClick={() => select(c.id)} />
             </li>
           ))}
           {step.do.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
@@ -896,7 +904,7 @@ function BranchPanel({
 }: {
   label: string;
   branch: BranchSel;
-  steps: ReadonlyArray<HttpStep>;
+  steps: ReadonlyArray<Step>;
   ifId: string;
 }) {
   const addStepInBranch = useScenarioEditor((s) => s.addStepInBranch);
@@ -907,17 +915,7 @@ function BranchPanel({
       <ul className="flex flex-col gap-1">
         {steps.map((c) => (
           <li key={c.id}>
-            <button
-              type="button"
-              title={`${c.name} — ${c.request.method} ${c.request.url}`}
-              className="block w-full truncate text-left px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-100"
-              onClick={() => select(c.id)}
-            >
-              <span className="font-medium">{c.name}</span>{" "}
-              <span className="font-mono text-slate-500">
-                {c.request.method} {c.request.url}
-              </span>
-            </button>
+            <ChildStepButton step={c} onClick={() => select(c.id)} />
           </li>
         ))}
         {steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
