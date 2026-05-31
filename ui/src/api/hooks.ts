@@ -2,6 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { DatasetUploadOptions } from "./client";
 import { createPreset, deletePreset, listPresets, updatePreset, type PresetInput } from "./presets";
+import {
+  createEnvironment,
+  deleteEnvironment,
+  getEnvironment,
+  listEnvironments,
+  updateEnvironment,
+  type EnvironmentInput,
+} from "./environments";
 import type { Profile, RunStatus } from "./schemas";
 
 export const queryKeys = {
@@ -15,6 +23,8 @@ export const queryKeys = {
   dataset: (id: string) => ["datasets", id] as const,
   presets: (scenarioId: string) => ["presets", scenarioId] as const,
   preset: (id: string) => ["preset", id] as const,
+  environments: () => ["environments"] as const,
+  environment: (id: string) => ["environments", id] as const,
 };
 
 export function useScenarios() {
@@ -185,5 +195,45 @@ export function useDeletePreset(scenarioId: string) {
   return useMutation({
     mutationFn: (id: string) => deletePreset(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.presets(scenarioId) }),
+  });
+}
+
+export function useEnvironments() {
+  return useQuery({ queryKey: queryKeys.environments(), queryFn: listEnvironments });
+}
+
+export function useEnvironment(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? queryKeys.environment(id) : ["environments", "missing"],
+    queryFn: () => getEnvironment(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateEnvironment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: EnvironmentInput) => createEnvironment(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.environments() }),
+  });
+}
+
+export function useUpdateEnvironment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: EnvironmentInput }) =>
+      updateEnvironment(id, input),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.environments() });
+      qc.invalidateQueries({ queryKey: queryKeys.environment(vars.id) });
+    },
+  });
+}
+
+export function useDeleteEnvironment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteEnvironment(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.environments() }),
   });
 }
