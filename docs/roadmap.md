@@ -14,7 +14,7 @@
 
 ## 현재 상태 (2026-05-31)
 
-- **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)**. 열린 9 이전 슬라이스 작업 없음.
+- **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)** + **영역 A (Run 프리셋 + Retry, ADR-0024)** + **영역 B (환경/Environments, ADR-0025)**. 열린 9 이전 슬라이스 작업 없음.
 - **진행 중**: 없음. 다음 후보는 아래 §A 참고.
 
 ---
@@ -45,7 +45,7 @@
 - **성격**: controller(리포트 빌드) + UI 중심. 엔진/워커 변경 적음(트랜잭션 시간 분해 DNS/TCP/TLS/TTFB는 엔진 계측 필요 — 그 하위 항목만 엔진 손댐).
 - **참고**: ADR-0017 (MVP 리포트 스코프 — "run간 비교·SLA는 후속"을 명시). run 간 비교 = 다중 run 선택 UI + 델타 뷰, SLA = pass/fail 임계 정의 + 판정.
 
-### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **spec 작성+리뷰 완료, 구현 전**
+### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **✅ 완료 (A1 + A2 머지, ADR-0024)**
 - **성격**: QoL/UX 슬라이스(§4.5 메뉴 밖, 사용자 요청 발). run 을 한 번 돌린 뒤 같은 설정을 매번 손으로 재입력하는 통증 해소.
 - **spec**: `docs/superpowers/specs/2026-05-30-run-presets-retry-design.md` (brainstorming 2026-05-30 + spec-plan-review 반영 2026-05-31).
 - **요지**: 별도 `run_presets` 테이블(scenario-scoped, UNIQUE(scenario_id,name), migration 0005) + REST CRUD + RunDialog "프리셋 불러오기/저장" + 과거 run "다시 실행"(prefill) / "즉시 재실행". retry 는 `GET /api/runs/{id}` 가 이미 노출하는 profile+env 재사용 → 신규 저장 0. 시나리오 변경 시 경고 배지(run retry 한정; 프리셋은 라이브 추종).
