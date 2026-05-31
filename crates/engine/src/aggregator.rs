@@ -24,6 +24,18 @@ struct LoopCount {
     error_count: u64,
 }
 
+/// A per-(if_id, branch) decision-count delta since the last drain. Branch metrics
+/// are **decision counts** (which branch an `if` selected), not request counts — a
+/// decision has no request and no error, so there is deliberately no `error_count`
+/// here (contrast `LoopStat`). The `none` branch (no match + empty/absent else) is the
+/// whole reason this is a dedicated counter: it has no http leaf to attach to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchStat {
+    pub step_id: String, // the `if` node's id
+    pub branch: String,  // "then" | "elif_0".. | "else" | "none"
+    pub count: u64,
+}
+
 /// One 1-second bucket of metrics for one step.
 #[derive(Debug)]
 pub struct StepWindow {
@@ -76,6 +88,7 @@ pub struct Aggregator {
     windows: HashMap<(String, i64), StepWindow>,
     loop_counts: HashMap<(String, u32), LoopCount>,
     loop_cap: u32,
+    branch_counts: HashMap<(String, String), u64>,
 }
 
 impl Aggregator {
@@ -84,6 +97,7 @@ impl Aggregator {
             windows: HashMap::new(),
             loop_counts: HashMap::new(),
             loop_cap: loop_breakdown_cap,
+            branch_counts: HashMap::new(),
         }
     }
 
@@ -127,6 +141,27 @@ impl Aggregator {
                 loop_index,
                 count: c.count,
                 error_count: c.error_count,
+            })
+            .collect()
+    }
+
+    /// Record one branch decision for an `if` node. Unconditional (no cap): the branch
+    /// set per `if` node is finite (then + #elif + else/none), unlike `loop_index`.
+    pub fn record_branch(&mut self, step_id: &str, branch: &str) {
+        *self
+            .branch_counts
+            .entry((step_id.to_string(), branch.to_string()))
+            .or_default() += 1;
+    }
+
+    /// Take and reset the accumulated per-(if_id, branch) decision deltas.
+    pub fn drain_branch_deltas(&mut self) -> Vec<BranchStat> {
+        std::mem::take(&mut self.branch_counts)
+            .into_iter()
+            .map(|((step_id, branch), count)| BranchStat {
+                step_id,
+                branch,
+                count,
             })
             .collect()
     }
@@ -249,6 +284,35 @@ mod tests {
         assert_eq!(a.drain_loop_deltas().len(), 1);
         assert!(
             a.drain_loop_deltas().is_empty(),
+            "second drain empty (delta reset)"
+        );
+    }
+
+    #[test]
+    fn branch_counts_accumulate_per_if_and_branch() {
+        // cap is irrelevant to branch counting — pass 0 to prove independence.
+        let mut a = Aggregator::new(0);
+        a.record_branch("if1", "then");
+        a.record_branch("if1", "then");
+        a.record_branch("if1", "elif_0");
+        a.record_branch("if2", "none");
+        let m: std::collections::HashMap<(String, String), u64> = a
+            .drain_branch_deltas()
+            .into_iter()
+            .map(|b| ((b.step_id, b.branch), b.count))
+            .collect();
+        assert_eq!(m.get(&("if1".into(), "then".into())), Some(&2));
+        assert_eq!(m.get(&("if1".into(), "elif_0".into())), Some(&1));
+        assert_eq!(m.get(&("if2".into(), "none".into())), Some(&1));
+    }
+
+    #[test]
+    fn drain_branch_deltas_resets_between_drains() {
+        let mut a = Aggregator::new(0);
+        a.record_branch("if1", "then");
+        assert_eq!(a.drain_branch_deltas().len(), 1);
+        assert!(
+            a.drain_branch_deltas().is_empty(),
             "second drain empty (delta reset)"
         );
     }

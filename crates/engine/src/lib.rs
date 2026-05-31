@@ -9,7 +9,7 @@ pub mod runner;
 pub mod scenario;
 pub mod template;
 
-pub use aggregator::{Aggregator, LoopStat, StepWindow};
+pub use aggregator::{Aggregator, BranchStat, LoopStat, StepWindow};
 pub use condition::eval_condition;
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
