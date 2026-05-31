@@ -36,11 +36,18 @@ message LoopStat {
   uint64 error_count = 4;
 }
 
+message BranchStat {
+  string step_id = 1;   // the `if` node's id
+  string branch = 2;    // "then" | "elif_0".. | "else" | "none"
+  uint64 count = 3;     // decision count (counts-only: a branch decision has no error)
+}
+
 message MetricBatch {
   string run_id = 1;
   string worker_id = 2;
   repeated MetricWindow windows = 3;
   repeated LoopStat loop_stats = 4;
+  repeated BranchStat branch_stats = 5;
 }
 
 message MetricWindow {

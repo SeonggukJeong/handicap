@@ -11,7 +11,7 @@ use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
+use pb::{BranchStat, LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -217,7 +217,16 @@ async fn main() -> anyhow::Result<()> {
                     error_count: ls.error_count,
                 })
                 .collect();
-            if windows.is_empty() && loop_stats.is_empty() {
+            let branch_stats: Vec<BranchStat> = flush
+                .branch_stats
+                .into_iter()
+                .map(|bs| BranchStat {
+                    step_id: bs.step_id,
+                    branch: bs.branch,
+                    count: bs.count,
+                })
+                .collect();
+            if windows.is_empty() && loop_stats.is_empty() && branch_stats.is_empty() {
                 continue;
             }
             let msg = WorkerMessage {
@@ -226,6 +235,7 @@ async fn main() -> anyhow::Result<()> {
                     worker_id: worker_id.clone(),
                     windows,
                     loop_stats,
+                    branch_stats,
                 })),
             };
             if tx_metric.send(msg).await.is_err() {
