@@ -1276,3 +1276,157 @@ steps:
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+/// End-to-end guard for Slice 9d if-branch metrics.
+///
+/// Proves the FULL branch-metrics wire:
+///   worker subprocess → gRPC `branch_stats` → controller `run_if_metrics` table
+///   → `GET /api/runs/{id}/report` returns `if_breakdown` with a `then` count > 0.
+///
+/// Scenario: a single `type: if` step whose condition is always true (1 == 1),
+/// wrapping a `then` http step that hits wiremock GET /then → 200.
+/// After the run completes we assert that `if_breakdown` contains an entry for
+/// the if-node with a `then` branch whose count > 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn if_branch_report_e2e_smoke() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime (followup #2).
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stub: GET /then → 200.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/then"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+        .mount(&target)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC (no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. If-scenario: always-true condition (1 == 1), then branch hits /then.
+    //    Use Crockford base32 ULIDs (no I/L/O/U).
+    const IF_STEP_ID: &str = "01HX0000000000000000000001";
+    const THEN_STEP_ID: &str = "01HX0000000000000000000002";
+    let scenario_yaml = format!(
+        "version: 1\nname: e2e-branch\nvariables:\n  base: \"{base}\"\nsteps:\n  - id: \"{if_id}\"\n    name: gate\n    type: if\n    cond:\n      left: \"1\"\n      op: eq\n      right: \"1\"\n    then:\n      - id: \"{then_id}\"\n        name: then-step\n        type: http\n        request:\n          method: GET\n          url: \"{{{{base}}}}/then\"\n        assert:\n          - status: 200\n",
+        base = target.uri(),
+        if_id = IF_STEP_ID,
+        then_id = THEN_STEP_ID,
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run: 2 VUs over 2 seconds.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 2, "duration_seconds": 2 },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until completed (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap().to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status}"
+    );
+
+    // 7. GET /report and assert if_breakdown.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    let if_breakdown = report["if_breakdown"]
+        .as_array()
+        .expect("if_breakdown must be an array");
+    let gate = if_breakdown
+        .iter()
+        .find(|b| b["step_id"] == IF_STEP_ID)
+        .unwrap_or_else(|| {
+            panic!(
+                "if-node {} not present in if_breakdown; got: {}",
+                IF_STEP_ID, report["if_breakdown"]
+            )
+        });
+    let then = gate["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["branch"] == "then")
+        .expect("then branch present");
+    assert!(
+        then["count"].as_u64().unwrap() > 0,
+        "then branch decided at least once"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
