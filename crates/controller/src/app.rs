@@ -5,7 +5,9 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::api::{datasets as datasets_api, runs as runs_api, scenarios as scenarios_api};
+use crate::api::{
+    datasets as datasets_api, presets as presets_api, runs as runs_api, scenarios as scenarios_api,
+};
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
 use crate::store::Db;
@@ -54,6 +56,16 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/datasets/{id}",
             get(datasets_api::get).delete(datasets_api::delete),
+        )
+        .route(
+            "/scenarios/{id}/presets",
+            post(presets_api::create).get(presets_api::list),
+        )
+        .route(
+            "/presets/{id}",
+            get(presets_api::get)
+                .put(presets_api::update)
+                .delete(presets_api::delete),
         );
 
     let mut app = Router::new().nest("/api", api);
