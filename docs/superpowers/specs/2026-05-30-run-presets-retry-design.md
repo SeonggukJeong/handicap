@@ -1,6 +1,6 @@
 # Run 프리셋 + Retry 설계 (영역 A)
 
-* Status: Draft (brainstorming 완료, spec-plan-review 반영 2026-05-31, 구현 전)
+* Status: A1 (Retry) 구현 완료 (2026-05-31). A2 (프리셋 CRUD) 미착수. (brainstorming + spec-plan-review 반영)
 * Date: 2026-05-30 (개정 2026-05-31)
 * 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0011(SQLite 저장소), ADR-0022(data-driven 바인딩)
 * 후속 ADR: 구현 시 새 ADR 추가 (run 프리셋 = 독립 리소스 결정, 다음 가용 번호)
@@ -134,6 +134,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_run_presets_scenario_name
 - env 를 `map<string,string>` 로 제약(API + Zod).
 - RunDetail "다시 실행"/"즉시 재실행" 버튼 + 시나리오 변경 경고.
 - 목적: **DB 무변경 diff 로 prefill 리팩터(#8)를 먼저 검증**, A2 의 기반 마련.
+- **구현 계획**: `docs/superpowers/plans/2026-05-31-area-a1-run-retry.md` (7 tasks, DB 무변경). **구현 완료 2026-05-31** — commit `b7e362a`(controller)…`82427a9`(run-detail), 7개 커밋.
 
 **A2 — Run 프리셋 CRUD** (A1 위에 빌드):
 - migration 0005(`run_presets`, UNIQUE index) + `connect()` 등록 + `store/presets.rs`.
