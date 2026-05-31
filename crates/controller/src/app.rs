@@ -6,7 +6,8 @@ use axum::routing::{get, post};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
-    datasets as datasets_api, presets as presets_api, runs as runs_api, scenarios as scenarios_api,
+    datasets as datasets_api, environments as environments_api, presets as presets_api,
+    runs as runs_api, scenarios as scenarios_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -66,6 +67,16 @@ pub fn router(state: AppState) -> Router {
             get(presets_api::get)
                 .put(presets_api::update)
                 .delete(presets_api::delete),
+        )
+        .route(
+            "/environments",
+            post(environments_api::create).get(environments_api::list),
+        )
+        .route(
+            "/environments/{id}",
+            get(environments_api::get)
+                .put(environments_api::update)
+                .delete(environments_api::delete),
         );
 
     let mut app = Router::new().nest("/api", api);
