@@ -23,7 +23,7 @@
 
 우선순위가 아니라 후보 목록이다. spec §4.5의 한 줄을 각 후보에 그대로 매핑하고, 이 코드베이스 기준의 착수 메모를 덧붙인다.
 
-### A1. Conditional 노드 — **← 진행 중 (9a+9b 완료, 9c/9d 남음)**
+### A1. Conditional 노드 — **← 진행 중 (9a+9b+9c 완료, 9d 남음)**
 - **spec 근거**: §4.5 "HTTP 외 다른 노드 종류 (loop, **conditional**, parallel, …)".
 - **성격**: control-flow 노드. Slice 7 loop가 깐 인프라(재귀 `Step` 트리, internally-tagged enum `#[serde(tag="type")]`, `execute_steps(steps, ctx)` 재귀 인터프리터, React Flow 컨테이너 노드)를 그대로 재사용하는 가장 자연스러운 다음 수.
 - **참고**: ADR-0020 (control-flow 노드: loop 패턴). spec §2 모델 노트 "후속 단계의 `loop`/`conditional` 노드는 모델에 `type` 추가, 내부 `do: [...]` 중첩 — 캔버스에서는 컨테이너 노드로 시각화" (`...mvp1-design.md:287`).
