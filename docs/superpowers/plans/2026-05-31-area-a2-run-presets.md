@@ -1934,22 +1934,19 @@ git commit -m "feat(ui): RunDialog save/overwrite/rename/delete preset (A2)"
 
 A second save entry point: a completed run's profile+env saved under a name (spec §5). No dialog state needed — `window.prompt` for the name, then `createPreset`.
 
-- [ ] **Step 1: Write the failing test.** Append to `ui/src/pages/__tests__/RunDetailPage.test.tsx`. **Verified harness** (this file, as it exists post-A1 — use these exact names, do NOT invent `mockTerminalRun`/`renderPage`):
->   - `fetchMock` (`vi.fn()` + `vi.stubGlobal`), `jsonResponse(body, status)`.
->   - `SCENARIO_YAML` (a one-step scenario whose url is `http://x/{{TOKEN}}`).
->   - `runResponse(over)` → run **`R1`**, scenario **`S1`**, `status: "completed"`, `profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 }`, `env: { TOKEN: "abc" }`.
->   - `reportResponse()`, and `mockApi(over)` which routes `GET /api/runs/R1`, `/api/runs/R1/metrics`, `/api/runs/R1/report`, `GET /api/scenarios/S1` — **but has NO preset-POST branch**.
->   - `renderWithRouter(runId)` (MemoryRouter with `/runs/:id` + `/scenarios/:id/runs`).
+- [ ] **Step 1: Write the failing test.** Append to `ui/src/pages/__tests__/RunDetailPage.test.tsx`. **Verified primitives — these are the ONLY shared helpers in this file (use exactly these; do NOT invent `mockTerminalRun(arg)`, `mockApi`, `runResponse`, `reportResponse`, `SCENARIO_YAML`, or `renderPage` — none of those module-level names exist):**
+>   - `const fetchMock = vi.fn()` + `beforeEach` `vi.stubGlobal("fetch", fetchMock)`.
+>   - `function jsonResponse(body, status = 200): Response`.
+>   - `function renderWithRouter(runId: string)` — MemoryRouter with only a `/runs/:id` route (no `/scenarios/:id/runs` route; the page's "다시 실행" link target isn't navigated in this test).
+>   - Every existing test builds its run/scenario/report responses as **inline object literals** inside its own `fetchMock.mockImplementation`. There is a zero-arg `mockTerminalRun()` inside the "retry (A1)" `describe`, but it's block-scoped (not reachable from a new `describe`) and has no preset-POST branch — so this test writes its **own** `fetchMock.mockImplementation` with inline literals.
 >
-> Because `mockApi` uses `mockImplementation` (full replace) and lacks a POST branch, this test installs its **own** `fetchMock.mockImplementation` that reuses the file's `runResponse`/`reportResponse`/`jsonResponse`/`SCENARIO_YAML` fixtures and adds the preset POST. Assert against the **real** fixture (vus **6**, env **`{TOKEN:"abc"}`**), not invented values:
+> The run must be terminal (`completed`) so the "프리셋으로 저장" button renders (it lives in the `{terminal && (...)}` header group). `/report` returning 404 is fine — the button is independent of `report.data`. Order branches so `/api/runs/R1/metrics` and `/api/runs/R1/report` are matched **before** the bare `/api/runs/R1` (suffix match would otherwise shadow them):
 
 ```ts
 describe("RunDetailPage — save preset (A2)", () => {
   it("saves the run's profile+env as a preset via prompt", async () => {
     const user = userEvent.setup();
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("from-run");
-    // Reuse the file's R1 fixtures; add the preset-POST branch the base mockApi lacks.
-    // (Longer suffixes are matched first so /R1 doesn't shadow /R1/metrics etc.)
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
         return Promise.resolve(
@@ -1971,17 +1968,29 @@ describe("RunDetailPage — save preset (A2)", () => {
         return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
       }
       if (url.endsWith("/api/runs/R1/report")) {
-        return Promise.resolve(jsonResponse(reportResponse()));
+        return Promise.resolve(jsonResponse({}, 404));
       }
       if (url.endsWith("/api/runs/R1")) {
-        return Promise.resolve(jsonResponse(runResponse()));
+        return Promise.resolve(
+          jsonResponse({
+            id: "R1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+            status: "completed",
+            profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 },
+            env: { TOKEN: "abc" },
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+          }),
+        );
       }
       if (url.endsWith("/api/scenarios/S1")) {
         return Promise.resolve(
           jsonResponse({
             id: "S1",
-            name: "demo",
-            yaml: SCENARIO_YAML,
+            name: "x",
+            yaml: "version: 1\nname: x\nsteps: []\n",
             version: 1,
             created_at: 1,
             updated_at: 1,
@@ -2494,7 +2503,7 @@ git commit -m "docs: A2 run presets — ADR-0024 + status + gotchas"
 
 Verdict was **CHANGES REQUESTED** (architecture sound; localized fixes). All applied:
 
-- **M1 (Task 8 test harness)** — the plan had assumed `mockTerminalRun({...})` + `renderPage`, which don't exist. The real `RunDetailPage.test.tsx` harness is `mockApi(over)` (no preset-POST branch) + fixtures `runResponse`/`reportResponse`/`jsonResponse`/`SCENARIO_YAML` (run **R1**, vus **6**, env **`{TOKEN:"abc"}`**) + `renderWithRouter(runId)`. Task 8 Step 1 rewritten to install its own `fetchMock.mockImplementation` reusing those fixtures + a 201 preset-POST branch, asserting the real values. *(Verified against the file; the reviewer's guessed name `mockTerminalRun` was also approximate — actual is `mockApi`.)*
+- **M1 (Task 8 test harness)** — the plan had assumed `mockTerminalRun({...})` + `renderPage`, which don't exist. **Verified against the actual file:** the only module-level shared helpers in `RunDetailPage.test.tsx` are `fetchMock` (`vi.fn()`), `jsonResponse(body, status)`, and `renderWithRouter(runId)` (a `/runs/:id`-only MemoryRouter). There is a block-scoped zero-arg `mockTerminalRun()` inside the "retry (A1)" `describe` (run **R1**, vus **6**, env **`{TOKEN:"abc"}`**), but no `mockApi`/`runResponse`/`reportResponse`/`SCENARIO_YAML` named fixtures exist — every test inlines its response literals. Task 8 Step 1 rewritten to install its own `fetchMock.mockImplementation` with **inline literals** (terminal `completed` run R1 so the button renders; `/report` → 404; metrics/report branches ordered before the bare `/runs/R1`), asserting the real values (vus 6, `{TOKEN:"abc"}`). *(Earlier draft of this fix wrongly referenced `mockApi`/`runResponse`/`SCENARIO_YAML` — corrected to inline literals after re-reading the file.)*
 - **M2 (Zod leak on `Preset.profile`)** — added an explicit ⚠️ callout to Task 5: `PresetSchema.profile` re-leaks `number | undefined`, so every consumer must funnel `preset.profile` through `normalizeProfile` and never destructure fields directly; only `pnpm build` catches a violation.
 - **M3 (`PUT /presets/{nonexistent}` → 404)** — added integration test `preset_put_nonexistent_is_404` to Task 3 (closes the gap between the store unit test and the route; auto-run by Task 3 Step 6).
 - **Minor (Task 4 helper name)** — **verified** the real dataset-upload helper is `upload_csv(&app, name, csv)` (the reviewer's `upload_ds` was incorrect); my plan already used `upload_csv`. Tightened the note to state it's confirmed, and that `create_scenario` must be copied in from `presets_api_test.rs` (confirmed absent in `datasets_api_test.rs`).
