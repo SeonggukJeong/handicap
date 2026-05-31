@@ -675,4 +675,48 @@ describe("RunDialog — environment overlay (B-2)", () => {
     await user.selectOptions(screen.getByLabelText("select environment"), "E2");
     expect(screen.getByLabelText("env key 0")).toHaveValue("TOKEN");
   });
+
+  it("submits the selected env's vars as-is when there are no overrides (spec interaction row 2)", async () => {
+    const captured: { body?: string } = {};
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/api/environments") && (!init || !init.method || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            environments: [
+              { id: "E1", name: "staging", var_count: 2, created_at: 1, updated_at: 1 },
+            ],
+          }),
+        );
+      }
+      if (u.includes("/api/environments/E1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "E1",
+            name: "staging",
+            vars: { BASE_URL: "http://s", API_KEY: "k" },
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      if (u.endsWith("/api/runs") && init?.method === "POST") {
+        captured.body = String(init.body);
+        return Promise.resolve(jsonResponse(RUN, 201));
+      }
+      return Promise.resolve(jsonResponse({ presets: [] }));
+    });
+
+    const user = userEvent.setup();
+    renderDialog();
+    await screen.findByRole("option", { name: "staging" });
+    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    await screen.findByText("BASE_URL"); // base list loaded
+    // no overrides added — submit straight away
+    await user.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await waitFor(() => expect(captured.body).toBeTruthy());
+    const posted = JSON.parse(captured.body!);
+    expect(posted.env).toEqual({ BASE_URL: "http://s", API_KEY: "k" });
+  });
 });
