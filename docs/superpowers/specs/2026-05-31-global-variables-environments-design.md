@@ -1,8 +1,8 @@
 # 글로벌 변수 = 환경(Environments) 설계 (영역 B)
 
-* Status: Draft (brainstorming 2026-05-31). 구현 전.
+* Status: 구현 중 — B-1(환경 리소스 + 관리 UI) 완료 / B-2(RunDialog 오버레이) 예정. ADR-0025.
 * Date: 2026-05-31
-* 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0011(SQLite 저장소), ADR-0024(run 프리셋 = scenario-scoped 독립 리소스)
+* 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0011(SQLite 저장소), ADR-0024(run 프리셋 = scenario-scoped 독립 리소스), ADR-0025(환경 리소스 결정 기록)
 * 후속 ADR: ADR-0025 (환경 = env-namespace 전용 top-level 재사용 리소스 + 클라이언트 오버레이 스냅샷)
 * 로드맵: `docs/roadmap.md` §A6 (영역 B — 글로벌 변수). 영역 A(run 프리셋 + retry)의 자매 기능.
 

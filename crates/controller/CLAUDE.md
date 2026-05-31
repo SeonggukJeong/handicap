@@ -55,6 +55,11 @@
 - **`validate_run_config`는 run-create와 preset-save가 공유하는 검증 게이트** (A2): 함수가 **검증된 `Option<DatasetMeta>`를 반환**해 resolution이 두 번째 `get_meta` 없이 재사용(TOCTOU 회피). preset 경로는 반환 meta를 무시(저장만). run-create가 권위 있는 최종 방어 — 저장 후 데이터셋 삭제 등은 실행 시점에 다시 거절됨.
 - **`ApiError::ConflictJson(Value)`는 본문을 `{error}`로 감싸지 않고 그대로 반환** (A2): dataset delete soft-guard가 참조 프리셋 목록을 실어 보낼 때 사용. 일반 `Conflict(String)`은 여전히 `{error}` 래핑. 소비처(UI `deleteDataset`)는 본문 구조를 알고 파싱해야 함.
 - **dataset DELETE 가드 2층** (A2): 활성(pending/running) run 참조 = hard 409(`?force=true` 불가), 프리셋만 참조(active run 없음) = soft 409 + `?force=true` override. soft 409 본문엔 `presets` 배열(없으면 hard). `presets` 배열 없이 409이면 hard로 간주해 throw.
+
+## 환경 (`store/environments.rs`, `api/environments.rs`) (B-1)
+
+- **environments는 top-level, FK/delete-guard 없음 (presets와 정반대)** (B-1): `run_presets`는 `scenario_id` FK + dataset delete soft-guard가 있지만, `environments`는 scenario_id/FK 없는 cross-scenario 리소스이고 **DELETE 무가드**다. 이유 = 오버레이가 스냅샷(B-2: RunDialog가 env 값을 해석해 평탄 `env` 맵으로 제출)이라 어떤 run/preset도 environment_id를 참조하지 않음 → 고아화 경로 자체가 없다. presets 패턴을 미러하되 가드 코드는 의도적으로 뺄 것. migration 0006도 `CREATE TABLE IF NOT EXISTS`(멱등).
+- **`validate_env`의 var 키 규칙: 공백·`}`·`:` 금지** (B-1): `${KEY}`로 쓸 수 있어야 하므로. `:`는 `${NAME:-default}` 기본값 구분자(template.rs)에 대한 보수적 가드(bare `:`는 필요보다 넓지만 규칙 단순). 예약 시스템 변수명(vu_id/iter_id/loop_index)은 **거절 안 함** — 엔진이 시스템 값으로 해석하므로 UI가 soft warning만 노출. 검증은 CRUD 엔드포인트에서만.
 - **`run_presets`는 `scenario_yaml` 스냅샷 없음** (A2): 프리셋은 라이브 시나리오를 추종(A1 retry의 "시나리오 변경 경고"가 프리셋엔 없는 이유). FK에 ON DELETE CASCADE 없음 — 현재 시나리오 삭제 엔드포인트 부재. 미래에 scenario-delete 추가 시 `ON DELETE CASCADE` 마이그레이션 필요(migration 0005 주석 참조).
 
 ## 테스트
