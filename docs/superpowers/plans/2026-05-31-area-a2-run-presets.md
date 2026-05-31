@@ -801,6 +801,27 @@ async fn preset_update_and_delete() {
 }
 
 #[tokio::test]
+async fn preset_put_nonexistent_is_404() {
+    // The API-level counterpart to store::presets::update returning None: a PUT to
+    // a bogus id with an otherwise-valid body must surface as 404 (handler's
+    // `.ok_or(ApiError::NotFound)` after validate_run_config). Guards the gap
+    // between the store unit test and the route.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let _sid = create_scenario(&app, YAML).await; // a scenario exists, but no such preset
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/presets/BOGUS_PRESET_ID")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "name": "x", "profile": { "vus": 1, "duration_seconds": 1 }, "env": {} }).to_string(),
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn run_can_be_created_from_a_preset_profile() {
     // The preset carries a launchable profile+env: posting them to /api/runs works.
     let db = store::connect("sqlite::memory:").await.unwrap();
@@ -1036,7 +1057,7 @@ git commit -m "feat(controller): run-preset CRUD REST resource (A2)"
 
 A dataset that an *active run* references is a hard 409 (existing, spec §3). A dataset that only a *preset* references is a **soft 409**: the body lists the referencing presets, and `?force=true` overrides. This needs a new `ApiError::ConflictJson` variant (the soft body is a JSON object, not a plain string) and `Query` parsing on the delete handler.
 
-- [ ] **Step 1: Write the failing tests.** Append to `crates/controller/tests/datasets_api_test.rs`. First check the top of that file for its existing helpers — it has a `make_app` and a CSV upload helper. Reuse them; this snippet assumes helpers `make_app`, `create_scenario` (add a local one if absent, copying from `presets_api_test.rs`), and a dataset-upload helper named `upload_csv(&app, name, csv) -> String` returning the dataset id (if the file's helper has a different name/signature, adapt these two calls). Add:
+- [ ] **Step 1: Write the failing tests.** Append to `crates/controller/tests/datasets_api_test.rs`. **Verified helpers in that file:** `make_app(db) -> Router` and `upload_csv(&app, name, csv) -> String` (returns the dataset id) both exist — reuse them as-is. **There is NO `create_scenario` in this file** — copy the `create_scenario` helper from `presets_api_test.rs` (Task 3) into it. The snippet below uses `upload_csv`, `create_scenario`, and a module-level `PRESET_YAML` const (defined at the end of the snippet). Add:
 
 ```rust
 #[tokio::test]
@@ -1208,6 +1229,8 @@ git commit -m "feat(controller): soft-guard dataset delete against preset refs (
 - Test: `ui/src/api/__tests__/presets.test.ts` (new)
 
 Pure data-layer task — no component touched, build stays green. Presets use standalone client functions (mirroring `ui/src/api/datasets.ts` style is not available — `datasets` live on the `api` object; we keep presets in their own module to avoid bloating `client.ts`, using bare `fetch`).
+
+> **⚠️ Zod nested-`.default()` leak (`ui/CLAUDE.md`, A1 hit this).** `PresetSchema.profile` nests `ProfileSchema`, whose `ramp_up_seconds.default(0)` / `loop_breakdown_cap.default(256)` leak `number | undefined` into the parent `z.infer`. So `Preset["profile"]` is **not** assignable to the standalone `Profile` type. **Rule for every consumer of a loaded preset: funnel `preset.profile` through `normalizeProfile` (= `ProfileSchema.parse`, from `runPrefill.ts`) before using it, and never destructure `preset.profile.<field>` directly.** Task 6's `loadPreset` already does `normalizeProfile(p.profile)` — keep that pattern everywhere. `pnpm test` (esbuild) will NOT catch a violation; only `pnpm build` (`tsc -b`) does. `PresetInput.profile: Profile` (the standalone type) is correct because the create/update bodies are built from clean form `number`s or from an already-`normalizeProfile`'d value, never from a raw `Preset["profile"]`.
 
 - [ ] **Step 1: Write the failing schema test.** Create `ui/src/api/__tests__/presets.test.ts`:
 
@@ -1809,6 +1832,13 @@ Inside the component (after the Task-6 preset state), add the mutations + handle
     }
   }
 
+  // NOTE (UX, spec §3 #12 deviation): rename PUTs `currentInput()`, i.e. the live
+  // form state — so if the user edited the form after loading the preset, rename
+  // also persists those edits (it's "save current state under a new name", not a
+  // pure metadata rename). This is intentional and safe (rename is only offered
+  // when a preset is loaded), but differs from the spec's literal "GET then change
+  // only name then PUT". If a pure-rename is ever wanted, GET the preset first and
+  // PUT its body with only `name` changed.
   function renamePreset() {
     if (!loadedPresetId) return;
     const next = window.prompt("새 이름", presetName)?.trim();
@@ -1904,22 +1934,63 @@ git commit -m "feat(ui): RunDialog save/overwrite/rename/delete preset (A2)"
 
 A second save entry point: a completed run's profile+env saved under a name (spec §5). No dialog state needed — `window.prompt` for the name, then `createPreset`.
 
-- [ ] **Step 1: Write the failing test.** Append to `ui/src/pages/__tests__/RunDetailPage.test.tsx`. First read the top of that file to reuse its existing `fetchMock`/`jsonResponse`/`renderPage` harness (added in A1). The test mocks a terminal run and asserts the save button posts:
+- [ ] **Step 1: Write the failing test.** Append to `ui/src/pages/__tests__/RunDetailPage.test.tsx`. **Verified harness** (this file, as it exists post-A1 — use these exact names, do NOT invent `mockTerminalRun`/`renderPage`):
+>   - `fetchMock` (`vi.fn()` + `vi.stubGlobal`), `jsonResponse(body, status)`.
+>   - `SCENARIO_YAML` (a one-step scenario whose url is `http://x/{{TOKEN}}`).
+>   - `runResponse(over)` → run **`R1`**, scenario **`S1`**, `status: "completed"`, `profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 12, loop_breakdown_cap: 256 }`, `env: { TOKEN: "abc" }`.
+>   - `reportResponse()`, and `mockApi(over)` which routes `GET /api/runs/R1`, `/api/runs/R1/metrics`, `/api/runs/R1/report`, `GET /api/scenarios/S1` — **but has NO preset-POST branch**.
+>   - `renderWithRouter(runId)` (MemoryRouter with `/runs/:id` + `/scenarios/:id/runs`).
+>
+> Because `mockApi` uses `mockImplementation` (full replace) and lacks a POST branch, this test installs its **own** `fetchMock.mockImplementation` that reuses the file's `runResponse`/`reportResponse`/`jsonResponse`/`SCENARIO_YAML` fixtures and adds the preset POST. Assert against the **real** fixture (vus **6**, env **`{TOKEN:"abc"}`**), not invented values:
 
 ```ts
 describe("RunDetailPage — save preset (A2)", () => {
   it("saves the run's profile+env as a preset via prompt", async () => {
     const user = userEvent.setup();
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("from-run");
-    // Reuse the file's API mock; ensure the run is terminal (completed) with a
-    // profile + env, and that POST /api/scenarios/:id/presets returns 201.
-    mockTerminalRun({
-      id: "R9",
-      scenario_id: "S1",
-      profile: { vus: 3, duration_seconds: 7, ramp_up_seconds: 0, loop_breakdown_cap: 0 },
-      env: { BASE_URL: "http://x" },
+    // Reuse the file's R1 fixtures; add the preset-POST branch the base mockApi lacks.
+    // (Longer suffixes are matched first so /R1 doesn't shadow /R1/metrics etc.)
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && init?.method === "POST") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: "P1",
+              scenario_id: "S1",
+              name: "from-run",
+              profile: { vus: 6, duration_seconds: 12, ramp_up_seconds: 0, loop_breakdown_cap: 256 },
+              env: { TOKEN: "abc" },
+              created_at: 1,
+              updated_at: 1,
+            },
+            201,
+          ),
+        );
+      }
+      if (url.endsWith("/api/runs/R1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/report")) {
+        return Promise.resolve(jsonResponse(reportResponse()));
+      }
+      if (url.endsWith("/api/runs/R1")) {
+        return Promise.resolve(jsonResponse(runResponse()));
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "demo",
+            yaml: SCENARIO_YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
     });
-    renderPage("/runs/R9");
+    renderWithRouter("R1");
 
     await user.click(await screen.findByRole("button", { name: "프리셋으로 저장" }));
 
@@ -1931,15 +2002,13 @@ describe("RunDetailPage — save preset (A2)", () => {
       expect(post).toBeTruthy();
       const body = JSON.parse((post![1] as RequestInit).body as string);
       expect(body.name).toBe("from-run");
-      expect(body.profile.vus).toBe(3);
-      expect(body.env).toEqual({ BASE_URL: "http://x" });
+      expect(body.profile.vus).toBe(6);
+      expect(body.env).toEqual({ TOKEN: "abc" });
     });
     promptSpy.mockRestore();
   });
 });
 ```
-
-> Adapt `mockTerminalRun`/`renderPage`/`fetchMock` names to whatever the existing RunDetailPage test file defines (A1 added retry-button tests there — reuse that harness; it already mocks `GET /api/runs/:id`, `GET /api/scenarios/:id`, `GET /api/runs/:id/metrics`, `GET /api/runs/:id/report`). Add a `POST /api/scenarios/S1/presets → 201` branch to its fetch router.
 
 - [ ] **Step 2: Run — confirm failure**
 
@@ -2421,15 +2490,27 @@ git commit -m "docs: A2 run presets — ADR-0024 + status + gotchas"
 
 ---
 
+## spec-plan-reviewer findings — applied (2026-05-31)
+
+Verdict was **CHANGES REQUESTED** (architecture sound; localized fixes). All applied:
+
+- **M1 (Task 8 test harness)** — the plan had assumed `mockTerminalRun({...})` + `renderPage`, which don't exist. The real `RunDetailPage.test.tsx` harness is `mockApi(over)` (no preset-POST branch) + fixtures `runResponse`/`reportResponse`/`jsonResponse`/`SCENARIO_YAML` (run **R1**, vus **6**, env **`{TOKEN:"abc"}`**) + `renderWithRouter(runId)`. Task 8 Step 1 rewritten to install its own `fetchMock.mockImplementation` reusing those fixtures + a 201 preset-POST branch, asserting the real values. *(Verified against the file; the reviewer's guessed name `mockTerminalRun` was also approximate — actual is `mockApi`.)*
+- **M2 (Zod leak on `Preset.profile`)** — added an explicit ⚠️ callout to Task 5: `PresetSchema.profile` re-leaks `number | undefined`, so every consumer must funnel `preset.profile` through `normalizeProfile` and never destructure fields directly; only `pnpm build` catches a violation.
+- **M3 (`PUT /presets/{nonexistent}` → 404)** — added integration test `preset_put_nonexistent_is_404` to Task 3 (closes the gap between the store unit test and the route; auto-run by Task 3 Step 6).
+- **Minor (Task 4 helper name)** — **verified** the real dataset-upload helper is `upload_csv(&app, name, csv)` (the reviewer's `upload_ds` was incorrect); my plan already used `upload_csv`. Tightened the note to state it's confirmed, and that `create_scenario` must be copied in from `presets_api_test.rs` (confirmed absent in `datasets_api_test.rs`).
+- **Minor (rename UX, spec §3 #12)** — added a code comment to Task 7 `renamePreset` documenting that rename PUTs live form state (persists in-flight edits), an intentional, safe deviation from the literal "GET-then-change-name-then-PUT".
+
+No BLOCKERs were raised; remaining reviewer "verified-correct" items (A1 seam present, TOCTOU meta-reuse, migration two-edit, `validate_run_config` signature consistency, no proto impact, hook-order safety, error.rs arm preservation) needed no change.
+
 ## Self-Review (checked against the spec)
 
 **Spec coverage:**
 - §2 data model (migration 0005, UNIQUE index, Profile reuse, FK-cascade comment, `store/presets.rs`) → Task 1. ✅
-- §3 REST API (POST/GET-list/GET-one/PUT/DELETE, routing, `validate_run_config` extraction taking `&AppState`, PUT-vs-inline-rename via GET-then-PUT, dataset soft-guard + `referencing_dataset`) → Tasks 2, 3, 4. ✅ (Inline rename implemented in RunDialog Task 7 as GET-cached-then-PUT.)
+- §3 REST API (POST/GET-list/GET-one/PUT/DELETE incl. PUT-nonexistent→404, routing, `validate_run_config` extraction taking `&AppState`, PUT-vs-inline-rename via GET-then-PUT, dataset soft-guard + `referencing_dataset`) → Tasks 2, 3, 4. ✅ (Inline rename implemented in RunDialog Task 7 as load-cached-then-PUT; deviation documented inline. PUT-404 covered by `preset_put_nonexistent_is_404`.)
 - §4 retry → already A1 (out of scope here). ✅
 - §5 UI (RunDialog `initial` seam reuse + preset dropdown/save/delete/rename, RunDetail save, presets React Query client, env `map<string,string>`) → Tasks 5–8. ✅ (env constraint was A1; presets reuse `ProfileSchema`/`DataBindingSchema` + `envValueToRecord`/`normalizeProfile`.)
 - §6 validation/edge cases (save-time + run-create double; preset follows live scenario, stale-mapping highlight reused from A1, deleted-dataset notice; empty-name 400; UNIQUE 409; plaintext env; empty/no-binding; 0 presets → hidden dropdown) → Tasks 3, 7, 9. ✅
-- §7 tests (Rust: store CRUD + UNIQUE 409 + round-trip + `validate_run_config` via run-create + API integration + dataset soft-guard + migration applied; UI: load fills form, save POST, rehydrate via A1 seam, deleted-dataset notice, PresetSchema round-trip + null `data_binding` + build) → every task's test steps. ✅
+- §7 tests (Rust: store CRUD + UNIQUE 409 + round-trip + `validate_run_config` via run-create + API integration incl. PUT-nonexistent→404 + dataset soft-guard + migration applied; UI: load fills form, save POST, rehydrate via A1 seam, deleted-dataset notice, PresetSchema round-trip + null `data_binding` + build) → every task's test steps. ✅
 - §8 A2 split scope → this whole plan. ✅
 - §9 out of scope (scenario clone, global vars, masking, cross-scenario presets) → untouched. ✅
 
