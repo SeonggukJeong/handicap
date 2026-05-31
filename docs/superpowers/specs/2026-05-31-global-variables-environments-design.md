@@ -1,6 +1,6 @@
 # 글로벌 변수 = 환경(Environments) 설계 (영역 B)
 
-* Status: 구현 중 — B-1(환경 리소스 + 관리 UI) 완료 / B-2(RunDialog 오버레이) 예정. ADR-0025.
+* Status: 구현 완료 (B-1 + B-2, master 머지). ADR-0025.
 * Date: 2026-05-31
 * 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0011(SQLite 저장소), ADR-0024(run 프리셋 = scenario-scoped 독립 리소스), ADR-0025(환경 리소스 결정 기록)
 * 후속 ADR: ADR-0025 (환경 = env-namespace 전용 top-level 재사용 리소스 + 클라이언트 오버레이 스냅샷)

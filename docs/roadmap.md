@@ -52,9 +52,10 @@
 - **두 하위 슬라이스로 분할**(spec §8): **A1 = Retry**(DB 변경 0, RunDialog prefill 이음새 구축 — 현재 RunDialog 는 prefill prop 이 없어 리팩터 필요), **A2 = 프리셋 CRUD**(검증 게이트 `validate_run_config` 추출 + 데이터셋 DELETE soft 가드 확장 포함).
 - **다음 단계**: A1 부터 writing-plans 로 구현 계획 작성.
 
-### A6. 글로벌 변수 = 환경(Environments) (영역 B) — **← B-1 머지 완료, B-2 진행 예정**
+### A6. 글로벌 변수 = 환경(Environments) (영역 B) — **✅ 완료 (B-1 + B-2 머지)**
 - **성격**: BASE_URL 등 자주 쓰는 변수를 전역 등록 → 아무 시나리오에서나 골라 주입. 영역 A 의 자매 기능(같은 "재입력 통증" 원천).
-- **결정·진행**: spec `docs/superpowers/specs/2026-05-31-global-variables-environments-design.md`, ADR-0025. 2분할 — **B-1(환경 리소스 + 관리 UI: migration 0007 `environments` 테이블 + CRUD REST + `EnvironmentsPage` + 클라/hooks, 머지됨)**, **B-2(RunDialog 환경 오버레이: `resolveEnv` 순수 병합 + standalone `<EnvironmentPicker>` — env 미선택 = pre-B2 byte-identical, 진행 예정)**.
+- **결정·진행**: spec `docs/superpowers/specs/2026-05-31-global-variables-environments-design.md`, ADR-0025. 2분할 모두 머지 — **B-1(환경 리소스 + 관리 UI: migration 0007 `environments` 테이블 + CRUD REST + `EnvironmentsPage` + 클라/hooks)**, **B-2(RunDialog 환경 오버레이: `resolveEnv` 순수 병합 + standalone `<EnvironmentPicker>` — env 미선택 = pre-B2 byte-identical, `POST /api/runs` 무변경)**.
+- **후속(연기)**: 민감값 마스킹(roadmap B1), `{{var}}` 흐름변수 전역 등록, 시나리오 에디터 환경 선택 test-run(spec §7 — `resolveEnv`/`<EnvironmentPicker>` 재사용 이음새 준비됨).
 - **해소된 설계 질문**: 스코프 = `${ENV}` 네임스페이스만(`{{var}}` 흐름변수는 범위 밖). 주입 시점 = 클라이언트 병합 스냅샷(`POST /api/runs` 무변경, 우선순위 환경 < per-run override). 환경 묶음 = named environments(top-level 독립 리소스, scenario_id/FK 없음, 무가드 DELETE).
 
 ### (메뉴에 있으나 당장 후보 아님)

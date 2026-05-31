@@ -167,7 +167,7 @@ docs/
 - **0022** Data-driven 데이터셋: 독립 리소스 + 서버 파싱(8b) + 3정책 바인딩/주입(8c) — 완결
 - **0023** Conditional 노드: 평탄 if/elif/else + 재귀 조건 트리 + lenient 평가 + 상호 1레벨 중첩 + 분기별 결정 카운터 breakdown (9a–9d 전부 완결 — 전용 per-if-node 카운터, cap 없음, counts-only, `error_count` 없음, 최상위 `if_breakdown` 배열 + 별도 UI 테이블)
 - **0024** Run 프리셋: scenario-scoped 독립 리소스(`run_presets`) + Profile 재사용 + snapshot 없음(라이브 추종) + validate_run_config 공유 + dataset delete soft-guard(`?force`)
-- **0025** 환경(Environments): env-namespace 전용 top-level 재사용 리소스(`environments`, migration 0007, UNIQUE(name)→409, 무가드 DELETE) + 클라 오버레이 스냅샷(`POST /api/runs` 무변경) — B-1(리소스+관리 UI) 머지, B-2(RunDialog 오버레이) 예정
+- **0025** 환경(Environments): env-namespace 전용 top-level 재사용 리소스(`environments`, migration 0007, UNIQUE(name)→409, 무가드 DELETE) + 클라 오버레이 스냅샷(`POST /api/runs` 무변경) — **B-1(리소스+관리 UI) + B-2(RunDialog `resolveEnv` 오버레이 + standalone `<EnvironmentPicker>`) 둘 다 머지 완료 = 영역 B 완결**
 
 ## 코딩 컨벤션
 
