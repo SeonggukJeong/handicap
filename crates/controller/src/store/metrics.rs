@@ -177,6 +177,59 @@ pub async fn loop_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<LoopMetri
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct IfBranchRow {
+    pub run_id: String,
+    pub step_id: String, // the `if` node's id
+    pub branch: String,  // "then" | "elif_0".. | "else" | "none"
+    pub count: i64,
+}
+
+pub async fn insert_if_branch_batch(db: &Db, rows: &[IfBranchRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Single tx, individual upserts: branch deltas are incremental counts (like
+    // run_loop_metrics), so accumulate on conflict.
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_if_metrics(run_id,step_id,branch,count) \
+             VALUES(?,?,?,?) \
+             ON CONFLICT(run_id,step_id,branch) DO UPDATE SET \
+               count = count + excluded.count",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(&r.branch)
+        .bind(r.count)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn if_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<IfBranchRow>> {
+    // ORDER BY branch is lexicographic TEXT — fine for counts; the UI re-sorts
+    // then < elif_n < else < none for display (BranchStatsTable::branchRank).
+    let rows = sqlx::query(
+        "SELECT step_id, branch, count FROM run_if_metrics \
+         WHERE run_id = ? ORDER BY step_id, branch",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| IfBranchRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            branch: r.get("branch"),
+            count: r.get("count"),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +420,38 @@ mod tests {
             .collect();
         assert_eq!(m.get(&("s".into(), 0)), Some(&(5, 1))); // 3+2 / 1+0
         assert_eq!(m.get(&("s".into(), 4_294_967_295)), Some(&(7, 0)));
+    }
+
+    #[tokio::test]
+    async fn if_metrics_upsert_accumulates() {
+        let db = pool().await;
+        let rows = vec![
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if1".into(),
+                branch: "then".into(),
+                count: 3,
+            },
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if1".into(),
+                branch: "then".into(),
+                count: 2,
+            },
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if1".into(),
+                branch: "none".into(),
+                count: 7,
+            },
+        ];
+        insert_if_branch_batch(&db, &rows).await.unwrap();
+        let got = if_breakdown(&db, "r").await.unwrap();
+        let m: std::collections::HashMap<(String, String), i64> = got
+            .into_iter()
+            .map(|r| ((r.step_id, r.branch), r.count))
+            .collect();
+        assert_eq!(m.get(&("if1".into(), "then".into())), Some(&5)); // 3+2 accumulate
+        assert_eq!(m.get(&("if1".into(), "none".into())), Some(&7));
     }
 }
