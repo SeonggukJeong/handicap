@@ -400,3 +400,73 @@ steps:
 // is the if-in-loop `loop_index` passthrough and the extract → condition
 // live-vars path — both of which are integration-level concerns not covered by
 // condition.rs unit tests.
+
+// ── Slice 9c regression tests ────────────────────────────────────────────────
+
+/// Step IDs used by the loop-in-if test. Crockford base32 safe (no I/L/O/U).
+const LOOP_IN_IF_PING_ID: &str = "01HX00000000000000000000A3";
+
+/// **Test D — loop-in-if: a `loop` nested inside an `if`'s THEN branch must
+/// execute its body `repeat` times per if-pass.**
+///
+/// Scenario shape:
+/// ```yaml
+/// if  cond: 1 == 1   (always true)
+///   then:
+///     - loop repeat=3
+///         do:
+///           - GET /ping   (LOOP_IN_IF_PING_ID)
+/// ```
+///
+/// Engine already supports this via the generic `Box::pin` recursion in both
+/// `Step::Loop` and `Step::If` arms. This test guards the path that Slice 9c
+/// first exposes via the UI authoring layer.
+///
+/// Assertion: the ping step count >= 3 (at least one full loop body triplet ran).
+/// We do NOT assert `pings % 3 == 0` — per `crates/engine/CLAUDE.md`, a
+/// window/deadline can land between loop body steps, so counts are not
+/// guaranteed to be exact `repeat` multiples.
+#[tokio::test]
+async fn loop_in_if_then_repeats_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ping"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let base = server.uri();
+    // if (1 == 1) { loop repeat=3 { GET /ping } }  — condition always true.
+    let yaml = format!(
+        r#"
+version: 1
+name: loop-in-if
+variables:
+  base: "{base}"
+steps:
+  - id: "01HX00000000000000000000A1"
+    name: gate
+    type: if
+    cond: {{ left: "1", op: eq, right: "1" }}
+    then:
+      - id: "01HX00000000000000000000A2"
+        name: rep
+        type: loop
+        repeat: 3
+        do:
+          - id: "{LOOP_IN_IF_PING_ID}"
+            name: ping
+            type: http
+            request: {{ method: GET, url: "{{{{base}}}}/ping" }}
+            assert: [ {{ status: 200 }} ]
+"#
+    );
+
+    // run_and_count asserts errors == 0 internally and returns per-step counts.
+    let counts = run_and_count(&yaml).await;
+    let pings = counts.get(LOOP_IN_IF_PING_ID).copied().unwrap_or(0);
+    assert!(
+        pings >= 3,
+        "nested loop body must run repeatedly (repeat=3) inside the if-then; got {pings}; counts={counts:?}"
+    );
+}
