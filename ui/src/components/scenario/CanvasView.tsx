@@ -225,7 +225,7 @@ export function CanvasView() {
         </button>
         {steps.length === 0 && (
           <span className="text-xs text-slate-400 self-center">
-            Canvas is empty. Add a step or a loop to begin.
+            Canvas is empty. Add a step, loop, or if to begin.
           </span>
         )}
       </div>

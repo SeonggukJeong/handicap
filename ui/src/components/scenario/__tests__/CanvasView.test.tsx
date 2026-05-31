@@ -50,6 +50,11 @@ describe("CanvasView add if", () => {
     expect(state.model!.steps.some((s) => s.type === "if")).toBe(true);
     expect(state.selectedStepId).not.toBeNull();
   });
+
+  it("empty-canvas hint names every addable node kind (step, loop, if)", () => {
+    render(<CanvasView />);
+    expect(screen.getByText(/add a step, loop, or if to begin/i)).toBeInTheDocument();
+  });
 });
 
 describe("CanvasView if node", () => {
