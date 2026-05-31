@@ -397,6 +397,26 @@ steps:
           - status: 200
 `;
 
+const LOOP_WITH_BODY = `version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000040"
+    name: outer-loop
+    type: loop
+    repeat: 1
+    do:
+      - id: "01HX0000000000000000000043"
+        name: seed
+        type: http
+        request:
+          method: GET
+          url: "/seed"
+        assert:
+          - status: 200
+`;
+
 const EMPTY_YAML = `version: 1
 name: x
 cookie_jar: auto
@@ -523,6 +543,81 @@ describe("applyEdit — if node", () => {
     if ("error" in re) throw new Error(re.error);
     const s = re.model.steps[0];
     if (s.type === "if") expect(s.elif).toHaveLength(0);
+  });
+
+  it("addLoopInBranch nests a loop in the then branch (9c)", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addLoopInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "then" },
+      id: "01HX0000000000000000000030",
+      name: "inner loop",
+      childId: "01HX0000000000000000000031",
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    expect(s.type).toBe("if");
+    if (s.type === "if") {
+      // appended, not replaced — the fixture's existing then child must survive.
+      expect(s.then).toHaveLength(2);
+      const nested = s.then.find((c) => c.id === "01HX0000000000000000000030");
+      expect(nested?.type).toBe("loop");
+      if (nested?.type === "loop") {
+        expect(nested.repeat).toBe(1);
+        expect(nested.do.map((c) => c.id)).toEqual(["01HX0000000000000000000031"]);
+      }
+    }
+  });
+
+  it("addLoopInBranch nests a loop in the else branch (9c)", () => {
+    const out = parseScenarioDoc(IF_YAML);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addLoopInBranch",
+      ifId: "01HX0000000000000000000010",
+      branch: { kind: "else" },
+      id: "01HX0000000000000000000032",
+      name: "else loop",
+      childId: "01HX0000000000000000000033",
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const s = re.model.steps[0];
+    expect(s.type).toBe("if");
+    if (s.type === "if") {
+      const nested = s.else.find((c) => c.id === "01HX0000000000000000000032");
+      expect(nested?.type).toBe("loop");
+      if (nested?.type === "loop") {
+        expect(nested.repeat).toBe(1);
+        expect(nested.do.map((c) => c.id)).toEqual(["01HX0000000000000000000033"]);
+      }
+    }
+  });
+
+  it("addIfInLoop nests an if in the loop body (9c)", () => {
+    const out = parseScenarioDoc(LOOP_WITH_BODY);
+    if ("error" in out) throw new Error(out.error);
+    applyEdit(out.doc, {
+      type: "addIfInLoop",
+      loopId: "01HX0000000000000000000040",
+      id: "01HX0000000000000000000041",
+      name: "inner if",
+      childId: "01HX0000000000000000000042",
+    });
+    const re = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in re) throw new Error(re.error);
+    const loop = re.model.steps.find((s) => s.id === "01HX0000000000000000000040");
+    expect(loop?.type).toBe("loop");
+    if (loop?.type === "loop") {
+      const nested = loop.do.find((c) => c.id === "01HX0000000000000000000041");
+      expect(nested?.type).toBe("if");
+      if (nested?.type === "if") {
+        expect(nested.then.map((c) => c.id)).toEqual(["01HX0000000000000000000042"]);
+      }
+    }
   });
 
   it("removeStep deletes a step nested in an else branch (findStepPath recursion)", () => {

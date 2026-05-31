@@ -20,6 +20,15 @@ export type Edit =
   | { type: "setIfCond"; ifId: string; cond: Condition }
   | { type: "setElifCond"; ifId: string; index: number; cond: Condition }
   | { type: "addStepInBranch"; ifId: string; branch: BranchSel; id: string; name: string }
+  | {
+      type: "addLoopInBranch";
+      ifId: string;
+      branch: BranchSel;
+      id: string;
+      name: string;
+      childId: string;
+    }
+  | { type: "addIfInLoop"; loopId: string; id: string; name: string; childId: string }
   | { type: "addElif"; ifId: string; childId: string }
   | { type: "removeElif"; ifId: string; index: number }
   | { type: "removeStep"; stepId: string }
@@ -186,6 +195,53 @@ export function applyEdit(doc: Document, edit: Edit): void {
         type: "http",
         request: { method: "GET", url: "/" },
         assert: [{ status: 200 }],
+      });
+      body.add(node);
+      return;
+    }
+    case "addLoopInBranch": {
+      const ifPath = findStepPath(doc, edit.ifId);
+      if (ifPath === null) return;
+      const bp = branchPath(edit.branch);
+      ensureSeq(doc, [...ifPath, ...bp]);
+      const body = doc.getIn([...ifPath, ...bp]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "loop",
+        repeat: 1,
+        do: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
+      });
+      body.add(node);
+      return;
+    }
+    case "addIfInLoop": {
+      const loopPath = findStepPath(doc, edit.loopId);
+      if (loopPath === null) return;
+      ensureSeq(doc, [...loopPath, "do"]);
+      const body = doc.getIn([...loopPath, "do"]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "if",
+        cond: { left: "", op: "eq", right: "" },
+        then: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
       });
       body.add(node);
       return;

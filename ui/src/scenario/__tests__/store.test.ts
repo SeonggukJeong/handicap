@@ -227,4 +227,26 @@ describe("useScenarioEditor — if actions", () => {
     step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
     if (step?.type === "if") expect(step.elif).toHaveLength(0);
   });
+
+  it("addIfInLoop nests an if in a top-level loop body and returns its id (9c)", () => {
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    const ifId = useScenarioEditor.getState().addIfInLoop(loopId, "Inner if");
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId);
+    if (loop?.type === "loop") {
+      const nested = loop.do.find((c) => c.id === ifId);
+      expect(nested?.type).toBe("if");
+    } else throw new Error("expected loop step");
+  });
+
+  it("addLoopInBranch nests a loop in a top-level if branch and returns its id (9c)", () => {
+    const ifId = useScenarioEditor.getState().addIfStep("Branch");
+    const loopId = useScenarioEditor
+      .getState()
+      .addLoopInBranch(ifId, { kind: "then" }, "Inner loop");
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === ifId);
+    if (step?.type === "if") {
+      const nested = step.then.find((c) => c.id === loopId);
+      expect(nested?.type).toBe("loop");
+    } else throw new Error("expected if step");
+  });
 });

@@ -40,6 +40,8 @@ export interface ScenarioEditorState {
   setIfCond(ifId: string, cond: Condition): void;
   setElifCond(ifId: string, index: number, cond: Condition): void;
   addStepInBranch(ifId: string, branch: BranchSel, name: string): string; // returns child id
+  addLoopInBranch(ifId: string, branch: BranchSel, name: string): string; // returns new loop id
+  addIfInLoop(loopId: string, name: string): string; // returns new if id
   addElif(ifId: string): void;
   removeElif(ifId: string, index: number): void;
   removeStep(stepId: string): void;
@@ -149,6 +151,18 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "addStepInBranch", ifId, branch, id, name });
     return id;
   },
+  addLoopInBranch(ifId, branch, name) {
+    const id = newStepId();
+    const childId = newStepId();
+    dispatch(set, get, { type: "addLoopInBranch", ifId, branch, id, name, childId });
+    return id;
+  },
+  addIfInLoop(loopId, name) {
+    const id = newStepId();
+    const childId = newStepId();
+    dispatch(set, get, { type: "addIfInLoop", loopId, id, name, childId });
+    return id;
+  },
   addElif(ifId) {
     const childId = newStepId();
     dispatch(set, get, { type: "addElif", ifId, childId });
@@ -256,6 +270,8 @@ const actions = (() => {
     setIfCond: s.setIfCond,
     setElifCond: s.setElifCond,
     addStepInBranch: s.addStepInBranch,
+    addLoopInBranch: s.addLoopInBranch,
+    addIfInLoop: s.addIfInLoop,
     addElif: s.addElif,
     removeElif: s.removeElif,
     removeStep: s.removeStep,
