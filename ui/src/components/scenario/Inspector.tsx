@@ -40,8 +40,10 @@ export function Inspector() {
     );
   }
 
-  if (isLoopStep(step)) return <LoopInspector step={step} />;
-  if (isIfStep(step)) return <IfInspector step={step} />;
+  const topLevel = steps.some((s) => s.id === step.id);
+
+  if (isLoopStep(step)) return <LoopInspector step={step} topLevel={topLevel} />;
+  if (isIfStep(step)) return <IfInspector step={step} topLevel={topLevel} />;
   return <HttpStepInspector step={step} />;
 }
 
@@ -638,11 +640,13 @@ function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void })
   );
 }
 
-function LoopInspector({ step }: { step: LoopStep }) {
+function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setLoopRepeat = useScenarioEditor((s) => s.setLoopRepeat);
   const removeStep = useScenarioEditor((s) => s.removeStep);
   const select = useScenarioEditor((s) => s.select);
+  const addStepInLoop = useScenarioEditor((s) => s.addStepInLoop);
+  const addIfInLoop = useScenarioEditor((s) => s.addIfInLoop);
 
   // Numeric draft + commit-on-blur (F5 pattern): local state echoes every
   // keystroke; the model is only updated when a valid integer is committed.
@@ -700,6 +704,32 @@ function LoopInspector({ step }: { step: LoopStep }) {
           ))}
           {step.do.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
         </ul>
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            aria-label="Add step to loop body"
+            className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+            onClick={() => {
+              const id = addStepInLoop(step.id, "Step");
+              select(id);
+            }}
+          >
+            + Add step
+          </button>
+          {topLevel && (
+            <button
+              type="button"
+              aria-label="Add if to loop body"
+              className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+              onClick={() => {
+                const id = addIfInLoop(step.id, "If");
+                select(id);
+              }}
+            >
+              + Add if
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );
@@ -901,13 +931,16 @@ function BranchPanel({
   branch,
   steps,
   ifId,
+  loopAllowed,
 }: {
   label: string;
   branch: BranchSel;
   steps: ReadonlyArray<Step>;
   ifId: string;
+  loopAllowed: boolean;
 }) {
   const addStepInBranch = useScenarioEditor((s) => s.addStepInBranch);
+  const addLoopInBranch = useScenarioEditor((s) => s.addLoopInBranch);
   const select = useScenarioEditor((s) => s.select);
   return (
     <div>
@@ -920,22 +953,37 @@ function BranchPanel({
         ))}
         {steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
       </ul>
-      <button
-        type="button"
-        aria-label={`Add step to ${label}`}
-        className="mt-1 px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
-        onClick={() => {
-          const id = addStepInBranch(ifId, branch, "Step");
-          select(id);
-        }}
-      >
-        + Add step
-      </button>
+      <div className="flex gap-2 mt-1">
+        <button
+          type="button"
+          aria-label={`Add step to ${label}`}
+          className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+          onClick={() => {
+            const id = addStepInBranch(ifId, branch, "Step");
+            select(id);
+          }}
+        >
+          + Add step
+        </button>
+        {loopAllowed && (
+          <button
+            type="button"
+            aria-label={`Add loop to ${label}`}
+            className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+            onClick={() => {
+              const id = addLoopInBranch(ifId, branch, "Loop");
+              select(id);
+            }}
+          >
+            + Add loop
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-function IfInspector({ step }: { step: IfStep }) {
+function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setIfCond = useScenarioEditor((s) => s.setIfCond);
   const setElifCond = useScenarioEditor((s) => s.setElifCond);
@@ -966,7 +1014,13 @@ function IfInspector({ step }: { step: IfStep }) {
         <ConditionEditor cond={step.cond} onCommit={(c) => setIfCond(step.id, c)} />
       </fieldset>
 
-      <BranchPanel label="Then" branch={{ kind: "then" }} steps={step.then} ifId={step.id} />
+      <BranchPanel
+        label="Then"
+        branch={{ kind: "then" }}
+        steps={step.then}
+        ifId={step.id}
+        loopAllowed={topLevel}
+      />
 
       {step.elif.map((e, i) => (
         <fieldset key={i} className="flex flex-col gap-2 border border-slate-200 rounded p-3">
@@ -987,6 +1041,7 @@ function IfInspector({ step }: { step: IfStep }) {
             branch={{ kind: "elif", index: i }}
             steps={e.then}
             ifId={step.id}
+            loopAllowed={topLevel}
           />
         </fieldset>
       ))}
@@ -999,7 +1054,13 @@ function IfInspector({ step }: { step: IfStep }) {
         + Add elif
       </button>
 
-      <BranchPanel label="Else" branch={{ kind: "else" }} steps={step.else} ifId={step.id} />
+      <BranchPanel
+        label="Else"
+        branch={{ kind: "else" }}
+        steps={step.else}
+        ifId={step.id}
+        loopAllowed={topLevel}
+      />
     </aside>
   );
 }

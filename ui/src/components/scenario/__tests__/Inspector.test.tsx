@@ -364,3 +364,62 @@ describe("Inspector — IfInspector (builder)", () => {
     expect(screen.queryByRole("button", { name: /remove condition/i })).toBeNull();
   });
 });
+
+describe("Inspector — mutual nesting (9c)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("offers '+ Add if' on a top-level loop and nests it (9c)", async () => {
+    const user = userEvent.setup();
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop 1");
+    useScenarioEditor.getState().select(loopId);
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: /add if/i }));
+    const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId);
+    expect(loop?.type).toBe("loop");
+    if (loop?.type === "loop") {
+      expect(loop.do.some((c) => c.type === "if")).toBe(true);
+    }
+  });
+
+  it("offers '+ Add loop' on a top-level if THEN branch and nests it (9c)", async () => {
+    const user = userEvent.setup();
+    const ifId = useScenarioEditor.getState().addIfStep("If 1");
+    useScenarioEditor.getState().select(ifId);
+    render(<Inspector />);
+    // BranchPanel for THEN exposes its own "+ Add loop"
+    const addLoopButtons = screen.getAllByRole("button", { name: /add loop/i });
+    await user.click(addLoopButtons[0]);
+    const ifStep = useScenarioEditor.getState().model!.steps.find((s) => s.id === ifId);
+    expect(ifStep?.type).toBe("if");
+    if (ifStep?.type === "if") {
+      expect(ifStep.then.some((c) => c.type === "loop")).toBe(true);
+    }
+  });
+
+  it("does NOT offer nesting buttons on a nested container (depth gate, 9c)", async () => {
+    // if { then: [ loop ] }  — select the nested loop; it must not offer '+ Add if'
+    const ifId = useScenarioEditor.getState().addIfStep("If 1");
+    const nestedLoopId = useScenarioEditor
+      .getState()
+      .addLoopInBranch(ifId, { kind: "then" }, "inner");
+    useScenarioEditor.getState().select(nestedLoopId);
+    render(<Inspector />);
+    // Anchor: confirm the nested loop's inspector actually rendered (else the
+    // empty-state aside would make the negative assertion pass vacuously).
+    expect(screen.getByRole("heading", { name: "Loop" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add if/i })).not.toBeInTheDocument();
+  });
+
+  it("does NOT offer '+ Add loop' on a nested if's branches (symmetric depth gate, 9c)", async () => {
+    // loop { do: [ if ] }  — select the nested if; its branches must not offer '+ Add loop'
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop 1");
+    const nestedIfId = useScenarioEditor.getState().addIfInLoop(loopId, "inner");
+    useScenarioEditor.getState().select(nestedIfId);
+    render(<Inspector />);
+    expect(screen.getByRole("heading", { name: "If" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add loop/i })).not.toBeInTheDocument();
+  });
+});
