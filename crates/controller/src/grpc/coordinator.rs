@@ -288,6 +288,26 @@ impl Coordinator for CoordinatorService {
                                 warn!(run_id = %batch.run_id, error = %e, "failed to insert loop metrics");
                             }
                         }
+                        let branch_rows: Vec<crate::store::metrics::IfBranchRow> = batch
+                            .branch_stats
+                            .iter()
+                            .map(|bs| crate::store::metrics::IfBranchRow {
+                                run_id: batch.run_id.clone(),
+                                step_id: bs.step_id.clone(),
+                                branch: bs.branch.clone(),
+                                count: bs.count as i64,
+                            })
+                            .collect();
+                        if !branch_rows.is_empty() {
+                            if let Err(e) = crate::store::metrics::insert_if_branch_batch(
+                                &state.db,
+                                &branch_rows,
+                            )
+                            .await
+                            {
+                                warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
+                            }
+                        }
                     }
                     Some(WorkerPayload::RunStatus(s)) => {
                         info!(run_id = %s.run_id, phase = ?s.phase, "worker run status");
