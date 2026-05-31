@@ -1,9 +1,9 @@
 # Run 프리셋 + Retry 설계 (영역 A)
 
-* Status: A1 (Retry) 구현 완료 (2026-05-31). A2 (프리셋 CRUD) 미착수. (brainstorming + spec-plan-review 반영)
+* Status: A1 (Retry) 구현 완료 (2026-05-31). A2 (프리셋 CRUD) 구현 완료 (2026-05-31). (brainstorming + spec-plan-review 반영)
 * Date: 2026-05-30 (개정 2026-05-31)
 * 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0011(SQLite 저장소), ADR-0022(data-driven 바인딩)
-* 후속 ADR: 구현 시 새 ADR 추가 (run 프리셋 = 독립 리소스 결정, 다음 가용 번호)
+* 후속 ADR: ADR-0024 (run 프리셋 = scenario-scoped 독립 리소스 결정)
 
 ## 1. 개요 · 목표
 
@@ -141,7 +141,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_run_presets_scenario_name
 - `validate_run_config` 추출(#6) + `api/presets.rs` CRUD + 라우팅.
 - 데이터셋 DELETE soft 가드 확장(#14) + `presets::referencing_dataset`.
 - RunDialog 프리셋 드롭다운/저장/삭제/rename + RunDetail "프리셋으로 저장".
-- **구현 계획**: `docs/superpowers/plans/2026-05-31-area-a2-run-presets.md` (10 tasks, 전제: A1 master 머지 완료).
+- **구현 계획**: `docs/superpowers/plans/2026-05-31-area-a2-run-presets.md` (10 tasks, 전제: A1 master 머지 완료). **구현 완료 2026-05-31** — commit `3194f37`(store/migration)…`2f9bd58`(UI dataset soft-guard), 9개 커밋. docs: 이 커밋.
 
 ## 9. 범위 밖 · 후속 (별도 spec)
 

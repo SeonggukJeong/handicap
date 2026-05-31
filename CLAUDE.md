@@ -164,6 +164,7 @@ docs/
 - **0021** loop 메트릭 breakdown: per-run cap + overflow sentinel, counts-only
 - **0022** Data-driven 데이터셋: 독립 리소스 + 서버 파싱(8b) + 3정책 바인딩/주입(8c) — 완결
 - **0023** Conditional 노드: 평탄 if/elif/else + 재귀 조건 트리 + lenient 평가 + 상호 1레벨 중첩 (9a 엔진 + 9b UI authoring + 9c 상호 중첩 출하, 분기별 메트릭은 9d)
+- **0024** Run 프리셋: scenario-scoped 독립 리소스(`run_presets`) + Profile 재사용 + snapshot 없음(라이브 추종) + validate_run_config 공유 + dataset delete soft-guard(`?force`)
 
 ## 코딩 컨벤션
 

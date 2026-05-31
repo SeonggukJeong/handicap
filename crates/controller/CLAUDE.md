@@ -49,6 +49,13 @@
 - **run-create handler에서 dataset meta를 두 번 fetch하면 TOCTOU 가능** (Slice 8c): gate(row_count/column 검증)와 resolution(슬라이싱/seed 계산)이 각각 `get_meta()`를 호출하면, gate 통과 후 dataset이 삭제된 경우 두 번째 `get_meta().expect()`가 패닉한다. meta를 한 번만 fetch해서 양쪽에 재사용할 것.
 - **controller가 row_count를 전달 못 하면 `drop(tx)`로는 stream을 닫을 수 없다** (Slice 8c): worker가 `row_count` 행을 기다리며 블로킹 중일 때 controller sender를 drop해도 `state.active`에 clone이 살아있어 stream이 실제로 안 닫힌다. 대신 `ServerMessage::AbortRun`을 명시적으로 전송해야 worker 대기가 해제된다. (정상-종료 시의 `drop(tx)` EOF 패턴은 `crates/worker-core/CLAUDE.md` — 이 블로킹 케이스엔 안 통한다.)
 
+## Run 프리셋 (`store/presets.rs`, `api/presets.rs`) (A2)
+
+- **`validate_run_config`는 run-create와 preset-save가 공유하는 검증 게이트** (A2): 함수가 **검증된 `Option<DatasetMeta>`를 반환**해 resolution이 두 번째 `get_meta` 없이 재사용(TOCTOU 회피). preset 경로는 반환 meta를 무시(저장만). run-create가 권위 있는 최종 방어 — 저장 후 데이터셋 삭제 등은 실행 시점에 다시 거절됨.
+- **`ApiError::ConflictJson(Value)`는 본문을 `{error}`로 감싸지 않고 그대로 반환** (A2): dataset delete soft-guard가 참조 프리셋 목록을 실어 보낼 때 사용. 일반 `Conflict(String)`은 여전히 `{error}` 래핑. 소비처(UI `deleteDataset`)는 본문 구조를 알고 파싱해야 함.
+- **dataset DELETE 가드 2층** (A2): 활성(pending/running) run 참조 = hard 409(`?force=true` 불가), 프리셋만 참조(active run 없음) = soft 409 + `?force=true` override. soft 409 본문엔 `presets` 배열(없으면 hard). `presets` 배열 없이 409이면 hard로 간주해 throw.
+- **`run_presets`는 `scenario_yaml` 스냅샷 없음** (A2): 프리셋은 라이브 시나리오를 추종(A1 retry의 "시나리오 변경 경고"가 프리셋엔 없는 이유). FK에 ON DELETE CASCADE 없음 — 현재 시나리오 삭제 엔드포인트 부재. 미래에 scenario-delete 추가 시 `ON DELETE CASCADE` 마이그레이션 필요(migration 0005 주석 참조).
+
 ## 테스트
 
 - **e2e 테스트는 워커 바이너리를 매번 빌드** (Slice 4): `crates/controller/tests/e2e_test.rs::worker_bin_path()` 헬퍼 패턴 — `cargo build -p handicap-worker` 호출 → `CARGO_BIN_EXE_worker` 또는 `target/debug/worker` 경로. 새 e2e 테스트 추가 시 그대로 차용.
