@@ -30,6 +30,7 @@
 - **엔진 메트릭 채널 payload를 `Vec<StepWindow>`에서 `MetricFlush`로 변경하면 모든 `run_scenario` 호출 사이트가 `flush.windows`로 바꿔야 한다** (Slice 7-1): `run_scenario`의 반환값/채널 타입을 교체하면 엔진을 직접 쓰는 모든 테스트(단위·통합·e2e)가 빌드 에러를 낸다. 새 타입으로 wrapping할 때 **모든 consumer를 한 PR에서 같이** 수정해야 한다 — 중간 상태 "일부만 새 타입" 은 컴파일이 안 됨.
 - **`hdrhistogram` add 의 bound 일치** (Slice 5): `Histogram::add(other)` 는 두 히스토그램의 lo/hi/sigfig 가 같을 때 lossless. 다른 컨피그면 일부 샘플이 누락된다. `fresh_hist()` 헬퍼로 모든 누적용 히스토그램이 같은 bound 를 갖게 통일. (리포트 빌드 쪽 BLOB 내성은 `crates/controller/CLAUDE.md`.)
 - **overflow는 엔진에서 `u32::MAX` sentinel** (Slice 7-1): loop_index cap 초과는 엔진 `aggregator.rs` 에서 `u32::MAX` 버킷으로 fold. controller가 이를 `null` 로 변환한다 — sentinel 의미를 아는 레이어는 엔진과 controller `build_report` 뿐. (변환 쪽은 `crates/controller/CLAUDE.md`.)
+- **분기 결정은 `Step::If` arm 에서 `Aggregator::record_branch(step_id, branch)` 로 기록** (Slice 9d): counts-only, **cap 없음**(브랜치 수 유한, `loop_breakdown_cap` 무관). `MetricFlush.branch_stats` 는 세 번째 드레인 벡터(periodic + final flush 둘 다). 레이블: `"then"` / `"elif_{j}"` / `"else"` / `"none"`. **`"none"` = 조건 false + elif 모두 false + else 비어있거나 absent** — http leaf가 없어 step 메트릭에 붙일 수 없는 전용 결정 카운터.
 
 ## 런타임 / 동시성
 

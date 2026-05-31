@@ -62,6 +62,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 
 ## 리포트 렌더링 · 다운로드 · 차트(jsdom)
 
+- **분기 breakdown은 별도 `BranchStatsTable`("Branch decisions" 섹션)** (Slice 9d): `if` 노드 id는 `report.steps`(http-leaf 메트릭)에 없으므로 `StepStatsTable` 와 분리된 독립 컴포넌트로 렌더. `ifMeta`는 `findStepById`(9c 추가)로 if 노드 표시명 resolve. SQL이 `branch` TEXT 사전순으로 반환하므로 UI `branchRank`로 `then < elif_n < else < none` 재정렬(SQL ORDER BY 만 믿으면 안 됨). `none` 레이블은 `(미매치)`로 표시. `ReportSchema.if_breakdown`은 `.optional()`이라 consumer는 `?? []`로 기본값 처리.
 - **bySecond 시계열 derivation은 ReportView 안에서** (Slice 5): 시계열 max-over-steps 합산 같은 derivation 로직을 backend가 아니라 ReportView 안에 두기로. backend는 raw windows 만 보낸다. 이유: UI가 step 필터/색상 분리 같은 변형을 더하기 쉬움. (step 라벨링도 UI 책임 — `crates/controller/CLAUDE.md` 참고.)
 - **Recharts ResponsiveContainer + jsdom** (Slice 5): ResponsiveContainer는 부모의 measured 사이즈를 읽는데 jsdom은 layout이 없어 size=0 → SVG 미생성 → RTL assertion 실패. 컴포넌트에 explicit `width`/`height` prop을 받게 하고 ResponsiveContainer는 프로덕션 path에서만. 테스트는 explicit size로.
 - **blob URL 누수** (Slice 5): `URL.createObjectURL` 결과는 명시적 `revokeObjectURL` 전까지 페이지 lifetime 내내 남는다. `useEffect cleanup`으로 `revokeObjectURL`. DownloadJsonButton unmount 테스트로 contract 검증.
