@@ -62,7 +62,7 @@ describe("RunDialog — env & ramp_up", () => {
   });
 
   it("posts env entries and ramp_up_seconds on Run", async () => {
-    fetchMock.mockResolvedValue(
+    fetchMock.mockImplementation(() =>
       jsonResponse({
         id: "R1",
         scenario_id: "S1",
@@ -148,7 +148,7 @@ describe("RunDialog — env & ramp_up", () => {
   });
 
   it("posts loop_breakdown_cap (default 256) on Run", async () => {
-    fetchMock.mockResolvedValue(
+    fetchMock.mockImplementation(() =>
       jsonResponse({
         id: "R2",
         scenario_id: "S1",
@@ -194,7 +194,7 @@ describe("RunDialog — env & ramp_up", () => {
   });
 
   it("lets the user set loop_breakdown_cap to 0 (off)", async () => {
-    fetchMock.mockResolvedValue(
+    fetchMock.mockImplementation(() =>
       jsonResponse({
         id: "R3",
         scenario_id: "S1",
@@ -235,7 +235,7 @@ describe("RunDialog — env & ramp_up", () => {
   });
 
   it("posts loop_breakdown_cap=0 when there is no loop step", async () => {
-    fetchMock.mockResolvedValue(
+    fetchMock.mockImplementation(() =>
       jsonResponse({
         id: "R4",
         scenario_id: "S1",
@@ -322,5 +322,82 @@ describe("RunDialog — initial prefill (A1)", () => {
   it("does not show the drift warning by default", () => {
     renderWithInitial(initial);
     expect(screen.queryByText(/이 run 이후 수정됨/)).toBeNull();
+  });
+});
+
+describe("RunDialog — load preset (A2)", () => {
+  function mockPresets() {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "P1",
+                name: "heavy",
+                vus: 50,
+                duration_seconds: 60,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/P1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "P1",
+            scenario_id: "S1",
+            name: "heavy",
+            profile: {
+              vus: 50,
+              duration_seconds: 60,
+              ramp_up_seconds: 5,
+              loop_breakdown_cap: 256,
+              data_binding: null,
+            },
+            env: { BASE_URL: "http://heavy" },
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  function renderPresetDialog() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <RunDialog
+          scenarioId="S1"
+          hasLoop={true}
+          scenario={null}
+          onCreated={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("renders the preset dropdown when presets exist", async () => {
+    mockPresets();
+    renderPresetDialog();
+    expect(await screen.findByLabelText("load preset")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "heavy" })).toBeInTheDocument();
+  });
+
+  it("loads a preset's profile + env into the form on selection", async () => {
+    const user = userEvent.setup();
+    mockPresets();
+    renderPresetDialog();
+    await user.selectOptions(await screen.findByLabelText("load preset"), "P1");
+    await waitFor(() => expect(screen.getByLabelText("VUs")).toHaveValue(50));
+    expect(screen.getByLabelText("Duration (s)")).toHaveValue(60);
+    expect(screen.getByLabelText("Ramp-up (s)")).toHaveValue(5);
+    expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("env value 0")).toHaveValue("http://heavy");
   });
 });

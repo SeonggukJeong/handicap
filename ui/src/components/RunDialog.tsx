@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { useCreateRun } from "../api/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCreateRun, usePresets, queryKeys } from "../api/hooks";
 import type { DataBinding } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
+import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
+import { getPreset } from "../api/presets";
 
 type Props = {
   scenarioId: string;
@@ -48,6 +51,48 @@ export function RunDialog({
   const [newEnvValue, setNewEnvValue] = useState("");
   const [binding, setBinding] = useState<DataBinding | null>(initial?.profile.data_binding ?? null);
   const [bindingValid, setBindingValid] = useState(true);
+
+  // seedBinding drives the DataBindingPanel's initialBinding; bumping panelKey remounts
+  // the panel so it re-seeds from the loaded preset's binding (explicit user action).
+  const [seedBinding, setSeedBinding] = useState<DataBinding | null>(
+    initial?.profile.data_binding ?? null,
+  );
+  const [panelKey, setPanelKey] = useState(0);
+  // _loadedPresetId / _presetName: state read by Task 7's save/rename/delete controls.
+  const [_loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
+  const [_presetName, setPresetName] = useState("");
+  const [presetError, setPresetError] = useState<string | null>(null);
+
+  const presets = usePresets(scenarioId);
+  const qc = useQueryClient();
+
+  async function loadPreset(id: string) {
+    if (!id) return;
+    setPresetError(null);
+    try {
+      const p = await qc.fetchQuery({
+        queryKey: queryKeys.preset(id),
+        queryFn: () => getPreset(id),
+      });
+      const prof = normalizeProfile(p.profile);
+      setVus(prof.vus);
+      setDuration(prof.duration_seconds);
+      setRampUp(prof.ramp_up_seconds);
+      setLoopCap(prof.loop_breakdown_cap);
+      setEnvEntries(
+        Object.entries(envValueToRecord(p.env)).map(([key, value]) => ({ key, value })),
+      );
+      const b = prof.data_binding ?? null;
+      setBinding(b);
+      setSeedBinding(b);
+      setPanelKey((k) => k + 1);
+      setLoadedPresetId(id);
+      setPresetName(p.name);
+    } catch (e) {
+      setPresetError((e as Error).message);
+    }
+  }
+
   const mutation = useCreateRun();
 
   const rampInvalid = rampUp > duration;
@@ -76,6 +121,34 @@ export function RunDialog({
           className="mb-3 p-2 rounded border border-amber-300 bg-amber-50 text-sm text-amber-800"
         >
           이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.
+        </p>
+      )}
+      {presets.data && presets.data.length > 0 && (
+        <div className="mb-3 flex items-center gap-2">
+          <label className="text-sm text-slate-600" htmlFor="load-preset">
+            프리셋 불러오기
+          </label>
+          <select
+            id="load-preset"
+            aria-label="load preset"
+            className="border border-slate-300 rounded px-2 py-1 text-sm"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) void loadPreset(e.target.value);
+            }}
+          >
+            <option value="">— 선택 —</option>
+            {presets.data.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {presetError && (
+        <p role="alert" className="mb-3 text-red-600 text-sm">
+          프리셋 오류: {presetError}
         </p>
       )}
       <div className="grid grid-cols-3 gap-4 mb-3">
@@ -223,8 +296,9 @@ export function RunDialog({
 
       {scenario && (
         <DataBindingPanel
+          key={panelKey}
           scenario={scenario}
-          initialBinding={initial?.profile.data_binding ?? null}
+          initialBinding={seedBinding}
           onChange={setBinding}
           onValidityChange={setBindingValid}
         />

@@ -27,7 +27,17 @@ export type Preset = z.infer<typeof PresetSchema>;
 
 const PresetListSchema = z.object({ presets: z.array(PresetSummarySchema) });
 
-/** Body for create/update — env is always string→string (API boundary). */
+/**
+ * Body for create/update — env is always string→string (API boundary).
+ *
+ * WHY NOT z.infer<typeof PresetSchema>: PresetSchema.profile nests ProfileSchema,
+ * whose nested .default() fields (ramp_up_seconds, loop_breakdown_cap) leak
+ * `number | undefined` into the inferred output, so Preset["profile"] is NOT
+ * assignable to the standalone `Profile`. PresetInput.profile uses `Profile`
+ * directly (clean numbers from form state or normalizeProfile()). Do not
+ * "simplify" to a z.infer-derived type — pnpm test won't catch it, only
+ * pnpm build (tsc -b). See ui/CLAUDE.md "Zod 중첩 .default() input 타입 누출".
+ */
 export type PresetInput = { name: string; profile: Profile; env: Record<string, string> };
 
 async function errorMessage(res: Response): Promise<string> {
