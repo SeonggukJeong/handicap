@@ -1,4 +1,4 @@
-use crate::store::metrics::{LoopMetricRow, WindowWithHdr};
+use crate::store::metrics::{IfBranchRow, LoopMetricRow, WindowWithHdr};
 use crate::store::runs::RunRow;
 use handicap_engine::percentiles::{Percentiles, decode_hdr, merge_into, percentiles_of};
 use hdrhistogram::Histogram;
@@ -13,6 +13,7 @@ pub struct ReportJson {
     pub windows: Vec<ReportWindow>,
     pub steps: Vec<ReportStep>,
     pub status_distribution: BTreeMap<String, u64>,
+    pub if_breakdown: Vec<IfBreakdown>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +59,18 @@ pub struct LoopBucket {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct IfBranchBucket {
+    pub branch: String, // "then" | "elif_0".. | "else" | "none"
+    pub count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IfBreakdown {
+    pub step_id: String, // the `if` node's id
+    pub branches: Vec<IfBranchBucket>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReportStep {
     pub step_id: String,
     pub count: u64,
@@ -93,6 +106,7 @@ pub fn build_report(
     scenario_yaml: &str,
     rows: &[WindowWithHdr],
     loops: &[LoopMetricRow],
+    branches: &[IfBranchRow],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -107,6 +121,24 @@ pub fn build_report(
                 error_count: r.error_count as u64,
             });
     }
+
+    // Group branch decision counts by `if` node id (rows already ordered by
+    // step_id, branch from SQL). Keyed by the `if` id, NOT an http leaf — `if` ids
+    // never appear in `steps`, and the `none` bucket has no leaf at all.
+    let mut if_by_step: BTreeMap<String, Vec<IfBranchBucket>> = BTreeMap::new();
+    for r in branches {
+        if_by_step
+            .entry(r.step_id.clone())
+            .or_default()
+            .push(IfBranchBucket {
+                branch: r.branch.clone(),
+                count: r.count as u64,
+            });
+    }
+    let if_breakdown: Vec<IfBreakdown> = if_by_step
+        .into_iter()
+        .map(|(step_id, branches)| IfBreakdown { step_id, branches })
+        .collect();
 
     let mut windows: Vec<ReportWindow> = Vec::with_capacity(rows.len());
     let mut overall = fresh_hist();
@@ -208,6 +240,7 @@ pub fn build_report(
         windows,
         steps,
         status_distribution: status_dist,
+        if_breakdown,
     }
 }
 
@@ -283,7 +316,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[]);
+        let rpt = build_report(&r, &yaml, &rows, &[], &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -307,7 +340,7 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[]);
+        let rpt = build_report(&r, &yaml, &[bad], &[], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -350,7 +383,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops);
+        let rep = build_report(&r, &yaml, &rows, &loops, &[]);
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -361,6 +394,59 @@ mod tests {
         );
         assert_eq!(step.loop_breakdown[2].count, 1);
         // typed round-trip: Serialize then Deserialize
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
+    }
+
+    #[test]
+    fn build_report_attaches_if_breakdown() {
+        use crate::store::metrics::IfBranchRow;
+        let r = run_row();
+        let rows = vec![win(100, "s", 6, 0, r#"{"200":6}"#, &[10_000])];
+        // `build_report` preserves input order (no re-sort — the UI's branchRank
+        // re-sorts for display). The controller passes rows already `ORDER BY branch`
+        // (TEXT), so simulate that here: "else" < "then" lexicographically.
+        let branches = vec![
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if1".into(),
+                branch: "else".into(),
+                count: 2,
+            },
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if1".into(),
+                branch: "then".into(),
+                count: 4,
+            },
+            IfBranchRow {
+                run_id: "r".into(),
+                step_id: "if2".into(),
+                branch: "none".into(),
+                count: 9,
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &branches);
+        assert_eq!(rep.if_breakdown.len(), 2);
+        let if1 = rep
+            .if_breakdown
+            .iter()
+            .find(|b| b.step_id == "if1")
+            .unwrap();
+        // Order is preserved from the (SQL-sorted) input: "else" then "then".
+        assert_eq!(if1.branches.len(), 2);
+        assert_eq!(if1.branches[0].branch, "else");
+        assert_eq!(if1.branches[0].count, 2);
+        assert_eq!(if1.branches[1].branch, "then");
+        let if2 = rep
+            .if_breakdown
+            .iter()
+            .find(|b| b.step_id == "if2")
+            .unwrap();
+        assert_eq!(if2.branches[0].branch, "none");
+        assert_eq!(if2.branches[0].count, 9);
+        // typed round-trip (report types require Deserialize too).
         let v = serde_json::to_value(&rep).unwrap();
         let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
