@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { DatasetUploadOptions } from "./client";
+import { createPreset, deletePreset, listPresets, updatePreset, type PresetInput } from "./presets";
 import type { Profile, RunStatus } from "./schemas";
 
 export const queryKeys = {
@@ -12,6 +13,8 @@ export const queryKeys = {
   runReport: (id: string) => ["runs", id, "report"] as const,
   datasets: () => ["datasets"] as const,
   dataset: (id: string) => ["datasets", id] as const,
+  presets: (scenarioId: string) => ["presets", scenarioId] as const,
+  preset: (id: string) => ["preset", id] as const,
 };
 
 export function useScenarios() {
@@ -148,5 +151,37 @@ export function useDeleteDataset() {
   return useMutation({
     mutationFn: (id: string) => api.deleteDataset(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.datasets() }),
+  });
+}
+
+export function usePresets(scenarioId: string | undefined) {
+  return useQuery({
+    queryKey: scenarioId ? queryKeys.presets(scenarioId) : ["presets", "missing"],
+    queryFn: () => listPresets(scenarioId!),
+    enabled: Boolean(scenarioId),
+  });
+}
+
+export function useCreatePreset(scenarioId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PresetInput) => createPreset(scenarioId, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.presets(scenarioId) }),
+  });
+}
+
+export function useUpdatePreset(scenarioId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: PresetInput }) => updatePreset(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.presets(scenarioId) }),
+  });
+}
+
+export function useDeletePreset(scenarioId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deletePreset(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.presets(scenarioId) }),
   });
 }
