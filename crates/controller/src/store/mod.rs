@@ -1,4 +1,5 @@
 pub mod datasets;
+pub mod environments;
 pub mod metrics;
 pub mod presets;
 pub mod runs;
@@ -27,6 +28,7 @@ const MIGRATION_SQL_0003: &str = include_str!("migrations/0003_run_loop_metrics.
 const MIGRATION_SQL_0004: &str = include_str!("migrations/0004_datasets.sql");
 const MIGRATION_SQL_0005: &str = include_str!("migrations/0005_run_presets.sql");
 const MIGRATION_SQL_0006: &str = include_str!("migrations/0006_run_if_metrics.sql");
+const MIGRATION_SQL_0007: &str = include_str!("migrations/0007_environments.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -54,6 +56,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0004).execute(&pool).await?;
     sqlx::query(MIGRATION_SQL_0005).execute(&pool).await?;
     sqlx::query(MIGRATION_SQL_0006).execute(&pool).await?;
+    sqlx::query(MIGRATION_SQL_0007).execute(&pool).await?;
     Ok(pool)
 }
 
