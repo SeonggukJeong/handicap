@@ -205,6 +205,88 @@ describe("RunDetailPage — step metadata", () => {
   });
 });
 
+describe("RunDetailPage — retry (A1)", () => {
+  function mockTerminalRun() {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/runs/R1") && (!init || init.method !== "POST")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+            status: "completed",
+            profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 256 },
+            env: { TOKEN: "abc" },
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/report")) {
+        return Promise.resolve(jsonResponse({}, 404));
+      }
+      if (url.endsWith("/api/scenarios/S1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "x",
+            yaml: "version: 1\nname: x\nsteps: []\n",
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs") && init?.method === "POST") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: "R2",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 6, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 256 },
+              env: { TOKEN: "abc" },
+              started_at: null,
+              ended_at: null,
+              created_at: 3,
+            },
+            201,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("'동일 설정 즉시 재실행' POSTs createRun with this run's profile + env", async () => {
+    const user = userEvent.setup();
+    mockTerminalRun();
+    renderWithRouter("R1");
+    await user.click(await screen.findByRole("button", { name: "동일 설정 즉시 재실행" }));
+    await waitFor(() => {
+      const posted = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/api/runs") && (i as RequestInit)?.method === "POST",
+      );
+      expect(posted).toBeTruthy();
+      const body = JSON.parse((posted![1] as RequestInit).body as string);
+      expect(body.profile.vus).toBe(6);
+      expect(body.env).toEqual({ TOKEN: "abc" });
+    });
+  });
+
+  it("shows a '다시 실행' link to the run list with ?retry", async () => {
+    mockTerminalRun();
+    renderWithRouter("R1");
+    const link = await screen.findByRole("link", { name: "다시 실행" });
+    expect(link).toHaveAttribute("href", "/scenarios/S1/runs?retry=R1");
+  });
+});
+
 describe("RunDetailPage — report on terminal", () => {
   it("mounts ReportView when status is completed and report loaded; hides Metric windows", async () => {
     const reportBundle = {

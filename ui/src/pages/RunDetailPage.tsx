@@ -1,6 +1,14 @@
 import { useMemo } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useAbortRun, useRun, useRunMetrics, useRunReport, useScenario } from "../api/hooks";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  useAbortRun,
+  useCreateRun,
+  useRun,
+  useRunMetrics,
+  useRunReport,
+  useScenario,
+} from "../api/hooks";
+import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
 import { StatusBadge } from "../components/StatusBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
@@ -14,8 +22,10 @@ type StepMeta = { name: string; method: string; url: string };
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const run = useRun(id);
   const abort = useAbortRun(id ?? "");
+  const createRun = useCreateRun();
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
   const report = useRunReport(id, terminal);
@@ -84,17 +94,55 @@ export function RunDetailPage() {
             </Link>
           </p>
         </div>
-        {r.status === "running" && (
-          <button
-            type="button"
-            onClick={() => abort.mutate()}
-            disabled={abort.isPending}
-            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-          >
-            {abort.isPending ? "Aborting…" : "Abort"}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {r.status === "running" && (
+            <button
+              type="button"
+              onClick={() => abort.mutate()}
+              disabled={abort.isPending}
+              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              {abort.isPending ? "Aborting…" : "Abort"}
+            </button>
+          )}
+          {terminal && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  createRun.mutate(
+                    {
+                      scenarioId: r.scenario_id,
+                      profile: normalizeProfile(r.profile),
+                      env: envValueToRecord(r.env),
+                    },
+                    { onSuccess: (created) => navigate(`/runs/${created.id}`) },
+                  )
+                }
+                disabled={createRun.isPending}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-50"
+              >
+                {createRun.isPending ? "Starting…" : "동일 설정 즉시 재실행"}
+              </button>
+              <Link
+                to={`/scenarios/${r.scenario_id}/runs?retry=${r.id}`}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+              >
+                다시 실행
+              </Link>
+            </>
+          )}
+        </div>
       </div>
+
+      {createRun.error && (
+        <div
+          role="alert"
+          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
+        >
+          재실행 실패: {(createRun.error as Error).message}
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
         <Card label="VUs">{r.profile.vus}</Card>
@@ -174,9 +222,7 @@ export function RunDetailPage() {
                         <td className="py-2 pr-4 font-mono text-xs break-all">
                           <div>{resolved}</div>
                           {resolved !== s.url && (
-                            <div className="text-slate-500 text-[10px]">
-                              template: {s.url}
-                            </div>
+                            <div className="text-slate-500 text-[10px]">template: {s.url}</div>
                           )}
                         </td>
                         <td className="py-2 pr-4">{totals?.count ?? 0}</td>
@@ -275,4 +321,3 @@ function EnvBlock({ env }: { env: unknown }) {
     </section>
   );
 }
-
