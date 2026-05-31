@@ -83,6 +83,32 @@ export type DatasetUploadOptions = {
   sheet?: string;
 };
 
+export type PresetRef = { preset_id: string; name: string; scenario_id: string };
+export type DeleteDatasetResult = { deleted: true } | { deleted: false; presets: PresetRef[] };
+
+/** DELETE a dataset. 204 → deleted. Soft 409 (only presets reference it) →
+ *  {deleted:false, presets}. Hard 409 (active run) or other error → throws. */
+async function deleteDatasetImpl(id: string, force: boolean): Promise<DeleteDatasetResult> {
+  const res = await fetch(
+    `${BASE}/datasets/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
+    { method: "DELETE" },
+  );
+  if (res.status === 204) return { deleted: true };
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    if (Array.isArray((body as { presets?: unknown }).presets)) {
+      return { deleted: false, presets: (body as { presets: PresetRef[] }).presets };
+    }
+    throw new ApiError(
+      409,
+      typeof (body as { error?: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : "conflict",
+    );
+  }
+  throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+}
+
 function buildDatasetForm(file: File, opts?: DatasetUploadOptions): FormData {
   const fd = new FormData();
   fd.append("file", file);
@@ -132,6 +158,6 @@ export const api = {
     requestMultipart("/datasets", buildDatasetForm(file, opts), DatasetSchema),
   previewDataset: (file: File, opts?: DatasetUploadOptions): Promise<DatasetPreview> =>
     requestMultipart("/datasets/preview", buildDatasetForm(file, opts), DatasetPreviewSchema),
-  deleteDataset: (id: string) =>
-    request(`/datasets/${encodeURIComponent(id)}`, { method: "DELETE" }, z.undefined()),
+  deleteDataset: (id: string, force = false): Promise<DeleteDatasetResult> =>
+    deleteDatasetImpl(id, force),
 };

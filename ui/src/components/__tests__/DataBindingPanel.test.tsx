@@ -442,3 +442,36 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
     });
   });
 });
+
+describe("DataBindingPanel — deleted dataset notice (A2)", () => {
+  function renderPanel() {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).endsWith("/api/datasets")) {
+        return Promise.resolve(jsonResponse({ datasets: [] }));
+      }
+      if (String(url).endsWith("/api/datasets/D1")) {
+        return Promise.resolve(jsonResponse({ error: "not found" }, 404));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onValidity = vi.fn();
+    render(
+      <QueryClientProvider client={qc}>
+        <DataBindingPanel
+          scenario={makeScenario()}
+          initialBinding={{ dataset_id: "D1", policy: "per_vu", mappings: [] }}
+          onChange={() => {}}
+          onValidityChange={onValidity}
+        />
+      </QueryClientProvider>,
+    );
+    return { onValidity };
+  }
+
+  it("shows a notice and goes invalid when the selected dataset is gone", async () => {
+    const { onValidity } = renderPanel();
+    expect(await screen.findByText(/데이터셋이 삭제/)).toBeInTheDocument();
+    await waitFor(() => expect(onValidity).toHaveBeenCalledWith(false));
+  });
+});

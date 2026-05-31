@@ -149,8 +149,10 @@ export function useUploadDataset() {
 export function useDeleteDataset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteDataset(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.datasets() }),
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) => api.deleteDataset(id, force),
+    onSuccess: (result) => {
+      if (result.deleted) qc.invalidateQueries({ queryKey: queryKeys.datasets() });
+    },
   });
 }
 

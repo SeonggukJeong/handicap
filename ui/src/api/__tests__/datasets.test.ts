@@ -64,3 +64,45 @@ describe("datasets api", () => {
     );
   });
 });
+
+describe("deleteDataset soft-conflict (A2)", () => {
+  it("returns deleted:true on 204", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const r = await api.deleteDataset("D1");
+    expect(r).toEqual({ deleted: true });
+  });
+
+  it("returns the preset list on a soft 409", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "1개 프리셋",
+          presets: [{ preset_id: "P1", name: "x", scenario_id: "S1" }],
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const r = await api.deleteDataset("D1");
+    expect(r).toEqual({
+      deleted: false,
+      presets: [{ preset_id: "P1", name: "x", scenario_id: "S1" }],
+    });
+  });
+
+  it("force=true appends ?force=true", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.deleteDataset("D1", true);
+    const call = fetchMock.mock.calls.at(-1);
+    expect(String(call![0])).toContain("?force=true");
+  });
+
+  it("throws on a hard 409 (active run, no presets array)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "run 중" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(api.deleteDataset("D1")).rejects.toThrow(/run 중/);
+  });
+});

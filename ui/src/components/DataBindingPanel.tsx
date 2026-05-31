@@ -96,6 +96,9 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
   const columns = useMemo(() => dataset.data?.columns ?? [], [dataset.data]);
   const columnSet = useMemo(() => new Set(columns), [columns]);
 
+  // The selected dataset failed to load (deleted out from under a preset, spec §6 #14).
+  const datasetGone = !!selectedId && dataset.isError;
+
   // Auto-match: when a dataset is selected (and columns are loaded), default each row
   // whose var name equals a column name to that column — once per dataset selection.
   useEffect(() => {
@@ -153,7 +156,7 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
       (v) => !mappedVars.has(v) && !availableElsewhere.has(v),
     ).length;
 
-    onValidityChange(uncoveredCount === 0 && noStaleColumns);
+    onValidityChange(uncoveredCount === 0 && noStaleColumns && !datasetGone);
   }, [
     selectedId,
     policy,
@@ -161,6 +164,7 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
     scannedVars,
     availableElsewhere,
     columnSet,
+    datasetGone,
     onChange,
     onValidityChange,
   ]);
@@ -221,6 +225,12 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
           ))}
         </select>
       </div>
+
+      {datasetGone && (
+        <p role="alert" className="mb-3 text-sm text-amber-700">
+          이 프리셋의 데이터셋이 삭제되었습니다 — 다시 선택하세요.
+        </p>
+      )}
 
       {/* Scanned var rows — always visible so user sees what variables the scenario uses.
           Source selects only make sense once a dataset is chosen. */}

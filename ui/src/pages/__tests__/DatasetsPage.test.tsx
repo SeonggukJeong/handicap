@@ -79,3 +79,103 @@ describe("DatasetsPage", () => {
     await waitFor(() => expect(screen.getByText(/No datasets yet/i)).toBeInTheDocument());
   });
 });
+
+describe("DatasetsPage — soft delete (A2)", () => {
+  it("skips force-delete when user declines confirm", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    let deleteCalls = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/datasets") &&
+        (!init || init.method === "GET" || !init.method)
+      ) {
+        return Promise.resolve(
+          jsonResponse({
+            datasets: [
+              {
+                id: "D1",
+                name: "users",
+                columns: ["user"],
+                row_count: 2,
+                byte_size: 1,
+                created_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (String(url).includes("/api/datasets/D1") && init?.method === "DELETE") {
+        deleteCalls += 1;
+        if (String(url).includes("force=true"))
+          return Promise.resolve(new Response(null, { status: 204 }));
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: "1개 프리셋",
+              presets: [{ preset_id: "P1", name: "heavy", scenario_id: "S1" }],
+            },
+            409,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    // User declined — no force DELETE should have been sent
+    await waitFor(() => expect(deleteCalls).toBe(1));
+    confirmSpy.mockRestore();
+  });
+
+  it("confirms then force-deletes when a preset references the dataset", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let deleteCalls = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/datasets") &&
+        (!init || init.method === "GET" || !init.method)
+      ) {
+        return Promise.resolve(
+          jsonResponse({
+            datasets: [
+              {
+                id: "D1",
+                name: "users",
+                columns: ["user"],
+                row_count: 2,
+                byte_size: 1,
+                created_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (String(url).includes("/api/datasets/D1") && init?.method === "DELETE") {
+        deleteCalls += 1;
+        if (String(url).includes("force=true"))
+          return Promise.resolve(new Response(null, { status: 204 }));
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: "1개 프리셋",
+              presets: [{ preset_id: "P1", name: "heavy", scenario_id: "S1" }],
+            },
+            409,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/heavy/);
+    await waitFor(() => expect(deleteCalls).toBe(2));
+    confirmSpy.mockRestore();
+  });
+});

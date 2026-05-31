@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useDatasets, useDeleteDataset } from "../api/hooks";
 import { Button } from "../components/Button";
 import { UploadPanel } from "../components/datasets/UploadPanel";
@@ -5,6 +6,26 @@ import { UploadPanel } from "../components/datasets/UploadPanel";
 export function DatasetsPage() {
   const { data, isLoading, error } = useDatasets();
   const del = useDeleteDataset();
+  const [delError, setDelError] = useState<string | null>(null);
+
+  async function handleDelete(id: string) {
+    setDelError(null);
+    try {
+      const r = await del.mutateAsync({ id });
+      if (!r.deleted) {
+        const names = r.presets.map((p) => p.name).join(", ");
+        if (
+          window.confirm(
+            `${r.presets.length}개 프리셋이 이 데이터셋을 참조 중입니다 (${names}). 그래도 삭제할까요?`,
+          )
+        ) {
+          await del.mutateAsync({ id, force: true });
+        }
+      }
+    } catch (e) {
+      setDelError((e as Error).message);
+    }
+  }
 
   return (
     <div>
@@ -13,6 +34,12 @@ export function DatasetsPage() {
       </div>
 
       <UploadPanel />
+
+      {delError && (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          삭제 실패: {delError}
+        </p>
+      )}
 
       <section aria-label="dataset list" className="mt-8">
         {isLoading && <p className="text-slate-500">Loading…</p>}
@@ -37,7 +64,7 @@ export function DatasetsPage() {
                   <td className="py-2 pr-4">
                     <Button
                       variant="danger"
-                      onClick={() => del.mutate(d.id)}
+                      onClick={() => handleDelete(d.id)}
                       disabled={del.isPending}
                     >
                       Delete
