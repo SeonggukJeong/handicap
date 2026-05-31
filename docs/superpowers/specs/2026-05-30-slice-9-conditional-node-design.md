@@ -1,6 +1,6 @@
 # Slice 9 — Conditional 노드 설계
 
-* Status: In progress (9a 엔진 + 9b UI authoring 구현·머지 완료 — ADR-0023; 9c 중첩 / 9d 메트릭 미구현)
+* Status: In progress (9a 엔진 + 9b UI authoring + 9c 상호 1레벨 중첩 구현·머지 완료 — ADR-0023; 9d 메트릭 미구현)
 * Date: 2026-05-30
 * 관련 ADR: ADR-0020(control-flow loop), ADR-0021(loop 메트릭 breakdown), ADR-0014(변수 표기), ADR-0016(VU per tokio task), ADR-0017(리포트 스코프)
 * 후속 ADR: ADR-0023(conditional 노드) — 구현 시 추가
