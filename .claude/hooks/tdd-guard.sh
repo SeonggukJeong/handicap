@@ -32,6 +32,29 @@ is_watched_production() {
 is_test_path "$file" && exit 0
 is_watched_production "$file" || exit 0
 
+# --- Pass-through: comment / whitespace-only changes ---------------------
+# The pending-test gate is meant to catch *behavior* changes. A pure comment
+# or reindent edit changes no behavior, so demanding a test for it is just
+# noise (Slice 9c: reviewer-suggested explanatory comments got blocked).
+# Strategy: compare the edit's before/after with whole-line comments and all
+# whitespace removed. If the remaining code is identical, it's comments-only.
+# Conservative by design: only strips lines that *start* with //, /* or * --
+# a trailing comment or changed string literal still counts as a code change,
+# so we never wave through a real behavior change.
+normalize_code() {
+  grep -Ev '^[[:space:]]*(//|/\*|\*)' | tr -d '[:space:]' || true
+}
+
+if [[ "$tool" == "Edit" ]]; then
+  old_norm=$(echo "$input" | jq -r '.tool_input.old_string // ""' | normalize_code)
+  new_norm=$(echo "$input" | jq -r '.tool_input.new_string // ""' | normalize_code)
+  [[ "$old_norm" == "$new_norm" ]] && exit 0
+elif [[ "$tool" == "Write" && -f "$file" ]]; then
+  new_norm=$(echo "$input" | jq -r '.tool_input.content // ""' | normalize_code)
+  cur_norm=$(normalize_code < "$file")
+  [[ "$new_norm" == "$cur_norm" ]] && exit 0
+fi
+
 # Rust unit tests live inline (#[cfg(test)] mod tests). Treat such files as
 # test-adjacent so the implementer can edit them while red.
 if [[ "$file" =~ \.rs$ && -f "$file" ]] && grep -q '#\[cfg(test)\]' "$file"; then
