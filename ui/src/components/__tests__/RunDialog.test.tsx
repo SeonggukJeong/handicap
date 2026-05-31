@@ -540,3 +540,139 @@ describe("RunDialog — load preset (A2)", () => {
     expect(screen.getByLabelText("env value 0")).toHaveValue("http://heavy");
   });
 });
+
+describe("RunDialog — environment overlay (B-2)", () => {
+  function routeFetch(handlers: {
+    run?: unknown;
+    envList?: unknown;
+    env?: Record<string, unknown>;
+  }) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/api/environments") && (!init || !init.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse(handlers.envList ?? { environments: [] }));
+      }
+      if (u.includes("/api/environments/") && (!init || !init.method || init.method === "GET")) {
+        const id = u.split("/api/environments/")[1];
+        return Promise.resolve(
+          jsonResponse(handlers.env?.[id] ?? {}, handlers.env?.[id] ? 200 : 404),
+        );
+      }
+      if (u.endsWith("/api/runs") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(handlers.run, 201));
+      }
+      // presets list etc. — empty
+      return Promise.resolve(jsonResponse({ presets: [] }));
+    });
+  }
+
+  const RUN = {
+    id: "R1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "pending",
+    profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+    env: {},
+    started_at: null,
+    ended_at: null,
+    created_at: 1,
+  };
+
+  it("merges env base + override and posts the resolved flat env", async () => {
+    const captured: { body?: string } = {};
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/api/environments") && (!init || !init.method || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            environments: [
+              { id: "E1", name: "staging", var_count: 2, created_at: 1, updated_at: 1 },
+            ],
+          }),
+        );
+      }
+      if (u.includes("/api/environments/E1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "E1",
+            name: "staging",
+            vars: { BASE_URL: "http://s", API_KEY: "k" },
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      if (u.endsWith("/api/runs") && init?.method === "POST") {
+        captured.body = String(init.body);
+        return Promise.resolve(jsonResponse(RUN, 201));
+      }
+      return Promise.resolve(jsonResponse({ presets: [] }));
+    });
+
+    const user = userEvent.setup();
+    renderDialog();
+    // wait for the environments list to load before selecting
+    await screen.findByRole("option", { name: "staging" });
+    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    await screen.findByText("BASE_URL");
+    // override BASE_URL via the add row
+    await user.type(screen.getByLabelText("new env key"), "BASE_URL");
+    await user.type(screen.getByLabelText("new env value"), "http://override");
+    await user.click(
+      within(screen.getByRole("region", { name: /Environment variables/i })).getByRole("button", {
+        name: /^add$/i,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+
+    await waitFor(() => expect(captured.body).toBeTruthy());
+    const posted = JSON.parse(captured.body!);
+    // override wins over base; untouched base key carried through
+    expect(posted.env).toEqual({ BASE_URL: "http://override", API_KEY: "k" });
+  });
+
+  it("keeps overrides when switching environments (no orphan)", async () => {
+    routeFetch({
+      run: RUN,
+      envList: {
+        environments: [
+          { id: "E1", name: "staging", var_count: 1, created_at: 1, updated_at: 1 },
+          { id: "E2", name: "prod", var_count: 1, created_at: 1, updated_at: 1 },
+        ],
+      },
+      env: {
+        E1: {
+          id: "E1",
+          name: "staging",
+          vars: { BASE_URL: "http://s" },
+          created_at: 1,
+          updated_at: 1,
+        },
+        E2: {
+          id: "E2",
+          name: "prod",
+          vars: { BASE_URL: "http://p" },
+          created_at: 1,
+          updated_at: 1,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    // wait for the environments list to load before selecting
+    await screen.findByRole("option", { name: "staging" });
+    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    // add a standalone override
+    await user.type(screen.getByLabelText("new env key"), "TOKEN");
+    await user.type(screen.getByLabelText("new env value"), "t1");
+    await user.click(
+      within(screen.getByRole("region", { name: /Environment variables/i })).getByRole("button", {
+        name: /^add$/i,
+      }),
+    );
+    expect(await screen.findByLabelText("env key 0")).toHaveValue("TOKEN");
+    // switch to E2 — override survives
+    await user.selectOptions(screen.getByLabelText("select environment"), "E2");
+    expect(screen.getByLabelText("env key 0")).toHaveValue("TOKEN");
+  });
+});

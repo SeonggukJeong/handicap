@@ -4,6 +4,7 @@ import {
   useCreatePreset,
   useCreateRun,
   useDeletePreset,
+  useEnvironment,
   usePresets,
   useUpdatePreset,
   queryKeys,
@@ -16,6 +17,8 @@ import type { RunPrefill } from "../api/runPrefill";
 import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
 import { getPreset } from "../api/presets";
 import type { PresetInput } from "../api/presets";
+import { EnvironmentPicker } from "./EnvironmentPicker";
+import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 
 type Props = {
   scenarioId: string;
@@ -37,8 +40,6 @@ type Props = {
   onCancel: () => void;
 };
 
-type EnvEntry = { key: string; value: string };
-
 export function RunDialog({
   scenarioId,
   hasLoop,
@@ -55,10 +56,13 @@ export function RunDialog({
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
-  const [newEnvKey, setNewEnvKey] = useState("");
-  const [newEnvValue, setNewEnvValue] = useState("");
   const [binding, setBinding] = useState<DataBinding | null>(initial?.profile.data_binding ?? null);
   const [bindingValid, setBindingValid] = useState(true);
+  // B-2 environment overlay. Prefill (preset/retry) is override-only (env = none):
+  // the stored env is already a resolved snapshot, so it seeds envEntries with no base.
+  const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
+  const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
+  const baseVars = selectedEnv.data?.vars ?? {};
 
   // seedBinding drives the DataBindingPanel's initialBinding; bumping panelKey remounts
   // the panel so it re-seeds from the loaded preset's binding (explicit user action).
@@ -118,11 +122,9 @@ export function RunDialog({
     bindingValid &&
     !mutation.isPending;
 
-  const env: Record<string, string> = {};
-  for (const { key, value } of envEntries) {
-    const k = key.trim();
-    if (k) env[k] = value;
-  }
+  // Merge selected environment (base) under the per-run override rows. With no env
+  // selected, baseVars is {} and this is byte-identical to the old loop.
+  const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
   function currentInput(): PresetInput {
     return {
@@ -302,79 +304,13 @@ export function RunDialog({
         </p>
       )}
 
-      <section aria-label="Environment variables" className="mb-3">
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">Env</h4>
-        <ul className="flex flex-col gap-2">
-          {envEntries.map((entry, idx) => (
-            <li key={idx} className="flex items-center gap-2">
-              <input
-                aria-label={`env key ${idx}`}
-                className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-                value={entry.key}
-                onChange={(e) =>
-                  setEnvEntries((prev) =>
-                    prev.map((p, i) => (i === idx ? { ...p, key: e.target.value } : p)),
-                  )
-                }
-              />
-              <span className="text-slate-400 text-sm">=</span>
-              <input
-                aria-label={`env value ${idx}`}
-                className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
-                value={entry.value}
-                onChange={(e) =>
-                  setEnvEntries((prev) =>
-                    prev.map((p, i) => (i === idx ? { ...p, value: e.target.value } : p)),
-                  )
-                }
-              />
-              <button
-                type="button"
-                onClick={() => setEnvEntries((prev) => prev.filter((_, i) => i !== idx))}
-                aria-label={`Remove env ${entry.key || idx}`}
-                className="text-slate-500 hover:text-red-600 text-sm"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-          {envEntries.length === 0 && (
-            <li className="text-xs text-slate-400 italic">No env vars</li>
-          )}
-        </ul>
-
-        <div className="flex items-center gap-2 mt-2">
-          <input
-            aria-label="new env key"
-            className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-            placeholder="BASE_URL"
-            value={newEnvKey}
-            onChange={(e) => setNewEnvKey(e.target.value)}
-          />
-          <span className="text-slate-400 text-sm">=</span>
-          <input
-            aria-label="new env value"
-            className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
-            placeholder="http://localhost:9090"
-            value={newEnvValue}
-            onChange={(e) => setNewEnvValue(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              const k = newEnvKey.trim();
-              if (!k) return;
-              setEnvEntries((prev) => [...prev, { key: k, value: newEnvValue }]);
-              setNewEnvKey("");
-              setNewEnvValue("");
-            }}
-            disabled={newEnvKey.trim().length === 0}
-            className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
-          >
-            Add
-          </button>
-        </div>
-      </section>
+      <EnvironmentPicker
+        selectedEnvId={selectedEnvId}
+        onSelect={setSelectedEnvId}
+        baseVars={baseVars}
+        overrides={envEntries}
+        onOverridesChange={setEnvEntries}
+      />
 
       <div className="mb-3 flex items-center gap-2">
         <input
