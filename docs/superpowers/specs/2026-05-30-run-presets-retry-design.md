@@ -141,6 +141,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_run_presets_scenario_name
 - `validate_run_config` 추출(#6) + `api/presets.rs` CRUD + 라우팅.
 - 데이터셋 DELETE soft 가드 확장(#14) + `presets::referencing_dataset`.
 - RunDialog 프리셋 드롭다운/저장/삭제/rename + RunDetail "프리셋으로 저장".
+- **구현 계획**: `docs/superpowers/plans/2026-05-31-area-a2-run-presets.md` (10 tasks, 전제: A1 master 머지 완료).
 
 ## 9. 범위 밖 · 후속 (별도 spec)
 
