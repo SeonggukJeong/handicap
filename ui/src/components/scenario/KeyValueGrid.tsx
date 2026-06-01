@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { BulkFormat } from "../../scenario/kvBulk";
 import { findCommonHeader, type CommonHeader } from "../../scenario/commonHeaders";
 import { BulkEditPanel } from "./BulkEditPanel";
@@ -55,6 +55,20 @@ export function KeyValueGrid({
   const datalistId = useId();
   const hasCommon = !!commonKeys && commonKeys.length > 0;
 
+  // Focus management (spec §3-1 / §6). The add-row key field keeps focus after an
+  // add so the user can type the next entry; a menu pick moves focus to the affected
+  // row's value field. The pick case needs an effect because the target row may be
+  // newly appended (its <input> isn't mounted until the next render).
+  const newKeyRef = useRef<HTMLInputElement>(null);
+  const valueRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const [pickFocusIdx, setPickFocusIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (pickFocusIdx === null) return;
+    valueRefs.current[pickFocusIdx]?.focus();
+    setPickFocusIdx(null);
+  }, [pickFocusIdx]);
+
   // Re-seed drafts ONLY when the selected step changes (mirror ExtractEditor).
   // Re-seeding on an `entries` deep-compare would clobber in-progress edits (spec R2).
   useEffect(() => {
@@ -100,6 +114,7 @@ export function KeyValueGrid({
     commit([...rows, { key: k, value: newValue }]);
     setNewKey("");
     setNewValue("");
+    newKeyRef.current?.focus(); // spec §3-1: keep focus on the add-row key for the next entry
   };
 
   const pickCommon = (h: CommonHeader) => {
@@ -107,8 +122,10 @@ export function KeyValueGrid({
     if (idx >= 0) {
       if (rows[idx].value.trim() !== "") return; // A3: don't clobber a user value
       commit(rows.map((r, i) => (i === idx ? { ...r, value: h.value } : r)));
+      setPickFocusIdx(idx); // spec §6: focus the seeded value field
     } else {
       commit([...rows, { key: h.name, value: h.value }]);
+      setPickFocusIdx(rows.length); // spec §6: focus the appended row's value field
     }
   };
 
@@ -160,6 +177,9 @@ export function KeyValueGrid({
             />
             <span className="text-slate-400 text-xs">=</span>
             <input
+              ref={(el) => {
+                valueRefs.current[idx] = el;
+              }}
               aria-label={`${itemLabel} value ${idx}`}
               className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
               placeholder={valuePlaceholder}
@@ -184,6 +204,7 @@ export function KeyValueGrid({
 
       <div className="flex gap-2 mt-1">
         <input
+          ref={newKeyRef}
           aria-label={`new ${itemLabel} key`}
           list={hasCommon ? datalistId : undefined}
           className="w-32 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"

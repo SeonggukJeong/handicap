@@ -139,3 +139,30 @@ describe("KeyValueGrid — common-header picker", () => {
     expect(screen.queryByRole("button", { name: /자주 쓰는 헤더/ })).not.toBeInTheDocument();
   });
 });
+
+describe("KeyValueGrid — focus movement", () => {
+  it("returns focus to the add-row key field after Add (spec §3-1)", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.type(screen.getByLabelText("new header key"), "X-Custom");
+    await user.type(screen.getByLabelText("new header value"), "abc");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByLabelText("new header key")).toHaveFocus();
+  });
+
+  it("focuses the row value field after a menu pick adds a row (spec §6)", async () => {
+    const user = userEvent.setup();
+    render(<Harness withCommon />);
+    await user.click(screen.getByRole("button", { name: /자주 쓰는 헤더/ }));
+    await user.click(screen.getByRole("option", { name: "Content-Type" }));
+    expect(screen.getByLabelText("header value 0")).toHaveFocus();
+  });
+
+  it("focuses the row value field when a menu pick seeds an empty existing row (spec §6)", async () => {
+    const user = userEvent.setup();
+    render(<Harness withCommon initial={{ "Content-Type": "" }} />);
+    await user.click(screen.getByRole("button", { name: /자주 쓰는 헤더/ }));
+    await user.click(screen.getByRole("option", { name: "Content-Type" }));
+    expect(screen.getByLabelText("header value 0")).toHaveFocus();
+  });
+});
