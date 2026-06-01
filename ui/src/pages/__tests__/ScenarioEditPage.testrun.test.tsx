@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -85,5 +85,18 @@ describe("ScenarioEditPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /Test run result/ });
+  });
+
+  it("groups Save, Back and Runs in the top header row next to the title", async () => {
+    renderPage();
+    const save = await screen.findByRole("button", { name: /Save/ });
+    const back = screen.getByRole("button", { name: /Back/ });
+    const runs = screen.getByRole("button", { name: /Runs/ });
+    const group = save.closest("div")!;
+    expect(group).toContainElement(back);
+    expect(group).toContainElement(runs); // Runs shares the header action group
+    const header = group.parentElement!;
+    expect(header).toHaveClass("justify-between"); // header row, title on the left
+    expect(within(header).getByRole("heading", { name: "demo" })).toBeInTheDocument();
   });
 });

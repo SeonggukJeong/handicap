@@ -19,29 +19,30 @@ export function ScenarioNewPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold">New scenario</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">New scenario</h2>
+        <div className="flex gap-2">
+          <Button
+            onClick={() =>
+              mutation.mutate(yamlText, {
+                onSuccess: (created) => navigate(`/scenarios/${created.id}`),
+              })
+            }
+            disabled={mutation.isPending || yamlText.trim().length === 0}
+          >
+            {mutation.isPending ? "Creating…" : "Create"}
+          </Button>
+          <Button variant="secondary" onClick={() => navigate("/")}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+
+      {mutation.error && <p className="text-red-600">{(mutation.error as Error).message}</p>}
 
       <EditorShell initialYaml={STARTER_YAML} onChange={setYamlText} />
 
       <TestRunSection yamlText={yamlText} />
-
-      {mutation.error && <p className="text-red-600">{(mutation.error as Error).message}</p>}
-
-      <div className="flex gap-2">
-        <Button
-          onClick={() =>
-            mutation.mutate(yamlText, {
-              onSuccess: (created) => navigate(`/scenarios/${created.id}`),
-            })
-          }
-          disabled={mutation.isPending || yamlText.trim().length === 0}
-        >
-          {mutation.isPending ? "Creating…" : "Create"}
-        </Button>
-        <Button variant="secondary" onClick={() => navigate("/")}>
-          Cancel
-        </Button>
-      </div>
     </div>
   );
 }

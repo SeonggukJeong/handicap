@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,5 +71,16 @@ describe("ScenarioNewPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /Test run result/ });
+  });
+
+  it("groups Create and Cancel in the top header row next to the title", async () => {
+    renderPage();
+    const create = await screen.findByRole("button", { name: /Create/ });
+    const cancel = screen.getByRole("button", { name: /Cancel/ });
+    const group = create.closest("div")!;
+    expect(group).toContainElement(cancel);
+    const header = group.parentElement!;
+    expect(header).toHaveClass("justify-between"); // header row, title on the left
+    expect(within(header).getByRole("heading", { name: /New scenario/ })).toBeInTheDocument();
   });
 });

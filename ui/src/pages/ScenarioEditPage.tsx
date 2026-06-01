@@ -49,41 +49,38 @@ export function ScenarioEditPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            onClick={() =>
+              loadedVersion !== null &&
+              update.mutate(
+                { yaml: yamlText, version: loadedVersion },
+                {
+                  onSuccess: (next) => {
+                    setLoadedVersion(next.version);
+                    setOriginalYaml(next.yaml);
+                    baselineSeededRef.current = true; // server form is canonical; don't re-seed from next onChange
+                  },
+                },
+              )
+            }
+            disabled={!dirty || update.isPending || loadedVersion === null}
+          >
+            {update.isPending ? "Saving…" : "Save"}
+          </Button>
+          <Button variant="secondary" onClick={() => navigate("/")}>
+            Back
+          </Button>
           <Link to={`/scenarios/${data.id}/runs`}>
             <Button variant="secondary">Runs</Button>
           </Link>
         </div>
       </div>
 
+      {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
+
       <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
 
       <TestRunSection yamlText={yamlText} />
-
-      {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
-
-      <div className="flex gap-2">
-        <Button
-          onClick={() =>
-            loadedVersion !== null &&
-            update.mutate(
-              { yaml: yamlText, version: loadedVersion },
-              {
-                onSuccess: (next) => {
-                  setLoadedVersion(next.version);
-                  setOriginalYaml(next.yaml);
-                  baselineSeededRef.current = true; // server form is canonical; don't re-seed from next onChange
-                },
-              },
-            )
-          }
-          disabled={!dirty || update.isPending || loadedVersion === null}
-        >
-          {update.isPending ? "Saving…" : "Save"}
-        </Button>
-        <Button variant="secondary" onClick={() => navigate("/")}>
-          Back
-        </Button>
-      </div>
     </div>
   );
 }
