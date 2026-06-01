@@ -14,6 +14,7 @@
 - **`/api` 프리픽스로 옮긴 이유** (Slice 2): SPA가 `/scenarios/:id` 같은 client-side route를 갖기 때문에 REST 경로와 충돌. 슬라이스 1 테스트도 함께 업데이트해야 통과.
 - **axum 기본 body limit 2MB가 multipart 업로드를 막는다** (Slice 8b, 실제 버그): `DefaultBodyLimit`는 모든 라우트에 2MB 기본 상한을 적용하고 `Multipart`/`field.bytes()`도 그 대상이다. 데이터셋은 쉽게 2MB를 넘으므로 업로드/preview **POST 라우트에만** `.layer(DefaultBodyLimit::max(N))`로 상한을 올린다(전역 변경 금지 — `/runs`·`/scenarios`는 작은 JSON이라 기본 유지). axum 0.8에선 초과 시 413이 아니라 **400**으로 떨어진다.
 - **axum `multipart`는 별도 feature** (Slice 8b): 워크스페이스 `axum` 줄에 `"multipart"`를 넣어야 `axum::extract::Multipart`가 쓰인다. per-crate feature 가산 병합이 안 되므로 워크스페이스 dependency 줄을 고쳐야 한다.
+- **`ApiError::Unprocessable`(422)는 test-run 엔드포인트 전용** (C-1): `POST /api/test-runs`의 의미 검증(시나리오 YAML 파싱 실패·`max_requests` 범위)만 422를 쓴다 — axum `Json` 추출기가 이 엔드포인트에 이미 422(틀린 필드 타입)를 내므로 핸들러도 422로 맞춰 엔드포인트 내부를 일관시킨 것. **레거시 엔드포인트(runs/presets/environments/datasets)는 400(`BadRequest`) 유지** — 의도된 분기다. `from_yaml` 에러는 `?`(→`ApiError::Scenario`→400)에 기대지 말고 명시 `map_err(|e| ApiError::Unprocessable(...))`로 매핑.
 
 ## 리포트 빌드 (`report.rs`, `build_report`)
 
