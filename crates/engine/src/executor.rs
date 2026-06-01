@@ -299,7 +299,11 @@ pub async fn execute_step_traced(
         };
     }
 
-    unbound.dedup();
+    // A token may render in the url, headers, and body, so the same name can be
+    // collected non-consecutively — Vec::dedup only collapses *adjacent* dups.
+    // De-duplicate order-preservingly (keep first occurrence) so unbound_vars is a set.
+    let mut seen = std::collections::HashSet::new();
+    unbound.retain(|name| seen.insert(name.clone()));
     let request = TracedRequest {
         method: method_str.to_string(),
         url,
@@ -736,6 +740,55 @@ mod tests {
         assert!(t.response.is_none());
         assert!(t.error.is_some());
         assert_eq!(t.request.url, "http://127.0.0.1:1/nope"); // request still captured
+    }
+
+    #[tokio::test]
+    async fn traced_step_dedups_nonconsecutive_unbound_vars() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/p"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        // {{a}} appears in the url, then {{b}} in a header, then {{a}} again in
+        // another header — non-consecutive accumulation order [a, b, a].
+        let mut headers = BTreeMap::new();
+        headers.insert("h1".to_string(), "{{b}}".to_string());
+        headers.insert("h2".to_string(), "{{a}}".to_string());
+        let step = HttpStep {
+            id: "01HX0000000000000000000005".into(),
+            name: "dup".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/p?x={{{{a}}}}", server.uri()),
+                headers,
+                body: None,
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let t = execute_step_traced(&client, &step, &ctx).await;
+        // "a" must appear exactly once despite rendering in url + h2.
+        assert_eq!(
+            t.unbound_vars.iter().filter(|n| *n == "a").count(),
+            1,
+            "got {:?}",
+            t.unbound_vars
+        );
+        let mut sorted = t.unbound_vars.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
