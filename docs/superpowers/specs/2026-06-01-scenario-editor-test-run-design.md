@@ -3,7 +3,7 @@
 * Status: 설계 (구현 전). 신규 ADR-0026 예정.
 * Date: 2026-06-01
 * 관련 ADR: ADR-0013(Scenario↔Run config 분리), ADR-0014(변수 표기 `{{var}}`/`${ENV}`), ADR-0016(VU = tokio task), ADR-0019(워커 dispatcher 추상화 — subprocess/K8s Job), ADR-0025(환경 = env-namespace 재사용 리소스 + 클라 오버레이)
-* 신규 ADR: ADR-0026 (test-run = ephemeral in-process 엔진 trace; 워커 격리 미사용 + 워커 경로 확장 이음새 + raw 응답 trace로 미래 extract-authoring 대비)
+* 신규 ADR: ADR-0026 (test-run = ephemeral in-process 엔진 trace; 워커 격리 미사용 + 워커 경로 확장 이음새 + raw 응답 trace로 미래 extract-authoring 대비 + 의미검증에 422(신규 `ApiError::Unprocessable`, 레거시 400 유지))
 * 로드맵: `docs/roadmap.md` §A6 후속("시나리오 에디터 환경 선택 test-run", spec §7). 영역 B(환경)가 깐 `<EnvironmentPicker>`/`resolveEnv` 재사용 이음새 위에 올라탄다.
 * 원천: 환경 spec(`2026-05-31-global-variables-environments-design.md`) §7 "확장성" — "추후 시나리오 수정 화면에서 환경 선택 → 시나리오 1회 test-run 기능이 들어올 예정. v1 의 환경 선택 컴포넌트 + env 병합 유틸을 RunDialog 와 분리된 재사용 단위로 만들어, 그 기능이 그대로 끌어 쓰게 한다."
 
@@ -26,12 +26,14 @@
 
 - ✅ **컨트롤러가 이미 엔진 크레이트를 링크.** `crates/controller/Cargo.toml`: `handicap-engine = { path = "../engine" }`. 이미 `handicap_engine::Scenario`/`Scenario::from_yaml`을 `api/scenarios.rs`·`store/scenarios.rs`에서 쓰고, `report.rs`가 `percentiles::*`를 쓴다. → in-process 엔진 호출은 의존성 차원에서 추가 비용 0.
 - ✅ **`execute_step`이 이미 스텝별 trace 절반을 반환.** `crates/engine/src/executor.rs:32` `ExecOutcome { step_id, status, latency, error, extracted: BTreeMap<String,String> }`. `execute_step`(`executor.rs:69`)이 status·latency·assert 실패·추출 변수를 채운다. **단 응답 body/headers는 extract용으로 읽은 뒤 버린다**(`executor.rs:140` `body_bytes`) — trace는 이걸 보존해야 한다(§4, §5-1).
-- ⚠️ **재귀 인터프리터는 부하 의미와 강결합 — trace는 "미러"가 아니라 병렬 재구현.** `runner.rs:282` `execute_steps(client, steps, iter_vars, agg, deadline, env, vu_id, iter_id, loop_index, cancel)` — `Step::Loop`은 `0..repeat` 재귀, `Step::If`는 `eval_condition`으로 분기 선택(분기 라벨 문자열 리터럴 `then`/`elif_{j}`/`else`/`none`이 `runner.rs:362-375`에 인라인), http는 `iter_vars.extend(outcome.extracted)`로 오버레이. `iter_vars`는 `scenario.variables`로 시드(`runner.rs:236`). 그러나 이 함수는 `agg: &Arc<Mutex<Aggregator>>`(메트릭·`record_branch`)·`deadline: Instant`(loop head/iteration/mid-body 3곳 체크)·`cancel`·`StepFlow{Continue,DeadlineReached,Aborted}`와 묶여 있다. trace 인터프리터엔 이 중 무엇도 없다(agg 없음, 초당 deadline 없음 — wall-clock 천장 + `max_requests` 카운터만, cancel 없음) → **제어 흐름 형태만 같은 ~120행 병렬 인터프리터를 새로 작성**하는 것에 가깝다(공유되는 건 leaf `execute_step` 내부뿐). 분기 라벨은 drift 방지를 위해 **공유 헬퍼로 추출**해 `execute_steps`/`trace_scenario`가 같은 함수를 쓰게 한다.
+- ⚠️ **재귀 인터프리터는 `as-is` 재사용은 불가하나, "120행 재구현"은 과장 — 공유 헬퍼로 중복을 bound.** `runner.rs:282-404` `execute_steps(client, steps, iter_vars, agg, deadline, env, vu_id, iter_id, loop_index, cancel)`의 **제어 흐름 골격**(steps 순회 → http/loop/if arm; `Step::Loop`은 `0..repeat`+`loop_index` 재귀; `Step::If`는 분기 선택+라벨 후 재귀; http는 `iter_vars.extend(extracted)` 오버레이; `iter_vars`는 `scenario.variables` 시드, `runner.rs:236`)은 **부하·trace가 동일**하다. 부하 전용으로 묶인 건 ① `agg.lock().record(...)`/`record_branch(...)`, ② `deadline: Instant`(3곳 체크)+`StepFlow{Continue,DeadlineReached,Aborted}`, ③ `cancel` 뿐 — trace는 ①을 `Vec<StepTrace>` push, ②를 `max_requests`/wall-clock 천장+`truncated`로, ③ 없음으로 대체한다. **두 구현 경로**:
+  - **경로 A(권장) — 독립 trace 인터프리터**: 골격을 별도 작성하되 ① **if 분기 선택+라벨 블록**(`runner.rs:353-379`, 가장 까다롭고 부하·trace 동일)을 공유 `fn select_branch(if_step, ctx) -> (&[Step], String)`로, ② 요청 빌드를 공유 헬퍼(§3-1 C-1 task 1)로 뽑으면 — **남는 중복은 ~40-50행 얇은 arm 배선**(분기 라벨 리터럴 `runner.rs:362-375`는 `select_branch`로 단일 출처화 → drift 0). **부하 hot path는 글자 그대로 무변경**(최대 안전, 이 repo의 처리량 A/B 문화 부합).
+  - **경로 B — `execute_steps`를 sink+stop-policy로 제네릭화**: 인터프리터 1개가 두 sink(`record` vs `push`)와 stop-policy(deadline/cancel vs counter/ceiling)를 받음 → 중복 0. 단 hot-path 인터프리터를 건드려(제네릭/async-trait) **처리량 재검증 필수** + 제네릭+`Box::pin` 재귀의 추가 복잡도. 위험 대비 이득이 작아 v1은 **경로 A 채택**, B는 후속 리팩터 여지로만.
 - ⚠️ **lenient 렌더러는 존재하나 "어떤 토큰이 미바인딩됐는지"는 안 알려준다.** `template.rs:33`의 `render_lenient`(미해결 토큰 → 빈 문자열, 절대 `Err` 안 냄; `eval_condition`이 이미 사용)는 bare `String`만 반환하고 미해결 토큰 목록을 버린다. strict `render`는 미바인딩 변수에 `EngineError::UnknownVar`. → test-run은 디버그라 **lenient 렌더**를 쓰지만, `StepTrace.unbound_vars`(§3-1)를 채우려면 **token-collecting render 변형이 신규로 필요**하다(§3-2, §9 C-1 별도 task — 공짜 아님).
 - ✅ **`Scenario`는 5필드.** `scenario.rs:11-19` `Scenario { version: u32, name: String, variables: BTreeMap<String,String>(default), cookie_jar: CookieJarMode(default), steps: Vec<Step> }`, `Step` = `Http|Loop|If`(internally-tagged `#[serde(tag="type")]`). **`version`·`name`은 serde default가 없어 inline YAML에 반드시 포함**돼야 `from_yaml`이 통과(에디터 버퍼는 이미 둘을 담음 — 빈 steps만 비는 케이스). `trace_scenario`는 `VuClient` 생성 시 **`scenario.cookie_jar`를 존중**해야 한다(`runner.rs:229` `VuClient::new(scenario.cookie_jar)`와 동일 — 하드코딩 `Auto` 금지).
 - ✅ **`<EnvironmentPicker>` + `resolveEnv` 재사용 이음새 완비(B-2).** `ui/src/components/EnvironmentPicker.tsx`(controlled: `selectedEnvId`/`baseVars`/`overrides`를 부모가 소유), `ui/src/api/envOverlay.ts::resolveEnv(base, overrides)`(override 승, 평탄 맵 반환), `useEnvironments()`/`useEnvironment(id)` 훅. RunDialog와 비결합이라 에디터가 그대로 import.
 - ✅ **에디터 셸 구조.** `ui/src/components/scenario/EditorShell.tsx`는 3-컬럼 그리드(VariablesPanel | 캔버스/YAML | Inspector). `ui/src/pages/ScenarioEditPage.tsx`가 **현재 버퍼 `yamlText`(EditorShell `onChange`로 받음) + `dirty` 플래그**를 보유하고 Save/Back을 렌더. → test-run 버튼·EnvironmentPicker·결과 패널의 home은 `ScenarioEditPage`(버퍼를 가진 쪽).
-- ✅ **에러 상태코드 = 400(`ApiError::BadRequest`) — 422 변형 없음.** `error.rs:7-25` `ApiError`엔 422/Unprocessable 변형이 없다. `Scenario::from_yaml` 실패는 `ApiError::Scenario(EngineError)` → **400**(`error.rs:37`)으로 매핑되고, 모든 검증(`runs.rs`/`presets.rs`/`environments.rs`/`datasets.rs`, 인용한 `validate_run_config` cap 가드 포함)이 **400**이다. → 이 엔드포인트의 파싱·범위 검증 실패도 **전부 400**으로 통일한다. (별개: axum `Json` 추출기가 malformed JSON 본문 자체를 400/422로 거부하는 건 우리 핸들러 로직 밖의 추출기 경계다.)
+- ⚠️ **에러 상태코드 — 이 엔드포인트는 의미 검증에 422를 쓴다(신규 `ApiError::Unprocessable` 변형 추가).** 현재 `error.rs:7-25` `ApiError`엔 422 변형이 없고, 기존 검증(`runs.rs`/`presets.rs`/`environments.rs`/`datasets.rs`)은 전부 **400**(`BadRequest`)이다. 그러나 axum `Json` 추출기는 이 엔드포인트에서도 **well-formed JSON·틀린 필드 타입 → 422**를 이미 낸다(기존 함정 "비문자열 env→422"가 이것). 핸들러가 의미 검증을 400으로 내면 같은 엔드포인트 안에서 400/422가 뒤섞여 더 모호해진다. → **`ApiError::Unprocessable`(422)을 신규 추가**하고, 이 엔드포인트의 **의미 검증(시나리오 YAML 파싱 실패·`max_requests` 범위 초과)을 422**로, malformed JSON 문법 오류만 axum 기본 400으로 둔다(RFC: 422 = well-formed but unprocessable content; axum 422와 일관). **레거시 엔드포인트는 400 유지**(교차 불일치는 의도된 분기 — controller `CLAUDE.md`에 기록). `Scenario::from_yaml` 실패는 현재 `ApiError::Scenario(EngineError)`→400(`error.rs:37`)이라, **test-run 핸들러는 `from_yaml` 에러를 `ApiError::Unprocessable`로 매핑**(`?` 자동 변환에 기대지 말 것 — 명시 `map_err`).
 - ✅ **라우팅 패턴.** `app.rs`가 `.route("/scenarios", …)`·`.route("/scenarios/{id}", get/put)`(`app.rs:33-40`)를 가짐. (정정: axum 0.8/matchit 0.8에선 정적 세그먼트 `/scenarios/test-run`과 파라미터 `/scenarios/{id}`가 **panic 없이 공존**하고 정적이 우선이며, `/scenarios/{id}`는 POST 미등록이라 실제 충돌도 없다 — 즉 기술적 "충돌"은 아니다.) 그럼에도 ephemeral·scenario-less 성격을 분명히 하려 **top-level `POST /api/test-runs`**로 둔다(의미 명확화 + `{id}` 네임스페이스 비침범).
 
 ## 3. 백엔드 — 엔진 trace 인터프리터
@@ -80,13 +82,13 @@ pub struct StepTrace {
 
 | 메서드 | 경로 | 동작 |
 |---|---|---|
-| POST | `/api/test-runs` | body `{ scenario_yaml, env, max_requests?, runner? }`. inline YAML 파싱 → `trace_scenario` in-process → `ScenarioTrace` JSON 동기 반환(200). 파싱 실패 → 400 + 메시지. |
+| POST | `/api/test-runs` | body `{ scenario_yaml, env, max_requests?, runner? }`. inline YAML 파싱 → `trace_scenario` in-process → `ScenarioTrace` JSON 동기 반환(200). 파싱 실패 → 422 + 메시지. |
 
 - 신규 핸들러 `crates/controller/src/api/test_runs.rs`. `pub mod test_runs;`는 `api/mod.rs`에, 별칭 import `test_runs as test_runs_api`는 **`app.rs`**(§2 환경 spec의 파일 위치 분리 함정과 동일). `app.rs`에 `.route("/test-runs", post(test_runs_api::create))` 추가.
 - DTO: `TestRunRequest { scenario_yaml: String, env: BTreeMap<String,String>, #[serde(default = "default_max_requests")] max_requests: u32, #[serde(default)] runner: Option<String> }`. `TestRunResponse`는 `ScenarioTrace`를 그대로 serde(엔진 타입에 serde derive 또는 controller-side DTO 매핑).
-- **검증(controller)** — 모두 `ApiError::BadRequest` = **400**(§2, 이 컨트롤러엔 422 변형 없음):
-  - `scenario_yaml` 파싱 → 실패 시 400(파서 메시지). 빈 steps는 허용(빈 trace 반환).
-  - `max_requests`: 1 ≤ n ≤ **하드 상한 10000**(폭주 방지, `loop_breakdown_cap` 선례). 범위 밖 → 400.
+- **검증(controller)** — 의미 검증은 **422(`ApiError::Unprocessable` 신규)**, malformed JSON 문법만 axum 기본 400(§2):
+  - `scenario_yaml` 파싱 → 실패 시 **422**(파서 메시지, `from_yaml` 에러를 `map_err`로 `Unprocessable`에 매핑). 빈 steps는 허용(빈 trace 반환).
+  - `max_requests`: 1 ≤ n ≤ **하드 상한 10000**(폭주 방지, `loop_breakdown_cap` 선례). 범위 밖 → **422**. (well-formed JSON·틀린 타입(예: 문자열)은 axum 추출기가 자체 422.)
   - `runner`: v1은 `None`/`"controller"`만 의미 있음. 그 외 값은 **거부가 아니라 무시**(미래 호환 — 구버전 컨트롤러가 새 클라의 `runner`를 만나도 깨지지 않게)하고 항상 in-process 실행.
 - **안전 천장(주 제한자 아님)**: 사용자가 cap을 올려 긴 시나리오를 끝까지 돌릴 수 있도록 전체 wall-clock 타임아웃은 **넉넉한 천장**(예: 120s)으로 둔다. 실제 제한은 ① `max_requests`, ② 요청별 client 30s 타임아웃(`VuClient`, `executor.rs:21`). 천장 초과 시 부분 trace + `truncated`.
 - **proto·워커·runs 테이블·마이그레이션 전부 무변경.**
@@ -109,7 +111,7 @@ pub struct StepTrace {
 
 ## 6. 검증 · 엣지 케이스
 
-- **빈/파싱불가 YAML**: 파싱 불가 → 400 배너. 빈 steps → 빈 trace(정상 200, "실행할 스텝 없음"). (inline YAML엔 `version`+`name`이 있어야 파싱 통과 — §2 5필드.)
+- **빈/파싱불가 YAML**: 파싱 불가 → 422 배너. 빈 steps → 빈 trace(정상 200, "실행할 스텝 없음"). (inline YAML엔 `version`+`name`이 있어야 파싱 통과 — §2 5필드.)
 - **데이터셋 바인딩 없음(v1)**: 데이터셋 주입은 부하-run 프로파일(RunDialog `DataBindingPanel`) 관심사라 test-run UI에 없다. dataset-소스 `{{var}}`는 미바인딩(빈 값)으로 두고 `unbound_vars`에 표시. → **수동 변수 오버라이드**는 후속(§8-2).
 - **민감값 마스킹 없음(v1)**: env·body·응답이 평문으로 trace에 담김(현 `runs.env_json`/리포트와 동일 수준). roadmap B1 후속.
 - **큰 응답/큰 loop**: §3-2 body 트렁케이션 + §4 `max_requests` + wall-clock 천장으로 방어.
@@ -124,12 +126,12 @@ pub struct StepTrace {
 - **회귀 가드**: `run_scenario`(부하 hot path) 무변경 확인 — 기존 처리량/메트릭 테스트가 그대로 green.
 
 **Rust (controller)**:
-- `tests/test_runs_api_test.rs`: 정상 trace 200; 파싱불가 400; `max_requests` 경계(0/10001 → 400, 1/50/10000 OK); `runner` 알 수 없는 값 무시.
+- `tests/test_runs_api_test.rs`: 정상 trace 200; 파싱불가 422; `max_requests` 경계(0/10001 → 422, 1/50/10000 OK); `runner` 알 수 없는 값 무시. (`ApiError::Unprocessable` → 422 매핑도 단위로.)
 - **fixture ULID**는 Crockford base32(`I`/`L`/`O`/`U` 제외) — `crates/engine/CLAUDE.md` 함정.
 
 **UI (vitest + RTL)**:
 - `testRuns.ts` 스키마 round-trip + `data` null 방어.
-- `ScenarioEditPage`/`TestRunPanel`: Test-run 클릭 → mutation 호출 페이로드(현재 yamlText + 병합 env + max_requests) 검증; trace 렌더(http 행 status/latency/추출, if 분기 라벨, 미바인딩 경고, truncated 배너); 400 에러 배너.
+- `ScenarioEditPage`/`TestRunPanel`: Test-run 클릭 → mutation 호출 페이로드(현재 yamlText + 병합 env + max_requests) 검증; trace 렌더(http 행 status/latency/추출, if 분기 라벨, 미바인딩 경고, truncated 배너); 422 에러 배너.
 - `<EnvironmentPicker>` 재사용 — 기존 RTL 셀렉터(`select environment` 등) 그대로. `await findByRole("option", …)`로 `useEnvironments` settle 대기(B-2 함정).
 - 게이트: `pnpm build`(`tsc -b`).
 
@@ -147,9 +149,9 @@ pub struct StepTrace {
 
 - **C-1 — 엔진 trace + 컨트롤러 엔드포인트** (백엔드, UI 무변경):
   1. **요청 빌드 헬퍼 추출 + `execute_step_traced`** — `executor.rs`의 요청 빌드(url/headers/method/body 렌더, :74-115)만 작은 공유 헬퍼로 뽑고, 응답 body/headers 캡처는 traced 진입점에만 더한다(**순수 additive** — `run_scenario` hot path 호출부 무변경).
-  2. **`trace_scenario` 병렬 인터프리터**(`engine/src/trace.rs`) — `execute_steps`의 loop/if 제어 흐름을 agg/deadline/cancel 없이 재구현(~120행), `Vec<StepTrace>` 누적, http leaf에서만 `max_requests` 카운트. 분기 라벨은 `execute_steps`와 **공유 헬퍼**로(drift 방지). `StepTrace`/`ScenarioTrace` 등 trace 타입(`derive(Serialize, Deserialize)`).
+  2. **`trace_scenario` 독립 인터프리터**(`engine/src/trace.rs`, 경로 A) — `execute_steps`의 loop/if 골격을 agg/deadline/cancel 없이 별도 작성하되, **if 분기 선택+라벨을 공유 `select_branch()`로 추출**(`runner.rs:353-379`를 단일 출처화 → `execute_steps`도 이 헬퍼를 쓰게 리팩터; drift 0). 남는 trace-전용 코드는 ~40-50행 arm 배선. `Vec<StepTrace>` 누적, http leaf에서만 `max_requests` 카운트. trace 타입은 `derive(Serialize, Deserialize)`. (경로 B 제네릭화는 §2 ⚠️대로 후속 여지.)
   3. **(선택) `render_collecting`** — `unbound_vars`를 채우려면 `template.rs`에 token-collecting 렌더 변형 신규 추가(§3-1). **C-1 부담이 크면 이 task만 §10으로 연기**(연기 시 trace는 빈 값만, `unbound_vars` 필드 생략).
-  4. **`api/test_runs.rs`** — `POST /api/test-runs`(검증 전부 400, `max_requests` 경계, `runner` 무시, wall-clock 천장) + 라우팅(`pub mod`은 `api/mod.rs`, 별칭 import는 `app.rs`).
+  4. **`api/test_runs.rs` + `ApiError::Unprocessable`(422)** — `error.rs`에 422 변형 신규 추가(§2) + controller `CLAUDE.md`에 "test-run만 의미검증 422, 레거시는 400" 의도된 분기 기록. `POST /api/test-runs`(파싱·범위 검증 → 422, `runner` 무시, wall-clock 천장) + 라우팅(`pub mod`은 `api/mod.rs`, 별칭 import는 `app.rs`).
   - **회귀 가드**: `run_scenario`(부하 hot path) 무변경 — 기존 처리량/메트릭 테스트 green 유지.
 - **C-2 — 에디터 UI** (유일한 신규 UX): `ScenarioEditPage` Test-run 컨트롤 + `<EnvironmentPicker>` 재사용 + `TestRunPanel` 결과 렌더 + `api/testRuns.ts`/`useTestRun`. C-1의 응답 계약 소비.
 
