@@ -15,7 +15,7 @@
 ## 현재 상태 (2026-06-01)
 
 - **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)** + **영역 A (Run 프리셋 + Retry, ADR-0024)** + **영역 B (환경/Environments, ADR-0025)**. 열린 9 이전 슬라이스 작업 없음.
-- **진행 중**: **영역 C (시나리오 에디터 test-run, A6 후속·spec §7 실현)** — spec(`docs/superpowers/specs/2026-06-01-scenario-editor-test-run-design.md`) + C-1 백엔드 plan(`docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c1-backend.md`) 커밋 완료, C-1 구현 대기(subagent-driven). 컨트롤러 in-process 엔진 trace + `POST /api/test-runs`(ephemeral) + 신규 ADR-0026(작성 예정). C-2(UI)는 별도 plan 미작성.
+- **진행 중**: **영역 C (시나리오 에디터 test-run, A6 후속·spec §7 실현)** — spec + C-1 백엔드 plan 커밋. **C-1(백엔드) 구현+머지 완료(2026-06-01, subagent-driven)**: 컨트롤러 in-process 엔진 trace(`trace_scenario`) + top-level `POST /api/test-runs`(ephemeral) + `render_collecting`/`execute_step_traced`/`select_branch` 추출 + `ApiError::Unprocessable`(422) + if/elif 조건 미바인딩 변수 결정 행 표시(follow-up 확장). **ADR-0026 작성 완료.** **다음 = C-2(UI)** plan 미작성(에디터 Test-run 버튼 + `<EnvironmentPicker>`/`resolveEnv` 재사용 + `TestRunPanel`, `ScenarioTrace` JSON 계약 소비). spec/plan: `docs/superpowers/{specs,plans}/2026-06-01-scenario-editor-test-run-*`.
 
 ---
 
