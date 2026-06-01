@@ -12,10 +12,10 @@
 
 ---
 
-## 현재 상태 (2026-05-31)
+## 현재 상태 (2026-06-01)
 
 - **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)** + **영역 A (Run 프리셋 + Retry, ADR-0024)** + **영역 B (환경/Environments, ADR-0025)**. 열린 9 이전 슬라이스 작업 없음.
-- **진행 중**: 없음. 다음 후보는 아래 §A 참고.
+- **진행 중**: **영역 C (시나리오 에디터 test-run, A6 후속·spec §7 실현)** — spec(`docs/superpowers/specs/2026-06-01-scenario-editor-test-run-design.md`) + C-1 백엔드 plan(`docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c1-backend.md`) 커밋 완료, C-1 구현 대기(subagent-driven). 컨트롤러 in-process 엔진 trace + `POST /api/test-runs`(ephemeral) + 신규 ADR-0026(작성 예정). C-2(UI)는 별도 plan 미작성.
 
 ---
 
