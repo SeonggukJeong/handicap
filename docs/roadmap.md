@@ -94,6 +94,13 @@
 - **`unique` 바인딩(중앙 커서)**: §B1 와 동일 항목 — A3 인프라 위 후속 하위 슬라이스로 구체화(spec §6.4 설계 스텁: 워커별 disjoint 슬라이스 스트리밍).
 - **컨트롤러 재시작 부분 복구**: 멀티워커 run 도 재시작 시 통째 `failed`(현 동작·fail-fast 정합). 부분 진행 복구는 안 함. → 필요 시 per-shard 상태 영속화 슬라이스.
 
+### B4. Header/Form 벌크 입력 연기 항목
+출처: 스펙 `2026-06-01-header-form-bulk-entry-design.md` §7 + 사용자 결정(2026-06-01).
+- **disabled 행 토글**: Postman처럼 KV(헤더/폼) 행을 지우지 않고 체크박스로 잠시 끄기. 행마다 `enabled: bool`이 필요해 `Record<string,string>` 모델 확장이 선행(YAML·엔진 `BTreeMap` 와이어도 같이). 사용자가 "해볼 만하다"고 판단 → KeyValueGrid 후속 UI 슬라이스(모델 확장 포함, 별도 spec).
+- **JSON body "Format/Prettify" 버튼 (후보)**: 현 `JsonBodyField`(`Inspector.tsx`)는 로드·step 전환 시 `JSON.stringify(.,null,2)`로 pretty-print + onBlur `JSON.parse` 검증만 한다 — 빠진 건 **편집 중 즉시 재포맷**(minified 붙여넣기 → 버튼 → 들여쓰기 반영). `parse→stringify(.,2)→setText` 한 줄짜리 self-contained UI(외부 prettier 의존 불필요). → 작은 UI QoL.
+- **(de-scoped) 멀티값 헤더(같은 key 반복)**: 사용자 판단 "헤더 중복 입력 필요성 낮음" → 후보 제외. 필요해지면 모델 확장(별도 spec).
+- **raw body 에디터**: 변경 이유 없음 — 임의 텍스트라 textarea가 적합. 건드리지 않음.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
 
