@@ -237,3 +237,13 @@ export function useDeleteEnvironment() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.environments() }),
   });
 }
+
+export function useTestRun() {
+  return useMutation({
+    mutationFn: (body: {
+      scenario_yaml: string;
+      env: Record<string, string>;
+      max_requests?: number;
+    }) => api.createTestRun(body),
+  });
+}

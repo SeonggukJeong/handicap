@@ -10,6 +10,7 @@ import {
   RunSchema,
   ScenarioListSchema,
   ScenarioSchema,
+  ScenarioTraceSchema,
   type Dataset,
   type DatasetPreview,
   type Profile,
@@ -140,6 +141,11 @@ export const api = {
       { method: "POST", body: JSON.stringify({ scenario_id, profile, env }) },
       RunSchema,
     ),
+  createTestRun: (body: {
+    scenario_yaml: string;
+    env: Record<string, string>;
+    max_requests?: number;
+  }) => request("/test-runs", { method: "POST", body: JSON.stringify(body) }, ScenarioTraceSchema),
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
