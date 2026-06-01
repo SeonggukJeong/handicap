@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useCreateScenario } from "../api/hooks";
 import { Button } from "../components/Button";
 import { EditorShell } from "../components/scenario/EditorShell";
+import { TestRunSection } from "../components/scenario/TestRunSection";
 
 export const STARTER_YAML = `version: 1
 name: "Untitled"
@@ -21,6 +22,8 @@ export function ScenarioNewPage() {
       <h2 className="text-xl font-semibold">New scenario</h2>
 
       <EditorShell initialYaml={STARTER_YAML} onChange={setYamlText} />
+
+      <TestRunSection yamlText={yamlText} />
 
       {mutation.error && <p className="text-red-600">{(mutation.error as Error).message}</p>}
 
