@@ -8,6 +8,7 @@ pub mod percentiles;
 pub mod runner;
 pub mod scenario;
 pub mod template;
+pub mod trace;
 
 pub use aggregator::{Aggregator, BranchStat, LoopStat, StepWindow};
 pub use condition::eval_condition;
@@ -21,3 +22,6 @@ pub use scenario::{
     LoopStep, Request, Scenario, Step,
 };
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
+pub use trace::{
+    HttpTrace, ScenarioTrace, StepKind, StepTrace, TraceOptions, TracedRequest, TracedResponse,
+};
