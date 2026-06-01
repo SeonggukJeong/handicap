@@ -8,7 +8,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use crate::error::{EngineError, Result};
 use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
 use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
-use crate::template::{TemplateContext, render};
+use crate::template::{TemplateContext, render, render_collecting};
+use crate::trace::{HttpTrace, TracedRequest, TracedResponse};
 
 /// Per-VU HTTP client. Holds its own cookie jar so sessions are isolated.
 pub struct VuClient {
@@ -190,6 +191,220 @@ pub async fn execute_step(
             error: Some(e.to_string()),
             extracted: BTreeMap::new(),
         }),
+    }
+}
+
+/// Response bodies larger than this are truncated in the trace (UI display cap).
+const MAX_TRACE_BODY_BYTES: usize = 16 * 1024;
+
+/// Lenient+collecting JSON render (trace sibling of `render_json_value`): renders
+/// every string leaf via `render_collecting`, preserving numbers/bools/null and
+/// object keys, and appending unresolved token names to `unbound`.
+fn render_json_collecting(
+    value: &serde_json::Value,
+    ctx: &TemplateContext<'_>,
+    unbound: &mut Vec<String>,
+) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(s) => Value::String(render_collecting(s, ctx, unbound)),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|i| render_json_collecting(i, ctx, unbound))
+                .collect(),
+        ),
+        Value::Object(map) => {
+            let mut out = serde_json::Map::with_capacity(map.len());
+            for (k, v) in map {
+                out.insert(k.clone(), render_json_collecting(v, ctx, unbound));
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Trace sibling of [`execute_step`]: renders leniently (collecting unbound tokens)
+/// and KEEPS the resolved request + response detail. Never errors — failures are
+/// captured in the returned `HttpTrace.error`. Does not touch the load hot path.
+pub async fn execute_step_traced(
+    client: &VuClient,
+    step: &HttpStep,
+    ctx: &TemplateContext<'_>,
+) -> HttpTrace {
+    let mut unbound: Vec<String> = Vec::new();
+    let url = render_collecting(&step.request.url, ctx, &mut unbound);
+
+    let (method_str, method) = match step.request.method {
+        HttpMethod::Get => ("GET", reqwest::Method::GET),
+        HttpMethod::Post => ("POST", reqwest::Method::POST),
+        HttpMethod::Put => ("PUT", reqwest::Method::PUT),
+        HttpMethod::Patch => ("PATCH", reqwest::Method::PATCH),
+        HttpMethod::Delete => ("DELETE", reqwest::Method::DELETE),
+        HttpMethod::Head => ("HEAD", reqwest::Method::HEAD),
+        HttpMethod::Options => ("OPTIONS", reqwest::Method::OPTIONS),
+    };
+
+    let mut header_display: BTreeMap<String, String> = BTreeMap::new();
+    let mut headers = HeaderMap::new();
+    let mut build_error: Option<String> = None;
+    for (k, v) in &step.request.headers {
+        let rv = render_collecting(v, ctx, &mut unbound);
+        header_display.insert(k.clone(), rv.clone());
+        match (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(&rv),
+        ) {
+            (Ok(name), Ok(val)) => {
+                headers.insert(name, val);
+            }
+            _ => {
+                if build_error.is_none() {
+                    build_error = Some(format!("invalid header {k}"));
+                }
+            }
+        }
+    }
+
+    // Render + record the body (display form) and attach to the request builder.
+    let mut body_display: Option<String> = None;
+    let mut req = client.inner.request(method, &url).headers(headers);
+    if let Some(body) = &step.request.body {
+        req = match body {
+            Body::Json(v) => {
+                let rendered = render_json_collecting(v, ctx, &mut unbound);
+                body_display = serde_json::to_string(&rendered).ok();
+                req.json(&rendered)
+            }
+            Body::Form(map) => {
+                let mut rendered = BTreeMap::new();
+                for (k, v) in map {
+                    rendered.insert(k.clone(), render_collecting(v, ctx, &mut unbound));
+                }
+                body_display = Some(
+                    rendered
+                        .iter()
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>()
+                        .join("&"),
+                );
+                req.form(&rendered)
+            }
+            Body::Raw(s) => {
+                let rendered = render_collecting(s, ctx, &mut unbound);
+                body_display = Some(rendered.clone());
+                req.body(rendered)
+            }
+        };
+    }
+
+    unbound.dedup();
+    let request = TracedRequest {
+        method: method_str.to_string(),
+        url,
+        headers: header_display,
+        body: body_display,
+    };
+
+    let started = std::time::Instant::now();
+    let outcome = req.send().await;
+    let latency_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+
+    let resp = match outcome {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpTrace {
+                request,
+                response: None,
+                extracted: BTreeMap::new(),
+                unbound_vars: unbound,
+                error: Some(build_error.unwrap_or_else(|| e.to_string())),
+            };
+        }
+    };
+
+    let status = resp.status().as_u16();
+    let resp_headers: Vec<(String, String)> = resp
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|s| (k.as_str().to_string(), s.to_string()))
+        })
+        .collect();
+    let set_cookies: Vec<String> = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(String::from))
+        .collect();
+    let body_bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            return HttpTrace {
+                request,
+                response: Some(TracedResponse {
+                    status,
+                    latency_ms,
+                    headers: resp_headers.iter().cloned().collect(),
+                    set_cookies,
+                    body: String::new(),
+                    body_truncated: false,
+                }),
+                extracted: BTreeMap::new(),
+                unbound_vars: unbound,
+                error: Some(format!("read body: {e}")),
+            };
+        }
+    };
+
+    let full_len = body_bytes.len();
+    let body_truncated = full_len > MAX_TRACE_BODY_BYTES;
+    let body =
+        String::from_utf8_lossy(&body_bytes[..full_len.min(MAX_TRACE_BODY_BYTES)]).into_owned();
+
+    let mut error: Option<String> = build_error;
+    if error.is_none() {
+        for a in &step.assert {
+            match a {
+                Assertion::Status(want) if *want != status => {
+                    error = Some(format!("status {} != {}", status, want));
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut extracted = BTreeMap::new();
+    if error.is_none() && !step.extract.is_empty() {
+        let facts = ResponseFacts {
+            status,
+            headers: &resp_headers,
+            set_cookies: &set_cookies,
+            body: &body_bytes,
+        };
+        match evaluate_extracts(&step.extract, &facts) {
+            Ok(map) => extracted = map,
+            Err(e) => error = Some(e.to_string()),
+        }
+    }
+
+    HttpTrace {
+        request,
+        response: Some(TracedResponse {
+            status,
+            latency_ms,
+            headers: resp_headers.into_iter().collect(),
+            set_cookies,
+            body,
+            body_truncated,
+        }),
+        extracted,
+        unbound_vars: unbound,
+        error,
     }
 }
 
@@ -438,6 +653,89 @@ mod tests {
             matches!(result, Err(EngineError::UnknownVar(_))),
             "got: {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn traced_step_captures_request_response_and_unbound() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/ping"))
+            .respond_with(
+                ResponseTemplate::new(201)
+                    .insert_header("x-trace", "yes")
+                    .set_body_string("pong-body"),
+            )
+            .mount(&server)
+            .await;
+
+        let mut headers = BTreeMap::new();
+        headers.insert("x-token".to_string(), "{{missing}}".to_string()); // unbound → empty
+        let step = HttpStep {
+            id: "01HX0000000000000000000002".into(),
+            name: "ping".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/ping", server.uri()),
+                headers,
+                body: None,
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let t = execute_step_traced(&client, &step, &ctx).await;
+
+        assert_eq!(t.request.method, "GET");
+        assert_eq!(
+            t.request.headers.get("x-token").map(String::as_str),
+            Some("")
+        ); // rendered empty
+        assert_eq!(t.unbound_vars, vec!["missing".to_string()]);
+        let resp = t.response.expect("response captured");
+        assert_eq!(resp.status, 201);
+        assert_eq!(resp.body, "pong-body");
+        assert!(!resp.body_truncated);
+        assert_eq!(resp.headers.get("x-trace").map(String::as_str), Some("yes"));
+        assert!(t.error.is_none(), "{:?}", t.error);
+    }
+
+    #[tokio::test]
+    async fn traced_step_reports_connection_error_with_request_kept() {
+        let step = HttpStep {
+            id: "01HX0000000000000000000003".into(),
+            name: "down".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: "http://127.0.0.1:1/nope".into(), // refused fast
+                headers: BTreeMap::new(),
+                body: None,
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let t = execute_step_traced(&client, &step, &ctx).await;
+        assert!(t.response.is_none());
+        assert!(t.error.is_some());
+        assert_eq!(t.request.url, "http://127.0.0.1:1/nope"); // request still captured
     }
 
     #[test]
