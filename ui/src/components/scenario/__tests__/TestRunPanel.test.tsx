@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ScenarioTrace } from "../../../api/schemas";
+import type { Step } from "../../../scenario/model";
 import { TestRunPanel } from "../TestRunPanel";
 
 const TRACE: ScenarioTrace = {
@@ -67,5 +68,28 @@ describe("TestRunPanel", () => {
     render(<TestRunPanel trace={{ ...TRACE, ok: true, truncated: false, steps: [] }} />);
     expect(screen.queryByText(/상한 도달/)).not.toBeInTheDocument();
     expect(screen.getByText(/OK/)).toBeInTheDocument();
+  });
+
+  it("renders the if condition summary when the scenario steps are provided", () => {
+    const ifStep: Step = {
+      id: "01HX0000000000000000000010",
+      name: "branch",
+      type: "if",
+      cond: { left: "status", op: "eq", right: "200" },
+      then: [
+        {
+          id: "01HX0000000000000000000011",
+          name: "ok",
+          type: "http",
+          request: { method: "GET", url: "/ok", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+      elif: [],
+      else: [],
+    };
+    render(<TestRunPanel trace={TRACE} steps={[ifStep]} />);
+    expect(screen.getByText("status eq 200")).toBeInTheDocument();
   });
 });

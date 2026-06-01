@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ScenarioTrace, StepTrace } from "../../api/schemas";
+import { findStepById, isIfStep, summarizeCondition, type Step } from "../../scenario/model";
 
 const BRANCH_LABEL: Record<string, string> = {
   none: "(미매치)",
@@ -109,12 +110,15 @@ function HttpRow({ step }: { step: StepTrace }) {
   );
 }
 
-function IfRow({ step }: { step: StepTrace }) {
+function IfRow({ step, steps }: { step: StepTrace; steps?: ReadonlyArray<Step> }) {
+  const node = steps ? findStepById(steps, step.step_id) : null;
+  const condSummary = node && isIfStep(node) ? summarizeCondition(node.cond) : null;
   return (
     <li className="border-b border-slate-100 py-2">
       <div className="flex flex-wrap items-center gap-2">
         {step.loop_index !== null && chip(`#${step.loop_index}`, "bg-slate-100 text-slate-600")}
         {chip("if", "bg-violet-200 text-violet-900")}
+        {condSummary && <span className="font-mono text-xs text-slate-700">{condSummary}</span>}
         <span className="text-xs text-slate-600">→</span>
         {chip(branchText(step.branch ?? "none"), "bg-violet-100 text-violet-800")}
         <span className="font-mono text-xs text-slate-400 break-all">{step.step_id}</span>
@@ -129,7 +133,13 @@ function IfRow({ step }: { step: StepTrace }) {
   );
 }
 
-export function TestRunPanel({ trace }: { trace: ScenarioTrace }) {
+export function TestRunPanel({
+  trace,
+  steps,
+}: {
+  trace: ScenarioTrace;
+  steps?: ReadonlyArray<Step>;
+}) {
   return (
     <section aria-label="Test run result" className="rounded border border-slate-200 p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -154,7 +164,7 @@ export function TestRunPanel({ trace }: { trace: ScenarioTrace }) {
         <ul>
           {trace.steps.map((step, i) =>
             step.kind === "if" ? (
-              <IfRow key={`${step.step_id}-${i}`} step={step} />
+              <IfRow key={`${step.step_id}-${i}`} step={step} steps={steps} />
             ) : (
               <HttpRow key={`${step.step_id}-${i}`} step={step} />
             ),

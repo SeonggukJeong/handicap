@@ -12,7 +12,7 @@ import { useScenarioEditor } from "../../scenario/store";
 import { HttpStepNode, type HttpStepNodeData } from "./HttpStepNode";
 import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
 import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
-import { isLoopStep, type Condition, type Step } from "../../scenario/model";
+import { isLoopStep, summarizeCondition, type Step } from "../../scenario/model";
 
 const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode };
 const NODE_WIDTH = 220;
@@ -131,13 +131,6 @@ export function CanvasView() {
       </div>
     </div>
   );
-}
-
-function summarizeCondition(c: Condition): string {
-  if ("all" in c) return c.all.map(summarizeCondition).join(" AND ");
-  if ("any" in c) return c.any.map(summarizeCondition).join(" OR ");
-  const noRight = c.op === "exists" || c.op === "empty";
-  return `${c.left || "?"} ${c.op}${noRight ? "" : ` ${c.right ?? ""}`}`;
 }
 
 function ifBands(step: Extract<Step, { type: "if" }>): Array<{ label: string; children: Step[] }> {

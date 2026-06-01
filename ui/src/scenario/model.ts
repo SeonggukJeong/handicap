@@ -230,6 +230,16 @@ function siblingsOrNull(steps: ReadonlyArray<Step>, stepId: string): ReadonlyArr
   return null;
 }
 
+/** One-line human summary of an if/elif condition tree (leaf "left op right",
+ *  groups joined by AND/OR; exists/empty drop the right operand). Shared by the
+ *  canvas if-node and the test-run panel. */
+export function summarizeCondition(c: Condition): string {
+  if ("all" in c) return c.all.map(summarizeCondition).join(" AND ");
+  if ("any" in c) return c.any.map(summarizeCondition).join(" OR ");
+  const noRight = c.op === "exists" || c.op === "empty";
+  return `${c.left || "?"} ${c.op}${noRight ? "" : ` ${c.right ?? ""}`}`;
+}
+
 /** Find a step of ANY type by id, descending into both container types (9c).
  *  Needed so the inspector can select a nested loop/if container, not just an
  *  http leaf (flattenHttpSteps only returns leaves). */

@@ -7,6 +7,7 @@ import {
   isHttpStep,
   isIfStep,
   flattenHttpSteps,
+  summarizeCondition,
   type Scenario,
   type HttpStep,
   type Extract,
@@ -523,5 +524,28 @@ describe("if step model (9b)", () => {
         "01HX000000000000000000002B",
       );
     }
+  });
+});
+
+describe("summarizeCondition", () => {
+  it("renders a leaf, exists/empty drop the right operand, groups join with AND/OR", () => {
+    expect(summarizeCondition({ left: "status", op: "eq", right: "200" })).toBe("status eq 200");
+    expect(summarizeCondition({ left: "token", op: "exists" })).toBe("token exists");
+    expect(
+      summarizeCondition({
+        all: [
+          { left: "a", op: "eq", right: "1" },
+          { left: "b", op: "ne", right: "2" },
+        ],
+      }),
+    ).toBe("a eq 1 AND b ne 2");
+    expect(
+      summarizeCondition({
+        any: [
+          { left: "a", op: "eq", right: "1" },
+          { left: "b", op: "eq", right: "2" },
+        ],
+      }),
+    ).toBe("a eq 1 OR b eq 2");
   });
 });

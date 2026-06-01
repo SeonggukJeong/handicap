@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useScenario, useTestRun, useUpdateScenario, useEnvironment } from "../api/hooks";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
+import { parseScenarioDoc } from "../scenario/yamlDoc";
+import type { Step } from "../scenario/model";
 import { Button } from "../components/Button";
 import { EnvironmentPicker } from "../components/EnvironmentPicker";
 import { EditorShell } from "../components/scenario/EditorShell";
@@ -23,6 +25,11 @@ export function ScenarioEditPage() {
   const [maxRequests, setMaxRequests] = useState<number>(50);
   const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
   const baseVars = selectedEnv.data?.vars ?? {};
+
+  const traceSteps = useMemo<Step[]>(() => {
+    const parsed = parseScenarioDoc(yamlText);
+    return "model" in parsed ? parsed.model.steps : [];
+  }, [yamlText]);
 
   useEffect(() => {
     if (data) {
@@ -108,7 +115,7 @@ export function ScenarioEditPage() {
         )}
       </section>
 
-      {testRun.data && <TestRunPanel trace={testRun.data} />}
+      {testRun.data && <TestRunPanel trace={testRun.data} steps={traceSteps} />}
 
       {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
 
