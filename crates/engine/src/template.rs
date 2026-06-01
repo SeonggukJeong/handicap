@@ -20,7 +20,7 @@ pub struct TemplateContext<'a> {
 /// - `${NAME:-default}` falls back to `default` when `NAME` is absent from env.
 /// - Unknown `{{name}}` → error.
 pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
-    render_inner(input, ctx, false)
+    render_inner(input, ctx, false, &mut None)
 }
 
 /// Lenient variant for **condition evaluation** (spec §3.1). Shares the parser
@@ -31,11 +31,26 @@ pub fn render(input: &str, ctx: &TemplateContext) -> Result<String> {
 /// softens unresolved tokens to the empty string (unlike the UI `resolveForDisplay`,
 /// which preserves them literally for its diagnostic panel).
 pub fn render_lenient(input: &str, ctx: &TemplateContext) -> String {
-    // `render_inner(.., true)` provably never returns Err; default-guard is defensive.
-    render_inner(input, ctx, true).unwrap_or_default()
+    // `render_inner(.., true, ..)` provably never returns Err; default-guard is defensive.
+    render_inner(input, ctx, true, &mut None).unwrap_or_default()
 }
 
-fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<String> {
+/// Lenient render that ALSO appends the name of every unresolved token
+/// (`{{var}}` missing from vars, `${NAME}` missing with no default, `${loop_index}`
+/// outside a loop) to `unbound`. Used by the test-run trace so the UI can show
+/// "why is this empty". Never returns `Err`. Order-preserving; may push duplicates
+/// (caller dedupes per step).
+pub fn render_collecting(input: &str, ctx: &TemplateContext, unbound: &mut Vec<String>) -> String {
+    let mut sink = Some(unbound);
+    render_inner(input, ctx, true, &mut sink).unwrap_or_default()
+}
+
+fn render_inner(
+    input: &str,
+    ctx: &TemplateContext,
+    lenient: bool,
+    collect: &mut Option<&mut Vec<String>>,
+) -> Result<String> {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -76,7 +91,9 @@ fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<Str
                     if !lenient {
                         return Err(EngineError::UnknownVar(name.to_string()));
                     }
-                    // lenient: push nothing (empty string).
+                    if let Some(sink) = collect.as_deref_mut() {
+                        sink.push(name.to_string());
+                    }
                 }
             }
             i = end + 2;
@@ -127,7 +144,9 @@ fn render_inner(input: &str, ctx: &TemplateContext, lenient: bool) -> Result<Str
                     if !lenient {
                         return Err(EngineError::UnknownVar(name.to_string()));
                     }
-                    // lenient: push nothing.
+                    if let Some(sink) = collect.as_deref_mut() {
+                        sink.push(name.to_string());
+                    }
                 }
             }
             i = end + 1;
@@ -522,5 +541,62 @@ mod tests {
         // No panic, no error path — unclosed braces pass through literally.
         assert_eq!(render_lenient("a{{unclosed", &ctx), "a{{unclosed");
         assert_eq!(render_lenient("b${unclosed", &ctx), "b${unclosed");
+    }
+
+    #[test]
+    fn collecting_reports_unresolved_flow_and_env_vars() {
+        let v = vars(&[("known", "K")]);
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let mut unbound = Vec::new();
+        let out = render_collecting("{{known}}-{{missing}}-${NOPE}", &ctx, &mut unbound);
+        assert_eq!(out, "K--"); // resolved + two empties
+        assert_eq!(unbound, vec!["missing".to_string(), "NOPE".to_string()]);
+    }
+
+    #[test]
+    fn collecting_ignores_resolved_and_defaulted() {
+        let v = vars(&[("a", "1")]);
+        let env: BTreeMap<String, String> =
+            [("H".to_string(), "h".to_string())].into_iter().collect();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 5,
+            iter_id: 0,
+            loop_index: Some(2),
+        };
+        let mut unbound = Vec::new();
+        // ${MISSING:-fb} resolves via default → NOT unbound. system vars resolve.
+        let out = render_collecting(
+            "{{a}}/${H}/${vu_id}/${loop_index}/${MISSING:-fb}",
+            &ctx,
+            &mut unbound,
+        );
+        assert_eq!(out, "1/h/5/2/fb");
+        assert!(unbound.is_empty(), "got {unbound:?}");
+    }
+
+    #[test]
+    fn collecting_reports_loop_index_outside_loop() {
+        let v = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let mut unbound = Vec::new();
+        let out = render_collecting("i${loop_index}", &ctx, &mut unbound);
+        assert_eq!(out, "i");
+        assert_eq!(unbound, vec!["loop_index".to_string()]);
     }
 }

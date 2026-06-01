@@ -20,4 +20,4 @@ pub use scenario::{
     Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep, IfStep,
     LoopStep, Request, Scenario, Step,
 };
-pub use template::{TemplateContext, render, render_lenient};
+pub use template::{TemplateContext, render, render_collecting, render_lenient};
