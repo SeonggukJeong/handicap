@@ -108,7 +108,7 @@ QA·개발자가 에디터에서 시나리오를 편집하는 동안, **부하 r
 
 ## 명시적 연기 (Out of scope)
 
-- **C-2 (UI)** — 에디터 Test-run 버튼 + `<EnvironmentPicker>` 재사용 + `TestRunPanel`(별도 plan).
+- ~~**C-2 (UI)** — 에디터 Test-run 버튼 + `<EnvironmentPicker>` 재사용 + `TestRunPanel`(별도 plan).~~ **→ 2026-06-01 구현+머지 완료**(plan `…-c2-ui.md`, 5커밋): ScenarioTrace Zod(와이어 1:1) + `api.createTestRun`/`useTestRun` + `TestRunPanel`(http/if 행·`#loop_index`·미바인딩 앰버·truncated). spec §5-1 if 행 조건 요약은 `summarizeCondition`을 `scenario/model.ts`로 추출해 `ScenarioEditPage`가 `parseScenarioDoc(yamlText)`로 `steps`를 주입(ScenarioTrace엔 cond 텍스트 없음). **영역 C 완결.**
 - **워커 경로 runner(B)** — `runner` 필드 자리만 예약(spec §8-3).
 - **응답에서 extract 변수 지정 authoring**(§8-1), **수동 변수 오버라이드**(§8-2).
 - **데이터셋 바인딩** — dataset-소스 `{{var}}`는 미바인딩(빈 값)으로 두고 `unbound_vars`에 표시.
@@ -121,3 +121,4 @@ QA·개발자가 에디터에서 시나리오를 편집하는 동안, **부하 r
 - ADR-0013 (Scenario/RunConfig 분리) — 미저장 버퍼 inline 실행의 근거
 - Spec `docs/superpowers/specs/2026-06-01-scenario-editor-test-run-design.md`
 - Plan `docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c1-backend.md`(C-1)
+- Plan `docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c2-ui.md`(C-2)
