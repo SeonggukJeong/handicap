@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
+  useNodesInitialized,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeMouseHandler,
@@ -15,6 +17,7 @@ import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
 import { isLoopStep, summarizeCondition, type Step } from "../../scenario/model";
 
 const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode };
+const FIT_OPTIONS = { padding: 0.25, maxZoom: 1.2 } as const;
 const NODE_WIDTH = 220;
 const NODE_GAP = 60;
 const CHILD_H = 64;
@@ -62,6 +65,10 @@ export function CanvasView() {
     [steps],
   );
 
+  // Identity of the current node set — drives the auto-fit below. Changes when a
+  // scenario loads (empty → populated) or when steps are added/removed/nested.
+  const fitKey = useMemo(() => nodes.map((n) => n.id).join(","), [nodes]);
+
   const onNodeClick: NodeMouseHandler = (_e, node) => {
     select(node.id);
   };
@@ -72,7 +79,7 @@ export function CanvasView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 min-h-[400px] border border-slate-200 rounded-md overflow-hidden">
+      <div className="flex-1 min-h-[520px] border border-slate-200 rounded-md overflow-hidden">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -80,57 +87,80 @@ export function CanvasView() {
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
           fitView
-          fitViewOptions={{ padding: 0.3, maxZoom: 1.2 }}
+          fitViewOptions={FIT_OPTIONS}
+          minZoom={0.2}
           proOptions={{ hideAttribution: true }}
         >
+          <AutoFitView fitKey={fitKey} />
           <Background gap={20} />
           <Controls position="bottom-right" showInteractive={false} />
         </ReactFlow>
       </div>
-      <div className="flex gap-2 mt-3">
-        <button
-          type="button"
-          onClick={() => {
-            if (selectedLoopId) {
-              const id = addStepInLoop(selectedLoopId, `Step ${steps.length + 1}`);
+      <div className="mt-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedLoopId) {
+                const id = addStepInLoop(selectedLoopId, `Step ${steps.length + 1}`);
+                select(id);
+              } else {
+                const id = addStep(`Step ${steps.length + 1}`);
+                select(id);
+              }
+            }}
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+          >
+            {selectedLoopId ? "+ Add step in loop" : "+ Add step"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const id = addLoopStep(`Loop ${steps.length + 1}`);
               select(id);
-            } else {
-              const id = addStep(`Step ${steps.length + 1}`);
+            }}
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+          >
+            + Add loop
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const id = addIfStep(`If ${steps.length + 1}`);
               select(id);
-            }
-          }}
-          className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
-        >
-          {selectedLoopId ? "+ Add step in loop" : "+ Add step"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const id = addLoopStep(`Loop ${steps.length + 1}`);
-            select(id);
-          }}
-          className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
-        >
-          + Add loop
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const id = addIfStep(`If ${steps.length + 1}`);
-            select(id);
-          }}
-          className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
-        >
-          + Add if
-        </button>
+            }}
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+          >
+            + Add if
+          </button>
+        </div>
         {steps.length === 0 && (
-          <span className="text-xs text-slate-400 self-center">
+          <p className="mt-2 text-xs text-slate-400">
             Canvas is empty. Add a step, loop, or if to begin.
-          </span>
+          </p>
         )}
       </div>
     </div>
   );
+}
+
+// React Flow's `fitView` prop only fits once, at initialization. The scenario
+// model loads asynchronously (EditorShell.loadFromString runs in a post-mount
+// effect), so on first paint the graph is empty and that single fit lands on
+// nothing — leaving an existing scenario's nodes stranded off-screen (the
+// "shows the wrong place" bug). Re-fit whenever the node set changes *and* the
+// nodes have actually been measured. Keyed on fitKey so a manual pan/zoom is
+// preserved until the structure itself changes.
+function AutoFitView({ fitKey }: { fitKey: string }) {
+  const initialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
+  const fittedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialized || fitKey === "" || fittedRef.current === fitKey) return;
+    fittedRef.current = fitKey;
+    void fitView(FIT_OPTIONS);
+  }, [initialized, fitKey, fitView]);
+  return null;
 }
 
 function ifBands(step: Extract<Step, { type: "if" }>): Array<{ label: string; children: Step[] }> {

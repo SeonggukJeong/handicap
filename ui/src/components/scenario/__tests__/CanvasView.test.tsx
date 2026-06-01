@@ -55,6 +55,15 @@ describe("CanvasView add if", () => {
     render(<CanvasView />);
     expect(screen.getByText(/add a step, loop, or if to begin/i)).toBeInTheDocument();
   });
+
+  it("renders the empty-canvas hint below the buttons, not in their row", () => {
+    render(<CanvasView />);
+    const hint = screen.getByText(/add a step, loop, or if to begin/i);
+    const addStep = screen.getByRole("button", { name: /add step/i });
+    // The hint must live outside the buttons' flex row (so the row can't squeeze
+    // the buttons into wrapping their labels). It sits below as its own block.
+    expect(addStep.parentElement).not.toContainElement(hint);
+  });
 });
 
 describe("CanvasView if node", () => {

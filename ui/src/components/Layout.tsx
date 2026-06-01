@@ -4,7 +4,7 @@ export function Layout() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-slate-200 bg-white">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link to="/" className="text-xl font-semibold tracking-tight">
             Handicap
           </Link>
@@ -21,7 +21,7 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-8">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8">
         <Outlet />
       </main>
     </div>

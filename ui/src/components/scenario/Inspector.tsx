@@ -144,7 +144,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
         />
       </Field>
 
-      <fieldset className="flex flex-col gap-2 border border-slate-200 rounded p-3">
+      <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
         <legend className="px-1 text-xs font-semibold text-slate-600">Request</legend>
         <Field label="Method">
           <select
@@ -198,7 +198,7 @@ function HeadersEditor({ step }: { step: HttpStep }) {
               {k}
             </span>
             <input
-              className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs"
+              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
               value={v}
               onChange={(e) => {
                 const next = { ...step.request.headers, [k]: e.target.value };
@@ -208,7 +208,7 @@ function HeadersEditor({ step }: { step: HttpStep }) {
             <button
               type="button"
               aria-label={`Remove header ${k}`}
-              className="text-slate-500 hover:text-red-600"
+              className="text-slate-500 hover:text-red-600 shrink-0"
               onClick={() => {
                 const next = { ...step.request.headers };
                 delete next[k];
@@ -223,14 +223,14 @@ function HeadersEditor({ step }: { step: HttpStep }) {
       </ul>
       <div className="flex gap-2 mt-1">
         <input
-          className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
           placeholder="Header-Name"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
         />
         <button
           type="button"
-          className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
+          className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
           disabled={!newKey.trim()}
           onClick={() => {
             const k = newKey.trim();
@@ -339,14 +339,14 @@ function FormBodyField({ step }: { step: HttpStep }) {
           <li key={k} className="flex gap-2 items-center">
             <span className="font-mono text-xs text-slate-600 w-32 truncate">{k}</span>
             <input
-              className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs"
+              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
               value={v}
               onChange={(e) => replace({ ...map, [k]: e.target.value })}
             />
             <button
               type="button"
               aria-label={`Remove form field ${k}`}
-              className="text-slate-500 hover:text-red-600"
+              className="text-slate-500 hover:text-red-600 shrink-0"
               onClick={() => {
                 const next = { ...map };
                 delete next[k];
@@ -361,14 +361,14 @@ function FormBodyField({ step }: { step: HttpStep }) {
       </ul>
       <div className="flex gap-2 mt-1">
         <input
-          className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
           placeholder="field"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
         />
         <button
           type="button"
-          className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
+          className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
           disabled={!newKey.trim()}
           onClick={() => {
             const k = newKey.trim();
@@ -407,7 +407,7 @@ function AssertEditor({
 }) {
   const [newCode, setNewCode] = useState("");
   return (
-    <fieldset className="flex flex-col gap-2 border border-slate-200 rounded p-3">
+    <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
       <legend className="px-1 text-xs font-semibold text-slate-600">Assertions</legend>
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
@@ -551,7 +551,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
 
   return (
     <fieldset
-      className="flex flex-col gap-2 border border-slate-200 rounded p-3"
+      className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
       aria-label="Extracts"
     >
       <legend className="px-1 text-xs font-semibold text-slate-600">Extracts</legend>
@@ -1007,7 +1007,7 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
       </Field>
 
       <fieldset
-        className="flex flex-col gap-2 border border-slate-200 rounded p-3"
+        className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
         aria-label="Condition"
       >
         <legend className="px-1 text-xs font-semibold text-slate-600">Condition</legend>
@@ -1023,7 +1023,10 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
       />
 
       {step.elif.map((e, i) => (
-        <fieldset key={i} className="flex flex-col gap-2 border border-slate-200 rounded p-3">
+        <fieldset
+          key={i}
+          className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
+        >
           <legend className="px-1 text-xs font-semibold text-slate-600 flex items-center gap-2">
             <span>Elif {i + 1}</span>
             <button

@@ -423,3 +423,51 @@ describe("Inspector — mutual nesting (9c)", () => {
     expect(screen.queryByRole("button", { name: /add loop/i })).not.toBeInTheDocument();
   });
 });
+
+// Regression: the inspector lives in a narrow ~300px column. Flex rows whose
+// `flex-1` inputs keep the default `min-width:auto` push the Request fieldset
+// wider than its column, so it visibly bleeds past the panel border (measured
+// scrollWidth 332 > clientWidth 294). The fix is `min-w-0` on the inputs and
+// `shrink-0` on the trailing buttons so the row can shrink to its column.
+describe("Inspector — narrow-column overflow guard (#1)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("keeps Headers row inputs/buttons shrinkable so the Request fieldset can't overflow", async () => {
+    const user = userEvent.setup();
+    loadAndSelect();
+    render(<Inspector />);
+
+    // The Request fieldset is itself a flex item in the narrow aside; without
+    // `min-w-0` its default `min-width:auto` keeps it wider than the column.
+    expect(screen.getByPlaceholderText("Header-Name").closest("fieldset")).toHaveClass("min-w-0");
+
+    // Always-present add row.
+    const addInput = screen.getByPlaceholderText("Header-Name");
+    expect(addInput).toHaveClass("min-w-0");
+    const addBtn = within(addInput.closest("div")!).getByRole("button", { name: "Add" });
+    expect(addBtn).toHaveClass("shrink-0");
+
+    // Add a header so the value row renders, then assert it is shrinkable too.
+    await user.type(addInput, "Authorization");
+    await user.click(addBtn);
+    const removeBtn = screen.getByRole("button", { name: "Remove header Authorization" });
+    const valueInput = within(removeBtn.closest("li")!).getByRole("textbox");
+    expect(valueInput).toHaveClass("min-w-0");
+    expect(removeBtn).toHaveClass("shrink-0");
+  });
+
+  it("keeps form-body row inputs/buttons shrinkable too", async () => {
+    const user = userEvent.setup();
+    loadAndSelect();
+    render(<Inspector />);
+
+    await user.selectOptions(screen.getByDisplayValue("none"), "form");
+    const addField = screen.getByPlaceholderText("field");
+    expect(addField).toHaveClass("min-w-0");
+    expect(within(addField.closest("div")!).getByRole("button", { name: "Add" })).toHaveClass(
+      "shrink-0",
+    );
+  });
+});

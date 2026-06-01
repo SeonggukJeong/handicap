@@ -27,7 +27,7 @@ export function EditorShell({ initialYaml, onChange }: EditorShellProps) {
   }, [yamlText, onChange]);
 
   return (
-    <div className="grid grid-cols-[240px_1fr_320px] gap-4 min-h-[520px]">
+    <div className="grid grid-cols-[210px_1fr_320px] gap-4 min-h-[680px]">
       <div className="border border-slate-200 rounded-md p-3 bg-white">
         <VariablesPanel />
       </div>
