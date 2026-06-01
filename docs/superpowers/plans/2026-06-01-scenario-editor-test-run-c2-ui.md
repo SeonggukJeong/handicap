@@ -150,7 +150,7 @@ export type StepKind = z.infer<typeof StepKindSchema>;
 export const TracedRequestSchema = z.object({
   method: z.string(),
   url: z.string(),
-  headers: z.record(z.string()),
+  headers: z.record(z.string(), z.string()),
   body: z.string().nullable(),
 });
 export type TracedRequest = z.infer<typeof TracedRequestSchema>;
@@ -158,7 +158,7 @@ export type TracedRequest = z.infer<typeof TracedRequestSchema>;
 export const TracedResponseSchema = z.object({
   status: z.number().int(),
   latency_ms: z.number().int(),
-  headers: z.record(z.string()),
+  headers: z.record(z.string(), z.string()),
   set_cookies: z.array(z.string()),
   body: z.string(),
   body_truncated: z.boolean(),
@@ -172,7 +172,7 @@ export const StepTraceSchema = z.object({
   branch: z.string().nullable(),
   request: TracedRequestSchema.nullable(),
   response: TracedResponseSchema.nullable(),
-  extracted: z.record(z.string()),
+  extracted: z.record(z.string(), z.string()),
   unbound_vars: z.array(z.string()),
   error: z.string().nullable(),
 });
@@ -182,14 +182,14 @@ export const ScenarioTraceSchema = z.object({
   ok: z.boolean(),
   total_ms: z.number().int(),
   steps: z.array(StepTraceSchema),
-  final_vars: z.record(z.string()),
+  final_vars: z.record(z.string(), z.string()),
   truncated: z.boolean(),
   error: z.string().nullable(),
 });
 export type ScenarioTrace = z.infer<typeof ScenarioTraceSchema>;
 ```
 
-> NOTE: `z.record(z.string())` = `Record<string,string>` (matches Rust `BTreeMap<String,String>`). Do NOT use `.default(...)` on `extracted`/`unbound_vars` — the backend always emits them, and `.default()` triggers the input-type-leak gotcha that only surfaces in `pnpm build`.
+> NOTE: `z.record(z.string(), z.string())` = `Record<string,string>` (matches Rust `BTreeMap<String,String>`). Do NOT use `.default(...)` on `extracted`/`unbound_vars` — the backend always emits them, and `.default()` triggers the input-type-leak gotcha that only surfaces in `pnpm build`.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -654,7 +654,10 @@ const TRACE = { ok: true, total_ms: 4, truncated: false, error: null, final_vars
 // Route fetch by URL: scenario GET, environments list GET, test-run POST.
 function routeFetch(url: string, init?: RequestInit): Response {
   if (url.endsWith("/api/scenarios/S1")) return jsonResponse(SCENARIO);
-  if (url.endsWith("/api/environments")) return jsonResponse([]);
+  // listEnvironments parses EnvironmentListSchema = { environments: [...] } — a bare []
+  // would fail .parse and error the useEnvironments query (page still renders; picker
+  // guards with `?.map`). Return the real DTO shape.
+  if (url.endsWith("/api/environments")) return jsonResponse({ environments: [] });
   if (url.endsWith("/api/test-runs") && init?.method === "POST") return jsonResponse(TRACE);
   return jsonResponse({ error: "unexpected" }, 500);
 }
@@ -705,6 +708,8 @@ describe("ScenarioEditPage test-run", () => {
   });
 });
 ```
+
+> NOTE (first full-page mount in the suite): no existing test mounts `ScenarioEditPage`/`EditorShell` (they're `it.todo`/pure-function tests). This works because the editor store's default tab is `"canvas"`, so `EditorShell` renders `CanvasView` (React Flow) — **not** `MonacoYamlView` — so **no Monaco worker mock is needed** (Monaco is only imported by the YAML view). `CanvasView` mounts in jsdom via the existing `ResizeObserver` polyfill in `ui/src/test/setup.ts`. The `await screen.findByRole("button", { name: /Save/ })` gate waits for the scenario to load + `EditorShell`'s first `onChange` to seed `yamlText`. **The editor Zustand store is module-scoped/shared** — this single-case test is self-contained, but if you add a second `it` (e.g. a page-level 422-banner case), reset the store in `beforeEach` per the documented pattern in `ui/CLAUDE.md` ("store reset 패턴"). The 422-as-error path is already covered at the hook level in Task 2.
 
 - [ ] **Step 2: Run to verify it fails**
 
