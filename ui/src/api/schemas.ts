@@ -204,3 +204,47 @@ export const DatasetPreviewSchema = z.object({
   sheets: z.array(z.string()).optional(),
 });
 export type DatasetPreview = z.infer<typeof DatasetPreviewSchema>;
+
+export const StepKindSchema = z.enum(["http", "if"]);
+export type StepKind = z.infer<typeof StepKindSchema>;
+
+export const TracedRequestSchema = z.object({
+  method: z.string(),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()),
+  body: z.string().nullable(),
+});
+export type TracedRequest = z.infer<typeof TracedRequestSchema>;
+
+export const TracedResponseSchema = z.object({
+  status: z.number().int(),
+  latency_ms: z.number().int(),
+  headers: z.record(z.string(), z.string()),
+  set_cookies: z.array(z.string()),
+  body: z.string(),
+  body_truncated: z.boolean(),
+});
+export type TracedResponse = z.infer<typeof TracedResponseSchema>;
+
+export const StepTraceSchema = z.object({
+  step_id: z.string(),
+  kind: StepKindSchema,
+  loop_index: z.number().int().nullable(),
+  branch: z.string().nullable(),
+  request: TracedRequestSchema.nullable(),
+  response: TracedResponseSchema.nullable(),
+  extracted: z.record(z.string(), z.string()),
+  unbound_vars: z.array(z.string()),
+  error: z.string().nullable(),
+});
+export type StepTrace = z.infer<typeof StepTraceSchema>;
+
+export const ScenarioTraceSchema = z.object({
+  ok: z.boolean(),
+  total_ms: z.number().int(),
+  steps: z.array(StepTraceSchema),
+  final_vars: z.record(z.string(), z.string()),
+  truncated: z.boolean(),
+  error: z.string().nullable(),
+});
+export type ScenarioTrace = z.infer<typeof ScenarioTraceSchema>;
