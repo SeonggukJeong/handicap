@@ -13,6 +13,8 @@ import type {
 } from "../../scenario/model";
 import { findStepSiblings, findStepById, isLoopStep, isIfStep } from "../../scenario/model";
 import type { BranchSel } from "../../scenario/yamlDoc";
+import { KeyValueGrid } from "./KeyValueGrid";
+import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
@@ -180,68 +182,20 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
 
 function HeadersEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
-  const [newKey, setNewKey] = useState("");
-
-  const entries = Object.entries(step.request.headers ?? {});
-
-  const replace = (next: Record<string, string>) => {
-    setStepField(step.id, ["request", "headers"], next);
-  };
-
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-xs font-semibold text-slate-600 mb-1">Headers</div>
-      <ul className="flex flex-col gap-1">
-        {entries.map(([k, v]) => (
-          <li key={k} className="flex gap-2 items-center">
-            <span className="font-mono text-xs text-slate-600 w-32 truncate" title={k}>
-              {k}
-            </span>
-            <input
-              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
-              value={v}
-              onChange={(e) => {
-                const next = { ...step.request.headers, [k]: e.target.value };
-                replace(next);
-              }}
-            />
-            <button
-              type="button"
-              aria-label={`Remove header ${k}`}
-              className="text-slate-500 hover:text-red-600 shrink-0"
-              onClick={() => {
-                const next = { ...step.request.headers };
-                delete next[k];
-                replace(next);
-              }}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-        {entries.length === 0 && <li className="text-xs text-slate-400 italic">No headers</li>}
-      </ul>
-      <div className="flex gap-2 mt-1">
-        <input
-          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
-          placeholder="Header-Name"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-        />
-        <button
-          type="button"
-          className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
-          disabled={!newKey.trim()}
-          onClick={() => {
-            const k = newKey.trim();
-            if (!k || k in (step.request.headers ?? {})) return;
-            replace({ ...step.request.headers, [k]: "" });
-            setNewKey("");
-          }}
-        >
-          Add
-        </button>
-      </div>
+      <KeyValueGrid
+        entries={step.request.headers ?? {}}
+        onChange={(next) => setStepField(step.id, ["request", "headers"], next)}
+        resetKey={step.id}
+        bulkFormat="header"
+        itemLabel="header"
+        keyPlaceholder="Header"
+        valuePlaceholder="value"
+        emptyText="No headers"
+        commonKeys={COMMON_HEADERS}
+      />
     </div>
   );
 }
@@ -325,62 +279,17 @@ function FormBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const body = step.request.body;
   const map = body?.kind === "form" ? body.value : {};
-  const entries = Object.entries(map);
-  const [newKey, setNewKey] = useState("");
-
-  const replace = (next: Record<string, string>) => {
-    setStepField(step.id, ["request", "body"], { form: next });
-  };
-
   return (
-    <div>
-      <ul className="flex flex-col gap-1">
-        {entries.map(([k, v]) => (
-          <li key={k} className="flex gap-2 items-center">
-            <span className="font-mono text-xs text-slate-600 w-32 truncate">{k}</span>
-            <input
-              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
-              value={v}
-              onChange={(e) => replace({ ...map, [k]: e.target.value })}
-            />
-            <button
-              type="button"
-              aria-label={`Remove form field ${k}`}
-              className="text-slate-500 hover:text-red-600 shrink-0"
-              onClick={() => {
-                const next = { ...map };
-                delete next[k];
-                replace(next);
-              }}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-        {entries.length === 0 && <li className="text-xs text-slate-400 italic">No fields</li>}
-      </ul>
-      <div className="flex gap-2 mt-1">
-        <input
-          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
-          placeholder="field"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-        />
-        <button
-          type="button"
-          className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
-          disabled={!newKey.trim()}
-          onClick={() => {
-            const k = newKey.trim();
-            if (!k || k in map) return;
-            replace({ ...map, [k]: "" });
-            setNewKey("");
-          }}
-        >
-          Add
-        </button>
-      </div>
-    </div>
+    <KeyValueGrid
+      entries={map ?? {}}
+      onChange={(next) => setStepField(step.id, ["request", "body"], { form: next })}
+      resetKey={step.id}
+      bulkFormat="form"
+      itemLabel="form field"
+      keyPlaceholder="field"
+      valuePlaceholder="value"
+      emptyText="No fields"
+    />
   );
 }
 

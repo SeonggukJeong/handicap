@@ -439,22 +439,27 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     loadAndSelect();
     render(<Inspector />);
 
-    // The Request fieldset is itself a flex item in the narrow aside; without
-    // `min-w-0` its default `min-width:auto` keeps it wider than the column.
-    expect(screen.getByPlaceholderText("Header-Name").closest("fieldset")).toHaveClass("min-w-0");
+    // The Request fieldset is a flex item in the narrow aside; min-w-0 lets it shrink.
+    expect(screen.getByPlaceholderText("Header").closest("fieldset")).toHaveClass("min-w-0");
 
-    // Always-present add row.
-    const addInput = screen.getByPlaceholderText("Header-Name");
-    expect(addInput).toHaveClass("min-w-0");
-    const addBtn = within(addInput.closest("div")!).getByRole("button", { name: "Add" });
+    // Two-field add row.
+    const addKey = screen.getByPlaceholderText("Header");
+    expect(addKey).toHaveClass("min-w-0");
+    const addBtn = within(addKey.closest("div")!).getByRole("button", { name: "Add" });
     expect(addBtn).toHaveClass("shrink-0");
 
-    // Add a header so the value row renders, then assert it is shrinkable too.
-    await user.type(addInput, "Authorization");
+    // Add a non-common header (avoids datalist value-seeding) so a value row renders.
+    await user.type(addKey, "X-Custom");
     await user.click(addBtn);
-    const removeBtn = screen.getByRole("button", { name: "Remove header Authorization" });
-    const valueInput = within(removeBtn.closest("li")!).getByRole("textbox");
-    expect(valueInput).toHaveClass("min-w-0");
+    const removeBtn = screen.getByRole("button", { name: "Remove header X-Custom" });
+    const row = removeBtn.closest("li")!;
+    // key input has list attr → role="combobox"; value input → role="textbox"
+    const inputs = [
+      ...within(row).getAllByRole("combobox"),
+      ...within(row).getAllByRole("textbox"),
+    ];
+    expect(inputs).toHaveLength(2); // key + value
+    inputs.forEach((i) => expect(i).toHaveClass("min-w-0"));
     expect(removeBtn).toHaveClass("shrink-0");
   });
 
