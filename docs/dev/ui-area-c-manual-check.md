@@ -150,6 +150,8 @@ steps:
 
 시나리오 목록에서 `testrun-smoke`의 **Edit**로 들어간다. 에디터 아래에 **Test run** 영역이 있다.
 
+> 같은 **Test run** 영역(`TestRunSection`)이 **`/scenarios/new`(New scenario)** 에도 있다 — **저장(Create) 전 초안**으로도 test-run 가능(test-run은 inline·ephemeral이라 시나리오 id가 필요 없다). new 페이지에서 점검하려면 §4의 YAML을 붙여넣고 **Create를 누르지 말고** 바로 Test run. (edit·new가 동일 컴포넌트라 아래 §6~§8 점검은 양쪽에서 같다.)
+
 - [ ] **"Test run"** 제목 + **환경 dropdown**(`<EnvironmentPicker>` 재사용, RunDialog와 동일 UI) + **Max requests** 숫자 입력(기본 **50**) + **Test run** 버튼.
 - [ ] 환경 dropdown은 `(없음)` + 등록된 환경들. (환경이 없으면 §7에서 먼저 만든다 — 지금은 `(없음)`인 채 진행 가능: BASE_URL을 override로 직접 넣을 거라.)
 - [ ] **미저장(dirty) 버퍼로도 동작**: 에디터에서 아무 URL의 글자를 하나 바꿔(예 `/ping`→`/ping2`) **Save 하지 말고** 그대로 둔다. (§6에서 trace의 resolved url이 **저장이 아니라 현재 버퍼**를 따르는지 확인할 것 — 확인 후 되돌려 둔다.)
