@@ -346,10 +346,9 @@ async fn execute_steps(
                 }
             }
             Step::If(if_step) => {
-                // Pick the branch AND label which one (for branch-decision metrics, 9d).
-                // `ctx` borrows `iter_vars` immutably; scope it in a block so the borrow
-                // ends before the recursive call takes `iter_vars` by &mut. `taken`
-                // borrows the scenario (`if_step`), `branch` is owned.
+                // Pick the branch AND label which one (shared with trace; 9d labels).
+                // `ctx` borrows `iter_vars` immutably; scope it so the borrow ends
+                // before the recursive call takes `iter_vars` by &mut.
                 let (taken, branch): (&[Step], String) = {
                     let ctx = TemplateContext {
                         vars: iter_vars,
@@ -358,25 +357,7 @@ async fn execute_steps(
                         iter_id,
                         loop_index,
                     };
-                    if eval_condition(&if_step.cond, &ctx) {
-                        (&if_step.then_, "then".to_string())
-                    } else {
-                        // Default: "else" when it has a body, "none" when no branch
-                        // matched and else is empty/absent (spec §7). An elif match
-                        // overrides this below.
-                        let mut sel: (&[Step], String) = if if_step.else_.is_empty() {
-                            (if_step.else_.as_slice(), "none".to_string())
-                        } else {
-                            (if_step.else_.as_slice(), "else".to_string())
-                        };
-                        for (j, e) in if_step.elif.iter().enumerate() {
-                            if eval_condition(&e.cond, &ctx) {
-                                sel = (e.then_.as_slice(), format!("elif_{j}"));
-                                break;
-                            }
-                        }
-                        sel
-                    }
+                    select_branch(if_step, &ctx)
                 };
                 // Record the decision (counts-only, unconditional — see
                 // Aggregator::record_branch). Scope the lock so it drops before the
@@ -403,9 +384,82 @@ async fn execute_steps(
     Ok(StepFlow::Continue)
 }
 
+/// Pick the taken branch of an `if` step AND its decision label
+/// ("then" / "elif_{j}" / "else" / "none"). Shared by the load interpreter
+/// (`execute_steps`) and the test-run interpreter (`trace::trace_scenario`) so the
+/// branch-label contract has a single source of truth (9d labels).
+pub(crate) fn select_branch<'a>(
+    if_step: &'a crate::scenario::IfStep,
+    ctx: &TemplateContext,
+) -> (&'a [Step], String) {
+    if eval_condition(&if_step.cond, ctx) {
+        (&if_step.then_, "then".to_string())
+    } else {
+        // Default: "else" when it has a body, "none" when no branch matched and
+        // else is empty/absent (spec §7). An elif match overrides this below.
+        let mut sel: (&[Step], String) = if if_step.else_.is_empty() {
+            (if_step.else_.as_slice(), "none".to_string())
+        } else {
+            (if_step.else_.as_slice(), "else".to_string())
+        };
+        for (j, e) in if_step.elif.iter().enumerate() {
+            if eval_condition(&e.cond, ctx) {
+                sel = (e.then_.as_slice(), format!("elif_{j}"));
+                break;
+            }
+        }
+        sel
+    }
+}
+
 fn chrono_second() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_branch_picks_then_elif_else_none() {
+        use crate::scenario::{CompareOp, Condition, ElifBranch, IfStep};
+        let v = BTreeMap::new();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &v,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let leaf = |val: &str| Condition::Compare {
+            left: val.to_string(),
+            op: CompareOp::Eq,
+            right: Some("yes".to_string()),
+        };
+        // cond false, one elif false, empty else → "none"
+        let if_step = IfStep {
+            id: "01HX0000000000000000000004".into(),
+            name: "br".into(),
+            cond: leaf("no"),
+            then_: vec![],
+            elif: vec![ElifBranch {
+                cond: leaf("no"),
+                then_: vec![],
+            }],
+            else_: vec![],
+        };
+        let (_taken, branch) = select_branch(&if_step, &ctx);
+        assert_eq!(branch, "none");
+
+        // cond true → "then"
+        let if_then = IfStep {
+            cond: leaf("yes"),
+            ..if_step.clone()
+        };
+        assert_eq!(select_branch(&if_then, &ctx).1, "then");
+    }
 }
