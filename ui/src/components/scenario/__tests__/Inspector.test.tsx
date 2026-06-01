@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Inspector } from "../Inspector";
@@ -474,5 +474,40 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     expect(within(addField.closest("div")!).getByRole("button", { name: "Add" })).toHaveClass(
       "shrink-0",
     );
+  });
+});
+
+describe("Inspector — JSON body Format", () => {
+  beforeEach(() => loadAndSelect());
+
+  it("reformats minified JSON to 2-space indent on Format", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByDisplayValue("none"), "json");
+    const ta = screen.getByLabelText("json body") as HTMLTextAreaElement;
+    // fireEvent (not userEvent.type) to avoid '{' key-descriptor parsing.
+    fireEvent.change(ta, { target: { value: '{"a":1,"b":{"c":2}}' } });
+    await user.click(screen.getByRole("button", { name: "Format" }));
+    expect(ta.value).toBe('{\n  "a": 1,\n  "b": {\n    "c": 2\n  }\n}');
+  });
+
+  it("persists the parsed value on Format (writes it to the YAML)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByDisplayValue("none"), "json");
+    fireEvent.change(screen.getByLabelText("json body"), { target: { value: '{"a":1}' } });
+    await user.click(screen.getByRole("button", { name: "Format" }));
+    expect(useScenarioEditor.getState().yamlText).toMatch(/a:\s*1/);
+  });
+
+  it("shows an error and leaves text unchanged on invalid JSON", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByDisplayValue("none"), "json");
+    const ta = screen.getByLabelText("json body") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "{not json}" } });
+    await user.click(screen.getByRole("button", { name: "Format" }));
+    expect(ta.value).toBe("{not json}");
+    expect(screen.getByText(/JSON:/)).toBeInTheDocument();
   });
 });

@@ -251,11 +251,25 @@ function JsonBodyField({ step }: { step: HttpStep }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id]);
 
+  const store = (parsed: unknown) => setStepField(step.id, ["request", "body"], { json: parsed });
+
   const commit = () => {
     try {
-      const parsed = JSON.parse(text);
+      store(JSON.parse(text));
       setError(null);
-      setStepField(step.id, ["request", "body"], { json: parsed });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  // Re-indent the buffer to 2 spaces and persist the parsed value (spec §B4 — no
+  // external prettier; the same JSON.stringify the field already uses on load).
+  const format = () => {
+    try {
+      const parsed = JSON.parse(text);
+      setText(JSON.stringify(parsed, null, 2));
+      setError(null);
+      store(parsed);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -264,12 +278,22 @@ function JsonBodyField({ step }: { step: HttpStep }) {
   return (
     <div>
       <textarea
+        aria-label="json body"
         className="w-full h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         spellCheck={false}
       />
+      <div className="flex justify-end mt-1">
+        <button
+          type="button"
+          className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded"
+          onClick={format}
+        >
+          Format
+        </button>
+      </div>
       {error && <p className="text-xs text-red-600">JSON: {error}</p>}
     </div>
   );
