@@ -106,6 +106,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **Playwright MCP `browser_file_upload`는 repo 루트 밖 경로를 거부한다** (Slice 8c): 허용 루트는 `/Users/sgj/develop/handicap`(워크트리 포함) + `.playwright-mcp/`뿐 — `/tmp`의 파일은 `File access denied`. 브라우저 업로드 점검(데이터셋 등) 시 업로드 대상 파일을 repo 안(예: `.playwright-mcp/`)에 써둔 뒤 절대경로로 넘길 것.
 - **`title`+텍스트를 동시에 가진 버튼의 accessible name은 텍스트 콘텐츠가 이긴다** (Slice 9b): em-dash가 든 `title`을 단 nav 버튼이라도 visible text가 있으면 accessible name은 **텍스트 콘텐츠**(em-dash 없음)에서 온다 — `getByRole("button", {name})`은 `—`가 아니라 텍스트로 매치할 것.
 - **`@testing-library/user-event`의 `type()`은 `[`/`{`를 key-descriptor 구분자로 본다** (Slice 9b): 리터럴 `[`/`{`를 타이핑하려면 `[[`/`{{`로 escape(예: 테스트에서 `matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때). 안 그러면 `{Enter}`처럼 특수 키로 해석돼 입력이 사라진다.
+- **`<input list=...>`(datalist 자동완성)의 implicit ARIA role은 `textbox`가 아니라 `combobox`** (Header/Form 벌크): aria-query 5.x에서 `getByRole("textbox")`/`getAllByRole("textbox")`가 그 입력을 못 잡는다. datalist key 입력 + 일반 value 입력이 한 행에 섞이면 `getAllByRole("combobox")`+`getAllByRole("textbox")` 합집합으로 단언(구체 사례: `KeyValueGrid` — 폼·입력 UX 섹션).
 
 ## 시나리오 에디터 test-run 패널 (C-2, `TestRunPanel`)
 
