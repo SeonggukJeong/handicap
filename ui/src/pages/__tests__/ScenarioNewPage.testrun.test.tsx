@@ -40,6 +40,7 @@ function renderPage() {
       <MemoryRouter initialEntries={["/scenarios/new"]}>
         <Routes>
           <Route path="/scenarios/new" element={<ScenarioNewPage />} />
+          <Route path="/" element={<div>HOME</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -82,5 +83,16 @@ describe("ScenarioNewPage test-run", () => {
     const header = group.parentElement!;
     expect(header).toHaveClass("justify-between"); // header row, title on the left
     expect(within(header).getByRole("heading", { name: /New scenario/ })).toBeInTheDocument();
+  });
+
+  it("Cancel returns to the list without nagging on an untouched draft", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderPage();
+    await screen.findByRole("button", { name: /Create/ }); // let baseline seed
+    await user.click(screen.getByRole("button", { name: /Cancel/ }));
+    expect(confirmSpy).not.toHaveBeenCalled(); // untouched → no discard prompt
+    expect(await screen.findByText("HOME")).toBeInTheDocument(); // navigated to list
+    confirmSpy.mockRestore();
   });
 });

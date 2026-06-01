@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Pure-logic tests for the dirty-flag baseline-seeding pattern used in
@@ -46,7 +46,8 @@ describe("ScenarioEditPage dirty-flag baseline seeding", () => {
     onDataLoaded(1);
 
     // Step 2: EditorShell mounts, normalizes the YAML, fires first onChange
-    const normalizedYaml = "steps:\n  - name: home\n    request:\n      method: GET\n      url: /\n";
+    const normalizedYaml =
+      "steps:\n  - name: home\n    request:\n      method: GET\n      url: /\n";
     handleEditorChange(normalizedYaml);
 
     // Expect: baseline seeded with normalized form → dirty is false
@@ -102,4 +103,64 @@ describe("ScenarioEditPage dirty-flag baseline seeding", () => {
   it.todo("ScenarioNewPage Create button calls mutation with yamlText from EditorShell");
   it.todo("ScenarioEditPage renders EditorShell initialized with scenario yaml");
   it.todo("ScenarioEditPage Save button calls update mutation with {yaml, version}");
+});
+
+// ---------------------------------------------------------------------------
+// ScenarioNewPage Cancel guard: only prompt to discard when the draft is dirty.
+// Reuses the same baseline-seeding so an untouched (normalized) starter is NOT
+// falsely dirty — otherwise Cancel would nag on every brand-new page.
+// ---------------------------------------------------------------------------
+function simulateCancelGuard() {
+  const STARTER = "starter";
+  let yamlText = STARTER;
+  let originalYaml = STARTER;
+  let baselineSeeded = false;
+  let navigated = false;
+
+  function handleEditorChange(next: string) {
+    yamlText = next;
+    if (!baselineSeeded) {
+      baselineSeeded = true;
+      originalYaml = next;
+    }
+  }
+  const dirty = () => originalYaml !== yamlText;
+  // Mirrors ScenarioNewPage cancel(): confirm only when dirty, else navigate.
+  function cancel(confirmFn: () => boolean) {
+    if (!dirty() || confirmFn()) navigated = true;
+  }
+  return { handleEditorChange, dirty, cancel, didNavigate: () => navigated };
+}
+
+describe("ScenarioNewPage cancel guard", () => {
+  it("navigates without confirming an untouched (normalization-seeded) draft", () => {
+    const g = simulateCancelGuard();
+    g.handleEditorChange("starter\n"); // EditorShell normalizes STARTER → seeds baseline
+    expect(g.dirty()).toBe(false);
+    const confirmFn = vi.fn(() => false);
+    g.cancel(confirmFn);
+    expect(confirmFn).not.toHaveBeenCalled();
+    expect(g.didNavigate()).toBe(true);
+  });
+
+  it("blocks navigation when the draft is dirty and the user cancels the confirm", () => {
+    const g = simulateCancelGuard();
+    g.handleEditorChange("starter\n"); // seed baseline
+    g.handleEditorChange("starter\nsteps: edited"); // user edits → dirty
+    expect(g.dirty()).toBe(true);
+    const confirmFn = vi.fn(() => false);
+    g.cancel(confirmFn);
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    expect(g.didNavigate()).toBe(false);
+  });
+
+  it("navigates when the draft is dirty and the user confirms discard", () => {
+    const g = simulateCancelGuard();
+    g.handleEditorChange("starter\n");
+    g.handleEditorChange("starter\nedited");
+    const confirmFn = vi.fn(() => true);
+    g.cancel(confirmFn);
+    expect(confirmFn).toHaveBeenCalledTimes(1);
+    expect(g.didNavigate()).toBe(true);
+  });
 });

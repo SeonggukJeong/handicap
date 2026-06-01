@@ -87,13 +87,14 @@ describe("ScenarioEditPage test-run", () => {
     await screen.findByRole("region", { name: /Test run result/ });
   });
 
-  it("groups Save, Back and Runs in the top header row next to the title", async () => {
+  it("groups Save and Runs in the top header row, with no Back button", async () => {
     renderPage();
     const save = await screen.findByRole("button", { name: /Save/ });
-    const back = screen.getByRole("button", { name: /Back/ });
     const runs = screen.getByRole("button", { name: /Runs/ });
+    // Back was removed (redundant with the global nav + browser back, and a
+    // data-loss footgun next to Save) — the global header handles navigation.
+    expect(screen.queryByRole("button", { name: /Back/ })).not.toBeInTheDocument();
     const group = save.closest("div")!;
-    expect(group).toContainElement(back);
     expect(group).toContainElement(runs); // Runs shares the header action group
     const header = group.parentElement!;
     expect(header).toHaveClass("justify-between"); // header row, title on the left

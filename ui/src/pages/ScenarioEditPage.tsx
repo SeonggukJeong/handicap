@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useScenario, useUpdateScenario } from "../api/hooks";
 import { Button } from "../components/Button";
 import { EditorShell } from "../components/scenario/EditorShell";
@@ -7,7 +7,6 @@ import { TestRunSection } from "../components/scenario/TestRunSection";
 
 export function ScenarioEditPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { data, isLoading, error } = useScenario(id);
   const update = useUpdateScenario(id ?? "");
   const [yamlText, setYamlText] = useState<string>("");
@@ -66,9 +65,6 @@ export function ScenarioEditPage() {
             disabled={!dirty || update.isPending || loadedVersion === null}
           >
             {update.isPending ? "Saving…" : "Save"}
-          </Button>
-          <Button variant="secondary" onClick={() => navigate("/")}>
-            Back
           </Button>
           <Link to={`/scenarios/${data.id}/runs`}>
             <Button variant="secondary">Runs</Button>
