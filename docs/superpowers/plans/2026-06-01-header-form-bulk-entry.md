@@ -10,6 +10,8 @@
 
 **스펙:** `docs/superpowers/specs/2026-06-01-header-form-bulk-entry-design.md` (spec-plan-reviewer APPROVED-WITH-CHANGES, 모든 지적 반영됨).
 
+**계획 검토:** spec-plan-reviewer(2026-06-01) APPROVED-WITH-CHANGES — `kvBulk` round-trip을 Node 실행 검증(전 케이스 통과), 라인범위·F1 grep·TDD 순서·`useId`/React18 확인. 반영: Finding 2(포커스 이동 = 명시적 연기, self-review 정정)·Finding 3(value placeholder 공유 → aria-label 조회 주석)·Finding 6(Task 4 `fireEvent` top-level import).
+
 ---
 
 ## 핵심 규약 (모든 task 공통)
@@ -482,12 +484,15 @@ EOF
 - `commonKeys` 있으면: `자주 쓰는 헤더 ▾` 메뉴(신뢰 경로) + key 칸 `<datalist>` 자동완성(best-effort, 값 시드, **빈 value일 때만**).
 - 메뉴 pick: 같은 key(대소문자 무시) 존재 + value 비어있으면 시드, value 차 있으면 **no-op**(A3), 없으면 행 추가.
 
+> **연기(deferred — UX polish, 리뷰 Finding 2)**: 스펙 §3-1 "Enter-add 후 다음 행 key 포커스"·§6 "메뉴 pick 후 value 칸 포커스"의 **포커스 이동은 v1에서 구현하지 않는다**. load-bearing 아님(테스트 없음)이고, 참조한 `EnvironmentPicker` add-row UX에도 포커스 관리가 없다. Enter-to-add 자체는 동작(필드 clear). 후속에서 `useRef`로 추가 가능 — 누락이 아니라 의도적 연기.
+> **value 입력 placeholder 공유 주의(리뷰 Finding 3)**: 기존 행과 add-row의 value `<input>`이 같은 `placeholder`(="value")를 가진다. 테스트는 **aria-label**(`${itemLabel} value ${idx}` / `new ${itemLabel} value`)로만 행을 조회할 것 — `getByPlaceholderText("value")`는 다중 매치로 throw.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `ui/src/components/scenario/__tests__/KeyValueGrid.test.tsx`:
 
 ```tsx
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 import { useState } from "react";
@@ -583,8 +588,7 @@ describe("KeyValueGrid — bulk edit toggle", () => {
     await user.click(screen.getByRole("button", { name: "Bulk Edit" }));
     const ta = screen.getByLabelText("bulk edit text") as HTMLTextAreaElement;
     expect(ta.value).toBe("A: 1\nB: 2");
-    // fireEvent to avoid userEvent ':' descriptor parsing.
-    const { fireEvent } = await import("@testing-library/react");
+    // fireEvent (top-level import) to avoid userEvent ':' descriptor parsing.
     fireEvent.change(ta, { target: { value: "A: 9" } });
     await user.click(screen.getByRole("button", { name: "Apply" }));
     expect(dump()).toEqual({ A: "9" });
@@ -1119,12 +1123,12 @@ Expected: both PASS. Record the test count + build success in the completion rep
 ## Self-Review (writer)
 
 **1. Spec coverage:**
-- §1/§3-1 2열 그리드 + draft/commit + editable key → Task 4. ✅
+- §1/§3-1 2열 그리드 + draft/commit + editable key → Task 4. ✅ (단 "Enter-add 후 다음 행 포커스"는 **연기** — Finding 2, UX polish)
 - §1/§3-2 Bulk Edit Postman 전체 교체 → Task 3 + Task 4 토글. ✅
 - §3-3 `commonHeaders.ts` + `findCommonHeader` → Task 2. ✅
 - §4 파싱/포맷(header `:`, form `\n`/`&`/`=`/urlencoded, round-trip escape) → Task 1. ✅
 - §5 큐레이션 placeholder + Cookie 제외 → Task 2. ✅
-- §6 메뉴(no-clobber) + datalist 시드(best-effort) → Task 4. ✅
+- §6 메뉴(no-clobber) + datalist 시드(best-effort) → Task 4. ✅ (단 "pick 후 value 칸 포커스"는 **연기** — Finding 2, UX polish)
 - §3-4/M1 `?? {}` 누출 → Task 5 Step 3 + Task 6 build gate. ✅
 - §8 F1 회귀 재작성 → Task 5. ✅; R4 round-trip 케이스(공백·%·+) → Task 1 round-trip test. ✅; M3 `{`/`:` 이스케이프 → fireEvent 사용. ✅; M5 2-textbox getAllByRole → Task 4/5 tests. ✅; R1 datalist onChange-branch only → Task 4 test. ✅
 - §7 non-goals(JSON/raw 무변경, 대소문자 미정규화, 멀티값 미지원, 백엔드 무변경) — 계획이 건드리지 않음. ✅
