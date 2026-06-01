@@ -191,3 +191,38 @@ steps:
     );
     assert_eq!(trace.steps[0].unbound_vars, vec!["MISSING".to_string()]);
 }
+
+#[tokio::test]
+async fn if_condition_unbound_vars_surface_on_decision_row() {
+    // An unbound var referenced ONLY inside the if/elif conditions (never in a
+    // request) must still be reported on the if decision row's `unbound_vars` —
+    // otherwise "wrong branch because a condition var was unbound" is invisible.
+    // No HTTP server needed: cond is false (unbound -> empty != "yes"), the elif
+    // is false too, else is empty -> branch "none", no leaf executes.
+    let yaml = r#"
+version: 1
+name: condunbound
+steps:
+  - type: if
+    id: 01HX0000000000000000000060
+    name: maybe
+    cond: { left: "{{missing_cond}}", op: eq, right: "yes" }
+    elif:
+      - cond: { left: "${MISSING_ENV}", op: eq, right: "x" }
+        then: []
+    then: []
+"#;
+    let scenario = Scenario::from_yaml(yaml).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+
+    assert_eq!(trace.steps.len(), 1);
+    assert_eq!(trace.steps[0].kind, handicap_engine::StepKind::If);
+    assert_eq!(trace.steps[0].branch.as_deref(), Some("none"));
+    assert!(trace.steps[0].request.is_none());
+    // Both the primary cond's {{missing_cond}} and the elif cond's ${MISSING_ENV}
+    // are surfaced (order-preserving: cond first, then elif).
+    assert_eq!(
+        trace.steps[0].unbound_vars,
+        vec!["missing_cond".to_string(), "MISSING_ENV".to_string()]
+    );
+}

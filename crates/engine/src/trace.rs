@@ -93,8 +93,8 @@ use std::time::Instant;
 
 use crate::executor::{VuClient, execute_step_traced};
 use crate::runner::select_branch;
-use crate::scenario::{Scenario, Step};
-use crate::template::TemplateContext;
+use crate::scenario::{CompareOp, Condition, IfStep, Scenario, Step};
+use crate::template::{TemplateContext, render_collecting};
 
 struct TraceState {
     steps: Vec<StepTrace>,
@@ -150,6 +150,44 @@ pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> Scenari
         truncated: state.truncated,
         error: None,
     }
+}
+
+/// Collect the names of unresolved tokens referenced anywhere in an `if` node's
+/// conditions — the primary `cond` plus every `elif` cond — so the trace decision
+/// row can surface "this branch was decided with an unbound variable". The load
+/// path evaluates conditions via `render_lenient` and discards this; the spec
+/// (§3-2) scoped `unbound_vars` to request render, so this is a trace-only
+/// extension. Renders are throwaway (only the collected names matter) and mirror
+/// `condition::eval_compare`'s render sites: `left` always; `right` only for ops
+/// other than `exists`/`empty` (those never render `right`).
+fn collect_if_condition_unbound(if_step: &IfStep, ctx: &TemplateContext) -> Vec<String> {
+    fn walk(cond: &Condition, ctx: &TemplateContext, out: &mut Vec<String>) {
+        match cond {
+            Condition::All(cs) | Condition::Any(cs) => {
+                for c in cs {
+                    walk(c, ctx, out);
+                }
+            }
+            Condition::Compare { left, op, right } => {
+                let _ = render_collecting(left, ctx, out);
+                if !matches!(op, CompareOp::Exists | CompareOp::Empty) {
+                    if let Some(r) = right {
+                        let _ = render_collecting(r, ctx, out);
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&if_step.cond, ctx, &mut out);
+    for e in &if_step.elif {
+        walk(&e.cond, ctx, &mut out);
+    }
+    // Order-preserving dedup (a var may recur across cond/elif); mirrors
+    // executor::execute_step_traced's unbound dedup.
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|name| seen.insert(name.clone()));
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -221,7 +259,7 @@ async fn trace_steps(
                 }
             }
             Step::If(if_step) => {
-                let (taken, branch): (&[Step], String) = {
+                let (taken, branch, cond_unbound): (&[Step], String, Vec<String>) = {
                     let ctx = TemplateContext {
                         vars: iter_vars,
                         env,
@@ -229,7 +267,9 @@ async fn trace_steps(
                         iter_id: 0,
                         loop_index,
                     };
-                    select_branch(if_step, &ctx)
+                    let unbound = collect_if_condition_unbound(if_step, &ctx);
+                    let (taken, branch) = select_branch(if_step, &ctx);
+                    (taken, branch, unbound)
                 };
                 state.steps.push(StepTrace {
                     step_id: if_step.id.clone(),
@@ -239,7 +279,7 @@ async fn trace_steps(
                     request: None,
                     response: None,
                     extracted: BTreeMap::new(),
-                    unbound_vars: vec![],
+                    unbound_vars: cond_unbound,
                     error: None,
                 });
                 Box::pin(trace_steps(
