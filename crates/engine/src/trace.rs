@@ -89,6 +89,168 @@ pub struct ScenarioTrace {
     pub error: Option<String>,
 }
 
+use std::time::Instant;
+
+use crate::executor::{VuClient, execute_step_traced};
+use crate::runner::select_branch;
+use crate::scenario::{Scenario, Step};
+use crate::template::TemplateContext;
+
+struct TraceState {
+    steps: Vec<StepTrace>,
+    requests: u32,
+    truncated: bool,
+}
+
+/// Run `scenario` once (1 VU, single pass) and capture a per-request trace.
+/// Never returns `Err` — setup failures land in `ScenarioTrace.error`, per-step
+/// failures in each `StepTrace.error`.
+pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> ScenarioTrace {
+    let started = Instant::now();
+    let deadline = started + opts.max_wall;
+
+    let client = match VuClient::new(scenario.cookie_jar) {
+        Ok(c) => c,
+        Err(e) => {
+            return ScenarioTrace {
+                ok: false,
+                total_ms: 0,
+                steps: vec![],
+                final_vars: BTreeMap::new(),
+                truncated: false,
+                error: Some(format!("http client build: {e}")),
+            };
+        }
+    };
+
+    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+    let mut state = TraceState {
+        steps: Vec::new(),
+        requests: 0,
+        truncated: false,
+    };
+    Box::pin(trace_steps(
+        &client,
+        &scenario.steps,
+        &mut iter_vars,
+        &opts.env,
+        None,
+        opts,
+        deadline,
+        &mut state,
+    ))
+    .await;
+
+    let ok = state.steps.iter().all(|s| s.error.is_none());
+    ScenarioTrace {
+        ok,
+        total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        steps: state.steps,
+        final_vars: iter_vars,
+        truncated: state.truncated,
+        error: None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn trace_steps(
+    client: &VuClient,
+    steps: &[Step],
+    iter_vars: &mut BTreeMap<String, String>,
+    env: &BTreeMap<String, String>,
+    loop_index: Option<u32>,
+    opts: &TraceOptions,
+    deadline: Instant,
+    state: &mut TraceState,
+) {
+    for step in steps {
+        if state.truncated {
+            return;
+        }
+        if state.requests >= opts.max_requests || Instant::now() >= deadline {
+            state.truncated = true;
+            return;
+        }
+        match step {
+            Step::Http(http) => {
+                let ctx = TemplateContext {
+                    vars: iter_vars,
+                    env,
+                    vu_id: 0,
+                    iter_id: 0,
+                    loop_index,
+                };
+                let t = execute_step_traced(client, http, &ctx).await;
+                iter_vars.extend(t.extracted.clone());
+                state.requests += 1;
+                state.steps.push(StepTrace {
+                    step_id: http.id.clone(),
+                    kind: StepKind::Http,
+                    loop_index,
+                    branch: None,
+                    request: Some(t.request),
+                    response: t.response,
+                    extracted: t.extracted,
+                    unbound_vars: t.unbound_vars,
+                    error: t.error,
+                });
+            }
+            Step::Loop(lp) => {
+                for i in 0..lp.repeat {
+                    if state.truncated
+                        || state.requests >= opts.max_requests
+                        || Instant::now() >= deadline
+                    {
+                        state.truncated = true;
+                        return;
+                    }
+                    Box::pin(trace_steps(
+                        client,
+                        &lp.do_,
+                        iter_vars,
+                        env,
+                        Some(i),
+                        opts,
+                        deadline,
+                        state,
+                    ))
+                    .await;
+                    if state.truncated {
+                        return;
+                    }
+                }
+            }
+            Step::If(if_step) => {
+                let (taken, branch): (&[Step], String) = {
+                    let ctx = TemplateContext {
+                        vars: iter_vars,
+                        env,
+                        vu_id: 0,
+                        iter_id: 0,
+                        loop_index,
+                    };
+                    select_branch(if_step, &ctx)
+                };
+                state.steps.push(StepTrace {
+                    step_id: if_step.id.clone(),
+                    kind: StepKind::If,
+                    loop_index,
+                    branch: Some(branch),
+                    request: None,
+                    response: None,
+                    extracted: BTreeMap::new(),
+                    unbound_vars: vec![],
+                    error: None,
+                });
+                Box::pin(trace_steps(
+                    client, taken, iter_vars, env, loop_index, opts, deadline, state,
+                ))
+                .await;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

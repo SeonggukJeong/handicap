@@ -24,4 +24,5 @@ pub use scenario::{
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{
     HttpTrace, ScenarioTrace, StepKind, StepTrace, TraceOptions, TracedRequest, TracedResponse,
+    trace_scenario,
 };
