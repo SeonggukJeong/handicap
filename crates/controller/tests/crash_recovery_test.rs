@@ -31,6 +31,7 @@ fn profile() -> Profile {
         duration_seconds: 1,
         loop_breakdown_cap: 256,
         data_binding: None,
+        criteria: None,
     }
 }
 

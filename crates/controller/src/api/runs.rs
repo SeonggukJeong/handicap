@@ -365,6 +365,7 @@ mod tests {
                 policy: BindingPolicy::Unique,
                 mappings: vec![],
             }),
+            criteria: None,
         }
     }
 

@@ -197,6 +197,7 @@ mod tests {
             duration_seconds: 9,
             loop_breakdown_cap: 256,
             data_binding: None,
+            criteria: None,
         }
     }
 

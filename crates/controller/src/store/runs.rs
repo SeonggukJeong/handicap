@@ -41,6 +41,33 @@ fn default_loop_cap() -> u32 {
     256
 }
 
+/// run-level SLO 기준. 모든 필드 Option — Some이면 활성 기준 1개. 전부 None이면 기준 없음.
+/// (A2 일반 연산자/step-level은 후속; 출력 `Verdict`만 미리 일반형 — spec §10.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Criteria {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_p50_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_p95_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_p99_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_error_rate: Option<f64>, // 분수 0.0..=1.0 (UI는 %로 입출력)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_rps: Option<f64>,
+}
+
+impl Criteria {
+    /// 활성 기준이 하나라도 있는가. 전부 None이면 verdict를 만들지 않는다(spec §6).
+    pub fn has_any(&self) -> bool {
+        self.max_p50_ms.is_some()
+            || self.max_p95_ms.is_some()
+            || self.max_p99_ms.is_some()
+            || self.max_error_rate.is_some()
+            || self.min_rps.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub vus: u32,
@@ -51,6 +78,8 @@ pub struct Profile {
     pub loop_breakdown_cap: u32,
     #[serde(default)]
     pub data_binding: Option<crate::binding::DataBinding>,
+    #[serde(default)]
+    pub criteria: Option<Criteria>,
 }
 
 pub struct RunRow {
@@ -295,6 +324,7 @@ mod tests {
             duration_seconds: 1,
             loop_breakdown_cap: 256,
             data_binding: None,
+            criteria: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -320,5 +350,51 @@ mod tests {
         // Status must remain aborted — the guard held.
         let still_aborted = get(&db, &run.id).await.unwrap().unwrap();
         assert_eq!(still_aborted.status, RunStatus::Aborted);
+    }
+
+    #[test]
+    fn criteria_has_any_reflects_fields() {
+        assert!(!Criteria::default().has_any());
+        assert!(
+            Criteria {
+                max_p95_ms: Some(500),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(
+            Criteria {
+                min_rps: Some(100.0),
+                ..Default::default()
+            }
+            .has_any()
+        );
+    }
+
+    #[test]
+    fn profile_without_criteria_field_deserializes_to_none() {
+        // pre-A4a profile_json 행에는 criteria 키가 없다 — 하위 호환.
+        let json = r#"{"vus":1,"ramp_up_seconds":0,"duration_seconds":2,"loop_breakdown_cap":256,"data_binding":null}"#;
+        let p: Profile = serde_json::from_str(json).unwrap();
+        assert!(p.criteria.is_none());
+    }
+
+    #[test]
+    fn profile_with_criteria_round_trips() {
+        let p = Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 2,
+            loop_breakdown_cap: 256,
+            data_binding: None,
+            criteria: Some(Criteria {
+                max_p95_ms: Some(500),
+                max_error_rate: Some(0.01),
+                ..Default::default()
+            }),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: Profile = serde_json::from_str(&s).unwrap();
+        assert_eq!(p.criteria, back.criteria);
     }
 }
