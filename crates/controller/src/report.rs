@@ -82,6 +82,71 @@ pub struct ReportStep {
     pub loop_breakdown: Vec<LoopBucket>,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Verdict {
+    pub passed: bool, // 모든 활성 기준 AND
+    pub criteria: Vec<CriterionResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct CriterionResult {
+    pub metric: String,    // "p50_ms" | "p95_ms" | "p99_ms" | "error_rate" | "rps"
+    pub direction: String, // "max" | "min"
+    pub threshold: f64,    // 정수 ms 기준도 f64로 (A2 출력 shape 공유, spec §5/N-1)
+    pub actual: f64,
+    pub passed: bool,
+}
+
+/// 순수: 입력만으로 결정적. 활성(Some) 기준만 결과 행을 만든다.
+pub fn evaluate_criteria(c: &crate::store::runs::Criteria, s: &ReportSummary) -> Verdict {
+    let mut criteria = Vec::new();
+
+    {
+        let mut push_max = |metric: &str, threshold: Option<u64>, actual: u64| {
+            if let Some(t) = threshold {
+                let (threshold, actual) = (t as f64, actual as f64);
+                criteria.push(CriterionResult {
+                    metric: metric.to_string(),
+                    direction: "max".to_string(),
+                    threshold,
+                    actual,
+                    passed: actual <= threshold,
+                });
+            }
+        };
+        push_max("p50_ms", c.max_p50_ms, s.p50_ms);
+        push_max("p95_ms", c.max_p95_ms, s.p95_ms);
+        push_max("p99_ms", c.max_p99_ms, s.p99_ms);
+    } // push_max dropped here, releasing mutable borrow of criteria
+
+    if let Some(t) = c.max_error_rate {
+        let actual = if s.count == 0 {
+            0.0
+        } else {
+            s.errors as f64 / s.count as f64
+        };
+        criteria.push(CriterionResult {
+            metric: "error_rate".to_string(),
+            direction: "max".to_string(),
+            threshold: t,
+            actual,
+            passed: actual <= t,
+        });
+    }
+    if let Some(t) = c.min_rps {
+        criteria.push(CriterionResult {
+            metric: "rps".to_string(),
+            direction: "min".to_string(),
+            threshold: t,
+            actual: s.rps,
+            passed: s.rps >= t,
+        });
+    }
+
+    let passed = criteria.iter().all(|r| r.passed);
+    Verdict { passed, criteria }
+}
+
 fn parse_status_counts(s: &str) -> BTreeMap<String, u64> {
     serde_json::from_str(s).unwrap_or_default()
 }
@@ -277,7 +342,7 @@ pub fn build_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::runs::{Profile, RunStatus};
+    use crate::store::runs::{Criteria, Profile, RunStatus};
     use hdrhistogram::serialization::{Serializer, V2Serializer};
 
     fn make_hdr_bytes(samples_us: &[u64]) -> Vec<u8> {
@@ -540,5 +605,63 @@ mod tests {
         // typed round-trip (report types require Deserialize too).
         let v = serde_json::to_value(&rep).unwrap();
         let _back: ReportJson = serde_json::from_value(v).unwrap();
+    }
+
+    fn summary(count: u64, errors: u64, rps: f64, p95: u64, p99: u64) -> ReportSummary {
+        ReportSummary {
+            count,
+            errors,
+            rps,
+            duration_seconds: 1,
+            p50_ms: 0,
+            p95_ms: p95,
+            p99_ms: p99,
+        }
+    }
+
+    #[test]
+    fn evaluate_all_pass() {
+        let c = Criteria {
+            max_p95_ms: Some(500),
+            max_error_rate: Some(0.05),
+            min_rps: Some(100.0),
+            ..Default::default()
+        };
+        let v = evaluate_criteria(&c, &summary(1000, 10, 200.0, 300, 400));
+        assert!(v.passed);
+        assert_eq!(v.criteria.len(), 3);
+    }
+
+    #[test]
+    fn evaluate_fails_when_one_breaches() {
+        let c = Criteria {
+            max_p95_ms: Some(200),
+            ..Default::default()
+        };
+        let v = evaluate_criteria(&c, &summary(100, 0, 50.0, 300, 400));
+        assert!(!v.passed);
+        assert_eq!(v.criteria[0].metric, "p95_ms");
+        assert_eq!(v.criteria[0].direction, "max");
+        assert!(!v.criteria[0].passed);
+    }
+
+    #[test]
+    fn evaluate_error_rate_count_zero_is_zero() {
+        let c = Criteria {
+            max_error_rate: Some(0.0),
+            ..Default::default()
+        };
+        // 0 errors / 0 count => 0.0 <= 0.0 → pass
+        assert!(evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0)).passed);
+    }
+
+    #[test]
+    fn evaluate_min_rps_zero_fails() {
+        let c = Criteria {
+            min_rps: Some(1.0),
+            ..Default::default()
+        };
+        // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
+        assert!(!evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0)).passed);
     }
 }
