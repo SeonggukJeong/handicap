@@ -1,5 +1,5 @@
 use crate::store::metrics::{IfBranchRow, LoopMetricRow, WindowWithHdr};
-use crate::store::runs::RunRow;
+use crate::store::runs::{RunRow, RunStatus};
 use handicap_engine::percentiles::{Percentiles, decode_hdr, merge_into, percentiles_of};
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,8 @@ pub struct ReportJson {
     pub steps: Vec<ReportStep>,
     pub status_distribution: BTreeMap<String, u64>,
     pub if_breakdown: Vec<IfBreakdown>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<Verdict>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -311,6 +313,21 @@ pub fn build_report(
         .collect();
     steps.sort_by(|a, b| a.step_id.cmp(&b.step_id));
 
+    let summary = ReportSummary {
+        count: total_count,
+        errors: total_errors,
+        rps,
+        duration_seconds,
+        p50_ms: overall_p.p50_ms,
+        p95_ms: overall_p.p95_ms,
+        p99_ms: overall_p.p99_ms,
+    };
+    // completed + 활성 criteria일 때만 verdict (spec §6). RunStatus는 Copy.
+    let verdict = match (run.status, run.profile.criteria.as_ref()) {
+        (RunStatus::Completed, Some(c)) if c.has_any() => Some(evaluate_criteria(c, &summary)),
+        _ => None,
+    };
+
     ReportJson {
         run: ReportRun {
             id: run.id.clone(),
@@ -323,19 +340,12 @@ pub fn build_report(
             created_at: run.created_at,
         },
         scenario_yaml: scenario_yaml.to_string(),
-        summary: ReportSummary {
-            count: total_count,
-            errors: total_errors,
-            rps,
-            duration_seconds,
-            p50_ms: overall_p.p50_ms,
-            p95_ms: overall_p.p95_ms,
-            p99_ms: overall_p.p99_ms,
-        },
+        summary,
         windows,
         steps,
         status_distribution: status_dist,
         if_breakdown,
+        verdict,
     }
 }
 
@@ -663,5 +673,36 @@ mod tests {
         };
         // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
         assert!(!evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0)).passed);
+    }
+
+    #[test]
+    fn build_report_attaches_verdict_for_completed_with_criteria() {
+        let mut run = run_row(); // status = Completed
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(1000),
+            ..Default::default()
+        });
+        let rep = build_report(&run, "", &[], &[], &[]);
+        let v = rep.verdict.expect("verdict present");
+        assert_eq!(v.criteria.len(), 1);
+        assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
+    }
+
+    #[test]
+    fn build_report_no_verdict_when_not_completed() {
+        let mut run = run_row();
+        run.status = RunStatus::Aborted;
+        run.profile.criteria = Some(Criteria {
+            max_p95_ms: Some(1000),
+            ..Default::default()
+        });
+        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
+    }
+
+    #[test]
+    fn build_report_no_verdict_when_criteria_all_none() {
+        let mut run = run_row();
+        run.profile.criteria = Some(Criteria::default()); // 활성 0개
+        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
     }
 }
