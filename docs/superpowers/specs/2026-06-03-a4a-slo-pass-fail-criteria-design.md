@@ -108,10 +108,11 @@ pub fn evaluate_criteria(c: &Criteria, s: &ReportSummary) -> Verdict;
 ### 평가 규칙
 
 - 활성 기준(필드 Some)만 결과 행을 만든다.
+- **출력 타입 계약**: `threshold`·`actual`은 정수 ms 기준이라도 항상 `f64`로 캐스트해 담는다(A2 일반 모델이 같은 출력 shape를 재사용하기 위함, §10). (N-1)
 - `max_*` 지연: `actual = s.p{50,95,99}_ms as f64`, `passed = actual <= threshold`, direction `"max"`.
 - `max_error_rate`: `actual = if s.count==0 { 0.0 } else { s.errors as f64 / s.count as f64 }`, `passed = actual <= threshold`, direction `"max"`.
-- `min_rps`: `actual = s.rps`(summary의 평균 rps = count/duration), `passed = actual >= threshold`, direction `"min"`.
-- `Verdict.passed = criteria.iter().all(|r| r.passed)`. 활성 기준이 없으면 verdict 자체를 만들지 않는다(§6).
+- `min_rps`: `actual = s.rps`(summary의 평균 rps; `report.rs`에서 duration==0이면 `0.0`), `passed = actual >= threshold`, direction `"min"`. → count==0/duration==0인 degenerate completed run은 `actual=0`이라 `min_rps>0` 기준에서 fail(의도된 동작 — 테스트로 고정, §12). (N-2)
+- `Verdict.passed = criteria.iter().all(|r| r.passed)`. 활성 기준이 없으면 verdict 자체를 만들지 않는다(§6) — 빈 `Verdict{passed:true, criteria:[]}`를 만들면 잘못된 "PASS"로 보이므로 금지. (N-3)
 
 ## 6. 리포트 배선 (B2, on-demand)
 
@@ -146,9 +147,19 @@ let verdict = match (run.status, run.profile.criteria.as_ref()) {
 
 ### 8.1 와이어 스키마 — `ui/src/api/schemas.ts`
 
-리포트 Zod 스키마에 `verdict` 추가(엔진 와이어 1:1):
+**두 군데 모두** 손봐야 한다 (criteria는 입력, verdict는 출력):
+
+1. **`ProfileSchema`에 `criteria` 추가** — criteria가 backend `Profile`에 생기면 **모든 run/preset 응답의 `profile` 객체에 실려 온다.** `ProfileSchema`는 `.strict()`가 아닌 평범한 `z.object`라 키가 없어도 파싱 에러는 안 나지만 **criteria를 조용히 strip**한다 → prefill·run 응답에서 criteria 유실. 따라서 `ProfileSchema`에 `criteria: CriteriaSchema.nullish()` 추가 필수(파싱 깨짐 방지가 아니라 *기능*을 위해). (SF-5)
+2. **`ReportSchema`에 `verdict` 추가** — 엔진 와이어 1:1:
 
 ```ts
+const Criteria = z.object({                 // ProfileSchema에 nullish로
+  max_p50_ms: z.number().int().nonnegative().optional(),
+  max_p95_ms: z.number().int().nonnegative().optional(),
+  max_p99_ms: z.number().int().nonnegative().optional(),
+  max_error_rate: z.number().min(0).max(1).optional(),  // 분수 (UI 표시·입력은 %)
+  min_rps: z.number().nonnegative().optional(),
+});
 const CriterionResult = z.object({
   metric: z.string(), direction: z.enum(["max", "min"]),
   threshold: z.number(), actual: z.number(), passed: z.boolean(),
@@ -157,17 +168,23 @@ const Verdict = z.object({ passed: z.boolean(), criteria: z.array(CriterionResul
 // ReportSchema: verdict: Verdict.nullish()  (없으면 null/undefined)
 ```
 
+> **출하 결합 불변식 (SF-2)**: `ReportSchema`는 `.strict()`라, backend가 `verdict` 키를 내보내는데 UI 스키마에 키가 없으면 **completed+criteria run의 리포트 파싱 전체가 거부**된다. 따라서 backend `verdict` 필드와 UI `verdict` 스키마는 **같은 슬라이스에서 함께 출하**해야 하며(이 슬라이스가 그렇다), `schemas.test.ts`의 verdict round-trip을 게이트로 둔다. (verdict는 None일 때 키 생략이라 criteria 없는 기존 run은 영향 없음. `ReportRunSchema.profile`은 `z.unknown()`이라 profile 안 criteria는 별개로 안전.)
+
 ### 8.2 입력 — `ui/src/components/RunDialog.tsx`
 
-"SLO 기준" 섹션: 5개 선택적 숫자 입력(p50/p95/p99 ms, error_rate %, min rps). 빈 칸 = 미설정(undefined). profile에 실어 `POST /api/runs`. 
+"SLO 기준" 섹션: 5개 선택적 숫자 입력(p50/p95/p99 ms, error_rate %, min rps). 빈 칸 = 미설정(undefined).
 
+- **profile 생성 지점이 2곳 — 둘 다 criteria를 넣어야 한다 (SF-3)**:
+  1. submit 시 `POST /api/runs` 본문 profile (`RunDialog.tsx:373-379` 부근).
+  2. 프리셋 저장용 `currentInput()` profile (`RunDialog.tsx:132-138` 부근).
+  한쪽만 넣으면 "프리셋 저장 시 criteria 자동 캡처"가 조용히 깨진다(run은 되는데 preset엔 누락).
 - **error_rate 단위 변환**: UI는 **%**로 입출력(예: `1` → 저장 `0.01`), 백엔드는 분수. 변환 지점을 한 곳(직렬화 경계)에 둔다.
-- 프리셋 저장/불러오기(영역 A): criteria가 profile에 있으므로 자동 캡처·prefill. `runPrefill.ts`가 criteria를 포함하도록 보강(있다면).
+- **`runPrefill.ts`는 변경 불필요 (SF-5)**: `RunPrefill.profile`이 Zod `Profile` 타입이고 `normalizeProfile = ProfileSchema.parse`라, §8.1의 `ProfileSchema.criteria` 추가만으로 criteria가 prefill을 자동 통과한다. 별도 편집 없음.
 
 ### 8.3 출력 — `ui/src/components/report/ReportView.tsx`
 
 상단에 verdict 패널:
-- 전체 **PASS / FAIL** 배지(`StatusBadge` 패턴 재사용, 색 구분).
+- 전체 **PASS / FAIL** 배지 — **`StatusBadge`를 직접 확장하지 말 것**(`StatusBadge`는 5개 RunStatus만 받는 닫힌 `Record`라 PASS/FAIL을 못 그린다). 같은 Tailwind 배지 *이디엄*을 따르는 **새 작은 배지** 컴포넌트를 만든다. (SF-4)
 - 기준 테이블: 행마다 metric 라벨 · 임계값 · 실측값 · pass/fail. 지연은 ms, error_rate는 %, rps는 1자리. direction으로 `≤`/`≥` 표기.
 - `verdict`가 null/undefined면 패널 미렌더(기준 없음 OR 비완료 run).
 
@@ -196,8 +213,8 @@ const Verdict = z.object({ passed: z.boolean(), criteria: z.array(CriterionResul
 
 - **엔진**: 변경 없음(테스트 없음).
 - **controller unit**:
-  - `evaluate_criteria`: 전부 통과 / 일부 실패 / 활성 기준 0개 / `count==0` 엣지 / error_rate·rps 경계값.
-  - `build_report`: completed + criteria → `Some(verdict)`; (비완료 | 기준 없음) → `None`.
+  - `evaluate_criteria`: 전부 통과 / 일부 실패 / error_rate·rps 경계값 / `count==0`(error_rate→0) / `duration==0`(rps→0이라 min_rps fail, N-2).
+  - `build_report`: completed + criteria → `Some(verdict)`; (비완료 | 기준 없음) → `None`; **all-None `Some(Criteria)` → `None`(gate가 evaluate를 아예 호출 안 함, 빈 PASS 금지, N-3)**.
   - `validate_run_config`: error_rate 범위 밖 / NaN / 음수 rps 거부; 정상 통과.
 - **UI(vitest/RTL)**:
   - RunDialog: criteria 입력 → `POST` 본문에 criteria 포함; %↔분수 변환; 프리셋 prefill.
@@ -207,13 +224,28 @@ const Verdict = z.object({ passed: z.boolean(), criteria: z.array(CriterionResul
 
 ## 13. 영향 받는 파일(예상)
 
+### 프로덕션
 - `crates/controller/src/store/runs.rs` — `Profile.criteria`, `Criteria`, `has_any`.
 - `crates/controller/src/report.rs` (또는 신규 `criteria.rs`) — `Verdict`, `CriterionResult`, `evaluate_criteria`, `build_report` 배선.
 - `crates/controller/src/api/runs.rs` — `validate_run_config` criteria 검증.
-- `ui/src/api/schemas.ts` — verdict 스키마.
-- `ui/src/components/RunDialog.tsx` (+ `runPrefill.ts`) — criteria 입력.
-- `ui/src/components/report/ReportView.tsx` — verdict 패널.
-- 마이그레이션 · proto · 엔진 · 워커: **변경 없음**.
+- `ui/src/api/schemas.ts` — `ProfileSchema.criteria`(입력) + `ReportSchema.verdict`(출력).
+- `ui/src/components/RunDialog.tsx` — criteria 입력 + **profile 생성 2곳**(submit·preset, §8.2/SF-3).
+- `ui/src/components/report/ReportView.tsx` — verdict 패널(+ 신규 PASS/FAIL 배지, SF-4).
+
+### `criteria: None`을 추가해야 컴파일되는 `runs::Profile {…}` 리터럴 (SF-1)
+`Profile`이 `Default`를 파생하지 않아(`runs.rs:43`) `..Default::default()` 불가 — 비스프레드 신규 필드라 **아래 7곳 전부**에 `criteria: None` 명시 필요(전부 테스트 픽스처; pb::Profile 리터럴 `runs.rs:179`는 무관):
+- `crates/controller/src/store/runs.rs:292`
+- `crates/controller/src/store/presets.rs:194`
+- `crates/controller/src/grpc/coordinator.rs:969` (`seed_run` 헬퍼)
+- `crates/controller/src/api/runs.rs:358` (`unique_profile` 헬퍼)
+- `crates/controller/src/report.rs:298` (`run_row` 헬퍼)
+- `crates/controller/tests/crash_recovery_test.rs:28`
+- `crates/controller/tests/report_test.rs:70`
+
+> `Default` 파생으로 우회하지 말 것 — `loop_breakdown_cap`의 serde 기본값이 256(비-Default)이라 `Default::default()`는 0을 줘 의미가 달라진다. 7곳에 `criteria: None` 명시가 정답.
+
+### 무변경
+마이그레이션 · proto · 엔진 · 워커 · `ui/src/api/runPrefill.ts`(§8.2/SF-5): **변경 없음**.
 
 ## 14. ADR
 
