@@ -7,6 +7,7 @@
 ## crate 구조
 
 - **Bin-only crate 는 단위 테스트가 안 됨 → `worker-core` lib 분리** (Slice 6): 원래 plan 은 `reconnect.rs`/backoff 를 `crates/worker/` (bin crate) 안에 두려고 했다. 하지만 bin crate 의 모듈은 외부에서 import 못 해서 `tokio::time::pause()` 기반 단위 테스트를 붙일 수가 없다. Task 0 에서 `crates/worker-core/` 를 sibling lib 로 추출한 뒤 `worker/src/main.rs` 는 CLI parsing + wiring 만 남겼다. **새 패턴: worker 측 로직에 진짜 단위 테스트가 필요하면 `worker-core/src/` 로, bin 은 wiring 만.**
+- **`--worker-id`는 optional + `JOB_COMPLETION_INDEX` fallback** (A3a): 멀티워커 fan-out 에서 subprocess 디스패처는 자식마다 distinct `--worker-id`(ULID)를 명시 전달하지만, K8s Indexed Job(A3c)은 Pod 가 자기 인덱스만 알아 `--worker-id`를 못 받는다. `Args.worker_id: Option<String>` + 순수 헬퍼 `resolve_worker_id(arg, run_id, JOB_COMPLETION_INDEX)`: arg 있으면 그대로, 없으면 `"{run_id}-w{index}"`(env 없으면 index 0). bin wiring 함수라 worker-core 가 아닌 `worker/src/main.rs`의 인라인 `#[cfg(test)]`로 테스트(순수 함수라 `tokio::time` 불필요). 워커는 `RunPlan.vus = assignment.vu_count`, `vu_offset = assignment.vu_offset`로 자기 샤드만 돈다(단일워커는 vu_count=총VU/offset=0 → byte-identical). ADR-0027.
 
 ## gRPC 연결 / 셧다운
 

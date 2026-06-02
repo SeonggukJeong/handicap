@@ -15,7 +15,7 @@
 ## 현재 상태 (2026-06-01)
 
 - **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)** + **영역 A (Run 프리셋 + Retry, ADR-0024)** + **영역 B (환경/Environments, ADR-0025)**. 열린 9 이전 슬라이스 작업 없음.
-- **진행 중**: **A3 (멀티 워커 fan-out)** — spec 작성·spec-plan-review 완료(2026-06-01), plan 대기. 계획된 fan-out(반응형 HPA 아님), A3a(조정)→A3b(메트릭 머지)→A3c(K8s Indexed Job) 3분할. spec `docs/superpowers/specs/2026-06-01-multi-worker-fanout-design.md`, ADR-0027(예정). 상세 §A3.
+- **진행 중**: **A3 (멀티 워커 fan-out)** — **A3a(조정 인프라) 구현+머지 완료(2026-06-02, subagent-driven 8 task)**; A3b(메트릭 머지)·A3c(K8s Indexed Job) 후속. 계획된 fan-out(반응형 HPA 아님), A3a(조정)→A3b(메트릭 머지)→A3c(K8s Indexed Job) 3분할. spec `docs/superpowers/specs/2026-06-01-multi-worker-fanout-design.md`, ADR-0027. 상세 §A3.
 - **완결**: **영역 C (시나리오 에디터 test-run, A6 후속·spec §7 실현)** — **C-1(백엔드) + C-2(UI) 둘 다 구현+머지 완료(2026-06-01, subagent-driven)**. C-1: 컨트롤러 in-process 엔진 trace(`trace_scenario`) + top-level `POST /api/test-runs`(ephemeral) + `render_collecting`/`execute_step_traced`/`select_branch` 추출 + `ApiError::Unprocessable`(422) + if/elif 조건 미바인딩 변수 결정 행 표시(follow-up 확장). **C-2(UI)**: ScenarioTrace Zod 스키마(엔진 `trace.rs`와 와이어 1:1) + `api.createTestRun`/`useTestRun`(ephemeral 무invalidation) + 프레젠테이셔널 `TestRunPanel`(http/if 행·분기 라벨·`#loop_index`·미바인딩 앰버·truncated 배너·펼침 req/resp) + `ScenarioEditPage` 배선(`<EnvironmentPicker>`/`resolveEnv` 재사용, live `yamlText` 버퍼 전송 — 미저장에도 동작). spec §5-1 if 행 **조건 요약**은 `summarizeCondition`을 `CanvasView`→`scenario/model.ts`로 추출 공유하고 `ScenarioEditPage`가 `parseScenarioDoc(yamlText)`로 `steps`를 주입해 렌더(ScenarioTrace엔 조건 텍스트 없음). 5커밋(4 plan task + 조건요약 follow-up), task별 2단계 리뷰 + 최종 handicap-reviewer READY-TO-MERGE(와이어 1:1 검증), UI 294 pass + `tsc -b` clean. **후속(연기)**: 응답기반 extract authoring(§8-1), 수동 변수 오버라이드(§8-2), 워커경로 runner(§8-3), 민감값 마스킹, test-run 히스토리. spec: `docs/superpowers/specs/2026-06-01-scenario-editor-test-run-design.md`, plan: `docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c2-ui.md`.
 
 ---
@@ -35,11 +35,11 @@
 - **성격**: control-flow 노드(동시 분기). 단일 VU 안에서 여러 스텝을 병렬 실행.
 - **착수 시 주의**: VU 실행 모델(ADR-0016, tokio task per VU)과의 상호작용 설계 필요 — VU당 추가 동시성이 메트릭 집계(per-step 윈도)와 cookie jar(ADR-0018, VU별 jar) 공유에 주는 영향.
 
-### A3. 멀티 워커 fan-out (계획된 분산 실행) — **🔨 진행 중 (spec 작성·리뷰 완료, plan 대기)**
+### A3. 멀티 워커 fan-out (계획된 분산 실행) — **🔨 진행 중 (A3a 머지 완료, A3b/A3c 후속)**
 - **spec 근거**: §4.5 "다중 워커 자동 스케일링 (워커는 1대 고정)". spec §1 "OUT — 명시적으로 후속" 3단계 항목(`...mvp1-design.md:127`).
 - **성격**: 스케일아웃. §4.3 성능 목표(5,000 RPS)는 단일 워커로 이미 ~20,000 RPS 달성(Slice 6 baseline)이라, 이건 처리량보다 **분산 실행/조정** 슬라이스에 가깝다.
-- **결정**: "자동 스케일" = **반응형 HPA 가 아니라 계획된 fan-out**(run 시작 시 N=ceil(총VU÷capacity) 고정, 워커 mid-run 합류/이탈 없음 — 부하 생성기는 "정해진 VU 안정 생성"이 목적). spec `docs/superpowers/specs/2026-06-01-multi-worker-fanout-design.md`, ADR-0027(예정).
-- **분할(spec §9)**: **A3a**(컨트롤러 per-run 멀티워커 상태머신 + proto RunAssignment shard 필드 + 엔진 글로벌 vu_id + subprocess N-spawn) → **A3b**(메트릭 머지: run_metrics PK 에 worker_id, 워커별 행+읽기 시점 HDR merge, migration 0008) → **A3c**(K8s Indexed Job parallelism=N + Helm 충실도 values). A3a+A3b 한 세트 출하(A3a 단독은 메트릭 keep-first 손실).
+- **결정**: "자동 스케일" = **반응형 HPA 가 아니라 계획된 fan-out**(run 시작 시 N=ceil(총VU÷capacity) 고정, 워커 mid-run 합류/이탈 없음 — 부하 생성기는 "정해진 VU 안정 생성"이 목적). spec `docs/superpowers/specs/2026-06-01-multi-worker-fanout-design.md`, ADR-0027.
+- **분할(spec §9)**: **A3a**(컨트롤러 per-run 멀티워커 상태머신 + proto RunAssignment shard 필드 + 엔진 글로벌 vu_id + subprocess N-spawn) ✅ **머지 완료(2026-06-02, subagent-driven 8 task; 코드리뷰가 잡은 완료-집계 race 1건 수정 — terminal 워커 entry 보존)** → **A3b**(메트릭 머지: run_metrics PK 에 worker_id, 워커별 행+읽기 시점 HDR merge, migration 0008) → **A3c**(K8s Indexed Job parallelism=N + dispatcher cleanup 배선 + Helm 충실도 values). A3a+A3b 한 세트 출하(A3a 단독은 메트릭 keep-first 손실).
 - **잠금 해제**: 8c에서 `unique` 바인딩 정책을 "멀티-워커 전역 커서 필요"로 거부했는데(아래 §B1), 이 인프라가 깔린 뒤 **후속** 하위 슬라이스에서 컨트롤러 중앙 커서로 푼다(spec §6.4 설계 스텁 — A3 본체는 unique 여전히 거부, fail-fast 만).
 - **참고**: ADR-0019 (워커 dispatcher 추상화 — subprocess/K8s Job), ADR-0010 (gRPC pull/등록 모델). 컨트롤러의 run→워커 분배(VU split, 메트릭 머지)가 핵심.
 - **반응형 HPA (연기)**: CPU/메트릭 기반 run 중 스케일은 부하 생성기엔 부자연(VU 수 흔들리면 측정 흔들림). 되살리려면 동적 멤버십·VU 재분배·부분 메트릭 머지 설계부터. → 별도 후보.

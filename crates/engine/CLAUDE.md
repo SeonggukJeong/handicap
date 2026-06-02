@@ -44,6 +44,7 @@
 - **mpsc 플러셔 종료** (Slice 1): 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
 - **CancellationToken은 `tokio_util::sync` 모듈에서** (Slice 4): tonic이 transitively 가져오긴 하지만 dev에 명시적으로 의존 추가하는 게 안전 (tonic minor 업데이트로 token 사라질 위험 회피).
 - **`u32::div_ceil`은 Rust 1.79+** (Slice 4): workspace MSRV 1.85라 OK. `ceil_div(a, b)` 헬퍼를 손수 작성할 필요 없음.
+- **글로벌 vu_id = `RunPlan.vu_offset + spawned` — 멀티워커 샤드용** (A3a): 한 run 이 N 워커로 fan-out 될 때 각 워커는 자기 VU 슬라이스만 돌지만 `${vu_id}`·데이터바인딩이 단일워커와 같으려면 VU 를 **글로벌**로 번호 매겨야 한다. `run_scenario` 의 spawn 루프 카운터 `spawned`(0..plan.vus)는 **로컬 유지**(종료조건·ramp 슬라이스 크기 계산), `vu_id`만 `vu_offset.saturating_add(spawned)`로 글로벌. `vu_offset=0` = 레거시 단일워커. **vu_id 는 identity-only**여야 안전: `${vu_id}` 렌더(`template.rs`) + 데이터셋 `select_index`의 `% len` modulo + seed `mix` 인자뿐 — vus-크기 구조의 인덱스로 쓰면 글로벌 값이 out-of-bounds. (offset 은 컨트롤러 `shard_split` 이 배정, ADR-0027.)
 
 ## 테스트
 
