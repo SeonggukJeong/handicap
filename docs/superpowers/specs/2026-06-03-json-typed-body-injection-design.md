@@ -122,7 +122,8 @@ Value::String(s) => match parse_cast_leaf(s) {
 
 ## 5. UI (Zod 검증)
 
-- **모델 구조 변경 없음**: `BodyModel`의 json 변형은 `z.object({ kind: z.literal("json"), value: z.unknown() })` 그대로 — 캐스트 문자열이 구조적으로 round-trip.
+- **json *멤버* 구조 변경 없음**: json 변형은 `z.object({ kind: z.literal("json"), value: z.unknown() })` 그대로 — 캐스트 문자열이 구조적으로 round-trip. 단 전체 `BodyModel`(discriminatedUnion)은 `.superRefine`로 감싸 **`ZodEffects`로 래핑**된다(멤버에 직접 붙이면 discriminatedUnion이 거부). `z.infer`는 union output을 보존하므로 `type Body`·`RequestModel.body` 소비처는 무영향.
+- **검증 발동 지점**: superRefine은 자유 검증기가 아니라 **`ScenarioModel.safeParse`** 경로에서 돈다 — `parseScenarioDoc`가 `normalizeForModel`로 `body:{json:…}`을 `{kind:"json", value:…}`로 정규화(`yamlDoc.ts::normalizeBody`, 캐스트 문자열 verbatim 통과)한 뒤 모델 파싱. 즉 Monaco 입력 즉시가 아니라 YAML→모델 sync 시점에 inline 에러로 뜬다(기존 "Zod = strict authoring gate" 동작).
 - **신규 `.superRefine` 검증**(json body value를 재귀 walk):
   - 문자열 leaf가 **순수 단일 `{{…}}` 토큰 + trailing `:<keyword>`**인데 keyword ∉ `{str,num,bool}` → 에러(`"unknown cast ':<kw>' — use :num, :bool, or :str"`).
   - **혼합 leaf**(토큰이 문자열 일부)에 캐스트 keyword가 보이면 → 에러(`"cast only applies to a standalone value"`). 정의: `:num`/`:bool`/`:str`로 끝나는 `{{…}}` 토큰이 leaf 전체가 아닐 때.

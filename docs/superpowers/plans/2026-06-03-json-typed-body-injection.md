@@ -389,6 +389,16 @@ fn json_without_casts_is_byte_identical() {
     let out = render_json_value(&input, &ctx).unwrap();
     assert_eq!(out, serde_json::json!({ "s": "hi Lee", "k": 7, "b": false, "z": null }));
 }
+
+#[test]
+fn json_cast_str_on_missing_var_still_errors_strict() {
+    // :str도 bare 토큰을 strict render → 미바인딩이면 coerce 전에 UnknownVar.
+    let vars = BTreeMap::new();
+    let env = BTreeMap::new();
+    let ctx = TemplateContext { vars: &vars, env: &env, vu_id: 0, iter_id: 0, loop_index: None };
+    let input = serde_json::json!({ "zip": "{{zip:str}}" });
+    assert!(matches!(render_json_value(&input, &ctx), Err(EngineError::UnknownVar(_))));
+}
 ```
 
 - [ ] **Step 2: 실행 — FAIL 확인**
@@ -716,6 +726,8 @@ export type Body = z.infer<typeof BodyModel>;
 ```
 
 (`type Body`는 ZodEffects의 infer라 union 타입 그대로 — 변경 없음. `RequestModel.body: BodyModel.optional()`도 그대로 동작.)
+
+> **검증 발동 경로(중요)**: 이 `.superRefine`은 별도 검증기가 아니라 **`ScenarioModel.safeParse`** 안에서 돈다. UI는 `parseScenarioDoc`(`yamlDoc.ts:69`)가 `normalizeForModel`로 `body:{json:…}`을 `{kind:"json", value:…}`로 정규화(`normalizeBody`, `yamlDoc.ts:483` — `value`는 verbatim 통과라 캐스트 토큰 보존)한 뒤 모델을 파싱한다. 따라서 잘못된 캐스트는 **Monaco 입력 즉시가 아니라 YAML↔모델 sync 시점**에 inline 에러로 표시된다. (Monaco-time 검증을 기대하지 말 것.)
 
 - [ ] **Step 5: 실행 — 통과 확인**
 
