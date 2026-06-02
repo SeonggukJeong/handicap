@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -14,7 +15,7 @@ use pb::worker_message::Payload as WorkerPayload;
 use pb::{BranchStat, LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -93,6 +94,9 @@ async fn main() -> anyhow::Result<()> {
     let tx = link.tx;
     let mut inbound_rx = link.inbound_rx;
     let inbound_fwd = link.inbound_fwd;
+    // Lets the inbound forwarder log the end-of-run stream close at debug rather
+    // than warn once we begin shutting down (set before each terminal drop(tx)).
+    let shutdown = link.shutdown;
 
     let scenario: Scenario =
         Scenario::from_yaml(&assignment.scenario_yaml).context("parse scenario YAML")?;
@@ -137,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
                     // Abort/SIGTERM during loading: report Aborted + clean shutdown
                     // (mirror the end-of-main shutdown sequence).
                     info!(run_id = %args.run_id, "aborted during dataset load");
+                    shutdown.store(true, Ordering::Relaxed);
                     let msg = WorkerMessage {
                         payload: Some(WorkerPayload::RunStatus(RunStatus {
                             run_id: args.run_id.clone(),
@@ -248,7 +253,7 @@ async fn main() -> anyhow::Result<()> {
                 })),
             };
             if tx_metric.send(msg).await.is_err() {
-                error!("controller stream closed, dropping batch");
+                debug!("controller stream closed mid-run, dropping batch");
                 break;
             }
         }
@@ -310,6 +315,7 @@ async fn main() -> anyhow::Result<()> {
     // The await is capped at 2s so a misbehaving controller can't hang the
     // worker process forever; that ceiling matches the previous sleep's
     // worst-case behavior while letting the happy path exit in milliseconds.
+    shutdown.store(true, Ordering::Relaxed);
     drop(tx);
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
     info!("worker done");

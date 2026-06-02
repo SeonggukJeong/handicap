@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
 use handicap_proto::v1 as pb;
@@ -32,6 +34,47 @@ pub struct WorkerLink {
     /// down before tonic has flushed the final HTTP/2 DATA frame and
     /// END_STREAM to the wire.
     pub inbound_fwd: tokio::task::JoinHandle<()>,
+    /// Set by `main` just before it drops `tx` (after sending the terminal
+    /// RunStatus). Lets the inbound forwarder distinguish the expected
+    /// end-of-run stream close from an unexpected mid-run transport drop when
+    /// choosing a log level. (codex eval item 4.)
+    pub shutdown: Arc<AtomicBool>,
+}
+
+/// Forward post-assignment inbound messages to `fwd_tx` until the stream ends.
+///
+/// gRPC surfaces the controller's normal end-of-run close as a stream *error*
+/// (an h2 "error reading a body" `Status`), not a clean `None`. Logging that at
+/// `warn` makes every successful run look like a transport failure. So the level
+/// depends on `shutdown`: once `main` has sent its terminal RunStatus and
+/// signalled shutdown, the close is expected (`debug`); before that it is an
+/// unexpected drop worth a `warn`. (codex eval item 4.)
+async fn forward_inbound<S>(
+    mut inbound: S,
+    fwd_tx: mpsc::Sender<ServerMessage>,
+    shutdown: Arc<AtomicBool>,
+) where
+    S: futures::Stream<Item = Result<ServerMessage, tonic::Status>> + Unpin,
+{
+    while let Some(msg) = inbound.next().await {
+        match msg {
+            Ok(m) => {
+                tracing::debug!(?m.payload, "controller msg");
+                if fwd_tx.send(m).await.is_err() {
+                    // Receiver dropped — main is done; stop forwarding.
+                    break;
+                }
+            }
+            Err(e) => {
+                if shutdown.load(Ordering::Relaxed) {
+                    tracing::debug!(error = %e, "inbound stream closed after shutdown (expected)");
+                } else {
+                    warn!(error = %e, "inbound stream closed before terminal status");
+                }
+                break;
+            }
+        }
+    }
 }
 
 pub async fn connect_and_register(
@@ -79,29 +122,15 @@ pub async fn connect_and_register(
     // Forward all remaining inbound messages through a channel so that
     // `main` can listen for AbortRun without blocking on the raw gRPC stream.
     let (fwd_tx, fwd_rx) = mpsc::channel::<ServerMessage>(16);
-    let fwd_handle = tokio::spawn(async move {
-        while let Some(msg) = inbound.next().await {
-            match msg {
-                Ok(m) => {
-                    tracing::debug!(?m.payload, "controller msg");
-                    if fwd_tx.send(m).await.is_err() {
-                        // Receiver dropped — main is done; stop forwarding.
-                        break;
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "inbound stream closed");
-                    break;
-                }
-            }
-        }
-    });
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let fwd_handle = tokio::spawn(forward_inbound(inbound, fwd_tx, shutdown.clone()));
 
     Ok(WorkerLink {
         tx,
         assignment,
         inbound_rx: fwd_rx,
         inbound_fwd: fwd_handle,
+        shutdown,
     })
 }
 
@@ -141,6 +170,74 @@ pub async fn load_dataset(
         }
     }
     Ok(rows)
+}
+
+#[cfg(test)]
+mod forward_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Minimal subscriber that records the level of every event, so a test can
+    /// assert the inbound-close log level without pulling in tracing-subscriber.
+    struct LevelCapture(Arc<Mutex<Vec<tracing::Level>>>);
+    impl tracing::Subscriber for LevelCapture {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            self.0.lock().unwrap().push(*event.metadata().level());
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    fn capture_close(shutting_down: bool) -> Vec<tracing::Level> {
+        let levels = Arc::new(Mutex::new(Vec::new()));
+        let guard = tracing::subscriber::set_default(LevelCapture(levels.clone()));
+        // current_thread runtime → forward_inbound runs on this thread, under the
+        // default subscriber set above.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let (fwd_tx, _fwd_rx) = mpsc::channel::<ServerMessage>(8);
+            let shutdown = Arc::new(AtomicBool::new(shutting_down));
+            // A single inbound error models the controller closing the stream.
+            let stream = tokio_stream::iter(vec![Err::<ServerMessage, _>(tonic::Status::unknown(
+                "h2 protocol error: error reading a body",
+            ))]);
+            forward_inbound(stream, fwd_tx, shutdown).await;
+        });
+        drop(guard);
+        levels.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn inbound_close_after_shutdown_logs_debug_not_warn() {
+        let levels = capture_close(true);
+        assert!(
+            levels.contains(&tracing::Level::DEBUG),
+            "expected DEBUG for an expected end-of-run close, got {levels:?}"
+        );
+        assert!(
+            !levels.contains(&tracing::Level::WARN),
+            "a successful close must NOT warn, got {levels:?}"
+        );
+    }
+
+    #[test]
+    fn inbound_close_before_shutdown_logs_warn() {
+        let levels = capture_close(false);
+        assert!(
+            levels.contains(&tracing::Level::WARN),
+            "an unexpected mid-run drop must warn, got {levels:?}"
+        );
+    }
 }
 
 #[cfg(test)]
