@@ -18,6 +18,12 @@ pub enum EngineError {
     Io(#[from] std::io::Error),
     #[error("extract failed: {0}")]
     ExtractFailed(String),
+    #[error("template: cannot cast {var} value {value:?} to {cast}")]
+    CastFailed {
+        var: String,
+        cast: &'static str,
+        value: String,
+    },
     #[error("aborted")]
     Aborted,
 }

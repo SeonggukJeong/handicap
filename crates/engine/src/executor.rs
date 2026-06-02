@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use reqwest::cookie::Jar;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
+use crate::cast::{Cast, coerce_bool, coerce_num, parse_cast_leaf};
 use crate::error::{EngineError, Result};
 use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
 use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
@@ -47,7 +48,28 @@ fn render_json_value(
 ) -> Result<serde_json::Value> {
     use serde_json::Value;
     Ok(match value {
-        Value::String(s) => Value::String(render(s, ctx)?),
+        Value::String(s) => match parse_cast_leaf(s) {
+            // :str 캐스트 = bare 토큰을 문자열로(접미사만 제거). 캐스트 없음/미지원
+            // keyword/혼합/env는 parse_cast_leaf가 None → 원문 s를 그대로 렌더.
+            Some((bare, Cast::Str)) => Value::String(render(&bare, ctx)?),
+            Some((bare, Cast::Num)) => {
+                let r = render(&bare, ctx)?; // strict: 미바인딩이면 여기서 UnknownVar
+                coerce_num(&r).ok_or(EngineError::CastFailed {
+                    var: bare,
+                    cast: "num",
+                    value: r,
+                })?
+            }
+            Some((bare, Cast::Bool)) => {
+                let r = render(&bare, ctx)?;
+                coerce_bool(&r).ok_or(EngineError::CastFailed {
+                    var: bare,
+                    cast: "bool",
+                    value: r,
+                })?
+            }
+            None => Value::String(render(s, ctx)?),
+        },
         Value::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
@@ -789,6 +811,140 @@ mod tests {
         let mut sorted = t.unbound_vars.clone();
         sorted.sort();
         assert_eq!(sorted, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn json_cast_num_and_bool_coerce() {
+        let vars: BTreeMap<String, String> =
+            [("age".into(), "30".into()), ("vip".into(), "true".into())]
+                .into_iter()
+                .collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "age": "{{age:num}}", "vip": "{{vip:bool}}" });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(out, serde_json::json!({ "age": 30, "vip": true }));
+    }
+
+    #[test]
+    fn json_cast_str_and_no_cast_stay_string() {
+        let vars: BTreeMap<String, String> = [
+            ("zip".into(), "01234".into()),
+            ("name".into(), "Lee".into()),
+        ]
+        .into_iter()
+        .collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "zip": "{{zip:str}}", "name": "{{name}}" });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(out, serde_json::json!({ "zip": "01234", "name": "Lee" }));
+    }
+
+    #[test]
+    fn json_cast_failure_errors_strict() {
+        let vars: BTreeMap<String, String> = [("age".into(), "abc".into())].into_iter().collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "age": "{{age:num}}" });
+        assert!(matches!(
+            render_json_value(&input, &ctx),
+            Err(EngineError::CastFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn json_cast_leading_zero_to_num_fails() {
+        let vars: BTreeMap<String, String> = [("zip".into(), "01234".into())].into_iter().collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "zip": "{{zip:num}}" });
+        assert!(matches!(
+            render_json_value(&input, &ctx),
+            Err(EngineError::CastFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn json_mixed_leaf_cast_is_unknown_var() {
+        // 혼합 leaf는 캐스트 미발동 → 일반 문자열 경로 → render가 "age:num" 변수를 못 찾음.
+        let vars = BTreeMap::new();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "msg": "no {{age:num}} here" });
+        assert!(matches!(
+            render_json_value(&input, &ctx),
+            Err(EngineError::UnknownVar(_))
+        ));
+    }
+
+    #[test]
+    fn json_without_casts_is_byte_identical() {
+        // 하위호환 불변식: 캐스트 토큰이 없으면 8a 동작 그대로(문자열 leaf 치환, 타입 보존).
+        let vars: BTreeMap<String, String> = [("n".into(), "Lee".into())].into_iter().collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "s": "hi {{n}}", "k": 7, "b": false, "z": null });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({ "s": "hi Lee", "k": 7, "b": false, "z": null })
+        );
+    }
+
+    #[test]
+    fn json_cast_str_on_missing_var_still_errors_strict() {
+        // :str도 bare 토큰을 strict render → 미바인딩이면 coerce 전에 UnknownVar.
+        let vars = BTreeMap::new();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "zip": "{{zip:str}}" });
+        assert!(matches!(
+            render_json_value(&input, &ctx),
+            Err(EngineError::UnknownVar(_))
+        ));
     }
 
     #[test]

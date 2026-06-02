@@ -1,4 +1,5 @@
 pub mod aggregator;
+mod cast;
 pub mod condition;
 pub mod dataset;
 pub mod error;
