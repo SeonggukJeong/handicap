@@ -1,15 +1,23 @@
 import { z } from "zod";
+import { jsonBodyCastErrors } from "./cast";
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export const HttpMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 export type HttpMethod = z.infer<typeof HttpMethod>;
 
-export const BodyModel = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("json"), value: z.unknown() }).strict(),
-  z.object({ kind: z.literal("form"), value: z.record(z.string(), z.string()) }).strict(),
-  z.object({ kind: z.literal("raw"), value: z.string() }).strict(),
-]);
+export const BodyModel = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("json"), value: z.unknown() }).strict(),
+    z.object({ kind: z.literal("form"), value: z.record(z.string(), z.string()) }).strict(),
+    z.object({ kind: z.literal("raw"), value: z.string() }).strict(),
+  ])
+  .superRefine((body, ctx) => {
+    if (body.kind !== "json") return;
+    for (const msg of jsonBodyCastErrors(body.value)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg, path: ["value"] });
+    }
+  });
 export type Body = z.infer<typeof BodyModel>;
 
 export const RequestModel = z
