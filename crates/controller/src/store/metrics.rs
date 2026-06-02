@@ -63,6 +63,9 @@ pub struct WindowSummary {
 }
 
 pub async fn summary(db: &Db, run_id: &str) -> sqlx::Result<MetricSummary> {
+    // Per-worker rows (A3b): merge by (ts_second, step_id). status_counts is per-row
+    // JSON so it can't be SUMmed in SQL — fold in Rust. ORDER guarantees deterministic
+    // grouping; output shape is unchanged (no worker_id exposed — UI MetricSummarySchema).
     let rows = sqlx::query(
         "SELECT ts_second, step_id, count, error_count, status_counts \
          FROM run_metrics WHERE run_id = ? ORDER BY ts_second, step_id",
@@ -71,25 +74,34 @@ pub async fn summary(db: &Db, run_id: &str) -> sqlx::Result<MetricSummary> {
     .fetch_all(db)
     .await?;
 
-    let windows = rows
-        .into_iter()
-        .map(|r| {
-            let status_json: String = r.get("status_counts");
-            let parsed: HashMap<String, u64> =
-                serde_json::from_str(&status_json).unwrap_or_default();
-            WindowSummary {
-                ts_second: r.get("ts_second"),
-                step_id: r.get("step_id"),
-                count: r.get("count"),
-                error_count: r.get("error_count"),
-                status_counts: parsed,
-            }
-        })
-        .collect();
+    use std::collections::BTreeMap;
+    let mut acc: BTreeMap<(i64, String), WindowSummary> = BTreeMap::new();
+    for r in rows {
+        let ts: i64 = r.get("ts_second");
+        let step: String = r.get("step_id");
+        let count: i64 = r.get("count");
+        let errors: i64 = r.get("error_count");
+        let status_json: String = r.get("status_counts");
+        let parsed: HashMap<String, u64> = serde_json::from_str(&status_json).unwrap_or_default();
+        let w = acc
+            .entry((ts, step.clone()))
+            .or_insert_with(|| WindowSummary {
+                ts_second: ts,
+                step_id: step,
+                count: 0,
+                error_count: 0,
+                status_counts: HashMap::new(),
+            });
+        w.count += count;
+        w.error_count += errors;
+        for (k, v) in parsed {
+            *w.status_counts.entry(k).or_insert(0) += v;
+        }
+    }
 
     Ok(MetricSummary {
         run_id: run_id.to_string(),
-        windows,
+        windows: acc.into_values().collect(),
     })
 }
 
@@ -511,6 +523,75 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(a_count, 5, "w-a keeps first value, not replaced/summed");
+    }
+
+    #[tokio::test]
+    async fn summary_merges_worker_rows() {
+        let db = pool().await;
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S")
+        .bind("n")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R").bind("S").bind("version: 1\nname: n\nsteps: []\n")
+        .bind("{}").bind("{}").bind("running").bind(1_i64).execute(&db).await.unwrap();
+
+        // Two workers, same (ts_second=1, step_id="s"); plus a distinct window.
+        let rows = vec![
+            MetricRow {
+                run_id: "R".into(),
+                ts_second: 1,
+                step_id: "s".into(),
+                worker_id: "w-a".into(),
+                count: 5,
+                error_count: 0,
+                hdr_histogram: vec![1],
+                status_counts: r#"{"200":5}"#.into(),
+            },
+            MetricRow {
+                run_id: "R".into(),
+                ts_second: 1,
+                step_id: "s".into(),
+                worker_id: "w-b".into(),
+                count: 3,
+                error_count: 2,
+                hdr_histogram: vec![2],
+                status_counts: r#"{"200":1,"500":2}"#.into(),
+            },
+            MetricRow {
+                run_id: "R".into(),
+                ts_second: 2,
+                step_id: "s".into(),
+                worker_id: "w-a".into(),
+                count: 4,
+                error_count: 0,
+                hdr_histogram: vec![3],
+                status_counts: r#"{"200":4}"#.into(),
+            },
+        ];
+        insert_batch(&db, &rows).await.unwrap();
+
+        let s = summary(&db, "R").await.unwrap();
+        // ts=1 collapses two workers into one window; ts=2 stays one -> 2 windows total.
+        assert_eq!(s.windows.len(), 2);
+        let w1 = s.windows.iter().find(|w| w.ts_second == 1).unwrap();
+        assert_eq!(w1.count, 8, "summed across workers");
+        assert_eq!(w1.error_count, 2);
+        assert_eq!(w1.status_counts.get("200").copied(), Some(6));
+        assert_eq!(w1.status_counts.get("500").copied(), Some(2));
+        let w2 = s.windows.iter().find(|w| w.ts_second == 2).unwrap();
+        assert_eq!(w2.count, 4);
     }
 
     #[tokio::test]
