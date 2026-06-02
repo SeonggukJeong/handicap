@@ -102,6 +102,11 @@
 - **(de-scoped) 멀티값 헤더(같은 key 반복)**: 사용자 판단 "헤더 중복 입력 필요성 낮음" → 후보 제외. 필요해지면 모델 확장(별도 spec).
 - **raw body 에디터**: 변경 이유 없음 — 임의 텍스트라 textarea가 적합. 건드리지 않음.
 
+### B5. codex 평가 후속 (2026-06-03)
+출처: codex load-tester 평가 + Claude 검증 `docs/reviews/2026-06-02-load-tester-evaluation-assessment.md`. **항목 1–4 구현+머지 완료**(master `5e59048` lint 게이트 / `fffec3e` dispatch fail-fast P0 / `fee8041` shutdown 로그). 잔여 2건:
+- **open-loop / arrival-rate 부하 모델 + per-step·per-scenario timeout (P2)**: 현 엔진은 closed-loop 전용(VU가 시나리오 허용 한도까지 루프) + HTTP timeout 30s 하드코딩(`engine/src/executor.rs`). target RPS·think time·`http_timeout_seconds`·max in-flight cap을 profile 필드로 추가, closed-loop는 기본 유지. **별도 spec/plan 필요**(§A 후보급, "정밀 성능 테스트" 영역) — `executor.rs`/`runner.rs` + proto `Profile` + RunDialog까지 걸친다.
+- **skip/todo UI 테스트 분류·정리**: `pnpm test`에 todo 21 + skip 7. 의도적 연기 / flaky / obsolete / harness-blocked로 분류 후 고위험(시나리오 에디터·리포트) 우선 구현. → UI 폴리시 곁다리.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
 
