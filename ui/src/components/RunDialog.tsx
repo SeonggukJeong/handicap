@@ -40,6 +40,19 @@ type Props = {
   onCancel: () => void;
 };
 
+/** True when any SLO criterion is set — drives the auto-expand of the (optional,
+ *  collapsible) SLO section so seeded criteria are never hidden behind the toggle. */
+function criteriaHasValue(c?: Criteria): boolean {
+  return (
+    c != null &&
+    (c.max_p50_ms != null ||
+      c.max_p95_ms != null ||
+      c.max_p99_ms != null ||
+      c.max_error_rate != null ||
+      c.min_rps != null)
+  );
+}
+
 export function RunDialog({
   scenarioId,
   hasLoop,
@@ -62,6 +75,8 @@ export function RunDialog({
     initC?.max_error_rate != null ? String(initC.max_error_rate * 100) : "",
   );
   const [minRps, setMinRps] = useState(numToStr(initC?.min_rps));
+  // SLO 기준 is optional → collapsible. Start open only when seeded criteria exist.
+  const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initC));
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
@@ -113,6 +128,7 @@ export function RunDialog({
       setMaxP99(numToStr(pc?.max_p99_ms));
       setMaxErrPct(pc?.max_error_rate != null ? String(pc.max_error_rate * 100) : "");
       setMinRps(numToStr(pc?.min_rps));
+      if (criteriaHasValue(pc)) setSloOpen(true); // reveal loaded criteria
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -129,6 +145,11 @@ export function RunDialog({
   const rampInvalid = rampUp > duration;
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
+  // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
+  // active criteria aren't silently hidden.
+  const sloActiveCount = [maxP50, maxP95, maxP99, maxErrPct, minRps].filter(
+    (s) => s.trim() !== "",
+  ).length;
   const canSubmit =
     vus >= 1 &&
     duration >= 1 &&
@@ -330,63 +351,79 @@ export function RunDialog({
         </p>
       )}
 
-      <fieldset className="mt-3 border-t pt-3">
-        <legend className="text-sm font-medium">SLO 기준 (선택)</legend>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="text-slate-600">Max p50 (ms)</span>
-            <input
-              type="number"
-              min="0"
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              value={maxP50}
-              onChange={(e) => setMaxP50(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Max p95 (ms)</span>
-            <input
-              type="number"
-              min="0"
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              value={maxP95}
-              onChange={(e) => setMaxP95(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Max p99 (ms)</span>
-            <input
-              type="number"
-              min="0"
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              value={maxP99}
-              onChange={(e) => setMaxP99(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Max error rate (%)</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="any"
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              value={maxErrPct}
-              onChange={(e) => setMaxErrPct(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Min RPS</span>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              value={minRps}
-              onChange={(e) => setMinRps(e.target.value)}
-            />
-          </label>
-        </div>
+      <fieldset className="mt-3 mb-4 border-t pt-3">
+        <legend className="text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => setSloOpen((v) => !v)}
+            className="font-medium text-slate-700 hover:underline"
+            aria-expanded={sloOpen}
+          >
+            {sloOpen ? "▾" : "▸"} SLO 기준 (선택)
+            {!sloOpen && sloActiveCount > 0 ? (
+              <span className="ml-1 text-xs font-normal text-slate-500">
+                · {sloActiveCount}개 설정됨
+              </span>
+            ) : null}
+          </button>
+        </legend>
+        {sloOpen && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm">
+              <span className="text-slate-600">Max p50 (ms)</span>
+              <input
+                type="number"
+                min="0"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={maxP50}
+                onChange={(e) => setMaxP50(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max p95 (ms)</span>
+              <input
+                type="number"
+                min="0"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={maxP95}
+                onChange={(e) => setMaxP95(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max p99 (ms)</span>
+              <input
+                type="number"
+                min="0"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={maxP99}
+                onChange={(e) => setMaxP99(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max error rate (%)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={maxErrPct}
+                onChange={(e) => setMaxErrPct(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Min RPS</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={minRps}
+                onChange={(e) => setMinRps(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
       </fieldset>
 
       <EnvironmentPicker

@@ -559,6 +559,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
     await user.type(screen.getByLabelText(/Max p95/), "500");
     await user.type(screen.getByLabelText(/Max error rate/), "1");
 
@@ -575,13 +576,47 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     expect(body.profile.criteria).toEqual({ max_p95_ms: 500, max_error_rate: 0.01 });
   });
 
-  it("SLO inputs have type=number to prevent NaN from non-numeric text", () => {
+  it("SLO inputs have type=number to prevent NaN from non-numeric text", async () => {
+    const user = userEvent.setup();
     renderDialog();
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
     expect(screen.getByLabelText(/Max p50/)).toHaveAttribute("type", "number");
     expect(screen.getByLabelText(/Max p95/)).toHaveAttribute("type", "number");
     expect(screen.getByLabelText(/Max p99/)).toHaveAttribute("type", "number");
     expect(screen.getByLabelText(/Max error rate/)).toHaveAttribute("type", "number");
     expect(screen.getByLabelText(/Min RPS/)).toHaveAttribute("type", "number");
+  });
+
+  it("collapses the SLO section by default and expands on toggle", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const toggle = screen.getByRole("button", { name: /SLO 기준/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText(/Max p95/)).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText(/Max p95/)).toBeInTheDocument();
+  });
+
+  it("auto-expands and prefills when initial criteria are present", () => {
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        data_binding: null,
+        criteria: { max_p95_ms: 500, max_error_rate: 0.02 },
+      },
+      env: {},
+    });
+    // seeded criteria → section starts expanded, values prefilled (error_rate 0.02 → 2%)
+    expect(screen.getByRole("button", { name: /SLO 기준/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByLabelText(/Max p95/)).toHaveValue(500);
+    expect(screen.getByLabelText(/Max error rate/)).toHaveValue(2);
   });
 
   it("omits criteria when all SLO inputs are empty", async () => {
