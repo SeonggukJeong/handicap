@@ -138,6 +138,7 @@ docs/
 - **최종 whole-feature 리뷰는 `handicap-reviewer` 에이전트로** (Slice 9b): repo-trap-aware라 per-task 리뷰가 구조상 못 보는 크로스커팅을 잡는다 — 특히 UI Zod 모델 ↔ 엔진 serde **와이어포맷 1:1 대조**(field명·연산자·`right` 생략 등), deferral 추적, build/lint 게이트 재확인.
 - **새 `EnterWorktree` 워크트리엔 `ui/node_modules`·`target/`가 없다** (A1): 테스트 돌리는 subagent를 띄우기 전에 `cd ui && pnpm install`(pnpm 전역 store라 ~수초) + `cargo build`로 baseline부터 깐다 — 안 그러면 첫 subagent가 deps 없어 바로 실패. UI·Rust 둘 다 건드리는 슬라이스면 둘 다.
 - **implementer subagent가 mid-task로 끊길 수 있다** (A1, 한 세션에 2회; Slice 9c에서도 1회 재현): report 없이 truncated되면 변경이 uncommitted로 worktree에 남고 build gate·commit이 안 된 상태다. **report를 믿지 말고**(테스트 개수·baseline 같은 수치도 부정확할 수 있음) `git status`/`git diff HEAD`/grep로 실제 상태를 확인한 뒤, 남은 step(테스트 → `cd ui && pnpm test && pnpm build` → commit)을 직접 마저 하거나 fix-subagent로 완료한다. 매 task의 실제 상태는 subagent report가 아니라 직접 실행한 테스트/빌드로 검증.
+- **subagent-driven plan을 컨텍스트 리셋/토큰 소진 후 재개하려면 git 커밋이 진실의 원천** (unique 바인딩): 각 task가 독립 커밋(implementer가 task 끝에 commit)이라 진행 상태는 워크트리 git 히스토리에 durable. 재개 레시피: ① 워크트리는 `.claude/worktrees/<name>`에 보존(`ExitWorktree(remove)` 전엔 안 지워짐) → `EnterWorktree(path: …)`로 재진입; ② `git log --oneline <base>..HEAD`로 완료 task 확인 후 plan의 `- [ ]` 체크박스와 대조해 **첫 미커밋 task부터** 재개; ③ `git status`/`git diff HEAD`로 중단 task의 uncommitted 부분작업 복구. TodoWrite/Task 리스트는 컨텍스트와 함께 리셋되니 신뢰 금지 — 커밋·직접 실행한 테스트/빌드만 신뢰.
 
 ## 알아둘 결정들
 
