@@ -9,6 +9,24 @@ pub fn worker_count(total_vus: u32, capacity: u32) -> u32 {
     total_vus.div_ceil(cap).max(1)
 }
 
+/// Per-worker dataset slice. `unique` partitions the dataset into disjoint
+/// contiguous shards (`shard_split`); replicated policies (per_vu / iter_*) give
+/// every worker the same `(0, total)`. Returns `(offset, count)` as u64.
+/// Caller guarantees `total <= u32::MAX` for unique (validation gate). (spec §4.4)
+pub fn dataset_slice(
+    is_unique: bool,
+    total: u64,
+    shard_count: u32,
+    shard_index: u32,
+) -> (u64, u64) {
+    if is_unique {
+        let (offset, count) = shard_split(total as u32, shard_count, shard_index);
+        (offset as u64, count as u64)
+    } else {
+        (0, total)
+    }
+}
+
 /// VU slice for shard `i` of `n`: contiguous, disjoint, summing to `total_vus`.
 /// The first `total_vus % n` shards get one extra VU. Returns `(vu_offset, vu_count)`.
 pub fn shard_split(total_vus: u32, n: u32, i: u32) -> (u32, u32) {
@@ -44,6 +62,16 @@ mod tests {
         // V=5, N=2 → (0,3),(3,2)  (first shard gets the remainder)
         assert_eq!(shard_split(5, 2, 0), (0, 3));
         assert_eq!(shard_split(5, 2, 1), (3, 2));
+    }
+
+    #[test]
+    fn dataset_slice_unique_partitions_disjoint() {
+        // unique: disjoint contiguous shards summing to total.
+        assert_eq!(dataset_slice(true, 5, 2, 0), (0, 3));
+        assert_eq!(dataset_slice(true, 5, 2, 1), (3, 2));
+        // replicated (per_vu / iter_*): every worker gets the whole count at offset 0.
+        assert_eq!(dataset_slice(false, 5, 2, 0), (0, 5));
+        assert_eq!(dataset_slice(false, 5, 2, 1), (0, 5));
     }
 
     #[test]
