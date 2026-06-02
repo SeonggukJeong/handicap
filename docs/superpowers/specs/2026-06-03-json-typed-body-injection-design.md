@@ -136,7 +136,7 @@ Value::String(s) => match parse_cast_leaf(s) {
 - **미바인딩**: `{{x:num}}`에서 `x` 미바인딩 → `render` 단계 `UnknownVar`(캐스트 도달 전). 기존과 동일.
 - **빈 문자열**: `{{x:num}}`인데 `x=""` → `Number::from_str("")` 실패 → `CastFailed`(엄격). 빈 셀 자동 null은 비목표.
 - **leading-zero**: `{{zip:num}}`에 `"01234"` → JSON number 문법상 leading-zero 불허 → `from_str` 실패 → `CastFailed`. 이건 **버그를 드러내는 바람직한 실패**(ZIP은 문자열이어야 함). 의도적으로 문자열을 원하면 `:str` 또는 캐스트 없이.
-- **공백**: `:num` 파싱은 렌더값 그대로(trim 안 함) — `" 30"` 실패. 필요 시 후속에서 정책화.
+- **공백**: JSON 파서가 토큰 **앞뒤** 공백은 허용하므로 `" 30 "`→30 OK. **내부 공백/추가 토큰**(`"30 40"`)·빈 문자열은 실패. (`serde_json::from_str` 자연 동작 — 별도 trim 없음.)
 - **trace vs 부하의 의도된 차이**: 부하는 `CastFailed`로 요청 실패(메트릭 error), trace는 문자열로 표시하고 진행(진단 우선). 명시 기록.
 
 ## 7. 테스트
