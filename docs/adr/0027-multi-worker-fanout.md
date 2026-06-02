@@ -1,6 +1,6 @@
 # ADR-0027 — 멀티 워커 fan-out: 계획된 분산 실행 (컨트롤러 권위 + per-run 상태머신)
 
-* Status: Accepted (A3a 머지; A3b/A3c 후속)
+* Status: Accepted (A3a+A3b 머지; A3c 후속)
 * Date: 2026-06-02
 * Deciders: handicap maintainers
 * Tags: scale-out, coordinator, worker, proto, engine, fan-out
@@ -86,6 +86,8 @@ A3a 구현 계획: `docs/superpowers/plans/2026-06-02-multi-worker-fanout-a3a.md
   (count 가산은 N 워커여도 합이 맞음). 워커별 HDR 머지(레이턴시 퍼센타일 정확도)는 A3b
   (`run_metrics` PK 에 worker_id, migration 0008). **A3a 단독은 같은 (step_id,ts_second) 행을
   마지막 워커가 keep-first 로 덮어 레이턴시가 부정확** — A3a+A3b 한 세트로 출하해야 정확.
+  **(A3b 머지 완료: run_metrics PK +worker_id via migration 0008 Rust-guarded rebuild, 읽기 시점
+  (ts,step) HDR merge + count SUM, summary/windows_with_hdr/build_report. loop/if 는 증분 누적이라 무변경.)**
 
 ## Consequences
 
