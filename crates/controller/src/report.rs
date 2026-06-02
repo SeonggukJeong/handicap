@@ -140,7 +140,14 @@ pub fn build_report(
         .map(|(step_id, branches)| IfBreakdown { step_id, branches })
         .collect();
 
-    let mut windows: Vec<ReportWindow> = Vec::with_capacity(rows.len());
+    // Per-(ts_second, step_id) accumulator merging all workers sharing the window.
+    struct WindowAcc {
+        count: u64,
+        error_count: u64,
+        status: BTreeMap<String, u64>,
+        hist: Option<Histogram<u64>>, // None until the first decodable HDR blob
+    }
+    let mut window_acc: BTreeMap<(i64, String), WindowAcc> = BTreeMap::new();
     let mut overall = fresh_hist();
     let mut per_step: BTreeMap<String, Histogram<u64>> = BTreeMap::new();
     // (count, error_count, status_counts)
@@ -151,12 +158,23 @@ pub fn build_report(
 
     for r in rows {
         let sc = parse_status_counts(&r.status_counts);
-        let mut wp = Percentiles::empty();
+        let acc = window_acc
+            .entry((r.ts_second, r.step_id.clone()))
+            .or_insert_with(|| WindowAcc {
+                count: 0,
+                error_count: 0,
+                status: BTreeMap::new(),
+                hist: None,
+            });
+        acc.count += r.count as u64;
+        acc.error_count += r.error_count as u64;
+        add_status(&mut acc.status, &sc);
         if let Ok(Some(h)) = decode_hdr(&r.hdr_histogram) {
-            wp = percentiles_of(&h);
             merge_into(&mut overall, &h);
-            let entry = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
-            merge_into(entry, &h);
+            let step_h = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
+            merge_into(step_h, &h);
+            let win_h = acc.hist.get_or_insert_with(fresh_hist);
+            merge_into(win_h, &h);
         }
         total_count += r.count as u64;
         total_errors += r.error_count as u64;
@@ -165,18 +183,30 @@ pub fn build_report(
         step_acc.0 += r.count as u64;
         step_acc.1 += r.error_count as u64;
         add_status(&mut step_acc.2, &sc);
-
-        windows.push(ReportWindow {
-            ts_second: r.ts_second,
-            step_id: r.step_id.clone(),
-            count: r.count as u64,
-            error_count: r.error_count as u64,
-            status_counts: sc,
-            p50_ms: wp.p50_ms,
-            p95_ms: wp.p95_ms,
-            p99_ms: wp.p99_ms,
-        });
     }
+
+    // Emit one window per (ts_second, step_id) — BTreeMap iterates sorted by (ts, step),
+    // matching the previous SQL ORDER BY. Percentiles come from the merged histogram.
+    let windows: Vec<ReportWindow> = window_acc
+        .into_iter()
+        .map(|((ts_second, step_id), acc)| {
+            let wp = acc
+                .hist
+                .as_ref()
+                .map(percentiles_of)
+                .unwrap_or_else(Percentiles::empty);
+            ReportWindow {
+                ts_second,
+                step_id,
+                count: acc.count,
+                error_count: acc.error_count,
+                status_counts: acc.status,
+                p50_ms: wp.p50_ms,
+                p95_ms: wp.p95_ms,
+                p99_ms: wp.p99_ms,
+            }
+        })
+        .collect();
 
     let overall_p = percentiles_of(&overall);
     let profile_val = serde_json::to_value(&run.profile).unwrap_or(serde_json::Value::Null);
@@ -293,11 +323,70 @@ mod tests {
         WindowWithHdr {
             ts_second: ts,
             step_id: step.into(),
+            worker_id: "w-0".into(),
             count,
             error_count: errors,
             status_counts: sc.into(),
             hdr_histogram: make_hdr_bytes(samples),
         }
+    }
+
+    #[test]
+    fn build_report_merges_worker_windows() {
+        let r = run_row();
+        // Same (ts_second=100, step_id="s"), two workers, distinct latency samples.
+        // A3a keep-first would drop one row -> undercount + half the histogram.
+        let rows = vec![
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-a".into(),
+                count: 3,
+                error_count: 0,
+                status_counts: r#"{"200":3}"#.into(),
+                hdr_histogram: make_hdr_bytes(&[10_000, 10_000, 10_000]),
+            },
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-b".into(),
+                count: 5,
+                error_count: 1,
+                status_counts: r#"{"200":4,"500":1}"#.into(),
+                hdr_histogram: make_hdr_bytes(&[40_000, 40_000, 40_000, 40_000, 40_000]),
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[]);
+
+        // One collapsed window per (ts_second, step_id), counts summed.
+        assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
+        assert_eq!(rep.windows[0].count, 8);
+        assert_eq!(rep.windows[0].error_count, 1);
+        assert_eq!(rep.windows[0].status_counts.get("200").copied(), Some(7));
+        assert_eq!(rep.windows[0].status_counts.get("500").copied(), Some(1));
+        // Window percentiles come from the MERGED histogram (both workers' samples):
+        // p99 must reflect the 40ms tail, not just w-a's 10ms.
+        // NOTE: of the 8 merged samples [10,10,10,40,40,40,40,40]ms, FIVE are 40ms, so
+        // p50 is ALSO 40 here (the 4th sample). Do not assert p50==10 — only the tail
+        // (p99) distinguishes "merged" from "w-a only". Under A3a keep-first, w-b's row
+        // is dropped -> count 3, p99 10 -> this test goes RED. That is the gate.
+        assert_eq!(
+            rep.windows[0].p99_ms, 40,
+            "merged HDR keeps both workers' tail"
+        );
+
+        // Totals + overall percentiles also reflect both workers.
+        assert_eq!(rep.summary.count, 8);
+        assert_eq!(rep.summary.errors, 1);
+        assert_eq!(rep.summary.p99_ms, 40);
+        // Step-level rollup sums both workers too.
+        let s = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
+        assert_eq!(s.count, 8);
+
+        // typed round-trip.
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
 
     #[test]
@@ -334,6 +423,7 @@ mod tests {
         let bad = WindowWithHdr {
             ts_second: 100,
             step_id: "stepA".into(),
+            worker_id: "w-0".into(),
             count: 5,
             error_count: 0,
             status_counts: r#"{"200":5}"#.into(),

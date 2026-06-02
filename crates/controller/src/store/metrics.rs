@@ -97,6 +97,7 @@ pub async fn summary(db: &Db, run_id: &str) -> sqlx::Result<MetricSummary> {
 pub struct WindowWithHdr {
     pub ts_second: i64,
     pub step_id: String,
+    pub worker_id: String, // A3b: separate row per worker; build_report merges by (ts,step)
     pub count: i64,
     pub error_count: i64,
     pub status_counts: String, // raw JSON text — same as the column
@@ -105,8 +106,8 @@ pub struct WindowWithHdr {
 
 pub async fn windows_with_hdr(db: &Db, run_id: &str) -> sqlx::Result<Vec<WindowWithHdr>> {
     let rows = sqlx::query(
-        "SELECT ts_second, step_id, count, error_count, status_counts, hdr_histogram \
-         FROM run_metrics WHERE run_id = ? ORDER BY ts_second, step_id",
+        "SELECT ts_second, step_id, worker_id, count, error_count, status_counts, hdr_histogram \
+         FROM run_metrics WHERE run_id = ? ORDER BY ts_second, step_id, worker_id",
     )
     .bind(run_id)
     .fetch_all(db)
@@ -116,6 +117,7 @@ pub async fn windows_with_hdr(db: &Db, run_id: &str) -> sqlx::Result<Vec<WindowW
         .map(|r| WindowWithHdr {
             ts_second: r.get("ts_second"),
             step_id: r.get("step_id"),
+            worker_id: r.get("worker_id"),
             count: r.get("count"),
             error_count: r.get("error_count"),
             status_counts: r.get("status_counts"),
