@@ -1,6 +1,6 @@
 # ADR-0027 — 멀티 워커 fan-out: 계획된 분산 실행 (컨트롤러 권위 + per-run 상태머신)
 
-* Status: Accepted (A3a+A3b 머지; A3c 후속)
+* Status: Accepted (A3a+A3b+A3c 머지 — 완결)
 * Date: 2026-06-02
 * Deciders: handicap maintainers
 * Tags: scale-out, coordinator, worker, proto, engine, fan-out
@@ -76,12 +76,20 @@ A3a 구현 계획: `docs/superpowers/plans/2026-06-02-multi-worker-fanout-a3a.md
 
 ### A3a 한정 스코프 결정 (리뷰어 주목 — "누락"이 아니라 "결정")
 
-- **`dispatcher.cleanup()` 호출은 A3c 로 연기**: 현재 코드는 완료/abort 어느 경로에서도 cleanup 을
+- **`dispatcher.cleanup()` 호출은 A3c 로 연기**: (A3a 시점) 코드는 완료/abort 어느 경로에서도 cleanup 을
   부르지 않고(코디네이터가 dispatcher 핸들을 안 듦), subprocess 는 self-terminate, K8s Job 은
   `ttlSecondsAfterFinished` + ownerRef GC 로 정리된다. fail-fast 의 기능적 핵심(형제 AbortRun)은
   A3a 가 구현; 외부 Job 정리 배선만 A3c(K8s Indexed Job 재작성과 함께).
+  **(A3c 머지 완료: `CoordinatorState` 가 `Arc<OnceLock<SharedDispatcher>>` 핸들로 record_phase
+  Completed/Aborted/Failed + worker_disconnected + fail_incomplete_registration 5 사이트서 idempotent
+  cleanup 호출. `abort()` 자체엔 미삽입(워커 Aborted 보고→cleanup 으로 닫힘, 조기/중복 방지). 테스트는
+  핸들 미설정 no-op. 부수효과: 완료 즉시 Job 삭제라 e2e 는 run 진행 중에 Job 형상을 관측해야 함.)**
 - **K8s 디스패처는 A3a 에서 단일 Job 유지**(`worker_count>1` 이면 warn). Indexed Job
   (`parallelism=N`)은 A3c. `build_job_spec` 무변경 → 단위 테스트 무변경.
+  **(A3c 머지 완료: K8s 단일 Indexed Job parallelism=completions=N + Pod 가 JOB_COMPLETION_INDEX 로
+  worker_id 파생, dispatcher.cleanup() 을 CoordinatorState finalize 경로에 배선(OnceLock 핸들),
+  worker Job Guaranteed QoS + soft topologySpread/anti-affinity, Helm `worker.capacityVus` 노출.
+  per-deploy 워커 resource Helm values 배선은 로드맵 §B 로 연기.)**
 - **메트릭 머지는 A3b**: A3a 의 `run_metrics`/loop/if 집계는 step_id/loop_index/branch 로 누적
   (count 가산은 N 워커여도 합이 맞음). 워커별 HDR 머지(레이턴시 퍼센타일 정확도)는 A3b
   (`run_metrics` PK 에 worker_id, migration 0008). **A3a 단독은 같은 (step_id,ts_second) 행을
@@ -105,8 +113,10 @@ A3a 구현 계획: `docs/superpowers/plans/2026-06-02-multi-worker-fanout-a3a.md
 
 ## Out of scope (연기)
 
-- **A3b** 메트릭 워커별 머지(migration 0008), **A3c** K8s Indexed Job + dispatcher cleanup 배선 +
-  Helm 충실도(`datasetMaxRows`/resources) values.
+- ~~**A3b** 메트릭 워커별 머지(migration 0008)~~ 머지 완료. ~~**A3c** K8s Indexed Job + dispatcher
+  cleanup 배선~~ 머지 완료(Indexed Job parallelism=completions=N, OnceLock cleanup 배선, Guaranteed QoS
+  + soft topology, `worker.capacityVus` value). **남은 연기**: per-deploy 워커 cpu/mem Helm values
+  배선(full-plumbing, 로드맵 §B) + `--dataset-max-rows` Helm value 노출.
 - **반응형 HPA**, **best-effort/degraded 모드**(워커 일부 실패해도 지속) — profile 이음새만, spec §11.
 - **`unique` 바인딩(중앙 커서)** — A3 인프라 위 후속(spec §6.4 스텁). A3 본체는 unique 여전히 거부.
 
