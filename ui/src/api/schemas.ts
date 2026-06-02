@@ -17,7 +17,7 @@ export const ScenarioListSchema = z.object({
 export const RunStatusEnum = z.enum(["pending", "running", "completed", "failed", "aborted"]);
 export type RunStatus = z.infer<typeof RunStatusEnum>;
 
-export const BindingPolicyEnum = z.enum(["per_vu", "iter_sequential", "iter_random"]);
+export const BindingPolicyEnum = z.enum(["per_vu", "iter_sequential", "iter_random", "unique"]);
 export type BindingPolicy = z.infer<typeof BindingPolicyEnum>;
 
 // Matches Rust `Mapping` (#[serde(tag = "kind", rename_all = "snake_case")]).

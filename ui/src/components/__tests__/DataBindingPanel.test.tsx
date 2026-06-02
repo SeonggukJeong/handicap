@@ -257,7 +257,7 @@ describe("DataBindingPanel", () => {
     });
   });
 
-  it("policy dropdown has exactly per_vu/iter_sequential/iter_random — no 'unique'", async () => {
+  it("policy dropdown offers per_vu/iter_sequential/iter_random/unique", async () => {
     // Need two responses: list + detail (for when we select the dataset)
     fetchMock
       .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
@@ -281,8 +281,25 @@ describe("DataBindingPanel", () => {
     expect(options).toContain("per_vu");
     expect(options).toContain("iter_sequential");
     expect(options).toContain("iter_random");
-    expect(options).not.toContain("unique");
-    expect(options).toHaveLength(3);
+    expect(options).toContain("unique");
+    expect(options).toHaveLength(4);
+  });
+
+  it("selects the unique policy and shows the stop-VU banner", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderPanel(makeScenario(), onChange);
+    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(datasetSelect, "DS1");
+    const policySelect = await screen.findByLabelText(/policy/i);
+    await user.selectOptions(policySelect, "unique");
+    expect(policySelect).toHaveValue("unique");
+    expect(screen.getByText(/소진된 VU/)).toBeInTheDocument();
   });
 
   it("extract-provided var is NOT flagged as uncovered", async () => {

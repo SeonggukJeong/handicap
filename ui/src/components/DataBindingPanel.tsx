@@ -195,7 +195,9 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
   }
 
   const rowCount = dataset.data?.row_count;
-  const showBanner = !!selectedId && (policy === "iter_sequential" || policy === "iter_random");
+  const showBanner =
+    !!selectedId &&
+    (policy === "iter_sequential" || policy === "iter_random" || policy === "unique");
 
   return (
     <section aria-label="Data binding" className="mb-3">
@@ -375,19 +377,29 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
               <option value="per_vu">per_vu — VU마다 한 행 (고정)</option>
               <option value="iter_sequential">iter_sequential — 반복마다 순차 행</option>
               <option value="iter_random">iter_random — 반복마다 랜덤 행</option>
+              <option value="unique">unique — 행마다 1회 소비, 소진 시 VU 종료</option>
             </select>
           </div>
 
-          {/* per-iteration warning banner */}
+          {/* per-iteration / unique warning banner */}
           {showBanner && (
             <div
               role="alert"
               className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"
             >
-              per-iteration 정책은 전체 데이터셋
-              {rowCount !== undefined ? `(${rowCount}행)` : ""}을 워커 메모리에 적재합니다. 상한은
-              controller <code>--dataset-max-rows</code>
-              (Helm <code>controller.datasetMaxRows</code>).
+              {policy === "unique" ? (
+                <>
+                  unique 정책은 데이터셋 전체를 워커별로 분할해 각 행을 1회만 사용합니다. 소진된
+                  VU는 종료되고 부하(RPS)는 그 시점부터 감소합니다. (행 수 ≥ 워커 수 필요)
+                </>
+              ) : (
+                <>
+                  per-iteration 정책은 전체 데이터셋
+                  {rowCount !== undefined ? `(${rowCount}행)` : ""}을 워커 메모리에 적재합니다.
+                  상한은 controller <code>--dataset-max-rows</code>
+                  (Helm <code>controller.datasetMaxRows</code>).
+                </>
+              )}
             </div>
           )}
         </>
