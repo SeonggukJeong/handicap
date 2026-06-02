@@ -38,6 +38,7 @@ async fn run_and_count(yaml: &str) -> HashMap<String, u64> {
         duration: Duration::from_millis(400),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: None,
     };
     let cancel = CancellationToken::new();
@@ -261,6 +262,7 @@ steps:
         duration: Duration::from_millis(500),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: None,
     };
     let cancel = CancellationToken::new();
@@ -416,6 +418,7 @@ async fn run_and_branches(yaml: &str) -> HashMap<(String, String), u64> {
         duration: Duration::from_millis(400),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: None,
     };
     let cancel = CancellationToken::new();

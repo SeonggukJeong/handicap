@@ -171,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
+        vu_offset: 0,
         data_binding: dataset,
     };
     info!(

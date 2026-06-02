@@ -23,6 +23,9 @@ pub struct RunPlan {
     pub duration: Duration,
     pub env: BTreeMap<String, String>,
     pub loop_breakdown_cap: u32,
+    /// Global VU id offset for this shard: `vu_id = vu_offset + spawned`.
+    /// `0` for a single-worker run (legacy numbering). (A3a spec §3.)
+    pub vu_offset: u32,
     /// Optional data-driven binding. `None` → no injection (back-compat).
     pub data_binding: Option<Arc<DataSet>>,
 }
@@ -87,7 +90,7 @@ pub async fn run_scenario(
         }
         let mut spawn_now = per_tick.min(plan.vus - spawned);
         while spawn_now > 0 {
-            let vu_id = spawned;
+            let vu_id = plan.vu_offset.saturating_add(spawned);
             let scenario = scenario.clone();
             let agg = agg.clone();
             let failed = failed.clone();

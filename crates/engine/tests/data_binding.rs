@@ -55,6 +55,7 @@ steps:
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
     };
 
@@ -118,6 +119,7 @@ steps:
         duration: Duration::from_secs(1),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
     };
 
@@ -181,6 +183,7 @@ steps:
         duration: Duration::from_secs(2),
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
+        vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
     };
 
