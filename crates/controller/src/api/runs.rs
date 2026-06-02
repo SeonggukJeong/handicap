@@ -244,22 +244,32 @@ pub async fn metrics(
     Ok(Json(s))
 }
 
-pub async fn report(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<crate::report::ReportJson>, ApiError> {
-    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
-    let rows = crate::store::metrics::windows_with_hdr(&state.db, &id).await?;
-    let loops = crate::store::metrics::loop_breakdown(&state.db, &id).await?;
-    let branches = crate::store::metrics::if_breakdown(&state.db, &id).await?;
+/// Fetch a run's metrics and build its full report. Shared by the `report`
+/// JSON handler, single-run export, and N-run comparison export. Returns
+/// `NotFound` if the run id doesn't exist.
+pub async fn build_report_for_run(
+    db: &crate::store::Db,
+    run_id: &str,
+) -> Result<crate::report::ReportJson, ApiError> {
+    let row = runs::get(db, run_id).await?.ok_or(ApiError::NotFound)?;
+    let rows = crate::store::metrics::windows_with_hdr(db, run_id).await?;
+    let loops = crate::store::metrics::loop_breakdown(db, run_id).await?;
+    let branches = crate::store::metrics::if_breakdown(db, run_id).await?;
     let scenario_yaml = row.scenario_yaml.clone();
-    Ok(Json(crate::report::build_report(
+    Ok(crate::report::build_report(
         &row,
         &scenario_yaml,
         &rows,
         &loops,
         &branches,
-    )))
+    ))
+}
+
+pub async fn report(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::report::ReportJson>, ApiError> {
+    Ok(Json(build_report_for_run(&state.db, &id).await?))
 }
 
 #[derive(Debug, Serialize)]
