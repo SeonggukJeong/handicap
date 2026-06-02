@@ -74,7 +74,7 @@
 각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
 
 ### B1. Slice 8c (data-driven) 연기 항목
-- **`unique` 바인딩 정책**: 행을 VU/반복 간 중복 없이 전역 소진. 멀티-워커 전역 커서가 필요해 단일 워커 8c에선 API에서 거부. → **A3(멀티 워커·HPA)에서 자연히 풀림**.
+- ~~**`unique` 바인딩 정책**~~ — **✅ 완료 (2026-06-02)**: 정적 disjoint 슬라이스(`shard_split`) + stop-VU on exhaust 방식. ADR-0022 갱신. 연기: `on_exhaust: fail` opt-in 토글.
 - **민감값 마스킹**: 데이터셋 값이 로그/리포트/UI에 노출되지 않게(비밀번호 컬럼 등). 8c는 값 비로깅까지만. → 보안 강화 슬라이스 또는 A4(리포트) 곁다리.
 - **JSON 숫자 주입**: `{"age": {{age}}}`에서 값을 string이 아닌 number로. 8a/8c는 문자열 leaf만 치환(`render_json_value`). → body 템플릿팅 후속(엔진 `executor.rs`).
 - **Helm `datasetMaxRows` 노출**: 8c가 추가한 `--dataset-max-rows` CLI 플래그를 Helm values로. → **A3** 또는 deploy 정리 시.
@@ -92,7 +92,7 @@
 - **best-effort / degraded 모드 + per-run 토글**: 워커 일부 실패해도 run 지속(나머지 완주 → "부분 완료" 표기). A3 는 **fail-fast** 만(샤드 누락 = 요청 부하 미생성 = 명시적 실패가 안전). 토글(`on_worker_failure: fail|continue`)은 profile 필드 한 줄이지만, "continue" 경로의 기계장치(degraded 상태 enum·per-shard 커버리지 추적·리포트/UI 배지)가 살집이라 별도. profile 이음새만 비워둠. → 보안/리포트 곁다리 또는 단독.
 - **운영 상한 관리자 화면**: `--worker-capacity-vus`·`loop_breakdown_cap`·`--dataset-max-rows` 등 op-config 상한을 모아 설정하는 관리자 UI. 현재는 CLI 플래그/Helm values 산재. → QoL 슬라이스.
 - **per-deploy 워커 cpu/mem Helm values (full-plumbing)**: A3c 는 충실도 최소안으로 `WorkerResources::default()`(Guaranteed QoS, modest 250m/256Mi)를 코드 기본값으로 박고 `worker.capacityVus`(N 레버)만 Helm value 로 노출했다. 워커 req/limit 자체를 deploy 마다 Helm values 로 올리는 배선(values + controller 플래그 + dispatcher→`build_job_spec` 주입)은 연기 — `WorkerResources` 구조체·이음새가 이미 있어 순수 가산(throwaway 0). 프로덕션 고처리량 도입 시. → "운영 상한 관리자 화면"과 묶을 수도.
-- **`unique` 바인딩(중앙 커서)**: §B1 와 동일 항목 — A3 인프라 위 후속 하위 슬라이스로 구체화(spec §6.4 설계 스텁: 워커별 disjoint 슬라이스 스트리밍).
+- ~~**`unique` 바인딩(중앙 커서)**~~ — **✅ 완료 (2026-06-02)**: 전역 커서 대신 정적 disjoint 슬라이스(`shard_split`) + stop-VU on exhaust 방식으로 구현. spec `docs/superpowers/specs/2026-06-02-unique-binding-design.md`, plan `docs/superpowers/plans/2026-06-02-unique-binding.md`, ADR-0022 갱신. 연기(이 슬라이스 내): `on_exhaust: fail` opt-in 토글.
 - **컨트롤러 재시작 부분 복구**: 멀티워커 run 도 재시작 시 통째 `failed`(현 동작·fail-fast 정합). 부분 진행 복구는 안 함. → 필요 시 per-shard 상태 영속화 슬라이스.
 
 ### B4. Header/Form 벌크 입력 연기 항목

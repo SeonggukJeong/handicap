@@ -48,6 +48,7 @@
 
 ## 데이터 바인딩 / 주입 (8c, `binding.rs`, run-create handler)
 
+- **`unique` 파티션 — `PendingDataBinding.row_count`는 unique일 때 TOTAL** (unique 바인딩): 오직 `assignment_for`만 이 값을 읽어 `dataset_slice`(`grpc/shard.rs`의 `shard_split` 위임) → per-worker `count_i`를 proto `DataBinding.row_count` + `WorkerStream.count`로 내보낸다. downstream은 항상 per-worker count를 본다. 게이트: `rows > u32::MAX` BadRequest, `rows < N`(워커 수 미만 = 빈 슬라이스 → 언바운드 부하 방지) BadRequest. 복제 정책(per_vu/iter_*)은 `PendingDataBinding.row_count`가 per-worker 의미 — unique만 TOTAL 예외.
 - **prost enum 필드는 `i32`로 전달된다** (Slice 8c): controller가 `policy as i32`로 보내면 worker에서 `pb::data_binding::Policy::try_from(i32).expect("controller와 worker는 함께 배포되므로 unknown variant 불가")`로 변환. `i32` 그대로 match하거나 `unwrap_or_default()`하면 조용히 `Unspecified`로 떨어진다. controller+worker 동시 배포이므로 unknown variant는 invariant 위반 — `expect`로 명시적 panic이 의도된 선택.
 - **run-create handler에서 dataset meta를 두 번 fetch하면 TOCTOU 가능** (Slice 8c): gate(row_count/column 검증)와 resolution(슬라이싱/seed 계산)이 각각 `get_meta()`를 호출하면, gate 통과 후 dataset이 삭제된 경우 두 번째 `get_meta().expect()`가 패닉한다. meta를 한 번만 fetch해서 양쪽에 재사용할 것.
 - **controller가 row_count를 전달 못 하면 `drop(tx)`로는 stream을 닫을 수 없다** (Slice 8c): worker가 `row_count` 행을 기다리며 블로킹 중일 때 controller sender를 drop해도 `state.active`에 clone이 살아있어 stream이 실제로 안 닫힌다. 대신 `ServerMessage::AbortRun`을 명시적으로 전송해야 worker 대기가 해제된다. (정상-종료 시의 `drop(tx)` EOF 패턴은 `crates/worker-core/CLAUDE.md` — 이 블로킹 케이스엔 안 통한다.)

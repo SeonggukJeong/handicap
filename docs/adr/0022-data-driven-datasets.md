@@ -106,16 +106,17 @@ CREATE TABLE IF NOT EXISTS dataset_rows (
 `{kind:"literal", var, value}` (상수값). Rust `#[serde(tag="kind")]` ↔ TS Zod
 `discriminatedUnion("kind")`으로 양쪽 형식이 동일하게 직렬화된다.
 
-#### 3가지 바인딩 정책
+#### 4가지 바인딩 정책 (8c: 3종 → 2026-06-02: `unique` 추가로 4종 완결)
 
 | 정책 | 행 선택 규칙 | 워커 수신 행 수 |
 |---|---|---|
 | `per_vu` | `vu_id % row_count` — VU당 고정 1행 | `min(vus, rows)` |
 | `iter_sequential` | worker-local `AtomicU64` fetch_add % `row_count` | 전체 데이터셋 (≤ `--dataset-max-rows`) |
 | `iter_random` | splitmix64-seeded `StdRng::from_seed`로 매 반복마다 랜덤 행 | 전체 데이터셋 (≤ `--dataset-max-rows`) |
+| `unique` | worker-local `AtomicU64` fetch_add (wrap 없음); 소진 시 `None` → VU 종료 | 워커별 disjoint 슬라이스(`shard_split`) |
 
-`unique` 정책은 run-create에서 미구현으로 거부(`400 "unique policy is not yet supported"`).
-멀티-워커 전역 커서가 필요하므로 후속 슬라이스에서 결정.
+`unique` 정책은 8c에서 "멀티-워커 전역 커서 필요"로 거부됐으나, **2026-06-02에 정적
+disjoint 슬라이스 방식으로 구현 완료**. 상세는 하단 갱신 노트 참조.
 
 #### 결정론적 시드
 
@@ -188,7 +189,7 @@ dataset 행의 값(`{var:value}` 페어)은 어느 레이어(controller/worker/e
   (이미지 크기 모니터링 권장).
 - UploadPanel 라이브 미리보기는 응답 시퀀싱 없음(8b 알려진 한계) — 옵션 연속 변경 시
   stale 미리보기 가능. 후속에서 AbortController 가드 추가 가능.
-- `unique` 정책 미구현: 멀티-워커 전역 커서 없이는 정확한 "한 번만" 보장이 불가. 후속.
+- `unique` 정책: 8c에서 미구현 상태였으나 **2026-06-02 구현 완료** — disjoint 슬라이스 + stop-VU on exhaust 방식(전역 커서 대신 컨트롤러 `shard_split`으로 해결). 상세는 아래 갱신 노트.
 - iter_* 대용량 데이터셋: 전체 행을 controller → worker gRPC 스트림으로 전달하므로
   수십만 행 × 여러 열이면 스트림 전송 시간이 수 초 걸릴 수 있음. 현재 `--dataset-max-rows`
   100,000 기본값으로 제한.
@@ -213,9 +214,63 @@ dataset 행의 값(`{var:value}` 페어)은 어느 레이어(controller/worker/e
 
 ## 명시적 연기 (Out of scope)
 
-- **8c 이후**: `unique` 정책(멀티-워커 전역 커서 필요) / 민감정보 마스킹 / JSON 숫자·타입
-  주입 / 멀티워커 HPA / Helm `controller.datasetMaxRows` values.yaml 노출 / 데이터셋
-  버전·diff·편집 / 로딩 중 dataset 삭제 → AbortRun 경로. (spec §12)
+- **8c 이후**: 민감정보 마스킹 / JSON 숫자·타입 주입 / 멀티워커 HPA / Helm
+  `controller.datasetMaxRows` values.yaml 노출 / 데이터셋 버전·diff·편집 /
+  로딩 중 dataset 삭제 → AbortRun 경로. (spec §12)
+- **`unique` 정책**: 8c에서 "멀티-워커 전역 커서 필요"로 API 거부 → **2026-06-02 구현 완료
+  (ADR-0022 갱신 노트 참조)**.
+
+## 2026-06-02 갱신 — `unique` 정책 구현 완료
+
+`unique` 정책이 A3(멀티 워커 fan-out) 인프라를 기반으로 구현되었다.
+관련 spec: `docs/superpowers/specs/2026-06-02-unique-binding-design.md`,
+plan: `docs/superpowers/plans/2026-06-02-unique-binding.md`.
+
+### 구현 요약
+
+**엔진** (`crates/engine/src/dataset.rs`, `runner.rs`):
+- `BindingPolicy::Unique` 4번째 variant 추가.
+- `select_index`가 `Option<usize>` 반환 — `Unique`는 공유 worker-local `AtomicU64`를
+  fetch_add하고, `next >= len`이면 wrap 없이 `None` 반환.
+- 공유 카운터는 `IterSequential | Unique` 두 정책에 생성(단일 atomic).
+- `run_vu`에서 `select_index() == None → break` = 깨끗한 VU 완료(`failed` 증가 없음,
+  `AllVusFailed` 미트리거). 빈 데이터셋 가드(`if !ds.rows.is_empty()`)는 제거(게이트가
+  보장).
+
+**proto** (`coordinator.proto`): `DataBinding.Policy.UNIQUE = 3` (예약 주석 제거).
+메시지 shape 변경 없음; `row_count`는 per-worker 의미 유지.
+
+**워커** (`main.rs`): `Policy::Unique => BindingPolicy::Unique` arm 추가.
+워커는 자기 슬라이스(0..count_i)를 로컬 인덱싱함 — 전역 offset 모름.
+
+**컨트롤러 검증** (`api/runs.rs`):
+- 무조건 거부 제거; `validate_run_config`가 이제: `rows > u32::MAX` BadRequest 거부,
+  `rows < N`(워커 수) BadRequest 거부(빈 슬라이스 → 언바운드 부하 방지),
+  `--dataset-max-rows` cap에 unique 포함(`per_iteration` 분기).
+- `unique` 분기는 `PendingDataBinding.row_count`에 TOTAL 행 수를 저장.
+
+**컨트롤러 파티션** (`grpc/shard.rs`, `coordinator.rs`):
+- 새 `dataset_slice(is_unique, total, shard_count, shard_index) -> (offset, count)` —
+  unique는 `shard_split`(disjoint 연속 슬라이스)에 위임, 복제 정책은 `(0, total)` 반환.
+- 새 `WorkerStream { dataset_id, mappings, offset, count }` 내부 타입.
+- `assignment_for`가 per-worker `count_i`를 proto `DataBinding.row_count`로 내보냄.
+  **`PendingDataBinding.row_count`는 unique일 때만 TOTAL — 이를 읽는 유일한 사이트는
+  `assignment_for`이며, 항상 per-worker count를 downstream에 emit한다.**
+
+**UI** (`schemas.ts`, `DataBindingPanel.tsx`): `BindingPolicyEnum`에 `"unique"` 추가;
+드롭다운 옵션 + stop-VU 경고 배너.
+
+### 변경 없는 것
+
+- 메트릭/DB/migration: `unique`는 `Policy::UNIQUE = 3` 이외 전용 카운터·테이블·
+  migration·proto 필드 추가 없음. 소진은 기존 step 메트릭의 RPS 감소로만 표시됨.
+
+### 연기 항목
+
+- `on_exhaust: fail` 토글 (소진 시 run 실패 opt-in): stop-VU(현 동작)가 기본,
+  run-fails-on-exhaust 대안은 후속.
+- 재현 가능한 unique 시퀀스: 현재 worker-local AtomicU64는 run_id seed 없음.
+- UI에서 N 사전 표시 (실행 전 워커 수 / 워커당 행 수 표시).
 
 ## Links
 
