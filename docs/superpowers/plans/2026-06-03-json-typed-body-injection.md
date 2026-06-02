@@ -740,17 +740,17 @@ git commit -m "feat(ui): validate JSON body casts (Zod superRefine + jsonBodyCas
 ## Task 7: 문서 — ADR · CLAUDE.md · roadmap · spec status
 
 **Files:**
-- Create: `docs/adr/0028-json-body-type-cast-injection.md` (다음 번호 — 현행 최대 0027)
+- Create: `docs/adr/0029-json-body-type-cast-injection.md` (다음 번호 — **0028은 run-level SLO criteria가 선점**, 현행 최대 0028)
 - Modify: `CLAUDE.md` ("알아둘 결정들" + 상태 줄)
 - Modify: `crates/engine/CLAUDE.md` (템플릿팅 함정 섹션)
 - Modify: `ui/CLAUDE.md` (Zod 검증 함정)
 - Modify: `docs/roadmap.md` ("JSON 숫자 주입" 항목 close)
 - Modify: `docs/superpowers/specs/2026-06-03-json-typed-body-injection-design.md` (상태 → 구현 완료)
 
-- [ ] **Step 1: ADR 작성 — `docs/adr/0028-json-body-type-cast-injection.md`** (MADR 포맷)
+- [ ] **Step 1: ADR 작성 — `docs/adr/0029-json-body-type-cast-injection.md`** (MADR 포맷)
 
 ```markdown
-# 0028. JSON Body 타입 캐스트 주입 (`{{var:num}}`/`{{var:bool}}`)
+# 0029. JSON Body 타입 캐스트 주입 (`{{var:num}}`/`{{var:bool}}`)
 
 - 상태: 채택
 - 날짜: 2026-06-03
@@ -789,7 +789,7 @@ byte-identical(하위호환). 데이터바인딩(8c)과 직교 — 데이터셋 
 "알아둘 결정들" 목록에 한 줄:
 
 ```markdown
-- **0028** JSON body 타입 캐스트: flow `{{var:num}}`/`{{var:bool}}`(+`:str`) — 순수 단일 토큰 leaf만 coerce, leaf 레벨 파싱(template.rs 무변경), 엄격 실패, UI Zod 검증. `:json`/null·env 캐스트 연기
+- **0029** JSON body 타입 캐스트: flow `{{var:num}}`/`{{var:bool}}`(+`:str`) — 순수 단일 토큰 leaf만 coerce, leaf 레벨 파싱(template.rs 무변경), 엄격 실패, UI Zod 검증. `:json`/null·env 캐스트 연기
 ```
 
 그리고 최상단 **상태** 단락에 한 문장 추가(현재 Slice 9 완결 문구 뒤): JSON body 타입 캐스트 주입(post-MVP1) 구현 완료.
@@ -799,7 +799,7 @@ byte-identical(하위호환). 데이터바인딩(8c)과 직교 — 데이터셋 
 "HTTP 실행 / extract / 템플릿팅" 섹션의 Slice 8a 항목 뒤에:
 
 ```markdown
-- **JSON 타입 캐스트 `{{var:num}}`/`{{var:bool}}`** (0028): `executor.rs`가 JSON 문자열 leaf가 **순수 단일 flow 토큰 + trailing `:num`/`:bool`/`:str`**일 때만 `cast.rs::parse_cast_leaf`로 캐스트를 떼고, bare 토큰을 기존 `render`로 렌더한 뒤 `coerce_num`/`coerce_bool`. **`template.rs`는 무변경**(캐스트는 leaf 레벨). 부하 경로(`render_json_value`, strict)는 coerce 실패 시 `EngineError::CastFailed`; trace twin(`render_json_collecting`, lenient)은 문자열로 best-effort 유지(Err 없음) — **둘을 lockstep**으로. 캐스트 없으면 byte-identical. 혼합 leaf(`"x {{a:num}} y"`)·env 토큰·미지원 keyword는 `parse_cast_leaf`가 `None` → 일반 문자열 경로(혼합 시 `render`가 `a:num` 변수를 못 찾아 `UnknownVar`). leading-zero `{{zip:num}}`("01234")는 JSON number 위반이라 의도적 실패(ZIP은 `:str`).
+- **JSON 타입 캐스트 `{{var:num}}`/`{{var:bool}}`** (0029): `executor.rs`가 JSON 문자열 leaf가 **순수 단일 flow 토큰 + trailing `:num`/`:bool`/`:str`**일 때만 `cast.rs::parse_cast_leaf`로 캐스트를 떼고, bare 토큰을 기존 `render`로 렌더한 뒤 `coerce_num`/`coerce_bool`. **`template.rs`는 무변경**(캐스트는 leaf 레벨). 부하 경로(`render_json_value`, strict)는 coerce 실패 시 `EngineError::CastFailed`; trace twin(`render_json_collecting`, lenient)은 문자열로 best-effort 유지(Err 없음) — **둘을 lockstep**으로. 캐스트 없으면 byte-identical. 혼합 leaf(`"x {{a:num}} y"`)·env 토큰·미지원 keyword는 `parse_cast_leaf`가 `None` → 일반 문자열 경로(혼합 시 `render`가 `a:num` 변수를 못 찾아 `UnknownVar`). leading-zero `{{zip:num}}`("01234")는 JSON number 위반이라 의도적 실패(ZIP은 `:str`).
 ```
 
 - [ ] **Step 4: `ui/CLAUDE.md` 함정 추가**
@@ -807,12 +807,12 @@ byte-identical(하위호환). 데이터바인딩(8c)과 직교 — 데이터셋 
 "빌드·타입 게이트" 또는 새 줄로:
 
 ```markdown
-- **`BodyModel.superRefine`로 JSON 캐스트 검증** (0028): `cast.ts::jsonBodyCastErrors`가 json body value를 재귀 walk하며 미지원 캐스트 keyword(`:int` 등)·혼합 leaf 캐스트·`${env}` 캐스트를 에러로. `discriminatedUnion`의 **멤버**가 아니라 **전체 union에 `.superRefine`**(멤버에 붙이면 ZodEffects라 discriminatedUnion이 거부). `type Body`는 ZodEffects infer라 union 타입 보존 — 소비처(`RequestModel.body`) 무영향. 캐스트 없는 토큰·리터럴은 절대 flag 안 함(false-positive 금지).
+- **`BodyModel.superRefine`로 JSON 캐스트 검증** (0029): `cast.ts::jsonBodyCastErrors`가 json body value를 재귀 walk하며 미지원 캐스트 keyword(`:int` 등)·혼합 leaf 캐스트·`${env}` 캐스트를 에러로. `discriminatedUnion`의 **멤버**가 아니라 **전체 union에 `.superRefine`**(멤버에 붙이면 ZodEffects라 discriminatedUnion이 거부). `type Body`는 ZodEffects infer라 union 타입 보존 — 소비처(`RequestModel.body`) 무영향. 캐스트 없는 토큰·리터럴은 절대 flag 안 함(false-positive 금지).
 ```
 
 - [ ] **Step 5: `docs/roadmap.md` 항목 close**
 
-"JSON 숫자 주입" 줄을 완료 표시로 갱신(예: `~~JSON 숫자 주입~~ → 구현 완료(0028, flow `{{var:num}}`/`{{var:bool}}`). :json/null·env는 연기.`).
+"JSON 숫자 주입" 줄을 완료 표시로 갱신(예: `~~JSON 숫자 주입~~ → 구현 완료(0029, flow `{{var:num}}`/`{{var:bool}}`). :json/null·env는 연기.`).
 
 - [ ] **Step 6: spec status 갱신**
 
@@ -821,8 +821,8 @@ byte-identical(하위호환). 데이터바인딩(8c)과 직교 — 데이터셋 
 - [ ] **Step 7: 커밋 (docs-only fast-path)**
 
 ```bash
-git add docs/adr/0028-json-body-type-cast-injection.md CLAUDE.md crates/engine/CLAUDE.md ui/CLAUDE.md docs/roadmap.md docs/superpowers/specs/2026-06-03-json-typed-body-injection-design.md
-git commit -m "docs: ADR-0028 + gotchas + roadmap close for JSON body type casts"
+git add docs/adr/0029-json-body-type-cast-injection.md CLAUDE.md crates/engine/CLAUDE.md ui/CLAUDE.md docs/roadmap.md docs/superpowers/specs/2026-06-03-json-typed-body-injection-design.md
+git commit -m "docs: ADR-0029 + gotchas + roadmap close for JSON body type casts"
 ```
 Expected: pre-commit이 `docs-only (*.md) change — skipping cargo checks`.
 
