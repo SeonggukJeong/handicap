@@ -1,7 +1,9 @@
 //! Run-config data binding (serialized into `profile_json`, spec §4). Kept out
 //! of the proto layer: the controller converts this to `pb::DataBinding`
 //! (policy/seed/row_count) + applies mappings while streaming rows, so the
-//! worker stays mapping-agnostic. `unique` is parsed but rejected at run-create.
+//! worker stays mapping-agnostic. `unique` partitions the dataset into disjoint
+//! per-worker slices (`assignment_for`/`dataset_slice`); the engine stops a VU
+//! when its slice is exhausted.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,8 +12,9 @@ pub enum BindingPolicy {
     PerVu,
     IterSequential,
     IterRandom,
-    /// Reserved — accepted by serde so old/forward configs parse, but rejected
-    /// by the run-create gate (spec §4/§12).
+    /// Consume each row at most once globally: the controller partitions the
+    /// dataset into disjoint per-worker slices and the engine stops the VU when
+    /// its slice is exhausted (gate requires `rows >= N`, `rows <= u32::MAX`).
     Unique,
 }
 
