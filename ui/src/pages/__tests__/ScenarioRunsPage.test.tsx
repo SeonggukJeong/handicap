@@ -132,6 +132,23 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     expect(screen.queryByLabelText("VUs")).toBeNull();
   });
 
+  it("does not re-open the ?retry dialog when createRun's identity changes (deps guard)", async () => {
+    // The retry effect lists `createRun` in its deps (exhaustive-deps). A
+    // createRun state transition (here: an error from 즉시 재실행) changes the
+    // mutation object's identity and re-fires the effect — the consumedRetry
+    // guard must keep the cancelled dialog closed for that retryId.
+    const user = userEvent.setup();
+    mockApi({}, 400);
+    renderPage("/scenarios/S1/runs?retry=R1");
+    expect(await screen.findByLabelText("VUs")).toHaveValue(4); // opened via deep-link
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByLabelText("VUs")).toBeNull()); // closed
+    // Trigger a createRun error → its identity changes → effect re-fires.
+    await user.click(screen.getByRole("button", { name: "즉시 재실행" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/scenario drifted/);
+    expect(screen.queryByLabelText("VUs")).toBeNull(); // stays closed
+  });
+
   it("surfaces a createRun error from '즉시 재실행'", async () => {
     const user = userEvent.setup();
     mockApi({}, 400);

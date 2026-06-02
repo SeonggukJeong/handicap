@@ -65,7 +65,9 @@ export function ScenarioRunsPage() {
       });
       setShowDialog(true);
     }
-  }, [retryId, runs.data]);
+    // createRun is in deps for exhaustive-deps; the consumedRetry guard above
+    // makes re-fires (from createRun's identity changing) a no-op per retryId.
+  }, [retryId, runs.data, createRun]);
 
   function openBlank() {
     createRun.reset();
