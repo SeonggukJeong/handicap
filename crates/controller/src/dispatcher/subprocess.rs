@@ -4,6 +4,7 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use tokio::process::Command;
 use tracing::{info, warn};
+use ulid::Ulid;
 
 use super::WorkerDispatcher;
 
@@ -26,36 +27,39 @@ impl SubprocessDispatcher {
 
 #[async_trait]
 impl WorkerDispatcher for SubprocessDispatcher {
-    async fn dispatch(&self, run_id: &str, worker_id: &str) -> anyhow::Result<()> {
+    async fn dispatch(&self, run_id: &str, worker_count: u32) -> anyhow::Result<()> {
         let controller_url = format!("http://{}", self.grpc_addr);
-        info!(
-            %worker_id,
-            %run_id,
-            %controller_url,
-            worker_bin = %self.worker_bin,
-            "spawning worker subprocess"
-        );
-        let mut cmd = Command::new(&self.worker_bin);
-        cmd.arg("--controller")
-            .arg(&controller_url)
-            .arg("--run-id")
-            .arg(run_id)
-            .arg("--worker-id")
-            .arg(worker_id)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(false);
-        let mut child = cmd.spawn()?;
+        for _ in 0..worker_count.max(1) {
+            let worker_id = Ulid::new().to_string();
+            info!(
+                %worker_id,
+                %run_id,
+                %controller_url,
+                worker_bin = %self.worker_bin,
+                "spawning worker subprocess"
+            );
+            let mut cmd = Command::new(&self.worker_bin);
+            cmd.arg("--controller")
+                .arg(&controller_url)
+                .arg("--run-id")
+                .arg(run_id)
+                .arg("--worker-id")
+                .arg(&worker_id)
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .kill_on_drop(false);
+            let mut child = cmd.spawn()?;
 
-        // Reap in background so the OS doesn't leave zombies.
-        let run_id_owned = run_id.to_string();
-        let pid = child.id();
-        tokio::spawn(async move {
-            match child.wait().await {
-                Ok(status) => info!(run_id = %run_id_owned, ?status, ?pid, "worker exited"),
-                Err(e) => warn!(run_id = %run_id_owned, error = %e, "wait on worker failed"),
-            }
-        });
+            // Reap in background so the OS doesn't leave zombies.
+            let run_id_owned = run_id.to_string();
+            let pid = child.id();
+            tokio::spawn(async move {
+                match child.wait().await {
+                    Ok(status) => info!(run_id = %run_id_owned, ?status, ?pid, "worker exited"),
+                    Err(e) => warn!(run_id = %run_id_owned, error = %e, "wait on worker failed"),
+                }
+            });
+        }
         Ok(())
     }
 

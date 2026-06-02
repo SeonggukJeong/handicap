@@ -19,12 +19,8 @@ async fn dispatch_creates_a_labeled_job_and_cleanup_removes_it() {
     .await
     .expect("dispatcher");
     let run_id = format!("test-run-{}", ulid::Ulid::new());
-    let worker_id = format!("test-worker-{}", ulid::Ulid::new());
 
-    dispatcher
-        .dispatch(&run_id, &worker_id)
-        .await
-        .expect("dispatch");
+    dispatcher.dispatch(&run_id, 1).await.expect("dispatch");
 
     let client = Client::try_default().await.expect("client");
     let api: Api<Job> = Api::namespaced(client, &ns);

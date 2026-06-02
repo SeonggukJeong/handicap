@@ -11,10 +11,10 @@ pub mod subprocess;
 /// startup via `--worker-mode`.
 #[async_trait]
 pub trait WorkerDispatcher: Send + Sync {
-    /// Start a worker for the given run. Returns `Ok(())` if the worker was
-    /// asked to start; it may not have registered with the coordinator yet.
-    /// Errors here surface to the REST `POST /api/runs` caller as a 500.
-    async fn dispatch(&self, run_id: &str, worker_id: &str) -> anyhow::Result<()>;
+    /// Start `worker_count` workers for the given run. Each implementation owns
+    /// worker-id generation (subprocess: N distinct ULIDs; K8s: Indexed Job).
+    /// Returns `Ok(())` once the workers were asked to start. (A3a spec §7.1.)
+    async fn dispatch(&self, run_id: &str, worker_count: u32) -> anyhow::Result<()>;
 
     /// Tear down any external state (K8s Job, child handle) associated with
     /// the run. MUST be idempotent — the controller calls `cleanup` from

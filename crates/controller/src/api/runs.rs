@@ -173,11 +173,9 @@ pub async fn create(
         .enqueue(row.id.clone(), assignment, n, body.profile.vus)
         .await;
 
-    // Dispatch the worker(s). Task 6 makes this N-spawn; for now single worker
-    // (n == 1 for all current callers since capacity defaults to 2000).
-    let worker_id = ulid::Ulid::new().to_string();
-    if let Err(e) = state.dispatcher.dispatch(&row.id, &worker_id).await {
-        tracing::warn!(run_id = %row.id, error = %e, "failed to dispatch worker");
+    // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
+    if let Err(e) = state.dispatcher.dispatch(&row.id, n).await {
+        tracing::warn!(run_id = %row.id, error = %e, "failed to dispatch worker(s)");
     }
 
     Ok((StatusCode::CREATED, Json(to_response(row))))
