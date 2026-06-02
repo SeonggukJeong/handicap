@@ -201,6 +201,23 @@ pub async fn mark_aborted(db: &Db, id: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// Mark a single run `failed` with a message and stamp `ended_at`. Used when
+/// worker dispatch fails at run-create time so the failure is authoritative and
+/// immediate (with a useful cause) instead of leaving the run `pending` for the
+/// 60s registration watchdog to fail anonymously. Unlike `set_status`, this
+/// records a `message` — the existing fail paths (watchdog/fail-fast) leave it
+/// NULL because `set_status` has no message column.
+pub async fn mark_failed(db: &Db, id: &str, message: &str) -> sqlx::Result<()> {
+    let now = super::now_ms();
+    sqlx::query("UPDATE runs SET status = 'failed', ended_at = ?, message = ? WHERE id = ?")
+        .bind(now)
+        .bind(message)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 /// Returns `true` if any non-terminal run (status `pending` or `running`)
 /// references `dataset_id` in its `profile_json.data_binding`.
 /// Used by the dataset DELETE guard (spec §10, Slice 8c Task 13).

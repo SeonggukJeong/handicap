@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
+use handicap_controller::dispatcher::NoopDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
 use serde_json::{Value, json};
@@ -14,10 +14,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
     app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     })
@@ -82,7 +79,7 @@ async fn abort_run_marks_run_aborted() {
     // 1. create scenario
     let scenario_id = create_scenario(&app, single_step_yaml).await;
 
-    // 2. create a run (worker_bin is /nonexistent so spawn fails, run stays pending)
+    // 2. create a run (NoopDispatcher starts no worker, so the run stays pending)
     let run_id = create_run(&app, &scenario_id).await;
 
     // 3. Status is pending (no real worker)
@@ -110,10 +107,7 @@ async fn create_and_get_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });
@@ -151,10 +145,7 @@ async fn rejects_invalid_yaml() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });
@@ -176,10 +167,7 @@ async fn create_run_for_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });
@@ -229,10 +217,7 @@ async fn list_scenarios_returns_what_was_created() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });
@@ -285,10 +270,7 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });
@@ -415,10 +397,7 @@ async fn list_runs_by_scenario() {
     let app = app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     });

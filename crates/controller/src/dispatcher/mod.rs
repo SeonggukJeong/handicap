@@ -24,3 +24,23 @@ pub trait WorkerDispatcher: Send + Sync {
 
 /// Shared handle held by `AppState`.
 pub type SharedDispatcher = Arc<dyn WorkerDispatcher>;
+
+/// A dispatcher that starts no workers and always reports success. The run is
+/// accepted (201) but stays `pending` because no worker ever registers.
+///
+/// Used by API/integration tests that exercise run-create without a real worker
+/// (now that genuine dispatch failure is authoritative — see `api::runs::create`
+/// and `cancel_dispatch_failed`, codex eval item 2). A `SubprocessDispatcher`
+/// pointed at a missing binary now (correctly) fails the run, so tests that want
+/// a successful create use this instead.
+pub struct NoopDispatcher;
+
+#[async_trait]
+impl WorkerDispatcher for NoopDispatcher {
+    async fn dispatch(&self, _run_id: &str, _worker_count: u32) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+}

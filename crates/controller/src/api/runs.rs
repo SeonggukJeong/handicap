@@ -192,8 +192,17 @@ pub async fn create(
         .await;
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
+    // Dispatch failure (missing worker binary, K8s Job creation denied, cluster
+    // unreachable) is an authoritative run-start failure: tear down the enqueued
+    // coordinator state, mark the run `failed` with the cause, and surface a 5xx
+    // — instead of returning 201 and letting the 60s watchdog fail it anonymously
+    // (codex eval, item 2).
     if let Err(e) = state.dispatcher.dispatch(&row.id, n).await {
-        tracing::warn!(run_id = %row.id, error = %e, "failed to dispatch worker(s)");
+        let message = format!("failed to dispatch workers: {e}");
+        tracing::error!(run_id = %row.id, error = %e, "worker dispatch failed; marking run failed");
+        state.coord.cancel_dispatch_failed(&row.id).await;
+        runs::mark_failed(&state.db, &row.id, &message).await?;
+        return Err(ApiError::Internal(anyhow::anyhow!(message)));
     }
 
     Ok((StatusCode::CREATED, Json(to_response(row))))

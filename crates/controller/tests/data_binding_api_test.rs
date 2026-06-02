@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
+use handicap_controller::dispatcher::NoopDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
 use serde_json::{Value, json};
@@ -18,10 +18,7 @@ fn make_app(db: store::Db) -> axum::Router {
     app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 5, // small cap so the over-max case is cheap
     })
@@ -199,10 +196,7 @@ async fn unique_policy_rejected_when_rows_below_worker_count() {
     let app = app::router(app::AppState {
         db: db.clone(),
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 5,
     });

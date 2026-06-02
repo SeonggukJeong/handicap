@@ -484,6 +484,29 @@ impl CoordinatorState {
         }
     }
 
+    /// Tear down a run whose worker dispatch failed before the run could start:
+    /// drop the in-memory entry, cancel the registration watchdog (so it doesn't
+    /// fire 60s later on an already-failed run), abort any worker that raced in
+    /// before dispatch errored (subprocess N≥2 partial spawn), and release
+    /// dispatcher resources. The caller marks the run `failed` in the DB. Safe to
+    /// call when the run is unknown (idempotent no-op). (codex eval, item 2.)
+    pub async fn cancel_dispatch_failed(&self, run_id: &str) {
+        let siblings = {
+            let mut g = self.runs.lock().await;
+            g.remove(run_id).map(|rw| {
+                rw.reg_deadline.cancel();
+                rw.workers
+                    .values()
+                    .map(|e| e.tx.clone())
+                    .collect::<Vec<_>>()
+            })
+        };
+        if let Some(txs) = siblings {
+            fan_out_abort(run_id, &txs, "worker dispatch failed").await;
+            self.cleanup_dispatcher(run_id).await;
+        }
+    }
+
     /// Send AbortRun to every connected worker of `run_id` (user-initiated
     /// abort). Returns true if at least one worker was reached. (Spec §8.5.)
     ///
