@@ -23,8 +23,10 @@ struct Args {
     controller: String,
     #[arg(long)]
     run_id: String,
+    /// Explicit worker id. If omitted (K8s Indexed Job), derived from
+    /// JOB_COMPLETION_INDEX as "{run_id}-w{index}". (A3a spec §7.2.)
     #[arg(long)]
-    worker_id: String,
+    worker_id: Option<String>,
     #[arg(long, default_value = "1000")]
     capacity_vus: u32,
 }
@@ -37,7 +39,12 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let args = Args::parse();
-    info!(?args, "worker starting");
+    let worker_id = resolve_worker_id(
+        args.worker_id.clone(),
+        &args.run_id,
+        std::env::var("JOB_COMPLETION_INDEX").ok(),
+    );
+    info!(?args, %worker_id, "worker starting");
 
     // Install the cancel token + SIGTERM handler BEFORE connect_with_backoff
     // so a K8s pod-termination signal during the initial backoff sleep (the
@@ -65,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
 
     let link = match connect_with_backoff(
         &args.controller,
-        &args.worker_id,
+        &worker_id,
         &args.run_id,
         args.capacity_vus,
         cancel.clone(),
@@ -166,12 +173,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let plan = RunPlan {
-        vus: profile.vus,
+        vus: assignment.vu_count,
         ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
         duration: Duration::from_secs(profile.duration_seconds.into()),
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
-        vu_offset: 0,
+        vu_offset: assignment.vu_offset,
         data_binding: dataset,
     };
     info!(
@@ -184,7 +191,7 @@ async fn main() -> anyhow::Result<()> {
     let (win_tx, mut win_rx) = mpsc::channel::<MetricFlush>(32);
 
     let run_id = args.run_id.clone();
-    let worker_id = args.worker_id.clone();
+    let worker_id = worker_id.clone();
     let tx_metric = tx.clone();
     let forwarder = tokio::spawn(async move {
         while let Some(flush) = win_rx.recv().await {
@@ -308,6 +315,24 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Resolve the worker id: explicit `--worker-id` wins; otherwise (K8s Indexed
+/// Job) derive `"{run_id}-w{index}"` from `JOB_COMPLETION_INDEX` (default index
+/// 0 if unset). Subprocess always passes `--worker-id`, so the fallback is the
+/// K8s path only. (A3a spec §7.2.)
+fn resolve_worker_id(
+    arg: Option<String>,
+    run_id: &str,
+    completion_index: Option<String>,
+) -> String {
+    match arg {
+        Some(id) => id,
+        None => {
+            let idx = completion_index.unwrap_or_else(|| "0".to_string());
+            format!("{run_id}-w{idx}")
+        }
+    }
+}
+
 /// Map an engine result to the gRPC `Phase` discriminant and error message string.
 ///
 /// `Phase::Aborted` signals the controller to mark the run as aborted (matching
@@ -349,5 +374,28 @@ mod tests {
         let (phase, msg) = phase_for_result(&res);
         assert_eq!(phase, pb::run_status::Phase::Failed as i32);
         assert!(!msg.is_empty(), "failure message should be non-empty");
+    }
+
+    #[test]
+    fn resolve_worker_id_prefers_explicit_arg() {
+        assert_eq!(
+            resolve_worker_id(Some("w-explicit".to_string()), "run-1", None),
+            "w-explicit"
+        );
+    }
+
+    #[test]
+    fn resolve_worker_id_falls_back_to_completion_index() {
+        // K8s Indexed Job: no --worker-id, JOB_COMPLETION_INDEX present.
+        assert_eq!(
+            resolve_worker_id(None, "run-9", Some("3".to_string())),
+            "run-9-w3"
+        );
+    }
+
+    #[test]
+    fn resolve_worker_id_defaults_when_nothing_present() {
+        // Neither arg nor env (shouldn't happen in practice) → deterministic id.
+        assert_eq!(resolve_worker_id(None, "run-9", None), "run-9-w0");
     }
 }
