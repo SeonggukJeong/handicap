@@ -27,8 +27,9 @@
 2. **비교는 같은 시나리오 내, terminal run만.** 스텝이 `step_id`로 매칭돼야 의미 있고, runs 목록도 이미 per-scenario.
 3. **화면 2–5개(상한 5 고정).** 5 초과 선택 시 화면 매트릭스 대신 "5개까지 — export로 전체 보기" 안내. **export는 다수 허용**(안전 상한 50).
 4. **baseline 기본 = 가장 오래된(가장 왼쪽) run.** 헤더 클릭으로 변경. 비-baseline 열은 baseline 대비 Δ.
-5. **델타 공식·방향은 한 곳(§4.3)에 정의해 클라(화면)와 서버(export)가 동일 적용.**
+5. **델타 공식·방향은 한 곳(§4.3)에 정의해 클라(화면)와 서버(export)가 동일 적용** — 단 TS·Rust 이중 구현이므로 **공유 골든 fixture로 양쪽이 같은 숫자를 내는지 교차 검증**(§9, I1).
 6. **CSV는 표면당 1개 표(헤드라인), XLSX는 멀티시트(전체).**
+7. **구현 순서(슬라이스 내 2단계, spec-plan-review 권고)**: 먼저 **export(B)** — `rust_xlsxwriter` dep 이동·`build_report_for_run` 추출·서버 델타(§4.3)를 한 곳에 안착(단일-run export는 그 자체로 출하 가능). 그다음 **비교(A)** — 클라가 서버와 동일 골든 fixture로 미러.
 
 ## 4. 비교 데이터 모델 & 델타 의미론 (클라이언트)
 
@@ -44,7 +45,7 @@ type Delta = { pct: number | null; polarity: "good" | "bad" | "neutral" };
 type CompareRow = { label: string; baseValue: number | null; cells: Cell[] };
 ```
 - **요약 섹션**: MetricKey별 1행 (+ verdict 행은 PASS/FAIL 텍스트 비교, 숫자 아님).
-- **스텝 섹션**: step_id별 행, 지표 = p95(+ count/err 토글 또는 부가 열). step_id는 **모든 run의 합집합**; 특정 run에 없으면 `value=null`("—"), baseline에 없고 다른 run에만 있으면 "신규".
+- **스텝 섹션**: step_id별 행, 지표 = p95(+ count/err 토글 또는 부가 열). step_id는 **모든 run의 합집합**; 특정 run에 없으면 `value=null`("—"), baseline에 없고 다른 run에만 있으면 "신규". **매칭은 step_id 정확 일치만**(URL/method 퍼지 매칭 없음 — 시나리오가 편집돼 step_id가 바뀌면 같은 논리 스텝도 별개로 보이는 의도된 보수적 동작, I3).
 - **status 섹션**: status 클래스(또는 코드)별 행, 값 = run별 count.
 
 ### 4.3 델타 공식 (클라·서버 export 동일 — spec 권위 정의)
@@ -66,7 +67,9 @@ verdict 행: candidate FAIL & baseline PASS → bad, candidate PASS & baseline F
 
 ### 5.1 진입점 — `ui/src/pages/ScenarioRunsPage.tsx`
 - 각 run 행에 체크박스(**terminal run만 활성**, running/pending은 disabled).
+- terminal 게이팅은 **목록의 `status`** 로 판단(리포트 N개 fetch 불필요, M2).
 - 선택 개수 표시 + **"비교 (N)" 버튼**. N=2~5면 비교 뷰로 이동, N>5면 "화면 5개까지, export로 전체" 안내(여전히 export 링크 제공).
+- export도 **UI에서 50개 상한**으로 가드(URL 빌드 전, M4) — 50 초과 선택 시 export 버튼 비활성+안내. 서버 50 상한(§6.2)은 권위 백스톱.
 - 이동: 클라 라우트 `/scenarios/{id}/compare?runs=a,b,c&baseline=a`(쿼리로 선택/baseline 전달).
 
 ### 5.2 비교 뷰 — 신규 `ui/src/pages/ScenarioComparePage.tsx` + `ui/src/components/compare/*`
@@ -75,6 +78,7 @@ verdict 행: candidate FAIL & baseline PASS → bad, candidate PASS & baseline F
 - **baseline 전환**: 열 헤더 클릭 → `baseline` 쿼리 갱신 + 재계산(순수 함수라 즉시).
 - **스텝 불일치 배너**: run들의 step_id 집합이 다르면 상단 경고("스텝 구성이 달라 일부만 비교").
 - 프레젠테이셔널 분리: `compareReports(reports, baselineId)` **순수 함수**(테스트 용이) → `<CompareMatrix>` 렌더러. 스텝 라벨(name/method/url)은 기존 리포트와 동일하게 **`scenario_yaml` 스냅샷 파싱**(`flattenHttpSteps`/`findStepById` 재사용). 단 run마다 스냅샷이 다를 수 있으므로 **baseline run의 스냅샷을 라벨 권위로** 쓰고, baseline에 없는 step_id는 가장 처음 등장한 run의 스냅샷에서 라벨 보강.
+- **export 다운로드 트리거**(I2): `<a download href>` 아님 — **fetch → blob → picker/blob-URL 저장**. 이유: Chrome Safe-Browsing 오프라인 시 `<a download>`가 transient 실패(ui/CLAUDE.md `DownloadJsonButton` 주석) + 컨트롤러 4xx(비-terminal/baseline∉ids/상한초과)를 사용자에게 못 알림. fetch 경로라야 **에러 배너** 노출 + `Content-Disposition` 파일명 사용. **`DownloadJsonButton` 컴포넌트 자체는 JSON 전용이라 재사용 불가 — picker/blob/revoke 패턴만 차용**(byte-blob용 공용 헬퍼로 일반화).
 
 ### 5.3 색·방향
 "좋아짐=초록 / 나빠짐=빨강" (§4.3 polarity). 색만이 아니라 ▲▼ 기호도 동반(a11y — ui/CLAUDE.md 색-단독 금지 이디엄).
@@ -82,9 +86,9 @@ verdict 행: candidate FAIL & baseline PASS → bad, candidate PASS & baseline F
 ## 6. Export (controller)
 
 ### 6.1 의존성·데이터 원천
-- CSV: 이미 워크스페이스에 있는 `csv` crate(데이터셋 파싱) 재사용 — 쓰기에도 사용.
-- XLSX: **`rust_xlsxwriter` 추가**(순수 Rust, 네이티브 의존 0).
-- 데이터: **기존 `build_report(id)` 재사용** — 새 집계 0. 비교 export는 run_id마다 `build_report` 호출해 조립.
+- CSV: 이미 워크스페이스에 있는 `csv` crate(데이터셋 파싱) 재사용 — 쓰기(`csv::Writer`)에도 사용.
+- XLSX: **`rust_xlsxwriter`를 `[dev-dependencies]` → `[dependencies]`로 이동**(C1, Critical). 현재 워크스페이스에 **dev-only**로만 존재(`crates/controller/Cargo.toml`의 dev-dep 줄 + 워크스페이스 `Cargo.toml`의 `# dev-only` 주석) — 프로덕션 `export.rs`가 dev-dep을 못 써 그냥 두면 컴파일 실패한다. 단순 '추가'가 아니라 '이동'. 순수 Rust(transitive `zip`만), 네이티브 의존 0, 워크스페이스(edition 2024/MSRV 1.85)에서 이미 컴파일됨.
+- 데이터: **기존 `build_report` 재사용** — 새 집계 0. 단 실제 시그니처는 5-arg `build_report(run, scenario_yaml, rows, loops, branches)`(`report.rs`)라 DB fetch 4회가 선행(`runs.rs:247-263`의 `report()` 핸들러가 하는 것). 이 **fetch+build 블록을 `build_report_for_run(db, run_id) -> Result<ReportJson>` 헬퍼로 추출**해 단일-run export·비교 export(run_id마다 N회)·기존 `report()` 핸들러가 공유(복붙 3× 방지, M1).
 
 ### 6.2 라우트 (axum, `app.rs`)
 ```
@@ -109,11 +113,11 @@ GET /api/scenarios/{sid}/runs/compare.xlsx?run_ids=a,b,c&baseline=a
 
 ## 7. 엣지 케이스
 - **비-terminal run**: UI 선택 불가 + 서버 export 거부(4xx).
-- **스텝 불일치**(시나리오 편집): step_id 합집합, 없는 칸 "—" + 배너. baseline에 없는 step = "신규"(Δ 없음).
+- **스텝 불일치**(시나리오 편집): step_id 합집합, 없는 칸 "—" + 배너. baseline에 없는 step = "신규"(Δ 없음). **배너 발화 조건 = run들 step_id 집합의 합집합 ≠ 교집합**(I3).
 - **baseline 값 0**: Δ% null → "—"/"신규"(§4.3). ∞ 금지.
 - **HDR bad-blob**: `build_report`가 이미 한 윈도만 0 처리 → export·비교 자동 상속.
 - **run 프로파일 상이**(VU 100 vs 200): 비교 허용 — 부하 단계 추세가 N-run의 목적. 제약 없음.
-- **verdict/branch 부재 run**: 해당 시트/행 생략(criteria None, if_breakdown 빈 배열).
+- **verdict/branch 부재 run**: 단일-run XLSX는 해당 시트/criteria 행 생략(criteria None, if_breakdown 빈 배열). **비교 매트릭스의 verdict 행은 유지하되**, verdict 부재 run의 셀만 "—"(값 있는 run만 PASS/FAIL 표기, M3).
 
 ## 8. UI 영향 (와이어/컴포넌트)
 - **와이어 무변경** — `Report` 스키마 그대로 재사용. export는 파일 다운로드라 스키마 무관.
@@ -131,6 +135,7 @@ GET /api/scenarios/{sid}/runs/compare.xlsx?run_ids=a,b,c&baseline=a
   - 단일 XLSX — **`calamine` 라운드트립**(이미 의존성!): 써서 다시 읽어 시트·셀 값 검증.
   - 비교 export — 2–3 fixture run에서 baseline Δ% 정확성, 시나리오 불일치/비-terminal/baseline∉ids 거부, content-type·disposition.
   - `build_report` 재사용이라 집계 회귀 위험 낮음 — export 직렬화 계층만 신규 테스트.
+- **델타 공식 골든 크로스체크(I1, 필수)**: 작은 고정 fixture(2–3개 `Report` JSON + 기대 델타 매트릭스, repo에 체크인)를 **컨트롤러 Rust 테스트와 UI TS 테스트가 공유**해, 서버 계산과 클라 계산이 **같은 입력에 같은 숫자**(pct·polarity·`pct=null` 라벨)를 내는지 양쪽이 동일 fixture로 단언. TS·Rust 이중 구현 드리프트 방지(9d 7-layer wire-parity 정신). polarity/null 규칙은 §4.3 표를 진실의 원천으로.
 
 ## 10. 연기 항목 (roadmap §B/§A4로 누적)
 - §A4: **A4c 리포트 요약**(별도), **D 히스토그램**(다음 슬라이스), **C 트랜잭션 분해**(엔진 계측, 큰 별도 슬라이스).
@@ -139,9 +144,9 @@ GET /api/scenarios/{sid}/runs/compare.xlsx?run_ids=a,b,c&baseline=a
 ## 11. 영향 받는 파일 (예상)
 
 ### 프로덕션
-- `crates/controller/Cargo.toml` — `rust_xlsxwriter` 추가(`csv`·`calamine`은 기존).
+- `crates/controller/Cargo.toml` + 워크스페이스 `Cargo.toml` — `rust_xlsxwriter`를 **dev-dep → 정식 dep로 이동**(`csv`·`calamine`은 기존 정식 dep), 워크스페이스 `# dev-only` 주석 갱신. C1.
 - `crates/controller/src/report.rs` 또는 신규 `crates/controller/src/export.rs` — `report_to_csv`/`report_to_xlsx`/`comparison_to_csv`/`comparison_to_xlsx` 직렬화(순수, `build_report` 결과 입력).
-- `crates/controller/src/api/runs.rs` — 단일 export 핸들러 2개.
+- `crates/controller/src/api/runs.rs` — `report()` 핸들러의 fetch+build 블록을 `build_report_for_run(db, run_id)` 헬퍼로 추출(M1) + 단일 export 핸들러 2개.
 - `crates/controller/src/api/scenarios.rs`(또는 runs.rs) — 비교 export 핸들러 2개 + run_ids 검증.
 - `crates/controller/src/app.rs` — 라우트 4개.
 - `ui/src/compare/compareReports.ts`, `ui/src/pages/ScenarioComparePage.tsx`, `ui/src/components/compare/*` — 신규.
