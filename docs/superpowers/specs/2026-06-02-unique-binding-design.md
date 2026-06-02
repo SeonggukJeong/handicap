@@ -75,27 +75,48 @@ spec §6.4의 "컨트롤러 중앙 커서"는 *런타임 커서*가 아니라 **
 - `Unique`는 `seed` 미사용(RNG 없음). `select_index` 시그니처/`counter` 인자는 그대로(Unique도 IterSequential처럼 공유 카운터 사용).
 
 **`runner.rs`**:
-- `run_scenario`(~58): 공유 카운터를 `IterSequential` 단독 → **`IterSequential | Unique`** 둘 다에 생성.
-- `run_vu`(~240): 행 overlay를 `match ds.select_index(...) { Some(idx) => 행 overlay, None => break }` 로. `None`이면 while 루프 탈출 → VU 정상 종료(`Ok(())`).
+- `run_scenario`(line 58-61): 공유 카운터를 `IterSequential` 단독 → **`IterSequential | Unique`** 둘 다에 생성(현재 `match … { Some(IterSequential) => …, _ => None }`은 비-exhaustive `_`라 `IterSequential | Unique` arm 추가 가능).
+- `run_vu`(line 240-247): 행 overlay 블록을 다음으로 교체:
+  ```rust
+  if let Some(ds) = &dataset {
+      match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+          Some(idx) => { for (k, v) in &ds.rows[idx] { iter_vars.insert(k.clone(), v.clone()); } }
+          None => break, // unique 슬라이스 소진 → 이 VU 정상 종료
+      }
+  }
+  ```
+  `None`이면 `while` 탈출 → `Ok(())`(runner.rs:268). VU가 `Err`를 안 내므로 `failed` 카운터(runner.rs:114-117)·`AllVusFailed` 게이트(runner.rs:201)를 건드리지 않음 = 깨끗한 완료. 기존 `if !ds.rows.is_empty()` 가드는 제거 가능 — 게이트가 빈 데이터셋을 거부(per_vu/iter_*)하고 unique는 `rows >= N`(§4.3 2c)이라 `rows`는 항상 non-empty이므로 per_vu/iter_*의 `% 0` 패닉 경로는 도달 불가.
+
+> **두 개의 `BindingPolicy` enum 주의**: 컨트롤러 `crate::binding::BindingPolicy`(binding.rs)는 **이미 4변형(`Unique` 포함)**, 엔진 `handicap_engine::BindingPolicy`(dataset.rs)는 **3변형**. 이 절(§4.1)은 **엔진** enum에만 `Unique`를 추가한다(`select_index`의 exhaustive `match self.policy`도 함께).
 
 ### 4.2 proto (`crates/proto/proto/coordinator.proto`)
 
 - `DataBinding.Policy` enum에 `UNIQUE = 3;` 추가(주석 "reserved" 제거). enum 값 추가는 backward-compat 안전(controller/worker 동시 배포). `row_count` 주석("after policy-aware slicing")은 unique의 per-worker count에 그대로 맞음 — **메시지 구조 무변경**.
 
-### 4.3 컨트롤러 — run-create 해석 (`api/runs.rs`)
+### 4.3 컨트롤러 — run-create 해석 + 검증 (`api/runs.rs`)
 
-- `validate_run_config`(line 64-68): `BindingPolicy::Unique` 거부 블록 **제거**. unique를 `per_iteration` cap 검사(line 89-92)에 포함 — unique는 전체 데이터셋을 워커들에 나눠 스트리밍하므로 총 DB 읽기 = 전체 행 → `--dataset-max-rows` 상한 적용. `rows > 0` 검사는 기존 유지. "행이 충분한가" 게이트는 없음(stop-VU라 반복수 미지 → 검증 불가).
-- `create`(line 129-143): `BindingPolicy::Unique => unreachable!(...)` arm을 실제 arm으로 — `(Policy::Unique, meta.row_count as u64)`. unique는 **총행**을 `PendingDataBinding.row_count`에 저장(워커별 분할은 register 시점에 수행, §4.4).
+- `validate_run_config`(line 47-100):
+  - `BindingPolicy::Unique` 거부 블록(line 64-68) **제거**.
+  - unique를 `per_iteration` cap 검사(line 89-92)에 포함 — unique는 전체 데이터셋을 워커들에 나눠 스트리밍하므로 총 DB 읽기 = 전체 행 → `--dataset-max-rows` 상한 적용.
+  - **N-floor 검사 추가(HOLE 2 / 2c)**: unique면 `let n = state.coord.worker_count_for(profile.vus)`(create와 동일 함수, AppState로 접근 가능) 를 구해 `meta.row_count < n` 이면 **거부**("unique 정책은 데이터셋 행 수가 워커 수 이상이어야 합니다: rows={r} < workers={n}"). `shard_split(total, n, i)`는 `total >= n`이면 모든 샤드 `count_i >= 1`(base=total/n≥1)을 보장 → **빈 슬라이스 워커가 존재하지 않음** → 워커는 항상 non-empty `DataSet`을 받아 소진 시 `select_index→None→break`로 깨끗이 종료(언바운드 부하 경로 제거). 기본 capacity=2000이라 vus≤2000이면 N=1, `rows < 1`은 이미 빈 데이터셋 거부와 동치 → 단일워커 경로엔 새 거부 없음.
+  - **u32 overflow 가드(HOLE 3)**: unique면 `meta.row_count > u32::MAX` 일 때 거부(`shard_split`이 u32라 truncate 방지). `--dataset-max-rows`는 u64 무한이라 cap만으론 못 막음. 실무상 cap 기본값(1M)이 한참 아래이나 방어적으로 명시.
+  - `rows > 0` 검사·"충분한 행" 게이트 부재는 기존 그대로(stop-VU라 반복수 미지).
+- `create`(line 129-143): `BindingPolicy::Unique => unreachable!(...)` arm을 실제 arm으로 — `(Policy::Unique, meta.row_count as u64)`. unique는 **총행**을 `PendingDataBinding.row_count`에 저장. 이 값은 **`assignment_for`만 읽어** 워커별로 분할한다(§4.4) — proto/stream/guard로는 절대 그대로 흐르지 않음.
 
 ### 4.4 컨트롤러 — 워커별 disjoint 파티션 (`grpc/coordinator.rs`)
 
-핵심: per_vu/iter_*는 `row_count`가 **모든 워커에 동일(복제)** 이지만, unique는 워커마다 다른 `(offset_i, count_i)` 다.
+핵심: per_vu/iter_*는 `row_count`가 **모든 워커에 동일(복제)** 이지만, unique는 워커마다 다른 `(offset_i, count_i)` 다. `PendingDataBinding.row_count`의 의미가 정책별로 다름(replicated 정책=per-worker count / unique=총행) — **오직 `assignment_for`만 이 필드를 해석**하고, 항상 per-worker count를 downstream에 내보낸다.
 
-- `assignment_for`(line 252): unique면 `(row_offset, row_count_i) = shard_split(total_rows, shard_count, shard_index)` 계산(`shard_split`은 `grpc/shard.rs`의 기존 순수 함수, u32). 빌드하는 proto `DataBinding.row_count = row_count_i`. 비-unique는 기존대로(offset 0, count = `binding.row_count`).
-  - 반환에 워커별 **스트림 시작 오프셋**을 함께 넘겨야 함 → 반환 타입을 `(RunAssignment, Option<(PendingDataBinding, u64 offset)>)` 또는 `PendingDataBinding`에 `stream_offset` 필드 추가(택1, plan에서 결정). unique=offset_i, 비-unique=0.
-  - `shard_split`은 u32라 `total_rows`(u64, cap≤dataset_max_rows로 실무상 u32 범위) 캐스팅 — cap 검증이 선행하므로 안전.
-- `stream_dataset`(line 672): `start_offset` 파라미터 추가. `get_rows_range(db, dataset_id, start_offset + sent, limit)`, `total = count_i`. 비-unique는 `start_offset = 0` 으로 호출 = 기존과 byte-identical.
-  - `row_count_i == 0`(빈 슬라이스, total_rows < N) → 호출부의 `if binding.row_count > 0`(line 635) 가드가 이미 스킵 → 그 워커는 데이터셋 없이 시작 → §4.1의 `dataset = None` 경로 = 즉시 소진(VU 0회 반복 후 종료).
+- **반환 타입 결정(HOLE 4)**: `assignment_for`(line 252)는 `(RunAssignment, Option<PendingDataBinding>)` → **`(RunAssignment, Option<WorkerStream>)`** 로 변경. 신규 경량 struct:
+  ```rust
+  struct WorkerStream { dataset_id: String, mappings: Vec<Mapping>, offset: u64, count: u64 }
+  ```
+  - unique: `(offset, count) = shard_split(total_rows as u32, shard_count, shard_index)` (각 u64로). 
+  - 비-unique: `(0, binding.row_count)`.
+  - 빌드하는 proto `DataBinding.row_count = count` (즉 unique는 `count_i`, HOLE 1 해소).
+- `stream_dataset`(line 672): 시그니처를 `(state, tx, run_id, ws: &WorkerStream)` 로. `get_rows_range(db, ws.dataset_id, ws.offset + sent, limit)`, `total = ws.count`, mappings = `ws.mappings`. 비-unique는 `ws.offset = 0` = 기존과 byte-identical(현재 루프의 `sent`는 절대 인덱스 → `offset + sent`가 정확).
+- 호출부(line 634-638): 가드를 `if let Some(ws) = &stream { if ws.count > 0 { stream_dataset(&state, &tx, &reg.run_id, ws).await; } }` 로. (§4.3 2c로 unique `count`는 항상 ≥1, replicated 정책도 항상 ≥1 — 가드는 방어적으로 유지.)
+- `RunAssignment`/proto `DataBinding` 리터럴 사이트는 필드 추가가 아니므로 prost-exhaustive 트랩 비해당(값만 변경).
 
 ### 4.5 워커 (`crates/worker/src/main.rs`)
 
@@ -114,40 +135,41 @@ spec §6.4의 "컨트롤러 중앙 커서"는 *런타임 커서*가 아니라 **
 
 ## 5. 엣지 케이스 & 불변
 
-- **`total_rows < N`**: `shard_split`이 뒤쪽 워커에 count 0 배정 → 빈 슬라이스 워커의 VU 즉시 종료(부하 일부 미생성). 차단하지 않음(stop-VU 정합). UI에서 soft 경고는 선택(이 슬라이스에선 미구현 가능 — plan 판단).
-- **`total_rows < total_vus`**: 일부 VU가 1회도 못 돌고 종료 가능 — 정상(stop-VU).
+- **`total_rows < N`**: **run-create에서 거부**(§4.3 2c). 모든 워커에 최소 1행을 줄 수 없는 구성 = 일부 워커가 부하 0 생성 = 미구성으로 간주. 명확한 메시지로 거부(데이터 추가 또는 VU 감소 유도). 이로써 "빈 슬라이스 → `dataset=None` → 언바운드 full-duration 부하"라는 함정(spec-review HOLE 2)이 구조적으로 제거됨.
+- **`N <= total_rows < total_vus`**: **허용**. 일부 VU는 1회도 못 돌고 종료할 수 있으나, **`DataSet`이 존재**(count_i≥1)하므로 그 VU의 `select_index`는 `None`을 반환 → 깨끗이 break(언바운드 부하 아님). 정상적인 unique use case(예: rows=50, vus=100 → 50회 소비 후 전원 정지).
 - **결정성**: 소비되는 *행의 집합*은 고정(전체, 각 1회)이나, *어느 VU/반복이 어느 행을 받는지*는 공유 커서 + 스케줄링 의존(iter_sequential과 동일 성질). 재현 가능한 시퀀스는 보장하지 않음 — 유일성만 보장.
-- **N=1(단일 워커)**: 슬라이스 = 전체 행, 정상 동작(`shard_split(total,1,0)=(0,total)`). unique는 멀티워커 전용이 아님.
+- **N=1(단일 워커)**: 슬라이스 = 전체 행, 정상 동작(`shard_split(total,1,0)=(0,total)`). unique는 멀티워커 전용이 아님. 단일워커에서 N-floor 거부는 `rows<1`=빈 데이터셋과 동치라 새 제약 없음.
 - **`seed`**: unique에서 미사용. proto/PendingDataBinding 필드는 유지(다른 정책 공유).
-- **하위 호환**: unique 미선택 = byte-identical(비-unique 경로 `start_offset=0` 무변경, 엔진 `Option` 변경은 Some 경로 동일 동작).
+- **하위 호환**: unique 미선택 = byte-identical(비-unique 경로 `WorkerStream.offset=0` 무변경, 엔진 `Option` 변경은 Some 경로 동일 동작, proto enum 값 추가는 기존 메시지 무영향).
 
 ## 6. 검증 게이트 요약 (`validate_run_config`)
 
-| 정책 | rows>0 | cap(`--dataset-max-rows`) | row_count 의미 |
-|---|---|---|---|
-| per_vu | ✓ | 미적용(min(vus,rows) 슬라이싱) | min(vus, rows) |
-| iter_sequential / iter_random | ✓ | 적용(전체 복제) | rows |
-| **unique** | ✓ | **적용**(전체를 분할 스트리밍) | **총 rows**(register 시 워커별 분할) |
+| 정책 | rows>0 | cap(`--dataset-max-rows`) | 추가 게이트 | `PendingDataBinding.row_count` 의미 |
+|---|---|---|---|---|
+| per_vu | ✓ | 미적용(min(vus,rows) 슬라이싱) | — | min(vus, rows) |
+| iter_sequential / iter_random | ✓ | 적용(전체 복제) | — | rows |
+| **unique** | ✓ | **적용**(전체를 분할 스트리밍) | **`rows >= N` & `rows <= u32::MAX`** | **총 rows**(`assignment_for`만 읽어 워커별 분할) |
 
-unique 거부 제거 외 게이트 로직 무변경. "충분한 행" 게이트 없음.
+unique 거부 제거 + N-floor·u32 가드 추가가 게이트 변경 전부. "충분한 행(rows≥vus)" 게이트는 없음(rows<vus는 허용).
 
 ## 7. 테스트 전략
 
-- **엔진 단위(`dataset.rs`)**: unique `select_index` — `0,1,2,...` 순차 반환 후 `len`째부터 `None`(wrap 아님). 공유 카운터로 두 VU가 같은 행 안 받음.
-- **엔진 통합/runner**: unique + 작은 데이터셋으로 VU가 소진 후 종료(`Ok`)·전체 반복수 ≤ rows.
-- **컨트롤러 단위**: `assignment_for`가 unique에서 `shard_split` 기반 disjoint (offset,count) 산출; `validate_run_config`가 unique 수용 + cap 적용(초과 시 거부).
-- **컨트롤러 e2e(`e2e_test.rs`)**: 2-워커 unique fan-out — 두 워커가 disjoint 슬라이스 수신, 전 워커 행 합 = 전체·중복 0, run `Completed`. 기존 N=2 e2e 패턴(`two_worker_fanout_completes`) 차용.
-- **UI RTL(`DataBindingPanel`)**: unique 선택 가능, 바인딩 round-trip(`policy: "unique"`), 배너 노출.
+- **엔진 단위(`dataset.rs`)**: unique `select_index` — `0,1,2,...` 순차 `Some` 반환 후 `len`째부터 `None`(wrap 아님). 공유 카운터로 두 VU가 같은 행 안 받음. **기존 3개 단위테스트(`dataset.rs:94-129`)가 `== usize`를 단언하므로 `Some(_)`로 갱신**(시그니처 `Option<usize>` 변경의 직접 영향). `proptests.rs`는 `select_index`/`DataSet` 미접촉 → 무영향.
+- **엔진 통합/runner**: unique + 작은 데이터셋으로 VU가 소진 후 종료(`Ok`)·전체 반복수 ≤ rows·`failed` 미증가.
+- **컨트롤러 단위**: `assignment_for`가 unique에서 `shard_split` 기반 disjoint `(offset,count)` 산출(2-워커 → `(0,k)`,`(k,total-k)`); `validate_run_config`가 unique 수용 + cap 적용 + **N-floor 거부**(`rows<N`) + **u32 거부**.
+- **컨트롤러 e2e(`e2e_test.rs`)**: 2-워커 unique fan-out. **관측 메커니즘(HOLE 5)**: 시나리오가 unique `{{var}}`(예: 데이터셋의 고유 토큰 컬럼)를 wiremock이 캡처하는 요청 경로/헤더/바디에 주입(기존 `data_binding_per_vu_injects_distinct_values`, e2e_test.rs:956 패턴 차용). 단언: 두 워커가 보낸 요청에서 관측된 주입값들의 **합집합 = 데이터셋 부분집합, 어떤 값도 2회 이상 등장 안 함(유일성)**, run `Completed`. fixture ULID는 Crockford base32 유효(엔진 CLAUDE.md 함정: `I/L/O/U` 회피). N=2 e2e 패턴은 `multi_worker_fanout_e2e.rs:83 two_worker_fanout_completes` 차용.
+- **UI RTL(`DataBindingPanel`)**: unique 선택 가능, 바인딩 round-trip(`policy: "unique"`), 배너 노출(`showBanner`에 unique 포함).
+- **게이트(CLAUDE.md 함정)**: 엔진 `BindingPolicy` 변경 후 **`cargo build -p handicap-worker` 필수**(`cargo run -p handicap-controller`는 worker 바이너리 재빌드 안 함 — 옛 워커가 새 enum 못 읽음). UI 변경 후 **`pnpm build`(`tsc -b`)** 까지(Zod enum·드롭다운 타입). pre-commit hook은 cargo만 돌림.
 
 ## 8. 슬라이스 분할
 
-단일 슬라이스(9d/A3b보다 작음). 엔진→proto→컨트롤러→워커→UI가 한 와이어 변경(enum 1값)으로 묶여 분할 이득 적음. subagent-driven 구현 시 task 순서는 plan에서: ① 엔진 `Option` + Unique(테스트 먼저) → ② proto enum → ③ 워커 매핑 → ④ 컨트롤러 게이트/해석/파티션/스트림 → ⑤ UI → ⑥ e2e → ⑦ 최종 whole-feature 리뷰.
+단일 슬라이스. 새 proto 필드·migration·메트릭 테이블 없음, `select_index` 단일 호출 사이트, `PendingDataBinding` 단일 리터럴이라 분할하지 않는다. 단 spec-review가 지적했듯 "행 파티션"은 `shard_split` 단순 재사용이 아니라 ① `row_count` 의미 정정(WorkerStream 도입) ② N-floor/u32 게이트 ③ u32 캐스팅이 얽혀 spec이 처음 가정한 것보단 살집이 있다. subagent-driven 구현 시 task 순서(plan에서 확정): ① 엔진 `select_index → Option` + `Unique` 변형(기존 단위테스트 갱신 포함, 테스트 먼저) → ② proto `UNIQUE=3` → ③ 워커 policy 매핑 arm → ④ 컨트롤러: validate 게이트(거부 제거 + N-floor + u32) + create 해석 + `WorkerStream` 파티션(`assignment_for`/`stream_dataset`/호출부) → ⑤ UI(Zod enum + 드롭다운 + 배너) → ⑥ e2e(2-워커 유일성 관측) → ⑦ 최종 whole-feature 리뷰(`handicap-reviewer`, 와이어 1:1). 각 Rust task 후 `cargo build -p handicap-worker`, UI task 후 `pnpm build`.
 
 ## 9. 후속 연기 항목
 
 - `on_exhaust: fail` opt-in 토글(§3.3, 로드맵 §B2'' degraded 토글 계열).
-- `total_rows < N` UI soft 경고(이 슬라이스에서 빠지면 여기로).
 - 재현 가능한 unique 시퀀스(per-VU 결정적 분할) — 현재 스케줄링 의존, 필요 시 별도.
+- UI에서 N(=ceil(vus/capacity))·N-floor를 사전 표시(현재는 run-create 거부 메시지로만 안내). capacity가 UI에 노출 안 돼 있어 추정 불가 → 운영 상한 관리자 화면(로드맵 §B2'')과 묶음.
 
 ## 10. ADR
 
