@@ -241,6 +241,51 @@ describe("Inspector — loop", () => {
   });
 });
 
+describe("Inspector — move up/down (container steps)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("reorders a top-level loop among its siblings via Move up", async () => {
+    const user = userEvent.setup();
+    const httpId = useScenarioEditor.getState().addStep("First");
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop A");
+    useScenarioEditor.getState().select(loopId);
+    render(<Inspector />);
+
+    // Loop is last of two → Move down disabled, Move up enabled.
+    expect(screen.getByTitle("Move down")).toBeDisabled();
+    const up = screen.getByTitle("Move up");
+    expect(up).not.toBeDisabled();
+
+    await user.click(up);
+
+    const ids = useScenarioEditor.getState().model!.steps.map((s) => s.id);
+    expect(ids).toEqual([loopId, httpId]);
+    // Now first → Move up disabled.
+    expect(screen.getByTitle("Move up")).toBeDisabled();
+  });
+
+  it("reorders a top-level if among its siblings via Move down", async () => {
+    const user = userEvent.setup();
+    const ifId = useScenarioEditor.getState().addIfStep("Branch");
+    const httpId = useScenarioEditor.getState().addStep("Last");
+    useScenarioEditor.getState().select(ifId);
+    render(<Inspector />);
+
+    // If is first of two → Move up disabled, Move down enabled.
+    expect(screen.getByTitle("Move up")).toBeDisabled();
+    const down = screen.getByTitle("Move down");
+    expect(down).not.toBeDisabled();
+
+    await user.click(down);
+
+    const ids = useScenarioEditor.getState().model!.steps.map((s) => s.id);
+    expect(ids).toEqual([httpId, ifId]);
+  });
+});
+
 describe("Inspector — if route", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());

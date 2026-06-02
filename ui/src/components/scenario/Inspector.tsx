@@ -95,40 +95,48 @@ function removeAtPath(node: Condition, path: number[]): Condition {
   return { [key]: next } as Condition;
 }
 
+// Move up/down buttons shared by every inspector (http leaf + loop/if
+// containers). Siblings = the sequence the step actually lives in: top-level
+// steps, a loop `do` body, or an if branch (then / elif[].then / else). Clamp
+// against siblings, not the top-level list (a nested step has index -1 there,
+// which would mis-disable the buttons).
+function MoveButtons({ stepId }: { stepId: string }) {
+  const moveStep = useScenarioEditor((s) => s.moveStep);
+  const steps = useScenarioEditor((s) => s.model?.steps ?? []);
+  const siblings = useMemo<ReadonlyArray<Step>>(
+    () => findStepSiblings(steps, stepId),
+    [steps, stepId],
+  );
+  const index = siblings.findIndex((s) => s.id === stepId);
+  return (
+    <>
+      <SmallButton
+        onClick={() => moveStep(stepId, Math.max(0, index - 1))}
+        disabled={index === 0}
+        label="↑"
+        title="Move up"
+      />
+      <SmallButton
+        onClick={() => moveStep(stepId, Math.min(siblings.length - 1, index + 1))}
+        disabled={index === siblings.length - 1}
+        label="↓"
+        title="Move down"
+      />
+    </>
+  );
+}
+
 function HttpStepInspector({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
-  const moveStep = useScenarioEditor((s) => s.moveStep);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? []);
-
-  // Siblings = the sequence the step actually lives in: top-level steps, a loop
-  // `do` body, or an if branch (then / elif[].then / else). Move up/down must
-  // clamp against siblings, not the top-level list (a nested step has index -1
-  // there, which would mis-disable the buttons).
-  const siblings = useMemo<ReadonlyArray<Step>>(
-    () => findStepSiblings(steps, step.id),
-    [steps, step.id],
-  );
-  const index = siblings.findIndex((s) => s.id === step.id);
 
   return (
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">Step</h3>
         <div className="flex gap-1">
-          <SmallButton
-            onClick={() => moveStep(step.id, Math.max(0, index - 1))}
-            disabled={index === 0}
-            label="↑"
-            title="Move up"
-          />
-          <SmallButton
-            onClick={() => moveStep(step.id, Math.min(siblings.length - 1, index + 1))}
-            disabled={index === siblings.length - 1}
-            label="↓"
-            title="Move down"
-          />
+          <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
             label="Delete"
@@ -599,12 +607,15 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">Loop</h3>
-        <SmallButton
-          onClick={() => removeStep(step.id)}
-          label="Delete"
-          title="Delete loop"
-          danger
-        />
+        <div className="flex gap-1">
+          <MoveButtons stepId={step.id} />
+          <SmallButton
+            onClick={() => removeStep(step.id)}
+            label="Delete"
+            title="Delete loop"
+            danger
+          />
+        </div>
       </header>
 
       <Field label="Name">
@@ -928,7 +939,15 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-700">If</h3>
-        <SmallButton onClick={() => removeStep(step.id)} label="Delete" title="Delete if" danger />
+        <div className="flex gap-1">
+          <MoveButtons stepId={step.id} />
+          <SmallButton
+            onClick={() => removeStep(step.id)}
+            label="Delete"
+            title="Delete if"
+            danger
+          />
+        </div>
       </header>
 
       <Field label="Name">
