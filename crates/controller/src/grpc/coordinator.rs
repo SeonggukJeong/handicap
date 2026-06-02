@@ -137,6 +137,7 @@ impl Coordinator for CoordinatorService {
                         let pending = state.pending.lock().await.remove(&reg.run_id);
                         match pending {
                             Some(a) => {
+                                let total_vus = a.profile.vus;
                                 let assignment = RunAssignment {
                                     run_id: reg.run_id.clone(),
                                     scenario_yaml: a.scenario_yaml.clone(),
@@ -149,6 +150,10 @@ impl Coordinator for CoordinatorService {
                                             row_count: b.row_count,
                                         }
                                     }),
+                                    shard_index: 0,
+                                    shard_count: 1,
+                                    vu_offset: 0,
+                                    vu_count: total_vus,
                                 };
                                 let _ = tx
                                     .send(Ok(ServerMessage {

@@ -86,9 +86,13 @@ message ServerMessage {
 message RunAssignment {
   string run_id = 1;
   string scenario_yaml = 2;     // canonical scenario YAML, snapshotted
-  Profile profile = 3;
+  Profile profile = 3;          // Profile.vus = total VUs (reference)
   map<string, string> env = 4;
   DataBinding data_binding = 5;   // absent → no data injection (back-compat)
+  uint32 shard_index = 6;         // 0..shard_count-1
+  uint32 shard_count = 7;         // = N (worker count)
+  uint32 vu_offset = 8;           // this worker's global VU start (= RunPlan.vu_offset)
+  uint32 vu_count = 9;            // VUs this worker runs (= RunPlan.vus)
 }
 
 message Profile {
