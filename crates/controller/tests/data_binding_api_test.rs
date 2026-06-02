@@ -163,11 +163,49 @@ async fn rejects_empty_dataset() {
     );
 }
 
-/// `policy: "unique"` is reserved → 400 regardless of other fields.
+/// `policy: "unique"` with rows >= N workers → 201 accepted.
+/// `policy: "unique"` with rows < N workers → 400 (N-floor gate).
+/// make_app uses capacity=2000 VUs, post_run uses vus=2 → N=ceil(2/2000)=1.
+/// So: 1-row dataset → rows(1) >= N(1) → accepted.
+/// For the rejection case we need rows < N: use a 1-row dataset but a custom
+/// app with capacity=1 so N=ceil(2/1)=2, making rows(1) < workers(2) → 400.
 #[tokio::test]
-async fn rejects_unique_policy() {
+async fn unique_policy_accepted_when_rows_meet_worker_count() {
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let app = make_app(db.clone());
+    let app = make_app(db.clone()); // capacity=2000, vus=2 → N=1
+
+    // 1 row; rows(1) >= N(1) → 201.
+    let dataset_id = upload_dataset(&app, "email,pw\na@ex.com,p1\n", "users.csv").await;
+    let scenario_id = create_scenario(&app).await;
+
+    let binding = json!({
+        "dataset_id": dataset_id,
+        "policy": "unique",
+        "mappings": [{"kind": "column", "var": "username", "column": "email"}]
+    });
+    let (status, _v) = post_run(&app, &scenario_id, binding).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "unique with rows>=N must be accepted"
+    );
+}
+
+#[tokio::test]
+async fn unique_policy_rejected_when_rows_below_worker_count() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    // capacity=1 VU per worker + vus=2 → N=ceil(2/1)=2; dataset has 1 row → rows < N → 400.
+    let coord = CoordinatorState::with_capacity(db.clone(), 1);
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord,
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            "/nonexistent".to_string(),
+            "127.0.0.1:0".parse().unwrap(),
+        )),
+        ui_dir: None,
+        dataset_max_rows: 5,
+    });
 
     let dataset_id = upload_dataset(&app, "email,pw\na@ex.com,p1\n", "users.csv").await;
     let scenario_id = create_scenario(&app).await;
@@ -181,8 +219,8 @@ async fn rejects_unique_policy() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "expected 400 got: {v:?}");
     let msg = v["error"].as_str().unwrap_or("");
     assert!(
-        msg.contains("unique") || msg.contains("슬라이스"),
-        "error should mention 'unique' or next slice: {msg}"
+        msg.contains("워커"),
+        "error should mention worker count: {msg}"
     );
 }
 

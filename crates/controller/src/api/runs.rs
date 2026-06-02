@@ -61,11 +61,6 @@ pub(crate) async fn validate_run_config(
     let Some(b) = &profile.data_binding else {
         return Ok(None);
     };
-    if matches!(b.policy, BindingPolicy::Unique) {
-        return Err(ApiError::BadRequest(
-            "unique 정책은 아직 지원하지 않습니다 (다음 슬라이스)".into(),
-        ));
-    }
     let meta = datasets::get_meta(&state.db, &b.dataset_id)
         .await?
         .ok_or_else(|| {
@@ -84,11 +79,29 @@ pub(crate) async fn validate_run_config(
             )));
         }
     }
+    if matches!(b.policy, BindingPolicy::Unique) {
+        // shard_split is u32 (grpc/shard.rs) — refuse rows that would truncate.
+        if meta.row_count > u32::MAX as i64 {
+            return Err(ApiError::BadRequest(
+                "unique 정책은 데이터셋 행 수가 u32 범위를 넘을 수 없습니다".into(),
+            ));
+        }
+        // Every worker must get at least one row, else a worker would generate
+        // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
+        let n = state.coord.worker_count_for(profile.vus);
+        if (meta.row_count as u64) < n as u64 {
+            return Err(ApiError::BadRequest(format!(
+                "unique 정책은 데이터셋 행 수가 워커 수 이상이어야 합니다: rows={} < workers={n}",
+                meta.row_count
+            )));
+        }
+    }
     // per-iteration policies stream the whole dataset → cap.
+    // unique also streams the whole dataset (split across workers) → cap.
     // per_vu is sliced to min(vus, rows) so it is never capped (spec §11).
     let per_iteration = matches!(
         b.policy,
-        BindingPolicy::IterSequential | BindingPolicy::IterRandom
+        BindingPolicy::IterSequential | BindingPolicy::IterRandom | BindingPolicy::Unique
     );
     if per_iteration && (meta.row_count as u64) > state.dataset_max_rows {
         return Err(ApiError::BadRequest(format!(
@@ -139,7 +152,12 @@ pub async fn create(
                     handicap_proto::v1::data_binding::Policy::IterRandom,
                     meta.row_count as u64,
                 ),
-                BindingPolicy::Unique => unreachable!("unique rejected by validate_run_config"),
+                // unique stores the TOTAL row count; assignment_for partitions it
+                // into per-worker disjoint slices at register time (Task 5).
+                BindingPolicy::Unique => (
+                    handicap_proto::v1::data_binding::Policy::Unique,
+                    meta.row_count as u64,
+                ),
             };
             Some(crate::grpc::coordinator::PendingDataBinding {
                 dataset_id: b.dataset_id.clone(),
@@ -287,6 +305,13 @@ fn to_response(r: runs::RunRow) -> RunResponse {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::app::AppState;
+    use crate::binding::{BindingPolicy, DataBinding};
+    use crate::grpc::coordinator::CoordinatorState;
+    use crate::store::runs::Profile;
+    use std::sync::Arc;
+
     #[test]
     fn validates_loop_breakdown_cap_bounds() {
         assert!(super::loop_cap_ok(0)); // off allowed
@@ -304,6 +329,79 @@ mod tests {
         assert_ne!(
             super::fold_seed("01HX0000000000000000000001"),
             super::fold_seed("01HX0000000000000000000002")
+        );
+    }
+
+    async fn state_with(db: crate::store::Db, capacity: u32) -> AppState {
+        AppState {
+            db: db.clone(),
+            coord: CoordinatorState::with_capacity(db, capacity),
+            dispatcher: Arc::new(crate::dispatcher::subprocess::SubprocessDispatcher::new(
+                "worker".to_string(),
+                "127.0.0.1:1".parse().unwrap(),
+            )),
+            ui_dir: None,
+            dataset_max_rows: 1_000_000,
+        }
+    }
+
+    fn unique_profile(dataset_id: String, vus: u32) -> Profile {
+        Profile {
+            vus,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            data_binding: Some(DataBinding {
+                dataset_id,
+                policy: BindingPolicy::Unique,
+                mappings: vec![],
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn unique_rejected_when_rows_below_worker_count() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        // 1 row; capacity 1 + vus 2 → N = 2; rows 1 < 2 → reject.
+        let dataset_id = crate::store::datasets::insert(
+            &db,
+            "d",
+            &["c".to_string()],
+            &[vec!["a".to_string()]],
+            0,
+        )
+        .await
+        .unwrap();
+        let state = state_with(db, 1).await;
+        let err = validate_run_config(&state, &unique_profile(dataset_id, 2))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(_)),
+            "rows < N must reject"
+        );
+    }
+
+    #[tokio::test]
+    async fn unique_accepted_when_rows_meet_worker_count() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        // 2 rows; capacity 1 + vus 2 → N = 2; rows 2 >= 2 → Ok(Some(meta)).
+        let dataset_id = crate::store::datasets::insert(
+            &db,
+            "d",
+            &["c".to_string()],
+            &[vec!["a".to_string()], vec!["b".to_string()]],
+            0,
+        )
+        .await
+        .unwrap();
+        let state = state_with(db, 1).await;
+        let meta = validate_run_config(&state, &unique_profile(dataset_id, 2))
+            .await
+            .unwrap();
+        assert!(
+            meta.is_some(),
+            "valid unique binding returns the dataset meta"
         );
     }
 }
