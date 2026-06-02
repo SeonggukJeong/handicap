@@ -143,11 +143,36 @@ Replace `select_index` (current signature `-> usize`) with:
 
 - [ ] **Step 4: Update the existing inline `select_index` unit tests to the `Option` signature**
 
-In `crates/engine/src/dataset.rs` inline `mod tests`, wrap the expected values in `Some(...)`:
-- `per_vu_is_fixed_and_wraps`: `assert_eq!(ds.select_index(1, 0, None), ds.select_index(1, 99, None));` stays; `assert_eq!(ds.select_index(1, 0, None), Some(1));` and `assert_eq!(ds.select_index(4, 0, None), Some(1));`.
-- `iter_sequential_advances_once_per_call_and_wraps`: `Some(0)`, `Some(1)`, `Some(0)`.
-- `iter_random_is_deterministic_for_same_inputs`: `let a = ds.select_index(3, 7, None);` … `assert_eq!(a, b, …);` then `assert!(a.unwrap() < 5);`.
-- `iter_random_varies_across_iterations`: collect `Vec<usize>` via `.map(|i| ds.select_index(0, i, None).unwrap())`.
+In `crates/engine/src/dataset.rs` inline `mod tests`, edit the assertions (the `select_index` return is now `Option<usize>`):
+
+`per_vu_is_fixed_and_wraps` — the first assert (comparing two calls) is unchanged; wrap the literals:
+```rust
+        assert_eq!(ds.select_index(1, 0, None), ds.select_index(1, 99, None));
+        assert_eq!(ds.select_index(1, 0, None), Some(1));
+        assert_eq!(ds.select_index(4, 0, None), Some(1));
+```
+
+`iter_sequential_advances_once_per_call_and_wraps`:
+```rust
+        assert_eq!(ds.select_index(0, 0, Some(&c)), Some(0));
+        assert_eq!(ds.select_index(0, 1, Some(&c)), Some(1));
+        assert_eq!(ds.select_index(0, 2, Some(&c)), Some(0)); // wrap
+```
+
+`iter_random_is_deterministic_for_same_inputs`:
+```rust
+        let a = ds.select_index(3, 7, None);
+        let b = ds.select_index(3, 7, None);
+        assert_eq!(a, b, "same (seed,vu,iter) must reproduce the same index");
+        assert!(a.unwrap() < 5);
+```
+
+`iter_random_varies_across_iterations`:
+```rust
+        let seq: Vec<usize> = (0..10)
+            .map(|i| ds.select_index(0, i, None).unwrap())
+            .collect();
+```
 
 - [ ] **Step 5: Wire the shared counter for `Unique` and add the stop-VU branch in the runner**
 
@@ -233,14 +258,9 @@ git commit -m "feat(proto): DataBinding.Policy UNIQUE = 3"
 **Files:**
 - Modify: `crates/worker/src/main.rs` (policy mapping ~:118-128)
 
-- [ ] **Step 1: Pre-lay the TDD-guard keepalive (no unit test for this wiring; covered by Task 7 e2e)**
+> TDD guard: `main.rs` already has an inline `#[cfg(test)] mod tests` (:349) on disk, so this edit auto-passes (no keepalive needed). The wiring is exercised by the Task 7 e2e.
 
-Run:
-```bash
-printf '#[test]\nfn _k(){}\n' > crates/worker/tests/_unique_keepalive.rs
-```
-
-- [ ] **Step 2: Add the `Unique` match arm**
+- [ ] **Step 1: Add the `Unique` match arm**
 
 In `crates/worker/src/main.rs`, the `match pb::data_binding::Policy::try_from(b.policy)` block, add before `_ => unreachable!`:
 
@@ -250,15 +270,14 @@ In `crates/worker/src/main.rs`, the `match pb::data_binding::Policy::try_from(b.
 
 (The `_ => unreachable!("… version mismatch")` arm stays — controller/worker deploy together. The worker receives `b.row_count` = its slice `count_i` rows via `load_dataset` and builds `DataSet { policy: Unique, .. }`; it is unaware of the global offset — local `0..count_i` indexing.)
 
-- [ ] **Step 3: Build the worker**
+- [ ] **Step 2: Build the worker**
 
 Run: `cargo build -p handicap-worker`
 Expected: builds clean.
 
-- [ ] **Step 4: Remove the keepalive and commit ONLY the source file**
+- [ ] **Step 3: Commit**
 
 ```bash
-rm crates/worker/tests/_unique_keepalive.rs
 git add crates/worker/src/main.rs
 git commit -m "feat(worker): map proto DataBinding Unique policy to engine"
 ```
@@ -287,7 +306,8 @@ In `crates/controller/src/api/runs.rs`, inside the existing `#[cfg(test)] mod te
             db: db.clone(),
             coord: CoordinatorState::with_capacity(db, capacity),
             // validate_run_config never dispatches — a dummy dispatcher is fine.
-            dispatcher: Arc::new(crate::dispatcher::SubprocessDispatcher::new(
+            // NOTE: no re-export at dispatcher/mod.rs — full path required.
+            dispatcher: Arc::new(crate::dispatcher::subprocess::SubprocessDispatcher::new(
                 "worker".to_string(),
                 "127.0.0.1:1".parse().unwrap(),
             )),
@@ -629,31 +649,46 @@ git commit -m "feat(controller): partition dataset into per-worker disjoint slic
 
 **Files:**
 - Modify: `ui/src/api/schemas.ts` (`BindingPolicyEnum` :20)
-- Modify: `ui/src/components/DataBindingPanel.tsx` (`showBanner` :198, dropdown :375-377, banner copy)
-- Test: `ui/src/components/__tests__/DataBindingPanel.test.tsx` (add a case; create file if absent — check first)
+- Modify: `ui/src/components/DataBindingPanel.tsx` (`showBanner` :198, dropdown :375-377, banner block :382-392)
+- Modify: `ui/src/components/__tests__/DataBindingPanel.test.tsx` (update the option-count test :260; add a unique case)
 
-- [ ] **Step 1: Write the failing RTL test**
+> The existing test harness: `renderPanel(scenario, onChange?, onValidityChange?)` is **positional** (file :122). The policy `<select aria-label="policy">` only renders **after a dataset is selected** — every policy test does `await screen.findByLabelText(/dataset/i)` → `user.selectOptions(datasetSelect, "DS1")` → `await screen.findByLabelText(/policy/i)` (see :234-258). The banner needs `selectedId` set too. Follow this exact pattern.
 
-Find the existing DataBindingPanel test (`ui/src/components/__tests__/DataBindingPanel.test.tsx` or co-located `*.test.tsx`; `grep -rl DataBindingPanel ui/src/**/*.test.tsx`). Add (adapt imports/setup to the existing file's render harness — it already renders the panel with a dataset selected and mocks the datasets query):
+- [ ] **Step 1a: Update the existing option-count test (currently asserts NO unique) — it would otherwise go red**
+
+In `ui/src/components/__tests__/DataBindingPanel.test.tsx`, the test at :260 (`"policy dropdown has exactly per_vu/iter_sequential/iter_random — no 'unique'"`). Rename it and flip the two assertions at :284-285:
 
 ```tsx
-  it("offers the unique policy and surfaces it in the binding", async () => {
+  it("policy dropdown offers per_vu/iter_sequential/iter_random/unique", async () => {
+    // ... unchanged setup (renderPanel + select DS1 + read policy options) ...
+    expect(options).toContain("per_vu");
+    expect(options).toContain("iter_sequential");
+    expect(options).toContain("iter_random");
+    expect(options).toContain("unique");
+    expect(options).toHaveLength(4);
+  });
+```
+
+- [ ] **Step 1b: Add the failing unique-selection test**
+
+```tsx
+  it("selects the unique policy and shows the stop-VU banner", async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
-    renderPanel({ onChange }); // use the file's existing render helper + selected dataset
-    const select = screen.getByLabelText("policy");
-    await userEvent.selectOptions(select, "unique");
-    expect((select as HTMLSelectElement).value).toBe("unique");
-    // banner explains stop-VU semantics
+    renderPanel(makeScenario(), onChange);
+    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    await user.selectOptions(datasetSelect, "DS1");
+    const policySelect = await screen.findByLabelText(/policy/i);
+    await user.selectOptions(policySelect, "unique");
+    expect(policySelect).toHaveValue("unique");
     expect(screen.getByText(/소진된 VU/)).toBeInTheDocument();
   });
 ```
 
-> If the file does not exist, create `ui/src/components/__tests__/DataBindingPanel.test.tsx` modeled on a sibling component test (same `render` + React Query + dataset-mock pattern). The point is one assertion that `unique` is selectable and round-trips.
-
 - [ ] **Step 2: Run to verify failure**
 
 Run: `cd ui && pnpm test -- DataBindingPanel`
-Expected: FAIL — `unique` not an option / banner text absent.
+Expected: FAIL — `unique` not an option (`selectOptions` throws / `toHaveLength(4)` fails) and `소진된 VU` banner text absent.
 
 - [ ] **Step 3: Add `unique` to the Zod enum**
 
@@ -679,15 +714,31 @@ Extend `showBanner` (:198):
     (policy === "iter_sequential" || policy === "iter_random" || policy === "unique");
 ```
 
-Add unique-specific banner copy where the banner renders (the existing banner block keys off `policy`; add a branch):
+The banner (:382-392) is currently a **single static block** (NOT keyed off `policy`). Make its body conditional — keep the existing iter_* copy verbatim, add the `unique` branch:
 
 ```tsx
-        {policy === "unique"
-          ? "데이터셋 전체를 워커별로 분할해 각 행을 1회만 사용합니다. 소진된 VU는 종료되고, 부하(RPS)는 그 시점부터 감소합니다. (행 수 ≥ 워커 수 필요)"
-          : /* existing iter_* copy */ "반복마다 데이터셋 행을 소비합니다. 큰 데이터셋은 워커 메모리에 모두 적재됩니다."}
+          {/* per-iteration / unique warning banner */}
+          {showBanner && (
+            <div
+              role="alert"
+              className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+            >
+              {policy === "unique" ? (
+                <>
+                  unique 정책은 데이터셋 전체를 워커별로 분할해 각 행을 1회만 사용합니다. 소진된 VU는
+                  종료되고 부하(RPS)는 그 시점부터 감소합니다. (행 수 ≥ 워커 수 필요)
+                </>
+              ) : (
+                <>
+                  per-iteration 정책은 전체 데이터셋
+                  {rowCount !== undefined ? `(${rowCount}행)` : ""}을 워커 메모리에 적재합니다. 상한은
+                  controller <code>--dataset-max-rows</code>
+                  (Helm <code>controller.datasetMaxRows</code>).
+                </>
+              )}
+            </div>
+          )}
 ```
-
-> Match the existing banner's exact JSX/markup; only add the `unique` branch. Confirm the current iter_* copy and keep it.
 
 - [ ] **Step 5: Run the test + the full UI gate**
 
@@ -794,15 +845,16 @@ async fn two_worker_unique_consumes_each_row_once() {
     }
     assert_eq!(last, "completed", "unique fan-out should complete; got {last}");
 
-    // Uniqueness: extract the `tok=` value from each recorded request; no token twice.
+    // Uniqueness: the query is only `tok={value}` → strip the prefix. No token twice.
+    // (`.query()` is the repo idiom — sibling tests use it, not `query_pairs()`.)
     let reqs = target.received_requests().await.unwrap();
     let toks: Vec<String> = reqs
         .iter()
         .filter_map(|r| {
             r.url
-                .query_pairs()
-                .find(|(k, _)| k == "tok")
-                .map(|(_, v)| v.into_owned())
+                .query()
+                .and_then(|q| q.strip_prefix("tok="))
+                .map(|t| t.to_string())
         })
         .collect();
     let distinct: std::collections::HashSet<&String> = toks.iter().collect();
@@ -822,8 +874,6 @@ async fn two_worker_unique_consumes_each_row_once() {
     grpc_handle.abort();
 }
 ```
-
-> `query_pairs()` comes from the `url` crate that wiremock's recorded `r.url` exposes (same `r.url` used by `two_worker_fanout_completes`). If `query_pairs` isn't directly available, fall back to parsing `r.url.query()` like the sibling test does.
 
 - [ ] **Step 2: Run the e2e**
 
