@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use futures::Stream;
@@ -18,6 +18,7 @@ use pb::worker_message::Payload as WorkerPayload;
 use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
 use crate::binding::Mapping;
+use crate::dispatcher::SharedDispatcher;
 use crate::grpc::shard::{shard_split, worker_count};
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
@@ -121,6 +122,11 @@ pub struct CoordinatorState {
     runs: Arc<Mutex<HashMap<String, RunWorkers>>>,
     /// Per-worker VU capacity used to compute N = ceil(total_vus / capacity).
     pub worker_capacity_vus: u32,
+    /// Set once at startup (main.rs) so finalize paths can tear down K8s Jobs /
+    /// child processes. Unset in unit/e2e tests → cleanup is a no-op. (A3c spec §7,
+    /// §8.) Interior mutability so all clones (AppState.coord, CoordinatorService)
+    /// share the same handle regardless of construction order.
+    dispatcher: Arc<OnceLock<SharedDispatcher>>,
 }
 
 impl CoordinatorState {
@@ -133,12 +139,30 @@ impl CoordinatorState {
             db,
             runs: Arc::new(Mutex::new(HashMap::new())),
             worker_capacity_vus,
+            dispatcher: Arc::new(OnceLock::new()),
         }
     }
 
     /// Number of workers for `total_vus` given this controller's capacity.
     pub fn worker_count_for(&self, total_vus: u32) -> u32 {
         worker_count(total_vus, self.worker_capacity_vus)
+    }
+
+    /// Install the dispatcher handle so finalize paths can clean up. Called once
+    /// at startup. Idempotent (later sets are ignored).
+    pub fn set_dispatcher(&self, dispatcher: SharedDispatcher) {
+        let _ = self.dispatcher.set(dispatcher);
+    }
+
+    /// Best-effort, idempotent teardown of a run's external workers. No-op if no
+    /// dispatcher was installed (tests). Errors are logged, never propagated —
+    /// the run is already finalized in the DB.
+    async fn cleanup_dispatcher(&self, run_id: &str) {
+        if let Some(d) = self.dispatcher.get() {
+            if let Err(e) = d.cleanup(run_id).await {
+                warn!(%run_id, error = %e, "dispatcher cleanup failed");
+            }
+        }
     }
 
     /// Register a run for `expected` workers and spawn the registration
@@ -324,6 +348,7 @@ impl CoordinatorState {
                     Some(crate::store::now_ms()),
                 )
                 .await;
+                self.cleanup_dispatcher(run_id).await;
             }
             Finalize::Aborted => {
                 let _ = runs::set_status(
@@ -334,6 +359,7 @@ impl CoordinatorState {
                     Some(crate::store::now_ms()),
                 )
                 .await;
+                self.cleanup_dispatcher(run_id).await;
             }
             Finalize::Failed(siblings) => {
                 let _ = runs::set_status(
@@ -345,6 +371,7 @@ impl CoordinatorState {
                 )
                 .await;
                 fan_out_abort(run_id, &siblings, "sibling worker failed — fail-fast").await;
+                self.cleanup_dispatcher(run_id).await;
             }
         }
     }
@@ -398,6 +425,7 @@ impl CoordinatorState {
                 "worker disconnected before completing — fail-fast",
             )
             .await;
+            self.cleanup_dispatcher(run_id).await;
         }
     }
 
@@ -437,11 +465,19 @@ impl CoordinatorState {
                 "not all workers registered before deadline",
             )
             .await;
+            self.cleanup_dispatcher(run_id).await;
         }
     }
 
     /// Send AbortRun to every connected worker of `run_id` (user-initiated
     /// abort). Returns true if at least one worker was reached. (Spec §8.5.)
+    ///
+    /// NOTE: `cleanup_dispatcher` is intentionally NOT called here. Workers reply
+    /// with `Phase::Aborted` → `record_phase` → `Finalize::Aborted` → cleanup; an
+    /// unreachable worker is closed by `worker_disconnected` fail-fast → cleanup;
+    /// a never-registered run is closed by the watchdog's
+    /// `fail_incomplete_registration` → cleanup. Calling cleanup here would risk an
+    /// early/duplicate teardown while workers are still draining. (A3c.)
     pub async fn abort(&self, run_id: &str) -> bool {
         let txs = {
             let g = self.runs.lock().await;
@@ -768,6 +804,110 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
 mod tests {
     use super::*;
     use crate::store::runs::{self, RunStatus};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingDispatcher {
+        cleanups: Arc<AtomicUsize>,
+    }
+    #[async_trait::async_trait]
+    impl crate::dispatcher::WorkerDispatcher for CountingDispatcher {
+        async fn dispatch(&self, _run_id: &str, _worker_count: u32) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn cleanup(&self, _run_id: &str) -> anyhow::Result<()> {
+            self.cleanups.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn finalize_completed_calls_dispatcher_cleanup() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        coord.set_dispatcher(Arc::new(CountingDispatcher {
+            cleanups: cleanups.clone(),
+        }));
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        assert_eq!(
+            cleanups.load(Ordering::SeqCst),
+            1,
+            "run completion must trigger dispatcher cleanup exactly once"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_aborted_calls_dispatcher_cleanup() {
+        // The Aborted finalize arm wires cleanup too (a worker reporting
+        // Phase::Aborted is how user-abort closes — see abort()'s doc).
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        coord.set_dispatcher(Arc::new(CountingDispatcher {
+            cleanups: cleanups.clone(),
+        }));
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32)
+            .await;
+        assert_eq!(
+            cleanups.load(Ordering::SeqCst),
+            1,
+            "aborted run must trigger dispatcher cleanup"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_failed_calls_dispatcher_cleanup() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let cleanups = Arc::new(AtomicUsize::new(0));
+        coord.set_dispatcher(Arc::new(CountingDispatcher {
+            cleanups: cleanups.clone(),
+        }));
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .await;
+        assert_eq!(
+            cleanups.load(Ordering::SeqCst),
+            1,
+            "fail-fast must trigger dispatcher cleanup"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_without_dispatcher_is_noop() {
+        // Unit/e2e paths never call set_dispatcher → cleanup_dispatcher is a no-op
+        // (handle unset). Guards against a panic/unwrap on the OnceLock.
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed
+        );
+    }
 
     fn base_assignment() -> PendingAssignment {
         PendingAssignment {

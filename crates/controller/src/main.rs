@@ -114,6 +114,8 @@ async fn main() -> anyhow::Result<()> {
             )
         }
     };
+    // Let the coordinator tear down workers on finalize (completion/failure/abort).
+    coord_state.set_dispatcher(dispatcher.clone());
     let state = app::AppState {
         db: db.clone(),
         coord: coord_state.clone(),
