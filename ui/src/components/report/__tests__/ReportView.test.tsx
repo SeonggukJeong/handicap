@@ -130,6 +130,12 @@ describe("ReportView", () => {
     expect(screen.getByText(/branchy/)).toBeInTheDocument();
   });
 
+  it("renders no SLO panel when report has no verdict", () => {
+    render(<ReportView report={FIXTURE} />);
+    expect(screen.queryByText("PASS")).not.toBeInTheDocument();
+    expect(screen.queryByText("FAIL")).not.toBeInTheDocument();
+  });
+
   it("labels a step nested inside a loop using its name", () => {
     const OUTER_ID = "01HX0000000000000000000003"; // loop step id (valid ULID)
     const INNER_ID = "01HX0000000000000000000002"; // inner http step id (valid ULID)

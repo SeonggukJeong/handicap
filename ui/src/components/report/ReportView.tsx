@@ -10,6 +10,7 @@ import { StepStatsTable } from "./StepStatsTable";
 import { BranchStatsTable } from "./BranchStatsTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
+import { VerdictPanel } from "./VerdictPanel";
 
 type Props = { report: Report };
 
@@ -82,6 +83,7 @@ export function ReportView({ report }: Props) {
         <h3 className="text-xl font-semibold">Report</h3>
         <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
       </div>
+      {report.verdict ? <VerdictPanel verdict={report.verdict} /> : null}
       <Summary summary={report.summary} />
       <TimeSeriesChart
         title="Requests / second"
