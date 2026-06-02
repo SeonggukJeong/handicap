@@ -15,7 +15,9 @@ pub struct JobSpecInput<'a> {
     pub release_name: &'a str,
     pub namespace: &'a str,
     pub run_id: &'a str,
-    pub worker_id: &'a str,
+    /// Number of worker Pods (Indexed Job parallelism/completions). N from
+    /// `CoordinatorState::worker_count_for`. (A3c spec §7.2.)
+    pub worker_count: u32,
     pub worker_image: &'a str,
     pub controller_grpc_url: &'a str,
     pub resources: WorkerResources,
@@ -50,7 +52,6 @@ pub fn build_job_spec(input: &JobSpecInput<'_>) -> Job {
     );
     labels.insert("app.kubernetes.io/component".into(), "worker".into());
     labels.insert("handicap.io/run-id".into(), input.run_id.into());
-    labels.insert("handicap.io/worker-id".into(), input.worker_id.into());
 
     let container = Container {
         name: "worker".into(),
@@ -61,8 +62,6 @@ pub fn build_job_spec(input: &JobSpecInput<'_>) -> Job {
             input.controller_grpc_url.into(),
             "--run-id".into(),
             input.run_id.into(),
-            "--worker-id".into(),
-            input.worker_id.into(),
         ]),
         resources: Some(ResourceRequirements {
             requests: Some(
@@ -110,6 +109,11 @@ pub fn build_job_spec(input: &JobSpecInput<'_>) -> Job {
         spec: Some(JobSpec {
             backoff_limit: Some(0),
             ttl_seconds_after_finished: Some(600),
+            // Fan-out: one Indexed Job runs N Pods; each derives its worker id from
+            // the auto-injected JOB_COMPLETION_INDEX. (A3c spec §7.2.)
+            completion_mode: Some("Indexed".into()),
+            completions: Some(input.worker_count.max(1) as i32),
+            parallelism: Some(input.worker_count.max(1) as i32),
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
                     labels: Some(labels),

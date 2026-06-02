@@ -5,7 +5,7 @@ fn fixture<'a>() -> JobSpecInput<'a> {
         release_name: "handicap",
         namespace: "handicap",
         run_id: "01HX1234567890ABCDEFGHIJKL",
-        worker_id: "01HX9876543210ZYXWVUTSRQPO",
+        worker_count: 1,
         worker_image: "ghcr.io/example/handicap:0.1.0",
         controller_grpc_url: "http://handicap-controller.handicap.svc.cluster.local:8081",
         resources: WorkerResources::default(),
@@ -21,10 +21,14 @@ fn labels_contain_required_keys() {
         "app.kubernetes.io/instance",
         "app.kubernetes.io/component",
         "handicap.io/run-id",
-        "handicap.io/worker-id",
     ] {
         assert!(labels.contains_key(k), "missing label {}", k);
     }
+    // Indexed Job has no single worker id — Pods derive it from JOB_COMPLETION_INDEX.
+    assert!(
+        !labels.contains_key("handicap.io/worker-id"),
+        "worker-id label must be dropped for Indexed Job"
+    );
     assert_eq!(labels["handicap.io/run-id"], "01HX1234567890ABCDEFGHIJKL");
 }
 
@@ -63,15 +67,20 @@ fn container_args_pass_through_to_worker_binary() {
         Some(&["/usr/local/bin/worker".to_string()][..])
     );
     let args = c.args.as_ref().expect("args");
-    assert_eq!(args[0], "--controller");
-    assert_eq!(
-        args[1],
-        "http://handicap-controller.handicap.svc.cluster.local:8081"
+    // No --worker-id: K8s Indexed Job Pods read JOB_COMPLETION_INDEX (auto-injected).
+    assert!(
+        !args.iter().any(|a| a == "--worker-id"),
+        "K8s workers must NOT get --worker-id; they derive it from JOB_COMPLETION_INDEX"
     );
-    assert_eq!(args[2], "--run-id");
-    assert_eq!(args[3], "01HX1234567890ABCDEFGHIJKL");
-    assert_eq!(args[4], "--worker-id");
-    assert_eq!(args[5], "01HX9876543210ZYXWVUTSRQPO");
+    assert_eq!(
+        args,
+        &[
+            "--controller".to_string(),
+            "http://handicap-controller.handicap.svc.cluster.local:8081".to_string(),
+            "--run-id".to_string(),
+            "01HX1234567890ABCDEFGHIJKL".to_string(),
+        ]
+    );
 }
 
 #[test]
@@ -132,4 +141,29 @@ fn generate_name_is_dns1123_and_under_63_chars() {
     }
     // trailing dash required for generateName
     assert!(gn.ends_with('-'), "generate_name must end with '-'");
+}
+
+#[test]
+fn indexed_job_fans_out_to_worker_count() {
+    let mut input = fixture();
+    input.worker_count = 3;
+    let job = build_job_spec(&input);
+    let spec = job.spec.as_ref().expect("spec");
+    assert_eq!(
+        spec.completion_mode.as_deref(),
+        Some("Indexed"),
+        "fan-out uses an Indexed Job"
+    );
+    assert_eq!(spec.parallelism, Some(3), "all N workers run at once");
+    assert_eq!(spec.completions, Some(3), "all N must complete");
+}
+
+#[test]
+fn single_worker_job_is_n_eq_1() {
+    // N=1 (default capacity path) is still one Pod with completions/parallelism 1.
+    let job = build_job_spec(&fixture());
+    let spec = job.spec.as_ref().unwrap();
+    assert_eq!(spec.completion_mode.as_deref(), Some("Indexed"));
+    assert_eq!(spec.parallelism, Some(1));
+    assert_eq!(spec.completions, Some(1));
 }

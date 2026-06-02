@@ -3,7 +3,6 @@ use k8s_openapi::api::batch::v1::Job;
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::client::Client;
 use tracing::{info, warn};
-use ulid::Ulid;
 
 use super::{
     WorkerDispatcher,
@@ -45,25 +44,19 @@ impl KubernetesDispatcher {
 #[async_trait]
 impl WorkerDispatcher for KubernetesDispatcher {
     async fn dispatch(&self, run_id: &str, worker_count: u32) -> anyhow::Result<()> {
-        if worker_count > 1 {
-            warn!(
-                %run_id, worker_count,
-                "K8s dispatcher still creates a single Job; multi-Pod Indexed Job lands in A3c"
-            );
-        }
-        let worker_id = Ulid::new().to_string();
+        let n = worker_count.max(1);
         let job = build_job_spec(&JobSpecInput {
             release_name: &self.release_name,
             namespace: &self.namespace,
             run_id,
-            worker_id: &worker_id,
+            worker_count: n,
             worker_image: &self.worker_image,
             controller_grpc_url: &self.controller_grpc_url,
             resources: self.resources.clone(),
         });
         let created = self.jobs_api().create(&PostParams::default(), &job).await?;
         let name = created.metadata.name.unwrap_or_default();
-        info!(%run_id, %worker_id, %name, namespace = %self.namespace, "created worker Job");
+        info!(%run_id, worker_count = n, %name, namespace = %self.namespace, "created Indexed worker Job");
         Ok(())
     }
 
