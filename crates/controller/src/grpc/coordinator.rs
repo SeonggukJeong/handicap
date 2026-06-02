@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::Stream;
 use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
@@ -16,26 +18,38 @@ use pb::worker_message::Payload as WorkerPayload;
 use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
 use crate::binding::Mapping;
+use crate::grpc::shard::{shard_split, worker_count};
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
 
 const DATASET_BATCH_ROWS: i64 = 1000;
 
-/// Resolved binding the controller holds between run-create and worker-register.
-/// Row data is NOT held here (spec §7.2) — only what's needed to (a) fill
-/// RunAssignment.data_binding and (b) stream rows from the DB on Register (Task 6).
+/// Default per-worker VU capacity used to derive the worker count N. Overridable
+/// via the controller's `--worker-capacity-vus` flag (spec §2.1).
+pub const DEFAULT_WORKER_CAPACITY_VUS: u32 = 2000;
+
+/// How long to wait for all N workers to register before failing the run
+/// fast (spec §8.3). Aligned with worker-core `reconnect::TOTAL_CAP` (60s).
+/// In tests a shorter value lets `watchdog_fires_after_deadline` use a real
+/// (non-paused) timer without burning wall-clock seconds — sqlx pool management
+/// uses `tokio::time::timeout` internally, so `start_paused` causes PoolTimedOut.
+#[cfg(not(test))]
+const REGISTRATION_DEADLINE: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const REGISTRATION_DEADLINE: Duration = Duration::from_millis(200);
+
+// ---- PendingDataBinding / PendingAssignment (unchanged) ----
+
 #[derive(Debug, Clone)]
 pub struct PendingDataBinding {
     pub dataset_id: String,
     pub policy: pb::data_binding::Policy,
     pub seed: u32,
     pub mappings: Vec<Mapping>,
-    /// Rows the worker will receive after policy-aware slicing.
     pub row_count: u64,
 }
 
 impl PendingDataBinding {
-    /// Map one source row `{column: value}` → `{var: value}` using mappings.
     pub fn mappings_apply(
         &self,
         source: &std::collections::BTreeMap<String, String>,
@@ -44,7 +58,8 @@ impl PendingDataBinding {
     }
 }
 
-/// What a pending run needs to hand to its worker.
+/// Worker-common base for a run's assignment (scenario/profile/env/binding).
+/// Per-worker shard fields are filled at register time.
 #[derive(Debug, Clone)]
 pub struct PendingAssignment {
     pub scenario_yaml: String,
@@ -53,45 +68,423 @@ pub struct PendingAssignment {
     pub data_binding: Option<PendingDataBinding>,
 }
 
-/// Outbound channel to an active (connected) worker.
 type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
+
+/// One connected worker's slot in a run.
+struct WorkerEntry {
+    shard_index: u32,
+    vu_offset: u32,
+    vu_count: u32,
+    tx: WorkerTx,
+    phase: pb::run_status::Phase,
+}
+
+/// Per-run coordination state across N workers (replaces single-assignment
+/// pending+active maps). (Spec §2.3.)
+struct RunWorkers {
+    base: PendingAssignment,
+    expected: u32,
+    total_vus: u32,
+    next_shard: u32,
+    workers: HashMap<String, WorkerEntry>,
+    reg_deadline: CancellationToken,
+    terminal: bool,
+}
+
+/// Outcome of a Register, returned to the stream handler to drive I/O.
+#[derive(Debug)]
+pub enum RegisterOutcome {
+    /// New worker got a shard. `first` = this is the first registrant (set Running).
+    Assigned {
+        shard_index: u32,
+        shard_count: u32,
+        vu_offset: u32,
+        vu_count: u32,
+        first: bool,
+    },
+    /// Same worker re-registered: resend its existing shard (idempotent).
+    Resend {
+        shard_index: u32,
+        shard_count: u32,
+        vu_offset: u32,
+        vu_count: u32,
+    },
+    /// Over-registration or already-terminal run: reply AbortRun, give no shard.
+    Reject,
+    /// No such run (never enqueued / already removed): break the stream.
+    NoRun,
+}
 
 #[derive(Clone)]
 pub struct CoordinatorState {
     pub db: Db,
-    pub pending: Arc<Mutex<HashMap<String, PendingAssignment>>>,
-    /// run_id → tx channel for workers that have registered and are active.
-    pub active: Arc<Mutex<HashMap<String, WorkerTx>>>,
+    runs: Arc<Mutex<HashMap<String, RunWorkers>>>,
+    /// Per-worker VU capacity used to compute N = ceil(total_vus / capacity).
+    pub worker_capacity_vus: u32,
 }
 
 impl CoordinatorState {
     pub fn new(db: Db) -> Self {
+        Self::with_capacity(db, DEFAULT_WORKER_CAPACITY_VUS)
+    }
+
+    pub fn with_capacity(db: Db, worker_capacity_vus: u32) -> Self {
         Self {
             db,
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            active: Arc::new(Mutex::new(HashMap::new())),
+            runs: Arc::new(Mutex::new(HashMap::new())),
+            worker_capacity_vus,
         }
     }
 
-    pub async fn enqueue(&self, run_id: String, a: PendingAssignment) {
-        self.pending.lock().await.insert(run_id, a);
+    /// Number of workers for `total_vus` given this controller's capacity.
+    pub fn worker_count_for(&self, total_vus: u32) -> u32 {
+        worker_count(total_vus, self.worker_capacity_vus)
     }
 
-    /// Send an AbortRun message to the worker handling `run_id`.
-    /// Returns `true` if the message was dispatched, `false` if no active worker found.
-    pub async fn abort(&self, run_id: &str) -> bool {
-        let tx = self.active.lock().await.get(run_id).cloned();
-        if let Some(tx) = tx {
-            let msg = ServerMessage {
-                payload: Some(ServerPayload::Abort(AbortRun {
-                    run_id: run_id.to_string(),
-                    reason: "user requested abort".to_string(),
-                })),
+    /// Register a run for `expected` workers and spawn the registration
+    /// watchdog. Returns the watchdog's cancellation token (cancelled when all
+    /// workers register). (Spec §2.3 enqueue, §8.3.)
+    pub async fn enqueue(
+        &self,
+        run_id: String,
+        base: PendingAssignment,
+        expected: u32,
+        total_vus: u32,
+    ) -> CancellationToken {
+        let token = CancellationToken::new();
+        {
+            let mut g = self.runs.lock().await;
+            g.insert(
+                run_id.clone(),
+                RunWorkers {
+                    base,
+                    expected,
+                    total_vus,
+                    next_shard: 0,
+                    workers: HashMap::new(),
+                    reg_deadline: token.clone(),
+                    terminal: false,
+                },
+            );
+        }
+        let coord = self.clone();
+        let token_for_wd = token.clone();
+        tokio::spawn(async move {
+            registration_watchdog(coord, run_id, REGISTRATION_DEADLINE, token_for_wd).await;
+        });
+        token
+    }
+
+    /// Assign a shard to a registering worker. Pure state mutation; the caller
+    /// performs the actual send/stream/DB-Running based on the outcome.
+    pub async fn register(&self, run_id: &str, worker_id: &str, tx: WorkerTx) -> RegisterOutcome {
+        let mut g = self.runs.lock().await;
+        let Some(rw) = g.get_mut(run_id) else {
+            return RegisterOutcome::NoRun;
+        };
+        if rw.terminal {
+            return RegisterOutcome::Reject;
+        }
+        if let Some(e) = rw.workers.get(worker_id) {
+            return RegisterOutcome::Resend {
+                shard_index: e.shard_index,
+                shard_count: rw.expected,
+                vu_offset: e.vu_offset,
+                vu_count: e.vu_count,
             };
-            let _ = tx.send(Ok(msg)).await;
-            true
-        } else {
-            false
+        }
+        if rw.next_shard >= rw.expected {
+            return RegisterOutcome::Reject;
+        }
+        let shard_index = rw.next_shard;
+        let (vu_offset, vu_count) = shard_split(rw.total_vus, rw.expected, shard_index);
+        rw.next_shard += 1;
+        let first = rw.workers.is_empty();
+        rw.workers.insert(
+            worker_id.to_string(),
+            WorkerEntry {
+                shard_index,
+                vu_offset,
+                vu_count,
+                tx,
+                phase: pb::run_status::Phase::Started,
+            },
+        );
+        if rw.workers.len() as u32 == rw.expected {
+            rw.reg_deadline.cancel();
+        }
+        RegisterOutcome::Assigned {
+            shard_index,
+            shard_count: rw.expected,
+            vu_offset,
+            vu_count,
+            first,
+        }
+    }
+
+    /// Read the run's base + a worker's shard so the handler can build the
+    /// RunAssignment + stream the dataset after `register`. Returns None if the
+    /// run/worker vanished.
+    async fn assignment_for(
+        &self,
+        run_id: &str,
+        worker_id: &str,
+        shard_index: u32,
+        shard_count: u32,
+        vu_offset: u32,
+        vu_count: u32,
+    ) -> Option<(RunAssignment, Option<PendingDataBinding>)> {
+        let g = self.runs.lock().await;
+        let rw = g.get(run_id)?;
+        let _ = worker_id;
+        let a = &rw.base;
+        let assignment = RunAssignment {
+            run_id: run_id.to_string(),
+            scenario_yaml: a.scenario_yaml.clone(),
+            profile: Some(a.profile),
+            env: a.env.clone(),
+            data_binding: a.data_binding.as_ref().map(|b| pb::DataBinding {
+                policy: b.policy as i32,
+                seed: b.seed,
+                row_count: b.row_count,
+            }),
+            shard_index,
+            shard_count,
+            vu_offset,
+            vu_count,
+        };
+        Some((assignment, a.data_binding.clone()))
+    }
+
+    /// Record a worker's terminal phase and finalize the run when all workers
+    /// agree / any fails. Performs DB writes + sibling AbortRun fan-out
+    /// internally. (Spec §8.1, §8.2, §8.5 partial.)
+    pub async fn record_phase(&self, run_id: &str, worker_id: &str, phase: i32) {
+        use pb::run_status::Phase;
+        let completed = Phase::Completed as i32;
+        let failed = Phase::Failed as i32;
+        let aborted = Phase::Aborted as i32;
+
+        enum Finalize {
+            None,
+            Completed,
+            Failed(Vec<WorkerTx>),
+            Aborted,
+        }
+
+        let decision = {
+            let mut g = self.runs.lock().await;
+            let Some(rw) = g.get_mut(run_id) else {
+                return;
+            };
+            if let Some(e) = rw.workers.get_mut(worker_id) {
+                e.phase = if phase == completed {
+                    Phase::Completed
+                } else if phase == failed {
+                    Phase::Failed
+                } else if phase == aborted {
+                    Phase::Aborted
+                } else {
+                    Phase::Started
+                };
+            }
+            if rw.terminal {
+                Finalize::None
+            } else if phase == failed {
+                rw.terminal = true;
+                let siblings: Vec<WorkerTx> = rw
+                    .workers
+                    .iter()
+                    .filter(|(wid, _)| wid.as_str() != worker_id)
+                    .map(|(_, e)| e.tx.clone())
+                    .collect();
+                Finalize::Failed(siblings)
+            } else if phase == aborted {
+                rw.terminal = true;
+                Finalize::Aborted
+            } else if phase == completed
+                && rw.workers.values().all(|e| e.phase == Phase::Completed)
+                && rw.workers.len() as u32 == rw.expected
+            {
+                rw.terminal = true;
+                Finalize::Completed
+            } else {
+                Finalize::None
+            }
+        };
+
+        match decision {
+            Finalize::None => {}
+            Finalize::Completed => {
+                let _ = runs::set_status(
+                    &self.db,
+                    run_id,
+                    RunStatus::Completed,
+                    None,
+                    Some(crate::store::now_ms()),
+                )
+                .await;
+            }
+            Finalize::Aborted => {
+                let _ = runs::set_status(
+                    &self.db,
+                    run_id,
+                    RunStatus::Aborted,
+                    None,
+                    Some(crate::store::now_ms()),
+                )
+                .await;
+            }
+            Finalize::Failed(siblings) => {
+                let _ = runs::set_status(
+                    &self.db,
+                    run_id,
+                    RunStatus::Failed,
+                    None,
+                    Some(crate::store::now_ms()),
+                )
+                .await;
+                fan_out_abort(run_id, &siblings, "sibling worker failed — fail-fast").await;
+            }
+        }
+    }
+
+    /// A worker's stream closed. If it never reported a terminal phase and the
+    /// run isn't already terminal, fail the run fast + abort siblings. Also
+    /// removes the worker from the run map. (Spec §8.2, §2.3 stream close.)
+    pub async fn worker_disconnected(&self, run_id: &str, worker_id: &str) {
+        use pb::run_status::Phase;
+        let siblings = {
+            let mut g = self.runs.lock().await;
+            let Some(rw) = g.get_mut(run_id) else {
+                return;
+            };
+            let was_terminal_phase = rw
+                .workers
+                .get(worker_id)
+                .map(|e| matches!(e.phase, Phase::Completed | Phase::Failed | Phase::Aborted))
+                .unwrap_or(true); // unknown worker → treat as harmless
+            if rw.terminal || was_terminal_phase {
+                // Terminal worker (or already-finalized run): KEEP its entry so the
+                // completion gate (`workers.len() == expected` && all Completed) still
+                // counts it. Workers close their stream right after reporting a terminal
+                // phase, so removing here would make an N>=2 run never finalize.
+                // (A3a: code-review CRITICAL fix.)
+                None
+            } else {
+                // Non-terminal disconnect = crash → fail-fast: drop it + abort siblings.
+                rw.workers.remove(worker_id);
+                rw.terminal = true;
+                Some(
+                    rw.workers
+                        .values()
+                        .map(|e| e.tx.clone())
+                        .collect::<Vec<_>>(),
+                )
+            }
+        };
+        if let Some(siblings) = siblings {
+            let _ = runs::set_status(
+                &self.db,
+                run_id,
+                RunStatus::Failed,
+                None,
+                Some(crate::store::now_ms()),
+            )
+            .await;
+            fan_out_abort(
+                run_id,
+                &siblings,
+                "worker disconnected before completing — fail-fast",
+            )
+            .await;
+        }
+    }
+
+    /// Registration deadline expired: if the run isn't terminal and fewer than
+    /// `expected` workers registered, fail it fast + abort whoever did register.
+    /// (Spec §8.2 third bullet, §8.3.)
+    pub async fn fail_incomplete_registration(&self, run_id: &str) {
+        let siblings = {
+            let mut g = self.runs.lock().await;
+            let Some(rw) = g.get_mut(run_id) else {
+                return;
+            };
+            if rw.terminal || rw.workers.len() as u32 >= rw.expected {
+                None
+            } else {
+                rw.terminal = true;
+                Some(
+                    rw.workers
+                        .values()
+                        .map(|e| e.tx.clone())
+                        .collect::<Vec<_>>(),
+                )
+            }
+        };
+        if let Some(siblings) = siblings {
+            let _ = runs::set_status(
+                &self.db,
+                run_id,
+                RunStatus::Failed,
+                None,
+                Some(crate::store::now_ms()),
+            )
+            .await;
+            fan_out_abort(
+                run_id,
+                &siblings,
+                "not all workers registered before deadline",
+            )
+            .await;
+        }
+    }
+
+    /// Send AbortRun to every connected worker of `run_id` (user-initiated
+    /// abort). Returns true if at least one worker was reached. (Spec §8.5.)
+    pub async fn abort(&self, run_id: &str) -> bool {
+        let txs = {
+            let g = self.runs.lock().await;
+            match g.get(run_id) {
+                Some(rw) => rw
+                    .workers
+                    .values()
+                    .map(|e| e.tx.clone())
+                    .collect::<Vec<_>>(),
+                None => return false,
+            }
+        };
+        let any = !txs.is_empty();
+        fan_out_abort(run_id, &txs, "user requested abort").await;
+        any
+    }
+}
+
+/// Send AbortRun to each tx (best-effort; closed channels ignored).
+async fn fan_out_abort(run_id: &str, txs: &[WorkerTx], reason: &str) {
+    for tx in txs {
+        let msg = ServerMessage {
+            payload: Some(ServerPayload::Abort(AbortRun {
+                run_id: run_id.to_string(),
+                reason: reason.to_string(),
+            })),
+        };
+        let _ = tx.send(Ok(msg)).await;
+    }
+}
+
+/// Per-run watchdog: wait `deadline`, then fail the run if not everyone
+/// registered. Cancelled early (via `token`) once all workers register.
+async fn registration_watchdog(
+    coord: CoordinatorState,
+    run_id: String,
+    deadline: Duration,
+    token: CancellationToken,
+) {
+    tokio::select! {
+        _ = token.cancelled() => {}
+        _ = tokio::time::sleep(deadline) => {
+            coord.fail_incomplete_registration(&run_id).await;
         }
     }
 }
@@ -116,6 +509,7 @@ impl Coordinator for CoordinatorService {
 
         tokio::spawn(async move {
             let mut run_id: Option<String> = None;
+            let mut worker_id: Option<String> = None;
             while let Some(msg) = inbound.next().await {
                 let msg = match msg {
                     Ok(m) => m,
@@ -127,236 +521,509 @@ impl Coordinator for CoordinatorService {
                 match msg.payload {
                     Some(WorkerPayload::Register(reg)) => {
                         run_id = Some(reg.run_id.clone());
+                        worker_id = Some(reg.worker_id.clone());
                         info!(worker_id = %reg.worker_id, run_id = %reg.run_id, "worker registered");
-                        // Register the outbound channel so abort() can reach this worker.
-                        state
-                            .active
-                            .lock()
-                            .await
-                            .insert(reg.run_id.clone(), tx.clone());
-                        let pending = state.pending.lock().await.remove(&reg.run_id);
-                        match pending {
-                            Some(a) => {
-                                let total_vus = a.profile.vus;
-                                let assignment = RunAssignment {
-                                    run_id: reg.run_id.clone(),
-                                    scenario_yaml: a.scenario_yaml.clone(),
-                                    profile: Some(a.profile),
-                                    env: a.env.clone(),
-                                    data_binding: a.data_binding.as_ref().map(|b| {
-                                        pb::DataBinding {
-                                            policy: b.policy as i32,
-                                            seed: b.seed,
-                                            row_count: b.row_count,
-                                        }
-                                    }),
-                                    shard_index: 0,
-                                    shard_count: 1,
-                                    vu_offset: 0,
-                                    vu_count: total_vus,
-                                };
-                                let _ = tx
-                                    .send(Ok(ServerMessage {
-                                        payload: Some(ServerPayload::Assignment(assignment)),
-                                    }))
-                                    .await;
-                                let _ = runs::set_status(
-                                    &state.db,
-                                    &reg.run_id,
-                                    RunStatus::Running,
-                                    Some(crate::store::now_ms()),
-                                    None,
-                                )
-                                .await;
-                                // Stream mapping-applied dataset rows to the worker (spec §7.3).
-                                // Row values are NEVER logged (spec §11).
-                                if let Some(binding) = &a.data_binding {
-                                    if binding.row_count > 0 {
-                                        let total = binding.row_count as i64;
-                                        let mut sent: i64 = 0;
-                                        let mut incomplete = false;
-                                        while sent < total {
-                                            let limit = DATASET_BATCH_ROWS.min(total - sent);
-                                            let src = match crate::store::datasets::get_rows_range(
-                                                &state.db,
-                                                &binding.dataset_id,
-                                                sent,
-                                                limit,
-                                            )
-                                            .await
-                                            {
-                                                Ok(r) => r,
-                                                Err(e) => {
-                                                    error!(run_id = %reg.run_id, error = %e, "dataset row fetch failed");
-                                                    incomplete = true;
-                                                    break;
-                                                }
-                                            };
-                                            if src.is_empty() {
-                                                // dataset shrank/deleted between run-create and register
-                                                error!(run_id = %reg.run_id, sent, total, "dataset shrank mid-stream; fewer rows than promised");
-                                                incomplete = true;
-                                                break;
-                                            }
-                                            let proto_rows: Vec<pb::DatasetRow> = src
-                                                .iter()
-                                                .map(|row| pb::DatasetRow {
-                                                    // mappings applied → {var: value}; NEVER log values (spec §11)
-                                                    values: binding
-                                                        .mappings_apply(row)
-                                                        .into_iter()
-                                                        .collect(),
-                                                })
-                                                .collect();
-                                            let n = proto_rows.len() as i64;
-                                            if tx
-                                                .send(Ok(ServerMessage {
-                                                    payload: Some(ServerPayload::DatasetBatch(
-                                                        pb::DatasetBatch {
-                                                            run_id: reg.run_id.clone(),
-                                                            rows: proto_rows,
-                                                        },
-                                                    )),
-                                                }))
-                                                .await
-                                                .is_err()
-                                            {
-                                                warn!(run_id = %reg.run_id, "worker disconnected during dataset stream");
-                                                incomplete = true;
-                                                break;
-                                            }
-                                            sent += n;
-                                        }
-                                        if incomplete {
-                                            // The worker's loading stage waits for exactly row_count rows; if we
-                                            // couldn't deliver them, unblock it via the abort path so it won't hang
-                                            // (no-op if the worker already disconnected). Worker reports Aborted.
-                                            let _ = tx
-                                                .send(Ok(ServerMessage {
-                                                    payload: Some(ServerPayload::Abort(AbortRun {
-                                                        run_id: reg.run_id.clone(),
-                                                        reason: "dataset streaming incomplete"
-                                                            .to_string(),
-                                                    })),
-                                                }))
-                                                .await;
-                                        } else {
-                                            info!(run_id = %reg.run_id, rows_sent = sent, "dataset rows streamed to worker");
-                                        }
-                                    }
+
+                        let outcome = state
+                            .register(&reg.run_id, &reg.worker_id, tx.clone())
+                            .await;
+                        let (shard_index, shard_count, vu_offset, vu_count, set_running) =
+                            match outcome {
+                                RegisterOutcome::Assigned {
+                                    shard_index,
+                                    shard_count,
+                                    vu_offset,
+                                    vu_count,
+                                    first,
+                                } => (shard_index, shard_count, vu_offset, vu_count, first),
+                                RegisterOutcome::Resend {
+                                    shard_index,
+                                    shard_count,
+                                    vu_offset,
+                                    vu_count,
+                                } => (shard_index, shard_count, vu_offset, vu_count, false),
+                                RegisterOutcome::Reject => {
+                                    warn!(run_id = %reg.run_id, worker_id = %reg.worker_id, "rejecting late/over registration");
+                                    let _ = tx
+                                        .send(Ok(ServerMessage {
+                                            payload: Some(ServerPayload::Abort(AbortRun {
+                                                run_id: reg.run_id.clone(),
+                                                reason: "run already started or fully sharded"
+                                                    .to_string(),
+                                            })),
+                                        }))
+                                        .await;
+                                    break;
                                 }
-                            }
-                            None => {
-                                error!(run_id = %reg.run_id, "no pending assignment for worker");
-                                break;
+                                RegisterOutcome::NoRun => {
+                                    error!(run_id = %reg.run_id, "no pending run for worker");
+                                    break;
+                                }
+                            };
+
+                        let Some((assignment, binding)) = state
+                            .assignment_for(
+                                &reg.run_id,
+                                &reg.worker_id,
+                                shard_index,
+                                shard_count,
+                                vu_offset,
+                                vu_count,
+                            )
+                            .await
+                        else {
+                            error!(run_id = %reg.run_id, "run vanished between register and assignment");
+                            break;
+                        };
+
+                        let _ = tx
+                            .send(Ok(ServerMessage {
+                                payload: Some(ServerPayload::Assignment(assignment)),
+                            }))
+                            .await;
+
+                        if set_running {
+                            let _ = runs::set_status(
+                                &state.db,
+                                &reg.run_id,
+                                RunStatus::Running,
+                                Some(crate::store::now_ms()),
+                                None,
+                            )
+                            .await;
+                        }
+
+                        // Stream mapping-applied dataset rows (replicated per worker, spec §6.2).
+                        // Row values are NEVER logged (spec §11).
+                        if let Some(binding) = &binding {
+                            if binding.row_count > 0 {
+                                stream_dataset(&state, &tx, &reg.run_id, binding).await;
                             }
                         }
                     }
                     Some(WorkerPayload::MetricBatch(batch)) => {
-                        let rows: Vec<crate::store::metrics::MetricRow> = batch
-                            .windows
-                            .iter()
-                            .map(|w| {
-                                let status_json = serde_json::to_string(&w.status_counts)
-                                    .unwrap_or_else(|_| "{}".to_string());
-                                crate::store::metrics::MetricRow {
-                                    run_id: batch.run_id.clone(),
-                                    ts_second: w.ts_second,
-                                    step_id: w.step_id.clone(),
-                                    count: w.count as i64,
-                                    error_count: w.error_count as i64,
-                                    hdr_histogram: w.hdr_histogram.clone(),
-                                    status_counts: status_json,
-                                }
-                            })
-                            .collect();
-                        if let Err(e) = crate::store::metrics::insert_batch(&state.db, &rows).await
-                        {
-                            warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
-                        }
-                        let loop_rows: Vec<crate::store::metrics::LoopMetricRow> = batch
-                            .loop_stats
-                            .iter()
-                            .map(|ls| crate::store::metrics::LoopMetricRow {
-                                run_id: batch.run_id.clone(),
-                                step_id: ls.step_id.clone(),
-                                loop_index: ls.loop_index as i64,
-                                count: ls.count as i64,
-                                error_count: ls.error_count as i64,
-                            })
-                            .collect();
-                        if !loop_rows.is_empty() {
-                            if let Err(e) =
-                                crate::store::metrics::insert_loop_batch(&state.db, &loop_rows)
-                                    .await
-                            {
-                                warn!(run_id = %batch.run_id, error = %e, "failed to insert loop metrics");
-                            }
-                        }
-                        let branch_rows: Vec<crate::store::metrics::IfBranchRow> = batch
-                            .branch_stats
-                            .iter()
-                            .map(|bs| crate::store::metrics::IfBranchRow {
-                                run_id: batch.run_id.clone(),
-                                step_id: bs.step_id.clone(),
-                                branch: bs.branch.clone(),
-                                count: bs.count as i64,
-                            })
-                            .collect();
-                        if !branch_rows.is_empty() {
-                            if let Err(e) = crate::store::metrics::insert_if_branch_batch(
-                                &state.db,
-                                &branch_rows,
-                            )
-                            .await
-                            {
-                                warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
-                            }
-                        }
+                        // A3a: worker_id ignored for run_metrics (A3b adds per-worker merge).
+                        // loop/if metrics already accumulate (count + excluded), so N-worker
+                        // sums are correct today.
+                        ingest_metrics(&state, &batch).await;
                     }
                     Some(WorkerPayload::RunStatus(s)) => {
                         info!(run_id = %s.run_id, phase = ?s.phase, "worker run status");
-                        if s.phase == pb::run_status::Phase::Completed as i32 {
-                            let _ = runs::set_status(
-                                &state.db,
-                                &s.run_id,
-                                RunStatus::Completed,
-                                None,
-                                Some(crate::store::now_ms()),
-                            )
-                            .await;
-                        } else if s.phase == pb::run_status::Phase::Failed as i32 {
-                            let _ = runs::set_status(
-                                &state.db,
-                                &s.run_id,
-                                RunStatus::Failed,
-                                None,
-                                Some(crate::store::now_ms()),
-                            )
-                            .await;
-                        } else if s.phase == pb::run_status::Phase::Aborted as i32 {
-                            let _ = runs::set_status(
-                                &state.db,
-                                &s.run_id,
-                                RunStatus::Aborted,
-                                None,
-                                Some(crate::store::now_ms()),
-                            )
-                            .await;
+                        if let Some(wid) = &worker_id {
+                            state.record_phase(&s.run_id, wid, s.phase).await;
                         }
                     }
                     Some(WorkerPayload::Pong(_)) => {}
                     None => {}
                 }
             }
-            // Remove from active map when stream closes.
-            if let Some(ref rid) = run_id {
-                state.active.lock().await.remove(rid);
+            // Stream closed: fail-fast if this worker dropped before a terminal phase.
+            if let (Some(rid), Some(wid)) = (run_id.as_ref(), worker_id.as_ref()) {
+                state.worker_disconnected(rid, wid).await;
             }
-            info!(?run_id, "worker stream closed");
+            info!(?run_id, ?worker_id, "worker stream closed");
         });
 
         let out: ChannelStream = Box::pin(ReceiverStream::new(rx));
         Ok(Response::new(out))
+    }
+}
+
+/// Stream a binding's rows to one worker. Extracted verbatim from the previous
+/// single-worker register handler (now runs per worker). On any incompleteness
+/// it sends AbortRun so the worker's loading stage doesn't hang (spec §6.2,
+/// controller CLAUDE.md "drop(tx) can't close a blocked stream").
+async fn stream_dataset(
+    state: &CoordinatorState,
+    tx: &WorkerTx,
+    run_id: &str,
+    binding: &PendingDataBinding,
+) {
+    let total = binding.row_count as i64;
+    let mut sent: i64 = 0;
+    let mut incomplete = false;
+    while sent < total {
+        let limit = DATASET_BATCH_ROWS.min(total - sent);
+        let src = match crate::store::datasets::get_rows_range(
+            &state.db,
+            &binding.dataset_id,
+            sent,
+            limit,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                error!(run_id = %run_id, error = %e, "dataset row fetch failed");
+                incomplete = true;
+                break;
+            }
+        };
+        if src.is_empty() {
+            error!(
+                run_id = %run_id,
+                sent,
+                total,
+                "dataset shrank mid-stream; fewer rows than promised"
+            );
+            incomplete = true;
+            break;
+        }
+        let proto_rows: Vec<pb::DatasetRow> = src
+            .iter()
+            .map(|row| pb::DatasetRow {
+                values: binding.mappings_apply(row).into_iter().collect(),
+            })
+            .collect();
+        let n = proto_rows.len() as i64;
+        if tx
+            .send(Ok(ServerMessage {
+                payload: Some(ServerPayload::DatasetBatch(pb::DatasetBatch {
+                    run_id: run_id.to_string(),
+                    rows: proto_rows,
+                })),
+            }))
+            .await
+            .is_err()
+        {
+            warn!(run_id = %run_id, "worker disconnected during dataset stream");
+            incomplete = true;
+            break;
+        }
+        sent += n;
+    }
+    if incomplete {
+        let _ = tx
+            .send(Ok(ServerMessage {
+                payload: Some(ServerPayload::Abort(AbortRun {
+                    run_id: run_id.to_string(),
+                    reason: "dataset streaming incomplete".to_string(),
+                })),
+            }))
+            .await;
+    } else {
+        info!(run_id = %run_id, rows_sent = sent, "dataset rows streamed to worker");
+    }
+}
+
+/// Insert one worker's metric batch (windows + loop + if). Unchanged from the
+/// previous inline arm; A3b adds run_metrics per-worker keying.
+async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
+    let rows: Vec<crate::store::metrics::MetricRow> = batch
+        .windows
+        .iter()
+        .map(|w| {
+            let status_json =
+                serde_json::to_string(&w.status_counts).unwrap_or_else(|_| "{}".to_string());
+            crate::store::metrics::MetricRow {
+                run_id: batch.run_id.clone(),
+                ts_second: w.ts_second,
+                step_id: w.step_id.clone(),
+                count: w.count as i64,
+                error_count: w.error_count as i64,
+                hdr_histogram: w.hdr_histogram.clone(),
+                status_counts: status_json,
+            }
+        })
+        .collect();
+    if let Err(e) = crate::store::metrics::insert_batch(&state.db, &rows).await {
+        warn!(run_id = %batch.run_id, error = %e, "failed to insert metric batch");
+    }
+    let loop_rows: Vec<crate::store::metrics::LoopMetricRow> = batch
+        .loop_stats
+        .iter()
+        .map(|ls| crate::store::metrics::LoopMetricRow {
+            run_id: batch.run_id.clone(),
+            step_id: ls.step_id.clone(),
+            loop_index: ls.loop_index as i64,
+            count: ls.count as i64,
+            error_count: ls.error_count as i64,
+        })
+        .collect();
+    if !loop_rows.is_empty() {
+        if let Err(e) = crate::store::metrics::insert_loop_batch(&state.db, &loop_rows).await {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert loop metrics");
+        }
+    }
+    let branch_rows: Vec<crate::store::metrics::IfBranchRow> = batch
+        .branch_stats
+        .iter()
+        .map(|bs| crate::store::metrics::IfBranchRow {
+            run_id: batch.run_id.clone(),
+            step_id: bs.step_id.clone(),
+            branch: bs.branch.clone(),
+            count: bs.count as i64,
+        })
+        .collect();
+    if !branch_rows.is_empty() {
+        if let Err(e) = crate::store::metrics::insert_if_branch_batch(&state.db, &branch_rows).await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::runs::{self, RunStatus};
+
+    fn base_assignment() -> PendingAssignment {
+        PendingAssignment {
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n".to_string(),
+            profile: pb::Profile {
+                vus: 4,
+                ramp_up_seconds: 0,
+                duration_seconds: 1,
+                loop_breakdown_cap: 0,
+            },
+            env: HashMap::new(),
+            data_binding: None,
+        }
+    }
+
+    // helper to insert a run row so set_status has a target.
+    async fn seed_run(db: &Db) -> String {
+        let scenario_yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(scenario_yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(db, &sc, scenario_yaml)
+            .await
+            .unwrap();
+        let profile = runs::Profile {
+            vus: 4,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            data_binding: None,
+        };
+        let row = runs::insert(
+            db,
+            &scenario.id,
+            scenario_yaml,
+            &profile,
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+        row.id
+    }
+
+    fn fake_tx() -> (
+        WorkerTx,
+        tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
+    ) {
+        tokio::sync::mpsc::channel(8)
+    }
+
+    #[tokio::test]
+    async fn register_assigns_distinct_shards_and_resends_on_reregister() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db);
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+
+        let (tx0, _r0) = fake_tx();
+        let o0 = coord.register(&run_id, "w0", tx0.clone()).await;
+        let (tx1, _r1) = fake_tx();
+        let o1 = coord.register(&run_id, "w1", tx1).await;
+        match (o0, o1) {
+            (
+                RegisterOutcome::Assigned {
+                    shard_index: 0,
+                    vu_offset: 0,
+                    vu_count: 2,
+                    first: true,
+                    shard_count: 2,
+                },
+                RegisterOutcome::Assigned {
+                    shard_index: 1,
+                    vu_offset: 2,
+                    vu_count: 2,
+                    first: false,
+                    shard_count: 2,
+                },
+            ) => {}
+            other => panic!("unexpected outcomes: {other:?}"),
+        }
+        // Re-register w0 (idempotent): same shard, NOT a new slot.
+        match coord.register(&run_id, "w0", tx0).await {
+            RegisterOutcome::Resend {
+                shard_index: 0,
+                vu_offset: 0,
+                vu_count: 2,
+                ..
+            } => {}
+            other => panic!("expected idempotent resend, got {other:?}"),
+        }
+        // A 3rd distinct worker over-registers (expected=2): reject.
+        let (tx2, _r2) = fake_tx();
+        assert!(matches!(
+            coord.register(&run_id, "w2", tx2).await,
+            RegisterOutcome::Reject
+        ));
+    }
+
+    #[tokio::test]
+    async fn all_completed_sets_run_completed() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        // not all done yet — run stays in its pre-running state (Pending in this
+        // unit test; the gRPC handler sets Running when the first worker registers,
+        // but unit tests drive the state machine directly without that call).
+        assert_ne!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed
+        );
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32)
+            .await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn one_failed_fails_run_and_aborts_siblings() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        let (tx1, mut r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed
+        );
+        // sibling w1 received an AbortRun.
+        let msg = r1.try_recv().expect("sibling should get AbortRun");
+        let msg = msg.unwrap();
+        assert!(matches!(msg.payload, Some(ServerPayload::Abort(_))));
+    }
+
+    #[tokio::test]
+    async fn disconnect_without_terminal_fails_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        // w0 drops without reporting a terminal phase → fail-fast.
+        coord.worker_disconnected(&run_id, "w0").await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn all_registered_cancels_registration_deadline() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db);
+        let token = coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        assert!(!token.is_cancelled());
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        assert!(
+            token.is_cancelled(),
+            "all-registered must cancel the watchdog token"
+        );
+    }
+
+    #[tokio::test]
+    async fn registration_deadline_fails_incomplete_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, mut r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await; // only 1 of 2 registers
+        coord.fail_incomplete_registration(&run_id).await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed
+        );
+        // the one registered worker is told to abort.
+        assert!(
+            r0.try_recv().is_ok(),
+            "registered worker should get AbortRun on deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_then_disconnect_then_sibling_completes_finalizes() {
+        // Regression (A3a code-review CRITICAL): a worker closes its stream right
+        // after reporting Completed. If worker_disconnected removed its entry, the
+        // `len()==expected` completion gate could never be met at N>=2 and the run
+        // would hang in Running. Terminal entries must be kept so the run finalizes.
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        let (tx1, _r1) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.register(&run_id, "w1", tx1).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        // w0 completes, then its process exits → stream closes.
+        coord.worker_disconnected(&run_id, "w0").await;
+        assert_ne!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed,
+            "run must not finalize while w1 is still running"
+        );
+        coord
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32)
+            .await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed,
+            "run must finalize after w1 completes, despite w0 having disconnected"
+        );
+    }
+
+    #[tokio::test]
+    async fn watchdog_fires_after_deadline() {
+        // Tests the REAL wiring: `enqueue` spawns the internal watchdog with
+        // REGISTRATION_DEADLINE. Only 1 of 2 workers registers, so the token is
+        // NOT cancelled; the watchdog fires after REGISTRATION_DEADLINE → run Failed.
+        //
+        // We use a real (non-paused) timer here because sqlx's pool management
+        // uses `tokio::time::timeout` internally — `start_paused` would cause the
+        // pool's 30s acquire_timeout to fire immediately when virtual time jumps,
+        // producing PoolTimedOut before the assertion (REGISTRATION_DEADLINE is
+        // overridden to 200ms in `#[cfg(test)]` so this completes in ~200ms wall-clock).
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await; // 1 of 2 → token stays live
+        // Sleep past the (test-only) 200ms deadline so the watchdog fires.
+        tokio::time::sleep(REGISTRATION_DEADLINE + std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed
+        );
     }
 }

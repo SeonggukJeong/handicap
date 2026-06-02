@@ -38,6 +38,7 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 tonic.workspace = true
 tower.workspace = true
 tower-http.workspace = true
@@ -52,4 +53,6 @@ slice6-k8s = []
 rust_xlsxwriter.workspace = true
 serde_json.workspace = true
 tempfile = "3"
+# `test-util` enables `#[tokio::test(start_paused = true)]` — NOT in `full`.
+tokio = { workspace = true, features = ["test-util"] }
 wiremock.workspace = true

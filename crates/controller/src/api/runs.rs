@@ -155,7 +155,7 @@ pub async fn create(
         _ => None,
     };
 
-    // Enqueue the assignment so the coordinator can hand it to the worker when it registers.
+    // Enqueue the assignment so the coordinator can hand shards to N workers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
         scenario_yaml: scenario.yaml.clone(),
         profile: handicap_proto::v1::Profile {
@@ -167,11 +167,14 @@ pub async fn create(
         env: body.env.clone(),
         data_binding,
     };
-    state.coord.enqueue(row.id.clone(), assignment).await;
+    let n = state.coord.worker_count_for(body.profile.vus);
+    state
+        .coord
+        .enqueue(row.id.clone(), assignment, n, body.profile.vus)
+        .await;
 
-    // Dispatch the worker (subprocess locally, K8s Job in prod). If this
-    // fails we still return the run row; the run will be left in `pending`
-    // and the operator can investigate.
+    // Dispatch the worker(s). Task 6 makes this N-spawn; for now single worker
+    // (n == 1 for all current callers since capacity defaults to 2000).
     let worker_id = ulid::Ulid::new().to_string();
     if let Err(e) = state.dispatcher.dispatch(&row.id, &worker_id).await {
         tracing::warn!(run_id = %row.id, error = %e, "failed to dispatch worker");

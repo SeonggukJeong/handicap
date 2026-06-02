@@ -53,6 +53,10 @@ struct Args {
     /// (per_vu is not capped). Guards worker memory. Spec §10.
     #[arg(long, default_value_t = 1_000_000)]
     dataset_max_rows: u64,
+    /// Per-worker VU capacity. The controller fans a run out to
+    /// N = ceil(total_vus / this). (A3a spec §2.1.)
+    #[arg(long, default_value_t = handicap_controller::grpc::coordinator::DEFAULT_WORKER_CAPACITY_VUS)]
+    worker_capacity_vus: u32,
 }
 
 #[tokio::main]
@@ -85,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     if recovered > 0 {
         info!(count = recovered, "marked orphan runs as failed on startup");
     }
-    let coord_state = CoordinatorState::new(db.clone());
+    let coord_state = CoordinatorState::with_capacity(db.clone(), args.worker_capacity_vus);
 
     let dispatcher: SharedDispatcher = match args.worker_mode {
         WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
