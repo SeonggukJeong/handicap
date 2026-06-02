@@ -24,6 +24,7 @@ calamine.workspace = true
 clap.workspace = true
 csv.workspace = true
 encoding_rs.workspace = true
+rust_xlsxwriter.workspace = true
 futures.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
@@ -50,7 +51,6 @@ ulid.workspace = true
 slice6-k8s = []
 
 [dev-dependencies]
-rust_xlsxwriter.workspace = true
 serde_json.workspace = true
 tempfile = "3"
 # `test-util` enables `#[tokio::test(start_paused = true)]` — NOT in `full`.

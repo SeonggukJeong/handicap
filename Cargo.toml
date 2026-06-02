@@ -17,7 +17,7 @@ calamine = "0.26"
 clap = { version = "4", features = ["derive", "env"] }
 csv = "1"
 encoding_rs = "0.8"
-rust_xlsxwriter = "0.79"   # dev-only (test XLSX fixtures)
+rust_xlsxwriter = "0.79"   # report XLSX export (prod) + test fixtures
 futures = "0.3"
 hdrhistogram = { version = "7", features = ["serialization"] }
 hyper = "1"
