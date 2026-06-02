@@ -50,15 +50,6 @@ pub struct PendingDataBinding {
     pub row_count: u64,
 }
 
-impl PendingDataBinding {
-    pub fn mappings_apply(
-        &self,
-        source: &std::collections::BTreeMap<String, String>,
-    ) -> std::collections::BTreeMap<String, String> {
-        crate::binding::apply_mappings(&self.mappings, source)
-    }
-}
-
 /// One worker's resolved dataset stream: which rows to fetch + the mappings to
 /// apply. For unique these are a disjoint slice (`offset_i..offset_i+count_i`);
 /// for replicated policies it's the whole dataset (`offset 0`). (spec §4.4)
