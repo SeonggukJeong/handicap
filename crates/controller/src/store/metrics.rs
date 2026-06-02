@@ -31,7 +31,7 @@ pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
         sqlx::query(
             "INSERT INTO run_metrics(run_id,ts_second,step_id,count,error_count,hdr_histogram,status_counts) \
              VALUES(?,?,?,?,?,?,?) \
-             ON CONFLICT(run_id,ts_second,step_id) DO NOTHING",
+             ON CONFLICT(run_id,ts_second,step_id,worker_id) DO NOTHING",
         )
         .bind(&r.run_id)
         .bind(r.ts_second)
