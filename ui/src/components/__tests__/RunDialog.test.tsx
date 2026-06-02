@@ -541,6 +541,80 @@ describe("RunDialog — load preset (A2)", () => {
   });
 });
 
+describe("RunDialog — SLO criteria (A4a)", () => {
+  it("includes criteria in the run POST body with error_rate as a fraction", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.type(screen.getByLabelText(/Max p95/), "500");
+    await user.type(screen.getByLabelText(/Max error rate/), "1");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.criteria).toEqual({ max_p95_ms: 500, max_error_rate: 0.01 });
+  });
+
+  it("SLO inputs have type=number to prevent NaN from non-numeric text", () => {
+    renderDialog();
+    expect(screen.getByLabelText(/Max p50/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/Max p95/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/Max p99/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/Max error rate/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/Min RPS/)).toHaveAttribute("type", "number");
+  });
+
+  it("omits criteria when all SLO inputs are empty", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R2",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R2"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.criteria).toBeUndefined();
+  });
+});
+
 describe("RunDialog — environment overlay (B-2)", () => {
   function routeFetch(handlers: {
     run?: unknown;

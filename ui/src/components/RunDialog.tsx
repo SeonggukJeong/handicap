@@ -9,7 +9,7 @@ import {
   useUpdatePreset,
   queryKeys,
 } from "../api/hooks";
-import type { DataBinding } from "../api/schemas";
+import type { Criteria, DataBinding } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
@@ -53,6 +53,15 @@ export function RunDialog({
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
   const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
+  const initC = initial?.profile.criteria ?? undefined;
+  const numToStr = (n?: number) => (n == null ? "" : String(n));
+  const [maxP50, setMaxP50] = useState(numToStr(initC?.max_p50_ms));
+  const [maxP95, setMaxP95] = useState(numToStr(initC?.max_p95_ms));
+  const [maxP99, setMaxP99] = useState(numToStr(initC?.max_p99_ms));
+  const [maxErrPct, setMaxErrPct] = useState(
+    initC?.max_error_rate != null ? String(initC.max_error_rate * 100) : "",
+  );
+  const [minRps, setMinRps] = useState(numToStr(initC?.min_rps));
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
@@ -98,6 +107,12 @@ export function RunDialog({
       setBinding(b);
       setSeedBinding(b);
       setPanelKey((k) => k + 1);
+      const pc = prof.criteria ?? undefined;
+      setMaxP50(numToStr(pc?.max_p50_ms));
+      setMaxP95(numToStr(pc?.max_p95_ms));
+      setMaxP99(numToStr(pc?.max_p99_ms));
+      setMaxErrPct(pc?.max_error_rate != null ? String(pc.max_error_rate * 100) : "");
+      setMinRps(numToStr(pc?.min_rps));
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -126,6 +141,16 @@ export function RunDialog({
   // selected, baseVars is {} and this is byte-identical to the old loop.
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
+  function buildCriteria(): Criteria | undefined {
+    const c: Criteria = {};
+    if (maxP50.trim() !== "") c.max_p50_ms = Number(maxP50);
+    if (maxP95.trim() !== "") c.max_p95_ms = Number(maxP95);
+    if (maxP99.trim() !== "") c.max_p99_ms = Number(maxP99);
+    if (maxErrPct.trim() !== "") c.max_error_rate = Number(maxErrPct) / 100;
+    if (minRps.trim() !== "") c.min_rps = Number(minRps);
+    return Object.keys(c).length > 0 ? c : undefined;
+  }
+
   function currentInput(): PresetInput {
     return {
       name: presetName.trim(),
@@ -135,6 +160,7 @@ export function RunDialog({
         ramp_up_seconds: rampUp,
         loop_breakdown_cap: hasLoop ? loopCap : 0,
         data_binding: binding ?? undefined,
+        criteria: buildCriteria(),
       },
       env,
     };
@@ -304,6 +330,65 @@ export function RunDialog({
         </p>
       )}
 
+      <fieldset className="mt-3 border-t pt-3">
+        <legend className="text-sm font-medium">SLO 기준 (선택)</legend>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            <span className="text-slate-600">Max p50 (ms)</span>
+            <input
+              type="number"
+              min="0"
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              value={maxP50}
+              onChange={(e) => setMaxP50(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Max p95 (ms)</span>
+            <input
+              type="number"
+              min="0"
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              value={maxP95}
+              onChange={(e) => setMaxP95(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Max p99 (ms)</span>
+            <input
+              type="number"
+              min="0"
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              value={maxP99}
+              onChange={(e) => setMaxP99(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Max error rate (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="any"
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              value={maxErrPct}
+              onChange={(e) => setMaxErrPct(e.target.value)}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Min RPS</span>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              value={minRps}
+              onChange={(e) => setMinRps(e.target.value)}
+            />
+          </label>
+        </div>
+      </fieldset>
+
       <EnvironmentPicker
         selectedEnvId={selectedEnvId}
         onSelect={setSelectedEnvId}
@@ -376,6 +461,7 @@ export function RunDialog({
                   ramp_up_seconds: rampUp,
                   loop_breakdown_cap: hasLoop ? loopCap : 0,
                   data_binding: binding ?? undefined,
+                  criteria: buildCriteria(),
                 },
                 env,
               },
