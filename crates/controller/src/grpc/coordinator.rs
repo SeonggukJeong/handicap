@@ -602,9 +602,9 @@ impl Coordinator for CoordinatorService {
                         }
                     }
                     Some(WorkerPayload::MetricBatch(batch)) => {
-                        // A3a: worker_id ignored for run_metrics (A3b adds per-worker merge).
-                        // loop/if metrics already accumulate (count + excluded), so N-worker
-                        // sums are correct today.
+                        // A3b: run_metrics is keyed by worker_id (per-worker rows, read-time
+                        // merge). loop/if metrics accumulate (count + excluded), so N-worker
+                        // sums are correct without per-worker keying.
                         ingest_metrics(&state, &batch).await;
                     }
                     Some(WorkerPayload::RunStatus(s)) => {
@@ -719,6 +719,7 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
                 run_id: batch.run_id.clone(),
                 ts_second: w.ts_second,
                 step_id: w.step_id.clone(),
+                worker_id: batch.worker_id.clone(), // A3b: per-worker keying
                 count: w.count as i64,
                 error_count: w.error_count as i64,
                 hdr_histogram: w.hdr_histogram.clone(),

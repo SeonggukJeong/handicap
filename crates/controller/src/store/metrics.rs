@@ -9,6 +9,7 @@ pub struct MetricRow {
     pub run_id: String,
     pub ts_second: i64,
     pub step_id: String,
+    pub worker_id: String, // A3b: per-worker keying so N workers' windows coexist
     pub count: i64,
     pub error_count: i64,
     pub hdr_histogram: Vec<u8>,
@@ -19,23 +20,23 @@ pub async fn insert_batch(db: &Db, rows: &[MetricRow]) -> sqlx::Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
-    // Single tx; each window is a complete per-second snapshot emitted exactly once by
-    // the engine (drain_completed). A duplicate key can only arrive from an at-least-once
-    // gRPC resend after reconnect (Slice 6) and carries identical data — keep-first is
-    // idempotent. Accumulate would double-count; INSERT OR REPLACE would delete/reinsert
-    // under foreign_keys=ON. ON CONFLICT DO NOTHING is the correct policy here.
-    // (Contrast with run_loop_metrics, which uses accumulate because those are incremental
-    // delta counts, not complete snapshots.)
+    // Each window is a complete per-second snapshot emitted once per worker. A duplicate
+    // (run_id,ts_second,step_id,worker_id) key can only come from an at-least-once gRPC
+    // resend after reconnect (Slice 6) and carries identical data — keep-first per worker
+    // is idempotent. Distinct worker_id rows coexist; read-time merge (report.rs /
+    // metrics::summary) sums them. (Contrast run_loop_metrics, which accumulates because
+    // those are incremental deltas, not snapshots.)
     let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
-            "INSERT INTO run_metrics(run_id,ts_second,step_id,count,error_count,hdr_histogram,status_counts) \
-             VALUES(?,?,?,?,?,?,?) \
+            "INSERT INTO run_metrics(run_id,ts_second,step_id,worker_id,count,error_count,hdr_histogram,status_counts) \
+             VALUES(?,?,?,?,?,?,?,?) \
              ON CONFLICT(run_id,ts_second,step_id,worker_id) DO NOTHING",
         )
         .bind(&r.run_id)
         .bind(r.ts_second)
         .bind(&r.step_id)
+        .bind(&r.worker_id)
         .bind(r.count)
         .bind(r.error_count)
         .bind(&r.hdr_histogram)
@@ -282,6 +283,7 @@ mod tests {
                 run_id: "R1".into(),
                 ts_second: 101,
                 step_id: "stepA".into(),
+                worker_id: "".into(),
                 count: 5,
                 error_count: 0,
                 hdr_histogram: vec![1, 2, 3, 4],
@@ -291,6 +293,7 @@ mod tests {
                 run_id: "R1".into(),
                 ts_second: 100,
                 step_id: "stepA".into(),
+                worker_id: "".into(),
                 count: 3,
                 error_count: 1,
                 hdr_histogram: vec![5, 6, 7, 8],
@@ -354,6 +357,7 @@ mod tests {
             run_id: "R-idem".into(),
             ts_second: 1,
             step_id: "step-x".into(),
+            worker_id: "".into(),
             count: 5,
             error_count: 0,
             hdr_histogram: vec![0xAA, 0xBB],
@@ -366,6 +370,7 @@ mod tests {
             run_id: "R-idem".into(),
             ts_second: 1,
             step_id: "step-x".into(),
+            worker_id: "".into(),
             count: 99,
             error_count: 7,
             hdr_histogram: vec![0xCC, 0xDD],
@@ -420,6 +425,90 @@ mod tests {
             .collect();
         assert_eq!(m.get(&("s".into(), 0)), Some(&(5, 1))); // 3+2 / 1+0
         assert_eq!(m.get(&("s".into(), 4_294_967_295)), Some(&(7, 0)));
+    }
+
+    #[tokio::test]
+    async fn run_metrics_per_worker_rows_coexist() {
+        let db = pool().await;
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S")
+        .bind("n")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R").bind("S").bind("version: 1\nname: n\nsteps: []\n")
+        .bind("{}").bind("{}").bind("completed").bind(1_i64).execute(&db).await.unwrap();
+
+        // Two workers emit the SAME (run_id, ts_second, step_id) window. Under A3a's
+        // 3-column PK keep-first one would be dropped; with worker_id in the PK both
+        // rows must survive.
+        let rows = vec![
+            MetricRow {
+                run_id: "R".into(),
+                ts_second: 1,
+                step_id: "s".into(),
+                worker_id: "w-a".into(),
+                count: 5,
+                error_count: 0,
+                hdr_histogram: vec![0xAA],
+                status_counts: r#"{"200":5}"#.into(),
+            },
+            MetricRow {
+                run_id: "R".into(),
+                ts_second: 1,
+                step_id: "s".into(),
+                worker_id: "w-b".into(),
+                count: 3,
+                error_count: 1,
+                hdr_histogram: vec![0xBB],
+                status_counts: r#"{"200":3}"#.into(),
+            },
+        ];
+        insert_batch(&db, &rows).await.unwrap();
+
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM run_metrics WHERE run_id='R'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(n, 2, "distinct worker_id rows must coexist");
+
+        // Same worker_id resend (same key, different payload) -> keep-first per worker.
+        let resend = vec![MetricRow {
+            run_id: "R".into(),
+            ts_second: 1,
+            step_id: "s".into(),
+            worker_id: "w-a".into(),
+            count: 99,
+            error_count: 7,
+            hdr_histogram: vec![0xCC],
+            status_counts: r#"{"200":99}"#.into(),
+        }];
+        insert_batch(&db, &resend).await.unwrap();
+        let again: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM run_metrics WHERE run_id='R'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(
+            again, 2,
+            "duplicate worker key must be ignored (per-worker keep-first)"
+        );
+        let a_count: i64 = sqlx::query_scalar(
+            "SELECT count FROM run_metrics WHERE run_id='R' AND worker_id='w-a'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(a_count, 5, "w-a keeps first value, not replaced/summed");
     }
 
     #[tokio::test]
