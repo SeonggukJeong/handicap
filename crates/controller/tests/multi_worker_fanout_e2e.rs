@@ -283,3 +283,135 @@ async fn two_worker_fanout_abort_marks_aborted() {
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_worker_fanout_merges_metrics() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hit"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(5)), // p50_ms > 0 after HDR merge
+        )
+        .mount(&target)
+        .await;
+
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::with_capacity(db.clone(), 1); // capacity 1 -> N = total_vus
+    let (rest_handle, grpc_handle) = boot(
+        coord,
+        db.clone(),
+        grpc_listener,
+        rest_listener,
+        grpc_addr,
+        &worker_bin,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+    // Same step_id across both shards so their per-second windows collide on
+    // (run_id, ts_second, step_id) — exactly the case A3a keep-first dropped.
+    let scenario_yaml = format!(
+        "version: 1\nname: merge\nvariables:\n  base: \"{}\"\nsteps:\n  - id: \"01HX0000000000000000000022\"\n    name: hit\n    type: http\n    request:\n      method: GET\n      url: \"{{{{base}}}}/hit?vu=${{vu_id}}\"\n    assert:\n      - status: 200\n",
+        target.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 2 VUs, 3s — steady load so both shards emit several overlapping windows.
+    let v: Value = http.post(format!("{}/api/runs", rest_base))
+        .json(&json!({ "scenario_id": scenario_id, "profile": { "vus": 2, "duration_seconds": 3 }, "env": {} }))
+        .send().await.unwrap().json().await.unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
+    let mut last = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last = v["status"].as_str().unwrap().to_string();
+        if last == "completed" || last == "failed" || last == "aborted" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(last, "completed", "N=2 fan-out should complete; got {last}");
+
+    // Ground truth: wiremock saw both shards (vu=0 and vu=1) plus a total count.
+    let reqs = target.received_requests().await.unwrap();
+    let wc = reqs.len();
+    let qs: Vec<String> = reqs
+        .iter()
+        .map(|r| r.url.query().unwrap_or("").to_string())
+        .collect();
+    assert!(qs.iter().any(|q| q.contains("vu=0")), "shard 0 missing");
+    assert!(qs.iter().any(|q| q.contains("vu=1")), "shard 1 missing");
+
+    // /report: counts must NOT be halved by keep-first. A3a would drop one worker's
+    // row per colliding (ts,step) -> report count ~= wc/2. A3b merges -> ~= wc (a few
+    // in-flight-at-deadline requests may hit wiremock without being counted).
+    let report: Value = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rc = report["summary"]["count"].as_u64().unwrap() as usize;
+    assert!(
+        rc <= wc && rc + 4 >= wc,
+        "report count {rc} should match wiremock {wc} (A3a keep-first would be ~half)"
+    );
+    // HDR blobs from both workers decoded + merged -> non-zero p50 (5ms delay).
+    assert!(
+        report["summary"]["p50_ms"].as_u64().unwrap() >= 1,
+        "merged HDR should yield p50_ms >= 1ms"
+    );
+
+    // /metrics live summary must agree with /report (both read the same merged rows).
+    let metrics: Value = http
+        .get(format!("{}/api/runs/{}/metrics", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mc: u64 = metrics["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["count"].as_u64().unwrap())
+        .sum();
+    assert_eq!(
+        mc as usize, rc,
+        "/metrics summed count must equal /report count"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
