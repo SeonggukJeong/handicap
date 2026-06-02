@@ -99,11 +99,64 @@ fn container_resources_default_to_known_quantities() {
         .as_ref()
         .expect("resources");
     let req = res.requests.as_ref().unwrap();
-    assert_eq!(req["cpu"].0, "500m");
-    assert_eq!(req["memory"].0, "256Mi");
     let lim = res.limits.as_ref().unwrap();
-    assert_eq!(lim["cpu"].0, "4");
-    assert_eq!(lim["memory"].0, "1Gi");
+    // Guaranteed QoS: requests == limits (fidelity lever, spec §7.3). Magnitude is
+    // modest so N>1 Indexed Pods schedule on single-node/CI kind (spec §7.3 + A3c
+    // scope decision 2); production raises via deferred Helm values (roadmap §B).
+    assert_eq!(req["cpu"].0, "250m");
+    assert_eq!(lim["cpu"].0, "250m");
+    assert_eq!(req["memory"].0, "256Mi");
+    assert_eq!(lim["memory"].0, "256Mi");
+}
+
+#[test]
+fn worker_pods_spread_softly_and_avoid_controller() {
+    let job = build_job_spec(&fixture());
+    let pod = job.spec.as_ref().unwrap().template.spec.as_ref().unwrap();
+
+    // topologySpread must be SOFT — DoNotSchedule would leave the 2nd Pod Pending
+    // on single-node kind and the run would fail the registration watchdog.
+    let tsc = pod
+        .topology_spread_constraints
+        .as_ref()
+        .expect("topologySpreadConstraints");
+    assert_eq!(tsc[0].when_unsatisfiable, "ScheduleAnyway", "must be soft");
+    assert_eq!(tsc[0].topology_key, "kubernetes.io/hostname");
+    assert_eq!(tsc[0].max_skew, 1);
+    // The constraint must target worker Pods — without a selector it would spread
+    // every Pod in the namespace, not just sibling workers.
+    let tsc_sel = tsc[0]
+        .label_selector
+        .as_ref()
+        .expect("topologySpreadConstraint labelSelector")
+        .match_labels
+        .as_ref()
+        .unwrap();
+    assert_eq!(tsc_sel["app.kubernetes.io/component"], "worker");
+
+    // Pod anti-affinity (soft) keeps workers off the controller node when possible.
+    let aff = pod.affinity.as_ref().expect("affinity");
+    let paa = aff.pod_anti_affinity.as_ref().expect("podAntiAffinity");
+    let pref = paa
+        .preferred_during_scheduling_ignored_during_execution
+        .as_ref()
+        .expect("preferred anti-affinity (soft)");
+    assert_eq!(pref[0].weight, 100, "soft anti-affinity weight");
+    let sel = pref[0]
+        .pod_affinity_term
+        .label_selector
+        .as_ref()
+        .unwrap()
+        .match_labels
+        .as_ref()
+        .unwrap();
+    assert_eq!(sel["app.kubernetes.io/component"], "controller");
+    // required anti-affinity would block scheduling on a single node — must be unset.
+    assert!(
+        paa.required_during_scheduling_ignored_during_execution
+            .is_none(),
+        "anti-affinity must be soft (preferred), not required"
+    );
 }
 
 #[test]

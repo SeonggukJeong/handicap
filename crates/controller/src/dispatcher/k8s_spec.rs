@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, PodSecurityContext, PodSpec, PodTemplateSpec, ResourceRequirements,
-    SecurityContext,
+    Affinity, Capabilities, Container, PodAffinityTerm, PodAntiAffinity, PodSecurityContext,
+    PodSpec, PodTemplateSpec, ResourceRequirements, SecurityContext, TopologySpreadConstraint,
+    WeightedPodAffinityTerm,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 
 /// Inputs for `build_job_spec`. All strings are validated by the caller
 /// (DNS-1123 labels, image refs etc).
@@ -33,11 +34,18 @@ pub struct WorkerResources {
 
 impl Default for WorkerResources {
     fn default() -> Self {
+        // Guaranteed QoS (requests == limits): the scheduler reserves dedicated CPU
+        // and the load generator isn't CFS-throttled below its cap — the fidelity
+        // lever from spec §7.3. Magnitude is deliberately modest so N>1 Indexed Pods
+        // schedule on a single-node / small-CI kind cluster (the registration
+        // watchdog fails the run if any worker Pod can't schedule). Production
+        // high-throughput deployments raise these via the deferred Helm worker
+        // resource values (roadmap §B); equality is the invariant, size is not.
         Self {
-            cpu_request: "500m".into(),
+            cpu_request: "250m".into(),
             mem_request: "256Mi".into(),
-            cpu_limit: "4".into(),
-            mem_limit: "1Gi".into(),
+            cpu_limit: "250m".into(),
+            mem_limit: "256Mi".into(),
         }
     }
 }
@@ -99,6 +107,54 @@ pub fn build_job_spec(input: &JobSpecInput<'_>) -> Job {
         ..Default::default()
     };
 
+    // Soft scheduling hints (spec §7.3). MUST be soft: a single-node kind cluster
+    // can't satisfy hard spread/anti-affinity, and the registration watchdog would
+    // then fail any N>1 run. ScheduleAnyway / preferred → multi-node spreads, single
+    // node still packs.
+    let topology = vec![TopologySpreadConstraint {
+        max_skew: 1,
+        topology_key: "kubernetes.io/hostname".into(),
+        when_unsatisfiable: "ScheduleAnyway".into(),
+        label_selector: Some(LabelSelector {
+            match_labels: Some(
+                [(
+                    "app.kubernetes.io/component".to_string(),
+                    "worker".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }];
+    let affinity = Affinity {
+        pod_anti_affinity: Some(PodAntiAffinity {
+            preferred_during_scheduling_ignored_during_execution: Some(vec![
+                WeightedPodAffinityTerm {
+                    weight: 100,
+                    pod_affinity_term: PodAffinityTerm {
+                        label_selector: Some(LabelSelector {
+                            match_labels: Some(
+                                [(
+                                    "app.kubernetes.io/component".to_string(),
+                                    "controller".to_string(),
+                                )]
+                                .into_iter()
+                                .collect(),
+                            ),
+                            ..Default::default()
+                        }),
+                        topology_key: "kubernetes.io/hostname".into(),
+                        ..Default::default()
+                    },
+                },
+            ]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
     Job {
         metadata: ObjectMeta {
             generate_name: Some(format!("handicap-worker-{}-", short_id(input.run_id))),
@@ -122,6 +178,8 @@ pub fn build_job_spec(input: &JobSpecInput<'_>) -> Job {
                 spec: Some(PodSpec {
                     restart_policy: Some("Never".into()),
                     containers: vec![container],
+                    affinity: Some(affinity),
+                    topology_spread_constraints: Some(topology),
                     security_context: Some(PodSecurityContext {
                         run_as_non_root: Some(true),
                         run_as_user: Some(65532),
