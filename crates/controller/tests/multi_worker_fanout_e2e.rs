@@ -415,3 +415,137 @@ async fn two_worker_fanout_merges_metrics() {
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_worker_unique_consumes_each_row_once() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hit"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(2)),
+        )
+        .mount(&target)
+        .await;
+
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::with_capacity(db.clone(), 1); // capacity 1 → N = vus
+    let (rest_handle, grpc_handle) = boot(
+        coord,
+        db.clone(),
+        grpc_listener,
+        rest_listener,
+        grpc_addr,
+        &worker_bin,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // 6 unique tokens; 2 workers → disjoint slices (0,3) and (3,3).
+    let dataset_id = store::datasets::insert(
+        &db,
+        "toks",
+        &["tok".to_string()],
+        &(0..6).map(|i| vec![format!("t{i}")]).collect::<Vec<_>>(),
+        0,
+    )
+    .await
+    .unwrap();
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+    let scenario_yaml = format!(
+        "version: 1\nname: unique-e2e\nsteps:\n  - id: \"01HX0000000000000000000023\"\n    name: hit\n    type: http\n    request:\n      method: GET\n      url: \"{}/hit?tok={{{{tok}}}}\"\n",
+        target.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 2 VUs, capacity 1 → 2 workers; unique → each worker consumes its 3 tokens once.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": {
+                "vus": 2, "duration_seconds": 3, "ramp_up_seconds": 0,
+                "data_binding": {
+                    "dataset_id": dataset_id,
+                    "policy": "unique",
+                    "mappings": [{"kind": "column", "var": "tok", "column": "tok"}]
+                }
+            },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
+    let mut last = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last = v["status"].as_str().unwrap_or("").to_string();
+        if last == "completed" || last == "failed" || last == "aborted" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last, "completed",
+        "unique fan-out should complete; got {last}"
+    );
+
+    // Uniqueness: the query is only `tok={value}` → strip the prefix.
+    // No token may appear twice across both workers.
+    let reqs = target.received_requests().await.unwrap();
+    let toks: Vec<String> = reqs
+        .iter()
+        .filter_map(|r| {
+            r.url
+                .query()
+                .and_then(|q| q.strip_prefix("tok="))
+                .map(|t| t.to_string())
+        })
+        .collect();
+    let distinct: std::collections::HashSet<&String> = toks.iter().collect();
+    assert!(!toks.is_empty(), "expected unique-bound requests, saw none");
+    assert_eq!(
+        toks.len(),
+        distinct.len(),
+        "unique policy must not reuse a row: {toks:?}"
+    );
+    // Every observed token is a real dataset token (mappings applied, no `{{tok}}`).
+    assert!(
+        toks.iter().all(|t| t.starts_with('t') && !t.contains('{')),
+        "unbound or malformed token leaked: {toks:?}"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
