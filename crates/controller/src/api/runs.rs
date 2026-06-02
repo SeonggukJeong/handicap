@@ -39,6 +39,21 @@ pub(crate) fn loop_cap_ok(cap: u32) -> bool {
     cap <= 10_000
 }
 
+/// run-level criteria 검증(spec §7). DB 불필요 — 순수. 위반은 BadRequest 메시지.
+pub(crate) fn validate_criteria(c: &crate::store::runs::Criteria) -> Result<(), String> {
+    if let Some(r) = c.max_error_rate {
+        if !r.is_finite() || !(0.0..=1.0).contains(&r) {
+            return Err("criteria.max_error_rate must be between 0.0 and 1.0".into());
+        }
+    }
+    if let Some(r) = c.min_rps {
+        if !r.is_finite() || r < 0.0 {
+            return Err("criteria.min_rps must be >= 0".into());
+        }
+    }
+    Ok(())
+}
+
 /// Validate a run/preset config against the live datasets (spec §6). Returns the
 /// validated dataset meta when a binding is present (so the caller resolves the
 /// binding from it without a second `get_meta` — TOCTOU guard, controller
@@ -57,6 +72,9 @@ pub(crate) async fn validate_run_config(
         return Err(ApiError::BadRequest(
             "loop_breakdown_cap must be <= 10000 (0 disables breakdown)".into(),
         ));
+    }
+    if let Some(c) = &profile.criteria {
+        validate_criteria(c).map_err(ApiError::BadRequest)?;
     }
     let Some(b) = &profile.data_binding else {
         return Ok(None);
@@ -389,6 +407,52 @@ mod tests {
         assert!(
             matches!(err, ApiError::BadRequest(_)),
             "rows < N must reject"
+        );
+    }
+
+    #[test]
+    fn validate_criteria_accepts_valid_and_empty() {
+        use crate::store::runs::Criteria;
+        assert!(validate_criteria(&Criteria::default()).is_ok());
+        assert!(
+            validate_criteria(&Criteria {
+                max_p95_ms: Some(500),
+                max_error_rate: Some(0.01),
+                min_rps: Some(100.0),
+                ..Default::default()
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_criteria_rejects_bad_error_rate() {
+        use crate::store::runs::Criteria;
+        assert!(
+            validate_criteria(&Criteria {
+                max_error_rate: Some(1.5),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_criteria(&Criteria {
+                max_error_rate: Some(f64::NAN),
+                ..Default::default()
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn validate_criteria_rejects_negative_rps() {
+        use crate::store::runs::Criteria;
+        assert!(
+            validate_criteria(&Criteria {
+                min_rps: Some(-1.0),
+                ..Default::default()
+            })
+            .is_err()
         );
     }
 
