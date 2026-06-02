@@ -54,9 +54,11 @@ pub async fn run_scenario(
     let failed = Arc::new(AtomicU32::new(0));
     let env = Arc::new(plan.env);
     let dataset = plan.data_binding.clone();
-    // One shared worker-local counter for IterSequential, created once per run.
+    // One shared worker-local counter for IterSequential and Unique, created once per run.
     let seq_counter = match dataset.as_ref().map(|d| d.policy) {
-        Some(BindingPolicy::IterSequential) => Some(Arc::new(AtomicU64::new(0))),
+        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
+            Some(Arc::new(AtomicU64::new(0)))
+        }
         _ => None,
     };
 
@@ -238,11 +240,14 @@ async fn run_vu(
         // Per-iteration flow vars: start fresh from the scenario base.
         let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
         if let Some(ds) = &dataset {
-            if !ds.rows.is_empty() {
-                let idx = ds.select_index(vu_id, iter_id, seq_counter.as_deref());
-                for (k, v) in &ds.rows[idx] {
-                    iter_vars.insert(k.clone(), v.clone());
+            match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+                Some(idx) => {
+                    for (k, v) in &ds.rows[idx] {
+                        iter_vars.insert(k.clone(), v.clone());
+                    }
                 }
+                // unique slice exhausted → stop this VU (clean Ok, not a failure).
+                None => break,
             }
         }
         let flow = execute_steps(
