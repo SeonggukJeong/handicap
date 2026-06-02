@@ -121,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
                             BindingPolicy::IterSequential
                         }
                         Ok(pb::data_binding::Policy::IterRandom) => BindingPolicy::IterRandom,
+                        Ok(pb::data_binding::Policy::Unique) => BindingPolicy::Unique,
                         _ => unreachable!(
                             "proto DataBinding.policy {} not mapped — controller/worker version mismatch",
                             b.policy
