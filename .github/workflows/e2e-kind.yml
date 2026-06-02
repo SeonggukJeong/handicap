@@ -39,7 +39,8 @@ jobs:
         run: |
           kubectl create ns handicap || true
           helm upgrade --install handicap deploy/helm/handicap \
-            --namespace handicap --wait --timeout 5m
+            --namespace handicap --wait --timeout 5m \
+            --set worker.capacityVus=25
       - name: Run e2e driver
         run: |
           kubectl apply -f deploy/kind/wiremock.yaml
@@ -52,6 +53,19 @@ jobs:
           WIREMOCK_ADMIN_BASE=http://127.0.0.1:19001 \
           WIREMOCK_CLUSTER_BASE=http://wiremock.handicap-test.svc.cluster.local:8080 \
           cargo run -p handicap-controller --bin e2e_kind_driver
+          echo "==> verifying Indexed Job fan-out (N=2)"
+          JOB="$(kubectl -n handicap get jobs -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}')"
+          [ -n "$JOB" ] || { echo "no worker Job found"; exit 1; }
+          MODE="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completionMode}')"
+          COMP="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completions}')"
+          SUCC=""
+          for _ in $(seq 1 15); do
+            SUCC="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.status.succeeded}')"
+            [ "$SUCC" = "2" ] && break
+            sleep 2
+          done
+          echo "job=$JOB mode=$MODE completions=$COMP succeeded=$SUCC"
+          [ "$MODE" = "Indexed" ] && [ "$COMP" = "2" ] && [ "$SUCC" = "2" ] || { echo "Indexed fan-out assertion failed"; exit 1; }
       - name: Diagnostics on failure
         if: failure()
         run: |

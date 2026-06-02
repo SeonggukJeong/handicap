@@ -6,7 +6,7 @@ NS="${NS:-handicap}"
 RELEASE="${RELEASE:-handicap}"
 WM_NS="handicap-test"
 
-"$ROOT/scripts/deploy-kind.sh"
+HELM_EXTRA_ARGS="--set worker.capacityVus=25" "$ROOT/scripts/deploy-kind.sh"
 
 echo "==> applying wiremock"
 kubectl apply -f "$ROOT/deploy/kind/wiremock.yaml"
@@ -54,5 +54,25 @@ HANDICAP_BASE=http://127.0.0.1:18080 \
 WIREMOCK_ADMIN_BASE=http://127.0.0.1:19001 \
 WIREMOCK_CLUSTER_BASE=http://wiremock.handicap-test.svc.cluster.local:8080 \
 cargo run -p handicap-controller --bin e2e_kind_driver
+
+echo "==> verifying Indexed Job fan-out (N=2)"
+JOB="$(kubectl -n "$NS" get jobs -l app.kubernetes.io/component=worker \
+  -o jsonpath='{.items[0].metadata.name}')"
+[[ -n "$JOB" ]] || { echo "no worker Job found"; exit 1; }
+MODE="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completionMode}')"
+COMP="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completions}')"
+# .status.succeeded lags Pod exit — the run reports Completed over gRPC just before
+# the kubelet/Job controller observe the Pods as Succeeded — so poll instead of
+# reading once (mode/completions are static at Job creation; only succeeded races).
+SUCC=""
+for _ in $(seq 1 15); do
+  SUCC="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.succeeded}')"
+  [[ "$SUCC" == "2" ]] && break
+  sleep 2
+done
+echo "    job=$JOB mode=$MODE completions=$COMP succeeded=$SUCC"
+[[ "$MODE" == "Indexed" ]] || { echo "expected Indexed Job, got '$MODE'"; exit 1; }
+[[ "$COMP" == "2" ]] || { echo "expected completions=2, got '$COMP'"; exit 1; }
+[[ "$SUCC" == "2" ]] || { echo "expected 2 succeeded Pods, got '$SUCC'"; exit 1; }
 
 echo "==> e2e-kind PASSED"

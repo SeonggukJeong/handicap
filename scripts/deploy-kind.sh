@@ -25,6 +25,7 @@ helm upgrade --install "$RELEASE" "$ROOT/deploy/helm/handicap" \
   --namespace "$NS" \
   --set image.repository="${IMAGE%:*}" \
   --set image.tag="${IMAGE#*:}" \
+  ${HELM_EXTRA_ARGS:-} \
   --wait --timeout 3m
 
 echo "==> Waiting for controller rollout"
