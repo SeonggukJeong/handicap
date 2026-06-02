@@ -77,7 +77,7 @@
 ### B1. Slice 8c (data-driven) 연기 항목
 - ~~**`unique` 바인딩 정책**~~ — **✅ 완료 (2026-06-02)**: 정적 disjoint 슬라이스(`shard_split`) + stop-VU on exhaust 방식. ADR-0022 갱신. 연기: `on_exhaust: fail` opt-in 토글.
 - **민감값 마스킹**: 데이터셋 값이 로그/리포트/UI에 노출되지 않게(비밀번호 컬럼 등). 8c는 값 비로깅까지만. → 보안 강화 슬라이스 또는 A4(리포트) 곁다리.
-- **JSON 숫자 주입**: `{"age": {{age}}}`에서 값을 string이 아닌 number로. 8a/8c는 문자열 leaf만 치환(`render_json_value`). → body 템플릿팅 후속(엔진 `executor.rs`).
+- ~~**JSON 숫자 주입**~~ — **✅ 완료 (2026-06-03, ADR-0029)**: flow `{{var:num}}`/`{{var:bool}}`(+`:str`) 캐스트 토큰으로 JSON body 문자열 leaf를 number/bool로 coerce(순수 단일 토큰 leaf만, leaf 레벨 파싱이라 `template.rs` 무변경, 엄격 실패=`CastFailed`, UI Zod 검증). 연기: `:json`/변수 기반 null·`${env}` 토큰 캐스트·form/raw/URL 캐스트.
 - **Helm `datasetMaxRows` 노출**: 8c가 추가한 `--dataset-max-rows` CLI 플래그를 Helm values로. → **A3** 또는 deploy 정리 시.
 - **바인딩 throughput 실측 벤치**: `just bench-throughput` 하네스가 `data_binding` profile을 못 구동(8c 이전 작성). 8c는 해석적 no-op 논증만. → 벤치 하네스 개선 + binding 시나리오 추가.
 

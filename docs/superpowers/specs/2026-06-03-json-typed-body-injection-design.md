@@ -1,6 +1,6 @@
 # JSON Body 타입 캐스트 주입 (`{{var:num}}` / `{{var:bool}}`) 설계 명세
 
-- **상태**: 작성 완료 (사용자 브레인스토밍 합의 반영)
+- **상태**: 구현 완료 (subagent-driven plan, 2026-06-03 머지). ADR-0029.
 - **날짜**: 2026-06-03
 - **대상 범위**: JSON body 문자열 leaf를 명시적 캐스트 토큰으로 **JSON 숫자/불리언으로 주입**. flow `{{var}}` 토큰 + JSON body 한정. 단일 구현 plan으로 출하 가능한 자족 기능.
 - **참조**: [Slice 8 data-driven 명세](2026-05-30-slice-8-data-driven-design.md) §1(8a 본문 템플릿팅)·§12(연기 항목 "JSON 숫자·타입 주입"), `docs/roadmap.md` "JSON 숫자 주입" 항목, ADR-0014(변수 표기 `{{var}}`/`${ENV}`/`${vu_id}`), ADR-0022(data-driven)
