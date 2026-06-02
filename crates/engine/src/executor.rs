@@ -49,8 +49,7 @@ fn render_json_value(
     use serde_json::Value;
     Ok(match value {
         Value::String(s) => match parse_cast_leaf(s) {
-            // :str 캐스트 = bare 토큰을 문자열로(접미사만 제거). 캐스트 없음/미지원
-            // keyword/혼합/env는 parse_cast_leaf가 None → 원문 s를 그대로 렌더.
+            // :str 캐스트 = bare 토큰을 문자열로(접미사만 제거).
             Some((bare, Cast::Str)) => Value::String(render(&bare, ctx)?),
             Some((bare, Cast::Num)) => {
                 let r = render(&bare, ctx)?; // strict: 미바인딩이면 여기서 UnknownVar
@@ -68,6 +67,7 @@ fn render_json_value(
                     value: r,
                 })?
             }
+            // 캐스트 없음/미지원 keyword/혼합/env → parse_cast_leaf None → 원문 s 그대로 렌더(byte-identical).
             None => Value::String(render(s, ctx)?),
         },
         Value::Array(items) => {
@@ -229,7 +229,19 @@ fn render_json_collecting(
 ) -> serde_json::Value {
     use serde_json::Value;
     match value {
-        Value::String(s) => Value::String(render_collecting(s, ctx, unbound)),
+        Value::String(s) => match parse_cast_leaf(s) {
+            Some((bare, Cast::Str)) => Value::String(render_collecting(&bare, ctx, unbound)),
+            Some((bare, Cast::Num)) => {
+                let r = render_collecting(&bare, ctx, unbound);
+                coerce_num(&r).unwrap_or(Value::String(r)) // best-effort: 실패 시 문자열
+            }
+            Some((bare, Cast::Bool)) => {
+                let r = render_collecting(&bare, ctx, unbound);
+                coerce_bool(&r).unwrap_or(Value::String(r))
+            }
+            // 캐스트 없음/미지원 keyword/혼합/env → parse_cast_leaf None → 원문 s 그대로 렌더(byte-identical).
+            None => Value::String(render_collecting(s, ctx, unbound)),
+        },
         Value::Array(items) => Value::Array(
             items
                 .iter()
@@ -945,6 +957,27 @@ mod tests {
             render_json_value(&input, &ctx),
             Err(EngineError::UnknownVar(_))
         ));
+    }
+
+    #[test]
+    fn trace_json_cast_coerces_and_keeps_string_on_failure() {
+        let vars: BTreeMap<String, String> =
+            [("age".into(), "30".into()), ("bad".into(), "abc".into())]
+                .into_iter()
+                .collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "age": "{{age:num}}", "bad": "{{bad:num}}" });
+        let mut unbound = Vec::new();
+        let out = render_json_collecting(&input, &ctx, &mut unbound);
+        // 성공한 캐스트는 number, 실패한 캐스트는 렌더된 문자열 유지(Err 없음).
+        assert_eq!(out, serde_json::json!({ "age": 30, "bad": "abc" }));
     }
 
     #[test]
