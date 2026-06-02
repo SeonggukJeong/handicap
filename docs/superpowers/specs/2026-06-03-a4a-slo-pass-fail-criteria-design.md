@@ -233,7 +233,7 @@ const Verdict = z.object({ passed: z.boolean(), criteria: z.array(CriterionResul
 - `ui/src/components/report/ReportView.tsx` — verdict 패널(+ 신규 PASS/FAIL 배지, SF-4).
 
 ### `criteria: None`을 추가해야 컴파일되는 `runs::Profile {…}` 리터럴 (SF-1)
-`Profile`이 `Default`를 파생하지 않아(`runs.rs:43`) `..Default::default()` 불가 — 비스프레드 신규 필드라 **아래 7곳 전부**에 `criteria: None` 명시 필요(전부 테스트 픽스처; pb::Profile 리터럴 `runs.rs:179`는 무관):
+`Profile`이 `Default`를 파생하지 않아(`runs.rs:43`) `..Default::default()` 불가 — 비스프레드 신규 필드라 **아래 7곳 전부**에 `criteria: None` 명시 필요(전부 테스트 픽스처; pb::Profile 리터럴 `api/runs.rs:179`는 proto라 무관):
 - `crates/controller/src/store/runs.rs:292`
 - `crates/controller/src/store/presets.rs:194`
 - `crates/controller/src/grpc/coordinator.rs:969` (`seed_run` 헬퍼)

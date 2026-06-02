@@ -426,7 +426,13 @@ Expected: FAIL — `ReportJson` 에 `verdict` 필드 없음.
     }
 ```
 
-> `run.status`는 `RunStatus`(`Copy` 파생, store/runs.rs:7)라 `match (run.status, …)`가 값으로 동작. `RunStatus`가 이미 `mod tests`에서 import돼 있고 build_report 본문에선 `use crate::store::runs::RunStatus;`가 파일 상단에 있는지 확인(없으면 `crate::store::runs::RunStatus::Completed`로 fully-qualify).
+**`RunStatus`를 프로덕션 스코프로 import** (SF-C): `report.rs:2`의 `use crate::store::runs::RunRow;`를 다음으로 바꾼다 —
+
+```rust
+use crate::store::runs::{RunRow, RunStatus};
+```
+
+(`RunStatus`는 현재 `mod tests` 안에서만 import돼 있어 build_report 본문에선 미해결 → 안 고치면 컴파일 실패.) `run.status`는 `RunStatus`(`Copy` 파생, store/runs.rs:6)라 `match (run.status, …)`가 값으로 동작.
 
 - [ ] **Step 4: 테스트 통과 확인**
 
@@ -680,21 +686,74 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 실패 테스트 추가** (`RunDialog.test.tsx`)
 
-기존 테스트의 render/mock 패턴(mutation/`createRun` mock, RTL `render`)을 그대로 따른다. 핵심 단언:
+기존 `RunDialog.test.tsx`의 하니스를 그대로 사용한다(`fetchMock`, `jsonResponse`, `renderDialog`, `userEvent`는 파일 상단에 이미 정의됨 — "posts env entries and ramp_up_seconds on Run" 테스트가 표준 패턴). `describe(...)` 블록 안에 두 테스트 추가:
 
 ```ts
   it("includes criteria in the run POST body with error_rate as a fraction", async () => {
-    // 기존 테스트처럼 RunDialog 렌더 + createRun(or mutation) mock.
-    // p95 입력에 "500", Max error rate (%) 입력에 "1" 입력 후 Run 클릭.
-    // 단언: 전달된 profile.criteria === { max_p95_ms: 500, max_error_rate: 0.01 }
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.type(screen.getByLabelText(/Max p95/), "500");
+    await user.type(screen.getByLabelText(/Max error rate/), "1");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.criteria).toEqual({ max_p95_ms: 500, max_error_rate: 0.01 });
   });
 
   it("omits criteria when all SLO inputs are empty", async () => {
-    // SLO 입력 비운 채 Run → profile.criteria === undefined
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R2",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R2"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.criteria).toBeUndefined();
   });
 ```
 
-라벨 텍스트는 Step 3에서 추가하는 입력 라벨과 일치시킨다(예: `Max p95 (ms)`, `Max error rate (%)`). mock 호출 인자에서 `profile.criteria`를 꺼내 단언.
+> 단언은 **라벨이 아니라 POST 본문**(`body.profile.criteria`)으로 한다(라벨 문구 변경에 강건, SF-A/N-2). `getByLabelText(/Max p95/)`는 Step 3의 `<label>Max p95 (ms)<input/></label>` 래핑 라벨과 매칭. `Number("1")/100 = 0.01`, `JSON.stringify`가 `undefined` 키를 생략하므로 빈 입력 → `criteria` 키 자체가 본문에서 빠진다.
 
 - [ ] **Step 2: 테스트 실패 확인**
 
@@ -940,15 +999,17 @@ Expected: PASS.
 
 - [ ] **Step 5: ReportView에 "verdict 없으면 패널 미렌더" 단언 추가** (`ReportView.test.tsx`)
 
-기존 ReportView 테스트의 report fixture(verdict 키 없음)를 사용해 한 줄 추가:
+`ReportView.test.tsx`엔 verdict 키가 없는 `FIXTURE: Report`와 `render`/`screen` import가 이미 있다. 그 `FIXTURE`로 렌더하는 테스트를 추가(SF-B — `render(...)` 호출 필수, 안 하면 vacuous):
 
 ```ts
   it("renders no SLO panel when report has no verdict", () => {
-    // 기존 테스트와 동일하게 ReportView 렌더(verdict 없는 fixture).
+    render(<ReportView report={FIXTURE} />);
     expect(screen.queryByText("PASS")).not.toBeInTheDocument();
     expect(screen.queryByText("FAIL")).not.toBeInTheDocument();
   });
 ```
+
+> 기존 테스트가 `render`를 QueryClientProvider 등으로 감싼다면 동일 래퍼를 쓴다(그 파일의 다른 `it`을 그대로 미러).
 
 Run: `cd ui && pnpm vitest run src/components/report/__tests__/ReportView.test.tsx 2>&1 | tail`
 Expected: PASS.
