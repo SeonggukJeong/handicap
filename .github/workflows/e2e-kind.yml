@@ -49,23 +49,31 @@ jobs:
           kubectl -n handicap-test port-forward svc/wiremock 19001:8080 &
           for _ in $(seq 1 30); do curl -sf http://127.0.0.1:18080/api/health && break; sleep 1; done
           for _ in $(seq 1 30); do curl -sf http://127.0.0.1:19001/__admin/health && break; sleep 1; done
+          # Background the driver so we can observe the worker Job WHILE the run is
+          # live: A3c deletes the Job on completion, so a post-run assertion races
+          # (and loses) against cleanup. completionMode/completions are static at
+          # Job creation → capturing them mid-run is race-free; driver success then
+          # proves both N=2 workers registered + completed (A3a completion gate).
           HANDICAP_BASE=http://127.0.0.1:18080 \
           WIREMOCK_ADMIN_BASE=http://127.0.0.1:19001 \
           WIREMOCK_CLUSTER_BASE=http://wiremock.handicap-test.svc.cluster.local:8080 \
-          cargo run -p handicap-controller --bin e2e_kind_driver
-          echo "==> verifying Indexed Job fan-out (N=2)"
-          JOB="$(kubectl -n handicap get jobs -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}')"
-          [ -n "$JOB" ] || { echo "no worker Job found"; exit 1; }
-          MODE="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completionMode}')"
-          COMP="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completions}')"
-          SUCC=""
-          for _ in $(seq 1 15); do
-            SUCC="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.status.succeeded}')"
-            [ "$SUCC" = "2" ] && break
-            sleep 2
+          cargo run -p handicap-controller --bin e2e_kind_driver &
+          DRIVER_PID=$!
+          echo "==> verifying Indexed Job fan-out (N=2) while run is active"
+          MODE=""; COMP=""
+          for _ in $(seq 1 180); do
+            JOB="$(kubectl -n handicap get jobs -l app.kubernetes.io/component=worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            if [ -n "$JOB" ]; then
+              MODE="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completionMode}' 2>/dev/null || true)"
+              COMP="$(kubectl -n handicap get job "$JOB" -o jsonpath='{.spec.completions}' 2>/dev/null || true)"
+              [ "$MODE" = "Indexed" ] && [ "$COMP" = "2" ] && break
+            fi
+            kill -0 "$DRIVER_PID" 2>/dev/null || break
+            sleep 1
           done
-          echo "job=$JOB mode=$MODE completions=$COMP succeeded=$SUCC"
-          [ "$MODE" = "Indexed" ] && [ "$COMP" = "2" ] && [ "$SUCC" = "2" ] || { echo "Indexed fan-out assertion failed"; exit 1; }
+          echo "job=${JOB:-<none>} mode=${MODE:-<none>} completions=${COMP:-<none>}"
+          [ "$MODE" = "Indexed" ] && [ "$COMP" = "2" ] || { echo "Indexed fan-out assertion failed"; kill "$DRIVER_PID" 2>/dev/null || true; exit 1; }
+          wait "$DRIVER_PID" || { echo "e2e driver failed"; exit 1; }
       - name: Diagnostics on failure
         if: failure()
         run: |

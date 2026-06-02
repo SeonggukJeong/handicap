@@ -49,30 +49,38 @@ for _ in $(seq 1 30); do
 done
 curl -sf http://127.0.0.1:19001/__admin/health >/dev/null || { echo "wiremock port-forward not ready"; exit 1; }
 
-echo "==> running e2e driver"
+# Run the driver in the BACKGROUND so we can observe the worker Job WHILE the run
+# is live. A3c wires dispatcher.cleanup() to delete the Job the instant the run
+# reports Completed, so asserting after the driver returns would race (and usually
+# lose) against Job deletion. The Job's completionMode/completions are static at
+# creation, so capturing them mid-run is race-free; the driver succeeding then
+# proves all N=2 workers registered AND completed (the A3a completion gate).
+echo "==> running e2e driver (background; asserting Job fan-out while run is live)"
 HANDICAP_BASE=http://127.0.0.1:18080 \
 WIREMOCK_ADMIN_BASE=http://127.0.0.1:19001 \
 WIREMOCK_CLUSTER_BASE=http://wiremock.handicap-test.svc.cluster.local:8080 \
-cargo run -p handicap-controller --bin e2e_kind_driver
+cargo run -p handicap-controller --bin e2e_kind_driver &
+DRIVER_PID=$!
 
-echo "==> verifying Indexed Job fan-out (N=2)"
-JOB="$(kubectl -n "$NS" get jobs -l app.kubernetes.io/component=worker \
-  -o jsonpath='{.items[0].metadata.name}')"
-[[ -n "$JOB" ]] || { echo "no worker Job found"; exit 1; }
-MODE="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completionMode}')"
-COMP="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completions}')"
-# .status.succeeded lags Pod exit — the run reports Completed over gRPC just before
-# the kubelet/Job controller observe the Pods as Succeeded — so poll instead of
-# reading once (mode/completions are static at Job creation; only succeeded races).
-SUCC=""
-for _ in $(seq 1 15); do
-  SUCC="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.succeeded}')"
-  [[ "$SUCC" == "2" ]] && break
-  sleep 2
+echo "==> verifying Indexed Job fan-out (N=2) while run is active"
+MODE="" COMP=""
+# Poll across the build+run window; break early if the driver exits (Job gone).
+for _ in $(seq 1 180); do
+  JOB="$(kubectl -n "$NS" get jobs -l app.kubernetes.io/component=worker \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [[ -n "$JOB" ]]; then
+    MODE="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completionMode}' 2>/dev/null || true)"
+    COMP="$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.spec.completions}' 2>/dev/null || true)"
+    [[ "$MODE" == "Indexed" && "$COMP" == "2" ]] && break
+  fi
+  kill -0 "$DRIVER_PID" 2>/dev/null || break   # driver finished → Job already cleaned up
+  sleep 1
 done
-echo "    job=$JOB mode=$MODE completions=$COMP succeeded=$SUCC"
-[[ "$MODE" == "Indexed" ]] || { echo "expected Indexed Job, got '$MODE'"; exit 1; }
-[[ "$COMP" == "2" ]] || { echo "expected completions=2, got '$COMP'"; exit 1; }
-[[ "$SUCC" == "2" ]] || { echo "expected 2 succeeded Pods, got '$SUCC'"; exit 1; }
+echo "    job=${JOB:-<none>} mode=${MODE:-<none>} completions=${COMP:-<none>}"
+[[ "$MODE" == "Indexed" ]] || { echo "expected Indexed Job, got '${MODE:-<none>}'"; kill "$DRIVER_PID" 2>/dev/null || true; exit 1; }
+[[ "$COMP" == "2" ]] || { echo "expected completions=2, got '${COMP:-<none>}'"; kill "$DRIVER_PID" 2>/dev/null || true; exit 1; }
+
+# Driver success ⟹ both N=2 workers registered and reported Completed ⟹ fan-out ran.
+wait "$DRIVER_PID" || { echo "e2e driver failed"; exit 1; }
 
 echo "==> e2e-kind PASSED"
