@@ -34,12 +34,22 @@ export const DataBindingSchema = z.object({
 });
 export type DataBinding = z.infer<typeof DataBindingSchema>;
 
+export const CriteriaSchema = z.object({
+  max_p50_ms: z.number().int().nonnegative().optional(),
+  max_p95_ms: z.number().int().nonnegative().optional(),
+  max_p99_ms: z.number().int().nonnegative().optional(),
+  max_error_rate: z.number().min(0).max(1).optional(), // 분수 (UI 입출력은 %)
+  min_rps: z.number().nonnegative().optional(),
+});
+export type Criteria = z.infer<typeof CriteriaSchema>;
+
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
   data_binding: DataBindingSchema.nullish(),
+  criteria: CriteriaSchema.nullish(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -159,6 +169,19 @@ export const ReportRunSchema = z
   })
   .strict();
 
+export const CriterionResultSchema = z.object({
+  metric: z.string(),
+  direction: z.enum(["max", "min"]),
+  threshold: z.number(),
+  actual: z.number(),
+  passed: z.boolean(),
+});
+export const VerdictSchema = z.object({
+  passed: z.boolean(),
+  criteria: z.array(CriterionResultSchema),
+});
+export type Verdict = z.infer<typeof VerdictSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -168,6 +191,7 @@ export const ReportSchema = z
     steps: z.array(ReportStepSchema),
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),
+    verdict: VerdictSchema.nullish(),
   })
   .strict();
 

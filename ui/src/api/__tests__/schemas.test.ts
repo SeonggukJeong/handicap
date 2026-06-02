@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { IfBreakdownSchema, ReportSchema, RunSchema } from "../schemas";
+import {
+  IfBreakdownSchema,
+  ProfileSchema,
+  ReportSchema,
+  RunSchema,
+  VerdictSchema,
+} from "../schemas";
 
 describe("ReportSchema", () => {
   it("parses a minimal valid bundle", () => {
@@ -129,5 +135,71 @@ describe("RunSchema.message", () => {
   it("accepts an absent message field (backward compat)", () => {
     const parsed = RunSchema.parse(base);
     expect(parsed.message).toBeUndefined();
+  });
+});
+
+describe("ProfileSchema.criteria", () => {
+  it("carries criteria, undefined when absent", () => {
+    const p = ProfileSchema.parse({
+      vus: 1,
+      duration_seconds: 2,
+      criteria: { max_p95_ms: 500, max_error_rate: 0.01 },
+    });
+    expect(p.criteria?.max_p95_ms).toBe(500);
+    expect(ProfileSchema.parse({ vus: 1, duration_seconds: 2 }).criteria).toBeUndefined();
+  });
+});
+
+describe("ReportSchema.verdict", () => {
+  const base = {
+    run: {
+      id: "r1",
+      scenario_id: "s1",
+      status: "completed",
+      profile: {},
+      env: {},
+      started_at: 100,
+      ended_at: 102,
+      created_at: 99,
+    },
+    scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+    summary: {
+      count: 0,
+      errors: 0,
+      rps: 0,
+      duration_seconds: 0,
+      p50_ms: 0,
+      p95_ms: 0,
+      p99_ms: 0,
+    },
+    windows: [],
+    steps: [],
+    status_distribution: {},
+  };
+
+  it("tolerates absence of verdict", () => {
+    expect(ReportSchema.parse(base).verdict).toBeUndefined();
+  });
+
+  it("accepts verdict and parses criteria array", () => {
+    const withV = ReportSchema.parse({
+      ...base,
+      verdict: {
+        passed: false,
+        criteria: [
+          { metric: "p95_ms", direction: "max", threshold: 500, actual: 800, passed: false },
+        ],
+      },
+    });
+    expect(withV.verdict?.passed).toBe(false);
+    expect(withV.verdict?.criteria[0].metric).toBe("p95_ms");
+  });
+
+  it("VerdictSchema is exported and parses standalone", () => {
+    const v = VerdictSchema.parse({
+      passed: true,
+      criteria: [{ metric: "rps", direction: "min", threshold: 100, actual: 200, passed: true }],
+    });
+    expect(v.passed).toBe(true);
   });
 });
