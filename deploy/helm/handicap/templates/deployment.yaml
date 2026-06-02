@@ -47,6 +47,8 @@ spec:
             - "{{ include "handicap.workerImage" . }}"
             - "--controller-grpc-url"
             - "http://{{ include "handicap.controller.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.controller.grpc.port }}"
+            - "--worker-capacity-vus"
+            - "{{ .Values.worker.capacityVus }}"
           ports:
             - name: rest
               containerPort: {{ .Values.controller.rest.port }}

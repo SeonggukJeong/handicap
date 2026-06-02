@@ -163,6 +163,8 @@ spec:
             - "handicap:dev"
             - "--controller-grpc-url"
             - "http://handicap-handicap-controller.handicap.svc.cluster.local:8081"
+            - "--worker-capacity-vus"
+            - "2000"
           ports:
             - name: rest
               containerPort: 8080

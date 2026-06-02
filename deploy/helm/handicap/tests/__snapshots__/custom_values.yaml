@@ -164,6 +164,8 @@ spec:
             - "ghcr.io/example/handicap-worker:1.2.3"
             - "--controller-grpc-url"
             - "http://handicap-handicap-controller.load-testing.svc.cluster.local:8081"
+            - "--worker-capacity-vus"
+            - "2000"
           ports:
             - name: rest
               containerPort: 8080

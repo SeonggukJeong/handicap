@@ -24,6 +24,10 @@ worker:
   # The image used by Jobs the controller creates. Defaults to the same image
   # as the controller — single image, two binaries.
   image: ""
+  # Per-worker VU capacity. The controller fans a run out to
+  # N = ceil(total_vus / capacityVus) Indexed-Job Pods. Default 2000 → most runs
+  # are single-worker. Lower it to force fan-out. (A3c spec §2.1, §7.2.)
+  capacityVus: 2000
 
 persistence:
   enabled: true
