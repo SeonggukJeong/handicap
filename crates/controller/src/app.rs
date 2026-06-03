@@ -39,6 +39,14 @@ pub fn router(state: AppState) -> Router {
             get(scenarios_api::get).put(scenarios_api::update),
         )
         .route("/scenarios/{id}/runs", get(runs_api::list_for_scenario))
+        .route(
+            "/scenarios/{id}/runs/compare.csv",
+            get(runs_api::compare_csv),
+        )
+        .route(
+            "/scenarios/{id}/runs/compare.xlsx",
+            get(runs_api::compare_xlsx),
+        )
         .route("/runs", post(runs_api::create))
         .route("/runs/{id}", get(runs_api::get))
         .route("/runs/{id}/metrics", get(runs_api::metrics))

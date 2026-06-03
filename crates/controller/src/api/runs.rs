@@ -323,6 +323,87 @@ pub async fn report_xlsx(
     ))
 }
 
+#[derive(serde::Deserialize)]
+pub struct CompareParams {
+    pub run_ids: String,
+    pub baseline: String,
+}
+
+const MAX_COMPARE_RUNS: usize = 50;
+
+/// Validate and load the comparison set. `run_ids` is comma-separated, order
+/// preserved. Returns `(reports, baseline_idx)` where `baseline_idx` is the
+/// position of `params.baseline` in the ordered list.
+async fn resolve_comparison(
+    state: &AppState,
+    scenario_id: &str,
+    params: &CompareParams,
+) -> Result<(Vec<crate::report::ReportJson>, usize), ApiError> {
+    let _ = scenarios::get(&state.db, scenario_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let ids: Vec<String> = params
+        .run_ids
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if ids.len() < 2 {
+        return Err(ApiError::BadRequest(
+            "comparison needs at least 2 runs".into(),
+        ));
+    }
+    if ids.len() > MAX_COMPARE_RUNS {
+        return Err(ApiError::BadRequest(format!(
+            "at most {MAX_COMPARE_RUNS} runs"
+        )));
+    }
+    let baseline_idx = ids
+        .iter()
+        .position(|id| id == &params.baseline)
+        .ok_or_else(|| ApiError::BadRequest("baseline must be one of run_ids".into()))?;
+    let mut reports = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let row = runs::get(&state.db, id).await?.ok_or(ApiError::NotFound)?;
+        if row.scenario_id != scenario_id {
+            return Err(ApiError::BadRequest(format!(
+                "run {id} is not in this scenario"
+            )));
+        }
+        ensure_terminal(&row)?;
+        reports.push(build_report_for_run(&state.db, id).await?);
+    }
+    Ok((reports, baseline_idx))
+}
+
+pub async fn compare_csv(
+    State(state): State<AppState>,
+    Path(scenario_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<CompareParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let (reports, base) = resolve_comparison(&state, &scenario_id, &params).await?;
+    let bytes = crate::export::comparison_to_csv(&reports, base);
+    Ok(file_response(
+        "text/csv; charset=utf-8",
+        "comparison.csv",
+        bytes,
+    ))
+}
+
+pub async fn compare_xlsx(
+    State(state): State<AppState>,
+    Path(scenario_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<CompareParams>,
+) -> Result<axum::response::Response, ApiError> {
+    let (reports, base) = resolve_comparison(&state, &scenario_id, &params).await?;
+    let bytes = crate::export::comparison_to_xlsx(&reports, base);
+    Ok(file_response(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "comparison.xlsx",
+        bytes,
+    ))
+}
+
 #[derive(Debug, Serialize)]
 pub struct RunListResponse {
     pub runs: Vec<RunResponse>,

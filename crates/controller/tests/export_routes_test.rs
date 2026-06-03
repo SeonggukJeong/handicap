@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
+use handicap_controller::dispatcher::NoopDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::store::metrics::{MetricRow, insert_batch};
 use handicap_controller::store::runs::{Profile, RunStatus};
@@ -16,10 +16,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
     app::router(app::AppState {
         db,
         coord,
-        dispatcher: Arc::new(SubprocessDispatcher::new(
-            "/nonexistent".to_string(),
-            "127.0.0.1:0".parse().unwrap(),
-        )),
+        dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
     })
@@ -226,5 +223,217 @@ async fn export_of_nonterminal_run_is_rejected() {
         resp.status(),
         StatusCode::BAD_REQUEST,
         "non-terminal run export must return 400"
+    );
+}
+
+/// Seed a scenario with two completed runs, each with metric rows.
+/// Returns `(scenario_id, run_id_a, run_id_b)`.
+async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, String) {
+    let scenario_id = "S-compare-test";
+    let yaml = concat!(
+        "version: 1\n",
+        "name: compare-test\n",
+        "steps:\n",
+        "  - id: stepC\n",
+        "    name: check\n",
+        "    type: http\n",
+        "    request:\n",
+        "      method: GET\n",
+        "      url: http://x/check\n",
+    );
+
+    sqlx::query(
+        "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+         VALUES(?,?,?,?,?,?)",
+    )
+    .bind(scenario_id)
+    .bind("compare-test")
+    .bind(yaml)
+    .bind(1_i64)
+    .bind(1_i64)
+    .bind(1_i64)
+    .execute(db)
+    .await
+    .unwrap();
+
+    let profile = Profile {
+        vus: 1,
+        ramp_up_seconds: 0,
+        duration_seconds: 2,
+        loop_breakdown_cap: 256,
+        data_binding: None,
+        criteria: None,
+    };
+
+    // Run A
+    let run_a = store::runs::insert(db, scenario_id, yaml, &profile, &serde_json::json!({}))
+        .await
+        .unwrap();
+    store::runs::set_status(db, &run_a.id, RunStatus::Completed, Some(100), Some(102))
+        .await
+        .unwrap();
+    let metrics_a = vec![MetricRow {
+        run_id: run_a.id.clone(),
+        ts_second: 100,
+        step_id: "stepC".to_string(),
+        worker_id: "".to_string(),
+        count: 10,
+        error_count: 1,
+        hdr_histogram: make_hdr_bytes(&[10_000, 20_000]),
+        status_counts: r#"{"200":9,"500":1}"#.to_string(),
+    }];
+    insert_batch(db, &metrics_a).await.unwrap();
+
+    // Run B
+    let run_b = store::runs::insert(db, scenario_id, yaml, &profile, &serde_json::json!({}))
+        .await
+        .unwrap();
+    store::runs::set_status(db, &run_b.id, RunStatus::Completed, Some(200), Some(202))
+        .await
+        .unwrap();
+    let metrics_b = vec![MetricRow {
+        run_id: run_b.id.clone(),
+        ts_second: 200,
+        step_id: "stepC".to_string(),
+        worker_id: "".to_string(),
+        count: 15,
+        error_count: 0,
+        hdr_histogram: make_hdr_bytes(&[5_000, 8_000, 12_000]),
+        status_counts: r#"{"200":15}"#.to_string(),
+    }];
+    insert_batch(db, &metrics_b).await.unwrap();
+
+    (scenario_id.to_string(), run_a.id, run_b.id)
+}
+
+#[tokio::test]
+async fn comparison_csv_validates_and_returns() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (s, a, b) = seed_two_runs(&db).await;
+    let app = make_app(db);
+
+    // 1) 200 OK — valid 2-run comparison with A as baseline.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!(
+                    "/api/scenarios/{s}/runs/compare.csv?run_ids={a},{b}&baseline={a}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "expected 200 for valid comparison"
+    );
+
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .expect("content-type header present")
+        .to_str()
+        .unwrap();
+    assert!(
+        content_type.starts_with("text/csv"),
+        "expected text/csv, got: {content_type}"
+    );
+
+    let content_disposition = resp
+        .headers()
+        .get("content-disposition")
+        .expect("content-disposition header present")
+        .to_str()
+        .unwrap();
+    assert!(
+        content_disposition.contains("attachment"),
+        "expected attachment in content-disposition, got: {content_disposition}"
+    );
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    let first_line = text
+        .lines()
+        .next()
+        .expect("CSV must have at least one line");
+    // Header must contain "metric", the baseline run id annotated with " (base)", and B's run id.
+    assert!(
+        first_line.contains("metric"),
+        "CSV header missing 'metric': {first_line}"
+    );
+    assert!(
+        first_line.contains(&format!("{a} (base)")),
+        "CSV header missing baseline annotation '{a} (base)': {first_line}"
+    );
+    assert!(
+        first_line.contains(b.as_str()),
+        "CSV header missing run B id '{b}': {first_line}"
+    );
+
+    // 2) 400 — only 1 run_id provided (need >= 2).
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!(
+                    "/api/scenarios/{s}/runs/compare.csv?run_ids={a}&baseline={a}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "single run_id must return 400"
+    );
+
+    // 3) 400 — baseline not in run_ids.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!(
+                    "/api/scenarios/{s}/runs/compare.csv?run_ids={a},{b}&baseline=ZZZZZ"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "baseline not in run_ids must return 400"
+    );
+
+    // 4) 404 — a non-existent run id in run_ids.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!(
+                    "/api/scenarios/{s}/runs/compare.csv?run_ids={a},NONEXISTENT&baseline={a}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "non-existent run id must return 404"
     );
 }
