@@ -24,6 +24,8 @@ const result: CompareResult = {
 };
 
 describe("CompareMatrix", () => {
+  it.todo("single table: all run-value columns align under their header buttons");
+
   it("renders sections, fires baseline change, shows mismatch banner", async () => {
     const user = userEvent.setup();
     const onBaselineChange = vi.fn();

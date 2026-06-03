@@ -55,43 +55,55 @@ function CellContent({ cell }: { cell: Cell }) {
   );
 }
 
-type SectionProps = {
+function SectionRows({
+  title,
+  rows,
+  runCount,
+}: {
   title: string;
   rows: CompareRow[];
   runCount: number;
-};
-
-function Section({ title, rows, runCount }: SectionProps) {
+}) {
   if (rows.length === 0) return null;
   return (
-    <section aria-label={title} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <table className="min-w-full text-sm">
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.metric + row.label} className="border-b border-slate-100">
-              <td className="py-2 pr-4 font-medium text-slate-700 break-all" title={row.label}>
-                {row.label}
-              </td>
-              {row.cells.slice(0, runCount).map((cell, i) => (
-                <td key={i} className="py-2 pr-4">
-                  <CellContent cell={cell} />
-                </td>
-              ))}
-            </tr>
+    <>
+      <tr>
+        <th
+          colSpan={runCount + 1}
+          className="py-2 px-3 text-left text-sm font-semibold text-slate-600 bg-slate-50 dark:bg-slate-800 dark:text-slate-300 border-t border-slate-200 dark:border-slate-700"
+        >
+          {title}
+        </th>
+      </tr>
+      {rows.map((row) => (
+        <tr
+          key={row.metric + row.label}
+          className="border-b border-slate-100 dark:border-slate-800"
+        >
+          <td
+            className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300 break-all"
+            title={row.label}
+          >
+            {row.label}
+          </td>
+          {row.cells.slice(0, runCount).map((cell, i) => (
+            <td key={i} className="py-2 pr-4 text-sm">
+              <CellContent cell={cell} />
+            </td>
           ))}
-        </tbody>
-      </table>
-    </section>
+        </tr>
+      ))}
+    </>
   );
 }
 
 export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
   const { runIds, baselineIdx, summary, steps, status, verdict, stepMismatch } = result;
+  const colCount = runIds.length;
 
   return (
     <div>
-      {/* Step mismatch banner */}
+      {/* Step mismatch banner — stays above the table */}
       {stepMismatch && (
         <p
           role="status"
@@ -101,56 +113,68 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
         </p>
       )}
 
-      {/* Column headers — clickable to switch baseline */}
-      <div className="mb-4">
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-slate-600">
-            <tr>
-              <th className="py-2 pr-4 font-medium" />
-              {runIds.map((runId, i) => (
-                <th key={runId} className="py-2 pr-4 font-medium">
-                  <button
-                    type="button"
-                    onClick={() => onBaselineChange(runId)}
-                    className="hover:underline text-left"
-                  >
-                    {labels[runId] ?? runId}
-                    {i === baselineIdx && (
-                      <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
-                    )}
-                  </button>
-                </th>
-              ))}
-            </tr>
-          </thead>
-        </table>
-      </div>
+      {/*
+       * Single table: one colgroup drives all column widths so that every
+       * section's value cells sit directly under the run-header buttons.
+       */}
+      <table className="min-w-full text-sm">
+        <colgroup>
+          {/* label column */}
+          <col className="w-48" />
+          {/* one column per run */}
+          {runIds.map((id) => (
+            <col key={id} />
+          ))}
+        </colgroup>
 
-      {/* Verdict row */}
-      <section aria-label="Verdict" className="mb-4">
-        <table className="min-w-full text-sm">
-          <tbody>
-            <tr className="border-b border-slate-100">
-              <td className="py-2 pr-4 font-medium text-slate-700">판정</td>
-              {verdict.passed.map((p, i) => (
-                <td key={i} className="py-2 pr-4">
-                  {p === null ? (
-                    "—"
-                  ) : p ? (
-                    <span className="text-green-600 font-semibold">PASS</span>
-                  ) : (
-                    <span className="text-red-600 font-semibold">FAIL</span>
+        {/* Column headers — clickable to switch baseline */}
+        <thead className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-600 dark:text-slate-400">
+          <tr>
+            <th className="py-2 pr-4 font-medium" />
+            {runIds.map((runId, i) => (
+              <th key={runId} className="py-2 pr-4 font-medium">
+                <button
+                  type="button"
+                  onClick={() => onBaselineChange(runId)}
+                  className="hover:underline text-left"
+                >
+                  {labels[runId] ?? runId}
+                  {i === baselineIdx && (
+                    <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
                   )}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </section>
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
 
-      <Section title="Summary" rows={summary} runCount={runIds.length} />
-      <Section title="Steps" rows={steps} runCount={runIds.length} />
-      <Section title="Status" rows={status} runCount={runIds.length} />
+        <tbody>
+          {/* Verdict row */}
+          <tr className="border-b border-slate-100 dark:border-slate-800">
+            <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">판정</td>
+            {verdict.passed.map((p, i) => (
+              <td key={i} className="py-2 pr-4">
+                {p === null ? (
+                  "—"
+                ) : p ? (
+                  <span className="text-green-600 font-semibold">PASS</span>
+                ) : (
+                  <span className="text-red-600 font-semibold">FAIL</span>
+                )}
+              </td>
+            ))}
+          </tr>
+
+          {/* Summary section rows with spanning sub-header */}
+          <SectionRows title="Summary" rows={summary} runCount={colCount} />
+
+          {/* Steps section rows with spanning sub-header */}
+          <SectionRows title="Steps" rows={steps} runCount={colCount} />
+
+          {/* Status section rows with spanning sub-header */}
+          <SectionRows title="Status" rows={status} runCount={colCount} />
+        </tbody>
+      </table>
     </div>
   );
 }
