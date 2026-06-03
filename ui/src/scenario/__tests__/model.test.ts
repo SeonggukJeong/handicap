@@ -3,6 +3,7 @@ import {
   ScenarioModel,
   StepModel,
   ExtractModel,
+  RequestModel,
   isLoopStep,
   isHttpStep,
   isIfStep,
@@ -111,6 +112,22 @@ describe("ScenarioModel", () => {
     expect(() => ScenarioModel.parse(s)).not.toThrow();
     expect(s.steps).toHaveLength(0);
     expect(s.cookie_jar).toBe("auto");
+  });
+});
+
+describe("RequestModel", () => {
+  it("RequestModel accepts an optional disabled sidecar", () => {
+    const r = {
+      method: "GET" as const,
+      url: "https://api/x",
+      headers: {},
+      disabled: { headers: { "X-Off": "h" } },
+    };
+    expect(RequestModel.parse(r).disabled).toEqual({ headers: { "X-Off": "h" } });
+    // absent disabled stays undefined (byte-identical pre-feature shape)
+    expect(
+      RequestModel.parse({ method: "GET", url: "https://api/x", headers: {} }).disabled,
+    ).toBeUndefined();
   });
 });
 

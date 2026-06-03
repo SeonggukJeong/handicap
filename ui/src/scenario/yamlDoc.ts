@@ -474,6 +474,7 @@ function normalizeRequest(r: Record<string, unknown>): unknown {
     url: r.url,
     headers: r.headers ?? {},
     ...(body === undefined ? {} : { body }),
+    ...(r.disabled === undefined || r.disabled === null ? {} : { disabled: r.disabled }),
   };
 }
 

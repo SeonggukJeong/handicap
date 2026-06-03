@@ -26,6 +26,13 @@ export const RequestModel = z
     url: z.string().min(1),
     headers: z.record(z.string(), z.string()).default({}),
     body: BodyModel.optional(),
+    disabled: z
+      .object({
+        headers: z.record(z.string(), z.string()).optional(),
+        form: z.record(z.string(), z.string()).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type RequestSpec = z.infer<typeof RequestModel>;

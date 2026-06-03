@@ -63,6 +63,36 @@ describe("parseScenarioDoc", () => {
     const out = parseScenarioDoc("version: 1\nname: ''\nsteps: []\n");
     expect("error" in out).toBe(true);
   });
+
+  it("preserves request.disabled (headers + form) into the parsed model", () => {
+    const yaml = `version: 1
+name: t
+steps:
+  - id: "01HX0000000000000000000001"
+    name: s
+    type: http
+    request:
+      method: POST
+      url: https://api/x
+      headers:
+        A: "1"
+      body:
+        form:
+          keep: "1"
+      disabled:
+        headers:
+          X-Off: "h"
+        form:
+          skip: "2"
+`;
+    const out = parseScenarioDoc(yaml);
+    if (!("model" in out)) throw new Error(out.error);
+    const step = out.model.steps[0];
+    if (step.type !== "http") throw new Error("expected http step");
+    expect(step.request.disabled?.headers).toEqual({ "X-Off": "h" });
+    expect(step.request.disabled?.form).toEqual({ skip: "2" });
+    expect(step.request.headers).toEqual({ A: "1" }); // active unaffected
+  });
 });
 
 describe("applyEdit — setStepField", () => {

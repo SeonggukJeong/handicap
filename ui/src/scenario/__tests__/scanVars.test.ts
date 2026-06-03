@@ -195,6 +195,28 @@ describe("scanFlowVars", () => {
     expect([...scanFlowVars(s)].sort()).toEqual(["deep", "deep2"]);
   });
 
+  it("excludes {{vars}} that live in disabled rows", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "s",
+        type: "http",
+        request: {
+          method: "GET" as const,
+          url: "https://api/{{active}}",
+          headers: {},
+          disabled: { headers: { "X-Off": "{{ghost}}" }, form: { skip: "{{ghost2}}" } },
+        },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    const vars = scanFlowVars(s);
+    expect(vars.has("active")).toBe(true);
+    expect(vars.has("ghost")).toBe(false);
+    expect(vars.has("ghost2")).toBe(false);
+  });
+
   it("ignores ${ENV} and system tokens", () => {
     const s = scenario([
       {
