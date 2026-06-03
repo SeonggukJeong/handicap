@@ -143,7 +143,39 @@ pub fn derive_insights(
         }
     }
 
-    let _ = (windows, scenario_yaml); // wired in later tasks
+    // status_temporal: 5xx that appears late. Interval = [min_ts, max_ts] over
+    // windows that actually have data. Emit only when the first 5xx second is
+    // strictly past the midpoint (early 5xx is already covered by status_class).
+    {
+        let mut sec_5xx: BTreeMap<i64, u64> = BTreeMap::new();
+        let mut min_ts = i64::MAX;
+        let mut max_ts = i64::MIN;
+        for w in windows {
+            min_ts = min_ts.min(w.ts_second);
+            max_ts = max_ts.max(w.ts_second);
+            let c: u64 = w
+                .status_counts
+                .iter()
+                .filter(|(k, _)| k.starts_with('5'))
+                .map(|(_, v)| *v)
+                .sum();
+            if c > 0 {
+                *sec_5xx.entry(w.ts_second).or_insert(0) += c;
+            }
+        }
+        if !sec_5xx.is_empty() && max_ts > min_ts {
+            let t_first = *sec_5xx.keys().next().expect("non-empty");
+            let midpoint = min_ts as f64 + (max_ts - min_ts) as f64 / 2.0;
+            if (t_first as f64) > midpoint {
+                let mut ins = Insight::new("status_temporal", "warning");
+                ins.status_class = Some("5xx".to_string());
+                ins.window_seconds = Some(max_ts - t_first + 1);
+                out.push(ins);
+            }
+        }
+    }
+
+    let _ = scenario_yaml;
 
     out.sort_by_key(order_rank);
     out
@@ -263,6 +295,51 @@ mod tests {
         assert_eq!(got[0].kind, "slowest_step");
         assert_eq!(got[0].step_id.as_deref(), Some("b"));
         assert_eq!(got[0].value, Some(120.0));
+    }
+
+    fn win(ts: i64, status: &[(&str, u64)]) -> ReportWindow {
+        ReportWindow {
+            ts_second: ts,
+            step_id: "a".to_string(),
+            count: 1,
+            error_count: 0,
+            status_counts: status.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            p50_ms: 1,
+            p95_ms: 1,
+            p99_ms: 1,
+        }
+    }
+
+    #[test]
+    fn status_temporal_emits_when_5xx_is_late() {
+        // run spans ts 0..10; 5xx first at ts 9 (> midpoint 5).
+        let windows = vec![
+            win(0, &[("200", 5)]),
+            win(9, &[("500", 3)]),
+            win(10, &[("500", 2)]),
+        ];
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        let t = got
+            .iter()
+            .find(|i| i.kind == "status_temporal")
+            .expect("temporal");
+        assert_eq!(t.severity, "warning");
+        assert_eq!(t.status_class.as_deref(), Some("5xx"));
+        assert_eq!(t.window_seconds, Some(2)); // 10 - 9 + 1
+    }
+
+    #[test]
+    fn no_status_temporal_when_5xx_early() {
+        let windows = vec![win(0, &[("500", 5)]), win(10, &[("200", 5)])];
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        assert!(got.iter().all(|i| i.kind != "status_temporal"));
+    }
+
+    #[test]
+    fn no_status_temporal_single_second() {
+        let windows = vec![win(7, &[("500", 5)])]; // max_ts == min_ts
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
 
     fn dist(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
