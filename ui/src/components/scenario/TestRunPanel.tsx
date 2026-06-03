@@ -1,6 +1,113 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ScenarioTrace, StepTrace } from "../../api/schemas";
 import { findStepById, isIfStep, summarizeCondition, type Step } from "../../scenario/model";
+import { Modal } from "../Modal";
+
+// Future: expose via an options menu (docs/roadmap.md §B2''). JS string units (UTF-16
+// code points), distinct from the engine's byte cap.
+const INLINE_PREVIEW_CHARS = 500;
+
+/** Modal content: full body + copy / JSON-format / word-wrap toolbar. Only mounts
+ *  when the modal is open, so JSON.parse runs at most once per open (memoized). */
+function BodyViewer({ body, truncated }: { body: string; truncated: boolean }) {
+  const [formatted, setFormatted] = useState(false);
+  const [wrap, setWrap] = useState(true);
+  const pretty = useMemo(() => {
+    try {
+      return JSON.stringify(JSON.parse(body), null, 2);
+    } catch {
+      return null;
+    }
+  }, [body]);
+  const text = formatted && pretty != null ? pretty : body;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {truncated && (
+        <div className="rounded bg-amber-100 px-3 py-2 text-xs text-amber-800">
+          1 MiB에서 잘림 — 실제 응답은 더 큼
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(text)}
+          className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
+        >
+          복사
+        </button>
+        {pretty != null && (
+          <button
+            type="button"
+            aria-pressed={formatted}
+            onClick={() => setFormatted((f) => !f)}
+            className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
+          >
+            {formatted ? "원본" : "JSON 포맷"}
+          </button>
+        )}
+        <button
+          type="button"
+          aria-pressed={wrap}
+          onClick={() => setWrap((w) => !w)}
+          className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
+        >
+          {wrap ? "줄바꿈: 켜짐" : "줄바꿈: 꺼짐"}
+        </button>
+      </div>
+      <pre
+        className={[
+          "min-h-0 flex-1 overflow-auto rounded bg-slate-50 p-3 text-xs",
+          wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre",
+        ].join(" ")}
+      >
+        {text}
+      </pre>
+    </div>
+  );
+}
+
+/** Request/response body block: inline-full when short, else a 500-char preview
+ *  with a "전체 보기" button that opens the full body in a modal. */
+function BodyBlock({
+  body,
+  truncated = false,
+  label,
+}: {
+  body: string;
+  truncated?: boolean;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!body) return null;
+  const isLong = body.length > INLINE_PREVIEW_CHARS || truncated;
+  if (!isLong) {
+    return (
+      <pre className="mb-2 whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">{body}</pre>
+    );
+  }
+  return (
+    <div className="mb-2">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs text-slate-500">
+          {label} · {body.length.toLocaleString()}자{truncated ? " (잘림)" : ""}
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
+        >
+          전체 보기
+        </button>
+      </div>
+      <pre className="whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">
+        {body.slice(0, INLINE_PREVIEW_CHARS)}…
+      </pre>
+      <Modal open={open} onClose={() => setOpen(false)} title={label}>
+        <BodyViewer body={body} truncated={truncated} />
+      </Modal>
+    </div>
+  );
+}
 
 const BRANCH_LABEL: Record<string, string> = {
   none: "(미매치)",
@@ -82,11 +189,7 @@ function HttpRow({ step }: { step: StepTrace }) {
           {req && (
             <>
               <HeaderTable title="Request headers" rows={Object.entries(req.headers)} />
-              {req.body && (
-                <pre className="mb-2 whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">
-                  {req.body}
-                </pre>
-              )}
+              {req.body && <BodyBlock body={req.body} label="요청 본문" />}
             </>
           )}
           {resp && (
@@ -98,10 +201,7 @@ function HttpRow({ step }: { step: StepTrace }) {
                   rows={resp.set_cookies.map((c, i) => [String(i), c])}
                 />
               )}
-              <pre className="whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">
-                {resp.body}
-                {resp.body_truncated ? "\n… (truncated)" : ""}
-              </pre>
+              <BodyBlock body={resp.body} truncated={resp.body_truncated} label="응답 본문" />
             </>
           )}
         </div>
