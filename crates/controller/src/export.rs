@@ -315,6 +315,54 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
         }
     }
 
+    // --- Insights sheet (only if present) ---
+    if !report.insights.is_empty() {
+        let ws = wb.add_worksheet();
+        ws.set_name("Insights").expect("sheet name");
+        for (c, h) in [
+            "kind",
+            "severity",
+            "step_id",
+            "metric",
+            "value",
+            "pct",
+            "count",
+            "status_class",
+            "window_seconds",
+        ]
+        .iter()
+        .enumerate()
+        {
+            ws.write_string(0, c as u16, *h).expect("w");
+        }
+        for (i, ins) in report.insights.iter().enumerate() {
+            let r = (i + 1) as u32;
+            ws.write_string(r, 0, &ins.kind).expect("w");
+            ws.write_string(r, 1, &ins.severity).expect("w");
+            if let Some(v) = &ins.step_id {
+                ws.write_string(r, 2, v).expect("w");
+            }
+            if let Some(v) = &ins.metric {
+                ws.write_string(r, 3, v).expect("w");
+            }
+            if let Some(v) = ins.value {
+                ws.write_number(r, 4, v).expect("w");
+            }
+            if let Some(v) = ins.pct {
+                ws.write_number(r, 5, v).expect("w");
+            }
+            if let Some(v) = ins.count {
+                ws.write_number(r, 6, v as f64).expect("w");
+            }
+            if let Some(v) = &ins.status_class {
+                ws.write_string(r, 7, v).expect("w");
+            }
+            if let Some(v) = ins.window_seconds {
+                ws.write_number(r, 8, v as f64).expect("w");
+            }
+        }
+    }
+
     wb.save_to_buffer().expect("xlsx buffer")
 }
 
@@ -435,6 +483,33 @@ mod tests {
         let steps = wb.worksheet_range("Steps").expect("Steps sheet");
         assert_eq!(steps.get_value((1, 0)), Some(&Data::String("a".into())));
         assert_eq!(steps.get_value((1, 4)), Some(&Data::Float(50.0)));
+    }
+
+    #[test]
+    fn xlsx_has_insights_sheet() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.insights = vec![crate::insights::Insight {
+            kind: "slowest_step".into(),
+            severity: "info".into(),
+            step_id: Some("a".into()),
+            metric: Some("p95_ms".into()),
+            value: Some(50.0),
+            pct: None,
+            count: None,
+            status_class: None,
+            window_seconds: None,
+        }];
+        let bytes = report_to_xlsx(&r);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+        let ws = wb.worksheet_range("Insights").expect("Insights sheet");
+        assert_eq!(ws.get_value((0, 0)), Some(&Data::String("kind".into())));
+        assert_eq!(
+            ws.get_value((1, 0)),
+            Some(&Data::String("slowest_step".into()))
+        );
+        assert_eq!(ws.get_value((1, 4)), Some(&Data::Float(50.0)));
     }
 
     #[test]
