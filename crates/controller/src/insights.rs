@@ -99,7 +99,26 @@ pub fn derive_insights(
         }
     }
 
-    let _ = (summary, windows, status_distribution, scenario_yaml); // wired in later tasks
+    // error_hotspot: step holding the largest share of engine errors.
+    // NOTE: error_count counts engine failures (failed assert / extract / transport),
+    // NOT raw 4xx/5xx. Independent of status_class.
+    if summary.errors > 0 {
+        let mut top: Option<&ReportStep> = None;
+        for s in steps {
+            if s.error_count > 0 && top.is_none_or(|cur| s.error_count > cur.error_count) {
+                top = Some(s);
+            }
+        }
+        if let Some(s) = top {
+            let mut ins = Insight::new("error_hotspot", "warning");
+            ins.step_id = Some(s.step_id.clone());
+            ins.pct = Some(s.error_count as f64 / summary.errors as f64);
+            ins.count = Some(s.error_count);
+            out.push(ins);
+        }
+    }
+
+    let _ = (windows, status_distribution, scenario_yaml); // wired in later tasks
 
     out.sort_by_key(order_rank);
     out
@@ -174,6 +193,41 @@ mod tests {
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
         assert!(got.iter().all(|i| i.kind != "slo_failure"));
+    }
+
+    fn step_err(id: &str, errors: u64) -> ReportStep {
+        let mut s = step(id, 10);
+        s.error_count = errors;
+        s
+    }
+
+    #[test]
+    fn error_hotspot_picks_top_error_share() {
+        let steps = vec![step_err("a", 100), step_err("b", 900)];
+        let mut s = summary();
+        s.errors = 1000;
+        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "");
+        let h = got
+            .iter()
+            .find(|i| i.kind == "error_hotspot")
+            .expect("hotspot");
+        assert_eq!(h.severity, "warning");
+        assert_eq!(h.step_id.as_deref(), Some("b"));
+        assert_eq!(h.count, Some(900));
+        assert!((h.pct.unwrap() - 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_error_hotspot_when_zero_errors() {
+        let got = derive_insights(
+            &summary(),
+            &[step("a", 10)],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+        );
+        assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
 
     #[test]
