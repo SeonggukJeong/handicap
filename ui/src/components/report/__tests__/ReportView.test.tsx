@@ -5,9 +5,14 @@ if (typeof URL.createObjectURL === "undefined") {
 }
 
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi } from "vitest";
 import { ReportView } from "../ReportView";
 import type { Report } from "../../../api/schemas";
+import { api } from "../../../api/client";
+
+vi.mock("../../../api/download", () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }));
+import { downloadFile } from "../../../api/download";
 
 const STEP_ID = "01HX0000000000000000000001"; // valid ULID (26 chars, Crockford set)
 
@@ -134,6 +139,46 @@ describe("ReportView", () => {
     render(<ReportView report={FIXTURE} />);
     expect(screen.queryByText("PASS")).not.toBeInTheDocument();
     expect(screen.queryByText("FAIL")).not.toBeInTheDocument();
+  });
+
+  describe("CSV/XLSX download buttons", () => {
+    it("renders Download CSV and Download XLSX buttons", () => {
+      render(<ReportView report={FIXTURE} />);
+      expect(screen.getByRole("button", { name: /Download CSV/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Download XLSX/ })).toBeInTheDocument();
+    });
+
+    it("calls downloadFile with correct args when Download CSV is clicked", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadFile).mockClear();
+      render(<ReportView report={FIXTURE} />);
+      await user.click(screen.getByRole("button", { name: /Download CSV/ }));
+      expect(downloadFile).toHaveBeenCalledWith(
+        api.reportCsvUrl(FIXTURE.run.id),
+        `run-${FIXTURE.run.id}-report.csv`,
+        "text/csv",
+      );
+    });
+
+    it("calls downloadFile with correct args when Download XLSX is clicked", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadFile).mockClear();
+      render(<ReportView report={FIXTURE} />);
+      await user.click(screen.getByRole("button", { name: /Download XLSX/ }));
+      expect(downloadFile).toHaveBeenCalledWith(
+        api.reportXlsxUrl(FIXTURE.run.id),
+        `run-${FIXTURE.run.id}-report.xlsx`,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+    });
+
+    it("shows an error alert when downloadFile rejects", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadFile).mockRejectedValueOnce(new Error("network error"));
+      render(<ReportView report={FIXTURE} />);
+      await user.click(screen.getByRole("button", { name: /Download CSV/ }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("network error");
+    });
   });
 
   it("labels a step nested inside a loop using its name", () => {

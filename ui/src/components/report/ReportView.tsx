@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Report } from "../../api/schemas";
+import { downloadFile } from "../../api/download";
+import { api } from "../../api/client";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps, findStepById } from "../../scenario/model";
 import { resolveForDisplay } from "../../scenario/template";
@@ -77,12 +79,50 @@ export function ReportView({ report }: Props) {
     return m;
   }, [report.scenario_yaml, report.if_breakdown]);
 
+  const [dlErr, setDlErr] = useState<string | null>(null);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-semibold">Report</h3>
-        <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
+        <div className="flex items-center gap-2">
+          <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
+          <button
+            type="button"
+            onClick={() =>
+              downloadFile(
+                api.reportCsvUrl(report.run.id),
+                `run-${report.run.id}-report.csv`,
+                "text/csv",
+              ).catch((e) => setDlErr((e as Error).message))
+            }
+            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
+          >
+            Download CSV
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              downloadFile(
+                api.reportXlsxUrl(report.run.id),
+                `run-${report.run.id}-report.xlsx`,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              ).catch((e) => setDlErr((e as Error).message))
+            }
+            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
+          >
+            Download XLSX
+          </button>
+        </div>
       </div>
+      {dlErr && (
+        <p
+          role="alert"
+          className="mb-4 p-2 rounded border border-red-200 bg-red-50 text-sm text-red-700"
+        >
+          다운로드 실패: {dlErr}
+        </p>
+      )}
       {report.verdict ? <VerdictPanel verdict={report.verdict} /> : null}
       <Summary summary={report.summary} />
       <TimeSeriesChart
