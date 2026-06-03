@@ -72,6 +72,11 @@ pub struct HttpStep {
     pub assert: Vec<Assertion>,
     #[serde(default)]
     pub extract: Vec<Extract>,
+    /// Per-step total request timeout (seconds), overriding the run-level
+    /// `http_timeout`. Absent → use the client default. Authoring-validated
+    /// (1..=600) UI-side; the executor ignores `Some(0)` (lenient).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1061,5 +1066,47 @@ disabled:
     fn request_still_rejects_unknown_fields() {
         let yaml = "method: GET\nurl: https://api/x\nbogus: 1\n";
         assert!(serde_yaml::from_str::<Request>(yaml).is_err());
+    }
+
+    #[test]
+    fn http_step_timeout_seconds_round_trips_and_omits_when_absent() {
+        let with = r#"
+version: 1
+name: t
+steps:
+  - id: "01HX0000000000000000000051"
+    name: slow
+    type: http
+    timeout_seconds: 5
+    request: { method: GET, url: "/x" }
+    assert: []
+"#;
+        let s = Scenario::from_yaml(with).unwrap();
+        let Step::Http(h) = &s.steps[0] else {
+            panic!("http")
+        };
+        assert_eq!(h.timeout_seconds, Some(5));
+        let out = s.to_yaml().unwrap();
+        assert!(out.contains("timeout_seconds: 5"), "round-trips:\n{out}");
+        let s2 = Scenario::from_yaml(&out).unwrap();
+        assert_eq!(s, s2);
+
+        // Absent → field None → key omitted on serialize (byte-identical).
+        let without = r#"
+version: 1
+name: t
+steps:
+  - id: "01HX0000000000000000000052"
+    name: x
+    type: http
+    request: { method: GET, url: "/x" }
+    assert: []
+"#;
+        let s3 = Scenario::from_yaml(without).unwrap();
+        let Step::Http(h3) = &s3.steps[0] else {
+            panic!("http")
+        };
+        assert_eq!(h3.timeout_seconds, None);
+        assert!(!s3.to_yaml().unwrap().contains("timeout_seconds"));
     }
 }

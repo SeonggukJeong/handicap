@@ -123,6 +123,9 @@ pub async fn execute_step(
     };
 
     let mut req = client.inner.request(method, &url).headers(headers);
+    if let Some(secs) = step.timeout_seconds.filter(|s| *s > 0) {
+        req = req.timeout(Duration::from_secs(u64::from(secs)));
+    }
 
     if let Some(body) = &step.request.body {
         req = match body {
@@ -311,6 +314,9 @@ pub async fn execute_step_traced(
     // Render + record the body (display form) and attach to the request builder.
     let mut body_display: Option<String> = None;
     let mut req = client.inner.request(method, &url).headers(headers);
+    if let Some(secs) = step.timeout_seconds.filter(|s| *s > 0) {
+        req = req.timeout(Duration::from_secs(u64::from(secs)));
+    }
     if let Some(body) = &step.request.body {
         req = match body {
             Body::Json(v) => {
@@ -489,6 +495,7 @@ mod tests {
                 var: "token".into(),
                 path: "$.access_token".into(),
             }],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -533,6 +540,7 @@ mod tests {
                 var: "t".into(),
                 path: "$.no".into(),
             }],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -574,6 +582,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let mut vars = BTreeMap::new();
         vars.insert("username".to_string(), "alice".to_string());
@@ -620,6 +629,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let mut vars = BTreeMap::new();
         vars.insert("username".to_string(), "alice".to_string());
@@ -656,6 +666,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -688,6 +699,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -733,6 +745,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -774,6 +787,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -817,6 +831,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -1056,6 +1071,7 @@ mod tests {
             },
             assert: vec![],
             extract: vec![],
+            timeout_seconds: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();

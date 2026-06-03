@@ -82,6 +82,7 @@ fn arb_http_step() -> impl Strategy<Value = HttpStep> {
                 },
                 assert,
                 extract,
+                timeout_seconds: None,
             },
         )
 }
