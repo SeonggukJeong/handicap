@@ -465,6 +465,105 @@ steps:
     }
 
     #[test]
+    fn insights_deterministic_order() {
+        // all kinds present → assert the interleaved (severity,row) order.
+        let steps = vec![step_err("a", 50)];
+        let mut s = summary();
+        s.errors = 50;
+        let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
+        let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
+        let v = verdict(false, 1);
+        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "");
+        let order: Vec<(&str, Option<&str>)> = got
+            .iter()
+            .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("slo_failure", None),
+                ("status_class", Some("5xx")),
+                ("error_hotspot", None),
+                ("status_class", Some("4xx")),
+                ("status_temporal", Some("5xx")),
+                ("slowest_step", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn error_heavy_run_yields_at_least_three() {
+        // capability check: errors via failing asserts (error_count), 5xx, slow step.
+        let steps = vec![step_err("a", 200)];
+        let mut s = summary();
+        s.errors = 200;
+        let d = dist(&[("200", 800), ("500", 200)]);
+        let got = derive_insights(&s, &steps, &[], &d, None, "");
+        assert!(
+            got.len() >= 3,
+            "error-heavy run should surface >=3 insights, got {}",
+            got.len()
+        );
+    }
+
+    #[test]
+    fn all_pass_run_has_slowest_and_slo_pass() {
+        // spec §5 edge: clean run (no errors/4xx/5xx) + passing verdict → exactly
+        // slowest_step + slo_pass, NOT padded to 3.
+        let steps = vec![step("a", 80)];
+        let v = verdict(true, 0);
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), Some(&v), "");
+        let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 7 then 8
+    }
+
+    #[test]
+    fn slowest_step_first_on_tie() {
+        // invariant lock: equal p95 → first step (steps are sorted by step_id).
+        let steps = vec![step("a", 100), step("b", 100)];
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "");
+        assert_eq!(got[0].step_id.as_deref(), Some("a"));
+        assert_eq!(got[0].value, Some(100.0));
+    }
+
+    #[test]
+    fn no_request_step_flags_live_loop_body_not_dead() {
+        // invariant lock for collect_unconditional's loop arm:
+        // repeat>=1 loop body is unconditional (flagged when unrecorded),
+        // repeat==0 loop body never runs (excluded).
+        const YAML_LOOPS: &str = r#"
+version: 1
+name: t
+steps:
+  - type: loop
+    id: live
+    name: live
+    repeat: 2
+    do:
+      - type: http
+        id: in_live_loop
+        name: in_live_loop
+        request: { method: GET, url: "http://x/1" }
+  - type: loop
+    id: dead
+    name: dead
+    repeat: 0
+    do:
+      - type: http
+        id: in_dead_loop
+        name: in_dead_loop
+        request: { method: GET, url: "http://x/2" }
+"#;
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, YAML_LOOPS);
+        let flagged: Vec<&str> = got
+            .iter()
+            .filter(|i| i.kind == "no_request_step")
+            .map(|i| i.step_id.as_deref().unwrap())
+            .collect();
+        assert_eq!(flagged, vec!["in_live_loop"]);
+    }
+
+    #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
         let got = derive_insights(&summary(), &[], &[], &d, None, "");
