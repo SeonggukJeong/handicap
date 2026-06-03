@@ -12,11 +12,15 @@
 
 ---
 
-## 현재 상태 (2026-06-01)
+## 현재 상태 (2026-06-03)
 
 - **완료**: 슬라이스 1–6 (MVP1 전부) + Slice 7 (loop 노드) + Slice 7-1 (loop_index별 요청수 breakdown) + Slice 8a/8b/8c (data-driven 전체) + **Slice 9a/9b/9c/9d (Conditional `type: if` 노드 전체 — 분기별 메트릭 breakdown 포함)** + **영역 A (Run 프리셋 + Retry, ADR-0024)** + **영역 B (환경/Environments, ADR-0025)**. 열린 9 이전 슬라이스 작업 없음.
 - **완료**: **A3 (멀티 워커 fan-out)** — **A3a(조정 인프라) + A3b(메트릭 머지) + A3c(K8s Indexed Job + dispatcher cleanup 배선 + Helm) 전부 구현+머지 완료(2026-06-02, subagent-driven) → 영역 A3 완결**. 계획된 fan-out(반응형 HPA 아님), A3a(조정)→A3b(메트릭 머지)→A3c(K8s Indexed Job) 3분할. spec `docs/superpowers/specs/2026-06-01-multi-worker-fanout-design.md`, ADR-0027. 상세 §A3. 연기(§B2''): per-deploy 워커 resource Helm values, 반응형 HPA, best-effort/degraded, `unique` 바인딩.
 - **완결**: **영역 C (시나리오 에디터 test-run, A6 후속·spec §7 실현)** — **C-1(백엔드) + C-2(UI) 둘 다 구현+머지 완료(2026-06-01, subagent-driven)**. C-1: 컨트롤러 in-process 엔진 trace(`trace_scenario`) + top-level `POST /api/test-runs`(ephemeral) + `render_collecting`/`execute_step_traced`/`select_branch` 추출 + `ApiError::Unprocessable`(422) + if/elif 조건 미바인딩 변수 결정 행 표시(follow-up 확장). **C-2(UI)**: ScenarioTrace Zod 스키마(엔진 `trace.rs`와 와이어 1:1) + `api.createTestRun`/`useTestRun`(ephemeral 무invalidation) + 프레젠테이셔널 `TestRunPanel`(http/if 행·분기 라벨·`#loop_index`·미바인딩 앰버·truncated 배너·펼침 req/resp) + `ScenarioEditPage` 배선(`<EnvironmentPicker>`/`resolveEnv` 재사용, live `yamlText` 버퍼 전송 — 미저장에도 동작). spec §5-1 if 행 **조건 요약**은 `summarizeCondition`을 `CanvasView`→`scenario/model.ts`로 추출 공유하고 `ScenarioEditPage`가 `parseScenarioDoc(yamlText)`로 `steps`를 주입해 렌더(ScenarioTrace엔 조건 텍스트 없음). 5커밋(4 plan task + 조건요약 follow-up), task별 2단계 리뷰 + 최종 handicap-reviewer READY-TO-MERGE(와이어 1:1 검증), UI 294 pass + `tsc -b` clean. **후속(연기)**: 응답기반 extract authoring(§8-1), 수동 변수 오버라이드(§8-2), 워커경로 runner(§8-3), 민감값 마스킹, test-run 히스토리. spec: `docs/superpowers/specs/2026-06-01-scenario-editor-test-run-design.md`, plan: `docs/superpowers/plans/2026-06-01-scenario-editor-test-run-c2-ui.md`.
+- **완결**: **A4 영역 (LoadRunner급 리포트 깊이)** — **A4a(run-level SLO verdict, ADR-0028) + A4b(run 비교 + 리포트 CSV/XLSX export, ADR-0030) + A4c(actionable 리포트 요약, `insights.rs` 결정론적 인사이트 6종 + XLSX Insights 시트 + UI InsightPanel) 전부 구현+머지 완료(2026-06-03, subagent-driven)**. A4b는 하이브리드(클라 비교/서버 export), A4c는 백엔드 `derive_insights`→`ReportJson.insights`. 세 슬라이스 모두 엔진·워커·proto·마이그레이션 무변경. 상세 §A4.
+- **완료**: **JSON body 타입 캐스트 주입** (post-MVP1, ADR-0029, 2026-06-03) — flow `{{var:num}}`/`{{var:bool}}`(+`:str`) 캐스트 토큰으로 JSON body 문자열 leaf를 number/bool로 coerce. 순수 단일 토큰 leaf만, leaf 레벨 파싱(`cast.rs`, `template.rs` 무변경), 엄격 실패=`CastFailed`/trace=문자열 best-effort, UI Zod `.superRefine` 검증. 캐스트 없으면 byte-identical. 상세 §B1.
+- **완료**: **Header/Form 벌크 입력** (2026-06-01) + **B4 disabled 행 토글** (2026-06-03) — 사용자 요청 QoL(순수 UI 영역). KeyValueGrid 2열 그리드 + BulkEditPanel(Postman 전체교체) + commonHeaders 피커 + JSON body Format 버튼 + Postman식 disabled 행 체크박스(`Request.disabled` 사이드카, executor 무시·byte-identical). 상세 §B4.
+- **완료**: **codex 평가 후속 항목 1–4** (2026-06-03, master `5e59048`/`fffec3e`/`fee8041`) — lint 게이트 구멍 + dispatch fail-fast(P0: run failed+message+5xx) + dispatcher 테스트 + graceful-shutdown 로그. 잔여 5(open-loop·http_timeout)·6(skip/todo UI 테스트) → §B5.
 
 ---
 
@@ -100,7 +104,7 @@
 
 ### B4. Header/Form 벌크 입력 연기 항목
 출처: 스펙 `2026-06-01-header-form-bulk-entry-design.md` §7 + 사용자 결정(2026-06-01).
-- **disabled 행 토글**: Postman처럼 KV(헤더/폼) 행을 지우지 않고 체크박스로 잠시 끄기. 행마다 `enabled: bool`이 필요해 `Record<string,string>` 모델 확장이 선행(YAML·엔진 `BTreeMap` 와이어도 같이). 사용자가 "해볼 만하다"고 판단 → KeyValueGrid 후속 UI 슬라이스(모델 확장 포함, 별도 spec).
+- ~~**disabled 행 토글**~~ — **✅ 완료 (2026-06-03, master `b6d2907`)**: Postman식 KV(헤더/폼) 행을 지우지 않고 체크박스로 끄기(YAML 보존, 부하 시 미전송). 구현은 행별 `enabled: bool`이 아니라 **`Request.disabled` 사이드카**(끈 키 목록을 별도 맵에 보관) — executor가 안 읽어 byte-identical, proto/migration/워커 무변경(머지 diff = engine + ui만). UI: Zod `RequestModel.disabled`(`.optional()`) 와이어 1:1 + `normalizeRequest` passthrough(read) + `KeyValueGrid` 2-맵 계약(`onChange(active,disabled)`) + Inspector `buildDisabled` cleanup(write). subagent-driven 3 task + 최종 handicap-reviewer READY-TO-MERGE. ADR 불필요(additive). spec `docs/superpowers/specs/2026-06-03-disabled-row-toggle-design.md`, plan `docs/superpowers/plans/2026-06-03-disabled-row-toggle.md`.
 - ~~**JSON body "Format/Prettify" 버튼**~~ — **✅ 완료 (2026-06-01)**: `JsonBodyField`(`Inspector.tsx`)에 Format 버튼 추가 — `JSON.parse → stringify(.,2) → setText` + 파싱값 persist(onBlur commit과 `store` 헬퍼 공유). 외부 prettier 의존 없음. RTL 3 tests.
 - **(de-scoped) 멀티값 헤더(같은 key 반복)**: 사용자 판단 "헤더 중복 입력 필요성 낮음" → 후보 제외. 필요해지면 모델 확장(별도 spec).
 - **raw body 에디터**: 변경 이유 없음 — 임의 텍스트라 textarea가 적합. 건드리지 않음.
