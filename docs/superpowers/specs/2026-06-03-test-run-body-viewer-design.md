@@ -39,9 +39,9 @@
 - doc 주석 갱신: "display cap, 향후 옵션 메뉴로 설정화 예정(roadmap §B)".
 - 그 외 절단 로직(`body_truncated = full_len > cap`, `from_utf8_lossy(&bytes[..min(cap)])`, 멀티바이트 경계 U+FFFD 허용) **무변경**.
 
-**와이어 무변경**: `TracedResponse.body`/`body_truncated`는 그대로 → proto·controller·Zod 스키마·마이그레이션 손대지 않음. 캡 이하 응답은 캡 변경 전과 byte-identical(절단 안 일어남).
+**와이어 무변경**: `TracedResponse.body`/`body_truncated`는 그대로 → proto·controller·Zod 스키마·마이그레이션 손대지 않음. 캡 이하 응답은 캡 변경 전과 byte-identical(절단 안 일어남). trace는 컨트롤러 **in-process**(`trace_scenario`)로 돌고 `POST /api/test-runs`의 JSON **응답**으로 직송된다 — 워커 gRPC `MetricBatch` 경로나 axum `DefaultBodyLimit`(요청 본문 한정) 어디도 안 거치므로 전송 상한에 안 걸린다.
 
-trade-off: test-run은 1 VU 단일패스라 본문 1 MiB가 trace JSON에 실려도 무해. 스텝이 많고 전부 대용량이면 trace JSON이 수 MiB가 될 수 있으나 수동 test-run 빈도상 수용.
+trade-off: test-run은 1 VU 단일패스라 본문 1 MiB가 trace JSON에 실려도 무해. **단 캡은 per-step이라 최악 메모리 = `max_requests × 1 MiB`** — 기본 `max_requests=50` → ~50 MiB, 검증 상한 `MAX_MAX_REQUESTS=10_000` → 다GiB. 기본값(50)·수동 단일사용자 빈도에선 수용하나, 높은 `max_requests`로 대용량 응답을 도는 test-run이 실제 위험면임을 명시. (필요 시 후속에서 trace-aggregate 상한 또는 캡 동적화 — §7.)
 
 ### 4.2 UI — 재사용 가능한 모달 프리미티브 (신규)
 
@@ -58,13 +58,13 @@ trade-off: test-run은 1 VU 단일패스라 본문 1 MiB가 trace JSON에 실려
 
 `TestRunPanel.tsx` 내부(또는 인접 파일)에 `BodyBlock({ body, truncated, label })`:
 - `body`가 비어있으면(`""`/`undefined`) `null` 렌더.
-- `body.length <= INLINE_PREVIEW_CHARS && !truncated` → 지금처럼 인라인 `<pre>` 통째(짧으면 버튼 불필요).
+- `body.length <= INLINE_PREVIEW_CHARS && !truncated` → 지금처럼 인라인 `<pre>` 통째(짧으면 버튼 불필요). **`body.length`는 JS UTF-16 코드 유닛**(바이트/스칼라 아님) — 미리보기 경계는 `body.slice(0, INLINE_PREVIEW_CHARS)`로 자른다(백엔드 1 MiB *바이트* 캡과 단위가 다름; ASCII는 무해, 멀티바이트는 미관상 차이만).
 - 그 외 → 인라인엔 **앞 `INLINE_PREVIEW_CHARS`자 + `…`** 미리보기 + **`전체 보기`** 버튼. 버튼이 `open` state 토글 → `<Modal title={label}>` 렌더:
   - 툴바: `복사` / `포맷`(유효 JSON일 때만 활성, 원본⇄들여쓰기 2-space) / `줄바꿈`(wrap⇄가로 스크롤) / `닫기`.
   - 본문: 스크롤 가능한 `<pre>`(`max-h` + overflow). wrap 기본 = `whitespace-pre-wrap break-all`, off = `whitespace-pre overflow-x-auto`.
   - `truncated`면 상단 배너 "1 MiB에서 잘림 — 실제 응답은 더 큼".
-- **복사**: `navigator.clipboard.writeText(현재 표시 텍스트)`(보이는 그대로 — 원본/포맷 토글 반영).
-- **포맷**: `JSON.parse(body)` 시도 → 성공 시만 토글 노출/활성, `JSON.stringify(parsed, null, 2)`. 실패(비-JSON)면 토글 숨김/비활성.
+- **복사**: `navigator.clipboard.writeText(현재 표시 텍스트)`(보이는 그대로 — 포맷 토글 ON이면 들여쓰기된 텍스트, OFF/비-JSON이면 raw). **줄바꿈 토글은 순수 CSS라 복사 텍스트에 무영향.**
+- **포맷**: `JSON.parse`는 **모달 오픈 시 1회(또는 토글 클릭 시) 평가하고 `useMemo`로 캐시 — 매 렌더/인라인 경로에서 호출 금지**(1 MiB 동기 파싱은 메인스레드 stall). 인라인 미리보기(500자)는 파싱 안 함. 성공 시만 `포맷` 토글 노출, `JSON.stringify(parsed, null, 2)`. **`truncated` 응답은 잘린 JSON이라 항상 parse 실패 → 포맷 토글이 자연히 숨겨짐(버그 아님, 의도).**
 
 `INLINE_PREVIEW_CHARS = 500` 상수(파일 상단, 향후 설정화 대상 §7).
 
@@ -85,16 +85,16 @@ trade-off: test-run은 1 VU 단일패스라 본문 1 MiB가 trace JSON에 실려
 | `ui/src/components/scenario/TestRunPanel.tsx` | `BodyBlock` + `INLINE_PREVIEW_CHARS` + `HttpRow` 배선 |
 | `ui/src/components/scenario/__tests__/TestRunPanel.test.tsx` | 미리보기/모달/토글/복사/배너 테스트 |
 | `ui/src/components/__tests__/Modal.test.tsx` | **신규** Escape/백드롭/포커스 복원 테스트 |
-| `docs/roadmap.md` | §7 연기 항목(설정화) 추가 |
+| `docs/roadmap.md` | §7 연기 항목(설정화) — **이미 추가됨**(`roadmap.md` §B2'' "운영 상한 관리자 화면" 줄에 이 spec 인용). plan에서 재추가 금지 |
 
 proto·controller·worker·Zod 스키마·DB 마이그레이션 **무변경**.
 
 ## 6. 테스트
 
 **엔진**
-- 본문 > 1 MiB → `body_truncated == true` && `body.len() == MAX_TRACE_BODY_BYTES`.
+- 본문 > 1 MiB → `body_truncated == true` && **`body.len() <= MAX_TRACE_BODY_BYTES + 2`**(strict 동등 금지 — `from_utf8_lossy`가 경계서 U+FFFD 3바이트를 끼울 수 있어 `String::len()`이 정확히 캡과 같지 않음, `crates/engine/CLAUDE.md` 멀티바이트 경계 함정). **ASCII-only fixture**를 쓰면 경계가 깨끗해 `== cap`도 되지만, 안전하게 `<= cap + 2`로 단언.
 - 본문 ≤ 1 MiB(예: 16 KiB+1) → `body_truncated == false` && 전체 보존.
-- 기존 작은-본문 `!body_truncated` 단위테스트는 무영향.
+- 기존 작은-본문 `!body_truncated` 단위테스트(`executor.rs:771`)는 무영향.
 
 **UI (RTL, jsdom)**
 - 긴 응답 → 500자 미리보기 + `전체 보기` 버튼 / 짧은 응답 → 인라인 통째(버튼 없음).
@@ -102,13 +102,15 @@ proto·controller·worker·Zod 스키마·DB 마이그레이션 **무변경**.
 - 버튼 클릭 → 모달 + 전체 본문 표시.
 - JSON 포맷 토글 → 들여쓰기 출력 / 비-JSON이면 토글 없음.
 - 줄바꿈 토글 → `<pre>` 클래스 전환.
-- 복사 → `navigator.clipboard.writeText` 호출(모킹).
+- 복사 → `navigator.clipboard.writeText` 호출. **jsdom은 `navigator.clipboard` 미구현 + read-only라** `URL.createObjectURL` 폴리필 이디엄(`ui/CLAUDE.md`)을 따라 `Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn() }, configurable: true })`로 모킹.
 - Escape / 백드롭 클릭 → 닫힘, 트리거로 포커스 복원.
 - `body_truncated` → 모달 절단 배너.
 
-게이트: 엔진 `cargo test` + UI `pnpm lint && pnpm test && pnpm build`(`tsc -b`).
+**테스트 순서/게이트 함정**
+- **TDD-guard**: 새 src 파일 `Modal.tsx` Write는 pending test-path 파일이 있어야 통과 → `__tests__/Modal.test.tsx`를 **먼저**(최소 `it.todo` stub) 만든 뒤 `Modal.tsx` 작성. 기존 `TestRunPanel.test.tsx`가 있어 `TestRunPanel.tsx` 편집은 unblock.
+- 게이트: 엔진 `cargo test` + UI **`pnpm lint && pnpm test && pnpm build`**. 이 feature가 effect-heavy(keydown/focus `useEffect`)라 두 함정 직격: ① `pnpm test`(esbuild)는 TS-strict를 안 잡음 — `Modal`/`BodyBlock` props 타입 미스매치는 **`pnpm build`(`tsc -b`)에서만** 드러남; ② `pnpm lint`(`--max-warnings=0`)는 pre-commit hook에 없어 `react-hooks/exhaustive-deps` 경고가 잠복 → **반드시 별도 실행**.
 
 ## 7. 연기 항목 (로드맵 §B로)
 
-- **test-run 본문 표시 설정화**: `MAX_TRACE_BODY_BYTES`(1 MiB)·`INLINE_PREVIEW_CHARS`(500)를 옵션/설정 메뉴로 노출. 현재는 상수. §B2''의 "운영 상한 관리자 화면"(op-config 상한 모음)과 묶을 수 있음. → 로드맵에 추가.
+- **test-run 본문 표시 설정화**: `MAX_TRACE_BODY_BYTES`(1 MiB)·`INLINE_PREVIEW_CHARS`(500)를 옵션/설정 메뉴로 노출. 현재는 상수. → **`docs/roadmap.md` §B2'' "운영 상한 관리자 화면"에 이미 추가됨**(이 spec 인용). 별도 항목 신설/중복 금지.
 - **요청 본문 백엔드 절단**: 현재 무절단. data-driven 대용량 주입으로 요청 본문이 커지면 trace JSON 비대 가능 → 필요 시 동일 캡(+`TracedRequest.body_truncated` 와이어 필드) 후속.
