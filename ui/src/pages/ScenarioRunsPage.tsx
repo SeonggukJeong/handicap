@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { api } from "../api/client";
+import { downloadFile } from "../api/download";
 import { useCreateRun, useScenario, useScenarioRuns } from "../api/hooks";
 import { envValueToRecord, normalizeProfile, type RunPrefill } from "../api/runPrefill";
 import { Button } from "../components/Button";
@@ -27,6 +29,8 @@ export function ScenarioRunsPage() {
   const createRun = useCreateRun();
   const [showDialog, setShowDialog] = useState(false);
   const [prefillState, setPrefillState] = useState<PrefillState | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exportErr, setExportErr] = useState<string | null>(null);
 
   // Parse the scenario YAML once for both hasLoop + DataBindingPanel.
   // Parse failures fall back to null (no binding panel, no cap UI).
@@ -73,6 +77,20 @@ export function ScenarioRunsPage() {
     createRun.reset();
     setPrefillState(null);
     setShowDialog(true);
+  }
+
+  const isTerminal = (s: string) => ["completed", "failed", "aborted"].includes(s);
+
+  function toggleSelect(runId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
+    });
   }
 
   if (scenario.isLoading) return <p className="text-slate-500">Loading…</p>;
@@ -129,76 +147,155 @@ export function ScenarioRunsPage() {
 
       {runs.isLoading && <p className="text-slate-500">Loading runs…</p>}
       {runs.data && runs.data.runs.length === 0 && <p className="text-slate-500">No runs yet.</p>}
-      {runs.data && runs.data.runs.length > 0 && (
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-slate-600">
-            <tr>
-              <th className="py-2 pr-4 font-medium">Status</th>
-              <th className="py-2 pr-4 font-medium">VUs</th>
-              <th className="py-2 pr-4 font-medium">Duration</th>
-              <th className="py-2 pr-4 font-medium">Created</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {runs.data.runs.map((r) => {
-              const normalised = normalizeProfile(r.profile);
-              const env = envValueToRecord(r.env);
-              return (
-                <tr key={r.id} className="border-b border-slate-100">
-                  <td className="py-3 pr-4">
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td className="py-3 pr-4">{r.profile.vus}</td>
-                  <td className="py-3 pr-4">{r.profile.duration_seconds}s</td>
-                  <td className="py-3 pr-4 text-slate-600">
-                    {new Date(r.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-3 pr-4 text-right">
-                    <div className="flex justify-end gap-3">
+      {runs.data &&
+        runs.data.runs.length > 0 &&
+        (() => {
+          const allRuns = runs.data!.runs;
+          const selected = allRuns.filter((r) => selectedIds.has(r.id));
+          const n = selected.length;
+          const baseline =
+            n > 0
+              ? selected.reduce((oldest, r) => (r.created_at < oldest.created_at ? r : oldest)).id
+              : "";
+          return (
+            <>
+              {n >= 1 && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+                  {n > 50 ? (
+                    <span className="text-red-600">최대 50개까지 선택할 수 있습니다.</span>
+                  ) : n > 5 ? (
+                    <>
+                      <span className="text-slate-600">
+                        화면에선 5개까지 비교됩니다. 전체는 Export로 보세요.
+                      </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          createRun.reset();
-                          setPrefillState({
-                            runId: r.id,
-                            runScenarioYaml: r.scenario_yaml,
-                            prefill: { profile: normalised, env },
-                          });
-                          setShowDialog(true);
-                        }}
-                        className="text-slate-700 hover:underline"
+                        onClick={() =>
+                          downloadFile(
+                            api.compareXlsxUrl(
+                              id!,
+                              selected.map((r) => r.id),
+                              baseline,
+                            ),
+                            "comparison.xlsx",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                          ).catch((e) => setExportErr((e as Error).message))
+                        }
+                        className="rounded border border-slate-300 bg-white px-3 py-1 hover:bg-slate-50"
                       >
-                        다시 실행
+                        Export XLSX
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          createRun.mutate(
-                            {
-                              scenarioId: r.scenario_id,
-                              profile: normalised,
-                              env,
-                            },
-                            { onSuccess: (created) => navigate(`/runs/${created.id}`) },
-                          );
-                        }}
-                        disabled={createRun.isPending}
-                        className="text-slate-700 hover:underline disabled:opacity-50"
+                        disabled
+                        className="rounded bg-slate-100 px-3 py-1 text-slate-400 disabled:opacity-50"
                       >
-                        즉시 재실행
+                        {`비교 (${n})`}
                       </button>
-                      <Link to={`/runs/${r.id}`} className="text-slate-700 hover:underline">
-                        view →
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+                    </>
+                  ) : n >= 2 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/scenarios/${id}/compare?runs=${selected.map((r) => r.id).join(",")}&baseline=${baseline}`,
+                        )
+                      }
+                      className="rounded bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-700"
+                    >
+                      {`비교 (${n})`}
+                    </button>
+                  ) : (
+                    <span className="text-slate-500">비교하려면 2개 이상 선택</span>
+                  )}
+                  {exportErr && (
+                    <span role="alert" className="text-red-600">
+                      {exportErr}
+                    </span>
+                  )}
+                </div>
+              )}
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-slate-600">
+                  <tr>
+                    <th className="py-2 pr-2 font-medium">비교</th>
+                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">VUs</th>
+                    <th className="py-2 pr-4 font-medium">Duration</th>
+                    <th className="py-2 pr-4 font-medium">Created</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {allRuns.map((r) => {
+                    const normalised = normalizeProfile(r.profile);
+                    const env = envValueToRecord(r.env);
+                    return (
+                      <tr key={r.id} className="border-b border-slate-100">
+                        <td className="py-3 pr-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(r.id)}
+                            disabled={!isTerminal(r.status)}
+                            onChange={() => toggleSelect(r.id)}
+                            aria-label={`select run ${r.id}`}
+                          />
+                        </td>
+                        <td className="py-3 pr-4">
+                          <StatusBadge status={r.status} />
+                        </td>
+                        <td className="py-3 pr-4">{r.profile.vus}</td>
+                        <td className="py-3 pr-4">{r.profile.duration_seconds}s</td>
+                        <td className="py-3 pr-4 text-slate-600">
+                          {new Date(r.created_at).toLocaleString()}
+                        </td>
+                        <td className="py-3 pr-4 text-right">
+                          <div className="flex justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                createRun.reset();
+                                setPrefillState({
+                                  runId: r.id,
+                                  runScenarioYaml: r.scenario_yaml,
+                                  prefill: { profile: normalised, env },
+                                });
+                                setShowDialog(true);
+                              }}
+                              className="text-slate-700 hover:underline"
+                            >
+                              다시 실행
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                createRun.mutate(
+                                  {
+                                    scenarioId: r.scenario_id,
+                                    profile: normalised,
+                                    env,
+                                  },
+                                  { onSuccess: (created) => navigate(`/runs/${created.id}`) },
+                                );
+                              }}
+                              disabled={createRun.isPending}
+                              className="text-slate-700 hover:underline disabled:opacity-50"
+                            >
+                              즉시 재실행
+                            </button>
+                            <Link to={`/runs/${r.id}`} className="text-slate-700 hover:underline">
+                              view →
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          );
+        })()}
     </div>
   );
 }

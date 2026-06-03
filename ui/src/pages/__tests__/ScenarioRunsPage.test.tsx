@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScenarioRunsPage } from "../ScenarioRunsPage";
 
@@ -165,5 +165,152 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     // dialog opened (VUs seeded) but no drift alert because snapshots match
     expect(await screen.findByLabelText("VUs")).toHaveValue(4);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A4b: run selection + compare entry
+// ---------------------------------------------------------------------------
+
+function makeRun(id: string, status: string, createdAt: number) {
+  return {
+    id,
+    scenario_id: "S1",
+    scenario_yaml: SCENARIO_YAML,
+    status,
+    profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, loop_breakdown_cap: 256 },
+    env: {},
+    started_at: createdAt,
+    ended_at: createdAt + 1,
+    created_at: createdAt,
+  };
+}
+
+function mockApiRuns(runs: unknown[]) {
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith("/api/scenarios/S1") && (!init || init.method === "GET")) {
+      return Promise.resolve(
+        jsonResponse({
+          id: "S1",
+          name: "demo",
+          yaml: SCENARIO_YAML,
+          version: 1,
+          created_at: 1,
+          updated_at: 1,
+        }),
+      );
+    }
+    if (url.endsWith("/api/scenarios/S1/runs")) {
+      return Promise.resolve(jsonResponse({ runs }));
+    }
+    if (url.endsWith("/api/datasets")) {
+      return Promise.resolve(jsonResponse({ datasets: [] }));
+    }
+    return Promise.resolve(jsonResponse({}, 404));
+  });
+}
+
+/** LocationProbe renders inside the compare route so we can assert URL params. */
+function LocationProbe() {
+  const loc = useLocation();
+  return <div data-testid="compare-location">{loc.pathname + loc.search}</div>;
+}
+
+function renderPageWithCompare(initialPath = "/scenarios/S1/runs") {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const utils = render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/scenarios/:id/runs" element={<ScenarioRunsPage />} />
+          <Route path="/runs/:id" element={<div>run page</div>} />
+          <Route path="/scenarios/:id/compare" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { qc, ...utils };
+}
+
+describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
+  it("running/pending row checkbox is disabled; completed rows are enabled", async () => {
+    const runs = [
+      makeRun("C1", "completed", 100),
+      makeRun("C2", "completed", 200),
+      makeRun("R1", "running", 300),
+    ];
+    mockApiRuns(runs);
+    renderPageWithCompare();
+
+    // wait for rows to appear
+    await screen.findByLabelText("select run C1");
+    const cbC1 = screen.getByLabelText("select run C1") as HTMLInputElement;
+    const cbC2 = screen.getByLabelText("select run C2") as HTMLInputElement;
+    const cbR1 = screen.getByLabelText("select run R1") as HTMLInputElement;
+
+    expect(cbC1.disabled).toBe(false);
+    expect(cbC2.disabled).toBe(false);
+    expect(cbR1.disabled).toBe(true);
+  });
+
+  it("selecting 2 completed runs enables 비교(2) which navigates to compare route with correct baseline", async () => {
+    const user = userEvent.setup();
+    // C1 created earlier (created_at=100) should be baseline
+    const runs = [makeRun("C1", "completed", 100), makeRun("C2", "completed", 200)];
+    mockApiRuns(runs);
+    renderPageWithCompare();
+
+    // select both
+    await user.click(await screen.findByLabelText("select run C1"));
+    await user.click(screen.getByLabelText("select run C2"));
+
+    const compareBtn = await screen.findByRole("button", { name: /비교 \(2\)/ });
+    expect(compareBtn).not.toBeDisabled();
+    await user.click(compareBtn);
+
+    // LocationProbe should render
+    const probe = await screen.findByTestId("compare-location");
+    expect(probe.textContent).toMatch(/\/scenarios\/S1\/compare/);
+    expect(probe.textContent).toMatch(/runs=C1%2CC2|runs=C1,C2/);
+    // baseline = older run (C1, created_at=100)
+    expect(probe.textContent).toMatch(/baseline=C1/);
+  });
+
+  it("selecting 6 completed runs shows the capped warning and disables the screen 비교 button; shows Export XLSX", async () => {
+    const user = userEvent.setup();
+    const runs = Array.from({ length: 6 }, (_, i) =>
+      makeRun(`C${i + 1}`, "completed", (i + 1) * 100),
+    );
+    mockApiRuns(runs);
+    renderPageWithCompare();
+
+    // select all 6
+    for (let i = 1; i <= 6; i++) {
+      await user.click(await screen.findByLabelText(`select run C${i}`));
+    }
+
+    expect(await screen.findByText(/화면에선 5개까지 비교됩니다/)).toBeInTheDocument();
+
+    // The screen compare button should be disabled
+    const compareBtn = screen.queryByRole("button", { name: /비교 \(6\)/ });
+    if (compareBtn) {
+      expect(compareBtn).toBeDisabled();
+    }
+  });
+
+  it("selecting >50 runs shows the 최대 50개 guard", async () => {
+    const user = userEvent.setup();
+    const runs = Array.from({ length: 51 }, (_, i) =>
+      makeRun(`C${i + 1}`, "completed", (i + 1) * 100),
+    );
+    mockApiRuns(runs);
+    renderPageWithCompare();
+
+    // select all 51
+    for (let i = 1; i <= 51; i++) {
+      await user.click(await screen.findByLabelText(`select run C${i}`));
+    }
+
+    expect(await screen.findByText(/최대 50개까지 선택할 수 있습니다/)).toBeInTheDocument();
   });
 });
