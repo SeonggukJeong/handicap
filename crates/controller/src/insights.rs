@@ -2,12 +2,9 @@
 //! Pure: backend computes structured insights; the UI renders the prose.
 //! Spec: docs/superpowers/specs/2026-06-03-a4c-actionable-report-summary-design.md
 use crate::report::{ReportStep, ReportSummary, ReportWindow, Verdict};
+use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-// NOTE: `use handicap_engine::{Scenario, Step};` 와 `use std::collections::BTreeSet;`
-// 는 Task 6(no_request_step)에서야 처음 쓰인다 — 여기 넣으면 Task 1~5 커밋이
-// pre-commit `clippy --workspace -- -D warnings`(unused-imports)로 거부된다.
-// 그 두 import는 Task 6 Step 3에서 함께 추가한다.
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Insight {
@@ -175,10 +172,51 @@ pub fn derive_insights(
         }
     }
 
-    let _ = scenario_yaml;
+    // no_request_step: unconditionally-reached http steps that recorded nothing.
+    // Fail-soft: empty/invalid scenario_yaml just skips this kind.
+    if let Ok(sc) = Scenario::from_yaml(scenario_yaml) {
+        let present: BTreeSet<&str> = steps.iter().map(|s| s.step_id.as_str()).collect();
+        let mut expected: Vec<String> = Vec::new();
+        collect_unconditional(&sc.steps, false, &mut expected);
+        expected.sort();
+        expected.dedup();
+        for id in expected {
+            if !present.contains(id.as_str()) {
+                let mut ins = Insight::new("no_request_step", "warning");
+                ins.step_id = Some(id);
+                out.push(ins);
+            }
+        }
+    }
 
     out.sort_by_key(order_rank);
     out
+}
+
+/// Collect ids of http steps that ALWAYS run: top-level + loop bodies (repeat>=1).
+/// if/elif/else branch steps are excluded — 0 requests there is expected (branch
+/// not taken), not a defect.
+fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String>) {
+    for s in steps {
+        match s {
+            Step::Http(h) => {
+                if !conditional {
+                    out.push(h.id.clone());
+                }
+            }
+            Step::Loop(l) => {
+                let cond = conditional || l.repeat == 0;
+                collect_unconditional(&l.do_, cond, out);
+            }
+            Step::If(i) => {
+                collect_unconditional(&i.then_, true, out);
+                for e in &i.elif {
+                    collect_unconditional(&e.then_, true, out);
+                }
+                collect_unconditional(&i.else_, true, out);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -340,6 +378,86 @@ mod tests {
         let windows = vec![win(7, &[("500", 5)])]; // max_ts == min_ts
         let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
+    }
+
+    const YAML_TOP_AND_IF: &str = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: top1
+    name: top1
+    request: { method: GET, url: "http://x/1" }
+  - type: http
+    id: top2
+    name: top2
+    request: { method: GET, url: "http://x/2" }
+  - type: if
+    id: if1
+    name: if1
+    cond: { left: "a", op: eq, right: "b" }
+    then:
+      - type: http
+        id: only_in_then
+        name: only_in_then
+        request: { method: GET, url: "http://x/3" }
+"#;
+
+    #[test]
+    fn no_request_step_flags_unconditional_only() {
+        // metrics recorded for top1 only → top2 missing (unconditional → flagged),
+        // only_in_then missing (inside if branch → NOT flagged).
+        let steps = vec![step("top1", 10)];
+        let got = derive_insights(
+            &summary(),
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            YAML_TOP_AND_IF,
+        );
+        let flagged: Vec<&str> = got
+            .iter()
+            .filter(|i| i.kind == "no_request_step")
+            .map(|i| i.step_id.as_deref().unwrap())
+            .collect();
+        assert_eq!(flagged, vec!["top2"]);
+    }
+
+    #[test]
+    fn no_request_step_skipped_on_unparseable_yaml() {
+        // empty yaml errors → no_request_step silently skipped (other insights survive).
+        let got = derive_insights(
+            &summary(),
+            &[step("a", 10)],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+        );
+        assert!(got.iter().all(|i| i.kind != "no_request_step"));
+        assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
+    }
+
+    #[test]
+    fn no_data_run_flags_unconditional_steps() {
+        // spec §5 edge: 0 requests recorded, no verdict → top-level steps all flagged,
+        // and no slowest_step (no metrics).
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            YAML_TOP_AND_IF,
+        );
+        let flagged: Vec<&str> = got
+            .iter()
+            .filter(|i| i.kind == "no_request_step")
+            .map(|i| i.step_id.as_deref().unwrap())
+            .collect();
+        assert_eq!(flagged, vec!["top1", "top2"]); // only_in_then excluded (if branch)
+        assert!(got.iter().all(|i| i.kind != "slowest_step"));
     }
 
     fn dist(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
