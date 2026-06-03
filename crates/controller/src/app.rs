@@ -43,6 +43,8 @@ pub fn router(state: AppState) -> Router {
         .route("/runs/{id}", get(runs_api::get))
         .route("/runs/{id}/metrics", get(runs_api::metrics))
         .route("/runs/{id}/report", get(runs_api::report))
+        .route("/runs/{id}/report.csv", get(runs_api::report_csv))
+        .route("/runs/{id}/report.xlsx", get(runs_api::report_xlsx))
         .route("/runs/{id}/abort", post(runs_api::abort_run))
         .route(
             "/datasets",

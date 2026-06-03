@@ -272,6 +272,57 @@ pub async fn report(
     Ok(Json(build_report_for_run(&state.db, &id).await?))
 }
 
+fn file_response(content_type: &str, filename: &str, bytes: Vec<u8>) -> axum::response::Response {
+    use axum::http::header;
+    axum::response::Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        )
+        .body(axum::body::Body::from(bytes))
+        .expect("valid file response")
+}
+
+fn ensure_terminal(row: &runs::RunRow) -> Result<(), ApiError> {
+    match row.status {
+        RunStatus::Completed | RunStatus::Failed | RunStatus::Aborted => Ok(()),
+        _ => Err(ApiError::BadRequest(
+            "run is not finished; export is available after a run completes".into(),
+        )),
+    }
+}
+
+pub async fn report_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    ensure_terminal(&row)?;
+    let report = build_report_for_run(&state.db, &id).await?;
+    let bytes = crate::export::report_to_csv(&report);
+    Ok(file_response(
+        "text/csv; charset=utf-8",
+        &format!("run-{id}-report.csv"),
+        bytes,
+    ))
+}
+
+pub async fn report_xlsx(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    ensure_terminal(&row)?;
+    let report = build_report_for_run(&state.db, &id).await?;
+    let bytes = crate::export::report_to_xlsx(&report);
+    Ok(file_response(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        &format!("run-{id}-report.xlsx"),
+        bytes,
+    ))
+}
+
 #[derive(Debug, Serialize)]
 pub struct RunListResponse {
     pub runs: Vec<RunResponse>,
