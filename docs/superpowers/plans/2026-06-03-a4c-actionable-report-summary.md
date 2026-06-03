@@ -55,9 +55,12 @@
 //! Pure: backend computes structured insights; the UI renders the prose.
 //! Spec: docs/superpowers/specs/2026-06-03-a4c-actionable-report-summary-design.md
 use crate::report::{ReportStep, ReportSummary, ReportWindow, Verdict};
-use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+// NOTE: `use handicap_engine::{Scenario, Step};` 와 `use std::collections::BTreeSet;`
+// 는 Task 6(no_request_step)에서야 처음 쓰인다 — 여기 넣으면 Task 1~5 커밋이
+// pre-commit `clippy --workspace -- -D warnings`(unused-imports)로 거부된다.
+// 그 두 import는 Task 6 Step 3에서 함께 추가한다.
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Insight {
@@ -227,10 +230,14 @@ pub mod insights;
         }
 ```
 
-- [ ] **Step 7: 로컬 RED→GREEN 확인**
+- [ ] **Step 7: 로컬 RED→GREEN + clippy 확인** (clippy 필수 — pre-commit이 `--workspace -- -D warnings`라 unused-import/unused-var를 커밋 시점에 거부; `cargo test`/`build`는 deny 안 함)
 
-Run: `cargo test -p handicap-controller insights:: -- --nocapture`
-Expected: `empty_when_no_signal`, `slowest_step_picks_max_p95` PASS. `cargo build -p handicap-controller` 컴파일 OK.
+Run:
+```
+cargo test -p handicap-controller insights:: -- --nocapture
+cargo clippy -p handicap-controller --all-targets -- -D warnings
+```
+Expected: `empty_when_no_signal`, `slowest_step_picks_max_p95` PASS. clippy 0 warning(미사용 import 없음 — Step 2 import가 전부 signature/test에서 사용됨).
 
 - [ ] **Step 8: keepalive 제거 후 커밋 (orchestrator: foreground 단일 호출)**
 
@@ -308,7 +315,7 @@ Expected: pre-commit 전체 게이트 통과, 커밋 landed.
 
 `let _ = (...)` 줄을 `let _ = (summary, windows, status_distribution, scenario_yaml);`로 갱신(verdict 제거).
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller insights::` → 모든 insights 테스트 PASS.
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → 모든 insights 테스트 PASS. 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning(커밋 게이트 선제).
 
 - [ ] **Step 5: 커밋** (foreground 단일):
 
@@ -381,7 +388,7 @@ git log -1 --oneline
 
 `let _ = (...)`에서 `summary` 제거 → `let _ = (windows, status_distribution, scenario_yaml);`.
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller insights::` → PASS.
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → PASS. 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning(커밋 게이트 선제).
 
 - [ ] **Step 5: 커밋**:
 
@@ -461,7 +468,7 @@ git log -1 --oneline
 
 `let _ = (...)`에서 `status_distribution` 제거 → `let _ = (windows, scenario_yaml);`.
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller insights::` → PASS.
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → PASS. 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning(커밋 게이트 선제).
 
 - [ ] **Step 5: 커밋**:
 
@@ -564,7 +571,7 @@ git log -1 --oneline
 
 `let _ = (...)` 줄 제거(`windows` 사용됨; `scenario_yaml`은 Task 6에서 사용 — `let _ = scenario_yaml;`만 남김).
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller insights::` → PASS.
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → PASS. 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning(커밋 게이트 선제).
 
 - [ ] **Step 5: 커밋**:
 
@@ -628,13 +635,34 @@ steps:
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
     }
+
+    #[test]
+    fn no_data_run_flags_unconditional_steps() {
+        // spec §5 edge: 0 requests recorded, no verdict → top-level steps all flagged,
+        // and no slowest_step (no metrics).
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, YAML_TOP_AND_IF);
+        let flagged: Vec<&str> = got
+            .iter()
+            .filter(|i| i.kind == "no_request_step")
+            .map(|i| i.step_id.as_deref().unwrap())
+            .collect();
+        assert_eq!(flagged, vec!["top1", "top2"]); // only_in_then excluded (if branch)
+        assert!(got.iter().all(|i| i.kind != "slowest_step"));
+    }
 ```
 
 > loop 본문(무조건, repeat≥1)은 flagged, if 분기는 not — 위 테스트는 if-제외를 검증한다. loop 케이스를 더 굳히려면 별도 YAML로 한 테스트 추가 가능(optional).
 
 - [ ] **Step 2: 실패 확인** — Run: `cargo test -p handicap-controller insights::tests::no_request_step` → FAIL.
 
-- [ ] **Step 3: 구현** — `derive_insights` 본문 끝(`out.sort_by_key` 직전)에 추가하고, 파일 하단(`#[cfg(test)]` 위)에 헬퍼 함수 추가:
+- [ ] **Step 3: import 추가 + 구현** — 먼저 `insights.rs` 상단 import에 **Task 1에서 미뤄둔 두 줄을 추가**(여기서 처음 쓰여 unused-import 안 됨):
+
+```rust
+use handicap_engine::{Scenario, Step};
+use std::collections::BTreeSet;
+```
+
+그다음 `derive_insights` 본문 끝(`out.sort_by_key` 직전)에 추가하고, 파일 하단(`#[cfg(test)]` 위)에 헬퍼 함수 추가:
 
 ```rust
     // no_request_step: unconditionally-reached http steps that recorded nothing.
@@ -685,9 +713,9 @@ fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String
 }
 ```
 
-`let _ = scenario_yaml;`(Task 5에서 남긴 줄) 제거 — 이제 사용됨.
+`let _ = scenario_yaml;`(Task 5에서 남긴 줄)을 **삭제**(빈 `let _ = ();`로 만들지 말 것 — `clippy::let_unit_value` 발동) — 이제 `scenario_yaml`이 사용됨.
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller insights::` → PASS. `cargo clippy -p handicap-controller --all-targets -- -D warnings` 깨끗.
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → PASS. 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning(커밋 게이트 선제, 미사용 import 0).
 
 - [ ] **Step 5: 커밋**:
 
@@ -742,9 +770,20 @@ git log -1 --oneline
         let got = derive_insights(&s, &steps, &[], &d, None, "");
         assert!(got.len() >= 3, "error-heavy run should surface >=3 insights, got {}", got.len());
     }
+
+    #[test]
+    fn all_pass_run_has_slowest_and_slo_pass() {
+        // spec §5 edge: clean run (no errors/4xx/5xx) + passing verdict → exactly
+        // slowest_step + slo_pass, NOT padded to 3.
+        let steps = vec![step("a", 80)];
+        let v = verdict(true, 0);
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), Some(&v), "");
+        let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 7 then 8
+    }
 ```
 
-- [ ] **Step 2: 실패→통과 확인** — Run: `cargo test -p handicap-controller insights::tests::insights_deterministic_order insights::tests::error_heavy` → PASS (정렬/capability 모두 만족; 실패 시 order_rank/누락 점검).
+- [ ] **Step 2: 실패→통과 + clippy 확인** — Run: `cargo test -p handicap-controller insights::` → PASS (정렬/capability/all-pass 모두 만족; 실패 시 order_rank/누락 점검). 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning.
 
 - [ ] **Step 3: 커밋**:
 
@@ -845,7 +884,7 @@ git log -1 --oneline
     }
 ```
 
-- [ ] **Step 4: 통과 확인** — Run: `cargo test -p handicap-controller export::` → PASS(`xlsx_has_insights_sheet` 포함, 기존 export 테스트 무회귀).
+- [ ] **Step 4: 통과 + clippy 확인** — Run: `cargo test -p handicap-controller export::` → PASS(`xlsx_has_insights_sheet` 포함, 기존 export 테스트 무회귀). 이어 `cargo clippy -p handicap-controller --all-targets -- -D warnings` → 0 warning.
 
 - [ ] **Step 5: 커밋**:
 
@@ -909,7 +948,9 @@ function pctStr(v: number | undefined): string {
 
 function message(i: Insight, meta: Map<string, StepMeta>): string {
   const name = (id?: string) => (id ? (meta.get(id)?.name ?? id) : "");
-  const n = (v: number | undefined) => (v ?? 0).toLocaleString();
+  // Pin locale so comma grouping is deterministic regardless of CI ICU build
+  // (RTL asserts "1,203건" / "1,240ms").
+  const n = (v: number | undefined) => (v ?? 0).toLocaleString("en-US");
   switch (i.kind) {
     case "slo_failure":
       return `SLO 실패: ${i.count ?? 0}개 기준 미달`;
