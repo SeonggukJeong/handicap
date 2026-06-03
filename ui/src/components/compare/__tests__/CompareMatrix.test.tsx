@@ -24,7 +24,17 @@ const result: CompareResult = {
 };
 
 describe("CompareMatrix", () => {
-  it.todo("single table: all run-value columns align under their header buttons");
+  it("renders one table with a shared colgroup so run columns align", () => {
+    // Single-table layout (commit d74fe7d): header, verdict, and every section
+    // live in ONE <table> governed by a single <colgroup> (label col + one per
+    // run), so each run's values sit directly under its header button. jsdom has
+    // no layout engine, so we assert the structure that guarantees alignment.
+    const { container } = render(
+      <CompareMatrix result={result} labels={{ A: "#A", B: "#B" }} onBaselineChange={() => {}} />,
+    );
+    expect(container.querySelectorAll("table")).toHaveLength(1);
+    expect(container.querySelectorAll("colgroup col")).toHaveLength(result.runIds.length + 1);
+  });
 
   it("renders sections, fires baseline change, shows mismatch banner", async () => {
     const user = userEvent.setup();
