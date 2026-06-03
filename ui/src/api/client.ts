@@ -166,4 +166,12 @@ export const api = {
     requestMultipart("/datasets/preview", buildDatasetForm(file, opts), DatasetPreviewSchema),
   deleteDataset: (id: string, force = false): Promise<DeleteDatasetResult> =>
     deleteDatasetImpl(id, force),
+
+  // File download URL builders — return raw URL strings (do NOT go through request()).
+  reportCsvUrl: (runId: string) => `${BASE}/runs/${encodeURIComponent(runId)}/report.csv`,
+  reportXlsxUrl: (runId: string) => `${BASE}/runs/${encodeURIComponent(runId)}/report.xlsx`,
+  compareCsvUrl: (scenarioId: string, runIds: string[], baseline: string) =>
+    `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.csv?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
+  compareXlsxUrl: (scenarioId: string, runIds: string[], baseline: string) =>
+    `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.xlsx?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
 };
