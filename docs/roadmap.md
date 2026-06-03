@@ -110,9 +110,19 @@
 - **raw body 에디터**: 변경 이유 없음 — 임의 텍스트라 textarea가 적합. 건드리지 않음.
 
 ### B5. codex 평가 후속 (2026-06-03)
-출처: codex load-tester 평가 + Claude 검증 `docs/reviews/2026-06-02-load-tester-evaluation-assessment.md`. **항목 1–4 구현+머지 완료**(master `5e59048` lint 게이트 / `fffec3e` dispatch fail-fast P0 / `fee8041` shutdown 로그). 잔여 2건:
-- **open-loop / arrival-rate 부하 모델 + per-step·per-scenario timeout (P2)**: 현 엔진은 closed-loop 전용(VU가 시나리오 허용 한도까지 루프) + HTTP timeout 30s 하드코딩(`engine/src/executor.rs`). target RPS·think time·`http_timeout_seconds`·max in-flight cap을 profile 필드로 추가, closed-loop는 기본 유지. **별도 spec/plan 필요**(§A 후보급, "정밀 성능 테스트" 영역) — `executor.rs`/`runner.rs` + proto `Profile` + RunDialog까지 걸친다.
+출처: codex load-tester 평가 + Claude 검증 `docs/reviews/2026-06-02-load-tester-evaluation-assessment.md`. **항목 1–4 구현+머지 완료**(master `5e59048` lint 게이트 / `fffec3e` dispatch fail-fast P0 / `fee8041` shutdown 로그). 잔여:
+- ~~**open-loop / arrival-rate 부하 모델 + per-step·per-scenario timeout (P2)**~~ — **🔜 영역으로 승격 (영역 D, 2026-06-03)**: "부하 모델·페이싱 설정"으로 brainstorm → 영역 spec `docs/superpowers/specs/2026-06-03-load-model-pacing-config-design.md`. 아래 §D 참조.
 - **skip/todo UI 테스트 분류·정리**: `pnpm test`에 todo 21 + skip 7. 의도적 연기 / flaky / obsolete / harness-blocked로 분류 후 고위험(시나리오 에디터·리포트) 우선 구현. → UI 폴리시 곁다리.
+
+### D. 부하 모델·페이싱 설정 (영역 D) — **🔜 진행 예정 (영역 spec 작성 완료, S-A 착수 대기)**
+- **성격**: 부하를 *어떻게 거는가*의 표현력 확장(요청 강도·페이싱·타임아웃·도착률). LoadRunner/JMeter 대체 목표(ADR-0001)의 핵심 격차. 출처 = §B5 codex P2 + 사용자 요청(target RPS / ramp stages / think time / per-step timeout / http_timeout_seconds / max in-flight).
+- **영역 spec**: `docs/superpowers/specs/2026-06-03-load-model-pacing-config-design.md`. 지배 원칙: run-level knob→Profile / per-step knob→Scenario(ADR-0013), absent→byte-identical, 마이그레이션 0건(profile_json + YAML `#[serde(default)]`).
+- **4 하위 슬라이스, 전부 commit, 의존성 순서 1→4** (사용자 확정: 급한 것 없음):
+  - **S-A 타임아웃**: `http_timeout_seconds`(profile, 30s 하드코드 대체) + per-step `timeout_seconds`(HttpStep) + connect_timeout 곁들임. 작고 additive, 배선 패턴 확립. **다음 착수.**
+  - **S-B think time**: 반복 간(profile) + 스텝 뒤(HttpStep) 지연, 균등 랜덤/고정. closed-loop 유지.
+  - **S-C 오픈루프**: `target_rps` arrival-rate 스케줄러 + `max_in_flight`. 새 실행 모델 + **ADR-0031**(자체 brainstorm/spec 필요 — arrival 분포·backpressure drop·VU/cookie 모델·데이터바인딩·멀티워커 합성·dropped 메트릭 6개 결정). 헤드라인.
+  - **S-D 다단계 ramp**: `stages: [{target,duration}]`로 `ramp_up_seconds` 일반화(closed=VU/open=RPS 타깃). S-C 위에서 가장 가치.
+- **추가 knob 아이디어(기록, 해당 슬라이스 흡수/후속)**: connect timeout 분리(S-A), think time Poisson 분포(S-B/S-C), `max_iterations` cap, graceful stop/ramp-down(S-D), warmup 메트릭 제외, abort-on-error 실시간 threshold(A4a 사후 verdict와 별개), connection pool 튜닝(host당 max/keep-alive), per-VU rate cap(S-C 이후). 상세 = 영역 spec §8.
 
 ### B6. A4a (run-level SLO criteria) 연기 항목
 - **run 목록 pass/fail 배지** (fast-follow): 목록엔 메트릭이 없어 영속화(`verdict_json` 컬럼 + 완료 시 평가, migration) 또는 목록용 경량 요약 캐시 필요. v1은 리포트 페이지만.
