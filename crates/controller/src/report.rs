@@ -16,6 +16,8 @@ pub struct ReportJson {
     pub if_breakdown: Vec<IfBreakdown>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<Verdict>,
+    #[serde(default)]
+    pub insights: Vec<crate::insights::Insight>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -327,6 +329,14 @@ pub fn build_report(
         (RunStatus::Completed, Some(c)) if c.has_any() => Some(evaluate_criteria(c, &summary)),
         _ => None,
     };
+    let insights = crate::insights::derive_insights(
+        &summary,
+        &steps,
+        &windows,
+        &status_dist,
+        verdict.as_ref(),
+        scenario_yaml,
+    );
 
     ReportJson {
         run: ReportRun {
@@ -346,6 +356,7 @@ pub fn build_report(
         status_distribution: status_dist,
         if_breakdown,
         verdict,
+        insights,
     }
 }
 

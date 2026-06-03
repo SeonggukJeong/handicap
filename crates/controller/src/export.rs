@@ -364,6 +364,7 @@ mod tests {
             status_distribution: BTreeMap::new(),
             if_breakdown: vec![],
             verdict: None,
+            insights: vec![],
         }
     }
 

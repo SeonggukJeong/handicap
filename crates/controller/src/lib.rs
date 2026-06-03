@@ -6,5 +6,6 @@ pub mod dispatcher;
 pub mod error;
 pub mod export;
 pub mod grpc;
+pub mod insights;
 pub mod report;
 pub mod store;
