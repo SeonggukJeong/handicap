@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use handicap_engine::extract::ResponseFacts;
 use handicap_engine::scenario::{
-    Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, Extract, HttpMethod,
-    HttpStep, IfStep, LoopStep, Request, Step,
+    Assertion, Body, CompareOp, Condition, CookieJarMode, DisabledRows, ElifBranch, Extract,
+    HttpMethod, HttpStep, IfStep, LoopStep, Request, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{Scenario, evaluate_extracts};
@@ -78,6 +78,7 @@ fn arb_http_step() -> impl Strategy<Value = HttpStep> {
                     url,
                     headers,
                     body,
+                    disabled: DisabledRows::default(),
                 },
                 assert,
                 extract,

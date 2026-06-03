@@ -449,7 +449,7 @@ pub async fn execute_step_traced(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::{Body, Extract, HttpMethod, HttpStep, Request};
+    use crate::scenario::{Body, DisabledRows, Extract, HttpMethod, HttpStep, Request};
     use std::collections::BTreeMap;
     use wiremock::matchers::{body_json, body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -475,6 +475,7 @@ mod tests {
                 url: format!("{}/login", server.uri()),
                 headers: BTreeMap::new(),
                 body: None,
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![Extract::Body {
@@ -518,6 +519,7 @@ mod tests {
                 url: format!("{}/empty", server.uri()),
                 headers: BTreeMap::new(),
                 body: None,
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![Extract::Body {
@@ -561,6 +563,7 @@ mod tests {
                 url: format!("{}/login", server.uri()),
                 headers: BTreeMap::new(),
                 body: Some(Body::Form(form)),
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -606,6 +609,7 @@ mod tests {
                     "user": "{{username}}",
                     "age": 30
                 }))),
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -641,6 +645,7 @@ mod tests {
                 url: "http://127.0.0.1:1/x".into(),
                 headers: BTreeMap::new(),
                 body: Some(Body::Form(form)),
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -672,6 +677,7 @@ mod tests {
                 url: "http://127.0.0.1:1/x".into(),
                 headers: BTreeMap::new(),
                 body: Some(Body::Json(serde_json::json!({ "user": "{{missing}}" }))),
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -716,6 +722,7 @@ mod tests {
                 url: format!("{}/ping", server.uri()),
                 headers,
                 body: None,
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -756,6 +763,7 @@ mod tests {
                 url: "http://127.0.0.1:1/nope".into(), // refused fast
                 headers: BTreeMap::new(),
                 body: None,
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -798,6 +806,7 @@ mod tests {
                 url: format!("{}/p?x={{{{a}}}}", server.uri()),
                 headers,
                 body: None,
+                disabled: DisabledRows::default(),
             },
             assert: vec![],
             extract: vec![],
@@ -1004,6 +1013,72 @@ mod tests {
                 "outer": { "user": "alice", "age": 30, "active": true, "note": null },
                 "tags": ["vip", "static", 7]
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_header_and_form_rows_are_not_sent() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/submit"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let mut headers = BTreeMap::new();
+        headers.insert("X-Active".to_string(), "on".to_string());
+        let mut disabled_headers = BTreeMap::new();
+        disabled_headers.insert("X-Disabled".to_string(), "off".to_string());
+        let mut form = BTreeMap::new();
+        form.insert("keep".to_string(), "1".to_string());
+        let mut disabled_form = BTreeMap::new();
+        disabled_form.insert("skip".to_string(), "2".to_string());
+
+        let step = HttpStep {
+            id: "01HX0000000000000000000099".into(),
+            name: "submit".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: format!("{}/submit", server.uri()),
+                headers,
+                body: Some(Body::Form(form)),
+                disabled: DisabledRows {
+                    headers: disabled_headers,
+                    form: disabled_form,
+                },
+            },
+            assert: vec![],
+            extract: vec![],
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert_eq!(outcome.status, 200);
+
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+        let req = &reqs[0];
+        assert!(
+            req.headers.get("x-disabled").is_none(),
+            "disabled header must not be sent"
+        );
+        assert_eq!(
+            req.headers.get("x-active").map(|v| v.to_str().unwrap()),
+            Some("on"),
+        );
+        let body = String::from_utf8_lossy(&req.body);
+        assert!(body.contains("keep=1"), "active form field present: {body}");
+        assert!(
+            !body.contains("skip"),
+            "disabled form field must not be sent: {body}"
         );
     }
 }

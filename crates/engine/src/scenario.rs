@@ -120,6 +120,27 @@ pub struct Request {
     pub headers: BTreeMap<String, String>,
     #[serde(default)]
     pub body: Option<Body>,
+    /// Authoring-only "disabled" rows persisted in the scenario YAML. The
+    /// executor NEVER reads this — disabled headers/form fields are kept here
+    /// (not in `headers`/`body`) so they survive reload but are not sent during
+    /// a run. Empty → omitted on serialize (byte-identical to pre-feature YAML).
+    #[serde(default, skip_serializing_if = "DisabledRows::is_empty")]
+    pub disabled: DisabledRows,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DisabledRows {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub form: BTreeMap<String, String>,
+}
+
+impl DisabledRows {
+    pub fn is_empty(&self) -> bool {
+        self.headers.is_empty() && self.form.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -992,5 +1013,53 @@ steps:
             !yaml.contains("else_:"),
             "serialized form must NOT use `else_:` key:\n{yaml}"
         );
+    }
+
+    // ---- B4: DisabledRows serde ----
+
+    #[test]
+    fn request_disabled_round_trips() {
+        let yaml = r#"
+method: POST
+url: https://api/login
+headers:
+  Content-Type: application/json
+disabled:
+  headers:
+    X-Debug: "on"
+  form:
+    skip: "2"
+"#;
+        let req: Request = serde_yaml::from_str(yaml).expect("parses disabled");
+        assert_eq!(
+            req.disabled.headers.get("X-Debug").map(String::as_str),
+            Some("on")
+        );
+        assert_eq!(req.disabled.form.get("skip").map(String::as_str), Some("2"));
+        assert!(req.headers.contains_key("Content-Type")); // active untouched
+        let out = serde_yaml::to_string(&req).expect("serializes");
+        assert!(
+            out.contains("disabled:"),
+            "round-trip keeps disabled: {out}"
+        );
+        assert!(out.contains("X-Debug"));
+    }
+
+    #[test]
+    fn request_without_disabled_parses_and_omits_on_serialize() {
+        let yaml = "method: GET\nurl: https://api/x\n";
+        let req: Request = serde_yaml::from_str(yaml).expect("parses w/o disabled");
+        assert!(req.disabled.is_empty());
+        let out = serde_yaml::to_string(&req).expect("serializes");
+        assert!(
+            !out.contains("disabled"),
+            "empty disabled must be omitted: {out}"
+        );
+    }
+
+    #[test]
+    fn request_still_rejects_unknown_fields() {
+        let yaml = "method: GET\nurl: https://api/x\nbogus: 1\n";
+        assert!(serde_yaml::from_str::<Request>(yaml).is_err());
     }
 }
