@@ -1,6 +1,7 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::ReportJson;
+use rust_xlsxwriter::Workbook;
 
 /// Single-run CSV = the per-step headline table (fixed columns).
 pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
@@ -26,6 +27,114 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
         .expect("csv row");
     }
     w.into_inner().expect("csv flush")
+}
+
+/// Single-run XLSX: Summary + Steps + Windows + Status (+ Branches if any).
+pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
+    let mut wb = Workbook::new();
+
+    // --- Summary sheet ---
+    let ws = wb.add_worksheet();
+    ws.set_name("Summary").expect("sheet name");
+    let s = &report.summary;
+    let rows: [(&str, f64); 7] = [
+        ("count", s.count as f64),
+        ("errors", s.errors as f64),
+        ("rps", s.rps),
+        ("duration_seconds", s.duration_seconds as f64),
+        ("p50_ms", s.p50_ms as f64),
+        ("p95_ms", s.p95_ms as f64),
+        ("p99_ms", s.p99_ms as f64),
+    ];
+    for (i, (k, v)) in rows.iter().enumerate() {
+        ws.write_string(i as u32, 0, *k).expect("w");
+        ws.write_number(i as u32, 1, *v).expect("w");
+    }
+
+    // --- Steps sheet ---
+    let ws = wb.add_worksheet();
+    ws.set_name("Steps").expect("sheet name");
+    for (c, h) in [
+        "step_id",
+        "count",
+        "error_count",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.write_string(0, c as u16, *h).expect("w");
+    }
+    for (i, st) in report.steps.iter().enumerate() {
+        let r = (i + 1) as u32;
+        ws.write_string(r, 0, &st.step_id).expect("w");
+        ws.write_number(r, 1, st.count as f64).expect("w");
+        ws.write_number(r, 2, st.error_count as f64).expect("w");
+        ws.write_number(r, 3, st.p50_ms as f64).expect("w");
+        ws.write_number(r, 4, st.p95_ms as f64).expect("w");
+        ws.write_number(r, 5, st.p99_ms as f64).expect("w");
+    }
+
+    // --- Windows sheet ---
+    let ws = wb.add_worksheet();
+    ws.set_name("Windows").expect("sheet name");
+    for (c, h) in [
+        "ts_second",
+        "step_id",
+        "count",
+        "error_count",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.write_string(0, c as u16, *h).expect("w");
+    }
+    for (i, win) in report.windows.iter().enumerate() {
+        let r = (i + 1) as u32;
+        ws.write_number(r, 0, win.ts_second as f64).expect("w");
+        ws.write_string(r, 1, &win.step_id).expect("w");
+        ws.write_number(r, 2, win.count as f64).expect("w");
+        ws.write_number(r, 3, win.error_count as f64).expect("w");
+        ws.write_number(r, 4, win.p50_ms as f64).expect("w");
+        ws.write_number(r, 5, win.p95_ms as f64).expect("w");
+        ws.write_number(r, 6, win.p99_ms as f64).expect("w");
+    }
+
+    // --- Status sheet ---
+    let ws = wb.add_worksheet();
+    ws.set_name("Status").expect("sheet name");
+    ws.write_string(0, 0, "status").expect("w");
+    ws.write_string(0, 1, "count").expect("w");
+    for (i, (k, v)) in report.status_distribution.iter().enumerate() {
+        let r = (i + 1) as u32;
+        ws.write_string(r, 0, k).expect("w");
+        ws.write_number(r, 1, *v as f64).expect("w");
+    }
+
+    // --- Branches sheet (only if present) ---
+    if !report.if_breakdown.is_empty() {
+        let ws = wb.add_worksheet();
+        ws.set_name("Branches").expect("sheet name");
+        for (c, h) in ["step_id", "branch", "count"].iter().enumerate() {
+            ws.write_string(0, c as u16, *h).expect("w");
+        }
+        let mut r = 1u32;
+        for ib in &report.if_breakdown {
+            for b in &ib.branches {
+                ws.write_string(r, 0, &ib.step_id).expect("w");
+                ws.write_string(r, 1, &b.branch).expect("w");
+                ws.write_number(r, 2, b.count as f64).expect("w");
+                r += 1;
+            }
+        }
+    }
+
+    wb.save_to_buffer().expect("xlsx buffer")
 }
 
 #[cfg(test)]
@@ -85,5 +194,23 @@ mod tests {
         assert_eq!(lines[0], "step_id,count,error_count,p50_ms,p95_ms,p99_ms");
         assert_eq!(lines.len(), 3); // header + 2 steps
         assert!(lines[1].starts_with("a,10,0,1,50,50"));
+    }
+
+    #[test]
+    fn xlsx_roundtrips_summary_and_steps() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.summary.count = 123;
+        let bytes = report_to_xlsx(&r);
+
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(bytes)).expect("read xlsx");
+        let summary = wb.worksheet_range("Summary").expect("Summary sheet");
+        assert_eq!(summary.get_value((0, 1)), Some(&Data::Float(123.0)));
+        let steps = wb.worksheet_range("Steps").expect("Steps sheet");
+        assert_eq!(steps.get_value((1, 0)), Some(&Data::String("a".into())));
+        assert_eq!(steps.get_value((1, 4)), Some(&Data::Float(50.0)));
     }
 }
