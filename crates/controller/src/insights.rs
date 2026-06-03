@@ -87,13 +87,19 @@ pub fn derive_insights(
         out.push(ins);
     }
 
-    let _ = (
-        summary,
-        windows,
-        status_distribution,
-        verdict,
-        scenario_yaml,
-    ); // wired in later tasks
+    // slo_failure / slo_pass
+    if let Some(v) = verdict {
+        if v.passed {
+            out.push(Insight::new("slo_pass", "info"));
+        } else {
+            let failed = v.criteria.iter().filter(|c| !c.passed).count() as u64;
+            let mut ins = Insight::new("slo_failure", "critical");
+            ins.count = Some(failed);
+            out.push(ins);
+        }
+    }
+
+    let _ = (summary, windows, status_distribution, scenario_yaml); // wired in later tasks
 
     out.sort_by_key(order_rank);
     out
@@ -132,6 +138,42 @@ mod tests {
     fn empty_when_no_signal() {
         let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, "");
         assert!(got.is_empty());
+    }
+
+    fn verdict(passed: bool, fails: usize) -> Verdict {
+        use crate::report::CriterionResult;
+        let mut criteria = vec![];
+        for i in 0..(fails + 1) {
+            criteria.push(CriterionResult {
+                metric: format!("m{i}"),
+                direction: "max".to_string(),
+                threshold: 1.0,
+                actual: if i < fails { 2.0 } else { 0.0 },
+                passed: i >= fails,
+            });
+        }
+        Verdict { passed, criteria }
+    }
+
+    #[test]
+    fn slo_failure_counts_failed_criteria() {
+        let v = verdict(false, 2);
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "");
+        let f = got
+            .iter()
+            .find(|i| i.kind == "slo_failure")
+            .expect("slo_failure");
+        assert_eq!(f.severity, "critical");
+        assert_eq!(f.count, Some(2));
+    }
+
+    #[test]
+    fn slo_pass_when_passed() {
+        let v = verdict(true, 0);
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "");
+        let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
+        assert_eq!(p.severity, "info");
+        assert!(got.iter().all(|i| i.kind != "slo_failure"));
     }
 
     #[test]
