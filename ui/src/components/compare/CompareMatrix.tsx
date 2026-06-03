@@ -1,0 +1,156 @@
+import type { Cell, CompareResult, CompareRow } from "../../compare/compareReports";
+
+type Props = {
+  result: CompareResult;
+  labels: Record<string, string>;
+  onBaselineChange: (runId: string) => void;
+};
+
+function formatPct(pct: number): string {
+  const sign = pct >= 0 ? "+" : "";
+  return `${sign}${(pct * 100).toFixed(1)}%`;
+}
+
+function DeltaChip({ cell }: { cell: Cell }) {
+  if (cell.delta === null) return null;
+  const { pct, polarity } = cell.delta;
+
+  let text: string;
+  if (pct === null) {
+    // baseline was 0 — never show ∞%
+    text = cell.value !== null && cell.value > 0 ? "신규" : "동일";
+  } else {
+    text = formatPct(pct);
+  }
+
+  if (polarity === "bad") {
+    return (
+      <span className="ml-1 text-red-600 text-xs" aria-label={`worse: ${text}`}>
+        ▲{text}
+      </span>
+    );
+  }
+  if (polarity === "good") {
+    return (
+      <span className="ml-1 text-green-600 text-xs" aria-label={`better: ${text}`}>
+        ▼{text}
+      </span>
+    );
+  }
+  // neutral
+  return (
+    <span className="ml-1 text-slate-500 text-xs" aria-label={`neutral: ${text}`}>
+      {text}
+    </span>
+  );
+}
+
+function CellContent({ cell }: { cell: Cell }) {
+  const display = cell.value === null ? "—" : String(cell.value);
+  return (
+    <>
+      {display}
+      <DeltaChip cell={cell} />
+    </>
+  );
+}
+
+type SectionProps = {
+  title: string;
+  rows: CompareRow[];
+  runCount: number;
+};
+
+function Section({ title, rows, runCount }: SectionProps) {
+  if (rows.length === 0) return null;
+  return (
+    <section aria-label={title} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{title}</h3>
+      <table className="min-w-full text-sm">
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.metric + row.label} className="border-b border-slate-100">
+              <td className="py-2 pr-4 font-medium text-slate-700 break-all" title={row.label}>
+                {row.label}
+              </td>
+              {row.cells.slice(0, runCount).map((cell, i) => (
+                <td key={i} className="py-2 pr-4">
+                  <CellContent cell={cell} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
+  const { runIds, baselineIdx, summary, steps, status, verdict, stepMismatch } = result;
+
+  return (
+    <div>
+      {/* Step mismatch banner */}
+      {stepMismatch && (
+        <p
+          role="status"
+          className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
+        >
+          스텝 구성이 달라 일부만 비교됩니다
+        </p>
+      )}
+
+      {/* Column headers — clickable to switch baseline */}
+      <div className="mb-4">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-slate-200 text-left text-slate-600">
+            <tr>
+              <th className="py-2 pr-4 font-medium" />
+              {runIds.map((runId, i) => (
+                <th key={runId} className="py-2 pr-4 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => onBaselineChange(runId)}
+                    className="hover:underline text-left"
+                  >
+                    {labels[runId] ?? runId}
+                    {i === baselineIdx && (
+                      <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
+                    )}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+        </table>
+      </div>
+
+      {/* Verdict row */}
+      <section aria-label="Verdict" className="mb-4">
+        <table className="min-w-full text-sm">
+          <tbody>
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pr-4 font-medium text-slate-700">판정</td>
+              {verdict.passed.map((p, i) => (
+                <td key={i} className="py-2 pr-4">
+                  {p === null ? (
+                    "—"
+                  ) : p ? (
+                    <span className="text-green-600 font-semibold">PASS</span>
+                  ) : (
+                    <span className="text-red-600 font-semibold">FAIL</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <Section title="Summary" rows={summary} runCount={runIds.length} />
+      <Section title="Steps" rows={steps} runCount={runIds.length} />
+      <Section title="Status" rows={status} runCount={runIds.length} />
+    </div>
+  );
+}
