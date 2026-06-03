@@ -26,6 +26,8 @@ interface KeyValueGridProps {
   commonKeys?: CommonHeader[];
 }
 
+// Active rows render first (top), disabled rows after. A re-enabled row moves to the
+// bottom of the active group — order reflects active/disabled grouping, not insertion order.
 function toRows(active: Record<string, string>, disabled: Record<string, string>): Row[] {
   return [
     ...Object.entries(active).map(([key, value]) => ({ key, value, enabled: true })),

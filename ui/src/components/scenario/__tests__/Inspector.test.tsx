@@ -595,3 +595,56 @@ steps:
     expect(step.request.disabled?.headers).toEqual({ A: "1" });
   });
 });
+
+describe("Inspector — setKind orphan-drop (spec §7)", () => {
+  const FORM_DISABLED_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "submit"
+    type: http
+    request:
+      method: POST
+      url: "/submit"
+      headers:
+        A: "1"
+      body:
+        form:
+          keep: "1"
+      disabled:
+        form:
+          skip: "2"
+        headers:
+          X-Off: "h"
+    assert:
+      - status: 200
+`;
+
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(FORM_DISABLED_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+  });
+
+  it("switching body kind away from 'form' drops disabled.form but preserves disabled.headers", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+
+    // The body-kind selector shows "form" (current body kind).
+    const kindSelect = screen.getByDisplayValue("form");
+    await user.selectOptions(kindSelect, "json");
+
+    const yaml = useScenarioEditor.getState().yamlText;
+    const out = parseScenarioDoc(yaml);
+    if (!("model" in out)) throw new Error(out.error);
+    const step = out.model.steps[0];
+    if (step.type !== "http") throw new Error("expected http");
+
+    // Orphan disabled.form must be dropped when the body kind leaves "form".
+    expect(step.request.disabled?.form).toBeUndefined();
+    // disabled.headers is body-kind-independent and must survive the kind switch.
+    expect(step.request.disabled?.headers).toEqual({ "X-Off": "h" });
+  });
+});
