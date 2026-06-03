@@ -596,6 +596,73 @@ steps:
   });
 });
 
+describe("Inspector — timeout_seconds", () => {
+  beforeEach(() => loadAndSelect());
+
+  it("edits per-step timeout_seconds via setStepField (commits on blur)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+
+    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, "12");
+    // F5 pattern: model not updated until blur
+    fireEvent.blur(input);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      expect(step.timeout_seconds).toBe(12);
+    }
+  });
+
+  it("clears timeout_seconds (sets undefined) when input is emptied and blurred", async () => {
+    const user = userEvent.setup();
+    // First set a value
+    useScenarioEditor
+      .getState()
+      .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
+    render(<Inspector />);
+
+    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    await user.clear(input);
+    // F5 pattern: commit on blur, not on change
+    fireEvent.blur(input);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      expect(step.timeout_seconds).toBeUndefined();
+    }
+    expect(input.value).toBe("");
+  });
+
+  it("does NOT write NaN or out-of-range values on blur (reverts to last committed)", async () => {
+    const user = userEvent.setup();
+    // Seed a known-good value first
+    useScenarioEditor
+      .getState()
+      .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
+    render(<Inspector />);
+
+    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    // Type an out-of-range value (700 > max 600) then blur
+    await user.clear(input);
+    await user.type(input, "700");
+    fireEvent.blur(input);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      // Must revert to prior committed value, not write 700 or NaN
+      expect(step.timeout_seconds).toBe(30);
+      expect(step.timeout_seconds).not.toBeNaN();
+    }
+    // Draft input must also revert to the last committed value
+    expect(input.value).toBe("30");
+  });
+});
+
 describe("Inspector — setKind orphan-drop (spec §7)", () => {
   const FORM_DISABLED_YAML = `version: 1
 name: "demo"

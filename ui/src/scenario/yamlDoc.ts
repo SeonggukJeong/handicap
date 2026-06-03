@@ -455,6 +455,7 @@ function normalizeStep(s: unknown): unknown {
     request,
     assert,
     extract,
+    ...(src.timeout_seconds != null ? { timeout_seconds: src.timeout_seconds } : {}),
   };
 }
 

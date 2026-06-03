@@ -81,6 +81,7 @@ export const HttpStepModel = z
     request: RequestModel,
     assert: z.array(AssertionModel).default([]),
     extract: z.array(ExtractModel).default([]),
+    timeout_seconds: z.number().int().min(1).max(600).optional(),
   })
   .strict();
 export type HttpStep = z.infer<typeof HttpStepModel>;

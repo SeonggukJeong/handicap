@@ -141,6 +141,29 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
 
+  // Numeric draft + commit-on-blur (F5 pattern), matching the loop Repeat field.
+  // timeout_seconds is optional, so the draft round-trips the empty/undefined state.
+  const [timeoutDraft, setTimeoutDraft] = useState(
+    step.timeout_seconds !== undefined ? String(step.timeout_seconds) : "",
+  );
+  useEffect(() => {
+    setTimeoutDraft(step.timeout_seconds !== undefined ? String(step.timeout_seconds) : "");
+  }, [step.id, step.timeout_seconds]);
+  const commitTimeout = () => {
+    const raw = timeoutDraft.trim();
+    if (raw === "") {
+      setStepField(step.id, ["timeout_seconds"], undefined); // clears YAML key (byte-identical)
+      return;
+    }
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 1 && n <= 600) {
+      setStepField(step.id, ["timeout_seconds"], n);
+    } else {
+      // revert draft to last committed value (no NaN / out-of-range write)
+      setTimeoutDraft(step.timeout_seconds !== undefined ? String(step.timeout_seconds) : "");
+    }
+  };
+
   return (
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
@@ -191,6 +214,18 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
         <HeadersEditor step={step} />
         <BodyEditor step={step} />
       </fieldset>
+
+      <Field label="Timeout (s)">
+        <input
+          type="number"
+          min={1}
+          max={600}
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={timeoutDraft}
+          onChange={(e) => setTimeoutDraft(e.target.value)}
+          onBlur={commitTimeout}
+        />
+      </Field>
 
       <AssertEditor step={step} setStepAssert={setStepAssert} />
       <ExtractEditor step={step} />
