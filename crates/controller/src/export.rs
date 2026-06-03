@@ -2,6 +2,95 @@
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::ReportJson;
 use rust_xlsxwriter::Workbook;
+use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Polarity {
+    Good,
+    Bad,
+    Neutral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Delta {
+    pub pct: Option<f64>,
+    pub polarity: Polarity,
+}
+
+/// lower_is_better metrics return true. count/duration are neutral (caller excludes them).
+fn delta(metric: &str, base: f64, val: f64) -> Delta {
+    let lower_is_better = matches!(metric, "p50_ms" | "p95_ms" | "p99_ms" | "error_rate");
+    let pct = if base == 0.0 {
+        None
+    } else {
+        Some((val - base) / base)
+    };
+    let polarity = if val == base {
+        Polarity::Neutral
+    } else if (val < base) == lower_is_better {
+        Polarity::Good
+    } else {
+        Polarity::Bad
+    };
+    Delta { pct, polarity }
+}
+
+/// Extract one summary metric's value from a run (error_rate is a fraction).
+fn summary_metric(s: &crate::report::ReportSummary, metric: &str) -> f64 {
+    match metric {
+        "p50_ms" => s.p50_ms as f64,
+        "p95_ms" => s.p95_ms as f64,
+        "p99_ms" => s.p99_ms as f64,
+        "rps" => s.rps,
+        "error_rate" => {
+            if s.count == 0 {
+                0.0
+            } else {
+                s.errors as f64 / s.count as f64
+            }
+        }
+        _ => 0.0,
+    }
+}
+
+const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_rate"];
+
+/// Comparison CSV = summary matrix. Columns: metric, each run's value, each
+/// non-baseline run's delta_pct. Rows in SUMMARY_METRICS order.
+pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8> {
+    let mut w = csv::Writer::from_writer(Vec::new());
+    let mut header = vec!["metric".to_string()];
+    for (i, r) in reports.iter().enumerate() {
+        header.push(if i == baseline_idx {
+            format!("{} (base)", r.run.id)
+        } else {
+            r.run.id.clone()
+        });
+    }
+    for (i, r) in reports.iter().enumerate() {
+        if i != baseline_idx {
+            header.push(format!("delta_pct {}", r.run.id));
+        }
+    }
+    w.write_record(&header).expect("hdr");
+
+    for metric in SUMMARY_METRICS {
+        let base = summary_metric(&reports[baseline_idx].summary, metric);
+        let mut rec = vec![metric.to_string()];
+        for r in reports {
+            rec.push(summary_metric(&r.summary, metric).to_string());
+        }
+        for (i, r) in reports.iter().enumerate() {
+            if i != baseline_idx {
+                let d = delta(metric, base, summary_metric(&r.summary, metric));
+                rec.push(d.pct.map(|p| format!("{p:.6}")).unwrap_or_default());
+            }
+        }
+        w.write_record(&rec).expect("row");
+    }
+    w.into_inner().expect("flush")
+}
 
 /// Single-run CSV = the per-step headline table (fixed columns).
 pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
@@ -194,6 +283,47 @@ mod tests {
         assert_eq!(lines[0], "step_id,count,error_count,p50_ms,p95_ms,p99_ms");
         assert_eq!(lines.len(), 3); // header + 2 steps
         assert!(lines[1].starts_with("a,10,0,1,50,50"));
+    }
+
+    #[test]
+    fn golden_summary_deltas_match() {
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            reports: Vec<ReportJson>,
+            baseline_id: String,
+            expected: serde_json::Value,
+        }
+        let g: Golden = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/compare_golden.json"
+        )))
+        .expect("golden parse");
+        let base_idx = g
+            .reports
+            .iter()
+            .position(|r| r.run.id == g.baseline_id)
+            .unwrap();
+        for row in g.expected["summary"].as_array().unwrap() {
+            let metric = row["metric"].as_str().unwrap();
+            let base = summary_metric(&g.reports[base_idx].summary, metric);
+            for (i, r) in g.reports.iter().enumerate() {
+                let exp = &row["deltas"][i];
+                let d = delta(metric, base, summary_metric(&r.summary, metric));
+                if exp.is_null() {
+                    assert_eq!(i, base_idx, "{metric}: null delta only for baseline");
+                } else {
+                    let exp_pct = exp["pct"].as_f64().unwrap();
+                    assert!(
+                        (d.pct.unwrap() - exp_pct).abs() < 1e-9,
+                        "{metric} pct mismatch"
+                    );
+                    assert_eq!(
+                        format!("{:?}", d.polarity).to_lowercase(),
+                        exp["polarity"].as_str().unwrap()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
