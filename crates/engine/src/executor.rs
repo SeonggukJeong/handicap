@@ -18,9 +18,16 @@ pub struct VuClient {
 }
 
 impl VuClient {
+    /// Back-compat constructor: 30s total request timeout (pre-S-A default).
     pub fn new(cookie_mode: CookieJarMode) -> Result<Self> {
+        Self::with_timeout(cookie_mode, Duration::from_secs(30))
+    }
+
+    /// Build a client with an explicit total request timeout. `run_vu` uses this
+    /// to thread `RunPlan.http_timeout`; `new` delegates here with the 30s default.
+    pub fn with_timeout(cookie_mode: CookieJarMode, timeout: Duration) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(timeout)
             .user_agent("handicap/0.1");
         if let CookieJarMode::Auto = cookie_mode {
             let jar = Arc::new(Jar::default());

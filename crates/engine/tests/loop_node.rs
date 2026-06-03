@@ -63,6 +63,7 @@ steps:
         loop_breakdown_cap: 0,
         vu_offset: 0,
         data_binding: None,
+        http_timeout: Duration::from_secs(30),
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -143,6 +144,7 @@ steps:
         loop_breakdown_cap: 256,
         vu_offset: 0,
         data_binding: None,
+        http_timeout: Duration::from_secs(30),
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -219,6 +221,7 @@ steps:
         loop_breakdown_cap: 0,
         vu_offset: 0,
         data_binding: None,
+        http_timeout: Duration::from_secs(30),
     };
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

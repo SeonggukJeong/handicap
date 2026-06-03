@@ -186,6 +186,7 @@ async fn main() -> anyhow::Result<()> {
         loop_breakdown_cap: profile.loop_breakdown_cap,
         vu_offset: assignment.vu_offset,
         data_binding: dataset,
+        http_timeout: Duration::from_secs(30),
     };
     info!(
         vus = plan.vus,

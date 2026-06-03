@@ -28,6 +28,9 @@ pub struct RunPlan {
     pub vu_offset: u32,
     /// Optional data-driven binding. `None` → no injection (back-compat).
     pub data_binding: Option<Arc<DataSet>>,
+    /// Total per-request HTTP timeout for every VU client (reqwest client-level).
+    /// `30s` reproduces the pre-S-A hardcoded default.
+    pub http_timeout: Duration,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -54,6 +57,7 @@ pub async fn run_scenario(
     let failed = Arc::new(AtomicU32::new(0));
     let env = Arc::new(plan.env);
     let dataset = plan.data_binding.clone();
+    let http_timeout = plan.http_timeout;
     // One shared worker-local counter for IterSequential and Unique, created once per run.
     let seq_counter = match dataset.as_ref().map(|d| d.policy) {
         Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
@@ -110,6 +114,7 @@ pub async fn run_scenario(
                     cancel_vu,
                     dataset,
                     seq_counter,
+                    http_timeout,
                 )
                 .await
                 {
@@ -230,8 +235,9 @@ async fn run_vu(
     cancel: CancellationToken,
     dataset: Option<Arc<DataSet>>,
     seq_counter: Option<Arc<AtomicU64>>,
+    http_timeout: Duration,
 ) -> Result<()> {
-    let client = VuClient::new(scenario.cookie_jar)?;
+    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
     let mut iter_id: u32 = 0;
     while Instant::now() < deadline {
         if cancel.is_cancelled() {
