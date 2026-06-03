@@ -7,15 +7,21 @@ import { COMMON_HEADERS } from "../../../scenario/commonHeaders";
 
 function Harness(props: {
   initial?: Record<string, string>;
+  initialDisabled?: Record<string, string>;
   withCommon?: boolean;
   format?: "header" | "form";
 }) {
   const [entries, setEntries] = useState<Record<string, string>>(props.initial ?? {});
+  const [disabled, setDisabled] = useState<Record<string, string>>(props.initialDisabled ?? {});
   return (
     <>
       <KeyValueGrid
         entries={entries}
-        onChange={setEntries}
+        disabledEntries={disabled}
+        onChange={(a, d) => {
+          setEntries(a);
+          setDisabled(d);
+        }}
         resetKey="step-1"
         bulkFormat={props.format ?? "header"}
         itemLabel="header"
@@ -25,11 +31,13 @@ function Harness(props: {
         commonKeys={props.withCommon ? COMMON_HEADERS : undefined}
       />
       <pre data-testid="dump">{JSON.stringify(entries)}</pre>
+      <pre data-testid="dump-disabled">{JSON.stringify(disabled)}</pre>
     </>
   );
 }
 
 const dump = () => JSON.parse(screen.getByTestId("dump").textContent || "{}");
+const dumpDisabled = () => JSON.parse(screen.getByTestId("dump-disabled").textContent || "{}");
 
 describe("KeyValueGrid — grid editing", () => {
   it("adds a row via the two-field add row", async () => {
@@ -164,5 +172,43 @@ describe("KeyValueGrid — focus movement", () => {
     await user.click(screen.getByRole("button", { name: /자주 쓰는 헤더/ }));
     await user.click(screen.getByRole("option", { name: "Content-Type" }));
     expect(screen.getByLabelText("header value 0")).toHaveFocus();
+  });
+});
+
+describe("KeyValueGrid — disabled toggle", () => {
+  it("toggling a row's checkbox moves it to the disabled map (and back)", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ A: "1" }} />);
+    const cb = screen.getByLabelText("header enabled 0") as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+    await user.click(cb); // disable
+    expect(dump()).toEqual({});
+    expect(dumpDisabled()).toEqual({ A: "1" });
+    await user.click(screen.getByLabelText("header enabled 0")); // re-enable
+    expect(dump()).toEqual({ A: "1" });
+    expect(dumpDisabled()).toEqual({});
+  });
+
+  it("a disabled row is still editable", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{}} initialDisabled={{ A: "1" }} />);
+    const value = screen.getByLabelText("header value 0");
+    await user.clear(value);
+    await user.type(value, "2");
+    await user.tab(); // blur commit
+    expect(dumpDisabled()).toEqual({ A: "2" });
+    expect(dump()).toEqual({});
+  });
+
+  it("bulk replace keeps disabled rows; active wins on key collision", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ A: "1" }} initialDisabled={{ B: "x", A: "old" }} />);
+    // A exists active+disabled only transiently; split makes active win — disabled has only B.
+    await user.click(screen.getByRole("button", { name: "Bulk Edit" }));
+    const ta = screen.getByRole("textbox");
+    fireEvent.change(ta, { target: { value: "A: 9\nC: 3" } });
+    await user.click(screen.getByRole("button", { name: /apply/i }));
+    expect(dump()).toEqual({ A: "9", C: "3" }); // active replaced
+    expect(dumpDisabled()).toEqual({ B: "x" }); // disabled preserved, A collision dropped from disabled
   });
 });

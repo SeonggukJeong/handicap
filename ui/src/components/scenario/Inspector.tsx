@@ -20,6 +20,16 @@ const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", 
 const BODY_KINDS = ["none", "json", "form", "raw"] as const;
 type BodyKind = (typeof BODY_KINDS)[number];
 
+function buildDisabled(
+  headers: Record<string, string> | undefined,
+  form: Record<string, string> | undefined,
+): { headers?: Record<string, string>; form?: Record<string, string> } | undefined {
+  const h = headers && Object.keys(headers).length ? headers : undefined;
+  const f = form && Object.keys(form).length ? form : undefined;
+  if (!h && !f) return undefined; // setStepField(undefined) → deleteIn → clean YAML
+  return { ...(h ? { headers: h } : {}), ...(f ? { form: f } : {}) };
+}
+
 export function Inspector() {
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
@@ -195,7 +205,15 @@ function HeadersEditor({ step }: { step: HttpStep }) {
       <div className="text-xs font-semibold text-slate-600 mb-1">Headers</div>
       <KeyValueGrid
         entries={step.request.headers ?? {}}
-        onChange={(next) => setStepField(step.id, ["request", "headers"], next)}
+        disabledEntries={step.request.disabled?.headers ?? {}}
+        onChange={(active, disabled) => {
+          setStepField(step.id, ["request", "headers"], active);
+          setStepField(
+            step.id,
+            ["request", "disabled"],
+            buildDisabled(disabled, step.request.disabled?.form),
+          );
+        }}
         resetKey={step.id}
         bulkFormat="header"
         itemLabel="header"
@@ -214,6 +232,14 @@ function BodyEditor({ step }: { step: HttpStep }) {
   const kind: BodyKind = step.request.body?.kind ?? "none";
 
   const setKind = (k: BodyKind) => {
+    // leaving a form body → disabled.form no longer has an editor → drop the orphan
+    if (k !== "form" && step.request.disabled?.form) {
+      setStepField(
+        step.id,
+        ["request", "disabled"],
+        buildDisabled(step.request.disabled?.headers, undefined),
+      );
+    }
     if (k === "none") {
       setStepField(step.id, ["request", "body"], undefined);
       return;
@@ -314,7 +340,15 @@ function FormBodyField({ step }: { step: HttpStep }) {
   return (
     <KeyValueGrid
       entries={map ?? {}}
-      onChange={(next) => setStepField(step.id, ["request", "body"], { form: next })}
+      disabledEntries={step.request.disabled?.form ?? {}}
+      onChange={(active, disabled) => {
+        setStepField(step.id, ["request", "body"], { form: active });
+        setStepField(
+          step.id,
+          ["request", "disabled"],
+          buildDisabled(step.request.disabled?.headers, disabled),
+        );
+      }}
       resetKey={step.id}
       bulkFormat="form"
       itemLabel="form field"

@@ -6,11 +6,14 @@ import { BulkEditPanel } from "./BulkEditPanel";
 interface Row {
   key: string;
   value: string;
+  enabled: boolean;
 }
 
 interface KeyValueGridProps {
   entries: Record<string, string>;
-  onChange: (next: Record<string, string>) => void;
+  /** Disabled rows (kept but not sent). Default {}. */
+  disabledEntries?: Record<string, string>;
+  onChange: (active: Record<string, string>, disabled: Record<string, string>) => void;
   /** Re-seed drafts only when this changes (pass step.id) — NOT on every entries change. */
   resetKey: string;
   bulkFormat: BulkFormat;
@@ -23,22 +26,36 @@ interface KeyValueGridProps {
   commonKeys?: CommonHeader[];
 }
 
-function toRows(entries: Record<string, string>): Row[] {
-  return Object.entries(entries).map(([key, value]) => ({ key, value }));
+function toRows(active: Record<string, string>, disabled: Record<string, string>): Row[] {
+  return [
+    ...Object.entries(active).map(([key, value]) => ({ key, value, enabled: true })),
+    ...Object.entries(disabled).map(([key, value]) => ({ key, value, enabled: false })),
+  ];
 }
 
-function toRecord(rows: Row[]): Record<string, string> {
-  const out: Record<string, string> = {};
+function splitRows(rows: Row[]): {
+  active: Record<string, string>;
+  disabled: Record<string, string>;
+} {
+  const active: Record<string, string> = {};
+  const disabled: Record<string, string> = {};
   for (const r of rows) {
     const k = r.key.trim();
-    if (k === "") continue; // empty-key rows are excluded from the committed map (kept in draft)
-    out[k] = r.value; // last-wins
+    if (k === "" || !r.enabled) continue;
+    active[k] = r.value; // last-wins
   }
-  return out;
+  for (const r of rows) {
+    const k = r.key.trim();
+    if (k === "" || r.enabled) continue;
+    if (k in active) continue; // active wins on collision (one key = one row)
+    disabled[k] = r.value;
+  }
+  return { active, disabled };
 }
 
 export function KeyValueGrid({
   entries,
+  disabledEntries = {},
   onChange,
   resetKey,
   bulkFormat,
@@ -48,7 +65,7 @@ export function KeyValueGrid({
   emptyText,
   commonKeys,
 }: KeyValueGridProps) {
-  const [rows, setRows] = useState<Row[]>(() => toRows(entries));
+  const [rows, setRows] = useState<Row[]>(() => toRows(entries, disabledEntries));
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -72,7 +89,7 @@ export function KeyValueGrid({
   // Re-seed drafts ONLY when the selected step changes (mirror ExtractEditor).
   // Re-seeding on an `entries` deep-compare would clobber in-progress edits (spec R2).
   useEffect(() => {
-    setRows(toRows(entries));
+    setRows(toRows(entries, disabledEntries));
     setNewKey("");
     setNewValue("");
     setBulkOpen(false);
@@ -81,9 +98,13 @@ export function KeyValueGrid({
 
   const commit = (next: Row[]) => {
     setRows(next);
-    onChange(toRecord(next));
+    const { active, disabled } = splitRows(next);
+    onChange(active, disabled);
   };
-  const commitRows = () => onChange(toRecord(rows)); // onBlur — rows already reflects keystrokes
+  const commitRows = () => {
+    const { active, disabled } = splitRows(rows);
+    onChange(active, disabled);
+  };
 
   const updateValue = (idx: number, value: string) => {
     setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, value } : r)));
@@ -111,10 +132,14 @@ export function KeyValueGrid({
   const addRow = () => {
     const k = newKey.trim();
     if (!k) return;
-    commit([...rows, { key: k, value: newValue }]);
+    commit([...rows, { key: k, value: newValue, enabled: true }]);
     setNewKey("");
     setNewValue("");
     newKeyRef.current?.focus(); // spec §3-1: keep focus on the add-row key for the next entry
+  };
+
+  const toggleEnabled = (idx: number) => {
+    commit(rows.map((r, i) => (i === idx ? { ...r, enabled: !r.enabled } : r)));
   };
 
   const pickCommon = (h: CommonHeader) => {
@@ -124,7 +149,7 @@ export function KeyValueGrid({
       commit(rows.map((r, i) => (i === idx ? { ...r, value: h.value } : r)));
       setPickFocusIdx(idx); // spec §6: focus the seeded value field
     } else {
-      commit([...rows, { key: h.name, value: h.value }]);
+      commit([...rows, { key: h.name, value: h.value, enabled: true }]);
       setPickFocusIdx(rows.length); // spec §6: focus the appended row's value field
     }
   };
@@ -132,10 +157,13 @@ export function KeyValueGrid({
   if (bulkOpen) {
     return (
       <BulkEditPanel
-        entries={toRecord(rows)}
+        entries={splitRows(rows).active}
         format={bulkFormat}
-        onApply={(next) => {
-          commit(toRows(next));
+        onApply={(nextActive) => {
+          const preserved = rows.filter(
+            (r) => !r.enabled && r.key.trim() !== "" && !(r.key.trim() in nextActive),
+          );
+          commit([...toRows(nextActive, {}), ...preserved]);
           setBulkOpen(false);
         }}
         onCancel={() => setBulkOpen(false)}
@@ -167,6 +195,13 @@ export function KeyValueGrid({
       <ul className="flex flex-col gap-1">
         {rows.map((r, idx) => (
           <li key={idx} className="flex gap-2 items-center">
+            <input
+              type="checkbox"
+              aria-label={`${itemLabel} enabled ${idx}`}
+              className="shrink-0"
+              checked={r.enabled}
+              onChange={() => toggleEnabled(idx)}
+            />
             <input
               aria-label={`${itemLabel} key ${idx}`}
               list={hasCommon ? datalistId : undefined}

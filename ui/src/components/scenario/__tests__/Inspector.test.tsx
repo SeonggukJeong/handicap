@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Inspector } from "../Inspector";
 import { useScenarioEditor } from "../../../scenario/store";
+import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -554,5 +555,43 @@ describe("Inspector — JSON body Format", () => {
     await user.click(screen.getByRole("button", { name: "Format" }));
     expect(ta.value).toBe("{not json}");
     expect(screen.getByText(/JSON:/)).toBeInTheDocument();
+  });
+});
+
+describe("Inspector — disabled header toggle", () => {
+  const HEADER_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+      headers:
+        A: "1"
+    assert:
+      - status: 200
+`;
+
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(HEADER_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+  });
+
+  it("disabling a header moves it under request.disabled.headers in the YAML", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByLabelText("header enabled 0")); // uncheck → disable
+    const yaml = useScenarioEditor.getState().yamlText;
+    const out = parseScenarioDoc(yaml);
+    if (!("model" in out)) throw new Error(out.error);
+    const step = out.model.steps[0];
+    if (step.type !== "http") throw new Error("expected http");
+    expect(step.request.headers).toEqual({});
+    expect(step.request.disabled?.headers).toEqual({ A: "1" });
   });
 });
