@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { DatasetUploadOptions } from "./client";
 import { createPreset, deletePreset, listPresets, updatePreset, type PresetInput } from "./presets";
@@ -132,6 +132,17 @@ export function useRunReport(id: string | undefined, terminal: boolean) {
     refetchInterval: false,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
+  });
+}
+
+export function useReports(runIds: string[]) {
+  return useQueries({
+    queries: runIds.map((id) => ({
+      queryKey: queryKeys.runReport(id),
+      queryFn: () => api.getRunReport(id),
+      staleTime: Infinity,
+      refetchInterval: false as const,
+    })),
   });
 }
 
