@@ -14,7 +14,7 @@
 ### IN
 
 - `ReportJson.insights: Vec<Insight>` — `build_report`가 이미 만든 `summary`/`steps`/`status_distribution`/`verdict`/`windows` + 파싱한 `scenario_yaml`에서 파생하는 **순수 함수 `derive_insights`**.
-- v1 인사이트 7종(아래 §5): run_health(헤드라인) · slowest_step · error_hotspot · no_request_step · slo_failure/slo_pass · status_class · status_temporal.
+- v1 인사이트 6종(아래 §5): slowest_step · error_hotspot · no_request_step · slo_failure/slo_pass · status_class · status_temporal. **신호가 있을 때만 emit**(패딩 없음).
 - 인사이트는 **구조화(structured)만** emit하고 표시 텍스트(한국어)는 UI가 렌더 — 코드베이스 관례(스텝 라벨·verdict 텍스트가 UI 책임)와 일치.
 - UI `InsightPanel` — 리포트 최상단(VerdictPanel 위), severity 정렬, 한 줄 메시지 + 색/아이콘.
 - 단일-run XLSX export에 **Insights 시트** 추가(구조화 컬럼). JSON 리포트엔 `ReportJson`에 포함되므로 자동.
@@ -65,17 +65,16 @@ pub struct Insight {
 }
 ```
 
-`ReportJson`에 `pub insights: Vec<Insight>` 필드 추가(빈 vec 기본, 항상 emit). `Deserialize`도 함께(report.rs 관례 — typed round-trip 테스트가 강제).
+`ReportJson`에 `pub insights: Vec<Insight>` 필드 추가(빈 vec 기본; 신호가 없으면 빈 배열 — 패딩 안 함). `Deserialize`도 함께(report.rs 관례 — typed round-trip 테스트가 강제).
 
 UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `skip_serializing_if`와 lockstep), `severity`는 `z.enum(["critical","warning","info"])`. `ReportSchema.insights`는 `.optional()` + 소비처 `?? []`(if_breakdown 패턴).
 
-## 5. v1 인사이트 7종 — 파생 규칙 · 조건부 emit · severity
+## 5. v1 인사이트 6종 — 파생 규칙 · 조건부 emit · severity
 
-**emit 순서 = `run_health`(헤드라인) 항상 첫째, 그다음 나머지를 severity rank(critical → warning → info)로.** `run_health`는 severity 정렬에서 빠지는 **고정 헤드라인**(패널의 토픽 문장)이고, 나머지는 조건 충족 시에만 push된다. 같은 severity 내 순서는 아래 표 순서로 고정(결정론적).
+**emit 순서 = severity rank(critical → warning → info).** 각 종은 조건 충족 시에만 push된다(신호 없으면 패널에서 빠짐 — 패딩 안 함). 같은 severity 내 순서는 아래 표 순서로 고정(결정론적).
 
 | # | kind | emit 조건 | severity | 채우는 필드 | UI 렌더(예시) |
 |---|---|---|---|---|---|
-| 0 | `run_health` | **항상**(헤드라인) | info(headline) | `count`(=summary.count), `value`(=summary.rps), `count` 외 errors는 UI가 summary에서 | "총 12,400건 · 410 req/s · 에러 0건" |
 | 1 | `slo_failure` | `verdict.passed == false` | critical | `count`(실패 기준 수) | "SLO 실패: 2개 기준 미달" (상세는 아래 VerdictPanel) |
 | 2 | `status_class` (5xx) | 5xx 합계 > 0 | critical | `status_class="5xx"`, `pct`, `count` | "5xx가 응답의 12% (1,203건)" |
 | 3 | `no_request_step` | 무조건 도달 http 스텝이 메트릭 0건(스텝마다 1개) | warning | `step_id` | "스텝 profile에 요청이 기록되지 않음" |
@@ -85,7 +84,7 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 | 7 | `slowest_step` | 스텝 ≥ 1 (p95 최대 1개) | info | `step_id`, `metric="p95_ms"`, `value` | "스텝 checkout이 p95 1,240ms로 가장 느림" |
 | 8 | `slo_pass` | `verdict.passed == true` | info | (없음) | "모든 SLO 기준 통과" |
 
-> `run_health`는 Summary 패널과 수치가 겹치지만 **인사이트 패널의 헤드라인 한 줄**(차트로 스크롤 안 해도 규모를 즉시 보여줌)이자 §6의 "≥3 하한" 보장 장치다. `count`/`value`만 구조화로 싣고 errors 표시는 UI가 같은 report.summary에서 읽는다.
+(표의 #는 emit/표시 순서일 뿐 kind는 6종 — `status_class`는 4xx·5xx 두 행, `slo_failure`/`slo_pass`는 SLO의 두 상태.)
 
 세부 정의:
 
@@ -105,9 +104,9 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 
 ### 엣지 케이스 (acceptance 대응)
 
-- **no-data run(요청 0건, `steps` 비어있음)**: run_health("총 0건…") + 무조건 도달 http 스텝 전부 no_request_step. slowest_step/error_hotspot/status_*는 조건 미충족으로 skip. verdict 있으면 slo_* 도. → 패널이 "아무것도 안 돎 + 미실행 스텝"을 명확히 표시.
-- **all-pass run(에러 0, SLO 통과)**: run_health + slowest_step(info) + slo_pass(info) = 3개(criteria 있을 때). 4xx/5xx 없으면 status 생략. criteria 미설정이면 run_health + slowest_step = 2(§6 예외).
-- **error-heavy run**: run_health + slo_failure(있으면) + status_class(5xx) + error_hotspot + (status_temporal) + slowest_step → 넉넉히 ≥3.
+- **no-data run(요청 0건, `steps` 비어있음)**: 무조건 도달 http 스텝 전부 no_request_step(≥1). slowest_step/error_hotspot/status_*는 조건 미충족으로 skip. verdict 있으면 slo_* 도. → 패널이 "미실행 스텝"을 명확히 표시.
+- **all-pass run(에러 0, SLO 통과)**: slowest_step(info) + slo_pass(info) = 2개(criteria 있을 때). 4xx/5xx 없으면 status 생략. criteria 미설정이면 slowest_step = 1. **이게 정직한 결과** — "특이사항 없음"을 굳이 패딩하지 않는다(§6).
+- **error-heavy run**: slo_failure(있으면) + status_class(5xx) + error_hotspot + (status_temporal) + slowest_step → 넉넉히 ≥3.
 
 ## 6. 렌더링 (UI `InsightPanel`)
 
@@ -115,8 +114,16 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 - 정렬: 백엔드 emit 순서를 그대로 신뢰(이미 severity rank 순). UI는 추가 정렬 안 함.
 - 각 인사이트: severity 색/아이콘(critical=적, warning=황, info=중립) + 한 줄 한국어 메시지. 메시지는 `kind` switch로 구조화 필드에서 조립.
 - **스텝 표시명**: `step_id`는 ULID라, 기존 `ReportView`의 `stepMeta`(scenario_yaml 파싱 → id→{name,method,url})를 재사용해 `name`으로 렌더(`stepMeta` 없으면 step_id fallback). loop/if 노드명은 `findStepById` 재사용 가능하나 v1 인사이트의 step_id는 전부 http leaf라 `stepMeta`로 충분.
-- `run_health`가 항상 emit되므로 `insights`는 **사실상 비지 않는다**(최소 1개). UI는 `insights.length === 0`이면 패널을 렌더 안 하는 방어 가드만 둔다(이 기능 이전 데이터·파싱 실패 등 forward-compat 용도).
-- **acceptance "≥3 인사이트" 보장**: §5의 `run_health`(항상) + `slowest_step`(스텝 ≥1) + (`slo_pass` 또는 `slo_failure`, verdict 있을 때)로 **criteria가 설정된 정상 run은 최소 3개**. 에러/4xx/5xx가 있으면 그만큼 더. **예외**: criteria 미설정(verdict None) + 무에러 + 단일 스텝이면 `run_health` + `slowest_step` = 2개일 수 있다 — 이는 "특이사항 없는 pristine run"이라 2줄이 정상(과보고 회피). acceptance 테스트는 criteria 있는 all-pass run으로 ≥3을 검증한다.
+- **빈 `insights` 처리**: 신호가 하나도 없으면(예: 스텝 0개인 즉시 종료 run에 criteria도 없음) `insights`가 빈 배열일 수 있다. UI는 `insights.length === 0`이면 `InsightPanel`을 렌더 안 한다(빈 박스 회피).
+
+### "≥3 인사이트"의 위상 — capability 기준, per-run 불변식 아님
+
+출처 리뷰의 acceptance("at least three deterministic insights", `roadmap-user-value-review:385`)는 **계산된 값이 아니라 리뷰어의 휴리스틱**이고, 그 리뷰 메뉴엔 **baseline 회귀 인사이트가 포함**돼 있었다(우리는 v1에서 연기). baseline을 빼면 *깨끗한 단일-run의 자연 인사이트 수가 줄어든다.* 그래서 v1은 "≥3"을 **모든 run의 하드 불변식이 아니라 capability 기준**으로 둔다:
+
+- 인사이트는 **신호가 있을 때만** emit한다(패딩 금지 — 패딩은 "actionable=볼 것만" 원칙과 충돌).
+- error-heavy/현실적인 run은 자연히 ≥3을 넘는다. 깨끗한 all-pass+criteria run은 `slowest_step` + `slo_pass` = **2개가 정직한 결과**다("문제 없음"을 2줄로 보여주는 게 옳다).
+- **acceptance 검증은 capability로**: error-heavy 테스트가 ≥3 결정론적 인사이트를 만드는지로 확인한다(no-data·all-pass 케이스는 "더 적을 수 있음"을 정상으로 단언).
+- **미래 옵션(연기, §9)**: 깨끗한 run에도 의미 있는 *세 번째 실질 신호*가 필요하다고 판단되면 — 패딩(run_health류 총량 재진술)이 아니라 — 스텝간 지연 편차·가장 빠른 스텝·p99/p95 비율 같은 **진짜 신호**를 추가하는 방향으로 푼다(브레인스토밍 2026-06-03 결정: run_health는 Summary 패널과 중복이라 채택 안 함).
 
 ## 7. Export (controller `export.rs`)
 
@@ -129,14 +136,14 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 ## 8. 테스트 전략
 
 - **Rust 단위(`report.rs` 또는 새 `insights` 모듈)**:
-  - `all_pass_run_has_health_slowest_slo_pass`(≥3, 에러/5xx 인사이트 없음).
-  - `error_heavy_run_has_hotspot_and_5xx`(error_hotspot pct/count 정확, status_class(5xx)).
+  - `all_pass_run_has_slowest_and_slo_pass`(에러/4xx/5xx 인사이트 없음, 2개가 정상 — 패딩 안 함).
+  - `error_heavy_run_yields_at_least_three`(error_hotspot pct/count 정확 + status_class(5xx) + slowest_step → capability ≥3 검증).
   - `no_data_run_flags_unconditional_steps`(steps 비어있음 → no_request_step만, slowest 없음).
   - `no_request_step_skips_if_branches`(if then/else 안 스텝 0건은 미플래그, top-level·loop 본문 0건은 플래그) — 무조건/조건 구분의 핵심 회귀.
   - `status_temporal_only_when_late`(초반 5xx면 미emit, 후반 5xx면 window_seconds 정확).
   - `slo_failure_counts_failed_criteria` / `slo_pass_when_passed`.
-  - `run_health_always_first_and_present`(run_health가 항상 존재 + 인덱스 0).
-  - `insights_deterministic_order`(run_health 헤드라인 후 severity rank 순서 고정).
+  - `empty_when_no_signal`(스텝 0 + criteria 없음 → insights 빈 배열, 패널 미렌더).
+  - `insights_deterministic_order`(severity rank 순서 고정).
 - **Export**: `xlsx_has_insights_sheet`(헤더 + 행 수 + 샘플 셀).
 - **UI RTL(`InsightPanel.test.tsx`)**: 종류별 메시지 렌더(stepMeta 이름 치환 포함) · severity 색/순서 · 빈 insights 시 미렌더 · `ReportSchema` 와이어 1:1(엔진 JSON fixture parse).
 
@@ -147,6 +154,7 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 - CSV 인사이트(단일 테이블 관례) · compare export 인사이트(per-run 컬럼 설계).
 - 인사이트 임계 설정화(error_hotspot 점유율·status_temporal 후반 50% 등 하드코딩 기본값).
 - loop/if 컨테이너 노드 자체에 대한 인사이트(현 v1은 http leaf 기준).
+- **깨끗한 run용 "세 번째 실질 신호"** (브레인스토밍 2026-06-03 기록): all-pass+무에러 run은 v1에서 2개(slowest_step + slo_pass)가 정상이다. 더 풍부하게 하려면 **패딩(run_health 같은 Summary 총량 재진술 — 의도적으로 채택 안 함)이 아니라 진짜 신호**를 더한다. 후보: 스텝간 p95 편차(가장 빠른 vs 느린 스텝 배율)·p99/p95 tail ratio(꼬리 지연 경고)·요청 분포 불균형. 신호로서의 임계·유용성이 검증되면 §5에 종 추가.
 
 ## 10. 영향 없는 영역 (명시)
 
