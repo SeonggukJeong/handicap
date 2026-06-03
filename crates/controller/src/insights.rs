@@ -118,7 +118,32 @@ pub fn derive_insights(
         }
     }
 
-    let _ = (windows, status_distribution, scenario_yaml); // wired in later tasks
+    // status_class: HTTP 4xx/5xx share. Denominator = HTTP responses only
+    // (keys starting 1..5); the "0" transport-failure bucket is excluded from
+    // both classification and denominator (engine failures are error_count's job).
+    let total_http: u64 = status_distribution
+        .iter()
+        .filter(|(k, _)| matches!(k.chars().next(), Some('1'..='5')))
+        .map(|(_, v)| *v)
+        .sum();
+    if total_http > 0 {
+        for (class, first, sev) in [("4xx", '4', "warning"), ("5xx", '5', "critical")] {
+            let class_count: u64 = status_distribution
+                .iter()
+                .filter(|(k, _)| k.starts_with(first))
+                .map(|(_, v)| *v)
+                .sum();
+            if class_count > 0 {
+                let mut ins = Insight::new("status_class", sev);
+                ins.status_class = Some(class.to_string());
+                ins.pct = Some(class_count as f64 / total_http as f64);
+                ins.count = Some(class_count);
+                out.push(ins);
+            }
+        }
+    }
+
+    let _ = (windows, scenario_yaml); // wired in later tasks
 
     out.sort_by_key(order_rank);
     out
@@ -238,5 +263,40 @@ mod tests {
         assert_eq!(got[0].kind, "slowest_step");
         assert_eq!(got[0].step_id.as_deref(), Some("b"));
         assert_eq!(got[0].value, Some(120.0));
+    }
+
+    fn dist(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn status_class_emits_4xx_and_5xx() {
+        let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "");
+        let five = got
+            .iter()
+            .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
+            .unwrap();
+        assert_eq!(five.severity, "critical");
+        assert_eq!(five.count, Some(100));
+        assert!((five.pct.unwrap() - 0.1).abs() < 1e-9); // 100/1000
+        let four = got
+            .iter()
+            .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("4xx"))
+            .unwrap();
+        assert_eq!(four.severity, "warning");
+    }
+
+    #[test]
+    fn status_class_excludes_status_0_from_denominator() {
+        // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
+        let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "");
+        let five = got
+            .iter()
+            .find(|i| i.status_class.as_deref() == Some("5xx"))
+            .unwrap();
+        // pct over HTTP responses (100), not all attempts (1000): 50/100 = 0.5.
+        assert!((five.pct.unwrap() - 0.5).abs() < 1e-9);
     }
 }
