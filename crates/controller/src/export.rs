@@ -118,6 +118,98 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
     w.into_inner().expect("csv flush")
 }
 
+/// Multi-run comparison XLSX: Summary + Steps + Runs sheets.
+pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8> {
+    let mut wb = Workbook::new();
+
+    // Summary: row0 = header(metric + run ids + delta cols), rows = metrics.
+    let ws = wb.add_worksheet();
+    ws.set_name("Summary").expect("name");
+    ws.write_string(0, 0, "metric").expect("w");
+    let mut col = 1u16;
+    for (i, r) in reports.iter().enumerate() {
+        let h = if i == baseline_idx {
+            format!("{} (base)", r.run.id)
+        } else {
+            r.run.id.clone()
+        };
+        ws.write_string(0, col, &h).expect("w");
+        col += 1;
+    }
+    let delta_start = col;
+    for (i, r) in reports.iter().enumerate() {
+        if i != baseline_idx {
+            ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
+                .expect("w");
+            col += 1;
+        }
+    }
+    for (ri, metric) in SUMMARY_METRICS.iter().enumerate() {
+        let row = (ri + 1) as u32;
+        ws.write_string(row, 0, *metric).expect("w");
+        let base = summary_metric(&reports[baseline_idx].summary, metric);
+        for (i, r) in reports.iter().enumerate() {
+            ws.write_number(row, (1 + i) as u16, summary_metric(&r.summary, metric))
+                .expect("w");
+        }
+        let mut dcol = delta_start;
+        for (i, r) in reports.iter().enumerate() {
+            if i != baseline_idx {
+                if let Some(p) = delta(metric, base, summary_metric(&r.summary, metric)).pct {
+                    ws.write_number(row, dcol, p).expect("w");
+                }
+                dcol += 1;
+            }
+        }
+    }
+
+    // Steps: union of step_ids (sorted), columns = run p95.
+    let ws = wb.add_worksheet();
+    ws.set_name("Steps").expect("name");
+    ws.write_string(0, 0, "step_id").expect("w");
+    for (i, r) in reports.iter().enumerate() {
+        ws.write_string(0, (1 + i) as u16, &r.run.id).expect("w");
+    }
+    let mut step_ids: Vec<String> = reports
+        .iter()
+        .flat_map(|r| r.steps.iter().map(|s| s.step_id.clone()))
+        .collect();
+    step_ids.sort();
+    step_ids.dedup();
+    for (ri, sid) in step_ids.iter().enumerate() {
+        let row = (ri + 1) as u32;
+        ws.write_string(row, 0, sid).expect("w");
+        for (i, r) in reports.iter().enumerate() {
+            if let Some(st) = r.steps.iter().find(|s| &s.step_id == sid) {
+                ws.write_number(row, (1 + i) as u16, st.p95_ms as f64)
+                    .expect("w");
+            }
+        }
+    }
+
+    // Runs meta: id, status, started_at, ended_at, count.
+    let ws = wb.add_worksheet();
+    ws.set_name("Runs").expect("name");
+    for (c, h) in ["run_id", "status", "started_at", "ended_at", "count"]
+        .iter()
+        .enumerate()
+    {
+        ws.write_string(0, c as u16, *h).expect("w");
+    }
+    for (i, r) in reports.iter().enumerate() {
+        let row = (i + 1) as u32;
+        ws.write_string(row, 0, &r.run.id).expect("w");
+        ws.write_string(row, 1, &r.run.status).expect("w");
+        ws.write_number(row, 2, r.run.started_at.unwrap_or(0) as f64)
+            .expect("w");
+        ws.write_number(row, 3, r.run.ended_at.unwrap_or(0) as f64)
+            .expect("w");
+        ws.write_number(row, 4, r.summary.count as f64).expect("w");
+    }
+
+    wb.save_to_buffer().expect("xlsx")
+}
+
 /// Single-run XLSX: Summary + Steps + Windows + Status (+ Branches if any).
 pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
     let mut wb = Workbook::new();
@@ -342,5 +434,24 @@ mod tests {
         let steps = wb.worksheet_range("Steps").expect("Steps sheet");
         assert_eq!(steps.get_value((1, 0)), Some(&Data::String("a".into())));
         assert_eq!(steps.get_value((1, 4)), Some(&Data::Float(50.0)));
+    }
+
+    #[test]
+    fn comparison_xlsx_roundtrips() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let mut a = report_with_steps(vec![step("s", 1, 100)]);
+        a.run.id = "A".into();
+        a.summary.p95_ms = 100;
+        let mut b = report_with_steps(vec![step("s", 1, 150)]);
+        b.run.id = "B".into();
+        b.summary.p95_ms = 150;
+        let bytes = comparison_to_xlsx(&[a, b], 0);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+        let sum = wb.worksheet_range("Summary").unwrap();
+        // SUMMARY_METRICS = [p50_ms, p95_ms, p99_ms, rps, error_rate]; p95_ms is index 1 → row 2.
+        // col 0 = metric label, col 1 = base run value, col 2 = candidate value.
+        assert_eq!(sum.get_value((2, 1)), Some(&Data::Float(100.0)));
+        assert_eq!(sum.get_value((2, 2)), Some(&Data::Float(150.0)));
     }
 }
