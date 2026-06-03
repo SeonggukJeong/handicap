@@ -49,6 +49,7 @@
 - **성격**: controller(리포트 빌드) + UI 중심. 엔진/워커 변경 적음(트랜잭션 시간 분해 DNS/TCP/TLS/TTFB는 엔진 계측 필요 — 그 하위 항목만 엔진 손댐).
 - **참고**: ADR-0017 (MVP 리포트 스코프 — "run간 비교·SLA는 후속"을 명시). run 간 비교 = 다중 run 선택 UI + 델타 뷰, SLA = pass/fail 임계 정의 + 판정.
 - **A4a (run-level SLO / pass-fail criteria) ✅ 완료 (2026-06-03, subagent-driven 8 task)**: 종료된 run 리포트에 run-level criteria(p50/p95/p99·error_rate·min_rps) pass/fail verdict. profile_json 스냅샷 저장(무마이그레이션) + completed-only on-demand `build_report` verdict(B2) + `validate_run_config` 검증 + RunDialog SLO 입력(%↔분수, 프리셋 포함) + 리포트 `VerdictPanel`. ADR-0028. spec `docs/superpowers/specs/2026-06-03-a4a-slo-pass-fail-criteria-design.md`, plan `docs/superpowers/plans/2026-06-03-a4a-slo-pass-fail-criteria.md`. A4b(run 비교)·A4c(요약)는 후속.
+- **A4b (run 비교 + 리포트 CSV/XLSX export) ✅ 완료 (2026-06-03, subagent-driven 15 task 2-phase)**: 같은 시나리오 종료 run 2–5개 화면 비교(baseline 대비 Δ) + 단일/비교 CSV·XLSX export. **하이브리드** — 비교는 클라(기존 `/report` N-fetch + `compareReports` 순수 변환 → `CompareMatrix`), export는 컨트롤러(`build_report` 재사용 + `csv`/`rust_xlsxwriter`, 4 라우트). same-scenario terminal-only, N≤5 화면·>5 export(상한 50). 델타 공식은 spec §4.3 권위 정의 + `testdata/compare_golden.json` 골든 fixture로 TS↔Rust 패리티 교차검증. `build_report_for_run` 공유 헬퍼, `downloadFile`(fetch→blob, 4xx 배너). **엔진·워커·proto·마이그레이션 무변경.** ADR-0030. spec `docs/superpowers/specs/2026-06-03-run-comparison-report-export-design.md`, plan `docs/superpowers/plans/2026-06-03-run-comparison-report-export.md`. 연기 → §B7. **A4c(리포트 요약)는 후속.**
 
 ### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **✅ 완료 (A1 + A2 머지, ADR-0024)**
 - **성격**: QoL/UX 슬라이스(§4.5 메뉴 밖, 사용자 요청 발). run 을 한 번 돌린 뒤 같은 설정을 매번 손으로 재입력하는 통증 해소.
@@ -114,6 +115,16 @@
 - **status-class criteria** (생 5xx_count 등): `status_distribution` 기반. error_rate가 status assertion 없는 raw 4xx/5xx를 못 잡는 한계를 푼다.
 - **per-window 최소 RPS**: 지속 RPS 바닥 (v1 min_rps는 평균 rps 기준).
 - **일반 연산자 모델** (`{metric, op, threshold}` 자유 조합): 출력 shape는 이미 일반형이라 입력만 마이그레이션. (A4b run 비교·A4c 요약은 A4 영역의 별도 슬라이스.)
+
+### B7. A4b (run 비교 + export) 연기 항목
+- **D. 레이턴시 히스토그램/분위 곡선**: 바로 다음 작은 슬라이스 후보. HDR 윈도는 이미 있음 — 분위 곡선/히스토그램 렌더만.
+- **C. 트랜잭션 시간 분해**(DNS/TCP/TLS/TTFB): 엔진 계측 필요 — 더 큰 별도 슬라이스.
+- **A4c 리포트 요약**: A4 영역의 별도 하위 슬라이스.
+- **per-second 차트 오버레이**: 여러 run 시계열을 한 차트에(비교 뷰 후속).
+- **화면 N 상한 사용자 설정화**: v1은 5 고정(서버 export 상한 50은 별개).
+- **크로스-시나리오 비교**: step_id 매칭 의미 없어 범위 밖(같은 시나리오 강제).
+- **verdict 행의 baseline-상대 polarity**: spec §4.3는 candidate-FAIL&base-PASS→bad를 정의하나 v1은 PASS/FAIL 텍스트(녹/적)만 렌더 — polarity 색은 미구현.
+- **비교 export Δ 셀 조건부 서식**(XLSX 색): 현재 Δ%는 숫자만.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
