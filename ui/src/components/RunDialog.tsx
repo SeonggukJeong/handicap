@@ -66,6 +66,7 @@ export function RunDialog({
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
   const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
+  const [httpTimeout, setHttpTimeout] = useState(initial?.profile.http_timeout_seconds ?? 30);
   const initC = initial?.profile.criteria ?? undefined;
   const numToStr = (n?: number) => (n == null ? "" : String(n));
   const [maxP50, setMaxP50] = useState(numToStr(initC?.max_p50_ms));
@@ -115,6 +116,7 @@ export function RunDialog({
       setDuration(prof.duration_seconds);
       setRampUp(prof.ramp_up_seconds);
       setLoopCap(prof.loop_breakdown_cap);
+      setHttpTimeout(prof.http_timeout_seconds);
       setEnvEntries(
         Object.entries(envValueToRecord(p.env)).map(([key, value]) => ({ key, value })),
       );
@@ -145,6 +147,7 @@ export function RunDialog({
   const rampInvalid = rampUp > duration;
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
+  const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
   // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
   // active criteria aren't silently hidden.
   const sloActiveCount = [maxP50, maxP95, maxP99, maxErrPct, minRps].filter(
@@ -155,6 +158,7 @@ export function RunDialog({
     duration >= 1 &&
     !rampInvalid &&
     !loopCapInvalid &&
+    !httpTimeoutInvalid &&
     bindingValid &&
     !mutation.isPending;
 
@@ -180,6 +184,7 @@ export function RunDialog({
         duration_seconds: duration,
         ramp_up_seconds: rampUp,
         loop_breakdown_cap: hasLoop ? loopCap : 0,
+        http_timeout_seconds: httpTimeout,
         data_binding: binding ?? undefined,
         criteria: buildCriteria(),
       },
@@ -282,7 +287,7 @@ export function RunDialog({
           프리셋 오류: {presetError}
         </p>
       )}
-      <div className="grid grid-cols-3 gap-4 mb-3">
+      <div className="grid grid-cols-4 gap-4 mb-3">
         <label className="block text-sm">
           <span className="text-slate-600">VUs</span>
           <input
@@ -313,6 +318,19 @@ export function RunDialog({
             className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
             aria-invalid={rampInvalid}
             aria-describedby={rampInvalid ? "ramp-up-error" : undefined}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-600">HTTP timeout (s)</span>
+          <input
+            type="number"
+            min={1}
+            max={600}
+            value={httpTimeout}
+            onChange={(e) => setHttpTimeout(Number(e.target.value))}
+            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            aria-invalid={httpTimeoutInvalid}
+            aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
           />
         </label>
       </div>
@@ -348,6 +366,12 @@ export function RunDialog({
       {loopCapInvalid && (
         <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
           0 ~ 10000 사이여야 합니다.
+        </p>
+      )}
+
+      {httpTimeoutInvalid && (
+        <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
+          HTTP timeout must be between 1 and 600 seconds.
         </p>
       )}
 
@@ -497,6 +521,7 @@ export function RunDialog({
                   duration_seconds: duration,
                   ramp_up_seconds: rampUp,
                   loop_breakdown_cap: hasLoop ? loopCap : 0,
+                  http_timeout_seconds: httpTimeout,
                   data_binding: binding ?? undefined,
                   criteria: buildCriteria(),
                 },

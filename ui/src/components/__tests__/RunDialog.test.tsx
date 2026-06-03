@@ -293,6 +293,7 @@ describe("RunDialog — initial prefill (A1)", () => {
       duration_seconds: 9,
       ramp_up_seconds: 3,
       loop_breakdown_cap: 128,
+      http_timeout_seconds: 120,
       data_binding: null,
     },
     env: { BASE_URL: "http://x", TOKEN: "abc" },
@@ -304,6 +305,7 @@ describe("RunDialog — initial prefill (A1)", () => {
     expect(screen.getByLabelText("Duration (s)")).toHaveValue(9);
     expect(screen.getByLabelText("Ramp-up (s)")).toHaveValue(3);
     expect(screen.getByLabelText("loop breakdown cap")).toHaveValue(128);
+    expect(screen.getByLabelText(/HTTP timeout/i)).toHaveValue(120);
   });
 
   it("seeds env entries from initial.env", () => {
@@ -605,6 +607,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
         duration_seconds: 5,
         ramp_up_seconds: 0,
         loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
         data_binding: null,
         criteria: { max_p95_ms: 500, max_error_rate: 0.02 },
       },
@@ -647,6 +650,58 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     );
     const body = JSON.parse((call![1] as RequestInit).body as string);
     expect(body.profile.criteria).toBeUndefined();
+  });
+});
+
+describe("RunDialog — HTTP timeout (S-A)", () => {
+  it("disables Run and shows error when http_timeout_seconds is out of range", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const timeout = screen.getByLabelText(/HTTP timeout/i) as HTMLInputElement;
+    await user.clear(timeout);
+    await user.type(timeout, "601");
+
+    const runBtn = screen.getByRole("button", { name: /^Run$/ });
+    expect(runBtn).toBeDisabled();
+    expect(screen.getByText(/HTTP timeout must be between 1 and 600 seconds/)).toBeInTheDocument();
+  });
+
+  it("submits http_timeout_seconds from the input (default 30)", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R5",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5, http_timeout_seconds: 45 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    const timeout = screen.getByLabelText(/HTTP timeout/i) as HTMLInputElement;
+    expect(timeout.value).toBe("30");
+    await user.clear(timeout);
+    await user.type(timeout, "45");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R5"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.http_timeout_seconds).toBe(45);
   });
 });
 

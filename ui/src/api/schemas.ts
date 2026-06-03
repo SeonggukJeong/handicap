@@ -48,6 +48,7 @@ export const ProfileSchema = z.object({
   ramp_up_seconds: z.number().int().nonnegative().default(0),
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
+  http_timeout_seconds: z.number().int().min(1).max(600).default(30),
   data_binding: DataBindingSchema.nullish(),
   criteria: CriteriaSchema.nullish(),
 });
