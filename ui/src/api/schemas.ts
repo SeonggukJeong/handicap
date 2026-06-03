@@ -182,6 +182,19 @@ export const VerdictSchema = z.object({
 });
 export type Verdict = z.infer<typeof VerdictSchema>;
 
+export const InsightSchema = z.object({
+  kind: z.string(),
+  severity: z.enum(["critical", "warning", "info"]),
+  step_id: z.string().optional(),
+  metric: z.string().optional(),
+  value: z.number().optional(),
+  pct: z.number().optional(),
+  count: z.number().int().nonnegative().optional(),
+  status_class: z.string().optional(),
+  window_seconds: z.number().int().optional(),
+});
+export type Insight = z.infer<typeof InsightSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -192,6 +205,7 @@ export const ReportSchema = z
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),
     verdict: VerdictSchema.nullish(),
+    insights: z.array(InsightSchema).optional(),
   })
   .strict();
 

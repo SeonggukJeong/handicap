@@ -13,6 +13,7 @@ import { BranchStatsTable } from "./BranchStatsTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
 import { VerdictPanel } from "./VerdictPanel";
+import { InsightPanel } from "./InsightPanel";
 
 type Props = { report: Report };
 
@@ -123,6 +124,7 @@ export function ReportView({ report }: Props) {
           다운로드 실패: {dlErr}
         </p>
       )}
+      <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} /> : null}
       <Summary summary={report.summary} />
       <TimeSeriesChart
