@@ -4,6 +4,7 @@ pub mod binding;
 pub mod datasets;
 pub mod dispatcher;
 pub mod error;
+pub mod export;
 pub mod grpc;
 pub mod report;
 pub mod store;
