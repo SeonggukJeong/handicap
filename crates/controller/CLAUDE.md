@@ -19,6 +19,7 @@
 ## 리포트 빌드 (`report.rs`, `build_report`)
 
 - **리포트 step 라벨링은 controller가 아니라 UI** (Slice 5): `build_report` 는 run_metrics 를 step_id 로 group 만 한다 (시나리오 YAML 을 walk 하지 않음). step 라벨(name/method/url)은 UI 가 `ReportView.tsx`·`RunDetailPage.tsx` 에서 scenario_yaml 을 파싱해 만든다. **스텝 모델을 바꿔도(노드 종류 추가 등) 컨트롤러는 무변경 — 그 두 UI 사이트만 손대면 된다.**
+  - **예외: `insights.rs`(A4c)는 `build_report` 경로에서 `Scenario::from_yaml`을 호출한다** — `no_request_step` 인사이트가 "무조건 도달 http 스텝 목록"을 알아야 해서. **fail-soft**(`if let Ok(sc) = ...`, 빈/잘못된 YAML이면 그 인사이트만 skip, report shape 무변경)이고 격리돼 있다. 새 `Step` 종류를 추가하면 `collect_unconditional`(insights.rs)의 walk도 갱신.
 - **HDR Histogram V2 BLOB 의 partial-write 내성** (Slice 5): worker가 flush 중 죽으면 `hdr_histogram` 컬럼에 truncated bytes가 남을 수 있다. 엔진 `decode_hdr` 는 `Result`로 실패를 표현하고 `build_report` 는 그 한 윈도만 p50/p95/p99=0 으로 두고 나머지 윈도를 정상 처리. crash-late-fail-soft 패턴. 단위 테스트 `build_report_tolerates_bad_hdr_blob` 가 contract.
 - **`/report` 는 polling 금지** (Slice 5): terminal 후 한 번만 fetch, UI는 `staleTime: Infinity`, `refetchInterval: false`. live polling은 기존 `/metrics` 가 담당. 두 endpoint를 분리한 이유는 hot path의 HDR deserialize 비용을 피하기 위함.
 - **Scenario snapshot vs current scenario** (Slice 5): Run 상세가 `runs.scenario_yaml` snapshot 컬럼을 봐야지 `GET /api/scenarios/{id}` 의 현재 YAML을 보면 시나리오 편집 후 과거 run의 step 라벨이 어긋난다. `/report.scenario_yaml`을 snapshot으로 노출.
