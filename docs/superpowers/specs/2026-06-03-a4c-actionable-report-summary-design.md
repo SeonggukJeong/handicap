@@ -65,13 +65,13 @@ pub struct Insight {
 }
 ```
 
-`ReportJson`에 `pub insights: Vec<Insight>` 필드 추가(빈 vec 기본; 신호가 없으면 빈 배열 — 패딩 안 함). `Deserialize`도 함께(report.rs 관례 — typed round-trip 테스트가 강제).
+`ReportJson`에 **`#[serde(default)] pub insights: Vec<Insight>`** 필드 추가(빈 vec 기본; 신호 없으면 빈 배열 — 패딩 안 함). **`#[serde(default)]`는 필수(BLOCKER)** — `testdata/compare_golden.json`의 `ReportJson` 객체엔 `insights` 키가 없고, 이 fixture를 `export.rs::tests::golden_summary_deltas_match`가 `ReportJson`으로 역직렬화한다. `default` 없으면 "missing field `insights`"로 그 테스트가 RED. fixture 재생성 불필요. (`verdict` 필드가 `#[serde(default, skip_serializing_if=...)]`로 같은 함정을 피한 선례 — `report.rs:17`.) `Insight`는 `Deserialize`도 함께(typed round-trip 강제). `insights`는 항상 emit(빈 배열 포함 — `skip_serializing_if` 없음).
 
-UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `skip_serializing_if`와 lockstep), `severity`는 `z.enum(["critical","warning","info"])`. `ReportSchema.insights`는 `.optional()` + 소비처 `?? []`(if_breakdown 패턴).
+UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `skip_serializing_if`와 lockstep), `severity`는 `z.enum(["critical","warning","info"])`. **`ReportSchema`는 `.strict()`(schemas.ts:185)이므로 `insights`를 그 strict 객체에 `.optional()` 키로 *명시 추가*해야 한다** — 안 그러면 백엔드가 항상 싣는 `insights: []`를 strict가 "Unrecognized key"로 거부한다(소비처가 그냥 무시하면 안 됨). `if_breakdown`(schemas.ts:193)이 정확히 이 패턴(strict 객체 안 `.optional()` 키). 소비처는 `?? []`.
 
 ## 5. v1 인사이트 6종 — 파생 규칙 · 조건부 emit · severity
 
-**emit 순서 = severity rank(critical → warning → info).** 각 종은 조건 충족 시에만 push된다(신호 없으면 패널에서 빠짐 — 패딩 안 함). 같은 severity 내 순서는 아래 표 순서로 고정(결정론적).
+**emit 알고리즘(결정론)**: 후보 인사이트를 전부 계산해 `Vec`에 모은 뒤 **`(severity_rank, table_row_index)`로 stable-sort**한다 — `severity_rank` = critical 0 / warning 1 / info 2, `table_row_index` = 아래 표의 `#`(1..8). 이러면 `status_class`의 5xx(critical)는 `slo_failure` 옆, 4xx(warning)는 warning 그룹으로 **올바르게 분리 정렬**된다(둘을 "계산 직후 나란히 push"하면 전역 severity 정렬이 깨지므로 반드시 sort 단계를 둔다). 각 종은 조건 충족 시에만 후보에 들어간다(신호 없으면 빠짐 — 패딩 안 함). UI는 이 백엔드 순서를 그대로 신뢰(§6).
 
 | # | kind | emit 조건 | severity | 채우는 필드 | UI 렌더(예시) |
 |---|---|---|---|---|---|
@@ -88,9 +88,10 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 
 세부 정의:
 
-- **status_class 점유율**: `status_distribution`(HTTP status 문자열 키, 예 `"200"`/`"404"`/`"500"`; 연결 실패 등 `"0"`은 HTTP 응답이 아니라 무시)에서 키 **첫 글자**가 `'4'`/`'5'`인지로 4xx/5xx 분류(`'0'`/`'2'`/`'3'`은 무시 — 엔진 실패는 error_count/error_hotspot이 잡음). `pct = class_count / total_responses`(`total = sum(status_distribution.values())`; 0이면 emit 안 함). `count = class_count`. **kind `status_class`는 4xx·5xx가 둘 다 있으면 2개 emit**(각자 severity).
-- **status_temporal**: `windows`를 `ts_second`로 그룹해 초별 5xx 합계를 만들고, 5xx가 **처음 등장한 ts_second** `t_first`를 찾는다. run의 마지막 `ts_second` `t_last` 기준 `window_seconds = t_last - t_first + 1`. "후반부 집중" 판정 = `t_first`가 전체 구간의 **후반 50%** 안일 때만 emit(초반부터 5xx면 status_class(5xx)로 충분, temporal은 "뒤늦게 터졌다"는 신호 전용). 5xx 없으면 emit 안 함.
-- **error_hotspot 점유율**: `report.steps` 중 `error_count` 최대 스텝. `pct = step.error_count / summary.errors`(summary.errors==0이면 emit 안 함). 동률이면 첫 스텝(steps 순서 = step_id group 순서, 결정론적).
+- **status_class 점유율**: `status_distribution`(HTTP status 문자열 키, 예 `"200"`/`"404"`/`"500"`). 키 **첫 글자**가 `'4'`/`'5'`인지로 4xx/5xx 분류. **분모 = HTTP 응답만**(`total_http = 키 첫 글자 ∈ {'1','2','3','4','5'}인 값의 합`) — **연결 실패 `"0"` 버킷은 분류·분모 양쪽에서 제외**(엔진 transport 실패는 HTTP 응답이 아니며 error_count/error_hotspot + verdict error_rate가 별도로 잡는다; "5xx가 *HTTP 응답의* N%"라는 의미를 명확히). `pct = class_count / total_http`(`total_http == 0`이면 emit 안 함). `count = class_count`. **kind `status_class`는 4xx·5xx가 둘 다 있으면 2개 emit**(각자 severity, 위 정렬로 분리).
+  - 주의(테스트): status 0은 엔진이 transport 실패에 기록(`executor.rs`가 `status:0`, `aggregator.rs`가 `status_counts.entry(0)`)하므로 분모에서 빼는 게 중요 — status 0이 많은 run에서 분모에 넣으면 4xx/5xx %가 희석된다.
+- **status_temporal**: `windows`를 `ts_second`로 그룹해 초별 5xx 합계를 만든다. 구간 = `[min_ts, max_ts]`(**windows에 실재하는 초만** — run.started/ended 아님, 요청 없던 가장자리 초는 windows에 없음). `midpoint = min_ts + (max_ts - min_ts) / 2`(f64). 5xx가 **처음 등장한 ts_second** `t_first_5xx`가 `t_first_5xx > midpoint`(엄격 후반부)일 때만 emit — "초반부터 5xx"는 status_class(5xx)가 이미 잡으므로 temporal은 "뒤늦게 터졌다" 전용. `window_seconds = max_ts - t_first_5xx + 1`(첫 5xx부터 끝까지의 trailing 초). **단일-초 엣지**: `max_ts == min_ts`(데이터가 1초뿐)면 early/late 구분이 없어 **emit 안 함**(`>` 비교가 자동으로 false 처리하지만 명시). 5xx 없으면 emit 안 함.
+- **error_hotspot 점유율**: `report.steps` 중 `error_count` 최대 스텝. `pct = step.error_count / summary.errors`(summary.errors==0이면 emit 안 함). 동률이면 첫 스텝(steps 순서 = step_id group 순서, 결정론적). **error_count는 status_class와 독립 신호** — 엔진은 `assert: status` 실패·extract 실패·transport 실패일 때만 `error_count`를 올린다(`runner.rs`: `outcome.error.is_some()`). **status assert 없는 생 5xx 응답은 error가 아니다.** 그래서 `error_hotspot`(에러)과 `status_class`(상태코드)는 겹치지 않는 별개 신호다 — assert 없이 100% 5xx인 run은 `summary.errors==0`이라 error_hotspot 없이 status_class(5xx)만 뜬다. **테스트 함의**: error_hotspot/`error_heavy_run` 픽스처는 에러를 **실패 assert 또는 transport 실패(status 0)로** 만들어야 한다(생 5xx로는 error_count가 안 오름).
 - **slowest_step**: `report.steps` 중 `p95_ms` 최대 스텝. 동률이면 첫 스텝. 스텝이 하나도 없으면(=요청 0건 run) emit 안 함.
 - **no_request_step**: `Scenario::from_yaml(&report.scenario_yaml)`로 파싱 → **무조건 도달 http 스텝 id 집합** 수집(아래) → `report.steps`에 없는 id마다 1개 emit. 파싱 실패 시 이 종만 skip(리포트는 정상). 다수면 다수 emit(step_id 사전순 안정 정렬).
 
@@ -101,6 +102,8 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 - `Step::If`: `then_`/`elif[].then_`/`else_`를 모두 `conditional=true`로 하강(어느 분기든 미선택 가능 → 0건이 정상).
 
 이로써 "무조건 실행되어야 하는데 0건"만 잡고, 조건 분기의 자연스러운 0건은 침묵한다.
+
+**모듈 위치 / parse-fail 내성**: `derive_insights`는 **신규 `crates/controller/src/insights.rs`** 순수 모듈에 둔다(report.rs가 YAML-parse 책임을 떠안지 않게 격리). `Scenario::from_yaml`은 빈/잘못된 YAML에 `Err`를 내므로 **no_request_step 경로는 반드시 fail-soft**(`if let Ok(sc) = Scenario::from_yaml(...)` — `unwrap` 금지). 기존 `report.rs` 단위 테스트 다수가 `build_report(&run, "", …)`로 **빈 scenario_yaml**을 넘기는데(`Scenario::from_yaml("")`=Err), 이 분기를 swallow해야 그 테스트들이 안 깨진다. 파싱 실패 = no_request_step 종만 skip, 나머지 인사이트는 정상.
 
 ### 엣지 케이스 (acceptance 대응)
 
@@ -135,8 +138,9 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 
 ## 8. 테스트 전략
 
-- **Rust 단위(`report.rs` 또는 새 `insights` 모듈)**:
+- **Rust 단위(`crates/controller/src/insights.rs`)**:
   - `all_pass_run_has_slowest_and_slo_pass`(에러/4xx/5xx 인사이트 없음, 2개가 정상 — 패딩 안 함).
+  - `status_class_excludes_status_0_from_denominator`(status 0 다수 + 5xx 소수 → pct가 HTTP 응답 기준, 0 버킷 미포함).
   - `error_heavy_run_yields_at_least_three`(error_hotspot pct/count 정확 + status_class(5xx) + slowest_step → capability ≥3 검증).
   - `no_data_run_flags_unconditional_steps`(steps 비어있음 → no_request_step만, slowest 없음).
   - `no_request_step_skips_if_branches`(if then/else 안 스텝 0건은 미플래그, top-level·loop 본문 0건은 플래그) — 무조건/조건 구분의 핵심 회귀.
@@ -156,6 +160,11 @@ UI Zod 미러(`ui/src/api/schemas.ts`)는 선택 필드 `.optional()`(serde `ski
 - loop/if 컨테이너 노드 자체에 대한 인사이트(현 v1은 http leaf 기준).
 - **깨끗한 run용 "세 번째 실질 신호"** (브레인스토밍 2026-06-03 기록): all-pass+무에러 run은 v1에서 2개(slowest_step + slo_pass)가 정상이다. 더 풍부하게 하려면 **패딩(run_health 같은 Summary 총량 재진술 — 의도적으로 채택 안 함)이 아니라 진짜 신호**를 더한다. 후보: 스텝간 p95 편차(가장 빠른 vs 느린 스텝 배율)·p99/p95 tail ratio(꼬리 지연 경고)·요청 분포 불균형. 신호로서의 임계·유용성이 검증되면 §5에 종 추가.
 
-## 10. 영향 없는 영역 (명시)
+## 10. 영향 받는/안 받는 영역 (명시)
 
-엔진 · 워커 · proto · DB 마이그레이션 **무변경**. `runs` 테이블 무변경. A4b의 `build_report_for_run`/4 export 라우트 시그니처 무변경(XLSX 시트만 가산). 인사이트 없는(=조건 전부 미충족) 경로는 `insights: []`라 기존 리포트 소비처에 무영향(`?? []`).
+**무변경**: 엔진 · 워커 · proto · DB 마이그레이션 · `runs` 테이블. A4b의 `build_report_for_run`/4 export 라우트 시그니처(XLSX 시트만 가산). `report_to_csv`·`comparison_to_csv`·`comparison_to_xlsx`. 인사이트 없는 경로는 `insights: []`라 기존 리포트 소비처에 무영향(`?? []`).
+
+**손대야 하는 곳(리뷰 발견 — "무변경" 아님)**:
+- **`ReportJson` struct literal 2곳**: 프로덕션 `report.rs`의 `build_report` 조립부 + **테스트 헬퍼 `export.rs::report_with_steps`(export.rs:341)** 둘 다 `insights: vec![]`(또는 실제 값) 명시 필요 — serde 구조체도 평탄 literal은 exhaustive라 빠뜨리면 controller crate 컴파일 실패. report.rs 자체 테스트 헬퍼가 있으면 그것도.
+- **controller `CLAUDE.md`의 "build_report는 시나리오 YAML을 walk하지 않는다" 불변식 갱신**: `insights.rs`가 no_request_step용으로 `Scenario::from_yaml`을 **처음으로** 호출한다(fail-soft·격리·report shape 무변경이지만 불변식 자체는 바뀜). 구현 시 그 함정 노트에 "insights.rs는 예외(fail-soft 파싱)"를 추가.
+- **`ReportSchema`(strict) + 소비처**: §4 F3 — `insights` 키 명시 추가.
