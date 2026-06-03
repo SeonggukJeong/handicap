@@ -226,8 +226,11 @@ pub async fn execute_step(
     }
 }
 
-/// Response bodies larger than this are truncated in the trace (UI display cap).
-const MAX_TRACE_BODY_BYTES: usize = 16 * 1024;
+/// Response bodies larger than this are truncated in the trace. UI display cap:
+/// the editor shows a short inline preview and the full body in a modal. Per-step,
+/// so worst-case trace memory ≈ max_requests × this. Future: expose via an options
+/// menu (see docs/roadmap.md §B2'' "운영 상한 관리자 화면").
+const MAX_TRACE_BODY_BYTES: usize = 1024 * 1024;
 
 /// Lenient+collecting JSON render (trace sibling of `render_json_value`): renders
 /// every string leaf via `render_collecting`, preserving numbers/bools/null and
@@ -1103,5 +1106,86 @@ mod tests {
             !body.contains("skip"),
             "disabled form field must not be sent: {body}"
         );
+    }
+
+    #[tokio::test]
+    async fn traced_body_under_cap_is_not_truncated() {
+        // 17 KiB ASCII — old 16 KiB cap WOULD truncate (RED), 1 MiB cap does not.
+        let big = "a".repeat(17 * 1024);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/big"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(big.clone()))
+            .mount(&server)
+            .await;
+        let step = HttpStep {
+            id: "01HX0000000000000000000021".into(),
+            name: "big".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/big", server.uri()),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let t = execute_step_traced(&client, &step, &ctx).await;
+        let resp = t.response.expect("response captured");
+        assert!(!resp.body_truncated, "17 KiB must fit under the 1 MiB cap");
+        assert_eq!(resp.body.len(), 17 * 1024);
+    }
+
+    #[tokio::test]
+    async fn traced_body_over_cap_is_truncated() {
+        // cap + 1 KiB ASCII — must truncate at the cap, byte-length robust to U+FFFD.
+        let big = "a".repeat(MAX_TRACE_BODY_BYTES + 1024);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/huge"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(big))
+            .mount(&server)
+            .await;
+        let step = HttpStep {
+            id: "01HX0000000000000000000022".into(),
+            name: "huge".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/huge", server.uri()),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let t = execute_step_traced(&client, &step, &ctx).await;
+        let resp = t.response.expect("response captured");
+        assert!(resp.body_truncated, "body over cap must be truncated");
+        // from_utf8_lossy can add a U+FFFD (3 bytes) at the boundary → not strict ==.
+        assert!(resp.body.len() <= MAX_TRACE_BODY_BYTES + 2);
     }
 }
