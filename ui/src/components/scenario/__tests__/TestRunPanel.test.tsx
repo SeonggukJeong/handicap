@@ -208,6 +208,18 @@ describe("TestRunPanel", () => {
     expect(writeText).toHaveBeenCalledWith(long);
   });
 
+  it("shows '복사됨' feedback after a successful copy", async () => {
+    const user = userEvent.setup();
+    mockClipboard();
+    render(<TestRunPanel trace={httpTrace({ body: "x".repeat(600) })} />);
+    await expandRow(user);
+    await user.click(screen.getByRole("button", { name: "전체 보기" }));
+    const dialog = screen.getByRole("dialog", { name: "응답 본문" });
+    await user.click(within(dialog).getByRole("button", { name: "복사" }));
+    // the copy button confirms success by switching its label to "복사됨"
+    expect(await within(dialog).findByRole("button", { name: "복사됨" })).toBeInTheDocument();
+  });
+
   it("shows the truncated banner in the modal when body_truncated", async () => {
     const user = userEvent.setup();
     render(<TestRunPanel trace={httpTrace({ body: "x".repeat(600), body_truncated: true })} />);

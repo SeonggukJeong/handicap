@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ScenarioTrace, StepTrace } from "../../api/schemas";
 import { findStepById, isIfStep, summarizeCondition, type Step } from "../../scenario/model";
 import { Modal } from "../Modal";
@@ -12,6 +12,7 @@ const INLINE_PREVIEW_CHARS = 500;
 function BodyViewer({ body, truncated }: { body: string; truncated: boolean }) {
   const [formatted, setFormatted] = useState(false);
   const [wrap, setWrap] = useState(true);
+  const [copied, setCopied] = useState(false);
   const pretty = useMemo(() => {
     try {
       return JSON.stringify(JSON.parse(body), null, 2);
@@ -20,6 +21,25 @@ function BodyViewer({ body, truncated }: { body: string; truncated: boolean }) {
     }
   }, [body]);
   const text = formatted && pretty != null ? pretty : body;
+  // Revert the "복사됨" confirmation after a moment; cleanup cancels a pending
+  // revert on rapid re-copy or unmount (modal close).
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  // Only confirm on an actual successful write — a rejected/unavailable
+  // clipboard must NOT show false success.
+  function copy() {
+    void (async () => {
+      try {
+        await navigator.clipboard?.writeText(text);
+        setCopied(true);
+      } catch {
+        // clipboard unavailable or denied — leave the label as "복사"
+      }
+    })();
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       {truncated && (
@@ -30,10 +50,11 @@ function BodyViewer({ body, truncated }: { body: string; truncated: boolean }) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => navigator.clipboard?.writeText(text)}
+          onClick={copy}
+          aria-live="polite"
           className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
         >
-          복사
+          {copied ? "복사됨" : "복사"}
         </button>
         {pretty != null && (
           <button
