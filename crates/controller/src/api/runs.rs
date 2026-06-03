@@ -73,6 +73,11 @@ pub(crate) async fn validate_run_config(
             "loop_breakdown_cap must be <= 10000 (0 disables breakdown)".into(),
         ));
     }
+    if profile.http_timeout_seconds == 0 || profile.http_timeout_seconds > 600 {
+        return Err(ApiError::BadRequest(
+            "http_timeout_seconds must be between 1 and 600".into(),
+        ));
+    }
     if let Some(c) = &profile.criteria {
         validate_criteria(c).map_err(ApiError::BadRequest)?;
     }
@@ -199,6 +204,7 @@ pub async fn create(
             ramp_up_seconds: body.profile.ramp_up_seconds,
             duration_seconds: body.profile.duration_seconds,
             loop_breakdown_cap: body.profile.loop_breakdown_cap,
+            http_timeout_seconds: body.profile.http_timeout_seconds,
         },
         env: body.env.clone(),
         data_binding,
@@ -520,6 +526,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 1,
             loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
             data_binding: Some(DataBinding {
                 dataset_id,
                 policy: BindingPolicy::Unique,
@@ -619,5 +626,47 @@ mod tests {
             meta.is_some(),
             "valid unique binding returns the dataset meta"
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_out_of_range_http_timeout() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 1).await;
+        let mut p = Profile {
+            vus: 2,
+            ramp_up_seconds: 0,
+            duration_seconds: 5,
+            loop_breakdown_cap: 256,
+            data_binding: None,
+            criteria: None,
+            http_timeout_seconds: 0,
+        };
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
+        p.http_timeout_seconds = 601;
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(_)),
+            ">600 must be rejected"
+        );
+        // Inclusive boundaries must be accepted (guards against an off-by-one flip).
+        p.http_timeout_seconds = 1;
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "1 must be accepted"
+        );
+        p.http_timeout_seconds = 600;
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "600 must be accepted"
+        );
+    }
+
+    #[test]
+    fn old_profile_json_without_http_timeout_defaults_to_30() {
+        // profile_json rows persisted before S-A have no http_timeout_seconds key.
+        let json = serde_json::json!({ "vus": 2, "duration_seconds": 5 });
+        let p: Profile = serde_json::from_value(json).expect("deserializes with serde default");
+        assert_eq!(p.http_timeout_seconds, 30);
     }
 }

@@ -100,6 +100,7 @@ message Profile {
   uint32 ramp_up_seconds = 2;
   uint32 duration_seconds = 3;
   uint32 loop_breakdown_cap = 4;   // 0 = disabled
+  uint32 http_timeout_seconds = 5; // 0 = use default (30s)
 }
 
 message AbortRun {

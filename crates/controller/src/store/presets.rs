@@ -196,6 +196,7 @@ mod tests {
             ramp_up_seconds: 1,
             duration_seconds: 9,
             loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
         }

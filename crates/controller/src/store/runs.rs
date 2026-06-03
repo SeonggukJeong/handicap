@@ -41,6 +41,10 @@ fn default_loop_cap() -> u32 {
     256
 }
 
+fn default_http_timeout() -> u32 {
+    30
+}
+
 /// run-level SLO 기준. 모든 필드 Option — Some이면 활성 기준 1개. 전부 None이면 기준 없음.
 /// (A2 일반 연산자/step-level은 후속; 출력 `Verdict`만 미리 일반형 — spec §10.)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -76,6 +80,8 @@ pub struct Profile {
     pub duration_seconds: u32,
     #[serde(default = "default_loop_cap")]
     pub loop_breakdown_cap: u32,
+    #[serde(default = "default_http_timeout")]
+    pub http_timeout_seconds: u32,
     #[serde(default)]
     pub data_binding: Option<crate::binding::DataBinding>,
     #[serde(default)]
@@ -323,6 +329,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 1,
             loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
         };
@@ -386,6 +393,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 2,
             loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
             data_binding: None,
             criteria: Some(Criteria {
                 max_p95_ms: Some(500),

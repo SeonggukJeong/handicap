@@ -953,6 +953,7 @@ mod tests {
                 ramp_up_seconds: 0,
                 duration_seconds: 1,
                 loop_breakdown_cap: 0,
+                http_timeout_seconds: 30,
             },
             env: HashMap::new(),
             data_binding: None,
@@ -971,6 +972,7 @@ mod tests {
             ramp_up_seconds: 0,
             duration_seconds: 1,
             loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
         };

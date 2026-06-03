@@ -30,6 +30,7 @@ fn profile() -> Profile {
         ramp_up_seconds: 0,
         duration_seconds: 1,
         loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
         data_binding: None,
         criteria: None,
     }
