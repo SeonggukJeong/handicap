@@ -21,6 +21,7 @@
 - **완료**: **JSON body 타입 캐스트 주입** (post-MVP1, ADR-0029, 2026-06-03) — flow `{{var:num}}`/`{{var:bool}}`(+`:str`) 캐스트 토큰으로 JSON body 문자열 leaf를 number/bool로 coerce. 순수 단일 토큰 leaf만, leaf 레벨 파싱(`cast.rs`, `template.rs` 무변경), 엄격 실패=`CastFailed`/trace=문자열 best-effort, UI Zod `.superRefine` 검증. 캐스트 없으면 byte-identical. 상세 §B1.
 - **완료**: **Header/Form 벌크 입력** (2026-06-01) + **B4 disabled 행 토글** (2026-06-03) — 사용자 요청 QoL(순수 UI 영역). KeyValueGrid 2열 그리드 + BulkEditPanel(Postman 전체교체) + commonHeaders 피커 + JSON body Format 버튼 + Postman식 disabled 행 체크박스(`Request.disabled` 사이드카, executor 무시·byte-identical). 상세 §B4.
 - **완료**: **codex 평가 후속 항목 1–4** (2026-06-03, master `5e59048`/`fffec3e`/`fee8041`) — lint 게이트 구멍 + dispatch fail-fast(P0: run failed+message+5xx) + dispatcher 테스트 + graceful-shutdown 로그. 잔여 5(open-loop·http_timeout)·6(skip/todo UI 테스트) → §B5.
+- **완료**: **영역 D / S-A (타임아웃)** — run-level `http_timeout_seconds`(profile, 30s 하드코드 대체) + per-step `timeout_seconds`(HttpStep 오버라이드) 구현+머지 완료(2026-06-03, subagent-driven 5 task, master `c5c3f27`→`8ff689d`). 마이그레이션 0건(profile_json serde default), absent→byte-identical, connect_timeout 의도적 제외(연기). wire 1:1 7-layer, handicap-reviewer READY-TO-MERGE. 영역 D는 S-B(think time) 다음. 상세 §D.
 
 ---
 
@@ -114,15 +115,15 @@
 - ~~**open-loop / arrival-rate 부하 모델 + per-step·per-scenario timeout (P2)**~~ — **🔜 영역으로 승격 (영역 D, 2026-06-03)**: "부하 모델·페이싱 설정"으로 brainstorm → 영역 spec `docs/superpowers/specs/2026-06-03-load-model-pacing-config-design.md`. 아래 §D 참조.
 - **skip/todo UI 테스트 분류·정리**: `pnpm test`에 todo 21 + skip 7. 의도적 연기 / flaky / obsolete / harness-blocked로 분류 후 고위험(시나리오 에디터·리포트) 우선 구현. → UI 폴리시 곁다리.
 
-### D. 부하 모델·페이싱 설정 (영역 D) — **🔜 진행 예정 (영역 spec 작성 완료, S-A 착수 대기)**
+### D. 부하 모델·페이싱 설정 (영역 D) — **🚧 진행 중 (S-A ✅ 완료 · S-B 다음)**
 - **성격**: 부하를 *어떻게 거는가*의 표현력 확장(요청 강도·페이싱·타임아웃·도착률). LoadRunner/JMeter 대체 목표(ADR-0001)의 핵심 격차. 출처 = §B5 codex P2 + 사용자 요청(target RPS / ramp stages / think time / per-step timeout / http_timeout_seconds / max in-flight).
 - **영역 spec**: `docs/superpowers/specs/2026-06-03-load-model-pacing-config-design.md`. 지배 원칙: run-level knob→Profile / per-step knob→Scenario(ADR-0013), absent→byte-identical, 마이그레이션 0건(profile_json + YAML `#[serde(default)]`).
 - **4 하위 슬라이스, 전부 commit, 의존성 순서 1→4** (사용자 확정: 급한 것 없음):
-  - **S-A 타임아웃**: `http_timeout_seconds`(profile, 30s 하드코드 대체) + per-step `timeout_seconds`(HttpStep) + connect_timeout 곁들임. 작고 additive, 배선 패턴 확립. **다음 착수.**
-  - **S-B think time**: 반복 간(profile) + 스텝 뒤(HttpStep) 지연, 균등 랜덤/고정. closed-loop 유지.
+  - **S-A 타임아웃 ✅ 완료 (2026-06-03, subagent-driven 5 task, master `c5c3f27`→`8ff689d`)**: `http_timeout_seconds`(profile, 30s 하드코드 대체) + per-step `timeout_seconds`(HttpStep 오버라이드, reqwest `RequestBuilder::timeout`, lockstep execute_step/traced). connect_timeout은 **의도적 제외**(연기 → 아래 추가 knob). 마이그레이션 0건, absent→byte-identical, 메트릭/proto MetricBatch 무변경, ADR 불필요(additive). plan `docs/superpowers/plans/2026-06-03-load-model-pacing-s-a-timeouts.md`. handicap-reviewer READY-TO-MERGE(wire 1:1 7-layer). **이 슬라이스가 "Profile 필드 + HttpStep 필드 + proto + UI Zod + range 검증" 배선 패턴을 확립 — S-B/S-D가 재사용.**
+  - **S-B think time**: 반복 간(profile) + 스텝 뒤(HttpStep) 지연, 균등 랜덤/고정. closed-loop 유지. **다음 착수.**
   - **S-C 오픈루프**: `target_rps` arrival-rate 스케줄러 + `max_in_flight`. 새 실행 모델 + **ADR-0031**(자체 brainstorm/spec 필요 — arrival 분포·backpressure drop·VU/cookie 모델·데이터바인딩·멀티워커 합성·dropped 메트릭 6개 결정). 헤드라인.
   - **S-D 다단계 ramp**: `stages: [{target,duration}]`로 `ramp_up_seconds` 일반화(closed=VU/open=RPS 타깃). S-C 위에서 가장 가치.
-- **추가 knob 아이디어(기록, 해당 슬라이스 흡수/후속)**: connect timeout 분리(S-A), think time Poisson 분포(S-B/S-C), `max_iterations` cap, graceful stop/ramp-down(S-D), warmup 메트릭 제외, abort-on-error 실시간 threshold(A4a 사후 verdict와 별개), connection pool 튜닝(host당 max/keep-alive), per-VU rate cap(S-C 이후). 상세 = 영역 spec §8.
+- **추가 knob 아이디어(기록, 해당 슬라이스 흡수/후속)**: connect timeout 분리(S-A에서 의도적 제외 → 후속), think time Poisson 분포(S-B/S-C), `max_iterations` cap, graceful stop/ramp-down(S-D), warmup 메트릭 제외, abort-on-error 실시간 threshold(A4a 사후 verdict와 별개), connection pool 튜닝(host당 max/keep-alive), per-VU rate cap(S-C 이후). 상세 = 영역 spec §8.
 
 ### B6. A4a (run-level SLO criteria) 연기 항목
 - **run 목록 pass/fail 배지** (fast-follow): 목록엔 메트릭이 없어 영속화(`verdict_json` 컬럼 + 완료 시 평가, migration) 또는 목록용 경량 요약 캐시 필요. v1은 리포트 페이지만.
