@@ -5,6 +5,7 @@ pub mod dataset;
 pub mod error;
 pub mod executor;
 pub mod extract;
+pub mod pacing;
 pub mod percentiles;
 pub mod runner;
 pub mod scenario;
@@ -17,6 +18,7 @@ pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
 pub use executor::{ExecOutcome, VuClient, execute_step, execute_step_traced};
 pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
+pub use pacing::{PaceOutcome, ThinkTime, pace};
 pub use runner::{MetricFlush, RunPlan, run_scenario};
 pub use scenario::{
     Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep, IfStep,
