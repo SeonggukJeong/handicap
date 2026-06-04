@@ -954,6 +954,8 @@ mod tests {
                 duration_seconds: 1,
                 loop_breakdown_cap: 0,
                 http_timeout_seconds: 30,
+                think_time: None,
+                think_seed: None,
             },
             env: HashMap::new(),
             data_binding: None,
@@ -975,6 +977,8 @@ mod tests {
             http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
+            think_time: None,
+            think_seed: None,
         };
         let row = runs::insert(
             db,

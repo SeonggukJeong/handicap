@@ -16,6 +16,8 @@ fn run_assignment_env_field_exists() {
             duration_seconds: 10,
             loop_breakdown_cap: 0,
             http_timeout_seconds: 30,
+            think_time: None,
+            think_seed: None,
         }),
         env,
         data_binding: None,

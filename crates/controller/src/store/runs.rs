@@ -86,6 +86,10 @@ pub struct Profile {
     pub data_binding: Option<crate::binding::DataBinding>,
     #[serde(default)]
     pub criteria: Option<Criteria>,
+    #[serde(default)]
+    pub think_time: Option<handicap_engine::ThinkTime>,
+    #[serde(default)]
+    pub think_seed: Option<u32>,
 }
 
 pub struct RunRow {
@@ -332,6 +336,8 @@ mod tests {
             http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
+            think_time: None,
+            think_seed: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -379,6 +385,25 @@ mod tests {
     }
 
     #[test]
+    fn profile_json_think_time_round_trip_and_old_row_defaults_none() {
+        let json = r#"{"vus":1,"duration_seconds":2,"think_time":{"min_ms":100,"max_ms":500},"think_seed":7}"#;
+        let p: Profile = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            p.think_time,
+            Some(handicap_engine::ThinkTime {
+                min_ms: 100,
+                max_ms: 500
+            })
+        );
+        assert_eq!(p.think_seed, Some(7));
+        // old row without the keys → None
+        let old = r#"{"vus":1,"duration_seconds":2}"#;
+        let p2: Profile = serde_json::from_str(old).unwrap();
+        assert_eq!(p2.think_time, None);
+        assert_eq!(p2.think_seed, None);
+    }
+
+    #[test]
     fn profile_without_criteria_field_deserializes_to_none() {
         // pre-A4a profile_json 행에는 criteria 키가 없다 — 하위 호환.
         let json = r#"{"vus":1,"ramp_up_seconds":0,"duration_seconds":2,"loop_breakdown_cap":256,"data_binding":null}"#;
@@ -400,6 +425,8 @@ mod tests {
                 max_error_rate: Some(0.01),
                 ..Default::default()
             }),
+            think_time: None,
+            think_seed: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

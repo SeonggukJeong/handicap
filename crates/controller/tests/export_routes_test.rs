@@ -68,6 +68,8 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         http_timeout_seconds: 30,
         data_binding: None,
         criteria: None,
+        think_time: None,
+        think_seed: None,
     };
     let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env)
         .await
@@ -196,6 +198,8 @@ async fn export_of_nonterminal_run_is_rejected() {
         http_timeout_seconds: 30,
         data_binding: None,
         criteria: None,
+        think_time: None,
+        think_seed: None,
     };
     let row = store::runs::insert(
         &db,
@@ -266,6 +270,8 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         http_timeout_seconds: 30,
         data_binding: None,
         criteria: None,
+        think_time: None,
+        think_seed: None,
     };
 
     // Run A

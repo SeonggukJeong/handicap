@@ -95,12 +95,19 @@ message RunAssignment {
   uint32 vu_count = 9;            // VUs this worker runs (= RunPlan.vus)
 }
 
+message ThinkTime {
+  uint32 min_ms = 1;
+  uint32 max_ms = 2;
+}
+
 message Profile {
   uint32 vus = 1;
   uint32 ramp_up_seconds = 2;
   uint32 duration_seconds = 3;
   uint32 loop_breakdown_cap = 4;   // 0 = disabled
   uint32 http_timeout_seconds = 5; // 0 = use default (30s)
+  ThinkTime think_time = 6;        // absent → no inter-iteration pacing
+  optional uint32 think_seed = 7;  // present → deterministic, absent → entropy
 }
 
 message AbortRun {

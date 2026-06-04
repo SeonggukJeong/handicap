@@ -193,8 +193,11 @@ async fn main() -> anyhow::Result<()> {
         } else {
             profile.http_timeout_seconds
         })),
-        think_time: None,
-        think_seed: None,
+        think_time: profile.think_time.map(|t| handicap_engine::ThinkTime {
+            min_ms: t.min_ms,
+            max_ms: t.max_ms,
+        }),
+        think_seed: profile.think_seed,
     };
     info!(
         vus = plan.vus,

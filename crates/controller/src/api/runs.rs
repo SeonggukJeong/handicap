@@ -78,6 +78,13 @@ pub(crate) async fn validate_run_config(
             "http_timeout_seconds must be between 1 and 600".into(),
         ));
     }
+    if let Some(tt) = &profile.think_time {
+        if tt.min_ms > tt.max_ms || tt.max_ms > 600_000 {
+            return Err(ApiError::BadRequest(
+                "think_time: min_ms <= max_ms <= 600000 (10분) 이어야 합니다".into(),
+            ));
+        }
+    }
     if let Some(c) = &profile.criteria {
         validate_criteria(c).map_err(ApiError::BadRequest)?;
     }
@@ -205,6 +212,14 @@ pub async fn create(
             duration_seconds: body.profile.duration_seconds,
             loop_breakdown_cap: body.profile.loop_breakdown_cap,
             http_timeout_seconds: body.profile.http_timeout_seconds,
+            think_time: body
+                .profile
+                .think_time
+                .map(|t| handicap_proto::v1::ThinkTime {
+                    min_ms: t.min_ms,
+                    max_ms: t.max_ms,
+                }),
+            think_seed: body.profile.think_seed,
         },
         env: body.env.clone(),
         data_binding,
@@ -533,6 +548,8 @@ mod tests {
                 mappings: vec![],
             }),
             criteria: None,
+            think_time: None,
+            think_seed: None,
         }
     }
 
@@ -640,6 +657,8 @@ mod tests {
             data_binding: None,
             criteria: None,
             http_timeout_seconds: 0,
+            think_time: None,
+            think_seed: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -668,5 +687,79 @@ mod tests {
         let json = serde_json::json!({ "vus": 2, "duration_seconds": 5 });
         let p: Profile = serde_json::from_value(json).expect("deserializes with serde default");
         assert_eq!(p.http_timeout_seconds, 30);
+    }
+
+    fn think_profile(think_time: Option<handicap_engine::ThinkTime>) -> Profile {
+        Profile {
+            vus: 2,
+            ramp_up_seconds: 0,
+            duration_seconds: 5,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            criteria: None,
+            think_time,
+            think_seed: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_rejects_think_time_min_gt_max() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 1).await;
+        let p = think_profile(Some(handicap_engine::ThinkTime {
+            min_ms: 500,
+            max_ms: 100,
+        }));
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(_)),
+            "min > max must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_rejects_think_time_max_over_600000() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 1).await;
+        let p = think_profile(Some(handicap_engine::ThinkTime {
+            min_ms: 0,
+            max_ms: 600_001,
+        }));
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(_)),
+            "max > 600000 must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_accepts_think_time_in_range_and_none() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 1).await;
+        // In-range range accepted.
+        let p = think_profile(Some(handicap_engine::ThinkTime {
+            min_ms: 100,
+            max_ms: 500,
+        }));
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "{{100,500}} must be accepted"
+        );
+        // Absent think_time accepted.
+        let p = think_profile(None);
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "None think_time must be accepted"
+        );
+        // Inclusive upper boundary accepted (guards off-by-one).
+        let p = think_profile(Some(handicap_engine::ThinkTime {
+            min_ms: 0,
+            max_ms: 600_000,
+        }));
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "max == 600000 must be accepted"
+        );
     }
 }

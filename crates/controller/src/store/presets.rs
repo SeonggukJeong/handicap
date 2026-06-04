@@ -199,6 +199,8 @@ mod tests {
             http_timeout_seconds: 30,
             data_binding: None,
             criteria: None,
+            think_time: None,
+            think_seed: None,
         }
     }
 
