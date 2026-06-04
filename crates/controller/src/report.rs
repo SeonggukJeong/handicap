@@ -18,6 +18,8 @@ pub struct ReportJson {
     pub verdict: Option<Verdict>,
     #[serde(default)]
     pub insights: Vec<crate::insights::Insight>,
+    #[serde(default)]
+    pub dropped: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -357,6 +359,7 @@ pub fn build_report(
         if_breakdown,
         verdict,
         insights,
+        dropped: run.dropped as u64,
     }
 }
 
@@ -401,6 +404,7 @@ mod tests {
             ended_at: Some(102_000),
             created_at: 99_000,
             message: None,
+            dropped: 0,
         }
     }
 
@@ -720,5 +724,16 @@ mod tests {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
         assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
+    }
+
+    #[test]
+    fn build_report_surfaces_dropped() {
+        let mut run = run_row();
+        run.dropped = 7;
+        let rep = build_report(&run, "", &[], &[], &[]);
+        assert_eq!(
+            rep.dropped, 7,
+            "ReportJson.dropped must reflect RunRow.dropped"
+        );
     }
 }

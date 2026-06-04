@@ -107,6 +107,7 @@ pub struct RunRow {
     pub ended_at: Option<i64>,
     pub created_at: i64,
     pub message: Option<String>,
+    pub dropped: i64,
 }
 
 pub async fn insert(
@@ -144,12 +145,13 @@ pub async fn insert(
         ended_at: None,
         created_at: now,
         message: None,
+        dropped: 0,
     })
 }
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -173,12 +175,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
         ended_at: r.get("ended_at"),
         created_at: r.get("created_at"),
         message: r.get("message"),
+        dropped: r.get("dropped"),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -203,6 +206,7 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
             ended_at: r.get("ended_at"),
             created_at: r.get("created_at"),
             message: r.get("message"),
+            dropped: r.get("dropped"),
         });
     }
     Ok(out)

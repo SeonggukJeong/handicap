@@ -413,6 +413,7 @@ mod tests {
             if_breakdown: vec![],
             verdict: None,
             insights: vec![],
+            dropped: 0,
         }
     }
 
