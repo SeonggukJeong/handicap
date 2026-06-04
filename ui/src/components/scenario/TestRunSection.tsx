@@ -17,6 +17,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [maxRequests, setMaxRequests] = useState<number>(50);
+  const [applyThinkTime, setApplyThinkTime] = useState(false);
   const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
   const baseVars = selectedEnv.data?.vars ?? {};
 
@@ -50,6 +51,14 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
             className="w-28 rounded border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={applyThinkTime}
+            onChange={(e) => setApplyThinkTime(e.target.checked)}
+          />
+          <span className="text-slate-600">think time 적용 (천천히 전송)</span>
+        </label>
         <div>
           <Button
             onClick={() =>
@@ -57,6 +66,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
                 scenario_yaml: yamlText,
                 env: resolveEnv(baseVars, envEntries),
                 max_requests: maxRequests,
+                apply_think_time: applyThinkTime,
               })
             }
             disabled={testRun.isPending}

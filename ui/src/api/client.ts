@@ -145,6 +145,7 @@ export const api = {
     scenario_yaml: string;
     env: Record<string, string>;
     max_requests?: number;
+    apply_think_time?: boolean;
   }) => request("/test-runs", { method: "POST", body: JSON.stringify(body) }, ScenarioTraceSchema),
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>

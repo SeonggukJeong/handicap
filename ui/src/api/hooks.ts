@@ -255,6 +255,7 @@ export function useTestRun() {
       scenario_yaml: string;
       env: Record<string, string>;
       max_requests?: number;
+      apply_think_time?: boolean;
     }) => api.createTestRun(body),
   });
 }
