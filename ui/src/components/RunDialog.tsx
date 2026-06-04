@@ -610,9 +610,10 @@ export function RunDialog({
             </div>
           ) : (
             <div className="mb-3">
-              <p className="text-xs text-slate-500 mb-2">
+              <p className="text-xs text-slate-500 mb-1">
                 각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)
               </p>
+              <p className="text-xs text-slate-500 mb-2">이 단계가 지속되는 시간(초)</p>
               {stages.map((s, i) => (
                 <div key={i} className="flex items-end gap-2 mb-2">
                   <label className="block text-sm flex-1 min-w-0">

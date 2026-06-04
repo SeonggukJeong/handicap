@@ -952,6 +952,16 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     expect(screen.getByLabelText("stage target 0")).toHaveValue(100);
   });
 
+  it("curve mode: shows inline helpers for target, duration, and max in-flight", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    expect(screen.getByText(/각 단계가 끝날 때의 목표 초당 요청 수/)).toBeInTheDocument();
+    expect(screen.getByText(/이 단계가 지속되는 시간/)).toBeInTheDocument();
+    expect(screen.getByText(/동시 처리 상한/)).toBeInTheDocument();
+  });
+
   it("submits target_rps and max_in_flight in open-loop mode", async () => {
     fetchMock.mockImplementation(() =>
       jsonResponse({
