@@ -58,6 +58,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0006).execute(&pool).await?;
     sqlx::query(MIGRATION_SQL_0007).execute(&pool).await?;
     ensure_run_metrics_worker_id(&pool).await?; // migration 0008 (Rust-guarded; see fn)
+    ensure_runs_dropped(&pool).await?; // migration 0009 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -126,6 +127,21 @@ async fn ensure_run_metrics_worker_id(db: &Db) -> anyhow::Result<()> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// migration 0009 (Rust-guarded): add the `dropped` column to `runs` (open-loop
+/// run-total arrivals dropped). Idempotent — SQLite ADD COLUMN isn't, so detect first.
+async fn ensure_runs_dropped(db: &Db) -> anyhow::Result<()> {
+    let has: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'dropped'")
+            .fetch_one(db)
+            .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE runs ADD COLUMN dropped INTEGER NOT NULL DEFAULT 0")
+            .execute(db)
+            .await?;
+    }
     Ok(())
 }
 
@@ -215,6 +231,89 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 1, "second call must not duplicate or drop rows");
+    }
+
+    #[tokio::test]
+    async fn runs_dropped_column_guard_is_idempotent() {
+        // Build a pool with the OLD schema (no `dropped` column), mirroring how the
+        // worker_id idempotency test builds its old-schema pool.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0001)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Seed scenario + run so we can assert the existing row is preserved.
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S1")
+        .bind("n")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R1")
+        .bind("S1")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind("{}")
+        .bind("{}")
+        .bind("completed")
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // First call: adds the `dropped` column.
+        ensure_runs_dropped(&pool).await.unwrap();
+        // Second call: no-op (idempotent).
+        ensure_runs_dropped(&pool).await.unwrap();
+
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'dropped'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "dropped column must exist after guard");
+
+        // Existing row gets DEFAULT 0 backfill (ADD COLUMN with DEFAULT 0).
+        let dropped: i64 = sqlx::query_scalar("SELECT dropped FROM runs WHERE id='R1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(dropped, 0, "existing run row must get dropped=0 default");
+    }
+
+    // Catches the "guard defined but never wired into connect()" regression.
+    #[tokio::test]
+    async fn connect_applies_runs_dropped_migration() {
+        let pool = connect("sqlite::memory:").await.expect("connect");
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'dropped'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            has, 1,
+            "connect() must apply migration 0009 (dropped column)"
+        );
     }
 
     // Catches the "guard defined but never wired into connect()" regression — the test
