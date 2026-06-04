@@ -80,6 +80,12 @@
 - **A3c: `dispatcher.cleanup()` 은 `CoordinatorState` 가 finalize 시 호출** (A3c): `CoordinatorState` 가 `Arc<OnceLock<SharedDispatcher>>` 핸들을 들고(main.rs 가 dispatcher 빌드 후 `set_dispatcher` 로 1 회 주입, 모든 clone 공유), record_phase 의 Completed/Aborted/Failed arm + worker_disconnected fail-fast + fail_incomplete_registration 에서 `cleanup_dispatcher` 호출. **단위/e2e 테스트는 핸들 미설정 → no-op**(기존 테스트 무영향). cleanup 은 trait 계약상 idempotent. user abort(`abort()`)는 워커가 Aborted 보고→record_phase→cleanup, 또는 끊기면 worker_disconnected→cleanup 으로 닫히므로 `abort()` 자체엔 cleanup 미삽입(조기/중복 방지).
 - **K8s 워커는 단일 Indexed Job(parallelism=completions=N), worker_id 는 Pod 가 `JOB_COMPLETION_INDEX` 로 파생** (A3c): `build_job_spec` 가 `worker_id` 대신 `worker_count` 를 받아 `completion_mode="Indexed"` + parallelism/completions=N 인 Job 1 개 생성. `handicap.io/worker-id` 라벨·`--worker-id` 컨테이너 arg 제거(Indexed Job 은 단일 id 없음 — K8s 가 Pod 마다 `JOB_COMPLETION_INDEX` env 자동 주입, 워커 `resolve_worker_id` 가 `{run_id}-w{index}` 파생). cleanup 셀렉터 `handicap.io/run-id` 무변경(Job 1 개 + ownerRef GC 로 N Pod 일괄 삭제). subprocess 는 여전히 `--worker-id` 명시 N-spawn(A3a).
 
+## 다단계 ramp stages (`api/runs.rs`, `store.rs`, S-D)
+
+- **`Profile::is_open_loop()`로 판별 사이트 통일 — `target_rps.is_some()` 직접 분기 금지** (S-D): S-D가 두 번째 open-loop 트리거(비어있지 않은 stages)를 추가했으므로, `is_open_loop() = target_rps.is_some() || stages.as_ref().is_some_and(|s| !s.is_empty())`를 모든 3개 discriminator 사이트(unique 워커 수·per_vu slot_count·create 워커 수)+validate entry에서 사용. `target_rps.is_some()`을 직접 분기하면 stages-only run이 closed-loop으로 오분류돼 잘못된 VU 기반 fan-out·data-binding slicing을 낳는다.
+- **`Some(vec![])` = absent** (S-D): 빈 stages는 None과 동일 취급. `is_open_loop()`의 `!s.is_empty()` 조건이 이를 보장.
+- **proto `Profile`에 `Vec<Stage>` 추가로 implicit `Copy` 상실 → dispatch site `.clone()` 필요** (S-D): `repeated Stage stages = 10` 추가 후 `profile.clone()`을 dispatcher 호출 사이트에 추가해야 컴파일(once per worker dispatch, negligible).
+
 ## Dispatch 실패 처리 (`api/runs.rs::create`) (codex eval)
 
 - **dispatch 실패는 권위 있는 run-start 실패다 — 201이 아니라 5xx** (codex eval item 2): `state.dispatcher.dispatch()`가 Err면(워커 바이너리 부재·K8s Job 생성 거부·클러스터 단절) 핸들러가 `coord.cancel_dispatch_failed(run_id)`(enqueue된 coordinator 상태 teardown + watchdog 취소 + 등록한 형제 abort + dispatcher cleanup) → `runs::mark_failed(db, id, msg)`(failed + `message` + ended_at) → `ApiError::Internal`(500)을 반환한다. 이전엔 `warn!`만 찍고 201을 반환해 run이 `pending`으로 남아 60s 등록 watchdog이 익명으로 실패시켰다. `mark_failed`는 단일 run에 `message`를 남기는 유일한 헬퍼 — `set_status`엔 message 컬럼이 없어 watchdog/fail-fast 경로는 message가 NULL이다.

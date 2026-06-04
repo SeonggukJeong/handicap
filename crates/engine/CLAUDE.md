@@ -48,6 +48,13 @@
 - **`dropped` run-total은 final flush 한 번에만 실림** (S-C): periodic flush는 `dropped=0`이라 워커 forwarder의 빈-배치 스킵 가드에 `&& flush.dropped == 0` 조건이 필수 — 이게 없으면 dropped만 실린 final flush가 "빈 배치"로 오인돼 유실된다. closed-loop `run_scenario`의 `MetricFlush{}` 리터럴 2곳(`runner.rs:169`, `:203`)에도 `dropped: 0` 명시 필요(additive, 컴파일러 강제).
 - **open-loop `iter_id` = 글로벌 arrival 카운터** (S-C): closed-loop의 per-VU 단조 `iter_id`를 대체. `select_index(vu_id=슬롯, iter_id=arrival_index, …)` 시그니처 무변경. `iter_random`은 시드되지만 슬롯↔arrival 페어링이 런타임 스케줄링에 달려 정확한 per-arrival 행 할당은 비결정적(분포만 재현).
 
+## 다단계 ramp 곡선 (`runner.rs`, S-D)
+
+- **open-loop 곡선은 `run_scenario_open_loop`에 interval 산출만 주입 — 루프 body는 S-C와 동일** (S-D): `rate_at(stages, elapsed)`가 interval을 계산해 `next += interval`에만 영향을 주고, 슬롯 try_recv→spawn / drop+yield 루프 body는 무변경. closed-loop 회귀 0 구조적 보장.
+- **`rate_at`는 반드시 `next`(예약 tick) 기준으로 평가 — `now` 기준이면 ramp 초반 ~1 arrival 버그** (S-D): `now ≈ 0`이면 rate ≈ 0 → interval 수 초 → 첫 tick까지 거의 arrival 없음. `elapsed = next - start`로 "다음 tick이 몇 번째 구간에 있나"를 계산해야 ramp-start부터 정확한 레이트.
+- **`rate ≤ RATE_EPS(1e-9)` 구간 = poll-step 100ms (cancel-aware), `now < next` wait = deadline clamp** (S-D): 레이트 0 구간에서 arrival 발사 없이 100ms씩 대기. clamp 덕분에 곡선이 만든 큰 interval이 run 종료를 블록 안 함(None/고정 경로도 공유 — behaviorally-equivalent).
+- **`plan.duration`은 워커가 `sum(stage.duration_seconds)`로 계산·전달 — 엔진은 stages를 직접 sum 안 함** (S-D): 엔진은 `plan.duration`에서 deadline만 파생. 워커가 stages duration을 계산하는 책임(worker `main.rs`).
+
 ## 런타임 / 동시성
 
 - **mpsc 플러셔 종료** (Slice 1): 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
