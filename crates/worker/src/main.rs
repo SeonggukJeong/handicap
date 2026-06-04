@@ -225,7 +225,7 @@ async fn main() -> anyhow::Result<()> {
     };
     info!(
         vus = plan.vus,
-        duration_s = profile.duration_seconds,
+        duration_s = plan.duration.as_secs(),
         ramp_up_s = profile.ramp_up_seconds,
         "starting engine run"
     );
