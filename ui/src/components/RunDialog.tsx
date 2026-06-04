@@ -93,7 +93,7 @@ export function RunDialog({
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
   const [httpTimeout, setHttpTimeout] = useState(initial?.profile.http_timeout_seconds ?? 30);
   const initC = initial?.profile.criteria ?? undefined;
-  const numToStr = (n?: number) => (n == null ? "" : String(n));
+  const numToStr = (n?: number | null) => (n == null ? "" : String(n));
   const [maxP50, setMaxP50] = useState(numToStr(initC?.max_p50_ms));
   const [maxP95, setMaxP95] = useState(numToStr(initC?.max_p95_ms));
   const [maxP99, setMaxP99] = useState(numToStr(initC?.max_p99_ms));

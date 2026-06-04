@@ -55,14 +55,18 @@ export const ProfileSchema = z.object({
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
   http_timeout_seconds: z.number().int().min(1).max(600).default(30),
+  // These Option fields are serialized as `null` (not omitted) in run responses —
+  // the controller store Profile uses #[serde(default)] without skip_serializing_if.
+  // So they must accept null (.nullish), like data_binding/criteria below. (`stages`
+  // DOES use skip_serializing_if server-side → omitted when absent → .optional is fine.)
   think_time: z
     .object({ min_ms: z.number().int().nonnegative(), max_ms: z.number().int().nonnegative() })
-    .optional(),
-  think_seed: z.number().int().nonnegative().optional(),
+    .nullish(),
+  think_seed: z.number().int().nonnegative().nullish(),
   data_binding: DataBindingSchema.nullish(),
   criteria: CriteriaSchema.nullish(),
-  target_rps: z.number().int().positive().max(1_000_000).optional(),
-  max_in_flight: z.number().int().positive().max(10_000).optional(),
+  target_rps: z.number().int().positive().max(1_000_000).nullish(),
+  max_in_flight: z.number().int().positive().max(10_000).nullish(),
   stages: z.array(StageSchema).optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;

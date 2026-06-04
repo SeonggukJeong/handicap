@@ -153,6 +153,32 @@ describe("ProfileSchema.criteria", () => {
   });
 });
 
+describe("ProfileSchema null tolerance (server serializes None as null)", () => {
+  it("accepts null for target_rps/max_in_flight/think_time/think_seed", () => {
+    // The controller store Profile uses #[serde(default)] WITHOUT skip_serializing_if
+    // on these Option fields, so None serializes to null in run-create / get-run
+    // responses. ProfileSchema must accept null (.nullish()), else every run's
+    // response fails to parse. (Regression: closed-loop + open-loop both hit this.)
+    const p = ProfileSchema.parse({
+      vus: 1,
+      duration_seconds: 1,
+      ramp_up_seconds: 0,
+      loop_breakdown_cap: 0,
+      http_timeout_seconds: 30,
+      data_binding: null,
+      criteria: null,
+      think_time: null,
+      think_seed: null,
+      target_rps: null,
+      max_in_flight: null,
+    });
+    expect(p.target_rps).toBeNull();
+    expect(p.max_in_flight).toBeNull();
+    expect(p.think_time).toBeNull();
+    expect(p.think_seed).toBeNull();
+  });
+});
+
 describe("ProfileSchema.stages", () => {
   it("ProfileSchema parses stages and treats absent as undefined", () => {
     const p = ProfileSchema.parse({
