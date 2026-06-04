@@ -3,7 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api/client";
 import { downloadFile } from "../api/download";
 import { useCreateRun, useScenario, useScenarioRuns } from "../api/hooks";
-import { envValueToRecord, normalizeProfile, type RunPrefill } from "../api/runPrefill";
+import {
+  envValueToRecord,
+  normalizeProfile,
+  profileDurationSeconds,
+  type RunPrefill,
+} from "../api/runPrefill";
 import { Button } from "../components/Button";
 import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
@@ -245,7 +250,7 @@ export function ScenarioRunsPage() {
                           <StatusBadge status={r.status} />
                         </td>
                         <td className="py-3 pr-4">{r.profile.vus}</td>
-                        <td className="py-3 pr-4">{r.profile.duration_seconds}s</td>
+                        <td className="py-3 pr-4">{profileDurationSeconds(r.profile)}s</td>
                         <td className="py-3 pr-4 text-slate-600">
                           {new Date(r.created_at).toLocaleString()}
                         </td>

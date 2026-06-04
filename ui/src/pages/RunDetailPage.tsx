@@ -9,7 +9,7 @@ import {
   useRunReport,
   useScenario,
 } from "../api/hooks";
-import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
+import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
 import { StatusBadge } from "../components/StatusBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
@@ -77,10 +77,9 @@ export function RunDetailPage() {
   }
   const totalCount = metrics.data?.windows.reduce((acc, w) => acc + w.count, 0) ?? 0;
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
-  const rps =
-    r.profile.duration_seconds > 0
-      ? Math.round((totalCount / r.profile.duration_seconds) * 10) / 10
-      : 0;
+  // Curve runs (S-D) store duration_seconds: 0; the real length is the stage sum.
+  const durationSeconds = profileDurationSeconds(r.profile);
+  const rps = durationSeconds > 0 ? Math.round((totalCount / durationSeconds) * 10) / 10 : 0;
 
   function saveAsPreset() {
     const name = window.prompt("프리셋 이름")?.trim();
@@ -174,7 +173,7 @@ export function RunDetailPage() {
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
         <Card label="VUs">{r.profile.vus}</Card>
-        <Card label="Duration">{r.profile.duration_seconds}s</Card>
+        <Card label="Duration">{durationSeconds}s</Card>
         <Card label="Total requests">{totalCount}</Card>
         <Card label="Errors">{totalErrors}</Card>
       </div>

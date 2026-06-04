@@ -28,5 +28,21 @@ export function normalizeProfile(profile: unknown): Profile {
   return ProfileSchema.parse(profile);
 }
 
+/** Effective run length in seconds. Open-loop curve runs (S-D) store
+ *  `duration_seconds: 0` and carry the real length in `stages` (the worker derives
+ *  the engine deadline as the stage-duration sum); every other run uses the flat
+ *  `duration_seconds`. Mirrors the worker's `run_duration_secs`. Takes only the two
+ *  fields it reads so a `RunSchema.profile` (nested-default leaks `number|undefined`
+ *  on other fields — ui/CLAUDE.md) is assignable without `normalizeProfile`. */
+export function profileDurationSeconds(
+  profile: Pick<Profile, "duration_seconds" | "stages">,
+): number {
+  const stages = profile.stages;
+  if (stages && stages.length > 0) {
+    return stages.reduce((acc, s) => acc + s.duration_seconds, 0);
+  }
+  return profile.duration_seconds;
+}
+
 /** Shape of RunDialog's `initial` prop — a past run's profile + decoded env. */
 export type RunPrefill = { profile: Profile; env: Record<string, string> };

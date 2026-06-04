@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { envValueToRecord, normalizeProfile } from "../runPrefill";
+import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../runPrefill";
+import { ProfileSchema } from "../schemas";
+
+describe("profileDurationSeconds", () => {
+  it("returns duration_seconds for closed-loop / fixed-rate (no stages)", () => {
+    expect(profileDurationSeconds(ProfileSchema.parse({ vus: 2, duration_seconds: 5 }))).toBe(5);
+  });
+
+  it("returns the sum of stage durations for a curve run (duration_seconds is 0)", () => {
+    const p = ProfileSchema.parse({
+      vus: 0,
+      duration_seconds: 0,
+      max_in_flight: 50,
+      stages: [
+        { target: 200, duration_seconds: 2 },
+        { target: 0, duration_seconds: 2 },
+      ],
+    });
+    expect(profileDurationSeconds(p)).toBe(4);
+  });
+
+  it("falls back to duration_seconds when stages is empty", () => {
+    expect(
+      profileDurationSeconds(ProfileSchema.parse({ vus: 1, duration_seconds: 7, stages: [] })),
+    ).toBe(7);
+  });
+});
 
 describe("envValueToRecord", () => {
   it("keeps string entries", () => {
