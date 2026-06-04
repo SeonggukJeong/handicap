@@ -7,6 +7,7 @@ use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{
     BindingPolicy, DataSet, EngineError, MetricFlush, RunPlan, Scenario, run_scenario,
+    run_scenario_open_loop,
 };
 use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
@@ -198,9 +199,10 @@ async fn main() -> anyhow::Result<()> {
             max_ms: t.max_ms,
         }),
         think_seed: profile.think_seed,
-        // Open-loop fields: proto mapping comes in Task 6; None until then.
-        target_rps: None,
-        max_in_flight: None,
+        // Open-loop: proto optional uint32 → Option<u32>. Some(rps) selects the
+        // open-loop execution path below; None → closed-loop run_scenario.
+        target_rps: profile.target_rps,
+        max_in_flight: profile.max_in_flight,
     };
     info!(
         vus = plan.vus,
@@ -293,7 +295,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let run_res = run_scenario(scenario, plan, win_tx, cancel).await;
+    let run_res = match plan.target_rps {
+        Some(_) => run_scenario_open_loop(scenario, plan, win_tx, cancel).await,
+        None => run_scenario(scenario, plan, win_tx, cancel).await,
+    };
 
     // Clean up the abort listener — it may still be blocked on recv().
     abort_listener.abort();
