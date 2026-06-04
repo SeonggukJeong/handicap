@@ -66,6 +66,8 @@ steps:
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -149,6 +151,8 @@ steps:
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -228,6 +232,8 @@ steps:
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
     };
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

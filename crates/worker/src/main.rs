@@ -198,6 +198,9 @@ async fn main() -> anyhow::Result<()> {
             max_ms: t.max_ms,
         }),
         think_seed: profile.think_seed,
+        // Open-loop fields: proto mapping comes in Task 6; None until then.
+        target_rps: None,
+        max_in_flight: None,
     };
     info!(
         vus = plan.vus,

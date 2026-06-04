@@ -37,6 +37,8 @@ steps:
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();

@@ -30,6 +30,8 @@ async fn count_requests(plan_think: Option<ThinkTime>, dur_ms: u64) -> u64 {
         http_timeout: Duration::from_secs(30),
         think_time: plan_think,
         think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
     };
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = CancellationToken::new();
@@ -96,6 +98,8 @@ async fn per_step_think_time_reduces_requests() {
             http_timeout: Duration::from_secs(30),
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         };
         let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
         let h = tokio::spawn(run_scenario(scenario, plan, tx, CancellationToken::new()));

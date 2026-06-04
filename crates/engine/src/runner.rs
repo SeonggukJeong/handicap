@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use rand::SeedableRng;
@@ -38,6 +38,12 @@ pub struct RunPlan {
     pub think_time: Option<ThinkTime>,
     /// Think time RNG seed. `Some` → reproducible per (seed, vu_id); `None` → entropy.
     pub think_seed: Option<u32>,
+    /// Open-loop target arrival rate (req/s). `Some` → open-loop path
+    /// (`run_scenario_open_loop`); `None` → closed-loop `run_scenario` (byte-identical).
+    pub target_rps: Option<u32>,
+    /// Open-loop concurrent in-flight cap = reusable slot-pool size. Required when
+    /// `target_rps` is set (controller-validated). Each slot = one `VuClient` + cookie jar.
+    pub max_in_flight: Option<u32>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -48,6 +54,9 @@ pub struct MetricFlush {
     pub windows: Vec<StepWindow>,
     pub loop_stats: Vec<LoopStat>,
     pub branch_stats: Vec<BranchStat>,
+    /// Open-loop arrivals dropped because the slot pool was full, since the last
+    /// flush (delta). Always `0` on the closed-loop path.
+    pub dropped: u64,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -170,6 +179,7 @@ pub async fn run_scenario(
                         windows: drained,
                         loop_stats,
                         branch_stats,
+                        dropped: 0,
                     })
                     .await
                     .is_err()
@@ -204,6 +214,7 @@ pub async fn run_scenario(
                 windows: final_windows,
                 loop_stats: final_loops,
                 branch_stats: final_branches,
+                dropped: 0,
             })
             .await;
     }
@@ -432,6 +443,262 @@ async fn execute_steps(
         }
     }
     Ok(StepFlow::Continue)
+}
+
+/// Drive open-loop arrival-rate load: schedule iteration *starts* at `target_rps`
+/// against a fixed pool of `max_in_flight` reusable VU clients (slot index = vu_id,
+/// cookie jar persists per slot). Arrivals that find no free slot are dropped and
+/// counted. Isolated from `run_scenario` — closed-loop code is untouched.
+pub async fn run_scenario_open_loop(
+    scenario: Arc<Scenario>,
+    plan: RunPlan,
+    out: mpsc::Sender<MetricFlush>,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let max_in_flight = plan.max_in_flight.unwrap_or(1).max(1) as usize;
+    let target_rps = plan.target_rps.unwrap_or(1).max(1);
+    let agg = Arc::new(Mutex::new(Aggregator::new(plan.loop_breakdown_cap)));
+    let started_at = Instant::now();
+    let deadline = started_at + plan.duration;
+    let env = Arc::new(plan.env);
+    let dataset = plan.data_binding.clone();
+    let http_timeout = plan.http_timeout;
+    let think_seed = plan.think_seed;
+    let vu_offset = plan.vu_offset;
+    let mut dropped: u64 = 0;
+    let mut arrival_counter: u64 = 0;
+    let exhausted = Arc::new(AtomicBool::new(false));
+    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
+        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
+            Some(Arc::new(AtomicU64::new(0)))
+        }
+        _ => None,
+    };
+
+    // Slot pool: max_in_flight reusable clients, index = vu_id (offset applied at use).
+    let pool: Vec<Arc<VuClient>> = (0..max_in_flight)
+        .map(|_| {
+            Ok(Arc::new(VuClient::with_timeout(
+                scenario.cookie_jar,
+                http_timeout,
+            )?))
+        })
+        .collect::<Result<_>>()?;
+    // Free-slot queue: pre-loaded with every index. `try_recv` = acquire (Empty → drop),
+    // send back on completion. The channel itself is the permit + the slot identity.
+    let (slot_tx, mut slot_rx) = mpsc::channel::<usize>(max_in_flight);
+    for i in 0..max_in_flight {
+        slot_tx.try_send(i).expect("capacity == max_in_flight");
+    }
+
+    let mut set = JoinSet::new();
+
+    // Flusher: drain windows until the run ends. Sends dropped: 0 throughout; the
+    // run-total drop count rides on the single final flush below (avoids per-window
+    // delta/double-count bookkeeping; per-second drop series is deferred, spec §9).
+    let flush_agg = agg.clone();
+    let flush_out = out.clone();
+    let flusher = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_millis(500));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let now_s = chrono_second();
+            let (drained, loop_stats, branch_stats) = {
+                let mut g = flush_agg.lock().await;
+                (
+                    g.drain_completed(now_s),
+                    g.drain_loop_deltas(),
+                    g.drain_branch_deltas(),
+                )
+            };
+            let has_data =
+                !drained.is_empty() || !loop_stats.is_empty() || !branch_stats.is_empty();
+            if has_data {
+                debug!(
+                    count = drained.len(),
+                    loops = loop_stats.len(),
+                    branches = branch_stats.len(),
+                    "flushing windows"
+                );
+                if flush_out
+                    .send(MetricFlush {
+                        windows: drained,
+                        loop_stats,
+                        branch_stats,
+                        dropped: 0,
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            if flush_out.is_closed() {
+                break;
+            }
+        }
+    });
+
+    // Scheduler: uniform ticks at 1/target_rps.
+    let interval = Duration::from_nanos((1_000_000_000u64 / u64::from(target_rps)).max(1));
+    let mut next = started_at;
+    loop {
+        if cancel.is_cancelled() || exhausted.load(Ordering::Relaxed) || Instant::now() >= deadline
+        {
+            break;
+        }
+        let now = Instant::now();
+        if now < next {
+            tokio::select! {
+                _ = tokio::time::sleep(next - now) => {}
+                _ = cancel.cancelled() => break,
+            }
+            continue;
+        }
+        match slot_rx.try_recv() {
+            Ok(slot) => {
+                let vu_id = vu_offset.saturating_add(slot as u32);
+                let iter_id = arrival_counter as u32;
+                arrival_counter += 1;
+                let client = pool[slot].clone();
+                let scenario = scenario.clone();
+                let agg = agg.clone();
+                let env = env.clone();
+                let cancel_vu = cancel.clone();
+                let dataset = dataset.clone();
+                let seq_counter = seq_counter.clone();
+                let exhausted = exhausted.clone();
+                let slot_tx = slot_tx.clone();
+                set.spawn(async move {
+                    // Return the slot on ALL exit paths (including panics) via Drop.
+                    // A permanently-leaked slot would shrink the pool, causing runaway drops.
+                    struct SlotGuard {
+                        slot: usize,
+                        tx: mpsc::Sender<usize>,
+                    }
+                    impl Drop for SlotGuard {
+                        fn drop(&mut self) {
+                            let _ = self.tx.try_send(self.slot); // capacity guaranteed
+                        }
+                    }
+                    let _slot_guard = SlotGuard { slot, tx: slot_tx };
+                    let mut rng = match think_seed {
+                        Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, iter_id)),
+                        None => StdRng::from_entropy(),
+                    };
+                    match run_arrival(
+                        &client,
+                        &scenario,
+                        vu_id,
+                        iter_id,
+                        &agg,
+                        deadline,
+                        &env,
+                        &cancel_vu,
+                        dataset,
+                        seq_counter,
+                        &mut rng,
+                        &exhausted,
+                    )
+                    .await
+                    {
+                        Ok(()) | Err(EngineError::Aborted) => {}
+                        Err(e) => warn!(vu_id, error = ?e, "arrival failed"),
+                    }
+                });
+            }
+            Err(_) => {
+                dropped += 1;
+            }
+        }
+        next += interval;
+    }
+
+    while let Some(res) = set.join_next().await {
+        if let Err(e) = res {
+            warn!(error = %e, "arrival join error");
+        }
+    }
+
+    // Drain remaining windows FIRST (mirrors run_scenario shutdown sequence), then
+    // stop the flusher. This avoids losing windows the flusher had drained-but-not-yet-sent.
+    // The final flush also carries the run-total `dropped` (flusher sent dropped: 0
+    // throughout, so no double count).
+    let total_dropped = dropped;
+    let (final_windows, final_loops, final_branches) = {
+        let mut g = agg.lock().await;
+        (
+            g.drain_all(),
+            g.drain_loop_deltas(),
+            g.drain_branch_deltas(),
+        )
+    };
+    let _ = out
+        .send(MetricFlush {
+            windows: final_windows,
+            loop_stats: final_loops,
+            branch_stats: final_branches,
+            dropped: total_dropped,
+        })
+        .await;
+    drop(out);
+    flusher.abort();
+    let _ = flusher.await;
+
+    if cancel.is_cancelled() {
+        return Err(EngineError::Aborted);
+    }
+    info!(dropped = total_dropped, "open-loop run finished");
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_arrival(
+    client: &VuClient,
+    scenario: &Scenario,
+    vu_id: u32,
+    iter_id: u32,
+    agg: &Arc<Mutex<Aggregator>>,
+    deadline: Instant,
+    env: &Arc<BTreeMap<String, String>>,
+    cancel: &CancellationToken,
+    dataset: Option<Arc<DataSet>>,
+    seq_counter: Option<Arc<AtomicU64>>,
+    rng: &mut StdRng,
+    exhausted: &AtomicBool,
+) -> Result<()> {
+    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+    if let Some(ds) = &dataset {
+        match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+            Some(idx) => {
+                for (k, v) in &ds.rows[idx] {
+                    iter_vars.insert(k.clone(), v.clone());
+                }
+            }
+            // unique slice exhausted → signal the scheduler to stop new arrivals.
+            None => {
+                exhausted.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+        }
+    }
+    // No run-level think time in open-loop (arrival rate governs inter-iteration pacing).
+    let _ = execute_steps(
+        client,
+        &scenario.steps,
+        &mut iter_vars,
+        agg,
+        deadline,
+        env,
+        vu_id,
+        iter_id,
+        None,
+        cancel,
+        rng,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Pick the taken branch of an `if` step AND its decision label
