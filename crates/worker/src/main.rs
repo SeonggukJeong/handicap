@@ -179,10 +179,14 @@ async fn main() -> anyhow::Result<()> {
         _ => None,
     };
 
+    // Capture open-loop predicate BEFORE the RunPlan build — partial field moves
+    // (profile.think_time) in the struct literal below make &profile invalid after.
+    let is_open_loop = proto_is_open_loop(&profile);
+
     let plan = RunPlan {
         vus: assignment.vu_count,
         ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
-        duration: Duration::from_secs(profile.duration_seconds.into()),
+        duration: Duration::from_secs(run_duration_secs(&profile)),
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
         vu_offset: assignment.vu_offset,
@@ -203,8 +207,21 @@ async fn main() -> anyhow::Result<()> {
         // open-loop execution path below; None → closed-loop run_scenario.
         target_rps: profile.target_rps,
         max_in_flight: profile.max_in_flight,
-        // S-D: built from proto stages in Task 4; None here keeps closed/fixed paths intact.
-        stages: None,
+        // S-D: map proto stages to engine Stage structs; empty → None (closed/fixed path).
+        stages: if profile.stages.is_empty() {
+            None
+        } else {
+            Some(
+                profile
+                    .stages
+                    .iter()
+                    .map(|s| handicap_engine::Stage {
+                        target: s.target,
+                        duration_seconds: s.duration_seconds,
+                    })
+                    .collect(),
+            )
+        },
     };
     info!(
         vus = plan.vus,
@@ -304,9 +321,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let run_res = match plan.target_rps {
-        Some(_) => run_scenario_open_loop(scenario, plan, win_tx, cancel).await,
-        None => run_scenario(scenario, plan, win_tx, cancel).await,
+    let run_res = if is_open_loop {
+        run_scenario_open_loop(scenario, plan, win_tx, cancel).await
+    } else {
+        run_scenario(scenario, plan, win_tx, cancel).await
     };
 
     // Clean up the abort listener — it may still be blocked on recv().
@@ -350,6 +368,22 @@ async fn main() -> anyhow::Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
     info!("worker done");
     Ok(())
+}
+
+/// Open-loop when fixed rate OR a non-empty stage curve is set (S-D §3.5 predicate,
+/// proto side). Empty `stages` ≡ absent.
+fn proto_is_open_loop(p: &pb::Profile) -> bool {
+    p.target_rps.is_some() || !p.stages.is_empty()
+}
+
+/// Total run duration for the engine: sum of stage durations when a curve is set,
+/// else the flat `duration_seconds`. Invariant: engine deadline = this value.
+fn run_duration_secs(p: &pb::Profile) -> u64 {
+    if p.stages.is_empty() {
+        u64::from(p.duration_seconds)
+    } else {
+        p.stages.iter().map(|s| u64::from(s.duration_seconds)).sum()
+    }
 }
 
 /// Resolve the worker id: explicit `--worker-id` wins; otherwise (K8s Indexed
@@ -434,5 +468,31 @@ mod tests {
     fn resolve_worker_id_defaults_when_nothing_present() {
         // Neither arg nor env (shouldn't happen in practice) → deterministic id.
         assert_eq!(resolve_worker_id(None, "run-9", None), "run-9-w0");
+    }
+
+    #[test]
+    fn stages_wiring() {
+        let p = pb::Profile {
+            duration_seconds: 10,
+            ..Default::default()
+        };
+        assert!(!proto_is_open_loop(&p));
+        assert_eq!(run_duration_secs(&p), 10);
+
+        let p_with_stages = pb::Profile {
+            stages: vec![
+                pb::Stage {
+                    target: 200,
+                    duration_seconds: 30,
+                },
+                pb::Stage {
+                    target: 0,
+                    duration_seconds: 30,
+                },
+            ],
+            ..Default::default()
+        };
+        assert!(proto_is_open_loop(&p_with_stages));
+        assert_eq!(run_duration_secs(&p_with_stages), 60);
     }
 }
