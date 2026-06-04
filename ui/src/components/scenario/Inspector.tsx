@@ -164,6 +164,46 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
     }
   };
 
+  // Per-step think_time min/max — same F5 draft + commit-on-blur pattern.
+  // think_time is optional ({min_ms,max_ms} | undefined); the drafts round-trip
+  // the empty/undefined state and both inputs share one commit handler.
+  const [thinkMinDraft, setThinkMinDraft] = useState(
+    step.think_time ? String(step.think_time.min_ms) : "",
+  );
+  const [thinkMaxDraft, setThinkMaxDraft] = useState(
+    step.think_time ? String(step.think_time.max_ms) : "",
+  );
+  // `step.think_time` is an object, so this re-fires after ANY field commit on
+  // the step (the model is re-derived from YAML each commit, minting a fresh
+  // object). Harmless: text inputs commit on blur, so a half-typed think draft
+  // can't coexist with another field's commit. (Same class as JsonBodyField's
+  // effect.) The real job is reseeding when the selected step/value changes.
+  useEffect(() => {
+    setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
+    setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
+  }, [step.id, step.think_time]);
+  const commitThinkTime = () => {
+    const minR = thinkMinDraft.trim();
+    const maxR = thinkMaxDraft.trim();
+    if (minR === "" && maxR === "") {
+      setStepField(step.id, ["think_time"], undefined); // clears YAML key
+      return;
+    }
+    // Exactly one field empty = incomplete pair (e.g. focus moving between the
+    // two inputs mid-entry). Leave drafts untouched so the user can finish —
+    // don't coerce "" to 0 or revert a half-typed value.
+    if (minR === "" || maxR === "") return;
+    const mn = Number(minR);
+    const mx = Number(maxR);
+    if (Number.isInteger(mn) && Number.isInteger(mx) && mn >= 0 && mx >= mn && mx <= 600_000) {
+      setStepField(step.id, ["think_time"], { min_ms: mn, max_ms: mx });
+    } else {
+      // revert to last committed (no NaN / out-of-range / min>max write)
+      setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
+      setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
+    }
+  };
+
   return (
     <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
@@ -226,6 +266,30 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
           onBlur={commitTimeout}
         />
       </Field>
+
+      <Field label="Think min (ms)">
+        <input
+          type="number"
+          min={0}
+          max={600000}
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={thinkMinDraft}
+          onChange={(e) => setThinkMinDraft(e.target.value)}
+          onBlur={commitThinkTime}
+        />
+      </Field>
+      <Field label="Think max (ms)">
+        <input
+          type="number"
+          min={0}
+          max={600000}
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={thinkMaxDraft}
+          onChange={(e) => setThinkMaxDraft(e.target.value)}
+          onBlur={commitThinkTime}
+        />
+      </Field>
+      <p className="text-xs text-slate-500">min=max면 고정 지연 (요청 후 대기)</p>
 
       <AssertEditor step={step} setStepAssert={setStepAssert} />
       <ExtractEditor step={step} />

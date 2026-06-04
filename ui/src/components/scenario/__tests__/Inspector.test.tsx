@@ -663,6 +663,101 @@ describe("Inspector — timeout_seconds", () => {
   });
 });
 
+describe("Inspector — think_time (S-B)", () => {
+  beforeEach(() => loadAndSelect());
+
+  it("commits per-step think_time on blur", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+
+    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    await user.clear(minInput);
+    await user.type(minInput, "100");
+    await user.clear(maxInput);
+    await user.type(maxInput, "300");
+    // F5 pattern: model not updated until blur
+    fireEvent.blur(maxInput);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      expect(step.think_time).toEqual({ min_ms: 100, max_ms: 300 });
+    }
+  });
+
+  it("clears think_time (undefined) when both inputs emptied and blurred", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["think_time"], {
+      min_ms: 100,
+      max_ms: 300,
+    });
+    render(<Inspector />);
+
+    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    await user.clear(minInput);
+    await user.clear(maxInput);
+    // F5 pattern: commit on blur, not on change
+    fireEvent.blur(maxInput);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      expect(step.think_time).toBeUndefined();
+    }
+    expect(minInput.value).toBe("");
+    expect(maxInput.value).toBe("");
+  });
+
+  it("does not write think_time when only one of min/max is filled (incomplete pair)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+
+    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
+    await user.clear(minInput);
+    await user.type(minInput, "100");
+    // Blur with max still empty = incomplete pair (focus leaving mid-entry).
+    fireEvent.blur(minInput);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      // No write: an incomplete pair must not coerce "" → 0 or clobber.
+      expect(step.think_time).toBeUndefined();
+    }
+    // Draft preserved so the user can finish typing the other field.
+    expect(minInput.value).toBe("100");
+  });
+
+  it("reverts and does not write when both filled but invalid (max < min)", async () => {
+    // Pre-seed a known-good value first.
+    useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["think_time"], {
+      min_ms: 100,
+      max_ms: 300,
+    });
+    render(<Inspector />);
+
+    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    // Set both drafts directly (no intermediate blur) so the single commit sees
+    // an invalid pair (max < min), not a transient valid one.
+    fireEvent.change(minInput, { target: { value: "200" } });
+    fireEvent.change(maxInput, { target: { value: "50" } }); // max < min → invalid
+    fireEvent.blur(maxInput);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      // Must keep the prior committed value, not write the invalid pair.
+      expect(step.think_time).toEqual({ min_ms: 100, max_ms: 300 });
+    }
+    // Drafts revert to the last committed value.
+    expect(minInput.value).toBe("100");
+    expect(maxInput.value).toBe("300");
+  });
+});
+
 describe("Inspector — setKind orphan-drop (spec §7)", () => {
   const FORM_DISABLED_YAML = `version: 1
 name: "demo"
