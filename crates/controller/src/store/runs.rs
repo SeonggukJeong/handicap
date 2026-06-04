@@ -98,6 +98,15 @@ pub struct Profile {
     pub stages: Option<Vec<handicap_engine::Stage>>,
 }
 
+impl Profile {
+    /// S-D §3.5: open-loop when fixed rate OR a non-empty stage curve is set.
+    /// Empty `stages` ≡ absent. Single source of truth for every open-loop
+    /// discriminator (validate + slot_count + worker count).
+    pub fn is_open_loop(&self) -> bool {
+        self.target_rps.is_some() || self.stages.as_ref().is_some_and(|s| !s.is_empty())
+    }
+}
+
 pub struct RunRow {
     pub id: String,
     pub scenario_id: String,

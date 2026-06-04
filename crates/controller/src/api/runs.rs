@@ -63,17 +63,17 @@ pub(crate) async fn validate_run_config(
     state: &AppState,
     profile: &Profile,
 ) -> Result<Option<datasets::DatasetMeta>, ApiError> {
-    // ── open-loop (S-C): target_rps present switches the execution model ──
-    if let Some(rps) = profile.target_rps {
-        if rps == 0 || rps > 1_000_000 {
-            return Err(ApiError::BadRequest(
-                "target_rps must be between 1 and 1000000".into(),
-            ));
-        }
+    // ── open-loop (S-C fixed-rate / S-D stages curve): is_open_loop switches the model ──
+    if profile.is_open_loop() {
+        // max_in_flight required + range (both fixed & curve)
         match profile.max_in_flight {
             None => {
                 return Err(ApiError::BadRequest(
-                    "open-loop(target_rps)은 max_in_flight가 필요합니다".into(),
+                    if profile.stages.as_ref().is_some_and(|s| !s.is_empty()) {
+                        "stages(레이트 곡선)은 max_in_flight가 필요합니다 (closed-loop stages는 아직 미지원)".into()
+                    } else {
+                        "open-loop(target_rps)은 max_in_flight가 필요합니다".into()
+                    },
                 ));
             }
             Some(m) if m == 0 || m > 10_000 => {
@@ -83,6 +83,7 @@ pub(crate) async fn validate_run_config(
             }
             _ => {}
         }
+        // knob conflicts shared by both open-loop sub-modes
         if profile.ramp_up_seconds > 0 {
             return Err(ApiError::BadRequest(
                 "open-loop에선 ramp_up_seconds를 쓸 수 없습니다 (RPS 곡선은 S-D stages)".into(),
@@ -93,12 +94,55 @@ pub(crate) async fn validate_run_config(
                 "open-loop에선 run-level think_time을 쓸 수 없습니다 (closed-loop 전용)".into(),
             ));
         }
-        if profile.duration_seconds == 0 {
-            return Err(ApiError::BadRequest("duration_seconds must be > 0".into()));
+        match &profile.stages {
+            Some(stages) if !stages.is_empty() => {
+                // ── curve mode (S-D) ──
+                if profile.target_rps.is_some() {
+                    return Err(ApiError::BadRequest(
+                        "stages와 target_rps는 함께 쓸 수 없습니다 (레이트 지정 방식 충돌)".into(),
+                    ));
+                }
+                if profile.duration_seconds > 0 {
+                    return Err(ApiError::BadRequest(
+                        "stages 사용 시 duration_seconds를 비워야 합니다 (총 길이 = stage 합)"
+                            .into(),
+                    ));
+                }
+                for s in stages {
+                    if s.target > 1_000_000 {
+                        return Err(ApiError::BadRequest(
+                            "stage target must be between 0 and 1000000".into(),
+                        ));
+                    }
+                    if s.duration_seconds == 0 {
+                        return Err(ApiError::BadRequest(
+                            "stage duration_seconds must be >= 1".into(),
+                        ));
+                    }
+                }
+                if !stages.iter().any(|s| s.target > 0) {
+                    return Err(ApiError::BadRequest(
+                        "최소 한 stage의 target은 0보다 커야 합니다".into(),
+                    ));
+                }
+            }
+            _ => {
+                // ── fixed mode (S-C, unchanged) ──
+                let rps = profile
+                    .target_rps
+                    .expect("is_open_loop && no stages ⟹ target_rps set");
+                if rps == 0 || rps > 1_000_000 {
+                    return Err(ApiError::BadRequest(
+                        "target_rps must be between 1 and 1000000".into(),
+                    ));
+                }
+                if profile.duration_seconds == 0 {
+                    return Err(ApiError::BadRequest("duration_seconds must be > 0".into()));
+                }
+            }
         }
-        // NOTE: vus is ignored in open-loop (slot pool = max_in_flight); do not require vus>0.
+        // vus ignored in open-loop (slot pool = max_in_flight)
     } else if profile.vus == 0 || profile.duration_seconds == 0 {
-        // closed-loop (unchanged)
         return Err(ApiError::BadRequest(
             "vus and duration_seconds must be > 0".into(),
         ));
@@ -153,7 +197,7 @@ pub(crate) async fn validate_run_config(
         }
         // Every worker must get at least one row, else a worker would generate
         // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
-        let n = if profile.target_rps.is_some() {
+        let n = if profile.is_open_loop() {
             1
         } else {
             state.coord.worker_count_for(profile.vus)
@@ -212,7 +256,7 @@ pub async fn create(
                 BindingPolicy::PerVu => {
                     // closed-loop: one row per VU (≤ vus rows); open-loop: one row per
                     // slot (≤ max_in_flight rows — slot index is the per_vu key, spec §4).
-                    let slot_count = if body.profile.target_rps.is_some() {
+                    let slot_count = if body.profile.is_open_loop() {
                         body.profile.max_in_flight.unwrap_or(0) as u64
                     } else {
                         body.profile.vus as u64
@@ -285,7 +329,7 @@ pub async fn create(
         env: body.env.clone(),
         data_binding,
     };
-    let n = if body.profile.target_rps.is_some() {
+    let n = if body.profile.is_open_loop() {
         1 // open-loop is single-worker in v1 (fan-out deferred — spec §9)
     } else {
         state.coord.worker_count_for(body.profile.vus)
@@ -909,6 +953,138 @@ mod tests {
         assert!(
             validate_run_config(&state, &p).await.is_ok(),
             "max == 600000 must be accepted"
+        );
+    }
+
+    #[test]
+    fn is_open_loop_predicate() {
+        let mut p = Profile {
+            target_rps: None,
+            stages: None,
+            ..ol_profile()
+        };
+        assert!(!p.is_open_loop());
+        p.target_rps = Some(100);
+        assert!(p.is_open_loop());
+        p.target_rps = None;
+        p.stages = Some(vec![]); // empty == absent
+        assert!(!p.is_open_loop());
+        p.stages = Some(vec![handicap_engine::Stage {
+            target: 100,
+            duration_seconds: 5,
+        }]);
+        assert!(p.is_open_loop());
+    }
+
+    #[tokio::test]
+    async fn validate_stages_curve_rejects_conflicts_and_bounds() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let curve = || Profile {
+            target_rps: None,
+            vus: 0,
+            duration_seconds: 0,
+            max_in_flight: Some(50),
+            stages: Some(vec![handicap_engine::Stage {
+                target: 200,
+                duration_seconds: 30,
+            }]),
+            ..ol_profile()
+        };
+        // valid: stages + max_in_flight only
+        assert!(validate_run_config(&state, &curve()).await.is_ok());
+        // stages + target_rps → conflict
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    target_rps: Some(100),
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // stages + duration_seconds>0
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    duration_seconds: 10,
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // stages + ramp_up_seconds>0
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    ramp_up_seconds: 5,
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // stages + run-level think_time
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    think_time: Some(handicap_engine::ThinkTime {
+                        min_ms: 100,
+                        max_ms: 100,
+                    }),
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // stages + no max_in_flight
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    max_in_flight: None,
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // all stage targets 0 → no load
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    stages: Some(vec![handicap_engine::Stage {
+                        target: 0,
+                        duration_seconds: 30,
+                    }]),
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
+        );
+        // stage duration_seconds == 0
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    stages: Some(vec![handicap_engine::Stage {
+                        target: 200,
+                        duration_seconds: 0,
+                    }]),
+                    ..curve()
+                }
+            )
+            .await
+            .is_err()
         );
     }
 }
