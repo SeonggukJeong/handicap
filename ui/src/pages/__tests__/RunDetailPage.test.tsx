@@ -503,6 +503,7 @@ describe("RunDetailPage — report on terminal", () => {
       windows: [],
       steps: [],
       status_distribution: { "200": 10 },
+      dropped: 0,
     };
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("/api/runs/R9")) {
