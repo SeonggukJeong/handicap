@@ -993,6 +993,7 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         };
         let row = runs::insert(
             db,

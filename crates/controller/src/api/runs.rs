@@ -606,6 +606,7 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         }
     }
 
@@ -717,6 +718,7 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -760,6 +762,7 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         }
     }
 
@@ -806,6 +809,7 @@ mod tests {
             think_seed: None,
             target_rps: Some(100),
             max_in_flight: Some(16),
+            stages: None,
         }
     }
 

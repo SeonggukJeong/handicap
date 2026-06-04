@@ -94,6 +94,8 @@ pub struct Profile {
     pub target_rps: Option<u32>,
     #[serde(default)]
     pub max_in_flight: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stages: Option<Vec<handicap_engine::Stage>>,
 }
 
 pub struct RunRow {
@@ -348,6 +350,7 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -454,9 +457,29 @@ mod tests {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();
         assert_eq!(p.criteria, back.criteria);
+    }
+
+    #[test]
+    fn profile_stages_serde_roundtrip_and_default_absent() {
+        // present → parses
+        let j = serde_json::json!({
+            "vus": 0, "duration_seconds": 60, "max_in_flight": 50,
+            "stages": [{"target": 200, "duration_seconds": 30}, {"target": 0, "duration_seconds": 30}]
+        });
+        let p: Profile = serde_json::from_value(j).unwrap();
+        assert_eq!(p.stages.as_ref().unwrap().len(), 2);
+        assert_eq!(p.stages.as_ref().unwrap()[0].target, 200);
+        // absent → None (old rows, no migration)
+        let j2 = serde_json::json!({ "vus": 1, "duration_seconds": 10 });
+        let p2: Profile = serde_json::from_value(j2).unwrap();
+        assert!(p2.stages.is_none());
+        // None → omitted from output (skip_serializing_if)
+        let out = serde_json::to_value(&p2).unwrap();
+        assert!(out.get("stages").is_none());
     }
 }
