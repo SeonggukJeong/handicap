@@ -25,11 +25,15 @@ export function StageCurvePreview({
   height?: number;
 }) {
   const data = toControlPoints(stages);
+  // Compact inline sparkline: no CartesianGrid/Tooltip (the stage rows are the
+  // accessible source of truth; this is a decorative preview). `type="linear"`
+  // is deliberate — the rate curve is piecewise-linear (engine `rate_at`), NOT
+  // smoothed; do not switch to "monotone". stroke matches TimeSeriesChart (blue-600).
   const chart = (
     <LineChart data={data} width={width} height={height}>
       <XAxis dataKey="t" type="number" unit="s" />
       <YAxis dataKey="rate" type="number" unit=" rps" />
-      <Line type="linear" dataKey="rate" dot={false} isAnimationActive={false} />
+      <Line type="linear" dataKey="rate" stroke="#2563eb" dot={false} isAnimationActive={false} />
     </LineChart>
   );
   // Tests pass explicit width/height (jsdom has no layout); production uses

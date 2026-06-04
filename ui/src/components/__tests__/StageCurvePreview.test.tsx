@@ -18,6 +18,12 @@ describe("toControlPoints", () => {
   it("returns just the origin for empty stages", () => {
     expect(toControlPoints([])).toEqual([{ t: 0, rate: 0 }]);
   });
+  it("handles a single stage (origin → one control point)", () => {
+    expect(toControlPoints([{ target: 100, duration_seconds: 10 }])).toEqual([
+      { t: 0, rate: 0 },
+      { t: 10, rate: 100 },
+    ]);
+  });
 });
 
 describe("StageCurvePreview", () => {

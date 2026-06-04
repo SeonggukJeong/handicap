@@ -722,7 +722,11 @@ export function RunDialog({
                 return previewStages.length > 0 ? (
                   <div className="mt-2">
                     <span className="text-xs text-slate-500">미리보기</span>
-                    <div className="h-32">
+                    <div
+                      className="h-32"
+                      role="img"
+                      aria-label="레이트 곡선 미리보기 (x: 누적 초, y: RPS)"
+                    >
                       <StageCurvePreview stages={previewStages} />
                     </div>
                   </div>
