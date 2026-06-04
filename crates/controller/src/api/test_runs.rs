@@ -22,6 +22,10 @@ pub struct TestRunRequest {
     pub env: BTreeMap<String, String>,
     #[serde(default = "default_max_requests")]
     pub max_requests: u32,
+    /// Opt-in: honor per-step `think_time` (actually sleep) for throttled
+    /// previews. Default false = instant preview.
+    #[serde(default)]
+    pub apply_think_time: bool,
     /// Reserved for the future worker-based runner (spec §8-3). Ignored in v1.
     #[serde(default)]
     #[allow(dead_code)]
@@ -44,6 +48,7 @@ pub async fn create(Json(body): Json<TestRunRequest>) -> Result<Json<ScenarioTra
         env: body.env,
         max_requests: body.max_requests,
         max_wall: Duration::from_secs(WALL_CLOCK_CEILING_SECS),
+        apply_think_time: body.apply_think_time,
     };
     let trace = trace_scenario(&scenario, &opts).await;
     Ok(Json(trace))

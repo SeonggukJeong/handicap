@@ -10,6 +10,7 @@ fn opts(env: BTreeMap<String, String>, max_requests: u32) -> TraceOptions {
         env,
         max_requests,
         max_wall: Duration::from_secs(120),
+        apply_think_time: false,
     }
 }
 
@@ -224,5 +225,58 @@ steps:
     assert_eq!(
         trace.steps[0].unbound_vars,
         vec!["missing_cond".to_string(), "MISSING_ENV".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn trace_does_not_sleep_when_apply_think_time_false() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        "version: 1\nname: t\nsteps:\n  - type: http\n    id: s\n    name: s\n    request:\n      method: GET\n      url: {}/\n    think_time:\n      min_ms: 5000\n      max_ms: 5000\n",
+        server.uri()
+    );
+    let scenario = handicap_engine::Scenario::from_yaml(&yaml).unwrap();
+    let opts = handicap_engine::TraceOptions {
+        env: Default::default(),
+        max_requests: 50,
+        max_wall: std::time::Duration::from_secs(120),
+        apply_think_time: false,
+    };
+    let start = std::time::Instant::now();
+    let trace = handicap_engine::trace_scenario(&scenario, &opts).await;
+    assert!(trace.ok);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(1),
+        "must not sleep the 5s think time"
+    );
+}
+
+#[tokio::test]
+async fn trace_sleeps_when_apply_think_time_true() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        "version: 1\nname: t\nsteps:\n  - type: http\n    id: s\n    name: s\n    request:\n      method: GET\n      url: {}/\n    think_time:\n      min_ms: 300\n      max_ms: 300\n",
+        server.uri()
+    );
+    let scenario = handicap_engine::Scenario::from_yaml(&yaml).unwrap();
+    let opts = handicap_engine::TraceOptions {
+        env: Default::default(),
+        max_requests: 50,
+        max_wall: std::time::Duration::from_secs(120),
+        apply_think_time: true,
+    };
+    let start = std::time::Instant::now();
+    handicap_engine::trace_scenario(&scenario, &opts).await;
+    assert!(
+        start.elapsed() >= std::time::Duration::from_millis(300),
+        "should honor 300ms think time"
     );
 }

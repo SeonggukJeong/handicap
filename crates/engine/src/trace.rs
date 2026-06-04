@@ -18,6 +18,10 @@ pub struct TraceOptions {
     pub max_requests: u32,
     /// Wall-clock ceiling; on reaching it the trace stops with `truncated = true`.
     pub max_wall: Duration,
+    /// When true, the trace HONORS per-step `think_time` (actually sleeps) — for
+    /// throttled previews (e.g. firewall). Default false = instant preview. Only
+    /// per-step think time applies (single pass has no inter-iteration gap).
+    pub apply_think_time: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -232,6 +236,18 @@ async fn trace_steps(
                     unbound_vars: t.unbound_vars,
                     error: t.error,
                 });
+                if opts.apply_think_time {
+                    if let Some(tt) = &http.think_time {
+                        let now = Instant::now();
+                        if now < deadline {
+                            let dur = tt.sample(&mut rand::thread_rng()).min(deadline - now);
+                            tokio::time::sleep(dur).await;
+                        }
+                        if Instant::now() >= deadline {
+                            state.truncated = true;
+                        }
+                    }
+                }
             }
             Step::Loop(lp) => {
                 for i in 0..lp.repeat {
