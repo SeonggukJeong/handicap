@@ -4,6 +4,7 @@ import {
   ProfileSchema,
   ReportSchema,
   RunSchema,
+  StageSchema,
   VerdictSchema,
 } from "../schemas";
 
@@ -165,8 +166,17 @@ describe("ProfileSchema.stages", () => {
     });
     expect(p.stages).toHaveLength(2);
     expect(p.stages?.[0].target).toBe(200);
+    expect(p.stages?.[1].target).toBe(0);
+    expect(p.stages?.[1].duration_seconds).toBe(30);
     const p2 = ProfileSchema.parse({ vus: 1, duration_seconds: 10 });
     expect(p2.stages).toBeUndefined();
+  });
+
+  it("StageSchema rejects out-of-range target and zero duration", () => {
+    expect(() => StageSchema.parse({ target: -1, duration_seconds: 1 })).toThrow();
+    expect(() => StageSchema.parse({ target: 1_000_001, duration_seconds: 1 })).toThrow();
+    expect(() => StageSchema.parse({ target: 200, duration_seconds: 0 })).toThrow();
+    expect(StageSchema.parse({ target: 0, duration_seconds: 1 }).target).toBe(0);
   });
 });
 

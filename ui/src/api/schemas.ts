@@ -43,11 +43,11 @@ export const CriteriaSchema = z.object({
 });
 export type Criteria = z.infer<typeof CriteriaSchema>;
 
-export const StageModel = z.object({
+export const StageSchema = z.object({
   target: z.number().int().min(0).max(1_000_000),
   duration_seconds: z.number().int().min(1),
 });
-export type Stage = z.infer<typeof StageModel>;
+export type Stage = z.infer<typeof StageSchema>;
 
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
@@ -63,7 +63,7 @@ export const ProfileSchema = z.object({
   criteria: CriteriaSchema.nullish(),
   target_rps: z.number().int().positive().max(1_000_000).optional(),
   max_in_flight: z.number().int().positive().max(10_000).optional(),
-  stages: z.array(StageModel).optional(),
+  stages: z.array(StageSchema).optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
