@@ -834,6 +834,16 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
         }
     }
+    if batch.dropped > 0 {
+        if let Err(e) = sqlx::query("UPDATE runs SET dropped = dropped + ? WHERE id = ?")
+            .bind(batch.dropped as i64)
+            .bind(&batch.run_id)
+            .execute(&state.db)
+            .await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "failed to update dropped");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1213,5 +1223,30 @@ mod tests {
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
             RunStatus::Failed
         );
+    }
+
+    #[tokio::test]
+    async fn ingest_accumulates_dropped_into_runs() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+
+        let mk = |d: u64| pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            dropped: d,
+        };
+        ingest_metrics(&coord, &mk(3)).await;
+        ingest_metrics(&coord, &mk(5)).await;
+
+        let d: i64 = sqlx::query_scalar("SELECT dropped FROM runs WHERE id = ?")
+            .bind(&run_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(d, 8, "dropped must accumulate across batches");
     }
 }

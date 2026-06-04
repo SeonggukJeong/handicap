@@ -257,7 +257,14 @@ async fn main() -> anyhow::Result<()> {
                     count: bs.count,
                 })
                 .collect();
-            if windows.is_empty() && loop_stats.is_empty() && branch_stats.is_empty() {
+            // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
+            // run-total dropped count with empty windows. Dropping it would silently
+            // discard `dropped` on all-empty-window final flushes (the C1 footgun).
+            if windows.is_empty()
+                && loop_stats.is_empty()
+                && branch_stats.is_empty()
+                && flush.dropped == 0
+            {
                 continue;
             }
             let msg = WorkerMessage {
@@ -267,7 +274,7 @@ async fn main() -> anyhow::Result<()> {
                     windows,
                     loop_stats,
                     branch_stats,
-                    dropped: 0, // open-loop dropped counter forwarded in a later task
+                    dropped: flush.dropped,
                 })),
             };
             if tx_metric.send(msg).await.is_err() {
