@@ -49,11 +49,12 @@
 ## Task 1: 엔진 — `Stage` + `rate_at` + 곡선 스케줄러 + RunPlan 필드
 
 **Files:**
-- Modify: `crates/engine/src/runner.rs` (RunPlan struct ~23, `run_scenario_open_loop` ~452-657, new `Stage`/`rate_at`)
-- Modify (compile-fix `stages: None`): 모든 `RunPlan { … }` literal —
+- Modify: `crates/engine/src/runner.rs` (RunPlan struct :23, `run_scenario_open_loop` :452-657, new `Stage`/`rate_at`)
+- Modify: **`crates/engine/src/lib.rs:22`** — `pub use runner::{…}`에 **`Stage` 추가**(⚠ F1: 안 하면 `handicap_engine::Stage`가 Task 1/2/4/5에서 unresolved). 현재 `pub use runner::{MetricFlush, RunPlan, run_scenario, run_scenario_open_loop};` → `Stage` 추가.
+- Modify (compile-fix `stages: None`): 모든 `RunPlan { … }` literal — 사이트는 `tests/*.rs` + worker (runner.rs 본문엔 struct 정의만, 인라인 테스트 literal 없음). 열거:
   `crates/worker/src/main.rs:182`, `crates/worker/tests/abort_and_env.rs`,
   `crates/engine/tests/{assertions,if_node,think_time,all_vus_failed,data_binding,runner_e2e,http_timeout,open_loop,vu_offset,loop_node,ramp_up,json_cast,multi_step}.rs`,
-  `crates/engine/src/runner.rs`(인라인 테스트 literal).
+  그리고 `crates/engine/tests/open_loop.rs:12`의 **`fn plan(...) -> RunPlan` 빌더**(이것도 literal).
 - Test: `crates/engine/tests/open_loop.rs` (기존 하네스에 곡선 테스트 추가), runner.rs 인라인 `#[cfg(test)]`에 `rate_at` 단위테스트.
 
 > 왜 한 task: `rate_at`은 스케줄러가 안 쓰면 `#[cfg(test)]`-only → clippy dead_code(커밋 불가). `RunPlan.stages` 추가는 cross-crate로 worker literal까지 깨므로 같은 커밋에서 컴파일 green 필요. 그래서 엔진 곡선 전체 + 전 literal `stages: None`이 한 green 커밋.
@@ -109,6 +110,11 @@ pub struct Stage {
     pub target: u32,
     pub duration_seconds: u32,
 }
+```
+
+그리고 **`crates/engine/src/lib.rs:22`의 re-export에 `Stage` 추가** (F1 — 이게 빠지면 `handicap_engine::Stage`가 컴파일 안 됨):
+```rust
+pub use runner::{MetricFlush, RunPlan, Stage, run_scenario, run_scenario_open_loop};
 
 /// Instantaneous arrival rate (req/s) at `elapsed_secs` into a piecewise-linear
 /// stage curve. Start rate = 0; stage k ramps `target_{k-1} → target_k` over its
@@ -239,20 +245,24 @@ fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {
 
 > 주의: 위 블록은 기존 spawn arm을 그대로 보존한 채 `let interval = …` 산출만 감싼 형태다. 기존 코드의 spawn 클로저를 **삭제/재작성하지 말고** interval 분기만 추가하라(diff 최소화 = byte-identical 보존). `target_rps`/`fixed_interval`은 curve 모드에서 unused지만(plan.target_rps=None→1) 무해.
 
-- [ ] **Step 5: 곡선 통합 테스트 작성 (RED)** — `crates/engine/tests/open_loop.rs` 끝에 추가. 기존 파일의 mock-server 헬퍼·`RunPlan` 빌더 패턴을 그대로 따른다(파일 상단 참고). 타이밍 민감하므로 **느슨한 tolerance**(ramp-up flakiness 함정):
+- [ ] **Step 5: 곡선 통합 테스트 작성 (RED)** — `crates/engine/tests/open_loop.rs` 끝에 추가. **실제 하네스 확인**: 이 파일은 `start_mock()`/`single_get_scenario()` 같은 헬퍼가 **없다** — 인라인 `MockServer::start().await` + `Mock::given(method("GET"))…mount(&server)`, 로컬 `fn scenario(url: &str) -> Arc<Scenario>`, 로컬 `fn plan(target_rps, max_in_flight, secs) -> RunPlan` 빌더를 쓴다. URL은 `server.uri()`(`server.url` 아님). **`plan(...)` 빌더는 곡선에 재사용 불가**(`target_rps: Some` 하드코딩, `stages` 없음) → 곡선 테스트는 **자체 인라인 `RunPlan{…}` literal** 필요. `w.count`는 올바름(`StepWindow.count`, aggregator.rs:44). import 블록에 `handicap_engine::Stage` 추가. 타이밍 민감 → **느슨한 tolerance**(ramp-up flakiness 함정):
 
 ```rust
 #[tokio::test]
 async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
     // 0→100 rps over 1s, hold 100 for 1s (total 2s). Ample slots, fast local mock.
-    let server = start_mock().await; // ← 기존 open_loop.rs의 mock 시작 헬퍼명에 맞춰 사용
-    let scenario = single_get_scenario(&server.url); // ← 기존 헬퍼
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let scenario = scenario(&format!("{}/", server.uri())); // 기존 로컬 fn scenario(url)
     let (tx, mut rx) = mpsc::channel(64);
     let plan = RunPlan {
-        // ↓ 기존 open_loop.rs의 RunPlan 빌더 필드를 그대로 복사하고 아래만 변경
+        // 곡선 전용 인라인 literal (plan(...) 빌더는 fixed 전용이라 재사용 불가)
         vus: 0,
         ramp_up: Duration::ZERO,
-        duration: Duration::from_secs(2), // == sum(stages)
+        duration: Duration::from_secs(2), // == sum(stages) (워커가 보장하는 불변식을 테스트도 충족)
         env: Default::default(),
         loop_breakdown_cap: 0,
         vu_offset: 0,
@@ -270,9 +280,9 @@ async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
     let cancel = CancellationToken::new();
     let mut total: u64 = 0;
     let mut dropped: u64 = 0;
-    let h = tokio::spawn(run_scenario_open_loop(Arc::new(scenario), plan, tx, cancel));
+    let h = tokio::spawn(run_scenario_open_loop(scenario, plan, tx, cancel));
     while let Some(flush) = rx.recv().await {
-        for w in &flush.windows { total += w.count as u64; } // ← StepWindow count 필드명에 맞춰
+        for w in &flush.windows { total += w.count as u64; }
         dropped += flush.dropped;
     }
     h.await.unwrap().unwrap();
@@ -282,7 +292,7 @@ async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
 }
 ```
 
-> `Stage`/`rate_at`이 `pub`/모듈-가시인지 확인: `Stage`는 `pub`, 테스트는 `handicap_engine::Stage`로 import. `RunPlan`도 `pub`. (기존 open_loop.rs import 블록에 `Stage` 추가.)
+> `scenario(url)`이 `Arc<Scenario>`를 반환하므로 `run_scenario_open_loop(scenario, …)`에 그대로 전달(추가 `Arc::new` 불필요 — 기존 fixed 테스트 호출 형태와 동일). 실제 `fn scenario`/`fn plan` 시그니처는 open_loop.rs 상단을 읽어 맞출 것.
 
 - [ ] **Step 6: 모든 `RunPlan { … }` literal에 `stages: None` 추가** — 위 Files의 literal 목록 전부. 누락 시 `cargo build --workspace` 실패. 확인:
 
@@ -328,7 +338,7 @@ git log -1 --oneline
 - Modify: `crates/controller/src/store/runs.rs` (`Profile` struct ~76)
 - Modify (compile-fix `stages: None`): 모든 store `runs::Profile { … }` literal —
   `crates/controller/src/grpc/coordinator.rs:984`, `crates/controller/src/report.rs`,
-  `crates/controller/src/api/runs.rs`, `crates/controller/src/store/presets.rs`,
+  `crates/controller/src/api/runs.rs`(테스트 헬퍼 **`ol_profile()` :797** 포함 — 이 literal에 `stages: None`을 넣으면 validate 테스트의 `..ol_profile()` spread 변형들이 전부 상속하므로 변형마다 손댈 필요 없음), `crates/controller/src/store/presets.rs`,
   `crates/controller/src/store/runs.rs`(인라인 테스트). (`grep -rn "Profile {" crates/controller/src`로 store-Profile literal만 식별 — proto `pb::Profile`/`handicap_proto::v1::Profile`은 Task 3.)
 - Test: `crates/controller/src/store/runs.rs` 인라인 `#[cfg(test)]` (serde round-trip)
 
@@ -572,25 +582,29 @@ git log -1 --oneline
 - Modify: `crates/controller/src/api/runs.rs` — `validate_run_config`(~62) + discriminator `:156`/`:215`/`:277`
 - Test: `crates/controller/src/api/runs.rs` 인라인 `#[cfg(test)]` (validate 단위테스트)
 
-- [ ] **Step 1: validate 단위테스트 (RED)** — api/runs.rs 인라인 테스트에. **먼저 이 파일의 기존 validate 테스트를 읽어** Profile literal 구성법·`validate_run_config` 호출 방식(AppState 빌더)을 그대로 차용한다(Profile은 Default 미derive 가능성 높음 → 기존 테스트의 명시-필드 Profile literal을 복사해 `stages`/`target_rps`만 바꿔 쓴다). `is_open_loop`은 DB 불필요한 순수 메서드라 단독 단위테스트:
+- [ ] **Step 1: validate 단위테스트 (RED)** — api/runs.rs 인라인 테스트. **기존 `ol_profile()`(:797)과 `validate_open_loop_requires_max_in_flight_and_rejects_conflicts`(:811+) 테스트를 확장**한다(새 헬퍼 만들지 말 것 — 이 파일 idiom은 `Profile { field: x, ..ol_profile() }` spread). `is_open_loop`은 DB 불필요한 순수 메서드라 단독 단위테스트:
 
 ```rust
-    // base_closed_profile(): 기존 테스트의 closed-loop Profile literal을 복사해 헬퍼화
-    // (vus>0, duration_seconds>0, target_rps:None, stages:None, max_in_flight:None, …).
     #[test]
     fn is_open_loop_predicate() {
-        let mut p = base_closed_profile();
+        // closed-loop base: vus>0, duration>0, target_rps:None, stages:None
+        let mut p = Profile { target_rps: None, max_in_flight: None, ..ol_profile() };
+        // (ol_profile은 open-loop라 vus/duration이 0일 수 있음 — is_open_loop은 target_rps/stages만 보므로 무관)
+        p.stages = None;
+        assert!(p.is_open_loop()); // ol_profile has target_rps? → 아래처럼 명시 세팅으로 검증
+        p.target_rps = None; p.stages = None;
         assert!(!p.is_open_loop());
-        p.target_rps = Some(100); p.max_in_flight = Some(10);
+        p.target_rps = Some(100);
         assert!(p.is_open_loop());
-        p.target_rps = None;
-        p.stages = Some(vec![]);              // empty == absent
+        p.target_rps = None; p.stages = Some(vec![]);   // empty == absent
         assert!(!p.is_open_loop());
         p.stages = Some(vec![handicap_engine::Stage { target: 100, duration_seconds: 5 }]);
         assert!(p.is_open_loop());
     }
 ```
-`validate_run_config` 위반 테스트는 async(`#[tokio::test]`)라 기존 validate 테스트의 AppState/`make_app` 헬퍼를 그대로 쓰고, curve Profile은 `base_closed_profile()`에서 `vus:0, duration_seconds:0, max_in_flight:Some(50), stages:Some(vec![Stage{200,30}])`로 변형해 구성한다.
+> ⚠ `ol_profile()`이 `target_rps: Some(100)`을 들고 있으니(리뷰 확인 :797), predicate 테스트는 위처럼 `target_rps`/`stages`를 **명시적으로 세팅**해 케이스별로 검증할 것(spread base에 의존 말고).
+
+`validate_run_config` 위반 테스트는 async(`#[tokio::test]`)라 기존 테스트의 AppState/`make_app` 헬퍼·호출 형태(`validate_run_config(&state, &profile).await`)를 그대로 쓴다. curve Profile = `Profile { target_rps: None, vus: 0, duration_seconds: 0, max_in_flight: Some(50), stages: Some(vec![handicap_engine::Stage { target: 200, duration_seconds: 30 }]), ..ol_profile() }`에서 위반 필드만 바꿔 8케이스(상호배타 + bounds).
 그리고 validate 위반 케이스(각 400):
 - stages + target_rps 동시
 - stages + duration_seconds>0
@@ -712,7 +726,7 @@ git log -1 --oneline
 ## Task 6: 컨트롤러 e2e smoke — stages open-loop run
 
 **Files:**
-- Modify/Create test: `crates/controller/tests/e2e_test.rs` (기존 open-loop/`report_e2e_smoke` 패턴 미러) 또는 신규 `crates/controller/tests/stages_e2e_test.rs`
+- Modify: `crates/controller/tests/e2e_test.rs` — **`open_loop_e2e_smoke`(:1443) 구조를 미러**(GET 시나리오 → run → terminal 대기 → `GET /report` 단언). 같은 파일에 `stages_open_loop_e2e_smoke` 추가.
 - 헬퍼: `worker_bin_path()`(기존), `cargo build -p handicap-worker` 선빌드
 
 - [ ] **Step 1: e2e 테스트 작성 (RED)** — 기존 S-C open-loop e2e를 복사해 profile을 stages로:
@@ -761,7 +775,8 @@ git log -1 --oneline
 ## Task 7: UI — Zod `StageModel` + `Profile.stages`
 
 **Files:**
-- Modify: `ui/src/api/schemas.ts` (`ProfileSchema`) + `normalizeProfile` 헬퍼(검색: `grep -rn normalizeProfile ui/src`)
+- Modify: `ui/src/api/schemas.ts` (`ProfileSchema` :46) — `StageModel` + `stages` 필드.
+- **편집 불필요(자동 흐름 확인만)**: `normalizeProfile`은 `ui/src/api/runPrefill.ts:27`에 있고 **순수 `ProfileSchema.parse` 재파싱**이라 `ProfileSchema`에 `stages`를 더하면 자동 통과 — 손댈 필요 없음. `ui/src/api/presets.ts:41`의 `PresetInput.profile: Profile`도 `z.infer<typeof ProfileSchema>`라 `stages`를 자동 상속 — 수동 편집 불필요.
 - Test: `ui/src/api/__tests__/schemas.test.ts`
 
 - [ ] **Step 1: Zod round-trip 테스트 (RED)** — schemas.test.ts:
@@ -790,7 +805,7 @@ export type Stage = z.infer<typeof StageModel>;
 // in ProfileSchema:
   stages: z.array(StageModel).optional(),
 ```
-`normalizeProfile`(있으면)에 `stages`가 통과되도록 — standalone `Profile` 입력 타입을 손으로 쓰는 패턴이면(presets처럼) `stages?: Stage[]` 추가.
+이게 전부다 — `Profile` = `z.infer<typeof ProfileSchema>`라 `normalizeProfile`(runPrefill.ts:27 순수 재파싱)·`PresetInput.profile`(presets.ts:41)이 `stages`를 자동 상속. **standalone 입력 타입 수동 추가 불필요**(리뷰 확인).
 
 - [ ] **Step 3: GREEN (UI 게이트)**
 
