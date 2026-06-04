@@ -49,6 +49,10 @@ export const ProfileSchema = z.object({
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
   http_timeout_seconds: z.number().int().min(1).max(600).default(30),
+  think_time: z
+    .object({ min_ms: z.number().int().nonnegative(), max_ms: z.number().int().nonnegative() })
+    .optional(),
+  think_seed: z.number().int().nonnegative().optional(),
   data_binding: DataBindingSchema.nullish(),
   criteria: CriteriaSchema.nullish(),
 });

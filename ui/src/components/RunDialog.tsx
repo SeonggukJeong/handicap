@@ -78,6 +78,15 @@ export function RunDialog({
   const [minRps, setMinRps] = useState(numToStr(initC?.min_rps));
   // SLO 기준 is optional → collapsible. Start open only when seeded criteria exist.
   const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initC));
+  // Pacing (think time) is optional → collapsible. Empty inputs omit think_time
+  // / think_seed entirely (byte-identical to pre-feature submit).
+  const initTT = initial?.profile.think_time;
+  const [thinkMin, setThinkMin] = useState(numToStr(initTT?.min_ms));
+  const [thinkMax, setThinkMax] = useState(numToStr(initTT?.max_ms));
+  const [thinkSeed, setThinkSeed] = useState(numToStr(initial?.profile.think_seed));
+  const [pacingOpen, setPacingOpen] = useState(
+    () => initTT != null || initial?.profile.think_seed != null,
+  );
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
@@ -131,6 +140,11 @@ export function RunDialog({
       setMaxErrPct(pc?.max_error_rate != null ? String(pc.max_error_rate * 100) : "");
       setMinRps(numToStr(pc?.min_rps));
       if (criteriaHasValue(pc)) setSloOpen(true); // reveal loaded criteria
+      const ptt = prof.think_time ?? undefined;
+      setThinkMin(numToStr(ptt?.min_ms));
+      setThinkMax(numToStr(ptt?.max_ms));
+      setThinkSeed(numToStr(prof.think_seed ?? undefined));
+      if (ptt != null || prof.think_seed != null) setPacingOpen(true); // reveal loaded pacing
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -153,12 +167,22 @@ export function RunDialog({
   const sloActiveCount = [maxP50, maxP95, maxP99, maxErrPct, minRps].filter(
     (s) => s.trim() !== "",
   ).length;
+  // think_time requires both min & max (one alone is invalid); min ≤ max ≤ 600000.
+  const thinkInvalid =
+    (thinkMin.trim() !== "" || thinkMax.trim() !== "") &&
+    (thinkMin.trim() === "" ||
+      thinkMax.trim() === "" ||
+      Number(thinkMin) < 0 ||
+      Number(thinkMax) < Number(thinkMin) ||
+      Number(thinkMax) > 600_000);
+  const pacingActiveCount = [thinkMin, thinkMax, thinkSeed].filter((s) => s.trim() !== "").length;
   const canSubmit =
     vus >= 1 &&
     duration >= 1 &&
     !rampInvalid &&
     !loopCapInvalid &&
     !httpTimeoutInvalid &&
+    !thinkInvalid &&
     bindingValid &&
     !mutation.isPending;
 
@@ -176,6 +200,11 @@ export function RunDialog({
     return Object.keys(c).length > 0 ? c : undefined;
   }
 
+  function buildThinkTime(): { min_ms: number; max_ms: number } | undefined {
+    if (thinkMin.trim() === "" || thinkMax.trim() === "") return undefined;
+    return { min_ms: Number(thinkMin), max_ms: Number(thinkMax) };
+  }
+
   function currentInput(): PresetInput {
     return {
       name: presetName.trim(),
@@ -185,6 +214,8 @@ export function RunDialog({
         ramp_up_seconds: rampUp,
         loop_breakdown_cap: hasLoop ? loopCap : 0,
         http_timeout_seconds: httpTimeout,
+        think_time: buildThinkTime(),
+        think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
         data_binding: binding ?? undefined,
         criteria: buildCriteria(),
       },
@@ -450,6 +481,71 @@ export function RunDialog({
         )}
       </fieldset>
 
+      <fieldset className="mt-3 mb-4 border-t pt-3">
+        <legend className="text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => setPacingOpen((v) => !v)}
+            className="font-medium text-slate-700 hover:underline"
+            aria-expanded={pacingOpen}
+          >
+            {pacingOpen ? "▾" : "▸"} Pacing (think time, 선택)
+            {!pacingOpen && pacingActiveCount > 0 ? (
+              <span className="ml-1 text-xs font-normal text-slate-500">
+                · {pacingActiveCount}개 설정됨
+              </span>
+            ) : null}
+          </button>
+        </legend>
+        {pacingOpen && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-sm">
+                <span className="text-slate-600">Think min (ms)</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                  value={thinkMin}
+                  onChange={(e) => setThinkMin(e.target.value)}
+                  aria-invalid={thinkInvalid}
+                  aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Think max (ms)</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                  value={thinkMax}
+                  onChange={(e) => setThinkMax(e.target.value)}
+                  aria-invalid={thinkInvalid}
+                  aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">Think seed (선택)</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                  value={thinkSeed}
+                  onChange={(e) => setThinkSeed(e.target.value)}
+                />
+              </label>
+            </div>
+            {thinkInvalid ? (
+              <p id="think-time-error" className="mt-1 text-red-600 text-sm">
+                min ≤ max ≤ 600000, 둘 다 입력
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
+            )}
+          </>
+        )}
+      </fieldset>
+
       <EnvironmentPicker
         selectedEnvId={selectedEnvId}
         onSelect={setSelectedEnvId}
@@ -522,6 +618,8 @@ export function RunDialog({
                   ramp_up_seconds: rampUp,
                   loop_breakdown_cap: hasLoop ? loopCap : 0,
                   http_timeout_seconds: httpTimeout,
+                  think_time: buildThinkTime(),
+                  think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
                   data_binding: binding ?? undefined,
                   criteria: buildCriteria(),
                 },

@@ -653,6 +653,96 @@ describe("RunDialog — SLO criteria (A4a)", () => {
   });
 });
 
+describe("RunDialog — Pacing think time (S-B)", () => {
+  it("submits think_time and think_seed from the Pacing section", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RTT1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /Pacing/ }));
+    await user.type(screen.getByLabelText(/Think min/), "100");
+    await user.type(screen.getByLabelText(/Think max/), "500");
+    await user.type(screen.getByLabelText(/Think seed/), "7");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RTT1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.think_time).toEqual({ min_ms: 100, max_ms: 500 });
+    expect(body.profile.think_seed).toBe(7);
+  });
+
+  it("omits think_time/think_seed when Pacing inputs are empty (byte-identical)", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RTT2",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RTT2"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.think_time).toBeUndefined();
+    expect(body.profile.think_seed).toBeUndefined();
+  });
+
+  it("links the Pacing error to the think inputs via aria-describedby when invalid", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /Pacing/ }));
+    // min > max → invalid
+    await user.type(screen.getByLabelText(/Think min/), "500");
+    await user.type(screen.getByLabelText(/Think max/), "100");
+
+    const err = screen.getByText(/min ≤ max ≤ 600000/);
+    expect(err).toHaveAttribute("id", "think-time-error");
+    expect(screen.getByLabelText(/Think min/)).toHaveAttribute(
+      "aria-describedby",
+      "think-time-error",
+    );
+    expect(screen.getByLabelText(/Think max/)).toHaveAttribute(
+      "aria-describedby",
+      "think-time-error",
+    );
+  });
+});
+
 describe("RunDialog — HTTP timeout (S-A)", () => {
   it("disables Run and shows error when http_timeout_seconds is out of range", async () => {
     const user = userEvent.setup();
