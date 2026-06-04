@@ -54,6 +54,7 @@ describe("ReportSchema", () => {
         },
       ],
       status_distribution: { "200": 9, "500": 1 },
+      dropped: 0,
     };
     expect(() => ReportSchema.parse(sample)).not.toThrow();
   });
@@ -102,6 +103,7 @@ describe("if_breakdown schema", () => {
       windows: [],
       steps: [],
       status_distribution: {},
+      dropped: 0,
       if_breakdown: [{ step_id: "if1", branches: [{ branch: "then", count: 1 }] }],
     };
     const parsed = ReportSchema.parse(report);
@@ -193,6 +195,7 @@ describe("ReportSchema.verdict", () => {
     windows: [],
     steps: [],
     status_distribution: {},
+    dropped: 0,
   };
 
   it("tolerates absence of verdict", () => {
