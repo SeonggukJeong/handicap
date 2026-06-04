@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario_open_loop};
+use handicap_engine::{MetricFlush, RunPlan, Scenario, Stage, run_scenario_open_loop};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::method;
@@ -22,6 +22,7 @@ fn plan(target_rps: u32, max_in_flight: u32, secs: u64) -> RunPlan {
         think_seed: None,
         target_rps: Some(target_rps),
         max_in_flight: Some(max_in_flight),
+        stages: None,
     }
 }
 
@@ -105,6 +106,59 @@ async fn open_loop_cancel_aborts_promptly() {
     while rx.recv().await.is_some() {}
     let res = h.await.unwrap();
     assert!(matches!(res, Err(handicap_engine::EngineError::Aborted)));
+}
+
+#[tokio::test]
+async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
+    // 0→100 rps over 1s, hold 100 for 1s (total 2s). Ample slots, fast local mock.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (tx, mut rx) = mpsc::channel(64);
+    let plan = RunPlan {
+        vus: 0,
+        ramp_up: std::time::Duration::ZERO,
+        duration: std::time::Duration::from_secs(2), // == sum(stages) invariant
+        env: BTreeMap::new(),
+        loop_breakdown_cap: 0,
+        vu_offset: 0,
+        data_binding: None,
+        http_timeout: std::time::Duration::from_secs(30),
+        think_time: None,
+        think_seed: Some(7),
+        target_rps: None, // curve mode (not fixed)
+        max_in_flight: Some(50),
+        stages: Some(vec![
+            Stage {
+                target: 100,
+                duration_seconds: 1,
+            },
+            Stage {
+                target: 100,
+                duration_seconds: 1,
+            },
+        ]),
+    };
+    let cancel = CancellationToken::new();
+    let mut total: u64 = 0;
+    let mut dropped: u64 = 0;
+    let h = tokio::spawn(run_scenario_open_loop(
+        scenario(&format!("{}/", server.uri())),
+        plan,
+        tx,
+        cancel,
+    ));
+    while let Some(flush) = rx.recv().await {
+        for w in &flush.windows {
+            total += w.count;
+        }
+        dropped += flush.dropped;
+    }
+    h.await.unwrap().unwrap();
+    assert!(total > 30, "expected curve to drive requests, got {total}");
+    assert_eq!(dropped, 0, "ample slots → no drops");
 }
 
 // vu_id (= slot index, 0..max_in_flight) is rendered into the request and observed

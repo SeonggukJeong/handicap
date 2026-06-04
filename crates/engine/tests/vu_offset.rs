@@ -31,6 +31,7 @@ async fn run_with_offset(target: &str, vu_offset: u32, vus: u32) {
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
     let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });

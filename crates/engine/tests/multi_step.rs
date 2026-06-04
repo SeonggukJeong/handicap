@@ -74,6 +74,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let cancel = CancellationToken::new();
@@ -187,6 +188,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let cancel = CancellationToken::new();
@@ -254,6 +256,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let cancel = CancellationToken::new();
@@ -321,6 +324,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let cancel = CancellationToken::new();

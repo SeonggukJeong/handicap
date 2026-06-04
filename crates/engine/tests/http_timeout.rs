@@ -51,6 +51,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -132,6 +133,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {

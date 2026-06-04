@@ -62,6 +62,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -131,6 +132,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -200,6 +202,7 @@ steps:
         think_seed: None,
         target_rps: None,
         max_in_flight: None,
+        stages: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);

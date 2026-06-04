@@ -19,6 +19,16 @@ use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::scenario::{Scenario, Step};
 use crate::template::TemplateContext;
 
+/// One stage of an open-loop rate curve: ramp the arrival rate to `target` (req/s)
+/// over `duration_seconds`, linearly from the previous stage's target (0 for the
+/// first stage). Run-config concept (profile_json) — plain derive, no YAML round-trip
+/// (NOT a scenario.rs manual-serde enum). Reused by the controller store Profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Stage {
+    pub target: u32,
+    pub duration_seconds: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct RunPlan {
     pub vus: u32,
@@ -44,6 +54,12 @@ pub struct RunPlan {
     /// Open-loop concurrent in-flight cap = reusable slot-pool size. Required when
     /// `target_rps` is set (controller-validated). Each slot = one `VuClient` + cookie jar.
     pub max_in_flight: Option<u32>,
+    /// Open-loop multi-stage rate curve (S-D). `Some(non-empty)` → the open-loop
+    /// scheduler drives arrivals at `rate_at(stages, elapsed)` instead of the fixed
+    /// `target_rps`. `None` → fixed rate (byte-identical to S-C). The worker sets
+    /// `duration == sum(stage durations)` as an invariant (the engine derives the
+    /// deadline from `plan.duration`, not from `stages`).
+    pub stages: Option<Vec<Stage>>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -445,6 +461,29 @@ async fn execute_steps(
     Ok(StepFlow::Continue)
 }
 
+/// Instantaneous arrival rate (req/s) at `elapsed_secs` into a piecewise-linear
+/// stage curve. Start rate = 0; stage k ramps `target_{k-1} → target_k` over its
+/// duration (target_0 = 0). Past the end → last target (caller's deadline ends the run).
+fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {
+    let mut seg_start = 0.0_f64;
+    let mut prev_target = 0.0_f64;
+    for stage in stages {
+        let seg_end = seg_start + f64::from(stage.duration_seconds);
+        let target = f64::from(stage.target);
+        if elapsed_secs <= seg_end {
+            let span = seg_end - seg_start;
+            if span <= 0.0 {
+                return target;
+            }
+            let frac = (elapsed_secs - seg_start) / span;
+            return prev_target + frac * (target - prev_target);
+        }
+        seg_start = seg_end;
+        prev_target = target;
+    }
+    prev_target
+}
+
 /// Drive open-loop arrival-rate load: schedule iteration *starts* at `target_rps`
 /// against a fixed pool of `max_in_flight` reusable VU clients (slot index = vu_id,
 /// cookie jar persists per slot). Arrivals that find no free slot are dropped and
@@ -540,8 +579,13 @@ pub async fn run_scenario_open_loop(
         }
     });
 
-    // Scheduler: uniform ticks at 1/target_rps.
-    let interval = Duration::from_nanos((1_000_000_000u64 / u64::from(target_rps)).max(1));
+    // Rate epsilon: below this the curve is effectively zero (a `{0, d}` hold or the
+    // ramp-down tail) — fire nothing, just poll. Low-but-positive rates (e.g. 0.5 rps
+    // = 2s interval) take the normal 1/rate path (no interval cap — capping distorts rate).
+    const RATE_EPS: f64 = 1e-9;
+    let curve = plan.stages.clone();
+    // Fixed-rate interval (S-C): precomputed integer nanos → byte-identical when curve is None.
+    let fixed_interval = Duration::from_nanos((1_000_000_000u64 / u64::from(target_rps)).max(1));
     let mut next = started_at;
     loop {
         if cancel.is_cancelled() || exhausted.load(Ordering::Relaxed) || Instant::now() >= deadline
@@ -550,12 +594,38 @@ pub async fn run_scenario_open_loop(
         }
         let now = Instant::now();
         if now < next {
+            // Clamp the wait to the run deadline so curve-derived large intervals
+            // (e.g. 1/tiny_rate at the start of a ramp) don't block past deadline.
+            let wait = next.min(deadline).saturating_duration_since(now);
             tokio::select! {
-                _ = tokio::time::sleep(next - now) => {}
+                _ = tokio::time::sleep(wait) => {}
                 _ = cancel.cancelled() => break,
             }
             continue;
         }
+        // Per-iteration interval: fixed (byte-identical) or curve-derived.
+        // For curves, evaluate the rate at the *scheduled* tick time (`next`), not `now`.
+        // Using `now` causes tiny-rate intervals (e.g. 1/0.24 ≈ 4s) early in a ramp,
+        // because `now` lags behind the scheduled tick slightly. Evaluating at `next`
+        // (which is `≥ started_at`) gives the intended piecewise-linear rate.
+        let interval = match &curve {
+            None => fixed_interval,
+            Some(stages) => {
+                let next_elapsed = next.saturating_duration_since(started_at).as_secs_f64();
+                let rate = rate_at(stages, next_elapsed);
+                if rate <= RATE_EPS {
+                    // Zero-rate region: no arrival, no drop. Poll-step with the SAME
+                    // cancel-aware select so cancel/deadline stay responsive.
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                        _ = cancel.cancelled() => break,
+                    }
+                    next = Instant::now();
+                    continue;
+                }
+                Duration::from_secs_f64(1.0 / rate)
+            }
+        };
         match slot_rx.try_recv() {
             Ok(slot) => {
                 let vu_id = vu_offset.saturating_add(slot as u32);
@@ -781,5 +851,61 @@ mod tests {
             ..if_step.clone()
         };
         assert_eq!(select_branch(&if_then, &ctx).1, "then");
+    }
+
+    #[test]
+    fn rate_at_piecewise_linear() {
+        // ramp 0→200 over 30s
+        let s = vec![Stage {
+            target: 200,
+            duration_seconds: 30,
+        }];
+        assert_eq!(rate_at(&s, 0.0), 0.0);
+        assert_eq!(rate_at(&s, 15.0), 100.0);
+        assert_eq!(rate_at(&s, 30.0), 200.0);
+        // ramp + hold: 0→200(30s), hold 200(120s)
+        let s = vec![
+            Stage {
+                target: 200,
+                duration_seconds: 30,
+            },
+            Stage {
+                target: 200,
+                duration_seconds: 120,
+            },
+        ];
+        assert_eq!(rate_at(&s, 30.0), 200.0);
+        assert_eq!(rate_at(&s, 90.0), 200.0);
+        assert_eq!(rate_at(&s, 150.0), 200.0);
+        // ramp-down: 0→200(30s), 200→0(30s)
+        let s = vec![
+            Stage {
+                target: 200,
+                duration_seconds: 30,
+            },
+            Stage {
+                target: 0,
+                duration_seconds: 30,
+            },
+        ];
+        assert_eq!(rate_at(&s, 30.0), 200.0);
+        assert_eq!(rate_at(&s, 45.0), 100.0);
+        assert_eq!(rate_at(&s, 60.0), 0.0);
+        // segment-to-segment: 0→100(10s), 100→500(10s)
+        let s = vec![
+            Stage {
+                target: 100,
+                duration_seconds: 10,
+            },
+            Stage {
+                target: 500,
+                duration_seconds: 10,
+            },
+        ];
+        assert_eq!(rate_at(&s, 10.0), 100.0);
+        assert_eq!(rate_at(&s, 15.0), 300.0);
+        assert_eq!(rate_at(&s, 20.0), 500.0);
+        // empty → 0
+        assert_eq!(rate_at(&[], 5.0), 0.0);
     }
 }

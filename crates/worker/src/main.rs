@@ -203,6 +203,8 @@ async fn main() -> anyhow::Result<()> {
         // open-loop execution path below; None → closed-loop run_scenario.
         target_rps: profile.target_rps,
         max_in_flight: profile.max_in_flight,
+        // S-D: built from proto stages in Task 4; None here keeps closed/fixed paths intact.
+        stages: None,
     };
     info!(
         vus = plan.vus,
