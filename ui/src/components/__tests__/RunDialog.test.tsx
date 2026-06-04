@@ -743,6 +743,191 @@ describe("RunDialog — Pacing think time (S-B)", () => {
   });
 });
 
+describe("RunDialog — open-loop mode (S-C)", () => {
+  it("closed-loop submit does NOT include target_rps or max_in_flight", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RCLOSED1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    // Default is closed-loop — just submit
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RCLOSED1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.target_rps).toBeUndefined();
+    expect(body.profile.max_in_flight).toBeUndefined();
+  });
+
+  it("prefills open-loop fields and selects open-loop radio when initial has target_rps", () => {
+    const openLoopInitial: RunPrefill = {
+      profile: {
+        vus: 0,
+        duration_seconds: 30,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 0,
+        http_timeout_seconds: 30,
+        data_binding: null,
+        target_rps: 750,
+        max_in_flight: 400,
+      },
+      env: {},
+    };
+    renderWithInitial(openLoopInitial);
+    expect(screen.getByRole("radio", { name: /open-loop/i })).toBeChecked();
+    expect(screen.getByLabelText(/target rps/i)).toHaveValue(750);
+    expect(screen.getByLabelText(/max in.?flight/i)).toHaveValue(400);
+  });
+
+  it("shows error message and aria-describedby when target_rps is invalid", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+
+    const targetRpsInput = screen.getByLabelText(/target rps/i);
+    await user.clear(targetRpsInput);
+    // Empty value → invalid
+    expect(screen.getByText(/Target RPS must be between 1 and 1,000,000/)).toBeInTheDocument();
+    expect(targetRpsInput).toHaveAttribute("aria-describedby", "target-rps-error");
+    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+  });
+
+  it("shows error message and aria-describedby when max_in_flight is invalid", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+
+    const maxInFlightInput = screen.getByLabelText(/max in.?flight/i);
+    await user.clear(maxInFlightInput);
+    // Empty value → invalid
+    expect(screen.getByText(/Max in-flight must be between 1 and 10,000/)).toBeInTheDocument();
+    expect(maxInFlightInput).toHaveAttribute("aria-describedby", "max-in-flight-error");
+    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+  });
+
+  it("load-model radio group is wrapped in a fieldset with a legend", () => {
+    renderDialog();
+    const fieldset = screen.getByRole("group", { name: /부하 모델/i });
+    expect(fieldset.tagName).toBe("FIELDSET");
+    expect(within(fieldset).getByRole("radio", { name: /closed-loop/i })).toBeInTheDocument();
+    expect(within(fieldset).getByRole("radio", { name: /open-loop/i })).toBeInTheDocument();
+  });
+
+  it("open-loop mode shows target_rps + max_in_flight and gates empty max_in_flight", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    // Switch to open-loop
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+
+    // open-loop fields are visible
+    expect(screen.getByLabelText(/target rps/i)).toBeInTheDocument();
+
+    // Fill in target_rps so the only missing piece is max_in_flight
+    const targetRpsInput = screen.getByLabelText(/target rps/i);
+    await user.clear(targetRpsInput);
+    await user.type(targetRpsInput, "100");
+
+    // max_in_flight should be visible
+    const cap = screen.getByLabelText(/max in.?flight/i);
+    expect(cap).toBeInTheDocument();
+
+    // Clear max_in_flight → Run button should be disabled
+    await user.clear(cap);
+    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+  });
+
+  it("closed-loop mode is default and shows VUs/ramp-up inputs", () => {
+    renderDialog();
+    expect(screen.getByRole("radio", { name: /closed-loop/i })).toBeChecked();
+    expect(screen.getByLabelText("VUs")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Ramp-up/)).toBeInTheDocument();
+  });
+
+  it("hides vus and ramp-up in open-loop mode and shows duration", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    expect(screen.queryByLabelText("VUs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Ramp-up/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
+  });
+
+  it("submits target_rps and max_in_flight in open-loop mode", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "ROPEN1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: {
+          vus: 0,
+          ramp_up_seconds: 0,
+          duration_seconds: 10,
+          target_rps: 500,
+          max_in_flight: 200,
+        },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+
+    const durationInput = screen.getByLabelText(/Duration/);
+    await user.clear(durationInput);
+    await user.type(durationInput, "10");
+
+    await user.clear(screen.getByLabelText(/target rps/i));
+    await user.type(screen.getByLabelText(/target rps/i), "500");
+
+    await user.clear(screen.getByLabelText(/max in.?flight/i));
+    await user.type(screen.getByLabelText(/max in.?flight/i), "200");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("ROPEN1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.target_rps).toBe(500);
+    expect(body.profile.max_in_flight).toBe(200);
+    expect(body.profile.vus).toBe(0);
+    expect(body.profile.ramp_up_seconds).toBe(0);
+    // No think_time in open-loop
+    expect(body.profile.think_time).toBeUndefined();
+  });
+});
+
 describe("RunDialog — HTTP timeout (S-A)", () => {
   it("disables Run and shows error when http_timeout_seconds is out of range", async () => {
     const user = userEvent.setup();

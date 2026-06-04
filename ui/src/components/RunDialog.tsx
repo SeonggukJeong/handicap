@@ -9,7 +9,7 @@ import {
   useUpdatePreset,
   queryKeys,
 } from "../api/hooks";
-import type { Criteria, DataBinding } from "../api/schemas";
+import type { Criteria, DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
@@ -62,6 +62,17 @@ export function RunDialog({
   onCreated,
   onCancel,
 }: Props) {
+  // Load model: "closed" = closed-loop (VUs), "open" = open-loop (arrival rate).
+  // Prefill from initial if it carries target_rps (open-loop retry).
+  const [loadModel, setLoadModel] = useState<"closed" | "open">(
+    initial?.profile.target_rps != null ? "open" : "closed",
+  );
+  const [targetRps, setTargetRps] = useState(
+    initial?.profile.target_rps != null ? String(initial.profile.target_rps) : "100",
+  );
+  const [maxInFlight, setMaxInFlight] = useState(
+    initial?.profile.max_in_flight != null ? String(initial.profile.max_in_flight) : "200",
+  );
   const [vus, setVus] = useState(initial?.profile.vus ?? 2);
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
   const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
@@ -145,6 +156,14 @@ export function RunDialog({
       setThinkMax(numToStr(ptt?.max_ms));
       setThinkSeed(numToStr(prof.think_seed ?? undefined));
       if (ptt != null || prof.think_seed != null) setPacingOpen(true); // reveal loaded pacing
+      // Open-loop prefill: if preset has target_rps, switch to open mode and seed fields.
+      if (prof.target_rps != null) {
+        setLoadModel("open");
+        setTargetRps(String(prof.target_rps));
+        setMaxInFlight(prof.max_in_flight != null ? String(prof.max_in_flight) : "200");
+      } else {
+        setLoadModel("closed");
+      }
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -176,15 +195,36 @@ export function RunDialog({
       Number(thinkMax) < Number(thinkMin) ||
       Number(thinkMax) > 600_000);
   const pacingActiveCount = [thinkMin, thinkMax, thinkSeed].filter((s) => s.trim() !== "").length;
+  // Open-loop field validation: target_rps and max_in_flight must be valid integers in range.
+  const targetRpsNum = Number(targetRps);
+  const maxInFlightNum = Number(maxInFlight);
+  const targetRpsInvalid =
+    targetRps.trim() === "" ||
+    !Number.isInteger(targetRpsNum) ||
+    targetRpsNum < 1 ||
+    targetRpsNum > 1_000_000;
+  const maxInFlightInvalid =
+    maxInFlight.trim() === "" ||
+    !Number.isInteger(maxInFlightNum) ||
+    maxInFlightNum < 1 ||
+    maxInFlightNum > 10_000;
   const canSubmit =
-    vus >= 1 &&
-    duration >= 1 &&
-    !rampInvalid &&
-    !loopCapInvalid &&
-    !httpTimeoutInvalid &&
-    !thinkInvalid &&
-    bindingValid &&
-    !mutation.isPending;
+    loadModel === "open"
+      ? duration >= 1 &&
+        !targetRpsInvalid &&
+        !maxInFlightInvalid &&
+        !loopCapInvalid &&
+        !httpTimeoutInvalid &&
+        bindingValid &&
+        !mutation.isPending
+      : vus >= 1 &&
+        duration >= 1 &&
+        !rampInvalid &&
+        !loopCapInvalid &&
+        !httpTimeoutInvalid &&
+        !thinkInvalid &&
+        bindingValid &&
+        !mutation.isPending;
 
   // Merge selected environment (base) under the per-run override rows. With no env
   // selected, baseVars is {} and this is byte-identical to the old loop.
@@ -205,20 +245,39 @@ export function RunDialog({
     return { min_ms: Number(thinkMin), max_ms: Number(thinkMax) };
   }
 
+  function buildProfile(): Profile {
+    const base = {
+      loop_breakdown_cap: hasLoop ? loopCap : 0,
+      http_timeout_seconds: httpTimeout,
+      data_binding: binding ?? undefined,
+      criteria: buildCriteria(),
+    };
+    if (loadModel === "open") {
+      return {
+        ...base,
+        vus: 0,
+        duration_seconds: duration,
+        ramp_up_seconds: 0,
+        target_rps: Number(targetRps),
+        max_in_flight: Number(maxInFlight),
+        // NO think_time — open-loop forbids run-level think time
+      };
+    }
+    return {
+      ...base,
+      vus,
+      duration_seconds: duration,
+      ramp_up_seconds: rampUp,
+      think_time: buildThinkTime(),
+      think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
+      // target_rps / max_in_flight omitted → closed-loop byte-identical
+    };
+  }
+
   function currentInput(): PresetInput {
     return {
       name: presetName.trim(),
-      profile: {
-        vus,
-        duration_seconds: duration,
-        ramp_up_seconds: rampUp,
-        loop_breakdown_cap: hasLoop ? loopCap : 0,
-        http_timeout_seconds: httpTimeout,
-        think_time: buildThinkTime(),
-        think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
-        data_binding: binding ?? undefined,
-        criteria: buildCriteria(),
-      },
+      profile: buildProfile(),
       env,
     };
   }
@@ -318,53 +377,142 @@ export function RunDialog({
           프리셋 오류: {presetError}
         </p>
       )}
-      <div className="grid grid-cols-4 gap-4 mb-3">
-        <label className="block text-sm">
-          <span className="text-slate-600">VUs</span>
-          <input
-            type="number"
-            min={1}
-            value={vus}
-            onChange={(e) => setVus(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-slate-600">Duration (s)</span>
-          <input
-            type="number"
-            min={1}
-            value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-slate-600">Ramp-up (s)</span>
-          <input
-            type="number"
-            min={0}
-            value={rampUp}
-            onChange={(e) => setRampUp(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            aria-invalid={rampInvalid}
-            aria-describedby={rampInvalid ? "ramp-up-error" : undefined}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-slate-600">HTTP timeout (s)</span>
-          <input
-            type="number"
-            min={1}
-            max={600}
-            value={httpTimeout}
-            onChange={(e) => setHttpTimeout(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            aria-invalid={httpTimeoutInvalid}
-            aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-          />
-        </label>
-      </div>
+      {/* Load model toggle */}
+      <fieldset className="mb-3">
+        <legend className="text-sm text-slate-600 mb-1">부하 모델</legend>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-1 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="load-model"
+              value="closed"
+              checked={loadModel === "closed"}
+              onChange={() => setLoadModel("closed")}
+            />
+            Closed-loop (VUs)
+          </label>
+          <label className="flex items-center gap-1 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="load-model"
+              value="open"
+              checked={loadModel === "open"}
+              onChange={() => setLoadModel("open")}
+            />
+            Open-loop (arrival rate)
+          </label>
+        </div>
+      </fieldset>
+
+      {loadModel === "closed" ? (
+        <div className="grid grid-cols-4 gap-4 mb-3">
+          <label className="block text-sm">
+            <span className="text-slate-600">VUs</span>
+            <input
+              type="number"
+              min={1}
+              aria-label="VUs"
+              value={vus}
+              onChange={(e) => setVus(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Duration (s)</span>
+            <input
+              type="number"
+              min={1}
+              aria-label="Duration (s)"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Ramp-up (s)</span>
+            <input
+              type="number"
+              min={0}
+              aria-label="Ramp-up (s)"
+              value={rampUp}
+              onChange={(e) => setRampUp(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={rampInvalid}
+              aria-describedby={rampInvalid ? "ramp-up-error" : undefined}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">HTTP timeout (s)</span>
+            <input
+              type="number"
+              min={1}
+              max={600}
+              aria-label="HTTP timeout (s)"
+              value={httpTimeout}
+              onChange={(e) => setHttpTimeout(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={httpTimeoutInvalid}
+              aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-4 mb-3">
+          <label className="block text-sm">
+            <span className="text-slate-600">Target RPS</span>
+            <input
+              type="number"
+              min={1}
+              max={1000000}
+              aria-label="Target RPS"
+              value={targetRps}
+              onChange={(e) => setTargetRps(e.target.value)}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={targetRpsInvalid}
+              aria-describedby={targetRpsInvalid ? "target-rps-error" : undefined}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Max in-flight</span>
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              aria-label="Max in-flight"
+              value={maxInFlight}
+              onChange={(e) => setMaxInFlight(e.target.value)}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={maxInFlightInvalid}
+              aria-describedby={maxInFlightInvalid ? "max-in-flight-error" : undefined}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">Duration (s)</span>
+            <input
+              type="number"
+              min={1}
+              aria-label="Duration (s)"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-slate-600">HTTP timeout (s)</span>
+            <input
+              type="number"
+              min={1}
+              max={600}
+              aria-label="HTTP timeout (s)"
+              value={httpTimeout}
+              onChange={(e) => setHttpTimeout(Number(e.target.value))}
+              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              aria-invalid={httpTimeoutInvalid}
+              aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
+            />
+          </label>
+        </div>
+      )}
 
       {hasLoop && (
         <div className="mb-3">
@@ -388,7 +536,7 @@ export function RunDialog({
         </div>
       )}
 
-      {rampInvalid && (
+      {loadModel === "closed" && rampInvalid && (
         <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
           Ramp-up must be ≤ duration.
         </p>
@@ -403,6 +551,18 @@ export function RunDialog({
       {httpTimeoutInvalid && (
         <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
           HTTP timeout must be between 1 and 600 seconds.
+        </p>
+      )}
+
+      {loadModel === "open" && targetRpsInvalid && (
+        <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
+          Target RPS must be between 1 and 1,000,000.
+        </p>
+      )}
+
+      {loadModel === "open" && maxInFlightInvalid && (
+        <p id="max-in-flight-error" className="mb-3 text-red-600 text-sm">
+          Max in-flight must be between 1 and 10,000.
         </p>
       )}
 
@@ -481,70 +641,72 @@ export function RunDialog({
         )}
       </fieldset>
 
-      <fieldset className="mt-3 mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setPacingOpen((v) => !v)}
-            className="font-medium text-slate-700 hover:underline"
-            aria-expanded={pacingOpen}
-          >
-            {pacingOpen ? "▾" : "▸"} Pacing (think time, 선택)
-            {!pacingOpen && pacingActiveCount > 0 ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">
-                · {pacingActiveCount}개 설정됨
-              </span>
-            ) : null}
-          </button>
-        </legend>
-        {pacingOpen && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block text-sm">
-                <span className="text-slate-600">Think min (ms)</span>
-                <input
-                  type="number"
-                  min="0"
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  value={thinkMin}
-                  onChange={(e) => setThinkMin(e.target.value)}
-                  aria-invalid={thinkInvalid}
-                  aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Think max (ms)</span>
-                <input
-                  type="number"
-                  min="0"
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  value={thinkMax}
-                  onChange={(e) => setThinkMax(e.target.value)}
-                  aria-invalid={thinkInvalid}
-                  aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Think seed (선택)</span>
-                <input
-                  type="number"
-                  min="0"
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  value={thinkSeed}
-                  onChange={(e) => setThinkSeed(e.target.value)}
-                />
-              </label>
-            </div>
-            {thinkInvalid ? (
-              <p id="think-time-error" className="mt-1 text-red-600 text-sm">
-                min ≤ max ≤ 600000, 둘 다 입력
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
-            )}
-          </>
-        )}
-      </fieldset>
+      {loadModel === "closed" && (
+        <fieldset className="mt-3 mb-4 border-t pt-3">
+          <legend className="text-sm font-medium">
+            <button
+              type="button"
+              onClick={() => setPacingOpen((v) => !v)}
+              className="font-medium text-slate-700 hover:underline"
+              aria-expanded={pacingOpen}
+            >
+              {pacingOpen ? "▾" : "▸"} Pacing (think time, 선택)
+              {!pacingOpen && pacingActiveCount > 0 ? (
+                <span className="ml-1 text-xs font-normal text-slate-500">
+                  · {pacingActiveCount}개 설정됨
+                </span>
+              ) : null}
+            </button>
+          </legend>
+          {pacingOpen && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-sm">
+                  <span className="text-slate-600">Think min (ms)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    value={thinkMin}
+                    onChange={(e) => setThinkMin(e.target.value)}
+                    aria-invalid={thinkInvalid}
+                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">Think max (ms)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    value={thinkMax}
+                    onChange={(e) => setThinkMax(e.target.value)}
+                    aria-invalid={thinkInvalid}
+                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">Think seed (선택)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    value={thinkSeed}
+                    onChange={(e) => setThinkSeed(e.target.value)}
+                  />
+                </label>
+              </div>
+              {thinkInvalid ? (
+                <p id="think-time-error" className="mt-1 text-red-600 text-sm">
+                  min ≤ max ≤ 600000, 둘 다 입력
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
+              )}
+            </>
+          )}
+        </fieldset>
+      )}
 
       <EnvironmentPicker
         selectedEnvId={selectedEnvId}
@@ -610,21 +772,7 @@ export function RunDialog({
         <Button
           onClick={() =>
             mutation.mutate(
-              {
-                scenarioId,
-                profile: {
-                  vus,
-                  duration_seconds: duration,
-                  ramp_up_seconds: rampUp,
-                  loop_breakdown_cap: hasLoop ? loopCap : 0,
-                  http_timeout_seconds: httpTimeout,
-                  think_time: buildThinkTime(),
-                  think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
-                  data_binding: binding ?? undefined,
-                  criteria: buildCriteria(),
-                },
-                env,
-              },
+              { scenarioId, profile: buildProfile(), env },
               { onSuccess: (run) => onCreated(run.id) },
             )
           }

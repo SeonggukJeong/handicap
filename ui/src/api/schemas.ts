@@ -55,6 +55,8 @@ export const ProfileSchema = z.object({
   think_seed: z.number().int().nonnegative().optional(),
   data_binding: DataBindingSchema.nullish(),
   criteria: CriteriaSchema.nullish(),
+  target_rps: z.number().int().positive().max(1_000_000).optional(),
+  max_in_flight: z.number().int().positive().max(10_000).optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
