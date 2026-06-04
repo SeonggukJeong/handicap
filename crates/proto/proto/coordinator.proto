@@ -101,6 +101,11 @@ message ThinkTime {
   uint32 max_ms = 2;
 }
 
+message Stage {
+  uint32 target = 1;           // arrival rate (req/s) reached at end of this stage
+  uint32 duration_seconds = 2;
+}
+
 message Profile {
   uint32 vus = 1;
   uint32 ramp_up_seconds = 2;
@@ -111,6 +116,7 @@ message Profile {
   optional uint32 think_seed = 7;  // present → deterministic, absent → entropy
   optional uint32 target_rps = 8;      // present → open-loop arrival rate
   optional uint32 max_in_flight = 9;   // present → open-loop slot-pool size
+  repeated Stage stages = 10;          // S-D open-loop rate curve; empty = absent (fixed rate)
 }
 
 message AbortRun {

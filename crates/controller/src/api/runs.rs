@@ -270,6 +270,17 @@ pub async fn create(
             think_seed: body.profile.think_seed,
             target_rps: body.profile.target_rps,
             max_in_flight: body.profile.max_in_flight,
+            stages: body
+                .profile
+                .stages
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|s| handicap_proto::v1::Stage {
+                    target: s.target,
+                    duration_seconds: s.duration_seconds,
+                })
+                .collect(),
         },
         env: body.env.clone(),
         data_binding,

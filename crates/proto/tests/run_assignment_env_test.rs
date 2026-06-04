@@ -1,4 +1,5 @@
-use handicap_proto::v1::{Profile, RunAssignment};
+use handicap_proto::v1::{Profile, RunAssignment, Stage};
+use prost::Message;
 use std::collections::HashMap;
 
 /// Compile-time + runtime guard: RunAssignment must have an `env` map<string,string> field
@@ -20,6 +21,16 @@ fn run_assignment_env_field_exists() {
             think_seed: None,
             target_rps: None,
             max_in_flight: None,
+            stages: vec![
+                Stage {
+                    target: 200,
+                    duration_seconds: 30,
+                },
+                Stage {
+                    target: 0,
+                    duration_seconds: 30,
+                },
+            ],
         }),
         env,
         data_binding: None,
@@ -35,5 +46,54 @@ fn run_assignment_env_field_exists() {
     assert_eq!(
         (a.shard_index, a.shard_count, a.vu_offset, a.vu_count),
         (2, 4, 10, 5)
+    );
+}
+
+/// Proto round-trip guard: Profile.stages must survive encode→decode.
+#[test]
+fn profile_stages_round_trip() {
+    let original = RunAssignment {
+        run_id: "r2".to_string(),
+        scenario_yaml: "yaml: true".to_string(),
+        profile: Some(Profile {
+            vus: 10,
+            ramp_up_seconds: 0,
+            duration_seconds: 60,
+            loop_breakdown_cap: 0,
+            http_timeout_seconds: 30,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: vec![
+                Stage {
+                    target: 200,
+                    duration_seconds: 30,
+                },
+                Stage {
+                    target: 0,
+                    duration_seconds: 30,
+                },
+            ],
+        }),
+        env: HashMap::new(),
+        data_binding: None,
+        shard_index: 0,
+        shard_count: 1,
+        vu_offset: 0,
+        vu_count: 10,
+    };
+
+    // encode → decode round-trip
+    let mut buf = Vec::new();
+    original.encode(&mut buf).expect("encode failed");
+    let decoded = RunAssignment::decode(buf.as_slice()).expect("decode failed");
+
+    assert_eq!(decoded.profile.as_ref().unwrap().stages.len(), 2);
+    assert_eq!(decoded.profile.as_ref().unwrap().stages[0].target, 200);
+    assert_eq!(decoded.profile.as_ref().unwrap().stages[1].target, 0);
+    assert_eq!(
+        decoded.profile.as_ref().unwrap().stages[0].duration_seconds,
+        30
     );
 }

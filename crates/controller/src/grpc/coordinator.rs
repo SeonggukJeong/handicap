@@ -279,7 +279,7 @@ impl CoordinatorState {
         let assignment = RunAssignment {
             run_id: run_id.to_string(),
             scenario_yaml: a.scenario_yaml.clone(),
-            profile: Some(a.profile),
+            profile: Some(a.profile.clone()),
             env: a.env.clone(),
             // proto row_count is the PER-WORKER count (count_i for unique).
             data_binding: binding.zip(stream.as_ref()).map(|(b, s)| pb::DataBinding {
@@ -968,6 +968,7 @@ mod tests {
                 think_seed: None,
                 target_rps: None,
                 max_in_flight: None,
+                stages: vec![],
             },
             env: HashMap::new(),
             data_binding: None,
