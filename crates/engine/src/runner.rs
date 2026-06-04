@@ -284,6 +284,7 @@ async fn run_vu(
             iter_id,
             None,
             &cancel,
+            &mut think_rng,
         )
         .await?;
         match flow {
@@ -310,7 +311,8 @@ enum StepFlow {
 }
 
 /// Recursively execute a slice of steps for one VU iteration. Http leaves run a
-/// request + record a metric; loop nodes recurse over their body `repeat` times.
+/// request + record a metric, then optionally pace (per-step think time); loop
+/// nodes recurse over their body `repeat` times.
 /// Returns `Err` only for genuine engine errors (template/header build failures);
 /// deadline and cancellation are surfaced via `StepFlow` so the caller can decide
 /// whether to end the iteration cleanly or report an abort — byte-for-byte the
@@ -327,6 +329,7 @@ async fn execute_steps(
     iter_id: u32,
     loop_index: Option<u32>,
     cancel: &CancellationToken,
+    rng: &mut StdRng,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -346,14 +349,23 @@ async fn execute_steps(
                 };
                 let outcome = execute_step(client, http, &ctx).await?;
                 iter_vars.extend(outcome.extracted.clone());
-                let mut a = agg.lock().await;
-                a.record(
-                    &outcome.step_id,
-                    outcome.latency.as_micros().min(u64::MAX as u128) as u64,
-                    outcome.status,
-                    outcome.error.is_some(),
-                    loop_index,
-                );
+                {
+                    let mut a = agg.lock().await;
+                    a.record(
+                        &outcome.step_id,
+                        outcome.latency.as_micros().min(u64::MAX as u128) as u64,
+                        outcome.status,
+                        outcome.error.is_some(),
+                        loop_index,
+                    );
+                } // drop the aggregator guard before the (possibly long) think-time sleep
+                if let Some(tt) = &http.think_time {
+                    match pace(tt.sample(rng), deadline, cancel).await {
+                        PaceOutcome::Slept => {}
+                        PaceOutcome::Cancelled => return Ok(StepFlow::Aborted),
+                        PaceOutcome::DeadlineReached => return Ok(StepFlow::DeadlineReached),
+                    }
+                }
             }
             Step::Loop(lp) => {
                 for i in 0..lp.repeat {
@@ -374,6 +386,7 @@ async fn execute_steps(
                         iter_id,
                         Some(i),
                         cancel,
+                        rng,
                     ))
                     .await?;
                     match flow {
@@ -408,7 +421,7 @@ async fn execute_steps(
                 // (spec §4). Box::pin the recursion (If/Loop arms only — hot path unboxed).
                 let flow = Box::pin(execute_steps(
                     client, taken, iter_vars, agg, deadline, env, vu_id, iter_id, loop_index,
-                    cancel,
+                    cancel, rng,
                 ))
                 .await?;
                 match flow {
