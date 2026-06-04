@@ -1586,3 +1586,185 @@ steps:
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+/// End-to-end guard that the `dropped` counter flows all the way to the report.
+///
+/// Proves the full dropped pipeline:
+///   open-loop scheduler ticks arrive faster than slots free up
+///   → engine drop_counter increments
+///   → MetricFlush.dropped forwarded by worker
+///   → controller UPDATEs runs.dropped
+///   → GET /api/runs/{id}/report returns report.dropped > 0.
+///
+/// Setup: slow responder (100ms delay) + max_in_flight=1 + target_rps=200.
+/// 200 arrivals/s into 1 slot held ~100ms each → ~20 concurrent requests needed,
+/// but only 1 slot is available → the vast majority of ticks find no free slot
+/// and are dropped immediately.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn open_loop_dropped_reaches_report() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime (cold-build flake guard).
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stub: GET /slow → 200 with a 100ms delay.
+    //    The slow response holds the single in-flight slot long enough for
+    //    subsequent arrivals to find no free slot → dropped > 0.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/slow"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(100)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC.
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. One-step scenario hitting wiremock /slow via ${BASE_URL}.
+    let scenario_yaml = r#"version: 1
+name: "open-loop-dropped"
+steps:
+  - id: "slow"
+    name: "slow"
+    type: http
+    request:
+      method: GET
+      url: "${BASE_URL}/slow"
+    assert:
+      - status: 200
+"#;
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run with open-loop profile designed to force drops:
+    //    - target_rps=200: ticks arrive at 5ms intervals
+    //    - max_in_flight=1: only 1 concurrent slot
+    //    - duration_seconds=2: short run, enough to accumulate many drops
+    //
+    //    Expected: ~200 ticks/s × 2s = 400 arrivals; each slot lasts ~100ms so
+    //    only ~20 requests can complete. The rest (~380) should be dropped.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": {
+                "vus": 0,
+                "target_rps": 200,
+                "max_in_flight": 1,
+                "duration_seconds": 2
+            },
+            "env": { "BASE_URL": target.uri() }
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until terminal (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    let mut last_message = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap_or("").to_string();
+        last_message = v["message"].as_str().unwrap_or("").to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status} (message: {last_message:?})"
+    );
+
+    // 7. GET /report and assert the dropped counter reached the DB.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    let dropped = report["dropped"].as_u64().unwrap_or(0);
+    let count = report["summary"]["count"].as_u64().unwrap_or(0);
+
+    // Primary invariant: at least one arrival was dropped.
+    // With 200 rps × 2s = 400 arrivals and max_in_flight=1 + 100ms latency,
+    // the scheduler will drop the vast majority of arrivals. Even under heavy
+    // system load we expect at least 1 dropped tick.
+    assert!(
+        dropped > 0,
+        "report.dropped = {} (expected > 0); summary.count = {}",
+        dropped,
+        count
+    );
+
+    // Secondary: actual throughput is well below the target rate, confirming
+    // the drop mechanism is the bottleneck (not a fast responder eating all ticks).
+    // max achievable = 1 slot / 100ms = ~10 RPS × 2s = ~20 requests.
+    // We allow up to 60 as a generous bound in case of timing variations.
+    assert!(
+        count < 60,
+        "summary.count = {} (expected < 60 with max_in_flight=1 and 100ms latency)",
+        count
+    );
+
+    eprintln!("[open_loop_dropped_reaches_report] dropped={dropped}, count={count}");
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
