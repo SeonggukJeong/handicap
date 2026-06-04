@@ -610,6 +610,9 @@ pub async fn run_scenario_open_loop(
             }
             Err(_) => {
                 dropped += 1;
+                // Pool full while behind schedule: yield so in-flight arrivals (which
+                // free slots) get scheduled instead of tight-spinning the catch-up backlog.
+                tokio::task::yield_now().await;
             }
         }
         next += interval;
