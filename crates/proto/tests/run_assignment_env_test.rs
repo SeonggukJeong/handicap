@@ -18,6 +18,8 @@ fn run_assignment_env_field_exists() {
             http_timeout_seconds: 30,
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         }),
         env,
         data_binding: None,

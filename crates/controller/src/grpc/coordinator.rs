@@ -956,6 +956,8 @@ mod tests {
                 http_timeout_seconds: 30,
                 think_time: None,
                 think_seed: None,
+                target_rps: None,
+                max_in_flight: None,
             },
             env: HashMap::new(),
             data_binding: None,

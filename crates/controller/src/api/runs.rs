@@ -63,7 +63,42 @@ pub(crate) async fn validate_run_config(
     state: &AppState,
     profile: &Profile,
 ) -> Result<Option<datasets::DatasetMeta>, ApiError> {
-    if profile.vus == 0 || profile.duration_seconds == 0 {
+    // ── open-loop (S-C): target_rps present switches the execution model ──
+    if let Some(rps) = profile.target_rps {
+        if rps == 0 || rps > 1_000_000 {
+            return Err(ApiError::BadRequest(
+                "target_rps must be between 1 and 1000000".into(),
+            ));
+        }
+        match profile.max_in_flight {
+            None => {
+                return Err(ApiError::BadRequest(
+                    "open-loop(target_rps)은 max_in_flight가 필요합니다".into(),
+                ));
+            }
+            Some(m) if m == 0 || m > 10_000 => {
+                return Err(ApiError::BadRequest(
+                    "max_in_flight must be between 1 and 10000".into(),
+                ));
+            }
+            _ => {}
+        }
+        if profile.ramp_up_seconds > 0 {
+            return Err(ApiError::BadRequest(
+                "open-loop에선 ramp_up_seconds를 쓸 수 없습니다 (RPS 곡선은 S-D stages)".into(),
+            ));
+        }
+        if profile.think_time.is_some() {
+            return Err(ApiError::BadRequest(
+                "open-loop에선 run-level think_time을 쓸 수 없습니다 (closed-loop 전용)".into(),
+            ));
+        }
+        if profile.duration_seconds == 0 {
+            return Err(ApiError::BadRequest("duration_seconds must be > 0".into()));
+        }
+        // NOTE: vus is ignored in open-loop (slot pool = max_in_flight); do not require vus>0.
+    } else if profile.vus == 0 || profile.duration_seconds == 0 {
+        // closed-loop (unchanged)
         return Err(ApiError::BadRequest(
             "vus and duration_seconds must be > 0".into(),
         ));
@@ -118,7 +153,11 @@ pub(crate) async fn validate_run_config(
         }
         // Every worker must get at least one row, else a worker would generate
         // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
-        let n = state.coord.worker_count_for(profile.vus);
+        let n = if profile.target_rps.is_some() {
+            1
+        } else {
+            state.coord.worker_count_for(profile.vus)
+        };
         if (meta.row_count as u64) < n as u64 {
             return Err(ApiError::BadRequest(format!(
                 "unique 정책은 데이터셋 행 수가 워커 수 이상이어야 합니다: rows={} < workers={n}",
@@ -170,10 +209,19 @@ pub async fn create(
     let data_binding = match (&body.profile.data_binding, validated_meta) {
         (Some(b), Some(meta)) => {
             let (policy, row_count) = match b.policy {
-                BindingPolicy::PerVu => (
-                    handicap_proto::v1::data_binding::Policy::PerVu,
-                    (body.profile.vus as u64).min(meta.row_count as u64),
-                ),
+                BindingPolicy::PerVu => {
+                    // closed-loop: one row per VU (≤ vus rows); open-loop: one row per
+                    // slot (≤ max_in_flight rows — slot index is the per_vu key, spec §4).
+                    let slot_count = if body.profile.target_rps.is_some() {
+                        body.profile.max_in_flight.unwrap_or(0) as u64
+                    } else {
+                        body.profile.vus as u64
+                    };
+                    (
+                        handicap_proto::v1::data_binding::Policy::PerVu,
+                        slot_count.min(meta.row_count as u64),
+                    )
+                }
                 BindingPolicy::IterSequential => (
                     handicap_proto::v1::data_binding::Policy::IterSequential,
                     meta.row_count as u64,
@@ -220,11 +268,17 @@ pub async fn create(
                     max_ms: t.max_ms,
                 }),
             think_seed: body.profile.think_seed,
+            target_rps: body.profile.target_rps,
+            max_in_flight: body.profile.max_in_flight,
         },
         env: body.env.clone(),
         data_binding,
     };
-    let n = state.coord.worker_count_for(body.profile.vus);
+    let n = if body.profile.target_rps.is_some() {
+        1 // open-loop is single-worker in v1 (fan-out deferred — spec §9)
+    } else {
+        state.coord.worker_count_for(body.profile.vus)
+    };
     state
         .coord
         .enqueue(row.id.clone(), assignment, n, body.profile.vus)
@@ -737,6 +791,80 @@ mod tests {
             matches!(err, ApiError::BadRequest(_)),
             "max > 600000 must be rejected"
         );
+    }
+
+    fn ol_profile() -> Profile {
+        Profile {
+            vus: 0,
+            ramp_up_seconds: 0,
+            duration_seconds: 10,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: Some(100),
+            max_in_flight: Some(16),
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_open_loop_requires_max_in_flight_and_rejects_conflicts() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        assert!(validate_run_config(&state, &ol_profile()).await.is_ok());
+
+        let no_cap = Profile {
+            max_in_flight: None,
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &no_cap).await.is_err());
+
+        let ramp = Profile {
+            ramp_up_seconds: 5,
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &ramp).await.is_err());
+
+        let tt = Profile {
+            think_time: Some(handicap_engine::ThinkTime {
+                min_ms: 100,
+                max_ms: 100,
+            }),
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &tt).await.is_err());
+
+        let huge = Profile {
+            max_in_flight: Some(10_001),
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &huge).await.is_err());
+
+        let bad_rps = Profile {
+            target_rps: Some(0),
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &bad_rps).await.is_err());
+
+        let zero_dur = Profile {
+            duration_seconds: 0,
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &zero_dur).await.is_err());
+
+        let rps_over = Profile {
+            target_rps: Some(1_000_001),
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &rps_over).await.is_err());
+
+        let rps_max = Profile {
+            target_rps: Some(1_000_000),
+            ..ol_profile()
+        };
+        assert!(validate_run_config(&state, &rps_max).await.is_ok());
     }
 
     #[tokio::test]

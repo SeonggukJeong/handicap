@@ -265,6 +265,7 @@ async fn main() -> anyhow::Result<()> {
                     windows,
                     loop_stats,
                     branch_stats,
+                    dropped: 0, // open-loop dropped counter forwarded in a later task
                 })),
             };
             if tx_metric.send(msg).await.is_err() {

@@ -48,6 +48,7 @@ message MetricBatch {
   repeated MetricWindow windows = 3;
   repeated LoopStat loop_stats = 4;
   repeated BranchStat branch_stats = 5;
+  uint64 dropped = 6;                  // open-loop arrivals dropped (run-total carried on final flush)
 }
 
 message MetricWindow {
@@ -108,6 +109,8 @@ message Profile {
   uint32 http_timeout_seconds = 5; // 0 = use default (30s)
   ThinkTime think_time = 6;        // absent → no inter-iteration pacing
   optional uint32 think_seed = 7;  // present → deterministic, absent → entropy
+  optional uint32 target_rps = 8;      // present → open-loop arrival rate
+  optional uint32 max_in_flight = 9;   // present → open-loop slot-pool size
 }
 
 message AbortRun {
