@@ -90,6 +90,10 @@ pub struct Profile {
     pub think_time: Option<handicap_engine::ThinkTime>,
     #[serde(default)]
     pub think_seed: Option<u32>,
+    #[serde(default)]
+    pub target_rps: Option<u32>,
+    #[serde(default)]
+    pub max_in_flight: Option<u32>,
 }
 
 pub struct RunRow {
@@ -338,6 +342,8 @@ mod tests {
             criteria: None,
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -385,6 +391,21 @@ mod tests {
     }
 
     #[test]
+    fn profile_open_loop_fields_roundtrip_and_default_absent() {
+        // absent → None (back-compat with old profile_json rows)
+        let p: Profile = serde_json::from_str(r#"{"vus":1,"duration_seconds":1}"#).unwrap();
+        assert_eq!(p.target_rps, None);
+        assert_eq!(p.max_in_flight, None);
+        // present → round-trips
+        let p2: Profile = serde_json::from_str(
+            r#"{"vus":0,"duration_seconds":10,"target_rps":500,"max_in_flight":64}"#,
+        )
+        .unwrap();
+        assert_eq!(p2.target_rps, Some(500));
+        assert_eq!(p2.max_in_flight, Some(64));
+    }
+
+    #[test]
     fn profile_json_think_time_round_trip_and_old_row_defaults_none() {
         let json = r#"{"vus":1,"duration_seconds":2,"think_time":{"min_ms":100,"max_ms":500},"think_seed":7}"#;
         let p: Profile = serde_json::from_str(json).unwrap();
@@ -427,6 +448,8 @@ mod tests {
             }),
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

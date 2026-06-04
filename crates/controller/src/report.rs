@@ -391,6 +391,8 @@ mod tests {
                 criteria: None,
                 think_time: None,
                 think_seed: None,
+                target_rps: None,
+                max_in_flight: None,
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,

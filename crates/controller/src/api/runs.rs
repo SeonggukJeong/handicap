@@ -550,6 +550,8 @@ mod tests {
             criteria: None,
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         }
     }
 
@@ -659,6 +661,8 @@ mod tests {
             http_timeout_seconds: 0,
             think_time: None,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -700,6 +704,8 @@ mod tests {
             criteria: None,
             think_time,
             think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
         }
     }
 
