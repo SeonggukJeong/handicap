@@ -150,6 +150,24 @@ describe("ProfileSchema.criteria", () => {
   });
 });
 
+describe("ProfileSchema.stages", () => {
+  it("ProfileSchema parses stages and treats absent as undefined", () => {
+    const p = ProfileSchema.parse({
+      vus: 0,
+      duration_seconds: 0,
+      max_in_flight: 50,
+      stages: [
+        { target: 200, duration_seconds: 30 },
+        { target: 0, duration_seconds: 30 },
+      ],
+    });
+    expect(p.stages).toHaveLength(2);
+    expect(p.stages?.[0].target).toBe(200);
+    const p2 = ProfileSchema.parse({ vus: 1, duration_seconds: 10 });
+    expect(p2.stages).toBeUndefined();
+  });
+});
+
 describe("ReportSchema.verdict", () => {
   const base = {
     run: {
