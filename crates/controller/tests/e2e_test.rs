@@ -1587,6 +1587,181 @@ steps:
     grpc_handle.abort();
 }
 
+/// S-D: a stages (rate-curve) open-loop run drives traffic end-to-end and the
+/// report reflects it. Mirrors `open_loop_e2e_smoke`; only the profile differs
+/// (stages curve [200/1s, 200/1s] instead of fixed target_rps). Single-worker v1.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stages_open_loop_e2e_smoke() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime (cold-build flake guard).
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Single wiremock stub: GET /ping → 200, small delay so p95_ms > 0.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ping"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("pong")
+                .set_delay(Duration::from_millis(5)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC.
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. One-step scenario hitting wiremock /ping via ${BASE_URL}.
+    let scenario_yaml = r#"version: 1
+name: "stages-open-loop-smoke"
+steps:
+  - id: "ping"
+    name: "ping"
+    type: http
+    request:
+      method: GET
+      url: "${BASE_URL}/ping"
+    assert:
+      - status: 200
+"#;
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run with a stages curve: 0→200 over 1s, hold 200 for 1s (total 2s).
+    //    duration_seconds=0 signals "curve mode" (total = sum of stage durations).
+    //    vus=0 explicit (open-loop ignores vus; slot pool = max_in_flight).
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": {
+                "vus": 0,
+                "duration_seconds": 0,
+                "max_in_flight": 50,
+                "stages": [
+                    { "target": 200, "duration_seconds": 1 },
+                    { "target": 200, "duration_seconds": 1 }
+                ]
+            },
+            "env": { "BASE_URL": target.uri() }
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until terminal (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    let mut last_message = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap_or("").to_string();
+        last_message = v["message"].as_str().unwrap_or("").to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got {last_status} (message: {last_message:?})"
+    );
+
+    // 7. GET /report and assert the curve generated traffic.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    // (a) summary.count > 0 — the curve drove at least one request.
+    let count = report["summary"]["count"].as_u64().unwrap_or(0);
+    assert!(count > 0, "summary.count = {} (expected > 0)", count);
+
+    // (b) at least one per-second window exists.
+    assert!(
+        report["windows"]
+            .as_array()
+            .map(|w| !w.is_empty())
+            .unwrap_or(false),
+        "expected >= 1 report window"
+    );
+
+    // (c) status_distribution["200"] > 0 — wiremock responded 200.
+    let two_hundred = report["status_distribution"]["200"].as_u64().unwrap_or(0);
+    assert!(
+        two_hundred > 0,
+        "status_distribution.200 = {} (expected > 0)",
+        two_hundred
+    );
+
+    // (d) dropped field present (advisory, ample slots → expected 0).
+    assert!(
+        report["dropped"].is_u64(),
+        "report.dropped field should be present"
+    );
+
+    eprintln!(
+        "[stages_open_loop_e2e_smoke] count={count}, windows={}, 200s={two_hundred}",
+        report["windows"].as_array().map(|w| w.len()).unwrap_or(0)
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
 /// End-to-end guard that the `dropped` counter flows all the way to the report.
 ///
 /// Proves the full dropped pipeline:
