@@ -193,6 +193,8 @@ async fn main() -> anyhow::Result<()> {
         } else {
             profile.http_timeout_seconds
         })),
+        think_time: None,
+        think_seed: None,
     };
     info!(
         vus = plan.vus,

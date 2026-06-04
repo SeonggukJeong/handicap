@@ -58,6 +58,8 @@ steps:
         vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -123,6 +125,8 @@ steps:
         vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -188,6 +192,8 @@ steps:
         vu_offset: 0,
         data_binding: Some(Arc::new(ds)),
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);

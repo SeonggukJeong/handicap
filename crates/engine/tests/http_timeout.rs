@@ -47,6 +47,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout,
+        think_time: None,
+        think_seed: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -124,6 +126,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30), // generous client default
+        think_time: None,
+        think_seed: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {

@@ -41,6 +41,8 @@ async fn run_and_count(yaml: &str) -> HashMap<String, u64> {
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
@@ -266,6 +268,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
@@ -423,6 +427,8 @@ async fn run_and_branches(yaml: &str) -> HashMap<(String, String), u64> {
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });

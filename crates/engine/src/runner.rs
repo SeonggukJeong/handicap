@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -13,6 +15,7 @@ use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
 use crate::executor::{VuClient, execute_step};
+use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::scenario::{Scenario, Step};
 use crate::template::TemplateContext;
 
@@ -31,6 +34,10 @@ pub struct RunPlan {
     /// Total per-request HTTP timeout for every VU client (reqwest client-level).
     /// `30s` reproduces the pre-S-A hardcoded default.
     pub http_timeout: Duration,
+    /// Inter-iteration think time (run-level pacing). `None` → no pause.
+    pub think_time: Option<ThinkTime>,
+    /// Think time RNG seed. `Some` → reproducible per (seed, vu_id); `None` → entropy.
+    pub think_seed: Option<u32>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -58,6 +65,8 @@ pub async fn run_scenario(
     let env = Arc::new(plan.env);
     let dataset = plan.data_binding.clone();
     let http_timeout = plan.http_timeout;
+    let think_time = plan.think_time;
+    let think_seed = plan.think_seed;
     // One shared worker-local counter for IterSequential and Unique, created once per run.
     let seq_counter = match dataset.as_ref().map(|d| d.policy) {
         Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
@@ -115,6 +124,8 @@ pub async fn run_scenario(
                     dataset,
                     seq_counter,
                     http_timeout,
+                    think_time,
+                    think_seed,
                 )
                 .await
                 {
@@ -236,8 +247,14 @@ async fn run_vu(
     dataset: Option<Arc<DataSet>>,
     seq_counter: Option<Arc<AtomicU64>>,
     http_timeout: Duration,
+    think_time: Option<ThinkTime>,
+    think_seed: Option<u32>,
 ) -> Result<()> {
     let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
+    let mut think_rng = match think_seed {
+        Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
+        None => StdRng::from_entropy(),
+    };
     let mut iter_id: u32 = 0;
     while Instant::now() < deadline {
         if cancel.is_cancelled() {
@@ -273,6 +290,12 @@ async fn run_vu(
             StepFlow::Continue => {}
             StepFlow::DeadlineReached => return Ok(()),
             StepFlow::Aborted => return Err(EngineError::Aborted),
+        }
+        // run-level think time between iterations
+        if let Some(tt) = think_time {
+            if pace(tt.sample(&mut think_rng), deadline, &cancel).await == PaceOutcome::Cancelled {
+                return Err(EngineError::Aborted);
+            }
         }
         iter_id = iter_id.wrapping_add(1);
     }

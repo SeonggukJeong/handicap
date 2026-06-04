@@ -70,6 +70,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let cancel = CancellationToken::new();
@@ -179,6 +181,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let cancel = CancellationToken::new();
@@ -242,6 +246,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let cancel = CancellationToken::new();
@@ -305,6 +311,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
 
     let cancel = CancellationToken::new();

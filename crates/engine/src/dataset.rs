@@ -71,7 +71,7 @@ impl DataSet {
 /// Note: `seed` and `vu_id` are folded through the same initial addition, so
 /// they are not independently decomposable — but for the actual usage (a fixed
 /// per-run seed with distinct vu_ids) this produces no intra-run collisions.
-fn mix(seed: u32, vu_id: u32, iter_id: u32) -> u64 {
+pub(crate) fn mix(seed: u32, vu_id: u32, iter_id: u32) -> u64 {
     let mut z = seed as u64;
     z = splitmix64(z.wrapping_add(vu_id as u64));
     splitmix64(z.wrapping_add(iter_id as u64))

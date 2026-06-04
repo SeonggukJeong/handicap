@@ -35,6 +35,8 @@ steps:
         vu_offset: 0,
         data_binding: None,
         http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();
