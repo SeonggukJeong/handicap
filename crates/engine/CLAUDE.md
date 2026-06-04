@@ -53,3 +53,4 @@
 
 - **Ramp-up 테스트의 flakiness 한계** (Slice 4): 1초 윈도우 단위에서 "first window count < later window count" 검증은 환경 부하에 민감. 매 초마다 정확히 `floor(target/ramp)` VU spawn을 검사하지 말고 monotonic non-decreasing trend만 검사.
 - **plan/fixture 의 placeholder ULID `01HX000000000000000000000L` 은 INVALID** (Slice 7): ULID 는 Crockford base32(`[0-9A-HJKMNP-TV-Z]`)라 `I`/`L`/`O`/`U` 를 제외한다. spec/plan 의 `01HX...` 자리표시자를 그대로 테스트 fixture 에 박으면 ULID 파서가 거부한다. 테스트용 ULID 는 이 네 글자를 피해서 적을 것(`...0010` 등).
+- **`aggregator::tests::records_and_serializes`는 wall-clock 윈도 경계 flake** (S-B): 3연속 `record()`가 한 1초 윈도에 들어간다고 단언하는데 binning이 `current_second()`(실시계)라 호출이 1초 경계를 straddle 하면 두 윈도로 쪼개져 실패한다. cold-build pre-commit 에서 가끔 트립 — **진짜 회귀 아님**(warm 재시도로 통과; 루트 CLAUDE.md 의 cold-build 워커-바이너리 race flake 와는 별개 원인). 결정적으로 고치려면 윈도 시계를 주입식으로.
