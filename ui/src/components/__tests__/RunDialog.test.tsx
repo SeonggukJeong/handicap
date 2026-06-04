@@ -962,6 +962,17 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     expect(screen.getByText(/동시 처리 상한/)).toBeInTheDocument();
   });
 
+  it("curve mode: selecting a load-shape template seeds stages", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    // default seed is a single row
+    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+    await user.selectOptions(screen.getByLabelText(/부하 모양/), "spike");
+    expect(screen.getAllByLabelText(/stage target/i).length).toBeGreaterThan(1);
+  });
+
   it("submits target_rps and max_in_flight in open-loop mode", async () => {
     fetchMock.mockImplementation(() =>
       jsonResponse({

@@ -19,6 +19,7 @@ import { getPreset } from "../api/presets";
 import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
+import { LOAD_SHAPES } from "./loadShapes";
 
 type Props = {
   scenarioId: string;
@@ -610,6 +611,32 @@ export function RunDialog({
             </div>
           ) : (
             <div className="mb-3">
+              <label className="block text-sm mb-2">
+                <span className="text-slate-600">부하 모양</span>
+                <select
+                  aria-label="부하 모양"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const shape = LOAD_SHAPES.find((s) => s.id === e.target.value);
+                    if (shape) {
+                      setStages(
+                        shape.stages.map((s) => ({
+                          target: String(s.target),
+                          duration_seconds: String(s.duration_seconds),
+                        })),
+                      );
+                    }
+                  }}
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                >
+                  <option value="">직접 입력</option>
+                  {LOAD_SHAPES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <p className="text-xs text-slate-500 mb-1">
                 각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)
               </p>
