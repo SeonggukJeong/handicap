@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::error::{EngineError, Result};
+use crate::pacing::ThinkTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +78,12 @@ pub struct HttpStep {
     /// (1..=600) UI-side; the executor ignores `Some(0)` (lenient).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u32>,
+    /// Per-step think time: pause AFTER this step's request runs (every time the
+    /// step executes — per loop repeat, per chosen if-branch). Absent → no pause.
+    /// Randomness uses the run-level `Profile.think_seed` (RNG threaded by the
+    /// interpreter). Authoring-validated (min<=max<=600000) UI-side; engine lenient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub think_time: Option<ThinkTime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1108,5 +1115,55 @@ steps:
         };
         assert_eq!(h3.timeout_seconds, None);
         assert!(!s3.to_yaml().unwrap().contains("timeout_seconds"));
+    }
+
+    #[test]
+    fn http_step_think_time_round_trips_and_omits_when_absent() {
+        let yaml = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: s1
+    name: pace
+    request:
+      method: GET
+      url: http://x/
+    think_time:
+      min_ms: 100
+      max_ms: 500
+"#;
+        let s = Scenario::from_yaml(yaml).unwrap();
+        let Step::Http(h) = &s.steps[0] else {
+            panic!("expected http")
+        };
+        assert_eq!(
+            h.think_time,
+            Some(ThinkTime {
+                min_ms: 100,
+                max_ms: 500
+            })
+        );
+        let out = s.to_yaml().unwrap();
+        assert!(out.contains("min_ms: 100"), "round-trips:\n{out}");
+
+        // absent → no key (byte-identical to pre-feature YAML)
+        let yaml2 = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: s2
+    name: nopace
+    request:
+      method: GET
+      url: http://x/
+"#;
+        let s2 = Scenario::from_yaml(yaml2).unwrap();
+        let Step::Http(h2) = &s2.steps[0] else {
+            panic!()
+        };
+        assert_eq!(h2.think_time, None);
+        assert!(!s2.to_yaml().unwrap().contains("think_time"));
     }
 }

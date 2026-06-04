@@ -499,6 +499,7 @@ mod tests {
                 path: "$.access_token".into(),
             }],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -544,6 +545,7 @@ mod tests {
                 path: "$.no".into(),
             }],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -586,6 +588,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let mut vars = BTreeMap::new();
         vars.insert("username".to_string(), "alice".to_string());
@@ -633,6 +636,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let mut vars = BTreeMap::new();
         vars.insert("username".to_string(), "alice".to_string());
@@ -670,6 +674,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -703,6 +708,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -749,6 +755,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -791,6 +798,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -835,6 +843,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -1075,6 +1084,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -1131,6 +1141,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
@@ -1171,6 +1182,7 @@ mod tests {
             assert: vec![],
             extract: vec![],
             timeout_seconds: None,
+            think_time: None,
         };
         let vars = BTreeMap::new();
         let env = empty_env();
