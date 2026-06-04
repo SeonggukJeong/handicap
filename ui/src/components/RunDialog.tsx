@@ -20,6 +20,7 @@ import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { LOAD_SHAPES } from "./loadShapes";
+import { StageCurvePreview } from "./StageCurvePreview";
 
 type Props = {
   scenarioId: string;
@@ -706,6 +707,27 @@ export function RunDialog({
                   각 단계는 목표 0–1,000,000 · 지속 ≥1초, 최소 한 단계의 목표 &gt; 0 이어야 합니다
                 </p>
               )}
+              {(() => {
+                const previewStages = stages
+                  .map((s) => ({
+                    target: Number(s.target),
+                    duration_seconds: Number(s.duration_seconds),
+                  }))
+                  .filter(
+                    (s) =>
+                      Number.isFinite(s.target) &&
+                      Number.isFinite(s.duration_seconds) &&
+                      s.duration_seconds > 0,
+                  );
+                return previewStages.length > 0 ? (
+                  <div className="mt-2">
+                    <span className="text-xs text-slate-500">미리보기</span>
+                    <div className="h-32">
+                      <StageCurvePreview stages={previewStages} />
+                    </div>
+                  </div>
+                ) : null;
+              })()}
               <div className="grid grid-cols-2 gap-4 mt-3">
                 <label className="block text-sm">
                   <span className="text-slate-600">Max in-flight</span>
