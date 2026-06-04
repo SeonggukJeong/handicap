@@ -106,3 +106,33 @@ async fn open_loop_cancel_aborts_promptly() {
     let res = h.await.unwrap();
     assert!(matches!(res, Err(handicap_engine::EngineError::Aborted)));
 }
+
+// vu_id (= slot index, 0..max_in_flight) is rendered into the request and observed
+// at the target. With max_in_flight=2, only slot ids {0,1} ever appear.
+#[tokio::test]
+async fn open_loop_vu_id_is_slot_index_bounded_by_pool() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        "version: 1\nname: ol\nsteps:\n  - id: 01HX0000000000000000000011\n    name: get\n    type: http\n    request:\n      method: GET\n      url: {}/u/${{vu_id}}\n    assert:\n      - status: 200\n",
+        server.uri()
+    );
+    let scn: Arc<Scenario> = Arc::new(serde_yaml::from_str(&yaml).unwrap());
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(32);
+    let cancel = CancellationToken::new();
+    let h = tokio::spawn(run_scenario_open_loop(scn, plan(40, 2, 2), tx, cancel));
+    while rx.recv().await.is_some() {}
+    h.await.unwrap().unwrap();
+    let reqs = server.received_requests().await.unwrap();
+    assert!(!reqs.is_empty());
+    for r in &reqs {
+        let p = r.url.path();
+        assert!(
+            p == "/u/0" || p == "/u/1",
+            "vu_id must be slot 0 or 1, got {p}"
+        );
+    }
+}
