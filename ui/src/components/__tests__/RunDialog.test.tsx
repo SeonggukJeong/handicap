@@ -872,6 +872,86 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
   });
 
+  it("curve mode: submits stages payload with duration_seconds 0 and no target_rps", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RSTG1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 0, ramp_up_seconds: 0, duration_seconds: 0, max_in_flight: 50 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    // default seeded 1 row → set its target/duration
+    await user.clear(screen.getByLabelText("stage target 0"));
+    await user.type(screen.getByLabelText("stage target 0"), "200");
+    await user.clear(screen.getByLabelText("stage duration 0"));
+    await user.type(screen.getByLabelText("stage duration 0"), "30");
+    await user.clear(screen.getByLabelText("Max in-flight"));
+    await user.type(screen.getByLabelText("Max in-flight"), "50");
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RSTG1"));
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.stages).toEqual([{ target: 200, duration_seconds: 30 }]);
+    expect(body.profile.target_rps).toBeUndefined();
+    expect(body.profile.duration_seconds).toBe(0);
+    expect(body.profile.max_in_flight).toBe(50);
+  });
+
+  it("curve mode: + 단계 추가 adds a row; × removes it", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /단계 추가/ }));
+    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(2);
+    await user.click(screen.getAllByRole("button", { name: /remove stage/i })[1]);
+    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+  });
+
+  it("curve mode: Run disabled when all targets are 0", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.clear(screen.getByLabelText("stage target 0"));
+    await user.type(screen.getByLabelText("stage target 0"), "0");
+    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+  });
+
+  it("prefills curve mode from initial.profile.stages", () => {
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 0,
+        http_timeout_seconds: 30,
+        data_binding: null,
+        max_in_flight: 50,
+        stages: [{ target: 100, duration_seconds: 10 }],
+      },
+      env: {},
+    });
+    expect(screen.getByRole("radio", { name: /곡선/ })).toBeChecked();
+    expect(screen.getByLabelText("stage target 0")).toHaveValue(100);
+  });
+
   it("submits target_rps and max_in_flight in open-loop mode", async () => {
     fetchMock.mockImplementation(() =>
       jsonResponse({
