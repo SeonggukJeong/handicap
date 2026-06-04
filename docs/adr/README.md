@@ -27,6 +27,16 @@
 | [0019](0019-worker-dispatcher-abstraction.md) | Worker dispatcher 추상화 (subprocess local-dev / K8s Job prod) | Accepted |
 | [0020](0020-control-flow-loop-node.md) | 첫 제어 흐름 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count) | Accepted |
 | [0021](0021-loop-metric-breakdown.md) | loop 메트릭 breakdown: per-run cap + overflow sentinel, counts-only | Accepted |
+| [0022](0022-data-driven-datasets.md) | Data-driven 데이터셋: 독립 리소스 + 서버 파싱 + 바인딩/주입 | Accepted |
+| [0023](0023-conditional-node.md) | Conditional 노드: 평탄 if/elif/else + 재귀 조건 트리 + lenient 평가 | Accepted |
+| [0024](0024-run-presets-independent-resource.md) | Run 프리셋: scenario-scoped 독립 리소스 + Profile 재사용 | Accepted |
+| [0025](0025-environments-resource.md) | 환경(Environments): env-namespace 전용 top-level 재사용 리소스 | Accepted |
+| [0026](0026-scenario-editor-test-run.md) | 시나리오 에디터 test-run: 컨트롤러 in-process 단일패스 trace | Accepted |
+| [0027](0027-multi-worker-fanout.md) | 멀티 워커 fan-out: 계획된 분산 실행 (컨트롤러 권위 + per-run 상태머신) | Accepted |
+| [0028](0028-run-level-slo-criteria.md) | Run-level SLO/pass-fail criteria (리포트 verdict) | Accepted |
+| [0029](0029-json-body-type-cast-injection.md) | JSON Body 타입 캐스트 주입 (`{{var:num}}`/`{{var:bool}}`) | Accepted |
+| [0030](0030-run-comparison-report-export.md) | Run 비교 + 리포트 Export (CSV/XLSX) | Accepted |
+| [0031](0031-open-loop-arrival-rate-execution-model.md) | Open-loop / Arrival-rate 실행 모델 | Accepted |
 
 ## 새 ADR 추가 절차
 

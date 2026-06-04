@@ -41,6 +41,13 @@
 - **overflow는 엔진에서 `u32::MAX` sentinel** (Slice 7-1): loop_index cap 초과는 엔진 `aggregator.rs` 에서 `u32::MAX` 버킷으로 fold. controller가 이를 `null` 로 변환한다 — sentinel 의미를 아는 레이어는 엔진과 controller `build_report` 뿐. (변환 쪽은 `crates/controller/CLAUDE.md`.)
 - **분기 결정은 `Step::If` arm 에서 `Aggregator::record_branch(step_id, branch)` 로 기록** (Slice 9d): counts-only, **cap 없음**(브랜치 수 유한, `loop_breakdown_cap` 무관). `MetricFlush.branch_stats` 는 세 번째 드레인 벡터(periodic + final flush 둘 다). 레이블: `"then"` / `"elif_{j}"` / `"else"` / `"none"`. **`"none"` = 조건 false + elif 모두 false + else 비어있거나 absent** — http leaf가 없어 step 메트릭에 붙일 수 없는 전용 결정 카운터.
 
+## 오픈루프 (`run_scenario_open_loop`, S-C)
+
+- **closed-loop와 격리된 별도 함수** (S-C): `run_scenario`/`run_vu` 무변경(byte-identical 구조적 보장). `run_arrival`은 `run_vu` iteration-body의 의도된 복제(run-level think time 제외). `target_rps` 미지정 → `run_scenario`(기존) 호출 — open-loop 파일을 건드려도 closed-loop 회귀 0.
+- **슬롯 풀 = `Vec<Arc<VuClient>>` + 사전 적재 mpsc free-index 큐** (S-C): bare `Semaphore`는 permit에 인덱스가 없어 "슬롯=vu_id" 정체성을 못 만들어 기각. 큐가 permit *겸* 슬롯 식별자라 별도 세마포어 불필요. 각 `Arc<VuClient>`는 자체 cookie jar를 슬롯 수명 내내 유지(ADR-0018 일관).
+- **`dropped` run-total은 final flush 한 번에만 실림** (S-C): periodic flush는 `dropped=0`이라 워커 forwarder의 빈-배치 스킵 가드에 `&& flush.dropped == 0` 조건이 필수 — 이게 없으면 dropped만 실린 final flush가 "빈 배치"로 오인돼 유실된다. closed-loop `run_scenario`의 `MetricFlush{}` 리터럴 2곳(`runner.rs:169`, `:203`)에도 `dropped: 0` 명시 필요(additive, 컴파일러 강제).
+- **open-loop `iter_id` = 글로벌 arrival 카운터** (S-C): closed-loop의 per-VU 단조 `iter_id`를 대체. `select_index(vu_id=슬롯, iter_id=arrival_index, …)` 시그니처 무변경. `iter_random`은 시드되지만 슬롯↔arrival 페어링이 런타임 스케줄링에 달려 정확한 per-arrival 행 할당은 비결정적(분포만 재현).
+
 ## 런타임 / 동시성
 
 - **mpsc 플러셔 종료** (Slice 1): 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
