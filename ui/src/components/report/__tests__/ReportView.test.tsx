@@ -87,6 +87,7 @@ const FIXTURE: Report = {
     },
   ],
   status_distribution: { "200": 14, "500": 1 },
+  dropped: 0,
 };
 
 describe("ReportView", () => {

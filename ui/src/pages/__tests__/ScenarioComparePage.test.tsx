@@ -52,6 +52,7 @@ const baseReport = {
   windows: [],
   if_breakdown: [],
   verdict: null,
+  dropped: 0,
 };
 
 const reportB = {

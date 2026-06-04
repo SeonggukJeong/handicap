@@ -213,6 +213,7 @@ export const ReportSchema = z
     if_breakdown: z.array(IfBreakdownSchema).optional(),
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
+    dropped: z.number(),
   })
   .strict();
 

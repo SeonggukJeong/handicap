@@ -126,7 +126,11 @@ export function ReportView({ report }: Props) {
       )}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} /> : null}
-      <Summary summary={report.summary} />
+      <Summary
+        summary={report.summary}
+        dropped={report.dropped}
+        targetRps={(report.run.profile as { target_rps?: number } | null)?.target_rps ?? null}
+      />
       <TimeSeriesChart
         title="Requests / second"
         yLabel="req/s"

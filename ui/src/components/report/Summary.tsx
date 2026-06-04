@@ -1,8 +1,12 @@
 import type { ReportSummary } from "../../api/schemas";
 
-type Props = { summary: ReportSummary };
+type Props = {
+  summary: ReportSummary;
+  dropped?: number;
+  targetRps?: number | null;
+};
 
-export function Summary({ summary }: Props) {
+export function Summary({ summary, dropped, targetRps }: Props) {
   const cards: Array<{ label: string; value: string }> = [
     { label: "Total requests", value: summary.count.toLocaleString() },
     { label: "Errors", value: summary.errors.toLocaleString() },
@@ -12,10 +16,27 @@ export function Summary({ summary }: Props) {
     { label: "p95", value: `${summary.p95_ms} ms` },
     { label: "p99", value: `${summary.p99_ms} ms` },
   ];
+
+  if (targetRps != null) {
+    const droppedCount = dropped ?? 0;
+    const total = droppedCount + summary.count;
+    const dropRate = total === 0 ? 0 : droppedCount / total;
+    const dropPct = (dropRate * 100).toFixed(1);
+    cards.push(
+      { label: "Target RPS", value: targetRps.toLocaleString() },
+      {
+        label: "Dropped",
+        value: `${droppedCount.toLocaleString()} (${dropPct}%)`,
+      },
+    );
+  }
+
+  const gridColsClass = targetRps != null ? "md:grid-cols-9" : "md:grid-cols-7";
+
   return (
     <section aria-label="Report summary" className="mb-6">
       <h3 className="text-lg font-semibold mb-2">Summary</h3>
-      <div className="grid grid-cols-3 md:grid-cols-7 gap-3 text-sm">
+      <div className={`grid grid-cols-3 ${gridColsClass} gap-3 text-sm`}>
         {cards.map((c) => (
           <div key={c.label} className="border border-slate-200 rounded-md p-3 bg-white">
             <div className="text-slate-500 text-xs">{c.label}</div>
