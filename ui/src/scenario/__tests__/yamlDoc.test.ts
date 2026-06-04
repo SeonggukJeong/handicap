@@ -124,6 +124,29 @@ describe("applyEdit — setStepField", () => {
     const round = serializeDoc(out.doc);
     expect(round).toMatch(/X-Trace:\s*"?1"?/);
   });
+
+  it("per-step think_time survives set → serialize → parse → normalize (not write-only)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error(`expected ok: ${out.error}`);
+    const stepId = out.model.steps[0].id; // first http step's ULID
+    applyEdit(out.doc, {
+      type: "setStepField",
+      stepId,
+      path: ["think_time"],
+      value: { min_ms: 100, max_ms: 500 },
+    });
+    const yaml = serializeDoc(out.doc);
+    expect(yaml).toContain("min_ms: 100"); // write path
+
+    const reparsed = parseScenarioDoc(yaml);
+    if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
+    const step = reparsed.model.steps[0];
+    // read passthrough: normalizeStep must carry think_time, and Zod must accept it
+    expect(step.type === "http" ? step.think_time : undefined).toEqual({
+      min_ms: 100,
+      max_ms: 500,
+    });
+  });
 });
 
 describe("applyEdit — addStep and removeStep", () => {

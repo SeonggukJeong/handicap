@@ -73,6 +73,16 @@ export const ExtractModel = z.discriminatedUnion("from", [
 ]);
 export type Extract = z.infer<typeof ExtractModel>;
 
+export const ThinkTimeModel = z
+  .object({
+    min_ms: z.number().int().min(0),
+    max_ms: z.number().int().min(0),
+  })
+  .refine((t) => t.min_ms <= t.max_ms && t.max_ms <= 600_000, {
+    message: "min_ms <= max_ms <= 600000",
+  });
+export type ThinkTime = z.infer<typeof ThinkTimeModel>;
+
 export const HttpStepModel = z
   .object({
     id: z.string().regex(ULID_RE, "step id must be a ULID"),
@@ -82,6 +92,7 @@ export const HttpStepModel = z
     assert: z.array(AssertionModel).default([]),
     extract: z.array(ExtractModel).default([]),
     timeout_seconds: z.number().int().min(1).max(600).optional(),
+    think_time: ThinkTimeModel.optional(),
   })
   .strict();
 export type HttpStep = z.infer<typeof HttpStepModel>;
