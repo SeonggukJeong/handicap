@@ -95,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
         WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
             args.worker_bin.clone(),
             args.grpc,
+            db.clone(),
         )),
         WorkerMode::Kubernetes => {
             if args.worker_image.is_empty() {

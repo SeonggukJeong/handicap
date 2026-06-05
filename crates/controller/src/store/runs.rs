@@ -276,6 +276,26 @@ pub async fn mark_failed(db: &Db, id: &str, message: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// Like [`mark_failed`] but only transitions a run that is still active
+/// (`pending`/`running`). Returns `true` if it changed the row. Used by the
+/// subprocess reaper to fail a run whose worker process died without reporting
+/// a terminal phase — WITHOUT clobbering a run already finalized by the gRPC
+/// paths (`record_phase` Completed/Failed/Aborted, user abort). The single
+/// guarded UPDATE avoids a check-then-write race with those concurrent paths.
+pub async fn mark_failed_if_active(db: &Db, id: &str, message: &str) -> sqlx::Result<bool> {
+    let now = super::now_ms();
+    let res = sqlx::query(
+        "UPDATE runs SET status = 'failed', ended_at = ?, message = ? \
+         WHERE id = ? AND status IN ('pending', 'running')",
+    )
+    .bind(now)
+    .bind(message)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() == 1)
+}
+
 /// Returns `true` if any non-terminal run (status `pending` or `running`)
 /// references `dataset_id` in its `profile_json.data_binding`.
 /// Used by the dataset DELETE guard (spec §10, Slice 8c Task 13).
@@ -385,6 +405,99 @@ mod tests {
         // Status must remain aborted — the guard held.
         let still_aborted = get(&db, &run.id).await.unwrap().unwrap();
         assert_eq!(still_aborted.status, RunStatus::Aborted);
+    }
+
+    /// Seed one `pending` run (scenario FK satisfied) and return its id.
+    async fn seed_pending(db: &Db) -> String {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+        let yaml = "version: 1\nname: test\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(db, &scenario, yaml).await.unwrap();
+        let profile = Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+        };
+        insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
+            .await
+            .unwrap()
+            .id
+    }
+
+    #[tokio::test]
+    async fn mark_failed_if_active_transitions_active_runs_with_message() {
+        let db = test_db().await;
+
+        // pending → failed (true) + message recorded.
+        let pending = seed_pending(&db).await;
+        let changed = mark_failed_if_active(&db, &pending, "worker died")
+            .await
+            .unwrap();
+        assert!(changed, "pending run must transition to failed");
+        let row = get(&db, &pending).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some("worker died"));
+        assert!(row.ended_at.is_some(), "failure stamps ended_at");
+
+        // running → failed (true).
+        let running = seed_pending(&db).await;
+        set_status(&db, &running, RunStatus::Running, Some(1), None)
+            .await
+            .unwrap();
+        assert!(
+            mark_failed_if_active(&db, &running, "x").await.unwrap(),
+            "running run must transition to failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_failed_if_active_is_noop_on_terminal_runs() {
+        let db = test_db().await;
+
+        // completed → unchanged (gRPC path already finalized it; reaper must not clobber).
+        let completed = seed_pending(&db).await;
+        set_status(&db, &completed, RunStatus::Completed, None, Some(2))
+            .await
+            .unwrap();
+        assert!(
+            !mark_failed_if_active(&db, &completed, "late")
+                .await
+                .unwrap(),
+            "completed run must NOT be clobbered to failed"
+        );
+        assert_eq!(
+            get(&db, &completed).await.unwrap().unwrap().status,
+            RunStatus::Completed
+        );
+
+        // aborted → unchanged.
+        let aborted = seed_pending(&db).await;
+        mark_aborted(&db, &aborted).await.unwrap();
+        assert!(
+            !mark_failed_if_active(&db, &aborted, "late").await.unwrap(),
+            "aborted run must NOT be clobbered to failed"
+        );
+        assert_eq!(
+            get(&db, &aborted).await.unwrap().unwrap().status,
+            RunStatus::Aborted
+        );
+
+        // unknown run id → no-op false (no panic).
+        assert!(
+            !mark_failed_if_active(&db, "does-not-exist", "x")
+                .await
+                .unwrap()
+        );
     }
 
     #[test]

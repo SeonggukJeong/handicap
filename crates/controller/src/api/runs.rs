@@ -634,10 +634,11 @@ mod tests {
     async fn state_with(db: crate::store::Db, capacity: u32) -> AppState {
         AppState {
             db: db.clone(),
-            coord: CoordinatorState::with_capacity(db, capacity),
+            coord: CoordinatorState::with_capacity(db.clone(), capacity),
             dispatcher: Arc::new(crate::dispatcher::subprocess::SubprocessDispatcher::new(
                 "worker".to_string(),
                 "127.0.0.1:1".parse().unwrap(),
+                db,
             )),
             ui_dir: None,
             dataset_max_rows: 1_000_000,

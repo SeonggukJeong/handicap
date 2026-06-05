@@ -23,6 +23,7 @@ async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
     let dispatcher = Arc::new(SubprocessDispatcher::new(
         "/nonexistent".to_string(),
         "127.0.0.1:0".parse().unwrap(),
+        db.clone(),
     ));
     app::AppState {
         db,

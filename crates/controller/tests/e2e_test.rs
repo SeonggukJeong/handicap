@@ -97,6 +97,7 @@ async fn full_slice_1_e2e() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
         dataset_max_rows: 1_000_000,
@@ -260,6 +261,7 @@ async fn two_step_with_env_e2e() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -442,6 +444,7 @@ async fn abort_e2e_marks_run_aborted() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
         dataset_max_rows: 1_000_000,
@@ -601,6 +604,7 @@ async fn loop_e2e_inner_step_counts() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -768,6 +772,7 @@ async fn loop_breakdown_e2e() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -981,6 +986,7 @@ async fn data_binding_per_vu_injects_distinct_values() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -1134,6 +1140,7 @@ async fn report_e2e_smoke() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -1316,6 +1323,7 @@ async fn if_branch_report_e2e_smoke() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -1472,6 +1480,7 @@ async fn open_loop_e2e_smoke() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -1623,6 +1632,7 @@ async fn stages_open_loop_e2e_smoke() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
@@ -1810,6 +1820,7 @@ async fn open_loop_dropped_reaches_report() {
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db.clone(),
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,

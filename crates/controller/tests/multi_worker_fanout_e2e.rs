@@ -57,11 +57,12 @@ async fn boot(
     worker_bin: &Path,
 ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
     let app = app::router(app::AppState {
-        db,
+        db: db.clone(),
         coord: coord.clone(),
         dispatcher: Arc::new(SubprocessDispatcher::new(
             worker_bin.to_string_lossy().to_string(),
             grpc_addr,
+            db,
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,

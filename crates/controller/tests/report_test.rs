@@ -16,11 +16,12 @@ use tower::ServiceExt;
 fn make_app(db: handicap_controller::store::Db) -> axum::Router {
     let coord = CoordinatorState::new(db.clone());
     app::router(app::AppState {
-        db,
+        db: db.clone(),
         coord,
         dispatcher: Arc::new(SubprocessDispatcher::new(
             "/nonexistent".to_string(),
             "127.0.0.1:0".parse().unwrap(),
+            db,
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
