@@ -127,8 +127,50 @@ pub struct CriterionResult {
     pub passed: bool,
 }
 
+/// 특정 클래스(prefix '4'/'5')의 응답 수.
+pub(crate) fn status_class_count(status_dist: &BTreeMap<String, u64>, first: char) -> u64 {
+    status_dist
+        .iter()
+        .filter(|(k, _)| k.starts_with(first))
+        .map(|(_, v)| *v)
+        .sum()
+}
+
+/// HTTP 응답 총수(키 첫 글자 '1'..='5'; transport 실패 "0" 제외).
+/// insights status_class와 동일 분모 — Task 3에서 insights가 이 함수를 재사용한다.
+pub(crate) fn http_response_total(status_dist: &BTreeMap<String, u64>) -> u64 {
+    status_dist
+        .iter()
+        .filter(|(k, _)| matches!(k.chars().next(), Some('1'..='5')))
+        .map(|(_, v)| *v)
+        .sum()
+}
+
+/// per-second 총 RPS(그 ts_second의 모든 step count 합)의 정상상태 최소값.
+/// 첫·마지막 second(경계 부분초)를 항상 제외하고, 추가로 앞 `warmup`초를 제외한다.
+/// eligible 윈도가 없으면(짧은 run·과대 warmup) None → criterion skip(평가 불가).
+fn min_window_rps(windows: &[ReportWindow], warmup_seconds: u32) -> Option<f64> {
+    let mut by_sec: BTreeMap<i64, u64> = BTreeMap::new();
+    for w in windows {
+        *by_sec.entry(w.ts_second).or_default() += w.count;
+    }
+    let first = *by_sec.keys().next()?;
+    let last = *by_sec.keys().next_back()?;
+    let lo = first + warmup_seconds as i64;
+    by_sec
+        .iter()
+        .filter(|&(&ts, _)| ts > first && ts < last && ts >= lo)
+        .map(|(_, &c)| c as f64)
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+}
+
 /// 순수: 입력만으로 결정적. 활성(Some) 기준만 결과 행을 만든다.
-pub fn evaluate_criteria(c: &crate::store::runs::Criteria, s: &ReportSummary) -> Verdict {
+pub fn evaluate_criteria(
+    c: &crate::store::runs::Criteria,
+    s: &ReportSummary,
+    status_dist: &BTreeMap<String, u64>,
+    windows: &[ReportWindow],
+) -> Verdict {
     let mut criteria = Vec::new();
 
     {
@@ -163,6 +205,44 @@ pub fn evaluate_criteria(c: &crate::store::runs::Criteria, s: &ReportSummary) ->
             passed: actual <= t,
         });
     }
+    // status-class rate(분모=HTTP 응답 수, transport "0" 제외) — 4xx, 5xx 순.
+    let http_total = http_response_total(status_dist);
+    for (first, rate_t, metric) in [
+        ('4', c.max_4xx_rate, "4xx_rate"),
+        ('5', c.max_5xx_rate, "5xx_rate"),
+    ] {
+        if let Some(t) = rate_t {
+            let class = status_class_count(status_dist, first);
+            let actual = if http_total == 0 {
+                0.0
+            } else {
+                class as f64 / http_total as f64
+            };
+            criteria.push(CriterionResult {
+                metric: metric.to_string(),
+                direction: "max".to_string(),
+                threshold: t,
+                actual,
+                passed: actual <= t,
+            });
+        }
+    }
+    // status-class count — 4xx, 5xx 순.
+    for (first, count_t, metric) in [
+        ('4', c.max_4xx_count, "4xx_count"),
+        ('5', c.max_5xx_count, "5xx_count"),
+    ] {
+        if let Some(t) = count_t {
+            let (threshold, actual) = (t as f64, status_class_count(status_dist, first) as f64);
+            criteria.push(CriterionResult {
+                metric: metric.to_string(),
+                direction: "max".to_string(),
+                threshold,
+                actual,
+                passed: actual <= threshold,
+            });
+        }
+    }
     if let Some(t) = c.min_rps {
         criteria.push(CriterionResult {
             metric: "rps".to_string(),
@@ -171,6 +251,19 @@ pub fn evaluate_criteria(c: &crate::store::runs::Criteria, s: &ReportSummary) ->
             actual: s.rps,
             passed: s.rps >= t,
         });
+    }
+    // per-window 최소 RPS: 정상상태 윈도의 최소 RPS ≥ threshold. eligible 부족이면 skip(행 미생성).
+    if let Some(t) = c.min_window_rps {
+        let warmup = c.rps_warmup_seconds.unwrap_or(0);
+        if let Some(actual) = min_window_rps(windows, warmup) {
+            criteria.push(CriterionResult {
+                metric: "min_window_rps".to_string(),
+                direction: "min".to_string(),
+                threshold: t,
+                actual,
+                passed: actual >= t,
+            });
+        }
     }
 
     let passed = criteria.iter().all(|r| r.passed);
@@ -370,7 +463,10 @@ pub fn build_report(
     };
     // completed + 활성 criteria일 때만 verdict (spec §6). RunStatus는 Copy.
     let verdict = match (run.status, run.profile.criteria.as_ref()) {
-        (RunStatus::Completed, Some(c)) if c.has_any() => Some(evaluate_criteria(c, &summary)),
+        (RunStatus::Completed, Some(c)) if c.has_any() => {
+            let v = evaluate_criteria(c, &summary, &status_dist, &windows);
+            if v.criteria.is_empty() { None } else { Some(v) }
+        }
         _ => None,
     };
     let insights = crate::insights::derive_insights(
@@ -701,7 +797,12 @@ mod tests {
             min_rps: Some(100.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(1000, 10, 200.0, 300, 400));
+        let v = evaluate_criteria(
+            &c,
+            &summary(1000, 10, 200.0, 300, 400),
+            &BTreeMap::new(),
+            &[],
+        );
         assert!(v.passed);
         assert_eq!(v.criteria.len(), 3);
     }
@@ -712,7 +813,7 @@ mod tests {
             max_p95_ms: Some(200),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(100, 0, 50.0, 300, 400));
+        let v = evaluate_criteria(&c, &summary(100, 0, 50.0, 300, 400), &BTreeMap::new(), &[]);
         assert!(!v.passed);
         assert_eq!(v.criteria[0].metric, "p95_ms");
         assert_eq!(v.criteria[0].direction, "max");
@@ -726,7 +827,7 @@ mod tests {
             ..Default::default()
         };
         // 0 errors / 0 count => 0.0 <= 0.0 → pass
-        assert!(evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0)).passed);
+        assert!(evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]).passed);
     }
 
     #[test]
@@ -736,7 +837,7 @@ mod tests {
             ..Default::default()
         };
         // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
-        assert!(!evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0)).passed);
+        assert!(!evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]).passed);
     }
 
     #[test]
@@ -812,5 +913,158 @@ mod tests {
     fn build_report_no_latency_without_samples() {
         let r = run_row();
         assert!(build_report(&r, "", &[], &[], &[]).latency.is_none());
+    }
+
+    // ReportWindow 빌더(per-window RPS 테스트용). 이름은 `rwin` — 기존 `win`은
+    // 6-인자 `WindowWithHdr` 빌더라 같은 이름이면 E0428(중복 정의). 절대 `win`으로 쓰지 말 것.
+    fn rwin(ts: i64, count: u64) -> ReportWindow {
+        ReportWindow {
+            ts_second: ts,
+            step_id: "s".to_string(),
+            count,
+            error_count: 0,
+            status_counts: BTreeMap::new(),
+            p50_ms: 0,
+            p95_ms: 0,
+            p99_ms: 0,
+        }
+    }
+    fn dist(pairs: &[(&str, u64)]) -> BTreeMap<String, u64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn http_response_total_excludes_transport_zero() {
+        let d = dist(&[("0", 5), ("200", 10), ("301", 2), ("404", 3), ("500", 1)]);
+        assert_eq!(http_response_total(&d), 16); // 10+2+3+1, "0" 제외
+        assert_eq!(status_class_count(&d, '4'), 3);
+        assert_eq!(status_class_count(&d, '5'), 1);
+    }
+
+    #[test]
+    fn status_class_rate_uses_http_total_denominator() {
+        // 5xx rate = 10 / (90+10) = 0.1 > 0.05 → fail
+        let c = Criteria {
+            max_5xx_rate: Some(0.05),
+            ..Default::default()
+        };
+        let d = dist(&[("200", 90), ("500", 10)]);
+        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[]);
+        assert_eq!(v.criteria[0].metric, "5xx_rate");
+        assert!((v.criteria[0].actual - 0.1).abs() < 1e-9);
+        assert!(!v.criteria[0].passed);
+    }
+
+    #[test]
+    fn status_class_rate_zero_http_is_zero() {
+        // transport 실패만 → http_total 0 → rate 0.0 → max_5xx_rate:0.0 통과
+        let c = Criteria {
+            max_5xx_rate: Some(0.0),
+            ..Default::default()
+        };
+        let d = dist(&[("0", 5)]);
+        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[]);
+        assert!(v.criteria[0].passed);
+        assert_eq!(v.criteria[0].actual, 0.0);
+    }
+
+    #[test]
+    fn status_class_count_strict_zero_fails_on_any() {
+        let c = Criteria {
+            max_5xx_count: Some(0),
+            ..Default::default()
+        };
+        let d = dist(&[("200", 10), ("500", 1)]);
+        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[]);
+        assert_eq!(v.criteria[0].metric, "5xx_count");
+        assert_eq!(v.criteria[0].actual, 1.0);
+        assert!(!v.criteria[0].passed);
+    }
+
+    #[test]
+    fn min_window_rps_excludes_boundaries_and_sums_steps() {
+        // 경계초(0,3) 제외, sec1의 두 step(40+60=100), sec2=200 → min 100.
+        let w = vec![
+            rwin(0, 999),
+            rwin(1, 40),
+            rwin(1, 60),
+            rwin(2, 200),
+            rwin(3, 999),
+        ];
+        assert_eq!(super::min_window_rps(&w, 0), Some(100.0));
+    }
+
+    #[test]
+    fn min_window_rps_warmup_skips_leading_seconds() {
+        // secs 0..5. 경계 0,5 제외. warmup 2 → ts>=2.
+        let w = vec![
+            rwin(0, 100),
+            rwin(1, 10),
+            rwin(2, 20),
+            rwin(3, 30),
+            rwin(4, 40),
+            rwin(5, 100),
+        ];
+        assert_eq!(super::min_window_rps(&w, 0), Some(10.0)); // {1,2,3,4}
+        assert_eq!(super::min_window_rps(&w, 2), Some(20.0)); // {2,3,4}
+    }
+
+    #[test]
+    fn min_window_rps_insufficient_windows_is_none() {
+        assert_eq!(super::min_window_rps(&[], 0), None);
+        assert_eq!(super::min_window_rps(&[rwin(5, 100)], 0), None); // 1초
+        assert_eq!(super::min_window_rps(&[rwin(0, 100), rwin(1, 50)], 0), None); // 2초(경계만)
+    }
+
+    #[test]
+    fn min_window_rps_criterion_skipped_when_insufficient() {
+        let c = Criteria {
+            min_window_rps: Some(1.0),
+            ..Default::default()
+        };
+        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]);
+        assert!(v.criteria.is_empty());
+    }
+
+    #[test]
+    fn evaluate_criteria_output_order_is_fixed() {
+        let c = Criteria {
+            max_p50_ms: Some(1000),
+            max_error_rate: Some(1.0),
+            max_4xx_rate: Some(1.0),
+            max_5xx_rate: Some(1.0),
+            max_4xx_count: Some(999),
+            max_5xx_count: Some(999),
+            min_rps: Some(0.0),
+            min_window_rps: Some(0.0),
+            ..Default::default()
+        };
+        let d = dist(&[("200", 30)]);
+        let w = vec![rwin(0, 10), rwin(1, 20), rwin(2, 30)]; // eligible {1}=20
+        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w);
+        let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
+        assert_eq!(
+            metrics,
+            vec![
+                "p50_ms",
+                "error_rate",
+                "4xx_rate",
+                "5xx_rate",
+                "4xx_count",
+                "5xx_count",
+                "rps",
+                "min_window_rps"
+            ]
+        );
+    }
+
+    #[test]
+    fn build_report_verdict_none_when_only_window_rps_and_short_run() {
+        let mut run = run_row(); // Completed
+        run.profile.criteria = Some(Criteria {
+            min_window_rps: Some(1.0),
+            ..Default::default()
+        });
+        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
     }
 }
