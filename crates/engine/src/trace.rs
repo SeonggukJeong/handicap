@@ -303,9 +303,41 @@ async fn trace_steps(
                 ))
                 .await;
             }
-            // P-a Task 3: trace arm — implemented in the next task.
-            Step::Parallel(_p) => {
-                todo!("parallel trace arm — P-a Task 3")
+            Step::Parallel(par) => {
+                // Trace is a single 1-VU pass: timing is irrelevant, so run branches
+                // SEQUENTIALLY (no concurrency machinery). Each branch runs on its own
+                // clone of the entry vars (isolated, matching the load path), then its
+                // declared outputs are merged back namespaced so downstream rows
+                // resolve {{branch.var}} (mirror runner::execute_steps' Parallel arm).
+                // No decision row for the node itself (all branches run); each branch
+                // http appears as an ordinary Http row in declaration order.
+                let entry: BTreeMap<String, String> = iter_vars.clone();
+                for branch in &par.branches {
+                    if state.truncated {
+                        return;
+                    }
+                    // The merge-back below runs even if this branch's recursion
+                    // truncates mid-way (max_requests): partial extracts are
+                    // intentionally preserved so the preview shows what resolved.
+                    // Do NOT add an early-return between the recursion and the merge.
+                    let mut branch_vars = entry.clone();
+                    Box::pin(trace_steps(
+                        client,
+                        &branch.steps,
+                        &mut branch_vars,
+                        env,
+                        loop_index,
+                        opts,
+                        deadline,
+                        state,
+                    ))
+                    .await;
+                    for k in branch.output_var_names() {
+                        if let Some(v) = branch_vars.get(k) {
+                            iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
+                        }
+                    }
+                }
             }
         }
     }
