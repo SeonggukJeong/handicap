@@ -35,6 +35,8 @@
 
 이 task는 `buildProfile`의 모드 분기(`RunDialog.tsx:310-343`)와 모드 검증 플래그(`RunDialog.tsx:208-258`)를 순수함수로 추출한다. RunDialog는 Task 3에서 이 함수를 쓴다(이 task에선 RunDialog 무변경).
 
+> **주(구현자):** `LoadModelState`는 **`httpTimeout`을 의도적으로 포함하지 않는다**(spec §5.1은 나열하지만 의도적 차이 — 리뷰 I-2). `http_timeout_seconds`는 모드 무관 공유 설정이라 RunDialog의 `base`에 남고, 단일 입력은 Task 3에서 RunDialog가 렌더한다. `LoadModelState`에 `httpTimeout`을 넣지 말 것(죽은 필드).
+
 - [ ] **Step 1: 실패하는 테스트 작성**
 
 Create `ui/src/components/__tests__/loadModel.test.ts`:
@@ -864,7 +866,7 @@ Edit `RunDialog.tsx` — 현재 `:208-258`의 모드 검증 블록(`rampInvalid`
   };
   const loadErrs = loadModelErrors(loadState);
 ```
-이후 같은 파일에서 `rampInvalid`·`targetRpsInvalid`·`maxInFlightInvalid`·`stagesInvalid`를 참조하던 곳을 `loadErrs.rampInvalid` 등으로 바꾼다(아래 Step 5의 canSubmit + Step 7에서 JSX 제거로 대부분 사라짐). `loopCapInvalid`/`httpTimeoutInvalid`/`thinkInvalid`/`sloActiveCount`/`pacingActiveCount`는 **그대로 둔다**.
+이후 같은 파일에서 `rampInvalid`·`targetRpsInvalid`·`maxInFlightInvalid`·`stagesInvalid`를 참조하던 곳을 `loadErrs.rampInvalid` 등으로 바꾼다(아래 Step 5의 canSubmit + Step 7에서 JSX 제거로 대부분 사라짐). **또한 그 4개 `*Invalid`만 쓰던 중간 const `targetRpsNum`/`maxInFlightNum`(현 `:227-228`)도 함께 삭제**한다 — 안 지우면 `eslint --max-warnings=0`의 `@typescript-eslint/no-unused-vars`가 실패(리뷰 I-3). `loopCapInvalid`/`httpTimeoutInvalid`/`thinkInvalid`/`sloActiveCount`/`pacingActiveCount`는 **그대로 둔다**.
 
 - [ ] **Step 5: `canSubmit`를 `loadErrs`로**
 
