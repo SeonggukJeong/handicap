@@ -46,11 +46,16 @@ CURVE_QUANTILES = [0.0, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 0.999, 0.9999,
 
 ### 3.3 히스토그램 (로그 간격 버킷)
 목표 빈 수(엔진 상수) `HISTOGRAM_BINS = 40`.
+
+**버킷 카운트는 반드시 iteration 기반 분할로 구한다 — `count_between`로 빼지 않는다.** `hdrhistogram::count_between(low, high)`는 inclusive이고 `low`/`high`를 각각 HDR 서브버킷 edge로 내림/올림 snap한다(7.5.4 `lib.rs:1426-1475`). 저지연에선 로그 경계 간격이 서브버킷 폭과 비슷해 `b[i+1]-1`과 `b[i+1]`이 같은 서브버킷에 떨어지고, 그 서브버킷이 인접 두 빈에 **모두** 포함돼 `Σ count > h.len()`이 된다 — 정수 경계 dedupe로도 못 막는다(>1µs 떨어진 경계도 같은 서브버킷일 수 있음).
+
+올바른 방식(각 기록 서브버킷을 정확히 한 빈에 배정 → 정확 분할):
 - `lo = max(1, h.min())`, `hi = h.max()` (둘 다 기록된 값, µs).
-- 경계 `b[i] = round(lo * (hi/lo)^(i/N))`, i ∈ 0..=N → 로그 간격.
-- 버킷 i = `[b[i], b[i+1])` 반열림, 마지막 버킷은 max 포함. count = `h.count_between(b[i], b[i+1]-1)` (마지막은 `..=hi`).
-- **불변식**: Σ(버킷 count) == `h.len()` (총 기록 수).
-- 엣지: `h.len()==0`→`[]`(호출자가 `None` emit), `lo==hi`(전부 동일값)→단일 버킷 `[lo,hi]` count=총수. 저지연서 정수 경계가 인접 중복(1,1,2,…)이면 **단조 증가로 dedupe**(빈 수 < 40 허용).
+- 표시 경계(라벨용) `edge[i] = lo * (hi/lo)^(i/N)` (f64), i ∈ 0..=N → 로그 간격.
+- `counts[0..N] = 0`. **`h.iter_recorded()`** 로 순회하며 각 항목의 대표값 `v = it.value_iterated_to()`, 카운트 `c = it.count_since_last_iteration()`에 대해 빈 인덱스 `j = clamp(floor(N · ln(v/lo) / ln(hi/lo)), 0, N-1)`, `counts[j] += c`.
+- 버킷 i: `lower_us = round(edge[i])`, `upper_us = round(edge[i+1])`, `count = counts[i]`. (빈 카운트 0 버킷도 유지 — 축 안정.)
+- **불변식**: 각 기록 서브버킷이 `iter_recorded`에서 정확히 한 번 yield되어 한 빈에만 더해지므로 Σ(버킷 count) == `h.len()` (총 기록 수) — 정확.
+- 엣지: `h.len()==0`→`[]`(호출자가 `None` emit), `lo==hi`(전부 동일값)→단일 버킷 `[lo,hi]` count=총수.
 
 ## 4. 컴포넌트 설계
 
@@ -64,8 +69,9 @@ pub const HISTOGRAM_BINS: usize = 40;
 /// (quantile, value_us). 호출자가 h.len()==0 이면 호출하지 않는다.
 pub fn percentile_curve(h: &Histogram<u64>, quantiles: &[f64]) -> Vec<(f64, u64)>;
 
-/// (lower_us, upper_us, count). 빈→[], min==max→단일, 경계 단조 dedupe.
-/// hdrhistogram `count_between`(inclusive) 사용. 없으면 iter 폴백.
+/// (lower_us, upper_us, count). 빈→[], min==max→단일.
+/// `iter_recorded()`로 각 기록 서브버킷을 값 기준 로그 빈에 배정(정확 분할,
+/// Σcount==len). count_between 반열림 빼기 금지(§3.3 — 서브버킷 snap 이중카운트).
 pub fn log_buckets(h: &Histogram<u64>, bins: usize) -> Vec<(u64, u64, u64)>;
 ```
 
@@ -98,7 +104,7 @@ let latency = if overall.len() > 0 {
     })
 } else { None };
 ```
-`#[serde(default)]`로 골든 fixture·기존 직렬화 리포트 호환. A4b `testdata/compare_golden.json`은 델타 전용이라 무영향(추가 필드는 무시) — plan에서 round-trip 확인.
+`#[serde(default)]`로 골든 fixture·기존 직렬화 리포트 호환. A4b `testdata/compare_golden.json`은 **full `ReportJson` 객체를 담지만** 무영향 — `ReportJson`이 `deny_unknown_fields`를 안 쓰고(`report.rs:8`) 새 필드가 `#[serde(default)]`라 `latency` 없는 fixture는 `None`으로 역직렬화되고, TS 비교 측은 `summary`만 읽는다. plan에서 round-trip 확인.
 
 ### 4.3 UI
 
@@ -122,9 +128,9 @@ const LatencyDistributionSchema = z.object({
 **`.nullish()` 필수** — 서버 `Option::None`이 `null`로 직렬화될 수 있고 `.optional()`은 `null`을 거부한다(S-D 회귀 교훈, `ui/CLAUDE.md`).
 
 #### 차트 컴포넌트 (`ui/src/components/report/`)
-TimeSeriesChart 스타일 그대로: 명시 width/height, `#2563eb`(라인)·`#16a34a`(바), `CartesianGrid strokeDasharray="3 3"`, `<Tooltip />`, `isAnimationActive={false}`, `<section aria-label className="mb-6">`.
+TimeSeriesChart 스타일 그대로: 명시 width/height, `#2563eb`(라인)·`#16a34a`(바), `CartesianGrid strokeDasharray="3 3"`, `<Tooltip />`, `isAnimationActive={false}`, `<section aria-label className="mb-6">`. 헤더 태그는 `<h4>`로 통일(TimeSeriesChart와 동일; StatusDistribution의 `<h3>` 말고).
 
-- **`PercentileCurveChart.tsx`** — `LineChart`. x=분위 라벨 **카테고리 균등축**(`XAxis dataKey="label" type="category"`), 라벨: `min·p10·p25·p50·p75·p90·p95·p99·p99.9·p99.99·max`. y=지연. Tooltip에 정확한 분위+`formatLatency(value_us)`. 균등 간격이라 꼬리(p99→p99.99)가 또렷.
+- **`PercentileCurveChart.tsx`** — `LineChart`. x=분위 라벨 **카테고리 균등축**(`XAxis dataKey="label" type="category"`), 라벨: `min·p10·p25·p50·p75·p90·p95·p99·p99.9·p99.99·max`. y=지연. **`<Line type="linear">` (monotone 금지)** — `ui/CLAUDE.md` repo trap: monotone는 piecewise를 부드럽게 왜곡해 꼭 드러내야 할 p99→p99.99 꼬리를 오도한다(S-D StageCurvePreview와 동일 규칙). Tooltip에 정확한 분위+`formatLatency(value_us)`. 균등 간격이라 꼬리가 또렷.
 - **`LatencyHistogramChart.tsx`** — `BarChart`. x=버킷 **카테고리축**(틱 라벨=`formatLatency(lower_us)`, 경계가 이미 로그 간격→막대 등폭=표준 로그-binned 히스토그램). y=count. `<Bar dataKey="count" fill="#16a34a" />`. Tooltip: `[lower–upper] : count`.
   - ⚠️ **함정**: Recharts `scale="log"` 축은 bar 차트에서 까다롭다. 로그성은 백엔드 버킷 경계에 내장하고 축은 카테고리로 둔다(라벨 과밀 시 `interval`로 일부만 표시).
 
@@ -132,13 +138,13 @@ TimeSeriesChart 스타일 그대로: 명시 width/height, `#2563eb`(라인)·`#1
 `formatLatency(us: number): string` — `<1000`→`"850 µs"`, `<1_000_000`→`"1.2 ms"`, 그 이상→`"2.0 s"`. 공유 위치(예: `ui/src/components/report/format.ts` 또는 기존 유틸).
 
 #### 슬롯 — `ui/src/components/report/ReportView.tsx`
-"Latency distribution" 섹션(두 차트 세로 스택)을 **p95 TimeSeriesChart 뒤·StatusDistribution 앞**(현재 ~line 143–149 사이)에 삽입. `report.latency`가 없으면(요청 0건) 섹션 전체 미렌더.
+ReportView는 TimeSeriesChart **3개**(Requests/sec `~134`, p95 `~139`, Errors/sec `~144`)를 연달아 렌더한 뒤 `StatusDistribution`(`~149`)을 그린다. "Latency distribution" 섹션(두 차트 세로 스택)을 **Errors/sec 차트 뒤·StatusDistribution 앞**(`~line 148`과 `149` 사이)에 삽입해 세 시계열을 한 묶음으로 유지한다. `report.latency`가 없으면(요청 0건) 섹션 전체 미렌더.
 
 ## 5. 테스트 전략
 
-- **엔진 유닛** (`crates/engine/tests/percentiles_test.rs`):
-  - `percentile_curve`: 알려진 분포→알려진 분위 값, 단조 증가.
-  - `log_buckets`: Σcount == 총 기록 수, 경계 단조, `min==max` 단일 버킷, 빈 히스토그램→`[]`, 저지연 dedupe.
+- **엔진 유닛** (`crates/engine/tests/percentiles_test.rs` — **이미 존재**, `record_us`/`serialize` 헬퍼 재사용해 append):
+  - `percentile_curve`: 알려진 분포→알려진 분위 값, **단조 비감소**(non-decreasing — `value_at_quantile`는 인접 분위에 동일 값 반환 가능, strict 증가 단언 금지).
+  - `log_buckets`: Σcount == 총 기록 수(정확 분할), 경계 단조, `min==max` 단일 버킷, 빈 히스토그램→`[]`. **특히 저지연 다수 샘플(서브버킷 폭~경계 간격)에서 Σcount==len 회귀 케이스** 포함.
 - **컨트롤러** (`crates/controller/tests/report_test.rs`): round-trip(`to_value`/`from_value`) + 샘플 있을 때 `latency` Some(곡선 11점·버킷 ≤40·Σcount=총수), 샘플 없을 때 `None`.
 - **UI (RTL)**: 두 차트 fixture 렌더(막대/점 존재 단언) + `ReportSchema` parse(`latency: null`→`undefined`, 정상 객체 둘 다).
 
