@@ -215,8 +215,13 @@ fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String
                 }
                 collect_unconditional(&i.else_, true, out);
             }
-            // P-a Task 4: insights arm — implemented in the next task.
-            Step::Parallel(_p) => {}
+            Step::Parallel(p) => {
+                // All branches always run → unconditional (pass the flag through,
+                // like the loop arm). ADR-0033.
+                for b in &p.branches {
+                    collect_unconditional(&b.steps, conditional, out);
+                }
+            }
         }
     }
 }
@@ -594,5 +599,27 @@ steps:
             .unwrap();
         // pct over HTTP responses (100), not all attempts (1000): 50/100 = 0.5.
         assert!((five.pct.unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parallel_branch_steps_are_unconditional() {
+        let mut out = Vec::new();
+        let sc = handicap_engine::scenario::Scenario::from_yaml(
+            r#"
+version: 1
+name: p
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fan
+    type: parallel
+    branches:
+      - name: a
+        steps:
+          - { id: "01HX0000000000000000000011", name: ga, type: http, request: { method: GET, url: "/a" }, assert: [] }
+"#,
+        )
+        .unwrap();
+        super::collect_unconditional(&sc.steps, false, &mut out);
+        assert_eq!(out, vec!["01HX0000000000000000000011".to_string()]);
     }
 }
