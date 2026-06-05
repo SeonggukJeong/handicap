@@ -55,6 +55,14 @@
 - **`rate ≤ RATE_EPS(1e-9)` 구간 = poll-step 100ms (cancel-aware), `now < next` wait = deadline clamp** (S-D): 레이트 0 구간에서 arrival 발사 없이 100ms씩 대기. clamp 덕분에 곡선이 만든 큰 interval이 run 종료를 블록 안 함(None/고정 경로도 공유 — behaviorally-equivalent).
 - **`plan.duration`은 워커가 `sum(stage.duration_seconds)`로 계산·전달 — 엔진은 stages를 직접 sum 안 함** (S-D): 엔진은 `plan.duration`에서 deadline만 파생. 워커가 stages duration을 계산하는 책임(worker `main.rs`).
 
+## Parallel 분기 (`runner.rs`/`trace.rs`, A2)
+
+- **`execute_steps`의 `Step::Parallel` arm = `futures::future::join_all` 협력 동시성, 공유 `&VuClient`** (A2): 분기는 단일 VU task 안에서 동시 await — OS 스레드/task spawn 아님 → cookie jar·client(ADR-0018)를 **공유**한다(`client: &VuClient`를 모든 분기 future에 `&`로 전달, fresh jar-per-branch 금지 — 공유 세션 fan-out이 안 나옴). 각 분기는 entry `iter_vars`의 **자기 clone** 위에서 실행(`&mut iter_vars` 공유 불가), rng도 분기당 독립 `StdRng`(선언 순서로 VU rng에서 seed draw — `think_seed` 재현성). `Box::pin`-per-branch(If/Loop 동일, 핫 flat-http 무영향).
+- **key-origin 네임스페이스 merge는 부하(`runner.rs`)·trace(`trace.rs`) 양쪽 lockstep** (A2): 둘 다 `Branch::output_var_names()`(http leaf의 extract 변수명) → `iter_vars.insert(format!("{}.{}", branch.name, k), v)`. **부하=`join_all` 동시, trace=순차** 실행이지만 merge 의미는 byte-identical — 한쪽만 바꾸면 test-run과 실제 run의 다운스트림 변수가 어긋난다. key-origin = 분기 선언 extract 키를 노출(값-diff 아님; 부모 값 재추출해도 노출). 분기명 유니크(UI gate)라 prefix disjoint → 순서 무관.
+- **분기 에러: 진짜 `EngineError`만 전파, HTTP 실패는 lenient** (A2): `execute_step(...).await?`는 transport 실패에 `Ok(ExecOutcome{error:Some(..)})`(메트릭 기록)를 주므로 per-branch `flow?`는 genuine `EngineError`(예: `CastFailed`)만 join 후 전파. worst-flow는 `Aborted > DeadlineReached > Continue`로 post-join 계산. dead-port 분기가 run을 안 죽인다(`parallel_branch_http_failure_does_not_kill_vu`).
+- **trace `Step::Parallel`은 순차 실행 + 결정 행 없음** (A2): trace는 1-VU 단일 패스라 타이밍 무의미 → 동시성 머신러리 없이 분기 순차. parallel 노드 자체엔 결정 행 없음(전 분기 무조건 실행) — 각 분기 http가 평범한 Http 행으로 선언 순서 등장. `state.truncated` 체크로 max_requests 조기 종료 존중.
+- **`Branch.steps: Vec<Step>`(자유 중첩) vs UI http-only** (A2): 엔진은 분기에 자유 중첩 허용(loop/if 동일 — internally-tagged round-trip 위해 `Vec<HttpStep>` 아님). top-level-only·http-only v1 강제는 UI Zod(`ParallelStepModel`을 어떤 Nested* union 멤버로도 안 둠 + 분기 `z.array(HttpStepModel)`). `ParallelStep`/`Branch`는 plain-derive struct variant + `deny_unknown_fields`.
+
 ## 런타임 / 동시성
 
 - **mpsc 플러셔 종료** (Slice 1): 워커 self-cloned `Sender`를 가진 flusher 태스크는 `is_closed()`로 종료 감지가 안 된다 (자기 자신이 살아있으니까). 메인 루프가 끝나면 `flusher.abort()` 후 `flusher.await.ok()`. (`crates/engine/src/runner.rs::run_scenario` 참고.)
