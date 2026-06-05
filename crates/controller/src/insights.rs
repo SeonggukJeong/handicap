@@ -215,6 +215,8 @@ fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String
                 }
                 collect_unconditional(&i.else_, true, out);
             }
+            // P-a Task 4: insights arm — implemented in the next task.
+            Step::Parallel(_p) => {}
         }
     }
 }

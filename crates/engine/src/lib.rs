@@ -21,8 +21,8 @@ pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
 pub use pacing::{PaceOutcome, ThinkTime, pace};
 pub use runner::{MetricFlush, RunPlan, Stage, run_scenario, run_scenario_open_loop};
 pub use scenario::{
-    Assertion, Body, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep, IfStep,
-    LoopStep, Request, Scenario, Step,
+    Assertion, Body, Branch, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep,
+    IfStep, LoopStep, ParallelStep, Request, Scenario, Step,
 };
 pub use template::{TemplateContext, render, render_collecting, render_lenient};
 pub use trace::{

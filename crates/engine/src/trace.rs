@@ -303,6 +303,10 @@ async fn trace_steps(
                 ))
                 .await;
             }
+            // P-a Task 3: trace arm — implemented in the next task.
+            Step::Parallel(_p) => {
+                todo!("parallel trace arm — P-a Task 3")
+            }
         }
     }
 }

@@ -44,6 +44,7 @@ pub enum Step {
     Http(HttpStep),
     Loop(LoopStep),
     If(IfStep),
+    Parallel(ParallelStep),
 }
 
 impl Step {
@@ -52,6 +53,7 @@ impl Step {
             Step::Http(h) => &h.id,
             Step::Loop(l) => &l.id,
             Step::If(i) => &i.id,
+            Step::Parallel(p) => &p.id,
         }
     }
     pub fn name(&self) -> &str {
@@ -59,6 +61,7 @@ impl Step {
             Step::Http(h) => &h.name,
             Step::Loop(l) => &l.name,
             Step::If(i) => &i.name,
+            Step::Parallel(p) => &p.name,
         }
     }
 }
@@ -121,6 +124,47 @@ pub struct ElifBranch {
     pub cond: Condition,
     #[serde(rename = "then")]
     pub then_: Vec<Step>,
+}
+
+/// Concurrent fan-out node. All `branches` run at once within one VU (shared
+/// cookie jar / client, ADR-0018); the node completes when all finish (wait-all).
+/// Like `LoopStep`/`IfStep` this is a plain-derive struct variant (round-trips in
+/// serde_yaml 0.9; NOT a map-shape manual-serde enum). `Vec<Step>` per branch for
+/// free nesting (single-level / top-level-only is the UI Zod gate). ADR-0033.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ParallelStep {
+    pub id: String,
+    pub name: String,
+    pub branches: Vec<Branch>,
+}
+
+/// One lane of a `ParallelStep`. `name` is the namespace key for this branch's
+/// outputs (`{{name.var}}` downstream) — required, unique within the node (UI Zod).
+/// No `id` (like `ElifBranch`): the branch is a label/group, its http children
+/// carry the metric ids.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Branch {
+    pub name: String,
+    pub steps: Vec<Step>,
+}
+
+impl Branch {
+    /// Variable names this branch declares as extract outputs (http-only in v1).
+    /// The parallel merge namespaces exactly these keys (key-origin, not value-diff
+    /// — a branch that re-extracts a parent's value is still exposed; design §3.2).
+    pub fn output_var_names(&self) -> Vec<&str> {
+        let mut out = Vec::new();
+        for s in &self.steps {
+            if let Step::Http(h) = s {
+                for e in &h.extract {
+                    out.push(e.var());
+                }
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -289,6 +333,18 @@ pub enum Extract {
     Header { var: String, name: String },
     Cookie { var: String, name: String },
     Status { var: String },
+}
+
+impl Extract {
+    /// The flow variable this extract writes to.
+    pub fn var(&self) -> &str {
+        match self {
+            Extract::Body { var, .. }
+            | Extract::Header { var, .. }
+            | Extract::Cookie { var, .. }
+            | Extract::Status { var } => var,
+        }
+    }
 }
 
 /// Comparison operator for a condition leaf. Plain unit-variant enum → `derive`
@@ -1073,6 +1129,115 @@ disabled:
     fn request_still_rejects_unknown_fields() {
         let yaml = "method: GET\nurl: https://api/x\nbogus: 1\n";
         assert!(serde_yaml::from_str::<Request>(yaml).is_err());
+    }
+
+    // ---- Parallel: serde round-trip ----
+
+    #[test]
+    fn parses_parallel_step() {
+        let y = r#"
+version: 1
+name: par
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fanout
+    type: parallel
+    branches:
+      - name: user
+        steps:
+          - id: "01HX0000000000000000000011"
+            name: get-user
+            type: http
+            request: { method: GET, url: "/api/user" }
+            assert: []
+      - name: feed
+        steps:
+          - id: "01HX0000000000000000000012"
+            name: get-feed
+            type: http
+            request: { method: GET, url: "/api/feed" }
+            assert: []
+"#;
+        let s = Scenario::from_yaml(y).expect("parses parallel");
+        let Step::Parallel(p) = &s.steps[0] else {
+            panic!("expected parallel");
+        };
+        assert_eq!(p.id, "01HX0000000000000000000010");
+        assert_eq!(p.branches.len(), 2);
+        assert_eq!(p.branches[0].name, "user");
+        assert_eq!(p.branches[0].steps.len(), 1);
+        assert!(matches!(p.branches[0].steps[0], Step::Http(_)));
+    }
+
+    #[test]
+    fn parallel_round_trips_keeping_inner_type_tag() {
+        let y = r#"
+version: 1
+name: par
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fanout
+    type: parallel
+    branches:
+      - name: a
+        steps:
+          - id: "01HX0000000000000000000011"
+            name: h
+            type: http
+            request: { method: GET, url: "/x" }
+            assert: []
+"#;
+        let s = Scenario::from_yaml(y).unwrap();
+        let out = s.to_yaml().unwrap();
+        assert!(out.contains("type: parallel"), "keeps parallel tag:\n{out}");
+        assert!(out.contains("type: http"), "inner http keeps tag:\n{out}");
+        assert!(out.contains("branches:"));
+        let s2 = Scenario::from_yaml(&out).unwrap();
+        assert_eq!(s, s2, "parallel must round-trip");
+    }
+
+    #[test]
+    fn parallel_rejects_unknown_field() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000010"
+    name: p
+    type: parallel
+    branches: []
+    bogus: 1
+"#;
+        assert!(Scenario::from_yaml(y).is_err());
+    }
+
+    #[test]
+    fn branch_output_var_names_lists_extract_vars() {
+        let b = Branch {
+            name: "user".into(),
+            steps: vec![Step::Http(HttpStep {
+                id: "01HX0000000000000000000011".into(),
+                name: "h".into(),
+                request: Request {
+                    method: HttpMethod::Get,
+                    url: "/u".into(),
+                    headers: BTreeMap::new(),
+                    body: None,
+                    disabled: DisabledRows::default(),
+                },
+                assert: vec![],
+                extract: vec![
+                    Extract::Body {
+                        var: "id".into(),
+                        path: "$.id".into(),
+                    },
+                    Extract::Status { var: "code".into() },
+                ],
+                timeout_seconds: None,
+                think_time: None,
+            })],
+        };
+        assert_eq!(b.output_var_names(), vec!["id", "code"]);
     }
 
     #[test]

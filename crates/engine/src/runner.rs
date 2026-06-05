@@ -456,6 +456,10 @@ async fn execute_steps(
                     other => return Ok(other),
                 }
             }
+            // P-a Task 2: interpreter arm — implemented in the next task.
+            Step::Parallel(_p) => {
+                todo!("parallel interpreter arm — P-a Task 2")
+            }
         }
     }
     Ok(StepFlow::Continue)
