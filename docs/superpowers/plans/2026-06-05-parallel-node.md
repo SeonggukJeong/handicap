@@ -229,16 +229,20 @@ impl Extract {
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [ ] **Step 4: `lib.rs` 재export**
+
+`crates/engine/src/lib.rs` 의 `pub use scenario::{ … };`(`:23-26`) 목록에 `Branch, ParallelStep` 추가(`ElifBranch`/`IfStep` 옆 — 와이어 1:1 / handicap-reviewer 대조 패턴).
+
+- [ ] **Step 5: 테스트 통과 확인**
 
 Run: `cargo test -p handicap-engine --lib scenario`
 Expected: PASS (신규 4개 + 기존 전부).
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 6: 커밋**
 
 ```bash
 cargo build -p handicap-worker && cargo build --workspace   # warm (cold-build flake 회피)
-git add crates/engine/src/scenario.rs
+git add crates/engine/src/scenario.rs crates/engine/src/lib.rs
 git commit -m "feat(engine): Step::Parallel/ParallelStep/Branch 모델 + serde round-trip
 
 ADR-0033 P-a. plain-derive struct variant(LoopStep/IfStep 패턴), branch name=
@@ -781,9 +785,13 @@ git log -1 --oneline
 **Files:**
 - Modify: `ui/src/scenario/model.ts`
 - Modify: `ui/src/scenario/yamlDoc.ts` (`normalizeStep` parallel + `normalizeBranch`)
-- Test: `ui/src/scenario/model.test.ts` (기존 파일에 추가; 없으면 Create)
+- Modify(같은-커밋 컴파일 스텁): `ui/src/scenario/__tests__/proptests.test.ts`, `ui/src/components/scenario/CanvasView.tsx`, `ui/src/components/scenario/Inspector.tsx`
+- Test: `ui/src/scenario/__tests__/model.test.ts` (기존 파일에 추가)
 
-> **`tsc -b` 캐스케이드(9c 함정):** `StepModel` 을 4-way 로 넓히면 `Step` 유니언을 exhaustive 하게 쓰는 **다른 테스트 파일**(예: `ui/src/scenario/proptests.test.ts` 의 `stepToYaml`/round-trip 직렬화기, 그 외 `s.type` switch)이 그 자리에서 `tsc -b` red가 된다. **이 Task의 커밋에 그 parallel 케이스 추가까지 포함**해야 빌드 게이트가 통과한다. Step 1 전에 `grep -rn "type === \"if\"\|\.type) {" ui/src` 로 exhaustive 소비처를 찾아 목록화하고, 모델 widening과 같은 커밋에서 전부 parallel 케이스를 더한다.
+> **`tsc -b` 캐스케이드(9c 함정 — 이 Task의 CRITICAL 제약):** `StepModel` 을 4-way 로 넓히면 `Step` 유니언을 exhaustive 하게 쓰는 **프로덕션 3사이트 + 테스트 1사이트**가 그 자리에서 `tsc -b` red(`pnpm build` = Task 게이트)가 된다. 4곳 모두 **이 한 커밋**에 parallel 케이스(아래 Step 5의 컴파일 스텁)를 포함해야 P-b 첫 커밋이 green이다:
+> - `CanvasView.tsx` `measureStep`(`:176`, trailing fallthrough `ifBands(step)` = `Extract<Step,{type:"if"}>`) + `emitStep`(`:208`, fallthrough `step.cond/then/else`) → 컴파일 스텁(실제 레인은 **Task 7이 교체**).
+> - `Inspector.tsx` dispatch(`:57-59`, http가 trailing) → `if (isParallelStep(step)) return <ParallelInspector …/>` + 최소 `ParallelInspector` 스텁(**Task 8이 교체**) + `isParallelStep`/`ParallelStep` import + `ChildStepButton` 삼항(`:703` `: "if"`)에 parallel arm.
+> - `__tests__/proptests.test.ts` `stepToYaml`(`:264`) 직렬화기에 parallel 케이스.
 
 - [ ] **Step 1: 테스트 작성** (`model.test.ts`)
 
@@ -976,20 +984,39 @@ function normalizeBranch(b: unknown): unknown {
 }
 ```
 
-- [ ] **Step 5: 같은-커밋 tsc 캐스케이드 fix**
+- [ ] **Step 5: 같은-커밋 컴파일 스텁 (CRITICAL — 위 캐스케이드 4사이트)**
 
-Step 1에서 grep한 exhaustive 소비처(특히 `ui/src/scenario/proptests.test.ts` 의 step 직렬화기)에 `parallel` 케이스를 추가한다. 직렬화기 예(실제 함수 시그니처는 파일에서 확인): `parallel` → `{ id, name, type:"parallel", branches: branches.map(b => ({name:b.name, steps:b.steps.map(httpToYaml)})) }`. round-trip 프로퍼티에 parallel arbitrary를 더하지 않아도 되지만(스코프 최소), exhaustive switch가 있으면 컴파일 위해 케이스는 필수.
+(a) `CanvasView.tsx` `measureStep` 의 if-fallthrough **앞**:
+```ts
+  if (step.type === "parallel") return 0; // Task 7이 실제 레인 높이로 교체
+```
+(b) `CanvasView.tsx` `emitStep` 의 if-fallthrough **앞**(`const inner = ...` 다음):
+```ts
+  if (step.type === "parallel") return; // Task 7이 레인 노드 emit으로 교체
+```
+(c) `Inspector.tsx`: import에 `isParallelStep` + `ParallelStep` 타입 추가. dispatch(`return <HttpStepInspector step={step} />` **앞**):
+```tsx
+  if (isParallelStep(step)) return <ParallelInspector step={step} topLevel={topLevel} />;
+```
+최소 스텁(Task 8이 실제 분기 편집기로 교체):
+```tsx
+function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) {
+  return <div className="text-xs text-slate-500">parallel: {step.branches.length} branches</div>;
+}
+```
+`ChildStepButton` 삼항(`:703`)의 `: "if"` 를 `: step.type === "parallel" ? "parallel" : "if"` 로.
+(d) `__tests__/proptests.test.ts` `stepToYaml`(`:264`)에 parallel 케이스: `{ id, name, type: "parallel", branches: step.branches.map((b) => ({ name: b.name, steps: b.steps.map(httpToYaml) })) }`(실제 헬퍼명은 파일에서 확인). round-trip arbitrary에 parallel을 더할 필요 없음(스코프 최소) — exhaustive switch 컴파일 위해 케이스만.
 
 - [ ] **Step 6: 게이트**
 
 Run: `cd ui && pnpm test model.test && pnpm build`
-Expected: model.test PASS + `tsc -b` clean(4-way + 모든 소비처 parallel 케이스).
+Expected: model.test PASS + `tsc -b` clean(4-way + 4 캐스케이드 사이트 모두 parallel 케이스).
 
 - [ ] **Step 7: 커밋**
 
 ```bash
 cd ui && pnpm lint && pnpm test && pnpm build && cd ..
-git add ui/src/scenario/model.ts ui/src/scenario/yamlDoc.ts ui/src/scenario/model.test.ts ui/src/scenario/proptests.test.ts
+git add ui/src/scenario/model.ts ui/src/scenario/yamlDoc.ts ui/src/scenario/__tests__/model.test.ts ui/src/scenario/__tests__/proptests.test.ts ui/src/components/scenario/CanvasView.tsx ui/src/components/scenario/Inspector.tsx
 git commit -m "feat(ui): ParallelStepModel + StepModel 4-way + 헬퍼/normalize parallel 하강
 
 분기명 유니크 superRefine(union 레벨, ZodEffects/discriminatedUnion 제약 회피),
@@ -1007,7 +1034,7 @@ git log -1 --oneline
 **Files:**
 - Modify: `ui/src/scenario/yamlDoc.ts`
 - Modify: `ui/src/scenario/store.ts`
-- Test: `ui/src/scenario/yamlDoc.test.ts` (기존 파일에 추가)
+- Test: `ui/src/scenario/__tests__/yamlDoc.test.ts` (기존 파일에 추가)
 
 - [ ] **Step 1: 테스트 작성** (`yamlDoc.test.ts`)
 
@@ -1081,7 +1108,7 @@ describe("parallel edits", () => {
   });
 });
 ```
-(마지막 케이스의 `min(1)` 충돌 주의: `removeStep` 이 분기를 비우면 모델이 거부된다 — `parseScenarioDoc` 가 error를 반환. 테스트는 "doc 레벨 path 하강이 동작"을 보는 것이므로, 검증은 `serializeDoc` 텍스트에서 해당 id가 사라졌는지로 단언하도록 조정한다. 구현자는 `min(1)` 와 모델 파싱 상호작용을 보고 단언 형태를 맞춘다.)
+(마지막 케이스의 `min(1)` 충돌 — **명시 지시**: `removeStep` 이 분기의 마지막 스텝을 지우면 `BranchModel.min(1)` 때문에 `parseScenarioDoc` 가 `{error}` 를 반환해 `if ("error" in r) throw` 가 단언 전에 던진다. 따라서 그 케이스의 검증은 **`parseScenarioDoc` 가 아니라 `serializeDoc(doc)` 텍스트로** — `expect(out).not.toContain("01HX0000000000000000000012")` 처럼 doc 레벨에서 id가 사라졌는지만 단언한다. searchSeq 의 분기 하강 동작 검증이 목적이지 모델 유효성이 아니다.)
 
 - [ ] **Step 2: 테스트 실패 확인**
 
@@ -1185,18 +1212,19 @@ Expected: FAIL — 새 Edit 타입 미정의(TS) / 케이스 미처리.
 기존 `addIfStep`/`addStepInBranch`/`addLoopStep` thin action 패턴(ULID 생성 → `applyEdit` → reserialize → return id)을 읽어 미러. 새 action 5종:
 ```ts
 addParallelStep(name) → ids: id/branch1Id/branch2Id 3개 생성, applyEdit(addParallelStep), return id
-addBranch(parallelId, name) → childId 생성, applyEdit(addBranch)
+addBranch(parallelId) → 현재 model에서 그 parallel의 분기명을 읽어 충돌 없는 기본명 생성
+                        (`branch{N}`, N=유니크 만드는 첫 정수) + childId 생성, applyEdit(addBranch)
 removeBranch(parallelId, index) → applyEdit(removeBranch)
 addStepInParallelBranch(parallelId, branchIndex, name) → id 생성, applyEdit, return id
 setBranchName(parallelId, branchIndex, name) → applyEdit
 ```
-(ULID 생성기는 기존 action이 쓰는 헬퍼 — `store.ts` 에서 확인해 동일 사용.)
+(ULID 생성기는 기존 action이 쓰는 헬퍼 — `store.ts` 에서 확인해 동일 사용. **`addBranch` 가 유니크 기본명을 생성**해야 새 분기가 superRefine(분기명 유니크, Task 5)에 즉시 걸리지 않는다 — 리뷰 지적.)
 
 - [ ] **Step 5: 게이트 + 커밋**
 
 ```bash
 cd ui && pnpm test yamlDoc.test && pnpm lint && pnpm test && pnpm build && cd ..
-git add ui/src/scenario/yamlDoc.ts ui/src/scenario/store.ts ui/src/scenario/yamlDoc.test.ts
+git add ui/src/scenario/yamlDoc.ts ui/src/scenario/store.ts ui/src/scenario/__tests__/yamlDoc.test.ts
 git commit -m "feat(ui): parallel yamlDoc Edit 5종 + searchSeq 분기 하강 + store actions
 
 addParallelStep(2분기 시드)/addBranch/removeBranch/addStepInParallelBranch/
@@ -1212,10 +1240,10 @@ git log -1 --oneline
 
 **Files:**
 - Create: `ui/src/components/scenario/ParallelStepNode.tsx`
-- Modify: `ui/src/components/scenario/CanvasView.tsx`
-- Test: `ui/src/components/scenario/CanvasView.test.tsx` (기존 파일에 추가)
+- Modify: `ui/src/components/scenario/CanvasView.tsx` (Task 5의 measureStep/emitStep parallel **스텁을 교체**)
+- Test: `ui/src/components/scenario/__tests__/CanvasView.test.tsx` (기존 파일에 추가)
 
-> 먼저 `ui/src/components/scenario/IfStepNode.tsx` 를 읽는다 — `ParallelStepNode` 는 그 패턴(헤더 + 밴드 라벨 + 자식은 React Flow `parentId` 로 떠 있음)을 **가로 레인**으로 바꾼 것이다. `data.lanes: {name, x}[]` 가 IfStepNode 의 `data.bands: {label, y}[]` 에 대응.
+> 먼저 `ui/src/components/scenario/IfStepNode.tsx` 를 읽는다 — `ParallelStepNode` 는 그 패턴(헤더 + 밴드 라벨 + 자식은 React Flow `parentId` 로 떠 있음)을 **가로 레인**으로 바꾼 것이다. `data.lanes: {name, x}[]` 가 IfStepNode 의 `data.bands: {label, y}[]` 에 대응. **node data 타입은 반드시 `interface … extends Record<string, unknown>`**(v12 `Node<TData>` 제약 — `HttpStepNode.tsx:4`/`IfStepNode.tsx:4` 패턴; plain `type` 은 `tsc -b` 거부).
 
 - [ ] **Step 1: 테스트 작성** (`CanvasView.test.tsx`)
 
@@ -1246,11 +1274,11 @@ Expected: FAIL — parallel 노드 미렌더 / "+ Add parallel" 버튼 없음.
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 
-export type ParallelStepNodeData = {
+export interface ParallelStepNodeData extends Record<string, unknown> {
   name: string;
   lanes: Array<{ name: string; x: number }>;
   selected: boolean;
-};
+}
 
 export const ParallelStepNode = memo(function ParallelStepNode({
   data,
@@ -1298,7 +1326,7 @@ const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode, par
 ```
 `AnyData` 유니언에 `| ParallelStepNodeData`.
 
-`measureStep` 에 parallel 케이스(높이) 추가(if 처리 전):
+`measureStep` 의 Task 5 스텁(`if (step.type === "parallel") return 0;`)을 실제 높이 계산으로 **교체**:
 ```ts
   if (step.type === "parallel") {
     const laneH = (steps: typeof step.branches[number]["steps"]) =>
@@ -1329,7 +1357,7 @@ function measureWidth(step: Step): number {
     }
 ```
 
-`emitStep` 에 parallel 케이스 추가(if 처리 전, `const inner = ...` 다음):
+`emitStep` 의 Task 5 스텁(`if (step.type === "parallel") return;`)을 실제 레인 emit으로 **교체**(`const inner = ...` 다음 위치):
 ```ts
   if (step.type === "parallel") {
     const lanes: Array<{ name: string; x: number }> = [];
@@ -1374,7 +1402,7 @@ function measureWidth(step: Step): number {
 
 ```bash
 cd ui && pnpm test CanvasView && pnpm lint && pnpm test && pnpm build && cd ..
-git add ui/src/components/scenario/ParallelStepNode.tsx ui/src/components/scenario/CanvasView.tsx ui/src/components/scenario/CanvasView.test.tsx
+git add ui/src/components/scenario/ParallelStepNode.tsx ui/src/components/scenario/CanvasView.tsx ui/src/components/scenario/__tests__/CanvasView.test.tsx
 git commit -m "feat(ui): 캔버스 parallel 세로 레인 노드 + 가로 에미터 + '+ Add parallel'
 
 ParallelStepNode(헤더+레인 라벨, 자식은 parentId로 부유) + measureWidth(parallel만
@@ -1389,10 +1417,11 @@ git log -1 --oneline
 ## Task 8: Inspector 분기 편집기
 
 **Files:**
-- Modify: `ui/src/components/scenario/Inspector.tsx`
-- Test: `ui/src/components/scenario/Inspector.test.tsx` (기존 파일에 추가)
+- Modify: `ui/src/components/scenario/Inspector.tsx` (Task 5의 `ParallelInspector` **스텁 + dispatch를 실제 편집기로 교체** — dispatch/`isParallelStep` import는 Task 5가 이미 배선)
+- Test: `ui/src/components/scenario/__tests__/Inspector.test.tsx` (기존 파일에 추가)
 
-> `Inspector.tsx` 를 읽어 loop(repeat 편집 + "+ Add step in loop")·if(분기 패널 + "+ Add step"/"+ Add elif") 의 편집 UI 패턴을 파악. parallel 선택 시: 분기 목록(각 분기 `name` 입력 + "+ Add step in branch" + "✕ remove branch"(분기 ≥2 일 때만)) + "+ Add branch". `findStepById` 로 선택 스텝 resolve(9c 패턴). 분기 `name` 입력은 **onBlur 커밋 draft**(`ExtractEditor`/`commitRepeat` 패턴, `ui/CLAUDE.md` F5) + 노드 내 중복명 **soft 경고**(Zod가 hard로 막지만 inspector도 즉시 시각 피드백 — `matches` 정규식 경고 패턴).
+> Task 5가 `Inspector.tsx:59` 앞에 `if (isParallelStep(step)) return <ParallelInspector step={step} topLevel={topLevel} />;` dispatch와 최소 `ParallelInspector` 스텁을 이미 깔았다(tsc 캐스케이드). **이 Task는 그 스텁 본문만 실제 편집기로 채운다** — dispatch/import는 건드릴 필요 없음.
+> `Inspector.tsx` 를 읽어 loop(repeat 편집 + "+ Add step in loop")·if(분기 패널 + "+ Add step"/"+ Add elif") 의 편집 UI 패턴을 파악. parallel 편집기: 분기 목록(각 분기 `name` 입력 + "+ Add step in branch" + "✕ remove branch"(분기 ≥2 일 때만)) + "+ Add branch". 분기 `name` 입력은 **onBlur 커밋 draft**(`ExtractEditor`/`commitRepeat` 패턴, `ui/CLAUDE.md` F5) + 노드 내 중복명 **soft 경고**(Zod가 hard로 막지만 inspector도 즉시 시각 피드백 — `matches` 정규식 경고 패턴).
 
 - [ ] **Step 1: 테스트 작성** (`Inspector.test.tsx`)
 
@@ -1414,13 +1443,13 @@ Expected: FAIL — parallel 편집 UI 없음.
 
 - [ ] **Step 3: 구현** (`Inspector.tsx`)
 
-선택 스텝이 `isParallelStep` 일 때의 편집 패널을 추가. 기존 if 분기 패널 컴포넌트(`BranchPanel` 류)를 미러한 `ParallelBranchEditor`(분기 `name` draft+onBlur + "+ Add step in branch"(store `addStepInParallelBranch`) + "✕"(store `removeBranch`, `branches.length > 1` 일 때만)) + 상단 "+ Add branch"(store `addBranch`). 중복명 경고: `step.branches` 에서 같은 name이 2회 이상이면 그 입력 옆에 `<span role="alert">중복된 분기 이름</span>`.
+Task 5의 `ParallelInspector` 스텁 본문을 실제 편집기로 교체. 기존 if 분기 패널 컴포넌트(`BranchPanel` 류)를 미러한 `ParallelBranchEditor`(분기 `name` draft+onBlur + "+ Add step in branch"(store `addStepInParallelBranch`) + "✕"(store `removeBranch`, `branches.length > 1` 일 때만)) + 상단 "+ Add branch"(store `addBranch` — 유니크 기본명 생성). 중복명 경고: `step.branches` 에서 같은 name이 2회 이상이면 그 입력 옆에 `<span role="alert">중복된 분기 이름</span>`.
 
 - [ ] **Step 4: 게이트 + 커밋**
 
 ```bash
 cd ui && pnpm test Inspector && pnpm lint && pnpm test && pnpm build && cd ..
-git add ui/src/components/scenario/Inspector.tsx ui/src/components/scenario/Inspector.test.tsx
+git add ui/src/components/scenario/Inspector.tsx ui/src/components/scenario/__tests__/Inspector.test.tsx
 git commit -m "feat(ui): Inspector parallel 분기 편집(이름 draft+onBlur, CRUD, 중복명 경고)
 
 ADR-0033 P-b.
@@ -1469,4 +1498,4 @@ Expected: 전부 PASS(인자 없는 전체 `pnpm test` 포함 — targeted green
 
 - **Spec 커버리지**: §2 모델(T1) · §3 엔진 arm(T2) · §3.7 trace(T3) · §1 insights 경계(T4) · §5 UI Zod/canvas/inspector/sync(T5–8) · §6 메트릭(무파이프라인 — 새 코드 0, 기존 per-step 재사용이라 별도 task 없음, T9 라이브에서 확인) · §8 테스트 · §11 ADR(T9). **그룹 레이턴시·중첩·per-branch breakdown 은 비목표(§10) — task 없음 의도적.**
 - **타입 일관성**: `Branch`/`ParallelStep`(엔진) ↔ `BranchModel`/`ParallelStepModel`(UI) 필드 1:1(`name`/`steps`/`branches`/`id`/`type:"parallel"`). `output_var_names`(엔진) = key-origin merge 소스. Edit 5종 이름이 store action·테스트와 일치.
-- **함정 반영**: insights exhaustive match(T4 = 컨트롤러 빌드 게이트), tsc-b 4-way 캐스케이드 같은-커밋(T5), trailing-else→else-if(T5 flattenHttpSteps), trace 와이어 무변경(T3 = 새 StepTrace 필드 없음), 라이브 run 필수(T9).
+- **함정 반영(plan-review 후)**: insights exhaustive match(T4 = 컨트롤러 빌드 게이트) · `lib.rs` 재export(T1) · **tsc-b 4-way 캐스케이드 4사이트(proptests + CanvasView measureStep/emitStep + Inspector dispatch)를 T5 한 커밋 컴파일 스텁으로, T7/T8이 교체** · node data `interface extends Record<string,unknown>`(T7) · trailing-else→else-if(T5 flattenHttpSteps) · 테스트 경로 전부 `__tests__/`(T5–8) · `addBranch` 유니크 기본명(T6/T8) · trace 와이어 무변경(T3 = 새 StepTrace 필드 없음) · 라이브 run 필수(T9).
