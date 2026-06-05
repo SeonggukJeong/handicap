@@ -19,8 +19,8 @@ import { getPreset } from "../api/presets";
 import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
-import { LOAD_SHAPES } from "./loadShapes";
-import { StageCurvePreview } from "./StageCurvePreview";
+import { LoadModelFields } from "./LoadModelFields";
+import { buildLoadProfile, loadModelErrors, type LoadModelState } from "./loadModel";
 
 type Props = {
   scenarioId: string;
@@ -205,7 +205,6 @@ export function RunDialog({
 
   const mutation = useCreateRun();
 
-  const rampInvalid = rampUp > duration;
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
@@ -223,58 +222,40 @@ export function RunDialog({
       Number(thinkMax) < Number(thinkMin) ||
       Number(thinkMax) > 600_000);
   const pacingActiveCount = [thinkMin, thinkMax, thinkSeed].filter((s) => s.trim() !== "").length;
-  // Open-loop field validation: target_rps and max_in_flight must be valid integers in range.
-  const targetRpsNum = Number(targetRps);
-  const maxInFlightNum = Number(maxInFlight);
-  const targetRpsInvalid =
-    targetRps.trim() === "" ||
-    !Number.isInteger(targetRpsNum) ||
-    targetRpsNum < 1 ||
-    targetRpsNum > 1_000_000;
-  const maxInFlightInvalid =
-    maxInFlight.trim() === "" ||
-    !Number.isInteger(maxInFlightNum) ||
-    maxInFlightNum < 1 ||
-    maxInFlightNum > 10_000;
-  // Stages validation: each row needs valid target (0–1M int) and duration (≥1 int),
-  // and at least one stage must have target > 0.
-  const stagesInvalid =
-    rateMode === "curve" &&
-    loadModel === "open" &&
-    (stages.length === 0 ||
-      stages.some((s) => {
-        const t = Number(s.target);
-        const d = Number(s.duration_seconds);
-        return (
-          s.target.trim() === "" ||
-          s.duration_seconds.trim() === "" ||
-          !Number.isInteger(t) ||
-          t < 0 ||
-          t > 1_000_000 ||
-          !Number.isInteger(d) ||
-          d < 1
-        );
-      }) ||
-      !stages.some((s) => Number(s.target) > 0));
+  // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
+  const loadState: LoadModelState = {
+    loadModel,
+    rateMode,
+    vus,
+    duration,
+    rampUp,
+    targetRps,
+    maxInFlight,
+    stages,
+    thinkMin,
+    thinkMax,
+    thinkSeed,
+  };
+  const loadErrs = loadModelErrors(loadState);
   const canSubmit =
     loadModel === "open"
       ? rateMode === "curve"
-        ? !maxInFlightInvalid &&
-          !stagesInvalid &&
+        ? !loadErrs.maxInFlightInvalid &&
+          !loadErrs.stagesInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           bindingValid &&
           !mutation.isPending
         : duration >= 1 &&
-          !targetRpsInvalid &&
-          !maxInFlightInvalid &&
+          !loadErrs.targetRpsInvalid &&
+          !loadErrs.maxInFlightInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           bindingValid &&
           !mutation.isPending
       : vus >= 1 &&
         duration >= 1 &&
-        !rampInvalid &&
+        !loadErrs.rampInvalid &&
         !loopCapInvalid &&
         !httpTimeoutInvalid &&
         !thinkInvalid &&
@@ -295,51 +276,13 @@ export function RunDialog({
     return Object.keys(c).length > 0 ? c : undefined;
   }
 
-  function buildThinkTime(): { min_ms: number; max_ms: number } | undefined {
-    if (thinkMin.trim() === "" || thinkMax.trim() === "") return undefined;
-    return { min_ms: Number(thinkMin), max_ms: Number(thinkMax) };
-  }
-
   function buildProfile(): Profile {
-    const base = {
+    return {
       loop_breakdown_cap: hasLoop ? loopCap : 0,
       http_timeout_seconds: httpTimeout,
       data_binding: binding ?? undefined,
       criteria: buildCriteria(),
-    };
-    if (loadModel === "open" && rateMode === "curve") {
-      return {
-        ...base,
-        vus: 0,
-        duration_seconds: 0, // curve: total = sum(stages); controller rejects >0 with stages
-        ramp_up_seconds: 0,
-        max_in_flight: Number(maxInFlight),
-        stages: stages.map((s) => ({
-          target: Number(s.target),
-          duration_seconds: Number(s.duration_seconds),
-        })),
-        // NO target_rps, NO think_time
-      };
-    }
-    if (loadModel === "open") {
-      return {
-        ...base,
-        vus: 0,
-        duration_seconds: duration,
-        ramp_up_seconds: 0,
-        target_rps: Number(targetRps),
-        max_in_flight: Number(maxInFlight),
-        // NO think_time — open-loop forbids run-level think time
-      };
-    }
-    return {
-      ...base,
-      vus,
-      duration_seconds: duration,
-      ramp_up_seconds: rampUp,
-      think_time: buildThinkTime(),
-      think_seed: thinkSeed.trim() !== "" ? Number(thinkSeed) : undefined,
-      // target_rps / max_in_flight omitted → closed-loop byte-identical
+      ...buildLoadProfile(loadState),
     };
   }
 
@@ -446,330 +389,43 @@ export function RunDialog({
           프리셋 오류: {presetError}
         </p>
       )}
-      {/* Load model toggle */}
-      <fieldset className="mb-3">
-        <legend className="text-sm text-slate-600 mb-1">부하 모델</legend>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="load-model"
-              value="closed"
-              checked={loadModel === "closed"}
-              onChange={() => setLoadModel("closed")}
-            />
-            Closed-loop (VUs)
-          </label>
-          <label className="flex items-center gap-1 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="load-model"
-              value="open"
-              checked={loadModel === "open"}
-              onChange={() => setLoadModel("open")}
-            />
-            Open-loop (arrival rate)
-          </label>
-        </div>
-      </fieldset>
+      <LoadModelFields
+        loadModel={loadModel}
+        setLoadModel={setLoadModel}
+        rateMode={rateMode}
+        setRateMode={setRateMode}
+        vus={vus}
+        setVus={setVus}
+        duration={duration}
+        setDuration={setDuration}
+        rampUp={rampUp}
+        setRampUp={setRampUp}
+        targetRps={targetRps}
+        setTargetRps={setTargetRps}
+        maxInFlight={maxInFlight}
+        setMaxInFlight={setMaxInFlight}
+        stages={stages}
+        setStages={setStages}
+        errs={loadErrs}
+      />
 
-      {loadModel === "closed" ? (
-        <div className="grid grid-cols-4 gap-4 mb-3">
-          <label className="block text-sm">
-            <span className="text-slate-600">VUs</span>
-            <input
-              type="number"
-              min={1}
-              aria-label="VUs"
-              value={vus}
-              onChange={(e) => setVus(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Duration (s)</span>
-            <input
-              type="number"
-              min={1}
-              aria-label="Duration (s)"
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Ramp-up (s)</span>
-            <input
-              type="number"
-              min={0}
-              aria-label="Ramp-up (s)"
-              value={rampUp}
-              onChange={(e) => setRampUp(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              aria-invalid={rampInvalid}
-              aria-describedby={rampInvalid ? "ramp-up-error" : undefined}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">HTTP timeout (s)</span>
-            <input
-              type="number"
-              min={1}
-              max={600}
-              aria-label="HTTP timeout (s)"
-              value={httpTimeout}
-              onChange={(e) => setHttpTimeout(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              aria-invalid={httpTimeoutInvalid}
-              aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-            />
-          </label>
-        </div>
-      ) : (
-        <>
-          {/* Rate mode toggle — only shown in open-loop branch */}
-          <fieldset className="mb-3">
-            <legend className="text-sm text-slate-600 mb-1">레이트</legend>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-1 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  name="rate-mode"
-                  value="fixed"
-                  checked={rateMode === "fixed"}
-                  onChange={() => setRateMode("fixed")}
-                />
-                고정 (RPS)
-              </label>
-              <label className="flex items-center gap-1 text-sm cursor-pointer">
-                <input
-                  type="radio"
-                  name="rate-mode"
-                  value="curve"
-                  checked={rateMode === "curve"}
-                  onChange={() => setRateMode("curve")}
-                />
-                곡선 (stages)
-              </label>
-            </div>
-          </fieldset>
-
-          {rateMode === "fixed" ? (
-            <div className="grid grid-cols-4 gap-4 mb-3">
-              <label className="block text-sm">
-                <span className="text-slate-600">Target RPS</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={1000000}
-                  aria-label="Target RPS"
-                  value={targetRps}
-                  onChange={(e) => setTargetRps(e.target.value)}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  aria-invalid={targetRpsInvalid}
-                  aria-describedby={targetRpsInvalid ? "target-rps-error" : undefined}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Max in-flight</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={10000}
-                  aria-label="Max in-flight"
-                  value={maxInFlight}
-                  onChange={(e) => setMaxInFlight(e.target.value)}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  aria-invalid={maxInFlightInvalid}
-                  aria-describedby={maxInFlightInvalid ? "max-in-flight-error" : undefined}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Duration (s)</span>
-                <input
-                  type="number"
-                  min={1}
-                  aria-label="Duration (s)"
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">HTTP timeout (s)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={600}
-                  aria-label="HTTP timeout (s)"
-                  value={httpTimeout}
-                  onChange={(e) => setHttpTimeout(Number(e.target.value))}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  aria-invalid={httpTimeoutInvalid}
-                  aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="mb-3">
-              <label className="block text-sm mb-2">
-                <span className="text-slate-600">부하 모양</span>
-                <select
-                  aria-label="부하 모양"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const shape = LOAD_SHAPES.find((s) => s.id === e.target.value);
-                    if (shape) {
-                      setStages(
-                        shape.stages.map((s) => ({
-                          target: String(s.target),
-                          duration_seconds: String(s.duration_seconds),
-                        })),
-                      );
-                    }
-                  }}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                >
-                  <option value="">직접 입력</option>
-                  {LOAD_SHAPES.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="text-xs text-slate-500 mb-1">
-                각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)
-              </p>
-              <p className="text-xs text-slate-500 mb-2">이 단계가 지속되는 시간(초)</p>
-              {stages.map((s, i) => (
-                <div key={i} className="flex items-end gap-2 mb-2">
-                  <label className="block text-sm flex-1 min-w-0">
-                    <span className="text-slate-600">목표 RPS</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1000000}
-                      aria-label={`stage target ${i}`}
-                      value={s.target}
-                      onChange={(e) =>
-                        setStages((prev) =>
-                          prev.map((r, j) => (j === i ? { ...r, target: e.target.value } : r)),
-                        )
-                      }
-                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    />
-                  </label>
-                  <label className="block text-sm flex-1 min-w-0">
-                    <span className="text-slate-600">지속(s)</span>
-                    <input
-                      type="number"
-                      min={1}
-                      aria-label={`stage duration ${i}`}
-                      value={s.duration_seconds}
-                      onChange={(e) =>
-                        setStages((prev) =>
-                          prev.map((r, j) =>
-                            j === i ? { ...r, duration_seconds: e.target.value } : r,
-                          ),
-                        )
-                      }
-                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    aria-label={`remove stage ${i}`}
-                    disabled={stages.length <= 1}
-                    onClick={() => setStages((prev) => prev.filter((_, j) => j !== i))}
-                    className="shrink-0 px-2 py-1 text-slate-500 hover:text-red-600 disabled:opacity-30"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStages((prev) => [...prev, { target: "100", duration_seconds: "30" }])
-                  }
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  + 단계 추가
-                </button>
-                <span className="ml-3 text-xs text-slate-500">
-                  총 길이: {stages.reduce((a, s) => a + (Number(s.duration_seconds) || 0), 0)}s
-                </span>
-              </div>
-              {stagesInvalid && (
-                <p role="alert" className="mt-2 text-red-600 text-sm">
-                  각 단계는 목표 0–1,000,000 · 지속 ≥1초, 최소 한 단계의 목표 &gt; 0 이어야 합니다
-                </p>
-              )}
-              {(() => {
-                const previewStages = stages
-                  .map((s) => ({
-                    target: Number(s.target),
-                    duration_seconds: Number(s.duration_seconds),
-                  }))
-                  .filter(
-                    (s) =>
-                      Number.isFinite(s.target) &&
-                      Number.isFinite(s.duration_seconds) &&
-                      s.duration_seconds > 0,
-                  );
-                return previewStages.length > 0 ? (
-                  <div className="mt-2">
-                    <span className="text-xs text-slate-500">미리보기</span>
-                    <div
-                      className="h-32"
-                      role="img"
-                      aria-label="레이트 곡선 미리보기 (x: 누적 초, y: RPS)"
-                    >
-                      <StageCurvePreview stages={previewStages} />
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <label className="block text-sm">
-                  <span className="text-slate-600">Max in-flight</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10000}
-                    aria-label="Max in-flight"
-                    value={maxInFlight}
-                    onChange={(e) => setMaxInFlight(e.target.value)}
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    aria-invalid={maxInFlightInvalid}
-                    aria-describedby={maxInFlightInvalid ? "max-in-flight-error" : undefined}
-                  />
-                  <span className="text-xs text-slate-500">
-                    동시 처리 상한 — 서비스가 목표 레이트를 못 따라가면 초과분은 drop되어 리포트에
-                    표시됩니다
-                  </span>
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">HTTP timeout (s)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={600}
-                    aria-label="HTTP timeout (s)"
-                    value={httpTimeout}
-                    onChange={(e) => setHttpTimeout(Number(e.target.value))}
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    aria-invalid={httpTimeoutInvalid}
-                    aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
+      <div className="mb-3 max-w-xs">
+        <label className="block text-sm">
+          <span className="text-slate-600">HTTP timeout (s)</span>
+          <input
+            type="number"
+            min={1}
+            max={600}
+            aria-label="HTTP timeout (s)"
+            value={httpTimeout}
+            onChange={(e) => setHttpTimeout(Number(e.target.value))}
+            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            aria-invalid={httpTimeoutInvalid}
+            aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
+          />
+        </label>
+      </div>
 
       {hasLoop && (
         <div className="mb-3">
@@ -793,12 +449,6 @@ export function RunDialog({
         </div>
       )}
 
-      {loadModel === "closed" && rampInvalid && (
-        <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
-          Ramp-up must be ≤ duration.
-        </p>
-      )}
-
       {loopCapInvalid && (
         <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
           0 ~ 10000 사이여야 합니다.
@@ -808,18 +458,6 @@ export function RunDialog({
       {httpTimeoutInvalid && (
         <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
           HTTP timeout must be between 1 and 600 seconds.
-        </p>
-      )}
-
-      {loadModel === "open" && rateMode === "fixed" && targetRpsInvalid && (
-        <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
-          Target RPS must be between 1 and 1,000,000.
-        </p>
-      )}
-
-      {loadModel === "open" && maxInFlightInvalid && (
-        <p id="max-in-flight-error" className="mb-3 text-red-600 text-sm">
-          Max in-flight must be between 1 and 10,000.
         </p>
       )}
 

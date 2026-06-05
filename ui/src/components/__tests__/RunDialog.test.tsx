@@ -1029,6 +1029,41 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   });
 });
 
+describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
+  it("2차 축 '프로파일' fieldset이 항상 보인다", () => {
+    renderDialog();
+    expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
+  });
+
+  it("closed 모드에서 곡선 라디오는 disabled", () => {
+    renderDialog();
+    expect(screen.getByRole("radio", { name: /곡선/ })).toBeDisabled();
+  });
+
+  it("open→곡선→closed 전환 시 rateMode가 fixed로 리셋된다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    expect(screen.getByRole("radio", { name: /곡선/ })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: /closed-loop/i }));
+    // 다시 open으로 가도 곡선이 아니라 고정이 선택돼 있어야 함(리셋됨)
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    expect(screen.getByRole("radio", { name: /고정/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /곡선/ })).not.toBeChecked();
+  });
+
+  it("각 모드에서 HTTP timeout 입력은 정확히 1개", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // closed
+    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+fixed
+    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+curve
+  });
+});
+
 describe("RunDialog — HTTP timeout (S-A)", () => {
   it("disables Run and shows error when http_timeout_seconds is out of range", async () => {
     const user = userEvent.setup();
