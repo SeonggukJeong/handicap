@@ -51,14 +51,14 @@ describe("CanvasView add if", () => {
     expect(state.selectedStepId).not.toBeNull();
   });
 
-  it("empty-canvas hint names every addable node kind (step, loop, if)", () => {
+  it("empty-canvas hint names every addable node kind (step, loop, if, parallel)", () => {
     render(<CanvasView />);
-    expect(screen.getByText(/add a step, loop, or if to begin/i)).toBeInTheDocument();
+    expect(screen.getByText(/add a step, loop, if, or parallel to begin/i)).toBeInTheDocument();
   });
 
   it("renders the empty-canvas hint below the buttons, not in their row", () => {
     render(<CanvasView />);
-    const hint = screen.getByText(/add a step, loop, or if to begin/i);
+    const hint = screen.getByText(/add a step, loop, if, or parallel to begin/i);
     const addStep = screen.getByRole("button", { name: /add step/i });
     // The hint must live outside the buttons' flex row (so the row can't squeeze
     // the buttons into wrapping their labels). It sits below as its own block.
@@ -142,5 +142,74 @@ steps:
     expect(screen.getByText("inner-loop")).toBeInTheDocument(); // nested loop container
     expect(screen.getByText(/×\s*3/)).toBeInTheDocument(); // nested loop repeat badge
     expect(screen.getByText("ping")).toBeInTheDocument(); // depth-2 http leaf
+  });
+});
+
+describe("CanvasView parallel node (P-b)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("renders a parallel node with one node per branch step + lane labels", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000030"
+    name: fan-out
+    type: parallel
+    branches:
+      - name: user
+        steps:
+          - id: "01HX0000000000000000000031"
+            name: get-user
+            type: http
+            request:
+              method: GET
+              url: "/user"
+            assert:
+              - status: 200
+      - name: feed
+        steps:
+          - id: "01HX0000000000000000000032"
+            name: get-feed
+            type: http
+            request:
+              method: GET
+              url: "/feed"
+            assert:
+              - status: 200
+`);
+    render(<CanvasView />);
+    // parallel container node header
+    expect(screen.getByText(/fan-out/)).toBeInTheDocument();
+    // lane labels rendered on the container
+    expect(screen.getByText("user")).toBeInTheDocument();
+    expect(screen.getByText("feed")).toBeInTheDocument();
+    // branch http leaves rendered as child nodes
+    expect(screen.getByText("get-user")).toBeInTheDocument();
+    expect(screen.getByText("get-feed")).toBeInTheDocument();
+    // lane label y-position is data-driven (PARALLEL_HEADER_H = 36)
+    const userLabel = screen.getByText("user");
+    expect(userLabel.style.top).toBe("36px");
+    const feedLabel = screen.getByText("feed");
+    expect(feedLabel.style.top).toBe("36px");
+  });
+
+  it("'+ Add parallel' toolbar button adds a parallel step with 2 branches", async () => {
+    const user = userEvent.setup();
+    render(<CanvasView />);
+    await user.click(screen.getByRole("button", { name: /add parallel/i }));
+    const state = useScenarioEditor.getState();
+    const parallelSteps = state.model!.steps.filter((s) => s.type === "parallel");
+    expect(parallelSteps).toHaveLength(1);
+    // addParallelStep always seeds 2 branches
+    const parallel = parallelSteps[0];
+    expect(parallel.type).toBe("parallel");
+    if (parallel.type === "parallel") {
+      expect(parallel.branches).toHaveLength(2);
+    }
   });
 });

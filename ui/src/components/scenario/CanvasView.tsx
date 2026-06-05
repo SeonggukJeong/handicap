@@ -14,9 +14,15 @@ import { useScenarioEditor } from "../../scenario/store";
 import { HttpStepNode, type HttpStepNodeData } from "./HttpStepNode";
 import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
 import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
+import { ParallelStepNode, type ParallelStepNodeData } from "./ParallelStepNode";
 import { isLoopStep, summarizeCondition, type Step } from "../../scenario/model";
 
-const NODE_TYPES = { http: HttpStepNode, loop: LoopStepNode, if: IfStepNode };
+const NODE_TYPES = {
+  http: HttpStepNode,
+  loop: LoopStepNode,
+  if: IfStepNode,
+  parallel: ParallelStepNode,
+};
 const FIT_OPTIONS = { padding: 0.25, maxZoom: 1.2 } as const;
 const NODE_WIDTH = 220;
 const NODE_GAP = 60;
@@ -27,8 +33,12 @@ const LOOP_PAD = 12;
 const IF_HEADER_H = 44;
 const BAND_LABEL_H = 18;
 const BAND_PAD = 8;
+const LANE_WIDTH = 200;
+const LANE_GAP = 12;
+const PARALLEL_HEADER_H = 36;
+const LANE_LABEL_H = 18;
 
-type AnyData = HttpStepNodeData | LoopStepNodeData | IfStepNodeData;
+type AnyData = HttpStepNodeData | LoopStepNodeData | IfStepNodeData | ParallelStepNodeData;
 
 export function CanvasView() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? []);
@@ -37,6 +47,7 @@ export function CanvasView() {
   const addStep = useScenarioEditor((s) => s.addStep);
   const addLoopStep = useScenarioEditor((s) => s.addLoopStep);
   const addIfStep = useScenarioEditor((s) => s.addIfStep);
+  const addParallelStep = useScenarioEditor((s) => s.addParallelStep);
   const addStepInLoop = useScenarioEditor((s) => s.addStepInLoop);
 
   const selectedLoopId = useMemo(() => {
@@ -48,8 +59,9 @@ export function CanvasView() {
     const out: Array<Node<AnyData>> = [];
     let x = 0;
     for (const step of steps) {
-      emitStep(step, x, 0, NODE_WIDTH, undefined, out, selectedStepId);
-      x += NODE_WIDTH + NODE_GAP;
+      const w = measureWidth(step);
+      emitStep(step, x, 0, w, undefined, out, selectedStepId);
+      x += w + NODE_GAP;
     }
     return out;
   }, [steps, selectedStepId]);
@@ -133,10 +145,20 @@ export function CanvasView() {
           >
             + Add if
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              const id = addParallelStep(`Parallel ${steps.length + 1}`);
+              select(id);
+            }}
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+          >
+            + Add parallel
+          </button>
         </div>
         {steps.length === 0 && (
           <p className="mt-2 text-xs text-slate-400">
-            Canvas is empty. Add a step, loop, or if to begin.
+            Canvas is empty. Add a step, loop, if, or parallel to begin.
           </p>
         )}
       </div>
@@ -179,7 +201,12 @@ function measureStep(step: Step): number {
     const body = step.do.reduce((h, c) => h + measureStep(c) + CHILD_GAP, 0);
     return LOOP_HEADER_H + LOOP_PAD + Math.max(body, CHILD_H + CHILD_GAP);
   }
-  if (step.type === "parallel") return 0; // Task 7이 실제 레인 높이로 교체
+  if (step.type === "parallel") {
+    const laneH = (laneSteps: (typeof step.branches)[number]["steps"]) =>
+      laneSteps.reduce((h, c) => h + measureStep(c) + CHILD_GAP, 0);
+    const maxLane = Math.max(...step.branches.map((b) => laneH(b.steps)), CHILD_H + CHILD_GAP);
+    return PARALLEL_HEADER_H + LANE_LABEL_H + maxLane;
+  }
   let h = IF_HEADER_H;
   for (const b of ifBands(step)) {
     h += BAND_LABEL_H;
@@ -187,6 +214,13 @@ function measureStep(step: Step): number {
     h += BAND_PAD;
   }
   return h;
+}
+
+// Container width. Only parallel grows horizontally (lanes side-by-side); all
+// others use NODE_WIDTH and grow vertically.
+function measureWidth(step: Step): number {
+  if (step.type !== "parallel") return NODE_WIDTH;
+  return step.branches.length * (LANE_WIDTH + LANE_GAP) - LANE_GAP + LOOP_PAD * 2;
 }
 
 // Emit a step (and, recursively, its children) as React Flow nodes. Children get
@@ -222,7 +256,29 @@ function emitStep(
     return;
   }
   const inner = width - LOOP_PAD * 2;
-  if (step.type === "parallel") return; // Task 7이 레인 노드 emit으로 교체
+  if (step.type === "parallel") {
+    // `lanes` is captured by reference in the node data below, then populated as we
+    // walk the branches — safe because this whole build runs synchronously in useMemo.
+    const lanes: Array<{ name: string; x: number; y: number }> = [];
+    out.push({
+      id: step.id,
+      type: "parallel",
+      data: { name: step.name, lanes, selected: step.id === selectedStepId },
+      style: { width: measureWidth(step), height: measureStep(step) },
+      ...base,
+    });
+    let lx = LOOP_PAD;
+    for (const b of step.branches) {
+      lanes.push({ name: b.name, x: lx, y: PARALLEL_HEADER_H });
+      let ly = PARALLEL_HEADER_H + LANE_LABEL_H;
+      for (const child of b.steps) {
+        emitStep(child, lx, ly, LANE_WIDTH, step.id, out, selectedStepId);
+        ly += measureStep(child) + CHILD_GAP;
+      }
+      lx += LANE_WIDTH + LANE_GAP;
+    }
+    return;
+  }
   if (step.type === "loop") {
     out.push({
       id: step.id,
