@@ -162,6 +162,28 @@ export const IfBreakdownSchema = z
   })
   .strict();
 
+export const PercentilePointSchema = z
+  .object({
+    quantile: z.number(),
+    value_us: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const HistogramBucketSchema = z
+  .object({
+    lower_us: z.number().int().nonnegative(),
+    upper_us: z.number().int().nonnegative(),
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const LatencyDistributionSchema = z
+  .object({
+    percentile_curve: z.array(PercentilePointSchema),
+    histogram: z.array(HistogramBucketSchema),
+  })
+  .strict();
+
 export const ReportSummarySchema = z
   .object({
     count: z.number().int().nonnegative(),
@@ -225,10 +247,14 @@ export const ReportSchema = z
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
     dropped: z.number(),
+    latency: LatencyDistributionSchema.nullish(),
   })
   .strict();
 
 export type Report = z.infer<typeof ReportSchema>;
+export type LatencyDistribution = z.infer<typeof LatencyDistributionSchema>;
+export type HistogramBucket = z.infer<typeof HistogramBucketSchema>;
+export type PercentilePoint = z.infer<typeof PercentilePointSchema>;
 export type ReportWindow = z.infer<typeof ReportWindowSchema>;
 export type ReportStep = z.infer<typeof ReportStepSchema>;
 export type ReportSummary = z.infer<typeof ReportSummarySchema>;
