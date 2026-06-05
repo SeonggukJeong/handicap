@@ -59,6 +59,18 @@ pub struct Criteria {
     pub max_error_rate: Option<f64>, // 분수 0.0..=1.0 (UI는 %로 입출력)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_rps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_4xx_rate: Option<f64>, // 분수 0.0..=1.0 (UI %), 분모=HTTP 응답 수
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_5xx_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_4xx_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_5xx_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_window_rps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rps_warmup_seconds: Option<u32>, // min_window_rps 수식자 — None = 0. has_any에 미포함.
 }
 
 impl Criteria {
@@ -69,6 +81,12 @@ impl Criteria {
             || self.max_p99_ms.is_some()
             || self.max_error_rate.is_some()
             || self.min_rps.is_some()
+            || self.max_4xx_rate.is_some()
+            || self.max_5xx_rate.is_some()
+            || self.max_4xx_count.is_some()
+            || self.max_5xx_count.is_some()
+            || self.min_window_rps.is_some()
+        // 주의: rps_warmup_seconds는 의도적으로 제외(수식자, spec §4 N-3).
     }
 }
 
@@ -498,6 +516,60 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn has_any_reflects_new_status_and_window_fields() {
+        // 신규 status-class / per-window 기준이 has_any를 켠다.
+        assert!(
+            Criteria {
+                max_5xx_rate: Some(0.01),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(
+            Criteria {
+                max_4xx_count: Some(0),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(
+            Criteria {
+                min_window_rps: Some(1.0),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        // rps_warmup_seconds는 수식자 — 그것만으론 verdict를 만들지 않는다(N-3).
+        assert!(
+            !Criteria {
+                rps_warmup_seconds: Some(5),
+                ..Default::default()
+            }
+            .has_any()
+        );
+        assert!(!Criteria::default().has_any());
+    }
+
+    #[test]
+    fn criteria_new_fields_serde_round_trip() {
+        let c = Criteria {
+            max_4xx_rate: Some(0.1),
+            max_5xx_rate: Some(0.0),
+            max_4xx_count: Some(3),
+            max_5xx_count: Some(0),
+            min_window_rps: Some(50.0),
+            rps_warmup_seconds: Some(5),
+            ..Default::default()
+        };
+        let j = serde_json::to_string(&c).unwrap();
+        let back: Criteria = serde_json::from_str(&j).unwrap();
+        assert_eq!(c, back);
+        // None 필드는 직렬화에서 생략(skip_serializing_if).
+        let empty = serde_json::to_string(&Criteria::default()).unwrap();
+        assert_eq!(empty, "{}");
     }
 
     #[test]
