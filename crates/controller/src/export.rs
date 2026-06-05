@@ -414,6 +414,7 @@ mod tests {
             verdict: None,
             insights: vec![],
             dropped: 0,
+            latency: None,
         }
     }
 

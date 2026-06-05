@@ -162,6 +162,12 @@ async fn report_endpoint_returns_bundle_for_seeded_run() {
     let steps = json["steps"].as_array().unwrap();
     assert!(!steps.is_empty());
 
+    // Latency distribution is emitted for a run with recorded samples.
+    let latency = &json["latency"];
+    assert!(latency.is_object(), "latency present");
+    assert_eq!(latency["percentile_curve"].as_array().unwrap().len(), 11);
+    assert!(!latency["histogram"].as_array().unwrap().is_empty());
+
     // Also typed-decode it to catch shape regressions
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
 }

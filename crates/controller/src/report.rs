@@ -1,6 +1,9 @@
 use crate::store::metrics::{IfBranchRow, LoopMetricRow, WindowWithHdr};
 use crate::store::runs::{RunRow, RunStatus};
-use handicap_engine::percentiles::{Percentiles, decode_hdr, merge_into, percentiles_of};
+use handicap_engine::percentiles::{
+    CURVE_QUANTILES, HISTOGRAM_BINS, Percentiles, decode_hdr, log_buckets, merge_into,
+    percentile_curve, percentiles_of,
+};
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,6 +23,8 @@ pub struct ReportJson {
     pub insights: Vec<crate::insights::Insight>,
     #[serde(default)]
     pub dropped: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency: Option<LatencyDistribution>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +91,25 @@ pub struct ReportStep {
     pub p95_ms: u64,
     pub p99_ms: u64,
     pub loop_breakdown: Vec<LoopBucket>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PercentilePoint {
+    pub quantile: f64,
+    pub value_us: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct HistogramBucket {
+    pub lower_us: u64,
+    pub upper_us: u64,
+    pub count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct LatencyDistribution {
+    pub percentile_curve: Vec<PercentilePoint>,
+    pub histogram: Vec<HistogramBucket>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -280,6 +304,24 @@ pub fn build_report(
         .collect();
 
     let overall_p = percentiles_of(&overall);
+    let latency = if !overall.is_empty() {
+        Some(LatencyDistribution {
+            percentile_curve: percentile_curve(&overall, &CURVE_QUANTILES)
+                .into_iter()
+                .map(|(quantile, value_us)| PercentilePoint { quantile, value_us })
+                .collect(),
+            histogram: log_buckets(&overall, HISTOGRAM_BINS)
+                .into_iter()
+                .map(|(lower_us, upper_us, count)| HistogramBucket {
+                    lower_us,
+                    upper_us,
+                    count,
+                })
+                .collect(),
+        })
+    } else {
+        None
+    };
     let profile_val = serde_json::to_value(&run.profile).unwrap_or(serde_json::Value::Null);
     let env_val = run.env.clone();
     // runs.started_at / ended_at are wall-clock milliseconds (now_ms in store/runs.rs).
@@ -360,6 +402,7 @@ pub fn build_report(
         verdict,
         insights,
         dropped: run.dropped as u64,
+        latency,
     }
 }
 
@@ -736,5 +779,38 @@ mod tests {
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
         );
+    }
+
+    #[test]
+    fn build_report_emits_latency_distribution() {
+        let r = run_row();
+        let rows = vec![
+            win(100, "s", 3, 0, r#"{"200":3}"#, &[10_000, 20_000, 30_000]),
+            win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[]);
+
+        let latency = rep.latency.as_ref().expect("latency present with samples");
+        assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
+        for (i, p) in latency.percentile_curve.iter().enumerate() {
+            assert_eq!(p.quantile, CURVE_QUANTILES[i]);
+        }
+        for w in latency.percentile_curve.windows(2) {
+            assert!(w[1].value_us >= w[0].value_us, "curve non-decreasing");
+        }
+        let total: u64 = latency.histogram.iter().map(|b| b.count).sum();
+        assert_eq!(total, 5, "histogram partitions all 5 samples");
+
+        // typed round-trip survives the new field.
+        let v = serde_json::to_value(&rep).unwrap();
+        let back: ReportJson = serde_json::from_value(v).unwrap();
+        assert!(back.latency.is_some());
+    }
+
+    #[test]
+    fn build_report_no_latency_without_samples() {
+        let r = run_row();
+        assert!(build_report(&r, "", &[], &[], &[]).latency.is_none());
     }
 }
