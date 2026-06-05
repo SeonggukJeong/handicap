@@ -76,10 +76,10 @@
 [선택된 사분면의 필드만 아래에 렌더]
 ```
 
-- **상태**: 신규 state 없음 — 기존 `loadModel: "closed"|"open"` × `rateMode: "fixed"|"curve"` 그대로(이미 2축).
-- **closed → fixed 강제**: closed 선택 시 `rateMode`를 `fixed`로 리셋(open+curve 상태에서 closed로 전환하면 자동). 2차 축의 '곡선' 라디오는 `loadModel==="closed"`일 때 `disabled`.
-- **라벨**: 기존 테스트 정규식(`/closed-loop/i`, `/open-loop/i`, `/곡선/`)을 보존하도록 `closed-loop`/`open-loop`/`곡선` 부분문자열 유지. 2차 축 legend는 모드 무관 중립 표현("프로파일" 또는 "고정 / 곡선" — 구현 시 확정, "레이트"는 closed에 안 맞아 교체).
-- **폼 형태 결정**: 세그먼트 컨트롤 대신 **라디오 유지**. 기존 RunDialog 테스트가 `getByRole("radio", {name})`에 의존(`RunDialog.test.tsx:796`, `:831`, `:861`, `:892` 등)하므로 세그먼트(버튼)로 바꾸면 라디오-role 단언이 전부 깨진다. "다듬고 명료화" 방향과도 정합.
+- **상태 변수**: 신규 state *변수* 없음 — 기존 `loadModel: "closed"|"open"` × `rateMode: "fixed"|"curve"` 그대로(이미 2축). 단 아래 리셋/disable **배선은 신규 로직**이다("동작 무변경" 아님 — 리뷰 I-2).
+- **closed → fixed 리셋 (신규 배선)**: 오늘은 `rateMode` 라디오·curve 필드가 `loadModel==="open"` else-분기(`RunDialog.tsx:528`) 안에만 있어 closed일 때 `rateMode`가 무관(harmless)했다. 2차 축을 closed에도 노출하므로 명시 처리 필요 — **(a)** closed 라디오 `onChange`에서 `setRateMode("fixed")` **즉시 리셋(eager)** + **(b)** 2차 축 '곡선' 라디오는 `loadModel==="closed"`일 때 `disabled`. 이 둘이 함께 "closed인데 curve" 상태를 도달 불가능하게 한다(curve 필드 렌더·`buildLoadProfile` curve 분기 모두 안 탐). 통합 테스트로 락인(§8 신규 #2).
+- **라벨**: 1차 축 라디오는 기존 테스트 정규식(`/closed-loop/i`, `/open-loop/i`)을 보존하도록 `closed-loop`/`open-loop` 부분문자열 유지. 2차 축 라디오는 `고정`/`곡선`(`/곡선/` 보존). **2차 축 fieldset legend = `프로파일`(확정)** — "레이트"는 closed에 안 맞아 교체하고, 신규 §8 테스트가 이 legend(`getByRole("group", {name:/프로파일/i})`)를 질의하므로 구현·테스트가 합의하도록 **미리 못박음**("구현 시 확정" 금지 — 새 테스트가 단언하는 문자열을 미루는 건 repo footgun, 리뷰 I-5).
+- **폼 형태 결정**: 세그먼트 컨트롤 대신 **라디오 유지**. 기존 RunDialog 테스트가 `getByRole("radio", {name})`에 의존(`ui/src/components/__tests__/RunDialog.test.tsx:796`, `:831`, `:861`, `:892` 등)하므로 세그먼트(버튼)로 바꾸면 라디오-role 단언이 전부 깨진다. "다듬고 명료화" 방향과도 정합.
 
 ---
 
@@ -97,7 +97,7 @@
 - 2축 셀렉터 + 사분면별 필드 입력 + stages 에디터 + 곡선 미리보기.
 - **Controlled**: 상태·setter를 props로 받음(state 소유권은 RunDialog — `EnvironmentPicker` 패턴). 프리셋 load / retry prefill의 reseed-by-key 불변식(`ui/CLAUDE.md` "RunDialog/DataBindingPanel prefill 은 reseed-by-key")을 그대로 유지하기 위해 state는 RunDialog가 계속 소유.
 - 기존 `StageCurvePreview`(`ui/src/components/StageCurvePreview.tsx`) · `LOAD_SHAPES`(`ui/src/components/loadShapes.ts`) 재사용.
-- stages 인라인 JSX(`RunDialog.tsx:613-769`)가 커서 `LoadModelFields`가 비대해지면 `StagesEditor`로 추가 분리 — 구현 중 판단(YAGNI, 강제 아님).
+- stages 인라인 JSX(`RunDialog.tsx:614-769`)가 커서 `LoadModelFields`가 비대해지면 `StagesEditor`로 추가 분리 — 구현 중 판단(YAGNI, 강제 아님).
 
 ### 5.3 `RunDialog.tsx`
 - state 소유 유지(프리셋/prefill 배선 무변경).
@@ -116,20 +116,38 @@
 
 ## 7. 불변식 테스트 (이 슬라이스의 락인)
 
-`ui/src/components/__tests__/loadModel.test.ts` — 순수 `buildLoadProfile`이 3개 활성 모드 각각에서 **서버 400 조합을 만들지 않음**을 단언:
+**두 층으로 분리** — 순수 함수가 보장할 수 있는 것(필드 존재/부재)과 게이팅이 보장하는 것(숫자 범위)을 섞지 않는다(리뷰 I-3).
 
-- **closed** → `target_rps`/`stages`/`max_in_flight` 부재; `vus>0`, `duration_seconds>0`.
-- **open + fixed** → `stages`/`think_time` 부재, `ramp_up_seconds===0`; `target_rps` 존재, `max_in_flight` 존재, `duration_seconds>0`.
-- **open + curve** → `target_rps`/`think_time` 부재, `ramp_up_seconds===0`; `duration_seconds===0`, `stages` 비어있지 않음, `max_in_flight` 존재.
+### 7.1 순수 `buildLoadProfile` 필드-형태 불변식 — `ui/src/components/__tests__/loadModel.test.ts`
+모드별로 충돌 필드의 **존재/부재**만 단언(입력 state는 유효값으로 고정). `buildLoadProfile`은 정규화된 숫자 state의 순수 함수라 *형태*만 보장한다:
 
-각 단언은 `validate_run_config`(`runs.rs:87-143`)의 거부 규칙과 1:1 대응. 미래 knob 추가가 모드 격리를 깨면 RED.
+- **closed** → `target_rps`/`stages`/`max_in_flight` **부재**.
+- **open + fixed** → `stages`/`think_time` **부재**, `ramp_up_seconds===0`; `target_rps`·`max_in_flight` **존재**.
+- **open + curve** → `target_rps`/`think_time` **부재**, `ramp_up_seconds===0`, `duration_seconds===0`; `stages`(비어있지 않음)·`max_in_flight` **존재**.
+
+이 필드-형태가 `validate_run_config`(`crates/controller/src/api/runs.rs:87-143`)의 *조합* 거부 규칙(`open+ramp_up>0`/`open+think_time`/`stages+target_rps`/`stages+duration>0`)을 표현 불가능하게 만든다. **주의**: `think_time`은 **closed에서 허용**, open에서만 금지다(`runs.rs:92`) — closed 분기가 `think_time`을 emit하는 건 정상이고 단언 대상이 아니다.
+
+### 7.2 숫자 범위 게이팅은 `canSubmit` (RunDialog 통합 테스트, 다른 층)
+`vus>0`·`duration_seconds>0`·`target_rps`/`max_in_flight` 범위·`stages` 유효성은 **순수 함수가 아니라 `canSubmit`**(`RunDialog.tsx:259`)이 막는다(Run 버튼 disabled). `buildLoadProfile`에 `vus>0` 같은 숫자 단언을 기대하지 말 것(함수가 그 입력엔 `vus:0`을 그대로 emit한다 — 보장 못 함). 이 층은 RunDialog 통합 테스트로 검증(예: `vus:0`이면 Run 버튼 disabled).
+
+미래 knob 추가가 모드 격리를 깨면 §7.1이 RED.
 
 ---
 
 ## 8. 테스트 / 동작 보존
 
-- **기존 RunDialog 라디오-role 단언 보존**: `/closed-loop/i`, `/open-loop/i`, `/곡선/`(`RunDialog.test.tsx`). 라벨 부분문자열 유지로 통과.
-- **신규 RTL**: ① closed 선택 시 '곡선' 라디오 disabled; ② open+curve→closed 전환 시 rateMode가 fixed로 리셋; ③ http_timeout/max_in_flight 입력이 각 모드에서 단 1개; ④ closed/open/curve 각 모드의 제출 payload가 기존과 동일(buildLoadProfile 단위 + RunDialog 통합).
+기존 RunDialog 테스트는 전부 `ui/src/components/__tests__/RunDialog.test.tsx`에 있다(주의: `__tests__/` 하위 — 리뷰 I-1). 보존 대상:
+
+- **라디오-role 단언**: `/closed-loop/i`, `/open-loop/i`, `/곡선/`(`:796`/`:831`/`:861`/`:892`). 1·2차 축 라벨 부분문자열 유지로 통과.
+- **fieldset group 단언**: `getByRole("group", {name:/부하 모델/i})`(`:829`) — 1차 축 legend 유지.
+- **라벨-기반 입력 단언(중요 — 리뷰 I-4)**: `getByLabelText(/HTTP timeout/i)`(`:308`/`:1037`/`:1064`, closed 모드) · `getByLabelText("Max in-flight")`(`:898`, curve) · `/max in.?flight/i`(`:851`, fixed). dedup 후에도 각 모드에서 정확히 **1개**이며, 단일화된 입력은 **정확한 `aria-label`(`"HTTP timeout (s)"` / `"Max in-flight"`) + `aria-invalid` + `aria-describedby`(`"http-timeout-error"` / `"max-in-flight-error"`) 와이어링을 그대로 유지**해야 한다. 단일화는 입력 *개수*만 줄이고 라벨·a11y는 보존(이게 깨지면 위 라벨 테스트가 RED).
+
+신규 RTL:
+1. closed 선택 시 2차 축 '곡선' 라디오 `disabled` + 2차 fieldset legend `/프로파일/i`로 접근.
+2. open+curve→closed 전환 시 `rateMode`가 fixed로 리셋(closed+curve 도달 불가).
+3. http_timeout·max_in_flight 입력이 각 모드에서 단 1개.
+4. closed/open-fixed/open-curve 제출 payload 동일: §7.1 순수 단위 + RunDialog 통합(mutation 인자 검사).
+
 - **게이트**: `pnpm lint && pnpm test && pnpm build`(전체 — targeted green ≠ full green, `ui/CLAUDE.md`). `tsc -b`로 Zod default 누출/discriminated union 미스매치 확인.
 - 라이브 run은 payload byte-identical이라 회귀 위험 낮으나, 머지 전 RunDialog로 closed/open-fixed/open-curve 각 1회 생성 권장(`ui/CLAUDE.md` "run 생성/응답-파싱 경로는 RTL·tsc로 안 잡힌다 — 라이브 run 1회").
 
