@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use rand::RngCore;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use tokio::sync::{Mutex, mpsc};
@@ -456,9 +457,64 @@ async fn execute_steps(
                     other => return Ok(other),
                 }
             }
-            // P-a Task 2: interpreter arm — implemented in the next task.
-            Step::Parallel(_p) => {
-                todo!("parallel interpreter arm — P-a Task 2")
+            Step::Parallel(par) => {
+                // Snapshot entry vars; each branch runs on its own clone (concurrent
+                // branches can't share &mut iter_vars). Reads see entry; writes
+                // (extracts) stay branch-local and are merged back namespaced (§3.2).
+                let entry: BTreeMap<String, String> = iter_vars.clone();
+                // One deterministic seed per branch, drawn in declaration order from
+                // the VU rng (reproducible given think_seed). Concurrent branches
+                // can't share &mut rng, so each gets an independent StdRng.
+                let seeds: Vec<u64> = (0..par.branches.len()).map(|_| rng.next_u64()).collect();
+
+                let futs = par.branches.iter().zip(seeds).map(|(branch, seed)| {
+                    let mut branch_vars = entry.clone();
+                    let mut branch_rng = StdRng::seed_from_u64(seed);
+                    async move {
+                        let flow = Box::pin(execute_steps(
+                            client,
+                            &branch.steps,
+                            &mut branch_vars,
+                            agg,
+                            deadline,
+                            env,
+                            vu_id,
+                            iter_id,
+                            loop_index,
+                            cancel,
+                            &mut branch_rng,
+                        ))
+                        .await;
+                        (branch, branch_vars, flow)
+                    }
+                });
+                // wait-all: every branch runs to completion before the node returns.
+                let results = futures::future::join_all(futs).await;
+
+                // Merge in declaration order (join_all preserves input order). Key-origin
+                // namespace: expose each branch's declared extract outputs as
+                // {{branch.var}}. First Err propagates; else worst flow
+                // (Aborted > DeadlineReached > Continue).
+                let mut aborted = false;
+                let mut deadline_hit = false;
+                for (branch, branch_vars, flow) in results {
+                    match flow? {
+                        StepFlow::Continue => {}
+                        StepFlow::DeadlineReached => deadline_hit = true,
+                        StepFlow::Aborted => aborted = true,
+                    }
+                    for k in branch.output_var_names() {
+                        if let Some(v) = branch_vars.get(k) {
+                            iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
+                        }
+                    }
+                }
+                if aborted {
+                    return Ok(StepFlow::Aborted);
+                }
+                if deadline_hit {
+                    return Ok(StepFlow::DeadlineReached);
+                }
             }
         }
     }
