@@ -14,6 +14,8 @@ import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
 import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
+import { PercentileCurveChart } from "./PercentileCurveChart";
+import { LatencyHistogramChart } from "./LatencyHistogramChart";
 
 type Props = { report: Report };
 
@@ -146,6 +148,13 @@ export function ReportView({ report }: Props) {
         yLabel="errors"
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
       />
+      {report.latency ? (
+        <section aria-label="Latency">
+          <h3 className="text-lg font-semibold mb-2">Latency</h3>
+          <PercentileCurveChart curve={report.latency.percentile_curve} />
+          <LatencyHistogramChart buckets={report.latency.histogram} />
+        </section>
+      ) : null}
       <StatusDistribution distribution={report.status_distribution} />
       <StepStatsTable steps={report.steps} meta={stepMeta} />
       <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />

@@ -142,6 +142,36 @@ describe("ReportView", () => {
     expect(screen.queryByText("FAIL")).not.toBeInTheDocument();
   });
 
+  it("renders latency charts when report.latency is present", () => {
+    const report: Report = {
+      ...FIXTURE,
+      latency: {
+        percentile_curve: [
+          { quantile: 0.5, value_us: 10_000 },
+          { quantile: 0.99, value_us: 90_000 },
+          { quantile: 1.0, value_us: 120_000 },
+        ],
+        histogram: [
+          { lower_us: 1_000, upper_us: 2_000, count: 8 },
+          { lower_us: 2_000, upper_us: 4_000, count: 7 },
+        ],
+      },
+    };
+    render(<ReportView report={report} />);
+    expect(screen.getByRole("region", { name: /Latency percentile curve/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /Latency histogram/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Latency" })).toBeInTheDocument();
+  });
+
+  it("omits latency charts when report.latency is absent", () => {
+    render(<ReportView report={FIXTURE} />);
+    expect(
+      screen.queryByRole("region", { name: /Latency percentile curve/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Latency histogram/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Latency" })).not.toBeInTheDocument();
+  });
+
   describe("CSV/XLSX download buttons", () => {
     it("renders Download CSV and Download XLSX buttons", () => {
       render(<ReportView report={FIXTURE} />);
