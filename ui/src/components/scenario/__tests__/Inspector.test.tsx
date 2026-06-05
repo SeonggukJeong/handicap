@@ -758,6 +758,143 @@ describe("Inspector — think_time (S-B)", () => {
   });
 });
 
+describe("Inspector — ParallelInspector (P-b Task 8)", () => {
+  function loadParallelAndSelect() {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+    const pid = useScenarioEditor.getState().addParallelStep("Fan-out");
+    // Rename the two default branches to recognizable names for assertions
+    useScenarioEditor.getState().setBranchName(pid, 0, "user");
+    useScenarioEditor.getState().setBranchName(pid, 1, "feed");
+    useScenarioEditor.getState().select(pid);
+    return pid;
+  }
+
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("renders branch name inputs with current names (user / feed)", () => {
+    const pid = loadParallelAndSelect();
+    render(<Inspector />);
+    // Should have two inputs labeled with the branch names
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    const values = inputs.map((i) => i.value);
+    expect(values).toContain("user");
+    expect(values).toContain("feed");
+    // Sanity: parallel step exists
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    expect(step.type).toBe("parallel");
+  });
+
+  it("+ Add branch appends a new branch to the parallel step", async () => {
+    const user = userEvent.setup();
+    const pid = loadParallelAndSelect();
+    render(<Inspector />);
+
+    const stepBefore = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (stepBefore.type !== "parallel") throw new Error("expected parallel");
+    expect(stepBefore.branches).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /add branch/i }));
+
+    const stepAfter = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (stepAfter.type !== "parallel") throw new Error("expected parallel");
+    expect(stepAfter.branches).toHaveLength(3);
+  });
+
+  it("editing a branch name (type + blur) commits via setBranchName", async () => {
+    const user = userEvent.setup();
+    const pid = loadParallelAndSelect();
+    render(<Inspector />);
+
+    // Find the 'user' name input and rename it
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    const userInput = inputs.find((i) => i.value === "user")!;
+    await user.clear(userInput);
+    await user.type(userInput, "auth");
+    // Blur to commit (F5 onBlur-commit pattern)
+    await user.tab();
+
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (step.type !== "parallel") throw new Error("expected parallel");
+    const names = step.branches.map((b) => b.name);
+    expect(names).toContain("auth");
+    expect(names).not.toContain("user");
+  });
+
+  it("shows a duplicate-name warning when two branches have the same name", async () => {
+    const user = userEvent.setup();
+    loadParallelAndSelect();
+    render(<Inspector />);
+
+    // Set both branch names to the same value
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    const feedInput = inputs.find((i) => i.value === "feed")!;
+    await user.clear(feedInput);
+    await user.type(feedInput, "user"); // now both branches are named "user"
+    await user.tab(); // commit
+
+    // Duplicate warning should appear
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("alert").textContent).toMatch(/중복/);
+  });
+
+  it("+ Add step in branch adds an http step to that branch", async () => {
+    const user = userEvent.setup();
+    const pid = loadParallelAndSelect();
+    render(<Inspector />);
+
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (step.type !== "parallel") throw new Error("expected parallel");
+    const beforeLen = step.branches[0].steps.length;
+
+    // Click the first "+ Add step in branch" button
+    const addStepBtns = screen.getAllByRole("button", { name: /add step to branch/i });
+    await user.click(addStepBtns[0]);
+
+    const after = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (after.type !== "parallel") throw new Error("expected parallel");
+    expect(after.branches[0].steps.length).toBe(beforeLen + 1);
+  });
+
+  it("remove branch button is absent when only 1 branch remains", () => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+    const pid = useScenarioEditor.getState().addParallelStep("Solo");
+    // Remove one branch so only 1 remains
+    useScenarioEditor.getState().removeBranch(pid, 1);
+    useScenarioEditor.getState().select(pid);
+    render(<Inspector />);
+
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (step.type !== "parallel") throw new Error("expected parallel");
+    expect(step.branches).toHaveLength(1);
+
+    // With only 1 branch, the remove button must NOT be present
+    expect(screen.queryByRole("button", { name: /remove branch/i })).not.toBeInTheDocument();
+  });
+
+  it("with 2 branches, removing one reduces to 1 and then remove button disappears", async () => {
+    const user = userEvent.setup();
+    const pid = loadParallelAndSelect();
+    render(<Inspector />);
+
+    // With 2 branches, remove buttons should be visible
+    const removeBtns = screen.getAllByRole("button", { name: /remove branch/i });
+    expect(removeBtns.length).toBe(2);
+
+    await user.click(removeBtns[0]);
+
+    const after = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (after.type !== "parallel") throw new Error("expected parallel");
+    expect(after.branches).toHaveLength(1);
+
+    // After removing to 1, no more remove buttons
+    expect(screen.queryByRole("button", { name: /remove branch/i })).not.toBeInTheDocument();
+  });
+});
+
 describe("Inspector — setKind orphan-drop (spec §7)", () => {
   const FORM_DISABLED_YAML = `version: 1
 name: "demo"

@@ -702,8 +702,160 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   );
 }
 
+function ParallelBranchEditor({
+  parallelId,
+  branchIndex,
+  branchName,
+  stepsCount,
+  canRemove,
+  allBranchNames,
+}: {
+  parallelId: string;
+  branchIndex: number;
+  branchName: string;
+  stepsCount: number;
+  canRemove: boolean;
+  allBranchNames: ReadonlyArray<string>;
+}) {
+  const addStepInParallelBranch = useScenarioEditor((s) => s.addStepInParallelBranch);
+  const setBranchName = useScenarioEditor((s) => s.setBranchName);
+  const removeBranch = useScenarioEditor((s) => s.removeBranch);
+  const select = useScenarioEditor((s) => s.select);
+
+  // F5 onBlur-commit pattern: local draft for the branch name input.
+  // Per-branch draft keyed by branchIndex — avoids cross-field one-empty no-op issue.
+  const [nameDraft, setNameDraft] = useState(branchName);
+
+  // Re-seed when the committed name changes (e.g. after a remote edit or step switch).
+  useEffect(() => {
+    setNameDraft(branchName);
+  }, [branchName]);
+
+  const commitName = () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed === "") {
+      // Empty name not valid; revert draft to last committed value
+      setNameDraft(branchName);
+      return;
+    }
+    if (trimmed !== branchName) {
+      setBranchName(parallelId, branchIndex, trimmed);
+    }
+  };
+
+  // Duplicate name: the current draft value matches another branch's committed name.
+  // Zod's superRefine hard-blocks duplicate committed names; this is a visual preview
+  // warning that fires when the draft (being typed / just committed) would conflict.
+  // We check nameDraft against other branches' committed names (excluding this branch's
+  // own index so a branch renaming to its current name doesn't self-warn).
+  const isDuplicate =
+    nameDraft.trim() !== "" &&
+    allBranchNames.some((n, i) => i !== branchIndex && n === nameDraft.trim());
+
+  return (
+    <div className="border border-slate-200 rounded p-2 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-semibold text-slate-600 shrink-0">
+          Branch {branchIndex + 1}
+        </label>
+        <div className="flex-1 min-w-0">
+          <input
+            aria-label={`branch name ${branchIndex}`}
+            className="w-full border border-slate-300 rounded px-2 py-1 text-xs"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+          />
+        </div>
+        {canRemove && (
+          <button
+            type="button"
+            aria-label={`remove branch ${branchIndex}`}
+            className="shrink-0 text-slate-500 hover:text-red-600 text-xs border border-slate-200 rounded px-2 py-1"
+            onClick={() => removeBranch(parallelId, branchIndex)}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {isDuplicate && (
+        <span role="alert" className="text-[11px] text-amber-600">
+          중복된 분기 이름
+        </span>
+      )}
+      <div className="text-xs text-slate-400 italic ml-1">
+        {stepsCount} step{stepsCount !== 1 ? "s" : ""}
+      </div>
+      <button
+        type="button"
+        aria-label={`Add step to branch ${branchIndex}`}
+        className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+        onClick={() => {
+          const id = addStepInParallelBranch(parallelId, branchIndex, "Step");
+          select(id);
+        }}
+      >
+        + Add step in branch
+      </button>
+    </div>
+  );
+}
+
 function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) {
-  return <div className="text-xs text-slate-500">parallel: {step.branches.length} branches</div>;
+  const setStepField = useScenarioEditor((s) => s.setStepField);
+  const addBranch = useScenarioEditor((s) => s.addBranch);
+  const removeStep = useScenarioEditor((s) => s.removeStep);
+
+  const allBranchNames = step.branches.map((b) => b.name);
+  const canRemove = step.branches.length > 1;
+
+  return (
+    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+      <header className="flex items-center justify-between">
+        <h3 className="font-semibold text-slate-700">Parallel</h3>
+        <div className="flex gap-1">
+          <MoveButtons stepId={step.id} />
+          <SmallButton
+            onClick={() => removeStep(step.id)}
+            label="Delete"
+            title="Delete parallel"
+            danger
+          />
+        </div>
+      </header>
+
+      <Field label="Name">
+        <input
+          className="w-full border border-slate-300 rounded px-2 py-1"
+          value={step.name}
+          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
+        />
+      </Field>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-xs font-semibold text-slate-600">Branches</div>
+        {step.branches.map((branch, i) => (
+          <ParallelBranchEditor
+            key={i}
+            parallelId={step.id}
+            branchIndex={i}
+            branchName={branch.name}
+            stepsCount={branch.steps.length}
+            canRemove={canRemove}
+            allBranchNames={allBranchNames}
+          />
+        ))}
+        <button
+          type="button"
+          aria-label="Add branch"
+          className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
+          onClick={() => addBranch(step.id)}
+        >
+          + Add branch
+        </button>
+      </div>
+    </aside>
+  );
 }
 
 function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void }) {
