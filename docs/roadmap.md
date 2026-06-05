@@ -135,7 +135,7 @@
 - **일반 연산자 모델** (`{metric, op, threshold}` 자유 조합): 출력 shape는 이미 일반형이라 입력만 마이그레이션. (A4b run 비교·A4c 요약은 A4 영역의 별도 슬라이스.)
 
 ### B7. A4b (run 비교 + export) 연기 항목
-- **D. 레이턴시 히스토그램/분위 곡선**: 바로 다음 작은 슬라이스 후보. HDR 윈도는 이미 있음 — 분위 곡선/히스토그램 렌더만.
+- **D. 레이턴시 히스토그램/분위 곡선** — 🔜 **spec+plan 완료, 구현 대기 (subagent-driven, 2026-06-05)**: `build_report`가 이미 머지한 `overall` HDR에서 분위 곡선(고정 11분위)+로그-버킷 히스토그램(iter_recorded 값-기준 정확 분할, Σ==len)을 `ReportJson.latency: Option<LatencyDistribution>`(serde-default)로 emit → UI Zod(`.nullish()`)+Recharts 차트 2개+ReportView 슬롯. **엔진 부하경로·워커·proto·마이그레이션 무변경**(`percentiles.rs` 리포트 헬퍼만 추가). spec-plan-reviewer 통과(C1=`is_empty()` clippy 함정 반영). spec `docs/superpowers/specs/2026-06-05-latency-distribution-report-design.md`, plan `docs/superpowers/plans/2026-06-05-latency-distribution-report.md`(6 task). ADR 불필요(additive).
 - **C. 트랜잭션 시간 분해**(DNS/TCP/TLS/TTFB): 엔진 계측 필요 — 더 큰 별도 슬라이스.
 - **A4c 리포트 요약**: A4 영역의 별도 하위 슬라이스.
 - **per-second 차트 오버레이**: 여러 run 시계열을 한 차트에(비교 뷰 후속).
