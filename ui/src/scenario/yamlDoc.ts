@@ -31,6 +31,17 @@ export type Edit =
   | { type: "addIfInLoop"; loopId: string; id: string; name: string; childId: string }
   | { type: "addElif"; ifId: string; childId: string }
   | { type: "removeElif"; ifId: string; index: number }
+  | { type: "addParallelStep"; id: string; name: string; branch1Id: string; branch2Id: string }
+  | { type: "addBranch"; parallelId: string; name: string; childId: string }
+  | { type: "removeBranch"; parallelId: string; index: number }
+  | {
+      type: "addStepInParallelBranch";
+      parallelId: string;
+      branchIndex: number;
+      id: string;
+      name: string;
+    }
+  | { type: "setBranchName"; parallelId: string; branchIndex: number; name: string }
   | { type: "removeStep"; stepId: string }
   | { type: "moveStep"; stepId: string; toIndex: number }
   | {
@@ -272,6 +283,75 @@ export function applyEdit(doc: Document, edit: Edit): void {
       doc.deleteIn([...ifPath, "elif", edit.index]);
       return;
     }
+    case "addParallelStep": {
+      ensureSeq(doc, ["steps"]);
+      const steps = doc.getIn(["steps"]) as YAMLSeq;
+      const seed = (id: string) => ({
+        id,
+        name: "Step 1",
+        type: "http",
+        request: { method: "GET", url: "/" },
+        assert: [{ status: 200 }],
+      });
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "parallel",
+        branches: [
+          { name: "branch1", steps: [seed(edit.branch1Id)] },
+          { name: "branch2", steps: [seed(edit.branch2Id)] },
+        ],
+      });
+      steps.add(node);
+      return;
+    }
+    case "addBranch": {
+      const path = findStepPath(doc, edit.parallelId);
+      if (path === null) return;
+      ensureSeq(doc, [...path, "branches"]);
+      const branches = doc.getIn([...path, "branches"]) as YAMLSeq;
+      const node = doc.createNode({
+        name: edit.name,
+        steps: [
+          {
+            id: edit.childId,
+            name: "Step 1",
+            type: "http",
+            request: { method: "GET", url: "/" },
+            assert: [{ status: 200 }],
+          },
+        ],
+      });
+      branches.add(node);
+      return;
+    }
+    case "removeBranch": {
+      const path = findStepPath(doc, edit.parallelId);
+      if (path === null) return;
+      doc.deleteIn([...path, "branches", edit.index]);
+      return;
+    }
+    case "addStepInParallelBranch": {
+      const path = findStepPath(doc, edit.parallelId);
+      if (path === null) return;
+      ensureSeq(doc, [...path, "branches", edit.branchIndex, "steps"]);
+      const body = doc.getIn([...path, "branches", edit.branchIndex, "steps"]) as YAMLSeq;
+      const node = doc.createNode({
+        id: edit.id,
+        name: edit.name,
+        type: "http",
+        request: { method: "GET", url: "/" },
+        assert: [{ status: 200 }],
+      });
+      body.add(node);
+      return;
+    }
+    case "setBranchName": {
+      const path = findStepPath(doc, edit.parallelId);
+      if (path === null) return;
+      doc.setIn([...path, "branches", edit.branchIndex, "name"], plainScalar(edit.name));
+      return;
+    }
     case "removeStep": {
       const path = findStepPath(doc, edit.stepId);
       if (path === null) return;
@@ -383,6 +463,15 @@ function searchSeq(
         if (!isMap(eb)) continue;
         const inElif = searchSeq(eb.get("then"), [...path, "elif", j, "then"], stepId);
         if (inElif) return inElif;
+      }
+    }
+    const branches = item.get("branches");
+    if (isSeq(branches)) {
+      for (let j = 0; j < branches.items.length; j++) {
+        const br = branches.items[j] as Node;
+        if (!isMap(br)) continue;
+        const inBr = searchSeq(br.get("steps"), [...path, "branches", j, "steps"], stepId);
+        if (inBr) return inBr;
       }
     }
   }

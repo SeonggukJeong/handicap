@@ -697,3 +697,99 @@ describe("applyEdit — if node", () => {
     if (s.type === "if") expect(s.else.map((c) => c.id)).toEqual(["01HX0000000000000000000021"]);
   });
 });
+
+const BASE = `version: 1
+name: t
+steps: []
+`;
+
+function apply(yaml: string, edit: Parameters<typeof applyEdit>[1]): string {
+  const r = parseScenarioDoc(yaml);
+  if ("error" in r) throw new Error(r.error);
+  applyEdit(r.doc, edit);
+  return serializeDoc(r.doc);
+}
+
+describe("parallel edits", () => {
+  it("addParallelStep seeds two named branches with one http each", () => {
+    const out = apply(BASE, {
+      type: "addParallelStep",
+      id: "01HX0000000000000000000010",
+      name: "fan",
+      branch1Id: "01HX0000000000000000000011",
+      branch2Id: "01HX0000000000000000000012",
+    });
+    const r = parseScenarioDoc(out);
+    if ("error" in r) throw new Error(r.error);
+    const p = r.model.steps[0];
+    expect(p.type).toBe("parallel");
+    if (p.type !== "parallel") return;
+    expect(p.branches.map((b) => b.name)).toEqual(["branch1", "branch2"]);
+    expect(p.branches[0].steps[0].id).toBe("01HX0000000000000000000011");
+  });
+
+  it("addBranch / addStepInParallelBranch / setBranchName / removeBranch", () => {
+    let out = apply(BASE, {
+      type: "addParallelStep",
+      id: "01HX0000000000000000000010",
+      name: "fan",
+      branch1Id: "01HX0000000000000000000011",
+      branch2Id: "01HX0000000000000000000012",
+    });
+    out = apply(out, {
+      type: "addBranch",
+      parallelId: "01HX0000000000000000000010",
+      name: "branch3",
+      childId: "01HX0000000000000000000013",
+    });
+    out = apply(out, {
+      type: "addStepInParallelBranch",
+      parallelId: "01HX0000000000000000000010",
+      branchIndex: 0,
+      id: "01HX0000000000000000000014",
+      name: "Step 2",
+    });
+    out = apply(out, {
+      type: "setBranchName",
+      parallelId: "01HX0000000000000000000010",
+      branchIndex: 1,
+      name: "feed",
+    });
+    out = apply(out, {
+      type: "removeBranch",
+      parallelId: "01HX0000000000000000000010",
+      index: 2,
+    });
+    const r = parseScenarioDoc(out);
+    if ("error" in r) throw new Error(r.error);
+    const p = r.model.steps[0];
+    if (p.type !== "parallel") throw new Error("not parallel");
+    expect(p.branches.length).toBe(2);
+    expect(p.branches[1].name).toBe("feed");
+    expect(p.branches[0].steps.map((s) => s.id)).toEqual([
+      "01HX0000000000000000000011",
+      "01HX0000000000000000000014",
+    ]);
+  });
+
+  it("removeStep / setStepField descend into a parallel branch (searchSeq)", () => {
+    let out = apply(BASE, {
+      type: "addParallelStep",
+      id: "01HX0000000000000000000010",
+      name: "fan",
+      branch1Id: "01HX0000000000000000000011",
+      branch2Id: "01HX0000000000000000000012",
+    });
+    out = apply(out, {
+      type: "setStepField",
+      stepId: "01HX0000000000000000000011",
+      path: ["request", "url"],
+      value: "/changed",
+    });
+    expect(out).toContain("/changed");
+    out = apply(out, { type: "removeStep", stepId: "01HX0000000000000000000012" });
+    // branch2 now has 0 steps → Zod min(1) would reject parseScenarioDoc, so assert at
+    // the doc-text level that searchSeq descended and removed the id (NOT via parseScenarioDoc).
+    expect(out).not.toContain("01HX0000000000000000000012");
+  });
+});

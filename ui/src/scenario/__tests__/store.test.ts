@@ -250,3 +250,31 @@ describe("useScenarioEditor — if actions", () => {
     } else throw new Error("expected if step");
   });
 });
+
+describe("useScenarioEditor — parallel addBranch", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("addBranch generates a non-colliding default name based on existing branch names", () => {
+    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out");
+    // After addParallelStep the node has branch1 + branch2; addBranch should produce branch3
+    useScenarioEditor.getState().addBranch(parallelId);
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === parallelId);
+    if (step?.type !== "parallel") throw new Error("expected parallel step");
+    expect(step.branches).toHaveLength(3);
+    expect(step.branches[2].name).toBe("branch3");
+  });
+
+  it("addBranch with a collision at size+1 increments to the next free slot", () => {
+    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out");
+    // addParallelStep seeds branch1 + branch2; rename branch2 → branch3
+    // existing names = {branch1, branch3}; size=2, n starts at 3, collides → n=4
+    useScenarioEditor.getState().setBranchName(parallelId, 1, "branch3");
+    useScenarioEditor.getState().addBranch(parallelId);
+    const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === parallelId);
+    if (step?.type !== "parallel") throw new Error("expected parallel step");
+    expect(step.branches[2].name).toBe("branch4");
+  });
+});

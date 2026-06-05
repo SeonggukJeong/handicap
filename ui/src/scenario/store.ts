@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 import { Document } from "yaml";
-import { type Extract, type Scenario, type Condition } from "./model";
+import { type Extract, type Scenario, type Condition, findStepById, isParallelStep } from "./model";
 import { newStepId } from "./ulid";
 import { applyEdit, parseScenarioDoc, serializeDoc, type Edit, type BranchSel } from "./yamlDoc";
 
@@ -44,6 +44,11 @@ export interface ScenarioEditorState {
   addIfInLoop(loopId: string, name: string): string; // returns new if id
   addElif(ifId: string): void;
   removeElif(ifId: string, index: number): void;
+  addParallelStep(name: string): string; // returns new parallel id
+  addBranch(parallelId: string): void;
+  removeBranch(parallelId: string, index: number): void;
+  addStepInParallelBranch(parallelId: string, branchIndex: number, name: string): string; // returns new child id
+  setBranchName(parallelId: string, branchIndex: number, name: string): void;
   removeStep(stepId: string): void;
   moveStep(stepId: string, toIndex: number): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
@@ -170,6 +175,37 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   removeElif(ifId, index) {
     dispatch(set, get, { type: "removeElif", ifId, index });
   },
+  addParallelStep(name) {
+    const id = newStepId();
+    const branch1Id = newStepId();
+    const branch2Id = newStepId();
+    dispatch(set, get, { type: "addParallelStep", id, name, branch1Id, branch2Id });
+    return id;
+  },
+  addBranch(parallelId) {
+    // Generate a non-colliding default name branch{N}
+    const model = get().model;
+    const found = model ? findStepById(model.steps, parallelId) : null;
+    const existingNames = new Set(
+      found && isParallelStep(found) ? found.branches.map((b) => b.name) : [],
+    );
+    let n = existingNames.size + 1;
+    while (existingNames.has(`branch${n}`)) n++;
+    const name = `branch${n}`;
+    const childId = newStepId();
+    dispatch(set, get, { type: "addBranch", parallelId, name, childId });
+  },
+  removeBranch(parallelId, index) {
+    dispatch(set, get, { type: "removeBranch", parallelId, index });
+  },
+  addStepInParallelBranch(parallelId, branchIndex, name) {
+    const id = newStepId();
+    dispatch(set, get, { type: "addStepInParallelBranch", parallelId, branchIndex, id, name });
+    return id;
+  },
+  setBranchName(parallelId, branchIndex, name) {
+    dispatch(set, get, { type: "setBranchName", parallelId, branchIndex, name });
+  },
   removeStep(stepId) {
     if (get().selectedStepId === stepId) set({ selectedStepId: null });
     dispatch(set, get, { type: "removeStep", stepId });
@@ -274,6 +310,11 @@ const actions = (() => {
     addIfInLoop: s.addIfInLoop,
     addElif: s.addElif,
     removeElif: s.removeElif,
+    addParallelStep: s.addParallelStep,
+    addBranch: s.addBranch,
+    removeBranch: s.removeBranch,
+    addStepInParallelBranch: s.addStepInParallelBranch,
+    setBranchName: s.setBranchName,
     removeStep: s.removeStep,
     moveStep: s.moveStep,
     setStepField: s.setStepField,
