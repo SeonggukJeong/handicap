@@ -4,10 +4,13 @@ import {
   StepModel,
   ExtractModel,
   RequestModel,
+  ParallelStepModel,
   isLoopStep,
   isHttpStep,
   isIfStep,
   flattenHttpSteps,
+  findStepById,
+  findStepSiblings,
   summarizeCondition,
   type Scenario,
   type HttpStep,
@@ -564,5 +567,68 @@ describe("summarizeCondition", () => {
         ],
       }),
     ).toBe("a eq 1 OR b eq 2");
+  });
+});
+
+const http = (id: string, name = "h") => ({
+  id,
+  name,
+  type: "http" as const,
+  request: { method: "GET" as const, url: "/" },
+  assert: [],
+  extract: [],
+});
+
+const parallel = {
+  id: "01HX0000000000000000000010",
+  name: "fan",
+  type: "parallel" as const,
+  branches: [
+    { name: "user", steps: [http("01HX0000000000000000000011")] },
+    { name: "feed", steps: [http("01HX0000000000000000000012")] },
+  ],
+};
+
+describe("ParallelStepModel", () => {
+  it("parses a valid parallel step", () => {
+    expect(ParallelStepModel.safeParse(parallel).success).toBe(true);
+  });
+  it("rejects duplicate branch names (namespace keys)", () => {
+    const dup = {
+      ...parallel,
+      branches: [
+        { name: "x", steps: [http("01HX0000000000000000000011")] },
+        { name: "x", steps: [http("01HX0000000000000000000012")] },
+      ],
+    };
+    const r = StepModel.safeParse(dup);
+    expect(r.success).toBe(false);
+  });
+  it("rejects a branch with no steps", () => {
+    const empty = { ...parallel, branches: [{ name: "a", steps: [] }] };
+    expect(ParallelStepModel.safeParse(empty).success).toBe(false);
+  });
+  it("StepModel accepts parallel as a 4th variant", () => {
+    expect(StepModel.safeParse(parallel).success).toBe(true);
+  });
+});
+
+describe("helpers descend into parallel branches", () => {
+  it("flattenHttpSteps collects branch leaves", () => {
+    const flat = flattenHttpSteps([parallel as never]);
+    expect(flat.map((s) => s.id)).toEqual([
+      "01HX0000000000000000000011",
+      "01HX0000000000000000000012",
+    ]);
+  });
+  it("findStepById finds a step inside a branch", () => {
+    expect(findStepById([parallel as never], "01HX0000000000000000000012")?.id).toBe(
+      "01HX0000000000000000000012",
+    );
+    expect(findStepById([parallel as never], "01HX0000000000000000000010")?.type).toBe("parallel");
+  });
+  it("findStepSiblings returns the branch's step list", () => {
+    const sibs = findStepSiblings([parallel as never], "01HX0000000000000000000011");
+    expect(sibs.map((s) => s.id)).toEqual(["01HX0000000000000000000011"]);
   });
 });

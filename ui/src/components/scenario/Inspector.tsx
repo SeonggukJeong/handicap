@@ -9,9 +9,16 @@ import type {
   HttpStep,
   IfStep,
   LoopStep,
+  ParallelStep,
   Step,
 } from "../../scenario/model";
-import { findStepSiblings, findStepById, isLoopStep, isIfStep } from "../../scenario/model";
+import {
+  findStepSiblings,
+  findStepById,
+  isLoopStep,
+  isIfStep,
+  isParallelStep,
+} from "../../scenario/model";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
@@ -56,6 +63,7 @@ export function Inspector() {
 
   if (isLoopStep(step)) return <LoopInspector step={step} topLevel={topLevel} />;
   if (isIfStep(step)) return <IfInspector step={step} topLevel={topLevel} />;
+  if (isParallelStep(step)) return <ParallelInspector step={step} topLevel={topLevel} />;
   return <HttpStepInspector step={step} />;
 }
 
@@ -694,13 +702,19 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   );
 }
 
+function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) {
+  return <div className="text-xs text-slate-500">parallel: {step.branches.length} branches</div>;
+}
+
 function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void }) {
   const meta =
     step.type === "http"
       ? `${step.request.method} ${step.request.url}`
       : step.type === "loop"
         ? `loop ×${step.repeat}`
-        : "if";
+        : step.type === "parallel"
+          ? `parallel ×${step.branches.length}`
+          : "if";
   return (
     <button
       type="button"

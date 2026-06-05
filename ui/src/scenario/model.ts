@@ -202,7 +202,47 @@ export const IfStepModel = z
   .strict();
 export type IfStep = z.infer<typeof IfStepModel>;
 
-export const StepModel = z.discriminatedUnion("type", [HttpStepModel, LoopStepModel, IfStepModel]);
+// ── Parallel: top-level only (no nesting in v1). Branches are http-only sequences;
+//    branch `name` is the namespace key for that branch's outputs ({{name.var}}). ──
+export const BranchModel = z
+  .object({
+    name: z.string().min(1, "branch name required"),
+    steps: z.array(HttpStepModel).min(1, "branch needs at least one step"),
+  })
+  .strict();
+export type Branch = z.infer<typeof BranchModel>;
+
+// Plain object (NO superRefine here) so it stays a valid discriminatedUnion member.
+// Branch-name uniqueness is enforced on the StepModel union below (ZodEffects can't
+// be a discriminatedUnion member — same constraint as BodyModel).
+export const ParallelStepModel = z
+  .object({
+    id: z.string().regex(ULID_RE, "step id must be a ULID"),
+    name: z.string().min(1, "step name required"),
+    type: z.literal("parallel"),
+    branches: z.array(BranchModel).min(1, "parallel needs at least one branch"),
+  })
+  .strict();
+export type ParallelStep = z.infer<typeof ParallelStepModel>;
+
+export const StepModel = z
+  .discriminatedUnion("type", [HttpStepModel, LoopStepModel, IfStepModel, ParallelStepModel])
+  .superRefine((s, ctx) => {
+    // Branch names must be unique within a parallel node — they are the namespace
+    // keys for {{branch.var}}; duplicates would silently collapse downstream vars.
+    if (s.type !== "parallel") return;
+    const seen = new Set<string>();
+    s.branches.forEach((b, i) => {
+      if (seen.has(b.name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `duplicate branch name "${b.name}"`,
+          path: ["branches", i, "name"],
+        });
+      }
+      seen.add(b.name);
+    });
+  });
 export type Step = z.infer<typeof StepModel>;
 
 export function isLoopStep(s: Step): s is LoopStep {
@@ -214,6 +254,9 @@ export function isHttpStep(s: Step): s is HttpStep {
 export function isIfStep(s: Step): s is IfStep {
   return s.type === "if";
 }
+export function isParallelStep(s: Step): s is ParallelStep {
+  return s.type === "parallel";
+}
 
 /** Depth-first list of every http leaf, recursing through both container types
  *  to any depth (9c: bodies/branches are now Step[]). Return type unchanged. */
@@ -222,7 +265,10 @@ export function flattenHttpSteps(steps: ReadonlyArray<Step>): HttpStep[] {
   for (const s of steps) {
     if (s.type === "http") out.push(s);
     else if (s.type === "loop") out.push(...flattenHttpSteps(s.do));
-    else {
+    else if (s.type === "parallel") {
+      for (const b of s.branches) out.push(...flattenHttpSteps(b.steps));
+    } else {
+      // if
       out.push(...flattenHttpSteps(s.then));
       for (const e of s.elif) out.push(...flattenHttpSteps(e.then));
       out.push(...flattenHttpSteps(s.else));
@@ -243,6 +289,11 @@ function siblingsOrNull(steps: ReadonlyArray<Step>, stepId: string): ReadonlyArr
     if (s.type === "loop") {
       const r = siblingsOrNull(s.do, stepId);
       if (r) return r;
+    } else if (s.type === "parallel") {
+      for (const b of s.branches) {
+        const r = siblingsOrNull(b.steps, stepId);
+        if (r) return r;
+      }
     } else if (s.type === "if") {
       let r = siblingsOrNull(s.then, stepId);
       if (r) return r;
@@ -277,6 +328,11 @@ export function findStepById(steps: ReadonlyArray<Step>, stepId: string | null):
     if (s.type === "loop") {
       const r = findStepById(s.do, stepId);
       if (r) return r;
+    } else if (s.type === "parallel") {
+      for (const b of s.branches) {
+        const r = findStepById(b.steps, stepId);
+        if (r) return r;
+      }
     } else if (s.type === "if") {
       let r = findStepById(s.then, stepId);
       if (r) return r;

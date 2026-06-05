@@ -264,6 +264,13 @@ function ifStepToYaml(st: IfStep): Record<string, unknown> {
 function stepToYaml(st: Step): Record<string, unknown> {
   if (st.type === "loop") return loopStepToYaml(st);
   if (st.type === "if") return ifStepToYaml(st);
+  if (st.type === "parallel")
+    return {
+      id: st.id,
+      name: st.name,
+      type: "parallel",
+      branches: st.branches.map((b) => ({ name: b.name, steps: b.steps.map(httpStepToYaml) })),
+    };
   return httpStepToYaml(st);
 }
 

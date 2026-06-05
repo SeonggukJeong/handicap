@@ -442,6 +442,14 @@ function normalizeStep(s: unknown): unknown {
       else: Array.isArray(src.else) ? src.else.map(normalizeStep) : [],
     };
   }
+  if (src.type === "parallel") {
+    return {
+      id: src.id,
+      name: src.name,
+      type: "parallel",
+      branches: Array.isArray(src.branches) ? src.branches.map(normalizeBranch) : [],
+    };
+  }
   const request =
     typeof src.request === "object" && src.request !== null
       ? normalizeRequest(src.request as Record<string, unknown>)
@@ -466,6 +474,15 @@ function normalizeElif(e: unknown): unknown {
   return {
     cond: src.cond,
     then: Array.isArray(src.then) ? src.then.map(normalizeStep) : [],
+  };
+}
+
+function normalizeBranch(b: unknown): unknown {
+  if (typeof b !== "object" || b === null) return b;
+  const src = b as Record<string, unknown>;
+  return {
+    name: src.name,
+    steps: Array.isArray(src.steps) ? src.steps.map(normalizeStep) : [],
   };
 }
 

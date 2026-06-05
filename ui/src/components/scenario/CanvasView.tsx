@@ -179,6 +179,7 @@ function measureStep(step: Step): number {
     const body = step.do.reduce((h, c) => h + measureStep(c) + CHILD_GAP, 0);
     return LOOP_HEADER_H + LOOP_PAD + Math.max(body, CHILD_H + CHILD_GAP);
   }
+  if (step.type === "parallel") return 0; // Task 7이 실제 레인 높이로 교체
   let h = IF_HEADER_H;
   for (const b of ifBands(step)) {
     h += BAND_LABEL_H;
@@ -221,6 +222,7 @@ function emitStep(
     return;
   }
   const inner = width - LOOP_PAD * 2;
+  if (step.type === "parallel") return; // Task 7이 레인 노드 emit으로 교체
   if (step.type === "loop") {
     out.push({
       id: step.id,
