@@ -55,7 +55,7 @@ CURVE_QUANTILES = [0.0, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 0.999, 0.9999,
 - `counts[0..N] = 0`. **`h.iter_recorded()`** 로 순회하며 각 항목의 대표값 `v = it.value_iterated_to()`, 카운트 `c = it.count_since_last_iteration()`에 대해 빈 인덱스 `j = clamp(floor(N · ln(v/lo) / ln(hi/lo)), 0, N-1)`, `counts[j] += c`.
 - 버킷 i: `lower_us = round(edge[i])`, `upper_us = round(edge[i+1])`, `count = counts[i]`. (빈 카운트 0 버킷도 유지 — 축 안정.)
 - **불변식**: 각 기록 서브버킷이 `iter_recorded`에서 정확히 한 번 yield되어 한 빈에만 더해지므로 Σ(버킷 count) == `h.len()` (총 기록 수) — 정확.
-- 엣지: `h.len()==0`→`[]`(호출자가 `None` emit), `lo==hi`(전부 동일값)→단일 버킷 `[lo,hi]` count=총수.
+- 엣지: `h.is_empty()`→`[]`(호출자가 `None` emit), `lo==hi`(degenerate min==max)→단일 버킷 `[lo,hi]` count=총수. (NB: 동일 값을 여러 번 기록해도 HDR 서브버킷 bound 때문에 보통 `min<max`라 이 분기 대신 일반 루프를 타고 한 빈에 들어간다 — `clippy::len_zero` 회피 위해 `h.len()==0` 아닌 `h.is_empty()`.)
 
 ## 4. 컴포넌트 설계
 
@@ -95,7 +95,7 @@ pub latency: Option<LatencyDistribution>,
 ```
 `build_report`에서 `overall_p` 계산 직후:
 ```rust
-let latency = if overall.len() > 0 {
+let latency = if !overall.is_empty() {  // clippy::len_zero — len()>0 금지
     Some(LatencyDistribution {
         percentile_curve: percentile_curve(&overall, &CURVE_QUANTILES)
             .into_iter().map(|(q, v)| PercentilePoint { quantile: q, value_us: v }).collect(),

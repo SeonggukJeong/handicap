@@ -163,13 +163,15 @@ pub fn percentile_curve(h: &Histogram<u64>, quantiles: &[f64]) -> Vec<(f64, u64)
 /// use `count_between` half-open subtraction — its inclusive boundaries snap to
 /// HDR sub-bucket edges and double-count at fine resolution.
 pub fn log_buckets(h: &Histogram<u64>, bins: usize) -> Vec<(u64, u64, u64)> {
-    if h.len() == 0 || bins == 0 {
+    if h.is_empty() || bins == 0 {
         return Vec::new();
     }
     let lo = h.min().max(1);
     let hi = h.max();
     if lo >= hi {
-        // All samples share one equivalent value — single bucket.
+        // Degenerate min==max histogram — single bucket. (NB: identical recorded
+        // samples normally have min<max via HDR sub-bucket bounds, so they instead
+        // flow through the general loop below and still land in one bin.)
         return vec![(lo, hi, h.len())];
     }
     let log_lo = (lo as f64).ln();
@@ -316,7 +318,7 @@ pub struct LatencyDistribution {
 (d) `let overall_p = percentiles_of(&overall);`(line 282) 바로 뒤에 계산 추가:
 
 ```rust
-    let latency = if overall.len() > 0 {
+    let latency = if !overall.is_empty() {
         Some(LatencyDistribution {
             percentile_curve: percentile_curve(&overall, &CURVE_QUANTILES)
                 .into_iter()
