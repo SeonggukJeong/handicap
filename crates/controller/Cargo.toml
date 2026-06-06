@@ -17,6 +17,9 @@ path = "src/main.rs"
 handicap-engine = { path = "../engine" }
 handicap-proto = { path = "../proto" }
 anyhow.workspace = true
+croner.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
 hdrhistogram.workspace = true
 async-trait.workspace = true
 axum.workspace = true

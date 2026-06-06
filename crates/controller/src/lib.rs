@@ -8,4 +8,5 @@ pub mod export;
 pub mod grpc;
 pub mod insights;
 pub mod report;
+pub mod schedule;
 pub mod store;
