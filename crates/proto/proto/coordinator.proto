@@ -42,6 +42,12 @@ message BranchStat {
   uint64 count = 3;     // decision count (counts-only: a branch decision has no error)
 }
 
+message GroupStat {
+  string step_id = 1;        // the `parallel` node's id
+  bytes hdr_histogram = 2;   // hdrhistogram V2 serialized (delta since last drain)
+  uint64 count = 3;          // page-load samples in this delta
+}
+
 message MetricBatch {
   string run_id = 1;
   string worker_id = 2;
@@ -49,6 +55,7 @@ message MetricBatch {
   repeated LoopStat loop_stats = 4;
   repeated BranchStat branch_stats = 5;
   uint64 dropped = 6;                  // open-loop arrivals dropped (run-total carried on final flush)
+  repeated GroupStat group_stats = 7;  // parallel 페이지-로드 레이턴시 (delta, controller merges)
 }
 
 message MetricWindow {

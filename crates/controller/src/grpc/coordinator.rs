@@ -1239,6 +1239,7 @@ mod tests {
             windows: vec![],
             loop_stats: vec![],
             branch_stats: vec![],
+            group_stats: vec![],
             dropped: d,
         };
         ingest_metrics(&coord, &mk(3)).await;

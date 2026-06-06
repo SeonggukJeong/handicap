@@ -13,7 +13,7 @@ use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{BranchStat, LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
+use pb::{BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
@@ -276,12 +276,25 @@ async fn main() -> anyhow::Result<()> {
                     count: bs.count,
                 })
                 .collect();
+            let group_stats: Vec<GroupStat> = flush
+                .group_stats
+                .into_iter()
+                .filter_map(|g| {
+                    let hdr = g.serialize_histogram().ok()?;
+                    Some(GroupStat {
+                        step_id: g.step_id,
+                        hdr_histogram: hdr,
+                        count: g.count,
+                    })
+                })
+                .collect();
             // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
             // run-total dropped count with empty windows. Dropping it would silently
             // discard `dropped` on all-empty-window final flushes (the C1 footgun).
             if windows.is_empty()
                 && loop_stats.is_empty()
                 && branch_stats.is_empty()
+                && group_stats.is_empty()
                 && flush.dropped == 0
             {
                 continue;
@@ -293,6 +306,7 @@ async fn main() -> anyhow::Result<()> {
                     windows,
                     loop_stats,
                     branch_stats,
+                    group_stats,
                     dropped: flush.dropped,
                 })),
             };
