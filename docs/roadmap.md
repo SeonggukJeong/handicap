@@ -102,7 +102,7 @@
 - **UploadPanel 미리보기 요청 시퀀싱 없음**: 빠르게 옵션 바꾸면 미리보기 응답이 경합할 수 있음(최신 요청만 반영하는 abort/seq 없음). → UI 폴리시 슬라이스.
 
 ### B2'. Run 프리셋(영역 A) 연기 항목
-- **시나리오 복제**: run retry 가 변경된 시나리오에서 검증 실패하는 상황을 줄이는 보강책으로 brainstorming(2026-05-30)에서 제기됨. 그러나 이건 **시나리오 관리** 기능(scenarios CRUD/UI)이지 run 재사용이 아니라 영역 A 범위 밖 → **별도 spec**. 독립적으로 가치(실험용 시나리오 포크). → 시나리오 관리 슬라이스 또는 단독 spec.
+- ~~**시나리오 복제**~~ — **✅ 완료 (2026-06-06)**: UI-only 즉시 복제(클라). 유일 `(copy)` 서픽스(`cloneName`) + `renameScenarioYaml`(Document API, 주석 보존) + `useCloneScenario`(기존 createScenario 재사용 + 목록 invalidate) + 목록 행/에디터 헤더 진입점 + 에디터 dirty 시 저장 확인 다이얼로그(저장 후/저장 없이/취소, 저장 실패 시 "저장본으로 복제" 계속 확인). 백엔드/proto/migration/엔진/워커 무변경. spec `docs/superpowers/specs/2026-06-06-scenario-clone-design.md`, plan `docs/superpowers/plans/2026-06-06-scenario-clone.md`. ADR 불필요(additive). 라이브 검증: 목록 복제 (copy)/(copy 2) dedup·화면 유지, 에디터 저장-후-복제 → 원본 v2 저장 + 복제본(copy 3) 저장본 기준 + navigate.
 
 ### B2''. A3 (멀티 워커 fan-out) 연기 항목
 출처 brainstorming/spec-review(2026-06-01). spec `2026-06-01-multi-worker-fanout-design.md` §11.
