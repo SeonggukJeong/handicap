@@ -51,7 +51,12 @@ function criteriaHasValue(c?: Criteria): boolean {
       c.max_p95_ms != null ||
       c.max_p99_ms != null ||
       c.max_error_rate != null ||
-      c.min_rps != null)
+      c.min_rps != null ||
+      c.max_4xx_rate != null ||
+      c.max_5xx_rate != null ||
+      c.max_4xx_count != null ||
+      c.max_5xx_count != null ||
+      c.min_window_rps != null)
   );
 }
 
@@ -101,6 +106,16 @@ export function RunDialog({
     initC?.max_error_rate != null ? String(initC.max_error_rate * 100) : "",
   );
   const [minRps, setMinRps] = useState(numToStr(initC?.min_rps));
+  const [max4xxPct, setMax4xxPct] = useState(
+    initC?.max_4xx_rate != null ? String(initC.max_4xx_rate * 100) : "",
+  );
+  const [max5xxPct, setMax5xxPct] = useState(
+    initC?.max_5xx_rate != null ? String(initC.max_5xx_rate * 100) : "",
+  );
+  const [max4xxCount, setMax4xxCount] = useState(numToStr(initC?.max_4xx_count));
+  const [max5xxCount, setMax5xxCount] = useState(numToStr(initC?.max_5xx_count));
+  const [minWindowRps, setMinWindowRps] = useState(numToStr(initC?.min_window_rps));
+  const [rpsWarmup, setRpsWarmup] = useState(numToStr(initC?.rps_warmup_seconds));
   // SLO 기준 is optional → collapsible. Start open only when seeded criteria exist.
   const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initC));
   // Pacing (think time) is optional → collapsible. Empty inputs omit think_time
@@ -164,6 +179,12 @@ export function RunDialog({
       setMaxP99(numToStr(pc?.max_p99_ms));
       setMaxErrPct(pc?.max_error_rate != null ? String(pc.max_error_rate * 100) : "");
       setMinRps(numToStr(pc?.min_rps));
+      setMax4xxPct(pc?.max_4xx_rate != null ? String(pc.max_4xx_rate * 100) : "");
+      setMax5xxPct(pc?.max_5xx_rate != null ? String(pc.max_5xx_rate * 100) : "");
+      setMax4xxCount(numToStr(pc?.max_4xx_count));
+      setMax5xxCount(numToStr(pc?.max_5xx_count));
+      setMinWindowRps(numToStr(pc?.min_window_rps));
+      setRpsWarmup(numToStr(pc?.rps_warmup_seconds));
       if (criteriaHasValue(pc)) setSloOpen(true); // reveal loaded criteria
       const ptt = prof.think_time ?? undefined;
       setThinkMin(numToStr(ptt?.min_ms));
@@ -210,9 +231,18 @@ export function RunDialog({
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
   // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
   // active criteria aren't silently hidden.
-  const sloActiveCount = [maxP50, maxP95, maxP99, maxErrPct, minRps].filter(
-    (s) => s.trim() !== "",
-  ).length;
+  const sloActiveCount = [
+    maxP50,
+    maxP95,
+    maxP99,
+    maxErrPct,
+    minRps,
+    max4xxPct,
+    max5xxPct,
+    max4xxCount,
+    max5xxCount,
+    minWindowRps,
+  ].filter((s) => s.trim() !== "").length;
   // think_time requires both min & max (one alone is invalid); min ≤ max ≤ 600000.
   const thinkInvalid =
     (thinkMin.trim() !== "" || thinkMax.trim() !== "") &&
@@ -273,6 +303,12 @@ export function RunDialog({
     if (maxP99.trim() !== "") c.max_p99_ms = Number(maxP99);
     if (maxErrPct.trim() !== "") c.max_error_rate = Number(maxErrPct) / 100;
     if (minRps.trim() !== "") c.min_rps = Number(minRps);
+    if (max4xxPct.trim() !== "") c.max_4xx_rate = Number(max4xxPct) / 100;
+    if (max5xxPct.trim() !== "") c.max_5xx_rate = Number(max5xxPct) / 100;
+    if (max4xxCount.trim() !== "") c.max_4xx_count = Number(max4xxCount);
+    if (max5xxCount.trim() !== "") c.max_5xx_count = Number(max5xxCount);
+    if (minWindowRps.trim() !== "") c.min_window_rps = Number(minWindowRps);
+    if (rpsWarmup.trim() !== "") c.rps_warmup_seconds = Number(rpsWarmup);
     return Object.keys(c).length > 0 ? c : undefined;
   }
 
@@ -530,6 +566,86 @@ export function RunDialog({
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={minRps}
                 onChange={(e) => setMinRps(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max 4xx rate (%)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                aria-label="Max 4xx rate"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={max4xxPct}
+                onChange={(e) => setMax4xxPct(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max 5xx rate (%)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                aria-label="Max 5xx rate"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={max5xxPct}
+                onChange={(e) => setMax5xxPct(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max 4xx count</span>
+              <input
+                type="number"
+                min="0"
+                aria-label="Max 4xx count"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={max4xxCount}
+                onChange={(e) => setMax4xxCount(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Max 5xx count</span>
+              <input
+                type="number"
+                min="0"
+                aria-label="Max 5xx count"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={max5xxCount}
+                onChange={(e) => setMax5xxCount(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Min window RPS</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                aria-label="Min window RPS"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={minWindowRps}
+                onChange={(e) => {
+                  setMinWindowRps(e.target.value);
+                  if (
+                    e.target.value.trim() !== "" &&
+                    rpsWarmup.trim() === "" &&
+                    loadModel === "closed"
+                  ) {
+                    setRpsWarmup(String(rampUp));
+                  }
+                }}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">RPS warmup (s)</span>
+              <input
+                type="number"
+                min="0"
+                aria-label="RPS warmup seconds"
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                value={rpsWarmup}
+                onChange={(e) => setRpsWarmup(e.target.value)}
               />
             </label>
           </div>

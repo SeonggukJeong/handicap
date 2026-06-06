@@ -1116,6 +1116,59 @@ describe("RunDialog — HTTP timeout (S-A)", () => {
   });
 });
 
+describe("RunDialog — B6 status-class + window RPS criteria", () => {
+  it("submits status-class and window-rps criteria with % conversion", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog(false);
+
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 접힌 섹션 펼침
+    await user.type(screen.getByLabelText("Max 5xx rate"), "2"); // 2% → 0.02
+    await user.type(screen.getByLabelText("Max 5xx count"), "0");
+    await user.type(screen.getByLabelText("Min window RPS"), "50");
+
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.criteria.max_5xx_rate).toBeCloseTo(0.02);
+    expect(body.profile.criteria.max_5xx_count).toBe(0);
+    expect(body.profile.criteria.min_window_rps).toBe(50);
+  });
+
+  it("prefills rps_warmup_seconds from ramp when min_window_rps set (closed-loop)", async () => {
+    const user = userEvent.setup();
+    renderDialog(false);
+
+    const rampInput = screen.getByLabelText(/Ramp-up/);
+    await user.clear(rampInput);
+    await user.type(rampInput, "3");
+
+    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 펼침
+    expect(screen.getByLabelText("RPS warmup seconds")).toHaveValue(null); // 처음 비어있음
+    await user.type(screen.getByLabelText("Min window RPS"), "50");
+    expect(screen.getByLabelText("RPS warmup seconds")).toHaveValue(3);
+  });
+});
+
 describe("RunDialog — environment overlay (B-2)", () => {
   function routeFetch(handlers: {
     run?: unknown;
