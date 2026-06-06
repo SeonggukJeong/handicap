@@ -36,6 +36,27 @@ pub struct BranchStat {
     pub count: u64,
 }
 
+/// A per-(parallel_step_id) page-load latency delta since the last drain. HDR (not
+/// counts) — page latency is a distribution merged by the controller via
+/// `Histogram::add` (delta-merge), unlike `LoopStat`/`BranchStat` count-sum. The
+/// histogram is carried live; the worker serializes it at forward time (like StepWindow).
+#[derive(Debug)]
+pub struct GroupStat {
+    pub step_id: String, // the `parallel` node's id
+    pub histogram: Histogram<u64>,
+    pub count: u64,
+}
+
+impl GroupStat {
+    pub fn serialize_histogram(&self) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut ser = V2Serializer::new();
+        ser.serialize(&self.histogram, &mut buf)
+            .map_err(|e| EngineError::Histogram(e.to_string()))?;
+        Ok(buf)
+    }
+}
+
 /// One 1-second bucket of metrics for one step.
 #[derive(Debug)]
 pub struct StepWindow {
@@ -89,6 +110,8 @@ pub struct Aggregator {
     loop_counts: HashMap<(String, u32), LoopCount>,
     loop_cap: u32,
     branch_counts: HashMap<(String, String), u64>,
+    /// per-parallel-node accumulating page-load latency + sample count (A2-2).
+    group_hists: HashMap<String, (Histogram<u64>, u64)>,
 }
 
 impl Aggregator {
@@ -98,6 +121,7 @@ impl Aggregator {
             loop_counts: HashMap::new(),
             loop_cap: loop_breakdown_cap,
             branch_counts: HashMap::new(),
+            group_hists: HashMap::new(),
         }
     }
 
@@ -161,6 +185,36 @@ impl Aggregator {
             .map(|((step_id, branch), count)| BranchStat {
                 step_id,
                 branch,
+                count,
+            })
+            .collect()
+    }
+
+    /// Record one parallel-node page-load latency sample (µs). HDR-accumulating,
+    /// unconditional (no cap) — one parallel node yields one sample per clean iteration.
+    pub fn record_group(&mut self, step_id: &str, latency_us: u64) {
+        let v = latency_us.clamp(1, 60_000_000);
+        let e = self
+            .group_hists
+            .entry(step_id.to_string())
+            .or_insert_with(|| {
+                (
+                    Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).expect("valid bounds"),
+                    0,
+                )
+            });
+        let _ = e.0.record(v);
+        e.1 += 1;
+    }
+
+    /// Take and reset the accumulated per-(parallel_step_id) page-load histograms as
+    /// deltas (the controller merges them via Histogram::add). Histograms returned live.
+    pub fn drain_group_deltas(&mut self) -> Vec<GroupStat> {
+        std::mem::take(&mut self.group_hists)
+            .into_iter()
+            .map(|(step_id, (histogram, count))| GroupStat {
+                step_id,
+                histogram,
                 count,
             })
             .collect()
@@ -315,5 +369,35 @@ mod tests {
             a.drain_branch_deltas().is_empty(),
             "second drain empty (delta reset)"
         );
+    }
+
+    #[test]
+    fn record_group_accumulates_and_drains_as_delta() {
+        let mut a = Aggregator::new(0); // cap irrelevant to group latency
+        a.record_group("p1", 100_000); // 100 ms
+        a.record_group("p1", 300_000); // 300 ms
+        a.record_group("p2", 50_000);
+        let mut by: std::collections::HashMap<String, (u64, u64)> = Default::default();
+        for g in a.drain_group_deltas() {
+            by.insert(g.step_id.clone(), (g.count, g.histogram.max()));
+        }
+        assert_eq!(by.get("p1").map(|x| x.0), Some(2), "p1 has 2 samples");
+        assert_eq!(by.get("p2").map(|x| x.0), Some(1), "p2 has 1 sample");
+        // p1 max recorded value ~= 300 ms (HDR 3-sigfig, allow the bucket fuzz).
+        assert!(by["p1"].1 >= 290_000, "p1 max ~= 300ms, got {}", by["p1"].1);
+        // second drain is empty (delta reset)
+        assert!(
+            a.drain_group_deltas().is_empty(),
+            "drain resets group hists"
+        );
+    }
+
+    #[test]
+    fn group_stat_serializes_histogram() {
+        let mut a = Aggregator::new(0);
+        a.record_group("p1", 12_345);
+        let g = a.drain_group_deltas().pop().expect("one group stat");
+        let bytes = g.serialize_histogram().expect("serializes");
+        assert!(!bytes.is_empty(), "group histogram bytes non-empty");
     }
 }
