@@ -575,7 +575,6 @@ export function RunDialog({
                 min="0"
                 max="100"
                 step="any"
-                aria-label="Max 4xx rate"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={max4xxPct}
                 onChange={(e) => setMax4xxPct(e.target.value)}
@@ -588,7 +587,6 @@ export function RunDialog({
                 min="0"
                 max="100"
                 step="any"
-                aria-label="Max 5xx rate"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={max5xxPct}
                 onChange={(e) => setMax5xxPct(e.target.value)}
@@ -599,7 +597,6 @@ export function RunDialog({
               <input
                 type="number"
                 min="0"
-                aria-label="Max 4xx count"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={max4xxCount}
                 onChange={(e) => setMax4xxCount(e.target.value)}
@@ -610,7 +607,6 @@ export function RunDialog({
               <input
                 type="number"
                 min="0"
-                aria-label="Max 5xx count"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={max5xxCount}
                 onChange={(e) => setMax5xxCount(e.target.value)}
@@ -622,7 +618,6 @@ export function RunDialog({
                 type="number"
                 min="0"
                 step="any"
-                aria-label="Min window RPS"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={minWindowRps}
                 onChange={(e) => {
@@ -642,7 +637,6 @@ export function RunDialog({
               <input
                 type="number"
                 min="0"
-                aria-label="RPS warmup seconds"
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 value={rpsWarmup}
                 onChange={(e) => setRpsWarmup(e.target.value)}

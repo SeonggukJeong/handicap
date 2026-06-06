@@ -1135,9 +1135,9 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     const { onCreated } = renderDialog(false);
 
     await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 접힌 섹션 펼침
-    await user.type(screen.getByLabelText("Max 5xx rate"), "2"); // 2% → 0.02
-    await user.type(screen.getByLabelText("Max 5xx count"), "0");
-    await user.type(screen.getByLabelText("Min window RPS"), "50");
+    await user.type(screen.getByLabelText(/Max 5xx rate/), "2"); // 2% → 0.02
+    await user.type(screen.getByLabelText(/Max 5xx count/), "0");
+    await user.type(screen.getByLabelText(/Min window RPS/), "50");
 
     await user.click(screen.getByRole("button", { name: /^Run$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
@@ -1163,9 +1163,9 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     await user.type(rampInput, "3");
 
     await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 펼침
-    expect(screen.getByLabelText("RPS warmup seconds")).toHaveValue(null); // 처음 비어있음
-    await user.type(screen.getByLabelText("Min window RPS"), "50");
-    expect(screen.getByLabelText("RPS warmup seconds")).toHaveValue(3);
+    expect(screen.getByLabelText(/RPS warmup/)).toHaveValue(null); // 처음 비어있음
+    await user.type(screen.getByLabelText(/Min window RPS/), "50");
+    expect(screen.getByLabelText(/RPS warmup/)).toHaveValue(3);
   });
 });
 
