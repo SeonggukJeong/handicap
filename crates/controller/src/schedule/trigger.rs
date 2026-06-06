@@ -80,8 +80,18 @@ pub fn validate_trigger(t: &Trigger, now_ms: i64) -> Result<(), String> {
                 Ok(())
             }
         }
-        Trigger::Cron { expr } => Cron::from_str(expr)
-            .map(|_| ())
-            .map_err(|e| format!("cron 표현식이 올바르지 않습니다: {e}")),
+        Trigger::Cron { expr } => {
+            // 5-field 표준 crontab(분 시 일 월 요일)만 허용. croner는 6-field도
+            // 파싱하지만 spec §5 불변식·UI 프리셋은 5-field로 통일(34a 인계 ①).
+            let fields = expr.split_whitespace().count();
+            if fields != 5 {
+                return Err(format!(
+                    "cron 표현식은 5개 필드(분 시 일 월 요일)여야 합니다: {fields}개 발견"
+                ));
+            }
+            Cron::from_str(expr)
+                .map(|_| ())
+                .map_err(|e| format!("cron 표현식이 올바르지 않습니다: {e}"))
+        }
     }
 }

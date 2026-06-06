@@ -105,3 +105,48 @@ fn next_fires_count_zero_is_empty_for_both_triggers() {
     let now = seoul_ms(2026, 6, 6, 1, 0);
     assert_eq!(next_fires(&cron, now, Seoul, 0), Vec::<i64>::new());
 }
+
+#[test]
+fn validate_rejects_non_five_field_cron() {
+    let now = seoul_ms(2026, 6, 6, 1, 0);
+    // 6-field (croner는 seconds-optional이라 파싱하지만 우리 불변식은 5-field crontab): 거부.
+    assert!(
+        validate_trigger(
+            &Trigger::Cron {
+                expr: "0 0 2 * * *".into()
+            },
+            now
+        )
+        .is_err()
+    );
+    // 7-field (croner는 year-optional이라 파싱; == 5 가드가 6·7 둘 다 막음): 거부.
+    assert!(
+        validate_trigger(
+            &Trigger::Cron {
+                expr: "0 0 2 * * * 2030".into()
+            },
+            now
+        )
+        .is_err()
+    );
+    // 4-field: 거부.
+    assert!(
+        validate_trigger(
+            &Trigger::Cron {
+                expr: "0 2 * *".into()
+            },
+            now
+        )
+        .is_err()
+    );
+    // 5-field: 통과.
+    assert!(
+        validate_trigger(
+            &Trigger::Cron {
+                expr: "0 2 * * *".into()
+            },
+            now
+        )
+        .is_ok()
+    );
+}
