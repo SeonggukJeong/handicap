@@ -12,6 +12,15 @@ import {
   updateEnvironment,
   type EnvironmentInput,
 } from "./environments";
+import {
+  createSchedule,
+  deleteSchedule,
+  getSchedule,
+  listSchedules,
+  scheduleEvents,
+  updateSchedule,
+  type ScheduleInput,
+} from "./schedules";
 import type { Profile, RunStatus } from "./schemas";
 
 export const queryKeys = {
@@ -27,6 +36,9 @@ export const queryKeys = {
   preset: (id: string) => ["preset", id] as const,
   environments: () => ["environments"] as const,
   environment: (id: string) => ["environments", id] as const,
+  schedules: () => ["schedules"] as const,
+  schedule: (id: string) => ["schedules", id] as const,
+  scheduleEvents: (id: string) => ["schedules", id, "events"] as const,
 };
 
 export function useScenarios() {
@@ -270,6 +282,54 @@ export function useDeleteEnvironment() {
   return useMutation({
     mutationFn: (id: string) => deleteEnvironment(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.environments() }),
+  });
+}
+
+export function useSchedules() {
+  return useQuery({ queryKey: queryKeys.schedules(), queryFn: listSchedules });
+}
+
+export function useSchedule(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? queryKeys.schedule(id) : ["schedules", "missing"],
+    queryFn: () => getSchedule(id as string),
+    enabled: !!id,
+  });
+}
+
+export function useScheduleEvents(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? queryKeys.scheduleEvents(id) : ["schedules", "missing", "events"],
+    queryFn: () => scheduleEvents(id as string),
+    enabled: !!id,
+  });
+}
+
+export function useCreateSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ScheduleInput) => createSchedule(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedules() }),
+  });
+}
+
+export function useUpdateSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; input: ScheduleInput }) => updateSchedule(vars.id, vars.input),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.schedules() });
+      qc.invalidateQueries({ queryKey: queryKeys.schedule(vars.id) });
+      qc.invalidateQueries({ queryKey: queryKeys.scheduleEvents(vars.id) });
+    },
+  });
+}
+
+export function useDeleteSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteSchedule(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.schedules() }),
   });
 }
 
