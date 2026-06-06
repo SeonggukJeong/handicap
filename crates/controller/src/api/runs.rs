@@ -51,6 +51,21 @@ pub(crate) fn validate_criteria(c: &crate::store::runs::Criteria) -> Result<(), 
             return Err("criteria.min_rps must be >= 0".into());
         }
     }
+    for (name, r) in [
+        ("max_4xx_rate", c.max_4xx_rate),
+        ("max_5xx_rate", c.max_5xx_rate),
+    ] {
+        if let Some(r) = r {
+            if !r.is_finite() || !(0.0..=1.0).contains(&r) {
+                return Err(format!("criteria.{name} must be between 0.0 and 1.0"));
+            }
+        }
+    }
+    if let Some(r) = c.min_window_rps {
+        if !r.is_finite() || r < 0.0 {
+            return Err("criteria.min_window_rps must be >= 0".into());
+        }
+    }
     Ok(())
 }
 
@@ -732,6 +747,61 @@ mod tests {
                 ..Default::default()
             })
             .is_err()
+        );
+    }
+
+    #[test]
+    fn validate_criteria_rejects_bad_status_rate_and_window_rps() {
+        use crate::store::runs::Criteria;
+        // 4xx/5xx rate 범위 밖
+        assert!(
+            validate_criteria(&Criteria {
+                max_5xx_rate: Some(1.5),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_criteria(&Criteria {
+                max_4xx_rate: Some(-0.1),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_criteria(&Criteria {
+                max_5xx_rate: Some(f64::NAN),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        // min_window_rps 음수/비유한
+        assert!(
+            validate_criteria(&Criteria {
+                min_window_rps: Some(-1.0),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_criteria(&Criteria {
+                min_window_rps: Some(f64::INFINITY),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        // 정상값 통과(rate 0..1, count 임의 u64, warmup 임의 u32)
+        assert!(
+            validate_criteria(&Criteria {
+                max_4xx_rate: Some(0.0),
+                max_5xx_rate: Some(0.05),
+                max_4xx_count: Some(0),
+                max_5xx_count: Some(100),
+                min_window_rps: Some(50.0),
+                rps_warmup_seconds: Some(5),
+                ..Default::default()
+            })
+            .is_ok()
         );
     }
 
