@@ -1067,4 +1067,28 @@ mod tests {
         });
         assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
     }
+
+    #[test]
+    fn evaluate_5xx_rate_matches_insights_status_class_pct() {
+        // 같은 status_distribution에서 evaluate_criteria의 5xx_rate actual과
+        // insights status_class의 pct(5xx)가 동일해야 한다(공유 헬퍼).
+        let d = dist(&[("0", 7), ("200", 80), ("404", 5), ("500", 15)]);
+        let c = Criteria {
+            max_5xx_rate: Some(1.0),
+            ..Default::default()
+        };
+        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[]);
+        let rate = v
+            .criteria
+            .iter()
+            .find(|r| r.metric == "5xx_rate")
+            .unwrap()
+            .actual;
+
+        // insights status_class 분모/분자와 동일: 15 / (80+5+15) = 15/100
+        let total = http_response_total(&d);
+        let cls = status_class_count(&d, '5');
+        assert_eq!(total, 100);
+        assert!((rate - cls as f64 / total as f64).abs() < 1e-9);
+    }
 }

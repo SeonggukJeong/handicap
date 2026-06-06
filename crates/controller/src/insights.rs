@@ -118,18 +118,11 @@ pub fn derive_insights(
     // status_class: HTTP 4xx/5xx share. Denominator = HTTP responses only
     // (keys starting 1..5); the "0" transport-failure bucket is excluded from
     // both classification and denominator (engine failures are error_count's job).
-    let total_http: u64 = status_distribution
-        .iter()
-        .filter(|(k, _)| matches!(k.chars().next(), Some('1'..='5')))
-        .map(|(_, v)| *v)
-        .sum();
+    // Shared helpers ensure this denominator == evaluate_criteria's 4xx/5xx_rate denominator.
+    let total_http = crate::report::http_response_total(status_distribution);
     if total_http > 0 {
         for (class, first, sev) in [("4xx", '4', "warning"), ("5xx", '5', "critical")] {
-            let class_count: u64 = status_distribution
-                .iter()
-                .filter(|(k, _)| k.starts_with(first))
-                .map(|(_, v)| *v)
-                .sum();
+            let class_count = crate::report::status_class_count(status_distribution, first);
             if class_count > 0 {
                 let mut ins = Insight::new("status_class", sev);
                 ins.status_class = Some(class.to_string());
