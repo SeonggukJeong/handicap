@@ -1954,3 +1954,236 @@ steps:
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+/// End-to-end smoke test for A2-2 parallel group/page latency.
+///
+/// Proves the FULL group latency pipeline:
+///   engine Instant measurement → `MetricFlush.group_stats` → proto `GroupStat`
+///   → worker forward → controller `run_group_metrics` table
+///   → `GET /api/runs/{id}/report` returns `group_latency` array.
+///
+/// Scenario: a single `type: parallel` node (two branches, /a and /b each with
+/// 20ms artificial delay) — the page-load wall-clock ≈ max(20, 20) = ~20ms, so
+/// `max_ms` > 0 robustly on localhost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_group_latency_report_e2e_smoke() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime (cold-build flake guard).
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stubs: GET /a and GET /b → 200 with 20ms artificial delay.
+    //    The delay is critical: sub-millisecond localhost RTTs round to 0 µs in the
+    //    HDR histogram → max_ms = 0, making the assertion below fragile (controller
+    //    CLAUDE.md µs-resolution footgun). 20ms is comfortably above the threshold.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("a-ok")
+                .set_delay(Duration::from_millis(20)),
+        )
+        .mount(&target)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("b-ok")
+                .set_delay(Duration::from_millis(20)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC (no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+            db.clone(),
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. Parallel scenario: ONE top-level `type: parallel` node with two branches.
+    //    Each branch has a single http GET step. ULIDs use Crockford base32 only
+    //    (no I/L/O/U). The target URL is embedded directly (no env var needed).
+    const PARALLEL_STEP_ID: &str = "01HX0000000000000000000010";
+    let scenario_yaml = format!(
+        r#"version: 1
+name: "group-latency-e2e"
+steps:
+  - id: "{par_id}"
+    name: fan
+    type: parallel
+    branches:
+      - name: a
+        steps:
+          - id: "01HX0000000000000000000011"
+            name: ga
+            type: http
+            request:
+              method: GET
+              url: "{base}/a"
+            assert: []
+      - name: b
+        steps:
+          - id: "01HX0000000000000000000012"
+            name: gb
+            type: http
+            request:
+              method: GET
+              url: "{base}/b"
+            assert: []
+"#,
+        par_id = PARALLEL_STEP_ID,
+        base = target.uri(),
+    );
+
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run: 2 VUs over 2 seconds (enough for ≥1 complete page-load iteration).
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 2, "duration_seconds": 2 },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until terminal (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    let mut last_message = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap_or("").to_string();
+        last_message = v["message"].as_str().unwrap_or("").to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got '{last_status}' (message: {last_message:?})"
+    );
+
+    // 7. GET /report and assert group_latency.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    // (a) group_latency array must be present and contain exactly one entry
+    //     (the single parallel node in the scenario).
+    let gl = report["group_latency"]
+        .as_array()
+        .expect("group_latency array present in report");
+    assert_eq!(
+        gl.len(),
+        1,
+        "exactly one parallel node → exactly one group_latency entry; got: {gl:?}"
+    );
+
+    // (b) The entry references the correct parallel node step_id.
+    let entry = &gl[0];
+    assert_eq!(
+        entry["step_id"].as_str().unwrap(),
+        PARALLEL_STEP_ID,
+        "group_latency entry step_id must match the parallel node id"
+    );
+
+    // (c) At least one clean page-load sample was recorded.
+    let count = entry["count"].as_u64().expect("group_latency[0].count");
+    assert!(
+        count >= 1,
+        "at least one complete page-load sample expected; got count={count}"
+    );
+
+    // (d) max_ms > 0 — the 20ms artificial branch delay guarantees this is not 0.
+    let max_ms = entry["max_ms"].as_u64().expect("group_latency[0].max_ms");
+    assert!(
+        max_ms > 0,
+        "page-load max_ms must be > 0 with 20ms artificial branch delay; got max_ms={max_ms}"
+    );
+
+    // (e) The parallel node id must NOT appear as a per-step row: group_latency
+    //     measures the page-load wall-clock, not an HTTP leaf. The http leaves
+    //     (...0011, ...0012) appear in steps[], not the parallel node id.
+    let steps = report["steps"].as_array().expect("steps array");
+    let parallel_in_steps = steps
+        .iter()
+        .any(|s| s["step_id"].as_str() == Some(PARALLEL_STEP_ID));
+    assert!(
+        !parallel_in_steps,
+        "parallel node id must not appear in steps[] (it is not an http leaf); \
+         steps: {steps:?}"
+    );
+
+    // (f) summary.count > 0 — http leaves executed (counted separately from page-loads).
+    let summary_count = report["summary"]["count"].as_u64().unwrap_or(0);
+    assert!(
+        summary_count > 0,
+        "summary.count must be > 0 (http leaf requests were made)"
+    );
+
+    eprintln!(
+        "[parallel_group_latency_report_e2e_smoke] group_latency count={count}, \
+         max_ms={max_ms}, summary_count={summary_count}"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
