@@ -16,7 +16,7 @@
 
 - **pre-commit 훅이 비-`.md` 커밋마다 전체 workspace를 빌드/clippy/test** 한다 — dead-code(`-D warnings`)·RED-only 단독 커밋 불가. 각 task는 **green 커밋 1개**로 닫는다(로컬에서 RED→GREEN 확인하되 커밋은 task당 1회). `git commit`은 **foreground 단일 호출**(`run_in_background:false`, timeout 600000ms), 파이프(`| tail`) 금지, 직후 `git log -1`로 landed 확인.
 - **cold-build flake**(engine/worker 변경 커밋): 커밋 전 `cargo build -p handicap-worker && cargo build --workspace`로 warm한 뒤 커밋. flake나면 동일 커밋 warm 재시도.
-- **TDD 가드(C-1)**: `src/*.rs` 편집은 작업트리에 pending test 파일이 있어야 통과한다. 인라인 `#[cfg(test)]`가 **이미 디스크에 있는** 파일(`aggregator.rs`/`metrics.rs`/`coordinator.rs`/`report.rs`/`api/runs.rs`) 편집은 자동 통과. **인라인 테스트가 없는 src 파일**(`store/mod.rs`, `worker/src/main.rs`, 새 `migrations/*.sql`은 src 아님) 편집은 막힌다 → 그 task의 implementer가 `crates/<crate>/tests/_tdd_keepalive.rs`에 `#[test] fn _k() {}` 한 줄을 먼저 깔아 unblock하고, **명시 경로로만 `git add`**(절대 `-A` 금지) 한 뒤 **커밋 전 `rm`**(커밋 안 됨). 각 task의 "Step 0"에 해당 시 명시한다.
+- **TDD 가드(C-1)**: `src/*.rs` 편집은 인라인 `#[cfg(test)]`가 **이미 디스크에 있는** 파일이면 자동 통과한다. 이 plan이 건드리는 모든 src 파일은 인라인 `#[cfg(test)] mod tests`를 이미 갖고 있다(reviewer 확인): `aggregator.rs`, `runner.rs`, `worker/src/main.rs:420`, `store/mod.rs:156`, `store/metrics.rs`, `grpc/coordinator.rs`, `report.rs`, `api/runs.rs`. **따라서 keepalive 불요.** (만약 어떤 src 편집이 가드에 막히면 — 예상 밖 — `crates/<crate>/tests/_tdd_keepalive.rs`에 `#[test] fn _k() {}`를 깔아 unblock하고 **명시 경로로만 `git add`** 후 **커밋 전 `rm`**. 새 `migrations/*.sql`은 src가 아니라 무가드.)
 - **UI 가드는 cargo 훅이 안 본다** — UI task는 `cd ui && pnpm lint && pnpm test && pnpm build`를 수동으로 돌린 뒤 커밋.
 
 ---
@@ -513,12 +513,7 @@ git log -1 --oneline
 - Modify: `crates/worker/src/main.rs` (forward + skip guard + MetricBatch 리터럴)
 - Modify: `crates/controller/src/grpc/coordinator.rs:1236` (test `mk` 리터럴 — prost exhaustive)
 
-- [ ] **Step 0: TDD 가드 keepalive (worker 바이너리엔 인라인 테스트 없음)**
-
-```bash
-printf '#[test]\nfn _k() {}\n' > crates/worker/tests/_tdd_keepalive.rs
-```
-(이 task 끝 커밋 전 `rm`. `git add`는 명시 경로만.)
+> **TDD 가드**: `worker/src/main.rs`는 인라인 `#[cfg(test)] mod tests`(라인 420)를 이미 가져 자동 통과 — keepalive 불요. proto/coordinator 편집도 무가드/인라인.
 
 - [ ] **Step 1: proto에 `GroupStat` + `MetricBatch.group_stats` 추가**
 
@@ -613,10 +608,9 @@ MetricBatch 리터럴(라인 290~297)에 `group_stats,` 추가:
 Run: `cargo build --workspace`
 Expected: PASS. (`grep -rn "MetricBatch {" crates/`로 두 리터럴 모두 `group_stats` 포함 확인.)
 
-- [ ] **Step 6: keepalive 제거 + 커밋**
+- [ ] **Step 6: 커밋**
 
 ```bash
-rm crates/worker/tests/_tdd_keepalive.rs
 cargo build -p handicap-worker && cargo build --workspace
 git add crates/proto/proto/coordinator.proto crates/worker/src/main.rs crates/controller/src/grpc/coordinator.rs
 git commit -m "feat(proto/worker): GroupStat 메시지 + MetricBatch.group_stats=7 + 워커 직렬화 — A2-2"
@@ -632,12 +626,7 @@ git log -1 --oneline
 - Modify: `crates/controller/src/store/mod.rs` (const + execute 라인)
 - Modify: `crates/controller/src/store/metrics.rs` (`GroupMetricRow` + insert/read + 인라인 테스트)
 
-- [ ] **Step 0: TDD 가드 keepalive (store/mod.rs는 인라인 테스트 없음)**
-
-```bash
-printf '#[test]\nfn _k() {}\n' > crates/controller/tests/_tdd_keepalive.rs
-```
-(`metrics.rs`는 인라인 테스트 있어 자동통과지만 `store/mod.rs` 편집 때문에 필요. 커밋 전 `rm`.)
+> **TDD 가드**: `store/mod.rs`(인라인 `#[cfg(test)] mod tests` 라인 156)·`store/metrics.rs`(인라인 테스트) 모두 자동 통과 — keepalive 불요. `migrations/0010_*.sql`은 src 아님(무가드).
 
 - [ ] **Step 1: migration SQL 파일 작성**
 
@@ -759,10 +748,9 @@ pub async fn group_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<GroupMet
 Run: `cargo test -p handicap-controller --lib metrics::tests::group_batch_appends_and_reads_back`
 Expected: PASS (migration 0010이 적용돼 테이블 존재).
 
-- [ ] **Step 6: keepalive 제거 + 커밋**
+- [ ] **Step 6: 커밋**
 
 ```bash
-rm crates/controller/tests/_tdd_keepalive.rs
 grep -c MIGRATION_SQL crates/controller/src/store/mod.rs   # const==execute 교차검증
 cargo build -p handicap-worker && cargo build --workspace
 git add crates/controller/src/store/migrations/0010_run_group_metrics.sql crates/controller/src/store/mod.rs crates/controller/src/store/metrics.rs
@@ -783,17 +771,18 @@ git log -1 --oneline
 ```rust
     #[tokio::test]
     async fn ingest_stores_group_stats() {
+        // The coordinator test module does NOT import these — add a local `use` (the
+        // `.serialize()` method is on the `Serializer` trait, must be in scope). reviewer 확인.
+        use hdrhistogram::serialization::{Serializer, V2Serializer};
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
 
-        // a valid (empty) HDR blob: serialize a fresh histogram from the engine.
+        // a valid HDR blob with one ~300ms sample.
         let mut h = hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).unwrap();
         h.record(300_000).unwrap();
         let mut blob = Vec::new();
-        hdrhistogram::serialization::V2Serializer::new()
-            .serialize(&h, &mut blob)
-            .unwrap();
+        V2Serializer::new().serialize(&h, &mut blob).unwrap();
 
         let batch = pb::MetricBatch {
             run_id: run_id.clone(),
@@ -818,7 +807,6 @@ git log -1 --oneline
         assert_eq!(rows[0].count, 1);
     }
 ```
-(import: 파일 상단 test 모듈에 `use hdrhistogram::serialization::Serializer;`가 필요할 수 있음 — `V2Serializer::serialize`가 trait 메서드. 컴파일 에러 시 추가.)
 
 - [ ] **Step 2: 테스트 실행 — 실패 확인**
 
@@ -870,31 +858,24 @@ git log -1 --oneline
 
 - [ ] **Step 1: report.rs 테스트 작성 (RED)**
 
-`report.rs`의 `#[cfg(test)] mod tests` 안에 추가(기존 `build_report_attaches_if_breakdown`·헬퍼 패턴 미러; `RunRow` fixture·`WindowWithHdr` 빌더는 기존 테스트에서 재사용):
+`report.rs`의 `#[cfg(test)] mod tests` 안에 추가. **실제 헬퍼 사용**(reviewer 정정 — `run_row_for_duration`/`window_with_hdr_us`는 없는 이름): `run_row()`(인자 없음, report.rs:425 — Completed·2초 run), `win(ts, step, count, errors, sc, samples)`(report.rs:455), `make_hdr_bytes(&[..µs..])`(report.rs:415). 테스트 모듈은 `use hdrhistogram::serialization::{Serializer, V2Serializer};`를 이미 import(report.rs:413). 패턴은 기존 `build_report_attaches_if_breakdown`(report.rs:632) 미러.
 ```rust
     #[test]
     fn build_report_attaches_group_latency_without_polluting_summary() {
-        // One http window (count=10) so summary reflects only real requests.
-        let yaml = "version: 1\nname: t\nsteps: []\n";
-        let r = run_row_for_duration(100_000, 110_000); // 10s run (existing helper pattern)
-        let win = window_with_hdr_us("01HX0000000000000000000011", 5_000, 10); // step, 5ms, count 10
-        // One group delta for the parallel node (count=3, ~300ms each).
-        let mut h = fresh_hist();
-        h.record(300_000).unwrap();
-        h.record(305_000).unwrap();
-        h.record(295_000).unwrap();
-        let mut blob = Vec::new();
-        hdrhistogram::serialization::V2Serializer::new()
-            .serialize(&h, &mut blob)
-            .unwrap();
-        let groups = vec![crate::store::metrics::GroupMetricRow {
+        use crate::store::metrics::GroupMetricRow;
+        let r = run_row();
+        // One http window (count=10) so summary reflects only real requests, not pages.
+        let rows = vec![win(100, "01HX0000000000000000000011", 10, 0, r#"{"200":10}"#, &[5_000])];
+        // One group delta for the parallel node: 3 page loads ~300 ms each.
+        let groups = vec![GroupMetricRow {
             run_id: r.id.clone(),
             step_id: "01HX0000000000000000000010".into(),
-            hdr_histogram: blob,
+            hdr_histogram: make_hdr_bytes(&[300_000, 305_000, 295_000]),
             count: 3,
         }];
+        let yaml = r.scenario_yaml.clone();
 
-        let rep = build_report(&r, yaml, &[win], &[], &[], &groups);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups);
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
         assert_eq!(rep.summary.count, 10, "group samples excluded from summary count");
@@ -908,16 +889,18 @@ git log -1 --oneline
         assert_eq!(g.step_id, "01HX0000000000000000000010");
         assert_eq!(g.count, 3);
         assert!(g.p50_ms >= 290 && g.max_ms >= 300, "p50~300ms max~305ms, got {g:?}");
+        // typed round-trip (report types require Deserialize too).
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
 
     #[test]
     fn build_report_empty_groups_yields_empty_group_latency() {
-        let r = run_row_for_duration(100_000, 110_000);
+        let r = run_row();
         let rep = build_report(&r, "", &[], &[], &[], &[]);
         assert!(rep.group_latency.is_empty());
     }
 ```
-> **NB**: `run_row_for_duration`/`window_with_hdr_us`/`fresh_hist` 류 헬퍼 이름은 이 파일 기존 테스트가 쓰는 실제 헬퍼로 맞춘다(예: 기존 `build_report_attaches_if_breakdown`이 `RunRow`를 어떻게 만드는지 보고 동일 헬퍼 사용; HDR 윈도 빌더가 없으면 그 테스트의 인라인 빌드를 복제). `fresh_hist`는 report.rs 모듈 함수(라인 194)라 테스트에서 직접 호출 가능.
 
 - [ ] **Step 2: 테스트 실행 — 컴파일 실패 확인**
 
@@ -1268,3 +1251,5 @@ cargo run -p handicap-controller --bin controller -- --db /tmp/groupcheck.db --u
 - **타입 일관성**: `GroupStat`(engine)→`pb::GroupStat`(proto)→`GroupMetricRow`(store)→`GroupLatency`(report)→`GroupLatencySchema`(UI). 필드 `step_id`/`count`/`hdr_histogram`/`p*_ms`/`max_ms` 전 레이어 1:1. `record_group`/`drain_group_deltas`/`insert_group_batch`/`group_breakdown`/`group_acc`/`group_latency` 이름 일관. ✅
 - **placeholder 없음**: 모든 코드 step에 실제 코드. e2e(T8 Step1)만 "기존 패턴 미러" 서술 — e2e 하네스(worker_bin_path/시나리오 빌드)는 파일별로 상이해 리터럴 복제보다 기존 미러가 정확(기존 `report_e2e_smoke` 참조). ✅
 - **커밋 경계**: 각 task green(dead-code/RED-only 단독 커밋 없음). T3는 proto+worker+coordinator-test 동시(prost exhaustive). ✅
+
+**spec-plan-reviewer pass (2026-06-06)**: 23개 항목을 라이브 코드와 대조 — 모든 코드 위치 주장(라인번호·flush guard 3곳·import·proto 필드·migration 배선·call-site 11+1·UI 미러)이 CONFIRMED. 2건 fold-in: ① Task 6 테스트가 없는 헬퍼(`run_row_for_duration`/`window_with_hdr_us`)를 호출 → 실제 헬퍼 `run_row()`/`win(...)`/`make_hdr_bytes(...)`로 교체. ② Task 5 ingest 테스트에 `use hdrhistogram::serialization::{Serializer, V2Serializer};` 로컬 import 명시(trait 메서드 미해결 방지). 중복 keepalive 2건 제거(worker/main.rs·store/mod.rs 모두 인라인 `#[cfg(test)]` 보유). dead_code 우려는 non-issue(lib crate의 pub 항목 + task별 테스트 사용).
