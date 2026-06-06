@@ -8,6 +8,7 @@ import { ScenarioComparePage } from "./pages/ScenarioComparePage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { EnvironmentsPage } from "./pages/EnvironmentsPage";
+import { SchedulesPage } from "./pages/SchedulesPage";
 
 const router = createBrowserRouter([
   {
@@ -22,6 +23,7 @@ const router = createBrowserRouter([
       { path: "runs/:id", element: <RunDetailPage /> },
       { path: "datasets", element: <DatasetsPage /> },
       { path: "environments", element: <EnvironmentsPage /> },
+      { path: "schedules", element: <SchedulesPage /> },
     ],
   },
 ]);
