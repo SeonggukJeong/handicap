@@ -4,6 +4,7 @@ import {
   buildProfile,
   criteriaHasValue,
   criteriaActiveCount,
+  criteriaStateFrom,
   EMPTY_CRITERIA,
   type CriteriaState,
 } from "../profileForm";
@@ -76,5 +77,18 @@ describe("criteria helpers", () => {
     // activeCount excludes rps_warmup_seconds (modifier, not a criterion) — 1
     expect(criteriaActiveCount(s)).toBe(1);
     expect(criteriaHasValue(EMPTY_CRITERIA)).toBe(false);
+  });
+});
+
+describe("criteriaStateFrom", () => {
+  it("maps wire Criteria (fraction) back to string draft (%)", () => {
+    const s = criteriaStateFrom({ max_p95_ms: 200, max_error_rate: 0.05, max_4xx_rate: 0.025 });
+    expect(s.maxP95).toBe("200");
+    expect(s.maxErrPct).toBe("5");
+    expect(s.max4xxPct).toBe("2.5");
+    expect(s.maxP50).toBe(""); // unset → empty
+  });
+  it("returns all-empty for undefined", () => {
+    expect(criteriaStateFrom(undefined).maxP95).toBe("");
   });
 });

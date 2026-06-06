@@ -9,7 +9,7 @@ import {
   useUpdatePreset,
   queryKeys,
 } from "../api/hooks";
-import type { Criteria, DataBinding, Profile } from "../api/schemas";
+import type { DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
@@ -21,7 +21,13 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
 import { loadModelErrors, type LoadModelState } from "./loadModel";
-import { buildProfile as buildProfileShared, type CriteriaState } from "./profileForm";
+import {
+  buildProfile as buildProfileShared,
+  type CriteriaState,
+  criteriaStateFrom,
+  criteriaHasValue,
+  criteriaActiveCount,
+} from "./profileForm";
 import { CriteriaFields } from "./CriteriaFields";
 
 type Props = {
@@ -43,24 +49,6 @@ type Props = {
   onCreated: (runId: string) => void;
   onCancel: () => void;
 };
-
-/** True when any SLO criterion is set — drives the auto-expand of the (optional,
- *  collapsible) SLO section so seeded criteria are never hidden behind the toggle. */
-function criteriaHasValue(c?: Criteria): boolean {
-  return (
-    c != null &&
-    (c.max_p50_ms != null ||
-      c.max_p95_ms != null ||
-      c.max_p99_ms != null ||
-      c.max_error_rate != null ||
-      c.min_rps != null ||
-      c.max_4xx_rate != null ||
-      c.max_5xx_rate != null ||
-      c.max_4xx_count != null ||
-      c.max_5xx_count != null ||
-      c.min_window_rps != null)
-  );
-}
 
 export function RunDialog({
   scenarioId,
@@ -100,28 +88,23 @@ export function RunDialog({
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
   const [httpTimeout, setHttpTimeout] = useState(initial?.profile.http_timeout_seconds ?? 30);
   const initC = initial?.profile.criteria ?? undefined;
-  const numToStr = (n?: number | null) => (n == null ? "" : String(n));
-  const [maxP50, setMaxP50] = useState(numToStr(initC?.max_p50_ms));
-  const [maxP95, setMaxP95] = useState(numToStr(initC?.max_p95_ms));
-  const [maxP99, setMaxP99] = useState(numToStr(initC?.max_p99_ms));
-  const [maxErrPct, setMaxErrPct] = useState(
-    initC?.max_error_rate != null ? String(initC.max_error_rate * 100) : "",
-  );
-  const [minRps, setMinRps] = useState(numToStr(initC?.min_rps));
-  const [max4xxPct, setMax4xxPct] = useState(
-    initC?.max_4xx_rate != null ? String(initC.max_4xx_rate * 100) : "",
-  );
-  const [max5xxPct, setMax5xxPct] = useState(
-    initC?.max_5xx_rate != null ? String(initC.max_5xx_rate * 100) : "",
-  );
-  const [max4xxCount, setMax4xxCount] = useState(numToStr(initC?.max_4xx_count));
-  const [max5xxCount, setMax5xxCount] = useState(numToStr(initC?.max_5xx_count));
-  const [minWindowRps, setMinWindowRps] = useState(numToStr(initC?.min_window_rps));
-  const [rpsWarmup, setRpsWarmup] = useState(numToStr(initC?.rps_warmup_seconds));
+  const initCriteria = criteriaStateFrom(initC);
+  const [maxP50, setMaxP50] = useState(initCriteria.maxP50);
+  const [maxP95, setMaxP95] = useState(initCriteria.maxP95);
+  const [maxP99, setMaxP99] = useState(initCriteria.maxP99);
+  const [maxErrPct, setMaxErrPct] = useState(initCriteria.maxErrPct);
+  const [minRps, setMinRps] = useState(initCriteria.minRps);
+  const [max4xxPct, setMax4xxPct] = useState(initCriteria.max4xxPct);
+  const [max5xxPct, setMax5xxPct] = useState(initCriteria.max5xxPct);
+  const [max4xxCount, setMax4xxCount] = useState(initCriteria.max4xxCount);
+  const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
+  const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
+  const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
   // SLO 기준 is optional → collapsible. Start open only when seeded criteria exist.
-  const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initC));
+  const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initCriteria));
   // Pacing (think time) is optional → collapsible. Empty inputs omit think_time
   // / think_seed entirely (byte-identical to pre-feature submit).
+  const numToStr = (n?: number | null) => (n == null ? "" : String(n));
   const initTT = initial?.profile.think_time;
   const [thinkMin, setThinkMin] = useState(numToStr(initTT?.min_ms));
   const [thinkMax, setThinkMax] = useState(numToStr(initTT?.max_ms));
@@ -175,18 +158,18 @@ export function RunDialog({
       setBinding(b);
       setSeedBinding(b);
       setPanelKey((k) => k + 1);
-      const pc = prof.criteria ?? undefined;
-      setMaxP50(numToStr(pc?.max_p50_ms));
-      setMaxP95(numToStr(pc?.max_p95_ms));
-      setMaxP99(numToStr(pc?.max_p99_ms));
-      setMaxErrPct(pc?.max_error_rate != null ? String(pc.max_error_rate * 100) : "");
-      setMinRps(numToStr(pc?.min_rps));
-      setMax4xxPct(pc?.max_4xx_rate != null ? String(pc.max_4xx_rate * 100) : "");
-      setMax5xxPct(pc?.max_5xx_rate != null ? String(pc.max_5xx_rate * 100) : "");
-      setMax4xxCount(numToStr(pc?.max_4xx_count));
-      setMax5xxCount(numToStr(pc?.max_5xx_count));
-      setMinWindowRps(numToStr(pc?.min_window_rps));
-      setRpsWarmup(numToStr(pc?.rps_warmup_seconds));
+      const pc = criteriaStateFrom(prof.criteria ?? undefined);
+      setMaxP50(pc.maxP50);
+      setMaxP95(pc.maxP95);
+      setMaxP99(pc.maxP99);
+      setMaxErrPct(pc.maxErrPct);
+      setMinRps(pc.minRps);
+      setMax4xxPct(pc.max4xxPct);
+      setMax5xxPct(pc.max5xxPct);
+      setMax4xxCount(pc.max4xxCount);
+      setMax5xxCount(pc.max5xxCount);
+      setMinWindowRps(pc.minWindowRps);
+      setRpsWarmup(pc.rpsWarmup);
       if (criteriaHasValue(pc)) setSloOpen(true); // reveal loaded criteria
       const ptt = prof.think_time ?? undefined;
       setThinkMin(numToStr(ptt?.min_ms));
@@ -228,12 +211,8 @@ export function RunDialog({
 
   const mutation = useCreateRun();
 
-  // Only meaningful while the cap control is shown (scenario has a loop step).
-  const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
-  const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
-  // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
-  // active criteria aren't silently hidden.
-  const sloActiveCount = [
+  // Assemble criteriaState early so criteriaActiveCount can be computed below.
+  const criteriaState: CriteriaState = {
     maxP50,
     maxP95,
     maxP99,
@@ -244,7 +223,14 @@ export function RunDialog({
     max4xxCount,
     max5xxCount,
     minWindowRps,
-  ].filter((s) => s.trim() !== "").length;
+    rpsWarmup,
+  };
+  // Only meaningful while the cap control is shown (scenario has a loop step).
+  const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
+  const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
+  // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
+  // active criteria aren't silently hidden.
+  const sloActiveCount = criteriaActiveCount(criteriaState);
   // think_time requires both min & max (one alone is invalid); min ≤ max ≤ 600000.
   const thinkInvalid =
     (thinkMin.trim() !== "" || thinkMax.trim() !== "") &&
@@ -298,19 +284,6 @@ export function RunDialog({
   // selected, baseVars is {} and this is byte-identical to the old loop.
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
-  const criteriaState: CriteriaState = {
-    maxP50,
-    maxP95,
-    maxP99,
-    maxErrPct,
-    minRps,
-    max4xxPct,
-    max5xxPct,
-    max4xxCount,
-    max5xxCount,
-    minWindowRps,
-    rpsWarmup,
-  };
   const criteriaSetters: Record<keyof CriteriaState, (v: string) => void> = {
     maxP50: setMaxP50,
     maxP95: setMaxP95,
