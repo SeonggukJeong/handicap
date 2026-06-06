@@ -791,7 +791,7 @@ export function ScenarioEditPage() {
 - [ ] **Step 4: 통과 확인**
 
 Run: `cd ui && pnpm test ScenarioEditPage.clone`
-Expected: PASS (4 tests). 그 뒤 회귀 확인: `cd ui && pnpm test ScenarioEditPage` (testrun 테스트 포함 — 헤더 그룹 테스트 `groups Save and Runs...`가 새 복제 버튼으로 깨지지 않는지; 깨지면 그 테스트의 그룹 단언을 복제 버튼 포함으로 보정).
+Expected: PASS (4 tests). 그 뒤 회귀 확인: `cd ui && pnpm test ScenarioEditPage` (testrun 테스트 포함). 기존 `"groups Save and Runs in the top header row"` 테스트(`ScenarioEditPage.testrun.test.tsx:90-102`)는 **그대로 통과** — 그 테스트는 `save.closest("div")`가 Runs를 *포함*한다고만 단언(그룹이 Save+Runs"만" 들어있다고 단언하지 않음)하고 복제 버튼은 같은 `flex gap-2` 그룹에 들어가므로 무영향. **이 테스트를 수정하지 말 것**(passing 단언을 약화시키지 말 것).
 
 - [ ] **Step 5: 커밋**
 
@@ -841,5 +841,7 @@ git commit -m "docs: 시나리오 복제 완료 반영(roadmap §B2')"
 
 - **Spec coverage**: §4 cloneName→T1, §5 renameScenarioYaml→T2, §6.0 훅→T3, §6.1 목록→T3, §6.2 에디터+다이얼로그→T4, §8 테스트→각 T, §9 충돌→해당없음(A2-2 머지됨). 전부 커버.
 - **타입 일관성**: `useCloneScenario` 인자 `{sourceYaml, sourceName, existingNames}` — T3 정의 / T4 호출 동일. `cloneName(sourceName, existingNames)` / `renameScenarioYaml(yamlText, newName)` 시그니처 T1·T2와 T3 호출 일치.
-- **에디터 회귀**: 기존 `ScenarioEditPage.testrun.test.tsx`의 헤더 그룹 단언이 복제 버튼 추가로 깨질 수 있음 → T4 Step4에서 확인·보정 명시.
+- **에디터 회귀**: 기존 `ScenarioEditPage.testrun.test.tsx` 헤더 그룹 테스트는 **그대로 통과**(위 T4 Step4 — 복제 버튼이 같은 그룹에 합류, 단언은 "Runs 포함"만 검사). 수정 불필요·금지.
+- **spec §6.2와의 의도적 일탈(`sourceName` 출처)**: spec은 클론 대상 yaml에서 `name:`을 *파싱*(`parseScenarioDoc`)하라 했으나, plan은 API가 이미 주는 `data.name`/`next.name`(목록은 `s.name`)을 직접 넘긴다 — 서버가 항상 yaml에서 name을 파싱하므로 `data.name === data.yaml의 name:`이라 **동등하고 더 단순**(yaml 재파싱 0). 의도적 단순화.
+- **`void cloneAndGo(...)` 는 스타일 일관성용**(기존 `EnvironmentsPage.tsx:248` 이디엄) — `@typescript-eslint/no-floating-promises`는 이 repo eslint(`recommended`, `recommendedTypeChecked` 아님)에 **비활성**이라 lint 게이트와 무관. 제거해도 lint는 통과하나 일관성 위해 유지.
 - **커밋 경계**: 각 task = 1 green 커밋(헬퍼→테스트→배선이 한 task 안에서 GREEN). dead-code/RED-only 단독 커밋 없음(cargo 전체게이트 호환).
