@@ -11,7 +11,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use crate::aggregator::{Aggregator, BranchStat, LoopStat, StepWindow};
+use crate::aggregator::{Aggregator, BranchStat, GroupStat, LoopStat, StepWindow};
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
@@ -71,6 +71,7 @@ pub struct MetricFlush {
     pub windows: Vec<StepWindow>,
     pub loop_stats: Vec<LoopStat>,
     pub branch_stats: Vec<BranchStat>,
+    pub group_stats: Vec<GroupStat>,
     /// Open-loop arrivals dropped because the slot pool was full, since the last
     /// flush (delta). Always `0` on the closed-loop path.
     pub dropped: u64,
@@ -176,19 +177,25 @@ pub async fn run_scenario(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
                     g.drain_loop_deltas(),
                     g.drain_branch_deltas(),
+                    g.drain_group_deltas(),
                 )
             };
-            if !drained.is_empty() || !loop_stats.is_empty() || !branch_stats.is_empty() {
+            if !drained.is_empty()
+                || !loop_stats.is_empty()
+                || !branch_stats.is_empty()
+                || !group_stats.is_empty()
+            {
                 debug!(
                     count = drained.len(),
                     loops = loop_stats.len(),
                     branches = branch_stats.len(),
+                    groups = group_stats.len(),
                     "flushing windows"
                 );
                 if flush_out
@@ -196,6 +203,7 @@ pub async fn run_scenario(
                         windows: drained,
                         loop_stats,
                         branch_stats,
+                        group_stats,
                         dropped: 0,
                     })
                     .await
@@ -217,20 +225,26 @@ pub async fn run_scenario(
         }
     }
 
-    let (final_windows, final_loops, final_branches) = {
+    let (final_windows, final_loops, final_branches, final_groups) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
             g.drain_loop_deltas(),
             g.drain_branch_deltas(),
+            g.drain_group_deltas(),
         )
     };
-    if !final_windows.is_empty() || !final_loops.is_empty() || !final_branches.is_empty() {
+    if !final_windows.is_empty()
+        || !final_loops.is_empty()
+        || !final_branches.is_empty()
+        || !final_groups.is_empty()
+    {
         let _ = out
             .send(MetricFlush {
                 windows: final_windows,
                 loop_stats: final_loops,
                 branch_stats: final_branches,
+                group_stats: final_groups,
                 dropped: 0,
             })
             .await;
@@ -489,7 +503,10 @@ async fn execute_steps(
                     }
                 });
                 // wait-all: every branch runs to completion before the node returns.
+                // Time the whole concurrent block: page-load latency ≈ max(branches) (A2-2).
+                let t0 = Instant::now();
                 let results = futures::future::join_all(futs).await;
+                let elapsed_us = t0.elapsed().as_micros() as u64;
 
                 // Merge in declaration order (join_all preserves input order). Key-origin
                 // namespace: expose each branch's declared extract outputs as
@@ -508,6 +525,12 @@ async fn execute_steps(
                             iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
                         }
                     }
+                }
+                // Record page-load latency only on a clean block — a deadline/abort cut a
+                // branch short (skipped steps → too-fast block), which would skew the
+                // distribution low. Same caution as loop partial-iteration counting.
+                if !aborted && !deadline_hit {
+                    agg.lock().await.record_group(&par.id, elapsed_us);
                 }
                 if aborted {
                     return Ok(StepFlow::Aborted);
@@ -603,21 +626,25 @@ pub async fn run_scenario_open_loop(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
                     g.drain_loop_deltas(),
                     g.drain_branch_deltas(),
+                    g.drain_group_deltas(),
                 )
             };
-            let has_data =
-                !drained.is_empty() || !loop_stats.is_empty() || !branch_stats.is_empty();
+            let has_data = !drained.is_empty()
+                || !loop_stats.is_empty()
+                || !branch_stats.is_empty()
+                || !group_stats.is_empty();
             if has_data {
                 debug!(
                     count = drained.len(),
                     loops = loop_stats.len(),
                     branches = branch_stats.len(),
+                    groups = group_stats.len(),
                     "flushing windows"
                 );
                 if flush_out
@@ -625,6 +652,7 @@ pub async fn run_scenario_open_loop(
                         windows: drained,
                         loop_stats,
                         branch_stats,
+                        group_stats,
                         dropped: 0,
                     })
                     .await
@@ -759,12 +787,13 @@ pub async fn run_scenario_open_loop(
     // The final flush also carries the run-total `dropped` (flusher sent dropped: 0
     // throughout, so no double count).
     let total_dropped = dropped;
-    let (final_windows, final_loops, final_branches) = {
+    let (final_windows, final_loops, final_branches, final_groups) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
             g.drain_loop_deltas(),
             g.drain_branch_deltas(),
+            g.drain_group_deltas(),
         )
     };
     let _ = out
@@ -772,6 +801,7 @@ pub async fn run_scenario_open_loop(
             windows: final_windows,
             loop_stats: final_loops,
             branch_stats: final_branches,
+            group_stats: final_groups,
             dropped: total_dropped,
         })
         .await;

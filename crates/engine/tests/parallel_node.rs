@@ -191,3 +191,85 @@ steps:
             .any(|r| r.url.path() == "/ok")
     );
 }
+
+#[tokio::test]
+async fn parallel_records_group_latency_sample() {
+    let server = MockServer::start().await;
+    // Two branches, each ~300 ms. The block's wall-clock ≈ max(300, 300) = ~300 ms,
+    // recorded once per clean iteration under the parallel node's id.
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(300)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/b"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(300)))
+        .mount(&server)
+        .await;
+    let yaml = r#"
+version: 1
+name: par
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fan
+    type: parallel
+    branches:
+      - name: a
+        steps:
+          - { id: "01HX0000000000000000000011", name: ga, type: http, request: { method: GET, url: "${BASE}/a" }, assert: [] }
+      - name: b
+        steps:
+          - { id: "01HX0000000000000000000012", name: gb, type: http, request: { method: GET, url: "${BASE}/b" }, assert: [] }
+"#;
+    let sc = Arc::new(Scenario::from_yaml(yaml).unwrap());
+    let (tx, rx) = mpsc::channel(64);
+    run_scenario(sc, plan(&server.uri(), 2), tx, CancellationToken::new())
+        .await
+        .unwrap();
+    let flushes = drain(rx).await;
+
+    let mut total_pages = 0u64;
+    let mut max_us = 0u64;
+    for f in &flushes {
+        for g in &f.group_stats {
+            assert_eq!(g.step_id, "01HX0000000000000000000010");
+            total_pages += g.count;
+            max_us = max_us.max(g.histogram.max());
+        }
+    }
+    assert!(
+        total_pages >= 1,
+        "at least one clean page-load sample, got {total_pages}"
+    );
+    assert!(
+        max_us >= 250_000,
+        "page-load ~= 300ms (max not sum), got {max_us}µs"
+    );
+}
+
+#[tokio::test]
+async fn flat_scenario_emits_no_group_stats() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = r#"
+version: 1
+name: flat
+steps:
+  - { id: "01HX0000000000000000000011", name: ga, type: http, request: { method: GET, url: "${BASE}/a" }, assert: [] }
+"#;
+    let sc = Arc::new(Scenario::from_yaml(yaml).unwrap());
+    let (tx, rx) = mpsc::channel(64);
+    run_scenario(sc, plan(&server.uri(), 1), tx, CancellationToken::new())
+        .await
+        .unwrap();
+    let flushes = drain(rx).await;
+    assert!(
+        flushes.iter().all(|f| f.group_stats.is_empty()),
+        "non-parallel scenario emits no group stats (byte-identical wire)"
+    );
+}
