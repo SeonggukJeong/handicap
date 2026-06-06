@@ -13,8 +13,9 @@ describe("GroupLatencyTable", () => {
     expect(screen.getByRole("region", { name: "Page load latency" })).toBeInTheDocument();
     expect(screen.getByText("page load")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("420 ms")).toBeInTheDocument(); // p95
-    expect(screen.getByText("610 ms")).toBeInTheDocument(); // max
+    expect(screen.getByText("420")).toBeInTheDocument(); // p95 value
+    expect(screen.getByText("610")).toBeInTheDocument(); // max value
+    expect(screen.getByRole("columnheader", { name: "p95 ms" })).toBeInTheDocument(); // unit in header
   });
 
   it("falls back to step_id when meta is missing", () => {
