@@ -834,6 +834,21 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
         }
     }
+    let group_rows: Vec<crate::store::metrics::GroupMetricRow> = batch
+        .group_stats
+        .iter()
+        .map(|gs| crate::store::metrics::GroupMetricRow {
+            run_id: batch.run_id.clone(),
+            step_id: gs.step_id.clone(),
+            hdr_histogram: gs.hdr_histogram.clone(),
+            count: gs.count as i64,
+        })
+        .collect();
+    if !group_rows.is_empty() {
+        if let Err(e) = crate::store::metrics::insert_group_batch(&state.db, &group_rows).await {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert group metrics");
+        }
+    }
     if batch.dropped > 0 {
         if let Err(e) = sqlx::query("UPDATE runs SET dropped = dropped + ? WHERE id = ?")
             .bind(batch.dropped as i64)
@@ -1251,5 +1266,41 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(d, 8, "dropped must accumulate across batches");
+    }
+
+    #[tokio::test]
+    async fn ingest_stores_group_stats() {
+        use hdrhistogram::serialization::{Serializer, V2Serializer};
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+
+        // a valid HDR blob with one ~300ms sample.
+        let mut h = hdrhistogram::Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).unwrap();
+        h.record(300_000).unwrap();
+        let mut blob = Vec::new();
+        V2Serializer::new().serialize(&h, &mut blob).unwrap();
+
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![pb::GroupStat {
+                step_id: "p1".to_string(),
+                hdr_histogram: blob,
+                count: 1,
+            }],
+            dropped: 0,
+        };
+        ingest_metrics(&coord, &batch).await;
+
+        let rows = crate::store::metrics::group_breakdown(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].step_id, "p1");
+        assert_eq!(rows[0].count, 1);
     }
 }
