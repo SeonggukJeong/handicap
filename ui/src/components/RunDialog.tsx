@@ -20,7 +20,9 @@ import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
-import { buildLoadProfile, loadModelErrors, type LoadModelState } from "./loadModel";
+import { loadModelErrors, type LoadModelState } from "./loadModel";
+import { buildProfile as buildProfileShared, type CriteriaState } from "./profileForm";
+import { CriteriaFields } from "./CriteriaFields";
 
 type Props = {
   scenarioId: string;
@@ -296,30 +298,54 @@ export function RunDialog({
   // selected, baseVars is {} and this is byte-identical to the old loop.
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
-  function buildCriteria(): Criteria | undefined {
-    const c: Criteria = {};
-    if (maxP50.trim() !== "") c.max_p50_ms = Number(maxP50);
-    if (maxP95.trim() !== "") c.max_p95_ms = Number(maxP95);
-    if (maxP99.trim() !== "") c.max_p99_ms = Number(maxP99);
-    if (maxErrPct.trim() !== "") c.max_error_rate = Number(maxErrPct) / 100;
-    if (minRps.trim() !== "") c.min_rps = Number(minRps);
-    if (max4xxPct.trim() !== "") c.max_4xx_rate = Number(max4xxPct) / 100;
-    if (max5xxPct.trim() !== "") c.max_5xx_rate = Number(max5xxPct) / 100;
-    if (max4xxCount.trim() !== "") c.max_4xx_count = Number(max4xxCount);
-    if (max5xxCount.trim() !== "") c.max_5xx_count = Number(max5xxCount);
-    if (minWindowRps.trim() !== "") c.min_window_rps = Number(minWindowRps);
-    if (rpsWarmup.trim() !== "") c.rps_warmup_seconds = Number(rpsWarmup);
-    return Object.keys(c).length > 0 ? c : undefined;
-  }
+  const criteriaState: CriteriaState = {
+    maxP50,
+    maxP95,
+    maxP99,
+    maxErrPct,
+    minRps,
+    max4xxPct,
+    max5xxPct,
+    max4xxCount,
+    max5xxCount,
+    minWindowRps,
+    rpsWarmup,
+  };
+  const criteriaSetters: Record<keyof CriteriaState, (v: string) => void> = {
+    maxP50: setMaxP50,
+    maxP95: setMaxP95,
+    maxP99: setMaxP99,
+    maxErrPct: setMaxErrPct,
+    minRps: setMinRps,
+    max4xxPct: setMax4xxPct,
+    max5xxPct: setMax5xxPct,
+    max4xxCount: setMax4xxCount,
+    max5xxCount: setMax5xxCount,
+    minWindowRps: setMinWindowRps,
+    rpsWarmup: setRpsWarmup,
+  };
+  const setCriteria = (key: keyof CriteriaState, val: string) => {
+    criteriaSetters[key](val);
+    // cross-field: minWindowRps 채우면 closed-loop에선 rpsWarmup을 rampUp으로 seed (기존 동작).
+    if (
+      key === "minWindowRps" &&
+      val.trim() !== "" &&
+      rpsWarmup.trim() === "" &&
+      loadModel === "closed"
+    ) {
+      setRpsWarmup(String(rampUp));
+    }
+  };
 
   function buildProfile(): Profile {
-    return {
-      loop_breakdown_cap: hasLoop ? loopCap : 0,
-      http_timeout_seconds: httpTimeout,
-      data_binding: binding ?? undefined,
-      criteria: buildCriteria(),
-      ...buildLoadProfile(loadState),
-    };
+    return buildProfileShared({
+      hasLoop,
+      loopCap,
+      httpTimeout,
+      binding,
+      loadState,
+      criteria: criteriaState,
+    });
   }
 
   function currentInput(): PresetInput {
@@ -513,137 +539,7 @@ export function RunDialog({
             ) : null}
           </button>
         </legend>
-        {sloOpen && (
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-sm">
-              <span className="text-slate-600">Max p50 (ms)</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={maxP50}
-                onChange={(e) => setMaxP50(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max p95 (ms)</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={maxP95}
-                onChange={(e) => setMaxP95(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max p99 (ms)</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={maxP99}
-                onChange={(e) => setMaxP99(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max error rate (%)</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="any"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={maxErrPct}
-                onChange={(e) => setMaxErrPct(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Min RPS</span>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={minRps}
-                onChange={(e) => setMinRps(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max 4xx rate (%)</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="any"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={max4xxPct}
-                onChange={(e) => setMax4xxPct(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max 5xx rate (%)</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="any"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={max5xxPct}
-                onChange={(e) => setMax5xxPct(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max 4xx count</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={max4xxCount}
-                onChange={(e) => setMax4xxCount(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Max 5xx count</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={max5xxCount}
-                onChange={(e) => setMax5xxCount(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Min window RPS</span>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={minWindowRps}
-                onChange={(e) => {
-                  setMinWindowRps(e.target.value);
-                  if (
-                    e.target.value.trim() !== "" &&
-                    rpsWarmup.trim() === "" &&
-                    loadModel === "closed"
-                  ) {
-                    setRpsWarmup(String(rampUp));
-                  }
-                }}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">RPS warmup (s)</span>
-              <input
-                type="number"
-                min="0"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                value={rpsWarmup}
-                onChange={(e) => setRpsWarmup(e.target.value)}
-              />
-            </label>
-          </div>
-        )}
+        {sloOpen && <CriteriaFields value={criteriaState} onChange={setCriteria} />}
       </fieldset>
 
       {loadModel === "closed" && (
