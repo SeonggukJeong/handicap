@@ -7,7 +7,8 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
     datasets as datasets_api, environments as environments_api, presets as presets_api,
-    runs as runs_api, scenarios as scenarios_api, test_runs as test_runs_api,
+    runs as runs_api, scenarios as scenarios_api, schedules as schedules_api,
+    test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -92,6 +93,18 @@ pub fn router(state: AppState) -> Router {
                 .put(environments_api::update)
                 .delete(environments_api::delete),
         )
+        .route(
+            "/schedules",
+            post(schedules_api::create).get(schedules_api::list),
+        )
+        .route("/schedules/preview-next", post(schedules_api::preview_next))
+        .route(
+            "/schedules/{id}",
+            get(schedules_api::get)
+                .put(schedules_api::update)
+                .delete(schedules_api::delete),
+        )
+        .route("/schedules/{id}/events", get(schedules_api::events))
         .route("/test-runs", post(test_runs_api::create));
 
     let mut app = Router::new().nest("/api", api);
