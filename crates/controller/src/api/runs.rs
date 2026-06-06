@@ -240,41 +240,36 @@ pub(crate) async fn validate_run_config(
     Ok(Some(meta))
 }
 
-pub async fn create(
-    State(state): State<AppState>,
-    Json(body): Json<CreateRunRequest>,
-) -> Result<(StatusCode, Json<RunResponse>), ApiError> {
-    let scenario = scenarios::get(&state.db, &body.scenario_id)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-
-    let validated_meta = validate_run_config(&state, &body.profile).await?;
-
+/// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
+/// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
+/// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
+/// 루프(34b)가 공유한다. `validated_meta`는 `validate_run_config`가 돌려준
+/// 검증된 dataset meta(TOCTOU 회피 재사용; binding 없으면 None).
+pub(crate) async fn spawn_run(
+    state: &AppState,
+    scenario: &scenarios::ScenarioRow,
+    profile: &Profile,
+    validated_meta: Option<datasets::DatasetMeta>,
+    env: &std::collections::HashMap<String, String>,
+) -> Result<runs::RunRow, ApiError> {
     // env is already map<string,string> (rejected at the API boundary otherwise).
     // Serialize back to a JSON object for storage; clone the map for the proto.
-    let env_value = serde_json::to_value(&body.env).expect("env map serializes to a JSON object");
-    let row = runs::insert(
-        &state.db,
-        &scenario.id,
-        &scenario.yaml,
-        &body.profile,
-        &env_value,
-    )
-    .await?;
+    let env_value = serde_json::to_value(env).expect("env map serializes to a JSON object");
+    let row = runs::insert(&state.db, &scenario.id, &scenario.yaml, profile, &env_value).await?;
 
     // Resolve the binding for the worker (spec §4/§7): proto policy, a
     // deterministic seed folded from the run id, and the sliced row count.
     // Reuses the meta validate_run_config already fetched — no second DB call.
-    let data_binding = match (&body.profile.data_binding, validated_meta) {
+    let data_binding = match (&profile.data_binding, validated_meta) {
         (Some(b), Some(meta)) => {
             let (policy, row_count) = match b.policy {
                 BindingPolicy::PerVu => {
                     // closed-loop: one row per VU (≤ vus rows); open-loop: one row per
                     // slot (≤ max_in_flight rows — slot index is the per_vu key, spec §4).
-                    let slot_count = if body.profile.is_open_loop() {
-                        body.profile.max_in_flight.unwrap_or(0) as u64
+                    let slot_count = if profile.is_open_loop() {
+                        profile.max_in_flight.unwrap_or(0) as u64
                     } else {
-                        body.profile.vus as u64
+                        profile.vus as u64
                     };
                     (
                         handicap_proto::v1::data_binding::Policy::PerVu,
@@ -314,23 +309,19 @@ pub async fn create(
     let assignment = crate::grpc::coordinator::PendingAssignment {
         scenario_yaml: scenario.yaml.clone(),
         profile: handicap_proto::v1::Profile {
-            vus: body.profile.vus,
-            ramp_up_seconds: body.profile.ramp_up_seconds,
-            duration_seconds: body.profile.duration_seconds,
-            loop_breakdown_cap: body.profile.loop_breakdown_cap,
-            http_timeout_seconds: body.profile.http_timeout_seconds,
-            think_time: body
-                .profile
-                .think_time
-                .map(|t| handicap_proto::v1::ThinkTime {
-                    min_ms: t.min_ms,
-                    max_ms: t.max_ms,
-                }),
-            think_seed: body.profile.think_seed,
-            target_rps: body.profile.target_rps,
-            max_in_flight: body.profile.max_in_flight,
-            stages: body
-                .profile
+            vus: profile.vus,
+            ramp_up_seconds: profile.ramp_up_seconds,
+            duration_seconds: profile.duration_seconds,
+            loop_breakdown_cap: profile.loop_breakdown_cap,
+            http_timeout_seconds: profile.http_timeout_seconds,
+            think_time: profile.think_time.map(|t| handicap_proto::v1::ThinkTime {
+                min_ms: t.min_ms,
+                max_ms: t.max_ms,
+            }),
+            think_seed: profile.think_seed,
+            target_rps: profile.target_rps,
+            max_in_flight: profile.max_in_flight,
+            stages: profile
                 .stages
                 .as_deref()
                 .unwrap_or_default()
@@ -341,17 +332,17 @@ pub async fn create(
                 })
                 .collect(),
         },
-        env: body.env.clone(),
+        env: env.clone(),
         data_binding,
     };
-    let n = if body.profile.is_open_loop() {
+    let n = if profile.is_open_loop() {
         1 // open-loop is single-worker in v1 (fan-out deferred — spec §9)
     } else {
-        state.coord.worker_count_for(body.profile.vus)
+        state.coord.worker_count_for(profile.vus)
     };
     state
         .coord
-        .enqueue(row.id.clone(), assignment, n, body.profile.vus)
+        .enqueue(row.id.clone(), assignment, n, profile.vus)
         .await;
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
@@ -367,6 +358,21 @@ pub async fn create(
         runs::mark_failed(&state.db, &row.id, &message).await?;
         return Err(ApiError::Internal(anyhow::anyhow!(message)));
     }
+
+    Ok(row)
+}
+
+pub async fn create(
+    State(state): State<AppState>,
+    Json(body): Json<CreateRunRequest>,
+) -> Result<(StatusCode, Json<RunResponse>), ApiError> {
+    let scenario = scenarios::get(&state.db, &body.scenario_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let validated_meta = validate_run_config(&state, &body.profile).await?;
+
+    let row = spawn_run(&state, &scenario, &body.profile, validated_meta, &body.env).await?;
 
     Ok((StatusCode::CREATED, Json(to_response(row))))
 }
