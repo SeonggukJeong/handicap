@@ -40,6 +40,12 @@ export const CriteriaSchema = z.object({
   max_p99_ms: z.number().int().nonnegative().optional(),
   max_error_rate: z.number().min(0).max(1).optional(), // 분수 (UI 입출력은 %)
   min_rps: z.number().nonnegative().optional(),
+  max_4xx_rate: z.number().min(0).max(1).optional(),
+  max_5xx_rate: z.number().min(0).max(1).optional(),
+  max_4xx_count: z.number().int().nonnegative().optional(),
+  max_5xx_count: z.number().int().nonnegative().optional(),
+  min_window_rps: z.number().nonnegative().optional(),
+  rps_warmup_seconds: z.number().int().nonnegative().optional(),
 });
 export type Criteria = z.infer<typeof CriteriaSchema>;
 

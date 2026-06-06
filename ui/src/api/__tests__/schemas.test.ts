@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CriteriaSchema,
   IfBreakdownSchema,
   ProfileSchema,
   ReportSchema,
@@ -258,5 +259,25 @@ describe("ReportSchema.verdict", () => {
       criteria: [{ metric: "rps", direction: "min", threshold: 100, actual: 200, passed: true }],
     });
     expect(v.passed).toBe(true);
+  });
+});
+
+describe("CriteriaSchema status-class + window fields", () => {
+  it("parses the 6 new fields", () => {
+    const r = CriteriaSchema.safeParse({
+      max_4xx_rate: 0.1,
+      max_5xx_rate: 0,
+      max_4xx_count: 3,
+      max_5xx_count: 0,
+      min_window_rps: 50,
+      rps_warmup_seconds: 5,
+    });
+    expect(r.success).toBe(true);
+  });
+  it("rejects out-of-range rate", () => {
+    expect(CriteriaSchema.safeParse({ max_5xx_rate: 1.5 }).success).toBe(false);
+  });
+  it("rejects non-integer count", () => {
+    expect(CriteriaSchema.safeParse({ max_5xx_count: 1.5 }).success).toBe(false);
   });
 });
