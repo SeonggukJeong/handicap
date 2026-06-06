@@ -1,6 +1,8 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { DatasetUploadOptions } from "./client";
+import { cloneName } from "../scenario/cloneName";
+import { renameScenarioYaml } from "../scenario/yamlDoc";
 import { createPreset, deletePreset, listPresets, updatePreset, type PresetInput } from "./presets";
 import {
   createEnvironment,
@@ -43,6 +45,28 @@ export function useCreateScenario() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (yaml: string) => api.createScenario(yaml),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
+    },
+  });
+}
+
+export function useCloneScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sourceYaml,
+      sourceName,
+      existingNames,
+    }: {
+      sourceYaml: string;
+      sourceName: string;
+      existingNames: string[];
+    }) => {
+      const newName = cloneName(sourceName, existingNames);
+      const newYaml = renameScenarioYaml(sourceYaml, newName);
+      return api.createScenario(newYaml);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
     },

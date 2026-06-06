@@ -1,9 +1,16 @@
 import { Link } from "react-router-dom";
-import { useScenarios } from "../api/hooks";
+import { useCloneScenario, useScenarios } from "../api/hooks";
 import { Button } from "../components/Button";
 
 export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
+  const clone = useCloneScenario();
+
+  function onClone(scenario: { yaml: string; name: string }) {
+    const existingNames = data?.scenarios.map((s) => s.name) ?? [];
+    clone.reset();
+    clone.mutate({ sourceYaml: scenario.yaml, sourceName: scenario.name, existingNames });
+  }
 
   return (
     <div>
@@ -16,6 +23,11 @@ export function ScenarioListPage() {
 
       {isLoading && <p className="text-slate-500">Loading…</p>}
       {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
+      {clone.error && (
+        <p role="alert" className="mb-3 text-sm text-red-600">
+          복제 실패: {(clone.error as Error).message}
+        </p>
+      )}
 
       {data && data.scenarios.length === 0 && (
         <p className="text-slate-500">No scenarios yet. Create one to get started.</p>
@@ -44,9 +56,19 @@ export function ScenarioListPage() {
                   {new Date(s.updated_at).toLocaleString()}
                 </td>
                 <td className="py-3 pr-4 text-right">
-                  <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
-                    runs →
-                  </Link>
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => onClone(s)}
+                      disabled={clone.isPending}
+                      className="text-slate-700 hover:underline disabled:text-slate-400"
+                    >
+                      복제
+                    </button>
+                    <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
+                      runs →
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}
