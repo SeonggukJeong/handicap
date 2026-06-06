@@ -245,6 +245,54 @@ pub async fn if_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<IfBranchRow
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct GroupMetricRow {
+    pub run_id: String,
+    pub step_id: String, // the `parallel` node's id
+    pub hdr_histogram: Vec<u8>,
+    pub count: i64,
+}
+
+pub async fn insert_group_batch(db: &Db, rows: &[GroupMetricRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Append-only: each row is a delta HDR; build_report merges by step_id. No PK —
+    // metric batches are delivered once (no mid-run resend), so no dedup key is needed.
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_group_metrics(run_id,step_id,hdr_histogram,count) VALUES(?,?,?,?)",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(&r.hdr_histogram)
+        .bind(r.count)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn group_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<GroupMetricRow>> {
+    let rows = sqlx::query(
+        "SELECT step_id, hdr_histogram, count FROM run_group_metrics \
+         WHERE run_id = ? ORDER BY step_id",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| GroupMetricRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            hdr_histogram: r.get("hdr_histogram"),
+            count: r.get("count"),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -625,5 +673,31 @@ mod tests {
             .collect();
         assert_eq!(m.get(&("if1".into(), "then".into())), Some(&5)); // 3+2 accumulate
         assert_eq!(m.get(&("if1".into(), "none".into())), Some(&7));
+    }
+
+    #[tokio::test]
+    async fn group_batch_appends_and_reads_back() {
+        let db = pool().await;
+        // run_group_metrics has no FK to runs, so no seed needed.
+        let rows = vec![
+            GroupMetricRow {
+                run_id: "r1".into(),
+                step_id: "p1".into(),
+                hdr_histogram: vec![1, 2, 3],
+                count: 4,
+            },
+            GroupMetricRow {
+                run_id: "r1".into(),
+                step_id: "p1".into(),
+                hdr_histogram: vec![4, 5],
+                count: 2,
+            },
+        ];
+        insert_group_batch(&db, &rows).await.unwrap();
+        let read = group_breakdown(&db, "r1").await.unwrap();
+        // append-only: two delta rows for the same step_id coexist (merged at read in build_report).
+        assert_eq!(read.len(), 2, "append-only keeps both delta rows");
+        assert_eq!(read.iter().map(|r| r.count).sum::<i64>(), 6);
+        assert!(read.iter().all(|r| r.step_id == "p1"));
     }
 }

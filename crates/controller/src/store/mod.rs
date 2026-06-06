@@ -29,6 +29,7 @@ const MIGRATION_SQL_0004: &str = include_str!("migrations/0004_datasets.sql");
 const MIGRATION_SQL_0005: &str = include_str!("migrations/0005_run_presets.sql");
 const MIGRATION_SQL_0006: &str = include_str!("migrations/0006_run_if_metrics.sql");
 const MIGRATION_SQL_0007: &str = include_str!("migrations/0007_environments.sql");
+const MIGRATION_SQL_0010: &str = include_str!("migrations/0010_run_group_metrics.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -59,6 +60,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0007).execute(&pool).await?;
     ensure_run_metrics_worker_id(&pool).await?; // migration 0008 (Rust-guarded; see fn)
     ensure_runs_dropped(&pool).await?; // migration 0009 (Rust-guarded; see fn)
+    sqlx::query(MIGRATION_SQL_0010).execute(&pool).await?; // migration 0010: run_group_metrics
     Ok(pool)
 }
 
