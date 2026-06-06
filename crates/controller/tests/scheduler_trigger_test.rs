@@ -93,3 +93,15 @@ fn validate_rejects_bad_cron_and_past_once() {
         .is_ok()
     );
 }
+
+#[test]
+fn next_fires_count_zero_is_empty_for_both_triggers() {
+    // count == 0 → 빈 Vec(once·cron 일관). preview-next가 0을 넘겨도 단일 원소가 새지 않음.
+    let once = Trigger::Once { run_at: 42 };
+    assert_eq!(next_fires(&once, 0, Seoul, 0), Vec::<i64>::new());
+    let cron = Trigger::Cron {
+        expr: "0 2 * * *".into(),
+    };
+    let now = seoul_ms(2026, 6, 6, 1, 0);
+    assert_eq!(next_fires(&cron, now, Seoul, 0), Vec::<i64>::new());
+}

@@ -38,10 +38,16 @@ pub fn next_fire_after(t: &Trigger, now_ms: i64, tz: Tz) -> Option<i64> {
 }
 
 /// 다음 `count`개 발사 시각(epoch ms). preview-next 엔드포인트(34b)용.
-/// 잘못된 cron이면 빈 Vec. once는 단일 원소.
+/// 잘못된 cron이면 빈 Vec. once는 최대 1개(`count == 0`이면 빈 Vec — cron 분기와 일관).
 pub fn next_fires(t: &Trigger, now_ms: i64, tz: Tz, count: usize) -> Vec<i64> {
     match t {
-        Trigger::Once { run_at } => vec![*run_at],
+        Trigger::Once { run_at } => {
+            if count == 0 {
+                Vec::new()
+            } else {
+                vec![*run_at]
+            }
+        }
         Trigger::Cron { expr } => {
             let Ok(cron) = Cron::from_str(expr) else {
                 return Vec::new();
