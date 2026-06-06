@@ -109,7 +109,7 @@ export function ScenarioEditPage() {
             onClick={onCloneClick}
             disabled={!scenariosLoaded || clone.isPending}
           >
-            {clone.isPending ? "복제 중…" : "복제"}
+            {clone.isPending ? "Duplicating…" : "Duplicate"}
           </Button>
           <Link to={`/scenarios/${data.id}/runs`}>
             <Button variant="secondary">Runs</Button>

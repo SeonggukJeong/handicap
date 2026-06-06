@@ -63,7 +63,7 @@ export function ScenarioListPage() {
                       disabled={clone.isPending}
                       className="text-slate-700 hover:underline disabled:text-slate-400"
                     >
-                      복제
+                      Duplicate
                     </button>
                     <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
                       runs →

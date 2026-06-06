@@ -106,10 +106,10 @@ describe("ScenarioEditPage clone", () => {
   it("not dirty: clones immediately and navigates to the new scenario", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("button", { name: "복제" });
+    await screen.findByRole("button", { name: "Duplicate" });
     await user.click(screen.getByRole("button", { name: "seed" })); // originalYaml = yamlText → not dirty
 
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
 
     await waitFor(() => expect(postBody()?.yaml).toContain("name: demo (copy)"));
     expect(putCalled()).toBe(false);
@@ -119,11 +119,11 @@ describe("ScenarioEditPage clone", () => {
   it("dirty → save then clone: PUTs, then POSTs, then navigates", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("button", { name: "복제" });
+    await screen.findByRole("button", { name: "Duplicate" });
     await user.click(screen.getByRole("button", { name: "seed" }));
     await user.click(screen.getByRole("button", { name: "edit" })); // dirty
 
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
     await user.click(await screen.findByRole("button", { name: "저장 후 복제" }));
 
     await waitFor(() => expect(putCalled()).toBe(true));
@@ -134,11 +134,11 @@ describe("ScenarioEditPage clone", () => {
   it("dirty → clone without saving: POSTs from saved yaml, no PUT", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("button", { name: "복제" });
+    await screen.findByRole("button", { name: "Duplicate" });
     await user.click(screen.getByRole("button", { name: "seed" }));
     await user.click(screen.getByRole("button", { name: "edit" }));
 
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
     await user.click(await screen.findByRole("button", { name: "저장 없이 복제" }));
 
     await waitFor(() => expect(postBody()?.yaml).toContain("name: demo (copy)"));
@@ -150,11 +150,11 @@ describe("ScenarioEditPage clone", () => {
     const user = userEvent.setup();
     putShould409 = true;
     renderPage();
-    await screen.findByRole("button", { name: "복제" });
+    await screen.findByRole("button", { name: "Duplicate" });
     await user.click(screen.getByRole("button", { name: "seed" }));
     await user.click(screen.getByRole("button", { name: "edit" }));
 
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
     await user.click(await screen.findByRole("button", { name: "저장 후 복제" }));
 
     // save-failed dialog appears

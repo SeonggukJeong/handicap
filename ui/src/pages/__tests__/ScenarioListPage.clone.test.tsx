@@ -64,7 +64,7 @@ describe("ScenarioListPage clone", () => {
     renderPage();
     await screen.findByRole("link", { name: "demo" });
 
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
@@ -107,11 +107,11 @@ describe("ScenarioListPage clone", () => {
     await screen.findByRole("link", { name: "demo" });
 
     // first click → error banner appears
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
     await screen.findByRole("alert");
 
     // second click → error banner should be gone immediately (reset before mutate)
-    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
     expect(screen.queryByRole("alert")).toBeNull();
 
     unmount();
