@@ -91,6 +91,20 @@ export function serializeDoc(doc: Document): string {
   return String(doc);
 }
 
+/**
+ * 시나리오 YAML의 `name:`만 바꾼 새 YAML 문자열을 반환(주석·다른 키 보존,
+ * `setName` Edit과 동일한 Document API targeted edit). 복제(clone)용 단일 진입 헬퍼.
+ * PLAIN scalar로 set해 원본의 인용 스타일 상속을 피한다.
+ */
+export function renameScenarioYaml(yamlText: string, newName: string): string {
+  const doc = parseDocument(yamlText);
+  if (doc.errors.length > 0) {
+    throw new Error(doc.errors.map((e) => e.message).join("; "));
+  }
+  doc.setIn(["name"], plainScalar(newName));
+  return String(doc);
+}
+
 export function applyEdit(doc: Document, edit: Edit): void {
   switch (edit.type) {
     case "setName":

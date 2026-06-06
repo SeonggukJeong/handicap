@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseScenarioDoc, serializeDoc, applyEdit, type Edit } from "../yamlDoc";
+import {
+  parseScenarioDoc,
+  serializeDoc,
+  applyEdit,
+  renameScenarioYaml,
+  type Edit,
+} from "../yamlDoc";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -791,5 +797,32 @@ describe("parallel edits", () => {
     // branch2 now has 0 steps → Zod min(1) would reject parseScenarioDoc, so assert at
     // the doc-text level that searchSeq descended and removed the id (NOT via parseScenarioDoc).
     expect(out).not.toContain("01HX0000000000000000000012");
+  });
+});
+
+describe("renameScenarioYaml", () => {
+  it("changes only the name and preserves other keys + comments", () => {
+    const src = "version: 1\n# top comment\nname: demo\ncookie_jar: auto\nsteps: []\n";
+    const out = renameScenarioYaml(src, "demo (copy)");
+    expect(out).toContain("name: demo (copy)");
+    expect(out).toContain("# top comment");
+    expect(out).toContain("cookie_jar: auto");
+    expect(out).toContain("version: 1");
+    expect(out).not.toContain("name: demo\n"); // 옛 값 잔류 없음
+  });
+
+  it("writes a PLAIN scalar (no inherited quotes)", () => {
+    const src = 'version: 1\nname: "quoted demo"\nsteps: []\n';
+    const out = renameScenarioYaml(src, "demo (copy)");
+    expect(out).toContain("name: demo (copy)"); // 따옴표 비상속
+  });
+
+  it("round-trips through parseScenarioDoc with the new name", () => {
+    const src =
+      "version: 1\nname: demo\nsteps:\n  - { type: http, id: 01HZX0000000000000000000A0, name: home, request: { method: GET, url: /, headers: {} } }\n";
+    const out = renameScenarioYaml(src, "demo (copy)");
+    const parsed = parseScenarioDoc(out);
+    expect("model" in parsed).toBe(true);
+    if ("model" in parsed) expect(parsed.model.name).toBe("demo (copy)");
   });
 });
