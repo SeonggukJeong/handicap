@@ -46,6 +46,7 @@
 - **closed-loop와 격리된 별도 함수** (S-C): `run_scenario`/`run_vu` 무변경(byte-identical 구조적 보장). `run_arrival`은 `run_vu` iteration-body의 의도된 복제(run-level think time 제외). `target_rps` 미지정 → `run_scenario`(기존) 호출 — open-loop 파일을 건드려도 closed-loop 회귀 0.
 - **슬롯 풀 = `Vec<Arc<VuClient>>` + 사전 적재 mpsc free-index 큐** (S-C): bare `Semaphore`는 permit에 인덱스가 없어 "슬롯=vu_id" 정체성을 못 만들어 기각. 큐가 permit *겸* 슬롯 식별자라 별도 세마포어 불필요. 각 `Arc<VuClient>`는 자체 cookie jar를 슬롯 수명 내내 유지(ADR-0018 일관).
 - **`dropped` run-total은 final flush 한 번에만 실림** (S-C): periodic flush는 `dropped=0`이라 워커 forwarder의 빈-배치 스킵 가드에 `&& flush.dropped == 0` 조건이 필수 — 이게 없으면 dropped만 실린 final flush가 "빈 배치"로 오인돼 유실된다. closed-loop `run_scenario`의 `MetricFlush{}` 리터럴 2곳(`runner.rs:169`, `:203`)에도 `dropped: 0` 명시 필요(additive, 컴파일러 강제).
+- **`MetricFlush`에 새 드레인 벡터(Nth) 추가 시 4 flush 사이트 전부 + 3 send-guard** (A2-2 group_stats): 드레인은 **4곳**(closed-loop periodic/final + open-loop periodic/final), send-guard `|| !<vec>.is_empty()`는 **3곳**(closed periodic·closed final·open periodic) — **open-loop final만 무가드**(`dropped` 무조건 송신, 위 항목). branch_stats(9d "periodic+final 둘 다")는 open-loop 이전 서술이라 이젠 4곳. 컴파일러는 struct 리터럴만 강제하고 드레인 누락·guard 누락은 안 잡으니 4+3 직접 확인.
 - **open-loop `iter_id` = 글로벌 arrival 카운터** (S-C): closed-loop의 per-VU 단조 `iter_id`를 대체. `select_index(vu_id=슬롯, iter_id=arrival_index, …)` 시그니처 무변경. `iter_random`은 시드되지만 슬롯↔arrival 페어링이 런타임 스케줄링에 달려 정확한 per-arrival 행 할당은 비결정적(분포만 재현).
 
 ## 다단계 ramp 곡선 (`runner.rs`, S-D)
