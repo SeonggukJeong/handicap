@@ -1,4 +1,4 @@
-use crate::store::metrics::{IfBranchRow, LoopMetricRow, WindowWithHdr};
+use crate::store::metrics::{GroupMetricRow, IfBranchRow, LoopMetricRow, WindowWithHdr};
 use crate::store::runs::{RunRow, RunStatus};
 use handicap_engine::percentiles::{
     CURVE_QUANTILES, HISTOGRAM_BINS, Percentiles, decode_hdr, log_buckets, merge_into,
@@ -25,6 +25,8 @@ pub struct ReportJson {
     pub dropped: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<LatencyDistribution>,
+    #[serde(default)]
+    pub group_latency: Vec<GroupLatency>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,6 +106,16 @@ pub struct HistogramBucket {
     pub lower_us: u64,
     pub upper_us: u64,
     pub count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct GroupLatency {
+    pub step_id: String, // the `parallel` node's id
+    pub count: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+    pub max_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -295,6 +307,7 @@ pub fn build_report(
     rows: &[WindowWithHdr],
     loops: &[LoopMetricRow],
     branches: &[IfBranchRow],
+    groups: &[GroupMetricRow],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -478,6 +491,35 @@ pub fn build_report(
         scenario_yaml,
     );
 
+    // Group (page-load) latency: a SEPARATE accumulator keyed by the parallel node's
+    // id. Deliberately NOT merged into `overall`/`total_count`/`per_step`/`windows` —
+    // a page load is the max of children already counted there, so folding it in would
+    // double-count latency and inflate rps (spec §2.1).
+    let mut group_acc: BTreeMap<String, (Histogram<u64>, u64)> = BTreeMap::new();
+    for g in groups {
+        let e = group_acc
+            .entry(g.step_id.clone())
+            .or_insert_with(|| (fresh_hist(), 0));
+        if let Ok(Some(h)) = decode_hdr(&g.hdr_histogram) {
+            merge_into(&mut e.0, &h); // fail-soft: bad blob -> count kept, distribution skips it
+        }
+        e.1 += g.count as u64;
+    }
+    let group_latency: Vec<GroupLatency> = group_acc
+        .into_iter()
+        .map(|(step_id, (h, count))| {
+            let p = percentiles_of(&h);
+            GroupLatency {
+                step_id,
+                count,
+                p50_ms: p.p50_ms,
+                p95_ms: p.p95_ms,
+                p99_ms: p.p99_ms,
+                max_ms: h.max() / 1_000,
+            }
+        })
+        .collect();
+
     ReportJson {
         run: ReportRun {
             id: run.id.clone(),
@@ -499,6 +541,7 @@ pub fn build_report(
         insights,
         dropped: run.dropped as u64,
         latency,
+        group_latency,
     }
 }
 
@@ -593,7 +636,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[]);
 
         // One collapsed window per (ts_second, step_id), counts summed.
         assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
@@ -641,7 +684,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[], &[]);
+        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -666,7 +709,7 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[], &[]);
+        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -709,7 +752,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops, &[]);
+        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[]);
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -753,7 +796,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &branches);
+        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[]);
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
             .if_breakdown
@@ -847,7 +890,7 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        let rep = build_report(&run, "", &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[]);
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
         assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
@@ -861,21 +904,21 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
+        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
     }
 
     #[test]
     fn build_report_no_verdict_when_criteria_all_none() {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
-        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
+        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
     }
 
     #[test]
     fn build_report_surfaces_dropped() {
         let mut run = run_row();
         run.dropped = 7;
-        let rep = build_report(&run, "", &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[]);
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
@@ -890,7 +933,7 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[]);
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
         assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
@@ -912,7 +955,7 @@ mod tests {
     #[test]
     fn build_report_no_latency_without_samples() {
         let r = run_row();
-        assert!(build_report(&r, "", &[], &[], &[]).latency.is_none());
+        assert!(build_report(&r, "", &[], &[], &[], &[]).latency.is_none());
     }
 
     // ReportWindow 빌더(per-window RPS 테스트용). 이름은 `rwin` — 기존 `win`은
@@ -1065,7 +1108,63 @@ mod tests {
             min_window_rps: Some(1.0),
             ..Default::default()
         });
-        assert!(build_report(&run, "", &[], &[], &[]).verdict.is_none());
+        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
+    }
+
+    #[test]
+    fn build_report_attaches_group_latency_without_polluting_summary() {
+        use crate::store::metrics::GroupMetricRow;
+        let r = run_row();
+        // One http window (count=10) so summary reflects only real requests, not pages.
+        let rows = vec![win(
+            100,
+            "01HX0000000000000000000011",
+            10,
+            0,
+            r#"{"200":10}"#,
+            &[5_000],
+        )];
+        // One group delta for the parallel node: 3 page loads ~300 ms each.
+        let groups = vec![GroupMetricRow {
+            run_id: r.id.clone(),
+            step_id: "01HX0000000000000000000010".into(),
+            hdr_histogram: make_hdr_bytes(&[300_000, 305_000, 295_000]),
+            count: 3,
+        }];
+        let yaml = r.scenario_yaml.clone();
+
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups);
+
+        // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
+        assert_eq!(
+            rep.summary.count, 10,
+            "group samples excluded from summary count"
+        );
+        assert!(
+            rep.steps
+                .iter()
+                .all(|s| s.step_id != "01HX0000000000000000000010"),
+            "parallel node id not in per-step rows"
+        );
+        // group_latency carries the parallel node distribution.
+        assert_eq!(rep.group_latency.len(), 1);
+        let g = &rep.group_latency[0];
+        assert_eq!(g.step_id, "01HX0000000000000000000010");
+        assert_eq!(g.count, 3);
+        assert!(
+            g.p50_ms >= 290 && g.max_ms >= 300,
+            "p50~300ms max~305ms, got {g:?}"
+        );
+        // typed round-trip (report types require Deserialize too).
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
+    }
+
+    #[test]
+    fn build_report_empty_groups_yields_empty_group_latency() {
+        let r = run_row();
+        let rep = build_report(&r, "", &[], &[], &[], &[]);
+        assert!(rep.group_latency.is_empty());
     }
 
     #[test]

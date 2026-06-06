@@ -400,6 +400,7 @@ pub async fn build_report_for_run(
     let rows = crate::store::metrics::windows_with_hdr(db, run_id).await?;
     let loops = crate::store::metrics::loop_breakdown(db, run_id).await?;
     let branches = crate::store::metrics::if_breakdown(db, run_id).await?;
+    let groups = crate::store::metrics::group_breakdown(db, run_id).await?;
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -407,6 +408,7 @@ pub async fn build_report_for_run(
         &rows,
         &loops,
         &branches,
+        &groups,
     ))
 }
 

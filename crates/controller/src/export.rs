@@ -415,6 +415,7 @@ mod tests {
             insights: vec![],
             dropped: 0,
             latency: None,
+            group_latency: vec![],
         }
     }
 
