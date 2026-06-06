@@ -77,6 +77,65 @@ export const ProfileSchema = z.object({
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
+// ── Run 스케줄러 (34c) ────────────────────────────────────────────────────────
+// Mirrors crates/controller/src/api/schedules.rs TriggerResponse / ScheduleResponse /
+// ScheduleSummary / EventResponse. Internally-tagged kind discriminant.
+// ALL Option<T> fields use .nullish() (Rust None → JSON null, not absent — S-D trap).
+
+export const TriggerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("once"), run_at: z.number() }),
+  z.object({ kind: z.literal("cron"), cron_expr: z.string() }),
+]);
+export type Trigger = z.infer<typeof TriggerSchema>;
+
+// List endpoint: GET /api/schedules → {schedules: ScheduleSummary[]}
+// No profile/env/last_run_id/last_error — lightweight summary only.
+export const ScheduleSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  scenario_id: z.string(),
+  trigger: TriggerSchema,
+  enabled: z.boolean(),
+  next_run_at: z.number().nullish(),
+  last_status: z.string().nullish(),
+  last_fired_at: z.number().nullish(),
+});
+export type ScheduleSummary = z.infer<typeof ScheduleSummarySchema>;
+
+// Full schedule: GET /api/schedules/{id}, POST /api/schedules, PUT /api/schedules/{id}
+export const ScheduleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  scenario_id: z.string(),
+  profile: ProfileSchema,
+  env: z.record(z.string(), z.string()),
+  trigger: TriggerSchema,
+  enabled: z.boolean(),
+  next_run_at: z.number().nullish(),
+  last_run_id: z.string().nullish(),
+  last_fired_at: z.number().nullish(),
+  last_status: z.string().nullish(),
+  last_error: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+});
+export type Schedule = z.infer<typeof ScheduleSchema>;
+
+export const ScheduleEventSchema = z.object({
+  id: z.string(),
+  at: z.number(),
+  kind: z.string(),
+  run_id: z.string().nullish(),
+  detail: z.string().nullish(),
+});
+export type ScheduleEvent = z.infer<typeof ScheduleEventSchema>;
+
+export const ScheduleListSchema = z.object({ schedules: z.array(ScheduleSummarySchema) });
+export const ScheduleEventsSchema = z.object({ events: z.array(ScheduleEventSchema) });
+export const PreviewNextSchema = z.object({ next: z.array(z.number()) });
+
+// ── End Run 스케줄러 ─────────────────────────────────────────────────────────
+
 export const RunSchema = z.object({
   id: z.string(),
   scenario_id: z.string(),
