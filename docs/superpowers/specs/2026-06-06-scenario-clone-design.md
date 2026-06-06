@@ -2,7 +2,7 @@
 
 - **상태**: 설계 (구현 대기)
 - **날짜**: 2026-06-06
-- **출처**: `docs/roadmap.md` §B2'(시나리오 복제 — "실험용 시나리오 포크", 영역 A 범위 밖 독립 기능). 사용자 요청(2026-06-06): worktree A2-2(그룹/페이지 레이턴시)와 충돌 없는 작업으로 선정.
+- **출처**: `docs/roadmap.md` §B2'(시나리오 복제 — "실험용 시나리오 포크", 영역 A 범위 밖 독립 기능). 사용자 요청(2026-06-06): 당시 진행 중이던 A2-2(그룹/페이지 레이턴시) 작업과 충돌 없는 작업으로 선정 — **그 사이 A2-2가 master에 머지(`98ee401`→`96f7936`)되어 worktree 충돌 우려는 해소**, 이 슬라이스는 현 master 위에서 진행(§9 참조).
 - **성격**: **UI-only**. 백엔드·proto·migration·store·엔진·워커 **무변경**.
 
 ---
@@ -70,6 +70,7 @@ cloneName(sourceName: string, existingNames: string[]): string
 | `Bar` | `[Foo]` | `Bar (copy)` |
 
 - 번호는 `(copy)`(N=1 암묵) → `(copy 2)` → … 1번엔 숫자 없음.
+- **구현 주의("첫 빈 자리" 시맨틱)**: 후보 체인은 **항상 `(copy)`부터 위로 스캔** — 소스 이름에서 추출한 숫자로 `n`을 시드하지 말 것. 그래야 `cloneName("Foo (copy 2)", ["Foo (copy 2)"])` → `"Foo (copy)"`(base=`Foo`, 첫 빈 자리)처럼 중간 빈 슬롯이 있으면 더 **낮은** 번호도 채운다(규칙 일관, 단 직관에 반할 수 있음). 숫자 시드 방식이면 이 케이스가 깨진다.
 - `existingNames`가 비었거나(에디터 경로에서 목록 미로딩) 부정확해도 **생성은 성공**(서버 UNIQUE 없음) — dedup은 정돈일 뿐. (에디터 경로는 §6.2의 게이팅으로 미로딩 시 버튼 disable.)
 
 ## 5. YAML 이름 수정 — `ui/src/scenario/yamlDoc.ts`에 추가
@@ -94,7 +95,7 @@ clone.mutateAsync({ sourceYaml, sourceName, existingNames }) → 생성된 Scena
 ```
 
 - 내부: `newName = cloneName(sourceName, existingNames)` → `newYaml = renameScenarioYaml(sourceYaml, newName)` → `api.createScenario(newYaml)`.
-- `onSuccess`: `queryClient.invalidateQueries(["scenarios"])`(목록 갱신).
+- `onSuccess`: **React Query v5 시그니처** `qc.invalidateQueries({ queryKey: queryKeys.scenarios() })`(목록 갱신) — bare `["scenarios"]` 리터럴 금지, 기존 `useCreateScenario`(`hooks.ts:47`)와 동일 형태. (v4의 `invalidateQueries(["scenarios"])`는 v5에서 안 먹음.)
 - 반환값 = 생성된 `Scenario`(`id` 포함) — 에디터 경로가 navigate에 사용.
 - `api.createScenario`는 이미 존재(`client.ts`). 신규 API 메서드 없음.
 
@@ -118,17 +119,17 @@ clone.mutateAsync({ sourceYaml, sourceName, existingNames }) → 생성된 Scena
 
 복제 클릭 플로우:
 
-1. **`!dirty`** → 다이얼로그 없이 즉시 `cloneAndGo(originalYaml)`(= 마지막 저장본).
+1. **`!dirty`** → 다이얼로그 없이 즉시 `cloneAndGo(data.yaml)`.
 2. **`dirty`** → `cloneDialog = { stage: "confirm" }` 모달 오픈:
    - 문구: "변경사항이 저장되지 않았습니다. 복제 전에 저장할까요?"
    - **[저장 후 복제]** → `update.mutateAsync({ yaml: yamlText, version: loadedVersion })`:
-     - 성공 → baseline 갱신(기존 Save onSuccess와 동일: `setLoadedVersion`/`setOriginalYaml`/`baselineSeededRef=true`) → `cloneAndGo(저장된 yaml)`.
+     - 성공 → baseline 갱신(기존 Save onSuccess와 동일: `setLoadedVersion`/`setOriginalYaml`/`baselineSeededRef=true`) → `cloneAndGo(next.yaml)`(저장 결과의 yaml).
      - 실패 → `cloneDialog = { stage: "save-failed", message }`.
-   - **[저장 없이 복제]** → `cloneAndGo(originalYaml)`(마지막 저장본; 편집은 dirty 유지).
+   - **[저장 없이 복제]** → `cloneAndGo(data.yaml)`(마지막 저장본; 편집은 dirty 유지).
    - **[취소]** → 닫기.
 3. **`save-failed` 단계** 모달:
    - 문구: "저장에 실패했습니다: {message}. 마지막 저장본으로 복제를 계속할까요?"
-   - **[저장본으로 복제]** → `cloneAndGo(originalYaml)`.
+   - **[저장본으로 복제]** → `cloneAndGo(data.yaml)`.
    - **[취소]** → 닫기.
 
 `cloneAndGo(yaml)`:
@@ -136,7 +137,8 @@ clone.mutateAsync({ sourceYaml, sourceName, existingNames }) → 생성된 Scena
 const created = await clone.mutateAsync({ sourceYaml: yaml, sourceName: <yaml의 name>, existingNames });
 navigate(`/scenarios/${created.id}`);   // D5
 ```
-- `sourceName`은 해당 YAML의 현재 name. 저장-후-복제면 방금 저장한 yamlText의 name, 저장-없이면 `data.name`(=originalYaml의 name). 단순화: `renameScenarioYaml`이 base 추출을 내부에서 안 하므로 **`cloneName`에 넘길 sourceName을 yaml에서 파싱**하거나 page가 아는 `data.name`을 쓴다 — 저장-후-복제는 name이 안 바뀌었으면 `data.name`과 동일(편집으로 name을 바꿨다면 저장 후의 name). 구현 시 `cloneAndGo`가 받은 yaml에서 name을 파싱(`parseScenarioDoc` 또는 `parseDocument(yaml).get("name")`)해 일관 처리.
+- **클론 소스는 항상 `data.yaml`(현재 로드된 저장본) 또는 `next.yaml`(방금 저장한 결과)** — 둘 다 서버가 준 유효 YAML이라 **`originalYaml`(EditorShell의 post-mount onChange로 seed되는 *정규화된 재직렬화*, mount 직후엔 `""`)을 클론 소스로 쓰지 않는다.** 이로써 "버튼은 클릭 가능한데 `originalYaml===""`인 post-mount 레이스"(`renameScenarioYaml("")` 실패)를 봉쇄. `originalYaml`은 오직 `dirty` 판정에만 쓴다. (저장 후엔 `useUpdateScenario`가 `setQueryData(scenario(id), updated)` 하므로 `data.yaml`도 최신 저장본을 따라간다 — `hooks.ts:59`.)
+- `sourceName`은 받은 yaml에서 파싱(`parseScenarioDoc(yaml)` 또는 `parseDocument(yaml).get("name")`) — `data.name`을 따로 들고 다니지 않고 yaml 단일 출처로 일관 처리(저장-후-복제로 name이 바뀐 경우도 자동 정확).
 - navigate 대상이 방금 만든 id라 그 에디터가 fresh로 로드됨.
 
 **일관성 메모**: Monaco에 유효하지 않은 pending 편집이 있으면 "저장 후 복제"는 페이지가 가진 마지막 *유효* `yamlText`를 저장한다 — **기존 Save 버튼과 동일 동작**(유효하지 않은 pending 텍스트는 어차피 저장 불가). 새 제약이 아님.
@@ -162,16 +164,19 @@ TDD 순서 — 테스트 파일 먼저(tdd-guard).
 - 복제 클릭 → `createScenario`가 **munged YAML(새 name 포함)**으로 호출됨 + 목록 invalidate(새 행), 화면 유지(navigate 없음). 실패 시 alert 배너.
 
 ### 8.4 RTL — `ScenarioEditPage`
-- `!dirty` 복제 → 다이얼로그 없이 새 id로 navigate.
+- `!dirty` 복제 → 다이얼로그 없이 새 id로 navigate. **(EditorShell post-mount seed를 `await`한 뒤 클릭** — `originalYaml===""` 윈도가 RTL에선 실재하므로; 단 클론 소스는 `data.yaml`이라 `!dirty` 판정만 영향.)
 - `dirty` 복제 → 확인 모달; **[저장 후 복제]** 성공 시 PUT 호출 + navigate; **[저장 없이 복제]** 시 PUT 없이 navigate(저장본 기준).
 - 저장 실패 주입(`update` mock reject) → `save-failed` 모달 → **[저장본으로 복제]** → navigate.
 - `useScenarios` 미로딩 시 버튼 disable.
+- **fixture 주의**: 에디터 페이지가 이제 `useScenarios()`도 부르므로 RTL mock에 **`GET /api/scenarios`(목록) 라우트 추가** 필요(기존 `ScenarioEditPage.testrun.test.tsx`는 `/api/scenarios/{id}`만 mock — 목록 라우트 없으면 `useScenarios`가 fallback 에러로 떨어져 복제 버튼이 영영 disable). 테스트 파일은 vitest `include`(`src/**/__tests__/**`) 규약상 **`__tests__/` 디렉터리**에 둘 것(sibling `*.test.ts` 아님).
 
-## 9. 충돌 분석 (worktree A2-2와)
+## 9. 충돌 분석 (A2-2와)
 
-A2-2(그룹/페이지 레이턴시)가 점유한 파일: 엔진 `aggregator.rs`/`runner.rs`/`lib.rs` · proto · 워커 · controller `report.rs`/`store/metrics.rs`/`store/mod.rs`/migration 0010/`grpc/coordinator.rs`/`export.rs`/`api/runs.rs` · UI `api/schemas.ts`/`report/ReportView.tsx`.
+**선정 당시(2026-06-06)** A2-2(그룹/페이지 레이턴시)는 진행 중 worktree였고, 그와 파일이 겹치지 않는 작업으로 이 슬라이스를 골랐다. **그 사이 A2-2가 master에 머지(`98ee401`→`96f7936`, worktree 제거됨)** 되어 더 이상 동시 작업 충돌은 없고, 이 슬라이스는 그 위(현 master)에서 진행한다.
 
-이 슬라이스가 건드리는 파일: `ui/src/scenario/cloneName.ts`(신규) · `ui/src/scenario/yamlDoc.ts` · `ui/src/api/hooks.ts` · `ui/src/pages/ScenarioListPage.tsx` · `ui/src/pages/ScenarioEditPage.tsx` (+ 각 `__tests__`). **교집합 0** — 마이그레이션 번호 경합(0010 vs 0011)도 없음(migration 자체가 없음).
+머지된 A2-2의 UI footprint(확인): `ui/src/api/schemas.ts` · `ui/src/components/report/GroupLatencyTable.tsx`(신규) · `ui/src/components/report/ReportView.tsx`(+백엔드 엔진/proto/워커/controller).
+
+이 슬라이스가 건드리는 파일: `ui/src/scenario/cloneName.ts`(신규) · `ui/src/scenario/yamlDoc.ts` · `ui/src/api/hooks.ts` · `ui/src/pages/ScenarioListPage.tsx` · `ui/src/pages/ScenarioEditPage.tsx` (+ 각 `__tests__`). **A2-2 footprint와 교집합 0** — 특히 `hooks.ts`·`yamlDoc.ts`는 A2-2가 안 건드렸음(git 확인). migration 무관(이 슬라이스는 migration 없음).
 
 ## 10. 참고
 
