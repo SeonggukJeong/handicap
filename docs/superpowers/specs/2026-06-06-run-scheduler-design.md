@@ -218,7 +218,7 @@ const ScheduleSchema = z.object({
 
 ### 9.2 페이지 — `ui/src/pages/SchedulesPage.tsx` (EnvironmentsPage 미러)
 
-- **목록**: name·시나리오·**트리거 요약**("매일 02:00" / "15분마다" / cron 원문)·다음 발사 시각·last_status 배지·enabled 토글·편집/삭제·last_run 리포트 링크.
+- **목록**: name·시나리오·**트리거 요약**("매일 02:00" / "15분마다" / cron 원문)·다음 발사 시각·last_status 배지·enabled 토글·편집/삭제. (last_run 리포트 링크는 **상세 뷰** — `ScheduleSummary`에 `last_run_id`가 없어 목록에선 못 건다, §9.3 #3 참고.)
 - **생성/편집 폼 `ScheduleForm`**:
   - name + 시나리오 피커.
   - **트리거 빌더**(라디오): `[1회 일시]`(datetime-local→`{kind:once,run_at}`) · `[매일]`(time→`M H * * *`) · `[매주]`(요일 다중+time→`M H * * D,D`) · `[간격]`(N분→`*/N * * * *` / N시간→`0 */N * * *`) · `[고급]`(raw cron). 프리셋 4종은 **클라에서 cron 문자열 생성**(trivial), 최종 제출은 `{kind, cron_expr|run_at}`.
@@ -227,6 +227,16 @@ const ScheduleSchema = z.object({
   - enabled 토글.
 - **React Query 훅**(environments 패턴): `useSchedules`/`useSchedule`/`useCreateSchedule`/`useUpdateSchedule`/`useDeleteSchedule`/`usePreviewNext`(무invalidation, ephemeral).
 - 라우팅: 앱 네비에 "/schedules" 추가(EnvironmentsPage 등록 지점 미러).
+
+### 9.3 34c 구현 결정 (brainstorming 2026-06-06 — §9.1/9.2 위 3개 확정)
+
+34c 착수 brainstorming에서 §9.2가 느슨하게 남긴 3개 결정을 확정. 셋 다 백엔드(34a/34b) 무변경, 순수 UI.
+
+1. **profile 폼 = 공유 추출(RunDialog 순수 리팩터)**. §9.2의 "RunDialog 추출 컴포넌트 재사용"을 구체화 — 실측상 `LoadModelFields`/`DataBindingPanel`/`EnvironmentPicker`는 이미 추출됐지만 **`buildProfile`/`buildCriteria`/SLO 기준 섹션 JSX는 RunDialog(794줄) 안에 인라인**이다. 이를 신규 `ui/src/components/profileForm.ts`(순수 `buildProfile`/`buildCriteria`, 명시 인자) + 프레젠테이셔널 `<CriteriaFields>`(SLO 입력, aria-label 보존)로 추출하고 **RunDialog도 그것을 import**해 ScheduleForm과 공유(중복 0). **게이트 = RunDialog 제출 payload byte-identical + 기존 RunDialog RTL green** — 이 repo의 검증된 전례(`LoadModelFields` 추출=부하 모드 선택기 슬라이스, `EnvironmentPicker` 추출=B-2; 둘 다 "payload byte-identical + aria-label 보존으로 RunDialog RTL 무변경")를 그대로 따른다. 계획상 **맨 앞 task**(나머지가 이 공유 모듈에 의존). SLO 섹션의 collapsible disclosure(`sloOpen`/`criteriaHasValue` 자동 펼침)는 **각 부모가 소유**하고 `<CriteriaFields>`는 입력만 — RunDialog의 접이식 동작 보존(ui/CLAUDE.md "선택적 섹션 접이식" 함정). **byte-identical 게이트가 성립하려면 부모-소유로 남겨야 하는 것**(reviewer 권고): RunDialog의 11개 SLO `useState` 문자열(`maxP50`…`rpsWarmup`)·`sloOpen`/`criteriaHasValue`·`sloActiveCount`·그리고 **`minWindowRps` onChange가 `loadModel==="closed"`일 때 `rampUp`에서 `rpsWarmup`을 자동 시드하는 cross-field 부수효과**(`RunDialog.tsx:623-632`)는 부모에 남긴다 — `<CriteriaFields>`는 값/onChange만 받는 순수 입력, `buildCriteria(profileForm.ts)`는 11개 문자열을 **명시 인자**로 받는다(loadModel.ts의 `buildLoadProfile(state)` 패턴). ScheduleForm은 closed-loop cross-field seed가 무의미하면(자체 부하 모드 상태) 그 부수효과를 안 배선하면 되므로 공유 입력 컴포넌트는 그 로직을 품지 않는다.
+2. **트리거 빌더 = 5모드 전부**(1회/매일/매주/간격/고급raw, §9.2 그대로). 프리셋 4종(매일/매주/간격)은 **클라에서 5-field cron 문자열 컴파일**(trivial), 1회는 `{kind:once,run_at}`, 고급은 raw cron. cron *평가*(다음 발사·DST·정확성)는 전부 `preview-next` 서버 단일 소스 — UI는 cron을 **생성만** 하고 평가/파싱은 재구현 안 함. 매주(요일 다중선택)가 가장 fiddly하나 컴파일은 `M H * * D,D` 문자열 조립이라 순수 함수로 단위 테스트.
+3. **이벤트 이력 = 편집/상세 뷰 타임라인**. 백엔드 `GET /schedules/{id}/events`(append-only, at DESC, 최대 100)를 상세/편집 진입 시 fetch해 타임라인으로 렌더 — kind 배지(`fired`/`skipped_overlap`/`missed`/`error`) + 시각 + `fired`면 **per-event `run_id` 리포트 링크** + `error`/skip이면 `detail` 사유. **목록(SchedulesPage)엔 `last_status` 배지만**(요약 `ScheduleSummary`는 `last_status`/`last_fired_at`만 — `last_run_id` 없음). **last_run 리포트 링크는 상세 뷰**가 `ScheduleResponse.last_run_id`로 건다(목록 행 링크는 백엔드 무변경 불변식 위반이라 의도적으로 뺀다 — 필요하면 `ScheduleSummary`에 `last_run_id` 추가하는 후속 1줄 백엔드 변경). 전체 타임라인은 상세에서만(이벤트는 `/{id}/events` 전용 — 목록/단건 GET에 inline 금지). `useScheduleEvents(id)` 훅은 무invalidation read(ephemeral 성격이나 schedule 변경 시 재조회되게 query key는 schedule id 종속). >100 이벤트는 v1 표시-only(잘림, 페이지네이션 없음 — §7 "슬롯당 1건" 누적은 후속 보존정책).
+
+이 3개로 §12 영향 파일에 `ui/src/components/profileForm.ts`·`<CriteriaFields>`·`TriggerBuilder.tsx`·이벤트 타임라인 컴포넌트가 추가되고, `RunDialog.tsx`가 **변경(순수 추출 import)** 목록에 든다(34c 유일한 기존-파일 리팩터).
 
 ## 10. 검증
 
@@ -258,7 +268,8 @@ const ScheduleSchema = z.object({
 - `crates/controller/src/store/schedules.rs` — `ScheduleRow`/`ScheduleEventRow` + CRUD + events.
 - `crates/controller/src/schedule/mod.rs` · `schedule/trigger.rs`(순수) · `schedule/runner.rs`(루프 + `process_due_schedules`).
 - `crates/controller/src/api/schedules.rs` — CRUD + preview-next 핸들러.
-- `ui/src/pages/SchedulesPage.tsx` · `ui/src/components/ScheduleForm.tsx`(+ 트리거 빌더) · `ui/src/api/` 훅.
+- `ui/src/pages/SchedulesPage.tsx` · `ui/src/components/ScheduleForm.tsx` · `ui/src/components/TriggerBuilder.tsx`(5모드 빌더 + cron 컴파일) · `ui/src/components/ScheduleEventTimeline.tsx`(상세 뷰 이벤트 이력) · `ui/src/api/schedules.ts`(클라이언트 + React Query 훅).
+- **`ui/src/components/profileForm.ts`**(순수 `buildProfile`/`buildCriteria`, 명시 인자) · **`ui/src/components/CriteriaFields.tsx`**(SLO 입력 프레젠테이셔널, aria-label 보존) — RunDialog에서 순수 추출(§9.3 #1), RunDialog·ScheduleForm 공유.
 
 ### 변경
 - `crates/controller/src/store/mod.rs` — `MIGRATION_SQL_0011` const + execute(0010 뒤). `mod schedules` 선언.
@@ -268,7 +279,8 @@ const ScheduleSchema = z.object({
 - `crates/controller/src/app.rs` — schedules 라우트 4줄 + import.
 - `crates/controller/src/main.rs` — `--scheduler-tick-seconds`/`--scheduler-timezone`/`--scheduler-disabled` 인자 + (AppState literal과 `app::router(state)` move 사이) `tokio::spawn(run_scheduler(...))`. e2e 드라이버는 `--scheduler-disabled` 전달.
 - `crates/controller/Cargo.toml` (+ 워크스페이스 `Cargo.toml`) — cron 파서(`croner`/`saffron`, 5-field) + `chrono` + `chrono-tz` 의존성(MSRV 1.85/edition 2024 호환 확인, plan 핀).
-- `ui/src/api/schemas.ts` — `ScheduleSchema`/`TriggerSchema`. 앱 네비/라우터 — `/schedules` 등록.
+- `ui/src/api/schemas.ts` — `ScheduleSchema`/`ScheduleSummarySchema`/`TriggerSchema`/`ScheduleEventSchema`(`.nullish()` null 필드). 앱 네비/라우터(`routes.tsx`/`Layout.tsx`) — `/schedules` 등록.
+- `ui/src/components/RunDialog.tsx` — **유일한 기존-파일 리팩터**: 인라인 `buildProfile`/`buildCriteria`/SLO JSX를 `profileForm.ts`/`<CriteriaFields>`로 추출하고 import(§9.3 #1). 제출 payload byte-identical + 기존 RunDialog RTL green이 게이트.
 
 ### 무변경
 proto · 엔진 · 워커 · runs/run_metrics/loop/if/group 메트릭 테이블 · `ReportJson`/`Profile`(직렬화 재사용) · dispatcher trait.
