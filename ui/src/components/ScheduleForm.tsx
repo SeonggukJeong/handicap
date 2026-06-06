@@ -149,9 +149,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   // ── data binding ──────────────────────────────────────────────────────────
   const [binding, setBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
   const [bindingValid, setBindingValid] = useState(true);
-  // seedBinding drives the DataBindingPanel's initialBinding; panelKey remounts on
-  // scenario change so it re-seeds (no reseed effect — mount-once contract).
-  const [seedBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
+  // seedBinding drives DataBindingPanel's initialBinding; panelKey remounts the panel
+  // on scenario change so it re-seeds with the reset (null) binding (mount-once contract).
+  const [seedBinding, setSeedBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
+  const [panelKey, setPanelKey] = useState(0);
 
   // ── environment overlay ───────────────────────────────────────────────────
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
@@ -240,7 +241,13 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
             aria-label="시나리오"
             className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
             value={scenarioId}
-            onChange={(e) => setScenarioId(e.target.value)}
+            onChange={(e) => {
+              setScenarioId(e.target.value);
+              setBinding(null);
+              setSeedBinding(null);
+              setBindingValid(true);
+              setPanelKey((k) => k + 1);
+            }}
           >
             <option value="">선택…</option>
             {scenarioOptions.map((o) => (
@@ -258,10 +265,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       {/* 부하 모델 */}
       <LoadModelFields
         loadModel={loadModel}
-        setLoadModel={(m) => {
-          setLoadModel(m);
-          if (m === "closed") setRateMode("fixed"); // closed+curve 도달 불가 eager-reset
-        }}
+        setLoadModel={setLoadModel}
         rateMode={rateMode}
         setRateMode={setRateMode}
         vus={vus}
@@ -352,6 +356,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       {/* 데이터 바인딩 (시나리오 파싱 완료 시) */}
       {parsedScenario && (
         <DataBindingPanel
+          key={panelKey}
           scenario={parsedScenario}
           initialBinding={seedBinding}
           onChange={setBinding}

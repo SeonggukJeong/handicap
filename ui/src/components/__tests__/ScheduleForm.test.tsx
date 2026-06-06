@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ScheduleForm } from "../ScheduleForm";
+import type { Profile } from "../../api/schemas";
 import * as schedApi from "../../api/schedules";
 
 function wrap(ui: React.ReactElement) {
@@ -55,5 +56,35 @@ describe("ScheduleForm", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+  });
+
+  it("prefills fields in edit mode (name, enabled, cron trigger)", async () => {
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "existing",
+          scenario_id: "s1",
+          profile: {
+            vus: 3,
+            duration_seconds: 10,
+            ramp_up_seconds: 0,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+          } as Profile,
+          env: { BASE_URL: "https://x" },
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: false,
+        }}
+      />,
+    );
+    expect((screen.getByLabelText(/이름/) as HTMLInputElement).value).toBe("existing");
+    expect((screen.getByLabelText(/시나리오/) as HTMLSelectElement).value).toBe("s1");
+    // enabled=false → checkbox unchecked
+    const enabledCheckbox = screen.getByRole("checkbox", { name: /활성화/ });
+    expect(enabledCheckbox).not.toBeChecked();
   });
 });
