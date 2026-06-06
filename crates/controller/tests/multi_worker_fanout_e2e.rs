@@ -66,6 +66,7 @@ async fn boot(
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();

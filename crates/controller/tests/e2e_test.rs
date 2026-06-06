@@ -101,6 +101,7 @@ async fn full_slice_1_e2e() {
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -265,6 +266,7 @@ async fn two_step_with_env_e2e() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -448,6 +450,7 @@ async fn abort_e2e_marks_run_aborted() {
         )),
         ui_dir: Some(ui_dir.path().to_path_buf()),
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -608,6 +611,7 @@ async fn loop_e2e_inner_step_counts() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -776,6 +780,7 @@ async fn loop_breakdown_e2e() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -990,6 +995,7 @@ async fn data_binding_per_vu_injects_distinct_values() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1144,6 +1150,7 @@ async fn report_e2e_smoke() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1327,6 +1334,7 @@ async fn if_branch_report_e2e_smoke() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1484,6 +1492,7 @@ async fn open_loop_e2e_smoke() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1636,6 +1645,7 @@ async fn stages_open_loop_e2e_smoke() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1824,6 +1834,7 @@ async fn open_loop_dropped_reaches_report() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -2014,6 +2025,7 @@ async fn parallel_group_latency_report_e2e_smoke() {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();

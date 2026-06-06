@@ -25,6 +25,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
         )),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     })
 }
 

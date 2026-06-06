@@ -31,6 +31,7 @@ async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
         dispatcher,
         ui_dir,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     }
 }
 

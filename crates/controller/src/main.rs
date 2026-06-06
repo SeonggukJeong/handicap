@@ -57,6 +57,16 @@ struct Args {
     /// N = ceil(total_vus / this). (A3a spec §2.1.)
     #[arg(long, default_value_t = handicap_controller::grpc::coordinator::DEFAULT_WORKER_CAPACITY_VUS)]
     worker_capacity_vus: u32,
+    /// Scheduler tick interval in seconds (how often due schedules are checked).
+    #[arg(long, default_value_t = 30)]
+    scheduler_tick_seconds: u64,
+    /// IANA timezone for cron evaluation (e.g. Asia/Seoul, UTC). chrono::Local is
+    /// silently UTC in stock containers, so cron TZ is explicit (spec §3).
+    #[arg(long, default_value = "Asia/Seoul")]
+    scheduler_timezone: String,
+    /// Disable the in-process scheduler loop entirely (no auto-fire).
+    #[arg(long, default_value_t = false)]
+    scheduler_disabled: bool,
 }
 
 #[tokio::main]
@@ -117,13 +127,30 @@ async fn main() -> anyhow::Result<()> {
     };
     // Let the coordinator tear down workers on finalize (completion/failure/abort).
     coord_state.set_dispatcher(dispatcher.clone());
+    let scheduler_tz: chrono_tz::Tz = args.scheduler_timezone.parse().map_err(|_| {
+        anyhow::anyhow!("invalid --scheduler-timezone: {}", args.scheduler_timezone)
+    })?;
     let state = app::AppState {
         db: db.clone(),
         coord: coord_state.clone(),
         dispatcher: dispatcher.clone(),
         ui_dir: args.ui_dir.clone(),
         dataset_max_rows: args.dataset_max_rows,
+        scheduler_tz,
     };
+    if !args.scheduler_disabled {
+        let sched_state = state.clone();
+        let tick = std::time::Duration::from_secs(args.scheduler_tick_seconds);
+        tokio::spawn(handicap_controller::schedule::run_scheduler(
+            sched_state,
+            tick,
+        ));
+        info!(
+            tick_seconds = args.scheduler_tick_seconds,
+            tz = %scheduler_tz,
+            "scheduler loop started"
+        );
+    }
     let app_router = app::router(state);
 
     let rest_listener = TcpListener::bind(args.rest).await.context("bind REST")?;

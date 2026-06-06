@@ -21,6 +21,7 @@ fn make_app(db: store::Db) -> axum::Router {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 5, // small cap so the over-max case is cheap
+        scheduler_tz: chrono_tz::UTC,
     })
 }
 
@@ -199,6 +200,7 @@ async fn unique_policy_rejected_when_rows_below_worker_count() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 5,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     let dataset_id = upload_dataset(&app, "email,pw\na@ex.com,p1\n", "users.csv").await;

@@ -17,6 +17,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     })
 }
 
@@ -110,6 +111,7 @@ async fn create_and_get_scenario() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     let body = json!({
@@ -148,6 +150,7 @@ async fn rejects_invalid_yaml() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
@@ -170,6 +173,7 @@ async fn create_run_for_scenario() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     // 1. create scenario
@@ -220,6 +224,7 @@ async fn list_scenarios_returns_what_was_created() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     // empty initially
@@ -273,6 +278,7 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     let create_body = json!({
@@ -400,6 +406,7 @@ async fn list_runs_by_scenario() {
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
         dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
     });
 
     let create_body = json!({
