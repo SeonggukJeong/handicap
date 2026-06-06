@@ -10,6 +10,7 @@ import { TimeSeriesChart } from "./TimeSeriesChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { StepStatsTable } from "./StepStatsTable";
 import { BranchStatsTable } from "./BranchStatsTable";
+import { GroupLatencyTable } from "./GroupLatencyTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
 import { VerdictPanel } from "./VerdictPanel";
@@ -81,6 +82,18 @@ export function ReportView({ report }: Props) {
     }
     return m;
   }, [report.scenario_yaml, report.if_breakdown]);
+
+  const groupMeta = useMemo(() => {
+    const m = new Map<string, { name: string }>();
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    if ("model" in parsed) {
+      for (const g of report.group_latency ?? []) {
+        const step = findStepById(parsed.model.steps, g.step_id);
+        m.set(g.step_id, { name: step?.name ?? g.step_id });
+      }
+    }
+    return m;
+  }, [report.scenario_yaml, report.group_latency]);
 
   const [dlErr, setDlErr] = useState<string | null>(null);
 
@@ -158,6 +171,7 @@ export function ReportView({ report }: Props) {
       <StatusDistribution distribution={report.status_distribution} />
       <StepStatsTable steps={report.steps} meta={stepMeta} />
       <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />
+      <GroupLatencyTable breakdown={report.group_latency ?? []} meta={groupMeta} />
       <ScenarioSnapshot yaml={report.scenario_yaml} />
     </div>
   );

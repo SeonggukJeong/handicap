@@ -168,6 +168,18 @@ export const IfBreakdownSchema = z
   })
   .strict();
 
+export const GroupLatencySchema = z
+  .object({
+    step_id: z.string(),
+    count: z.number().int().nonnegative(),
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+    max_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type GroupLatency = z.infer<typeof GroupLatencySchema>;
+
 export const PercentilePointSchema = z
   .object({
     quantile: z.number(),
@@ -250,6 +262,7 @@ export const ReportSchema = z
     steps: z.array(ReportStepSchema),
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),
+    group_latency: z.array(GroupLatencySchema).optional(),
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
     dropped: z.number(),
