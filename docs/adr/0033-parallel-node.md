@@ -93,14 +93,12 @@ React Flow `parentId`로 부유)으로 그린다. parallel만 가로로 성장(`
   생성기엔 충분하나 CPU-bound 분기엔 무의미, 부하 도구라 무관).
 - 분기당 `iter_vars` clone + `Box::pin` — HTTP round-trip 대비 무시 가능(Slice 7 loop와
   동일 결론).
-- top-level-only + http-only 분기 v1 — 중첩/그룹 레이턴시는 후속(아래).
-- 그룹 레이턴시("페이지 로드 = max(분기)")가 v1엔 직접 안 나옴 — per-endpoint p95 + run
-  전체 분포(B7-D)는 보이나 동시 호출의 max는 신규 후속 항목.
+- top-level-only + http-only 분기 v1 — 중첩은 후속(아래). **그룹/페이지 레이턴시는 A2-2로 구현됨(아래 연기 항목 해소).**
+- 그룹 레이턴시("페이지 로드 = max(분기)")는 v1 ADR-0033엔 안 나왔으나 **A2-2(2026-06-06)로 구현·머지** — per-endpoint p95 + run 전체 분포(B7-D)에 더해 이제 동시 호출의 max(페이지 로드 분포)도 리포트에 나온다.
 
 ## 연기
 
-- **그룹/페이지 레이턴시 메트릭**: 동시 분기의 max = 웹뷰 페이지 로드 KPI(로드맵 §A2 (2)단계
-  신규 항목). parallel이 선행돼야 정확.
+- ~~**그룹/페이지 레이턴시 메트릭**~~ — **구현 완료(A2-2, 2026-06-06)**: 동시 분기의 max = 웹뷰 페이지 로드 KPI. parallel arm이 `join_all`을 `Instant`로 재 `Aggregator` HDR 계열(`group_stats`)에 clean-flow(`!aborted && !deadline_hit`)일 때만 기록 → proto `MetricBatch.group_stats=7` → controller `run_group_metrics`(migration 0010, append-only) → `build_report` 별도 `group_acc`(summary/RPS 비오염) → `ReportJson.group_latency` → UI `GroupLatencyTable`. 엔진 핫 flat-http byte-identical, ADR 불필요(additive). 잔여: per-branch bottleneck·초단위 시계열·페이지 성공/오류 분할·loop/if 컨테이너 확장은 후속.
 - **per-branch breakdown**: 분기별 요청·오류 카운터(loop breakdown ADR-0021 / if breakdown
   ADR-0023 동형). v1은 per-step 메트릭만(분기 라벨 없음).
 - **중첩**: parallel↔loop/if 상호 중첩, 분기 안 컨테이너(현재 http-only).
