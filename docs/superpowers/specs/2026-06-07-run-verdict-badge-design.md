@@ -57,7 +57,7 @@ record_phase :: Finalize::Completed  ──(신규 훅)──▶ build_report_fo
 ## 4. 컴포넌트 상세
 
 ### 4.1 데이터 모델 — migration 0012 `runs.verdict_json`
-- nullable `TEXT` 컬럼. **Rust-guarded `ALTER TABLE ADD COLUMN`**(`ensure_runs_verdict_json`), `store/mod.rs::connect()`에서 기존 `ensure_runs_dropped`(0009) 뒤에 배선. `runs.dropped`(0009)/`runs.message`(0002)와 동형 — **별도 `.sql` 파일 없음**(인라인 가드 fn, `pragma_table_info('runs')` count 검사 후 ALTER).
+- nullable `TEXT` 컬럼. **Rust-guarded `ALTER TABLE ADD COLUMN`**(`ensure_runs_verdict_json`), `store/mod.rs::connect()`에서 **마지막 마이그레이션 `MIGRATION_SQL_0011`(line 66) 뒤에 배선**(numeric 순서 유지 — `ensure_runs_dropped`(0009) 직후에 두면 0010/0011 사이로 끼어 순서가 뒤섞임; `runs` ALTER는 0010/0011 테이블과 독립이라 기능상 무해하나 0012는 마지막에). `runs.dropped`(0009)/`runs.message`(0002)와 동형 — **별도 `.sql` 파일 없음**(인라인 가드 fn, `pragma_table_info('runs')` count 검사 후 ALTER; 멱등성·connect-배선 회귀 테스트는 `ensure_runs_dropped`의 것을 미러).
 - **저장 shape = 전체 `report::Verdict` JSON**(`{passed: bool, criteria: [{metric, direction, threshold, actual, passed}]}`). bool만이 아니라 전체를 저장하는 이유: FAIL tooltip이 실패 기준을 보여주려면 `criteria[]`가 필요 + 향후 재사용. 비용 수백 바이트/완료 run.
 - `NULL` = verdict 없음(criteria 비활성 / 전부 skip / 비-Completed / 백필 전 종료 run).
 - **proto·엔진·워커·`profile_json` 무변경** — verdict는 profile 필드가 아니라 컨트롤러측 *결과*라 실제 컬럼이 필요(profile serde-default 트릭 불가).
@@ -73,10 +73,10 @@ record_phase :: Finalize::Completed  ──(신규 훅)──▶ build_report_fo
 **메트릭 완전성 보장(§3 불변식의 근거)**: 코디네이터 스트림 루프는 메시지를 순차 처리하고 inline `await`한다 — `MetricBatch → ingest_metrics().await`, 그 다음 `RunStatus → record_phase().await`(coordinator.rs ~678–688). 워커는 final flush를 보낸 *뒤* Completed phase를 보낸다. 멀티워커는 마지막 워커의 Completed에서 finalize가 발동하므로, 그 시점엔 전 워커의 final 메트릭이 ingest 완료. 즉 finalize-time 계산은 "완료 직후 `/report` fetch"와 동일한 데이터 가용성을 갖는다.
 
 ### 4.3 Read path
-- **`RunRow`**(`store/runs.rs`)에 `verdict: Option<Verdict>` 추가. `verdict_json` 컬럼을 `serde_json::from_str::<Verdict>` 파싱(파싱 실패는 `None`으로 관대 처리 — 손상 행이 목록을 깨지 않게). `get` + `list_by_scenario` 둘 다 SELECT 컬럼 목록에 `verdict_json` 추가 + 매핑. `insert`의 RunRow 리터럴엔 `verdict: None`.
-  - 타입 커플링: `Verdict`는 `crate::report`에 정의, `RunRow`는 `store::runs`. 같은 crate라 모듈 순환 참조 무관(Rust intra-crate 허용; `report`가 이미 `store::runs::Criteria`를 import하는 역방향과 공존).
-- **`RunResponse`**(`api/runs.rs:22`)에 `verdict: Option<Verdict>` 추가. **단일 변환 사이트** `to_response()`(:613)에 `verdict: r.verdict` 한 줄. (run 목록 `GET /api/scenarios/{id}/runs` + 단건 `GET /api/runs/{id}` 둘 다 이 경로.)
-- **스케줄 이벤트**: `store/schedules.rs::recent_events`의 쿼리를 `LEFT JOIN runs r ON r.id = schedule_events.run_id`로 확장, `r.verdict_json` SELECT. `ScheduleEventRow`에 `verdict: Option<Verdict>` 추가(파싱은 read-time — verdict는 발사 후 늦게 완성되므로 이벤트에 저장 불가, JOIN으로 항상 최신 해석). api 응답 Event DTO에 `verdict` 노출.
+- **`RunRow`**(`store/runs.rs:128`)에 `verdict: Option<Verdict>` 추가. `verdict_json` 컬럼을 `r.get::<Option<String>,_>("verdict_json").and_then(|s| serde_json::from_str(&s).ok())`로 파싱 — **non-panicking `.ok()`**(파싱 실패는 `None`으로 관대 처리 — 손상 행이 목록을 깨지 않게). **주의: 인접 `profile_json`/`env_json`은 `.unwrap()`(손상 시 panic)이라 verdict만 의도적으로 다름 — 리뷰어가 `.unwrap()`로 "통일"하지 않게 load-bearing 주석.** `get`(:181) + `list_by_scenario`(:211) 둘 다 SELECT 컬럼 목록에 `verdict_json` 추가 + 매핑. **`RunRow` struct 리터럴은 두 곳**: `insert`(`store/runs.rs:166`)와 **`report.rs:565 run_row()` 테스트 픽스처** — 둘 다 `verdict: None` 추가(컴파일러가 잡지만 둘 다 명시).
+  - 타입 커플링: `Verdict`는 `crate::report`에 정의, `RunRow`는 `store::runs`. 같은 crate라 모듈 순환 참조 무관(Rust intra-crate 허용; `report`가 이미 `store::runs::{RunRow,Criteria}`를 import하는 역방향과 공존).
+- **`RunResponse`**(`api/runs.rs:22`, Serialize-only·`deny_unknown_fields` 소비자 없음 → additive 안전)에 `verdict: Option<Verdict>` 추가. **단일 변환 사이트** `to_response()`(:613)에 `verdict: r.verdict` 한 줄. (run 목록 `GET /api/scenarios/{id}/runs` + 단건 `GET /api/runs/{id}` + create 응답 전부 `.map(to_response)`(:575) 경로.)
+- **스케줄 이벤트**: `store/schedules.rs::recent_events`(:292) 쿼리를 `LEFT JOIN runs r ON r.id = schedule_events.run_id`로 확장하고 `r.verdict_json` SELECT. **JOIN 후 컬럼명 모두 자격(qualify) 필수** — `runs`와 `schedule_events` 둘 다 `id` 컬럼이라 unqualified `SELECT id,…`가 모호(SQLite는 조용히 첫 FROM 테이블로 풀지만 fragile): `SELECT schedule_events.id, schedule_events.schedule_id, schedule_events.at, schedule_events.kind, schedule_events.run_id, schedule_events.detail, r.verdict_json FROM schedule_events LEFT JOIN runs r ON r.id = schedule_events.run_id WHERE schedule_events.schedule_id = ? ORDER BY schedule_events.at DESC LIMIT ?`. `ScheduleEventRow`(`store/schedules.rs:50`)에 `verdict: Option<Verdict>` 추가(read-time `.ok()` 파싱 — verdict는 발사 후 늦게 완성되므로 이벤트에 저장 불가, JOIN으로 항상 최신 해석). **api 응답은 별도 DTO** `EventResponse`(`api/schedules.rs:103`) — struct에 `verdict` 필드 추가 + 매핑(`events` 핸들러 :283의 변환에 `verdict: e.verdict` 한 줄). 즉 **struct 2곳(`ScheduleEventRow`+`EventResponse`) + 매핑 1줄**.
   - non-fired 이벤트(skipped_overlap 등 run_id=NULL) / pending·running·백필 전 run → `verdict = null`.
 
 ### 4.4 Wire / Zod
@@ -89,15 +89,15 @@ record_phase :: Finalize::Completed  ──(신규 훅)──▶ build_report_fo
 - **`<VerdictBadge verdict={Verdict | null | undefined} />`** 프레젠테이셔널 컴포넌트(신규): `verdict?.passed === true` → 녹색 **PASS**, `=== false` → 적색 **FAIL**, null/undefined → 중립 **—**. `StatusBadge` 패턴 미러. FAIL일 때 `title` 속성에 실패 기준 요약(`criteria.filter(c=>!c.passed)` → `"p95_ms 320 > 300"` 류, direction에 따라 `>`/`<`).
 - **`ScenarioRunsPage`**: 테이블에 "결과" 열 추가(Status 열 인근). `<VerdictBadge verdict={r.verdict} />`. (기존 `?retry=` effect deps·선택 게이트 로직 무접촉 — 그 파일의 exhaustive-deps 함정 회피.)
 - **`ScheduleEventTimeline`**: fired 이벤트의 run 링크 옆에 `<VerdictBadge verdict={event.verdict} />`.
-- **`RunDetailPage`**: 상단 헤더에 배지. **이미 로드된 `report.verdict`** 소스(종료 run은 report fetch 완료 — 추가 fetch 0). 하단 전체 `VerdictPanel`은 유지. 진행 중/비-Completed면 verdict 없음 → 배지 미표시 또는 "—".
+- **`RunDetailPage`**: 상단 헤더에 배지. **이미 fetch 중인 `report.verdict`** 소스(종료 run은 `ReportView`가 이미 report를 fetch — 추가 fetch 0). 하단 전체 `VerdictPanel`은 유지. 진행 중/비-Completed면 verdict 없음 → 배지 미표시 또는 "—". **주의(타이밍)**: report fetch는 post-mount async라 로드 전 잠깐 "—" 후 PASS/FAIL로 채워진다(즉시 동기 아님) — 테스트는 배지 즉시 존재를 단언하지 말 것(`findBy`로 settle 대기).
 
 ## 5. 와이어 1:1 대조표
 
 | 레이어 | run verdict | event verdict |
 |---|---|---|
-| DB | `runs.verdict_json TEXT NULL` (0012) | `runs.verdict_json` via LEFT JOIN |
-| store | `RunRow.verdict: Option<Verdict>` | `ScheduleEventRow.verdict: Option<Verdict>` |
-| api struct | `RunResponse.verdict` (`to_response`) | Event DTO `.verdict` |
+| DB | `runs.verdict_json TEXT NULL` (0012) | `runs.verdict_json` via LEFT JOIN (컬럼 자격 필수) |
+| store | `RunRow.verdict: Option<Verdict>` (`.ok()` 파싱) | `ScheduleEventRow.verdict: Option<Verdict>` (`.ok()`) |
+| api struct | `RunResponse.verdict` (`to_response`:613) | `EventResponse.verdict` (별도 DTO, `events`:283 매핑) |
 | JSON | `verdict: {passed,criteria[]} \| null` | `verdict: {…} \| null` |
 | Zod | `RunSchema.verdict: VerdictSchema.nullish()` | `ScheduleEventSchema.verdict: VerdictSchema.nullish()` |
 | UI | `<VerdictBadge verdict={r.verdict}/>` | `<VerdictBadge verdict={ev.verdict}/>` |
@@ -125,7 +125,7 @@ record_phase :: Finalize::Completed  ──(신규 훅)──▶ build_report_fo
 ## 8. 마이그레이션·게이트 노트
 
 - **migration 0012** = Rust-guarded ALTER(`ensure_runs_verdict_json`), `connect()` 배선. `.sql` const 추가 아님 → `grep -c MIGRATION_SQL` 교차검증 무관(0008/0009와 동류). 0011(schedules)이 마지막 `.sql`.
-- **`RunResponse`에 필드 추가 = `to_response` 1곳 + RunRow 리터럴(`insert`)** — 컴파일러가 잡음. RunRow에 필드 추가 시 SELECT 3사이트(`get`/`list_by_scenario`) 컬럼 목록·매핑 동반(컴파일러는 SELECT 컬럼 누락을 못 잡으니 수동 확인).
+- **`RunResponse`에 필드 추가 = `to_response` 1곳 + RunRow struct 리터럴 2곳(`store/runs.rs:166 insert` + `report.rs:565 run_row()` 테스트 픽스처)** — 컴파일러가 잡음. RunRow에 필드 추가 시 SELECT 2사이트(`get`/`list_by_scenario`) 컬럼 목록·매핑 동반(**컴파일러는 SELECT 컬럼 *문자열* 누락을 못 잡으니 수동 확인** — `verdict_json`을 SELECT에 안 넣고 `r.get`만 추가하면 런타임 `no such column`). `ScheduleEventRow` 필드 추가 시 `recent_events` 매핑(`.map` 클로저) + `EventResponse` 매핑 동반.
 - UI 커밋 전 `pnpm lint && pnpm test && pnpm build`(`tsc -b`) — `.nullish()` 누출·exhaustive-deps.
 - 비-`.md` 커밋은 pre-commit이 전체 workspace 빌드 → background 커밋, warm(`cargo build -p handicap-worker`) 후 커밋(cold-build flake 회피).
 
