@@ -146,6 +146,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     }
   };
 
+  // ── measure phases (진단/고급) ───────────────────────────────────────────
+  const [measurePhases, setMeasurePhases] = useState(init?.measure_phases ?? false);
+  const [advancedOpen, setAdvancedOpen] = useState(() => init?.measure_phases ?? false);
+
   // ── data binding ──────────────────────────────────────────────────────────
   const [binding, setBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
   const [bindingValid, setBindingValid] = useState(true);
@@ -205,6 +209,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       binding,
       loadState,
       criteria: criteriaState,
+      measurePhases,
     });
   }
 
@@ -342,6 +347,34 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
           </button>
         </legend>
         {sloOpen && <CriteriaFields value={criteriaState} onChange={setCriteria} />}
+      </fieldset>
+
+      {/* 진단/고급 (선택) */}
+      <fieldset className="mt-3 mb-4 border-t pt-3">
+        <legend className="text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="font-medium text-slate-700 hover:underline"
+            aria-expanded={advancedOpen}
+          >
+            {advancedOpen ? "▾" : "▸"} 진단/고급 (선택)
+            {!advancedOpen && measurePhases ? (
+              <span className="ml-1 text-xs font-normal text-slate-500">· 1개 설정됨</span>
+            ) : null}
+          </button>
+        </legend>
+        {advancedOpen && (
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={measurePhases}
+              onChange={(e) => setMeasurePhases(e.target.checked)}
+              aria-label="measure latency phases"
+            />
+            측정: 레이턴시 단계 분해(TTFB/다운로드)
+          </label>
+        )}
       </fieldset>
 
       {/* 환경 */}

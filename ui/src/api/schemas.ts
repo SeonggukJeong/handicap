@@ -74,6 +74,7 @@ export const ProfileSchema = z.object({
   target_rps: z.number().int().positive().max(1_000_000).nullish(),
   max_in_flight: z.number().int().positive().max(10_000).nullish(),
   stages: z.array(StageSchema).optional(),
+  measure_phases: z.boolean().default(false),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -209,6 +210,17 @@ export const ReportWindowSchema = z
   })
   .strict();
 
+export const PhaseStatsSchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+    max_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PhaseStats = z.infer<typeof PhaseStatsSchema>;
+
 export const ReportStepSchema = z
   .object({
     step_id: z.string(),
@@ -227,6 +239,7 @@ export const ReportStepSchema = z
         }),
       )
       .optional(),
+    download: PhaseStatsSchema.optional(),
   })
   .strict();
 

@@ -20,12 +20,20 @@ export function StepStatsTable({ steps, meta }: Props) {
     });
   }
 
-  // 8 columns: Step, Method, URL, Requests, Errors, p50 ms, p95 ms, p99 ms
-  const colSpan = 8;
+  const anyDownload = steps.some((s) => s.download != null);
+
+  // Base: Step, Method, URL, Requests, Errors, p50 ms, p95 ms, p99 ms = 8
+  // With download: +3 (다운로드 p50, p95, p99) = 11
+  const colSpan = anyDownload ? 11 : 8;
 
   return (
     <section aria-label="Per-step stats" className="mb-6">
       <h3 className="text-lg font-semibold mb-2">Steps</h3>
+      {anyDownload && (
+        <p className="mb-2 text-xs text-slate-500">
+          응답(TTFB)=요청~헤더, 다운로드=본문 수신. 합 ≠ 전체(퍼센타일 비가산).
+        </p>
+      )}
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
@@ -37,6 +45,13 @@ export function StepStatsTable({ steps, meta }: Props) {
             <th className="py-2 pr-4 font-medium">p50 ms</th>
             <th className="py-2 pr-4 font-medium">p95 ms</th>
             <th className="py-2 pr-4 font-medium">p99 ms</th>
+            {anyDownload && (
+              <>
+                <th className="py-2 pr-4 font-medium">다운로드 p50</th>
+                <th className="py-2 pr-4 font-medium">다운로드 p95</th>
+                <th className="py-2 pr-4 font-medium">다운로드 p99</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -69,6 +84,13 @@ export function StepStatsTable({ steps, meta }: Props) {
                   <td className="py-2 pr-4">{s.p50_ms}</td>
                   <td className="py-2 pr-4">{s.p95_ms}</td>
                   <td className="py-2 pr-4">{s.p99_ms}</td>
+                  {anyDownload && (
+                    <>
+                      <td className="py-2 pr-4">{s.download?.p50_ms ?? "—"}</td>
+                      <td className="py-2 pr-4">{s.download?.p95_ms ?? "—"}</td>
+                      <td className="py-2 pr-4">{s.download?.p99_ms ?? "—"}</td>
+                    </>
+                  )}
                 </tr>
                 {hasBreakdown && isOpen && (
                   <tr className="bg-slate-50">

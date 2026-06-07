@@ -45,15 +45,22 @@ describe("StepStatsTable", () => {
 
   it("shows a per-loop drill-down when a step has loop_breakdown", async () => {
     const user = userEvent.setup();
-    const steps = [{
-      step_id: "s", count: 6, error_count: 0, status_counts: { "200": 6 },
-      p50_ms: 1, p95_ms: 2, p99_ms: 3,
-      loop_breakdown: [
-        { loop_index: 0, count: 3, error_count: 0 },
-        { loop_index: 1, count: 2, error_count: 0 },
-        { loop_index: null, count: 1, error_count: 0 },
-      ],
-    }];
+    const steps = [
+      {
+        step_id: "s",
+        count: 6,
+        error_count: 0,
+        status_counts: { "200": 6 },
+        p50_ms: 1,
+        p95_ms: 2,
+        p99_ms: 3,
+        loop_breakdown: [
+          { loop_index: 0, count: 3, error_count: 0 },
+          { loop_index: 1, count: 2, error_count: 0 },
+          { loop_index: null, count: 1, error_count: 0 },
+        ],
+      },
+    ];
     const meta = new Map([["s", { id: "s", name: "tick", method: "GET", url: "/items" }]]);
     render(<StepStatsTable steps={steps as never} meta={meta} />);
     expect(screen.queryByText(/loop_index/i)).not.toBeInTheDocument();
@@ -65,11 +72,58 @@ describe("StepStatsTable", () => {
   });
 
   it("renders no drill-down caret when loop_breakdown is empty", () => {
-    const steps = [{
-      step_id: "s", count: 6, error_count: 0, status_counts: {}, p50_ms: 1, p95_ms: 2, p99_ms: 3,
-      loop_breakdown: [],
-    }];
+    const steps = [
+      {
+        step_id: "s",
+        count: 6,
+        error_count: 0,
+        status_counts: {},
+        p50_ms: 1,
+        p95_ms: 2,
+        p99_ms: 3,
+        loop_breakdown: [],
+      },
+    ];
     render(<StepStatsTable steps={steps as never} meta={new Map()} />);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows download columns only when a step has download", () => {
+    const emptyMeta = new Map<string, { id: string; name: string; method: string; url: string }>();
+    const { rerender } = render(
+      <StepStatsTable
+        steps={[
+          {
+            step_id: "s1",
+            count: 1,
+            error_count: 0,
+            status_counts: {},
+            p50_ms: 5,
+            p95_ms: 9,
+            p99_ms: 9,
+          },
+        ]}
+        meta={emptyMeta}
+      />,
+    );
+    expect(screen.queryByText(/다운로드 p50/)).toBeNull();
+    rerender(
+      <StepStatsTable
+        steps={[
+          {
+            step_id: "s1",
+            count: 1,
+            error_count: 0,
+            status_counts: {},
+            p50_ms: 5,
+            p95_ms: 9,
+            p99_ms: 9,
+            download: { count: 1, p50_ms: 3, p95_ms: 7, p99_ms: 7, max_ms: 8 },
+          },
+        ]}
+        meta={emptyMeta}
+      />,
+    );
+    expect(screen.getByText(/다운로드 p50/)).toBeInTheDocument();
   });
 });

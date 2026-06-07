@@ -92,6 +92,7 @@ export type ProfileFormInput = {
   binding: DataBinding | null;
   loadState: LoadModelState;
   criteria: CriteriaState;
+  measurePhases: boolean;
 };
 
 export function buildProfile(i: ProfileFormInput): Profile {
@@ -100,6 +101,7 @@ export function buildProfile(i: ProfileFormInput): Profile {
     http_timeout_seconds: i.httpTimeout,
     data_binding: i.binding ?? undefined,
     criteria: buildCriteria(i.criteria),
+    measure_phases: i.measurePhases,
     ...buildLoadProfile(i.loadState),
   };
 }

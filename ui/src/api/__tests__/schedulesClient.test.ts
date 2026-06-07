@@ -54,6 +54,7 @@ describe("ScheduleInput type", () => {
         ramp_up_seconds: 0,
         loop_breakdown_cap: 256,
         http_timeout_seconds: 30,
+        measure_phases: false,
       },
       env: {},
       trigger: { kind: "once", run_at: 1 },

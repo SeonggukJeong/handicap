@@ -47,6 +47,7 @@ describe("buildProfile", () => {
       binding: null,
       loadState: closedLoad,
       criteria: EMPTY_CRITERIA,
+      measurePhases: false,
     });
     expect(p).toMatchObject({
       loop_breakdown_cap: 0, // hasLoop=false → 0
@@ -65,6 +66,7 @@ describe("buildProfile", () => {
       binding: null,
       loadState: closedLoad,
       criteria: EMPTY_CRITERIA,
+      measurePhases: false,
     });
     expect(p.loop_breakdown_cap).toBe(99);
   });
@@ -90,5 +92,20 @@ describe("criteriaStateFrom", () => {
   });
   it("returns all-empty for undefined", () => {
     expect(criteriaStateFrom(undefined).maxP95).toBe("");
+  });
+});
+
+describe("buildProfile measure_phases", () => {
+  it("buildProfile emits measure_phases from input", () => {
+    const base = {
+      hasLoop: false,
+      loopCap: 256,
+      httpTimeout: 30,
+      binding: null,
+      loadState: closedLoad,
+      criteria: EMPTY_CRITERIA,
+    };
+    expect(buildProfile({ ...base, measurePhases: true }).measure_phases).toBe(true);
+    expect(buildProfile({ ...base, measurePhases: false }).measure_phases).toBe(false);
   });
 });
