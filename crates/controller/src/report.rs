@@ -1246,10 +1246,17 @@ mod tests {
             count: 2,
         }];
         let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases);
+        // download samples must NOT pollute the TTFB summary count (isolation invariant).
+        // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
+        assert_eq!(
+            rep.summary.count, 5,
+            "download samples excluded from TTFB summary count"
+        );
         let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
         let d = s.download.as_ref().expect("download phase attached");
         assert_eq!(d.count, 2);
-        assert!(d.p50_ms <= d.max_ms, "p50 <= max");
+        // samples are [5_000, 9_000] µs → max = 9_000 µs / 1_000 = 9 ms (deterministic)
+        assert_eq!(d.max_ms, 9, "max ms = 9000µs/1000");
     }
 
     #[test]
