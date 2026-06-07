@@ -2199,3 +2199,206 @@ steps:
     rest_handle.abort();
     grpc_handle.abort();
 }
+
+/// Smoke test: when `profile.measure_phases = true`, the report's `steps[]`
+/// entries include a `download` field with `count > 0`.
+///
+/// Pipeline exercised end-to-end:
+///   engine (measure_phases gate → phase_stats flush)
+///   → worker (phase_stats forward)
+///   → coordinator (run_phase_metrics INSERT)
+///   → build_report (download_acc → ReportStep.download)
+///   → `GET /api/runs/{id}/report` → `steps[0].download.count > 0`
+///
+/// The wiremock response body is 8 KiB so the download phase takes a
+/// measurable amount of time even on localhost (sub-KB bodies can complete
+/// in < 1 µs before the HDR histogram registers anything).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn phase_breakdown_report_e2e_smoke() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+    // 0. Build worker binary off the async runtime (cold-build flake guard).
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    // 1. Wiremock stub: GET /data → 200 with an 8 KiB body and a small
+    //    artificial delay so the download phase has measurable wall-clock time.
+    //    The delay ensures at least one HDR sample lands in the > 0 µs bucket.
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/data"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("x".repeat(8192))
+                .set_delay(Duration::from_millis(10)),
+        )
+        .mount(&target)
+        .await;
+
+    // 2. Bind live listeners for REST + gRPC (no TOCTOU window).
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+
+    // 3. Boot controller.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    let app = app::router(app::AppState {
+        db: db.clone(),
+        coord: coord.clone(),
+        dispatcher: Arc::new(SubprocessDispatcher::new(
+            worker_bin.to_string_lossy().to_string(),
+            grpc_addr,
+            db.clone(),
+        )),
+        ui_dir: None,
+        dataset_max_rows: 1_000_000,
+        scheduler_tz: chrono_tz::UTC,
+    });
+    let rest_handle = tokio::spawn(async move {
+        axum::serve(rest_listener, app).await.unwrap();
+    });
+    let grpc_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(CoordinatorServer::new(CoordinatorService { state: coord }))
+            .serve_with_incoming(TcpListenerStream::new(grpc_listener))
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+
+    // 4. Single http step scenario. The step id uses Crockford base32 (no I/L/O/U).
+    //    The target URL is embedded directly (no env var needed).
+    const STEP_ID: &str = "01HX0000000000000000000061";
+    let scenario_yaml = format!(
+        r#"version: 1
+name: "phase-breakdown-e2e"
+steps:
+  - id: "{step_id}"
+    name: fetch-data
+    type: http
+    request:
+      method: GET
+      url: "{base}/data"
+    assert: []
+"#,
+        step_id = STEP_ID,
+        base = target.uri(),
+    );
+
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // 5. Create run with measure_phases: true — this is the key flag that
+    //    enables the download-phase measurement pipeline.
+    //    2 VUs over 2 seconds is enough for ≥ 1 complete request.
+    let v: Value = http
+        .post(format!("{}/api/runs", rest_base))
+        .json(&json!({
+            "scenario_id": scenario_id,
+            "profile": { "vus": 2, "duration_seconds": 2, "measure_phases": true },
+            "env": {}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    // 6. Poll until terminal (max 30s).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut last_status = String::new();
+    let mut last_message = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last_status = v["status"].as_str().unwrap_or("").to_string();
+        last_message = v["message"].as_str().unwrap_or("").to_string();
+        if last_status == "completed" || last_status == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last_status, "completed",
+        "expected completed; got '{last_status}' (message: {last_message:?})"
+    );
+
+    // 7. GET /report and assert that the download phase stats are present.
+    let resp = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().await.unwrap();
+
+    // (a) steps[] must contain exactly one entry (our single http step).
+    let steps = report["steps"]
+        .as_array()
+        .expect("steps array present in report");
+    assert_eq!(
+        steps.len(),
+        1,
+        "single http step → exactly one steps[] entry; got: {steps:?}"
+    );
+
+    // (b) The entry references the correct step id.
+    let step = &steps[0];
+    assert_eq!(
+        step["step_id"].as_str().unwrap(),
+        STEP_ID,
+        "steps[0].step_id must match the scenario step id"
+    );
+
+    // (c) The download field must be present (measure_phases: true was set).
+    let download = step
+        .get("download")
+        .and_then(|v| if v.is_null() { None } else { Some(v) });
+    assert!(
+        download.is_some(),
+        "steps[0].download must be present when measure_phases=true; \
+         full step: {step:?}"
+    );
+    let download = download.unwrap();
+
+    // (d) At least one download-phase sample was recorded.
+    let count = download["count"].as_u64().expect("download.count is u64");
+    assert!(
+        count >= 1,
+        "at least one download-phase sample expected; got download.count={count}"
+    );
+
+    // (e) summary.count > 0 — http requests actually executed.
+    let summary_count = report["summary"]["count"].as_u64().unwrap_or(0);
+    assert!(
+        summary_count > 0,
+        "summary.count must be > 0 (http requests were made)"
+    );
+
+    eprintln!(
+        "[phase_breakdown_report_e2e_smoke] download.count={count}, \
+         summary_count={summary_count}"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
