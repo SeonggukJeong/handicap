@@ -125,5 +125,9 @@ describe("StepStatsTable", () => {
       />,
     );
     expect(screen.getByText(/다운로드 p50/)).toBeInTheDocument();
+    // Download column headers include "ms" unit (consistency with p50 ms / p95 ms / p99 ms)
+    expect(screen.getByText("다운로드 p50 ms")).toBeInTheDocument();
+    expect(screen.getByText("다운로드 p95 ms")).toBeInTheDocument();
+    expect(screen.getByText("다운로드 p99 ms")).toBeInTheDocument();
   });
 });

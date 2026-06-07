@@ -605,7 +605,6 @@ export function RunDialog({
               type="checkbox"
               checked={measurePhases}
               onChange={(e) => setMeasurePhases(e.target.checked)}
-              aria-label="measure latency phases"
             />
             측정: 레이턴시 단계 분해(TTFB/다운로드)
           </label>

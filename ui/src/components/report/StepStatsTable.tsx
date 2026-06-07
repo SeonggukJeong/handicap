@@ -47,9 +47,9 @@ export function StepStatsTable({ steps, meta }: Props) {
             <th className="py-2 pr-4 font-medium">p99 ms</th>
             {anyDownload && (
               <>
-                <th className="py-2 pr-4 font-medium">다운로드 p50</th>
-                <th className="py-2 pr-4 font-medium">다운로드 p95</th>
-                <th className="py-2 pr-4 font-medium">다운로드 p99</th>
+                <th className="py-2 pr-4 font-medium">다운로드 p50 ms</th>
+                <th className="py-2 pr-4 font-medium">다운로드 p95 ms</th>
+                <th className="py-2 pr-4 font-medium">다운로드 p99 ms</th>
               </>
             )}
           </tr>
