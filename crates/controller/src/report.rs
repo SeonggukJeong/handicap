@@ -1,4 +1,6 @@
-use crate::store::metrics::{GroupMetricRow, IfBranchRow, LoopMetricRow, WindowWithHdr};
+use crate::store::metrics::{
+    GroupMetricRow, IfBranchRow, LoopMetricRow, PhaseMetricRow, WindowWithHdr,
+};
 use crate::store::runs::{RunRow, RunStatus};
 use handicap_engine::percentiles::{
     CURVE_QUANTILES, HISTOGRAM_BINS, Percentiles, decode_hdr, log_buckets, merge_into,
@@ -93,6 +95,17 @@ pub struct ReportStep {
     pub p95_ms: u64,
     pub p99_ms: u64,
     pub loop_breakdown: Vec<LoopBucket>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<PhaseStats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PhaseStats {
+    pub count: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+    pub max_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -308,6 +321,7 @@ pub fn build_report(
     loops: &[LoopMetricRow],
     branches: &[IfBranchRow],
     groups: &[GroupMetricRow],
+    phases: &[PhaseMetricRow],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -443,6 +457,36 @@ pub fn build_report(
         0.0
     };
 
+    // Phase (download) latency: SEPARATE accumulator keyed by step_id (phase=="download").
+    // Surfaces onto each ReportStep. NOT merged into summary/overall/per_step(TTFB)/windows
+    // (isolation; spec §4.6).
+    let mut download_acc: BTreeMap<String, (Histogram<u64>, u64)> = BTreeMap::new();
+    for p in phases.iter().filter(|p| p.phase == "download") {
+        let e = download_acc
+            .entry(p.step_id.clone())
+            .or_insert_with(|| (fresh_hist(), 0));
+        if let Ok(Some(h)) = decode_hdr(&p.hdr_histogram) {
+            merge_into(&mut e.0, &h); // fail-soft on bad blob
+        }
+        e.1 += p.count as u64;
+    }
+    let mut download_by_step: BTreeMap<String, PhaseStats> = download_acc
+        .into_iter()
+        .map(|(step_id, (h, count))| {
+            let pc = percentiles_of(&h);
+            (
+                step_id,
+                PhaseStats {
+                    count,
+                    p50_ms: pc.p50_ms,
+                    p95_ms: pc.p95_ms,
+                    p99_ms: pc.p99_ms,
+                    max_ms: h.max() / 1_000,
+                },
+            )
+        })
+        .collect();
+
     let mut steps: Vec<ReportStep> = per_step_count
         .into_iter()
         .map(|(step_id, (count, errors, status_counts))| {
@@ -451,6 +495,7 @@ pub fn build_report(
                 .map(percentiles_of)
                 .unwrap_or_else(Percentiles::empty);
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
+            let download = download_by_step.remove(&step_id);
             ReportStep {
                 step_id,
                 count,
@@ -460,6 +505,7 @@ pub fn build_report(
                 p95_ms: p.p95_ms,
                 p99_ms: p.p99_ms,
                 loop_breakdown: breakdown,
+                download,
             }
         })
         .collect();
@@ -638,7 +684,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
 
         // One collapsed window per (ts_second, step_id), counts summed.
         assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
@@ -686,7 +732,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -711,7 +757,7 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -754,7 +800,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[]);
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -798,7 +844,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[], &[]);
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
             .if_breakdown
@@ -892,7 +938,7 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        let rep = build_report(&run, "", &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[]);
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
         assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
@@ -906,21 +952,29 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
+        assert!(
+            build_report(&run, "", &[], &[], &[], &[], &[])
+                .verdict
+                .is_none()
+        );
     }
 
     #[test]
     fn build_report_no_verdict_when_criteria_all_none() {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
-        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
+        assert!(
+            build_report(&run, "", &[], &[], &[], &[], &[])
+                .verdict
+                .is_none()
+        );
     }
 
     #[test]
     fn build_report_surfaces_dropped() {
         let mut run = run_row();
         run.dropped = 7;
-        let rep = build_report(&run, "", &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[]);
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
@@ -935,7 +989,7 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
         assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
@@ -957,7 +1011,11 @@ mod tests {
     #[test]
     fn build_report_no_latency_without_samples() {
         let r = run_row();
-        assert!(build_report(&r, "", &[], &[], &[], &[]).latency.is_none());
+        assert!(
+            build_report(&r, "", &[], &[], &[], &[], &[])
+                .latency
+                .is_none()
+        );
     }
 
     // ReportWindow 빌더(per-window RPS 테스트용). 이름은 `rwin` — 기존 `win`은
@@ -1110,7 +1168,11 @@ mod tests {
             min_window_rps: Some(1.0),
             ..Default::default()
         });
-        assert!(build_report(&run, "", &[], &[], &[], &[]).verdict.is_none());
+        assert!(
+            build_report(&run, "", &[], &[], &[], &[], &[])
+                .verdict
+                .is_none()
+        );
     }
 
     #[test]
@@ -1135,7 +1197,7 @@ mod tests {
         }];
         let yaml = r.scenario_yaml.clone();
 
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[]);
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
         assert_eq!(
@@ -1165,8 +1227,48 @@ mod tests {
     #[test]
     fn build_report_empty_groups_yields_empty_group_latency() {
         let r = run_row();
-        let rep = build_report(&r, "", &[], &[], &[], &[]);
+        let rep = build_report(&r, "", &[], &[], &[], &[], &[]);
         assert!(rep.group_latency.is_empty());
+    }
+
+    #[test]
+    fn build_report_attaches_download_phase_to_step() {
+        use crate::store::metrics::PhaseMetricRow;
+        let r = run_row();
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        // One http window for step "s1" so a ReportStep row exists.
+        let rows = vec![win(100, "s1", 5, 0, r#"{"200":5}"#, &[10_000])];
+        let phases = vec![PhaseMetricRow {
+            run_id: r.id.clone(),
+            step_id: "s1".into(),
+            phase: "download".into(),
+            hdr_histogram: make_hdr_bytes(&[5_000, 9_000]),
+            count: 2,
+        }];
+        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases);
+        let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
+        let d = s.download.as_ref().expect("download phase attached");
+        assert_eq!(d.count, 2);
+        assert!(d.p50_ms <= d.max_ms, "p50 <= max");
+    }
+
+    #[test]
+    fn build_report_no_download_without_phases() {
+        let r = run_row();
+        let rows = vec![win(100, "s1", 5, 0, r#"{"200":5}"#, &[10_000])];
+        let rep = build_report(
+            &r,
+            "version: 1\nname: t\nsteps: []\n",
+            &rows,
+            &[],
+            &[],
+            &[],
+            &[],
+        );
+        assert!(
+            rep.steps.iter().all(|s| s.download.is_none()),
+            "no download when phases empty (byte-identical)"
+        );
     }
 
     #[test]

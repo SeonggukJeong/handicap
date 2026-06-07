@@ -410,6 +410,7 @@ pub async fn build_report_for_run(
     let loops = crate::store::metrics::loop_breakdown(db, run_id).await?;
     let branches = crate::store::metrics::if_breakdown(db, run_id).await?;
     let groups = crate::store::metrics::group_breakdown(db, run_id).await?;
+    let phases = crate::store::metrics::phase_breakdown(db, run_id).await?;
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -418,6 +419,7 @@ pub async fn build_report_for_run(
         &loops,
         &branches,
         &groups,
+        &phases,
     ))
 }
 
