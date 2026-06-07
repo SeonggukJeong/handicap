@@ -73,11 +73,12 @@ pub fn drain_phase_deltas(&mut self) -> Vec<PhaseStat> { ... }                  
 - `PhaseStat::serialize_histogram()` = group과 동일(V2Serializer).
 
 ### 4.3 게이트 + 기록 — 엔진 `runner.rs`
-- `RunPlan` 에 `measure_phases: bool` 추가. `run_vu`/`run_arrival` → `do_step` 으로 스레드(http_timeout/think_seed와 같은 방식).
+- `RunPlan` 에 `measure_phases: bool` 추가. **`do_step` 같은 함수는 없다** — HTTP 기록은 `execute_steps`의 `Step::Http` arm 인라인(runner.rs:384-411). `measure_phases`는 `execute_steps`의 **추가 파라미터(현재 11 → 12, 이미 `#[allow(too_many_arguments)]`)** 로 스레드하고, 재귀 arm 3종(Loop/If/Parallel)의 `execute_steps` 재호출 + 두 진입점(`run_vu` runner.rs:318 / `run_arrival` runner.rs:850), 총 6 call site가 전부 forward한다. **trace twin `trace_steps`는 플래그 불요**(trace는 항상 측정, §4.9).
 - `Step::Http` arm: 기존 `a.record(...)`(TTFB) 그대로 + `if measure_phases { if let Some(dl) = outcome.download { a.record_phase(&id, "download", dl.as_micros()...) } }`.
 - **`MetricFlush`** 에 `phase_stats: Vec<PhaseStat>` 드레인 벡터 추가 → **4 flush 사이트 드레인 + 3 send-guard**(엔진 CLAUDE.md 함정: 드레인 4곳[closed periodic/final + open periodic/final], `|| !phase_stats.is_empty()` send-guard 3곳[closed periodic·closed final·open periodic]; open-loop final은 dropped 무가드라 phase도 거기선 무관). `MetricFlush{}` 리터럴 전부에 `phase_stats: vec![]` 명시(컴파일러 강제).
 
 ### 4.4 와이어 — `crates/proto`
+`PhaseStat`은 `GroupStat`(coordinator.proto:45-49 = `step_id=1, hdr_histogram=2, count=3`)에 **`phase`를 2번에 삽입**해 hdr/count를 3/4로 민 모양(완전 미러 아님 — 새 메시지라 무해):
 ```proto
 message PhaseStat {
   string step_id = 1;
@@ -89,8 +90,12 @@ message MetricBatch { ...; repeated PhaseStat phase_stats = 8; }   // 다음 필
 message Profile { ...; bool measure_phases = 11; }                 // 다음 필드 = 11, default false
 ```
 
-### 4.5 워커 + 영속화 — `crates/worker`, controller `store`
-- 워커: `group_stats` 와 동일 forward 경로(HDR 직렬화는 엔진에서, 워커는 그대로 전달) — 추가 로직 0.
+### 4.5 워커 + 영속화 — `crates/worker`, controller `grpc`/`store`
+워커·컨트롤러 ingest 둘 다 `group_stats` 경로를 **기계적으로 미러**한다("추가 로직 0"은 worker forward에만 해당 — 아래 사이트는 실재하는 미러 작업):
+- **워커** (`worker/src/main.rs:279-298`): `group_stats`처럼 `phase_stats`를 `filter_map`으로 HDR 직렬화 + `MetricBatch.phase_stats`에 실음 + 빈-배치 송신가드 항(`&& phase_stats.is_empty()`) 추가.
+- **컨트롤러 ingest** (`grpc/coordinator.rs:853-867`의 group 블록 복제): `batch.phase_stats` → `PhaseMetricRow` → `insert_phase_batch`.
+- **store** (`store/metrics.rs`): `PhaseMetricRow` 구조체 + `insert_phase_batch`(group `insert_group_batch` 미러) + `phase_breakdown`(read, group `group_breakdown` 미러).
+- **build_report_for_run** (`api/runs.rs:411`): `phase_breakdown` fetch 추가 + `build_report`에 인자 전달.
 - **migration 0013** `run_phase_metrics`:
   ```sql
   CREATE TABLE IF NOT EXISTS run_phase_metrics (
@@ -102,34 +107,43 @@ message Profile { ...; bool measure_phases = 11; }                 // 다음 필
   );  -- append-only, PK 없음 (run_group_metrics/0010 미러)
   CREATE INDEX IF NOT EXISTS idx_run_phase_metrics_run ON run_phase_metrics(run_id);
   ```
-  - 번호 0013 = 다음 빈 번호(`.sql`: 0001–0007/0010/0011; 0008·0009·0012는 Rust-guarded). `store/mod.rs`에 const + execute 라인 **둘 다** 추가(컨트롤러 CLAUDE.md: execute 라인 silently auto-merge 누락 함정 — `grep -c MIGRATION_SQL`로 const N == execute N 교차검증).
+  - 번호 0013 = 다음 빈 번호(`.sql`: 0001–0007/0010/0011; 0008·0009·0012는 Rust-guarded). `store/mod.rs`에 const + execute 라인 **둘 다** 추가, execute는 `ensure_runs_verdict_json`(0012, store/mod.rs:67) **뒤**(번호 순서). 컨트롤러 CLAUDE.md: execute 라인 silently auto-merge 누락 함정 — `grep -c MIGRATION_SQL`로 const N == execute N 교차검증.
   HDR는 SQL merge 불가라 delta 행 공존 + read-time merge. 멱등성은 단일 bidi 스트림 배치 전달-once가 보장. 멀티워커도 read-time `(step_id, phase)` merge로 자동 합산(worker_id 불필요).
 
 ### 4.6 리포트 빌드 — controller `report.rs`
-- `build_report` 가 `groups` param 옆에 `phases` param(=`run_phase_metrics` 행) 추가 → `(step_id, phase)` 별 `phase_acc` 로 HDR merge.
+- `build_report` 가 `groups` param 옆에 `phases` param(=`run_phase_metrics` 행) 추가 → `(step_id, phase)` 별 `phase_acc` 로 HDR merge(`group_acc` report.rs:498-521 복제). **build_report call site 전부 갱신**(report.rs 테스트 + `build_report_for_run` api/runs.rs:411 + 기타).
 - **summary/overall/RPS/windows 절대 미접촉**(download은 TTFB와 별개 phase라 겹치지 않지만 격리 원칙 유지).
-- per_step 행에 부착:
+- per_step 행에 부착. **수치는 `u64` (ms)** — `GroupLatency`(report.rs:115-118)·`ReportStep.p50_ms`가 전부 u64이고 UI Zod가 `.int()`라 **f64 금지**:
   ```rust
-  pub struct PhaseStats { pub count: u64, pub p50_ms: f64, pub p95_ms: f64, pub p99_ms: f64, pub max_ms: f64 }
+  pub struct PhaseStats { pub count: u64, pub p50_ms: u64, pub p95_ms: u64, pub p99_ms: u64, pub max_ms: u64 }
   // ReportStep:
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub download: Option<PhaseStats>,
   ```
 
 ### 4.7 UI — Zod + 리포트 표
-- `StepSchema` 에 `download` `.nullish()`(서버 None→null, S-D 갭 차단). `PhaseStatsSchema` 신규.
+- `StepSchema` 에 `download` **`.optional()`** + `PhaseStatsSchema` 신규(`p*_ms` `z.number().int().nonnegative()`). **`.nullish()` 아님** — `download`은 `skip_serializing_if`로 None이면 omit(absent)이라 `.optional()`이 옳다(`group_latency` schemas.ts:328 패턴). `.nullish()`는 서버가 항상 `null`을 보내는 필드(skip 없음)용 함정 — 여기 해당 안 됨.
 - **`StepStatsTable`**: per_step 중 하나라도 `download` 가 있으면 **다운로드 컬럼(p50/p95/p99)** 추가, 기존 레이턴시 컬럼 헤더는 "응답(TTFB)" 로 명확화. (별도 드릴다운 아님 — loop caret과 충돌 없음.)
 - 짧은 범례: "응답(TTFB) = 요청 전송~헤더 도착 · 다운로드 = 본문 수신. 합 ≠ 전체(퍼센타일 비가산)."
 
 ### 4.8 opt-in 토글 — UI `profileForm.ts` (공유)
-- 공유 `profileForm.ts` 의 `buildProfile` 에 `measure_phases` 추가 → **RunDialog + ScheduleForm 양쪽 자동 노출**.
+- 공유 `profileForm.ts::buildProfile`(profileForm.ts:97)에 `measure_phases` 추가 → **payload 빌더는 RunDialog(:314)·ScheduleForm(:200) 양쪽 자동**. 단 **토글 입력 UI/state는 자동 아님** — 각 폼에 체크박스/disclosure + state + `ProfileFormInput.measure_phases` 전달을 개별 추가.
 - 접이식 "진단/고급" 섹션(기본 접힘, 사용자 선호 — optional 섹션 disclosure 이디엄), 기본 off.
-- 엔진 `RunPlan.measure_phases` / `profile_json.measure_phases`(`#[serde(default)]` → 옛 run·absent = false = byte-identical).
+- 엔진 `RunPlan.measure_phases` / `profile_json.measure_phases`(`#[serde(default)]` → 옛 run·absent = false = byte-identical) / store Profile→`pb::Profile` 변환(api/runs.rs:313)에 `measure_phases` 매핑(prost exhaustive로 컴파일 강제).
 
 ### 4.9 test-run trace (소규모 additive)
-- `TracedResponse` 에 `download_ms` 추가(기존 `latency_ms`=TTFB 옆). trace는 진단용 단일패스라 **플래그 무관 항상 측정**.
+- `TracedResponse`(trace.rs:45-51)에 `download_ms` 추가(기존 `latency_ms`=TTFB 옆). trace는 진단용 단일패스라 **플래그 무관 항상 측정**.
+- **`TracedResponse {}` 리터럴 전부** 갱신(컴파일 강제): `execute_step_traced` 성공 경로 + body-read 에러 조기반환 경로(executor.rs:402-409) + trace.rs:366 테스트 픽스처. UI Zod `ScenarioTraceSchema`의 response에도 `download_ms` 추가.
 - `TestRunPanel` http 행에 "TTFB / 다운로드" 표시 → 에디터에서 단발 요청으로 분해 미리보기.
 - `execute_step_traced` ↔ `execute_step` lockstep 유지(둘 다 `bytes().await` 측정).
+
+### 4.10 컴파일러-강제 리터럴 사이트 (blast radius — plan budget)
+non-Option 필드 추가라 컴파일러가 다음을 전부 강제(빠뜨리면 빌드 RED). plan task가 미리 예산에 넣는다:
+- **`RunPlan {}` 리터럴 ~31곳**(엔진 테스트 다수 + worker `main.rs` build + worker 테스트) — `measure_phases: false`(테스트) / 실값(main.rs). AppState·prost와 동형 함정. `grep -rn "RunPlan {" crates/`.
+- **`pb::Profile` 변환**(api/runs.rs:313) + **proto struct literal**(`MetricBatch {}` worker main.rs) — prost exhaustive.
+- **`export.rs` step() 픽스처**(export.rs:376)에 `download: None`(컨트롤러 CLAUDE.md 명시 누락-위험 사이트).
+- **`TracedResponse {}` 리터럴**(§4.9).
+- **`MetricFlush {}` 리터럴**에 `phase_stats: vec![]`(§4.3).
 
 ---
 
@@ -149,8 +163,8 @@ message Profile { ...; bool measure_phases = 11; }                 // 다음 필
 - **MetricFlush**: 4 드레인 + 3 send-guard 가 phase delta를 유실/중복 없이 실어보내는지(빈 배치 스킵 가드에 phase 포함).
 - **e2e** `phase_breakdown_report_e2e_smoke`(controller, group e2e 미러): opt-in run → `/report` per_step.download 존재.
 - **byte-identical** 회귀: measure_phases off run 의 리포트 JSON 이 pre-feature와 동일.
-- **UI**: Zod `.nullish()` round-trip, StepStatsTable 다운로드 컬럼 조건부 렌더.
-- **라이브 검증 필수**(S-D 교훈 — RTL은 서버 `null`을 absent로 줘서 `.nullish()` 미스매치를 통과시킴): 큰 본문 반환 타깃으로 ① ON run → `/report` 가 `ReportSchema.parse` 통과 + per_step.download 존재·다운로드 p50>0, ② OFF run → download absent + 기존 리포트 byte-identical, ③ Playwright 토글→리포트 컬럼 + 콘솔 Zod 0.
+- **UI**: Zod `.optional()` round-trip(absent/present 둘 다), StepStatsTable 다운로드 컬럼 조건부 렌더.
+- **라이브 검증 필수**(S-D 교훈 — RTL fixture는 서버 응답을 정확히 모사 못 해 Zod 미스매치를 잠복시킴): 큰 본문 반환 타깃으로 ① ON run → `/report` 가 `ReportSchema.parse` 통과 + per_step.download 존재·다운로드 p50>0, ② OFF run → download absent + 기존 리포트 byte-identical, ③ Playwright 토글→리포트 컬럼 + 콘솔 Zod 0.
 
 ---
 
@@ -168,6 +182,7 @@ message Profile { ...; bool measure_phases = 11; }                 // 다음 필
 
 - DNS/TCP/TLS/total phase(커스텀 리졸버·커넥터; phase 채널이 받아둠).
 - per-second 다운로드 시계열 / 다운로드 성공·오류 분할 / 다운로드 SLO criteria / run 비교·insights 다운로드.
+- **download timeout 비대칭 (v1 알려진 한계)**: `Client::timeout`(executor.rs:23)은 send+download 전체를 덮는 total timeout이라, 다운로드가 느려 timeout을 넘기면 `bytes().await`가 Err → `download=None`(다운로드 분포에 샘플 0) + body-read 오류로만 잡힌다. 즉 "다운로드가 느리다"의 극단(=timeout) 케이스는 다운로드 phase에 안 나타난다(불변식 §5.5와 일관). 다운로드 성공/오류 분할(위) 또는 별도 download timeout으로 후속 해소.
 
 ---
 
