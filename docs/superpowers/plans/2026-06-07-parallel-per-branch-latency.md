@@ -266,8 +266,9 @@ git log -1 --oneline
 **Files:**
 - Modify: `crates/proto/proto/coordinator.proto` (`GroupStat` :45-49)
 - Modify: `crates/worker/src/main.rs` (group_stats forwarding :282-293)
+- Modify: `crates/controller/src/grpc/coordinator.rs` (**테스트** `ingest_stores_group_stats`의 `pb::GroupStat {` 리터럴 :1413 — prost exhaustive)
 
-이 커밋 후: 분기가 엔진→워커→proto로 흐른다. 컨트롤러 ingest(`coordinator.rs:856`)는 아직 `GroupMetricRow`에 branch 필드가 없어 `gs.branch`를 무시(드롭) → DB엔 안 들어감 → 페이지 레이턴시 오염 없음. 와이어 페이지 행은 `branch=""`(proto3 default 미직렬화)라 byte-identical.
+이 커밋 후: 분기가 엔진→워커→proto로 흐른다. 컨트롤러 ingest의 **read 변환**(`coordinator.rs:856`)은 아직 `GroupMetricRow`에 branch 필드가 없어 `gs.branch`를 무시(드롭) → DB엔 안 들어감 → 페이지 레이턴시 오염 없음. 와이어 페이지 행은 `branch=""`(proto3 default 미직렬화)라 byte-identical. **단 proto 필드 추가는 crate-wide — 컨트롤러 *테스트*의 proto literal(:1413)은 컴파일러가 강제하므로 같은 커밋에서 고쳐야 green.**
 
 - [ ] **Step 1: proto `GroupStat.branch = 4` (coordinator.proto:45-49)**
 
@@ -300,10 +301,23 @@ message GroupStat {
                 .collect();
 ```
 
-- [ ] **Step 3: 다른 proto `GroupStat {` literal 사이트 확인**
+- [ ] **Step 3: 컨트롤러 테스트의 proto `GroupStat {` literal 수정 (coordinator.rs:1413)**
+
+`ingest_stores_group_stats` 테스트의 `pb::GroupStat { … }` literal에 `branch` 추가(prost exhaustive — 안 고치면 `missing field 'branch'`로 `cargo test --workspace` 컴파일 실패):
+
+```rust
+            group_stats: vec![pb::GroupStat {
+                step_id: "p1".to_string(),
+                branch: String::new(),
+                hdr_histogram: blob,
+                count: 1,
+            }],
+```
+
+그리고 다른 proto `GroupStat {` literal이 더 없는지 확인:
 
 Run: `grep -rn "GroupStat {" crates/`
-Expected: 엔진 `drain_group_deltas`(이미 Task 1), 워커 forwarding(방금), 컨트롤러 ingest는 **proto** `GroupStat`를 `gs.step_id`처럼 *읽기*만 하지 literal 생성 안 함 → 추가 수정 없음. 만약 proto `GroupStat {` literal이 더 있으면(테스트 등) `branch: ...` 추가.
+Expected: 엔진 `drain_group_deltas`(Task 1)·워커 forwarding(Step 2)·이 테스트(:1413) 셋뿐. ingest read 변환(`coordinator.rs:856`)은 `gs.step_id`처럼 *읽기*만 → literal 아님(Task 3에서 `GroupMetricRow`에 branch 추가). 추가 literal 있으면 `branch: …` 보강.
 
 - [ ] **Step 4: 빌드·테스트**
 
@@ -316,7 +330,7 @@ Expected: 전부 PASS(기존 e2e `parallel_group_latency_report_e2e_smoke`는 pa
 
 ```bash
 cargo build -p handicap-worker && cargo build --workspace   # warm
-git add crates/proto/proto/coordinator.proto crates/worker/src/main.rs
+git add crates/proto/proto/coordinator.proto crates/worker/src/main.rs crates/controller/src/grpc/coordinator.rs
 git commit -m "feat(proto): GroupStat.branch=4 + worker forwards per-branch latency"
 git log -1 --oneline
 ```
@@ -628,7 +642,7 @@ git log -1 --oneline
 ## Task 4: UI — 분기 sub-행 렌더
 
 **Files:**
-- Modify: `ui/src/api/schemas.ts` (`GroupLatencySchema` :260, `ReportSchema.group_latency` :341)
+- Modify: `ui/src/api/schemas.ts` (`GroupLatencySchema` :260에 `branches` + 신규 `BranchLatencySchema` — `ReportSchema.group_latency` :341은 `.optional()` 그대로, 변경 없음)
 - Modify: `ui/src/components/report/GroupLatencyTable.tsx`
 - Test: `ui/src/components/report/__tests__/GroupLatencyTable.test.tsx`
 
@@ -817,14 +831,14 @@ git log -1 --oneline
 ## Task 5: e2e smoke — 분기 행 단언
 
 **Files:**
-- Modify: `crates/controller/tests/e2e_test.rs` (`parallel_group_latency_report_e2e_smoke` 단언부, :2141 이후)
+- Modify: `crates/controller/tests/e2e_test.rs` (`parallel_group_latency_report_e2e_smoke` 단언부)
 
-- [ ] **Step 1: 분기 단언 추가 (e2e_test.rs, (d) max_ms 단언 뒤)**
+- [ ] **Step 1: 분기 단언 추가 (e2e_test.rs)**
 
-`(d)` 블록(`let max_ms = entry["max_ms"]...; assert!(...)`) 다음에 `(e)` 추가:
+이 테스트엔 **이미 `(e)`(steps[] 검사 :2174)·`(f)`(summary :2187) 블록이 있다** → 새 블록은 **`(f)` 블록 뒤에 `(g)`로 추가**(renumber 회피). `entry`(:2153)·`count`(:2161)는 fn-body let이라 끝까지 스코프에 있다:
 
 ```rust
-    // (e) branches: per-branch latency nested under the page. Two branches (a, b),
+    // (g) branches: per-branch latency nested under the page. Two branches (a, b),
     //     each recorded once per clean page-load → branch count == page count.
     let branches = entry["branches"]
         .as_array()

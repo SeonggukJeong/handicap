@@ -118,7 +118,8 @@ message GroupStat {
 }
 ```
 - additive 필드 4. 페이지 행은 `branch=""`(proto3 default라 미직렬화 → 와이어 byte-identical).
-- 워커가 엔진 `GroupStat` → proto `GroupStat` 변환 시 `branch` forward(워커 forwarding 코드 1줄).
+- 워커가 엔진 `GroupStat` → proto `GroupStat` 변환 시 `branch` forward(워커 forwarding 코드 1줄, `worker/src/main.rs:287`).
+- **prost exhaustive — 컨트롤러 *테스트*의 `pb::GroupStat {` 리터럴(`grpc/coordinator.rs:1413`, `ingest_stores_group_stats`)도 컴파일러-forced** → 같은 커밋에서 `branch: String::new()` 추가(안 하면 `cargo test --workspace` 컴파일 실패). proto 필드 추가는 crate-wide(`grep -rn "GroupStat {" crates/`).
 
 ### 4.4 컨트롤러 `store/metrics.rs` + `store/mod.rs`
 - **migration 0014** = Rust-guarded `ensure_run_group_metrics_branch`(`ensure_runs_dropped`/`ensure_run_metrics_worker_id` 동형, .sql 파일 아님):
