@@ -33,6 +33,8 @@ pub struct RunResponse {
     pub ended_at: Option<i64>,
     pub created_at: i64,
     pub message: Option<String>,
+    /// A4a SLO verdict(완료 run, criteria 있을 때만 non-null). 목록 배지용.
+    pub verdict: Option<crate::report::Verdict>,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32) -> bool {
@@ -622,6 +624,7 @@ fn to_response(r: runs::RunRow) -> RunResponse {
         ended_at: r.ended_at,
         created_at: r.created_at,
         message: r.message,
+        verdict: r.verdict,
     }
 }
 

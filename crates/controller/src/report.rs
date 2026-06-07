@@ -124,13 +124,13 @@ pub struct LatencyDistribution {
     pub histogram: Vec<HistogramBucket>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Verdict {
     pub passed: bool, // 모든 활성 기준 AND
     pub criteria: Vec<CriterionResult>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CriterionResult {
     pub metric: String,    // "p50_ms" | "p95_ms" | "p99_ms" | "error_rate" | "rps"
     pub direction: String, // "max" | "min"
@@ -588,6 +588,7 @@ mod tests {
             created_at: 99_000,
             message: None,
             dropped: 0,
+            verdict: None,
         }
     }
 

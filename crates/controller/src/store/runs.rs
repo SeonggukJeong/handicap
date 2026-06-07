@@ -137,6 +137,8 @@ pub struct RunRow {
     pub created_at: i64,
     pub message: Option<String>,
     pub dropped: i64,
+    /// A4a SLO verdict, 완료 시 영속(없으면/criteria 없으면 None). 손상 JSON도 None.
+    pub verdict: Option<crate::report::Verdict>,
 }
 
 pub async fn insert(
@@ -175,12 +177,13 @@ pub async fn insert(
         created_at: now,
         message: None,
         dropped: 0,
+        verdict: None,
     })
 }
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -205,12 +208,15 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
         created_at: r.get("created_at"),
         message: r.get("message"),
         dropped: r.get("dropped"),
+        verdict: r
+            .get::<Option<String>, _>("verdict_json")
+            .and_then(|s| serde_json::from_str(&s).ok()),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -236,6 +242,9 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
             created_at: r.get("created_at"),
             message: r.get("message"),
             dropped: r.get("dropped"),
+            verdict: r
+                .get::<Option<String>, _>("verdict_json")
+                .and_then(|s| serde_json::from_str(&s).ok()),
         });
     }
     Ok(out)
@@ -656,6 +665,41 @@ mod tests {
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();
         assert_eq!(p.criteria, back.criteria);
+    }
+
+    #[tokio::test]
+    async fn get_and_list_carry_verdict_json() {
+        let db = test_db().await;
+        let id = seed_pending(&db).await;
+        // 기본은 verdict 없음.
+        assert!(get(&db, &id).await.unwrap().unwrap().verdict.is_none());
+
+        // finalize 훅이 쓸 것과 동일한 JSON을 직접 주입(Task 3의 set_verdict 의존 회피).
+        let vjson = r#"{"passed":false,"criteria":[{"metric":"p95_ms","direction":"max","threshold":300.0,"actual":420.0,"passed":false}]}"#;
+        sqlx::query("UPDATE runs SET verdict_json = ? WHERE id = ?")
+            .bind(vjson)
+            .bind(&id)
+            .execute(&db)
+            .await
+            .unwrap();
+
+        let got = get(&db, &id).await.unwrap().unwrap();
+        let v = got.verdict.as_ref().expect("verdict parsed");
+        assert!(!v.passed);
+        assert_eq!(v.criteria[0].metric, "p95_ms");
+        assert_eq!(v.criteria[0].actual, 420.0);
+
+        // list 경로도 동일하게 싣는다.
+        let listed = list_by_scenario(&db, &got.scenario_id).await.unwrap();
+        assert!(!listed[0].verdict.as_ref().unwrap().passed);
+
+        // 손상 JSON → None(관대, 목록 안 깨짐).
+        sqlx::query("UPDATE runs SET verdict_json = 'not json' WHERE id = ?")
+            .bind(&id)
+            .execute(&db)
+            .await
+            .unwrap();
+        assert!(get(&db, &id).await.unwrap().unwrap().verdict.is_none());
     }
 
     #[test]
