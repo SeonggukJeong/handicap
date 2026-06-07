@@ -363,6 +363,22 @@ impl CoordinatorState {
                     Some(crate::store::now_ms()),
                 )
                 .await;
+                // 목록/타임라인 배지용 verdict 영속(forward-only 캐시). on-demand /report
+                // verdict와 동일 — 같은 evaluate_criteria를 동일한 완료-후 불변 메트릭에 적용.
+                // fail-soft: 리포트 빌드 실패는 finalize를 막지 않는다(run은 이미 Completed) —
+                // warn! + skip(배지가 NULL로 남을 뿐, run은 Completed).
+                match crate::api::runs::build_report_for_run(&self.db, run_id).await {
+                    Ok(report) => {
+                        if let Some(verdict) = &report.verdict {
+                            if let Err(e) = runs::set_verdict(&self.db, run_id, verdict).await {
+                                warn!(%run_id, error = %e, "failed to persist verdict badge");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(%run_id, error = %e, "verdict badge skipped: report build failed");
+                    }
+                }
                 self.cleanup_dispatcher(run_id).await;
             }
             Finalize::Aborted => {
@@ -968,6 +984,93 @@ mod tests {
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
             RunStatus::Completed
         );
+    }
+
+    /// criteria가 있는 run을 seed(메트릭 없음 → p95=0 <= 큰 임계 → verdict passed=true).
+    async fn seed_run_with_criteria(db: &Db) -> String {
+        let scenario_yaml = "version: 1\nname: t\nsteps: []\n";
+        let sc: handicap_engine::Scenario = serde_yaml::from_str(scenario_yaml).unwrap();
+        let scenario = crate::store::scenarios::insert(db, &sc, scenario_yaml)
+            .await
+            .unwrap();
+        let criteria = runs::Criteria {
+            max_p95_ms: Some(100_000),
+            ..Default::default()
+        };
+        let profile = runs::Profile {
+            vus: 4,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            criteria: Some(criteria),
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+        };
+        runs::insert(
+            db,
+            &scenario.id,
+            scenario_yaml,
+            &profile,
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn finalize_completed_persists_verdict_for_criteria_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run_with_criteria(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        let v = row.verdict.expect("verdict persisted at finalize");
+        assert!(v.passed, "no metrics → p95=0 <= 100000 → passed");
+        assert_eq!(v.criteria.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn finalize_completed_no_criteria_leaves_verdict_null() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await; // criteria: None
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Completed);
+        assert!(row.verdict.is_none(), "no criteria → verdict NULL");
+    }
+
+    #[tokio::test]
+    async fn finalize_failed_does_not_persist_verdict() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run_with_criteria(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert!(row.verdict.is_none(), "Failed run never gets a verdict");
     }
 
     fn base_assignment() -> PendingAssignment {

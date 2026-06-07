@@ -343,6 +343,18 @@ pub async fn dataset_in_use(db: &Db, dataset_id: &str) -> sqlx::Result<bool> {
     Ok(false)
 }
 
+/// 완료 run의 SLO verdict를 영속(목록/타임라인 배지용 forward-only 캐시).
+/// finalization에서 1회 호출. 사라진 run이면 rows_affected==0 무해.
+pub async fn set_verdict(db: &Db, id: &str, verdict: &crate::report::Verdict) -> sqlx::Result<()> {
+    let json = serde_json::to_string(verdict).expect("serialize verdict");
+    sqlx::query("UPDATE runs SET verdict_json = ? WHERE id = ?")
+        .bind(json)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 /// Mark any run currently in `pending` or `running` as `failed` with a
 /// message. Called on controller startup to recover from crash.
 pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
