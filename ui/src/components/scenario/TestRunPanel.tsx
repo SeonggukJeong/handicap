@@ -195,7 +195,11 @@ function HttpRow({ step }: { step: StepTrace }) {
         {chip(req?.method ?? "—", "bg-slate-800 text-white")}
         <span className="font-mono text-xs break-all">{req?.url ?? "(no request)"}</span>
         {resp && chip(String(resp.status), statusClass(resp.status, step.error))}
-        {resp && <span className="text-xs text-slate-500">{resp.latency_ms}ms</span>}
+        {resp && (
+          <span className="text-xs text-slate-500">
+            TTFB {resp.latency_ms}ms / 다운로드 {resp.download_ms ?? "—"}ms
+          </span>
+        )}
         {extracted.map(([k, v]) => chip(`${k}=${v}`, "bg-indigo-100 text-indigo-800"))}
       </button>
       {step.error && <div className="mt-1 text-xs text-red-700">{step.error}</div>}

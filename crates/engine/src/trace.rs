@@ -45,6 +45,7 @@ pub struct TracedRequest {
 pub struct TracedResponse {
     pub status: u16,
     pub latency_ms: u64,
+    pub download_ms: Option<u64>,
     pub headers: BTreeMap<String, String>,
     pub set_cookies: Vec<String>,
     pub body: String,
@@ -366,6 +367,7 @@ mod tests {
                 response: Some(TracedResponse {
                     status: 200,
                     latency_ms: 3,
+                    download_ms: None,
                     headers: BTreeMap::new(),
                     set_cookies: vec![],
                     body: "ok".into(),

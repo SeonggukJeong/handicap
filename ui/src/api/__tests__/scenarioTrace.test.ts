@@ -33,6 +33,7 @@ const SAMPLE = {
       response: {
         status: 201,
         latency_ms: 3,
+        download_ms: 2,
         headers: { "x-trace": "yes" },
         set_cookies: ["sid=1"],
         body: "pong",

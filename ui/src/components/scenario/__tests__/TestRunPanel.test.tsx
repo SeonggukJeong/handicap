@@ -32,6 +32,7 @@ const TRACE: ScenarioTrace = {
       response: {
         status: 500,
         latency_ms: 9,
+        download_ms: 3,
         headers: {},
         set_cookies: [],
         body: "boom",
@@ -63,6 +64,13 @@ describe("TestRunPanel", () => {
     expect(screen.getByText(/id=42/)).toBeInTheDocument();
     // step error
     expect(screen.getByText(/status 500 != 200/)).toBeInTheDocument();
+  });
+
+  it("shows TTFB and download_ms on the http response row", () => {
+    render(<TestRunPanel trace={TRACE} />);
+    // The http row (status 500, latency_ms 9, download_ms 3) should show TTFB and download
+    expect(screen.getByText(/TTFB 9ms/)).toBeInTheDocument();
+    expect(screen.getByText(/다운로드 3ms/)).toBeInTheDocument();
   });
 
   it("shows an ok summary when the trace succeeded and is not truncated", () => {
@@ -129,6 +137,7 @@ describe("TestRunPanel", () => {
           response: {
             status: 200,
             latency_ms: 1,
+            download_ms: 1,
             headers: {},
             set_cookies: [],
             body_truncated: false,

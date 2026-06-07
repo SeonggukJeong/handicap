@@ -397,6 +397,7 @@ export type TracedRequest = z.infer<typeof TracedRequestSchema>;
 export const TracedResponseSchema = z.object({
   status: z.number().int(),
   latency_ms: z.number().int(),
+  download_ms: z.number().int().nullable(),
   headers: z.record(z.string(), z.string()),
   set_cookies: z.array(z.string()),
   body: z.string(),

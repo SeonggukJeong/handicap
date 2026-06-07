@@ -403,6 +403,7 @@ pub async fn execute_step_traced(
         .iter()
         .filter_map(|v| v.to_str().ok().map(String::from))
         .collect();
+    let dl_start = std::time::Instant::now();
     let body_bytes = match resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
@@ -411,6 +412,7 @@ pub async fn execute_step_traced(
                 response: Some(TracedResponse {
                     status,
                     latency_ms,
+                    download_ms: None,
                     headers: resp_headers.iter().cloned().collect(),
                     set_cookies,
                     body: String::new(),
@@ -422,6 +424,7 @@ pub async fn execute_step_traced(
             };
         }
     };
+    let download_ms = Some(dl_start.elapsed().as_millis().min(u64::MAX as u128) as u64);
 
     let full_len = body_bytes.len();
     let body_truncated = full_len > MAX_TRACE_BODY_BYTES;
@@ -460,6 +463,7 @@ pub async fn execute_step_traced(
         response: Some(TracedResponse {
             status,
             latency_ms,
+            download_ms,
             headers: resp_headers.into_iter().collect(),
             set_cookies,
             body,
@@ -790,6 +794,10 @@ mod tests {
         assert!(!resp.body_truncated);
         assert_eq!(resp.headers.get("x-trace").map(String::as_str), Some("yes"));
         assert!(t.error.is_none(), "{:?}", t.error);
+        assert!(
+            resp.download_ms.is_some(),
+            "trace records download phase on success"
+        );
     }
 
     #[tokio::test]
