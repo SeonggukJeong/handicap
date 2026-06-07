@@ -349,6 +349,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         }
     }
 

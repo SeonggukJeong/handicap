@@ -1010,6 +1010,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         runs::insert(
             db,
@@ -1087,6 +1088,7 @@ mod tests {
                 target_rps: None,
                 max_in_flight: None,
                 stages: vec![],
+                measure_phases: false,
             },
             env: HashMap::new(),
             data_binding: None,
@@ -1113,6 +1115,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         let row = runs::insert(
             db,
@@ -1358,6 +1361,7 @@ mod tests {
             loop_stats: vec![],
             branch_stats: vec![],
             group_stats: vec![],
+            phase_stats: vec![],
             dropped: d,
         };
         ingest_metrics(&coord, &mk(3)).await;
@@ -1395,6 +1399,7 @@ mod tests {
                 hdr_histogram: blob,
                 count: 1,
             }],
+            phase_stats: vec![],
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;

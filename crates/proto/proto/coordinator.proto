@@ -48,6 +48,13 @@ message GroupStat {
   uint64 count = 3;          // page-load samples in this delta
 }
 
+message PhaseStat {
+  string step_id = 1;
+  string phase = 2;          // v1: "download" only (room for dns/tcp/tls/total later)
+  bytes hdr_histogram = 3;   // hdrhistogram V2 serialized (delta since last drain)
+  uint64 count = 4;
+}
+
 message MetricBatch {
   string run_id = 1;
   string worker_id = 2;
@@ -56,6 +63,7 @@ message MetricBatch {
   repeated BranchStat branch_stats = 5;
   uint64 dropped = 6;                  // open-loop arrivals dropped (run-total carried on final flush)
   repeated GroupStat group_stats = 7;  // parallel 페이지-로드 레이턴시 (delta, controller merges)
+  repeated PhaseStat phase_stats = 8;  // per-(step_id,phase) latency-phase breakdown (delta, controller merges)
 }
 
 message MetricWindow {
@@ -124,6 +132,7 @@ message Profile {
   optional uint32 target_rps = 8;      // present → open-loop arrival rate
   optional uint32 max_in_flight = 9;   // present → open-loop slot-pool size
   repeated Stage stages = 10;          // S-D open-loop rate curve; empty = absent (fixed rate)
+  bool measure_phases = 11;            // opt-in latency-phase breakdown (TTFB+download)
 }
 
 message AbortRun {

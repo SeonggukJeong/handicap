@@ -13,7 +13,9 @@ use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, RunStatus, WorkerMessage};
+use pb::{
+    BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, PhaseStat, RunStatus, WorkerMessage,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
@@ -222,8 +224,7 @@ async fn main() -> anyhow::Result<()> {
                     .collect(),
             )
         },
-        // Placeholder: wired to profile.measure_phases in Task 3 (proto field 11).
-        measure_phases: false,
+        measure_phases: profile.measure_phases,
     };
     info!(
         vus = plan.vus,
@@ -290,6 +291,19 @@ async fn main() -> anyhow::Result<()> {
                     })
                 })
                 .collect();
+            let phase_stats: Vec<PhaseStat> = flush
+                .phase_stats
+                .into_iter()
+                .filter_map(|p| {
+                    let hdr = p.serialize_histogram().ok()?;
+                    Some(PhaseStat {
+                        step_id: p.step_id,
+                        phase: p.phase,
+                        hdr_histogram: hdr,
+                        count: p.count,
+                    })
+                })
+                .collect();
             // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
             // run-total dropped count with empty windows. Dropping it would silently
             // discard `dropped` on all-empty-window final flushes (the C1 footgun).
@@ -297,6 +311,7 @@ async fn main() -> anyhow::Result<()> {
                 && loop_stats.is_empty()
                 && branch_stats.is_empty()
                 && group_stats.is_empty()
+                && phase_stats.is_empty()
                 && flush.dropped == 0
             {
                 continue;
@@ -309,6 +324,7 @@ async fn main() -> anyhow::Result<()> {
                     loop_stats,
                     branch_stats,
                     group_stats,
+                    phase_stats,
                     dropped: flush.dropped,
                 })),
             };

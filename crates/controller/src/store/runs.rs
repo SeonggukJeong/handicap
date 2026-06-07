@@ -114,6 +114,8 @@ pub struct Profile {
     pub max_in_flight: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stages: Option<Vec<handicap_engine::Stage>>,
+    #[serde(default)]
+    pub measure_phases: bool,
 }
 
 impl Profile {
@@ -419,6 +421,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -466,6 +469,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -673,6 +677,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

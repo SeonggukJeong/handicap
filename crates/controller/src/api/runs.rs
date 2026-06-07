@@ -333,6 +333,7 @@ pub(crate) async fn spawn_run(
                     duration_seconds: s.duration_seconds,
                 })
                 .collect(),
+            measure_phases: profile.measure_phases,
         },
         env: env.clone(),
         data_binding,
@@ -690,6 +691,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         }
     }
 
@@ -857,6 +859,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -901,6 +904,7 @@ mod tests {
             target_rps: None,
             max_in_flight: None,
             stages: None,
+            measure_phases: false,
         }
     }
 
@@ -948,6 +952,7 @@ mod tests {
             target_rps: Some(100),
             max_in_flight: Some(16),
             stages: None,
+            measure_phases: false,
         }
     }
 
