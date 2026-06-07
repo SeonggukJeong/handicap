@@ -314,3 +314,22 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
     expect(await screen.findByText(/최대 50개까지 선택할 수 있습니다/)).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 6: VerdictBadge 배지 표시
+// ---------------------------------------------------------------------------
+
+describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
+  it("renders PASS badge for a run with passed verdict and — for a run without verdict", async () => {
+    const runWithVerdict = makeRun("V1", "completed", 100);
+    (runWithVerdict as Record<string, unknown>).verdict = { passed: true, criteria: [] };
+    const runWithoutVerdict = makeRun("V2", "completed", 200);
+    mockApiRuns([runWithVerdict, runWithoutVerdict]);
+    renderPageWithCompare();
+
+    await screen.findByLabelText("select run V1");
+    expect(screen.getByText("PASS")).toBeInTheDocument();
+    // The run without verdict renders the em-dash placeholder
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+});

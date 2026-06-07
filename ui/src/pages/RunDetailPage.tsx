@@ -11,6 +11,7 @@ import {
 } from "../api/hooks";
 import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
 import { StatusBadge } from "../components/StatusBadge";
+import { VerdictBadge } from "../components/VerdictBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
@@ -98,6 +99,7 @@ export function RunDetailPage() {
           <h2 className="text-xl font-semibold flex items-center gap-3">
             Run <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
             <StatusBadge status={r.status} />
+            <VerdictBadge verdict={report.data?.verdict} />
           </h2>
           <p className="text-sm text-slate-600">
             <Link to={`/scenarios/${r.scenario_id}/runs`} className="hover:underline">

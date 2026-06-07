@@ -12,6 +12,7 @@ import {
 import { Button } from "../components/Button";
 import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
+import { VerdictBadge } from "../components/VerdictBadge";
 import { isLoopStep } from "../scenario/model";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 
@@ -225,6 +226,7 @@ export function ScenarioRunsPage() {
                   <tr>
                     <th className="py-2 pr-2 font-medium">비교</th>
                     <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">결과</th>
                     <th className="py-2 pr-4 font-medium">VUs</th>
                     <th className="py-2 pr-4 font-medium">Duration</th>
                     <th className="py-2 pr-4 font-medium">Created</th>
@@ -248,6 +250,9 @@ export function ScenarioRunsPage() {
                         </td>
                         <td className="py-3 pr-4">
                           <StatusBadge status={r.status} />
+                        </td>
+                        <td className="py-3 pr-4">
+                          <VerdictBadge verdict={r.verdict} />
                         </td>
                         <td className="py-3 pr-4">{r.profile.vus}</td>
                         <td className="py-3 pr-4">{profileDurationSeconds(r.profile)}s</td>

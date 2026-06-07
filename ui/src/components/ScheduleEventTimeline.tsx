@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useScheduleEvents } from "../api/hooks";
+import { VerdictBadge } from "./VerdictBadge";
 
 const KIND_STYLE: Record<string, string> = {
   fired: "bg-green-100 text-green-800",
@@ -42,6 +43,7 @@ export function ScheduleEventTimeline({ scheduleId }: Props) {
                   리포트 →
                 </Link>
               )}
+              {e.run_id && <VerdictBadge verdict={e.verdict} />}
               {e.detail && <span className="text-slate-600">{e.detail}</span>}
             </li>
           ))}
