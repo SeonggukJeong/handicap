@@ -64,6 +64,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_runs_dropped(&pool).await?; // migration 0009 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0010).execute(&pool).await?; // migration 0010: run_group_metrics
     sqlx::query(MIGRATION_SQL_0011).execute(&pool).await?; // migration 0011: schedules + schedule_events
+    ensure_runs_verdict_json(&pool).await?; // migration 0012 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -144,6 +145,23 @@ async fn ensure_runs_dropped(db: &Db) -> anyhow::Result<()> {
             .await?;
     if has == 0 {
         sqlx::query("ALTER TABLE runs ADD COLUMN dropped INTEGER NOT NULL DEFAULT 0")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// migration 0012: runs.verdict_json (nullable). A4a SLO verdict를 완료 시점에
+/// 영속화해 목록/타임라인 배지에 쓴다. dropped(0009) 가드와 동형 — ADD COLUMN은
+/// SQLite에서 멱등이 아니므로 pragma로 가드. 별도 .sql 파일 없음.
+async fn ensure_runs_verdict_json(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'verdict_json'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE runs ADD COLUMN verdict_json TEXT")
             .execute(db)
             .await?;
     }
@@ -318,6 +336,96 @@ mod tests {
         assert_eq!(
             has, 1,
             "connect() must apply migration 0009 (dropped column)"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_applies_runs_verdict_json_migration() {
+        let pool = connect("sqlite::memory:").await.expect("connect");
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'verdict_json'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            has, 1,
+            "connect() must apply migration 0012 (verdict_json column)"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_runs_verdict_json_is_idempotent() {
+        // Build a pool with the OLD schema (no `verdict_json` column), mirroring
+        // `runs_dropped_column_guard_is_idempotent` — so the FIRST guard call exercises
+        // the real `ALTER TABLE` branch and the second exercises the no-op branch.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0001)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Seed scenario + run so we can assert the existing row is preserved.
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S1")
+        .bind("n")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R1")
+        .bind("S1")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind("{}")
+        .bind("{}")
+        .bind("completed")
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // First call: adds the `verdict_json` column.
+        ensure_runs_verdict_json(&pool).await.expect("first call");
+        // Second call: no-op (idempotent).
+        ensure_runs_verdict_json(&pool)
+            .await
+            .expect("idempotent second call");
+
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'verdict_json'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "guard must not duplicate the column");
+
+        // Existing row gets NULL (nullable ADD COLUMN, no DEFAULT) — verdict is
+        // forward-only, pre-feature runs stay NULL.
+        let verdict: Option<String> =
+            sqlx::query_scalar("SELECT verdict_json FROM runs WHERE id='R1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            verdict.is_none(),
+            "existing run row must get NULL verdict_json"
         );
     }
 
