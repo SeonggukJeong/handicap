@@ -54,6 +54,8 @@ pub struct ScheduleEventRow {
     pub kind: String,
     pub run_id: Option<String>,
     pub detail: Option<String>,
+    /// 이 이벤트가 발사한 run의 verdict(read-time JOIN, fired·완료 run만 non-null).
+    pub verdict: Option<crate::report::Verdict>,
 }
 
 fn trigger_columns(t: &Trigger) -> (String, Option<String>, Option<i64>) {
@@ -294,9 +296,18 @@ pub async fn recent_events(
     schedule_id: &str,
     limit: i64,
 ) -> sqlx::Result<Vec<ScheduleEventRow>> {
+    // sqlx 동적 Row API는 컬럼명(단축형)으로 `.get()` 키를 참조한다. LEFT JOIN 후
+    // schedule_events.id 와 runs.id 가 둘 다 "id" 로 노출돼 충돌하므로 schedule_events
+    // 컬럼 전체에 ev_* 별칭을 붙인다(qualified 이름으로 "단순화"하면 키는 여전히 단축형
+    // "id" 라 런타임에 잘못된 컬럼을 읽는다 — 별칭 유지 필수). verdict_json 은
+    // schedule_events 에 없어 충돌 없음.
     let rows = sqlx::query(
-        "SELECT id,schedule_id,at,kind,run_id,detail FROM schedule_events \
-         WHERE schedule_id = ? ORDER BY at DESC LIMIT ?",
+        "SELECT schedule_events.id AS ev_id, schedule_events.schedule_id AS ev_schedule_id, \
+                schedule_events.at AS ev_at, schedule_events.kind AS ev_kind, \
+                schedule_events.run_id AS ev_run_id, schedule_events.detail AS ev_detail, \
+                r.verdict_json AS verdict_json \
+         FROM schedule_events LEFT JOIN runs r ON r.id = schedule_events.run_id \
+         WHERE schedule_events.schedule_id = ? ORDER BY schedule_events.at DESC LIMIT ?",
     )
     .bind(schedule_id)
     .bind(limit)
@@ -305,12 +316,15 @@ pub async fn recent_events(
     Ok(rows
         .iter()
         .map(|r| ScheduleEventRow {
-            id: r.get("id"),
-            schedule_id: r.get("schedule_id"),
-            at: r.get("at"),
-            kind: r.get("kind"),
-            run_id: r.get("run_id"),
-            detail: r.get("detail"),
+            id: r.get("ev_id"),
+            schedule_id: r.get("ev_schedule_id"),
+            at: r.get("ev_at"),
+            kind: r.get("ev_kind"),
+            run_id: r.get("ev_run_id"),
+            detail: r.get("ev_detail"),
+            verdict: r
+                .get::<Option<String>, _>("verdict_json")
+                .and_then(|s| serde_json::from_str(&s).ok()),
         })
         .collect())
 }
@@ -562,6 +576,67 @@ mod tests {
         );
         assert_eq!(g.last_status.as_deref(), Some("skipped_overlap"));
         assert_eq!(g.last_error.as_deref(), Some("busy"));
+    }
+
+    #[tokio::test]
+    async fn recent_events_resolves_run_verdict() {
+        use crate::store::runs;
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sid = seed_scenario(&db).await;
+        let env: BTreeMap<String, String> = BTreeMap::new();
+        let sched = insert(
+            &db,
+            "s",
+            &sid,
+            &profile(),
+            &env,
+            &Trigger::Cron {
+                expr: "0 2 * * *".into(),
+            },
+            true,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // 완료 run + verdict.
+        let run = runs::insert(
+            &db,
+            &sid,
+            "version: 1\nname: t\nsteps: []\n",
+            &profile(),
+            &serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+        let v = crate::report::Verdict {
+            passed: true,
+            criteria: vec![crate::report::CriterionResult {
+                metric: "p95_ms".into(),
+                direction: "max".into(),
+                threshold: 300.0,
+                actual: 120.0,
+                passed: true,
+            }],
+        };
+        runs::set_verdict(&db, &run.id, &v).await.unwrap();
+
+        insert_event(&db, &sched.id, 1, "fired", Some(run.id.as_str()), None)
+            .await
+            .unwrap();
+        insert_event(&db, &sched.id, 2, "skipped_overlap", None, Some("overlap"))
+            .await
+            .unwrap();
+
+        let evs = recent_events(&db, &sched.id, 100).await.unwrap();
+        // at DESC 정렬 → skipped(2) 먼저, fired(1) 다음.
+        let fired = evs.iter().find(|e| e.kind == "fired").unwrap();
+        assert!(
+            fired.verdict.as_ref().unwrap().passed,
+            "fired run verdict resolved"
+        );
+        let skipped = evs.iter().find(|e| e.kind == "skipped_overlap").unwrap();
+        assert!(skipped.verdict.is_none(), "no run_id → no verdict");
     }
 
     #[tokio::test]

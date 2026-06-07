@@ -107,6 +107,7 @@ pub struct EventResponse {
     pub kind: String,
     pub run_id: Option<String>,
     pub detail: Option<String>,
+    pub verdict: Option<crate::report::Verdict>,
 }
 
 #[derive(Debug, Serialize)]
@@ -286,6 +287,7 @@ pub async fn events(
             kind: e.kind,
             run_id: e.run_id,
             detail: e.detail,
+            verdict: e.verdict,
         })
         .collect();
     Ok(Json(EventsResponse { events }))
