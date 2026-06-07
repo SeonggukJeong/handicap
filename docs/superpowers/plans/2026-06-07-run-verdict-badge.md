@@ -18,7 +18,8 @@
 - **커밋 전 warm build**: `cargo build -p handicap-worker --bin worker && cargo build --workspace` (cold-build e2e flake 회피). 그 다음 `git commit`을 **foreground 단일 호출**(파이프 금지 — exit code 마스킹). 커밋 후 `git log -1 --oneline`로 landed 확인.
 - **TDD guard**: 이 계획이 만지는 Rust src 파일(`store/mod.rs`/`store/runs.rs`/`report.rs`/`api/runs.rs`/`grpc/coordinator.rs`/`store/schedules.rs`/`api/schedules.rs`)은 전부 디스크에 인라인 `#[cfg(test)] mod tests`가 이미 있어 편집이 자동 통과한다. UI는 각 task가 먼저 `*.test.tsx`를 만든다(self-unblock).
 - **UI task 커밋 전**: `cd ui && pnpm lint && pnpm test && pnpm build`(`tsc -b`까지) — `.nullish()` 누출·exhaustive-deps는 `tsc -b`/lint에서만 잡힌다.
-- **타입 위치**: `Verdict`/`CriterionResult`는 `crate::report`에 정의됨(`report.rs:127`), `Serialize+Deserialize+PartialEq` 파생.
+- **타입 위치**: `Verdict`/`CriterionResult`는 `crate::report`에 정의됨(`report.rs:127`/`:133`), 현재 `Serialize+Deserialize+PartialEq` 파생 — **T2 Step 5a에서 `Clone` 추가**(T4의 `ScheduleEventRow #[derive(Clone)]`가 요구).
+- **clippy `-D warnings`**: 테스트 코드(`--all-targets`)도 린트된다 — `let mut x = Default::default(); x.f = …`는 `field_reassign_with_default`로 거부(구조체-업데이트 `..Default::default()` 사용); `Some(&string)`을 `Option<&str>` 파라미터에 넘기지 말 것(`.as_str()`).
 
 ---
 
@@ -203,9 +204,16 @@ Expected: 컴파일 에러(`RunRow`에 `verdict` 필드 없음).
 
 (c) `list_by_scenario`(line 213) SELECT에도 `verdict_json` 추가(동일하게 `…,dropped,verdict_json`), 매핑(line 227 `out.push(RunRow { … })`)의 `dropped: r.get("dropped"),` 다음 동일한 `verdict: r.get::<Option<String>,_>("verdict_json").and_then(|s| serde_json::from_str(&s).ok()),` 추가.
 
-- [ ] **Step 5: `report.rs` 테스트 픽스처 리터럴 갱신**
+- [ ] **Step 5: `report.rs` — `Verdict`/`CriterionResult`에 `Clone` 파생 + 테스트 픽스처 리터럴 갱신**
 
-`crates/controller/src/report.rs`의 `run_row()` 헬퍼(약 line 564)의 `RunRow { … }` 리터럴에 `dropped: 0,`(또는 마지막 필드) 다음 `verdict: None,` 추가(컴파일러가 missing field로 잡는다).
+(a) **`Clone` 파생 추가 (CRITICAL — Task 4의 `ScheduleEventRow`가 `#[derive(Clone)]`이라 필드 `Option<Verdict>`도 `Clone` 필요).** `crates/controller/src/report.rs`에서:
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]  // line 127: pub struct Verdict
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]  // line 133: pub struct CriterionResult
+```
+(둘 다 평범한 데이터 struct라 안전 — 기존 `.clone()` 호출 사이트 없음. T4보다 먼저 들어가야 T4가 컴파일된다.)
+
+(b) `run_row()` 헬퍼(약 line 564)의 `RunRow { … }` 리터럴에 `dropped: 0,`(또는 마지막 필드) 다음 `verdict: None,` 추가(컴파일러가 missing field로 잡는다).
 
 - [ ] **Step 6: `RunResponse` + `to_response` 갱신**
 
@@ -257,8 +265,12 @@ git log -1 --oneline
         let scenario = crate::store::scenarios::insert(db, &sc, scenario_yaml)
             .await
             .unwrap();
-        let mut criteria = crate::store::runs::Criteria::default();
-        criteria.max_p95_ms = Some(100_000);
+        // 구조체-업데이트 구문(field-reassign-with-default clippy lint 회피 — pre-commit
+        // 의 clippy -D warnings가 `let mut x = default(); x.f = …`를 거부한다).
+        let criteria = crate::store::runs::Criteria {
+            max_p95_ms: Some(100_000),
+            ..Default::default()
+        };
         let profile = runs::Profile {
             vus: 4,
             ramp_up_seconds: 0,
@@ -439,7 +451,8 @@ fired 이벤트의 run verdict를 read-time JOIN으로 해석.
         };
         runs::set_verdict(&db, &run.id, &v).await.unwrap();
 
-        insert_event(&db, &sched.id, 1, "fired", Some(&run.id), None).await.unwrap();
+        // insert_event의 run_id는 Option<&str> — Some(&run.id)는 Option<&String>이라 타입 불일치.
+        insert_event(&db, &sched.id, 1, "fired", Some(run.id.as_str()), None).await.unwrap();
         insert_event(&db, &sched.id, 2, "skipped_overlap", None, Some("overlap")).await.unwrap();
 
         let evs = recent_events(&db, &sched.id, 100).await.unwrap();
@@ -522,7 +535,7 @@ git log -1 --oneline
 
 - [ ] **Step 1: 파싱 테스트 작성 (RED)**
 
-`ui/src/api/__tests__/schemas.test.ts`에 추가(없으면 새 파일, `import { describe, it, expect } from "vitest"` + `import { RunSchema, ScheduleEventSchema } from "../schemas"`):
+`ui/src/api/__tests__/schemas.test.ts`는 **이미 존재**하며 `RunSchema`/`VerdictSchema`를 import한다(line 2–10). **새 import 줄을 추가하지 말고** 기존 import 블록에 `ScheduleEventSchema`만 합칠 것(중복 import는 `no-duplicate-imports` lint·TS 재선언 에러). 그 파일에 케이스 추가:
 
 ```ts
 describe("verdict wire", () => {
@@ -794,3 +807,4 @@ controller/worker/stub 종료, `/tmp/verdict-check.db` 삭제, `rm -rf .playwrig
 - **타입 일관성**: `Verdict`/`CriterionResult`(report.rs), `set_verdict`(runs.rs, T3 정의·T4 사용), `VerdictBadge`(T6 정의), `verdict` 필드명 전 레이어 동일. `RunRow.verdict`/`RunResponse.verdict`/`ScheduleEventRow.verdict`/`EventResponse.verdict` 명칭 일치.
 - **커밋 경계**: 각 task가 dead-code/RED 단독 없이 green 커밋(T2는 raw-SQL로 set_verdict 의존 회피, T3에서 set_verdict가 코디네이터 caller 확보).
 - **알려진 함정 반영**: migration 배선 순서(0011 뒤), JOIN 컬럼 자격, RunRow 리터럴 2곳(insert+report.rs fixture), VerdictSchema 선언 위치 이동(const 비호이스팅), `.nullish()`, 전체 pnpm test, warm build.
+- **plan-reviewer 반영(2026-06-07)**: `Verdict`/`CriterionResult`에 `Clone` 파생 추가(T2 Step 5a — T4 `ScheduleEventRow` Clone 요구); T3 criteria는 struct-update(`field_reassign_with_default` 회피); T4 `Some(run.id.as_str())`(Option<&str>); T5는 기존 import에 `ScheduleEventSchema` 합치기(중복 import 금지).
