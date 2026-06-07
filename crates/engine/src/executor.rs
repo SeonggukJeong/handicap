@@ -43,6 +43,10 @@ pub struct ExecOutcome {
     pub step_id: String,
     pub status: u16,
     pub latency: Duration,
+    /// Body-download time (headers-received → body-complete). `Some` only on the
+    /// success path (`bytes().await` reached); `None` on transport failure. TTFB is
+    /// `latency` (measured at `send().await`, before body). Phase-breakdown (B7-C).
+    pub download: Option<Duration>,
     pub error: Option<String>,
     pub extracted: BTreeMap<String, String>,
 }
@@ -170,6 +174,7 @@ pub async fn execute_step(
                 .iter()
                 .filter_map(|v| v.to_str().ok().map(String::from))
                 .collect();
+            let dl_start = Instant::now();
             let body_bytes = match resp.bytes().await {
                 Ok(b) => b,
                 Err(e) => {
@@ -177,11 +182,13 @@ pub async fn execute_step(
                         step_id: step.id.clone(),
                         status,
                         latency,
+                        download: None, // body read failed → no clean download sample
                         error: Some(format!("read body: {e}")),
                         extracted: BTreeMap::new(),
                     });
                 }
             };
+            let download = Some(dl_start.elapsed());
 
             let mut error: Option<String> = None;
             for a in &step.assert {
@@ -212,6 +219,7 @@ pub async fn execute_step(
                 step_id: step.id.clone(),
                 status,
                 latency,
+                download,
                 error,
                 extracted,
             })
@@ -220,6 +228,7 @@ pub async fn execute_step(
             step_id: step.id.clone(),
             status: 0,
             latency,
+            download: None,
             error: Some(e.to_string()),
             extracted: BTreeMap::new(),
         }),
@@ -1157,6 +1166,82 @@ mod tests {
         let resp = t.response.expect("response captured");
         assert!(!resp.body_truncated, "17 KiB must fit under the 1 MiB cap");
         assert_eq!(resp.body.len(), 17 * 1024);
+    }
+
+    #[tokio::test]
+    async fn execute_step_measures_download_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/dl"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("x".repeat(2048)))
+            .mount(&server)
+            .await;
+        let step = HttpStep {
+            id: "01HX0000000000000000000041".into(),
+            name: "dl".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/dl", server.uri()),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+            think_time: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert_eq!(outcome.status, 200);
+        assert!(
+            outcome.download.is_some(),
+            "download phase measured on success"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_step_no_download_on_connection_error() {
+        let step = HttpStep {
+            id: "01HX0000000000000000000042".into(),
+            name: "down".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: "http://127.0.0.1:1/nope".into(), // refused fast — never reaches body
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+            think_time: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        assert_eq!(outcome.status, 0);
+        assert!(
+            outcome.download.is_none(),
+            "no download phase on transport failure"
+        );
     }
 
     #[tokio::test]

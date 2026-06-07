@@ -57,6 +57,28 @@ impl GroupStat {
     }
 }
 
+/// A per-(step_id, phase) latency delta since the last drain. HDR (not counts) —
+/// merged by the controller via `Histogram::add` (like `GroupStat`). v1 only ever
+/// records phase = "download" (response-body download time); the `phase` key leaves
+/// room for DNS/TCP/TLS/total later with no schema change (spec §4.2).
+#[derive(Debug)]
+pub struct PhaseStat {
+    pub step_id: String,
+    pub phase: String,
+    pub histogram: Histogram<u64>,
+    pub count: u64,
+}
+
+impl PhaseStat {
+    pub fn serialize_histogram(&self) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut ser = V2Serializer::new();
+        ser.serialize(&self.histogram, &mut buf)
+            .map_err(|e| EngineError::Histogram(e.to_string()))?;
+        Ok(buf)
+    }
+}
+
 /// One 1-second bucket of metrics for one step.
 #[derive(Debug)]
 pub struct StepWindow {
@@ -112,6 +134,8 @@ pub struct Aggregator {
     branch_counts: HashMap<(String, String), u64>,
     /// per-parallel-node accumulating page-load latency + sample count (A2-2).
     group_hists: HashMap<String, (Histogram<u64>, u64)>,
+    /// per-(step_id, phase) accumulating latency-phase HDR + sample count (B7-C).
+    phase_hists: HashMap<(String, String), (Histogram<u64>, u64)>,
 }
 
 impl Aggregator {
@@ -122,6 +146,7 @@ impl Aggregator {
             loop_cap: loop_breakdown_cap,
             branch_counts: HashMap::new(),
             group_hists: HashMap::new(),
+            phase_hists: HashMap::new(),
         }
     }
 
@@ -214,6 +239,37 @@ impl Aggregator {
             .into_iter()
             .map(|(step_id, (histogram, count))| GroupStat {
                 step_id,
+                histogram,
+                count,
+            })
+            .collect()
+    }
+
+    /// Record one latency-phase sample (µs) for (step_id, phase). HDR-accumulating,
+    /// unconditional (no cap) — the caller (runner) gates on `measure_phases`.
+    pub fn record_phase(&mut self, step_id: &str, phase: &str, latency_us: u64) {
+        let v = latency_us.clamp(1, 60_000_000);
+        let e = self
+            .phase_hists
+            .entry((step_id.to_string(), phase.to_string()))
+            .or_insert_with(|| {
+                (
+                    Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).expect("valid bounds"),
+                    0,
+                )
+            });
+        let _ = e.0.record(v);
+        e.1 += 1;
+    }
+
+    /// Take and reset the accumulated per-(step_id, phase) histograms as deltas
+    /// (the controller merges them via Histogram::add). Histograms returned live.
+    pub fn drain_phase_deltas(&mut self) -> Vec<PhaseStat> {
+        std::mem::take(&mut self.phase_hists)
+            .into_iter()
+            .map(|((step_id, phase), (histogram, count))| PhaseStat {
+                step_id,
+                phase,
                 histogram,
                 count,
             })
@@ -399,5 +455,41 @@ mod tests {
         let g = a.drain_group_deltas().pop().expect("one group stat");
         let bytes = g.serialize_histogram().expect("serializes");
         assert!(!bytes.is_empty(), "group histogram bytes non-empty");
+    }
+
+    #[test]
+    fn record_phase_accumulates_and_drains_as_delta() {
+        let mut a = Aggregator::new(0); // cap irrelevant to phase latency
+        a.record_phase("s1", "download", 100_000); // 100 ms
+        a.record_phase("s1", "download", 300_000); // 300 ms
+        a.record_phase("s2", "download", 50_000);
+        let mut by: std::collections::HashMap<(String, String), (u64, u64)> = Default::default();
+        for p in a.drain_phase_deltas() {
+            by.insert(
+                (p.step_id.clone(), p.phase.clone()),
+                (p.count, p.histogram.max()),
+            );
+        }
+        assert_eq!(
+            by.get(&("s1".into(), "download".into())).map(|x| x.0),
+            Some(2)
+        );
+        assert_eq!(
+            by.get(&("s2".into(), "download".into())).map(|x| x.0),
+            Some(1)
+        );
+        assert!(by[&("s1".into(), "download".into())].1 >= 290_000);
+        assert!(
+            a.drain_phase_deltas().is_empty(),
+            "drain resets phase hists"
+        );
+    }
+
+    #[test]
+    fn phase_stat_serializes_histogram() {
+        let mut a = Aggregator::new(0);
+        a.record_phase("s1", "download", 12_345);
+        let p = a.drain_phase_deltas().pop().expect("one phase stat");
+        assert!(!p.serialize_histogram().expect("serializes").is_empty());
     }
 }
