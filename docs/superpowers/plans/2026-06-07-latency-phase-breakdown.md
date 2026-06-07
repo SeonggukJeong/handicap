@@ -138,6 +138,8 @@ impl PhaseStat {
     }
 ```
 
+선택(일관성): `crates/engine/src/lib.rs:15`의 `pub use aggregator::{Aggregator, BranchStat, GroupStat, LoopStat, StepWindow};`에 `PhaseStat` 추가(GroupStat 미러). `aggregator`가 이미 `pub mod`라 Task 2 테스트의 `handicap_engine::aggregator::PhaseStat` import는 이것 없이도 동작하지만, GroupStat과 노출 방식을 맞춘다.
+
 - [ ] **Step 4: aggregator 테스트 GREEN 확인**
 
 Run: `cargo test -p handicap-engine aggregator 2>&1 | tail -20`
@@ -576,7 +578,11 @@ message PhaseStat {
 - 빈-배치 송신가드(294-301행)에 `&& phase_stats.is_empty()` 추가.
 - `MetricBatch { … }` 리터럴(303-311행)에 `phase_stats,` 추가.
 
-> proto regen으로 `MetricBatch {}` / `pb::Profile {}` 리터럴이 컴파일러-강제된다. `grep -rn "MetricBatch {" crates/` + `grep -rn "Profile {" crates/ | grep -i proto`로 테스트 리터럴(coordinator 테스트 등)까지 `phase_stats: vec![]` / `measure_phases: false` 추가.
+> **(CRITICAL — 커밋 경계)** 이 task는 두 종류의 컴파일러-강제 리터럴을 모두 깬다:
+> 1. **store `runs::Profile.measure_phases`(non-Option)** → 모든 `Profile { … }` 리터럴(serde default는 *역직렬화*만, 리터럴은 강제). 영향 파일(이 task Files에 추가): `api/runs.rs`(~20곳, in-scope), `src/report.rs:569`, `src/schedule/runner.rs:265`, `src/grpc/coordinator.rs:1000/1079/1103`, `tests/crash_recovery_test.rs:28`, `tests/dispatcher_subprocess_test.rs:53`, `tests/report_test.rs:72`, `tests/export_routes_test.rs:64/197/272`, `crates/proto/tests/run_assignment_env_test.rs:14/58`(full Profile literal — `..Default::default()` 없음). 각각 `measure_phases: false,` 추가.
+> 2. **proto regen → `pb::MetricBatch {}` full 리터럴** → `src/grpc/coordinator.rs:1354/1387`에 `phase_stats: vec![],`. (worker `main.rs:489/496`은 `..Default::default()` spread라 안 깨짐 — SAFE.)
+>
+> 전수 audit: `grep -rn "Profile {" crates/ | grep -v "message Profile\|pub struct Profile\|fn "` 와 `grep -rn "MetricBatch {" crates/`. **이 task의 커밋은 `git add -A`(아래 `git status` 확인 후) — 영향 파일이 8+개 분산이라 명시 리스트는 누락 위험. landed 커밋이 컴파일돼야 하므로(pre-commit은 working dir, 게이트는 landed tree) 누락 0.**
 
 - [ ] **Step 5: GREEN 확인**
 
@@ -586,8 +592,9 @@ Run: `cargo test --workspace 2>&1 | tail -20` → PASS (cold-build flake면 warm
 - [ ] **Step 6: warm + 커밋**
 
 ```bash
-cargo build -p handicap-worker && cargo build --workspace
-git add crates/proto/proto/coordinator.proto crates/controller/src/store/runs.rs crates/controller/src/api/runs.rs crates/worker/src/main.rs
+cargo build -p handicap-worker && cargo build --workspace   # 0 errors 확인 (모든 강제 리터럴 갱신됨)
+git status   # 의도 파일만 — proto/store/api/worker + coordinator.rs + 위 테스트들
+git add -A
 git commit -m "feat(proto/worker): PhaseStat(MetricBatch.phase_stats=8) + Profile.measure_phases=11 + 워커 forward/wire"
 git log -1 --oneline
 ```
@@ -730,6 +737,8 @@ pub async fn phase_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<PhaseMet
     }
 ```
 
+선택(parity): group 경로엔 ingest 단위테스트 `ingest_stores_group_stats`(coordinator.rs:1374)가 있다. 시간 여유 시 `ingest_stores_phase_stats`(MetricBatch에 `phase_stats` 한 줄 → ingest → `phase_breakdown` 비어있지 않음)를 미러 추가. (필수는 e2e Task 8이 ingest 경로를 커버.)
+
 - [ ] **Step 7: GREEN 확인**
 
 Run: `cargo test -p handicap-controller phase_batch 2>&1 | tail` → PASS.
@@ -749,9 +758,10 @@ git log -1 --oneline
 ## Task 5: 컨트롤러 — build_report에 download 부착
 
 **Files:**
-- Modify: `crates/controller/src/report.rs` (ReportStep:87-96, build_report sig:304-311, steps build:446-465, group_acc:494-521, ReportJson literal:523-545, callers:640+)
+- Modify: `crates/controller/src/report.rs` (ReportStep:87-96, build_report sig:304-311, steps build:446-465, group_acc:494-521, ReportJson literal:523-545, callers — grep로 전수)
 - Modify: `crates/controller/src/api/runs.rs` (build_report_for_run:403-421)
 - Modify: `crates/controller/src/export.rs` (step() fixture:375-386)
+- Modify: `crates/controller/src/insights.rs` (ReportStep 테스트 픽스처 **2곳**: `step`:228, `step_err`:293 — `ReportStep.download` 추가가 강제)
 
 - [ ] **Step 1: build_report download 테스트 작성 (RED)** — `report.rs` 테스트 모듈에 추가 (group 테스트 `build_report_attaches_group_latency_without_polluting_summary` 패턴 차용; HDR blob은 헬퍼로 직렬화):
 
@@ -787,7 +797,7 @@ git log -1 --oneline
     }
 ```
 
-> 헬퍼(`run_row_completed`/`window_rows_for_step`/`hist_blob`)가 기존 테스트에 정확한 이름으로 없으면, 인접 group/loop 테스트가 쓰는 RunRow·`WindowWithHdr`·HDR 직렬화 패턴을 그대로 복제해 인라인으로 만든다(이 plan의 테스트는 그 패턴을 따른다).
+> 헬퍼는 기존 이름으로 **없다** — 실제 report.rs 테스트는 `run_row()`(이미 Completed 반환, :564)·`win(ts,step,count,errors,sc,samples)`·`make_hdr_bytes(&[…])`(:554/595)를 쓴다. 위 의사 헬퍼(`run_row_completed`/`window_rows_for_step`/`hist_blob`)를 그 실명으로 치환하거나 인접 group 테스트(`build_report_attaches_group_latency…` :1116) 패턴을 복제. 테스트 상단에 `use crate::store::metrics::PhaseMetricRow;`(group 테스트 :1117 미러) 필요.
 
 - [ ] **Step 2: RED 확인**
 
@@ -826,7 +836,7 @@ pub struct PhaseStats {
 ) -> ReportJson {
 ```
 
-group_acc 블록(498-521행) **뒤**에 phase 누적(download만 surface, phase-generic 유지):
+**배치(단일·명확)**: download_acc 블록은 `let mut steps`(446행) **직전**에 둔다(steps map이 `download_by_step.remove(&step_id)`를 호출하므로 steps build보다 먼저 필요). group_acc(498행)는 steps 뒤 그대로 — 옮기지 않는다. `fresh_hist`/`decode_hdr`/`merge_into`/`percentiles_of`는 모듈 레벨 함수라 446행 위치에서 in-scope. 아래 블록:
 
 ```rust
     // Phase (download) latency: SEPARATE accumulator keyed by (step_id, phase).
@@ -860,8 +870,6 @@ group_acc 블록(498-521행) **뒤**에 phase 누적(download만 surface, phase-
         .collect();
 ```
 
-> 위 블록은 `steps`가 build되기 **전**에 와야 한다(steps map에서 `download_by_step.remove`). group_acc 블록은 insights 뒤(485행 이후)에 있으므로, download_acc를 **steps build(446행) 앞**으로 옮겨 배치한다 — 즉 `let mut steps` 직전에 둔다(group_acc는 steps 뒤 그대로). 
-
 steps 빌드(446-465행)의 `ReportStep { … }` 리터럴에 추가:
 
 ```rust
@@ -871,17 +879,12 @@ steps 빌드(446-465행)의 `ReportStep { … }` 리터럴에 추가:
 
 - [ ] **Step 5: build_report 모든 호출부 + export 픽스처 갱신**
 
-Run: `grep -rn "build_report(" crates/controller/src | grep -v "fn build_report"` → 각 호출에 7번째 인자 추가:
-- 테스트 호출(report.rs:640,688,713,756,800,894,908,915,922,937 및 group 테스트들): `&[]` 추가 → `build_report(&r, &yaml, &rows, &[], &[], &[], &[])`.
+Run: `grep -rn "build_report(" crates/controller/src | grep -v "fn build_report"` → **출력된 모든** 호출에 7번째 인자 `&[]` 추가(report.rs 테스트 ~14곳: 640/688/713/756/800/894/908/915/922/937/959/1112/1137/1167 + 그 외 — 명시 라인 신뢰 말고 grep 출력 전수).
 - `build_report_for_run`(api/runs.rs:413): groups fetch 뒤에 `let phases = crate::store::metrics::phase_breakdown(db, run_id).await?;` 추가하고 `build_report(&row, &scenario_yaml, &rows, &loops, &branches, &groups, &phases)`.
 
-`export.rs`의 `step()` 픽스처(376행 `loop_breakdown: vec![],` 뒤)에:
-
-```rust
-            download: None,
-```
-
-> `grep -rn "ReportStep {" crates/controller/src`로 다른 ReportStep 리터럴(있으면)도 `download: None` 추가.
+`ReportStep { … }` 리터럴은 prod(report.rs:454) + 테스트 픽스처 여럿이 강제된다. `grep -rn "ReportStep {" crates/controller/src` 전수 → 각각 `download: None,` 추가:
+- `export.rs`의 `step()`(384행 `loop_breakdown: vec![],` 뒤)
+- `insights.rs`의 `step`(228) **및** `step_err`(293) 픽스처
 
 - [ ] **Step 6: GREEN 확인**
 
@@ -892,7 +895,7 @@ Run: `cargo build --workspace 2>&1 | tail` → 0 errors.
 
 ```bash
 cargo build -p handicap-worker && cargo build --workspace
-git add crates/controller/src/report.rs crates/controller/src/api/runs.rs crates/controller/src/export.rs
+git add crates/controller/src/report.rs crates/controller/src/api/runs.rs crates/controller/src/export.rs crates/controller/src/insights.rs
 git commit -m "feat(controller): build_report에 download phase 부착(ReportStep.download, phases 7번째 param)"
 git log -1 --oneline
 ```
@@ -936,6 +939,8 @@ Expected: FAIL — `measurePhases` not on `ProfileFormInput`; `measure_phases` n
   measure_phases: z.boolean().default(false),
 ```
 
+> **`.default(false)` 선택 근거**(ui/CLAUDE.md S-C 규칙 검토): 서버는 `#[serde(default)]`(skip 없음)라 측정 여부와 무관하게 `false`를 **항상 직렬화**(절대 null/absent 아님)하므로 `.nullish()`는 부적합(bool은 Option 아님). plain `z.boolean()`도 동작하나, **옛 run 행**(이 기능 전 생성된 `profile_json`에 키 없음)을 응답 경로가 raw passthrough할 가능성에 대비해 `.default(false)`가 더 방어적이고, 기존 sibling 필드 3개(`ramp_up_seconds`/`loop_breakdown_cap`/`http_timeout_seconds`)와 **동형**이다. `.default()`의 `boolean|undefined` 누출은 그 3개와 마찬가지로 `normalizeProfile`(=`ProfileSchema.parse`) 경계에서 collapse된다(누출-free가 아니라 collapse됨 — 새 컴포넌트에 `Profile`을 직접 넘기는 코드는 normalizeProfile 통과분만 받음).
+
 `GroupLatencySchema`(256행) 뒤:
 
 ```ts
@@ -967,18 +972,17 @@ export type PhaseStats = z.infer<typeof PhaseStatsSchema>;
     measure_phases: i.measurePhases,
 ```
 
+> **기존 `profileForm.test.ts` 리터럴 갱신**: `measurePhases`가 required가 되면 기존 `ProfileFormInput` 리터럴(profileForm.test.ts:43/61 등)이 "missing property"로 `tsc -b` red → 각 리터럴에 `measurePhases: false,` 추가(`grep -n "measurePhases\|ProfileFormInput\|buildProfile(" src/components/__tests__/profileForm.test.ts`로 확인).
+
 - [ ] **Step 5: profileForm 테스트 GREEN**
 
 Run: `cd ui && pnpm test profileForm 2>&1 | tail` → PASS.
 
-- [ ] **Step 6: StepStatsTable 다운로드 컬럼 테스트 작성 (RED)** — `ui/src/components/report/__tests__/StepStatsTable.test.tsx`(없으면 생성)에:
+- [ ] **Step 6: StepStatsTable 다운로드 컬럼 테스트 작성 (RED)** — `ui/src/components/report/__tests__/StepStatsTable.test.tsx`는 **이미 존재**한다. 새 `it`을 **기존 `describe` 안에** 추가(상단 `import { render, screen }`/`import { StepStatsTable }`를 다시 쓰지 말 것 — 중복 선언 에러). 추가할 `it`:
 
 ```tsx
-import { render, screen } from "@testing-library/react";
-import { StepStatsTable } from "../StepStatsTable";
-
-const meta = new Map([["s1", { id: "s1", name: "g", method: "GET", url: "/p" }]]);
-
+// (기존 파일 상단 import/meta 재사용 — 아래 it 본문만 describe 안에 추가.
+//  meta가 없으면: const meta = new Map([["s1", { id: "s1", name: "g", method: "GET", url: "/p" }]]);)
 it("shows download columns only when a step has download", () => {
   const { rerender } = render(
     <StepStatsTable steps={[{ step_id: "s1", count: 1, error_count: 0, status_counts: {}, p50_ms: 5, p95_ms: 9, p99_ms: 9 }]} meta={meta} />,
@@ -1000,7 +1004,7 @@ Run: `cd ui && pnpm test StepStatsTable 2>&1 | tail` → FAIL.
 
 - [ ] **Step 8: StepStatsTable 다운로드 컬럼 구현**
 
-`StepStatsTable.tsx`: 컴포넌트 상단에 `const anyDownload = steps.some((s) => s.download);`. `colSpan`을 `anyDownload ? 11 : 8`로. `<thead>`에 조건부 컬럼 추가(p99 헤더 뒤):
+`StepStatsTable.tsx`: 컴포넌트 상단에 `const anyDownload = steps.some((s) => s.download != null);`(strict-boolean-expressions/`--max-warnings=0` 대비 `!= null`). `colSpan`을 `anyDownload ? 11 : 8`로. `<thead>`에 조건부 컬럼 추가(p99 헤더 뒤):
 
 ```tsx
             {anyDownload && (
@@ -1032,9 +1036,9 @@ Run: `cd ui && pnpm test StepStatsTable 2>&1 | tail` → PASS.
 
 - [ ] **Step 10: RunDialog + ScheduleForm 토글 배선**
 
-두 폼 모두 `buildProfile`(공유)로 payload를 만든다. 각 폼에:
+두 폼은 **로컬 zero-arg `buildProfile()` 래퍼**(RunDialog:313, ScheduleForm:200)가 공유 `buildProfileShared({…})`(=profileForm.ts의 `buildProfile`)를 호출하는 구조다. 각 폼에:
 - state: `const [measurePhases, setMeasurePhases] = useState(initial?.profile.measure_phases ?? false);`(RunDialog는 prefill `initial` 시드; ScheduleForm은 편집 시드).
-- `buildProfile({ …, measurePhases })`로 전달.
+- **로컬 `buildProfile()` 래퍼의 `buildProfileShared({…})` 호출 객체**(RunDialog:314-321, ScheduleForm:201-208)에 `measurePhases,` 추가(단일 공유 호출이 아니라 폼별 래퍼 2곳).
 - 토글 UI: "진단/고급" 접이식 섹션(`ui-optional-sections-collapsible` 이디엄 — `<legend>` 안 `<button aria-expanded>` + `{open && …}`) 안에 체크박스 `<label>측정: 레이턴시 단계 분해(TTFB/다운로드) <input type="checkbox" checked={measurePhases} onChange={(e)=>setMeasurePhases(e.target.checked)} aria-label="measure latency phases" /></label>`. 값 있으면 자동 펼침.
 
 > 기존 RunDialog/ScheduleForm 제출 테스트는 `measure_phases: false`가 payload에 추가될 뿐(byte 비교가 아니라 필드 단언이면)이라 대부분 무수정. 깨지면 expect에 `measure_phases: false` 추가.
@@ -1179,5 +1183,5 @@ git log -1 --oneline
 ## Self-review 체크 (작성자 확인 완료)
 
 - **Spec 커버리지**: §4.1(T1)·§4.2(T1)·§4.3(T2)·§4.4(T3)·§4.5(T3·T4)·§4.6(T5)·§4.7(T6)·§4.8(T6)·§4.9(T7)·§4.10(컴파일러-강제 사이트는 각 task의 grep 단계)·§5 불변식(T2 off=byte-identical·T5 isolation 테스트)·§6 테스트(T1·T2·T5·T8 + T8 라이브)·§8 연기(완료 후 roadmap). 전부 매핑됨.
-- **타입 일관성**: `PhaseStat`(engine aggregator/proto, step_id/phase/histogram(bytes)/count) ↔ `PhaseMetricRow`(controller store) ↔ `PhaseStats`(report, count/p50/p95/p99/max **u64**) ↔ `PhaseStatsSchema`(UI, int) — 이름 구분 의도적(Stat=delta 행, Stats=집계 결과). `measure_phases`(proto bool / store serde-default bool / RunPlan bool / Zod `.default(false)`) 전 레이어 동일.
+- **타입 일관성**: `PhaseStat`(engine aggregator/proto, step_id/phase/histogram(bytes)/count) ↔ `PhaseMetricRow`(controller store) ↔ `PhaseStats`(report, count/p50/p95/p99/max **u64**) ↔ `PhaseStatsSchema`(UI, int) — 이름 구분 의도적(Stat=delta 행, Stats=집계 결과). `measure_phases`: proto `bool`(default false) / store `#[serde(default)] bool`(skip 없음 → 항상 `false` 직렬화) / RunPlan `bool` / Zod `.default(false)`(누출은 normalizeProfile에서 collapse — Task 6 근거 박스 참조, 누출-free 주장 아님).
 - **번호**: MetricBatch.phase_stats=8, Profile.measure_phases=11, migration 0013 — 코드 대조 확인됨.

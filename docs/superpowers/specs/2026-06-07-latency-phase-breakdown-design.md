@@ -139,8 +139,9 @@ message Profile { ...; bool measure_phases = 11; }                 // 다음 필
 
 ### 4.10 컴파일러-강제 리터럴 사이트 (blast radius — plan budget)
 non-Option 필드 추가라 컴파일러가 다음을 전부 강제(빠뜨리면 빌드 RED). plan task가 미리 예산에 넣는다:
-- **`RunPlan {}` 리터럴 ~31곳**(엔진 테스트 다수 + worker `main.rs` build + worker 테스트) — `measure_phases: false`(테스트) / 실값(main.rs). AppState·prost와 동형 함정. `grep -rn "RunPlan {" crates/`.
-- **`pb::Profile` 변환**(api/runs.rs:313) + **proto struct literal**(`MetricBatch {}` worker main.rs) — prost exhaustive.
+- **`RunPlan {}` 리터럴 31곳**(엔진 테스트 다수 + worker `main.rs` build + worker 테스트) — `measure_phases: false`(테스트) / 실값(main.rs). AppState·prost와 동형 함정. `grep -rn "RunPlan {" crates/`.
+- **store `runs::Profile {}` 리터럴 다수**(non-Option `measure_phases` 추가 → serde default는 역직렬화만, 리터럴 강제): `api/runs.rs`(~20) + `report.rs` 테스트 + `schedule/runner.rs` + `grpc/coordinator.rs` 테스트 + controller `tests/*` + `crates/proto/tests/run_assignment_env_test.rs`(full Profile, spread 없음). `grep -rn "Profile {" crates/`. 커밋은 `git add -A`(누락 0).
+- **`pb::Profile` 변환**(api/runs.rs:313) + **proto struct literal**(`pb::MetricBatch {}` — worker main.rs는 spread라 안전, `grpc/coordinator.rs` full 리터럴은 깨짐) — prost exhaustive.
 - **`export.rs` step() 픽스처**(export.rs:376)에 `download: None`(컨트롤러 CLAUDE.md 명시 누락-위험 사이트).
 - **`TracedResponse {}` 리터럴**(§4.9).
 - **`MetricFlush {}` 리터럴**에 `phase_stats: vec![]`(§4.3).
