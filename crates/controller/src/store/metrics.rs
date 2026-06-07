@@ -293,6 +293,57 @@ pub async fn group_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<GroupMet
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct PhaseMetricRow {
+    pub run_id: String,
+    pub step_id: String,
+    pub phase: String,
+    pub hdr_histogram: Vec<u8>,
+    pub count: i64,
+}
+
+pub async fn insert_phase_batch(db: &Db, rows: &[PhaseMetricRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Append-only: each row is a delta HDR; build_report merges by (step_id, phase). No PK —
+    // metric batches are delivered once (no mid-run resend), so no dedup key is needed.
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_phase_metrics(run_id,step_id,phase,hdr_histogram,count) VALUES(?,?,?,?,?)",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(&r.phase)
+        .bind(&r.hdr_histogram)
+        .bind(r.count)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn phase_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<PhaseMetricRow>> {
+    let rows = sqlx::query(
+        "SELECT step_id, phase, hdr_histogram, count FROM run_phase_metrics \
+         WHERE run_id = ? ORDER BY step_id, phase",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| PhaseMetricRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            phase: r.get("phase"),
+            hdr_histogram: r.get("hdr_histogram"),
+            count: r.get("count"),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -673,6 +724,31 @@ mod tests {
             .collect();
         assert_eq!(m.get(&("if1".into(), "then".into())), Some(&5)); // 3+2 accumulate
         assert_eq!(m.get(&("if1".into(), "none".into())), Some(&7));
+    }
+
+    #[tokio::test]
+    async fn phase_batch_inserts_and_reads_back() {
+        let db = pool().await;
+        let rows = vec![
+            PhaseMetricRow {
+                run_id: "R1".into(),
+                step_id: "s1".into(),
+                phase: "download".into(),
+                hdr_histogram: vec![1, 2, 3],
+                count: 5,
+            },
+            PhaseMetricRow {
+                run_id: "R1".into(),
+                step_id: "s1".into(),
+                phase: "download".into(),
+                hdr_histogram: vec![4, 5],
+                count: 2,
+            },
+        ];
+        insert_phase_batch(&db, &rows).await.expect("insert");
+        let got = phase_breakdown(&db, "R1").await.expect("read");
+        assert_eq!(got.len(), 2, "append-only: both delta rows coexist");
+        assert!(got.iter().all(|r| r.phase == "download"));
     }
 
     #[tokio::test]

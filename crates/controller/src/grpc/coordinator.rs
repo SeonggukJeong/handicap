@@ -865,6 +865,22 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert group metrics");
         }
     }
+    let phase_rows: Vec<crate::store::metrics::PhaseMetricRow> = batch
+        .phase_stats
+        .iter()
+        .map(|ps| crate::store::metrics::PhaseMetricRow {
+            run_id: batch.run_id.clone(),
+            step_id: ps.step_id.clone(),
+            phase: ps.phase.clone(),
+            hdr_histogram: ps.hdr_histogram.clone(),
+            count: ps.count as i64,
+        })
+        .collect();
+    if !phase_rows.is_empty() {
+        if let Err(e) = crate::store::metrics::insert_phase_batch(&state.db, &phase_rows).await {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert phase metrics");
+        }
+    }
     if batch.dropped > 0 {
         if let Err(e) = sqlx::query("UPDATE runs SET dropped = dropped + ? WHERE id = ?")
             .bind(batch.dropped as i64)
