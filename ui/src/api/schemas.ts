@@ -77,6 +77,19 @@ export const ProfileSchema = z.object({
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
+export const CriterionResultSchema = z.object({
+  metric: z.string(),
+  direction: z.enum(["max", "min"]),
+  threshold: z.number(),
+  actual: z.number(),
+  passed: z.boolean(),
+});
+export const VerdictSchema = z.object({
+  passed: z.boolean(),
+  criteria: z.array(CriterionResultSchema),
+});
+export type Verdict = z.infer<typeof VerdictSchema>;
+
 // ── Run 스케줄러 (34c) ────────────────────────────────────────────────────────
 // Mirrors crates/controller/src/api/schedules.rs TriggerResponse / ScheduleResponse /
 // ScheduleSummary / EventResponse. Internally-tagged kind discriminant.
@@ -127,6 +140,8 @@ export const ScheduleEventSchema = z.object({
   kind: z.string(),
   run_id: z.string().nullish(),
   detail: z.string().nullish(),
+  // B6 verdict 배지: 스케줄 이벤트 타임라인에 pass/fail 배지. 서버 None→null이라 .nullish().
+  verdict: VerdictSchema.nullish(),
 });
 export type ScheduleEvent = z.infer<typeof ScheduleEventSchema>;
 
@@ -153,6 +168,8 @@ export const RunSchema = z.object({
   // flipped to failed on startup (Slice 6). Optional + nullable for backward
   // compat with older controllers that don't include the column.
   message: z.string().nullable().optional(),
+  // A4a SLO verdict, 완료 시 영속(목록 배지). 서버 None→null이라 .nullish().
+  verdict: VerdictSchema.nullish(),
 });
 export type Run = z.infer<typeof RunSchema>;
 
@@ -285,19 +302,6 @@ export const ReportRunSchema = z
     created_at: z.number().int(),
   })
   .strict();
-
-export const CriterionResultSchema = z.object({
-  metric: z.string(),
-  direction: z.enum(["max", "min"]),
-  threshold: z.number(),
-  actual: z.number(),
-  passed: z.boolean(),
-});
-export const VerdictSchema = z.object({
-  passed: z.boolean(),
-  criteria: z.array(CriterionResultSchema),
-});
-export type Verdict = z.infer<typeof VerdictSchema>;
 
 export const InsightSchema = z.object({
   kind: z.string(),

@@ -5,6 +5,7 @@ import {
   ProfileSchema,
   ReportSchema,
   RunSchema,
+  ScheduleEventSchema,
   StageSchema,
   VerdictSchema,
 } from "../schemas";
@@ -279,5 +280,40 @@ describe("CriteriaSchema status-class + window fields", () => {
   });
   it("rejects non-integer count", () => {
     expect(CriteriaSchema.safeParse({ max_5xx_count: 1.5 }).success).toBe(false);
+  });
+});
+
+describe("verdict wire", () => {
+  const baseRun = {
+    id: "r1",
+    scenario_id: "s1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "completed" as const,
+    profile: { vus: 1, duration_seconds: 1 },
+    env: {},
+    started_at: null,
+    ended_at: null,
+    created_at: 1,
+  };
+  const verdict = {
+    passed: false,
+    criteria: [
+      { metric: "p95_ms", direction: "max" as const, threshold: 300, actual: 420, passed: false },
+    ],
+  };
+
+  it("RunSchema accepts a verdict object", () => {
+    expect(RunSchema.parse({ ...baseRun, verdict }).verdict?.passed).toBe(false);
+  });
+  it("RunSchema accepts verdict null (server None)", () => {
+    expect(RunSchema.parse({ ...baseRun, verdict: null }).verdict).toBeNull();
+  });
+  it("RunSchema accepts absent verdict (backward compat)", () => {
+    expect(RunSchema.parse(baseRun).verdict).toBeUndefined();
+  });
+  it("ScheduleEventSchema accepts verdict + null", () => {
+    const ev = { id: "e1", at: 1, kind: "fired", run_id: "r1" };
+    expect(ScheduleEventSchema.parse({ ...ev, verdict }).verdict?.passed).toBe(false);
+    expect(ScheduleEventSchema.parse({ ...ev, verdict: null }).verdict).toBeNull();
   });
 });
