@@ -11,7 +11,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use crate::aggregator::{Aggregator, BranchStat, GroupStat, LoopStat, StepWindow};
+use crate::aggregator::{Aggregator, BranchStat, GroupStat, LoopStat, PhaseStat, StepWindow};
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
@@ -61,6 +61,10 @@ pub struct RunPlan {
     /// `duration == sum(stage durations)` as an invariant (the engine derives the
     /// deadline from `plan.duration`, not from `stages`).
     pub stages: Option<Vec<Stage>>,
+    /// Opt-in latency-phase breakdown (B7-C). `true` → the Http arm records the
+    /// download phase via `Aggregator::record_phase`. `false` → byte-identical (no
+    /// phase channel touched). Default false at every absent boundary.
+    pub measure_phases: bool,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -75,6 +79,8 @@ pub struct MetricFlush {
     /// Open-loop arrivals dropped because the slot pool was full, since the last
     /// flush (delta). Always `0` on the closed-loop path.
     pub dropped: u64,
+    /// Per-(step_id, phase) latency-phase deltas since the last flush (B7-C).
+    pub phase_stats: Vec<PhaseStat>,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -94,6 +100,7 @@ pub async fn run_scenario(
     let http_timeout = plan.http_timeout;
     let think_time = plan.think_time;
     let think_seed = plan.think_seed;
+    let measure_phases = plan.measure_phases;
     // One shared worker-local counter for IterSequential and Unique, created once per run.
     let seq_counter = match dataset.as_ref().map(|d| d.policy) {
         Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
@@ -153,6 +160,7 @@ pub async fn run_scenario(
                     http_timeout,
                     think_time,
                     think_seed,
+                    measure_phases,
                 )
                 .await
                 {
@@ -177,19 +185,21 @@ pub async fn run_scenario(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
                     g.drain_loop_deltas(),
                     g.drain_branch_deltas(),
                     g.drain_group_deltas(),
+                    g.drain_phase_deltas(),
                 )
             };
             if !drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
                 || !group_stats.is_empty()
+                || !phase_stats.is_empty()
             {
                 debug!(
                     count = drained.len(),
@@ -205,6 +215,7 @@ pub async fn run_scenario(
                         branch_stats,
                         group_stats,
                         dropped: 0,
+                        phase_stats,
                     })
                     .await
                     .is_err()
@@ -225,19 +236,21 @@ pub async fn run_scenario(
         }
     }
 
-    let (final_windows, final_loops, final_branches, final_groups) = {
+    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
             g.drain_loop_deltas(),
             g.drain_branch_deltas(),
             g.drain_group_deltas(),
+            g.drain_phase_deltas(),
         )
     };
     if !final_windows.is_empty()
         || !final_loops.is_empty()
         || !final_branches.is_empty()
         || !final_groups.is_empty()
+        || !final_phases.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -246,6 +259,7 @@ pub async fn run_scenario(
                 branch_stats: final_branches,
                 group_stats: final_groups,
                 dropped: 0,
+                phase_stats: final_phases,
             })
             .await;
     }
@@ -291,6 +305,7 @@ async fn run_vu(
     http_timeout: Duration,
     think_time: Option<ThinkTime>,
     think_seed: Option<u32>,
+    measure_phases: bool,
 ) -> Result<()> {
     let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
     let mut think_rng = match think_seed {
@@ -327,6 +342,7 @@ async fn run_vu(
             None,
             &cancel,
             &mut think_rng,
+            measure_phases,
         )
         .await?;
         match flow {
@@ -372,6 +388,7 @@ async fn execute_steps(
     loop_index: Option<u32>,
     cancel: &CancellationToken,
     rng: &mut StdRng,
+    measure_phases: bool,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -400,6 +417,15 @@ async fn execute_steps(
                         outcome.error.is_some(),
                         loop_index,
                     );
+                    if measure_phases {
+                        if let Some(dl) = outcome.download {
+                            a.record_phase(
+                                &outcome.step_id,
+                                "download",
+                                dl.as_micros().min(u64::MAX as u128) as u64,
+                            );
+                        }
+                    }
                 } // drop the aggregator guard before the (possibly long) think-time sleep
                 if let Some(tt) = &http.think_time {
                     match pace(tt.sample(rng), deadline, cancel).await {
@@ -429,6 +455,7 @@ async fn execute_steps(
                         Some(i),
                         cancel,
                         rng,
+                        measure_phases,
                     ))
                     .await?;
                     match flow {
@@ -462,8 +489,18 @@ async fn execute_steps(
                 // new scope, so an if-in-loop's branch children still see the loop index
                 // (spec §4). Box::pin the recursion (If/Loop arms only — hot path unboxed).
                 let flow = Box::pin(execute_steps(
-                    client, taken, iter_vars, agg, deadline, env, vu_id, iter_id, loop_index,
-                    cancel, rng,
+                    client,
+                    taken,
+                    iter_vars,
+                    agg,
+                    deadline,
+                    env,
+                    vu_id,
+                    iter_id,
+                    loop_index,
+                    cancel,
+                    rng,
+                    measure_phases,
                 ))
                 .await?;
                 match flow {
@@ -497,6 +534,7 @@ async fn execute_steps(
                             loop_index,
                             cancel,
                             &mut branch_rng,
+                            measure_phases,
                         ))
                         .await;
                         (branch, branch_vars, flow)
@@ -587,6 +625,7 @@ pub async fn run_scenario_open_loop(
     let http_timeout = plan.http_timeout;
     let think_seed = plan.think_seed;
     let vu_offset = plan.vu_offset;
+    let measure_phases = plan.measure_phases;
     let mut dropped: u64 = 0;
     let mut arrival_counter: u64 = 0;
     let exhausted = Arc::new(AtomicBool::new(false));
@@ -626,19 +665,21 @@ pub async fn run_scenario_open_loop(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
                     g.drain_loop_deltas(),
                     g.drain_branch_deltas(),
                     g.drain_group_deltas(),
+                    g.drain_phase_deltas(),
                 )
             };
             let has_data = !drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
-                || !group_stats.is_empty();
+                || !group_stats.is_empty()
+                || !phase_stats.is_empty();
             if has_data {
                 debug!(
                     count = drained.len(),
@@ -654,6 +695,7 @@ pub async fn run_scenario_open_loop(
                         branch_stats,
                         group_stats,
                         dropped: 0,
+                        phase_stats,
                     })
                     .await
                     .is_err()
@@ -758,6 +800,7 @@ pub async fn run_scenario_open_loop(
                         seq_counter,
                         &mut rng,
                         &exhausted,
+                        measure_phases,
                     )
                     .await
                     {
@@ -787,13 +830,14 @@ pub async fn run_scenario_open_loop(
     // The final flush also carries the run-total `dropped` (flusher sent dropped: 0
     // throughout, so no double count).
     let total_dropped = dropped;
-    let (final_windows, final_loops, final_branches, final_groups) = {
+    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
             g.drain_loop_deltas(),
             g.drain_branch_deltas(),
             g.drain_group_deltas(),
+            g.drain_phase_deltas(),
         )
     };
     let _ = out
@@ -803,6 +847,7 @@ pub async fn run_scenario_open_loop(
             branch_stats: final_branches,
             group_stats: final_groups,
             dropped: total_dropped,
+            phase_stats: final_phases,
         })
         .await;
     drop(out);
@@ -830,6 +875,7 @@ async fn run_arrival(
     seq_counter: Option<Arc<AtomicU64>>,
     rng: &mut StdRng,
     exhausted: &AtomicBool,
+    measure_phases: bool,
 ) -> Result<()> {
     let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
     if let Some(ds) = &dataset {
@@ -859,6 +905,7 @@ async fn run_arrival(
         None,
         cancel,
         rng,
+        measure_phases,
     )
     .await?;
     Ok(())

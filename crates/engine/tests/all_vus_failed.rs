@@ -40,6 +40,7 @@ steps:
         target_rps: None,
         max_in_flight: None,
         stages: None,
+        measure_phases: false,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();

@@ -222,6 +222,8 @@ async fn main() -> anyhow::Result<()> {
                     .collect(),
             )
         },
+        // Placeholder: wired to profile.measure_phases in Task 3 (proto field 11).
+        measure_phases: false,
     };
     info!(
         vus = plan.vus,
