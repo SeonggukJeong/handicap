@@ -19,6 +19,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 // implementation so tests that use window.localStorage work correctly. This
 // polyfill is guarded on .clear being absent to avoid overwriting a fully
 // functional implementation (e.g. real jsdom Storage with a URL).
+// 가드의 `localStorage?.clear` 접근이 Node 25 lazy native storage를 건드려 테스트 실행마다 `Warning: '--localstorage-file' was provided without a valid path` 1회 출력됨 — 무해.
 if (typeof globalThis.localStorage?.clear !== "function") {
   const store: Record<string, string> = {};
   const inMemoryStorage: Storage = {

@@ -53,9 +53,7 @@ export default defineConfig({
     environment: "jsdom",
     environmentOptions: {
       jsdom: {
-        // jsdom disables localStorage when no URL is set. Provide a stable
-        // localhost origin so localStorage/sessionStorage are available in all
-        // tests (required by the onboarding state module, U2).
+        // 명시적 origin 고정(vitest 기본 localhost:3000과 무관하게 버전-독립). localStorage 동작의 실제 보장은 setup.ts 폴리필 — Node 25의 부분 구현 native localStorage가 jsdom Storage를 가린다.
         url: "http://localhost/",
       },
     },
