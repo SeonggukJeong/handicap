@@ -79,7 +79,7 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    const rampInput = screen.getByLabelText(/Ramp-up/);
+    const rampInput = screen.getByLabelText(/점진 시작/);
     await user.clear(rampInput);
     await user.type(rampInput, "2");
 
@@ -134,17 +134,17 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const duration = screen.getByLabelText(/Duration/);
+    const duration = screen.getByLabelText(/테스트 시간/);
     await user.clear(duration);
     await user.type(duration, "5");
 
-    const ramp = screen.getByLabelText(/Ramp-up/);
+    const ramp = screen.getByLabelText(/점진 시작/);
     await user.clear(ramp);
     await user.type(ramp, "6");
 
     const runBtn = screen.getByRole("button", { name: /^Run$/ });
     expect(runBtn).toBeDisabled();
-    expect(screen.getByText(/Ramp-up must be ≤ duration/)).toBeInTheDocument();
+    expect(screen.getByText(/점진 시작은 테스트 시간 이하여야 합니다/)).toBeInTheDocument();
   });
 
   it("posts loop_breakdown_cap (default 256) on Run", async () => {
@@ -302,9 +302,9 @@ describe("RunDialog — initial prefill (A1)", () => {
 
   it("seeds vus / duration / ramp-up / loop cap from initial.profile", () => {
     renderWithInitial(initial);
-    expect(screen.getByLabelText("VUs")).toHaveValue(7);
-    expect(screen.getByLabelText("Duration (s)")).toHaveValue(9);
-    expect(screen.getByLabelText("Ramp-up (s)")).toHaveValue(3);
+    expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(7);
+    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(9);
+    expect(screen.getByLabelText(/점진 시작/)).toHaveValue(3);
     expect(screen.getByLabelText("loop breakdown cap")).toHaveValue(128);
     expect(screen.getByLabelText(/HTTP timeout/i)).toHaveValue(120);
   });
@@ -536,9 +536,9 @@ describe("RunDialog — load preset (A2)", () => {
     mockPresets();
     renderPresetDialog();
     await user.selectOptions(await screen.findByLabelText("load preset"), "P1");
-    await waitFor(() => expect(screen.getByLabelText("VUs")).toHaveValue(50));
-    expect(screen.getByLabelText("Duration (s)")).toHaveValue(60);
-    expect(screen.getByLabelText("Ramp-up (s)")).toHaveValue(5);
+    await waitFor(() => expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(50));
+    expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
+    expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
     expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
     expect(screen.getByLabelText("env value 0")).toHaveValue("http://heavy");
   });
@@ -796,20 +796,20 @@ describe("RunDialog — open-loop mode (S-C)", () => {
       env: {},
     };
     renderWithInitial(openLoopInitial);
-    expect(screen.getByRole("radio", { name: /open-loop/i })).toBeChecked();
-    expect(screen.getByLabelText(/target rps/i)).toHaveValue(750);
-    expect(screen.getByLabelText(/max in.?flight/i)).toHaveValue(400);
+    expect(screen.getByRole("radio", { name: /요청 속도 기준/ })).toBeChecked();
+    expect(screen.getByLabelText(/목표 RPS/i)).toHaveValue(750);
+    expect(screen.getByLabelText(/동시 요청 상한/)).toHaveValue(400);
   });
 
   it("shows error message and aria-describedby when target_rps is invalid", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
 
-    const targetRpsInput = screen.getByLabelText(/target rps/i);
+    const targetRpsInput = screen.getByLabelText(/목표 RPS/i);
     await user.clear(targetRpsInput);
     // Empty value → invalid
-    expect(screen.getByText(/Target RPS must be between 1 and 1,000,000/)).toBeInTheDocument();
+    expect(screen.getByText(/목표 RPS는 1 ~ 1,000,000 사이여야 합니다/)).toBeInTheDocument();
     expect(targetRpsInput).toHaveAttribute("aria-describedby", "target-rps-error");
     expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
   });
@@ -817,12 +817,12 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("shows error message and aria-describedby when max_in_flight is invalid", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
 
-    const maxInFlightInput = screen.getByLabelText(/max in.?flight/i);
+    const maxInFlightInput = screen.getByLabelText(/동시 요청 상한/);
     await user.clear(maxInFlightInput);
     // Empty value → invalid
-    expect(screen.getByText(/Max in-flight must be between 1 and 10,000/)).toBeInTheDocument();
+    expect(screen.getByText(/동시 요청 상한은 1 ~ 10,000 사이여야 합니다/)).toBeInTheDocument();
     expect(maxInFlightInput).toHaveAttribute("aria-describedby", "max-in-flight-error");
     expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
   });
@@ -831,8 +831,8 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     const fieldset = screen.getByRole("group", { name: /부하 모델/i });
     expect(fieldset.tagName).toBe("FIELDSET");
-    expect(within(fieldset).getByRole("radio", { name: /closed-loop/i })).toBeInTheDocument();
-    expect(within(fieldset).getByRole("radio", { name: /open-loop/i })).toBeInTheDocument();
+    expect(within(fieldset).getByRole("radio", { name: /사용자 수 기준/ })).toBeInTheDocument();
+    expect(within(fieldset).getByRole("radio", { name: /요청 속도 기준/ })).toBeInTheDocument();
   });
 
   it("open-loop mode shows target_rps + max_in_flight and gates empty max_in_flight", async () => {
@@ -840,18 +840,18 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
 
     // Switch to open-loop
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
 
     // open-loop fields are visible
-    expect(screen.getByLabelText(/target rps/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/목표 RPS/i)).toBeInTheDocument();
 
     // Fill in target_rps so the only missing piece is max_in_flight
-    const targetRpsInput = screen.getByLabelText(/target rps/i);
+    const targetRpsInput = screen.getByLabelText(/목표 RPS/i);
     await user.clear(targetRpsInput);
     await user.type(targetRpsInput, "100");
 
     // max_in_flight should be visible
-    const cap = screen.getByLabelText(/max in.?flight/i);
+    const cap = screen.getByLabelText(/동시 요청 상한/);
     expect(cap).toBeInTheDocument();
 
     // Clear max_in_flight → Run button should be disabled
@@ -861,18 +861,18 @@ describe("RunDialog — open-loop mode (S-C)", () => {
 
   it("closed-loop mode is default and shows VUs/ramp-up inputs", () => {
     renderDialog();
-    expect(screen.getByRole("radio", { name: /closed-loop/i })).toBeChecked();
-    expect(screen.getByLabelText("VUs")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Ramp-up/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
+    expect(screen.getByLabelText(/동시 사용자/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
   });
 
   it("hides vus and ramp-up in open-loop mode and shows duration", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
-    expect(screen.queryByLabelText("VUs")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Ramp-up/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/테스트 시간/)).toBeInTheDocument();
   });
 
   it("curve mode: submits stages payload with duration_seconds 0 and no target_rps", async () => {
@@ -891,15 +891,15 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     // default seeded 1 row → set its target/duration
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "200");
     await user.clear(screen.getByLabelText("stage duration 0"));
     await user.type(screen.getByLabelText("stage duration 0"), "30");
-    await user.clear(screen.getByLabelText("Max in-flight"));
-    await user.type(screen.getByLabelText("Max in-flight"), "50");
+    await user.clear(screen.getByLabelText(/동시 요청 상한/));
+    await user.type(screen.getByLabelText(/동시 요청 상한/), "50");
     await user.click(screen.getByRole("button", { name: /^Run$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RSTG1"));
     const call = fetchMock.mock.calls.find(
@@ -918,7 +918,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: + 단계 추가 adds a row; × removes it", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /단계 추가/ }));
@@ -930,7 +930,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: Run disabled when all targets are 0", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "0");
@@ -959,7 +959,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: shows inline helpers for target, duration, and max in-flight", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     expect(screen.getByText(/각 단계가 끝날 때의 목표 초당 요청 수/)).toBeInTheDocument();
     expect(screen.getByText(/이 단계가 지속되는 시간/)).toBeInTheDocument();
@@ -969,7 +969,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: selecting a load-shape template seeds stages", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     // default seed is a single row
     expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
@@ -1001,17 +1001,17 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
 
-    const durationInput = screen.getByLabelText(/Duration/);
+    const durationInput = screen.getByLabelText(/테스트 시간/);
     await user.clear(durationInput);
     await user.type(durationInput, "10");
 
-    await user.clear(screen.getByLabelText(/target rps/i));
-    await user.type(screen.getByLabelText(/target rps/i), "500");
+    await user.clear(screen.getByLabelText(/목표 RPS/i));
+    await user.type(screen.getByLabelText(/목표 RPS/i), "500");
 
-    await user.clear(screen.getByLabelText(/max in.?flight/i));
-    await user.type(screen.getByLabelText(/max in.?flight/i), "200");
+    await user.clear(screen.getByLabelText(/동시 요청 상한/));
+    await user.type(screen.getByLabelText(/동시 요청 상한/), "200");
 
     await user.click(screen.getByRole("button", { name: /^Run$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("ROPEN1"));
@@ -1047,12 +1047,12 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
   it("open→곡선→closed 전환 시 rateMode가 fixed로 리셋된다", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     expect(screen.getByRole("radio", { name: /곡선/ })).toBeChecked();
-    await user.click(screen.getByRole("radio", { name: /closed-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /사용자 수 기준/ }));
     // 다시 open으로 가도 곡선이 아니라 고정이 선택돼 있어야 함(리셋됨)
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     expect(screen.getByRole("radio", { name: /고정/ })).toBeChecked();
     expect(screen.getByRole("radio", { name: /곡선/ })).not.toBeChecked();
   });
@@ -1061,7 +1061,7 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
     const user = userEvent.setup();
     renderDialog();
     expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // closed
-    await user.click(screen.getByRole("radio", { name: /open-loop/i }));
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+fixed
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+curve
@@ -1162,7 +1162,7 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     const user = userEvent.setup();
     renderDialog(false);
 
-    const rampInput = screen.getByLabelText(/Ramp-up/);
+    const rampInput = screen.getByLabelText(/점진 시작/);
     await user.clear(rampInput);
     await user.type(rampInput, "3");
 

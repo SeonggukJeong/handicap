@@ -2,6 +2,8 @@ import type { Dispatch, SetStateAction } from "react";
 import type { LoadModelErrors } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
+import { ko } from "../i18n/ko";
+import { HelpTip } from "./HelpTip";
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -63,8 +65,9 @@ export function LoadModelFields({
                 setRateMode("fixed"); // closed+curve(곧 지원)는 도달 불가
               }}
             />
-            Closed-loop (VU)
+            {ko.loadModel.closedLoop}
           </label>
+          <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
           <label className="flex items-center gap-1 text-sm cursor-pointer">
             <input
               type="radio"
@@ -73,8 +76,9 @@ export function LoadModelFields({
               checked={loadModel === "open"}
               onChange={() => setLoadModel("open")}
             />
-            Open-loop (rate)
+            {ko.loadModel.openLoop}
           </label>
+          <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
         </div>
       </fieldset>
 
@@ -112,46 +116,76 @@ export function LoadModelFields({
 
       {loadModel === "closed" ? (
         <>
+          {/* 부하 크기 프리셋 chips */}
+          <div
+            role="group"
+            aria-label={ko.loadModel.sizePresetsLabel}
+            className="mb-2 flex flex-wrap gap-2"
+          >
+            {ko.loadModel.sizePresets.map((p) => {
+              const active = vus === p.vus && duration === p.durationSeconds;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setVus(p.vus);
+                    setDuration(p.durationSeconds);
+                  }}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    active
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {p.label} <span className="text-xs text-slate-400">{p.hint}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="grid grid-cols-3 gap-4 mb-3">
-            <label className="block text-sm">
-              <span className="text-slate-600">VUs</span>
+            <div className="block text-sm">
+              <span className="text-slate-600">{ko.loadModel.vus}</span>
+              <HelpTip label="VU 개념 설명">{ko.glossary.vu}</HelpTip>
               <input
                 type="number"
                 min={1}
-                aria-label="VUs"
+                aria-label={ko.loadModel.vus}
                 value={vus}
                 onChange={(e) => setVus(Number(e.target.value))}
                 className={INPUT}
               />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Duration (s)</span>
+            </div>
+            <div className="block text-sm">
+              <span className="text-slate-600">{ko.loadModel.duration}</span>
               <input
                 type="number"
                 min={1}
-                aria-label="Duration (s)"
+                aria-label={ko.loadModel.duration}
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className={INPUT}
               />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Ramp-up (s)</span>
+            </div>
+            <div className="block text-sm">
+              <span className="text-slate-600">{ko.loadModel.rampUp}</span>
+              <HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>
               <input
                 type="number"
                 min={0}
-                aria-label="Ramp-up (s)"
+                aria-label={ko.loadModel.rampUp}
                 value={rampUp}
                 onChange={(e) => setRampUp(Number(e.target.value))}
                 className={INPUT}
                 aria-invalid={errs.rampInvalid}
                 aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
               />
-            </label>
+            </div>
           </div>
           {errs.rampInvalid && (
             <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
-              Ramp-up must be ≤ duration.
+              {ko.validation.rampUp}
             </p>
           )}
         </>
@@ -159,13 +193,14 @@ export function LoadModelFields({
         <>
           {/* Max in-flight — fixed/curve 공통, 1개 */}
           <div className="mb-3 max-w-xs">
-            <label className="block text-sm">
-              <span className="text-slate-600">Max in-flight</span>
+            <div className="block text-sm">
+              <span className="text-slate-600">{ko.loadModel.maxInFlight}</span>
+              <HelpTip label="max in-flight 설명">{ko.glossary.maxInFlight}</HelpTip>
               <input
                 type="number"
                 min={1}
                 max={10000}
-                aria-label="Max in-flight"
+                aria-label={ko.loadModel.maxInFlight}
                 value={maxInFlight}
                 onChange={(e) => setMaxInFlight(e.target.value)}
                 className={INPUT}
@@ -176,46 +211,47 @@ export function LoadModelFields({
                 동시 처리 상한 — 서비스가 목표 레이트를 못 따라가면 초과분은 drop되어 리포트에
                 표시됩니다
               </span>
-            </label>
+            </div>
           </div>
           {errs.maxInFlightInvalid && (
             <p id="max-in-flight-error" className="mb-3 text-red-600 text-sm">
-              Max in-flight must be between 1 and 10,000.
+              {ko.validation.maxInFlight}
             </p>
           )}
 
           {rateMode === "fixed" ? (
             <>
               <div className="grid grid-cols-2 gap-4 mb-3">
-                <label className="block text-sm">
-                  <span className="text-slate-600">Target RPS</span>
+                <div className="block text-sm">
+                  <span className="text-slate-600">{ko.loadModel.targetRps}</span>
+                  <HelpTip label="RPS 개념 설명">{ko.glossary.rps}</HelpTip>
                   <input
                     type="number"
                     min={1}
                     max={1000000}
-                    aria-label="Target RPS"
+                    aria-label={ko.loadModel.targetRps}
                     value={targetRps}
                     onChange={(e) => setTargetRps(e.target.value)}
                     className={INPUT}
                     aria-invalid={errs.targetRpsInvalid}
                     aria-describedby={errs.targetRpsInvalid ? "target-rps-error" : undefined}
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">Duration (s)</span>
+                </div>
+                <div className="block text-sm">
+                  <span className="text-slate-600">{ko.loadModel.duration}</span>
                   <input
                     type="number"
                     min={1}
-                    aria-label="Duration (s)"
+                    aria-label={ko.loadModel.duration}
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value))}
                     className={INPUT}
                   />
-                </label>
+                </div>
               </div>
               {errs.targetRpsInvalid && (
                 <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
-                  Target RPS must be between 1 and 1,000,000.
+                  {ko.validation.targetRps}
                 </p>
               )}
             </>
