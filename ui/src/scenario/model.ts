@@ -23,7 +23,7 @@ export type Body = z.infer<typeof BodyModel>;
 export const RequestModel = z
   .object({
     method: HttpMethod,
-    url: z.string().min(1),
+    url: z.string(),
     headers: z.record(z.string(), z.string()).default({}),
     body: BodyModel.optional(),
     disabled: z

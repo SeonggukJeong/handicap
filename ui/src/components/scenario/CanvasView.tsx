@@ -248,6 +248,7 @@ function emitStep(
         name: step.name,
         method: step.request.method,
         url: step.request.url,
+        urlMissing: step.request.url.trim() === "",
         selected: step.id === selectedStepId,
       },
       style: { width },

@@ -947,3 +947,32 @@ steps:
     expect(step.request.disabled?.headers).toEqual({ "X-Off": "h" });
   });
 });
+
+describe("Inspector URL required marker (U3)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("clearing the URL commits an empty url to the model and shows the inline warning", async () => {
+    const user = userEvent.setup();
+    const id = useScenarioEditor.getState().addStep("S1");
+    useScenarioEditor.getState().select(id);
+    render(<Inspector />);
+    const url = screen.getByLabelText(/URL/);
+    await user.clear(url);
+    // 완화 전에는 reparse가 실패해 model이 stale로 남았다(yamlError만 세팅).
+    const state = useScenarioEditor.getState();
+    expect(state.yamlError).toBeNull();
+    expect(state.yamlText).toContain('url: ""');
+    expect(screen.getByRole("alert")).toHaveTextContent("URL을 입력하세요");
+    expect(url).toHaveAttribute("placeholder", expect.stringContaining("api.example.com"));
+  });
+
+  it("non-empty URL shows no warning", () => {
+    const id = useScenarioEditor.getState().addStep("S1");
+    useScenarioEditor.getState().select(id);
+    render(<Inspector />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

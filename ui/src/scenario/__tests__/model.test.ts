@@ -119,6 +119,19 @@ describe("ScenarioModel", () => {
 });
 
 describe("RequestModel", () => {
+  it("U3: accepts an empty request url (wire parity — engine url is a plain String)", () => {
+    const step = {
+      id: "01HX0000000000000000000010",
+      name: "draft",
+      type: "http",
+      request: { method: "GET", url: "", headers: {} },
+      assert: [],
+      extract: [],
+    };
+    const parsed = StepModel.safeParse(step);
+    expect(parsed.success).toBe(true);
+  });
+
   it("RequestModel accepts an optional disabled sidecar", () => {
     const r = {
       method: "GET" as const,

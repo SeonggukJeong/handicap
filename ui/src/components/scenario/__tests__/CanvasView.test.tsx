@@ -213,3 +213,39 @@ steps:
     }
   });
 });
+
+describe("CanvasView empty-url badge (U3)", () => {
+  beforeEach(() => {
+    reset();
+  });
+
+  it("renders a ⚠ badge on http nodes whose url is empty, and none otherwise", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    name: "no-url"
+    type: http
+    request:
+      method: GET
+      url: ""
+    assert:
+      - status: 200
+  - id: "01HX0000000000000000000011"
+    name: "has-url"
+    type: http
+    request:
+      method: GET
+      url: "/ok"
+    assert:
+      - status: 200
+`);
+    render(<CanvasView />);
+    const badges = screen.getAllByTitle("URL이 비어 있습니다");
+    expect(badges).toHaveLength(1);
+    // 배지는 name span과 같은 flex 행 — name의 parentElement가 곧 그 행
+    expect(screen.getByText("no-url").parentElement).toContainElement(badges[0]);
+  });
+});

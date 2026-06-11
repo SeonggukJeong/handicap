@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
+import { ko } from "../../i18n/ko";
 import type {
   Assertion,
   CompareOp,
@@ -252,13 +253,19 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
             ))}
           </select>
         </Field>
-        <Field label="URL">
+        <Field label={ko.editor.urlLabel}>
           <input
             className="w-full border border-slate-300 rounded px-2 py-1 font-mono text-xs"
             value={step.request.url}
+            placeholder={ko.editor.urlPlaceholder}
             onChange={(e) => setStepField(step.id, ["request", "url"], e.target.value)}
           />
         </Field>
+        {step.request.url.trim() === "" && (
+          <p role="alert" className="text-xs text-amber-600">
+            {ko.editor.urlEmptyWarning}
+          </p>
+        )}
         <HeadersEditor step={step} />
         <BodyEditor step={step} />
       </fieldset>
