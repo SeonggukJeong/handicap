@@ -273,7 +273,9 @@ export function RunDialog({
       Number(thinkMax) > 600_000);
   const pacingActiveCount = [thinkMin, thinkMax, thinkSeed].filter((s) => s.trim() !== "").length;
   // '판정·고급' 접힘 힌트 카운트. 타임아웃·루프캡은 항상 값이 있는 기본 입력이라 제외.
-  const advancedActiveCount = sloActiveCount + pacingActiveCount + (measurePhases ? 1 : 0);
+  // open 모드에서는 think time 입력이 비노출·payload 미포함이라 계산에서 제외.
+  const advancedActiveCount =
+    sloActiveCount + (loadModel === "closed" ? pacingActiveCount : 0) + (measurePhases ? 1 : 0);
   // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
   const loadState: LoadModelState = {
     loadModel,
@@ -461,7 +463,7 @@ export function RunDialog({
       )}
       {/* 그룹 1: 부하 정의 — 항상 펼침 */}
       <fieldset className="mb-4">
-        <legend className="text-sm font-medium">{ko.runDialog.groupLoad}</legend>
+        <legend className="text-sm font-semibold">{ko.runDialog.groupLoad}</legend>
         <LoadModelFields
           loadModel={loadModel}
           setLoadModel={setLoadModel}
@@ -485,7 +487,7 @@ export function RunDialog({
 
       {/* 그룹 2: 대상 설정 — 항상 펼침 */}
       <fieldset className="mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">{ko.runDialog.groupTarget}</legend>
+        <legend className="text-sm font-semibold">{ko.runDialog.groupTarget}</legend>
         <EnvironmentPicker
           selectedEnvId={selectedEnvId}
           onSelect={setSelectedEnvId}
@@ -510,7 +512,7 @@ export function RunDialog({
           <button
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}
-            className="font-medium text-slate-700 hover:underline"
+            className="font-semibold text-slate-700 hover:underline"
             aria-expanded={advancedOpen}
           >
             {advancedOpen ? "▾" : "▸"} {ko.runDialog.groupAdvanced}
@@ -688,19 +690,33 @@ export function RunDialog({
         <p className="mb-3 text-red-600 text-sm">{(mutation.error as Error).message}</p>
       )}
 
-      {!bindingBlock.ok && bindingBlock.reasons.length > 0 && (
-        <div
-          role="status"
-          className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
-        >
-          <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
-          <ul className="list-disc pl-5">
-            {bindingBlock.reasons.map((r) => (
-              <li key={r}>{ko.runDialog.bindingReasonPrefix + r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {(() => {
+        // 접힌 그룹의 진단 값이 invalid면 인라인 에러 p가 DOM에 없어 사유가 안 보인다.
+        // advancedOpen(펼침)이면 인라인 에러가 이미 보이므로 중복 표시 안 함.
+        const blockedReasons: string[] = [
+          ...(!bindingBlock.ok
+            ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
+            : []),
+          ...(!advancedOpen && httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
+          ...(!advancedOpen && loopCapInvalid ? [ko.validation.loopCap] : []),
+          ...(!advancedOpen && thinkInvalid ? [ko.validation.think] : []),
+        ];
+        return (
+          blockedReasons.length > 0 && (
+            <div
+              role="status"
+              className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
+            >
+              <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
+              <ul className="list-disc pl-5">
+                {blockedReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )
+        );
+      })()}
 
       <div className="flex gap-2">
         <Button

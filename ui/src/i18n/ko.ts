@@ -64,5 +64,7 @@ export const ko = {
     targetRps: "목표 RPS는 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
+    loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
+    think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",
   },
 } as const;

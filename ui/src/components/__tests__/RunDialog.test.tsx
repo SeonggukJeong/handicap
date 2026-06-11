@@ -1364,6 +1364,32 @@ describe("RunDialog — environment overlay (B-2)", () => {
   });
 });
 
+describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
+  it("접힌 진단 값이 invalid면 Run이 비활성이고 사유 블록에 이유가 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    const timeout = screen.getByLabelText(/HTTP 타임아웃/);
+    await user.clear(timeout);
+    await user.type(timeout, "601");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접기 — 에러 p는 DOM에서 사라짐
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("실행하려면 다음을 해결하세요:");
+    expect(status).toHaveTextContent(/HTTP 타임아웃은 1 ~ 600초 사이/);
+  });
+
+  it("think time이 한 칸만 채워지면 접힌 상태에서도 사유 블록에 페이싱 이유가 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(/think 최소/), "100");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/페이싱\(think time\)/);
+  });
+});
+
 describe("RunDialog — U1b 재구성 불변식", () => {
   it("payload byte-identical: 기본값 제출 payload가 재구성 전과 동일하다", async () => {
     fetchMock.mockImplementation(() =>
