@@ -57,7 +57,7 @@ describe("Inspector — placeholder", () => {
   it("shows placeholder when no step is selected", () => {
     useScenarioEditor.getState().loadFromString(VALID_YAML);
     render(<Inspector />);
-    expect(screen.getByText(/Select a step/i)).toBeInTheDocument();
+    expect(screen.getByText(/캔버스에서 스텝을 선택/)).toBeInTheDocument();
   });
 });
 
@@ -68,7 +68,7 @@ describe("Inspector — ExtractEditor", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const extractSection = screen.getByRole("group", { name: /Extracts?/i });
+    const extractSection = screen.getByRole("group", { name: "값 추출" });
     const addBtn = within(extractSection).getByRole("button", { name: /Add/i });
     await user.click(addBtn);
 
@@ -93,7 +93,7 @@ describe("Inspector — ExtractEditor", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const extractSection = screen.getByRole("group", { name: /Extracts?/i });
+    const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
 
     const fromSelect = within(extractSection).getByLabelText("extract-from-0");
@@ -106,7 +106,7 @@ describe("Inspector — ExtractEditor", () => {
   it("removes a row when its delete button is clicked", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    const extractSection = screen.getByRole("group", { name: /Extracts?/i });
+    const extractSection = screen.getByRole("group", { name: "값 추출" });
 
     await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
     await user.type(within(extractSection).getByPlaceholderText("var"), "t");
@@ -127,7 +127,7 @@ describe("Inspector — ExtractEditor", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const extractSection = screen.getByRole("group", { name: /Extracts?/i });
+    const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
 
     // Type a var. With commit-on-blur, yamlText must NOT contain "var: " yet.
@@ -156,7 +156,7 @@ describe("Inspector — ExtractEditor", () => {
     render(<Inspector />);
 
     // Bootstrap: add one complete row.
-    const extractSection = screen.getByRole("group", { name: /Extracts?/i });
+    const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
     await user.type(within(extractSection).getByPlaceholderText("var"), "token");
     const pathInputBootstrap = within(extractSection).getByPlaceholderText("$.path");
@@ -296,7 +296,7 @@ describe("Inspector — if route", () => {
 
   it("shows the If heading and the branch name", () => {
     render(<Inspector />);
-    expect(screen.getByRole("heading", { name: "If" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조건(if)" })).toBeInTheDocument();
     expect((screen.getByLabelText("Name") as HTMLInputElement) ?? null).toBeTruthy();
   });
 
@@ -455,7 +455,7 @@ describe("Inspector — mutual nesting (9c)", () => {
     render(<Inspector />);
     // Anchor: confirm the nested loop's inspector actually rendered (else the
     // empty-state aside would make the negative assertion pass vacuously).
-    expect(screen.getByRole("heading", { name: "Loop" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "반복(loop)" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add if/i })).not.toBeInTheDocument();
   });
 
@@ -465,7 +465,7 @@ describe("Inspector — mutual nesting (9c)", () => {
     const nestedIfId = useScenarioEditor.getState().addIfInLoop(loopId, "inner");
     useScenarioEditor.getState().select(nestedIfId);
     render(<Inspector />);
-    expect(screen.getByRole("heading", { name: "If" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조건(if)" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add loop/i })).not.toBeInTheDocument();
   });
 });
@@ -555,6 +555,23 @@ describe("Inspector — JSON body Format", () => {
     await user.click(screen.getByRole("button", { name: "Format" }));
     expect(ta.value).toBe("{not json}");
     expect(screen.getByText(/JSON:/)).toBeInTheDocument();
+  });
+});
+
+describe("Inspector — U3 Korean labels", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("U3: panel is labeled 스텝 설정 with Korean section titles", () => {
+    const id = useScenarioEditor.getState().addStep("S1");
+    useScenarioEditor.getState().select(id);
+    render(<Inspector />);
+    expect(screen.getByRole("complementary", { name: "스텝 설정" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "HTTP 스텝" })).toBeInTheDocument();
+    expect(screen.getByText("응답 검증")).toBeInTheDocument();
+    expect(screen.getByText(/응답에서 값을 꺼내/)).toBeInTheDocument(); // extracts 부연
   });
 });
 

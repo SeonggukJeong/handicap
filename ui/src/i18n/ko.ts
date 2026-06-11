@@ -155,7 +155,7 @@ export const ko = {
     addIf: "+ 조건(if)",
     addParallel: "+ 동시 실행(parallel)",
     containerCaption: "반복·조건·동시 실행은 HTTP 스텝을 묶는 컨테이너입니다.",
-    panelHint: "오른쪽 '스텝 설정' 패널에서 URL을 입력하세요.",
+    panelHint: "오른쪽 '스텝 설정' 패널에서 스텝을 설정하세요.",
     // ── 변수 표기 치트시트 (§5.3) ──
     varCheatSheetLabel: "변수 표기 도움말",
     varCheatSheetContext: "변수 표기",

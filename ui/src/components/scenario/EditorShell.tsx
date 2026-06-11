@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useScenarioEditor } from "../../scenario/store";
+import { ko } from "../../i18n/ko";
 import { CanvasView } from "./CanvasView";
 import { Inspector } from "./Inspector";
 import { MonacoYamlView } from "./MonacoYamlView";
@@ -43,9 +44,7 @@ export function EditorShell({ initialYaml, onChange }: EditorShellProps) {
         {activeTab === "canvas" ? (
           <Inspector />
         ) : (
-          <div className="text-xs text-slate-400 italic">
-            Switch to the Canvas tab to inspect a step.
-          </div>
+          <div className="text-xs text-slate-400 italic">{ko.editor.yamlTabNoInspector}</div>
         )}
       </div>
     </div>

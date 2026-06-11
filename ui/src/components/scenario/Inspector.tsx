@@ -54,8 +54,8 @@ export function Inspector() {
 
   if (step === null) {
     return (
-      <aside aria-label="Inspector" className="text-sm text-slate-400 italic">
-        Select a step in the canvas to edit its details.
+      <aside aria-label={ko.editor.inspectorAria} className="text-sm text-slate-400 italic">
+        {ko.editor.inspectorEmpty}
       </aside>
     );
   }
@@ -214,9 +214,9 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
   };
 
   return (
-    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+    <aside aria-label={ko.editor.inspectorAria} className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
-        <h3 className="font-semibold text-slate-700">Step</h3>
+        <h3 className="font-semibold text-slate-700">{ko.editor.httpPanelTitle}</h3>
         <div className="flex gap-1">
           <MoveButtons stepId={step.id} />
           <SmallButton
@@ -497,7 +497,9 @@ function AssertEditor({
   const [newCode, setNewCode] = useState("");
   return (
     <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
-      <legend className="px-1 text-xs font-semibold text-slate-600">Assertions</legend>
+      <legend className="px-1 text-xs font-semibold text-slate-600">
+        {ko.editor.assertionsLegend}
+      </legend>
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
           <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
@@ -641,9 +643,12 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   return (
     <fieldset
       className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
-      aria-label="Extracts"
+      aria-label={ko.editor.extractsLegend}
     >
-      <legend className="px-1 text-xs font-semibold text-slate-600">Extracts</legend>
+      <legend className="px-1 text-xs font-semibold text-slate-600">
+        {ko.editor.extractsLegend}
+      </legend>
+      <p className="text-xs text-slate-500">{ko.editor.extractsHint}</p>
       <ul className="flex flex-col gap-2">
         {drafts.map((x, idx) => (
           <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
@@ -817,9 +822,9 @@ function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) 
   const canRemove = step.branches.length > 1;
 
   return (
-    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+    <aside aria-label={ko.editor.inspectorAria} className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
-        <h3 className="font-semibold text-slate-700">Parallel</h3>
+        <h3 className="font-semibold text-slate-700">{ko.editor.parallelPanelTitle}</h3>
         <div className="flex gap-1">
           <MoveButtons stepId={step.id} />
           <SmallButton
@@ -910,9 +915,9 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
   };
 
   return (
-    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+    <aside aria-label={ko.editor.inspectorAria} className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
-        <h3 className="font-semibold text-slate-700">Loop</h3>
+        <h3 className="font-semibold text-slate-700">{ko.editor.loopPanelTitle}</h3>
         <div className="flex gap-1">
           <MoveButtons stepId={step.id} />
           <SmallButton
@@ -1242,9 +1247,9 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
   const removeStep = useScenarioEditor((s) => s.removeStep);
 
   return (
-    <aside aria-label="Inspector" className="flex flex-col gap-4 text-sm">
+    <aside aria-label={ko.editor.inspectorAria} className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
-        <h3 className="font-semibold text-slate-700">If</h3>
+        <h3 className="font-semibold text-slate-700">{ko.editor.ifPanelTitle}</h3>
         <div className="flex gap-1">
           <MoveButtons stepId={step.id} />
           <SmallButton
