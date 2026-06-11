@@ -10,6 +10,40 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     unobserve(): void {}
     disconnect(): void {}
   }
-  globalThis.ResizeObserver =
-    ResizeObserverStub as unknown as typeof globalThis.ResizeObserver;
+  globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof globalThis.ResizeObserver;
+}
+
+// Node.js 25 provides a native globalThis.localStorage that is file-backed and
+// does not implement the full Web Storage API (e.g. .clear() is missing when no
+// --localstorage-file path is given). Replace it with a simple in-memory
+// implementation so tests that use window.localStorage work correctly. This
+// polyfill is guarded on .clear being absent to avoid overwriting a fully
+// functional implementation (e.g. real jsdom Storage with a URL).
+if (typeof globalThis.localStorage?.clear !== "function") {
+  const store: Record<string, string> = {};
+  const inMemoryStorage: Storage = {
+    get length() {
+      return Object.keys(store).length;
+    },
+    clear() {
+      for (const k of Object.keys(store)) delete store[k];
+    },
+    getItem(key: string) {
+      return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null;
+    },
+    key(index: number) {
+      return Object.keys(store)[index] ?? null;
+    },
+    removeItem(key: string) {
+      delete store[key];
+    },
+    setItem(key: string, value: string) {
+      store[key] = String(value);
+    },
+  };
+  Object.defineProperty(globalThis, "localStorage", {
+    value: inMemoryStorage,
+    writable: true,
+    configurable: true,
+  });
 }

@@ -67,4 +67,63 @@ export const ko = {
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",
   },
+  nav: {
+    scenarios: "시나리오",
+    datasets: "데이터셋",
+    environments: "환경",
+    schedules: "스케줄",
+  },
+  breadcrumb: {
+    runs: "실행 목록",
+    compare: "런 비교",
+    // "새 시나리오" crumb은 ko.pages.newScenario 재사용(단일 소스) — 별도 키 만들지 말 것.
+  },
+  onboarding: {
+    ariaLabel: "시작 가이드",
+    title: "처음이신가요? 3단계로 시작해 보세요",
+    dismiss: "가이드 닫기",
+    done: "완료",
+    step1Title: "시나리오 만들기",
+    step1Desc: "테스트할 API 요청 흐름을 정의합니다.",
+    // "새 시나리오 만들기"(empty.scenariosCta)와 다른 문구여야 한다 — 같은 화면(빈 홈)에서
+    // 두 링크의 accessible name이 충돌하면 RTL getByRole 단독 조회가 깨지고 UX상도 중복.
+    step1Cta: "시나리오 만들러 가기",
+    step2Title: "실행하기",
+    step2Desc: "동시 사용자 수와 시간을 정해 부하를 보냅니다.",
+    step2Cta: "실행하러 가기",
+    step2Blocked: "먼저 시나리오를 만들어 주세요.",
+    step3Title: "결과 읽기",
+    step3Desc: "응답 속도와 에러로 합격 여부를 판단합니다.",
+    step3Cta: "결과 보러 가기",
+    step3Blocked: "먼저 실행(run)을 만들어 주세요.",
+  },
+  empty: {
+    scenarios: "시나리오는 부하를 줄 API 요청 흐름입니다. 첫 시나리오를 만들어 보세요.",
+    scenariosCta: "새 시나리오 만들기",
+    datasets:
+      "데이터셋은 시나리오의 {{변수}}에 줄 단위로 주입할 CSV/XLSX 표입니다. 시나리오가 변수를 쓸 때만 필요해요.",
+    datasetsCta: "위 업로드 패널에서 CSV/XLSX 파일을 올려 보세요.",
+    environments:
+      "환경은 ${BASE_URL} 같은 환경 변수 묶음입니다. 같은 시나리오를 dev/stage에 번갈아 쏠 때 씁니다.",
+    environmentsCta: "환경 만들기",
+    schedules:
+      "스케줄은 시나리오를 정해진 시각(1회) 또는 주기(cron)로 자동 실행합니다. 합격 기준과 함께 쓰면 회귀 감시가 됩니다.",
+    schedulesCta: "스케줄 만들기",
+    runs: "아직 실행 기록이 없습니다. 부하 설정을 정해 첫 실행을 만들어 보세요.",
+    runsCta: "실행하기",
+  },
+  pages: {
+    newScenario: "새 시나리오",
+    nameCol: "이름",
+    versionCol: "버전",
+    updatedCol: "수정",
+    duplicate: "복제",
+    runsLink: "실행 →",
+    newEnvironment: "새 환경",
+    editEnvironment: "환경 편집",
+    newSchedule: "새 스케줄",
+    editSchedule: "스케줄 편집",
+    runsTitle: "실행 목록",
+    runScenario: "실행하기",
+  },
 } as const;

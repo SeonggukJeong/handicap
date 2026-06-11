@@ -51,6 +51,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: {
+        // jsdom disables localStorage when no URL is set. Provide a stable
+        // localhost origin so localStorage/sessionStorage are available in all
+        // tests (required by the onboarding state module, U2).
+        url: "http://localhost/",
+      },
+    },
     include: ["src/**/__tests__/**/*.{test,spec}.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
   },

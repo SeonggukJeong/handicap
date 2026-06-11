@@ -44,3 +44,68 @@ describe("ko 카탈로그", () => {
     expect(ko.validation.httpTimeout).toContain("1 ~ 600");
   });
 });
+
+describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
+  it("nav/breadcrumb 키가 존재한다", () => {
+    const navKeys = ["scenarios", "datasets", "environments", "schedules"] as const;
+    for (const k of navKeys) {
+      expect(ko.nav[k], `nav.${k}`).toBeTypeOf("string");
+      expect(ko.nav[k].length).toBeGreaterThan(0);
+    }
+    const bcKeys = ["runs", "compare"] as const;
+    for (const k of bcKeys) {
+      expect(ko.breadcrumb[k], `breadcrumb.${k}`).toBeTypeOf("string");
+      expect(ko.breadcrumb[k].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("onboarding 3단계 문구가 존재한다", () => {
+    const keys = [
+      "ariaLabel",
+      "title",
+      "dismiss",
+      "done",
+      "step1Title",
+      "step1Desc",
+      "step1Cta",
+      "step2Title",
+      "step2Desc",
+      "step2Cta",
+      "step2Blocked",
+      "step3Title",
+      "step3Desc",
+      "step3Cta",
+      "step3Blocked",
+    ] as const;
+    for (const k of keys) {
+      expect(ko.onboarding[k], `onboarding.${k}`).toBeTypeOf("string");
+      expect(ko.onboarding[k].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("empty 5종은 무엇+다음 행동 3요소 패턴", () => {
+    expect(ko.empty.scenarios).toContain("API 요청");
+    expect(ko.empty.datasets).toContain("CSV");
+    expect(ko.empty.environments).toContain("BASE_URL");
+    expect(ko.empty.schedules).toContain("cron");
+    expect(ko.empty.runs).toContain("실행");
+    const ctaKeys = [
+      "scenariosCta",
+      "datasetsCta",
+      "environmentsCta",
+      "schedulesCta",
+      "runsCta",
+    ] as const;
+    for (const k of ctaKeys) {
+      expect(ko.empty[k], `empty.${k}`).toBeTypeOf("string");
+      expect(ko.empty[k].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("pages chrome 라벨 스모크", () => {
+    expect(ko.pages.newScenario).toBe("새 시나리오");
+    expect(ko.pages.runScenario).toBe("실행하기");
+    expect(ko.pages.newEnvironment).toBe("새 환경");
+    expect(ko.pages.newSchedule).toBe("새 스케줄");
+  });
+});
