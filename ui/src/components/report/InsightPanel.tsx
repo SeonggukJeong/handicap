@@ -1,4 +1,8 @@
 import type { Insight } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+
+// `as const` 객체는 string 키 인덱싱이 안 되므로 lookup용 넓힌 뷰를 한 번 만든다.
+const ACTIONS: Record<string, string | undefined> = ko.insightActions;
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 type Props = { insights: Insight[]; meta: Map<string, StepMeta> };
@@ -53,7 +57,10 @@ export function InsightPanel({ insights, meta }: Props) {
               SEV_CLASS[i.severity] ?? SEV_CLASS.info,
             ].join(" ")}
           >
-            {message(i, meta)}
+            <div>{message(i, meta)}</div>
+            {ACTIONS[i.kind] && (
+              <div className="mt-0.5 text-xs opacity-80">→ {ACTIONS[i.kind]}</div>
+            )}
           </li>
         ))}
       </ul>

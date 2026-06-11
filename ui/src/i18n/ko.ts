@@ -227,4 +227,13 @@ export const ko = {
     colBranch: "분기",
     colDecisionsInner: "결정 수",
   },
+  // §7.3 인사이트 kind → "다음 행동" 한 줄 (slo_pass는 의도적 부재 — 행동 없음).
+  insightActions: {
+    slowest_step: "이 API가 병목입니다 — 스텝 표를 내보내 개발팀과 공유하세요.",
+    error_hotspot: "이 스텝의 응답 검증 조건과 서버 로그를 확인하세요.",
+    no_request_step: "이 스텝에 요청이 없었습니다 — 조건 분기·시나리오 구조를 확인하세요.",
+    status_class: "4xx면 요청 형식(인증·파라미터), 5xx면 서버 측 문제부터 확인하세요.",
+    status_temporal: "테스트 후반 5xx 증가 — 서버 자원 고갈 의심. 더 긴 soak 테스트를 고려하세요.",
+    slo_failure: "미달 기준 행을 확인하고 임계값과 서버 성능 중 무엇을 조정할지 정하세요.",
+  },
 } as const;
