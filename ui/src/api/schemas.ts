@@ -257,6 +257,18 @@ export const IfBreakdownSchema = z
   })
   .strict();
 
+export const BranchLatencySchema = z
+  .object({
+    branch: z.string(),
+    count: z.number().int().nonnegative(),
+    p50_ms: z.number().int().nonnegative(),
+    p95_ms: z.number().int().nonnegative(),
+    p99_ms: z.number().int().nonnegative(),
+    max_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type BranchLatency = z.infer<typeof BranchLatencySchema>;
+
 export const GroupLatencySchema = z
   .object({
     step_id: z.string(),
@@ -265,6 +277,7 @@ export const GroupLatencySchema = z
     p95_ms: z.number().int().nonnegative(),
     p99_ms: z.number().int().nonnegative(),
     max_ms: z.number().int().nonnegative(),
+    branches: z.array(BranchLatencySchema),
   })
   .strict();
 export type GroupLatency = z.infer<typeof GroupLatencySchema>;
