@@ -85,6 +85,7 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
 
   it("empty 5종은 무엇+다음 행동 3요소 패턴", () => {
     expect(ko.empty.scenarios).toContain("API 요청");
+    expect(ko.empty.scenarios).toContain("템플릿");
     expect(ko.empty.datasets).toContain("CSV");
     expect(ko.empty.environments).toContain("BASE_URL");
     expect(ko.empty.schedules).toContain("cron");
@@ -107,5 +108,68 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
     expect(ko.pages.runScenario).toBe("실행하기");
     expect(ko.pages.newEnvironment).toBe("새 환경");
     expect(ko.pages.newSchedule).toBe("새 스케줄");
+  });
+
+  it("U3 editor/templates 네임스페이스 키가 비어 있지 않다", () => {
+    const editorKeys = [
+      "inspectorAria",
+      "inspectorEmpty",
+      "yamlTabNoInspector",
+      "httpPanelTitle",
+      "loopPanelTitle",
+      "ifPanelTitle",
+      "parallelPanelTitle",
+      "assertionsLegend",
+      "extractsLegend",
+      "extractsHint",
+      "urlLabel",
+      "urlPlaceholder",
+      "urlEmptyWarning",
+      "urlMissingBadge",
+      "canvasEmpty",
+      "addHttpStep",
+      "addHttpStepInLoop",
+      "addLoop",
+      "addIf",
+      "addParallel",
+      "containerCaption",
+      "panelHint",
+      "varCheatSheetLabel",
+      "varCheatSheetContext",
+      "variablesTitle",
+      "variablesEmpty",
+      "variablesAdd",
+      "create",
+      "creating",
+      "cancel",
+      "discardConfirm",
+    ] as const;
+    for (const k of editorKeys) {
+      expect(ko.editor[k], `editor.${k}`).toBeTypeOf("string");
+      expect(ko.editor[k].length, `editor.${k}`).toBeGreaterThan(0);
+    }
+    const tplKeys = [
+      "galleryAria",
+      "galleryTitle",
+      "galleryHint",
+      "blankName",
+      "blankDesc",
+      "getName",
+      "getDesc",
+      "loginName",
+      "loginDesc",
+      "dataName",
+      "dataDesc",
+    ] as const;
+    for (const k of tplKeys) {
+      expect(ko.templates[k], `templates.${k}`).toBeTypeOf("string");
+      expect(ko.templates[k].length, `templates.${k}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("glossary 변수 표기 3분류(ADR-0014)가 표기 원문을 담는다", () => {
+    expect(ko.glossary.varFlow).toContain("{{");
+    expect(ko.glossary.varEnv).toContain("${ENV}");
+    expect(ko.glossary.varSys).toContain("${vu_id}");
   });
 });

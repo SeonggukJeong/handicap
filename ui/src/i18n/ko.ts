@@ -24,6 +24,9 @@ export const ko = {
     scenario: "시나리오 — 부하를 줄 API 요청 흐름의 정의입니다.",
     step: "스텝 — 부하 중 반복 실행될 HTTP 요청 1개입니다.",
     run: "실행(run) — 시나리오에 부하 설정을 적용해 한 번 돌린 기록입니다.",
+    varFlow: "{{변수}} — 흐름 변수. 시나리오 변수·값 추출·데이터셋 바인딩이 채웁니다.",
+    varEnv: "${ENV} — 환경 변수. 실행 시 선택한 환경에서 주입됩니다.",
+    varSys: "${vu_id} 등 — 시스템 변수. 엔진이 자동으로 채웁니다(가상 사용자 번호 등).",
   },
   runDialog: {
     title: "새 실행",
@@ -99,7 +102,7 @@ export const ko = {
     step3Blocked: "먼저 실행(run)을 만들어 주세요.",
   },
   empty: {
-    scenarios: "시나리오는 부하를 줄 API 요청 흐름입니다. 첫 시나리오를 만들어 보세요.",
+    scenarios: "시나리오는 부하를 줄 API 요청 흐름입니다. 템플릿에서 시작해 보세요.",
     scenariosCta: "새 시나리오 만들기",
     datasets:
       "데이터셋은 시나리오의 {{변수}}에 줄 단위로 주입할 CSV/XLSX 표입니다. 시나리오가 변수를 쓸 때만 필요해요.",
@@ -126,5 +129,58 @@ export const ko = {
     editSchedule: "스케줄 편집",
     runsTitle: "실행 목록",
     runScenario: "실행하기",
+  },
+  editor: {
+    // ── 스텝 설정 패널(구 Inspector) ──
+    inspectorAria: "스텝 설정",
+    inspectorEmpty: "캔버스에서 스텝을 선택하면 여기서 설정합니다.",
+    yamlTabNoInspector: "스텝 설정은 캔버스 탭에서 사용할 수 있습니다.",
+    httpPanelTitle: "HTTP 스텝",
+    loopPanelTitle: "반복(loop)",
+    ifPanelTitle: "조건(if)",
+    parallelPanelTitle: "동시 실행(parallel)",
+    assertionsLegend: "응답 검증",
+    extractsLegend: "값 추출",
+    extractsHint: "응답에서 값을 꺼내 다음 스텝에서 {{이름}}으로 사용합니다.",
+    // ── URL 필수 표시 (§5.2) ──
+    urlLabel: "URL *",
+    urlPlaceholder: "https://api.example.com/login 또는 ${BASE_URL}/login",
+    urlEmptyWarning: "URL을 입력하세요 — 비어 있으면 요청이 실패합니다.",
+    urlMissingBadge: "URL이 비어 있습니다",
+    // ── 캔버스 (§5.1) ──
+    canvasEmpty: "HTTP 스텝을 추가해 시작하세요. 스텝은 부하 중 반복 실행될 HTTP 요청 1개입니다.",
+    addHttpStep: "+ HTTP 스텝",
+    addHttpStepInLoop: "+ 반복 안에 HTTP 스텝",
+    addLoop: "+ 반복(loop)",
+    addIf: "+ 조건(if)",
+    addParallel: "+ 동시 실행(parallel)",
+    containerCaption: "반복·조건·동시 실행은 HTTP 스텝을 묶는 컨테이너입니다.",
+    panelHint: "오른쪽 '스텝 설정' 패널에서 URL을 입력하세요.",
+    // ── 변수 표기 치트시트 (§5.3) ──
+    varCheatSheetLabel: "변수 표기 도움말",
+    varCheatSheetContext: "변수 표기",
+    // ── Variables 패널 (치트시트 부착 표면 동반 정리) ──
+    variablesTitle: "변수",
+    variablesEmpty: "변수 없음",
+    variablesAdd: "추가",
+    // ── 새 시나리오 페이지 chrome ──
+    create: "만들기",
+    creating: "생성 중…",
+    cancel: "취소",
+    discardConfirm: "저장하지 않은 변경을 버릴까요?",
+  },
+  templates: {
+    galleryAria: "시나리오 템플릿 선택",
+    galleryTitle: "어떤 시나리오로 시작할까요?",
+    galleryHint: "선택 후 캔버스·YAML에서 자유롭게 고칠 수 있습니다.",
+    blankName: "빈 시나리오",
+    blankDesc: "아무것도 없는 상태에서 직접 만듭니다.",
+    getName: "단순 GET",
+    getDesc: "URL 하나에 GET을 보내는 1스텝 헬스체크 — 가장 단순한 부하 테스트.",
+    loginName: "로그인 흐름",
+    loginDesc: "로그인(POST) → 토큰 값 추출 → 인증 GET. 값 추출과 {{변수}} 사용법 예시.",
+    dataName: "데이터 기반",
+    dataDesc:
+      "CSV 데이터셋의 행을 {{변수}}로 주입하는 폼 전송 — 실행 시 데이터 바인딩과 함께 씁니다.",
   },
 } as const;
