@@ -85,7 +85,7 @@ describe("StepStatsTable", () => {
       },
     ];
     render(<StepStatsTable steps={steps as never} meta={new Map()} />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Toggle loop breakdown/ })).not.toBeInTheDocument();
   });
 
   it("shows download columns only when a step has download", () => {
@@ -129,5 +129,35 @@ describe("StepStatsTable", () => {
     expect(screen.getByText("다운로드 p50 ms")).toBeInTheDocument();
     expect(screen.getByText("다운로드 p95 ms")).toBeInTheDocument();
     expect(screen.getByText("다운로드 p99 ms")).toBeInTheDocument();
+  });
+
+  it("표 헤더가 한국어이고 p50/p95/p99에 용어 도움말이 있다", async () => {
+    const user = userEvent.setup();
+    const meta = new Map([
+      ["stepA", { id: "stepA", name: "login", method: "POST", url: "http://x/login" }],
+    ]);
+    render(
+      <StepStatsTable
+        steps={[
+          {
+            step_id: "stepA",
+            count: 10,
+            error_count: 0,
+            status_counts: { "200": 10 },
+            p50_ms: 5,
+            p95_ms: 20,
+            p99_ms: 40,
+            loop_breakdown: [],
+          },
+        ]}
+        meta={meta}
+      />,
+    );
+    expect(screen.getByText("스텝")).toBeInTheDocument();
+    expect(screen.getByText("메서드")).toBeInTheDocument();
+    expect(screen.getByText("요청 수")).toBeInTheDocument();
+    expect(screen.getByText("에러")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "p95 설명" }));
+    expect(screen.getByRole("note")).toHaveTextContent("95%");
   });
 });

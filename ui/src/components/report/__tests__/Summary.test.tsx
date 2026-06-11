@@ -30,9 +30,9 @@ describe("Summary", () => {
     // count=88, dropped=12 → drop rate = 12/(12+88) = 12.0%
     render(<Summary summary={{ ...baseSummary, count: 88 }} dropped={12} targetRps={50} />);
     const region = screen.getByRole("region", { name: /Report summary/i });
-    expect(region).toHaveTextContent("Target RPS");
+    expect(region).toHaveTextContent("목표 RPS");
     expect(region).toHaveTextContent("50");
-    expect(region).toHaveTextContent("Dropped");
+    expect(region).toHaveTextContent("드롭");
     expect(region).toHaveTextContent("12");
     expect(region).toHaveTextContent("12.0%");
   });
@@ -70,9 +70,24 @@ describe("Summary", () => {
     expect(screen.getByRole("note")).toHaveTextContent("95%");
   });
 
-  it("도움말이 없는 카드(Total requests 등)엔 도움말 버튼이 없다", () => {
+  it("도움말이 없는 카드(총 요청·에러·테스트 시간)엔 도움말 버튼이 없다", () => {
     render(<Summary summary={baseSummary} />);
-    expect(screen.queryByRole("button", { name: "Total requests 설명" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Errors 설명" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "총 요청 설명" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "에러 설명" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "테스트 시간 설명" })).toBeNull();
+  });
+
+  it("평균 RPS 카드에 RPS 용어 도움말이 있다", async () => {
+    const user = userEvent.setup();
+    render(<Summary summary={baseSummary} />);
+    await user.click(screen.getByRole("button", { name: "평균 RPS 설명" }));
+    expect(screen.getByRole("note")).toHaveTextContent("초당 요청 수");
+  });
+
+  it("open-loop 카드(목표 RPS·드롭) 라벨이 한국어이고 드롭에 도움말이 있다", () => {
+    render(<Summary summary={baseSummary} dropped={5} targetRps={100} />);
+    expect(screen.getByText("목표 RPS")).toBeInTheDocument();
+    expect(screen.getByText("드롭")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "드롭 설명" })).toBeInTheDocument();
   });
 });

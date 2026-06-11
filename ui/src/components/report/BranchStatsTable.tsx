@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 import type { IfBreakdown } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 
 type IfMeta = { name: string };
 type Props = { breakdown: IfBreakdown[]; meta: Map<string, IfMeta> };
@@ -40,8 +41,8 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
-            <th className="py-2 pr-4 font-medium">If node</th>
-            <th className="py-2 pr-4 font-medium">Decisions</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colIfNode}</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colDecisions}</th>
           </tr>
         </thead>
         <tbody>
@@ -75,8 +76,8 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
                       <table className="text-xs">
                         <thead className="text-slate-500">
                           <tr>
-                            <th className="pr-4 text-left">branch</th>
-                            <th className="pr-4 text-left">decisions</th>
+                            <th className="pr-4 text-left">{ko.report.colBranch}</th>
+                            <th className="pr-4 text-left">{ko.report.colDecisionsInner}</th>
                           </tr>
                         </thead>
                         <tbody>

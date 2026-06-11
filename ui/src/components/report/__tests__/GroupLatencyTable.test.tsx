@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { GroupLatencyTable } from "../GroupLatencyTable";
 import type { GroupLatency } from "../../../api/schemas";
 
@@ -25,7 +26,7 @@ describe("GroupLatencyTable", () => {
     expect(screen.getByText("page load")).toBeInTheDocument();
     expect(screen.getByText("420")).toBeInTheDocument(); // page p95
     expect(screen.getByText("610")).toBeInTheDocument(); // page max
-    expect(screen.getByRole("columnheader", { name: "p95 ms" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /p95 ms/ })).toBeInTheDocument();
     // branch sub-rows: labels = branch names, values locked to their own row
     // (within() so a feed↔user value swap fails, not just presence)
     const feedRow = screen.getByText(/feed/).closest("tr")!;
@@ -42,5 +43,14 @@ describe("GroupLatencyTable", () => {
   it("renders nothing when empty", () => {
     const { container } = render(<GroupLatencyTable breakdown={[]} meta={new Map()} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("헤더가 한국어이고 p95에 용어 도움말이 있다", async () => {
+    const user = userEvent.setup();
+    render(<GroupLatencyTable breakdown={rows} meta={new Map([["p1", { name: "page load" }]])} />);
+    expect(screen.getByText("동시 실행 노드 / 분기")).toBeInTheDocument();
+    expect(screen.getByText("횟수")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "p95 설명" })[0]);
+    expect(screen.getByRole("note")).toHaveTextContent("95%");
   });
 });

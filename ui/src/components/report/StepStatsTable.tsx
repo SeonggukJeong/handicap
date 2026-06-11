@@ -1,5 +1,7 @@
 import { Fragment, useState } from "react";
 import type { ReportStep } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+import { HelpTip } from "../HelpTip";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 
@@ -37,14 +39,20 @@ export function StepStatsTable({ steps, meta }: Props) {
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
-            <th className="py-2 pr-4 font-medium">Step</th>
-            <th className="py-2 pr-4 font-medium">Method</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
             <th className="py-2 pr-4 font-medium">URL</th>
-            <th className="py-2 pr-4 font-medium">Requests</th>
-            <th className="py-2 pr-4 font-medium">Errors</th>
-            <th className="py-2 pr-4 font-medium">p50 ms</th>
-            <th className="py-2 pr-4 font-medium">p95 ms</th>
-            <th className="py-2 pr-4 font-medium">p99 ms</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colRequests}</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
+            <th className="py-2 pr-4 font-medium">
+              p50 ms<HelpTip label="p50 설명">{ko.glossary.p50}</HelpTip>
+            </th>
+            <th className="py-2 pr-4 font-medium">
+              p95 ms<HelpTip label="p95 설명">{ko.glossary.p95}</HelpTip>
+            </th>
+            <th className="py-2 pr-4 font-medium">
+              p99 ms<HelpTip label="p99 설명">{ko.glossary.p99}</HelpTip>
+            </th>
             {anyDownload && (
               <>
                 <th className="py-2 pr-4 font-medium">다운로드 p50 ms</th>

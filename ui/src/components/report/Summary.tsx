@@ -10,10 +10,10 @@ type Props = {
 
 export function Summary({ summary, dropped, targetRps }: Props) {
   const cards: Array<{ label: string; value: string; help?: string }> = [
-    { label: "Total requests", value: summary.count.toLocaleString() },
-    { label: "Errors", value: summary.errors.toLocaleString() },
-    { label: "Avg RPS", value: summary.rps.toFixed(1) },
-    { label: "Duration", value: `${summary.duration_seconds}s` },
+    { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
+    { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },
+    { label: ko.report.cardAvgRps, value: summary.rps.toFixed(1), help: ko.glossary.rps },
+    { label: ko.report.cardDuration, value: `${summary.duration_seconds}s` },
     { label: "p50", value: `${summary.p50_ms} ms`, help: ko.glossary.p50 },
     { label: "p95", value: `${summary.p95_ms} ms`, help: ko.glossary.p95 },
     { label: "p99", value: `${summary.p99_ms} ms`, help: ko.glossary.p99 },
@@ -25,10 +25,12 @@ export function Summary({ summary, dropped, targetRps }: Props) {
     const dropRate = total === 0 ? 0 : droppedCount / total;
     const dropPct = (dropRate * 100).toFixed(1);
     cards.push(
-      { label: "Target RPS", value: targetRps.toLocaleString() },
+      { label: ko.report.cardTargetRps, value: targetRps.toLocaleString() },
       {
-        label: "Dropped",
+        label: ko.report.cardDropped,
         value: `${droppedCount.toLocaleString()} (${dropPct}%)`,
+        // 드롭 정의는 max in-flight 용어 정의가 단일 소스(초과분 drop 집계 설명 포함)
+        help: ko.glossary.maxInFlight,
       },
     );
   }

@@ -22,6 +22,8 @@ describe("BranchStatsTable", () => {
     render(<BranchStatsTable breakdown={breakdown} meta={meta} />);
     expect(screen.getByText(/branch-on-status/)).toBeInTheDocument();
     expect(screen.queryByText("then")).not.toBeInTheDocument();
+    expect(screen.getByText("조건(if) 노드")).toBeInTheDocument();
+    expect(screen.getByText("분기 결정 수")).toBeInTheDocument();
   });
 
   it("expands to per-branch decision counts incl the none bucket, in display order", async () => {
