@@ -1,6 +1,9 @@
 import { Link } from "react-router-dom";
 import { useCloneScenario, useScenarios } from "../api/hooks";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { OnboardingGuide } from "../components/OnboardingGuide";
+import { ko } from "../i18n/ko";
 
 export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
@@ -15,11 +18,13 @@ export function ScenarioListPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold">Scenarios</h2>
+        <h2 className="text-xl font-semibold">{ko.nav.scenarios}</h2>
         <Link to="/scenarios/new">
-          <Button>New scenario</Button>
+          <Button>{ko.pages.newScenario}</Button>
         </Link>
       </div>
+
+      {data && <OnboardingGuide firstScenarioId={data.scenarios[0]?.id ?? null} />}
 
       {isLoading && <p className="text-slate-500">Loading…</p>}
       {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
@@ -30,16 +35,23 @@ export function ScenarioListPage() {
       )}
 
       {data && data.scenarios.length === 0 && (
-        <p className="text-slate-500">No scenarios yet. Create one to get started.</p>
+        <EmptyState
+          body={ko.empty.scenarios}
+          action={
+            <Link to="/scenarios/new" className="text-slate-700 underline hover:text-slate-900">
+              {ko.empty.scenariosCta} →
+            </Link>
+          }
+        />
       )}
 
       {data && data.scenarios.length > 0 && (
         <table className="min-w-full text-sm">
           <thead className="border-b border-slate-200 text-left text-slate-600">
             <tr>
-              <th className="py-2 pr-4 font-medium">Name</th>
-              <th className="py-2 pr-4 font-medium">Version</th>
-              <th className="py-2 pr-4 font-medium">Updated</th>
+              <th className="py-2 pr-4 font-medium">{ko.pages.nameCol}</th>
+              <th className="py-2 pr-4 font-medium">{ko.pages.versionCol}</th>
+              <th className="py-2 pr-4 font-medium">{ko.pages.updatedCol}</th>
               <th />
             </tr>
           </thead>
@@ -63,10 +75,10 @@ export function ScenarioListPage() {
                       disabled={clone.isPending}
                       className="text-slate-700 hover:underline disabled:text-slate-400"
                     >
-                      Duplicate
+                      {ko.pages.duplicate}
                     </button>
                     <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
-                      runs →
+                      {ko.pages.runsLink}
                     </Link>
                   </div>
                 </td>

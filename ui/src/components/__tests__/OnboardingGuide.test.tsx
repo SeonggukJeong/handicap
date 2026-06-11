@@ -74,4 +74,14 @@ describe("OnboardingGuide (홈 시작 가이드 카드)", () => {
     renderGuide(null);
     expect(screen.queryByRole("region", { name: ko.onboarding.ariaLabel })).toBeNull();
   });
+
+  it("reportViewed만 있고 runCreated 없음 → 카드 표시, ② CTA 있음, ③ CTA 없음(완료)", () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ reportViewed: true }));
+    renderGuide("S1");
+    const card = screen.getByRole("region", { name: ko.onboarding.ariaLabel });
+    expect(
+      within(card).getByRole("link", { name: `${ko.onboarding.step2Cta} →` }),
+    ).toBeInTheDocument();
+    expect(within(card).queryByRole("link", { name: `${ko.onboarding.step3Cta} →` })).toBeNull();
+  });
 });

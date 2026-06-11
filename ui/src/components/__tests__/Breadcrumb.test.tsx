@@ -35,4 +35,13 @@ describe("Breadcrumb", () => {
     const { container } = renderCrumbs([]);
     expect(container.querySelector("nav")).toBeNull();
   });
+
+  it("마지막 항목은 to가 있어도 링크가 아니라 aria-current=page 텍스트", () => {
+    renderCrumbs([
+      { label: "시나리오", to: "/" },
+      { label: "끝", to: "/somewhere" },
+    ]);
+    expect(screen.queryByRole("link", { name: "끝" })).toBeNull();
+    expect(screen.getByText("끝")).toHaveAttribute("aria-current", "page");
+  });
 });

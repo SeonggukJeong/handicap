@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   useAbortRun,
@@ -14,6 +14,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
+import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
@@ -33,6 +34,11 @@ export function RunDetailPage() {
   const metrics = useRunMetrics(id, terminal);
   const report = useRunReport(id, terminal);
   const scenario = useScenario(run.data?.scenario_id);
+
+  // U2 온보딩 ③: 종료된 run의 리포트가 실제 화면에 렌더된 시점 기록
+  useEffect(() => {
+    if (terminal && report.data) markReportViewed();
+  }, [terminal, report.data]);
 
   const stepOrder = useMemo<Array<{ id: string } & StepMeta>>(() => {
     const yaml = scenario.data?.yaml;

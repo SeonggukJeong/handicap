@@ -26,6 +26,7 @@ function renderWithRouter(runId: string) {
 
 const fetchMock = vi.fn();
 beforeEach(() => {
+  window.localStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -545,6 +546,9 @@ describe("RunDetailPage — report on terminal", () => {
     await screen.findByRole("region", { name: /Report summary/ });
     // The live "Metric windows" header should not be present in report mode.
     expect(screen.queryByText(/Metric windows/)).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem("handicap.onboarding.v1")!)).toMatchObject({
+      reportViewed: true,
+    });
   });
 
   it("does NOT fetch /report while status is running", async () => {
@@ -575,6 +579,7 @@ describe("RunDetailPage — report on terminal", () => {
       (c) => typeof c[0] === "string" && c[0].endsWith("/api/runs/R10/report"),
     );
     expect(reportCalls.length).toBe(0);
+    expect(window.localStorage.getItem("handicap.onboarding.v1")).toBeNull();
   });
 
   it("surfaces report fetch error as an alert when terminal", async () => {

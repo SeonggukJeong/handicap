@@ -7,6 +7,7 @@ import { ScenarioRunsPage } from "../ScenarioRunsPage";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
+  window.localStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -105,6 +106,9 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     const body = JSON.parse((posted![1] as RequestInit).body as string);
     expect(body.profile.vus).toBe(4);
     expect(body.env).toEqual({ BASE_URL: "http://x" });
+    expect(JSON.parse(window.localStorage.getItem("handicap.onboarding.v1")!)).toMatchObject({
+      runCreated: true,
+    });
   });
 
   it("shows the drift warning when the run snapshot differs from the live scenario", async () => {

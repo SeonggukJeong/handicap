@@ -22,6 +22,7 @@ import {
   type ScheduleInput,
 } from "./schedules";
 import type { Profile, RunStatus } from "./schemas";
+import { markRunCreated } from "../onboarding/state";
 
 export const queryKeys = {
   scenarios: () => ["scenarios"] as const,
@@ -118,6 +119,7 @@ export function useCreateRun() {
       env: Record<string, string>;
     }) => api.createRun(scenarioId, profile, env),
     onSuccess: (run) => {
+      markRunCreated(); // U2 온보딩 ②: UI 경유 run 생성 성공 시 1회성 플래그
       qc.invalidateQueries({ queryKey: queryKeys.scenarioRuns(run.scenario_id) });
     },
   });

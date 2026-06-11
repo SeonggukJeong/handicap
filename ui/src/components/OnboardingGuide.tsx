@@ -71,7 +71,7 @@ export function OnboardingGuide({ firstScenarioId }: { firstScenarioId: string |
             // localStorage 불가 환경에서도 세션 내에선 숨김 (영속 실패 시 fail-soft의 보완)
             setState((s) => ({ ...s, dismissed: true }));
           }}
-          className="text-slate-400 hover:text-slate-600"
+          className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
         >
           ✕
         </button>
