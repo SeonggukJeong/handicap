@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { DatasetsPage } from "../DatasetsPage";
+import { ko } from "../../i18n/ko";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -51,7 +52,7 @@ describe("DatasetsPage", () => {
   it("shows empty state", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ datasets: [] }));
     renderPage();
-    expect(await screen.findByText(/No datasets yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(ko.empty.datasets)).toBeInTheDocument();
   });
 
   it("deletes a dataset", async () => {
@@ -76,7 +77,7 @@ describe("DatasetsPage", () => {
     renderPage();
     await screen.findByText("users");
     await user.click(screen.getByRole("button", { name: /delete/i }));
-    await waitFor(() => expect(screen.getByText(/No datasets yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(ko.empty.datasets)).toBeInTheDocument());
   });
 });
 

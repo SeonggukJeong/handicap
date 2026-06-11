@@ -13,6 +13,8 @@ import { describeTrigger } from "../components/triggerCron";
 import { ScheduleForm, type ScenarioOption } from "../components/ScheduleForm";
 import { ScheduleEventTimeline } from "../components/ScheduleEventTimeline";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ko } from "../i18n/ko";
 
 const STATUS_STYLE: Record<string, string> = {
   fired: "bg-green-100 text-green-800",
@@ -118,8 +120,8 @@ export function SchedulesPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold">Schedules</h2>
-        {mode === "none" && <Button onClick={startNew}>New schedule</Button>}
+        <h2 className="text-lg font-semibold">{ko.nav.schedules}</h2>
+        {mode === "none" && <Button onClick={startNew}>{ko.pages.newSchedule}</Button>}
       </div>
 
       {mode !== "none" && (
@@ -128,7 +130,7 @@ export function SchedulesPage() {
           className="mb-8 border border-slate-200 rounded-md p-4 bg-white"
         >
           <h3 className="text-md font-semibold mb-3">
-            {mode === "edit" ? "Edit schedule" : "New schedule"}
+            {mode === "edit" ? ko.pages.editSchedule : ko.pages.newSchedule}
           </h3>
           {formError && (
             <p role="alert" className="mb-2 text-sm text-red-600">
@@ -159,7 +161,18 @@ export function SchedulesPage() {
           <p className="text-red-600">Failed to load: {(list.error as Error).message}</p>
         )}
         {list.data && list.data.length === 0 && mode === "none" && (
-          <p className="text-slate-500">No schedules yet.</p>
+          <EmptyState
+            body={ko.empty.schedules}
+            action={
+              <button
+                type="button"
+                onClick={startNew}
+                className="text-slate-700 underline hover:text-slate-900"
+              >
+                {ko.empty.schedulesCta} →
+              </button>
+            }
+          />
         )}
         {list.data && list.data.length > 0 && (
           <table className="min-w-full text-sm">

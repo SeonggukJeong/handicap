@@ -9,6 +9,8 @@ import {
 } from "../api/hooks";
 import { getEnvironment, type EnvironmentInput } from "../api/environments";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ko } from "../i18n/ko";
 
 type VarRow = { key: string; value: string };
 const RESERVED = new Set(["vu_id", "iter_id", "loop_index"]);
@@ -102,8 +104,8 @@ export function EnvironmentsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold">Environments</h2>
-        {mode === "none" && <Button onClick={startNew}>New environment</Button>}
+        <h2 className="text-lg font-semibold">{ko.nav.environments}</h2>
+        {mode === "none" && <Button onClick={startNew}>{ko.pages.newEnvironment}</Button>}
       </div>
 
       {mode !== "none" && (
@@ -112,7 +114,7 @@ export function EnvironmentsPage() {
           className="mb-8 border border-slate-200 rounded-md p-4 bg-white"
         >
           <h3 className="text-md font-semibold mb-3">
-            {mode === "edit" ? "Edit environment" : "New environment"}
+            {mode === "edit" ? ko.pages.editEnvironment : ko.pages.newEnvironment}
           </h3>
           <label className="block text-sm mb-3">
             <span className="text-slate-600">Name</span>
@@ -228,7 +230,18 @@ export function EnvironmentsPage() {
         {isLoading && <p className="text-slate-500">Loading…</p>}
         {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
         {data && data.length === 0 && mode === "none" && (
-          <p className="text-slate-500">No environments yet.</p>
+          <EmptyState
+            body={ko.empty.environments}
+            action={
+              <button
+                type="button"
+                onClick={startNew}
+                className="text-slate-700 underline hover:text-slate-900"
+              >
+                {ko.empty.environmentsCta} →
+              </button>
+            }
+          />
         )}
         {data && data.length > 0 && (
           <table className="min-w-full text-sm">

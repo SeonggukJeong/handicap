@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useDatasets, useDeleteDataset } from "../api/hooks";
 import { Button } from "../components/Button";
 import { UploadPanel } from "../components/datasets/UploadPanel";
+import { EmptyState } from "../components/EmptyState";
+import { ko } from "../i18n/ko";
 
 export function DatasetsPage() {
   const { data, isLoading, error } = useDatasets();
@@ -30,7 +32,7 @@ export function DatasetsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold">Datasets</h2>
+        <h2 className="text-lg font-semibold">{ko.nav.datasets}</h2>
       </div>
 
       <UploadPanel />
@@ -44,7 +46,12 @@ export function DatasetsPage() {
       <section aria-label="dataset list" className="mt-8">
         {isLoading && <p className="text-slate-500">Loading…</p>}
         {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
-        {data && data.datasets.length === 0 && <p className="text-slate-500">No datasets yet.</p>}
+        {data && data.datasets.length === 0 && (
+          <EmptyState
+            body={ko.empty.datasets}
+            action={<p className="text-slate-500">{ko.empty.datasetsCta}</p>}
+          />
+        )}
         {data && data.datasets.length > 0 && (
           <table className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">

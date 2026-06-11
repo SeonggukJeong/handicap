@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { EnvironmentsPage } from "../EnvironmentsPage";
+import { ko } from "../../i18n/ko";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -42,7 +43,10 @@ describe("EnvironmentsPage", () => {
   it("shows empty state", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ environments: [] }));
     renderPage();
-    expect(await screen.findByText(/No environments yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(ko.empty.environments)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `${ko.empty.environmentsCta} →` }),
+    ).toBeInTheDocument();
   });
 
   it("creates an environment", async () => {
@@ -73,9 +77,9 @@ describe("EnvironmentsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(/No environments yet/i);
+    await screen.findByText(ko.empty.environments);
 
-    await user.click(screen.getByRole("button", { name: /new environment/i }));
+    await user.click(screen.getByRole("button", { name: ko.pages.newEnvironment }));
     await user.type(screen.getByLabelText(/environment name/i), "prod");
     await user.type(screen.getByPlaceholderText("BASE_URL"), "BASE_URL");
     await user.type(screen.getByPlaceholderText(/value/i), "http://p");
@@ -99,7 +103,7 @@ describe("EnvironmentsPage", () => {
     renderPage();
     await screen.findByText("staging");
     await user.click(screen.getByRole("button", { name: /delete/i }));
-    await waitFor(() => expect(screen.getByText(/No environments yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(ko.empty.environments)).toBeInTheDocument());
     confirmSpy.mockRestore();
   });
 });
