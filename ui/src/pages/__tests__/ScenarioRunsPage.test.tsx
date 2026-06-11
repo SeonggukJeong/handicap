@@ -379,7 +379,8 @@ describe("ScenarioRunsPage — elapsed time on running row (§7.4)", () => {
     mockApiRuns([makeRun("RUN1", "running", startedAt)]);
     renderPageWithCompare();
     // fixture 생성→렌더 사이 1초가 지나면 "1분 31초"가 될 수 있어 regex로 흡수(flake 방지)
-    expect(await screen.findByText(/경과 1분 3[01]초/)).toBeInTheDocument();
+    // elapsed는 단조 증가(시작점 -90s 고정) — 느린 CI에서 렌더가 늦어도 흡수되게 뒤쪽으로 넓힌 regex
+    expect(await screen.findByText(/경과 1분 3[0-5]초/)).toBeInTheDocument();
   });
 
   it("terminal 행엔 경과 표시가 없다", async () => {
