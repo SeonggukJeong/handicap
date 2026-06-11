@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ko } from "../ko";
 
 describe("ko 카탈로그", () => {
-  it("glossary 14개 핵심 용어가 전부 비어 있지 않은 문자열이다", () => {
+  it("핵심 용어 14종이 전부 비어 있지 않은 문자열이다 (잉여 키 추가 허용)", () => {
     const required = [
       "vu",
       "rps",
