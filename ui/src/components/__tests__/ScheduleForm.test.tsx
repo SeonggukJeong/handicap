@@ -22,7 +22,22 @@ beforeEach(() => {
 });
 
 describe("ScheduleForm", () => {
-  it.todo("shows binding blocked reasons above 저장 button when DataBindingPanel emits !ok");
+  it("HTTP 타임아웃이 invalid면 저장이 비활성이고 사유 블록이 보인다", async () => {
+    const user = userEvent.setup();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    const timeout = screen.getByLabelText(/HTTP 타임아웃/);
+    await user.clear(timeout);
+    await user.type(timeout, "601");
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/HTTP 타임아웃은 1 ~ 600초 사이/);
+  });
 
   it("submits a ScheduleInput with name + trigger + profile + enabled", async () => {
     const user = userEvent.setup();

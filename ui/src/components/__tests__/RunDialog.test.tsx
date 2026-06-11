@@ -1388,6 +1388,18 @@ describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent(/페이싱\(think time\)/);
   });
+
+  it("open 모드에선 잔존 think 값이 있어도 사유 블록이 뜨지 않는다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(/think 최소/), "100"); // 한 칸만 = thinkInvalid
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접기
+    expect(screen.getByRole("status")).toBeInTheDocument(); // closed에선 사유 표시
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ })); // open 전환
+    expect(screen.queryByRole("status")).toBeNull(); // open에선 배너 없음
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeEnabled();
+  });
 });
 
 describe("RunDialog — U1b 재구성 불변식", () => {

@@ -699,7 +699,7 @@ export function RunDialog({
             : []),
           ...(!advancedOpen && httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
           ...(!advancedOpen && loopCapInvalid ? [ko.validation.loopCap] : []),
-          ...(!advancedOpen && thinkInvalid ? [ko.validation.think] : []),
+          ...(!advancedOpen && loadModel === "closed" && thinkInvalid ? [ko.validation.think] : []),
         ];
         return (
           blockedReasons.length > 0 && (
