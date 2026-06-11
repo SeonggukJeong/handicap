@@ -1412,6 +1412,7 @@ mod tests {
             branch_stats: vec![],
             group_stats: vec![pb::GroupStat {
                 step_id: "p1".to_string(),
+                branch: String::new(),
                 hdr_histogram: blob,
                 count: 1,
             }],

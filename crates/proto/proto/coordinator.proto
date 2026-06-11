@@ -45,7 +45,8 @@ message BranchStat {
 message GroupStat {
   string step_id = 1;        // the `parallel` node's id
   bytes hdr_histogram = 2;   // hdrhistogram V2 serialized (delta since last drain)
-  uint64 count = 3;          // page-load samples in this delta
+  uint64 count = 3;          // samples in this delta
+  string branch = 4;         // "" = page (whole block), else the branch name
 }
 
 message PhaseStat {

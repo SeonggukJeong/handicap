@@ -286,6 +286,7 @@ async fn main() -> anyhow::Result<()> {
                     let hdr = g.serialize_histogram().ok()?;
                     Some(GroupStat {
                         step_id: g.step_id,
+                        branch: g.branch,
                         hdr_histogram: hdr,
                         count: g.count,
                     })

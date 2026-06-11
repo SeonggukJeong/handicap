@@ -554,7 +554,7 @@ async fn execute_steps(
                 // (Aborted > DeadlineReached > Continue).
                 let mut aborted = false;
                 let mut deadline_hit = false;
-                let mut branch_samples: Vec<(String, u64)> = Vec::new();
+                let mut branch_samples: Vec<(&str, u64)> = Vec::new();
                 for (branch, branch_vars, flow, branch_us) in results {
                     match flow? {
                         StepFlow::Continue => {}
@@ -566,7 +566,7 @@ async fn execute_steps(
                             iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
                         }
                     }
-                    branch_samples.push((branch.name.clone(), branch_us));
+                    branch_samples.push((branch.name.as_str(), branch_us));
                 }
                 // Record page-load latency only on a clean block — a deadline/abort cut a
                 // branch short (skipped steps → too-fast block), which would skew the
