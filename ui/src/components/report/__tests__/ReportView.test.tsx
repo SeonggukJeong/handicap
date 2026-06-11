@@ -8,7 +8,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { ReportView } from "../ReportView";
-import type { Report } from "../../../api/schemas";
+import type { Profile, Report } from "../../../api/schemas";
 import { api } from "../../../api/client";
 
 vi.mock("../../../api/download", () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }));
@@ -90,9 +90,18 @@ const FIXTURE: Report = {
   dropped: 0,
 };
 
+const TEST_PROFILE: Profile = {
+  vus: 1,
+  ramp_up_seconds: 0,
+  duration_seconds: 2,
+  loop_breakdown_cap: 256,
+  http_timeout_seconds: 30,
+  measure_phases: false,
+};
+
 describe("ReportView", () => {
   it("renders summary, charts, status distribution, step table, and download", () => {
-    render(<ReportView report={FIXTURE} />);
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: /Report summary/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Time series — Requests/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Time series — p95/ })).toBeInTheDocument();
@@ -103,7 +112,7 @@ describe("ReportView", () => {
   });
 
   it("resolves env in step URLs (resolveForDisplay)", () => {
-    render(<ReportView report={FIXTURE} />);
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
     expect(stepRegion).toHaveTextContent("http://x/login");
   });
@@ -131,13 +140,13 @@ describe("ReportView", () => {
         { step_id: "01HX0000000000000000000001", branches: [{ branch: "then", count: 5 }] },
       ],
     };
-    render(<ReportView report={report} />);
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
     expect(screen.getByText("Branch decisions")).toBeInTheDocument();
     expect(screen.getByText(/branchy/)).toBeInTheDocument();
   });
 
   it("renders no SLO panel when report has no verdict", () => {
-    render(<ReportView report={FIXTURE} />);
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.queryByText("PASS")).not.toBeInTheDocument();
     expect(screen.queryByText("FAIL")).not.toBeInTheDocument();
   });
@@ -157,14 +166,14 @@ describe("ReportView", () => {
         ],
       },
     };
-    render(<ReportView report={report} />);
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: /Latency percentile curve/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /Latency histogram/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Latency" })).toBeInTheDocument();
   });
 
   it("omits latency charts when report.latency is absent", () => {
-    render(<ReportView report={FIXTURE} />);
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(
       screen.queryByRole("region", { name: /Latency percentile curve/ }),
     ).not.toBeInTheDocument();
@@ -174,7 +183,7 @@ describe("ReportView", () => {
 
   describe("CSV/XLSX download buttons", () => {
     it("renders Download CSV and Download XLSX buttons", () => {
-      render(<ReportView report={FIXTURE} />);
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       expect(screen.getByRole("button", { name: /Download CSV/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Download XLSX/ })).toBeInTheDocument();
     });
@@ -182,7 +191,7 @@ describe("ReportView", () => {
     it("calls downloadFile with correct args when Download CSV is clicked", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockClear();
-      render(<ReportView report={FIXTURE} />);
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       await user.click(screen.getByRole("button", { name: /Download CSV/ }));
       expect(downloadFile).toHaveBeenCalledWith(
         api.reportCsvUrl(FIXTURE.run.id),
@@ -194,7 +203,7 @@ describe("ReportView", () => {
     it("calls downloadFile with correct args when Download XLSX is clicked", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockClear();
-      render(<ReportView report={FIXTURE} />);
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       await user.click(screen.getByRole("button", { name: /Download XLSX/ }));
       expect(downloadFile).toHaveBeenCalledWith(
         api.reportXlsxUrl(FIXTURE.run.id),
@@ -206,7 +215,7 @@ describe("ReportView", () => {
     it("shows an error alert when downloadFile rejects", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockRejectedValueOnce(new Error("network error"));
-      render(<ReportView report={FIXTURE} />);
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       await user.click(screen.getByRole("button", { name: /Download CSV/ }));
       expect(await screen.findByRole("alert")).toHaveTextContent("network error");
     });
@@ -265,9 +274,14 @@ describe("ReportView", () => {
       ],
       status_distribution: { "200": 4 },
     };
-    render(<ReportView report={report} />);
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
     const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
     expect(stepRegion).toHaveTextContent("inner-tick");
     expect(stepRegion).not.toHaveTextContent(INNER_ID);
+  });
+
+  it("쉬운 요약 헤더가 최상단에 렌더된다", () => {
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+    expect(screen.getByRole("region", { name: "쉬운 요약" })).toBeInTheDocument();
   });
 });

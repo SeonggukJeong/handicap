@@ -207,7 +207,7 @@ export function RunDetailPage() {
       )}
 
       {terminal && report.data ? (
-        <ReportView report={report.data} />
+        <ReportView report={report.data} profile={normalizeProfile(r.profile)} />
       ) : (
         <>
           {terminal && report.error && (

@@ -183,4 +183,31 @@ export const ko = {
     dataDesc:
       "CSV 데이터셋의 행을 {{변수}}로 주입하는 폼 전송 — 실행 시 데이터 바인딩과 함께 씁니다.",
   },
+  report: {
+    // §7.1 쉬운 요약 — 매개변수 문구는 함수 상수(spec §2.1). 숫자는 호출부에서
+    // en-US toLocaleString으로 고정(천단위 콤마 결정성 — InsightPanel 전례).
+    headlineClosed: (p: {
+      duration: string;
+      vus: number;
+      count: string;
+      p95: string;
+      errPct: string;
+    }) =>
+      `${p.duration} 동안 동시 사용자 ${p.vus}명이 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+    headlineOpenFixed: (p: {
+      duration: string;
+      targetRps: number;
+      count: string;
+      p95: string;
+      errPct: string;
+    }) =>
+      `${p.duration} 동안 목표 ${p.targetRps} RPS로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+    headlineOpenCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
+      `${p.duration} 동안 단계별 RPS 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+    headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
+    headlineAria: "쉬운 요약",
+    verdictPass: "합격",
+    verdictFail: "불합격",
+    sloHint: "합격 기준(SLO)을 설정하면 다음 실행부터 합격/불합격을 자동 판정합니다.",
+  },
 } as const;

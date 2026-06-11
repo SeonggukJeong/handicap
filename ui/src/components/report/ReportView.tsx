@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Report } from "../../api/schemas";
+import type { Profile, Report } from "../../api/schemas";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
@@ -17,8 +17,9 @@ import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
 import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
+import { ReportHeadline } from "./ReportHeadline";
 
-type Props = { report: Report };
+type Props = { report: Report; profile: Profile };
 
 type Sec = { ts_second: number; count: number; errors: number; p95_ms: number };
 
@@ -41,7 +42,7 @@ function bySecond(report: Report): Sec[] {
   return Array.from(buckets.values()).sort((a, b) => a.ts_second - b.ts_second);
 }
 
-export function ReportView({ report }: Props) {
+export function ReportView({ report, profile }: Props) {
   const seconds = useMemo(() => bySecond(report), [report]);
   const envMap = useMemo<Record<string, string>>(() => {
     const env = report.run.env;
@@ -99,6 +100,7 @@ export function ReportView({ report }: Props) {
 
   return (
     <div>
+      <ReportHeadline summary={report.summary} profile={profile} verdict={report.verdict} />
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-semibold">Report</h3>
         <div className="flex items-center gap-2">
