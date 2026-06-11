@@ -46,7 +46,7 @@
 - Modify: `crates/engine/src/runner.rs` (Parallel arm :511-578)
 - Test: `crates/engine/tests/parallel_node.rs` (`parallel_records_group_latency_sample` :196)
 
-이 커밋 후: **(T1 리뷰 정정)** 워커는 엔진 `GroupStat`을 *전부* 무라벨 proto로 forward하므로 분기 행도 와이어로 나가고, 컨트롤러 `group_acc`(step_id-only 키)가 페이지+분기를 합쳐 **이 커밋 단독으론 기존 페이지 group-latency가 일시 오염**된다(count ×(1+B)). Task 2가 즉시 고치므로 T1–T2 사이에서 group latency 라이브 검증·머지 금지 — T2를 반드시 다음에 land. 워커는 `g.branch`를 참조 안 하므로 컴파일은 green.
+이 커밋 후: **(T1 리뷰 정정)** 워커는 엔진 `GroupStat`을 *전부* 무라벨 proto로 forward하므로 분기 행도 와이어로 나가고, 컨트롤러 `group_acc`(step_id-only 키)가 페이지+분기를 합쳐 **이 커밋 단독으론 기존 페이지 group-latency가 일시 오염**된다(count ×(1+B)). 오염 해소는 T3(`GroupMetricRow.branch` + `(step_id,branch)` read-merge — T2는 와이어 라벨만)이므로 T1–T3 사이에서 group latency 라이브 검증·머지 금지 — T2·T3를 반드시 연이어 land. 워커는 `g.branch`를 참조 안 하므로 컴파일은 green.
 
 - [ ] **Step 1: `group_hists` 키를 `(step_id, branch)`로 (aggregator.rs:136)**
 
@@ -268,7 +268,7 @@ git log -1 --oneline
 - Modify: `crates/worker/src/main.rs` (group_stats forwarding :282-293)
 - Modify: `crates/controller/src/grpc/coordinator.rs` (**테스트** `ingest_stores_group_stats`의 `pb::GroupStat {` 리터럴 :1413 — prost exhaustive)
 
-이 커밋 후: 분기가 엔진→워커→proto로 흐른다. 컨트롤러 ingest의 **read 변환**(`coordinator.rs:856`)은 아직 `GroupMetricRow`에 branch 필드가 없어 `gs.branch`를 무시(드롭) → DB엔 안 들어감 → 페이지 레이턴시 오염 없음. 와이어 페이지 행은 `branch=""`(proto3 default 미직렬화)라 byte-identical. **단 proto 필드 추가는 crate-wide — 컨트롤러 *테스트*의 proto literal(:1413)은 컴파일러가 강제하므로 같은 커밋에서 고쳐야 green.**
+이 커밋 후: 분기가 엔진→워커→proto로 흐른다. 컨트롤러 ingest의 **read 변환**(`coordinator.rs:856`)은 아직 `GroupMetricRow`에 branch 필드가 없어 `gs.branch` *라벨만* 드롭 — **분기 행 자체는 무라벨로 DB에 들어가** step_id-only `group_acc`가 페이지에 합산(T1에서 시작된 count ×(1+B) 오염이 T2에서도 지속, **해소는 T3** `(step_id,branch)` read-merge). 머지 금지 윈도 = T1–T3. 와이어 페이지 행은 `branch=""`(proto3 default 미직렬화)라 byte-identical. **단 proto 필드 추가는 crate-wide — 컨트롤러 *테스트*의 proto literal(:1413)은 컴파일러가 강제하므로 같은 커밋에서 고쳐야 green.**
 
 - [ ] **Step 1: proto `GroupStat.branch = 4` (coordinator.proto:45-49)**
 
