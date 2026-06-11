@@ -22,6 +22,7 @@ import {
 } from "../../scenario/model";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
+import { VarCheatSheet } from "./VarCheatSheet";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -238,6 +239,10 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
 
       <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
         <legend className="px-1 text-xs font-semibold text-slate-600">Request</legend>
+        <div className="flex items-center text-xs text-slate-500">
+          <span>{ko.editor.varCheatSheetContext}</span>
+          <VarCheatSheet />
+        </div>
         <Field label="Method">
           <select
             className="border border-slate-300 rounded px-2 py-1"

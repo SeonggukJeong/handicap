@@ -965,6 +965,22 @@ steps:
   });
 });
 
+describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("U3: Request 섹션에도 변수 표기 치트시트가 붙는다", async () => {
+    const user = userEvent.setup();
+    const id = useScenarioEditor.getState().addStep("S1");
+    useScenarioEditor.getState().select(id);
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: "변수 표기 도움말" }));
+    expect(screen.getByRole("note")).toHaveTextContent("환경 변수");
+  });
+});
+
 describe("Inspector URL required marker (U3)", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());

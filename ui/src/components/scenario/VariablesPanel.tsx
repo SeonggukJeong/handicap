@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
+import { ko } from "../../i18n/ko";
+import { VarCheatSheet } from "./VarCheatSheet";
 
 export function VariablesPanel() {
   const variables = useScenarioEditor((s) => s.model?.variables ?? {});
@@ -10,8 +12,11 @@ export function VariablesPanel() {
   const entries = Object.entries(variables);
 
   return (
-    <section aria-label="Variables" className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-700">Variables</h3>
+    <section aria-label={ko.editor.variablesTitle} className="flex flex-col gap-3">
+      <div className="flex items-center">
+        <h3 className="text-sm font-semibold text-slate-700">{ko.editor.variablesTitle}</h3>
+        <VarCheatSheet />
+      </div>
       <ul className="flex flex-col gap-2">
         {entries.map(([key, value]) => (
           <li key={key} className="flex items-center gap-2">
@@ -34,7 +39,7 @@ export function VariablesPanel() {
           </li>
         ))}
         {entries.length === 0 && (
-          <li className="text-xs text-slate-400 italic">No variables</li>
+          <li className="text-xs text-slate-400 italic">{ko.editor.variablesEmpty}</li>
         )}
       </ul>
 
@@ -56,7 +61,7 @@ export function VariablesPanel() {
           disabled={newKey.trim().length === 0}
           className="shrink-0 px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
         >
-          Add
+          {ko.editor.variablesAdd}
         </button>
       </div>
     </section>
