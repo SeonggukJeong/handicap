@@ -1,4 +1,5 @@
 import { Link, Outlet } from "react-router-dom";
+import { ko } from "../i18n/ko";
 
 export function Layout() {
   return (
@@ -8,18 +9,19 @@ export function Layout() {
           <Link to="/" className="text-xl font-semibold tracking-tight">
             Handicap
           </Link>
-          <nav className="flex gap-4 text-sm text-slate-600">
+          <nav className="flex items-center gap-4 text-sm text-slate-600">
             <Link to="/" className="hover:text-slate-900">
-              Scenarios
+              {ko.nav.scenarios}
             </Link>
+            <span aria-hidden="true" className="h-4 w-px bg-slate-300" />
             <Link to="/datasets" className="hover:text-slate-900">
-              Datasets
+              {ko.nav.datasets}
             </Link>
             <Link to="/environments" className="hover:text-slate-900">
-              Environments
+              {ko.nav.environments}
             </Link>
             <Link to="/schedules" className="hover:text-slate-900">
-              Schedules
+              {ko.nav.schedules}
             </Link>
           </nav>
         </div>

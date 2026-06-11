@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ko } from "../../i18n/ko";
 import { ScenarioEditPage } from "../ScenarioEditPage";
 
 const fetchMock = vi.fn();
@@ -85,6 +86,13 @@ describe("ScenarioEditPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /Test run result/ });
+  });
+
+  it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /Save/ });
+    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    expect(within(bc).getByRole("link", { name: ko.nav.scenarios })).toHaveAttribute("href", "/");
   });
 
   it("groups Save and Runs in the top header row, with no Back button", async () => {

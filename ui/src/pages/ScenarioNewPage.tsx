@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateScenario } from "../api/hooks";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { ko } from "../i18n/ko";
 
 export const STARTER_YAML = `version: 1
 name: "Untitled"
@@ -38,8 +40,9 @@ export function ScenarioNewPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: ko.pages.newScenario }]} />
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">New scenario</h2>
+        <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
         <div className="flex gap-2">
           <Button
             onClick={() =>

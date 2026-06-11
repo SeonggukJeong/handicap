@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -64,6 +64,14 @@ const reportB = {
 describe("ScenarioComparePage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(api, "getScenario").mockResolvedValue({
+      id: "S1",
+      name: "demo",
+      yaml: "version: 1\nname: demo\nsteps: []\n",
+      version: 1,
+      created_at: 0,
+      updated_at: 0,
+    });
   });
 
   it("renders matrix and export buttons once reports load", async () => {
@@ -82,6 +90,14 @@ describe("ScenarioComparePage", () => {
     // Export buttons
     expect(screen.getByRole("button", { name: /Export CSV/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export XLSX/i })).toBeInTheDocument();
+
+    // breadcrumb: scenario name link + "런 비교" current page
+    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    expect(await within(bc).findByRole("link", { name: "demo" })).toHaveAttribute(
+      "href",
+      "/scenarios/S1",
+    );
+    expect(within(bc).getByText("런 비교")).toHaveAttribute("aria-current", "page");
   });
 
   it("calls downloadFile with compareCsvUrl when Export CSV clicked", async () => {
@@ -151,5 +167,7 @@ describe("ScenarioComparePage", () => {
     vi.spyOn(api, "getRunReport").mockResolvedValue(baseReport);
     renderPage("/scenarios/S1/compare?runs=A&baseline=A");
     expect(screen.getByText(/비교하려면 런을 2개 이상 선택하세요/)).toBeInTheDocument();
+    // breadcrumb should still be present in the guard state
+    expect(screen.getByRole("navigation", { name: "breadcrumb" })).toBeInTheDocument();
   });
 });

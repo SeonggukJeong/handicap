@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -285,6 +285,18 @@ describe("RunDetailPage — retry (A1)", () => {
     renderWithRouter("R1");
     const link = await screen.findByRole("link", { name: "다시 실행" });
     expect(link).toHaveAttribute("href", "/scenarios/S1/runs?retry=R1");
+  });
+
+  it("breadcrumb 에 실행 목록 링크가 있다", async () => {
+    mockTerminalRun();
+    renderWithRouter("R1");
+    // wait for page to load
+    await screen.findByRole("button", { name: "동일 설정 즉시 재실행" });
+    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    expect(within(bc).getByRole("link", { name: "실행 목록" })).toHaveAttribute(
+      "href",
+      "/scenarios/S1/runs",
+    );
   });
 });
 

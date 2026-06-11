@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useReports } from "../api/hooks";
+import { useReports, useScenario } from "../api/hooks";
 import { api } from "../api/client";
 import { downloadFile } from "../api/download";
 import { compareReports } from "../compare/compareReports";
+import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { CompareMatrix } from "../components/compare/CompareMatrix";
+import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import type { Report } from "../api/schemas";
@@ -26,10 +28,22 @@ export function ScenarioComparePage() {
   const baseline = params.get("baseline") ?? runIds[0] ?? "";
 
   const results = useReports(runIds);
+  const scenario = useScenario(scenarioId);
+
+  const crumbs: Crumb[] = [
+    { label: ko.nav.scenarios, to: "/" },
+    {
+      label: scenario.data?.name ?? scenarioId ?? "",
+      to: `/scenarios/${scenarioId}`,
+    },
+    { label: ko.breadcrumb.runs, to: `/scenarios/${scenarioId}/runs` },
+    { label: ko.breadcrumb.compare },
+  ];
 
   if (runIds.length < 2) {
     return (
       <div className="p-6">
+        <Breadcrumb items={crumbs} />
         <p className="text-slate-600">비교하려면 런을 2개 이상 선택하세요</p>
       </div>
     );
@@ -41,6 +55,7 @@ export function ScenarioComparePage() {
   if (isLoading) {
     return (
       <div className="p-6">
+        <Breadcrumb items={crumbs} />
         <p role="status" className="text-slate-600">
           비교할 런 리포트를 불러오는 중…
         </p>
@@ -53,6 +68,7 @@ export function ScenarioComparePage() {
     const msg = errorResult?.error instanceof Error ? errorResult.error.message : "알 수 없는 오류";
     return (
       <div className="p-6">
+        <Breadcrumb items={crumbs} />
         <p role="alert" className="text-red-600">
           리포트 로드 실패: {msg}
         </p>
@@ -68,6 +84,7 @@ export function ScenarioComparePage() {
       runIds={runIds}
       baseline={baseline}
       reports={reports}
+      crumbs={crumbs}
       err={err}
       setErr={setErr}
       onBaselineChange={(rid) => setParams({ runs: runIds.join(","), baseline: rid })}
@@ -80,6 +97,7 @@ type InnerProps = {
   runIds: string[];
   baseline: string;
   reports: Report[];
+  crumbs: Crumb[];
   err: string | null;
   setErr: (e: string | null) => void;
   onBaselineChange: (rid: string) => void;
@@ -90,6 +108,7 @@ function ScenarioCompareInner({
   runIds,
   baseline,
   reports,
+  crumbs,
   err,
   setErr,
   onBaselineChange,
@@ -149,12 +168,10 @@ function ScenarioCompareInner({
 
   return (
     <div className="p-6 max-w-6xl">
+      <Breadcrumb items={crumbs} />
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-400">
-            {scenarioId}
-          </span>
           <h2 className="text-xl font-semibold">런 비교</h2>
           <span className="text-sm text-slate-500">{runIds.length}개 런</span>
         </div>

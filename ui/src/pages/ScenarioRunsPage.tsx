@@ -9,10 +9,13 @@ import {
   profileDurationSeconds,
   type RunPrefill,
 } from "../api/runPrefill";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
 import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { ko } from "../i18n/ko";
 import { isLoopStep } from "../scenario/model";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 
@@ -107,17 +110,18 @@ export function ScenarioRunsPage() {
 
   return (
     <div>
+      <Breadcrumb
+        items={[
+          { label: ko.nav.scenarios, to: "/" },
+          { label: scenario.data.name, to: `/scenarios/${scenario.data.id}` },
+          { label: ko.breadcrumb.runs },
+        ]}
+      />
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-xl font-semibold">Runs · {scenario.data.name}</h2>
-          <Link
-            to={`/scenarios/${scenario.data.id}`}
-            className="text-sm text-slate-600 hover:underline"
-          >
-            ← Edit scenario
-          </Link>
-        </div>
-        {!showDialog && <Button onClick={openBlank}>Run scenario</Button>}
+        <h2 className="text-xl font-semibold">
+          {ko.pages.runsTitle} · {scenario.data.name}
+        </h2>
+        {!showDialog && <Button onClick={openBlank}>{ko.pages.runScenario}</Button>}
       </div>
 
       {showDialog && (
@@ -152,7 +156,22 @@ export function ScenarioRunsPage() {
       )}
 
       {runs.isLoading && <p className="text-slate-500">Loading runs…</p>}
-      {runs.data && runs.data.runs.length === 0 && <p className="text-slate-500">No runs yet.</p>}
+      {runs.data && runs.data.runs.length === 0 && (
+        <EmptyState
+          body={ko.empty.runs}
+          action={
+            !showDialog ? (
+              <button
+                type="button"
+                onClick={openBlank}
+                className="text-slate-700 underline hover:text-slate-900"
+              >
+                {ko.empty.runsCta} →
+              </button>
+            ) : undefined
+          }
+        />
+      )}
       {runs.data &&
         runs.data.runs.length > 0 &&
         (() => {

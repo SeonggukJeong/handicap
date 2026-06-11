@@ -82,7 +82,7 @@ describe("ScenarioNewPage test-run", () => {
     expect(group).toContainElement(cancel);
     const header = group.parentElement!;
     expect(header).toHaveClass("justify-between"); // header row, title on the left
-    expect(within(header).getByRole("heading", { name: /New scenario/ })).toBeInTheDocument();
+    expect(within(header).getByRole("heading", { name: "새 시나리오" })).toBeInTheDocument();
   });
 
   it("Cancel returns to the list without nagging on an untouched draft", async () => {

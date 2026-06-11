@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ko } from "../../i18n/ko";
 import { ScenarioRunsPage } from "../ScenarioRunsPage";
 
 const fetchMock = vi.fn();
@@ -316,6 +317,55 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
     }
 
     expect(await screen.findByText(/최대 50개까지 선택할 수 있습니다/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// U2: breadcrumb + 빈 상태
+// ---------------------------------------------------------------------------
+
+function mockApiEmpty() {
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith("/api/scenarios/S1") && (!init || init.method === "GET")) {
+      return Promise.resolve(
+        jsonResponse({
+          id: "S1",
+          name: "demo",
+          yaml: SCENARIO_YAML,
+          version: 1,
+          created_at: 1,
+          updated_at: 1,
+        }),
+      );
+    }
+    if (url.endsWith("/api/scenarios/S1/runs")) {
+      return Promise.resolve(jsonResponse({ runs: [] }));
+    }
+    if (url.endsWith("/api/datasets")) {
+      return Promise.resolve(jsonResponse({ datasets: [] }));
+    }
+    return Promise.resolve(jsonResponse({}, 404));
+  });
+}
+
+describe("ScenarioRunsPage — U2 breadcrumb + 빈 상태", () => {
+  it("breadcrumb 에 시나리오 이름 링크가 있다", async () => {
+    mockApi();
+    renderPage();
+    // wait for scenario to load
+    await screen.findByRole("button", { name: "다시 실행" });
+    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    expect(within(bc).getByRole("link", { name: "demo" })).toHaveAttribute("href", "/scenarios/S1");
+  });
+
+  it("빈 상태 메시지와 CTA 버튼을 렌더하며, CTA 클릭 시 다이얼로그가 열린다", async () => {
+    const user = userEvent.setup();
+    mockApiEmpty();
+    renderPage();
+    expect(await screen.findByText(ko.empty.runs)).toBeInTheDocument();
+    const cta = screen.getByRole("button", { name: `${ko.empty.runsCta} →` });
+    await user.click(cta);
+    expect(await screen.findByLabelText(/동시 사용자/)).toBeInTheDocument();
   });
 });
 

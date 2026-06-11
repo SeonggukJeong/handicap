@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "../api/hooks";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { ko } from "../i18n/ko";
 
 type CloneDialog = null | { stage: "confirm" } | { stage: "save-failed"; message: string };
 
@@ -78,6 +80,7 @@ export function ScenarioEditPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: data.name }]} />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">{data.name}</h2>

@@ -10,10 +10,12 @@ import {
   useScenario,
 } from "../api/hooks";
 import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
+import { ko } from "../i18n/ko";
 import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
@@ -100,6 +102,17 @@ export function RunDetailPage() {
 
   return (
     <div>
+      <Breadcrumb
+        items={[
+          { label: ko.nav.scenarios, to: "/" },
+          {
+            label: scenario.data?.name ?? r.scenario_id.slice(0, 8),
+            to: `/scenarios/${r.scenario_id}`,
+          },
+          { label: ko.breadcrumb.runs, to: `/scenarios/${r.scenario_id}/runs` },
+          { label: `#${r.id.slice(0, 8)}` },
+        ]}
+      />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-3">
@@ -107,11 +120,6 @@ export function RunDetailPage() {
             <StatusBadge status={r.status} />
             <VerdictBadge verdict={report.data?.verdict} />
           </h2>
-          <p className="text-sm text-slate-600">
-            <Link to={`/scenarios/${r.scenario_id}/runs`} className="hover:underline">
-              ← Scenario runs
-            </Link>
-          </p>
         </div>
         <div className="flex items-center gap-2">
           {r.status === "running" && (

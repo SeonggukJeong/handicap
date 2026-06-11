@@ -47,10 +47,7 @@ export function DatasetsPage() {
         {isLoading && <p className="text-slate-500">Loading…</p>}
         {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
         {data && data.datasets.length === 0 && (
-          <EmptyState
-            body={ko.empty.datasets}
-            action={<p className="text-slate-500">{ko.empty.datasetsCta}</p>}
-          />
+          <EmptyState body={ko.empty.datasets} action={<p>{ko.empty.datasetsCta}</p>} />
         )}
         {data && data.datasets.length > 0 && (
           <table className="min-w-full text-sm">
