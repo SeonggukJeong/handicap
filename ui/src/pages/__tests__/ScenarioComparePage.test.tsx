@@ -6,6 +6,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ScenarioComparePage } from "../ScenarioComparePage";
 import { api } from "../../api/client";
 import * as downloadModule from "../../api/download";
+import { ko } from "../../i18n/ko";
 
 // jsdom does not implement URL.createObjectURL.
 if (typeof URL.createObjectURL === "undefined") {
@@ -92,7 +93,7 @@ describe("ScenarioComparePage", () => {
     expect(screen.getByRole("button", { name: /Export XLSX/i })).toBeInTheDocument();
 
     // breadcrumb: scenario name link + "런 비교" current page
-    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    const bc = screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel });
     expect(await within(bc).findByRole("link", { name: "demo" })).toHaveAttribute(
       "href",
       "/scenarios/S1",
@@ -168,6 +169,6 @@ describe("ScenarioComparePage", () => {
     renderPage("/scenarios/S1/compare?runs=A&baseline=A");
     expect(screen.getByText(/비교하려면 런을 2개 이상 선택하세요/)).toBeInTheDocument();
     // breadcrumb should still be present in the guard state
-    expect(screen.getByRole("navigation", { name: "breadcrumb" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel })).toBeInTheDocument();
   });
 });

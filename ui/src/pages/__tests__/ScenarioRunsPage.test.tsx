@@ -354,7 +354,7 @@ describe("ScenarioRunsPage — U2 breadcrumb + 빈 상태", () => {
     renderPage();
     // wait for scenario to load
     await screen.findByRole("button", { name: "다시 실행" });
-    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    const bc = screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel });
     expect(within(bc).getByRole("link", { name: "demo" })).toHaveAttribute("href", "/scenarios/S1");
   });
 

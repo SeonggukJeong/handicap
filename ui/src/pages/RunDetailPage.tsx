@@ -114,13 +114,11 @@ export function RunDetailPage() {
         ]}
       />
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-semibold flex items-center gap-3">
-            Run <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
-            <StatusBadge status={r.status} />
-            <VerdictBadge verdict={report.data?.verdict} />
-          </h2>
-        </div>
+        <h2 className="text-xl font-semibold flex items-center gap-3">
+          Run <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
+          <StatusBadge status={r.status} />
+          <VerdictBadge verdict={report.data?.verdict} />
+        </h2>
         <div className="flex items-center gap-2">
           {r.status === "running" && (
             <button

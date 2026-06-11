@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { Breadcrumb } from "../Breadcrumb";
+import { ko } from "../../i18n/ko";
 
 function renderCrumbs(items: Array<{ label: string; to?: string }>) {
   return render(
@@ -18,7 +19,7 @@ describe("Breadcrumb", () => {
       { label: "demo", to: "/scenarios/S1" },
       { label: "실행 목록" },
     ]);
-    expect(screen.getByRole("navigation", { name: "breadcrumb" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "시나리오" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "demo" })).toHaveAttribute("href", "/scenarios/S1");
     const current = screen.getByText("실행 목록");

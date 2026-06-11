@@ -74,6 +74,7 @@ export const ko = {
     schedules: "스케줄",
   },
   breadcrumb: {
+    ariaLabel: "탐색 경로",
     runs: "실행 목록",
     compare: "런 비교",
     // "새 시나리오" crumb은 ko.pages.newScenario 재사용(단일 소스) — 별도 키 만들지 말 것.

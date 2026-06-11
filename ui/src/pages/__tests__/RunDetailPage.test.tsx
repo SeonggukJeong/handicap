@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { RunDetailPage } from "../RunDetailPage";
+import { ko } from "../../i18n/ko";
 
 // jsdom does not implement URL.createObjectURL — DownloadJsonButton in ReportView needs it.
 if (typeof URL.createObjectURL === "undefined") {
@@ -292,7 +293,7 @@ describe("RunDetailPage — retry (A1)", () => {
     renderWithRouter("R1");
     // wait for page to load
     await screen.findByRole("button", { name: "동일 설정 즉시 재실행" });
-    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    const bc = screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel });
     expect(within(bc).getByRole("link", { name: "실행 목록" })).toHaveAttribute(
       "href",
       "/scenarios/S1/runs",

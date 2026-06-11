@@ -91,7 +91,7 @@ describe("ScenarioEditPage test-run", () => {
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {
     renderPage();
     await screen.findByRole("button", { name: /Save/ });
-    const bc = screen.getByRole("navigation", { name: "breadcrumb" });
+    const bc = screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel });
     expect(within(bc).getByRole("link", { name: ko.nav.scenarios })).toHaveAttribute("href", "/");
   });
 

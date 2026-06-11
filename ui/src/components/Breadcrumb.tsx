@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ko } from "../i18n/ko";
 
 export type Crumb = { label: string; to?: string };
 
@@ -6,7 +7,7 @@ export type Crumb = { label: string; to?: string };
 export function Breadcrumb({ items }: { items: Crumb[] }) {
   if (items.length === 0) return null;
   return (
-    <nav aria-label="breadcrumb" className="mb-2 text-sm text-slate-500">
+    <nav aria-label={ko.breadcrumb.ariaLabel} className="mb-2 text-sm text-slate-500">
       <ol className="flex flex-wrap items-center gap-1">
         {items.map((c, i) => {
           const last = i === items.length - 1;

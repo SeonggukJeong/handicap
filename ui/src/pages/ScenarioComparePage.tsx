@@ -33,7 +33,7 @@ export function ScenarioComparePage() {
   const crumbs: Crumb[] = [
     { label: ko.nav.scenarios, to: "/" },
     {
-      label: scenario.data?.name ?? scenarioId ?? "",
+      label: scenario.data?.name ?? scenarioId?.slice(0, 8) ?? "",
       to: `/scenarios/${scenarioId}`,
     },
     { label: ko.breadcrumb.runs, to: `/scenarios/${scenarioId}/runs` },
