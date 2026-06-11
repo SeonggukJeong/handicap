@@ -22,6 +22,8 @@ beforeEach(() => {
 });
 
 describe("ScheduleForm", () => {
+  it.todo("shows binding blocked reasons above 저장 button when DataBindingPanel emits !ok");
+
   it("submits a ScheduleInput with name + trigger + profile + enabled", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();

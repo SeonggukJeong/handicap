@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { DataBinding, Profile } from "../api/schemas";
 import type { ScheduleInput, TriggerInput } from "../api/schedules";
@@ -22,6 +22,7 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { TriggerBuilder } from "./TriggerBuilder";
 import type { BuilderState } from "./triggerCron";
 import { Button } from "./Button";
+import { ko } from "../i18n/ko";
 
 export type ScenarioOption = { id: string; name: string };
 
@@ -152,7 +153,17 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
 
   // ── data binding ──────────────────────────────────────────────────────────
   const [binding, setBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
-  const [bindingValid, setBindingValid] = useState(true);
+  // DataBindingPanel 막힘 사유(ok + reasons). 패널의 emit effect deps에 onValidityChange가
+  // 있어 인라인 화살표를 넘기면 부모 렌더마다 effect 재발화 → setState → 재렌더 루프 —
+  // 반드시 stable useCallback으로 넘긴다.
+  const [bindingBlock, setBindingBlock] = useState<{ ok: boolean; reasons: string[] }>({
+    ok: true,
+    reasons: [],
+  });
+  const onBindingValidity = useCallback(
+    (ok: boolean, reasons: string[]) => setBindingBlock({ ok, reasons }),
+    [],
+  );
   // seedBinding drives DataBindingPanel's initialBinding; panelKey remounts the panel
   // on scenario change so it re-seeds with the reset (null) binding (mount-once contract).
   const [seedBinding, setSeedBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
@@ -191,7 +202,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     name.trim() !== "" &&
     scenarioId !== "" &&
     trigger != null &&
-    bindingValid &&
+    bindingBlock.ok &&
     !loopCapInvalid &&
     !httpTimeoutInvalid &&
     (loadModel === "open"
@@ -250,7 +261,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
               setScenarioId(e.target.value);
               setBinding(null);
               setSeedBinding(null);
-              setBindingValid(true);
+              setBindingBlock({ ok: true, reasons: [] });
               setPanelKey((k) => k + 1);
             }}
           >
@@ -293,12 +304,12 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       {/* HTTP timeout */}
       <div className="mb-3 max-w-xs">
         <label className="block text-sm">
-          <span className="text-slate-600">HTTP timeout (s)</span>
+          <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
           <input
             type="number"
             min={1}
             max={600}
-            aria-label="HTTP timeout (s)"
+            aria-label={ko.loadModel.httpTimeout}
             value={httpTimeout}
             onChange={(e) => setHttpTimeout(Number(e.target.value))}
             className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
@@ -311,12 +322,12 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       {hasLoop && (
         <div className="mb-3">
           <label className="block text-sm">
-            Loop breakdown cap
+            {ko.loadModel.loopCap}
             <input
               type="number"
               min={0}
               max={10000}
-              aria-label="loop breakdown cap"
+              aria-label={ko.loadModel.loopCap}
               value={loopCap}
               onChange={(e) => setLoopCap(Number(e.target.value))}
               className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
@@ -392,7 +403,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
           scenario={parsedScenario}
           initialBinding={seedBinding}
           onChange={setBinding}
-          onValidityChange={setBindingValid}
+          onValidityChange={onBindingValidity}
         />
       )}
 
@@ -401,6 +412,34 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
         활성화 (체크 해제 시 발사 안 함)
       </label>
+
+      {/* 막힘 사유 블록 — 저장 버튼 비활성 이유를 나열 */}
+      {(() => {
+        // ScheduleForm은 접힘 섹션이 없어 인라인 aria-invalid만 있고 에러 p가 없다.
+        // 따라서 httpTimeout/loopCap invalid도 블록에 포함(중복 없음).
+        const blockedReasons: string[] = [
+          ...(!bindingBlock.ok
+            ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
+            : []),
+          ...(httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
+          ...(loopCapInvalid ? [ko.validation.loopCap] : []),
+        ];
+        return (
+          blockedReasons.length > 0 && (
+            <div
+              role="status"
+              className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
+            >
+              <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
+              <ul className="list-disc pl-5">
+                {blockedReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )
+        );
+      })()}
 
       {/* 액션 버튼 */}
       <div className="flex gap-2">
