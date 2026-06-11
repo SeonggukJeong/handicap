@@ -122,7 +122,7 @@ const DATASET_DETAIL = {
 function renderPanel(
   scenario: Scenario,
   onChange: (b: DataBinding | null) => void = vi.fn(),
-  onValidityChange: (ok: boolean) => void = vi.fn(),
+  onValidityChange: (ok: boolean, reasons?: string[]) => void = vi.fn(),
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
@@ -183,7 +183,7 @@ describe("DataBindingPanel", () => {
   it("no dataset selected → onValidityChange(true) (panel off, never blocks)", async () => {
     fetchMock.mockResolvedValue(jsonResponse(DATASET_LIST));
 
-    const onValidityChange = vi.fn<(ok: boolean) => void>();
+    const onValidityChange = vi.fn<(ok: boolean, reasons?: string[]) => void>();
     renderPanel(makeScenarioWithMissing(), vi.fn(), onValidityChange);
 
     // With no dataset selected, even an unmapped var must not block
@@ -200,7 +200,7 @@ describe("DataBindingPanel", () => {
       .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
       .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
 
-    const onValidityChange = vi.fn<(ok: boolean) => void>();
+    const onValidityChange = vi.fn<(ok: boolean, reasons?: string[]) => void>();
     renderPanel(makeScenarioWithMissing(), vi.fn(), onValidityChange);
     const user = userEvent.setup();
 
@@ -310,7 +310,7 @@ describe("DataBindingPanel", () => {
       .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
       .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
 
-    const onValidityChange = vi.fn<(ok: boolean) => void>();
+    const onValidityChange = vi.fn<(ok: boolean, reasons?: string[]) => void>();
     renderPanel(makeScenarioWithExtract(), vi.fn(), onValidityChange);
     const user = userEvent.setup();
 
@@ -330,6 +330,42 @@ describe("DataBindingPanel", () => {
     // The token var row should NOT appear in a red/blocking state
     // (It might not appear at all since extract provides it, or appear without error)
     expect(screen.queryByText(/매핑되지 않음/i)).not.toBeInTheDocument();
+  });
+
+  it("미커버 변수가 있으면 reasons에 변수명 사유가 들어간다", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+
+    const onValidityChange = vi.fn<(ok: boolean, reasons?: string[]) => void>();
+    renderPanel(makeScenarioWithMissing(), vi.fn(), onValidityChange);
+    const user = userEvent.setup();
+
+    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(datasetSelect, "DS1");
+
+    await waitFor(() => {
+      const calls = onValidityChange.mock.calls;
+      const last = calls[calls.length - 1];
+      expect(last[0]).toBe(false);
+      expect((last[1] as string[]).join(" ")).toContain("missing");
+    });
+  });
+
+  it("자동 매칭된 행에 '자동 연결됨' 배지가 보인다", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+
+    renderPanel(makeScenario());
+    const user = userEvent.setup();
+
+    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(datasetSelect, "DS1");
+
+    expect(await screen.findByText(/자동 연결됨/)).toBeInTheDocument();
   });
 });
 
@@ -489,6 +525,6 @@ describe("DataBindingPanel — deleted dataset notice (A2)", () => {
   it("shows a notice and goes invalid when the selected dataset is gone", async () => {
     const { onValidity } = renderPanel();
     expect(await screen.findByText(/데이터셋이 삭제/)).toBeInTheDocument();
-    await waitFor(() => expect(onValidity).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(onValidity).toHaveBeenCalledWith(false, expect.any(Array)));
   });
 });

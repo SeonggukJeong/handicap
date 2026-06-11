@@ -11,7 +11,7 @@ type Props = {
    *  changes, so this is read once per mount. */
   initialBinding?: DataBinding | null;
   onChange: (b: DataBinding | null) => void;
-  onValidityChange: (ok: boolean) => void;
+  onValidityChange: (ok: boolean, reasons: string[]) => void;
 };
 
 type SourceKind = "none" | "column" | "literal";
@@ -60,6 +60,8 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
   );
   // Track which vars have been auto-matched for the current dataset selection.
   const [autoMatchedFor, setAutoMatchedFor] = useState<string>("");
+  // Track which vars were auto-matched (for badge rendering).
+  const [autoMatchedVars, setAutoMatchedVars] = useState<Set<string>>(new Set());
 
   // Compute the set of vars this scenario references via {{var}} syntax.
   const scannedVars = useMemo(() => scanFlowVars(scenario), [scenario]);
@@ -91,6 +93,7 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
     });
     // Reset auto-match tracking when the scenario changes.
     setAutoMatchedFor("");
+    setAutoMatchedVars(new Set());
   }, [scannedVars]);
 
   const columns = useMemo(() => dataset.data?.columns ?? [], [dataset.data]);
@@ -107,15 +110,18 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
     // unrelated state change.
     const matchKey = selectedId + ":" + columns.join(",");
     if (autoMatchedFor === matchKey) return;
+    const newlyMatched = new Set<string>();
     setRows((prev) =>
       prev.map((r) => {
         if (r.sourceKind !== "none") return r; // user already chose a source
         if (columnSet.has(r.varName)) {
+          newlyMatched.add(r.varName);
           return { ...r, sourceKind: "column", column: r.varName };
         }
         return r;
       }),
     );
+    setAutoMatchedVars(newlyMatched);
     setAutoMatchedFor(matchKey);
   }, [selectedId, columns, columnSet, autoMatchedFor]);
 
@@ -123,7 +129,7 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
   useEffect(() => {
     if (!selectedId) {
       onChange(null);
-      onValidityChange(true);
+      onValidityChange(true, []);
       return;
     }
 
@@ -139,24 +145,29 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
 
     onChange({ dataset_id: selectedId, policy, mappings });
 
-    // Validity checks.
+    // Validity checks with reason collection.
     const mappedVars = new Set(mappings.map((m) => m.var));
 
-    // Stale column: chosen column no longer exists in the current dataset.
-    let noStaleColumns = true;
-    for (const r of rows) {
-      if (r.sourceKind === "column" && r.column && !columnSet.has(r.column)) {
-        noStaleColumns = false;
-        break;
-      }
-    }
-
     // Uncovered: scanned var that is not mapped and not provided elsewhere.
-    const uncoveredCount = [...scannedVars].filter(
+    const uncovered = [...scannedVars].filter(
       (v) => !mappedVars.has(v) && !availableElsewhere.has(v),
-    ).length;
+    );
 
-    onValidityChange(uncoveredCount === 0 && noStaleColumns && !datasetGone);
+    // Stale column: chosen column no longer exists in the current dataset.
+    const staleCols = rows.filter(
+      (r) => r.sourceKind === "column" && r.column && !columnSet.has(r.column),
+    );
+
+    const reasons: string[] = [
+      ...uncovered.map((v) => `{{${v}}} 변수의 열을 선택하거나 매핑을 추가하세요`),
+      ...(datasetGone
+        ? ["이 프리셋의 데이터셋이 삭제되었습니다 — 다시 선택하세요"]
+        : staleCols.map(
+            (r) => `{{${r.varName}}}에 선택한 열(${r.column})이 현재 데이터셋에 없습니다`,
+          )),
+    ];
+
+    onValidityChange(reasons.length === 0, reasons);
   }, [
     selectedId,
     policy,
@@ -216,6 +227,7 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
           onChange={(e) => {
             setSelectedId(e.target.value);
             setAutoMatchedFor("");
+            setAutoMatchedVars(new Set());
           }}
         >
           <option value="">— 없음 (바인딩 없이 실행) —</option>
@@ -267,6 +279,11 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
                         title={row.varName}
                       >
                         {row.varName}
+                      </span>
+                    )}
+                    {autoMatchedVars.has(row.varName) && row.sourceKind === "column" && (
+                      <span className="ml-1 rounded bg-emerald-50 px-1 text-xs text-emerald-700">
+                        자동 연결됨
                       </span>
                     )}
 
