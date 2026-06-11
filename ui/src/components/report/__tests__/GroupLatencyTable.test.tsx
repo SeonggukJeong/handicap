@@ -50,7 +50,7 @@ describe("GroupLatencyTable", () => {
     render(<GroupLatencyTable breakdown={rows} meta={new Map([["p1", { name: "page load" }]])} />);
     expect(screen.getByText("동시 실행 노드 / 분기")).toBeInTheDocument();
     expect(screen.getByText("횟수")).toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "p95 설명" })[0]);
+    await user.click(screen.getByRole("button", { name: "p95 설명" }));
     expect(screen.getByRole("note")).toHaveTextContent("95%");
   });
 });
