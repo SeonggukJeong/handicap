@@ -59,7 +59,10 @@ export function InsightPanel({ insights, meta }: Props) {
           >
             <div>{message(i, meta)}</div>
             {ACTIONS[i.kind] && (
-              <div className="mt-0.5 text-xs opacity-80">→ {ACTIONS[i.kind]}</div>
+              <div className="mt-0.5 text-xs opacity-90">
+                <span aria-hidden="true">→ </span>
+                {ACTIONS[i.kind]}
+              </div>
             )}
           </li>
         ))}

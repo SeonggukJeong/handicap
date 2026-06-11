@@ -40,8 +40,11 @@ describe("InsightPanel", () => {
       { kind: "status_class", severity: "critical", status_class: "5xx", pct: 0.12, count: 3 },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    expect(screen.getByText(/스텝 표를 내보내 개발팀과 공유하세요/)).toBeInTheDocument();
+    const action = screen.getByText(/스텝 표를 내보내 개발팀과 공유하세요/);
+    expect(action).toBeInTheDocument();
     expect(screen.getByText(/5xx면 서버 측 문제부터 확인하세요/)).toBeInTheDocument();
+    // 화살표는 장식 글리프 — 스크린리더가 "right arrow"를 읽지 않게 aria-hidden (repo 컨벤션: ↳/›)
+    expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
   it("slo_pass와 미지의 kind엔 행동 줄이 없다", () => {
