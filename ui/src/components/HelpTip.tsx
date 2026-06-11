@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { usePopover } from "./usePopover";
 
 const POPOVER_WIDTH_PX = 224; // w-56 — 클래스와 lockstep
 
@@ -10,26 +11,8 @@ const POPOVER_WIDTH_PX = 224; // w-56 — 클래스와 lockstep
  * 열 때 뷰포트 우단을 넘치면 right-0로 자동 정렬(edge-flip).
  */
 export function HelpTip({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [alignRight, setAlignRight] = useState(false);
+  const { open, alignRight, rootRef, toggle } = usePopover(POPOVER_WIDTH_PX);
   const id = useId();
-  const rootRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    function onPointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [open]);
 
   return (
     <span ref={rootRef} className="relative inline-block">
@@ -38,13 +21,7 @@ export function HelpTip({ label, children }: { label: string; children: ReactNod
         aria-label={label}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onClick={() => {
-          if (!open && rootRef.current) {
-            const r = rootRef.current.getBoundingClientRect();
-            setAlignRight(r.left + POPOVER_WIDTH_PX + 8 > window.innerWidth);
-          }
-          setOpen((v) => !v);
-        }}
+        onClick={toggle}
         className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 align-middle text-[10px] leading-none text-slate-500 hover:bg-slate-100"
       >
         ?

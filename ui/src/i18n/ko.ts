@@ -209,6 +209,7 @@ export const ko = {
     verdictPass: "합격",
     verdictFail: "불합격",
     sloHint: "합격 기준(SLO)을 설정하면 다음 실행부터 합격/불합격을 자동 판정합니다.",
+    failReasonTitle: "미달 기준",
     // §7.2 결과 표면 라벨 (Summary 카드 + 표 헤더 3종)
     cardTotalRequests: "총 요청",
     cardErrors: "에러",
