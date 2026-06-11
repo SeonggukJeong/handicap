@@ -44,7 +44,10 @@ export function GroupLatencyTable({ breakdown, meta }: Props) {
                     key={`${g.step_id}:${b.branch}`}
                     className="border-b border-slate-100 text-slate-600"
                   >
-                    <td className="py-2 pr-4 pl-6">↳ {b.branch}</td>
+                    <td className="py-2 pr-4 pl-6">
+                      <span aria-hidden="true">↳ </span>
+                      {b.branch}
+                    </td>
                     <td className="py-2 pr-4">{b.count}</td>
                     <td className="py-2 pr-4">{b.p50_ms}</td>
                     <td className="py-2 pr-4">{b.p95_ms}</td>

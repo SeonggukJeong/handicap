@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { GroupLatencyTable } from "../GroupLatencyTable";
 import type { GroupLatency } from "../../../api/schemas";
@@ -26,11 +26,12 @@ describe("GroupLatencyTable", () => {
     expect(screen.getByText("420")).toBeInTheDocument(); // page p95
     expect(screen.getByText("610")).toBeInTheDocument(); // page max
     expect(screen.getByRole("columnheader", { name: "p95 ms" })).toBeInTheDocument();
-    // branch sub-rows: labels = branch names, distinct latencies
-    expect(screen.getByText(/feed/)).toBeInTheDocument();
-    expect(screen.getByText(/user/)).toBeInTheDocument();
-    expect(screen.getByText("600")).toBeInTheDocument(); // feed branch max (bottleneck)
-    expect(screen.getByText("90")).toBeInTheDocument(); // user branch max (fast)
+    // branch sub-rows: labels = branch names, values locked to their own row
+    // (within() so a feed↔user value swap fails, not just presence)
+    const feedRow = screen.getByText(/feed/).closest("tr")!;
+    expect(within(feedRow).getByText("600")).toBeInTheDocument(); // feed max (bottleneck)
+    const userRow = screen.getByText(/user/).closest("tr")!;
+    expect(within(userRow).getByText("90")).toBeInTheDocument(); // user max (fast)
   });
 
   it("falls back to step_id when meta is missing", () => {
