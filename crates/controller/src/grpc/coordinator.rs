@@ -1405,18 +1405,30 @@ mod tests {
         let mut blob = Vec::new();
         V2Serializer::new().serialize(&h, &mut blob).unwrap();
 
+        // second HDR blob for the branch="a" stat — same histogram value.
+        let mut blob_a = Vec::new();
+        V2Serializer::new().serialize(&h, &mut blob_a).unwrap();
+
         let batch = pb::MetricBatch {
             run_id: run_id.clone(),
             worker_id: "w0".to_string(),
             windows: vec![],
             loop_stats: vec![],
             branch_stats: vec![],
-            group_stats: vec![pb::GroupStat {
-                step_id: "p1".to_string(),
-                branch: String::new(),
-                hdr_histogram: blob,
-                count: 1,
-            }],
+            group_stats: vec![
+                pb::GroupStat {
+                    step_id: "p1".to_string(),
+                    branch: String::new(),
+                    hdr_histogram: blob,
+                    count: 1,
+                },
+                pb::GroupStat {
+                    step_id: "p1".to_string(),
+                    branch: "a".to_string(),
+                    hdr_histogram: blob_a,
+                    count: 1,
+                },
+            ],
             phase_stats: vec![],
             dropped: 0,
         };
@@ -1425,8 +1437,16 @@ mod tests {
         let rows = crate::store::metrics::group_breakdown(&db, &run_id)
             .await
             .unwrap();
-        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows.len(),
+            2,
+            "page row + branch-a row expected; got: {rows:?}"
+        );
         assert_eq!(rows[0].step_id, "p1");
-        assert_eq!(rows[0].count, 1);
+        // The page row (branch == "") and the branch-a row must both be stored.
+        let page_row = rows.iter().find(|r| r.branch.is_empty()).expect("page row");
+        let branch_a = rows.iter().find(|r| r.branch == "a").expect("branch-a row");
+        assert_eq!(page_row.count, 1);
+        assert_eq!(branch_a.count, 1, "branch='a' round-trip count must be 1");
     }
 }

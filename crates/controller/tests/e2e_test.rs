@@ -2191,6 +2191,38 @@ steps:
         "summary.count must be > 0 (http leaf requests were made)"
     );
 
+    // (g) branches: per-branch latency nested under the page. Two branches (a, b),
+    //     each recorded once per clean page-load → branch count == page count.
+    let branches = entry["branches"]
+        .as_array()
+        .expect("group_latency[0].branches array present");
+    assert_eq!(
+        branches.len(),
+        2,
+        "two parallel branches → two branch entries; got: {branches:?}"
+    );
+    let mut names: Vec<&str> = branches
+        .iter()
+        .map(|b| b["branch"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["a", "b"],
+        "branch labels must be the branch names"
+    );
+    for b in branches {
+        assert_eq!(
+            b["count"].as_u64().unwrap(),
+            count,
+            "each branch fires once per clean page → branch count == page count"
+        );
+        assert!(
+            b["max_ms"].as_u64().unwrap() > 0,
+            "20ms branch delay → branch max_ms > 0"
+        );
+    }
+
     eprintln!(
         "[parallel_group_latency_report_e2e_smoke] group_latency count={count}, \
          max_ms={max_ms}, summary_count={summary_count}"

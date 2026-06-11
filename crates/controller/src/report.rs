@@ -570,7 +570,9 @@ pub fn build_report(
     // Branch rows (branch != "") nest under their parallel node's page (branch == "").
     // BTreeMap orders "" before any branch name within each step_id, so branches sort
     // by name. A bad branch HDR blob keeps the count but skips the distribution (same
-    // fail-soft as the page).
+    // fail-soft as the page). Branch rows without a page row are silently dropped —
+    // unreachable today because the engine records page+branches under one clean-block
+    // gate (both emitted or neither).
     let mut branches_by_step: BTreeMap<String, Vec<BranchLatency>> = BTreeMap::new();
     for ((step_id, branch), (h, count)) in &group_acc {
         if branch.is_empty() {

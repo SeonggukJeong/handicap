@@ -38,7 +38,7 @@ pub struct BranchStat {
 
 /// A per-(parallel_step_id, branch) group latency delta since the last drain — branch="" is the
 /// page-load (whole concurrent block), else that branch's wall-clock. HDR (not
-/// counts) — page latency is a distribution merged by the controller via
+/// counts) — group latency is a distribution merged by the controller via
 /// `Histogram::add` (delta-merge), unlike `LoopStat`/`BranchStat` count-sum. The
 /// histogram is carried live; the worker serializes it at forward time (like StepWindow).
 #[derive(Debug)]

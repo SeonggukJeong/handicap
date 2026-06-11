@@ -468,6 +468,73 @@ mod tests {
         );
     }
 
+    /// migration 0014: add `branch` to `run_group_metrics` (Rust-guarded ADD COLUMN).
+    /// Verifies:
+    ///   (1) the real ALTER TABLE branch runs on first call,
+    ///   (2) the no-op branch runs on second call (idempotent),
+    ///   (3) a pre-existing 4-column row reads back with branch == '' (backfill semantics).
+    #[tokio::test]
+    async fn ensure_run_group_metrics_branch_is_idempotent_and_backfills() {
+        // Build a pool with only migration 0010 applied (run_group_metrics without branch),
+        // so the first guard call takes the real ALTER TABLE path.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0010)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Insert one 4-column row (the pre-migration shape: no branch column).
+        sqlx::query(
+            "INSERT INTO run_group_metrics(run_id, step_id, hdr_histogram, count) VALUES(?,?,?,?)",
+        )
+        .bind("R1")
+        .bind("p1")
+        .bind(vec![0u8]) // minimal blob placeholder
+        .bind(3_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // First call: adds the `branch` column with DEFAULT ''.
+        ensure_run_group_metrics_branch(&pool)
+            .await
+            .expect("first call");
+        // Second call: guard sees column present → no-op (idempotent).
+        ensure_run_group_metrics_branch(&pool)
+            .await
+            .expect("idempotent second call");
+
+        // Column must exist exactly once.
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('run_group_metrics') WHERE name = 'branch'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "branch column must exist exactly once after guard");
+
+        // Pre-existing row must read back with branch == '' (backfill = page semantics).
+        let (count, branch): (i64, String) = sqlx::query_as(
+            "SELECT count, branch FROM run_group_metrics WHERE run_id='R1' AND step_id='p1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 3, "pre-existing row count must be preserved");
+        assert_eq!(
+            branch, "",
+            "pre-existing row must get branch='' (page, backfill)"
+        );
+    }
+
     #[tokio::test]
     async fn opens_and_migrates_in_memory() {
         let pool = connect("sqlite::memory:").await.expect("connect");
