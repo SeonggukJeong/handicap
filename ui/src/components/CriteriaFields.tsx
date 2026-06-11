@@ -3,17 +3,17 @@ import type { CriteriaState } from "./profileForm";
 type Field = { key: keyof CriteriaState; label: string; max?: string; step?: string };
 
 const FIELDS: Field[] = [
-  { key: "maxP50", label: "Max p50 (ms)" },
-  { key: "maxP95", label: "Max p95 (ms)" },
-  { key: "maxP99", label: "Max p99 (ms)" },
-  { key: "maxErrPct", label: "Max error rate (%)", max: "100", step: "any" },
-  { key: "minRps", label: "Min RPS", step: "any" },
-  { key: "max4xxPct", label: "Max 4xx rate (%)", max: "100", step: "any" },
-  { key: "max5xxPct", label: "Max 5xx rate (%)", max: "100", step: "any" },
-  { key: "max4xxCount", label: "Max 4xx count" },
-  { key: "max5xxCount", label: "Max 5xx count" },
-  { key: "minWindowRps", label: "Min window RPS", step: "any" },
-  { key: "rpsWarmup", label: "RPS warmup (s)" },
+  { key: "maxP50", label: "최대 p50(ms)" },
+  { key: "maxP95", label: "최대 p95(ms)" },
+  { key: "maxP99", label: "최대 p99(ms)" },
+  { key: "maxErrPct", label: "최대 에러율(%)", max: "100", step: "any" },
+  { key: "minRps", label: "최소 RPS", step: "any" },
+  { key: "max4xxPct", label: "최대 4xx 비율(%)", max: "100", step: "any" },
+  { key: "max5xxPct", label: "최대 5xx 비율(%)", max: "100", step: "any" },
+  { key: "max4xxCount", label: "최대 4xx 수" },
+  { key: "max5xxCount", label: "최대 5xx 수" },
+  { key: "minWindowRps", label: "최소 윈도 RPS", step: "any" },
+  { key: "rpsWarmup", label: "RPS 워밍업(초)" },
 ];
 
 type Props = {

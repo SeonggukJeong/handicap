@@ -126,7 +126,7 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     mockApi();
     const { qc } = renderPage("/scenarios/S1/runs?retry=R1");
     expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4); // opened via deep-link
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByLabelText(/동시 사용자/)).toBeNull()); // closed
     await qc.refetchQueries({ queryKey: ["scenarios", "S1", "runs"] });
     expect(screen.queryByLabelText(/동시 사용자/)).toBeNull();
@@ -141,7 +141,7 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     mockApi({}, 400);
     renderPage("/scenarios/S1/runs?retry=R1");
     expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4); // opened via deep-link
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByLabelText(/동시 사용자/)).toBeNull()); // closed
     // Trigger a createRun error → its identity changes → effect re-fires.
     await user.click(screen.getByRole("button", { name: "즉시 재실행" }));

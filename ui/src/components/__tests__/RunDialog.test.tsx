@@ -87,7 +87,7 @@ describe("RunDialog — env & ramp_up", () => {
     await user.click(within(envSection()).getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("env value 0"), "http://localhost:9090");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
 
@@ -142,7 +142,7 @@ describe("RunDialog — env & ramp_up", () => {
     await user.clear(ramp);
     await user.type(ramp, "6");
 
-    const runBtn = screen.getByRole("button", { name: /^Run$/ });
+    const runBtn = screen.getByRole("button", { name: /^실행$/ });
     expect(runBtn).toBeDisabled();
     expect(screen.getByText(/점진 시작은 테스트 시간 이하여야 합니다/)).toBeInTheDocument();
   });
@@ -165,7 +165,7 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R2"));
 
@@ -184,11 +184,12 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const cap = screen.getByLabelText(/loop breakdown cap/i) as HTMLInputElement;
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
+    const cap = screen.getByLabelText(/루프 집계 상한/) as HTMLInputElement;
     await user.clear(cap);
     await user.type(cap, "10001");
 
-    const runBtn = screen.getByRole("button", { name: /^Run$/ });
+    const runBtn = screen.getByRole("button", { name: /^실행$/ });
     expect(runBtn).toBeDisabled();
     expect(screen.getByText(/0 ~ 10000 사이여야 합니다/)).toBeInTheDocument();
   });
@@ -211,10 +212,11 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    const cap = screen.getByLabelText(/loop breakdown cap/i) as HTMLInputElement;
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
+    const cap = screen.getByLabelText(/루프 집계 상한/) as HTMLInputElement;
     await user.clear(cap);
     await user.type(cap, "0");
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R3"));
 
@@ -229,9 +231,12 @@ describe("RunDialog — env & ramp_up", () => {
     expect(body.profile.loop_breakdown_cap).toBe(0);
   });
 
-  it("hides the cap input when the scenario has no loop step", () => {
+  it("hides the cap input when the scenario has no loop step", async () => {
+    const user = userEvent.setup();
     renderDialog(false);
-    expect(screen.queryByLabelText(/loop breakdown cap/i)).not.toBeInTheDocument();
+    // 펼친 뒤에도 부재여야 의미 보존(접힘 상태 부재는 vacuous).
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    expect(screen.queryByLabelText(/루프 집계 상한/)).not.toBeInTheDocument();
   });
 
   it("posts loop_breakdown_cap=0 when there is no loop step", async () => {
@@ -252,7 +257,7 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog(false);
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R4"));
 
     const call = fetchMock.mock.calls.find(
@@ -305,8 +310,8 @@ describe("RunDialog — initial prefill (A1)", () => {
     expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(7);
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(9);
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(3);
-    expect(screen.getByLabelText("loop breakdown cap")).toHaveValue(128);
-    expect(screen.getByLabelText(/HTTP timeout/i)).toHaveValue(120);
+    expect(screen.getByLabelText(/루프 집계 상한/)).toHaveValue(128);
+    expect(screen.getByLabelText(/HTTP 타임아웃/)).toHaveValue(120);
   });
 
   it("seeds env entries from initial.env", () => {
@@ -562,11 +567,11 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
-    await user.type(screen.getByLabelText(/Max p95/), "500");
-    await user.type(screen.getByLabelText(/Max error rate/), "1");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(/최대 p95/), "500");
+    await user.type(screen.getByLabelText(/최대 에러율/), "1");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
 
     const call = fetchMock.mock.calls.find(
@@ -582,23 +587,26 @@ describe("RunDialog — SLO criteria (A4a)", () => {
   it("SLO inputs have type=number to prevent NaN from non-numeric text", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await user.click(screen.getByRole("button", { name: /SLO 기준/ }));
-    expect(screen.getByLabelText(/Max p50/)).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText(/Max p95/)).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText(/Max p99/)).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText(/Max error rate/)).toHaveAttribute("type", "number");
-    expect(screen.getByLabelText(/Min RPS/)).toHaveAttribute("type", "number");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    expect(screen.getByLabelText(/최대 p50/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/최대 p95/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/최대 p99/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText(/최대 에러율/)).toHaveAttribute("type", "number");
+    expect(screen.getByLabelText("최소 RPS")).toHaveAttribute("type", "number");
   });
 
-  it("collapses the SLO section by default and expands on toggle", async () => {
+  it("collapses the 판정·고급 group by default and expands on toggle", async () => {
     const user = userEvent.setup();
     renderDialog();
-    const toggle = screen.getByRole("button", { name: /SLO 기준/ });
+    const toggle = screen.getByRole("button", { name: /판정·고급/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByLabelText(/Max p95/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/최대 p95/)).not.toBeInTheDocument();
+    // HTTP 타임아웃 입력도 이제 접힌 그룹 안 — 접힘 시 DOM 부재
+    expect(screen.queryByLabelText(/HTTP 타임아웃/)).not.toBeInTheDocument();
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByLabelText(/Max p95/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/최대 p95/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/HTTP 타임아웃/)).toBeInTheDocument();
   });
 
   it("auto-expands and prefills when initial criteria are present", () => {
@@ -616,12 +624,12 @@ describe("RunDialog — SLO criteria (A4a)", () => {
       env: {},
     });
     // seeded criteria → section starts expanded, values prefilled (error_rate 0.02 → 2%)
-    expect(screen.getByRole("button", { name: /SLO 기준/ })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /판정·고급/ })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    expect(screen.getByLabelText(/Max p95/)).toHaveValue(500);
-    expect(screen.getByLabelText(/Max error rate/)).toHaveValue(2);
+    expect(screen.getByLabelText(/최대 p95/)).toHaveValue(500);
+    expect(screen.getByLabelText(/최대 에러율/)).toHaveValue(2);
   });
 
   it("omits criteria when all SLO inputs are empty", async () => {
@@ -641,7 +649,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R2"));
 
     const call = fetchMock.mock.calls.find(
@@ -673,12 +681,12 @@ describe("RunDialog — Pacing think time (S-B)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /Pacing/ }));
-    await user.type(screen.getByLabelText(/Think min/), "100");
-    await user.type(screen.getByLabelText(/Think max/), "500");
-    await user.type(screen.getByLabelText(/Think seed/), "7");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(/think 최소/), "100");
+    await user.type(screen.getByLabelText(/think 최대/), "500");
+    await user.type(screen.getByLabelText(/think 시드/), "7");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RTT1"));
 
     const call = fetchMock.mock.calls.find(
@@ -709,7 +717,7 @@ describe("RunDialog — Pacing think time (S-B)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RTT2"));
 
     const call = fetchMock.mock.calls.find(
@@ -727,18 +735,18 @@ describe("RunDialog — Pacing think time (S-B)", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: /Pacing/ }));
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     // min > max → invalid
-    await user.type(screen.getByLabelText(/Think min/), "500");
-    await user.type(screen.getByLabelText(/Think max/), "100");
+    await user.type(screen.getByLabelText(/think 최소/), "500");
+    await user.type(screen.getByLabelText(/think 최대/), "100");
 
     const err = screen.getByText(/min ≤ max ≤ 600000/);
     expect(err).toHaveAttribute("id", "think-time-error");
-    expect(screen.getByLabelText(/Think min/)).toHaveAttribute(
+    expect(screen.getByLabelText(/think 최소/)).toHaveAttribute(
       "aria-describedby",
       "think-time-error",
     );
-    expect(screen.getByLabelText(/Think max/)).toHaveAttribute(
+    expect(screen.getByLabelText(/think 최대/)).toHaveAttribute(
       "aria-describedby",
       "think-time-error",
     );
@@ -765,7 +773,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const { onCreated } = renderDialog();
 
     // Default is closed-loop — just submit
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RCLOSED1"));
 
     const call = fetchMock.mock.calls.find(
@@ -811,7 +819,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     // Empty value → invalid
     expect(screen.getByText(/목표 RPS는 1 ~ 1,000,000 사이여야 합니다/)).toBeInTheDocument();
     expect(targetRpsInput).toHaveAttribute("aria-describedby", "target-rps-error");
-    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
   it("shows error message and aria-describedby when max_in_flight is invalid", async () => {
@@ -824,7 +832,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     // Empty value → invalid
     expect(screen.getByText(/동시 요청 상한은 1 ~ 10,000 사이여야 합니다/)).toBeInTheDocument();
     expect(maxInFlightInput).toHaveAttribute("aria-describedby", "max-in-flight-error");
-    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
   it("load-model radio group is wrapped in a fieldset with a legend", () => {
@@ -856,7 +864,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
 
     // Clear max_in_flight → Run button should be disabled
     await user.clear(cap);
-    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
   it("closed-loop mode is default and shows VUs/ramp-up inputs", () => {
@@ -900,7 +908,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.type(screen.getByLabelText("stage duration 0"), "30");
     await user.clear(screen.getByLabelText(/동시 요청 상한/));
     await user.type(screen.getByLabelText(/동시 요청 상한/), "50");
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RSTG1"));
     const call = fetchMock.mock.calls.find(
       ([url, init]) =>
@@ -934,7 +942,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "0");
-    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
   it("prefills curve mode from initial.profile.stages", () => {
@@ -1013,7 +1021,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.clear(screen.getByLabelText(/동시 요청 상한/));
     await user.type(screen.getByLabelText(/동시 요청 상한/), "200");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("ROPEN1"));
 
     const call = fetchMock.mock.calls.find(
@@ -1060,11 +1068,12 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
   it("각 모드에서 HTTP timeout 입력은 정확히 1개", async () => {
     const user = userEvent.setup();
     renderDialog();
-    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // closed
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
+    expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // closed
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+fixed
+    expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // open+fixed
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
-    expect(screen.getAllByLabelText(/HTTP timeout/i)).toHaveLength(1); // open+curve
+    expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // open+curve
   });
 });
 
@@ -1073,13 +1082,14 @@ describe("RunDialog — HTTP timeout (S-A)", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const timeout = screen.getByLabelText(/HTTP timeout/i) as HTMLInputElement;
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
+    const timeout = screen.getByLabelText(/HTTP 타임아웃/) as HTMLInputElement;
     await user.clear(timeout);
     await user.type(timeout, "601");
 
-    const runBtn = screen.getByRole("button", { name: /^Run$/ });
+    const runBtn = screen.getByRole("button", { name: /^실행$/ });
     expect(runBtn).toBeDisabled();
-    expect(screen.getByText(/HTTP timeout must be between 1 and 600 seconds/)).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 타임아웃은 1 ~ 600초 사이/)).toBeInTheDocument();
   });
 
   it("submits http_timeout_seconds from the input (default 30)", async () => {
@@ -1100,12 +1110,13 @@ describe("RunDialog — HTTP timeout (S-A)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
 
-    const timeout = screen.getByLabelText(/HTTP timeout/i) as HTMLInputElement;
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
+    const timeout = screen.getByLabelText(/HTTP 타임아웃/) as HTMLInputElement;
     expect(timeout.value).toBe("30");
     await user.clear(timeout);
     await user.type(timeout, "45");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R5"));
 
     const call = fetchMock.mock.calls.find(
@@ -1138,12 +1149,12 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog(false);
 
-    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 접힌 섹션 펼침
-    await user.type(screen.getByLabelText(/Max 5xx rate/), "2"); // 2% → 0.02
-    await user.type(screen.getByLabelText(/Max 5xx count/), "0");
-    await user.type(screen.getByLabelText(/Min window RPS/), "50");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 섹션 펼침
+    await user.type(screen.getByLabelText(/최대 5xx 비율/), "2"); // 2% → 0.02
+    await user.type(screen.getByLabelText(/최대 5xx 수/), "0");
+    await user.type(screen.getByLabelText(/최소 윈도 RPS/), "50");
 
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
 
     const call = fetchMock.mock.calls.find(
@@ -1166,10 +1177,10 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     await user.clear(rampInput);
     await user.type(rampInput, "3");
 
-    await user.click(screen.getByRole("button", { name: /SLO 기준/ })); // 펼침
-    expect(screen.getByLabelText(/RPS warmup/)).toHaveValue(null); // 처음 비어있음
-    await user.type(screen.getByLabelText(/Min window RPS/), "50");
-    expect(screen.getByLabelText(/RPS warmup/)).toHaveValue(3);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 펼침
+    expect(screen.getByLabelText(/RPS 워밍업/)).toHaveValue(null); // 처음 비어있음
+    await user.type(screen.getByLabelText(/최소 윈도 RPS/), "50");
+    expect(screen.getByLabelText(/RPS 워밍업/)).toHaveValue(3);
   });
 });
 
@@ -1255,7 +1266,7 @@ describe("RunDialog — environment overlay (B-2)", () => {
         name: /^add$/i,
       }),
     );
-    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
     await waitFor(() => expect(captured.body).toBeTruthy());
     const posted = JSON.parse(captured.body!);
@@ -1345,10 +1356,57 @@ describe("RunDialog — environment overlay (B-2)", () => {
     await user.selectOptions(screen.getByLabelText("select environment"), "E1");
     await screen.findByText("BASE_URL"); // base list loaded
     // no overrides added — submit straight away
-    await user.click(screen.getByRole("button", { name: /^run$/i }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
     await waitFor(() => expect(captured.body).toBeTruthy());
     const posted = JSON.parse(captured.body!);
     expect(posted.env).toEqual({ BASE_URL: "http://s", API_KEY: "k" });
+  });
+});
+
+describe("RunDialog — U1b 재구성 불변식", () => {
+  it("payload byte-identical: 기본값 제출 payload가 재구성 전과 동일하다", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RB1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RB1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    // 깊은 완전 일치(toEqual) — 재구성이 필드를 추가/누락하면 즉시 RED.
+    // 기대 객체는 재구성 전 HEAD의 실제 payload 캡처로 확정(JSON.stringify가
+    // undefined 필드(data_binding/criteria/think_*)를 생략한 결과 기준).
+    expect(body).toEqual({
+      scenario_id: "S1",
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+      },
+      env: {},
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreatePreset,
@@ -29,6 +29,8 @@ import {
   criteriaActiveCount,
 } from "./profileForm";
 import { CriteriaFields } from "./CriteriaFields";
+import { ko } from "../i18n/ko";
+import { HelpTip } from "./HelpTip";
 
 type Props = {
   scenarioId: string;
@@ -100,25 +102,43 @@ export function RunDialog({
   const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
   const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
   const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
-  // SLO 기준 is optional → collapsible. Start open only when seeded criteria exist.
-  const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initCriteria));
-  // Pacing (think time) is optional → collapsible. Empty inputs omit think_time
-  // / think_seed entirely (byte-identical to pre-feature submit).
+  // think time(페이싱) draft. Empty inputs omit think_time / think_seed entirely
+  // (byte-identical to pre-feature submit).
   const numToStr = (n?: number | null) => (n == null ? "" : String(n));
   const initTT = initial?.profile.think_time;
   const [thinkMin, setThinkMin] = useState(numToStr(initTT?.min_ms));
   const [thinkMax, setThinkMax] = useState(numToStr(initTT?.max_ms));
   const [thinkSeed, setThinkSeed] = useState(numToStr(initial?.profile.think_seed));
-  const [pacingOpen, setPacingOpen] = useState(
-    () => initTT != null || initial?.profile.think_seed != null,
-  );
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
   const [measurePhases, setMeasurePhases] = useState(initial?.profile.measure_phases ?? false);
-  const [advancedOpen, setAdvancedOpen] = useState(() => initial?.profile.measure_phases ?? false);
+  // '판정·고급' 단일 토글(SLO·페이싱·진단 통합, spec §6.1). 시드된 비기본값이 접힌
+  // 그룹에 숨지 않게, 하나라도 있으면 펼친 채 시작.
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () =>
+      criteriaHasValue(initCriteria) ||
+      initTT != null ||
+      initial?.profile.think_seed != null ||
+      (initial?.profile.measure_phases ?? false) ||
+      (initial?.profile.http_timeout_seconds != null &&
+        initial.profile.http_timeout_seconds !== 30) ||
+      (hasLoop &&
+        initial?.profile.loop_breakdown_cap != null &&
+        initial.profile.loop_breakdown_cap !== 256),
+  );
   const [binding, setBinding] = useState<DataBinding | null>(initial?.profile.data_binding ?? null);
-  const [bindingValid, setBindingValid] = useState(true);
+  // DataBindingPanel 막힘 사유(ok + reasons). 패널의 emit effect deps에 onValidityChange가
+  // 있어 인라인 화살표를 넘기면 부모 렌더마다 effect 재발화 → setState → 재렌더 루프 —
+  // 반드시 stable useCallback으로 넘긴다.
+  const [bindingBlock, setBindingBlock] = useState<{ ok: boolean; reasons: string[] }>({
+    ok: true,
+    reasons: [],
+  });
+  const onBindingValidity = useCallback(
+    (ok: boolean, reasons: string[]) => setBindingBlock({ ok, reasons }),
+    [],
+  );
   // B-2 environment overlay. Prefill (preset/retry) is override-only (env = none):
   // the stored env is already a resolved snapshot, so it seeds envEntries with no base.
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
@@ -172,12 +192,22 @@ export function RunDialog({
       setMax5xxCount(pc.max5xxCount);
       setMinWindowRps(pc.minWindowRps);
       setRpsWarmup(pc.rpsWarmup);
-      if (criteriaHasValue(pc)) setSloOpen(true); // reveal loaded criteria
       const ptt = prof.think_time ?? undefined;
       setThinkMin(numToStr(ptt?.min_ms));
       setThinkMax(numToStr(ptt?.max_ms));
       setThinkSeed(numToStr(prof.think_seed ?? undefined));
-      if (ptt != null || prof.think_seed != null) setPacingOpen(true); // reveal loaded pacing
+      // 프리셋의 비기본 고급 값이 접힌 그룹에 숨지 않게 펼침. measure_phases는 의도적
+      // 제외 — loadPreset이 measurePhases state를 시드하지 않는 기존 갭이 있어(수정은
+      // U1b 범위 밖), 조건에 넣으면 "펼쳤는데 체크박스 꺼짐" 불일치가 생긴다.
+      if (
+        criteriaHasValue(pc) ||
+        ptt != null ||
+        prof.think_seed != null ||
+        prof.http_timeout_seconds !== 30 ||
+        (hasLoop && prof.loop_breakdown_cap !== 256)
+      ) {
+        setAdvancedOpen(true);
+      }
       // Open-loop prefill: if preset has target_rps, switch to open mode and seed fields.
       if (prof.target_rps != null) {
         setLoadModel("open");
@@ -242,6 +272,8 @@ export function RunDialog({
       Number(thinkMax) < Number(thinkMin) ||
       Number(thinkMax) > 600_000);
   const pacingActiveCount = [thinkMin, thinkMax, thinkSeed].filter((s) => s.trim() !== "").length;
+  // '판정·고급' 접힘 힌트 카운트. 타임아웃·루프캡은 항상 값이 있는 기본 입력이라 제외.
+  const advancedActiveCount = sloActiveCount + pacingActiveCount + (measurePhases ? 1 : 0);
   // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
   const loadState: LoadModelState = {
     loadModel,
@@ -264,14 +296,14 @@ export function RunDialog({
           !loadErrs.stagesInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
-          bindingValid &&
+          bindingBlock.ok &&
           !mutation.isPending
         : duration >= 1 &&
           !loadErrs.targetRpsInvalid &&
           !loadErrs.maxInFlightInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
-          bindingValid &&
+          bindingBlock.ok &&
           !mutation.isPending
       : vus >= 1 &&
         duration >= 1 &&
@@ -279,7 +311,7 @@ export function RunDialog({
         !loopCapInvalid &&
         !httpTimeoutInvalid &&
         !thinkInvalid &&
-        bindingValid &&
+        bindingBlock.ok &&
         !mutation.isPending;
 
   // Merge selected environment (base) under the per-run override rows. With no env
@@ -390,7 +422,7 @@ export function RunDialog({
 
   return (
     <div className="border border-slate-200 rounded-md p-4 bg-white">
-      <h3 className="text-lg font-semibold mb-3">New run</h3>
+      <h3 className="text-lg font-semibold mb-3">{ko.runDialog.title}</h3>
       {scenarioChangedWarning && (
         <p
           role="alert"
@@ -427,164 +459,52 @@ export function RunDialog({
           프리셋 오류: {presetError}
         </p>
       )}
-      <LoadModelFields
-        loadModel={loadModel}
-        setLoadModel={setLoadModel}
-        rateMode={rateMode}
-        setRateMode={setRateMode}
-        vus={vus}
-        setVus={setVus}
-        duration={duration}
-        setDuration={setDuration}
-        rampUp={rampUp}
-        setRampUp={setRampUp}
-        targetRps={targetRps}
-        setTargetRps={setTargetRps}
-        maxInFlight={maxInFlight}
-        setMaxInFlight={setMaxInFlight}
-        stages={stages}
-        setStages={setStages}
-        errs={loadErrs}
-      />
-
-      {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
-      <div className="mb-3 max-w-xs">
-        <label className="block text-sm">
-          <span className="text-slate-600">HTTP timeout (s)</span>
-          <input
-            type="number"
-            min={1}
-            max={600}
-            aria-label="HTTP timeout (s)"
-            value={httpTimeout}
-            onChange={(e) => setHttpTimeout(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-            aria-invalid={httpTimeoutInvalid}
-            aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-          />
-        </label>
-      </div>
-
-      {hasLoop && (
-        <div className="mb-3">
-          <label className="block text-sm">
-            Loop breakdown cap
-            <input
-              type="number"
-              min={0}
-              max={10000}
-              aria-label="loop breakdown cap"
-              value={loopCap}
-              onChange={(e) => setLoopCap(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-              aria-invalid={loopCapInvalid}
-              aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
-            />
-            <span className="text-xs text-slate-500">
-              0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
-            </span>
-          </label>
-        </div>
-      )}
-
-      {loopCapInvalid && (
-        <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
-          0 ~ 10000 사이여야 합니다.
-        </p>
-      )}
-
-      {httpTimeoutInvalid && (
-        <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
-          HTTP timeout must be between 1 and 600 seconds.
-        </p>
-      )}
-
-      <fieldset className="mt-3 mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setSloOpen((v) => !v)}
-            className="font-medium text-slate-700 hover:underline"
-            aria-expanded={sloOpen}
-          >
-            {sloOpen ? "▾" : "▸"} SLO 기준 (선택)
-            {!sloOpen && sloActiveCount > 0 ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">
-                · {sloActiveCount}개 설정됨
-              </span>
-            ) : null}
-          </button>
-        </legend>
-        {sloOpen && <CriteriaFields value={criteriaState} onChange={setCriteria} />}
+      {/* 그룹 1: 부하 정의 — 항상 펼침 */}
+      <fieldset className="mb-4">
+        <legend className="text-sm font-medium">{ko.runDialog.groupLoad}</legend>
+        <LoadModelFields
+          loadModel={loadModel}
+          setLoadModel={setLoadModel}
+          rateMode={rateMode}
+          setRateMode={setRateMode}
+          vus={vus}
+          setVus={setVus}
+          duration={duration}
+          setDuration={setDuration}
+          rampUp={rampUp}
+          setRampUp={setRampUp}
+          targetRps={targetRps}
+          setTargetRps={setTargetRps}
+          maxInFlight={maxInFlight}
+          setMaxInFlight={setMaxInFlight}
+          stages={stages}
+          setStages={setStages}
+          errs={loadErrs}
+        />
       </fieldset>
 
-      {loadModel === "closed" && (
-        <fieldset className="mt-3 mb-4 border-t pt-3">
-          <legend className="text-sm font-medium">
-            <button
-              type="button"
-              onClick={() => setPacingOpen((v) => !v)}
-              className="font-medium text-slate-700 hover:underline"
-              aria-expanded={pacingOpen}
-            >
-              {pacingOpen ? "▾" : "▸"} Pacing (think time, 선택)
-              {!pacingOpen && pacingActiveCount > 0 ? (
-                <span className="ml-1 text-xs font-normal text-slate-500">
-                  · {pacingActiveCount}개 설정됨
-                </span>
-              ) : null}
-            </button>
-          </legend>
-          {pacingOpen && (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-sm">
-                  <span className="text-slate-600">Think min (ms)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    value={thinkMin}
-                    onChange={(e) => setThinkMin(e.target.value)}
-                    aria-invalid={thinkInvalid}
-                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">Think max (ms)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    value={thinkMax}
-                    onChange={(e) => setThinkMax(e.target.value)}
-                    aria-invalid={thinkInvalid}
-                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">Think seed (선택)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    value={thinkSeed}
-                    onChange={(e) => setThinkSeed(e.target.value)}
-                  />
-                </label>
-              </div>
-              {thinkInvalid ? (
-                <p id="think-time-error" className="mt-1 text-red-600 text-sm">
-                  min ≤ max ≤ 600000, 둘 다 입력
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
-              )}
-            </>
-          )}
-        </fieldset>
-      )}
+      {/* 그룹 2: 대상 설정 — 항상 펼침 */}
+      <fieldset className="mb-4 border-t pt-3">
+        <legend className="text-sm font-medium">{ko.runDialog.groupTarget}</legend>
+        <EnvironmentPicker
+          selectedEnvId={selectedEnvId}
+          onSelect={setSelectedEnvId}
+          baseVars={baseVars}
+          overrides={envEntries}
+          onOverridesChange={setEnvEntries}
+        />
+        {scenario && (
+          <DataBindingPanel
+            key={panelKey}
+            scenario={scenario}
+            initialBinding={seedBinding}
+            onChange={setBinding}
+            onValidityChange={onBindingValidity}
+          />
+        )}
+      </fieldset>
 
+      {/* 그룹 3: 판정·고급 — 단일 토글 접힘 */}
       <fieldset className="mt-3 mb-4 border-t pt-3">
         <legend className="text-sm font-medium">
           <button
@@ -593,31 +513,138 @@ export function RunDialog({
             className="font-medium text-slate-700 hover:underline"
             aria-expanded={advancedOpen}
           >
-            {advancedOpen ? "▾" : "▸"} 진단/고급 (선택)
-            {!advancedOpen && measurePhases ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">· 1개 설정됨</span>
+            {advancedOpen ? "▾" : "▸"} {ko.runDialog.groupAdvanced}
+            {!advancedOpen && advancedActiveCount > 0 ? (
+              <span className="ml-1 text-xs font-normal text-slate-500">
+                · {advancedActiveCount}개 설정됨
+              </span>
             ) : null}
           </button>
         </legend>
         {advancedOpen && (
-          <label className="mt-2 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={measurePhases}
-              onChange={(e) => setMeasurePhases(e.target.checked)}
-            />
-            측정: 레이턴시 단계 분해(TTFB/다운로드)
-          </label>
+          <>
+            <h4 className="mt-2 text-sm font-medium">
+              {ko.runDialog.sectionSlo}
+              <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
+            </h4>
+            <CriteriaFields value={criteriaState} onChange={setCriteria} />
+
+            {loadModel === "closed" && (
+              <>
+                <h4 className="mt-3 text-sm font-medium">
+                  {ko.runDialog.sectionPacing}
+                  <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-sm">
+                    <span className="text-slate-600">{ko.loadModel.thinkMin}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                      value={thinkMin}
+                      onChange={(e) => setThinkMin(e.target.value)}
+                      aria-invalid={thinkInvalid}
+                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-slate-600">{ko.loadModel.thinkMax}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                      value={thinkMax}
+                      onChange={(e) => setThinkMax(e.target.value)}
+                      aria-invalid={thinkInvalid}
+                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-slate-600">{ko.loadModel.thinkSeed}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                      value={thinkSeed}
+                      onChange={(e) => setThinkSeed(e.target.value)}
+                    />
+                  </label>
+                </div>
+                {thinkInvalid ? (
+                  <p id="think-time-error" className="mt-1 text-red-600 text-sm">
+                    min ≤ max ≤ 600000, 둘 다 입력
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
+                )}
+              </>
+            )}
+
+            <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
+            {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
+            <div className="mb-3 max-w-xs">
+              <label className="block text-sm">
+                <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={600}
+                  aria-label={ko.loadModel.httpTimeout}
+                  value={httpTimeout}
+                  onChange={(e) => setHttpTimeout(Number(e.target.value))}
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                  aria-invalid={httpTimeoutInvalid}
+                  aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
+                />
+              </label>
+            </div>
+
+            {hasLoop && (
+              <div className="mb-3">
+                <label className="block text-sm">
+                  {ko.loadModel.loopCap}
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    aria-label={ko.loadModel.loopCap}
+                    value={loopCap}
+                    onChange={(e) => setLoopCap(Number(e.target.value))}
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    aria-invalid={loopCapInvalid}
+                    aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+                  />
+                  <span className="text-xs text-slate-500">
+                    0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {loopCapInvalid && (
+              <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
+                0 ~ 10000 사이여야 합니다.
+              </p>
+            )}
+
+            {httpTimeoutInvalid && (
+              <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
+                {ko.validation.httpTimeout}
+              </p>
+            )}
+
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={measurePhases}
+                onChange={(e) => setMeasurePhases(e.target.checked)}
+              />
+              측정: 레이턴시 단계 분해(TTFB/다운로드)
+            </label>
+          </>
         )}
       </fieldset>
-
-      <EnvironmentPicker
-        selectedEnvId={selectedEnvId}
-        onSelect={setSelectedEnvId}
-        baseVars={baseVars}
-        overrides={envEntries}
-        onOverridesChange={setEnvEntries}
-      />
 
       <div className="mb-3 flex items-center gap-2">
         <input
@@ -657,18 +684,22 @@ export function RunDialog({
         )}
       </div>
 
-      {scenario && (
-        <DataBindingPanel
-          key={panelKey}
-          scenario={scenario}
-          initialBinding={seedBinding}
-          onChange={setBinding}
-          onValidityChange={setBindingValid}
-        />
-      )}
-
       {mutation.error && (
         <p className="mb-3 text-red-600 text-sm">{(mutation.error as Error).message}</p>
+      )}
+
+      {!bindingBlock.ok && bindingBlock.reasons.length > 0 && (
+        <div
+          role="status"
+          className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
+        >
+          <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
+          <ul className="list-disc pl-5">
+            {bindingBlock.reasons.map((r) => (
+              <li key={r}>{ko.runDialog.bindingReasonPrefix + r}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="flex gap-2">
@@ -681,10 +712,10 @@ export function RunDialog({
           }
           disabled={!canSubmit}
         >
-          {mutation.isPending ? "Starting…" : "Run"}
+          {mutation.isPending ? ko.runDialog.running : ko.runDialog.run}
         </Button>
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {ko.runDialog.cancel}
         </Button>
       </div>
     </div>
