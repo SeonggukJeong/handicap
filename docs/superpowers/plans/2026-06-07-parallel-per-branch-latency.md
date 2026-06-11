@@ -46,7 +46,7 @@
 - Modify: `crates/engine/src/runner.rs` (Parallel arm :511-578)
 - Test: `crates/engine/tests/parallel_node.rs` (`parallel_records_group_latency_sample` :196)
 
-이 커밋 후: 분기 데이터가 엔진 내부에서 기록되지만 워커가 proto에 forward 안 함(proto 필드 없음) → 와이어로 안 나감. 워커는 `g.branch`를 참조 안 하므로 컴파일 green.
+이 커밋 후: **(T1 리뷰 정정)** 워커는 엔진 `GroupStat`을 *전부* 무라벨 proto로 forward하므로 분기 행도 와이어로 나가고, 컨트롤러 `group_acc`(step_id-only 키)가 페이지+분기를 합쳐 **이 커밋 단독으론 기존 페이지 group-latency가 일시 오염**된다(count ×(1+B)). Task 2가 즉시 고치므로 T1–T2 사이에서 group latency 라이브 검증·머지 금지 — T2를 반드시 다음에 land. 워커는 `g.branch`를 참조 안 하므로 컴파일은 green.
 
 - [ ] **Step 1: `group_hists` 키를 `(step_id, branch)`로 (aggregator.rs:136)**
 
