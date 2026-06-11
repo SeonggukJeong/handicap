@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ko } from "../../i18n/ko";
 import { ScenarioNewPage } from "../ScenarioNewPage";
 
 const fetchMock = vi.fn();
@@ -52,6 +53,11 @@ describe("ScenarioNewPage test-run", () => {
     const user = userEvent.setup();
     renderPage();
 
+    // U3: 갤러리 단계를 지나야 에디터가 mount된다 — 빈 시나리오 선택
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
+    );
+
     const runBtn = await screen.findByRole("button", { name: /Test run/ });
     await user.click(runBtn);
 
@@ -75,9 +81,16 @@ describe("ScenarioNewPage test-run", () => {
   });
 
   it("groups Create and Cancel in the top header row next to the title", async () => {
+    const user = userEvent.setup();
     renderPage();
-    const create = await screen.findByRole("button", { name: /Create/ });
-    const cancel = screen.getByRole("button", { name: /Cancel/ });
+
+    // U3: 갤러리 단계를 지나야 에디터가 mount된다 — 빈 시나리오 선택
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
+    );
+
+    const create = await screen.findByRole("button", { name: ko.editor.create });
+    const cancel = screen.getByRole("button", { name: ko.editor.cancel });
     const group = create.closest("div")!;
     expect(group).toContainElement(cancel);
     const header = group.parentElement!;
@@ -89,8 +102,15 @@ describe("ScenarioNewPage test-run", () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderPage();
-    await screen.findByRole("button", { name: /Create/ }); // let baseline seed
-    await user.click(screen.getByRole("button", { name: /Cancel/ }));
+
+    // U3: 갤러리 단계를 지나야 에디터가 mount된다 — 빈 시나리오 선택
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
+    );
+
+    // 에디터 mount 대기 (baseline은 템플릿 선택 시 선험 확정)
+    await screen.findByRole("button", { name: ko.editor.create });
+    await user.click(screen.getByRole("button", { name: ko.editor.cancel }));
     expect(confirmSpy).not.toHaveBeenCalled(); // untouched → no discard prompt
     expect(await screen.findByText("HOME")).toBeInTheDocument(); // navigated to list
     confirmSpy.mockRestore();
