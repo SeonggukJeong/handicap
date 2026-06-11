@@ -303,6 +303,13 @@ export function DataBindingPanel({ scenario, initialBinding, onChange, onValidit
                         }
                         onChange={(e) => {
                           const v = e.target.value;
+                          // 사용자가 직접 소스를 바꾸면 "자동 연결됨" 배지 제거
+                          setAutoMatchedVars((prev) => {
+                            if (!prev.has(row.varName)) return prev;
+                            const n = new Set(prev);
+                            n.delete(row.varName);
+                            return n;
+                          });
                           if (v === "none") {
                             updateRow(idx, { sourceKind: "none", column: "" });
                           } else if (v === "__literal__") {

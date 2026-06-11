@@ -192,6 +192,7 @@ describe("DataBindingPanel", () => {
       // The last validity call should be true
       const lastCall = calls[calls.length - 1];
       expect(lastCall?.[0]).toBe(true);
+      expect(lastCall?.[1]).toEqual([]);
     });
   });
 
@@ -366,6 +367,28 @@ describe("DataBindingPanel", () => {
     await user.selectOptions(datasetSelect, "DS1");
 
     expect(await screen.findByText(/자동 연결됨/)).toBeInTheDocument();
+  });
+
+  it("자동 매칭 행의 컬럼을 사용자가 바꾸면 '자동 연결됨' 배지가 사라진다", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+
+    renderPanel(makeScenario());
+    const user = userEvent.setup();
+
+    // 데이터셋 선택 → 자동 매칭 → 배지 확인
+    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(datasetSelect, "DS1");
+    expect(await screen.findByText(/자동 연결됨/)).toBeInTheDocument();
+
+    // 사용자가 source select에서 다른 컬럼(email)으로 변경
+    const sourceSelect = screen.getByLabelText("source for username");
+    await user.selectOptions(sourceSelect, "email");
+
+    // 배지가 사라져야 함
+    expect(screen.queryByText(/자동 연결됨/)).toBeNull();
   });
 });
 
