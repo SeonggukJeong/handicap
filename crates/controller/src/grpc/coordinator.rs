@@ -856,6 +856,7 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
         .map(|gs| crate::store::metrics::GroupMetricRow {
             run_id: batch.run_id.clone(),
             step_id: gs.step_id.clone(),
+            branch: gs.branch.clone(),
             hdr_histogram: gs.hdr_histogram.clone(),
             count: gs.count as i64,
         })

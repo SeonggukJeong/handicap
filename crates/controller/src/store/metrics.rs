@@ -249,6 +249,7 @@ pub async fn if_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<IfBranchRow
 pub struct GroupMetricRow {
     pub run_id: String,
     pub step_id: String, // the `parallel` node's id
+    pub branch: String,  // "" = page (whole block), else the branch name
     pub hdr_histogram: Vec<u8>,
     pub count: i64,
 }
@@ -257,15 +258,16 @@ pub async fn insert_group_batch(db: &Db, rows: &[GroupMetricRow]) -> sqlx::Resul
     if rows.is_empty() {
         return Ok(());
     }
-    // Append-only: each row is a delta HDR; build_report merges by step_id. No PK —
+    // Append-only: each row is a delta HDR; build_report merges by (step_id, branch). No PK —
     // metric batches are delivered once (no mid-run resend), so no dedup key is needed.
     let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
-            "INSERT INTO run_group_metrics(run_id,step_id,hdr_histogram,count) VALUES(?,?,?,?)",
+            "INSERT INTO run_group_metrics(run_id,step_id,branch,hdr_histogram,count) VALUES(?,?,?,?,?)",
         )
         .bind(&r.run_id)
         .bind(&r.step_id)
+        .bind(&r.branch)
         .bind(&r.hdr_histogram)
         .bind(r.count)
         .execute(&mut *tx)
@@ -276,8 +278,8 @@ pub async fn insert_group_batch(db: &Db, rows: &[GroupMetricRow]) -> sqlx::Resul
 
 pub async fn group_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<GroupMetricRow>> {
     let rows = sqlx::query(
-        "SELECT step_id, hdr_histogram, count FROM run_group_metrics \
-         WHERE run_id = ? ORDER BY step_id",
+        "SELECT step_id, branch, hdr_histogram, count FROM run_group_metrics \
+         WHERE run_id = ? ORDER BY step_id, branch",
     )
     .bind(run_id)
     .fetch_all(db)
@@ -287,6 +289,7 @@ pub async fn group_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<GroupMet
         .map(|r| GroupMetricRow {
             run_id: run_id.to_string(),
             step_id: r.get("step_id"),
+            branch: r.get("branch"),
             hdr_histogram: r.get("hdr_histogram"),
             count: r.get("count"),
         })
@@ -759,21 +762,40 @@ mod tests {
             GroupMetricRow {
                 run_id: "r1".into(),
                 step_id: "p1".into(),
+                branch: "".into(),
                 hdr_histogram: vec![1, 2, 3],
                 count: 4,
             },
             GroupMetricRow {
                 run_id: "r1".into(),
                 step_id: "p1".into(),
+                branch: "".into(),
                 hdr_histogram: vec![4, 5],
                 count: 2,
+            },
+            GroupMetricRow {
+                run_id: "r1".into(),
+                step_id: "p1".into(),
+                branch: "a".into(),
+                hdr_histogram: vec![6],
+                count: 1,
             },
         ];
         insert_group_batch(&db, &rows).await.unwrap();
         let read = group_breakdown(&db, "r1").await.unwrap();
-        // append-only: two delta rows for the same step_id coexist (merged at read in build_report).
-        assert_eq!(read.len(), 2, "append-only keeps both delta rows");
-        assert_eq!(read.iter().map(|r| r.count).sum::<i64>(), 6);
+        assert_eq!(read.len(), 3, "append-only keeps all delta rows");
+        assert_eq!(
+            read.iter()
+                .filter(|r| r.branch.is_empty())
+                .map(|r| r.count)
+                .sum::<i64>(),
+            6,
+            "page deltas coexist"
+        );
+        assert!(
+            read.iter().any(|r| r.branch == "a" && r.count == 1),
+            "branch row persisted"
+        );
         assert!(read.iter().all(|r| r.step_id == "p1"));
     }
 }

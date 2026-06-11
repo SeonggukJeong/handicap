@@ -67,6 +67,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0011).execute(&pool).await?; // migration 0011: schedules + schedule_events
     ensure_runs_verdict_json(&pool).await?; // migration 0012 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0013).execute(&pool).await?; // migration 0013: run_phase_metrics
+    ensure_run_group_metrics_branch(&pool).await?; // migration 0014 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -164,6 +165,24 @@ async fn ensure_runs_verdict_json(db: &Db) -> anyhow::Result<()> {
     .await?;
     if has == 0 {
         sqlx::query("ALTER TABLE runs ADD COLUMN verdict_json TEXT")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// migration 0014 (Rust-guarded): add `branch` to `run_group_metrics` for per-branch
+/// parallel latency breakdown (branch="" = page). SQLite ADD COLUMN isn't idempotent,
+/// so detect first (same pattern as ensure_runs_dropped). run_group_metrics is created
+/// by MIGRATION_SQL_0010, so this must run after that.
+async fn ensure_run_group_metrics_branch(db: &Db) -> anyhow::Result<()> {
+    let has: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('run_group_metrics') WHERE name = 'branch'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE run_group_metrics ADD COLUMN branch TEXT NOT NULL DEFAULT ''")
             .execute(db)
             .await?;
     }

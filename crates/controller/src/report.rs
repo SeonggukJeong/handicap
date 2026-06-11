@@ -129,6 +129,21 @@ pub struct GroupLatency {
     pub p95_ms: u64,
     pub p99_ms: u64,
     pub max_ms: u64,
+    /// per-branch latency nested under this parallel node (empty if no parallel branches).
+    /// `#[serde(default)]` only (no skip_serializing_if) → always serialized so the UI
+    /// schema can use a plain required array (no `.default()` leak).
+    #[serde(default)]
+    pub branches: Vec<BranchLatency>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct BranchLatency {
+    pub branch: String, // the parallel branch name
+    pub count: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
+    pub max_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -537,31 +552,56 @@ pub fn build_report(
         scenario_yaml,
     );
 
-    // Group (page-load) latency: a SEPARATE accumulator keyed by the parallel node's
-    // id. Deliberately NOT merged into `overall`/`total_count`/`per_step`/`windows` —
+    // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
+    // branch="" = the page (whole parallel block), else the branch name.
+    // Deliberately NOT merged into `overall`/`total_count`/`per_step`/`windows` —
     // a page load is the max of children already counted there, so folding it in would
     // double-count latency and inflate rps (spec §2.1).
-    let mut group_acc: BTreeMap<String, (Histogram<u64>, u64)> = BTreeMap::new();
+    let mut group_acc: BTreeMap<(String, String), (Histogram<u64>, u64)> = BTreeMap::new();
     for g in groups {
         let e = group_acc
-            .entry(g.step_id.clone())
+            .entry((g.step_id.clone(), g.branch.clone()))
             .or_insert_with(|| (fresh_hist(), 0));
         if let Ok(Some(h)) = decode_hdr(&g.hdr_histogram) {
             merge_into(&mut e.0, &h); // fail-soft: bad blob -> count kept, distribution skips it
         }
         e.1 += g.count as u64;
     }
-    let group_latency: Vec<GroupLatency> = group_acc
-        .into_iter()
-        .map(|(step_id, (h, count))| {
-            let p = percentiles_of(&h);
-            GroupLatency {
-                step_id,
-                count,
+    // Branch rows (branch != "") nest under their parallel node's page (branch == "").
+    // BTreeMap orders "" before any branch name within each step_id, so branches sort
+    // by name. A bad branch HDR blob keeps the count but skips the distribution (same
+    // fail-soft as the page).
+    let mut branches_by_step: BTreeMap<String, Vec<BranchLatency>> = BTreeMap::new();
+    for ((step_id, branch), (h, count)) in &group_acc {
+        if branch.is_empty() {
+            continue;
+        }
+        let p = percentiles_of(h);
+        branches_by_step
+            .entry(step_id.clone())
+            .or_default()
+            .push(BranchLatency {
+                branch: branch.clone(),
+                count: *count,
                 p50_ms: p.p50_ms,
                 p95_ms: p.p95_ms,
                 p99_ms: p.p99_ms,
                 max_ms: h.max() / 1_000,
+            });
+    }
+    let group_latency: Vec<GroupLatency> = group_acc
+        .iter()
+        .filter(|((_, branch), _)| branch.is_empty())
+        .map(|((step_id, _), (h, count))| {
+            let p = percentiles_of(h);
+            GroupLatency {
+                step_id: step_id.clone(),
+                count: *count,
+                p50_ms: p.p50_ms,
+                p95_ms: p.p95_ms,
+                p99_ms: p.p99_ms,
+                max_ms: h.max() / 1_000,
+                branches: branches_by_step.remove(step_id).unwrap_or_default(),
             }
         })
         .collect();
@@ -1192,6 +1232,7 @@ mod tests {
         let groups = vec![GroupMetricRow {
             run_id: r.id.clone(),
             step_id: "01HX0000000000000000000010".into(),
+            branch: "".into(),
             hdr_histogram: make_hdr_bytes(&[300_000, 305_000, 295_000]),
             count: 3,
         }];
@@ -1219,6 +1260,10 @@ mod tests {
             g.p50_ms >= 290 && g.max_ms >= 300,
             "p50~300ms max~305ms, got {g:?}"
         );
+        assert!(
+            rep.group_latency[0].branches.is_empty(),
+            "no branch rows → empty branches"
+        );
         // typed round-trip (report types require Deserialize too).
         let v = serde_json::to_value(&rep).unwrap();
         let _back: ReportJson = serde_json::from_value(v).unwrap();
@@ -1229,6 +1274,82 @@ mod tests {
         let r = run_row();
         let rep = build_report(&r, "", &[], &[], &[], &[], &[]);
         assert!(rep.group_latency.is_empty());
+    }
+
+    #[test]
+    fn build_report_nests_branch_latency_under_page() {
+        use crate::store::metrics::GroupMetricRow;
+        let r = run_row();
+        let rows = vec![win(
+            100,
+            "01HX0000000000000000000011",
+            10,
+            0,
+            r#"{"200":10}"#,
+            &[5_000],
+        )];
+        let par = "01HX0000000000000000000010";
+        let groups = vec![
+            GroupMetricRow {
+                run_id: r.id.clone(),
+                step_id: par.into(),
+                branch: "".into(),
+                hdr_histogram: make_hdr_bytes(&[300_000, 300_000]),
+                count: 2,
+            },
+            GroupMetricRow {
+                run_id: r.id.clone(),
+                step_id: par.into(),
+                branch: "a".into(),
+                hdr_histogram: make_hdr_bytes(&[300_000, 300_000]),
+                count: 2,
+            },
+            GroupMetricRow {
+                run_id: r.id.clone(),
+                step_id: par.into(),
+                branch: "b".into(),
+                hdr_histogram: make_hdr_bytes(&[50_000, 50_000]),
+                count: 2,
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[]);
+
+        assert_eq!(
+            rep.group_latency.len(),
+            1,
+            "one parallel node → one page entry"
+        );
+        let g = &rep.group_latency[0];
+        assert_eq!(g.step_id, par);
+        assert_eq!(
+            g.count, 2,
+            "page count = clean iterations, not summed branches"
+        );
+        assert_eq!(g.branches.len(), 2, "two branches nested");
+        assert_eq!(g.branches[0].branch, "a", "branches sorted by name");
+        assert_eq!(g.branches[1].branch, "b");
+        assert_eq!(
+            g.branches[0].count, 2,
+            "each branch fires once per clean page"
+        );
+        assert!(
+            g.branches[0].p50_ms >= 290,
+            "branch a ~300ms (bottleneck), got {}",
+            g.branches[0].p50_ms
+        );
+        assert!(
+            g.branches[1].p50_ms <= 60,
+            "branch b ~50ms (fast), got {}",
+            g.branches[1].p50_ms
+        );
+        assert_eq!(
+            rep.summary.count, 10,
+            "branches+page excluded from summary count"
+        );
+        // typed round-trip (report types require Deserialize too).
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
     }
 
     #[test]
