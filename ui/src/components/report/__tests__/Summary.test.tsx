@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { Summary } from "../Summary";
 
 const baseSummary = {
@@ -57,5 +58,21 @@ describe("Summary", () => {
     const closedGrid = closedContainer.querySelector(".md\\:grid-cols-7");
     expect(openGrid).not.toBeNull();
     expect(closedGrid).not.toBeNull();
+  });
+
+  it("p50/p95/p99 카드에 도움말 버튼이 있고 클릭하면 용어 설명이 열린다", async () => {
+    const user = userEvent.setup();
+    render(<Summary summary={baseSummary} />);
+    expect(screen.getByRole("button", { name: "p50 설명" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "p99 설명" })).toBeInTheDocument();
+    expect(screen.queryByRole("note")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "p95 설명" }));
+    expect(screen.getByRole("note")).toHaveTextContent("95%");
+  });
+
+  it("도움말이 없는 카드(Total requests 등)엔 도움말 버튼이 없다", () => {
+    render(<Summary summary={baseSummary} />);
+    expect(screen.queryByRole("button", { name: "Total requests 설명" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Errors 설명" })).toBeNull();
   });
 });

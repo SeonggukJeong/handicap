@@ -1,4 +1,6 @@
 import type { ReportSummary } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
+import { HelpTip } from "../HelpTip";
 
 type Props = {
   summary: ReportSummary;
@@ -7,14 +9,14 @@ type Props = {
 };
 
 export function Summary({ summary, dropped, targetRps }: Props) {
-  const cards: Array<{ label: string; value: string }> = [
+  const cards: Array<{ label: string; value: string; help?: string }> = [
     { label: "Total requests", value: summary.count.toLocaleString() },
     { label: "Errors", value: summary.errors.toLocaleString() },
     { label: "Avg RPS", value: summary.rps.toFixed(1) },
     { label: "Duration", value: `${summary.duration_seconds}s` },
-    { label: "p50", value: `${summary.p50_ms} ms` },
-    { label: "p95", value: `${summary.p95_ms} ms` },
-    { label: "p99", value: `${summary.p99_ms} ms` },
+    { label: "p50", value: `${summary.p50_ms} ms`, help: ko.glossary.p50 },
+    { label: "p95", value: `${summary.p95_ms} ms`, help: ko.glossary.p95 },
+    { label: "p99", value: `${summary.p99_ms} ms`, help: ko.glossary.p99 },
   ];
 
   if (targetRps != null) {
@@ -39,7 +41,10 @@ export function Summary({ summary, dropped, targetRps }: Props) {
       <div className={`grid grid-cols-3 ${gridColsClass} gap-3 text-sm`}>
         {cards.map((c) => (
           <div key={c.label} className="border border-slate-200 rounded-md p-3 bg-white">
-            <div className="text-slate-500 text-xs">{c.label}</div>
+            <div className="text-slate-500 text-xs">
+              {c.label}
+              {c.help && <HelpTip label={`${c.label} 설명`}>{c.help}</HelpTip>}
+            </div>
             <div className="text-lg font-semibold">{c.value}</div>
           </div>
         ))}

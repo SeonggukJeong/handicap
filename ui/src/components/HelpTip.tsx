@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 /**
- * ⓘ 클릭 토글 도움말 popover (spec 2026-06-11 UX §2.2, ADR-0035).
+ * 도움말(?) 버튼 클릭 토글 popover (spec 2026-06-11 UX §2.2, ADR-0035).
  * hover 전용 금지 — 터치·키보드 접근성. ESC/바깥 pointerdown으로 닫힘.
  * 용어 설명 본문은 ko.ts glossary를 children으로 넘겨 단일 소스를 유지한다.
+ * children은 인라인 콘텐츠만(popover가 <span>이라 블록 요소 중첩 금지).
  */
 export function HelpTip({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
