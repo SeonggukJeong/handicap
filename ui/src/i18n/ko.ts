@@ -227,6 +227,12 @@ export const ko = {
     colBranch: "분기",
     colDecisionsInner: "결정 수",
   },
+  runDetail: {
+    // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)
+    stalledRunning:
+      "워커가 시작하지 못했을 수 있습니다 — 시나리오 URL과 컨트롤러 로그를 확인하세요.",
+    elapsed: (d: string) => `경과 ${d}`,
+  },
   // §7.3 인사이트 kind → "다음 행동" 한 줄 (slo_pass는 의도적 부재 — 행동 없음).
   insightActions: {
     slowest_step: "이 API가 병목입니다 — 스텝 표를 내보내 개발팀과 공유하세요.",

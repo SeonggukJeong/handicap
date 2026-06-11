@@ -9,6 +9,7 @@ import {
   useRunReport,
   useScenario,
 } from "../api/hooks";
+import { useNow } from "../hooks/useNow";
 import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
@@ -36,6 +37,7 @@ export function RunDetailPage() {
   const metrics = useRunMetrics(id, terminal);
   const report = useRunReport(id, terminal);
   const scenario = useScenario(run.data?.scenario_id);
+  const now = useNow(run.data?.status === "running" ? 1000 : null);
 
   // U2 온보딩 ③: 종료된 run의 리포트가 실제 화면에 렌더된 시점 기록
   useEffect(() => {
@@ -85,6 +87,8 @@ export function RunDetailPage() {
     }
   }
   const totalCount = metrics.data?.windows.reduce((acc, w) => acc + w.count, 0) ?? 0;
+  const stalledRunning =
+    r.status === "running" && totalCount === 0 && now - (r.started_at ?? r.created_at) > 15_000;
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
   // Curve runs (S-D) store duration_seconds: 0; the real length is the stage sum.
   const durationSeconds = profileDurationSeconds(r.profile);
@@ -182,6 +186,14 @@ export function RunDetailPage() {
           className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
         >
           프리셋 저장 실패: {(createPreset.error as Error).message}
+        </div>
+      )}
+      {stalledRunning && (
+        <div
+          role="status"
+          className="mb-4 p-3 border border-amber-300 bg-amber-50 text-sm text-amber-800 rounded"
+        >
+          {ko.runDetail.stalledRunning}
         </div>
       )}
 

@@ -370,6 +370,27 @@ describe("ScenarioRunsPage — U2 breadcrumb + 빈 상태", () => {
 });
 
 // ---------------------------------------------------------------------------
+// §7.4 running elapsed time
+// ---------------------------------------------------------------------------
+
+describe("ScenarioRunsPage — elapsed time on running row (§7.4)", () => {
+  it("running 행에 경과 시간이 표시된다", async () => {
+    const startedAt = Date.now() - 90_000;
+    mockApiRuns([makeRun("RUN1", "running", startedAt)]);
+    renderPageWithCompare();
+    // fixture 생성→렌더 사이 1초가 지나면 "1분 31초"가 될 수 있어 regex로 흡수(flake 방지)
+    expect(await screen.findByText(/경과 1분 3[01]초/)).toBeInTheDocument();
+  });
+
+  it("terminal 행엔 경과 표시가 없다", async () => {
+    mockApiRuns([makeRun("C1", "completed", Date.now() - 90_000)]);
+    renderPageWithCompare();
+    await screen.findByLabelText("select run C1");
+    expect(screen.queryByText(/경과/)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Task 6: VerdictBadge 배지 표시
 // ---------------------------------------------------------------------------
 

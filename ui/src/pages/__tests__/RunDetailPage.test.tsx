@@ -491,6 +491,72 @@ describe("RunDetailPage — save preset (A2)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// §7.4 stalled-running banner
+// ---------------------------------------------------------------------------
+
+function makeRunningRun(startedAt: number) {
+  return {
+    id: "SR1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "running",
+    profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 30 },
+    env: {},
+    started_at: startedAt,
+    ended_at: null,
+    created_at: startedAt,
+  };
+}
+
+function mockRunningApi(startedAt: number, windowsCount = 0) {
+  fetchMock.mockImplementation((url: string) => {
+    if (url.endsWith("/api/runs/SR1")) {
+      return Promise.resolve(jsonResponse(makeRunningRun(startedAt)));
+    }
+    if (url.endsWith("/api/runs/SR1/metrics")) {
+      const windows =
+        windowsCount > 0
+          ? [
+              {
+                ts_second: 1,
+                step_id: "step1",
+                count: 5,
+                error_count: 0,
+                status_counts: { "200": 5 },
+              },
+            ]
+          : [];
+      return Promise.resolve(jsonResponse({ run_id: "SR1", windows }));
+    }
+    return Promise.resolve(jsonResponse({}, 404));
+  });
+}
+
+describe("RunDetailPage — stalled running banner (§7.4)", () => {
+  it("running + 15초 경과 + 요청 0건이면 진단 배너가 뜬다", async () => {
+    mockRunningApi(Date.now() - 20_000, 0);
+    renderWithRouter("SR1");
+    expect(await screen.findByText(/워커가 시작하지 못했을 수 있습니다/)).toBeInTheDocument();
+  });
+
+  it("요청이 있으면 진단 배너가 안 뜬다", async () => {
+    mockRunningApi(Date.now() - 20_000, 1);
+    renderWithRouter("SR1");
+    // Wait for page render to settle (metrics windows section visible)
+    await screen.findByRole("heading", { name: /Metric windows/i });
+    expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
+  });
+
+  it("15초 미만이면 진단 배너가 안 뜬다", async () => {
+    mockRunningApi(Date.now() - 3_000, 0);
+    renderWithRouter("SR1");
+    // Wait for page render to settle
+    await screen.findByRole("heading", { name: /Metric windows/i });
+    expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
+  });
+});
+
 describe("RunDetailPage — report on terminal", () => {
   it("mounts ReportView when status is completed and report loaded; hides Metric windows", async () => {
     const reportBundle = {

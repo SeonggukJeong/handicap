@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api/client";
 import { downloadFile } from "../api/download";
 import { useCreateRun, useScenario, useScenarioRuns } from "../api/hooks";
+import { formatDurationKo } from "../i18n/duration";
+import { useNow } from "../hooks/useNow";
 import {
   envValueToRecord,
   normalizeProfile,
@@ -40,6 +42,9 @@ export function ScenarioRunsPage() {
   const [prefillState, setPrefillState] = useState<PrefillState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportErr, setExportErr] = useState<string | null>(null);
+
+  const hasRunning = runs.data?.runs.some((r) => r.status === "running") ?? false;
+  const now = useNow(hasRunning ? 1000 : null);
 
   // Parse the scenario YAML once for both hasLoop + DataBindingPanel.
   // Parse failures fall back to null (no binding panel, no cap UI).
@@ -274,7 +279,17 @@ export function ScenarioRunsPage() {
                           <VerdictBadge verdict={r.verdict} />
                         </td>
                         <td className="py-3 pr-4">{r.profile.vus}</td>
-                        <td className="py-3 pr-4">{profileDurationSeconds(r.profile)}s</td>
+                        <td className="py-3 pr-4">
+                          {profileDurationSeconds(r.profile)}s
+                          {r.status === "running" && (
+                            <span className="ml-1 text-xs text-slate-500">
+                              ·{" "}
+                              {ko.runDetail.elapsed(
+                                formatDurationKo((now - (r.started_at ?? r.created_at)) / 1000),
+                              )}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 pr-4 text-slate-600">
                           {new Date(r.created_at).toLocaleString()}
                         </td>
