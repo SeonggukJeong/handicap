@@ -31,4 +31,16 @@ describe("ko 카탈로그", () => {
       expect(ko.glossary[key]).toContain("낮을수록 좋");
     }
   });
+
+  it("U1b 네임스페이스(runDialog/loadModel/validation)가 비어 있지 않다", () => {
+    expect(ko.runDialog.title).toBe("새 실행");
+    expect(ko.runDialog.groupAdvanced).toContain("판정·고급");
+    expect(ko.loadModel.vus).toContain("동시 사용자");
+    expect(ko.loadModel.sizePresets.length).toBe(3);
+    for (const p of ko.loadModel.sizePresets) {
+      expect(p.vus).toBeGreaterThan(0);
+      expect(p.durationSeconds).toBeGreaterThan(0);
+    }
+    expect(ko.validation.httpTimeout).toContain("1 ~ 600");
+  });
 });
