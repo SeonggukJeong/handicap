@@ -522,6 +522,7 @@ async fn execute_steps(
                     let mut branch_vars = entry.clone();
                     let mut branch_rng = StdRng::seed_from_u64(seed);
                     async move {
+                        let bt0 = Instant::now();
                         let flow = Box::pin(execute_steps(
                             client,
                             &branch.steps,
@@ -537,7 +538,8 @@ async fn execute_steps(
                             measure_phases,
                         ))
                         .await;
-                        (branch, branch_vars, flow)
+                        let branch_us = bt0.elapsed().as_micros() as u64;
+                        (branch, branch_vars, flow, branch_us)
                     }
                 });
                 // wait-all: every branch runs to completion before the node returns.
@@ -552,7 +554,8 @@ async fn execute_steps(
                 // (Aborted > DeadlineReached > Continue).
                 let mut aborted = false;
                 let mut deadline_hit = false;
-                for (branch, branch_vars, flow) in results {
+                let mut branch_samples: Vec<(String, u64)> = Vec::new();
+                for (branch, branch_vars, flow, branch_us) in results {
                     match flow? {
                         StepFlow::Continue => {}
                         StepFlow::DeadlineReached => deadline_hit = true,
@@ -563,12 +566,19 @@ async fn execute_steps(
                             iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
                         }
                     }
+                    branch_samples.push((branch.name.clone(), branch_us));
                 }
                 // Record page-load latency only on a clean block — a deadline/abort cut a
                 // branch short (skipped steps → too-fast block), which would skew the
                 // distribution low. Same caution as loop partial-iteration counting.
+                // Page (branch="") + every branch recorded together under the same gate so
+                // each branch row's count == the page row's count.
                 if !aborted && !deadline_hit {
-                    agg.lock().await.record_group(&par.id, elapsed_us);
+                    let mut a = agg.lock().await;
+                    a.record_group(&par.id, "", elapsed_us);
+                    for (name, us) in &branch_samples {
+                        a.record_group(&par.id, name, *us);
+                    }
                 }
                 if aborted {
                     return Ok(StepFlow::Aborted);

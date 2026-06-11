@@ -230,22 +230,40 @@ steps:
         .unwrap();
     let flushes = drain(rx).await;
 
-    let mut total_pages = 0u64;
-    let mut max_us = 0u64;
+    let mut page_count = 0u64;
+    let mut page_max_us = 0u64;
+    let mut branch_counts: std::collections::BTreeMap<String, u64> = Default::default();
     for f in &flushes {
         for g in &f.group_stats {
             assert_eq!(g.step_id, "01HX0000000000000000000010");
-            total_pages += g.count;
-            max_us = max_us.max(g.histogram.max());
+            if g.branch.is_empty() {
+                page_count += g.count;
+                page_max_us = page_max_us.max(g.histogram.max());
+            } else {
+                *branch_counts.entry(g.branch.clone()).or_default() += g.count;
+            }
         }
     }
     assert!(
-        total_pages >= 1,
-        "at least one clean page-load sample, got {total_pages}"
+        page_count >= 1,
+        "at least one clean page-load sample, got {page_count}"
     );
     assert!(
-        max_us >= 250_000,
-        "page-load ~= 300ms (max not sum), got {max_us}µs"
+        page_max_us >= 250_000,
+        "page-load ~= 300ms (max not sum), got {page_max_us}µs"
+    );
+    assert_eq!(
+        branch_counts.keys().cloned().collect::<Vec<_>>(),
+        vec!["a".to_string(), "b".to_string()],
+        "both branch labels recorded"
+    );
+    assert_eq!(
+        branch_counts["a"], page_count,
+        "branch a fires once per clean page"
+    );
+    assert_eq!(
+        branch_counts["b"], page_count,
+        "branch b fires once per clean page"
     );
 }
 
