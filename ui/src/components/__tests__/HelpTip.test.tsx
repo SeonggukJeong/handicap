@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { HelpTip } from "../HelpTip";
 
@@ -62,5 +62,31 @@ describe("HelpTip", () => {
     const note = screen.getByRole("note");
     expect(note.getAttribute("id")).toBeTruthy();
     expect(btn).toHaveAttribute("aria-controls", note.getAttribute("id"));
+  });
+
+  it("기본은 left-0 정렬이다", async () => {
+    const user = userEvent.setup();
+    render(<HelpTip label="설명">내용</HelpTip>);
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    expect(screen.getByRole("note").className).toContain("left-0");
+  });
+
+  it("뷰포트 우단을 넘치면 right-0로 뒤집힌다", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<HelpTip label="설명">내용</HelpTip>);
+    const root = container.querySelector("span")!;
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
+      left: window.innerWidth - 10,
+      right: window.innerWidth,
+      top: 0,
+      bottom: 0,
+      width: 10,
+      height: 10,
+      x: window.innerWidth - 10,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    expect(screen.getByRole("note").className).toContain("right-0");
   });
 });
