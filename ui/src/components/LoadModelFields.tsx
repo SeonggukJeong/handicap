@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useId, type Dispatch, type SetStateAction } from "react";
 import type { LoadModelErrors } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
@@ -48,37 +48,49 @@ export function LoadModelFields({
   setStages,
   errs,
 }: Props) {
+  const ids = {
+    vus: useId(),
+    durationClosed: useId(),
+    rampUp: useId(),
+    targetRps: useId(),
+    durationOpen: useId(),
+    maxInFlight: useId(),
+  };
   return (
     <>
       {/* 1차 축: 부하 모델 */}
       <fieldset className="mb-3">
         <legend className="text-sm text-slate-600 mb-1">부하 모델</legend>
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="load-model"
-              value="closed"
-              checked={loadModel === "closed"}
-              onChange={() => {
-                setLoadModel("closed");
-                setRateMode("fixed"); // closed+curve(곧 지원)는 도달 불가
-              }}
-            />
-            {ko.loadModel.closedLoop}
-          </label>
-          <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
-          <label className="flex items-center gap-1 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="load-model"
-              value="open"
-              checked={loadModel === "open"}
-              onChange={() => setLoadModel("open")}
-            />
-            {ko.loadModel.openLoop}
-          </label>
-          <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+          <span className="flex items-center">
+            <label className="flex items-center gap-1 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="load-model"
+                value="closed"
+                checked={loadModel === "closed"}
+                onChange={() => {
+                  setLoadModel("closed");
+                  setRateMode("fixed"); // closed+curve(곧 지원)는 도달 불가
+                }}
+              />
+              {ko.loadModel.closedLoop}
+            </label>
+            <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
+          </span>
+          <span className="flex items-center">
+            <label className="flex items-center gap-1 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="load-model"
+                value="open"
+                checked={loadModel === "open"}
+                onChange={() => setLoadModel("open")}
+              />
+              {ko.loadModel.openLoop}
+            </label>
+            <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+          </span>
         </div>
       </fieldset>
 
@@ -139,42 +151,51 @@ export function LoadModelFields({
                       : "border-slate-300 text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  {p.label} <span className="text-xs text-slate-400">{p.hint}</span>
+                  {p.label}{" "}
+                  <span className={active ? "text-xs text-indigo-500" : "text-xs text-slate-400"}>
+                    {p.hint}
+                  </span>
                 </button>
               );
             })}
           </div>
           <div className="grid grid-cols-3 gap-4 mb-3">
             <div className="block text-sm">
-              <span className="text-slate-600">{ko.loadModel.vus}</span>
-              <HelpTip label="VU 개념 설명">{ko.glossary.vu}</HelpTip>
+              <label htmlFor={ids.vus} className="text-slate-600">
+                {ko.loadModel.vus}
+              </label>
+              <HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>
               <input
+                id={ids.vus}
                 type="number"
                 min={1}
-                aria-label={ko.loadModel.vus}
                 value={vus}
                 onChange={(e) => setVus(Number(e.target.value))}
                 className={INPUT}
               />
             </div>
             <div className="block text-sm">
-              <span className="text-slate-600">{ko.loadModel.duration}</span>
+              <label htmlFor={ids.durationClosed} className="text-slate-600">
+                {ko.loadModel.duration}
+              </label>
               <input
+                id={ids.durationClosed}
                 type="number"
                 min={1}
-                aria-label={ko.loadModel.duration}
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className={INPUT}
               />
             </div>
             <div className="block text-sm">
-              <span className="text-slate-600">{ko.loadModel.rampUp}</span>
+              <label htmlFor={ids.rampUp} className="text-slate-600">
+                {ko.loadModel.rampUp}
+              </label>
               <HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>
               <input
+                id={ids.rampUp}
                 type="number"
                 min={0}
-                aria-label={ko.loadModel.rampUp}
                 value={rampUp}
                 onChange={(e) => setRampUp(Number(e.target.value))}
                 className={INPUT}
@@ -194,13 +215,15 @@ export function LoadModelFields({
           {/* Max in-flight — fixed/curve 공통, 1개 */}
           <div className="mb-3 max-w-xs">
             <div className="block text-sm">
-              <span className="text-slate-600">{ko.loadModel.maxInFlight}</span>
+              <label htmlFor={ids.maxInFlight} className="text-slate-600">
+                {ko.loadModel.maxInFlight}
+              </label>
               <HelpTip label="max in-flight 설명">{ko.glossary.maxInFlight}</HelpTip>
               <input
+                id={ids.maxInFlight}
                 type="number"
                 min={1}
                 max={10000}
-                aria-label={ko.loadModel.maxInFlight}
                 value={maxInFlight}
                 onChange={(e) => setMaxInFlight(e.target.value)}
                 className={INPUT}
@@ -208,7 +231,7 @@ export function LoadModelFields({
                 aria-describedby={errs.maxInFlightInvalid ? "max-in-flight-error" : undefined}
               />
               <span className="text-xs text-slate-500">
-                동시 처리 상한 — 서비스가 목표 레이트를 못 따라가면 초과분은 drop되어 리포트에
+                동시 요청 상한 — 서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에
                 표시됩니다
               </span>
             </div>
@@ -223,13 +246,15 @@ export function LoadModelFields({
             <>
               <div className="grid grid-cols-2 gap-4 mb-3">
                 <div className="block text-sm">
-                  <span className="text-slate-600">{ko.loadModel.targetRps}</span>
-                  <HelpTip label="RPS 개념 설명">{ko.glossary.rps}</HelpTip>
+                  <label htmlFor={ids.targetRps} className="text-slate-600">
+                    {ko.loadModel.targetRps}
+                  </label>
+                  <HelpTip label="RPS 설명">{ko.glossary.rps}</HelpTip>
                   <input
+                    id={ids.targetRps}
                     type="number"
                     min={1}
                     max={1000000}
-                    aria-label={ko.loadModel.targetRps}
                     value={targetRps}
                     onChange={(e) => setTargetRps(e.target.value)}
                     className={INPUT}
@@ -238,11 +263,13 @@ export function LoadModelFields({
                   />
                 </div>
                 <div className="block text-sm">
-                  <span className="text-slate-600">{ko.loadModel.duration}</span>
+                  <label htmlFor={ids.durationOpen} className="text-slate-600">
+                    {ko.loadModel.duration}
+                  </label>
                   <input
+                    id={ids.durationOpen}
                     type="number"
                     min={1}
-                    aria-label={ko.loadModel.duration}
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value))}
                     className={INPUT}

@@ -107,4 +107,9 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("button", { name: /가볍게/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /보통/ })).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("VU만 일치하고 시간이 다르면 chip이 눌리지 않는다", () => {
+    setup({ vus: 10, duration: 60 });
+    expect(screen.getByRole("button", { name: /가볍게/ })).toHaveAttribute("aria-pressed", "false");
+  });
 });

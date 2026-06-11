@@ -963,7 +963,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.click(screen.getByRole("radio", { name: /곡선/ }));
     expect(screen.getByText(/각 단계가 끝날 때의 목표 초당 요청 수/)).toBeInTheDocument();
     expect(screen.getByText(/이 단계가 지속되는 시간/)).toBeInTheDocument();
-    expect(screen.getByText(/동시 처리 상한/)).toBeInTheDocument();
+    expect(screen.getByText(/동시 요청 상한 — /)).toBeInTheDocument();
   });
 
   it("curve mode: selecting a load-shape template seeds stages", async () => {
