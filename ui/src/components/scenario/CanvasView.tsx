@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -16,6 +16,7 @@ import { LoopStepNode, type LoopStepNodeData } from "./LoopStepNode";
 import { IfStepNode, type IfStepNodeData } from "./IfStepNode";
 import { ParallelStepNode, type ParallelStepNodeData } from "./ParallelStepNode";
 import { isLoopStep, summarizeCondition, type Step } from "../../scenario/model";
+import { ko } from "../../i18n/ko";
 
 const NODE_TYPES = {
   http: HttpStepNode,
@@ -55,6 +56,19 @@ export function CanvasView() {
     return sel && isLoopStep(sel) ? sel.id : null;
   }, [steps, selectedStepId]);
 
+  // §5.2: 첫 스텝 추가 직후 1회 노출되는 패널 안내. 두 번째 추가/pane 클릭에 숨김,
+  // ref 가드로 같은 mount에서 재노출 없음.
+  const [panelHint, setPanelHint] = useState(false);
+  const hintShownRef = useRef(false);
+  const noteAdd = () => {
+    if (!hintShownRef.current) {
+      hintShownRef.current = true;
+      setPanelHint(true);
+    } else {
+      setPanelHint(false);
+    }
+  };
+
   const nodes = useMemo<Array<Node<AnyData>>>(() => {
     const out: Array<Node<AnyData>> = [];
     let x = 0;
@@ -87,6 +101,7 @@ export function CanvasView() {
 
   const onPaneClick = () => {
     select(null);
+    setPanelHint(false);
   };
 
   return (
@@ -113,6 +128,7 @@ export function CanvasView() {
           <button
             type="button"
             onClick={() => {
+              noteAdd();
               if (selectedLoopId) {
                 const id = addStepInLoop(selectedLoopId, `Step ${steps.length + 1}`);
                 select(id);
@@ -121,46 +137,49 @@ export function CanvasView() {
                 select(id);
               }
             }}
-            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+            className="whitespace-nowrap px-3 py-1.5 text-sm font-medium border border-slate-400 rounded text-slate-900 hover:bg-slate-100"
           >
-            {selectedLoopId ? "+ Add step in loop" : "+ Add step"}
+            {selectedLoopId ? ko.editor.addHttpStepInLoop : ko.editor.addHttpStep}
           </button>
           <button
             type="button"
             onClick={() => {
+              noteAdd();
               const id = addLoopStep(`Loop ${steps.length + 1}`);
               select(id);
             }}
-            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded text-slate-500 hover:bg-slate-100"
           >
-            + Add loop
+            {ko.editor.addLoop}
           </button>
           <button
             type="button"
             onClick={() => {
+              noteAdd();
               const id = addIfStep(`If ${steps.length + 1}`);
               select(id);
             }}
-            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded text-slate-500 hover:bg-slate-100"
           >
-            + Add if
+            {ko.editor.addIf}
           </button>
           <button
             type="button"
             onClick={() => {
+              noteAdd();
               const id = addParallelStep(`Parallel ${steps.length + 1}`);
               select(id);
             }}
-            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+            className="whitespace-nowrap px-3 py-1.5 text-sm border border-slate-300 rounded text-slate-500 hover:bg-slate-100"
           >
-            + Add parallel
+            {ko.editor.addParallel}
           </button>
         </div>
+        <p className="mt-1 text-xs text-slate-400">{ko.editor.containerCaption}</p>
         {steps.length === 0 && (
-          <p className="mt-2 text-xs text-slate-400">
-            Canvas is empty. Add a step, loop, if, or parallel to begin.
-          </p>
+          <p className="mt-2 text-xs text-slate-500">{ko.editor.canvasEmpty}</p>
         )}
+        {panelHint && <p className="mt-2 text-xs text-slate-500">{ko.editor.panelHint}</p>}
       </div>
     </div>
   );
