@@ -174,6 +174,12 @@
 - **verdict 행의 baseline-상대 polarity**: spec §4.3는 candidate-FAIL&base-PASS→bad를 정의하나 v1은 PASS/FAIL 텍스트(녹/적)만 렌더 — polarity 색은 미구현.
 - **비교 export Δ 셀 조건부 서식**(XLSX 색): 현재 Δ%는 숫자만.
 
+### B8. 스텝 템플릿 (2026-06-12, ADR-0036) 연기 항목
+- **별도 관리 페이지 `/templates`**: v1은 삽입 모달 내 최소 관리(삭제)만. 팀 라이브러리가 커지면 EnvironmentsPage 미러(목록/이름변경/내용 미리보기/삭제)로 확장 — 사용자 결정(1안 진행, 불편 시 2안).
+- **변수 파라미터화**: 삽입 시 `{{var}}`/`${ENV}` placeholder 치환 다이얼로그. v1은 as-is 복사(검증 배너·치트시트가 후속 안내).
+- **컨테이너 내부 삽입**(loop/if/parallel 안으로) · **내장 스텝 템플릿** · **버전/히스토리** · **import/export** · **검색/태그**.
+- **참조 기반 시나리오 조합**: 이 슬라이스로 대체된 원 아이디어 — 필요해지면 별도 spec(참조 추종·변수/쿠키 핸드오프·run 시점 합성).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
 
