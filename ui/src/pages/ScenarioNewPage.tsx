@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
+import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
-import { TestRunSection } from "../components/scenario/TestRunSection";
+import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
@@ -20,6 +21,7 @@ export function ScenarioNewPage() {
   const [seedYaml, setSeedYaml] = useState<string | null>(null);
   const [yamlText, setYamlText] = useState("");
   const [originalYaml, setOriginalYaml] = useState("");
+  const testRunRef = useRef<TestRunHandle>(null);
 
   const handleEditorChange = useCallback((next: string) => {
     setYamlText(next);
@@ -81,7 +83,11 @@ export function ScenarioNewPage() {
       <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: ko.pages.newScenario }]} />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => testRunRef.current?.runNow()}>
+            {ko.editor.testRunNow}
+          </Button>
+          <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
             onClick={() =>
               mutation.mutate(yamlText, {
@@ -102,7 +108,7 @@ export function ScenarioNewPage() {
 
       <EditorShell initialYaml={seedYaml} onChange={handleEditorChange} />
 
-      <TestRunSection yamlText={yamlText} />
+      <TestRunSection ref={testRunRef} yamlText={yamlText} />
     </div>
   );
 }

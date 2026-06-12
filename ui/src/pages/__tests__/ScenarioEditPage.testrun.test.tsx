@@ -88,6 +88,26 @@ describe("ScenarioEditPage test-run", () => {
     await screen.findByRole("region", { name: /Test run result/ });
   });
 
+  it("헤더 '미리 1회 실행' 버튼이 현재 버퍼로 test-run을 발사한다 (U4)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: /Save/ });
+
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunNow }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+    });
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
+    )!;
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.scenario_yaml).toContain("name: demo");
+  });
+
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {
     renderPage();
     await screen.findByRole("button", { name: /Save/ });

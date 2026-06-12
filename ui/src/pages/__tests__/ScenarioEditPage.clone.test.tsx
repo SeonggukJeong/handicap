@@ -20,7 +20,14 @@ vi.mock("../../components/scenario/EditorShell", () => ({
     </div>
   ),
 }));
-vi.mock("../../components/scenario/TestRunSection", () => ({ TestRunSection: () => null }));
+vi.mock("../../components/scenario/TestRunSection", async () => {
+  const { forwardRef } = await import("react");
+  return {
+    TestRunSection: forwardRef(function TestRunSection() {
+      return null;
+    }),
+  };
+});
 
 const fetchMock = vi.fn();
 beforeEach(() => {

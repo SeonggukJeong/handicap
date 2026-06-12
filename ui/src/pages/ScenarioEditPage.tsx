@@ -4,8 +4,9 @@ import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
+import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
-import { TestRunSection } from "../components/scenario/TestRunSection";
+import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
 
 type CloneDialog = null | { stage: "confirm" } | { stage: "save-failed"; message: string };
@@ -22,6 +23,7 @@ export function ScenarioEditPage() {
   const [originalYaml, setOriginalYaml] = useState<string>("");
   const [cloneDialog, setCloneDialog] = useState<CloneDialog>(null);
   const baselineSeededRef = useRef(false);
+  const testRunRef = useRef<TestRunHandle>(null);
 
   useEffect(() => {
     if (data) {
@@ -88,7 +90,11 @@ export function ScenarioEditPage() {
             v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => testRunRef.current?.runNow()}>
+            {ko.editor.testRunNow}
+          </Button>
+          <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
             onClick={() =>
               loadedVersion !== null &&
@@ -129,7 +135,7 @@ export function ScenarioEditPage() {
 
       <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
 
-      <TestRunSection yamlText={yamlText} />
+      <TestRunSection ref={testRunRef} yamlText={yamlText} />
 
       <Modal
         open={cloneDialog?.stage === "confirm"}

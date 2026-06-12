@@ -98,6 +98,30 @@ describe("ScenarioNewPage test-run", () => {
     expect(within(header).getByRole("heading", { name: "새 시나리오" })).toBeInTheDocument();
   });
 
+  it("헤더 '미리 1회 실행' 버튼이 현재 초안 버퍼로 test-run을 발사한다 (U4)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // U3: 갤러리 단계를 지나야 에디터가 mount된다 — 빈 시나리오 선택
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: ko.editor.testRunNow }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+    });
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
+    )!;
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.scenario_yaml).toContain("Untitled"); // 미저장 초안 버퍼 그대로
+  });
+
   it("Cancel returns to the list without nagging on an untouched draft", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
