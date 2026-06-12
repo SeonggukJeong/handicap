@@ -98,11 +98,6 @@ describe("ScenarioEditPage dirty-flag baseline seeding", () => {
     handleEditorChange("steps:\n  - name: home\n  - name: extra\n");
     expect(dirty()).toBe(false); // re-seeded → still not dirty
   });
-
-  it.todo("ScenarioNewPage renders EditorShell instead of textarea");
-  it.todo("ScenarioNewPage Create button calls mutation with yamlText from EditorShell");
-  it.todo("ScenarioEditPage renders EditorShell initialized with scenario yaml");
-  it.todo("ScenarioEditPage Save button calls update mutation with {yaml, version}");
 });
 
 // ---------------------------------------------------------------------------
