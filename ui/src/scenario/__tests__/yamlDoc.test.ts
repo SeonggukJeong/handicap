@@ -153,6 +153,19 @@ describe("applyEdit — setStepField", () => {
       max_ms: 500,
     });
   });
+
+  it("is a silent no-op when the stepId is not in the tree (stale stepId)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    const before = serializeDoc(out.doc);
+    applyEdit(out.doc, {
+      type: "setStepField",
+      stepId: "01HX0000000000000000000999", // 트리에 없는 ULID
+      path: ["request", "method"],
+      value: "DELETE",
+    });
+    expect(serializeDoc(out.doc)).toBe(before); // doc 직렬화 불변
+  });
 });
 
 describe("applyEdit — addStep and removeStep", () => {
