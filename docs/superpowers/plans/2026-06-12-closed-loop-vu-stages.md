@@ -345,13 +345,15 @@ async fn vu_curve_abort_cancels_run() {
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
+    // 가파른 ramp(1s에 2 VU) + 긴 hold: cancel 시점(1.5s)에 active VU가 실재하는
+    // 상태의 abort를 검증 (500ms-cancel이면 desired=0이라 spawn 전 abort만 커버).
     let h = tokio::spawn(run_scenario_vu_curve(
         scenario(&format!("{}/", server.uri())),
-        curve_plan(vec![stage(2, 10)], RampDown::Graceful),
+        curve_plan(vec![stage(2, 1), stage(2, 10)], RampDown::Graceful),
         tx,
         cancel,
     ));
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
     c2.cancel();
     drain(&mut rx).await;
     let res = h.await.unwrap();
@@ -677,6 +679,12 @@ async fn run_vu_curve(
             if act.is_cancelled() {
                 break; // retire (or run-abort — re-checked at the park head)
             }
+            // Graceful gate at the loop head too: if desired dropped DURING the
+            // think-time sleep, park before running another iteration (spec §2 —
+            // "sleep을 마저 잔 뒤 park, 그동안 요청은 안 나간다").
+            if *desired.borrow() <= index {
+                break;
+            }
             // Per-iteration flow vars: lockstep with run_vu.
             let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
             if let Some(ds) = &dataset {
@@ -805,7 +813,7 @@ fn run_duration_uses_vu_stage_sum() {
             pb::Stage { target: 5, duration_seconds: 3 },
             pb::Stage { target: 1, duration_seconds: 4 },
         ],
-        ..base_profile() // 기존 테스트의 base 헬퍼를 미러 — 없으면 전 필드 명시
+        ..Default::default() // 워커 테스트 컨벤션 (main.rs:507-530 미러 — base 헬퍼 없음)
     };
     assert_eq!(run_duration_secs(&p), 7);
     assert!(proto_is_vu_curve(&p));
@@ -893,17 +901,35 @@ RunPlan 빌드(`main.rs:188` 부근) — predicate 캡처에 `let is_vu_curve = 
 
 `api/runs.rs`의 기존 `is_open_loop_predicate` 테스트(:1050 부근) 옆에 RED 테스트:
 
+기존 base 헬퍼는 `valid_profile()`이 **아니라** `ol_profile()`(:943, `target_rps: Some(100)`·`max_in_flight: Some(16)`·`duration_seconds: 10`) — curve 테스트는 단순 이름 치환으로 안 되고 **open-loop 필드를 명시적으로 무효화**해야 한다. 이 mod tests에 curve base 헬퍼를 추가:
+
 ```rust
+    /// curve 검증용 base: ol_profile()에서 open-loop/closed-fixed 필드를 무효화.
+    fn curve_profile(stages: Vec<handicap_engine::Stage>) -> Profile {
+        Profile {
+            vus: 0,
+            duration_seconds: 0,
+            ramp_up_seconds: 0,
+            target_rps: None,
+            max_in_flight: None,
+            vu_stages: Some(stages),
+            ..ol_profile()
+        }
+    }
+
     #[test]
     fn is_vu_curve_predicate() {
-        let mut p = valid_profile(); // 그 mod tests의 기존 base 헬퍼 사용 (이름이 다르면 기존 테스트와 동일하게)
-        assert!(!p.is_vu_curve());
-        p.vu_stages = Some(vec![]); // Some(vec![]) ≡ absent (S-D 미러)
-        assert!(!p.is_vu_curve());
-        p.vu_stages = Some(vec![handicap_engine::Stage { target: 5, duration_seconds: 10 }]);
+        let mut p = curve_profile(vec![handicap_engine::Stage {
+            target: 5,
+            duration_seconds: 10,
+        }]);
         assert!(p.is_vu_curve());
         assert!(!p.is_open_loop()); // vu_stages는 is_open_loop에 영향 없음
         assert_eq!(p.vu_curve_max(), 5);
+        p.vu_stages = Some(vec![]); // Some(vec![]) ≡ absent (S-D 미러)
+        assert!(!p.is_vu_curve());
+        p.vu_stages = None;
+        assert!(!p.is_vu_curve());
     }
 ```
 
@@ -948,7 +974,7 @@ cargo build --workspace --tests 2>&1 | grep "missing field" # 사이트 열거
 
 - [ ] **Step 2: 검증 테스트 RED (①–⑨ + 유효 통과)**
 
-같은 mod tests에 — 기존 open-loop 검증 테스트(:954–1013 부근)의 state/profile 헬퍼 컨벤션을 그대로 미러. 케이스(각각 `validate_run_config` 호출, 메시지 부분 문자열 단언):
+같은 mod tests에 — 기존 open-loop 검증 테스트(:954–1013 부근)의 state 헬퍼 컨벤션을 그대로 미러하되, profile은 위 `curve_profile()`에서 출발해 각 케이스의 필드만 덮어쓴다(⑨만 `ol_profile()` 베이스가 아니라 **closed 고정 유효 profile + ramp_down만 Some** — vu_stages 없는 상태). 케이스(각각 `validate_run_config` 호출, 메시지 부분 문자열 단언):
 
 | 케이스 | profile 설정 | 기대 |
 |---|---|---|
@@ -1137,7 +1163,7 @@ dispatch proto 매핑(:313 리터럴의 Task 3 placeholder 교체):
 ```ts
 it("closed+curve: vu_stages·think_time 존재, vus===0, duration===0, ramp_up===0, target_rps/max_in_flight/stages 부재", () => {
   const p = buildLoadProfile({
-    ...base, // 그 파일의 기존 base state 헬퍼 사용
+    ...base(), // 주의: base는 함수다 (`function base(): LoadModelState`) — ...base 아님
     loadModel: "closed",
     rateMode: "curve",
     stages: [{ target: "50", duration_seconds: "60" }],
@@ -1158,7 +1184,7 @@ it("closed+curve: vu_stages·think_time 존재, vus===0, duration===0, ramp_up==
 
 it("closed+curve: rampDown=immediate일 때만 ramp_down emit", () => {
   const p = buildLoadProfile({
-    ...base,
+    ...base(),
     loadModel: "closed",
     rateMode: "curve",
     stages: [{ target: "50", duration_seconds: "60" }],
@@ -1169,7 +1195,7 @@ it("closed+curve: rampDown=immediate일 때만 ramp_down emit", () => {
 
 it("closed+curve에서도 stagesInvalid가 작동 (curve 공통 일반화)", () => {
   const e = loadModelErrors({
-    ...base,
+    ...base(),
     loadModel: "closed",
     rateMode: "curve",
     stages: [{ target: "0", duration_seconds: "30" }],
@@ -1220,7 +1246,7 @@ it("vu_stages 합산 (closed-loop 곡선 run)", () => {
 ```
 
 `loadModel.ts`:
-- `LoadModelState`에 `rampDown: "graceful" | "immediate";` 추가.
+- `LoadModelState`에 `rampDown: "graceful" | "immediate";` 추가. **게이트 브레이크 주의(리뷰 C-1)**: 필수 필드라 `RunDialog.tsx:280-292`·`ScheduleForm.tsx:181-193`의 `loadState` 리터럴이 즉시 TS2741로 깨진다 — **이 task에서 두 부모 리터럴에 `rampDown: "graceful",` placeholder 한 줄을 같이 추가**(graceful은 emit 0 + closed+curve가 아직 도달 불가라 payload byte-identical; 실제 state 배선은 Task 8). `loadModel.test.ts`의 `base()` **함수** 반환값에도 `rampDown: "graceful"` 추가.
 - `LoadProfileFields`의 `Partial<Pick<...>>`에 `"vu_stages" | "ramp_down"` 추가.
 - `buildLoadProfile` 최상단에 closed+curve arm:
 
@@ -1333,9 +1359,11 @@ export function profileDurationSeconds(
 
 `ko.test.ts`의 기존 패턴(키 존재/함수형 카탈로그 검증)에 신규 키 추가.
 
-- [ ] **Step 2: LoadModelFields RTL 테스트 RED**
+- [ ] **Step 2: LoadModelFields RTL 테스트 RED + 모순 기존 테스트 갱신 (리뷰 I-2)**
 
-기존 `LoadModelFields.test.tsx`에 추가 (기존 렌더 헬퍼 미러 — props에 `rampDown`/`setRampDown` 추가 필요):
+**새 동작과 모순되는 기존 테스트 2건을 먼저 처리**: `LoadModelFields.test.tsx:47` "closed일 때 곡선 라디오는 disabled (곧 지원)"는 **삭제**(아래 신규 활성화 테스트가 대체), `:56` "closed 라디오 선택 시 setLoadModel('closed') + setRateMode('fixed')"는 **반전**(setRateMode 미호출 단언 — 아래 신규 테스트와 중복이면 삭제).
+
+기존 `LoadModelFields.test.tsx`에 추가. 렌더 헬퍼는 그 파일의 **`setup(overrides)`** 컨벤션(반환된 props mock으로 단언 — 아래 코드의 bare `renderFields`/`setRateMode`는 그 형태로 치환). props에 `rampDown`/`setRampDown` 추가 필요:
 
 ```tsx
 it("closed에서 곡선 라디오가 활성화돼 선택 가능 (곧 지원 제거)", async () => {
@@ -1462,7 +1490,9 @@ it("vu_stages 든 run 프리필이 closed+curve로 역도출되고 stage 행·ra
 });
 ```
 
-ScheduleForm: 같은 형태로 init 역도출 1건. ReportHeadline: `vu_stages` 있는 profile fixture → `단계별 VU 곡선으로` 문구 포함 + `동시 사용자 0명` 미포함.
+ScheduleForm: 같은 형태로 init 역도출 + **stage 행·rampDown 시드 단언**("vu_stages [{target:7,…}] 든 init → stage target 입력값 '7' + 즉시 줄이기 checked"). ReportHeadline: `vu_stages` 있는 profile fixture → `단계별 VU 곡선으로` 문구 포함 + `동시 사용자 0명` 미포함.
+
+**모순 기존 테스트 갱신 (리뷰 I-2)**: `RunDialog.test.tsx:1050` "closed 모드에서 곡선 라디오는 disabled" **삭제/반전**, `:1055` "open→곡선→closed 전환 시 rateMode가 fixed로 리셋된다" **반전**(이제 closed+curve가 유효 — 전환해도 curve 유지 단언).
 
 (구체 쿼리는 각 파일의 기존 테스트 컨벤션을 따른다 — RunDialog는 `getByRole("radio", {name: "곡선"})`, stage 입력은 `getByLabelText("stage target 0")`.)
 
@@ -1525,7 +1555,7 @@ ScheduleForm: 같은 형태로 init 역도출 1건. ReportHeadline: `vu_stages` 
         : vus >= 1 && ...기존 closed+fixed...
 ```
 
-- [ ] **Step 3: ScheduleForm 배선** — init을 `deriveLoadMode(init ?? {})` 형태로 교체(ScheduleForm의 init은 profile 평탄 — 필드명 동일), `rampDown` state + LoadModelFields props + `buildLoadProfile`용 loadState에 `rampDown` 추가, `canSubmit`(:201–215)의 closed 분기에 curve 케이스(RunDialog 미러, think 입력 없음 — `!loadErrs.stagesInvalid && ...`).
+- [ ] **Step 3: ScheduleForm 배선** — init을 `deriveLoadMode(init ?? {})` 형태로 교체(ScheduleForm의 init은 profile 평탄 — 필드명 동일), **`stages` state 시딩도 RunDialog 미러로 `(init?.vu_stages?.length ? init.vu_stages : init?.stages)?.map(...)` 교체**(리뷰 I-3 — 안 하면 vu_stages 스케줄 편집 시 곡선이 기본 행 `[{100,30}]`으로 조용히 대체돼 저장 시 증발), `rampDown` state(`init?.ramp_down ?? "graceful"` 시드) + LoadModelFields props + loadState의 Task 6 placeholder(`"graceful"`)를 실제 state로 교체, `canSubmit`(:201–215)의 closed 분기에 curve 케이스(RunDialog 미러, think 입력 없음 — `!loadErrs.stagesInvalid && ...`).
 
 - [ ] **Step 4: ReportHeadline** — `isVuCurve = (profile.vu_stages?.length ?? 0) > 0` 추가, 분기:
 
@@ -1582,6 +1612,7 @@ git commit -m "feat(ui): closed+curve 활성화 — VU 곡선 에디터/ramp_dow
 
 ## Self-review 기록
 
-- **Spec coverage**: §2(ramp_down 노브 — T1/T2/T4/T7), §3.1 와이어(T1/T3/T4/T6), §3.2 ①–⑨(T4), §3.3 4사이트(T4), §4 엔진(T2), §5 proto/워커/리터럴 churn(T3/T4), §6.1–6.4 UI/초보자 카피(T6/T7/T8), §7 테스트(T2/T4/T5/T6/T7/T8), §8 라이브(T10), §9·§10 문서(T9). 갭 없음. ReportHeadline `headlineClosedCurve`는 spec §6.4 "신규 문구 ko.ts" 범위로 plan에서 구체화(스펙 미열거 표면 — plan 추가分).
+- **Spec coverage**: §2(ramp_down 노브 — T1/T2/T4/T7), §3.1 와이어(T1/T3/T4/T6), §3.2 ①–⑨(T4), §3.3 4사이트(T4), §4 엔진(T2), §5 proto/워커/리터럴 churn(T3/T4), §6.1–6.4 UI/초보자 카피(T6/T7/T8), §7 테스트(T2/T4/T5/T6/T7/T8), §8 라이브(T10), §9·§10 문서(T9). ReportHeadline `headlineClosedCurve`는 spec §6.4 "신규 문구 ko.ts" 범위로 plan에서 구체화(스펙 미열거 표면 — plan 추가分).
+- **의도된 편차 (spec §6.4 막힘 사유)**: curve 모드 Run 버튼 비활성 사유는 기존 인라인 `stagesInvalid` alert 문구(`LoadModelFields.tsx:377-381` — "각 단계는 목표 0–1,000,000 · 지속 ≥1초…", RPS/VU 중립 표현)가 closed+curve에서도 그대로 렌더돼 충족된다. 신규 한국어 문구 추가·카탈로그 소급 이전은 하지 않음(소급 추출 비목표 컨벤션) — spec의 예시 문구("모든 단계의 목표 VU와…")는 미채택.
 - **Type consistency**: `RampDown`(engine) ↔ store `Option<handicap_engine::RampDown>` ↔ proto `bool ramp_down_immediate` ↔ Zod `z.enum(["graceful","immediate"]).optional()` ↔ `LoadModelState.rampDown` 일관. `vu_curve_max()` u32 ↔ slot_count u64 캐스트 명시.
 - **Placeholder scan**: 검증 테스트 표(T4 Step 2)·RTL 케이스 일부(T8 Step 1)는 기존 파일의 헬퍼 컨벤션에 의존해 의도적으로 "기존 미러" 지시 + 단언 목록으로 명세 — verdict-badge 교훈(plan이 헬퍼 시그니처를 지어내면 implementer가 정정하게 됨)에 따른 선택.
