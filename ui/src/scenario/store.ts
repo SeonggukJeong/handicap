@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 import { Document } from "yaml";
-import { type Extract, type Scenario, type Condition, findStepById, isParallelStep } from "./model";
+import {
+  type Extract,
+  type Scenario,
+  type Condition,
+  findStepById,
+  isParallelStep,
+  topAncestorIndex,
+} from "./model";
 import { newStepId } from "./ulid";
 import { applyEdit, parseScenarioDoc, serializeDoc, type Edit, type BranchSel } from "./yamlDoc";
 
@@ -54,6 +61,10 @@ export interface ScenarioEditorState {
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
   setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
   setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
+
+  /** 준비된(재발급 완료) 템플릿 fragment를 선택 스텝의 최상위 조상 뒤(없으면 끝)에
+   *  삽입. add* 계열처럼 첫 삽입 스텝 id를 반환 — 호출부가 select(id)로 자동 선택. */
+  insertTemplateSteps(prepared: { preparedYaml: string; firstId: string }): string;
 
   // UI state
   select(id: string | null): void;
@@ -222,6 +233,15 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   setStepExtract(stepId, extract) {
     dispatch(set, get, { type: "setStepExtract", stepId, extract });
   },
+  insertTemplateSteps(prepared) {
+    const afterTopIndex = topAncestorIndex(get().model?.steps ?? [], get().selectedStepId);
+    dispatch(set, get, {
+      type: "insertSteps",
+      afterTopIndex,
+      stepsYaml: prepared.preparedYaml,
+    });
+    return prepared.firstId;
+  },
 
   select(id) {
     set({ selectedStepId: id });
@@ -320,6 +340,7 @@ const actions = (() => {
     setStepField: s.setStepField,
     setStepAssert: s.setStepAssert,
     setStepExtract: s.setStepExtract,
+    insertTemplateSteps: s.insertTemplateSteps,
     select: s.select,
     setActiveTab: s.setActiveTab,
     setPendingYamlText: s.setPendingYamlText,

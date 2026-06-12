@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   extractStepsYaml,
   parseScenarioDoc,
@@ -12,6 +12,10 @@ import { topAncestorIndex } from "../model";
 // 26자 유효 ULID 생성기 (결정론): "01HX" + 0×19 + 3자리
 let n = 0;
 const genId = () => `01HX0000000000000000000${String(100 + n++)}`;
+
+beforeEach(() => {
+  n = 0;
+});
 
 // ⚠ 주석 위치 주의(reviewer 실증, yaml 2.9): 시퀀스 *선두* 주석은 items[0]이 아니라
 // seq.commentBefore에 붙어 노드 이동을 따라오지 않는다 — 주석-보존 단언은 item *사이*
@@ -177,7 +181,6 @@ describe("extractStepsYaml", () => {
 
 describe("reissueStepIdsInFragment", () => {
   it("중첩 4타입 전부 재발급·유일 + headers의 id 키 비오염 + 주석 보존", () => {
-    n = 0;
     const doc = parseDocument(NESTED_FRAGMENT);
     const firstId = reissueStepIdsInFragment(doc, genId);
     const out = String(doc);
@@ -197,7 +200,6 @@ describe("reissueStepIdsInFragment", () => {
 
 describe("prepareTemplateInsertion", () => {
   it("야생 비-ULID id 템플릿이 재발급 경유로 게이트를 통과한다 (재발급-후-검증 순서)", () => {
-    n = 0;
     const wild = `- id: login-1
   name: Login
   type: http
@@ -239,6 +241,63 @@ describe("prepareTemplateInsertion", () => {
   });
 });
 
+// if/parallel 내부 스텝을 포함하는 시나리오 (유효 ULID만 사용)
+const NESTED_SCENARIO = `version: 1
+name: nested
+steps:
+  - id: 01HX0000000000000000000010
+    name: Http
+    type: http
+    request:
+      method: GET
+      url: /x
+  - id: 01HX0000000000000000000011
+    name: Parallel
+    type: parallel
+    branches:
+      - name: b1
+        steps:
+          - id: 01HX0000000000000000000012
+            name: pb
+            type: http
+            request:
+              method: GET
+              url: /p
+  - id: 01HX0000000000000000000013
+    name: If
+    type: if
+    cond:
+      left: "{{a}}"
+      op: eq
+      right: "1"
+    then:
+      - id: 01HX0000000000000000000014
+        name: t1
+        type: http
+        request:
+          method: GET
+          url: /t
+    elif:
+      - cond:
+          left: "{{a}}"
+          op: eq
+          right: "2"
+        then:
+          - id: 01HX0000000000000000000015
+            name: e1
+            type: http
+            request:
+              method: GET
+              url: /e
+    else:
+      - id: 01HX0000000000000000000016
+        name: el
+        type: http
+        request:
+          method: GET
+          url: /el
+`;
+
 describe("topAncestorIndex", () => {
   it("중첩 스텝이면 최상위 조상 인덱스, 최상위면 자기 인덱스, 미발견/null이면 null", () => {
     const parsed = parseScenarioDoc(SCENARIO);
@@ -248,5 +307,19 @@ describe("topAncestorIndex", () => {
     expect(topAncestorIndex(steps, "01HX0000000000000000000004")).toBe(2); // loop 내부 → loop 인덱스
     expect(topAncestorIndex(steps, "01HX0000000000000000000999")).toBe(null);
     expect(topAncestorIndex(steps, null)).toBe(null);
+  });
+
+  it("if 내부 스텝 → if 컨테이너 인덱스, parallel 내부 스텝 → parallel 컨테이너 인덱스", () => {
+    const parsed = parseScenarioDoc(NESTED_SCENARIO);
+    if (!("model" in parsed)) throw new Error("scenario must parse");
+    const steps = parsed.model.steps;
+    // parallel 컨테이너는 인덱스 1, 내부 스텝 DDD → 1
+    expect(topAncestorIndex(steps, "01HX0000000000000000000012")).toBe(1);
+    // if 컨테이너는 인덱스 2, then 내부 스텝 FFF → 2
+    expect(topAncestorIndex(steps, "01HX0000000000000000000014")).toBe(2);
+    // elif then 내부 스텝 GGG → if 컨테이너 인덱스 2
+    expect(topAncestorIndex(steps, "01HX0000000000000000000015")).toBe(2);
+    // else 내부 스텝 HHH → if 컨테이너 인덱스 2
+    expect(topAncestorIndex(steps, "01HX0000000000000000000016")).toBe(2);
   });
 });

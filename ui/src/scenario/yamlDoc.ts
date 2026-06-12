@@ -65,7 +65,8 @@ export type Edit =
         | { var: string; from: "cookie"; name: string }
         | { var: string; from: "status" }
       >;
-    };
+    }
+  | { type: "insertSteps"; afterTopIndex: number | null; stepsYaml: string };
 
 export function parseScenarioDoc(yamlText: string): ParseResult {
   let doc: Document.Parsed;
@@ -419,6 +420,18 @@ export function applyEdit(doc: Document, edit: Edit): void {
       doc.setIn([...path, "extract"], doc.createNode(edit.extract));
       return;
     }
+    case "insertSteps": {
+      ensureSeq(doc, ["steps"]);
+      const steps = doc.getIn(["steps"]) as YAMLSeq;
+      const frag = parseDocument(edit.stepsYaml);
+      if (!isSeq(frag.contents)) return;
+      // 빈 시나리오의 `steps: []`는 flow seq — 그대로 splice하면 전체가 한 줄
+      // flow 스타일(`steps: [{...}]`)로 직렬화돼 YAML 탭이 흉해진다. block으로 전환.
+      if (steps.items.length === 0) steps.flow = false;
+      const at = edit.afterTopIndex === null ? steps.items.length : edit.afterTopIndex + 1;
+      steps.items.splice(at, 0, ...frag.contents.items);
+      return;
+    }
   }
 }
 
@@ -659,7 +672,7 @@ export function extractStepsYaml(doc: Document, indices: ReadonlyArray<number>):
     }
   }
   const frag = new Document();
-  frag.contents = seq as Document["contents"];
+  frag.contents = seq;
   return String(frag);
 }
 
