@@ -1,0 +1,176 @@
+/**
+ * SaveTemplateDialog — "템플릿으로 저장" 다이얼로그.
+ * 부모가 `{open && <SaveTemplateDialog onClose={...} />}` 로 조건부 마운트
+ * (열 때마다 fresh state — open prop 없음).
+ */
+import { useState } from "react";
+import { useCreateStepTemplate, useUpdateStepTemplate } from "../../api/hooks";
+import { StepTemplateConflictError } from "../../api/stepTemplates";
+import { Button } from "../Button";
+import { Modal } from "../Modal";
+import { ko } from "../../i18n/ko";
+import { useScenarioEditor } from "../../scenario/store";
+import { topAncestorIndex } from "../../scenario/model";
+import { extractStepsYaml } from "../../scenario/yamlDoc";
+
+interface Props {
+  onClose: () => void;
+}
+
+export function SaveTemplateDialog({ onClose }: Props) {
+  const doc = useScenarioEditor((s) => s.doc);
+  const model = useScenarioEditor((s) => s.model);
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
+
+  const steps = model?.steps ?? [];
+
+  // 기본 체크: 선택 스텝의 최상위 조상만, 없으면 전체
+  const defaultCheckedIndex = topAncestorIndex(steps, selectedStepId);
+  const initialChecked = steps.map((_, i) =>
+    defaultCheckedIndex === null ? true : i === defaultCheckedIndex,
+  );
+
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [checked, setChecked] = useState<boolean[]>(initialChecked);
+
+  // 409 conflict 상태: null = 없음, string = conflictId (덮어쓰기 가능)
+  const [conflictId, setConflictId] = useState<string | null>(null);
+  // conflict 감지 당시의 이름 — 이름이 바뀌면 conflict 무효화
+  const [conflictName, setConflictName] = useState<string | null>(null);
+
+  const createMutation = useCreateStepTemplate();
+  const updateMutation = useUpdateStepTemplate();
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  const checkedCount = checked.filter(Boolean).length;
+  const canSave = name.trim().length > 0 && checkedCount > 0;
+
+  // 이름 변경 시 conflict 무효화
+  const handleNameChange = (next: string) => {
+    setName(next);
+    if (conflictId !== null && next !== conflictName) {
+      setConflictId(null);
+      setConflictName(null);
+    }
+  };
+
+  const buildStepsYaml = (): string => {
+    if (!doc) return "";
+    const indices: number[] = [];
+    checked.forEach((c, i) => {
+      if (c) indices.push(i);
+    });
+    return extractStepsYaml(doc, indices);
+  };
+
+  const handleSave = async () => {
+    const trimmedName = name.trim();
+    const stepsYaml = buildStepsYaml();
+    const input = { name: trimmedName, description: description.trim(), steps_yaml: stepsYaml };
+
+    try {
+      if (conflictId !== null) {
+        // 덮어쓰기 경로
+        await updateMutation.mutateAsync({ id: conflictId, input });
+      } else {
+        await createMutation.mutateAsync(input);
+      }
+      onClose();
+    } catch (err) {
+      if (err instanceof StepTemplateConflictError && err.conflictId !== null) {
+        setConflictId(err.conflictId);
+        setConflictName(trimmedName);
+      }
+      // conflictId가 null인 plain 409나 기타 에러는 현재 무시
+      // (overwrite confirm은 conflictId 있을 때만 가능)
+    }
+  };
+
+  const showOverwriteConfirm = conflictId !== null && name.trim() === conflictName;
+
+  const stepLabel = (i: number): string => {
+    const s = steps[i];
+    if (!s) return `스텝 ${i + 1}`;
+    return `${s.name} (${s.type})`;
+  };
+
+  return (
+    <Modal open title={ko.stepTemplates.saveTitle} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {/* 이름 */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="tpl-name" className="text-sm font-medium">
+            {ko.stepTemplates.nameLabel}
+          </label>
+          <input
+            id="tpl-name"
+            type="text"
+            value={name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            placeholder="템플릿 이름"
+          />
+        </div>
+
+        {/* 설명 */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="tpl-desc" className="text-sm font-medium">
+            {ko.stepTemplates.descriptionLabel}
+          </label>
+          <input
+            id="tpl-desc"
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          />
+        </div>
+
+        {/* 스텝 체크박스 목록 */}
+        <fieldset className="min-w-0">
+          <legend className="mb-2 text-sm font-medium">{ko.stepTemplates.stepsLegend}</legend>
+          <div className="flex flex-col gap-1">
+            {steps.map((_, i) => (
+              <label key={i} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={checked[i] ?? false}
+                  onChange={(e) => {
+                    const next = [...checked];
+                    next[i] = e.target.checked;
+                    setChecked(next);
+                  }}
+                />
+                {stepLabel(i)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        {/* 409 덮어쓰기 확인 */}
+        {showOverwriteConfirm && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {ko.stepTemplates.overwriteConfirm(conflictName ?? name.trim())}
+          </p>
+        )}
+
+        {/* 액션 버튼 */}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={isPending}>
+            {ko.stepTemplates.cancel}
+          </Button>
+          {showOverwriteConfirm ? (
+            <Button onClick={() => void handleSave()} disabled={!canSave || isPending}>
+              {isPending ? ko.stepTemplates.saving : ko.stepTemplates.overwriteAction}
+            </Button>
+          ) : (
+            <Button onClick={() => void handleSave()} disabled={!canSave || isPending}>
+              {isPending ? ko.stepTemplates.saving : ko.stepTemplates.saveAction}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}

@@ -5,6 +5,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
+import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
@@ -21,7 +22,13 @@ export function ScenarioNewPage() {
   const [seedYaml, setSeedYaml] = useState<string | null>(null);
   const [yamlText, setYamlText] = useState("");
   const [originalYaml, setOriginalYaml] = useState("");
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
   const testRunRef = useRef<TestRunHandle>(null);
+
+  // 템플릿 진입점 게이트: store 상태로 판단
+  const editorModel = useScenarioEditor((s) => s.model);
+  const editorYamlError = useScenarioEditor((s) => s.yamlError);
+  const tplReady = editorModel !== null && editorYamlError === null;
 
   const handleEditorChange = useCallback((next: string) => {
     setYamlText(next);
@@ -89,6 +96,14 @@ export function ScenarioNewPage() {
           </Button>
           <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
+            variant="secondary"
+            onClick={() => setSaveTplOpen(true)}
+            disabled={!tplReady}
+            title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
+          >
+            {ko.stepTemplates.saveButton}
+          </Button>
+          <Button
             onClick={() =>
               mutation.mutate(yamlText, {
                 onSuccess: (created) => navigate(`/scenarios/${created.id}`),
@@ -109,6 +124,8 @@ export function ScenarioNewPage() {
       <EditorShell initialYaml={seedYaml} onChange={handleEditorChange} />
 
       <TestRunSection ref={testRunRef} yamlText={yamlText} />
+
+      {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
     </div>
   );
 }

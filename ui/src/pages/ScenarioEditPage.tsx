@@ -6,8 +6,10 @@ import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
+import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
+import { useScenarioEditor } from "../scenario/store";
 
 type CloneDialog = null | { stage: "confirm" } | { stage: "save-failed"; message: string };
 
@@ -22,8 +24,15 @@ export function ScenarioEditPage() {
   const [loadedVersion, setLoadedVersion] = useState<number | null>(null);
   const [originalYaml, setOriginalYaml] = useState<string>("");
   const [cloneDialog, setCloneDialog] = useState<CloneDialog>(null);
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
   const baselineSeededRef = useRef(false);
   const testRunRef = useRef<TestRunHandle>(null);
+
+  // 템플릿 진입점 게이트: store 상태로 판단 (parseScenarioDoc 재호출 금지 — 깨진 텍스트 중
+  // 엔 store yamlText가 마지막 정상본이라 재파싱 결과가 다를 수 있음)
+  const editorModel = useScenarioEditor((s) => s.model);
+  const editorYamlError = useScenarioEditor((s) => s.yamlError);
+  const tplReady = editorModel !== null && editorYamlError === null;
 
   useEffect(() => {
     if (data) {
@@ -96,6 +105,14 @@ export function ScenarioEditPage() {
           </Button>
           <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
+            variant="secondary"
+            onClick={() => setSaveTplOpen(true)}
+            disabled={!tplReady}
+            title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
+          >
+            {ko.stepTemplates.saveButton}
+          </Button>
+          <Button
             onClick={() =>
               loadedVersion !== null &&
               update.mutate(
@@ -136,6 +153,8 @@ export function ScenarioEditPage() {
       <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
 
       <TestRunSection ref={testRunRef} yamlText={yamlText} />
+
+      {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
 
       <Modal
         open={cloneDialog?.stage === "confirm"}
