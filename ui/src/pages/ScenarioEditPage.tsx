@@ -6,6 +6,7 @@ import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
+import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
@@ -25,6 +26,7 @@ export function ScenarioEditPage() {
   const [originalYaml, setOriginalYaml] = useState<string>("");
   const [cloneDialog, setCloneDialog] = useState<CloneDialog>(null);
   const [saveTplOpen, setSaveTplOpen] = useState(false);
+  const [insertTplOpen, setInsertTplOpen] = useState(false);
   const baselineSeededRef = useRef(false);
   const testRunRef = useRef<TestRunHandle>(null);
 
@@ -113,6 +115,14 @@ export function ScenarioEditPage() {
             {ko.stepTemplates.saveButton}
           </Button>
           <Button
+            variant="secondary"
+            onClick={() => setInsertTplOpen(true)}
+            disabled={!tplReady}
+            title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
+          >
+            {ko.stepTemplates.insertButton}
+          </Button>
+          <Button
             onClick={() =>
               loadedVersion !== null &&
               update.mutate(
@@ -155,6 +165,7 @@ export function ScenarioEditPage() {
       <TestRunSection ref={testRunRef} yamlText={yamlText} />
 
       {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
+      {insertTplOpen && <InsertTemplateModal onClose={() => setInsertTplOpen(false)} />}
 
       <Modal
         open={cloneDialog?.stage === "confirm"}

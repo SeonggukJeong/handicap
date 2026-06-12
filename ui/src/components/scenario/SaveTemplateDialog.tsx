@@ -32,7 +32,7 @@ export function SaveTemplateDialog({ onClose }: Props) {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [checked, setChecked] = useState<boolean[]>(initialChecked);
+  const [checked, setChecked] = useState<boolean[]>(() => initialChecked);
 
   // 409 conflict 상태: null = 없음, string = conflictId (덮어쓰기 가능)
   const [conflictId, setConflictId] = useState<string | null>(null);
@@ -48,9 +48,10 @@ export function SaveTemplateDialog({ onClose }: Props) {
   const checkedCount = checked.filter(Boolean).length;
   const canSave = name.trim().length > 0 && checkedCount > 0;
 
-  // 이름 변경 시 conflict 무효화
+  // 이름 변경 시 conflict 무효화 + 비-conflict 에러 클리어
   const handleNameChange = (next: string) => {
     setName(next);
+    setError(null);
     if (conflictId !== null && next !== conflictName) {
       setConflictId(null);
       setConflictName(null);
@@ -93,10 +94,17 @@ export function SaveTemplateDialog({ onClose }: Props) {
 
   const showOverwriteConfirm = conflictId !== null && name.trim() === conflictName;
 
+  const TYPE_LABEL: Record<string, string> = {
+    http: "HTTP",
+    loop: "반복",
+    if: "조건",
+    parallel: "동시 실행",
+  };
+
   const stepLabel = (i: number): string => {
     const s = steps[i];
     if (!s) return ko.stepTemplates.unnamedStep(i + 1);
-    return `${s.name} (${s.type})`;
+    return `${s.name} (${TYPE_LABEL[s.type] ?? s.type})`;
   };
 
   return (
@@ -135,8 +143,8 @@ export function SaveTemplateDialog({ onClose }: Props) {
         <fieldset className="min-w-0">
           <legend className="mb-2 text-sm font-medium">{ko.stepTemplates.stepsLegend}</legend>
           <div className="flex flex-col gap-1">
-            {steps.map((_, i) => (
-              <label key={i} className="flex items-center gap-2 text-sm">
+            {steps.map((s, i) => (
+              <label key={s.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={checked[i] ?? false}
