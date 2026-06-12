@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ko } from "../../../i18n/ko";
 import { EditorShell } from "../EditorShell";
 import { useScenarioEditor } from "../../../scenario/store";
 
@@ -23,5 +24,26 @@ describe("EditorShell YAML tab placeholder (U3)", () => {
     render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
     await user.click(screen.getByRole("tab", { name: "YAML" }));
     expect(screen.getByText(/캔버스 탭에서 사용할 수 있습니다/)).toBeInTheDocument();
+  });
+});
+
+describe("EditorShell 검증 배너 (U4)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("문제 있는 시나리오 로드 시 상단에 시나리오 문제 요약 배너가 보인다", () => {
+    const yaml = `version: 1
+name: s
+steps:
+  - type: http
+    id: 01ARZ3NDEKTSV4RRFFQ69G5FA1
+    name: ping
+    request:
+      method: GET
+      url: ""
+`;
+    render(<EditorShell initialYaml={yaml} />);
+    expect(screen.getByRole("status", { name: ko.editor.problemsBannerAria })).toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import { CanvasView } from "./CanvasView";
 import { Inspector } from "./Inspector";
 import { MonacoYamlView } from "./MonacoYamlView";
 import { TabBar } from "./TabBar";
+import { ValidationBanner } from "./ValidationBanner";
 import { VariablesPanel } from "./VariablesPanel";
 
 interface EditorShellProps {
@@ -28,24 +29,27 @@ export function EditorShell({ initialYaml, onChange }: EditorShellProps) {
   }, [yamlText, onChange]);
 
   return (
-    <div className="grid grid-cols-[210px_1fr_320px] gap-4 min-h-[680px]">
-      <div className="border border-slate-200 rounded-md p-3 bg-white">
-        <VariablesPanel />
-      </div>
-
-      <div className="flex flex-col">
-        <TabBar active={activeTab} onChange={setActiveTab} />
-        <div className="flex-1 mt-3">
-          {activeTab === "canvas" ? <CanvasView /> : <MonacoYamlView />}
+    <div className="flex flex-col gap-3">
+      <ValidationBanner />
+      <div className="grid grid-cols-[210px_1fr_320px] gap-4 min-h-[680px]">
+        <div className="border border-slate-200 rounded-md p-3 bg-white">
+          <VariablesPanel />
         </div>
-      </div>
 
-      <div className="border border-slate-200 rounded-md p-3 bg-white">
-        {activeTab === "canvas" ? (
-          <Inspector />
-        ) : (
-          <div className="text-xs text-slate-400 italic">{ko.editor.yamlTabNoInspector}</div>
-        )}
+        <div className="flex flex-col">
+          <TabBar active={activeTab} onChange={setActiveTab} />
+          <div className="flex-1 mt-3">
+            {activeTab === "canvas" ? <CanvasView /> : <MonacoYamlView />}
+          </div>
+        </div>
+
+        <div className="border border-slate-200 rounded-md p-3 bg-white">
+          {activeTab === "canvas" ? (
+            <Inspector />
+          ) : (
+            <div className="text-xs text-slate-400 italic">{ko.editor.yamlTabNoInspector}</div>
+          )}
+        </div>
       </div>
     </div>
   );
