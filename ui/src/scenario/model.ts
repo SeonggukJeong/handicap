@@ -347,6 +347,16 @@ export function findStepById(steps: ReadonlyArray<Step>, stepId: string | null):
   return null;
 }
 
+/** 스텝이 속한 최상위 조상의 인덱스 (중첩이면 그 컨테이너, 최상위면 자신).
+ *  저장 다이얼로그 기본 체크와 삽입 위치("선택 스텝의 최상위 조상 바로 뒤")가 공유. */
+export function topAncestorIndex(steps: ReadonlyArray<Step>, stepId: string | null): number | null {
+  if (stepId === null) return null;
+  for (let i = 0; i < steps.length; i++) {
+    if (findStepById([steps[i]], stepId)) return i;
+  }
+  return null;
+}
+
 export const CookieJarMode = z.enum(["auto", "off"]);
 export type CookieJarMode = z.infer<typeof CookieJarMode>;
 

@@ -1,5 +1,6 @@
 import { parseDocument, Document, isMap, isSeq, Scalar, YAMLMap, YAMLSeq, type Node } from "yaml";
-import { ScenarioModel, type Scenario, type Condition } from "./model";
+import { z } from "zod";
+import { ScenarioModel, StepModel, type Scenario, type Step, type Condition } from "./model";
 
 export type BranchSel = { kind: "then" } | { kind: "else" } | { kind: "elif"; index: number };
 
@@ -614,4 +615,125 @@ function normalizeAssertion(a: unknown): unknown {
   const src = a as Record<string, unknown>;
   if ("status" in src) return { kind: "status", code: src.status };
   return a;
+}
+
+// ── 스텝 템플릿 (ADR-0036) ──────────────────────────────────────────────
+
+export type StepsFragmentResult = { steps: Step[] } | { error: string };
+
+/** 템플릿 steps_yaml(스텝 배열 YAML) → Zod 검증된 Step[] (strict-UI 게이트).
+ *  와이어 모양 ≠ 모델 모양(assert/body) — normalizeStep 파이프라인 경유 필수:
+ *  z.array(StepModel).parse(YAML.parse(...)) 직행은 assert/body 있는 모든 템플릿에서
+ *  거짓 불통한다 (spec §5.2). */
+export function parseStepsFragment(yamlText: string): StepsFragmentResult {
+  let doc: Document.Parsed;
+  try {
+    doc = parseDocument(yamlText, { prettyErrors: true });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  if (doc.errors.length > 0) {
+    return { error: doc.errors.map((e) => e.message).join("; ") };
+  }
+  const js = doc.toJS({ maxAliasCount: 100 });
+  if (!Array.isArray(js)) return { error: "steps must be a YAML list" };
+  const parsed = z.array(StepModel).min(1).safeParse(js.map(normalizeStep));
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+    };
+  }
+  return { steps: parsed.data };
+}
+
+/** 체크된 최상위 스텝 노드를 스텝 배열 YAML로 직렬화 (저장 흐름, spec §5.1).
+ *  소스 doc의 노드를 새 Document에 공유시킨 뒤 즉시 직렬화-폐기하므로 안전하고,
+ *  노드에 붙은 주석이 그대로 따라온다 (renameScenarioYaml과 같은 Document API 접근). */
+export function extractStepsYaml(doc: Document, indices: ReadonlyArray<number>): string {
+  const steps = doc.getIn(["steps"]);
+  const seq = new YAMLSeq();
+  if (isSeq(steps)) {
+    for (const i of indices) {
+      const item = steps.items[i];
+      if (item !== undefined) seq.items.push(item);
+    }
+  }
+  const frag = new Document();
+  frag.contents = seq as Document["contents"];
+  return String(frag);
+}
+
+/** 삽입 직전 fragment의 모든 스텝 id를 구조-인지 walk로 재발급, 첫 스텝 id 반환.
+ *  ⚠ "모든 id 키 일괄 교체" 금지 — request.headers에 `id`라는 헤더 키가 있으면
+ *  오염된다. 스텝 맵의 top-level id만, 컨테이너는 do/then·elif[].then·else/
+ *  branches[].steps로만 하강 (spec §5.2). 모델 객체가 아니라 노드 레벨인 이유 = 주석 보존. */
+export function reissueStepIdsInFragment(doc: Document, genId: () => string): string | null {
+  const root = doc.contents;
+  if (!isSeq(root)) return null;
+  let firstId: string | null = null;
+  for (const item of root.items) {
+    const id = reissueStepNode(item, genId);
+    if (firstId === null) firstId = id;
+  }
+  return firstId;
+}
+
+function reissueStepNode(node: unknown, genId: () => string): string | null {
+  if (!isMap(node)) return null;
+  const id = genId();
+  node.set("id", plainScalar(id));
+  const type = node.get("type");
+  if (type === "loop") {
+    reissueSeq(node.get("do"), genId);
+  } else if (type === "if") {
+    reissueSeq(node.get("then"), genId);
+    reissueSeq(node.get("else"), genId);
+    const elif = node.get("elif");
+    if (isSeq(elif)) {
+      for (const eb of elif.items) {
+        if (isMap(eb)) reissueSeq(eb.get("then"), genId);
+      }
+    }
+  } else if (type === "parallel") {
+    const branches = node.get("branches");
+    if (isSeq(branches)) {
+      for (const br of branches.items) {
+        if (isMap(br)) reissueSeq(br.get("steps"), genId);
+      }
+    }
+  }
+  return id;
+}
+
+function reissueSeq(seq: unknown, genId: () => string): void {
+  if (!isSeq(seq)) return;
+  for (const item of seq.items) reissueStepNode(item, genId);
+}
+
+export type PreparedInsertion =
+  | { ok: true; preparedYaml: string; firstId: string; steps: Step[] }
+  | { ok: false; error: string };
+
+/** 삽입 파이프라인 1–3 (spec §5.2): 문법 파싱 → id 재발급 → Zod 게이트.
+ *  게이트가 재발급 *뒤*인 이유: StepModel.id는 ULID regex 강제라, 재발급으로
+ *  무관해질 야생 id(curl 생성 비-ULID)를 먼저 거부하면 §4.3(서버 id 불검증)과 모순. */
+export function prepareTemplateInsertion(
+  stepsYaml: string,
+  genId: () => string,
+): PreparedInsertion {
+  let doc: Document.Parsed;
+  try {
+    doc = parseDocument(stepsYaml, { prettyErrors: true });
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  if (doc.errors.length > 0) {
+    return { ok: false, error: doc.errors.map((e) => e.message).join("; ") };
+  }
+  const firstId = reissueStepIdsInFragment(doc, genId);
+  if (firstId === null) return { ok: false, error: "empty template" };
+  const preparedYaml = String(doc);
+  const gate = parseStepsFragment(preparedYaml);
+  if ("error" in gate) return { ok: false, error: gate.error };
+  return { ok: true, preparedYaml, firstId, steps: gate.steps };
 }
