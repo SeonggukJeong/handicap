@@ -168,6 +168,27 @@ export const ko = {
     creating: "생성 중…",
     cancel: "취소",
     discardConfirm: "저장하지 않은 변경을 버릴까요?",
+    // ── 시나리오 문제 요약 배너 (§5.4, U4) ──
+    problemsBannerAria: "시나리오 문제 요약",
+    problemsBannerTitle: (n: number) => `시나리오 문제 ${n}건`,
+    problemEmptyUrl: (stepName: string) =>
+      `"${stepName}" 스텝의 URL이 비어 있습니다 — 실행하면 요청이 실패합니다.`,
+    problemHostlessUrl: (stepName: string) =>
+      `"${stepName}" 스텝의 URL에 호스트가 없습니다 — 전체 URL 또는 \${BASE_URL} 같은 환경 변수로 시작하세요.`,
+    problemGateIntro: "YAML이 유효하지 않아 캔버스가 마지막 정상 상태로 표시될 수 있습니다.",
+    problemGateAction: "YAML 탭에서 확인",
+    gateRequired: (path: string) => `${path}: 필수 항목이 없습니다`,
+    gateNameRequired: (path: string) => `${path}: 이름이 비어 있습니다`,
+    gateInvalidLiteral: (path: string, expected: string) =>
+      `${path}: 값이 올바르지 않습니다 (기대값 ${expected})`,
+    gateInvalidType: (path: string, expected: string, received: string) =>
+      `${path}: 타입이 올바르지 않습니다 (기대 ${expected}, 입력 ${received})`,
+    gateDuplicateBranch: (path: string, name: string) =>
+      `${path}: 분기 이름 "${name}"이 중복됩니다`,
+    // ── test-run 승격 (§5.5, U4) ──
+    testRunNow: "미리 1회 실행",
+    testRunNowHelpLabel: "미리 1회 실행 설명",
+    testRunNowHelp: "저장 없이 현재 내용으로 실제 요청 1회를 보내 확인합니다.",
   },
   templates: {
     galleryAria: "시나리오 템플릿 선택",
