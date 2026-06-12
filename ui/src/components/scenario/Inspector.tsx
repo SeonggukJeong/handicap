@@ -39,9 +39,12 @@ function buildDisabled(
   return { ...(h ? { headers: h } : {}), ...(f ? { form: f } : {}) };
 }
 
+// 셀렉터 fallback은 안정 참조 필수 — 인라인 `?? []`는 model=null 동안 무한 리렌더
+const EMPTY_STEPS: Step[] = [];
+
 export function Inspector() {
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? []);
+  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const select = useScenarioEditor((s) => s.select);
 
   const step = useMemo<Step | null>(
@@ -122,7 +125,7 @@ function removeAtPath(node: Condition, path: number[]): Condition {
 // which would mis-disable the buttons).
 function MoveButtons({ stepId }: { stepId: string }) {
   const moveStep = useScenarioEditor((s) => s.moveStep);
-  const steps = useScenarioEditor((s) => s.model?.steps ?? []);
+  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const siblings = useMemo<ReadonlyArray<Step>>(
     () => findStepSiblings(steps, stepId),
     [steps, stepId],

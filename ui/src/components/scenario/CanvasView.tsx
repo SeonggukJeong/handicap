@@ -41,8 +41,11 @@ const LANE_LABEL_H = 18;
 
 type AnyData = HttpStepNodeData | LoopStepNodeData | IfStepNodeData | ParallelStepNodeData;
 
+// 셀렉터 fallback은 안정 참조 필수 — 인라인 `?? []`는 model=null 동안 무한 리렌더
+const EMPTY_STEPS: Step[] = [];
+
 export function CanvasView() {
-  const steps = useScenarioEditor((s) => s.model?.steps ?? []);
+  const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
   const addStep = useScenarioEditor((s) => s.addStep);

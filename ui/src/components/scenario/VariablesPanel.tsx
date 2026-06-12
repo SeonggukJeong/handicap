@@ -3,8 +3,12 @@ import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { VarCheatSheet } from "./VarCheatSheet";
 
+// 셀렉터 fallback은 안정 참조여야 한다 — 인라인 `?? {}`는 매 스냅샷 새 객체라
+// model=null 동안 useSyncExternalStore 무한 리렌더(getSnapshot 캐싱 경고)
+const EMPTY_VARS: Record<string, string> = {};
+
 export function VariablesPanel() {
-  const variables = useScenarioEditor((s) => s.model?.variables ?? {});
+  const variables = useScenarioEditor((s) => s.model?.variables ?? EMPTY_VARS);
   const setVariable = useScenarioEditor((s) => s.setVariable);
   const removeVariable = useScenarioEditor((s) => s.removeVariable);
 

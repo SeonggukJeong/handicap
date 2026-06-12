@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VariablesPanel } from "../VariablesPanel";
@@ -17,6 +17,21 @@ describe("VariablesPanel", () => {
   beforeEach(() => {
     reset();
     useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("model이 null이어도 getSnapshot 캐싱 경고 없이 빈 상태를 렌더한다", () => {
+    reset(); // beforeEach의 resetEmpty()를 되돌려 model: null 유지(EditorShell pre-load 윈도 재현)
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<VariablesPanel />);
+      expect(screen.getByText("변수 없음")).toBeInTheDocument();
+      const snapshotWarnings = errorSpy.mock.calls.filter((args) =>
+        args.some((a) => typeof a === "string" && a.includes("getSnapshot should be cached")),
+      );
+      expect(snapshotWarnings).toEqual([]);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("lists variables and adds one via the two-field row", async () => {

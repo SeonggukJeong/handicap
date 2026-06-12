@@ -15,6 +15,23 @@ describe("EditorShell", () => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
   });
 
+  it("mount 시(pre-load model=null 윈도) getSnapshot 캐싱 경고가 없다", () => {
+    // VariablesPanel/CanvasView/Inspector 셀렉터의 인라인 `?? {}`/`?? []` fallback이
+    // model=null 동안 매 스냅샷 새 객체를 반환하면 React가 경고(단독 마운트면 무한 리렌더).
+    // 이 경고는 react-dom 모듈 수명당 1회만 발화(warn-once)라 이 테스트가
+    // 파일 내 *첫 EditorShell 마운트*여야 한다 — 아래로 옮기지 말 것.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<EditorShell initialYaml={'version: 1\nname: "loadme"\nsteps: []\n'} />);
+      const snapshotWarnings = errorSpy.mock.calls.filter((args) =>
+        args.some((a) => typeof a === "string" && a.includes("getSnapshot should be cached")),
+      );
+      expect(snapshotWarnings).toEqual([]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("loads the initialYaml into the store on mount", () => {
     render(<EditorShell initialYaml={'version: 1\nname: "loadme"\nsteps: []\n'} />);
     const st = useScenarioEditor.getState();
