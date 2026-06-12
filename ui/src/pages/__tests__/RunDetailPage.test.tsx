@@ -555,6 +555,22 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
     await screen.findByRole("heading", { name: /Metric windows/i });
     expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
   });
+
+  it("metrics 응답 도착 전(로딩 중)엔 경과해도 배너가 안 뜬다", async () => {
+    // "요청 0건" = 기록된 0건이지 미수신이 아님 — 응답 RTT 동안의 false-positive 플래시 방지
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/SR1")) {
+        return Promise.resolve(jsonResponse(makeRunningRun(Date.now() - 20_000)));
+      }
+      if (url.endsWith("/api/runs/SR1/metrics")) {
+        return new Promise(() => {}); // 응답 미도착 상태 고정
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("SR1");
+    await screen.findByRole("heading", { name: /Metric windows/i });
+    expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
+  });
 });
 
 describe("RunDetailPage — report on terminal", () => {

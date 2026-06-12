@@ -87,8 +87,13 @@ export function RunDetailPage() {
     }
   }
   const totalCount = metrics.data?.windows.reduce((acc, w) => acc + w.count, 0) ?? 0;
+  // "요청 0건"은 *기록된* 0건 — metrics 응답 도착 전(undefined)에는 판정하지 않는다
+  // (정상 run 진입 시 첫 RTT 동안 배너가 플래시하는 false-positive 방지).
   const stalledRunning =
-    r.status === "running" && totalCount === 0 && now - (r.started_at ?? r.created_at) > 15_000;
+    r.status === "running" &&
+    metrics.data !== undefined &&
+    totalCount === 0 &&
+    now - (r.started_at ?? r.created_at) > 15_000;
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
   // Curve runs (S-D) store duration_seconds: 0; the real length is the stage sum.
   const durationSeconds = profileDurationSeconds(r.profile);
