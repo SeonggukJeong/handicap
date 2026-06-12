@@ -95,6 +95,38 @@ steps:
     ]);
   });
 
+  it("공백-only URL은 빈 URL로 본다 (trim 가드)", () => {
+    const steps = stepsOf(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: ws
+    request:
+      method: GET
+      url: "   "
+`);
+    expect(collectProblems(steps, null)).toEqual([
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemEmptyUrl("ws") },
+    ]);
+  });
+
+  it("프로토콜-상대 //host/path도 호스트-없음으로 본다 (엔진은 비절대 URL 해석 불가 — 의도 고정)", () => {
+    const steps = stepsOf(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: pr
+    request:
+      method: GET
+      url: //api.example.com/health
+`);
+    expect(collectProblems(steps, null)).toEqual([
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemHostlessUrl("pr") },
+    ]);
+  });
+
   it("steps가 null(pre-load)이고 yamlError도 없으면 빈 배열", () => {
     expect(collectProblems(null, null)).toEqual([]);
   });
