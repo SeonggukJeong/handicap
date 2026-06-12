@@ -65,6 +65,12 @@ export function InsertTemplateModal({ onClose }: Props) {
           </p>
         )}
 
+        {del.error && (
+          <p role="alert" className="text-sm text-red-600">
+            {(del.error as Error).message}
+          </p>
+        )}
+
         {list.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
 
         {list.error && (

@@ -229,6 +229,12 @@ export const ko = {
     deleteConfirm: (name: string) => `템플릿 "${name}"을(를) 삭제할까요?`,
     incompatible: "이 템플릿은 에디터 규칙과 호환되지 않습니다",
     stepCount: (n: number) => `스텝 ${n}개`,
+    typeLabel: {
+      http: "HTTP",
+      loop: "반복",
+      if: "조건",
+      parallel: "동시 실행",
+    } as Record<string, string>,
   },
   report: {
     // §7.1 쉬운 요약 — 매개변수 문구는 함수 상수(spec §2.1). 숫자는 호출부에서

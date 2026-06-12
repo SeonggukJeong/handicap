@@ -52,7 +52,7 @@ export function SaveTemplateDialog({ onClose }: Props) {
   const handleNameChange = (next: string) => {
     setName(next);
     setError(null);
-    if (conflictId !== null && next !== conflictName) {
+    if (conflictId !== null && next.trim() !== conflictName) {
       setConflictId(null);
       setConflictName(null);
     }
@@ -94,17 +94,10 @@ export function SaveTemplateDialog({ onClose }: Props) {
 
   const showOverwriteConfirm = conflictId !== null && name.trim() === conflictName;
 
-  const TYPE_LABEL: Record<string, string> = {
-    http: "HTTP",
-    loop: "반복",
-    if: "조건",
-    parallel: "동시 실행",
-  };
-
   const stepLabel = (i: number): string => {
     const s = steps[i];
     if (!s) return ko.stepTemplates.unnamedStep(i + 1);
-    return `${s.name} (${TYPE_LABEL[s.type] ?? s.type})`;
+    return `${s.name} (${ko.stepTemplates.typeLabel[s.type] ?? s.type})`;
   };
 
   return (

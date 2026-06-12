@@ -135,4 +135,15 @@ describe("InsertTemplateModal", () => {
     mount();
     expect(await screen.findByText(/저장된 템플릿이 없습니다/)).toBeInTheDocument();
   });
+
+  it("삭제 실패 시 에러 배너 표시 (Fix 2)", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(deleteStepTemplate).mockRejectedValue(new Error("delete failed"));
+    mount();
+    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((el) => el.textContent === "delete failed")).toBe(true);
+    confirmSpy.mockRestore();
+  });
 });
