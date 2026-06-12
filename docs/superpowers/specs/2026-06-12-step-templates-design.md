@@ -32,7 +32,7 @@
 | 복사 의미론 | 스냅샷 + 삽입 시 전 스텝 새 ULID |
 | 이름 충돌 | `UNIQUE(name)` → 409 → UI "덮어쓰기?" 확인 → `PUT` |
 | 관리 표면 | 삽입 모달 내 최소 관리(삭제). 별도 페이지는 연기 |
-| 변경 범위 | **엔진·워커·proto 무변경.** 컨트롤러 store/api 각 1파일 + migration 0015, UI 모달 2개 + store Edit 1종 |
+| 변경 범위 | **엔진·워커·proto 무변경.** 컨트롤러 store/api 각 1파일 + migration 0015 + 라우터. UI는 §8 표면 전체(모달 2 + api/hooks + 헤더 버튼 2페이지 + `insertSteps` Edit + 헬퍼 3종 + ko.ts) |
 
 ## 4. 백엔드
 
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS step_templates (
   description TEXT NOT NULL DEFAULT '',
   steps_yaml TEXT NOT NULL,         -- 스텝 배열 YAML (시나리오 steps: 와 동일 포맷)
   step_count INTEGER NOT NULL,      -- 최상위 스텝 수 (서버가 저장 시 파싱해 계산, 목록 표시용)
-  created_at INTEGER NOT NULL,      -- epoch seconds (environments와 동일)
+  created_at INTEGER NOT NULL,      -- epoch **milliseconds** (`now_ms()` — environments와 동일. UI가 new Date(ms) 가정)
   updated_at INTEGER NOT NULL
 );
 ```
@@ -56,15 +56,17 @@ CREATE TABLE IF NOT EXISTS step_templates (
 
 | 라우트 | 동작 |
 |---|---|
-| `POST /api/step-templates` | 생성. body `{name, description?, steps_yaml}` → 201 full. 이름 중복 **409**(`ApiError::Conflict`, 한국어 메시지 — environments 패턴), 검증 실패 **422** |
+| `POST /api/step-templates` | 생성. body `{name, description?, steps_yaml}` → 201 full. 이름 중복 **409**, steps_yaml 검증 실패 **422**, name 빈값 **400** (아래 4.3) |
 | `GET /api/step-templates` | `{templates: [Summary…]}` — Summary = `{id, name, description, step_count, created_at, updated_at}` (steps_yaml 제외) |
 | `GET /api/step-templates/{id}` | full = Summary + `steps_yaml`. 없으면 404 |
 | `PUT /api/step-templates/{id}` | 전체 교체 `{name, description?, steps_yaml}` (덮어쓰기·이름변경). 다른 행과 이름 충돌 409, 없으면 404 |
 | `DELETE /api/step-templates/{id}` | 204. **무가드** — 복사 시맨틱이라 어디서도 참조하지 않음 (environments 무가드 삭제와 동일 논리) |
 
-### 4.3 서버 검증 (최소)
+### 4.3 서버 검증 (최소) + 에러 매핑
 
-- `steps_yaml`이 엔진 serde로 `Vec<engine::scenario::Step>` 파싱 성공 **+ 비어있지 않음** → 아니면 422.
+- **name**: `trim()` 후 저장(environments 미러), 빈값이면 **400 `BadRequest`**(environments와 동일).
+- **steps_yaml**: 엔진 serde로 `Vec<engine::scenario::Step>` 파싱 성공 **+ 비어있지 않음** → 아니면 **422 `ApiError::Unprocessable`**. environments(400)와 의도적으로 다른 분기 — "본문 구조가 해석 불가"는 test-run 엔드포인트의 422 선례와 의미 정합. `serde_yaml::Error`는 `ApiError` `From` 변환이 없으므로 **명시 `map_err(|e| ApiError::Unprocessable(…))`** 필요(`?`로 흘리면 400으로 샌다).
+- **이름 중복(UNIQUE 위반)**: **409 — `ApiError::ConflictJson`**(dataset soft-guard 선례)으로 `{error: <한국어 메시지>, id: <충돌 행의 id>}`를 싣는다. UI 덮어쓰기 흐름(§5.1)이 이 `id`로 `PUT`을 보내기 위함(plain `Conflict`는 id가 없어 클라가 PUT 대상을 모름). INSERT 전에 name으로 SELECT해 충돌 id를 확보하는 구현이 자연스러움(UNIQUE 제약은 레이스 백스톱).
 - 그 이상(스텝 id ULID 유효성, UI 중첩 규칙)은 안 봄 — 삽입 시 클라가 id를 전부 재발급하고, 엄격 검증은 UI Zod 게이트 담당(기존 lenient-engine / strict-UI 스탠스).
 - `step_count`는 파싱된 `Vec<Step>`의 `len()` (최상위만).
 
@@ -73,25 +75,29 @@ CREATE TABLE IF NOT EXISTS step_templates (
 ### 5.1 저장 흐름 — "템플릿으로 저장"
 
 - **진입점**: 에디터 헤더 버튼, EditPage·NewPage 둘 다 (U4 "미리 1회 실행" 두-페이지 배선 패턴 재사용).
-- **활성 조건**: 버퍼가 모델-가용일 때만 (`parseScenarioDoc(yamlText)` ok — U4 검증 배너와 같은 게이트). 게이트 에러면 비활성 + 사유 툴팁.
+- **활성 조건**: **store 상태로 핀** — `model !== null && yamlError === null`. (`parseScenarioDoc(yamlText)` 재호출이 아님: Monaco에서 깨진 텍스트를 치는 중엔 store `yamlText`가 마지막 정상본을 유지해 재파싱은 통과해버린다 — U4 배너와 같은 store-기반 게이트만이 정확.) 게이트 에러면 비활성 + 사유 툴팁.
 - **다이얼로그**: 이름(필수) + 설명(선택) + **최상위 스텝 체크박스 목록**(스텝 이름·타입 표시). 기본 체크 = 선택 중인 스텝이 있으면 그 스텝의 최상위 조상만, 없으면 전체. 체크 0개면 저장 비활성.
-- **소스 = 라이브 에디터 버퍼**(저장본 아님 — test-run과 동일 의미론). 체크된 스텝의 YAML 노드를 현재 Document에서 추출해 스텝 배열 YAML로 직렬화 — **주석 보존**(`renameScenarioYaml`과 같은 Document API 접근).
-- **409 처리**: "같은 이름 템플릿이 있습니다 — 덮어쓰기?" 확인 → 그 템플릿 id로 `PUT`.
+- **소스 = store의 커밋된 버퍼**(`doc` — 저장본 아님, test-run의 live-buffer 의미론과 동일). 체크된 스텝의 YAML 노드를 store `doc`에서 추출해 스텝 배열 YAML로 직렬화 — **주석 보존**(`renameScenarioYaml`과 같은 Document API 접근).
+- **409 처리**: 응답의 `{id}`(ConflictJson, §4.3)로 "같은 이름 템플릿이 있습니다 — 덮어쓰기?" 확인 → 그 `id`로 `PUT`.
 - 신규 문구 전부 `ko.ts` 카탈로그 경유 (ADR-0035).
 
 ### 5.2 삽입 흐름 — "템플릿 삽입"
 
 - **진입점**: 에디터 헤더 버튼 → 모달: 템플릿 목록(이름/설명/스텝 수/수정일) + 행별 삭제 버튼(확인 후 DELETE — 최소 관리).
-- **선택 시**: `GET /api/step-templates/{id}` → `steps_yaml`을 **UI Zod 게이트로 검증**(strict-UI, 검증 전용 파싱). 불통(예: curl로 생성된 야생 템플릿이 UI 2단 중첩 규칙 위반)이면 "이 템플릿은 에디터 규칙과 호환되지 않습니다" 에러 표시, 삽입 중단.
-- **ULID 재발급 (노드 레벨)**: 삽입은 모델 객체가 아니라 **YAML 노드 이식**으로 한다(주석 보존). 따라서 id 재발급도 이식되는 노드에 적용: 순수 헬퍼 `reissueStepIdsInFragment(fragment)` — 템플릿 YAML을 `parseDocument`한 스텝 시퀀스를 **구조-인지 재귀**(http 자신 / loop `do[]` / if `then`·`elif[].then`·`else` / parallel `branches[].steps`)로 walk 하며 각 스텝 맵의 `id`만 `newStepId()`로 교체. ⚠ "모든 `id` 키 일괄 교체"는 금지 — `headers`에 `id`라는 이름의 헤더 키가 있으면 오염된다(구조-인지 walk가 이를 배제).
-- **삽입 위치**: 선택 중인 스텝의 **최상위 조상 바로 뒤**, 선택 없으면 맨 끝 append.
-- **반영**: 새 Edit variant `insertSteps(afterTopIndex | end, stepsYaml)`를 `applyEdit`에 추가 — 템플릿 YAML을 `parseDocument` → `reissueStepIdsInFragment` → 노드를 시나리오 Document의 `steps` 시퀀스에 이식. **템플릿 안 주석도 보존.**
-- **삽입 후**: 첫 삽입 스텝 자동 선택(기존 add 액션 UX), dirty 플래그는 기존 edit 경로가 자동 처리.
+- **파이프라인 (선택 시, 순서 고정)**: `GET /api/step-templates/{id}` 후 —
+  1. **문법 파싱**: `steps_yaml`을 `parseDocument` (YAML 문법 오류 → 호환 에러 표시, 중단).
+  2. **ULID 재발급 (노드 레벨)**: 순수 헬퍼 `reissueStepIdsInFragment(fragment)` — 스텝 시퀀스를 **구조-인지 재귀**(http 자신 / loop `do[]` / if `then`·`elif[].then`·`else` / parallel `branches[].steps`)로 walk 하며 각 스텝 맵의 `id`만 `newStepId()`로 교체하고 **발급한 id 목록 반환**. ⚠ "모든 `id` 키 일괄 교체"는 금지 — `headers`에 `id`라는 이름의 헤더 키가 있으면 오염된다(구조-인지 walk가 이를 배제). 모델 객체가 아니라 노드 레벨인 이유 = 주석 보존.
+  3. **Zod 게이트 (재발급 *뒤*)**: 신규 export `parseStepsFragment(yamlText)` — `parseDocument→toJS→normalizeStep 매핑→z.array(StepModel).min(1).safeParse`. **주의**: YAML 와이어 모양 ≠ Zod 모델 모양(`assert: [{status:200}]`→`{kind:"status",code:200}` 등)이라 `yamlDoc.ts` module-private인 `normalizeStep` 파이프라인의 export가 필수 — 직접 `z.array(StepModel).parse(YAML.parse(…))`는 assert/body 있는 모든 템플릿에서 거짓 불통. 검증이 재발급 뒤인 이유: `StepModel.id`는 ULID regex 강제라, 재발급으로 무관해질 야생 id(curl 생성 비-ULID)를 게이트가 거부하면 §4.3("서버는 id 안 봄")과 모순. 불통(UI 2단 중첩 규칙 위반 등)이면 "이 템플릿은 에디터 규칙과 호환되지 않습니다" 표시, 삽입 중단.
+  4. **삽입 (store 액션)**: `insertTemplateSteps(준비된 stepsYaml): string` — 기존 add* 계열처럼 **store 액션이 id를 준비해 Edit에 싣고 첫 스텝 id를 반환**하는 패턴 유지. 재발급-완료 fragment를 직렬화한 텍스트를 Edit `insertSteps{afterTopIndex | end, stepsYaml}`에 실어 dispatch — `applyEdit`는 받은 텍스트를 `parseDocument`해 노드를 시나리오 Document `steps` 시퀀스에 이식만 한다(**결정론적** — 난수 없음, round-trip 테스트 용이). **템플릿 안 주석도 보존.**
+- **삽입 위치**: 선택 중인 스텝의 **최상위 조상 바로 뒤**, 선택 없으면 맨 끝 append. 조상 계산은 신규 순수 헬퍼 `topAncestorIndex(steps, stepId)`(§5.1 체크박스 기본값과 공유 — 기존 `findStepById`/`findStepPath`는 최상위 인덱스를 주지 않음).
+- **삽입 후**: 반환된 첫 삽입 스텝 id 자동 선택(기존 add 액션 UX), dirty 플래그는 기존 edit 경로가 자동 처리.
 
 ### 5.3 클라이언트 계층
 
-- `ui/src/api/stepTemplates.ts`: Zod 스키마 (`StepTemplateSummarySchema`, `StepTemplateSchema`) + fetch 함수 5종. 목록 응답은 `{templates: […]}` 래퍼.
+- `ui/src/api/stepTemplates.ts`: Zod 스키마 (`StepTemplateSummarySchema`, `StepTemplateSchema`) + fetch 함수 5종. 목록 응답은 `{templates: […]}` 래퍼. 409 응답 본문 `{error, id}` 파싱 포함.
 - React Query hooks: `useStepTemplates`(목록), `useCreateStepTemplate`/`useUpdateStepTemplate`/`useDeleteStepTemplate`(invalidate 목록). 단건 GET은 삽입 시점 1회성 fetch(ephemeral, useTestRun 패턴).
+- 신규 순수 헬퍼 3종: `parseStepsFragment`(yamlDoc — normalize 파이프라인 export 동반), `reissueStepIdsInFragment`(노드-레벨 walk), `topAncestorIndex`(model).
+- **네이밍 주의**: `ui/src/scenario/templates.ts`(U3 시나리오 갤러리)가 이미 존재 — 신규 모듈/식별자는 전부 `stepTemplate(s)` 계열로 통일해 혼동 방지.
 
 ## 6. 엣지 케이스
 
@@ -106,20 +112,22 @@ CREATE TABLE IF NOT EXISTS step_templates (
 
 ## 7. 테스트
 
-- **Rust**: store CRUD 단위(UNIQUE 위반 포함) + api 201/409/422/404/204 — environments 테스트 미러.
+- **Rust**: store CRUD 단위(UNIQUE 위반 포함) + api 201/409(ConflictJson `{error,id}` 본문)/422(명시 map_err 경유)/400(name 빈값)/404/204 — environments 테스트 미러.
 - **UI(vitest/RTL)**:
-  - 저장 다이얼로그: 체크박스 기본값(선택 유/무), 0개 비활성, 409 → 덮어쓰기 흐름.
-  - 삽입 모달: 목록 렌더, 삭제, 404 에러.
+  - 저장 다이얼로그: 체크박스 기본값(선택 유/무), 0개 비활성, 409 `{id}` → 덮어쓰기 PUT 흐름.
+  - 삽입 모달: 목록 렌더, 삭제, 404 에러, 비-ULID 야생 id 템플릿이 재발급 경유로 **삽입 성공**(검증-뒤-재발급 순서 락인).
   - `reissueStepIdsInFragment`: 중첩 4타입 전부 교체 + 발급 id 전부 유일 + 주석·여타 필드 보존 + `headers`의 `id` 키 비오염.
-  - `applyEdit` `insertSteps`: 주석 보존 round-trip, 삽입 위치(선택 뒤/맨 끝/빈 시나리오).
+  - `parseStepsFragment`: assert/body 있는 스텝의 normalize 경유 통과 + 2단 중첩 거부 + 빈 배열 거부.
+  - `applyEdit` `insertSteps`: 주석 보존 round-trip, 삽입 위치(선택 뒤/맨 끝/빈 시나리오), `topAncestorIndex`.
   - Zod 게이트 fail(호환 안 되는 템플릿) 표시.
 - **머지 전 라이브(Playwright)**: 시나리오 A에서 2스텝 플로우 저장 → 시나리오 B에 삽입 → run 1회 완주 + 콘솔 Zod 0 (S-D 갭 규칙).
 
 ## 8. 구현 표면 (plan 입력)
 
-- **컨트롤러**: `store/step_templates.rs`(신규), `api/step_templates.rs`(신규), `store/mod.rs` migration 0015 배선, 라우터 등록.
-- **UI**: `api/stepTemplates.ts`(신규), hooks, `SaveTemplateDialog`(신규), `InsertTemplateModal`(신규), 에디터 헤더 버튼 2페이지, `scenario/store.ts`+`yamlDoc.ts` `insertSteps` Edit, `reissueStepIdsInFragment`(scenario 모듈), `ko.ts` 신규 문구.
+- **컨트롤러**: `store/step_templates.rs`(신규), `api/step_templates.rs`(신규), `store/mod.rs` migration 0015 배선(⚠ const 선언 + `execute` 호출 **두 줄** — execute 라인 누락이 이 repo가 두 번 겪은 함정, plan에서 `grep -c MIGRATION_SQL` 교차검증 명시), 라우터 등록(`app.rs`).
+- **UI**: `api/stepTemplates.ts`(신규), hooks, `SaveTemplateDialog`(신규), `InsertTemplateModal`(신규), 에디터 헤더 버튼 2페이지, store 액션 `insertTemplateSteps`+`yamlDoc.ts` `insertSteps` Edit, 헬퍼 3종(`parseStepsFragment` — `normalizeStep` 파이프라인 export 동반 / `reissueStepIdsInFragment` / `topAncestorIndex`), `ko.ts` 신규 문구.
 - **무변경**: 엔진(타입 재사용만)·워커·proto·기존 migration.
+- **스코프 가이드(spec-plan-reviewer)**: 단일 plan 적정(추산 ~12–14 task, A4b 15·S-D 11 선례 범위). 넘치면 자연 절단선 = (a) 컨트롤러 CRUD 단독 머지(C-1/34a 선례) → (b) UI 저장+삽입. 저장-흐름/삽입-흐름 분리는 금지(각각 단독으론 사용자 가치 0).
 
 ## 9. 연기 항목 (roadmap §B에 기록)
 
