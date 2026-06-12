@@ -4,4 +4,5 @@ pub mod presets;
 pub mod runs;
 pub mod scenarios;
 pub mod schedules;
+pub mod step_templates;
 pub mod test_runs;
