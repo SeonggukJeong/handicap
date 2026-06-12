@@ -9,9 +9,46 @@ import { useScenarioEditor } from "../../../scenario/store";
 vi.mock("../MonacoYamlView", () => ({ MonacoYamlView: () => <div data-testid="yaml-view" /> }));
 
 describe("EditorShell", () => {
-  it.todo("loads the initialYaml into the store on mount");
-  it.todo("calls onChange with the current yamlText whenever it changes");
-  it.todo("hides the inspector when the YAML tab is active");
+  beforeEach(() => {
+    // getInitialState는 store.ts의 커스텀 shim(:303) — ui/CLAUDE.md의 "Zustand v5
+    // 미제공" 노트는 shim 도입 전 서술이니 이 호출을 "고치지" 말 것(기존 U3/U4와 동일).
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("loads the initialYaml into the store on mount", () => {
+    render(<EditorShell initialYaml={'version: 1\nname: "loadme"\nsteps: []\n'} />);
+    const st = useScenarioEditor.getState();
+    expect(st.yamlText).toContain("loadme");
+    expect(st.model?.name).toBe("loadme");
+  });
+
+  it("calls onChange with the store text — first fire is the pre-load text (U3 B1), then the loaded canonical text", () => {
+    const calls: string[] = [];
+    render(
+      <EditorShell
+        initialYaml={'version: 1\nname: "loadme"\nsteps: []\n'}
+        onChange={(y) => calls.push(y)}
+      />,
+    );
+    // 문서화된 함정의 핀 고정: 첫 발화는 로드된 initialYaml이 아니라
+    // mount-렌더에 캡처된 pre-load store 텍스트(fresh store = "").
+    expect(calls[0]).toBe("");
+    // 로드 완료 후 canonical 텍스트로 재발화 — store와 일치.
+    expect(calls[calls.length - 1]).toContain("loadme");
+    expect(calls[calls.length - 1]).toBe(useScenarioEditor.getState().yamlText);
+  });
+
+  it("hides the inspector when the YAML tab is active", async () => {
+    const user = userEvent.setup();
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    expect(
+      screen.getByRole("complementary", { name: ko.editor.inspectorAria }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "YAML" }));
+    expect(
+      screen.queryByRole("complementary", { name: ko.editor.inspectorAria }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("EditorShell YAML tab placeholder (U3)", () => {
