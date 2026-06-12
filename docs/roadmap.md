@@ -143,7 +143,7 @@
 ### B5. codex 평가 후속 (2026-06-03)
 출처: codex load-tester 평가 + Claude 검증 `docs/reviews/2026-06-02-load-tester-evaluation-assessment.md`. **항목 1–4 구현+머지 완료**(master `5e59048` lint 게이트 / `fffec3e` dispatch fail-fast P0 / `fee8041` shutdown 로그). 잔여:
 - ~~**open-loop / arrival-rate 부하 모델 + per-step·per-scenario timeout (P2)**~~ — **🔜 영역으로 승격 (영역 D, 2026-06-03)**: "부하 모델·페이싱 설정"으로 brainstorm → 영역 spec `docs/superpowers/specs/2026-06-03-load-model-pacing-config-design.md`. 아래 §D 참조.
-- **skip/todo UI 테스트 분류·정리**: `pnpm test`에 todo 21 + skip 7. 의도적 연기 / flaky / obsolete / harness-blocked로 분류 후 고위험(시나리오 에디터·리포트) 우선 구현. → UI 폴리시 곁다리.
+- ~~**skip/todo UI 테스트 분류·정리**~~ — **✅ 완료 (2026-06-12)**: `it.todo` 18건 전량 처분(특성화 구현 9 + 근거 명시 삭제 9), 스위트 762 passed·todo/skip 0, production 무변경(+ui/CLAUDE.md PATCH→PUT doc rot). spec/plan `2026-06-12-skip-todo-test-cleanup*`, 상세 `docs/build-log.md`. → **§B5 잔여 항목 없음(전부 완결)**.
 
 ### D. 부하 모델·페이싱 설정 (영역 D) — **✅ 완료 (S-A ✅ · S-B ✅ · S-C ✅ · S-D ✅ 완료 — 영역 D 완결, 잔여 = closed-loop stages·fan-out 등 후속)**
 - **성격**: 부하를 *어떻게 거는가*의 표현력 확장(요청 강도·페이싱·타임아웃·도착률). LoadRunner/JMeter 대체 목표(ADR-0001)의 핵심 격차. 출처 = §B5 codex P2 + 사용자 요청(target RPS / ramp stages / think time / per-step timeout / http_timeout_seconds / max in-flight).
