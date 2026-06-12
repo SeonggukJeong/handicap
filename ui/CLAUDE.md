@@ -52,6 +52,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 ## YAML 양방향 sync / 편집 커밋 (`yamlDoc.ts`, EditorShell)
 
 - **`yaml` 패키지 Document API의 targeted edit으로 코멘트 보존** (Slice 3): `doc.setIn(['steps', 0, 'request', 'method'], 'POST')` 식으로 부분 수정 시 다른 키 옆 코멘트 그대로 유지. 단, `steps[i]`를 통째로 교체하면 그 안의 모든 코멘트는 사라진다 — `addStep`/`removeStep`/`moveStep`은 그 한도에서 동작.
+- **시퀀스 *선두* 주석은 items[0]이 아니라 seq.commentBefore에 붙는다** (스텝 템플릿, yaml 2.9): 노드를 다른 Document/시퀀스로 옮겨도 선두 주석은 안 따라온다 — 주석-보존 단언·보장은 item-*간* 주석(다음 item의 commentBefore)으로만 (`extractStepsYaml`/`reissueStepIdsInFragment`가 이 한도에서 동작).
+- **빈 `steps: []`(flow seq)에 노드를 splice하면 전체가 한 줄 flow 스타일로 직렬화된다** (스텝 템플릿): 삽입 전 `steps.flow = false`로 block 전환 (`applyEdit` `insertSteps` case 참고).
 - **`yaml` 패키지의 `doc.setIn(["name"], value)`은 기존 노드의 quote style을 상속** (Slice 3): 원본이 `name: "demo"`였으면 새 값도 `"renamed"`로 quote가 붙는다. 테스트가 unquoted를 기대하면 `Scalar.PLAIN`을 새로 만들어 setIn. `plainScalar()` 헬퍼 참고.
 - **`extract` 키 보존** (Slice 3): TS 모델(`ScenarioModel`)은 `.strict()`로 `extract`를 거부하지만, `normalizeForModel`이 doc.toJS() 후 모델 입력 단계에서 `extract`를 떨궈 검증을 통과시킨다. 원본 Doc은 그대로 — round-trip 시 `extract`가 유지됨.
 - **`RequestModel.url`은 의도적으로 빈 문자열 허용 — `.min(1)`로 "고치지" 말 것** (U3): 엔진 `Request.url: String` 와이어 1:1. `.min(1)`이면 URL 비우기가 reparse 실패→doc만 mutate되고 model/yamlText stale로 갈라진다(과거 동작). 빈 URL UX는 Inspector 인라인 경고+캔버스 ⚠ 배지(`emitStep`의 `urlMissing` 단일 판정 — 노드는 표시만)가 담당, 저장은 안 막음(model.test.ts 락인).
@@ -138,6 +140,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **트랜지언트 UI 상태(예: '복사됨' 1.5s 후 복귀)는 Playwright MCP 툴 호출 *사이*로 못 잡는다** (본문 뷰어 수동검증): `browser_click` → `browser_snapshot`을 별도 호출로 쪼개면 inter-call 지연이 revert 윈도우를 넘겨 이미 되돌아온 값을 본다. **단일 `browser_evaluate`** 안에서 `el.click()` → `await sleep(150)`(writeText microtask+React 렌더) → label 확인 → `await sleep(1700)` → revert 확인까지 한 번에. clipboard 검증도 같은 evaluate에서 `navigator.clipboard.readText()`(localhost=secure context라 허용).
 - **`title`+텍스트를 동시에 가진 버튼의 accessible name은 텍스트 콘텐츠가 이긴다** (Slice 9b): em-dash가 든 `title`을 단 nav 버튼이라도 visible text가 있으면 accessible name은 **텍스트 콘텐츠**(em-dash 없음)에서 온다 — `getByRole("button", {name})`은 `—`가 아니라 텍스트로 매치할 것.
 - **`@testing-library/user-event`의 `type()`은 `[`/`{`를 key-descriptor 구분자로 본다** (Slice 9b): 리터럴 `[`/`{`를 타이핑하려면 `[[`/`{{`로 escape(예: 테스트에서 `matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때). 안 그러면 `{Enter}`처럼 특수 키로 해석돼 입력이 사라진다.
+- **ms 타임스탬프 표시 컴포넌트의 테스트 fixture에 `0`을 쓰면 `*1000` 단위 버그가 안 잡힌다** (스텝 템플릿 T7, 리뷰가 Critical 발견 — 연도 56379 표시): fixture는 실제 ms 값(예: `1765500000000`) + 렌더 결과의 연도 문자열 포함 단언(로케일-견고)으로. 표시는 코드베이스 관행대로 `new Date(ms).toLocaleString()`.
 - **`<input list=...>`(datalist 자동완성)의 implicit ARIA role은 `textbox`가 아니라 `combobox`** (Header/Form 벌크): aria-query 5.x에서 `getByRole("textbox")`/`getAllByRole("textbox")`가 그 입력을 못 잡는다. datalist key 입력 + 일반 value 입력이 한 행에 섞이면 `getAllByRole("combobox")`+`getAllByRole("textbox")` 합집합으로 단언(구체 사례: `KeyValueGrid` — 폼·입력 UX 섹션).
 
 ## 시나리오 에디터 test-run 패널 (C-2, `TestRunPanel`)
