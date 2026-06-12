@@ -49,6 +49,8 @@ describe("ValidationBanner", () => {
 
     // stale 모델 기준 스텝 선택은 거짓 정보 — 스텝 문제 버튼이 없어야 한다 (spec §5.4)
     expect(screen.queryByRole("button", { name: /"ping"/ })).not.toBeInTheDocument();
+    // 게이트 행 자체도 비클릭 — 배너의 유일한 버튼은 "YAML 탭에서 확인"이어야 한다
+    expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByText(ko.editor.gateRequired("steps.0.request.url"))).toBeInTheDocument();
     expect(screen.getByText(ko.editor.problemGateIntro)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: ko.editor.problemGateAction }));
