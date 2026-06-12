@@ -33,7 +33,8 @@ const TPL_SUMMARY = {
   description: "로그인",
   step_count: 1,
   created_at: 0,
-  updated_at: 0,
+  // 2025-12-12 근방 (epoch ms) — Fix 1: *1000 버그 검증용 실제 ms 값
+  updated_at: 1765500000000,
 };
 
 // 야생 비-ULID id — 삽입 경로가 재발급하므로 그대로 통과해야 한다 (spec §5.2 순서 락인)
@@ -68,6 +69,11 @@ describe("InsertTemplateModal", () => {
     // 설명/스텝 수는 한 <p>의 joined 텍스트("스텝 1개 · 로그인 · <날짜>") — 정규식 매처 필수
     expect(screen.getByText(/로그인/)).toBeInTheDocument();
     expect(screen.getByText(/스텝 1개/)).toBeInTheDocument();
+    // Fix 1: updated_at ms 정상 변환 확인 — toLocaleString 결과에 연도가 포함되어야 한다
+    // (2025-12-12 근방, *1000이면 56379년이 나옴)
+    expect(
+      screen.getByText((content) => content.includes("2025") || content.includes("2026")),
+    ).toBeInTheDocument();
   });
 
   it("삽입: 야생 id도 재발급 경유로 성공, 새 스텝 선택 + onClose", async () => {
@@ -97,12 +103,20 @@ describe("InsertTemplateModal", () => {
     expect(useScenarioEditor.getState().model?.steps).toHaveLength(1);
   });
 
+  it("list fetch 실패 시 에러 배너 표시 + 빈 목록 문구 미표시 (Fix 2)", async () => {
+    vi.mocked(listStepTemplates).mockRejectedValue(new Error("network down"));
+    mount();
+    expect(await screen.findByRole("alert")).toHaveTextContent("network down");
+    expect(screen.queryByText(/저장된 템플릿이 없습니다/)).not.toBeInTheDocument();
+  });
+
   it("삭제: confirm 후 deleteStepTemplate 호출", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mount();
     await user.click(await screen.findByRole("button", { name: "삭제" }));
     await waitFor(() => expect(deleteStepTemplate).toHaveBeenCalledWith("T1"));
+    confirmSpy.mockRestore(); // Fix 3: spy 복원
   });
 
   it("삭제된 템플릿 삽입(GET 404)은 에러 표시 + 목록 갱신 + 미삽입 (spec §6)", async () => {

@@ -67,7 +67,13 @@ export function InsertTemplateModal({ onClose }: Props) {
 
         {list.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
 
-        {!list.isLoading && templates.length === 0 && (
+        {list.error && (
+          <p role="alert" className="text-sm text-red-600">
+            {(list.error as Error).message}
+          </p>
+        )}
+
+        {!list.isLoading && !list.error && templates.length === 0 && (
           <p className="text-sm text-slate-500">{ko.stepTemplates.empty}</p>
         )}
 
@@ -84,15 +90,11 @@ export function InsertTemplateModal({ onClose }: Props) {
                     {ko.stepTemplates.stepCount(tpl.step_count)}
                     {tpl.description ? ` · ${tpl.description}` : ""}
                     {" · "}
-                    {new Date(tpl.updated_at * 1000).toLocaleDateString()}
+                    {new Date(tpl.updated_at).toLocaleString()}
                   </p>
                 </div>
                 <div className="ml-2 flex shrink-0 gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => void handleInsert(tpl.id)}
-                    disabled={inserting}
-                  >
+                  <Button onClick={() => void handleInsert(tpl.id)} disabled={inserting}>
                     {ko.stepTemplates.insertAction}
                   </Button>
                   <Button
