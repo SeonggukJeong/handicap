@@ -1,12 +1,55 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use handicap_engine::Scenario;
+use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::store::scenarios;
+
+/// Parallel branch names are the `(step_id, branch)` metric key of
+/// `run_group_metrics`: an empty name aliases the branch's samples into the
+/// page row (branch="" is the page key — silent count/distribution
+/// contamination) and duplicate names silently merge into one BranchLatency
+/// row. Mirrors the UI Zod gate exactly (`min(1)` — no trim — plus
+/// exact-match uniqueness) so UI-authored scenarios can never be rejected
+/// here. Recurses because the engine model allows free nesting even though
+/// the UI gate keeps parallel top-level.
+fn validate_parallel_branch_names(steps: &[Step]) -> Result<(), String> {
+    for step in steps {
+        match step {
+            Step::Http(_) => {}
+            Step::Loop(l) => validate_parallel_branch_names(&l.do_)?,
+            Step::If(i) => {
+                validate_parallel_branch_names(&i.then_)?;
+                for e in &i.elif {
+                    validate_parallel_branch_names(&e.then_)?;
+                }
+                validate_parallel_branch_names(&i.else_)?;
+            }
+            Step::Parallel(p) => {
+                let mut seen = std::collections::HashSet::new();
+                for b in &p.branches {
+                    if b.name.is_empty() {
+                        return Err(format!(
+                            "parallel step \"{}\": branch name required",
+                            p.name
+                        ));
+                    }
+                    if !seen.insert(b.name.as_str()) {
+                        return Err(format!(
+                            "parallel step \"{}\": duplicate branch name \"{}\"",
+                            p.name, b.name
+                        ));
+                    }
+                    validate_parallel_branch_names(&b.steps)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
@@ -28,6 +71,7 @@ pub async fn create(
     Json(body): Json<CreateRequest>,
 ) -> Result<(StatusCode, Json<ScenarioResponse>), ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
+    validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
     let row = scenarios::insert(&state.db, &parsed, &body.yaml).await?;
     Ok((
         StatusCode::CREATED,
@@ -93,6 +137,7 @@ pub async fn update(
     Json(body): Json<UpdateRequest>,
 ) -> Result<Json<ScenarioResponse>, ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
+    validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
     let outcome = scenarios::update(&state.db, &id, &parsed.name, &body.yaml, body.version).await?;
     match outcome {
         scenarios::UpdateOutcome::Updated(row) => Ok(Json(ScenarioResponse {
