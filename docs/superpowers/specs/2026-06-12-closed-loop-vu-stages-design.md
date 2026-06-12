@@ -22,8 +22,8 @@ closed-loop(VU 기반) run의 VU 수를 **다단계 piecewise-linear 곡선**(`v
 
 ### graceful의 문서화된 주의사항 (의미론이지 버그가 아님)
 
-- 실제 active VU는 곡선보다 최대 **1 iteration 길이**만큼 늦게 내려간다. 최악 지연 = 스텝 수 × http_timeout(+ loop 반복). iteration 길이 > stage 길이면 짧은 dip은 뭉개진다.
-- 완화: retire 체크를 iteration 종료 직후·**think-time pacing 이전**에 수행 — think time이 지연에 가산되지 않는다.
+- 실제 active VU는 곡선보다 최대 **1 iteration 길이**만큼 늦게 내려간다. 최악 지연 = 스텝 수 × http_timeout(+ loop 반복 + **진행 중이던 think-time sleep** — graceful은 토큰을 안 자르므로 pacing 도중 하강하면 sleep을 마저 잔 뒤 park, 단 그동안 요청은 안 나가므로 부하 곡선엔 무영향). iteration 길이 > stage 길이면 짧은 dip은 뭉개진다.
+- 완화: retire 체크를 iteration 종료 직후·**think-time pacing 이전**에 수행 — gate 시점 하강이면 think time이 지연에 가산되지 않는다.
 - run 전체 종료(deadline)는 기존 의미론 유지(스텝 경계 즉시 중단) — graceful은 곡선 중간 ramp-down에만 적용.
 - `immediate`는 지연 상한이 "진행 중 요청 1개"(최대 http_timeout)로 줄어든다. immediate로 중단된 iteration의 나머지 스텝은 실행되지 않는다(부분 iteration — 기존 deadline 의미론과 같은 부류). retire 중단은 에러/abort 메트릭에 집계되지 않는다.
 
@@ -77,13 +77,14 @@ profile:
 
 ### 3.3 판별 사이트 (S-D "직접 분기 금지" 함정 연장)
 
-`is_open_loop()` 판별 3 사이트(create 워커 수·per_vu slot_count·unique 워커 수)에 curve 분기 추가:
+`is_open_loop()` 판별 사이트에 curve 분기 추가 — **4 사이트** (리뷰에서 enqueue 누락 발견):
 
-- **워커 수**: `is_vu_curve() → N=1 고정` (검증 ⑦이 capacity 이내를 보장).
-- **per_vu slot_count**(데이터 바인딩 row 요구치): curve = `max(stage.target)` (closed 고정의 `vus`에 대응).
+- **워커 수**(create): `is_vu_curve() → N=1 고정` (검증 ⑦이 capacity 이내를 보장).
+- **per_vu slot_count**(데이터 바인딩 row 요구치): curve = `max(stage.target)` (closed 고정의 `vus`에 대응 — `vus=0`을 그대로 쓰면 row_count 0 = 언바운드 부하).
 - **unique row_count ≥ N**: N=1이라 기존 로직 통과.
+- **`spawn_run`의 `enqueue(run_id, assignment, n, total_vus)`**: curve면 `total_vus = max(stage.target)` — `profile.vus`(=0) 그대로 넘기면 register 시 `shard_split(0,…)`이 `vu_count=0`을 만들어 §5의 와이어 약속과 모순.
 
-새 판별이 필요한 코드는 `is_vu_curve()`만 사용 — `vu_stages.is_some()` 직접 분기 금지(`Some(vec![])` 오분류).
+새 판별이 필요한 코드는 `is_vu_curve()`만 사용 — `vu_stages.is_some()` 직접 분기 금지(`Some(vec![])` 오분류). vu_stages+target_rps 동시 지정의 에러 메시지는 curve 분기가 먼저라 항상 ①이 권위(테스트가 메시지를 단언하면 이 순서가 계약).
 
 ## 4. 엔진 실행 모델
 
@@ -97,9 +98,10 @@ profile:
 
 - `max_vus = max(stage.target)` (검증이 ≥1 보장).
 - `tokio::sync::watch::channel::<u32>(0)`으로 "목표 active VU 수" 배포.
-- **슈퍼바이저 루프**(메인 태스크 inline 또는 별도 spawn): 250ms 틱마다 `desired = round(rate_at(vu_stages, elapsed)).clamp(0, max_vus)` 계산·send. S-D `rate_at`는 stage-generic 순수 함수라 **그대로 재사용**(open-loop의 "`next` 기준 평가" 함정은 arrival 예약 문제 — wall-clock `elapsed` 기준이면 충분).
+- **슈퍼바이저는 메인 태스크 inline** (`run_scenario`의 spawn 루프 위치 미러 — 별도 spawn 금지): 250ms 틱마다 deadline까지 `desired = round(rate_at(vu_stages, elapsed)).clamp(0, max_vus)` 계산·send하고, **deadline 도달 후에야 `set.join_next()` 루프로 진입**한다. 곡선이 0에서 시작 + lazy spawn이라 초반에 JoinSet이 비는데, 메인이 곧장 join을 돌리면 빈 JoinSet의 `None`으로 run이 t≈0에 "완료"되는 hazard — 이 구조 고정이 그 봉쇄다. S-D `rate_at`는 stage-generic 순수 함수라 **그대로 재사용**(open-loop의 "`next` 기준 평가" 함정은 arrival 예약 문제 — wall-clock `elapsed` 기준이면 충분).
 - **lazy spawn**: `desired > spawned`가 처음 될 때 인덱스 `spawned..desired` VU 태스크 spawn (`vu_id = vu_offset + i`). 곡선이 안 닿는 인덱스는 영영 안 뜬다.
-- **활성화 토큰(두 모드 공통)**: VU는 활성화마다 `cancel.child_token()`을 발급해 공유 슬랩 `Mutex<Vec<Option<CancellationToken>>>`(인덱스 = VU)에 등록하고, park 진입 시 해제한다. iteration 실행·pacing은 항상 이 child 토큰을 받는다 — run-abort는 parent 전파로 자동(모드 분기 없는 단일 VU 루프). 슈퍼바이저의 desired 하강 시 인덱스 `>= desired` 토큰 취소는 **immediate 모드에서만** 수행(graceful은 watch 값만 내림).
+- **활성화 토큰(두 모드 공통)**: VU는 활성화마다 `cancel.child_token()`을 발급해 공유 슬랩 `Mutex<Vec<Option<CancellationToken>>>`(인덱스 = VU)에 등록하고, park 진입 시 해제한다. iteration 실행·pacing은 항상 이 child 토큰을 받는다 — run-abort는 parent 전파로 자동(모드 분기 없는 단일 VU 루프).
+- **immediate 취소는 매 tick idempotent 재취소**: 슈퍼바이저는 immediate 모드에서 하강 에지 1회가 아니라 **매 tick마다 인덱스 `>= desired`의 등록 토큰 전부를 취소**한다(이미 취소된 토큰 재취소는 무해). 에지-1회 방식은 "VU가 watch에서 깨어남 → 슬랩 등록" 사이에 에지가 끼면 취소가 허공에 가서 그 VU가 무취소로 한 iteration 전체를 도는 race가 있다 — 매 tick 재취소로 지연 상한이 250ms+스텝 경계로 닫힌다. graceful은 watch 값만 내림(토큰 안 자름).
 
 ### 4.3 VU 태스크 루프 (인덱스 `i`)
 
@@ -107,8 +109,8 @@ profile:
 VuClient 1회 생성 (cookie jar — park를 넘어 지속)
 per-VU rng/iter_id 카운터 (park를 넘어 단조 지속)
 loop {
-    // park: desired > i 될 때까지 watch 대기.
-    //       run-cancel 또는 deadline 도달 → 태스크 종료.
+    // park: 3-way select — ① watch 변경(desired > i 대기, watch::Receiver::wait_for류)
+    //       ② run-cancel ③ sleep_until(deadline). ②/③ → 태스크 종료.
     // 활성화: child 토큰 발급·슬랩 등록 (두 모드 공통, §4.2)
     // 1 iteration 실행 — run_vu 본문의 의도된 복제 (§4.4)
     //   Aborted 발생 시: cancel.is_cancelled()(run-level)면 run-abort → 종료
@@ -121,7 +123,7 @@ loop {
 
 - **iteration 본문 = `run_vu` 본문의 의도된 복제** (S-C `run_arrival` 선례): dataset row select(`select_index(vu_id, iter_id, …)`), iter_vars 셋업, `execute_steps`, flow 처리, think-time pacing. 양쪽에 lockstep 주석(`execute_step`/`execute_step_traced` 선례). `run_vu`에서 추출 공유하지 않는 이유 = hot path byte-identical 구조 보장 우선(plan 단계에서 추출 가능성 재검토는 허용하되 기본은 복제).
 - `iter_id`는 VU-local 단조 — park를 넘어 리셋 없이 지속. `IterSequential | Unique` 공유 `seq_counter`는 `run_scenario`와 동일 패턴. Unique 소진(`None`) → VU 깨끗한 영구 종료(기존 의미론).
-- **실패 의미론 미러**: 진짜 `EngineError`(비-abort) → `warn!` + `failed`++ + VU 영구 사망(재spawn 없음). `failed >= max_vus` → `AllVusFailed`. 일부만 사망 시 partial-failure `info!`(기존 미러). 사망 VU의 인덱스 구멍은 메우지 않는다(곡선 대비 부족분은 partial-failure 로그가 신호).
+- **실패 의미론**: 진짜 `EngineError`(비-abort) → `warn!` + `failed`++ + VU 영구 사망(재spawn 없음). **`AllVusFailed` 기준은 `spawned > 0 && failed >= spawned`**(`max_vus` 기준이 아님 — 250ms 샘플링·round 때문에 desired가 정점에 영영 안 닿아 `spawned < max_vus`일 수 있고, 그때 spawn된 전원이 죽어도 미트리거되는 갭 회피). 일부만 사망 시 partial-failure `info!`(기존 미러). 사망 VU의 인덱스 구멍은 메우지 않는다(곡선 대비 부족분은 partial-failure 로그가 신호). **주의: "retire-abort는 failed 미집계"는 기존 `run_scenario`와 다른 신규 의미론** — 기존은 Aborted도 `failed`++한다(run-abort 후 어차피 `Err(Aborted)` 반환이라 무해) — lockstep 주석에 이 비대칭을 명시.
 - **deadline** = `plan.duration`(워커가 `sum(vu_stages[].duration_seconds)` 계산·전달, S-D 미러). deadline 도달 시 기존 의미론(스텝 경계 중단, park 중이면 즉시 종료).
 
 ### 4.4 플러셔 / 메트릭
@@ -132,7 +134,7 @@ loop {
 
 ## 5. 컨트롤러 · proto · 워커
 
-- **proto** (`handicap.proto` Profile): `repeated Stage vu_stages = 12; bool ramp_down_immediate = 13;` — 기존 `Stage` 메시지 재사용, bool absent=false=graceful. **prost exhaustive**: `Profile {` struct 리터럴 전 사이트 grep(컨트롤러 dispatch·워커·proto 테스트) + S-D에서 이미 `Copy` 상실이라 추가 `.clone()` 불요.
+- **proto** (`crates/proto/proto/coordinator.proto`의 `Profile`): `repeated Stage vu_stages = 12; bool ramp_down_immediate = 13;` — 기존 `Stage` 메시지 재사용, bool absent=false=graceful. **prost exhaustive**: proto `Profile {` 리터럴 전 사이트 grep(컨트롤러 dispatch·워커·proto 테스트) + S-D에서 이미 `Copy` 상실이라 추가 `.clone()` 불요. **store `Profile`(Default 미파생) 리터럴도 ~15곳**(api/runs.rs 인라인 테스트·report.rs·coordinator.rs·schedule/runner.rs·crash_recovery/dispatcher_subprocess/report_test/export_routes_test) + **엔진 `RunPlan` 리터럴 ~34곳/18파일** — 전부 컴파일러가 잡지만 plan 공수 산정에 명시.
 - **컨트롤러 dispatch**: `Option<RampDown>` → `ramp_down_immediate: matches!(ramp_down, Some(Immediate))` 매핑, `vu_stages` 그대로 전달. 단일워커라 shard 4필드는 `shard_count=1, vu_offset=0, vu_count=max(stage.target)`.
 - **워커** (`main.rs`): ① `run_duration_secs`에 vu_stages 합산 분기(stages 미러) ② 실행 함수 선택 — `vu_stages` 비어있지 않음 → `run_scenario_vu_curve`, `is_open_loop` 상당 → `run_scenario_open_loop`, 그 외 → `run_scenario` ③ `RunPlan.vu_stages/ramp_down` 채움(bool → 엔진 enum).
 - **store/리포트/인사이트/criteria 평가**: 무변경. verdict·export·비교 경로는 `ReportJson` 무변경이라 자동 호환.
@@ -143,8 +145,10 @@ loop {
 
 - closed 라디오의 eager `setRateMode("fixed")` 리셋 + 곡선 라디오 `disabled` "곧 지원" **제거**(이중 가드 해체 — 모드 선택기 spec의 약속 이행).
 - stage 행 에디터·`StageCurvePreview`·부하-모양 템플릿 4종(점증/스파이크/계단/소크) **재사용** — 렌더 조건을 `rateMode === "curve"` 공통으로 일반화, 라벨만 loadModel 분기("목표 RPS" ↔ "목표 VU", 미리보기 aria/축 라벨 포함).
-- closed+curve에서: `ramp_up`/`duration` 입력 숨김(open+curve 미러 — 총 길이 = stage 합), `target_rps`/`max_in_flight` 숨김(기존 open 전용 유지), think time 입력은 closed 공통이라 그대로 노출.
+- closed+curve에서: `ramp_up`/`duration` 입력 숨김(open+curve 미러 — 총 길이 = stage 합), **`vus` 입력 + 부하 크기 프리셋 chips도 숨김**(vus=0 강제와 모순되는 입력 잔존 금지 — chips의 역할은 stage 템플릿 4종이 대신), `target_rps`/`max_in_flight` 숨김(기존 open 전용 유지), think time 입력은 closed 공통이라 그대로 노출.
+- 주의: stage 에디터·미리보기는 현재 `loadModel === "open"` 분기 **안에** 중첩 — closed+curve 노출은 단순 조건 일반화가 아니라 JSX 재구성(공유 블록 호이스팅)이다. 기존 3모드의 렌더 결과는 불변이어야 한다.
 - **ramp_down 라디오**: closed+curve에서만 노출, 기본 graceful.
+- **ScheduleForm**: `LoadModelFields`/`buildLoadProfile` 공유라 payload는 공짜지만, 제출 게이트(canSubmit)와 막힘 사유에 신규 invalid 플래그 배선은 RunDialog와 **별도로** 필요(plan task에 명시).
 
 ### 6.2 `loadModel.ts`
 
@@ -175,9 +179,10 @@ if (s.loadModel === "closed" && s.rateMode === "curve") {
 
 ### 6.3 Zod / prefill / 표시
 
-- `ProfileSchema.vu_stages: StageSchema.optional()`, `ramp_down: z.enum(["graceful","immediate"]).optional()` (둘 다 skip_serializing_if → absent → `.optional()`; nested `.default()` 누출 금지).
-- **모드 역도출**(prefill·프리셋·"다시 실행"·ScheduleForm 공유 경로): `vu_stages` 비어있지 않음 → `("closed","curve")` + stage 행·rampDown 시드 / `stages` → `("open","curve")` / `target_rps` → `("open","fixed")` / 그 외 → `("closed","fixed")`.
+- `ProfileSchema.vu_stages: z.array(StageSchema).optional()`(기존 `stages` 미러 — 배열 래퍼 필수), `ramp_down: z.enum(["graceful","immediate"]).optional()` (둘 다 skip_serializing_if → absent → `.optional()`; nested `.default()` 누출 금지).
+- **모드 역도출은 순수 헬퍼 `deriveLoadMode(profile)` 추출**: `vu_stages` 비어있지 않음 → `("closed","curve")` + stage 행·rampDown 시드 / `stages` → `("open","curve")` / `target_rps` → `("open","fixed")` / 그 외 → `("closed","fixed")`. 현재 역도출이 **3곳에 중복**(① RunDialog `useState` 초기화 ② RunDialog `loadPreset` imperative setter ③ ScheduleForm `useState` 초기화)이라 한 곳이라도 빠지면 vu_stages 든 프리셋이 closed+fixed로 조용히 로드돼 곡선이 증발 — 헬퍼로 단일화하고 3 사이트 전부 교체.
 - **`profileDurationSeconds`**(runPrefill.ts)에 vu_stages 합산 추가 — 누락 시 곡선 run이 Duration `0s`/Avg RPS `0`으로 표시(S-D follow-up 버그의 미러). `Pick<Profile, …>`에 `vu_stages` 추가.
+- **VU 표시 표면(RunDetailPage VUs 카드·ScenarioRunsPage VUs 열)은 곡선 run에서 `0` 표시를 수용** — open-loop run이 이미 같은 선례(`profile.vus=0`)로 떠 왔고, 곡선의 "VU 수"는 단일 숫자가 아니다. 표시 개선(max 표기 등)은 연기(§9).
 
 ### 6.4 초보자 카피 (영역 U/ADR-0035 연장 — 신규 문구 전부 `ko.ts` 경유)
 
@@ -224,6 +229,7 @@ if (s.loadModel === "closed" && s.rateMode === "curve") {
 - **fresh-spawn 모드**: 재활성화를 새 vu_id·빈 jar로(신규 세션 유입 재현).
 - **VU용 부하-모양 템플릿 별도 스케일**: 현재 RPS용 target 값 공유(모양은 동일, 값은 사용자 수정).
 - **closed-loop 곡선 + criteria `rps_warmup_seconds` 자동 prefill**: 현재 closed 고정만 ramp 기반 prefill — 곡선은 첫 stage 길이 등 휴리스틱 후보.
+- **곡선 run의 VU 표시 개선**(RunDetailPage VUs 카드·run 목록 열): v1은 open-loop 선례대로 `0` 표시 수용 — "최대 N VU (곡선)" 같은 표기 후보.
 
 ## 10. 비목표
 
