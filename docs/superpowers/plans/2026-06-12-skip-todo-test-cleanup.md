@@ -175,6 +175,8 @@ describe("EditorShell", () => {
 ```tsx
 describe("EditorShell", () => {
   beforeEach(() => {
+    // getInitialState는 store.ts의 커스텀 shim(:303) — ui/CLAUDE.md의 "Zustand v5
+    // 미제공" 노트는 shim 도입 전 서술이니 이 호출을 "고치지" 말 것(기존 U3/U4와 동일).
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
   });
 
@@ -470,7 +472,7 @@ Expected: 출력 없음 (exit 1).
 
 ## Self-review 노트 (plan 작성 시점)
 
-- spec §4.1 삭제 9건 → Task 4(yamlDoc-comments 2: #8 fold+#9 중복), Task 5(ScenarioPages 3), Task 6(flowVars 2+useRunReport 3) = 9. ✓
+- spec §4.1 삭제 9건 → Task 4에서 1(#9 object/primitive 중복 — #8은 구현으로 fold), Task 5에서 3(ScenarioPages), Task 6에서 5(flowVars 2+useRunReport 3) = 9. ✓
 - spec §4.2 구현 9건 → Task 1(2)+Task 2(2)+Task 3(3)+Task 4(1)+Task 5(1) = 9. ✓
 - spec §5 게이트 전부 Task 7에 반영(lint/test/build + todo-0 + 파이프 마스킹 회피). §6 마무리는 finish-slice로 위임.
 - 타입 일관성: `nodeProps`/`HttpNode`는 Task 2 안에서만 사용, `putBody`는 Task 5 안에서만 — cross-task 참조 없음.
