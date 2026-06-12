@@ -190,30 +190,6 @@ export const ko = {
     testRunNowHelpLabel: "미리 1회 실행 설명",
     testRunNowHelp: "저장 없이 현재 내용으로 실제 요청 1회를 보내 확인합니다.",
   },
-  stepTemplates: {
-    // ── 진입점 (에디터 헤더, 두 페이지) ──
-    saveButton: "템플릿으로 저장",
-    insertButton: "템플릿 삽입",
-    gateTooltip: "시나리오 문제를 해결해야 템플릿 기능을 쓸 수 있습니다.",
-    // ── 저장 다이얼로그 ──
-    saveTitle: "스텝 템플릿으로 저장",
-    nameLabel: "이름",
-    descriptionLabel: "설명 (선택)",
-    stepsLegend: "담을 스텝",
-    saveAction: "저장",
-    saving: "저장 중…",
-    overwriteConfirm: (name: string) => `"${name}" 이름의 템플릿이 이미 있습니다. 덮어쓸까요?`,
-    overwriteAction: "덮어쓰기",
-    cancel: "취소",
-    // ── 삽입 모달 ──
-    insertTitle: "스텝 템플릿 삽입",
-    empty: '저장된 템플릿이 없습니다. 에디터 헤더의 "템플릿으로 저장"으로 만드세요.',
-    insertAction: "삽입",
-    deleteAction: "삭제",
-    deleteConfirm: (name: string) => `템플릿 "${name}"을(를) 삭제할까요?`,
-    incompatible: "이 템플릿은 에디터 규칙과 호환되지 않습니다",
-    stepCount: (n: number) => `스텝 ${n}개`,
-  },
   templates: {
     galleryAria: "시나리오 템플릿 선택",
     galleryTitle: "어떤 시나리오로 시작할까요?",
@@ -227,6 +203,32 @@ export const ko = {
     dataName: "데이터 기반",
     dataDesc:
       "CSV 데이터셋의 행을 {{변수}}로 주입하는 폼 전송 — 실행 시 데이터 바인딩과 함께 씁니다.",
+  },
+  stepTemplates: {
+    // ── 진입점 (에디터 헤더, 두 페이지) ──
+    saveButton: "템플릿으로 저장",
+    insertButton: "템플릿 삽입",
+    gateTooltip: "시나리오 문제를 해결해야 템플릿 기능을 쓸 수 있습니다.",
+    // ── 저장 다이얼로그 ──
+    saveTitle: "스텝 템플릿으로 저장",
+    nameLabel: "이름",
+    namePlaceholder: "템플릿 이름",
+    descriptionLabel: "설명 (선택)",
+    stepsLegend: "담을 스텝",
+    unnamedStep: (n: number) => `스텝 ${n}`,
+    saveAction: "저장",
+    saving: "저장 중…",
+    overwriteConfirm: (name: string) => `"${name}" 이름의 템플릿이 이미 있습니다. 덮어쓸까요?`,
+    overwriteAction: "덮어쓰기",
+    cancel: "취소",
+    // ── 삽입 모달 ──
+    insertTitle: "스텝 템플릿 삽입",
+    empty: '저장된 템플릿이 없습니다. 에디터 헤더의 "템플릿으로 저장"으로 만드세요.',
+    insertAction: "삽입",
+    deleteAction: "삭제",
+    deleteConfirm: (name: string) => `템플릿 "${name}"을(를) 삭제할까요?`,
+    incompatible: "이 템플릿은 에디터 규칙과 호환되지 않습니다",
+    stepCount: (n: number) => `스텝 ${n}개`,
   },
   report: {
     // §7.1 쉬운 요약 — 매개변수 문구는 함수 상수(spec §2.1). 숫자는 호출부에서

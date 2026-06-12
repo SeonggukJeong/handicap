@@ -38,6 +38,8 @@ export function SaveTemplateDialog({ onClose }: Props) {
   const [conflictId, setConflictId] = useState<string | null>(null);
   // conflict 감지 당시의 이름 — 이름이 바뀌면 conflict 무효화
   const [conflictName, setConflictName] = useState<string | null>(null);
+  // 비-conflict 에러 메시지 (네트워크 실패, conflictId null인 409 등)
+  const [error, setError] = useState<string | null>(null);
 
   const createMutation = useCreateStepTemplate();
   const updateMutation = useUpdateStepTemplate();
@@ -69,6 +71,7 @@ export function SaveTemplateDialog({ onClose }: Props) {
     const stepsYaml = buildStepsYaml();
     const input = { name: trimmedName, description: description.trim(), steps_yaml: stepsYaml };
 
+    setError(null);
     try {
       if (conflictId !== null) {
         // 덮어쓰기 경로
@@ -77,13 +80,14 @@ export function SaveTemplateDialog({ onClose }: Props) {
         await createMutation.mutateAsync(input);
       }
       onClose();
-    } catch (err) {
-      if (err instanceof StepTemplateConflictError && err.conflictId !== null) {
-        setConflictId(err.conflictId);
+    } catch (e) {
+      if (e instanceof StepTemplateConflictError && e.conflictId !== null) {
+        setConflictId(e.conflictId);
         setConflictName(trimmedName);
+        return;
       }
-      // conflictId가 null인 plain 409나 기타 에러는 현재 무시
-      // (overwrite confirm은 conflictId 있을 때만 가능)
+      setConflictId(null);
+      setError((e as Error).message);
     }
   };
 
@@ -91,7 +95,7 @@ export function SaveTemplateDialog({ onClose }: Props) {
 
   const stepLabel = (i: number): string => {
     const s = steps[i];
-    if (!s) return `스텝 ${i + 1}`;
+    if (!s) return ko.stepTemplates.unnamedStep(i + 1);
     return `${s.name} (${s.type})`;
   };
 
@@ -109,7 +113,7 @@ export function SaveTemplateDialog({ onClose }: Props) {
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
             className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-            placeholder="템플릿 이름"
+            placeholder={ko.stepTemplates.namePlaceholder}
           />
         </div>
 
@@ -152,6 +156,13 @@ export function SaveTemplateDialog({ onClose }: Props) {
         {showOverwriteConfirm && (
           <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
             {ko.stepTemplates.overwriteConfirm(conflictName ?? name.trim())}
+          </p>
+        )}
+
+        {/* 비-conflict 에러 배너 */}
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
           </p>
         )}
 

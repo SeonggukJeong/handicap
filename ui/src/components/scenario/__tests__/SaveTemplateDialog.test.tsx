@@ -183,6 +183,22 @@ describe("SaveTemplateDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("비-conflict 에러 → 에러 배너 표시, onClose 미호출", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(TWO_STEP_YAML);
+    const onClose = vi.fn();
+    mutateAsyncCreate.mockRejectedValueOnce(new Error("steps parse: bad"));
+
+    render(<SaveTemplateDialog onClose={onClose} />);
+
+    await user.type(screen.getByLabelText(ko.stepTemplates.nameLabel), "my-template");
+    await user.click(screen.getByRole("button", { name: ko.stepTemplates.saveAction }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("steps parse: bad");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("이름 변경 시 conflict 무효화 (overwrite confirm 사라짐)", async () => {
     const user = userEvent.setup();
     useScenarioEditor.getState().loadFromString(TWO_STEP_YAML);
