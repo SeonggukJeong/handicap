@@ -11,11 +11,12 @@ disable-model-invocation: true
 ## 1) 작업 후보 제시
 `docs/roadmap.md`(post-MVP1 단일 진입점) + 메모리 `MEMORY.md`(🎯/🔄 = 예정·진행 중)를 읽고 후보 2–3개를 근거(가치·의존성·크기)와 함께 표로 제시 → `AskUserQuestion`으로 선택받기.
 
-**준비 상태 판정은 파일 실존으로** (메모리·roadmap 서술이 서로 어긋날 수 있다): `docs/superpowers/specs/`·`docs/superpowers/plans/`에 해당 작업의 문서가 실제로 있는지 `ls`로 확인하고, 있으면 그 작업을 "spec/plan ready" 1순위 후보로 표기.
+**준비 상태 판정은 파일 실존으로** (메모리·roadmap 서술이 서로 어긋날 수 있다): `docs/superpowers/specs/`·`docs/superpowers/plans/`에 해당 작업의 문서가 실제로 있는지 `ls`로 확인하고, 있으면 그 작업을 "spec/plan ready" 1순위 후보로 표기. **기존 워크트리도 확인**: 이전 세션이 spec/plan만 쓰고 STOP했으면(§4) 문서가 워크트리 브랜치에만 있다 — `ls .claude/worktrees/*/docs/superpowers/specs/ .claude/worktrees/*/docs/superpowers/plans/`까지 봐야 ready 판정이 정확하다.
 
 ## 2) worktree 생성·진입
 - `.claude/settings.local.json`의 **top-level** `"worktree": {"baseRef": "head"}` 확인 — **없으면 추가** (remote 미설정이라 기본 `fresh`=`origin/<default>`가 실패).
-- `EnterWorktree`로 `.claude/worktrees/<작업-slug>` 생성·진입 (master 최신 HEAD에서 분기).
+- 해당 작업의 워크트리가 **이미 있으면**(이전 세션이 spec/plan 작성 후 STOP) 새로 만들지 말고 `EnterWorktree(path: .claude/worktrees/<기존-slug>)`로 재진입.
+- 없으면 `EnterWorktree`로 `.claude/worktrees/<작업-slug>` 생성·진입 (master 최신 HEAD에서 분기).
 
 ## 3) baseline 빌드 — subagent 띄우기 전 필수
 ```bash
@@ -24,7 +25,8 @@ cargo build --workspace          # UI-only 슬라이스여도 필수: pre-commit
 ```
 
 ## 4) 설계 핸드오프 — spec/plan 파일 실존 기준으로 분기
-- spec **과** plan 둘 다 있음 → `superpowers:subagent-driven-development`로 곧장 구현.
+- spec **과** plan 둘 다 **세션 시작 시점부터 있음** → `superpowers:subagent-driven-development`로 곧장 구현.
 - spec만 있음(또는 상위 spec §가 이 슬라이스를 이미 정의 — 예: 영역 U의 spec §8) → `superpowers:writing-plans`부터.
 - 둘 다 없음 → `superpowers:brainstorming`부터. 이후 spec → `spec-plan-reviewer` 검토 → 반영 루프 → plan → 같은 루프.
+- **STOP 게이트 — 이 세션에서 spec/plan을 새로 썼다면 구현으로 자동 진입 금지.** plan까지 reviewer 승인이 끝나면: ① spec/plan을 워크트리 브랜치에 커밋(docs-only라 pre-commit fast-path로 수초), ② 사용자에게 "`/clear` 후 `/start-slice` 재실행 → spec/plan ready 경로로 구현 진입"을 안내하고 **턴 종료**. spec/plan 작성으로 비대해진 컨텍스트를 그대로 끌고 구현에 들어가지 않는다 — 구현은 항상 fresh 컨텍스트에서 시작. ("곧장 구현" 분기는 위 첫 줄처럼 세션 시작 시점에 파일이 이미 존재했던 경우만.)
 - **내(orchestrator)가** 이후 띄우는 모든 subagent prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>`을 직접 써 넣는다(CLAUDE.md Subagent dispatch 노하우 — subagent 스킬이 대신 해주지 않는다).
