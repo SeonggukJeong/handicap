@@ -73,6 +73,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **Zustand v5는 getInitialState 미제공** (Slice 3): 테스트에서 store를 reset하려면 직접 INITIAL 객체를 보관하고 setState로 덮어쓰는 헬퍼가 필요. 액션 ref는 v5에서 stable하므로 모듈 로드 시 한 번만 `getState()`로 캡쳐.
 - **`removeStep`은 selection clear가 dispatch보다 먼저** (Slice 3): 순서를 반대로 하면 subscriber가 잠깐 "삭제된 step을 가리키는 selectedStepId" 상태를 본다 → Inspector가 stale step을 deref. store action에서 `if (get().selectedStepId === stepId) set({ selectedStepId: null })`를 dispatch보다 먼저 호출.
 - **`@testing-library/react` + Zustand의 store reset 패턴** (Slice 4): 각 `it` 전에 `useScenarioEditor.setState(useScenarioEditor.getInitialState())`로 초기화. RTL는 React 트리만 재마운트하므로 모듈 스코프 store는 직접 비워야 한다.
+- **셀렉터의 인라인 `?? {}`/`?? []` fallback 금지 — 모듈 스코프 안정 상수로** (getSnapshot fix 2026-06-12): `useScenarioEditor((s) => s.model?.steps ?? [])`는 model=null 동안(EditorShell pre-load 윈도) 매 스냅샷 새 객체 → React "getSnapshot should be cached" 경고, **단독 마운트면 Maximum update depth 크래시**(VariablesPanel 핀 테스트가 재현). `EMPTY_STEPS`/`EMPTY_VARS` 모듈 상수 사용. **이 경고는 react-dom 모듈 수명당 1회(warn-once)** — 콘솔 스파이 핀 테스트는 그 파일의 *첫* 마운트여야 결정적(EditorShell.test.tsx 첫 it 주석 참고). 렌더 본문의 일반 파생(`data?.x ?? []`)은 무관 — 셀렉터(getSnapshot) 안만 해당.
 
 ## API client / React Query / fetch
 
