@@ -183,4 +183,18 @@ describe("formatGateMessages — Zod 원문 → 한국어 매핑 + fallback", ()
       formatGateMessages("a: Required; Nested mappings are not allowed in compact mappings"),
     ).toEqual([ko.editor.gateRequired("a"), "Nested mappings are not allowed in compact mappings"]);
   });
+
+  it("실제 Zod 에러(parseScenarioDoc 경유)도 매핑된다 — zod 버전 드리프트 가드", () => {
+    // 손으로 쓴 메시지 문자열이 아니라 진짜 Zod가 만든 에러로 매핑을 고정 —
+    // zod 마이너 범프로 메시지 문구가 바뀌면 이 테스트만 빨개진다(조용한 영어 fallback 강등 방지).
+    const parsed = parseScenarioDoc(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: ping
+`);
+    if (!("error" in parsed)) throw new Error("fixture must fail to parse");
+    expect(formatGateMessages(parsed.error)).toContain(ko.editor.gateRequired("steps.0.request"));
+  });
 });
