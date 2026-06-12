@@ -5,6 +5,7 @@ pub mod presets;
 pub mod runs;
 pub mod scenarios;
 pub mod schedules;
+pub mod step_templates;
 
 use std::path::Path;
 use std::str::FromStr;
@@ -33,6 +34,7 @@ const MIGRATION_SQL_0007: &str = include_str!("migrations/0007_environments.sql"
 const MIGRATION_SQL_0010: &str = include_str!("migrations/0010_run_group_metrics.sql");
 const MIGRATION_SQL_0011: &str = include_str!("migrations/0011_schedules.sql");
 const MIGRATION_SQL_0013: &str = include_str!("migrations/0013_run_phase_metrics.sql");
+const MIGRATION_SQL_0015: &str = include_str!("migrations/0015_step_templates.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -68,6 +70,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_runs_verdict_json(&pool).await?; // migration 0012 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0013).execute(&pool).await?; // migration 0013: run_phase_metrics
     ensure_run_group_metrics_branch(&pool).await?; // migration 0014 (Rust-guarded; see fn)
+    sqlx::query(MIGRATION_SQL_0015).execute(&pool).await?; // migration 0015: step_templates
     Ok(pool)
 }
 
