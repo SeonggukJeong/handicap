@@ -15,6 +15,7 @@
 - **axum 기본 body limit 2MB가 multipart 업로드를 막는다** (Slice 8b, 실제 버그): `DefaultBodyLimit`는 모든 라우트에 2MB 기본 상한을 적용하고 `Multipart`/`field.bytes()`도 그 대상이다. 데이터셋은 쉽게 2MB를 넘으므로 업로드/preview **POST 라우트에만** `.layer(DefaultBodyLimit::max(N))`로 상한을 올린다(전역 변경 금지 — `/runs`·`/scenarios`는 작은 JSON이라 기본 유지). axum 0.8에선 초과 시 413이 아니라 **400**으로 떨어진다.
 - **axum `multipart`는 별도 feature** (Slice 8b): 워크스페이스 `axum` 줄에 `"multipart"`를 넣어야 `axum::extract::Multipart`가 쓰인다. per-crate feature 가산 병합이 안 되므로 워크스페이스 dependency 줄을 고쳐야 한다.
 - **`ApiError::Unprocessable`(422)는 test-run 엔드포인트 전용** (C-1): `POST /api/test-runs`의 의미 검증(시나리오 YAML 파싱 실패·`max_requests` 범위)만 422를 쓴다 — axum `Json` 추출기가 이 엔드포인트에 이미 422(틀린 필드 타입)를 내므로 핸들러도 422로 맞춰 엔드포인트 내부를 일관시킨 것. **레거시 엔드포인트(runs/presets/environments/datasets)는 400(`BadRequest`) 유지** — 의도된 분기다. `from_yaml` 에러는 `?`(→`ApiError::Scenario`→400)에 기대지 말고 명시 `map_err(|e| ApiError::Unprocessable(...))`로 매핑.
+- **시나리오 create/update는 파싱 외 의미 검증 1건이 있다 — parallel 분기명(빈/중복) 400 거부** (2026-06-12 단독 fix): "strict 검증은 UI Zod만"(engine CLAUDE.md) 스탠스의 의도된 예외 — 빈 분기명은 `run_group_metrics` **페이지 행(branch="")으로 alias돼 리포트를 silent 오염**하므로 단순 관대함이 아니라 데이터 정합 문제다. `api/scenarios.rs::validate_parallel_branch_names`가 UI Zod와 1:1 의미론(min(1) no-trim + 정확일치 유니크 — 더 엄격하게 만들면 UI-생성 시나리오가 거절되는 비대칭)으로 재귀 walk(자유 중첩 대비). `Step` match가 exhaustive라 새 Step 변형 추가 시 컴파일러가 이 walk 갱신을 강제(insights.rs `collect_unconditional`과 함께 두 번째 시나리오-walk 사이트). 새 시나리오-의미 검증이 필요하면 여기에 추가.
 
 ## 리포트 빌드 (`report.rs`, `build_report`)
 
