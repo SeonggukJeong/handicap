@@ -76,11 +76,14 @@ describe("TestRunSection runNow handle (U4 §5.5)", () => {
     });
   });
 
-  it("isPending 중에는 runNow()가 중복 발사하지 않는다", () => {
+  it("isPending 중에는 runNow()가 중복 발사하지 않는다 — 스크롤(진행 상태 안내)은 그대로 동작", () => {
     isPending = true;
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
     const ref = createRef<TestRunHandle>();
     render(<TestRunSection ref={ref} yamlText={VALID_YAML} />);
     act(() => ref.current!.runNow());
     expect(mutate).not.toHaveBeenCalled();
+    expect(scrollSpy).toHaveBeenCalledTimes(1); // 진행 중에도 섹션으로 데려가 상태를 보여준다
   });
 });
