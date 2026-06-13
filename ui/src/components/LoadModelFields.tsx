@@ -264,11 +264,18 @@ export function LoadModelFields({
         rateMode === "curve" ? (
           <>
             {curveEditor}
-            {/* ramp_down 라디오 — HelpTip은 legend 밖 (U3 accname 오염 방지) */}
-            <fieldset className="mb-3">
-              <legend className="text-sm text-slate-600 mb-1">{ko.loadModel.rampDownLabel}</legend>
-              <HelpTip label="줄이는 방식 설명">{ko.glossary.rampDown}</HelpTip>
-              <div className="flex flex-col gap-1">
+            {/* ramp_down 라디오 — HelpTip은 그룹 라벨 밖 형제 (U3 accname 오염 방지);
+                radiogroup+aria-label로 그룹 접근명 제공(파일 idiom: label+HelpTip 한 행) */}
+            <div className="mb-3">
+              <div className="flex items-center gap-1 mb-1">
+                <span className="text-sm text-slate-600">{ko.loadModel.rampDownLabel}</span>
+                <HelpTip label="줄이는 방식 설명">{ko.glossary.rampDown}</HelpTip>
+              </div>
+              <div
+                role="radiogroup"
+                aria-label={ko.loadModel.rampDownLabel}
+                className="flex flex-col gap-1"
+              >
                 <label className="flex items-center gap-1 text-sm cursor-pointer">
                   <input
                     type="radio"
@@ -290,7 +297,7 @@ export function LoadModelFields({
                   {ko.loadModel.rampDownImmediate}
                 </label>
               </div>
-            </fieldset>
+            </div>
           </>
         ) : (
           <>

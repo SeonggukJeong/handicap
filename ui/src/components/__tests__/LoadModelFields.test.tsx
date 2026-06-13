@@ -132,6 +132,8 @@ describe("LoadModelFields", () => {
     expect(screen.getAllByText("목표 VU").length).toBeGreaterThan(0);
     expect(screen.getByRole("radio", { name: /요청을 마친 뒤 줄이기/ })).toBeChecked();
     expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).not.toBeChecked();
+    // ramp_down 그룹은 radiogroup으로 접근명 제공 (HelpTip은 그룹 라벨 밖 — accname 비오염)
+    expect(screen.getByRole("radiogroup", { name: "줄이는 방식" })).toBeInTheDocument();
     // 비노출 확인
     expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /부하 크기 프리셋/ })).not.toBeInTheDocument();

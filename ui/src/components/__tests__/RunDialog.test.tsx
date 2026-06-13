@@ -945,6 +945,16 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
+  it("closed+curve: Run disabled when all targets are 0 (stagesInvalid 게이트)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    // closed가 기본 — 곡선만 전환 (사용자 수 기준 유지)
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    await user.clear(screen.getByLabelText("stage target 0"));
+    await user.type(screen.getByLabelText("stage target 0"), "0");
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
+  });
+
   it("prefills curve mode from initial.profile.stages", () => {
     renderWithInitial({
       profile: {
@@ -1444,6 +1454,9 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     const body = JSON.parse((call![1] as RequestInit).body as string);
     expect(body.profile.vu_stages).toEqual([{ target: 50, duration_seconds: 30 }]);
     expect(body.profile.ramp_down).toBe("immediate");
+    // 곡선 총 길이 = sum(vu_stages); duration_seconds>0 또는 vus>0 + vu_stages면 서버 400 (controller 불변식)
+    expect(body.profile.duration_seconds).toBe(0);
+    expect(body.profile.vus).toBe(0);
     expect(body.profile.target_rps).toBeUndefined();
     expect(body.profile.max_in_flight).toBeUndefined();
     expect(body.profile.stages).toBeUndefined();
