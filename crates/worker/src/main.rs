@@ -555,6 +555,23 @@ mod tests {
         assert_eq!(run_duration_secs(&p), 7);
         assert!(proto_is_vu_curve(&p));
         assert!(!proto_is_open_loop(&p));
+
+        // Priority tie-break: when both vu_stages and stages are set, the VU curve wins
+        // (run_duration_secs and dispatch both check vu_stages first).
+        let p2 = pb::Profile {
+            vu_stages: p.vu_stages.clone(),
+            stages: vec![pb::Stage {
+                target: 100,
+                duration_seconds: 99,
+            }],
+            ..Default::default()
+        };
+        assert_eq!(run_duration_secs(&p2), 7); // vu_stages sum (3+4), not stages' 99
+        assert!(proto_is_vu_curve(&p2));
+        // proto_is_open_loop = target_rps.is_some() || !stages.is_empty();
+        // stages is non-empty here, so this is true — but dispatch checks is_vu_curve first,
+        // so the VU-curve path wins regardless.
+        assert!(proto_is_open_loop(&p2));
     }
 
     #[test]
