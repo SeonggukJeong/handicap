@@ -32,6 +32,8 @@ describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
     expect(p.max_in_flight).toBeUndefined();
     expect(p.vus).toBe(5);
     expect(p.duration_seconds).toBe(30);
+    expect(p).not.toHaveProperty("vu_stages");
+    expect(p).not.toHaveProperty("ramp_down");
   });
 
   it("closed: think_time은 허용(open만 금지) — 둘 다 채우면 emit", () => {
@@ -52,6 +54,8 @@ describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
     expect(p.target_rps).toBe(100);
     expect(p.max_in_flight).toBe(200);
     expect(p.vus).toBe(0);
+    expect(p).not.toHaveProperty("vu_stages");
+    expect(p).not.toHaveProperty("ramp_down");
   });
 
   it("open+curve: target_rps/think_time 부재, ramp_up===0, duration===0, stages·max_in_flight 존재", () => {
@@ -63,6 +67,8 @@ describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
     expect(p.max_in_flight).toBe(200);
     expect(p.stages).toEqual([{ target: 100, duration_seconds: 30 }]);
     expect(p.vus).toBe(0);
+    expect(p).not.toHaveProperty("vu_stages");
+    expect(p).not.toHaveProperty("ramp_down");
   });
 
   it("closed+curve: vu_stages·think_time 존재, vus===0, duration===0, ramp_up===0, target_rps/max_in_flight/stages 부재", () => {
