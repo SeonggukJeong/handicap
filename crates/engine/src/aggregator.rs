@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::SystemTime;
 
 use hdrhistogram::Histogram;
@@ -34,6 +34,16 @@ pub struct BranchStat {
     pub step_id: String, // the `if` node's id
     pub branch: String,  // "then" | "elif_0".. | "else" | "none"
     pub count: u64,
+}
+
+/// One per-second active-VU gauge sample (ADR-0037 follow-up). `desired` = the VU
+/// curve's commanded count for that second; `actual` = VUs in their active loop at
+/// the sample instant. Run-level (not per-step), curve-only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveVuSample {
+    pub ts_second: i64,
+    pub desired: u32,
+    pub actual: u32,
 }
 
 /// A per-(parallel_step_id, branch) group latency delta since the last drain — branch="" is the
@@ -140,6 +150,9 @@ pub struct Aggregator {
     group_hists: HashMap<(String, String), (Histogram<u64>, u64)>,
     /// per-(step_id, phase) accumulating latency-phase HDR + sample count (B7-C).
     phase_hists: HashMap<(String, String), (Histogram<u64>, u64)>,
+    /// per-second active-VU gauge samples (curve only): ts_second -> (desired, actual).
+    /// One entry per second; BTreeMap keeps drain order by ts_second.
+    active_vu: BTreeMap<i64, (u32, u32)>,
 }
 
 impl Aggregator {
@@ -151,6 +164,7 @@ impl Aggregator {
             branch_counts: HashMap::new(),
             group_hists: HashMap::new(),
             phase_hists: HashMap::new(),
+            active_vu: BTreeMap::new(),
         }
     }
 
@@ -266,6 +280,24 @@ impl Aggregator {
             });
         let _ = e.0.record(v);
         e.1 += 1;
+    }
+
+    /// Record the active-VU gauge for one wall-clock second (keep-last; the supervisor
+    /// records each second once). `desired` = commanded curve count, `actual` = live VUs.
+    pub fn record_active_vu(&mut self, ts_second: i64, desired: u32, actual: u32) {
+        self.active_vu.insert(ts_second, (desired, actual));
+    }
+
+    /// Take and reset the accumulated per-second active-VU samples (ascending ts_second).
+    pub fn drain_active_vu(&mut self) -> Vec<ActiveVuSample> {
+        std::mem::take(&mut self.active_vu)
+            .into_iter()
+            .map(|(ts_second, (desired, actual))| ActiveVuSample {
+                ts_second,
+                desired,
+                actual,
+            })
+            .collect()
     }
 
     /// Take and reset the accumulated per-(step_id, phase) histograms as deltas
@@ -515,5 +547,32 @@ mod tests {
         a.record_phase("s1", "download", 12_345);
         let p = a.drain_phase_deltas().pop().expect("one phase stat");
         assert!(!p.serialize_histogram().expect("serializes").is_empty());
+    }
+
+    #[test]
+    fn active_vu_record_and_drain_orders_and_resets() {
+        let mut agg = Aggregator::new(256);
+        agg.record_active_vu(100, 3, 2);
+        agg.record_active_vu(101, 5, 5);
+        agg.record_active_vu(100, 4, 4); // same second overwrites (keep-last)
+        let mut out = agg.drain_active_vu();
+        out.sort_by_key(|s| s.ts_second);
+        assert_eq!(
+            out,
+            vec![
+                ActiveVuSample {
+                    ts_second: 100,
+                    desired: 4,
+                    actual: 4
+                },
+                ActiveVuSample {
+                    ts_second: 101,
+                    desired: 5,
+                    actual: 5
+                },
+            ]
+        );
+        // drain resets
+        assert!(agg.drain_active_vu().is_empty());
     }
 }
