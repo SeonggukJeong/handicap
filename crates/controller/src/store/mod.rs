@@ -35,6 +35,7 @@ const MIGRATION_SQL_0010: &str = include_str!("migrations/0010_run_group_metrics
 const MIGRATION_SQL_0011: &str = include_str!("migrations/0011_schedules.sql");
 const MIGRATION_SQL_0013: &str = include_str!("migrations/0013_run_phase_metrics.sql");
 const MIGRATION_SQL_0015: &str = include_str!("migrations/0015_step_templates.sql");
+const MIGRATION_SQL_0016: &str = include_str!("migrations/0016_run_active_vu_metrics.sql");
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -71,6 +72,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0013).execute(&pool).await?; // migration 0013: run_phase_metrics
     ensure_run_group_metrics_branch(&pool).await?; // migration 0014 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0015).execute(&pool).await?; // migration 0015: step_templates
+    sqlx::query(MIGRATION_SQL_0016).execute(&pool).await?; // migration 0016: run_active_vu_metrics
     Ok(pool)
 }
 
@@ -536,6 +538,24 @@ mod tests {
             branch, "",
             "pre-existing row must get branch='' (page, backfill)"
         );
+    }
+
+    #[tokio::test]
+    async fn migration_0016_is_idempotent() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(MIGRATION_SQL_0016)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0016)
+            .execute(&pool)
+            .await
+            .unwrap(); // CREATE IF NOT EXISTS: no-op
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM run_active_vu_metrics")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     #[tokio::test]

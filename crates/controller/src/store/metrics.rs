@@ -347,6 +347,53 @@ pub async fn phase_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<PhaseMet
         .collect())
 }
 
+#[derive(Debug, Clone)]
+pub struct ActiveVuRow {
+    pub run_id: String,
+    pub ts_second: i64,
+    pub desired: i64,
+    pub actual: i64,
+}
+
+pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_active_vu_metrics(run_id,ts_second,desired,actual) VALUES(?,?,?,?) \
+             ON CONFLICT(run_id,ts_second) DO UPDATE SET desired=excluded.desired, actual=excluded.actual",
+        )
+        .bind(&r.run_id)
+        .bind(r.ts_second)
+        .bind(r.desired)
+        .bind(r.actual)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn active_vu_series(db: &Db, run_id: &str) -> sqlx::Result<Vec<ActiveVuRow>> {
+    let rows = sqlx::query(
+        "SELECT ts_second, desired, actual FROM run_active_vu_metrics \
+         WHERE run_id = ? ORDER BY ts_second",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ActiveVuRow {
+            run_id: run_id.to_string(),
+            ts_second: r.get("ts_second"),
+            desired: r.get("desired"),
+            actual: r.get("actual"),
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -752,6 +799,51 @@ mod tests {
         let got = phase_breakdown(&db, "R1").await.expect("read");
         assert_eq!(got.len(), 2, "append-only: both delta rows coexist");
         assert!(got.iter().all(|r| r.phase == "download"));
+    }
+
+    #[tokio::test]
+    async fn active_vu_insert_and_read_upserts_keep_last() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        insert_active_vu_batch(
+            &db,
+            &[
+                ActiveVuRow {
+                    run_id: "r1".into(),
+                    ts_second: 100,
+                    desired: 3,
+                    actual: 2,
+                },
+                ActiveVuRow {
+                    run_id: "r1".into(),
+                    ts_second: 101,
+                    desired: 5,
+                    actual: 5,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        insert_active_vu_batch(
+            &db,
+            &[ActiveVuRow {
+                run_id: "r1".into(),
+                ts_second: 100,
+                desired: 4,
+                actual: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        let out = active_vu_series(&db, "r1").await.unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            (out[0].ts_second, out[0].desired, out[0].actual),
+            (100, 4, 4)
+        );
+        assert_eq!(
+            (out[1].ts_second, out[1].desired, out[1].actual),
+            (101, 5, 5)
+        );
     }
 
     #[tokio::test]

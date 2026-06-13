@@ -882,6 +882,23 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert phase metrics");
         }
     }
+    let active_vu_rows: Vec<crate::store::metrics::ActiveVuRow> = batch
+        .active_vu_samples
+        .iter()
+        .map(|s| crate::store::metrics::ActiveVuRow {
+            run_id: batch.run_id.clone(),
+            ts_second: s.ts_second,
+            desired: s.desired as i64,
+            actual: s.actual as i64,
+        })
+        .collect();
+    if !active_vu_rows.is_empty() {
+        if let Err(e) =
+            crate::store::metrics::insert_active_vu_batch(&state.db, &active_vu_rows).await
+        {
+            warn!(run_id = %batch.run_id, error = %e, "failed to insert active-vu metrics");
+        }
+    }
     if batch.dropped > 0 {
         if let Err(e) = sqlx::query("UPDATE runs SET dropped = dropped + ? WHERE id = ?")
             .bind(batch.dropped as i64)
