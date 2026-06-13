@@ -74,6 +74,9 @@ export const ProfileSchema = z.object({
   target_rps: z.number().int().positive().max(1_000_000).nullish(),
   max_in_flight: z.number().int().positive().max(10_000).nullish(),
   stages: z.array(StageSchema).optional(),
+  // closed-loop VU 곡선 (spec §3.1). 서버 #[serde(skip_serializing_if)] → absent → .optional()
+  vu_stages: z.array(StageSchema).optional(),
+  ramp_down: z.enum(["graceful", "immediate"]).optional(),
   measure_phases: z.boolean().default(false),
 });
 export type Profile = z.infer<typeof ProfileSchema>;

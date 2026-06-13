@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildLoadProfile, loadModelErrors, type LoadModelState } from "../loadModel";
+import {
+  buildLoadProfile,
+  deriveLoadMode,
+  loadModelErrors,
+  type LoadModelState,
+} from "../loadModel";
 
 // 유효한 기준 state — 각 테스트가 모드만 바꿔 쓴다.
 function base(): LoadModelState {
@@ -15,6 +20,7 @@ function base(): LoadModelState {
     thinkMin: "",
     thinkMax: "",
     thinkSeed: "",
+    rampDown: "graceful",
   };
 }
 
@@ -58,6 +64,38 @@ describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
     expect(p.stages).toEqual([{ target: 100, duration_seconds: 30 }]);
     expect(p.vus).toBe(0);
   });
+
+  it("closed+curve: vu_stages·think_time 존재, vus===0, duration===0, ramp_up===0, target_rps/max_in_flight/stages 부재", () => {
+    const p = buildLoadProfile({
+      ...base(),
+      loadModel: "closed",
+      rateMode: "curve",
+      stages: [{ target: "50", duration_seconds: "60" }],
+      thinkMin: "100",
+      thinkMax: "300",
+      rampDown: "graceful",
+    });
+    expect(p.vus).toBe(0);
+    expect(p.duration_seconds).toBe(0);
+    expect(p.ramp_up_seconds).toBe(0);
+    expect(p.vu_stages).toEqual([{ target: 50, duration_seconds: 60 }]);
+    expect(p.think_time).toEqual({ min_ms: 100, max_ms: 300 });
+    expect(p).not.toHaveProperty("target_rps");
+    expect(p).not.toHaveProperty("max_in_flight");
+    expect(p).not.toHaveProperty("stages");
+    expect(p).not.toHaveProperty("ramp_down"); // graceful = absent (byte-minimal)
+  });
+
+  it("closed+curve: rampDown=immediate일 때만 ramp_down emit", () => {
+    const p = buildLoadProfile({
+      ...base(),
+      loadModel: "closed",
+      rateMode: "curve",
+      stages: [{ target: "50", duration_seconds: "60" }],
+      rampDown: "immediate",
+    });
+    expect(p.ramp_down).toBe("immediate");
+  });
 });
 
 describe("loadModelErrors — 모드별 범위 검증", () => {
@@ -97,9 +135,35 @@ describe("loadModelErrors — 모드별 범위 검증", () => {
     ).toBe(true);
   });
 
-  it("closed에선 stagesInvalid 항상 false (curve는 open 전용)", () => {
+  it("closed+fixed에선 stagesInvalid false (curve 공통 일반화 반영)", () => {
     expect(
-      loadModelErrors({ ...base(), loadModel: "closed", rateMode: "curve" }).stagesInvalid,
+      loadModelErrors({ ...base(), loadModel: "closed", rateMode: "fixed" }).stagesInvalid,
     ).toBe(false);
+  });
+
+  it("closed+curve에서도 stagesInvalid가 작동 (curve 공통 일반화)", () => {
+    const e = loadModelErrors({
+      ...base(),
+      loadModel: "closed",
+      rateMode: "curve",
+      stages: [{ target: "0", duration_seconds: "30" }],
+    });
+    expect(e.stagesInvalid).toBe(true);
+  });
+});
+
+describe("deriveLoadMode", () => {
+  it("vu_stages → closed+curve / stages → open+curve / target_rps → open+fixed / 그 외 closed+fixed", () => {
+    expect(deriveLoadMode({ vu_stages: [{ target: 5, duration_seconds: 10 }] })).toEqual({
+      loadModel: "closed",
+      rateMode: "curve",
+    });
+    expect(deriveLoadMode({ stages: [{ target: 5, duration_seconds: 10 }] })).toEqual({
+      loadModel: "open",
+      rateMode: "curve",
+    });
+    expect(deriveLoadMode({ target_rps: 100 })).toEqual({ loadModel: "open", rateMode: "fixed" });
+    expect(deriveLoadMode({})).toEqual({ loadModel: "closed", rateMode: "fixed" });
+    expect(deriveLoadMode({ vu_stages: [] })).toEqual({ loadModel: "closed", rateMode: "fixed" });
   });
 });

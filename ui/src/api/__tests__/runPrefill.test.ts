@@ -25,6 +25,19 @@ describe("profileDurationSeconds", () => {
       profileDurationSeconds(ProfileSchema.parse({ vus: 1, duration_seconds: 7, stages: [] })),
     ).toBe(7);
   });
+
+  it("vu_stages 합산 (closed-loop 곡선 run)", () => {
+    expect(
+      profileDurationSeconds({
+        duration_seconds: 0,
+        stages: undefined,
+        vu_stages: [
+          { target: 10, duration_seconds: 30 },
+          { target: 2, duration_seconds: 60 },
+        ],
+      }),
+    ).toBe(90);
+  });
 });
 
 describe("envValueToRecord", () => {

@@ -190,6 +190,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     thinkMin,
     thinkMax,
     thinkSeed,
+    rampDown: "graceful", // Task 7+8에서 실제 state 배선 — 현재는 placeholder (payload byte-identical)
   };
   const loadErrs = loadModelErrors(loadState);
 
