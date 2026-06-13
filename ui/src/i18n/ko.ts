@@ -313,5 +313,7 @@ export const ko = {
     status_class: "4xx면 요청 형식(인증·파라미터), 5xx면 서버 측 문제부터 확인하세요.",
     status_temporal: "테스트 후반 5xx 증가 — 서버 자원 고갈 의심. 더 긴 soak 테스트를 고려하세요.",
     slo_failure: "미달 기준 행을 확인하고 임계값과 서버 성능 중 무엇을 조정할지 정하세요.",
+    load_gen_saturated:
+      "에러·지연(latency)이 함께 높으면 대상 서버의 한계, 아니면 테스트 도구(워커 CPU·동시 실행 수 max_in_flight)를 늘려 다시 실행하세요.",
   },
 } as const;

@@ -37,6 +37,8 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
       return `스텝 ${name(i.step_id)}이(가) 에러의 ${pctStr(i.pct)} (${n(i.count)}건)`;
     case "slowest_step":
       return `스텝 ${name(i.step_id)}이(가) p95 ${n(i.value)}ms로 가장 느림`;
+    case "load_gen_saturated":
+      return `목표한 부하를 다 걸지 못했어요 — 초당 최대 ${n(i.value)}건까지만 보냈고, 보내려다 못 보낸 요청이 ${n(i.count)}건 있어요`;
     default:
       return i.kind;
   }

@@ -47,6 +47,17 @@ describe("InsightPanel", () => {
     expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
+  it("load_gen_saturated 헤드라인과 다음 행동을 렌더한다", () => {
+    const insights: Insight[] = [
+      { kind: "load_gen_saturated", severity: "warning", value: 7500, count: 320 },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    // 헤드라인: 초당 최대 N건 + 못 보낸 요청 M건 (천단위 구분)
+    expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
+    // 다음 행동 줄
+    expect(screen.getByText(/대상 서버의 한계, 아니면 테스트 도구/)).toBeInTheDocument();
+  });
+
   it("slo_pass와 미지의 kind엔 행동 줄이 없다", () => {
     const insights: Insight[] = [
       { kind: "slo_pass", severity: "info" },
