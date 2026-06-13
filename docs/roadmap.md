@@ -101,6 +101,15 @@
 - **U1b 연기 항목**: `ko.loadModel.sizePresets`의 동작 숫자(vus/duration) 분리(en.ts 도입 시 카탈로그→loadModel.ts) · DataBindingPanel auto-match의 updater-내 Set mutate 리팩터(StrictMode 안전하나 안티패턴) · 인라인 에러 p ↔ 사유 블록 문구 카탈로그 통일 · ScheduleForm 주석 표현 정밀화 · ko.runDialog 네임스페이스의 ScheduleForm 차용(공용 common 분리 후보).
 - **U1a 연기 항목**: HelpTip Modal-내 ESC 레이어링(U5 VerdictBadge popover 전 설계 필요, `ui/CLAUDE.md` 기록) · 224px 미만 초협소 뷰포트 좌단 오버플로(실질 무관) · 키보드 전용 multi-tip 동시 오픈(무해) · HelpTip focusout 닫힘 polish.
 
+### A9. 부하 생성기 용량 추천 / 포화 인사이트 — **후보 (미착수)**
+- **성격**: 리포트/인사이트 곁다리(읽기 경로 only). 출처 = 사용자 질문 2026-06-14 "RPS 10,000 돌리고 싶은데 컴퓨팅이 받쳐줄지 어떻게 아나? 최대 RPS 추천값·필요 리소스는?".
+- **문제**: Handicap은 부하 *생성기*지 용량 *플래너*가 아니라, "지속 가능한 최대 RPS"를 자동으로 알려주지 않는다. 사용자는 현재 `dropped`/`summary.rps`를 눈으로 보고 직접 판단해야 함. 운영 가이드(수동 절차·Little's Law·단일워커 함정)는 **`docs/dev/capacity-planning.md`** 로 정리됨 — 이 슬라이스는 그 판단을 도구가 직접 뱉게 만드는 것.
+- **착수 메모(인프라 거의 있음, 순수 가산)**: `dropped` 필드(report.rs:27)·`summary.rps`(=달성 RPS, report.rs:470)·`insights.rs`(ADR-0028 A4c `derive_insights`) 가 이미 있다. 추가할 것 = **포화 인사이트 1~2종**:
+  - `load_gen_saturated`: `dropped > 0` **또는** `achieved_rps << target_rps`(임계 비율) 이면 "부하 생성기 포화 — 관측된 지속 최대 ≈ N RPS, 이상은 워커 CPU/`max_in_flight` 증설 필요" 플래그. `insights.rs::order_rank`에 kind 추가(현재 8종, dropped 미검사).
+  - (선택) **관측 최대 지속 RPS 역산**: stages 램프에서 `dropped`가 0→증가로 꺾이기 직전 윈도의 달성 RPS를 "현재 구성 천장"으로 표면화. 초별 `dropped` 분해가 없으므로(run-total only) per-window dropped 파이프라인이 필요한지 vs run-total + achieved 곡선으로 충분한지가 설계 질문.
+- **brainstorming에서 풀 설계 질문**: ① SUT 한계 vs 부하기 한계를 인사이트가 구분 표기하나(전자=latency/error 인사이트 기존, 후자=신규) ② Little's Law 기반 `max_in_flight`/`vus` 권장값 제안까지 갈까(입력=관측 평균 latency) ③ open-loop 단일워커 함정(§A9 본문·capacity-planning.md §4)을 인사이트가 경고하나(큰 `vus`+`target_rps` 동시 지정 시) ④ per-window dropped 메트릭(drain/guard/proto/migration 비용)을 들일지.
+- **의존/연관**: ADR-0028(insights 패턴 재사용), ADR-0031(open-loop·`dropped`·단일워커 v1), ADR-0027(멀티워커 — open-loop RPS 미분할). **§B2'' "per-deploy 워커 cpu/mem Helm values"** 와 묶으면 "권장 → 실제 증설"이 한 흐름이 됨.
+
 ### (메뉴에 있으나 당장 후보 아님)
 - WebSocket 노드 (§4.5) — REST 부하 도구의 1차 스코프 밖.
 - 인증·RBAC·사용자 계정 (§4.5) — 사내 단일 테넌트 가정에선 후순위.
