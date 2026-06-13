@@ -92,4 +92,19 @@ describe("ReportHeadline", () => {
     );
     expect(screen.getByText(ko.report.headlineNoRequests)).toBeInTheDocument();
   });
+
+  it("closed+curve(vu_stages): 단계별 VU 곡선 문구 + VU 수 문구 없음 (Task 8)", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={{ ...CLOSED, vu_stages: [{ target: 50, duration_seconds: 30 }] }}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent("단계별 VU 곡선으로");
+    expect(region).toHaveTextContent("12,345회 요청");
+    // closed-loop VU 수 표현이 없어야 함
+    expect(region).not.toHaveTextContent("동시 사용자 50명");
+  });
 });

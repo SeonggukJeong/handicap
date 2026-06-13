@@ -24,6 +24,8 @@ type Props = {
   setMaxInFlight: (s: string) => void;
   stages: StageRow[];
   setStages: Dispatch<SetStateAction<StageRow[]>>;
+  rampDown: "graceful" | "immediate";
+  setRampDown: (m: "graceful" | "immediate") => void;
   errs: LoadModelErrors;
 };
 
@@ -46,6 +48,8 @@ export function LoadModelFields({
   setMaxInFlight,
   stages,
   setStages,
+  rampDown,
+  setRampDown,
   errs,
 }: Props) {
   const ids = {
@@ -56,6 +60,135 @@ export function LoadModelFields({
     durationOpen: useId(),
     maxInFlight: useId(),
   };
+
+  // 곡선 에디터 블록 — open+curve / closed+curve 공유, 라벨만 모드 분기
+  const curveEditor = (
+    <div className="mb-3">
+      <label className="block text-sm mb-2">
+        <span className="text-slate-600">부하 모양</span>
+        <select
+          aria-label="부하 모양"
+          defaultValue=""
+          onChange={(e) => {
+            const shape = LOAD_SHAPES.find((s) => s.id === e.target.value);
+            if (shape) {
+              setStages(
+                shape.stages.map((s) => ({
+                  target: String(s.target),
+                  duration_seconds: String(s.duration_seconds),
+                })),
+              );
+            }
+          }}
+          className={INPUT}
+        >
+          <option value="">직접 입력</option>
+          {LOAD_SHAPES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-slate-500 mb-1">
+        {loadModel === "closed" ? ko.loadModel.curveHintVu : ko.loadModel.curveHintRps}
+      </p>
+      <p className="text-xs text-slate-500 mb-2">이 단계가 지속되는 시간(초)</p>
+      {stages.map((s, i) => (
+        <div key={i} className="flex items-end gap-2 mb-2">
+          <label className="block text-sm flex-1 min-w-0">
+            <span className="text-slate-600">
+              {loadModel === "closed" ? ko.loadModel.curveTargetVu : ko.loadModel.curveTargetRps}
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={1000000}
+              aria-label={`stage target ${i}`}
+              value={s.target}
+              onChange={(e) =>
+                setStages((prev) =>
+                  prev.map((r, j) => (j === i ? { ...r, target: e.target.value } : r)),
+                )
+              }
+              className={INPUT}
+            />
+          </label>
+          <label className="block text-sm flex-1 min-w-0">
+            <span className="text-slate-600">지속(s)</span>
+            <input
+              type="number"
+              min={1}
+              aria-label={`stage duration ${i}`}
+              value={s.duration_seconds}
+              onChange={(e) =>
+                setStages((prev) =>
+                  prev.map((r, j) => (j === i ? { ...r, duration_seconds: e.target.value } : r)),
+                )
+              }
+              className={INPUT}
+            />
+          </label>
+          <button
+            type="button"
+            aria-label={`remove stage ${i}`}
+            disabled={stages.length <= 1}
+            onClick={() => setStages((prev) => prev.filter((_, j) => j !== i))}
+            className="shrink-0 px-2 py-1 text-slate-500 hover:text-red-600 disabled:opacity-30"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => setStages((prev) => [...prev, { target: "100", duration_seconds: "30" }])}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          + 단계 추가
+        </button>
+        <span className="ml-3 text-xs text-slate-500">
+          총 길이: {stages.reduce((a, s) => a + (Number(s.duration_seconds) || 0), 0)}s
+        </span>
+      </div>
+      {errs.stagesInvalid && (
+        <p role="alert" className="mt-2 text-red-600 text-sm">
+          각 단계는 목표 0–1,000,000 · 지속 ≥1초, 최소 한 단계의 목표 &gt; 0 이어야 합니다
+        </p>
+      )}
+      {(() => {
+        const previewStages = stages
+          .map((s) => ({
+            target: Number(s.target),
+            duration_seconds: Number(s.duration_seconds),
+          }))
+          .filter(
+            (s) =>
+              Number.isFinite(s.target) &&
+              Number.isFinite(s.duration_seconds) &&
+              s.duration_seconds > 0,
+          );
+        return previewStages.length > 0 ? (
+          <div className="mt-2">
+            <span className="text-xs text-slate-500">미리보기</span>
+            <div
+              className="h-32"
+              role="img"
+              aria-label={
+                loadModel === "closed"
+                  ? ko.loadModel.curvePreviewAriaVu
+                  : ko.loadModel.curvePreviewAriaRps
+              }
+            >
+              <StageCurvePreview stages={previewStages} />
+            </div>
+          </div>
+        ) : null;
+      })()}
+    </div>
+  );
+
   return (
     <>
       {/* 1차 축: 부하 모델 */}
@@ -71,7 +204,7 @@ export function LoadModelFields({
                 checked={loadModel === "closed"}
                 onChange={() => {
                   setLoadModel("closed");
-                  setRateMode("fixed"); // closed+curve(곧 지원)는 도달 불가
+                  // eager reset 제거 — closed+curve는 이제 유효한 모드
                 }}
               />
               {ko.loadModel.closedLoop}
@@ -94,7 +227,7 @@ export function LoadModelFields({
         </div>
       </fieldset>
 
-      {/* 2차 축: 프로파일(고정/곡선) — closed에선 곡선 disabled */}
+      {/* 2차 축: 프로파일(고정/곡선) — 이제 closed에서도 곡선 활성 */}
       <fieldset className="mb-3">
         <legend className="text-sm text-slate-600 mb-1">프로파일</legend>
         <div className="flex items-center gap-4">
@@ -108,108 +241,142 @@ export function LoadModelFields({
             />
             고정
           </label>
-          <label
-            className={`flex items-center gap-1 text-sm ${
-              loadModel === "closed" ? "cursor-not-allowed text-slate-400" : "cursor-pointer"
-            }`}
-          >
-            <input
-              type="radio"
-              name="rate-mode"
-              value="curve"
-              checked={rateMode === "curve"}
-              disabled={loadModel === "closed"}
-              onChange={() => setRateMode("curve")}
-            />
-            곡선{loadModel === "closed" ? " (곧 지원)" : ""}
-          </label>
+          {/* HelpTip은 label 밖 형제 — label 안에 넣으면 곡선 라디오 accname 오염 (U3) */}
+          <span className="flex items-center gap-1">
+            <label className="flex items-center gap-1 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="rate-mode"
+                value="curve"
+                checked={rateMode === "curve"}
+                onChange={() => setRateMode("curve")}
+              />
+              곡선
+            </label>
+            {loadModel === "closed" && (
+              <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
+            )}
+          </span>
         </div>
       </fieldset>
 
       {loadModel === "closed" ? (
-        <>
-          {/* 부하 크기 프리셋 chips */}
-          <div
-            role="group"
-            aria-label={ko.loadModel.sizePresetsLabel}
-            className="mb-2 flex flex-wrap gap-2"
-          >
-            {ko.loadModel.sizePresets.map((p) => {
-              const active = vus === p.vus && duration === p.durationSeconds;
-              return (
-                <button
-                  key={p.label}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => {
-                    setVus(p.vus);
-                    setDuration(p.durationSeconds);
-                  }}
-                  className={`rounded-full border px-3 py-1 text-sm ${
-                    active
-                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  {p.label}{" "}
-                  <span className={active ? "text-xs text-indigo-500" : "text-xs text-slate-400"}>
-                    {p.hint}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="grid grid-cols-3 gap-4 mb-3">
-            <div className="block text-sm">
-              <label htmlFor={ids.vus} className="text-slate-600">
-                {ko.loadModel.vus}
-              </label>
-              <HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>
-              <input
-                id={ids.vus}
-                type="number"
-                min={1}
-                value={vus}
-                onChange={(e) => setVus(Number(e.target.value))}
-                className={INPUT}
-              />
+        rateMode === "curve" ? (
+          <>
+            {curveEditor}
+            {/* ramp_down 라디오 — HelpTip은 legend 밖 (U3 accname 오염 방지) */}
+            <fieldset className="mb-3">
+              <legend className="text-sm text-slate-600 mb-1">{ko.loadModel.rampDownLabel}</legend>
+              <HelpTip label="줄이는 방식 설명">{ko.glossary.rampDown}</HelpTip>
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center gap-1 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="ramp-down"
+                    value="graceful"
+                    checked={rampDown === "graceful"}
+                    onChange={() => setRampDown("graceful")}
+                  />
+                  {ko.loadModel.rampDownGraceful}
+                </label>
+                <label className="flex items-center gap-1 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="ramp-down"
+                    value="immediate"
+                    checked={rampDown === "immediate"}
+                    onChange={() => setRampDown("immediate")}
+                  />
+                  {ko.loadModel.rampDownImmediate}
+                </label>
+              </div>
+            </fieldset>
+          </>
+        ) : (
+          <>
+            {/* 부하 크기 프리셋 chips */}
+            <div
+              role="group"
+              aria-label={ko.loadModel.sizePresetsLabel}
+              className="mb-2 flex flex-wrap gap-2"
+            >
+              {ko.loadModel.sizePresets.map((p) => {
+                const active = vus === p.vus && duration === p.durationSeconds;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      setVus(p.vus);
+                      setDuration(p.durationSeconds);
+                    }}
+                    className={`rounded-full border px-3 py-1 text-sm ${
+                      active
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {p.label}{" "}
+                    <span className={active ? "text-xs text-indigo-500" : "text-xs text-slate-400"}>
+                      {p.hint}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="block text-sm">
-              <label htmlFor={ids.durationClosed} className="text-slate-600">
-                {ko.loadModel.duration}
-              </label>
-              <input
-                id={ids.durationClosed}
-                type="number"
-                min={1}
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className={INPUT}
-              />
+            <div className="grid grid-cols-3 gap-4 mb-3">
+              <div className="block text-sm">
+                <label htmlFor={ids.vus} className="text-slate-600">
+                  {ko.loadModel.vus}
+                </label>
+                <HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>
+                <input
+                  id={ids.vus}
+                  type="number"
+                  min={1}
+                  value={vus}
+                  onChange={(e) => setVus(Number(e.target.value))}
+                  className={INPUT}
+                />
+              </div>
+              <div className="block text-sm">
+                <label htmlFor={ids.durationClosed} className="text-slate-600">
+                  {ko.loadModel.duration}
+                </label>
+                <input
+                  id={ids.durationClosed}
+                  type="number"
+                  min={1}
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  className={INPUT}
+                />
+              </div>
+              <div className="block text-sm">
+                <label htmlFor={ids.rampUp} className="text-slate-600">
+                  {ko.loadModel.rampUp}
+                </label>
+                <HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>
+                <input
+                  id={ids.rampUp}
+                  type="number"
+                  min={0}
+                  value={rampUp}
+                  onChange={(e) => setRampUp(Number(e.target.value))}
+                  className={INPUT}
+                  aria-invalid={errs.rampInvalid}
+                  aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
+                />
+              </div>
             </div>
-            <div className="block text-sm">
-              <label htmlFor={ids.rampUp} className="text-slate-600">
-                {ko.loadModel.rampUp}
-              </label>
-              <HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>
-              <input
-                id={ids.rampUp}
-                type="number"
-                min={0}
-                value={rampUp}
-                onChange={(e) => setRampUp(Number(e.target.value))}
-                className={INPUT}
-                aria-invalid={errs.rampInvalid}
-                aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
-              />
-            </div>
-          </div>
-          {errs.rampInvalid && (
-            <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
-              {ko.validation.rampUp}
-            </p>
-          )}
-        </>
+            {errs.rampInvalid && (
+              <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
+                {ko.validation.rampUp}
+              </p>
+            )}
+          </>
+        )
       ) : (
         <>
           {/* Max in-flight — fixed/curve 공통, 1개 */}
@@ -283,128 +450,7 @@ export function LoadModelFields({
               )}
             </>
           ) : (
-            <div className="mb-3">
-              <label className="block text-sm mb-2">
-                <span className="text-slate-600">부하 모양</span>
-                <select
-                  aria-label="부하 모양"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const shape = LOAD_SHAPES.find((s) => s.id === e.target.value);
-                    if (shape) {
-                      setStages(
-                        shape.stages.map((s) => ({
-                          target: String(s.target),
-                          duration_seconds: String(s.duration_seconds),
-                        })),
-                      );
-                    }
-                  }}
-                  className={INPUT}
-                >
-                  <option value="">직접 입력</option>
-                  {LOAD_SHAPES.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="text-xs text-slate-500 mb-1">
-                각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)
-              </p>
-              <p className="text-xs text-slate-500 mb-2">이 단계가 지속되는 시간(초)</p>
-              {stages.map((s, i) => (
-                <div key={i} className="flex items-end gap-2 mb-2">
-                  <label className="block text-sm flex-1 min-w-0">
-                    <span className="text-slate-600">목표 RPS</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1000000}
-                      aria-label={`stage target ${i}`}
-                      value={s.target}
-                      onChange={(e) =>
-                        setStages((prev) =>
-                          prev.map((r, j) => (j === i ? { ...r, target: e.target.value } : r)),
-                        )
-                      }
-                      className={INPUT}
-                    />
-                  </label>
-                  <label className="block text-sm flex-1 min-w-0">
-                    <span className="text-slate-600">지속(s)</span>
-                    <input
-                      type="number"
-                      min={1}
-                      aria-label={`stage duration ${i}`}
-                      value={s.duration_seconds}
-                      onChange={(e) =>
-                        setStages((prev) =>
-                          prev.map((r, j) =>
-                            j === i ? { ...r, duration_seconds: e.target.value } : r,
-                          ),
-                        )
-                      }
-                      className={INPUT}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    aria-label={`remove stage ${i}`}
-                    disabled={stages.length <= 1}
-                    onClick={() => setStages((prev) => prev.filter((_, j) => j !== i))}
-                    className="shrink-0 px-2 py-1 text-slate-500 hover:text-red-600 disabled:opacity-30"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStages((prev) => [...prev, { target: "100", duration_seconds: "30" }])
-                  }
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  + 단계 추가
-                </button>
-                <span className="ml-3 text-xs text-slate-500">
-                  총 길이: {stages.reduce((a, s) => a + (Number(s.duration_seconds) || 0), 0)}s
-                </span>
-              </div>
-              {errs.stagesInvalid && (
-                <p role="alert" className="mt-2 text-red-600 text-sm">
-                  각 단계는 목표 0–1,000,000 · 지속 ≥1초, 최소 한 단계의 목표 &gt; 0 이어야 합니다
-                </p>
-              )}
-              {(() => {
-                const previewStages = stages
-                  .map((s) => ({
-                    target: Number(s.target),
-                    duration_seconds: Number(s.duration_seconds),
-                  }))
-                  .filter(
-                    (s) =>
-                      Number.isFinite(s.target) &&
-                      Number.isFinite(s.duration_seconds) &&
-                      s.duration_seconds > 0,
-                  );
-                return previewStages.length > 0 ? (
-                  <div className="mt-2">
-                    <span className="text-xs text-slate-500">미리보기</span>
-                    <div
-                      className="h-32"
-                      role="img"
-                      aria-label="레이트 곡선 미리보기 (x: 누적 초, y: RPS)"
-                    >
-                      <StageCurvePreview stages={previewStages} />
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-            </div>
+            curveEditor
           )}
         </>
       )}

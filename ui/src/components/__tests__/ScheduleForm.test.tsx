@@ -75,6 +75,36 @@ describe("ScheduleForm", () => {
     expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
   });
 
+  it("vu_stages 든 initial → closed+curve 역도출 + stage 행·rampDown 시드 (Task 8)", () => {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: {
+            vus: 0,
+            duration_seconds: 0,
+            ramp_up_seconds: 0,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            vu_stages: [{ target: 7, duration_seconds: 11 }],
+            ramp_down: "immediate",
+          } as Profile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
+    expect(screen.getByLabelText("stage target 0")).toHaveValue(7);
+    expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
+  });
+
   it("prefills fields in edit mode (name, enabled, cron trigger)", async () => {
     const onSubmit = vi.fn();
     wrap(

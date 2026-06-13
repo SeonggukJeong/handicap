@@ -11,12 +11,16 @@ const noErrs: LoadModelErrors = {
   stagesInvalid: false,
 };
 
+// These spies are needed for the new tests and must be stable references
+const setRateMode = vi.fn();
+const setRampDown = vi.fn();
+
 function setup(overrides: Partial<React.ComponentProps<typeof LoadModelFields>> = {}) {
   const props: React.ComponentProps<typeof LoadModelFields> = {
     loadModel: "closed",
     setLoadModel: vi.fn(),
     rateMode: "fixed",
-    setRateMode: vi.fn(),
+    setRateMode,
     vus: 5,
     setVus: vi.fn(),
     duration: 30,
@@ -29,12 +33,17 @@ function setup(overrides: Partial<React.ComponentProps<typeof LoadModelFields>> 
     setMaxInFlight: vi.fn(),
     stages: [{ target: "100", duration_seconds: "30" }],
     setStages: vi.fn(),
+    rampDown: "graceful",
+    setRampDown,
     errs: noErrs,
     ...overrides,
   };
   render(<LoadModelFields {...props} />);
   return props;
 }
+
+// alias for clarity in new tests
+const renderFields = setup;
 
 describe("LoadModelFields", () => {
   it("부하 모델 + 프로파일 두 fieldset을 렌더", () => {
@@ -43,9 +52,14 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
   });
 
-  it("closed일 때 곡선 라디오는 disabled (곧 지원)", () => {
-    setup({ loadModel: "closed" });
-    expect(screen.getByRole("radio", { name: /곡선/ })).toBeDisabled();
+  it("closed에서 곡선 라디오가 활성화돼 선택 가능 (곧 지원 제거)", async () => {
+    const user = userEvent.setup();
+    setRateMode.mockClear();
+    renderFields({ loadModel: "closed", rateMode: "fixed" });
+    const curve = screen.getByRole("radio", { name: "곡선" });
+    expect(curve).toBeEnabled();
+    await user.click(curve);
+    expect(setRateMode).toHaveBeenCalledWith("curve");
   });
 
   it("open일 때 곡선 라디오는 enabled", () => {
@@ -53,12 +67,12 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("radio", { name: /곡선/ })).toBeEnabled();
   });
 
-  it("closed 라디오 선택 시 setLoadModel('closed') + setRateMode('fixed')", async () => {
+  it("closed 라디오 클릭이 rateMode를 리셋하지 않는다 (eager reset 제거)", async () => {
     const user = userEvent.setup();
-    const props = setup({ loadModel: "open", rateMode: "curve" });
+    setRateMode.mockClear();
+    renderFields({ loadModel: "open", rateMode: "curve" });
     await user.click(screen.getByRole("radio", { name: /사용자 수 기준/ }));
-    expect(props.setLoadModel).toHaveBeenCalledWith("closed");
-    expect(props.setRateMode).toHaveBeenCalledWith("fixed");
+    expect(setRateMode).not.toHaveBeenCalled();
   });
 
   it("closed 모드: 동시 사용자/점진 시작 입력, 목표 RPS·동시 요청 상한 입력 없음", () => {
@@ -111,5 +125,24 @@ describe("LoadModelFields", () => {
   it("VU만 일치하고 시간이 다르면 chip이 눌리지 않는다", () => {
     setup({ vus: 10, duration: 60 });
     expect(screen.getByRole("button", { name: /가볍게/ })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("closed+curve: 목표 VU 라벨 + ramp_down 라디오 + vus/chips/ramp_up/duration/max_in_flight 비노출", () => {
+    renderFields({ loadModel: "closed", rateMode: "curve" });
+    expect(screen.getAllByText("목표 VU").length).toBeGreaterThan(0);
+    expect(screen.getByRole("radio", { name: /요청을 마친 뒤 줄이기/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).not.toBeChecked();
+    // 비노출 확인
+    expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /부하 크기 프리셋/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/테스트 시간/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
+  });
+
+  it("open+curve: 기존 목표 RPS 라벨 유지 + ramp_down 비노출 (회귀 가드)", () => {
+    renderFields({ loadModel: "open", rateMode: "curve" });
+    expect(screen.getAllByText("목표 RPS").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("radio", { name: /즉시 줄이기/ })).not.toBeInTheDocument();
   });
 });

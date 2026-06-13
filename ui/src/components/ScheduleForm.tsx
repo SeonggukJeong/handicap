@@ -8,7 +8,7 @@ import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { isLoopStep } from "../scenario/model";
 import { LoadModelFields } from "./LoadModelFields";
-import { loadModelErrors, type LoadModelState } from "./loadModel";
+import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
 import { CriteriaFields } from "./CriteriaFields";
 import {
   buildProfile as buildProfileShared,
@@ -61,23 +61,19 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   }, [scenarioQuery.data?.yaml]);
   const hasLoop = parsedScenario?.steps.some(isLoopStep) ?? false;
 
-  // ── load model state (mirrors RunDialog EXACTLY) ──────────────────────────
-  const [loadModel, setLoadModel] = useState<"closed" | "open">(
-    init?.target_rps != null || (init?.stages != null && init.stages.length > 0)
-      ? "open"
-      : "closed",
-  );
-  const [rateMode, setRateMode] = useState<"fixed" | "curve">(
-    init?.stages && init.stages.length > 0 ? "curve" : "fixed",
-  );
+  // ── load model state (mirrors RunDialog EXACTLY, deriveLoadMode 단일화) ──────
+  const initMode = deriveLoadMode(init ?? {});
+  const [loadModel, setLoadModel] = useState<"closed" | "open">(initMode.loadModel);
+  const [rateMode, setRateMode] = useState<"fixed" | "curve">(initMode.rateMode);
   const [targetRps, setTargetRps] = useState(
     init?.target_rps != null ? String(init.target_rps) : "100",
   );
   const [maxInFlight, setMaxInFlight] = useState(
     init?.max_in_flight != null ? String(init.max_in_flight) : "200",
   );
+  const [rampDown, setRampDown] = useState<"graceful" | "immediate">(init?.ramp_down ?? "graceful");
   const [stages, setStages] = useState<StageRow[]>(
-    init?.stages?.map((s) => ({
+    (init?.vu_stages?.length ? init.vu_stages : init?.stages)?.map((s) => ({
       target: String(s.target),
       duration_seconds: String(s.duration_seconds),
     })) ?? [{ target: "100", duration_seconds: "30" }],
@@ -190,7 +186,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     thinkMin,
     thinkMax,
     thinkSeed,
-    rampDown: "graceful", // Task 7+8에서 실제 state 배선 — 현재는 placeholder (payload byte-identical)
+    rampDown, // 실제 state 배선 (Task 7+8)
   };
   const loadErrs = loadModelErrors(loadState);
 
@@ -210,7 +206,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       ? rateMode === "curve"
         ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
         : duration >= 1 && !loadErrs.targetRpsInvalid && !loadErrs.maxInFlightInvalid
-      : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid) &&
+      : rateMode === "curve"
+        ? !loadErrs.stagesInvalid
+        : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid) &&
     !submitting;
 
   function buildProfile(): Profile {
@@ -299,6 +297,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         setStages={
           setStages as Dispatch<SetStateAction<{ target: string; duration_seconds: string }[]>>
         }
+        rampDown={rampDown}
+        setRampDown={setRampDown}
         errs={loadErrs}
       />
 

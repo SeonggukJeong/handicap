@@ -173,3 +173,44 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
     expect(ko.glossary.varSys).toContain("${vu_id}");
   });
 });
+
+describe("Task 7+8 신규 키 (closed+curve / ramp_down)", () => {
+  it("glossary.vuCurve — VU 곡선 설명 존재", () => {
+    expect(ko.glossary.vuCurve).toBeTypeOf("string");
+    expect(ko.glossary.vuCurve.length).toBeGreaterThan(0);
+    expect(ko.glossary.vuCurve).toContain("VU 곡선");
+  });
+
+  it("glossary.rampDown — 줄이는 방식 설명 존재", () => {
+    expect(ko.glossary.rampDown).toBeTypeOf("string");
+    expect(ko.glossary.rampDown.length).toBeGreaterThan(0);
+    expect(ko.glossary.rampDown).toContain("줄이는 방식");
+  });
+
+  it("loadModel 신규 키 6종 존재", () => {
+    expect(ko.loadModel.curveTargetVu).toBeTypeOf("string");
+    expect(ko.loadModel.curveTargetVu.length).toBeGreaterThan(0);
+    expect(ko.loadModel.curveTargetRps).toBeTypeOf("string");
+    expect(ko.loadModel.curveHintVu).toBeTypeOf("string");
+    expect(ko.loadModel.curveHintRps).toBeTypeOf("string");
+    expect(ko.loadModel.curvePreviewAriaVu).toBeTypeOf("string");
+    expect(ko.loadModel.curvePreviewAriaRps).toBeTypeOf("string");
+    expect(ko.loadModel.rampDownLabel).toBeTypeOf("string");
+    expect(ko.loadModel.rampDownGraceful).toBeTypeOf("string");
+    expect(ko.loadModel.rampDownImmediate).toBeTypeOf("string");
+    expect(ko.loadModel.rampDownGraceful).toContain("요청을 마친 뒤");
+    expect(ko.loadModel.rampDownImmediate).toContain("즉시");
+  });
+
+  it("report.headlineClosedCurve — 함수형 카탈로그, common 인자 수용", () => {
+    const result = ko.report.headlineClosedCurve({
+      duration: "1분",
+      count: "12,345",
+      p95: "0.21초",
+      errPct: "0.3%",
+    });
+    expect(result).toBeTypeOf("string");
+    expect(result).toContain("단계별 VU 곡선으로");
+    expect(result).toContain("12,345회 요청");
+  });
+});

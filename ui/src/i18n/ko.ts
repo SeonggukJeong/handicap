@@ -21,6 +21,10 @@ export const ko = {
     maxInFlight:
       "동시 요청 상한(max in-flight) — 동시에 진행 중일 수 있는 요청 수의 상한입니다. 서버가 목표 속도를 못 따라가면 초과분은 drop으로 집계됩니다.",
     slo: "합격 기준(SLO) — 응답시간·에러율 등의 임계값입니다. 설정하면 run 종료 시 합격/불합격을 자동 판정합니다.",
+    vuCurve:
+      "VU 곡선 — 동시 사용자 수를 시간에 따라 단계별로 늘렸다 줄이는 부하 방식입니다. 점심 피크, 이벤트 오픈처럼 사용자 수가 변하는 상황을 재현합니다.",
+    rampDown:
+      "줄이는 방식 — 곡선이 내려갈 때 초과분 사용자를 정리하는 방법입니다. '요청을 마친 뒤'는 안전하지만 약간 늦게 줄고, '즉시'는 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다.",
     scenario: "시나리오 — 부하를 줄 API 요청 흐름의 정의입니다.",
     step: "스텝 — 부하 중 반복 실행될 HTTP 요청 1개입니다.",
     run: "실행(run) — 시나리오에 부하 설정을 적용해 한 번 돌린 기록입니다.",
@@ -55,6 +59,15 @@ export const ko = {
     thinkMin: "think 최소(ms)",
     thinkMax: "think 최대(ms)",
     thinkSeed: "think 시드 (선택)",
+    curveTargetVu: "목표 VU",
+    curveTargetRps: "목표 RPS",
+    curveHintVu: "각 단계가 끝날 때의 목표 동시 사용자 수 (이전 값에서 선형 변화)",
+    curveHintRps: "각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)",
+    curvePreviewAriaVu: "VU 곡선 미리보기 (x: 누적 초, y: VU)",
+    curvePreviewAriaRps: "레이트 곡선 미리보기 (x: 누적 초, y: RPS)",
+    rampDownLabel: "줄이는 방식",
+    rampDownGraceful: "요청을 마친 뒤 줄이기 (권장) — 안전하지만 곡선보다 약간 늦게 줄어듭니다",
+    rampDownImmediate: "즉시 줄이기 — 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다",
     sizePresetsLabel: "부하 크기 프리셋",
     sizePresets: [
       { label: "가볍게", vus: 10, durationSeconds: 30, hint: "10명 · 30초" },
@@ -257,6 +270,8 @@ export const ko = {
       `${p.duration} 동안 목표 ${p.targetRps} RPS로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineOpenCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
       `${p.duration} 동안 단계별 RPS 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+    headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
+      `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
     headlineAria: "쉬운 요약",
     verdictPass: "합격",

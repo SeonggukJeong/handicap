@@ -20,7 +20,7 @@ import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { LoadModelFields } from "./LoadModelFields";
-import { loadModelErrors, type LoadModelState } from "./loadModel";
+import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
 import {
   buildProfile as buildProfileShared,
   type CriteriaState,
@@ -62,27 +62,27 @@ export function RunDialog({
   onCancel,
 }: Props) {
   // Load model: "closed" = closed-loop (VUs), "open" = open-loop (arrival rate).
-  // Prefill from initial if it carries target_rps or stages (open-loop retry).
-  const [loadModel, setLoadModel] = useState<"closed" | "open">(
-    initial?.profile.target_rps != null ||
-      (initial?.profile.stages != null && initial.profile.stages.length > 0)
-      ? "open"
-      : "closed",
-  );
+  // deriveLoadMode is the single source of truth for reverse-derivation (RunDialog init /
+  // RunDialog loadPreset / ScheduleForm init).
+  const initMode = deriveLoadMode(initial?.profile ?? {});
+  const [loadModel, setLoadModel] = useState<"closed" | "open">(initMode.loadModel);
+  const [rateMode, setRateMode] = useState<"fixed" | "curve">(initMode.rateMode);
   const [targetRps, setTargetRps] = useState(
     initial?.profile.target_rps != null ? String(initial.profile.target_rps) : "100",
   );
   const [maxInFlight, setMaxInFlight] = useState(
     initial?.profile.max_in_flight != null ? String(initial.profile.max_in_flight) : "200",
   );
-  const [rateMode, setRateMode] = useState<"fixed" | "curve">(
-    initial?.profile.stages && initial.profile.stages.length > 0 ? "curve" : "fixed",
+  const [rampDown, setRampDown] = useState<"graceful" | "immediate">(
+    initial?.profile.ramp_down ?? "graceful",
   );
   const [stages, setStages] = useState<{ target: string; duration_seconds: string }[]>(
-    initial?.profile.stages?.map((s) => ({
-      target: String(s.target),
-      duration_seconds: String(s.duration_seconds),
-    })) ?? [{ target: "100", duration_seconds: "30" }],
+    (initial?.profile.vu_stages?.length ? initial.profile.vu_stages : initial?.profile.stages)?.map(
+      (s) => ({
+        target: String(s.target),
+        duration_seconds: String(s.duration_seconds),
+      }),
+    ) ?? [{ target: "100", duration_seconds: "30" }],
   );
   const [vus, setVus] = useState(initial?.profile.vus ?? 2);
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
@@ -208,28 +208,22 @@ export function RunDialog({
       ) {
         setAdvancedOpen(true);
       }
-      // Open-loop prefill: if preset has target_rps, switch to open mode and seed fields.
-      if (prof.target_rps != null) {
-        setLoadModel("open");
-        setTargetRps(String(prof.target_rps));
-        setMaxInFlight(prof.max_in_flight != null ? String(prof.max_in_flight) : "200");
-      } else {
-        setLoadModel("closed");
-      }
-      // Stages prefill: if preset has stages, switch to open+curve and seed stage rows.
-      if (prof.stages && prof.stages.length > 0) {
-        setLoadModel("open");
-        setRateMode("curve");
+      // 모드 역도출은 deriveLoadMode 단일화 (vu_stages → closed+curve, stages → open+curve, etc.)
+      const mode = deriveLoadMode(prof);
+      setLoadModel(mode.loadModel);
+      setRateMode(mode.rateMode);
+      if (prof.target_rps != null) setTargetRps(String(prof.target_rps));
+      if (prof.max_in_flight != null) setMaxInFlight(String(prof.max_in_flight));
+      const curveStages = prof.vu_stages?.length ? prof.vu_stages : prof.stages;
+      if (curveStages && curveStages.length > 0) {
         setStages(
-          prof.stages.map((s) => ({
+          curveStages.map((s) => ({
             target: String(s.target),
             duration_seconds: String(s.duration_seconds),
           })),
         );
-        if (prof.max_in_flight != null) setMaxInFlight(String(prof.max_in_flight));
-      } else {
-        setRateMode("fixed");
       }
+      setRampDown(prof.ramp_down ?? "graceful");
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -289,7 +283,7 @@ export function RunDialog({
     thinkMin,
     thinkMax,
     thinkSeed,
-    rampDown: "graceful", // Task 7+8에서 실제 state 배선 — 현재는 placeholder (payload byte-identical)
+    rampDown, // 실제 state 배선 (Task 7+8)
   };
   const loadErrs = loadModelErrors(loadState);
   const canSubmit =
@@ -308,14 +302,21 @@ export function RunDialog({
           !httpTimeoutInvalid &&
           bindingBlock.ok &&
           !mutation.isPending
-      : vus >= 1 &&
-        duration >= 1 &&
-        !loadErrs.rampInvalid &&
-        !loopCapInvalid &&
-        !httpTimeoutInvalid &&
-        !thinkInvalid &&
-        bindingBlock.ok &&
-        !mutation.isPending;
+      : rateMode === "curve"
+        ? !loadErrs.stagesInvalid &&
+          !loopCapInvalid &&
+          !httpTimeoutInvalid &&
+          !thinkInvalid &&
+          bindingBlock.ok &&
+          !mutation.isPending
+        : vus >= 1 &&
+          duration >= 1 &&
+          !loadErrs.rampInvalid &&
+          !loopCapInvalid &&
+          !httpTimeoutInvalid &&
+          !thinkInvalid &&
+          bindingBlock.ok &&
+          !mutation.isPending;
 
   // Merge selected environment (base) under the per-run override rows. With no env
   // selected, baseVars is {} and this is byte-identical to the old loop.
@@ -482,6 +483,8 @@ export function RunDialog({
           setMaxInFlight={setMaxInFlight}
           stages={stages}
           setStages={setStages}
+          rampDown={rampDown}
+          setRampDown={setRampDown}
           errs={loadErrs}
         />
       </fieldset>

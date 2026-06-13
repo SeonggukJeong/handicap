@@ -17,6 +17,7 @@ export function ReportHeadline({ summary, profile, verdict }: Props) {
     errPct: `${summary.count === 0 ? "0" : ((summary.errors / summary.count) * 100).toFixed(1)}%`,
   };
   const isCurve = (profile.stages?.length ?? 0) > 0;
+  const isVuCurve = (profile.vu_stages?.length ?? 0) > 0;
   const sentence =
     summary.count === 0
       ? ko.report.headlineNoRequests
@@ -24,7 +25,9 @@ export function ReportHeadline({ summary, profile, verdict }: Props) {
         ? ko.report.headlineOpenFixed({ ...common, targetRps: profile.target_rps })
         : isCurve
           ? ko.report.headlineOpenCurve(common)
-          : ko.report.headlineClosed({ ...common, vus: profile.vus });
+          : isVuCurve
+            ? ko.report.headlineClosedCurve(common)
+            : ko.report.headlineClosed({ ...common, vus: profile.vus });
 
   return (
     <section aria-label={ko.report.headlineAria} className="mb-6">

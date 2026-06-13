@@ -900,7 +900,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seeded 1 row → set its target/duration
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "200");
@@ -927,7 +927,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /단계 추가/ }));
     expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(2);
@@ -939,7 +939,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "0");
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
@@ -960,7 +960,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
       },
       env: {},
     });
-    expect(screen.getByRole("radio", { name: /곡선/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
     expect(screen.getByLabelText("stage target 0")).toHaveValue(100);
   });
 
@@ -968,7 +968,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getByText(/각 단계가 끝날 때의 목표 초당 요청 수/)).toBeInTheDocument();
     expect(screen.getByText(/이 단계가 지속되는 시간/)).toBeInTheDocument();
     expect(screen.getByText(/동시 요청 상한 — /)).toBeInTheDocument();
@@ -978,7 +978,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seed is a single row
     expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
     await user.selectOptions(screen.getByLabelText(/부하 모양/), "spike");
@@ -1047,22 +1047,24 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
     expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
   });
 
-  it("closed 모드에서 곡선 라디오는 disabled", () => {
+  it("closed 모드에서 곡선 라디오가 활성화돼 선택 가능 (곧 지원 제거)", async () => {
+    const user = userEvent.setup();
     renderDialog();
-    expect(screen.getByRole("radio", { name: /곡선/ })).toBeDisabled();
+    const curve = screen.getByRole("radio", { name: "곡선" });
+    expect(curve).toBeEnabled();
+    await user.click(curve);
+    expect(curve).toBeChecked();
   });
 
-  it("open→곡선→closed 전환 시 rateMode가 fixed로 리셋된다", async () => {
+  it("open→곡선→closed 전환 시 rateMode가 유지된다 (eager reset 제거)", async () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
-    expect(screen.getByRole("radio", { name: /곡선/ })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
     await user.click(screen.getByRole("radio", { name: /사용자 수 기준/ }));
-    // 다시 open으로 가도 곡선이 아니라 고정이 선택돼 있어야 함(리셋됨)
-    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
-    expect(screen.getByRole("radio", { name: /고정/ })).toBeChecked();
-    expect(screen.getByRole("radio", { name: /곡선/ })).not.toBeChecked();
+    // closed+curve는 이제 유효한 모드 — closed로 이동해도 curve가 유지된다
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
   });
 
   it("각 모드에서 HTTP timeout 입력은 정확히 1개", async () => {
@@ -1072,7 +1074,7 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
     expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // closed
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // open+fixed
-    await user.click(screen.getByRole("radio", { name: /곡선/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // open+curve
   });
 });
@@ -1399,6 +1401,73 @@ describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ })); // open 전환
     expect(screen.queryByRole("status")).toBeNull(); // open에선 배너 없음
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeEnabled();
+  });
+});
+
+describe("RunDialog — closed+curve (Task 7+8)", () => {
+  it("closed+curve 제출: vu_stages payload + ramp_down immediate", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "RVC1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 0, ramp_up_seconds: 0, duration_seconds: 0 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog(false);
+
+    // Switch to closed+curve
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    // stage 행 입력
+    await user.clear(screen.getByLabelText("stage target 0"));
+    await user.type(screen.getByLabelText("stage target 0"), "50");
+    await user.clear(screen.getByLabelText("stage duration 0"));
+    await user.type(screen.getByLabelText("stage duration 0"), "30");
+    // 즉시 줄이기 선택
+    await user.click(screen.getByRole("radio", { name: /즉시 줄이기/ }));
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("RVC1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.vu_stages).toEqual([{ target: 50, duration_seconds: 30 }]);
+    expect(body.profile.ramp_down).toBe("immediate");
+    expect(body.profile.target_rps).toBeUndefined();
+    expect(body.profile.max_in_flight).toBeUndefined();
+    expect(body.profile.stages).toBeUndefined();
+  });
+
+  it("vu_stages 든 run 프리필이 closed+curve로 역도출되고 stage 행·rampDown이 시드된다", () => {
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 0,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        vu_stages: [{ target: 7, duration_seconds: 11 }],
+        ramp_down: "immediate",
+      },
+      env: {},
+    });
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
+    expect(screen.getByLabelText("stage target 0")).toHaveValue(7);
+    expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
   });
 });
 
