@@ -134,6 +134,8 @@ message Profile {
   optional uint32 max_in_flight = 9;   // present → open-loop slot-pool size
   repeated Stage stages = 10;          // S-D open-loop rate curve; empty = absent (fixed rate)
   bool measure_phases = 11;            // opt-in latency-phase breakdown (TTFB+download)
+  repeated Stage vu_stages = 12;       // closed-loop VU curve; empty = absent (spec §3.1)
+  bool ramp_down_immediate = 13;       // VU-curve ramp-down: false = graceful (default)
 }
 
 message AbortRun {

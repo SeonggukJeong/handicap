@@ -334,6 +334,8 @@ pub(crate) async fn spawn_run(
                 })
                 .collect(),
             measure_phases: profile.measure_phases,
+            vu_stages: vec![],          // Task 4 fills the real mapping
+            ramp_down_immediate: false, // Task 4 fills the real mapping
         },
         env: env.clone(),
         data_binding,

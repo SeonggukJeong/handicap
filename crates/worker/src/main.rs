@@ -7,7 +7,7 @@ use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{
     BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, run_scenario,
-    run_scenario_open_loop,
+    run_scenario_open_loop, run_scenario_vu_curve,
 };
 use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
@@ -181,9 +181,10 @@ async fn main() -> anyhow::Result<()> {
         _ => None,
     };
 
-    // Capture open-loop predicate BEFORE the RunPlan build — partial field moves
+    // Capture predicates BEFORE the RunPlan build — partial field moves
     // (profile.think_time) in the struct literal below make &profile invalid after.
     let is_open_loop = proto_is_open_loop(&profile);
+    let is_vu_curve = proto_is_vu_curve(&profile);
 
     let plan = RunPlan {
         vus: assignment.vu_count,
@@ -225,8 +226,26 @@ async fn main() -> anyhow::Result<()> {
             )
         },
         measure_phases: profile.measure_phases,
-        vu_stages: None,
-        ramp_down: RampDown::Graceful,
+        // VU-curve: map proto vu_stages → engine Stage vec; empty → None (closed/flat path).
+        vu_stages: if profile.vu_stages.is_empty() {
+            None
+        } else {
+            Some(
+                profile
+                    .vu_stages
+                    .iter()
+                    .map(|s| handicap_engine::Stage {
+                        target: s.target,
+                        duration_seconds: s.duration_seconds,
+                    })
+                    .collect(),
+            )
+        },
+        ramp_down: if profile.ramp_down_immediate {
+            RampDown::Immediate
+        } else {
+            RampDown::Graceful
+        },
     };
     info!(
         vus = plan.vus,
@@ -356,7 +375,9 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let run_res = if is_open_loop {
+    let run_res = if is_vu_curve {
+        run_scenario_vu_curve(scenario, plan, win_tx, cancel).await
+    } else if is_open_loop {
         run_scenario_open_loop(scenario, plan, win_tx, cancel).await
     } else {
         run_scenario(scenario, plan, win_tx, cancel).await
@@ -411,10 +432,20 @@ fn proto_is_open_loop(p: &pb::Profile) -> bool {
     p.target_rps.is_some() || !p.stages.is_empty()
 }
 
-/// Total run duration for the engine: sum of stage durations when a curve is set,
-/// else the flat `duration_seconds`. Invariant: engine deadline = this value.
+/// Closed-loop VU curve when vu_stages is non-empty (spec §3.1). Empty ≡ absent.
+fn proto_is_vu_curve(p: &pb::Profile) -> bool {
+    !p.vu_stages.is_empty()
+}
+
+/// Total run duration for the engine: VU-curve stage sum > rate-curve stage sum >
+/// flat duration_seconds. Invariant: engine deadline = this value.
 fn run_duration_secs(p: &pb::Profile) -> u64 {
-    if p.stages.is_empty() {
+    if !p.vu_stages.is_empty() {
+        p.vu_stages
+            .iter()
+            .map(|s| u64::from(s.duration_seconds))
+            .sum()
+    } else if p.stages.is_empty() {
         u64::from(p.duration_seconds)
     } else {
         p.stages.iter().map(|s| u64::from(s.duration_seconds)).sum()
@@ -503,6 +534,27 @@ mod tests {
     fn resolve_worker_id_defaults_when_nothing_present() {
         // Neither arg nor env (shouldn't happen in practice) → deterministic id.
         assert_eq!(resolve_worker_id(None, "run-9", None), "run-9-w0");
+    }
+
+    #[test]
+    fn run_duration_uses_vu_stage_sum() {
+        let p = pb::Profile {
+            duration_seconds: 0,
+            vu_stages: vec![
+                pb::Stage {
+                    target: 5,
+                    duration_seconds: 3,
+                },
+                pb::Stage {
+                    target: 1,
+                    duration_seconds: 4,
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(run_duration_secs(&p), 7);
+        assert!(proto_is_vu_curve(&p));
+        assert!(!proto_is_open_loop(&p));
     }
 
     #[test]

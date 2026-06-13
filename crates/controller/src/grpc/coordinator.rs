@@ -1106,6 +1106,8 @@ mod tests {
                 max_in_flight: None,
                 stages: vec![],
                 measure_phases: false,
+                vu_stages: vec![],
+                ramp_down_immediate: false,
             },
             env: HashMap::new(),
             data_binding: None,
