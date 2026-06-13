@@ -1947,9 +1947,36 @@ steps:
         "expected >= 1 report window"
     );
 
+    // (d) active_vu_series carries the per-second VU gauge (desired follows the curve,
+    //     actual VUs really ran). This proves the worker forward + ingest + build_report
+    //     pipeline for the active-VU gauge end-to-end.
+    let series = report["active_vu_series"]
+        .as_array()
+        .expect("active_vu_series present in report");
+    assert!(
+        !series.is_empty(),
+        "curve run report must carry a non-empty active-VU series"
+    );
+    assert!(
+        series
+            .iter()
+            .any(|s| s["desired"].as_u64().unwrap_or(0) >= 1),
+        "desired should reach the stage target (>= 1)"
+    );
+    assert!(
+        series
+            .iter()
+            .any(|s| s["actual"].as_u64().unwrap_or(0) >= 1),
+        "actual VUs should be observed (>= 1)"
+    );
+
     eprintln!(
-        "[vu_curve_e2e_smoke] count={count}, errors={errors}, windows={}",
-        report["windows"].as_array().map(|w| w.len()).unwrap_or(0)
+        "[vu_curve_e2e_smoke] count={count}, errors={errors}, windows={}, active_vu_series={}",
+        report["windows"].as_array().map(|w| w.len()).unwrap_or(0),
+        report["active_vu_series"]
+            .as_array()
+            .map(|s| s.len())
+            .unwrap_or(0)
     );
 
     rest_handle.abort();
