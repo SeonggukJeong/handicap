@@ -417,6 +417,7 @@ mod tests {
             dropped: 0,
             latency: None,
             group_latency: vec![],
+            active_vu_series: vec![],
         }
     }
 

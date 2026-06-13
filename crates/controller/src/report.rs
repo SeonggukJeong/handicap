@@ -29,6 +29,8 @@ pub struct ReportJson {
     pub latency: Option<LatencyDistribution>,
     #[serde(default)]
     pub group_latency: Vec<GroupLatency>,
+    #[serde(default)]
+    pub active_vu_series: Vec<ActiveVuSample>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -150,6 +152,13 @@ pub struct BranchLatency {
 pub struct LatencyDistribution {
     pub percentile_curve: Vec<PercentilePoint>,
     pub histogram: Vec<HistogramBucket>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ActiveVuSample {
+    pub ts_second: i64,
+    pub desired: u32,
+    pub actual: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -329,6 +338,7 @@ fn fresh_hist() -> Histogram<u64> {
         .expect("HDR bounds are valid")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_report(
     run: &RunRow,
     scenario_yaml: &str,
@@ -337,6 +347,7 @@ pub fn build_report(
     branches: &[IfBranchRow],
     groups: &[GroupMetricRow],
     phases: &[PhaseMetricRow],
+    active_vu: &[crate::store::metrics::ActiveVuRow],
 ) -> ReportJson {
     // Build per-step loop breakdown map (loops already ordered by step_id, loop_index from SQL).
     let mut loop_by_step: BTreeMap<String, Vec<LoopBucket>> = BTreeMap::new();
@@ -608,6 +619,17 @@ pub fn build_report(
         })
         .collect();
 
+    // Active-VU gauge: independent per-second series. NOT merged into summary/windows/
+    // overall/rps (group_latency/download-phase와 동형 — 독립 게이지).
+    let active_vu_series: Vec<ActiveVuSample> = active_vu
+        .iter()
+        .map(|r| ActiveVuSample {
+            ts_second: r.ts_second,
+            desired: r.desired as u32,
+            actual: r.actual as u32,
+        })
+        .collect();
+
     ReportJson {
         run: ReportRun {
             id: run.id.clone(),
@@ -630,6 +652,7 @@ pub fn build_report(
         dropped: run.dropped as u64,
         latency,
         group_latency,
+        active_vu_series,
     }
 }
 
@@ -728,7 +751,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[]);
 
         // One collapsed window per (ts_second, step_id), counts summed.
         assert_eq!(rep.windows.len(), 1, "worker rows collapse to one window");
@@ -776,7 +799,7 @@ mod tests {
             win(101, "stepB", 3, 1, r#"{"200":2,"500":1}"#, &[25_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 18);
         assert_eq!(rpt.summary.errors, 2);
         assert_eq!(rpt.summary.duration_seconds, 2);
@@ -801,7 +824,7 @@ mod tests {
             hdr_histogram: vec![0xff, 0xff, 0xff, 0xff],
         };
         let yaml = r.scenario_yaml.clone();
-        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[]);
+        let rpt = build_report(&r, &yaml, &[bad], &[], &[], &[], &[], &[]);
         assert_eq!(rpt.summary.count, 5);
         assert_eq!(rpt.status_distribution.get("200").copied(), Some(5));
         assert_eq!(rpt.windows[0].p95_ms, 0);
@@ -844,7 +867,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &loops, &[], &[], &[], &[]);
         let step = rep.steps.iter().find(|s| s.step_id == "s").unwrap();
         assert_eq!(step.loop_breakdown.len(), 3);
         assert_eq!(step.loop_breakdown[0].loop_index, Some(0));
@@ -888,7 +911,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &branches, &[], &[], &[]);
         assert_eq!(rep.if_breakdown.len(), 2);
         let if1 = rep
             .if_breakdown
@@ -982,7 +1005,7 @@ mod tests {
             max_p95_ms: Some(1000),
             ..Default::default()
         });
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[]);
         let v = rep.verdict.expect("verdict present");
         assert_eq!(v.criteria.len(), 1);
         assert!(v.passed); // 빈 윈도 → p95 0 <= 1000
@@ -997,7 +1020,7 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1008,7 +1031,7 @@ mod tests {
         let mut run = run_row();
         run.profile.criteria = Some(Criteria::default()); // 활성 0개
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1018,7 +1041,7 @@ mod tests {
     fn build_report_surfaces_dropped() {
         let mut run = run_row();
         run.dropped = 7;
-        let rep = build_report(&run, "", &[], &[], &[], &[], &[]);
+        let rep = build_report(&run, "", &[], &[], &[], &[], &[], &[]);
         assert_eq!(
             rep.dropped, 7,
             "ReportJson.dropped must reflect RunRow.dropped"
@@ -1033,7 +1056,7 @@ mod tests {
             win(101, "s", 2, 0, r#"{"200":2}"#, &[40_000, 50_000]),
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[]);
 
         let latency = rep.latency.as_ref().expect("latency present with samples");
         assert_eq!(latency.percentile_curve.len(), CURVE_QUANTILES.len());
@@ -1056,7 +1079,7 @@ mod tests {
     fn build_report_no_latency_without_samples() {
         let r = run_row();
         assert!(
-            build_report(&r, "", &[], &[], &[], &[], &[])
+            build_report(&r, "", &[], &[], &[], &[], &[], &[])
                 .latency
                 .is_none()
         );
@@ -1213,7 +1236,7 @@ mod tests {
             ..Default::default()
         });
         assert!(
-            build_report(&run, "", &[], &[], &[], &[], &[])
+            build_report(&run, "", &[], &[], &[], &[], &[], &[])
                 .verdict
                 .is_none()
         );
@@ -1242,7 +1265,7 @@ mod tests {
         }];
         let yaml = r.scenario_yaml.clone();
 
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[]);
 
         // summary/overall reflect ONLY the http window (10 reqs), NOT the 3 page loads.
         assert_eq!(
@@ -1274,9 +1297,53 @@ mod tests {
     }
 
     #[test]
+    fn build_report_attaches_active_vu_series_without_polluting_summary() {
+        use crate::store::metrics::ActiveVuRow;
+        let r = run_row();
+        let rows = vec![win(
+            100,
+            "01HX0000000000000000000011",
+            5,
+            0,
+            r#"{"200":5}"#,
+            &[5_000],
+        )];
+        let yaml = r.scenario_yaml.clone();
+        let active = vec![
+            ActiveVuRow {
+                run_id: r.id.clone(),
+                ts_second: 100,
+                desired: 3,
+                actual: 2,
+            },
+            ActiveVuRow {
+                run_id: r.id.clone(),
+                ts_second: 101,
+                desired: 5,
+                actual: 5,
+            },
+        ];
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &active);
+        assert_eq!(rep.active_vu_series.len(), 2);
+        assert_eq!(
+            (
+                rep.active_vu_series[0].ts_second,
+                rep.active_vu_series[0].desired,
+                rep.active_vu_series[0].actual
+            ),
+            (100, 3, 2)
+        );
+        let baseline = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[]);
+        assert_eq!(rep.summary.count, baseline.summary.count);
+        assert_eq!(rep.summary.rps, baseline.summary.rps);
+        assert_eq!(rep.windows.len(), baseline.windows.len());
+        assert!(baseline.active_vu_series.is_empty());
+    }
+
+    #[test]
     fn build_report_empty_groups_yields_empty_group_latency() {
         let r = run_row();
-        let rep = build_report(&r, "", &[], &[], &[], &[], &[]);
+        let rep = build_report(&r, "", &[], &[], &[], &[], &[], &[]);
         assert!(rep.group_latency.is_empty());
     }
 
@@ -1317,7 +1384,7 @@ mod tests {
             },
         ];
         let yaml = r.scenario_yaml.clone();
-        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[]);
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &groups, &[], &[]);
 
         assert_eq!(
             rep.group_latency.len(),
@@ -1370,7 +1437,7 @@ mod tests {
             hdr_histogram: make_hdr_bytes(&[5_000, 9_000]),
             count: 2,
         }];
-        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases);
+        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[]);
         // download samples must NOT pollute the TTFB summary count (isolation invariant).
         // The window row has count=5, so summary reflects 5 TTFB requests, not the 2 download samples.
         assert_eq!(
@@ -1392,6 +1459,7 @@ mod tests {
             &r,
             "version: 1\nname: t\nsteps: []\n",
             &rows,
+            &[],
             &[],
             &[],
             &[],
