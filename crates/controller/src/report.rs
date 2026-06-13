@@ -561,6 +561,7 @@ pub fn build_report(
         &status_dist,
         verdict.as_ref(),
         scenario_yaml,
+        run.dropped as u64,
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
@@ -1469,6 +1470,40 @@ mod tests {
             rep.steps.iter().all(|s| s.download.is_none()),
             "no download when phases empty (byte-identical)"
         );
+    }
+
+    #[test]
+    fn build_report_surfaces_saturation_insight() {
+        // dropped>0 -> load_gen_saturated. value = peak per-second(=두 번째 초 9), count = dropped.
+        let mut run = run_row();
+        run.dropped = 7;
+        let rows = vec![
+            win(
+                100,
+                "s",
+                4,
+                0,
+                r#"{"200":4}"#,
+                &[10_000, 10_000, 10_000, 10_000],
+            ),
+            win(101, "s", 9, 0, r#"{"200":9}"#, &[10_000; 9]),
+        ];
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[]);
+        let sat = rep
+            .insights
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present when dropped>0");
+        assert_eq!(sat.value, Some(9.0)); // 두 번째 초가 peak (4가 아니라 9)
+        assert_eq!(sat.count, Some(7));
+    }
+
+    #[test]
+    fn build_report_no_saturation_when_not_dropped() {
+        let run = run_row(); // dropped: 0
+        let rows = vec![win(100, "s", 5, 0, r#"{"200":5}"#, &[10_000; 5])];
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[]);
+        assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
     }
 
     #[test]

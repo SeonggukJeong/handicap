@@ -49,12 +49,13 @@ fn order_rank(i: &Insight) -> u8 {
     match (i.kind.as_str(), i.status_class.as_deref()) {
         ("slo_failure", _) => 1,
         ("status_class", Some("5xx")) => 2,
-        ("no_request_step", _) => 3,
-        ("error_hotspot", _) => 4,
-        ("status_class", Some("4xx")) => 5,
-        ("status_temporal", _) => 6,
-        ("slowest_step", _) => 7,
-        ("slo_pass", _) => 8,
+        ("load_gen_saturated", _) => 3,
+        ("no_request_step", _) => 4,
+        ("error_hotspot", _) => 5,
+        ("status_class", Some("4xx")) => 6,
+        ("status_temporal", _) => 7,
+        ("slowest_step", _) => 8,
+        ("slo_pass", _) => 9,
         _ => 99,
     }
 }
@@ -66,6 +67,7 @@ pub fn derive_insights(
     status_distribution: &BTreeMap<String, u64>,
     verdict: Option<&Verdict>,
     scenario_yaml: &str,
+    dropped: u64,
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -182,6 +184,28 @@ pub fn derive_insights(
         }
     }
 
+    // load_gen_saturated: open-loop run이 요청한 도착률을 못 냈다(슬롯 부족으로
+    // 발사 못한 요청 = dropped). dropped는 open-loop 스케줄러만 증가시키므로
+    // (closed-loop은 항상 0) `dropped > 0`이 자동으로 open-loop에 한정된다.
+    // 관측 천장 = peak per-second throughput(초별 step count 합의 최대) — whole-run
+    // summary.rps는 ramp에서 0부터 평균돼 천장을 과소평가하므로 안 씀. 원인(부하기
+    // vs SUT)은 dropped만으로 단정 불가라 UI 행동 줄에서 사용자에게 위임(spec §2).
+    if dropped > 0 {
+        let mut by_sec: BTreeMap<i64, u64> = BTreeMap::new();
+        for w in windows {
+            *by_sec.entry(w.ts_second).or_insert(0) += w.count;
+        }
+        let peak = by_sec
+            .values()
+            .copied()
+            .max()
+            .unwrap_or_else(|| summary.rps.round() as u64);
+        let mut ins = Insight::new("load_gen_saturated", "warning");
+        ins.value = Some(peak as f64);
+        ins.count = Some(dropped);
+        out.push(ins);
+    }
+
     out.sort_by_key(order_rank);
     out
 }
@@ -251,7 +275,7 @@ mod tests {
 
     #[test]
     fn empty_when_no_signal() {
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, "", 0);
         assert!(got.is_empty());
     }
 
@@ -273,7 +297,7 @@ mod tests {
     #[test]
     fn slo_failure_counts_failed_criteria() {
         let v = verdict(false, 2);
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "");
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "", 0);
         let f = got
             .iter()
             .find(|i| i.kind == "slo_failure")
@@ -285,7 +309,7 @@ mod tests {
     #[test]
     fn slo_pass_when_passed() {
         let v = verdict(true, 0);
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "");
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "", 0);
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
         assert!(got.iter().all(|i| i.kind != "slo_failure"));
@@ -302,7 +326,7 @@ mod tests {
         let steps = vec![step_err("a", 100), step_err("b", 900)];
         let mut s = summary();
         s.errors = 1000;
-        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "");
+        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "", 0);
         let h = got
             .iter()
             .find(|i| i.kind == "error_hotspot")
@@ -322,6 +346,7 @@ mod tests {
             &BTreeMap::new(),
             None,
             "",
+            0,
         );
         assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
@@ -329,7 +354,7 @@ mod tests {
     #[test]
     fn slowest_step_picks_max_p95() {
         let steps = vec![step("a", 50), step("b", 120), step("c", 90)];
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "", 0);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
         assert_eq!(got[0].step_id.as_deref(), Some("b"));
@@ -357,7 +382,7 @@ mod tests {
             win(9, &[("500", 3)]),
             win(10, &[("500", 2)]),
         ];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
         let t = got
             .iter()
             .find(|i| i.kind == "status_temporal")
@@ -370,14 +395,14 @@ mod tests {
     #[test]
     fn no_status_temporal_when_5xx_early() {
         let windows = vec![win(0, &[("500", 5)]), win(10, &[("200", 5)])];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
 
     #[test]
     fn no_status_temporal_single_second() {
         let windows = vec![win(7, &[("500", 5)])]; // max_ts == min_ts
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
 
@@ -416,6 +441,7 @@ steps:
             &BTreeMap::new(),
             None,
             YAML_TOP_AND_IF,
+            0,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -435,6 +461,7 @@ steps:
             &BTreeMap::new(),
             None,
             "",
+            0,
         );
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
@@ -451,6 +478,7 @@ steps:
             &BTreeMap::new(),
             None,
             YAML_TOP_AND_IF,
+            0,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -474,7 +502,7 @@ steps:
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
         let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
         let v = verdict(false, 1);
-        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "");
+        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7);
         let order: Vec<(&str, Option<&str>)> = got
             .iter()
             .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
@@ -484,6 +512,7 @@ steps:
             vec![
                 ("slo_failure", None),
                 ("status_class", Some("5xx")),
+                ("load_gen_saturated", None),
                 ("error_hotspot", None),
                 ("status_class", Some("4xx")),
                 ("status_temporal", Some("5xx")),
@@ -499,7 +528,7 @@ steps:
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
-        let got = derive_insights(&s, &steps, &[], &d, None, "");
+        let got = derive_insights(&s, &steps, &[], &d, None, "", 0);
         assert!(
             got.len() >= 3,
             "error-heavy run should surface >=3 insights, got {}",
@@ -513,16 +542,16 @@ steps:
         // slowest_step + slo_pass, NOT padded to 3.
         let steps = vec![step("a", 80)];
         let v = verdict(true, 0);
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), Some(&v), "");
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), Some(&v), "", 0);
         let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 7 then 8
+        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 8 then 9
     }
 
     #[test]
     fn slowest_step_first_on_tie() {
         // invariant lock: equal p95 → first step (steps are sorted by step_id).
         let steps = vec![step("a", 100), step("b", 100)];
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "");
+        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "", 0);
         assert_eq!(got[0].step_id.as_deref(), Some("a"));
         assert_eq!(got[0].value, Some(100.0));
     }
@@ -555,7 +584,7 @@ steps:
         name: in_dead_loop
         request: { method: GET, url: "http://x/2" }
 "#;
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, YAML_LOOPS);
+        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, YAML_LOOPS, 0);
         let flagged: Vec<&str> = got
             .iter()
             .filter(|i| i.kind == "no_request_step")
@@ -567,7 +596,7 @@ steps:
     #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "");
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0);
         let five = got
             .iter()
             .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
@@ -586,7 +615,7 @@ steps:
     fn status_class_excludes_status_0_from_denominator() {
         // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
         let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "");
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0);
         let five = got
             .iter()
             .find(|i| i.status_class.as_deref() == Some("5xx"))
@@ -615,5 +644,59 @@ steps:
         .unwrap();
         super::collect_unconditional(&sc.steps, false, &mut out);
         assert_eq!(out, vec!["01HX0000000000000000000011".to_string()]);
+    }
+
+    fn win_count(ts: i64, step_id: &str, count: u64) -> ReportWindow {
+        ReportWindow {
+            ts_second: ts,
+            step_id: step_id.to_string(),
+            count,
+            error_count: 0,
+            status_counts: BTreeMap::new(),
+            p50_ms: 1,
+            p95_ms: 1,
+            p99_ms: 1,
+        }
+    }
+
+    #[test]
+    fn load_gen_saturated_when_dropped() {
+        // dropped>0 (open-loop 포화) -> value = peak per-second throughput,
+        // count = dropped. peak = 초당 step count 합의 최대(평균 아님).
+        let windows = vec![
+            win_count(0, "a", 3),
+            win_count(0, "b", 4),  // ts0 합 = 7
+            win_count(1, "a", 10), // ts1 합 = 10 (peak)
+        ];
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 5);
+        let s = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(s.severity, "warning");
+        assert_eq!(s.value, Some(10.0)); // peak, not 7 not average
+        assert_eq!(s.count, Some(5)); // dropped
+    }
+
+    #[test]
+    fn no_saturation_when_dropped_zero() {
+        let windows = vec![win_count(0, "a", 100)];
+        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
+        assert!(got.iter().all(|i| i.kind != "load_gen_saturated"));
+    }
+
+    #[test]
+    fn saturation_falls_back_to_summary_rps() {
+        // dropped>0 인데 windows가 비면 천장은 summary.rps(반올림)로 폴백.
+        // summary() 헬퍼는 rps:0.0이라 0이 아닌 값을 명시해야 동어반복(==0) 회피.
+        let mut s = summary();
+        s.rps = 1234.6;
+        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3);
+        let sat = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(sat.value, Some(1235.0)); // 1234.6.round()
+        assert_eq!(sat.count, Some(3));
     }
 }
