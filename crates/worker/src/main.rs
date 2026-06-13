@@ -14,7 +14,8 @@ use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
-    BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, PhaseStat, RunStatus, WorkerMessage,
+    ActiveVuSample, BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, PhaseStat,
+    RunStatus, WorkerMessage,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -326,6 +327,15 @@ async fn main() -> anyhow::Result<()> {
                     })
                 })
                 .collect();
+            let active_vu_samples: Vec<ActiveVuSample> = flush
+                .active_vu_samples
+                .into_iter()
+                .map(|s| ActiveVuSample {
+                    ts_second: s.ts_second,
+                    desired: s.desired,
+                    actual: s.actual,
+                })
+                .collect();
             // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
             // run-total dropped count with empty windows. Dropping it would silently
             // discard `dropped` on all-empty-window final flushes (the C1 footgun).
@@ -334,6 +344,7 @@ async fn main() -> anyhow::Result<()> {
                 && branch_stats.is_empty()
                 && group_stats.is_empty()
                 && phase_stats.is_empty()
+                && active_vu_samples.is_empty()
                 && flush.dropped == 0
             {
                 continue;
@@ -347,6 +358,7 @@ async fn main() -> anyhow::Result<()> {
                     branch_stats,
                     group_stats,
                     phase_stats,
+                    active_vu_samples,
                     dropped: flush.dropped,
                 })),
             };

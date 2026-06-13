@@ -1385,6 +1385,7 @@ mod tests {
             branch_stats: vec![],
             group_stats: vec![],
             phase_stats: vec![],
+            active_vu_samples: vec![],
             dropped: d,
         };
         ingest_metrics(&coord, &mk(3)).await;
@@ -1436,6 +1437,7 @@ mod tests {
                 },
             ],
             phase_stats: vec![],
+            active_vu_samples: vec![],
             dropped: 0,
         };
         ingest_metrics(&coord, &batch).await;

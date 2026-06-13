@@ -56,6 +56,12 @@ message PhaseStat {
   uint64 count = 4;
 }
 
+message ActiveVuSample {
+  int64 ts_second = 1;
+  uint32 desired = 2;   // curve's commanded active-VU count for this second
+  uint32 actual = 3;    // live VUs in their active loop at the sample instant
+}
+
 message MetricBatch {
   string run_id = 1;
   string worker_id = 2;
@@ -65,6 +71,7 @@ message MetricBatch {
   uint64 dropped = 6;                  // open-loop arrivals dropped (run-total carried on final flush)
   repeated GroupStat group_stats = 7;  // parallel 페이지-로드 레이턴시 (delta, controller merges)
   repeated PhaseStat phase_stats = 8;  // per-(step_id,phase) latency-phase breakdown (delta, controller merges)
+  repeated ActiveVuSample active_vu_samples = 9;  // per-second active-VU gauge (curve only)
 }
 
 message MetricWindow {
