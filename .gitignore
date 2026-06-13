@@ -10,3 +10,8 @@ ui/dist
 ui/.vite
 ui/coverage
 .claude/worktrees/
+# Playwright MCP run artifacts + stray screenshot captures (live-verification
+# leftovers that finish-slice used to clean by hand). Root-only for *.png so
+# committed doc images under docs/ are unaffected.
+.playwright-mcp/
+/*.png
