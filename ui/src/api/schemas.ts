@@ -345,6 +345,15 @@ export const InsightSchema = z.object({
 });
 export type Insight = z.infer<typeof InsightSchema>;
 
+export const ActiveVuSampleSchema = z
+  .object({
+    ts_second: z.number().int(),
+    desired: z.number().int().nonnegative(),
+    actual: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ActiveVuSample = z.infer<typeof ActiveVuSampleSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -355,6 +364,7 @@ export const ReportSchema = z
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),
     group_latency: z.array(GroupLatencySchema).optional(),
+    active_vu_series: z.array(ActiveVuSampleSchema).optional(),
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
     dropped: z.number(),

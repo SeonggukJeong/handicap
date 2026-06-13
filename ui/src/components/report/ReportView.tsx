@@ -7,6 +7,7 @@ import { flattenHttpSteps, findStepById } from "../../scenario/model";
 import { resolveForDisplay } from "../../scenario/template";
 import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
+import { ActiveVuChart } from "./ActiveVuChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { StepStatsTable } from "./StepStatsTable";
 import { BranchStatsTable } from "./BranchStatsTable";
@@ -163,6 +164,9 @@ export function ReportView({ report, profile }: Props) {
         yLabel="errors"
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
       />
+      {report.active_vu_series && report.active_vu_series.length > 0 ? (
+        <ActiveVuChart series={report.active_vu_series} />
+      ) : null}
       {report.latency ? (
         <section aria-label="Latency">
           <h3 className="text-lg font-semibold mb-2">Latency</h3>

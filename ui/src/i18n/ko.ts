@@ -295,6 +295,9 @@ export const ko = {
     colDecisions: "분기 결정 수",
     colBranch: "분기",
     colDecisionsInner: "결정 수",
+    activeVuTitle: "활성 VU (시간별)",
+    activeVuDesired: "목표",
+    activeVuActual: "실제",
   },
   runDetail: {
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)
