@@ -633,6 +633,397 @@ fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {
     prev_target
 }
 
+/// Closed-loop VU curve (spec §4): drive a piecewise-linear *active VU count*
+/// `desired(t) = round(rate_at(vu_stages, elapsed))` with park-gated reusable VU
+/// tasks. Isolated from `run_scenario`/`run_scenario_open_loop` — the fixed
+/// closed-loop and open-loop paths are untouched (S-C isolation precedent).
+///
+/// Supervisor runs INLINE in this task (mirror of run_scenario's spawn-loop
+/// position): tick every 250ms until the deadline, only then join. Starting at
+/// 0 VUs with lazy spawn means the JoinSet may be empty early — joining
+/// immediately would end the run at t≈0 (spec §4.2 hazard).
+pub async fn run_scenario_vu_curve(
+    scenario: Arc<Scenario>,
+    plan: RunPlan,
+    out: mpsc::Sender<MetricFlush>,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let stages = plan
+        .vu_stages
+        .clone()
+        .expect("worker selects this path only when vu_stages is non-empty");
+    let max_vus: u32 = stages.iter().map(|s| s.target).max().unwrap_or(0);
+    let agg = Arc::new(Mutex::new(Aggregator::new(plan.loop_breakdown_cap)));
+    let started_at = Instant::now();
+    let deadline = started_at + plan.duration;
+    let failed = Arc::new(AtomicU32::new(0));
+    let env = Arc::new(plan.env);
+    let dataset = plan.data_binding.clone();
+    let http_timeout = plan.http_timeout;
+    let think_time = plan.think_time;
+    let think_seed = plan.think_seed;
+    let measure_phases = plan.measure_phases;
+    let immediate = plan.ramp_down == RampDown::Immediate;
+    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
+        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
+            Some(Arc::new(AtomicU64::new(0)))
+        }
+        _ => None,
+    };
+
+    // Desired active-VU count, broadcast to every VU task. VU `i` is active iff
+    // `desired > i`.
+    let (desired_tx, desired_rx) = tokio::sync::watch::channel::<u32>(0);
+    // Per-VU activation tokens. The supervisor re-cancels indexes >= desired EVERY
+    // tick in immediate mode (idempotent — closes the wake→register race, spec §4.2).
+    let slab: Arc<std::sync::Mutex<Vec<Option<CancellationToken>>>> =
+        Arc::new(std::sync::Mutex::new(vec![None; max_vus as usize]));
+
+    let mut set = JoinSet::new();
+    let mut spawned: u32 = 0;
+
+    // Flusher: mirror of run_scenario's (MetricFlush drain site #5 — see engine
+    // CLAUDE.md "드레인 6/guard 5"). dropped is always 0 on this path.
+    let flush_agg = agg.clone();
+    let flush_out = out.clone();
+    let flusher = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_millis(500));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            let now_s = chrono_second();
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
+                let mut g = flush_agg.lock().await;
+                (
+                    g.drain_completed(now_s),
+                    g.drain_loop_deltas(),
+                    g.drain_branch_deltas(),
+                    g.drain_group_deltas(),
+                    g.drain_phase_deltas(),
+                )
+            };
+            if (!drained.is_empty()
+                || !loop_stats.is_empty()
+                || !branch_stats.is_empty()
+                || !group_stats.is_empty()
+                || !phase_stats.is_empty())
+                && flush_out
+                    .send(MetricFlush {
+                        windows: drained,
+                        loop_stats,
+                        branch_stats,
+                        group_stats,
+                        dropped: 0,
+                        phase_stats,
+                    })
+                    .await
+                    .is_err()
+            {
+                break;
+            }
+            if flush_out.is_closed() {
+                break;
+            }
+        }
+    });
+
+    // ── Supervisor (inline): tick until deadline ──
+    let mut ticker = tokio::time::interval(Duration::from_millis(250));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        let elapsed = now.duration_since(started_at).as_secs_f64();
+        let desired =
+            (rate_at(&stages, elapsed).round() as i64).clamp(0, i64::from(max_vus)) as u32;
+        // Lazy spawn: indexes the curve never reaches are never spawned.
+        while spawned < desired {
+            let index = spawned;
+            let vu_id = plan.vu_offset.saturating_add(index);
+            let scenario = scenario.clone();
+            let agg = agg.clone();
+            let failed = failed.clone();
+            let env = env.clone();
+            let cancel_vu = cancel.clone();
+            let dataset = dataset.clone();
+            let seq_counter = seq_counter.clone();
+            let rx = desired_rx.clone();
+            let slab_vu = slab.clone();
+            set.spawn(async move {
+                if let Err(e) = run_vu_curve(
+                    scenario,
+                    index,
+                    vu_id,
+                    agg,
+                    deadline,
+                    env,
+                    cancel_vu,
+                    rx,
+                    slab_vu,
+                    dataset,
+                    seq_counter,
+                    http_timeout,
+                    think_time,
+                    think_seed,
+                    measure_phases,
+                )
+                .await
+                {
+                    if !matches!(e, EngineError::Aborted) {
+                        warn!(vu_id, error = ?e, "vu failed");
+                    }
+                    failed.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            spawned += 1;
+        }
+        let _ = desired_tx.send(desired);
+        if immediate {
+            // Idempotent re-cancel every tick (NOT falling-edge-only): closes the
+            // "VU woke on watch but hasn't registered yet" race — worst lag is one
+            // tick (250ms) + a step boundary (spec §4.2).
+            let g = slab.lock().expect("slab mutex");
+            for tok in g.iter().skip(desired as usize).flatten() {
+                tok.cancel();
+            }
+        }
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = cancel.cancelled() => break,
+        }
+    }
+
+    while let Some(res) = set.join_next().await {
+        if let Err(e) = res {
+            warn!(error = %e, "vu join error");
+            failed.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    // Final flush (MetricFlush drain site #6, guarded — dropped always 0 here).
+    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
+        let mut g = agg.lock().await;
+        (
+            g.drain_all(),
+            g.drain_loop_deltas(),
+            g.drain_branch_deltas(),
+            g.drain_group_deltas(),
+            g.drain_phase_deltas(),
+        )
+    };
+    if !final_windows.is_empty()
+        || !final_loops.is_empty()
+        || !final_branches.is_empty()
+        || !final_groups.is_empty()
+        || !final_phases.is_empty()
+    {
+        let _ = out
+            .send(MetricFlush {
+                windows: final_windows,
+                loop_stats: final_loops,
+                branch_stats: final_branches,
+                group_stats: final_groups,
+                dropped: 0,
+                phase_stats: final_phases,
+            })
+            .await;
+    }
+    drop(out);
+    flusher.abort();
+    let _ = flusher.await;
+
+    if cancel.is_cancelled() {
+        return Err(EngineError::Aborted);
+    }
+    let failed_count = failed.load(Ordering::Relaxed);
+    // AllVusFailed is judged against SPAWNED, not max_vus: 250ms sampling + round
+    // may never reach the curve peak, and "every VU we actually ran died" must
+    // still fail the run (spec §4.3).
+    if spawned > 0 && failed_count >= spawned {
+        warn!(
+            failed = failed_count,
+            total = spawned,
+            "all spawned VUs failed"
+        );
+        return Err(EngineError::AllVusFailed {
+            failed: failed_count,
+            total: spawned,
+        });
+    }
+    if failed_count > 0 {
+        info!(
+            failed = failed_count,
+            total = spawned,
+            "vu-curve run finished with partial VU failures"
+        );
+    } else {
+        info!("vu-curve run finished");
+    }
+    Ok(())
+}
+
+fn clear_slot(slab: &std::sync::Mutex<Vec<Option<CancellationToken>>>, index: u32) {
+    slab.lock().expect("slab mutex")[index as usize] = None;
+}
+
+/// One park-gated curve VU (spec §4.3).
+///
+/// INTENDED DUPLICATION of `run_vu`'s iteration body (S-C `run_arrival` precedent)
+/// — keep binding select / execute_steps call / think-time pacing in lockstep with
+/// `run_vu`. Curve-only deltas:
+///  - park-gate around the iteration (`desired` watch; VU `index` active iff
+///    `desired > index`)
+///  - per-activation child token (`act`) so a supervisor retire-cancel parks the
+///    VU instead of killing it; run-abort is distinguished at the park head via
+///    the run-level `cancel`.
+///  - retire-abort does NOT count into `failed` — NEW semantics vs run_scenario,
+///    where Aborted also increments failed (harmless there: the run returns
+///    Err(Aborted) anyway).
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip_all, fields(vu_id))]
+async fn run_vu_curve(
+    scenario: Arc<Scenario>,
+    index: u32,
+    vu_id: u32,
+    agg: Arc<Mutex<Aggregator>>,
+    deadline: Instant,
+    env: Arc<BTreeMap<String, String>>,
+    cancel: CancellationToken,
+    mut desired: tokio::sync::watch::Receiver<u32>,
+    slab: Arc<std::sync::Mutex<Vec<Option<CancellationToken>>>>,
+    dataset: Option<Arc<DataSet>>,
+    seq_counter: Option<Arc<AtomicU64>>,
+    http_timeout: Duration,
+    think_time: Option<ThinkTime>,
+    think_seed: Option<u32>,
+    measure_phases: bool,
+) -> Result<()> {
+    // Client + rng + iter_id persist across park (Park & 재사용, spec §2):
+    // the cookie jar IS the session, and iter_id stays monotonic.
+    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
+    let mut think_rng = match think_seed {
+        Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
+        None => StdRng::from_entropy(),
+    };
+    let mut iter_id: u32 = 0;
+    let deadline_tokio = tokio::time::Instant::from_std(deadline);
+    loop {
+        // ── park: 3-way select — watch / run-cancel / deadline (spec §4.3) ──
+        if cancel.is_cancelled() {
+            return Err(EngineError::Aborted);
+        }
+        if Instant::now() >= deadline {
+            return Ok(());
+        }
+        if *desired.borrow() <= index {
+            tokio::select! {
+                r = desired.wait_for(|d| *d > index) => {
+                    if r.is_err() {
+                        return Ok(()); // sender dropped — run is tearing down
+                    }
+                }
+                _ = cancel.cancelled() => return Err(EngineError::Aborted),
+                _ = tokio::time::sleep_until(deadline_tokio) => return Ok(()),
+            }
+        }
+        // ── activate: child token, register in slab (both modes — run-abort
+        //    propagates from the parent token automatically) ──
+        let act = cancel.child_token();
+        slab.lock().expect("slab mutex")[index as usize] = Some(act.clone());
+        // ── active loop: iterate until retired / deadline ──
+        loop {
+            if Instant::now() >= deadline {
+                clear_slot(&slab, index);
+                return Ok(());
+            }
+            if act.is_cancelled() {
+                break; // retire (or run-abort — re-checked at the park head)
+            }
+            // Graceful gate at the loop head too: if desired dropped DURING the
+            // think-time sleep, park before running another iteration (spec §2 —
+            // "sleep을 마저 잔 뒤 park, 그동안 요청은 안 나간다").
+            if *desired.borrow() <= index {
+                break;
+            }
+            // Per-iteration flow vars: lockstep with run_vu.
+            let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+            if let Some(ds) = &dataset {
+                match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+                    Some(idx) => {
+                        for (k, v) in &ds.rows[idx] {
+                            iter_vars.insert(k.clone(), v.clone());
+                        }
+                    }
+                    // unique slice exhausted → permanent clean stop (mirror run_vu).
+                    None => {
+                        clear_slot(&slab, index);
+                        return Ok(());
+                    }
+                }
+            }
+            let flow = match execute_steps(
+                &client,
+                &scenario.steps,
+                &mut iter_vars,
+                &agg,
+                deadline,
+                &env,
+                vu_id,
+                iter_id,
+                None,
+                &act,
+                &mut think_rng,
+                measure_phases,
+            )
+            .await
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    clear_slot(&slab, index);
+                    return Err(e); // genuine engine error → permanent VU death
+                }
+            };
+            match flow {
+                StepFlow::Continue => {
+                    // run_vu increments at the loop tail; doing it on Continue is
+                    // equivalent (the non-Continue paths there return entirely).
+                    iter_id = iter_id.wrapping_add(1);
+                }
+                StepFlow::DeadlineReached => {
+                    clear_slot(&slab, index);
+                    return Ok(());
+                }
+                StepFlow::Aborted => break, // act cancelled — retire or run-abort
+            }
+            // Gate re-check BEFORE think-time pacing (graceful-lag mitigation,
+            // spec §2): a retire at this point skips the sleep entirely.
+            if *desired.borrow() <= index {
+                break;
+            }
+            if let Some(tt) = think_time {
+                match pace(tt.sample(&mut think_rng), deadline, &act).await {
+                    PaceOutcome::Cancelled => break, // retire or run-abort
+                    PaceOutcome::DeadlineReached => {
+                        clear_slot(&slab, index);
+                        return Ok(());
+                    }
+                    PaceOutcome::Slept => {}
+                }
+            }
+        }
+        // ── deactivate: clear slot; run-abort exits, retire parks ──
+        clear_slot(&slab, index);
+        if cancel.is_cancelled() {
+            return Err(EngineError::Aborted);
+        }
+    }
+}
+
 /// Drive open-loop arrival-rate load: schedule iteration *starts* at `target_rps`
 /// against a fixed pool of `max_in_flight` reusable VU clients (slot index = vu_id,
 /// cookie jar persists per slot). Arrivals that find no free slot are dropped and

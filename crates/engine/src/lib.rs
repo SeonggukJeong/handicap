@@ -19,7 +19,10 @@ pub use error::{EngineError, Result};
 pub use executor::{ExecOutcome, VuClient, execute_step, execute_step_traced};
 pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
 pub use pacing::{PaceOutcome, ThinkTime, pace};
-pub use runner::{MetricFlush, RampDown, RunPlan, Stage, run_scenario, run_scenario_open_loop};
+pub use runner::{
+    MetricFlush, RampDown, RunPlan, Stage, run_scenario, run_scenario_open_loop,
+    run_scenario_vu_curve,
+};
 pub use scenario::{
     Assertion, Body, Branch, CompareOp, Condition, CookieJarMode, ElifBranch, HttpMethod, HttpStep,
     IfStep, LoopStep, ParallelStep, Request, Scenario, Step,
