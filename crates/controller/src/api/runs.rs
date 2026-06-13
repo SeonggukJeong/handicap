@@ -80,8 +80,67 @@ pub(crate) async fn validate_run_config(
     state: &AppState,
     profile: &Profile,
 ) -> Result<Option<datasets::DatasetMeta>, ApiError> {
-    // ── open-loop (S-C fixed-rate / S-D stages curve): is_open_loop switches the model ──
-    if profile.is_open_loop() {
+    // ── ramp_down은 VU 곡선 전용 노브 (spec §3.2 ⑨) ──
+    if !profile.is_vu_curve() && profile.ramp_down.is_some() {
+        return Err(ApiError::BadRequest(
+            "ramp_down은 vu_stages(VU 곡선) 전용입니다".into(),
+        ));
+    }
+    // ── closed-loop VU curve (spec §3.2 ①–⑧): open-loop 분기보다 먼저 — curve
+    //    규칙이 open-loop 필드 배제를 포함하므로 에러 메시지의 권위가 여기다 ──
+    if profile.is_vu_curve() {
+        if profile.target_rps.is_some() {
+            return Err(ApiError::BadRequest(
+                "vu_stages와 target_rps는 함께 쓸 수 없습니다 (VU 곡선 vs RPS 지정 충돌)".into(),
+            ));
+        }
+        if profile.max_in_flight.is_some() {
+            return Err(ApiError::BadRequest(
+                "vu_stages에선 max_in_flight를 쓸 수 없습니다 (open-loop 전용)".into(),
+            ));
+        }
+        if profile.stages.as_ref().is_some_and(|s| !s.is_empty()) {
+            return Err(ApiError::BadRequest(
+                "vu_stages와 stages(RPS 곡선)는 함께 쓸 수 없습니다".into(),
+            ));
+        }
+        if profile.ramp_up_seconds > 0 {
+            return Err(ApiError::BadRequest(
+                "vu_stages 사용 시 ramp_up_seconds를 비워야 합니다 (곡선이 ramp의 일반화)".into(),
+            ));
+        }
+        if profile.duration_seconds > 0 {
+            return Err(ApiError::BadRequest(
+                "vu_stages 사용 시 duration_seconds를 비워야 합니다 (총 길이 = stage 합)".into(),
+            ));
+        }
+        if profile.vus > 0 {
+            return Err(ApiError::BadRequest(
+                "vu_stages 사용 시 vus를 비워야 합니다 (곡선이 VU 수를 정의)".into(),
+            ));
+        }
+        let capacity = state.coord.worker_capacity_vus;
+        let stages = profile.vu_stages.as_deref().unwrap_or_default();
+        for s in stages {
+            if s.duration_seconds == 0 {
+                return Err(ApiError::BadRequest(
+                    "stage duration_seconds must be >= 1".into(),
+                ));
+            }
+            if s.target > capacity {
+                return Err(ApiError::BadRequest(format!(
+                    "최대 목표 VU {}가 워커 용량 {capacity}을 초과합니다 \
+                     (vu_stages는 단일 워커 — 멀티워커 곡선 샤딩 미지원, spec §9)",
+                    s.target
+                )));
+            }
+        }
+        if !stages.iter().any(|s| s.target > 0) {
+            return Err(ApiError::BadRequest(
+                "최소 한 stage의 target은 0보다 커야 합니다".into(),
+            ));
+        }
+    } else if profile.is_open_loop() {
         // max_in_flight required + range (both fixed & curve)
         match profile.max_in_flight {
             None => {
@@ -214,8 +273,8 @@ pub(crate) async fn validate_run_config(
         }
         // Every worker must get at least one row, else a worker would generate
         // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
-        let n = if profile.is_open_loop() {
-            1
+        let n = if profile.is_vu_curve() || profile.is_open_loop() {
+            1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장 / open-loop: spec §9)
         } else {
             state.coord.worker_count_for(profile.vus)
         };
@@ -266,9 +325,11 @@ pub(crate) async fn spawn_run(
         (Some(b), Some(meta)) => {
             let (policy, row_count) = match b.policy {
                 BindingPolicy::PerVu => {
-                    // closed-loop: one row per VU (≤ vus rows); open-loop: one row per
-                    // slot (≤ max_in_flight rows — slot index is the per_vu key, spec §4).
-                    let slot_count = if profile.is_open_loop() {
+                    // closed-loop: one row per VU; open-loop: one row per slot
+                    // (max_in_flight); vu-curve: one row per max(stage.target).
+                    let slot_count = if profile.is_vu_curve() {
+                        u64::from(profile.vu_curve_max())
+                    } else if profile.is_open_loop() {
                         profile.max_in_flight.unwrap_or(0) as u64
                     } else {
                         profile.vus as u64
@@ -334,20 +395,40 @@ pub(crate) async fn spawn_run(
                 })
                 .collect(),
             measure_phases: profile.measure_phases,
-            vu_stages: vec![],          // Task 4 fills the real mapping
-            ramp_down_immediate: false, // Task 4 fills the real mapping
+            vu_stages: profile
+                .vu_stages
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|s| handicap_proto::v1::Stage {
+                    target: s.target,
+                    duration_seconds: s.duration_seconds,
+                })
+                .collect(),
+            ramp_down_immediate: matches!(
+                profile.ramp_down,
+                Some(handicap_engine::RampDown::Immediate)
+            ),
         },
         env: env.clone(),
         data_binding,
     };
-    let n = if profile.is_open_loop() {
-        1 // open-loop is single-worker in v1 (fan-out deferred — spec §9)
+    // vu-curve is single-worker v1 (검증 ⑦이 capacity 이내 보장, spec §9).
+    let n = if profile.is_vu_curve() || profile.is_open_loop() {
+        1
     } else {
         state.coord.worker_count_for(profile.vus)
     };
+    // curve의 total_vus = max(stage.target) — profile.vus(=0)를 넘기면 register의
+    // shard_split(0,…)이 vu_count=0을 만들어 §5 와이어 약속과 모순 (spec §3.3).
+    let total_vus = if profile.is_vu_curve() {
+        profile.vu_curve_max()
+    } else {
+        profile.vus
+    };
     state
         .coord
-        .enqueue(row.id.clone(), assignment, n, profile.vus)
+        .enqueue(row.id.clone(), assignment, n, total_vus)
         .await;
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
@@ -696,6 +777,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         }
     }
 
@@ -864,6 +947,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -909,6 +994,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         }
     }
 
@@ -957,6 +1044,8 @@ mod tests {
             max_in_flight: Some(16),
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         }
     }
 
@@ -1177,6 +1266,226 @@ mod tests {
             )
             .await
             .is_err()
+        );
+    }
+
+    // ── VU curve helpers ──────────────────────────────────────────────────────
+
+    /// VU curve 검증용 base: ol_profile()에서 open-loop/closed-fixed 필드를 무효화.
+    fn curve_profile(stages: Vec<handicap_engine::Stage>) -> Profile {
+        Profile {
+            vus: 0,
+            duration_seconds: 0,
+            ramp_up_seconds: 0,
+            target_rps: None,
+            max_in_flight: None,
+            vu_stages: Some(stages),
+            ..ol_profile()
+        }
+    }
+
+    #[test]
+    fn is_vu_curve_predicate() {
+        let mut p = curve_profile(vec![handicap_engine::Stage {
+            target: 5,
+            duration_seconds: 10,
+        }]);
+        assert!(p.is_vu_curve());
+        assert!(!p.is_open_loop()); // vu_stages는 is_open_loop에 영향 없음
+        assert_eq!(p.vu_curve_max(), 5);
+        p.vu_stages = Some(vec![]); // Some(vec![]) ≡ absent (S-D 미러)
+        assert!(!p.is_vu_curve());
+        p.vu_stages = None;
+        assert!(!p.is_vu_curve());
+    }
+
+    #[tokio::test]
+    async fn validate_vu_curve_rejects_conflicts_and_bounds() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await;
+        let one_stage = vec![handicap_engine::Stage {
+            target: 5,
+            duration_seconds: 10,
+        }];
+
+        // ① vu_stages + target_rps → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                target_rps: Some(10),
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("vu_stages와 target_rps")),
+            "① expected vu_stages와 target_rps conflict, got {err:?}"
+        );
+
+        // ② vu_stages + max_in_flight → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                max_in_flight: Some(10),
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("max_in_flight")),
+            "② expected max_in_flight conflict, got {err:?}"
+        );
+
+        // ③ vu_stages + stages (RPS curve) → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                stages: Some(vec![handicap_engine::Stage {
+                    target: 10,
+                    duration_seconds: 10,
+                }]),
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("stages(RPS 곡선)")),
+            "③ expected stages conflict, got {err:?}"
+        );
+
+        // ④ vu_stages + ramp_up_seconds → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                ramp_up_seconds: 5,
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("ramp_up_seconds")),
+            "④ expected ramp_up_seconds conflict, got {err:?}"
+        );
+
+        // ⑤ vu_stages + duration_seconds → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                duration_seconds: 10,
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("duration_seconds")),
+            "⑤ expected duration_seconds conflict, got {err:?}"
+        );
+
+        // ⑥ vu_stages + vus → conflict
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                vus: 5,
+                ..curve_profile(one_stage.clone())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("vus를 비워야")),
+            "⑥ expected vus conflict, got {err:?}"
+        );
+
+        // ⑦a stage duration_seconds == 0
+        let err = validate_run_config(
+            &state,
+            &curve_profile(vec![handicap_engine::Stage {
+                target: 5,
+                duration_seconds: 0,
+            }]),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("duration_seconds must be >= 1")),
+            "⑦a expected duration_seconds>=1, got {err:?}"
+        );
+
+        // ⑦b stage target > capacity(2000)
+        let err = validate_run_config(
+            &state,
+            &curve_profile(vec![handicap_engine::Stage {
+                target: 2001,
+                duration_seconds: 10,
+            }]),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("워커 용량")),
+            "⑦b expected capacity exceeded, got {err:?}"
+        );
+
+        // ⑧ all stage targets == 0
+        let err = validate_run_config(
+            &state,
+            &curve_profile(vec![handicap_engine::Stage {
+                target: 0,
+                duration_seconds: 10,
+            }]),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("0보다 커야")),
+            "⑧ expected target>0, got {err:?}"
+        );
+
+        // ⑨ ramp_down without vu_stages → rejected (vu-curve 전용 노브)
+        let err = validate_run_config(
+            &state,
+            &Profile {
+                // closed-loop fixed: vus/duration set, no vu_stages
+                vus: 5,
+                duration_seconds: 10,
+                ramp_down: Some(handicap_engine::RampDown::Graceful),
+                vu_stages: None,
+                ..ol_profile()
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("VU 곡선") && m.contains("전용")),
+            "⑨ expected ramp_down VU-curve-only, got {err:?}"
+        );
+
+        // 유효 통과: vus=0, duration=0, ramp_up=0 + vu_stages + ramp_down Immediate
+        assert!(
+            validate_run_config(
+                &state,
+                &Profile {
+                    ramp_down: Some(handicap_engine::RampDown::Immediate),
+                    ..curve_profile(vec![
+                        handicap_engine::Stage {
+                            target: 5,
+                            duration_seconds: 10,
+                        },
+                        handicap_engine::Stage {
+                            target: 1,
+                            duration_seconds: 10,
+                        },
+                    ])
+                }
+            )
+            .await
+            .is_ok(),
+            "valid vu_stages+ramp_down must be accepted"
         );
     }
 }

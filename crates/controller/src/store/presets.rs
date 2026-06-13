@@ -205,6 +205,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         }
     }
 

@@ -64,6 +64,8 @@ async fn seed_pending_run(db: &Db) -> String {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: None,
     };
     runs::insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
         .await

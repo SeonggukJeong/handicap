@@ -116,6 +116,12 @@ pub struct Profile {
     pub stages: Option<Vec<handicap_engine::Stage>>,
     #[serde(default)]
     pub measure_phases: bool,
+    /// Closed-loop VU 곡선 (spec §3.1). skip_serializing_if → UI Zod `.optional()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vu_stages: Option<Vec<handicap_engine::Stage>>,
+    /// VU 곡선 ramp-down 노브. absent = graceful (spec §2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ramp_down: Option<handicap_engine::RampDown>,
 }
 
 impl Profile {
@@ -124,6 +130,24 @@ impl Profile {
     /// discriminator (validate + slot_count + worker count).
     pub fn is_open_loop(&self) -> bool {
         self.target_rps.is_some() || self.stages.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    /// Closed-loop VU curve (vu_stages 비어있지 않음). `Some(vec![])` ≡ absent.
+    /// 판별은 반드시 이 헬퍼로 — `vu_stages.is_some()` 직접 분기 금지 (spec §3.3).
+    pub fn is_vu_curve(&self) -> bool {
+        self.vu_stages.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    /// 곡선의 최대 목표 VU — park-gate 슬랩 크기 = per_vu row 요구치 = enqueue
+    /// total_vus (spec §3.3). 비어있으면 0 (is_vu_curve가 false인 경우만).
+    pub fn vu_curve_max(&self) -> u32 {
+        self.vu_stages
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|s| s.target)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -422,6 +446,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -470,6 +496,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -678,6 +706,8 @@ mod tests {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

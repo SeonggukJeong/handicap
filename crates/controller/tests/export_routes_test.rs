@@ -75,6 +75,8 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: None,
     };
     let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env)
         .await
@@ -209,6 +211,8 @@ async fn export_of_nonterminal_run_is_rejected() {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: None,
     };
     let row = store::runs::insert(
         &db,
@@ -285,6 +289,8 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: None,
     };
 
     // Run A

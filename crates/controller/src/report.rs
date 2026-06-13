@@ -668,6 +668,8 @@ mod tests {
                 max_in_flight: None,
                 stages: None,
                 measure_phases: false,
+                vu_stages: None,
+                ramp_down: None,
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,
