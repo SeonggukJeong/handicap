@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::runner::{MetricFlush, RunPlan, run_scenario};
+use handicap_engine::runner::{MetricFlush, RampDown, RunPlan, run_scenario};
 use handicap_engine::scenario::Scenario;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +27,8 @@ fn plan(base: &str, secs: u64) -> RunPlan {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     }
 }
 

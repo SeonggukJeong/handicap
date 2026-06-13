@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use handicap_engine::aggregator::PhaseStat;
-use handicap_engine::runner::{MetricFlush, RunPlan, run_scenario};
+use handicap_engine::runner::{MetricFlush, RampDown, RunPlan, run_scenario};
 use handicap_engine::scenario::Scenario;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -25,6 +25,8 @@ fn plan(measure_phases: bool) -> RunPlan {
         max_in_flight: None,
         stages: None,
         measure_phases,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     }
 }
 

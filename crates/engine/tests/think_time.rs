@@ -1,6 +1,6 @@
 // run-level think time: with a fixed inter-iteration delay, fewer iterations run
 // in a fixed window than with no delay. Uses a stub HTTP target.
-use handicap_engine::{MetricFlush, RunPlan, Scenario, ThinkTime, run_scenario};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, ThinkTime, run_scenario};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -34,6 +34,8 @@ async fn count_requests(plan_think: Option<ThinkTime>, dur_ms: u64) -> u64 {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = CancellationToken::new();
@@ -104,6 +106,8 @@ async fn per_step_think_time_reduces_requests() {
             max_in_flight: None,
             stages: None,
             measure_phases: false,
+            vu_stages: None,
+            ramp_down: RampDown::Graceful,
         };
         let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
         let h = tokio::spawn(run_scenario(scenario, plan, tx, CancellationToken::new()));

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{EngineError, MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{EngineError, MetricFlush, RampDown, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -41,6 +41,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();

@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::Parser;
 use handicap_engine::{
-    BindingPolicy, DataSet, EngineError, MetricFlush, RunPlan, Scenario, run_scenario,
+    BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, run_scenario,
     run_scenario_open_loop,
 };
 use handicap_proto::v1 as pb;
@@ -225,6 +225,8 @@ async fn main() -> anyhow::Result<()> {
             )
         },
         measure_phases: profile.measure_phases,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     info!(
         vus = plan.vus,

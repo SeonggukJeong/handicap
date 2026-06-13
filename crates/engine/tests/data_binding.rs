@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{BindingPolicy, DataSet, MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{
+    BindingPolicy, DataSet, MetricFlush, RampDown, RunPlan, Scenario, run_scenario,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -64,6 +66,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -135,6 +139,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -206,6 +212,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);

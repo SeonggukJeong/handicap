@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
@@ -76,6 +76,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let cancel = CancellationToken::new();
@@ -191,6 +193,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let cancel = CancellationToken::new();
@@ -260,6 +264,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let cancel = CancellationToken::new();
@@ -329,6 +335,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let cancel = CancellationToken::new();

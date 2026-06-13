@@ -30,6 +30,17 @@ pub struct Stage {
     pub duration_seconds: u32,
 }
 
+/// VU 곡선 ramp-down 시 초과분 VU 처리 (spec §2). Graceful = 현재 iteration을
+/// 마치고 park, Immediate = 활성화 child 토큰 취소 → 다음 스텝 경계에서 중단 후
+/// park (진행 중 HTTP 요청 1개는 마저 끝남 — mid-request 소켓 중단은 비목표).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RampDown {
+    #[default]
+    Graceful,
+    Immediate,
+}
+
 #[derive(Debug, Clone)]
 pub struct RunPlan {
     pub vus: u32,
@@ -65,6 +76,13 @@ pub struct RunPlan {
     /// download phase via `Aggregator::record_phase`. `false` → byte-identical (no
     /// phase channel touched). Default false at every absent boundary.
     pub measure_phases: bool,
+    /// Closed-loop VU curve (spec §3.1): `Some(non-empty)` → the worker selects
+    /// `run_scenario_vu_curve` (park-gate). `None` → fixed closed / open-loop
+    /// (byte-identical). The worker sets `duration == sum(stage durations)`
+    /// (same invariant as `stages`).
+    pub vu_stages: Option<Vec<Stage>>,
+    /// VU-curve ramp-down mode. Only meaningful with `vu_stages` (controller-validated).
+    pub ramp_down: RampDown,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows

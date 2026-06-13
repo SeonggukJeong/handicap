@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -33,6 +33,8 @@ async fn run_with_offset(target: &str, vu_offset: u32, vus: u32) {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
     let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });

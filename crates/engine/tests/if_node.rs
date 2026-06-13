@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -47,6 +47,8 @@ async fn run_and_count(yaml: &str) -> HashMap<String, u64> {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
@@ -278,6 +280,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });
@@ -441,6 +445,8 @@ async fn run_and_branches(yaml: &str) -> HashMap<(String, String), u64> {
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move { run_scenario(scenario, plan, tx, cancel).await });

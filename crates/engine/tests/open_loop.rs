@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, Stage, run_scenario_open_loop};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, Stage, run_scenario_open_loop};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::method;
@@ -24,6 +24,8 @@ fn plan(target_rps: u32, max_in_flight: u32, secs: u64) -> RunPlan {
         max_in_flight: Some(max_in_flight),
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     }
 }
 
@@ -142,6 +144,8 @@ async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
             },
         ]),
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
     let cancel = CancellationToken::new();
     let mut total: u64 = 0;

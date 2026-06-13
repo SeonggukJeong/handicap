@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use handicap_engine::{MetricFlush, RunPlan, Scenario, run_scenario};
+use handicap_engine::{MetricFlush, RampDown, RunPlan, Scenario, run_scenario};
 use tokio::sync::mpsc;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -52,6 +52,8 @@ steps:
         max_in_flight: None,
         stages: None,
         measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
