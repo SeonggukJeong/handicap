@@ -185,7 +185,7 @@
 출처: spec §9(연기) + §10(비목표). 착수 전 이 목록을 흡수.
 
 - **곡선 멀티워커 샤딩**: 각 stage의 target VU를 `shard_split`으로 워커 수에 분할 + 반올림 오차 설계. `max(vu_stages[].target) > capacity` 400 거부는 단일워커 전제 — capacity 초과 대형 곡선의 유일한 경로.
-- **active-VU per-second 시계열**: 리포트에 실제 active VU 곡선 표시(신규 메트릭 파이프라인 — drain/guard/proto/migration 비용). v1은 RPS가 간접 프록시.
+- **active-VU per-second 시계열** — ✅ **완료 (2026-06-14, ADR-0037 follow-up)**: 곡선 run 리포트에 초당 `{desired, actual}` 2줄 차트(목표 점선/실제 실선) — "엔진이 설계한 VU 곡선을 실제로 따라갔나"에 직접 답. 7-layer 가산: aggregator `active_vu` BTreeMap(keep-last) → `MetricFlush.active_vu_samples`(7번째 벡터, send-guard 곡선 2곳) → proto `MetricBatch.active_vu_samples=9` → migration 0016 `run_active_vu_metrics`(scalar UPSERT) → `build_report` 8번째 param → `ReportJson.active_vu_series`(독립 게이지, summary 비오염) → UI `ActiveVuChart`. 슈퍼바이저 250ms tick 샘플(핫패스 밖→처리량 무회귀), periodic 플러셔 `drain_active_vu_completed`(완료 초만). **곡선만 emit, 비-곡선 byte-identical.** 라이브: 50→0 곡선에서 desired `[3..48..2]`/actual ~1s lag 추적·rps 7.5k 무회귀·비-곡선 빈 시리즈·실 `/report` ReportSchema 파싱. 연기: CSV/XLSX 열·곡선 멀티워커 per-worker 머지·고정 closed-loop 샘플러·active-VU SLO·비교 오버레이. spec/plan `2026-06-13-active-vu-timeseries*`.
 - **graceful grace 상한**(k6 gracefulRampDown류): retire 후 iteration 완료를 기다리는 최대 시간 초과 시 강제 중단 — v1은 무상한(iteration이 매우 길면 retire가 지연됨).
 - **fresh-spawn 모드**: 재활성화를 같은 vu_id·jar 재사용 대신 새 vu_id·빈 jar로(신규 세션 유입 재현). v1은 park & 재사용만.
 - **VU용 부하-모양 템플릿 별도 스케일**: 현재 vu_stages의 target 값 자체가 VU 수 — 모양은 유지하되 값만 선형 스케일하는 "배율" 노브 후보.
