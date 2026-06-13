@@ -288,7 +288,33 @@ impl Aggregator {
         self.active_vu.insert(ts_second, (desired, actual));
     }
 
-    /// Take and reset the accumulated per-second active-VU samples (ascending ts_second).
+    /// Drain active-VU samples for seconds strictly before `up_to_second` (the current
+    /// second). Mirrors `drain_completed` for StepWindows: the current second's keep-last
+    /// entry stays in the map until the next second or final drain, ensuring each second
+    /// appears exactly once across all periodic + final flush calls.
+    pub fn drain_active_vu_completed(&mut self, up_to_second: i64) -> Vec<ActiveVuSample> {
+        let keys: Vec<i64> = self
+            .active_vu
+            .keys()
+            .filter(|ts| **ts < up_to_second)
+            .cloned()
+            .collect();
+        keys.into_iter()
+            .filter_map(|ts| {
+                self.active_vu
+                    .remove(&ts)
+                    .map(|(desired, actual)| ActiveVuSample {
+                        ts_second: ts,
+                        desired,
+                        actual,
+                    })
+            })
+            .collect()
+    }
+
+    /// Take and reset ALL accumulated per-second active-VU samples (ascending ts_second).
+    /// Use only at final flush (after the run ends) — periodic flushers call
+    /// `drain_active_vu_completed` to avoid splitting a second across flush batches.
     pub fn drain_active_vu(&mut self) -> Vec<ActiveVuSample> {
         std::mem::take(&mut self.active_vu)
             .into_iter()
@@ -574,5 +600,43 @@ mod tests {
         );
         // drain resets
         assert!(agg.drain_active_vu().is_empty());
+    }
+
+    #[test]
+    fn drain_active_vu_completed_keeps_current_second() {
+        let mut agg = Aggregator::new(256);
+        agg.record_active_vu(100, 3, 2);
+        agg.record_active_vu(101, 5, 4);
+        agg.record_active_vu(102, 6, 6);
+
+        // drain only seconds strictly before 102; current second stays
+        let mut out = agg.drain_active_vu_completed(102);
+        out.sort_by_key(|s| s.ts_second);
+        assert_eq!(
+            out,
+            vec![
+                ActiveVuSample {
+                    ts_second: 100,
+                    desired: 3,
+                    actual: 2
+                },
+                ActiveVuSample {
+                    ts_second: 101,
+                    desired: 5,
+                    actual: 4
+                },
+            ]
+        );
+
+        // current second (102) remained; full drain returns it
+        let rest = agg.drain_active_vu();
+        assert_eq!(
+            rest,
+            vec![ActiveVuSample {
+                ts_second: 102,
+                desired: 6,
+                actual: 6
+            }]
+        );
     }
 }

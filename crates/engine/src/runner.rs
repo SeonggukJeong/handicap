@@ -11,7 +11,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use crate::aggregator::{Aggregator, BranchStat, GroupStat, LoopStat, PhaseStat, StepWindow};
+use crate::aggregator::{
+    ActiveVuSample, Aggregator, BranchStat, GroupStat, LoopStat, PhaseStat, StepWindow,
+};
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result};
@@ -99,6 +101,9 @@ pub struct MetricFlush {
     pub dropped: u64,
     /// Per-(step_id, phase) latency-phase deltas since the last flush (B7-C).
     pub phase_stats: Vec<PhaseStat>,
+    /// Per-second active-VU gauge samples since the last flush. Only the VU-curve path
+    /// populates this; all other paths send an empty Vec (byte-identical).
+    pub active_vu_samples: Vec<ActiveVuSample>,
 }
 
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
@@ -234,6 +239,7 @@ pub async fn run_scenario(
                         group_stats,
                         dropped: 0,
                         phase_stats,
+                        active_vu_samples: vec![],
                     })
                     .await
                     .is_err()
@@ -278,6 +284,7 @@ pub async fn run_scenario(
                 group_stats: final_groups,
                 dropped: 0,
                 phase_stats: final_phases,
+                active_vu_samples: vec![],
             })
             .await;
     }
@@ -692,7 +699,7 @@ pub async fn run_scenario_vu_curve(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats, active_vu_samples) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
@@ -700,13 +707,15 @@ pub async fn run_scenario_vu_curve(
                     g.drain_branch_deltas(),
                     g.drain_group_deltas(),
                     g.drain_phase_deltas(),
+                    g.drain_active_vu_completed(now_s),
                 )
             };
             if (!drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
                 || !group_stats.is_empty()
-                || !phase_stats.is_empty())
+                || !phase_stats.is_empty()
+                || !active_vu_samples.is_empty())
                 && flush_out
                     .send(MetricFlush {
                         windows: drained,
@@ -715,6 +724,7 @@ pub async fn run_scenario_vu_curve(
                         group_stats,
                         dropped: 0,
                         phase_stats,
+                        active_vu_samples,
                     })
                     .await
                     .is_err()
@@ -783,6 +793,18 @@ pub async fn run_scenario_vu_curve(
             spawned += 1;
         }
         let _ = desired_tx.send(desired);
+        // Active-VU gauge: keep-last sample per wall-clock second. The supervisor runs
+        // 4 ticks/sec; `record_active_vu` uses a BTreeMap keyed by second so multiple
+        // ticks within the same second overwrite — drain always yields one entry/sec.
+        // `desired` reuses the value computed above; `actual` counts live slab tokens.
+        let sample_second = chrono_second();
+        let actual = {
+            let g = slab.lock().expect("slab mutex");
+            g.iter().flatten().count() as u32
+        };
+        agg.lock()
+            .await
+            .record_active_vu(sample_second, desired, actual);
         if immediate {
             // Idempotent re-cancel every tick (NOT falling-edge-only): closes the
             // "VU woke on watch but hasn't registered yet" race — worst lag is one
@@ -806,7 +828,7 @@ pub async fn run_scenario_vu_curve(
     }
 
     // Final flush (MetricFlush drain site #6, guarded — dropped always 0 here).
-    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
+    let (final_windows, final_loops, final_branches, final_groups, final_phases, final_active_vu) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
@@ -814,6 +836,7 @@ pub async fn run_scenario_vu_curve(
             g.drain_branch_deltas(),
             g.drain_group_deltas(),
             g.drain_phase_deltas(),
+            g.drain_active_vu(),
         )
     };
     if !final_windows.is_empty()
@@ -821,6 +844,7 @@ pub async fn run_scenario_vu_curve(
         || !final_branches.is_empty()
         || !final_groups.is_empty()
         || !final_phases.is_empty()
+        || !final_active_vu.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -830,6 +854,7 @@ pub async fn run_scenario_vu_curve(
                 group_stats: final_groups,
                 dropped: 0,
                 phase_stats: final_phases,
+                active_vu_samples: final_active_vu,
             })
             .await;
     }
@@ -1115,6 +1140,7 @@ pub async fn run_scenario_open_loop(
                         group_stats,
                         dropped: 0,
                         phase_stats,
+                        active_vu_samples: vec![],
                     })
                     .await
                     .is_err()
@@ -1267,6 +1293,7 @@ pub async fn run_scenario_open_loop(
             group_stats: final_groups,
             dropped: total_dropped,
             phase_stats: final_phases,
+            active_vu_samples: vec![],
         })
         .await;
     drop(out);

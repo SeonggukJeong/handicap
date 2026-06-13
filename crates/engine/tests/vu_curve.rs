@@ -260,3 +260,36 @@ async fn vu_curve_abort_cancels_run() {
     let res = h.await.unwrap();
     assert!(matches!(res, Err(handicap_engine::EngineError::Aborted)));
 }
+
+#[tokio::test]
+async fn vu_curve_emits_active_vu_samples() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    let h = tokio::spawn(run_scenario_vu_curve(
+        scenario(&format!("{}/", server.uri())),
+        curve_plan(vec![stage(3, 2)], RampDown::Graceful),
+        tx,
+        CancellationToken::new(),
+    ));
+    let mut samples: Vec<handicap_engine::ActiveVuSample> = Vec::new();
+    while let Some(f) = rx.recv().await {
+        samples.extend(f.active_vu_samples);
+    }
+    h.await.unwrap().unwrap();
+    assert!(!samples.is_empty(), "curve run must emit active-VU samples");
+    let max_desired = samples.iter().map(|s| s.desired).max().unwrap();
+    assert_eq!(max_desired, 3, "desired should reach stage target 3");
+    assert!(
+        samples.iter().any(|s| s.actual > 0),
+        "actual VUs should be observed"
+    );
+    let mut secs: Vec<i64> = samples.iter().map(|s| s.ts_second).collect();
+    secs.sort_unstable();
+    let mut uniq = secs.clone();
+    uniq.dedup();
+    assert_eq!(uniq.len(), secs.len(), "one active-VU sample per second");
+}
