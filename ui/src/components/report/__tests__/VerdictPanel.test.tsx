@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { VerdictPanel } from "../VerdictPanel";
 import type { Verdict } from "../../../api/schemas";
 
@@ -103,11 +103,20 @@ describe("VerdictPanel step-level rows", () => {
       ["A", { name: "login" }],
       ["B", { name: "feed" }],
     ]);
+    // 같은 metric(p95_ms)이 3행이라 옛 key={r.metric}이면 React가 duplicate-key
+    // dev 경고(console.error)를 emit한다. 합성 key 수정이 들어와야 경고가 없어진다.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<VerdictPanel verdict={verdict} steps={steps} />);
     expect(screen.getByText(/login/)).toBeInTheDocument();
     expect(screen.getByText(/feed/)).toBeInTheDocument();
     // 3행이 모두 렌더(key 충돌 없으면 row 3개 — p95_ms ×3)
     expect(screen.getAllByText(/p95/).length).toBeGreaterThanOrEqual(3);
+    // key 충돌 회귀 가드: React의 "same key" 경고가 안 떴어야 한다.
+    const keyWarning = errorSpy.mock.calls.some((args) =>
+      args.some((a) => typeof a === "string" && a.includes("same key")),
+    );
+    expect(keyWarning).toBe(false);
+    errorSpy.mockRestore();
   });
 
   it("falls back to raw target id when step name is unknown", () => {
