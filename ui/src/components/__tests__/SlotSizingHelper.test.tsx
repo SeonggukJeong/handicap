@@ -125,4 +125,24 @@ describe("SlotSizingHelper", () => {
     render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="200" onApply={vi.fn()} />);
     expect(screen.getByText(/응답시간 정보가 없어요/)).toBeInTheDocument();
   });
+
+  it("측정 중(isPending): 버튼 '측정 중…' + disabled", () => {
+    setHooks({
+      runs: [],
+      p50: null,
+      testRun: { mutate: vi.fn(), isPending: true, isError: false, data: undefined },
+    });
+    render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="200" onApply={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "측정 중…" })).toBeDisabled();
+  });
+
+  it("측정 실패(isError): 오류 알림 표시", () => {
+    setHooks({
+      runs: [],
+      p50: null,
+      testRun: { mutate: vi.fn(), isPending: false, isError: true, data: undefined },
+    });
+    render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="200" onApply={vi.fn()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/측정에 실패했어요/);
+  });
 });
