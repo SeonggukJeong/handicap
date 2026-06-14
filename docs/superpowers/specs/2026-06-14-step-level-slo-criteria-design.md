@@ -61,7 +61,7 @@ pub target: Option<String>,  // step_id; fixed-field run-level 행은 None
 ```
 - 출력 shape는 여전히 일반형 `{metric, direction, threshold, actual, passed, target?}`.
 - fixed-field 행은 `target: None`(생략) → **기존 출력 byte-identical**. step 행만 `target: Some(step_id)`.
-- **`CriterionResult { … }` struct 리터럴 churn**: `CriterionResult`엔 `Default` derive가 없어 새 필드 추가 시 모든 리터럴에 `target: None` 명시 필요. report.rs 외 **2곳**: `crates/controller/src/insights.rs:330`(테스트 헬퍼 `verdict()`), `crates/controller/src/store/schedules.rs:617`(테스트 fixture). export.rs는 `verdict: None`이라 리터럴 없음. 컴파일러-driven이나 §7 테스트 계획·churn 목록에 포함.
+- **`CriterionResult { … }` struct 리터럴 churn**: `CriterionResult`엔 `Default` derive가 없어 새 필드 추가 시 모든 리터럴에 `target: None` 명시 필요. **(a) report.rs 내부 6곳** — `evaluate_criteria`의 fixed-field 행 빌더(report.rs:229·249·270·286·296·308)에 `target: None` 가산(evaluate_criteria 편집에 자연 포함). **(b) report.rs 외 2곳** — `crates/controller/src/insights.rs:330`(테스트 헬퍼 `verdict()`), `crates/controller/src/store/schedules.rs:617`(테스트 fixture). export.rs는 `verdict: None`이라 리터럴 없음. 전부 컴파일러-driven(빌드 게이트 강제).
 
 ### 2.3 metric → ReportStep 추출 매핑 (평가 §3)
 | metric | step actual |
@@ -121,6 +121,7 @@ pub fn evaluate_criteria(
 `validate_criteria`는 `validate_run_config` 안에서 호출되므로 **모든 실호출부가 범위 검증을 자동 통과**(call-site 누락 위험 없음). 호출부 시그니처 churn 0.
 
 ### 4.2 target 존재 검증 — 신규 sibling, 4개 실호출부에서 호출
+`api/runs.rs`에 `validate_run_config`/`validate_criteria` 옆에 둔다(검증 게이트 단일 모듈). `collect_http_step_ids` 헬퍼도 동 모듈(또는 `api/scenarios.rs`의 walk 옆).
 ```rust
 pub(crate) fn validate_step_criteria_targets(
     profile: &Profile,
@@ -167,10 +168,10 @@ pub(crate) fn validate_step_criteria_targets(
 **ScheduleForm 시나리오 변경 reseed**(spec-review 발견): ScheduleForm은 시나리오 드롭다운(ScheduleForm.tsx:258)이라 변경 시 step_criteria 행의 target이 dangling. 기존 `DataBindingPanel` **reseed-by-key 패턴**(34c)을 따라 StepCriteriaFields도 시나리오 변경 시 행 초기화(panelKey bump 또는 같은 키로 remount). RunDialog는 per-scenario 1회 마운트라 무관.
 
 ### 5.3 출력 렌더 — VerdictPanel + 배지 tooltip
-- **VerdictPanel은 steps prop 신규 배선**(spec-review 발견): 현재 `VerdictPanel({ verdict })`만 받음(VerdictPanel.tsx) → scenario steps 미보유. ReportView(`ReportView.tsx:62-179`)가 이미 `scenario_yaml`을 파싱해 `stepMeta`/`ifMeta`를 만드므로, 그 steps(또는 meta lookup)를 VerdictPanel에 **새 prop으로 전달**(BranchStatsTable의 `ifMeta` 선례). `target` 행은 `findStepById(steps, target)` → step 표시명(`name`/method·url) 앞에 붙임. fixed-field 행(target 없음)은 기존대로.
-- **행 key 충돌 수정**(spec-review 발견): `VerdictPanel.tsx:29`가 `key={r.metric}` — 같은 metric을 다른 target에(login p95 + feed p95), 또는 fixed-field p95와 step p95가 공존하면 **React key 중복**. `key={`${r.metric}-${r.target ?? ""}-${idx}`}`로 변경.
-- metric 문자열이 fixed-field와 동일(`4xx_rate` 등)하므로 `fmt`(verdictFormat.ts)의 단위 포맷(%/ms/count)이 step 행에도 그대로 적용 — 새 포맷 분기 불요, step은 target 라벨만 추가.
-- **VerdictBadge tooltip은 raw step_id로 degrade**(spec-review 결정): `VerdictBadge`(VerdictBadge.tsx)는 run 목록·스케줄 타임라인(`ScheduleEventTimeline.tsx:46`) 컨텍스트에서 쓰이고 **scenario steps에 접근 불가**(per-event 시나리오 plumbing은 과도). FAIL tooltip의 step 행은 `target`(raw step_id)을 그대로 표시(또는 metric 옆 짧은 id). 풀 step명은 VerdictPanel(리포트 본문)에서만. 이 비대칭은 의도된 degrade — §8 연기에 "배지 step명 plumbing".
+- **VerdictPanel은 steps prop 신규 배선**(spec-review 발견): 현재 `VerdictPanel({ verdict })`만 받음(`ui/src/components/report/VerdictPanel.tsx`) → scenario steps 미보유. ReportView(`ui/src/components/report/ReportView.tsx:60-146`)가 이미 `scenario_yaml`을 파싱해 `stepMeta`를 만들어 `InsightPanel meta={stepMeta}`로 넘기므로(146), 같은 `stepMeta`(또는 steps)를 VerdictPanel에 **새 prop으로 전달**(InsightPanel `meta`·BranchStatsTable `ifMeta` 선례). `target` 행은 `findStepById(steps, target)`(또는 `stepMeta` lookup) → step 표시명(`name`/method·url) 앞에 붙임. fixed-field 행(target 없음)은 기존대로. **prop은 optional**(`steps?`/`meta?` — `TestRunPanel.steps?` 선례): 미주입이면 fixed-field 렌더 불변 → 기존 `VerdictPanel.test.tsx`(2 케이스, verdict-only) 무churn.
+- **행 key 충돌 수정 — 2곳**(spec-review 발견): 같은 metric을 다른 target에(login p95 + feed p95), 또는 fixed-field p95와 step p95가 공존하면 **React key 중복**. **둘 다** 고친다: `VerdictPanel.tsx:29` `key={r.metric}` 와 `VerdictBadge.tsx:44`(`FailBadge`의 실패행 map, 동일 충돌 클래스 — 배지 degrade로 step FAIL 행이 여기 도달) → `key={`${r.metric}-${r.target ?? ""}-${idx}`}`로 변경.
+- metric 문자열이 fixed-field와 동일(`4xx_rate` 등)하므로 `fmt`/`METRIC_LABEL`(`verdictFormat.ts`)의 단위 포맷(%/ms/count)이 step 행에도 그대로 적용 — 새 포맷 분기 불요, step은 target 라벨만 추가.
+- **VerdictBadge tooltip은 raw step_id로 degrade**(spec-review 결정): `VerdictBadge`(`ui/src/components/VerdictBadge.tsx`)는 run 목록·스케줄 타임라인(`ScheduleEventTimeline.tsx:46`) 컨텍스트에서 쓰이고 **scenario steps에 접근 불가**(per-event 시나리오 plumbing은 과도). FAIL tooltip의 step 행은 `target`(raw step_id)을 그대로 표시(또는 metric 옆 짧은 id). 풀 step명은 VerdictPanel(리포트 본문)에서만. 이 비대칭은 의도된 degrade — §8 연기에 "배지 step명 plumbing".
 
 ---
 
