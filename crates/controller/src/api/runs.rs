@@ -68,6 +68,51 @@ pub(crate) fn validate_criteria(c: &crate::store::runs::Criteria) -> Result<(), 
             return Err("criteria.min_window_rps must be >= 0".into());
         }
     }
+    // step-level criteria 범위 검증(spec §4.1). target 존재성(scenario step_id 대조)은
+    // Task 4의 별도 cross-resource 관심사 — 여기선 vocabulary/op/threshold/비-빈 target만.
+    const STEP_METRICS: [&str; 8] = [
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+        "error_rate",
+        "4xx_rate",
+        "5xx_rate",
+        "4xx_count",
+        "5xx_count",
+    ];
+    for (i, sc) in c.step_criteria.iter().enumerate() {
+        if !STEP_METRICS.contains(&sc.metric.as_str()) {
+            return Err(format!(
+                "criteria.step_criteria[{i}].metric '{}'은 지원하지 않습니다",
+                sc.metric
+            ));
+        }
+        if sc.op != "max" && sc.op != "min" {
+            return Err(format!(
+                "criteria.step_criteria[{i}].op은 'max' 또는 'min'이어야 합니다"
+            ));
+        }
+        if !sc.threshold.is_finite() {
+            return Err(format!(
+                "criteria.step_criteria[{i}].threshold가 유효하지 않습니다"
+            ));
+        }
+        let is_rate = matches!(sc.metric.as_str(), "error_rate" | "4xx_rate" | "5xx_rate");
+        if is_rate && !(0.0..=1.0).contains(&sc.threshold) {
+            return Err(format!(
+                "criteria.step_criteria[{i}].threshold는 0.0..=1.0이어야 합니다 (rate)"
+            ));
+        } else if !is_rate && sc.threshold < 0.0 {
+            return Err(format!(
+                "criteria.step_criteria[{i}].threshold는 0 이상이어야 합니다"
+            ));
+        }
+        if sc.target.trim().is_empty() {
+            return Err(format!(
+                "criteria.step_criteria[{i}].target(step_id)가 비어 있습니다"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -905,6 +950,46 @@ mod tests {
                 ..Default::default()
             })
             .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_criteria_step_ranges() {
+        use crate::store::runs::{Criteria, Criterion};
+        let mk = |metric: &str, op: &str, threshold: f64| Criteria {
+            step_criteria: vec![Criterion {
+                metric: metric.into(),
+                op: op.into(),
+                threshold,
+                target: "A".into(),
+            }],
+            ..Default::default()
+        };
+        // 정상
+        assert!(validate_criteria(&mk("p95_ms", "max", 300.0)).is_ok());
+        assert!(validate_criteria(&mk("error_rate", "min", 0.0)).is_ok());
+        // 미지원 metric
+        assert!(validate_criteria(&mk("rps", "max", 1.0)).is_err());
+        // 미지원 op
+        assert!(validate_criteria(&mk("p95_ms", "lt", 1.0)).is_err());
+        // rate > 1
+        assert!(validate_criteria(&mk("4xx_rate", "max", 1.5)).is_err());
+        // 음수 ms
+        assert!(validate_criteria(&mk("p95_ms", "max", -1.0)).is_err());
+        // NaN
+        assert!(validate_criteria(&mk("p95_ms", "max", f64::NAN)).is_err());
+        // 빈 target
+        assert!(
+            validate_criteria(&Criteria {
+                step_criteria: vec![Criterion {
+                    metric: "p95_ms".into(),
+                    op: "max".into(),
+                    threshold: 1.0,
+                    target: "  ".into()
+                }],
+                ..Default::default()
+            })
+            .is_err()
         );
     }
 
