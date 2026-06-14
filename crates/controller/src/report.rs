@@ -1102,6 +1102,51 @@ mod tests {
     }
 
     #[test]
+    fn step_criteria_min_direction_pass_and_fail() {
+        // op:"min" → actual >= threshold PASS, actual < threshold FAIL.
+        // (min branch와 direction:"min" 출력 전파를 커버 — 기존 step 테스트는 전부 max.)
+        let c = Criteria {
+            step_criteria: vec![
+                Criterion {
+                    metric: "p95_ms".into(),
+                    op: "min".into(),
+                    threshold: 100.0,
+                    target: "A".into(),
+                }, // 150 >= 100 → PASS
+                Criterion {
+                    metric: "p95_ms".into(),
+                    op: "min".into(),
+                    threshold: 300.0,
+                    target: "B".into(),
+                }, // 150 < 300 → FAIL
+            ],
+            ..Default::default()
+        };
+        let steps = vec![
+            rstep("A", 10, 0, 150, &[("200", 10)]),
+            rstep("B", 10, 0, 150, &[("200", 10)]),
+        ];
+        let v = evaluate_criteria(
+            &c,
+            &summary(20, 0, 20.0, 150, 150),
+            &BTreeMap::new(),
+            &[],
+            &steps,
+        );
+        assert_eq!(v.criteria.len(), 2);
+        // A: min PASS + direction/target 출력 전파
+        assert_eq!(v.criteria[0].target.as_deref(), Some("A"));
+        assert_eq!(v.criteria[0].direction, "min");
+        assert_eq!(v.criteria[0].threshold, 100.0);
+        assert!(v.criteria[0].passed); // 150 >= 100
+        // B: min FAIL
+        assert_eq!(v.criteria[1].target.as_deref(), Some("B"));
+        assert_eq!(v.criteria[1].direction, "min");
+        assert!(!v.criteria[1].passed); // 150 < 300
+        assert!(!v.passed); // B FAIL → 전체 FAIL
+    }
+
+    #[test]
     fn evaluate_all_pass() {
         let c = Criteria {
             max_p95_ms: Some(500),
