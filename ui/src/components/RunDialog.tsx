@@ -508,6 +508,7 @@ export function RunDialog({
           sizingScenario={scenario}
           sizingEnv={env}
           onApplyVus={setVus}
+          onApplyMaxInFlight={(n) => setMaxInFlight(String(n))}
         />
       </fieldset>
 

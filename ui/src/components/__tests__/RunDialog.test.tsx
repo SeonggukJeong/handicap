@@ -6,6 +6,13 @@ import { RunDialog } from "../RunDialog";
 
 // null 렌더 — 헬퍼의 렌더/미렌더는 LoadModelFields.test.tsx가 검증. 여기선 RunDialog 단위 경계 유지(헬퍼 hook fetch 차단).
 vi.mock("../VuSizingHelper", () => ({ VuSizingHelper: () => null }));
+vi.mock("../SlotSizingHelper", () => ({
+  SlotSizingHelper: ({ onApply }: { onApply: (n: number) => void }) => (
+    <button type="button" onClick={() => onApply(123)}>
+      mock-apply-slots
+    </button>
+  ),
+}));
 
 const fetchMock = vi.fn();
 
@@ -956,6 +963,14 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.clear(screen.getByLabelText("stage target 0"));
     await user.type(screen.getByLabelText("stage target 0"), "0");
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
+  });
+
+  it("open+fixed: 슬롯 헬퍼 적용 → 동시 요청 상한 입력에 반영", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    await user.click(screen.getByRole("button", { name: "mock-apply-slots" }));
+    expect(screen.getByLabelText(/동시 요청 상한/)).toHaveValue(123);
   });
 
   it("prefills curve mode from initial.profile.stages", () => {
