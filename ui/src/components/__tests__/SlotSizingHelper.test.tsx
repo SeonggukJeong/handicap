@@ -126,6 +126,24 @@ describe("SlotSizingHelper", () => {
     expect(screen.getByText(/응답시간 정보가 없어요/)).toBeInTheDocument();
   });
 
+  it("peakBased + 앵커: '최고 단계 목표' 문구로 계산식 표시", () => {
+    setHooks({ runs: [openRun(100)], p50: 50 });
+    render(
+      <SlotSizingHelper scenarioId="s1" env={{}} targetRps="1000" peakBased onApply={vi.fn()} />,
+    );
+    // formulaPeak: 최고 단계 목표 1000 RPS × 지연 50ms ≈ 동시 50슬롯
+    expect(screen.getByText(/최고 단계 목표 1000 RPS/)).toBeInTheDocument();
+    expect(screen.getByText(/≈ 동시 50슬롯/)).toBeInTheDocument();
+  });
+
+  it("peakBased + 목표 빈 문자열 → '단계 목표를 먼저 입력' (곡선 변형)", () => {
+    setHooks({ runs: [openRun(100)], p50: 50 });
+    render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="" peakBased onApply={vi.fn()} />);
+    expect(screen.getByText(/단계 목표를 먼저 입력/)).toBeInTheDocument();
+    // fixed 변형 문구는 안 떠야 함(회귀 가드)
+    expect(screen.queryByText(/목표 RPS를 먼저 입력/)).not.toBeInTheDocument();
+  });
+
   it("측정 중(isPending): 버튼 '측정 중…' + disabled", () => {
     setHooks({
       runs: [],

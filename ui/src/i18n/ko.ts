@@ -347,6 +347,9 @@ export const ko = {
     cannotCompute: "응답시간 정보가 없어요 — 예상 응답시간을 입력하거나 test-run으로 측정하세요.",
     overCapacity:
       "권장값이 단일 워커 슬롯 상한(10,000)을 넘어요 — 목표 RPS를 낮추거나 워커를 늘려야 합니다.",
+    formulaPeak: (targetRps: number, latencyMs: number, n: number) =>
+      `최고 단계 목표 ${targetRps} RPS × 지연 ${latencyMs}ms ≈ 동시 ${n}슬롯`,
+    needTargetCurve: "단계 목표를 먼저 입력하세요.",
   },
   // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   sizing: {

@@ -27,13 +27,21 @@ function usePriorOpenRunAnchor(scenarioId: string | undefined): { p50Ms: number 
 type Props = {
   scenarioId: string;
   env: Record<string, string>;
-  /** 폼의 기존 목표 RPS 문자열(읽기 전용 — 자체 입력칸 없음, spec §2 항목 4). */
+  /** 유효 목표 RPS 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 RPS, curve=stages 피크(상위 도출). */
   targetRps: string;
+  /** true면 곡선 변형 문구(formulaPeak/needTargetCurve) 사용 — open+curve에서 LoadModelFields가 전달. */
+  peakBased?: boolean;
   /** 적용 → RunDialog의 setMaxInFlight(String(n)). */
   onApply: (n: number) => void;
 };
 
-export function SlotSizingHelper({ scenarioId, env, targetRps, onApply }: Props) {
+export function SlotSizingHelper({
+  scenarioId,
+  env,
+  targetRps,
+  peakBased = false,
+  onApply,
+}: Props) {
   const anchor = usePriorOpenRunAnchor(scenarioId);
   const scenarioQ = useScenario(scenarioId);
   const testRun = useTestRun();
@@ -132,7 +140,7 @@ export function SlotSizingHelper({ scenarioId, env, targetRps, onApply }: Props)
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            {ko.slotSizing.formula(
+            {(peakBased ? ko.slotSizing.formulaPeak : ko.slotSizing.formula)(
               targetNum,
               Math.round(latencyMs as number),
               result.recommendedSlots,
@@ -146,7 +154,9 @@ export function SlotSizingHelper({ scenarioId, env, targetRps, onApply }: Props)
         // 지연 출처 없음 — 단, truncated일 땐 위에서 자체 안내가 떠 중복 표시 방지.
         !truncated && <p className="text-xs text-slate-500">{ko.slotSizing.cannotCompute}</p>
       ) : targetRps.trim() === "" ? (
-        <p className="text-xs text-slate-500">{ko.slotSizing.needTarget}</p>
+        <p className="text-xs text-slate-500">
+          {peakBased ? ko.slotSizing.needTargetCurve : ko.slotSizing.needTarget}
+        </p>
       ) : // 지연은 있으나 targetRps가 non-empty-but-invalid(예: "1.5"/"2000000") → recommendSlots null.
       // 폼 자체의 targetRpsInvalid 에러가 이미 그 사유를 표시하므로 여기선 침묵(중복 방지).
       null}
