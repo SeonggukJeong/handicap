@@ -174,6 +174,8 @@ pub struct CriterionResult {
     pub threshold: f64,    // 정수 ms 기준도 f64로 (A2 출력 shape 공유, spec §5/N-1)
     pub actual: f64,
     pub passed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>, // step_id; fixed-field run-level 행은 None
 }
 
 /// 특정 클래스(prefix '4'/'5')의 응답 수.
@@ -232,6 +234,7 @@ pub fn evaluate_criteria(
                     threshold,
                     actual,
                     passed: actual <= threshold,
+                    target: None,
                 });
             }
         };
@@ -252,6 +255,7 @@ pub fn evaluate_criteria(
             threshold: t,
             actual,
             passed: actual <= t,
+            target: None,
         });
     }
     // status-class rate(분모=HTTP 응답 수, transport "0" 제외) — 4xx, 5xx 순.
@@ -273,6 +277,7 @@ pub fn evaluate_criteria(
                 threshold: t,
                 actual,
                 passed: actual <= t,
+                target: None,
             });
         }
     }
@@ -289,6 +294,7 @@ pub fn evaluate_criteria(
                 threshold,
                 actual,
                 passed: actual <= threshold,
+                target: None,
             });
         }
     }
@@ -299,6 +305,7 @@ pub fn evaluate_criteria(
             threshold: t,
             actual: s.rps,
             passed: s.rps >= t,
+            target: None,
         });
     }
     // per-window 최소 RPS: 정상상태 윈도의 최소 RPS ≥ threshold. eligible 부족이면 skip(행 미생성).
@@ -311,6 +318,7 @@ pub fn evaluate_criteria(
                 threshold: t,
                 actual,
                 passed: actual >= t,
+                target: None,
             });
         }
     }

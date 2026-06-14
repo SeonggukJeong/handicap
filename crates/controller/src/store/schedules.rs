@@ -620,6 +620,7 @@ mod tests {
                 threshold: 300.0,
                 actual: 120.0,
                 passed: true,
+                target: None,
             }],
         };
         runs::set_verdict(&db, &run.id, &v).await.unwrap();

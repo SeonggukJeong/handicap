@@ -45,6 +45,16 @@ fn default_http_timeout() -> u32 {
     30
 }
 
+/// step-level criterion (spec §2.1). metric×op(max/min)를 특정 http-leaf step에 적용.
+/// target은 v1 필수(step-level 전용); 모델은 일반형 유지 → optional relax가 순수 가산.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Criterion {
+    pub metric: String, // p50_ms|p95_ms|p99_ms|error_rate|4xx_rate|5xx_rate|4xx_count|5xx_count
+    pub op: String,     // "max" | "min" (→ 출력 direction)
+    pub threshold: f64, // rate 0.0..=1.0, ms/count >= 0
+    pub target: String, // http-leaf step_id
+}
+
 /// run-level SLO 기준. 모든 필드 Option — Some이면 활성 기준 1개. 전부 None이면 기준 없음.
 /// (A2 일반 연산자/step-level은 후속; 출력 `Verdict`만 미리 일반형 — spec §10.)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -71,6 +81,9 @@ pub struct Criteria {
     pub min_window_rps: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rps_warmup_seconds: Option<u32>, // min_window_rps 수식자 — None = 0. has_any에 미포함.
+    /// step-level criteria (spec §2.1). 빈 리스트면 직렬화 생략 → migration-0·byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub step_criteria: Vec<Criterion>,
 }
 
 impl Criteria {
@@ -86,6 +99,7 @@ impl Criteria {
             || self.max_4xx_count.is_some()
             || self.max_5xx_count.is_some()
             || self.min_window_rps.is_some()
+            || !self.step_criteria.is_empty()
         // 주의: rps_warmup_seconds는 의도적으로 제외(수식자, spec §4 N-3).
     }
 }
@@ -422,6 +436,32 @@ mod tests {
                 .expect("open-loop profile without vus must deserialize");
         assert_eq!(p.vus, 0);
         assert!(p.is_open_loop());
+    }
+
+    #[test]
+    fn criterion_serde_round_trip_and_skip_when_empty() {
+        // 빈 step_criteria는 직렬화에서 생략(byte-identical) — 키가 없어야 한다.
+        let c = Criteria::default();
+        let v = serde_json::to_value(&c).unwrap();
+        assert!(
+            v.get("step_criteria").is_none(),
+            "빈 step_criteria는 생략되어야 한다"
+        );
+
+        // 비어있지 않으면 round-trip.
+        let c2 = Criteria {
+            step_criteria: vec![Criterion {
+                metric: "p95_ms".into(),
+                op: "max".into(),
+                threshold: 300.0,
+                target: "STEP01".into(),
+            }],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&c2).unwrap();
+        let back: Criteria = serde_json::from_str(&json).unwrap();
+        assert_eq!(c2, back);
+        assert!(c2.has_any(), "step_criteria만 있어도 has_any는 true");
     }
 
     #[tokio::test]

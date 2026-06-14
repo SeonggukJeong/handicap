@@ -333,6 +333,7 @@ mod tests {
                 threshold: 1.0,
                 actual: if i < fails { 2.0 } else { 0.0 },
                 passed: i >= fails,
+                target: None,
             });
         }
         Verdict { passed, criteria }
