@@ -1,4 +1,4 @@
-import { useId, type Dispatch, type SetStateAction } from "react";
+import { useId, useMemo, type Dispatch, type SetStateAction } from "react";
 import type { LoadModelErrors } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
@@ -6,6 +6,7 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { VuSizingHelper } from "./VuSizingHelper";
 import { SlotSizingHelper } from "./SlotSizingHelper";
+import { peakStageTarget } from "./sizing";
 import type { Scenario } from "../scenario/model";
 
 type StageRow = { target: string; duration_seconds: string };
@@ -76,6 +77,13 @@ export function LoadModelFields({
     durationOpen: useId(),
     maxInFlight: useId(),
   };
+
+  // open+curve 슬롯 힌트의 기준 = 최고 단계 목표(peak). stages는 문자열 드래프트라
+  // 유효 정수만 후보(peakStageTarget). 없으면 "" → 헬퍼가 needTargetCurve 표시.
+  const peakStr = useMemo(() => {
+    const p = peakStageTarget(stages);
+    return p != null ? String(p) : "";
+  }, [stages]);
 
   // 곡선 에디터 블록 — open+curve / closed+curve 공유, 라벨만 모드 분기
   const curveEditor = (
@@ -489,7 +497,18 @@ export function LoadModelFields({
               )}
             </>
           ) : (
-            curveEditor
+            <>
+              {curveEditor}
+              {onApplyMaxInFlight && sizingScenarioId !== undefined && (
+                <SlotSizingHelper
+                  scenarioId={sizingScenarioId}
+                  env={sizingEnv ?? {}}
+                  targetRps={peakStr}
+                  peakBased
+                  onApply={onApplyMaxInFlight}
+                />
+              )}
+            </>
           )}
         </>
       )}

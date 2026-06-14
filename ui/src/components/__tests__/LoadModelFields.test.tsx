@@ -213,9 +213,19 @@ describe("LoadModelFields", () => {
     expect(screen.queryByTestId("slot-sizing-helper")).toBeNull();
   });
 
-  // 슬롯 헬퍼는 open+fixed 전용 — prop이 다 있어도 다른 3모드에선 미렌더.
+  it("open+curve + onApplyMaxInFlight 주어지면 슬롯 헬퍼 렌더", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "curve",
+      sizingScenarioId: "s1",
+      sizingEnv: {},
+      onApplyMaxInFlight: vi.fn(),
+    });
+    expect(screen.getByTestId("slot-sizing-helper")).toBeInTheDocument();
+  });
+
+  // 슬롯 헬퍼는 open(fixed/curve) 전용 — prop이 다 있어도 closed 모드(VU 기반)에선 미렌더.
   it.each([
-    { loadModel: "open", rateMode: "curve" },
     { loadModel: "closed", rateMode: "fixed" },
     { loadModel: "closed", rateMode: "curve" },
   ] as const)("$loadModel+$rateMode 모드에선 슬롯 헬퍼 미렌더 (prop 있어도)", (mode) => {
