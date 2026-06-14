@@ -193,7 +193,7 @@ saturation: {
 - 폴백(cause/recommended 없는 A9형 `load_gen_saturated`) → A9 일반 행동 줄(`ko.insightActions.load_gen_saturated`) 그대로 — **A9 기존 테스트 회귀 가드**.
 
 ### 7.4 라이브 검증(머지 전, 수동)
-`capacity-planning.md §1` 레시피로 python responder + controller subprocess + 격리 DB. **단, responder에 수십 ms 인공 지연을 넣어 `p50_ms > 0`을 보장**(localhost sub-ms면 §2.4 폴백이라 권장이 안 뜸 — Slice 5 함정과 동류). 작은 `max_in_flight`로 open-loop run → `/report` JSON의 `load_gen_saturated`에 `cause="slots"`·`recommended≈목표×p50` 확인 + 실브라우저 InsightPanel에 "최소 ~N로 올려" 두 줄 + 콘솔 Zod 0. 그 다음 `max_in_flight`를 충분히 크게(≥required) 잡아 같은 목표로 다시 → `cause="capacity"`·"올려도 안 늘어요" 확인. closed-loop run은 인사이트 부재(byte-identical) 확인.
+`capacity-planning.md §1` 레시피로 python responder + controller subprocess + 격리 DB. **단, responder에 수십 ms 인공 지연을 넣어 `p50_ms > 0`을 보장**(localhost sub-ms면 §2 항목 4 폴백이라 권장이 안 뜸 — Slice 5 함정과 동류). 작은 `max_in_flight`로 open-loop run → `/report` JSON의 `load_gen_saturated`에 `cause="slots"`·`recommended≈목표×p50` 확인 + 실브라우저 InsightPanel에 "최소 ~N로 올려" 두 줄 + 콘솔 Zod 0. 그 다음 `max_in_flight`를 충분히 크게(≥required) 잡아 같은 목표로 다시 → `cause="capacity"`·"올려도 안 늘어요" 확인. closed-loop run은 인사이트 부재(byte-identical) 확인.
 
 ---
 
