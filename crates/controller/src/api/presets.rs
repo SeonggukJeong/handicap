@@ -74,7 +74,7 @@ pub async fn create(
     Path(scenario_id): Path<String>,
     Json(body): Json<PresetBody>,
 ) -> Result<(StatusCode, Json<PresetResponse>), ApiError> {
-    scenarios::get(&state.db, &scenario_id)
+    let scenario = scenarios::get(&state.db, &scenario_id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let name = body.name.trim();
@@ -82,6 +82,8 @@ pub async fn create(
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
+    crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
+        .map_err(ApiError::BadRequest)?;
     let env_value = serde_json::to_value(&body.env).expect("env map serializes to a JSON object");
     let row = presets::insert(&state.db, &scenario_id, name, &body.profile, &env_value)
         .await
@@ -132,7 +134,16 @@ pub async fn update(
     if name.is_empty() {
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
+    // 프리셋의 scenario_id로 라이브 시나리오를 조회해 step-criteria target을 검증.
+    let preset = presets::get(&state.db, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let scenario = scenarios::get(&state.db, &preset.scenario_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     crate::api::runs::validate_run_config(&state, &body.profile).await?;
+    crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
+        .map_err(ApiError::BadRequest)?;
     let env_value = serde_json::to_value(&body.env).expect("env map serializes to a JSON object");
     let row = presets::update(&state.db, &id, name, &body.profile, &env_value)
         .await

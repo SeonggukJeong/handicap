@@ -175,11 +175,13 @@ async fn gate(state: &AppState, body: &ScheduleBody) -> Result<(Trigger, Option<
     if body.name.trim().is_empty() {
         return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
     }
-    scenarios::get(&state.db, &body.scenario_id)
+    let scenario = scenarios::get(&state.db, &body.scenario_id)
         .await?
         .ok_or(ApiError::NotFound)?;
     // run/preset과 공유하는 권위 게이트(데이터셋/open-loop 검증).
     crate::api::runs::validate_run_config(state, &body.profile).await?;
+    crate::api::runs::validate_step_criteria_targets(&body.profile, &scenario.yaml)
+        .map_err(ApiError::BadRequest)?;
     let trigger = body.trigger.to_trigger()?;
     let now = now_ms();
     validate_trigger(&trigger, now).map_err(ApiError::BadRequest)?;

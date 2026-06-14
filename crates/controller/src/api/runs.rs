@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
@@ -110,6 +111,58 @@ pub(crate) fn validate_criteria(c: &crate::store::runs::Criteria) -> Result<(), 
         if sc.target.trim().is_empty() {
             return Err(format!(
                 "criteria.step_criteria[{i}].target(step_id)가 비어 있습니다"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 시나리오 트리에서 http-leaf step_id를 수집(중첩 loop/if/parallel 하강).
+/// container 노드 id(loop/if/parallel)는 제외 — ReportStep latency가 없어 target 불가.
+fn collect_http_step_ids(steps: &[Step], out: &mut std::collections::HashSet<String>) {
+    for step in steps {
+        match step {
+            Step::Http(h) => {
+                out.insert(h.id.clone());
+            }
+            Step::Loop(l) => collect_http_step_ids(&l.do_, out),
+            Step::If(i) => {
+                collect_http_step_ids(&i.then_, out);
+                for e in &i.elif {
+                    collect_http_step_ids(&e.then_, out);
+                }
+                collect_http_step_ids(&i.else_, out);
+            }
+            Step::Parallel(p) => {
+                for b in &p.branches {
+                    collect_http_step_ids(&b.steps, out);
+                }
+            }
+        }
+    }
+}
+
+/// step-level criteria의 target이 시나리오의 실제 http-leaf step_id인지 검증(spec §4.2).
+/// `validate_criteria`(profile-only)가 못 보는 cross-resource(시나리오 YAML) 관심사라
+/// 시나리오를 손에 든 호출부(run-create·preset·schedule·fire)가 별도로 호출한다.
+pub(crate) fn validate_step_criteria_targets(
+    profile: &crate::store::runs::Profile,
+    scenario_yaml: &str,
+) -> Result<(), String> {
+    let Some(criteria) = &profile.criteria else {
+        return Ok(());
+    };
+    if criteria.step_criteria.is_empty() {
+        return Ok(());
+    }
+    let sc = Scenario::from_yaml(scenario_yaml).map_err(|e| format!("시나리오 파싱 실패: {e}"))?;
+    let mut ids = std::collections::HashSet::new();
+    collect_http_step_ids(&sc.steps, &mut ids);
+    for criterion in &criteria.step_criteria {
+        if !ids.contains(&criterion.target) {
+            return Err(format!(
+                "criteria target '{}'은 시나리오의 http 스텝이 아닙니다",
+                criterion.target
             ));
         }
     }
@@ -502,6 +555,7 @@ pub async fn create(
         .ok_or(ApiError::NotFound)?;
 
     let validated_meta = validate_run_config(&state, &body.profile).await?;
+    validate_step_criteria_targets(&body.profile, &scenario.yaml).map_err(ApiError::BadRequest)?;
 
     let row = spawn_run(&state, &scenario, &body.profile, validated_meta, &body.env).await?;
 
@@ -991,6 +1045,70 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn validate_step_criteria_targets_checks_http_leaf_existence() {
+        use crate::store::runs::{Criteria, Criterion, Profile};
+        // 중첩(loop do:) http leaf까지 잡혀야 한다.
+        let yaml = r#"
+version: 1
+name: t
+steps:
+  - id: 0AAAAAAAAAAAAAAAAAAAAAAAA1
+    type: http
+    name: top
+    request: { method: GET, url: "http://x/a" }
+  - id: 0AAAAAAAAAAAAAAAAAAAAAAAA2
+    type: loop
+    name: lp
+    repeat: 2
+    do:
+      - id: 0AAAAAAAAAAAAAAAAAAAAAAAA3
+        type: http
+        name: inner
+        request: { method: GET, url: "http://x/b" }
+"#;
+        fn profile_with(criteria: Option<Criteria>) -> Profile {
+            Profile {
+                vus: 1,
+                ramp_up_seconds: 0,
+                duration_seconds: 1,
+                loop_breakdown_cap: 256,
+                http_timeout_seconds: 30,
+                data_binding: None,
+                criteria,
+                think_time: None,
+                think_seed: None,
+                target_rps: None,
+                max_in_flight: None,
+                stages: None,
+                measure_phases: false,
+                vu_stages: None,
+                ramp_down: None,
+            }
+        }
+        let mk = |target: &str| {
+            profile_with(Some(Criteria {
+                step_criteria: vec![Criterion {
+                    metric: "p95_ms".into(),
+                    op: "max".into(),
+                    threshold: 1.0,
+                    target: target.into(),
+                }],
+                ..Default::default()
+            }))
+        };
+        // 최상위 http leaf OK
+        assert!(validate_step_criteria_targets(&mk("0AAAAAAAAAAAAAAAAAAAAAAAA1"), yaml).is_ok());
+        // 중첩 http leaf OK
+        assert!(validate_step_criteria_targets(&mk("0AAAAAAAAAAAAAAAAAAAAAAAA3"), yaml).is_ok());
+        // loop 컨테이너 id는 http leaf 아님 → 거부
+        assert!(validate_step_criteria_targets(&mk("0AAAAAAAAAAAAAAAAAAAAAAAA2"), yaml).is_err());
+        // 없는 id → 거부
+        assert!(validate_step_criteria_targets(&mk("NOPE"), yaml).is_err());
+        // step_criteria 비면 시나리오 파싱 없이 Ok(빈 yaml이어도)
+        assert!(validate_step_criteria_targets(&profile_with(None), "").is_ok());
     }
 
     #[tokio::test]

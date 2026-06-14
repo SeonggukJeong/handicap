@@ -238,6 +238,36 @@ async fn preset_put_nonexistent_is_404() {
 }
 
 #[tokio::test]
+async fn preset_step_criteria_target_must_exist() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    // YAML의 유일한 http 스텝 id는 "a".
+    let sid = create_scenario(&app, YAML).await;
+
+    // 존재하는 target("a") → 생성 성공.
+    let (ok, _) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "good", "profile": { "vus": 1, "duration_seconds": 1,
+            "criteria": { "step_criteria": [{ "metric": "p95_ms", "op": "max", "threshold": 1.0, "target": "a" }] } },
+            "env": {} }),
+    )
+    .await;
+    assert_eq!(ok, StatusCode::CREATED);
+
+    // 존재하지 않는 target("NOPE") → 400.
+    let (bad, _) = post(
+        &app,
+        &format!("/api/scenarios/{sid}/presets"),
+        json!({ "name": "bad", "profile": { "vus": 1, "duration_seconds": 1,
+            "criteria": { "step_criteria": [{ "metric": "p95_ms", "op": "max", "threshold": 1.0, "target": "NOPE" }] } },
+            "env": {} }),
+    )
+    .await;
+    assert_eq!(bad, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn run_can_be_created_from_a_preset_profile() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db.clone());

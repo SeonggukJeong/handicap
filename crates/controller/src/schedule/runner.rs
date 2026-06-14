@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::api::runs::{spawn_run, validate_run_config};
+use crate::api::runs::{spawn_run, validate_run_config, validate_step_criteria_targets};
 use crate::app::AppState;
 use crate::schedule::trigger::{Trigger, next_fire_after};
 use crate::store::{now_ms, runs, scenarios, schedules};
@@ -159,6 +159,25 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
                 continue;
             }
         };
+        // step-criteria target은 시나리오 YAML 대조라 매 발사 재검증(시나리오 편집으로
+        // target이 사라졌을 수 있음 — validate_run_config는 profile만 보므로 못 잡는다).
+        if let Err(e) = validate_step_criteria_targets(&sched.profile, &scenario.yaml) {
+            let d = format!("검증 실패: {e}");
+            record(
+                state,
+                &sched.id,
+                "error",
+                None,
+                None,
+                Some(&d),
+                adv_next,
+                adv_enabled,
+                now_ms,
+            )
+            .await;
+            summary.errored += 1;
+            continue;
+        }
         let env: HashMap<String, String> = sched
             .env
             .iter()
