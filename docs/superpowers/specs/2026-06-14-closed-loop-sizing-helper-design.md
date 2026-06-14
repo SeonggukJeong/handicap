@@ -73,9 +73,9 @@ RunDialog의 닫힌 루프 **균등 VU** 모드는 *VU 개수 + 지속시간*을
 | 2 | test-run 1회 측정 | `R / (trace.total_ms/1000)`, R = trace의 응답 있는 스텝 수 | 중간(무부하 baseline → 하한) |
 | 3 | 사용자 추정 지연 | `R / (estMs/1000)`, R = `flattenHttpSteps(scenario.steps).length`(정적 카운트) | 낮음(garbage-in) |
 
-- 1번이 가능하면 자동 채택(프리필 + 권장값). 2·3번은 1번이 없을 때 노출.
-- 2번 test-run 버튼: 기존 `useTestRun`을 RunDialog가 가진 **선택 환경으로 resolve된 env**(submit과 동일 `resolveEnv`)와 `useScenario(scenarioId).data?.yaml`(API `Scenario`의 YAML 필드명은 `yaml` — run 객체의 `scenario_yaml`과 혼동 금지)을 test-run 요청의 `scenario_yaml`로 넘겨 호출. 결과 `total_ms`·요청수로 추정 지연칸을 채운다.
-- **truncated 가드**: test-run `max_requests` 기본 50(`test_runs.rs:10`)이라 멀티스텝·loop 시나리오는 1회 패스를 다 못 돌고 잘릴 수 있다(`trace.truncated === true`). 잘린 trace의 `total_ms`·요청수는 *부분* 패스라 처리량이 왜곡된다 → **`trace.truncated`면 측정 경로를 거부**하고 "시나리오가 길어 측정이 잘렸어요 — 1회 반복 지연을 직접 입력하세요" 폴백 문구 + 3번(추정) 경로로 떨어진다.
+- 위 표의 "우선"은 **신뢰도 순위**(어느 출처가 더 믿을 만한가)지 *런타임 타이브레이크*가 아니다. **런타임 출처 선택 precedence**는: `prior`(1번, 최근 run 있으면 항상 채택 — 2·3번 UI 미노출) > **수동 추정 estMs 입력 시(3번 = 명시적 override)** > **측정(2번 = 편의 기본값)** > 없음. 즉 1번이 없을 때, 측정값이 있어도 사용자가 estMs를 직접 타이핑하면 그 수동값이 이긴다(명시 override가 편의 측정값보다 우선).
+- 2번 test-run 버튼: 기존 `useTestRun`을 RunDialog가 가진 **선택 환경으로 resolve된 env**(submit과 동일 `resolveEnv`)와 `useScenario(scenarioId).data?.yaml`(API `Scenario`의 YAML 필드명은 `yaml` — run 객체의 `scenario_yaml`과 혼동 금지)을 test-run 요청의 `scenario_yaml`로 넘겨 호출. 결과는 **별도 `measured` basis**(요청수 `R`=trace 응답 스텝 수, 반복지연 `T`=`total_ms`)로 보관하고 "측정됨: 요청 R개 · Tms"로 **텍스트 표시**한다 — **estMs 입력칸을 덮어쓰지 않는다**(측정 R을 정확히 보존하려고 정적-R estMs 경로와 분리; §5.2 measured 경로의 reqPerIter=trace R 정확성 유지). estMs는 사용자가 직접 쓰는 수동 override 전용.
+- **truncated 가드**: test-run `max_requests` 기본 50(`test_runs.rs:10`)이라 멀티스텝·loop 시나리오는 1회 패스를 다 못 돌고 잘릴 수 있다(`trace.truncated === true`). 잘린 trace의 `total_ms`·요청수는 *부분* 패스라 처리량이 왜곡된다 → **`trace.truncated`면 측정 경로를 거부**(measured basis 미생성)하고 "시나리오가 길어 측정이 잘렸어요 — 1회 반복 지연을 직접 입력하세요" 폴백 문구 + 3번(추정) 경로로 떨어진다.
 - 3번 추정 지연: 사용자가 "1회 반복 예상 지연(ms)"을 직접 타이핑. 기본값 비움(힌트 문구만).
 
 ---
@@ -104,7 +104,7 @@ rpsPerVu =
 
 가드: rpsPerVu > 0 이 아니면(0/NaN/Inf) → null (계산 불가, §7 폴백 문구)
 recommendedVus = max(1, ceil(targetRps / rpsPerVu))
-반환: { recommendedVus, rpsPerVu, basis: kind, reqPerIter?, iterMs? }
+반환: { recommendedVus, rpsPerVu, basis: kind }   // reqPerIter/iterMs는 컴포넌트가 별도 보관, 결과에 불필요
 ```
 - measured 경로의 `reqPerIter`는 `trace.steps.filter(s => s.response !== null).length`(응답 있는 스텝 수, `StepTrace.response`는 `.nullable()` schemas.ts:457). `iterMs = trace.total_ms`. **단 `trace.truncated`면 측정 거부**(§4.2 가드 — 부분 패스라 왜곡).
 - `reqPerIter == 0`(요청 없는 시나리오) 또는 `iterMs == 0`(localhost sub-ms test-run — Slice 5 함정과 동류) → `rpsPerVu` 가드에 걸려 `null` → 헬퍼는 "측정값이 0이라 계산 불가, 직접 지연을 입력하세요" 폴백.
@@ -185,7 +185,7 @@ ScenarioRunsPage (이미 useScenarioRuns 보유)
 ## 9. 테스트 전략
 
 - **순수 함수**(`sizing.test.ts`): `recommendVus` — 3 basis × 경계(targetRps 1/최대, rpsPerVu 0·NaN·Inf 가드 → null, ceil/min(1), reqPerIter 0, iterMs 0). prior 선형 스케일(50→200, target 400 → 100) 정확값 락인.
-- **컴포넌트**(`VuSizingHelper.test.tsx`): 앵커 있음 → 프리필+권장 표시 / 앵커 없음 → 추정·측정 UI 노출 / "적용" → `onApply` 호출 / test-run 버튼 → `useTestRun` 호출 후 칸 채움(mock) / 한계 문구 렌더(조사 병기 정규식 — `\(으\)로` escape) / 폴백(계산 불가) 문구. React Query/Zustand mock은 기존 RunDialog 테스트 패턴.
+- **컴포넌트**(`VuSizingHelper.test.tsx`): 앵커 있음 → 프리필+권장 표시 / 앵커 없음 → 추정·측정 UI 노출 / "적용" → `onApply` 호출 / test-run 버튼 → `useTestRun` 호출 후 측정 텍스트("요청 R개 · Tms") + 권장값 렌더(estMs 칸 미변경, mock) / truncated → 측정 거부 문구 / 한계 문구 렌더(조사 병기 정규식 — `\(으\)로` escape) / 폴백(계산 불가) 문구. React Query/Zustand mock은 기존 RunDialog 테스트 패턴.
 - **모드 분기**(LoadModelFields.test.tsx): closed+fixed에서만 헬퍼 렌더, 나머지 3모드 미렌더 락인(`loadModel.ts` 불변식 테스트 정신).
 - **게이트**: `pnpm lint && pnpm test && pnpm build`(`tsc -b` Zod-default 누출·discriminated union 함정). 머지 전 인자 없는 전체 `pnpm test` 1회(S-D 함정).
 - **라이브(Playwright)**: closed+fixed RunDialog에서 (a) 최근 run 있는 시나리오 → 목표 RPS 프리필·올림 → 권장 VU 변화·적용→VU칸 반영, (b) run 없는 시나리오 → test-run 측정 버튼→권장값+한계 문구, (c) run 생성이 기존대로 동작(페이로드 무변경)·콘솔 Zod 0. React controlled input은 native setter(ui 루트 CLAUDE.md), click과 단언은 별도 evaluate.
