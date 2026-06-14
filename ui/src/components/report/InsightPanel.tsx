@@ -17,11 +17,13 @@ function pctStr(v: number | undefined): string {
   return v === undefined ? "" : `${(v * 100).toFixed(1)}%`;
 }
 
+// 천단위 구분 — locale 고정(CI ICU 빌드 무관, RTL "1,203건" 단언).
+function n(v: number | undefined): string {
+  return (v ?? 0).toLocaleString("en-US");
+}
+
 function message(i: Insight, meta: Map<string, StepMeta>): string {
   const name = (id?: string) => (id ? (meta.get(id)?.name ?? id) : "");
-  // Pin locale so comma grouping is deterministic regardless of CI ICU build
-  // (RTL asserts "1,203건" / "1,240ms").
-  const n = (v: number | undefined) => (v ?? 0).toLocaleString("en-US");
   switch (i.kind) {
     case "slo_failure":
       return `SLO 실패: ${i.count ?? 0}개 기준 미달`;
@@ -44,6 +46,15 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
   }
 }
 
+function actionFor(i: Insight): string | undefined {
+  if (i.kind === "load_gen_saturated") {
+    if (i.cause === "slots") return ko.saturation.slots(n(i.recommended));
+    if (i.cause === "capacity") return ko.saturation.capacity;
+    return ko.insightActions.load_gen_saturated; // 폴백(A9 일반)
+  }
+  return ACTIONS[i.kind];
+}
+
 export function InsightPanel({ insights, meta }: Props) {
   if (insights.length === 0) return null;
   return (
@@ -60,12 +71,15 @@ export function InsightPanel({ insights, meta }: Props) {
             ].join(" ")}
           >
             <div>{message(i, meta)}</div>
-            {ACTIONS[i.kind] && (
-              <div className="mt-0.5 text-xs opacity-90">
-                <span aria-hidden="true">→ </span>
-                {ACTIONS[i.kind]}
-              </div>
-            )}
+            {(() => {
+              const action = actionFor(i);
+              return action ? (
+                <div className="mt-0.5 text-xs opacity-90">
+                  <span aria-hidden="true">→ </span>
+                  {action}
+                </div>
+              ) : null;
+            })()}
           </li>
         ))}
       </ul>

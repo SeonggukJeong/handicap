@@ -342,6 +342,8 @@ export const InsightSchema = z.object({
   count: z.number().int().nonnegative().optional(),
   status_class: z.string().optional(),
   window_seconds: z.number().int().optional(),
+  recommended: z.number().optional(),
+  cause: z.string().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 

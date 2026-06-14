@@ -66,4 +66,34 @@ describe("InsightPanel", () => {
     render(<InsightPanel insights={insights} meta={meta} />);
     expect(screen.queryByText(/→/)).toBeNull();
   });
+
+  it("load_gen_saturated slots — 권장 max_in_flight를 행동 줄에 렌더", () => {
+    const insights: Insight[] = [
+      {
+        kind: "load_gen_saturated",
+        severity: "warning",
+        value: 7500,
+        count: 320,
+        cause: "slots",
+        recommended: 500,
+      },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
+    expect(screen.getByText(/최소 ~500로 올려/)).toBeInTheDocument();
+  });
+
+  it("load_gen_saturated capacity — 올려도 안 늘어요 행동 줄", () => {
+    const insights: Insight[] = [
+      {
+        kind: "load_gen_saturated",
+        severity: "warning",
+        value: 9000,
+        count: 12,
+        cause: "capacity",
+      },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(screen.getByText(/max_in_flight를 올려도 처리량은 안 늘어요/)).toBeInTheDocument();
+  });
 });
