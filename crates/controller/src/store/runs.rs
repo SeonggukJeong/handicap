@@ -92,6 +92,10 @@ impl Criteria {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
+    /// closed-loop VU 수. open-loop(`target_rps`)·VU 곡선(`vu_stages`)은 이 값을 무시하므로
+    /// `#[serde(default)]`(0) — 그 모드 페이로드는 vus 생략 가능. closed-loop만
+    /// `validate_run_config`가 `vus > 0`을 강제한다(serde required 아님).
+    #[serde(default)]
     pub vus: u32,
     #[serde(default)]
     pub ramp_up_seconds: u32,
@@ -406,6 +410,18 @@ mod tests {
         store::connect("sqlite::memory:")
             .await
             .expect("in-memory db")
+    }
+
+    #[test]
+    fn profile_deserializes_without_vus_defaulting_to_zero() {
+        // open-loop 페이로드는 vus를 안 보내도 된다 — serde default(0)로 채워지고
+        // open-loop은 vus 값을 무시(부하=target_rps+max_in_flight). closed-loop만
+        // validate_run_config가 vus>0를 강제한다.
+        let p: Profile =
+            serde_json::from_str(r#"{"target_rps":2000,"max_in_flight":20,"duration_seconds":5}"#)
+                .expect("open-loop profile without vus must deserialize");
+        assert_eq!(p.vus, 0);
+        assert!(p.is_open_loop());
     }
 
     #[tokio::test]
