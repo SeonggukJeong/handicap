@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunDialog } from "../RunDialog";
 
+// null 렌더 — 헬퍼의 렌더/미렌더는 LoadModelFields.test.tsx가 검증. 여기선 RunDialog 단위 경계 유지(헬퍼 hook fetch 차단).
 vi.mock("../VuSizingHelper", () => ({ VuSizingHelper: () => null }));
 
 const fetchMock = vi.fn();

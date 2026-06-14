@@ -166,4 +166,9 @@ describe("LoadModelFields", () => {
     renderFields(); // 기본 closed+fixed, sizing prop 없음 → ScheduleForm 경로와 동일
     expect(screen.queryByTestId("sizing-helper")).toBeNull();
   });
+
+  it("onApplyVus 있어도 sizingScenarioId 없으면 헬퍼 미렌더 (가드 && 반쪽)", () => {
+    renderFields({ onApplyVus: vi.fn() }); // sizingScenarioId 미전달 → 가드 미충족
+    expect(screen.queryByTestId("sizing-helper")).toBeNull();
+  });
 });
