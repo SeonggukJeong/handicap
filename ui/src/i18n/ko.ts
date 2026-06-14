@@ -325,6 +325,29 @@ export const ko = {
       `동시 실행 수(max_in_flight)는 목표에 충분했어요 — 한계는 테스트 도구(워커 CPU)나 ` +
       `대상 서버입니다. max_in_flight를 올려도 처리량은 안 늘어요.`,
   },
+  // 열린 루프 생성 시점 슬롯 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
+  slotSizing: {
+    title: "동시 요청 수(슬롯) 도우미",
+    helpLabel: "슬롯 사이징 도우미 설명",
+    help: "목표 RPS를 내려면 동시 요청 상한(max_in_flight)을 몇으로 잡아야 하는지 추정해 드려요. 너무 낮으면 요청이 버려져요(drop). 권장값은 최소 출발점이에요.",
+    estMs: "예상 평균 응답시간(ms)",
+    measureBtn: "test-run으로 측정",
+    measuring: "측정 중…",
+    measureCaveat:
+      "방금 측정은 부하 없는 1회 실행이라 실제보다 빨라요. 부하가 걸리면 더 느려져 슬롯이 더 필요할 수 있어, 이 권장값은 최소 출발점이에요.",
+    truncated: "시나리오가 길어 측정이 잘렸어요 — 예상 응답시간을 직접 입력하세요.",
+    measureError: "측정에 실패했어요. 환경 변수(${BASE_URL} 등)와 시나리오를 확인하세요.",
+    fromPriorRun: (p50: number) => `지난 실행의 응답시간(p50 ${p50}ms) 기준 추정이에요.`,
+    measured: (req: number, ms: number) => `측정됨: 요청 ${req}개 · 평균 ${ms}ms`,
+    recommend: (n: number) => `max_in_flight를 최소 ~${n}(으)로 설정하세요`,
+    formula: (targetRps: number, latencyMs: number, n: number) =>
+      `목표 ${targetRps} RPS × 지연 ${latencyMs}ms ≈ 동시 ${n}슬롯`,
+    apply: "적용",
+    needTarget: "위에서 목표 RPS를 먼저 입력하세요.",
+    cannotCompute: "응답시간 정보가 없어요 — 예상 응답시간을 입력하거나 test-run으로 측정하세요.",
+    overCapacity:
+      "권장값이 단일 워커 슬롯 상한(10,000)을 넘어요 — 목표 RPS를 낮추거나 워커를 늘려야 합니다.",
+  },
   // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   sizing: {
     title: "VU 사이징 도우미",
