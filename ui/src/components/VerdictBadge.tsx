@@ -40,8 +40,10 @@ function FailBadge({ verdict }: { verdict: Verdict }) {
           className={`absolute top-5 z-20 block w-64 whitespace-normal rounded-md border border-slate-200 bg-white p-2 text-left text-xs font-normal text-slate-700 shadow-lg ${alignRight ? "right-0" : "left-0"}`}
         >
           <span className="mb-1 block font-medium">{ko.report.failReasonTitle}</span>
-          {failed.map((c) => (
-            <span key={c.metric} className="block">
+          {failed.map((c, idx) => (
+            // step-level criterion이면 같은 metric이 여러 target에 나와 key={c.metric} 충돌 →
+            // metric+target+idx 합성. 배지엔 step명을 안 붙임(원시 target degrade, spec §5.3).
+            <span key={`${c.metric}-${c.target ?? ""}-${idx}`} className="block">
               {METRIC_LABEL[c.metric] ?? c.metric} {fmt(c.metric, c.actual)}{" "}
               {c.direction === "max" ? ">" : "<"} {fmt(c.metric, c.threshold)}
             </span>

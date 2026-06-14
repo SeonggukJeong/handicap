@@ -143,7 +143,7 @@ export function ReportView({ report, profile }: Props) {
         </p>
       )}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
-      {report.verdict ? <VerdictPanel verdict={report.verdict} /> : null}
+      {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
       <Summary
         summary={report.summary}
         dropped={report.dropped}

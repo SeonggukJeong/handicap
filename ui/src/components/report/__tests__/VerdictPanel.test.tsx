@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { VerdictPanel } from "../VerdictPanel";
+import type { Verdict } from "../../../api/schemas";
 
 const cr = (
   metric: string,
@@ -71,5 +72,59 @@ describe("VerdictPanel new metric rows", () => {
     expect(screen.getByText("최소 구간 RPS")).toBeInTheDocument();
     expect(screen.getByText(/≥/)).toBeInTheDocument(); // min direction
     expect(screen.getByText("42.5")).toBeInTheDocument(); // 1 decimal
+  });
+});
+
+describe("VerdictPanel step-level rows", () => {
+  it("renders step target name and avoids duplicate-metric key collision", () => {
+    const verdict: Verdict = {
+      passed: false,
+      criteria: [
+        { metric: "p95_ms", direction: "max", threshold: 500, actual: 100, passed: true },
+        {
+          metric: "p95_ms",
+          direction: "max",
+          threshold: 200,
+          actual: 150,
+          passed: true,
+          target: "A",
+        },
+        {
+          metric: "p95_ms",
+          direction: "max",
+          threshold: 50,
+          actual: 300,
+          passed: false,
+          target: "B",
+        },
+      ],
+    };
+    const steps = new Map([
+      ["A", { name: "login" }],
+      ["B", { name: "feed" }],
+    ]);
+    render(<VerdictPanel verdict={verdict} steps={steps} />);
+    expect(screen.getByText(/login/)).toBeInTheDocument();
+    expect(screen.getByText(/feed/)).toBeInTheDocument();
+    // 3행이 모두 렌더(key 충돌 없으면 row 3개 — p95_ms ×3)
+    expect(screen.getAllByText(/p95/).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("falls back to raw target id when step name is unknown", () => {
+    const verdict: Verdict = {
+      passed: false,
+      criteria: [
+        {
+          metric: "p99_ms",
+          direction: "max",
+          threshold: 50,
+          actual: 300,
+          passed: false,
+          target: "ZZZ",
+        },
+      ],
+    };
+    render(<VerdictPanel verdict={verdict} />);
+    expect(screen.getByText(/ZZZ/)).toBeInTheDocument();
   });
 });
