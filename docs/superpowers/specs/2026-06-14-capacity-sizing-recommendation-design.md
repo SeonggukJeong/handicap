@@ -32,6 +32,7 @@ A9 v1은 open-loop run이 목표 도착률을 못 냈을 때(`dropped > 0`) "목
    - **`max_in_flight ≥ required`**: 슬롯은 목표에 충분했는데도 드롭이 났다 — 한계는 슬롯 수가 아니라 **워커 CPU(요청을 그 속도로 못 띄움)나 대상 서버(부하 시 지연 상승으로 슬롯이 막힘)**. **`max_in_flight`를 더 올려도 처리량은 안 는다.** → "올리지 마라" 안내.
 
 3. **지연 프록시 `L`은 `summary.p50_ms`(중앙값).** mean은 리포트에 저장되지 않는다(HDR 백분위만). p50은 `derive_insights`가 이미 받는 `summary`에 있어 새 데이터 라인 0. 권장값은 근사라 *floor*("최소 ~N")로 제시 — 부하 상승 시 지연이 더 오를 수 있어 `required`는 하한이다.
+   - **알려진 한계(v1 수용)**: Little's Law는 본래 *평균* 지연을 쓴다(`capacity-planning.md §3`). 부하 시 흔한 우편향 분포에선 `p50 < mean`이라 `required = ceil(target × p50)`가 *과소* 산정돼 (a) slots 권장값이 실제 필요치보다 낮을 수 있고, (b) **`max_in_flight`가 진짜 required(=target×mean) 바로 아래인 capacity-bound run이 "slots"로 오분류**될 수 있다. 또 `summary.p50_ms`는 *whole-run* 중앙값이라 ramp에서 포화 전 저지연 윈도까지 섞여 p50을 더 낮춘다(같은 방향 편향). 그래서 판별의 보수성은 "capacity면 안 올림"보다 "slots면 올림" 쪽으로 기울며, slots 행동 줄은 "에러·지연이 함께 높으면 서버 한계"를 병기해 이 오분류를 사용자 교차판단으로 흡수한다. mean 정밀화·per-window 산정은 §8 연기.
 
 4. **`L == 0`(localhost sub-ms)이면 판별 불가 → 폴백.** `required = target × 0 = 0`을 계산해 "슬롯 충분"으로 오분류하면 안 된다. `L > 0` 가드로 막고 cause 없이 A9 일반 안내로 떨어진다. (Slice 5 "localhost sub-ms → p95_ms=0" 함정과 동류 — §6.4 라이브 검증 주의.)
 
@@ -59,11 +60,12 @@ required = if L_sec > 0.0 {
                target_rps.map(|t| ((t as f64) * L_sec).ceil().max(1.0) as u64)
            } else { None }                              // p50==0 → 판별 불가
 
-(cause, recommended) = match (required, max_in_flight) {
-    (Some(req), Some(m)) if (m as u64) < req => ("slots",    Some(req as f64)),
-    (Some(_),   Some(_))                     => ("capacity", None),
-    _                                        => (none,       None),   // 폴백
-}
+let (cause, recommended): (Option<&str>, Option<f64>) = match (required, max_in_flight) {
+    (Some(req), Some(m)) if (m as u64) < req => (Some("slots"),    Some(req as f64)),
+    (Some(_),   Some(_))                     => (Some("capacity"), None),
+    _                                        => (None,             None),   // 폴백
+};
+// ins.cause = cause.map(str::to_string);  ins.recommended = recommended;
 ```
 
 - `required`는 `.max(1.0)`로 최소 1(목표·지연이 작아 0으로 반올림되는 경우 방어).
@@ -108,7 +110,11 @@ function actionFor(i: Insight): string | undefined {
   return ACTIONS[i.kind];
 }
 ```
-숫자 포맷(`n()`=`toLocaleString("en-US")`)은 기존대로 InsightPanel에 남기고, 문구 텍스트만 `ko.ts`에서 가져온다(ADR-0035 단일 소스).
+**배선 주의 2가지**:
+- **`n()`을 모듈 스코프로 호이스트**: 현재 `n`(=`(v)=>(v??0).toLocaleString("en-US")`)은 `message(i, meta)` *내부*(`InsightPanel.tsx:24`)에 선언돼 있어 형제 `actionFor`가 못 본다. `n`을 모듈 스코프 함수로 끌어올려 `message`·`actionFor` 둘이 공유한다(동작 불변 — 동일 포맷터).
+- **JSX 교체**: 행동 줄 렌더의 가드·본문 둘 다 `ACTIONS[i.kind]` → `actionFor(i)`로 바꾼다 — 즉 `{actionFor(i) && (<div>… {actionFor(i)}</div>)}`(또는 `const a = actionFor(i)`로 1회 계산). 헬퍼만 추가하고 JSX를 안 바꾸면 아무 효과 없음.
+
+숫자 포맷(`n()`)은 InsightPanel에 남기고(모듈 스코프로), 문구 텍스트만 `ko.ts`에서 가져온다(ADR-0035 단일 소스).
 
 ### 4.3 `ko.ts` 문구 (신규 키)
 ```ts
@@ -140,6 +146,7 @@ saturation: {
 |---|---|
 | `crates/controller/src/insights.rs` | `Insight`에 `recommended: Option<f64>`·`cause: Option<String>` 필드 + `Insight::new` 초기화(둘 다 None) · `derive_insights` 시그니처에 `max_in_flight: Option<u32>`·`target_rps: Option<u32>` 추가(맨 끝, `dropped` 다음) · `dropped > 0` 블록에 §3.2 계산 후 `ins.recommended`/`ins.cause` 세팅 · 단위 테스트 추가 |
 | `crates/controller/src/report.rs` | `derive_insights(...)` 호출부(현 `:557`)에 인자 2개 추가: `run.profile.max_in_flight` + 유효 목표 `run.profile.target_rps.or_else(|| run.profile.stages.as_ref().and_then(|s| s.iter().map(|st| st.target).max()))`(둘 다 `Option<u32>`). `Profile`/`Stage`는 이미 call site에서 deref 가능(`run.profile`, `:471`/`:550`/`:691`). |
+| `crates/controller/src/export.rs` | **컴파일러-강제**(struct-literal grep 함정, controller CLAUDE.md "새 필드 추가 = crate-wide grep"): `Insight` struct 리터럴(`:498`, 테스트 `xlsx_has_insights_sheet`)이 `Insight`엔 `Default`/`..` spread가 없어 새 필드 2개를 명시해야 컴파일된다 → `recommended: None, cause: None` 추가. **XLSX Insights 시트(`:318`)는 `recommended`/`cause` 열 미추가로 유지**(가산 필드 비노출, v1 의도 — XLSX export 확장은 §8 연기). |
 | `ui/src/api/schemas.ts` | `InsightSchema`에 `recommended: z.number().optional()`·`cause: z.string().optional()` (백엔드 `skip_serializing_if` → 생략되므로 **`.optional()`**, `.nullish()` 아님 — controller CLAUDE.md "skip_serializing_if 필드 → .optional()"). |
 | `ui/src/components/report/InsightPanel.tsx` | §4.2 `actionFor` 분기로 행동 줄 산출(load_gen_saturated만 동적, 나머지 정적 `ACTIONS[i.kind]`). |
 | `ui/src/i18n/ko.ts` | §4.3 `saturation.slots`(함수)·`saturation.capacity` 키 추가. 기존 `insightActions.load_gen_saturated`는 폴백으로 유지. |
@@ -147,7 +154,8 @@ saturation: {
 ### 5.1 시그니처 변경 영향
 `derive_insights`의 **모든 호출부가 새 인자 2개를 받아야 한다**(컴파일러-driven):
 - prod 1곳: `report.rs::build_report` → 위 두 식.
-- 단위 테스트 다수(`insights.rs` 인라인 `mod tests`): 기존 테스트는 `None, None`(또는 사이징 무관 값)을 넘김 → cause 없음/동작 불변. A9가 추가한 `load_gen_saturated_*`/`saturation_falls_back_*` 테스트도 새 두 인자 갱신(사이징 단언 없으면 `None, None`).
+- 단위 테스트 다수(`insights.rs` 인라인 `mod tests`, ~22곳 — 현 `:278`부터): 기존 테스트는 `None, None`(또는 사이징 무관 값)을 넘김 → cause 없음/동작 불변. A9가 추가한 `load_gen_saturated_*`/`saturation_falls_back_*` 테스트도 새 두 인자 갱신(사이징 단언 없으면 `None, None`).
+- **별개의 컴파일러-강제 사이트(호출부 아님)**: `export.rs:498`의 `Insight` struct 리터럴 — 위 §5 표 참조. 이 둘(호출부 + struct 리터럴)은 같은 green 커밋(§9.1)에서 함께 처리.
 
 ### 5.2 유효 목표 산출 위치
 유효 목표(`target_rps` or `max(stages[].target)`)는 **report.rs 호출부에서 산출**해 단일 `Option<u32>`로 주입한다 — `derive_insights`를 스칼라의 순수 함수로 유지(사이징 로직 단위 테스트가 stages 파싱에 안 얽힘). A9의 `dropped` 주입과 동형.
@@ -170,8 +178,7 @@ saturation: {
 - `saturated_slots_recommends_when_underprovisioned`: `dropped>0` + windows(peak 산출) + `summary.p50_ms = 50` + `target_rps = Some(10_000)` + `max_in_flight = Some(100)` → `cause=="slots"`, `recommended == Some(500.0)`(=ceil(10000×0.05)). value=peak·count=dropped 동시 단언.
 - `saturated_capacity_when_slots_sufficient`: 같은 지연/목표지만 `max_in_flight = Some(2_000)`(≥500) → `cause=="capacity"`, `recommended == None`.
 - `saturated_sizing_falls_back_when_latency_zero`: `summary.p50_ms = 0` + 목표/슬롯 Some → `cause == None`, `recommended == None`(폴백). **value/count는 여전히 A9대로 emit**(인사이트 자체는 뜸).
-- `saturated_sizing_falls_back_when_profile_absent`: `max_in_flight = None`(또는 `target_rps = None`) → `cause == None`.
-- `sizing_uses_stages_peak_target`: report.rs 측 유효목표 산출 — `target_rps=None` + `stages=[{4000,..},{12000,..}]` → 주입된 target=12000으로 `required` 산출. (이 산출은 §5.2상 report.rs에 있으므로 report.rs 테스트로, 아래 7.2.)
+- `saturated_sizing_falls_back_when_profile_absent`: `max_in_flight = None`(또는 `target_rps = None`) → `cause == None`. (유효목표 산출=stages-peak은 report.rs에서 주입하므로 `derive_insights` 단위가 아니라 §7.2 report.rs 테스트로 검증.)
 - **A9 기존 테스트 갱신**: `derive_insights` 호출 전부 새 인자 2개 추가. `load_gen_saturated_when_dropped`/`no_saturation_when_dropped_zero`/`saturation_falls_back_to_summary_rps`/`insights_deterministic_order`는 사이징 무관이면 `None, None` 전달 → 기존 단언 불변.
 - `recommended.max(1)` 경계: `target × L < 1`(예 target=10, p50=50ms → 0.5) → `required == 1`(0 아님). (slots/capacity 분기는 max_in_flight 비교라 별도.)
 
