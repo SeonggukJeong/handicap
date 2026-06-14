@@ -1,6 +1,8 @@
 import type { CriteriaState } from "./profileForm";
 
-type Field = { key: keyof CriteriaState; label: string; max?: string; step?: string };
+// stepCriteria(array)는 이 string-input 그리드 대상이 아니다 — Task 6의 별도 에디터가 렌더.
+type StringCriteriaKey = Exclude<keyof CriteriaState, "stepCriteria">;
+type Field = { key: StringCriteriaKey; label: string; max?: string; step?: string };
 
 const FIELDS: Field[] = [
   { key: "maxP50", label: "최대 p50(ms)" },

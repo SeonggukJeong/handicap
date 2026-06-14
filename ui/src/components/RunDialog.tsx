@@ -250,6 +250,7 @@ export function RunDialog({
     max5xxCount,
     minWindowRps,
     rpsWarmup,
+    stepCriteria: [], // Task 6: state로 교체
   };
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
@@ -322,7 +323,11 @@ export function RunDialog({
   // selected, baseVars is {} and this is byte-identical to the old loop.
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
-  const criteriaSetters: Record<keyof CriteriaState, (v: string) => void> = {
+  // Task 6: stepCriteria는 별도 array state로 다룬다(string setter 아님) — 여기선 제외.
+  const criteriaSetters: Record<
+    Exclude<keyof CriteriaState, "stepCriteria">,
+    (v: string) => void
+  > = {
     maxP50: setMaxP50,
     maxP95: setMaxP95,
     maxP99: setMaxP99,
@@ -336,6 +341,7 @@ export function RunDialog({
     rpsWarmup: setRpsWarmup,
   };
   const setCriteria = (key: keyof CriteriaState, val: string) => {
+    if (key === "stepCriteria") return; // Task 6: array state 경로로 분리
     criteriaSetters[key](val);
     // cross-field: minWindowRps 채우면 closed-loop에선 rpsWarmup을 rampUp으로 seed (기존 동작).
     if (

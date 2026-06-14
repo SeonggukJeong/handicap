@@ -34,6 +34,16 @@ export const DataBindingSchema = z.object({
 });
 export type DataBinding = z.infer<typeof DataBindingSchema>;
 
+// step-level SLO 한 항목 (spec). 서버 `Criterion`과 와이어 1:1. metric/op는
+// 임의 문자열·max|min, threshold는 rate면 분수(UI 입출력은 %), target=스텝 id.
+export const CriterionSchema = z.object({
+  metric: z.string(),
+  op: z.enum(["max", "min"]),
+  threshold: z.number(),
+  target: z.string().min(1),
+});
+export type Criterion = z.infer<typeof CriterionSchema>;
+
 export const CriteriaSchema = z.object({
   max_p50_ms: z.number().int().nonnegative().optional(),
   max_p95_ms: z.number().int().nonnegative().optional(),
@@ -46,6 +56,8 @@ export const CriteriaSchema = z.object({
   max_5xx_count: z.number().int().nonnegative().optional(),
   min_window_rps: z.number().nonnegative().optional(),
   rps_warmup_seconds: z.number().int().nonnegative().optional(),
+  // step-level SLO 기준. 서버 #[serde(skip_serializing_if="Vec::is_empty")] → absent → .optional()
+  step_criteria: z.array(CriterionSchema).optional(),
 });
 export type Criteria = z.infer<typeof CriteriaSchema>;
 
@@ -87,6 +99,9 @@ export const CriterionResultSchema = z.object({
   threshold: z.number(),
   actual: z.number(),
   passed: z.boolean(),
+  // step-level criterion이면 대상 스텝 id(서버 #[serde(skip_serializing_if="Option::is_none")]).
+  // run-level row는 omit → absent. null로 오지 않으므로 .nullish()(absent | string).
+  target: z.string().nullish(),
 });
 export const VerdictSchema = z.object({
   passed: z.boolean(),

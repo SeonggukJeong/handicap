@@ -96,6 +96,34 @@ describe("criteriaStateFrom", () => {
   });
 });
 
+describe("step criteria", () => {
+  it("step-only criteria builds with % conversion and step_criteria key", () => {
+    const s = {
+      ...EMPTY_CRITERIA,
+      stepCriteria: [
+        { target: "A", metric: "p95_ms", op: "max" as const, threshold: "300" },
+        { target: "B", metric: "5xx_rate", op: "max" as const, threshold: "2" }, // 2% → 0.02
+      ],
+    };
+    const c = buildCriteria(s);
+    expect(c).toBeDefined();
+    expect(c!.step_criteria).toEqual([
+      { target: "A", metric: "p95_ms", op: "max", threshold: 300 },
+      { target: "B", metric: "5xx_rate", op: "max", threshold: 0.02 },
+    ]);
+    expect(criteriaHasValue(s)).toBe(true);
+    expect(criteriaActiveCount(s)).toBe(2);
+  });
+
+  it("empty rows are dropped from build", () => {
+    const s = {
+      ...EMPTY_CRITERIA,
+      stepCriteria: [{ target: "", metric: "p95_ms", op: "max" as const, threshold: "" }],
+    };
+    expect(buildCriteria(s)).toBeUndefined();
+  });
+});
+
 describe("buildProfile measure_phases", () => {
   it("buildProfile emits measure_phases from input", () => {
     const base = {

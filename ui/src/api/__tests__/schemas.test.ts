@@ -283,6 +283,48 @@ describe("CriteriaSchema status-class + window fields", () => {
   });
 });
 
+describe("step_criteria wire (step-level SLO)", () => {
+  it("CriteriaSchema parses step_criteria array", () => {
+    const r = CriteriaSchema.safeParse({
+      step_criteria: [
+        { metric: "p95_ms", op: "max", threshold: 300, target: "stepA" },
+        { metric: "5xx_rate", op: "max", threshold: 0.02, target: "stepB" },
+      ],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.step_criteria?.[0].target).toBe("stepA");
+      expect(r.data.step_criteria?.[1].op).toBe("max");
+    }
+  });
+  it("treats absent step_criteria as undefined", () => {
+    const r = CriteriaSchema.safeParse({ max_p95_ms: 100 });
+    expect(r.success && r.data.step_criteria).toBeUndefined();
+  });
+  it("CriterionResultSchema carries an optional target (step name)", () => {
+    const withTarget = VerdictSchema.parse({
+      passed: false,
+      criteria: [
+        {
+          metric: "p95_ms",
+          direction: "max",
+          threshold: 300,
+          actual: 420,
+          passed: false,
+          target: "stepA",
+        },
+      ],
+    });
+    expect(withTarget.criteria[0].target).toBe("stepA");
+    // run-level rows omit target → absent
+    const noTarget = VerdictSchema.parse({
+      passed: true,
+      criteria: [{ metric: "rps", direction: "min", threshold: 100, actual: 200, passed: true }],
+    });
+    expect(noTarget.criteria[0].target).toBeUndefined();
+  });
+});
+
 describe("verdict wire", () => {
   const baseRun = {
     id: "r1",

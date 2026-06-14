@@ -1,7 +1,17 @@
 import type { Criteria, DataBinding, Profile } from "../api/schemas";
 import { buildLoadProfile, type LoadModelState } from "./loadModel";
 
-/** 11개 SLO 입력의 string draft 상태(RunDialog/ScheduleForm 공유). */
+/** step-level SLO 한 행의 draft 상태(threshold는 rate metric이면 % 표시, 저장은 분수). */
+export type StepCriterionDraft = {
+  target: string;
+  metric: string;
+  op: "max" | "min";
+  threshold: string; // rate metric은 % 표시(저장은 분수)
+};
+
+const RATE_METRICS = new Set(["error_rate", "4xx_rate", "5xx_rate"]);
+
+/** 11개 SLO 입력의 string draft 상태 + step-level 행들(RunDialog/ScheduleForm 공유). */
 export type CriteriaState = {
   maxP50: string;
   maxP95: string;
@@ -14,6 +24,7 @@ export type CriteriaState = {
   max5xxCount: string;
   minWindowRps: string;
   rpsWarmup: string; // 수식자(criterion 아님)
+  stepCriteria: StepCriterionDraft[];
 };
 
 export const EMPTY_CRITERIA: CriteriaState = {
@@ -28,6 +39,7 @@ export const EMPTY_CRITERIA: CriteriaState = {
   max5xxCount: "",
   minWindowRps: "",
   rpsWarmup: "",
+  stepCriteria: [],
 };
 
 const numToStr = (n?: number | null) => (n == null ? "" : String(n));
@@ -46,27 +58,37 @@ export function criteriaStateFrom(c?: Criteria | null): CriteriaState {
     max5xxCount: numToStr(c?.max_5xx_count),
     minWindowRps: numToStr(c?.min_window_rps),
     rpsWarmup: numToStr(c?.rps_warmup_seconds),
+    stepCriteria: (c?.step_criteria ?? []).map((r) => ({
+      target: r.target,
+      metric: r.metric,
+      op: r.op,
+      threshold: RATE_METRICS.has(r.metric) ? String(r.threshold * 100) : String(r.threshold),
+    })),
   };
 }
 
 export function criteriaHasValue(s: CriteriaState): boolean {
-  return Object.values(s).some((v) => v.trim() !== "");
+  const { stepCriteria, ...rest } = s;
+  if (stepCriteria.length > 0) return true;
+  return Object.values(rest).some((v) => v.trim() !== "");
 }
 
 /** 토글 hint용 — rps_warmup_seconds(수식자)는 제외, 실제 기준 10개만 카운트. */
 export function criteriaActiveCount(s: CriteriaState): number {
-  return [
-    s.maxP50,
-    s.maxP95,
-    s.maxP99,
-    s.maxErrPct,
-    s.minRps,
-    s.max4xxPct,
-    s.max5xxPct,
-    s.max4xxCount,
-    s.max5xxCount,
-    s.minWindowRps,
-  ].filter((v) => v.trim() !== "").length;
+  return (
+    [
+      s.maxP50,
+      s.maxP95,
+      s.maxP99,
+      s.maxErrPct,
+      s.minRps,
+      s.max4xxPct,
+      s.max5xxPct,
+      s.max4xxCount,
+      s.max5xxCount,
+      s.minWindowRps,
+    ].filter((v) => v.trim() !== "").length + s.stepCriteria.length
+  );
 }
 
 export function buildCriteria(s: CriteriaState): Criteria | undefined {
@@ -82,6 +104,15 @@ export function buildCriteria(s: CriteriaState): Criteria | undefined {
   if (s.max5xxCount.trim() !== "") c.max_5xx_count = Number(s.max5xxCount);
   if (s.minWindowRps.trim() !== "") c.min_window_rps = Number(s.minWindowRps);
   if (s.rpsWarmup.trim() !== "") c.rps_warmup_seconds = Number(s.rpsWarmup);
+  const steps = s.stepCriteria
+    .filter((r) => r.target.trim() !== "" && r.threshold.trim() !== "")
+    .map((r) => ({
+      metric: r.metric,
+      op: r.op,
+      target: r.target,
+      threshold: RATE_METRICS.has(r.metric) ? Number(r.threshold) / 100 : Number(r.threshold),
+    }));
+  if (steps.length > 0) c.step_criteria = steps;
   return Object.keys(c).length > 0 ? c : undefined;
 }
 

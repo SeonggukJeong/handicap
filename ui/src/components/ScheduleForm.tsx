@@ -117,8 +117,13 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     max5xxCount,
     minWindowRps,
     rpsWarmup,
+    stepCriteria: [], // Task 6: state로 교체
   };
-  const criteriaSetters: Record<keyof CriteriaState, (v: string) => void> = {
+  // Task 6: stepCriteria는 별도 array state로 다룬다(string setter 아님) — 여기선 제외.
+  const criteriaSetters: Record<
+    Exclude<keyof CriteriaState, "stepCriteria">,
+    (v: string) => void
+  > = {
     maxP50: setMaxP50,
     maxP95: setMaxP95,
     maxP99: setMaxP99,
@@ -132,6 +137,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     rpsWarmup: setRpsWarmup,
   };
   const setCriteria = (key: keyof CriteriaState, val: string) => {
+    if (key === "stepCriteria") return; // Task 6: array state 경로로 분리
     criteriaSetters[key](val);
     if (
       key === "minWindowRps" &&
