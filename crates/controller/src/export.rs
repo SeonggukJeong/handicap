@@ -505,6 +505,8 @@ mod tests {
             count: None,
             status_class: None,
             window_seconds: None,
+            recommended: None,
+            cause: None,
         }];
         let bytes = report_to_xlsx(&r);
         let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();

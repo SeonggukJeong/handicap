@@ -562,6 +562,13 @@ pub fn build_report(
         verdict.as_ref(),
         scenario_yaml,
         run.dropped as u64,
+        run.profile.max_in_flight,
+        run.profile.target_rps.or_else(|| {
+            run.profile
+                .stages
+                .as_ref()
+                .and_then(|s| s.iter().map(|st| st.target).max())
+        }),
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
@@ -1504,6 +1511,56 @@ mod tests {
         let rows = vec![win(100, "s", 5, 0, r#"{"200":5}"#, &[10_000; 5])];
         let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[]);
         assert!(rep.insights.iter().all(|i| i.kind != "load_gen_saturated"));
+    }
+
+    #[test]
+    fn build_report_sizing_slots_recommendation() {
+        // open-loop: target 10000, max_in_flight=100(<500 needed at p50=50ms), dropped>0
+        // → load_gen_saturated에 cause="slots", recommended=500.
+        let mut run = run_row();
+        run.profile.target_rps = Some(10_000);
+        run.profile.max_in_flight = Some(100);
+        run.dropped = 200;
+        // 50ms(=50_000µs) 샘플 100개 → overall p50_ms ≈ 50.
+        let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[]);
+        let ins = rep
+            .insights
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("saturation insight");
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.recommended, Some(500.0));
+        assert_eq!(ins.count, Some(200));
+    }
+
+    #[test]
+    fn build_report_sizing_uses_stages_peak() {
+        // target_rps 없음, stages-peak=12000 주입 → required=ceil(12000*0.05)=600.
+        // max_in_flight=100 < 600 → slots, recommended=600. (유효목표 산출=report.rs 책임.)
+        let mut run = run_row();
+        run.profile.target_rps = None;
+        run.profile.stages = Some(vec![
+            handicap_engine::Stage {
+                target: 4000,
+                duration_seconds: 10,
+            },
+            handicap_engine::Stage {
+                target: 12000,
+                duration_seconds: 10,
+            },
+        ]);
+        run.profile.max_in_flight = Some(100);
+        run.dropped = 50;
+        let rows = vec![win(100, "s", 100, 0, r#"{"200":100}"#, &[50_000; 100])];
+        let rep = build_report(&run, "", &rows, &[], &[], &[], &[], &[]);
+        let ins = rep
+            .insights
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("saturation insight");
+        assert_eq!(ins.recommended, Some(600.0));
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
     }
 
     #[test]

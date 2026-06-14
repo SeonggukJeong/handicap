@@ -24,6 +24,12 @@ pub struct Insight {
     pub status_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_seconds: Option<i64>,
+    /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값). Little's Law: ceil(target × p50_sec).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<f64>,
+    /// 사이징 원인: "slots"(max_in_flight 올려라) | "capacity"(CPU/SUT 한계). None = 판별 불가.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
 }
 
 impl Insight {
@@ -38,6 +44,8 @@ impl Insight {
             count: None,
             status_class: None,
             window_seconds: None,
+            recommended: None,
+            cause: None,
         }
     }
 }
@@ -60,6 +68,9 @@ fn order_rank(i: &Insight) -> u8 {
     }
 }
 
+// 9 인자: A9 사이징(max_in_flight/target_rps)이 기존 7 인자에 더해져 clippy 임계(7)를 넘는다.
+// 모두 별개 read-only 컨텍스트라 struct 묶음은 호출부만 번잡해진다(단일 prod 호출부 + 테스트).
+#[allow(clippy::too_many_arguments)]
 pub fn derive_insights(
     summary: &ReportSummary,
     steps: &[ReportStep],
@@ -68,6 +79,8 @@ pub fn derive_insights(
     verdict: Option<&Verdict>,
     scenario_yaml: &str,
     dropped: u64,
+    max_in_flight: Option<u32>,
+    target_rps: Option<u32>,
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -203,6 +216,27 @@ pub fn derive_insights(
         let mut ins = Insight::new("load_gen_saturated", "warning");
         ins.value = Some(peak as f64);
         ins.count = Some(dropped);
+
+        // Little's Law 사이징: 목표 도착률을 관측(중앙값) 지연에서 내려면 필요한 동시 슬롯.
+        // p50==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
+        let l_sec = summary.p50_ms as f64 / 1000.0;
+        let required: Option<u64> = if l_sec > 0.0 {
+            target_rps.map(|t| ((t as f64) * l_sec).ceil().max(1.0) as u64)
+        } else {
+            None
+        };
+        match (required, max_in_flight) {
+            (Some(req), Some(m)) if (m as u64) < req => {
+                // 슬롯이 목표에 수학적으로 부족 → 올리는 게 해법.
+                ins.cause = Some("slots".to_string());
+                ins.recommended = Some(req as f64);
+            }
+            (Some(_), Some(_)) => {
+                // 슬롯은 충분했는데 포화 → 한계는 워커 CPU/대상 서버. 올려도 무익.
+                ins.cause = Some("capacity".to_string());
+            }
+            _ => {} // 폴백: cause/recommended None 유지
+        }
         out.push(ins);
     }
 
@@ -275,7 +309,17 @@ mod tests {
 
     #[test]
     fn empty_when_no_signal() {
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert!(got.is_empty());
     }
 
@@ -297,7 +341,17 @@ mod tests {
     #[test]
     fn slo_failure_counts_failed_criteria() {
         let v = verdict(false, 2);
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            Some(&v),
+            "",
+            0,
+            None,
+            None,
+        );
         let f = got
             .iter()
             .find(|i| i.kind == "slo_failure")
@@ -309,7 +363,17 @@ mod tests {
     #[test]
     fn slo_pass_when_passed() {
         let v = verdict(true, 0);
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), Some(&v), "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            Some(&v),
+            "",
+            0,
+            None,
+            None,
+        );
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
         assert!(got.iter().all(|i| i.kind != "slo_failure"));
@@ -326,7 +390,7 @@ mod tests {
         let steps = vec![step_err("a", 100), step_err("b", 900)];
         let mut s = summary();
         s.errors = 1000;
-        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "", 0, None, None);
         let h = got
             .iter()
             .find(|i| i.kind == "error_hotspot")
@@ -347,6 +411,8 @@ mod tests {
             None,
             "",
             0,
+            None,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
@@ -354,7 +420,17 @@ mod tests {
     #[test]
     fn slowest_step_picks_max_p95() {
         let steps = vec![step("a", 50), step("b", 120), step("c", 90)];
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
         assert_eq!(got[0].step_id.as_deref(), Some("b"));
@@ -382,7 +458,17 @@ mod tests {
             win(9, &[("500", 3)]),
             win(10, &[("500", 2)]),
         ];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         let t = got
             .iter()
             .find(|i| i.kind == "status_temporal")
@@ -395,14 +481,34 @@ mod tests {
     #[test]
     fn no_status_temporal_when_5xx_early() {
         let windows = vec![win(0, &[("500", 5)]), win(10, &[("200", 5)])];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
 
     #[test]
     fn no_status_temporal_single_second() {
         let windows = vec![win(7, &[("500", 5)])]; // max_ts == min_ts
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
 
@@ -442,6 +548,8 @@ steps:
             None,
             YAML_TOP_AND_IF,
             0,
+            None,
+            None,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -462,6 +570,8 @@ steps:
             None,
             "",
             0,
+            None,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
@@ -479,6 +589,8 @@ steps:
             None,
             YAML_TOP_AND_IF,
             0,
+            None,
+            None,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -502,7 +614,7 @@ steps:
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
         let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
         let v = verdict(false, 1);
-        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7);
+        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None);
         let order: Vec<(&str, Option<&str>)> = got
             .iter()
             .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
@@ -528,7 +640,7 @@ steps:
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
-        let got = derive_insights(&s, &steps, &[], &d, None, "", 0);
+        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None);
         assert!(
             got.len() >= 3,
             "error-heavy run should surface >=3 insights, got {}",
@@ -542,7 +654,17 @@ steps:
         // slowest_step + slo_pass, NOT padded to 3.
         let steps = vec![step("a", 80)];
         let v = verdict(true, 0);
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), Some(&v), "", 0);
+        let got = derive_insights(
+            &summary(),
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            Some(&v),
+            "",
+            0,
+            None,
+            None,
+        );
         let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
         assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 8 then 9
     }
@@ -551,7 +673,17 @@ steps:
     fn slowest_step_first_on_tie() {
         // invariant lock: equal p95 → first step (steps are sorted by step_id).
         let steps = vec![step("a", 100), step("b", 100)];
-        let got = derive_insights(&summary(), &steps, &[], &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert_eq!(got[0].step_id.as_deref(), Some("a"));
         assert_eq!(got[0].value, Some(100.0));
     }
@@ -584,7 +716,17 @@ steps:
         name: in_dead_loop
         request: { method: GET, url: "http://x/2" }
 "#;
-        let got = derive_insights(&summary(), &[], &[], &BTreeMap::new(), None, YAML_LOOPS, 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            YAML_LOOPS,
+            0,
+            None,
+            None,
+        );
         let flagged: Vec<&str> = got
             .iter()
             .filter(|i| i.kind == "no_request_step")
@@ -596,7 +738,7 @@ steps:
     #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None);
         let five = got
             .iter()
             .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
@@ -615,7 +757,7 @@ steps:
     fn status_class_excludes_status_0_from_denominator() {
         // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
         let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None);
         let five = got
             .iter()
             .find(|i| i.status_class.as_deref() == Some("5xx"))
@@ -668,7 +810,17 @@ steps:
             win_count(0, "b", 4),  // ts0 합 = 7
             win_count(1, "a", 10), // ts1 합 = 10 (peak)
         ];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 5);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            5,
+            None,
+            None,
+        );
         let s = got
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
@@ -681,7 +833,17 @@ steps:
     #[test]
     fn no_saturation_when_dropped_zero() {
         let windows = vec![win_count(0, "a", 100)];
-        let got = derive_insights(&summary(), &[], &windows, &BTreeMap::new(), None, "", 0);
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+        );
         assert!(got.iter().all(|i| i.kind != "load_gen_saturated"));
     }
 
@@ -691,12 +853,127 @@ steps:
         // summary() 헬퍼는 rps:0.0이라 0이 아닌 값을 명시해야 동어반복(==0) 회피.
         let mut s = summary();
         s.rps = 1234.6;
-        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3);
+        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3, None, None);
         let sat = got
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
         assert_eq!(sat.value, Some(1235.0)); // 1234.6.round()
         assert_eq!(sat.count, Some(3));
+    }
+
+    #[test]
+    fn saturated_slots_recommends_when_underprovisioned() {
+        // target 10000 RPS at p50=50ms → required = ceil(10000*0.05) = 500;
+        // max_in_flight=100 < 500 → slots, recommended=500. value/count(A9)는 불변.
+        let mut s = summary();
+        s.p50_ms = 50;
+        let windows = vec![win_count(0, "a", 120)];
+        let got = derive_insights(
+            &s,
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(100),
+            Some(10_000),
+        );
+        let ins = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.recommended, Some(500.0));
+        assert_eq!(ins.count, Some(7)); // dropped 불변
+        assert_eq!(ins.value, Some(120.0)); // peak 불변
+    }
+
+    #[test]
+    fn saturated_capacity_when_slots_sufficient() {
+        // 같은 target/지연, max_in_flight=2000 ≥ 500 → 슬롯 충분 → capacity, recommended None.
+        let mut s = summary();
+        s.p50_ms = 50;
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(10_000),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.recommended, None);
+    }
+
+    #[test]
+    fn saturated_sizing_falls_back_when_latency_zero() {
+        // p50==0(localhost sub-ms) → 판별 불가 → cause None. 인사이트 자체는 emit.
+        let s = summary(); // p50_ms = 0
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(100),
+            Some(10_000),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause, None);
+        assert_eq!(ins.recommended, None);
+        assert_eq!(ins.count, Some(7)); // A9 필드는 그대로 present
+    }
+
+    #[test]
+    fn saturated_sizing_falls_back_when_max_in_flight_absent() {
+        // max_in_flight None → 분류 불가(폴백). (prod 불가 케이스지만 방어.)
+        let mut s = summary();
+        s.p50_ms = 50;
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            None,
+            Some(10_000),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause, None);
+        assert_eq!(ins.recommended, None);
+    }
+
+    #[test]
+    fn saturated_small_required_rounds_up_to_one() {
+        // 작은 target×지연(0.5)이 0으로 *내림*되지 않고 ceil로 1이 됨(required≥1, 0 권장 방지).
+        // 인자 순서는 (…, dropped=7, max_in_flight=Some(0), target_rps=Some(10)):
+        // target_rps=10, p50=50ms → 10*0.05=0.5 → ceil → 1. max_in_flight=0 < 1 → slots, recommended 1.0.
+        // (.max(1.0)는 target=0 같은 불가-입력 방어 — 이 테스트가 검증하는 건 ceil 올림.)
+        let mut s = summary();
+        s.p50_ms = 50;
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(0),
+            Some(10),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.recommended, Some(1.0));
     }
 }
