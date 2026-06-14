@@ -319,7 +319,7 @@ export const ko = {
   // 사이징 권장(load_gen_saturated cause 분기) — slots는 권장 max_in_flight 숫자를 받는다.
   saturation: {
     slots: (rec: string) =>
-      `동시 실행 수(max_in_flight)가 목표에 비해 작아요 — 최소 ~${rec}로 올려 다시 실행하세요. ` +
+      `동시 실행 수(max_in_flight)가 목표에 비해 작아요 — 최소 ~${rec}(으)로 올려 다시 실행하세요. ` +
       `(에러·지연이 함께 높으면 대상 서버가 한계라 슬롯만 늘려선 처리량이 안 늘 수 있어요.)`,
     capacity:
       `동시 실행 수(max_in_flight)는 목표에 충분했어요 — 한계는 테스트 도구(워커 CPU)나 ` +

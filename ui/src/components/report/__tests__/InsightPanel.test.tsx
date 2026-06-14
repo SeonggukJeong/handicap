@@ -80,7 +80,7 @@ describe("InsightPanel", () => {
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
     expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
-    expect(screen.getByText(/최소 ~500로 올려/)).toBeInTheDocument();
+    expect(screen.getByText(/최소 ~500\(으\)로 올려/)).toBeInTheDocument();
   });
 
   it("load_gen_saturated capacity — 올려도 안 늘어요 행동 줄", () => {
