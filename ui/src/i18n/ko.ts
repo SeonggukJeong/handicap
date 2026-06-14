@@ -325,4 +325,25 @@ export const ko = {
       `동시 실행 수(max_in_flight)는 목표에 충분했어요 — 한계는 테스트 도구(워커 CPU)나 ` +
       `대상 서버입니다. max_in_flight를 올려도 처리량은 안 늘어요.`,
   },
+  // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
+  sizing: {
+    title: "VU 사이징 도우미",
+    helpLabel: "VU 사이징 도우미 설명",
+    help: "목표 RPS를 입력하면 필요한 동시 사용자(VU) 수를 추정해 드려요. 권장값은 최소 출발점이에요.",
+    targetRps: "목표 RPS",
+    estMs: "1회 반복 예상 지연(ms)",
+    measureBtn: "test-run으로 측정",
+    measuring: "측정 중…",
+    measureCaveat:
+      "방금 측정은 부하 없는 1회 실행이라 실제보다 빨라요. 부하가 걸리면 더 느려질 수 있어, 이 권장값은 최소 출발점이에요.",
+    truncated: "시나리오가 길어 측정이 잘렸어요 — 1회 반복 지연을 직접 입력하세요.",
+    measureError: "측정에 실패했어요. 환경 변수(${BASE_URL} 등)와 시나리오를 확인하세요.",
+    fromPriorRun: (vus: number, rps: number) =>
+      `지난 실행(VU ${vus}개 → ${rps} RPS) 기준 추정이에요. 목표를 바꾸면 권장 VU가 함께 바뀌어요.`,
+    measured: (req: number, ms: number) => `측정됨: 1회 반복에 요청 ${req}개 · ${ms}ms`,
+    recommend: (n: number) => `권장 VU: 최소 ~${n}개부터`,
+    apply: "적용",
+    cannotCompute: "측정값이 0이라 계산할 수 없어요 — 1회 반복 지연을 직접 입력하세요.",
+    overCapacity: "이 값은 워커 용량(기본 2,000)을 넘을 수 있어요.",
+  },
 } as const;
