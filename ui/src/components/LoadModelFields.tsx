@@ -4,6 +4,8 @@ import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
+import { VuSizingHelper } from "./VuSizingHelper";
+import type { Scenario } from "../scenario/model";
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -27,6 +29,12 @@ type Props = {
   rampDown: "graceful" | "immediate";
   setRampDown: (m: "graceful" | "immediate") => void;
   errs: LoadModelErrors;
+  // 닫힌 루프 사이징 헬퍼(RunDialog 전용 — ScheduleForm은 미전달, §3.1).
+  // model Scenario(steps 보유)지 api Scenario 아님.
+  sizingScenarioId?: string;
+  sizingScenario?: Scenario | null;
+  sizingEnv?: Record<string, string>;
+  onApplyVus?: (n: number) => void;
 };
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
@@ -51,6 +59,10 @@ export function LoadModelFields({
   rampDown,
   setRampDown,
   errs,
+  sizingScenarioId,
+  sizingScenario,
+  sizingEnv,
+  onApplyVus,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -381,6 +393,14 @@ export function LoadModelFields({
               <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
                 {ko.validation.rampUp}
               </p>
+            )}
+            {onApplyVus && sizingScenarioId !== undefined && (
+              <VuSizingHelper
+                scenarioId={sizingScenarioId}
+                scenario={sizingScenario ?? null}
+                env={sizingEnv ?? {}}
+                onApply={onApplyVus}
+              />
             )}
           </>
         )

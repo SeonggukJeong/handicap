@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunDialog } from "../RunDialog";
 
+vi.mock("../VuSizingHelper", () => ({ VuSizingHelper: () => null }));
+
 const fetchMock = vi.fn();
 
 beforeEach(() => {

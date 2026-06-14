@@ -504,6 +504,10 @@ export function RunDialog({
           rampDown={rampDown}
           setRampDown={setRampDown}
           errs={loadErrs}
+          sizingScenarioId={scenarioId}
+          sizingScenario={scenario}
+          sizingEnv={env}
+          onApplyVus={setVus}
         />
       </fieldset>
 

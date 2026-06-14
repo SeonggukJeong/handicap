@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
 
+vi.mock("../VuSizingHelper", () => ({
+  VuSizingHelper: () => <div data-testid="sizing-helper" />,
+}));
+
 const noErrs: LoadModelErrors = {
   rampInvalid: false,
   targetRpsInvalid: false,
@@ -146,5 +150,20 @@ describe("LoadModelFields", () => {
     renderFields({ loadModel: "open", rateMode: "curve" });
     expect(screen.getAllByText("목표 RPS").length).toBeGreaterThan(0);
     expect(screen.queryByRole("radio", { name: /즉시 줄이기/ })).not.toBeInTheDocument();
+  });
+
+  it("closed+fixed + onApplyVus 주어지면 사이징 헬퍼 렌더", () => {
+    renderFields({
+      sizingScenarioId: "s1",
+      sizingScenario: null,
+      sizingEnv: {},
+      onApplyVus: vi.fn(),
+    });
+    expect(screen.getByTestId("sizing-helper")).toBeInTheDocument();
+  });
+
+  it("onApplyVus 없으면(스케줄 편집기 경로) 헬퍼 미렌더", () => {
+    renderFields(); // 기본 closed+fixed, sizing prop 없음 → ScheduleForm 경로와 동일
+    expect(screen.queryByTestId("sizing-helper")).toBeNull();
   });
 });
