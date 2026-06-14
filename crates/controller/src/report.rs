@@ -221,6 +221,7 @@ pub fn evaluate_criteria(
     s: &ReportSummary,
     status_dist: &BTreeMap<String, u64>,
     windows: &[ReportWindow],
+    steps: &[ReportStep],
 ) -> Verdict {
     let mut criteria = Vec::new();
 
@@ -321,6 +322,47 @@ pub fn evaluate_criteria(
                 target: None,
             });
         }
+    }
+
+    // step-level criteria (spec §3.3) — fixed-field 행 뒤에 입력 순서대로 append.
+    for sc in &c.step_criteria {
+        let Some(step) = steps.iter().find(|s| s.step_id == sc.target) else {
+            continue; // 미존재 스텝 → skip (거짓 FAIL 금지)
+        };
+        if step.count == 0 {
+            continue; // 실행 0회 → skip
+        }
+        let actual = match sc.metric.as_str() {
+            "p50_ms" => step.p50_ms as f64,
+            "p95_ms" => step.p95_ms as f64,
+            "p99_ms" => step.p99_ms as f64,
+            "error_rate" => step.error_count as f64 / step.count as f64,
+            "4xx_rate" | "5xx_rate" => {
+                let first = if sc.metric.starts_with('4') { '4' } else { '5' };
+                let total = http_response_total(&step.status_counts);
+                if total == 0 {
+                    0.0
+                } else {
+                    status_class_count(&step.status_counts, first) as f64 / total as f64
+                }
+            }
+            "4xx_count" => status_class_count(&step.status_counts, '4') as f64,
+            "5xx_count" => status_class_count(&step.status_counts, '5') as f64,
+            _ => continue, // 검증으로 도달 불가(방어)
+        };
+        let passed = if sc.op == "min" {
+            actual >= sc.threshold
+        } else {
+            actual <= sc.threshold
+        };
+        criteria.push(CriterionResult {
+            metric: sc.metric.clone(),
+            direction: sc.op.clone(),
+            threshold: sc.threshold,
+            actual,
+            passed,
+            target: Some(sc.target.clone()),
+        });
     }
 
     let passed = criteria.iter().all(|r| r.passed);
@@ -557,7 +599,7 @@ pub fn build_report(
     // completed + 활성 criteria일 때만 verdict (spec §6). RunStatus는 Copy.
     let verdict = match (run.status, run.profile.criteria.as_ref()) {
         (RunStatus::Completed, Some(c)) if c.has_any() => {
-            let v = evaluate_criteria(c, &summary, &status_dist, &windows);
+            let v = evaluate_criteria(c, &summary, &status_dist, &windows, &steps);
             if v.criteria.is_empty() { None } else { Some(v) }
         }
         _ => None,
@@ -675,7 +717,7 @@ pub fn build_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::runs::{Criteria, Profile, RunStatus};
+    use crate::store::runs::{Criteria, Criterion, Profile, RunStatus};
     use hdrhistogram::serialization::{Serializer, V2Serializer};
 
     fn make_hdr_bytes(samples_us: &[u64]) -> Vec<u8> {
@@ -963,6 +1005,102 @@ mod tests {
         }
     }
 
+    fn rstep(id: &str, count: u64, errors: u64, p95: u64, status: &[(&str, u64)]) -> ReportStep {
+        ReportStep {
+            step_id: id.into(),
+            count,
+            error_count: errors,
+            status_counts: status.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            p50_ms: 0,
+            p95_ms: p95,
+            p99_ms: 0,
+            loop_breakdown: vec![],
+            download: None,
+        }
+    }
+
+    #[test]
+    fn step_criteria_pass_fail_skip_and_order() {
+        let c = Criteria {
+            max_p95_ms: Some(500), // fixed-field 1개(target=None, 먼저 나온다)
+            step_criteria: vec![
+                Criterion {
+                    metric: "p95_ms".into(),
+                    op: "max".into(),
+                    threshold: 200.0,
+                    target: "A".into(),
+                }, // PASS(150<=200)
+                Criterion {
+                    metric: "error_rate".into(),
+                    op: "max".into(),
+                    threshold: 0.1,
+                    target: "B".into(),
+                }, // FAIL(0.5>0.1)
+                Criterion {
+                    metric: "p95_ms".into(),
+                    op: "max".into(),
+                    threshold: 50.0,
+                    target: "MISSING".into(),
+                }, // skip
+            ],
+            ..Default::default()
+        };
+        let steps = vec![
+            rstep("A", 10, 0, 150, &[("200", 10)]),
+            rstep("B", 10, 5, 9, &[("200", 5), ("500", 5)]),
+        ];
+        let v = evaluate_criteria(
+            &c,
+            &summary(20, 5, 20.0, 9, 150),
+            &BTreeMap::new(),
+            &[],
+            &steps,
+        );
+        // fixed-field p95(target None) 먼저, 그 뒤 step 행 입력 순서(A, B) — MISSING은 skip.
+        assert_eq!(v.criteria.len(), 3);
+        assert_eq!(v.criteria[0].target, None);
+        assert_eq!(v.criteria[1].target.as_deref(), Some("A"));
+        assert!(v.criteria[1].passed);
+        assert_eq!(v.criteria[2].target.as_deref(), Some("B"));
+        assert!(!v.criteria[2].passed);
+        assert!(!v.passed); // B FAIL → 전체 FAIL
+    }
+
+    #[test]
+    fn step_criteria_status_class_rate_denominator_excludes_transport_zero() {
+        // 4xx_rate 분모 = http 응답(1..=5), transport "0" 제외 (run-level과 동일).
+        let c = Criteria {
+            step_criteria: vec![Criterion {
+                metric: "4xx_rate".into(),
+                op: "max".into(),
+                threshold: 0.5,
+                target: "A".into(),
+            }],
+            ..Default::default()
+        };
+        let steps = vec![rstep("A", 4, 0, 1, &[("404", 2), ("200", 2), ("0", 100)])];
+        let v = evaluate_criteria(&c, &summary(4, 0, 4.0, 1, 1), &BTreeMap::new(), &[], &steps);
+        assert_eq!(v.criteria.len(), 1);
+        assert_eq!(v.criteria[0].actual, 0.5); // 2/(2+2), "0"=100 제외
+        assert!(v.criteria[0].passed); // 0.5 <= 0.5
+    }
+
+    #[test]
+    fn step_criteria_zero_count_step_is_skipped() {
+        let c = Criteria {
+            step_criteria: vec![Criterion {
+                metric: "p95_ms".into(),
+                op: "max".into(),
+                threshold: 1.0,
+                target: "A".into(),
+            }],
+            ..Default::default()
+        };
+        let steps = vec![rstep("A", 0, 0, 0, &[])]; // count==0 → 미실행 → skip
+        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &steps);
+        assert!(v.criteria.is_empty()); // 행 0개 → build_report가 verdict None으로
+    }
+
     #[test]
     fn evaluate_all_pass() {
         let c = Criteria {
@@ -976,6 +1114,7 @@ mod tests {
             &summary(1000, 10, 200.0, 300, 400),
             &BTreeMap::new(),
             &[],
+            &[],
         );
         assert!(v.passed);
         assert_eq!(v.criteria.len(), 3);
@@ -987,7 +1126,13 @@ mod tests {
             max_p95_ms: Some(200),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(100, 0, 50.0, 300, 400), &BTreeMap::new(), &[]);
+        let v = evaluate_criteria(
+            &c,
+            &summary(100, 0, 50.0, 300, 400),
+            &BTreeMap::new(),
+            &[],
+            &[],
+        );
         assert!(!v.passed);
         assert_eq!(v.criteria[0].metric, "p95_ms");
         assert_eq!(v.criteria[0].direction, "max");
@@ -1001,7 +1146,9 @@ mod tests {
             ..Default::default()
         };
         // 0 errors / 0 count => 0.0 <= 0.0 → pass
-        assert!(evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]).passed);
+        assert!(
+            evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]).passed
+        );
     }
 
     #[test]
@@ -1011,7 +1158,9 @@ mod tests {
             ..Default::default()
         };
         // rps 0.0 < 1.0 → fail (degenerate 0-throughput completed run)
-        assert!(!evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]).passed);
+        assert!(
+            !evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]).passed
+        );
     }
 
     #[test]
@@ -1135,7 +1284,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("200", 90), ("500", 10)]);
-        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[]);
+        let v = evaluate_criteria(&c, &summary(100, 0, 100.0, 5, 5), &d, &[], &[]);
         assert_eq!(v.criteria[0].metric, "5xx_rate");
         assert!((v.criteria[0].actual - 0.1).abs() < 1e-9);
         assert!(!v.criteria[0].passed);
@@ -1149,7 +1298,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("0", 5)]);
-        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[]);
+        let v = evaluate_criteria(&c, &summary(5, 5, 5.0, 0, 0), &d, &[], &[]);
         assert!(v.criteria[0].passed);
         assert_eq!(v.criteria[0].actual, 0.0);
     }
@@ -1161,7 +1310,7 @@ mod tests {
             ..Default::default()
         };
         let d = dist(&[("200", 10), ("500", 1)]);
-        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[]);
+        let v = evaluate_criteria(&c, &summary(11, 1, 11.0, 5, 5), &d, &[], &[]);
         assert_eq!(v.criteria[0].metric, "5xx_count");
         assert_eq!(v.criteria[0].actual, 1.0);
         assert!(!v.criteria[0].passed);
@@ -1208,7 +1357,7 @@ mod tests {
             min_window_rps: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[]);
+        let v = evaluate_criteria(&c, &summary(0, 0, 0.0, 0, 0), &BTreeMap::new(), &[], &[]);
         assert!(v.criteria.is_empty());
     }
 
@@ -1227,7 +1376,7 @@ mod tests {
         };
         let d = dist(&[("200", 30)]);
         let w = vec![rwin(0, 10), rwin(1, 20), rwin(2, 30)]; // eligible {1}=20
-        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w);
+        let v = evaluate_criteria(&c, &summary(30, 0, 30.0, 1, 1), &d, &w, &[]);
         let metrics: Vec<&str> = v.criteria.iter().map(|r| r.metric.as_str()).collect();
         assert_eq!(
             metrics,
@@ -1580,7 +1729,7 @@ mod tests {
             max_5xx_rate: Some(1.0),
             ..Default::default()
         };
-        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[]);
+        let v = evaluate_criteria(&c, &summary(107, 22, 107.0, 5, 5), &d, &[], &[]);
         let rate = v
             .criteria
             .iter()
