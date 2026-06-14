@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { recommendVus, pickLatestClosedRun, recommendSlots, pickLatestOpenRun } from "../sizing";
+import {
+  recommendVus,
+  pickLatestClosedRun,
+  recommendSlots,
+  pickLatestOpenRun,
+  peakStageTarget,
+} from "../sizing";
 import type { Run } from "../../api/schemas";
 
 describe("recommendVus", () => {
@@ -115,5 +121,50 @@ describe("pickLatestOpenRun", () => {
 
   it("해당 run 없으면 null", () => {
     expect(pickLatestOpenRun([mk({ vus: 5 }, 1), mk({ target_rps: 10 }, 2, "failed")])).toBeNull();
+  });
+});
+
+describe("peakStageTarget", () => {
+  it("빈 배열 → null", () => {
+    expect(peakStageTarget([])).toBeNull();
+  });
+
+  it("전부 무효(빈/문자/0/소수/범위초과) → null", () => {
+    expect(
+      peakStageTarget([
+        { target: "" },
+        { target: "abc" },
+        { target: "0" },
+        { target: "1.5" },
+        { target: "2000000" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("혼합(유효+무효) → 유효 후보 중 최대", () => {
+    expect(
+      peakStageTarget([{ target: "50" }, { target: "abc" }, { target: "200" }, { target: "100" }]),
+    ).toBe(200);
+  });
+
+  it("단일 유효 → 그 값", () => {
+    expect(peakStageTarget([{ target: "120" }])).toBe(120);
+  });
+
+  it("정렬 무관(내림차순도 동일 결과)", () => {
+    expect(peakStageTarget([{ target: "300" }, { target: "10" }])).toBe(300);
+  });
+
+  it("경계: 1 / 1000000 포함, 1000001 제외", () => {
+    expect(peakStageTarget([{ target: "1" }])).toBe(1);
+    expect(peakStageTarget([{ target: "1000000" }])).toBe(1000000);
+    expect(peakStageTarget([{ target: "1000001" }])).toBeNull();
+  });
+
+  it("parity: peak → recommendSlots가 insight 수식(ceil(target×p50/1000))과 동일", () => {
+    // 단계 목표 50→200 → peak 200; insights.rs:224 required = ceil(200×250/1000)=50.
+    const peak = peakStageTarget([{ target: "50" }, { target: "200" }]);
+    expect(peak).toBe(200);
+    expect(recommendSlots(peak as number, 250)?.recommendedSlots).toBe(50);
   });
 });

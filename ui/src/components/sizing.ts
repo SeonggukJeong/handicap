@@ -77,3 +77,18 @@ export function pickLatestOpenRun(runs: Run[]): Run | null {
   }
   return best;
 }
+
+/** open+curve(stages)에서 권장 슬롯 기준이 되는 '최고 단계 목표'(peak).
+ *  max_in_flight는 run 전체 단일값이라 도착률이 가장 높은 단계 기준으로 사이징해야
+ *  어느 단계에서도 drop이 없다. 사후 load_gen_saturated의 곡선 유효목표 도출
+ *  (controller report.rs:616-621 `stages.iter().map(|st| st.target).max()`)과 동일 수식.
+ *  stages는 문자열 드래프트라 유효 정수(targetRpsValid, 1..=1_000_000)만 후보; 없으면 null. */
+export function peakStageTarget(stages: { target: string }[]): number | null {
+  let peak: number | null = null;
+  for (const s of stages) {
+    const n = Number(s.target);
+    if (!targetRpsValid(n)) continue;
+    if (peak === null || n > peak) peak = n;
+  }
+  return peak;
+}
