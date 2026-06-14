@@ -187,6 +187,61 @@ async fn create_rejects_bad_inputs() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+/// spec §7: schedule create 게이트가 step-criteria target을 검증한다.
+/// 시나리오의 유일한 http 스텝 id는 "a" — 존재하면 201, 없으면 400.
+#[tokio::test]
+async fn schedule_step_criteria_target_must_exist() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    // http 리프 스텝 id "a"를 가진 시나리오(빈 steps인 seed_scenario 대신 직접 생성).
+    let yaml = "version: 1\nname: s\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let (status, sc) = send(
+        &app,
+        Method::POST,
+        "/api/scenarios",
+        Some(json!({ "yaml": yaml })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "scenario seed: {sc:?}");
+    let sid = sc["id"].as_str().unwrap().to_string();
+
+    fn schedule_body(sid: &str, name: &str, target: &str) -> Value {
+        json!({
+            "name": name,
+            "scenario_id": sid,
+            "profile": {
+                "vus": 1,
+                "duration_seconds": 1,
+                "criteria": { "step_criteria": [
+                    { "metric": "p95_ms", "op": "max", "threshold": 1.0, "target": target }
+                ] }
+            },
+            "env": {},
+            "trigger": { "kind": "cron", "cron_expr": "0 2 * * *" },
+        })
+    }
+
+    // 존재하는 target("a") → 201 생성.
+    let (ok, body) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(schedule_body(&sid, "good", "a")),
+    )
+    .await;
+    assert_eq!(ok, StatusCode::CREATED, "{body:?}");
+
+    // 존재하지 않는 target("NOPE") → 400.
+    let (bad, _) = send(
+        &app,
+        Method::POST,
+        "/api/schedules",
+        Some(schedule_body(&sid, "bad", "NOPE")),
+    )
+    .await;
+    assert_eq!(bad, StatusCode::BAD_REQUEST);
+}
+
 #[tokio::test]
 async fn duplicate_name_conflicts() {
     let db = store::connect("sqlite::memory:").await.unwrap();
