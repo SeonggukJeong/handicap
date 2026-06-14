@@ -94,6 +94,18 @@ describe("criteriaStateFrom", () => {
   it("returns all-empty for undefined", () => {
     expect(criteriaStateFrom(undefined).maxP95).toBe("");
   });
+  it("maps step_criteria back to drafts with rate ×100, non-rate unchanged", () => {
+    const state = criteriaStateFrom({
+      step_criteria: [
+        { metric: "5xx_rate", op: "max" as const, threshold: 0.02, target: "A" },
+        { metric: "p95_ms", op: "max" as const, threshold: 300, target: "B" },
+      ],
+    });
+    expect(state.stepCriteria).toEqual([
+      { target: "A", metric: "5xx_rate", op: "max", threshold: "2" },
+      { target: "B", metric: "p95_ms", op: "max", threshold: "300" },
+    ]);
+  });
 });
 
 describe("step criteria", () => {
