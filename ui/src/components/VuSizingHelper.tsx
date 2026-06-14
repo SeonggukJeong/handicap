@@ -9,7 +9,8 @@ import { HelpTip } from "./HelpTip";
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
 
-/** 서버 워커 용량 기본값과 동기화 — DEFAULT_WORKER_CAPACITY_VUS (crates/controller/src/grpc/coordinator.rs). 초과 시 서버가 run 생성을 400으로 거부. */
+/** 서버 워커 용량 기본값(DEFAULT_WORKER_CAPACITY_VUS=2000, crates/controller/src/grpc/coordinator.rs)과 동기화한 soft 임계.
+ *  초과해도 멀티워커 fan-out(ADR-0027)으로 워커를 더 띄울 뿐 차단은 아니다 — 비현실적 권장값 안내(비차단). */
 const VU_SOFT_WARN_THRESHOLD = 2000;
 
 /** 최근 종료 균등-VU run에서 처리량 앵커(VU·달성RPS)를 도출. 없으면 null.

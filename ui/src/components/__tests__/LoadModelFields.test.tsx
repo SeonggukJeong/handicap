@@ -171,4 +171,20 @@ describe("LoadModelFields", () => {
     renderFields({ onApplyVus: vi.fn() }); // sizingScenarioId 미전달 → 가드 미충족
     expect(screen.queryByTestId("sizing-helper")).toBeNull();
   });
+
+  // 모드 분기 불변식: 헬퍼는 closed+fixed 전용 — sizing prop이 다 있어도 다른 3모드에선 미렌더.
+  it.each([
+    { loadModel: "open", rateMode: "fixed" },
+    { loadModel: "open", rateMode: "curve" },
+    { loadModel: "closed", rateMode: "curve" },
+  ] as const)("$loadModel+$rateMode 모드에선 sizing prop이 있어도 헬퍼 미렌더", (mode) => {
+    renderFields({
+      ...mode,
+      sizingScenarioId: "s1",
+      sizingScenario: null,
+      sizingEnv: {},
+      onApplyVus: vi.fn(),
+    });
+    expect(screen.queryByTestId("sizing-helper")).toBeNull();
+  });
 });
