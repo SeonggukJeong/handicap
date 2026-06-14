@@ -343,7 +343,7 @@ export const ko = {
     measured: (req: number, ms: number) => `측정됨: 1회 반복에 요청 ${req}개 · ${ms}ms`,
     recommend: (n: number) => `권장 VU: 최소 ~${n}개부터`,
     apply: "적용",
-    cannotCompute: "측정값이 0이라 계산할 수 없어요 — 1회 반복 지연을 직접 입력하세요.",
+    cannotCompute: "처리량 정보가 없어요 — 1회 반복 지연을 입력하거나 test-run으로 측정하세요.",
     overCapacity: "이 값은 워커 용량(기본 2,000)을 넘을 수 있어요.",
   },
 } as const;

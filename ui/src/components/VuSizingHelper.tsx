@@ -9,6 +9,9 @@ import { HelpTip } from "./HelpTip";
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
 
+/** 서버 워커 용량 기본값과 동기화 — DEFAULT_WORKER_CAPACITY_VUS (crates/controller/src/grpc/coordinator.rs). 초과 시 서버가 run 생성을 400으로 거부. */
+const VU_SOFT_WARN_THRESHOLD = 2000;
+
 /** 최근 종료 균등-VU run에서 처리량 앵커(VU·달성RPS)를 도출. 없으면 null.
  *  반환값은 useMemo로 안정화 — 소비처 useEffect([anchor])가 값 변화에만 발화. */
 function usePriorClosedRunAnchor(
@@ -161,11 +164,10 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
           </button>
         </div>
       ) : (
-        targetRps.trim() !== "" && (
-          <p className="text-xs text-slate-500">{ko.sizing.cannotCompute}</p>
-        )
+        targetRps.trim() !== "" &&
+        !truncated && <p className="text-xs text-slate-500">{ko.sizing.cannotCompute}</p>
       )}
-      {result && result.recommendedVus > 2000 && (
+      {result && result.recommendedVus > VU_SOFT_WARN_THRESHOLD && (
         <p className="text-xs text-amber-700 mt-1">{ko.sizing.overCapacity}</p>
       )}
     </div>

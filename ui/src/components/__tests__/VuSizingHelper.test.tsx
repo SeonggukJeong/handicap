@@ -113,6 +113,7 @@ describe("VuSizingHelper", () => {
     await user.click(screen.getByRole("button", { name: "test-run으로 측정" }));
     expect(mutate).toHaveBeenCalled();
     expect(screen.getByText(/측정이 잘렸어요/)).toBeInTheDocument();
+    expect(screen.queryByText(/권장 VU/)).not.toBeInTheDocument();
   });
 
   it("측정(비-truncated) → R/T로 권장", async () => {
