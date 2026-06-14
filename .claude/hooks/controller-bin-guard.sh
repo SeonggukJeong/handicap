@@ -19,10 +19,12 @@ emit() { # $1 = allow|deny|ask, $2 = reason
   exit 0
 }
 
-# A `cargo run` that targets the handicap-controller package but omits --bin.
-# Matches `-p handicap-controller` / `--package handicap-controller`, and
-# accepts --bin in both `--bin controller` and `--bin=controller` forms.
-if [[ "$cmd" =~ [[:space:]]run([[:space:]]) ]] \
+# A `cargo run` (cargo's OWN `run` subcommand — NOT `cargo nextest run`, where
+# `run` is nextest's arg) that targets handicap-controller but omits --bin.
+# Anchor `run` as cargo's subcommand: only flag tokens (-q / +toolchain) may sit
+# between `cargo` and `run`; a bare word (nextest/test/…) means it isn't cargo run.
+# Matches `-p handicap-controller` / `--package …`, accepts --bin and --bin=.
+if [[ "$cmd" =~ cargo([[:space:]]+[-+][^[:space:]]+)*[[:space:]]+run([[:space:]]|$) ]] \
    && [[ "$cmd" =~ (-p|--package)[[:space:]]+handicap-controller($|[^a-zA-Z0-9]) ]] \
    && [[ ! "$cmd" =~ --bin([[:space:]]|=) ]]; then
   emit deny "handicap-controller엔 바이너리가 둘(controller·e2e_kind_driver)이라 'cargo run -p handicap-controller'는 'could not determine which binary to run'으로 깨진다(CLAUDE.md). --bin controller를 붙일 것: cargo run -p handicap-controller --bin controller -- … (또는 just run-controller / run-controller-with-ui)."

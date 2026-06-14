@@ -27,6 +27,11 @@ cargo build --workspace          # UI-only 슬라이스여도 필수: pre-commit
 ## 4) 설계 핸드오프 — spec/plan 파일 실존 기준으로 분기
 - spec **과** plan 둘 다 **세션 시작 시점부터 있음** → `superpowers:subagent-driven-development`로 곧장 구현.
 - spec만 있음(또는 상위 spec §가 이 슬라이스를 이미 정의 — 예: 영역 U의 spec §8) → `superpowers:writing-plans`부터.
-- 둘 다 없음 → `superpowers:brainstorming`부터. 이후 spec → `spec-plan-reviewer` 검토 → 반영 루프 → plan → 같은 루프.
+- 둘 다 없음 → `superpowers:brainstorming`부터. 이후 spec → plan 순으로 쓰되, **각 문서를 `spec-plan-reviewer`가 `APPROVE`할 때까지 반복 검토**(1회로 끝내지 말 것):
+  1. 문서를 `spec-plan-reviewer`에 넘긴다.
+  2. **finding 무비판 반영 금지** — 각 finding을 코드/요구사항에 대조해 *타당성*부터 판단(`superpowers:receiving-code-review` 태도): 타당+범위 내 → 반영 / 틀림·과설계·범위 밖 → 반영 안 함 + **기각 근거 1줄 기록**(push back). 애매하면 사용자에게 확인.
+  3. 하나라도 반영했으면 **수정본을 같은 reviewer에 재검토 의뢰**(이 하니스엔 subagent resume 없음 → finding 처리 결과를 담은 새 self-contained 호출). Verdict가 **`APPROVE`** 될 때까지 2–3을 반복 — `APPROVE-WITH-FIXES`/`NEEDS-REWORK`는 *미통과*다.
+  4. 라운드 상한 3–4회. 미수렴(reviewer가 같은 류를 계속 제기 / 내가 다수 finding을 근거로 기각해 교착)이면 그 disagreement를 사용자에게 요약해 판단을 받는다.
+  spec이 `APPROVE`된 뒤에 plan을 쓰고, plan도 같은 루프로 `APPROVE`까지.
 - **STOP 게이트 — 이 세션에서 spec/plan을 새로 썼다면 구현으로 자동 진입 금지.** plan까지 reviewer 승인이 끝나면: ① spec/plan을 워크트리 브랜치에 커밋(docs-only라 pre-commit fast-path로 수초), ② 사용자에게 "`/clear` 후 `/start-slice` 재실행 → spec/plan ready 경로로 구현 진입"을 안내하고 **턴 종료**. spec/plan 작성으로 비대해진 컨텍스트를 그대로 끌고 구현에 들어가지 않는다 — 구현은 항상 fresh 컨텍스트에서 시작. ("곧장 구현" 분기는 위 첫 줄처럼 세션 시작 시점에 파일이 이미 존재했던 경우만.)
 - **내(orchestrator)가** 이후 띄우는 모든 subagent prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>`을 직접 써 넣는다(CLAUDE.md Subagent dispatch 노하우 — subagent 스킬이 대신 해주지 않는다).
