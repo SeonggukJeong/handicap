@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreatePreset,
@@ -11,6 +11,7 @@ import {
 } from "../api/hooks";
 import type { DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
+import { flattenHttpSteps } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
@@ -24,11 +25,13 @@ import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadMode
 import {
   buildProfile as buildProfileShared,
   type CriteriaState,
+  type StepCriterionDraft,
   criteriaStateFrom,
   criteriaHasValue,
   criteriaActiveCount,
 } from "./profileForm";
 import { CriteriaFields } from "./CriteriaFields";
+import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 
@@ -102,6 +105,7 @@ export function RunDialog({
   const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
   const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
   const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
+  const [stepCriteria, setStepCriteria] = useState<StepCriterionDraft[]>(initCriteria.stepCriteria);
   // think time(페이싱) draft. Empty inputs omit think_time / think_seed entirely
   // (byte-identical to pre-feature submit).
   const numToStr = (n?: number | null) => (n == null ? "" : String(n));
@@ -192,6 +196,7 @@ export function RunDialog({
       setMax5xxCount(pc.max5xxCount);
       setMinWindowRps(pc.minWindowRps);
       setRpsWarmup(pc.rpsWarmup);
+      setStepCriteria(pc.stepCriteria);
       const ptt = prof.think_time ?? undefined;
       setThinkMin(numToStr(ptt?.min_ms));
       setThinkMax(numToStr(ptt?.max_ms));
@@ -250,8 +255,15 @@ export function RunDialog({
     max5xxCount,
     minWindowRps,
     rpsWarmup,
-    stepCriteria: [], // Task 6: state로 교체
+    stepCriteria,
   };
+  const stepOptions = useMemo<StepOption[]>(() => {
+    if (!scenario) return [];
+    return flattenHttpSteps(scenario.steps).map((s) => ({
+      id: s.id,
+      label: `${s.name || s.id} (${s.request.method} ${s.request.url || "—"})`,
+    }));
+  }, [scenario]);
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
@@ -540,6 +552,11 @@ export function RunDialog({
               <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
             </h4>
             <CriteriaFields value={criteriaState} onChange={setCriteria} />
+            <StepCriteriaFields
+              value={stepCriteria}
+              options={stepOptions}
+              onChange={setStepCriteria}
+            />
 
             {loadModel === "closed" && (
               <>

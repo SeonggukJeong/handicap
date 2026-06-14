@@ -6,7 +6,7 @@ import { useEnvironment, useScenario } from "../api/hooks";
 import { normalizeProfile } from "../api/runPrefill";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
-import { isLoopStep } from "../scenario/model";
+import { isLoopStep, flattenHttpSteps } from "../scenario/model";
 import { LoadModelFields } from "./LoadModelFields";
 import { loadModelErrors, deriveLoadMode, type LoadModelState } from "./loadModel";
 import { CriteriaFields } from "./CriteriaFields";
@@ -16,7 +16,9 @@ import {
   criteriaHasValue,
   criteriaActiveCount,
   type CriteriaState,
+  type StepCriterionDraft,
 } from "./profileForm";
+import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import { TriggerBuilder } from "./TriggerBuilder";
@@ -103,7 +105,16 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [max5xxCount, setMax5xxCount] = useState(initCriteria.max5xxCount);
   const [minWindowRps, setMinWindowRps] = useState(initCriteria.minWindowRps);
   const [rpsWarmup, setRpsWarmup] = useState(initCriteria.rpsWarmup);
+  const [stepCriteria, setStepCriteria] = useState<StepCriterionDraft[]>(initCriteria.stepCriteria);
   const [sloOpen, setSloOpen] = useState(() => criteriaHasValue(initCriteria));
+
+  const stepOptions = useMemo<StepOption[]>(() => {
+    if (!parsedScenario) return [];
+    return flattenHttpSteps(parsedScenario.steps).map((s) => ({
+      id: s.id,
+      label: `${s.name || s.id} (${s.request.method} ${s.request.url || "—"})`,
+    }));
+  }, [parsedScenario]);
 
   const criteriaState: CriteriaState = {
     maxP50,
@@ -117,7 +128,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     max5xxCount,
     minWindowRps,
     rpsWarmup,
-    stepCriteria: [], // Task 6: state로 교체
+    stepCriteria,
   };
   // Task 6: stepCriteria는 별도 array state로 다룬다(string setter 아님) — 여기선 제외.
   const criteriaSetters: Record<
@@ -268,6 +279,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
               setSeedBinding(null);
               setBindingBlock({ ok: true, reasons: [] });
               setPanelKey((k) => k + 1);
+              setStepCriteria([]);
             }}
           >
             <option value="">선택…</option>
@@ -364,7 +376,16 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
             ) : null}
           </button>
         </legend>
-        {sloOpen && <CriteriaFields value={criteriaState} onChange={setCriteria} />}
+        {sloOpen && (
+          <>
+            <CriteriaFields value={criteriaState} onChange={setCriteria} />
+            <StepCriteriaFields
+              value={stepCriteria}
+              options={stepOptions}
+              onChange={setStepCriteria}
+            />
+          </>
+        )}
       </fieldset>
 
       {/* 진단/고급 (선택) */}
