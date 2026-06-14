@@ -5,6 +5,7 @@ import { StageCurvePreview } from "./StageCurvePreview";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { VuSizingHelper } from "./VuSizingHelper";
+import { SlotSizingHelper } from "./SlotSizingHelper";
 import type { Scenario } from "../scenario/model";
 
 type StageRow = { target: string; duration_seconds: string };
@@ -35,6 +36,8 @@ type Props = {
   sizingScenario?: Scenario | null;
   sizingEnv?: Record<string, string>;
   onApplyVus?: (n: number) => void;
+  // 열린 루프 슬롯 사이징 힌트(RunDialog 전용 — ScheduleForm 미전달). open+fixed에서만.
+  onApplyMaxInFlight?: (n: number) => void;
 };
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
@@ -63,6 +66,7 @@ export function LoadModelFields({
   sizingScenario,
   sizingEnv,
   onApplyVus,
+  onApplyMaxInFlight,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -474,6 +478,14 @@ export function LoadModelFields({
                 <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
                   {ko.validation.targetRps}
                 </p>
+              )}
+              {onApplyMaxInFlight && sizingScenarioId !== undefined && (
+                <SlotSizingHelper
+                  scenarioId={sizingScenarioId}
+                  env={sizingEnv ?? {}}
+                  targetRps={targetRps}
+                  onApply={onApplyMaxInFlight}
+                />
               )}
             </>
           ) : (
