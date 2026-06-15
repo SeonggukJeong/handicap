@@ -134,26 +134,40 @@ pub async fn connect_and_register(
     })
 }
 
-/// Accumulate `DatasetBatch` rows from the inbound stream until `expected_rows`
-/// rows have arrived, then return them. During loading, an `AbortRun` for our
-/// run (or `cancel`) returns `WorkerError::Cancelled`; a closed stream returns
-/// `DatasetIncomplete`. Ping/other messages are ignored. (Spec §7.3.)
-pub async fn load_dataset(
+/// Accumulate `DatasetBatch` rows from the inbound stream into per-binding
+/// buckets, one bucket per entry of `expected` (index = `binding_index`), until
+/// every bucket has its promised row count, then return them. Batches are routed
+/// by `binding_index`, so they may arrive in any stream order. During loading,
+/// an `AbortRun` for our run (or `cancel`) returns `WorkerError::Cancelled`; a
+/// closed stream with any bucket still short returns `DatasetIncomplete` with
+/// the received/promised totals. Ping/other messages are ignored. (Spec §7.3.)
+pub async fn load_datasets(
     inbound_rx: &mut mpsc::Receiver<ServerMessage>,
-    expected_rows: u64,
+    expected: &[u64],
     run_id: &str,
     cancel: &CancellationToken,
-) -> Result<Vec<BTreeMap<String, String>>, WorkerError> {
-    let mut rows: Vec<BTreeMap<String, String>> = Vec::with_capacity(expected_rows as usize);
-    while (rows.len() as u64) < expected_rows {
+) -> Result<Vec<Vec<BTreeMap<String, String>>>, WorkerError> {
+    let mut buckets: Vec<Vec<BTreeMap<String, String>>> = expected
+        .iter()
+        .map(|&n| Vec::with_capacity(n as usize))
+        .collect();
+    let total_expected: u64 = expected.iter().sum();
+    let mut total_got: u64 = 0;
+    while total_got < total_expected {
         tokio::select! {
             _ = cancel.cancelled() => return Err(WorkerError::Cancelled),
             msg = inbound_rx.recv() => match msg {
                 Some(sm) => match sm.payload {
                     Some(ServerPayload::DatasetBatch(b)) => {
-                        for r in b.rows {
-                            rows.push(r.values.into_iter().collect());
+                        if let Some(bucket) = buckets.get_mut(b.binding_index as usize) {
+                            for r in b.rows {
+                                bucket.push(r.values.into_iter().collect());
+                                total_got += 1;
+                            }
                         }
+                        // An unknown binding_index is defensively ignored: its rows
+                        // don't count toward total_got, so the stream-close path
+                        // still reports DatasetIncomplete for any short bucket.
                     }
                     Some(ServerPayload::Abort(a)) if a.run_id == run_id => {
                         return Err(WorkerError::Cancelled);
@@ -162,14 +176,14 @@ pub async fn load_dataset(
                 },
                 None => {
                     return Err(WorkerError::DatasetIncomplete {
-                        got: rows.len() as u64,
-                        expected: expected_rows,
+                        got: total_got,
+                        expected: total_expected,
                     });
                 }
             }
         }
     }
-    Ok(rows)
+    Ok(buckets)
 }
 
 #[cfg(test)]
@@ -245,8 +259,15 @@ mod load_tests {
     use super::*;
     use handicap_proto::v1 as pb;
 
-    fn batch(run_id: &str, users: &[&str]) -> ServerMessage {
-        ServerMessage {
+    /// Send a `DatasetBatch` for binding `binding_index` carrying one `user`
+    /// column per value. Mirrors the controller's per-binding batch shape.
+    async fn send_batch(
+        tx: &mpsc::Sender<ServerMessage>,
+        binding_index: u32,
+        run_id: &str,
+        users: &[&str],
+    ) {
+        tx.send(ServerMessage {
             payload: Some(ServerPayload::DatasetBatch(pb::DatasetBatch {
                 run_id: run_id.to_string(),
                 rows: users
@@ -257,28 +278,71 @@ mod load_tests {
                         pb::DatasetRow { values: v }
                     })
                     .collect(),
-                binding_index: 0,
+                binding_index,
             })),
-        }
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn accumulates_until_expected() {
         let (tx, mut rx) = mpsc::channel::<ServerMessage>(8);
-        tx.send(batch("r", &["a", "b"])).await.unwrap();
-        tx.send(batch("r", &["c"])).await.unwrap();
-        let got = load_dataset(&mut rx, 3, "r", &CancellationToken::new())
+        send_batch(&tx, 0, "r", &["a", "b"]).await;
+        send_batch(&tx, 0, "r", &["c"]).await;
+        let out = load_datasets(&mut rx, &[3], "r", &CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(got.len(), 3);
-        assert_eq!(got[0].get("user").map(String::as_str), Some("a"));
-        assert_eq!(got[2].get("user").map(String::as_str), Some("c"));
+        assert_eq!(out[0].len(), 3);
+        assert_eq!(out[0][0].get("user").map(String::as_str), Some("a"));
+        assert_eq!(out[0][2].get("user").map(String::as_str), Some("c"));
+    }
+
+    #[tokio::test]
+    async fn load_datasets_buckets_by_binding_index() {
+        // Two bindings: index 0 expects 2, index 1 expects 3. Even with batches
+        // arriving interleaved (and out of binding order), each bucket fills to
+        // its own count before returning — routing is stream-order-independent.
+        let (tx, mut rx) = mpsc::channel::<ServerMessage>(16);
+        send_batch(&tx, 1, "run", &["b0"]).await; // index 1, partial
+        send_batch(&tx, 0, "run", &["a0", "a1"]).await; // index 0, all
+        send_batch(&tx, 1, "run", &["b1", "b2"]).await; // index 1, rest
+        drop(tx);
+        let cancel = CancellationToken::new();
+        let out = load_datasets(&mut rx, &[2, 3], "run", &cancel)
+            .await
+            .unwrap();
+        assert_eq!(out[0].len(), 2);
+        assert_eq!(out[1].len(), 3);
+        assert_eq!(out[0][0].get("user").map(String::as_str), Some("a0"));
+        assert_eq!(out[1][0].get("user").map(String::as_str), Some("b0"));
+        assert_eq!(out[1][2].get("user").map(String::as_str), Some("b2"));
+    }
+
+    #[tokio::test]
+    async fn load_datasets_early_close_is_incomplete() {
+        // Promised 5 rows but only 3 sent before the stream closes →
+        // DatasetIncomplete{got:3, expected:5} (totals across all buckets).
+        let (tx, mut rx) = mpsc::channel::<ServerMessage>(16);
+        send_batch(&tx, 0, "run", &["a0", "a1", "a2"]).await;
+        drop(tx);
+        let cancel = CancellationToken::new();
+        let err = load_datasets(&mut rx, &[5], "run", &cancel)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            WorkerError::DatasetIncomplete {
+                got: 3,
+                expected: 5
+            }
+        ));
     }
 
     #[tokio::test]
     async fn abort_during_loading_returns_cancelled() {
         let (tx, mut rx) = mpsc::channel::<ServerMessage>(8);
-        tx.send(batch("r", &["a"])).await.unwrap();
+        send_batch(&tx, 0, "r", &["a"]).await;
         tx.send(ServerMessage {
             payload: Some(ServerPayload::Abort(pb::AbortRun {
                 run_id: "r".into(),
@@ -287,7 +351,7 @@ mod load_tests {
         })
         .await
         .unwrap();
-        let err = load_dataset(&mut rx, 5, "r", &CancellationToken::new())
+        let err = load_datasets(&mut rx, &[5], "r", &CancellationToken::new())
             .await
             .unwrap_err();
         assert!(matches!(err, WorkerError::Cancelled));
@@ -296,9 +360,9 @@ mod load_tests {
     #[tokio::test]
     async fn closed_stream_is_incomplete() {
         let (tx, mut rx) = mpsc::channel::<ServerMessage>(8);
-        tx.send(batch("r", &["a"])).await.unwrap();
+        send_batch(&tx, 0, "r", &["a"]).await;
         drop(tx);
-        let err = load_dataset(&mut rx, 5, "r", &CancellationToken::new())
+        let err = load_datasets(&mut rx, &[5], "r", &CancellationToken::new())
             .await
             .unwrap_err();
         assert!(matches!(
@@ -323,11 +387,11 @@ mod load_tests {
         .await
         .unwrap();
         // Then the real batch arrives and loading completes.
-        tx.send(batch("r", &["a"])).await.unwrap();
-        let got = load_dataset(&mut rx, 1, "r", &CancellationToken::new())
+        send_batch(&tx, 0, "r", &["a"]).await;
+        let out = load_datasets(&mut rx, &[1], "r", &CancellationToken::new())
             .await
             .unwrap();
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].get("user").map(String::as_str), Some("a"));
+        assert_eq!(out[0].len(), 1);
+        assert_eq!(out[0][0].get("user").map(String::as_str), Some("a"));
     }
 }

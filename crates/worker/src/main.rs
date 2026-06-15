@@ -10,7 +10,7 @@ use handicap_engine::{
     run_scenario_open_loop, run_scenario_vu_curve,
 };
 use handicap_proto::v1 as pb;
-use handicap_worker_core::{WorkerError, connect_with_backoff, load_dataset};
+use handicap_worker_core::{WorkerError, connect_with_backoff, load_datasets};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
@@ -118,68 +118,70 @@ async fn main() -> anyhow::Result<()> {
     // This block MUST come before spawning `abort_listener` (which moves
     // `inbound_rx`) and before spawning `forwarder` (so early-return arms don't
     // need to clean up either task).
-    let dataset: Option<Arc<DataSet>> = match &assignment.data_binding {
-        Some(b) if b.row_count > 0 => {
-            info!(rows = b.row_count, run_id = %args.run_id, "loading dataset before run");
-            match load_dataset(&mut inbound_rx, b.row_count, &args.run_id, &cancel).await {
-                Ok(rows) => {
-                    let policy = match pb::data_binding::Policy::try_from(b.policy) {
-                        Ok(pb::data_binding::Policy::PerVu) => BindingPolicy::PerVu,
-                        Ok(pb::data_binding::Policy::IterSequential) => {
-                            BindingPolicy::IterSequential
-                        }
-                        Ok(pb::data_binding::Policy::IterRandom) => BindingPolicy::IterRandom,
-                        Ok(pb::data_binding::Policy::Unique) => BindingPolicy::Unique,
-                        _ => unreachable!(
-                            "proto DataBinding.policy {} not mapped — controller/worker version mismatch",
-                            b.policy
-                        ),
-                    };
-                    Some(Arc::new(DataSet {
-                        policy,
+    // Prefer the new repeated field 10 (data_bindings); fall back to the legacy
+    // single field 5 (data_binding) wrapped as a 1-element list. Old controllers
+    // send field 5 only — this fallback keeps that path byte-identical until the
+    // controller writes field 10 (Task 5).
+    let bindings: Vec<&pb::DataBinding> = if !assignment.data_bindings.is_empty() {
+        assignment.data_bindings.iter().collect()
+    } else {
+        assignment.data_binding.iter().collect()
+    };
+    let datasets: Vec<Arc<DataSet>> = if bindings.iter().any(|b| b.row_count > 0) {
+        let expected: Vec<u64> = bindings.iter().map(|b| b.row_count).collect();
+        let total: u64 = expected.iter().sum();
+        info!(bindings = bindings.len(), rows = total, run_id = %args.run_id, "loading datasets before run");
+        match load_datasets(&mut inbound_rx, &expected, &args.run_id, &cancel).await {
+            Ok(all_rows) => bindings
+                .iter()
+                .zip(all_rows)
+                .map(|(b, rows)| {
+                    Arc::new(DataSet {
+                        policy: map_policy(b.policy),
                         seed: b.seed,
                         rows,
-                    }))
-                }
-                Err(WorkerError::Cancelled) => {
-                    // Abort/SIGTERM during loading: report Aborted + clean shutdown
-                    // (mirror the end-of-main shutdown sequence).
-                    info!(run_id = %args.run_id, "aborted during dataset load");
-                    shutdown.store(true, Ordering::Relaxed);
-                    let msg = WorkerMessage {
-                        payload: Some(WorkerPayload::RunStatus(RunStatus {
-                            run_id: args.run_id.clone(),
-                            phase: pb::run_status::Phase::Aborted as i32,
-                            message: String::new(),
-                        })),
-                    };
-                    let _ = tx.send(msg).await;
-                    drop(tx);
-                    let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
-                    signal_task.abort();
-                    return Ok(());
-                }
-                Err(e) => {
-                    // Stream closed early (e.g. controller crash mid-stream): report
-                    // Failed + clean shutdown so the run doesn't sit "running".
-                    let emsg = e.to_string();
-                    tracing::warn!(run_id = %args.run_id, error = %emsg, "dataset load failed");
-                    let msg = WorkerMessage {
-                        payload: Some(WorkerPayload::RunStatus(RunStatus {
-                            run_id: args.run_id.clone(),
-                            phase: pb::run_status::Phase::Failed as i32,
-                            message: emsg,
-                        })),
-                    };
-                    let _ = tx.send(msg).await;
-                    drop(tx);
-                    let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
-                    signal_task.abort();
-                    return Ok(());
-                }
+                    })
+                })
+                .collect(),
+            Err(WorkerError::Cancelled) => {
+                // Abort/SIGTERM during loading: report Aborted + clean shutdown
+                // (mirror the end-of-main shutdown sequence).
+                info!(run_id = %args.run_id, "aborted during dataset load");
+                shutdown.store(true, Ordering::Relaxed);
+                let msg = WorkerMessage {
+                    payload: Some(WorkerPayload::RunStatus(RunStatus {
+                        run_id: args.run_id.clone(),
+                        phase: pb::run_status::Phase::Aborted as i32,
+                        message: String::new(),
+                    })),
+                };
+                let _ = tx.send(msg).await;
+                drop(tx);
+                let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
+                signal_task.abort();
+                return Ok(());
+            }
+            Err(e) => {
+                // Stream closed early (e.g. controller crash mid-stream): report
+                // Failed + clean shutdown so the run doesn't sit "running".
+                let emsg = e.to_string();
+                tracing::warn!(run_id = %args.run_id, error = %emsg, "dataset load failed");
+                let msg = WorkerMessage {
+                    payload: Some(WorkerPayload::RunStatus(RunStatus {
+                        run_id: args.run_id.clone(),
+                        phase: pb::run_status::Phase::Failed as i32,
+                        message: emsg,
+                    })),
+                };
+                let _ = tx.send(msg).await;
+                drop(tx);
+                let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
+                signal_task.abort();
+                return Ok(());
             }
         }
-        _ => None,
+    } else {
+        Vec::new()
     };
 
     // Capture predicates BEFORE the RunPlan build — partial field moves
@@ -194,9 +196,9 @@ async fn main() -> anyhow::Result<()> {
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
         vu_offset: assignment.vu_offset,
-        // Single legacy binding (proto field 5) wrapped into a 1-element Vec.
-        // Task 4 switches the worker to load N datasets from the new repeated field.
-        data_bindings: dataset.into_iter().collect(),
+        // N independent bindings: field 10 (data_bindings) when present, else the
+        // legacy field-5 binding as a 1-element list (loaded into `datasets` above).
+        data_bindings: datasets,
         // proto default 0 (absent field from an old controller) → fall back to 30s
         // so the byte-identical invariant holds; current controllers send 1..=600.
         http_timeout: Duration::from_secs(u64::from(if profile.http_timeout_seconds == 0 {
@@ -438,6 +440,20 @@ async fn main() -> anyhow::Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
     info!("worker done");
     Ok(())
+}
+
+/// Map a proto `DataBinding.policy` discriminant to the engine `BindingPolicy`.
+/// An unknown value means a controller/worker version mismatch.
+fn map_policy(policy: i32) -> BindingPolicy {
+    match pb::data_binding::Policy::try_from(policy) {
+        Ok(pb::data_binding::Policy::PerVu) => BindingPolicy::PerVu,
+        Ok(pb::data_binding::Policy::IterSequential) => BindingPolicy::IterSequential,
+        Ok(pb::data_binding::Policy::IterRandom) => BindingPolicy::IterRandom,
+        Ok(pb::data_binding::Policy::Unique) => BindingPolicy::Unique,
+        _ => unreachable!(
+            "proto DataBinding.policy {policy} not mapped — controller/worker version mismatch"
+        ),
+    }
 }
 
 /// Open-loop when fixed rate OR a non-empty stage curve is set (S-D §3.5 predicate,
