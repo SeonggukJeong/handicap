@@ -73,6 +73,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [maxInFlight, setMaxInFlight] = useState(
     init?.max_in_flight != null ? String(init.max_in_flight) : "200",
   );
+  // worker_count는 RunDialog에서만 편집 — ScheduleForm은 state로 round-trip만(입력 미렌더).
+  const [workerCount] = useState(init?.worker_count != null ? String(init.worker_count) : "1");
   const [rampDown, setRampDown] = useState<"graceful" | "immediate">(init?.ramp_down ?? "graceful");
   const [stages, setStages] = useState<StageRow[]>(
     (init?.vu_stages?.length ? init.vu_stages : init?.stages)?.map((s) => ({
@@ -204,6 +206,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     thinkMax,
     thinkSeed,
     rampDown, // 실제 state 배선 (Task 7+8)
+    workerCount,
   };
   const loadErrs = loadModelErrors(loadState);
 

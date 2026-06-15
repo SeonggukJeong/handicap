@@ -76,6 +76,9 @@ export function RunDialog({
   const [maxInFlight, setMaxInFlight] = useState(
     initial?.profile.max_in_flight != null ? String(initial.profile.max_in_flight) : "200",
   );
+  const [workerCount, setWorkerCount] = useState(
+    initial?.profile.worker_count != null ? String(initial.profile.worker_count) : "1",
+  );
   const [rampDown, setRampDown] = useState<"graceful" | "immediate">(
     initial?.profile.ramp_down ?? "graceful",
   );
@@ -219,6 +222,8 @@ export function RunDialog({
       setRateMode(mode.rateMode);
       if (prof.target_rps != null) setTargetRps(String(prof.target_rps));
       if (prof.max_in_flight != null) setMaxInFlight(String(prof.max_in_flight));
+      if (prof.worker_count != null) setWorkerCount(String(prof.worker_count));
+      else setWorkerCount("1");
       const curveStages = prof.vu_stages?.length ? prof.vu_stages : prof.stages;
       if (curveStages && curveStages.length > 0) {
         setStages(
@@ -297,6 +302,7 @@ export function RunDialog({
     thinkMax,
     thinkSeed,
     rampDown, // 실제 state 배선 (Task 7+8)
+    workerCount,
   };
   const loadErrs = loadModelErrors(loadState);
   const canSubmit =
@@ -304,6 +310,7 @@ export function RunDialog({
       ? rateMode === "curve"
         ? !loadErrs.maxInFlightInvalid &&
           !loadErrs.stagesInvalid &&
+          !loadErrs.workerCountInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           bindingBlock.ok &&
@@ -311,6 +318,7 @@ export function RunDialog({
         : duration >= 1 &&
           !loadErrs.targetRpsInvalid &&
           !loadErrs.maxInFlightInvalid &&
+          !loadErrs.workerCountInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           bindingBlock.ok &&
@@ -509,6 +517,8 @@ export function RunDialog({
           sizingEnv={env}
           onApplyVus={setVus}
           onApplyMaxInFlight={(n) => setMaxInFlight(String(n))}
+          workerCount={workerCount}
+          setWorkerCount={setWorkerCount}
         />
       </fieldset>
 

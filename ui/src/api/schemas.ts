@@ -89,6 +89,8 @@ export const ProfileSchema = z.object({
   // closed-loop VU 곡선 (spec §3.1). 서버 #[serde(skip_serializing_if)] → absent → .optional()
   vu_stages: z.array(StageSchema).optional(),
   ramp_down: z.enum(["graceful", "immediate"]).optional(),
+  // open-loop 멀티워커 fan-out 노브. 서버 #[serde(skip_serializing_if)] → absent → .optional()
+  worker_count: z.number().int().min(1).max(64).optional(),
   measure_phases: z.boolean().default(false),
 });
 export type Profile = z.infer<typeof ProfileSchema>;

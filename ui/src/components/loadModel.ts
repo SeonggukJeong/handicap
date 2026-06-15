@@ -14,6 +14,7 @@ export type LoadModelState = {
   thinkMax: string;
   thinkSeed: string;
   rampDown: "graceful" | "immediate";
+  workerCount: string; // open 전용 fan-out 노브 (string draft, 빈칸/1 = 미설정)
 };
 
 /** buildLoadProfile이 채우는 Profile의 부분집합. 나머지(loop_breakdown_cap/
@@ -29,6 +30,7 @@ export type LoadProfileFields = Pick<Profile, "vus" | "duration_seconds" | "ramp
       | "stages"
       | "vu_stages"
       | "ramp_down"
+      | "worker_count"
     >
   >;
 
@@ -37,6 +39,7 @@ export type LoadModelErrors = {
   targetRpsInvalid: boolean; // open+fixed
   maxInFlightInvalid: boolean; // open (fixed·curve 공통)
   stagesInvalid: boolean; // curve (open+curve / closed+curve 공통)
+  workerCountInvalid: boolean; // open (fixed·curve 공통, optional — 빈칸=미설정 허용)
 };
 
 /** closed-loop think time. 둘 다 채워야 emit(한 칸만 채우면 undefined = 미설정). */
@@ -74,6 +77,7 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
         target: Number(x.target),
         duration_seconds: Number(x.duration_seconds),
       })),
+      ...(Number(s.workerCount) > 1 ? { worker_count: Number(s.workerCount) } : {}),
       // NO target_rps, NO think_time
     };
   }
@@ -84,6 +88,7 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
       ramp_up_seconds: 0,
       target_rps: Number(s.targetRps),
       max_in_flight: Number(s.maxInFlight),
+      ...(Number(s.workerCount) > 1 ? { worker_count: Number(s.workerCount) } : {}),
       // NO think_time — open-loop은 run-level think time 금지
     };
   }
@@ -131,7 +136,11 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
         );
       }) ||
       !s.stages.some((x) => Number(x.target) > 0));
-  return { rampInvalid, targetRpsInvalid, maxInFlightInvalid, stagesInvalid };
+  // worker_count: open 전용·선택적. 빈칸 = 미설정(valid). 채우면 1~64 정수.
+  const wcNum = Number(s.workerCount);
+  const workerCountInvalid =
+    s.workerCount.trim() !== "" && (!Number.isInteger(wcNum) || wcNum < 1 || wcNum > 64);
+  return { rampInvalid, targetRpsInvalid, maxInFlightInvalid, stagesInvalid, workerCountInvalid };
 }
 
 export type LoadMode = { loadModel: "closed" | "open"; rateMode: "fixed" | "curve" };

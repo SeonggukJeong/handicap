@@ -17,6 +17,7 @@ const noErrs: LoadModelErrors = {
   targetRpsInvalid: false,
   maxInFlightInvalid: false,
   stagesInvalid: false,
+  workerCountInvalid: false,
 };
 
 // These spies are needed for the new tests and must be stable references
@@ -237,4 +238,51 @@ describe("LoadModelFields", () => {
     });
     expect(screen.queryByTestId("slot-sizing-helper")).toBeNull();
   });
+
+  // ── worker_count 접이식 입력 (RunDialog 전용, open 모드 고정·곡선) ───────────────
+  // 토글은 open 모드에서 setWorkerCount가 주어질 때만 렌더. 기본 접힘 → 펼친 뒤에야 입력 등장.
+  it.each([
+    { loadModel: "open", rateMode: "fixed" },
+    { loadModel: "open", rateMode: "curve" },
+  ] as const)(
+    "$loadModel+$rateMode + setWorkerCount 주어지면 토글 렌더 + 펼치면 입력 등장",
+    async (mode) => {
+      const user = userEvent.setup();
+      renderFields({ ...mode, workerCount: "1", setWorkerCount: vi.fn() });
+      const toggle = screen.getByRole("button", { name: /부하 생성기 워커 수/ });
+      expect(toggle).toBeInTheDocument();
+      // 접힌 채라 입력은 아직 DOM에 없다
+      expect(screen.queryByLabelText("부하 생성기 워커 수 (수평 확장)")).toBeNull();
+      await user.click(toggle);
+      expect(screen.getByLabelText("부하 생성기 워커 수 (수평 확장)")).toBeInTheDocument();
+    },
+  );
+
+  it("open+fixed: 시드된 workerCount>1이면 자동 펼침 + 입력 노출", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      workerCount: "3",
+      setWorkerCount: vi.fn(),
+    });
+    expect(screen.getByLabelText("부하 생성기 워커 수 (수평 확장)")).toHaveValue(3);
+  });
+
+  it("open+fixed: setWorkerCount 없으면(ScheduleForm 경로) 토글 미렌더", () => {
+    renderFields({ loadModel: "open", rateMode: "fixed" });
+    expect(screen.queryByRole("button", { name: /부하 생성기 워커 수/ })).toBeNull();
+  });
+
+  // closed 모드(고정·곡선)에선 prop이 다 있어도 worker_count 토글/입력 미렌더.
+  it.each([
+    { loadModel: "closed", rateMode: "fixed" },
+    { loadModel: "closed", rateMode: "curve" },
+  ] as const)(
+    "$loadModel+$rateMode 모드에선 worker_count 토글 미렌더 (setWorkerCount 있어도)",
+    (mode) => {
+      renderFields({ ...mode, workerCount: "2", setWorkerCount: vi.fn() });
+      expect(screen.queryByRole("button", { name: /부하 생성기 워커 수/ })).toBeNull();
+      expect(screen.queryByLabelText("부하 생성기 워커 수 (수평 확장)")).toBeNull();
+    },
+  );
 });

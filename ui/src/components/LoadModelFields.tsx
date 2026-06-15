@@ -1,4 +1,4 @@
-import { useId, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useId, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import type { LoadModelErrors } from "./loadModel";
 import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
@@ -39,6 +39,10 @@ type Props = {
   onApplyVus?: (n: number) => void;
   // 열린 루프 슬롯 사이징 힌트(RunDialog 전용 — ScheduleForm 미전달). open+fixed에서만.
   onApplyMaxInFlight?: (n: number) => void;
+  // worker_count(open 전용 fan-out 노브) — RunDialog 전용. setWorkerCount 부재 = 미렌더
+  // (ScheduleForm은 state로 round-trip만 하고 입력은 안 띄운다, spec §4.1).
+  workerCount?: string;
+  setWorkerCount?: (s: string) => void;
 };
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
@@ -68,6 +72,8 @@ export function LoadModelFields({
   sizingEnv,
   onApplyVus,
   onApplyMaxInFlight,
+  workerCount,
+  setWorkerCount,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -76,7 +82,11 @@ export function LoadModelFields({
     targetRps: useId(),
     durationOpen: useId(),
     maxInFlight: useId(),
+    workerCount: useId(),
   };
+  // worker_count 접이식 disclosure — 기본 접힘, 시드된 값(>1)이면 자동 펼침
+  // (ui-optional-sections-collapsible 이디엄). 무조건 호출 hook(모드 분기 위).
+  const [workerOpen, setWorkerOpen] = useState(() => Number(workerCount ?? "1") > 1);
 
   // open+curve 슬롯 힌트의 기준 = 최고 단계 목표(peak). stages는 문자열 드래프트라
   // 유효 정수만 후보(peakStageTarget). 없으면 "" → 헬퍼가 needTargetCurve 표시.
@@ -446,6 +456,55 @@ export function LoadModelFields({
             <p id="max-in-flight-error" className="mb-3 text-red-600 text-sm">
               {ko.validation.maxInFlight}
             </p>
+          )}
+
+          {/* worker_count(수평 확장) 접이식 — RunDialog 전용(setWorkerCount 부재면 미렌더),
+              open 모드(고정·곡선) 공통. 기본 접힘 + 값>1이면 자동 펼침·접힌 채면 "N개 설정됨"
+              힌트로 비기본값 노출 (ui-optional-sections-collapsible). */}
+          {setWorkerCount !== undefined && loadModel === "open" && (
+            <div className="mb-3 max-w-xs">
+              <button
+                type="button"
+                aria-expanded={workerOpen}
+                onClick={() => setWorkerOpen((o) => !o)}
+                className="flex items-center gap-1 text-sm text-slate-600 hover:underline"
+              >
+                <span>{workerOpen ? "▾" : "▸"}</span>
+                <span>{ko.loadModel.workerCount}</span>
+                {!workerOpen && Number(workerCount ?? "1") > 1 ? (
+                  <span className="ml-1 text-xs font-normal text-slate-500">
+                    · {ko.loadModel.workerCountHint(Number(workerCount))}
+                  </span>
+                ) : null}
+              </button>
+              {workerOpen && (
+                <div className="mt-1">
+                  {/* HelpTip은 라벨 텍스트와 형제 — 입력 accname은 aria-label로(toggle 버튼이
+                      라벨 텍스트를 이미 보유, 입력은 aria-label로 동일 접근명). */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500">{ko.loadModel.workerCount}</span>
+                    <HelpTip label="worker_count 설명">{ko.glossary.workerCount}</HelpTip>
+                  </div>
+                  <input
+                    id={ids.workerCount}
+                    type="number"
+                    min={1}
+                    max={64}
+                    aria-label={ko.loadModel.workerCount}
+                    value={workerCount ?? "1"}
+                    onChange={(e) => setWorkerCount(e.target.value)}
+                    className={INPUT}
+                    aria-invalid={errs.workerCountInvalid}
+                    aria-describedby={errs.workerCountInvalid ? "worker-count-error" : undefined}
+                  />
+                  {errs.workerCountInvalid && (
+                    <p id="worker-count-error" role="alert" className="mt-1 text-red-600 text-sm">
+                      {ko.validation.workerCount}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {rateMode === "fixed" ? (

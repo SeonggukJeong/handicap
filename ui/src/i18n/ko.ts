@@ -20,6 +20,8 @@ export const ko = {
     thinkTime: "think time — 실제 사용자처럼 요청 사이에 쉬는 시간입니다.",
     maxInFlight:
       "동시 요청 상한(max in-flight) — 동시에 진행 중일 수 있는 요청 수의 상한입니다. 서버가 목표 속도를 못 따라가면 초과분은 drop으로 집계됩니다.",
+    workerCount:
+      "open-loop 부하를 여러 워커에 나눠 더 높은 목표 RPS를 냅니다. 한 워커가 목표를 못 내면 늘리세요 — 리포트가 권장값을 알려줍니다.",
     slo: "합격 기준(SLO) — 응답시간·에러율 등의 임계값입니다. 설정하면 run 종료 시 합격/불합격을 자동 판정합니다.",
     vuCurve:
       "VU 곡선 — 동시 사용자 수를 시간에 따라 단계별로 늘렸다 줄이는 부하 방식입니다. 점심 피크, 이벤트 오픈처럼 사용자 수가 변하는 상황을 재현합니다.",
@@ -54,6 +56,8 @@ export const ko = {
     rampUp: "점진 시작(초)",
     targetRps: "목표 RPS",
     maxInFlight: "동시 요청 상한",
+    workerCount: "부하 생성기 워커 수 (수평 확장)",
+    workerCountHint: (n: number) => `${n}개 설정됨`,
     httpTimeout: "HTTP 타임아웃(초)",
     loopCap: "루프 집계 상한",
     thinkMin: "think 최소(ms)",
@@ -79,6 +83,7 @@ export const ko = {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",
     targetRps: "목표 RPS는 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
+    workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",

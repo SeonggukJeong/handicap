@@ -23,6 +23,7 @@ const closedLoad: LoadModelState = {
   thinkMax: "",
   thinkSeed: "",
   rampDown: "graceful",
+  workerCount: "1",
 };
 
 describe("buildCriteria", () => {
