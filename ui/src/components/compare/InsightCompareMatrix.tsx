@@ -2,12 +2,18 @@ import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 
 type MatrixReport = { run: { id: string }; insights?: Insight[] };
-type Props = { reports: MatrixReport[]; stepLabelMap: Map<string, string> };
+type Props = {
+  reports: MatrixReport[];
+  stepLabelMap: Map<string, string>;
+  // CompareMatrix와 열 헤더를 lockstep으로 — 부모가 runLabels를 내려준다. 미주입이면 slice 폴백.
+  labels?: Record<string, string>;
+};
 
+// 음영은 canonical InsightPanel(`report/InsightPanel.tsx`)의 SEV_CLASS와 일치(-50 배경).
 const SEV_CLASS: Record<string, string> = {
-  critical: "bg-red-100 text-red-800 border-red-300",
-  warning: "bg-amber-100 text-amber-800 border-amber-300",
-  info: "bg-slate-100 text-slate-700 border-slate-300",
+  critical: "border-red-300 bg-red-50 text-red-800",
+  warning: "border-amber-300 bg-amber-50 text-amber-800",
+  info: "border-slate-300 bg-slate-50 text-slate-700",
 };
 const LABELS: Record<string, string | undefined> = ko.insightLabels;
 
@@ -30,7 +36,7 @@ function rowLabel(i: Insight, stepLabelMap: Map<string, string>): string {
   return base;
 }
 
-export function InsightCompareMatrix({ reports, stepLabelMap }: Props) {
+export function InsightCompareMatrix({ reports, stepLabelMap, labels }: Props) {
   const rows: { key: string; label: string }[] = [];
   const seen = new Set<string>();
   const byRun = new Map<string, Map<string, Insight>>();
@@ -64,7 +70,7 @@ export function InsightCompareMatrix({ reports, stepLabelMap }: Props) {
                   key={r.run.id}
                   className="px-2 py-1 border-b border-slate-200 dark:border-slate-700 text-center"
                 >
-                  #{r.run.id.slice(-6)}
+                  {labels?.[r.run.id] ?? `#${r.run.id.slice(-6)}`}
                 </th>
               ))}
             </tr>

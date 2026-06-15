@@ -232,7 +232,7 @@ function ScenarioCompareInner({
         onBaselineChange={onBaselineChange}
       />
 
-      <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />
+      <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} labels={runLabels} />
     </div>
   );
 }
