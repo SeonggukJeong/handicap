@@ -5,6 +5,8 @@ import {
   recommendSlots,
   pickLatestOpenRun,
   peakStageTarget,
+  peakThroughput,
+  recommendWorkers,
 } from "../sizing";
 import type { Run } from "../../api/schemas";
 
@@ -166,5 +168,86 @@ describe("peakStageTarget", () => {
     const peak = peakStageTarget([{ target: "50" }, { target: "200" }]);
     expect(peak).toBe(200);
     expect(recommendSlots(peak as number, 250)?.recommendedSlots).toBe(50);
+  });
+});
+
+describe("peakThroughput", () => {
+  it("빈 배열 → 0", () => {
+    expect(peakThroughput([])).toBe(0);
+  });
+
+  it("초별 Σcount의 최대 (평균/총합 아님 — insights.rs by_sec와 동형)", () => {
+    // ts1 합=4, ts2 합=5+4=9 (peak), ts3 합=3
+    expect(
+      peakThroughput([
+        { ts_second: 1, count: 4 },
+        { ts_second: 2, count: 5 },
+        { ts_second: 2, count: 4 },
+        { ts_second: 3, count: 3 },
+      ]),
+    ).toBe(9);
+  });
+
+  it("단일 초 여러 스텝 행 → 그 초 합", () => {
+    expect(
+      peakThroughput([
+        { ts_second: 7, count: 100 },
+        { ts_second: 7, count: 50 },
+      ]),
+    ).toBe(150);
+  });
+
+  it("정렬 무관", () => {
+    expect(
+      peakThroughput([
+        { ts_second: 3, count: 3 },
+        { ts_second: 1, count: 9 },
+        { ts_second: 2, count: 5 },
+      ]),
+    ).toBe(9);
+  });
+});
+
+describe("recommendWorkers", () => {
+  it("기본: ceil(target × wc / peak) — ADR-0038 라이브 수치", () => {
+    // target 2000, peak 790, wc 2 → ceil(4000/790)=ceil(5.06)=6
+    expect(recommendWorkers(2000, 790, 2)?.recommendedWorkers).toBe(6);
+  });
+
+  it("단일 워커 prior", () => {
+    // target 1000, peak 200, wc 1 → ceil(5)=5
+    expect(recommendWorkers(1000, 200, 1)?.recommendedWorkers).toBe(5);
+  });
+
+  it("floor 1 (target 작아 0이 안 됨)", () => {
+    expect(recommendWorkers(10, 1000, 1)?.recommendedWorkers).toBe(1);
+  });
+
+  it("무효: 목표 무효(0·비정수·범위 밖) → null", () => {
+    expect(recommendWorkers(0, 200, 1)).toBeNull();
+    expect(recommendWorkers(1.5, 200, 1)).toBeNull();
+    expect(recommendWorkers(2_000_000, 200, 1)).toBeNull();
+  });
+
+  it("무효: peak <= 0 / NaN / Inf → null", () => {
+    expect(recommendWorkers(1000, 0, 1)).toBeNull();
+    expect(recommendWorkers(1000, -5, 1)).toBeNull();
+    expect(recommendWorkers(1000, NaN, 1)).toBeNull();
+    expect(recommendWorkers(1000, Infinity, 1)).toBeNull();
+  });
+
+  it("무효: prior_wc < 1 또는 비정수 → null", () => {
+    expect(recommendWorkers(1000, 200, 0)).toBeNull();
+    expect(recommendWorkers(1000, 200, 1.5)).toBeNull();
+  });
+
+  it("parity: recommendWorkers == insights.rs:250 산술 ceil(t/(peak/wc))", () => {
+    // 대수적으로 ceil(t/(peak/wc)) == ceil(t*wc/peak)지만 IEEE-754에선 항상 bit-identical은
+    // 아니다 — 이 값(2000/790/2 → 둘 다 6)에선 일치(값 특정 단언).
+    const t = 2000;
+    const peak = 790;
+    const wc = 2;
+    const insightsM = Math.ceil(t / (peak / wc));
+    expect(recommendWorkers(t, peak, wc)?.recommendedWorkers).toBe(insightsM);
   });
 });

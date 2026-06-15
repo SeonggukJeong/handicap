@@ -92,3 +92,40 @@ export function peakStageTarget(stages: { target: string }[]): number | null {
   }
   return peak;
 }
+
+/** 열린 루프 워커 수(worker_count) create-time 사이징의 순수 계산. (ADR-0038 멀티워커 fan-out)
+ *  워커당 RPS 천장은 워커를 포화시켰을 때만 관측되므로, prior open-loop run의 관측 peak/워커수로
+ *  외삽한다. 사후 load_gen_saturated의 recommended_workers(insights.rs:246-253)와 수식 1:1. */
+
+export type WorkerSizingResult = { recommendedWorkers: number };
+
+/** report.windows(초별 (ts,step) count 행 — A3b 워커 머지 후)에서 초별 throughput 천장.
+ *  초별 Σcount의 최대 = N워커 합산 초별 throughput peak. insights.rs:214-222 by_sec와 동형.
+ *  빈 배열→0(앵커 peak>0 가드 뒤라 실제 도달 불가 — insights.rs는 summary.rps 폴백을 쓰지만
+ *  이 헬퍼는 peak>0이 아니면 앵커가 null이라 그 분기로 안 간다). */
+export function peakThroughput(windows: { ts_second: number; count: number }[]): number {
+  const bySec = new Map<number, number>();
+  for (const w of windows) {
+    bySec.set(w.ts_second, (bySec.get(w.ts_second) ?? 0) + w.count);
+  }
+  let peak = 0;
+  for (const v of bySec.values()) if (v > peak) peak = v;
+  return peak;
+}
+
+/** 목표 RPS + prior run 관측 peak·워커수 → 권장 worker_count(하한).
+ *  N = max(1, ceil(target × prior_wc / peak)). 각 워커에 prior가 증명한 속도(peak/wc) 이하만
+ *  요구하므로 엔진 drop 측면 항상 안전(포화면 tight, 비포화면 보수적 상한). insights.rs:250
+ *  ceil(t/(peak/wc))와 동일 산술. m>wc 발사 가드는 사후 전용(현재 wc 대비 증설 제안)이라
+ *  create-time엔 없다 — 복원 금지. 무효(목표 무효 / peak<=0·NaN·Inf / wc<1·비정수)면 null. */
+export function recommendWorkers(
+  target: number,
+  priorPeak: number,
+  priorWorkerCount: number,
+): WorkerSizingResult | null {
+  if (!targetRpsValid(target)) return null;
+  if (!Number.isFinite(priorPeak) || priorPeak <= 0) return null;
+  if (!Number.isInteger(priorWorkerCount) || priorWorkerCount < 1) return null;
+  const recommendedWorkers = Math.max(1, Math.ceil((target * priorWorkerCount) / priorPeak));
+  return { recommendedWorkers };
+}
