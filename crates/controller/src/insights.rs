@@ -225,8 +225,8 @@ pub fn derive_insights(
         ins.count = Some(dropped);
 
         // Little's Law 사이징: 목표 도착률을 관측(중앙값) 지연에서 내려면 필요한 동시 슬롯.
-        // p50==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
-        let l_sec = summary.p50_ms as f64 / 1000.0;
+        // mean==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
+        let l_sec = summary.mean_ms as f64 / 1000.0;
         let required: Option<u64> = if l_sec > 0.0 {
             target_rps.map(|t| ((t as f64) * l_sec).ceil().max(1.0) as u64)
         } else {
@@ -915,7 +915,7 @@ steps:
         // target 10000 RPS at p50=50ms → required = ceil(10000*0.05) = 500;
         // max_in_flight=100 < 500 → slots, recommended=500. value/count(A9)는 불변.
         let mut s = summary();
-        s.p50_ms = 50;
+        s.mean_ms = 50;
         let windows = vec![win_count(0, "a", 120)];
         let got = derive_insights(
             &s,
@@ -943,7 +943,7 @@ steps:
     fn saturated_capacity_when_slots_sufficient() {
         // 같은 target/지연, max_in_flight=2000 ≥ 500 → 슬롯 충분 → capacity, recommended None.
         let mut s = summary();
-        s.p50_ms = 50;
+        s.mean_ms = 50;
         let got = derive_insights(
             &s,
             &[],
@@ -967,7 +967,7 @@ steps:
         // p50=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → capacity.
         // per_worker = 1000/1 = 1000, M = ceil(3000/1000) = 3, 3 > 1 → Some(3.0).
         let mut s = summary();
-        s.p50_ms = 1;
+        s.mean_ms = 1;
         let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000
         let got = derive_insights(
             &s,
@@ -997,7 +997,7 @@ steps:
         // (p50=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
         // dropped>0이라 인사이트 자체는 emit.
         let mut s = summary(); // rps = 0.0 → peak fallback = 0
-        s.p50_ms = 50;
+        s.mean_ms = 50;
         let got = derive_insights(
             &s,
             &[],
@@ -1024,7 +1024,7 @@ steps:
         // cause=capacity, peak=1000(2워커 합산 → per_worker=500), target=900.
         // M = ceil(900/500) = 2, NOT > 2 (현재) → None (SUT-bound, 워커 늘려도 무익).
         let mut s = summary();
-        s.p50_ms = 1;
+        s.mean_ms = 1;
         let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000 (N=2 합산)
         let got = derive_insights(
             &s,
@@ -1072,7 +1072,7 @@ steps:
     fn saturated_sizing_falls_back_when_max_in_flight_absent() {
         // max_in_flight None → 분류 불가(폴백). (prod 불가 케이스지만 방어.)
         let mut s = summary();
-        s.p50_ms = 50;
+        s.mean_ms = 50;
         let got = derive_insights(
             &s,
             &[],
@@ -1097,7 +1097,7 @@ steps:
         // target_rps=10, p50=50ms → 10*0.05=0.5 → ceil → 1. max_in_flight=0 < 1 → slots, recommended 1.0.
         // (.max(1.0)는 target=0 같은 불가-입력 방어 — 이 테스트가 검증하는 건 ceil 올림.)
         let mut s = summary();
-        s.p50_ms = 50;
+        s.mean_ms = 50;
         let got = derive_insights(
             &s,
             &[],
