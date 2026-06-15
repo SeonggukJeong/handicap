@@ -362,6 +362,30 @@ export const ko = {
       `최고 단계 목표 ${targetRps} RPS × 지연 ${latencyMs}ms ≈ 동시 ${n}슬롯`,
     needTargetCurve: "단계 목표를 먼저 입력하세요.",
   },
+  // 열린 루프 create-time worker_count 사이징(ADR-0038). 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
+  workerSizing: {
+    title: "워커 수 도우미",
+    helpLabel: "워커 수 사이징 설명",
+    help: "워커 한 대가 낼 수 있는 최대 RPS는 요청 지연·페이로드·대상 서버에 따라 달라 고정값이 없어요. 그래서 한 번 돌려 워커가 한계에 부딪힐 때(드롭 발생) 비로소 정확히 알 수 있어요.",
+    strongBasis: (wc: number, peak: number, dropped: number) =>
+      `지난 run이 워커 ${wc}대로 최대 ${peak} RPS에서 요청이 밀렸어요(드롭 ${dropped}) → 워커당 ~${Math.round(
+        peak / wc,
+      )} RPS가 한계예요.`,
+    weakBasis: (wc: number, peak: number) =>
+      `지난 run은 워커 ${wc}대로 ${peak} RPS를 드롭 없이 냈어요 — 한계까진 안 밀어서 워커당 진짜 천장은 아직 몰라요.`,
+    recommend: (n: number) => `목표엔 워커 ~${n}대가 필요해요.`,
+    recommendPeak: (n: number) => `최고 단계 목표엔 워커 ~${n}대가 필요해요.`,
+    weakRecommend: (n: number) =>
+      `보수적으로 ~${n}대를 제안해요 (여유가 있었다면 더 적어도 됩니다).`,
+    weakHint: "정확히 줄이려면 더 높은 목표로 한 번 돌려 드롭이 날 때까지 포화시켜 보세요.",
+    noBasis:
+      "참고할 종료된 열린 루프 run이 없어요. 1대로 시작하고, 리포트에 드롭(밀린 요청)이 보이면 그 권장값만큼 늘리세요.",
+    apply: "적용",
+    overCap: (n: number) =>
+      `권장 ${n}대가 상한(64)을 넘어요 — 64대로도 목표에 못 미칠 수 있어요. 목표를 낮추거나 워커당 부하(payload·지연)를 점검하세요.`,
+    needMaxInFlight: (n: number, cur: number) =>
+      `worker_count는 max_in_flight 이하여야 해요 — max_in_flight도 최소 ${n}(으)로 함께 올리세요 (현재 ${cur}).`,
+  },
   // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   sizing: {
     title: "VU 사이징 도우미",
