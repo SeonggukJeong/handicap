@@ -127,6 +127,10 @@ async fn main() -> anyhow::Result<()> {
     } else {
         assignment.data_binding.iter().collect()
     };
+    // A binding with row_count == 0 carries no data; the whole-empty case yields an
+    // empty datasets Vec (no stream to drain), matching the legacy `None` path
+    // byte-for-byte. Do NOT relax this to `!bindings.is_empty()` — that would promise
+    // the engine more buckets than load_datasets drains (length mismatch).
     let datasets: Vec<Arc<DataSet>> = if bindings.iter().any(|b| b.row_count > 0) {
         let expected: Vec<u64> = bindings.iter().map(|b| b.row_count).collect();
         let total: u64 = expected.iter().sum();
@@ -443,7 +447,10 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Map a proto `DataBinding.policy` discriminant to the engine `BindingPolicy`.
-/// An unknown value means a controller/worker version mismatch.
+/// An unknown value means a controller/worker version mismatch. Controller and
+/// worker are co-deployed from one build, so an unknown discriminant is a mis-deploy
+/// rather than a data error — panicking surfaces it loudly (a graceful fallback would
+/// silently apply the wrong policy).
 fn map_policy(policy: i32) -> BindingPolicy {
     match pb::data_binding::Policy::try_from(policy) {
         Ok(pb::data_binding::Policy::PerVu) => BindingPolicy::PerVu,
