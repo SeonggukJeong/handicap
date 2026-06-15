@@ -8,6 +8,7 @@ const baseSummary = {
   errors: 7,
   rps: 123.4,
   duration_seconds: 30,
+  mean_ms: 30,
   p50_ms: 10,
   p95_ms: 50,
   p99_ms: 90,

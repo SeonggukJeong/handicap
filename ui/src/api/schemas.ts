@@ -330,6 +330,7 @@ export const ReportSummarySchema = z
     errors: z.number().int().nonnegative(),
     rps: z.number().nonnegative(),
     duration_seconds: z.number().int().nonnegative(),
+    mean_ms: z.number().int().nonnegative(),
     p50_ms: z.number().int().nonnegative(),
     p95_ms: z.number().int().nonnegative(),
     p99_ms: z.number().int().nonnegative(),

@@ -21,6 +21,7 @@ const base = {
     errors: 0,
     rps: 2.5,
     duration_seconds: 2,
+    mean_ms: 22,
     p50_ms: 20,
     p95_ms: 30,
     p99_ms: 30,

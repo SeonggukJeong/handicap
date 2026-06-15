@@ -4,6 +4,7 @@ import {
   IfBreakdownSchema,
   ProfileSchema,
   ReportSchema,
+  ReportSummarySchema,
   RunSchema,
   ScheduleEventSchema,
   StageSchema,
@@ -29,6 +30,7 @@ describe("ReportSchema", () => {
         errors: 1,
         rps: 5.0,
         duration_seconds: 2,
+        mean_ms: 30,
         p50_ms: 10,
         p95_ms: 50,
         p99_ms: 90,
@@ -99,6 +101,7 @@ describe("if_breakdown schema", () => {
         errors: 0,
         rps: 0,
         duration_seconds: 0,
+        mean_ms: 0,
         p50_ms: 0,
         p95_ms: 0,
         p99_ms: 0,
@@ -226,6 +229,7 @@ describe("ReportSchema.verdict", () => {
       errors: 0,
       rps: 0,
       duration_seconds: 0,
+      mean_ms: 0,
       p50_ms: 0,
       p95_ms: 0,
       p99_ms: 0,
@@ -322,6 +326,54 @@ describe("step_criteria wire (step-level SLO)", () => {
       criteria: [{ metric: "rps", direction: "min", threshold: 100, actual: 200, passed: true }],
     });
     expect(noTarget.criteria[0].target).toBeUndefined();
+  });
+});
+
+describe("ReportSummarySchema.mean_ms", () => {
+  // R3: ReportSummarySchema must accept mean_ms (server always emits it, non-optional).
+  // Schema is .strict() so adding the field is mandatory for existing parsing to keep working.
+  it("parses a summary fixture containing mean_ms", () => {
+    const result = ReportSummarySchema.safeParse({
+      count: 100,
+      errors: 2,
+      rps: 50.0,
+      duration_seconds: 2,
+      mean_ms: 25,
+      p50_ms: 20,
+      p95_ms: 80,
+      p99_ms: 120,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.mean_ms).toBe(25);
+    }
+  });
+
+  it("rejects a negative mean_ms (nonnegative constraint)", () => {
+    const result = ReportSummarySchema.safeParse({
+      count: 0,
+      errors: 0,
+      rps: 0,
+      duration_seconds: 1,
+      mean_ms: -1,
+      p50_ms: 0,
+      p95_ms: 0,
+      p99_ms: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a summary missing mean_ms (strict schema)", () => {
+    const result = ReportSummarySchema.safeParse({
+      count: 0,
+      errors: 0,
+      rps: 0,
+      duration_seconds: 1,
+      p50_ms: 0,
+      p95_ms: 0,
+      p99_ms: 0,
+    });
+    expect(result.success).toBe(false);
   });
 });
 

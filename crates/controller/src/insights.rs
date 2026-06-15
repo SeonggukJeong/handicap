@@ -320,6 +320,7 @@ mod tests {
             errors: 0,
             rps: 0.0,
             duration_seconds: 1,
+            mean_ms: 0,
             p50_ms: 0,
             p95_ms: 0,
             p99_ms: 0,

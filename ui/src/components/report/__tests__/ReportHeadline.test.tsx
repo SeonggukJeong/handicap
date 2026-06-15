@@ -9,6 +9,7 @@ const SUMMARY: ReportSummary = {
   errors: 37,
   rps: 205.7,
   duration_seconds: 60,
+  mean_ms: 150,
   p50_ms: 80,
   p95_ms: 210,
   p99_ms: 450,

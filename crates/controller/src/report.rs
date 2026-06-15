@@ -51,6 +51,7 @@ pub struct ReportSummary {
     pub errors: u64,
     pub rps: f64,
     pub duration_seconds: i64,
+    pub mean_ms: u64,
     pub p50_ms: u64,
     pub p95_ms: u64,
     pub p99_ms: u64,
@@ -592,6 +593,7 @@ pub fn build_report(
         errors: total_errors,
         rps,
         duration_seconds,
+        mean_ms: (overall.mean() / 1_000.0).round() as u64,
         p50_ms: overall_p.p50_ms,
         p95_ms: overall_p.p95_ms,
         p99_ms: overall_p.p99_ms,
@@ -1001,6 +1003,7 @@ mod tests {
             errors,
             rps,
             duration_seconds: 1,
+            mean_ms: 0,
             p50_ms: 0,
             p95_ms: p95,
             p99_ms: p99,
@@ -1789,5 +1792,22 @@ mod tests {
         let cls = status_class_count(&d, '5');
         assert_eq!(total, 100);
         assert!((rate - cls as f64 / total as f64).abs() < 1e-9);
+    }
+
+    #[test]
+    fn build_report_summary_mean_ms() {
+        // R1: ReportSummary.mean_ms = overall.mean() 반올림.
+        // 샘플 4개: 10_000µs, 20_000µs, 30_000µs, 40_000µs → mean = 25_000µs = 25ms.
+        let r = run_row();
+        let rows = vec![win(
+            100,
+            "s",
+            4,
+            0,
+            r#"{"200":4}"#,
+            &[10_000, 20_000, 30_000, 40_000],
+        )];
+        let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[]);
+        assert_eq!(rep.summary.mean_ms, 25);
     }
 }

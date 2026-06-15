@@ -44,6 +44,7 @@ const baseReport = {
     errors: 2,
     rps: 20.0,
     duration_seconds: 5,
+    mean_ms: 18,
     p50_ms: 10,
     p95_ms: 25,
     p99_ms: 35,

@@ -592,6 +592,7 @@ describe("RunDetailPage — report on terminal", () => {
         errors: 0,
         rps: 5.0,
         duration_seconds: 2,
+        mean_ms: 15,
         p50_ms: 10,
         p95_ms: 20,
         p99_ms: 30,

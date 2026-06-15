@@ -48,6 +48,7 @@ const FIXTURE: Report = {
     errors: 1,
     rps: 7.5,
     duration_seconds: 2,
+    mean_ms: 20,
     p50_ms: 10,
     p95_ms: 50,
     p99_ms: 90,
