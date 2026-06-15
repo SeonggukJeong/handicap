@@ -140,6 +140,7 @@
 각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
 
 ### B1. Slice 8c (data-driven) 연기 항목
+- ~~**단일 바인딩 한계 (한 run = 데이터셋 1개)**~~ — **✅ 완료 (다중 데이터셋 바인딩, 2026-06-16, ADR-0022 구조적 확장)**: 한 run에 N개 독립 바인딩(`Profile.data_binding: Option`→`data_bindings: Vec` + `data_bindings()` 접근자 단일소스). proto field 10 `data_bindings`+`DatasetBatch.binding_index` 가산(field 5 fallback), 엔진 3경로 break-on-first-None 주입, `validate_run_config` 교차검증(변수명중복·MAX_BINDINGS=8), UI 바인딩 카드 목록(RunDialog+ScheduleForm lockstep). migration/ADR 0, 무바인딩 byte-identical. 상세 → `docs/build-log.md`, spec/plan `2026-06-15-multi-dataset-binding*`. 연기(§2 비목표): 행 zip/join·데이터셋 네임스페이스(`{{tracks.name}}`)·cartesian·`on_exhaust:fail` 토글·UI 클라 MAX_BINDINGS 미러.
 - ~~**`unique` 바인딩 정책**~~ — **✅ 완료 (2026-06-02)**: 정적 disjoint 슬라이스(`shard_split`) + stop-VU on exhaust 방식. ADR-0022 갱신. 연기: `on_exhaust: fail` opt-in 토글.
 - **민감값 마스킹**: 데이터셋 값이 로그/리포트/UI에 노출되지 않게(비밀번호 컬럼 등). 8c는 값 비로깅까지만. → 보안 강화 슬라이스 또는 A4(리포트) 곁다리.
 - ~~**JSON 숫자 주입**~~ — **✅ 완료 (2026-06-03, ADR-0029)**: flow `{{var:num}}`/`{{var:bool}}`(+`:str`) 캐스트 토큰으로 JSON body 문자열 leaf를 number/bool로 coerce(순수 단일 토큰 leaf만, leaf 레벨 파싱이라 `template.rs` 무변경, 엄격 실패=`CastFailed`, UI Zod 검증). 연기: `:json`/변수 기반 null·`${env}` 토큰 캐스트·form/raw/URL 캐스트.
