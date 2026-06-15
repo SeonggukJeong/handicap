@@ -321,20 +321,22 @@ export const ko = {
     load_gen_saturated:
       "에러·지연(latency)이 함께 높으면 대상 서버의 한계, 아니면 테스트 도구(워커 CPU·동시 실행 수 max_in_flight)를 늘려 다시 실행하세요.",
   },
-  // 사이징 권장(load_gen_saturated cause 분기) — slots는 권장 max_in_flight 숫자를 받는다.
+  // 사이징 권장(load_gen_saturated cause 분기). 조사 병기((으)로 등, ADR-0035).
   saturation: {
     slots: (rec: string) =>
       `동시 실행 수(max_in_flight)가 목표에 비해 작아요 — 최소 ~${rec}(으)로 올려 다시 실행하세요. ` +
       `(에러·지연이 함께 높으면 대상 서버가 한계라 슬롯만 늘려선 처리량이 안 늘 수 있어요.)`,
-    capacity:
-      `동시 실행 수(max_in_flight)는 목표에 충분했어요 — 한계는 테스트 도구(워커 CPU)나 ` +
-      `대상 서버입니다. max_in_flight를 올려도 처리량은 안 늘어요.`,
-    // 워커 추천이 있을 때(capacity-bound + 더 많은 워커로 도달 가능). spec §4.2 두-갈래 귀착.
-    // "개로"는 항상 유효(받침 없는 "개" → 조사 "로") — 병기 불요.
-    capacityWithWorkers: (m: number) =>
-      `동시 실행 수(max_in_flight)는 목표에 충분했어요 — 한 워커가 한계예요. ` +
-      `부하기(워커 CPU) 한계라면 worker_count를 ~${m}개로 올려 다시 실행하세요. ` +
-      `대상 서버 한계라면 워커를 늘려도 무익해요(에러·지연이 함께 높으면 대상 서버 한계).`,
+    loadgen:
+      `동시 실행 수(max_in_flight)는 충분했어요 — 부하 생성기(워커)가 한계로 보여요. ` +
+      `worker_count를 늘리면 더 높은 RPS를 낼 수 있어요. ` +
+      `(단 에러·지연이 함께 높아지면 대상 서버 한계일 수 있어요.)`,
+    loadgenWithWorkers: (m: number) =>
+      `동시 실행 수(max_in_flight)는 충분했어요 — 부하 생성기(워커)가 한계로 보여요. ` +
+      `worker_count를 ~${m}개로 올려 다시 실행하세요. ` +
+      `(단 에러·지연이 함께 높아지면 대상 서버 한계라 워커를 늘려도 무익할 수 있어요.)`,
+    sut:
+      `동시 실행 수(max_in_flight)는 충분했어요 — 대상 서버(SUT)가 한계로 보여요(에러·지연 상승). ` +
+      `워커·슬롯을 늘려도 지속 RPS는 안 올라요. 서버 용량·설정을 점검하세요.`,
   },
   // 열린 루프 생성 시점 슬롯 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   slotSizing: {

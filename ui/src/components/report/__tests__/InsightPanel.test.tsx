@@ -83,33 +83,52 @@ describe("InsightPanel", () => {
     expect(screen.getByText(/최소 ~500\(으\)로 올려/)).toBeInTheDocument();
   });
 
-  it("load_gen_saturated capacity — 올려도 안 늘어요 행동 줄 (worker 추천 없음)", () => {
+  it("load_gen_saturated loadgen — worker_count 늘리라는 행동 줄 (추천 수 없음)", () => {
     const insights: Insight[] = [
-      {
-        kind: "load_gen_saturated",
-        severity: "warning",
-        value: 9000,
-        count: 12,
-        cause: "capacity",
-      },
+      { kind: "load_gen_saturated", severity: "warning", value: 9000, count: 12, cause: "loadgen" },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    expect(screen.getByText(/max_in_flight를 올려도 처리량은 안 늘어요/)).toBeInTheDocument();
+    expect(screen.getByText(/worker_count를 늘리면 더 높은 RPS/)).toBeInTheDocument();
   });
 
-  it("load_gen_saturated capacity — recommended_workers면 worker_count 추천 행동 줄", () => {
+  it("load_gen_saturated loadgen — recommended_workers면 worker_count 추천 행동 줄", () => {
     const insights: Insight[] = [
       {
         kind: "load_gen_saturated",
         severity: "warning",
         value: 1000,
         count: 50,
-        cause: "capacity",
+        cause: "loadgen",
         recommended_workers: 3,
       },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
     // worker_count를 ~3개로 올리라는 추천이 보인다 (Math.round(3)=3 정확 문자열 락인)
     expect(screen.getByText(/worker_count를 ~3개로/)).toBeInTheDocument();
+  });
+
+  it("load_gen_saturated sut — 대상 서버 한계 행동 줄 (worker 추천 없음)", () => {
+    const insights: Insight[] = [
+      { kind: "load_gen_saturated", severity: "warning", value: 800, count: 90, cause: "sut" },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(screen.getByText(/대상 서버\(SUT\)가 한계로 보여요/)).toBeInTheDocument();
+    expect(screen.getByText(/지속 RPS는 안 올라요/)).toBeInTheDocument();
+    expect(screen.queryByText(/worker_count를/)).toBeNull();
+  });
+
+  it("load_gen_saturated onset_second면 포화 시점 절을 헤드라인에 렌더", () => {
+    const insights: Insight[] = [
+      {
+        kind: "load_gen_saturated",
+        severity: "warning",
+        value: 7500,
+        count: 320,
+        cause: "loadgen",
+        onset_second: 12,
+      },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(screen.getByText(/약 12초 지점부터 포화/)).toBeInTheDocument();
   });
 });

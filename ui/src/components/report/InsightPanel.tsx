@@ -39,8 +39,12 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
       return `스텝 ${name(i.step_id)}이(가) 에러의 ${pctStr(i.pct)} (${n(i.count)}건)`;
     case "slowest_step":
       return `스텝 ${name(i.step_id)}이(가) p95 ${n(i.value)}ms로 가장 느림`;
-    case "load_gen_saturated":
-      return `목표한 부하를 다 걸지 못했어요 — 초당 최대 ${n(i.value)}건까지만 보냈고, 보내려다 못 보낸 요청이 ${n(i.count)}건 있어요`;
+    case "load_gen_saturated": {
+      const head =
+        `목표한 부하를 다 걸지 못했어요 — 초당 최대 ${n(i.value)}건까지만 보냈어요` +
+        `(= 이 구성의 지속 가능한 최대 RPS). 보내려다 못 보낸 요청이 ${n(i.count)}건 있어요`;
+      return i.onset_second != null ? `${head} (약 ${i.onset_second}초 지점부터 포화)` : head;
+    }
     default:
       return i.kind;
   }
@@ -49,12 +53,13 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
 function actionFor(i: Insight): string | undefined {
   if (i.kind === "load_gen_saturated") {
     if (i.cause === "slots") return ko.saturation.slots(n(i.recommended));
-    if (i.cause === "capacity") {
+    if (i.cause === "loadgen") {
       return i.recommended_workers != null
-        ? ko.saturation.capacityWithWorkers(Math.round(i.recommended_workers))
-        : ko.saturation.capacity;
+        ? ko.saturation.loadgenWithWorkers(Math.round(i.recommended_workers))
+        : ko.saturation.loadgen;
     }
-    return ko.insightActions.load_gen_saturated; // 폴백(A9 일반)
+    if (i.cause === "sut") return ko.saturation.sut;
+    return ko.insightActions.load_gen_saturated; // 폴백(A9 일반, cause None)
   }
   return ACTIONS[i.kind];
 }
