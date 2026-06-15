@@ -468,3 +468,78 @@ async fn comparison_csv_validates_and_returns() {
         "non-existent run id must return 404"
     );
 }
+
+#[tokio::test]
+async fn single_run_insights_csv_export_returns_csv() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (run_id, _) = seed_run_with_metrics(&db).await;
+    let app = make_app(db);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report-insights.csv"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        cd.contains(&format!("run-{run_id}-insights.csv")),
+        "filename: {cd}"
+    );
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    let first = text.lines().next().unwrap();
+    assert_eq!(
+        first,
+        "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second"
+    );
+}
+
+#[tokio::test]
+async fn comparison_insights_csv_returns_long_format() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (s, a, b) = seed_two_runs(&db).await;
+    let app = make_app(db);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!(
+                    "/api/scenarios/{s}/runs/compare-insights.csv?run_ids={a},{b}&baseline={a}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        text.lines()
+            .next()
+            .unwrap()
+            .starts_with("run_id,kind,severity,"),
+        "header: {}",
+        text.lines().next().unwrap()
+    );
+}

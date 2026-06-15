@@ -716,6 +716,21 @@ pub async fn report_xlsx(
     ))
 }
 
+pub async fn report_insights_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
+    ensure_terminal(&row)?;
+    let report = build_report_for_run(&state.db, &id).await?;
+    let bytes = crate::export::report_to_insights_csv(&report);
+    Ok(file_response(
+        "text/csv; charset=utf-8",
+        &format!("run-{id}-insights.csv"),
+        bytes,
+    ))
+}
+
 #[derive(serde::Deserialize)]
 pub struct CompareParams {
     pub run_ids: String,
@@ -793,6 +808,22 @@ pub async fn compare_xlsx(
     Ok(file_response(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "comparison.xlsx",
+        bytes,
+    ))
+}
+
+pub async fn compare_insights_csv(
+    State(state): State<AppState>,
+    Path(scenario_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<CompareParams>,
+) -> Result<axum::response::Response, ApiError> {
+    // 인사이트는 run간 delta 의미가 없어 baseline 인덱스를 쓰지 않는다(long-format).
+    // resolve_comparison의 baseline ∈ run_ids 게이트는 그대로 재사용.
+    let (reports, _base) = resolve_comparison(&state, &scenario_id, &params).await?;
+    let bytes = crate::export::comparison_to_insights_csv(&reports);
+    Ok(file_response(
+        "text/csv; charset=utf-8",
+        "comparison-insights.csv",
         bytes,
     ))
 }
