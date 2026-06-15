@@ -990,9 +990,13 @@ steps:
 
     #[test]
     fn saturated_peak_zero_omits_worker_rec() {
-        // peak == 0 (windows 비고 summary.rps < 0.5라 round → 0) → div-by-zero 가드로
-        // recommended_workers None. dropped>0이라 인사이트 자체는 emit.
-        let s = summary(); // rps = 0.0 → peak fallback = 0
+        // cause=capacity arm에 *도달*하되 peak == 0 (windows 비고 summary.rps < 0.5라
+        // round → 0)인 경우 → div-by-zero 가드(peak > 0)로 recommended_workers None.
+        // p50=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → capacity arm 진입
+        // (p50=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
+        // dropped>0이라 인사이트 자체는 emit.
+        let mut s = summary(); // rps = 0.0 → peak fallback = 0
+        s.p50_ms = 50;
         let got = derive_insights(
             &s,
             &[],
@@ -1009,6 +1013,8 @@ steps:
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
+        // capacity arm을 실제로 탔는지 확인 — 그래야 None이 fallback이 아니라 가드 덕분.
+        assert_eq!(ins.cause.as_deref(), Some("capacity"));
         assert_eq!(ins.recommended_workers, None);
     }
 
