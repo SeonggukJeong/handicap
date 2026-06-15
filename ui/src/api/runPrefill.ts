@@ -1,4 +1,4 @@
-import { ProfileSchema, type Profile } from "./schemas";
+import { ProfileSchema, type DataBinding, type Profile } from "./schemas";
 
 /** Decode a stored run/preset env (arbitrary JSON value) into a string→string
  *  record, dropping non-string values. The backend now rejects non-string env at
@@ -43,6 +43,19 @@ export function profileDurationSeconds(
     return curve.reduce((acc, s) => acc + s.duration_seconds, 0);
   }
   return profile.duration_seconds;
+}
+
+/** Restore the form's data-binding cards from a stored profile (run/preset/schedule).
+ *  Prefers the new `data_bindings` array; falls back to the legacy single
+ *  `data_binding` (rendered as one card) so old runs/presets still load. Takes only
+ *  the fields it reads so a `RunSchema.profile` (nested-default leaks) is assignable
+ *  without `normalizeProfile`. */
+export function seedBindingsFrom(
+  profile: Pick<Profile, "data_binding" | "data_bindings"> | undefined,
+): DataBinding[] {
+  if (!profile) return [];
+  if (profile.data_bindings && profile.data_bindings.length > 0) return profile.data_bindings;
+  return profile.data_binding ? [profile.data_binding] : [];
 }
 
 /** Shape of RunDialog's `initial` prop — a past run's profile + decoded env. */

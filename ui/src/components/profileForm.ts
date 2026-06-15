@@ -120,7 +120,8 @@ export type ProfileFormInput = {
   hasLoop: boolean;
   loopCap: number;
   httpTimeout: number;
-  binding: DataBinding | null;
+  /** 다중 독립 데이터 바인딩 (binding_index 순서). 빈 배열이면 data_bindings 키를 생략. */
+  bindings: DataBinding[];
   loadState: LoadModelState;
   criteria: CriteriaState;
   measurePhases: boolean;
@@ -130,7 +131,9 @@ export function buildProfile(i: ProfileFormInput): Profile {
   return {
     loop_breakdown_cap: i.hasLoop ? i.loopCap : 0,
     http_timeout_seconds: i.httpTimeout,
-    data_binding: i.binding ?? undefined,
+    // 신규 다중 바인딩만 WRITE한다 — 레거시 data_binding 키는 더 이상 쓰지 않는다(읽기 호환만).
+    // 빈 배열이면 키 자체를 생략(byte-identical to 바인딩 없는 제출).
+    data_bindings: i.bindings.length ? i.bindings : undefined,
     criteria: buildCriteria(i.criteria),
     measure_phases: i.measurePhases,
     ...buildLoadProfile(i.loadState),

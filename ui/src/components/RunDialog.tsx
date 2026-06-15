@@ -15,7 +15,7 @@ import { flattenHttpSteps } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
-import { envValueToRecord, normalizeProfile } from "../api/runPrefill";
+import { envValueToRecord, normalizeProfile, seedBindingsFrom } from "../api/runPrefill";
 import { getPreset } from "../api/presets";
 import type { PresetInput } from "../api/presets";
 import { EnvironmentPicker } from "./EnvironmentPicker";
@@ -134,7 +134,8 @@ export function RunDialog({
         initial?.profile.loop_breakdown_cap != null &&
         initial.profile.loop_breakdown_cap !== 256),
   );
-  const [binding, setBinding] = useState<DataBinding | null>(initial?.profile.data_binding ?? null);
+  // 다중 데이터 바인딩. 레거시 단일 data_binding은 한 카드로 복원(읽기 호환).
+  const [bindings, setBindings] = useState<DataBinding[]>(seedBindingsFrom(initial?.profile));
   // DataBindingPanel 막힘 사유(ok + reasons). 패널의 emit effect deps에 onValidityChange가
   // 있어 인라인 화살표를 넘기면 부모 렌더마다 effect 재발화 → setState → 재렌더 루프 —
   // 반드시 stable useCallback으로 넘긴다.
@@ -152,10 +153,10 @@ export function RunDialog({
   const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
   const baseVars = selectedEnv.data?.vars ?? {};
 
-  // seedBinding drives the DataBindingPanel's initialBinding; bumping panelKey remounts
-  // the panel so it re-seeds from the loaded preset's binding (explicit user action).
-  const [seedBinding, setSeedBinding] = useState<DataBinding | null>(
-    initial?.profile.data_binding ?? null,
+  // seedBindings drives the DataBindingPanel's initialBindings; bumping panelKey remounts
+  // the panel so it re-seeds from the loaded preset's bindings (explicit user action).
+  const [seedBindings, setSeedBindings] = useState<DataBinding[]>(
+    seedBindingsFrom(initial?.profile),
   );
   const [panelKey, setPanelKey] = useState(0);
   // loadedPresetId / presetName: used by save/rename/delete preset controls.
@@ -183,9 +184,9 @@ export function RunDialog({
       setEnvEntries(
         Object.entries(envValueToRecord(p.env)).map(([key, value]) => ({ key, value })),
       );
-      const b = prof.data_binding ?? null;
-      setBinding(b);
-      setSeedBinding(b);
+      const b = seedBindingsFrom(prof);
+      setBindings(b);
+      setSeedBindings(b);
       setPanelKey((k) => k + 1);
       const pc = criteriaStateFrom(prof.criteria ?? undefined);
       setMaxP50(pc.maxP50);
@@ -379,7 +380,7 @@ export function RunDialog({
       hasLoop,
       loopCap,
       httpTimeout,
-      binding,
+      bindings,
       loadState,
       criteria: criteriaState,
       measurePhases,
@@ -537,8 +538,8 @@ export function RunDialog({
           <DataBindingPanel
             key={panelKey}
             scenario={scenario}
-            initialBinding={seedBinding}
-            onChange={setBinding}
+            initialBindings={seedBindings}
+            onChange={setBindings}
             onValidityChange={onBindingValidity}
           />
         )}

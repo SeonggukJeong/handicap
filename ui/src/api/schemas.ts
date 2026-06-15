@@ -81,7 +81,13 @@ export const ProfileSchema = z.object({
     .object({ min_ms: z.number().int().nonnegative(), max_ms: z.number().int().nonnegative() })
     .nullish(),
   think_seed: z.number().int().nonnegative().nullish(),
+  // 레거시 단일 바인딩 — 옛 run/preset이 `data_binding: null`을 보낼 수 있어 .nullish()
+  // (.optional()만 쓰면 서버 null을 거부해 모든 run 생성 UI가 깨진다 — S-D 함정).
+  // 읽기 호환 전용: 신 컨트롤러는 data_bindings를 쓰고, 빌더는 이 키를 더 이상 쓰지 않는다.
   data_binding: DataBindingSchema.nullish(),
+  // 신규 다중 바인딩 (binding_index 순서). 우리가 WRITE만 하고 서버는 우리 배열을 echo
+  // 하거나(있으면) omit하므로 .optional()이면 충분. 안전 위해 null도 허용(.nullish()).
+  data_bindings: z.array(DataBindingSchema).nullish(),
   criteria: CriteriaSchema.nullish(),
   target_rps: z.number().int().positive().max(1_000_000).nullish(),
   max_in_flight: z.number().int().positive().max(10_000).nullish(),

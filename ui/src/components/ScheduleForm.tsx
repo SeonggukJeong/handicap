@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { DataBinding, Profile } from "../api/schemas";
 import type { ScheduleInput, TriggerInput } from "../api/schedules";
 import { useEnvironment, useScenario } from "../api/hooks";
-import { normalizeProfile } from "../api/runPrefill";
+import { normalizeProfile, seedBindingsFrom } from "../api/runPrefill";
 import { resolveEnv, type EnvEntry } from "../api/envOverlay";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { isLoopStep, flattenHttpSteps } from "../scenario/model";
@@ -167,7 +167,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [advancedOpen, setAdvancedOpen] = useState(() => init?.measure_phases ?? false);
 
   // ── data binding ──────────────────────────────────────────────────────────
-  const [binding, setBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
+  // 다중 데이터 바인딩 (RunDialog와 lockstep). 레거시 단일 data_binding은 한 카드로 복원.
+  const [bindings, setBindings] = useState<DataBinding[]>(seedBindingsFrom(init));
   // DataBindingPanel 막힘 사유(ok + reasons). 패널의 emit effect deps에 onValidityChange가
   // 있어 인라인 화살표를 넘기면 부모 렌더마다 effect 재발화 → setState → 재렌더 루프 —
   // 반드시 stable useCallback으로 넘긴다.
@@ -179,9 +180,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     (ok: boolean, reasons: string[]) => setBindingBlock({ ok, reasons }),
     [],
   );
-  // seedBinding drives DataBindingPanel's initialBinding; panelKey remounts the panel
-  // on scenario change so it re-seeds with the reset (null) binding (mount-once contract).
-  const [seedBinding, setSeedBinding] = useState<DataBinding | null>(init?.data_binding ?? null);
+  // seedBindings drives DataBindingPanel's initialBindings; panelKey remounts the panel
+  // on scenario change so it re-seeds with the reset ([]) bindings (mount-once contract).
+  const [seedBindings, setSeedBindings] = useState<DataBinding[]>(seedBindingsFrom(init));
   const [panelKey, setPanelKey] = useState(0);
 
   // ── environment overlay ───────────────────────────────────────────────────
@@ -236,7 +237,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       hasLoop,
       loopCap,
       httpTimeout,
-      binding,
+      bindings,
       loadState,
       criteria: criteriaState,
       measurePhases,
@@ -278,8 +279,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
             value={scenarioId}
             onChange={(e) => {
               setScenarioId(e.target.value);
-              setBinding(null);
-              setSeedBinding(null);
+              setBindings([]);
+              setSeedBindings([]);
               setBindingBlock({ ok: true, reasons: [] });
               setPanelKey((k) => k + 1);
               setStepCriteria([]);
@@ -432,8 +433,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         <DataBindingPanel
           key={panelKey}
           scenario={parsedScenario}
-          initialBinding={seedBinding}
-          onChange={setBinding}
+          initialBindings={seedBindings}
+          onChange={setBindings}
           onValidityChange={onBindingValidity}
         />
       )}

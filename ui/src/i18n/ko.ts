@@ -48,6 +48,19 @@ export const ko = {
     blockedReasonsIntro: "실행하려면 다음을 해결하세요:",
     bindingReasonPrefix: "데이터 바인딩: ",
   },
+  binding: {
+    sectionTitle: "데이터 바인딩",
+    addDataset: "데이터셋 추가",
+    removeBinding: "바인딩 제거",
+    cardLabel: (n: number) => `바인딩 ${n}`,
+    rowCount: (n: number) => `${n}행`,
+    // 카드 접힘 시 설정 요약(데이터셋명 또는 매핑 수). 비어 있으면 "미설정".
+    collapsedUnset: "미설정",
+    collapsedSummary: (dataset: string, mappingCount: number) =>
+      `${dataset} · 매핑 ${mappingCount}개`,
+    // 교차-카드 변수명 중복 경고 (클라이언트 측 — 최종 400은 서버가 낸다, Task 5와 동일 문구).
+    dupVar: (name: string) => `변수 '${name}'이 여러 데이터셋에 중복 매핑됨`,
+  },
   loadModel: {
     closedLoop: "사용자 수 기준 (closed-loop)",
     openLoop: "요청 속도 기준 (open-loop)",

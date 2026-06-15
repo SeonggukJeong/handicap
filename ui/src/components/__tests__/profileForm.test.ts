@@ -9,6 +9,7 @@ import {
   type CriteriaState,
 } from "../profileForm";
 import type { LoadModelState } from "../loadModel";
+import type { DataBinding } from "../../api/schemas";
 
 const closedLoad: LoadModelState = {
   loadModel: "closed",
@@ -46,7 +47,7 @@ describe("buildProfile", () => {
       hasLoop: false,
       loopCap: 256,
       httpTimeout: 30,
-      binding: null,
+      bindings: [],
       loadState: closedLoad,
       criteria: EMPTY_CRITERIA,
       measurePhases: false,
@@ -54,7 +55,7 @@ describe("buildProfile", () => {
     expect(p).toMatchObject({
       loop_breakdown_cap: 0, // hasLoop=false → 0
       http_timeout_seconds: 30,
-      data_binding: undefined,
+      data_bindings: undefined,
       criteria: undefined,
       vus: 4,
       duration_seconds: 30, // from buildLoadProfile
@@ -65,12 +66,55 @@ describe("buildProfile", () => {
       hasLoop: true,
       loopCap: 99,
       httpTimeout: 30,
-      binding: null,
+      bindings: [],
       loadState: closedLoad,
       criteria: EMPTY_CRITERIA,
       measurePhases: false,
     });
     expect(p.loop_breakdown_cap).toBe(99);
+  });
+});
+
+describe("buildProfile data_bindings (multi)", () => {
+  const bA: DataBinding = {
+    dataset_id: "DS1",
+    policy: "per_vu",
+    mappings: [{ kind: "column", var: "username", column: "username" }],
+  };
+  const bB: DataBinding = {
+    dataset_id: "DS2",
+    policy: "iter_random",
+    mappings: [{ kind: "column", var: "email", column: "email" }],
+  };
+
+  it("emits data_bindings array and omits the legacy data_binding key", () => {
+    const p = buildProfile({
+      hasLoop: false,
+      loopCap: 256,
+      httpTimeout: 30,
+      bindings: [bA, bB],
+      loadState: closedLoad,
+      criteria: EMPTY_CRITERIA,
+      measurePhases: false,
+    });
+    expect(p.data_bindings).toHaveLength(2);
+    expect(p.data_bindings).toEqual([bA, bB]);
+    // Legacy single-binding key must never be written by the new builder.
+    expect("data_binding" in p).toBe(false);
+  });
+
+  it("omits data_bindings entirely when bindings is empty", () => {
+    const p = buildProfile({
+      hasLoop: false,
+      loopCap: 256,
+      httpTimeout: 30,
+      bindings: [],
+      loadState: closedLoad,
+      criteria: EMPTY_CRITERIA,
+      measurePhases: false,
+    });
+    expect(p.data_bindings).toBeUndefined();
+    expect("data_binding" in p).toBe(false);
   });
 });
 
@@ -143,7 +187,7 @@ describe("buildProfile measure_phases", () => {
       hasLoop: false,
       loopCap: 256,
       httpTimeout: 30,
-      binding: null,
+      bindings: [],
       loadState: closedLoad,
       criteria: EMPTY_CRITERIA,
     };

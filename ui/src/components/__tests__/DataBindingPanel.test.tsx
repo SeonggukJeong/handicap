@@ -119,17 +119,21 @@ const DATASET_DETAIL = {
   sample: [{ username: "alice", email: "alice@example.com" }],
 };
 
+// The panel now emits a DataBinding[] (multi-binding). Most legacy tests assert on
+// a SINGLE binding, so renderPanel adapts the array callback to the first binding
+// (or null when empty), preserving the original single-binding assertions.
 function renderPanel(
   scenario: Scenario,
   onChange: (b: DataBinding | null) => void = vi.fn(),
   onValidityChange: (ok: boolean, reasons?: string[]) => void = vi.fn(),
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const arrayOnChange = (bindings: DataBinding[]) => onChange(bindings[0] ?? null);
   const utils = render(
     <QueryClientProvider client={qc}>
       <DataBindingPanel
         scenario={scenario}
-        onChange={onChange}
+        onChange={arrayOnChange}
         onValidityChange={onValidityChange}
       />
     </QueryClientProvider>,
@@ -434,7 +438,7 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
       <QueryClientProvider client={qc}>
         <DataBindingPanel
           scenario={makeScenario()}
-          initialBinding={initialBinding}
+          initialBindings={initialBinding ? [initialBinding] : []}
           onChange={() => {}}
           onValidityChange={() => {}}
         />
@@ -494,24 +498,26 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
 
   it("emits the seeded binding to onChange after mount", async () => {
     mockDatasets();
-    const onChange = vi.fn<(b: DataBinding | null) => void>();
+    const onChange = vi.fn<(b: DataBinding[]) => void>();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
         <DataBindingPanel
           scenario={makeScenario()}
-          initialBinding={{
-            dataset_id: "D1",
-            policy: "iter_random",
-            mappings: [{ kind: "column", var: "username", column: "user" }],
-          }}
+          initialBindings={[
+            {
+              dataset_id: "D1",
+              policy: "iter_random",
+              mappings: [{ kind: "column", var: "username", column: "user" }],
+            },
+          ]}
           onChange={onChange}
           onValidityChange={() => {}}
         />
       </QueryClientProvider>,
     );
     await waitFor(() => {
-      const last = onChange.mock.lastCall?.[0];
+      const last = onChange.mock.lastCall?.[0]?.[0];
       expect(last?.dataset_id).toBe("D1");
       expect(last?.policy).toBe("iter_random");
       expect(last?.mappings).toContainEqual({ kind: "column", var: "username", column: "user" });
@@ -536,7 +542,7 @@ describe("DataBindingPanel — deleted dataset notice (A2)", () => {
       <QueryClientProvider client={qc}>
         <DataBindingPanel
           scenario={makeScenario()}
-          initialBinding={{ dataset_id: "D1", policy: "per_vu", mappings: [] }}
+          initialBindings={[{ dataset_id: "D1", policy: "per_vu", mappings: [] }]}
           onChange={() => {}}
           onValidityChange={onValidity}
         />
@@ -549,5 +555,267 @@ describe("DataBindingPanel — deleted dataset notice (A2)", () => {
     const { onValidity } = renderPanel();
     expect(await screen.findByText(/데이터셋이 삭제/)).toBeInTheDocument();
     await waitFor(() => expect(onValidity).toHaveBeenCalledWith(false, expect.any(Array)));
+  });
+});
+
+// ── Multi-dataset binding (list editor) ────────────────────────────────────
+const TWO_DATASETS = {
+  datasets: [
+    {
+      id: "DS1",
+      name: "users.csv",
+      columns: ["username", "email"],
+      row_count: 100,
+      byte_size: 2048,
+      created_at: 1000,
+    },
+    {
+      id: "DS2",
+      name: "extra.csv",
+      columns: ["username", "extra"],
+      row_count: 7,
+      byte_size: 64,
+      created_at: 2000,
+    },
+  ],
+};
+
+const DS2_DETAIL = {
+  id: "DS2",
+  name: "extra.csv",
+  columns: ["username", "extra"],
+  row_count: 7,
+  byte_size: 64,
+  created_at: 2000,
+  sample: [{ username: "bob", extra: "x" }],
+};
+
+/** Scenario referencing TWO vars ({{username}} + {{extra}}) split across datasets. */
+function makeScenarioTwoVars(): Scenario {
+  return {
+    version: 1 as const,
+    name: "TwoVars",
+    cookie_jar: "auto" as const,
+    variables: {},
+    steps: [
+      {
+        id: "01HWAAAAAAAAAAAAAAAAAAAAAD",
+        name: "Use both",
+        type: "http" as const,
+        request: {
+          method: "GET" as const,
+          url: "http://example.com/{{username}}/{{extra}}",
+          headers: {},
+        },
+        assert: [],
+        extract: [],
+      },
+    ],
+  };
+}
+
+describe("DataBindingPanel — multi-binding list editor", () => {
+  function mockTwoDatasets() {
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/api/datasets")) return Promise.resolve(jsonResponse(TWO_DATASETS));
+      if (u.endsWith("/api/datasets/DS1")) return Promise.resolve(jsonResponse(DATASET_DETAIL));
+      if (u.endsWith("/api/datasets/DS2")) return Promise.resolve(jsonResponse(DS2_DETAIL));
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  function renderMulti(
+    initialBindings: DataBinding[] = [],
+    onChange: (b: DataBinding[]) => void = vi.fn(),
+    onValidityChange: (ok: boolean, reasons: string[]) => void = vi.fn(),
+    scenario: Scenario = makeScenario(),
+  ) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const utils = render(
+      <QueryClientProvider client={qc}>
+        <DataBindingPanel
+          scenario={scenario}
+          initialBindings={initialBindings}
+          onChange={onChange}
+          onValidityChange={onValidityChange}
+        />
+      </QueryClientProvider>,
+    );
+    return { ...utils, onChange, onValidityChange };
+  }
+
+  it("adds a second binding card via '데이터셋 추가'", async () => {
+    mockTwoDatasets();
+    const user = userEvent.setup();
+    renderMulti();
+    // One card by default → one dataset select.
+    expect(await screen.findByRole("option", { name: /users\.csv/i })).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+  });
+
+  it("removes a binding card", async () => {
+    mockTwoDatasets();
+    const user = userEvent.setup();
+    renderMulti();
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+
+    // Remove the second card.
+    const removeButtons = screen.getAllByRole("button", { name: /바인딩 제거/ });
+    await user.click(removeButtons[removeButtons.length - 1]);
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1));
+  });
+
+  it("emits a DataBinding[] with both selected bindings", async () => {
+    mockTwoDatasets();
+    const user = userEvent.setup();
+    const onChange = vi.fn<(b: DataBinding[]) => void>();
+    renderMulti([], onChange);
+
+    await screen.findByRole("option", { name: /users\.csv/i });
+    const firstSelect = screen.getAllByLabelText(/dataset/i)[0];
+    await user.selectOptions(firstSelect, "DS1");
+
+    await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+    const secondSelect = screen.getAllByLabelText(/dataset/i)[1];
+    await user.selectOptions(secondSelect, "DS2");
+
+    await waitFor(() => {
+      const last = onChange.mock.lastCall?.[0];
+      expect(last).toHaveLength(2);
+      expect(last?.map((b) => b.dataset_id).sort()).toEqual(["DS1", "DS2"]);
+    });
+  });
+
+  it("flags a duplicate variable mapped across two bindings", async () => {
+    mockTwoDatasets();
+    const onValidityChange = vi.fn<(ok: boolean, reasons: string[]) => void>();
+    // Both cards map {{username}} → duplicate var across bindings (client warning).
+    renderMulti(
+      [
+        {
+          dataset_id: "DS1",
+          policy: "per_vu",
+          mappings: [{ kind: "column", var: "username", column: "username" }],
+        },
+        {
+          dataset_id: "DS2",
+          policy: "per_vu",
+          mappings: [{ kind: "column", var: "username", column: "username" }],
+        },
+      ],
+      vi.fn(),
+      onValidityChange,
+    );
+
+    await waitFor(() => {
+      const last = onValidityChange.mock.lastCall;
+      expect(last?.[0]).toBe(false);
+      expect((last?.[1] as string[]).join(" ")).toContain("username");
+    });
+    expect(await screen.findByText(/여러 데이터셋/)).toBeInTheDocument();
+  });
+
+  it("shows the per-card row count (행) for a selected dataset", async () => {
+    mockTwoDatasets();
+    renderMulti([{ dataset_id: "DS2", policy: "per_vu", mappings: [] }]);
+    // DS2 has 7 rows — surfaced inline on the card header summary (and the option list).
+    await waitFor(() => expect(screen.getAllByText(/7행/).length).toBeGreaterThan(0));
+    // The card header summary carries the per-card row count (exact, distinguishes it
+    // from the option list "extra.csv (7행)").
+    expect(await screen.findByText("extra.csv · 매핑 1개 · 7행")).toBeInTheDocument();
+  });
+
+  it("does NOT flag a var as uncovered when a sibling card supplies it (split datasets)", async () => {
+    // Scenario uses {{username}} + {{extra}}. DSA covers ONLY username, DSB covers ONLY
+    // extra (disjoint columns so neither card auto-maps the other's var → no dup). Card 1
+    // (DSA) maps username, card 2 (DSB) maps extra. Neither card should flag the other's
+    // var as uncovered — the split-across-datasets pattern is the whole point of multi-binding.
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/api/datasets")) {
+        return Promise.resolve(
+          jsonResponse({
+            datasets: [
+              {
+                id: "DSA",
+                name: "a.csv",
+                columns: ["username"],
+                row_count: 5,
+                byte_size: 10,
+                created_at: 1,
+              },
+              {
+                id: "DSB",
+                name: "b.csv",
+                columns: ["extra"],
+                row_count: 6,
+                byte_size: 12,
+                created_at: 2,
+              },
+            ],
+          }),
+        );
+      }
+      if (u.endsWith("/api/datasets/DSA")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "DSA",
+            name: "a.csv",
+            columns: ["username"],
+            row_count: 5,
+            byte_size: 10,
+            created_at: 1,
+            sample: [{ username: "alice" }],
+          }),
+        );
+      }
+      if (u.endsWith("/api/datasets/DSB")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "DSB",
+            name: "b.csv",
+            columns: ["extra"],
+            row_count: 6,
+            byte_size: 12,
+            created_at: 2,
+            sample: [{ extra: "x" }],
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    const onValidityChange = vi.fn<(ok: boolean, reasons: string[]) => void>();
+    renderMulti(
+      [
+        {
+          dataset_id: "DSA",
+          policy: "per_vu",
+          mappings: [{ kind: "column", var: "username", column: "username" }],
+        },
+        {
+          dataset_id: "DSB",
+          policy: "per_vu",
+          mappings: [{ kind: "column", var: "extra", column: "extra" }],
+        },
+      ],
+      vi.fn(),
+      onValidityChange,
+      makeScenarioTwoVars(),
+    );
+
+    await waitFor(() => {
+      const last = onValidityChange.mock.lastCall;
+      expect(last?.[0]).toBe(true);
+      expect(last?.[1]).toEqual([]);
+    });
+    // No card shows the "uncovered" blocking hint.
+    expect(screen.queryByText(/매핑되지 않음/)).not.toBeInTheDocument();
   });
 });
