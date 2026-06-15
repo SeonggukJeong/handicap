@@ -530,6 +530,15 @@ async fn comparison_insights_csv_returns_long_format() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(cd.contains("comparison-insights.csv"), "filename: {cd}");
+
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
         .await
         .unwrap();
