@@ -364,8 +364,8 @@ async fn run_vu(
         // already advanced one step on the break-triggering iteration (≤1/VU,
         // on par with a deadline-truncated partial iteration).
         let mut stop = false;
-        for (i, ds) in datasets.iter().enumerate() {
-            match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
+        for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
+            match ds.select_index(vu_id, iter_id, counter.as_deref()) {
                 Some(idx) => {
                     for (k, v) in &ds.rows[idx] {
                         iter_vars.insert(k.clone(), v.clone());
@@ -1003,8 +1003,8 @@ async fn run_vu_curve(
             // Side effect (spec §7): an earlier IterSequential counter advances one
             // extra step on the break-triggering iteration (≤1/VU, discarded).
             let mut stop = false;
-            for (i, ds) in datasets.iter().enumerate() {
-                match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
+            for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
+                match ds.select_index(vu_id, iter_id, counter.as_deref()) {
                     Some(idx) => {
                         for (k, v) in &ds.rows[idx] {
                             iter_vars.insert(k.clone(), v.clone());
@@ -1353,8 +1353,8 @@ async fn run_arrival(
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
     // and drop this arrival (partial inject discarded). Side effect (spec §7): an
     // earlier IterSequential counter advances one extra step on this arrival (≤1).
-    for (i, ds) in datasets.iter().enumerate() {
-        match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
+    for (ds, counter) in datasets.iter().zip(seq_counters.iter()) {
+        match ds.select_index(vu_id, iter_id, counter.as_deref()) {
             Some(idx) => {
                 for (k, v) in &ds.rows[idx] {
                     iter_vars.insert(k.clone(), v.clone());
