@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { ScenarioListPage } from "./pages/ScenarioListPage";
 import { ScenarioNewPage } from "./pages/ScenarioNewPage";
+import { ScenarioImportPage } from "./pages/ScenarioImportPage";
 import { ScenarioEditPage } from "./pages/ScenarioEditPage";
 import { ScenarioRunsPage } from "./pages/ScenarioRunsPage";
 import { ScenarioComparePage } from "./pages/ScenarioComparePage";
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <ScenarioListPage /> },
       { path: "scenarios/new", element: <ScenarioNewPage /> },
+      { path: "scenarios/import", element: <ScenarioImportPage /> },
       { path: "scenarios/:id", element: <ScenarioEditPage /> },
       { path: "scenarios/:id/runs", element: <ScenarioRunsPage /> },
       { path: "scenarios/:id/compare", element: <ScenarioComparePage /> },

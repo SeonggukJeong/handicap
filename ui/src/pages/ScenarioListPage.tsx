@@ -19,9 +19,14 @@ export function ScenarioListPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold">{ko.nav.scenarios}</h2>
-        <Link to="/scenarios/new">
-          <Button>{ko.pages.newScenario}</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/scenarios/import">
+            <Button variant="secondary">{ko.import.title}</Button>
+          </Link>
+          <Link to="/scenarios/new">
+            <Button>{ko.pages.newScenario}</Button>
+          </Link>
+        </div>
       </div>
 
       {data && <OnboardingGuide firstScenarioId={data.scenarios[0]?.id ?? null} />}

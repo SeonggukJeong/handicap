@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useCreateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
@@ -42,13 +42,23 @@ export function ScenarioNewPage() {
   // 캡처된 *pre-load* store 텍스트(싱글톤 잔존물)라 baseline 시딩에 쓸 수 없다 —
   // 대신 mount 전에 store를 선적재해 "첫 onChange == canonical 템플릿"을 만들고,
   // 그 canonical을 yamlText/originalYaml 양쪽에 시드한다(미수정 = dirty false).
-  const chooseTemplate = (yaml: string) => {
+  const chooseTemplate = useCallback((yaml: string) => {
     useScenarioEditor.getState().loadFromString(yaml);
     const canonical = useScenarioEditor.getState().yamlText;
     setSeedYaml(yaml);
     setYamlText(canonical);
     setOriginalYaml(canonical);
-  };
+  }, []);
+
+  const location = useLocation();
+  const importedYaml = (location.state as { importedYaml?: string } | null)?.importedYaml;
+  const didImportSeed = useRef(false);
+  useEffect(() => {
+    if (importedYaml && !didImportSeed.current) {
+      didImportSeed.current = true;
+      chooseTemplate(importedYaml); // 갤러리 게이트(seedYaml===null)가 editor mount를 store 적재 뒤로 미룸
+    }
+  }, [importedYaml, chooseTemplate]);
 
   const cancel = () => {
     if (!dirty || window.confirm(ko.editor.discardConfirm)) navigate("/");

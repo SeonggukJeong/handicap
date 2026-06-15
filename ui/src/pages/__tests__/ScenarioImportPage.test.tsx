@@ -154,4 +154,13 @@ describe("ScenarioImportPage", () => {
     await screen.findByLabelText(ko.import.preview);
     expect(screen.getByText(ko.import.noRequests)).toBeInTheDocument();
   });
+
+  it("R9: 편집기로 보내기 → /scenarios/new로 navigate", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile());
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByRole("button", { name: ko.import.toEditor }));
+    expect(await screen.findByText("NEW")).toBeInTheDocument();
+  });
 });

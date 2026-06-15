@@ -64,6 +64,10 @@ describe("ScenarioListPage 홈 온보딩 + 빈 상태 (U2)", () => {
       "href",
       "/scenarios/new",
     );
+    expect(screen.getByRole("link", { name: ko.import.title })).toHaveAttribute(
+      "href",
+      "/scenarios/import",
+    );
   });
 
   it("시나리오 있으면 카드 ② 링크가 첫 시나리오 실행 목록을 가리킨다", async () => {
