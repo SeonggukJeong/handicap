@@ -153,6 +153,23 @@ pub fn report_to_insights_csv(report: &ReportJson) -> Vec<u8> {
     w.into_inner().expect("csv flush")
 }
 
+/// 비교 인사이트 CSV = long-format, (run, insight)당 1행, 선두 `run_id` 열.
+/// 헤더는 항상 기록(R11). baseline 무관(인사이트엔 run간 delta 의미가 없음).
+pub fn comparison_to_insights_csv(reports: &[ReportJson]) -> Vec<u8> {
+    let mut w = csv::Writer::from_writer(Vec::new());
+    let mut header = vec!["run_id"];
+    header.extend(INSIGHT_COLUMNS);
+    w.write_record(&header).expect("hdr");
+    for r in reports {
+        for ins in &r.insights {
+            let mut rec = vec![r.run.id.clone()];
+            rec.extend(insight_csv_cells(ins));
+            w.write_record(&rec).expect("row");
+        }
+    }
+    w.into_inner().expect("flush")
+}
+
 /// Comparison CSV = summary matrix. Columns: metric, each run's value, each
 /// non-baseline run's delta_pct. Rows in SUMMARY_METRICS order.
 pub fn comparison_to_csv(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8> {
@@ -302,6 +319,24 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         ws.write_number(row, 3, r.run.ended_at.unwrap_or(0) as f64)
             .expect("w");
         ws.write_number(row, 4, r.summary.count as f64).expect("w");
+    }
+
+    // Insights: long-format, run_id prepend (어느 run이라도 인사이트 있을 때만).
+    if reports.iter().any(|r| !r.insights.is_empty()) {
+        let ws = wb.add_worksheet();
+        ws.set_name("Insights").expect("name");
+        ws.write_string(0, 0, "run_id").expect("w");
+        for (c, h) in INSIGHT_COLUMNS.iter().enumerate() {
+            ws.write_string(0, (1 + c) as u16, *h).expect("w");
+        }
+        let mut row = 1u32;
+        for r in reports {
+            for ins in &r.insights {
+                ws.write_string(row, 0, &r.run.id).expect("w");
+                write_insight_xlsx_row(ws, row, 1, ins);
+                row += 1;
+            }
+        }
     }
 
     wb.save_to_buffer().expect("xlsx")
@@ -708,5 +743,74 @@ mod tests {
         let csv = String::from_utf8(report_to_insights_csv(&r)).unwrap();
         let csv_header: Vec<&str> = csv.lines().next().unwrap().split(',').collect();
         assert_eq!(csv_header, INSIGHT_COLUMNS.to_vec());
+    }
+
+    #[test]
+    fn comparison_insights_csv_long_format() {
+        let mut a = report_with_steps(vec![step("s", 1, 100)]);
+        a.run.id = "A".into();
+        a.insights = vec![
+            crate::insights::Insight {
+                step_id: Some("s".into()),
+                value: Some(100.0),
+                ..insight("slowest_step", "info")
+            },
+            crate::insights::Insight {
+                status_class: Some("5xx".into()),
+                pct: Some(0.1),
+                count: Some(3),
+                ..insight("status_class", "warning")
+            },
+        ];
+        let mut b = report_with_steps(vec![step("s", 1, 50)]);
+        b.run.id = "B".into();
+        b.insights = vec![]; // B has no insights → contributes no rows
+
+        let csv = String::from_utf8(comparison_to_insights_csv(&[a, b])).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(
+            lines[0],
+            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second"
+        );
+        assert_eq!(lines.len(), 3); // header + 2 rows (both from A)
+        assert!(lines[1].starts_with("A,slowest_step,info,s,"));
+        assert!(lines[2].starts_with("A,status_class,warning,,"));
+    }
+
+    #[test]
+    fn comparison_insights_csv_empty_is_header_only() {
+        let mut a = report_with_steps(vec![step("s", 1, 1)]);
+        a.run.id = "A".into();
+        let mut b = report_with_steps(vec![step("s", 1, 1)]);
+        b.run.id = "B".into();
+        let csv = String::from_utf8(comparison_to_insights_csv(&[a, b])).unwrap();
+        assert_eq!(csv.lines().count(), 1); // header only
+    }
+
+    #[test]
+    fn comparison_xlsx_has_insights_sheet() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let mut a = report_with_steps(vec![step("s", 1, 100)]);
+        a.run.id = "A".into();
+        a.insights = vec![crate::insights::Insight {
+            step_id: Some("s".into()),
+            value: Some(100.0),
+            ..insight("slowest_step", "info")
+        }];
+        let mut b = report_with_steps(vec![step("s", 1, 50)]);
+        b.run.id = "B".into();
+        let bytes = comparison_to_xlsx(&[a, b], 0);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+        let ws = wb.worksheet_range("Insights").expect("Insights sheet");
+        assert_eq!(ws.get_value((0, 0)), Some(&Data::String("run_id".into())));
+        assert_eq!(ws.get_value((0, 1)), Some(&Data::String("kind".into())));
+        assert_eq!(ws.get_value((1, 0)), Some(&Data::String("A".into())));
+        assert_eq!(
+            ws.get_value((1, 1)),
+            Some(&Data::String("slowest_step".into()))
+        );
+        // value는 col_offset 1 + value 인덱스 4 = 5
+        assert_eq!(ws.get_value((1, 5)), Some(&Data::Float(100.0)));
     }
 }
