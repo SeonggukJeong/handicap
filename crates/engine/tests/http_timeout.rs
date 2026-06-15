@@ -45,7 +45,7 @@ steps:
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
         vu_offset: 0,
-        data_binding: None,
+        data_bindings: vec![],
         http_timeout,
         think_time: None,
         think_seed: None,
@@ -130,7 +130,7 @@ steps:
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
         vu_offset: 0,
-        data_binding: None,
+        data_bindings: vec![],
         http_timeout: Duration::from_secs(30), // generous client default
         think_time: None,
         think_seed: None,

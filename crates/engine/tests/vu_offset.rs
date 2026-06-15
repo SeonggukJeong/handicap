@@ -25,7 +25,7 @@ async fn run_with_offset(target: &str, vu_offset: u32, vus: u32) {
         env: BTreeMap::new(),
         loop_breakdown_cap: 0,
         vu_offset,
-        data_binding: None,
+        data_bindings: vec![],
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,

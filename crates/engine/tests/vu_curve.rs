@@ -34,7 +34,7 @@ fn curve_plan(stages: Vec<Stage>, ramp_down: RampDown) -> RunPlan {
         env: BTreeMap::new(),
         loop_breakdown_cap: 256,
         vu_offset: 0,
-        data_binding: None,
+        data_bindings: vec![],
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,

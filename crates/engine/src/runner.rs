@@ -53,8 +53,11 @@ pub struct RunPlan {
     /// Global VU id offset for this shard: `vu_id = vu_offset + spawned`.
     /// `0` for a single-worker run (legacy numbering). (A3a spec §3.)
     pub vu_offset: u32,
-    /// Optional data-driven binding. `None` → no injection (back-compat).
-    pub data_binding: Option<Arc<DataSet>>,
+    /// Data-driven bindings, injected per VU iteration in declared order
+    /// (spec §2). Empty → no injection (back-compat). N>1 binds multiple datasets
+    /// into the same iteration; the first binding whose `Unique` slice is
+    /// exhausted stops the VU (break-on-first-None, spec §7).
+    pub data_bindings: Vec<Arc<DataSet>>,
     /// Total per-request HTTP timeout for every VU client (reqwest client-level).
     /// `30s` reproduces the pre-S-A hardcoded default.
     pub http_timeout: Duration,
@@ -106,6 +109,21 @@ pub struct MetricFlush {
     pub active_vu_samples: Vec<ActiveVuSample>,
 }
 
+/// One shared worker-local cursor per binding, `Some` only for `IterSequential`
+/// and `Unique` (the policies that advance a cursor); `None` for `PerVu`/`IterRandom`.
+/// Index aligns with `data_bindings` order. Shared by all three execution paths.
+fn make_seq_counters(datasets: &[Arc<DataSet>]) -> Vec<Option<Arc<AtomicU64>>> {
+    datasets
+        .iter()
+        .map(|d| match d.policy {
+            BindingPolicy::IterSequential | BindingPolicy::Unique => {
+                Some(Arc::new(AtomicU64::new(0)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Drive `vus` virtual users through `scenario` for `plan.duration`, streaming
 /// completed 1s windows to `out`. Returns when the run finishes (all VUs done).
 pub async fn run_scenario(
@@ -119,18 +137,14 @@ pub async fn run_scenario(
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
     let env = Arc::new(plan.env);
-    let dataset = plan.data_binding.clone();
+    let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
     let think_time = plan.think_time;
     let think_seed = plan.think_seed;
     let measure_phases = plan.measure_phases;
-    // One shared worker-local counter for IterSequential and Unique, created once per run.
-    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
-        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
-            Some(Arc::new(AtomicU64::new(0)))
-        }
-        _ => None,
-    };
+    // One shared worker-local counter per binding (IterSequential | Unique only),
+    // created once per run; index = binding order.
+    let seq_counters = make_seq_counters(&datasets);
 
     let mut set = JoinSet::new();
 
@@ -168,8 +182,8 @@ pub async fn run_scenario(
             let failed = failed.clone();
             let env = env.clone();
             let cancel_vu = cancel.clone();
-            let dataset = dataset.clone();
-            let seq_counter = seq_counter.clone();
+            let datasets = datasets.clone();
+            let seq_counters = seq_counters.clone();
             set.spawn(async move {
                 if let Err(e) = run_vu(
                     scenario,
@@ -178,8 +192,8 @@ pub async fn run_scenario(
                     deadline,
                     env,
                     cancel_vu,
-                    dataset,
-                    seq_counter,
+                    datasets,
+                    seq_counters,
                     http_timeout,
                     think_time,
                     think_seed,
@@ -317,7 +331,7 @@ pub async fn run_scenario(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip(scenario, agg, env, dataset, seq_counter), fields(vu_id))]
+#[instrument(skip(scenario, agg, env, datasets, seq_counters), fields(vu_id))]
 async fn run_vu(
     scenario: Arc<Scenario>,
     vu_id: u32,
@@ -325,8 +339,8 @@ async fn run_vu(
     deadline: Instant,
     env: Arc<BTreeMap<String, String>>,
     cancel: CancellationToken,
-    dataset: Option<Arc<DataSet>>,
-    seq_counter: Option<Arc<AtomicU64>>,
+    datasets: Vec<Arc<DataSet>>,
+    seq_counters: Vec<Option<Arc<AtomicU64>>>,
     http_timeout: Duration,
     think_time: Option<ThinkTime>,
     think_seed: Option<u32>,
@@ -344,16 +358,28 @@ async fn run_vu(
         }
         // Per-iteration flow vars: start fresh from the scenario base.
         let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
-        if let Some(ds) = &dataset {
-            match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+        // Inject every binding in declared order. The first binding whose Unique
+        // slice is exhausted (None) stops this VU; the partial inject is discarded.
+        // Side effect (spec §7): an earlier IterSequential binding's shared counter
+        // already advanced one step on the break-triggering iteration (≤1/VU,
+        // on par with a deadline-truncated partial iteration).
+        let mut stop = false;
+        for (i, ds) in datasets.iter().enumerate() {
+            match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
                 Some(idx) => {
                     for (k, v) in &ds.rows[idx] {
                         iter_vars.insert(k.clone(), v.clone());
                     }
                 }
                 // unique slice exhausted → stop this VU (clean Ok, not a failure).
-                None => break,
+                None => {
+                    stop = true;
+                    break;
+                }
             }
+        }
+        if stop {
+            break;
         }
         let flow = execute_steps(
             &client,
@@ -665,18 +691,13 @@ pub async fn run_scenario_vu_curve(
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
     let env = Arc::new(plan.env);
-    let dataset = plan.data_binding.clone();
+    let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
     let think_time = plan.think_time;
     let think_seed = plan.think_seed;
     let measure_phases = plan.measure_phases;
     let immediate = plan.ramp_down == RampDown::Immediate;
-    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
-        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
-            Some(Arc::new(AtomicU64::new(0)))
-        }
-        _ => None,
-    };
+    let seq_counters = make_seq_counters(&datasets);
 
     // Desired active-VU count, broadcast to every VU task. VU `i` is active iff
     // `desired > i`.
@@ -760,8 +781,8 @@ pub async fn run_scenario_vu_curve(
             let failed = failed.clone();
             let env = env.clone();
             let cancel_vu = cancel.clone();
-            let dataset = dataset.clone();
-            let seq_counter = seq_counter.clone();
+            let datasets = datasets.clone();
+            let seq_counters = seq_counters.clone();
             let rx = desired_rx.clone();
             let slab_vu = slab.clone();
             set.spawn(async move {
@@ -775,8 +796,8 @@ pub async fn run_scenario_vu_curve(
                     cancel_vu,
                     rx,
                     slab_vu,
-                    dataset,
-                    seq_counter,
+                    datasets,
+                    seq_counters,
                     http_timeout,
                     think_time,
                     think_seed,
@@ -921,8 +942,8 @@ async fn run_vu_curve(
     cancel: CancellationToken,
     mut desired: tokio::sync::watch::Receiver<u32>,
     slab: Arc<std::sync::Mutex<Vec<Option<CancellationToken>>>>,
-    dataset: Option<Arc<DataSet>>,
-    seq_counter: Option<Arc<AtomicU64>>,
+    datasets: Vec<Arc<DataSet>>,
+    seq_counters: Vec<Option<Arc<AtomicU64>>>,
     http_timeout: Duration,
     think_time: Option<ThinkTime>,
     think_seed: Option<u32>,
@@ -977,8 +998,13 @@ async fn run_vu_curve(
             }
             // Per-iteration flow vars: lockstep with run_vu.
             let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
-            if let Some(ds) = &dataset {
-                match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+            // Inject every binding in declared order (mirror of run_vu). First
+            // exhausted Unique slice → permanent clean stop; partial inject discarded.
+            // Side effect (spec §7): an earlier IterSequential counter advances one
+            // extra step on the break-triggering iteration (≤1/VU, discarded).
+            let mut stop = false;
+            for (i, ds) in datasets.iter().enumerate() {
+                match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
                     Some(idx) => {
                         for (k, v) in &ds.rows[idx] {
                             iter_vars.insert(k.clone(), v.clone());
@@ -986,10 +1012,14 @@ async fn run_vu_curve(
                     }
                     // unique slice exhausted → permanent clean stop (mirror run_vu).
                     None => {
-                        clear_slot(&slab, index);
-                        return Ok(());
+                        stop = true;
+                        break;
                     }
                 }
+            }
+            if stop {
+                clear_slot(&slab, index);
+                return Ok(());
             }
             let flow = match execute_steps(
                 &client,
@@ -1065,7 +1095,7 @@ pub async fn run_scenario_open_loop(
     let started_at = Instant::now();
     let deadline = started_at + plan.duration;
     let env = Arc::new(plan.env);
-    let dataset = plan.data_binding.clone();
+    let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
     let think_seed = plan.think_seed;
     let vu_offset = plan.vu_offset;
@@ -1073,12 +1103,7 @@ pub async fn run_scenario_open_loop(
     let mut dropped: u64 = 0;
     let mut arrival_counter: u64 = 0;
     let exhausted = Arc::new(AtomicBool::new(false));
-    let seq_counter = match dataset.as_ref().map(|d| d.policy) {
-        Some(BindingPolicy::IterSequential | BindingPolicy::Unique) => {
-            Some(Arc::new(AtomicU64::new(0)))
-        }
-        _ => None,
-    };
+    let seq_counters = make_seq_counters(&datasets);
 
     // Slot pool: max_in_flight reusable clients, index = vu_id (offset applied at use).
     let pool: Vec<Arc<VuClient>> = (0..max_in_flight)
@@ -1211,8 +1236,8 @@ pub async fn run_scenario_open_loop(
                 let agg = agg.clone();
                 let env = env.clone();
                 let cancel_vu = cancel.clone();
-                let dataset = dataset.clone();
-                let seq_counter = seq_counter.clone();
+                let datasets = datasets.clone();
+                let seq_counters = seq_counters.clone();
                 let exhausted = exhausted.clone();
                 let slot_tx = slot_tx.clone();
                 set.spawn(async move {
@@ -1241,8 +1266,8 @@ pub async fn run_scenario_open_loop(
                         deadline,
                         &env,
                         &cancel_vu,
-                        dataset,
-                        seq_counter,
+                        datasets,
+                        seq_counters,
                         &mut rng,
                         &exhausted,
                         measure_phases,
@@ -1317,15 +1342,19 @@ async fn run_arrival(
     deadline: Instant,
     env: &Arc<BTreeMap<String, String>>,
     cancel: &CancellationToken,
-    dataset: Option<Arc<DataSet>>,
-    seq_counter: Option<Arc<AtomicU64>>,
+    datasets: Vec<Arc<DataSet>>,
+    seq_counters: Vec<Option<Arc<AtomicU64>>>,
     rng: &mut StdRng,
     exhausted: &AtomicBool,
     measure_phases: bool,
 ) -> Result<()> {
     let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
-    if let Some(ds) = &dataset {
-        match ds.select_index(vu_id, iter_id, seq_counter.as_deref()) {
+    // Inject every binding in declared order (single arrival, no per-VU loop).
+    // First exhausted Unique slice → signal the scheduler to stop new arrivals
+    // and drop this arrival (partial inject discarded). Side effect (spec §7): an
+    // earlier IterSequential counter advances one extra step on this arrival (≤1).
+    for (i, ds) in datasets.iter().enumerate() {
+        match ds.select_index(vu_id, iter_id, seq_counters[i].as_deref()) {
             Some(idx) => {
                 for (k, v) in &ds.rows[idx] {
                     iter_vars.insert(k.clone(), v.clone());

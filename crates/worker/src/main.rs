@@ -194,7 +194,9 @@ async fn main() -> anyhow::Result<()> {
         env,
         loop_breakdown_cap: profile.loop_breakdown_cap,
         vu_offset: assignment.vu_offset,
-        data_binding: dataset,
+        // Single legacy binding (proto field 5) wrapped into a 1-element Vec.
+        // Task 4 switches the worker to load N datasets from the new repeated field.
+        data_bindings: dataset.into_iter().collect(),
         // proto default 0 (absent field from an old controller) → fall back to 30s
         // so the byte-identical invariant holds; current controllers send 1..=600.
         http_timeout: Duration::from_secs(u64::from(if profile.http_timeout_seconds == 0 {

@@ -19,7 +19,7 @@ fn plan(base: &str, secs: u64) -> RunPlan {
         env,
         loop_breakdown_cap: 256,
         vu_offset: 0,
-        data_binding: None,
+        data_bindings: vec![],
         http_timeout: Duration::from_secs(30),
         think_time: None,
         think_seed: None,
