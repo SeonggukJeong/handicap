@@ -14,6 +14,14 @@
 ## 우선순위 요약
 ① context7 MCP(즉효·버전-함정 클래스 차단) → ② proto-ripple 훅(저비용·고빈도 함정) → ③ security-reviewer 서브에이전트(보안 표면 실재) → ④ `/curl-verify` 스킬(반복 footgun 제거) → ⑤ SQLite read-only MCP(선택).
 
+## 구현 상태 (2026-06-15)
+- **① context7 MCP** — ✅ 이미 사용 가능(플러그인/유저 스코프, 이 repo에 `.mcp.json` 없음). 로컬 대화용으로 유효.
+- **② proto-ripple 훅** — ✅ 구현·배선(`.claude/hooks/proto-ripple-reminder.sh` + `settings.json` PostToolUse `Write|Edit`). `.proto` 편집 시 5분 디바운스 리마인드.
+- **③ security-reviewer 서브에이전트** — ✅ 구현(`.claude/agents/security-reviewer.md`, read-only, SSRF·시크릿 누출·템플릿 인젝션 렌즈 + 인가 컨텍스트). 머지 전 수동 호출.
+- **④ `/curl-verify` 스킬** — ✅ 구현(`.claude/skills/curl-verify/{SKILL.md,parse.py}`, `disable-model-invocation: true`=user-only). 떠 있는 controller에 대한 생성→run→폴링→report 레시피 + stdin-직결 `parse.py`.
+- **⑤ SQLite read-only MCP** — ⏸ 미구현(선택 — `sqlite3 /tmp/x.db` Bash로 갈음).
+- **(+) pre-commit 휴대성** — ✅ 추천 문서엔 없던 별개 인프라 갭 해소: 층상 pre-commit 게이트를 tracked `.githooks/pre-commit`로 버전관리 + `just install-hooks`(`core.hooksPath .githooks`)로 클론마다 활성화(과거 untracked `.git/hooks/`라 클론에 안 따라왔다). 상대 경로라 worktree에도 적용.
+
 ---
 
 ## 🔌 MCP

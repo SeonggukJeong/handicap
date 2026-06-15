@@ -13,6 +13,15 @@ lint:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Install the version-controlled git hooks (run once per fresh clone).
+# Points core.hooksPath at the tracked .githooks/ dir so the layered pre-commit
+# gate travels with the repo instead of living only in the untracked .git/hooks/.
+# Relative path → resolves per-worktree, so every worktree gets the gate too.
+install-hooks:
+    git config core.hooksPath .githooks
+    chmod +x .githooks/*
+    @echo "git hooks installed (core.hooksPath=.githooks)"
+
 run-controller:
     RUST_LOG=info,handicap_controller=debug,handicap_engine=debug cargo run -p handicap-controller --bin controller -- --db ./handicap.db --rest 127.0.0.1:8080 --grpc 127.0.0.1:8081 --worker-bin target/debug/worker
 

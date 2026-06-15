@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# Pre-commit hook for handicap repo.
+#
+# Layered gate (top → bottom; a commit pays only for the layers it touches):
+#   0. Conflict-marker guard — EVERY commit. The fast-paths below skip all
+#      checks for docs/ui/.claude commits, so a stray <<<<<<< / >>>>>>> from a
+#      bad merge would otherwise sail through (it did once: Slice 9c).
+#   1. UI gate — when ui/ (non-.md) is staged: pnpm lint + test + build. The
+#      cargo gate skips ui-only commits and, with no git remote, the CI UI job
+#      never runs — so without this a ui/ commit has ZERO automated gate (a
+#      react-hooks/exhaustive-deps warning slipped through exactly this way).
+#   2. Cargo gate — when a cargo-affecting path is staged: fmt + build +
+#      clippy + tests (nextest, with an explicit doctest pass since nextest
+#      does not run doctests). Skipped entirely when only docs/ui/.claude/
+#      deploy paths are staged (.md never affects cargo, even under crates/).
+#
+# Intermediate bootstrap states (workspace lists members that don't exist yet)
+# fall back to per-crate checks so the early tasks aren't blocked.
+# PRE_COMMIT_DECIDE_ONLY=1 prints the cargo decision without paying for it.
+
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+STAGED="$(git diff --cached --name-only)"
+
+# --- 0. Conflict-marker guard (all commits) -------------------------------
+# Match only the unambiguous start/end markers (7 angle brackets at the start
+# of an *added* line) to avoid false positives on markdown rules / ascii art;
+# mirrors the finish-slice grep. `|| true` keeps `set -e` from tripping on a
+# no-match grep exit 1.
+MARKERS="$(git diff --cached -U0 --no-color | grep -E '^\+(<{7}|>{7})' || true)"
+if [ -n "$MARKERS" ]; then
+    echo "[pre-commit] conflict markers staged — aborting:"
+    printf '%s\n' "$MARKERS"
+    exit 1
+fi
+
+# --- 1. UI gate -----------------------------------------------------------
+# Runs the documented "must-pass before merge" gate automatically whenever a
+# non-.md ui/ file is staged. Skips gracefully (no failure) if node_modules is
+# absent, e.g. a fresh worktree before `pnpm install` — start-slice installs.
+if [ -n "$STAGED" ] && [ -n "$(printf '%s\n' "$STAGED" | grep -E '^ui/' | grep -vE '\.md$')" ]; then
+    if [ -d ui/node_modules ]; then
+        echo "[pre-commit] ui/ staged — running UI gate (lint + test + build)"
+        ( cd ui && pnpm lint && pnpm test && pnpm build )
+    else
+        echo "[pre-commit] ui/ staged but ui/node_modules missing — skipping UI gate (run: pnpm -C ui install)"
+    fi
+fi
+
+# --- 2. Cargo gate --------------------------------------------------------
+# Cargo checks run only when a staged path can affect the Rust workspace.
+# Deleted .rs files match crates/ too, so removals still gate. .md never
+# affects the build (even a nested domain CLAUDE.md), so it's excluded — but
+# .proto/.sql/.toml/.rs/build.rs under crates/ ARE cargo-relevant and stay
+# matched. Guard style: test the substitution's *output* inside [ ] (a bare
+# grep in an assignment would exit 1 on no-match and trip set -e).
+CARGO_PATHS='^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/)'
+if [ -n "$STAGED" ] && [ -z "$(printf '%s\n' "$STAGED" | grep -E "$CARGO_PATHS" | grep -vE '\.md$')" ]; then
+    echo "[pre-commit] no cargo-affecting paths staged (.md excluded) — skipping cargo checks"
+    exit 0
+fi
+
+# Comment/whitespace-only Rust fast-path: if every staged cargo-affecting path is
+# a .rs file whose staged diff touches only whole-line comments or blank lines, the
+# change is behavior-neutral (the workspace has 0 doctests) — keep the cheap checks
+# (fmt/build/clippy still catch doc-comment lints + formatting) but skip the
+# multi-minute test suite. Conservative: a trailing comment (`code; // note`) or any
+# code line counts as a real change, so a genuine edit never qualifies (matches the
+# tdd-guard normalize: only lines *starting* with // /* * are treated as comments).
+COMMENT_ONLY=
+CARGO_STAGED="$(printf '%s\n' "$STAGED" | grep -E "$CARGO_PATHS" | grep -vE '\.md$' || true)"
+if [ -n "$CARGO_STAGED" ] && [ -z "$(printf '%s\n' "$CARGO_STAGED" | grep -vE '\.rs$' || true)" ]; then
+    CODE_CHANGE="$(git diff --cached -U0 --no-color -- '*.rs' \
+        | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' \
+        | sed -E 's/^[+-][[:space:]]*//' \
+        | grep -vE '^(//|/\*|\*|$)' || true)"
+    [ -z "$CODE_CHANGE" ] && COMMENT_ONLY=1
+fi
+
+# Dry-run escape for testing the gate decision without paying the cargo cost:
+# PRE_COMMIT_DECIDE_ONLY=1 git commit ... (or run the hook directly).
+if [ -n "${PRE_COMMIT_DECIDE_ONLY:-}" ]; then
+    echo "[pre-commit] decide-only: cargo checks WOULD run"
+    exit 0
+fi
+
+if [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
+
+# No Cargo.toml at all → nothing to check (pure-docs commit etc.).
+if [ ! -f Cargo.toml ]; then
+    exit 0
+fi
+
+# No crates yet (Task 1 bootstrap) → nothing to build.
+if ! compgen -G "crates/*/Cargo.toml" > /dev/null; then
+    echo "[pre-commit] no crates/*/Cargo.toml yet — skipping cargo checks"
+    exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "[pre-commit] cargo missing — install rustup first"
+    exit 1
+fi
+
+# If the workspace doesn't resolve (e.g. Cargo.toml lists members that don't
+# exist yet), skip workspace-wide checks but still try per-crate. nextest also
+# needs coherent metadata, so this fallback stays on plain `cargo test`.
+if ! cargo metadata --no-deps --format-version 1 >/dev/null 2>&1; then
+    echo "[pre-commit] workspace metadata not coherent — running per-crate checks"
+    for CARGO in crates/*/Cargo.toml; do
+        [ -e "$CARGO" ] || continue
+        CRATE_NAME="$(grep -m1 '^name' "$CARGO" | sed 's/.*"\(.*\)".*/\1/')"
+        if [ -z "$CRATE_NAME" ]; then
+            continue
+        fi
+        echo "[pre-commit] cargo fmt --check ($CRATE_NAME)"
+        cargo fmt -p "$CRATE_NAME" -- --check
+        echo "[pre-commit] cargo build -p $CRATE_NAME"
+        cargo build -p "$CRATE_NAME" --quiet
+        echo "[pre-commit] cargo clippy -p $CRATE_NAME --all-targets -- -D warnings"
+        cargo clippy -p "$CRATE_NAME" --all-targets --quiet -- -D warnings
+        if [ -z "$COMMENT_ONLY" ]; then
+            echo "[pre-commit] cargo test -p $CRATE_NAME"
+            cargo test -p "$CRATE_NAME" --quiet
+        else
+            echo "[pre-commit] comment/whitespace-only — skipping test -p $CRATE_NAME"
+        fi
+    done
+    echo "[pre-commit] OK (per-crate)"
+    exit 0
+fi
+
+# Workspace coherent → strict workspace-wide checks.
+echo "[pre-commit] cargo fmt --check (workspace)"
+cargo fmt --all -- --check
+
+# Warm the worker bin BEFORE building/testing the rest. The controller e2e
+# tests exec target/debug/worker; a cold `cargo test` can start a test before
+# the worker bin finishes linking → ENOENT flake (S-A). Building it first
+# serializes that race away.
+echo "[pre-commit] cargo build -p handicap-worker (warm e2e worker bin)"
+cargo build -p handicap-worker --quiet
+
+echo "[pre-commit] cargo build --workspace"
+cargo build --workspace --quiet
+echo "[pre-commit] cargo clippy --workspace --all-targets -- -D warnings"
+cargo clippy --workspace --all-targets --quiet -- -D warnings
+
+# nextest is ~2-3x faster than `cargo test` but does NOT run doctests, so add
+# an explicit doctest pass to keep coverage identical (the workspace has 0
+# doctests today; this keeps it covered if one is ever added). Fall back to
+# plain `cargo test` (which includes doctests) when nextest isn't installed.
+if [ -n "$COMMENT_ONLY" ]; then
+    echo "[pre-commit] comment/whitespace-only .rs change — skipping test suite (0 doctests; fmt/build/clippy ran)"
+elif command -v cargo-nextest >/dev/null 2>&1; then
+    echo "[pre-commit] cargo nextest run --workspace"
+    cargo nextest run --workspace
+    echo "[pre-commit] cargo test --workspace --doc (nextest skips doctests)"
+    cargo test --workspace --doc --quiet
+else
+    echo "[pre-commit] cargo test --workspace (nextest not installed)"
+    cargo test --workspace --quiet
+fi
+echo "[pre-commit] OK (workspace)"
