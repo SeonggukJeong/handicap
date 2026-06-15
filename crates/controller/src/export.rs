@@ -525,7 +525,7 @@ mod tests {
                 onset_second: None,
             },
             // 사이징 3필드를 모두 채운 합성 행: 세 새 열 writer를 모두 운동시킨다.
-            // (실제 인사이트는 recommended[slots] ⊕ recommended_workers[capacity]로 배타적이지만,
+            // (실제 인사이트는 recommended[slots] ⊕ recommended_workers[loadgen]로 배타적이지만,
             //  그 배타성은 insights.rs의 불변식이지 export writer의 관심사가 아니다.)
             crate::insights::Insight {
                 kind: "load_gen_saturated".into(),

@@ -31,7 +31,7 @@ pub struct Insight {
     /// worker_count 권장) | "sut"(대상 서버 한계, 워커 증설 무익). None = 판별 불가.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
-    /// 권장 worker_count (capacity-bound open-loop 포화 시, M > 현재일 때만). spec §4.2.
+    /// 권장 worker_count (loadgen-bound open-loop 포화 시, M > 현재일 때만). spec §4.2.
     /// `recommended`(=max_in_flight, slots용)와 의미가 달라 별도 필드.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_workers: Option<f64>,
