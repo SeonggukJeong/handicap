@@ -6,6 +6,7 @@ import { downloadFile } from "../api/download";
 import { compareReports } from "../compare/compareReports";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { CompareMatrix } from "../components/compare/CompareMatrix";
+import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
@@ -230,6 +231,8 @@ function ScenarioCompareInner({
         labels={runLabels}
         onBaselineChange={onBaselineChange}
       />
+
+      <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />
     </div>
   );
 }

@@ -310,6 +310,23 @@ export const ko = {
       "워커가 시작하지 못했을 수 있습니다 — 시나리오 URL과 컨트롤러 로그를 확인하세요.",
     elapsed: (d: string) => `경과 ${d}`,
   },
+  // 비교 화면 인사이트 매트릭스(kind×run). 행 = 인사이트, 열 = run.
+  insightCompare: {
+    title: "인사이트 비교",
+    colInsight: "인사이트",
+    empty: "감지된 인사이트가 없습니다.",
+  },
+  // 인사이트 kind → 짧은 라벨(매트릭스 행 머리). InsightPanel.message()의 산문과 별개.
+  insightLabels: {
+    slowest_step: "가장 느린 스텝",
+    error_hotspot: "에러 핫스팟",
+    no_request_step: "요청 없는 스텝",
+    slo_failure: "SLO 실패",
+    slo_pass: "SLO 통과",
+    status_class: "상태 코드 비율",
+    status_temporal: "후반 5xx 등장",
+    load_gen_saturated: "부하 생성기 포화",
+  },
   // §7.3 인사이트 kind → "다음 행동" 한 줄 (slo_pass는 의도적 부재 — 행동 없음).
   insightActions: {
     slowest_step: "이 API가 병목입니다 — 스텝 표를 내보내 개발팀과 공유하세요.",
