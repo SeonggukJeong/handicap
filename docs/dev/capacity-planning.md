@@ -71,11 +71,11 @@ POST /api/runs
 
 | 모델 | RPS가 정해지는 방식 | 수평 확장(멀티워커) |
 |---|---|---|
-| **open-loop** (`target_rps`/`stages`, ADR-0031) | 스케줄러가 목표 도착률로 틱 발사, 동시성 상한 = `max_in_flight` | **❌ 안 됨 (단일워커 v1)** — 아래 §4 함정 |
+| **open-loop** (`target_rps`/`stages`, ADR-0031) | 스케줄러가 목표 도착률로 틱 발사, 동시성 상한 = `max_in_flight` | **✅ 됨** — `worker_count`로 레이트를 워커별 분할(`shard_split`, 합=목표; ADR-0038, §4) |
 | **closed-loop** (`vus`, ADR-0016, tokio task per VU) | RPS = VU수 ÷ 평균 응답시간 (레이트 캡 없음, latency에 따라 떠다님) | **✅ 됨** — VU가 워커들에 분배(ADR-0027) |
 
-- **레이트를 정확히 고정하고 싶다** → open-loop. 단 단일워커 예산 안에서.
-- **한 머신으로 안 되고 수평으로 펼쳐야 한다** → closed-loop. RPS는 정확히 못 고정하지만(latency에 따라 변동) VU를 늘려 확장 가능. 예: 50ms 응답이면 `~500 VU ≈ 10k RPS`.
+- **레이트를 정확히 고정하고 싶다** → open-loop. 수평 확장이 필요하면 `worker_count`를 올린다(레이트는 정확히 유지된 채 워커별로 분할; §4).
+- **RPS는 신경 안 쓰고 사용자 N명 동시성을 재현하고 싶다** → closed-loop. RPS는 정확히 못 고정하지만(latency에 따라 변동) VU를 늘려 확장 가능. 예: 50ms 응답이면 `~500 VU ≈ 10k RPS`.
 
 ---
 
