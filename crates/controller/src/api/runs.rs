@@ -405,9 +405,8 @@ pub(crate) async fn validate_run_config(
     // datasets is ambiguous. (Same dataset_id bound twice is allowed — only var
     // names must be globally unique across all bindings.) Empty-mapping bindings
     // contribute no names (allowed; they inject nothing).
-    let owned: Vec<crate::binding::DataBinding> = bindings.iter().map(|b| (*b).clone()).collect();
     let mut seen = std::collections::HashSet::new();
-    for var in collect_var_names(&owned) {
+    for var in collect_var_names(&bindings) {
         if !seen.insert(var.clone()) {
             return Err(ApiError::BadRequest(format!(
                 "변수 '{var}'이 여러 데이터셋에 중복 매핑됨"
@@ -417,6 +416,7 @@ pub(crate) async fn validate_run_config(
     // Per-binding validation (independent): the worker count N is shared (it
     // derives from the profile, not the binding), but every other check is
     // per-binding. Collect validated meta in data_bindings() order.
+    // Worker count — only consumed by the Unique row-count check below; hoisted so it's computed once.
     let n = if profile.is_vu_curve() {
         1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장)
     } else if profile.is_open_loop() {
@@ -429,10 +429,7 @@ pub(crate) async fn validate_run_config(
         let meta = datasets::get_meta(&state.db, &b.dataset_id)
             .await?
             .ok_or_else(|| {
-                ApiError::BadRequest(format!(
-                    "data_binding.dataset_id '{}'가 존재하지 않습니다",
-                    b.dataset_id
-                ))
+                ApiError::BadRequest(format!("데이터셋 '{}'이 존재하지 않습니다", b.dataset_id))
             })?;
         if meta.row_count == 0 {
             return Err(ApiError::BadRequest(

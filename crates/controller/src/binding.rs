@@ -39,7 +39,7 @@ pub struct DataBinding {
 /// run-create gate to detect a variable name mapped by more than one binding
 /// (cross-binding duplicate → 400). Duplicates are preserved in the returned
 /// vec; the caller decides how to flag them.
-pub fn collect_var_names(bindings: &[DataBinding]) -> Vec<String> {
+pub(crate) fn collect_var_names(bindings: &[&DataBinding]) -> Vec<String> {
     bindings
         .iter()
         .flat_map(|b| b.mappings.iter())
@@ -172,7 +172,7 @@ mod tests {
                 column: "c2".into(),
             }],
         };
-        let names = collect_var_names(&[a, b]);
+        let names = collect_var_names(&[&a, &b]);
         assert_eq!(names, vec!["x", "role", "x"]);
         // A HashSet pass detects the cross-binding duplicate.
         let mut seen = std::collections::HashSet::new();
