@@ -6,6 +6,7 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { VuSizingHelper } from "./VuSizingHelper";
 import { SlotSizingHelper } from "./SlotSizingHelper";
+import { WorkerSizingHelper } from "./WorkerSizingHelper";
 import { peakStageTarget } from "./sizing";
 import type { Scenario } from "../scenario/model";
 
@@ -39,6 +40,8 @@ type Props = {
   onApplyVus?: (n: number) => void;
   // 열린 루프 슬롯 사이징 힌트(RunDialog 전용 — ScheduleForm 미전달). open+fixed에서만.
   onApplyMaxInFlight?: (n: number) => void;
+  // worker_count 사이징 헬퍼(RunDialog 전용 — ScheduleForm 미전달). open 모드에서만.
+  onApplyWorkerCount?: (n: number) => void;
   // worker_count(open 전용 fan-out 노브) — RunDialog 전용. setWorkerCount 부재 = 미렌더
   // (ScheduleForm은 state로 round-trip만 하고 입력은 안 띄운다, spec §4.1).
   workerCount?: string;
@@ -72,6 +75,7 @@ export function LoadModelFields({
   sizingEnv,
   onApplyVus,
   onApplyMaxInFlight,
+  onApplyWorkerCount,
   workerCount,
   setWorkerCount,
 }: Props) {
@@ -501,6 +505,15 @@ export function LoadModelFields({
                     <p id="worker-count-error" role="alert" className="mt-1 text-red-600 text-sm">
                       {ko.validation.workerCount}
                     </p>
+                  )}
+                  {onApplyWorkerCount && sizingScenarioId !== undefined && (
+                    <WorkerSizingHelper
+                      scenarioId={sizingScenarioId}
+                      targetRps={rateMode === "curve" ? peakStr : targetRps}
+                      peakBased={rateMode === "curve"}
+                      maxInFlight={maxInFlight}
+                      onApply={onApplyWorkerCount}
+                    />
                   )}
                 </div>
               )}

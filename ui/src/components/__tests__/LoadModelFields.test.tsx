@@ -12,6 +12,10 @@ vi.mock("../SlotSizingHelper", () => ({
   SlotSizingHelper: () => <div data-testid="slot-sizing-helper" />,
 }));
 
+vi.mock("../WorkerSizingHelper", () => ({
+  WorkerSizingHelper: () => <div data-testid="worker-sizing-helper" />,
+}));
+
 const noErrs: LoadModelErrors = {
   rampInvalid: false,
   targetRpsInvalid: false,
@@ -238,6 +242,65 @@ describe("LoadModelFields", () => {
     });
     expect(screen.queryByTestId("slot-sizing-helper")).toBeNull();
   });
+
+  // ── worker_count 사이징 헬퍼 (RunDialog 전용, open 모드에서만) ──────────────────
+  it.each([
+    { loadModel: "open", rateMode: "fixed" },
+    { loadModel: "open", rateMode: "curve" },
+  ] as const)(
+    "$loadModel+$rateMode + onApplyWorkerCount → 워커 헬퍼 렌더",
+    ({ loadModel, rateMode }) => {
+      renderFields({
+        loadModel,
+        rateMode,
+        sizingScenarioId: "s1",
+        onApplyWorkerCount: vi.fn(),
+        setWorkerCount: vi.fn(),
+        workerCount: "2", // disclosure 자동 펼침
+      });
+      expect(screen.getByTestId("worker-sizing-helper")).toBeInTheDocument();
+    },
+  );
+
+  it("onApplyWorkerCount 없으면(스케줄 편집기 경로) 워커 헬퍼 미렌더", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      sizingScenarioId: "s1",
+      setWorkerCount: vi.fn(),
+      workerCount: "2",
+    });
+    expect(screen.queryByTestId("worker-sizing-helper")).toBeNull();
+  });
+
+  it("onApplyWorkerCount 있어도 sizingScenarioId 없으면 워커 헬퍼 미렌더 (가드 && 반쪽)", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      onApplyWorkerCount: vi.fn(),
+      setWorkerCount: vi.fn(),
+      workerCount: "2",
+    });
+    expect(screen.queryByTestId("worker-sizing-helper")).toBeNull();
+  });
+
+  it.each([
+    { loadModel: "closed", rateMode: "fixed" },
+    { loadModel: "closed", rateMode: "curve" },
+  ] as const)(
+    "$loadModel+$rateMode 에선 워커 헬퍼 미렌더(disclosure가 open 전용)",
+    ({ loadModel, rateMode }) => {
+      renderFields({
+        loadModel,
+        rateMode,
+        sizingScenarioId: "s1",
+        onApplyWorkerCount: vi.fn(),
+        setWorkerCount: vi.fn(),
+        workerCount: "2",
+      });
+      expect(screen.queryByTestId("worker-sizing-helper")).toBeNull();
+    },
+  );
 
   // ── worker_count 접이식 입력 (RunDialog 전용, open 모드 고정·곡선) ───────────────
   // 토글은 open 모드에서 setWorkerCount가 주어질 때만 렌더. 기본 접힘 → 펼친 뒤에야 입력 등장.

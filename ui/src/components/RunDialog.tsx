@@ -519,6 +519,7 @@ export function RunDialog({
           onApplyMaxInFlight={(n) => setMaxInFlight(String(n))}
           workerCount={workerCount}
           setWorkerCount={setWorkerCount}
+          onApplyWorkerCount={(n) => setWorkerCount(String(n))}
         />
       </fieldset>
 

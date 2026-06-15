@@ -13,6 +13,9 @@ vi.mock("../SlotSizingHelper", () => ({
     </button>
   ),
 }));
+vi.mock("../WorkerSizingHelper", () => ({
+  WorkerSizingHelper: () => null,
+}));
 
 const fetchMock = vi.fn();
 
