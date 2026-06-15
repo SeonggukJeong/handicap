@@ -111,6 +111,30 @@ async fn post_run(
     body_json(app.clone().oneshot(req).await.unwrap()).await
 }
 
+/// POST /api/runs with a multi-binding profile (`data_bindings` array).
+async fn post_run_bindings(
+    app: &axum::Router,
+    scenario_id: &str,
+    data_bindings: Value,
+) -> (StatusCode, Value) {
+    let body = json!({
+        "scenario_id": scenario_id,
+        "profile": {
+            "vus": 2,
+            "duration_seconds": 1,
+            "data_bindings": data_bindings
+        },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    body_json(app.clone().oneshot(req).await.unwrap()).await
+}
+
 // ─── tests ──────────────────────────────────────────────────────────────────
 
 /// A mapping that references a column not present in the dataset → 400.
@@ -261,6 +285,103 @@ async fn rejects_iter_policy_over_max_rows_but_accepts_per_vu() {
         status2,
         StatusCode::CREATED,
         "per_vu with same dataset should succeed: {v2:?}"
+    );
+}
+
+/// Two independent bindings (different datasets, different vars) → 201.
+/// Same dataset bound twice is allowed; only var names must be globally unique.
+#[tokio::test]
+async fn accepts_two_independent_bindings() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    let ds_a = upload_dataset(&app, "email\na@ex.com\nb@ex.com\n", "a.csv").await;
+    let ds_b = upload_dataset(&app, "name\nalice\nbob\n", "b.csv").await;
+    let scenario_id = create_scenario(&app).await;
+
+    let bindings = json!([
+        {
+            "dataset_id": ds_a,
+            "policy": "per_vu",
+            "mappings": [{"kind": "column", "var": "username", "column": "email"}]
+        },
+        {
+            "dataset_id": ds_b,
+            "policy": "iter_sequential",
+            "mappings": [{"kind": "column", "var": "display", "column": "name"}]
+        }
+    ]);
+    let (status, v) = post_run_bindings(&app, &scenario_id, bindings).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "two independent bindings must be accepted: {v:?}"
+    );
+
+    // Both bindings round-trip in the response profile.data_bindings.
+    let arr = v["profile"]["data_bindings"].as_array().unwrap();
+    assert_eq!(arr.len(), 2, "both bindings persisted: {v:?}");
+    assert_eq!(arr[0]["dataset_id"].as_str().unwrap_or(""), ds_a);
+    assert_eq!(arr[1]["dataset_id"].as_str().unwrap_or(""), ds_b);
+}
+
+/// Two bindings mapping the SAME variable name (`x`) from two datasets → 400.
+#[tokio::test]
+async fn rejects_duplicate_var_across_bindings() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    let ds_a = upload_dataset(&app, "email\na@ex.com\n", "a.csv").await;
+    let ds_b = upload_dataset(&app, "name\nalice\n", "b.csv").await;
+    let scenario_id = create_scenario(&app).await;
+
+    let bindings = json!([
+        {
+            "dataset_id": ds_a,
+            "policy": "per_vu",
+            "mappings": [{"kind": "column", "var": "x", "column": "email"}]
+        },
+        {
+            "dataset_id": ds_b,
+            "policy": "per_vu",
+            "mappings": [{"kind": "column", "var": "x", "column": "name"}]
+        }
+    ]);
+    let (status, v) = post_run_bindings(&app, &scenario_id, bindings).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "expected 400 got: {v:?}");
+    let msg = v["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("중복") && msg.contains("x"),
+        "error should mention duplicate var 'x': {msg}"
+    );
+}
+
+/// More than 8 bindings → 400 (per-run cap).
+#[tokio::test]
+async fn rejects_too_many_bindings() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+
+    let dataset_id = upload_dataset(&app, "email\na@ex.com\n", "a.csv").await;
+    let scenario_id = create_scenario(&app).await;
+
+    // 9 bindings, each mapping a distinct var (so the var-uniqueness gate doesn't
+    // fire first) — the same dataset bound 9 times is allowed; the count cap isn't.
+    let bindings: Vec<Value> = (0..9)
+        .map(|i| {
+            json!({
+                "dataset_id": dataset_id,
+                "policy": "per_vu",
+                "mappings": [{"kind": "column", "var": format!("v{i}"), "column": "email"}]
+            })
+        })
+        .collect();
+    let (status, v) = post_run_bindings(&app, &scenario_id, json!(bindings)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "expected 400 got: {v:?}");
+    let msg = v["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("최대") && msg.contains("8"),
+        "error should mention the max-8 cap: {msg}"
     );
 }
 

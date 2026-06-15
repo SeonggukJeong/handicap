@@ -50,24 +50,29 @@ pub struct PendingDataBinding {
     pub row_count: u64,
 }
 
-/// One worker's resolved dataset stream: which rows to fetch + the mappings to
-/// apply. For unique these are a disjoint slice (`offset_i..offset_i+count_i`);
-/// for replicated policies it's the whole dataset (`offset 0`). (spec §4.4)
+/// One worker's resolved dataset stream for ONE binding: which rows to fetch +
+/// the mappings to apply + which binding it is. For unique these are a disjoint
+/// slice (`offset_i..offset_i+count_i`); for replicated policies it's the whole
+/// dataset (`offset 0`). `binding_index` tags the emitted `DatasetBatch` so the
+/// worker routes rows to the right binding. (spec §4.4)
 struct WorkerStream {
     dataset_id: String,
     mappings: Vec<Mapping>,
     offset: u64,
     count: u64,
+    binding_index: u32,
 }
 
-/// Worker-common base for a run's assignment (scenario/profile/env/binding).
-/// Per-worker shard fields are filled at register time.
+/// Worker-common base for a run's assignment (scenario/profile/env/bindings).
+/// Per-worker shard fields are filled at register time. `data_bindings` is the
+/// full ordered list of N independent bindings (the legacy single binding is
+/// folded to a 1-element vec upstream).
 #[derive(Debug, Clone)]
 pub struct PendingAssignment {
     pub scenario_yaml: String,
     pub profile: Profile,
     pub env: HashMap<String, String>,
-    pub data_binding: Option<PendingDataBinding>,
+    pub data_bindings: Vec<PendingDataBinding>,
 }
 
 type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
@@ -258,24 +263,34 @@ impl CoordinatorState {
         shard_count: u32,
         vu_offset: u32,
         vu_count: u32,
-    ) -> Option<(RunAssignment, Option<WorkerStream>)> {
+    ) -> Option<(RunAssignment, Vec<WorkerStream>)> {
         let g = self.runs.lock().await;
         let rw = g.get(run_id)?;
         let _ = worker_id;
         let a = &rw.base;
-        let binding = a.data_binding.as_ref();
-        // Resolve this worker's slice: unique partitions disjointly; others replicate.
-        let stream = binding.map(|b| {
+        // Resolve this worker's slice for EACH binding (in order): unique
+        // partitions disjointly (its own row_count → its own disjoint slice per
+        // worker); replicated policies (per_vu/iter_*) give the whole dataset.
+        // The proto DataBinding row_count is the PER-WORKER count (count_i).
+        let mut proto_bindings = Vec::with_capacity(a.data_bindings.len());
+        let mut streams = Vec::with_capacity(a.data_bindings.len());
+        for (i, b) in a.data_bindings.iter().enumerate() {
             let is_unique = b.policy == pb::data_binding::Policy::Unique;
             let (offset, count) =
                 crate::grpc::shard::dataset_slice(is_unique, b.row_count, shard_count, shard_index);
-            WorkerStream {
+            proto_bindings.push(pb::DataBinding {
+                policy: b.policy as i32,
+                seed: b.seed,
+                row_count: count,
+            });
+            streams.push(WorkerStream {
                 dataset_id: b.dataset_id.clone(),
                 mappings: b.mappings.clone(),
                 offset,
                 count,
-            }
-        });
+                binding_index: i as u32,
+            });
+        }
         let assignment = RunAssignment {
             run_id: run_id.to_string(),
             scenario_yaml: a.scenario_yaml.clone(),
@@ -285,19 +300,17 @@ impl CoordinatorState {
                 p
             }),
             env: a.env.clone(),
-            // proto row_count is the PER-WORKER count (count_i for unique).
-            data_binding: binding.zip(stream.as_ref()).map(|(b, s)| pb::DataBinding {
-                policy: b.policy as i32,
-                seed: b.seed,
-                row_count: s.count,
-            }),
+            // Controller writes field 10 (`data_bindings`) only; field 5 stays
+            // None. The worker reads field 10 first (Task 4), so a single-binding
+            // run travels as `data_bindings=[one]` end-to-end, behaving identically.
+            data_binding: None,
             shard_index,
             shard_count,
             vu_offset,
             vu_count,
-            data_bindings: vec![],
+            data_bindings: proto_bindings,
         };
-        Some((assignment, stream))
+        Some((assignment, streams))
     }
 
     /// Record a worker's terminal phase and finalize the run when all workers
@@ -682,7 +695,7 @@ impl Coordinator for CoordinatorService {
                                 }
                             };
 
-                        let Some((assignment, stream)) = state
+                        let Some((assignment, streams)) = state
                             .assignment_for(
                                 &reg.run_id,
                                 &reg.worker_id,
@@ -714,11 +727,15 @@ impl Coordinator for CoordinatorService {
                             .await;
                         }
 
-                        // Stream this worker's dataset slice (disjoint for unique,
-                        // replicated otherwise). Row values are NEVER logged (spec §11).
-                        if let Some(ws) = &stream {
-                            if ws.count > 0 {
-                                stream_dataset(&state, &tx, &reg.run_id, ws).await;
+                        // Stream each binding's dataset slice for this worker
+                        // (disjoint for unique, replicated otherwise), tagged with
+                        // its binding_index. Row values are NEVER logged (spec §11).
+                        // If any binding's stream comes up incomplete it already sent
+                        // AbortRun — stop streaming the rest (the worker aborts the
+                        // whole run on any incomplete binding).
+                        for ws in &streams {
+                            if ws.count > 0 && !stream_dataset(&state, &tx, &reg.run_id, ws).await {
+                                break;
                             }
                         }
                     }
@@ -750,12 +767,21 @@ impl Coordinator for CoordinatorService {
     }
 }
 
-/// Stream this worker's dataset slice to one worker. For `unique` the slice is
+/// Stream this worker's dataset slice for ONE binding. For `unique` the slice is
 /// a disjoint contiguous range; for replicated policies it is the whole dataset
-/// (offset 0). On any incompleteness it sends AbortRun so the worker's loading
-/// stage doesn't hang (spec §6.2, §4.4, controller CLAUDE.md "drop(tx) can't
-/// close a blocked stream").
-async fn stream_dataset(state: &CoordinatorState, tx: &WorkerTx, run_id: &str, ws: &WorkerStream) {
+/// (offset 0). Each batch carries `ws.binding_index` so the worker routes rows to
+/// the right binding. Returns `true` when the full slice was delivered, `false`
+/// when it came up incomplete — in which case AbortRun was already sent so the
+/// worker's loading stage doesn't hang (spec §6.2, §4.4, controller CLAUDE.md
+/// "drop(tx) can't close a blocked stream"). The caller breaks on the first
+/// `false`: any incomplete binding aborts the whole run, so later bindings need
+/// not be streamed.
+async fn stream_dataset(
+    state: &CoordinatorState,
+    tx: &WorkerTx,
+    run_id: &str,
+    ws: &WorkerStream,
+) -> bool {
     let total = ws.count as i64;
     let mut sent: i64 = 0;
     let mut incomplete = false;
@@ -800,7 +826,7 @@ async fn stream_dataset(state: &CoordinatorState, tx: &WorkerTx, run_id: &str, w
                 payload: Some(ServerPayload::DatasetBatch(pb::DatasetBatch {
                     run_id: run_id.to_string(),
                     rows: proto_rows,
-                    binding_index: 0,
+                    binding_index: ws.binding_index,
                 })),
             }))
             .await
@@ -821,8 +847,10 @@ async fn stream_dataset(state: &CoordinatorState, tx: &WorkerTx, run_id: &str, w
                 })),
             }))
             .await;
+        false
     } else {
         info!(run_id = %run_id, rows_sent = sent, "dataset rows streamed to worker");
+        true
     }
 }
 
@@ -1163,7 +1191,7 @@ mod tests {
                 ramp_down_immediate: false,
             },
             env: HashMap::new(),
-            data_binding: None,
+            data_bindings: vec![],
         }
     }
 

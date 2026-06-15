@@ -34,6 +34,21 @@ pub struct DataBinding {
     pub mappings: Vec<Mapping>,
 }
 
+/// Every variable name produced across a set of bindings, in binding-then-
+/// mapping order (both `Column` and `Literal` carry a `var`). Used by the
+/// run-create gate to detect a variable name mapped by more than one binding
+/// (cross-binding duplicate → 400). Duplicates are preserved in the returned
+/// vec; the caller decides how to flag them.
+pub fn collect_var_names(bindings: &[DataBinding]) -> Vec<String> {
+    bindings
+        .iter()
+        .flat_map(|b| b.mappings.iter())
+        .map(|m| match m {
+            Mapping::Column { var, .. } | Mapping::Literal { var, .. } => var.clone(),
+        })
+        .collect()
+}
+
 /// Apply mappings to one source row (`{column: value}`) → `{var: value}`.
 /// Missing columns yield empty string (defensive; the gate ensures columns
 /// exist, but a short/ragged row could still lack a cell).
@@ -130,6 +145,39 @@ mod tests {
         let out = b.apply(&src);
         assert_eq!(out.get("u").map(String::as_str), Some("a@x.com"));
         assert_eq!(out.get("role").map(String::as_str), Some("admin"));
+    }
+
+    #[test]
+    fn collect_var_names_spans_bindings_and_keeps_duplicates() {
+        let a = DataBinding {
+            dataset_id: "A".into(),
+            policy: BindingPolicy::PerVu,
+            mappings: vec![
+                Mapping::Column {
+                    var: "x".into(),
+                    column: "c1".into(),
+                },
+                Mapping::Literal {
+                    var: "role".into(),
+                    value: "admin".into(),
+                },
+            ],
+        };
+        let b = DataBinding {
+            dataset_id: "B".into(),
+            policy: BindingPolicy::IterSequential,
+            // 'x' duplicates a var from binding A → the gate must catch this.
+            mappings: vec![Mapping::Column {
+                var: "x".into(),
+                column: "c2".into(),
+            }],
+        };
+        let names = collect_var_names(&[a, b]);
+        assert_eq!(names, vec!["x", "role", "x"]);
+        // A HashSet pass detects the cross-binding duplicate.
+        let mut seen = std::collections::HashSet::new();
+        let dup = names.iter().find(|n| !seen.insert((*n).clone()));
+        assert_eq!(dup.map(String::as_str), Some("x"));
     }
 
     #[test]

@@ -385,7 +385,8 @@ pub async fn mark_failed_if_active(db: &Db, id: &str, message: &str) -> sqlx::Re
 }
 
 /// Returns `true` if any non-terminal run (status `pending` or `running`)
-/// references `dataset_id` in its `profile_json.data_binding`.
+/// references `dataset_id` in any of its `profile_json` data bindings (the
+/// `data_bindings` accessor folds the legacy single field, so both shapes count).
 /// Used by the dataset DELETE guard (spec §10, Slice 8c Task 13).
 pub async fn dataset_in_use(db: &Db, dataset_id: &str) -> sqlx::Result<bool> {
     let rows = sqlx::query("SELECT profile_json FROM runs WHERE status IN ('pending','running')")
@@ -394,10 +395,12 @@ pub async fn dataset_in_use(db: &Db, dataset_id: &str) -> sqlx::Result<bool> {
     for r in rows {
         let pj: String = r.get("profile_json");
         if let Ok(profile) = serde_json::from_str::<Profile>(&pj) {
-            if let Some(b) = &profile.data_binding {
-                if b.dataset_id == dataset_id {
-                    return Ok(true);
-                }
+            if profile
+                .data_bindings()
+                .iter()
+                .any(|b| b.dataset_id == dataset_id)
+            {
+                return Ok(true);
             }
         }
     }

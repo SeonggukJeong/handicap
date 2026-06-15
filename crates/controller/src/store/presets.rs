@@ -148,8 +148,9 @@ pub async fn delete(db: &Db, id: &str) -> sqlx::Result<()> {
     Ok(())
 }
 
-/// Presets whose `profile_json.data_binding.dataset_id` equals `dataset_id`.
-/// Used by the dataset DELETE soft guard (spec §3 #14).
+/// Presets that reference `dataset_id` in any of their `profile_json` data
+/// bindings (the `data_bindings` accessor folds the legacy single field, so both
+/// shapes match). Used by the dataset DELETE soft guard (spec §3 #14).
 pub async fn referencing_dataset(db: &Db, dataset_id: &str) -> sqlx::Result<Vec<PresetRef>> {
     let rows = sqlx::query("SELECT id,scenario_id,name,profile_json FROM run_presets")
         .fetch_all(db)
@@ -158,14 +159,16 @@ pub async fn referencing_dataset(db: &Db, dataset_id: &str) -> sqlx::Result<Vec<
     for r in rows {
         let pj: String = r.get("profile_json");
         if let Ok(profile) = serde_json::from_str::<Profile>(&pj) {
-            if let Some(b) = &profile.data_binding {
-                if b.dataset_id == dataset_id {
-                    out.push(PresetRef {
-                        preset_id: r.get("id"),
-                        name: r.get("name"),
-                        scenario_id: r.get("scenario_id"),
-                    });
-                }
+            if profile
+                .data_bindings()
+                .iter()
+                .any(|b| b.dataset_id == dataset_id)
+            {
+                out.push(PresetRef {
+                    preset_id: r.get("id"),
+                    name: r.get("name"),
+                    scenario_id: r.get("scenario_id"),
+                });
             }
         }
     }

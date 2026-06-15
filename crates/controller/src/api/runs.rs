@@ -5,7 +5,7 @@ use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
-use crate::binding::BindingPolicy;
+use crate::binding::{BindingPolicy, collect_var_names};
 use crate::error::ApiError;
 use crate::store::datasets;
 use crate::store::runs::{self, Profile, RunStatus};
@@ -169,15 +169,17 @@ pub(crate) fn validate_step_criteria_targets(
     Ok(())
 }
 
-/// Validate a run/preset config against the live datasets (spec §6). Returns the
-/// validated dataset meta when a binding is present (so the caller resolves the
-/// binding from it without a second `get_meta` — TOCTOU guard, controller
-/// `CLAUDE.md`), or `None` when there is no binding. Shared by `runs::create`
-/// (authoritative gate) and preset save (`api::presets`).
+/// Validate a run/preset config against the live datasets (spec §6). Returns one
+/// validated dataset meta per binding, in `profile.data_bindings()` order (so the
+/// caller resolves each binding from its meta without a second `get_meta` —
+/// TOCTOU guard, controller `CLAUDE.md`); an empty vec when there is no binding.
+/// `spawn_run` zips this vec back over `data_bindings()` in the same order — the
+/// accessor is the single source of order, so the alignment holds. Shared by
+/// `runs::create` (authoritative gate) and preset save (`api::presets`).
 pub(crate) async fn validate_run_config(
     state: &AppState,
     profile: &Profile,
-) -> Result<Option<datasets::DatasetMeta>, ApiError> {
+) -> Result<Vec<datasets::DatasetMeta>, ApiError> {
     // ── ramp_down은 VU 곡선 전용 노브 (spec §3.2 ⑨) ──
     if !profile.is_vu_curve() && profile.ramp_down.is_some() {
         return Err(ApiError::BadRequest(
@@ -385,76 +387,111 @@ pub(crate) async fn validate_run_config(
     if let Some(c) = &profile.criteria {
         validate_criteria(c).map_err(ApiError::BadRequest)?;
     }
-    let Some(b) = &profile.data_binding else {
-        return Ok(None);
-    };
-    let meta = datasets::get_meta(&state.db, &b.dataset_id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::BadRequest("data_binding.dataset_id가 존재하지 않습니다".into())
-        })?;
-    if meta.row_count == 0 {
-        return Err(ApiError::BadRequest(
-            "빈 데이터셋은 바인딩할 수 없습니다".into(),
-        ));
+    // ── data bindings: N independent bindings (spec multi-dataset) ──
+    // Effective list comes from the accessor (data_bindings vec, or the legacy
+    // single binding folded to one element). Empty → no binding to validate.
+    let bindings = profile.data_bindings();
+    if bindings.is_empty() {
+        return Ok(Vec::new());
     }
-    for col in b.referenced_columns() {
-        if !meta.columns.iter().any(|c| c == col) {
-            return Err(ApiError::BadRequest(format!(
-                "매핑 컬럼 '{col}'이 데이터셋에 없습니다 (있는 컬럼: {:?})",
-                meta.columns
-            )));
-        }
-    }
-    if matches!(b.policy, BindingPolicy::Unique) {
-        // shard_split is u32 (grpc/shard.rs) — refuse rows that would truncate.
-        if meta.row_count > u32::MAX as i64 {
-            return Err(ApiError::BadRequest(
-                "unique 정책은 데이터셋 행 수가 u32 범위를 넘을 수 없습니다".into(),
-            ));
-        }
-        // Every worker must get at least one row, else a worker would generate
-        // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
-        let n = if profile.is_vu_curve() {
-            1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장)
-        } else if profile.is_open_loop() {
-            profile.worker_count.unwrap_or(1)
-        } else {
-            state.coord.worker_count_for(profile.vus)
-        };
-        if (meta.row_count as u64) < n as u64 {
-            return Err(ApiError::BadRequest(format!(
-                "unique 정책은 데이터셋 행 수가 워커 수 이상이어야 합니다: rows={} < workers={n}",
-                meta.row_count
-            )));
-        }
-    }
-    // per-iteration policies stream the whole dataset → cap.
-    // unique also streams the whole dataset (split across workers) → cap.
-    // per_vu is sliced to min(vus, rows) so it is never capped (spec §11).
-    let per_iteration = matches!(
-        b.policy,
-        BindingPolicy::IterSequential | BindingPolicy::IterRandom | BindingPolicy::Unique
-    );
-    if per_iteration && (meta.row_count as u64) > state.dataset_max_rows {
+    const MAX_BINDINGS: usize = 8;
+    if bindings.len() > MAX_BINDINGS {
         return Err(ApiError::BadRequest(format!(
-            "per-iteration 바인딩 행 수 {}가 상한 {}을 초과합니다",
-            meta.row_count, state.dataset_max_rows
+            "데이터셋 바인딩은 최대 {MAX_BINDINGS}개입니다 ({}개)",
+            bindings.len()
         )));
     }
-    Ok(Some(meta))
+    // Cross-binding variable-name uniqueness: the same var injected from two
+    // datasets is ambiguous. (Same dataset_id bound twice is allowed — only var
+    // names must be globally unique across all bindings.) Empty-mapping bindings
+    // contribute no names (allowed; they inject nothing).
+    let owned: Vec<crate::binding::DataBinding> = bindings.iter().map(|b| (*b).clone()).collect();
+    let mut seen = std::collections::HashSet::new();
+    for var in collect_var_names(&owned) {
+        if !seen.insert(var.clone()) {
+            return Err(ApiError::BadRequest(format!(
+                "변수 '{var}'이 여러 데이터셋에 중복 매핑됨"
+            )));
+        }
+    }
+    // Per-binding validation (independent): the worker count N is shared (it
+    // derives from the profile, not the binding), but every other check is
+    // per-binding. Collect validated meta in data_bindings() order.
+    let n = if profile.is_vu_curve() {
+        1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장)
+    } else if profile.is_open_loop() {
+        profile.worker_count.unwrap_or(1)
+    } else {
+        state.coord.worker_count_for(profile.vus)
+    };
+    let mut metas = Vec::with_capacity(bindings.len());
+    for b in &bindings {
+        let meta = datasets::get_meta(&state.db, &b.dataset_id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "data_binding.dataset_id '{}'가 존재하지 않습니다",
+                    b.dataset_id
+                ))
+            })?;
+        if meta.row_count == 0 {
+            return Err(ApiError::BadRequest(
+                "빈 데이터셋은 바인딩할 수 없습니다".into(),
+            ));
+        }
+        for col in b.referenced_columns() {
+            if !meta.columns.iter().any(|c| c == col) {
+                return Err(ApiError::BadRequest(format!(
+                    "매핑 컬럼 '{col}'이 데이터셋에 없습니다 (있는 컬럼: {:?})",
+                    meta.columns
+                )));
+            }
+        }
+        if matches!(b.policy, BindingPolicy::Unique) {
+            // shard_split is u32 (grpc/shard.rs) — refuse rows that would truncate.
+            if meta.row_count > u32::MAX as i64 {
+                return Err(ApiError::BadRequest(
+                    "unique 정책은 데이터셋 행 수가 u32 범위를 넘을 수 없습니다".into(),
+                ));
+            }
+            // Every worker must get at least one row, else a worker would generate
+            // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
+            if (meta.row_count as u64) < n as u64 {
+                return Err(ApiError::BadRequest(format!(
+                    "unique 정책은 데이터셋 행 수가 워커 수 이상이어야 합니다: rows={} < workers={n}",
+                    meta.row_count
+                )));
+            }
+        }
+        // per-iteration policies stream the whole dataset → cap.
+        // unique also streams the whole dataset (split across workers) → cap.
+        // per_vu is sliced to min(vus, rows) so it is never capped (spec §11).
+        let per_iteration = matches!(
+            b.policy,
+            BindingPolicy::IterSequential | BindingPolicy::IterRandom | BindingPolicy::Unique
+        );
+        if per_iteration && (meta.row_count as u64) > state.dataset_max_rows {
+            return Err(ApiError::BadRequest(format!(
+                "per-iteration 바인딩 행 수 {}가 상한 {}을 초과합니다",
+                meta.row_count, state.dataset_max_rows
+            )));
+        }
+        metas.push(meta);
+    }
+    Ok(metas)
 }
 
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
 /// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
 /// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
-/// 루프(34b)가 공유한다. `validated_meta`는 `validate_run_config`가 돌려준
-/// 검증된 dataset meta(TOCTOU 회피 재사용; binding 없으면 None).
+/// 루프(34b)가 공유한다. `validated_metas`는 `validate_run_config`가 돌려준
+/// 검증된 dataset meta(TOCTOU 회피 재사용) — `profile.data_bindings()`와 같은
+/// 순서. binding 없으면 빈 vec.
 pub(crate) async fn spawn_run(
     state: &AppState,
     scenario: &scenarios::ScenarioRow,
     profile: &Profile,
-    validated_meta: Option<datasets::DatasetMeta>,
+    validated_metas: Vec<datasets::DatasetMeta>,
     env: &std::collections::HashMap<String, String>,
 ) -> Result<runs::RunRow, ApiError> {
     // env is already map<string,string> (rejected at the API boundary otherwise).
@@ -462,11 +499,18 @@ pub(crate) async fn spawn_run(
     let env_value = serde_json::to_value(env).expect("env map serializes to a JSON object");
     let row = runs::insert(&state.db, &scenario.id, &scenario.yaml, profile, &env_value).await?;
 
-    // Resolve the binding for the worker (spec §4/§7): proto policy, a
+    // Resolve each binding for the workers (spec §4/§7): proto policy, a
     // deterministic seed folded from the run id, and the sliced row count.
-    // Reuses the meta validate_run_config already fetched — no second DB call.
-    let data_binding = match (&profile.data_binding, validated_meta) {
-        (Some(b), Some(meta)) => {
+    // Reuses the metas validate_run_config already fetched — no second DB call.
+    // `data_bindings()` and `validated_metas` are in lockstep order (the accessor
+    // is the single source of order — validate iterated it identically), so the
+    // zip aligns each binding with its own meta.
+    let seed = fold_seed(&row.id);
+    let data_bindings: Vec<crate::grpc::coordinator::PendingDataBinding> = profile
+        .data_bindings()
+        .iter()
+        .zip(validated_metas)
+        .map(|(b, meta)| {
             let (policy, row_count) = match b.policy {
                 BindingPolicy::PerVu => {
                     // closed-loop: one row per VU; open-loop: one row per slot
@@ -498,19 +542,15 @@ pub(crate) async fn spawn_run(
                     meta.row_count as u64,
                 ),
             };
-            Some(crate::grpc::coordinator::PendingDataBinding {
+            crate::grpc::coordinator::PendingDataBinding {
                 dataset_id: b.dataset_id.clone(),
                 policy,
-                seed: fold_seed(&row.id),
+                seed,
                 mappings: b.mappings.clone(),
                 row_count,
-            })
-        }
-        // (None, None) is the only other reachable arm — binding absent → no PendingDataBinding.
-        // (Some, None) / (None, Some) cannot occur: validate_run_config returns Some(meta)
-        // iff data_binding is Some, and None otherwise.
-        _ => None,
-    };
+            }
+        })
+        .collect();
 
     // Enqueue the assignment so the coordinator can hand shards to N workers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
@@ -555,7 +595,7 @@ pub(crate) async fn spawn_run(
             ),
         },
         env: env.clone(),
-        data_binding,
+        data_bindings,
     };
     // vu-curve is single-worker v1 (검증 ⑦이 capacity 이내 보장, spec §9).
     let n = if profile.is_vu_curve() {
@@ -1211,11 +1251,11 @@ steps:
         .await
         .unwrap();
         let state = state_with(db, 1).await;
-        let meta = validate_run_config(&state, &unique_profile(dataset_id, 2))
+        let metas = validate_run_config(&state, &unique_profile(dataset_id, 2))
             .await
             .unwrap();
         assert!(
-            meta.is_some(),
+            !metas.is_empty(),
             "valid unique binding returns the dataset meta"
         );
     }
