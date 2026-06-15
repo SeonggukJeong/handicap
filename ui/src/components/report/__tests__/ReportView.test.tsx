@@ -213,6 +213,18 @@ describe("ReportView", () => {
       );
     });
 
+    it("인사이트 CSV 다운로드 버튼이 report-insights.csv를 받는다", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadFile).mockClear();
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+      await user.click(screen.getByRole("button", { name: "Download 인사이트 CSV" }));
+      expect(downloadFile).toHaveBeenCalledWith(
+        api.reportInsightsCsvUrl(FIXTURE.run.id),
+        `run-${FIXTURE.run.id}-insights.csv`,
+        "text/csv",
+      );
+    });
+
     it("shows an error alert when downloadFile rejects", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockRejectedValueOnce(new Error("network error"));

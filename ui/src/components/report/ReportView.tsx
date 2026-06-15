@@ -132,6 +132,19 @@ export function ReportView({ report, profile }: Props) {
           >
             Download XLSX
           </button>
+          <button
+            type="button"
+            onClick={() =>
+              downloadFile(
+                api.reportInsightsCsvUrl(report.run.id),
+                `run-${report.run.id}-insights.csv`,
+                "text/csv",
+              ).catch((e) => setDlErr((e as Error).message))
+            }
+            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
+          >
+            Download 인사이트 CSV
+          </button>
         </div>
       </div>
       {dlErr && (

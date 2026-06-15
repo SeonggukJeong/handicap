@@ -166,6 +166,14 @@ function ScenarioCompareInner({
     ).catch((e) => setErr((e as Error).message));
   };
 
+  const handleExportInsightsCsv = () => {
+    downloadFile(
+      api.compareInsightsCsvUrl(scenarioId, runIds, baseline),
+      "comparison-insights.csv",
+      "text/csv",
+    ).catch((e) => setErr((e as Error).message));
+  };
+
   return (
     <div className="p-6 max-w-6xl">
       <Breadcrumb items={crumbs} />
@@ -189,6 +197,13 @@ function ScenarioCompareInner({
             className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Export XLSX
+          </button>
+          <button
+            type="button"
+            onClick={handleExportInsightsCsv}
+            className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
+          >
+            Export 인사이트 CSV
           </button>
         </div>
       </div>

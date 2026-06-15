@@ -175,4 +175,8 @@ export const api = {
     `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.csv?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
   compareXlsxUrl: (scenarioId: string, runIds: string[], baseline: string) =>
     `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare.xlsx?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
+  reportInsightsCsvUrl: (runId: string) =>
+    `${BASE}/runs/${encodeURIComponent(runId)}/report-insights.csv`,
+  compareInsightsCsvUrl: (scenarioId: string, runIds: string[], baseline: string) =>
+    `${BASE}/scenarios/${encodeURIComponent(scenarioId)}/runs/compare-insights.csv?run_ids=${runIds.map(encodeURIComponent).join(",")}&baseline=${encodeURIComponent(baseline)}`,
 };
