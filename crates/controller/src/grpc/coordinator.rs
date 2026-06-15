@@ -279,7 +279,11 @@ impl CoordinatorState {
         let assignment = RunAssignment {
             run_id: run_id.to_string(),
             scenario_yaml: a.scenario_yaml.clone(),
-            profile: Some(a.profile.clone()),
+            profile: Some({
+                let mut p = a.profile.clone();
+                reduce_open_loop_profile(&mut p, shard_index, shard_count, vu_count);
+                p
+            }),
             env: a.env.clone(),
             // proto row_count is the PER-WORKER count (count_i for unique).
             data_binding: binding.zip(stream.as_ref()).map(|(b, s)| pb::DataBinding {
@@ -547,6 +551,32 @@ impl CoordinatorState {
         let any = !txs.is_empty();
         fan_out_abort(run_id, &txs, "user requested abort").await;
         any
+    }
+}
+
+/// open-loop N>1일 때 워커 i의 proto Profile을 자기 몫으로 축소한다.
+/// 슬롯/동시성 = vu_count(register의 shard_split(max_in_flight,…) 결과),
+/// 레이트(target_rps·각 stage.target) = shard_split(total, shard_count, i).1.
+/// shard_count==1 또는 비-open-loop이면 미변경(byte-identical). (spec §3.1)
+fn reduce_open_loop_profile(
+    profile: &mut pb::Profile,
+    shard_index: u32,
+    shard_count: u32,
+    vu_count: u32,
+) {
+    let is_open_loop = profile.target_rps.is_some() || !profile.stages.is_empty();
+    if shard_count <= 1 || !is_open_loop {
+        return;
+    }
+    // 슬롯 풀 = 이 워커의 vu_count (총 max_in_flight를 shard_split한 share).
+    profile.max_in_flight = Some(vu_count);
+    // 고정 레이트 분할 (Σ == 총 target_rps).
+    if let Some(total) = profile.target_rps {
+        profile.target_rps = Some(shard_split(total, shard_count, shard_index).1);
+    }
+    // 곡선 각 stage.target 분할 (선형성 → Σ 곡선 == 총 곡선).
+    for s in &mut profile.stages {
+        s.target = shard_split(s.target, shard_count, shard_index).1;
     }
 }
 
@@ -1176,6 +1206,44 @@ mod tests {
         tokio::sync::mpsc::Receiver<Result<ServerMessage, Status>>,
     ) {
         tokio::sync::mpsc::channel(8)
+    }
+
+    #[test]
+    fn split_open_loop_profile_sums_exact_and_byte_identical_at_n1() {
+        use handicap_proto::v1::{Profile as PbProfile, Stage as PbStage};
+        let base = PbProfile {
+            target_rps: Some(10),
+            max_in_flight: Some(7),
+            stages: vec![PbStage {
+                target: 10,
+                duration_seconds: 5,
+            }],
+            ..Default::default()
+        };
+
+        // N=2: shard_split(7,2,0)=(0,4),(1)=(4,3) → slots 4+3=7; rps 5+5=10
+        let mut w0 = base.clone();
+        reduce_open_loop_profile(&mut w0, 0, 2, 4);
+        let mut w1 = base.clone();
+        reduce_open_loop_profile(&mut w1, 1, 2, 3);
+        assert_eq!(w0.target_rps.unwrap() + w1.target_rps.unwrap(), 10);
+        assert_eq!(w0.max_in_flight.unwrap(), 4);
+        assert_eq!(w1.max_in_flight.unwrap(), 3);
+        assert_eq!(w0.stages[0].target + w1.stages[0].target, 10);
+
+        // N=1: byte-identical (shard_count=1 → unchanged)
+        let mut solo = base.clone();
+        reduce_open_loop_profile(&mut solo, 0, 1, 7);
+        assert_eq!(solo, base);
+
+        // closed-loop (not open-loop) profile is untouched (defensive)
+        let closed = PbProfile {
+            vus: 100,
+            ..Default::default()
+        };
+        let mut c = closed.clone();
+        reduce_open_loop_profile(&mut c, 0, 2, 50);
+        assert_eq!(c, closed);
     }
 
     #[tokio::test]

@@ -415,8 +415,10 @@ pub(crate) async fn validate_run_config(
         }
         // Every worker must get at least one row, else a worker would generate
         // unbound load (dataset=None path). rows >= N ⟹ all shard counts >= 1.
-        let n = if profile.is_vu_curve() || profile.is_open_loop() {
-            1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장 / open-loop: spec §9)
+        let n = if profile.is_vu_curve() {
+            1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장)
+        } else if profile.is_open_loop() {
+            profile.worker_count.unwrap_or(1)
         } else {
             state.coord.worker_count_for(profile.vus)
         };
@@ -556,15 +558,20 @@ pub(crate) async fn spawn_run(
         data_binding,
     };
     // vu-curve is single-worker v1 (검증 ⑦이 capacity 이내 보장, spec §9).
-    let n = if profile.is_vu_curve() || profile.is_open_loop() {
+    let n = if profile.is_vu_curve() {
         1
+    } else if profile.is_open_loop() {
+        profile.worker_count.unwrap_or(1)
     } else {
         state.coord.worker_count_for(profile.vus)
     };
-    // curve의 total_vus = max(stage.target) — profile.vus(=0)를 넘기면 register의
-    // shard_split(0,…)이 vu_count=0을 만들어 §5 와이어 약속과 모순 (spec §3.3).
+    // curve의 total_vus = max(stage.target); open-loop의 total_vus = max_in_flight(슬롯 풀).
+    // profile.vus(=0)를 넘기면 register의 shard_split(0,…)이 vu_count=0을 만들어 §5 와이어
+    // 약속과 모순 (spec §3.3). validate가 open-loop max_in_flight=Some 보장 → unwrap_or는 방어.
     let total_vus = if profile.is_vu_curve() {
         profile.vu_curve_max()
+    } else if profile.is_open_loop() {
+        profile.max_in_flight.unwrap_or(1)
     } else {
         profile.vus
     };

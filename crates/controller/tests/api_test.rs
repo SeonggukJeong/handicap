@@ -554,3 +554,53 @@ async fn create_run_rejects_binding_to_missing_dataset() {
         "binding to a non-existent dataset must be rejected by the validation gate"
     );
 }
+
+#[tokio::test]
+async fn create_open_loop_run_with_worker_count_fanout() {
+    // Task 2: the run-create path accepts a valid open-loop run with worker_count>1
+    // (fan-out un-pin) and rejects one whose max_in_flight can't give every worker
+    // a slot (validation #3, HTTP-layer wiring). NoopDispatcher leaves the run
+    // pending so the 201 is assertable.
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let yaml = "version: 1\nname: ol-fanout\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+
+    // 201: valid open-loop run with worker_count=2 (omit vus → serde default 0).
+    let ok_body = json!({
+        "scenario_id": scenario_id,
+        "profile": { "target_rps": 200, "max_in_flight": 20, "worker_count": 2, "duration_seconds": 3 },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(ok_body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "valid open-loop worker_count=2 run must be accepted (fan-out un-pin)"
+    );
+
+    // 400: max_in_flight < worker_count → not enough slots (validation #3).
+    let bad_body = json!({
+        "scenario_id": scenario_id,
+        "profile": { "target_rps": 200, "max_in_flight": 1, "worker_count": 2, "duration_seconds": 3 },
+        "env": {}
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(bad_body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "worker_count=2 with max_in_flight=1 must be rejected (worker gets 0 slots)"
+    );
+}
