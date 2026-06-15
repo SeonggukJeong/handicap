@@ -27,13 +27,18 @@ pub struct Insight {
     /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값). Little's Law: ceil(target × mean_sec).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<f64>,
-    /// 사이징 원인: "slots"(max_in_flight 올려라) | "capacity"(CPU/SUT 한계). None = 판별 불가.
+    /// 사이징/포화 원인: "slots"(max_in_flight 부족) | "loadgen"(부하기 워커 한계,
+    /// worker_count 권장) | "sut"(대상 서버 한계, 워커 증설 무익). None = 판별 불가.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
     /// 권장 worker_count (capacity-bound open-loop 포화 시, M > 현재일 때만). spec §4.2.
     /// `recommended`(=max_in_flight, slots용)와 의미가 달라 별도 필드.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_workers: Option<f64>,
+    /// 포화 도달 시점(run-relative seconds). ramp run에서만 Some(= t_peak − min_ts).
+    /// flat/고정-레이트·windows 부재면 None. spec R6.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onset_second: Option<i64>,
 }
 
 impl Insight {
@@ -51,6 +56,7 @@ impl Insight {
             recommended: None,
             cause: None,
             recommended_workers: None,
+            onset_second: None,
         }
     }
 }
@@ -223,6 +229,7 @@ pub fn derive_insights(
         let mut ins = Insight::new("load_gen_saturated", "warning");
         ins.value = Some(peak as f64);
         ins.count = Some(dropped);
+        ins.onset_second = saturation_onset(&by_sec, peak);
 
         // Little's Law 사이징: 목표 도착률을 관측(평균) 지연에서 내려면 필요한 동시 슬롯.
         // mean==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
@@ -239,17 +246,21 @@ pub fn derive_insights(
                 ins.recommended = Some(req as f64);
             }
             (Some(_), Some(_)) => {
-                // 슬롯은 충분했는데 포화 → 한계는 워커 CPU/대상 서버. 올려도 무익.
-                ins.cause = Some("capacity".to_string());
-                // 워커 추천: peak는 N워커 합산이므로 per-worker 천장으로 정규화.
-                // peak>0 가드(summary.rps.round() 폴백이 0일 수 있음 → inf 방지).
-                let wc = worker_count_current.max(1);
-                if peak > 0 {
-                    if let Some(t) = target_rps {
-                        let per_worker = peak as f64 / wc as f64;
-                        let m = ((t as f64) / per_worker).ceil();
-                        if m > wc as f64 {
-                            ins.recommended_workers = Some(m);
+                // 슬롯은 충분했는데 포화 → 부하기(워커) vs 대상 서버(SUT) 귀속(spec R2).
+                if sut_stress(status_distribution, windows) {
+                    // 대상 서버 한계로 보임 → 워커 증설 무익 → recommended_workers 미설정.
+                    ins.cause = Some("sut".to_string());
+                } else {
+                    // 부하기(워커) 한계로 보임 → worker_count 권장(기존 수식 verbatim, parity).
+                    ins.cause = Some("loadgen".to_string());
+                    let wc = worker_count_current.max(1);
+                    if peak > 0 {
+                        if let Some(t) = target_rps {
+                            let per_worker = peak as f64 / wc as f64;
+                            let m = ((t as f64) / per_worker).ceil();
+                            if m > wc as f64 {
+                                ins.recommended_workers = Some(m);
+                            }
                         }
                     }
                 }
@@ -261,6 +272,78 @@ pub fn derive_insights(
 
     out.sort_by_key(order_rank);
     out
+}
+
+/// SUT-stress 휴리스틱 임계값 (spec §4.1, named const).
+const TAU_5XX: f64 = 0.01; // 5xx률 1% 이상이면 SUT-bound
+const TAU_LAT: f64 = 1.5; // late p95 중앙값이 early의 1.5배 이상이면 SUT-bound
+const TAU_SPAN: i64 = 6; // 지연상승은 run span >= 6초일 때만 평가
+
+/// 정렬 후 중앙값(짝수 길이는 두 중앙값 평균). 빈 슬라이스는 0.0.
+fn median(vals: &[u64]) -> f64 {
+    if vals.is_empty() {
+        return 0.0;
+    }
+    let mut v = vals.to_vec();
+    v.sort_unstable();
+    let n = v.len();
+    if n % 2 == 1 {
+        v[n / 2] as f64
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) as f64 / 2.0
+    }
+}
+
+/// 지연상승 신호(spec R2): distinct 초 L개에서 k=⌊L/3⌋초씩 early/late third로 나눠
+/// "초별 최악-스텝 p95"의 중앙값을 비교. late ≥ TAU_LAT × early면 true.
+/// k<1 또는 span<TAU_SPAN이면 false(짧은 run은 추세 판단 불가).
+fn latency_rose(windows: &[ReportWindow]) -> bool {
+    let mut by_sec: BTreeMap<i64, u64> = BTreeMap::new();
+    for w in windows {
+        let e = by_sec.entry(w.ts_second).or_insert(0);
+        *e = (*e).max(w.p95_ms);
+    }
+    let secs: Vec<i64> = by_sec.keys().copied().collect();
+    let l = secs.len();
+    let k = l / 3;
+    if k < 1 || secs[l - 1] - secs[0] < TAU_SPAN {
+        return false;
+    }
+    let early: Vec<u64> = secs[..k].iter().map(|s| by_sec[s]).collect();
+    let late: Vec<u64> = secs[l - k..].iter().map(|s| by_sec[s]).collect();
+    let em = median(&early);
+    em > 0.0 && median(&late) >= TAU_LAT * em
+}
+
+/// SUT-stress(spec R2): 5xx률 ≥ TAU_5XX(ground-truth) OR 지연상승(약한 신호).
+/// **슬롯 충분 arm 안에서만 호출**(폴백 None보다 뒤, spec CC2).
+fn sut_stress(dist: &BTreeMap<String, u64>, windows: &[ReportWindow]) -> bool {
+    let total = crate::report::http_response_total(dist);
+    if total > 0 {
+        let c5 = crate::report::status_class_count(dist, '5');
+        if (c5 as f64) / (total as f64) >= TAU_5XX {
+            return true;
+        }
+    }
+    latency_rose(windows)
+}
+
+/// 포화 도달 시점(spec R6): ramp run에서만 Some(t_peak − min_ts).
+/// ramp 판정 = early-third(앞 ⌊L/3⌋초) 처리량 중앙값 < 0.5×peak(단일 warmup-dip 무시).
+/// L<3 또는 peak==0(windows 부재)면 None. flat이면 None.
+fn saturation_onset(by_sec: &BTreeMap<i64, u64>, peak: u64) -> Option<i64> {
+    let secs: Vec<i64> = by_sec.keys().copied().collect();
+    let l = secs.len();
+    let k = l / 3;
+    if l < 3 || peak == 0 || k < 1 {
+        return None;
+    }
+    let early: Vec<u64> = secs[..k].iter().map(|s| by_sec[s]).collect();
+    if median(&early) >= 0.5 * peak as f64 {
+        return None; // flat → onset 무의미
+    }
+    let t_peak = *secs.iter().find(|s| by_sec[s] == peak)?;
+    Some(t_peak - secs[0])
 }
 
 /// Collect ids of http steps that ALWAYS run: top-level + loop bodies (repeat>=1).
@@ -940,8 +1023,9 @@ steps:
     }
 
     #[test]
-    fn saturated_capacity_when_slots_sufficient() {
-        // 같은 target/지연, max_in_flight=2000 ≥ 500 → 슬롯 충분 → capacity, recommended None.
+    fn saturated_loadgen_when_slots_sufficient() {
+        // 같은 target/지연, max_in_flight=2000 ≥ 500 → 슬롯 충분 → loadgen, recommended None.
+        // windows 없음 + dist 없음 → sut_stress false → loadgen.
         let mut s = summary();
         s.mean_ms = 50;
         let got = derive_insights(
@@ -957,14 +1041,16 @@ steps:
             1,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
-        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
         assert_eq!(ins.recommended, None);
+        assert_eq!(ins.recommended_workers, None); // peak=0(rps fallback) 가드
     }
 
     #[test]
-    fn saturated_capacity_recommends_more_workers() {
-        // dropped>0, cause=capacity, peak=1000(단일 워커), target=3000.
-        // mean=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → capacity.
+    fn saturated_loadgen_recommends_more_workers() {
+        // dropped>0, cause=loadgen, peak=1000(단일 워커), target=3000.
+        // mean=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → slots 충분.
+        // sut_stress: 5xx 없고 windows=1초라 latency_rose false → loadgen.
         // per_worker = 1000/1 = 1000, M = ceil(3000/1000) = 3, 3 > 1 → Some(3.0).
         let mut s = summary();
         s.mean_ms = 1;
@@ -985,16 +1071,17 @@ steps:
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
-        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
         assert_eq!(ins.recommended_workers, Some(3.0));
     }
 
     #[test]
     fn saturated_peak_zero_omits_worker_rec() {
-        // cause=capacity arm에 *도달*하되 peak == 0 (windows 비고 summary.rps < 0.5라
+        // cause=loadgen arm에 *도달*하되 peak == 0 (windows 비고 summary.rps < 0.5라
         // round → 0)인 경우 → div-by-zero 가드(peak > 0)로 recommended_workers None.
-        // mean=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → capacity arm 진입
+        // mean=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → slots 충분 arm 진입
         // (mean=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
+        // sut_stress: 5xx 없고 windows 비어 latency_rose false → loadgen.
         // dropped>0이라 인사이트 자체는 emit.
         let mut s = summary(); // rps = 0.0 → peak fallback = 0
         s.mean_ms = 50;
@@ -1014,15 +1101,16 @@ steps:
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
-        // capacity arm을 실제로 탔는지 확인 — 그래야 None이 fallback이 아니라 가드 덕분.
-        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        // loadgen arm을 실제로 탔는지 확인 — 그래야 None이 fallback이 아니라 가드 덕분.
+        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
         assert_eq!(ins.recommended_workers, None);
     }
 
     #[test]
     fn saturated_m_le_current_omits_worker_rec() {
-        // cause=capacity, peak=1000(2워커 합산 → per_worker=500), target=900.
-        // M = ceil(900/500) = 2, NOT > 2 (현재) → None (SUT-bound, 워커 늘려도 무익).
+        // cause=loadgen, peak=1000(2워커 합산 → per_worker=500), target=900.
+        // M = ceil(900/500) = 2, NOT > 2 (현재) → None.
+        // sut_stress: 5xx 없고 windows=1초라 latency_rose false → loadgen.
         let mut s = summary();
         s.mean_ms = 1;
         let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000 (N=2 합산)
@@ -1042,7 +1130,7 @@ steps:
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
-        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
         assert_eq!(ins.recommended_workers, None);
     }
 
@@ -1113,5 +1201,137 @@ steps:
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));
         assert_eq!(ins.recommended, Some(1.0));
+    }
+
+    fn win_p95(ts: i64, p95: u64) -> ReportWindow {
+        ReportWindow {
+            ts_second: ts,
+            step_id: "a".to_string(),
+            count: 1,
+            error_count: 0,
+            status_counts: BTreeMap::new(),
+            p50_ms: 1,
+            p95_ms: p95,
+            p99_ms: p95,
+        }
+    }
+
+    #[test]
+    fn saturated_sut_via_5xx() {
+        // 슬롯 충분(required=ceil(1000*0.05)=50 ≤ 2000) + 5xx 10% → sut, worker rec 없음.
+        let mut s = summary();
+        s.mean_ms = 50;
+        let dist = dist(&[("200", 900), ("500", 100)]);
+        let got = derive_insights(&s, &[], &[], &dist, None, "", 7, Some(2000), Some(1000), 1);
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("sut"));
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn saturated_sut_via_latency_rise() {
+        // 5xx 없음 + p95가 early 10 → late 100 (1.5배↑, span 8≥6) → sut, worker rec 없음.
+        let mut s = summary();
+        s.mean_ms = 50;
+        let mut windows = vec![];
+        for ts in 0..9 {
+            windows.push(win_p95(ts, if ts >= 6 { 100 } else { 10 }));
+        }
+        let got = derive_insights(
+            &s,
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(1000),
+            1,
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("sut"));
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn onset_present_on_ramp() {
+        // 처리량 10→90 증가(ramp). peak=90, early-third median 20 < 45 → ramp.
+        // t_peak = ts8, min_ts=0 → onset 8.
+        let mut windows = vec![];
+        for ts in 0..9i64 {
+            windows.push(win_count(ts, "a", ((ts + 1) * 10) as u64));
+        }
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            5,
+            None,
+            None,
+            1,
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.onset_second, Some(8));
+    }
+
+    #[test]
+    fn onset_omitted_on_flat() {
+        // 전 구간 처리량 100(flat) → early median 100 ≥ 50 → onset None.
+        let mut windows = vec![];
+        for ts in 0..9i64 {
+            windows.push(win_count(ts, "a", 100));
+        }
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            5,
+            None,
+            None,
+            1,
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.onset_second, None);
+    }
+
+    #[test]
+    fn onset_omitted_on_warmup_dip() {
+        // L=9, 첫 초만 10·나머지 100. early-third(ts0,1,2)=[10,100,100] median 100 ≥ 50
+        // → not ramp → None. (L<9면 early-third가 dip만 잡혀 오판 — fixture L≥9 필수.)
+        let mut windows = vec![win_count(0, "a", 10)];
+        for ts in 1..9i64 {
+            windows.push(win_count(ts, "a", 100));
+        }
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            5,
+            None,
+            None,
+            1,
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.onset_second, None);
+    }
+
+    #[test]
+    fn sut_stress_only_inside_slots_sufficient_arm() {
+        // mean=0(폴백 arm)이면 5xx가 있어도 cause None — sut_stress는 슬롯충분 arm 밖에서 미평가(CC2).
+        let s = summary(); // mean_ms = 0 → required None → 폴백
+        let dist = dist(&[("500", 1000)]);
+        let got = derive_insights(&s, &[], &[], &dist, None, "", 7, Some(100), Some(1000), 1);
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause, None);
     }
 }

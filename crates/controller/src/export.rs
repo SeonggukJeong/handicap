@@ -522,6 +522,7 @@ mod tests {
                 recommended: None,
                 cause: None,
                 recommended_workers: None,
+                onset_second: None,
             },
             // 사이징 3필드를 모두 채운 합성 행: 세 새 열 writer를 모두 운동시킨다.
             // (실제 인사이트는 recommended[slots] ⊕ recommended_workers[capacity]로 배타적이지만,
@@ -539,6 +540,7 @@ mod tests {
                 recommended: Some(106.0),
                 cause: Some("slots".into()),
                 recommended_workers: Some(6.0),
+                onset_second: None,
             },
         ];
         let bytes = report_to_xlsx(&r);
