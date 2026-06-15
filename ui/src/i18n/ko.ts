@@ -315,6 +315,8 @@ export const ko = {
     title: "인사이트 비교",
     colInsight: "인사이트",
     empty: "감지된 인사이트가 없습니다.",
+    // 배지 심각도 라벨(엔진 critical/warning/info → 한국어). 색 단독 의존 회피(a11y).
+    severity: { critical: "심각", warning: "경고", info: "정보" },
   },
   // 인사이트 kind → 짧은 라벨(매트릭스 행 머리). InsightPanel.message()의 산문과 별개.
   insightLabels: {

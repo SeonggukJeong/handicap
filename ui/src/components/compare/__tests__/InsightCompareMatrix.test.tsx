@@ -59,6 +59,7 @@ describe("InsightCompareMatrix", () => {
     render(<InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />);
     expect(screen.getByText("SLO 통과")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBe(1);
+    expect(screen.getByText("정보")).toBeInTheDocument(); // slo_pass severity=info → Korean badge
   });
 
   it("합집합이 비면 빈 상태", () => {

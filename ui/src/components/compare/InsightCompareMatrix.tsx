@@ -16,6 +16,7 @@ const SEV_CLASS: Record<string, string> = {
   info: "border-slate-300 bg-slate-50 text-slate-700",
 };
 const LABELS: Record<string, string | undefined> = ko.insightLabels;
+const SEV_LABELS: Record<string, string | undefined> = ko.insightCompare.severity;
 
 function identity(i: Insight): string {
   return `${i.kind}|${i.step_id ?? i.status_class ?? ""}`;
@@ -105,7 +106,7 @@ export function InsightCompareMatrix({ reports, stepLabelMap, labels }: Props) {
                           SEV_CLASS[i.severity] ?? SEV_CLASS.info,
                         ].join(" ")}
                       >
-                        {i.severity}
+                        {SEV_LABELS[i.severity] ?? i.severity}
                         {num != null ? ` ${num}` : ""}
                       </span>
                     </td>
