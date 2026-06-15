@@ -11,17 +11,17 @@ const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
  *  초과 권장값은 적용해도 검증이 400으로 막으므로 비차단 경고를 띄운다(post-hoc capacity cause와 의미 연결). */
 const MAX_IN_FLIGHT_CAP = 10000;
 
-/** 최근 종료 open-loop run에서 지연 앵커(요청당 p50)를 도출. 없거나 p50==0이면 null.
+/** 최근 종료 open-loop run에서 지연 앵커(요청당 mean)를 도출. 없거나 mean==0이면 null.
  *  반환값은 useMemo로 안정화 — 소비처 분기가 값 변화에만 반응(닫힌 헬퍼 usePriorClosedRunAnchor 미러). */
-function usePriorOpenRunAnchor(scenarioId: string | undefined): { p50Ms: number } | null {
+function usePriorOpenRunAnchor(scenarioId: string | undefined): { meanMs: number } | null {
   const runs = useScenarioRuns(scenarioId);
   // Cast: Zod parses defaults at runtime so the data is truly Run[], but tsc sees a
   // nested-default input-type leak (ProfileSchema.ramp_up_seconds?.default → optional).
   const latest = useMemo(() => pickLatestOpenRun((runs.data?.runs ?? []) as Run[]), [runs.data]);
   const report = useRunReport(latest?.id, Boolean(latest));
-  const p50Ms = report.data?.summary.p50_ms ?? 0;
-  // p50==0(localhost sub-ms run)이면 앵커 무효 → 추정/측정 UI 노출(spec §5.1 가드).
-  return useMemo(() => (p50Ms > 0 ? { p50Ms } : null), [p50Ms]);
+  const meanMs = report.data?.summary.mean_ms ?? 0;
+  // mean==0(localhost sub-ms run)이면 앵커 무효 → 추정/측정 UI 노출(spec §5.1 가드).
+  return useMemo(() => (meanMs > 0 ? { meanMs } : null), [meanMs]);
 }
 
 type Props = {
@@ -60,7 +60,7 @@ export function SlotSizingHelper({
   const estMsNum = Number(estMs);
   // 지연 출처 precedence: prior > 수동 추정(estMs 입력) > 측정 (닫힌 헬퍼와 동형).
   const latencyMs: number | null = anchor
-    ? anchor.p50Ms
+    ? anchor.meanMs
     : estMs.trim() !== "" && Number.isFinite(estMsNum) && estMsNum > 0
       ? estMsNum
       : measured
@@ -84,7 +84,7 @@ export function SlotSizingHelper({
       </div>
 
       {anchor ? (
-        <p className="text-xs text-slate-500 mb-2">{ko.slotSizing.fromPriorRun(anchor.p50Ms)}</p>
+        <p className="text-xs text-slate-500 mb-2">{ko.slotSizing.fromPriorRun(anchor.meanMs)}</p>
       ) : (
         <div className="mb-2">
           <label className="block text-sm">

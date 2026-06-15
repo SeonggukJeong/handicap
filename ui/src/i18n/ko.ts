@@ -348,7 +348,7 @@ export const ko = {
       "방금 측정은 부하 없는 1회 실행이라 실제보다 빨라요. 부하가 걸리면 더 느려져 슬롯이 더 필요할 수 있어, 이 권장값은 최소 출발점이에요.",
     truncated: "시나리오가 길어 측정이 잘렸어요 — 예상 응답시간을 직접 입력하세요.",
     measureError: "측정에 실패했어요. 환경 변수(${BASE_URL} 등)와 시나리오를 확인하세요.",
-    fromPriorRun: (p50: number) => `지난 실행의 응답시간(p50 ${p50}ms) 기준 추정이에요.`,
+    fromPriorRun: (mean: number) => `지난 실행 평균 응답시간(${mean}ms) 기준 추정이에요.`,
     measured: (req: number, ms: number) => `측정됨: 요청 ${req}개 · 평균 ${ms}ms`,
     recommend: (n: number) => `max_in_flight를 최소 ~${n}(으)로 설정하세요`,
     formula: (targetRps: number, latencyMs: number, n: number) =>

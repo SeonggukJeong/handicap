@@ -47,8 +47,8 @@ export function pickLatestClosedRun(runs: Run[]): Run | null {
 }
 
 /** 열린 루프 슬롯(max_in_flight) 사이징의 순수 계산. Little's Law: 동시 슬롯 ≈ 도착률 × 지연.
- *  post-hoc `load_gen_saturated` 인사이트의 `required = ceil(target_rps × p50_ms/1000)`와
- *  같은 수식·프록시(요청당 p50). 컨트롤러: crates/controller/src/insights.rs:222-227. */
+ *  post-hoc `load_gen_saturated` 인사이트의 `required = ceil(target_rps × mean_ms/1000)`와
+ *  같은 수식·프록시(요청당 mean). 컨트롤러: crates/controller/src/insights.rs:229-231. */
 
 export type SlotSizingResult = { recommendedSlots: number };
 
@@ -56,7 +56,7 @@ export type SlotSizingResult = { recommendedSlots: number };
 export function recommendSlots(targetRps: number, latencyMs: number): SlotSizingResult | null {
   if (!targetRpsValid(targetRps)) return null;
   if (!Number.isFinite(latencyMs) || latencyMs <= 0) return null;
-  // insights.rs:224 grouping: ceil(target * (latency/1000)), 최소 1.
+  // insights.rs:229-231 grouping: ceil(target * (latency/1000)), 최소 1.
   const recommendedSlots = Math.max(1, Math.ceil(targetRps * (latencyMs / 1000)));
   return { recommendedSlots };
 }
