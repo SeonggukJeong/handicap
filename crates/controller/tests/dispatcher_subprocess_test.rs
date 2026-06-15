@@ -57,6 +57,7 @@ async fn seed_pending_run(db: &Db) -> String {
         loop_breakdown_cap: 256,
         http_timeout_seconds: 30,
         data_binding: None,
+        data_bindings: vec![],
         criteria: None,
         think_time: None,
         think_seed: None,

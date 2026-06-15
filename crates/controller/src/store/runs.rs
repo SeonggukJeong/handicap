@@ -119,7 +119,9 @@ pub struct Profile {
     #[serde(default = "default_http_timeout")]
     pub http_timeout_seconds: u32,
     #[serde(default)]
-    pub data_binding: Option<crate::binding::DataBinding>,
+    pub data_binding: Option<crate::binding::DataBinding>, // DEPRECATED: 레거시 단일(읽기 호환)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data_bindings: Vec<crate::binding::DataBinding>, // 다중 — 신규 쓰기는 여기만 채움
     #[serde(default)]
     pub criteria: Option<Criteria>,
     #[serde(default)]
@@ -148,6 +150,16 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// 효과적 바인딩 목록: data_bindings가 비어있지 않으면 그것, 비었으면 레거시
+    /// data_binding을 1-원소로 fold. 모든 읽기 사이트는 이 접근자를 경유한다.
+    pub fn data_bindings(&self) -> Vec<&crate::binding::DataBinding> {
+        if !self.data_bindings.is_empty() {
+            self.data_bindings.iter().collect()
+        } else {
+            self.data_binding.iter().collect()
+        }
+    }
+
     /// S-D §3.5: open-loop when fixed rate OR a non-empty stage curve is set.
     /// Empty `stages` ≡ absent. Single source of truth for every open-loop
     /// discriminator (validate + slot_count + worker count).
@@ -500,6 +512,7 @@ mod tests {
             loop_breakdown_cap: 256,
             http_timeout_seconds: 30,
             data_binding: None,
+            data_bindings: vec![],
             criteria: None,
             think_time: None,
             think_seed: None,
@@ -551,6 +564,7 @@ mod tests {
             loop_breakdown_cap: 256,
             http_timeout_seconds: 30,
             data_binding: None,
+            data_bindings: vec![],
             criteria: None,
             think_time: None,
             think_seed: None,
@@ -758,6 +772,7 @@ mod tests {
             loop_breakdown_cap: 256,
             http_timeout_seconds: 30,
             data_binding: None,
+            data_bindings: vec![],
             criteria: Some(Criteria {
                 max_p95_ms: Some(500),
                 max_error_rate: Some(0.01),
@@ -811,6 +826,34 @@ mod tests {
             .await
             .unwrap();
         assert!(get(&db, &id).await.unwrap().unwrap().verdict.is_none());
+    }
+
+    #[test]
+    fn legacy_single_binding_folds_into_data_bindings_accessor() {
+        // 옛 profile_json: data_binding(단일) only, data_bindings 없음
+        let json = r#"{"vus":1,"ramp_up_seconds":0,"duration_seconds":2,
+            "data_binding":{"dataset_id":"01J","policy":"per_vu","mappings":[]}}"#;
+        let p: Profile = serde_json::from_str(json).unwrap();
+        let eff = p.data_bindings();
+        assert_eq!(eff.len(), 1);
+        assert_eq!(eff[0].dataset_id, "01J");
+    }
+
+    #[test]
+    fn data_bindings_vec_takes_precedence_over_legacy() {
+        let json = r#"{"vus":1,"ramp_up_seconds":0,"duration_seconds":2,
+            "data_bindings":[
+                {"dataset_id":"A","policy":"per_vu","mappings":[]},
+                {"dataset_id":"B","policy":"unique","mappings":[]}]}"#;
+        let p: Profile = serde_json::from_str(json).unwrap();
+        assert_eq!(p.data_bindings().len(), 2);
+    }
+
+    #[test]
+    fn no_binding_yields_empty_accessor() {
+        let json = r#"{"vus":1,"ramp_up_seconds":0,"duration_seconds":2}"#;
+        let p: Profile = serde_json::from_str(json).unwrap();
+        assert!(p.data_bindings().is_empty());
     }
 
     #[test]
