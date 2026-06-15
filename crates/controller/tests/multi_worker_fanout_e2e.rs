@@ -419,6 +419,135 @@ async fn two_worker_fanout_merges_metrics() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_worker_open_loop_fanout_completes() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let worker_bin = worker_bin_path().await;
+    assert!(worker_bin.exists(), "worker bin not at {:?}", worker_bin);
+
+    let target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/hit"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ok")
+                .set_delay(Duration::from_millis(5)), // p50_ms > 0 after HDR merge
+        )
+        .mount(&target)
+        .await;
+
+    let (rest_listener, rest_addr) = bind_local().await;
+    let (grpc_listener, grpc_addr) = bind_local().await;
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    // open-loop N = worker_count (2); capacity does not drive fan-out here.
+    let coord = CoordinatorState::with_capacity(db.clone(), 2000);
+    let (rest_handle, grpc_handle) = boot(
+        coord,
+        db.clone(),
+        grpc_listener,
+        rest_listener,
+        grpc_addr,
+        &worker_bin,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let http = reqwest::Client::new();
+    let rest_base = format!("http://{}", rest_addr);
+    // Same step_id across both shards so their per-second windows collide on
+    // (run_id, ts_second, step_id) — the merge case A3a keep-first dropped.
+    let scenario_yaml = format!(
+        "version: 1\nname: open-merge\nvariables:\n  base: \"{}\"\nsteps:\n  - id: \"01HX0000000000000000000024\"\n    name: hit\n    type: http\n    request:\n      method: GET\n      url: \"{{{{base}}}}/hit?vu=${{vu_id}}\"\n    assert:\n      - status: 200\n",
+        target.uri()
+    );
+    let v: Value = http
+        .post(format!("{}/api/scenarios", rest_base))
+        .json(&json!({ "yaml": scenario_yaml }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let scenario_id = v["id"].as_str().unwrap().to_string();
+
+    // Open-loop: arrival-rate 200 RPS, 20 slots, fanned out to 2 workers
+    // (each gets target_rps≈100, max_in_flight=10, vu_offset 0 and 10).
+    // No `vus` field — sending vus>0 on open-loop triggers validation #5 → 400.
+    let v: Value = http.post(format!("{}/api/runs", rest_base))
+        .json(&json!({ "scenario_id": scenario_id, "profile": { "target_rps": 200, "max_in_flight": 20, "worker_count": 2, "duration_seconds": 3 }, "env": {} }))
+        .send().await.unwrap().json().await.unwrap();
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
+    let mut last = String::new();
+    while std::time::Instant::now() < deadline {
+        let v: Value = http
+            .get(format!("{}/api/runs/{}", rest_base, run_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        last = v["status"].as_str().unwrap().to_string();
+        if last == "completed" || last == "failed" || last == "aborted" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        last, "completed",
+        "open-loop N=2 fan-out should complete; got {last}"
+    );
+
+    // Both shards generated load: worker 0 has vu_offset=0 (vu 0..9), worker 1
+    // has vu_offset=10 (vu 10..19). Parse the numeric vu from each request and
+    // require at least one < 10 (shard 0) AND one >= 10 (shard 1). Robust to
+    // which exact slots each worker used.
+    let reqs = target.received_requests().await.unwrap();
+    let wc = reqs.len();
+    let vus: Vec<u32> = reqs
+        .iter()
+        .filter_map(|r| {
+            r.url
+                .query()
+                .and_then(|q| q.strip_prefix("vu="))
+                .and_then(|v| v.parse().ok())
+        })
+        .collect();
+    assert!(!vus.is_empty(), "expected vu-tagged requests, saw none");
+    assert!(
+        vus.iter().any(|&v| v < 10),
+        "worker 0 (vu<10) missing: {vus:?}"
+    );
+    assert!(
+        vus.iter().any(|&v| v >= 10),
+        "worker 1 (vu>=10) missing: {vus:?}"
+    );
+
+    // /report: counts must NOT be halved by keep-first. A3b merges worker rows ->
+    // report count ~= wiremock count. Open-loop may have a few more in-flight at
+    // the deadline than the closed-loop precedent's +4, so allow +8.
+    let report: Value = http
+        .get(format!("{}/api/runs/{}/report", rest_base, run_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let rc = report["summary"]["count"].as_u64().unwrap() as usize;
+    assert!(rc > 0, "report count should be > 0");
+    assert!(
+        rc <= wc && rc + 8 >= wc,
+        "report count {rc} should match wiremock {wc} (A3a keep-first would be ~half)"
+    );
+
+    rest_handle.abort();
+    grpc_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_worker_unique_consumes_each_row_once() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let worker_bin = worker_bin_path().await;
