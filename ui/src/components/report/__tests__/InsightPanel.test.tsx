@@ -109,7 +109,7 @@ describe("InsightPanel", () => {
       },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    // worker_count를 ~3개로 올리라는 추천이 보인다
-    expect(screen.getByText(/worker_count.*~?3개?/)).toBeInTheDocument();
+    // worker_count를 ~3개로 올리라는 추천이 보인다 (Math.round(3)=3 정확 문자열 락인)
+    expect(screen.getByText(/worker_count를 ~3개로/)).toBeInTheDocument();
   });
 });
