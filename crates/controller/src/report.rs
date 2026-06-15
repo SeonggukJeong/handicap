@@ -619,6 +619,7 @@ pub fn build_report(
                 .as_ref()
                 .and_then(|s| s.iter().map(|st| st.target).max())
         }),
+        run.profile.worker_count.unwrap_or(1),
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).

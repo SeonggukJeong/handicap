@@ -359,6 +359,8 @@ export const InsightSchema = z.object({
   window_seconds: z.number().int().optional(),
   recommended: z.number().optional(),
   cause: z.string().optional(),
+  // Rust 필드는 skip_serializing_if = "Option::is_none" → None이면 OMIT(null 아님) → .optional()
+  recommended_workers: z.number().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 

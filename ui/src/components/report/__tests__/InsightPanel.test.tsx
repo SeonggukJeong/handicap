@@ -83,7 +83,7 @@ describe("InsightPanel", () => {
     expect(screen.getByText(/최소 ~500\(으\)로 올려/)).toBeInTheDocument();
   });
 
-  it("load_gen_saturated capacity — 올려도 안 늘어요 행동 줄", () => {
+  it("load_gen_saturated capacity — 올려도 안 늘어요 행동 줄 (worker 추천 없음)", () => {
     const insights: Insight[] = [
       {
         kind: "load_gen_saturated",
@@ -95,5 +95,21 @@ describe("InsightPanel", () => {
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
     expect(screen.getByText(/max_in_flight를 올려도 처리량은 안 늘어요/)).toBeInTheDocument();
+  });
+
+  it("load_gen_saturated capacity — recommended_workers면 worker_count 추천 행동 줄", () => {
+    const insights: Insight[] = [
+      {
+        kind: "load_gen_saturated",
+        severity: "warning",
+        value: 1000,
+        count: 50,
+        cause: "capacity",
+        recommended_workers: 3,
+      },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    // worker_count를 ~3개로 올리라는 추천이 보인다
+    expect(screen.getByText(/worker_count.*~?3개?/)).toBeInTheDocument();
   });
 });

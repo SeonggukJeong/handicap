@@ -30,6 +30,10 @@ pub struct Insight {
     /// 사이징 원인: "slots"(max_in_flight 올려라) | "capacity"(CPU/SUT 한계). None = 판별 불가.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
+    /// 권장 worker_count (capacity-bound open-loop 포화 시, M > 현재일 때만). spec §4.2.
+    /// `recommended`(=max_in_flight, slots용)와 의미가 달라 별도 필드.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_workers: Option<f64>,
 }
 
 impl Insight {
@@ -46,6 +50,7 @@ impl Insight {
             window_seconds: None,
             recommended: None,
             cause: None,
+            recommended_workers: None,
         }
     }
 }
@@ -68,7 +73,8 @@ fn order_rank(i: &Insight) -> u8 {
     }
 }
 
-// 9 인자: A9 사이징(max_in_flight/target_rps)이 기존 7 인자에 더해져 clippy 임계(7)를 넘는다.
+// 10 인자: A9 사이징(max_in_flight/target_rps) + worker_count 추천(worker_count_current)이
+// 기존 7 인자에 더해져 clippy 임계(7)를 넘는다.
 // 모두 별개 read-only 컨텍스트라 struct 묶음은 호출부만 번잡해진다(단일 prod 호출부 + 테스트).
 #[allow(clippy::too_many_arguments)]
 pub fn derive_insights(
@@ -81,6 +87,7 @@ pub fn derive_insights(
     dropped: u64,
     max_in_flight: Option<u32>,
     target_rps: Option<u32>,
+    worker_count_current: u32,
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -234,6 +241,18 @@ pub fn derive_insights(
             (Some(_), Some(_)) => {
                 // 슬롯은 충분했는데 포화 → 한계는 워커 CPU/대상 서버. 올려도 무익.
                 ins.cause = Some("capacity".to_string());
+                // 워커 추천: peak는 N워커 합산이므로 per-worker 천장으로 정규화.
+                // peak>0 가드(summary.rps.round() 폴백이 0일 수 있음 → inf 방지).
+                let wc = worker_count_current.max(1);
+                if peak > 0 {
+                    if let Some(t) = target_rps {
+                        let per_worker = peak as f64 / wc as f64;
+                        let m = ((t as f64) / per_worker).ceil();
+                        if m > wc as f64 {
+                            ins.recommended_workers = Some(m);
+                        }
+                    }
+                }
             }
             _ => {} // 폴백: cause/recommended None 유지
         }
@@ -319,6 +338,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         assert!(got.is_empty());
     }
@@ -352,6 +372,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         let f = got
             .iter()
@@ -374,6 +395,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
@@ -391,7 +413,18 @@ mod tests {
         let steps = vec![step_err("a", 100), step_err("b", 900)];
         let mut s = summary();
         s.errors = 1000;
-        let got = derive_insights(&s, &steps, &[], &BTreeMap::new(), None, "", 0, None, None);
+        let got = derive_insights(
+            &s,
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            1,
+        );
         let h = got
             .iter()
             .find(|i| i.kind == "error_hotspot")
@@ -414,6 +447,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
@@ -431,6 +465,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
@@ -469,6 +504,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         let t = got
             .iter()
@@ -492,6 +528,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -509,6 +546,7 @@ mod tests {
             0,
             None,
             None,
+            1,
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -551,6 +589,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -573,6 +612,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
@@ -592,6 +632,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -615,7 +656,7 @@ steps:
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
         let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
         let v = verdict(false, 1);
-        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None);
+        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None, 1);
         let order: Vec<(&str, Option<&str>)> = got
             .iter()
             .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
@@ -641,7 +682,7 @@ steps:
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
-        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None);
+        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None, 1);
         assert!(
             got.len() >= 3,
             "error-heavy run should surface >=3 insights, got {}",
@@ -665,6 +706,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
         assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 8 then 9
@@ -684,6 +726,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         assert_eq!(got[0].step_id.as_deref(), Some("a"));
         assert_eq!(got[0].value, Some(100.0));
@@ -727,6 +770,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -739,7 +783,7 @@ steps:
     #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, 1);
         let five = got
             .iter()
             .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
@@ -758,7 +802,7 @@ steps:
     fn status_class_excludes_status_0_from_denominator() {
         // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
         let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, 1);
         let five = got
             .iter()
             .find(|i| i.status_class.as_deref() == Some("5xx"))
@@ -821,6 +865,7 @@ steps:
             5,
             None,
             None,
+            1,
         );
         let s = got
             .iter()
@@ -844,6 +889,7 @@ steps:
             0,
             None,
             None,
+            1,
         );
         assert!(got.iter().all(|i| i.kind != "load_gen_saturated"));
     }
@@ -854,7 +900,7 @@ steps:
         // summary() 헬퍼는 rps:0.0이라 0이 아닌 값을 명시해야 동어반복(==0) 회피.
         let mut s = summary();
         s.rps = 1234.6;
-        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3, None, None);
+        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3, None, None, 1);
         let sat = got
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
@@ -880,6 +926,7 @@ steps:
             7,
             Some(100),
             Some(10_000),
+            1,
         );
         let ins = got
             .iter()
@@ -906,10 +953,90 @@ steps:
             7,
             Some(2000),
             Some(10_000),
+            1,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("capacity"));
         assert_eq!(ins.recommended, None);
+    }
+
+    #[test]
+    fn saturated_capacity_recommends_more_workers() {
+        // dropped>0, cause=capacity, peak=1000(단일 워커), target=3000.
+        // p50=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → capacity.
+        // per_worker = 1000/1 = 1000, M = ceil(3000/1000) = 3, 3 > 1 → Some(3.0).
+        let mut s = summary();
+        s.p50_ms = 1;
+        let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000
+        let got = derive_insights(
+            &s,
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(3000),
+            1, // worker_count_current
+        );
+        let ins = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.recommended_workers, Some(3.0));
+    }
+
+    #[test]
+    fn saturated_peak_zero_omits_worker_rec() {
+        // peak == 0 (windows 비고 summary.rps < 0.5라 round → 0) → div-by-zero 가드로
+        // recommended_workers None. dropped>0이라 인사이트 자체는 emit.
+        let s = summary(); // rps = 0.0 → peak fallback = 0
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(3000),
+            1, // worker_count_current
+        );
+        let ins = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn saturated_m_le_current_omits_worker_rec() {
+        // cause=capacity, peak=1000(2워커 합산 → per_worker=500), target=900.
+        // M = ceil(900/500) = 2, NOT > 2 (현재) → None (SUT-bound, 워커 늘려도 무익).
+        let mut s = summary();
+        s.p50_ms = 1;
+        let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000 (N=2 합산)
+        let got = derive_insights(
+            &s,
+            &[],
+            &windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(900),
+            2, // worker_count_current
+        );
+        let ins = got
+            .iter()
+            .find(|i| i.kind == "load_gen_saturated")
+            .expect("load_gen_saturated present");
+        assert_eq!(ins.cause.as_deref(), Some("capacity"));
+        assert_eq!(ins.recommended_workers, None);
     }
 
     #[test]
@@ -926,6 +1053,7 @@ steps:
             7,
             Some(100),
             Some(10_000),
+            1,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
@@ -948,6 +1076,7 @@ steps:
             7,
             None,
             Some(10_000),
+            1,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
@@ -972,6 +1101,7 @@ steps:
             7,
             Some(0),
             Some(10),
+            1,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));

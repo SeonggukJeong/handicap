@@ -49,7 +49,11 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
 function actionFor(i: Insight): string | undefined {
   if (i.kind === "load_gen_saturated") {
     if (i.cause === "slots") return ko.saturation.slots(n(i.recommended));
-    if (i.cause === "capacity") return ko.saturation.capacity;
+    if (i.cause === "capacity") {
+      return i.recommended_workers != null
+        ? ko.saturation.capacityWithWorkers(Math.round(i.recommended_workers))
+        : ko.saturation.capacity;
+    }
     return ko.insightActions.load_gen_saturated; // 폴백(A9 일반)
   }
   return ACTIONS[i.kind];
