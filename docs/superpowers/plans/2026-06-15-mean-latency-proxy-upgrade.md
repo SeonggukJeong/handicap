@@ -1,8 +1,11 @@
 # mean 지연 프록시 전면 일관 업그레이드 Implementation Plan
 
-> **이 문서는 plan 템플릿(`_TEMPLATE.md`)의 dogfood다.** R-id 커버리지 표 + task별 인라인 acceptance가 크로스커팅 슬라이스에서 동작하는지 검증용. 아직 `spec-plan-reviewer` 미통과 초안 — 일부 UI 앵커는 구현 시점 grep 확정 필요로 표기.
+> **이 문서는 plan 템플릿(`_TEMPLATE.md`)의 dogfood다.** R-id 커버리지 표 + task별 인라인 acceptance가 크로스커팅 슬라이스에서 동작하는지 검증용.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+<!-- spec-plan-reviewer APPROVE (round 3, 2026-06-15); round1/2 must-fix 반영 완료 -->
+<!-- REVIEW-GATE: APPROVED -->
 
 **Goal:** post-run·create-time 두 사이징 경로의 지연 프록시를 p50→mean으로 동시 교체하되 parity를 보존하고, `ReportSummary.mean_ms`를 UI까지 배선한다.
 **Architecture:** `overall` HDR 히스토그램(`report.rs`에 이미 존재)의 `mean()`을 `ReportSummary.mean_ms`로 노출 → post-run `insights.rs`와 create-time `sizing.ts` 앵커가 그 값을 같은 프록시로 사용. 새 계산은 `overall.mean()` 한 번뿐, 나머지는 p50→mean 교체.
@@ -60,7 +63,7 @@
 - [ ] **Step 1: `report.rs` 테스트 먼저 (RED)** — summary 단위테스트에 `mean_ms` 기대값 단언 추가(알려진 µs 분포 → ms 기대값).
   **Acceptance (R1):** 알려진 분포에서 `summary.mean_ms`가 `(overall.mean()/1_000).round()`(µs→ms)와 일치.
 
-- [ ] **Step 2: `report.rs` 프로덕션** — `ReportSummary`(`:49`)에 `pub mean_ms: u64`(p50_ms 인접), 빌드부(`:590`)에 `mean_ms: overall.mean().round() as u64`(무조건 호출; `overall` 빈 히스토그램이면 `.mean()`==0.0 → 0 → R6 폴백). **그다음 ripple 4사이트**(`report.rs:999`·`insights.rs:318`·`export.rs:414` struct 리터럴)에 `mean_ms`를 `cargo build --workspace --tests` "missing field"가 0될 때까지 추가(테스트는 결정론 상수).
+- [ ] **Step 2: `report.rs` 프로덕션** — `ReportSummary`(`:54`)에 `pub mean_ms: u64`(p50_ms 인접), 빌드부(`:596`)에 `mean_ms: (overall.mean() / 1_000.0).round() as u64`(무조건 호출; HDR µs 저장이라 `/1_000`로 ms — `overall.mean().round()`만 쓰면 1000× 오류; 빈 히스토그램이면 `.mean()`==0.0 → 0 → R6 폴백). **그다음 ripple 전부**(위 File Structure "Ripple 사이트": Rust 컴파일 4 + 골든 fixture 런타임 1 + UI 픽스처 ~6)를 `cargo build --workspace --tests` "missing field"=0 + `cargo nextest`·`pnpm test` green까지 추가(테스트는 `mean_ms: 0` 등 결정론 상수).
 
 - [ ] **Step 3: `schemas.ts` Zod** — `ReportSummary`에 `mean_ms: z.number().int().nonnegative()`(p50_ms 인접). `schemas.test.ts`에 mean_ms 포함 fixture 파싱 통과 단언.
   **Acceptance (R3):** 서버 shape(`mean_ms` 포함)이 `ReportSummarySchema.parse` 통과. (라이브 최종 확인은 머지절.)
@@ -94,13 +97,15 @@
 
 **충족 R:** R4 (+ R5 parity의 create-time 측 닫음)
 **Files:**
-- Modify: `ui/src/components/SlotSizingHelper.tsx` — `:22` 앵커 (WorkerSizingHelper는 무관 — peakThroughput/count 기반, latency 앵커 없음)
-- Modify: `ui/src/components/sizing.ts` — 주석 `:50-51`만(코드 불변)
+- Modify: `ui/src/components/SlotSizingHelper.tsx` — 앵커 훅 `usePriorOpenRunAnchor` 전체(`p50Ms` → `meanMs`: `:16`/`:22`/`:24`/`:63`/`:87`). WorkerSizingHelper는 무관(count 기반).
+- Modify: `ui/src/i18n/ko.ts` — `:351` `slotSizing.fromPriorRun` 문구의 "p50" → mean-중립(reviewer NEW: 표시가 프록시 속임, ADR-0035)
+- Modify: `ui/src/components/sizing.ts` — 주석 `:51`/`:59`만(코드 불변)
+- Modify: `ui/src/components/__tests__/SlotSizingHelper.test.tsx` — mock `:32` `{summary:{p50_ms}}`→`mean_ms`, `/p50 50ms/` 단언(`:49`)을 새 문구로
 
-- [ ] **Step 1: 테스트 먼저 (RED)** — `SlotSizingHelper.test.tsx`에 prior run의 `summary.mean_ms`로 권장 슬롯이 계산되는지(p50≠mean fixture) 단언.
+- [ ] **Step 1: 테스트 먼저 (RED)** — `SlotSizingHelper.test.tsx` mock(`:32`)을 `{ summary: { mean_ms: opts.mean } }`로 바꾸고, prior run의 `mean_ms`(≠p50)로 권장 슬롯이 계산되는지 + 새 출처 문구를 단언. 기존 `/p50 50ms/`(`:49`) 단언은 새 mean-중립 문구로 갱신.
   **Acceptance (R4):** prior open-loop run의 `mean_ms`(≠p50_ms)가 `recommendSlots`의 `latencyMs`로 흘러 권장값이 mean 기반.
 
-- [ ] **Step 2: 프로덕션** — `SlotSizingHelper.tsx:22` `const p50Ms = report.data?.summary.p50_ms ?? 0`의 소스를 `summary.mean_ms`로(변수명도 의미에 맞게). `sizing.ts:50-51` 주석을 mean으로 + 그 주석의 stale 인용 `insights.rs:222-227`/`:224`를 실제 위치 `:229-231`로 정정(reviewer #7).
+- [ ] **Step 2: 프로덕션** — ① `SlotSizingHelper.tsx`의 `usePriorOpenRunAnchor`에서 `:22` 소스를 `summary.mean_ms`로 + `p50Ms`→`meanMs` 리네임(반환타입 `:16`/대입 `:22`/반환 `:24`/소비처 `:63`/`:87` — `tsc -b`가 강제), 0-가드(`:24` `>0`) 유지. ② `ko.ts:351` 문구 "p50"→mean-중립 + 인자명 `p50`→`mean`. ③ `sizing.ts` 주석(`:51`/`:59`)을 mean으로 + stale 인용 `insights.rs:222-227`/`:224`를 실제 위치 `:229-231`로 정정(reviewer #7).
   **Acceptance (R5 create-time 측):** 앵커가 `summary.mean_ms`를 그대로 먹임 → Task 2의 post-run 프록시와 같은 정수·수식 → 동일 권장값(parity 닫힘).
 
 - [ ] **Step 3: 검증** — `cd ui && pnpm lint && pnpm test && pnpm build`(`--max-warnings=0`) green.

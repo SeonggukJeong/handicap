@@ -63,9 +63,10 @@
 ### 4.3 `ui/src/api/schemas.ts` — 충족 R: R3
 - `ReportSummarySchema`(`:327`, `p50_ms`는 `:333`)에 `mean_ms: z.number().int().nonnegative()` 추가(p50_ms 인접). 서버가 항상 방출(non-Option u64)하므로 `.optional()` 아님 — p50_ms와 동일 스타일. **`.strict()`면 R1만 머지 시 미지 키로 전 리포트 파싱이 깨지므로 R1과 반드시 함께**(seam, dogfood notes F4).
 
-### 4.4 `ui/src/components/SlotSizingHelper.tsx` — 충족 R: R4
-- 앵커 `:22` `const p50Ms = report.data?.summary.p50_ms ?? 0;`의 소스를 `summary.mean_ms`로 교체(변수명도 의미에 맞게 정리).
-- `sizing.ts`의 `recommendSlots` *시그니처·본문은 불변*(프록시는 호출자가 고름). 주석(`:50-51`)의 "프록시(요청당 p50)"를 mean으로 갱신.
+### 4.4 `ui/src/components/SlotSizingHelper.tsx` + `ko.ts` — 충족 R: R4
+- **앵커 훅 `usePriorOpenRunAnchor` 전체를 mean으로**: 소스 `:22` `summary.p50_ms`→`summary.mean_ms`, 그리고 `p50Ms` 식별자(반환타입 `:16` `{ p50Ms }`, 대입 `:22`, 반환 `:24`, 소비처 `:63`/`:87`)를 `meanMs`로 리네임(`tsc -b`가 전 사이트 강제). 0-가드(`:24` `p50Ms > 0`)는 그대로 mean에 적용(R6와 일관).
+- **`ko.ts:351` 사용자 문구(reviewer NEW)**: `fromPriorRun: (p50) => `지난 실행의 응답시간(p50 ${p50}ms) 기준 추정이에요.``가 "p50"을 표시하는데, mean을 먹이면 **표시가 프록시를 속인다**(ADR-0035 ko.ts 단일소스). "p50" 라벨을 mean-중립 문구로(예: "지난 실행 평균 응답시간 …ms 기준"). 인자명도 `p50`→`mean`.
+- `sizing.ts`의 `recommendSlots` *시그니처·본문은 불변*(프록시는 호출자가 고름). 주석(`:51`/`:59`)의 "프록시(요청당 p50)"·stale 인용을 mean·`:229-231`으로 갱신.
 - **WorkerSizingHelper는 무관**: `peakThroughput`/`recommendWorkers`(count 기반)라 latency 앵커 없음(dogfood notes G2).
 
 ---
