@@ -1246,6 +1246,49 @@ mod tests {
         assert_eq!(c, closed);
     }
 
+    #[test]
+    fn split_curve_only_open_loop_splits_each_stage() {
+        use handicap_proto::v1::{Profile as PbProfile, Stage as PbStage};
+        // Curve-only open-loop (target_rps=None, stages present) — exercises the
+        // `!stages.is_empty()` disjunct of the helper's open-loop guard. If that
+        // disjunct ever regressed to `target_rps.is_some()` only, curve-only
+        // multi-worker runs would silently NOT split → N× load (ADR-0032).
+        let base = PbProfile {
+            target_rps: None,
+            max_in_flight: Some(7),
+            stages: vec![
+                PbStage {
+                    target: 10,
+                    duration_seconds: 5,
+                },
+                PbStage {
+                    target: 7,
+                    duration_seconds: 3,
+                },
+            ],
+            ..Default::default()
+        };
+
+        // N=2: shard_split(7,2,*) → slots 4/3; each stage split: 10→5/5, 7→4/3.
+        let mut w0 = base.clone();
+        reduce_open_loop_profile(&mut w0, 0, 2, 4);
+        let mut w1 = base.clone();
+        reduce_open_loop_profile(&mut w1, 1, 2, 3);
+        assert!(w0.target_rps.is_none() && w1.target_rps.is_none()); // stays curve-only
+        assert_eq!(w0.max_in_flight.unwrap(), 4);
+        assert_eq!(w1.max_in_flight.unwrap(), 3);
+        assert_eq!(w0.stages[0].target + w1.stages[0].target, 10);
+        assert_eq!(w0.stages[1].target + w1.stages[1].target, 7);
+        // durations unchanged
+        assert_eq!(w0.stages[0].duration_seconds, 5);
+        assert_eq!(w0.stages[1].duration_seconds, 3);
+
+        // N=1: byte-identical
+        let mut solo = base.clone();
+        reduce_open_loop_profile(&mut solo, 0, 1, 7);
+        assert_eq!(solo, base);
+    }
+
     #[tokio::test]
     async fn register_assigns_distinct_shards_and_resends_on_reregister() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
