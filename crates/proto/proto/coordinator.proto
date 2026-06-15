@@ -112,11 +112,12 @@ message RunAssignment {
   string scenario_yaml = 2;     // canonical scenario YAML, snapshotted
   Profile profile = 3;          // Profile.vus = total VUs (reference)
   map<string, string> env = 4;
-  DataBinding data_binding = 5;   // absent → no data injection (back-compat)
+  DataBinding data_binding = 5;   // DEPRECATED: 단일 바인딩(레거시). 신 컨트롤러는 data_bindings 사용.
   uint32 shard_index = 6;         // 0..shard_count-1
   uint32 shard_count = 7;         // = N (worker count)
   uint32 vu_offset = 8;           // this worker's global VU start (= RunPlan.vu_offset)
   uint32 vu_count = 9;            // VUs this worker runs (= RunPlan.vus)
+  repeated DataBinding data_bindings = 10;  // 다중 독립 바인딩 (binding_index 순서)
 }
 
 message ThinkTime {
@@ -176,4 +177,5 @@ message DatasetRow {
 message DatasetBatch {
   string run_id = 1;
   repeated DatasetRow rows = 2;
+  uint32 binding_index = 3;   // 이 배치 행들이 몇 번째 바인딩 것인지 (단일=0)
 }

@@ -257,6 +257,7 @@ mod load_tests {
                         pb::DatasetRow { values: v }
                     })
                     .collect(),
+                binding_index: 0,
             })),
         }
     }

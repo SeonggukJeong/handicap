@@ -295,6 +295,7 @@ impl CoordinatorState {
             shard_count,
             vu_offset,
             vu_count,
+            data_bindings: vec![],
         };
         Some((assignment, stream))
     }
@@ -799,6 +800,7 @@ async fn stream_dataset(state: &CoordinatorState, tx: &WorkerTx, run_id: &str, w
                 payload: Some(ServerPayload::DatasetBatch(pb::DatasetBatch {
                     run_id: run_id.to_string(),
                     rows: proto_rows,
+                    binding_index: 0,
                 })),
             }))
             .await

@@ -1,4 +1,6 @@
-use handicap_proto::v1::{Profile, RunAssignment, Stage};
+use handicap_proto::v1::{
+    DataBinding, DatasetBatch, Profile, RunAssignment, Stage, data_binding::Policy,
+};
 use prost::Message;
 use std::collections::HashMap;
 
@@ -41,6 +43,7 @@ fn run_assignment_env_field_exists() {
         shard_count: 4,
         vu_offset: 10,
         vu_count: 5,
+        data_bindings: vec![],
     };
     assert_eq!(
         a.env.get("BASE_URL").map(String::as_str),
@@ -88,6 +91,7 @@ fn profile_stages_round_trip() {
         shard_count: 1,
         vu_offset: 0,
         vu_count: 10,
+        data_bindings: vec![],
     };
 
     // encode → decode round-trip
@@ -102,4 +106,39 @@ fn profile_stages_round_trip() {
         decoded.profile.as_ref().unwrap().stages[0].duration_seconds,
         30
     );
+}
+
+#[test]
+fn run_assignment_carries_multiple_bindings() {
+    let a = RunAssignment {
+        run_id: "r".into(),
+        data_bindings: vec![
+            DataBinding {
+                policy: Policy::PerVu as i32,
+                seed: 1,
+                row_count: 3,
+            },
+            DataBinding {
+                policy: Policy::Unique as i32,
+                seed: 1,
+                row_count: 20,
+            },
+        ],
+        ..Default::default()
+    };
+    let bytes = a.encode_to_vec();
+    let back = RunAssignment::decode(bytes.as_slice()).unwrap();
+    assert_eq!(back.data_bindings.len(), 2);
+    assert_eq!(back.data_bindings[1].row_count, 20);
+}
+
+#[test]
+fn dataset_batch_carries_binding_index() {
+    let b = DatasetBatch {
+        run_id: "r".into(),
+        rows: vec![],
+        binding_index: 2,
+    };
+    let back = DatasetBatch::decode(b.encode_to_vec().as_slice()).unwrap();
+    assert_eq!(back.binding_index, 2);
 }
