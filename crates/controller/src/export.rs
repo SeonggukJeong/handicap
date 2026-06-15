@@ -329,6 +329,9 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
             "count",
             "status_class",
             "window_seconds",
+            "recommended",
+            "cause",
+            "recommended_workers",
         ]
         .iter()
         .enumerate()
@@ -359,6 +362,15 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
             }
             if let Some(v) = ins.window_seconds {
                 ws.write_number(r, 8, v as f64).expect("w");
+            }
+            if let Some(v) = ins.recommended {
+                ws.write_number(r, 9, v).expect("w");
+            }
+            if let Some(v) = &ins.cause {
+                ws.write_string(r, 10, v).expect("w");
+            }
+            if let Some(v) = ins.recommended_workers {
+                ws.write_number(r, 11, v).expect("w");
             }
         }
     }
@@ -495,29 +507,68 @@ mod tests {
         use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
         use std::io::Cursor;
         let mut r = report_with_steps(vec![step("a", 10, 50)]);
-        r.insights = vec![crate::insights::Insight {
-            kind: "slowest_step".into(),
-            severity: "info".into(),
-            step_id: Some("a".into()),
-            metric: Some("p95_ms".into()),
-            value: Some(50.0),
-            pct: None,
-            count: None,
-            status_class: None,
-            window_seconds: None,
-            recommended: None,
-            cause: None,
-            recommended_workers: None,
-        }];
+        r.insights = vec![
+            crate::insights::Insight {
+                kind: "slowest_step".into(),
+                severity: "info".into(),
+                step_id: Some("a".into()),
+                metric: Some("p95_ms".into()),
+                value: Some(50.0),
+                pct: None,
+                count: None,
+                status_class: None,
+                window_seconds: None,
+                recommended: None,
+                cause: None,
+                recommended_workers: None,
+            },
+            // 사이징 3필드를 모두 채운 합성 행: 세 새 열 writer를 모두 운동시킨다.
+            // (실제 인사이트는 recommended[slots] ⊕ recommended_workers[capacity]로 배타적이지만,
+            //  그 배타성은 insights.rs의 불변식이지 export writer의 관심사가 아니다.)
+            crate::insights::Insight {
+                kind: "load_gen_saturated".into(),
+                severity: "warning".into(),
+                step_id: None,
+                metric: None,
+                value: Some(1200.0),
+                pct: None,
+                count: Some(8181),
+                status_class: None,
+                window_seconds: None,
+                recommended: Some(106.0),
+                cause: Some("slots".into()),
+                recommended_workers: Some(6.0),
+            },
+        ];
         let bytes = report_to_xlsx(&r);
         let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
         let ws = wb.worksheet_range("Insights").expect("Insights sheet");
+        // 기존 헤더/데이터 단언 (유지)
         assert_eq!(ws.get_value((0, 0)), Some(&Data::String("kind".into())));
         assert_eq!(
             ws.get_value((1, 0)),
             Some(&Data::String("slowest_step".into()))
         );
         assert_eq!(ws.get_value((1, 4)), Some(&Data::Float(50.0)));
+        // 새 헤더 3열 (col 9/10/11 = J/K/L)
+        assert_eq!(
+            ws.get_value((0, 9)),
+            Some(&Data::String("recommended".into()))
+        );
+        assert_eq!(ws.get_value((0, 10)), Some(&Data::String("cause".into())));
+        assert_eq!(
+            ws.get_value((0, 11)),
+            Some(&Data::String("recommended_workers".into()))
+        );
+        // 사이징 행(벡터 인덱스 1 → 시트 row 2)의 새 3열 값
+        assert_eq!(ws.get_value((2, 9)), Some(&Data::Float(106.0)));
+        assert_eq!(ws.get_value((2, 10)), Some(&Data::String("slots".into())));
+        assert_eq!(ws.get_value((2, 11)), Some(&Data::Float(6.0)));
+        // 빈-셀 불변식: slowest_step 행(row 1)은 사이징 필드 None → 미기록.
+        // calamine은 used-range 안의 미기록 셀을 None 또는 Data::Empty로 돌려준다(둘 다 허용).
+        assert!(matches!(ws.get_value((1, 9)), None | Some(Data::Empty)));
+        assert!(matches!(ws.get_value((1, 10)), None | Some(Data::Empty)));
+        assert!(matches!(ws.get_value((1, 11)), None | Some(Data::Empty)));
     }
 
     #[test]
