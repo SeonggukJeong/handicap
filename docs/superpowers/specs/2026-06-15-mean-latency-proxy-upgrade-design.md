@@ -1,9 +1,9 @@
 # mean 지연 프록시 전면 일관 업그레이드 — 사이징 프록시 p50→mean (A9 정밀화 스코프 C)
 
-> **이 문서는 새 spec 템플릿(`_TEMPLATE.md`)의 dogfood다.** mean-프록시 슬라이스를 실제로 설계하면서 §2 요구사항 표(R-id)가 크로스커팅·parity 슬라이스에서 값을 내는지 검증하는 게 목적. 설계 자체는 아직 `spec-plan-reviewer` 미통과(초안).
+> **이 문서는 새 spec 템플릿(`_TEMPLATE.md`)의 dogfood다.** mean-프록시 슬라이스를 실제로 설계하면서 §2 요구사항 표(R-id)가 크로스커팅·parity 슬라이스에서 값을 내는지 검증하는 게 목적. `spec-plan-reviewer` 3라운드 → clean APPROVE + handicap-reviewer 최종 APPROVE + R3 라이브 검증 완료(2026-06-15).
 
 - **날짜**: 2026-06-15
-- **상태**: 설계 초안 (템플릿 dogfood — reviewer 미통과)
+- **상태**: 구현 완료·머지 (Task 1–3, reviewer 3라운드 APPROVE + handicap-reviewer APPROVE + R3 라이브[mean_ms=55], 2026-06-15)
 - **출처**: roadmap §A9 연기 항목 "mean 프록시 전면 일관 업그레이드(C)"(사용자 2026-06-15 "쓸만한 후속"). XLSX 사이징 3열 슬라이스(`2026-06-15-xlsx-insights-sizing-columns`) §6이 연기로 기록. 동기: 사이징 프록시가 **요청당 p50**이라 우편향(long-tail) 분포에서 `p50 < mean` → 체계적 **under-sizing**(권장 슬롯/워커가 실제 필요보다 작음). mean으로 바꾸면 평균 점유를 반영해 교정.
 - **연관**: A9 사이징 권장 spec `2026-06-14-capacity-sizing-recommendation-design.md`(post-run `required` 프록시), open-loop 슬롯 사이징 헬퍼 `2026-06-14-open-loop-slot-sizing-helper-design.md`·worker_count 헬퍼 `2026-06-15-worker-count-sizing-helper-design.md`(create-time `recommendSlots` 프록시), ADR-0028(insights)·ADR-0038(worker_count).
 - **ADR**: 신규 불필요 — 프록시 *값*만 p50→mean으로 교체(결정 구조 불변, 기존 ADR-0028/0038 범위 내). 단 "사이징 프록시 = mean"을 ADR-0028에 한 줄 보강 검토(plan 단계 판단).
