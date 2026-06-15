@@ -51,7 +51,7 @@ export const ko = {
   binding: {
     sectionTitle: "데이터 바인딩",
     addDataset: "데이터셋 추가",
-    removeBinding: "바인딩 제거",
+    removeBinding: (n: number) => `바인딩 ${n} 제거`,
     cardLabel: (n: number) => `바인딩 ${n}`,
     rowCount: (n: number) => `${n}행`,
     // 카드 접힘 시 설정 요약(데이터셋명 또는 매핑 수). 비어 있으면 "미설정".

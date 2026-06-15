@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../runPrefill";
+import {
+  envValueToRecord,
+  normalizeProfile,
+  profileDurationSeconds,
+  seedBindingsFrom,
+} from "../runPrefill";
 import { ProfileSchema } from "../schemas";
+import type { DataBinding } from "../schemas";
 
 describe("profileDurationSeconds", () => {
   it("returns duration_seconds for closed-loop / fixed-rate (no stages)", () => {
@@ -57,6 +63,38 @@ describe("envValueToRecord", () => {
     expect(envValueToRecord(["x"])).toEqual({});
     expect(envValueToRecord("nope")).toEqual({});
     expect(envValueToRecord(undefined)).toEqual({});
+  });
+});
+
+describe("seedBindingsFrom", () => {
+  const b1: DataBinding = { dataset_id: "D1", policy: "per_vu", mappings: [] };
+  const b2: DataBinding = {
+    dataset_id: "D2",
+    policy: "iter_sequential",
+    mappings: [{ kind: "column", var: "x", column: "col" }],
+  };
+
+  it("(a) data_bindings non-empty → returns those bindings", () => {
+    expect(seedBindingsFrom({ data_bindings: [b1, b2], data_binding: undefined })).toEqual([
+      b1,
+      b2,
+    ]);
+  });
+
+  it("(b) legacy data_binding only (no data_bindings) → returns [data_binding]", () => {
+    expect(seedBindingsFrom({ data_binding: b1, data_bindings: undefined })).toEqual([b1]);
+  });
+
+  it("(c) neither field present → returns []", () => {
+    expect(seedBindingsFrom({ data_binding: undefined, data_bindings: undefined })).toEqual([]);
+    expect(seedBindingsFrom(undefined)).toEqual([]);
+  });
+
+  it("(d) data_bindings present but empty → falls through to legacy/[]", () => {
+    // Empty array is falsy for the `length > 0` guard → falls back to data_binding.
+    expect(seedBindingsFrom({ data_bindings: [], data_binding: b1 })).toEqual([b1]);
+    // No legacy either → [].
+    expect(seedBindingsFrom({ data_bindings: [], data_binding: undefined })).toEqual([]);
   });
 });
 

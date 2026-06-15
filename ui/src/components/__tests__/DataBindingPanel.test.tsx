@@ -645,6 +645,26 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     return { ...utils, onChange, onValidityChange };
   }
 
+  it("카드 제거 후 포커스가 '데이터셋 추가' 버튼으로 이동한다 (a11y Fix 3)", async () => {
+    mockTwoDatasets();
+    const user = userEvent.setup();
+    renderMulti();
+    await screen.findByRole("option", { name: /users\.csv/i });
+    // Add a second card so the remove button is visible.
+    const addBtn = screen.getByRole("button", { name: /데이터셋 추가/ });
+    await user.click(addBtn);
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+
+    // Remove the first card — focus should move to the add button.
+    const removeButtons = screen.getAllByRole("button", { name: /바인딩 \d+ 제거/ });
+    await user.click(removeButtons[0]);
+    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1));
+
+    // jsdom focus behavior is generally reliable for programmatic focus() calls.
+    const addBtnAfter = screen.getByRole("button", { name: /데이터셋 추가/ });
+    expect(addBtnAfter).toHaveFocus();
+  });
+
   it("adds a second binding card via '데이터셋 추가'", async () => {
     mockTwoDatasets();
     const user = userEvent.setup();
@@ -665,8 +685,8 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
     await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
 
-    // Remove the second card.
-    const removeButtons = screen.getAllByRole("button", { name: /바인딩 제거/ });
+    // Remove the second card. Label is now noun-first: "바인딩 N 제거" (Fix 2).
+    const removeButtons = screen.getAllByRole("button", { name: /바인딩 \d+ 제거/ });
     await user.click(removeButtons[removeButtons.length - 1]);
     await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1));
   });

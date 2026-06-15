@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataset, useDatasets } from "../api/hooks";
 import type { BindingPolicy, DataBinding, Mapping } from "../api/schemas";
 import { flattenHttpSteps, type Scenario } from "../scenario/model";
@@ -117,15 +117,21 @@ export function DataBindingPanel({ scenario, initialBindings, onChange, onValidi
     });
   }, []);
 
-  function addCard() {
+  // Ref to the always-present "데이터셋 추가" button so focus can be moved there
+  // after a card is removed (a11y: avoid dropping focus to <body>).
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+
+  const addCard = useCallback(() => {
     // The user explicitly asked for a new dataset → open it for immediate editing.
     setCards((prev) => [...prev, { id: nextCardId(), initial: null, defaultOpen: true }]);
-  }
+  }, []);
 
   const removeCard = useCallback((id: string) => {
     setCards((prev) => prev.filter((c) => c.id !== id));
     setBindingById((prev) => (id in prev ? omitKey(prev, id) : prev));
     setReasonsById((prev) => (id in prev ? omitKey(prev, id) : prev));
+    // a11y: move focus to the add button so it stays inside the panel (not <body>).
+    addBtnRef.current?.focus();
   }, []);
 
   // Aggregate: emit the array of bound cards (in card order) + the union of per-card
@@ -176,6 +182,7 @@ export function DataBindingPanel({ scenario, initialBindings, onChange, onValidi
   // STABLE sorted newline-joined string (not a Set, whose identity changes every render)
   // so it can safely sit in the card's emit-effect deps without reopening the re-render
   // loop. Newline (not space) delimiter: a manual var name can contain a space.
+  // O(N²) over cards × cards, but N ≤ MAX_BINDINGS (8) — negligible.
   const coveredByOthers = useMemo(() => {
     const out: Record<string, string> = {};
     for (const c of cards) {
@@ -222,6 +229,7 @@ export function DataBindingPanel({ scenario, initialBindings, onChange, onValidi
       )}
 
       <button
+        ref={addBtnRef}
         type="button"
         onClick={addCard}
         className="mt-3 px-2 py-1 text-sm border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
@@ -476,7 +484,7 @@ function BindingCard({
           <button
             type="button"
             onClick={() => onRemove(id)}
-            aria-label={`${ko.binding.removeBinding} ${index}`}
+            aria-label={ko.binding.removeBinding(index)}
             className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
           >
             ✕
