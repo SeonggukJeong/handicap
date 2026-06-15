@@ -17,12 +17,12 @@
 
 | R-id | 요구사항 (요약) | 담당 Task | seam? |
 |---|---|---|---|
-| R1 | `ReportSummary.mean_ms` 직렬화(`overall.mean()` 반올림 u64) | Task 1 (계약-먼저) | ✅ wire |
+| R1 | `ReportSummary.mean_ms` 직렬화(`(overall.mean()/1_000).round()` u64, µs→ms) | Task 1 (계약-먼저) | ✅ wire |
 | R3 | UI Zod `ReportSummary`가 `mean_ms` 수용 | Task 1 (계약-먼저) | ✅ wire |
 | R2 | post-run `insights.rs` `required` 프록시 p50→mean | Task 2 | |
 | R5 | create-time ≡ post-run 프록시 (둘 다 mean, parity) | Task 2 (+ Task 3 앵커) | |
 | R6 | mean 판별 불가(==0) 폴백 = 기존 p50==0 동형 | Task 2 | |
-| R4 | create-time 앵커(Slot·Worker 헬퍼) `p50_ms`→`mean_ms` | Task 3 | |
+| R4 | create-time 슬롯 앵커(`SlotSizingHelper.tsx:22`) `p50_ms`→`mean_ms` | Task 3 | |
 
 - **계약-먼저**: R1+R3(Task 1)이 머지돼 `mean_ms`가 와이어에 흐른 뒤에야 R2/R4가 그 값을 소비할 수 있다. Task 1 → 2 → 3 순서 강제.
 
@@ -32,13 +32,17 @@
 
 | 파일 | 책임 | 변경 |
 |---|---|---|
-| `crates/controller/src/report.rs` | 리포트 집계·`ReportSummary` | `mean_ms: u64` 필드(`:49` 구조체) + 빌드(`:590`) `overall.mean().round() as u64` |
+| `crates/controller/src/report.rs` | 리포트 집계·`ReportSummary` | `mean_ms: u64` 필드(`:54` 구조체) + 빌드(`:596`) `(overall.mean() / 1_000.0).round() as u64` (HDR는 µs 저장 → `/1_000`로 ms; reviewer #1) |
 | `crates/controller/src/insights.rs` | `load_gen_saturated` 사이징 | `:229` 프록시 `p50_ms`→`mean_ms` + `:228` 0-가드 주석 mean 기준 |
 | `ui/src/api/schemas.ts` | 리포트 Zod | `ReportSummarySchema`(`:327`, p50_ms `:333` 인접)에 `mean_ms: z.number().int().nonnegative()` |
 | `ui/src/components/SlotSizingHelper.tsx` | create-time 슬롯 사이징 앵커 | `:22` `summary.p50_ms`→`summary.mean_ms` |
 | `ui/src/components/sizing.ts` | `recommendSlots` 순수계산 | 시그니처·본문 **불변**(프록시는 호출자) — 주석 `:50-51`만 mean으로 |
 
-**Ripple 사이트(컴파일러-driven, controller CLAUDE.md A2-2)**: `ReportSummary`에 비-optional `mean_ms` 추가 → 모든 struct-literal 갱신 필수 = `report.rs:590`(프로덕션) + `report.rs:999`·`insights.rs:318`(테스트 헬퍼) + `export.rs:414`(픽스처) **4곳**. `cargo build --workspace --tests`가 "missing field"로 전부 잡음(테스트는 `mean_ms: 0` 등 결정론 상수). **WorkerSizingHelper는 무관**(peakThroughput/count 기반, latency 앵커 없음 — dogfood G2).
+**Ripple 사이트(reviewer #2/#3 — 컴파일러가 *전부*는 못 잡음)**: `ReportSummary`에 비-optional `mean_ms` 추가 시:
+- **컴파일러-caught (4)**: `report.rs:596`(프로덕션) + `report.rs:999`·`insights.rs:318`(테스트 헬퍼) + `export.rs:414`(픽스처). `cargo build --workspace --tests` "missing field".
+- **런타임-caught (1)**: `testdata/compare_golden.json` summary 객체 2개 — `export.rs` `golden_summary_deltas_match`가 역직렬화하므로 누락 시 **serde 런타임 패닉**(컴파일 OK). `pnpm`/cargo 테스트 실행으로만 발견.
+- **UI 픽스처 (~6)**: `ReportSummarySchema`가 `.strict()`라 full-report fixture 테스트(`reportLatency`·`ReportHeadline`·`ReportView`·`Summary`·`RunDetailPage`·`ScenarioComparePage`)에 `mean_ms` 추가 — `pnpm test`가 잡음(`tsc` 아님).
+- 테스트 사이트는 `mean_ms: 0` 등 결정론 상수. **WorkerSizingHelper는 무관**(peakThroughput/count 기반 — dogfood G2).
 
 **무변경(명시)**: `p50_ms`/`p95_ms`/`p99_ms`·CSV/XLSX 열·비교 export·proto·migration·워커·엔진 부하생성·VuSizingHelper. `mean_ms`는 순수 가산(spec §5).
 **TDD 가드 메모**: `report.rs`/`insights.rs`는 인라인 `#[cfg(test)] mod tests` 디스크 보유 → tdd-guard 자동통과. UI는 `schemas.test.ts`/`*Helper.test.tsx` 먼저 RED. keepalive 불요.
@@ -50,11 +54,11 @@
 
 **충족 R:** R1, R3 (한 와이어 계약의 양쪽 — 함께 머지)
 **Files:**
-- Modify: `crates/controller/src/report.rs` — 구조체 `:49` + 빌드 `:595`
-- Modify: `ui/src/api/schemas.ts` — `ReportSummary` `:225` 부근
+- Modify: `crates/controller/src/report.rs` — 구조체 `:54` + 빌드 `:596` (+ ripple 4사이트)
+- Modify: `ui/src/api/schemas.ts` — `ReportSummarySchema` `:327` (+ 골든 fixture·UI fixture ripple)
 
-- [ ] **Step 1: `report.rs` 테스트 먼저 (RED)** — summary 단위테스트에 `mean_ms` 기대값 단언 추가(알려진 분포, 예: 균등 분포의 mean).
-  **Acceptance (R1):** 알려진 분포에서 `summary.mean_ms`가 `overall.mean()` 반올림과 일치.
+- [ ] **Step 1: `report.rs` 테스트 먼저 (RED)** — summary 단위테스트에 `mean_ms` 기대값 단언 추가(알려진 µs 분포 → ms 기대값).
+  **Acceptance (R1):** 알려진 분포에서 `summary.mean_ms`가 `(overall.mean()/1_000).round()`(µs→ms)와 일치.
 
 - [ ] **Step 2: `report.rs` 프로덕션** — `ReportSummary`(`:49`)에 `pub mean_ms: u64`(p50_ms 인접), 빌드부(`:590`)에 `mean_ms: overall.mean().round() as u64`(무조건 호출; `overall` 빈 히스토그램이면 `.mean()`==0.0 → 0 → R6 폴백). **그다음 ripple 4사이트**(`report.rs:999`·`insights.rs:318`·`export.rs:414` struct 리터럴)에 `mean_ms`를 `cargo build --workspace --tests` "missing field"가 0될 때까지 추가(테스트는 결정론 상수).
 
@@ -71,12 +75,11 @@
 
 **충족 R:** R2, R5(parity), R6(폴백)
 **Files:**
-- Modify: `crates/controller/src/insights.rs` — `:228-229`
-- (parity 테스트) 기존 p50 케이스를 mean으로 이식
+- Modify: `crates/controller/src/insights.rs` — `:229` 프록시 + 테스트 `s.p50_ms =` 사이트들
 
-- [ ] **Step 1: 테스트 이식 (RED→GREEN 단일 fold)** — `insights.rs`의 기존 p50 기반 사이징 테스트(`:914`·`:966`·`:995` 등)를 `summary.mean_ms` 설정으로 바꿔 같은 기대값 유지(수식 불변, 입력 필드만 mean).
+- [ ] **Step 1: 테스트 이식 (RED→GREEN 단일 fold)** — 프록시를 mean으로 바꾸면 `summary()` 헬퍼 기본 `mean_ms: 0`(`:323`)이라 `s.p50_ms` 설정 테스트는 전부 `l_sec==0`→`cause None`으로 무너진다. **`s.p50_ms =`를 `s.mean_ms =`로 바꿔야 하는 정확한 7사이트(reviewer #4)**: `insights.rs:918, 946, 970, 1000, 1027, 1075, 1100`. (`:914`/`:966`/`:995`는 `#[test] fn` 헤더이지 설정 라인이 아님 — 헷갈리지 말 것.)
   **Acceptance (R2):** mean=50ms·target=10000 → required=ceil(10000×0.05)=500.
-  **Acceptance (R6):** mean_ms=0 → cause None(기존 p50==0 테스트 `:1050` 동형, 패닉/0-권장 없음).
+  **Acceptance (R6 — 마이그레이션 *불요*, reviewer #5):** `:1050`(`...falls_back_when_latency_zero`)은 bare `summary()`(이미 `mean_ms:0`)라 **손대지 말 것** — 프록시 교체 후 그대로 통과(R6는 헬퍼 기본값이 이미 보장). 단 `:1075`(`...max_in_flight_absent`, `s.p50_ms=50`)는 위 7사이트에 포함돼 마이그레이션 대상. 비대칭 주의.
 
 - [ ] **Step 2: 프로덕션** — `:229` `summary.p50_ms`→`summary.mean_ms`, `:228` 주석/가드를 mean 기준으로(동작 동형, 새 분기 없음).
   **Acceptance (R5):** 이 프록시(`mean_ms as f64/1000`)가 create-time `recommendSlots`가 받을 프록시와 *같은 정수 ms·같은 수식*임을 spec §3.2로 보장 — Task 3 앵커가 `summary.mean_ms`를 그대로 먹이면 양쪽 동일값.
@@ -97,7 +100,7 @@
 - [ ] **Step 1: 테스트 먼저 (RED)** — `SlotSizingHelper.test.tsx`에 prior run의 `summary.mean_ms`로 권장 슬롯이 계산되는지(p50≠mean fixture) 단언.
   **Acceptance (R4):** prior open-loop run의 `mean_ms`(≠p50_ms)가 `recommendSlots`의 `latencyMs`로 흘러 권장값이 mean 기반.
 
-- [ ] **Step 2: 프로덕션** — `SlotSizingHelper.tsx:22` `const p50Ms = report.data?.summary.p50_ms ?? 0`의 소스를 `summary.mean_ms`로(변수명도 의미에 맞게). `sizing.ts:50-51` 주석 mean으로.
+- [ ] **Step 2: 프로덕션** — `SlotSizingHelper.tsx:22` `const p50Ms = report.data?.summary.p50_ms ?? 0`의 소스를 `summary.mean_ms`로(변수명도 의미에 맞게). `sizing.ts:50-51` 주석을 mean으로 + 그 주석의 stale 인용 `insights.rs:222-227`/`:224`를 실제 위치 `:229-231`로 정정(reviewer #7).
   **Acceptance (R5 create-time 측):** 앵커가 `summary.mean_ms`를 그대로 먹임 → Task 2의 post-run 프록시와 같은 정수·수식 → 동일 권장값(parity 닫힘).
 
 - [ ] **Step 3: 검증** — `cd ui && pnpm lint && pnpm test && pnpm build`(`--max-warnings=0`) green.

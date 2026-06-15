@@ -27,3 +27,10 @@ R1(serde 방출)+R3(Zod 수용)을 "함께 머지"라 적었으나, `ReportSumma
 - 척추(R-id)는 **완전성**엔 값을 냈다(parity R5·seam R1/R3가 1급으로 떠오름 = 실패모드 B/드리프트 방어). 
 - 하지만 **정확성**은 못 막는다 → reviewer/코드검증과 *병행*해야 의미. 템플릿 문서에 "이건 reviewer를 대체 안 함"을 박는 게 가장 정직.
 - ripple-site 프롬프트(F1)는 이 repo에 특히 값있을 듯(재발 함정).
+
+## F5 — reviewer 루프를 스킵해도 아무것도 안 막았다 → 훅으로 강제 (이 세션에서 실행)
+dogfood로 spec/plan을 쓰고 **`spec-plan-reviewer`를 안 돌린 채 구현(Task 1)에 들어갔다**(F2가 예언). 사용자 지적으로 뒤늦게 reviewer를 돌리니 **CRITICAL 2건**: ① mean()이 µs라 `/1_000` 필요(spec은 `.round()`만 → 1000× 오류·R5 parity 붕괴), ② blast radius가 4가 아니라 **golden fixture(런타임 ripple)+UI 픽스처 ~6**. 둘 다 reviewer 루프였으면 코드 전에 잡혔을 것.
+- **조치**: `.claude/hooks/spec-review-guard.sh`(PreToolUse Write|Edit) 추가 — 브랜치-로컬 plan이 `REVIEW-GATE: APPROVED` 마커를 갖기 전엔 `crates/*/src`·`ui/src` 편집 deny. settings.json 배선, start-slice §4에 마커 스텝, plan 템플릿에 PENDING placeholder.
+- **엣지(사용자 지적)**: 마커는 **EOL-앵커 정확매치**라 `APPROVE-WITH-FIXES`/`APPROVED-WITH-FIXES`/`APPROVED WITH FIXES`/`NOT APPROVED`/산문 언급이 **부분문자열로 통과 못 함**. 모든 브랜치 plan이 승인돼야(승인 plan 1개가 미승인 plan을 면죄 못 함). spec만 있고 plan 없으면 block.
+- **한계(F2와 일관)**: 훅은 verdict 진위를 못 본다 — 마커는 orchestrator 프록시. 잊은-스킵은 0, 작정한 우회는 *가시적 위조*로 격하(tdd-guard·`--no-verify`와 같은 천장).
+- **템플릿 개선 입력**: 가드가 "reviewer 루프 강제"를 *프로세스 레벨*에서 메우므로, 템플릿 자체는 "이건 reviewer를 대체 안 함"(F2)을 명시 + 가드 마커 스텝을 plan 템플릿에 내장(완료).

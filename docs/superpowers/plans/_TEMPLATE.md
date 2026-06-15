@@ -7,6 +7,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+<!-- REVIEW-GATE: PENDING — spec-plan-reviewer가 spec과 이 plan에 clean APPROVE를 내면, 이 줄을 정확히 `REVIEW-GATE: APPROVED`(또는 `<!-- REVIEW-GATE: APPROVED -->`)로 바꾼다. 그 전엔 spec-review-guard가 crates/*/src·ui/src 편집을 차단한다. APPROVE-WITH-FIXES / NEEDS-REWORK는 미통과(마커 금지). 부분문자열(APPROVED-WITH-FIXES 등)은 가드가 EOL-앵커로 거른다. -->
+
 **Goal:** `<한 문장 — spec §1 목표>`
 **Architecture:** `<접근 한 단락 — 어디를 어떻게>`
 **Tech Stack:** `<언어·크레이트·파일>`

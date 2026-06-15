@@ -25,7 +25,7 @@
 
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법) | seam? |
 |---|---|---|---|
-| R1 | `ReportSummary`가 `overall` HDR 히스토그램의 `mean()`(반올림 u64 ms)을 `mean_ms`로 직렬화한다 (MUST) | `report.rs` 단위테스트: 알려진 분포에서 `summary.mean_ms` 기대값 단언 | ✅ wire: 리포트 JSON(engine→controller→UI) |
+| R1 | `ReportSummary`가 `overall` HDR 히스토그램의 `(mean()/1_000).round()`(µs→ms, u64)를 `mean_ms`로 직렬화한다 (MUST) | `report.rs` 단위테스트: 알려진 µs 분포에서 `summary.mean_ms` 기대 ms 단언 | ✅ wire: 리포트 JSON(engine→controller→UI) |
 | R2 | post-run `insights.rs`의 `required` 프록시가 `p50_ms` 대신 `mean_ms`를 쓴다 (MUST) | `insights.rs` 테스트: mean=50ms·target=10000 → required=ceil(10000×0.05)=500 (기존 p50 테스트를 mean으로) | |
 | R3 | UI Zod `ReportSummary` 스키마가 `mean_ms`(정수·비음수)를 수용한다 (MUST) | `schemas.ts` 테스트 + 라이브: 서버가 보낸 `mean_ms`가 파싱 통과 | ✅ wire: UI Zod ↔ serde |
 | R4 | create-time open-loop 슬롯 사이징 앵커(`SlotSizingHelper.tsx:22`)가 `summary.p50_ms` 대신 `summary.mean_ms`를 `recommendSlots`에 먹인다 (MUST) | 컴포넌트 테스트: prior run의 mean_ms로 권장 슬롯 계산되는지 | |
@@ -39,9 +39,9 @@
 
 ## 3. 핵심 통찰 (설계 근거)
 
-1. **`mean_ms`는 `u64`(반올림 ms) — 기존 summary 필드 타입(`p50_ms: u64`)·`recommendSlots(latencyMs: number)` 시그니처와 일치.** `overall.mean()`은 `f64`지만 ms 반올림하면: ① summary 필드 동질성(전부 정수 ms), ② R5(parity)에서 양쪽이 *같은 정수*를 쓰므로 TS/Rust 부동소수 차이가 개입 안 함. mean의 이점(우편향에서 mean≫p50, 보통 수십 ms 차)은 정수 반올림으로 손상 안 됨(서브-ms 손실은 R6 폴백이 흡수).
+1. **`mean_ms`는 `u64`(반올림 ms) — 기존 summary 필드 타입(`p50_ms: u64`)·`recommendSlots(latencyMs: number)` 시그니처와 일치.** `overall.mean()`은 `f64`이고 **HDR이 µs 저장이라 µs 단위** → `(mean()/1_000.0).round()`로 ms(=`p50_ms`/`p95_ms`가 `percentiles_of`에서 `/1_000` 하는 것과 동일). 정수 ms로 두면: ① summary 필드 동질성(전부 정수 ms), ② R5(parity)에서 양쪽이 *같은 정수*를 쓰므로 TS/Rust 부동소수 차이가 개입 안 함. mean의 이점(우편향에서 mean≫p50, 보통 수십 ms 차)은 정수 반올림으로 손상 안 됨(서브-ms 손실은 R6 폴백이 흡수).
 2. **R5를 만족시키려면 양쪽이 "같은 프록시 + 같은 반올림"** — `insights.rs`는 `summary.mean_ms as f64 / 1000.0`, `sizing.ts`는 호출자가 `summary.mean_ms`를 그대로 `latencyMs`로. 수식(`ceil(target × ms/1000)`)은 양쪽 불변, 입력 프록시만 p50→mean.
-3. **순수 교체 — 새 계산은 `overall.mean()` 한 번뿐.** `overall` 히스토그램은 이미 `report.rs:442/502`에 존재(p50/p95/p99 산출에 쓰는 그것). mean은 거기서 한 줄.
+3. **순수 교체 — 새 계산은 `overall.mean()` 한 번뿐.** `overall` 히스토그램은 이미 `report.rs`에 존재(`:503` `percentiles_of(&overall)` 등 p50/p95/p99 산출에 쓰는 그것). mean은 빌드부(`:596`)에서 한 줄.
 4. **R6: mean도 p50과 같은 0-가드 경로** — `insights.rs:228`의 "p50==0(localhost sub-ms) → 판별 불가, cause None" 가드를 mean_ms로 옮기기만. 새 분기 없음.
 
 ---
@@ -49,9 +49,12 @@
 ## 4. 변경 상세
 
 ### 4.1 `crates/controller/src/report.rs` — 충족 R: R1
-- `ReportSummary`(`:49`)에 `pub mean_ms: u64` 필드 추가(p50_ms 인접).
-- summary 빌드(`:590`)에 `mean_ms: overall.mean().round() as u64`(`overall: Histogram<u64>`, `.mean()`은 빈 히스토그램에서 0.0 → R6 폴백 입력).
-- **Blast radius(컴파일러-driven, controller CLAUDE.md A2-2)**: `ReportSummary` 비-optional 필드 추가 = 모든 struct-literal 사이트 갱신 필수 — `report.rs:590`(프로덕션) + 테스트 헬퍼 `report.rs:999`·`insights.rs:318` + 픽스처 `export.rs:414` = **4곳**. `cargo build --workspace --tests`가 "missing field"로 전부 잡음. 테스트 사이트는 결정론 상수(예 `mean_ms: 0` 또는 의도값)로.
+- `ReportSummary`(`:54` 부근 구조체)에 `pub mean_ms: u64` 필드 추가(p50_ms 인접).
+- summary 빌드(`:596`)에 `mean_ms: (overall.mean() / 1_000.0).round() as u64`. **단위 주의(reviewer #1)**: HDR 히스토그램은 **µs** 저장(`p50_ms`/`p95_ms`도 `percentiles_of`에서 `/1_000`로 ms 변환) → `overall.mean()`도 µs라 **`/1_000.0` 후 반올림**해야 ms. (`overall.mean().round()`만 쓰면 1000× 과대 → R5 parity 붕괴.) 빈 히스토그램이면 `mean()`==0.0 → 0 → R6 폴백.
+- **Blast radius(reviewer #2/#3)**: `ReportSummary` 비-optional 필드 추가 = 모든 struct-literal 갱신 필수.
+  - **컴파일러-caught (4곳)**: `report.rs:596`(프로덕션) + 테스트 헬퍼 `report.rs:999`·`insights.rs:318` + 픽스처 `export.rs:414`. `cargo build --workspace --tests`가 "missing field"로 잡음.
+  - **런타임-caught (1곳, 컴파일러 *못* 잡음)**: `testdata/compare_golden.json`의 summary 객체 2개 — `export.rs`의 `golden_summary_deltas_match`가 `from_str::<Vec<ReportJson>>`로 역직렬화하는데 non-optional 필드 누락은 **`serde_json` 런타임 패닉**(컴파일 OK). 골든 fixture에도 `mean_ms` 추가 필수.
+  - **UI 픽스처 (~6곳)**: `ReportSummarySchema`가 `.strict()`라 full-report fixture를 쓰는 테스트(`reportLatency`·`ReportHeadline`·`ReportView`·`Summary`·`RunDetailPage`·`ScenarioComparePage`)에 `mean_ms` 추가 — `tsc` 아닌 `pnpm test`가 잡음.
 
 ### 4.2 `crates/controller/src/insights.rs` — 충족 R: R2, R6
 - `:229` `let l_sec = summary.p50_ms as f64 / 1000.0;` → `summary.mean_ms`.
