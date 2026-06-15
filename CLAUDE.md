@@ -164,6 +164,7 @@ docs/
 - **0035** UI 문구: 한국어 통일 + `ko.ts` 메시지 카탈로그 경유 (고유명사 원어 병기 + HelpTip, i18n 라이브러리·토글 비목표)
 - **0036** 스텝 템플릿: top-level `step_templates` 리소스 + 복사-삽입 스냅샷(삽입 시 ULID 재발급), 참조 동기화 기각
 - **0037** closed-loop VU 곡선: park-gate 격리 함수 + vu_stages/ramp_down 와이어 + 단일워커 v1
+- **0038** open-loop 멀티워커 fan-out: 명시 worker_count(기본 1, open 전용) + 컨트롤러 워커별 레이트 분할(shard_split) + A3b 머지 재사용, 엔진/proto/migration 무변경
 
 ## 코딩 컨벤션
 
