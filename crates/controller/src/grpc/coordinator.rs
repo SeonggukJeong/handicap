@@ -1047,6 +1047,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         runs::insert(
             db,
@@ -1156,6 +1157,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         let row = runs::insert(
             db,

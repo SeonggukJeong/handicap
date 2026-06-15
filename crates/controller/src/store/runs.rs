@@ -140,6 +140,11 @@ pub struct Profile {
     /// VU 곡선 ramp-down 노브. absent = graceful (spec §2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ramp_down: Option<handicap_engine::RampDown>,
+    /// 멀티워커 open-loop fan-out 수 (spec 2026-06-15). absent/Some(1) = 단일 워커
+    /// (오늘과 byte-identical). open-loop 전용 — closed-loop은 vus/capacity로 N 유도.
+    /// proto에는 없음(컨트롤러가 register 시 워커별 프로필을 분할).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_count: Option<u32>,
 }
 
 impl Profile {
@@ -504,6 +509,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -554,6 +560,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -764,6 +771,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();

@@ -751,6 +751,7 @@ mod tests {
                 measure_phases: false,
                 vu_stages: None,
                 ramp_down: None,
+                worker_count: None,
             },
             env: serde_json::Value::Object(serde_json::Map::new()),
             status: RunStatus::Completed,

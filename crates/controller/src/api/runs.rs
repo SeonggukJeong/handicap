@@ -184,6 +184,21 @@ pub(crate) async fn validate_run_config(
             "ramp_down은 vu_stages(VU 곡선) 전용입니다".into(),
         ));
     }
+    // ── worker_count: open-loop 전용 멀티워커 fan-out 노브 (spec 2026-06-15) ──
+    if let Some(w) = profile.worker_count {
+        if w == 0 || w > 64 {
+            return Err(ApiError::BadRequest(
+                "worker_count must be between 1 and 64".into(),
+            ));
+        }
+        if w > 1 && !profile.is_open_loop() {
+            return Err(ApiError::BadRequest(
+                "worker_count는 open-loop(target_rps/stages) 전용입니다 — \
+                 closed-loop은 vus로 워커 수가 정해집니다"
+                    .into(),
+            ));
+        }
+    }
     // ── closed-loop VU curve (spec §3.2 ①–⑧): open-loop 분기보다 먼저 — curve
     //    규칙이 open-loop 필드 배제를 포함하므로 에러 메시지의 권위가 여기다 ──
     if profile.is_vu_curve() {
@@ -315,7 +330,36 @@ pub(crate) async fn validate_run_config(
                 }
             }
         }
-        // vus ignored in open-loop (slot pool = max_in_flight)
+        // #5 open-loop에선 vus가 무시된다 → 비정합 신호, worker_count/closed-loop로 리다이렉트.
+        if profile.vus > 0 {
+            return Err(ApiError::BadRequest(
+                "open-loop에선 vus가 무시됩니다 — 수평 확장은 worker_count, \
+                 VU 기반 부하는 closed-loop(vus)을 쓰세요"
+                    .into(),
+            ));
+        }
+        // #3·#4 멀티워커 fan-out 분할 가능성 (worker_count > 1):
+        if let Some(w) = profile.worker_count {
+            if w > 1 {
+                // #3 워커당 ≥1 슬롯 (0-슬롯 워커는 자기 도착 전부 drop)
+                let mif = profile.max_in_flight.unwrap_or(0);
+                if mif < w {
+                    return Err(ApiError::BadRequest(format!(
+                        "worker_count={w}이면 max_in_flight >= {w} 필요 (워커당 ≥1 슬롯)"
+                    )));
+                }
+                // #4 고정모드: 워커당 ≥1 rps (엔진 .max(1)이 0-share를 왜곡). 곡선모드 면제.
+                let is_curve = profile.stages.as_ref().is_some_and(|s| !s.is_empty());
+                if !is_curve {
+                    let rps = profile.target_rps.unwrap_or(0);
+                    if rps < w {
+                        return Err(ApiError::BadRequest(format!(
+                            "worker_count={w}이면 target_rps >= {w} 필요 (워커당 ≥1 rps)"
+                        )));
+                    }
+                }
+            }
+        }
     } else if profile.vus == 0 || profile.duration_seconds == 0 {
         return Err(ApiError::BadRequest(
             "vus and duration_seconds must be > 0".into(),
@@ -880,6 +924,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         }
     }
 
@@ -1086,6 +1131,7 @@ steps:
                 measure_phases: false,
                 vu_stages: None,
                 ramp_down: None,
+                worker_count: None,
             }
         }
         let mk = |target: &str| {
@@ -1154,6 +1200,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -1201,6 +1248,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         }
     }
 
@@ -1251,6 +1299,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            worker_count: None,
         }
     }
 
@@ -1310,6 +1359,77 @@ steps:
             ..ol_profile()
         };
         assert!(validate_run_config(&state, &rps_max).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn worker_count_validation() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await; // capacity는 worker_count 검증과 무관(직접 임계)
+
+        // #1 worker_count는 open-loop 전용: closed-loop에 w>1 → Err
+        let mut closed = ol_profile();
+        closed.target_rps = None; // closed-loop
+        closed.vus = 2;
+        closed.max_in_flight = None;
+        closed.worker_count = Some(2);
+        assert!(validate_run_config(&state, &closed).await.is_err());
+
+        // #2 범위: 0·65 → Err
+        let mut w0 = ol_profile();
+        w0.worker_count = Some(0);
+        assert!(validate_run_config(&state, &w0).await.is_err());
+        let mut w65 = ol_profile();
+        w65.worker_count = Some(65);
+        w65.max_in_flight = Some(65);
+        w65.target_rps = Some(1000);
+        assert!(validate_run_config(&state, &w65).await.is_err());
+
+        // #3 슬롯 충분: max_in_flight < w → Err (w=3, mif=2)
+        let mut slots = ol_profile(); // ol_profile: target_rps=Some, max_in_flight=Some
+        slots.worker_count = Some(3);
+        slots.max_in_flight = Some(2);
+        slots.target_rps = Some(1000);
+        assert!(validate_run_config(&state, &slots).await.is_err());
+
+        // #4 레이트 충분(고정): target_rps < w → Err (w=3, rps=2)
+        let mut rate = ol_profile();
+        rate.worker_count = Some(3);
+        rate.max_in_flight = Some(10);
+        rate.target_rps = Some(2);
+        assert!(validate_run_config(&state, &rate).await.is_err());
+
+        // #5 open-loop + vus>0 → Err (리다이렉트)
+        let mut volu = ol_profile();
+        volu.vus = 1;
+        assert!(validate_run_config(&state, &volu).await.is_err());
+
+        // OK: open-loop + vus=0 + worker_count=2 + 충분한 slots/rate
+        let mut ok = ol_profile();
+        ok.worker_count = Some(2);
+        ok.max_in_flight = Some(10);
+        ok.target_rps = Some(1000);
+        ok.vus = 0;
+        assert!(validate_run_config(&state, &ok).await.is_ok());
+
+        // OK: 곡선모드 stage.target < w 면제 (w=3, stages target 2)
+        let mut curve = ol_profile();
+        curve.target_rps = None;
+        curve.duration_seconds = 0;
+        curve.stages = Some(vec![handicap_engine::Stage {
+            target: 2,
+            duration_seconds: 5,
+        }]);
+        curve.max_in_flight = Some(10);
+        curve.worker_count = Some(3);
+        assert!(validate_run_config(&state, &curve).await.is_ok());
+
+        // OK: closed-loop w=None·vus>0 무영향
+        let mut closed_ok = ol_profile();
+        closed_ok.target_rps = None;
+        closed_ok.max_in_flight = None;
+        closed_ok.vus = 2;
+        closed_ok.worker_count = None;
+        assert!(validate_run_config(&state, &closed_ok).await.is_ok());
     }
 
     #[tokio::test]
