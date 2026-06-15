@@ -1,7 +1,7 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::ReportJson;
-use rust_xlsxwriter::Workbook;
+use rust_xlsxwriter::{Workbook, Worksheet};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -55,6 +55,103 @@ fn summary_metric(s: &crate::report::ReportSummary, metric: &str) -> f64 {
 }
 
 const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_rate"];
+
+/// 모든 CSV/XLSX 인사이트 표면이 공유하는 정규 컬럼 순서(단일 소스).
+/// `Insight` 구조체(insights.rs) 필드 순서와 일치. 비교 표면은 `run_id` 열을
+/// 앞에 붙이고, 이 13열은 모든 표면에서 동일하다.
+const INSIGHT_COLUMNS: [&str; 13] = [
+    "kind",
+    "severity",
+    "step_id",
+    "metric",
+    "value",
+    "pct",
+    "count",
+    "status_class",
+    "window_seconds",
+    "recommended",
+    "cause",
+    "recommended_workers",
+    "onset_second",
+];
+
+/// 인사이트 하나를 13개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
+fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
+    let f = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
+    let i = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_default();
+    vec![
+        ins.kind.clone(),
+        ins.severity.clone(),
+        ins.step_id.clone().unwrap_or_default(),
+        ins.metric.clone().unwrap_or_default(),
+        f(ins.value),
+        f(ins.pct),
+        ins.count.map(|x| x.to_string()).unwrap_or_default(),
+        ins.status_class.clone().unwrap_or_default(),
+        i(ins.window_seconds),
+        f(ins.recommended),
+        ins.cause.clone().unwrap_or_default(),
+        f(ins.recommended_workers),
+        i(ins.onset_second),
+    ]
+}
+
+/// 인사이트 하나의 13개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
+/// 숫자 필드는 number로, `None`은 빈 셀(미기록). col_offset = 0(단일) | 1(비교 run_id 뒤).
+fn write_insight_xlsx_row(
+    ws: &mut Worksheet,
+    row: u32,
+    col_offset: u16,
+    ins: &crate::insights::Insight,
+) {
+    let c = |i: u16| col_offset + i;
+    ws.write_string(row, c(0), &ins.kind).expect("w");
+    ws.write_string(row, c(1), &ins.severity).expect("w");
+    if let Some(v) = &ins.step_id {
+        ws.write_string(row, c(2), v).expect("w");
+    }
+    if let Some(v) = &ins.metric {
+        ws.write_string(row, c(3), v).expect("w");
+    }
+    if let Some(v) = ins.value {
+        ws.write_number(row, c(4), v).expect("w");
+    }
+    if let Some(v) = ins.pct {
+        ws.write_number(row, c(5), v).expect("w");
+    }
+    if let Some(v) = ins.count {
+        ws.write_number(row, c(6), v as f64).expect("w");
+    }
+    if let Some(v) = &ins.status_class {
+        ws.write_string(row, c(7), v).expect("w");
+    }
+    if let Some(v) = ins.window_seconds {
+        ws.write_number(row, c(8), v as f64).expect("w");
+    }
+    if let Some(v) = ins.recommended {
+        ws.write_number(row, c(9), v).expect("w");
+    }
+    if let Some(v) = &ins.cause {
+        ws.write_string(row, c(10), v).expect("w");
+    }
+    if let Some(v) = ins.recommended_workers {
+        ws.write_number(row, c(11), v).expect("w");
+    }
+    if let Some(v) = ins.onset_second {
+        ws.write_number(row, c(12), v as f64).expect("w");
+    }
+}
+
+/// 단일-run 인사이트 CSV = 인사이트 1개당 1행(정규 컬럼). 인사이트가 없어도
+/// 헤더는 항상 기록(0-byte 다운로드 방지, R11).
+pub fn report_to_insights_csv(report: &ReportJson) -> Vec<u8> {
+    let mut w = csv::Writer::from_writer(Vec::new());
+    w.write_record(INSIGHT_COLUMNS).expect("csv header");
+    for ins in &report.insights {
+        w.write_record(insight_csv_cells(ins)).expect("csv row");
+    }
+    w.into_inner().expect("csv flush")
+}
 
 /// Comparison CSV = summary matrix. Columns: metric, each run's value, each
 /// non-baseline run's delta_pct. Rows in SUMMARY_METRICS order.
@@ -319,59 +416,11 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
     if !report.insights.is_empty() {
         let ws = wb.add_worksheet();
         ws.set_name("Insights").expect("sheet name");
-        for (c, h) in [
-            "kind",
-            "severity",
-            "step_id",
-            "metric",
-            "value",
-            "pct",
-            "count",
-            "status_class",
-            "window_seconds",
-            "recommended",
-            "cause",
-            "recommended_workers",
-        ]
-        .iter()
-        .enumerate()
-        {
+        for (c, h) in INSIGHT_COLUMNS.iter().enumerate() {
             ws.write_string(0, c as u16, *h).expect("w");
         }
         for (i, ins) in report.insights.iter().enumerate() {
-            let r = (i + 1) as u32;
-            ws.write_string(r, 0, &ins.kind).expect("w");
-            ws.write_string(r, 1, &ins.severity).expect("w");
-            if let Some(v) = &ins.step_id {
-                ws.write_string(r, 2, v).expect("w");
-            }
-            if let Some(v) = &ins.metric {
-                ws.write_string(r, 3, v).expect("w");
-            }
-            if let Some(v) = ins.value {
-                ws.write_number(r, 4, v).expect("w");
-            }
-            if let Some(v) = ins.pct {
-                ws.write_number(r, 5, v).expect("w");
-            }
-            if let Some(v) = ins.count {
-                ws.write_number(r, 6, v as f64).expect("w");
-            }
-            if let Some(v) = &ins.status_class {
-                ws.write_string(r, 7, v).expect("w");
-            }
-            if let Some(v) = ins.window_seconds {
-                ws.write_number(r, 8, v as f64).expect("w");
-            }
-            if let Some(v) = ins.recommended {
-                ws.write_number(r, 9, v).expect("w");
-            }
-            if let Some(v) = &ins.cause {
-                ws.write_string(r, 10, v).expect("w");
-            }
-            if let Some(v) = ins.recommended_workers {
-                ws.write_number(r, 11, v).expect("w");
-            }
+            write_insight_xlsx_row(ws, (i + 1) as u32, 0, ins);
         }
     }
 
@@ -540,7 +589,7 @@ mod tests {
                 recommended: Some(106.0),
                 cause: Some("slots".into()),
                 recommended_workers: Some(6.0),
-                onset_second: None,
+                onset_second: Some(14),
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -572,6 +621,15 @@ mod tests {
         assert!(matches!(ws.get_value((1, 9)), None | Some(Data::Empty)));
         assert!(matches!(ws.get_value((1, 10)), None | Some(Data::Empty)));
         assert!(matches!(ws.get_value((1, 11)), None | Some(Data::Empty)));
+        // 새 13번째 열 onset_second (col 12 = M)
+        assert_eq!(
+            ws.get_value((0, 12)),
+            Some(&Data::String("onset_second".into()))
+        );
+        // 사이징 행(벡터 인덱스 1 → 시트 row 2)의 onset_second = 14
+        assert_eq!(ws.get_value((2, 12)), Some(&Data::Float(14.0)));
+        // slowest_step 행(row 1)은 onset None → 미기록(None 또는 Empty)
+        assert!(matches!(ws.get_value((1, 12)), None | Some(Data::Empty)));
     }
 
     #[test]
@@ -591,5 +649,64 @@ mod tests {
         // col 0 = metric label, col 1 = base run value, col 2 = candidate value.
         assert_eq!(sum.get_value((2, 1)), Some(&Data::Float(100.0)));
         assert_eq!(sum.get_value((2, 2)), Some(&Data::Float(150.0)));
+    }
+
+    fn insight(kind: &str, severity: &str) -> crate::insights::Insight {
+        crate::insights::Insight {
+            kind: kind.into(),
+            severity: severity.into(),
+            step_id: None,
+            metric: None,
+            value: None,
+            pct: None,
+            count: None,
+            status_class: None,
+            window_seconds: None,
+            recommended: None,
+            cause: None,
+            recommended_workers: None,
+            onset_second: None,
+        }
+    }
+
+    #[test]
+    fn report_insights_csv_header_and_rows() {
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.insights = vec![crate::insights::Insight {
+            step_id: Some("a".into()),
+            metric: Some("p95_ms".into()),
+            value: Some(50.0),
+            ..insight("slowest_step", "info")
+        }];
+        let csv = String::from_utf8(report_to_insights_csv(&r)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(
+            lines[0],
+            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second"
+        );
+        assert_eq!(lines.len(), 2); // header + 1 insight
+        assert!(lines[1].starts_with("slowest_step,info,a,p95_ms,50,,,,,,,,"));
+    }
+
+    #[test]
+    fn report_insights_csv_empty_is_header_only() {
+        let r = report_with_steps(vec![step("a", 1, 1)]); // insights: vec![]
+        let csv = String::from_utf8(report_to_insights_csv(&r)).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 1); // header only, never 0-byte
+        assert!(lines[0].starts_with("kind,severity,"));
+    }
+
+    #[test]
+    fn insight_columns_are_single_source() {
+        // 단일 CSV 헤더 ≡ INSIGHT_COLUMNS (parity, R5).
+        let r = {
+            let mut r = report_with_steps(vec![step("a", 1, 1)]);
+            r.insights = vec![insight("slo_pass", "info")];
+            r
+        };
+        let csv = String::from_utf8(report_to_insights_csv(&r)).unwrap();
+        let csv_header: Vec<&str> = csv.lines().next().unwrap().split(',').collect();
+        assert_eq!(csv_header, INSIGHT_COLUMNS.to_vec());
     }
 }
