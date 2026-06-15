@@ -24,7 +24,7 @@ pub struct Insight {
     pub status_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_seconds: Option<i64>,
-    /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값). Little's Law: ceil(target × p50_sec).
+    /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값). Little's Law: ceil(target × mean_sec).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<f64>,
     /// 사이징 원인: "slots"(max_in_flight 올려라) | "capacity"(CPU/SUT 한계). None = 판별 불가.
@@ -224,7 +224,7 @@ pub fn derive_insights(
         ins.value = Some(peak as f64);
         ins.count = Some(dropped);
 
-        // Little's Law 사이징: 목표 도착률을 관측(중앙값) 지연에서 내려면 필요한 동시 슬롯.
+        // Little's Law 사이징: 목표 도착률을 관측(평균) 지연에서 내려면 필요한 동시 슬롯.
         // mean==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
         let l_sec = summary.mean_ms as f64 / 1000.0;
         let required: Option<u64> = if l_sec > 0.0 {
@@ -912,7 +912,7 @@ steps:
 
     #[test]
     fn saturated_slots_recommends_when_underprovisioned() {
-        // target 10000 RPS at p50=50ms → required = ceil(10000*0.05) = 500;
+        // target 10000 RPS at mean=50ms → required = ceil(10000*0.05) = 500;
         // max_in_flight=100 < 500 → slots, recommended=500. value/count(A9)는 불변.
         let mut s = summary();
         s.mean_ms = 50;
@@ -964,7 +964,7 @@ steps:
     #[test]
     fn saturated_capacity_recommends_more_workers() {
         // dropped>0, cause=capacity, peak=1000(단일 워커), target=3000.
-        // p50=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → capacity.
+        // mean=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → capacity.
         // per_worker = 1000/1 = 1000, M = ceil(3000/1000) = 3, 3 > 1 → Some(3.0).
         let mut s = summary();
         s.mean_ms = 1;
@@ -993,8 +993,8 @@ steps:
     fn saturated_peak_zero_omits_worker_rec() {
         // cause=capacity arm에 *도달*하되 peak == 0 (windows 비고 summary.rps < 0.5라
         // round → 0)인 경우 → div-by-zero 가드(peak > 0)로 recommended_workers None.
-        // p50=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → capacity arm 진입
-        // (p50=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
+        // mean=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → capacity arm 진입
+        // (mean=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
         // dropped>0이라 인사이트 자체는 emit.
         let mut s = summary(); // rps = 0.0 → peak fallback = 0
         s.mean_ms = 50;
@@ -1048,8 +1048,8 @@ steps:
 
     #[test]
     fn saturated_sizing_falls_back_when_latency_zero() {
-        // p50==0(localhost sub-ms) → 판별 불가 → cause None. 인사이트 자체는 emit.
-        let s = summary(); // p50_ms = 0
+        // mean==0(localhost sub-ms) → 판별 불가 → cause None. 인사이트 자체는 emit.
+        let s = summary(); // mean_ms = 0
         let got = derive_insights(
             &s,
             &[],
@@ -1094,7 +1094,7 @@ steps:
     fn saturated_small_required_rounds_up_to_one() {
         // 작은 target×지연(0.5)이 0으로 *내림*되지 않고 ceil로 1이 됨(required≥1, 0 권장 방지).
         // 인자 순서는 (…, dropped=7, max_in_flight=Some(0), target_rps=Some(10)):
-        // target_rps=10, p50=50ms → 10*0.05=0.5 → ceil → 1. max_in_flight=0 < 1 → slots, recommended 1.0.
+        // target_rps=10, mean=50ms → 10*0.05=0.5 → ceil → 1. max_in_flight=0 < 1 → slots, recommended 1.0.
         // (.max(1.0)는 target=0 같은 불가-입력 방어 — 이 테스트가 검증하는 건 ceil 올림.)
         let mut s = summary();
         s.mean_ms = 50;
