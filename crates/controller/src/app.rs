@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
     datasets as datasets_api, environments as environments_api, presets as presets_api,
     runs as runs_api, scenarios as scenarios_api, schedules as schedules_api,
-    step_templates as step_templates_api, test_runs as test_runs_api,
+    settings as settings_api, step_templates as step_templates_api, test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -123,6 +123,11 @@ pub fn router(state: AppState) -> Router {
             get(step_templates_api::get)
                 .put(step_templates_api::update)
                 .delete(step_templates_api::delete),
+        )
+        .route("/settings", get(settings_api::list))
+        .route(
+            "/settings/{key}",
+            put(settings_api::put).delete(settings_api::delete),
         )
         .route("/test-runs", post(test_runs_api::create));
 
