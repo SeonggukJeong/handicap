@@ -40,6 +40,13 @@ pub async fn serve_embedded_ui(uri: Uri) -> Response {
     }
 }
 
+/// 기본 브라우저로 URL을 연다. 실패는 치명적이지 않다(헤드리스 등) — warn만, 사용자가 직접 열 수 있게.
+pub fn open_browser(url: &str) {
+    if let Err(e) = open::that(url) {
+        tracing::warn!(url, error = %e, "failed to open browser; open the URL manually");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

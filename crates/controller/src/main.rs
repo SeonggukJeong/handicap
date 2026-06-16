@@ -86,6 +86,9 @@ struct ControllerArgs {
     /// Disable the in-process scheduler loop entirely (no auto-fire).
     #[arg(long, default_value_t = false)]
     scheduler_disabled: bool,
+    /// (bundle) 시작 시 기본 브라우저 자동 오픈을 끈다(헤드리스/CI/라이브검증용).
+    #[arg(long, default_value_t = false)]
+    no_open: bool,
 }
 
 #[tokio::main]
@@ -162,11 +165,28 @@ async fn main() -> anyhow::Result<()> {
     info!(rest = %rest_addr, grpc = %grpc_addr, "listeners");
 
     let dispatcher: SharedDispatcher = match args.worker_mode {
-        WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
-            args.worker_bin.clone(),
-            grpc_addr,
-            db.clone(),
-        )),
+        WorkerMode::Subprocess => {
+            #[cfg(feature = "bundle")]
+            {
+                // 멀티콜: 자기 자신(current_exe)을 `worker` 서브커맨드로 재실행.
+                let self_exe = std::env::current_exe()
+                    .context("resolve current_exe for worker self-spawn")?
+                    .to_string_lossy()
+                    .into_owned();
+                Arc::new(
+                    SubprocessDispatcher::new(self_exe, grpc_addr, db.clone())
+                        .with_leading_args(vec!["worker".to_string()]),
+                )
+            }
+            #[cfg(not(feature = "bundle"))]
+            {
+                Arc::new(SubprocessDispatcher::new(
+                    args.worker_bin.clone(),
+                    grpc_addr,
+                    db.clone(),
+                ))
+            }
+        }
         WorkerMode::Kubernetes => {
             if args.worker_image.is_empty() {
                 anyhow::bail!("--worker-image is required when --worker-mode=kubernetes");
@@ -269,6 +289,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!(addr = %rest_addr, "REST listening");
+    #[cfg(feature = "bundle")]
+    if !args.no_open {
+        let url = format!("http://localhost:{}", rest_addr.port());
+        info!(%url, "opening browser");
+        handicap_controller::bundle::open_browser(&url);
+    }
     tokio::try_join!(rest_fut, grpc_fut)?;
     Ok(())
 }

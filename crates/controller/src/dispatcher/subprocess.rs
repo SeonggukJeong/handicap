@@ -16,6 +16,8 @@ pub struct SubprocessDispatcher {
     worker_bin: String,
     grpc_addr: SocketAddr,
     db: Db,
+    /// `worker_bin` 뒤·`--controller` 앞에 끼울 선행 인자(멀티콜 서브커맨드용). 기본 빈 벡터.
+    leading_args: Vec<String>,
 }
 
 impl SubprocessDispatcher {
@@ -24,7 +26,14 @@ impl SubprocessDispatcher {
             worker_bin,
             grpc_addr,
             db,
+            leading_args: Vec::new(),
         }
+    }
+
+    /// 멀티콜 self-spawn용: spawn 명령에 선행 인자(예 `["worker"]`)를 끼운다.
+    pub fn with_leading_args(mut self, args: Vec<String>) -> Self {
+        self.leading_args = args;
+        self
     }
 }
 
@@ -41,13 +50,10 @@ impl WorkerDispatcher for SubprocessDispatcher {
                 worker_bin = %self.worker_bin,
                 "spawning worker subprocess"
             );
+            let cmd_args =
+                worker_command_args(&self.leading_args, &controller_url, run_id, &worker_id);
             let mut cmd = Command::new(&self.worker_bin);
-            cmd.arg("--controller")
-                .arg(&controller_url)
-                .arg("--run-id")
-                .arg(run_id)
-                .arg("--worker-id")
-                .arg(&worker_id)
+            cmd.args(&cmd_args)
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
                 .kill_on_drop(false);
@@ -98,5 +104,50 @@ impl WorkerDispatcher for SubprocessDispatcher {
         // Subprocess dispatcher: the worker self-terminates when the run ends.
         // Nothing to clean up explicitly.
         Ok(())
+    }
+}
+
+/// worker spawn 인자열을 만든다: [leading…] ++ --controller URL --run-id ID --worker-id WID.
+fn worker_command_args(
+    leading: &[String],
+    controller_url: &str,
+    run_id: &str,
+    worker_id: &str,
+) -> Vec<String> {
+    let mut v: Vec<String> = leading.to_vec();
+    v.push("--controller".into());
+    v.push(controller_url.into());
+    v.push("--run-id".into());
+    v.push(run_id.into());
+    v.push("--worker-id".into());
+    v.push(worker_id.into());
+    v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::worker_command_args;
+
+    #[test]
+    fn default_no_leading_args_byte_identical() {
+        let a = worker_command_args(&[], "http://127.0.0.1:8081", "r1", "w1");
+        assert_eq!(
+            a,
+            vec![
+                "--controller",
+                "http://127.0.0.1:8081",
+                "--run-id",
+                "r1",
+                "--worker-id",
+                "w1"
+            ]
+        );
+    }
+
+    #[test]
+    fn leading_worker_subcommand_prepended() {
+        let a = worker_command_args(&["worker".into()], "http://127.0.0.1:8081", "r1", "w1");
+        assert_eq!(a[0], "worker");
+        assert_eq!(&a[1..3], &["--controller", "http://127.0.0.1:8081"]);
     }
 }
