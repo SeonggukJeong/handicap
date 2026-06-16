@@ -106,6 +106,7 @@ export const ko = {
     datasets: "데이터셋",
     environments: "환경",
     schedules: "스케줄",
+    settings: "운영 상한",
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
@@ -461,5 +462,44 @@ export const ko = {
     preview: "변환된 시나리오 YAML",
     copy: "복사",
     toEditor: "편집기로 보내기",
+  },
+  opsSettings: {
+    title: "운영 상한",
+    mutableSection: "조정 가능한 운영 상한",
+    readonlySection: "배포 설정 (읽기 전용)",
+    applyNote: "여기서 바꾼 값은 다음에 시작하는 run부터 적용됩니다(진행 중인 run엔 영향 없음).",
+    save: "저장",
+    reset: "기본값 복원",
+    rangeHint: (min: number, max: number) => `허용 범위 ${min}~${max}`,
+    defaultHint: (d: number | string) => `기본값 ${d}`,
+    readonlyNote: "Helm/CLI 배포 설정으로 변경",
+    outOfRange: "허용 범위를 벗어났습니다",
+    desc: {
+      worker_capacity_vus:
+        '워커 한 대가 맡는 가상 사용자(VU) 수. 컨트롤러가 "필요 워커 수 = 올림(총 VU ÷ 이 값)"으로 몇 대 띄울지 계산합니다.',
+      dataset_max_rows:
+        '데이터셋을 "반복마다" 바인딩할 때 워커로 보낼 수 있는 최대 행 수. 워커 메모리를 지킵니다(VU별 바인딩은 미적용).',
+      max_open_loop_worker_count: "열린 루프(도착률) run에서 지정 가능한 워커 수의 최댓값.",
+      max_data_bindings: "한 run에 동시에 붙일 수 있는 독립 데이터셋 바인딩 개수.",
+      max_loop_breakdown_cap:
+        'loop 노드 메트릭을 "회차별로" 몇 개까지 집계할지 정하는 run 설정값의 허용 상한. 초과 회차는 "상한 초과" 한 칸으로 합쳐집니다.',
+      max_test_run_requests: '에디터 "미리 1회 실행"이 한 번에 보낼 수 있는 최대 요청 수.',
+      trace_body_cap_bytes: "테스트 실행 시 응답 본문을 최대 몇 바이트까지 보관할지(초과분 잘림).",
+      scheduler_tick_seconds: "예약된 run을 얼마나 자주 점검할지(초).",
+    },
+    effect: {
+      worker_capacity_vus:
+        "⬆ 올리면 워커 한 대에 VU를 더 몰아 워커 수가 줄어듭니다(자원 절약). 너무 높이면 한 대가 과부하돼 부하 생성이 부정확해집니다.\n⬇ 내리면 워커를 더 많이 띄웁니다(분산↑·정확도↑). 대신 K8s Pod·프로세스가 늘어 클러스터 자원을 더 씁니다.",
+      dataset_max_rows:
+        '⬆ 올리면 더 큰 데이터셋을 반복 바인딩에 쓸 수 있습니다. 대신 워커 메모리 사용량이 커져 OOM 위험이 늘어납니다.\n⬇ 내리면 메모리는 안전하지만, 행이 많은 데이터셋 run은 "행 수 초과"로 거부됩니다.',
+      max_open_loop_worker_count:
+        "⬆ 올리면 매우 높은 목표 RPS를 더 많은 워커로 분산할 수 있습니다. 대신 한 번에 많은 워커 Pod가 떠 클러스터를 압박합니다.\n⬇ 내리면 안전하지만, 아주 높은 목표 RPS를 워커가 못 따라가 포화(요청 누락)될 수 있습니다.",
+      max_data_bindings:
+        "⬆ 올리면 더 복잡한 다중 데이터셋 시나리오가 가능합니다. 대신 워커의 다중 스트림 관리 부담이 커집니다.\n⬇ 내리면 단순·가볍지만, 바인딩이 많은 run은 거부됩니다.",
+      max_loop_breakdown_cap:
+        "⬆ 올리면 반복이 많은 loop도 회차별로 세밀히 볼 수 있습니다. 대신 저장·리포트 행(메트릭 양)이 늘어납니다.\n⬇ 내리면 메트릭은 가벼워지지만, 회차별 분해 해상도가 줄어듭니다.",
+      max_test_run_requests:
+        "⬆ 올리면 더 긴 시나리오를 미리 끝까지 실행해볼 수 있습니다. 대신 미리보기가 느려지고 대상 서버에 요청이 더 갑니다.\n⬇ 내리면 빠르고 가볍지만, 긴 시나리오는 앞부분까지만 미리 실행됩니다.",
+    },
   },
 } as const;

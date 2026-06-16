@@ -28,6 +28,7 @@ import {
   updateStepTemplate,
   type StepTemplateInput,
 } from "./stepTemplates";
+import { deleteSetting, getSettings, putSetting } from "./settings";
 import type { Profile, RunStatus } from "./schemas";
 import { markRunCreated } from "../onboarding/state";
 
@@ -48,6 +49,7 @@ export const queryKeys = {
   schedule: (id: string) => ["schedules", id] as const,
   scheduleEvents: (id: string) => ["schedules", id, "events"] as const,
   stepTemplates: () => ["step-templates"] as const,
+  settings: () => ["settings"] as const,
 };
 
 export function useScenarios() {
@@ -369,6 +371,26 @@ export function useDeleteStepTemplate() {
   return useMutation({
     mutationFn: (id: string) => deleteStepTemplate(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.stepTemplates() }),
+  });
+}
+
+export function useSettings() {
+  return useQuery({ queryKey: queryKeys.settings(), queryFn: getSettings });
+}
+
+export function usePutSetting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, value }: { key: string; value: number }) => putSetting(key, value),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings() }),
+  });
+}
+
+export function useResetSetting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => deleteSetting(key),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.settings() }),
   });
 }
 

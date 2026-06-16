@@ -10,6 +10,7 @@ import { RunDetailPage } from "./pages/RunDetailPage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { EnvironmentsPage } from "./pages/EnvironmentsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 const router = createBrowserRouter([
   {
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { path: "datasets", element: <DatasetsPage /> },
       { path: "environments", element: <EnvironmentsPage /> },
       { path: "schedules", element: <SchedulesPage /> },
+      { path: "settings", element: <SettingsPage /> },
     ],
   },
 ]);
