@@ -50,8 +50,16 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ulid.workspace = true
 
+# bundle(단일 self-contained 바이너리) 전용 — optional, 기본 빌드엔 불포함.
+handicap-worker = { path = "../worker", optional = true }
+rust-embed = { version = "8", optional = true }
+dirs = { version = "5", optional = true }
+open = { version = "5", optional = true }
+
 [features]
 slice6-k8s = []
+# 단일 self-contained 바이너리 모드(ADR-0039 옵션 A). off=현행 byte-identical.
+bundle = ["dep:handicap-worker", "dep:rust-embed", "rust-embed/mime-guess", "dep:dirs", "dep:open"]
 
 [dev-dependencies]
 serde_json.workspace = true

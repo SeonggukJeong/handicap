@@ -21,7 +21,24 @@ enum WorkerMode {
 }
 
 #[derive(Debug, Parser)]
-struct Args {
+struct Cli {
+    /// bundle 빌드에서만: `worker` 서브커맨드로 자기 자신을 워커로 재실행(멀티콜). 없으면 컨트롤러.
+    #[cfg(feature = "bundle")]
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+    #[command(flatten)]
+    controller: ControllerArgs,
+}
+
+#[cfg(feature = "bundle")]
+#[derive(Debug, clap::Subcommand)]
+enum Cmd {
+    /// 컨트롤러가 내부적으로 spawn하는 워커 모드(직접 호출 불필요).
+    Worker(handicap_worker::WorkerArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct ControllerArgs {
     #[arg(long, default_value = "./handicap.db")]
     db: String,
     #[arg(long, default_value = "127.0.0.1:8080")]
@@ -71,12 +88,23 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // 멀티콜: `controller worker …` → 워커로 동작(자기 자신 재실행 대상). bundle 전용.
+    #[cfg(feature = "bundle")]
+    if let Some(Cmd::Worker(wargs)) = cli.cmd {
+        handicap_worker::init_worker_tracing();
+        return handicap_worker::run(wargs).await;
+    }
+
+    let args = cli.controller;
+
+    // 컨트롤러 경로: tracing init(과거 top-of-main에 있던 것과 동일 — byte-identical).
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-    let args = Args::parse();
     info!(?args, "controller starting");
 
     if let Some(d) = &args.ui_dir {
@@ -186,4 +214,49 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::try_join!(rest_fut, grpc_fut)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn flat_controller_invocation_still_parses() {
+        // 서브커맨드 없는 기존 호출이 깨지지 않아야 한다.
+        let cli = Cli::try_parse_from([
+            "controller",
+            "--db",
+            "x.db",
+            "--rest",
+            "127.0.0.1:8080",
+            "--ui-dir",
+            "ui/dist",
+        ])
+        .expect("flat controller args must parse");
+        assert_eq!(cli.controller.db, "x.db");
+    }
+
+    #[cfg(feature = "bundle")]
+    #[test]
+    fn worker_subcommand_parses() {
+        let cli = Cli::try_parse_from([
+            "controller",
+            "worker",
+            "--controller",
+            "http://127.0.0.1:8081",
+            "--run-id",
+            "r1",
+            "--worker-id",
+            "w1",
+        ])
+        .expect("worker subcommand must parse");
+        match cli.cmd {
+            Some(Cmd::Worker(w)) => {
+                assert_eq!(w.run_id, "r1");
+                assert_eq!(w.worker_id.as_deref(), Some("w1"));
+            }
+            _ => panic!("expected Worker subcommand"),
+        }
+    }
 }
