@@ -7,6 +7,7 @@ pub mod error;
 pub mod export;
 pub mod grpc;
 pub mod insights;
+pub mod launch;
 pub mod report;
 pub mod schedule;
 pub mod settings;

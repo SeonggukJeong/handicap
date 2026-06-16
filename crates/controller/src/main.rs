@@ -39,8 +39,10 @@ enum Cmd {
 
 #[derive(Debug, clap::Args)]
 struct ControllerArgs {
-    #[arg(long, default_value = "./handicap.db")]
-    db: String,
+    /// SQLite DB 경로. 생략 시: bundle은 사용자 데이터 폴더(<data>/handicap/handicap.db),
+    /// 비-bundle은 ./handicap.db.
+    #[arg(long)]
+    db: Option<String>,
     #[arg(long, default_value = "127.0.0.1:8080")]
     rest: SocketAddr,
     #[arg(long, default_value = "127.0.0.1:8081")]
@@ -116,7 +118,21 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let db_url = store::url_from_path(&args.db);
+    // bundle: 사용자 데이터 폴더(%LOCALAPPDATA%\handicap / ~/Library/Application Support/handicap)
+    // 를 만들고 거기에 DB를 둔다. 비-bundle: data_dir=None → ./handicap.db(현행).
+    #[cfg(feature = "bundle")]
+    let data_dir: Option<std::path::PathBuf> =
+        dirs::data_local_dir().map(|base| handicap_controller::launch::app_data_dir(&base));
+    #[cfg(not(feature = "bundle"))]
+    let data_dir: Option<std::path::PathBuf> = None;
+
+    if let Some(dir) = &data_dir {
+        std::fs::create_dir_all(dir).context("create app data dir")?;
+    }
+    let db_path =
+        handicap_controller::launch::resolve_db_path(args.db.as_deref(), data_dir.as_deref());
+    info!(db = %db_path, "resolved database path");
+    let db_url = store::url_from_path(&db_path);
     let db = store::connect(&db_url).await?;
     let recovered = handicap_controller::store::runs::mark_orphans_failed(
         &db,
@@ -234,7 +250,7 @@ mod cli_tests {
             "ui/dist",
         ])
         .expect("flat controller args must parse");
-        assert_eq!(cli.controller.db, "x.db");
+        assert_eq!(cli.controller.db.as_deref(), Some("x.db"));
     }
 
     #[cfg(feature = "bundle")]
