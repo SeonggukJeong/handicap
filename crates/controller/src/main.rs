@@ -87,6 +87,8 @@ struct ControllerArgs {
     #[arg(long, default_value_t = false)]
     scheduler_disabled: bool,
     /// (bundle) 시작 시 기본 브라우저 자동 오픈을 끈다(헤드리스/CI/라이브검증용).
+    /// bundle 전용 — 비-bundle 빌드엔 이 플래그가 없다(off=CLI 표면까지 byte-identical).
+    #[cfg(feature = "bundle")]
     #[arg(long, default_value_t = false)]
     no_open: bool,
 }
