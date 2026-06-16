@@ -47,7 +47,12 @@ async fn bind_local() -> (TcpListener, SocketAddr) {
     (listener, addr)
 }
 
-/// Boot an in-process controller with the given coordinator (capacity baked in).
+/// Boot an in-process controller. `capacity` seeds the AppState `SettingsState`
+/// (`settings.worker_capacity_vus()`), which `spawn_run` uses to compute the
+/// fan-out N. That N is forwarded to `coord.enqueue(expected = N)`. Capacity is
+/// not stored in `coord` (it's capacity-free now) — this parameter is the sole
+/// authority for N, and the shared `coord` clone makes those N shards visible to
+/// the gRPC side.
 async fn boot(
     coord: CoordinatorState,
     db: store::Db,
@@ -55,6 +60,7 @@ async fn boot(
     rest_listener: TcpListener,
     grpc_addr: SocketAddr,
     worker_bin: &Path,
+    capacity: u32,
 ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
     let app = app::router(app::AppState {
         db: db.clone(),
@@ -65,7 +71,10 @@ async fn boot(
             db,
         )),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[("worker_capacity_vus", capacity as i64)],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
     let rest_handle = tokio::spawn(async move {
@@ -102,7 +111,7 @@ async fn two_worker_fanout_completes() {
     let (grpc_listener, grpc_addr) = bind_local().await;
     let db = store::connect("sqlite::memory:").await.unwrap();
     // capacity 1 → N = total_vus.
-    let coord = CoordinatorState::with_capacity(db.clone(), 1);
+    let coord = CoordinatorState::new(db.clone());
     let (rest_handle, grpc_handle) = boot(
         coord,
         db.clone(),
@@ -110,6 +119,7 @@ async fn two_worker_fanout_completes() {
         rest_listener,
         grpc_addr,
         &worker_bin,
+        1,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -195,7 +205,7 @@ async fn two_worker_fanout_abort_marks_aborted() {
     let (rest_listener, rest_addr) = bind_local().await;
     let (grpc_listener, grpc_addr) = bind_local().await;
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let coord = CoordinatorState::with_capacity(db.clone(), 1);
+    let coord = CoordinatorState::new(db.clone());
     let (rest_handle, grpc_handle) = boot(
         coord,
         db.clone(),
@@ -203,6 +213,7 @@ async fn two_worker_fanout_abort_marks_aborted() {
         rest_listener,
         grpc_addr,
         &worker_bin,
+        1,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -306,7 +317,7 @@ async fn two_worker_fanout_merges_metrics() {
     let (rest_listener, rest_addr) = bind_local().await;
     let (grpc_listener, grpc_addr) = bind_local().await;
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let coord = CoordinatorState::with_capacity(db.clone(), 1); // capacity 1 -> N = total_vus
+    let coord = CoordinatorState::new(db.clone()); // capacity 1 (settings) -> N = total_vus
     let (rest_handle, grpc_handle) = boot(
         coord,
         db.clone(),
@@ -314,6 +325,7 @@ async fn two_worker_fanout_merges_metrics() {
         rest_listener,
         grpc_addr,
         &worker_bin,
+        1,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -439,7 +451,7 @@ async fn two_worker_open_loop_fanout_completes() {
     let (grpc_listener, grpc_addr) = bind_local().await;
     let db = store::connect("sqlite::memory:").await.unwrap();
     // open-loop N = worker_count (2); capacity does not drive fan-out here.
-    let coord = CoordinatorState::with_capacity(db.clone(), 2000);
+    let coord = CoordinatorState::new(db.clone());
     let (rest_handle, grpc_handle) = boot(
         coord,
         db.clone(),
@@ -447,6 +459,7 @@ async fn two_worker_open_loop_fanout_completes() {
         rest_listener,
         grpc_addr,
         &worker_bin,
+        2000,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -567,7 +580,7 @@ async fn two_worker_unique_consumes_each_row_once() {
     let (rest_listener, rest_addr) = bind_local().await;
     let (grpc_listener, grpc_addr) = bind_local().await;
     let db = store::connect("sqlite::memory:").await.unwrap();
-    let coord = CoordinatorState::with_capacity(db.clone(), 1); // capacity 1 → N = vus
+    let coord = CoordinatorState::new(db.clone()); // capacity 1 (settings) → N = vus
     let (rest_handle, grpc_handle) = boot(
         coord,
         db.clone(),
@@ -575,6 +588,7 @@ async fn two_worker_unique_consumes_each_row_once() {
         rest_listener,
         grpc_addr,
         &worker_bin,
+        1,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;

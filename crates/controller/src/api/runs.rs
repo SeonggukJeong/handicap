@@ -38,8 +38,8 @@ pub struct RunResponse {
     pub verdict: Option<crate::report::Verdict>,
 }
 
-pub(crate) fn loop_cap_ok(cap: u32) -> bool {
-    cap <= 10_000
+pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
+    cap <= max
 }
 
 /// run-level criteria 검증(spec §7). DB 불필요 — 순수. 위반은 BadRequest 메시지.
@@ -188,10 +188,11 @@ pub(crate) async fn validate_run_config(
     }
     // ── worker_count: open-loop 전용 멀티워커 fan-out 노브 (spec 2026-06-15) ──
     if let Some(w) = profile.worker_count {
-        if w == 0 || w > 64 {
-            return Err(ApiError::BadRequest(
-                "worker_count must be between 1 and 64".into(),
-            ));
+        let cap = state.settings.max_open_loop_worker_count();
+        if w == 0 || w > cap {
+            return Err(ApiError::BadRequest(format!(
+                "worker_count must be between 1 and {cap}"
+            )));
         }
         if w > 1 && !profile.is_open_loop() {
             return Err(ApiError::BadRequest(
@@ -234,7 +235,7 @@ pub(crate) async fn validate_run_config(
                 "vu_stages 사용 시 vus를 비워야 합니다 (곡선이 VU 수를 정의)".into(),
             ));
         }
-        let capacity = state.coord.worker_capacity_vus;
+        let capacity = state.settings.worker_capacity_vus();
         let stages = profile.vu_stages.as_deref().unwrap_or_default();
         for s in stages {
             if s.duration_seconds == 0 {
@@ -367,10 +368,11 @@ pub(crate) async fn validate_run_config(
             "vus and duration_seconds must be > 0".into(),
         ));
     }
-    if !loop_cap_ok(profile.loop_breakdown_cap) {
-        return Err(ApiError::BadRequest(
-            "loop_breakdown_cap must be <= 10000 (0 disables breakdown)".into(),
-        ));
+    let loop_cap_max = state.settings.max_loop_breakdown_cap();
+    if !loop_cap_ok(profile.loop_breakdown_cap, loop_cap_max) {
+        return Err(ApiError::BadRequest(format!(
+            "loop_breakdown_cap must be <= {loop_cap_max} (0 disables breakdown)"
+        )));
     }
     if profile.http_timeout_seconds == 0 || profile.http_timeout_seconds > 600 {
         return Err(ApiError::BadRequest(
@@ -394,10 +396,10 @@ pub(crate) async fn validate_run_config(
     if bindings.is_empty() {
         return Ok(Vec::new());
     }
-    const MAX_BINDINGS: usize = 8;
-    if bindings.len() > MAX_BINDINGS {
+    let max_bindings = state.settings.max_data_bindings();
+    if bindings.len() > max_bindings {
         return Err(ApiError::BadRequest(format!(
-            "데이터셋 바인딩은 최대 {MAX_BINDINGS}개입니다 ({}개)",
+            "데이터셋 바인딩은 최대 {max_bindings}개입니다 ({}개)",
             bindings.len()
         )));
     }
@@ -422,7 +424,7 @@ pub(crate) async fn validate_run_config(
     } else if profile.is_open_loop() {
         profile.worker_count.unwrap_or(1)
     } else {
-        state.coord.worker_count_for(profile.vus)
+        crate::grpc::shard::worker_count(profile.vus, state.settings.worker_capacity_vus())
     };
     let mut metas = Vec::with_capacity(bindings.len());
     for b in &bindings {
@@ -467,10 +469,11 @@ pub(crate) async fn validate_run_config(
             b.policy,
             BindingPolicy::IterSequential | BindingPolicy::IterRandom | BindingPolicy::Unique
         );
-        if per_iteration && (meta.row_count as u64) > state.dataset_max_rows {
+        if per_iteration && (meta.row_count as u64) > state.settings.dataset_max_rows() {
             return Err(ApiError::BadRequest(format!(
                 "per-iteration 바인딩 행 수 {}가 상한 {}을 초과합니다",
-                meta.row_count, state.dataset_max_rows
+                meta.row_count,
+                state.settings.dataset_max_rows()
             )));
         }
         metas.push(meta);
@@ -600,7 +603,7 @@ pub(crate) async fn spawn_run(
     } else if profile.is_open_loop() {
         profile.worker_count.unwrap_or(1)
     } else {
-        state.coord.worker_count_for(profile.vus)
+        crate::grpc::shard::worker_count(profile.vus, state.settings.worker_capacity_vus())
     };
     // curve의 total_vus = max(stage.target); open-loop의 total_vus = max_in_flight(슬롯 풀).
     // profile.vus(=0)를 넘기면 register의 shard_split(0,…)이 vu_count=0을 만들어 §5 와이어
@@ -940,15 +943,17 @@ mod tests {
     use crate::app::AppState;
     use crate::binding::{BindingPolicy, DataBinding};
     use crate::grpc::coordinator::CoordinatorState;
+    use crate::settings::SettingsState;
     use crate::store::runs::Profile;
     use std::sync::Arc;
 
     #[test]
     fn validates_loop_breakdown_cap_bounds() {
-        assert!(super::loop_cap_ok(0)); // off allowed
-        assert!(super::loop_cap_ok(256));
-        assert!(super::loop_cap_ok(10_000));
-        assert!(!super::loop_cap_ok(10_001)); // over cap rejected
+        let max = 10_000;
+        assert!(super::loop_cap_ok(0, max)); // off allowed
+        assert!(super::loop_cap_ok(256, max));
+        assert!(super::loop_cap_ok(10_000, max));
+        assert!(!super::loop_cap_ok(10_001, max)); // over cap rejected
     }
 
     #[test]
@@ -966,14 +971,17 @@ mod tests {
     async fn state_with(db: crate::store::Db, capacity: u32) -> AppState {
         AppState {
             db: db.clone(),
-            coord: CoordinatorState::with_capacity(db.clone(), capacity),
+            coord: CoordinatorState::new(db.clone()),
             dispatcher: Arc::new(crate::dispatcher::subprocess::SubprocessDispatcher::new(
                 "worker".to_string(),
                 "127.0.0.1:1".parse().unwrap(),
                 db,
             )),
             ui_dir: None,
-            dataset_max_rows: 1_000_000,
+            settings: SettingsState::seeded_for_test_with(&[(
+                "worker_capacity_vus",
+                capacity as i64,
+            )]),
             scheduler_tz: chrono_tz::UTC,
         }
     }
@@ -1891,6 +1899,36 @@ steps:
             .await
             .is_ok(),
             "valid vu_stages+ramp_down must be accepted"
+        );
+    }
+
+    /// R6: worker capacity flows from SettingsState (not coord) to the validation
+    /// site. A lowered capacity (2 via seed) must reject a closed-loop VU-curve run
+    /// whose stage target (3) exceeds it. This is the validation half of the
+    /// capacity-consistency invariant; the dispatch-N half (same accessor at the
+    /// spawn site) is exercised by the multi-worker fanout e2e.
+    #[tokio::test]
+    async fn lowered_capacity_settings_enforced_at_validation() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2).await; // SettingsState seeded with worker_capacity_vus=2
+        // stage target 3 > capacity 2 → vu-curve capacity gate (reads settings) rejects.
+        let over = curve_profile(vec![handicap_engine::Stage {
+            target: 3,
+            duration_seconds: 10,
+        }]);
+        let err = validate_run_config(&state, &over).await.unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("워커 용량") && m.contains('2')),
+            "stage target above settings capacity must be rejected, got {err:?}"
+        );
+        // at/under capacity passes — confirms the bound is the settings value, not a constant.
+        let ok = curve_profile(vec![handicap_engine::Stage {
+            target: 2,
+            duration_seconds: 10,
+        }]);
+        assert!(
+            validate_run_config(&state, &ok).await.is_ok(),
+            "stage target == settings capacity must be accepted"
         );
     }
 }

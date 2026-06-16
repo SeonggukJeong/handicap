@@ -17,7 +17,7 @@ pub struct JobSpecInput<'a> {
     pub namespace: &'a str,
     pub run_id: &'a str,
     /// Number of worker Pods (Indexed Job parallelism/completions). N from
-    /// `CoordinatorState::worker_count_for`. (A3c spec §7.2.)
+    /// `shard::worker_count` (capacity는 settings). (A3c spec §7.2.)
     pub worker_count: u32,
     pub worker_image: &'a str,
     pub controller_grpc_url: &'a str,

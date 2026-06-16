@@ -261,6 +261,7 @@ mod tests {
     use crate::dispatcher::NoopDispatcher;
     use crate::grpc::coordinator::CoordinatorState;
     use crate::schedule::trigger::Trigger;
+    use crate::settings::SettingsState;
     use crate::store::{self, runs::Profile};
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -275,7 +276,7 @@ mod tests {
             coord,
             dispatcher: Arc::new(NoopDispatcher),
             ui_dir: None,
-            dataset_max_rows: 1_000_000,
+            settings: SettingsState::seeded_for_test(),
             scheduler_tz: chrono_tz::UTC,
         }
     }

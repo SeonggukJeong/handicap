@@ -19,7 +19,7 @@ use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
 use crate::binding::Mapping;
 use crate::dispatcher::SharedDispatcher;
-use crate::grpc::shard::{shard_split, worker_count};
+use crate::grpc::shard::shard_split;
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
 
@@ -126,8 +126,6 @@ pub enum RegisterOutcome {
 pub struct CoordinatorState {
     pub db: Db,
     runs: Arc<Mutex<HashMap<String, RunWorkers>>>,
-    /// Per-worker VU capacity used to compute N = ceil(total_vus / capacity).
-    pub worker_capacity_vus: u32,
     /// Set once at startup (main.rs) so finalize paths can tear down K8s Jobs /
     /// child processes. Unset in unit/e2e tests → cleanup is a no-op. (A3c spec §7,
     /// §8.) Interior mutability so all clones (AppState.coord, CoordinatorService)
@@ -136,22 +134,15 @@ pub struct CoordinatorState {
 }
 
 impl CoordinatorState {
+    /// Build a coordinator. Worker capacity is no longer the coordinator's
+    /// concern — `SettingsState` (AppState) is the single authority and the
+    /// run-create path computes N from `shard::worker_count(total_vus, capacity)`.
     pub fn new(db: Db) -> Self {
-        Self::with_capacity(db, DEFAULT_WORKER_CAPACITY_VUS)
-    }
-
-    pub fn with_capacity(db: Db, worker_capacity_vus: u32) -> Self {
         Self {
             db,
             runs: Arc::new(Mutex::new(HashMap::new())),
-            worker_capacity_vus,
             dispatcher: Arc::new(OnceLock::new()),
         }
-    }
-
-    /// Number of workers for `total_vus` given this controller's capacity.
-    pub fn worker_count_for(&self, total_vus: u32) -> u32 {
-        worker_count(total_vus, self.worker_capacity_vus)
     }
 
     /// Install the dispatcher handle so finalize paths can clean up. Called once

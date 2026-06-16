@@ -20,7 +20,11 @@ fn make_app(db: store::Db) -> axum::Router {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 5, // small cap so the over-max case is cheap
+        // small dataset cap so the over-max case is cheap (seed override)
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[("dataset_max_rows", 5)],
+        ),
         scheduler_tz: chrono_tz::UTC,
     })
 }
@@ -217,13 +221,17 @@ async fn unique_policy_accepted_when_rows_meet_worker_count() {
 async fn unique_policy_rejected_when_rows_below_worker_count() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     // capacity=1 VU per worker + vus=2 → N=ceil(2/1)=2; dataset has 1 row → rows < N → 400.
-    let coord = CoordinatorState::with_capacity(db.clone(), 1);
+    // Capacity now lives in SettingsState (the coord no longer holds it); seed it to 1.
+    let coord = CoordinatorState::new(db.clone());
     let app = app::router(app::AppState {
         db: db.clone(),
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 5,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[("worker_capacity_vus", 1), ("dataset_max_rows", 5)],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 

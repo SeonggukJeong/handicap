@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
     if recovered > 0 {
         info!(count = recovered, "marked orphan runs as failed on startup");
     }
-    let coord_state = CoordinatorState::with_capacity(db.clone(), args.worker_capacity_vus);
+    let coord_state = CoordinatorState::new(db.clone());
 
     let dispatcher: SharedDispatcher = match args.worker_mode {
         WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
@@ -130,12 +130,24 @@ async fn main() -> anyhow::Result<()> {
     let scheduler_tz: chrono_tz::Tz = args.scheduler_timezone.parse().map_err(|_| {
         anyhow::anyhow!("invalid --scheduler-timezone: {}", args.scheduler_timezone)
     })?;
+    // Build the runtime settings snapshot: DB overrides ?? CLI/registry seeds.
+    // The CLI flags (--worker-capacity-vus, --dataset-max-rows, scheduler tick)
+    // feed seeds — values are byte-identical when there are no DB overrides (R5).
+    let overrides = handicap_controller::store::settings::load_overrides(&db).await?;
+    let settings = handicap_controller::settings::SettingsState::build(
+        &overrides,
+        &[
+            ("worker_capacity_vus", args.worker_capacity_vus as i64),
+            ("dataset_max_rows", args.dataset_max_rows as i64),
+            ("scheduler_tick_seconds", args.scheduler_tick_seconds as i64),
+        ],
+    );
     let state = app::AppState {
         db: db.clone(),
         coord: coord_state.clone(),
         dispatcher: dispatcher.clone(),
         ui_dir: args.ui_dir.clone(),
-        dataset_max_rows: args.dataset_max_rows,
+        settings,
         scheduler_tz,
     };
     if !args.scheduler_disabled {

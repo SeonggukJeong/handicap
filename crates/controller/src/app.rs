@@ -20,9 +20,10 @@ pub struct AppState {
     pub coord: CoordinatorState,
     pub dispatcher: SharedDispatcher,
     pub ui_dir: Option<PathBuf>,
-    /// Maximum dataset rows a per-iteration binding may stream into a worker.
-    /// `per_vu` is not capped (sliced to min(vus, rows)). Guards worker memory. Spec §10.
-    pub dataset_max_rows: u64,
+    /// Runtime effective op-config limits (DB override ?? seed). Decision points
+    /// read accessors (e.g. `settings.dataset_max_rows()`). The single authority
+    /// for per-request limits incl. worker capacity. Spec §B2''.
+    pub settings: crate::settings::SettingsState,
     /// IANA timezone for cron evaluation (spec §3). main.rs parses
     /// `--scheduler-timezone` once and injects it so the scheduler loop AND the
     /// REST handlers (next_run_at calc, preview-next) share one source of truth.

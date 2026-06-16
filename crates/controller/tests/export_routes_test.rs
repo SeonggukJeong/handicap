@@ -18,7 +18,10 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     })
 }

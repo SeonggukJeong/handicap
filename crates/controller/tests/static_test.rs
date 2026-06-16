@@ -30,7 +30,10 @@ async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
         coord,
         dispatcher,
         ui_dir,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     }
 }

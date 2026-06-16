@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axum::Json;
+use axum::extract::State;
 use handicap_engine::{Scenario, ScenarioTrace, TraceOptions, trace_scenario};
 use serde::Deserialize;
 
 use crate::error::ApiError;
 
 const DEFAULT_MAX_REQUESTS: u32 = 50;
-const MAX_MAX_REQUESTS: u32 = 10_000;
 const WALL_CLOCK_CEILING_SECS: u64 = 120;
 
 fn default_max_requests() -> u32 {
@@ -34,10 +34,14 @@ pub struct TestRunRequest {
 
 /// `POST /api/test-runs` — run an inline scenario once (1 VU, single pass)
 /// in-process and return a per-request trace. Ephemeral: nothing is persisted.
-pub async fn create(Json(body): Json<TestRunRequest>) -> Result<Json<ScenarioTrace>, ApiError> {
-    if body.max_requests < 1 || body.max_requests > MAX_MAX_REQUESTS {
+pub async fn create(
+    State(state): State<crate::app::AppState>,
+    Json(body): Json<TestRunRequest>,
+) -> Result<Json<ScenarioTrace>, ApiError> {
+    let max_requests = state.settings.max_test_run_requests();
+    if body.max_requests < 1 || body.max_requests > max_requests {
         return Err(ApiError::Unprocessable(format!(
-            "max_requests must be 1..={MAX_MAX_REQUESTS}, got {}",
+            "max_requests must be 1..={max_requests}, got {}",
             body.max_requests
         )));
     }

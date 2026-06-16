@@ -16,7 +16,10 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     })
 }
@@ -110,7 +113,10 @@ async fn create_and_get_scenario() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 
@@ -149,7 +155,10 @@ async fn rejects_invalid_yaml() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
@@ -172,7 +181,10 @@ async fn create_run_for_scenario() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 
@@ -223,7 +235,10 @@ async fn list_scenarios_returns_what_was_created() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 
@@ -277,7 +292,10 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 
@@ -405,7 +423,10 @@ async fn list_runs_by_scenario() {
         coord,
         dispatcher: Arc::new(NoopDispatcher),
         ui_dir: None,
-        dataset_max_rows: 1_000_000,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
         scheduler_tz: chrono_tz::UTC,
     });
 
