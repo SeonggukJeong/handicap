@@ -1,7 +1,6 @@
 ---
 name: finish-slice
-description: Use when a slice/feature is implemented in a worktree and ready to land on master — merge, cleanup, docs/memory recording, and next-task handoff time. 구현·최종 리뷰가 끝나 master 합류와 마무리 기록이 필요할 때 사용자가 /finish-slice로 호출.
-disable-model-invocation: true
+description: Use when a slice/feature is implemented in a worktree and ready to land on master — merge, cleanup, docs/memory recording, and next-task handoff time. 구현·최종 리뷰·라이브 검증이 끝나 master 합류와 마무리 기록이 필요할 때. 사용자가 /finish-slice로 호출하거나, subagent-driven 슬라이스의 마지막 단계로 orchestrator(model)가 직접 호출(아래 0) 전제 확인을 먼저 통과시킬 것).
 ---
 
 # finish-slice — 슬라이스 완료 의식

@@ -15,3 +15,6 @@ ui/coverage
 # committed doc images under docs/ are unaffected.
 .playwright-mcp/
 /*.png
+# cargo-mutants audit reports (see /mutation-audit skill) — never committed.
+mutants.out/
+mutants.out.old/

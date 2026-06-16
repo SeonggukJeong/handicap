@@ -61,6 +61,21 @@ if [[ "$file" =~ \.rs$ && -f "$file" ]] && grep -q '#\[cfg(test)\]' "$file"; the
   exit 0
 fi
 
+# A change that ITSELF introduces inline #[cfg(test)] tests is test-bearing —
+# the write IS the test. The on-disk check above only fires once the tests are
+# already saved; this covers the case they aren't yet: a NEW .rs file written
+# with inline tests (Write.content), or the FIRST inline test added to an
+# existing file (Edit.new_string). Same trust model as the on-disk check
+# (presence, not quality) — it removes the _tdd_keepalive.rs dance for new src
+# files that ship their own unit tests. A change adding no #[cfg(test)] still
+# falls through to the pending-test scan below.
+if [[ "$file" =~ \.rs$ ]]; then
+  added=$(echo "$input" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+  if echo "$added" | grep -q '#\[cfg(test)\]'; then
+    exit 0
+  fi
+fi
+
 # Worktree-aware: derive the git working tree from the file being edited, not
 # from the hook process's cwd. Subagents may be operating in a git worktree
 # under .claude/worktrees/<name>/ while the hook's cwd is still the primary
