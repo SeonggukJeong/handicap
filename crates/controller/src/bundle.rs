@@ -41,8 +41,9 @@ pub async fn serve_embedded_ui(uri: Uri) -> Response {
 }
 
 /// 기본 브라우저로 URL을 연다. 실패는 치명적이지 않다(헤드리스 등) — warn만, 사용자가 직접 열 수 있게.
+/// `that_detached`로 런처 자식을 떼어내 tokio 런타임 스레드를 막지 않는다(특히 Linux `xdg-open`).
 pub fn open_browser(url: &str) {
-    if let Err(e) = open::that(url) {
+    if let Err(e) = open::that_detached(url) {
         tracing::warn!(url, error = %e, "failed to open browser; open the URL manually");
     }
 }
