@@ -5,6 +5,7 @@ pub mod presets;
 pub mod runs;
 pub mod scenarios;
 pub mod schedules;
+pub mod settings;
 pub mod step_templates;
 
 use std::path::Path;
@@ -36,6 +37,8 @@ const MIGRATION_SQL_0011: &str = include_str!("migrations/0011_schedules.sql");
 const MIGRATION_SQL_0013: &str = include_str!("migrations/0013_run_phase_metrics.sql");
 const MIGRATION_SQL_0015: &str = include_str!("migrations/0015_step_templates.sql");
 const MIGRATION_SQL_0016: &str = include_str!("migrations/0016_run_active_vu_metrics.sql");
+// Inline literal (no migrations/*.sql file) — single trivial statement; grep MIGRATION_SQL_0017 to find it.
+const MIGRATION_SQL_0017: &str = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 
 pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     let opts = SqliteConnectOptions::from_str(db_url)?
@@ -73,6 +76,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_run_group_metrics_branch(&pool).await?; // migration 0014 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0015).execute(&pool).await?; // migration 0015: step_templates
     sqlx::query(MIGRATION_SQL_0016).execute(&pool).await?; // migration 0016: run_active_vu_metrics
+    sqlx::query(MIGRATION_SQL_0017).execute(&pool).await?; // migration 0017: settings overrides
     Ok(pool)
 }
 
@@ -470,6 +474,21 @@ mod tests {
         assert_eq!(
             has_col, 1,
             "connect() must apply migration 0008 (worker_id column)"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_applies_settings_migration() {
+        let pool = connect("sqlite::memory:").await.expect("connect");
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='settings'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            has, 1,
+            "connect() must create the settings table (migration 0017)"
         );
     }
 
