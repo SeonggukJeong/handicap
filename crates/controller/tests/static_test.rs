@@ -121,6 +121,8 @@ async fn api_still_works_with_ui_dir_set() {
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
+// 비-bundle: --ui-dir 없으면 임베드 fallback이 없으므로 미지의 경로는 404.
+#[cfg(not(feature = "bundle"))]
 #[tokio::test]
 async fn without_ui_dir_returns_404_on_unknown_path() {
     let state = build_state(None).await;
@@ -133,4 +135,31 @@ async fn without_ui_dir_returns_404_on_unknown_path() {
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// bundle: --ui-dir 없으면 임베드 UI가 SPA fallback으로 등장 → 미지의 클라 라우트는 index.html 200.
+#[cfg(feature = "bundle")]
+#[tokio::test]
+async fn without_ui_dir_serves_embedded_spa_on_unknown_path() {
+    let state = build_state(None).await;
+    let app = app::router(state);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/scenarios/01ABC")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "bundle: embedded SPA fallback serves index.html for unknown client routes"
+    );
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&body).contains('<'),
+        "embedded index.html should be returned"
+    );
 }
