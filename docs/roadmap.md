@@ -221,6 +221,11 @@
 - **closed-loop 곡선 + criteria `rps_warmup_seconds` 자동 prefill**: closed 고정 VU는 ramp_up_seconds 기반 prefill 이미 있음. 곡선은 첫 stage 길이 등 휴리스틱으로 warmup 제안 가능.
 - **곡선 run의 VU 표시 개선** (RunDetailPage VUs 카드 · run 목록 VUs 열): v1은 open-loop 선례대로 0 표시 수용 — "최대 N VU (곡선)" 표기 후보.
 
+### B10. 편의(QoL) 트랙 후속 후보 (2026-06-16 표면화)
+출처: 2026-06-16 "내부 테스트 단계 — 편리함에 집중" 후보 검토. 사용자가 **응답기반 extract 작성**(§C 후속 8-1, 아래 진행 중)을 선택, 나머지 2종은 다음 편의 슬라이스 후보로 기록(잃어버리지 않게).
+- **스텝 템플릿 관리 페이지 + 변수 파라미터화**: 상세 = §B8(별도 관리 페이지 `/templates` = EnvironmentsPage 미러[목록/이름변경/미리보기/삭제] + 삽입 시 `{{var}}`/`${ENV}` placeholder 치환 다이얼로그). 재사용 라이브러리 편의(run 프리셋/환경/시나리오 복제 자매). 기존 `step_templates` 리소스 위 순수 가산. 中.
+- **ko.common 한국어화 일괄 롤업**: 에디터·리포트·run 목록·breadcrumb에 남은 영어 문구를 `ko.ts` 카탈로그로 일괄 정리 — half-catalog 상태 해소(ADR-0035). 누적 출처(전부 "ko.common 도입 시 일괄"로 연기됨) = U2(홈 `Loading…`/`Failed to load:`)·U3(Inspector 필드 라벨 Name/Method/Headers/Body/Timeout/Think·EditPage chrome·EnvironmentsPage "No variables")·U4(TimeSeriesChart 제목·다운로드 버튼·RunDetailPage 라이브 카드·run 목록 컬럼 헤더·TestRunSection "Test run"/"Max requests"·BranchStats `(미매치)`·HelpTip `label` 리터럴)·B7-C("다운로드 p50 ms" 헤더). 저위험 폴리시 슬라이스(이 사용자는 UI 일관성/a11y에 민감 → 일괄 정리가 잘 맞음). 小~中.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
 
