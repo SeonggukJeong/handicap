@@ -145,10 +145,26 @@ async fn main() -> anyhow::Result<()> {
     }
     let coord_state = CoordinatorState::new(db.clone());
 
+    // bundle: 포트가 사용 중이면 빈 포트로 폴백해 미리 바인딩 → 실제 주소 확보(브라우저/worker가 dial).
+    //         이 리스너를 serve로 넘긴다(아래). 비-bundle: 현행처럼 serve 시점에 바인딩, 주소만 args에서.
+    #[cfg(feature = "bundle")]
+    let (rest_listener, rest_addr, grpc_listener, grpc_addr) = {
+        let rl = handicap_controller::launch::bind_with_fallback(args.rest, true)
+            .context("bind REST")?;
+        let ra = rl.local_addr().context("REST local_addr")?;
+        let gl = handicap_controller::launch::bind_with_fallback(args.grpc, true)
+            .context("bind gRPC")?;
+        let ga = gl.local_addr().context("gRPC local_addr")?;
+        (rl, ra, gl, ga)
+    };
+    #[cfg(not(feature = "bundle"))]
+    let (rest_addr, grpc_addr) = (args.rest, args.grpc);
+    info!(rest = %rest_addr, grpc = %grpc_addr, "listeners");
+
     let dispatcher: SharedDispatcher = match args.worker_mode {
         WorkerMode::Subprocess => Arc::new(SubprocessDispatcher::new(
             args.worker_bin.clone(),
-            args.grpc,
+            grpc_addr,
             db.clone(),
         )),
         WorkerMode::Kubernetes => {
@@ -209,18 +225,42 @@ async fn main() -> anyhow::Result<()> {
     }
     let app_router = app::router(state);
 
-    let rest_listener = TcpListener::bind(args.rest).await.context("bind REST")?;
-    info!(addr = %args.rest, "REST listening");
-
     let grpc_svc = CoordinatorServer::new(CoordinatorService { state: coord_state });
 
+    // REST — bundle: 미리 바인딩한 std 리스너를 tokio로 변환. 비-bundle: 현행 그대로 bind.
+    #[cfg(feature = "bundle")]
     let rest_fut = async {
-        axum::serve(rest_listener, app_router)
-            .await
-            .context("serve REST")
+        rest_listener
+            .set_nonblocking(true)
+            .context("rest set_nonblocking")?;
+        let l = TcpListener::from_std(rest_listener).context("rest into tokio listener")?;
+        axum::serve(l, app_router).await.context("serve REST")
     };
+    #[cfg(not(feature = "bundle"))]
+    let rest_fut = async {
+        let l = TcpListener::bind(args.rest).await.context("bind REST")?;
+        axum::serve(l, app_router).await.context("serve REST")
+    };
+
+    // gRPC — bundle: 미리 바인딩한 리스너로 serve_with_incoming. 비-bundle: 현행 `.serve(args.grpc)`.
+    #[cfg(feature = "bundle")]
     let grpc_fut = async {
-        info!(addr = %args.grpc, "gRPC listening");
+        info!(addr = %grpc_addr, "gRPC listening");
+        grpc_listener
+            .set_nonblocking(true)
+            .context("grpc set_nonblocking")?;
+        let incoming = tokio_stream::wrappers::TcpListenerStream::new(
+            TcpListener::from_std(grpc_listener).context("grpc into tokio listener")?,
+        );
+        tonic::transport::Server::builder()
+            .add_service(grpc_svc)
+            .serve_with_incoming(incoming)
+            .await
+            .context("serve gRPC")
+    };
+    #[cfg(not(feature = "bundle"))]
+    let grpc_fut = async {
+        info!(addr = %grpc_addr, "gRPC listening");
         tonic::transport::Server::builder()
             .add_service(grpc_svc)
             .serve(args.grpc)
@@ -228,6 +268,7 @@ async fn main() -> anyhow::Result<()> {
             .context("serve gRPC")
     };
 
+    info!(addr = %rest_addr, "REST listening");
     tokio::try_join!(rest_fut, grpc_fut)?;
     Ok(())
 }
