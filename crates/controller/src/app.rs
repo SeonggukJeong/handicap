@@ -153,5 +153,11 @@ pub fn router(state: AppState) -> Router {
         app = app.fallback_service(serve);
     }
 
+    // bundle 빌드 + --ui-dir 미지정 → 임베드 UI를 fallback으로 서빙(SPA fallback 포함).
+    #[cfg(feature = "bundle")]
+    if state.ui_dir.is_none() {
+        app = app.fallback(crate::bundle::serve_embedded_ui);
+    }
+
     app.with_state(state)
 }

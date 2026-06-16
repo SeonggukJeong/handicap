@@ -1,6 +1,8 @@
 pub mod api;
 pub mod app;
 pub mod binding;
+#[cfg(feature = "bundle")]
+pub mod bundle;
 pub mod datasets;
 pub mod dispatcher;
 pub mod error;
