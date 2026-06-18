@@ -1,9 +1,12 @@
 ---
 name: live-verify
 description: Scaffold and tear down the handicap pre-merge live-verification stack — worktree-relative controller/worker binaries + a latency-configurable HTTP responder + an isolated SQLite DB + scenario/run creation — so Playwright or curl can exercise a UI/engine slice end-to-end against a real backend. Use before merging any slice that touches run creation, report parsing, or the load engine (the S-D gap: RTL fixtures give absent-not-null and miss server response-path bugs). Invoke via /live-verify or when a slice's plan reaches its live-verification step.
+model: sonnet
 ---
 
 # live-verify — 슬라이스 머지 전 라이브 검증 스택
+
+> **모델: Sonnet 고정** (frontmatter `model: sonnet` — 해당 턴만 적용, 다음 프롬프트에 세션 모델로 복귀). 이 검증은 `browser_evaluate`/`browser_snapshot`·curl로 DOM/JSON을 **텍스트로 추출해 assertion**하는 절차적 작업이라 vision·고난도 추론이 없다(Sonnet이 thrash 안 함). Opus 주간 캡 절약용. **예외**: 렌더 결과를 *눈으로* 판정해야 하는 슬라이스(차트 렌더·레이아웃 깨짐, `browser_take_screenshot` 사용)에서만 그 검증 스텝을 Opus로.
 
 RTL/`tsc -b`는 서버가 실제 보내는 `null`·응답 경로를 못 잡는다(S-D 함정: fixture가 `null`이 아니라 *absent*를 줌). 그래서 run 생성·리포트 파싱·엔진을 건드린 슬라이스는 **머지 전 실제 백엔드로 1회** 돌려야 한다. 이 스킬은 그 셋업/정리를 함정까지 포함해 표준화한다.
 
