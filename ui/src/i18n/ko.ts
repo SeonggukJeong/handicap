@@ -1,11 +1,32 @@
 /**
  * UI 한국어 메시지 카탈로그 (ADR-0035).
- * - 신규·변경 문구는 이 카탈로그 경유로 작성한다 (기존 미변경 문구의 소급 추출은 비목표).
+ * - 모든 사용자 노출 문구(본문·버튼·표 헤더·placeholder·aria-label·title·배너)는 이 카탈로그 경유다 — 인라인 영어/한국어 금지. (기술 고유명사 VU/RPS/p95/YAML/URL 등은 원어 유지 + 설명 병기.)
  * - 기술 고유명사(VU, RPS, p95, cron, YAML)는 원어 유지 + 설명 병기.
  * - i18n 라이브러리 없음 — 나중에 en.ts + 컨텍스트 스위치를 더할 수 있는 구조만 유지.
  * - 용어 정의(glossary)는 전 화면 HelpTip의 단일 소스 — 화면마다 설명이 달라지면 안 된다.
  */
 export const ko = {
+  // 크로스커팅 UI 동작/상태 — 의미가 어디서나 동일한 것만(ADR-0035, spec R2).
+  // 도메인 한정 라벨(Name/Method/VUs/표 헤더 등)은 여기 두지 말고 도메인 네임스페이스로.
+  common: {
+    loading: "불러오는 중…",
+    loadingRuns: "실행 목록 불러오는 중…",
+    failedToLoad: (msg: string) => `불러오기 실패: ${msg}`,
+    notFound: "찾을 수 없습니다.",
+    save: "저장",
+    saving: "저장 중…",
+    cancel: "취소",
+    close: "닫기",
+    delete: "삭제",
+    edit: "편집",
+    add: "추가",
+    remove: "제거",
+    moveUp: "위로",
+    moveDown: "아래로",
+    abort: "중단",
+    aborting: "중단 중…",
+    parsing: "분석 중…",
+  },
   glossary: {
     vu: "동시 사용자(VU) — 동시에 요청을 보내는 가상 사용자 수입니다.",
     rps: "RPS — 초당 요청 수(Requests Per Second)입니다.",

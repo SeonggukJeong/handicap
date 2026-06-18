@@ -174,6 +174,40 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
   });
 });
 
+describe("Task 1: ko.common 네임스페이스 (R2, R4, R7)", () => {
+  it("common 네임스페이스의 18개 키가 전부 존재하고 비어 있지 않다", () => {
+    const stringKeys = [
+      "loading",
+      "loadingRuns",
+      "notFound",
+      "save",
+      "saving",
+      "cancel",
+      "close",
+      "delete",
+      "edit",
+      "add",
+      "remove",
+      "moveUp",
+      "moveDown",
+      "abort",
+      "aborting",
+      "parsing",
+    ] as const;
+    for (const k of stringKeys) {
+      expect(ko.common[k], `common.${k}`).toBeTypeOf("string");
+      expect(ko.common[k].length, `common.${k}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("common.failedToLoad 는 msg 를 포함한 문자열을 반환한다", () => {
+    const result = ko.common.failedToLoad("네트워크 오류");
+    expect(result).toBeTypeOf("string");
+    expect(result).toContain("불러오기 실패");
+    expect(result).toContain("네트워크 오류");
+  });
+});
+
 describe("Task 7+8 신규 키 (closed+curve / ramp_down)", () => {
   it("glossary.vuCurve — VU 곡선 설명 존재", () => {
     expect(ko.glossary.vuCurve).toBeTypeOf("string");
