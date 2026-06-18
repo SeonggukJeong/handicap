@@ -152,6 +152,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **`@testing-library/user-event`의 `type()`은 `[`/`{`를 key-descriptor 구분자로 본다** (Slice 9b): 리터럴 `[`/`{`를 타이핑하려면 `[[`/`{{`로 escape(예: 테스트에서 `matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때). 안 그러면 `{Enter}`처럼 특수 키로 해석돼 입력이 사라진다.
 - **ms 타임스탬프 표시 컴포넌트의 테스트 fixture에 `0`을 쓰면 `*1000` 단위 버그가 안 잡힌다** (스텝 템플릿 T7, 리뷰가 Critical 발견 — 연도 56379 표시): fixture는 실제 ms 값(예: `1765500000000`) + 렌더 결과의 연도 문자열 포함 단언(로케일-견고)으로. 표시는 코드베이스 관행대로 `new Date(ms).toLocaleString()`.
 - **`<input list=...>`(datalist 자동완성)의 implicit ARIA role은 `textbox`가 아니라 `combobox`** (Header/Form 벌크): aria-query 5.x에서 `getByRole("textbox")`/`getAllByRole("textbox")`가 그 입력을 못 잡는다. datalist key 입력 + 일반 value 입력이 한 행에 섞이면 `getAllByRole("combobox")`+`getAllByRole("textbox")` 합집합으로 단언(구체 사례: `KeyValueGrid` — 폼·입력 UX 섹션).
+- **커스텀 에러 클래스를 던지는 API 모듈을 모킹할 땐 bare `vi.mock(path)` auto-mock 금지 — factory-form으로 실 모듈 spread** (스텝 템플릿 관리): `vi.mock("../../api/stepTemplates")` bare auto-mock은 `StepTemplateConflictError` 같은 에러 클래스의 constructor까지 stub로 갈아 `instanceof`/`.message`를 잃는다 → 409 배너(`role="alert"` 문구) 단언이 깨진다. `vi.mock(path, async (importOriginal) => ({ ...(await importOriginal<typeof import(path)>()), listFn: vi.fn(), getFn: vi.fn() }))`로 에러 클래스는 실물 유지하고 네트워크 함수만 mock(`InsertTemplateModal`/`TemplatesPage` 테스트 공통 패턴).
+- **`aria-label`도 사용자노출 문구라 `ko.ts` 경유 — 하드코딩 영어 금지** (스텝 템플릿 관리, ADR-0035): 스크린리더 전용 접근명도 R15/ADR-0035 적용 대상. 리뷰가 `aria-label="template form"`/per-token `rename ${name}` 같은 영어 라벨을 반복 적발 → `ko.pages.*`/`ko.stepTemplates.*(name)` 함수 키로. 변경 시 RTL `getByRole(..., {name})` 셀렉터도 한국어로 lockstep 갱신.
 
 ## 시나리오 에디터 test-run 패널 (C-2, `TestRunPanel`)
 
