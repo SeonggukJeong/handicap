@@ -9,10 +9,32 @@ import { TestRunSection, type TestRunHandle } from "../TestRunSection";
 // (useEnvironment/useEnvironments) return empty stubs (no QueryClient needed).
 const mutate = vi.fn();
 let isPending = false;
+// data controls whether TestRunPanel (and the addedNote region) renders
+let testRunData: unknown = undefined;
 vi.mock("../../../api/hooks", () => ({
-  useTestRun: () => ({ mutate, isPending, error: null, data: undefined }),
+  useTestRun: () => ({ mutate, isPending, error: null, data: testRunData }),
   useEnvironment: () => ({ data: undefined }),
   useEnvironments: () => ({ data: [] }),
+}));
+
+// Capture the onAddExtract callback from TestRunPanel so the test can invoke it
+// without needing to simulate deep panel interactions or a real ScenarioTrace.
+let capturedOnAddExtract: ((stepId: string, extract: { var: string }) => void) | undefined;
+vi.mock("../TestRunPanel", () => ({
+  TestRunPanel: (props: { onAddExtract?: (stepId: string, extract: { var: string }) => void }) => {
+    capturedOnAddExtract = props.onAddExtract;
+    return <div data-testid="test-run-panel-stub" />;
+  },
+}));
+
+// Stub the scenario store so addStepExtract doesn't blow up.
+vi.mock("../../../scenario/store", () => ({
+  useScenarioEditor: Object.assign(
+    vi.fn(() => undefined),
+    {
+      getState: () => ({ addStepExtract: vi.fn() }),
+    },
+  ),
 }));
 
 const VALID_YAML = `version: 1
@@ -28,6 +50,8 @@ steps:
 beforeEach(() => {
   mutate.mockReset();
   isPending = false;
+  testRunData = undefined;
+  capturedOnAddExtract = undefined;
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -85,5 +109,30 @@ describe("TestRunSection runNow handle (U4 §5.5)", () => {
     act(() => ref.current!.runNow());
     expect(mutate).not.toHaveBeenCalled();
     expect(scrollSpy).toHaveBeenCalledTimes(1); // 진행 중에도 섹션으로 데려가 상태를 보여준다
+  });
+});
+
+describe("TestRunSection addedNote transience", () => {
+  it("새 test-run 발사 시 이전 '추출 추가됨' 안내가 지워진다", async () => {
+    const user = userEvent.setup();
+    // 1) data가 있으면 TestRunPanel(stub)이 렌더되고 onAddExtract가 캡처된다
+    testRunData = { steps: [] };
+    render(<TestRunSection yamlText={VALID_YAML} />);
+
+    // stub이 렌더됐는지 + onAddExtract가 캡처됐는지 확인
+    expect(screen.getByTestId("test-run-panel-stub")).toBeInTheDocument();
+    expect(capturedOnAddExtract).toBeDefined();
+
+    // 2) onAddExtract를 직접 호출해 addedNote를 설정한다
+    act(() => {
+      capturedOnAddExtract!("step-1", { var: "token" });
+    });
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent("추출 추가됨");
+
+    // 3) 새 test-run 발사 — fire() 안에서 setAddedNote(null)이 불려야 한다
+    await user.click(screen.getByRole("button", { name: /test run/i }));
+
+    // 안내가 사라졌어야 한다
+    expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
   });
 });

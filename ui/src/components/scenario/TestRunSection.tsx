@@ -38,6 +38,7 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
 
     const fire = () => {
       if (testRun.isPending) return;
+      setAddedNote(null);
       testRun.mutate({
         scenario_yaml: yamlText,
         env: resolveEnv(baseVars, envEntries),
