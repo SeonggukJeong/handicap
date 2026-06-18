@@ -20,6 +20,9 @@ export function Layout() {
             <Link to="/environments" className="hover:text-slate-900">
               {ko.nav.environments}
             </Link>
+            <Link to="/templates" className="hover:text-slate-900">
+              {ko.nav.stepTemplates}
+            </Link>
             <Link to="/schedules" className="hover:text-slate-900">
               {ko.nav.schedules}
             </Link>

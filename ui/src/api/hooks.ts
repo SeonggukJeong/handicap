@@ -49,6 +49,7 @@ export const queryKeys = {
   schedule: (id: string) => ["schedules", id] as const,
   scheduleEvents: (id: string) => ["schedules", id, "events"] as const,
   stepTemplates: () => ["step-templates"] as const,
+  stepTemplate: (id: string) => ["step-templates", id] as const,
   settings: () => ["settings"] as const,
 };
 

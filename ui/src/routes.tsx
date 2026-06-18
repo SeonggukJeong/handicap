@@ -11,6 +11,7 @@ import { DatasetsPage } from "./pages/DatasetsPage";
 import { EnvironmentsPage } from "./pages/EnvironmentsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TemplatesPage } from "./pages/TemplatesPage";
 
 const router = createBrowserRouter([
   {
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { path: "runs/:id", element: <RunDetailPage /> },
       { path: "datasets", element: <DatasetsPage /> },
       { path: "environments", element: <EnvironmentsPage /> },
+      { path: "templates", element: <TemplatesPage /> },
       { path: "schedules", element: <SchedulesPage /> },
       { path: "settings", element: <SettingsPage /> },
     ],

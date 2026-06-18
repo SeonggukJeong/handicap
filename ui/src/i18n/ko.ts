@@ -107,6 +107,7 @@ export const ko = {
     environments: "환경",
     schedules: "스케줄",
     settings: "운영 상한",
+    stepTemplates: "스텝 템플릿",
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
@@ -147,6 +148,7 @@ export const ko = {
     schedulesCta: "스케줄 만들기",
     runs: "아직 실행 기록이 없습니다. 부하 설정을 정해 첫 실행을 만들어 보세요.",
     runsCta: "실행하기",
+    stepTemplates: '저장된 스텝 템플릿이 없습니다. 에디터 헤더의 "템플릿으로 저장"으로 만드세요.',
   },
   pages: {
     newScenario: "새 시나리오",
@@ -161,6 +163,7 @@ export const ko = {
     editSchedule: "스케줄 편집",
     runsTitle: "실행 목록",
     runScenario: "실행하기",
+    editStepTemplate: "스텝 템플릿 편집",
   },
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──
@@ -282,6 +285,18 @@ export const ko = {
       if: "조건",
       parallel: "동시 실행",
     } as Record<string, string>,
+    // ── 관리 페이지 ──
+    colName: "이름",
+    colSteps: "스텝 수",
+    colDescription: "설명",
+    colUpdated: "수정",
+    colActions: "",
+    editAction: "편집",
+    previewLegend: "스텝 미리보기",
+    save: "저장",
+    saveProgress: "저장 중…",
+    loadFailed: (msg: string) => `불러오기 실패: ${msg}`,
+    deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
     // §7.1 쉬운 요약 — 매개변수 문구는 함수 상수(spec §2.1). 숫자는 호출부에서
