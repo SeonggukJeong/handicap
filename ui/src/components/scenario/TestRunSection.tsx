@@ -3,6 +3,7 @@ import { useEnvironment, useTestRun } from "../../api/hooks";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import type { Step } from "../../scenario/model";
+import { useScenarioEditor } from "../../scenario/store";
 import { Button } from "../Button";
 import { EnvironmentPicker } from "../EnvironmentPicker";
 import { TestRunPanel } from "./TestRunPanel";
@@ -25,6 +26,7 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
     const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
     const [maxRequests, setMaxRequests] = useState<number>(50);
     const [applyThinkTime, setApplyThinkTime] = useState(false);
+    const [addedNote, setAddedNote] = useState<string | null>(null);
     const selectedEnv = useEnvironment(selectedEnvId ?? undefined);
     const baseVars = selectedEnv.data?.vars ?? {};
     const rootRef = useRef<HTMLElement | null>(null);
@@ -97,7 +99,23 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
           )}
         </section>
 
-        {testRun.data && <TestRunPanel trace={testRun.data} steps={traceSteps} />}
+        {testRun.data && (
+          <>
+            <TestRunPanel
+              trace={testRun.data}
+              steps={traceSteps}
+              onAddExtract={(stepId, extract) => {
+                useScenarioEditor.getState().addStepExtract(stepId, extract);
+                setAddedNote(`추출 추가됨 — ${extract.var} (Inspector·YAML에서 확인)`);
+              }}
+            />
+            {addedNote && (
+              <div role="status" className="mt-1 text-xs text-emerald-700">
+                {addedNote}
+              </div>
+            )}
+          </>
+        )}
       </>
     );
   },
