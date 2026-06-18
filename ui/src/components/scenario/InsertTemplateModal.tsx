@@ -304,7 +304,7 @@ function ParamForm({
                 {s.kind === "rename" && (
                   <>
                     <input
-                      aria-label={`rename ${name}`}
+                      aria-label={ko.stepTemplates.renameAria(name)}
                       list={listId}
                       className="w-56 rounded border border-slate-300 px-2 py-1 text-sm font-mono"
                       placeholder={ko.stepTemplates.renamePlaceholder}
@@ -316,6 +316,11 @@ function ParamForm({
                         <option key={h} value={h} />
                       ))}
                     </datalist>
+                    {hints.length > 0 && (
+                      <span className="text-xs text-slate-500">
+                        {ko.stepTemplates.renameHintLabel}
+                      </span>
+                    )}
                     {badRename(ns, s.to) && (
                       <p role="alert" className="text-xs text-red-600">
                         {ko.stepTemplates.badRename}
@@ -325,7 +330,7 @@ function ParamForm({
                 )}
                 {s.kind === "literal" && (
                   <input
-                    aria-label={`literal ${name}`}
+                    aria-label={ko.stepTemplates.literalAria(name)}
                     className="w-56 rounded border border-slate-300 px-2 py-1 text-sm"
                     placeholder={ko.stepTemplates.literalPlaceholder}
                     value={s.value}

@@ -80,7 +80,11 @@ export function TemplatesPage() {
       {
         onSuccess: () => setEditingId(null),
         onError: (e: Error) =>
-          setFormError(e instanceof StepTemplateConflictError ? e.message : e.message),
+          setFormError(
+            e instanceof StepTemplateConflictError
+              ? e.message
+              : ko.stepTemplates.saveFailed(e.message),
+          ),
       },
     );
   };
@@ -99,7 +103,7 @@ export function TemplatesPage() {
 
       {editingId && (
         <section
-          aria-label="template form"
+          aria-label={ko.pages.editStepTemplate}
           className="mb-8 border border-slate-200 rounded-md p-4 bg-white"
         >
           <h3 className="text-md font-semibold mb-3">{ko.pages.editStepTemplate}</h3>
@@ -147,7 +151,7 @@ export function TemplatesPage() {
         </p>
       )}
 
-      <section aria-label="template list">
+      <section aria-label={ko.nav.stepTemplates}>
         {isLoading && <p className="text-slate-500">Loading…</p>}
         {error && (
           <p className="text-red-600">{ko.stepTemplates.loadFailed((error as Error).message)}</p>

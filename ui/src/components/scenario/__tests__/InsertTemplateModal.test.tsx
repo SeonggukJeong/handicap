@@ -214,7 +214,7 @@ describe("InsertTemplateModal", () => {
 
     // Type an invalid rename (contains a space)
     // Note: input with list= (datalist) has implicit ARIA role "combobox" not "textbox" (ui/CLAUDE.md footgun)
-    const renameInput = screen.getByRole("combobox", { name: "rename token" });
+    const renameInput = screen.getByRole("combobox", { name: "token 새 변수명" });
     await user.type(renameInput, "bad name");
 
     // badRename warning shown
@@ -241,7 +241,7 @@ describe("InsertTemplateModal", () => {
     await user.click(literalRadios[0]);
 
     // Type the literal value
-    const literalInput = screen.getByRole("textbox", { name: "literal token" });
+    const literalInput = screen.getByRole("textbox", { name: "token 리터럴 값" });
     await user.type(literalInput, "XYZ");
 
     // Confirm insert
