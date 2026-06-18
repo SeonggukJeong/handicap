@@ -261,6 +261,21 @@ export const ko = {
     deleteConfirm: (name: string) => `템플릿 "${name}"을(를) 삭제할까요?`,
     incompatible: "이 템플릿은 에디터 규칙과 호환되지 않습니다",
     stepCount: (n: number) => `스텝 ${n}개`,
+    // ── 삽입 시 파라미터화 ──
+    paramTitle: "변수 조정 후 삽입",
+    paramIntro:
+      "이 템플릿의 변수를 대상 시나리오에 맞게 조정할 수 있습니다. 기본값은 모두 그대로 유지입니다.",
+    flowSection: "흐름 변수 {{ }}",
+    envSection: "환경 변수 ${ }",
+    optKeep: "그대로 유지",
+    optRename: "다른 이름으로",
+    optLiteral: "값으로 교체",
+    renamePlaceholder: "새 변수명",
+    literalPlaceholder: "리터럴 값",
+    renameHintLabel: "대상 시나리오의 기존 변수",
+    badRename: "변수명에 공백/중괄호/콜론을 쓸 수 없습니다",
+    confirmInsert: "삽입",
+    back: "뒤로",
     typeLabel: {
       http: "HTTP",
       loop: "반복",

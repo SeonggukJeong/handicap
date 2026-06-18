@@ -146,4 +146,114 @@ describe("InsertTemplateModal", () => {
     expect(alerts.some((el) => el.textContent === "delete failed")).toBe(true);
     confirmSpy.mockRestore();
   });
+
+  // ── 파라미터화 2-phase 테스트 (R9, R10, R13, R14, R15) ──
+
+  const TPL_WITH_TOKENS = {
+    ...TPL_SUMMARY,
+    steps_yaml:
+      "- id: wild-2\n  name: TplStep\n  type: http\n  request:\n    method: GET\n    url: '{{token}}'\n    headers:\n      X-Host: '${BASE_URL}'\n",
+  };
+
+  it("opens the parameterization form when the chosen template has tokens (R9/R14)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_TOKENS);
+    const onClose = mount();
+
+    // Click the list-phase 삽입 button
+    await user.click(await screen.findByRole("button", { name: "삽입" }));
+
+    // Modal title swaps to paramTitle
+    expect(await screen.findByText("변수 조정 후 삽입")).toBeInTheDocument();
+
+    // Section headings present
+    expect(screen.getByText("흐름 변수 {{ }}")).toBeInTheDocument();
+    expect(screen.getByText("환경 변수 ${ }")).toBeInTheDocument();
+
+    // Row for flow token "token" — 그대로 유지 radio should be checked
+    const keepRadios = screen.getAllByRole("radio", { name: "그대로 유지" });
+    expect(keepRadios.length).toBeGreaterThanOrEqual(2);
+    expect(keepRadios[0]).toBeChecked();
+
+    // insertTemplateSteps NOT called yet
+    expect(useScenarioEditor.getState().model?.steps).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("inserts directly with no params form when the template has no tokens (R10)", async () => {
+    const user = userEvent.setup();
+    // TPL_FULL has no {{}} or ${} tokens
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_FULL);
+    const onClose = mount();
+
+    await user.click(await screen.findByRole("button", { name: "삽입" }));
+
+    // onClose called directly — no params phase
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    // params headings never appear
+    expect(screen.queryByText("변수 조정 후 삽입")).not.toBeInTheDocument();
+    expect(screen.queryByText("흐름 변수 {{ }}")).not.toBeInTheDocument();
+
+    // Step was inserted
+    expect(useScenarioEditor.getState().model?.steps).toHaveLength(2);
+  });
+
+  it("disables 삽입 when a rename target is invalid (R13)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_TOKENS);
+    mount();
+
+    // Enter params phase
+    await user.click(await screen.findByRole("button", { name: "삽입" }));
+    await screen.findByText("변수 조정 후 삽입");
+
+    // Pick 다른 이름으로 for the flow token "token"
+    const renameRadios = screen.getAllByRole("radio", { name: "다른 이름으로" });
+    await user.click(renameRadios[0]);
+
+    // Type an invalid rename (contains a space)
+    // Note: input with list= (datalist) has implicit ARIA role "combobox" not "textbox" (ui/CLAUDE.md footgun)
+    const renameInput = screen.getByRole("combobox", { name: "rename token" });
+    await user.type(renameInput, "bad name");
+
+    // badRename warning shown
+    expect(
+      await screen.findByText("변수명에 공백/중괄호/콜론을 쓸 수 없습니다"),
+    ).toBeInTheDocument();
+
+    // confirm 삽입 button disabled
+    const confirmBtn = screen.getByRole("button", { name: "삽입" });
+    expect(confirmBtn).toBeDisabled();
+  });
+
+  it("applies a literal substitution into the inserted steps (R9/R11)", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStepTemplate).mockResolvedValue(TPL_WITH_TOKENS);
+    const onClose = mount();
+
+    // Enter params phase
+    await user.click(await screen.findByRole("button", { name: "삽입" }));
+    await screen.findByText("변수 조정 후 삽입");
+
+    // Pick 값으로 교체 for the flow token "token"
+    const literalRadios = screen.getAllByRole("radio", { name: "값으로 교체" });
+    await user.click(literalRadios[0]);
+
+    // Type the literal value
+    const literalInput = screen.getByRole("textbox", { name: "literal token" });
+    await user.type(literalInput, "XYZ");
+
+    // Confirm insert
+    await user.click(screen.getByRole("button", { name: "삽입" }));
+
+    // onClose called
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    // The inserted YAML should contain "XYZ" and not "{{token}}"
+    const st = useScenarioEditor.getState();
+    expect(st.model?.steps).toHaveLength(2);
+    expect(st.yamlText).toContain("XYZ");
+    expect(st.yamlText).not.toContain("{{token}}");
+  });
 });

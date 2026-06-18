@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scanFlowVars } from "../scanVars";
+import { scanFlowVars, scanEnvVars } from "../scanVars";
 import type { Scenario } from "../model";
 import { ScenarioModel } from "../model";
 
@@ -229,5 +229,24 @@ describe("scanFlowVars", () => {
       },
     ]);
     expect([...scanFlowVars(s)]).toEqual([]);
+  });
+});
+
+const scen = ScenarioModel.parse({
+  version: 1,
+  name: "t",
+  steps: [
+    {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      name: "s",
+      type: "http",
+      request: { method: "GET", url: "${BASE_URL}/x?t=${vu_id}", headers: { H: "${API_HOST}" } },
+    },
+  ],
+});
+
+describe("scanEnvVars", () => {
+  it("collects ${ENV} names from http request fields, excluding reserved system vars", () => {
+    expect([...scanEnvVars(scen)].sort()).toEqual(["API_HOST", "BASE_URL"]);
   });
 });
