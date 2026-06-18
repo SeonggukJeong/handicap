@@ -61,6 +61,10 @@ export interface ScenarioEditorState {
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
   setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
   setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
+  /** Append one extract to an http step (response-based extract authoring).
+   *  Commits any pending Monaco buffer first; no-ops if the buffer is unparseable
+   *  or the target step is missing / non-http (R7). */
+  addStepExtract(stepId: string, extract: Extract): void;
 
   /** 준비된(재발급 완료) 템플릿 fragment를 선택 스텝의 최상위 조상 뒤(없으면 끝)에
    *  삽입. add* 계열처럼 첫 삽입 스텝 id를 반환 — 호출부가 select(id)로 자동 선택. */
@@ -233,6 +237,25 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   setStepExtract(stepId, extract) {
     dispatch(set, get, { type: "setStepExtract", stepId, extract });
   },
+  addStepExtract(stepId, extract) {
+    // (a) Commit any uncommitted Monaco buffer first — the test-run panel is reachable
+    // below the YAML tab during the debounce window, so doc/model can be stale.
+    if (get().pendingYamlText !== null) {
+      get().commitPendingYaml();
+      // Unparseable buffer: commitPendingYaml set yamlError and left doc/model stale.
+      // Writing now would clobber the user's uncommitted edits — no-op instead.
+      if (get().yamlError !== null) return;
+    }
+    const model = get().model;
+    if (!model) return;
+    const step = findStepById(model.steps, stepId);
+    if (!step || step.type !== "http") return; // deleted or non-http target → no-op (R7)
+    dispatch(set, get, {
+      type: "setStepExtract",
+      stepId,
+      extract: [...step.extract, extract],
+    });
+  },
   insertTemplateSteps(prepared) {
     const afterTopIndex = topAncestorIndex(get().model?.steps ?? [], get().selectedStepId);
     dispatch(set, get, {
@@ -340,6 +363,7 @@ const actions = (() => {
     setStepField: s.setStepField,
     setStepAssert: s.setStepAssert,
     setStepExtract: s.setStepExtract,
+    addStepExtract: s.addStepExtract,
     insertTemplateSteps: s.insertTemplateSteps,
     select: s.select,
     setActiveTab: s.setActiveTab,
