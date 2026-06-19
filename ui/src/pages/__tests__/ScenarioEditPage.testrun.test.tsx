@@ -86,6 +86,8 @@ describe("ScenarioEditPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /미리 실행 결과/ });
+    // exactly one test-run entry point — the section button; no duplicate/header trigger (R1/R11)
+    expect(screen.getAllByRole("button", { name: "미리 실행" })).toHaveLength(1);
   });
 
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {

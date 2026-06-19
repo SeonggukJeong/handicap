@@ -78,6 +78,8 @@ describe("ScenarioNewPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /미리 실행 결과/ });
+    // exactly one test-run entry point — the section button; no duplicate/header trigger (R1/R11)
+    expect(screen.getAllByRole("button", { name: "미리 실행" })).toHaveLength(1);
   });
 
   it("groups Create and Cancel in the top header row next to the title", async () => {
