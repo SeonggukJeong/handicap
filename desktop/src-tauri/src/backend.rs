@@ -35,7 +35,27 @@ pub struct SidecarBackend {
     tree: Mutex<Option<ChildTree>>,
 }
 
+// R7: `Box<dyn ControllerBackend>`(Task 3)로 쓰이려면 Send+Sync 필요 — 컴파일타임 고정.
+// windows에서 win32job::Job가 비-Sync면 여기서 즉시 컴파일 에러(R12 조기 신호).
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<SidecarBackend>();
+};
+
 impl SidecarBackend {
+    /// 기동 실패 경로 정리 — 좀비/고아 방지. unix는 즉시 killpg(SIGKILL);
+    /// windows는 `tree` drop 시 Job(KILL_ON_JOB_CLOSE)이 처리하므로 별도 동작 없음.
+    fn kill_tree_on_failure(tree: &ChildTree) {
+        #[cfg(unix)]
+        unsafe {
+            libc::killpg(tree.pgid, libc::SIGKILL);
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tree; // windows: Job Drop(KILL_ON_JOB_CLOSE)가 정리
+        }
+    }
+
     /// 사이드카 spawn → 로그에서 실제 REST 포트 파싱 → `/api/health`==`ok` 준비 대기 → 반환.
     /// 실패(포트 미검출/헬스 타임아웃)면 Err — 호출자가 창에 에러를 띄운다(navigate 금지).
     pub async fn start(sidecar: PathBuf, cfg: SpawnConfig) -> anyhow::Result<SidecarBackend> {
@@ -98,13 +118,22 @@ impl SidecarBackend {
         spawn_drain!(child.stderr.take());
 
         // 포트 대기(타임아웃).
-        let port = tokio::time::timeout(
+        let port = match tokio::time::timeout(
             std::time::Duration::from_millis(HEALTH_POLL_INTERVAL_MS * HEALTH_POLL_ATTEMPTS as u64),
             rx,
         )
         .await
-        .map_err(|_| anyhow!("controller가 시간 내 REST 포트를 로그하지 않음"))?
-        .map_err(|_| anyhow!("포트 채널 닫힘(controller 조기 종료?)"))?;
+        {
+            Ok(Ok(p)) => p,
+            Ok(Err(_)) => {
+                Self::kill_tree_on_failure(&tree);
+                return Err(anyhow!("포트 채널 닫힘(controller 조기 종료?)"));
+            }
+            Err(_) => {
+                Self::kill_tree_on_failure(&tree);
+                return Err(anyhow!("controller가 시간 내 REST 포트를 로그하지 않음"));
+            }
+        };
 
         // 헬스폴: 200 + 본문 "ok"만 준비로 인정(R8 — SPA fallback 200 false-positive 회피).
         let client = reqwest::Client::new();
@@ -125,10 +154,7 @@ impl SidecarBackend {
         }
         if !ready {
             // 정리 후 실패 — 좀비 방지.
-            #[cfg(unix)]
-            unsafe {
-                libc::killpg(tree.pgid, libc::SIGKILL);
-            }
+            Self::kill_tree_on_failure(&tree);
             return Err(anyhow!("controller /api/health 준비 실패(포트 {port})"));
         }
 
