@@ -428,7 +428,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     const user = userEvent.setup();
     mockPresets([]);
     renderDialog();
-    await user.type(screen.getByLabelText("preset name"), "saved");
+    await user.type(screen.getByLabelText("프리셋 이름"), "saved");
     await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
@@ -447,7 +447,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mockPresets([{ id: "P1", name: "dup" }]);
     renderDialog();
-    await user.type(screen.getByLabelText("preset name"), "dup");
+    await user.type(screen.getByLabelText("프리셋 이름"), "dup");
     await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
     await waitFor(() => {
       const put = fetchMock.mock.calls.find(
@@ -464,7 +464,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     renderDialog();
 
     // Load preset P1 to set loadedPresetId and reveal the rename button
-    await user.selectOptions(await screen.findByLabelText("load preset"), "P1");
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "이름 변경" })).toBeInTheDocument(),
     );
@@ -545,7 +545,7 @@ describe("RunDialog — load preset (A2)", () => {
   it("renders the preset dropdown when presets exist", async () => {
     mockPresets();
     renderPresetDialog();
-    expect(await screen.findByLabelText("load preset")).toBeInTheDocument();
+    expect(await screen.findByLabelText("프리셋 불러오기")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "heavy" })).toBeInTheDocument();
   });
 
@@ -553,7 +553,7 @@ describe("RunDialog — load preset (A2)", () => {
     const user = userEvent.setup();
     mockPresets();
     renderPresetDialog();
-    await user.selectOptions(await screen.findByLabelText("load preset"), "P1");
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
     await waitFor(() => expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(50));
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
@@ -915,10 +915,10 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seeded 1 row → set its target/duration
-    await user.clear(screen.getByLabelText("stage target 0"));
-    await user.type(screen.getByLabelText("stage target 0"), "200");
-    await user.clear(screen.getByLabelText("stage duration 0"));
-    await user.type(screen.getByLabelText("stage duration 0"), "30");
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "200");
+    await user.clear(screen.getByLabelText("스테이지 0 지속시간"));
+    await user.type(screen.getByLabelText("스테이지 0 지속시간"), "30");
     await user.clear(screen.getByLabelText(/동시 요청 상한/));
     await user.type(screen.getByLabelText(/동시 요청 상한/), "50");
     await user.click(screen.getByRole("button", { name: /^실행$/ }));
@@ -941,11 +941,11 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
-    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+    expect(screen.getAllByLabelText(/스테이지.*목표/i)).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /단계 추가/ }));
-    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(2);
-    await user.click(screen.getAllByRole("button", { name: /remove stage/i })[1]);
-    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+    expect(screen.getAllByLabelText(/스테이지.*목표/i)).toHaveLength(2);
+    await user.click(screen.getAllByRole("button", { name: /스테이지.*제거/i })[1]);
+    expect(screen.getAllByLabelText(/스테이지.*목표/i)).toHaveLength(1);
   });
 
   it("curve mode: Run disabled when all targets are 0", async () => {
@@ -953,8 +953,8 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
-    await user.clear(screen.getByLabelText("stage target 0"));
-    await user.type(screen.getByLabelText("stage target 0"), "0");
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "0");
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
@@ -963,8 +963,8 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     // closed가 기본 — 곡선만 전환 (사용자 수 기준 유지)
     await user.click(screen.getByRole("radio", { name: "곡선" }));
-    await user.clear(screen.getByLabelText("stage target 0"));
-    await user.type(screen.getByLabelText("stage target 0"), "0");
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "0");
     expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
   });
 
@@ -992,7 +992,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
       env: {},
     });
     expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
-    expect(screen.getByLabelText("stage target 0")).toHaveValue(100);
+    expect(screen.getByLabelText("스테이지 0 목표")).toHaveValue(100);
   });
 
   it("curve mode: shows inline helpers for target, duration, and max in-flight", async () => {
@@ -1011,9 +1011,9 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seed is a single row
-    expect(screen.getAllByLabelText(/stage target/i)).toHaveLength(1);
+    expect(screen.getAllByLabelText(/스테이지.*목표/i)).toHaveLength(1);
     await user.selectOptions(screen.getByLabelText(/부하 모양/), "spike");
-    expect(screen.getAllByLabelText(/stage target/i).length).toBeGreaterThan(1);
+    expect(screen.getAllByLabelText(/스테이지.*목표/i).length).toBeGreaterThan(1);
   });
 
   it("submits target_rps and max_in_flight in open-loop mode", async () => {
@@ -1456,10 +1456,10 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     // Switch to closed+curve
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // stage 행 입력
-    await user.clear(screen.getByLabelText("stage target 0"));
-    await user.type(screen.getByLabelText("stage target 0"), "50");
-    await user.clear(screen.getByLabelText("stage duration 0"));
-    await user.type(screen.getByLabelText("stage duration 0"), "30");
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "50");
+    await user.clear(screen.getByLabelText("스테이지 0 지속시간"));
+    await user.type(screen.getByLabelText("스테이지 0 지속시간"), "30");
     // 즉시 줄이기 선택
     await user.click(screen.getByRole("radio", { name: /즉시 줄이기/ }));
     await user.click(screen.getByRole("button", { name: /^실행$/ }));
@@ -1500,7 +1500,7 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     });
     expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
     expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
-    expect(screen.getByLabelText("stage target 0")).toHaveValue(7);
+    expect(screen.getByLabelText("스테이지 0 목표")).toHaveValue(7);
     expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
   });
 });

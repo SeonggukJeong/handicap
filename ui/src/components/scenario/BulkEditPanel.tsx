@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { parseBulk, formatEntries, type BulkFormat } from "../../scenario/kvBulk";
+import { ko } from "../../i18n/ko";
 
 interface BulkEditPanelProps {
   entries: Record<string, string>;
@@ -17,9 +18,9 @@ export function BulkEditPanel({ entries, format, onApply, onCancel }: BulkEditPa
       : "한 줄에 Header: Value.";
 
   return (
-    <div className="flex flex-col gap-1 min-w-0" aria-label="bulk edit">
+    <div className="flex flex-col gap-1 min-w-0" aria-label={ko.bulkEdit.panelAria}>
       <textarea
-        aria-label="bulk edit text"
+        aria-label={ko.bulkEdit.textAria}
         className="w-full min-w-0 h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -33,14 +34,14 @@ export function BulkEditPanel({ entries, format, onApply, onCancel }: BulkEditPa
           className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded"
           onClick={() => onApply(parsed)}
         >
-          Apply
+          {ko.bulkEdit.apply}
         </button>
         <button
           type="button"
           className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded"
           onClick={onCancel}
         >
-          Cancel
+          {ko.common.cancel}
         </button>
       </div>
     </div>

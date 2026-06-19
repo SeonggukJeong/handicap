@@ -101,7 +101,7 @@ describe("ScheduleForm", () => {
     );
     expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
     expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
-    expect(screen.getByLabelText("stage target 0")).toHaveValue(7);
+    expect(screen.getByLabelText("스테이지 0 목표")).toHaveValue(7);
     expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
   });
 

@@ -106,7 +106,7 @@ describe("LoadModelFields", () => {
   it("open+curve 모드: 동시 요청 상한 1개 + stage 입력 + 부하 모양 select", () => {
     setup({ loadModel: "open", rateMode: "curve" });
     expect(screen.getAllByLabelText(/동시 요청 상한/)).toHaveLength(1);
-    expect(screen.getByLabelText("stage target 0")).toBeInTheDocument();
+    expect(screen.getByLabelText("스테이지 0 목표")).toBeInTheDocument();
     expect(screen.getByLabelText("부하 모양")).toBeInTheDocument();
   });
 

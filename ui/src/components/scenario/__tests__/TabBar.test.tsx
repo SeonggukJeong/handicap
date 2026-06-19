@@ -6,7 +6,7 @@ import { TabBar } from "../TabBar";
 describe("TabBar", () => {
   it("renders both tab labels with the active one styled", () => {
     render(<TabBar active="canvas" onChange={() => {}} />);
-    const canvas = screen.getByRole("tab", { name: "Canvas" });
+    const canvas = screen.getByRole("tab", { name: "캔버스" });
     const yaml = screen.getByRole("tab", { name: "YAML" });
     expect(canvas).toHaveAttribute("aria-selected", "true");
     expect(yaml).toHaveAttribute("aria-selected", "false");
@@ -18,7 +18,7 @@ describe("TabBar", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<TabBar active="canvas" onChange={onChange} />);
-    await user.click(screen.getByRole("tab", { name: "YAML" }));
+    await user.click(screen.getByRole("tab", { name: "YAML" })); // "YAML" key = "YAML" (R3 technical term)
     expect(onChange).toHaveBeenCalledWith("yaml");
   });
 });

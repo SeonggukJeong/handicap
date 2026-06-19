@@ -43,7 +43,7 @@ export function DatasetsPage() {
         </p>
       )}
 
-      <section aria-label="dataset list" className="mt-8">
+      <section aria-label={ko.dataset.listAria} className="mt-8">
         {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
           <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
@@ -55,9 +55,9 @@ export function DatasetsPage() {
           <table className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">
               <tr>
-                <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Columns</th>
-                <th className="py-2 pr-4">Rows</th>
+                <th className="py-2 pr-4">{ko.dataset.colName}</th>
+                <th className="py-2 pr-4">{ko.dataset.colColumns}</th>
+                <th className="py-2 pr-4">{ko.dataset.colRows}</th>
                 <th className="py-2 pr-4"></th>
               </tr>
             </thead>
@@ -73,7 +73,7 @@ export function DatasetsPage() {
                       onClick={() => handleDelete(d.id)}
                       disabled={del.isPending}
                     >
-                      Delete
+                      {ko.common.delete}
                     </Button>
                   </td>
                 </tr>

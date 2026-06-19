@@ -16,7 +16,7 @@ export function ScheduleEventTimeline({ scheduleId }: Props) {
   const events = useScheduleEvents(scheduleId);
 
   return (
-    <section aria-label="schedule events" className="mt-4">
+    <section aria-label={ko.schedule.eventsAria} className="mt-4">
       <h4 className="text-sm font-semibold text-slate-700 mb-2">이벤트 이력</h4>
       {events.isLoading && <p className="text-slate-500 text-sm">{ko.common.loading}</p>}
       {events.error && (

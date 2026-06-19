@@ -23,7 +23,7 @@ describe("VerdictPanel", () => {
         }}
       />,
     );
-    expect(screen.getByText("PASS")).toBeInTheDocument();
+    expect(screen.getByText("합격")).toBeInTheDocument();
     expect(screen.getByText("p95")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /SLO/ })).toBeInTheDocument();
   });
@@ -45,7 +45,7 @@ describe("VerdictPanel", () => {
         }}
       />,
     );
-    expect(screen.getByText("FAIL")).toBeInTheDocument();
+    expect(screen.getByText("불합격")).toBeInTheDocument();
     expect(screen.getByText("5.00%")).toBeInTheDocument();
   });
 });

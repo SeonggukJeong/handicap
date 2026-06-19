@@ -47,7 +47,7 @@ describe("VariablesPanel", () => {
     const user = userEvent.setup();
     useScenarioEditor.getState().setVariable("tok", "x");
     render(<VariablesPanel />);
-    await user.click(screen.getByRole("button", { name: "Remove variable tok" }));
+    await user.click(screen.getByRole("button", { name: "tok 변수 제거" }));
     expect(useScenarioEditor.getState().model!.variables).not.toHaveProperty("tok");
   });
 

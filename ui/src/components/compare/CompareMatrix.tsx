@@ -26,21 +26,21 @@ function DeltaChip({ cell }: { cell: Cell }) {
 
   if (polarity === "bad") {
     return (
-      <span className="ml-1 text-red-600 text-xs" aria-label={`worse: ${text}`}>
+      <span className="ml-1 text-red-600 text-xs" aria-label={ko.compare.worseAria(text)}>
         ▲{text}
       </span>
     );
   }
   if (polarity === "good") {
     return (
-      <span className="ml-1 text-green-600 text-xs" aria-label={`better: ${text}`}>
+      <span className="ml-1 text-green-600 text-xs" aria-label={ko.compare.betterAria(text)}>
         ▼{text}
       </span>
     );
   }
   // neutral
   return (
-    <span className="ml-1 text-slate-500 text-xs" aria-label={`neutral: ${text}`}>
+    <span className="ml-1 text-slate-500 text-xs" aria-label={ko.compare.neutralAria(text)}>
       {text}
     </span>
   );
@@ -158,9 +158,9 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
                 {p === null ? (
                   "—"
                 ) : p ? (
-                  <span className="text-green-600 font-semibold">PASS</span>
+                  <span className="text-green-600 font-semibold">{ko.report.verdictPass}</span>
                 ) : (
-                  <span className="text-red-600 font-semibold">FAIL</span>
+                  <span className="text-red-600 font-semibold">{ko.report.verdictFail}</span>
                 )}
               </td>
             ))}

@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEnvironment, useTestRun } from "../../api/hooks";
+import { ko } from "../../i18n/ko";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import type { Step } from "../../scenario/model";
@@ -60,10 +61,10 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
       <>
         <section
           ref={rootRef}
-          aria-label="Test run controls"
+          aria-label={ko.editor.testRunControlsAria}
           className="flex flex-col gap-3 rounded border border-slate-200 p-4"
         >
-          <h3 className="text-lg font-semibold">Test run</h3>
+          <h3 className="text-lg font-semibold">{ko.editor.testRunTitle}</h3>
           <EnvironmentPicker
             selectedEnvId={selectedEnvId}
             onSelect={setSelectedEnvId}
@@ -72,7 +73,7 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
             onOverridesChange={setEnvEntries}
           />
           <label className="flex items-center gap-2 text-sm">
-            <span className="text-slate-600">Max requests</span>
+            <span className="text-slate-600">{ko.editor.testRunMaxRequests}</span>
             <input
               type="number"
               min={1}
@@ -92,7 +93,7 @@ export const TestRunSection = forwardRef<TestRunHandle, { yamlText: string }>(
           </label>
           <div>
             <Button onClick={fire} disabled={testRun.isPending}>
-              {testRun.isPending ? "Running…" : "Test run"}
+              {testRun.isPending ? ko.editor.testRunRunning : ko.editor.testRunRun}
             </Button>
           </div>
           {testRun.error && (

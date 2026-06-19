@@ -139,17 +139,17 @@ export function ScenarioEditPage() {
             }
             disabled={!dirty || update.isPending || loadedVersion === null}
           >
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? ko.common.saving : ko.common.save}
           </Button>
           <Button
             variant="secondary"
             onClick={onCloneClick}
             disabled={!scenariosLoaded || clone.isPending}
           >
-            {clone.isPending ? "Duplicating…" : "Duplicate"}
+            {clone.isPending ? ko.pages.duplicatingBtn : ko.pages.duplicateBtn}
           </Button>
           <Link to={`/scenarios/${data.id}/runs`}>
-            <Button variant="secondary">Runs</Button>
+            <Button variant="secondary">{ko.pages.runsBtn}</Button>
           </Link>
         </div>
       </div>

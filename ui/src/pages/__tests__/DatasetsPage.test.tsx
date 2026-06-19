@@ -76,7 +76,7 @@ describe("DatasetsPage", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("users");
-    await user.click(screen.getByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /삭제/i }));
     await waitFor(() => expect(screen.getByText(ko.empty.datasets)).toBeInTheDocument());
   });
 });
@@ -124,7 +124,7 @@ describe("DatasetsPage — soft delete (A2)", () => {
     });
 
     renderPage();
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(await screen.findByRole("button", { name: /삭제/i }));
     await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     // User declined — no force DELETE should have been sent
     await waitFor(() => expect(deleteCalls).toBe(1));
@@ -173,7 +173,7 @@ describe("DatasetsPage — soft delete (A2)", () => {
     });
 
     renderPage();
-    await user.click(await screen.findByRole("button", { name: /delete/i }));
+    await user.click(await screen.findByRole("button", { name: /삭제/i }));
     await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     expect(confirmSpy.mock.calls[0][0]).toMatch(/heavy/);
     await waitFor(() => expect(deleteCalls).toBe(2));

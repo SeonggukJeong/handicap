@@ -58,7 +58,7 @@ describe("ScenarioNewPage test-run", () => {
       await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
     );
 
-    const runBtn = await screen.findByRole("button", { name: /Test run/ });
+    const runBtn = await screen.findByRole("button", { name: "미리 1회 실행" });
     await user.click(runBtn);
 
     await waitFor(() => {
@@ -77,7 +77,7 @@ describe("ScenarioNewPage test-run", () => {
     expect(body.max_requests).toBe(50);
 
     // panel rendered
-    await screen.findByRole("region", { name: /Test run result/ });
+    await screen.findByRole("region", { name: /미리 실행 결과/ });
   });
 
   it("groups Create and Cancel in the top header row next to the title", async () => {

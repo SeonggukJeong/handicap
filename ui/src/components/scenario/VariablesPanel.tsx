@@ -35,7 +35,7 @@ export function VariablesPanel() {
             <button
               type="button"
               onClick={() => removeVariable(key)}
-              aria-label={`Remove variable ${key}`}
+              aria-label={ko.editor.removeVariableAria(key)}
               className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
             >
               ×

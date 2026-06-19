@@ -6,6 +6,7 @@ import {
   type IntervalUnit,
 } from "./triggerCron";
 import { previewNext, type TriggerInput } from "../api/schedules";
+import { ko } from "../i18n/ko";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -166,7 +167,7 @@ export function TriggerBuilder({ onChange, initial }: Props) {
           <span className="text-slate-600">cron (5-field: 분 시 일 월 요일)</span>
           <input
             type="text"
-            aria-label="cron expression"
+            aria-label={ko.triggerBuilder.cronExpressionAria}
             placeholder="0 2 * * *"
             className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 font-mono"
             value={state.raw}

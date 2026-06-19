@@ -110,16 +110,16 @@ export function EnvironmentsPage() {
 
       {mode !== "none" && (
         <section
-          aria-label="environment form"
+          aria-label={ko.environment.formAria}
           className="mb-8 border border-slate-200 rounded-md p-4 bg-white"
         >
           <h3 className="text-md font-semibold mb-3">
             {mode === "edit" ? ko.pages.editEnvironment : ko.pages.newEnvironment}
           </h3>
           <label className="block text-sm mb-3">
-            <span className="text-slate-600">Name</span>
+            <span className="text-slate-600">{ko.environment.nameLabel}</span>
             <input
-              aria-label="environment name"
+              aria-label={ko.environment.nameAria}
               className="mt-1 block w-64 rounded border border-slate-300 px-2 py-1"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -127,12 +127,14 @@ export function EnvironmentsPage() {
             />
           </label>
 
-          <h4 className="text-sm font-semibold text-slate-700 mb-2">Variables</h4>
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">
+            {ko.environment.variablesTitle}
+          </h4>
           <ul className="flex flex-col gap-2">
             {rows.map((entry, idx) => (
               <li key={idx} className="flex items-center gap-2">
                 <input
-                  aria-label={`var key ${idx}`}
+                  aria-label={ko.environment.varKeyAria(idx)}
                   className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
                   value={entry.key}
                   onChange={(e) =>
@@ -143,7 +145,7 @@ export function EnvironmentsPage() {
                 />
                 <span className="text-slate-400 text-sm">=</span>
                 <input
-                  aria-label={`var value ${idx}`}
+                  aria-label={ko.environment.varValueAria(idx)}
                   className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
                   value={entry.value}
                   onChange={(e) =>
@@ -155,19 +157,21 @@ export function EnvironmentsPage() {
                 <button
                   type="button"
                   onClick={() => setRows((prev) => prev.filter((_, i) => i !== idx))}
-                  aria-label={`Remove var ${entry.key || idx}`}
+                  aria-label={ko.environment.removeVarAria(entry.key || idx)}
                   className="text-slate-500 hover:text-red-600 text-sm"
                 >
                   ×
                 </button>
               </li>
             ))}
-            {rows.length === 0 && <li className="text-xs text-slate-400 italic">No variables</li>}
+            {rows.length === 0 && (
+              <li className="text-xs text-slate-400 italic">{ko.environment.noVariables}</li>
+            )}
           </ul>
 
           <div className="flex items-center gap-2 mt-2">
             <input
-              aria-label="new var key"
+              aria-label={ko.environment.newVarKeyAria}
               className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
               placeholder="BASE_URL"
               value={newKey}
@@ -175,9 +179,9 @@ export function EnvironmentsPage() {
             />
             <span className="text-slate-400 text-sm">=</span>
             <input
-              aria-label="new var value"
+              aria-label={ko.environment.newVarValueAria}
               className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
-              placeholder="value (e.g. https://staging.example)"
+              placeholder={ko.environment.newVarValuePlaceholder}
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
             />
@@ -193,7 +197,7 @@ export function EnvironmentsPage() {
               disabled={newKey.trim().length === 0}
               className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
             >
-              Add
+              {ko.environment.addBtn}
             </button>
           </div>
 
@@ -211,10 +215,10 @@ export function EnvironmentsPage() {
 
           <div className="flex gap-2 mt-4">
             <Button onClick={save} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
+              {saving ? ko.environment.savingBtn : ko.environment.saveBtn}
             </Button>
             <Button variant="secondary" onClick={() => setMode("none")}>
-              Cancel
+              {ko.environment.cancelBtn}
             </Button>
           </div>
         </section>
@@ -226,7 +230,7 @@ export function EnvironmentsPage() {
         </p>
       )}
 
-      <section aria-label="environment list">
+      <section aria-label={ko.environment.listAria}>
         {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
           <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
@@ -249,8 +253,8 @@ export function EnvironmentsPage() {
           <table className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">
               <tr>
-                <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Variables</th>
+                <th className="py-2 pr-4">{ko.environment.colName}</th>
+                <th className="py-2 pr-4">{ko.environment.colVariables}</th>
                 <th className="py-2 pr-4"></th>
               </tr>
             </thead>
@@ -261,14 +265,14 @@ export function EnvironmentsPage() {
                   <td className="py-2 pr-4">{e.var_count}</td>
                   <td className="py-2 pr-4 flex gap-2">
                     <Button variant="secondary" onClick={() => void startEdit(e.id)}>
-                      Edit
+                      {ko.common.edit}
                     </Button>
                     <Button
                       variant="danger"
                       onClick={() => handleDelete(e.id)}
                       disabled={deleteEnv.isPending}
                     >
-                      Delete
+                      {ko.common.delete}
                     </Button>
                   </td>
                 </tr>

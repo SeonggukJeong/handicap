@@ -17,7 +17,7 @@ describe("ResponseBodyTree", () => {
     const onCreate = vi.fn();
     render(<ResponseBodyTree value={{ data: { token: "abc" } }} onCreate={onCreate} />);
     await user.click(screen.getByRole("button", { name: "+추출" }));
-    const input = screen.getByRole("textbox", { name: "extract variable name" });
+    const input = screen.getByRole("textbox", { name: "추출 변수명" });
     expect(input).toHaveValue("token"); // prefilled from leaf key
     await user.clear(input);
     await user.type(input, "authToken");
@@ -30,7 +30,7 @@ describe("ResponseBodyTree", () => {
     const onCreate = vi.fn();
     render(<ResponseBodyTree value={{ items: [{ sku: "A-1" }] }} onCreate={onCreate} />);
     await user.click(screen.getByRole("button", { name: "+추출" }));
-    expect(screen.getByRole("textbox", { name: "extract variable name" })).toHaveValue("sku");
+    expect(screen.getByRole("textbox", { name: "추출 변수명" })).toHaveValue("sku");
     await user.click(screen.getByRole("button", { name: "추가" }));
     expect(onCreate).toHaveBeenCalledWith({ var: "sku", from: "body", path: "$.items[0].sku" });
   });
@@ -40,7 +40,7 @@ describe("ResponseBodyTree", () => {
     const onCreate = vi.fn();
     render(<ResponseBodyTree value={"justastring"} onCreate={onCreate} />);
     await user.click(screen.getByRole("button", { name: "+추출" }));
-    expect(screen.getByRole("textbox", { name: "extract variable name" })).toHaveValue("value");
+    expect(screen.getByRole("textbox", { name: "추출 변수명" })).toHaveValue("value");
     await user.click(screen.getByRole("button", { name: "추가" }));
     expect(onCreate).toHaveBeenCalledWith({ var: "value", from: "body", path: "$" });
   });
@@ -51,7 +51,7 @@ describe("ResponseBodyTree", () => {
     render(<ResponseBodyTree value={{ token: "abc" }} onCreate={onCreate} />);
     await user.click(screen.getByRole("button", { name: "+추출" }));
     await user.click(screen.getByRole("button", { name: "취소" }));
-    expect(screen.queryByRole("textbox", { name: "extract variable name" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "추출 변수명" })).toBeNull();
     expect(onCreate).not.toHaveBeenCalled();
   });
 });

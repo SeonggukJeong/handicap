@@ -142,7 +142,7 @@ export function LoadModelFields({
               type="number"
               min={0}
               max={1000000}
-              aria-label={`stage target ${i}`}
+              aria-label={ko.loadModelFields.stageTargetAria(i)}
               value={s.target}
               onChange={(e) =>
                 setStages((prev) =>
@@ -157,7 +157,7 @@ export function LoadModelFields({
             <input
               type="number"
               min={1}
-              aria-label={`stage duration ${i}`}
+              aria-label={ko.loadModelFields.stageDurationAria(i)}
               value={s.duration_seconds}
               onChange={(e) =>
                 setStages((prev) =>
@@ -169,7 +169,7 @@ export function LoadModelFields({
           </label>
           <button
             type="button"
-            aria-label={`remove stage ${i}`}
+            aria-label={ko.loadModelFields.removeStageAria(i)}
             disabled={stages.length <= 1}
             onClick={() => setStages((prev) => prev.filter((_, j) => j !== i))}
             className="shrink-0 px-2 py-1 text-slate-500 hover:text-red-600 disabled:opacity-30"

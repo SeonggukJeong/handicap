@@ -91,11 +91,11 @@ describe("ScenarioEditPage save", () => {
   it("Save PUTs {yaml, version}: the edited buffer + the loaded scenario version (optimistic lock)", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("button", { name: "Save" });
+    await screen.findByRole("button", { name: "저장" });
     await user.click(screen.getByRole("button", { name: "seed" })); // baseline → not dirty
     await user.click(screen.getByRole("button", { name: "edit" })); // dirty → Save 활성화
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => expect(putBody()).not.toBeNull());
     // 와이어 1:1 (client.ts:130-133): 정확히 {yaml, version} 두 키.

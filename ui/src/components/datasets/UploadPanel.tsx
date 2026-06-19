@@ -3,6 +3,7 @@ import { api, type DatasetUploadOptions } from "../../api/client";
 import type { DatasetPreview } from "../../api/schemas";
 import { useUploadDataset } from "../../api/hooks";
 import { Button } from "../Button";
+import { ko } from "../../i18n/ko";
 
 type Options = {
   header: boolean;
@@ -81,7 +82,7 @@ export function UploadPanel() {
   }
 
   return (
-    <section aria-label="upload dataset" className="border border-slate-200 rounded-md p-4">
+    <section aria-label={ko.dataset.uploadAria} className="border border-slate-200 rounded-md p-4">
       <div
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
@@ -89,12 +90,12 @@ export function UploadPanel() {
       >
         <p className="mb-2">CSV/XLSX 파일을 끌어다 놓거나</p>
         <label className="inline-block">
-          <span className="sr-only">choose file</span>
+          <span className="sr-only">{ko.dataset.chooseFileSr}</span>
           <input
             ref={inputRef}
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            aria-label="choose file"
+            aria-label={ko.dataset.chooseFileAria}
             onChange={(e) => onPick(e.target.files?.[0] ?? null)}
             className="block text-sm"
           />
@@ -104,7 +105,7 @@ export function UploadPanel() {
       {file && (
         <div className="mt-4 flex flex-wrap gap-3 items-end">
           <label className="block text-sm">
-            <span className="text-slate-600">Name</span>
+            <span className="text-slate-600">{ko.dataset.nameLabel}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -112,9 +113,9 @@ export function UploadPanel() {
             />
           </label>
           <label className="block text-sm">
-            <span className="text-slate-600">Header</span>
+            <span className="text-slate-600">{ko.dataset.headerLabel}</span>
             <select
-              aria-label="header"
+              aria-label={ko.dataset.headerLabel}
               value={opts.header ? "true" : "false"}
               onChange={(e) => changeOpt({ header: e.target.value === "true" })}
               className="mt-1 block border border-slate-300 rounded px-2 py-1"
@@ -124,9 +125,9 @@ export function UploadPanel() {
             </select>
           </label>
           <label className="block text-sm">
-            <span className="text-slate-600">Delimiter</span>
+            <span className="text-slate-600">{ko.dataset.delimiterLabel}</span>
             <select
-              aria-label="delimiter"
+              aria-label={ko.dataset.delimiterLabel}
               value={opts.delimiter}
               onChange={(e) => changeOpt({ delimiter: e.target.value })}
               className="mt-1 block border border-slate-300 rounded px-2 py-1"
@@ -138,9 +139,9 @@ export function UploadPanel() {
             </select>
           </label>
           <label className="block text-sm">
-            <span className="text-slate-600">Encoding</span>
+            <span className="text-slate-600">{ko.dataset.encodingLabel}</span>
             <select
-              aria-label="encoding"
+              aria-label={ko.dataset.encodingLabel}
               value={opts.encoding}
               onChange={(e) => changeOpt({ encoding: e.target.value })}
               className="mt-1 block border border-slate-300 rounded px-2 py-1"
@@ -152,9 +153,9 @@ export function UploadPanel() {
           </label>
           {preview?.sheets && preview.sheets.length > 1 && (
             <label className="block text-sm">
-              <span className="text-slate-600">Sheet</span>
+              <span className="text-slate-600">{ko.dataset.sheetLabel}</span>
               <select
-                aria-label="sheet"
+                aria-label={ko.dataset.sheetLabel}
                 value={opts.sheet}
                 onChange={(e) => changeOpt({ sheet: e.target.value })}
                 className="mt-1 block border border-slate-300 rounded px-2 py-1"
@@ -172,7 +173,7 @@ export function UploadPanel() {
 
       {busy && (
         <p role="status" className="mt-3 text-sm text-slate-500">
-          Parsing…
+          {ko.common.parsing}
         </p>
       )}
       {error && (
@@ -213,7 +214,7 @@ export function UploadPanel() {
           </div>
           <div className="mt-3">
             <Button onClick={save} disabled={upload.isPending}>
-              Save dataset
+              {ko.dataset.saveDataset}
             </Button>
             {upload.error && (
               <span role="alert" className="ml-3 text-sm text-red-600">

@@ -162,7 +162,7 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // Wait for the DS1 option to appear (dataset list loaded) then select it
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
@@ -210,7 +210,7 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // Wait for the DS1 option to appear then select it
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
 
     // Select a dataset — now "missing" is uncovered (not in columns, not in extract)
@@ -237,12 +237,12 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // Wait for the DS1 option to appear then select the dataset
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
     // Wait for policy select to be available (it appears once dataset is selected)
-    const policySelect = await screen.findByLabelText(/policy/i);
+    const policySelect = await screen.findByLabelText(/정책/i);
 
     // per_vu (default) — no banner
     expect(screen.queryByText(/dataset-max-rows/i)).not.toBeInTheDocument();
@@ -272,12 +272,12 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // Select a dataset so the policy select appears
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
     // Wait for the policy select to appear
-    const policySelect = await screen.findByLabelText(/policy/i);
+    const policySelect = await screen.findByLabelText(/정책/i);
 
     const options = within(policySelect as HTMLElement)
       .getAllByRole("option")
@@ -298,10 +298,10 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderPanel(makeScenario(), onChange);
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
-    const policySelect = await screen.findByLabelText(/policy/i);
+    const policySelect = await screen.findByLabelText(/정책/i);
     await user.selectOptions(policySelect, "unique");
     expect(policySelect).toHaveValue("unique");
     expect(screen.getByText(/소진된 VU/)).toBeInTheDocument();
@@ -320,7 +320,7 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // Wait for DS1 option then select the dataset (has "username"/"email", NOT "token")
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
@@ -346,7 +346,7 @@ describe("DataBindingPanel", () => {
     renderPanel(makeScenarioWithMissing(), vi.fn(), onValidityChange);
     const user = userEvent.setup();
 
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
@@ -366,7 +366,7 @@ describe("DataBindingPanel", () => {
     renderPanel(makeScenario());
     const user = userEvent.setup();
 
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
 
@@ -382,13 +382,13 @@ describe("DataBindingPanel", () => {
     const user = userEvent.setup();
 
     // 데이터셋 선택 → 자동 매칭 → 배지 확인
-    const datasetSelect = await screen.findByLabelText(/dataset/i);
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.selectOptions(datasetSelect, "DS1");
     expect(await screen.findByText(/자동 연결됨/)).toBeInTheDocument();
 
     // 사용자가 source select에서 다른 컬럼(email)으로 변경
-    const sourceSelect = screen.getByLabelText("source for username");
+    const sourceSelect = screen.getByLabelText("username 소스");
     await user.selectOptions(sourceSelect, "email");
 
     // 배지가 사라져야 함
@@ -456,9 +456,9 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
 
     // The dataset <option> list loads async via useDatasets(); a controlled
     // <select value="D1"> shows "" until its matching option exists, so wait.
-    await waitFor(() => expect(screen.getByLabelText("dataset")).toHaveValue("D1"));
-    await waitFor(() => expect(screen.getByLabelText("policy")).toHaveValue("iter_random"));
-    await waitFor(() => expect(screen.getByLabelText("source for username")).toHaveValue("user"));
+    await waitFor(() => expect(screen.getByLabelText("데이터셋")).toHaveValue("D1"));
+    await waitFor(() => expect(screen.getByLabelText("정책")).toHaveValue("iter_random"));
+    await waitFor(() => expect(screen.getByLabelText("username 소스")).toHaveValue("user"));
   });
 
   it("seeds a literal mapping for a var that is not a scanned column", async () => {
@@ -468,9 +468,7 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
       policy: "per_vu",
       mappings: [{ kind: "literal", var: "username", value: "fixed" }],
     });
-    await waitFor(() =>
-      expect(screen.getByLabelText("literal value for username")).toHaveValue("fixed"),
-    );
+    await waitFor(() => expect(screen.getByLabelText("username 리터럴 값")).toHaveValue("fixed"));
   });
 
   it("does not duplicate a manual row seeded for an unscanned mapping var", async () => {
@@ -482,8 +480,8 @@ describe("DataBindingPanel — initialBinding re-hydration (A1)", () => {
       policy: "per_vu",
       mappings: [{ kind: "literal", var: "extra", value: "v" }],
     });
-    await waitFor(() => expect(screen.getAllByLabelText("mapping var name")).toHaveLength(1));
-    expect(screen.getByLabelText("mapping var name")).toHaveValue("extra");
+    await waitFor(() => expect(screen.getAllByLabelText("매핑 변수명")).toHaveLength(1));
+    expect(screen.getByLabelText("매핑 변수명")).toHaveValue("extra");
   });
 
   it("highlights a stale column mapping whose column is gone from the dataset (spec §6)", async () => {
@@ -653,12 +651,12 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     // Add a second card so the remove button is visible.
     const addBtn = screen.getByRole("button", { name: /데이터셋 추가/ });
     await user.click(addBtn);
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(2));
 
     // Remove the first card — focus should move to the add button.
     const removeButtons = screen.getAllByRole("button", { name: /바인딩 \d+ 제거/ });
     await user.click(removeButtons[0]);
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(1));
 
     // jsdom focus behavior is generally reliable for programmatic focus() calls.
     const addBtnAfter = screen.getByRole("button", { name: /데이터셋 추가/ });
@@ -671,10 +669,10 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     renderMulti();
     // One card by default → one dataset select.
     expect(await screen.findByRole("option", { name: /users\.csv/i })).toBeInTheDocument();
-    expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1);
+    expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(2));
   });
 
   it("removes a binding card", async () => {
@@ -683,12 +681,12 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     renderMulti();
     await screen.findByRole("option", { name: /users\.csv/i });
     await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(2));
 
     // Remove the second card. Label is now noun-first: "바인딩 N 제거" (Fix 2).
     const removeButtons = screen.getAllByRole("button", { name: /바인딩 \d+ 제거/ });
     await user.click(removeButtons[removeButtons.length - 1]);
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(1));
   });
 
   it("emits a DataBinding[] with both selected bindings", async () => {
@@ -698,12 +696,12 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     renderMulti([], onChange);
 
     await screen.findByRole("option", { name: /users\.csv/i });
-    const firstSelect = screen.getAllByLabelText(/dataset/i)[0];
+    const firstSelect = screen.getAllByLabelText(/데이터셋/i)[0];
     await user.selectOptions(firstSelect, "DS1");
 
     await user.click(screen.getByRole("button", { name: /데이터셋 추가/ }));
-    await waitFor(() => expect(screen.getAllByLabelText(/dataset/i)).toHaveLength(2));
-    const secondSelect = screen.getAllByLabelText(/dataset/i)[1];
+    await waitFor(() => expect(screen.getAllByLabelText(/데이터셋/i)).toHaveLength(2));
+    const secondSelect = screen.getAllByLabelText(/데이터셋/i)[1];
     await user.selectOptions(secondSelect, "DS2");
 
     await waitFor(() => {

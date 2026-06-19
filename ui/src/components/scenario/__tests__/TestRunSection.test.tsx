@@ -65,7 +65,7 @@ describe("TestRunSection apply_think_time toggle", () => {
     render(<TestRunSection yamlText={VALID_YAML} />);
 
     await user.click(screen.getByRole("checkbox", { name: /think time/i }));
-    await user.click(screen.getByRole("button", { name: /test run/i }));
+    await user.click(screen.getByRole("button", { name: /미리 실행/i }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toMatchObject({ apply_think_time: true });
@@ -75,7 +75,7 @@ describe("TestRunSection apply_think_time toggle", () => {
     const user = userEvent.setup();
     render(<TestRunSection yamlText={VALID_YAML} />);
 
-    await user.click(screen.getByRole("button", { name: /test run/i }));
+    await user.click(screen.getByRole("button", { name: /미리 실행/i }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toMatchObject({ apply_think_time: false });
@@ -130,7 +130,7 @@ describe("TestRunSection addedNote transience", () => {
     expect(screen.getByRole("status", { hidden: true })).toHaveTextContent("추출 추가됨");
 
     // 3) 새 test-run 발사 — fire() 안에서 setAddedNote(null)이 불려야 한다
-    await user.click(screen.getByRole("button", { name: /test run/i }));
+    await user.click(screen.getByRole("button", { name: /미리 실행/i }));
 
     // 안내가 사라졌어야 한다
     expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();

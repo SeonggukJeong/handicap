@@ -11,14 +11,14 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
   return (
     <section aria-label={ko.report.verdictSectionLabel} className="mb-6 rounded border p-3">
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-lg font-semibold mb-2">SLO</h3>
+        <h3 className="text-lg font-semibold mb-2">{ko.report.verdictSloTitle}</h3>
         <span
           className={[
             "inline-block rounded px-2 py-0.5 text-xs font-medium",
             verdict.passed ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900",
           ].join(" ")}
         >
-          {verdict.passed ? "PASS" : "FAIL"}
+          {verdict.passed ? ko.report.verdictPass : ko.report.verdictFail}
         </span>
       </div>
       <table className="text-sm">

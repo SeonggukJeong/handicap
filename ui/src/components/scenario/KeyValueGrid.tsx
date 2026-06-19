@@ -227,7 +227,7 @@ export function KeyValueGrid({
             />
             <button
               type="button"
-              aria-label={`Remove ${itemLabel} ${r.key}`}
+              aria-label={ko.common.removeItemAria(itemLabel, r.key)}
               className="text-slate-500 hover:text-red-600 shrink-0"
               onClick={() => commit(rows.filter((_, i) => i !== idx))}
             >
@@ -243,7 +243,7 @@ export function KeyValueGrid({
       <div className="flex gap-2 mt-1">
         <input
           ref={newKeyRef}
-          aria-label={`new ${itemLabel} key`}
+          aria-label={ko.common.newItemKeyAria(itemLabel)}
           list={hasCommon ? datalistId : undefined}
           className="w-32 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
           placeholder={keyPlaceholder}
@@ -255,7 +255,7 @@ export function KeyValueGrid({
         />
         <span className="text-slate-400 text-xs">=</span>
         <input
-          aria-label={`new ${itemLabel} value`}
+          aria-label={ko.common.newItemValueAria(itemLabel)}
           className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
           placeholder={valuePlaceholder}
           value={newValue}

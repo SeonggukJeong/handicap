@@ -126,7 +126,7 @@ export function SchedulesPage() {
 
       {mode !== "none" && (
         <section
-          aria-label="schedule form"
+          aria-label={ko.schedule.formAria}
           className="mb-8 border border-slate-200 rounded-md p-4 bg-white"
         >
           <h3 className="text-md font-semibold mb-3">
@@ -155,7 +155,7 @@ export function SchedulesPage() {
         </p>
       )}
 
-      <section aria-label="schedule list">
+      <section aria-label={ko.schedule.listAria}>
         {list.isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {list.error && (
           <p className="text-red-600">{ko.common.failedToLoad((list.error as Error).message)}</p>
@@ -178,11 +178,11 @@ export function SchedulesPage() {
           <table className="min-w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-slate-600">
               <tr>
-                <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Trigger</th>
-                <th className="py-2 pr-4">Next run</th>
-                <th className="py-2 pr-4">Last status</th>
-                <th className="py-2 pr-4">Enabled</th>
+                <th className="py-2 pr-4">{ko.schedule.colName}</th>
+                <th className="py-2 pr-4">{ko.schedule.colTrigger}</th>
+                <th className="py-2 pr-4">{ko.schedule.colNextRun}</th>
+                <th className="py-2 pr-4">{ko.schedule.colLastStatus}</th>
+                <th className="py-2 pr-4">{ko.schedule.colEnabled}</th>
                 <th className="py-2 pr-4"></th>
               </tr>
             </thead>
@@ -208,7 +208,7 @@ export function SchedulesPage() {
                   <td className="py-2 pr-4">
                     <button
                       type="button"
-                      aria-label={`toggle enabled ${s.name}`}
+                      aria-label={ko.schedule.toggleEnabledAria(s.name)}
                       onClick={() => void toggleEnabled(s.id)}
                       className="text-slate-700 hover:underline"
                       disabled={updateSchedule.isPending}
@@ -218,14 +218,14 @@ export function SchedulesPage() {
                   </td>
                   <td className="py-2 pr-4 flex gap-2">
                     <Button variant="secondary" onClick={() => void startEdit(s.id)}>
-                      Edit
+                      {ko.schedule.editBtn}
                     </Button>
                     <Button
                       variant="danger"
                       onClick={() => handleDelete(s.id)}
                       disabled={deleteSchedule.isPending}
                     >
-                      Delete
+                      {ko.schedule.deleteBtn}
                     </Button>
                   </td>
                 </tr>

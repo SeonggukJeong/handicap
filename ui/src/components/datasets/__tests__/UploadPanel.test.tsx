@@ -38,7 +38,7 @@ describe("UploadPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     const file = new File(["email,pw\na@ex.com,p1\n"], "users.csv", { type: "text/csv" });
-    await user.upload(screen.getByLabelText(/choose file/i), file);
+    await user.upload(screen.getByLabelText(/파일 선택/i), file);
 
     expect(await screen.findByText("email")).toBeInTheDocument();
     expect(screen.getByText("a@ex.com")).toBeInTheDocument();
@@ -62,11 +62,11 @@ describe("UploadPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await user.upload(
-      screen.getByLabelText(/choose file/i),
+      screen.getByLabelText(/파일 선택/i),
       new File(["a\nx\n"], "users.csv", { type: "text/csv" }),
     );
     await screen.findByText("a");
-    await user.click(screen.getByRole("button", { name: /save/i }));
+    await user.click(screen.getByRole("button", { name: /데이터셋 저장/i }));
     await waitFor(() => expect(fetchMock.mock.calls[1][0]).toBe("/api/datasets"));
   });
 
@@ -81,11 +81,11 @@ describe("UploadPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await user.upload(
-      screen.getByLabelText(/choose file/i),
+      screen.getByLabelText(/파일 선택/i),
       new File(["a;b\n1;2\n"], "x.csv", { type: "text/csv" }),
     );
     await screen.findByText("a;b");
-    await user.selectOptions(screen.getByLabelText(/delimiter/i), ";");
+    await user.selectOptions(screen.getByLabelText(/구분자/i), ";");
     await waitFor(() => expect(screen.getByText("a")).toBeInTheDocument());
     expect(fetchMock.mock.calls[1][0]).toBe("/api/datasets/preview");
   });

@@ -13,7 +13,7 @@ describe("BulkEditPanel", () => {
         onCancel={vi.fn()}
       />,
     );
-    const ta = screen.getByLabelText("bulk edit text") as HTMLTextAreaElement;
+    const ta = screen.getByLabelText("일괄 편집 텍스트") as HTMLTextAreaElement;
     expect(ta.value).toBe("Content-Type: application/json\nAccept: */*");
   });
 
@@ -27,17 +27,17 @@ describe("BulkEditPanel", () => {
         onCancel={vi.fn()}
       />,
     );
-    const ta = screen.getByLabelText("bulk edit text");
+    const ta = screen.getByLabelText("일괄 편집 텍스트");
     // Replace the whole content with a single line (use fireEvent to avoid
     // userEvent key-descriptor parsing of ':' / braces).
     fireEvent.change(ta, { target: { value: "A: 9\nC: 3" } });
-    await userEvent.setup().click(screen.getByRole("button", { name: "Apply" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "적용" }));
     expect(onApply).toHaveBeenCalledWith({ A: "9", C: "3" }); // B dropped
   });
 
   it("shows a skip hint for separator-less lines", () => {
     render(<BulkEditPanel entries={{}} format="header" onApply={vi.fn()} onCancel={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("bulk edit text"), {
+    fireEvent.change(screen.getByLabelText("일괄 편집 텍스트"), {
       target: { value: "A: 1\ngarbage" },
     });
     expect(screen.getByText(/1개 건너뜀/)).toBeInTheDocument();
@@ -46,10 +46,10 @@ describe("BulkEditPanel", () => {
   it("form Apply decodes urlencoded values", async () => {
     const onApply = vi.fn();
     render(<BulkEditPanel entries={{}} format="form" onApply={onApply} onCancel={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("bulk edit text"), {
+    fireEvent.change(screen.getByLabelText("일괄 편집 텍스트"), {
       target: { value: "name=John+Doe&city=New%20York" },
     });
-    await userEvent.setup().click(screen.getByRole("button", { name: "Apply" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "적용" }));
     expect(onApply).toHaveBeenCalledWith({ name: "John Doe", city: "New York" });
   });
 
@@ -57,7 +57,7 @@ describe("BulkEditPanel", () => {
     const onApply = vi.fn();
     const onCancel = vi.fn();
     render(<BulkEditPanel entries={{}} format="header" onApply={onApply} onCancel={onCancel} />);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "취소" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
   });

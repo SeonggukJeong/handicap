@@ -469,7 +469,7 @@ export function RunDialog({
           </label>
           <select
             id="load-preset"
-            aria-label="load preset"
+            aria-label={ko.runDialog.loadPresetAria}
             className="border border-slate-300 rounded px-2 py-1 text-sm"
             value=""
             onChange={(e) => {
@@ -694,7 +694,7 @@ export function RunDialog({
 
       <div className="mb-3 flex items-center gap-2">
         <input
-          aria-label="preset name"
+          aria-label={ko.runDialog.presetNameAria}
           className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"
           placeholder="프리셋 이름"
           value={presetName}

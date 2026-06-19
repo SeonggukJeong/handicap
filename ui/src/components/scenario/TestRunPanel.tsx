@@ -447,9 +447,12 @@ export function TestRunPanel({
   onAddExtract?: (stepId: string, extract: Extract) => void;
 }) {
   return (
-    <section aria-label="Test run result" className="rounded border border-slate-200 p-4">
+    <section
+      aria-label={ko.editor.testRunResultAria}
+      className="rounded border border-slate-200 p-4"
+    >
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-lg font-semibold">Test run</h3>
+        <h3 className="text-lg font-semibold">{ko.editor.testRunTitle}</h3>
         {chip(
           trace.ok ? "OK" : "FAIL",
           trace.ok ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900",

@@ -96,7 +96,7 @@ describe("Inspector — ExtractEditor", () => {
     const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
 
-    const fromSelect = within(extractSection).getByLabelText("extract-from-0");
+    const fromSelect = within(extractSection).getByLabelText("추출 0 종류");
     await user.selectOptions(fromSelect, "header");
 
     expect(within(extractSection).queryByPlaceholderText("$.path")).toBeNull();
@@ -319,15 +319,15 @@ describe("Inspector — IfInspector (builder)", () => {
 
   it("renders the condition leaf with current values", () => {
     render(<Inspector />);
-    expect((screen.getByLabelText("left") as HTMLInputElement).value).toBe("{{code}}");
-    expect((screen.getByLabelText("op") as HTMLSelectElement).value).toBe("eq");
-    expect((screen.getByLabelText("right") as HTMLInputElement).value).toBe("200");
+    expect((screen.getByLabelText("조건 왼쪽 값") as HTMLInputElement).value).toBe("{{code}}");
+    expect((screen.getByLabelText("조건 연산자") as HTMLSelectElement).value).toBe("eq");
+    expect((screen.getByLabelText("조건 오른쪽 값") as HTMLInputElement).value).toBe("200");
   });
 
   it("commits a changed right value on blur", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    const right = screen.getByLabelText("right");
+    const right = screen.getByLabelText("조건 오른쪽 값");
     await user.clear(right);
     await user.type(right, "404");
     await user.tab();
@@ -340,8 +340,8 @@ describe("Inspector — IfInspector (builder)", () => {
   it("hides the right input and drops right when op is exists", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.selectOptions(screen.getByLabelText("op"), "exists");
-    expect(screen.queryByLabelText("right")).toBeNull();
+    await user.selectOptions(screen.getByLabelText("조건 연산자"), "exists");
+    expect(screen.queryByLabelText("조건 오른쪽 값")).toBeNull();
     const s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if" && !("all" in s.cond) && !("any" in s.cond)) {
       expect(s.cond.op).toBe("exists");
@@ -352,8 +352,8 @@ describe("Inspector — IfInspector (builder)", () => {
   it("warns on an invalid regex for the matches op", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.selectOptions(screen.getByLabelText("op"), "matches");
-    const right = screen.getByLabelText("right");
+    await user.selectOptions(screen.getByLabelText("조건 연산자"), "matches");
+    const right = screen.getByLabelText("조건 오른쪽 값");
     await user.clear(right);
     // user-event treats "[" as a key-descriptor delimiter; "[[" types a literal "[".
     await user.type(right, "[[");
@@ -499,7 +499,7 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     // Add a non-common header (avoids datalist value-seeding) so a value row renders.
     await user.type(addKey, "X-Custom");
     await user.click(addBtn);
-    const removeBtn = screen.getByRole("button", { name: "Remove header X-Custom" });
+    const removeBtn = screen.getByRole("button", { name: "header X-Custom 제거" });
     const row = removeBtn.closest("li")!;
     // key input has list attr → role="combobox"; value input → role="textbox"
     const inputs = [

@@ -43,8 +43,8 @@ describe("KeyValueGrid — grid editing", () => {
   it("adds a row via the two-field add row", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    await user.type(screen.getByLabelText("new header key"), "X-Custom");
-    await user.type(screen.getByLabelText("new header value"), "abc");
+    await user.type(screen.getByLabelText("새 header 키"), "X-Custom");
+    await user.type(screen.getByLabelText("새 header 값"), "abc");
     await user.click(screen.getByRole("button", { name: "추가" }));
     expect(dump()).toEqual({ "X-Custom": "abc" });
   });
@@ -73,22 +73,22 @@ describe("KeyValueGrid — grid editing", () => {
   it("removes a row", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ A: "1", B: "2" }} />);
-    await user.click(screen.getByRole("button", { name: "Remove header A" }));
+    await user.click(screen.getByRole("button", { name: "header A 제거" }));
     expect(dump()).toEqual({ B: "2" });
   });
 
   it("dedupes duplicate keys last-wins on commit", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ A: "1" }} />);
-    await user.type(screen.getByLabelText("new header key"), "A");
-    await user.type(screen.getByLabelText("new header value"), "2");
+    await user.type(screen.getByLabelText("새 header 키"), "A");
+    await user.type(screen.getByLabelText("새 header 값"), "2");
     await user.click(screen.getByRole("button", { name: "추가" }));
     expect(dump()).toEqual({ A: "2" });
   });
 
   it("each row exposes exactly two textboxes with min-w-0 (overflow guard)", async () => {
     render(<Harness initial={{ A: "1" }} />);
-    const row = screen.getByRole("button", { name: "Remove header A" }).closest("li")!;
+    const row = screen.getByRole("button", { name: "header A 제거" }).closest("li")!;
     const inputs = within(row).getAllByRole("textbox");
     expect(inputs).toHaveLength(2);
     inputs.forEach((i) => expect(i).toHaveClass("min-w-0"));
@@ -100,13 +100,13 @@ describe("KeyValueGrid — bulk edit toggle", () => {
     const user = userEvent.setup();
     render(<Harness initial={{ A: "1", B: "2" }} />);
     await user.click(screen.getByRole("button", { name: "Bulk Edit" }));
-    const ta = screen.getByLabelText("bulk edit text") as HTMLTextAreaElement;
+    const ta = screen.getByLabelText("일괄 편집 텍스트") as HTMLTextAreaElement;
     expect(ta.value).toBe("A: 1\nB: 2");
     // fireEvent (top-level import) to avoid userEvent ':' descriptor parsing.
     fireEvent.change(ta, { target: { value: "A: 9" } });
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "적용" }));
     expect(dump()).toEqual({ A: "9" });
-    expect(screen.queryByLabelText("bulk edit text")).not.toBeInTheDocument(); // closed
+    expect(screen.queryByLabelText("일괄 편집 텍스트")).not.toBeInTheDocument(); // closed
   });
 });
 
@@ -138,8 +138,8 @@ describe("KeyValueGrid — common-header picker", () => {
   it("typing a known header name into the add-row key seeds the value (onChange branch)", async () => {
     const user = userEvent.setup();
     render(<Harness withCommon />);
-    await user.type(screen.getByLabelText("new header key"), "Accept");
-    expect(screen.getByLabelText("new header value")).toHaveValue("application/json");
+    await user.type(screen.getByLabelText("새 header 키"), "Accept");
+    expect(screen.getByLabelText("새 header 값")).toHaveValue("application/json");
   });
 
   it("does not render the picker menu when commonKeys is absent", () => {
@@ -152,10 +152,10 @@ describe("KeyValueGrid — focus movement", () => {
   it("returns focus to the add-row key field after Add (spec §3-1)", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    await user.type(screen.getByLabelText("new header key"), "X-Custom");
-    await user.type(screen.getByLabelText("new header value"), "abc");
+    await user.type(screen.getByLabelText("새 header 키"), "X-Custom");
+    await user.type(screen.getByLabelText("새 header 값"), "abc");
     await user.click(screen.getByRole("button", { name: "추가" }));
-    expect(screen.getByLabelText("new header key")).toHaveFocus();
+    expect(screen.getByLabelText("새 header 키")).toHaveFocus();
   });
 
   it("focuses the row value field after a menu pick adds a row (spec §6)", async () => {
@@ -207,7 +207,7 @@ describe("KeyValueGrid — disabled toggle", () => {
     await user.click(screen.getByRole("button", { name: "Bulk Edit" }));
     const ta = screen.getByRole("textbox");
     fireEvent.change(ta, { target: { value: "A: 9\nC: 3" } });
-    await user.click(screen.getByRole("button", { name: /apply/i }));
+    await user.click(screen.getByRole("button", { name: /적용/i }));
     expect(dump()).toEqual({ A: "9", C: "3" }); // active replaced
     expect(dumpDisabled()).toEqual({ B: "x" }); // disabled preserved, A collision dropped from disabled
   });

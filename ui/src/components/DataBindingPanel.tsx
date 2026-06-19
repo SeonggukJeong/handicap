@@ -198,7 +198,7 @@ export function DataBindingPanel({ scenario, initialBindings, onChange, onValidi
   }, [cards, bindingById]);
 
   return (
-    <section aria-label="Data binding" className="mb-3">
+    <section aria-label={ko.binding.sectionTitle} className="mb-3">
       <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.binding.sectionTitle}</h4>
 
       <div className="flex flex-col gap-3">
@@ -500,11 +500,11 @@ function BindingCard({
               className="block text-sm text-slate-600 mb-1"
               htmlFor={`binding-dataset-${index}`}
             >
-              Dataset
+              {ko.binding.datasetLabel}
             </label>
             <select
               id={`binding-dataset-${index}`}
-              aria-label="dataset"
+              aria-label={ko.binding.datasetLabel}
               className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
               value={selectedId}
               onChange={(e) => {
@@ -550,7 +550,7 @@ function BindingCard({
                         {/* Var name: read-only badge for scanned vars, editable for manual */}
                         {row.manual ? (
                           <input
-                            aria-label="mapping var name"
+                            aria-label={ko.binding.mappingVarNameAria}
                             className="w-28 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
                             placeholder="var_name"
                             value={row.varName}
@@ -577,7 +577,7 @@ function BindingCard({
                         {/* Source select — only interactive when a dataset is selected */}
                         {selectedId ? (
                           <select
-                            aria-label={`source for ${row.varName || "var"}`}
+                            aria-label={ko.binding.sourceForAria(row.varName || "")}
                             className={`flex-1 min-w-0 border rounded px-2 py-1 text-sm ${
                               stale ? "border-red-400" : "border-slate-300"
                             }`}
@@ -626,7 +626,7 @@ function BindingCard({
                         {/* Literal value input */}
                         {selectedId && row.sourceKind === "literal" && (
                           <input
-                            aria-label={`literal value for ${row.varName || "var"}`}
+                            aria-label={ko.binding.literalForAria(row.varName || "")}
                             className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
                             placeholder="고정 값"
                             value={row.literalValue}
@@ -638,7 +638,7 @@ function BindingCard({
                         <button
                           type="button"
                           onClick={() => removeRow(idx)}
-                          aria-label={`Remove mapping for ${row.varName || idx}`}
+                          aria-label={ko.binding.removeMappingAria(row.varName || idx)}
                           className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
                         >
                           ×
@@ -686,11 +686,11 @@ function BindingCard({
                   className="block text-sm text-slate-600 mb-1"
                   htmlFor={`binding-policy-${index}`}
                 >
-                  Policy
+                  {ko.binding.policyLabel}
                 </label>
                 <select
                   id={`binding-policy-${index}`}
-                  aria-label="policy"
+                  aria-label={ko.binding.policyLabel}
                   className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
                   value={policy}
                   onChange={(e) => setPolicy(e.target.value as BindingPolicy)}

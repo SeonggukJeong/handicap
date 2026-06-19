@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Extract } from "../../scenario/model";
+import { ko } from "../../i18n/ko";
 
 /** Rebuild an Extract with a new var, preserving the discriminant explicitly
  *  (spreading a union + overriding widens the type — tsc -b would reject it). */
@@ -43,7 +44,7 @@ export function ExtractConfirmRow({
     <div className="my-1 flex flex-wrap items-center gap-2 rounded bg-indigo-50 px-2 py-1 text-xs">
       <span className="text-slate-500">변수명</span>
       <input
-        aria-label="extract variable name"
+        aria-label={ko.editor.extractVarNameAria}
         value={varName}
         onChange={(e) => setVarName(e.target.value)}
         className="w-32 rounded border border-slate-300 px-1 py-0.5 font-mono"

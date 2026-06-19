@@ -80,11 +80,11 @@ describe("EnvironmentsPage", () => {
     await screen.findByText(ko.empty.environments);
 
     await user.click(screen.getByRole("button", { name: ko.pages.newEnvironment }));
-    await user.type(screen.getByLabelText(/environment name/i), "prod");
+    await user.type(screen.getByLabelText(/환경 이름/i), "prod");
     await user.type(screen.getByPlaceholderText("BASE_URL"), "BASE_URL");
-    await user.type(screen.getByPlaceholderText(/value/i), "http://p");
-    await user.click(screen.getByRole("button", { name: /^add$/i }));
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await user.type(screen.getByPlaceholderText(/값/i), "http://p");
+    await user.click(screen.getByRole("button", { name: /^추가$/i }));
+    await user.click(screen.getByRole("button", { name: /^저장$/i }));
 
     await waitFor(() => expect(posted).toEqual({ name: "prod", vars: { BASE_URL: "http://p" } }));
   });
@@ -102,7 +102,7 @@ describe("EnvironmentsPage", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("staging");
-    await user.click(screen.getByRole("button", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: /삭제/i }));
     await waitFor(() => expect(screen.getByText(ko.empty.environments)).toBeInTheDocument());
     confirmSpy.mockRestore();
   });

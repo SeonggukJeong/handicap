@@ -668,7 +668,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
               onBlur={commitFromBlur}
             />
             <select
-              aria-label={`extract-from-${idx}`}
+              aria-label={ko.editor.extractFromAria(idx)}
               className="border border-slate-300 rounded px-2 py-1"
               value={x.from}
               onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
@@ -782,7 +782,7 @@ function ParallelBranchEditor({
         </label>
         <div className="flex-1 min-w-0">
           <input
-            aria-label={`branch name ${branchIndex}`}
+            aria-label={ko.editor.branchNameAria(branchIndex)}
             className="w-full border border-slate-300 rounded px-2 py-1 text-xs"
             value={nameDraft}
             onChange={(e) => setNameDraft(e.target.value)}
@@ -1085,7 +1085,7 @@ function ConditionNode({
     return (
       <div className="flex flex-col gap-2 border-l-2 border-indigo-200 pl-2">
         <select
-          aria-label="group-kind"
+          aria-label={ko.editor.condGroupKindAria}
           className="border border-slate-300 rounded px-2 py-1 text-xs w-32"
           value={kind}
           onChange={(e) => {
@@ -1150,7 +1150,7 @@ function ConditionNode({
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-1 items-center">
         <input
-          aria-label="left"
+          aria-label={ko.editor.condLeftAria}
           placeholder="left"
           className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
           value={leaf.left}
@@ -1158,7 +1158,7 @@ function ConditionNode({
           onBlur={commitText}
         />
         <select
-          aria-label="op"
+          aria-label={ko.editor.condOpAria}
           className="border border-slate-300 rounded px-2 py-1 text-xs"
           value={leaf.op}
           onChange={(e) => {
@@ -1178,7 +1178,7 @@ function ConditionNode({
         </select>
         {!noRight && (
           <input
-            aria-label="right"
+            aria-label={ko.editor.condRightAria}
             placeholder="right"
             className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
             value={leaf.right ?? ""}

@@ -1,4 +1,5 @@
 import type { Tab } from "../../scenario/store";
+import { ko } from "../../i18n/ko";
 
 interface TabBarProps {
   active: Tab;
@@ -8,8 +9,8 @@ interface TabBarProps {
 export function TabBar({ active, onChange }: TabBarProps) {
   return (
     <div role="tablist" className="flex border-b border-slate-200">
-      <TabButton label="Canvas" tab="canvas" active={active} onChange={onChange} />
-      <TabButton label="YAML" tab="yaml" active={active} onChange={onChange} />
+      <TabButton label={ko.editor.tabCanvas} tab="canvas" active={active} onChange={onChange} />
+      <TabButton label={ko.editor.tabYaml} tab="yaml" active={active} onChange={onChange} />
     </div>
   );
 }

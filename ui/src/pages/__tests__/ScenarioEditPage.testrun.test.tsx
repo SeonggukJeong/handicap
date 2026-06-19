@@ -65,9 +65,9 @@ describe("ScenarioEditPage test-run", () => {
     renderPage();
 
     // wait for the scenario to load (Save button appears)
-    await screen.findByRole("button", { name: /Save/ });
+    await screen.findByRole("button", { name: "저장" });
 
-    const runBtn = await screen.findByRole("button", { name: /Test run/ });
+    const runBtn = await screen.findByRole("button", { name: "미리 1회 실행" });
     await user.click(runBtn);
 
     await waitFor(() => {
@@ -85,13 +85,13 @@ describe("ScenarioEditPage test-run", () => {
     expect(body.max_requests).toBe(50);
 
     // panel rendered
-    await screen.findByRole("region", { name: /Test run result/ });
+    await screen.findByRole("region", { name: /미리 실행 결과/ });
   });
 
   it("헤더 '미리 1회 실행' 버튼이 현재 버퍼로 test-run을 발사한다 (U4)", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("button", { name: /Save/ });
+    await screen.findByRole("button", { name: "저장" });
 
     await user.click(screen.getByRole("button", { name: ko.editor.testRunNow }));
 
@@ -110,15 +110,15 @@ describe("ScenarioEditPage test-run", () => {
 
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {
     renderPage();
-    await screen.findByRole("button", { name: /Save/ });
+    await screen.findByRole("button", { name: "저장" });
     const bc = screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel });
     expect(within(bc).getByRole("link", { name: ko.nav.scenarios })).toHaveAttribute("href", "/");
   });
 
   it("groups Save and Runs in the top header row, with no Back button", async () => {
     renderPage();
-    const save = await screen.findByRole("button", { name: /Save/ });
-    const runs = screen.getByRole("button", { name: /Runs/ });
+    const save = await screen.findByRole("button", { name: "저장" });
+    const runs = screen.getByRole("button", { name: /실행 목록/ });
     // Back was removed (redundant with the global nav + browser back, and a
     // data-loss footgun next to Save) — the global header handles navigation.
     expect(screen.queryByRole("button", { name: /Back/ })).not.toBeInTheDocument();

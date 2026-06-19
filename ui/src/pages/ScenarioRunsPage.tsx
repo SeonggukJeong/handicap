@@ -269,7 +269,7 @@ export function ScenarioRunsPage() {
                             checked={selectedIds.has(r.id)}
                             disabled={!isTerminal(r.status)}
                             onChange={() => toggleSelect(r.id)}
-                            aria-label={`select run ${r.id}`}
+                            aria-label={ko.report.selectRunAria(r.id)}
                           />
                         </td>
                         <td className="py-3 pr-4">

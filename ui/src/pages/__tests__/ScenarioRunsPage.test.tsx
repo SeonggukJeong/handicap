@@ -248,10 +248,10 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
     renderPageWithCompare();
 
     // wait for rows to appear
-    await screen.findByLabelText("select run C1");
-    const cbC1 = screen.getByLabelText("select run C1") as HTMLInputElement;
-    const cbC2 = screen.getByLabelText("select run C2") as HTMLInputElement;
-    const cbR1 = screen.getByLabelText("select run R1") as HTMLInputElement;
+    await screen.findByLabelText("실행 C1 선택");
+    const cbC1 = screen.getByLabelText("실행 C1 선택") as HTMLInputElement;
+    const cbC2 = screen.getByLabelText("실행 C2 선택") as HTMLInputElement;
+    const cbR1 = screen.getByLabelText("실행 R1 선택") as HTMLInputElement;
 
     expect(cbC1.disabled).toBe(false);
     expect(cbC2.disabled).toBe(false);
@@ -266,8 +266,8 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
     renderPageWithCompare();
 
     // select both
-    await user.click(await screen.findByLabelText("select run C1"));
-    await user.click(screen.getByLabelText("select run C2"));
+    await user.click(await screen.findByLabelText("실행 C1 선택"));
+    await user.click(screen.getByLabelText("실행 C2 선택"));
 
     const compareBtn = await screen.findByRole("button", { name: /비교 \(2\)/ });
     expect(compareBtn).not.toBeDisabled();
@@ -291,7 +291,7 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
 
     // select all 6
     for (let i = 1; i <= 6; i++) {
-      await user.click(await screen.findByLabelText(`select run C${i}`));
+      await user.click(await screen.findByLabelText(`실행 C${i} 선택`));
     }
 
     expect(await screen.findByText(/화면에선 5개까지 비교됩니다/)).toBeInTheDocument();
@@ -313,7 +313,7 @@ describe("ScenarioRunsPage — run selection + compare (A4b)", () => {
 
     // select all 51
     for (let i = 1; i <= 51; i++) {
-      await user.click(await screen.findByLabelText(`select run C${i}`));
+      await user.click(await screen.findByLabelText(`실행 C${i} 선택`));
     }
 
     expect(await screen.findByText(/최대 50개까지 선택할 수 있습니다/)).toBeInTheDocument();
@@ -386,7 +386,7 @@ describe("ScenarioRunsPage — elapsed time on running row (§7.4)", () => {
   it("terminal 행엔 경과 표시가 없다", async () => {
     mockApiRuns([makeRun("C1", "completed", Date.now() - 90_000)]);
     renderPageWithCompare();
-    await screen.findByLabelText("select run C1");
+    await screen.findByLabelText("실행 C1 선택");
     expect(screen.queryByText(/경과/)).toBeNull();
   });
 });
@@ -403,7 +403,7 @@ describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
     mockApiRuns([runWithVerdict, runWithoutVerdict]);
     renderPageWithCompare();
 
-    await screen.findByLabelText("select run V1");
+    await screen.findByLabelText("실행 V1 선택");
     expect(screen.getByText("PASS")).toBeInTheDocument();
     // The run without verdict renders the em-dash placeholder
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
