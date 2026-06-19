@@ -152,7 +152,7 @@ export function TemplatesPage() {
       )}
 
       <section aria-label={ko.nav.stepTemplates}>
-        {isLoading && <p className="text-slate-500">Loading…</p>}
+        {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
           <p className="text-red-600">{ko.stepTemplates.loadFailed((error as Error).message)}</p>
         )}

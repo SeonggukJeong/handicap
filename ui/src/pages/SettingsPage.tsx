@@ -149,7 +149,7 @@ export function SettingsPage() {
         {ko.opsSettings.applyNote}
       </p>
 
-      {isLoading && <p className="text-slate-500">Loading…</p>}
+      {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
       {error && (
         <p role="alert" className="text-red-600">
           불러오기 실패: {(error as Error).message}

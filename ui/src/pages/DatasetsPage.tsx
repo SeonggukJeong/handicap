@@ -44,8 +44,10 @@ export function DatasetsPage() {
       )}
 
       <section aria-label="dataset list" className="mt-8">
-        {isLoading && <p className="text-slate-500">Loading…</p>}
-        {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
+        {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
+        {error && (
+          <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
+        )}
         {data && data.datasets.length === 0 && (
           <EmptyState body={ko.empty.datasets} action={<p>{ko.empty.datasetsCta}</p>} />
         )}

@@ -107,9 +107,9 @@ export function ScenarioRunsPage() {
     });
   }
 
-  if (scenario.isLoading) return <p className="text-slate-500">Loading…</p>;
+  if (scenario.isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (scenario.error) return <p className="text-red-600">{(scenario.error as Error).message}</p>;
-  if (!scenario.data) return <p className="text-slate-500">Not found.</p>;
+  if (!scenario.data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const scenarioChanged = !!prefillState && prefillState.runScenarioYaml !== scenario.data.yaml;
 
@@ -160,7 +160,7 @@ export function ScenarioRunsPage() {
         </p>
       )}
 
-      {runs.isLoading && <p className="text-slate-500">Loading runs…</p>}
+      {runs.isLoading && <p className="text-slate-500">{ko.common.loadingRuns}</p>}
       {runs.data && runs.data.runs.length === 0 && (
         <EmptyState
           body={ko.empty.runs}

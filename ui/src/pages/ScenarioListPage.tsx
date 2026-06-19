@@ -31,8 +31,8 @@ export function ScenarioListPage() {
 
       {data && <OnboardingGuide firstScenarioId={data.scenarios[0]?.id ?? null} />}
 
-      {isLoading && <p className="text-slate-500">Loading…</p>}
-      {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
+      {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
+      {error && <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>}
       {clone.error && (
         <p role="alert" className="mb-3 text-sm text-red-600">
           복제 실패: {(clone.error as Error).message}

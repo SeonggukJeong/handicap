@@ -514,7 +514,7 @@ function BindingCard({
               }}
             >
               <option value="">— 없음 (바인딩 없이 실행) —</option>
-              {datasets.isLoading && <option disabled>Loading…</option>}
+              {datasets.isLoading && <option disabled>{ko.common.loading}</option>}
               {datasets.data?.datasets.map((ds) => (
                 <option key={ds.id} value={ds.id}>
                   {ds.name} ({ko.binding.rowCount(ds.row_count)})

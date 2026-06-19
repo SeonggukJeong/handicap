@@ -75,9 +75,9 @@ export function RunDetailPage() {
     return m;
   }, [metrics.data]);
 
-  if (run.isLoading) return <p className="text-slate-500">Loading…</p>;
+  if (run.isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (run.error) return <p className="text-red-600">{(run.error as Error).message}</p>;
-  if (!run.data) return <p className="text-slate-500">Not found.</p>;
+  if (!run.data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const r = run.data;
   const envMap: Record<string, string> = {};

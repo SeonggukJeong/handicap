@@ -227,8 +227,10 @@ export function EnvironmentsPage() {
       )}
 
       <section aria-label="environment list">
-        {isLoading && <p className="text-slate-500">Loading…</p>}
-        {error && <p className="text-red-600">Failed to load: {(error as Error).message}</p>}
+        {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
+        {error && (
+          <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
+        )}
         {data && data.length === 0 && mode === "none" && (
           <EmptyState
             body={ko.empty.environments}

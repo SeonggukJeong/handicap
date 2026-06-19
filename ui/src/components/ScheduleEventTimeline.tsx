@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useScheduleEvents } from "../api/hooks";
+import { ko } from "../i18n/ko";
 import { VerdictBadge } from "./VerdictBadge";
 
 const KIND_STYLE: Record<string, string> = {
@@ -17,7 +18,7 @@ export function ScheduleEventTimeline({ scheduleId }: Props) {
   return (
     <section aria-label="schedule events" className="mt-4">
       <h4 className="text-sm font-semibold text-slate-700 mb-2">이벤트 이력</h4>
-      {events.isLoading && <p className="text-slate-500 text-sm">Loading…</p>}
+      {events.isLoading && <p className="text-slate-500 text-sm">{ko.common.loading}</p>}
       {events.error && (
         <p role="alert" className="text-red-600 text-sm">
           이벤트 로드 실패: {(events.error as Error).message}

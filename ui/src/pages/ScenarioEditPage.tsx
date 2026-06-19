@@ -54,9 +54,10 @@ export function ScenarioEditPage() {
     }
   }, []);
 
-  if (isLoading) return <p className="text-slate-500">Loading…</p>;
-  if (error) return <p className="text-red-600">Failed: {(error as Error).message}</p>;
-  if (!data) return <p className="text-slate-500">Not found.</p>;
+  if (isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
+  if (error)
+    return <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>;
+  if (!data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const dirty = originalYaml !== yamlText;
   const scenariosLoaded = scenarios !== undefined;

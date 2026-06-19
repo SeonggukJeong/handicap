@@ -53,6 +53,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SchedulesPage", () => {
+  it("로딩 중 한국어 배너 표시 (R4)", async () => {
+    // fetch never resolves → loading state
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+    wrap(<SchedulesPage />);
+    expect(await screen.findByText(ko.common.loading)).toBeInTheDocument();
+  });
+
+  it("에러 시 한국어 배너 표시 (R4)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "서버 오류" }),
+        }),
+    );
+    wrap(<SchedulesPage />);
+    expect(await screen.findByText(ko.common.failedToLoad("서버 오류"))).toBeInTheDocument();
+  });
+
   it("renders schedule list with trigger summary + last_status badge", async () => {
     wrap(<SchedulesPage />);
     expect(await screen.findByText("nightly")).toBeInTheDocument();

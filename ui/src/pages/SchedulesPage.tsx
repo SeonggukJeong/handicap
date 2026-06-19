@@ -156,9 +156,9 @@ export function SchedulesPage() {
       )}
 
       <section aria-label="schedule list">
-        {list.isLoading && <p className="text-slate-500">Loading…</p>}
+        {list.isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {list.error && (
-          <p className="text-red-600">Failed to load: {(list.error as Error).message}</p>
+          <p className="text-red-600">{ko.common.failedToLoad((list.error as Error).message)}</p>
         )}
         {list.data && list.data.length === 0 && mode === "none" && (
           <EmptyState
