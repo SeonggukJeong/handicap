@@ -423,7 +423,13 @@ export const ko = {
     // ── 토글 루프/분기 분해 aria ──
     toggleLoopBreakdown: (name: string) => `${name} 루프 분해 표시 전환`,
     toggleBranchBreakdown: (name: string) => `${name} 분기 분해 표시 전환`,
-    // ── VerdictPanel 표 헤더 ──
+    // ── InsightPanel 섹션 aria ──
+    insightsLabel: "인사이트",
+    // ── VerdictPanel 섹션 aria + 표 헤더 ──
+    verdictSectionLabel: "SLO 판정",
+    verdictMetric: "지표",
+    verdictThreshold: "기준",
+    verdictActual: "실측값",
     verdictResult: "결과",
     // ── TestRunPanel 헤더 제목 ──
     requestHeadersTitle: "요청 헤더",

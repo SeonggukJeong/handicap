@@ -15,7 +15,7 @@ describe("PercentileCurveChart", () => {
     );
     const region = screen.getByRole("region", { name: /지연 분위 곡선/ });
     expect(region.querySelector("svg")).not.toBeNull();
-    expect(region).toHaveTextContent("지연 분포");
+    expect(region).toHaveTextContent("지연 분위 곡선");
   });
 
   it("renders quantile labels on the x-axis", () => {

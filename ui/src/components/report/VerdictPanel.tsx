@@ -9,7 +9,7 @@ type StepMeta = Map<string, { name: string }>;
 
 export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: StepMeta }) {
   return (
-    <section aria-label="SLO verdict" className="mb-6 rounded border p-3">
+    <section aria-label={ko.report.verdictSectionLabel} className="mb-6 rounded border p-3">
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-lg font-semibold mb-2">SLO</h3>
         <span
@@ -24,9 +24,9 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
       <table className="text-sm">
         <thead>
           <tr className="text-left text-slate-500">
-            <th className="pr-4">Metric</th>
-            <th className="pr-4">Threshold</th>
-            <th className="pr-4">Actual</th>
+            <th className="pr-4">{ko.report.verdictMetric}</th>
+            <th className="pr-4">{ko.report.verdictThreshold}</th>
+            <th className="pr-4">{ko.report.verdictActual}</th>
             <th>{ko.report.verdictResult}</th>
           </tr>
         </thead>

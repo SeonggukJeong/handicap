@@ -67,7 +67,7 @@ function actionFor(i: Insight): string | undefined {
 export function InsightPanel({ insights, meta }: Props) {
   if (insights.length === 0) return null;
   return (
-    <section aria-label="Insights" className="mb-6">
+    <section aria-label={ko.report.insightsLabel} className="mb-6">
       <h3 className="text-lg font-semibold mb-2">핵심 인사이트</h3>
       <ul className="space-y-1">
         {insights.map((i, idx) => (

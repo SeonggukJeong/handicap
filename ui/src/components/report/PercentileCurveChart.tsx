@@ -34,7 +34,9 @@ export function PercentileCurveChart({ curve, width = 720, height = 220 }: Props
   const data = curve.map((p) => ({ label: labelFor(p.quantile), ms: p.value_us / 1_000 }));
   return (
     <section aria-label={ko.report.latencyPercentileCurveLabel} className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.report.latencyDistTitle}</h4>
+      <h4 className="text-sm font-semibold text-slate-700 mb-2">
+        {ko.report.latencyPercentileCurveLabel}
+      </h4>
       <LineChart width={width} height={height} data={data}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="label" type="category" />
