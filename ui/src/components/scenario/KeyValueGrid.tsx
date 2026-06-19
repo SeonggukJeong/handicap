@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { BulkFormat } from "../../scenario/kvBulk";
 import { findCommonHeader, type CommonHeader } from "../../scenario/commonHeaders";
 import { BulkEditPanel } from "./BulkEditPanel";
+import { ko } from "../../i18n/ko";
 
 interface Row {
   key: string;
@@ -269,7 +270,7 @@ export function KeyValueGrid({
           disabled={!newKey.trim()}
           onClick={addRow}
         >
-          Add
+          {ko.common.add}
         </button>
       </div>
     </div>

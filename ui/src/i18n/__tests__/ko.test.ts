@@ -174,7 +174,7 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
   });
 });
 
-describe("Task 1: ko.common 네임스페이스 (R2, R4, R7)", () => {
+describe("ko.common 네임스페이스 (R2, R4, R7)", () => {
   it("common 네임스페이스의 18개 키가 전부 존재하고 비어 있지 않다", () => {
     const stringKeys = [
       "loading",

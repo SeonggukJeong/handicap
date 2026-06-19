@@ -45,7 +45,7 @@ describe("KeyValueGrid — grid editing", () => {
     render(<Harness />);
     await user.type(screen.getByLabelText("new header key"), "X-Custom");
     await user.type(screen.getByLabelText("new header value"), "abc");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "추가" }));
     expect(dump()).toEqual({ "X-Custom": "abc" });
   });
 
@@ -82,7 +82,7 @@ describe("KeyValueGrid — grid editing", () => {
     render(<Harness initial={{ A: "1" }} />);
     await user.type(screen.getByLabelText("new header key"), "A");
     await user.type(screen.getByLabelText("new header value"), "2");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "추가" }));
     expect(dump()).toEqual({ A: "2" });
   });
 
@@ -154,7 +154,7 @@ describe("KeyValueGrid — focus movement", () => {
     render(<Harness />);
     await user.type(screen.getByLabelText("new header key"), "X-Custom");
     await user.type(screen.getByLabelText("new header value"), "abc");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "추가" }));
     expect(screen.getByLabelText("new header key")).toHaveFocus();
   });
 

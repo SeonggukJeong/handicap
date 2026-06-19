@@ -69,7 +69,7 @@ describe("Inspector — ExtractEditor", () => {
     render(<Inspector />);
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
-    const addBtn = within(extractSection).getByRole("button", { name: /Add/i });
+    const addBtn = within(extractSection).getByRole("button", { name: /추가/i });
     await user.click(addBtn);
 
     const varInput = within(extractSection).getByPlaceholderText("var");
@@ -94,7 +94,7 @@ describe("Inspector — ExtractEditor", () => {
     render(<Inspector />);
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
-    await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
+    await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
 
     const fromSelect = within(extractSection).getByLabelText("extract-from-0");
     await user.selectOptions(fromSelect, "header");
@@ -108,7 +108,7 @@ describe("Inspector — ExtractEditor", () => {
     render(<Inspector />);
     const extractSection = screen.getByRole("group", { name: "값 추출" });
 
-    await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
+    await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
     await user.type(within(extractSection).getByPlaceholderText("var"), "t");
     await user.type(within(extractSection).getByPlaceholderText("$.path"), "$.x");
     await user.tab();
@@ -116,7 +116,7 @@ describe("Inspector — ExtractEditor", () => {
     expect(useScenarioEditor.getState().yamlText).toMatch(/extract:/);
 
     const removeBtn = within(extractSection).getByRole("button", {
-      name: /Remove extract 0/i,
+      name: /추출 0 제거/i,
     });
     await user.click(removeBtn);
 
@@ -128,7 +128,7 @@ describe("Inspector — ExtractEditor", () => {
     render(<Inspector />);
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
-    await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
+    await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
 
     // Type a var. With commit-on-blur, yamlText must NOT contain "var: " yet.
     const varInput = within(extractSection).getByPlaceholderText("var");
@@ -157,7 +157,7 @@ describe("Inspector — ExtractEditor", () => {
 
     // Bootstrap: add one complete row.
     const extractSection = screen.getByRole("group", { name: "값 추출" });
-    await user.click(within(extractSection).getByRole("button", { name: /Add/i }));
+    await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
     await user.type(within(extractSection).getByPlaceholderText("var"), "token");
     const pathInputBootstrap = within(extractSection).getByPlaceholderText("$.path");
     await user.clear(pathInputBootstrap);
@@ -197,7 +197,7 @@ describe("Inspector — loop", () => {
     useScenarioEditor.getState().select(loopId);
     render(<Inspector />);
 
-    const repeat = screen.getByLabelText(/repeat/i) as HTMLInputElement;
+    const repeat = screen.getByLabelText(/반복 횟수/i) as HTMLInputElement;
     expect(repeat).toBeInTheDocument();
     await user.clear(repeat);
     await user.type(repeat, "6");
@@ -256,8 +256,8 @@ describe("Inspector — move up/down (container steps)", () => {
     render(<Inspector />);
 
     // Loop is last of two → Move down disabled, Move up enabled.
-    expect(screen.getByTitle("Move down")).toBeDisabled();
-    const up = screen.getByTitle("Move up");
+    expect(screen.getByTitle("아래로")).toBeDisabled();
+    const up = screen.getByTitle("위로");
     expect(up).not.toBeDisabled();
 
     await user.click(up);
@@ -265,7 +265,7 @@ describe("Inspector — move up/down (container steps)", () => {
     const ids = useScenarioEditor.getState().model!.steps.map((s) => s.id);
     expect(ids).toEqual([loopId, httpId]);
     // Now first → Move up disabled.
-    expect(screen.getByTitle("Move up")).toBeDisabled();
+    expect(screen.getByTitle("위로")).toBeDisabled();
   });
 
   it("reorders a top-level if among its siblings via Move down", async () => {
@@ -276,8 +276,8 @@ describe("Inspector — move up/down (container steps)", () => {
     render(<Inspector />);
 
     // If is first of two → Move up disabled, Move down enabled.
-    expect(screen.getByTitle("Move up")).toBeDisabled();
-    const down = screen.getByTitle("Move down");
+    expect(screen.getByTitle("위로")).toBeDisabled();
+    const down = screen.getByTitle("아래로");
     expect(down).not.toBeDisabled();
 
     await user.click(down);
@@ -297,7 +297,7 @@ describe("Inspector — if route", () => {
   it("shows the If heading and the branch name", () => {
     render(<Inspector />);
     expect(screen.getByRole("heading", { name: "조건(if)" })).toBeInTheDocument();
-    expect((screen.getByLabelText("Name") as HTMLInputElement) ?? null).toBeTruthy();
+    expect((screen.getByLabelText("이름") as HTMLInputElement) ?? null).toBeTruthy();
   });
 
   it("navigates to a then-branch step", async () => {
@@ -364,8 +364,8 @@ describe("Inspector — IfInspector (builder)", () => {
   it("wraps a leaf in a group and adds a condition", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: /wrap in group/i }));
-    await user.click(screen.getByRole("button", { name: /\+ condition/i }));
+    await user.click(screen.getByRole("button", { name: /그룹으로 묶기/i }));
+    await user.click(screen.getByRole("button", { name: /\+ 조건/i }));
     const s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if" && "all" in s.cond) expect(s.cond.all).toHaveLength(2);
     else throw new Error("expected all group");
@@ -374,7 +374,7 @@ describe("Inspector — IfInspector (builder)", () => {
   it("adds a step to the else branch", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: /add step to else/i }));
+    await user.click(screen.getByRole("button", { name: /Else에 스텝 추가/i }));
     const s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if") expect(s.else).toHaveLength(1);
     else throw new Error("expected if step");
@@ -383,10 +383,10 @@ describe("Inspector — IfInspector (builder)", () => {
   it("adds then removes an elif branch", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: /add elif/i }));
+    await user.click(screen.getByRole("button", { name: /\+ Elif 추가/i }));
     let s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if") expect(s.elif).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: /remove elif 1/i }));
+    await user.click(screen.getByRole("button", { name: /Elif 1 제거/i }));
     s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if") expect(s.elif).toHaveLength(0);
   });
@@ -395,19 +395,19 @@ describe("Inspector — IfInspector (builder)", () => {
     const user = userEvent.setup();
     render(<Inspector />);
     // Wrap the single leaf into a group → group now has exactly 1 child.
-    await user.click(screen.getByRole("button", { name: /wrap in group/i }));
+    await user.click(screen.getByRole("button", { name: /그룹으로 묶기/i }));
     // With one child, no remove-condition button is offered, so the group
     // cannot be emptied into a vacuous-true {all: []}.
-    expect(screen.queryByRole("button", { name: /remove condition/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /조건 제거/i })).toBeNull();
     // Add a second condition → now removal is allowed again (2 children).
-    await user.click(screen.getByRole("button", { name: /\+ condition/i }));
-    expect(screen.getAllByRole("button", { name: /remove condition/i }).length).toBe(2);
+    await user.click(screen.getByRole("button", { name: /\+ 조건/i }));
+    expect(screen.getAllByRole("button", { name: /조건 제거/i }).length).toBe(2);
     // Remove one → back to 1 child, group still non-empty, remove buttons gone.
-    await user.click(screen.getAllByRole("button", { name: /remove condition/i })[0]);
+    await user.click(screen.getAllByRole("button", { name: /조건 제거/i })[0]);
     const s = useScenarioEditor.getState().model!.steps[0];
     if (s.type === "if" && "all" in s.cond) expect(s.cond.all).toHaveLength(1);
     else throw new Error("expected all group with one child");
-    expect(screen.queryByRole("button", { name: /remove condition/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /조건 제거/i })).toBeNull();
   });
 });
 
@@ -422,7 +422,7 @@ describe("Inspector — mutual nesting (9c)", () => {
     const loopId = useScenarioEditor.getState().addLoopStep("Loop 1");
     useScenarioEditor.getState().select(loopId);
     render(<Inspector />);
-    await user.click(screen.getByRole("button", { name: /add if/i }));
+    await user.click(screen.getByRole("button", { name: /반복 본문에 조건 추가/i }));
     const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId);
     expect(loop?.type).toBe("loop");
     if (loop?.type === "loop") {
@@ -436,7 +436,7 @@ describe("Inspector — mutual nesting (9c)", () => {
     useScenarioEditor.getState().select(ifId);
     render(<Inspector />);
     // BranchPanel for THEN exposes its own "+ Add loop"
-    const addLoopButtons = screen.getAllByRole("button", { name: /add loop/i });
+    const addLoopButtons = screen.getAllByRole("button", { name: /반복 추가/i });
     await user.click(addLoopButtons[0]);
     const ifStep = useScenarioEditor.getState().model!.steps.find((s) => s.id === ifId);
     expect(ifStep?.type).toBe("if");
@@ -456,7 +456,9 @@ describe("Inspector — mutual nesting (9c)", () => {
     // Anchor: confirm the nested loop's inspector actually rendered (else the
     // empty-state aside would make the negative assertion pass vacuously).
     expect(screen.getByRole("heading", { name: "반복(loop)" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /add if/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /반복 본문에 조건 추가/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("does NOT offer '+ Add loop' on a nested if's branches (symmetric depth gate, 9c)", async () => {
@@ -466,7 +468,7 @@ describe("Inspector — mutual nesting (9c)", () => {
     useScenarioEditor.getState().select(nestedIfId);
     render(<Inspector />);
     expect(screen.getByRole("heading", { name: "조건(if)" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /add loop/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /반복 추가/i })).not.toBeInTheDocument();
   });
 });
 
@@ -491,7 +493,7 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     // Two-field add row.
     const addKey = screen.getByPlaceholderText("Header");
     expect(addKey).toHaveClass("min-w-0");
-    const addBtn = within(addKey.closest("div")!).getByRole("button", { name: "Add" });
+    const addBtn = within(addKey.closest("div")!).getByRole("button", { name: "추가" });
     expect(addBtn).toHaveClass("shrink-0");
 
     // Add a non-common header (avoids datalist value-seeding) so a value row renders.
@@ -514,10 +516,10 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     loadAndSelect();
     render(<Inspector />);
 
-    await user.selectOptions(screen.getByDisplayValue("none"), "form");
+    await user.selectOptions(screen.getByDisplayValue("없음"), "form");
     const addField = screen.getByPlaceholderText("field");
     expect(addField).toHaveClass("min-w-0");
-    expect(within(addField.closest("div")!).getByRole("button", { name: "Add" })).toHaveClass(
+    expect(within(addField.closest("div")!).getByRole("button", { name: "추가" })).toHaveClass(
       "shrink-0",
     );
   });
@@ -529,30 +531,30 @@ describe("Inspector — JSON body Format", () => {
   it("reformats minified JSON to 2-space indent on Format", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.selectOptions(screen.getByDisplayValue("none"), "json");
-    const ta = screen.getByLabelText("json body") as HTMLTextAreaElement;
+    await user.selectOptions(screen.getByDisplayValue("없음"), "json");
+    const ta = screen.getByLabelText("JSON 본문") as HTMLTextAreaElement;
     // fireEvent (not userEvent.type) to avoid '{' key-descriptor parsing.
     fireEvent.change(ta, { target: { value: '{"a":1,"b":{"c":2}}' } });
-    await user.click(screen.getByRole("button", { name: "Format" }));
+    await user.click(screen.getByRole("button", { name: "포맷" }));
     expect(ta.value).toBe('{\n  "a": 1,\n  "b": {\n    "c": 2\n  }\n}');
   });
 
   it("persists the parsed value on Format (writes it to the YAML)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.selectOptions(screen.getByDisplayValue("none"), "json");
-    fireEvent.change(screen.getByLabelText("json body"), { target: { value: '{"a":1}' } });
-    await user.click(screen.getByRole("button", { name: "Format" }));
+    await user.selectOptions(screen.getByDisplayValue("없음"), "json");
+    fireEvent.change(screen.getByLabelText("JSON 본문"), { target: { value: '{"a":1}' } });
+    await user.click(screen.getByRole("button", { name: "포맷" }));
     expect(useScenarioEditor.getState().yamlText).toMatch(/a:\s*1/);
   });
 
   it("shows an error and leaves text unchanged on invalid JSON", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
-    await user.selectOptions(screen.getByDisplayValue("none"), "json");
-    const ta = screen.getByLabelText("json body") as HTMLTextAreaElement;
+    await user.selectOptions(screen.getByDisplayValue("없음"), "json");
+    const ta = screen.getByLabelText("JSON 본문") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "{not json}" } });
-    await user.click(screen.getByRole("button", { name: "Format" }));
+    await user.click(screen.getByRole("button", { name: "포맷" }));
     expect(ta.value).toBe("{not json}");
     expect(screen.getByText(/JSON:/)).toBeInTheDocument();
   });
@@ -620,7 +622,7 @@ describe("Inspector — timeout_seconds", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "12");
     // F5 pattern: model not updated until blur
@@ -641,7 +643,7 @@ describe("Inspector — timeout_seconds", () => {
       .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
     render(<Inspector />);
 
-    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     await user.clear(input);
     // F5 pattern: commit on blur, not on change
     fireEvent.blur(input);
@@ -662,7 +664,7 @@ describe("Inspector — timeout_seconds", () => {
       .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
     render(<Inspector />);
 
-    const input = screen.getByLabelText(/timeout \(s\)/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     // Type an out-of-range value (700 > max 600) then blur
     await user.clear(input);
     await user.type(input, "700");
@@ -687,8 +689,8 @@ describe("Inspector — think_time (S-B)", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
-    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
     await user.clear(minInput);
     await user.type(minInput, "100");
     await user.clear(maxInput);
@@ -711,8 +713,8 @@ describe("Inspector — think_time (S-B)", () => {
     });
     render(<Inspector />);
 
-    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
-    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
     await user.clear(minInput);
     await user.clear(maxInput);
     // F5 pattern: commit on blur, not on change
@@ -731,7 +733,7 @@ describe("Inspector — think_time (S-B)", () => {
     const user = userEvent.setup();
     render(<Inspector />);
 
-    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
     await user.clear(minInput);
     await user.type(minInput, "100");
     // Blur with max still empty = incomplete pair (focus leaving mid-entry).
@@ -755,8 +757,8 @@ describe("Inspector — think_time (S-B)", () => {
     });
     render(<Inspector />);
 
-    const minInput = screen.getByLabelText(/think min/i) as HTMLInputElement;
-    const maxInput = screen.getByLabelText(/think max/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
     // Set both drafts directly (no intermediate blur) so the single commit sees
     // an invalid pair (max < min), not a transient valid one.
     fireEvent.change(minInput, { target: { value: "200" } });
@@ -813,7 +815,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     if (stepBefore.type !== "parallel") throw new Error("expected parallel");
     expect(stepBefore.branches).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: /add branch/i }));
+    await user.click(screen.getByRole("button", { name: /분기 추가/i }));
 
     const stepAfter = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
     if (stepAfter.type !== "parallel") throw new Error("expected parallel");
@@ -867,7 +869,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     const beforeLen = step.branches[0].steps.length;
 
     // Click the first "+ Add step in branch" button
-    const addStepBtns = screen.getAllByRole("button", { name: /add step to branch/i });
+    const addStepBtns = screen.getAllByRole("button", { name: /분기.*에 스텝 추가/i });
     await user.click(addStepBtns[0]);
 
     const after = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
@@ -889,7 +891,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     expect(step.branches).toHaveLength(1);
 
     // With only 1 branch, the remove button must NOT be present
-    expect(screen.queryByRole("button", { name: /remove branch/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /분기.*제거/i })).not.toBeInTheDocument();
   });
 
   it("with 2 branches, removing one reduces to 1 and then remove button disappears", async () => {
@@ -898,7 +900,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     render(<Inspector />);
 
     // With 2 branches, remove buttons should be visible
-    const removeBtns = screen.getAllByRole("button", { name: /remove branch/i });
+    const removeBtns = screen.getAllByRole("button", { name: /분기.*제거/i });
     expect(removeBtns.length).toBe(2);
 
     await user.click(removeBtns[0]);
@@ -908,7 +910,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     expect(after.branches).toHaveLength(1);
 
     // After removing to 1, no more remove buttons
-    expect(screen.queryByRole("button", { name: /remove branch/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /분기.*제거/i })).not.toBeInTheDocument();
   });
 });
 
@@ -948,8 +950,8 @@ steps:
     const user = userEvent.setup();
     render(<Inspector />);
 
-    // The body-kind selector shows "form" (current body kind).
-    const kindSelect = screen.getByDisplayValue("form");
+    // The body-kind selector shows "폼" (current body kind).
+    const kindSelect = screen.getByDisplayValue("폼");
     await user.selectOptions(kindSelect, "json");
 
     const yaml = useScenarioEditor.getState().yamlText;

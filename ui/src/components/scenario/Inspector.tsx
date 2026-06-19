@@ -26,8 +26,7 @@ import { VarCheatSheet } from "./VarCheatSheet";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const BODY_KINDS = ["none", "json", "form", "raw"] as const;
-type BodyKind = (typeof BODY_KINDS)[number];
+type BodyKind = "none" | "json" | "form" | "raw";
 
 function buildDisabled(
   headers: Record<string, string> | undefined,
@@ -137,13 +136,13 @@ function MoveButtons({ stepId }: { stepId: string }) {
         onClick={() => moveStep(stepId, Math.max(0, index - 1))}
         disabled={index === 0}
         label="↑"
-        title="Move up"
+        title={ko.common.moveUp}
       />
       <SmallButton
         onClick={() => moveStep(stepId, Math.min(siblings.length - 1, index + 1))}
         disabled={index === siblings.length - 1}
         label="↓"
-        title="Move down"
+        title={ko.common.moveDown}
       />
     </>
   );
@@ -225,14 +224,14 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
           <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
-            label="Delete"
-            title="Delete step"
+            label={ko.common.delete}
+            title={ko.editor.deleteStep}
             danger
           />
         </div>
       </header>
 
-      <Field label="Name">
+      <Field label={ko.editor.fieldName}>
         <input
           className="w-full border border-slate-300 rounded px-2 py-1"
           value={step.name}
@@ -241,12 +240,14 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
       </Field>
 
       <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
-        <legend className="px-1 text-xs font-semibold text-slate-600">Request</legend>
+        <legend className="px-1 text-xs font-semibold text-slate-600">
+          {ko.editor.requestLegend}
+        </legend>
         <div className="flex items-center text-xs text-slate-500">
           <span>{ko.editor.varCheatSheetContext}</span>
           <VarCheatSheet />
         </div>
-        <Field label="Method">
+        <Field label={ko.editor.fieldMethod}>
           <select
             className="border border-slate-300 rounded px-2 py-1"
             value={step.request.method}
@@ -278,7 +279,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
         <BodyEditor step={step} />
       </fieldset>
 
-      <Field label="Timeout (s)">
+      <Field label={ko.editor.fieldTimeout}>
         <input
           type="number"
           min={1}
@@ -290,7 +291,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
         />
       </Field>
 
-      <Field label="Think min (ms)">
+      <Field label={ko.editor.fieldThinkMin}>
         <input
           type="number"
           min={0}
@@ -301,7 +302,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
           onBlur={commitThinkTime}
         />
       </Field>
-      <Field label="Think max (ms)">
+      <Field label={ko.editor.fieldThinkMax}>
         <input
           type="number"
           min={0}
@@ -312,7 +313,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
           onBlur={commitThinkTime}
         />
       </Field>
-      <p className="text-xs text-slate-500">min=max면 고정 지연 (요청 후 대기)</p>
+      <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
 
       <AssertEditor step={step} setStepAssert={setStepAssert} />
       <ExtractEditor step={step} />
@@ -324,7 +325,7 @@ function HeadersEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   return (
     <div className="min-w-0">
-      <div className="text-xs font-semibold text-slate-600 mb-1">Headers</div>
+      <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.headersLabel}</div>
       <KeyValueGrid
         entries={step.request.headers ?? {}}
         disabledEntries={step.request.disabled?.headers ?? {}}
@@ -339,9 +340,9 @@ function HeadersEditor({ step }: { step: HttpStep }) {
         resetKey={step.id}
         bulkFormat="header"
         itemLabel="header"
-        keyPlaceholder="Header"
+        keyPlaceholder={ko.editor.headerKeyPlaceholder}
         valuePlaceholder="value"
-        emptyText="No headers"
+        emptyText={ko.editor.noHeaders}
         commonKeys={COMMON_HEADERS}
       />
     </div>
@@ -373,17 +374,16 @@ function BodyEditor({ step }: { step: HttpStep }) {
 
   return (
     <div>
-      <div className="text-xs font-semibold text-slate-600 mb-1">Body</div>
+      <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.bodyLabel}</div>
       <select
         className="border border-slate-300 rounded px-2 py-1 text-sm mb-2"
         value={kind}
         onChange={(e) => setKind(e.target.value as BodyKind)}
       >
-        {BODY_KINDS.map((k) => (
-          <option key={k} value={k}>
-            {k}
-          </option>
-        ))}
+        <option value="none">{ko.editor.bodyNone}</option>
+        <option value="json">{ko.editor.bodyJson}</option>
+        <option value="form">{ko.editor.bodyForm}</option>
+        <option value="raw">{ko.editor.bodyRaw}</option>
       </select>
       {kind === "json" && <JsonBodyField step={step} />}
       {kind === "form" && <FormBodyField step={step} />}
@@ -434,7 +434,7 @@ function JsonBodyField({ step }: { step: HttpStep }) {
   return (
     <div>
       <textarea
-        aria-label="json body"
+        aria-label={ko.editor.jsonBodyAria}
         className="w-full h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -447,7 +447,7 @@ function JsonBodyField({ step }: { step: HttpStep }) {
           className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded"
           onClick={format}
         >
-          Format
+          {ko.editor.formatButton}
         </button>
       </div>
       {error && <p className="text-xs text-red-600">JSON: {error}</p>}
@@ -476,7 +476,7 @@ function FormBodyField({ step }: { step: HttpStep }) {
       itemLabel="form field"
       keyPlaceholder="field"
       valuePlaceholder="value"
-      emptyText="No fields"
+      emptyText={ko.editor.noFormFields}
     />
   );
 }
@@ -528,7 +528,7 @@ function AssertEditor({
             />
             <button
               type="button"
-              aria-label={`Remove assertion ${idx}`}
+              aria-label={ko.editor.removeAssertion(idx)}
               className="text-slate-500 hover:text-red-600"
               onClick={() => {
                 setStepAssert(
@@ -542,7 +542,7 @@ function AssertEditor({
           </li>
         ))}
         {step.assert.length === 0 && (
-          <li className="text-xs text-slate-400 italic">No assertions</li>
+          <li className="text-xs text-slate-400 italic">{ko.editor.noAssertions}</li>
         )}
       </ul>
       <div className="flex gap-2">
@@ -566,7 +566,7 @@ function AssertEditor({
             setNewCode("");
           }}
         >
-          Add
+          {ko.common.add}
         </button>
       </div>
     </fieldset>
@@ -673,10 +673,10 @@ function ExtractEditor({ step }: { step: HttpStep }) {
               value={x.from}
               onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
             >
-              <option value="body">body</option>
-              <option value="header">header</option>
-              <option value="cookie">cookie</option>
-              <option value="status">status</option>
+              <option value="body">본문</option>
+              <option value="header">헤더</option>
+              <option value="cookie">쿠키</option>
+              <option value="status">상태</option>
             </select>
             {x.from === "body" && (
               <input
@@ -697,11 +697,11 @@ function ExtractEditor({ step }: { step: HttpStep }) {
               />
             )}
             {x.from === "status" && (
-              <span className="text-slate-400 italic flex-1">no extra field</span>
+              <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>
             )}
             <button
               type="button"
-              aria-label={`Remove extract ${idx}`}
+              aria-label={ko.editor.removeExtract(idx)}
               className="text-slate-500 hover:text-red-600"
               onClick={() => remove(idx)}
             >
@@ -709,14 +709,16 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             </button>
           </li>
         ))}
-        {drafts.length === 0 && <li className="text-xs text-slate-400 italic">No extracts</li>}
+        {drafts.length === 0 && (
+          <li className="text-xs text-slate-400 italic">{ko.editor.noExtracts}</li>
+        )}
       </ul>
       <button
         type="button"
         className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
         onClick={append}
       >
-        Add
+        {ko.common.add}
       </button>
     </fieldset>
   );
@@ -776,7 +778,7 @@ function ParallelBranchEditor({
     <div className="border border-slate-200 rounded p-2 flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <label className="text-xs font-semibold text-slate-600 shrink-0">
-          Branch {branchIndex + 1}
+          {ko.editor.branchLabel(branchIndex + 1)}
         </label>
         <div className="flex-1 min-w-0">
           <input
@@ -790,7 +792,7 @@ function ParallelBranchEditor({
         {canRemove && (
           <button
             type="button"
-            aria-label={`remove branch ${branchIndex}`}
+            aria-label={ko.editor.removeBranch(branchIndex)}
             className="shrink-0 text-slate-500 hover:text-red-600 text-xs border border-slate-200 rounded px-2 py-1"
             onClick={() => removeBranch(parallelId, branchIndex)}
           >
@@ -808,14 +810,14 @@ function ParallelBranchEditor({
       </div>
       <button
         type="button"
-        aria-label={`Add step to branch ${branchIndex}`}
+        aria-label={ko.editor.addStepToLabel(`분기 ${branchIndex}`)}
         className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
         onClick={() => {
           const id = addStepInParallelBranch(parallelId, branchIndex, "Step");
           select(id);
         }}
       >
-        + Add step in branch
+        {ko.editor.addStepInBranch}
       </button>
     </div>
   );
@@ -837,14 +839,14 @@ function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) 
           <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
-            label="Delete"
-            title="Delete parallel"
+            label={ko.common.delete}
+            title={ko.editor.deleteParallel}
             danger
           />
         </div>
       </header>
 
-      <Field label="Name">
+      <Field label={ko.editor.fieldName}>
         <input
           className="w-full border border-slate-300 rounded px-2 py-1"
           value={step.name}
@@ -853,7 +855,7 @@ function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) 
       </Field>
 
       <div className="flex flex-col gap-2">
-        <div className="text-xs font-semibold text-slate-600">Branches</div>
+        <div className="text-xs font-semibold text-slate-600">{ko.editor.branchesLabel}</div>
         {step.branches.map((branch, i) => (
           <ParallelBranchEditor
             key={i}
@@ -867,11 +869,10 @@ function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) 
         ))}
         <button
           type="button"
-          aria-label="Add branch"
           className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
           onClick={() => addBranch(step.id)}
         >
-          + Add branch
+          {ko.editor.addBranch}
         </button>
       </div>
     </aside>
@@ -930,14 +931,14 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
           <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
-            label="Delete"
-            title="Delete loop"
+            label={ko.common.delete}
+            title={ko.editor.deleteLoop}
             danger
           />
         </div>
       </header>
 
-      <Field label="Name">
+      <Field label={ko.editor.fieldName}>
         <input
           className="w-full border border-slate-300 rounded px-2 py-1"
           value={step.name}
@@ -945,11 +946,11 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
         />
       </Field>
 
-      <Field label="Repeat">
+      <Field label={ko.editor.fieldRepeat}>
         <input
           type="number"
           min={1}
-          aria-label="repeat"
+          aria-label={ko.editor.fieldRepeat}
           className="w-24 border border-slate-300 rounded px-2 py-1"
           value={repeatDraft}
           onChange={(e) => setRepeatDraft(e.target.value)}
@@ -958,38 +959,40 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
       </Field>
 
       <div>
-        <div className="text-xs font-semibold text-slate-600 mb-1">Body steps</div>
+        <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.bodyStepsLabel}</div>
         <ul className="flex flex-col gap-1">
           {step.do.map((c) => (
             <li key={c.id}>
               <ChildStepButton step={c} onClick={() => select(c.id)} />
             </li>
           ))}
-          {step.do.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
+          {step.do.length === 0 && (
+            <li className="text-xs text-slate-400 italic">{ko.editor.noSteps}</li>
+          )}
         </ul>
         <div className="flex gap-2 mt-1">
           <button
             type="button"
-            aria-label="Add step to loop body"
+            aria-label={ko.editor.addStepToLoopBody}
             className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
             onClick={() => {
               const id = addStepInLoop(step.id, "Step");
               select(id);
             }}
           >
-            + Add step
+            {ko.editor.addStep}
           </button>
           {topLevel && (
             <button
               type="button"
-              aria-label="Add if to loop body"
+              aria-label={ko.editor.addIfToLoopBody}
               className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
               onClick={() => {
                 const id = addIfInLoop(step.id, "If");
                 select(id);
               }}
             >
-              + Add if
+              {ko.editor.addIfToLoopBody}
             </button>
           )}
         </div>
@@ -1053,7 +1056,7 @@ function ConditionEditor({
             onCommit(next);
           }}
         >
-          Wrap in group
+          {ko.editor.wrapInGroup}
         </button>
       )}
     </div>
@@ -1090,8 +1093,8 @@ function ConditionNode({
             editCommit(path, (k === "all" ? { all: children } : { any: children }) as Condition);
           }}
         >
-          <option value="all">ALL (AND)</option>
-          <option value="any">ANY (OR)</option>
+          <option value="all">{ko.editor.condAll}</option>
+          <option value="any">{ko.editor.condAny}</option>
         </select>
         {children.map((c, i) => (
           <div key={i} className="flex gap-1 items-start">
@@ -1109,7 +1112,7 @@ function ConditionNode({
             {children.length > 1 && (
               <button
                 type="button"
-                aria-label="remove condition"
+                aria-label={ko.editor.removeCondition}
                 className="text-slate-500 hover:text-red-600 shrink-0"
                 onClick={() => removeChild([...path, i])}
               >
@@ -1124,7 +1127,7 @@ function ConditionNode({
             className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
             onClick={() => editCommit(path, wrap([...children, NEW_LEAF()]))}
           >
-            + condition
+            {ko.editor.addCondition}
           </button>
           <button
             type="button"
@@ -1133,7 +1136,7 @@ function ConditionNode({
               editCommit(path, wrap([...children, { all: [NEW_LEAF()] } as Condition]))
             }
           >
-            + group
+            {ko.editor.addGroup}
           </button>
         </div>
       </div>
@@ -1214,31 +1217,33 @@ function BranchPanel({
             <ChildStepButton step={c} onClick={() => select(c.id)} />
           </li>
         ))}
-        {steps.length === 0 && <li className="text-xs text-slate-400 italic">No steps</li>}
+        {steps.length === 0 && (
+          <li className="text-xs text-slate-400 italic">{ko.editor.noSteps}</li>
+        )}
       </ul>
       <div className="flex gap-2 mt-1">
         <button
           type="button"
-          aria-label={`Add step to ${label}`}
+          aria-label={ko.editor.addStepToLabel(label)}
           className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
           onClick={() => {
             const id = addStepInBranch(ifId, branch, "Step");
             select(id);
           }}
         >
-          + Add step
+          {ko.editor.addStep}
         </button>
         {loopAllowed && (
           <button
             type="button"
-            aria-label={`Add loop to ${label}`}
+            aria-label={ko.editor.addLoopToLabel(label)}
             className="px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
             onClick={() => {
               const id = addLoopInBranch(ifId, branch, "Loop");
               select(id);
             }}
           >
-            + Add loop
+            {ko.editor.addLoopInBranch}
           </button>
         )}
       </div>
@@ -1262,14 +1267,14 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
           <MoveButtons stepId={step.id} />
           <SmallButton
             onClick={() => removeStep(step.id)}
-            label="Delete"
-            title="Delete if"
+            label={ko.common.delete}
+            title={ko.editor.deleteIf}
             danger
           />
         </div>
       </header>
 
-      <Field label="Name">
+      <Field label={ko.editor.fieldName}>
         <input
           className="w-full border border-slate-300 rounded px-2 py-1"
           value={step.name}
@@ -1279,14 +1284,16 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
 
       <fieldset
         className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
-        aria-label="Condition"
+        aria-label={ko.editor.conditionLegend}
       >
-        <legend className="px-1 text-xs font-semibold text-slate-600">Condition</legend>
+        <legend className="px-1 text-xs font-semibold text-slate-600">
+          {ko.editor.conditionLegend}
+        </legend>
         <ConditionEditor cond={step.cond} onCommit={(c) => setIfCond(step.id, c)} />
       </fieldset>
 
       <BranchPanel
-        label="Then"
+        label={ko.editor.condThen}
         branch={{ kind: "then" }}
         steps={step.then}
         ifId={step.id}
@@ -1299,10 +1306,10 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
           className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
         >
           <legend className="px-1 text-xs font-semibold text-slate-600 flex items-center gap-2">
-            <span>Elif {i + 1}</span>
+            <span>{ko.editor.elifLabel(i + 1)}</span>
             <button
               type="button"
-              aria-label={`Remove elif ${i + 1}`}
+              aria-label={ko.editor.removeElif(i + 1)}
               className="text-slate-500 hover:text-red-600"
               onClick={() => removeElif(step.id, i)}
             >
@@ -1311,7 +1318,7 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
           </legend>
           <ConditionEditor cond={e.cond} onCommit={(c) => setElifCond(step.id, i, c)} />
           <BranchPanel
-            label={`Elif ${i + 1}`}
+            label={ko.editor.elifLabel(i + 1)}
             branch={{ kind: "elif", index: i }}
             steps={e.then}
             ifId={step.id}
@@ -1325,11 +1332,11 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
         className="self-start px-2 py-1 text-xs border border-slate-300 rounded hover:bg-slate-100"
         onClick={() => addElif(step.id)}
       >
-        + Add elif
+        {ko.editor.addElif}
       </button>
 
       <BranchPanel
-        label="Else"
+        label={ko.editor.condElse}
         branch={{ kind: "else" }}
         steps={step.else}
         ifId={step.id}

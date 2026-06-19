@@ -1,7 +1,6 @@
 /**
  * UI 한국어 메시지 카탈로그 (ADR-0035).
  * - 모든 사용자 노출 문구(본문·버튼·표 헤더·placeholder·aria-label·title·배너)는 이 카탈로그 경유다 — 인라인 영어/한국어 금지. (기술 고유명사 VU/RPS/p95/YAML/URL 등은 원어 유지 + 설명 병기.)
- * - 기술 고유명사(VU, RPS, p95, cron, YAML)는 원어 유지 + 설명 병기.
  * - i18n 라이브러리 없음 — 나중에 en.ts + 컨텍스트 스위치를 더할 수 있는 구조만 유지.
  * - 용어 정의(glossary)는 전 화면 HelpTip의 단일 소스 — 화면마다 설명이 달라지면 안 된다.
  */
@@ -245,6 +244,68 @@ export const ko = {
     testRunNow: "미리 1회 실행",
     testRunNowHelpLabel: "미리 1회 실행 설명",
     testRunNowHelp: "저장 없이 현재 내용으로 실제 요청 1회를 보내 확인합니다.",
+    // ── Inspector 필드 라벨 ──
+    fieldName: "이름",
+    fieldMethod: "메서드",
+    fieldTimeout: "타임아웃 (초)",
+    fieldThinkMin: "think 최솟값 (ms)",
+    fieldThinkMax: "think 최댓값 (ms)",
+    fieldRepeat: "반복 횟수",
+    // ── Inspector 섹션 범례·라벨 ──
+    requestLegend: "요청",
+    headersLabel: "Headers",
+    headerKeyPlaceholder: "Header",
+    bodyLabel: "본문",
+    bodyNone: "없음",
+    bodyJson: "JSON",
+    bodyForm: "폼",
+    bodyRaw: "원문",
+    bodyStepsLabel: "본문 스텝",
+    branchesLabel: "분기",
+    conditionLegend: "조건",
+    // ── Inspector 빈 상태 ──
+    noAssertions: "검증 없음",
+    noExtracts: "추출 없음",
+    noSteps: "스텝 없음",
+    noExtraField: "추가 필드 없음",
+    noHeaders: "헤더 없음",
+    noFormFields: "필드 없음",
+    // ── Inspector think time 도움말 ──
+    thinkHint: "min=max면 고정 지연 (요청 후 대기)",
+    // ── Inspector JSON 바디 ──
+    jsonBodyAria: "JSON 본문",
+    formatButton: "포맷",
+    // ── Inspector 삭제 대상 title ──
+    deleteStep: "스텝 삭제",
+    deleteLoop: "반복 삭제",
+    deleteIf: "조건 삭제",
+    deleteParallel: "동시 실행 삭제",
+    // ── Inspector 조건 빌더 ──
+    condAll: "ALL (AND)",
+    condAny: "ANY (OR)",
+    condThen: "Then",
+    condElse: "Else",
+    addCondition: "+ 조건",
+    addGroup: "+ 그룹",
+    wrapInGroup: "그룹으로 묶기",
+    removeCondition: "조건 제거",
+    // ── Inspector 분기(elif/branch) ──
+    elifLabel: (n: number) => `Elif ${n}`,
+    branchLabel: (n: number) => `분기 ${n}`,
+    // ── Inspector 추가/제거 동작 (보간 aria) ──
+    addStep: "+ 스텝 추가",
+    addBranch: "+ 분기 추가",
+    addElif: "+ Elif 추가",
+    addStepInBranch: "+ 스텝 추가",
+    addLoopInBranch: "+ 반복 추가",
+    addStepToLabel: (label: string) => `${label}에 스텝 추가`,
+    addLoopToLabel: (label: string) => `${label}에 반복 추가`,
+    addStepToLoopBody: "반복 본문에 스텝 추가",
+    addIfToLoopBody: "반복 본문에 조건 추가",
+    removeBranch: (n: number) => `분기 ${n} 제거`,
+    removeAssertion: (n: number) => `검증 ${n} 제거`,
+    removeExtract: (n: number) => `추출 ${n} 제거`,
+    removeElif: (n: number) => `Elif ${n} 제거`,
   },
   templates: {
     galleryAria: "시나리오 템플릿 선택",
