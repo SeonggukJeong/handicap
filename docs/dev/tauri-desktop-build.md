@@ -79,5 +79,6 @@ Tauri는 빌드 시 `binaries/controller-<triple>`에서 triple 접미사를 떼
 
 - **사이드카 바이너리는 빌드타임 복사물(커밋 금지)**: `desktop/.gitignore`가 `src-tauri/binaries/controller*`·`src-tauri/target/`을 무시한다. 플랫폼마다 위 단계 3–4를 다시 돌려 해당 triple 바이너리를 깐다.
 - **`binaries/controller-<triple>`가 없으면** `cargo build`/`cargo tauri build`가 externalBin 해석에서 실패한다 → 항상 단계 4를 먼저.
-- bundle controller의 *행동*은 웹/단일 exe 경로와 byte-identical(셸은 기존 CLI 인자·로그만 소비). 셸이 자식 env에 `RUST_LOG=info`(포트 로그 보장) + `NO_COLOR=1`(ANSI 색 코드 억제 — 포트 파싱용)을 강제하는 것 외에 controller 동작 변경 없음.
+- bundle controller의 *행동*은 웹/단일 exe 경로와 byte-identical(셸은 기존 CLI 인자·로그만 소비). 셸이 자식 env에 `RUST_LOG=info`(포트 로그 라인 보장) + `NO_COLOR=1`을 강제하는 것 외에 controller 동작 변경 없음.
+- **포트 파싱의 load-bearing 방어는 `launch.rs::parse_rest_port`의 ANSI strip이다(`NO_COLOR`가 아니라).** 실측: controller의 `tracing_subscriber::fmt()`는 stdout이 **파이프**(셸이 `Stdio::piped()`로 읽는 실제 형태)면 `NO_COLOR=1`을 줘도 ANSI 색 코드를 계속 낸다(`NO_COLOR`는 파일 리다이렉트에서만 듣는다). 그래서 `parse_rest_port`는 매칭 전 CSI 시퀀스를 제거하고(실-ANSI 라인 fixture로 드리프트 가드), `NO_COLOR=1`은 무해한 defense-in-depth로만 남긴다. 라이브 검증(2026-06-19)에서 실제 ANSI 파이프 라인 → 포트 파싱 → `/api/health`=`ok` → run 완료 → killpg 트리 종료(고아 0) 전 구간 확인.
 - 셸 프런트(`desktop/src/`)는 **`splash.html` 한 장뿐**이다(실 UI는 controller가 서빙). Tauri 스캐폴드의 `index.html`/`main.js` 등은 제거됨 — `frontendDist`가 dead JS를 번들에 싣지 않게.

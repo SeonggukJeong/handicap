@@ -1,0 +1,11 @@
+# desktop/ — Tauri v2 데스크톱 셸 (함정 노트)
+
+bundle `controller` exe를 사이드카로 감싸는 네이티브 창(ADR-0040). 빌드·실행 절차는 `docs/dev/tauri-desktop-build.md`. 이 파일엔 작업 시 밟기 쉬운 함정만.
+
+- **`desktop/src-tauri`는 자체 빈 `[workspace]` 테이블이 있어야 빌드된다.** cargo는 워크스페이스 트리 안에 *중첩된* 패키지가 member도 exclude도 아니면 빌드를 거부한다. R5(루트 워크스페이스 밖)+R4(루트 `Cargo.toml` 무수정)를 동시에 만족하는 유일한 방법 = `desktop/src-tauri/Cargo.toml`에 빈 `[workspace]`(자기 자신을 워크스페이스 루트로). 절대 루트 `members`/`exclude`에 추가하지 말 것. → 결과: `cargo build --workspace`·pre-commit cargo 게이트가 `desktop/`을 안 건드림.
+- **`NO_COLOR=1`은 파이프 출력엔 무력 — 포트 파싱은 `parse_rest_port`의 ANSI strip이 load-bearing.** controller의 `tracing_subscriber::fmt()`는 stdout이 *파이프*(셸이 `Stdio::piped()`로 읽는 실제 형태)면 `NO_COLOR=1`을 줘도 ANSI 색 코드를 계속 낸다(파일 리다이렉트에서만 듣는다). 그래서 `launch.rs::parse_rest_port`는 CSI 시퀀스를 먼저 제거하고 매칭하며, 드리프트 가드 테스트는 **실측 ANSI 라인 fixture**를 쓴다(`NO_COLOR`는 무해한 defense-in-depth로만 둠). 라이브 검증으로 확인(2026-06-19).
+- **`externalBin`이 설정되면 `cargo build`도 `binaries/controller-<triple>`가 *존재*해야 한다.** 없으면 빌드가 externalBin 해석에서 실패한다(bundle 시점만이 아님). 사이드카는 빌드타임 복사물(gitignore)이라, 코드만 만지는 작업도 빌드 전 단계 4(release 빌드+triple 접미사 복사)를 먼저 돌리거나 placeholder를 깔아야 한다.
+- **macOS `.dmg`는 GUI 세션(WindowServer)이 필요, `.app`은 headless OK.** `bundle_dmg.sh`가 AppleScript로 DMG 창 외형을 꾸미느라 headless(SSH/CI)에서 실패한다(`rw.*.dmg` 중간 이미지만 남음). 산출물만 필요하면 `cargo tauri build --bundles app`. Tauri 앱 창 자체도 WindowServer 없이는 안 뜨므로 **GUI 렌더(R1)/WebView 다운로드(R9) 라이브 검증은 headless 불가** — 대신 셸↔controller 통합(spawn→포트→헬스→killpg 트리종료)을 사이드카 recipe를 충실히 재현하는 헤드리스 하니스로 검증한다.
+- **desktop 크레이트 테스트는 pre-commit 게이트 밖**(워크스페이스 밖이라 cargo 게이트가 안 봄). 커밋 전 `cd desktop/src-tauri && cargo test`를 **수동** 실행. tdd-guard/spec-review-guard도 `crates/*/src`·`ui/src`만 봐서 `desktop/`은 비대상(keepalive stub 불요).
+- **스캐폴드 디테일**: lib 이름은 `desktop_lib`(`main.rs`가 `desktop_lib::run()` 호출 — 바꾸지 말 것), `cargo create-tauri-app --manager cargo`면 node 무관(package.json 없음). 창 `label`은 `"main"`이어야 `capabilities/default.json`의 `windows:["main"]`과 매치. 프런트(`frontendDist: "../src"`)는 `splash.html` 한 장만 — 스캐폴드 `index.html`/`main.js`는 dead라 번들에 싣지 말고 제거.
+- **트리 종료는 `start()` 실패 경로도 정리해야 한다**(포트-대기 타임아웃·헬스 실패 둘 다 `kill_tree_on_failure` 호출) — 안 그러면 bind는 됐는데 헬스 안 뜬 controller+워커가 loopback 리스너를 들고 고아로 남는다(리뷰 적발).
