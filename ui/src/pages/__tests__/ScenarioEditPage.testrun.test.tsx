@@ -67,7 +67,7 @@ describe("ScenarioEditPage test-run", () => {
     // wait for the scenario to load (Save button appears)
     await screen.findByRole("button", { name: "저장" });
 
-    const runBtn = await screen.findByRole("button", { name: "미리 1회 실행" });
+    const runBtn = await screen.findByRole("button", { name: "미리 실행" });
     await user.click(runBtn);
 
     await waitFor(() => {
@@ -86,26 +86,9 @@ describe("ScenarioEditPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /미리 실행 결과/ });
-  });
 
-  it("헤더 '미리 1회 실행' 버튼이 현재 버퍼로 test-run을 발사한다 (U4)", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await screen.findByRole("button", { name: "저장" });
-
-    await user.click(screen.getByRole("button", { name: ko.editor.testRunNow }));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
-      );
-      expect(call).toBeTruthy();
-    });
-    const call = fetchMock.mock.calls.find(
-      ([u, i]) => String(u).endsWith("/api/test-runs") && (i as RequestInit)?.method === "POST",
-    )!;
-    const body = JSON.parse((call[1] as RequestInit).body as string);
-    expect(body.scenario_yaml).toContain("name: demo");
+    // header button is gone — only the section button remains
+    expect(screen.queryByRole("button", { name: "미리 1회 실행" })).not.toBeInTheDocument();
   });
 
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {

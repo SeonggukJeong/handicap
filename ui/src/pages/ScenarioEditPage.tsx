@@ -4,11 +4,10 @@ import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
-import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
-import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
+import { TestRunSection } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 
@@ -28,7 +27,6 @@ export function ScenarioEditPage() {
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [insertTplOpen, setInsertTplOpen] = useState(false);
   const baselineSeededRef = useRef(false);
-  const testRunRef = useRef<TestRunHandle>(null);
 
   // 템플릿 진입점 게이트: store 상태로 판단 (parseScenarioDoc 재호출 금지 — 깨진 텍스트 중
   // 엔 store yamlText가 마지막 정상본이라 재파싱 결과가 다를 수 있음)
@@ -103,10 +101,6 @@ export function ScenarioEditPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => testRunRef.current?.runNow()}>
-            {ko.editor.testRunNow}
-          </Button>
-          <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
             variant="secondary"
             onClick={() => setSaveTplOpen(true)}
@@ -163,7 +157,7 @@ export function ScenarioEditPage() {
 
       <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
 
-      <TestRunSection ref={testRunRef} yamlText={yamlText} />
+      <TestRunSection yamlText={yamlText} />
 
       {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
       {insertTplOpen && <InsertTemplateModal onClose={() => setInsertTplOpen(false)} />}

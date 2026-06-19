@@ -3,11 +3,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useCreateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
-import { HelpTip } from "../components/HelpTip";
 import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
-import { TestRunSection, type TestRunHandle } from "../components/scenario/TestRunSection";
+import { TestRunSection } from "../components/scenario/TestRunSection";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
@@ -25,8 +24,6 @@ export function ScenarioNewPage() {
   const [originalYaml, setOriginalYaml] = useState("");
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [insertTplOpen, setInsertTplOpen] = useState(false);
-  const testRunRef = useRef<TestRunHandle>(null);
-
   // 템플릿 진입점 게이트: store 상태로 판단
   const editorModel = useScenarioEditor((s) => s.model);
   const editorYamlError = useScenarioEditor((s) => s.yamlError);
@@ -103,10 +100,6 @@ export function ScenarioNewPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{ko.pages.newScenario}</h2>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => testRunRef.current?.runNow()}>
-            {ko.editor.testRunNow}
-          </Button>
-          <HelpTip label={ko.editor.testRunNowHelpLabel}>{ko.editor.testRunNowHelp}</HelpTip>
           <Button
             variant="secondary"
             onClick={() => setSaveTplOpen(true)}
@@ -143,7 +136,7 @@ export function ScenarioNewPage() {
 
       <EditorShell initialYaml={seedYaml} onChange={handleEditorChange} />
 
-      <TestRunSection ref={testRunRef} yamlText={yamlText} />
+      <TestRunSection yamlText={yamlText} />
 
       {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
       {insertTplOpen && <InsertTemplateModal onClose={() => setInsertTplOpen(false)} />}

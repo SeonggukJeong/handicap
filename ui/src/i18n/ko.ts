@@ -271,10 +271,6 @@ export const ko = {
       `${path}: 타입이 올바르지 않습니다 (기대 ${expected}, 입력 ${received})`,
     gateDuplicateBranch: (path: string, name: string) =>
       `${path}: 분기 이름 "${name}"이 중복됩니다`,
-    // ── test-run 승격 (§5.5, U4) ──
-    testRunNow: "미리 1회 실행",
-    testRunNowHelpLabel: "미리 1회 실행 설명",
-    testRunNowHelp: "저장 없이 현재 내용으로 실제 요청 1회를 보내 확인합니다.",
     // ── Inspector 필드 라벨 ──
     fieldName: "이름",
     fieldMethod: "메서드",
@@ -802,7 +798,7 @@ export const ko = {
       max_data_bindings: "한 run에 동시에 붙일 수 있는 독립 데이터셋 바인딩 개수.",
       max_loop_breakdown_cap:
         'loop 노드 메트릭을 "회차별로" 몇 개까지 집계할지 정하는 run 설정값의 허용 상한. 초과 회차는 "상한 초과" 한 칸으로 합쳐집니다.',
-      max_test_run_requests: '에디터 "미리 1회 실행"이 한 번에 보낼 수 있는 최대 요청 수.',
+      max_test_run_requests: '에디터 "시나리오 미리 테스트"가 한 번에 보낼 수 있는 최대 요청 수.',
       trace_body_cap_bytes: "테스트 실행 시 응답 본문을 최대 몇 바이트까지 보관할지(초과분 잘림).",
       scheduler_tick_seconds: "예약된 run을 얼마나 자주 점검할지(초).",
     },
