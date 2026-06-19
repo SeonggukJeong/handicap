@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod launch;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
