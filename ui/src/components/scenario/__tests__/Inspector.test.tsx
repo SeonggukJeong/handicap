@@ -488,10 +488,10 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     render(<Inspector />);
 
     // The Request fieldset is a flex item in the narrow aside; min-w-0 lets it shrink.
-    expect(screen.getByPlaceholderText("Header").closest("fieldset")).toHaveClass("min-w-0");
+    expect(screen.getByPlaceholderText("헤더 이름").closest("fieldset")).toHaveClass("min-w-0");
 
     // Two-field add row.
-    const addKey = screen.getByPlaceholderText("Header");
+    const addKey = screen.getByPlaceholderText("헤더 이름");
     expect(addKey).toHaveClass("min-w-0");
     const addBtn = within(addKey.closest("div")!).getByRole("button", { name: "추가" });
     expect(addBtn).toHaveClass("shrink-0");

@@ -253,8 +253,8 @@ export const ko = {
     fieldRepeat: "반복 횟수",
     // ── Inspector 섹션 범례·라벨 ──
     requestLegend: "요청",
-    headersLabel: "Headers",
-    headerKeyPlaceholder: "Header",
+    headersLabel: "헤더",
+    headerKeyPlaceholder: "헤더 이름",
     bodyLabel: "본문",
     bodyNone: "없음",
     bodyJson: "JSON",
