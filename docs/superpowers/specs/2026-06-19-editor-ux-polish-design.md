@@ -23,13 +23,13 @@
 |---|---|---|---|
 | R1 | MUST 헤더 `미리 1회 실행` 버튼 + 인접 HelpTip을 `ScenarioEditPage`·`ScenarioNewPage` **양쪽**에서 제거한다. **이때 unused가 되는 `HelpTip` import도 함께 제거한다**(양 페이지에서 HelpTip 유일 소비처 = 이 버튼, line 109 — 안 지우면 `lint --max-warnings=0` 실패; `useRef`는 `baselineSeededRef`/`didImportSeed`가 계속 써서 유지). | 두 페이지 RTL에서 헤더에 `미리 1회 실행`(구 `testRunNow`) role=button **부재** 단언 + `pnpm lint` green. | |
 | R2 | MUST `TestRunSection`을 ref-free 평범 컴포넌트로 전환한다(`forwardRef`/`useImperativeHandle`/`TestRunHandle`/`runNow()`/`rootRef`+scrollIntoView 제거). 발사 경로 = 섹션 자체 버튼 하나뿐. | `TestRunHandle` export 제거 + `pnpm build`(tsc) green + 섹션 버튼만으로 test-run 발사하는 RTL. | |
-| R3 | MUST `TestRunSection` 제목과 한 줄 안내를 목적-자명하게 한다(저장·부하 없이 1회 보내 확인 + 실제 부하는 ‘실행 기록’에서). 문구는 `ko.ts` 경유, **확정 카피는 §4.2**(`testRunTitle`="시나리오 미리 테스트" ≠ 현재값 "미리 1회 실행"). | 섹션에 §4.2의 정확한 제목 + 안내 문구가 렌더됨을 RTL `getByText`로 단언. | |
+| R3 | MUST `TestRunSection` 제목과 한 줄 안내를 목적-자명하게 한다(저장·부하 없이 1회 보내 확인 + 실제 부하는 ‘실행 목록’에서). 문구는 `ko.ts` 경유, **확정 카피는 §4.2**(`testRunTitle`="시나리오 미리 테스트" ≠ 현재값 "미리 1회 실행"). | 섹션에 §4.2의 정확한 제목 + 안내 문구가 렌더됨을 RTL `getByText`로 단언. | |
 | R4 | MUST `TestRunSection`의 컨트롤 region `aria-label`(`testRunControlsAria`, `TestRunSection.tsx:64`)과 결과 region `aria-label`(`testRunResultAria`, `TestRunPanel.tsx:451`)을 **둘 다 보존**하고 실행 버튼은 primary 스타일로 둔다. | 기존 `getByRole("region",{name})` 셀렉터 통과 + 버튼 렌더. | |
 | R12 | MUST 공유 키 `testRunTitle`을 분리한다 — 현재 `TestRunSection.tsx:67`(컨트롤 `<h3>`)와 `TestRunPanel.tsx:455`(결과 패널 `<h3>`)가 **같은 키를 공유**하므로, 컨트롤 제목만 rename(R3, `testRunTitle`="시나리오 미리 테스트")하면 결과 패널 제목도 조용히 바뀐다. 결과 패널은 신규 키 `testRunResultTitle`(="미리 테스트 결과")로 교체해, 컨트롤 제목 ≠ 결과 제목이 되게 한다. | `TestRunPanel.test`: 결과 패널 제목 "미리 테스트 결과" 렌더 + 컨트롤 제목과 불일치 단언. | |
 | R5 | MUST `collectProblems`의 URL 검사를 일반화: **변수-prefix(`${`/`{{`)가 아닌 리터럴**이 `http://`·`https://`(대소문자 무시)로 시작하지 **않으면** flag한다(기존 빈-URL·`/`-prefix·`//host`·신규 `example.com/api`·`localhost:8080`·`api/users` 포괄). | `problems.test`: `example.com/api`·`localhost:8080`·`api/x`·`/login`·`//host` flag, `http(s)://…` non-flag. | |
 | R6 | MUST (false-negative-safe 불변식) 변수로 **시작하는** URL(`${...}`·`{{...}}`)은 **절대 flag하지 않는다**(런타임 해석값 미지 → 유효 시나리오 차단 금지). 변수를 *포함하되 변수로 시작하지 않는* 리터럴(`api/${X}`)은 R5대로 flag(리터럴 prefix가 이미 깨짐). | `problems.test`: `${BASE_URL}/api`·`{{host}}/x`·`${BASE_URL}` non-flag; `api/${X}` flag. | |
 | R7 | MUST 스킴-없는/host-없는 URL 메시지를 초보자용 **단일 한국어 문구**로 둔다(`http(s)://` 또는 `${BASE_URL}` 예시 포함). `ko.ts` 경유. 기존 `problemHostlessUrl`을 이 일반 문구(`problemUrlNeedsScheme`)로 대체(통합). | 배너에 통합 메시지 렌더 단언 + `problemHostlessUrl` 잔존 참조 0. | |
-| R8 | MUST `ko.ts`에서 `testRunNow`·`testRunNowHelpLabel`·`testRunNowHelp`(헤더 버튼 카피)를 제거하고, `ko.opsSettings`의 `max_test_run_requests` 참조 문구 **2개**(`desc`[ko.ts:805] + `effect`[ko.ts:820-821], 둘 다 `SettingsPage.tsx`가 렌더)를 새 제목과 lockstep으로 갱신한다. | `grep` 잔존 참조 0 + `pnpm build` green. | |
+| R8 | MUST `ko.ts`에서 `testRunNow`·`testRunNowHelpLabel`·`testRunNowHelp`(헤더 버튼 카피)를 제거하고, `ko.opsSettings.desc.max_test_run_requests`(ko.ts:805)의 **리터럴 라벨 "미리 1회 실행"**을 새 제목과 lockstep으로 갱신한다. (`effect.max_test_run_requests`[:821]엔 리터럴 라벨이 없고 서술적 "미리보기/미리 실행"만이라 무변경 — 검증 완료.) | `grep "미리 1회 실행" ui/src` 0건 + `grep "testRunNow" ui/src` 0건 + `pnpm build` green. | |
 | R9 | SHOULD `TestRunSection`의 인라인 한국어 `"think time 적용 (천천히 전송)"`(`TestRunSection.tsx:92`)을 `ko.ts` 키(`editor.testRunThinkTime`, **값 verbatim 보존** — `name:/think time/i` 셀렉터 유지)로 이전한다(half-catalog 잔여, ADR-0035 고유명사 원어 병기 허용). | 컴포넌트에서 인라인 리터럴 제거 + `ko` 키 렌더 + 기존 `name:/think time/i` 통과. | |
 | R10 | MUST (무변경 불변식) 엔진·proto·controller·migration 0, `POST /api/test-runs` 요청 payload(`apply_think_time` 포함)와 `ScenarioTrace` 파싱은 byte-identical(test-run **동작** 무변경 — UI 배치/라벨만). | 머지 diff = `ui/`(+docs) only + `useTestRun`/`createTestRun`/`ScenarioTraceSchema` 무변경 확인. | |
 | R11 | MUST 페이지 test-run 테스트(`ScenarioEditPage.testrun`·`ScenarioNewPage.testrun`)의 **영향받는 4개 테스트 전부**(각 파일의 primary 테스트 `:70`/`:61` + U4 테스트 `:91`/`:101` — 넷 다 현재 헤더 버튼 `미리 1회 실행`으로 발사)를 **섹션 버튼**(`testRunRun`="미리 실행") 발사로 재작성한다. 셀렉터는 정확/앵커 매치(구 "미리 1회 실행"의 부분문자열 "미리 실행" 오매치 주의 — 단 헤더 버튼 제거 후엔 충돌 소멸). | `pnpm test` 전체 green(두 파일 포함). | |
@@ -59,7 +59,7 @@
 - `forwardRef`/`useImperativeHandle`/`TestRunHandle` 인터페이스/`runNow()`/`rootRef`(+`scrollIntoView`) 제거 → 평범한 `export function TestRunSection({ yamlText }: { yamlText: string })`. 이제 unused가 되는 import(`forwardRef`/`useImperativeHandle`/`useRef`)도 정리(`useMemo`/`useState`는 유지).
 - **확정 카피(이 값이 R3/R9 테스트의 정확 문자열)**:
   - `editor.testRunTitle` = **"시나리오 미리 테스트"** (현재값 "미리 1회 실행" 대체).
-  - 신규 `editor.testRunIntro` = **"저장·부하 없이 현재 내용으로 요청을 1회 보내 동작을 확인합니다. 실제 부하 실행은 ‘실행 기록’에서 합니다."** — `<h3>` 아래 `<p className="text-sm text-slate-600">`로 렌더(‘실행 기록’은 강조 텍스트, 링크화는 비목표).
+  - 신규 `editor.testRunIntro` = **"저장·부하 없이 현재 내용으로 요청을 1회 보내 동작을 확인합니다. 실제 부하 실행은 시나리오를 저장한 뒤 ‘실행 목록’에서 합니다."** — `<h3>` 아래 `<p className="text-sm text-slate-600">`로 렌더. (‘실행 목록’ = 실제 nav 버튼 라벨 `ko.pages.runsBtn`과 일치; "저장한 뒤"는 미저장 new 페이지도 정확. 링크화는 비목표.)
   - 실행 버튼: 기존 `<Button onClick={fire}>` 유지(default=primary). 라벨 `editor.testRunRun` = **"미리 실행" 유지(불변)** — 헤더 버튼 제거 후엔 "미리 1회 실행" 텍스트가 사라져 부분문자열 충돌 없음.
   - 신규 `editor.testRunThinkTime` = **"think time 적용 (천천히 전송)"**(현 line 92 인라인과 verbatim 동일 → `name:/think time/i` 셀렉터 유지).
 - region `aria-label`(`testRunControlsAria`, line 64)은 그대로(R4).
@@ -82,7 +82,7 @@
 ### 4.4 `ui/src/i18n/ko.ts` — 충족 R: R3, R7, R8, R9, R12
 - 제거: `editor.testRunNow`·`editor.testRunNowHelpLabel`·`editor.testRunNowHelp`.
 - 수정/추가: `editor.testRunTitle`="시나리오 미리 테스트"(컨트롤 제목) + 신규 `editor.testRunResultTitle`="미리 테스트 결과"(결과 패널, R12) + 신규 `editor.testRunIntro` + 신규 `editor.testRunThinkTime`(값은 §4.2 확정). `editor.problemHostlessUrl` → `editor.problemUrlNeedsScheme`(초보자용 통합 문구, name 인자 함수형 유지 — 예: ``(name) => `${name}: URL은 http:// 또는 https:// 로 시작해야 합니다 (예: https://api.example.com/path 또는 \${BASE_URL}/path)` ``; **`${BASE_URL}`은 TS 템플릿 리터럴이라 `\${BASE_URL}`로 escape 필수**(ui/CLAUDE.md 함정, 현 `problemHostlessUrl`도 escape). 정확 문안은 plan 확정·키/시그니처 고정).
-- `ko.opsSettings`의 `max_test_run_requests` 참조 문구 **2개** 갱신(F2): `desc.max_test_run_requests`(ko.ts:805, `'에디터 "미리 1회 실행"이…'`) + `effect.max_test_run_requests`(ko.ts:820-821, "…미리 실행됩니다") — 새 제목/용어와 lockstep, 의미 유지. (네임스페이스는 `ko.opsSettings`, `ko.opsConfig` 아님.)
+- `ko.opsSettings.desc.max_test_run_requests`(ko.ts:805, `'에디터 "미리 1회 실행"이…'`)의 리터럴 라벨 "미리 1회 실행"을 새 제목 "시나리오 미리 테스트"로 갱신(의미 유지). `effect.max_test_run_requests`(ko.ts:821)는 리터럴 라벨이 없고 서술적 "미리보기/미리 실행"만이라 **무변경**(검증 완료 — 새 제목과 의미 정합). (네임스페이스는 `ko.opsSettings`, `ko.opsConfig` 아님.)
 
 ### 4.5 테스트 — 충족 R: R1, R3, R5, R6, R9, R11
 - `ScenarioEditPage.testrun.test.tsx`·`ScenarioNewPage.testrun.test.tsx`: **각 파일 4개 중 영향받는 테스트 전부** 재작성(R-2) — primary 테스트(`:70 POSTs the current buffer…` / `:61 test-runs the unsaved draft…`)와 U4 테스트(`:91`/`:101`) 모두 현재 헤더 `미리 1회 실행` 버튼으로 발사하므로, 섹션 버튼(`name:"미리 실행"`)으로 전환 + "헤더에 구 버튼 부재" 단언 추가.
@@ -114,7 +114,7 @@
 | R5 | `problems.test`: `example.com/api`·`localhost:8080`·`api/x`·`/login`·`//host` flag | |
 | R6 | `problems.test`: `${BASE_URL}/api`·`{{host}}/x`·`${BASE_URL}` non-flag; `api/${X}` flag | |
 | R7 | 배너 통합 메시지 렌더 + `problemHostlessUrl` grep 참조 0 | |
-| R8 | `grep`(testRunNow* 잔존 0) + `max_test_run_requests` desc+effect 2개 갱신 + `pnpm build` | |
+| R8 | `grep "미리 1회 실행" ui/src` 0 + `grep testRunNow ui/src` 0 + `desc.max_test_run_requests` 갱신(effect 무변경) + `pnpm build` | |
 | R9 | 인라인 리터럴 제거 + `ko.editor.testRunThinkTime` 렌더(`name:/think time/i` 통과) | |
 | R10 | 머지 diff `ui/`(+docs) only + `useTestRun`/`createTestRun`/`ScenarioTraceSchema` 무변경 | |
 | R11 | `pnpm test` 전체 green(2 testrun 파일 4 테스트 재작성 + clone/save mock 단순화 + problems.test) | △ |
@@ -139,7 +139,9 @@
 
 UI-only라 cargo 게이트 무관·whole-feature 단일 흐름. 권장 task 경계(각 green 커밋):
 
-1. **검증 배너 일반화**(R5·R6·R7): `problems.ts` URL 규칙 일반화 + `ko.ts` `problemHostlessUrl`→`problemUrlNeedsScheme` + `problems.test` 케이스(신규 + `//host` 키 마이그레이션). 자족적(test-run과 독립) — 먼저.
-2. **TestRunSection ref-free + 목적 자명화 + 공유키 분리**(R2·R3·R4·R9·R12): `forwardRef`/handle/unused import 제거 + 제목("시나리오 미리 테스트")/안내/think-time 카피 `ko.ts` + **`TestRunPanel.tsx:455` 결과 제목을 신규 `testRunResultTitle`("미리 테스트 결과")로 분리**(공유 `testRunTitle` 회귀 방지). `TestRunSection.test`(runNow 블록·폴리필·unused import 삭제) + `TestRunPanel.test`(결과 제목) 갱신.
-3. **헤더 버튼 제거 + 페이지/mock 테스트 재작성**(R1·R8·R11): 두 페이지에서 버튼/`HelpTip`(JSX+**import**)/ref/`TestRunHandle` import 제거 + `ko.ts` 헤더 키 3종 제거 + `max_test_run_requests` desc+effect 2개 lockstep + 두 testrun 테스트 **영향 4개** 섹션-버튼화 + clone/save mock `forwardRef` 단순화. (R2가 `TestRunHandle`을 지우므로 이 task는 그 뒤 — tsc widening 순서.)
+**green-commit 순서 주의(tsc -b 전체 타입체크)**: `TestRunHandle`은 `TestRunSection`이 export하고 두 페이지가 `import type`한다. `TestRunSection`이 export를 **먼저** 지우면(페이지가 아직 import 중) 그 중간 커밋이 `tsc -b`로 red다. 따라서 **페이지가 먼저 `type TestRunHandle` import/ref를 끊고**(Task 2), 그 뒤 `TestRunSection`이 ref-free가 된다(Task 3). Task 2 동안 `TestRunSection`은 `forwardRef`인 채로 두면(미사용 ref는 컴파일 OK, `TestRunSection.test`의 runNow 블록도 그대로 유효) 각 커밋이 green.
+
+1. **검증 배너 일반화**(R5·R6·R7): `problems.ts` URL 규칙 일반화 + `ko.ts` `problemHostlessUrl`→`problemUrlNeedsScheme` + `problems.test` 케이스(신규 + `//host`/`/login` 키 마이그레이션). 자족적(test-run과 독립) — 먼저.
+2. **헤더 버튼 제거 + 페이지/테스트 재작성**(R1·R8·R11): 두 페이지에서 버튼/`HelpTip`(JSX+**import**)/`testRunRef`/`type TestRunHandle` import/`ref` prop 제거 + `ko.ts` 헤더 키 3종(`testRunNow*`) 제거 + `max_test_run_requests` `desc` lockstep(F2: `effect`엔 리터럴 "미리 1회 실행" 없음 — 확인만) + 두 testrun 테스트 영향 4개 재작성(primary 2개 → 섹션 버튼 "미리 실행", U4 헤더 테스트 2개 삭제). `TestRunSection`은 아직 `forwardRef`라 green.
+3. **TestRunSection ref-free + 목적 자명화 + 공유키 분리**(R2·R3·R4·R9·R12·R11): `forwardRef`/`useImperativeHandle`/`TestRunHandle`/`runNow`/`rootRef`/unused import 제거 + 제목("시나리오 미리 테스트")/안내/think-time 카피 `ko.ts` + **`TestRunPanel.tsx:455` 결과 제목을 신규 `testRunResultTitle`("미리 테스트 결과")로 분리** + `TestRunSection.test`(runNow 블록·scrollIntoView 폴리필·unused `createRef`/`TestRunHandle` import 삭제) + `TestRunPanel.test`(결과 제목) + clone/save mock `forwardRef`→plain 단순화.
 4. **최종**: `pnpm lint && pnpm test && pnpm build` 전체 green + handicap-reviewer(UI 일관성·a11y·ko.ts 단일소스) + (path-gate상 security-reviewer N/A — 요청실행/템플릿/바인딩/업로드/trace-뷰어 *로직* 무변경) + 라이브 빠른 1회(§6).
