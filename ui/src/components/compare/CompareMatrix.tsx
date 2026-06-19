@@ -1,4 +1,5 @@
 import type { Cell, CompareResult, CompareRow } from "../../compare/compareReports";
+import { ko } from "../../i18n/ko";
 
 type Props = {
   result: CompareResult;
@@ -166,13 +167,13 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
           </tr>
 
           {/* Summary section rows with spanning sub-header */}
-          <SectionRows title="Summary" rows={summary} runCount={colCount} />
+          <SectionRows title={ko.report.summaryTitle} rows={summary} runCount={colCount} />
 
           {/* Steps section rows with spanning sub-header */}
-          <SectionRows title="Steps" rows={steps} runCount={colCount} />
+          <SectionRows title={ko.report.stepsHeading} rows={steps} runCount={colCount} />
 
           {/* Status section rows with spanning sub-header */}
-          <SectionRows title="Status" rows={status} runCount={colCount} />
+          <SectionRows title={ko.report.colStatus} rows={status} runCount={colCount} />
         </tbody>
       </table>
     </div>

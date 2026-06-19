@@ -8,7 +8,7 @@ describe("ScenarioSnapshot", () => {
     const yaml = "version: 1\nname: test\n";
     render(<ScenarioSnapshot yaml={yaml} />);
     expect(screen.queryByText(yaml)).toBeNull();
-    const btn = screen.getByRole("button", { name: /Scenario YAML/ });
+    const btn = screen.getByRole("button", { name: /시나리오 YAML/ });
     await userEvent.setup().click(btn);
     expect(screen.getByText(/version: 1/)).toBeInTheDocument();
   });

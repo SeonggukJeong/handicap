@@ -13,9 +13,9 @@ describe("PercentileCurveChart", () => {
         ]}
       />,
     );
-    const region = screen.getByRole("region", { name: /Latency percentile curve/ });
+    const region = screen.getByRole("region", { name: /지연 분위 곡선/ });
     expect(region.querySelector("svg")).not.toBeNull();
-    expect(region).toHaveTextContent("Latency by percentile");
+    expect(region).toHaveTextContent("지연 분포");
   });
 
   it("renders quantile labels on the x-axis", () => {
@@ -27,7 +27,7 @@ describe("PercentileCurveChart", () => {
         ]}
       />,
     );
-    const region = screen.getByRole("region", { name: /Latency percentile curve/ });
+    const region = screen.getByRole("region", { name: /지연 분위 곡선/ });
     // p50 and p99 labels should appear in the chart
     expect(region).toHaveTextContent("p50");
     expect(region).toHaveTextContent("p99");

@@ -71,13 +71,13 @@ describe("RunDetailPage — abort", () => {
     const user = userEvent.setup();
     renderWithRouter("R1");
 
-    const abortBtn = await screen.findByRole("button", { name: /Abort/i });
+    const abortBtn = await screen.findByRole("button", { name: /중단/ });
     expect(abortBtn).toBeEnabled();
 
     await user.click(abortBtn);
 
     await waitFor(() => {
-      const stillThere = screen.queryByRole("button", { name: /Abort/i });
+      const stillThere = screen.queryByRole("button", { name: /중단/ });
       expect(
         stillThere === null || (stillThere && (stillThere as HTMLButtonElement).disabled),
       ).toBe(true);
@@ -118,7 +118,7 @@ describe("RunDetailPage — abort", () => {
     renderWithRouter("R2");
 
     await screen.findByText(/completed/i);
-    expect(screen.queryByRole("button", { name: /Abort/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /중단/ })).toBeNull();
   });
 });
 
@@ -198,7 +198,7 @@ describe("RunDetailPage — step metadata", () => {
 
     renderWithRouter("R3");
 
-    const stepsRegion = await screen.findByRole("region", { name: /Steps/i });
+    const stepsRegion = await screen.findByRole("region", { name: /스텝/ });
     expect(stepsRegion).toHaveTextContent("login");
     expect(stepsRegion).toHaveTextContent("POST");
     expect(stepsRegion).toHaveTextContent("${BASE_URL}/login");
@@ -544,7 +544,7 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
     mockRunningApi(Date.now() - 20_000, 1);
     renderWithRouter("SR1");
     // Wait for page render to settle (metrics windows section visible)
-    await screen.findByRole("heading", { name: /Metric windows/i });
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
   });
 
@@ -552,7 +552,7 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
     mockRunningApi(Date.now() - 3_000, 0);
     renderWithRouter("SR1");
     // Wait for page render to settle
-    await screen.findByRole("heading", { name: /Metric windows/i });
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
   });
 
@@ -568,7 +568,7 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
       return Promise.resolve(jsonResponse({}, 404));
     });
     renderWithRouter("SR1");
-    await screen.findByRole("heading", { name: /Metric windows/i });
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
   });
 });
@@ -639,9 +639,9 @@ describe("RunDetailPage — report on terminal", () => {
       return Promise.resolve(jsonResponse({}, 404));
     });
     renderWithRouter("R9");
-    await screen.findByRole("region", { name: /Report summary/ });
+    await screen.findByRole("region", { name: /리포트 요약/ });
     // The live "Metric windows" header should not be present in report mode.
-    expect(screen.queryByText(/Metric windows/)).toBeNull();
+    expect(screen.queryByText(/메트릭 윈도우/)).toBeNull();
     expect(JSON.parse(window.localStorage.getItem("handicap.onboarding.v1")!)).toMatchObject({
       reportViewed: true,
     });
@@ -670,7 +670,7 @@ describe("RunDetailPage — report on terminal", () => {
       return Promise.resolve(jsonResponse({}, 404));
     });
     renderWithRouter("R10");
-    await screen.findByRole("heading", { name: /Metric windows/i });
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     const reportCalls = fetchMock.mock.calls.filter(
       (c) => typeof c[0] === "string" && c[0].endsWith("/api/runs/R10/report"),
     );
@@ -705,9 +705,9 @@ describe("RunDetailPage — report on terminal", () => {
     });
     renderWithRouter("R11");
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/Report 로드 실패/);
+    expect(alert).toHaveTextContent(/리포트 로드 실패/);
     expect(alert).toHaveTextContent(/boom/);
     // Live sections still render as fallback so the page isn't blank.
-    expect(screen.getByRole("heading", { name: /Metric windows/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /메트릭 윈도우/ })).toBeInTheDocument();
   });
 });

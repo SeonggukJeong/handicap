@@ -17,7 +17,7 @@ const baseSummary = {
 describe("Summary", () => {
   it("renders all summary cards with formatted numbers", () => {
     render(<Summary summary={baseSummary} />);
-    const region = screen.getByRole("region", { name: /Report summary/i });
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
     expect(region).toHaveTextContent("12,345");
     expect(region).toHaveTextContent("7");
     expect(region).toHaveTextContent("123.4");
@@ -30,7 +30,7 @@ describe("Summary", () => {
   it("shows open-loop cards when targetRps is provided", () => {
     // count=88, dropped=12 → drop rate = 12/(12+88) = 12.0%
     render(<Summary summary={{ ...baseSummary, count: 88 }} dropped={12} targetRps={50} />);
-    const region = screen.getByRole("region", { name: /Report summary/i });
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
     expect(region).toHaveTextContent("목표 RPS");
     expect(region).toHaveTextContent("50");
     expect(region).toHaveTextContent("드롭");
@@ -46,7 +46,7 @@ describe("Summary", () => {
 
   it("shows 0% drop rate when both dropped and count are zero", () => {
     render(<Summary summary={{ ...baseSummary, count: 0 }} dropped={0} targetRps={100} />);
-    const region = screen.getByRole("region", { name: /Report summary/i });
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
     expect(region).toHaveTextContent("0%");
   });
 

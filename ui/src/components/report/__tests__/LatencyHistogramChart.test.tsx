@@ -13,18 +13,18 @@ describe("LatencyHistogramChart", () => {
         ]}
       />,
     );
-    const region = screen.getByRole("region", { name: /Latency histogram/ });
+    const region = screen.getByRole("region", { name: /지연 분포/ });
     expect(region.querySelector("svg")).not.toBeNull();
-    expect(region).toHaveTextContent("Latency distribution");
+    expect(region).toHaveTextContent("지연 분포");
   });
 
   it("shows empty-state text when no buckets", () => {
     render(<LatencyHistogramChart buckets={[]} />);
-    expect(screen.getByText(/No latency data/)).toBeInTheDocument();
+    expect(screen.getByText(/지연 데이터가 없습니다/)).toBeInTheDocument();
   });
 
   it("renders the lower-edge latency label on the x-axis", () => {
     render(<LatencyHistogramChart buckets={[{ lower_us: 1_000, upper_us: 2_000, count: 10 }]} />);
-    expect(screen.getByRole("region", { name: /Latency histogram/ })).toHaveTextContent("1.0 ms");
+    expect(screen.getByRole("region", { name: /지연 분포/ })).toHaveTextContent("1.0 ms");
   });
 });

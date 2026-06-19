@@ -6,6 +6,7 @@ import type { Extract } from "../../scenario/model";
 import { Modal } from "../Modal";
 import { ResponseBodyTree } from "./ResponseBodyTree";
 import { ExtractConfirmRow } from "./ExtractConfirmRow";
+import { ko } from "../../i18n/ko";
 
 // Future: expose via an options menu (docs/roadmap.md §B2''). JS string units (UTF-16
 // code points), distinct from the engine's byte cap.
@@ -338,14 +339,17 @@ function HttpRow({
         <div className="mt-2 rounded bg-slate-50 p-3">
           {req && (
             <>
-              <HeaderTable title="Request headers" rows={Object.entries(req.headers)} />
+              <HeaderTable
+                title={ko.report.requestHeadersTitle}
+                rows={Object.entries(req.headers)}
+              />
               {req.body && <BodyBlock body={req.body} label="요청 본문" />}
             </>
           )}
           {resp && (
             <>
               <HeaderTable
-                title="Response headers"
+                title={ko.report.responseHeadersTitle}
                 rows={Object.entries(resp.headers)}
                 onExtract={
                   onCreate

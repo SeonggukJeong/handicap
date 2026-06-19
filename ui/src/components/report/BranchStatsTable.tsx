@@ -36,8 +36,8 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
   }
 
   return (
-    <section aria-label="Branch decisions" className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">Branch decisions</h3>
+    <section aria-label={ko.report.branchDecisionsLabel} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{ko.report.branchDecisionsTitle}</h3>
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
@@ -60,7 +60,7 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
                     <button
                       type="button"
                       aria-expanded={isOpen}
-                      aria-label={`Toggle branch breakdown for ${m?.name ?? b.step_id}`}
+                      aria-label={ko.report.toggleBranchBreakdown(m?.name ?? b.step_id)}
                       onClick={() => toggle(b.step_id)}
                       className="mr-1 text-slate-500"
                     >

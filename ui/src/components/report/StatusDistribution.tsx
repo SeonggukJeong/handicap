@@ -1,4 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
+import { ko } from "../../i18n/ko";
 
 type Props = {
   distribution: Record<string, number>;
@@ -12,10 +13,10 @@ export function StatusDistribution({ distribution, width = 480, height = 240 }: 
     .sort((a, b) => a.code.localeCompare(b.code));
   const isEmpty = data.length === 0;
   return (
-    <section aria-label="Status distribution" className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">Status codes</h3>
+    <section aria-label={ko.report.statusDistributionLabel} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{ko.report.statusCodesTitle}</h3>
       {isEmpty ? (
-        <p className="text-slate-500 text-sm italic">No status data.</p>
+        <p className="text-slate-500 text-sm italic">{ko.report.noStatusData}</p>
       ) : (
         <BarChart width={width} height={height} data={data}>
           <CartesianGrid strokeDasharray="3 3" />

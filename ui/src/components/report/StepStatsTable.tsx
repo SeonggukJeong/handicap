@@ -29,8 +29,8 @@ export function StepStatsTable({ steps, meta }: Props) {
   const colSpan = anyDownload ? 11 : 8;
 
   return (
-    <section aria-label="Per-step stats" className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">Steps</h3>
+    <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{ko.report.stepsHeading}</h3>
       {anyDownload && (
         <p className="mb-2 text-xs text-slate-500">
           응답(TTFB)=요청~헤더, 다운로드=본문 수신. 합 ≠ 전체(퍼센타일 비가산).
@@ -76,7 +76,7 @@ export function StepStatsTable({ steps, meta }: Props) {
                       <button
                         type="button"
                         aria-expanded={isOpen}
-                        aria-label={`Toggle loop breakdown for ${m?.name ?? s.step_id}`}
+                        aria-label={ko.report.toggleLoopBreakdown(m?.name ?? s.step_id)}
                         onClick={() => toggle(s.step_id)}
                         className="mr-1 text-slate-500"
                       >

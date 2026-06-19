@@ -124,7 +124,8 @@ export function RunDetailPage() {
       />
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold flex items-center gap-3">
-          Run <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
+          {ko.runDetail.heading}{" "}
+          <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
           <StatusBadge status={r.status} />
           <VerdictBadge verdict={report.data?.verdict} />
         </h2>
@@ -136,7 +137,7 @@ export function RunDetailPage() {
               disabled={abort.isPending}
               className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
             >
-              {abort.isPending ? "Aborting…" : "Abort"}
+              {abort.isPending ? ko.common.aborting : ko.common.abort}
             </button>
           )}
           {terminal && (
@@ -156,7 +157,7 @@ export function RunDetailPage() {
                 disabled={createRun.isPending}
                 className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-50"
               >
-                {createRun.isPending ? "Starting…" : "동일 설정 즉시 재실행"}
+                {createRun.isPending ? ko.runDialog.running : "동일 설정 즉시 재실행"}
               </button>
               <Link
                 to={`/scenarios/${r.scenario_id}/runs?retry=${r.id}`}
@@ -203,15 +204,15 @@ export function RunDetailPage() {
       )}
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
-        <Card label="VUs">{r.profile.vus}</Card>
-        <Card label="Duration">{durationSeconds}s</Card>
-        <Card label="Total requests">{totalCount}</Card>
-        <Card label="Errors">{totalErrors}</Card>
+        <Card label={ko.runDetail.cardVus}>{r.profile.vus}</Card>
+        <Card label={ko.runDetail.cardDuration}>{durationSeconds}s</Card>
+        <Card label={ko.runDetail.cardTotalRequests}>{totalCount}</Card>
+        <Card label={ko.runDetail.cardErrors}>{totalErrors}</Card>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-        <Card label="Avg RPS">{rps}</Card>
-        <Card label="Created">{new Date(r.created_at).toLocaleString()}</Card>
+        <Card label={ko.runDetail.cardAvgRps}>{rps}</Card>
+        <Card label={ko.runDetail.cardCreated}>{new Date(r.created_at).toLocaleString()}</Card>
       </div>
 
       {r.status === "failed" && typeof r.message === "string" && r.message.length > 0 && (
@@ -219,7 +220,7 @@ export function RunDetailPage() {
           role="alert"
           className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
         >
-          <span className="font-semibold">실패 사유:</span> {r.message}
+          <span className="font-semibold">{ko.runDetail.failReason}:</span> {r.message}
         </div>
       )}
 
@@ -232,7 +233,7 @@ export function RunDetailPage() {
               role="alert"
               className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
             >
-              Report 로드 실패: {(report.error as Error).message}
+              {ko.runDetail.reportLoadFailed}: {(report.error as Error).message}
             </div>
           )}
           {terminal && report.isLoading && (
@@ -240,13 +241,13 @@ export function RunDetailPage() {
               role="status"
               className="mb-4 p-3 border border-slate-200 bg-slate-50 text-sm text-slate-600 rounded"
             >
-              리포트 생성 중…
+              {ko.runDetail.reportGenerating}
             </div>
           )}
           <EnvBlock env={r.env} />
 
-          <section aria-label="Profile" className="mb-6 text-sm">
-            <h3 className="text-lg font-semibold mb-2">Profile</h3>
+          <section aria-label={ko.runDetail.profileLabel} className="mb-6 text-sm">
+            <h3 className="text-lg font-semibold mb-2">{ko.runDetail.profileTitle}</h3>
             <ul className="font-mono text-slate-700">
               <li>vus = {r.profile.vus}</li>
               <li>duration = {r.profile.duration_seconds}s</li>
@@ -255,17 +256,17 @@ export function RunDetailPage() {
           </section>
 
           {stepOrder.length > 0 && (
-            <section aria-label="Steps" className="mb-6">
-              <h3 className="text-lg font-semibold mb-2">Steps</h3>
+            <section aria-label={ko.runDetail.stepsLabel} className="mb-6">
+              <h3 className="text-lg font-semibold mb-2">{ko.runDetail.stepsTitle}</h3>
               <table className="min-w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-slate-600">
                   <tr>
                     <th className="py-2 pr-4 font-medium">#</th>
-                    <th className="py-2 pr-4 font-medium">Name</th>
-                    <th className="py-2 pr-4 font-medium">Method</th>
+                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colName}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colMethod}</th>
                     <th className="py-2 pr-4 font-medium">URL</th>
-                    <th className="py-2 pr-4 font-medium">Requests</th>
-                    <th className="py-2 pr-4 font-medium">Errors</th>
+                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colRequests}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.runDetail.colErrors}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -293,20 +294,20 @@ export function RunDetailPage() {
             </section>
           )}
 
-          <h3 className="text-lg font-semibold mb-2">Metric windows</h3>
+          <h3 className="text-lg font-semibold mb-2">{ko.runDetail.metricWindowsTitle}</h3>
           {!metrics.data || metrics.data.windows.length === 0 ? (
             <p className="text-slate-500 text-sm">
-              {terminal ? "No metrics recorded." : "Waiting for first batch…"}
+              {terminal ? ko.runDetail.noMetrics : ko.runDetail.waitingFirstBatch}
             </p>
           ) : (
             <table className="min-w-full text-sm">
               <thead className="border-b border-slate-200 text-left text-slate-600">
                 <tr>
-                  <th className="py-2 pr-4 font-medium">Second</th>
-                  <th className="py-2 pr-4 font-medium">Step</th>
-                  <th className="py-2 pr-4 font-medium">Count</th>
-                  <th className="py-2 pr-4 font-medium">Errors</th>
-                  <th className="py-2 pr-4 font-medium">Status codes</th>
+                  <th className="py-2 pr-4 font-medium">{ko.report.colSecond}</th>
+                  <th className="py-2 pr-4 font-medium">{ko.report.colStep}</th>
+                  <th className="py-2 pr-4 font-medium">{ko.report.colCount}</th>
+                  <th className="py-2 pr-4 font-medium">{ko.report.colErrors}</th>
+                  <th className="py-2 pr-4 font-medium">{ko.report.colStatusCodes}</th>
                 </tr>
               </thead>
               <tbody>
@@ -361,10 +362,10 @@ function EnvBlock({ env }: { env: unknown }) {
       ? Object.entries(env as Record<string, unknown>)
       : [];
   return (
-    <section aria-label="Env" className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">Env</h3>
+    <section aria-label={ko.runDetail.envLabel} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{ko.runDetail.envTitle}</h3>
       {entries.length === 0 ? (
-        <p className="text-slate-500 text-sm italic">No env vars were sent.</p>
+        <p className="text-slate-500 text-sm italic">{ko.runDetail.noEnvSent}</p>
       ) : (
         <ul className="text-sm font-mono">
           {entries.map(([k, v]) => (

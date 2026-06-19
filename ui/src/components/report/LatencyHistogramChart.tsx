@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import type { HistogramBucket } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 import { formatLatency } from "./format";
 
 type Props = {
@@ -20,10 +21,10 @@ export function LatencyHistogramChart({ buckets, width = 720, height = 240 }: Pr
   }));
   const isEmpty = data.length === 0;
   return (
-    <section aria-label="Latency histogram" className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">Latency distribution</h4>
+    <section aria-label={ko.report.latencyHistogramLabel} className="mb-6">
+      <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.report.latencyDistTitle}</h4>
       {isEmpty ? (
-        <p className="text-slate-500 text-sm italic">No latency data.</p>
+        <p className="text-slate-500 text-sm italic">{ko.report.noLatencyData}</p>
       ) : (
         <BarChart width={width} height={height} data={data}>
           <CartesianGrid strokeDasharray="3 3" />

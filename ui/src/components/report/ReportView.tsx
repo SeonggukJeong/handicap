@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Profile, Report } from "../../api/schemas";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
+import { ko } from "../../i18n/ko";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps, findStepById } from "../../scenario/model";
 import { resolveForDisplay } from "../../scenario/template";
@@ -103,7 +104,7 @@ export function ReportView({ report, profile }: Props) {
     <div>
       <ReportHeadline summary={report.summary} profile={profile} verdict={report.verdict} />
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-semibold">Report</h3>
+        <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
         <div className="flex items-center gap-2">
           <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
           <button
@@ -163,17 +164,17 @@ export function ReportView({ report, profile }: Props) {
         targetRps={(report.run.profile as { target_rps?: number } | null)?.target_rps ?? null}
       />
       <TimeSeriesChart
-        title="Requests / second"
+        title={ko.report.timeSeriesRequests}
         yLabel="req/s"
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
       />
       <TimeSeriesChart
-        title="p95 response time"
+        title={ko.report.timeSeriesP95}
         yLabel="ms"
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.p95_ms }))}
       />
       <TimeSeriesChart
-        title="Errors / second"
+        title={ko.report.timeSeriesErrors}
         yLabel="errors"
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
       />
@@ -181,8 +182,8 @@ export function ReportView({ report, profile }: Props) {
         <ActiveVuChart series={report.active_vu_series} />
       ) : null}
       {report.latency ? (
-        <section aria-label="Latency">
-          <h3 className="text-lg font-semibold mb-2">Latency</h3>
+        <section aria-label={ko.report.latencyTitle}>
+          <h3 className="text-lg font-semibold mb-2">{ko.report.latencyTitle}</h3>
           <PercentileCurveChart curve={report.latency.percentile_curve} />
           <LatencyHistogramChart buckets={report.latency.histogram} />
         </section>

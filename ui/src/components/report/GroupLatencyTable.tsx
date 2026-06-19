@@ -13,8 +13,8 @@ type Props = { breakdown: GroupLatency[]; meta: Map<string, GroupMeta> };
 export function GroupLatencyTable({ breakdown, meta }: Props) {
   if (breakdown.length === 0) return null;
   return (
-    <section aria-label="Page load latency" className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">Page load latency</h3>
+    <section aria-label={ko.report.pageLoadLatencyLabel} className="mb-6">
+      <h3 className="text-lg font-semibold mb-2">{ko.report.pageLoadLatencyTitle}</h3>
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>

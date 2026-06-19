@@ -1,4 +1,5 @@
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import { ko } from "../../i18n/ko";
 
 type Point = { ts_second: number; value: number };
 
@@ -15,7 +16,7 @@ export function TimeSeriesChart({ title, data, yLabel, width = 720, height = 220
   const t0 = data.length > 0 ? data[0].ts_second : 0;
   const series = data.map((p) => ({ x: p.ts_second - t0, y: p.value }));
   return (
-    <section aria-label={`Time series — ${title}`} className="mb-6">
+    <section aria-label={ko.report.timeSeriesAria(title)} className="mb-6">
       <h4 className="text-sm font-semibold text-slate-700 mb-2">{title}</h4>
       <LineChart width={width} height={height} data={series}>
         <CartesianGrid strokeDasharray="3 3" />

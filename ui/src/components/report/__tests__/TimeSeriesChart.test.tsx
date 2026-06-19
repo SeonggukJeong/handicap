@@ -17,14 +17,12 @@ describe("TimeSeriesChart", () => {
         height={200}
       />,
     );
-    const region = screen.getByRole("region", { name: /Time series — RPS/ });
+    const region = screen.getByRole("region", { name: /시계열 — RPS/ });
     expect(region.querySelector("svg")).not.toBeNull();
   });
 
   it("survives empty data without throwing", () => {
-    render(
-      <TimeSeriesChart title="Errors" yLabel="errors" data={[]} width={400} height={200} />,
-    );
-    expect(screen.getByRole("region", { name: /Time series — Errors/ })).toBeInTheDocument();
+    render(<TimeSeriesChart title="Errors" yLabel="errors" data={[]} width={400} height={200} />);
+    expect(screen.getByRole("region", { name: /시계열 — Errors/ })).toBeInTheDocument();
   });
 });

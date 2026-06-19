@@ -249,11 +249,11 @@ export function ScenarioRunsPage() {
                 <thead className="border-b border-slate-200 text-left text-slate-600">
                   <tr>
                     <th className="py-2 pr-2 font-medium">비교</th>
-                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colStatus}</th>
                     <th className="py-2 pr-4 font-medium">결과</th>
-                    <th className="py-2 pr-4 font-medium">VUs</th>
-                    <th className="py-2 pr-4 font-medium">Duration</th>
-                    <th className="py-2 pr-4 font-medium">Created</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colVus}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colDuration}</th>
+                    <th className="py-2 pr-4 font-medium">{ko.report.colCreated}</th>
                     <th />
                   </tr>
                 </thead>

@@ -384,6 +384,50 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   report: {
+    // §7.0 리포트 공통 UI 표면 (R2: 도메인 라벨은 여기)
+    // ── 섹션 제목/aria-label ──
+    summaryLabel: "리포트 요약",
+    summaryTitle: "요약",
+    statusCodesTitle: "상태 코드",
+    statusDistributionLabel: "상태 코드 분포",
+    latencyTitle: "지연",
+    latencyHistogramLabel: "지연 분포",
+    latencyDistTitle: "지연 분포",
+    latencyPercentileCurveLabel: "지연 분위 곡선",
+    pageLoadLatencyLabel: "페이지 로드 지연",
+    pageLoadLatencyTitle: "페이지 로드 지연",
+    perStepStatsLabel: "스텝별 통계",
+    stepsHeading: "스텝",
+    branchDecisionsLabel: "분기 결정",
+    branchDecisionsTitle: "분기 결정",
+    scenarioSnapshotLabel: "시나리오 스냅샷",
+    scenarioSnapshotButton: "시나리오 YAML (실행 당시 스냅샷)",
+    reportTitle: "리포트",
+    // ── 빈 상태 ──
+    noStatusData: "상태 코드 데이터가 없습니다.",
+    noLatencyData: "지연 데이터가 없습니다.",
+    // ── 시계열 차트 제목 (ReportView에서 title=로 전달) ──
+    timeSeriesRequests: "초당 요청 수 (RPS)",
+    timeSeriesP95: "p95 응답 시간 (ms)",
+    timeSeriesErrors: "초당 에러",
+    // ── 시계열 aria-label (보간) ──
+    timeSeriesAria: (title: string) => `시계열 — ${title}`,
+    // ── 표 헤더 (run 목록 열) ──
+    colStatus: "상태",
+    colVus: "VU",
+    colDuration: "테스트 시간",
+    colCreated: "생성 시각",
+    colName: "이름",
+    colSecond: "초",
+    colStatusCodes: "상태 코드",
+    // ── 토글 루프/분기 분해 aria ──
+    toggleLoopBreakdown: (name: string) => `${name} 루프 분해 표시 전환`,
+    toggleBranchBreakdown: (name: string) => `${name} 분기 분해 표시 전환`,
+    // ── VerdictPanel 표 헤더 ──
+    verdictResult: "결과",
+    // ── TestRunPanel 헤더 제목 ──
+    requestHeadersTitle: "요청 헤더",
+    responseHeadersTitle: "응답 헤더",
     // §7.1 쉬운 요약 — 매개변수 문구는 함수 상수(spec §2.1). 숫자는 호출부에서
     // en-US toLocaleString으로 고정(천단위 콤마 결정성 — InsightPanel 전례).
     headlineClosed: (p: {
@@ -438,6 +482,34 @@ export const ko = {
     stalledRunning:
       "워커가 시작하지 못했을 수 있습니다 — 시나리오 URL과 컨트롤러 로그를 확인하세요.",
     elapsed: (d: string) => `경과 ${d}`,
+    // ── 카드 라벨 (R2: 도메인 한정) ──
+    cardVus: "VU",
+    cardDuration: "테스트 시간",
+    cardTotalRequests: "총 요청 수",
+    cardErrors: "에러",
+    cardAvgRps: "평균 RPS",
+    cardCreated: "생성 시각",
+    // ── 섹션 제목/aria-label ──
+    profileLabel: "프로필",
+    profileTitle: "프로필",
+    stepsLabel: "스텝",
+    stepsTitle: "스텝",
+    envLabel: "환경 변수",
+    envTitle: "환경 변수",
+    metricWindowsTitle: "메트릭 윈도우",
+    colName: "이름",
+    colRequests: "요청 수",
+    colErrors: "에러",
+    // ── 빈 상태 ──
+    noMetrics: "기록된 메트릭이 없습니다.",
+    waitingFirstBatch: "첫 배치 대기 중…",
+    noEnvSent: "전송된 환경 변수가 없습니다.",
+    // ── 인라인 혼합 문구 (인라인 한국어·영어 혼합 카탈로그화) ──
+    failReason: "실패 사유",
+    reportLoadFailed: "리포트 로드 실패",
+    reportGenerating: "리포트 생성 중…",
+    // ── h2 Run 제목 ──
+    heading: "실행",
   },
   // 비교 화면 인사이트 매트릭스(kind×run). 행 = 인사이트, 열 = run.
   insightCompare: {

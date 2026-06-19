@@ -35,7 +35,7 @@ describe("StepStatsTable", () => {
         meta={meta}
       />,
     );
-    const region = screen.getByRole("region", { name: /Per-step stats/ });
+    const region = screen.getByRole("region", { name: /스텝별 통계/ });
     expect(region).toHaveTextContent("login");
     expect(region).toHaveTextContent("POST");
     expect(region).toHaveTextContent("http://x/login");
@@ -85,7 +85,7 @@ describe("StepStatsTable", () => {
       },
     ];
     render(<StepStatsTable steps={steps as never} meta={new Map()} />);
-    expect(screen.queryByRole("button", { name: /Toggle loop breakdown/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /루프 분해 표시 전환/ })).not.toBeInTheDocument();
   });
 
   it("shows download columns only when a step has download", () => {
@@ -153,7 +153,7 @@ describe("StepStatsTable", () => {
         meta={meta}
       />,
     );
-    expect(screen.getByText("스텝")).toBeInTheDocument();
+    expect(screen.getAllByText("스텝").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("메서드")).toBeInTheDocument();
     expect(screen.getByText("요청 수")).toBeInTheDocument();
     expect(screen.getByText("에러")).toBeInTheDocument();

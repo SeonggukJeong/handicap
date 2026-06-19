@@ -1,5 +1,6 @@
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import type { PercentilePoint } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 import { formatLatency } from "./format";
 
 type Props = {
@@ -32,8 +33,8 @@ export function PercentileCurveChart({ curve, width = 720, height = 220 }: Props
   // (ui/CLAUDE.md repo trap, same as StageCurvePreview). y in milliseconds.
   const data = curve.map((p) => ({ label: labelFor(p.quantile), ms: p.value_us / 1_000 }));
   return (
-    <section aria-label="Latency percentile curve" className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">Latency by percentile</h4>
+    <section aria-label={ko.report.latencyPercentileCurveLabel} className="mb-6">
+      <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.report.latencyDistTitle}</h4>
       <LineChart width={width} height={height} data={data}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="label" type="category" />

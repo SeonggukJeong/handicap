@@ -22,7 +22,7 @@ const rows: GroupLatency[] = [
 describe("GroupLatencyTable", () => {
   it("renders a page row plus a sub-row per branch", () => {
     render(<GroupLatencyTable breakdown={rows} meta={new Map([["p1", { name: "page load" }]])} />);
-    expect(screen.getByRole("region", { name: "Page load latency" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "페이지 로드 지연" })).toBeInTheDocument();
     expect(screen.getByText("page load")).toBeInTheDocument();
     expect(screen.getByText("420")).toBeInTheDocument(); // page p95
     expect(screen.getByText("610")).toBeInTheDocument(); // page max

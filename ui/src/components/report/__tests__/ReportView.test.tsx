@@ -103,18 +103,18 @@ const TEST_PROFILE: Profile = {
 describe("ReportView", () => {
   it("renders summary, charts, status distribution, step table, and download", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-    expect(screen.getByRole("region", { name: /Report summary/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Time series — Requests/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Time series — p95/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Time series — Errors/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Status distribution/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Per-step stats/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /리포트 요약/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /시계열 — 초당 요청 수/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /시계열 — p95/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /시계열 — 초당 에러/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /상태 코드 분포/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /스텝별 통계/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Download JSON/ })).toBeInTheDocument();
   });
 
   it("resolves env in step URLs (resolveForDisplay)", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-    const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
+    const stepRegion = screen.getByRole("region", { name: /스텝별 통계/ });
     expect(stepRegion).toHaveTextContent("http://x/login");
   });
 
@@ -142,7 +142,7 @@ describe("ReportView", () => {
       ],
     };
     render(<ReportView report={report} profile={TEST_PROFILE} />);
-    expect(screen.getByText("Branch decisions")).toBeInTheDocument();
+    expect(screen.getByText("분기 결정")).toBeInTheDocument();
     expect(screen.getByText(/branchy/)).toBeInTheDocument();
   });
 
@@ -168,18 +168,16 @@ describe("ReportView", () => {
       },
     };
     render(<ReportView report={report} profile={TEST_PROFILE} />);
-    expect(screen.getByRole("region", { name: /Latency percentile curve/ })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Latency histogram/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Latency" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /지연 분위 곡선/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /지연 분포/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "지연" })).toBeInTheDocument();
   });
 
   it("omits latency charts when report.latency is absent", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-    expect(
-      screen.queryByRole("region", { name: /Latency percentile curve/ }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /Latency histogram/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Latency" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /지연 분위 곡선/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /지연 분포/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "지연" })).not.toBeInTheDocument();
   });
 
   describe("CSV/XLSX download buttons", () => {
@@ -288,7 +286,7 @@ describe("ReportView", () => {
       status_distribution: { "200": 4 },
     };
     render(<ReportView report={report} profile={TEST_PROFILE} />);
-    const stepRegion = screen.getByRole("region", { name: /Per-step stats/ });
+    const stepRegion = screen.getByRole("region", { name: /스텝별 통계/ });
     expect(stepRegion).toHaveTextContent("inner-tick");
     expect(stepRegion).not.toHaveTextContent(INNER_ID);
   });

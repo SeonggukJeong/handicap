@@ -1,4 +1,5 @@
 import type { Verdict } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 import { METRIC_LABEL, fmt } from "./verdictFormat";
 
 // step-level criterion 행은 대상 스텝 *이름*을 보여준다. ReportView가 넘기는 stepMeta
@@ -26,7 +27,7 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
             <th className="pr-4">Metric</th>
             <th className="pr-4">Threshold</th>
             <th className="pr-4">Actual</th>
-            <th>Result</th>
+            <th>{ko.report.verdictResult}</th>
           </tr>
         </thead>
         <tbody>
