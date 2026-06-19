@@ -259,8 +259,8 @@ export const ko = {
     problemsBannerTitle: (n: number) => `시나리오 문제 ${n}건`,
     problemEmptyUrl: (stepName: string) =>
       `"${stepName}" 스텝의 URL이 비어 있습니다 — 실행하면 요청이 실패합니다.`,
-    problemHostlessUrl: (stepName: string) =>
-      `"${stepName}" 스텝의 URL에 호스트가 없습니다 — 전체 URL 또는 \${BASE_URL} 같은 환경 변수로 시작하세요.`,
+    problemUrlNeedsScheme: (stepName: string) =>
+      `"${stepName}" 스텝의 URL은 http:// 또는 https:// 로 시작해야 합니다 — 예: https://api.example.com/path 또는 \${BASE_URL}/path`,
     problemGateIntro: "YAML이 유효하지 않아 캔버스가 마지막 정상 상태로 표시될 수 있습니다.",
     problemGateAction: "YAML 탭에서 확인",
     gateRequired: (path: string) => `${path}: 필수 항목이 없습니다`,

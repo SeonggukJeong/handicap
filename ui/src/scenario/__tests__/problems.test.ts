@@ -43,7 +43,7 @@ steps:
       url: /login
 `);
     expect(collectProblems(steps, null)).toEqual([
-      { kind: "step", stepId: ULID_A, message: ko.editor.problemHostlessUrl("login") },
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemUrlNeedsScheme("login") },
     ]);
   });
 
@@ -123,7 +123,59 @@ steps:
       url: //api.example.com/health
 `);
     expect(collectProblems(steps, null)).toEqual([
-      { kind: "step", stepId: ULID_A, message: ko.editor.problemHostlessUrl("pr") },
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemUrlNeedsScheme("pr") },
+    ]);
+  });
+
+  it("스킴 없는 리터럴 URL을 step 문제로 낸다 (example.com / localhost / 상대경로)", () => {
+    const steps = stepsOf(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: a
+    request:
+      method: GET
+      url: example.com/api
+  - type: http
+    id: ${ULID_B}
+    name: b
+    request:
+      method: GET
+      url: "localhost:8080/x"
+  - type: http
+    id: ${ULID_C}
+    name: c
+    request:
+      method: GET
+      url: api/users
+`);
+    expect(collectProblems(steps, null)).toEqual([
+      { kind: "step", stepId: ULID_A, message: ko.editor.problemUrlNeedsScheme("a") },
+      { kind: "step", stepId: ULID_B, message: ko.editor.problemUrlNeedsScheme("b") },
+      { kind: "step", stepId: ULID_C, message: ko.editor.problemUrlNeedsScheme("c") },
+    ]);
+  });
+
+  it("변수로 시작하면 flag 안 함; 변수를 포함해도 리터럴 prefix면 flag (false-negative-safe)", () => {
+    const steps = stepsOf(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: a
+    request:
+      method: GET
+      url: "\${BASE_URL}"
+  - type: http
+    id: ${ULID_B}
+    name: b
+    request:
+      method: GET
+      url: "api/\${path}"
+`);
+    expect(collectProblems(steps, null)).toEqual([
+      { kind: "step", stepId: ULID_B, message: ko.editor.problemUrlNeedsScheme("b") },
     ]);
   });
 

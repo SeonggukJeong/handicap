@@ -22,12 +22,18 @@ export function collectProblems(
     const url = s.request.url.trim();
     if (url === "") {
       out.push({ kind: "step", stepId: s.id, message: ko.editor.problemEmptyUrl(s.name) });
-    } else if (url.startsWith("/")) {
-      // 엔진은 상대 URL을 해석할 수 없어 항상 fail-fast(status 0) — addStep 시드 "/" 포함.
-      out.push({ kind: "step", stepId: s.id, message: ko.editor.problemHostlessUrl(s.name) });
+    } else if (startsWithVar(url)) {
+      // ${...}/{{...}} 로 시작 = 변수 — 런타임 해석값을 모르므로 flag 안 함 (false-negative-safe, R6).
+    } else if (!/^https?:\/\//i.test(url)) {
+      // 변수-prefix가 아닌 리터럴인데 http(s):// 스킴이 없음 → 엔진 fail-fast(status 0). /login·//host·example.com/api·api/users 포괄 (R5/R7).
+      out.push({ kind: "step", stepId: s.id, message: ko.editor.problemUrlNeedsScheme(s.name) });
     }
   }
   return out;
+}
+
+function startsWithVar(url: string): boolean {
+  return url.startsWith("${") || url.startsWith("{{");
 }
 
 /** parseScenarioDoc은 Zod issues를 "path: message; path: message"로 join한다(yamlDoc.ts) —
