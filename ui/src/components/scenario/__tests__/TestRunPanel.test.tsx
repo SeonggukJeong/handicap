@@ -47,6 +47,11 @@ const TRACE: ScenarioTrace = {
 };
 
 describe("TestRunPanel", () => {
+  it("결과 패널 제목은 컨트롤 제목과 다른 '미리 테스트 결과'를 쓴다 (공유 키 분리)", () => {
+    render(<TestRunPanel trace={TRACE} />);
+    expect(screen.getByRole("heading", { name: "미리 테스트 결과" })).toBeInTheDocument();
+  });
+
   it("renders the truncated banner and a per-step summary", () => {
     render(<TestRunPanel trace={TRACE} />);
     // truncated banner

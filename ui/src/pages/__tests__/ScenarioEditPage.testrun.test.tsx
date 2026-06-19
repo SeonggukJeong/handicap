@@ -86,9 +86,6 @@ describe("ScenarioEditPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /미리 실행 결과/ });
-
-    // header button is gone — only the section button remains
-    expect(screen.queryByRole("button", { name: "미리 1회 실행" })).not.toBeInTheDocument();
   });
 
   it("breadcrumb 에 시나리오 목록 링크가 있다", async () => {

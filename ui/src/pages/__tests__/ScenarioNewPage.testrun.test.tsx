@@ -78,9 +78,6 @@ describe("ScenarioNewPage test-run", () => {
 
     // panel rendered
     await screen.findByRole("region", { name: /미리 실행 결과/ });
-
-    // header button is gone — only the section button remains
-    expect(screen.queryByRole("button", { name: "미리 1회 실행" })).not.toBeInTheDocument();
   });
 
   it("groups Create and Cancel in the top header row next to the title", async () => {

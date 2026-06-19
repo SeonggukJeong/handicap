@@ -337,7 +337,11 @@ export const ko = {
     removeElif: (n: number) => `Elif ${n} 제거`,
     tabCanvas: "캔버스",
     tabYaml: "YAML",
-    testRunTitle: "미리 1회 실행",
+    testRunTitle: "시나리오 미리 테스트",
+    testRunResultTitle: "미리 테스트 결과",
+    testRunIntro:
+      "저장·부하 없이 현재 내용으로 요청을 1회 보내 동작을 확인합니다. 실제 부하 실행은 시나리오를 저장한 뒤 '실행 목록'에서 합니다.",
+    testRunThinkTime: "think time 적용 (천천히 전송)",
     testRunControlsAria: "미리 실행 컨트롤",
     testRunResultAria: "미리 실행 결과",
     testRunRunning: "실행 중…",
