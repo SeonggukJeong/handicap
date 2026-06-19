@@ -271,6 +271,20 @@ export const ko = {
       `${path}: 타입이 올바르지 않습니다 (기대 ${expected}, 입력 ${received})`,
     gateDuplicateBranch: (path: string, name: string) =>
       `${path}: 분기 이름 "${name}"이 중복됩니다`,
+    gateInvalidChoice: (path: string, allowed: string) =>
+      `${path}: 값이 올바르지 않습니다 (허용: ${allowed})`,
+    gateInvalidChoiceReceived: (path: string, allowed: string, received: string) =>
+      `${path}: 값이 올바르지 않습니다 (허용: ${allowed}, 입력 ${received})`,
+    gateUnknownKeys: (path: string, keys: string) =>
+      `${path}: 알 수 없는 항목이 있습니다 (${keys})`,
+    gateEmptyValue: (path: string) => `${path}: 값이 비어 있습니다`,
+    gateLoopBodyMin: (path: string) => `${path}: 루프 본문에 스텝이 최소 1개 필요합니다`,
+    gateIfBranchMin: (path: string) => `${path}: if 분기에 스텝이 최소 1개 필요합니다`,
+    gateElifBranchMin: (path: string) => `${path}: elif 분기에 스텝이 최소 1개 필요합니다`,
+    gateParallelBranchesMin: (path: string) =>
+      `${path}: parallel 노드에 분기가 최소 1개 필요합니다`,
+    gateBranchStepsMin: (path: string) => `${path}: 분기에 스텝이 최소 1개 필요합니다`,
+    gateRepeatMin: (path: string) => `${path}: 반복 횟수는 1 이상이어야 합니다`,
     // ── Inspector 필드 라벨 ──
     fieldName: "이름",
     fieldMethod: "메서드",

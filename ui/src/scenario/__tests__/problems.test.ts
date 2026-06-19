@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ko } from "../../i18n/ko";
 import type { Step } from "../model";
-import { collectProblems, formatGateMessages } from "../problems";
+import { collectProblems, formatGateMessages, normalizeList } from "../problems";
 import { parseScenarioDoc } from "../yamlDoc";
 
 const ULID_A = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
@@ -248,5 +248,181 @@ steps:
 `);
     if (!("error" in parsed)) throw new Error("fixture must fail to parse");
     expect(formatGateMessages(parsed.error)).toContain(ko.editor.gateRequired("steps.0.request"));
+  });
+});
+
+describe("formatGateMessages — 신규 게이트 클래스 (손-세그먼트)", () => {
+  it("discriminator(invalid_union_discriminator)를 매핑한다", () => {
+    expect(
+      formatGateMessages(
+        "steps.0.type: Invalid discriminator value. Expected 'http' | 'loop' | 'if' | 'parallel'",
+      ),
+    ).toEqual([ko.editor.gateInvalidChoice("steps.0.type", "http, loop, if, parallel")]);
+  });
+
+  it("enum(invalid_enum_value)을 매핑한다", () => {
+    expect(
+      formatGateMessages(
+        "steps.0.request.method: Invalid enum value. Expected 'GET' | 'POST', received 'BOGUS'",
+      ),
+    ).toEqual([
+      ko.editor.gateInvalidChoiceReceived("steps.0.request.method", "GET, POST", "BOGUS"),
+    ]);
+  });
+
+  it("unrecognized_keys(키 1개·2개)를 매핑한다", () => {
+    expect(formatGateMessages("steps.0.extract.0: Unrecognized key(s) in object: 'bogus'")).toEqual(
+      [ko.editor.gateUnknownKeys("steps.0.extract.0", "bogus")],
+    );
+    expect(
+      formatGateMessages("steps.0.extract.0: Unrecognized key(s) in object: 'bogus', 'other'"),
+    ).toEqual([ko.editor.gateUnknownKeys("steps.0.extract.0", "bogus, other")]);
+  });
+
+  it("string min(1)(빈 값)을 매핑한다", () => {
+    expect(
+      formatGateMessages("steps.0.extract.0.var: String must contain at least 1 character(s)"),
+    ).toEqual([ko.editor.gateEmptyValue("steps.0.extract.0.var")]);
+  });
+
+  it("커스텀 컨테이너/숫자 min 문구 6종을 매핑한다", () => {
+    expect(formatGateMessages("steps.0.do: loop body needs at least one step")).toEqual([
+      ko.editor.gateLoopBodyMin("steps.0.do"),
+    ]);
+    expect(formatGateMessages("steps.0.then: if branch needs at least one step")).toEqual([
+      ko.editor.gateIfBranchMin("steps.0.then"),
+    ]);
+    expect(formatGateMessages("steps.0.elif.0.then: elif branch needs at least one step")).toEqual([
+      ko.editor.gateElifBranchMin("steps.0.elif.0.then"),
+    ]);
+    expect(formatGateMessages("steps.0.branches: parallel needs at least one branch")).toEqual([
+      ko.editor.gateParallelBranchesMin("steps.0.branches"),
+    ]);
+    expect(formatGateMessages("steps.0.branches.0.steps: branch needs at least one step")).toEqual([
+      ko.editor.gateBranchStepsMin("steps.0.branches.0.steps"),
+    ]);
+    expect(formatGateMessages("steps.0.repeat: repeat must be >= 1")).toEqual([
+      ko.editor.gateRepeatMin("steps.0.repeat"),
+    ]);
+  });
+});
+
+describe("normalizeList", () => {
+  it("따옴표 제거 + 파이프→콤마", () => {
+    expect(normalizeList("'http' | 'loop' | 'if'")).toBe("http, loop, if");
+    expect(normalizeList("'bogus', 'other'")).toBe("bogus, other");
+    expect(normalizeList("'GET'")).toBe("GET");
+  });
+});
+
+describe("실-Zod 드리프트 가드 — 신규 클래스 (parseScenarioDoc 경유)", () => {
+  // 손-작성 문자열이 아니라 진짜 Zod가 만든 에러로 매핑을 고정 —
+  // zod 마이너 범프로 문구가 바뀌면 이 테스트만 빨개진다(조용한 영어 fallback 강등 방지, spec R9).
+  function gateError(yaml: string): string {
+    const parsed = parseScenarioDoc(yaml);
+    if (!("error" in parsed)) throw new Error("fixture must fail to parse");
+    return parsed.error;
+  }
+
+  it("discriminator: 잘못된 type", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: bogus
+    id: ${ULID_A}
+    name: x
+`);
+    expect(formatGateMessages(err)).toContain(
+      ko.editor.gateInvalidChoice("steps.0.type", "http, loop, if, parallel"),
+    );
+  });
+
+  it("enum: 잘못된 method", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: x
+    request:
+      method: BOGUS
+      url: ""
+`);
+    expect(formatGateMessages(err)).toContain(
+      ko.editor.gateInvalidChoiceReceived(
+        "steps.0.request.method",
+        "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS",
+        "BOGUS",
+      ),
+    );
+  });
+
+  it("unrecognized: extract 원소 여분 키", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: x
+    request:
+      method: GET
+      url: ""
+    extract:
+      - var: v
+        from: status
+        bogus: 1
+`);
+    expect(formatGateMessages(err)).toContain(
+      ko.editor.gateUnknownKeys("steps.0.extract.0", "bogus"),
+    );
+  });
+
+  it("string min: 빈 extract var", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: x
+    request:
+      method: GET
+      url: ""
+    extract:
+      - var: ""
+        from: status
+`);
+    expect(formatGateMessages(err)).toContain(ko.editor.gateEmptyValue("steps.0.extract.0.var"));
+  });
+
+  it("커스텀: 빈 loop do", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: loop
+    id: ${ULID_A}
+    name: l
+    repeat: 2
+    do: []
+`);
+    expect(formatGateMessages(err)).toContain(ko.editor.gateLoopBodyMin("steps.0.do"));
+  });
+
+  it("커스텀: repeat 0", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: loop
+    id: ${ULID_A}
+    name: l
+    repeat: 0
+    do:
+      - type: http
+        id: ${ULID_B}
+        name: inner
+        request:
+          method: GET
+          url: ""
+`);
+    expect(formatGateMessages(err)).toContain(ko.editor.gateRepeatMin("steps.0.repeat"));
   });
 });

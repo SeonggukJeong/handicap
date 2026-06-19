@@ -36,6 +36,12 @@ function startsWithVar(url: string): boolean {
   return url.startsWith("${") || url.startsWith("{{");
 }
 
+/** Zod의 따옴표·파이프 구분 목록(`'a' | 'b'` / `'x', 'y'`)을 사람이 읽는 콤마 목록으로.
+ *  discriminator/enum 허용값·unrecognized 키 이름에 적용 (spec R6). */
+export function normalizeList(s: string): string {
+  return s.replace(/'/g, "").replace(/ \| /g, ", ");
+}
+
 /** parseScenarioDoc은 Zod issues를 "path: message; path: message"로 join한다(yamlDoc.ts) —
  *  세그먼트별로 알려진 문구를 한국어로 매핑, 못 알아보면 원문 유지(spec §5.4 fallback).
  *  알려진 한계: 메시지 자체에 "; "가 들어 있으면(YAML 라이브러리 멀티 에러 등) 둘로
@@ -55,5 +61,25 @@ function formatSegment(seg: string): string {
   if (m) return ko.editor.gateInvalidType(m[1], m[2], m[3]);
   m = /^(.+): duplicate branch name "(.+)"$/.exec(seg);
   if (m) return ko.editor.gateDuplicateBranch(m[1], m[2]);
+  m = /^(.+): Invalid discriminator value\. Expected (.+)$/.exec(seg);
+  if (m) return ko.editor.gateInvalidChoice(m[1], normalizeList(m[2]));
+  m = /^(.+): Invalid enum value\. Expected (.+), received (.+)$/.exec(seg);
+  if (m) return ko.editor.gateInvalidChoiceReceived(m[1], normalizeList(m[2]), normalizeList(m[3]));
+  m = /^(.+): Unrecognized key\(s\) in object: (.+)$/.exec(seg);
+  if (m) return ko.editor.gateUnknownKeys(m[1], normalizeList(m[2]));
+  m = /^(.+): String must contain at least 1 character\(s\)$/.exec(seg);
+  if (m) return ko.editor.gateEmptyValue(m[1]);
+  m = /^(.+): loop body needs at least one step$/.exec(seg);
+  if (m) return ko.editor.gateLoopBodyMin(m[1]);
+  m = /^(.+): if branch needs at least one step$/.exec(seg);
+  if (m) return ko.editor.gateIfBranchMin(m[1]);
+  m = /^(.+): elif branch needs at least one step$/.exec(seg);
+  if (m) return ko.editor.gateElifBranchMin(m[1]);
+  m = /^(.+): parallel needs at least one branch$/.exec(seg);
+  if (m) return ko.editor.gateParallelBranchesMin(m[1]);
+  m = /^(.+): branch needs at least one step$/.exec(seg);
+  if (m) return ko.editor.gateBranchStepsMin(m[1]);
+  m = /^(.+): repeat must be >= 1$/.exec(seg);
+  if (m) return ko.editor.gateRepeatMin(m[1]);
   return seg;
 }
