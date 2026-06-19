@@ -107,8 +107,8 @@ export function StepStatsTable({ steps, meta }: Props) {
                         <thead className="text-slate-500">
                           <tr>
                             <th className="pr-4 text-left">loop_index</th>
-                            <th className="pr-4 text-left">requests</th>
-                            <th className="pr-4 text-left">errors</th>
+                            <th className="pr-4 text-left">{ko.report.colRequests}</th>
+                            <th className="pr-4 text-left">{ko.report.colErrors}</th>
                           </tr>
                         </thead>
                         <tbody>

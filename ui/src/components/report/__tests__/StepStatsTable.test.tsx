@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect } from "vitest";
 import { StepStatsTable } from "../StepStatsTable";
+import { ko } from "../../../i18n/ko";
 
 describe("StepStatsTable", () => {
   it("renders rows for each step with metadata when available", () => {
@@ -67,8 +68,11 @@ describe("StepStatsTable", () => {
     await user.click(screen.getByRole("button", { name: /tick|expand|loop/i }));
     // After expand: the drill-down table header and rows should appear
     expect(screen.getByText(/그 외|상한 초과|overflow/i)).toBeInTheDocument();
-    // loop_index column header appears only when expanded
+    // loop_index column header appears only when expanded (wire field name — R3 keep)
     expect(screen.getByText("loop_index")).toBeInTheDocument();
+    // 드릴다운 서브테이블 헤더도 ko 카탈로그 경유(영어 requests/errors 잔존 금지, R1)
+    expect(screen.getAllByText(ko.report.colRequests).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(ko.report.colErrors).length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders no drill-down caret when loop_breakdown is empty", () => {
