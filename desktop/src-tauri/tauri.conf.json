@@ -1,27 +1,21 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop",
+  "productName": "Handicap",
   "version": "0.1.0",
   "identifier": "com.handicap.desktop",
   "build": {
     "frontendDist": "../src"
   },
   "app": {
-    "withGlobalTauri": true,
     "windows": [
-      {
-        "title": "desktop",
-        "width": 800,
-        "height": 600
-      }
+      { "label": "main", "title": "Handicap", "url": "splash.html", "width": 1280, "height": 860 }
     ],
-    "security": {
-      "csp": null
-    }
+    "security": { "csp": null }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi", "dmg", "app"],
+    "externalBin": ["binaries/controller"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
