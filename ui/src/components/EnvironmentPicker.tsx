@@ -83,7 +83,9 @@ export function EnvironmentPicker({
                     {v}
                   </span>
                   {overridden ? (
-                    <span className="text-xs text-amber-700 shrink-0">재정의됨</span>
+                    <span className="text-xs text-amber-700 shrink-0">
+                      {ko.runDialog.envOverriddenLabel}
+                    </span>
                   ) : (
                     <button
                       type="button"
@@ -133,7 +135,9 @@ export function EnvironmentPicker({
                 }
               />
               {shadowsBase && (
-                <span className="text-xs text-amber-700 shrink-0">{entry.key.trim()} 재정의</span>
+                <span className="text-xs text-amber-700 shrink-0">
+                  {ko.runDialog.envShadowsBase(entry.key.trim())}
+                </span>
               )}
               <button
                 type="button"

@@ -80,6 +80,8 @@ export const ko = {
     envHeading: "환경 변수",
     envHeadingOverride: "이 run 한정 재정의",
     envOverrideBtn: "재정의",
+    envOverriddenLabel: "재정의됨",
+    envShadowsBase: (key: string) => `${key} 재정의`,
     envBaseFrom: (name: string) => `${name} 기반 (읽기 전용):`,
   },
   binding: {

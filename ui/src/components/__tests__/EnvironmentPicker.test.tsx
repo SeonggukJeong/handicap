@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { EnvironmentPicker } from "../EnvironmentPicker";
 import type { EnvEntry } from "../../api/envOverlay";
+import { ko } from "../../i18n/ko";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -89,8 +90,11 @@ describe("EnvironmentPicker", () => {
     await screen.findByText("BASE_URL");
     await user.click(screen.getByRole("button", { name: /재정의/i }));
     // base row now labelled 재정의됨; override row labelled "BASE_URL 재정의"
-    await waitFor(() => expect(screen.getByText(/재정의됨/)).toBeInTheDocument());
-    expect(screen.getByText(/BASE_URL 재정의/)).toBeInTheDocument();
+    // Both strings come from the ko catalog (envOverriddenLabel / envShadowsBase)
+    await waitFor(() =>
+      expect(screen.getByText(ko.runDialog.envOverriddenLabel)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(ko.runDialog.envShadowsBase("BASE_URL"))).toBeInTheDocument();
   });
 
   it("adds an arbitrary override via the add row", async () => {
