@@ -454,7 +454,7 @@ export function TestRunPanel({
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-lg font-semibold">{ko.editor.testRunTitle}</h3>
         {chip(
-          trace.ok ? "OK" : "FAIL",
+          trace.ok ? ko.editor.testRunOk : ko.editor.testRunFail,
           trace.ok ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900",
         )}
         <span className="text-xs text-slate-500">

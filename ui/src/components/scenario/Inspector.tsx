@@ -689,7 +689,11 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             )}
             {(x.from === "header" || x.from === "cookie") && (
               <input
-                placeholder={x.from === "header" ? "header name" : "cookie name"}
+                placeholder={
+                  x.from === "header"
+                    ? ko.editor.headerNamePlaceholder
+                    : ko.editor.cookieNamePlaceholder
+                }
                 className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
                 value={x.name}
                 onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}

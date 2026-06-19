@@ -285,6 +285,8 @@ export const ko = {
     requestLegend: "요청",
     headersLabel: "헤더",
     headerKeyPlaceholder: "헤더 이름",
+    headerNamePlaceholder: "헤더 이름",
+    cookieNamePlaceholder: "쿠키 이름",
     bodyLabel: "본문",
     bodyNone: "없음",
     bodyJson: "JSON",
@@ -343,6 +345,8 @@ export const ko = {
     testRunResultAria: "미리 실행 결과",
     testRunRunning: "실행 중…",
     testRunRun: "미리 실행",
+    testRunOk: "성공",
+    testRunFail: "실패",
     testRunMaxRequests: "최대 요청 수",
     extractVarNameAria: "추출 변수명",
     condGroupKindAria: "그룹 조건 종류",
@@ -532,6 +536,7 @@ export const ko = {
     activeVuActual: "실제",
     selectRunAria: (id: string) => `실행 ${id} 선택`,
     verdictSloTitle: "SLO",
+    colMaxMs: "최대 ms",
   },
   runDetail: {
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)
@@ -699,6 +704,10 @@ export const ko = {
     colRows: "행",
     saveDataset: "데이터셋 저장",
     listAria: "데이터셋 목록",
+    optionAuto: "자동",
+    delimiterComma: ", (쉼표)",
+    delimiterSemicolon: "; (세미콜론)",
+    delimiterTab: "탭",
   },
   bulkEdit: {
     panelAria: "일괄 편집",

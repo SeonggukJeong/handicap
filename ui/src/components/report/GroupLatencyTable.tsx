@@ -29,7 +29,7 @@ export function GroupLatencyTable({ breakdown, meta }: Props) {
             <th className="py-2 pr-4 font-medium">
               p99 ms<HelpTip label="p99 설명">{ko.glossary.p99}</HelpTip>
             </th>
-            <th className="py-2 pr-4 font-medium">max ms</th>
+            <th className="py-2 pr-4 font-medium">{ko.report.colMaxMs}</th>
           </tr>
         </thead>
         <tbody>

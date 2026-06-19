@@ -132,10 +132,10 @@ export function UploadPanel() {
               onChange={(e) => changeOpt({ delimiter: e.target.value })}
               className="mt-1 block border border-slate-300 rounded px-2 py-1"
             >
-              <option value="">auto</option>
-              <option value=",">, (comma)</option>
-              <option value=";">; (semicolon)</option>
-              <option value="\t">tab</option>
+              <option value="">{ko.dataset.optionAuto}</option>
+              <option value=",">{ko.dataset.delimiterComma}</option>
+              <option value=";">{ko.dataset.delimiterSemicolon}</option>
+              <option value="\t">{ko.dataset.delimiterTab}</option>
             </select>
           </label>
           <label className="block text-sm">
@@ -146,7 +146,7 @@ export function UploadPanel() {
               onChange={(e) => changeOpt({ encoding: e.target.value })}
               className="mt-1 block border border-slate-300 rounded px-2 py-1"
             >
-              <option value="">auto</option>
+              <option value="">{ko.dataset.optionAuto}</option>
               <option value="utf-8">UTF-8</option>
               <option value="cp949">CP949 (EUC-KR)</option>
             </select>

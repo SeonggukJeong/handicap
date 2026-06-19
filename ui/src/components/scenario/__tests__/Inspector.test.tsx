@@ -101,7 +101,9 @@ describe("Inspector — ExtractEditor", () => {
     await user.selectOptions(fromSelect, "header");
 
     expect(within(extractSection).queryByPlaceholderText("$.path")).toBeNull();
-    expect(within(extractSection).getByPlaceholderText("header name")).toBeInTheDocument();
+    expect(
+      within(extractSection).getByPlaceholderText(ko.editor.headerNamePlaceholder),
+    ).toBeInTheDocument();
   });
 
   it("removes a row when its delete button is clicked", async () => {

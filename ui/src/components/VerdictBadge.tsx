@@ -11,7 +11,11 @@ const BADGE_CLASS = "inline-block rounded px-2 py-0.5 text-xs font-medium";
 export function VerdictBadge({ verdict }: { verdict?: Verdict | null }) {
   if (!verdict) return <span className="text-slate-400">—</span>;
   if (verdict.passed)
-    return <span className={`${BADGE_CLASS} bg-emerald-200 text-emerald-900`}>PASS</span>;
+    return (
+      <span className={`${BADGE_CLASS} bg-emerald-200 text-emerald-900`}>
+        {ko.report.verdictPass}
+      </span>
+    );
   return <FailBadge verdict={verdict} />;
 }
 
@@ -31,7 +35,7 @@ function FailBadge({ verdict }: { verdict: Verdict }) {
         onClick={toggle}
         className={`${BADGE_CLASS} bg-red-200 text-red-900 cursor-pointer hover:bg-red-300`}
       >
-        FAIL
+        {ko.report.verdictFail}
       </button>
       {open && (
         <span

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ScenarioTrace } from "../../../api/schemas";
 import type { Step } from "../../../scenario/model";
 import { TestRunPanel } from "../TestRunPanel";
+import { ko } from "../../../i18n/ko";
 
 const TRACE: ScenarioTrace = {
   ok: false,
@@ -76,7 +77,7 @@ describe("TestRunPanel", () => {
   it("shows an ok summary when the trace succeeded and is not truncated", () => {
     render(<TestRunPanel trace={{ ...TRACE, ok: true, truncated: false, steps: [] }} />);
     expect(screen.queryByText(/상한 도달/)).not.toBeInTheDocument();
-    expect(screen.getByText(/OK/)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.testRunOk)).toBeInTheDocument();
   });
 
   it("renders the if condition summary when the scenario steps are provided", () => {

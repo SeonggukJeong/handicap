@@ -48,7 +48,7 @@ export function VerdictPanel({ verdict, steps }: { verdict: Verdict; steps?: Ste
                 <td className="pr-4">{fmt(r.metric, r.actual)}</td>
                 <td
                   className={r.passed ? "text-emerald-700" : "text-red-700"}
-                  title={r.passed ? "pass" : "fail"}
+                  title={r.passed ? ko.report.verdictPass : ko.report.verdictFail}
                 >
                   {r.passed ? "✓" : "✗"}
                 </td>

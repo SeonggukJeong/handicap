@@ -404,7 +404,7 @@ describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
     renderPageWithCompare();
 
     await screen.findByLabelText("실행 V1 선택");
-    expect(screen.getByText("PASS")).toBeInTheDocument();
+    expect(screen.getByText(ko.report.verdictPass)).toBeInTheDocument();
     // The run without verdict renders the em-dash placeholder
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
