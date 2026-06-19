@@ -70,8 +70,14 @@ Tauri는 빌드 시 `binaries/controller-<triple>`에서 triple 접미사를 떼
 
 ---
 
+## 보안 메모 (셸 경계)
+
+- **`HANDICAP_CONTROLLER_BIN`은 dev/live-verify 전용 *신뢰* 오버라이드다.** 설정되면 셸은 그 경로의 바이너리를 **앱 권한으로 그대로 spawn**한다(`launch.rs::resolve_sidecar_path`). 로컬 사용자(자기 앱을 실행)에겐 권한 경계 위반이 아니지만(이미 `Contents/MacOS/controller`를 교체할 수 있음), **상대 경로는 launch 시점 cwd에 의존**하므로 혼동/오용을 피하려면 **절대 경로**로 줄 것. 미설정(배포 기본)이면 셸은 자기 exe 옆 `controller`만 spawn한다.
+- **CSP — `tauri.conf.json`의 `app.security.csp: null`은 의도적이다.** 창이 실제로 로드하는 **controller-서빙 UI**(navigate 대상 `http://127.0.0.1:<port>/`)는 *자체* `<meta http-equiv="Content-Security-Policy">`(`default-src 'self'` + `worker-src 'self' blob:`)를 갖는다(`ui/index.html` — 웹/단일exe 배포와 **byte-identical**). 즉 데스크톱 셸은 새 XSS 표면을 추가하지 않고 기존 UI를 *감싸기만* 한다. Tauri가 주입하는 CSP는 원격 navigate된 controller origin엔 적용되지도 않으며, 셸-소유 `splash.html`은 인라인 스크립트 + `win.eval` 에러표시(JSON-인코딩→`textContent` 싱크, 원격/비신뢰 콘텐츠 0)를 쓰므로 엄격 CSP를 걸면 오히려 깨진다. → v1(loopback 데스크톱)에서 `null` 유지가 맞고, 보장의 무게중심은 **controller UI의 meta CSP**다(이 불변식을 깨지 말 것).
+
 ## 위생 / 함정
 
 - **사이드카 바이너리는 빌드타임 복사물(커밋 금지)**: `desktop/.gitignore`가 `src-tauri/binaries/controller*`·`src-tauri/target/`을 무시한다. 플랫폼마다 위 단계 3–4를 다시 돌려 해당 triple 바이너리를 깐다.
 - **`binaries/controller-<triple>`가 없으면** `cargo build`/`cargo tauri build`가 externalBin 해석에서 실패한다 → 항상 단계 4를 먼저.
 - bundle controller의 *행동*은 웹/단일 exe 경로와 byte-identical(셸은 기존 CLI 인자·로그만 소비). 셸이 자식 env에 `RUST_LOG=info`(포트 로그 보장) + `NO_COLOR=1`(ANSI 색 코드 억제 — 포트 파싱용)을 강제하는 것 외에 controller 동작 변경 없음.
+- 셸 프런트(`desktop/src/`)는 **`splash.html` 한 장뿐**이다(실 UI는 controller가 서빙). Tauri 스캐폴드의 `index.html`/`main.js` 등은 제거됨 — `frontendDist`가 dead JS를 번들에 싣지 않게.
