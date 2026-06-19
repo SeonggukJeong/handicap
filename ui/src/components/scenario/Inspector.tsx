@@ -1151,7 +1151,7 @@ function ConditionNode({
       <div className="flex flex-wrap gap-1 items-center">
         <input
           aria-label={ko.editor.condLeftAria}
-          placeholder="left"
+          placeholder={ko.editor.condLeftPlaceholder}
           className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
           value={leaf.left}
           onChange={(e) => editLocal(path, { ...leaf, left: e.target.value })}
@@ -1179,7 +1179,7 @@ function ConditionNode({
         {!noRight && (
           <input
             aria-label={ko.editor.condRightAria}
-            placeholder="right"
+            placeholder={ko.editor.condRightPlaceholder}
             className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
             value={leaf.right ?? ""}
             onChange={(e) => editLocal(path, { ...leaf, right: e.target.value })}

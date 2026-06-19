@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Inspector } from "../Inspector";
 import { useScenarioEditor } from "../../../scenario/store";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
+import { ko } from "../../../i18n/ko";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -319,9 +320,14 @@ describe("Inspector — IfInspector (builder)", () => {
 
   it("renders the condition leaf with current values", () => {
     render(<Inspector />);
-    expect((screen.getByLabelText("조건 왼쪽 값") as HTMLInputElement).value).toBe("{{code}}");
+    const left = screen.getByLabelText("조건 왼쪽 값") as HTMLInputElement;
+    const right = screen.getByLabelText("조건 오른쪽 값") as HTMLInputElement;
+    expect(left.value).toBe("{{code}}");
     expect((screen.getByLabelText("조건 연산자") as HTMLSelectElement).value).toBe("eq");
-    expect((screen.getByLabelText("조건 오른쪽 값") as HTMLInputElement).value).toBe("200");
+    expect(right.value).toBe("200");
+    // 조건 피연산자 placeholder도 ko 카탈로그 경유(영어 left/right 잔존 금지, R1)
+    expect(left.placeholder).toBe(ko.editor.condLeftPlaceholder);
+    expect(right.placeholder).toBe(ko.editor.condRightPlaceholder);
   });
 
   it("commits a changed right value on blur", async () => {
