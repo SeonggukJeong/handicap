@@ -50,7 +50,7 @@ function renderDialog(hasLoop = true) {
 }
 
 function envSection() {
-  return screen.getByRole("region", { name: /Environment variables/i });
+  return screen.getByRole("region", { name: /환경 변수/i });
 }
 
 describe("RunDialog — env & ramp_up", () => {
@@ -58,20 +58,20 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    expect(within(envSection()).getByText(/No env vars/i)).toBeInTheDocument();
+    expect(within(envSection()).getByText(/환경 변수 없음/i)).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("BASE_URL"), "BASE_URL");
-    await user.click(within(envSection()).getByRole("button", { name: "Add" }));
+    await user.click(within(envSection()).getByRole("button", { name: "추가" }));
 
-    const keyInput = await screen.findByLabelText("env key 0");
-    const valueInput = screen.getByLabelText("env value 0");
+    const keyInput = await screen.findByLabelText("환경 변수 키 0");
+    const valueInput = screen.getByLabelText("환경 변수 값 0");
     expect(keyInput).toHaveValue("BASE_URL");
 
     await user.type(valueInput, "http://localhost:9090");
     expect(valueInput).toHaveValue("http://localhost:9090");
 
-    await user.click(screen.getByRole("button", { name: /Remove env BASE_URL/i }));
-    expect(within(envSection()).getByText(/No env vars/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /BASE_URL 환경변수 제거/i }));
+    expect(within(envSection()).getByText(/환경 변수 없음/i)).toBeInTheDocument();
   });
 
   it("posts env entries and ramp_up_seconds on Run", async () => {
@@ -97,8 +97,8 @@ describe("RunDialog — env & ramp_up", () => {
     await user.type(rampInput, "2");
 
     await user.type(screen.getByPlaceholderText("BASE_URL"), "BASE_URL");
-    await user.click(within(envSection()).getByRole("button", { name: "Add" }));
-    await user.type(screen.getByLabelText("env value 0"), "http://localhost:9090");
+    await user.click(within(envSection()).getByRole("button", { name: "추가" }));
+    await user.type(screen.getByLabelText("환경 변수 값 0"), "http://localhost:9090");
 
     await user.click(screen.getByRole("button", { name: /^실행$/ }));
 
@@ -123,24 +123,24 @@ describe("RunDialog — env & ramp_up", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.type(screen.getByLabelText("new env key"), "BASE_URL");
-    await user.type(screen.getByLabelText("new env value"), "http://localhost:9090");
-    await user.click(within(envSection()).getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("새 환경 변수 키"), "BASE_URL");
+    await user.type(screen.getByLabelText("새 환경 변수 값"), "http://localhost:9090");
+    await user.click(within(envSection()).getByRole("button", { name: "추가" }));
 
-    expect(await screen.findByLabelText("env key 0")).toHaveValue("BASE_URL");
-    expect(screen.getByLabelText("env value 0")).toHaveValue("http://localhost:9090");
+    expect(await screen.findByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://localhost:9090");
 
-    expect(screen.getByLabelText("new env key")).toHaveValue("");
-    expect(screen.getByLabelText("new env value")).toHaveValue("");
+    expect(screen.getByLabelText("새 환경 변수 키")).toHaveValue("");
+    expect(screen.getByLabelText("새 환경 변수 값")).toHaveValue("");
   });
 
   it("disables Add when name is empty even if value is filled", async () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.type(screen.getByLabelText("new env value"), "http://localhost:9090");
+    await user.type(screen.getByLabelText("새 환경 변수 값"), "http://localhost:9090");
 
-    expect(within(envSection()).getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(within(envSection()).getByRole("button", { name: "추가" })).toBeDisabled();
   });
 
   it("disables Run when ramp_up_seconds > duration_seconds", async () => {
@@ -329,10 +329,10 @@ describe("RunDialog — initial prefill (A1)", () => {
 
   it("seeds env entries from initial.env", () => {
     renderWithInitial(initial);
-    expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
-    expect(screen.getByLabelText("env value 0")).toHaveValue("http://x");
-    expect(screen.getByLabelText("env key 1")).toHaveValue("TOKEN");
-    expect(screen.getByLabelText("env value 1")).toHaveValue("abc");
+    expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://x");
+    expect(screen.getByLabelText("환경 변수 키 1")).toHaveValue("TOKEN");
+    expect(screen.getByLabelText("환경 변수 값 1")).toHaveValue("abc");
   });
 
   it("shows a drift warning when scenarioChangedWarning is set", () => {
@@ -557,8 +557,8 @@ describe("RunDialog — load preset (A2)", () => {
     await waitFor(() => expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(50));
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
-    expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
-    expect(screen.getByLabelText("env value 0")).toHaveValue("http://heavy");
+    expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://heavy");
   });
 });
 
@@ -1289,14 +1289,14 @@ describe("RunDialog — environment overlay (B-2)", () => {
     renderDialog();
     // wait for the environments list to load before selecting
     await screen.findByRole("option", { name: "staging" });
-    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
     await screen.findByText("BASE_URL");
     // override BASE_URL via the add row
-    await user.type(screen.getByLabelText("new env key"), "BASE_URL");
-    await user.type(screen.getByLabelText("new env value"), "http://override");
+    await user.type(screen.getByLabelText("새 환경 변수 키"), "BASE_URL");
+    await user.type(screen.getByLabelText("새 환경 변수 값"), "http://override");
     await user.click(
-      within(screen.getByRole("region", { name: /Environment variables/i })).getByRole("button", {
-        name: /^add$/i,
+      within(screen.getByRole("region", { name: /환경 변수/i })).getByRole("button", {
+        name: /^추가$/i,
       }),
     );
     await user.click(screen.getByRole("button", { name: /^실행$/ }));
@@ -1337,19 +1337,19 @@ describe("RunDialog — environment overlay (B-2)", () => {
     renderDialog();
     // wait for the environments list to load before selecting
     await screen.findByRole("option", { name: "staging" });
-    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
     // add a standalone override
-    await user.type(screen.getByLabelText("new env key"), "TOKEN");
-    await user.type(screen.getByLabelText("new env value"), "t1");
+    await user.type(screen.getByLabelText("새 환경 변수 키"), "TOKEN");
+    await user.type(screen.getByLabelText("새 환경 변수 값"), "t1");
     await user.click(
-      within(screen.getByRole("region", { name: /Environment variables/i })).getByRole("button", {
-        name: /^add$/i,
+      within(screen.getByRole("region", { name: /환경 변수/i })).getByRole("button", {
+        name: /^추가$/i,
       }),
     );
-    expect(await screen.findByLabelText("env key 0")).toHaveValue("TOKEN");
+    expect(await screen.findByLabelText("환경 변수 키 0")).toHaveValue("TOKEN");
     // switch to E2 — override survives
-    await user.selectOptions(screen.getByLabelText("select environment"), "E2");
-    expect(screen.getByLabelText("env key 0")).toHaveValue("TOKEN");
+    await user.selectOptions(screen.getByLabelText("환경 선택"), "E2");
+    expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("TOKEN");
   });
 
   it("submits the selected env's vars as-is when there are no overrides (spec interaction row 2)", async () => {
@@ -1386,7 +1386,7 @@ describe("RunDialog — environment overlay (B-2)", () => {
     const user = userEvent.setup();
     renderDialog();
     await screen.findByRole("option", { name: "staging" });
-    await user.selectOptions(screen.getByLabelText("select environment"), "E1");
+    await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
     await screen.findByText("BASE_URL"); // base list loaded
     // no overrides added — submit straight away
     await user.click(screen.getByRole("button", { name: /^실행$/ }));

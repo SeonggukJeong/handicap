@@ -91,7 +91,7 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "다시 실행" }));
     expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4);
-    expect(screen.getByLabelText("env key 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
   });
 
   it("'즉시 재실행' POSTs createRun and navigates to the new run", async () => {

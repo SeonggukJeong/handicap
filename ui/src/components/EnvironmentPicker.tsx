@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useEnvironments } from "../api/hooks";
 import type { EnvEntry } from "../api/envOverlay";
+import { ko } from "../i18n/ko";
 
 type Props = {
   /** Currently selected environment id, or null for "(없음)". Owned by the parent. */
@@ -39,14 +40,14 @@ export function EnvironmentPicker({
   }
 
   return (
-    <section aria-label="Environment variables" className="mb-3">
+    <section aria-label={ko.runDialog.envVarsRegion} className="mb-3">
       <div className="flex items-center gap-2 mb-2">
         <label className="text-sm text-slate-600" htmlFor="env-select">
           환경
         </label>
         <select
           id="env-select"
-          aria-label="select environment"
+          aria-label={ko.runDialog.envSelectAria}
           className="border border-slate-300 rounded px-2 py-1 text-sm"
           value={selectedEnvId ?? ""}
           onChange={(e) => onSelect(e.target.value || null)}
@@ -62,7 +63,9 @@ export function EnvironmentPicker({
 
       {selectedEnvId && (
         <div className="mb-2">
-          <p className="text-xs text-slate-500 mb-1">from {selectedName ?? "환경"} (읽기 전용):</p>
+          <p className="text-xs text-slate-500 mb-1">
+            {ko.runDialog.envBaseFrom(selectedName ?? "환경")}
+          </p>
           <ul className="flex flex-col gap-1">
             {Object.entries(baseVars).map(([k, v]) => {
               const overridden = overrideKeys.has(k);
@@ -87,21 +90,21 @@ export function EnvironmentPicker({
                       onClick={() => seedOverride(k, v)}
                       className="text-xs text-slate-600 hover:text-slate-900 shrink-0 border border-slate-300 rounded px-1"
                     >
-                      override
+                      {ko.runDialog.envOverrideBtn}
                     </button>
                   )}
                 </li>
               );
             })}
             {Object.keys(baseVars).length === 0 && (
-              <li className="text-xs text-slate-400 italic">이 환경엔 변수가 없습니다</li>
+              <li className="text-xs text-slate-400 italic">{ko.runDialog.envBaseNoVars}</li>
             )}
           </ul>
         </div>
       )}
 
       <h4 className="text-sm font-semibold text-slate-700 mb-2">
-        {selectedEnvId ? "override (이 run 한정)" : "Env"}
+        {selectedEnvId ? ko.runDialog.envHeadingOverride : ko.runDialog.envHeading}
       </h4>
       <ul className="flex flex-col gap-2">
         {overrides.map((entry, idx) => {
@@ -109,7 +112,7 @@ export function EnvironmentPicker({
           return (
             <li key={idx} className="flex items-center gap-2">
               <input
-                aria-label={`env key ${idx}`}
+                aria-label={ko.runDialog.envKeyAria(idx)}
                 className="w-40 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
                 value={entry.key}
                 onChange={(e) =>
@@ -120,7 +123,7 @@ export function EnvironmentPicker({
               />
               <span className="text-slate-400 text-sm">=</span>
               <input
-                aria-label={`env value ${idx}`}
+                aria-label={ko.runDialog.envValueAria(idx)}
                 className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
                 value={entry.value}
                 onChange={(e) =>
@@ -135,7 +138,7 @@ export function EnvironmentPicker({
               <button
                 type="button"
                 onClick={() => onOverridesChange(overrides.filter((_, i) => i !== idx))}
-                aria-label={`Remove env ${entry.key || idx}`}
+                aria-label={ko.runDialog.envRemoveAria(String(entry.key || idx))}
                 className="text-slate-500 hover:text-red-600 text-sm shrink-0"
               >
                 ×
@@ -143,12 +146,14 @@ export function EnvironmentPicker({
             </li>
           );
         })}
-        {overrides.length === 0 && <li className="text-xs text-slate-400 italic">No env vars</li>}
+        {overrides.length === 0 && (
+          <li className="text-xs text-slate-400 italic">{ko.runDialog.envNoVars}</li>
+        )}
       </ul>
 
       <div className="flex items-center gap-2 mt-2">
         <input
-          aria-label="new env key"
+          aria-label={ko.runDialog.envNewKeyAria}
           className="w-40 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
           placeholder="BASE_URL"
           value={newKey}
@@ -156,7 +161,7 @@ export function EnvironmentPicker({
         />
         <span className="text-slate-400 text-sm">=</span>
         <input
-          aria-label="new env value"
+          aria-label={ko.runDialog.envNewValueAria}
           className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
           placeholder="http://localhost:9090"
           value={newValue}
@@ -174,7 +179,7 @@ export function EnvironmentPicker({
           disabled={newKey.trim().length === 0}
           className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50 shrink-0"
         >
-          Add
+          {ko.common.add}
         </button>
       </div>
     </section>

@@ -47,7 +47,7 @@ function renderPicker(props: { baseVars: Record<string, string>; initialId?: str
   );
 }
 function region() {
-  return screen.getByRole("region", { name: /Environment variables/i });
+  return screen.getByRole("region", { name: /환경 변수/i });
 }
 
 describe("EnvironmentPicker", () => {
@@ -73,9 +73,9 @@ describe("EnvironmentPicker", () => {
     expect(await screen.findByText("BASE_URL")).toBeInTheDocument();
     expect(screen.getByText("http://s")).toBeInTheDocument();
     // clicking "override" seeds an editable override row pre-filled with the base value
-    await user.click(screen.getByRole("button", { name: /override/i }));
-    expect(await screen.findByLabelText("env key 0")).toHaveValue("BASE_URL");
-    expect(screen.getByLabelText("env value 0")).toHaveValue("http://s");
+    await user.click(screen.getByRole("button", { name: /재정의/i }));
+    expect(await screen.findByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
+    expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://s");
   });
 
   it("marks a base key as overridden when an override row shadows it", async () => {
@@ -87,7 +87,7 @@ describe("EnvironmentPicker", () => {
     const user = userEvent.setup();
     renderPicker({ baseVars: { BASE_URL: "http://s" }, initialId: "E1" });
     await screen.findByText("BASE_URL");
-    await user.click(screen.getByRole("button", { name: /override/i }));
+    await user.click(screen.getByRole("button", { name: /재정의/i }));
     // base row now labelled 재정의됨; override row labelled "BASE_URL 재정의"
     await waitFor(() => expect(screen.getByText(/재정의됨/)).toBeInTheDocument());
     expect(screen.getByText(/BASE_URL 재정의/)).toBeInTheDocument();
@@ -98,7 +98,7 @@ describe("EnvironmentPicker", () => {
     const user = userEvent.setup();
     renderPicker({ baseVars: {} });
     await user.type(within(region()).getByPlaceholderText("BASE_URL"), "EXTRA");
-    await user.click(within(region()).getByRole("button", { name: /^add$/i }));
-    expect(await screen.findByLabelText("env key 0")).toHaveValue("EXTRA");
+    await user.click(within(region()).getByRole("button", { name: /^추가$/i }));
+    expect(await screen.findByLabelText("환경 변수 키 0")).toHaveValue("EXTRA");
   });
 });
