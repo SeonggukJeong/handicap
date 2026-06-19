@@ -991,6 +991,17 @@ describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
   });
 });
 
+describe("Inspector — assertion row status field label (ko-first)", () => {
+  beforeEach(() => loadAndSelect());
+
+  it("assertion row renders the status field label from ko.editor.assertStatusField", () => {
+    render(<Inspector />);
+    // VALID_YAML has `assert: - status: 200`, so an assertion row is visible.
+    // The badge should show the localized 상태 label, not the bare English "status".
+    expect(screen.getByText(ko.editor.assertStatusField)).toBeInTheDocument();
+  });
+});
+
 describe("Inspector URL required marker (U3)", () => {
   beforeEach(() => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());

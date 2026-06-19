@@ -511,7 +511,7 @@ function AssertEditor({
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
           <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-slate-600 w-16">status</span>
+            <span className="font-mono text-slate-600 w-16">{ko.editor.assertStatusField}</span>
             <input
               type="number"
               min={100}
