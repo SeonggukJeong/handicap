@@ -11,6 +11,14 @@ use crate::store::datasets;
 use crate::store::runs::{self, Profile, RunStatus};
 use crate::store::scenarios;
 
+/// Query parameter for POST /api/runs. `?force=true` skips the capacity guard
+/// (L3 R4) and routes to the legacy even-split path.
+#[derive(Debug, Deserialize)]
+pub struct ForceQuery {
+    #[serde(default)]
+    pub force: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateRunRequest {
     pub scenario_id: String,
@@ -493,7 +501,21 @@ pub(crate) async fn spawn_run(
     profile: &Profile,
     validated_metas: Vec<datasets::DatasetMeta>,
     env: &std::collections::HashMap<String, String>,
+    force: bool,
 ) -> Result<runs::RunRow, ApiError> {
+    // L3: closed-loop pool capacity precheck (before any DB insert → 409 leaves no
+    // run row, R3). Empty pool (idle 0) is NOT a 409 — it falls through to the
+    // existing empty-pool 400 below.
+    if state.coord.is_pool_mode() && !force && !profile.is_open_loop() && !profile.is_vu_curve() {
+        let (idle, achievable) = state.coord.pool_achievable_capacity().await;
+        if idle > 0 && profile.vus > achievable {
+            return Err(ApiError::ConflictJson(serde_json::json!({
+                "achievable_vus": achievable,
+                "requested_vus": profile.vus,
+            })));
+        }
+    }
+
     // env is already map<string,string> (rejected at the API boundary otherwise).
     // Serialize back to a JSON object for storage; clone the map for the proto.
     let env_value = serde_json::to_value(env).expect("env map serializes to a JSON object");
@@ -616,56 +638,102 @@ pub(crate) async fn spawn_run(
         profile.vus
     };
     // Pool mode: use the always-on worker pool instead of spawning new workers.
-    // reserve_idle_pool atomically grabs up to n_cap idle workers and marks them
-    // assigned (reservation lock). enqueue registers the run for N workers, then
-    // assign_pool_workers pushes assignments via the reserved txs. If any tx is
-    // closed (worker vanished between reserve and push), fail fast (R7).
+    // L3: fork by mode — closed-loop non-force uses capacity-aware path (R2);
+    // open-loop / vu-curve / ?force uses legacy even-split (byte-identical L1).
     if state.coord.is_pool_mode() {
-        // Capacity cap: vu-curve → 1 worker; open-loop → min(max_in_flight, rate);
-        // closed-loop → vus. The pool deliberately does NOT use per-worker
-        // capacity_vus — N is capped by run LOAD, not worker capacity (spec §2.1).
-        let n_cap: usize = if profile.is_vu_curve() {
-            1
-        } else if profile.is_open_loop() {
-            let slots = profile.max_in_flight.unwrap_or(1);
-            let rate = profile.target_rps.unwrap_or_else(|| {
-                profile
-                    .stages
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|s| s.target)
-                    .max()
-                    .unwrap_or(1)
-            });
-            (slots as usize).min(rate as usize)
+        let closed = !profile.is_open_loop() && !profile.is_vu_curve();
+        if closed && !force {
+            // Capacity-aware path (R2).
+            match state
+                .coord
+                .reserve_idle_pool_capacity(&row.id, profile.vus)
+                .await
+            {
+                crate::grpc::coordinator::PoolReservation::Reserved { workers, counts: _ }
+                    if workers.is_empty() =>
+                {
+                    // empty pool → existing 400 (idle 0).
+                    let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
+                    state.coord.cancel_dispatch_failed(&row.id).await;
+                    runs::mark_failed(&state.db, &row.id, &msg).await?;
+                    return Err(ApiError::BadRequest(msg));
+                }
+                crate::grpc::coordinator::PoolReservation::Insufficient { achievable } => {
+                    // Rare TOCTOU (pool shrank after precheck) — mark failed.
+                    let msg = format!(
+                        "풀 용량 부족 (가용 {achievable} VU < 요청 {} VU)",
+                        profile.vus
+                    );
+                    state.coord.cancel_dispatch_failed(&row.id).await;
+                    runs::mark_failed(&state.db, &row.id, &msg).await?;
+                    return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+                }
+                crate::grpc::coordinator::PoolReservation::Reserved { workers, counts } => {
+                    let n_pool = workers.len() as u32;
+                    state
+                        .coord
+                        .enqueue(row.id.clone(), assignment, n_pool, total_vus, Some(counts))
+                        .await;
+                    if state
+                        .coord
+                        .assign_pool_workers(&row.id, workers)
+                        .await
+                        .is_err()
+                    {
+                        let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
+                        state.coord.cancel_dispatch_failed(&row.id).await;
+                        runs::mark_failed(&state.db, &row.id, &msg).await?;
+                        return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+                    }
+                    return Ok(row);
+                }
+            }
         } else {
-            profile.vus as usize
-        };
-        let reserved = state.coord.reserve_idle_pool(&row.id, n_cap).await;
-        let n_pool = reserved.len() as u32;
-        if n_pool == 0 {
-            let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
-            state.coord.cancel_dispatch_failed(&row.id).await;
-            runs::mark_failed(&state.db, &row.id, &msg).await?;
-            return Err(ApiError::BadRequest(msg));
+            // Legacy pool path: ?force closed-loop OR open-loop OR vu-curve.
+            // Even split via register's shard_split (precomputed None) = byte-identical L1.
+            let n_cap: usize = if profile.is_vu_curve() {
+                1
+            } else if profile.is_open_loop() {
+                let slots = profile.max_in_flight.unwrap_or(1);
+                let rate = profile.target_rps.unwrap_or_else(|| {
+                    profile
+                        .stages
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|s| s.target)
+                        .max()
+                        .unwrap_or(1)
+                });
+                (slots as usize).min(rate as usize)
+            } else {
+                profile.vus as usize
+            };
+            let reserved = state.coord.reserve_idle_pool(&row.id, n_cap).await;
+            let n_pool = reserved.len() as u32;
+            if n_pool == 0 {
+                let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
+                state.coord.cancel_dispatch_failed(&row.id).await;
+                runs::mark_failed(&state.db, &row.id, &msg).await?;
+                return Err(ApiError::BadRequest(msg));
+            }
+            state
+                .coord
+                .enqueue(row.id.clone(), assignment, n_pool, total_vus, None)
+                .await;
+            if state
+                .coord
+                .assign_pool_workers(&row.id, reserved)
+                .await
+                .is_err()
+            {
+                let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
+                state.coord.cancel_dispatch_failed(&row.id).await;
+                runs::mark_failed(&state.db, &row.id, &msg).await?;
+                return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+            }
+            return Ok(row);
         }
-        state
-            .coord
-            .enqueue(row.id.clone(), assignment, n_pool, total_vus, None)
-            .await;
-        if state
-            .coord
-            .assign_pool_workers(&row.id, reserved)
-            .await
-            .is_err()
-        {
-            let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
-            state.coord.cancel_dispatch_failed(&row.id).await;
-            runs::mark_failed(&state.db, &row.id, &msg).await?;
-            return Err(ApiError::Internal(anyhow::anyhow!(msg)));
-        }
-        return Ok(row);
     }
 
     state
@@ -692,6 +760,8 @@ pub(crate) async fn spawn_run(
 
 pub async fn create(
     State(state): State<AppState>,
+    // Query MUST precede Json (axum: body extractor must be last). (L3 R4.)
+    axum::extract::Query(q): axum::extract::Query<ForceQuery>,
     Json(body): Json<CreateRunRequest>,
 ) -> Result<(StatusCode, Json<RunResponse>), ApiError> {
     let scenario = scenarios::get(&state.db, &body.scenario_id)
@@ -701,7 +771,15 @@ pub async fn create(
     let validated_meta = validate_run_config(&state, &body.profile).await?;
     validate_step_criteria_targets(&body.profile, &scenario.yaml).map_err(ApiError::BadRequest)?;
 
-    let row = spawn_run(&state, &scenario, &body.profile, validated_meta, &body.env).await?;
+    let row = spawn_run(
+        &state,
+        &scenario,
+        &body.profile,
+        validated_meta,
+        &body.env,
+        q.force,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, Json(to_response(row))))
 }

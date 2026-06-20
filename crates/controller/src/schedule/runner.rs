@@ -183,7 +183,16 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        match spawn_run(state, &scenario, &sched.profile, validated_meta, &env).await {
+        match spawn_run(
+            state,
+            &scenario,
+            &sched.profile,
+            validated_meta,
+            &env,
+            false,
+        )
+        .await
+        {
             Ok(row) => {
                 record(
                     state,
