@@ -29,6 +29,9 @@ export function Layout() {
             <Link to="/settings" className="hover:text-slate-900">
               {ko.nav.settings}
             </Link>
+            <Link to="/workers" className="hover:text-slate-900">
+              {ko.nav.workers}
+            </Link>
           </nav>
         </div>
       </header>

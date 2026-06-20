@@ -12,6 +12,7 @@ import { EnvironmentsPage } from "./pages/EnvironmentsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
+import { WorkerDashboardPage } from "./pages/WorkerDashboardPage";
 
 const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
       { path: "templates", element: <TemplatesPage /> },
       { path: "schedules", element: <SchedulesPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "workers", element: <WorkerDashboardPage /> },
     ],
   },
 ]);

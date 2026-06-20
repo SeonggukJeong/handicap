@@ -29,6 +29,7 @@ import {
   type StepTemplateInput,
 } from "./stepTemplates";
 import { deleteSetting, getSettings, putSetting } from "./settings";
+import { listPoolWorkers } from "./pool";
 import type { Profile, RunStatus } from "./schemas";
 import { markRunCreated } from "../onboarding/state";
 
@@ -51,6 +52,7 @@ export const queryKeys = {
   stepTemplates: () => ["step-templates"] as const,
   stepTemplate: (id: string) => ["step-templates", id] as const,
   settings: () => ["settings"] as const,
+  poolWorkers: () => ["pool", "workers"] as const,
 };
 
 export function useScenarios() {
@@ -403,5 +405,13 @@ export function useTestRun() {
       max_requests?: number;
       apply_think_time?: boolean;
     }) => api.createTestRun(body),
+  });
+}
+
+export function usePoolWorkers() {
+  return useQuery({
+    queryKey: queryKeys.poolWorkers(),
+    queryFn: listPoolWorkers,
+    refetchInterval: (q) => (q.state.data?.pool_mode ? 3000 : false),
   });
 }

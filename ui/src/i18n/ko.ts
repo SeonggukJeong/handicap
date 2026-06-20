@@ -155,6 +155,25 @@ export const ko = {
     schedules: "스케줄",
     settings: "운영 상한",
     stepTemplates: "스텝 템플릿",
+    workers: "워커",
+  },
+  workers: {
+    title: "연결된 워커",
+    subtitle: "풀 모드 컨트롤러에 연결된 LAN 워커 (읽기 전용)",
+    colHostname: "호스트",
+    colWorkerId: "워커 ID",
+    colStatus: "상태",
+    colCapacity: "용량(VU, 선언값·미적용)",
+    statusIdle: "유휴",
+    statusBusy: "실행 중",
+    countSummary: (idle: number, busy: number) => `유휴 ${idle} · 실행 중 ${busy}`,
+    emptyNotPool:
+      "이 컨트롤러는 풀 모드가 아닙니다. 풀 모드로 실행하면 연결된 워커가 여기 표시됩니다.",
+    emptyNoWorkers: "연결된 워커가 없습니다. 각 PC에서 워커를 풀 모드로 기동하세요.",
+    runbookHint: "설정 방법: 운영 런북(docs/dev/lan-workers.md) 참고",
+    loadError: "워커 목록을 불러오지 못했습니다.",
+    poolPreview: (idle: number) =>
+      `연결된 유휴 워커 ${idle}대 — 이 run은 유휴 워커에 분산 실행됩니다(use-all).`,
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
