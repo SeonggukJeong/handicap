@@ -86,6 +86,9 @@ struct ControllerArgs {
     /// Disable the in-process scheduler loop entirely (no auto-fire).
     #[arg(long, default_value_t = false)]
     scheduler_disabled: bool,
+    /// Shared preshared key required from workers on Register (LAN). Omit = no auth.
+    #[arg(long)]
+    worker_token: Option<String>,
     /// (bundle) 시작 시 기본 브라우저 자동 오픈을 끈다(헤드리스/CI/라이브검증용).
     /// bundle 전용 — 비-bundle 빌드엔 이 플래그가 없다(off=CLI 표면까지 byte-identical).
     #[cfg(feature = "bundle")]
@@ -149,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
         info!(count = recovered, "marked orphan runs as failed on startup");
     }
     let coord_state = CoordinatorState::new(db.clone());
+    coord_state.set_worker_token(args.worker_token.clone());
 
     // bundle: 포트가 사용 중이면 빈 포트로 폴백해 미리 바인딩 → 실제 주소 확보(브라우저/worker가 dial).
     //         이 리스너를 serve로 넘긴다(아래). 비-bundle: 현행처럼 serve 시점에 바인딩, 주소만 args에서.

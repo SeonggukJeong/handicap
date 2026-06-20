@@ -36,6 +36,9 @@ pub struct WorkerArgs {
     pub worker_id: Option<String>,
     #[arg(long, default_value = "1000")]
     pub capacity_vus: u32,
+    /// Shared preshared key for the controller (LAN). Omit if controller has no --worker-token.
+    #[arg(long)]
+    pub token: Option<String>,
 }
 
 /// Install the worker's tracing subscriber (fmt + EnvFilter, default "info").
@@ -90,6 +93,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         &worker_id,
         &args.run_id,
         args.capacity_vus,
+        args.token.as_deref().unwrap_or(""),
         cancel.clone(),
     )
     .await

@@ -21,8 +21,9 @@ message WorkerMessage {
 
 message Register {
   string worker_id = 1;
-  string run_id = 2;        // worker is spawned per-run in slice 1
+  string run_id = 2;        // worker is spawned per-run in slice 1; "" = pool-mode idle (LAN L1)
   uint32 capacity_vus = 3;  // max VUs this worker is willing to run
+  string token = 4;         // shared preshared key (LAN L1); "" = unset
 }
 
 message Pong {

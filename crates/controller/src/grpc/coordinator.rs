@@ -131,6 +131,9 @@ pub struct CoordinatorState {
     /// §8.) Interior mutability so all clones (AppState.coord, CoordinatorService)
     /// share the same handle regardless of construction order.
     dispatcher: Arc<OnceLock<SharedDispatcher>>,
+    /// Set once at startup via `--worker-token`. When set, incoming `Register.token`
+    /// must match exactly. When unset (None), any token is accepted (no auth). LAN L1.
+    worker_token: Arc<OnceLock<String>>,
 }
 
 impl CoordinatorState {
@@ -142,6 +145,7 @@ impl CoordinatorState {
             db,
             runs: Arc::new(Mutex::new(HashMap::new())),
             dispatcher: Arc::new(OnceLock::new()),
+            worker_token: Arc::new(OnceLock::new()),
         }
     }
 
@@ -149,6 +153,24 @@ impl CoordinatorState {
     /// at startup. Idempotent (later sets are ignored).
     pub fn set_dispatcher(&self, dispatcher: SharedDispatcher) {
         let _ = self.dispatcher.set(dispatcher);
+    }
+
+    /// Install the required worker token (startup, once). None = no auth.
+    /// All clones share the same OnceLock so this is set-once across the process.
+    pub fn set_worker_token(&self, token: Option<String>) {
+        if let Some(t) = token {
+            let _ = self.worker_token.set(t);
+        }
+    }
+
+    /// True if `presented` matches the configured token (or no token configured).
+    /// Plain string compare: the L1 channel is plaintext so timing-safe compare
+    /// is not meaningful here (spec R3/§3.6 scope is transport, not HMAC).
+    pub fn check_token(&self, presented: &str) -> bool {
+        match self.worker_token.get() {
+            None => true,
+            Some(expected) => expected == presented,
+        }
     }
 
     /// Best-effort, idempotent teardown of a run's external workers. No-op if no
@@ -645,6 +667,18 @@ impl Coordinator for CoordinatorService {
                 };
                 match msg.payload {
                     Some(WorkerPayload::Register(reg)) => {
+                        if !state.check_token(&reg.token) {
+                            warn!(worker_id = %reg.worker_id, "register rejected: token mismatch");
+                            let _ = tx
+                                .send(Ok(ServerMessage {
+                                    payload: Some(ServerPayload::Abort(AbortRun {
+                                        run_id: reg.run_id.clone(),
+                                        reason: "authentication failed".to_string(),
+                                    })),
+                                }))
+                                .await;
+                            break;
+                        }
                         run_id = Some(reg.run_id.clone());
                         worker_id = Some(reg.worker_id.clone());
                         info!(worker_id = %reg.worker_id, run_id = %reg.run_id, "worker registered");
@@ -1609,5 +1643,24 @@ mod tests {
         let branch_a = rows.iter().find(|r| r.branch == "a").expect("branch-a row");
         assert_eq!(page_row.count, 1);
         assert_eq!(branch_a.count, 1, "branch='a' round-trip count must be 1");
+    }
+
+    #[tokio::test]
+    async fn token_unset_accepts_any() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        // worker_token 미설정 → check_token은 항상 통과
+        assert!(coord.check_token(""));
+        assert!(coord.check_token("anything"));
+    }
+
+    #[tokio::test]
+    async fn token_mismatch_rejected() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        coord.set_worker_token(Some("secret".to_string()));
+        assert!(coord.check_token("secret"));
+        assert!(!coord.check_token("wrong"));
+        assert!(!coord.check_token(""));
     }
 }
