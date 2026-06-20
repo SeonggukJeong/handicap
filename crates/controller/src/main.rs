@@ -106,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "bundle")]
     if let Some(Cmd::Worker(wargs)) = cli.cmd {
         handicap_worker::init_worker_tracing();
-        return handicap_worker::run(wargs).await;
+        return handicap_worker::run_dispatch(wargs).await;
     }
 
     let args = cli.controller;
@@ -350,7 +350,7 @@ mod cli_tests {
         .expect("worker subcommand must parse");
         match cli.cmd {
             Some(Cmd::Worker(w)) => {
-                assert_eq!(w.run_id, "r1");
+                assert_eq!(w.run_id.as_deref(), Some("r1"));
                 assert_eq!(w.worker_id.as_deref(), Some("w1"));
             }
             _ => panic!("expected Worker subcommand"),

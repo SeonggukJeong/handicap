@@ -41,8 +41,18 @@ pub async fn connect_with_backoff(
     cancel: CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let token = token.to_string();
+    let cancel_for_attempt = cancel.clone();
     retry_with_backoff(
-        || connect_and_register(controller_url, worker_id, run_id, capacity_vus, &token),
+        || {
+            connect_and_register(
+                controller_url,
+                worker_id,
+                run_id,
+                capacity_vus,
+                &token,
+                &cancel_for_attempt,
+            )
+        },
         cancel,
     )
     .await

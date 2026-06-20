@@ -13,5 +13,5 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     handicap_worker::init_worker_tracing();
     let cli = Cli::parse();
-    handicap_worker::run(cli.args).await
+    handicap_worker::run_dispatch(cli.args).await
 }

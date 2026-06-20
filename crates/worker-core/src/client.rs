@@ -83,6 +83,7 @@ pub async fn connect_and_register(
     run_id: &str,
     capacity_vus: u32,
     token: &str,
+    cancel: &CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let channel = Channel::from_shared(controller_url.to_string())?
         .connect()
@@ -108,7 +109,13 @@ pub async fn connect_and_register(
     info!(%worker_id, %run_id, "registered with controller");
 
     // Wait for the first ServerMessage — must be RunAssignment.
-    let first = inbound.next().await;
+    // In pool mode the worker registers idle (run_id="") and blocks here until
+    // the controller pushes an assignment. This select makes the wait
+    // cancel-aware so a SIGTERM exits promptly instead of hanging.
+    let first = tokio::select! {
+        _ = cancel.cancelled() => return Err(WorkerError::Cancelled),
+        m = inbound.next() => m,
+    };
     let assignment = match first {
         Some(Ok(msg)) => match msg.payload {
             Some(ServerPayload::Assignment(a)) => a,

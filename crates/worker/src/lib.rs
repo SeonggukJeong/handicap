@@ -10,7 +10,7 @@ use handicap_engine::{
     run_scenario_open_loop, run_scenario_vu_curve,
 };
 use handicap_proto::v1 as pb;
-use handicap_worker_core::{WorkerError, connect_with_backoff, load_datasets};
+use handicap_worker_core::{WorkerError, WorkerLink, connect_with_backoff, load_datasets};
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
@@ -19,7 +19,7 @@ use pb::{
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 /// Worker CLI 인자 — lib이 단일 소스. worker 바이너리(`main.rs`)는 `#[command(flatten)]`로,
@@ -28,10 +28,12 @@ use tracing_subscriber::EnvFilter;
 pub struct WorkerArgs {
     #[arg(long)]
     pub controller: String,
+    /// Run id to execute (legacy single-run mode). Omit to run in pool mode.
     #[arg(long)]
-    pub run_id: String,
+    pub run_id: Option<String>,
     /// Explicit worker id. If omitted (K8s Indexed Job), derived from
     /// JOB_COMPLETION_INDEX as "{run_id}-w{index}". (A3a spec §7.2.)
+    /// In pool mode: derived as a random ULID if omitted (R12).
     #[arg(long)]
     pub worker_id: Option<String>,
     #[arg(long, default_value = "1000")]
@@ -54,26 +56,12 @@ pub fn init_worker_tracing() {
         .init();
 }
 
-/// Run the worker against the controller until the run terminates. This is the
-/// former `main` body (parsing + tracing init removed — the caller does those).
-pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
-    let worker_id = resolve_worker_id(
-        args.worker_id.clone(),
-        &args.run_id,
-        std::env::var("JOB_COMPLETION_INDEX").ok(),
-    );
-    info!(?args, %worker_id, "worker starting");
-
-    // Install the cancel token + SIGTERM handler BEFORE connect_with_backoff
-    // so a K8s pod-termination signal during the initial backoff sleep (the
-    // common shutdown case while the controller Service has no endpoint yet)
-    // is caught by our handler instead of the kernel's default SIGTERM action.
-    // Without this, SIGTERM during connect would kill the process with exit
-    // 143 and skip any cleanup. See worker-core::reconnect for the matching
-    // cancel-aware backoff sleep.
-    let cancel = CancellationToken::new();
-    let cancel_for_signal = cancel.clone();
-    let signal_task = tokio::spawn(async move {
+/// Spawn the SIGTERM handler task. Installs the signal handler BEFORE
+/// connect_with_backoff so a K8s pod-termination signal during the initial
+/// backoff sleep is caught and cancels the token instead of killing the process.
+fn spawn_sigterm(cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
+    let cancel_for_signal = cancel;
+    tokio::spawn(async move {
         use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = match signal(SignalKind::terminate()) {
             Ok(s) => s,
@@ -86,29 +74,31 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
             tracing::info!("SIGTERM received, cancelling run");
             cancel_for_signal.cancel();
         }
-    });
+    })
+}
 
-    let link = match connect_with_backoff(
-        &args.controller,
-        &worker_id,
-        &args.run_id,
-        args.capacity_vus,
-        args.token.as_deref().unwrap_or(""),
-        cancel.clone(),
-    )
-    .await
-    {
-        Ok(link) => link,
-        Err(WorkerError::Cancelled) => {
-            // SIGTERM during connect: exit cleanly (no run was ever started,
-            // so there's nothing to report back to the controller).
-            info!("SIGTERM during connect, exiting cleanly");
-            signal_task.abort();
-            return Ok(());
-        }
-        Err(e) => return Err(anyhow::Error::from(e).context("connect_with_backoff")),
-    };
+/// Pool worker id: explicit --worker-id wins, else a fresh random ULID (R12).
+/// run_pool calls this once outside its loop so the same id is reused for
+/// every reconnect within the process lifetime.
+fn resolve_pool_worker_id(explicit: Option<String>) -> String {
+    explicit.unwrap_or_else(|| ulid::Ulid::new().to_string())
+}
+
+/// Execute a single run assignment: parse scenario, load datasets, run engine,
+/// send terminal RunStatus. Ownership: the caller (run/run_pool) owns
+/// signal_task — execute_assignment does NOT hold or abort it.
+///
+/// `worker_id` is the resolved id for this process (used in MetricBatch).
+/// `run_cancel` is the token the engine and abort_listener watch. For
+/// run_pool, pass cancel.child_token() so per-run abort doesn't kill the
+/// process-level SIGTERM token. For legacy run(), pass cancel.clone().
+async fn execute_assignment(
+    link: WorkerLink,
+    worker_id: String,
+    run_cancel: CancellationToken,
+) -> anyhow::Result<()> {
     let assignment = link.assignment;
+    let run_id = assignment.run_id.clone();
     let tx = link.tx;
     let mut inbound_rx = link.inbound_rx;
     let inbound_fwd = link.inbound_fwd;
@@ -148,8 +138,8 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
     let datasets: Vec<Arc<DataSet>> = if bindings.iter().any(|b| b.row_count > 0) {
         let expected: Vec<u64> = bindings.iter().map(|b| b.row_count).collect();
         let total: u64 = expected.iter().sum();
-        info!(bindings = bindings.len(), rows = total, run_id = %args.run_id, "loading datasets before run");
-        match load_datasets(&mut inbound_rx, &expected, &args.run_id, &cancel).await {
+        info!(bindings = bindings.len(), rows = total, run_id = %run_id, "loading datasets before run");
+        match load_datasets(&mut inbound_rx, &expected, &run_id, &run_cancel).await {
             Ok(all_rows) => bindings
                 .iter()
                 .zip(all_rows)
@@ -164,11 +154,11 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
             Err(WorkerError::Cancelled) => {
                 // Abort/SIGTERM during loading: report Aborted + clean shutdown
                 // (mirror the end-of-main shutdown sequence).
-                info!(run_id = %args.run_id, "aborted during dataset load");
+                info!(run_id = %run_id, "aborted during dataset load");
                 shutdown.store(true, Ordering::Relaxed);
                 let msg = WorkerMessage {
                     payload: Some(WorkerPayload::RunStatus(RunStatus {
-                        run_id: args.run_id.clone(),
+                        run_id: run_id.clone(),
                         phase: pb::run_status::Phase::Aborted as i32,
                         message: String::new(),
                     })),
@@ -176,17 +166,17 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
                 let _ = tx.send(msg).await;
                 drop(tx);
                 let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
-                signal_task.abort();
+                // signal_task is NOT aborted here — caller owns it.
                 return Ok(());
             }
             Err(e) => {
                 // Stream closed early (e.g. controller crash mid-stream): report
                 // Failed + clean shutdown so the run doesn't sit "running".
                 let emsg = e.to_string();
-                tracing::warn!(run_id = %args.run_id, error = %emsg, "dataset load failed");
+                tracing::warn!(run_id = %run_id, error = %emsg, "dataset load failed");
                 let msg = WorkerMessage {
                     payload: Some(WorkerPayload::RunStatus(RunStatus {
-                        run_id: args.run_id.clone(),
+                        run_id: run_id.clone(),
                         phase: pb::run_status::Phase::Failed as i32,
                         message: emsg,
                     })),
@@ -194,7 +184,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
                 let _ = tx.send(msg).await;
                 drop(tx);
                 let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
-                signal_task.abort();
+                // signal_task is NOT aborted here — caller owns it.
                 return Ok(());
             }
         }
@@ -279,8 +269,8 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
 
     let (win_tx, mut win_rx) = mpsc::channel::<MetricFlush>(32);
 
-    let run_id = args.run_id.clone();
-    let worker_id = worker_id.clone();
+    let run_id_for_forwarder = run_id.clone();
+    let worker_id_for_forwarder = worker_id.clone();
     let tx_metric = tx.clone();
     let forwarder = tokio::spawn(async move {
         while let Some(flush) = win_rx.recv().await {
@@ -373,8 +363,8 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
             }
             let msg = WorkerMessage {
                 payload: Some(WorkerPayload::MetricBatch(MetricBatch {
-                    run_id: run_id.clone(),
-                    worker_id: worker_id.clone(),
+                    run_id: run_id_for_forwarder.clone(),
+                    worker_id: worker_id_for_forwarder.clone(),
                     windows,
                     loop_stats,
                     branch_stats,
@@ -392,16 +382,16 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
     });
 
     // Abort listener: watch inbound messages for AbortRun addressed to our run.
-    // Reuses the same `cancel` token installed at startup — SIGTERM and an
-    // inbound AbortRun both cancel the in-flight scenario via the same token,
-    // which the engine watches for `EngineError::Aborted` → Phase::Aborted.
-    let cancel_for_listener = cancel.clone();
-    let assignment_run_id = assignment.run_id.clone();
+    // Reuses run_cancel — SIGTERM and an inbound AbortRun both cancel the
+    // in-flight scenario via the same token, which the engine watches for
+    // `EngineError::Aborted` → Phase::Aborted.
+    let cancel_for_listener = run_cancel.clone();
+    let abort_run_id = run_id.clone();
     let abort_listener = tokio::spawn(async move {
         while let Some(msg) = inbound_rx.recv().await {
             if let Some(ServerPayload::Abort(a)) = msg.payload {
-                if a.run_id == assignment_run_id {
-                    info!(run_id = %assignment_run_id, reason = %a.reason, "abort signal received");
+                if a.run_id == abort_run_id {
+                    info!(run_id = %abort_run_id, reason = %a.reason, "abort signal received");
                     cancel_for_listener.cancel();
                     break;
                 }
@@ -410,17 +400,17 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
     });
 
     let run_res = if is_vu_curve {
-        run_scenario_vu_curve(scenario, plan, win_tx, cancel).await
+        run_scenario_vu_curve(scenario, plan, win_tx, run_cancel).await
     } else if is_open_loop {
-        run_scenario_open_loop(scenario, plan, win_tx, cancel).await
+        run_scenario_open_loop(scenario, plan, win_tx, run_cancel).await
     } else {
-        run_scenario(scenario, plan, win_tx, cancel).await
+        run_scenario(scenario, plan, win_tx, run_cancel).await
     };
 
     // Clean up the abort listener — it may still be blocked on recv().
     abort_listener.abort();
     abort_listener.await.ok();
-    signal_task.abort();
+    // signal_task is NOT aborted here — caller owns it.
 
     forwarder.await.ok();
 
@@ -428,14 +418,14 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
     // the REST abort path). The store's set_status has a guard against overwriting
     // an already-aborted row, so this is idempotent.
     if matches!(&run_res, Err(EngineError::Aborted)) {
-        info!(run_id = %args.run_id, "run aborted");
+        info!(run_id = %run_id, "run aborted");
     } else if let Err(e) = &run_res {
-        tracing::warn!(run_id = %args.run_id, error = ?e, "run failed");
+        tracing::warn!(run_id = %run_id, error = ?e, "run failed");
     }
     let (phase, message) = phase_for_result(&run_res);
     let msg = WorkerMessage {
         payload: Some(WorkerPayload::RunStatus(RunStatus {
-            run_id: args.run_id.clone(),
+            run_id: run_id.clone(),
             phase,
             message,
         })),
@@ -458,6 +448,100 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(2), inbound_fwd).await;
     info!("worker done");
     Ok(())
+}
+
+/// Legacy single-run (non-pool): controller spawns with --run-id.
+pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
+    let run_id = args.run_id.clone().expect("legacy run() requires --run-id");
+    let worker_id = resolve_worker_id(
+        args.worker_id.clone(),
+        &run_id,
+        std::env::var("JOB_COMPLETION_INDEX").ok(),
+    );
+    info!(?args, %worker_id, "worker starting");
+
+    let cancel = CancellationToken::new();
+    let signal_task = spawn_sigterm(cancel.clone());
+
+    let link = match connect_with_backoff(
+        &args.controller,
+        &worker_id,
+        &run_id,
+        args.capacity_vus,
+        args.token.as_deref().unwrap_or(""),
+        cancel.clone(),
+    )
+    .await
+    {
+        Ok(link) => link,
+        Err(WorkerError::Cancelled) => {
+            // SIGTERM during connect: exit cleanly (no run was ever started,
+            // so there's nothing to report back to the controller).
+            info!("SIGTERM during connect, exiting cleanly");
+            signal_task.abort();
+            return Ok(());
+        }
+        Err(e) => return Err(anyhow::Error::from(e).context("connect_with_backoff")),
+    };
+
+    let res = execute_assignment(link, worker_id, cancel.clone()).await;
+    signal_task.abort();
+    res
+}
+
+/// Pool mode: register idle (empty run_id), wait for assignment, execute,
+/// then reconnect to become idle again (reconnect-per-run, R1).
+pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
+    let worker_id = resolve_pool_worker_id(args.worker_id.clone());
+    let cancel = CancellationToken::new(); // process-level (SIGTERM)
+    let signal_task = spawn_sigterm(cancel.clone());
+    let token = args.token.as_deref().unwrap_or("");
+    info!(%worker_id, "pool worker starting (idle)");
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+        match connect_with_backoff(
+            &args.controller,
+            &worker_id,
+            "",
+            args.capacity_vus,
+            token,
+            cancel.clone(),
+        )
+        .await
+        {
+            Ok(link) => {
+                let run_cancel = cancel.child_token(); // per-run (abort cancels only this)
+                if let Err(e) = execute_assignment(link, worker_id.clone(), run_cancel).await {
+                    warn!(error = ?e, "pool assignment ended with error; back to idle");
+                }
+                // After assignment ends, loop back to reconnect and idle-register again
+                // (reconnect-per-run).
+            }
+            Err(WorkerError::Cancelled) => break,
+            Err(e) => {
+                warn!(error = %e, "pool connect failed; retrying");
+            }
+        }
+    }
+    signal_task.abort();
+    info!("pool worker exiting");
+    Ok(())
+}
+
+/// Routing: run_id present → legacy single-run, absent → pool mode (R1).
+pub async fn run_dispatch(args: WorkerArgs) -> anyhow::Result<()> {
+    if should_run_pool(&args) {
+        run_pool(args).await
+    } else {
+        run(args).await
+    }
+}
+
+/// Pure predicate: true when args indicate pool mode (no --run-id).
+fn should_run_pool(args: &WorkerArgs) -> bool {
+    args.run_id.is_none()
 }
 
 /// Map a proto `DataBinding.policy` discriminant to the engine `BindingPolicy`.
@@ -649,5 +733,48 @@ mod tests {
         };
         assert!(proto_is_open_loop(&p_with_stages));
         assert_eq!(run_duration_secs(&p_with_stages), 60);
+    }
+
+    // ---- pool worker id tests ----
+
+    #[test]
+    fn pool_worker_id_explicit_override() {
+        assert_eq!(resolve_pool_worker_id(Some("w-x".into())), "w-x");
+    }
+
+    #[test]
+    fn pool_worker_id_random_is_nonempty_and_stable() {
+        // When no explicit id, a fresh ULID (26 Crockford chars) is generated.
+        // Process-lifetime stability is guaranteed by run_pool calling this once
+        // outside its loop.
+        let id = resolve_pool_worker_id(None);
+        assert_eq!(id.len(), 26);
+        assert!(!id.is_empty());
+    }
+
+    // ---- run_dispatch routing tests (user override: should_run_pool predicate) ----
+
+    #[test]
+    fn should_run_pool_returns_false_when_run_id_present() {
+        let args = WorkerArgs {
+            controller: "http://x".into(),
+            run_id: Some("r1".into()),
+            worker_id: None,
+            capacity_vus: 1,
+            token: None,
+        };
+        assert!(!should_run_pool(&args));
+    }
+
+    #[test]
+    fn should_run_pool_returns_true_when_run_id_absent() {
+        let args = WorkerArgs {
+            controller: "http://x".into(),
+            run_id: None,
+            worker_id: None,
+            capacity_vus: 1,
+            token: None,
+        };
+        assert!(should_run_pool(&args));
     }
 }
