@@ -6,9 +6,10 @@ use axum::routing::{get, post, put};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
-    datasets as datasets_api, environments as environments_api, presets as presets_api,
-    runs as runs_api, scenarios as scenarios_api, schedules as schedules_api,
-    settings as settings_api, step_templates as step_templates_api, test_runs as test_runs_api,
+    datasets as datasets_api, environments as environments_api, pool as pool_api,
+    presets as presets_api, runs as runs_api, scenarios as scenarios_api,
+    schedules as schedules_api, settings as settings_api, step_templates as step_templates_api,
+    test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -129,7 +130,8 @@ pub fn router(state: AppState) -> Router {
             "/settings/{key}",
             put(settings_api::put).delete(settings_api::delete),
         )
-        .route("/test-runs", post(test_runs_api::create));
+        .route("/test-runs", post(test_runs_api::create))
+        .route("/pool/workers", get(pool_api::list_workers));
 
     let mut app = Router::new().nest("/api", api);
 

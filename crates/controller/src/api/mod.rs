@@ -1,5 +1,6 @@
 pub mod datasets;
 pub mod environments;
+pub mod pool;
 pub mod presets;
 pub mod runs;
 pub mod scenarios;
