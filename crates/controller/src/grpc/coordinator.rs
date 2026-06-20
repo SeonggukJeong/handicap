@@ -87,9 +87,21 @@ struct PoolEntry {
     /// run's LOAD, not by per-worker capacity.)
     #[allow(dead_code)]
     capacity_vus: u32,
+    /// Worker machine hostname (display-only; "" if unset). LAN L2.
+    hostname: String,
     /// Set by `reserve_idle_pool` when the worker is assigned to a run.
     /// `None` = idle; `Some(run_id)` = busy. Reset to `None` on re-register (R13).
     assigned_run: Option<String>,
+}
+
+/// Display snapshot of one pool worker — returned by `pool_snapshot` (LAN L2 R1).
+/// `tx` is intentionally absent; callers only see display fields.
+#[derive(Debug, Clone)]
+pub struct PoolWorkerInfo {
+    pub worker_id: String,
+    pub hostname: String,
+    pub capacity_vus: u32,
+    pub assigned_run: Option<String>,
 }
 
 /// One connected worker's slot in a run.
@@ -297,13 +309,20 @@ impl CoordinatorState {
 
     /// Register (or refresh, on reconnect) an idle pool worker. Idempotent on
     /// worker_id: replaces tx and RESETS assigned_run to None (R13 reuse).
-    pub async fn pool_register_idle(&self, worker_id: &str, tx: WorkerTx, capacity_vus: u32) {
+    pub async fn pool_register_idle(
+        &self,
+        worker_id: &str,
+        tx: WorkerTx,
+        capacity_vus: u32,
+        hostname: String,
+    ) {
         let mut g = self.pool.lock().await;
         g.insert(
             worker_id.to_string(),
             PoolEntry {
                 tx,
                 capacity_vus,
+                hostname,
                 assigned_run: None,
             },
         );
@@ -317,6 +336,27 @@ impl CoordinatorState {
             .values()
             .filter(|e| e.assigned_run.is_none())
             .count()
+    }
+
+    /// Read-only snapshot of all connected pool workers for the dashboard
+    /// (LAN L2 R1). Copies display fields under the lock; never exposes `tx`.
+    pub async fn pool_snapshot(&self) -> Vec<PoolWorkerInfo> {
+        let g = self.pool.lock().await;
+        let mut out: Vec<PoolWorkerInfo> = g
+            .iter()
+            .map(|(id, e)| PoolWorkerInfo {
+                worker_id: id.clone(),
+                hostname: e.hostname.clone(),
+                capacity_vus: e.capacity_vus,
+                assigned_run: e.assigned_run.clone(),
+            })
+            .collect();
+        drop(g);
+        out.sort_by(|a, b| {
+            (a.hostname.as_str(), a.worker_id.as_str())
+                .cmp(&(b.hostname.as_str(), b.worker_id.as_str()))
+        });
+        out
     }
 
     /// A pool worker's stream closed. Remove its entry; if it was mid-run
@@ -844,7 +884,12 @@ impl Coordinator for CoordinatorService {
                             // Pool mode: register idle, wait for push assignment from assign_pool_workers (Task 3).
                             info!(worker_id = %reg.worker_id, "pool worker registered idle");
                             state
-                                .pool_register_idle(&reg.worker_id, tx.clone(), reg.capacity_vus)
+                                .pool_register_idle(
+                                    &reg.worker_id,
+                                    tx.clone(),
+                                    reg.capacity_vus,
+                                    reg.hostname.clone(),
+                                )
                                 .await;
                             pool_conn = true;
                             continue;
@@ -1842,11 +1887,15 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         assert_eq!(coord.pool_idle_count().await, 1);
         // 같은 worker_id 재등록 = tx 교체, 중복 아님
         let (tx0b, _r0b) = fake_tx();
-        coord.pool_register_idle("w0", tx0b, 100).await;
+        coord
+            .pool_register_idle("w0", tx0b, 100, "host".into())
+            .await;
         assert_eq!(
             coord.pool_idle_count().await,
             1,
@@ -1859,7 +1908,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         coord.pool_disconnect("w0").await;
         assert_eq!(coord.pool_idle_count().await, 0);
     }
@@ -1870,7 +1921,7 @@ mod tests {
         let coord = CoordinatorState::new(db);
         for w in ["w0", "w1", "w2"] {
             let (tx, _r) = fake_tx();
-            coord.pool_register_idle(w, tx, 100).await;
+            coord.pool_register_idle(w, tx, 100, "host".into()).await;
         }
         // cap=2(부하상한, 예: vus=2) → 3 유휴 중 2개만 예약
         let reserved = coord.reserve_idle_pool("run-x", 2).await;
@@ -1897,8 +1948,12 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (tx0, mut r0) = fake_tx();
         let (tx1, mut r1) = fake_tx();
-        coord.pool_register_idle("w0", tx0, 100).await;
-        coord.pool_register_idle("w1", tx1, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
+        coord
+            .pool_register_idle("w1", tx1, 100, "host".into())
+            .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // cap=4(vus), 유휴 2 → N=2
         coord
             .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
@@ -1930,7 +1985,9 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx();
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
         coord
             .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
@@ -1950,7 +2007,9 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (tx0, r0) = fake_tx();
         drop(r0); // 수신측 닫힘 → 이후 tx.send 실패
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
             .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
@@ -1967,7 +2026,9 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx(); // _r0 유지 → push 성공
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
             .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
@@ -1989,16 +2050,58 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
-        coord.pool_register_idle("w0", tx0, 100).await;
+        coord
+            .pool_register_idle("w0", tx0, 100, "host".into())
+            .await;
         let _ = coord.reserve_idle_pool("run-x", 4).await; // assigned_run=Some → busy
         assert_eq!(coord.pool_idle_count().await, 0, "예약 후 busy(idle 아님)");
         // run 종료 후 워커가 새 스트림으로 재연결 → 재등록(fresh idle, assigned_run=None)
         let (tx0b, _r0b) = fake_tx();
-        coord.pool_register_idle("w0", tx0b, 100).await;
+        coord
+            .pool_register_idle("w0", tx0b, 100, "host".into())
+            .await;
         assert_eq!(
             coord.pool_idle_count().await,
             1,
             "재연결 워커는 다시 유휴 → reserve가 재사용(R13)"
         );
+    }
+
+    #[tokio::test]
+    async fn pool_snapshot_lists_idle_and_busy() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx1, _r1) = fake_tx();
+        let (tx2, _r2) = fake_tx();
+        coord
+            .pool_register_idle("wb", tx1, 100, "beta".into())
+            .await;
+        coord
+            .pool_register_idle("wa", tx2, 200, "alpha".into())
+            .await;
+        // 한 워커를 busy로(reserve가 assigned_run=Some 마킹; DB run 행 불요 — 풀 맵만 건드림)
+        let _ = coord.reserve_idle_pool("run-1", 1).await;
+        let snap = coord.pool_snapshot().await;
+        assert_eq!(snap.len(), 2);
+        // 정렬: hostname alpha < beta (결정적)
+        assert_eq!(snap[0].hostname, "alpha");
+        assert_eq!(snap[1].hostname, "beta");
+        // 정확히 하나가 busy(어느 워커인지는 비결정적이라 run_id로만 단언)
+        let busy: Vec<_> = snap.iter().filter(|w| w.assigned_run.is_some()).collect();
+        assert_eq!(busy.len(), 1);
+        assert_eq!(busy[0].assigned_run.as_deref(), Some("run-1"));
+    }
+
+    #[tokio::test]
+    async fn pool_register_stores_hostname() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _r) = fake_tx();
+        coord
+            .pool_register_idle("w1", tx, 50, "myhost".into())
+            .await;
+        let snap = coord.pool_snapshot().await;
+        assert_eq!(snap[0].hostname, "myhost");
+        assert_eq!(snap[0].capacity_vus, 50);
     }
 }
