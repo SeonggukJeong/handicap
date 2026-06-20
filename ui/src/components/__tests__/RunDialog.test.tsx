@@ -1591,3 +1591,201 @@ describe("RunDialog — 풀 모드 유휴 워커 프리뷰 (L2 R8/R9)", () => {
     expect(screen.getByRole("button", { name: /부하 생성기 워커 수/ })).toBeInTheDocument();
   });
 });
+
+describe("RunDialog — 풀 과부하 가드 (L3 R8/R9/R10)", () => {
+  function mockPoolWorkers(capacities: number[]) {
+    mockUsePoolWorkers.mockReturnValue({
+      data: {
+        pool_mode: true,
+        workers: capacities.map((c, i) => ({
+          worker_id: `w${i}`,
+          hostname: `h${i}`,
+          capacity_vus: c,
+          busy: false,
+          run_id: null,
+        })),
+      },
+    });
+  }
+
+  it("총 유휴 용량(sum of capacity_vus)이 프리뷰에 표시된다", () => {
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+    // ko.capacityGuard.totalCapacity(10) = "총 용량 10 VU"
+    expect(screen.getByText(/총 용량 10 VU/)).toBeInTheDocument();
+  });
+
+  it("closed-fixed 모드에서 vus가 용량을 초과하면 초과 힌트가 표시된다 (role=status)", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+    // default vus=2 < 10, no hint
+    expect(screen.queryByText(/요청 VU가 풀 용량/)).not.toBeInTheDocument();
+
+    // 20 VU로 늘리기 — capacity 10 초과
+    const vusInput = screen.getByLabelText(/동시 사용자/);
+    await user.clear(vusInput);
+    await user.type(vusInput, "20");
+
+    // ko.capacityGuard.overHint(10) visible with role=status
+    const hint = await screen.findByText(/요청 VU가 풀 용량 10 VU를 초과합니다/);
+    expect(hint.closest("[role='status']")).toBeInTheDocument();
+  });
+
+  it("open-loop 모드에서는 초과 힌트가 표시되지 않는다", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    // 힌트 없음 (open-loop는 capacity guard 대상 아님)
+    expect(screen.queryByText(/요청 VU가 풀 용량/)).not.toBeInTheDocument();
+  });
+
+  it("409 PoolCapacityError 발생 시 확인 다이얼로그가 열린다", async () => {
+    fetchMock.mockImplementation(
+      () =>
+        new Response(
+          JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    );
+    mockPoolWorkers([5, 5]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+
+    // 다이얼로그가 열려야 함 (role=alertdialog)
+    const dialog = await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+    expect(dialog).toBeInTheDocument();
+    // generic error banner는 억제됨
+    expect(screen.queryByText(/capacity exceeded/)).not.toBeInTheDocument();
+  });
+
+  it("줄여 진행 클릭 시 achievable_vus로 clamped 프로파일로 재제출된다", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-CLAMP",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 10, ramp_up_seconds: 0, duration_seconds: 5 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([5, 5]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    // 다이얼로그 등장 대기
+    await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+
+    // "줄여 진행" 클릭
+    await user.click(screen.getByRole("button", { name: /10 VU로 줄여 진행/ }));
+
+    // 재제출된 call의 body에 vus=10
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.endsWith("/api/runs") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(calls.length).toBe(2);
+      const body = JSON.parse((calls[1]![1] as RequestInit).body as string);
+      expect(body.profile.vus).toBe(10);
+    });
+  });
+
+  it("강행 클릭 시 force:true로 재제출된다", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-FORCE",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([5, 5]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+
+    // "강행" 클릭
+    await user.click(screen.getByRole("button", { name: /용량 무시하고 강행/ }));
+
+    // 재제출 URL에 ?force=true
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => typeof url === "string" && url.includes("/api/runs"),
+      );
+      expect(calls.length).toBe(2);
+      expect(String(calls[1]![0])).toContain("?force=true");
+    });
+  });
+});

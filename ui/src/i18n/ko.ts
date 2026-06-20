@@ -177,7 +177,7 @@ export const ko = {
     colHostname: "호스트",
     colWorkerId: "워커 ID",
     colStatus: "상태",
-    colCapacity: "용량(VU, 선언값·미적용)",
+    colCapacity: "용량(VU)",
     statusIdle: "유휴",
     statusBusy: "실행 중",
     countSummary: (idle: number, busy: number) => `유휴 ${idle} · 실행 중 ${busy}`,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreatePreset,
@@ -35,6 +35,7 @@ import { CriteriaFields } from "./CriteriaFields";
 import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
+import { PoolCapacityError } from "../api/client";
 
 type Props = {
   scenarioId: string;
@@ -250,6 +251,18 @@ export function RunDialog({
 
   const mutation = useCreateRun();
 
+  // 풀 과부하 가드 (L3): PoolCapacityError 발생 시 확인 다이얼로그 상태.
+  const [poolConflict, setPoolConflict] = useState<{
+    achievable: number;
+    requested: number;
+  } | null>(null);
+  useEffect(() => {
+    const e = mutation.error;
+    if (e instanceof PoolCapacityError) {
+      setPoolConflict({ achievable: e.achievable_vus, requested: e.requested_vus });
+    }
+  }, [mutation.error]);
+
   // Assemble criteriaState early so criteriaActiveCount can be computed below.
   const criteriaState: CriteriaState = {
     maxP50,
@@ -309,7 +322,8 @@ export function RunDialog({
   };
   const loadErrs = loadModelErrors(loadState);
   const canSubmit =
-    loadModel === "open"
+    !poolConflict &&
+    (loadModel === "open"
       ? rateMode === "curve"
         ? !loadErrs.maxInFlightInvalid &&
           !loadErrs.stagesInvalid &&
@@ -340,7 +354,7 @@ export function RunDialog({
           !httpTimeoutInvalid &&
           !thinkInvalid &&
           bindingBlock.ok &&
-          !mutation.isPending;
+          !mutation.isPending);
 
   // Merge selected environment (base) under the per-run override rows. With no env
   // selected, baseVars is {} and this is byte-identical to the old loop.
@@ -525,11 +539,27 @@ export function RunDialog({
           onApplyWorkerCount={(n) => setWorkerCount(String(n))}
         />
       </fieldset>
-      {pool.data?.pool_mode ? (
-        <p className="text-sm text-slate-600 mb-4">
-          {ko.workers.poolPreview(pool.data.workers.filter((w) => !w.busy).length)}
-        </p>
-      ) : null}
+      {pool.data?.pool_mode
+        ? (() => {
+            const idle = pool.data.workers.filter((w) => !w.busy);
+            const idleCapacity = idle.reduce((sum, w) => sum + Math.max(w.capacity_vus, 1), 0);
+            const closedFixed = loadModel === "closed" && rateMode === "fixed";
+            const over = closedFixed && Number(vus) > idleCapacity;
+            return (
+              <div className="mb-4">
+                <p className="text-sm text-slate-600">
+                  {ko.workers.poolPreview(idle.length)} ·{" "}
+                  {ko.capacityGuard.totalCapacity(idleCapacity)}
+                </p>
+                {over ? (
+                  <p className="text-sm text-amber-700" role="status">
+                    {ko.capacityGuard.overHint(idleCapacity)}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
 
       {/* 그룹 2: 대상 설정 — 항상 펼침 */}
       <fieldset className="mb-4 border-t pt-3">
@@ -737,7 +767,7 @@ export function RunDialog({
         )}
       </div>
 
-      {mutation.error && (
+      {mutation.error && !(mutation.error instanceof PoolCapacityError) && (
         <p className="mb-3 text-red-600 text-sm">{(mutation.error as Error).message}</p>
       )}
 
@@ -768,6 +798,56 @@ export function RunDialog({
           )
         );
       })()}
+
+      {poolConflict ? (
+        <div
+          role="alertdialog"
+          aria-label={ko.capacityGuard.dialogTitle}
+          className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
+        >
+          <p className="mb-2 font-medium">{ko.capacityGuard.dialogTitle}</p>
+          <p className="mb-3">
+            {ko.capacityGuard.dialogBody(poolConflict.achievable, poolConflict.requested)}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                const built = buildProfile();
+                const clamped = { ...built, vus: poolConflict.achievable };
+                setPoolConflict(null);
+                mutation.reset();
+                mutation.mutate(
+                  { scenarioId, profile: clamped, env },
+                  { onSuccess: (run) => onCreated(run.id) },
+                );
+              }}
+            >
+              {ko.capacityGuard.clamp(poolConflict.achievable)}
+            </Button>
+            <Button
+              onClick={() => {
+                setPoolConflict(null);
+                mutation.reset();
+                mutation.mutate(
+                  { scenarioId, profile: buildProfile(), env, force: true },
+                  { onSuccess: (run) => onCreated(run.id) },
+                );
+              }}
+            >
+              {ko.capacityGuard.force}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPoolConflict(null);
+                mutation.reset();
+              }}
+            >
+              {ko.capacityGuard.cancel}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex gap-2">
         <Button
