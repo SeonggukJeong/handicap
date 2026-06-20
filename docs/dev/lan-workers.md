@@ -153,7 +153,7 @@ curl -s -X POST "http://localhost:8080/api/runs?force=true" \
 
 water-fill 결과 워커마다 배정 VU가 다를 수 있다. 데이터셋 `unique` 정책을 쓸 때 알아둘 점:
 
-- **disjointness는 보존된다.** 각 데이터셋 행은 전체 워커를 통틀어 최대 1회만 소비된다(`rows < N` 사전 게이트가 용량 분할 후에도 적용되므로 uniqueness 정확성 위험은 없다).
+- **disjointness는 보존된다.** 각 데이터셋 행은 전체 워커를 통틀어 최대 1회만 소비된다 — 각 워커는 `dataset_slice`가 만드는 disjoint 슬라이스(행을 워커 수로 균등 분할, VU 분할과 독립)를 받으므로 uniqueness 정확성 위험은 없다.
 - **소비 속도가 불균등해진다.** VU를 더 많이 받은 워커가 자기 슬라이스를 더 빨리 소진하므로, 그 워커에서 stop-on-exhaust가 더 일찍 발생할 수 있다.
 - **비례 분할(capacity 비율로 행 수 조정)은 후속 예정이다.** L3에서는 행 수를 균등하게 나눈다.
 
