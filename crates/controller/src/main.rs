@@ -88,6 +88,7 @@ struct ControllerArgs {
     /// Disable the in-process scheduler loop entirely (no auto-fire).
     #[arg(long, default_value_t = false)]
     scheduler_disabled: bool,
+    // SECURITY: never `?args`-debug-dump this struct — the token would leak in logs. Log explicit fields + worker_token_set.
     /// Shared preshared key required from workers on Register (LAN). Omit = no auth.
     #[arg(long)]
     worker_token: Option<String>,
@@ -117,7 +118,13 @@ async fn main() -> anyhow::Result<()> {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-    info!(?args, "controller starting");
+    info!(
+        rest = %args.rest,
+        grpc = %args.grpc,
+        worker_mode = ?args.worker_mode,
+        worker_token_set = args.worker_token.is_some(),
+        "controller starting"
+    );
 
     if let Some(d) = &args.ui_dir {
         if !d.exists() {

@@ -38,6 +38,7 @@ pub struct WorkerArgs {
     pub worker_id: Option<String>,
     #[arg(long, default_value = "1000")]
     pub capacity_vus: u32,
+    // SECURITY: never `?args`-debug-dump this struct — the token would leak in logs. Log explicit fields + token_set.
     /// Shared preshared key for the controller (LAN). Omit if controller has no --worker-token.
     #[arg(long)]
     pub token: Option<String>,
@@ -458,7 +459,14 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         &run_id,
         std::env::var("JOB_COMPLETION_INDEX").ok(),
     );
-    info!(?args, %worker_id, "worker starting");
+    info!(
+        controller = %args.controller,
+        run_id = ?args.run_id,
+        capacity_vus = args.capacity_vus,
+        token_set = args.token.is_some(),
+        %worker_id,
+        "worker starting"
+    );
 
     let cancel = CancellationToken::new();
     let signal_task = spawn_sigterm(cancel.clone());
