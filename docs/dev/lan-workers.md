@@ -1,4 +1,4 @@
-# LAN 분산 워커 운영 런북 (ADR-0041, L1+L2)
+# LAN 분산 워커 운영 런북 (ADR-0041, L1+L2+L3)
 
 LAN 내 여러 PC를 **상시 워커 풀**로 묶어 부하를 분산하는 운영 절차다.  
 L1은 "풀 모드(pool mode)" — 워커를 미리 켜 두고, run 발사 시 컨트롤러가 유휴 워커 전원을 자동 배정(use-all)한다.
@@ -59,7 +59,7 @@ New-NetFirewallRule -DisplayName "Handicap gRPC" -Direction Inbound -Protocol TC
 
 - `--run-id` **생략** = 풀 모드. (`--run-id`를 주면 단일 run에 고정되는 레거시 모드.)
 - `--worker-id`는 생략하면 자동 ULID. 로그에서 워커를 구별하려면 명시 지정 가능.
-- `--capacity-vus`는 L1에서 서버 사이드 배정에 반영되지 않는다(아래 경고 참조).
+- `--capacity-vus`는 closed-loop run 배정 시 존중된다(§4 참조). 기본값 1000.
 
 워커는 각 run이 끝나면 자동으로 컨트롤러에 재연결(reconnect-per-run)된다. 워커 프로세스를 종료하지 않아도 되며, 연속 run 사이 중단 시간은 sub-second이다.
 
@@ -79,13 +79,83 @@ closed-loop에서 **`vus`는 총 VU 수이자 워커 배정 상한을 겸한다.
 
 ---
 
-## 4. ⚠ 과부하 미가드 경고 (L1 한계)
+## 4. 과부하 가드 (L3)
 
-L1은 각 워커 PC의 `--capacity-vus`를 배정 시 **무시**한다. 컨트롤러는 `vus`를 유휴 워커 수로 단순 분할하므로, 워커당 배정 VU가 그 PC의 처리 능력을 초과할 수 있다.
+### capacity-aware 배정 (closed-loop)
 
-예: 워커 2대, `vus: 100` → 각 워커가 VU 50개를 받는다. PC 능력이 VU 20개 한도라도 50개가 배정된다.
+L3부터 **closed-loop(`vus`) run**에서 컨트롤러가 각 워커의 `--capacity-vus` 선언을 존중해 VU를 배정한다. 배정 알고리즘은 **water-fill** 방식:
 
-**L2에서 `capacity-vus` 기반 배정 가드를 추가할 예정.** L1에서는 `vus`를 PC 수에 맞게 수동으로 계산해 설정할 것.
+1. 유휴 워커 전원에 VU를 균등 분할한다.
+2. 분할값이 해당 워커의 `--capacity-vus`를 초과하면 상한(`capacity_vus`)으로 클램프하고, 남는 VU를 여유가 있는 워커에게 재배분한다.
+3. 모든 워커의 슬랙이 소진될 때까지 반복한다.
+
+결과적으로 **총 배정 VU ≤ 유휴 워커 총 용량**이 보장된다. 어느 워커도 자신이 선언한 한도를 초과하지 않는다. 여유가 충분해 모든 워커가 상한에 걸리지 않으면 기존 균등 분할(L1)과 동일하다(byte-identical).
+
+워커 기동 시 용량 선언:
+
+```bash
+./worker \
+  --controller http://<컨트롤러_IP>:8081 \
+  --token <공유_비밀_키> \
+  --capacity-vus 50     # 이 워커가 처리할 수 있는 최대 VU 수 (기본: 1000)
+```
+
+### 용량 부족 시 동작
+
+요청한 `vus`가 유휴 워커 전체 용량 합계를 초과하면 **run을 생성하지 않고** 아래 두 가지 선택지를 제시한다.
+
+**RunDialog 프리뷰:** 풀 모드 run 생성 다이얼로그에 "총 가용 용량 N VU" 안내가 표시되며, 요청 `vus`가 초과하면 추가 경고 힌트가 함께 표시된다. 실제 배정 결정은 컨트롤러가 run 발사 시 내린다.
+
+**`POST /api/runs` 응답 — 용량 초과 시 409:**
+
+```bash
+# 용량 초과 예 (워커 2대 각 capacity-vus=5, 총 10 VU)
+curl -s -X POST http://localhost:8080/api/runs \
+  -H "Content-Type: application/json" \
+  -d '{"scenario_id":"…","profile":{"vus":20,"duration_seconds":60},"env":{}}' | jq
+# → HTTP 409
+# {
+#   "achievable_vus": 10,
+#   "requested_vus": 20
+# }
+```
+
+- `achievable_vus`: water-fill 결과로 실제 배정 가능한 최대 VU 수
+- `requested_vus`: 요청한 VU 수
+- run 행은 **생성되지 않는다** (DB insert 전에 사전 검사).
+- 유휴 워커가 0이면 409가 아니라 **400**("연결된 LAN 워커가 없습니다") — §5 참조.
+
+**"줄여 진행":** `vus`를 `achievable_vus`로 낮춰 재전송한다.
+
+```bash
+curl -s -X POST http://localhost:8080/api/runs \
+  -H "Content-Type: application/json" \
+  -d '{"scenario_id":"…","profile":{"vus":10,"duration_seconds":60},"env":{}}' | jq
+# → 201 Created (run 생성 성공)
+```
+
+**"강행(과부하)":** `?force=true`를 붙이면 용량 검사를 건너뛰고 기존 균등 분할(L1 방식)로 run을 생성한다. 워커가 처리 능력을 초과하는 VU를 받을 수 있다.
+
+```bash
+curl -s -X POST "http://localhost:8080/api/runs?force=true" \
+  -H "Content-Type: application/json" \
+  -d '{"scenario_id":"…","profile":{"vus":20,"duration_seconds":60},"env":{}}' | jq
+# → 201 Created (과부하 허용, capacity 무시)
+```
+
+> `?force=true`는 공유 토큰 인증을 우회하지 않는다. 토큰 검사는 gRPC 워커 등록 시 수행되며 REST API 쿼리 파라미터와 무관하다.
+
+### open-loop / VU 곡선 미적용 (현재 한계)
+
+`--capacity-vus`는 closed-loop(`vus`) run의 VU 지표다. **open-loop(`target_rps` / `max_in_flight`) 및 VU 곡선(`vu_stages`) run에는 용량 검사가 적용되지 않는다** — 이 부하 모드에서는 L1과 동일하게 단순 배정된다. capacity-aware open-loop 가드는 후속 예정이다.
+
+### dataset `unique` 정책과 불균등 분할 (R11/R12)
+
+water-fill 결과 워커마다 배정 VU가 다를 수 있다. 데이터셋 `unique` 정책을 쓸 때 알아둘 점:
+
+- **disjointness는 보존된다.** 각 데이터셋 행은 전체 워커를 통틀어 최대 1회만 소비된다(`rows < N` 사전 게이트가 용량 분할 후에도 적용되므로 uniqueness 정확성 위험은 없다).
+- **소비 속도가 불균등해진다.** VU를 더 많이 받은 워커가 자기 슬라이스를 더 빨리 소진하므로, 그 워커에서 stop-on-exhaust가 더 일찍 발생할 수 있다.
+- **비례 분할(capacity 비율로 행 수 조정)은 후속 예정이다.** L3에서는 행 수를 균등하게 나눈다.
 
 ---
 
@@ -132,7 +202,7 @@ run 생성 전에 워커가 컨트롤러에 연결·등록됐는지 확인한다
 | 호스트 | 워커 PC의 hostname |
 | 워커 ID | 자동 발급 ULID (또는 `--worker-id`로 지정한 값) |
 | 상태 | `유휴` / `실행 중` — 실행 중이면 해당 run으로 이동하는 링크 표시 |
-| 용량(VU) | `--capacity-vus` 선언값 (L1에서는 배정에 반영되지 않음 — §4 참조) |
+| 용량(VU) | `--capacity-vus` 선언값 (closed-loop 배정에 반영됨 — §4 참조) |
 
 페이지 상단에 **유휴 / 실행 중 워커 수**가 요약 표시된다. 풀 모드일 때 ~3초 간격으로 자동 갱신된다.
 
@@ -166,12 +236,12 @@ run 생성 전에 워커가 컨트롤러에 연결·등록됐는지 확인한다
 
 ---
 
-## 8. L1+L2 한도 요약
+## 8. L1+L2+L3 한도 요약
 
 | 항목 | 현재 동작 |
 |------|---------|
 | 워커 재연결 | run 완료 후 자동 reconnect-per-run (sub-second) |
-| 과부하 가드 | 없음 — `capacity-vus` 무시, VU를 단순 분할 (L2 후속) |
+| 과부하 가드 | capacity-aware closed-loop 배정 (water-fill, `--capacity-vus` 존중, 초과 시 409 또는 `?force=true` 강행) — open-loop/곡선은 미적용 (후속) |
 | 채널 보안 | 평문 gRPC + 공유 토큰(접근 통제 only) |
 | 단일 PC 한도 | 기존 subprocess 모드와 동일 |
 | 멀티 컨트롤러 | 미지원 (워커는 컨트롤러 1개에만 연결) |
