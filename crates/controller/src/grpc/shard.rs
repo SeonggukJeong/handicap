@@ -40,6 +40,54 @@ pub fn shard_split(total_vus: u32, n: u32, i: u32) -> (u32, u32) {
     (vu_offset, vu_count)
 }
 
+/// Total achievable VUs across `caps`: `Σ caps[i].max(1)` (0 floored to 1,
+/// matching `worker_count`'s `capacity.max(1)`). Saturating to avoid u32
+/// overflow on pathological caps. Used by the pool capacity guard (spec R6/R7).
+pub fn achievable_capacity(caps: &[u32]) -> u32 {
+    caps.iter()
+        .fold(0u32, |acc, &c| acc.saturating_add(c.max(1)))
+}
+
+/// Distribute `total_vus` across `caps.len()` workers, never exceeding any
+/// worker's capacity (`caps[i].max(1)`). Starts from the even `shard_split`
+/// distribution, reclaims overflow from over-cap workers, and redistributes it
+/// (in index order) to workers with remaining slack. When no cap binds the
+/// result is byte-identical to `shard_split`'s per-worker counts (spec R5).
+/// When `Σ caps.max(1) >= total_vus` the returned vector sums to `total_vus`;
+/// otherwise it fills each worker to its cap and sums to less (the caller reads
+/// that shortfall as "achievable < requested"). Deterministic. (spec R1.)
+pub fn capacity_split(total_vus: u32, caps: &[u32]) -> Vec<u32> {
+    let n = caps.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    // 1. Even start — identical to shard_split's per-worker counts (R5).
+    let mut alloc: Vec<u32> = (0..n as u32)
+        .map(|i| shard_split(total_vus, n as u32, i).1)
+        .collect();
+    // 2. Reclaim overflow from over-cap workers.
+    let mut overflow: u32 = 0;
+    for (a, &c) in alloc.iter_mut().zip(caps.iter()) {
+        let cap = c.max(1);
+        if *a > cap {
+            overflow += *a - cap;
+            *a = cap;
+        }
+    }
+    // 3. Redistribute overflow into under-cap workers in index order. One pass
+    //    suffices: when Σcap >= total, total slack >= overflow.
+    for (a, &c) in alloc.iter_mut().zip(caps.iter()) {
+        if overflow == 0 {
+            break;
+        }
+        let cap = c.max(1);
+        let add = (cap - *a).min(overflow);
+        *a += add;
+        overflow -= add;
+    }
+    alloc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +120,62 @@ mod tests {
         // replicated (per_vu / iter_*): every worker gets the whole count at offset 0.
         assert_eq!(dataset_slice(false, 5, 2, 0), (0, 5));
         assert_eq!(dataset_slice(false, 5, 2, 1), (0, 5));
+    }
+
+    #[test]
+    fn achievable_capacity_sums_with_floor() {
+        assert_eq!(achievable_capacity(&[5, 5]), 10);
+        assert_eq!(achievable_capacity(&[0, 0, 0]), 3); // 0 floored to 1 each
+        assert_eq!(achievable_capacity(&[]), 0);
+    }
+
+    #[test]
+    fn capacity_split_equals_even_when_slack() {
+        // No cap binds → must be byte-identical to shard_split's per-worker counts,
+        // including the front-loaded remainder (first total%n shards get +1).
+        for &(total, n) in &[(2u32, 2u32), (5, 2), (7, 3), (10, 4), (1, 1), (100, 7)] {
+            let caps = vec![u32::MAX; n as usize]; // huge caps → never binds
+            let even: Vec<u32> = (0..n).map(|i| shard_split(total, n, i).1).collect();
+            assert_eq!(capacity_split(total, &caps), even, "total={total} n={n}");
+        }
+        // explicit remainder shapes
+        assert_eq!(capacity_split(5, &[1000, 1000]), vec![3, 2]);
+        assert_eq!(capacity_split(7, &[1000, 1000, 1000]), vec![3, 2, 2]);
+    }
+
+    #[test]
+    fn capacity_split_respects_caps_and_sums() {
+        // even 15/15 would overflow worker A (cap 5) → water-fill 5/25.
+        let out = capacity_split(30, &[5, 1000]);
+        assert_eq!(out, vec![5, 25]);
+        assert_eq!(out.iter().sum::<u32>(), 30);
+        // contiguous disjoint offsets via cumulative sum
+        let mut off = 0u32;
+        for (i, &c) in out.iter().enumerate() {
+            assert!(c <= [5, 1000][i].max(1));
+            off += c;
+        }
+        assert_eq!(off, 30);
+    }
+
+    #[test]
+    fn capacity_split_floors_zero_to_one() {
+        // cap 0 is treated as 1 (defensive, matches worker_count).
+        let out = capacity_split(3, &[0, 0, 0]);
+        assert_eq!(out, vec![1, 1, 1]);
+    }
+
+    #[test]
+    fn capacity_split_short_pool_fills_to_cap() {
+        // Σcap (10) < total (30): fill each to cap, sum < total (achievable signal).
+        let out = capacity_split(30, &[5, 5]);
+        assert_eq!(out, vec![5, 5]);
+        assert_eq!(out.iter().sum::<u32>(), 10);
+    }
+
+    #[test]
+    fn capacity_split_empty_is_empty() {
+        assert!(capacity_split(10, &[]).is_empty());
     }
 
     #[test]
