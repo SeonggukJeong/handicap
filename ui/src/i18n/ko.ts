@@ -157,6 +157,20 @@ export const ko = {
     stepTemplates: "스텝 템플릿",
     workers: "워커",
   },
+  capacityGuard: {
+    // bespoke createRun error (shown as a banner in non-RunDialog callers)
+    shortError: (achievable: number) => `풀 용량이 부족합니다 (가용 ${achievable} VU)`,
+    // RunDialog preview + confirm dialog (Task 5 uses these)
+    totalCapacity: (vus: number) => `총 용량 ${vus} VU`,
+    overHint: (achievable: number) =>
+      `요청 VU가 풀 용량 ${achievable} VU를 초과합니다 — 줄이거나 강행하세요`,
+    dialogTitle: "풀 용량 부족",
+    dialogBody: (achievable: number, requested: number) =>
+      `요청한 ${requested} VU는 현재 풀 용량 ${achievable} VU를 초과합니다.`,
+    clamp: (achievable: number) => `${achievable} VU로 줄여 진행`,
+    force: "용량 무시하고 강행",
+    cancel: "취소",
+  },
   workers: {
     title: "연결된 워커",
     subtitle: "풀 모드 컨트롤러에 연결된 LAN 워커 (읽기 전용)",

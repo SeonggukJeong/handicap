@@ -14,7 +14,9 @@ import {
   type Dataset,
   type DatasetPreview,
   type Profile,
+  type Run,
 } from "./schemas";
+import { ko } from "../i18n/ko";
 
 const BASE = "/api";
 
@@ -26,6 +28,46 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export class PoolCapacityError extends Error {
+  constructor(
+    public readonly achievable_vus: number,
+    public readonly requested_vus: number,
+  ) {
+    super(ko.capacityGuard.shortError(achievable_vus));
+    this.name = "PoolCapacityError";
+  }
+}
+
+async function createRunImpl(
+  scenario_id: string,
+  profile: Profile,
+  env: Record<string, string>,
+  opts?: { force?: boolean },
+): Promise<Run> {
+  const res = await fetch(`${BASE}/runs${opts?.force ? "?force=true" : ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ scenario_id, profile, env }),
+  });
+  const text = await res.text();
+  if (res.status === 409) {
+    const body = JSON.parse(text) as { achievable_vus?: unknown; requested_vus?: unknown };
+    if (typeof body.achievable_vus === "number" && typeof body.requested_vus === "number") {
+      throw new PoolCapacityError(body.achievable_vus, body.requested_vus);
+    }
+  }
+  if (!res.ok) {
+    let msg = text;
+    try {
+      msg = ApiErrorSchema.parse(JSON.parse(text)).error;
+    } catch {
+      // raw text
+    }
+    throw new ApiError(res.status, msg || `${res.status} ${res.statusText}`);
+  }
+  return RunSchema.parse(JSON.parse(text));
 }
 
 async function request<T>(
@@ -135,12 +177,12 @@ export const api = {
     ),
   listRunsForScenario: (id: string) =>
     request(`/scenarios/${encodeURIComponent(id)}/runs`, { method: "GET" }, RunListSchema),
-  createRun: (scenario_id: string, profile: Profile, env: Record<string, string>) =>
-    request(
-      "/runs",
-      { method: "POST", body: JSON.stringify({ scenario_id, profile, env }) },
-      RunSchema,
-    ),
+  createRun: (
+    scenario_id: string,
+    profile: Profile,
+    env: Record<string, string>,
+    opts?: { force?: boolean },
+  ) => createRunImpl(scenario_id, profile, env, opts),
   createTestRun: (body: {
     scenario_yaml: string;
     env: Record<string, string>;
