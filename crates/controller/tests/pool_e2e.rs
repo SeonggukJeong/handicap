@@ -261,7 +261,10 @@ async fn pool_worker_runs_then_reuses() {
         .await
         .unwrap();
     let count1 = report1["summary"]["count"].as_u64().unwrap_or(0);
-    assert!(count1 > 0, "run #1 report count must be > 0; got {count1}");
+    assert!(
+        count1 >= 10,
+        "run #1 report count must be >= 10; got {count1}"
+    );
 
     // Assert the worker child is still alive (not exited between runs).
     let worker_exited = child.try_wait().expect("try_wait failed");
@@ -288,7 +291,10 @@ async fn pool_worker_runs_then_reuses() {
         .await
         .unwrap();
     let count2 = report2["summary"]["count"].as_u64().unwrap_or(0);
-    assert!(count2 > 0, "run #2 report count must be > 0; got {count2}");
+    assert!(
+        count2 >= 10,
+        "run #2 report count must be >= 10; got {count2}"
+    );
 
     // Both run IDs must be different (two distinct runs).
     assert_ne!(run1_id, run2_id, "run #1 and run #2 must have distinct IDs");
@@ -345,13 +351,31 @@ async fn pool_wrong_token_rejected_and_run_returns_400() {
     let rest_base = format!("http://{rest_addr}");
     let http = reqwest::Client::new();
 
-    // Wait a reasonable window; pool_idle_count must stay 0 (wrong-token worker rejected).
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let idle = coord.pool_idle_count().await;
-    assert_eq!(
-        idle, 0,
-        "wrong-token worker must not join the pool; idle = {idle}"
-    );
+    // Window-poll over ~3 s: assert BOTH (a) the worker process is still alive
+    // (it is genuinely attempting + retrying via backoff, not absent/crashed) AND
+    // (b) pool_idle_count stays 0 — the wrong-token worker is rejected on every
+    // attempt and never joins, not even transiently.
+    //
+    // A blind single sleep+check would not prove rejection: on a slow box the 400
+    // could fire BEFORE the worker even attempted to connect, so the pool would be
+    // empty for a benign reason.  Sampling across the window while confirming the
+    // worker is alive means: localhost connect+reject+backoff-retries happen within
+    // the window, so the worker provably attempted and was rejected (per the
+    // AbortRun-before-register ordering in the controller).
+    let window_deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::time::Instant::now() < window_deadline {
+        let still_up = child.try_wait().expect("try_wait failed").is_none();
+        assert!(
+            still_up,
+            "wrong-token worker process must remain alive (retrying) during the window"
+        );
+        let idle = coord.pool_idle_count().await;
+        assert_eq!(
+            idle, 0,
+            "wrong-token worker must not join the pool even transiently; idle = {idle}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 
     // Create a minimal scenario to drive POST /api/runs.
     let scenario_yaml = "version: 1\nname: auth-test\nsteps:\n  \
