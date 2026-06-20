@@ -5,7 +5,8 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::{Parser, ValueEnum};
 use handicap_controller::dispatcher::{
-    SharedDispatcher, kubernetes::KubernetesDispatcher, subprocess::SubprocessDispatcher,
+    NoopDispatcher, SharedDispatcher, kubernetes::KubernetesDispatcher,
+    subprocess::SubprocessDispatcher,
 };
 use handicap_controller::grpc::coordinator::{CoordinatorService, CoordinatorState};
 use handicap_controller::{app, store};
@@ -18,6 +19,7 @@ use tracing_subscriber::EnvFilter;
 enum WorkerMode {
     Subprocess,
     Kubernetes,
+    Pool,
 }
 
 #[derive(Debug, Parser)]
@@ -209,6 +211,12 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?,
             )
+        }
+        WorkerMode::Pool => {
+            // Pool mode: always-on workers register idle; spawn_run uses
+            // reserve_idle_pool + assign_pool_workers instead of dispatcher.
+            coord_state.set_pool_mode(true);
+            Arc::new(NoopDispatcher) as SharedDispatcher
         }
     };
     // Let the coordinator tear down workers on finalize (completion/failure/abort).

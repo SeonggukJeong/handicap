@@ -79,13 +79,15 @@ type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 
 /// An idle (or assigned) pool worker registered without a run_id. (LAN L1, R5.)
 struct PoolEntry {
-    /// Consumed by Task 3 `assign_pool_workers` to push RunAssignment.
-    #[allow(dead_code)]
+    /// Consumed by `assign_pool_workers` to push RunAssignment.
     tx: WorkerTx,
-    /// Consumed by Task 3 `reserve_idle_pool` for capacity-aware selection.
+    /// L1 stores the worker-declared capacity but does NOT enforce it (no overload
+    /// guard in L1 — see the runbook over-capacity warning); L2 will read this.
+    /// (The pool launch deliberately does NOT use capacity_vus — it caps N by the
+    /// run's LOAD, not by per-worker capacity.)
     #[allow(dead_code)]
     capacity_vus: u32,
-    /// Set by `reserve_idle_pool` (Task 3) when the worker is assigned to a run.
+    /// Set by `reserve_idle_pool` when the worker is assigned to a run.
     /// `None` = idle; `Some(run_id)` = busy. Reset to `None` on re-register (R13).
     assigned_run: Option<String>,
 }
@@ -152,6 +154,9 @@ pub struct CoordinatorState {
     /// from here; `pool_disconnect` routes busy-worker disconnects to the existing
     /// fail-fast (R8).
     pool: Arc<Mutex<HashMap<String, PoolEntry>>>,
+    /// Set once at startup when `--worker-mode pool`. When true, `spawn_run` uses
+    /// the pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
+    pool_mode: Arc<OnceLock<bool>>,
 }
 
 impl CoordinatorState {
@@ -165,6 +170,7 @@ impl CoordinatorState {
             dispatcher: Arc::new(OnceLock::new()),
             worker_token: Arc::new(OnceLock::new()),
             pool: Arc::new(Mutex::new(HashMap::new())),
+            pool_mode: Arc::new(OnceLock::new()),
         }
     }
 
@@ -190,6 +196,103 @@ impl CoordinatorState {
             None => true,
             Some(expected) => expected == presented,
         }
+    }
+
+    /// Activate pool dispatch mode (set once at startup via `--worker-mode pool`).
+    /// All clones share the same OnceLock so this is set-once across the process.
+    pub fn set_pool_mode(&self, on: bool) {
+        let _ = self.pool_mode.set(on);
+    }
+
+    /// True when running in pool mode (`--worker-mode pool`). spawn_run uses the
+    /// pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
+    pub fn is_pool_mode(&self) -> bool {
+        *self.pool_mode.get().unwrap_or(&false)
+    }
+
+    /// Atomically (under the pool lock) reserve up to `cap` idle workers for
+    /// `run_id`: mark each `assigned_run = Some(run_id)` (reservation LOCK —
+    /// stops a concurrent launch from grabbing the same worker) and return
+    /// (worker_id, tx) for each. (R6/R13.)
+    pub async fn reserve_idle_pool(&self, run_id: &str, cap: usize) -> Vec<(String, WorkerTx)> {
+        let mut g = self.pool.lock().await;
+        let ids: Vec<String> = g
+            .iter()
+            .filter(|(_, e)| e.assigned_run.is_none())
+            .map(|(id, _)| id.clone())
+            .take(cap)
+            .collect();
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(e) = g.get_mut(&id) {
+                e.assigned_run = Some(run_id.to_string()); // 예약 락(같은 guard 내 원자적)
+                out.push((id, e.tx.clone()));
+            }
+        }
+        out
+    }
+
+    /// Push assignments to reserved pool workers, reusing register()/assignment_for()/
+    /// stream_dataset(). On a closed tx (worker vanished between reserve and push),
+    /// return Err so the caller fails the run fast (R7) — not the 60s watchdog.
+    pub async fn assign_pool_workers(
+        &self,
+        run_id: &str,
+        reserved: Vec<(String, WorkerTx)>,
+    ) -> Result<(), ()> {
+        for (worker_id, tx) in reserved {
+            let outcome = self.register(run_id, &worker_id, tx.clone()).await;
+            let (shard_index, shard_count, vu_offset, vu_count, set_running) = match outcome {
+                RegisterOutcome::Assigned {
+                    shard_index,
+                    shard_count,
+                    vu_offset,
+                    vu_count,
+                    first,
+                } => (shard_index, shard_count, vu_offset, vu_count, first),
+                // 풀 발사에선 일어나지 않아야 함(예약 수==expected). 방어적으로 실패.
+                _ => return Err(()),
+            };
+            let Some((assignment, streams)) = self
+                .assignment_for(
+                    run_id,
+                    &worker_id,
+                    shard_index,
+                    shard_count,
+                    vu_offset,
+                    vu_count,
+                )
+                .await
+            else {
+                return Err(());
+            };
+            if tx
+                .send(Ok(ServerMessage {
+                    payload: Some(ServerPayload::Assignment(assignment)),
+                }))
+                .await
+                .is_err()
+            {
+                // 워커 이탈 → 즉시 fail-fast (R7) — assigned_run은 reserve가 이미 Some
+                return Err(());
+            }
+            if set_running {
+                let _ = runs::set_status(
+                    &self.db,
+                    run_id,
+                    RunStatus::Running,
+                    Some(crate::store::now_ms()),
+                    None,
+                )
+                .await;
+            }
+            for ws in &streams {
+                if ws.count > 0 && !stream_dataset(self, &tx, run_id, ws).await {
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Register (or refresh, on reconnect) an idle pool worker. Idempotent on
@@ -1759,5 +1862,143 @@ mod tests {
         coord.pool_register_idle("w0", tx0, 100).await;
         coord.pool_disconnect("w0").await;
         assert_eq!(coord.pool_idle_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn pool_n_is_min_idle_and_load() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        for w in ["w0", "w1", "w2"] {
+            let (tx, _r) = fake_tx();
+            coord.pool_register_idle(w, tx, 100).await;
+        }
+        // cap=2(부하상한, 예: vus=2) → 3 유휴 중 2개만 예약
+        let reserved = coord.reserve_idle_pool("run-x", 2).await;
+        assert_eq!(reserved.len(), 2);
+        assert_eq!(
+            coord.pool_idle_count().await,
+            1,
+            "예약된 2개는 유휴에서 빠짐"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_empty_reserves_none() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let reserved = coord.reserve_idle_pool("run-x", 4).await;
+        assert!(reserved.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pool_launch_assigns_shards() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, mut r0) = fake_tx();
+        let (tx1, mut r1) = fake_tx();
+        coord.pool_register_idle("w0", tx0, 100).await;
+        coord.pool_register_idle("w1", tx1, 100).await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await; // cap=4(vus), 유휴 2 → N=2
+        coord
+            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .await;
+        coord.assign_pool_workers(&run_id, reserved).await.unwrap();
+        // 두 워커가 각각 RunAssignment를 받았고 shard_index가 0/1
+        let a0 = r0.try_recv().unwrap().unwrap();
+        let a1 = r1.try_recv().unwrap().unwrap();
+        let idxs: Vec<u32> = [a0, a1]
+            .iter()
+            .filter_map(|m| match &m.payload {
+                Some(ServerPayload::Assignment(a)) => Some(a.shard_index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            {
+                let mut v = idxs.clone();
+                v.sort();
+                v
+            },
+            vec![0, 1]
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_busy_disconnect_fails_run() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, _r0) = fake_tx();
+        coord.pool_register_idle("w0", tx0, 100).await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
+        coord
+            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .await;
+        coord.assign_pool_workers(&run_id, reserved).await.unwrap();
+        coord.pool_disconnect("w0").await; // terminal 보고 없이 끊김
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_push_to_dead_tx_fails_fast() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, r0) = fake_tx();
+        drop(r0); // 수신측 닫힘 → 이후 tx.send 실패
+        coord.pool_register_idle("w0", tx0, 100).await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .await;
+        assert!(
+            coord.assign_pool_workers(&run_id, reserved).await.is_err(),
+            "닫힌 tx push는 즉시 Err (호출자가 cancel_dispatch_failed, R7)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_completed_then_close_no_fail() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx0, _r0) = fake_tx(); // _r0 유지 → push 성공
+        coord.pool_register_idle("w0", tx0, 100).await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .await;
+        coord.assign_pool_workers(&run_id, reserved).await.unwrap();
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .await; // 완료
+        coord.pool_disconnect("w0").await; // 정상 종료(terminal 보고 후 close)
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed,
+            "Completed 보고 후 정상 종료는 fail-fast 오탐 안 함"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_reused_worker_is_idle_after_reconnect() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx0, _r0) = fake_tx();
+        coord.pool_register_idle("w0", tx0, 100).await;
+        let _ = coord.reserve_idle_pool("run-x", 4).await; // assigned_run=Some → busy
+        assert_eq!(coord.pool_idle_count().await, 0, "예약 후 busy(idle 아님)");
+        // run 종료 후 워커가 새 스트림으로 재연결 → 재등록(fresh idle, assigned_run=None)
+        let (tx0b, _r0b) = fake_tx();
+        coord.pool_register_idle("w0", tx0b, 100).await;
+        assert_eq!(
+            coord.pool_idle_count().await,
+            1,
+            "재연결 워커는 다시 유휴 → reserve가 재사용(R13)"
+        );
     }
 }

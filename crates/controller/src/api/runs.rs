@@ -615,6 +615,59 @@ pub(crate) async fn spawn_run(
     } else {
         profile.vus
     };
+    // Pool mode: use the always-on worker pool instead of spawning new workers.
+    // reserve_idle_pool atomically grabs up to n_cap idle workers and marks them
+    // assigned (reservation lock). enqueue registers the run for N workers, then
+    // assign_pool_workers pushes assignments via the reserved txs. If any tx is
+    // closed (worker vanished between reserve and push), fail fast (R7).
+    if state.coord.is_pool_mode() {
+        // Capacity cap: vu-curve → 1 worker; open-loop → min(max_in_flight, rate);
+        // closed-loop → vus. The pool deliberately does NOT use per-worker
+        // capacity_vus — N is capped by run LOAD, not worker capacity (spec §2.1).
+        let n_cap: usize = if profile.is_vu_curve() {
+            1
+        } else if profile.is_open_loop() {
+            let slots = profile.max_in_flight.unwrap_or(1);
+            let rate = profile.target_rps.unwrap_or_else(|| {
+                profile
+                    .stages
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| s.target)
+                    .max()
+                    .unwrap_or(1)
+            });
+            (slots as usize).min(rate as usize)
+        } else {
+            profile.vus as usize
+        };
+        let reserved = state.coord.reserve_idle_pool(&row.id, n_cap).await;
+        let n_pool = reserved.len() as u32;
+        if n_pool == 0 {
+            let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
+            state.coord.cancel_dispatch_failed(&row.id).await;
+            runs::mark_failed(&state.db, &row.id, &msg).await?;
+            return Err(ApiError::BadRequest(msg));
+        }
+        state
+            .coord
+            .enqueue(row.id.clone(), assignment, n_pool, total_vus)
+            .await;
+        if state
+            .coord
+            .assign_pool_workers(&row.id, reserved)
+            .await
+            .is_err()
+        {
+            let msg = "풀 워커 배정 실패(워커 이탈) — 재시도하세요".to_string();
+            state.coord.cancel_dispatch_failed(&row.id).await;
+            runs::mark_failed(&state.db, &row.id, &msg).await?;
+            return Err(ApiError::Internal(anyhow::anyhow!(msg)));
+        }
+        return Ok(row);
+    }
+
     state
         .coord
         .enqueue(row.id.clone(), assignment, n, total_vus)

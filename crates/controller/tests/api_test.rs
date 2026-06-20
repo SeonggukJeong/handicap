@@ -105,6 +105,55 @@ async fn abort_run_marks_run_aborted() {
 }
 
 #[tokio::test]
+async fn pool_run_with_empty_pool_fails_fast() {
+    // Pool mode with zero idle workers → POST /api/runs must return 400
+    // with a body containing "연결된 LAN 워커" (빈풀 fail-fast, R7).
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let coord = CoordinatorState::new(db.clone());
+    coord.set_pool_mode(true); // activate pool mode BEFORE moving into AppState
+    let app = app::router(app::AppState {
+        db,
+        coord,
+        dispatcher: Arc::new(NoopDispatcher),
+        ui_dir: None,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
+        scheduler_tz: chrono_tz::UTC,
+    });
+
+    let yaml = "version: 1\nname: pool-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, yaml).await;
+
+    let body = serde_json::json!({
+        "scenario_id": scenario_id,
+        "profile": { "vus": 1, "duration_seconds": 30 },
+        "env": {}
+    });
+    let req = axum::http::Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "empty pool must return 400"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("연결된 LAN 워커"),
+        "body must contain '연결된 LAN 워커', got: {text}"
+    );
+}
+
+#[tokio::test]
 async fn create_and_get_scenario() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let coord = CoordinatorState::new(db.clone());
