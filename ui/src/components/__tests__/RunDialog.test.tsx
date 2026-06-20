@@ -17,10 +17,20 @@ vi.mock("../WorkerSizingHelper", () => ({
   WorkerSizingHelper: () => null,
 }));
 
+// usePoolWorkers를 모킹해 기존 테스트에서 fetch 호출 없이 data:undefined로 유지.
+// 개별 풀-프리뷰 테스트에서 mockReturnValue로 덮어쓴다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockUsePoolWorkers = vi.fn<() => { data: any }>(() => ({ data: undefined }));
+vi.mock("../../api/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/hooks")>();
+  return { ...actual, usePoolWorkers: () => mockUsePoolWorkers() };
+});
+
 const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
+  mockUsePoolWorkers.mockReturnValue({ data: undefined });
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -1549,5 +1559,35 @@ describe("RunDialog — U1b 재구성 불변식", () => {
       },
       env: {},
     });
+  });
+});
+
+describe("RunDialog — 풀 모드 유휴 워커 프리뷰 (L2 R8/R9)", () => {
+  it("풀 모드에서 유휴 워커 수가 배너에 표시된다", () => {
+    mockUsePoolWorkers.mockReturnValue({
+      data: {
+        pool_mode: true,
+        workers: [
+          { worker_id: "w1", hostname: "h1", capacity_vus: 1, busy: false, run_id: null },
+          { worker_id: "w2", hostname: "h2", capacity_vus: 1, busy: false, run_id: null },
+          { worker_id: "w3", hostname: "h3", capacity_vus: 1, busy: true, run_id: "R1" },
+        ],
+      },
+    });
+    renderDialog();
+    // ko.workers.poolPreview(2) = "연결된 유휴 워커 2대 — ..."
+    expect(screen.getByText(/유휴 워커 2대/)).toBeInTheDocument();
+  });
+
+  it("풀 모드가 아닐 때 배너가 없고 worker_count 입력은 그대로다", async () => {
+    const user = userEvent.setup();
+    mockUsePoolWorkers.mockReturnValue({ data: { pool_mode: false, workers: [] } });
+    renderDialog();
+    // 배너 부재
+    expect(screen.queryByText(/유휴 워커/)).not.toBeInTheDocument();
+    // 기존 open-loop worker_count 입력 회귀 0: open-loop 전환 후 worker_count disclosure 버튼이 존재한다.
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    // worker_count는 접이식 disclosure 안에 있어 toggle 버튼이 존재하는 것으로 검증한다.
+    expect(screen.getByRole("button", { name: /부하 생성기 워커 수/ })).toBeInTheDocument();
   });
 });

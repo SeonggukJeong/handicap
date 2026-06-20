@@ -5,6 +5,7 @@ import {
   useCreateRun,
   useDeletePreset,
   useEnvironment,
+  usePoolWorkers,
   usePresets,
   useUpdatePreset,
   queryKeys,
@@ -165,6 +166,7 @@ export function RunDialog({
   const [presetError, setPresetError] = useState<string | null>(null);
 
   const presets = usePresets(scenarioId);
+  const pool = usePoolWorkers();
   const qc = useQueryClient();
 
   async function loadPreset(id: string) {
@@ -523,6 +525,11 @@ export function RunDialog({
           onApplyWorkerCount={(n) => setWorkerCount(String(n))}
         />
       </fieldset>
+      {pool.data?.pool_mode ? (
+        <p className="text-sm text-slate-600">
+          {ko.workers.poolPreview(pool.data.workers.filter((w) => !w.busy).length)}
+        </p>
+      ) : null}
 
       {/* 그룹 2: 대상 설정 — 항상 펼침 */}
       <fieldset className="mb-4 border-t pt-3">
