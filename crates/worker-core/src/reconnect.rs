@@ -38,9 +38,11 @@ pub async fn connect_with_backoff(
     run_id: &str,
     capacity_vus: u32,
     token: &str,
+    hostname: &str,
     cancel: CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let token = token.to_string();
+    let hostname = hostname.to_string();
     let cancel_for_attempt = cancel.clone();
     retry_with_backoff(
         || {
@@ -50,6 +52,7 @@ pub async fn connect_with_backoff(
                 run_id,
                 capacity_vus,
                 &token,
+                &hostname,
                 &cancel_for_attempt,
             )
         },

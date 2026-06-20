@@ -83,6 +83,7 @@ pub async fn connect_and_register(
     run_id: &str,
     capacity_vus: u32,
     token: &str,
+    hostname: &str,
     cancel: &CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let channel = Channel::from_shared(controller_url.to_string())?
@@ -102,6 +103,7 @@ pub async fn connect_and_register(
             run_id: run_id.to_string(),
             capacity_vus,
             token: token.to_string(),
+            hostname: hostname.to_string(),
         })),
     })
     .await

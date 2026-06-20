@@ -85,6 +85,15 @@ fn resolve_pool_worker_id(explicit: Option<String>) -> String {
     explicit.unwrap_or_else(|| ulid::Ulid::new().to_string())
 }
 
+/// Best-effort machine hostname for pool dashboard display. Empty on
+/// failure / non-UTF8 (display-only; never load-bearing).
+fn resolve_hostname() -> String {
+    gethostname::gethostname()
+        .to_str()
+        .map(str::to_owned)
+        .unwrap_or_default()
+}
+
 /// Execute a single run assignment: parse scenario, load datasets, run engine,
 /// send terminal RunStatus. Ownership: the caller (run/run_pool) owns
 /// signal_task — execute_assignment does NOT hold or abort it.
@@ -470,6 +479,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
 
     let cancel = CancellationToken::new();
     let signal_task = spawn_sigterm(cancel.clone());
+    let hostname = resolve_hostname();
 
     let link = match connect_with_backoff(
         &args.controller,
@@ -477,6 +487,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         &run_id,
         args.capacity_vus,
         args.token.as_deref().unwrap_or(""),
+        &hostname,
         cancel.clone(),
     )
     .await
@@ -504,6 +515,7 @@ pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
     let cancel = CancellationToken::new(); // process-level (SIGTERM)
     let signal_task = spawn_sigterm(cancel.clone());
     let token = args.token.as_deref().unwrap_or("");
+    let hostname = resolve_hostname();
     info!(%worker_id, "pool worker starting (idle)");
     loop {
         if cancel.is_cancelled() {
@@ -515,6 +527,7 @@ pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
             "",
             args.capacity_vus,
             token,
+            &hostname,
             cancel.clone(),
         )
         .await
@@ -784,5 +797,12 @@ mod tests {
             token: None,
         };
         assert!(should_run_pool(&args));
+    }
+
+    #[test]
+    fn resolve_hostname_returns_string_or_empty() {
+        // 머신마다 값이 다르므로 "panic 없이 String 반환"만 단언(빈 폴백 포함 OK).
+        let h = resolve_hostname();
+        let _ = h.len(); // 호출이 패닉하지 않음
     }
 }
