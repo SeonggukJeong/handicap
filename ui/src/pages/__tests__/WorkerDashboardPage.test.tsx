@@ -84,6 +84,12 @@ describe("WorkerDashboardPage", () => {
     expect(screen.getByText(ko.workers.countSummary(0, 0))).toBeInTheDocument();
   });
 
+  it("로딩 중: role=status 표시", () => {
+    fetchMock.mockReturnValueOnce(new Promise(() => {})); // never resolves
+    renderPage();
+    expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+
   it("fetch 실패: role=alert 에러", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
     renderPage();

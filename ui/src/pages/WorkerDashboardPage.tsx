@@ -5,7 +5,12 @@ import { ko } from "../i18n/ko";
 export function WorkerDashboardPage() {
   const { data, isLoading, isError } = usePoolWorkers();
 
-  if (isLoading) return <p role="status">{ko.common.loading}</p>;
+  if (isLoading)
+    return (
+      <p role="status" className="text-slate-500">
+        {ko.common.loading}
+      </p>
+    );
   if (isError) return <p role="alert">{ko.workers.loadError}</p>;
   if (!data) return null;
 

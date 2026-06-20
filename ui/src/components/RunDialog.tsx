@@ -526,7 +526,7 @@ export function RunDialog({
         />
       </fieldset>
       {pool.data?.pool_mode ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-600 mb-4">
           {ko.workers.poolPreview(pool.data.workers.filter((w) => !w.busy).length)}
         </p>
       ) : null}
