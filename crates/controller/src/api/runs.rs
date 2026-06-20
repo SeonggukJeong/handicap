@@ -652,7 +652,7 @@ pub(crate) async fn spawn_run(
         }
         state
             .coord
-            .enqueue(row.id.clone(), assignment, n_pool, total_vus)
+            .enqueue(row.id.clone(), assignment, n_pool, total_vus, None)
             .await;
         if state
             .coord
@@ -670,7 +670,7 @@ pub(crate) async fn spawn_run(
 
     state
         .coord
-        .enqueue(row.id.clone(), assignment, n, total_vus)
+        .enqueue(row.id.clone(), assignment, n, total_vus, None)
         .await;
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).

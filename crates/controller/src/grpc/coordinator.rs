@@ -19,7 +19,7 @@ use pb::{AbortRun, Profile, RunAssignment, ServerMessage, WorkerMessage};
 
 use crate::binding::Mapping;
 use crate::dispatcher::SharedDispatcher;
-use crate::grpc::shard::shard_split;
+use crate::grpc::shard::{self, shard_split};
 use crate::store::Db;
 use crate::store::runs::{self, RunStatus};
 
@@ -123,6 +123,26 @@ struct RunWorkers {
     workers: HashMap<String, WorkerEntry>,
     reg_deadline: CancellationToken,
     terminal: bool,
+    /// Per-shard (vu_offset, vu_count) precomputed by the capacity-aware pool
+    /// path. `None` → `register` falls back to even `shard_split` (legacy/open/
+    /// curve/force, byte-identical L1). (spec R2/R5.)
+    precomputed_counts: Option<Vec<(u32, u32)>>,
+}
+
+/// Outcome of `reserve_idle_pool_capacity` (closed-loop capacity path). (spec R2/R3/R6.)
+#[derive(Debug)]
+pub enum PoolReservation {
+    /// Reserved workers (worker_id-sorted) with their per-shard (vu_offset,
+    /// vu_count) from `capacity_split`. Empty `workers` = idle 0 → caller falls
+    /// through to the existing empty-pool 400 (NOT Insufficient).
+    Reserved {
+        workers: Vec<(String, WorkerTx)>,
+        counts: Vec<(u32, u32)>,
+    },
+    /// idle > 0 but Σ capacity < total_vus. Reached only via the rare
+    /// pre-insert-check → reserve TOCTOU (the precheck normally 409s first);
+    /// caller maps to mark_failed.
+    Insufficient { achievable: u32 },
 }
 
 /// Outcome of a Register, returned to the stream handler to drive I/O.
@@ -372,6 +392,67 @@ impl CoordinatorState {
         }
     }
 
+    /// Read-only: `(idle_count, Σ idle capacity)` for the pre-insert 409 check.
+    /// Same floor/sum as the reserve path (shard::achievable_capacity). (spec R6.)
+    pub async fn pool_achievable_capacity(&self) -> (usize, u32) {
+        let g = self.pool.lock().await;
+        let caps: Vec<u32> = g
+            .values()
+            .filter(|e| e.assigned_run.is_none())
+            .map(|e| e.capacity_vus)
+            .collect();
+        (caps.len(), shard::achievable_capacity(&caps))
+    }
+
+    /// Atomically (under the pool lock) reserve idle workers for a closed-loop
+    /// run, capacity-aware. Branch order is load-bearing: empty FIRST (idle 0 →
+    /// existing 400), THEN capacity comparison (closed-loop vus>=1 so an empty
+    /// pool's achievable 0 < vus would otherwise mis-route to Insufficient/500).
+    /// (spec R2/R3/R6/R7; §4.2.)
+    pub async fn reserve_idle_pool_capacity(
+        &self,
+        run_id: &str,
+        total_vus: u32,
+    ) -> PoolReservation {
+        let mut g = self.pool.lock().await;
+        let mut idle: Vec<(String, u32)> = g
+            .iter()
+            .filter(|(_, e)| e.assigned_run.is_none())
+            .map(|(id, e)| (id.clone(), e.capacity_vus))
+            .collect();
+        idle.sort_by(|a, b| a.0.cmp(&b.0)); // deterministic selection order
+        // 2. Empty FIRST → existing empty-pool 400.
+        if idle.is_empty() {
+            return PoolReservation::Reserved {
+                workers: vec![],
+                counts: vec![],
+            };
+        }
+        let caps: Vec<u32> = idle.iter().map(|(_, c)| *c).collect();
+        let achievable = shard::achievable_capacity(&caps);
+        // 3. Insufficient (rare post-precheck TOCTOU).
+        if achievable < total_vus {
+            return PoolReservation::Insufficient { achievable };
+        }
+        // 4. N = min(idle, total_vus); capacity_split; reserve.
+        let n = idle.len().min(total_vus as usize);
+        let split = shard::capacity_split(total_vus, &caps[..n]);
+        let mut counts = Vec::with_capacity(n);
+        let mut off = 0u32;
+        for &c in &split {
+            counts.push((off, c));
+            off += c;
+        }
+        let mut workers = Vec::with_capacity(n);
+        for (id, _) in idle.into_iter().take(n) {
+            if let Some(e) = g.get_mut(&id) {
+                e.assigned_run = Some(run_id.to_string());
+                workers.push((id, e.tx.clone()));
+            }
+        }
+        PoolReservation::Reserved { workers, counts }
+    }
+
     /// Best-effort, idempotent teardown of a run's external workers. No-op if no
     /// dispatcher was installed (tests). Errors are logged, never propagated —
     /// the run is already finalized in the DB.
@@ -392,6 +473,7 @@ impl CoordinatorState {
         base: PendingAssignment,
         expected: u32,
         total_vus: u32,
+        precomputed: Option<Vec<(u32, u32)>>, // NEW: capacity-aware pool counts (Task 2)
     ) -> CancellationToken {
         let token = CancellationToken::new();
         {
@@ -406,6 +488,7 @@ impl CoordinatorState {
                     workers: HashMap::new(),
                     reg_deadline: token.clone(),
                     terminal: false,
+                    precomputed_counts: precomputed,
                 },
             );
         }
@@ -439,7 +522,10 @@ impl CoordinatorState {
             return RegisterOutcome::Reject;
         }
         let shard_index = rw.next_shard;
-        let (vu_offset, vu_count) = shard_split(rw.total_vus, rw.expected, shard_index);
+        let (vu_offset, vu_count) = match &rw.precomputed_counts {
+            Some(counts) => counts[shard_index as usize],
+            None => shard_split(rw.total_vus, rw.expected, shard_index),
+        };
         rw.next_shard += 1;
         let first = rw.workers.is_empty();
         rw.workers.insert(
@@ -1243,7 +1329,9 @@ mod tests {
         coord.set_dispatcher(Arc::new(CountingDispatcher {
             cleanups: cleanups.clone(),
         }));
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1267,7 +1355,9 @@ mod tests {
         coord.set_dispatcher(Arc::new(CountingDispatcher {
             cleanups: cleanups.clone(),
         }));
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1289,7 +1379,9 @@ mod tests {
         coord.set_dispatcher(Arc::new(CountingDispatcher {
             cleanups: cleanups.clone(),
         }));
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1311,7 +1403,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1370,7 +1464,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run_with_criteria(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1388,7 +1484,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await; // criteria: None
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1404,7 +1502,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run_with_criteria(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
@@ -1569,7 +1669,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db);
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
 
         let (tx0, _r0) = fake_tx();
         let o0 = coord.register(&run_id, "w0", tx0.clone()).await;
@@ -1617,7 +1719,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1646,7 +1750,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, mut r1) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1669,7 +1775,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1687,7 +1795,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db);
-        let token = coord.enqueue(run_id.clone(), base_assignment(), 1, 4).await;
+        let token = coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
         assert!(!token.is_cancelled());
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1702,7 +1812,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, mut r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await; // only 1 of 2 registers
         coord.fail_incomplete_registration(&run_id).await;
@@ -1726,7 +1838,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1765,7 +1879,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
-        coord.enqueue(run_id.clone(), base_assignment(), 2, 4).await;
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await; // 1 of 2 → token stays live
         // Sleep past the (test-only) 200ms deadline so the watchdog fires.
@@ -1956,7 +2072,13 @@ mod tests {
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // cap=4(vus), 유휴 2 → N=2
         coord
-            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .enqueue(
+                run_id.clone(),
+                base_assignment(),
+                reserved.len() as u32,
+                4,
+                None,
+            )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
         // 두 워커가 각각 RunAssignment를 받았고 shard_index가 0/1
@@ -1990,7 +2112,13 @@ mod tests {
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
         coord
-            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .enqueue(
+                run_id.clone(),
+                base_assignment(),
+                reserved.len() as u32,
+                4,
+                None,
+            )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
         coord.pool_disconnect("w0").await; // terminal 보고 없이 끊김
@@ -2012,7 +2140,13 @@ mod tests {
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
-            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .enqueue(
+                run_id.clone(),
+                base_assignment(),
+                reserved.len() as u32,
+                4,
+                None,
+            )
             .await;
         assert!(
             coord.assign_pool_workers(&run_id, reserved).await.is_err(),
@@ -2031,7 +2165,13 @@ mod tests {
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
-            .enqueue(run_id.clone(), base_assignment(), reserved.len() as u32, 4)
+            .enqueue(
+                run_id.clone(),
+                base_assignment(),
+                reserved.len() as u32,
+                4,
+                None,
+            )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
         coord
@@ -2103,5 +2243,106 @@ mod tests {
         let snap = coord.pool_snapshot().await;
         assert_eq!(snap[0].hostname, "myhost");
         assert_eq!(snap[0].capacity_vus, 50);
+    }
+
+    // ── Task 2: capacity-aware reservation + register precomputed fallback ──
+
+    #[tokio::test]
+    async fn pool_achievable_capacity_sums_idle() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        for (id, cap) in [("w0", 5u32), ("w1", 1000u32)] {
+            let (tx, _rx) = fake_tx();
+            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+        }
+        assert_eq!(coord.pool_achievable_capacity().await, (2, 1005));
+    }
+
+    #[tokio::test]
+    async fn reserve_capacity_water_fills_within_caps() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        // worker_id sort: "w0"(cap 5) then "w1"(cap 1000)
+        for (id, cap) in [("w0", 5u32), ("w1", 1000u32)] {
+            let (tx, _rx) = fake_tx();
+            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+        }
+        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+            PoolReservation::Reserved { workers, counts } => {
+                assert_eq!(workers.len(), 2);
+                // even 15/15 would overflow w0(cap 5) → 5/25, offsets 0/5
+                assert_eq!(counts, vec![(0, 5), (5, 25)]);
+                assert_eq!(coord.pool_idle_count().await, 0); // both reserved
+            }
+            other => panic!("expected Reserved, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reserve_capacity_insufficient_when_total_capacity_short() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        for id in ["w0", "w1"] {
+            let (tx, _rx) = fake_tx();
+            coord.pool_register_idle(id, tx, 5, "h".into()).await;
+        }
+        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+            PoolReservation::Insufficient { achievable } => assert_eq!(achievable, 10),
+            other => panic!("expected Insufficient, got {other:?}"),
+        }
+        assert_eq!(coord.pool_idle_count().await, 2); // nothing reserved
+    }
+
+    #[tokio::test]
+    async fn reserve_capacity_empty_pool_returns_empty_reserved_not_insufficient() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+            PoolReservation::Reserved { workers, counts } => {
+                assert!(workers.is_empty() && counts.is_empty());
+            }
+            other => panic!("expected empty Reserved (→ caller 400), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn register_uses_precomputed_counts_when_present() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        // enqueue with explicit per-shard counts; register must read them, not shard_split.
+        coord
+            .enqueue(
+                "run-x".into(),
+                base_assignment(),
+                2,
+                30,
+                Some(vec![(0, 5), (5, 25)]),
+            )
+            .await;
+        let (tx, _rx) = fake_tx();
+        match coord.register("run-x", "w0", tx).await {
+            RegisterOutcome::Assigned {
+                vu_offset,
+                vu_count,
+                ..
+            } => {
+                assert_eq!((vu_offset, vu_count), (0, 5)); // precomputed, not 15
+            }
+            other => panic!("expected Assigned, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn register_falls_back_to_shard_split_when_no_precomputed() {
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        coord
+            .enqueue("run-x".into(), base_assignment(), 2, 30, None)
+            .await;
+        let (tx, _rx) = fake_tx();
+        match coord.register("run-x", "w0", tx).await {
+            RegisterOutcome::Assigned {
+                vu_offset,
+                vu_count,
+                ..
+            } => {
+                assert_eq!((vu_offset, vu_count), (0, 15)); // even split (byte-identical L1)
+            }
+            other => panic!("expected Assigned, got {other:?}"),
+        }
     }
 }
