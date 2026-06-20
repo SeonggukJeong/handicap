@@ -77,6 +77,19 @@ pub struct PendingAssignment {
 
 type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 
+/// An idle (or assigned) pool worker registered without a run_id. (LAN L1, R5.)
+struct PoolEntry {
+    /// Consumed by Task 3 `assign_pool_workers` to push RunAssignment.
+    #[allow(dead_code)]
+    tx: WorkerTx,
+    /// Consumed by Task 3 `reserve_idle_pool` for capacity-aware selection.
+    #[allow(dead_code)]
+    capacity_vus: u32,
+    /// Set by `reserve_idle_pool` (Task 3) when the worker is assigned to a run.
+    /// `None` = idle; `Some(run_id)` = busy. Reset to `None` on re-register (R13).
+    assigned_run: Option<String>,
+}
+
 /// One connected worker's slot in a run.
 struct WorkerEntry {
     shard_index: u32,
@@ -134,6 +147,11 @@ pub struct CoordinatorState {
     /// Set once at startup via `--worker-token`. When set, incoming `Register.token`
     /// must match exactly. When unset (None), any token is accepted (no auth). LAN L1.
     worker_token: Arc<OnceLock<String>>,
+    /// Persistent pool of workers that registered without a run_id (LAN L1, R5).
+    /// Keyed by worker_id. Task 3's `reserve_idle_pool`/`assign_pool_workers` draw
+    /// from here; `pool_disconnect` routes busy-worker disconnects to the existing
+    /// fail-fast (R8).
+    pool: Arc<Mutex<HashMap<String, PoolEntry>>>,
 }
 
 impl CoordinatorState {
@@ -146,6 +164,7 @@ impl CoordinatorState {
             runs: Arc::new(Mutex::new(HashMap::new())),
             dispatcher: Arc::new(OnceLock::new()),
             worker_token: Arc::new(OnceLock::new()),
+            pool: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -170,6 +189,43 @@ impl CoordinatorState {
         match self.worker_token.get() {
             None => true,
             Some(expected) => expected == presented,
+        }
+    }
+
+    /// Register (or refresh, on reconnect) an idle pool worker. Idempotent on
+    /// worker_id: replaces tx and RESETS assigned_run to None (R13 reuse).
+    pub async fn pool_register_idle(&self, worker_id: &str, tx: WorkerTx, capacity_vus: u32) {
+        let mut g = self.pool.lock().await;
+        g.insert(
+            worker_id.to_string(),
+            PoolEntry {
+                tx,
+                capacity_vus,
+                assigned_run: None,
+            },
+        );
+    }
+
+    /// Test/observability helper: count idle (unassigned) pool workers.
+    pub async fn pool_idle_count(&self) -> usize {
+        self.pool
+            .lock()
+            .await
+            .values()
+            .filter(|e| e.assigned_run.is_none())
+            .count()
+    }
+
+    /// A pool worker's stream closed. Remove its entry; if it was mid-run
+    /// (assigned_run = Some), route to the existing fail-fast which preserves
+    /// the terminal-phase guard (no spurious fail after Completed). (R8)
+    pub async fn pool_disconnect(&self, worker_id: &str) {
+        let assigned = {
+            let mut g = self.pool.lock().await;
+            g.remove(worker_id).and_then(|e| e.assigned_run)
+        };
+        if let Some(run_id) = assigned {
+            self.worker_disconnected(&run_id, worker_id).await;
         }
     }
 
@@ -657,6 +713,7 @@ impl Coordinator for CoordinatorService {
         tokio::spawn(async move {
             let mut run_id: Option<String> = None;
             let mut worker_id: Option<String> = None;
+            let mut pool_conn = false;
             while let Some(msg) = inbound.next().await {
                 let msg = match msg {
                     Ok(m) => m,
@@ -679,8 +736,17 @@ impl Coordinator for CoordinatorService {
                                 .await;
                             break;
                         }
-                        run_id = Some(reg.run_id.clone());
                         worker_id = Some(reg.worker_id.clone());
+                        if reg.run_id.is_empty() {
+                            // Pool mode: register idle, wait for push assignment from assign_pool_workers (Task 3).
+                            info!(worker_id = %reg.worker_id, "pool worker registered idle");
+                            state
+                                .pool_register_idle(&reg.worker_id, tx.clone(), reg.capacity_vus)
+                                .await;
+                            pool_conn = true;
+                            continue;
+                        }
+                        run_id = Some(reg.run_id.clone());
                         info!(worker_id = %reg.worker_id, run_id = %reg.run_id, "worker registered");
 
                         let outcome = state
@@ -780,8 +846,12 @@ impl Coordinator for CoordinatorService {
                     None => {}
                 }
             }
-            // Stream closed: fail-fast if this worker dropped before a terminal phase.
-            if let (Some(rid), Some(wid)) = (run_id.as_ref(), worker_id.as_ref()) {
+            // Stream closed: route to pool or legacy fail-fast based on connection mode.
+            if pool_conn {
+                if let Some(wid) = worker_id.as_ref() {
+                    state.pool_disconnect(wid).await;
+                }
+            } else if let (Some(rid), Some(wid)) = (run_id.as_ref(), worker_id.as_ref()) {
                 state.worker_disconnected(rid, wid).await;
             }
             info!(?run_id, ?worker_id, "worker stream closed");
@@ -1662,5 +1732,32 @@ mod tests {
         assert!(coord.check_token("secret"));
         assert!(!coord.check_token("wrong"));
         assert!(!coord.check_token(""));
+    }
+
+    #[tokio::test]
+    async fn pool_register_idempotent_resets_assigned() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx0, _r0) = fake_tx();
+        coord.pool_register_idle("w0", tx0, 100).await;
+        assert_eq!(coord.pool_idle_count().await, 1);
+        // 같은 worker_id 재등록 = tx 교체, 중복 아님
+        let (tx0b, _r0b) = fake_tx();
+        coord.pool_register_idle("w0", tx0b, 100).await;
+        assert_eq!(
+            coord.pool_idle_count().await,
+            1,
+            "재등록은 멱등(중복 엔트리 없음)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_disconnect_removes() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx0, _r0) = fake_tx();
+        coord.pool_register_idle("w0", tx0, 100).await;
+        coord.pool_disconnect("w0").await;
+        assert_eq!(coord.pool_idle_count().await, 0);
     }
 }
