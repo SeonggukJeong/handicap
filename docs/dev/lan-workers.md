@@ -1,4 +1,4 @@
-# LAN 분산 워커 운영 런북 (ADR-0041, L1+L2+L3)
+# LAN 분산 워커 운영 런북 (ADR-0041, L1–L4)
 
 LAN 내 여러 PC를 **상시 워커 풀**로 묶어 부하를 분산하는 운영 절차다.  
 L1은 "풀 모드(pool mode)" — 워커를 미리 켜 두고, run 발사 시 컨트롤러가 유휴 워커 전원을 자동 배정(use-all)한다.
@@ -79,7 +79,7 @@ closed-loop에서 **`vus`는 총 VU 수이자 워커 배정 상한을 겸한다.
 
 ---
 
-## 4. 과부하 가드 (L3)
+## 4. 과부하 가드 (L3+L4)
 
 ### capacity-aware 배정 (closed-loop)
 
@@ -145,9 +145,46 @@ curl -s -X POST "http://localhost:8080/api/runs?force=true" \
 
 > `?force=true`는 공유 토큰 인증을 우회하지 않는다. 토큰 검사는 gRPC 워커 등록 시 수행되며 REST API 쿼리 파라미터와 무관하다.
 
-### open-loop / VU 곡선 미적용 (현재 한계)
+### capacity-aware 배정 — open-loop (L4)
 
-`--capacity-vus`는 closed-loop(`vus`) run의 VU 지표다. **open-loop(`target_rps` / `max_in_flight`) 및 VU 곡선(`vu_stages`) run에는 용량 검사가 적용되지 않는다** — 이 부하 모드에서는 L1과 동일하게 단순 배정된다. capacity-aware open-loop 가드는 후속 예정이다.
+L4부터 **open-loop(`target_rps` / `max_in_flight`) run**에도 용량 검사가 적용된다.
+
+**슬롯 분할 (`max_in_flight`):**  
+closed-loop의 VU 분할과 동일하게 `capacity_split`(water-fill)으로 각 워커에 in-flight 슬롯을 분배한다. 어느 워커도 `--capacity-vus`를 초과하지 않는다.
+
+**레이트 분할 (`target_rps` / `stages`):**
+- **고정 레이트(`target_rps`):** 슬롯 비율에 비례해 레이트를 분할한다(proportional_split_min1). 각 워커가 **최소 1 RPS**를 받는다 — 엔진이 0-레이트 워커를 ≥1 RPS로 클램프하는 동작을 방지하기 위함이다(클램프 시 목표 RPS 초과 발사).
+- **곡선(`stages`):** 각 stage의 `target`도 슬롯 비율에 비례 분할한다(proportional_split). 곡선은 0-레이트 stage를 실제 폴링하므로 min1 처리가 불필요하다.
+
+**워커 배정 수 N 상한:**  
+`N = min(유휴_워커_수, min(max_in_flight, peak_stage_rps))`  
+N을 레이트 피크로 제한해 "워커 수 > 분당 레이트" 상황의 과도 발사를 방지하고, per-worker rate ≥ N이 보장된다(min1 전제 조건 충족).
+
+**용량 부족 시 409 동작:**  
+요청한 `max_in_flight`이 유휴 워커 총 용량 합계를 초과하면 closed-loop과 동일하게 409를 반환한다. `achievable_vus`는 달성 가능한 최대 `max_in_flight` 값이다.
+
+```bash
+# open-loop 용량 초과 예 (워커 2대 각 capacity-vus=5, max_in_flight=20)
+curl -s -X POST http://localhost:8080/api/runs \
+  -H "Content-Type: application/json" \
+  -d '{"scenario_id":"…","profile":{"target_rps":100,"max_in_flight":20,"duration_seconds":60},"env":{}}' | jq
+# → HTTP 409
+# {
+#   "achievable_vus": 10,
+#   "requested_vus": 20
+# }
+```
+
+- **"줄여 진행":** `max_in_flight`을 `achievable_vus`로 낮춰 재전송한다(target_rps·stages는 그대로 유지, 슬롯이 줄어 dropped 카운터가 늘 수 있음).
+- **"강행(과부하)":** `?force=true`로 용량 검사를 건너뛰고 기존 균등 분할(L1 방식)로 run을 생성한다.
+
+### 현재 한계 (L4 기준)
+
+| 한계 | 내용 |
+|------|------|
+| **closed-loop VU 곡선(`vu_stages`) 풀 가드 미적용** | `vu_stages` run은 여전히 N=1 legacy 경로(워커 배정 1대)이며 under-cap 배정 갭이 존속한다. 별도 슬라이스 예정. |
+| **dataset `unique` 비례 분할 미적용** | water-fill 결과 워커마다 VU/슬롯이 달라도 데이터셋 행은 균등 분할한다. disjointness(각 행 ≤1회 소비)는 보장되며 uniqueness 정확성 위험은 없다. 소비 속도만 불균등해져 빠른 워커에서 stop-on-exhaust가 더 일찍 발생할 수 있다. 비례 분할은 후속 예정. |
+| **풀 open-loop은 `worker_count` 노브 무시** | use-all-by-demand(`N = min(유휴, worker_cap)`) 방식이다. `worker_count` 명시는 비-풀 fan-out(ADR-0038) 전용으로, 풀 모드에서는 무시된다. |
 
 ### dataset `unique` 정책과 불균등 분할 (R11/R12)
 
@@ -236,12 +273,14 @@ run 생성 전에 워커가 컨트롤러에 연결·등록됐는지 확인한다
 
 ---
 
-## 8. L1+L2+L3 한도 요약
+## 8. L1–L4 한도 요약
 
 | 항목 | 현재 동작 |
 |------|---------|
 | 워커 재연결 | run 완료 후 자동 reconnect-per-run (sub-second) |
-| 과부하 가드 | capacity-aware closed-loop 배정 (water-fill, `--capacity-vus` 존중, 초과 시 409 또는 `?force=true` 강행) — open-loop/곡선은 미적용 (후속) |
+| 과부하 가드 (closed-loop) | capacity-aware 배정 (water-fill, `--capacity-vus` 존중, 초과 시 409 또는 `?force=true` 강행) |
+| 과부하 가드 (open-loop fixed/curve) | capacity-aware 배정 (L4 — 슬롯=capacity_split·레이트 비례·N 레이트-상한·409/강행 동일) |
+| 과부하 가드 (VU 곡선 `vu_stages`) | 미적용 — N=1 legacy 경로 (별도 슬라이스 예정) |
 | 채널 보안 | 평문 gRPC + 공유 토큰(접근 통제 only) |
 | 단일 PC 한도 | 기존 subprocess 모드와 동일 |
 | 멀티 컨트롤러 | 미지원 (워커는 컨트롤러 1개에만 연결) |
