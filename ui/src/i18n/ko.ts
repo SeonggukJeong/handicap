@@ -160,14 +160,26 @@ export const ko = {
   capacityGuard: {
     // bespoke createRun error (shown as a banner in non-RunDialog callers)
     shortError: (achievable: number) => `풀 용량이 부족합니다 (가용 ${achievable} VU)`,
-    // RunDialog preview + confirm dialog (Task 5 uses these)
+    // RunDialog preview + confirm dialog (closed-loop)
     totalCapacity: (vus: number) => `총 용량 ${vus} VU`,
     overHint: (achievable: number) =>
       `요청 VU가 풀 용량 ${achievable} VU를 초과합니다 — 줄이거나 강행하세요`,
+    // open-loop preview hint (max_in_flight > idle capacity)
+    overHintOpen: (achievable: number) =>
+      `동시 요청 수(슬롯)가 풀 용량 ${achievable} VU를 초과합니다 — 줄이거나 강행하세요`,
     dialogTitle: "풀 용량 부족",
+    // closed-loop dialog body
     dialogBody: (achievable: number, requested: number) =>
       `요청한 ${requested} VU는 현재 풀 용량 ${achievable} VU를 초과합니다.`,
+    // open-loop dialog body (slots, not VUs)
+    dialogBodyOpen: (achievable: number, requested: number) =>
+      `요청한 동시 요청 수 ${requested}가 현재 풀 용량 ${achievable} VU를 초과합니다.`,
+    // guidance note shown in open-loop 409 dialog
+    clampNoteOpen:
+      "동시 슬롯만 줄입니다 — 목표 RPS는 유지되어 드롭이 늘 수 있어요(포화 시 워커를 늘리세요).",
     clamp: (achievable: number) => `${achievable} VU로 줄여 진행`,
+    // open-loop reduce button label (slots, not VUs)
+    clampOpen: (achievable: number) => `동시 요청 ${achievable}개로 줄여 진행`,
     force: "용량 무시하고 강행",
     cancel: "취소",
   },

@@ -544,7 +544,11 @@ export function RunDialog({
             const idle = pool.data.workers.filter((w) => !w.busy);
             const idleCapacity = idle.reduce((sum, w) => sum + Math.max(w.capacity_vus, 1), 0);
             const closedFixed = loadModel === "closed" && rateMode === "fixed";
-            const over = closedFixed && Number(vus) > idleCapacity;
+            const isOpenLoop = loadModel === "open";
+            const overClosed = closedFixed && Number(vus) > idleCapacity;
+            const overOpen =
+              isOpenLoop && maxInFlight.trim() !== "" && Number(maxInFlight) > idleCapacity;
+            const over = overClosed || overOpen;
             return (
               <div className="mb-4">
                 <p className="text-sm text-slate-600">
@@ -553,7 +557,9 @@ export function RunDialog({
                 </p>
                 {over ? (
                   <p className="text-sm text-amber-700" role="status">
-                    {ko.capacityGuard.overHint(idleCapacity)}
+                    {overOpen
+                      ? ko.capacityGuard.overHintOpen(idleCapacity)
+                      : ko.capacityGuard.overHint(idleCapacity)}
                   </p>
                 ) : null}
               </div>
@@ -799,55 +805,72 @@ export function RunDialog({
         );
       })()}
 
-      {poolConflict ? (
-        <div
-          role="alertdialog"
-          aria-label={ko.capacityGuard.dialogTitle}
-          className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
-        >
-          <p className="mb-2 font-medium">{ko.capacityGuard.dialogTitle}</p>
-          <p className="mb-3">
-            {ko.capacityGuard.dialogBody(poolConflict.achievable, poolConflict.requested)}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => {
-                const built = buildProfile();
-                const clamped = { ...built, vus: poolConflict.achievable };
-                setPoolConflict(null);
-                mutation.reset();
-                mutation.mutate(
-                  { scenarioId, profile: clamped, env },
-                  { onSuccess: (run) => onCreated(run.id) },
-                );
-              }}
-            >
-              {ko.capacityGuard.clamp(poolConflict.achievable)}
-            </Button>
-            <Button
-              onClick={() => {
-                setPoolConflict(null);
-                mutation.reset();
-                mutation.mutate(
-                  { scenarioId, profile: buildProfile(), env, force: true },
-                  { onSuccess: (run) => onCreated(run.id) },
-                );
-              }}
-            >
-              {ko.capacityGuard.force}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPoolConflict(null);
-                mutation.reset();
-              }}
-            >
-              {ko.capacityGuard.cancel}
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      {poolConflict
+        ? (() => {
+            const isOpenLoop = loadModel === "open";
+            return (
+              <div
+                role="alertdialog"
+                aria-label={ko.capacityGuard.dialogTitle}
+                className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
+              >
+                <p className="mb-2 font-medium">{ko.capacityGuard.dialogTitle}</p>
+                <p className="mb-3">
+                  {isOpenLoop
+                    ? ko.capacityGuard.dialogBodyOpen(
+                        poolConflict.achievable,
+                        poolConflict.requested,
+                      )
+                    : ko.capacityGuard.dialogBody(poolConflict.achievable, poolConflict.requested)}
+                </p>
+                {isOpenLoop ? (
+                  <p className="mb-3 text-xs">{ko.capacityGuard.clampNoteOpen}</p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      const built = buildProfile();
+                      const clamped = isOpenLoop
+                        ? { ...built, max_in_flight: poolConflict.achievable }
+                        : { ...built, vus: poolConflict.achievable };
+                      setPoolConflict(null);
+                      mutation.reset();
+                      mutation.mutate(
+                        { scenarioId, profile: clamped, env },
+                        { onSuccess: (run) => onCreated(run.id) },
+                      );
+                    }}
+                  >
+                    {isOpenLoop
+                      ? ko.capacityGuard.clampOpen(poolConflict.achievable)
+                      : ko.capacityGuard.clamp(poolConflict.achievable)}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setPoolConflict(null);
+                      mutation.reset();
+                      mutation.mutate(
+                        { scenarioId, profile: buildProfile(), env, force: true },
+                        { onSuccess: (run) => onCreated(run.id) },
+                      );
+                    }}
+                  >
+                    {ko.capacityGuard.force}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setPoolConflict(null);
+                      mutation.reset();
+                    }}
+                  >
+                    {ko.capacityGuard.cancel}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()
+        : null}
 
       <div className="flex gap-2">
         <Button

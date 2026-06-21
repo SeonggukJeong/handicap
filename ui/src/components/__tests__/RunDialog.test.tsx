@@ -1789,3 +1789,258 @@ describe("RunDialog — 풀 과부하 가드 (L3 R8/R9/R10)", () => {
     });
   });
 });
+
+describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", () => {
+  function mockPoolWorkers(capacities: number[]) {
+    mockUsePoolWorkers.mockReturnValue({
+      data: {
+        pool_mode: true,
+        workers: capacities.map((c, i) => ({
+          worker_id: `w${i}`,
+          hostname: `h${i}`,
+          capacity_vus: c,
+          busy: false,
+          run_id: null,
+        })),
+      },
+    });
+  }
+
+  // R8: open+fixed 모드에서 max_in_flight > 풀 총용량이면 초과 힌트 표시
+  it("open+fixed: max_in_flight > 풀 총용량이면 초과 힌트가 표시된다 (role=status)", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+
+    // open+fixed 전환
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+
+    // max_in_flight = 20 (> 10)
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "20");
+
+    // 초과 힌트 표시 (role=status)
+    const hint = await screen.findByText(/동시 요청 수.*풀 용량.*10.*초과/);
+    expect(hint.closest("[role='status']")).toBeInTheDocument();
+  });
+
+  // R8: open+curve 모드에서 max_in_flight > 풀 총용량이면 초과 힌트 표시
+  it("open+curve: max_in_flight > 풀 총용량이면 초과 힌트가 표시된다", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+
+    // open+curve 전환
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+
+    // max_in_flight = 20 (> 10)
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "20");
+
+    // 초과 힌트 표시
+    const hint = await screen.findByText(/동시 요청 수.*풀 용량.*10.*초과/);
+    expect(hint.closest("[role='status']")).toBeInTheDocument();
+  });
+
+  // R8: open+fixed 에서 max_in_flight <= 총용량이면 힌트 없음
+  it("open+fixed: max_in_flight <= 풀 총용량이면 초과 힌트 없음", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+
+    // max_in_flight = 8 (< 10) — no hint
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "8");
+
+    expect(screen.queryByText(/동시 요청 수.*풀 용량.*초과/)).not.toBeInTheDocument();
+  });
+
+  // R9: open+fixed 409 → 줄여 진행이 max_in_flight를 achievable로 clamp (target_rps 유지)
+  it("open+fixed 409 → 줄여 진행: max_in_flight=achievable로 clamp, target_rps 불변, vus 미설정", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-OPEN-CLAMP",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: {
+                vus: 0,
+                ramp_up_seconds: 0,
+                duration_seconds: 5,
+                target_rps: 100,
+                max_in_flight: 10,
+              },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([5, 5]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    // open+fixed 전환 후 설정
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    await user.clear(screen.getByLabelText(/테스트 시간/));
+    await user.type(screen.getByLabelText(/테스트 시간/), "5");
+    const targetRps = screen.getByLabelText(/목표 RPS/i);
+    await user.clear(targetRps);
+    await user.type(targetRps, "100");
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "20");
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+
+    // 다이얼로그 등장 — open-loop용 슬롯 워딩 확인
+    const dialog = await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+    expect(dialog).toBeInTheDocument();
+    // 안내문(슬롯만 축소) 표시 확인
+    expect(dialog).toHaveTextContent(/동시 슬롯만 줄입니다/);
+
+    // "줄여 진행" 클릭
+    await user.click(screen.getByRole("button", { name: /10.*줄여 진행/ }));
+
+    // 2번째 POST payload 확인
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/api/runs") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(calls.length).toBe(2);
+      const body = JSON.parse((calls[1]![1] as RequestInit).body as string);
+      // max_in_flight가 achievable(10)로 clamped
+      expect(body.profile.max_in_flight).toBe(10);
+      // target_rps는 유지
+      expect(body.profile.target_rps).toBe(100);
+      // vus는 open-loop에서 0 (not set to achievable)
+      expect(body.profile.vus).toBe(0);
+    });
+  });
+
+  // R10: open+fixed 409 → 강행이 ?force=true로 동일 페이로드 재전송
+  it("open+fixed 409 → 강행 클릭 시 force:true로 재제출된다", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-OPEN-FORCE",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: {
+                vus: 0,
+                ramp_up_seconds: 0,
+                duration_seconds: 5,
+                target_rps: 100,
+                max_in_flight: 20,
+              },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([5, 5]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    await user.clear(screen.getByLabelText(/테스트 시간/));
+    await user.type(screen.getByLabelText(/테스트 시간/), "5");
+    const targetRps = screen.getByLabelText(/목표 RPS/i);
+    await user.clear(targetRps);
+    await user.type(targetRps, "100");
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "20");
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+
+    await user.click(screen.getByRole("button", { name: /용량 무시하고 강행/ }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url]) => typeof url === "string" && url.includes("/api/runs"),
+      );
+      expect(calls.length).toBe(2);
+      expect(String(calls[1]![0])).toContain("?force=true");
+    });
+  });
+
+  // 비-풀이면 힌트 미표시
+  it("비-풀 모드에서는 open-loop 초과 힌트가 표시되지 않는다", async () => {
+    const user = userEvent.setup();
+    mockUsePoolWorkers.mockReturnValue({ data: { pool_mode: false, workers: [] } });
+    renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    const mif = screen.getByLabelText(/동시 요청 상한/);
+    await user.clear(mif);
+    await user.type(mif, "200");
+
+    expect(screen.queryByText(/동시 요청 수.*풀 용량.*초과/)).not.toBeInTheDocument();
+  });
+});
