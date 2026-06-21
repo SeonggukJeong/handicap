@@ -1318,6 +1318,7 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             ts_second: s.ts_second,
             desired: s.desired as i64,
             actual: s.actual as i64,
+            worker_id: batch.worker_id.clone(), // L5: per-worker keying (run_metrics:1229 동형)
         })
         .collect();
     if !active_vu_rows.is_empty() {

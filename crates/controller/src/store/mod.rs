@@ -77,6 +77,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0015).execute(&pool).await?; // migration 0015: step_templates
     sqlx::query(MIGRATION_SQL_0016).execute(&pool).await?; // migration 0016: run_active_vu_metrics
     sqlx::query(MIGRATION_SQL_0017).execute(&pool).await?; // migration 0017: settings overrides
+    ensure_active_vu_worker_id(&pool).await?; // migration 0018 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -195,6 +196,47 @@ async fn ensure_run_group_metrics_branch(db: &Db) -> anyhow::Result<()> {
             .execute(db)
             .await?;
     }
+    Ok(())
+}
+
+/// migration 0018 (Rust-guarded): add worker_id to run_active_vu_metrics PK so
+/// multi-worker VU curves don't clobber (read-time SUM merges). Mirrors
+/// ensure_run_metrics_worker_id (0008). Idempotent — detect column first.
+async fn ensure_active_vu_worker_id(db: &Db) -> anyhow::Result<()> {
+    let has_col: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('run_active_vu_metrics') WHERE name = 'worker_id'",
+    )
+    .fetch_one(db)
+    .await?;
+    if has_col != 0 {
+        return Ok(());
+    }
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "CREATE TABLE run_active_vu_metrics_v2 ( \
+           run_id    TEXT    NOT NULL, \
+           ts_second INTEGER NOT NULL, \
+           worker_id TEXT    NOT NULL DEFAULT '', \
+           desired   INTEGER NOT NULL, \
+           actual    INTEGER NOT NULL, \
+           PRIMARY KEY (run_id, ts_second, worker_id) \
+         )",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO run_active_vu_metrics_v2 (run_id, ts_second, worker_id, desired, actual) \
+         SELECT run_id, ts_second, '', desired, actual FROM run_active_vu_metrics",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DROP TABLE run_active_vu_metrics")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("ALTER TABLE run_active_vu_metrics_v2 RENAME TO run_active_vu_metrics")
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 

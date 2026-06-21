@@ -1,0 +1,7 @@
+-- migration 0018: add worker_id to run_active_vu_metrics PK (multi-worker VU curve).
+-- Reshape is Rust-guarded (ensure_active_vu_worker_id) like run_metrics (0008) —
+-- this file documents the target shape. Per-worker keep-last; read-time SUM merges.
+-- CREATE TABLE run_active_vu_metrics (
+--   run_id TEXT NOT NULL, ts_second INTEGER NOT NULL,
+--   worker_id TEXT NOT NULL DEFAULT '', desired INTEGER NOT NULL, actual INTEGER NOT NULL,
+--   PRIMARY KEY (run_id, ts_second, worker_id));

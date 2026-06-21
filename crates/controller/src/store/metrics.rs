@@ -353,6 +353,7 @@ pub struct ActiveVuRow {
     pub ts_second: i64,
     pub desired: i64,
     pub actual: i64,
+    pub worker_id: String, // L5: per-worker keying so N curves' samples coexist; read SUMs.
 }
 
 pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Result<()> {
@@ -362,11 +363,12 @@ pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Resu
     let mut tx = db.begin().await?;
     for r in rows {
         sqlx::query(
-            "INSERT INTO run_active_vu_metrics(run_id,ts_second,desired,actual) VALUES(?,?,?,?) \
-             ON CONFLICT(run_id,ts_second) DO UPDATE SET desired=excluded.desired, actual=excluded.actual",
+            "INSERT INTO run_active_vu_metrics(run_id,ts_second,worker_id,desired,actual) VALUES(?,?,?,?,?) \
+             ON CONFLICT(run_id,ts_second,worker_id) DO UPDATE SET desired=excluded.desired, actual=excluded.actual",
         )
         .bind(&r.run_id)
         .bind(r.ts_second)
+        .bind(&r.worker_id)
         .bind(r.desired)
         .bind(r.actual)
         .execute(&mut *tx)
@@ -377,8 +379,8 @@ pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Resu
 
 pub async fn active_vu_series(db: &Db, run_id: &str) -> sqlx::Result<Vec<ActiveVuRow>> {
     let rows = sqlx::query(
-        "SELECT ts_second, desired, actual FROM run_active_vu_metrics \
-         WHERE run_id = ? ORDER BY ts_second",
+        "SELECT ts_second, SUM(desired) AS desired, SUM(actual) AS actual \
+         FROM run_active_vu_metrics WHERE run_id = ? GROUP BY ts_second ORDER BY ts_second",
     )
     .bind(run_id)
     .fetch_all(db)
@@ -390,6 +392,7 @@ pub async fn active_vu_series(db: &Db, run_id: &str) -> sqlx::Result<Vec<ActiveV
             ts_second: r.get("ts_second"),
             desired: r.get("desired"),
             actual: r.get("actual"),
+            worker_id: String::new(), // aggregated rows carry no single worker_id
         })
         .collect())
 }
@@ -812,12 +815,14 @@ mod tests {
                     ts_second: 100,
                     desired: 3,
                     actual: 2,
+                    worker_id: "".into(),
                 },
                 ActiveVuRow {
                     run_id: "r1".into(),
                     ts_second: 101,
                     desired: 5,
                     actual: 5,
+                    worker_id: "".into(),
                 },
             ],
         )
@@ -830,6 +835,7 @@ mod tests {
                 ts_second: 100,
                 desired: 4,
                 actual: 4,
+                worker_id: "".into(),
             }],
         )
         .await
@@ -843,6 +849,80 @@ mod tests {
         assert_eq!(
             (out[1].ts_second, out[1].desired, out[1].actual),
             (101, 5, 5)
+        );
+    }
+
+    #[tokio::test]
+    async fn active_vu_worker_id_rows_coexist_and_sum() {
+        let db = pool().await; // 기존 헬퍼 (metrics.rs:402; 기존 active_vu 테스트 :804가 이걸 씀)
+        // run_active_vu_metrics는 FK 없음(0016 sql에 REFERENCES 없음) → run row 선행 불요.
+        // 두 워커가 같은 (run, second)에 desired/actual 보고 → 공존 + SUM.
+        insert_active_vu_batch(
+            &db,
+            &[ActiveVuRow {
+                run_id: "r1".into(),
+                ts_second: 5,
+                desired: 12,
+                actual: 11,
+                worker_id: "w-a".into(),
+            }],
+        )
+        .await
+        .unwrap();
+        insert_active_vu_batch(
+            &db,
+            &[ActiveVuRow {
+                run_id: "r1".into(),
+                ts_second: 5,
+                desired: 28,
+                actual: 27,
+                worker_id: "w-b".into(),
+            }],
+        )
+        .await
+        .unwrap();
+        let out = active_vu_series(&db, "r1").await.unwrap();
+        assert_eq!(out.len(), 1, "SUM merge → one row per ts_second");
+        assert_eq!(out[0].ts_second, 5);
+        assert_eq!(out[0].desired, 40, "12 + 28");
+        assert_eq!(out[0].actual, 38, "11 + 27");
+    }
+
+    #[tokio::test]
+    async fn active_vu_n1_byte_identical_output() {
+        let db = pool().await;
+        // single worker → SUM over 1 row == the value itself (byte-identical, R11).
+        insert_active_vu_batch(
+            &db,
+            &[ActiveVuRow {
+                run_id: "r1".into(),
+                ts_second: 3,
+                desired: 7,
+                actual: 6,
+                worker_id: "w-a".into(),
+            }],
+        )
+        .await
+        .unwrap();
+        // keep-last per worker: re-send same (run,sec,worker) updates in place.
+        insert_active_vu_batch(
+            &db,
+            &[ActiveVuRow {
+                run_id: "r1".into(),
+                ts_second: 3,
+                desired: 9,
+                actual: 8,
+                worker_id: "w-a".into(),
+            }],
+        )
+        .await
+        .unwrap();
+        let out = active_vu_series(&db, "r1").await.unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            (out[0].desired, out[0].actual),
+            (9, 8),
+            "keep-last per worker"
         );
     }
 

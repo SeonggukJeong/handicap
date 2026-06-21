@@ -1531,12 +1531,14 @@ mod tests {
                 ts_second: 100,
                 desired: 3,
                 actual: 2,
+                worker_id: "".into(),
             },
             ActiveVuRow {
                 run_id: r.id.clone(),
                 ts_second: 101,
                 desired: 5,
                 actual: 5,
+                worker_id: "".into(),
             },
         ];
         let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &active);
