@@ -503,15 +503,19 @@ pub(crate) async fn spawn_run(
     env: &std::collections::HashMap<String, String>,
     force: bool,
 ) -> Result<runs::RunRow, ApiError> {
-    // L3: closed-loop pool capacity precheck (before any DB insert → 409 leaves no
-    // run row, R3). Empty pool (idle 0) is NOT a 409 — it falls through to the
-    // existing empty-pool 400 below.
-    if state.coord.is_pool_mode() && !force && !profile.is_open_loop() && !profile.is_vu_curve() {
-        let (idle, achievable) = state.coord.pool_achievable_capacity().await;
-        if idle > 0 && profile.vus > achievable {
+    // L3/L4: pool capacity precheck (before any DB insert → 409 leaves no run row, R3).
+    // Covers closed-loop AND open-loop (fixed+curve); vu-curve excluded (single-worker v1).
+    // Empty pool (idle 0) is NOT a 409 — falls through to existing empty-pool 400 below.
+    if state.coord.is_pool_mode() && !force && !profile.is_vu_curve() {
+        let (idle, achievable) = state
+            .coord
+            .pool_achievable_capacity(profile.pool_worker_cap())
+            .await;
+        let demand = profile.concurrency_demand();
+        if idle > 0 && demand > achievable {
             return Err(ApiError::ConflictJson(serde_json::json!({
                 "achievable_vus": achievable,
-                "requested_vus": profile.vus,
+                "requested_vus": demand,
             })));
         }
     }
@@ -638,15 +642,22 @@ pub(crate) async fn spawn_run(
         profile.vus
     };
     // Pool mode: use the always-on worker pool instead of spawning new workers.
-    // L3: fork by mode — closed-loop non-force uses capacity-aware path (R2);
-    // open-loop / vu-curve / ?force uses legacy even-split (byte-identical L1).
+    // L3/L4: fork by mode — closed-loop OR open-loop (fixed+curve) non-force uses
+    // capacity-aware path (R2/R13); vu-curve / ?force uses legacy even-split (byte-identical L1).
     if state.coord.is_pool_mode() {
-        let closed = !profile.is_open_loop() && !profile.is_vu_curve();
-        if closed && !force {
-            // Capacity-aware path (R2).
+        // guarded = capacity-aware path applies (all except vu-curve, which is single-worker).
+        let guarded = !profile.is_vu_curve();
+        if guarded && !force {
+            // Capacity-aware path (R2/R13): worker_cap limits worker count, slot_total is
+            // the concurrency demand (max_in_flight for open-loop, vus for closed-loop).
+            // total_vus local (lines above) == concurrency_demand() for all modes — single source.
             match state
                 .coord
-                .reserve_idle_pool_capacity(&row.id, profile.vus)
+                .reserve_idle_pool_capacity(
+                    &row.id,
+                    profile.pool_worker_cap(),
+                    profile.concurrency_demand(),
+                )
                 .await
             {
                 crate::grpc::coordinator::PoolReservation::Reserved { workers, counts: _ }
@@ -662,7 +673,7 @@ pub(crate) async fn spawn_run(
                     // Rare TOCTOU (pool shrank after precheck) — mark failed.
                     let msg = format!(
                         "풀 용량 부족 (가용 {achievable} VU < 요청 {} VU)",
-                        profile.vus
+                        profile.concurrency_demand()
                     );
                     state.coord.cancel_dispatch_failed(&row.id).await;
                     runs::mark_failed(&state.db, &row.id, &msg).await?;
@@ -689,7 +700,7 @@ pub(crate) async fn spawn_run(
                 }
             }
         } else {
-            // Legacy pool path: ?force closed-loop OR open-loop OR vu-curve.
+            // Legacy pool path: ?force (any mode) OR vu-curve (single-worker v1).
             // Even split via register's shard_split (precomputed None) = byte-identical L1.
             let n_cap: usize = if profile.is_vu_curve() {
                 1

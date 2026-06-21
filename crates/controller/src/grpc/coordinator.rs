@@ -392,27 +392,37 @@ impl CoordinatorState {
         }
     }
 
-    /// Read-only: `(idle_count, Σ idle capacity)` for the pre-insert 409 check.
-    /// Same floor/sum as the reserve path (shard::achievable_capacity). (spec R6.)
-    pub async fn pool_achievable_capacity(&self) -> (usize, u32) {
+    /// Read-only: `(idle_count, Σ achievable capacity)` for the pre-insert 409 check.
+    /// `worker_cap` limits how many idle workers are considered (same subset as
+    /// `reserve_idle_pool_capacity`). Same floor/sum as the reserve path
+    /// (shard::achievable_capacity). (spec R6, L4.)
+    pub async fn pool_achievable_capacity(&self, worker_cap: u32) -> (usize, u32) {
         let g = self.pool.lock().await;
-        let caps: Vec<u32> = g
-            .values()
-            .filter(|e| e.assigned_run.is_none())
-            .map(|e| e.capacity_vus)
+        // Sort by worker_id for deterministic subset selection — same order as
+        // reserve_idle_pool_capacity so both functions consider the same N workers.
+        let mut idle: Vec<(String, u32)> = g
+            .iter()
+            .filter(|(_, e)| e.assigned_run.is_none())
+            .map(|(id, e)| (id.clone(), e.capacity_vus))
             .collect();
-        (caps.len(), shard::achievable_capacity(&caps))
+        idle.sort_by(|a, b| a.0.cmp(&b.0));
+        let n = idle.len().min(worker_cap as usize);
+        let caps: Vec<u32> = idle.iter().map(|(_, c)| *c).collect();
+        (idle.len(), shard::achievable_capacity(&caps[..n]))
     }
 
-    /// Atomically (under the pool lock) reserve idle workers for a closed-loop
-    /// run, capacity-aware. Branch order is load-bearing: empty FIRST (idle 0 →
-    /// existing 400), THEN capacity comparison (closed-loop vus>=1 so an empty
-    /// pool's achievable 0 < vus would otherwise mis-route to Insufficient/500).
-    /// (spec R2/R3/R6/R7; §4.2.)
+    /// Atomically (under the pool lock) reserve idle workers for a run,
+    /// capacity-aware. `worker_cap` caps how many workers to use (open-loop:
+    /// `pool_worker_cap`; closed: vus). `slot_total` is the concurrency demand
+    /// (closed: vus; open: max_in_flight). Branch order is load-bearing: empty
+    /// FIRST (idle 0 → existing 400), THEN capacity comparison (closed-loop
+    /// vus>=1 so an empty pool's achievable 0 < vus would otherwise mis-route
+    /// to Insufficient/500). (spec R2/R3/R6/R7; §4.2; L4.)
     pub async fn reserve_idle_pool_capacity(
         &self,
         run_id: &str,
-        total_vus: u32,
+        worker_cap: u32,
+        slot_total: u32,
     ) -> PoolReservation {
         let mut g = self.pool.lock().await;
         let mut idle: Vec<(String, u32)> = g
@@ -429,14 +439,15 @@ impl CoordinatorState {
             };
         }
         let caps: Vec<u32> = idle.iter().map(|(_, c)| *c).collect();
-        let achievable = shard::achievable_capacity(&caps);
+        // N = min(idle, worker_cap) — consider only as many workers as the load needs.
+        let n = idle.len().min(worker_cap as usize);
+        let achievable = shard::achievable_capacity(&caps[..n]);
         // 3. Insufficient (rare post-precheck TOCTOU).
-        if achievable < total_vus {
+        if achievable < slot_total {
             return PoolReservation::Insufficient { achievable };
         }
-        // 4. N = min(idle, total_vus); capacity_split; reserve.
-        let n = idle.len().min(total_vus as usize);
-        let split = shard::capacity_split(total_vus, &caps[..n]);
+        // 4. capacity_split over the n-worker subset; reserve.
+        let split = shard::capacity_split(slot_total, &caps[..n]);
         let mut counts = Vec::with_capacity(n);
         let mut off = 0u32;
         for &c in &split {
@@ -594,7 +605,17 @@ impl CoordinatorState {
             scenario_yaml: a.scenario_yaml.clone(),
             profile: Some({
                 let mut p = a.profile.clone();
-                reduce_open_loop_profile(&mut p, shard_index, shard_count, vu_count);
+                let slot_weights: Option<Vec<u32>> = rw
+                    .precomputed_counts
+                    .as_ref()
+                    .map(|c| c.iter().map(|(_, cnt)| *cnt).collect());
+                reduce_open_loop_profile(
+                    &mut p,
+                    shard_index,
+                    shard_count,
+                    vu_count,
+                    slot_weights.as_deref(),
+                );
                 p
             }),
             env: a.env.clone(),
@@ -867,28 +888,37 @@ impl CoordinatorState {
 }
 
 /// open-loop N>1일 때 워커 i의 proto Profile을 자기 몫으로 축소한다.
-/// 슬롯/동시성 = vu_count(register의 shard_split(max_in_flight,…) 결과),
-/// 레이트(target_rps·각 stage.target) = shard_split(total, shard_count, i).1.
-/// shard_count==1 또는 비-open-loop이면 미변경(byte-identical). (spec §3.1)
+/// 슬롯/동시성 = vu_count(register의 shard_split/capacity_split 결과).
+/// 레이트(target_rps·각 stage.target): `slot_weights=Some(w)` →
+/// proportional_split_min1(fixed) / proportional_split(curve);
+/// `slot_weights=None` → legacy shard_split(total, shard_count, i).1 (byte-identical).
+/// shard_count==1 또는 비-open-loop이면 미변경(byte-identical). (spec §3.1, L4.)
 fn reduce_open_loop_profile(
     profile: &mut pb::Profile,
     shard_index: u32,
     shard_count: u32,
     vu_count: u32,
+    slot_weights: Option<&[u32]>,
 ) {
     let is_open_loop = profile.target_rps.is_some() || !profile.stages.is_empty();
     if shard_count <= 1 || !is_open_loop {
         return;
     }
-    // 슬롯 풀 = 이 워커의 vu_count (총 max_in_flight를 shard_split한 share).
+    // 슬롯 풀 = 이 워커의 vu_count (capacity_split/shard_split 결과).
     profile.max_in_flight = Some(vu_count);
-    // 고정 레이트 분할 (Σ == 총 target_rps).
+    // 고정 레이트 분할: proportional_split_min1 (weights) or shard_split (legacy).
     if let Some(total) = profile.target_rps {
-        profile.target_rps = Some(shard_split(total, shard_count, shard_index).1);
+        profile.target_rps = Some(match slot_weights {
+            Some(w) => shard::proportional_split_min1(total, w)[shard_index as usize],
+            None => shard_split(total, shard_count, shard_index).1,
+        });
     }
-    // 곡선 각 stage.target 분할 (선형성 → Σ 곡선 == 총 곡선).
+    // 곡선 각 stage.target: proportional_split (0-share OK) or shard_split (legacy).
     for s in &mut profile.stages {
-        s.target = shard_split(s.target, shard_count, shard_index).1;
+        s.target = match slot_weights {
+            Some(w) => shard::proportional_split(s.target, w)[shard_index as usize],
+            None => shard_split(s.target, shard_count, shard_index).1,
+        };
     }
 }
 
@@ -1598,9 +1628,9 @@ mod tests {
 
         // N=2: shard_split(7,2,0)=(0,4),(1)=(4,3) → slots 4+3=7; rps 5+5=10
         let mut w0 = base.clone();
-        reduce_open_loop_profile(&mut w0, 0, 2, 4);
+        reduce_open_loop_profile(&mut w0, 0, 2, 4, None);
         let mut w1 = base.clone();
-        reduce_open_loop_profile(&mut w1, 1, 2, 3);
+        reduce_open_loop_profile(&mut w1, 1, 2, 3, None);
         assert_eq!(w0.target_rps.unwrap() + w1.target_rps.unwrap(), 10);
         assert_eq!(w0.max_in_flight.unwrap(), 4);
         assert_eq!(w1.max_in_flight.unwrap(), 3);
@@ -1608,7 +1638,7 @@ mod tests {
 
         // N=1: byte-identical (shard_count=1 → unchanged)
         let mut solo = base.clone();
-        reduce_open_loop_profile(&mut solo, 0, 1, 7);
+        reduce_open_loop_profile(&mut solo, 0, 1, 7, None);
         assert_eq!(solo, base);
 
         // closed-loop (not open-loop) profile is untouched (defensive)
@@ -1617,7 +1647,7 @@ mod tests {
             ..Default::default()
         };
         let mut c = closed.clone();
-        reduce_open_loop_profile(&mut c, 0, 2, 50);
+        reduce_open_loop_profile(&mut c, 0, 2, 50, None);
         assert_eq!(c, closed);
     }
 
@@ -1646,9 +1676,9 @@ mod tests {
 
         // N=2: shard_split(7,2,*) → slots 4/3; each stage split: 10→5/5, 7→4/3.
         let mut w0 = base.clone();
-        reduce_open_loop_profile(&mut w0, 0, 2, 4);
+        reduce_open_loop_profile(&mut w0, 0, 2, 4, None);
         let mut w1 = base.clone();
-        reduce_open_loop_profile(&mut w1, 1, 2, 3);
+        reduce_open_loop_profile(&mut w1, 1, 2, 3, None);
         assert!(w0.target_rps.is_none() && w1.target_rps.is_none()); // stays curve-only
         assert_eq!(w0.max_in_flight.unwrap(), 4);
         assert_eq!(w1.max_in_flight.unwrap(), 3);
@@ -1660,7 +1690,7 @@ mod tests {
 
         // N=1: byte-identical
         let mut solo = base.clone();
-        reduce_open_loop_profile(&mut solo, 0, 1, 7);
+        reduce_open_loop_profile(&mut solo, 0, 1, 7, None);
         assert_eq!(solo, base);
     }
 
@@ -2254,7 +2284,8 @@ mod tests {
             let (tx, _rx) = fake_tx();
             coord.pool_register_idle(id, tx, cap, "h".into()).await;
         }
-        assert_eq!(coord.pool_achievable_capacity().await, (2, 1005));
+        // worker_cap=1005 (closed vus=total cap), all 2 workers considered
+        assert_eq!(coord.pool_achievable_capacity(1005).await, (2, 1005));
     }
 
     #[tokio::test]
@@ -2265,7 +2296,8 @@ mod tests {
             let (tx, _rx) = fake_tx();
             coord.pool_register_idle(id, tx, cap, "h".into()).await;
         }
-        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+        // closed-loop: worker_cap=slot_total=vus=30 — assertions unchanged (behavior identical)
+        match coord.reserve_idle_pool_capacity("run-x", 30, 30).await {
             PoolReservation::Reserved { workers, counts } => {
                 assert_eq!(workers.len(), 2);
                 // even 15/15 would overflow w0(cap 5) → 5/25, offsets 0/5
@@ -2283,7 +2315,8 @@ mod tests {
             let (tx, _rx) = fake_tx();
             coord.pool_register_idle(id, tx, 5, "h".into()).await;
         }
-        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+        // closed-loop: worker_cap=slot_total=vus=30 — assertions unchanged (behavior identical)
+        match coord.reserve_idle_pool_capacity("run-x", 30, 30).await {
             PoolReservation::Insufficient { achievable } => assert_eq!(achievable, 10),
             other => panic!("expected Insufficient, got {other:?}"),
         }
@@ -2293,7 +2326,8 @@ mod tests {
     #[tokio::test]
     async fn reserve_capacity_empty_pool_returns_empty_reserved_not_insufficient() {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
-        match coord.reserve_idle_pool_capacity("run-x", 30).await {
+        // closed-loop: worker_cap=slot_total=vus=30 — assertions unchanged (behavior identical)
+        match coord.reserve_idle_pool_capacity("run-x", 30, 30).await {
             PoolReservation::Reserved { workers, counts } => {
                 assert!(workers.is_empty() && counts.is_empty());
             }
@@ -2343,6 +2377,86 @@ mod tests {
                 assert_eq!((vu_offset, vu_count), (0, 15)); // even split (byte-identical L1)
             }
             other => panic!("expected Assigned, got {other:?}"),
+        }
+    }
+
+    // ── Task 2: L4 open-loop proportional/min1 rate split unit tests ──
+
+    /// PbProfile fixture for open-loop fixed (target_rps + max_in_flight).
+    fn open_fixed_pb(target_rps: u32, max_in_flight: u32) -> pb::Profile {
+        pb::Profile {
+            target_rps: Some(target_rps),
+            max_in_flight: Some(max_in_flight),
+            ..Default::default()
+        }
+    }
+
+    /// PbProfile fixture for open-loop curve (stages, no target_rps).
+    fn open_curve_pb(stage_target: u32) -> pb::Profile {
+        pb::Profile {
+            max_in_flight: Some(stage_target),
+            stages: vec![handicap_proto::v1::Stage {
+                target: stage_target,
+                duration_seconds: 5,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn reduce_open_loop_fixed_uses_min1_with_weights() {
+        // proportional_split_min1(30,[5,25])[0]=6, [1]=24 (Σ=30)
+        let mut p = open_fixed_pb(30, 30);
+        reduce_open_loop_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
+        assert_eq!(p.target_rps, Some(6)); // proportional_split_min1(30,[5,25])[0]
+        let mut p1 = open_fixed_pb(30, 30);
+        reduce_open_loop_profile(&mut p1, 1, 2, 25, Some(&[5, 25]));
+        assert_eq!(p1.target_rps, Some(24)); // [1]; Σ=30
+    }
+
+    #[test]
+    fn reduce_open_loop_fixed_min1_no_zero_heterogeneous() {
+        // proportional_split(3,[1,25])=[0,3] but min1 → [1,2]
+        let mut p = open_fixed_pb(3, 26);
+        reduce_open_loop_profile(&mut p, 0, 2, 1, Some(&[1, 25]));
+        assert_eq!(p.target_rps, Some(1)); // min1: small slot still gets ≥1
+    }
+
+    #[test]
+    fn reduce_open_loop_curve_uses_proportional_with_weights() {
+        // proportional_split(30,[5,25])[0]=5 (zero-share allowed for curve)
+        let mut p = open_curve_pb(30);
+        reduce_open_loop_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
+        assert_eq!(p.stages[0].target, 5); // proportional_split(30,[5,25])[0]
+    }
+
+    #[test]
+    fn reduce_open_loop_none_is_legacy_shard_split() {
+        // None arm = byte-identical legacy (regression guard)
+        let mut p = open_fixed_pb(10, 6);
+        reduce_open_loop_profile(&mut p, 0, 2, 3, None);
+        assert_eq!(p.target_rps, Some(shard_split(10, 2, 0).1));
+    }
+
+    #[tokio::test]
+    async fn reserve_open_loop_slots_capacity_split() {
+        // 2 workers cap [5, 25]; worker_cap=8 (pool_worker_cap for max_in_flight=8),
+        // slot_total=8 (concurrency_demand=max_in_flight). The capacity_split of 8
+        // across caps [5,25] is [5,3] (w0 capped at 5, w1 gets remaining 3).
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        for (id, cap) in [("w0", 5u32), ("w1", 25u32)] {
+            let (tx, _rx) = fake_tx();
+            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+        }
+        match coord.reserve_idle_pool_capacity("run-x", 8, 8).await {
+            PoolReservation::Reserved { workers, counts } => {
+                assert_eq!(workers.len(), 2);
+                // capacity_split(8,[5,25]): even 4/4 → w0 cap 5 ok (4<=5), w1 ok → [4,4]
+                // Wait: shard_split(8,2,0)=(0,4), shard_split(8,2,1)=(4,4) → even 4/4 no overflow
+                // capacity_split start: [4,4], w0 cap 5 >= 4 ok, w1 cap 25 >= 4 ok → [4,4]
+                assert_eq!(counts, vec![(0, 4), (4, 4)]);
+            }
+            other => panic!("expected Reserved, got {other:?}"),
         }
     }
 }
