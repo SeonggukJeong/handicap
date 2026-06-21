@@ -184,6 +184,40 @@ impl Profile {
             .max()
             .unwrap_or(0)
     }
+
+    /// 풀 동시성 수요 = capacity_split 입력 + 사전검사 demand.
+    /// closed: vus, open(고정+곡선): max_in_flight, vu-curve: vu_curve_max(가드 미호출·완전성).
+    pub fn concurrency_demand(&self) -> u32 {
+        if self.is_vu_curve() {
+            self.vu_curve_max()
+        } else if self.is_open_loop() {
+            self.max_in_flight.unwrap_or(1)
+        } else {
+            self.vus
+        }
+    }
+
+    /// 풀 N 상한(레이트-상한). 고정 모드서 0-share 워커(엔진 .max(1) 초과 발사)를
+    /// 막으려면 N <= rate_peak이어야 한다. **풀 전용 — ADR-0038 `worker_count`
+    /// (비-풀 fan-out) 노브와 무관.** closed: vus, open: min(max_in_flight, rate_peak).
+    pub fn pool_worker_cap(&self) -> u32 {
+        if self.is_vu_curve() {
+            self.vu_curve_max()
+        } else if self.is_open_loop() {
+            let rate_peak = self.target_rps.unwrap_or_else(|| {
+                self.stages
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| s.target)
+                    .max()
+                    .unwrap_or(1)
+            });
+            self.max_in_flight.unwrap_or(1).min(rate_peak)
+        } else {
+            self.vus
+        }
+    }
 }
 
 pub struct RunRow {
@@ -444,6 +478,82 @@ mod tests {
         store::connect("sqlite::memory:")
             .await
             .expect("in-memory db")
+    }
+
+    fn profile_fixture(f: impl FnOnce(&mut Profile)) -> Profile {
+        let mut p = Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            worker_count: None,
+        };
+        f(&mut p);
+        p
+    }
+
+    fn stage(target: u32, dur: u32) -> handicap_engine::Stage {
+        handicap_engine::Stage {
+            target,
+            duration_seconds: dur,
+        }
+    }
+
+    #[test]
+    fn concurrency_demand_by_mode() {
+        // closed: vus
+        let p = profile_fixture(|p| {
+            p.vus = 50;
+        });
+        assert_eq!(p.concurrency_demand(), 50);
+        // open fixed: max_in_flight
+        let p = profile_fixture(|p| {
+            p.vus = 0;
+            p.target_rps = Some(100);
+            p.max_in_flight = Some(20);
+        });
+        assert_eq!(p.concurrency_demand(), 20);
+    }
+
+    #[test]
+    fn pool_worker_cap_by_mode() {
+        // closed: vus
+        let p = profile_fixture(|p| {
+            p.vus = 50;
+        });
+        assert_eq!(p.pool_worker_cap(), 50);
+        // open fixed: min(max_in_flight, target_rps)
+        let p = profile_fixture(|p| {
+            p.vus = 0;
+            p.target_rps = Some(3);
+            p.max_in_flight = Some(30);
+        });
+        assert_eq!(p.pool_worker_cap(), 3);
+        let p = profile_fixture(|p| {
+            p.vus = 0;
+            p.target_rps = Some(100);
+            p.max_in_flight = Some(20);
+        });
+        assert_eq!(p.pool_worker_cap(), 20);
+        // open curve: min(max_in_flight, max(stage.target))
+        let p = profile_fixture(|p| {
+            p.vus = 0;
+            p.max_in_flight = Some(30);
+            p.stages = Some(vec![stage(10, 5), stage(40, 5)]);
+        });
+        assert_eq!(p.pool_worker_cap(), 30); // min(30, 40)
     }
 
     #[test]

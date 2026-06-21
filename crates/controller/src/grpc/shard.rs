@@ -88,6 +88,69 @@ pub fn capacity_split(total_vus: u32, caps: &[u32]) -> Vec<u32> {
     alloc
 }
 
+/// Distribute `total` across `weights` proportionally (largest-remainder, ties
+/// broken by ascending index). Σ == total, deterministic. When all weights are
+/// equal the result equals `shard_split`'s per-worker counts (front-loaded
+/// remainder) — byte-identical construction (spec R2/R7). Zero shares ARE
+/// allowed (a small weight may round to 0); used for open-loop **curve**
+/// stage.target where the engine polls a zero-rate stage. (spec §4.2.)
+pub fn proportional_split(total: u32, weights: &[u32]) -> Vec<u32> {
+    let n = weights.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let sum_w: u64 = weights.iter().map(|&w| w as u64).sum();
+    if sum_w == 0 {
+        // defensive: degenerate weights → even split
+        return (0..n as u32)
+            .map(|i| shard_split(total, n as u32, i).1)
+            .collect();
+    }
+    let total64 = total as u64;
+    let mut alloc: Vec<u32> = Vec::with_capacity(n);
+    let mut rems: Vec<(u64, usize)> = Vec::with_capacity(n); // (fractional remainder, index)
+    let mut assigned: u64 = 0;
+    for (i, &w) in weights.iter().enumerate() {
+        let num = total64 * w as u64;
+        let q = num / sum_w;
+        alloc.push(q as u32);
+        assigned += q;
+        rems.push((num % sum_w, i));
+    }
+    let mut rem_units = total64 - assigned; // < n
+    // largest remainder first; ascending index on ties (front-loaded like shard_split)
+    rems.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for &(_, i) in rems.iter() {
+        if rem_units == 0 {
+            break;
+        }
+        alloc[i] += 1;
+        rem_units -= 1;
+    }
+    alloc
+}
+
+/// Like `proportional_split` but every worker gets **at least 1** (no zero
+/// share), used for open-loop **fixed** `target_rps`: the engine clamps a
+/// zero-rate fixed worker to >=1 rps (`runner.rs:1093` `.max(1)`), so a 0-share
+/// would over-fire. Caller guarantees `total >= n` via the rate-bound
+/// `pool_worker_cap = min(max_in_flight, rate_peak)` (N <= rate_peak <= total);
+/// if `total < n` (or weights sum 0) it falls back to `proportional_split`
+/// (defensive). Σ == total, uniform weights == `shard_split`. (spec §3.4/§4.2.)
+pub fn proportional_split_min1(total: u32, weights: &[u32]) -> Vec<u32> {
+    let n = weights.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let sum_w: u64 = weights.iter().map(|&w| w as u64).sum();
+    if (total as usize) < n || sum_w == 0 {
+        return proportional_split(total, weights);
+    }
+    // base 1 each, distribute the remaining (total - n) proportionally.
+    let extra = proportional_split(total - n as u32, weights);
+    extra.iter().map(|&e| e + 1).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +239,58 @@ mod tests {
     #[test]
     fn capacity_split_empty_is_empty() {
         assert!(capacity_split(10, &[]).is_empty());
+    }
+
+    #[test]
+    fn proportional_split_sums_and_is_deterministic() {
+        // 비례·Σ==total·결정적
+        assert_eq!(proportional_split(30, &[5, 25]), vec![5, 25]);
+        assert_eq!(proportional_split(10, &[5, 25]), vec![2, 8]);
+        // 0-share 허용(작은 weight가 0으로 반올림): 곡선 stage용
+        assert_eq!(proportional_split(3, &[1, 25]), vec![0, 3]);
+        for &(total, ref w) in &[(7u32, vec![1u32, 1, 1]), (100, vec![3, 7, 11])] {
+            assert_eq!(proportional_split(total, w).iter().sum::<u32>(), total);
+        }
+        assert!(proportional_split(10, &[]).is_empty());
+    }
+
+    #[test]
+    fn proportional_split_equals_shard_split_when_uniform() {
+        // 균등 weights → shard_split per-worker(앞 total%n개 +1)와 동일 (R7 byte-identical)
+        for &(total, n) in &[(5u32, 2u32), (7, 3), (10, 4), (1, 1), (100, 7)] {
+            let w = vec![1u32; n as usize];
+            let even: Vec<u32> = (0..n).map(|i| shard_split(total, n, i).1).collect();
+            assert_eq!(proportional_split(total, &w), even, "total={total} n={n}");
+        }
+        assert_eq!(proportional_split(5, &[1, 1]), vec![3, 2]);
+        assert_eq!(proportional_split(7, &[1, 1, 1]), vec![3, 2, 2]);
+    }
+
+    #[test]
+    fn proportional_split_min1_floors_each_at_one() {
+        // 이질 cap·저 rate: 순수 비례면 [0,3]이지만 min1은 0-share 금지 → [1,2]
+        assert_eq!(proportional_split_min1(3, &[1, 25]), vec![1, 2]);
+        let out = proportional_split_min1(3, &[2, 8]);
+        assert!(out.iter().all(|&r| r >= 1), "every worker >= 1: {out:?}");
+        assert_eq!(out.iter().sum::<u32>(), 3);
+        // total < n → 방어 fallback(proportional_split, 0 허용)
+        assert_eq!(
+            proportional_split_min1(1, &[1, 1]),
+            proportional_split(1, &[1, 1])
+        );
+    }
+
+    #[test]
+    fn proportional_split_min1_equals_shard_split_when_uniform() {
+        for &(total, n) in &[(5u32, 2u32), (7, 3), (10, 4), (1, 1)] {
+            let w = vec![1u32; n as usize];
+            let even: Vec<u32> = (0..n).map(|i| shard_split(total, n, i).1).collect();
+            assert_eq!(
+                proportional_split_min1(total, &w),
+                even,
+                "total={total} n={n}"
+            );
+        }
     }
 
     #[test]
