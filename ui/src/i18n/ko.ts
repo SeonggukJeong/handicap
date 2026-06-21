@@ -182,6 +182,16 @@ export const ko = {
     clampOpen: (achievable: number) => `동시 요청 ${achievable}개로 줄여 진행`,
     force: "용량 무시하고 강행",
     cancel: "취소",
+    // L5 곡선(VU curve) 변형 — 줄여 진행=곡선 비례 축소, 강행=과부하.
+    dialogBodyCurve: (achievable: number, requested: number) =>
+      `연결된 풀 워커 용량은 ${achievable} VU인데 설정한 곡선 최고점은 ${requested} VU입니다. ` +
+      `이 부하를 어떻게 발생시킬지 선택하세요.`,
+    clampNoteCurve: (achievable: number, requested: number) =>
+      `[줄여서 발생] 곡선을 ${achievable}/${requested}배로 축소 → 최고점 ${achievable} VU·각 단계가 비례로 낮아집니다(설정보다 낮은 부하). ` +
+      `[그대로 강행] 워커가 과부하되어 실제 발생 부하가 목표(${requested} VU)에 못 미칠 수 있습니다.`,
+    clampCurve: (achievable: number) => `줄여서 발생 (최고점 ${achievable} VU로 축소)`,
+    overHintCurve: (cap: number) =>
+      `곡선 최고점이 풀 유휴 용량 ${cap} VU를 초과합니다 — 실행 시 줄이거나 강행을 선택하게 됩니다.`,
   },
   workers: {
     title: "연결된 워커",

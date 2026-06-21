@@ -93,6 +93,25 @@ export function peakStageTarget(stages: { target: string }[]): number | null {
   return peak;
 }
 
+/** Proportionally scale a VU curve so its peak == achievable (capacity clamp).
+ * Each stage.target *= achievable/peak, rounded; the largest stage is floored at
+ * >=1 so the curve never collapses to all-zero (engine rejects no-positive-stage).
+ * Strings in/out (RunDialog stage rows are string-draft). */
+export function scaleVuStages(
+  stages: { target: string; duration_seconds: string }[],
+  achievable: number,
+  peak: number,
+): { target: string; duration_seconds: string }[] {
+  const factor = peak > 0 ? achievable / peak : 0;
+  return stages.map((s) => {
+    const t = Number(s.target);
+    const scaled = Number.isFinite(t) ? Math.round(t * factor) : 0;
+    // peak stage floor: the stage equal to peak must stay >=1.
+    const floored = t === peak ? Math.max(scaled, 1) : scaled;
+    return { target: String(floored), duration_seconds: s.duration_seconds };
+  });
+}
+
 /** 열린 루프 워커 수(worker_count) create-time 사이징의 순수 계산. (ADR-0038 멀티워커 fan-out)
  *  워커당 RPS 천장은 워커를 포화시켰을 때만 관측되므로, prior open-loop run의 관측 peak/워커수로
  *  외삽한다. 사후 load_gen_saturated의 recommended_workers(insights.rs:246-253)와 수식 1:1. */

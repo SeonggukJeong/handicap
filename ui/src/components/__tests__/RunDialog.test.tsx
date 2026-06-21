@@ -2044,3 +2044,180 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     expect(screen.queryByText(/동시 요청 수.*풀 용량.*초과/)).not.toBeInTheDocument();
   });
 });
+
+describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)", () => {
+  function mockPoolWorkers(capacities: number[]) {
+    mockUsePoolWorkers.mockReturnValue({
+      data: {
+        pool_mode: true,
+        workers: capacities.map((c, i) => ({
+          worker_id: `w${i}`,
+          hostname: `h${i}`,
+          capacity_vus: c,
+          busy: false,
+          run_id: null,
+        })),
+      },
+    });
+  }
+
+  // R8: closed+curve 모드에서 peak > 풀 총용량이면 초과 힌트 표시
+  it("closed+curve: 곡선 최고점이 풀 용량 초과 시 overHintCurve 표시 (role=status)", async () => {
+    const user = userEvent.setup();
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    renderDialog();
+
+    // closed+curve 전환
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+
+    // stage 목표 VU = 50 (> 10)
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "50");
+
+    // overHintCurve 표시 (role=status) — ko.capacityGuard.overHintCurve(10)
+    const hint = await screen.findByText(/곡선 최고점이 풀 유휴 용량 10 VU를 초과합니다/);
+    expect(hint.closest("[role='status']")).toBeInTheDocument();
+  });
+
+  // R10: closed+curve peak <= 용량이면 다이얼로그 미표시(정상 fan-out)
+  it("closed+curve peak <= 풀 총용량이면 409 다이얼로그 미표시 (정상 fan-out, R10)", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-CURVE-OK",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 0, ramp_up_seconds: 0, duration_seconds: 0 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([5, 5]); // idle capacity = 10
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+
+    // closed+curve 전환 후 peak=8 (< 10)
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "8");
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+
+    // 다이얼로그 미표시 + 정상 성공
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R-CURVE-OK"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  // R9: closed+curve 409 → 줄여서 발생이 scaleVuStages로 비례 clamp 후 재제출
+  it("closed+curve 409 → 줄여서 발생: vu_stages 비례 축소 후 재제출, peak===achievable (R9)", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          // 1차: 409 (peak 50 > achievable 30)
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: "capacity exceeded",
+                achievable_vus: 30,
+                requested_vus: 50,
+              }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        // 2차: 성공
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-CURVE-CLAMP",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 0, ramp_up_seconds: 0, duration_seconds: 0 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockPoolWorkers([15, 15]); // idle capacity = 30
+    const user = userEvent.setup();
+    renderDialog();
+
+    // closed+curve 전환 후 stage peak=50 (> 30)
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    await user.clear(screen.getByLabelText("스테이지 0 목표"));
+    await user.type(screen.getByLabelText("스테이지 0 목표"), "50");
+    await user.clear(screen.getByLabelText("스테이지 0 지속시간"));
+    await user.type(screen.getByLabelText("스테이지 0 지속시간"), "30");
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+
+    // 다이얼로그 등장 — 곡선 변형 body/note 확인
+    const dialog = await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+    expect(dialog).toBeInTheDocument();
+    // dialogBodyCurve 확인
+    expect(dialog).toHaveTextContent(/연결된 풀 워커 용량은 30 VU/);
+    // clampNoteCurve 확인
+    expect(dialog).toHaveTextContent(/30\/50배로 축소/);
+
+    // "줄여서 발생" 클릭 — ko.capacityGuard.clampCurve(30)
+    await user.click(screen.getByRole("button", { name: /줄여서 발생.*30 VU로 축소/ }));
+
+    // 2번째 POST payload 확인: vu_stages peak === achievable(30), vus=0, target_rps 미주입
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/api/runs") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(calls.length).toBe(2);
+      const body = JSON.parse((calls[1]![1] as RequestInit).body as string);
+      // vu_stages 비례 축소: peak 50 → achievable 30 (factor=0.6: 50*0.6=30)
+      expect(body.profile.vu_stages).toBeDefined();
+      const peakTarget = Math.max(
+        ...(body.profile.vu_stages as { target: number }[]).map((s) => s.target),
+      );
+      expect(peakTarget).toBe(30);
+      // target_rps 미주입 (curve 아님), vus 0
+      expect(body.profile.target_rps).toBeUndefined();
+      expect(body.profile.vus).toBe(0);
+    });
+  });
+});

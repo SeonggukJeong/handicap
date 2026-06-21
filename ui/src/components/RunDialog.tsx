@@ -36,6 +36,7 @@ import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { PoolCapacityError } from "../api/client";
+import { scaleVuStages, peakStageTarget } from "./sizing";
 
 type Props = {
   scenarioId: string;
@@ -544,11 +545,14 @@ export function RunDialog({
             const idle = pool.data.workers.filter((w) => !w.busy);
             const idleCapacity = idle.reduce((sum, w) => sum + Math.max(w.capacity_vus, 1), 0);
             const closedFixed = loadModel === "closed" && rateMode === "fixed";
+            const closedCurve = loadModel === "closed" && rateMode === "curve";
             const isOpenLoop = loadModel === "open";
+            const curvePeak = closedCurve ? peakStageTarget(stages) : null; // number | null
             const overClosed = closedFixed && Number(vus) > idleCapacity;
             const overOpen =
               isOpenLoop && maxInFlight.trim() !== "" && Number(maxInFlight) > idleCapacity;
-            const over = overClosed || overOpen;
+            const overCurve = closedCurve && curvePeak != null && curvePeak > idleCapacity;
+            const over = overClosed || overOpen || overCurve;
             return (
               <div className="mb-4">
                 <p className="text-sm text-slate-600">
@@ -557,9 +561,11 @@ export function RunDialog({
                 </p>
                 {over ? (
                   <p className="text-sm text-amber-700" role="status">
-                    {overOpen
-                      ? ko.capacityGuard.overHintOpen(idleCapacity)
-                      : ko.capacityGuard.overHint(idleCapacity)}
+                    {overCurve
+                      ? ko.capacityGuard.overHintCurve(idleCapacity)
+                      : overOpen
+                        ? ko.capacityGuard.overHintOpen(idleCapacity)
+                        : ko.capacityGuard.overHint(idleCapacity)}
                   </p>
                 ) : null}
               </div>
@@ -808,6 +814,7 @@ export function RunDialog({
       {poolConflict
         ? (() => {
             const isOpenLoop = loadModel === "open";
+            const isCurve = loadModel === "closed" && rateMode === "curve";
             return (
               <div
                 role="alertdialog"
@@ -816,23 +823,50 @@ export function RunDialog({
               >
                 <p className="mb-2 font-medium">{ko.capacityGuard.dialogTitle}</p>
                 <p className="mb-3">
-                  {isOpenLoop
-                    ? ko.capacityGuard.dialogBodyOpen(
+                  {isCurve
+                    ? ko.capacityGuard.dialogBodyCurve(
                         poolConflict.achievable,
                         poolConflict.requested,
                       )
-                    : ko.capacityGuard.dialogBody(poolConflict.achievable, poolConflict.requested)}
+                    : isOpenLoop
+                      ? ko.capacityGuard.dialogBodyOpen(
+                          poolConflict.achievable,
+                          poolConflict.requested,
+                        )
+                      : ko.capacityGuard.dialogBody(
+                          poolConflict.achievable,
+                          poolConflict.requested,
+                        )}
                 </p>
-                {isOpenLoop ? (
+                {isCurve ? (
+                  <p className="mb-3 text-xs">
+                    {ko.capacityGuard.clampNoteCurve(
+                      poolConflict.achievable,
+                      poolConflict.requested,
+                    )}
+                  </p>
+                ) : isOpenLoop ? (
                   <p className="mb-3 text-xs">{ko.capacityGuard.clampNoteOpen}</p>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => {
                       const built = buildProfile();
-                      const clamped = isOpenLoop
-                        ? { ...built, max_in_flight: poolConflict.achievable }
-                        : { ...built, vus: poolConflict.achievable };
+                      const clamped = isCurve
+                        ? {
+                            ...built,
+                            vu_stages: scaleVuStages(
+                              stages,
+                              poolConflict.achievable,
+                              poolConflict.requested,
+                            ).map((s) => ({
+                              target: Number(s.target),
+                              duration_seconds: Number(s.duration_seconds),
+                            })),
+                          }
+                        : isOpenLoop
+                          ? { ...built, max_in_flight: poolConflict.achievable }
+                          : { ...built, vus: poolConflict.achievable };
                       setPoolConflict(null);
                       mutation.reset();
                       mutation.mutate(
@@ -841,9 +875,11 @@ export function RunDialog({
                       );
                     }}
                   >
-                    {isOpenLoop
-                      ? ko.capacityGuard.clampOpen(poolConflict.achievable)
-                      : ko.capacityGuard.clamp(poolConflict.achievable)}
+                    {isCurve
+                      ? ko.capacityGuard.clampCurve(poolConflict.achievable)
+                      : isOpenLoop
+                        ? ko.capacityGuard.clampOpen(poolConflict.achievable)
+                        : ko.capacityGuard.clamp(poolConflict.achievable)}
                   </Button>
                   <Button
                     onClick={() => {
