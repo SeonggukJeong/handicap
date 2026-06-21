@@ -609,7 +609,7 @@ impl CoordinatorState {
                     .precomputed_counts
                     .as_ref()
                     .map(|c| c.iter().map(|(_, cnt)| *cnt).collect());
-                reduce_open_loop_profile(
+                reduce_pool_profile(
                     &mut p,
                     shard_index,
                     shard_count,
@@ -887,13 +887,11 @@ impl CoordinatorState {
     }
 }
 
-/// open-loop N>1일 때 워커 i의 proto Profile을 자기 몫으로 축소한다.
-/// 슬롯/동시성 = vu_count(register의 shard_split/capacity_split 결과).
-/// 레이트(target_rps·각 stage.target): `slot_weights=Some(w)` →
-/// proportional_split_min1(fixed) / proportional_split(curve);
-/// `slot_weights=None` → legacy shard_split(total, shard_count, i).1 (byte-identical).
-/// shard_count==1 또는 비-open-loop이면 미변경(byte-identical). (spec §3.1, L4.)
-fn reduce_open_loop_profile(
+/// Reduce a pooled worker's per-shard Profile: open-loop slot/rate split OR
+/// closed-loop VU-curve stage scaling. Pure mutation. `slot_weights` = the full
+/// per-worker count vector (vu_count per shard), derived by `assignment_for` from
+/// `precomputed_counts`; `None` = legacy/force/non-pool even split.
+fn reduce_pool_profile(
     profile: &mut pb::Profile,
     shard_index: u32,
     shard_count: u32,
@@ -901,24 +899,35 @@ fn reduce_open_loop_profile(
     slot_weights: Option<&[u32]>,
 ) {
     let is_open_loop = profile.target_rps.is_some() || !profile.stages.is_empty();
-    if shard_count <= 1 || !is_open_loop {
+    let is_curve = !profile.vu_stages.is_empty();
+    if shard_count <= 1 || (!is_open_loop && !is_curve) {
         return;
     }
-    // 슬롯 풀 = 이 워커의 vu_count (capacity_split/shard_split 결과).
-    profile.max_in_flight = Some(vu_count);
-    // 고정 레이트 분할: proportional_split_min1 (weights) or shard_split (legacy).
-    if let Some(total) = profile.target_rps {
-        profile.target_rps = Some(match slot_weights {
-            Some(w) => shard::proportional_split_min1(total, w)[shard_index as usize],
-            None => shard_split(total, shard_count, shard_index).1,
-        });
-    }
-    // 곡선 각 stage.target: proportional_split (0-share OK) or shard_split (legacy).
-    for s in &mut profile.stages {
-        s.target = match slot_weights {
-            Some(w) => shard::proportional_split(s.target, w)[shard_index as usize],
-            None => shard_split(s.target, shard_count, shard_index).1,
-        };
+    if is_open_loop {
+        // ── open-loop arm (L4, unchanged) ──
+        profile.max_in_flight = Some(vu_count);
+        if let Some(total) = profile.target_rps {
+            profile.target_rps = Some(match slot_weights {
+                Some(w) => shard::proportional_split_min1(total, w)[shard_index as usize],
+                None => shard_split(total, shard_count, shard_index).1,
+            });
+        }
+        for s in &mut profile.stages {
+            s.target = match slot_weights {
+                Some(w) => shard::proportional_split(s.target, w)[shard_index as usize],
+                None => shard_split(s.target, shard_count, shard_index).1,
+            };
+        }
+    } else {
+        // ── closed-loop VU-curve arm (L5): scale each stage.target only.
+        // 0-share is harmless (engine parks a 0-VU stage; no .max(1) over-fire —
+        // run_scenario_vu_curve has no min-1 floor). Do NOT touch max_in_flight.
+        for s in &mut profile.vu_stages {
+            s.target = match slot_weights {
+                Some(w) => shard::proportional_split(s.target, w)[shard_index as usize],
+                None => shard_split(s.target, shard_count, shard_index).1,
+            };
+        }
     }
 }
 
@@ -1628,9 +1637,9 @@ mod tests {
 
         // N=2: shard_split(7,2,0)=(0,4),(1)=(4,3) → slots 4+3=7; rps 5+5=10
         let mut w0 = base.clone();
-        reduce_open_loop_profile(&mut w0, 0, 2, 4, None);
+        reduce_pool_profile(&mut w0, 0, 2, 4, None);
         let mut w1 = base.clone();
-        reduce_open_loop_profile(&mut w1, 1, 2, 3, None);
+        reduce_pool_profile(&mut w1, 1, 2, 3, None);
         assert_eq!(w0.target_rps.unwrap() + w1.target_rps.unwrap(), 10);
         assert_eq!(w0.max_in_flight.unwrap(), 4);
         assert_eq!(w1.max_in_flight.unwrap(), 3);
@@ -1638,7 +1647,7 @@ mod tests {
 
         // N=1: byte-identical (shard_count=1 → unchanged)
         let mut solo = base.clone();
-        reduce_open_loop_profile(&mut solo, 0, 1, 7, None);
+        reduce_pool_profile(&mut solo, 0, 1, 7, None);
         assert_eq!(solo, base);
 
         // closed-loop (not open-loop) profile is untouched (defensive)
@@ -1647,7 +1656,7 @@ mod tests {
             ..Default::default()
         };
         let mut c = closed.clone();
-        reduce_open_loop_profile(&mut c, 0, 2, 50, None);
+        reduce_pool_profile(&mut c, 0, 2, 50, None);
         assert_eq!(c, closed);
     }
 
@@ -1676,9 +1685,9 @@ mod tests {
 
         // N=2: shard_split(7,2,*) → slots 4/3; each stage split: 10→5/5, 7→4/3.
         let mut w0 = base.clone();
-        reduce_open_loop_profile(&mut w0, 0, 2, 4, None);
+        reduce_pool_profile(&mut w0, 0, 2, 4, None);
         let mut w1 = base.clone();
-        reduce_open_loop_profile(&mut w1, 1, 2, 3, None);
+        reduce_pool_profile(&mut w1, 1, 2, 3, None);
         assert!(w0.target_rps.is_none() && w1.target_rps.is_none()); // stays curve-only
         assert_eq!(w0.max_in_flight.unwrap(), 4);
         assert_eq!(w1.max_in_flight.unwrap(), 3);
@@ -1690,7 +1699,7 @@ mod tests {
 
         // N=1: byte-identical
         let mut solo = base.clone();
-        reduce_open_loop_profile(&mut solo, 0, 1, 7, None);
+        reduce_pool_profile(&mut solo, 0, 1, 7, None);
         assert_eq!(solo, base);
     }
 
@@ -2407,10 +2416,10 @@ mod tests {
     fn reduce_open_loop_fixed_uses_min1_with_weights() {
         // proportional_split_min1(30,[5,25])[0]=6, [1]=24 (Σ=30)
         let mut p = open_fixed_pb(30, 30);
-        reduce_open_loop_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
+        reduce_pool_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
         assert_eq!(p.target_rps, Some(6)); // proportional_split_min1(30,[5,25])[0]
         let mut p1 = open_fixed_pb(30, 30);
-        reduce_open_loop_profile(&mut p1, 1, 2, 25, Some(&[5, 25]));
+        reduce_pool_profile(&mut p1, 1, 2, 25, Some(&[5, 25]));
         assert_eq!(p1.target_rps, Some(24)); // [1]; Σ=30
     }
 
@@ -2418,7 +2427,7 @@ mod tests {
     fn reduce_open_loop_fixed_min1_no_zero_heterogeneous() {
         // proportional_split(3,[1,25])=[0,3] but min1 → [1,2]
         let mut p = open_fixed_pb(3, 26);
-        reduce_open_loop_profile(&mut p, 0, 2, 1, Some(&[1, 25]));
+        reduce_pool_profile(&mut p, 0, 2, 1, Some(&[1, 25]));
         assert_eq!(p.target_rps, Some(1)); // min1: small slot still gets ≥1
     }
 
@@ -2426,7 +2435,7 @@ mod tests {
     fn reduce_open_loop_curve_uses_proportional_with_weights() {
         // proportional_split(30,[5,25])[0]=5 (zero-share allowed for curve)
         let mut p = open_curve_pb(30);
-        reduce_open_loop_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
+        reduce_pool_profile(&mut p, 0, 2, 5, Some(&[5, 25]));
         assert_eq!(p.stages[0].target, 5); // proportional_split(30,[5,25])[0]
     }
 
@@ -2434,8 +2443,84 @@ mod tests {
     fn reduce_open_loop_none_is_legacy_shard_split() {
         // None arm = byte-identical legacy (regression guard)
         let mut p = open_fixed_pb(10, 6);
-        reduce_open_loop_profile(&mut p, 0, 2, 3, None);
+        reduce_pool_profile(&mut p, 0, 2, 3, None);
         assert_eq!(p.target_rps, Some(shard_split(10, 2, 0).1));
+    }
+
+    // ── Task 1: L5 closed-loop VU-curve pool guard — reduce_pool_profile ──
+
+    #[test]
+    fn reduce_pool_profile_scales_vu_stages_proportionally() {
+        // peak 30, weights [5,25] (sum==peak so proportional_split(peak,w)[i]==w[i]).
+        // worker 0 vu_count=5, worker 1 vu_count=25.
+        // stage targets [30, 10]:
+        //   stage[0]: proportional_split(30,[5,25])=[5,25] → w0=5, w1=25
+        //   stage[1]: proportional_split(10,[5,25])=[2,8]  → w0=2, w1=8
+        // Σ per stage == original target; max(w0 scaled) == vu_count=5 (R3).
+        let mk = |stages: Vec<(u32, u32)>| pb::Profile {
+            vu_stages: stages
+                .into_iter()
+                .map(|(t, d)| pb::Stage {
+                    target: t,
+                    duration_seconds: d,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let weights = [5u32, 25u32];
+
+        let mut w0 = mk(vec![(30, 10), (10, 10)]);
+        reduce_pool_profile(&mut w0, 0, 2, 5, Some(&weights));
+        assert_eq!(
+            w0.vu_stages.iter().map(|s| s.target).collect::<Vec<_>>(),
+            vec![5, 2],
+            "worker0 peak stage == its weight (5); sub-peak proportional"
+        );
+        // max scaled stage == vu_count (slab size / offset parity, R3)
+        assert_eq!(w0.vu_stages.iter().map(|s| s.target).max().unwrap(), 5);
+        assert!(
+            w0.max_in_flight.is_none(),
+            "curve arm must NOT set max_in_flight"
+        );
+
+        let mut w1 = mk(vec![(30, 10), (10, 10)]);
+        reduce_pool_profile(&mut w1, 1, 2, 25, Some(&weights));
+        assert_eq!(
+            w1.vu_stages.iter().map(|s| s.target).collect::<Vec<_>>(),
+            vec![25, 8]
+        );
+        // Σ per stage == original stage target
+        assert_eq!(w0.vu_stages[0].target + w1.vu_stages[0].target, 30);
+        assert_eq!(w0.vu_stages[1].target + w1.vu_stages[1].target, 10);
+    }
+
+    #[test]
+    fn reduce_pool_profile_curve_none_weights_even_split() {
+        // force/legacy path: slot_weights None → shard_split even split.
+        let mut p = pb::Profile {
+            vu_stages: vec![pb::Stage {
+                target: 10,
+                duration_seconds: 5,
+            }],
+            ..Default::default()
+        };
+        reduce_pool_profile(&mut p, 0, 2, 5, None);
+        assert_eq!(p.vu_stages[0].target, shard_split(10, 2, 0).1);
+        assert!(p.max_in_flight.is_none());
+    }
+
+    #[test]
+    fn reduce_pool_profile_single_worker_curve_noop() {
+        // shard_count <= 1 → early return, vu_stages untouched (byte-identical, R11).
+        let mut p = pb::Profile {
+            vu_stages: vec![pb::Stage {
+                target: 50,
+                duration_seconds: 10,
+            }],
+            ..Default::default()
+        };
+        reduce_pool_profile(&mut p, 0, 1, 50, Some(&[50]));
+        assert_eq!(p.vu_stages[0].target, 50, "shard_count==1 → unchanged");
     }
 
     #[tokio::test]
