@@ -464,6 +464,19 @@ impl CoordinatorState {
         PoolReservation::Reserved { workers, counts }
     }
 
+    /// Release a capacity reservation that was made by `reserve_idle_pool_capacity`
+    /// but never promoted to `enqueue` (e.g. unique-floor rejection after reserve).
+    /// Resets `assigned_run` to `None` for each worker_id in the reserved list so
+    /// they become idle again without needing to disconnect and reconnect. (R14.)
+    pub async fn release_pool_reservation(&self, workers: &[(String, WorkerTx)]) {
+        let mut g = self.pool.lock().await;
+        for (id, _) in workers {
+            if let Some(e) = g.get_mut(id) {
+                e.assigned_run = None;
+            }
+        }
+    }
+
     /// Best-effort, idempotent teardown of a run's external workers. No-op if no
     /// dispatcher was installed (tests). Errors are logged, never propagated —
     /// the run is already finalized in the DB.

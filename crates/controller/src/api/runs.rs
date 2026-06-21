@@ -251,7 +251,7 @@ pub(crate) async fn validate_run_config(
                     "stage duration_seconds must be >= 1".into(),
                 ));
             }
-            if s.target > capacity {
+            if !state.coord.is_pool_mode() && s.target > capacity {
                 return Err(ApiError::BadRequest(format!(
                     "최대 목표 VU {}가 워커 용량 {capacity}을 초과합니다 \
                      (vu_stages는 단일 워커 — 멀티워커 곡선 샤딩 미지원, spec §9)",
@@ -489,6 +489,23 @@ pub(crate) async fn validate_run_config(
     Ok(metas)
 }
 
+/// Pool 경로 두 분기 공통 unique floor 검사 — n_pool 직후, enqueue *전* 호출.
+/// `policy == Unique && row_count < n_pool` 이면 `(row_count, n_pool)` 반환.
+/// `PendingDataBinding.policy`는 Policy **enum**(coordinator.rs:47) — `as i32` 불필요.
+fn pool_unique_floor_violation(
+    assignment: &crate::grpc::coordinator::PendingAssignment,
+    n_pool: u32,
+) -> Option<(u64, u32)> {
+    use handicap_proto::v1::data_binding::Policy;
+    assignment.data_bindings.iter().find_map(|b| {
+        if b.policy == Policy::Unique && b.row_count < n_pool as u64 {
+            Some((b.row_count, n_pool))
+        } else {
+            None
+        }
+    })
+}
+
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
 /// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
 /// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
@@ -503,10 +520,10 @@ pub(crate) async fn spawn_run(
     env: &std::collections::HashMap<String, String>,
     force: bool,
 ) -> Result<runs::RunRow, ApiError> {
-    // L3/L4: pool capacity precheck (before any DB insert → 409 leaves no run row, R3).
-    // Covers closed-loop AND open-loop (fixed+curve); vu-curve excluded (single-worker v1).
+    // L3/L4/L5: pool capacity precheck (before any DB insert → 409 leaves no run row, R3).
+    // Covers closed-loop, open-loop (fixed+curve), AND closed-loop VU curve.
     // Empty pool (idle 0) is NOT a 409 — falls through to existing empty-pool 400 below.
-    if state.coord.is_pool_mode() && !force && !profile.is_vu_curve() {
+    if state.coord.is_pool_mode() && !force {
         let (idle, achievable) = state
             .coord
             .pool_achievable_capacity(profile.pool_worker_cap())
@@ -642,11 +659,11 @@ pub(crate) async fn spawn_run(
         profile.vus
     };
     // Pool mode: use the always-on worker pool instead of spawning new workers.
-    // L3/L4: fork by mode — closed-loop OR open-loop (fixed+curve) non-force uses
-    // capacity-aware path (R2/R13); vu-curve / ?force uses legacy even-split (byte-identical L1).
+    // L3/L4/L5: fork by mode — closed-loop, open-loop (fixed+curve), AND vu-curve non-force use
+    // capacity-aware path (R2/R13); ?force uses legacy even-split (byte-identical L1).
     if state.coord.is_pool_mode() {
-        // guarded = capacity-aware path applies (all except vu-curve, which is single-worker).
-        let guarded = !profile.is_vu_curve();
+        // guarded = capacity-aware path applies to all pool modes (L5: curve now included).
+        let guarded = true;
         if guarded && !force {
             // Capacity-aware path (R2/R13): worker_cap limits worker count, slot_total is
             // the concurrency demand (max_in_flight for open-loop, vus for closed-loop).
@@ -681,6 +698,17 @@ pub(crate) async fn spawn_run(
                 }
                 crate::grpc::coordinator::PoolReservation::Reserved { workers, counts } => {
                     let n_pool = workers.len() as u32;
+                    // R14: unique floor — reject before enqueue (assignment moved in).
+                    // Release reservation first so workers return to idle without reconnecting.
+                    if let Some((rows, n)) = pool_unique_floor_violation(&assignment, n_pool) {
+                        let msg = format!(
+                            "unique 데이터셋 행 수가 풀 워커 수보다 적습니다: rows={rows} < workers={n}"
+                        );
+                        state.coord.release_pool_reservation(&workers).await;
+                        state.coord.cancel_dispatch_failed(&row.id).await;
+                        runs::mark_failed(&state.db, &row.id, &msg).await?;
+                        return Err(ApiError::BadRequest(msg));
+                    }
                     state
                         .coord
                         .enqueue(row.id.clone(), assignment, n_pool, total_vus, Some(counts))
@@ -703,7 +731,7 @@ pub(crate) async fn spawn_run(
             // Legacy pool path: ?force (any mode) OR vu-curve (single-worker v1).
             // Even split via register's shard_split (precomputed None) = byte-identical L1.
             let n_cap: usize = if profile.is_vu_curve() {
-                1
+                profile.vu_curve_max() as usize // R6: force curve fans out (even-split), was 1
             } else if profile.is_open_loop() {
                 let slots = profile.max_in_flight.unwrap_or(1);
                 let rate = profile.target_rps.unwrap_or_else(|| {
@@ -724,6 +752,17 @@ pub(crate) async fn spawn_run(
             let n_pool = reserved.len() as u32;
             if n_pool == 0 {
                 let msg = "연결된 LAN 워커가 없습니다 — 워커를 1대 이상 띄우세요".to_string();
+                state.coord.cancel_dispatch_failed(&row.id).await;
+                runs::mark_failed(&state.db, &row.id, &msg).await?;
+                return Err(ApiError::BadRequest(msg));
+            }
+            // R14: unique floor — reject before enqueue (assignment moved in).
+            // Release reservation first so workers return to idle without reconnecting.
+            if let Some((rows, n)) = pool_unique_floor_violation(&assignment, n_pool) {
+                let msg = format!(
+                    "unique 데이터셋 행 수가 풀 워커 수보다 적습니다: rows={rows} < workers={n}"
+                );
+                state.coord.release_pool_reservation(&reserved).await;
                 state.coord.cancel_dispatch_failed(&row.id).await;
                 runs::mark_failed(&state.db, &row.id, &msg).await?;
                 return Err(ApiError::BadRequest(msg));
@@ -2071,6 +2110,42 @@ steps:
         assert!(
             validate_run_config(&state, &ok).await.is_ok(),
             "stage target == settings capacity must be accepted"
+        );
+    }
+
+    /// R7: pool mode defers the capacity check to spawn_run (409), so validate
+    /// must NOT reject a curve whose peak exceeds the single-worker capacity.
+    #[tokio::test]
+    async fn validate_vu_curve_pool_defers_to_guard() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        // capacity=2000 via state_with; curve peak=5000 > 2000.
+        let state = state_with(db, 2000).await;
+        state.coord.set_pool_mode(true);
+        let p = curve_profile(vec![handicap_engine::Stage {
+            target: 5000,
+            duration_seconds: 10,
+        }]);
+        assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "pool mode: peak>capacity must pass validate (409 deferred to spawn_run)"
+        );
+    }
+
+    /// R7 inverse: non-pool mode must still reject a curve that exceeds single-worker capacity.
+    #[tokio::test]
+    async fn validate_vu_curve_nonpool_rejects() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 2000).await; // pool_mode defaults false
+        let p = curve_profile(vec![handicap_engine::Stage {
+            target: 5000,
+            duration_seconds: 10,
+        }]);
+        assert!(
+            matches!(
+                validate_run_config(&state, &p).await,
+                Err(ApiError::BadRequest(_))
+            ),
+            "non-pool mode: peak>capacity must be rejected with 400"
         );
     }
 }
