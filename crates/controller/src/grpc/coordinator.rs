@@ -2866,10 +2866,11 @@ mod tests {
     #[tokio::test]
     async fn drained_worker_excluded_from_capacity_paths() {
         let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let mut _rxs = Vec::new(); // keep receivers alive so tx stays open
         for (id, cap) in [("w1", 10u32), ("w2", 10)] {
-            let (tx, _rx) = tokio::sync::mpsc::channel(32);
+            let (tx, rx) = tokio::sync::mpsc::channel(32);
             st.pool_register_idle(id, tx, cap, "h".into()).await;
-            std::mem::forget(_rx); // keep tx open
+            _rxs.push(rx);
         }
         // both idle → achievable = 20
         assert_eq!(st.pool_achievable_capacity(100).await, (2, 20));
@@ -2881,5 +2882,72 @@ mod tests {
         }
         // now only w2 idle, effective 4
         assert_eq!(st.pool_achievable_capacity(100).await, (1, 4));
+    }
+
+    #[tokio::test]
+    async fn drained_worker_excluded_from_reserve_idle_pool() {
+        // w1 drained, w2 not — reserve_idle_pool should return only w2.
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx1, _r1) = fake_tx();
+        let (tx2, _r2) = fake_tx();
+        coord.pool_register_idle("w1", tx1, 10, "h".into()).await;
+        coord.pool_register_idle("w2", tx2, 10, "h".into()).await;
+        {
+            let mut g = coord.pool.lock().await;
+            g.get_mut("w1").unwrap().drained = true;
+        }
+        // cap=10 → room for both, but w1 is drained so only w2 should be reserved
+        let reserved = coord.reserve_idle_pool("run-x", 10).await;
+        assert_eq!(reserved.len(), 1, "drained w1 excluded; only w2 reserved");
+        assert_eq!(reserved[0].0, "w2");
+        // w1 (drained) stays with assigned_run=None; w2 is now assigned
+        {
+            let g = coord.pool.lock().await;
+            assert!(
+                g.get("w1").unwrap().assigned_run.is_none(),
+                "drained w1 was not reserved — assigned_run stays None"
+            );
+            assert_eq!(
+                g.get("w2").unwrap().assigned_run.as_deref(),
+                Some("run-x"),
+                "w2 was reserved"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn drained_worker_excluded_from_reserve_idle_pool_capacity() {
+        // w1 drained (cap 10), w2 not (cap 10); worker_cap/slot_total cover both.
+        // Only w2's capacity should be considered — achievable is 10, not 20.
+        let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx1, _r1) = fake_tx();
+        let (tx2, _r2) = fake_tx();
+        coord.pool_register_idle("w1", tx1, 10, "h".into()).await;
+        coord.pool_register_idle("w2", tx2, 10, "h".into()).await;
+        {
+            let mut g = coord.pool.lock().await;
+            g.get_mut("w1").unwrap().drained = true;
+        }
+        // Request slot_total=10 which fits w2 alone; worker_cap=20 allows both if not drained.
+        match coord.reserve_idle_pool_capacity("run-x", 20, 10).await {
+            PoolReservation::Reserved { workers, counts } => {
+                assert_eq!(workers.len(), 1, "drained w1 excluded; only w2 reserved");
+                assert_eq!(workers[0].0, "w2");
+                // w2 gets the full slot_total=10
+                assert_eq!(counts, vec![(0, 10)]);
+                // w1 (drained) stays unassigned; w2 is now assigned
+                let g = coord.pool.lock().await;
+                assert!(
+                    g.get("w1").unwrap().assigned_run.is_none(),
+                    "drained w1 was not reserved — assigned_run stays None"
+                );
+                assert_eq!(
+                    g.get("w2").unwrap().assigned_run.as_deref(),
+                    Some("run-x"),
+                    "w2 was reserved"
+                );
+            }
+            other => panic!("expected Reserved, got {other:?}"),
+        }
     }
 }
