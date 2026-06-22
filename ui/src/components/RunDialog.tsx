@@ -542,8 +542,12 @@ export function RunDialog({
       </fieldset>
       {pool.data?.pool_mode
         ? (() => {
-            const idle = pool.data.workers.filter((w) => !w.busy);
-            const idleCapacity = idle.reduce((sum, w) => sum + Math.max(w.capacity_vus, 1), 0);
+            const idle = pool.data.workers.filter((w) => !w.drained && !w.busy);
+            const idleCapacity = idle.reduce(
+              (sum, w) => sum + Math.max(w.capacity_override ?? w.capacity_vus, 1),
+              0,
+            );
+            const drainedCount = pool.data.workers.filter((w) => w.drained && !w.busy).length;
             const closedFixed = loadModel === "closed" && rateMode === "fixed";
             const closedCurve = loadModel === "closed" && rateMode === "curve";
             const isOpenLoop = loadModel === "open";
@@ -558,6 +562,7 @@ export function RunDialog({
                 <p className="text-sm text-slate-600">
                   {ko.workers.poolPreview(idle.length)} ·{" "}
                   {ko.capacityGuard.totalCapacity(idleCapacity)}
+                  {drainedCount > 0 ? " " + ko.workers.poolPreviewDrained(drainedCount) : ""}
                 </p>
                 {over ? (
                   <p className="text-sm text-amber-700" role="status">

@@ -29,7 +29,7 @@ import {
   type StepTemplateInput,
 } from "./stepTemplates";
 import { deleteSetting, getSettings, putSetting } from "./settings";
-import { listPoolWorkers } from "./pool";
+import { listPoolWorkers, patchPoolWorker, excludePoolWorker } from "./pool";
 import type { Profile, RunStatus } from "./schemas";
 import { markRunCreated } from "../onboarding/state";
 
@@ -415,5 +415,22 @@ export function usePoolWorkers() {
     queryKey: queryKeys.poolWorkers(),
     queryFn: listPoolWorkers,
     refetchInterval: (q) => (q.state.data?.pool_mode ? 3000 : false),
+  });
+}
+
+export function usePatchPoolWorker() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof patchPoolWorker>[1] }) =>
+      patchPoolWorker(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.poolWorkers() }),
+  });
+}
+
+export function useExcludePoolWorker() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => excludePoolWorker(id, reason),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.poolWorkers() }),
   });
 }

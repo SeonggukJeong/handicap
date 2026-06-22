@@ -1562,21 +1562,79 @@ describe("RunDialog — U1b 재구성 불변식", () => {
   });
 });
 
+// Helper to build a pool worker fixture with all L7 fields present.
+function makePoolWorker(overrides: {
+  worker_id?: string;
+  hostname?: string;
+  capacity_vus?: number;
+  busy?: boolean;
+  run_id?: string | null;
+  drained?: boolean;
+  capacity_override?: number | null;
+  label?: string | null;
+}) {
+  return {
+    worker_id: "w0",
+    hostname: "h0",
+    capacity_vus: 1,
+    busy: false,
+    run_id: null,
+    drained: false,
+    capacity_override: null,
+    label: null,
+    ...overrides,
+  };
+}
+
 describe("RunDialog — 풀 모드 유휴 워커 프리뷰 (L2 R8/R9)", () => {
   it("풀 모드에서 유휴 워커 수가 배너에 표시된다", () => {
     mockUsePoolWorkers.mockReturnValue({
       data: {
         pool_mode: true,
         workers: [
-          { worker_id: "w1", hostname: "h1", capacity_vus: 1, busy: false, run_id: null },
-          { worker_id: "w2", hostname: "h2", capacity_vus: 1, busy: false, run_id: null },
-          { worker_id: "w3", hostname: "h3", capacity_vus: 1, busy: true, run_id: "R1" },
+          makePoolWorker({ worker_id: "w1", hostname: "h1", capacity_vus: 1 }),
+          makePoolWorker({ worker_id: "w2", hostname: "h2", capacity_vus: 1 }),
+          makePoolWorker({
+            worker_id: "w3",
+            hostname: "h3",
+            capacity_vus: 1,
+            busy: true,
+            run_id: "R1",
+          }),
         ],
       },
     });
     renderDialog();
     // ko.workers.poolPreview(2) = "연결된 유휴 워커 2대 — ..."
     expect(screen.getByText(/유휴 워커 2대/)).toBeInTheDocument();
+  });
+
+  it("drained 워커는 유휴 카운트와 용량 계산에서 제외된다 (L7 R4)", () => {
+    // w1 idle, w2 drained+idle (excluded from idle count), w3 busy
+    mockUsePoolWorkers.mockReturnValue({
+      data: {
+        pool_mode: true,
+        workers: [
+          makePoolWorker({ worker_id: "w1", hostname: "h1", capacity_vus: 10 }),
+          makePoolWorker({ worker_id: "w2", hostname: "h2", capacity_vus: 20, drained: true }),
+          makePoolWorker({
+            worker_id: "w3",
+            hostname: "h3",
+            capacity_vus: 5,
+            busy: true,
+            run_id: "R1",
+          }),
+        ],
+      },
+    });
+    renderDialog();
+    // Only w1 counts as idle → "유휴 워커 1대"
+    expect(screen.getByText(/유휴 워커 1대/)).toBeInTheDocument();
+    // capacity = w1 capacity_vus(10) only → "총 용량 10 VU"
+    // (w2 is drained, w3 is busy — both excluded)
+    expect(screen.getByText(/총 용량 10 VU/)).toBeInTheDocument();
+    // drained note shows because drainedCount=1
+    expect(screen.getByText(/비우는 중 1대 제외/)).toBeInTheDocument();
   });
 
   it("풀 모드가 아닐 때 배너가 없고 worker_count 입력은 그대로다", async () => {
@@ -1597,13 +1655,9 @@ describe("RunDialog — 풀 과부하 가드 (L3 R8/R9/R10)", () => {
     mockUsePoolWorkers.mockReturnValue({
       data: {
         pool_mode: true,
-        workers: capacities.map((c, i) => ({
-          worker_id: `w${i}`,
-          hostname: `h${i}`,
-          capacity_vus: c,
-          busy: false,
-          run_id: null,
-        })),
+        workers: capacities.map((c, i) =>
+          makePoolWorker({ worker_id: `w${i}`, hostname: `h${i}`, capacity_vus: c }),
+        ),
       },
     });
   }
@@ -1795,13 +1849,9 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     mockUsePoolWorkers.mockReturnValue({
       data: {
         pool_mode: true,
-        workers: capacities.map((c, i) => ({
-          worker_id: `w${i}`,
-          hostname: `h${i}`,
-          capacity_vus: c,
-          busy: false,
-          run_id: null,
-        })),
+        workers: capacities.map((c, i) =>
+          makePoolWorker({ worker_id: `w${i}`, hostname: `h${i}`, capacity_vus: c }),
+        ),
       },
     });
   }
@@ -2050,13 +2100,9 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
     mockUsePoolWorkers.mockReturnValue({
       data: {
         pool_mode: true,
-        workers: capacities.map((c, i) => ({
-          worker_id: `w${i}`,
-          hostname: `h${i}`,
-          capacity_vus: c,
-          busy: false,
-          run_id: null,
-        })),
+        workers: capacities.map((c, i) =>
+          makePoolWorker({ worker_id: `w${i}`, hostname: `h${i}`, capacity_vus: c }),
+        ),
       },
     });
   }

@@ -1,6 +1,324 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { usePoolWorkers } from "../api/hooks";
+import { usePoolWorkers, usePatchPoolWorker, useExcludePoolWorker } from "../api/hooks";
+import type { PoolWorkerSummary } from "../api/pool";
 import { ko } from "../i18n/ko";
+
+// ── Small primitives ──────────────────────────────────────────────────────────
+
+type ConfirmDialogProps = {
+  title: string;
+  body: string;
+  warn?: string;
+  destructive?: boolean;
+  onProceed: () => void;
+  onCancel: () => void;
+};
+
+function ConfirmDialog({
+  title,
+  body,
+  warn,
+  destructive,
+  onProceed,
+  onCancel,
+}: ConfirmDialogProps) {
+  return (
+    <div
+      role={destructive ? "alertdialog" : "dialog"}
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+    >
+      <div className="w-96 rounded-lg border border-slate-200 bg-white p-5 shadow-lg">
+        <p className="mb-2 font-semibold text-slate-800">{title}</p>
+        <p className="mb-3 text-sm text-slate-600">{body}</p>
+        {warn ? (
+          <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{warn}</p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            {ko.workers.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={onProceed}
+            className={`rounded px-3 py-1.5 text-sm font-medium text-white ${
+              destructive ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+            }`}
+          >
+            {ko.workers.confirmProceed}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type EditModalProps = {
+  title: string;
+  note: string;
+  inputType?: "number" | "text";
+  initialValue: string;
+  onApply: (val: string) => void;
+  onCancel: () => void;
+};
+
+function EditModal({
+  title,
+  note,
+  inputType = "text",
+  initialValue,
+  onApply,
+  onCancel,
+}: EditModalProps) {
+  const [val, setVal] = useState(initialValue);
+  return (
+    <div
+      role="dialog"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+    >
+      <div className="w-80 rounded-lg border border-slate-200 bg-white p-5 shadow-lg">
+        <p className="mb-3 font-semibold text-slate-800">{title}</p>
+        <input
+          type={inputType}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          className="mb-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          aria-label={title}
+        />
+        <p className="mb-4 text-xs text-slate-500">{note}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            {ko.workers.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={() => onApply(val)}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {ko.workers.apply}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Per-row actions menu ──────────────────────────────────────────────────────
+
+type ActiveDialog =
+  | { type: "drain" }
+  | { type: "exclude" }
+  | { type: "capacity" }
+  | { type: "label" };
+
+type RowActionsProps = {
+  worker: PoolWorkerSummary;
+};
+
+function RowActions({ worker }: RowActionsProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dialog, setDialog] = useState<ActiveDialog | null>(null);
+  const patch = usePatchPoolWorker();
+  const exclude = useExcludePoolWorker();
+
+  const closeAll = () => {
+    setMenuOpen(false);
+    setDialog(null);
+  };
+
+  const openMenu = () => setMenuOpen((v) => !v);
+
+  return (
+    <td className="py-2 pr-2 relative">
+      <button
+        type="button"
+        aria-label={ko.workers.actionsLabel}
+        onClick={openMenu}
+        className="rounded px-2 py-0.5 text-slate-500 hover:bg-slate-100"
+      >
+        ⋯
+      </button>
+
+      {menuOpen ? (
+        <>
+          {/* backdrop to close menu on outside click */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <ul
+            role="menu"
+            className="absolute right-0 z-50 mt-1 min-w-[8rem] rounded border border-slate-200 bg-white py-1 shadow-lg"
+          >
+            {worker.drained ? (
+              <li
+                role="menuitem"
+                tabIndex={0}
+                className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
+                onClick={() => {
+                  setMenuOpen(false);
+                  patch.mutate({ id: worker.worker_id, body: { drained: false } });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    setMenuOpen(false);
+                    patch.mutate({ id: worker.worker_id, body: { drained: false } });
+                  }
+                }}
+              >
+                {ko.workers.undrain}
+              </li>
+            ) : (
+              <li
+                role="menuitem"
+                tabIndex={0}
+                className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setDialog({ type: "drain" });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    setMenuOpen(false);
+                    setDialog({ type: "drain" });
+                  }
+                }}
+              >
+                {ko.workers.drain}
+              </li>
+            )}
+            <li
+              role="menuitem"
+              tabIndex={0}
+              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
+              onClick={() => {
+                setMenuOpen(false);
+                setDialog({ type: "capacity" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setMenuOpen(false);
+                  setDialog({ type: "capacity" });
+                }
+              }}
+            >
+              {ko.workers.editCapacity}
+            </li>
+            <li
+              role="menuitem"
+              tabIndex={0}
+              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
+              onClick={() => {
+                setMenuOpen(false);
+                setDialog({ type: "label" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setMenuOpen(false);
+                  setDialog({ type: "label" });
+                }
+              }}
+            >
+              {ko.workers.editLabel}
+            </li>
+            <li
+              role="menuitem"
+              tabIndex={0}
+              className="cursor-pointer px-3 py-1.5 text-sm text-red-600 hover:bg-slate-50"
+              onClick={() => {
+                setMenuOpen(false);
+                setDialog({ type: "exclude" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setMenuOpen(false);
+                  setDialog({ type: "exclude" });
+                }
+              }}
+            >
+              {ko.workers.exclude}
+            </li>
+          </ul>
+        </>
+      ) : null}
+
+      {dialog?.type === "drain" ? (
+        <ConfirmDialog
+          title={ko.workers.drainConfirmTitle}
+          body={ko.workers.drainConfirmBody}
+          onProceed={() => {
+            patch.mutate({ id: worker.worker_id, body: { drained: true } });
+            closeAll();
+          }}
+          onCancel={closeAll}
+        />
+      ) : null}
+
+      {dialog?.type === "exclude" ? (
+        <ConfirmDialog
+          title={ko.workers.excludeConfirmTitle}
+          body={ko.workers.excludeConfirmBody}
+          warn={
+            worker.busy && worker.run_id ? ko.workers.excludeBusyWarn(worker.run_id) : undefined
+          }
+          destructive
+          onProceed={() => {
+            exclude.mutate({ id: worker.worker_id, reason: "" });
+            closeAll();
+          }}
+          onCancel={closeAll}
+        />
+      ) : null}
+
+      {dialog?.type === "capacity" ? (
+        <EditModal
+          title={ko.workers.editCapacity}
+          note={ko.workers.capacityApplyNote}
+          inputType="number"
+          initialValue={worker.capacity_override != null ? String(worker.capacity_override) : ""}
+          onApply={(val) => {
+            patch.mutate({
+              id: worker.worker_id,
+              body: { capacity_override: val === "" ? null : Number(val) },
+            });
+            closeAll();
+          }}
+          onCancel={closeAll}
+        />
+      ) : null}
+
+      {dialog?.type === "label" ? (
+        <EditModal
+          title={ko.workers.editLabel}
+          note={ko.workers.labelApplyNote}
+          inputType="text"
+          initialValue={worker.label ?? ""}
+          onApply={(val) => {
+            patch.mutate({
+              id: worker.worker_id,
+              body: { label: val === "" ? null : val },
+            });
+            closeAll();
+          }}
+          onCancel={closeAll}
+        />
+      ) : null}
+    </td>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 
 export function WorkerDashboardPage() {
   const { data, isLoading, isError } = usePoolWorkers();
@@ -43,7 +361,9 @@ export function WorkerDashboardPage() {
               <th className="py-2 pr-4">{ko.workers.colWorkerId}</th>
               <th className="py-2 pr-4">{ko.workers.colStatus}</th>
               <th className="py-2 pr-4">{ko.workers.colCapacity}</th>
+              <th className="py-2 pr-4">{ko.workers.colLabel}</th>
               <th className="py-2 pr-4">{ko.workers.colLastSeen}</th>
+              <th className="py-2">{ko.workers.actionsLabel}</th>
             </tr>
           </thead>
           <tbody>
@@ -53,7 +373,14 @@ export function WorkerDashboardPage() {
                 w.last_seen_secs_ago < data.stale_timeout_seconds;
               return (
                 <tr key={w.worker_id} className="border-b border-slate-100">
-                  <td className="py-2 pr-4 font-medium">{w.hostname || "—"}</td>
+                  <td className="py-2 pr-4 font-medium">
+                    {w.hostname || "—"}
+                    {w.drained ? (
+                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800">
+                        {ko.workers.drainedBadge}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="py-2 pr-4 font-mono text-xs" title={w.worker_id}>
                     {w.worker_id}
                   </td>
@@ -74,7 +401,12 @@ export function WorkerDashboardPage() {
                       ko.workers.statusIdle
                     )}
                   </td>
-                  <td className="py-2 pr-4">{w.capacity_vus}</td>
+                  <td className="py-2 pr-4">
+                    {w.capacity_override != null
+                      ? ko.workers.capacityManual(w.capacity_override)
+                      : w.capacity_vus}
+                  </td>
+                  <td className="py-2 pr-4 text-slate-500">{w.label ?? ""}</td>
                   <td className="py-2 pr-4">
                     {ko.workers.secsAgo(w.last_seen_secs_ago)}
                     {isStale ? (
@@ -83,6 +415,7 @@ export function WorkerDashboardPage() {
                       </span>
                     ) : null}
                   </td>
+                  <RowActions worker={w} />
                 </tr>
               );
             })}

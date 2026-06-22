@@ -195,7 +195,7 @@ export const ko = {
   },
   workers: {
     title: "연결된 워커",
-    subtitle: "풀 모드 컨트롤러에 연결된 LAN 워커 (읽기 전용)",
+    subtitle: "풀 모드 컨트롤러에 연결된 LAN 워커",
     colHostname: "호스트",
     colWorkerId: "워커 ID",
     colStatus: "상태",
@@ -213,6 +213,35 @@ export const ko = {
     colLastSeen: "마지막 응답",
     secsAgo: (n: number) => `${n}초 전`,
     stale: "응답 없음",
+    // actions
+    actionsLabel: "동작",
+    drain: "비우기",
+    undrain: "되돌리기",
+    exclude: "제외",
+    editCapacity: "용량 조정",
+    editLabel: "메모",
+    // badges / columns
+    drainedBadge: "비우는 중",
+    colLabel: "메모",
+    capacityManual: (n: number) => `${n} (수동)`,
+    // drain confirm (reversible)
+    drainConfirmTitle: "워커 비우기",
+    drainConfirmBody:
+      "이 워커에 새 작업 배정을 중단합니다. 진행 중인 작업은 그대로 끝까지 실행되고, 언제든 '되돌리기'로 복구할 수 있습니다.",
+    // exclude confirm (destructive)
+    excludeConfirmTitle: "워커 제외",
+    excludeConfirmBody:
+      "이 워커를 풀에서 제외하고 워커 프로그램을 종료합니다. 다시 추가하려면 해당 PC에서 워커를 직접 재실행해야 합니다.",
+    excludeBusyWarn: (runId: string) =>
+      `주의: 이 워커는 현재 run ${runId}을(를) 실행 중입니다. 제외하면 그 run이 실패합니다.`,
+    // edit modals (apply note)
+    capacityApplyNote: "변경한 용량은 새 run의 부하 배분 계산에 즉시 반영됩니다.",
+    labelApplyNote: "메모는 표시용이며 부하에는 영향이 없습니다.",
+    confirmProceed: "계속",
+    cancel: "취소",
+    apply: "적용",
+    // preview note for drained workers in RunDialog
+    poolPreviewDrained: (n: number) => `(비우는 중 ${n}대 제외)`,
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
