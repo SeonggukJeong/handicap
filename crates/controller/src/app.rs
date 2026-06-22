@@ -29,14 +29,6 @@ pub struct AppState {
     /// `--scheduler-timezone` once and injects it so the scheduler loop AND the
     /// REST handlers (next_run_at calc, preview-next) share one source of truth.
     pub scheduler_tz: chrono_tz::Tz,
-    /// Pool heartbeat: how often the controller sends a ping to idle pool
-    /// workers (seconds). Exposed via GET /api/pool/workers so the dashboard
-    /// can display the expected keepalive cadence. Non-secret duration.
-    pub heartbeat_interval_seconds: u64,
-    /// Pool heartbeat: evict a pool worker after this many seconds of silence
-    /// (no Pong received). Exposed via GET /api/pool/workers alongside
-    /// heartbeat_interval_seconds. Non-secret duration.
-    pub stale_timeout_seconds: u64,
 }
 
 /// 데이터셋 업로드 본문 상한(8b). 행 수 제한은 run-create 게이트(8c)에서 — 여기선 넉넉한 메모리 천장만.

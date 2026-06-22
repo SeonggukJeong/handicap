@@ -6,7 +6,7 @@ use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::{app, store};
 use handicap_proto::v1::ServerMessage;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tonic::Status;
 use tower::ServiceExt;
 
@@ -26,8 +26,6 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     })
 }
 
@@ -73,8 +71,6 @@ async fn make_app_with_coord_pool() -> (axum::Router, CoordinatorState) {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     });
     (app, coord)
 }
@@ -105,4 +101,33 @@ async fn pool_workers_endpoint_lists() {
     assert_eq!(w["busy"], true);
     assert_eq!(w["run_id"], "run-1");
     assert!(w.get("token").is_none()); // security (R12): token/env/dataset keys absent
+}
+
+/// 대시보드 임계값은 settings 유효값에서 온다 — PUT override가 GET /api/pool/workers에 반영(R3).
+#[tokio::test]
+async fn dashboard_reflects_heartbeat_settings_override() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    // stale 먼저 올리고(99 > 10) interval(15 < 99) — 유효 순서.
+    let (s1, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_stale_timeout_seconds",
+        Some(json!({ "value": 99 })),
+    )
+    .await;
+    assert_eq!(s1, StatusCode::OK);
+    let (s2, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_heartbeat_interval_seconds",
+        Some(json!({ "value": 15 })),
+    )
+    .await;
+    assert_eq!(s2, StatusCode::OK);
+
+    let (status, body) = send(&app, Method::GET, "/api/pool/workers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["heartbeat_interval_seconds"], 15);
+    assert_eq!(body["stale_timeout_seconds"], 99);
 }

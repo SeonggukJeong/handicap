@@ -76,8 +76,6 @@ async fn boot(
             &[("worker_capacity_vus", capacity as i64)],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();

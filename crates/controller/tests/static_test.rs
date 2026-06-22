@@ -35,8 +35,6 @@ async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     }
 }
 

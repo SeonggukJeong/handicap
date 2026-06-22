@@ -26,8 +26,6 @@ fn make_app(db: store::Db) -> axum::Router {
             &[("dataset_max_rows", 5)],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     })
 }
 
@@ -235,8 +233,6 @@ async fn unique_policy_rejected_when_rows_below_worker_count() {
             &[("worker_capacity_vus", 1), ("dataset_max_rows", 5)],
         ),
         scheduler_tz: chrono_tz::UTC,
-        heartbeat_interval_seconds: 10,
-        stale_timeout_seconds: 30,
     });
 
     let dataset_id = upload_dataset(&app, "email,pw\na@ex.com,p1\n", "users.csv").await;

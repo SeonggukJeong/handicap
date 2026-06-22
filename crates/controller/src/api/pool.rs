@@ -90,8 +90,8 @@ pub async fn list_workers(State(state): State<AppState>) -> Json<PoolWorkersResp
     Json(PoolWorkersResponse {
         pool_mode,
         workers,
-        heartbeat_interval_seconds: state.heartbeat_interval_seconds,
-        stale_timeout_seconds: state.stale_timeout_seconds,
+        heartbeat_interval_seconds: state.settings.pool_heartbeat_interval_seconds(),
+        stale_timeout_seconds: state.settings.pool_stale_timeout_seconds(),
     })
 }
 

@@ -244,12 +244,28 @@ async fn main() -> anyhow::Result<()> {
     // The CLI flags (--worker-capacity-vus, --dataset-max-rows, scheduler tick)
     // feed seeds — values are byte-identical when there are no DB overrides (R5).
     let overrides = handicap_controller::store::settings::load_overrides(&db).await?;
+    // R5(c): build()는 CLI 시드를 range-check 안 하므로(§3.6), stale ≤ interval 시드를
+    // 여기서 clamp(+warn)해 startup이 destructive flapping 상태로 부팅하는 걸 막는다.
+    let pool_interval_seed = args.pool_heartbeat_interval_seconds;
+    let pool_stale_seed = if args.pool_stale_timeout_seconds <= pool_interval_seed {
+        tracing::warn!(
+            interval = pool_interval_seed,
+            stale = args.pool_stale_timeout_seconds,
+            "stale ≤ interval 시드 — interval+1로 clamp"
+        );
+        pool_interval_seed + 1
+    } else {
+        args.pool_stale_timeout_seconds
+    };
     let settings = handicap_controller::settings::SettingsState::build(
         &overrides,
         &[
             ("worker_capacity_vus", args.worker_capacity_vus as i64),
             ("dataset_max_rows", args.dataset_max_rows as i64),
             ("scheduler_tick_seconds", args.scheduler_tick_seconds as i64),
+            ("pool_heartbeat_interval_seconds", pool_interval_seed as i64),
+            ("pool_stale_timeout_seconds", pool_stale_seed as i64),
+            ("pool_keepalive_seconds", args.pool_keepalive_seconds as i64),
         ],
     );
     let state = app::AppState {
@@ -259,8 +275,6 @@ async fn main() -> anyhow::Result<()> {
         ui_dir: args.ui_dir.clone(),
         settings,
         scheduler_tz,
-        heartbeat_interval_seconds: args.pool_heartbeat_interval_seconds,
-        stale_timeout_seconds: args.pool_stale_timeout_seconds,
     };
     if !args.scheduler_disabled {
         let sched_state = state.clone();
