@@ -81,11 +81,9 @@ type WorkerTx = tokio::sync::mpsc::Sender<Result<ServerMessage, Status>>;
 struct PoolEntry {
     /// Consumed by `assign_pool_workers` to push RunAssignment.
     tx: WorkerTx,
-    /// L1 stores the worker-declared capacity but does NOT enforce it (no overload
-    /// guard in L1 — see the runbook over-capacity warning); L2 will read this.
-    /// (The pool launch deliberately does NOT use capacity_vus — it caps N by the
-    /// run's LOAD, not by per-worker capacity.)
-    #[allow(dead_code)]
+    /// Worker-declared capacity (VUs). Used by `effective_capacity_vus()`.
+    /// L1 stores this but does NOT enforce it (no overload guard in L1 — see
+    /// the runbook over-capacity warning). L2+ use it via capacity math.
     capacity_vus: u32,
     /// Worker machine hostname (display-only; "" if unset). LAN L2.
     hostname: String,
@@ -95,6 +93,18 @@ struct PoolEntry {
     /// Last time we heard from this worker (Pong/MetricBatch/RunStatus/re-Register).
     /// Reaper evicts entries older than the stale timeout. (LAN L6, R1.)
     last_seen: tokio::time::Instant,
+    /// Operator drain veto: excluded from new assignments + capacity. (spec R1/R3)
+    drained: bool,
+    /// Operator capacity override; replaces capacity_vus in all pool math. (R1)
+    capacity_override: Option<u32>,
+    /// Operator memo (display-only). (R1)
+    label: Option<String>,
+}
+
+impl PoolEntry {
+    fn effective_capacity_vus(&self) -> u32 {
+        self.capacity_override.unwrap_or(self.capacity_vus)
+    }
 }
 
 /// Display snapshot of one pool worker — returned by `pool_snapshot` (LAN L2 R1).
@@ -106,6 +116,9 @@ pub struct PoolWorkerInfo {
     pub capacity_vus: u32,
     pub assigned_run: Option<String>,
     pub last_seen_secs_ago: u64,
+    pub drained: bool,
+    pub capacity_override: Option<u32>,
+    pub label: Option<String>,
 }
 
 /// One connected worker's slot in a run.
@@ -254,7 +267,7 @@ impl CoordinatorState {
         let mut g = self.pool.lock().await;
         let ids: Vec<String> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none())
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
             .map(|(id, _)| id.clone())
             .take(cap)
             .collect();
@@ -332,7 +345,9 @@ impl CoordinatorState {
     }
 
     /// Register (or refresh, on reconnect) an idle pool worker. Idempotent on
-    /// worker_id: replaces tx and RESETS assigned_run to None (R13 reuse).
+    /// worker_id: replaces tx/capacity/hostname and RESETS assigned_run to None (R13
+    /// reuse). Operator control fields (drained/capacity_override/label) are preserved
+    /// across reconnects so operator settings survive transient disconnections. (R2)
     pub async fn pool_register_idle(
         &self,
         worker_id: &str,
@@ -341,16 +356,32 @@ impl CoordinatorState {
         hostname: String,
     ) {
         let mut g = self.pool.lock().await;
-        g.insert(
-            worker_id.to_string(),
-            PoolEntry {
-                tx,
-                capacity_vus,
-                hostname,
-                assigned_run: None,
-                last_seen: tokio::time::Instant::now(),
-            },
-        );
+        match g.get_mut(worker_id) {
+            Some(e) => {
+                // reconnect: refresh transport/identity, preserve operator control, reset to idle.
+                e.tx = tx;
+                e.capacity_vus = capacity_vus;
+                e.hostname = hostname;
+                e.assigned_run = None;
+                e.last_seen = tokio::time::Instant::now();
+                // drained / capacity_override / label intentionally untouched (R2).
+            }
+            None => {
+                g.insert(
+                    worker_id.to_string(),
+                    PoolEntry {
+                        tx,
+                        capacity_vus,
+                        hostname,
+                        assigned_run: None,
+                        last_seen: tokio::time::Instant::now(),
+                        drained: false,
+                        capacity_override: None,
+                        label: None,
+                    },
+                );
+            }
+        }
     }
 
     /// Test/observability helper: count idle (unassigned) pool workers.
@@ -376,6 +407,9 @@ impl CoordinatorState {
                 capacity_vus: e.capacity_vus,
                 assigned_run: e.assigned_run.clone(),
                 last_seen_secs_ago: now.saturating_duration_since(e.last_seen).as_secs(),
+                drained: e.drained,
+                capacity_override: e.capacity_override,
+                label: e.label.clone(),
             })
             .collect();
         drop(g);
@@ -450,8 +484,8 @@ impl CoordinatorState {
         // reserve_idle_pool_capacity so both functions consider the same N workers.
         let mut idle: Vec<(String, u32)> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none())
-            .map(|(id, e)| (id.clone(), e.capacity_vus))
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
+            .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
             .collect();
         idle.sort_by(|a, b| a.0.cmp(&b.0));
         let n = idle.len().min(worker_cap as usize);
@@ -475,8 +509,8 @@ impl CoordinatorState {
         let mut g = self.pool.lock().await;
         let mut idle: Vec<(String, u32)> = g
             .iter()
-            .filter(|(_, e)| e.assigned_run.is_none())
-            .map(|(id, e)| (id.clone(), e.capacity_vus))
+            .filter(|(_, e)| e.assigned_run.is_none() && !e.drained)
+            .map(|(id, e)| (id.clone(), e.effective_capacity_vus()))
             .collect();
         idle.sort_by(|a, b| a.0.cmp(&b.0)); // deterministic selection order
         // 2. Empty FIRST → existing empty-pool 400.
@@ -2758,5 +2792,94 @@ mod tests {
             )
             .await;
         assert_eq!(coord.pool_idle_count().await, 0);
+    }
+
+    // ── Task 1 (LAN L7): PoolEntry 제어 3필드 + 가드 ripple + 대시보드 read-path ──
+
+    #[tokio::test]
+    async fn pool_register_idle_preserves_control_and_refreshes_tx() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx1, rx1) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx1, 10, "h1".into()).await;
+        // operator sets control directly (mutator arrives in Task 3; here mutate under lock)
+        {
+            let mut g = st.pool.lock().await;
+            let e = g.get_mut("w1").unwrap();
+            e.drained = true;
+            e.capacity_override = Some(7);
+            e.label = Some("office-pc".into());
+            e.assigned_run = Some("r0".into());
+        }
+        // Drop tx1's receiver: if the entry still holds tx1 after re-register, is_closed()
+        // would be true. Re-register with a FRESH tx2 whose receiver stays alive.
+        drop(rx1);
+        let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx2, 12, "h1b".into()).await;
+        let g = st.pool.lock().await;
+        let e = g.get("w1").unwrap();
+        assert!(e.drained, "drain preserved across re-register");
+        assert_eq!(e.capacity_override, Some(7), "override preserved");
+        assert_eq!(e.label.as_deref(), Some("office-pc"), "label preserved");
+        assert_eq!(e.assigned_run, None, "assigned_run reset to idle");
+        assert_eq!(e.capacity_vus, 12, "declared capacity refreshed");
+        assert_eq!(e.hostname, "h1b", "hostname refreshed");
+        assert!(
+            !e.tx.is_closed(),
+            "tx refreshed to tx2 (tx1's receiver was dropped)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_register_idle_default_fields_match_old_blind_insert() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 5, "h".into()).await;
+        let g = st.pool.lock().await;
+        let e = g.get("w1").unwrap();
+        assert!(!e.drained);
+        assert_eq!(e.capacity_override, None);
+        assert_eq!(e.label, None);
+        assert_eq!(e.assigned_run, None); // == old blind-insert behavior
+    }
+
+    #[tokio::test]
+    async fn effective_capacity_uses_override_then_declared() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        let e = PoolEntry {
+            tx,
+            capacity_vus: 25,
+            hostname: "h".into(),
+            assigned_run: None,
+            last_seen: tokio::time::Instant::now(),
+            drained: false,
+            capacity_override: None,
+            label: None,
+        };
+        assert_eq!(e.effective_capacity_vus(), 25);
+        let e2 = PoolEntry {
+            capacity_override: Some(5),
+            ..e
+        };
+        assert_eq!(e2.effective_capacity_vus(), 5);
+    }
+
+    #[tokio::test]
+    async fn drained_worker_excluded_from_capacity_paths() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        for (id, cap) in [("w1", 10u32), ("w2", 10)] {
+            let (tx, _rx) = tokio::sync::mpsc::channel(32);
+            st.pool_register_idle(id, tx, cap, "h".into()).await;
+            std::mem::forget(_rx); // keep tx open
+        }
+        // both idle → achievable = 20
+        assert_eq!(st.pool_achievable_capacity(100).await, (2, 20));
+        // drain w1 + override w2 to 4
+        {
+            let mut g = st.pool.lock().await;
+            g.get_mut("w1").unwrap().drained = true;
+            g.get_mut("w2").unwrap().capacity_override = Some(4);
+        }
+        // now only w2 idle, effective 4
+        assert_eq!(st.pool_achievable_capacity(100).await, (1, 4));
     }
 }

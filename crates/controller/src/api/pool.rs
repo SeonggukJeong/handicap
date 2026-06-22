@@ -11,6 +11,9 @@ pub struct PoolWorkerSummary {
     pub busy: bool,
     pub run_id: Option<String>,
     pub last_seen_secs_ago: u64,
+    pub drained: bool,
+    pub capacity_override: Option<u32>,
+    pub label: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -38,6 +41,9 @@ pub async fn list_workers(State(state): State<AppState>) -> Json<PoolWorkersResp
             busy: i.assigned_run.is_some(),
             run_id: i.assigned_run,
             last_seen_secs_ago: i.last_seen_secs_ago,
+            drained: i.drained,
+            capacity_override: i.capacity_override,
+            label: i.label,
         })
         .collect();
     Json(PoolWorkersResponse {
