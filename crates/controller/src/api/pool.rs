@@ -73,6 +73,7 @@ pub struct ExcludeReq {
 
 const CAPACITY_OVERRIDE_MAX: u32 = 1_000_000;
 const LABEL_MAX_LEN: usize = 200;
+const REASON_MAX_LEN: usize = 500;
 
 /// GET /api/pool/workers — read-only pool snapshot for the dashboard (L2).
 /// Off-pool deployments return `{pool_mode:false, workers:[]}` (not 404).
@@ -137,6 +138,11 @@ pub async fn exclude_worker(
     Path(id): Path<String>,
     Json(req): Json<ExcludeReq>,
 ) -> Result<StatusCode, ApiError> {
+    if let Some(r) = &req.reason {
+        if r.chars().count() > REASON_MAX_LEN {
+            return Err(ApiError::BadRequest("reason too long (max 500)".into()));
+        }
+    }
     let reason = req.reason.unwrap_or_default();
     if state.coord.pool_exclude(&id, &reason).await {
         Ok(StatusCode::OK)

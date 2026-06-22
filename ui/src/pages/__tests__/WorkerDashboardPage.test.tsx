@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { render, screen, within, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -295,6 +295,83 @@ describe("WorkerDashboardPage", () => {
       expect(patchCall).toBeDefined();
       const body = JSON.parse((patchCall![1] as RequestInit).body as string);
       expect(body).toMatchObject({ drained: true });
+    });
+  });
+
+  it("용량 모달: 빈 문자열은 null로 전송(지우기)·비숫자(NaN) 입력은 PATCH 미호출", async () => {
+    // NOTE: jsdom enforces type="number" semantics — non-numeric strings become "" in
+    // e.target.value. To exercise the Number.isFinite guard (which protects against NaN
+    // produced by programmatic/paste paths), we set the input's value property directly
+    // via Object.defineProperty before firing the change event, bypassing jsdom sanitisation.
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        makePoolResponse([
+          makeWorker({ worker_id: "wkr-cap", hostname: "pc-cap", capacity_override: 50 }),
+        ]),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("pc-cap");
+
+    // ── case A: NaN guard — non-numeric React-state value must NOT fire a PATCH ──
+    await user.click(screen.getByRole("button", { name: ko.workers.actionsLabel }));
+    await user.click(screen.getByRole("menuitem", { name: ko.workers.editCapacity }));
+
+    const inputA = screen.getByRole("spinbutton", { name: ko.workers.editCapacity });
+    // Inject non-numeric string directly into the DOM property (bypasses jsdom type=number).
+    // This simulates a programmatic/paste scenario where val is non-empty but NaN-producing.
+    Object.defineProperty(inputA, "value", { value: "not-a-number", configurable: true });
+    fireEvent.change(inputA);
+    await user.click(screen.getByRole("button", { name: ko.workers.apply }));
+
+    // Guard fires: no PATCH should be issued (override unchanged, modal stays open).
+    await new Promise((r) => setTimeout(r, 50));
+    const patchCallsA = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.includes("/pool/workers/wkr-cap") &&
+        (init as RequestInit | undefined)?.method === "PATCH",
+    );
+    expect(patchCallsA).toHaveLength(0);
+
+    // Close the modal via cancel before starting case B.
+    await user.click(screen.getByRole("button", { name: ko.workers.cancel }));
+    fetchMock.mockClear();
+
+    // ── case B: empty string → intentional clear sends capacity_override: null ──
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          makePoolResponse([
+            makeWorker({ worker_id: "wkr-cap", hostname: "pc-cap", capacity_override: 50 }),
+          ]),
+        ),
+      )
+      .mockResolvedValue(
+        jsonResponse(
+          makeWorker({ worker_id: "wkr-cap", hostname: "pc-cap", capacity_override: null }),
+        ),
+      );
+
+    await user.click(screen.getByRole("button", { name: ko.workers.actionsLabel }));
+    await user.click(screen.getByRole("menuitem", { name: ko.workers.editCapacity }));
+    const inputB = screen.getByRole("spinbutton", { name: ko.workers.editCapacity });
+    await user.clear(inputB);
+    await user.click(screen.getByRole("button", { name: ko.workers.apply }));
+
+    await waitFor(() => {
+      const patchCallB = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/pool/workers/wkr-cap") &&
+          (init as RequestInit | undefined)?.method === "PATCH",
+      );
+      expect(patchCallB).toBeDefined();
+      const body = JSON.parse((patchCallB![1] as RequestInit).body as string);
+      expect(body).toMatchObject({ capacity_override: null });
     });
   });
 

@@ -270,11 +270,20 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
           inputType="number"
           initialValue={worker.capacity_override != null ? String(worker.capacity_override) : ""}
           onApply={(val) => {
-            patch.mutate({
-              id: worker.worker_id,
-              body: { capacity_override: val === "" ? null : Number(val) },
-            });
-            closeAll();
+            if (val === "") {
+              // Intentional clear: send null to remove the override.
+              patch.mutate({ id: worker.worker_id, body: { capacity_override: null } });
+              closeAll();
+            } else {
+              const n = Number(val);
+              if (Number.isFinite(n)) {
+                // Valid number: set the override.
+                patch.mutate({ id: worker.worker_id, body: { capacity_override: n } });
+                closeAll();
+              }
+              // Non-finite (NaN / ±Infinity from garbage input): do nothing.
+              // The modal stays open and no PATCH is issued, preventing a silent clear.
+            }
           }}
           onCancel={closeAll}
         />
