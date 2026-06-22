@@ -209,7 +209,7 @@ export function SettingsPage() {
               if (!intervalRow || !staleRow) return null;
               const num = (s: Setting) => {
                 const d = s.key in drafts ? drafts[s.key] : String(s.value);
-                const n = Number(d);
+                const n = d.trim() === "" ? NaN : Number(d);
                 return Number.isInteger(n) ? n : s.value;
               };
               const interval = num(intervalRow);

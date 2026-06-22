@@ -302,6 +302,25 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(ko.opsSettings.heartbeatMarginHint)).not.toBeInTheDocument();
   });
 
+  it("empty interval draft does not hide 2x margin hint (reads as saved value, not 0)", async () => {
+    // stale=30, interval saved=20; user clears the interval draft to "".
+    // With the fix: empty draft → NaN → fallback to s.value=20 → 30 < 2*20=40 → hint shown.
+    // Without fix: Number("")=0 → 30 >= 0 → hint hidden (bug).
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30, READONLY_ROW],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText(ko.opsSettings.heartbeatApplyNote);
+
+    const intervalInput = screen.getByLabelText(HEARTBEAT_INTERVAL_ROW.label);
+    await user.clear(intervalInput);
+    // interval draft is now empty — hint should still be visible (saved value 20 used)
+    expect(screen.getByText(ko.opsSettings.heartbeatMarginHint)).toBeInTheDocument();
+  });
+
   it("shows heartbeat apply note when both heartbeat rows are present", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
