@@ -2,6 +2,18 @@ import { z } from "zod";
 
 const BASE = "/api";
 
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as unknown;
+    if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+      return body.error;
+    }
+  } catch {
+    /* non-JSON */
+  }
+  return `HTTP ${res.status}`;
+}
+
 export const PoolWorkerSummarySchema = z.object({
   worker_id: z.string(),
   hostname: z.string(),
@@ -38,7 +50,7 @@ export async function patchPoolWorker(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`patch worker ${res.status}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
   return PoolWorkerSummarySchema.parse(await res.json());
 }
 
@@ -48,5 +60,5 @@ export async function excludePoolWorker(id: string, reason: string): Promise<voi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason }),
   });
-  if (!res.ok) throw new Error(`exclude worker ${res.status}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
 }

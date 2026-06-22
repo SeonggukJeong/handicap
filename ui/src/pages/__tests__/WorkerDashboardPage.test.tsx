@@ -375,6 +375,65 @@ describe("WorkerDashboardPage", () => {
     });
   });
 
+  // ── Task 5: mutation error surface ──
+
+  it("shows inline error in exclude dialog on failure and keeps it open", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([makeWorker({ worker_id: "wkr-err-excl", hostname: "pc-err" })]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("pc-err");
+
+    // Open actions menu → click 제외
+    await user.click(screen.getByLabelText(ko.workers.actionsLabel));
+    await user.click(screen.getByRole("menuitem", { name: ko.workers.exclude }));
+
+    // Confirm dialog is open before clicking proceed
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    // Mock exclude POST to fail with server error body
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "제외 실패" }, 500));
+
+    await user.click(screen.getByRole("button", { name: ko.workers.confirmProceed }));
+
+    // Inline error should appear
+    expect(await screen.findByText(/제외 실패/)).toBeInTheDocument();
+    // Dialog must stay open
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("shows page banner when undrain fails", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([
+          makeWorker({ worker_id: "wkr-err-undrain", hostname: "pc-undrain", drained: true }),
+        ]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("pc-undrain");
+
+    // Mock PATCH to fail
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "되돌리기 실패" }, 500));
+
+    await user.click(screen.getByLabelText(ko.workers.actionsLabel));
+    await user.click(screen.getByRole("menuitem", { name: ko.workers.undrain }));
+
+    // Page banner should appear with the error text
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("되돌리기 실패");
+
+    // Banner is dismissable
+    await user.click(screen.getByRole("button", { name: ko.workers.bannerDismiss }));
+    expect(screen.queryByText("되돌리기 실패")).not.toBeInTheDocument();
+  });
+
   it("F1: 다른 행 kebab 클릭 시 한 번에 메뉴 전환 (단일-오픈 상태)", async () => {
     // Two workers — clicking row2's kebab while row1's menu is open
     // must open row2's menu in ONE click (no double-click required).

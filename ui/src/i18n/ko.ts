@@ -240,6 +240,10 @@ export const ko = {
     confirmProceed: "계속",
     cancel: "취소",
     apply: "적용",
+    // mutation error feedback
+    actionError: (msg: string) => `작업 실패: ${msg}`,
+    bannerDismiss: "닫기",
+    pending: "처리 중…",
     // preview note for drained workers in RunDialog
     poolPreviewDrained: (n: number) => `(비우는 중 ${n}대 제외)`,
   },

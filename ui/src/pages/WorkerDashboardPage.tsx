@@ -11,6 +11,8 @@ type ConfirmDialogProps = {
   body: string;
   warn?: string;
   destructive?: boolean;
+  error?: string | null;
+  pending?: boolean;
   onProceed: () => void;
   onCancel: () => void;
 };
@@ -20,6 +22,8 @@ function ConfirmDialog({
   body,
   warn,
   destructive,
+  error,
+  pending,
   onProceed,
   onCancel,
 }: ConfirmDialogProps) {
@@ -35,6 +39,11 @@ function ConfirmDialog({
         {warn ? (
           <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{warn}</p>
         ) : null}
+        {error ? (
+          <p role="alert" className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -46,11 +55,12 @@ function ConfirmDialog({
           <button
             type="button"
             onClick={onProceed}
+            disabled={pending}
             className={`rounded px-3 py-1.5 text-sm font-medium text-white ${
               destructive ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
             }`}
           >
-            {ko.workers.confirmProceed}
+            {pending ? ko.workers.pending : ko.workers.confirmProceed}
           </button>
         </div>
       </div>
@@ -63,6 +73,8 @@ type EditModalProps = {
   note: string;
   inputType?: "number" | "text";
   initialValue: string;
+  error?: string | null;
+  pending?: boolean;
   onApply: (val: string) => void;
   onCancel: () => void;
 };
@@ -72,6 +84,8 @@ function EditModal({
   note,
   inputType = "text",
   initialValue,
+  error,
+  pending,
   onApply,
   onCancel,
 }: EditModalProps) {
@@ -92,6 +106,11 @@ function EditModal({
           aria-label={title}
         />
         <p className="mb-4 text-xs text-slate-500">{note}</p>
+        {error ? (
+          <p role="alert" className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -103,9 +122,10 @@ function EditModal({
           <button
             type="button"
             onClick={() => onApply(val)}
+            disabled={pending}
             className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
           >
-            {ko.workers.apply}
+            {pending ? ko.workers.pending : ko.workers.apply}
           </button>
         </div>
       </div>
@@ -153,16 +173,19 @@ type RowActionsProps = {
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onActionError: (msg: string) => void;
 };
 
-function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
+function RowActions({ worker, isOpen, onToggle, onClose, onActionError }: RowActionsProps) {
   const [dialog, setDialog] = useState<ActiveDialog | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const patch = usePatchPoolWorker();
   const exclude = useExcludePoolWorker();
 
   const closeAll = () => {
     onClose();
     setDialog(null);
+    setActionError(null);
   };
 
   return (
@@ -188,7 +211,12 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
               <MenuItem
                 onSelect={() => {
                   onClose();
-                  patch.mutate({ id: worker.worker_id, body: { drained: false } });
+                  patch.mutate(
+                    { id: worker.worker_id, body: { drained: false } },
+                    {
+                      onError: (e: Error) => onActionError(ko.workers.actionError(e.message)),
+                    },
+                  );
                 }}
               >
                 {ko.workers.undrain}
@@ -197,6 +225,7 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
               <MenuItem
                 onSelect={() => {
                   onClose();
+                  setActionError(null);
                   setDialog({ type: "drain" });
                 }}
               >
@@ -236,9 +265,17 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
         <ConfirmDialog
           title={ko.workers.drainConfirmTitle}
           body={ko.workers.drainConfirmBody}
+          error={actionError}
+          pending={patch.isPending}
           onProceed={() => {
-            patch.mutate({ id: worker.worker_id, body: { drained: true } });
-            closeAll();
+            setActionError(null);
+            patch.mutate(
+              { id: worker.worker_id, body: { drained: true } },
+              {
+                onSuccess: closeAll,
+                onError: (e: Error) => setActionError(ko.workers.actionError(e.message)),
+              },
+            );
           }}
           onCancel={closeAll}
         />
@@ -255,9 +292,17 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
             worker.busy && worker.run_id ? ko.workers.excludeBusyWarn(worker.run_id) : undefined
           }
           destructive
+          error={actionError}
+          pending={exclude.isPending}
           onProceed={() => {
-            exclude.mutate({ id: worker.worker_id, reason: "" });
-            closeAll();
+            setActionError(null);
+            exclude.mutate(
+              { id: worker.worker_id, reason: "" },
+              {
+                onSuccess: closeAll,
+                onError: (e: Error) => setActionError(ko.workers.actionError(e.message)),
+              },
+            );
           }}
           onCancel={closeAll}
         />
@@ -269,17 +314,31 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
           note={ko.workers.capacityApplyNote}
           inputType="number"
           initialValue={worker.capacity_override != null ? String(worker.capacity_override) : ""}
+          error={actionError}
+          pending={patch.isPending}
           onApply={(val) => {
             if (val === "") {
               // Intentional clear: send null to remove the override.
-              patch.mutate({ id: worker.worker_id, body: { capacity_override: null } });
-              closeAll();
+              setActionError(null);
+              patch.mutate(
+                { id: worker.worker_id, body: { capacity_override: null } },
+                {
+                  onSuccess: closeAll,
+                  onError: (e: Error) => setActionError(ko.workers.actionError(e.message)),
+                },
+              );
             } else {
               const n = Number(val);
               if (Number.isFinite(n)) {
                 // Valid number: set the override.
-                patch.mutate({ id: worker.worker_id, body: { capacity_override: n } });
-                closeAll();
+                setActionError(null);
+                patch.mutate(
+                  { id: worker.worker_id, body: { capacity_override: n } },
+                  {
+                    onSuccess: closeAll,
+                    onError: (e: Error) => setActionError(ko.workers.actionError(e.message)),
+                  },
+                );
               }
               // Non-finite (NaN / ±Infinity from garbage input): do nothing.
               // The modal stays open and no PATCH is issued, preventing a silent clear.
@@ -295,12 +354,17 @@ function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
           note={ko.workers.labelApplyNote}
           inputType="text"
           initialValue={worker.label ?? ""}
+          error={actionError}
+          pending={patch.isPending}
           onApply={(val) => {
-            patch.mutate({
-              id: worker.worker_id,
-              body: { label: val === "" ? null : val },
-            });
-            closeAll();
+            setActionError(null);
+            patch.mutate(
+              { id: worker.worker_id, body: { label: val === "" ? null : val } },
+              {
+                onSuccess: closeAll,
+                onError: (e: Error) => setActionError(ko.workers.actionError(e.message)),
+              },
+            );
           }}
           onCancel={closeAll}
         />
@@ -315,6 +379,7 @@ export function WorkerDashboardPage() {
   const { data, isLoading, isError } = usePoolWorkers();
   // F1: page-level single-open-menu identity — at most one row menu open at a time
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [bannerError, setBannerError] = useState<string | null>(null);
 
   if (isLoading)
     return (
@@ -344,6 +409,22 @@ export function WorkerDashboardPage() {
       </div>
       <p className="text-sm text-slate-500 mb-1">{ko.workers.subtitle}</p>
       <p className="text-sm text-slate-700 mb-4">{ko.workers.countSummary(idle, busy)}</p>
+      {bannerError ? (
+        <div
+          role="alert"
+          className="mb-3 flex items-center justify-between rounded bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
+          <span>{bannerError}</span>
+          <button
+            type="button"
+            aria-label={ko.workers.bannerDismiss}
+            onClick={() => setBannerError(null)}
+            className="ml-3 text-red-600 hover:underline"
+          >
+            {ko.workers.bannerDismiss}
+          </button>
+        </div>
+      ) : null}
       {data.workers.length === 0 ? (
         <p className="text-slate-600">{ko.workers.emptyNoWorkers}</p>
       ) : (
@@ -415,6 +496,7 @@ export function WorkerDashboardPage() {
                       setOpenMenuId((prev) => (prev === w.worker_id ? null : w.worker_id))
                     }
                     onClose={() => setOpenMenuId(null)}
+                    onActionError={setBannerError}
                   />
                 </tr>
               );
