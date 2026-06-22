@@ -92,6 +92,15 @@ struct ControllerArgs {
     /// Shared preshared key required from workers on Register (LAN). Omit = no auth.
     #[arg(long)]
     worker_token: Option<String>,
+    /// Pool heartbeat: how often the controller pings idle pool workers (seconds).
+    #[arg(long, default_value_t = 10)]
+    pool_heartbeat_interval_seconds: u64,
+    /// Pool heartbeat: evict a pool worker after this many seconds of silence.
+    #[arg(long, default_value_t = 30)]
+    pool_stale_timeout_seconds: u64,
+    /// gRPC HTTP/2 keepalive interval/timeout (seconds).
+    #[arg(long, default_value_t = 20)]
+    pool_keepalive_seconds: u64,
     /// (bundle) 시작 시 기본 브라우저 자동 오픈을 끈다(헤드리스/CI/라이브검증용).
     /// bundle 전용 — 비-bundle 빌드엔 이 플래그가 없다(off=CLI 표면까지 byte-identical).
     #[cfg(feature = "bundle")]
@@ -250,6 +259,8 @@ async fn main() -> anyhow::Result<()> {
         ui_dir: args.ui_dir.clone(),
         settings,
         scheduler_tz,
+        heartbeat_interval_seconds: args.pool_heartbeat_interval_seconds,
+        stale_timeout_seconds: args.pool_stale_timeout_seconds,
     };
     if !args.scheduler_disabled {
         let sched_state = state.clone();
@@ -262,6 +273,26 @@ async fn main() -> anyhow::Result<()> {
             tick_seconds = args.scheduler_tick_seconds,
             tz = %scheduler_tz,
             "scheduler loop started"
+        );
+    }
+    if coord_state.is_pool_mode() {
+        let coord = coord_state.clone();
+        let interval = std::time::Duration::from_secs(args.pool_heartbeat_interval_seconds);
+        let stale = std::time::Duration::from_secs(args.pool_stale_timeout_seconds);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(interval);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                coord
+                    .pool_heartbeat_tick(tokio::time::Instant::now(), stale)
+                    .await;
+            }
+        });
+        tracing::info!(
+            interval_s = args.pool_heartbeat_interval_seconds,
+            stale_s = args.pool_stale_timeout_seconds,
+            "pool heartbeat reaper started"
         );
     }
     let app_router = app::router(state);
@@ -294,6 +325,12 @@ async fn main() -> anyhow::Result<()> {
             TcpListener::from_std(grpc_listener).context("grpc into tokio listener")?,
         );
         tonic::transport::Server::builder()
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(
+                args.pool_keepalive_seconds,
+            )))
+            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(
+                args.pool_keepalive_seconds,
+            )))
             .add_service(grpc_svc)
             .serve_with_incoming(incoming)
             .await
@@ -303,6 +340,12 @@ async fn main() -> anyhow::Result<()> {
     let grpc_fut = async {
         info!(addr = %grpc_addr, "gRPC listening");
         tonic::transport::Server::builder()
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(
+                args.pool_keepalive_seconds,
+            )))
+            .http2_keepalive_timeout(Some(std::time::Duration::from_secs(
+                args.pool_keepalive_seconds,
+            )))
             .add_service(grpc_svc)
             .serve(args.grpc)
             .await

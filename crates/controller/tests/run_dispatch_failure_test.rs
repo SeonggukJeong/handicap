@@ -39,6 +39,8 @@ fn make_app(db: store::Db) -> axum::Router {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     })
 }
 

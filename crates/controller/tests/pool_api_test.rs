@@ -26,6 +26,8 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     })
 }
 
@@ -71,6 +73,8 @@ async fn make_app_with_coord_pool() -> (axum::Router, CoordinatorState) {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     (app, coord)
 }

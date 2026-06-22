@@ -105,6 +105,8 @@ async fn full_slice_1_e2e() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -273,6 +275,8 @@ async fn two_step_with_env_e2e() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -460,6 +464,8 @@ async fn abort_e2e_marks_run_aborted() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -624,6 +630,8 @@ async fn loop_e2e_inner_step_counts() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -796,6 +804,8 @@ async fn loop_breakdown_e2e() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1014,6 +1024,8 @@ async fn data_binding_per_vu_injects_distinct_values() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1172,6 +1184,8 @@ async fn report_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1359,6 +1373,8 @@ async fn if_branch_report_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1520,6 +1536,8 @@ async fn open_loop_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1676,6 +1694,8 @@ async fn stages_open_loop_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -1863,6 +1883,8 @@ async fn vu_curve_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -2072,6 +2094,8 @@ async fn open_loop_dropped_reaches_report() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -2266,6 +2290,8 @@ async fn parallel_group_latency_report_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
@@ -2528,6 +2554,8 @@ async fn phase_breakdown_report_e2e_smoke() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();
