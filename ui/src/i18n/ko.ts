@@ -888,6 +888,10 @@ export const ko = {
     mutableSection: "조정 가능한 운영 상한",
     readonlySection: "배포 설정 (읽기 전용)",
     applyNote: "여기서 바꾼 값은 다음에 시작하는 run부터 적용됩니다(진행 중인 run엔 영향 없음).",
+    heartbeatMarginHint:
+      "권장: stale 타임아웃을 ping 주기의 2배 이상으로 두세요. 너무 가까우면 일시적 지연에도 건강한 워커가 응답 없음으로 잘못 처리될 수 있습니다.",
+    heartbeatApplyNote:
+      "하트비트 ping 주기·stale 타임아웃은 진행 중인 풀에 다음 하트비트 점검부터 즉시 적용됩니다(위 '다음 run부터' 안내는 이 두 값엔 해당하지 않음).",
     save: "저장",
     reset: "기본값 복원",
     rangeHint: (min: number, max: number) => `허용 범위 ${min}~${max}`,
@@ -906,6 +910,11 @@ export const ko = {
       max_test_run_requests: '에디터 "시나리오 미리 테스트"가 한 번에 보낼 수 있는 최대 요청 수.',
       trace_body_cap_bytes: "테스트 실행 시 응답 본문을 최대 몇 바이트까지 보관할지(초과분 잘림).",
       scheduler_tick_seconds: "예약된 run을 얼마나 자주 점검할지(초).",
+      pool_heartbeat_interval_seconds: "풀 컨트롤러가 유휴/실행 중 워커에 ping을 보내는 주기(초).",
+      pool_stale_timeout_seconds:
+        "이 시간(초) 동안 워커 응답(pong)이 없으면 풀에서 제외합니다. ping 주기보다 충분히 커야 합니다.",
+      pool_keepalive_seconds:
+        "컨트롤러 gRPC 서버측 HTTP/2 keepalive 주기(초). 배포 설정(재시작 필요).",
     },
     effect: {
       worker_capacity_vus:
@@ -920,6 +929,10 @@ export const ko = {
         "⬆ 올리면 반복이 많은 loop도 회차별로 세밀히 볼 수 있습니다. 대신 저장·리포트 행(메트릭 양)이 늘어납니다.\n⬇ 내리면 메트릭은 가벼워지지만, 회차별 분해 해상도가 줄어듭니다.",
       max_test_run_requests:
         "⬆ 올리면 더 긴 시나리오를 미리 끝까지 실행해볼 수 있습니다. 대신 미리보기가 느려지고 대상 서버에 요청이 더 갑니다.\n⬇ 내리면 빠르고 가볍지만, 긴 시나리오는 앞부분까지만 미리 실행됩니다.",
+      pool_heartbeat_interval_seconds:
+        "⬆ 올리면 ping이 뜸해져 네트워크 부담이 줄지만, 죽은 워커 감지가 느려집니다.\n⬇ 내리면 빨리 감지하지만 ping이 잦아집니다. stale 타임아웃을 항상 이 값의 2배 이상으로 유지하세요.",
+      pool_stale_timeout_seconds:
+        "⬆ 올리면 느린 워커에 관대해지지만 죽은 워커가 오래 남습니다.\n⬇ 내리면 빨리 정리하지만, ping 주기에 너무 가까우면 건강한 워커를 잘못 제외합니다(최소 2배 권장).",
     },
   },
 } as const;

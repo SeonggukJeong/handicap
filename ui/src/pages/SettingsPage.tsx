@@ -144,7 +144,7 @@ export function SettingsPage() {
         <h2 className="text-lg font-semibold">{ko.opsSettings.title}</h2>
       </div>
 
-      {/* R12 — apply-note banner */}
+      {/* apply-note banner */}
       <p className="mb-6 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
         {ko.opsSettings.applyNote}
       </p>
@@ -201,6 +201,30 @@ export function SettingsPage() {
                 );
               })}
             </ul>
+            {/* apply-note banner */}
+            {(() => {
+              const find = (k: string) => settings?.find((s) => s.key === k);
+              const intervalRow = find("pool_heartbeat_interval_seconds");
+              const staleRow = find("pool_stale_timeout_seconds");
+              if (!intervalRow || !staleRow) return null;
+              const num = (s: Setting) => {
+                const d = s.key in drafts ? drafts[s.key] : String(s.value);
+                const n = Number(d);
+                return Number.isInteger(n) ? n : s.value;
+              };
+              const interval = num(intervalRow);
+              const stale = num(staleRow);
+              return (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs text-slate-500">{ko.opsSettings.heartbeatApplyNote}</p>
+                  {stale < 2 * interval && (
+                    <p role="note" className="text-xs text-amber-700">
+                      {ko.opsSettings.heartbeatMarginHint}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </section>
 
           {/* Readonly section */}

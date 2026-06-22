@@ -246,4 +246,69 @@ describe("SettingsPage", () => {
       expect(errorAlert).toBeDefined();
     });
   });
+
+  // Heartbeat rows fixture
+  const HEARTBEAT_INTERVAL_ROW = {
+    key: "pool_heartbeat_interval_seconds",
+    label: "하트비트 ping 주기",
+    group: "limits",
+    value: 20,
+    default: 10,
+    min: 1,
+    max: 3600,
+    unit: "초",
+    mutable: true,
+    source: "override",
+  };
+
+  const HEARTBEAT_STALE_ROW_30 = {
+    key: "pool_stale_timeout_seconds",
+    label: "풀 stale 타임아웃",
+    group: "limits",
+    value: 30,
+    default: 30,
+    min: 2,
+    max: 7200,
+    unit: "초",
+    mutable: true,
+    source: "default",
+  };
+
+  const HEARTBEAT_STALE_ROW_60 = {
+    ...HEARTBEAT_STALE_ROW_30,
+    value: 60,
+  };
+
+  it("shows 2x margin hint when stale < 2x interval", async () => {
+    // stale=30 < 2*20=40 → hint should appear
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30, READONLY_ROW],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText(ko.opsSettings.heartbeatMarginHint)).toBeInTheDocument();
+  });
+
+  it("hides 2x margin hint when stale >= 2x interval", async () => {
+    // stale=60 >= 2*20=40 → no hint
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_60, READONLY_ROW],
+      }),
+    );
+    renderPage();
+    await screen.findByText(ko.opsSettings.mutableSection);
+    expect(screen.queryByText(ko.opsSettings.heartbeatMarginHint)).not.toBeInTheDocument();
+  });
+
+  it("shows heartbeat apply note when both heartbeat rows are present", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30, READONLY_ROW],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText(ko.opsSettings.heartbeatApplyNote)).toBeInTheDocument();
+  });
 });
