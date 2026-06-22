@@ -85,6 +85,14 @@ fn resolve_pool_worker_id(explicit: Option<String>) -> String {
     explicit.unwrap_or_else(|| ulid::Ulid::new().to_string())
 }
 
+/// A pool worker's control state is persisted only when it has a stable,
+/// operator-assigned id (`--worker-id`); an auto-generated random ULID is
+/// ephemeral (LAN ops persistence). Mirrors `resolve_pool_worker_id`'s
+/// explicit-wins rule.
+fn worker_id_is_stable(explicit: &Option<String>) -> bool {
+    explicit.is_some()
+}
+
 /// Best-effort machine hostname for pool dashboard display. Empty on
 /// failure / non-UTF8 (display-only; never load-bearing).
 fn resolve_hostname() -> String {
@@ -488,6 +496,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         args.capacity_vus,
         args.token.as_deref().unwrap_or(""),
         &hostname,
+        false,
         cancel.clone(),
     )
     .await
@@ -512,6 +521,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
 /// then reconnect to become idle again (reconnect-per-run, R1).
 pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
     let worker_id = resolve_pool_worker_id(args.worker_id.clone());
+    let stable = worker_id_is_stable(&args.worker_id);
     let cancel = CancellationToken::new(); // process-level (SIGTERM)
     let signal_task = spawn_sigterm(cancel.clone());
     let token = args.token.as_deref().unwrap_or("");
@@ -528,6 +538,7 @@ pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
             args.capacity_vus,
             token,
             &hostname,
+            stable,
             cancel.clone(),
         )
         .await
@@ -804,5 +815,14 @@ mod tests {
         // 머신마다 값이 다르므로 "panic 없이 String 반환"만 단언(빈 폴백 포함 OK).
         let h = resolve_hostname();
         let _ = h.len(); // 호출이 패닉하지 않음
+    }
+
+    #[test]
+    fn worker_id_is_stable_reflects_explicit_id() {
+        assert!(
+            worker_id_is_stable(&Some("w1".to_string())),
+            "explicit --worker-id → stable"
+        );
+        assert!(!worker_id_is_stable(&None), "auto random ULID → ephemeral");
     }
 }

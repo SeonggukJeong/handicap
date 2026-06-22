@@ -25,6 +25,7 @@ message Register {
   uint32 capacity_vus = 3;  // max VUs this worker is willing to run
   string token = 4;         // shared preshared key (LAN L1); "" = unset
   string hostname = 5;      // worker machine hostname (LAN L2 display); "" = unset
+  bool stable_id = 6;       // worker_id is operator-assigned (--worker-id) → durable control (LAN ops); false = ephemeral random ULID
 }
 
 message Pong {

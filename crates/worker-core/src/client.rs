@@ -98,6 +98,7 @@ async fn forward_inbound<S>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn connect_and_register(
     controller_url: &str,
     worker_id: &str,
@@ -105,6 +106,7 @@ pub async fn connect_and_register(
     capacity_vus: u32,
     token: &str,
     hostname: &str,
+    stable: bool,
     cancel: &CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let channel = Channel::from_shared(controller_url.to_string())?
@@ -128,6 +130,7 @@ pub async fn connect_and_register(
             capacity_vus,
             token: token.to_string(),
             hostname: hostname.to_string(),
+            stable_id: stable,
         })),
     })
     .await

@@ -32,6 +32,7 @@ pub const TOTAL_CAP: Duration = Duration::from_secs(60);
 /// `cancel` lets a SIGTERM during the backoff sleep abort the retry loop
 /// promptly instead of waiting up to 8 s for the next iteration's check.
 /// When cancelled, returns `WorkerError::Cancelled`.
+#[allow(clippy::too_many_arguments)]
 pub async fn connect_with_backoff(
     controller_url: &str,
     worker_id: &str,
@@ -39,6 +40,7 @@ pub async fn connect_with_backoff(
     capacity_vus: u32,
     token: &str,
     hostname: &str,
+    stable: bool,
     cancel: CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let token = token.to_string();
@@ -53,6 +55,7 @@ pub async fn connect_with_backoff(
                 capacity_vus,
                 &token,
                 &hostname,
+                stable,
                 &cancel_for_attempt,
             )
         },
