@@ -19,7 +19,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-// Canonical worker fixture with all fields including L7 additions.
+// Canonical worker fixture with all fields including L7/T3 additions.
 // All tests should use this shape (FR3).
 function makeWorker(overrides: {
   worker_id?: string;
@@ -31,6 +31,7 @@ function makeWorker(overrides: {
   drained?: boolean;
   capacity_override?: number | null;
   label?: string | null;
+  stable?: boolean;
 }) {
   return {
     worker_id: "wkr-default",
@@ -42,6 +43,7 @@ function makeWorker(overrides: {
     drained: false,
     capacity_override: null,
     label: null,
+    stable: true,
     ...overrides,
   };
 }
@@ -466,5 +468,52 @@ describe("WorkerDashboardPage", () => {
     // Row A has no menu
     const rowA = screen.getByText("pc-a").closest("tr")!;
     expect(within(rowA).queryByRole("menu")).toBeNull();
+  });
+
+  // ── Task 3: stable / ephemeral indicator (R7, R8, R9) ──
+
+  it("ephemeral(비안정) 워커에 '일시적' 표시 + 제어 메뉴에 미유지 힌트", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([makeWorker({ worker_id: "wkr-eph", hostname: "pc-eph", stable: false })]),
+      ),
+    );
+    // Drain PATCH response
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        makeWorker({ worker_id: "wkr-eph", hostname: "pc-eph", stable: false, drained: true }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("pc-eph");
+
+    // Ephemeral badge must appear on the non-stable row
+    expect(screen.getByText(ko.workers.ephemeralBadge)).toBeInTheDocument();
+
+    // Open menu → drain → confirm dialog should contain the ephemeral hint
+    await user.click(screen.getByRole("button", { name: ko.workers.actionsLabel }));
+    await user.click(screen.getByRole("menuitem", { name: ko.workers.drain }));
+
+    // ConfirmDialog for drain is open; hint paragraph must be present
+    const dialog = screen.getByRole("dialog", { name: ko.workers.drainConfirmTitle });
+    expect(within(dialog).getByText(ko.workers.ephemeralHint)).toBeInTheDocument();
+  });
+
+  it("stable 워커엔 '일시적' 표시 없음", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([
+          makeWorker({ worker_id: "wkr-stable", hostname: "pc-stable", stable: true }),
+        ]),
+      ),
+    );
+    renderPage();
+
+    await screen.findByText("pc-stable");
+
+    // No ephemeral badge for stable worker
+    expect(screen.queryByText(ko.workers.ephemeralBadge)).toBeNull();
   });
 });

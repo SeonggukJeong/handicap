@@ -24,6 +24,7 @@ export const PoolWorkerSummarySchema = z.object({
   drained: z.boolean(),
   capacity_override: z.number().nullable(),
   label: z.string().nullable(),
+  stable: z.boolean(),
 });
 export type PoolWorkerSummary = z.infer<typeof PoolWorkerSummarySchema>;
 

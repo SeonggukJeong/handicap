@@ -9,6 +9,7 @@ import { ko } from "../i18n/ko";
 type ConfirmDialogProps = {
   title: string;
   body: string;
+  hint?: string;
   warn?: string;
   destructive?: boolean;
   error?: string | null;
@@ -20,6 +21,7 @@ type ConfirmDialogProps = {
 function ConfirmDialog({
   title,
   body,
+  hint,
   warn,
   destructive,
   error,
@@ -36,6 +38,7 @@ function ConfirmDialog({
       <div className="w-96 rounded-lg border border-slate-200 bg-white p-5 shadow-lg">
         <p className="mb-2 font-semibold text-slate-800">{title}</p>
         <p className="mb-3 text-sm text-slate-600">{body}</p>
+        {hint ? <p className="mt-2 text-xs text-amber-700">{hint}</p> : null}
         {warn ? (
           <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{warn}</p>
         ) : null}
@@ -71,6 +74,7 @@ function ConfirmDialog({
 type EditModalProps = {
   title: string;
   note: string;
+  hint?: string;
   inputType?: "number" | "text";
   initialValue: string;
   error?: string | null;
@@ -82,6 +86,7 @@ type EditModalProps = {
 function EditModal({
   title,
   note,
+  hint,
   inputType = "text",
   initialValue,
   error,
@@ -106,6 +111,7 @@ function EditModal({
           aria-label={title}
         />
         <p className="mb-4 text-xs text-slate-500">{note}</p>
+        {hint ? <p className="mt-2 text-xs text-amber-700">{hint}</p> : null}
         {error ? (
           <p role="alert" className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
@@ -268,6 +274,7 @@ function RowActions({ worker, isOpen, onToggle, onClose, onActionError }: RowAct
         <ConfirmDialog
           title={ko.workers.drainConfirmTitle}
           body={ko.workers.drainConfirmBody}
+          hint={!worker.stable ? ko.workers.ephemeralHint : undefined}
           error={actionError}
           pending={patch.isPending}
           onProceed={() => {
@@ -315,6 +322,7 @@ function RowActions({ worker, isOpen, onToggle, onClose, onActionError }: RowAct
         <EditModal
           title={ko.workers.editCapacity}
           note={ko.workers.capacityApplyNote}
+          hint={!worker.stable ? ko.workers.ephemeralHint : undefined}
           inputType="number"
           initialValue={worker.capacity_override != null ? String(worker.capacity_override) : ""}
           error={actionError}
@@ -355,6 +363,7 @@ function RowActions({ worker, isOpen, onToggle, onClose, onActionError }: RowAct
         <EditModal
           title={ko.workers.editLabel}
           note={ko.workers.labelApplyNote}
+          hint={!worker.stable ? ko.workers.ephemeralHint : undefined}
           inputType="text"
           initialValue={worker.label ?? ""}
           error={actionError}
@@ -460,6 +469,11 @@ export function WorkerDashboardPage() {
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs" title={w.worker_id}>
                     {w.worker_id}
+                    {!w.stable ? (
+                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-600">
+                        {ko.workers.ephemeralBadge}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-4">
                     {w.busy ? (

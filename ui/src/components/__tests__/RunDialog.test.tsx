@@ -1573,6 +1573,7 @@ function makePoolWorker(overrides: {
   drained?: boolean;
   capacity_override?: number | null;
   label?: string | null;
+  stable?: boolean;
 }) {
   return {
     worker_id: "w0",
@@ -1584,6 +1585,7 @@ function makePoolWorker(overrides: {
     drained: false,
     capacity_override: null,
     label: null,
+    stable: true,
     ...overrides,
   };
 }

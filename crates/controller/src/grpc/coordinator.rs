@@ -122,6 +122,7 @@ pub struct PoolWorkerInfo {
     pub drained: bool,
     pub capacity_override: Option<u32>,
     pub label: Option<String>,
+    pub stable: bool,
 }
 
 /// One connected worker's slot in a run.
@@ -437,6 +438,7 @@ impl CoordinatorState {
                 drained: e.drained,
                 capacity_override: e.capacity_override,
                 label: e.label.clone(),
+                stable: e.stable,
             })
             .collect();
         drop(g);

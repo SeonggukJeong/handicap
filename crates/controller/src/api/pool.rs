@@ -20,6 +20,7 @@ pub struct PoolWorkerSummary {
     pub drained: bool,
     pub capacity_override: Option<u32>,
     pub label: Option<String>,
+    pub stable: bool,
 }
 
 impl From<PoolWorkerInfo> for PoolWorkerSummary {
@@ -34,6 +35,7 @@ impl From<PoolWorkerInfo> for PoolWorkerSummary {
             drained: i.drained,
             capacity_override: i.capacity_override,
             label: i.label,
+            stable: i.stable,
         }
     }
 }

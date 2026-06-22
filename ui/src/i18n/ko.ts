@@ -246,6 +246,10 @@ export const ko = {
     pending: "처리 중…",
     // preview note for drained workers in RunDialog
     poolPreviewDrained: (n: number) => `(비우는 중 ${n}대 제외)`,
+    // ephemeral (non-stable) worker — control state not durable across controller restart
+    ephemeralBadge: "일시적",
+    ephemeralHint:
+      "이 워커는 안정 id가 없어 컨트롤러 재시작 시 이 설정이 유지되지 않습니다. 유지하려면 워커를 '--worker-id'로 기동하세요.",
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
