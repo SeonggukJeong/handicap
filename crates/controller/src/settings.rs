@@ -231,6 +231,27 @@ impl SettingsState {
                 readonly.insert(d.key, seed);
             }
         }
+        // R5c (effective): a surviving DB override combined with a changed CLI seed can
+        // produce stale <= interval even when each value is individually in range — the
+        // main.rs seed-pair clamp only covers the CLI seeds. Cross-check the EFFECTIVE
+        // pair here and clamp stale to interval+1 (warn) so the reaper never boots into
+        // destructive flapping. (Seed-only case is already interval+1 here → no re-clamp,
+        // no double-warn.)
+        if let (Some(&interval), Some(&stale)) = (
+            values.get("pool_heartbeat_interval_seconds"),
+            values.get("pool_stale_timeout_seconds"),
+        ) {
+            if stale <= interval {
+                let clamped = interval + 1;
+                tracing::warn!(
+                    interval = interval,
+                    stale = stale,
+                    clamped_to = clamped,
+                    "유효 stale <= interval (오버라이드+시드 조합) — stale를 interval+1로 clamp"
+                );
+                values.insert("pool_stale_timeout_seconds", clamped);
+            }
+        }
         Self {
             snap: Arc::new(RwLock::new(MutSnap { values, overridden })),
             seeds: Arc::new(seeds),
@@ -449,6 +470,16 @@ mod tests {
         assert!(check_heartbeat_pair(10, 11).is_ok());
         assert!(check_heartbeat_pair(10, 10).is_err()); // equal → reject
         assert!(check_heartbeat_pair(10, 5).is_err()); // stale < interval → reject
+    }
+
+    #[test]
+    fn build_clamps_effective_stale_le_interval() {
+        // DB override stale=8 (in range) + CLI seed interval=10 → effective 8 <= 10 → clamp to 11.
+        let mut db = HashMap::new();
+        db.insert("pool_stale_timeout_seconds".to_string(), 8i64);
+        let st = SettingsState::build(&db, &[("pool_heartbeat_interval_seconds", 10)]);
+        assert_eq!(st.pool_heartbeat_interval_seconds(), 10);
+        assert_eq!(st.pool_stale_timeout_seconds(), 11);
     }
 
     #[test]
