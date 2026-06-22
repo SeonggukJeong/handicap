@@ -474,6 +474,55 @@ impl CoordinatorState {
         }
     }
 
+    /// Apply operator control to a pool worker. Each Some(...) is applied; None
+    /// leaves that field unchanged; Some(None) clears an Option field. Returns
+    /// false if the worker_id is not in the pool. (spec R8)
+    pub async fn pool_set_control(
+        &self,
+        worker_id: &str,
+        drained: Option<bool>,
+        capacity_override: Option<Option<u32>>,
+        label: Option<Option<String>>,
+    ) -> bool {
+        let mut g = self.pool.lock().await;
+        let Some(e) = g.get_mut(worker_id) else {
+            return false;
+        };
+        if let Some(d) = drained {
+            e.drained = d;
+        }
+        if let Some(c) = capacity_override {
+            e.capacity_override = c;
+        }
+        if let Some(l) = label {
+            e.label = l;
+        }
+        true
+    }
+
+    /// Hard-remove a pool worker and ask it to exit. Busy → existing fail-fast
+    /// (run failed); the worker's later Aborted/drop is absorbed by the terminal
+    /// guard. Push Disconnect via try_send (non-blocking; R14). Returns false if
+    /// not in pool. (spec R6)
+    pub async fn pool_exclude(&self, worker_id: &str, reason: &str) -> bool {
+        let captured = {
+            let mut g = self.pool.lock().await;
+            g.remove(worker_id).map(|e| (e.tx, e.assigned_run))
+        };
+        let Some((tx, assigned)) = captured else {
+            return false;
+        };
+        if let Some(run_id) = assigned {
+            self.worker_disconnected(&run_id, worker_id).await;
+        }
+        let _ = tx.try_send(Ok(ServerMessage {
+            payload: Some(ServerPayload::Disconnect(pb::Disconnect {
+                reason: reason.to_string(),
+            })),
+        }));
+        true
+    }
+
     /// Read-only: `(idle_count, Σ achievable capacity)` for the pre-insert 409 check.
     /// `worker_cap` limits how many idle workers are considered (same subset as
     /// `reserve_idle_pool_capacity`). Same floor/sum as the reserve path
@@ -2949,5 +2998,57 @@ mod tests {
             }
             other => panic!("expected Reserved, got {other:?}"),
         }
+    }
+
+    // ── Task 3 (LAN L7): pool_set_control + pool_exclude ──
+
+    #[tokio::test]
+    async fn pool_set_control_partial_update_and_404() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into()).await;
+        assert!(
+            st.pool_set_control("w1", Some(true), Some(Some(5)), Some(Some("pc".into())))
+                .await
+        );
+        {
+            let g = st.pool.lock().await;
+            let e = g.get("w1").unwrap();
+            assert!(e.drained);
+            assert_eq!(e.capacity_override, Some(5));
+            assert_eq!(e.label.as_deref(), Some("pc"));
+        }
+        // partial: only undrain; clear override; leave label
+        assert!(
+            st.pool_set_control("w1", Some(false), Some(None), None)
+                .await
+        );
+        {
+            let g = st.pool.lock().await;
+            let e = g.get("w1").unwrap();
+            assert!(!e.drained);
+            assert_eq!(e.capacity_override, None);
+            assert_eq!(e.label.as_deref(), Some("pc"));
+        }
+        assert!(
+            !st.pool_set_control("missing", Some(true), None, None).await,
+            "404 → false"
+        );
+    }
+
+    #[tokio::test]
+    async fn pool_exclude_idle_removes_and_busy_fails_run() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into()).await;
+        assert!(st.pool_exclude("w1", "maintenance").await);
+        assert_eq!(st.pool_idle_count().await, 0, "removed from pool");
+        // a Disconnect was pushed
+        let msg = rx.try_recv().expect("Disconnect pushed");
+        assert!(matches!(
+            msg.unwrap().payload,
+            Some(ServerPayload::Disconnect(_))
+        ));
+        assert!(!st.pool_exclude("missing", "x").await, "404 → false");
     }
 }

@@ -139,7 +139,15 @@ pub fn router(state: AppState) -> Router {
             put(settings_api::put).delete(settings_api::delete),
         )
         .route("/test-runs", post(test_runs_api::create))
-        .route("/pool/workers", get(pool_api::list_workers));
+        .route("/pool/workers", get(pool_api::list_workers))
+        .route(
+            "/pool/workers/{id}",
+            axum::routing::patch(pool_api::patch_worker),
+        )
+        .route(
+            "/pool/workers/{id}/exclude",
+            axum::routing::post(pool_api::exclude_worker),
+        );
 
     let mut app = Router::new().nest("/api", api);
 
