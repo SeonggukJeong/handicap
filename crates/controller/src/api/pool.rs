@@ -113,12 +113,19 @@ pub async fn patch_worker(
             return Err(ApiError::BadRequest("label too long (max 200)".into()));
         }
     }
-    if !state
+    match state
         .coord
         .pool_set_control(&id, req.drained, req.capacity_override, req.label)
         .await
     {
-        return Err(ApiError::NotFound);
+        Ok(true) => {}
+        Ok(false) => return Err(ApiError::NotFound),
+        // Control applied in-memory but persistence failed — surface, don't swallow.
+        Err(e) => {
+            return Err(ApiError::Internal(
+                e.context("control applied in-memory but persistence failed"),
+            ));
+        }
     }
     // return the updated summary
     let summary = state

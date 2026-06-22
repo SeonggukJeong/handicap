@@ -99,6 +99,9 @@ struct PoolEntry {
     capacity_override: Option<u32>,
     /// Operator memo (display-only). (R1)
     label: Option<String>,
+    /// Whether this worker has a stable, operator-assigned id (Register.stable_id).
+    /// Only stable workers persist/re-attach control state (LAN ops). false = ephemeral.
+    stable: bool,
 }
 
 impl PoolEntry {
@@ -354,7 +357,25 @@ impl CoordinatorState {
         tx: WorkerTx,
         capacity_vus: u32,
         hostname: String,
+        stable: bool,
     ) {
+        // Read persisted override BEFORE locking (R14 — no DB .await under the pool lock).
+        // Applied only on the INSERT (entry-absent) branch: cold attach after a controller
+        // restart, OR reconnect after the L6 reaper evicted a half-open worker. Warm reconnect
+        // (UPDATE) preserves in-memory (L7 R2). Read error → fail-soft to defaults.
+        // (On a stable warm reconnect this read is discarded — a benign single PK lookup;
+        //  we cannot know INSERT vs UPDATE without holding the lock.)
+        let restored = if stable {
+            match crate::store::pool_overrides::get_pool_override(&self.db, worker_id).await {
+                Ok(o) => o,
+                Err(e) => {
+                    warn!(worker_id, error = %e, "pool override read failed; using defaults");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let mut g = self.pool.lock().await;
         match g.get_mut(worker_id) {
             Some(e) => {
@@ -364,9 +385,14 @@ impl CoordinatorState {
                 e.hostname = hostname;
                 e.assigned_run = None;
                 e.last_seen = tokio::time::Instant::now();
-                // drained / capacity_override / label intentionally untouched (R2).
+                e.stable = stable;
+                // drained / capacity_override / label preserved in-memory (L7 R2; no DB re-apply).
             }
             None => {
+                let (drained, capacity_override, label) = match restored {
+                    Some(o) => (o.drained, o.capacity_override, o.label),
+                    None => (false, None, None),
+                };
                 g.insert(
                     worker_id.to_string(),
                     PoolEntry {
@@ -375,9 +401,10 @@ impl CoordinatorState {
                         hostname,
                         assigned_run: None,
                         last_seen: tokio::time::Instant::now(),
-                        drained: false,
-                        capacity_override: None,
-                        label: None,
+                        drained,
+                        capacity_override,
+                        label,
+                        stable,
                     },
                 );
             }
@@ -483,28 +510,48 @@ impl CoordinatorState {
 
     /// Apply operator control to a pool worker. Each Some(...) is applied; None
     /// leaves that field unchanged; Some(None) clears an Option field. Returns
-    /// false if the worker_id is not in the pool. (spec R8)
+    /// Ok(true) = applied+persisted, Ok(false) = not in pool (404),
+    /// Err = applied in-memory but persistence failed (500). (spec R8)
     pub async fn pool_set_control(
         &self,
         worker_id: &str,
         drained: Option<bool>,
         capacity_override: Option<Option<u32>>,
         label: Option<Option<String>>,
-    ) -> bool {
-        let mut g = self.pool.lock().await;
-        let Some(e) = g.get_mut(worker_id) else {
-            return false;
+    ) -> anyhow::Result<bool> {
+        let snapshot = {
+            let mut g = self.pool.lock().await;
+            let Some(e) = g.get_mut(worker_id) else {
+                return Ok(false);
+            };
+            if let Some(d) = drained {
+                e.drained = d;
+            }
+            if let Some(c) = capacity_override {
+                e.capacity_override = c;
+            }
+            if let Some(l) = label {
+                e.label = l;
+            }
+            // capture under lock (e.stable gates persistence); .await happens after drop.
+            (e.stable, e.drained, e.capacity_override, e.label.clone())
         };
-        if let Some(d) = drained {
-            e.drained = d;
+        let (stable, drained, cap, label) = snapshot;
+        if stable {
+            if !drained && cap.is_none() && label.is_none() {
+                crate::store::pool_overrides::delete_pool_override(&self.db, worker_id).await?;
+            } else {
+                crate::store::pool_overrides::upsert_pool_override(
+                    &self.db,
+                    worker_id,
+                    drained,
+                    cap,
+                    label.as_deref(),
+                )
+                .await?;
+            }
         }
-        if let Some(c) = capacity_override {
-            e.capacity_override = c;
-        }
-        if let Some(l) = label {
-            e.label = l;
-        }
-        true
+        Ok(true)
     }
 
     /// Hard-remove a pool worker and ask it to exit. Busy → existing fail-fast
@@ -1165,6 +1212,7 @@ impl Coordinator for CoordinatorService {
                                     tx.clone(),
                                     reg.capacity_vus,
                                     reg.hostname.clone(),
+                                    reg.stable_id,
                                 )
                                 .await;
                             pool_conn = true;
@@ -2203,13 +2251,13 @@ mod tests {
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         assert_eq!(coord.pool_idle_count().await, 1);
         // 같은 worker_id 재등록 = tx 교체, 중복 아님
         let (tx0b, _r0b) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0b, 100, "host".into())
+            .pool_register_idle("w0", tx0b, 100, "host".into(), false)
             .await;
         assert_eq!(
             coord.pool_idle_count().await,
@@ -2224,7 +2272,7 @@ mod tests {
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         coord.pool_disconnect("w0").await;
         assert_eq!(coord.pool_idle_count().await, 0);
@@ -2236,7 +2284,9 @@ mod tests {
         let coord = CoordinatorState::new(db);
         for w in ["w0", "w1", "w2"] {
             let (tx, _r) = fake_tx();
-            coord.pool_register_idle(w, tx, 100, "host".into()).await;
+            coord
+                .pool_register_idle(w, tx, 100, "host".into(), false)
+                .await;
         }
         // cap=2(부하상한, 예: vus=2) → 3 유휴 중 2개만 예약
         let reserved = coord.reserve_idle_pool("run-x", 2).await;
@@ -2264,10 +2314,10 @@ mod tests {
         let (tx0, mut r0) = fake_tx();
         let (tx1, mut r1) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         coord
-            .pool_register_idle("w1", tx1, 100, "host".into())
+            .pool_register_idle("w1", tx1, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // cap=4(vus), 유휴 2 → N=2
         coord
@@ -2307,7 +2357,7 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some(run_id)
         coord
@@ -2335,7 +2385,7 @@ mod tests {
         let (tx0, r0) = fake_tx();
         drop(r0); // 수신측 닫힘 → 이후 tx.send 실패
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
@@ -2360,7 +2410,7 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         let (tx0, _r0) = fake_tx(); // _r0 유지 → push 성공
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await;
         coord
@@ -2390,14 +2440,14 @@ mod tests {
         let coord = CoordinatorState::new(db);
         let (tx0, _r0) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0, 100, "host".into())
+            .pool_register_idle("w0", tx0, 100, "host".into(), false)
             .await;
         let _ = coord.reserve_idle_pool("run-x", 4).await; // assigned_run=Some → busy
         assert_eq!(coord.pool_idle_count().await, 0, "예약 후 busy(idle 아님)");
         // run 종료 후 워커가 새 스트림으로 재연결 → 재등록(fresh idle, assigned_run=None)
         let (tx0b, _r0b) = fake_tx();
         coord
-            .pool_register_idle("w0", tx0b, 100, "host".into())
+            .pool_register_idle("w0", tx0b, 100, "host".into(), false)
             .await;
         assert_eq!(
             coord.pool_idle_count().await,
@@ -2413,10 +2463,10 @@ mod tests {
         let (tx1, _r1) = fake_tx();
         let (tx2, _r2) = fake_tx();
         coord
-            .pool_register_idle("wb", tx1, 100, "beta".into())
+            .pool_register_idle("wb", tx1, 100, "beta".into(), false)
             .await;
         coord
-            .pool_register_idle("wa", tx2, 200, "alpha".into())
+            .pool_register_idle("wa", tx2, 200, "alpha".into(), false)
             .await;
         // 한 워커를 busy로(reserve가 assigned_run=Some 마킹; DB run 행 불요 — 풀 맵만 건드림)
         let _ = coord.reserve_idle_pool("run-1", 1).await;
@@ -2437,7 +2487,7 @@ mod tests {
         let coord = CoordinatorState::new(db);
         let (tx, _r) = fake_tx();
         coord
-            .pool_register_idle("w1", tx, 50, "myhost".into())
+            .pool_register_idle("w1", tx, 50, "myhost".into(), false)
             .await;
         let snap = coord.pool_snapshot(tokio::time::Instant::now()).await;
         assert_eq!(snap[0].hostname, "myhost");
@@ -2451,7 +2501,9 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         for (id, cap) in [("w0", 5u32), ("w1", 1000u32)] {
             let (tx, _rx) = fake_tx();
-            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+            coord
+                .pool_register_idle(id, tx, cap, "h".into(), false)
+                .await;
         }
         // worker_cap=1005 (closed vus=total cap), all 2 workers considered
         assert_eq!(coord.pool_achievable_capacity(1005).await, (2, 1005));
@@ -2463,7 +2515,9 @@ mod tests {
         // worker_id sort: "w0"(cap 5) then "w1"(cap 1000)
         for (id, cap) in [("w0", 5u32), ("w1", 1000u32)] {
             let (tx, _rx) = fake_tx();
-            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+            coord
+                .pool_register_idle(id, tx, cap, "h".into(), false)
+                .await;
         }
         // closed-loop: worker_cap=slot_total=vus=30 — assertions unchanged (behavior identical)
         match coord.reserve_idle_pool_capacity("run-x", 30, 30).await {
@@ -2482,7 +2536,7 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         for id in ["w0", "w1"] {
             let (tx, _rx) = fake_tx();
-            coord.pool_register_idle(id, tx, 5, "h".into()).await;
+            coord.pool_register_idle(id, tx, 5, "h".into(), false).await;
         }
         // closed-loop: worker_cap=slot_total=vus=30 — assertions unchanged (behavior identical)
         match coord.reserve_idle_pool_capacity("run-x", 30, 30).await {
@@ -2691,7 +2745,9 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         for (id, cap) in [("w0", 5u32), ("w1", 25u32)] {
             let (tx, _rx) = fake_tx();
-            coord.pool_register_idle(id, tx, cap, "h".into()).await;
+            coord
+                .pool_register_idle(id, tx, cap, "h".into(), false)
+                .await;
         }
         match coord.reserve_idle_pool_capacity("run-x", 8, 8).await {
             PoolReservation::Reserved { workers, counts } => {
@@ -2720,7 +2776,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(5)).await;
         let before = coord.pool_snapshot(tokio::time::Instant::now()).await[0].last_seen_secs_ago;
@@ -2735,7 +2793,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         assert_eq!(coord.pool_idle_count().await, 1);
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(31)).await;
@@ -2757,7 +2817,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(10)).await; // < stale 30
         coord
@@ -2783,7 +2845,9 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         let (tx, _rx) = fake_tx(); // keep _rx so assign_pool_workers send succeeds
-        coord.pool_register_idle("w0", tx, 100, "host".into()).await;
+        coord
+            .pool_register_idle("w0", tx, 100, "host".into(), false)
+            .await;
         let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some
         coord
             .enqueue(
@@ -2821,7 +2885,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(31)).await;
         coord
@@ -2856,7 +2922,8 @@ mod tests {
     async fn pool_register_idle_preserves_control_and_refreshes_tx() {
         let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx1, rx1) = tokio::sync::mpsc::channel(32);
-        st.pool_register_idle("w1", tx1, 10, "h1".into()).await;
+        st.pool_register_idle("w1", tx1, 10, "h1".into(), false)
+            .await;
         // operator sets control directly (mutator arrives in Task 3; here mutate under lock)
         {
             let mut g = st.pool.lock().await;
@@ -2870,7 +2937,8 @@ mod tests {
         // would be true. Re-register with a FRESH tx2 whose receiver stays alive.
         drop(rx1);
         let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
-        st.pool_register_idle("w1", tx2, 12, "h1b".into()).await;
+        st.pool_register_idle("w1", tx2, 12, "h1b".into(), false)
+            .await;
         let g = st.pool.lock().await;
         let e = g.get("w1").unwrap();
         assert!(e.drained, "drain preserved across re-register");
@@ -2889,7 +2957,7 @@ mod tests {
     async fn pool_register_idle_default_fields_match_old_blind_insert() {
         let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        st.pool_register_idle("w1", tx, 5, "h".into()).await;
+        st.pool_register_idle("w1", tx, 5, "h".into(), false).await;
         let g = st.pool.lock().await;
         let e = g.get("w1").unwrap();
         assert!(!e.drained);
@@ -2910,6 +2978,7 @@ mod tests {
             drained: false,
             capacity_override: None,
             label: None,
+            stable: false,
         };
         assert_eq!(e.effective_capacity_vus(), 25);
         let e2 = PoolEntry {
@@ -2925,7 +2994,7 @@ mod tests {
         let mut _rxs = Vec::new(); // keep receivers alive so tx stays open
         for (id, cap) in [("w1", 10u32), ("w2", 10)] {
             let (tx, rx) = tokio::sync::mpsc::channel(32);
-            st.pool_register_idle(id, tx, cap, "h".into()).await;
+            st.pool_register_idle(id, tx, cap, "h".into(), false).await;
             _rxs.push(rx);
         }
         // both idle → achievable = 20
@@ -2946,8 +3015,12 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx1, _r1) = fake_tx();
         let (tx2, _r2) = fake_tx();
-        coord.pool_register_idle("w1", tx1, 10, "h".into()).await;
-        coord.pool_register_idle("w2", tx2, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx1, 10, "h".into(), false)
+            .await;
+        coord
+            .pool_register_idle("w2", tx2, 10, "h".into(), false)
+            .await;
         {
             let mut g = coord.pool.lock().await;
             g.get_mut("w1").unwrap().drained = true;
@@ -2978,8 +3051,12 @@ mod tests {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx1, _r1) = fake_tx();
         let (tx2, _r2) = fake_tx();
-        coord.pool_register_idle("w1", tx1, 10, "h".into()).await;
-        coord.pool_register_idle("w2", tx2, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx1, 10, "h".into(), false)
+            .await;
+        coord
+            .pool_register_idle("w2", tx2, 10, "h".into(), false)
+            .await;
         {
             let mut g = coord.pool.lock().await;
             g.get_mut("w1").unwrap().drained = true;
@@ -3013,10 +3090,11 @@ mod tests {
     async fn pool_set_control_partial_update_and_404() {
         let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx, _rx) = tokio::sync::mpsc::channel(32);
-        st.pool_register_idle("w1", tx, 10, "h".into()).await;
+        st.pool_register_idle("w1", tx, 10, "h".into(), false).await;
         assert!(
             st.pool_set_control("w1", Some(true), Some(Some(5)), Some(Some("pc".into())))
                 .await
+                .unwrap()
         );
         {
             let g = st.pool.lock().await;
@@ -3029,6 +3107,7 @@ mod tests {
         assert!(
             st.pool_set_control("w1", Some(false), Some(None), None)
                 .await
+                .unwrap()
         );
         {
             let g = st.pool.lock().await;
@@ -3038,7 +3117,9 @@ mod tests {
             assert_eq!(e.label.as_deref(), Some("pc"));
         }
         assert!(
-            !st.pool_set_control("missing", Some(true), None, None).await,
+            !st.pool_set_control("missing", Some(true), None, None)
+                .await
+                .unwrap(),
             "404 → false"
         );
     }
@@ -3047,7 +3128,7 @@ mod tests {
     async fn pool_exclude_idle_removes_and_busy_fails_run() {
         let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        st.pool_register_idle("w1", tx, 10, "h".into()).await;
+        st.pool_register_idle("w1", tx, 10, "h".into(), false).await;
         assert!(st.pool_exclude("w1", "maintenance").await);
         assert_eq!(st.pool_idle_count().await, 0, "removed from pool");
         // a Disconnect was pushed
@@ -3073,7 +3154,9 @@ mod tests {
                 .try_send(Ok(ServerMessage { payload: None }))
                 .expect("prefill");
         }
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(10)).await; // fresh (< stale 30)
         coord
@@ -3094,7 +3177,9 @@ mod tests {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);
         let (tx, rx) = tokio::sync::mpsc::channel(32);
-        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        coord
+            .pool_register_idle("w1", tx, 10, "h".into(), false)
+            .await;
         drop(rx); // close the channel → try_send returns Closed
         tokio::time::pause();
         tokio::time::advance(std::time::Duration::from_secs(10)).await; // fresh; eviction must come from Closed, not stale
@@ -3105,5 +3190,108 @@ mod tests {
             )
             .await;
         assert_eq!(coord.pool_idle_count().await, 0, "Closed channel → evict");
+    }
+
+    // ── Task 2 (LAN ops persistence): pool override store + coordinator wiring ──
+
+    #[tokio::test]
+    async fn anonymous_worker_never_persists() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("anon", tx, 10, "h".into(), false)
+            .await; // stable=false
+        assert!(
+            st.pool_set_control("anon", Some(true), Some(Some(5)), Some(Some("x".into())))
+                .await
+                .unwrap()
+        );
+        // in-memory applied, but no DB row (byte-identical persistence path)
+        assert_eq!(
+            crate::store::pool_overrides::get_pool_override(&st.db, "anon")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn stable_set_control_upserts_then_default_deletes() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into(), true).await;
+        st.pool_set_control("w1", Some(true), Some(Some(7)), Some(Some("pc".into())))
+            .await
+            .unwrap();
+        let o = crate::store::pool_overrides::get_pool_override(&st.db, "w1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(o.drained && o.capacity_override == Some(7) && o.label.as_deref() == Some("pc"));
+        // return to all-default → row deleted
+        st.pool_set_control("w1", Some(false), Some(None), Some(None))
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::store::pool_overrides::get_pool_override(&st.db, "w1")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn stable_reattach_on_insert_after_restart() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let st = CoordinatorState::new(db.clone());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into(), true).await;
+        st.pool_set_control("w1", Some(true), Some(Some(5)), None)
+            .await
+            .unwrap();
+        // simulate controller restart with a warm DB: drop the in-memory entry, fresh state on same db.
+        let st2 = CoordinatorState::new(db);
+        let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        st2.pool_register_idle("w1", tx2, 10, "h".into(), true)
+            .await; // INSERT → re-attach from DB
+        let g = st2.pool.lock().await;
+        let e = g.get("w1").unwrap();
+        assert!(e.drained, "drain re-attached from DB on cold register");
+        assert_eq!(e.capacity_override, Some(5));
+    }
+
+    #[tokio::test]
+    async fn warm_reconnect_does_not_reapply_db() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into(), true).await; // INSERT, no row → not drained
+        // out-of-band: write a drained row to DB, but the entry is already live (warm).
+        crate::store::pool_overrides::upsert_pool_override(&st.db, "w1", true, None, None)
+            .await
+            .unwrap();
+        let (tx2, _rx2) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx2, 12, "h".into(), true).await; // UPDATE branch → preserve in-memory
+        let g = st.pool.lock().await;
+        assert!(
+            !g.get("w1").unwrap().drained,
+            "warm reconnect preserves in-memory, ignores DB"
+        );
+    }
+
+    #[tokio::test]
+    async fn exclude_leaves_override_row() {
+        let st = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        st.pool_register_idle("w1", tx, 10, "h".into(), true).await;
+        st.pool_set_control("w1", Some(true), None, None)
+            .await
+            .unwrap();
+        st.pool_exclude("w1", "maintenance").await;
+        assert!(
+            crate::store::pool_overrides::get_pool_override(&st.db, "w1")
+                .await
+                .unwrap()
+                .is_some(),
+            "exclude is a one-shot action; the persisted drain survives (R6)"
+        );
     }
 }

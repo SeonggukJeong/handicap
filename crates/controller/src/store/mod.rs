@@ -1,6 +1,7 @@
 pub mod datasets;
 pub mod environments;
 pub mod metrics;
+pub mod pool_overrides;
 pub mod presets;
 pub mod runs;
 pub mod scenarios;
@@ -37,6 +38,7 @@ const MIGRATION_SQL_0011: &str = include_str!("migrations/0011_schedules.sql");
 const MIGRATION_SQL_0013: &str = include_str!("migrations/0013_run_phase_metrics.sql");
 const MIGRATION_SQL_0015: &str = include_str!("migrations/0015_step_templates.sql");
 const MIGRATION_SQL_0016: &str = include_str!("migrations/0016_run_active_vu_metrics.sql");
+const MIGRATION_SQL_0019: &str = include_str!("migrations/0019_pool_worker_overrides.sql");
 // Inline literal (no migrations/*.sql file) — single trivial statement; grep MIGRATION_SQL_0017 to find it.
 const MIGRATION_SQL_0017: &str = "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 
@@ -78,6 +80,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     sqlx::query(MIGRATION_SQL_0016).execute(&pool).await?; // migration 0016: run_active_vu_metrics
     sqlx::query(MIGRATION_SQL_0017).execute(&pool).await?; // migration 0017: settings overrides
     ensure_active_vu_worker_id(&pool).await?; // migration 0018 (Rust-guarded; see fn)
+    sqlx::query(MIGRATION_SQL_0019).execute(&pool).await?; // migration 0019: pool_worker_overrides
     Ok(pool)
 }
 

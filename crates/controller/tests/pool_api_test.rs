@@ -90,7 +90,7 @@ async fn pool_workers_endpoint_lists() {
     let (app, coord) = make_app_with_coord_pool().await;
     let (tx, _rx) = tokio::sync::mpsc::channel::<Result<ServerMessage, Status>>(8);
     coord
-        .pool_register_idle("w1", tx, 100, "host-a".into())
+        .pool_register_idle("w1", tx, 100, "host-a".into(), false)
         .await;
     let _ = coord.reserve_idle_pool("run-1", 1).await; // marks w1 busy
     let (status, body) = send(&app, Method::GET, "/api/pool/workers", None).await;
