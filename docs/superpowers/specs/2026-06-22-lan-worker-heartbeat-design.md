@@ -26,7 +26,7 @@
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법) | seam? |
 |---|---|---|---|
 | R1 | 컨트롤러가 풀 워커별 `last_seen`을 추적하고 그 워커의 **임의 인바운드 메시지**(Pong·MetricBatch·RunStatus·재-Register)에 갱신한다 | 단위 `pool_touch_advances_last_seen` | |
-| R2 | 리퍼가 **모든** 풀 워커(idle+busy)에 주기적 `Ping{nonce}`를 push하고, 워커는 자신이 ServerMessage를 읽는 **모든** 경로에서 `Pong{nonce}`로 응답한다 — **특히 `connect_and_register`의 idle-wait는 단발 "첫 메시지=RunAssignment"가 아니라 *루프*여야 한다**(Ping→Pong 후 계속 대기, RunAssignment에서만 break) | 단위 `tick_pings_all_entries` + 워커 `ping_elicits_pong`(idle-wait·in-run 양쪽) | ✅ wire: 기존 inert `Ping`/`Pong` proto 메시지 사용(**proto 무변경**) |
+| R2 | 리퍼가 **모든** 풀 워커(idle+busy)에 주기적 `Ping{nonce}`를 push하고, 워커는 **두 지점**에서 `Pong{nonce}`로 응답한다: **(a)** `connect_and_register` idle-wait(단발 "첫 메시지=RunAssignment"→*루프*, Ping→Pong 후 계속 대기·RunAssignment에서만 break), **(b)** assignment 후 항상 도는 `forward_inbound` 펌프(Ping을 Pong으로 답하고 consumer로 *전달하지 않음* — 로딩·in-run 전 구간을 한 곳에서 커버, `load_datasets`/`abort_listener`는 무변경) | 단위 `tick_pings_all_entries` + 워커 `ping_elicits_pong`(idle-wait·pump 양쪽) | ✅ wire: 기존 inert `Ping`/`Pong` proto 메시지 사용(**proto 무변경**) |
 | R2b | idle 풀 워커는 반복 Ping을 받아도 스트림을 끊지 않는다 — `connect_and_register`가 Ping을 "예상치 못한 첫 메시지"(현 client.rs:124 `NoAssignment` 에러)로 취급해 재연결-churn하면 안 된다(legacy run_id-present는 assignment가 첫 메시지라 byte-identical; legacy 워커는 풀 맵에 없어 리퍼가 Ping을 *애초에* 안 보냄=불변식) | 워커 단위 `idle_wait_survives_repeated_pings`(Ping N회 후에도 대기 유지, 이후 Assignment 수신) | |
 | R3 | 리퍼가 `now − last_seen > stale_timeout`인 엔트리를 idle/busy 공통 `pool_disconnect(wid)`로 evict한다(busy는 `pool_disconnect` 내부가 기존 `worker_disconnected` fail-fast로 라우팅 — 새 fail-fast 로직 0) | 단위 `stale_idle_evicted`·`stale_busy_routes_worker_disconnected` | |
 | R4 | stale evict는 **멱등** — 리퍼가 evict한 뒤 그 워커의 스트림이 뒤늦게 닫혀 핸들러가 `pool_disconnect`를 재호출해도 no-op(`HashMap::remove`→None) | 단위 `double_evict_idempotent` | |
@@ -59,7 +59,7 @@
 
 6. **R12(migration 0·proto 0) — 풀은 in-memory, Ping/Pong은 기존(방향 주의).** `last_seen`은 `PoolEntry`(in-memory) 필드라 DB 무관. proto상 `Ping`=`ServerMessage`(server→worker, `coordinator.proto:107`), `Pong`=`WorkerMessage`(worker→server, `coordinator.proto:16`) — 둘 다 이미 존재하나 inert다: **컨트롤러는 받은 `Pong`을 버리고**(`coordinator.rs:1131` `Pong(_) => {}`), **워커는 받은 `Ping`을 무시**(`client.rs:186` load_datasets + `abort_listener` `lib.rs:400-410` 침묵). 이 슬라이스는 메시지 추가 없이 그 방향을 *활성화*한다 — 컨트롤러 리퍼가 `Ping`을 *보내고* 받은 `Pong`에 `last_seen` 스탬프, 워커가 받은 `Ping`에 `Pong`을 *보냄*.
 
-7. **R2/R5 거짓-evict 무위험 — idle-wait는 `connect_and_register`, busy는 별개 `abort_listener` 태스크가 inbound를 항상 poll.** 풀 idle 워커는 `execute_assignment`가 아니라 그 *앞단* `connect_and_register`의 첫-메시지 대기(`client.rs:113`)에서 idle 시간을 보낸다 → idle Ping은 거기서 처리해야 하고(§4.3-(1)), 단발→루프 변경이 R2의 핵심. run이 시작되면 `execute_assignment`가 `abort_listener`를 spawn해 `inbound_rx`를 `run_cancel`과 `select!`로 watch하는데, 이건 엔진 VU 태스크와 **독립 동시 태스크**라 워커가 느린 요청에 블록돼 있어도 inbound를 계속 드레인 → busy 워커가 Ping에 즉시 Pong → `last_seen` 신선 유지 → *건강한* busy 워커는 절대 거짓-evict 안 됨. (R5의 evict는 진짜 죽은/half-open 워커 — Pong이 영영 안 오는 경우만.) 이래서 "idle만 Ping, busy는 메트릭 자동갱신"(불안전·§3.2)을 버리고 "전원 Ping + 워커가 모든 인바운드 사이트서 Pong"이 안전한 설계다.
+7. **R2/R5 거짓-evict 무위험 — idle-wait는 `connect_and_register`, assignment 후는 항상 도는 `forward_inbound` 펌프가 Ping에 답한다.** 풀 idle 워커는 `execute_assignment`가 아니라 그 *앞단* `connect_and_register`의 첫-메시지 대기(`client.rs:113`)에서 idle 시간을 보낸다 → idle Ping은 거기서 루프로 처리(§4.3-(1), 단발→루프가 R2의 핵심). assignment를 받으면 `connect_and_register`가 `forward_inbound` 펌프(`client.rs:137` spawn)를 띄우는데, 이 펌프는 **raw 스트림을 무조건 계속 드레인하는 단일 상시 태스크**라 — 워커가 느린 단일 HTTP 요청에 `await` 중이든 `load_datasets`/`abort_listener` 중 무엇이 inbound_rx를 읽고 있든 무관하게 — Ping을 받아 `out_tx`로 Pong을 답하고 consumer엔 전달하지 않는다(§4.3-(2)). 따라서 busy 워커도 Ping에 즉시 Pong → `last_seen` 신선 유지 → *건강한* busy 워커는 절대 거짓-evict 안 됨(R5 evict는 Pong이 영영 안 오는 진짜 죽은/half-open 워커만). 펌프 한 곳이 로딩+in-run 전 구간을 덮으므로 `load_datasets`/`abort_listener`는 손대지 않는다(빈-배치 스킵으로 침묵하는 저활동 busy 워커도 펌프 Pong으로 갱신 — "idle만 Ping"[불안전·§3.2]을 버린 이유). 이게 세 곳(consumer마다)에 Pong을 박는 것보다 적은 변경·더 견고하다.
 
 ---
 
@@ -78,11 +78,10 @@
 - gRPC 서버 빌더 **두 arm**(bundle line ~296·비-bundle ~305)에 `.http2_keepalive_interval(Some(dur))`·`.http2_keepalive_timeout(Some(dur))`(R6).
 - **임계값 주입 = 리퍼 클로저 캡처(CoordinatorState OnceLock 아님)**(R-C 결정): 리퍼 `tokio::spawn` 클로저가 `interval`(루프 `tokio::interval`)·`stale`(→`pool_heartbeat_tick(now, stale)` 인자)을 CLI 값에서 캡처. CoordinatorState엔 config를 두지 않는다(capacity 제거 선례와 일관). 두 임계값은 `GET /api/pool/workers` 응답에도 실어야(R8) UI 배지가 drift 없이 읽는다 → main.rs가 AppState/핸들러에 값을 전달(기존 `pool_mode` 노출 경로와 동일 방식).
 
-### 4.3 `crates/worker-core/src/client.rs` (+ `crates/worker/src/lib.rs`) — 충족 R: R2, R2b, R7
-- **Pong 응답은 워커가 인바운드를 읽는 *세* 사이트 전부.** outbound는 항상 `WorkerLink.tx`(=`connect_and_register`의 `tx: mpsc::Sender<WorkerMessage>`, Register/MetricBatch/RunStatus 송신측, 스트림 EOF 전이라 살아있음):
+### 4.3 `crates/worker-core/src/client.rs` — 충족 R: R2, R2b, R7
+- **Pong 응답은 *두* 사이트.** outbound는 항상 `connect_and_register`의 `tx: mpsc::Sender<WorkerMessage>`(Register/MetricBatch/RunStatus 송신측, 스트림 EOF 전이라 살아있음):
   - **(1) `connect_and_register` idle-wait (`client.rs:113-131`) — load-bearing 변경**: 현재 단발 `select!`로 첫 메시지를 받아 RunAssignment가 아니면 `WorkerError::NoAssignment`(line 124 `other` arm). 풀 idle 워커는 *여기서* push될 assignment를 무한 대기하므로(pump `forward_inbound`은 link 반환 후 line 137에서야 spawn — idle-wait엔 pump 없음, raw `inbound`를 직접 읽음), 이 대기를 **루프**로 바꾼다: `Ping(p)` → `tx.send(Pong{nonce:p.nonce})` 후 `continue`(계속 대기), `Assignment(a)` → break, 그 외/Err/None → 기존 에러. legacy(run_id present)는 assignment가 첫 메시지라 즉시 break → **byte-identical**(R2b·R11).
-  - **(2) 데이터셋 로딩 루프 (`load_datasets`, `client.rs:154-186` 현 "Ping/other ignore")**: 로딩 중 Ping → Pong 후 계속 드레인.
-  - **(3) in-run `abort_listener`** (`worker/src/lib.rs:398-410`, 로딩 후 spawn, `inbound_rx`를 move): **현재 이 클로저는 outbound 송신측을 캡처하지 않는다**(`inbound_rx`·`cancel_for_listener`·`abort_run_id`만 move) — 그래서 Pong을 보내려면 spawn *전에* `let tx_for_pong = tx.clone();`을 클로저에 추가 캡처해야 한다(`tx`는 spawn 시점에 `execute_assignment`이 여전히 소유 — forwarder는 `tx.clone()`을 가져갔고[lib.rs:284] 원본 `tx`는 terminal RunStatus[lib.rs:443]에 쓰임). 그리고 현 `if let Some(Abort)=...`을 `match`로 바꿔 `Ping(p) => tx_for_pong.send(WorkerMessage{Pong{nonce:p.nonce}})`, `Abort(a) if a.run_id==.. => cancel`, `_ => {}`. **abort_listener는 엔진 VU 태스크와 별개 동시 태스크**라 워커가 느린 단일 HTTP 요청에 `await` 중이어도 inbound_rx를 계속 poll → busy 워커도 Ping에 즉시 응답(거짓 evict 없음 — §3.7).
+  - **(2) `forward_inbound` 펌프 (`client.rs:52-78`, assignment 후 상시 raw-스트림 드레이너) — Ping 응답을 여기 한 곳에**: `forward_inbound`에 `out_tx: mpsc::Sender<WorkerMessage>` 파라미터 추가(`connect_and_register`가 spawn 시 `tx.clone()` 전달, `client.rs:137`). 루프의 `Ok(m)` arm에서 `m.payload`가 `Ping(p)`면 `out_tx.send(Pong{nonce:p.nonce})` 후 `continue`(consumer로 **전달 안 함**), 그 외는 기존대로 `fwd_tx`로 forward. **이 펌프가 로딩(`load_datasets`)+in-run(`abort_listener`) 전 구간의 유일한 raw-스트림 드레이너라 둘 다 무변경**(Ping은 펌프가 먹어 `inbound_rx`에 안 들어옴). 펌프는 엔진 VU 태스크와 별개 상시 태스크라 워커가 느린 단일 요청에 `await` 중이어도 Ping에 즉시 응답(거짓 evict 없음 — §3.7).
 - `Endpoint`(`connect_and_register`의 connect 빌더, `client.rs:89-91`)에 `.keep_alive_while_idle(true)`·`.http2_keep_alive_interval(dur)`·`.keep_alive_timeout(dur)`(R7). 워커 CLI에 `--keepalive-seconds`(기본 20) 또는 상수.
 
 ### 4.4 `crates/controller/src/grpc/coordinator.rs` `PoolWorkerInfo` + `crates/controller/src/api/pool.rs` — 충족 R: R8
@@ -92,7 +91,7 @@
   - 응답 래퍼(`pool_mode`/`workers`를 싣는 핸들러)에 `heartbeat_interval_seconds`·`stale_timeout_seconds` 최상위 필드 추가(M2, UI 배지용 — main.rs가 CLI 값을 핸들러로 전달).
 
 ### 4.5 UI `ui/src/pages/WorkerDashboardPage.tsx`·`ui/src/api/pool.ts`·`usePoolWorkers`(`ui/src/api/hooks.ts`) — 충족 R: R9
-- `ui/src/api/pool.ts`의 Zod `PoolWorkerSummarySchema`(`.strict()`)에 `last_seen_secs_ago: z.number()` 추가(와이어 1:1·Option 아님→`.nullish()` 금지, run_id `.nullable()` 컨벤션 유지) + 응답 래퍼 스키마에 `heartbeat_interval_seconds`·`stale_timeout_seconds: z.number()` 추가. `WorkerDashboardPage`에 "마지막 응답" 열(`{n}초 전`) + `secs_ago > interval && < stale_timeout`면 "응답 없음(stale)" 배지 — **임계값은 응답에서 읽어**(클라 하드코딩 금지, CLI 가변이라 drift). evict되면 `usePoolWorkers` 폴링(3s)에서 행 사라짐(기존 동작). ko.ts 카탈로그 경유(ADR-0035).
+- `ui/src/api/pool.ts`의 Zod `PoolWorkerSummarySchema`(현 `z.object`, `.strict()` 아님 — 필수 필드 추가라 무관)에 `last_seen_secs_ago: z.number()` 추가(와이어 1:1·Option 아님→`.nullish()` 금지, run_id `.nullable()` 컨벤션 유지) + `PoolWorkersResponseSchema`에 `heartbeat_interval_seconds`·`stale_timeout_seconds: z.number()` 추가. `WorkerDashboardPage`에 "마지막 응답" 열(`{n}초 전`) + `secs_ago > interval && < stale_timeout`면 "응답 없음(stale)" 배지 — **임계값은 응답에서 읽어**(클라 하드코딩 금지, CLI 가변이라 drift). evict되면 `usePoolWorkers` 폴링(3s)에서 행 사라짐(기존 동작). ko.ts 카탈로그 경유(ADR-0035).
 
 ---
 
@@ -146,7 +145,7 @@
 > cargo-영향 커밋마다 전체 워크스페이스 게이트 → 미사용 헬퍼만/RED만 단독 커밋 불가 → green fold 지점 명시.
 
 1. **T1 컨트롤러 코어** (R1·R3·R4·R13·R14): `PoolEntry.last_seen` + `pool_touch` + `pool_heartbeat_tick(now)` + 핸들러 상단 touch + 인라인 단위(가상시계 stale·idempotent·busy 라우팅·빈 풀 no-op). 헬퍼+단위 한 green 커밋(미사용 헬퍼 dead_code 회피 위해 테스트가 즉시 호출).
-2. **T2 워커** (R2·R2b·R7): `connect_and_register` idle-wait 단발→루프(Ping→Pong, Assignment break) + `load_datasets` Ping→Pong + **`abort_listener`에 `tx.clone()` 캡처 추가 + `if let Some(Abort)`→`match`(Ping arm 추가)**(lib.rs:398-410) + `Endpoint` keep_alive + worker-core 단위(`idle_wait_survives_repeated_pings`·`ping_elicits_pong`). (proto 무변경이라 codegen 영향 0; legacy run_id-present byte-identical.)
+2. **T2 워커** (R2·R2b·R7): `connect_and_register` idle-wait 단발→루프(Ping→Pong, Assignment break) + **`forward_inbound`에 `out_tx` 파라미터 추가 + Ping→Pong·non-forward**(`client.rs:52-78`·137, `load_datasets`/`abort_listener` 무변경) + `Endpoint` keep_alive + worker-core 단위(`idle_wait_survives_repeated_pings`·`ping_elicits_pong`(idle-wait·pump)). (proto 무변경이라 codegen 영향 0; legacy run_id-present byte-identical.)
 3. **T3 main.rs 배선** (R6·R10·R13): CLI 플래그 3종 + 리퍼 `tokio::spawn` 루프 + 서버 빌더 두 arm h2 keepalive. main-only라 라이브로 검증(인라인 테스트는 T1 헬퍼가 커버).
 4. **T4 UI/REST** (R8·R9): `PoolWorkerInfo`+`pool_snapshot(now)` `last_seen_secs_ago` → wire DTO `PoolWorkerSummary`(api/pool.rs:7)+`.map()`(api/pool.rs:31) → 응답 래퍼 `heartbeat_interval_seconds`·`stale_timeout_seconds` → UI `WorkerDashboardPage` 열/배지 + `PoolWorkerSummarySchema`+래퍼 Zod. R8↔R9 같은 머지(와이어 1:1).
 
