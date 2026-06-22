@@ -54,12 +54,20 @@ async fn forward_inbound<S>(
     fwd_tx: mpsc::Sender<ServerMessage>,
     shutdown: Arc<AtomicBool>,
     out_tx: mpsc::Sender<WorkerMessage>,
+    cancel: CancellationToken,
 ) where
     S: futures::Stream<Item = Result<ServerMessage, tonic::Status>> + Unpin,
 {
     while let Some(msg) = inbound.next().await {
         match msg {
             Ok(m) => {
+                // Controller-requested clean exit: cancel the process token so
+                // run_pool's loop breaks without reconnecting. (R5)
+                if let Some(ServerPayload::Disconnect(d)) = &m.payload {
+                    warn!(reason = %d.reason, "controller requested disconnect; exiting");
+                    cancel.cancel();
+                    break;
+                }
                 // Answer heartbeat pings here (the single always-running drainer)
                 // so the controller's reaper sees liveness regardless of whether
                 // load_datasets or abort_listener is the active consumer. Do NOT
@@ -147,6 +155,11 @@ pub async fn connect_and_register(
                     .map_err(|_| WorkerError::SendFailed)?;
                     // keep waiting for the assignment
                 }
+                Some(ServerPayload::Disconnect(d)) => {
+                    warn!(reason = %d.reason, "controller requested disconnect while idle; exiting");
+                    cancel.cancel();
+                    return Err(WorkerError::Cancelled);
+                }
                 other => {
                     warn!(?other, "expected RunAssignment, got something else");
                     return Err(WorkerError::NoAssignment);
@@ -166,6 +179,7 @@ pub async fn connect_and_register(
         fwd_tx,
         shutdown.clone(),
         tx.clone(),
+        cancel.clone(),
     ));
 
     Ok(WorkerLink {
@@ -269,7 +283,7 @@ mod forward_tests {
                 "h2 protocol error: error reading a body",
             ))]);
             let (out_tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
-            forward_inbound(stream, fwd_tx, shutdown, out_tx).await;
+            forward_inbound(stream, fwd_tx, shutdown, out_tx, CancellationToken::new()).await;
         });
         drop(guard);
         levels.lock().unwrap().clone()
@@ -388,6 +402,7 @@ mod forward_tests {
             fwd_tx,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             out_tx,
+            CancellationToken::new(),
         )
         .await;
         // Pong(7) went out; Ping was NOT forwarded; Abort WAS forwarded.
@@ -396,6 +411,97 @@ mod forward_tests {
         let fwd = fwd_rx.try_recv().expect("abort forwarded");
         assert!(matches!(fwd.payload, Some(ServerPayload::Abort(_))));
         assert!(fwd_rx.try_recv().is_err()); // Ping was NOT forwarded
+    }
+
+    // R7 (a): forward_inbound site — Disconnect cancels the process token. (R5, R7)
+    #[tokio::test]
+    async fn forward_inbound_disconnect_cancels_process_token() {
+        use tokio_util::sync::CancellationToken;
+        let (in_tx, in_rx) = mpsc::channel::<Result<ServerMessage, tonic::Status>>(4);
+        let (fwd_tx, _fwd_rx) = mpsc::channel::<ServerMessage>(4);
+        let (out_tx, _out_rx) = mpsc::channel::<WorkerMessage>(4);
+        let cancel = CancellationToken::new();
+        let stream = tokio_stream::wrappers::ReceiverStream::new(in_rx);
+        in_tx
+            .send(Ok(ServerMessage {
+                payload: Some(ServerPayload::Disconnect(pb::Disconnect {
+                    reason: "test".into(),
+                })),
+            }))
+            .await
+            .unwrap();
+        drop(in_tx);
+        forward_inbound(
+            stream,
+            fwd_tx,
+            Arc::new(AtomicBool::new(false)),
+            out_tx,
+            cancel.clone(),
+        )
+        .await;
+        assert!(
+            cancel.is_cancelled(),
+            "Disconnect must cancel the process token"
+        );
+    }
+
+    // R7 (b): idle-wait loop site — Disconnect cancels token and returns Cancelled.
+    // Mirrors idle_wait_survives_repeated_pings: inline the idle-wait loop body
+    // and feed a Disconnect instead of pings. (R5, R7)
+    #[tokio::test]
+    async fn idle_loop_disconnect_cancels_and_exits() {
+        use handicap_proto::v1 as pb;
+        use tokio_util::sync::CancellationToken;
+
+        let messages: Vec<Result<ServerMessage, tonic::Status>> = vec![Ok(ServerMessage {
+            payload: Some(ServerPayload::Disconnect(pb::Disconnect {
+                reason: "excluded".into(),
+            })),
+        })];
+        let mut inbound = tokio_stream::iter(messages);
+        let (tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
+        let cancel = CancellationToken::new();
+
+        // Run the idle-wait loop directly (mirrors client.rs idle-wait body, per
+        // the pattern established by idle_wait_survives_repeated_pings).
+        let result: Result<pb::RunAssignment, WorkerError> = loop {
+            let next = tokio::select! {
+                _ = cancel.cancelled() => break Err(WorkerError::Cancelled),
+                m = inbound.next() => m,
+            };
+            match next {
+                Some(Ok(msg)) => match msg.payload {
+                    Some(ServerPayload::Assignment(a)) => break Ok(a),
+                    Some(ServerPayload::Ping(p)) => {
+                        tx.send(WorkerMessage {
+                            payload: Some(WorkerPayload::Pong(pb::Pong { nonce: p.nonce })),
+                        })
+                        .await
+                        .unwrap();
+                    }
+                    Some(ServerPayload::Disconnect(d)) => {
+                        warn!(reason = %d.reason, "controller requested disconnect while idle; exiting");
+                        cancel.cancel();
+                        break Err(WorkerError::Cancelled);
+                    }
+                    other => {
+                        warn!(?other, "expected RunAssignment, got something else");
+                        break Err(WorkerError::NoAssignment);
+                    }
+                },
+                Some(Err(e)) => break Err(WorkerError::Rpc(e)),
+                None => break Err(WorkerError::NoAssignment),
+            }
+        };
+
+        assert!(
+            matches!(result, Err(WorkerError::Cancelled)),
+            "idle Disconnect must return Err(Cancelled), got {result:?}"
+        );
+        assert!(
+            cancel.is_cancelled(),
+            "Disconnect must cancel the process token"
+        );
     }
 }
 

@@ -106,6 +106,7 @@ message ServerMessage {
     AbortRun abort = 2;
     Ping ping = 3;
     DatasetBatch dataset_batch = 4;
+    Disconnect disconnect = 5;   // controller asks the worker to exit cleanly (no reconnect)
   }
 }
 
@@ -155,6 +156,10 @@ message AbortRun {
 
 message Ping {
   uint64 nonce = 1;
+}
+
+message Disconnect {
+  string reason = 1;
 }
 
 // ---------- Data binding (Slice 8c) ----------
