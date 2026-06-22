@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::app::AppState;
 use crate::error::ApiError;
+use crate::grpc::coordinator::PoolWorkerInfo;
 
 #[derive(Serialize)]
 pub struct PoolWorkerSummary {
@@ -19,6 +20,22 @@ pub struct PoolWorkerSummary {
     pub drained: bool,
     pub capacity_override: Option<u32>,
     pub label: Option<String>,
+}
+
+impl From<PoolWorkerInfo> for PoolWorkerSummary {
+    fn from(i: PoolWorkerInfo) -> Self {
+        PoolWorkerSummary {
+            worker_id: i.worker_id,
+            hostname: i.hostname,
+            capacity_vus: i.capacity_vus,
+            busy: i.assigned_run.is_some(),
+            run_id: i.assigned_run,
+            last_seen_secs_ago: i.last_seen_secs_ago,
+            drained: i.drained,
+            capacity_override: i.capacity_override,
+            label: i.label,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -67,17 +84,7 @@ pub async fn list_workers(State(state): State<AppState>) -> Json<PoolWorkersResp
         .pool_snapshot(tokio::time::Instant::now())
         .await
         .into_iter()
-        .map(|i| PoolWorkerSummary {
-            worker_id: i.worker_id,
-            hostname: i.hostname,
-            capacity_vus: i.capacity_vus,
-            busy: i.assigned_run.is_some(),
-            run_id: i.assigned_run,
-            last_seen_secs_ago: i.last_seen_secs_ago,
-            drained: i.drained,
-            capacity_override: i.capacity_override,
-            label: i.label,
-        })
+        .map(PoolWorkerSummary::from)
         .collect();
     Json(PoolWorkersResponse {
         pool_mode,
@@ -119,17 +126,7 @@ pub async fn patch_worker(
         .await
         .into_iter()
         .find(|i| i.worker_id == id)
-        .map(|i| PoolWorkerSummary {
-            worker_id: i.worker_id,
-            hostname: i.hostname,
-            capacity_vus: i.capacity_vus,
-            busy: i.assigned_run.is_some(),
-            run_id: i.assigned_run,
-            last_seen_secs_ago: i.last_seen_secs_ago,
-            drained: i.drained,
-            capacity_override: i.capacity_override,
-            label: i.label,
-        })
+        .map(PoolWorkerSummary::from)
         .ok_or(ApiError::NotFound)?;
     Ok(Json(summary))
 }
