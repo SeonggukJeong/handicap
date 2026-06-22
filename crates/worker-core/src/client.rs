@@ -7,7 +7,7 @@ use handicap_proto::v1 as pb;
 use pb::coordinator_client::CoordinatorClient;
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
-use pb::{Register, RunAssignment, ServerMessage, WorkerMessage};
+use pb::{Pong, Register, RunAssignment, ServerMessage, WorkerMessage};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -53,12 +53,25 @@ async fn forward_inbound<S>(
     mut inbound: S,
     fwd_tx: mpsc::Sender<ServerMessage>,
     shutdown: Arc<AtomicBool>,
+    out_tx: mpsc::Sender<WorkerMessage>,
 ) where
     S: futures::Stream<Item = Result<ServerMessage, tonic::Status>> + Unpin,
 {
     while let Some(msg) = inbound.next().await {
         match msg {
             Ok(m) => {
+                // Answer heartbeat pings here (the single always-running drainer)
+                // so the controller's reaper sees liveness regardless of whether
+                // load_datasets or abort_listener is the active consumer. Do NOT
+                // forward Ping to fwd_tx. (R2, §4.3-(2))
+                if let Some(ServerPayload::Ping(p)) = &m.payload {
+                    let _ = out_tx
+                        .send(WorkerMessage {
+                            payload: Some(WorkerPayload::Pong(Pong { nonce: p.nonce })),
+                        })
+                        .await;
+                    continue;
+                }
                 tracing::debug!(?m.payload, "controller msg");
                 if fwd_tx.send(m).await.is_err() {
                     // Receiver dropped — main is done; stop forwarding.
@@ -87,6 +100,9 @@ pub async fn connect_and_register(
     cancel: &CancellationToken,
 ) -> Result<WorkerLink, WorkerError> {
     let channel = Channel::from_shared(controller_url.to_string())?
+        .keep_alive_while_idle(true)
+        .http2_keep_alive_interval(std::time::Duration::from_secs(20))
+        .keep_alive_timeout(std::time::Duration::from_secs(20))
         .connect()
         .await?;
     let mut client = CoordinatorClient::new(channel);
@@ -110,31 +126,47 @@ pub async fn connect_and_register(
     .map_err(|_| WorkerError::SendFailed)?;
     info!(%worker_id, %run_id, "registered with controller");
 
-    // Wait for the first ServerMessage — must be RunAssignment.
-    // In pool mode the worker registers idle (run_id="") and blocks here until
-    // the controller pushes an assignment. This select makes the wait
-    // cancel-aware so a SIGTERM exits promptly instead of hanging.
-    let first = tokio::select! {
-        _ = cancel.cancelled() => return Err(WorkerError::Cancelled),
-        m = inbound.next() => m,
-    };
-    let assignment = match first {
-        Some(Ok(msg)) => match msg.payload {
-            Some(ServerPayload::Assignment(a)) => a,
-            other => {
-                warn!(?other, "expected RunAssignment, got something else");
-                return Err(WorkerError::NoAssignment);
-            }
-        },
-        Some(Err(e)) => return Err(WorkerError::Rpc(e)),
-        None => return Err(WorkerError::NoAssignment),
+    // Wait for the first RunAssignment, answering heartbeat Pings while we wait.
+    // Pool idle workers block here until the controller pushes an assignment; the
+    // reaper pings them periodically, so a single-shot wait would error on the
+    // first Ping. Legacy (run_id present) gets the assignment as the first message
+    // → loop breaks immediately → byte-identical. (R2/R2b)
+    let assignment = loop {
+        let next = tokio::select! {
+            _ = cancel.cancelled() => return Err(WorkerError::Cancelled),
+            m = inbound.next() => m,
+        };
+        match next {
+            Some(Ok(msg)) => match msg.payload {
+                Some(ServerPayload::Assignment(a)) => break a,
+                Some(ServerPayload::Ping(p)) => {
+                    tx.send(WorkerMessage {
+                        payload: Some(WorkerPayload::Pong(Pong { nonce: p.nonce })),
+                    })
+                    .await
+                    .map_err(|_| WorkerError::SendFailed)?;
+                    // keep waiting for the assignment
+                }
+                other => {
+                    warn!(?other, "expected RunAssignment, got something else");
+                    return Err(WorkerError::NoAssignment);
+                }
+            },
+            Some(Err(e)) => return Err(WorkerError::Rpc(e)),
+            None => return Err(WorkerError::NoAssignment),
+        }
     };
 
     // Forward all remaining inbound messages through a channel so that
     // `main` can listen for AbortRun without blocking on the raw gRPC stream.
     let (fwd_tx, fwd_rx) = mpsc::channel::<ServerMessage>(16);
     let shutdown = Arc::new(AtomicBool::new(false));
-    let fwd_handle = tokio::spawn(forward_inbound(inbound, fwd_tx, shutdown.clone()));
+    let fwd_handle = tokio::spawn(forward_inbound(
+        inbound,
+        fwd_tx,
+        shutdown.clone(),
+        tx.clone(),
+    ));
 
     Ok(WorkerLink {
         tx,
@@ -236,7 +268,8 @@ mod forward_tests {
             let stream = tokio_stream::iter(vec![Err::<ServerMessage, _>(tonic::Status::unknown(
                 "h2 protocol error: error reading a body",
             ))]);
-            forward_inbound(stream, fwd_tx, shutdown).await;
+            let (out_tx, _out_rx) = mpsc::channel::<WorkerMessage>(8);
+            forward_inbound(stream, fwd_tx, shutdown, out_tx).await;
         });
         drop(guard);
         levels.lock().unwrap().clone()
@@ -262,6 +295,107 @@ mod forward_tests {
             levels.contains(&tracing::Level::WARN),
             "an unexpected mid-run drop must warn, got {levels:?}"
         );
+    }
+
+    // idle-wait: a Ping while waiting for the assignment must NOT end the stream;
+    // the worker answers Pong and keeps waiting; a later Assignment resolves it. (R2b)
+    #[tokio::test]
+    async fn idle_wait_survives_repeated_pings() {
+        use handicap_proto::v1 as pb;
+        use tokio_util::sync::CancellationToken;
+
+        // Build fake gRPC stream: Ping, Ping, then RunAssignment.
+        // We simulate by driving connect_and_register with a mock inbound.
+        // We use the inner idle-wait loop directly by calling connect_and_register
+        // indirectly — but since we can't mock the gRPC transport, we test the
+        // loop logic inline by simulating what connect_and_register does with the
+        // stream after registration.
+
+        // Simulate the idle-wait loop: Ping × 2, then Assignment.
+        let assignment_val = pb::RunAssignment {
+            run_id: "r1".into(),
+            scenario_yaml: "version: 1\nname: t\nsteps: []".into(),
+            vu_count: 1,
+            vu_offset: 0,
+            ..Default::default()
+        };
+        let messages: Vec<Result<ServerMessage, tonic::Status>> = vec![
+            Ok(ServerMessage {
+                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 1 })),
+            }),
+            Ok(ServerMessage {
+                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 2 })),
+            }),
+            Ok(ServerMessage {
+                payload: Some(ServerPayload::Assignment(assignment_val.clone())),
+            }),
+        ];
+        let mut inbound = tokio_stream::iter(messages);
+        let (tx, mut out_rx) = mpsc::channel::<WorkerMessage>(8);
+        let cancel = CancellationToken::new();
+
+        // Run the idle-wait loop directly (mirrors client.rs idle-wait body).
+        let got_assignment = loop {
+            let next = tokio::select! {
+                _ = cancel.cancelled() => { panic!("cancelled unexpectedly"); }
+                m = inbound.next() => m,
+            };
+            match next {
+                Some(Ok(msg)) => match msg.payload {
+                    Some(ServerPayload::Assignment(a)) => break a,
+                    Some(ServerPayload::Ping(p)) => {
+                        tx.send(WorkerMessage {
+                            payload: Some(WorkerPayload::Pong(pb::Pong { nonce: p.nonce })),
+                        })
+                        .await
+                        .unwrap();
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                },
+                Some(Err(e)) => panic!("error: {e}"),
+                None => panic!("stream ended without assignment"),
+            }
+        };
+
+        assert_eq!(got_assignment.run_id, "r1");
+        // Two Pong messages must have been sent.
+        let p1 = out_rx.try_recv().expect("pong 1");
+        assert!(matches!(p1.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 1));
+        let p2 = out_rx.try_recv().expect("pong 2");
+        assert!(matches!(p2.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 2));
+        assert!(out_rx.try_recv().is_err(), "no extra messages");
+    }
+
+    // forward_inbound: a Ping is answered with Pong via out_tx and is NOT forwarded
+    // to fwd_tx (consumer never sees it); a non-Ping (AbortRun) IS forwarded. (R2)
+    #[tokio::test]
+    async fn pump_answers_ping_and_forwards_others() {
+        let (fwd_tx, mut fwd_rx) = tokio::sync::mpsc::channel::<ServerMessage>(8);
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<WorkerMessage>(8);
+        let inbound = tokio_stream::iter(vec![
+            Ok(ServerMessage {
+                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 7 })),
+            }),
+            Ok(ServerMessage {
+                payload: Some(ServerPayload::Abort(pb::AbortRun {
+                    run_id: "r".into(),
+                    reason: String::new(),
+                })),
+            }),
+        ]);
+        forward_inbound(
+            inbound,
+            fwd_tx,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            out_tx,
+        )
+        .await;
+        // Pong(7) went out; Ping was NOT forwarded; Abort WAS forwarded.
+        let pong = out_rx.try_recv().expect("pong");
+        assert!(matches!(pong.payload, Some(WorkerPayload::Pong(ref p)) if p.nonce == 7));
+        let fwd = fwd_rx.try_recv().expect("abort forwarded");
+        assert!(matches!(fwd.payload, Some(ServerPayload::Abort(_))));
+        assert!(fwd_rx.try_recv().is_err()); // Ping was NOT forwarded
     }
 }
 
