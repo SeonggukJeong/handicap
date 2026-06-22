@@ -25,7 +25,7 @@ pub async fn list_workers(State(state): State<AppState>) -> Json<PoolWorkersResp
     let pool_mode = state.coord.is_pool_mode();
     let workers = state
         .coord
-        .pool_snapshot()
+        .pool_snapshot(tokio::time::Instant::now())
         .await
         .into_iter()
         .map(|i| PoolWorkerSummary {

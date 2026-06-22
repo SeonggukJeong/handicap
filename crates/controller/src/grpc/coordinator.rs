@@ -92,6 +92,9 @@ struct PoolEntry {
     /// Set by `reserve_idle_pool` when the worker is assigned to a run.
     /// `None` = idle; `Some(run_id)` = busy. Reset to `None` on re-register (R13).
     assigned_run: Option<String>,
+    /// Last time we heard from this worker (Pong/MetricBatch/RunStatus/re-Register).
+    /// Reaper evicts entries older than the stale timeout. (LAN L6, R1.)
+    last_seen: tokio::time::Instant,
 }
 
 /// Display snapshot of one pool worker — returned by `pool_snapshot` (LAN L2 R1).
@@ -102,6 +105,7 @@ pub struct PoolWorkerInfo {
     pub hostname: String,
     pub capacity_vus: u32,
     pub assigned_run: Option<String>,
+    pub last_seen_secs_ago: u64,
 }
 
 /// One connected worker's slot in a run.
@@ -344,6 +348,7 @@ impl CoordinatorState {
                 capacity_vus,
                 hostname,
                 assigned_run: None,
+                last_seen: tokio::time::Instant::now(),
             },
         );
     }
@@ -360,7 +365,8 @@ impl CoordinatorState {
 
     /// Read-only snapshot of all connected pool workers for the dashboard
     /// (LAN L2 R1). Copies display fields under the lock; never exposes `tx`.
-    pub async fn pool_snapshot(&self) -> Vec<PoolWorkerInfo> {
+    /// `now` is injected for testability with virtual clocks (LAN L6, R8).
+    pub async fn pool_snapshot(&self, now: tokio::time::Instant) -> Vec<PoolWorkerInfo> {
         let g = self.pool.lock().await;
         let mut out: Vec<PoolWorkerInfo> = g
             .iter()
@@ -369,6 +375,7 @@ impl CoordinatorState {
                 hostname: e.hostname.clone(),
                 capacity_vus: e.capacity_vus,
                 assigned_run: e.assigned_run.clone(),
+                last_seen_secs_ago: now.saturating_duration_since(e.last_seen).as_secs(),
             })
             .collect();
         drop(g);
@@ -377,6 +384,47 @@ impl CoordinatorState {
                 .cmp(&(b.hostname.as_str(), b.worker_id.as_str()))
         });
         out
+    }
+
+    /// Stamp a pool worker's last_seen on any inbound message (R1). No-op if the
+    /// worker_id is not a pool entry (non-pool stream or already-evicted).
+    pub async fn pool_touch(&self, worker_id: &str) {
+        if let Some(e) = self.pool.lock().await.get_mut(worker_id) {
+            e.last_seen = tokio::time::Instant::now();
+        }
+    }
+
+    /// One heartbeat sweep (R13, injectable for the virtual-clock unit test):
+    /// ping every pool worker, evict any whose last_seen is older than `stale`.
+    /// Lock discipline (R14): snapshot (id, tx, is_stale) UNDER the lock with no
+    /// `.await`, drop the lock, then do all `.await` (Ping send / pool_disconnect)
+    /// outside it. A dead tx (send Err) means the stream is gone → evict (R3).
+    pub async fn pool_heartbeat_tick(&self, now: tokio::time::Instant, stale: std::time::Duration) {
+        let snapshot: Vec<(String, WorkerTx, bool)> = {
+            let g = self.pool.lock().await;
+            g.iter()
+                .map(|(id, e)| {
+                    (
+                        id.clone(),
+                        e.tx.clone(),
+                        now.duration_since(e.last_seen) > stale,
+                    )
+                })
+                .collect()
+        };
+        for (wid, tx, is_stale) in snapshot {
+            if is_stale {
+                // idle → silent remove; busy → worker_disconnected fail-fast (R3/R5).
+                self.pool_disconnect(&wid).await;
+                continue;
+            }
+            let ping = ServerMessage {
+                payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
+            };
+            if tx.send(Ok(ping)).await.is_err() {
+                self.pool_disconnect(&wid).await;
+            }
+        }
     }
 
     /// A pool worker's stream closed. Remove its entry; if it was mid-run
@@ -1130,6 +1178,14 @@ impl Coordinator for CoordinatorService {
                     }
                     Some(WorkerPayload::Pong(_)) => {}
                     None => {}
+                }
+                // R1: any inbound from a pool connection refreshes liveness. Gated on
+                // pool_conn so per-run/k8s MetricBatch hot path never touches the pool lock,
+                // and worker_id is Some only after the Register arm ran.
+                if pool_conn {
+                    if let Some(wid) = &worker_id {
+                        state.pool_touch(wid).await;
+                    }
                 }
             }
             // Stream closed: route to pool or legacy fail-fast based on connection mode.
@@ -2274,7 +2330,7 @@ mod tests {
             .await;
         // 한 워커를 busy로(reserve가 assigned_run=Some 마킹; DB run 행 불요 — 풀 맵만 건드림)
         let _ = coord.reserve_idle_pool("run-1", 1).await;
-        let snap = coord.pool_snapshot().await;
+        let snap = coord.pool_snapshot(tokio::time::Instant::now()).await;
         assert_eq!(snap.len(), 2);
         // 정렬: hostname alpha < beta (결정적)
         assert_eq!(snap[0].hostname, "alpha");
@@ -2293,7 +2349,7 @@ mod tests {
         coord
             .pool_register_idle("w1", tx, 50, "myhost".into())
             .await;
-        let snap = coord.pool_snapshot().await;
+        let snap = coord.pool_snapshot(tokio::time::Instant::now()).await;
         assert_eq!(snap[0].hostname, "myhost");
         assert_eq!(snap[0].capacity_vus, 50);
     }
@@ -2557,5 +2613,150 @@ mod tests {
             }
             other => panic!("expected Reserved, got {other:?}"),
         }
+    }
+
+    // ── Task 1 (LAN L6): last_seen / pool_touch / pool_heartbeat_tick / evict ──
+    //
+    // Virtual-clock tests: `start_paused` is NOT used because sqlx's pool
+    // management uses `tokio::time::timeout` internally — pausing the clock
+    // before `connect()` causes the pool's acquire_timeout to fire on the first
+    // `advance()`, producing PoolTimedOut (same footgun as watchdog test above).
+    // Instead we connect with a live clock, then call `tokio::time::pause()` +
+    // `advance()` — the DB connection is already open so no further pool acquire
+    // is needed during the test body (REGISTRATION_DEADLINE pattern in this file).
+
+    #[tokio::test]
+    async fn pool_touch_advances_last_seen() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(5)).await;
+        let before = coord.pool_snapshot(tokio::time::Instant::now()).await[0].last_seen_secs_ago;
+        assert!(before >= 5, "before touch: {before}s >= 5s");
+        coord.pool_touch("w1").await;
+        let after = coord.pool_snapshot(tokio::time::Instant::now()).await[0].last_seen_secs_ago;
+        assert_eq!(after, 0, "immediately after touch: 0s ago");
+    }
+
+    #[tokio::test]
+    async fn stale_idle_evicted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        assert_eq!(coord.pool_idle_count().await, 1);
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(31)).await;
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            coord.pool_idle_count().await,
+            0,
+            "stale idle worker evicted"
+        );
+    }
+
+    #[tokio::test]
+    async fn fresh_idle_pinged_not_evicted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(10)).await; // < stale 30
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(coord.pool_idle_count().await, 1, "fresh worker not evicted");
+        // fresh worker got a Ping (tick_pings_all_entries)
+        let msg = rx.try_recv().expect("ping pushed");
+        assert!(
+            matches!(msg.unwrap().payload, Some(super::ServerPayload::Ping(_))),
+            "expected Ping payload"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_busy_routes_worker_disconnected() {
+        // Mirror pool_busy_disconnect_fails_run: register idle, reserve to a run
+        // (busy), let it go stale, tick → run marked failed + pool entry gone.
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        let (tx, _rx) = fake_tx(); // keep _rx so assign_pool_workers send succeeds
+        coord.pool_register_idle("w0", tx, 100, "host".into()).await;
+        let reserved = coord.reserve_idle_pool(&run_id, 4).await; // assigned_run=Some
+        coord
+            .enqueue(
+                run_id.clone(),
+                base_assignment(),
+                reserved.len() as u32,
+                4,
+                None,
+            )
+            .await;
+        coord.assign_pool_workers(&run_id, reserved).await.unwrap();
+        // Advance past stale threshold and tick.
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(31)).await;
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            coord.pool_idle_count().await,
+            0,
+            "stale busy worker evicted"
+        );
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed,
+            "stale busy worker → run failed via worker_disconnected"
+        );
+    }
+
+    #[tokio::test]
+    async fn double_evict_idempotent() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(31)).await;
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        // Late stream-close after eviction → no panic, no-op.
+        coord.pool_disconnect("w1").await;
+        assert_eq!(coord.pool_idle_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn empty_pool_tick_noop() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        // No workers registered — tick must not panic.
+        tokio::time::pause();
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(coord.pool_idle_count().await, 0);
     }
 }
