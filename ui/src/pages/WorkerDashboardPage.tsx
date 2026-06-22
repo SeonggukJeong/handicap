@@ -78,10 +78,7 @@ export function WorkerDashboardPage() {
                   <td className="py-2 pr-4">
                     {ko.workers.secsAgo(w.last_seen_secs_ago)}
                     {isStale ? (
-                      <span
-                        role="status"
-                        className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800"
-                      >
+                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800">
                         {ko.workers.stale}
                       </span>
                     ) : null}

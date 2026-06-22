@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { WorkerDashboardPage } from "../WorkerDashboardPage";
@@ -134,9 +134,15 @@ describe("WorkerDashboardPage", () => {
     expect(await screen.findByText(ko.workers.secsAgo(2))).toBeInTheDocument();
     expect(screen.getByText(ko.workers.secsAgo(15))).toBeInTheDocument();
 
-    // stale badge appears only for the 15s row
+    // stale badge appears only for the quiet (15s) row, not the fresh (2s) row
     const staleBadges = screen.getAllByText(ko.workers.stale);
     expect(staleBadges).toHaveLength(1);
+
+    // row-identity: the badge must be in the quiet worker's row
+    const quietRow = screen.getByText("pc-quiet").closest("tr")!;
+    expect(within(quietRow).getByText(ko.workers.stale)).toBeInTheDocument();
+    const freshRow = screen.getByText("pc-fresh").closest("tr")!;
+    expect(within(freshRow).queryByText(ko.workers.stale)).toBeNull();
   });
 
   it("로딩 중: role=status 표시", () => {
