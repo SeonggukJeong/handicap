@@ -1569,6 +1569,7 @@ function makePoolWorker(overrides: {
   capacity_vus?: number;
   busy?: boolean;
   run_id?: string | null;
+  last_seen_secs_ago?: number;
   drained?: boolean;
   capacity_override?: number | null;
   label?: string | null;
@@ -1579,6 +1580,7 @@ function makePoolWorker(overrides: {
     capacity_vus: 1,
     busy: false,
     run_id: null,
+    last_seen_secs_ago: 2,
     drained: false,
     capacity_override: null,
     label: null,

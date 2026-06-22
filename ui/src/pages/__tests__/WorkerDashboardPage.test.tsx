@@ -297,4 +297,38 @@ describe("WorkerDashboardPage", () => {
       expect(body).toMatchObject({ drained: true });
     });
   });
+
+  it("F1: 다른 행 kebab 클릭 시 한 번에 메뉴 전환 (단일-오픈 상태)", async () => {
+    // Two workers — clicking row2's kebab while row1's menu is open
+    // must open row2's menu in ONE click (no double-click required).
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([
+          makeWorker({ worker_id: "wkr-a", hostname: "pc-a" }),
+          makeWorker({ worker_id: "wkr-b", hostname: "pc-b" }),
+        ]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("pc-a");
+
+    const [btnA, btnB] = screen.getAllByRole("button", { name: ko.workers.actionsLabel });
+
+    // Open row A's menu
+    await user.click(btnA);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // Single click on row B's kebab → row B's menu opens, row A's closes
+    await user.click(btnB);
+    // Exactly one menu visible (not two)
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+    // The open menu belongs to row B: it is inside row B's <tr>
+    const rowB = screen.getByText("pc-b").closest("tr")!;
+    expect(within(rowB).getByRole("menu")).toBeInTheDocument();
+    // Row A has no menu
+    const rowA = screen.getByText("pc-a").closest("tr")!;
+    expect(within(rowA).queryByRole("menu")).toBeNull();
+  });
 });

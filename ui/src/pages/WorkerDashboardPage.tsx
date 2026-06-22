@@ -121,134 +121,113 @@ type ActiveDialog =
   | { type: "capacity" }
   | { type: "label" };
 
-type RowActionsProps = {
-  worker: PoolWorkerSummary;
+// F2: DRY helper — wires onSelect to both onClick and onKeyDown (Enter/Space).
+type MenuItemProps = {
+  onSelect: () => void;
+  className?: string;
+  children: React.ReactNode;
 };
 
-function RowActions({ worker }: RowActionsProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
+function MenuItem({ onSelect, className, children }: MenuItemProps) {
+  return (
+    <li
+      role="menuitem"
+      tabIndex={0}
+      className={className ?? "cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      {children}
+    </li>
+  );
+}
+
+type RowActionsProps = {
+  worker: PoolWorkerSummary;
+  // F1: page-level single-open-menu identity
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+};
+
+function RowActions({ worker, isOpen, onToggle, onClose }: RowActionsProps) {
   const [dialog, setDialog] = useState<ActiveDialog | null>(null);
   const patch = usePatchPoolWorker();
   const exclude = useExcludePoolWorker();
 
   const closeAll = () => {
-    setMenuOpen(false);
+    onClose();
     setDialog(null);
   };
-
-  const openMenu = () => setMenuOpen((v) => !v);
 
   return (
     <td className="py-2 pr-2 relative">
       <button
         type="button"
         aria-label={ko.workers.actionsLabel}
-        onClick={openMenu}
+        onClick={onToggle}
         className="rounded px-2 py-0.5 text-slate-500 hover:bg-slate-100"
       >
         ⋯
       </button>
 
-      {menuOpen ? (
+      {isOpen ? (
         <>
-          {/* backdrop to close menu on outside click */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setMenuOpen(false)}
-            aria-hidden="true"
-          />
+          {/* backdrop: closes this menu on outside click */}
+          <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
           <ul
             role="menu"
             className="absolute right-0 z-50 mt-1 min-w-[8rem] rounded border border-slate-200 bg-white py-1 shadow-lg"
           >
             {worker.drained ? (
-              <li
-                role="menuitem"
-                tabIndex={0}
-                className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
-                onClick={() => {
-                  setMenuOpen(false);
+              <MenuItem
+                onSelect={() => {
+                  onClose();
                   patch.mutate({ id: worker.worker_id, body: { drained: false } });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    setMenuOpen(false);
-                    patch.mutate({ id: worker.worker_id, body: { drained: false } });
-                  }
                 }}
               >
                 {ko.workers.undrain}
-              </li>
+              </MenuItem>
             ) : (
-              <li
-                role="menuitem"
-                tabIndex={0}
-                className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
-                onClick={() => {
-                  setMenuOpen(false);
+              <MenuItem
+                onSelect={() => {
+                  onClose();
                   setDialog({ type: "drain" });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    setMenuOpen(false);
-                    setDialog({ type: "drain" });
-                  }
                 }}
               >
                 {ko.workers.drain}
-              </li>
+              </MenuItem>
             )}
-            <li
-              role="menuitem"
-              tabIndex={0}
-              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
-              onClick={() => {
-                setMenuOpen(false);
+            <MenuItem
+              onSelect={() => {
+                onClose();
                 setDialog({ type: "capacity" });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  setMenuOpen(false);
-                  setDialog({ type: "capacity" });
-                }
               }}
             >
               {ko.workers.editCapacity}
-            </li>
-            <li
-              role="menuitem"
-              tabIndex={0}
-              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-slate-50"
-              onClick={() => {
-                setMenuOpen(false);
+            </MenuItem>
+            <MenuItem
+              onSelect={() => {
+                onClose();
                 setDialog({ type: "label" });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  setMenuOpen(false);
-                  setDialog({ type: "label" });
-                }
               }}
             >
               {ko.workers.editLabel}
-            </li>
-            <li
-              role="menuitem"
-              tabIndex={0}
-              className="cursor-pointer px-3 py-1.5 text-sm text-red-600 hover:bg-slate-50"
-              onClick={() => {
-                setMenuOpen(false);
+            </MenuItem>
+            <MenuItem
+              onSelect={() => {
+                onClose();
                 setDialog({ type: "exclude" });
               }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  setMenuOpen(false);
-                  setDialog({ type: "exclude" });
-                }
-              }}
+              className="cursor-pointer px-3 py-1.5 text-sm text-red-600 hover:bg-slate-50"
             >
               {ko.workers.exclude}
-            </li>
+            </MenuItem>
           </ul>
         </>
       ) : null}
@@ -270,6 +249,9 @@ function RowActions({ worker }: RowActionsProps) {
           title={ko.workers.excludeConfirmTitle}
           body={ko.workers.excludeConfirmBody}
           warn={
+            // The server always sets run_id on busy pool workers (L6).
+            // The `&& worker.run_id` guard only suppresses the warning in the
+            // impossible busy+null edge case — purely defensive, safe to keep.
             worker.busy && worker.run_id ? ko.workers.excludeBusyWarn(worker.run_id) : undefined
           }
           destructive
@@ -322,6 +304,8 @@ function RowActions({ worker }: RowActionsProps) {
 
 export function WorkerDashboardPage() {
   const { data, isLoading, isError } = usePoolWorkers();
+  // F1: page-level single-open-menu identity — at most one row menu open at a time
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   if (isLoading)
     return (
@@ -415,7 +399,14 @@ export function WorkerDashboardPage() {
                       </span>
                     ) : null}
                   </td>
-                  <RowActions worker={w} />
+                  <RowActions
+                    worker={w}
+                    isOpen={openMenuId === w.worker_id}
+                    onToggle={() =>
+                      setOpenMenuId((prev) => (prev === w.worker_id ? null : w.worker_id))
+                    }
+                    onClose={() => setOpenMenuId(null)}
+                  />
                 </tr>
               );
             })}
