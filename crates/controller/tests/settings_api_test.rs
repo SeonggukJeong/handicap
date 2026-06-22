@@ -283,3 +283,91 @@ async fn delete_immutable_key_400() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// PUT interval ≥ 현재 stale → 400 (R5a).
+#[tokio::test]
+async fn put_interval_ge_stale_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    // default interval=10, stale=30 → interval=40 violates (40 >= 30)
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_heartbeat_interval_seconds",
+        Some(json!({ "value": 40 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// PUT stale ≤ 현재 interval → 400 (R5a).
+#[tokio::test]
+async fn put_stale_le_interval_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_stale_timeout_seconds",
+        Some(json!({ "value": 5 })), // 5 <= interval 10
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// 유효 순서(stale 먼저↑ 후 interval↑) → 둘 다 200 (R5a edit-ordering).
+#[tokio::test]
+async fn put_valid_order_200() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let (s1, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_stale_timeout_seconds",
+        Some(json!({ "value": 100 })),
+    )
+    .await;
+    assert_eq!(s1, StatusCode::OK);
+    let (s2, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_heartbeat_interval_seconds",
+        Some(json!({ "value": 40 })),
+    )
+    .await;
+    assert_eq!(s2, StatusCode::OK); // 40 < 100 ok
+}
+
+/// 부분 revert로 stale ≤ interval 재현 → DELETE 400 (R5b).
+#[tokio::test]
+async fn delete_revert_creating_violation_400() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    // interval override 5 (5 < 30 ok)
+    let (s1, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_heartbeat_interval_seconds",
+        Some(json!({ "value": 5 })),
+    )
+    .await;
+    assert_eq!(s1, StatusCode::OK);
+    // stale override 8 (8 > 5 ok)
+    let (s2, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/pool_stale_timeout_seconds",
+        Some(json!({ "value": 8 })),
+    )
+    .await;
+    assert_eq!(s2, StatusCode::OK);
+    // DELETE interval → reverts to seed 10; pair (10, current stale 8) → 8 <= 10 → reject
+    let (s3, _) = send(
+        &app,
+        Method::DELETE,
+        "/api/settings/pool_heartbeat_interval_seconds",
+        None,
+    )
+    .await;
+    assert_eq!(s3, StatusCode::BAD_REQUEST);
+}

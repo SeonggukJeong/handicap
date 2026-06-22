@@ -90,6 +90,21 @@ pub async fn put(
         .find(|d| d.key == key)
         .expect("validate passed so key exists");
 
+    // R5(a): 하트비트 키는 stale > interval 불변식 — 결과 쌍 검사.
+    if def.key == "pool_heartbeat_interval_seconds" {
+        crate::settings::check_heartbeat_pair(
+            body.value as u64,
+            state.settings.pool_stale_timeout_seconds(),
+        )
+        .map_err(ApiError::BadRequest)?;
+    } else if def.key == "pool_stale_timeout_seconds" {
+        crate::settings::check_heartbeat_pair(
+            state.settings.pool_heartbeat_interval_seconds(),
+            body.value as u64,
+        )
+        .map_err(ApiError::BadRequest)?;
+    }
+
     // DB 영속 → 인메모리 스냅샷.
     settings_store::upsert(&state.db, def.key, body.value, store::now_ms())
         .await
@@ -118,6 +133,29 @@ pub async fn delete(
             "'{}'은(는) 변경할 수 없습니다",
             def.label
         )));
+    }
+
+    // R5(b): 하트비트 키 revert가 stale ≤ interval을 만들면 거부(부분 revert).
+    if def.key == "pool_heartbeat_interval_seconds" {
+        let interval_seed = state
+            .settings
+            .seed_of(def.key)
+            .expect("mutable key has seed") as u64;
+        crate::settings::check_heartbeat_pair(
+            interval_seed,
+            state.settings.pool_stale_timeout_seconds(),
+        )
+        .map_err(ApiError::BadRequest)?;
+    } else if def.key == "pool_stale_timeout_seconds" {
+        let stale_seed = state
+            .settings
+            .seed_of(def.key)
+            .expect("mutable key has seed") as u64;
+        crate::settings::check_heartbeat_pair(
+            state.settings.pool_heartbeat_interval_seconds(),
+            stale_seed,
+        )
+        .map_err(ApiError::BadRequest)?;
     }
 
     // 가변 키: DB 삭제 + 인메모리 시드 복원.

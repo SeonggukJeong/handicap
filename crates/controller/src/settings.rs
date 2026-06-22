@@ -88,6 +88,27 @@ pub static SETTINGS: &[SettingDef] = &[
         mutable: true,
         default: 10_000,
     },
+    // LAN 풀 하트비트 임계값(런타임 가변). 리퍼가 매 sweep 읽음. spec R1/R2.
+    SettingDef {
+        key: "pool_heartbeat_interval_seconds",
+        label: "풀 하트비트 ping 주기",
+        group: Group::Limits,
+        min: 1,
+        max: 3600,
+        unit: "초",
+        mutable: true,
+        default: 10,
+    },
+    SettingDef {
+        key: "pool_stale_timeout_seconds",
+        label: "풀 워커 stale 타임아웃",
+        group: Group::Limits,
+        min: 2,
+        max: 86400,
+        unit: "초",
+        mutable: true,
+        default: 30,
+    },
     // 읽기전용 표시(배포 변경). spec §3.5/§4.2.
     SettingDef {
         key: "trace_body_cap_bytes",
@@ -109,6 +130,16 @@ pub static SETTINGS: &[SettingDef] = &[
         mutable: false,
         default: 30,
     },
+    SettingDef {
+        key: "pool_keepalive_seconds",
+        label: "풀 gRPC keepalive (서버측)",
+        group: Group::Limits,
+        min: 0,
+        max: i64::MAX,
+        unit: "초",
+        mutable: false,
+        default: 20,
+    }, // 컨트롤러 서버측 h2 keepalive(transport-baked). 워커 클라 keepalive는 별도 20s 상수(worker-core/client.rs) — R4/§5.
 ];
 
 pub fn def(key: &str) -> Option<&'static SettingDef> {
@@ -128,6 +159,18 @@ pub fn validate(key: &str, value: i64) -> Result<(), String> {
         return Err(format!(
             "'{}' 값은 {}~{} 범위여야 합니다 (받음: {value})",
             d.label, d.min, d.max
+        ));
+    }
+    Ok(())
+}
+
+/// R5: stale 타임아웃은 ping 주기보다 반드시 커야 한다(같거나 작으면 건강한 워커가
+/// 매 sweep 조기 evict → idle flap·busy run 실패). PUT(결과 쌍)·DELETE(revert 후 쌍)·
+/// startup(시드, main.rs)이 공유하는 단일 소스.
+pub fn check_heartbeat_pair(interval: u64, stale: u64) -> Result<(), String> {
+    if stale <= interval {
+        return Err(format!(
+            "stale 타임아웃({stale}초)은 ping 주기({interval}초)보다 커야 합니다 (먼저 stale를 올리세요)"
         ));
     }
     Ok(())
@@ -216,6 +259,16 @@ impl SettingsState {
     }
     pub fn max_test_run_requests(&self) -> u32 {
         self.get("max_test_run_requests") as u32
+    }
+    pub fn pool_heartbeat_interval_seconds(&self) -> u64 {
+        self.get("pool_heartbeat_interval_seconds") as u64
+    }
+    pub fn pool_stale_timeout_seconds(&self) -> u64 {
+        self.get("pool_stale_timeout_seconds") as u64
+    }
+    /// 가변 키의 CLI/registry 시드(R5 DELETE-revert 교차검사용). 읽기전용/미지 키는 None.
+    pub fn seed_of(&self, key: &str) -> Option<i64> {
+        self.seeds.get(key).copied()
     }
 
     /// PUT 적용(검증은 호출 전 `validate`로 통과 가정). 스냅샷 갱신.
@@ -378,5 +431,32 @@ mod tests {
             .unwrap();
         assert_eq!(tick.value, 60);
         assert_eq!(tick.source, "readonly");
+    }
+
+    #[test]
+    fn pool_heartbeat_keys_registered() {
+        let i = def("pool_heartbeat_interval_seconds").expect("interval key");
+        assert!(i.mutable && i.min == 1 && i.max == 3600 && i.default == 10);
+        let s = def("pool_stale_timeout_seconds").expect("stale key");
+        assert!(s.mutable && s.min == 2 && s.max == 86400 && s.default == 30);
+        let k = def("pool_keepalive_seconds").expect("keepalive key");
+        assert!(!k.mutable && k.default == 20);
+    }
+
+    #[test]
+    fn check_heartbeat_pair_requires_stale_gt_interval() {
+        assert!(check_heartbeat_pair(10, 30).is_ok());
+        assert!(check_heartbeat_pair(10, 11).is_ok());
+        assert!(check_heartbeat_pair(10, 10).is_err()); // equal → reject
+        assert!(check_heartbeat_pair(10, 5).is_err()); // stale < interval → reject
+    }
+
+    #[test]
+    fn pool_heartbeat_accessors_and_seed() {
+        let st = SettingsState::seeded_for_test();
+        assert_eq!(st.pool_heartbeat_interval_seconds(), 10);
+        assert_eq!(st.pool_stale_timeout_seconds(), 30);
+        assert_eq!(st.seed_of("pool_stale_timeout_seconds"), Some(30));
+        assert_eq!(st.seed_of("trace_body_cap_bytes"), None); // readonly → no seed
     }
 }
