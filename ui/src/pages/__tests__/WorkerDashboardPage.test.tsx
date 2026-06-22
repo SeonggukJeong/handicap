@@ -400,8 +400,8 @@ describe("WorkerDashboardPage", () => {
 
     await user.click(screen.getByRole("button", { name: ko.workers.confirmProceed }));
 
-    // Inline error should appear
-    expect(await screen.findByText(/제외 실패/)).toBeInTheDocument();
+    // Inline error should appear (wrapped in actionError format)
+    expect(await screen.findByText(ko.workers.actionError("제외 실패"))).toBeInTheDocument();
     // Dialog must stay open
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
@@ -425,13 +425,13 @@ describe("WorkerDashboardPage", () => {
     await user.click(screen.getByLabelText(ko.workers.actionsLabel));
     await user.click(screen.getByRole("menuitem", { name: ko.workers.undrain }));
 
-    // Page banner should appear with the error text
+    // Page banner should appear with the error text (wrapped in actionError format)
     const banner = await screen.findByRole("alert");
-    expect(banner).toHaveTextContent("되돌리기 실패");
+    expect(banner).toHaveTextContent(ko.workers.actionError("되돌리기 실패"));
 
     // Banner is dismissable
     await user.click(screen.getByRole("button", { name: ko.workers.bannerDismiss }));
-    expect(screen.queryByText("되돌리기 실패")).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.workers.actionError("되돌리기 실패"))).not.toBeInTheDocument();
   });
 
   it("F1: 다른 행 kebab 클릭 시 한 번에 메뉴 전환 (단일-오픈 상태)", async () => {
