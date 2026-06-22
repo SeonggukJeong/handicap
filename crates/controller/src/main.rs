@@ -291,22 +291,29 @@ async fn main() -> anyhow::Result<()> {
     }
     if coord_state.is_pool_mode() {
         let coord = coord_state.clone();
-        let interval = std::time::Duration::from_secs(args.pool_heartbeat_interval_seconds);
-        let stale = std::time::Duration::from_secs(args.pool_stale_timeout_seconds);
+        let settings = state.settings.clone(); // R2: 매 sweep 임계값 fresh 재읽기 위해 캡처
+        // Snapshot seed values for the startup log (settings is moved into the spawn below).
+        let log_interval = settings.pool_heartbeat_interval_seconds();
+        let log_stale = settings.pool_stale_timeout_seconds();
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(interval);
-            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                tick.tick().await;
+                // R9: interval 0(시드 우회)이어도 tight-loop 방지.
+                let interval = settings.pool_heartbeat_interval_seconds().max(1);
+                let stale = settings.pool_stale_timeout_seconds();
+                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
                 coord
-                    .pool_heartbeat_tick(tokio::time::Instant::now(), stale)
+                    .pool_heartbeat_tick(
+                        tokio::time::Instant::now(),
+                        std::time::Duration::from_secs(stale),
+                    )
                     .await;
             }
         });
         tracing::info!(
-            interval_s = args.pool_heartbeat_interval_seconds,
-            stale_s = args.pool_stale_timeout_seconds,
-            "pool heartbeat reaper started"
+            interval_s = log_interval,
+            stale_s = log_stale,
+            keepalive_s = args.pool_keepalive_seconds,
+            "pool heartbeat reaper started (runtime-tunable)"
         );
     }
     let app_router = app::router(state);

@@ -455,8 +455,15 @@ impl CoordinatorState {
             let ping = ServerMessage {
                 payload: Some(ServerPayload::Ping(pb::Ping { nonce: 0 })),
             };
-            if tx.send(Ok(ping)).await.is_err() {
-                self.pool_disconnect(&wid).await;
+            match tx.try_send(Ok(ping)) {
+                Ok(()) => {}
+                // Closed = stream gone → evict (현 dead-tx 의미 유지).
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    self.pool_disconnect(&wid).await;
+                }
+                // Full = 일시적 backpressure(워커가 안 읽음). evict 안 함 — last_seen 미갱신이라
+                // 다음 sweep stale 체크 + h2 keepalive가 죽은 연결을 자가치유(R8).
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {}
             }
         }
     }
@@ -3050,5 +3057,53 @@ mod tests {
             Some(ServerPayload::Disconnect(_))
         ));
         assert!(!st.pool_exclude("missing", "x").await, "404 → false");
+    }
+
+    // ── Task 3 (LAN ops): try_send D1 hardenings ──
+
+    #[tokio::test]
+    async fn full_channel_skips_not_evicts() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        // Fill the bounded channel so the reaper's try_send returns Full.
+        let filler = tx.clone();
+        for _ in 0..32 {
+            filler
+                .try_send(Ok(ServerMessage { payload: None }))
+                .expect("prefill");
+        }
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(10)).await; // fresh (< stale 30)
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            coord.pool_idle_count().await,
+            1,
+            "Full channel → skip, not evict"
+        );
+    }
+
+    #[tokio::test]
+    async fn closed_channel_evicts() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        coord.pool_register_idle("w1", tx, 10, "h".into()).await;
+        drop(rx); // close the channel → try_send returns Closed
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(10)).await; // fresh; eviction must come from Closed, not stale
+        coord
+            .pool_heartbeat_tick(
+                tokio::time::Instant::now(),
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(coord.pool_idle_count().await, 0, "Closed channel → evict");
     }
 }
