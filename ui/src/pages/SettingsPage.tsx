@@ -218,9 +218,7 @@ export function SettingsPage() {
                 <div className="mt-3 space-y-1">
                   <p className="text-xs text-slate-500">{ko.opsSettings.heartbeatApplyNote}</p>
                   {stale < 2 * interval && (
-                    <p role="note" className="text-xs text-amber-700">
-                      {ko.opsSettings.heartbeatMarginHint}
-                    </p>
+                    <p className="text-xs text-amber-700">{ko.opsSettings.heartbeatMarginHint}</p>
                   )}
                 </div>
               );
