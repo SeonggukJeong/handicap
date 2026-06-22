@@ -8,12 +8,15 @@ export const PoolWorkerSummarySchema = z.object({
   capacity_vus: z.number(),
   busy: z.boolean(),
   run_id: z.string().nullable(),
+  last_seen_secs_ago: z.number(),
 });
 export type PoolWorkerSummary = z.infer<typeof PoolWorkerSummarySchema>;
 
 export const PoolWorkersResponseSchema = z.object({
   pool_mode: z.boolean(),
   workers: z.array(PoolWorkerSummarySchema),
+  heartbeat_interval_seconds: z.number(),
+  stale_timeout_seconds: z.number(),
 });
 export type PoolWorkersResponse = z.infer<typeof PoolWorkersResponseSchema>;
 

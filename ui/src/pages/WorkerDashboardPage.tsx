@@ -43,35 +43,52 @@ export function WorkerDashboardPage() {
               <th className="py-2 pr-4">{ko.workers.colWorkerId}</th>
               <th className="py-2 pr-4">{ko.workers.colStatus}</th>
               <th className="py-2 pr-4">{ko.workers.colCapacity}</th>
+              <th className="py-2 pr-4">{ko.workers.colLastSeen}</th>
             </tr>
           </thead>
           <tbody>
-            {data.workers.map((w) => (
-              <tr key={w.worker_id} className="border-b border-slate-100">
-                <td className="py-2 pr-4 font-medium">{w.hostname || "—"}</td>
-                <td className="py-2 pr-4 font-mono text-xs" title={w.worker_id}>
-                  {w.worker_id}
-                </td>
-                <td className="py-2 pr-4">
-                  {w.busy ? (
-                    <>
-                      {ko.workers.statusBusy}
-                      {w.run_id ? (
-                        <Link
-                          to={`/runs/${w.run_id}`}
-                          className="ml-1 text-blue-600 hover:underline"
-                        >
-                          ({w.run_id})
-                        </Link>
-                      ) : null}
-                    </>
-                  ) : (
-                    ko.workers.statusIdle
-                  )}
-                </td>
-                <td className="py-2 pr-4">{w.capacity_vus}</td>
-              </tr>
-            ))}
+            {data.workers.map((w) => {
+              const isStale =
+                w.last_seen_secs_ago > data.heartbeat_interval_seconds &&
+                w.last_seen_secs_ago < data.stale_timeout_seconds;
+              return (
+                <tr key={w.worker_id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 font-medium">{w.hostname || "—"}</td>
+                  <td className="py-2 pr-4 font-mono text-xs" title={w.worker_id}>
+                    {w.worker_id}
+                  </td>
+                  <td className="py-2 pr-4">
+                    {w.busy ? (
+                      <>
+                        {ko.workers.statusBusy}
+                        {w.run_id ? (
+                          <Link
+                            to={`/runs/${w.run_id}`}
+                            className="ml-1 text-blue-600 hover:underline"
+                          >
+                            ({w.run_id})
+                          </Link>
+                        ) : null}
+                      </>
+                    ) : (
+                      ko.workers.statusIdle
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">{w.capacity_vus}</td>
+                  <td className="py-2 pr-4">
+                    {ko.workers.secsAgo(w.last_seen_secs_ago)}
+                    {isStale ? (
+                      <span
+                        role="status"
+                        className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800"
+                      >
+                        {ko.workers.stale}
+                      </span>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

@@ -34,6 +34,8 @@ describe("WorkerDashboardPage", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         pool_mode: true,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
         workers: [
           {
             worker_id: "wkr-idle",
@@ -41,6 +43,7 @@ describe("WorkerDashboardPage", () => {
             capacity_vus: 100,
             busy: false,
             run_id: null,
+            last_seen_secs_ago: 2,
           },
           {
             worker_id: "wkr-busy",
@@ -48,6 +51,7 @@ describe("WorkerDashboardPage", () => {
             capacity_vus: 50,
             busy: true,
             run_id: "run-1",
+            last_seen_secs_ago: 3,
           },
         ],
       }),
@@ -71,17 +75,68 @@ describe("WorkerDashboardPage", () => {
   });
 
   it("풀 아님: emptyNotPool 안내", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ pool_mode: false, workers: [] }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        pool_mode: false,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
+        workers: [],
+      }),
+    );
     renderPage();
     expect(await screen.findByText(ko.workers.emptyNotPool)).toBeInTheDocument();
   });
 
   it("풀-모드 0대: emptyNoWorkers 안내", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ pool_mode: true, workers: [] }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        pool_mode: true,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
+        workers: [],
+      }),
+    );
     renderPage();
     expect(await screen.findByText(ko.workers.emptyNoWorkers)).toBeInTheDocument();
     // count summary shows 0 idle 0 busy
     expect(screen.getByText(ko.workers.countSummary(0, 0))).toBeInTheDocument();
+  });
+
+  it("마지막 응답 열·stale 배지: quiet 행에만 표시", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        pool_mode: true,
+        heartbeat_interval_seconds: 10,
+        stale_timeout_seconds: 30,
+        workers: [
+          {
+            worker_id: "wkr-fresh",
+            hostname: "pc-fresh",
+            capacity_vus: 100,
+            busy: false,
+            run_id: null,
+            last_seen_secs_ago: 2, // fresh: < interval → no badge
+          },
+          {
+            worker_id: "wkr-quiet",
+            hostname: "pc-quiet",
+            capacity_vus: 50,
+            busy: false,
+            run_id: null,
+            last_seen_secs_ago: 15, // > interval(10) and < stale_timeout(30) → badge
+          },
+        ],
+      }),
+    );
+    renderPage();
+
+    // "마지막 응답" column values rendered
+    expect(await screen.findByText(ko.workers.secsAgo(2))).toBeInTheDocument();
+    expect(screen.getByText(ko.workers.secsAgo(15))).toBeInTheDocument();
+
+    // stale badge appears only for the 15s row
+    const staleBadges = screen.getAllByText(ko.workers.stale);
+    expect(staleBadges).toHaveLength(1);
   });
 
   it("로딩 중: role=status 표시", () => {

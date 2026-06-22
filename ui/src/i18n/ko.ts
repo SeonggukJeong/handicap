@@ -210,6 +210,9 @@ export const ko = {
     loadError: "워커 목록을 불러오지 못했습니다.",
     poolPreview: (idle: number) =>
       `연결된 유휴 워커 ${idle}대 — 이 run은 유휴 워커에 분산 실행됩니다(use-all).`,
+    colLastSeen: "마지막 응답",
+    secsAgo: (n: number) => `${n}초 전`,
+    stale: "응답 없음",
   },
   breadcrumb: {
     ariaLabel: "탐색 경로",
