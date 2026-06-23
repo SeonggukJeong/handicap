@@ -17,5 +17,6 @@ describe("ConnectionCostCard", () => {
     expect(screen.getByText("5")).toBeInTheDocument(); // connections opened
     expect(screen.getByText(/DNS/i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /연결/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "연결 재사용률" })).toBeInTheDocument();
   });
 });

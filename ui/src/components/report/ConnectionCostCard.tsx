@@ -18,12 +18,12 @@ export function ConnectionCostCard({ stats }: Props) {
       </div>
       <p className="mb-4 text-xs text-slate-500">
         {ko.report.connectionBeginner(stats.connections_opened)}
-        <HelpTip label={ko.report.connectionReuse}>{ko.report.connectionReuseHelp}</HelpTip>
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+          <div className="flex items-center text-xs uppercase tracking-wide text-slate-500">
             {ko.report.connectionReuse}
+            <HelpTip label={ko.report.connectionReuse}>{ko.report.connectionReuseHelp}</HelpTip>
           </div>
           <div className="mt-1 text-2xl font-bold">{reusePct}%</div>
           <div className="mt-2 h-2 overflow-hidden rounded bg-slate-200">
