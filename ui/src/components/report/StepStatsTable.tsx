@@ -33,11 +33,7 @@ export function StepStatsTable({ steps, meta }: Props) {
   return (
     <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
       <h3 className="text-lg font-semibold mb-2">{ko.report.stepsHeading}</h3>
-      {anyDownload && (
-        <p className="mb-2 text-xs text-slate-500">
-          응답(TTFB)=요청~헤더, 다운로드=본문 수신. 합 ≠ 전체(퍼센타일 비가산).
-        </p>
-      )}
+      {anyDownload && <p className="mb-2 text-xs text-slate-500">{ko.report.phaseCaveat}</p>}
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
@@ -63,9 +59,9 @@ export function StepStatsTable({ steps, meta }: Props) {
             )}
             {anyDownload && (
               <>
-                <th className="py-2 pr-4 font-medium">다운로드 p50 ms</th>
-                <th className="py-2 pr-4 font-medium">다운로드 p95 ms</th>
-                <th className="py-2 pr-4 font-medium">다운로드 p99 ms</th>
+                <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p50 ms</th>
+                <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p95 ms</th>
+                <th className="py-2 pr-4 font-medium">{ko.report.phaseDownload} p99 ms</th>
               </>
             )}
           </tr>

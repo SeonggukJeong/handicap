@@ -66,7 +66,7 @@ export function StepPhaseBreakdown({ steps, meta }: Props) {
                 <div className="w-40 text-sm font-medium">{m?.name ?? s.step_id}</div>
                 <div
                   role="img"
-                  aria-label={`${m?.name ?? s.step_id} 대기 ${wait}ms 다운로드 ${dl}ms`}
+                  aria-label={`${m?.name ?? s.step_id} ${ko.report.phaseWait} ${wait}ms ${ko.report.phaseDownload} ${dl}ms`}
                   className="flex h-5 flex-1 overflow-hidden rounded bg-slate-100"
                 >
                   <span style={{ width: `${(wait / total) * 100}%`, background: WAIT }} />

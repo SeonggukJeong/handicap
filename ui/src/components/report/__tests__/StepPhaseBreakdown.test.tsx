@@ -22,8 +22,8 @@ describe("StepPhaseBreakdown", () => {
   it("defaults to waterfall and toggles to chips", async () => {
     const user = userEvent.setup();
     render(<StepPhaseBreakdown steps={steps as never} meta={meta} />);
-    // waterfall default: bars present (role img or labelled track)
-    expect(screen.getByText("login")).toBeInTheDocument();
+    // waterfall default: role="img" bars are unique to the waterfall view (not chips)
+    expect(screen.getByRole("img", { name: /login/ })).toBeInTheDocument();
     // toggle to chips view
     await user.click(screen.getByRole("button", { name: "칩" }));
     expect(screen.getByText(/대기/)).toBeInTheDocument();

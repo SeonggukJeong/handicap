@@ -580,6 +580,7 @@ export const ko = {
     phaseDownload: "다운로드",
     phaseWaitHelp:
       "대기 = 요청을 보내고 첫 바이트가 올 때까지 = 거의 서버 처리 시간. 대기가 길면 서버가 느린 것이니 에러율·상태 코드 분포를 함께 보세요.",
+    phaseCaveat: "응답(TTFB)=요청~헤더, 다운로드=본문 수신. 합 ≠ 전체(퍼센타일 비가산).",
     phaseViewWaterfall: "막대",
     phaseViewChips: "칩",
     phaseViewToggleLabel: "스텝 분해 보기 방식",
