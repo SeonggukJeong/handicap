@@ -109,6 +109,27 @@ pub static SETTINGS: &[SettingDef] = &[
         mutable: true,
         default: 30,
     },
+    // run 진행 라이브니스 watchdog grace(런타임 가변, B2). spawn_run이 run마다 읽음.
+    SettingDef {
+        key: "run_startup_grace_seconds",
+        label: "Run 시작 grace (startup 라이브니스)",
+        group: Group::Limits,
+        min: 10,
+        max: 3600,
+        unit: "초",
+        mutable: true,
+        default: 90,
+    },
+    SettingDef {
+        key: "run_backstop_grace_seconds",
+        label: "Run 백스톱 grace (예상 종료 초과)",
+        group: Group::Limits,
+        min: 10,
+        max: 3600,
+        unit: "초",
+        mutable: true,
+        default: 120,
+    },
     // 읽기전용 표시(배포 변경). spec §3.5/§4.2.
     SettingDef {
         key: "trace_body_cap_bytes",
@@ -286,6 +307,12 @@ impl SettingsState {
     }
     pub fn pool_stale_timeout_seconds(&self) -> u64 {
         self.get("pool_stale_timeout_seconds") as u64
+    }
+    pub fn run_startup_grace_seconds(&self) -> u64 {
+        self.get("run_startup_grace_seconds") as u64
+    }
+    pub fn run_backstop_grace_seconds(&self) -> u64 {
+        self.get("run_backstop_grace_seconds") as u64
     }
     /// 가변 키의 CLI/registry 시드(R5 DELETE-revert 교차검사용). 읽기전용/미지 키는 None.
     pub fn seed_of(&self, key: &str) -> Option<i64> {
@@ -489,5 +516,33 @@ mod tests {
         assert_eq!(st.pool_stale_timeout_seconds(), 30);
         assert_eq!(st.seed_of("pool_stale_timeout_seconds"), Some(30));
         assert_eq!(st.seed_of("trace_body_cap_bytes"), None); // readonly → no seed
+    }
+
+    #[test]
+    fn run_grace_accessors_default_seed_override() {
+        // 미설정 → 레지스트리 default 90/120
+        let s = SettingsState::build(&HashMap::new(), &[]);
+        assert_eq!(s.run_startup_grace_seconds(), 90);
+        assert_eq!(s.run_backstop_grace_seconds(), 120);
+        // CLI seed override
+        let s = SettingsState::build(
+            &HashMap::new(),
+            &[
+                ("run_startup_grace_seconds", 30),
+                ("run_backstop_grace_seconds", 45),
+            ],
+        );
+        assert_eq!(s.run_startup_grace_seconds(), 30);
+        assert_eq!(s.run_backstop_grace_seconds(), 45);
+        // DB override 우선
+        let mut db = HashMap::new();
+        db.insert("run_startup_grace_seconds".to_string(), 200);
+        let s = SettingsState::build(&db, &[]);
+        assert_eq!(s.run_startup_grace_seconds(), 200);
+        // 범위 밖(max 3600 초과) → 시드(default 120)로 fallback
+        let mut db = HashMap::new();
+        db.insert("run_backstop_grace_seconds".to_string(), 99999);
+        let s = SettingsState::build(&db, &[]);
+        assert_eq!(s.run_backstop_grace_seconds(), 120);
     }
 }

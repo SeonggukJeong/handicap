@@ -266,6 +266,65 @@ async fn delete_unknown_key_400() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// A/B grace는 mutable + pair 제약 없음 — PUT 후 형제 키 불변, 범위밖 400, DELETE 복원.
+#[tokio::test]
+async fn put_delete_run_grace_roundtrip_sibling_unchanged() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+
+    // PUT in-range → 200 override
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/run_startup_grace_seconds",
+        Some(json!({ "value": 45 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["value"], 45);
+    assert_eq!(body["source"], "override");
+
+    // 형제 키(run_backstop_grace_seconds) 불변 — pair 제약 없음
+    let (status, body) = send(&app, Method::GET, "/api/settings", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let items = body["settings"].as_array().unwrap();
+    let backstop = items
+        .iter()
+        .find(|s| s["key"] == "run_backstop_grace_seconds")
+        .expect("backstop row");
+    assert_eq!(backstop["value"], 120, "형제 키 불변");
+    assert_eq!(backstop["source"], "default");
+
+    // 범위 밖(max 3600 초과) → 400
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        "/api/settings/run_startup_grace_seconds",
+        Some(json!({ "value": 99999 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // DELETE → 204, 값이 시드(default 90)로 복원
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        "/api/settings/run_startup_grace_seconds",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, body) = send(&app, Method::GET, "/api/settings", None).await;
+    let startup = body["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["key"] == "run_startup_grace_seconds")
+        .expect("startup row");
+    assert_eq!(startup["value"], 90);
+    assert_eq!(startup["source"], "default");
+}
+
 /// DELETE /api/settings/trace_body_cap_bytes → 400 (immutable setting).
 #[tokio::test]
 async fn delete_immutable_key_400() {
