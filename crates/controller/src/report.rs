@@ -31,6 +31,8 @@ pub struct ReportJson {
     pub group_latency: Vec<GroupLatency>,
     #[serde(default)]
     pub active_vu_series: Vec<ActiveVuSample>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionStats>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,6 +102,23 @@ pub struct ReportStep {
     pub loop_breakdown: Vec<LoopBucket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download: Option<PhaseStats>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait: Option<PhaseStats>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ConnectionStats {
+    /// DNS resolution distribution across new connections this run.
+    pub dns: PhaseStats,
+    /// connect(TCP+TLS) distribution across new connections this run.
+    pub connect: PhaseStats,
+    /// Number of new connections opened (= count of `connect` phase samples). Approximate
+    /// (background-spawned connects under pool contention may be missed).
+    pub connections_opened: u64,
+    /// Total requests this run (Σ step counts).
+    pub requests_total: u64,
+    /// Fraction of requests served by a reused connection = 1 − opened/total (0 if total 0).
+    pub reuse_ratio: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -564,6 +583,79 @@ pub fn build_report(
         })
         .collect();
 
+    // Wait latency: per-step accumulator (phase=="wait"), mirrors download_acc pattern.
+    let mut wait_acc: BTreeMap<String, (Histogram<u64>, u64)> = BTreeMap::new();
+    for p in phases.iter().filter(|p| p.phase == "wait") {
+        let e = wait_acc
+            .entry(p.step_id.clone())
+            .or_insert_with(|| (fresh_hist(), 0));
+        if let Ok(Some(h)) = decode_hdr(&p.hdr_histogram) {
+            merge_into(&mut e.0, &h); // fail-soft on bad blob
+        }
+        e.1 += p.count as u64;
+    }
+    let mut wait_by_step: BTreeMap<String, PhaseStats> = wait_acc
+        .into_iter()
+        .map(|(step_id, (h, count))| {
+            let pc = percentiles_of(&h);
+            (
+                step_id,
+                PhaseStats {
+                    count,
+                    p50_ms: pc.p50_ms,
+                    p95_ms: pc.p95_ms,
+                    p99_ms: pc.p99_ms,
+                    max_ms: h.max() / 1_000,
+                },
+            )
+        })
+        .collect();
+
+    // Connection cost: dns + connect phases rolled up RUN-LEVEL (step_id ignored — a
+    // connection serves many steps). connections_opened = Σ connect counts. NOT per-step.
+    let mut dns_hist = fresh_hist();
+    let mut dns_count: u64 = 0;
+    let mut connect_hist = fresh_hist();
+    let mut connect_count: u64 = 0;
+    for p in phases {
+        let (h, c) = match p.phase.as_str() {
+            "dns" => (&mut dns_hist, &mut dns_count),
+            "connect" => (&mut connect_hist, &mut connect_count),
+            _ => continue,
+        };
+        if let Ok(Some(decoded)) = decode_hdr(&p.hdr_histogram) {
+            merge_into(h, &decoded);
+        }
+        *c += p.count as u64;
+    }
+    // total_count is the Σ step requests already computed for the summary (see ReportSummary).
+    let connection = if connect_count > 0 || dns_count > 0 {
+        let phase_stats = |h: &Histogram<u64>, count: u64| {
+            let pc = percentiles_of(h);
+            PhaseStats {
+                count,
+                p50_ms: pc.p50_ms,
+                p95_ms: pc.p95_ms,
+                p99_ms: pc.p99_ms,
+                max_ms: h.max() / 1_000,
+            }
+        };
+        let reuse_ratio = if total_count == 0 {
+            0.0
+        } else {
+            1.0 - (connect_count as f64 / total_count as f64)
+        };
+        Some(ConnectionStats {
+            dns: phase_stats(&dns_hist, dns_count),
+            connect: phase_stats(&connect_hist, connect_count),
+            connections_opened: connect_count,
+            requests_total: total_count,
+            reuse_ratio,
+        })
+    } else {
+        None
+    };
+
     let mut steps: Vec<ReportStep> = per_step_count
         .into_iter()
         .map(|(step_id, (count, errors, status_counts))| {
@@ -573,6 +665,7 @@ pub fn build_report(
                 .unwrap_or_else(Percentiles::empty);
             let breakdown = loop_by_step.remove(&step_id).unwrap_or_default();
             let download = download_by_step.remove(&step_id);
+            let wait = wait_by_step.remove(&step_id);
             ReportStep {
                 step_id,
                 count,
@@ -583,6 +676,7 @@ pub fn build_report(
                 p99_ms: p.p99_ms,
                 loop_breakdown: breakdown,
                 download,
+                wait,
             }
         })
         .collect();
@@ -714,6 +808,7 @@ pub fn build_report(
         latency,
         group_latency,
         active_vu_series,
+        connection,
     }
 }
 
@@ -1022,6 +1117,7 @@ mod tests {
             p99_ms: 0,
             loop_breakdown: vec![],
             download: None,
+            wait: None,
         }
     }
 
@@ -1812,5 +1908,50 @@ mod tests {
         )];
         let rep = build_report(&r, "", &rows, &[], &[], &[], &[], &[]);
         assert_eq!(rep.summary.mean_ms, 25);
+    }
+
+    #[test]
+    fn build_report_rolls_up_connection_phases_and_attaches_wait() {
+        use crate::store::metrics::PhaseMetricRow;
+        let r = run_row();
+        let yaml = "version: 1\nname: t\nsteps: []\n";
+        // one http window: step "s1", count=10 → requests_total=10
+        let rows = vec![win(100, "s1", 10, 0, r#"{"200":10}"#, &[10_000])];
+        let phases = vec![
+            PhaseMetricRow {
+                run_id: r.id.clone(),
+                step_id: "s1".into(),
+                phase: "wait".into(),
+                hdr_histogram: make_hdr_bytes(&[50_000]),
+                count: 10,
+            },
+            PhaseMetricRow {
+                run_id: r.id.clone(),
+                step_id: "s1".into(),
+                phase: "dns".into(),
+                hdr_histogram: make_hdr_bytes(&[2_000]),
+                count: 2,
+            },
+            PhaseMetricRow {
+                run_id: r.id.clone(),
+                step_id: "s1".into(),
+                phase: "connect".into(),
+                hdr_histogram: make_hdr_bytes(&[15_000]),
+                count: 2,
+            },
+        ];
+        let rep = build_report(&r, yaml, &rows, &[], &[], &[], &phases, &[]);
+        // wait attaches per-step
+        let s = rep.steps.iter().find(|s| s.step_id == "s1").unwrap();
+        assert!(s.wait.is_some(), "wait phase attaches to step");
+        // dns/connect roll up to run-level connection block (NOT per-step)
+        let c = rep.connection.as_ref().expect("connection rollup present");
+        assert_eq!(c.connections_opened, 2, "= connect sample count");
+        assert_eq!(c.requests_total, 10);
+        assert!((c.reuse_ratio - 0.8).abs() < 1e-9, "1 - 2/10 = 0.8");
+        assert!(c.dns.p50_ms <= 3 && c.connect.p50_ms >= 14);
+        // no connection rows → None (byte-identical)
+        let rep2 = build_report(&r, yaml, &rows, &[], &[], &[], &[], &[]);
+        assert!(rep2.connection.is_none());
     }
 }

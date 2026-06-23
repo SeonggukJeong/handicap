@@ -395,6 +395,7 @@ mod tests {
             p99_ms: p95,
             loop_breakdown: vec![],
             download: None,
+            wait: None,
         }
     }
     fn summary() -> ReportSummary {
