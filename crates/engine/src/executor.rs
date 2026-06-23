@@ -15,17 +15,25 @@ use crate::trace::{HttpTrace, TracedRequest, TracedResponse};
 /// Per-VU HTTP client. Holds its own cookie jar so sessions are isolated.
 pub struct VuClient {
     inner: reqwest::Client,
+    /// When true, the client is instrumented (resolver+connector) and `execute_step`
+    /// brackets `send()` in the timing task-local. False ⇒ byte-identical to pre-feature.
+    measure_phases: bool,
 }
 
 impl VuClient {
-    /// Back-compat constructor: 30s total request timeout (pre-S-A default).
+    /// Back-compat constructor: 30s total request timeout, no phase instrumentation.
     pub fn new(cookie_mode: CookieJarMode) -> Result<Self> {
-        Self::with_timeout(cookie_mode, Duration::from_secs(30))
+        Self::with_timeout(cookie_mode, Duration::from_secs(30), false)
     }
 
-    /// Build a client with an explicit total request timeout. `run_vu` uses this
-    /// to thread `RunPlan.http_timeout`; `new` delegates here with the 30s default.
-    pub fn with_timeout(cookie_mode: CookieJarMode, timeout: Duration) -> Result<Self> {
+    /// Build a client with an explicit total request timeout and optional phase
+    /// instrumentation. `run_vu`/`run_arrival`/`run_vu_curve` thread `RunPlan.http_timeout`
+    /// and `RunPlan.measure_phases`; `new` delegates here with the 30s default + off.
+    pub fn with_timeout(
+        cookie_mode: CookieJarMode,
+        timeout: Duration,
+        measure_phases: bool,
+    ) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
             .user_agent("handicap/0.1");
@@ -33,8 +41,14 @@ impl VuClient {
             let jar = Arc::new(Jar::default());
             builder = builder.cookie_provider(jar);
         }
+        if measure_phases {
+            builder = crate::conn_timing::install(builder);
+        }
         let inner = builder.build()?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            measure_phases,
+        })
     }
 }
 
@@ -47,6 +61,13 @@ pub struct ExecOutcome {
     /// success path (`bytes().await` reached); `None` on transport failure. TTFB is
     /// `latency` (measured at `send().await`, before body). Phase-breakdown (B7-C).
     pub download: Option<Duration>,
+    /// DNS resolution time — `Some` only when this request opened a NEW connection
+    /// (reused connections ⇒ `None`). Transaction breakdown (this slice).
+    pub dns: Option<Duration>,
+    /// connect(TCP+TLS) time (= connect_total − dns). `Some` only on a new connection.
+    pub connect: Option<Duration>,
+    /// Server-wait time (= latency − connect_total). `Some` whenever measuring (per request).
+    pub wait: Option<Duration>,
     pub error: Option<String>,
     pub extracted: BTreeMap<String, String>,
 }
@@ -152,8 +173,29 @@ pub async fn execute_step(
     }
 
     let started = Instant::now();
-    let outcome = req.send().await;
+    let (outcome, timing) = crate::conn_timing::send_collecting(req, client.measure_phases).await;
     let latency = started.elapsed();
+
+    // Phase decomposition (only when measuring). `wait` is meaningful on any successful send
+    // (server processing); dns/connect only when this request opened a new connection.
+    let (dns, connect, wait) = if client.measure_phases {
+        let lat_us = latency.as_micros().min(u64::MAX as u128) as u64;
+        let wait = Some(Duration::from_micros(
+            lat_us.saturating_sub(timing.connect_total_us),
+        ));
+        if timing.connect_total_us > 0 {
+            let tcp_tls = timing.connect_total_us.saturating_sub(timing.dns_us);
+            (
+                Some(Duration::from_micros(timing.dns_us)),
+                Some(Duration::from_micros(tcp_tls)),
+                wait,
+            )
+        } else {
+            (None, None, wait)
+        }
+    } else {
+        (None, None, None)
+    };
 
     match outcome {
         Ok(resp) => {
@@ -183,6 +225,9 @@ pub async fn execute_step(
                         status,
                         latency,
                         download: None, // body read failed → no clean download sample
+                        dns,
+                        connect,
+                        wait,
                         error: Some(format!("read body: {e}")),
                         extracted: BTreeMap::new(),
                     });
@@ -220,6 +265,9 @@ pub async fn execute_step(
                 status,
                 latency,
                 download,
+                dns,
+                connect,
+                wait,
                 error,
                 extracted,
             })
@@ -229,6 +277,9 @@ pub async fn execute_step(
             status: 0,
             latency,
             download: None,
+            dns: None,
+            connect: None,
+            wait: None,
             error: Some(e.to_string()),
             extracted: BTreeMap::new(),
         }),
@@ -1250,6 +1301,67 @@ mod tests {
             outcome.download.is_none(),
             "no download phase on transport failure"
         );
+    }
+
+    #[tokio::test]
+    async fn execute_step_measures_connect_on_first_request_only_when_measuring() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/c"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let step = HttpStep {
+            id: "01HX0000000000000000000050".into(),
+            name: "c".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: format!("{}/c", server.uri()),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+            think_time: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+
+        // measure on: first request opens a connection (connect Some), second reuses it (connect None).
+        let client = VuClient::with_timeout(
+            crate::scenario::CookieJarMode::Off,
+            std::time::Duration::from_secs(30),
+            true,
+        )
+        .unwrap();
+        let first = execute_step(&client, &step, &ctx).await.unwrap();
+        let second = execute_step(&client, &step, &ctx).await.unwrap();
+        assert!(first.connect.is_some(), "first request pays connect cost");
+        assert!(first.wait.is_some(), "wait measured whenever measuring");
+        assert!(
+            second.connect.is_none(),
+            "reused connection has no connect cost"
+        );
+        assert!(second.wait.is_some(), "wait still measured on reuse");
+
+        // measure off: no phase timing at all (byte-identical path).
+        let plain = VuClient::with_timeout(
+            crate::scenario::CookieJarMode::Off,
+            std::time::Duration::from_secs(30),
+            false,
+        )
+        .unwrap();
+        let o = execute_step(&plain, &step, &ctx).await.unwrap();
+        assert!(o.connect.is_none() && o.dns.is_none() && o.wait.is_none());
     }
 
     #[tokio::test]

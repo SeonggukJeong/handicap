@@ -346,7 +346,7 @@ async fn run_vu(
     think_seed: Option<u32>,
     measure_phases: bool,
 ) -> Result<()> {
-    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
+    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout, measure_phases)?;
     let mut think_rng = match think_seed {
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
@@ -474,6 +474,27 @@ async fn execute_steps(
                                 &outcome.step_id,
                                 "download",
                                 dl.as_micros().min(u64::MAX as u128) as u64,
+                            );
+                        }
+                        if let Some(w) = outcome.wait {
+                            a.record_phase(
+                                &outcome.step_id,
+                                "wait",
+                                w.as_micros().min(u64::MAX as u128) as u64,
+                            );
+                        }
+                        if let Some(d) = outcome.dns {
+                            a.record_phase(
+                                &outcome.step_id,
+                                "dns",
+                                d.as_micros().min(u64::MAX as u128) as u64,
+                            );
+                        }
+                        if let Some(c) = outcome.connect {
+                            a.record_phase(
+                                &outcome.step_id,
+                                "connect",
+                                c.as_micros().min(u64::MAX as u128) as u64,
                             );
                         }
                     }
@@ -951,7 +972,7 @@ async fn run_vu_curve(
 ) -> Result<()> {
     // Client + rng + iter_id persist across park (Park & 재사용, spec §2):
     // the cookie jar IS the session, and iter_id stays monotonic.
-    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout)?;
+    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout, measure_phases)?;
     let mut think_rng = match think_seed {
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
@@ -1111,6 +1132,7 @@ pub async fn run_scenario_open_loop(
             Ok(Arc::new(VuClient::with_timeout(
                 scenario.cookie_jar,
                 http_timeout,
+                measure_phases,
             )?))
         })
         .collect::<Result<_>>()?;
