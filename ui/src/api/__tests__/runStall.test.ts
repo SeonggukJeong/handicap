@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRunStall, MIDRUN_STALL_MS, STARTUP_STALL_MS } from "../runStall";
+import { classifyRunStall, computeRunStall, MIDRUN_STALL_MS, STARTUP_STALL_MS } from "../runStall";
 import type { WindowSummary } from "../schemas";
 
 const NOW = 1_000_000_000_000; // 고정 ms (nowSec = 1_000_000_000)
@@ -65,5 +65,31 @@ describe("computeRunStall", () => {
   it("임계 상수값", () => {
     expect(STARTUP_STALL_MS).toBe(15_000);
     expect(MIDRUN_STALL_MS).toBe(120_000);
+  });
+});
+
+describe("classifyRunStall (목록 직접 진입점)", () => {
+  const NOW = 1_000_000_000_000;
+  const NOW_SEC = Math.floor(NOW / 1000);
+
+  it("비-running → none", () => {
+    expect(classifyRunStall("completed", NOW - 1_000, null, NOW)).toEqual({
+      kind: "none",
+      silentSeconds: 0,
+    });
+  });
+  it("running + lastMetricTs null + STARTUP 초과 → startup", () => {
+    expect(classifyRunStall("running", NOW - 20_000, null, NOW).kind).toBe("startup");
+  });
+  it("running + lastMetricTs null + STARTUP 미만 → none", () => {
+    expect(classifyRunStall("running", NOW - 3_000, null, NOW).kind).toBe("none");
+  });
+  it("running + lastMetricTs 최근(침묵 2s) → none", () => {
+    expect(classifyRunStall("running", NOW - 1_000, NOW_SEC - 2, NOW).kind).toBe("none");
+  });
+  it("MIDRUN 경계: 침묵 120s none, 121s midrun(silentSeconds=121)", () => {
+    expect(classifyRunStall("running", NOW - 1_000, NOW_SEC - 120, NOW).kind).toBe("none");
+    const r = classifyRunStall("running", NOW - 1_000, NOW_SEC - 121, NOW);
+    expect(r).toEqual({ kind: "midrun", silentSeconds: 121 });
   });
 });
