@@ -3410,6 +3410,11 @@ mod tests {
     fn truncate_message_is_char_safe() {
         // ≤ cap: returned unchanged, no marker.
         assert_eq!(truncate_message("boom"), "boom");
+        // exact boundary: len == cap → unchanged, no marker (guards the
+        // off-by-one between nth(MAX) and "first MAX chars + marker").
+        let at_cap = "x".repeat(MESSAGE_MAX_CHARS);
+        assert_eq!(truncate_message(&at_cap), at_cap);
+        assert!(!truncate_message(&at_cap).ends_with('…'));
         // > cap ASCII: first MAX chars + marker.
         let long = "x".repeat(MESSAGE_MAX_CHARS + 50);
         let out = truncate_message(&long);
