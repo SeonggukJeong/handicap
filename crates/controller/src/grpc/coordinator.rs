@@ -835,7 +835,7 @@ impl CoordinatorState {
     /// Record a worker's terminal phase and finalize the run when all workers
     /// agree / any fails. Performs DB writes + sibling AbortRun fan-out
     /// internally. (Spec §8.1, §8.2, §8.5 partial.)
-    pub async fn record_phase(&self, run_id: &str, worker_id: &str, phase: i32) {
+    pub async fn record_phase(&self, run_id: &str, worker_id: &str, phase: i32, message: &str) {
         use pb::run_status::Phase;
         let completed = Phase::Completed as i32;
         let failed = Phase::Failed as i32;
@@ -930,14 +930,8 @@ impl CoordinatorState {
                 self.cleanup_dispatcher(run_id).await;
             }
             Finalize::Failed(siblings) => {
-                let _ = runs::set_status(
-                    &self.db,
-                    run_id,
-                    RunStatus::Failed,
-                    None,
-                    Some(crate::store::now_ms()),
-                )
-                .await;
+                let reason = failure_message(worker_id, message);
+                let _ = runs::mark_failed_if_active(&self.db, run_id, &reason).await;
                 fan_out_abort(run_id, &siblings, "sibling worker failed — fail-fast").await;
                 self.cleanup_dispatcher(run_id).await;
             }
@@ -979,14 +973,10 @@ impl CoordinatorState {
             }
         };
         if let Some(siblings) = siblings {
-            let _ = runs::set_status(
-                &self.db,
-                run_id,
-                RunStatus::Failed,
-                None,
-                Some(crate::store::now_ms()),
-            )
-            .await;
+            let reason = truncate_message(&format!(
+                "worker {worker_id} disconnected before completing the run"
+            ));
+            let _ = runs::mark_failed_if_active(&self.db, run_id, &reason).await;
             fan_out_abort(
                 run_id,
                 &siblings,
@@ -1001,7 +991,7 @@ impl CoordinatorState {
     /// `expected` workers registered, fail it fast + abort whoever did register.
     /// (Spec §8.2 third bullet, §8.3.)
     pub async fn fail_incomplete_registration(&self, run_id: &str) {
-        let siblings = {
+        let result = {
             let mut g = self.runs.lock().await;
             let Some(rw) = g.get_mut(run_id) else {
                 return;
@@ -1010,23 +1000,21 @@ impl CoordinatorState {
                 None
             } else {
                 rw.terminal = true;
-                Some(
-                    rw.workers
-                        .values()
-                        .map(|e| e.tx.clone())
-                        .collect::<Vec<_>>(),
-                )
+                let registered = rw.workers.len();
+                let expected = rw.expected;
+                let siblings = rw
+                    .workers
+                    .values()
+                    .map(|e| e.tx.clone())
+                    .collect::<Vec<_>>();
+                Some((siblings, registered, expected))
             }
         };
-        if let Some(siblings) = siblings {
-            let _ = runs::set_status(
-                &self.db,
-                run_id,
-                RunStatus::Failed,
-                None,
-                Some(crate::store::now_ms()),
-            )
-            .await;
+        if let Some((siblings, registered, expected)) = result {
+            let reason = truncate_message(&format!(
+                "only {registered}/{expected} workers registered before the registration deadline"
+            ));
+            let _ = runs::mark_failed_if_active(&self.db, run_id, &reason).await;
             fan_out_abort(
                 run_id,
                 &siblings,
@@ -1128,6 +1116,30 @@ fn reduce_pool_profile(
                 None => shard_split(s.target, shard_count, shard_index).1,
             };
         }
+    }
+}
+
+/// Free-form failure reasons persisted to `runs.message` (engine errors can be
+/// long). Bound length so the DB column / UI row stays sane.
+const MESSAGE_MAX_CHARS: usize = 1000;
+
+/// Char-boundary-safe truncation. Appends `…` ONLY when truncated; returns the
+/// input unchanged when it is within the cap.
+fn truncate_message(s: &str) -> String {
+    match s.char_indices().nth(MESSAGE_MAX_CHARS) {
+        Some((byte_idx, _)) => format!("{}…", &s[..byte_idx]),
+        None => s.to_string(),
+    }
+}
+
+/// Build the persisted reason for a worker-reported `Phase::Failed`: the worker's
+/// own `RunStatus.message` (the real engine error) when present, else a synthetic
+/// fallback. Always length-bounded (R1 fallback + R5).
+fn failure_message(worker_id: &str, raw: &str) -> String {
+    if raw.trim().is_empty() {
+        format!("worker {worker_id} reported failure")
+    } else {
+        truncate_message(raw)
     }
 }
 
@@ -1313,7 +1325,9 @@ impl Coordinator for CoordinatorService {
                     Some(WorkerPayload::RunStatus(s)) => {
                         info!(run_id = %s.run_id, phase = ?s.phase, "worker run status");
                         if let Some(wid) = &worker_id {
-                            state.record_phase(&s.run_id, wid, s.phase).await;
+                            state
+                                .record_phase(&s.run_id, wid, s.phase, &s.message)
+                                .await;
                         }
                     }
                     Some(WorkerPayload::Pong(_)) => {}
@@ -1584,7 +1598,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         assert_eq!(
             cleanups.load(Ordering::SeqCst),
@@ -1610,7 +1624,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Aborted as i32, "")
             .await;
         assert_eq!(
             cleanups.load(Ordering::SeqCst),
@@ -1636,7 +1650,12 @@ mod tests {
         coord.register(&run_id, "w0", tx0).await;
         coord.register(&run_id, "w1", tx1).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .record_phase(
+                &run_id,
+                "w0",
+                pb::run_status::Phase::Failed as i32,
+                "engine error",
+            )
             .await;
         assert_eq!(
             cleanups.load(Ordering::SeqCst),
@@ -1658,7 +1677,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
@@ -1719,7 +1738,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Completed);
@@ -1739,7 +1758,7 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Completed);
@@ -1757,7 +1776,12 @@ mod tests {
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .record_phase(
+                &run_id,
+                "w0",
+                pb::run_status::Phase::Failed as i32,
+                "engine error",
+            )
             .await;
         let row = runs::get(&db, &run_id).await.unwrap().unwrap();
         assert_eq!(row.status, RunStatus::Failed);
@@ -1976,7 +2000,7 @@ mod tests {
         coord.register(&run_id, "w0", tx0).await;
         coord.register(&run_id, "w1", tx1).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         // not all done yet — run stays in its pre-running state (Pending in this
         // unit test; the gRPC handler sets Running when the first worker registers,
@@ -1986,7 +2010,7 @@ mod tests {
             RunStatus::Completed
         );
         coord
-            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32, "")
             .await;
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
@@ -2007,7 +2031,12 @@ mod tests {
         coord.register(&run_id, "w0", tx0).await;
         coord.register(&run_id, "w1", tx1).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32)
+            .record_phase(
+                &run_id,
+                "w0",
+                pb::run_status::Phase::Failed as i32,
+                "engine error",
+            )
             .await;
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
@@ -2095,7 +2124,7 @@ mod tests {
         coord.register(&run_id, "w0", tx0).await;
         coord.register(&run_id, "w1", tx1).await;
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await;
         // w0 completes, then its process exits → stream closes.
         coord.worker_disconnected(&run_id, "w0").await;
@@ -2105,7 +2134,7 @@ mod tests {
             "run must not finalize while w1 is still running"
         );
         coord
-            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w1", pb::run_status::Phase::Completed as i32, "")
             .await;
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
@@ -2426,7 +2455,7 @@ mod tests {
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
         coord
-            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32)
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
             .await; // 완료
         coord.pool_disconnect("w0").await; // 정상 종료(terminal 보고 후 close)
         assert_eq!(
@@ -3295,5 +3324,101 @@ mod tests {
                 .is_some(),
             "exclude is a one-shot action; the persisted drain survives (R6)"
         );
+    }
+
+    #[tokio::test]
+    async fn record_phase_failed_persists_worker_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(
+                &run_id,
+                "w0",
+                pb::run_status::Phase::Failed as i32,
+                "Http(\"connection refused\")",
+            )
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some("Http(\"connection refused\")"));
+    }
+
+    #[tokio::test]
+    async fn record_phase_failed_empty_message_falls_back() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Failed as i32, "")
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.message.as_deref(), Some("worker w0 reported failure"));
+    }
+
+    #[tokio::test]
+    async fn worker_disconnected_records_failure_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        // w0 is still in `Started` (non-terminal) phase → crash fail-fast.
+        coord.worker_disconnected(&run_id, "w0").await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert_eq!(
+            row.message.as_deref(),
+            Some("worker w0 disconnected before completing the run")
+        );
+    }
+
+    #[tokio::test]
+    async fn incomplete_registration_records_failure_message() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        // expected = 2 but only w0 registers → incomplete at deadline.
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 2, 8, None)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord.fail_incomplete_registration(&run_id).await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert_eq!(
+            row.message.as_deref(),
+            Some("only 1/2 workers registered before the registration deadline")
+        );
+    }
+
+    #[test]
+    fn truncate_message_is_char_safe() {
+        // ≤ cap: returned unchanged, no marker.
+        assert_eq!(truncate_message("boom"), "boom");
+        // > cap ASCII: first MAX chars + marker.
+        let long = "x".repeat(MESSAGE_MAX_CHARS + 50);
+        let out = truncate_message(&long);
+        assert_eq!(out.chars().count(), MESSAGE_MAX_CHARS + 1);
+        assert!(out.ends_with('…'));
+        // > cap multibyte: must not panic, must stay valid UTF-8 (char boundary).
+        let multi = "가".repeat(MESSAGE_MAX_CHARS + 50);
+        let out = truncate_message(&multi);
+        assert_eq!(out.chars().count(), MESSAGE_MAX_CHARS + 1);
+        assert!(out.ends_with('…'));
     }
 }
