@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use handicap_engine::{Scenario, Step};
+use handicap_proto::v1 as pb;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
@@ -506,6 +507,38 @@ fn pool_unique_floor_violation(
     })
 }
 
+const STARTUP_MARGIN: u64 = 15;
+
+/// Leading consecutive zero-load stages (delayed start): open-loop `stages` or
+/// closed-loop `vu_stages` whose `target == 0`. Normal runs → 0.
+pub(crate) fn leading_idle_secs(p: &pb::Profile) -> u64 {
+    let lead = if !p.vu_stages.is_empty() {
+        &p.vu_stages
+    } else {
+        &p.stages
+    };
+    lead.iter()
+        .take_while(|s| s.target == 0)
+        .map(|s| u64::from(s.duration_seconds))
+        .sum()
+}
+
+/// Effective startup grace: at least the CLI floor, but never below the run's
+/// HTTP timeout + margin (a black-hole SUT emits its first error-metric only
+/// after the timeout), plus any leading idle stages. Mirrors worker's 0→30 fallback.
+pub(crate) fn startup_grace_eff(
+    p: &pb::Profile,
+    startup_floor: std::time::Duration,
+) -> std::time::Duration {
+    let http_to = if p.http_timeout_seconds == 0 {
+        30
+    } else {
+        p.http_timeout_seconds
+    } as u64;
+    let floor = startup_floor.max(std::time::Duration::from_secs(http_to + STARTUP_MARGIN));
+    floor + std::time::Duration::from_secs(leading_idle_secs(p))
+}
+
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
 /// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
 /// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
@@ -640,6 +673,15 @@ pub(crate) async fn spawn_run(
         env: env.clone(),
         data_bindings,
     };
+    // Per-run liveness grace (G1a). Computed from the proto Profile BEFORE
+    // `assignment` is moved into any enqueue branch. startup-A = floor (CLI ?? 90s)
+    // raised to HTTP-timeout + margin + leading idle; backstop-B = engine run
+    // duration + CLI grace (?? 120s).
+    let (startup_floor, backstop_grace) = state.coord.watchdog_grace_config();
+    let startup_grace = startup_grace_eff(&assignment.profile, startup_floor);
+    let backstop_total =
+        std::time::Duration::from_secs(handicap_proto::run_duration_secs(&assignment.profile))
+            + backstop_grace;
     // vu-curve is single-worker v1 (검증 ⑦이 capacity 이내 보장, spec §9).
     let n = if profile.is_vu_curve() {
         1
@@ -711,7 +753,15 @@ pub(crate) async fn spawn_run(
                     }
                     state
                         .coord
-                        .enqueue(row.id.clone(), assignment, n_pool, total_vus, Some(counts))
+                        .enqueue(
+                            row.id.clone(),
+                            assignment,
+                            n_pool,
+                            total_vus,
+                            Some(counts),
+                            startup_grace,
+                            backstop_total,
+                        )
                         .await;
                     if state
                         .coord
@@ -769,7 +819,15 @@ pub(crate) async fn spawn_run(
             }
             state
                 .coord
-                .enqueue(row.id.clone(), assignment, n_pool, total_vus, None)
+                .enqueue(
+                    row.id.clone(),
+                    assignment,
+                    n_pool,
+                    total_vus,
+                    None,
+                    startup_grace,
+                    backstop_total,
+                )
                 .await;
             if state
                 .coord
@@ -788,7 +846,15 @@ pub(crate) async fn spawn_run(
 
     state
         .coord
-        .enqueue(row.id.clone(), assignment, n, total_vus, None)
+        .enqueue(
+            row.id.clone(),
+            assignment,
+            n,
+            total_vus,
+            None,
+            startup_grace,
+            backstop_total,
+        )
         .await;
 
     // Dispatch N workers (subprocess: N children; K8s: 1 Job, Indexed in A3c).
@@ -1146,6 +1212,51 @@ mod tests {
         assert_ne!(
             super::fold_seed("01HX0000000000000000000001"),
             super::fold_seed("01HX0000000000000000000002")
+        );
+    }
+
+    #[test]
+    fn leading_idle_only_counts_leading_zeros() {
+        let z = |t: u32, d: u32| pb::Stage {
+            target: t,
+            duration_seconds: d,
+        };
+        let p = pb::Profile {
+            stages: vec![z(0, 5), z(0, 3), z(100, 10), z(0, 2)],
+            ..Default::default()
+        };
+        assert_eq!(super::leading_idle_secs(&p), 8); // 선두 0,0 만, 중간 0은 제외
+    }
+
+    #[test]
+    fn startup_grace_floor_respects_http_timeout_and_idle() {
+        // floor 90s vs http_timeout 600 + margin 15 = 615 → 615 채택, + leading idle 0
+        let p = pb::Profile {
+            http_timeout_seconds: 600,
+            ..Default::default()
+        };
+        assert_eq!(
+            super::startup_grace_eff(&p, std::time::Duration::from_secs(90)),
+            std::time::Duration::from_secs(615)
+        );
+        // http_timeout 작으면(30) floor 90 채택 + leading idle 20
+        let p2 = pb::Profile {
+            http_timeout_seconds: 30,
+            stages: vec![
+                pb::Stage {
+                    target: 0,
+                    duration_seconds: 20,
+                },
+                pb::Stage {
+                    target: 50,
+                    duration_seconds: 10,
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            super::startup_grace_eff(&p2, std::time::Duration::from_secs(90)),
+            std::time::Duration::from_secs(90 + 20)
         );
     }
 

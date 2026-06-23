@@ -148,6 +148,12 @@ struct RunWorkers {
     /// path. `None` → `register` falls back to even `shard_split` (legacy/open/
     /// curve/force, byte-identical L1). (spec R2/R5.)
     precomputed_counts: Option<Vec<(u32, u32)>>,
+    /// Cancelled by `ingest_metrics` on this run's FIRST metric batch (progress
+    /// signal). The run_watchdog startup phase (A) selects on it.
+    first_load: CancellationToken,
+    /// Cancelled at every finalize site (Completed/Failed/Aborted/disconnect/
+    /// dispatch-fail) → run_watchdog exits immediately on a healthy/terminal run.
+    done: CancellationToken,
 }
 
 /// Outcome of `reserve_idle_pool_capacity` (closed-loop capacity path). (spec R2/R3/R6.)
@@ -703,15 +709,23 @@ impl CoordinatorState {
     /// Register a run for `expected` workers and spawn the registration
     /// watchdog. Returns the watchdog's cancellation token (cancelled when all
     /// workers register). (Spec §2.3 enqueue, §8.3.)
+    // 8 args (self + 7): run identity, fan-out shape, and the two liveness graces
+    // are all per-run inputs the watchdog needs — a params struct would just
+    // shuffle the same fields. (G1a, mirrors the existing pool-path arity.)
+    #[allow(clippy::too_many_arguments)]
     pub async fn enqueue(
         &self,
         run_id: String,
         base: PendingAssignment,
         expected: u32,
         total_vus: u32,
-        precomputed: Option<Vec<(u32, u32)>>, // NEW: capacity-aware pool counts (Task 2)
+        precomputed: Option<Vec<(u32, u32)>>, // capacity-aware pool counts (L3)
+        startup_grace: std::time::Duration,   // startup-A liveness budget (G1a)
+        backstop_total: std::time::Duration,  // backstop-B liveness budget (G1a)
     ) -> CancellationToken {
         let token = CancellationToken::new();
+        let first_load = CancellationToken::new();
+        let done = CancellationToken::new();
         {
             let mut g = self.runs.lock().await;
             g.insert(
@@ -725,13 +739,24 @@ impl CoordinatorState {
                     reg_deadline: token.clone(),
                     terminal: false,
                     precomputed_counts: precomputed,
+                    first_load: first_load.clone(),
+                    done: done.clone(),
                 },
             );
         }
         let coord = self.clone();
-        let token_for_wd = token.clone();
+        let reg_token = token.clone(); // clone for the watchdog; `token` is returned below
         tokio::spawn(async move {
-            registration_watchdog(coord, run_id, REGISTRATION_DEADLINE, token_for_wd).await;
+            run_watchdog(
+                coord,
+                run_id,
+                reg_token,
+                first_load,
+                done,
+                startup_grace,
+                backstop_total,
+            )
+            .await;
         });
         token
     }
@@ -893,6 +918,7 @@ impl CoordinatorState {
                 Finalize::None
             } else if phase == failed {
                 rw.terminal = true;
+                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
                 let siblings: Vec<WorkerTx> = rw
                     .workers
                     .iter()
@@ -902,12 +928,14 @@ impl CoordinatorState {
                 Finalize::Failed(siblings)
             } else if phase == aborted {
                 rw.terminal = true;
+                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
                 Finalize::Aborted
             } else if phase == completed
                 && rw.workers.values().all(|e| e.phase == Phase::Completed)
                 && rw.workers.len() as u32 == rw.expected
             {
                 rw.terminal = true;
+                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
                 Finalize::Completed
             } else {
                 Finalize::None
@@ -989,6 +1017,7 @@ impl CoordinatorState {
                 // Non-terminal disconnect = crash → fail-fast: drop it + abort siblings.
                 rw.workers.remove(worker_id);
                 rw.terminal = true;
+                rw.done.cancel(); // terminal → stop run_watchdog (G1a)
                 Some(
                     rw.workers
                         .values()
@@ -1027,6 +1056,7 @@ impl CoordinatorState {
                 return;
             }
             rw.terminal = true;
+            rw.done.cancel(); // terminal → stop the other run_watchdog phase (G1a)
             rw.workers
                 .values()
                 .map(|e| e.tx.clone())
@@ -1065,16 +1095,20 @@ impl CoordinatorState {
     }
 
     /// Tear down a run whose worker dispatch failed before the run could start:
-    /// drop the in-memory entry, cancel the registration watchdog (so it doesn't
-    /// fire 60s later on an already-failed run), abort any worker that raced in
-    /// before dispatch errored (subprocess N≥2 partial spawn), and release
-    /// dispatcher resources. The caller marks the run `failed` in the DB. Safe to
-    /// call when the run is unknown (idempotent no-op). (codex eval, item 2.)
+    /// drop the in-memory entry, cancel the run watchdog via `done` (so it exits
+    /// immediately instead of advancing into the startup phase on an already-failed
+    /// run), abort any worker that raced in before dispatch errored (subprocess
+    /// N≥2 partial spawn), and release dispatcher resources. The caller marks the
+    /// run `failed` in the DB. Safe to call when the run is unknown (idempotent
+    /// no-op). (codex eval, item 2; G1a §3.1.)
     pub async fn cancel_dispatch_failed(&self, run_id: &str) {
         let siblings = {
             let mut g = self.runs.lock().await;
             g.remove(run_id).map(|rw| {
-                rw.reg_deadline.cancel();
+                // dispatch failure is a "stop" signal, not "registration complete":
+                // cancel `done` (not reg_deadline, which would wrongly advance the
+                // watchdog into Phase 2 and linger for the startup grace). (G1a §3.1.)
+                rw.done.cancel();
                 rw.workers
                     .values()
                     .map(|e| e.tx.clone())
@@ -1195,19 +1229,52 @@ async fn fan_out_abort(run_id: &str, txs: &[WorkerTx], reason: &str) {
     }
 }
 
-/// Per-run watchdog: wait `deadline`, then fail the run if not everyone
-/// registered. Cancelled early (via `token`) once all workers register.
-async fn registration_watchdog(
+/// Per-run progress watchdog (3 phases). Phase 1 (registration) preserves the old
+/// `registration_watchdog` behavior; Phases 2/3 add startup (A) and backstop (B)
+/// liveness. All fail paths go through `fail_run_hung` (terminal-guarded).
+async fn run_watchdog(
     coord: CoordinatorState,
     run_id: String,
-    deadline: Duration,
-    token: CancellationToken,
+    reg_deadline: CancellationToken,
+    first_load: CancellationToken,
+    done: CancellationToken,
+    startup_grace: std::time::Duration,
+    backstop_total: std::time::Duration,
 ) {
+    // Phase 1: registration (unchanged behavior + new done arm).
     tokio::select! {
-        _ = token.cancelled() => {}
-        _ = tokio::time::sleep(deadline) => {
+        _ = tokio::time::sleep(REGISTRATION_DEADLINE) => {
             coord.fail_incomplete_registration(&run_id).await;
+            return;
         }
+        _ = reg_deadline.cancelled() => {} // all registered → proceed
+        _ = done.cancelled() => return,    // already terminal (e.g. dispatch failed)
+    }
+    let started = tokio::time::Instant::now();
+    // Phase 2: startup (A) — first metric must arrive within startup_grace.
+    tokio::select! {
+        _ = tokio::time::sleep(startup_grace) => {
+            let reason = format!(
+                "worker registered but produced no load within {}s — the run appears stuck (no metrics received)",
+                startup_grace.as_secs()
+            );
+            coord.fail_run_hung(&run_id, &reason, "no load produced (startup liveness)").await;
+            return;
+        }
+        _ = first_load.cancelled() => {} // first metric → proceed
+        _ = done.cancelled() => return,
+    }
+    // Phase 3: backstop (B) — terminal must arrive within backstop_total of start.
+    let remaining = backstop_total.saturating_sub(started.elapsed());
+    tokio::select! {
+        _ = tokio::time::sleep(remaining) => {
+            let reason = format!(
+                "run exceeded its expected-duration budget ({}s, incl. grace) without reaching a terminal state — the run appears stuck",
+                backstop_total.as_secs()
+            );
+            coord.fail_run_hung(&run_id, &reason, "exceeded expected duration (backstop)").await;
+        }
+        _ = done.cancelled() => {}
     }
 }
 
@@ -1487,6 +1554,15 @@ async fn stream_dataset(
 /// Insert one worker's metric batch (windows + loop + if). Unchanged from the
 /// previous inline arm; A3b adds run_metrics per-worker keying.
 async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
+    // First batch from this run's workers = the engine flusher produced output =
+    // not hung at startup. Cancel first_load (idempotent — no-op after the first).
+    // ~1-2 batches/sec/worker, so the per-batch runs lock is not contention.
+    {
+        let g = state.runs.lock().await;
+        if let Some(rw) = g.get(&batch.run_id) {
+            rw.first_load.cancel();
+        }
+    }
     let rows: Vec<crate::store::metrics::MetricRow> = batch
         .windows
         .iter()
@@ -1609,6 +1685,22 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    /// Sub-second grace for the A/B liveness tests (real timer — never `pause()`,
+    /// the watchdog does a `mark_failed_if_active` DB write on fire and pausing
+    /// time blows up sqlx `acquire_timeout` as PoolTimedOut).
+    const TINY: Duration = Duration::from_millis(120);
+    /// "Effectively never" grace — healthy/legacy enqueue sites use `LONG, LONG`
+    /// so the startup-A / backstop-B phases never trip (byte-identical behavior).
+    const LONG: Duration = Duration::from_secs(3600);
+
+    fn metric_batch(run_id: &str) -> pb::MetricBatch {
+        pb::MetricBatch {
+            run_id: run_id.to_string(),
+            worker_id: "w0".to_string(),
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
     async fn watchdog_grace_defaults_then_overrides() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
@@ -1649,7 +1741,7 @@ mod tests {
             cleanups: cleanups.clone(),
         }));
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1675,7 +1767,7 @@ mod tests {
             cleanups: cleanups.clone(),
         }));
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1699,7 +1791,7 @@ mod tests {
             cleanups: cleanups.clone(),
         }));
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
@@ -1728,7 +1820,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1789,7 +1881,7 @@ mod tests {
         let run_id = seed_run_with_criteria(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1809,7 +1901,7 @@ mod tests {
         let run_id = seed_run(&db).await; // criteria: None
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1827,7 +1919,7 @@ mod tests {
         let run_id = seed_run_with_criteria(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -1999,7 +2091,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db);
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
 
         let (tx0, _r0) = fake_tx();
@@ -2049,7 +2141,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
@@ -2080,7 +2172,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, mut r1) = fake_tx();
@@ -2110,7 +2202,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
@@ -2130,7 +2222,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db);
         let token = coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         assert!(!token.is_cancelled());
         let (tx0, _r0) = fake_tx();
@@ -2147,7 +2239,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, mut r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await; // only 1 of 2 registers
@@ -2173,7 +2265,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         let (tx1, _r1) = fake_tx();
@@ -2214,7 +2306,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await; // 1 of 2 → token stays live
@@ -2223,6 +2315,81 @@ mod tests {
         assert_eq!(
             runs::get(&db, &run_id).await.unwrap().unwrap().status,
             RunStatus::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_hang_fails_run_no_load() {
+        // 전원 등록 → 메트릭 0 → startup grace 경과 → Failed(no-load).
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, TINY, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await; // 1/1 등록 → Phase 2 진입
+        tokio::time::sleep(TINY + Duration::from_millis(80)).await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert!(row.message.unwrap().contains("no metrics"), "no-load 사유");
+    }
+
+    #[tokio::test]
+    async fn first_metric_prevents_startup_fail() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, TINY, LONG)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        ingest_metrics(&coord, &metric_batch(&run_id)).await; // 진행 신호 → first_load cancel
+        tokio::time::sleep(TINY + Duration::from_millis(80)).await;
+        assert_ne!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Failed,
+            "메트릭이 왔으면 startup-A는 발동 안 함"
+        );
+    }
+
+    #[tokio::test]
+    async fn backstop_fails_run_exceeding_duration() {
+        // 메트릭 후 미완료 → backstop 경과 → Failed(exceeded duration).
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, TINY)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        ingest_metrics(&coord, &metric_batch(&run_id)).await; // first_load cancel → Phase 3
+        tokio::time::sleep(TINY + Duration::from_millis(80)).await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert!(row.message.unwrap().contains("exceeded"), "backstop 사유");
+    }
+
+    #[tokio::test]
+    async fn completion_cancels_watchdog_no_spurious_fail() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, TINY, TINY)
+            .await;
+        let (tx0, _r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+        coord
+            .record_phase(&run_id, "w0", pb::run_status::Phase::Completed as i32, "")
+            .await;
+        tokio::time::sleep(TINY + Duration::from_millis(80)).await;
+        assert_eq!(
+            runs::get(&db, &run_id).await.unwrap().unwrap().status,
+            RunStatus::Completed,
+            "정상 완료는 done cancel → watchdog 미발동"
         );
     }
 
@@ -2414,6 +2581,8 @@ mod tests {
                 reserved.len() as u32,
                 4,
                 None,
+                LONG,
+                LONG,
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
@@ -2454,6 +2623,8 @@ mod tests {
                 reserved.len() as u32,
                 4,
                 None,
+                LONG,
+                LONG,
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
@@ -2482,6 +2653,8 @@ mod tests {
                 reserved.len() as u32,
                 4,
                 None,
+                LONG,
+                LONG,
             )
             .await;
         assert!(
@@ -2507,6 +2680,8 @@ mod tests {
                 reserved.len() as u32,
                 4,
                 None,
+                LONG,
+                LONG,
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
@@ -2656,6 +2831,8 @@ mod tests {
                 2,
                 30,
                 Some(vec![(0, 5), (5, 25)]),
+                LONG,
+                LONG,
             )
             .await;
         let (tx, _rx) = fake_tx();
@@ -2675,7 +2852,7 @@ mod tests {
     async fn register_falls_back_to_shard_split_when_no_precomputed() {
         let coord = CoordinatorState::new(crate::store::connect("sqlite::memory:").await.unwrap());
         coord
-            .enqueue("run-x".into(), base_assignment(), 2, 30, None)
+            .enqueue("run-x".into(), base_assignment(), 2, 30, None, LONG, LONG)
             .await;
         let (tx, _rx) = fake_tx();
         match coord.register("run-x", "w0", tx).await {
@@ -2943,6 +3120,8 @@ mod tests {
                 reserved.len() as u32,
                 4,
                 None,
+                LONG,
+                LONG,
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
@@ -3388,7 +3567,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -3411,7 +3590,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -3428,7 +3607,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -3449,7 +3628,7 @@ mod tests {
         let coord = CoordinatorState::new(db.clone());
         // expected = 2 but only w0 registers → incomplete at deadline.
         coord
-            .enqueue(run_id.clone(), base_assignment(), 2, 8, None)
+            .enqueue(run_id.clone(), base_assignment(), 2, 8, None, LONG, LONG)
             .await;
         let (tx0, _r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
@@ -3468,7 +3647,7 @@ mod tests {
         let run_id = seed_run(&db).await;
         let coord = CoordinatorState::new(db.clone());
         coord
-            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None, LONG, LONG)
             .await;
         let (tx0, mut r0) = fake_tx();
         coord.register(&run_id, "w0", tx0).await;
