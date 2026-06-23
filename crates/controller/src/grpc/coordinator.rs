@@ -1012,41 +1012,55 @@ impl CoordinatorState {
         }
     }
 
-    /// Registration deadline expired: if the run isn't terminal and fewer than
-    /// `expected` workers registered, fail it fast + abort whoever did register.
-    /// (Spec §8.2 third bullet, §8.3.)
-    pub async fn fail_incomplete_registration(&self, run_id: &str) {
-        let result = {
+    /// Fail a run that cannot make progress and tear it down: terminal-guard +
+    /// snapshot siblings under the runs lock, then (lock-free) mark the run failed
+    /// with `reason`, abort registered workers with `abort_msg`, and release the
+    /// dispatcher. Shared by `fail_incomplete_registration` (registration timeout)
+    /// and the run-progress watchdog A/B (no-load / backstop). R14 lock discipline.
+    pub async fn fail_run_hung(&self, run_id: &str, reason: &str, abort_msg: &str) {
+        let siblings = {
             let mut g = self.runs.lock().await;
             let Some(rw) = g.get_mut(run_id) else {
                 return;
             };
-            if rw.terminal || rw.workers.len() as u32 >= rw.expected {
-                None
-            } else {
-                rw.terminal = true;
-                let registered = rw.workers.len();
-                let expected = rw.expected;
-                let siblings = rw
-                    .workers
-                    .values()
-                    .map(|e| e.tx.clone())
-                    .collect::<Vec<_>>();
-                Some((siblings, registered, expected))
+            if rw.terminal {
+                return;
+            }
+            rw.terminal = true;
+            rw.workers
+                .values()
+                .map(|e| e.tx.clone())
+                .collect::<Vec<_>>()
+        };
+        let _ = runs::mark_failed_if_active(&self.db, run_id, &truncate_message(reason)).await;
+        fan_out_abort(run_id, &siblings, abort_msg).await;
+        self.cleanup_dispatcher(run_id).await;
+    }
+
+    /// Registration deadline expired: if the run isn't terminal and fewer than
+    /// `expected` workers registered, fail it fast + abort whoever did register.
+    /// (Spec §8.2 third bullet, §8.3.)
+    pub async fn fail_incomplete_registration(&self, run_id: &str) {
+        // Registration-specific guard + message; teardown is shared via fail_run_hung.
+        let counts = {
+            let g = self.runs.lock().await;
+            match g.get(run_id) {
+                Some(rw) if !rw.terminal && (rw.workers.len() as u32) < rw.expected => {
+                    Some((rw.workers.len(), rw.expected))
+                }
+                _ => None,
             }
         };
-        if let Some((siblings, registered, expected)) = result {
-            let reason = truncate_message(&format!(
+        if let Some((registered, expected)) = counts {
+            let reason = format!(
                 "only {registered}/{expected} workers registered before the registration deadline"
-            ));
-            let _ = runs::mark_failed_if_active(&self.db, run_id, &reason).await;
-            fan_out_abort(
+            );
+            self.fail_run_hung(
                 run_id,
-                &siblings,
+                &reason,
                 "not all workers registered before deadline",
             )
             .await;
-            self.cleanup_dispatcher(run_id).await;
         }
     }
 
@@ -3445,6 +3459,37 @@ mod tests {
         assert_eq!(
             row.message.as_deref(),
             Some("only 1/2 workers registered before the registration deadline")
+        );
+    }
+
+    #[tokio::test]
+    async fn fail_run_hung_fails_active_and_noops_terminal() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+        coord
+            .enqueue(run_id.clone(), base_assignment(), 1, 4, None)
+            .await;
+        let (tx0, mut r0) = fake_tx();
+        coord.register(&run_id, "w0", tx0).await;
+
+        coord
+            .fail_run_hung(&run_id, "stuck: no metrics", "hung")
+            .await;
+        let row = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(row.status, RunStatus::Failed);
+        assert_eq!(row.message.as_deref(), Some("stuck: no metrics"));
+        assert!(r0.try_recv().is_ok(), "registered worker gets AbortRun");
+
+        // 두 번째 호출 = terminal → no-op(메시지 클로버 안 함)
+        coord
+            .fail_run_hung(&run_id, "different reason", "hung")
+            .await;
+        let row2 = runs::get(&db, &run_id).await.unwrap().unwrap();
+        assert_eq!(
+            row2.message.as_deref(),
+            Some("stuck: no metrics"),
+            "terminal 비클로버"
         );
     }
 
