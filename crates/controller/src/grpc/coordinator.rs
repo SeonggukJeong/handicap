@@ -2960,6 +2960,41 @@ mod tests {
         assert_eq!(p.vu_stages[0].target, 50, "shard_count==1 → unchanged");
     }
 
+    #[test]
+    fn nonpool_vu_curve_shard_split_peak_and_subpeak() {
+        // Non-pool fan-out: slot_weights=None → each stage shard_split across N (R3).
+        // peak stage (target=peak) scaled == shard_split(peak,N,i).1 == vu_count (R5);
+        // sub-peak stage target < N → some workers 0-share (engine parks); Σ preserved.
+        let stages = vec![
+            pb::Stage {
+                target: 2,
+                duration_seconds: 5,
+            }, // sub-peak: < N=3
+            pb::Stage {
+                target: 50,
+                duration_seconds: 5,
+            }, // peak
+        ];
+        let n = 3u32;
+        let (mut sub_sum, mut peak_sum) = (0u32, 0u32);
+        for i in 0..n {
+            let mut p = pb::Profile {
+                vu_stages: stages.clone(),
+                ..Default::default()
+            };
+            let vu_count = shard_split(50, n, i).1; // register's slab size for worker i
+            reduce_pool_profile(&mut p, i, n, vu_count, None);
+            assert_eq!(
+                p.vu_stages[1].target, vu_count,
+                "peak stage == vu_count (slab size) for worker {i}"
+            );
+            sub_sum += p.vu_stages[0].target;
+            peak_sum += p.vu_stages[1].target;
+        }
+        assert_eq!(sub_sum, 2, "sub-peak Σ preserved (some workers 0-share)");
+        assert_eq!(peak_sum, 50, "peak Σ preserved");
+    }
+
     #[tokio::test]
     async fn reserve_open_loop_slots_capacity_split() {
         // 2 workers cap [5, 25]; worker_cap=8 (pool_worker_cap for max_in_flight=8),

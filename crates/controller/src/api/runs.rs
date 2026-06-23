@@ -181,6 +181,19 @@ pub(crate) fn validate_step_criteria_targets(
     Ok(())
 }
 
+/// Non-pool fan-out worker count N, shared by validate_run_config (unique-floor, R4)
+/// and spawn_run (dispatch) so they can never drift. A closed-loop VU curve fans out
+/// on its peak VU exactly as a fixed-VU run fans out on `vus` (R1).
+fn fanout_worker_count(profile: &Profile, capacity: u32) -> u32 {
+    if profile.is_vu_curve() {
+        crate::grpc::shard::worker_count(profile.vu_curve_max(), capacity)
+    } else if profile.is_open_loop() {
+        profile.worker_count.unwrap_or(1)
+    } else {
+        crate::grpc::shard::worker_count(profile.vus, capacity)
+    }
+}
+
 /// Validate a run/preset config against the live datasets (spec §6). Returns one
 /// validated dataset meta per binding, in `profile.data_bindings()` order (so the
 /// caller resolves each binding from its meta without a second `get_meta` —
@@ -247,20 +260,12 @@ pub(crate) async fn validate_run_config(
                 "vu_stages 사용 시 vus를 비워야 합니다 (곡선이 VU 수를 정의)".into(),
             ));
         }
-        let capacity = state.settings.worker_capacity_vus();
         let stages = profile.vu_stages.as_deref().unwrap_or_default();
         for s in stages {
             if s.duration_seconds == 0 {
                 return Err(ApiError::BadRequest(
                     "stage duration_seconds must be >= 1".into(),
                 ));
-            }
-            if !state.coord.is_pool_mode() && s.target > capacity {
-                return Err(ApiError::BadRequest(format!(
-                    "최대 목표 VU {}가 워커 용량 {capacity}을 초과합니다 \
-                     (vu_stages는 단일 워커 — 멀티워커 곡선 샤딩 미지원, spec §9)",
-                    s.target
-                )));
             }
         }
         if !stages.iter().any(|s| s.target > 0) {
@@ -431,13 +436,7 @@ pub(crate) async fn validate_run_config(
     // derives from the profile, not the binding), but every other check is
     // per-binding. Collect validated meta in data_bindings() order.
     // Worker count — only consumed by the Unique row-count check below; hoisted so it's computed once.
-    let n = if profile.is_vu_curve() {
-        1 // 단일 워커 v1 (curve: 검증 ⑦이 capacity 이내 보장)
-    } else if profile.is_open_loop() {
-        profile.worker_count.unwrap_or(1)
-    } else {
-        crate::grpc::shard::worker_count(profile.vus, state.settings.worker_capacity_vus())
-    };
+    let n = fanout_worker_count(profile, state.settings.worker_capacity_vus());
     let mut metas = Vec::with_capacity(bindings.len());
     for b in &bindings {
         let meta = datasets::get_meta(&state.db, &b.dataset_id)
@@ -687,14 +686,7 @@ pub(crate) async fn spawn_run(
     let backstop_total =
         std::time::Duration::from_secs(handicap_proto::run_duration_secs(&assignment.profile))
             + backstop_grace;
-    // vu-curve is single-worker v1 (검증 ⑦이 capacity 이내 보장, spec §9).
-    let n = if profile.is_vu_curve() {
-        1
-    } else if profile.is_open_loop() {
-        profile.worker_count.unwrap_or(1)
-    } else {
-        crate::grpc::shard::worker_count(profile.vus, state.settings.worker_capacity_vus())
-    };
+    let n = fanout_worker_count(profile, state.settings.worker_capacity_vus());
     // curve의 total_vus = max(stage.target); open-loop의 total_vus = max_in_flight(슬롯 풀).
     // profile.vus(=0)를 넘기면 register의 shard_split(0,…)이 vu_count=0을 만들어 §5 와이어
     // 약속과 모순 (spec §3.3). validate가 open-loop max_in_flight=Some 보장 → unwrap_or는 방어.
@@ -2008,6 +2000,24 @@ steps:
     }
 
     #[test]
+    fn fanout_worker_count_vu_curve_uses_peak() {
+        // vu_curve N = ceil(peak / capacity), peak = max(vu_stages.target).
+        let p = curve_profile(vec![
+            handicap_engine::Stage {
+                target: 10,
+                duration_seconds: 5,
+            },
+            handicap_engine::Stage {
+                target: 50,
+                duration_seconds: 5,
+            },
+        ]);
+        assert_eq!(fanout_worker_count(&p, 50), 1, "peak <= capacity → N=1");
+        assert_eq!(fanout_worker_count(&p, 25), 2, "ceil(50/25)");
+        assert_eq!(fanout_worker_count(&p, 20), 3, "ceil(50/20)");
+    }
+
+    #[test]
     fn is_vu_curve_predicate() {
         let mut p = curve_profile(vec![handicap_engine::Stage {
             target: 5,
@@ -2139,19 +2149,18 @@ steps:
             "⑦a expected duration_seconds>=1, got {err:?}"
         );
 
-        // ⑦b stage target > capacity(2000)
-        let err = validate_run_config(
-            &state,
-            &curve_profile(vec![handicap_engine::Stage {
-                target: 2001,
-                duration_seconds: 10,
-            }]),
-        )
-        .await
-        .unwrap_err();
+        // ⑦b stage target > capacity(2000) now fans out (N=ceil), not rejected (B9).
         assert!(
-            matches!(&err, ApiError::BadRequest(m) if m.contains("워커 용량")),
-            "⑦b expected capacity exceeded, got {err:?}"
+            validate_run_config(
+                &state,
+                &curve_profile(vec![handicap_engine::Stage {
+                    target: 2001,
+                    duration_seconds: 10,
+                }]),
+            )
+            .await
+            .is_ok(),
+            "⑦b B9: peak>capacity fans out non-pool, not rejected"
         );
 
         // ⑧ all stage targets == 0
@@ -2212,33 +2221,31 @@ steps:
         );
     }
 
-    /// R6: worker capacity flows from SettingsState (not coord) to the validation
-    /// site. A lowered capacity (2 via seed) must reject a closed-loop VU-curve run
-    /// whose stage target (3) exceeds it. This is the validation half of the
-    /// capacity-consistency invariant; the dispatch-N half (same accessor at the
-    /// spawn site) is exercised by the multi-worker fanout e2e.
+    /// R6/B9: worker capacity flows from SettingsState (not coord) to the validation
+    /// site. B9: a curve whose peak exceeds capacity now fans out (N=ceil(peak/cap))
+    /// instead of rejecting — both peak>cap and peak<=cap must pass validate.
+    /// The capacity accessor is still read (drives N via fanout_worker_count).
     #[tokio::test]
     async fn lowered_capacity_settings_enforced_at_validation() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let state = state_with(db, 2).await; // SettingsState seeded with worker_capacity_vus=2
-        // stage target 3 > capacity 2 → vu-curve capacity gate (reads settings) rejects.
+        // B9: peak 3 > capacity 2 → N=ceil(3/2)=2 fan-out, not rejected.
         let over = curve_profile(vec![handicap_engine::Stage {
             target: 3,
             duration_seconds: 10,
         }]);
-        let err = validate_run_config(&state, &over).await.unwrap_err();
         assert!(
-            matches!(&err, ApiError::BadRequest(m) if m.contains("워커 용량") && m.contains('2')),
-            "stage target above settings capacity must be rejected, got {err:?}"
+            validate_run_config(&state, &over).await.is_ok(),
+            "B9: peak>capacity fans out non-pool (N=ceil(peak/cap)), not rejected"
         );
-        // at/under capacity passes — confirms the bound is the settings value, not a constant.
+        // peak <= capacity → N=1 (single worker, unchanged behavior).
         let ok = curve_profile(vec![handicap_engine::Stage {
             target: 2,
             duration_seconds: 10,
         }]);
         assert!(
             validate_run_config(&state, &ok).await.is_ok(),
-            "stage target == settings capacity must be accepted"
+            "peak == capacity must also be accepted (N=1)"
         );
     }
 
@@ -2260,21 +2267,78 @@ steps:
         );
     }
 
-    /// R7 inverse: non-pool mode must still reject a curve that exceeds single-worker capacity.
+    /// B9: non-pool mode now FANS OUT a curve whose peak exceeds single-worker
+    /// capacity (N = ceil(peak/cap)) instead of rejecting. (was validate_vu_curve_nonpool_rejects)
     #[tokio::test]
-    async fn validate_vu_curve_nonpool_rejects() {
+    async fn validate_vu_curve_nonpool_fans_out() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
-        let state = state_with(db, 2000).await; // pool_mode defaults false
+        let state = state_with(db, 2000).await; // pool_mode false; peak 5000 > 2000 → N=3
         let p = curve_profile(vec![handicap_engine::Stage {
             target: 5000,
             duration_seconds: 10,
         }]);
         assert!(
+            validate_run_config(&state, &p).await.is_ok(),
+            "non-pool: peak>capacity now fans out (N=ceil(peak/cap)), not rejected"
+        );
+    }
+
+    fn unique_curve_profile(dataset_id: String, peak: u32) -> Profile {
+        Profile {
+            data_binding: Some(DataBinding {
+                dataset_id,
+                policy: BindingPolicy::Unique,
+                mappings: vec![],
+            }),
+            ..curve_profile(vec![handicap_engine::Stage {
+                target: peak,
+                duration_seconds: 5,
+            }])
+        }
+    }
+
+    #[tokio::test]
+    async fn nonpool_vu_curve_unique_rows_lt_workers_rejected() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        // 1 row; cap 25, peak 50 → N = ceil(50/25) = 2; rows 1 < 2 → reject (R4).
+        let dataset_id = crate::store::datasets::insert(
+            &db,
+            "d",
+            &["c".to_string()],
+            &[vec!["a".to_string()]],
+            0,
+        )
+        .await
+        .unwrap();
+        let state = state_with(db, 25).await;
+        assert!(
             matches!(
-                validate_run_config(&state, &p).await,
+                validate_run_config(&state, &unique_curve_profile(dataset_id, 50)).await,
                 Err(ApiError::BadRequest(_))
             ),
-            "non-pool mode: peak>capacity must be rejected with 400"
+            "curve peak 50 @ cap 25 → N=2; unique rows 1 < 2 must reject"
+        );
+    }
+
+    #[tokio::test]
+    async fn nonpool_vu_curve_unique_rows_ge_workers_ok() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        // 2 rows; cap 25, peak 50 → N=2; rows 2 >= 2 → ok.
+        let dataset_id = crate::store::datasets::insert(
+            &db,
+            "d",
+            &["c".to_string()],
+            &[vec!["a".to_string()], vec!["b".to_string()]],
+            0,
+        )
+        .await
+        .unwrap();
+        let state = state_with(db, 25).await;
+        assert!(
+            validate_run_config(&state, &unique_curve_profile(dataset_id, 50))
+                .await
+                .is_ok(),
+            "curve peak 50 @ cap 25 → N=2; unique rows 2 >= 2 must pass"
         );
     }
 }
