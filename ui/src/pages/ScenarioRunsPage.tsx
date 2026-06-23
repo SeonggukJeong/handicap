@@ -16,6 +16,7 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
+import { classifyRunStall } from "../api/runStall";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { ko } from "../i18n/ko";
 import { isLoopStep } from "../scenario/model";
@@ -261,6 +262,12 @@ export function ScenarioRunsPage() {
                   {allRuns.map((r) => {
                     const normalised = normalizeProfile(r.profile);
                     const env = envValueToRecord(r.env);
+                    const stall = classifyRunStall(
+                      r.status,
+                      r.started_at ?? r.created_at,
+                      r.last_metric_ts ?? null,
+                      now,
+                    );
                     return (
                       <tr key={r.id} className="border-b border-slate-100">
                         <td className="py-3 pr-2">
@@ -274,6 +281,20 @@ export function ScenarioRunsPage() {
                         </td>
                         <td className="py-3 pr-4">
                           <StatusBadge status={r.status} />
+                          {stall.kind !== "none" && (
+                            <span
+                              className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
+                              title={
+                                stall.kind === "midrun"
+                                  ? ko.runStall.badgeTitleMidrun(
+                                      formatDurationKo(stall.silentSeconds),
+                                    )
+                                  : ko.runStall.badgeTitleStartup
+                              }
+                            >
+                              ⚠ {ko.runStall.badge}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           <VerdictBadge verdict={r.verdict} />

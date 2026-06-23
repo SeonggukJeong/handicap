@@ -683,6 +683,11 @@ export const ko = {
     // ── h2 Run 제목 ──
     heading: "실행",
   },
+  runStall: {
+    badge: "정지 의심",
+    badgeTitleMidrun: (d: string) => `${d} 진행 없음 — 워커가 멈췄을 수 있어요`,
+    badgeTitleStartup: "부하 시작 전 — 워커가 멈췄을 수 있어요",
+  },
   // 비교 화면 인사이트 매트릭스(kind×run). 행 = 인사이트, 열 = run.
   insightCompare: {
     title: "인사이트 비교",

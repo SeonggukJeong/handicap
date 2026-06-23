@@ -111,11 +111,20 @@ export function useUpdateScenario(id: string) {
   });
 }
 
+/** 목록에 running run이 있으면 5s 폴링(stall 배지 신선도 — frozen last_metric_ts 오탐 방지),
+ *  없으면 정지. 임계 120s ≫ 5s라 healthy 오탐 구조적 불가. G1b 목록 배지. */
+export function runsRefetchInterval(
+  data: { runs: { status: RunStatus }[] } | undefined,
+): number | false {
+  return data?.runs.some((r) => r.status === "running") ? 5000 : false;
+}
+
 export function useScenarioRuns(scenarioId: string | undefined) {
   return useQuery({
     queryKey: scenarioId ? queryKeys.scenarioRuns(scenarioId) : ["scenarios", "missing", "runs"],
     queryFn: () => api.listRunsForScenario(scenarioId!),
     enabled: Boolean(scenarioId),
+    refetchInterval: (q) => runsRefetchInterval(q.state.data),
   });
 }
 

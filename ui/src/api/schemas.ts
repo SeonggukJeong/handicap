@@ -197,6 +197,9 @@ export const RunSchema = z.object({
   message: z.string().nullable().optional(),
   // A4a SLO verdict, 완료 시 영속(목록 배지). 서버 None→null이라 .nullish().
   verdict: VerdictSchema.nullish(),
+  // G1b 목록 stall 배지: 마지막 메트릭 윈도 wall-clock unix초. running list 경로만 number,
+  // 그 외/메트릭0은 서버에서 null. 서버 항상-직렬화(skip_serializing_if 없음)라 .nullish().
+  last_metric_ts: z.number().int().nullish(),
 });
 export type Run = z.infer<typeof RunSchema>;
 

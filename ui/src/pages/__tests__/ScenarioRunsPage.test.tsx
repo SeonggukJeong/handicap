@@ -177,7 +177,12 @@ describe("ScenarioRunsPage — retry (A1)", () => {
 // A4b: run selection + compare entry
 // ---------------------------------------------------------------------------
 
-function makeRun(id: string, status: string, createdAt: number) {
+function makeRun(
+  id: string,
+  status: string,
+  createdAt: number,
+  lastMetricTs: number | null = null,
+) {
   return {
     id,
     scenario_id: "S1",
@@ -188,6 +193,7 @@ function makeRun(id: string, status: string, createdAt: number) {
     started_at: createdAt,
     ended_at: createdAt + 1,
     created_at: createdAt,
+    last_metric_ts: lastMetricTs,
   };
 }
 
@@ -407,5 +413,39 @@ describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
     expect(screen.getByText(ko.report.verdictPass)).toBeInTheDocument();
     // The run without verdict renders the em-dash placeholder
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G1b: 목록 stall 배지
+// ---------------------------------------------------------------------------
+
+describe("ScenarioRunsPage — stall 배지 (G1b 목록)", () => {
+  it("running + 오래된 last_metric_ts → 정지 의심 배지(midrun)", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockApiRuns([makeRun("RUN1", "running", Date.now() - 5_000, nowSec - 300)]);
+    renderPageWithCompare();
+    expect(await screen.findByText(/정지 의심/)).toBeInTheDocument();
+  });
+
+  it("running + 메트릭 0 + 시작 후 오래 → 정지 의심 배지(startup)", async () => {
+    mockApiRuns([makeRun("RUN1", "running", Date.now() - 30_000, null)]);
+    renderPageWithCompare();
+    expect(await screen.findByText(/정지 의심/)).toBeInTheDocument();
+  });
+
+  it("running + 최근 last_metric_ts → 배지 없음(healthy)", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockApiRuns([makeRun("RUN1", "running", Date.now() - 5_000, nowSec - 2)]);
+    renderPageWithCompare();
+    await screen.findByLabelText(ko.report.selectRunAria("RUN1"));
+    expect(screen.queryByText(/정지 의심/)).toBeNull();
+  });
+
+  it("terminal run → 배지 없음", async () => {
+    mockApiRuns([makeRun("C1", "completed", Date.now() - 30_000, null)]);
+    renderPageWithCompare();
+    await screen.findByLabelText(ko.report.selectRunAria("C1"));
+    expect(screen.queryByText(/정지 의심/)).toBeNull();
   });
 });
