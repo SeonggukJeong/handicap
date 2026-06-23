@@ -9,6 +9,7 @@ use handicap_engine::{
     BindingPolicy, DataSet, EngineError, MetricFlush, RampDown, RunPlan, Scenario, run_scenario,
     run_scenario_open_loop, run_scenario_vu_curve,
 };
+use handicap_proto::run_duration_secs;
 use handicap_proto::v1 as pb;
 use handicap_worker_core::{WorkerError, WorkerLink, connect_with_backoff, load_datasets};
 use pb::server_message::Payload as ServerPayload;
@@ -602,21 +603,6 @@ fn proto_is_open_loop(p: &pb::Profile) -> bool {
 /// Closed-loop VU curve when vu_stages is non-empty (spec §3.1). Empty ≡ absent.
 fn proto_is_vu_curve(p: &pb::Profile) -> bool {
     !p.vu_stages.is_empty()
-}
-
-/// Total run duration for the engine: VU-curve stage sum > rate-curve stage sum >
-/// flat duration_seconds. Invariant: engine deadline = this value.
-fn run_duration_secs(p: &pb::Profile) -> u64 {
-    if !p.vu_stages.is_empty() {
-        p.vu_stages
-            .iter()
-            .map(|s| u64::from(s.duration_seconds))
-            .sum()
-    } else if p.stages.is_empty() {
-        u64::from(p.duration_seconds)
-    } else {
-        p.stages.iter().map(|s| u64::from(s.duration_seconds)).sum()
-    }
 }
 
 /// Resolve the worker id: explicit `--worker-id` wins; otherwise (K8s Indexed
