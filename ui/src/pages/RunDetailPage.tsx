@@ -10,6 +10,8 @@ import {
   useScenario,
 } from "../api/hooks";
 import { useNow } from "../hooks/useNow";
+import { computeRunStall } from "../api/runStall";
+import { formatDurationKo } from "../i18n/duration";
 import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
@@ -87,13 +89,8 @@ export function RunDetailPage() {
     }
   }
   const totalCount = metrics.data?.windows.reduce((acc, w) => acc + w.count, 0) ?? 0;
-  // "요청 0건"은 *기록된* 0건 — metrics 응답 도착 전(undefined)에는 판정하지 않는다
-  // (정상 run 진입 시 첫 RTT 동안 배너가 플래시하는 false-positive 방지).
-  const stalledRunning =
-    r.status === "running" &&
-    metrics.data !== undefined &&
-    totalCount === 0 &&
-    now - (r.started_at ?? r.created_at) > 15_000;
+  // startup(메트릭 0)·midrun(메트릭 흐른 뒤 침묵) stall 판정을 단일 헬퍼로(상호배제, 플래시 가드 포함).
+  const stall = computeRunStall(r, metrics.data?.windows, now);
   const totalErrors = metrics.data?.windows.reduce((acc, w) => acc + w.error_count, 0) ?? 0;
   // Curve runs (S-D) store duration_seconds: 0; the real length is the stage sum.
   const durationSeconds = profileDurationSeconds(r.profile);
@@ -194,12 +191,28 @@ export function RunDetailPage() {
           프리셋 저장 실패: {(createPreset.error as Error).message}
         </div>
       )}
-      {stalledRunning && (
+      {stall.kind === "startup" && (
         <div
           role="status"
           className="mb-4 p-3 border border-amber-300 bg-amber-50 text-sm text-amber-800 rounded"
         >
           {ko.runDetail.stalledRunning}
+        </div>
+      )}
+      {stall.kind === "midrun" && (
+        <div
+          role="status"
+          className="mb-4 p-3 border border-amber-300 bg-amber-50 text-sm text-amber-800 rounded flex items-center justify-between gap-3"
+        >
+          <span>{ko.runDetail.midRunStall(formatDurationKo(stall.silentSeconds))}</span>
+          <button
+            type="button"
+            onClick={() => abort.mutate()}
+            disabled={abort.isPending}
+            className="shrink-0 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+          >
+            {abort.isPending ? ko.common.aborting : ko.common.abort}
+          </button>
         </div>
       )}
 

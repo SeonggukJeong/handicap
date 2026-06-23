@@ -519,7 +519,7 @@ function mockRunningApi(startedAt: number, windowsCount = 0) {
         windowsCount > 0
           ? [
               {
-                ts_second: 1,
+                ts_second: Math.floor(Date.now() / 1000),
                 step_id: "step1",
                 count: 5,
                 error_count: 0,
@@ -546,6 +546,7 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
     // Wait for page render to settle (metrics windows section visible)
     await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     expect(screen.queryByText(/워커가 시작하지 못했을/)).toBeNull();
+    expect(screen.queryByText(/진행 없음/)).toBeNull();
   });
 
   it("15초 미만이면 진단 배너가 안 뜬다", async () => {
@@ -709,5 +710,84 @@ describe("RunDetailPage — report on terminal", () => {
     expect(alert).toHaveTextContent(/boom/);
     // Live sections still render as fallback so the page isn't blank.
     expect(screen.getByRole("heading", { name: /메트릭 윈도우/ })).toBeInTheDocument();
+  });
+});
+
+describe("RunDetailPage — mid-run stall banner (G1b)", () => {
+  // 요청이 흘렀는데 마지막 메트릭이 오래된(ts_second stale) running run을 mock.
+  function mockMidRunApi(lastTsSecond: number) {
+    let phase = "running";
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/runs/MR1") && (!init || init.method !== "POST")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "MR1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: phase,
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 600 },
+            env: {},
+            started_at: Date.now() - 300_000,
+            ended_at: null,
+            created_at: Date.now() - 300_000,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/MR1/metrics")) {
+        return Promise.resolve(
+          jsonResponse({
+            run_id: "MR1",
+            windows: [
+              {
+                ts_second: lastTsSecond,
+                step_id: "step1",
+                count: 5,
+                error_count: 0,
+                status_counts: { "200": 5 },
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/MR1/abort") && init?.method === "POST") {
+        phase = "aborted";
+        return Promise.resolve(jsonResponse({}));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("마지막 메트릭이 임계 초과로 오래되면 정지-의심 배너가 뜬다", async () => {
+    mockMidRunApi(Math.floor(Date.now() / 1000) - 130); // 침묵 ~130초 > 120
+    renderWithRouter("MR1");
+    expect(await screen.findByText(/진행 없음/)).toBeInTheDocument();
+  });
+
+  it("최근 메트릭이면 정지-의심 배너가 안 뜬다", async () => {
+    mockMidRunApi(Math.floor(Date.now() / 1000) - 2); // 침묵 ~2초 < 120
+    renderWithRouter("MR1");
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
+    expect(screen.queryByText(/진행 없음/)).toBeNull();
+  });
+
+  it("배너의 [중단] 버튼이 abort를 호출한다", async () => {
+    const user = userEvent.setup();
+    mockMidRunApi(Math.floor(Date.now() / 1000) - 130);
+    renderWithRouter("MR1");
+    const text = await screen.findByText(/진행 없음/);
+    // 헤더에도 "중단" 버튼이 있으므로 배너 영역 안에서만 스코프(R1).
+    const banner = text.closest('[role="status"]') as HTMLElement;
+    const stopBtn = within(banner).getByRole("button", { name: ko.common.abort });
+    await user.click(stopBtn);
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            typeof url === "string" &&
+            url.endsWith("/api/runs/MR1/abort") &&
+            (init as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
   });
 });

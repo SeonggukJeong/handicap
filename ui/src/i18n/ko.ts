@@ -652,6 +652,7 @@ export const ko = {
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)
     stalledRunning:
       "워커가 시작하지 못했을 수 있습니다 — 시나리오 URL과 컨트롤러 로그를 확인하세요.",
+    midRunStall: (d: string) => `⚠ ${d} 진행 없음 — 워커가 멈췄을 수 있어요`,
     elapsed: (d: string) => `경과 ${d}`,
     // ── 카드 라벨 (R2: 도메인 한정) ──
     cardVus: "VU",
