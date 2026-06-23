@@ -210,6 +210,12 @@ pub struct CoordinatorState {
     /// Set once at startup when `--worker-mode pool`. When true, `spawn_run` uses
     /// the pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
     pool_mode: Arc<OnceLock<bool>>,
+    /// CLI-seeded run-liveness grace: (startup_floor, backstop_grace). Set once in
+    /// main.rs; unset (tests/legacy) → default (90s, 120s). `Arc<OnceLock>` per the
+    /// `set_pool_mode`/`set_worker_token` precedent — all clones share the same
+    /// cell, so the seed is visible through `AppState.coord`/`CoordinatorService`
+    /// regardless of clone-vs-set ordering. Zero AppState/settings churn.
+    watchdog_grace: Arc<OnceLock<(std::time::Duration, std::time::Duration)>>,
 }
 
 impl CoordinatorState {
@@ -224,6 +230,7 @@ impl CoordinatorState {
             worker_token: Arc::new(OnceLock::new()),
             pool: Arc::new(Mutex::new(HashMap::new())),
             pool_mode: Arc::new(OnceLock::new()),
+            watchdog_grace: Arc::new(OnceLock::new()),
         }
     }
 
@@ -261,6 +268,24 @@ impl CoordinatorState {
     /// pool path (reserve_idle_pool + assign_pool_workers) instead of dispatcher.
     pub fn is_pool_mode(&self) -> bool {
         *self.pool_mode.get().unwrap_or(&false)
+    }
+
+    /// Seed the run-liveness watchdog grace periods (startup, once via main.rs).
+    /// All clones share the same OnceLock so this is set-once across the process.
+    pub fn set_watchdog_grace(
+        &self,
+        startup_floor: std::time::Duration,
+        backstop_grace: std::time::Duration,
+    ) {
+        let _ = self.watchdog_grace.set((startup_floor, backstop_grace));
+    }
+
+    /// Return (startup_floor, backstop_grace). Unset (tests/legacy) → (90s, 120s).
+    pub fn watchdog_grace_config(&self) -> (std::time::Duration, std::time::Duration) {
+        *self.watchdog_grace.get().unwrap_or(&(
+            std::time::Duration::from_secs(90),
+            std::time::Duration::from_secs(120),
+        ))
     }
 
     /// Atomically (under the pool lock) reserve up to `cap` idle workers for
@@ -1568,6 +1593,23 @@ mod tests {
     use super::*;
     use crate::store::runs::{self, RunStatus};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn watchdog_grace_defaults_then_overrides() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let coord = CoordinatorState::new(db);
+        assert_eq!(
+            coord.watchdog_grace_config(),
+            (Duration::from_secs(90), Duration::from_secs(120)),
+            "unset → default 90/120"
+        );
+        coord.set_watchdog_grace(Duration::from_secs(5), Duration::from_secs(7));
+        assert_eq!(
+            coord.watchdog_grace_config(),
+            (Duration::from_secs(5), Duration::from_secs(7))
+        );
+    }
 
     struct CountingDispatcher {
         cleanups: Arc<AtomicUsize>,
