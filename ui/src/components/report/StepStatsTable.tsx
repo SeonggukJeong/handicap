@@ -23,10 +23,12 @@ export function StepStatsTable({ steps, meta }: Props) {
   }
 
   const anyDownload = steps.some((s) => s.download != null);
+  const anyWait = steps.some((s) => s.wait != null);
 
   // Base: Step, Method, URL, Requests, Errors, p50 ms, p95 ms, p99 ms = 8
-  // With download: +3 (다운로드 p50, p95, p99) = 11
-  const colSpan = anyDownload ? 11 : 8;
+  // With download: +3 (다운로드 p50, p95, p99)
+  // With wait: +1 (대기 p50)
+  const colSpan = 8 + (anyDownload ? 3 : 0) + (anyWait ? 1 : 0);
 
   return (
     <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
@@ -53,6 +55,12 @@ export function StepStatsTable({ steps, meta }: Props) {
             <th className="py-2 pr-4 font-medium">
               p99 ms<HelpTip label="p99 설명">{ko.glossary.p99}</HelpTip>
             </th>
+            {anyWait && (
+              <th className="py-2 pr-4 font-medium">
+                {ko.report.phaseWait} p50
+                <HelpTip label={ko.report.phaseWait}>{ko.report.phaseWaitHelp}</HelpTip>
+              </th>
+            )}
             {anyDownload && (
               <>
                 <th className="py-2 pr-4 font-medium">다운로드 p50 ms</th>
@@ -92,6 +100,7 @@ export function StepStatsTable({ steps, meta }: Props) {
                   <td className="py-2 pr-4">{s.p50_ms}</td>
                   <td className="py-2 pr-4">{s.p95_ms}</td>
                   <td className="py-2 pr-4">{s.p99_ms}</td>
+                  {anyWait && <td className="py-2 pr-4">{s.wait?.p50_ms ?? "—"}</td>}
                   {anyDownload && (
                     <>
                       <td className="py-2 pr-4">{s.download?.p50_ms ?? "—"}</td>

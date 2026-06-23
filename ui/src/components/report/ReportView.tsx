@@ -11,7 +11,7 @@ import { TimeSeriesChart } from "./TimeSeriesChart";
 import { ActiveVuChart } from "./ActiveVuChart";
 import { StatusDistribution } from "./StatusDistribution";
 import { ConnectionCostCard } from "./ConnectionCostCard";
-import { StepStatsTable } from "./StepStatsTable";
+import { StepPhaseBreakdown } from "./StepPhaseBreakdown";
 import { BranchStatsTable } from "./BranchStatsTable";
 import { GroupLatencyTable } from "./GroupLatencyTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
@@ -191,7 +191,7 @@ export function ReportView({ report, profile }: Props) {
       ) : null}
       <StatusDistribution distribution={report.status_distribution} />
       {report.connection && <ConnectionCostCard stats={report.connection} />}
-      <StepStatsTable steps={report.steps} meta={stepMeta} />
+      <StepPhaseBreakdown steps={report.steps} meta={stepMeta} />
       <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />
       <GroupLatencyTable breakdown={report.group_latency ?? []} meta={groupMeta} />
       <ScenarioSnapshot yaml={report.scenario_yaml} />
