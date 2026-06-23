@@ -178,16 +178,6 @@ async fn main() -> anyhow::Result<()> {
     }
     let coord_state = CoordinatorState::new(db.clone());
     coord_state.set_worker_token(args.worker_token.clone());
-    coord_state.set_watchdog_grace(
-        std::time::Duration::from_secs(args.run_startup_grace_seconds),
-        std::time::Duration::from_secs(args.run_backstop_grace_seconds),
-    );
-    let (su, bk) = coord_state.watchdog_grace_config();
-    tracing::info!(
-        startup_grace_s = su.as_secs(),
-        backstop_grace_s = bk.as_secs(),
-        "run-liveness watchdog configured"
-    );
 
     // bundle: 포트가 사용 중이면 빈 포트로 폴백해 미리 바인딩 → 실제 주소 확보(브라우저/worker가 dial).
     //         이 리스너를 serve로 넘긴다(아래). 비-bundle: 현행처럼 serve 시점에 바인딩, 주소만 args에서.
@@ -283,7 +273,20 @@ async fn main() -> anyhow::Result<()> {
             ("pool_heartbeat_interval_seconds", pool_interval_seed as i64),
             ("pool_stale_timeout_seconds", pool_stale_seed as i64),
             ("pool_keepalive_seconds", args.pool_keepalive_seconds as i64),
+            (
+                "run_startup_grace_seconds",
+                args.run_startup_grace_seconds as i64,
+            ),
+            (
+                "run_backstop_grace_seconds",
+                args.run_backstop_grace_seconds as i64,
+            ),
         ],
+    );
+    tracing::info!(
+        startup_grace_s = settings.run_startup_grace_seconds(),
+        backstop_grace_s = settings.run_backstop_grace_seconds(),
+        "run-liveness watchdog grace (settings)"
     );
     let state = app::AppState {
         db: db.clone(),

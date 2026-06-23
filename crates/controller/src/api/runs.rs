@@ -680,7 +680,9 @@ pub(crate) async fn spawn_run(
     // `assignment` is moved into any enqueue branch. startup-A = floor (CLI ?? 90s)
     // raised to HTTP-timeout + margin + leading idle; backstop-B = engine run
     // duration + CLI grace (?? 120s).
-    let (startup_floor, backstop_grace) = state.coord.watchdog_grace_config();
+    let startup_floor = std::time::Duration::from_secs(state.settings.run_startup_grace_seconds());
+    let backstop_grace =
+        std::time::Duration::from_secs(state.settings.run_backstop_grace_seconds());
     let startup_grace = startup_grace_eff(&assignment.profile, startup_floor);
     let backstop_total =
         std::time::Duration::from_secs(handicap_proto::run_duration_secs(&assignment.profile))
