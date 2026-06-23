@@ -2149,7 +2149,7 @@ steps:
             "⑦a expected duration_seconds>=1, got {err:?}"
         );
 
-        // ⑦b stage target > capacity(2000) now fans out (N=ceil), not rejected (B9).
+        // ⑦b stage target > capacity(2000) now validate-passes (fans out non-pool, not rejected); N arithmetic is covered by fanout_worker_count_vu_curve_uses_peak.
         assert!(
             validate_run_config(
                 &state,
@@ -2221,31 +2221,41 @@ steps:
         );
     }
 
-    /// R6/B9: worker capacity flows from SettingsState (not coord) to the validation
-    /// site. B9: a curve whose peak exceeds capacity now fans out (N=ceil(peak/cap))
-    /// instead of rejecting — both peak>cap and peak<=cap must pass validate.
-    /// The capacity accessor is still read (drives N via fanout_worker_count).
+    /// B9 + capacity-from-settings: worker capacity flows from SettingsState (not
+    /// coord) into validate, where it drives the fan-out worker count N. A curve
+    /// whose peak exceeds a lowered capacity now FANS OUT (N=ceil(peak/cap)) instead
+    /// of rejecting; with a Unique binding, that capacity-driven N gates the
+    /// row-count floor. (was lowered_capacity_settings_enforced_at_validation — B9
+    /// removed the single-worker rejection this used to assert.)
     #[tokio::test]
-    async fn lowered_capacity_settings_enforced_at_validation() {
+    async fn lowered_capacity_settings_drives_fanout_not_rejection() {
+        // cap=2 seeded in SettingsState. Hold the Unique dataset at 1 row so the
+        // same lowered capacity gates differently purely via N: peak 3 → N=ceil(3/2)=2,
+        // rows 1 < 2 → reject; peak 2 → N=1, rows 1 >= 1 → ok. Would FAIL if
+        // fanout_worker_count ignored capacity (peak 3 would then be N=1 → pass).
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
-        let state = state_with(db, 2).await; // SettingsState seeded with worker_capacity_vus=2
-        // B9: peak 3 > capacity 2 → N=ceil(3/2)=2 fan-out, not rejected.
-        let over = curve_profile(vec![handicap_engine::Stage {
-            target: 3,
-            duration_seconds: 10,
-        }]);
+        let dataset_id = crate::store::datasets::insert(
+            &db,
+            "d",
+            &["c".to_string()],
+            &[vec!["a".to_string()]],
+            0,
+        )
+        .await
+        .unwrap();
+        let state = state_with(db, 2).await;
         assert!(
-            validate_run_config(&state, &over).await.is_ok(),
-            "B9: peak>capacity fans out non-pool (N=ceil(peak/cap)), not rejected"
+            matches!(
+                validate_run_config(&state, &unique_curve_profile(dataset_id.clone(), 3)).await,
+                Err(ApiError::BadRequest(_))
+            ),
+            "peak 3 @ cap 2 → N=2; unique rows 1 < 2 must reject (capacity drove N)"
         );
-        // peak <= capacity → N=1 (single worker, unchanged behavior).
-        let ok = curve_profile(vec![handicap_engine::Stage {
-            target: 2,
-            duration_seconds: 10,
-        }]);
         assert!(
-            validate_run_config(&state, &ok).await.is_ok(),
-            "peak == capacity must also be accepted (N=1)"
+            validate_run_config(&state, &unique_curve_profile(dataset_id, 2))
+                .await
+                .is_ok(),
+            "peak 2 @ cap 2 → N=1; unique rows 1 >= 1 must pass"
         );
     }
 
