@@ -241,7 +241,7 @@
 - **✅ ko.common 한국어화 일괄 롤업 완료·머지 (2026-06-19, [[ko-common-rollup]]·build-log)** — ui/src 잔존 영어 + 카탈로그 밖 인라인 한국어(본문·버튼·표 헤더·placeholder·`aria-label`·`title`·배너)를 `ko.ts` 경유 한국어로 **전수 이전**, half-catalog 해소(ADR-0035 단일 소스 *완성*). 신규 `ko.common`(크로스커팅 동작/상태만, R2). **정규 범위 = R1 grep 잔존 0**(§목록 아님). production byte-identical(`<option value=>`·`tab=`·enum wire값 보존, 라벨만 한국어화 — R8), 머지 diff=ui/(+docs) only. 누적 출처(전부 "ko.common 도입 시 일괄"로 연기됐던) U2/U3/U4/B7-C 영어 잔존 전부 해소. subagent-driven 6 task, handicap+security reviewer 둘 다 APPROVE, 라이브 waived(ui/-only·spec §6). 함정: implementer의 "R1 잔존 0" self-report 불신 → orchestrator가 grep 직접 재실행해 6개 추가 적발(루트 CLAUDE.md). `ui/`-only·엔진/proto/controller/migration 0.
 
 ### B3. 슬라이스 무관 tech-debt
-- → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(현재 열린 항목 A = subprocess 워커 비정상 종료 시 run이 `running`에 멈추는 status-transition 갭). 이 로드맵 문서와 중복 적지 않는다.
+- → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1 — 등록 후 hung(살아있지만 무진행) 워커 진행 라이브니스; G2 — k8s register-전 사망 reaper(현재 60s watchdog 폴백).
 
 ---
 
