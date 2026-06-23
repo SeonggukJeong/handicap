@@ -4,6 +4,7 @@ import { Button } from "../components/Button";
 import { HelpTip } from "../components/HelpTip";
 import { ko } from "../i18n/ko";
 import type { Setting } from "../api/settings";
+import { STARTUP_STALL_MS, MIDRUN_STALL_MS } from "../api/runStall";
 
 /** Split the effect string on \n and render each line as a block span (multiline HelpTip). */
 const effectBlocks = (key: string) => {
@@ -136,7 +137,34 @@ export function SettingsPage() {
     });
 
   const mutable = settings?.filter((s) => s.mutable) ?? [];
-  const readonly = settings?.filter((s) => !s.mutable) ?? [];
+  // C(클라 stall advisory) 임계값 — 단일소스 = runStall.ts. /settings엔 읽기전용 표시만.
+  const clientReadonly: Setting[] = [
+    {
+      key: "run_midrun_stall_seconds",
+      label: ko.opsSettings.runMidrunStallLabel,
+      group: "limits",
+      value: MIDRUN_STALL_MS / 1000,
+      default: MIDRUN_STALL_MS / 1000,
+      min: 0,
+      max: MIDRUN_STALL_MS / 1000,
+      unit: "초",
+      mutable: false,
+      source: "readonly",
+    },
+    {
+      key: "run_startup_stall_seconds",
+      label: ko.opsSettings.runStartupStallLabel,
+      group: "limits",
+      value: STARTUP_STALL_MS / 1000,
+      default: STARTUP_STALL_MS / 1000,
+      min: 0,
+      max: STARTUP_STALL_MS / 1000,
+      unit: "초",
+      mutable: false,
+      source: "readonly",
+    },
+  ];
+  const readonly = [...(settings?.filter((s) => !s.mutable) ?? []), ...clientReadonly];
 
   return (
     <div>

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "../SettingsPage";
 import { ko } from "../../i18n/ko";
+import { STARTUP_STALL_MS, MIDRUN_STALL_MS } from "../../api/runStall";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -329,5 +330,42 @@ describe("SettingsPage", () => {
     );
     renderPage();
     expect(await screen.findByText(ko.opsSettings.heartbeatApplyNote)).toBeInTheDocument();
+  });
+
+  const STARTUP_GRACE_ROW = {
+    key: "run_startup_grace_seconds",
+    label: "Run 시작 grace (startup 라이브니스)",
+    group: "limits",
+    value: 90,
+    default: 90,
+    min: 10,
+    max: 3600,
+    unit: "초",
+    mutable: true,
+    source: "default",
+  };
+
+  it("shows C stall thresholds as readonly rows sourced from runStall.ts", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(SETTINGS_RESPONSE));
+    renderPage();
+
+    // C 라벨(클라 리터럴) 렌더
+    expect(await screen.findByText(ko.opsSettings.runMidrunStallLabel)).toBeInTheDocument();
+    expect(screen.getByText(ko.opsSettings.runStartupStallLabel)).toBeInTheDocument();
+
+    // 값은 runStall.ts 상수에서 직접(초 변환) — 120 초 / 15 초
+    expect(screen.getByText(`${MIDRUN_STALL_MS / 1000} 초`)).toBeInTheDocument();
+    expect(screen.getByText(`${STARTUP_STALL_MS / 1000} 초`)).toBeInTheDocument();
+  });
+
+  it("shows A/B grace as editable rows with description", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ settings: [STARTUP_GRACE_ROW, READONLY_ROW] }));
+    renderPage();
+
+    // mutable 섹션에 A 라벨 + 설명
+    expect(await screen.findByText("Run 시작 grace (startup 라이브니스)")).toBeInTheDocument();
+    expect(screen.getByText(ko.opsSettings.desc.run_startup_grace_seconds)).toBeInTheDocument();
+    // 저장 버튼(편집 가능)
+    expect(screen.getAllByRole("button", { name: ko.opsSettings.save }).length).toBeGreaterThan(0);
   });
 });

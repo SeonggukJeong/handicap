@@ -911,6 +911,8 @@ export const ko = {
     rangeHint: (min: number, max: number) => `허용 범위 ${min}~${max}`,
     defaultHint: (d: number | string) => `기본값 ${d}`,
     readonlyNote: "Helm/CLI 배포 설정으로 변경",
+    runStartupStallLabel: "Run 시작 후 메트릭 미도착 경고 (advisory)",
+    runMidrunStallLabel: "Run 진행 중 메트릭 침묵 경고 (advisory)",
     outOfRange: "허용 범위를 벗어났습니다",
     desc: {
       worker_capacity_vus:
@@ -929,6 +931,10 @@ export const ko = {
         "이 시간(초) 동안 워커 응답(pong)이 없으면 풀에서 제외합니다. ping 주기보다 충분히 커야 합니다.",
       pool_keepalive_seconds:
         "컨트롤러 gRPC 서버측 HTTP/2 keepalive 주기(초). 배포 설정(재시작 필요).",
+      run_startup_grace_seconds:
+        "등록 후 첫 메트릭(부하 시작)을 기다리는 최소 시간(초). 실제 적용값은 이 값과 HTTP 타임아웃+여유·선두 무부하 구간 중 큰 값입니다. 이 안에 부하가 안 잡히면 hung으로 보고 run을 실패 처리합니다.",
+      run_backstop_grace_seconds:
+        "run 예상 종료 시각을 넘어 완료를 기다리는 여유 시간(초). 이 시간을 넘기면 hung으로 보고 run을 실패 처리합니다.",
     },
     effect: {
       worker_capacity_vus:
@@ -947,6 +953,10 @@ export const ko = {
         "⬆ 올리면 ping이 뜸해져 네트워크 부담이 줄지만, 죽은 워커 감지가 느려집니다.\n⬇ 내리면 빨리 감지하지만 ping이 잦아집니다. stale 타임아웃을 항상 이 값의 2배 이상으로 유지하세요.",
       pool_stale_timeout_seconds:
         "⬆ 올리면 느린 워커에 관대해지지만 죽은 워커가 오래 남습니다.\n⬇ 내리면 빨리 정리하지만, ping 주기에 너무 가까우면 건강한 워커를 잘못 제외합니다(최소 2배 권장).",
+      run_startup_grace_seconds:
+        "⬆ 올리면 느리게 시작하는 SUT·콜드스타트에 관대해집니다. 대신 정말 멈춘(hung) run을 늦게 감지합니다.\n⬇ 내리면 빨리 감지하지만, 정상이지만 느린 시작을 잘못 실패 처리할 수 있습니다(실제 적용값은 HTTP 타임아웃+15초 이상으로 보호).",
+      run_backstop_grace_seconds:
+        "⬆ 올리면 종료가 늦는 run에 관대해집니다. 대신 멈춘 run이 오래 남습니다.\n⬇ 내리면 멈춘 run을 빨리 정리하지만, 정상이지만 조금 늦게 끝나는 run을 잘못 실패 처리할 수 있습니다.",
     },
   },
 } as const;
