@@ -250,6 +250,17 @@ export const PhaseStatsSchema = z
   .strict();
 export type PhaseStats = z.infer<typeof PhaseStatsSchema>;
 
+export const ConnectionStatsSchema = z
+  .object({
+    dns: PhaseStatsSchema,
+    connect: PhaseStatsSchema,
+    connections_opened: z.number().int().nonnegative(),
+    requests_total: z.number().int().nonnegative(),
+    reuse_ratio: z.number(),
+  })
+  .strict();
+export type ConnectionStats = z.infer<typeof ConnectionStatsSchema>;
+
 export const ReportStepSchema = z
   .object({
     step_id: z.string(),
@@ -269,6 +280,7 @@ export const ReportStepSchema = z
       )
       .optional(),
     download: PhaseStatsSchema.optional(),
+    wait: PhaseStatsSchema.optional(),
   })
   .strict();
 
@@ -401,6 +413,7 @@ export const ReportSchema = z
     insights: z.array(InsightSchema).optional(),
     dropped: z.number(),
     latency: LatencyDistributionSchema.nullish(),
+    connection: ConnectionStatsSchema.optional(),
   })
   .strict();
 
