@@ -560,6 +560,29 @@ export const ko = {
     pageLoadLatencyTitle: "페이지 로드 지연",
     perStepStatsLabel: "스텝별 통계",
     stepsHeading: "스텝",
+    // ── 연결 비용 (transaction breakdown) ──
+    connectionLabel: "연결 비용",
+    connectionReuse: "연결 재사용률",
+    connectionsOpened: "새로 연 연결",
+    connectionUnitCount: "개",
+    connectionDns: "DNS 조회",
+    connectionConnect: "connect (TCP+TLS)",
+    connectionPercentiles: (p50: number, p95: number) => `p50 ${p50}ms · p95 ${p95}ms`,
+    connectionBeginner: (opened: number) =>
+      `요청을 ${opened}개 연결로 처리했어요. 재사용률이 높을수록 연결 오버헤드가 줄어 좋습니다.`,
+    connectionHelp:
+      "DNS·TCP·TLS는 연결을 새로 맺을 때만 듭니다. keep-alive로 연결을 재사용하면 그 다음 요청들은 이 비용이 0이라, 요청당 평균이 아니라 연결 단위로 모아서 보여줍니다.",
+    connectionReuseHelp:
+      "재사용률이 낮으면(90% 미만) keep-alive가 꺼졌거나 서버가 연결을 끊는 것일 수 있어요.",
+    connectionDnsHelp: "DNS 조회가 느리면 리졸버나 네임서버가 느린 것입니다.",
+    // ── 스텝별 단계 분해 (wait/download) ──
+    phaseWait: "대기(서버)",
+    phaseDownload: "다운로드",
+    phaseWaitHelp:
+      "대기 = 요청을 보내고 첫 바이트가 올 때까지 = 거의 서버 처리 시간. 대기가 길면 서버가 느린 것이니 에러율·상태 코드 분포를 함께 보세요.",
+    phaseViewWaterfall: "막대",
+    phaseViewChips: "칩",
+    phaseViewToggleLabel: "스텝 분해 보기 방식",
     branchDecisionsLabel: "분기 결정",
     branchDecisionsTitle: "분기 결정",
     scenarioSnapshotLabel: "시나리오 스냅샷",
