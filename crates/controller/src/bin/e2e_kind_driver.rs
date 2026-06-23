@@ -8,7 +8,7 @@
 //! Steps:
 //!   1. Seed wiremock stubs via WIREMOCK_ADMIN_BASE
 //!   2. POST /api/scenarios — 2-step scenario (login → profile)
-//!   3. POST /api/runs — 50 VUs, 10 s duration, env BASE_URL = wm_cluster
+//!   3. POST /api/runs — closed-loop VU curve (peak 50, cap 25 → N=2), env BASE_URL = wm_cluster
 //!   4. Poll GET /api/runs/{id} every 1 s until terminal
 //!   5. GET /api/runs/{id}/report — assert summary.count > 0, steps.len() == 2
 
@@ -83,7 +83,7 @@ steps:
         .post(format!("{base}/api/runs"))
         .json(&json!({
             "scenario_id": scenario_id,
-            "profile": {"vus": 50, "ramp_up_seconds": 2, "duration_seconds": 10},
+            "profile": {"duration_seconds": 0, "vu_stages": [{"target": 50, "duration_seconds": 10}]},
             "env": {"BASE_URL": wm_cluster},
         }))
         .send()
