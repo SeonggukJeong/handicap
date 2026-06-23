@@ -45,6 +45,9 @@ pub struct RunResponse {
     pub message: Option<String>,
     /// A4a SLO verdict(완료 run, criteria 있을 때만 non-null). 목록 배지용.
     pub verdict: Option<crate::report::Verdict>,
+    /// 마지막 메트릭 윈도의 wall-clock unix초(running run 진행 stall 판정용, G1b 목록 배지).
+    /// running이 아니거나 메트릭 0이면 None. advisory-only — list 경로만 채운다(FIX-3).
+    pub last_metric_ts: Option<i64>,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
@@ -897,7 +900,7 @@ pub async fn create(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(to_response(row))))
+    Ok((StatusCode::CREATED, Json(to_response(row, None))))
 }
 
 pub async fn get(
@@ -905,7 +908,7 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> Result<Json<RunResponse>, ApiError> {
     let row = runs::get(&state.db, &id).await?.ok_or(ApiError::NotFound)?;
-    Ok(Json(to_response(row)))
+    Ok(Json(to_response(row, None)))
 }
 
 pub async fn metrics(
@@ -1129,8 +1132,20 @@ pub async fn list_for_scenario(
         .await?
         .ok_or(ApiError::NotFound)?;
     let rows = runs::list_by_scenario(&state.db, &scenario_id).await?;
+    let last_ts =
+        crate::store::metrics::last_metric_ts_by_scenario(&state.db, &scenario_id).await?;
     Ok(Json(RunListResponse {
-        runs: rows.into_iter().map(to_response).collect(),
+        runs: rows
+            .into_iter()
+            .map(|r| {
+                let lt = if matches!(r.status, RunStatus::Running) {
+                    last_ts.get(&r.id).copied()
+                } else {
+                    None
+                };
+                to_response(r, lt)
+            })
+            .collect(),
     }))
 }
 
@@ -1168,7 +1183,7 @@ fn fold_seed(run_id: &str) -> u32 {
     h
 }
 
-fn to_response(r: runs::RunRow) -> RunResponse {
+fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
     RunResponse {
         id: r.id,
         scenario_id: r.scenario_id,
@@ -1181,6 +1196,7 @@ fn to_response(r: runs::RunRow) -> RunResponse {
         created_at: r.created_at,
         message: r.message,
         verdict: r.verdict,
+        last_metric_ts,
     }
 }
 

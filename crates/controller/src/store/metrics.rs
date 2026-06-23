@@ -377,6 +377,31 @@ pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Resu
     tx.commit().await
 }
 
+/// running run의 마지막 메트릭 윈도 wall-clock unix초(MAX(ts_second))를 scenario 단위로
+/// 한 번에. running 서브쿼리로 좁혀 동적 IN-바인딩을 피한다. running run이 0이거나 그 run의
+/// 메트릭이 0이면 맵에 부재(→ 핸들러가 None). G1b 목록 stall 배지의 raw 신호(advisory-only).
+pub async fn last_metric_ts_by_scenario(
+    db: &Db,
+    scenario_id: &str,
+) -> sqlx::Result<HashMap<String, i64>> {
+    let rows = sqlx::query(
+        "SELECT run_id, MAX(ts_second) AS last_ts \
+         FROM run_metrics \
+         WHERE run_id IN (SELECT id FROM runs WHERE scenario_id = ? AND status = 'running') \
+         GROUP BY run_id",
+    )
+    .bind(scenario_id)
+    .fetch_all(db)
+    .await?;
+    let mut map = HashMap::new();
+    for r in rows {
+        let run_id: String = r.get("run_id");
+        let last_ts: i64 = r.get("last_ts");
+        map.insert(run_id, last_ts);
+    }
+    Ok(map)
+}
+
 pub async fn active_vu_series(db: &Db, run_id: &str) -> sqlx::Result<Vec<ActiveVuRow>> {
     let rows = sqlx::query(
         "SELECT ts_second, SUM(desired) AS desired, SUM(actual) AS actual \
@@ -924,6 +949,89 @@ mod tests {
             (9, 8),
             "keep-last per worker"
         );
+    }
+
+    #[tokio::test]
+    async fn last_metric_ts_by_scenario_returns_max_for_running_only() {
+        let db = pool().await;
+        sqlx::query(
+            "INSERT INTO scenarios(id, name, yaml, created_at, updated_at, version) \
+             VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S1")
+        .bind("t")
+        .bind("version: 1\nname: t\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        // RUN_R: running + 메트릭(ts 100,250) / RUN_T: completed + 메트릭(999, 제외) / RUN_N: running + 메트릭 0(부재)
+        for (id, status) in [
+            ("RUN_R", "running"),
+            ("RUN_T", "completed"),
+            ("RUN_N", "running"),
+        ] {
+            sqlx::query(
+                "INSERT INTO runs(id, scenario_id, scenario_yaml, profile_json, env_json, status, created_at) \
+                 VALUES(?,?,?,?,?,?,?)",
+            )
+            .bind(id)
+            .bind("S1")
+            .bind("version: 1\nname: t\nsteps: []\n")
+            .bind("{}")
+            .bind("{}")
+            .bind(status)
+            .bind(1_i64)
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+        insert_batch(
+            &db,
+            &[
+                MetricRow {
+                    run_id: "RUN_R".into(),
+                    ts_second: 100,
+                    step_id: "s".into(),
+                    worker_id: "".into(),
+                    count: 5,
+                    error_count: 0,
+                    hdr_histogram: vec![],
+                    status_counts: "{}".into(),
+                },
+                MetricRow {
+                    run_id: "RUN_R".into(),
+                    ts_second: 250,
+                    step_id: "s".into(),
+                    worker_id: "".into(),
+                    count: 3,
+                    error_count: 0,
+                    hdr_histogram: vec![],
+                    status_counts: "{}".into(),
+                },
+                MetricRow {
+                    run_id: "RUN_T".into(),
+                    ts_second: 999,
+                    step_id: "s".into(),
+                    worker_id: "".into(),
+                    count: 1,
+                    error_count: 0,
+                    hdr_histogram: vec![],
+                    status_counts: "{}".into(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let map = last_metric_ts_by_scenario(&db, "S1").await.unwrap();
+        assert_eq!(map.get("RUN_R"), Some(&250)); // MAX over windows, running
+        assert_eq!(map.get("RUN_T"), None); // terminal 제외(running 서브쿼리)
+        assert_eq!(map.get("RUN_N"), None); // running이나 메트릭 0 → 부재
+        assert_eq!(map.len(), 1);
     }
 
     #[tokio::test]
