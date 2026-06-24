@@ -601,6 +601,8 @@ export const ko = {
     // ── 표 헤더 (run 목록 열) ──
     colStatus: "상태",
     colVus: "VU",
+    vusCurvePeak: (n: number) => `최대 ${n} (곡선)`,
+    vusOpenHint: "VU 해당 없음 — 열린 루프(RPS·슬롯 기반)",
     colDuration: "테스트 시간",
     colCreated: "생성 시각",
     colName: "이름",
