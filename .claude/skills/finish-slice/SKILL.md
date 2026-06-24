@@ -46,7 +46,7 @@ git -C <메인> log --oneline -3                  # landed 확인 — commit/mer
 - `docs/build-log.md`에 한 단락 append (파이프라인·함정 출처·라이브 검증 결과)
 - 루트 CLAUDE.md의 상태 줄을 **한 줄 교체** (append 금지 — "어디까지 됐나"만): `grep -n '^\*\*상태:' CLAUDE.md`로 찾은 그 한 문단
 - 새 ADR이 생겼으면 "알아둘 결정들" 인덱스에 번호순 **한 줄만**
-- 자동메모리(`~/.claude/projects/-Users-sgj-develop-handicap/memory/`): 해당 작업의 기존 메모리 파일 우선 업데이트(없으면 생성) + `MEMORY.md` 인덱스 한 줄 갱신
+- 자동메모리(`~/.claude/projects/-Users-sgj-develop-handicap/memory/`): 해당 작업의 기존 메모리 파일 우선 업데이트(없으면 생성) + `MEMORY.md` 인덱스 한 줄 갱신. **MEMORY.md가 ~24KB 한도에 근접했으면 새 `직전 =` 추가 시 직전/직전직전 verbose 항목을 한 줄로 압축하며 demote**(상세는 build-log에 이미 있음) — 4번째 verbose 항목 append나 매번 `/curate-memory` 대신 compress-on-demote가 가볍다(곡선 VU 표시 세션 2026-06-24: 23KB→13.5KB)
 
 ## 5) CLAUDE.md 함정 기록
 `claude-md-management:revise-claude-md` 스킬 호출 — 이번 세션 함정을 **변경이 속한 도메인**의 CLAUDE.md(ui 변경이면 `ui/CLAUDE.md` 등, 크로스커팅만 루트)에 한 줄씩, 출처 태그 포함.
