@@ -3,6 +3,7 @@ import {
   buildLoadProfile,
   deriveLoadMode,
   loadModelErrors,
+  profileVuDisplay,
   type LoadModelState,
 } from "../loadModel";
 
@@ -243,5 +244,34 @@ describe("deriveLoadMode", () => {
     expect(deriveLoadMode({ target_rps: 100 })).toEqual({ loadModel: "open", rateMode: "fixed" });
     expect(deriveLoadMode({})).toEqual({ loadModel: "closed", rateMode: "fixed" });
     expect(deriveLoadMode({ vu_stages: [] })).toEqual({ loadModel: "closed", rateMode: "fixed" });
+  });
+});
+
+describe("profileVuDisplay (§4.1)", () => {
+  it("closed+fixed → {kind:'fixed', vus}", () => {
+    expect(profileVuDisplay({ vus: 50 })).toEqual({ kind: "fixed", vus: 50 });
+  });
+
+  it("closed+curve(vu_stages) → {kind:'curve', peak = max target}", () => {
+    expect(
+      profileVuDisplay({
+        vus: 0,
+        vu_stages: [
+          { target: 5, duration_seconds: 10 },
+          { target: 50, duration_seconds: 20 },
+          { target: 2, duration_seconds: 5 },
+        ],
+      }),
+    ).toEqual({ kind: "curve", peak: 50 });
+  });
+
+  it("open+fixed(target_rps) → {kind:'open'}", () => {
+    expect(profileVuDisplay({ vus: 0, target_rps: 100 })).toEqual({ kind: "open" });
+  });
+
+  it("open+curve(stages) → {kind:'open'}", () => {
+    expect(profileVuDisplay({ vus: 0, stages: [{ target: 100, duration_seconds: 30 }] })).toEqual({
+      kind: "open",
+    });
   });
 });

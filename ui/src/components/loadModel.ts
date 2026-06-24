@@ -158,3 +158,23 @@ export function deriveLoadMode(p: {
   if (p.target_rps != null) return { loadModel: "open", rateMode: "fixed" };
   return { loadModel: "closed", rateMode: "fixed" };
 }
+
+export type VuDisplay =
+  | { kind: "fixed"; vus: number } // closed+fixed → 숫자 그대로
+  | { kind: "curve"; peak: number } // closed+curve → "최대 N (곡선)"
+  | { kind: "open" }; // open-loop(고정/곡선) → "—"
+
+/** 한 run의 VU 표시 방식. closed+fixed→리터럴 `vus`; closed+curve(vu_stages)→곡선 최고점
+ *  (max target)을 "최대 N (곡선)"으로; open-loop(target_rps/stages)는 VU 개념이 없어 "—".
+ *  모드 역도출은 deriveLoadMode 단일 소스(곡선 증발 drift 방지). 읽는 필드만 Pick해
+ *  RunSchema.profile(nested-default leak)을 normalizeProfile 없이 수용(profileDurationSeconds
+ *  패턴 — 이 4필드는 .default()가 없어 leak-free). */
+export function profileVuDisplay(
+  profile: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages">,
+): VuDisplay {
+  const { loadModel, rateMode } = deriveLoadMode(profile);
+  if (loadModel === "open") return { kind: "open" };
+  if (rateMode === "curve")
+    return { kind: "curve", peak: Math.max(...(profile.vu_stages ?? []).map((s) => s.target)) };
+  return { kind: "fixed", vus: profile.vus };
+}
