@@ -23,6 +23,7 @@ import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
+import { RunVuCell } from "../components/RunVuCell";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
@@ -217,7 +218,9 @@ export function RunDetailPage() {
       )}
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
-        <Card label={ko.runDetail.cardVus}>{r.profile.vus}</Card>
+        <Card label={ko.runDetail.cardVus}>
+          <RunVuCell profile={r.profile} />
+        </Card>
         <Card label={ko.runDetail.cardDuration}>{durationSeconds}s</Card>
         <Card label={ko.runDetail.cardTotalRequests}>{totalCount}</Card>
         <Card label={ko.runDetail.cardErrors}>{totalErrors}</Card>
@@ -265,6 +268,15 @@ export function RunDetailPage() {
               <li>vus = {r.profile.vus}</li>
               <li>duration = {r.profile.duration_seconds}s</li>
               <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
+              {r.profile.vu_stages && r.profile.vu_stages.length > 0 && (
+                <li>
+                  vu_stages ={" "}
+                  {ko.runDetail.profileVuStages(
+                    Math.max(...r.profile.vu_stages.map((s) => s.target)),
+                    r.profile.vu_stages.length,
+                  )}
+                </li>
+              )}
             </ul>
           </section>
 

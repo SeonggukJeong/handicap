@@ -690,6 +690,7 @@ export const ko = {
     // ── 섹션 제목/aria-label ──
     profileLabel: "프로필",
     profileTitle: "프로필",
+    profileVuStages: (peak: number, count: number) => `최대 ${peak} · ${count}단계`,
     stepsLabel: "스텝",
     stepsTitle: "스텝",
     envLabel: "환경 변수",

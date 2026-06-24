@@ -449,3 +449,31 @@ describe("ScenarioRunsPage — stall 배지 (G1b 목록)", () => {
     expect(screen.queryByText(/정지 의심/)).toBeNull();
   });
 });
+
+describe("ScenarioRunsPage — 곡선/열린 run VU 열 (R1/R2)", () => {
+  it("닫힌 곡선 run: VU 열 '최대 50 (곡선)'", async () => {
+    mockApi({
+      profile: {
+        vus: 0,
+        ramp_up_seconds: 0,
+        duration_seconds: 0,
+        vu_stages: [
+          { target: 5, duration_seconds: 10 },
+          { target: 50, duration_seconds: 20 },
+        ],
+      },
+    });
+    renderPage();
+    expect(await screen.findByText("최대 50 (곡선)")).toBeInTheDocument();
+  });
+
+  it("열린 루프 run: VU 열 '—'", async () => {
+    mockApi({
+      profile: { vus: 0, ramp_up_seconds: 0, duration_seconds: 30, target_rps: 100 },
+    });
+    renderPage();
+    expect(
+      await screen.findByLabelText("VU 해당 없음 — 열린 루프(RPS·슬롯 기반)"),
+    ).toBeInTheDocument();
+  });
+});

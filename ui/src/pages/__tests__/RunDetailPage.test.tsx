@@ -791,3 +791,54 @@ describe("RunDetailPage — mid-run stall banner (G1b)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 곡선 run VU 표시 (R1/R7) — raw 섹션은 running(non-terminal)에서만 렌더
+// ---------------------------------------------------------------------------
+
+function makeCurveRunningRun() {
+  return {
+    id: "CR1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "running",
+    profile: {
+      vus: 0,
+      ramp_up_seconds: 0,
+      duration_seconds: 0,
+      vu_stages: [
+        { target: 5, duration_seconds: 10 },
+        { target: 50, duration_seconds: 20 },
+        { target: 2, duration_seconds: 5 },
+      ],
+    },
+    env: {},
+    started_at: Date.now(),
+    ended_at: null,
+    created_at: Date.now(),
+  };
+}
+
+describe("RunDetailPage — 곡선 run VU 표시 (R1/R7)", () => {
+  it("닫힌 곡선 running run: VUs 카드 '최대 50 (곡선)' + raw vu_stages 줄", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/CR1"))
+        return Promise.resolve(jsonResponse(makeCurveRunningRun()));
+      if (url.endsWith("/api/runs/CR1/metrics"))
+        return Promise.resolve(jsonResponse({ run_id: "CR1", windows: [] }));
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("CR1");
+    // 주의: 카드 단언은 정확매치 "최대 50 (곡선)" 유지 — `/최대 50/`로 느슨하게 하면 raw
+    // 줄("최대 50 · 3단계")까지 다중매치돼 throw(ui/CLAUDE.md "같은 라벨 여럿" 함정).
+    expect(await screen.findByText("최대 50 (곡선)")).toBeInTheDocument();
+    expect(screen.getByText(/vu_stages = 최대 50 · 3단계/)).toBeInTheDocument();
+  });
+
+  it("고정 VU running run: raw vu_stages 줄 없음", async () => {
+    mockRunningApi(Date.now() - 1_000, 1);
+    renderWithRouter("SR1");
+    await screen.findByRole("heading", { name: /메트릭 윈도우/ });
+    expect(screen.queryByText(/vu_stages =/)).toBeNull();
+  });
+});

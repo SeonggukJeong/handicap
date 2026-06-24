@@ -18,6 +18,7 @@ import { RunDialog } from "../components/RunDialog";
 import { StatusBadge } from "../components/StatusBadge";
 import { classifyRunStall } from "../api/runStall";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { RunVuCell } from "../components/RunVuCell";
 import { ko } from "../i18n/ko";
 import { isLoopStep } from "../scenario/model";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
@@ -299,7 +300,9 @@ export function ScenarioRunsPage() {
                         <td className="py-3 pr-4">
                           <VerdictBadge verdict={r.verdict} />
                         </td>
-                        <td className="py-3 pr-4">{r.profile.vus}</td>
+                        <td className="py-3 pr-4">
+                          <RunVuCell profile={r.profile} />
+                        </td>
                         <td className="py-3 pr-4">
                           {profileDurationSeconds(r.profile)}s
                           {r.status === "running" && (
