@@ -538,6 +538,8 @@ export function RunDialog({
           workerCount={workerCount}
           setWorkerCount={setWorkerCount}
           onApplyWorkerCount={(n) => setWorkerCount(String(n))}
+          httpTimeout={httpTimeout}
+          poolMode={pool.data?.pool_mode}
         />
       </fieldset>
       {pool.data?.pool_mode

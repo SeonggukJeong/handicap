@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
+import type { Scenario } from "../../scenario/model";
 
 vi.mock("../VuSizingHelper", () => ({
   VuSizingHelper: () => <div data-testid="sizing-helper" />,
@@ -348,4 +349,79 @@ describe("LoadModelFields", () => {
       expect(screen.queryByLabelText("부하 생성기 워커 수 (수평 확장)")).toBeNull();
     },
   );
+});
+
+const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;
+
+describe("LoadModelFields — open-loop 구조 경고", () => {
+  it("① 곡선 W>peak → 유휴 워커 경고 + 적용 버튼이 worker_count를 peak로", async () => {
+    const user = userEvent.setup();
+    const setWorkerCount = vi.fn();
+    renderFields({
+      loadModel: "open",
+      rateMode: "curve",
+      stages: [{ target: "1", duration_seconds: "10" }],
+      workerCount: "3",
+      setWorkerCount,
+      onApplyWorkerCount: vi.fn(),
+      sizingScenarioId: "s1",
+    });
+    expect(screen.getByText(/할 일이 없어요/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /맞추기/ }));
+    expect(setWorkerCount).toHaveBeenCalledWith("1"); // peak=1
+  });
+
+  it("② 단일 워커·inert → max_in_flight 무효 경고", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "10",
+      maxInFlight: "10000",
+      httpTimeout: 1,
+      sizingScenario: oneHttp,
+      sizingScenarioId: "s1",
+    });
+    expect(screen.getByText(/영향을 주지 않아요/)).toBeInTheDocument();
+  });
+
+  it("② pool 모드면 미렌더 (R13)", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "10",
+      maxInFlight: "10000",
+      httpTimeout: 1,
+      sizingScenario: oneHttp,
+      sizingScenarioId: "s1",
+      poolMode: true,
+    });
+    expect(screen.queryByText(/영향을 주지 않아요/)).not.toBeInTheDocument();
+  });
+
+  it("② httpTimeout 부재(ScheduleForm) → 미렌더", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "10",
+      maxInFlight: "10000",
+      sizingScenario: oneHttp,
+      sizingScenarioId: "s1",
+    });
+    expect(screen.queryByText(/영향을 주지 않아요/)).not.toBeInTheDocument();
+  });
+
+  it("경고가 있어도 제출을 막지 않는다(비차단 advisory, R5)", () => {
+    // LoadModelFields는 Run 버튼을 소유하지 않음 — 경고는 role=status, aria-invalid/disabled 미설정.
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "10",
+      maxInFlight: "10000",
+      httpTimeout: 1,
+      sizingScenario: oneHttp,
+      sizingScenarioId: "s1",
+    });
+    const warn = screen.getByText(/영향을 주지 않아요/);
+    expect(warn.closest("[role='status']")).not.toBeNull();
+  });
 });

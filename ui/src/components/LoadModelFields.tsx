@@ -9,6 +9,7 @@ import { SlotSizingHelper } from "./SlotSizingHelper";
 import { WorkerSizingHelper } from "./WorkerSizingHelper";
 import { peakStageTarget } from "./sizing";
 import type { Scenario } from "../scenario/model";
+import { openLoopWarnings, type OpenLoopWarning } from "./openLoopChecks";
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -46,6 +47,10 @@ type Props = {
   // (ScheduleForm은 state로 round-trip만 하고 입력은 안 띄운다, spec §4.1).
   workerCount?: string;
   setWorkerCount?: (s: string) => void;
+  // ② inert max_in_flight 판정용(RunDialog http_timeout). 미전달(ScheduleForm) → ② 미발생.
+  httpTimeout?: number;
+  // pool 모드 신호(RunDialog pool.data?.pool_mode). true → 두 경고 모두 suppress(R13).
+  poolMode?: boolean;
 };
 
 const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
@@ -78,6 +83,8 @@ export function LoadModelFields({
   onApplyWorkerCount,
   workerCount,
   setWorkerCount,
+  httpTimeout,
+  poolMode,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -98,6 +105,40 @@ export function LoadModelFields({
     const p = peakStageTarget(stages);
     return p != null ? String(p) : "";
   }, [stages]);
+
+  // open-loop 구조 경고(순수·결정적). poolMode/closed/W>1 등 게이트는 openLoopWarnings 내부.
+  const openLoopWarns = useMemo(
+    () =>
+      openLoopWarnings({
+        loadModel,
+        rateMode,
+        targetRps,
+        maxInFlight,
+        stages,
+        workerCount,
+        httpTimeoutSeconds: httpTimeout,
+        scenario: sizingScenario ?? null,
+        poolMode,
+      }),
+    [
+      loadModel,
+      rateMode,
+      targetRps,
+      maxInFlight,
+      stages,
+      workerCount,
+      httpTimeout,
+      sizingScenario,
+      poolMode,
+    ],
+  );
+  // 판별 union 좁히기: 평범한 `=== ` 화살표는 `find`가 narrow 못 함(strict tsc) → 타입가드 술어 필수.
+  const idleWarn = openLoopWarns.find(
+    (w): w is Extract<OpenLoopWarning, { kind: "idle_workers" }> => w.kind === "idle_workers",
+  );
+  const inertWarn = openLoopWarns.find(
+    (w): w is Extract<OpenLoopWarning, { kind: "inert_slots" }> => w.kind === "inert_slots",
+  );
 
   // 곡선 에디터 블록 — open+curve / closed+curve 공유, 라벨만 모드 분기
   const curveEditor = (
@@ -461,6 +502,11 @@ export function LoadModelFields({
               {ko.validation.maxInFlight}
             </p>
           )}
+          {inertWarn && (
+            <p role="status" className="mb-3 max-w-xs text-amber-700 text-sm">
+              {ko.openLoopCheck.inertSlots}
+            </p>
+          )}
 
           {/* worker_count(수평 확장) 접이식 — RunDialog 전용(setWorkerCount 부재면 미렌더),
               open 모드(고정·곡선) 공통. 기본 접힘 + 값>1이면 자동 펼침·접힌 채면 "N개 설정됨"
@@ -514,6 +560,18 @@ export function LoadModelFields({
                       maxInFlight={maxInFlight}
                       onApply={onApplyWorkerCount}
                     />
+                  )}
+                  {idleWarn && (
+                    <p role="status" className="mt-2 text-amber-700 text-sm">
+                      {ko.openLoopCheck.idleWorkers(idleWarn.idle, idleWarn.peak)}{" "}
+                      <button
+                        type="button"
+                        onClick={() => setWorkerCount?.(String(idleWarn.peak))}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {ko.openLoopCheck.apply(idleWarn.peak)}
+                      </button>
+                    </p>
                   )}
                 </div>
               )}

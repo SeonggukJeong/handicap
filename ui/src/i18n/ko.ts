@@ -862,6 +862,14 @@ export const ko = {
     needMaxInFlight: (n: number, cur: number) =>
       `worker_count는 max_in_flight 이하여야 해요 — max_in_flight도 최소 ${n}(으)로 함께 올리세요 (현재 ${cur}).`,
   },
+  // open-loop 구조 경고(create-time advisory). 조사 병기((으)로) — 변수 뒤 조사 고정 금지(ADR-0035).
+  openLoopCheck: {
+    idleWorkers: (idle: number, peak: number) =>
+      `워커 ${idle}대가 할 일이 없어요 — 곡선 최고점이 ${peak}라 워커 ${peak}대까지만 일하고 나머지는 유휴예요.`,
+    apply: (peak: number) => `워커 수를 ${peak}(으)로 맞추기`,
+    inertSlots:
+      "지금 목표 속도·타임아웃에선 동시 요청이 동시 요청 상한(max_in_flight)에 절대 도달하지 않아 이 값이 부하에 영향을 주지 않아요 — 부하 세기는 max_in_flight가 아니라 목표 RPS로 정해져요.",
+  },
   // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   sizing: {
     title: "VU 사이징 도우미",
