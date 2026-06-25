@@ -957,6 +957,7 @@ export const ko = {
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
+    overlayBaselineLabel: (label: string) => `${label} (기준)`,
   },
   triggerBuilder: {
     cronExpressionAria: "cron 표현식",
