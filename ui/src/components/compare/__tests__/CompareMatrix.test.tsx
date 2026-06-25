@@ -23,6 +23,57 @@ const result: CompareResult = {
   stepMismatch: true,
 };
 
+describe("CompareMatrix verdict polarity (spec R8)", () => {
+  const labels = { A: "#A", B: "#B" };
+  function verdictResult(passed: (boolean | null)[]): CompareResult {
+    return {
+      runIds: ["A", "B"],
+      baselineIdx: 0,
+      summary: [],
+      steps: [],
+      status: [],
+      verdict: { passed },
+      stepMismatch: false,
+    };
+  }
+
+  it("baseline PASS & candidate FAIL → ▲악화 on candidate, none on baseline", () => {
+    render(
+      <CompareMatrix
+        result={verdictResult([true, false])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/악화/)).toBeInTheDocument();
+    expect(screen.queryByText(/개선/)).not.toBeInTheDocument();
+  });
+
+  it("baseline FAIL & candidate PASS → ▼개선", () => {
+    render(
+      <CompareMatrix
+        result={verdictResult([false, true])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/개선/)).toBeInTheDocument();
+    expect(screen.queryByText(/악화/)).not.toBeInTheDocument();
+  });
+
+  it("equal verdicts → neutral (no glyph)", () => {
+    render(
+      <CompareMatrix
+        result={verdictResult([true, true])}
+        labels={labels}
+        onBaselineChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/악화/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/개선/)).not.toBeInTheDocument();
+  });
+});
+
 describe("CompareMatrix", () => {
   it("renders one table with a shared colgroup so run columns align", () => {
     // Single-table layout (commit d74fe7d): header, verdict, and every section

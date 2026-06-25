@@ -1,4 +1,5 @@
 import type { Cell, CompareResult, CompareRow } from "../../compare/compareReports";
+import { verdictPolarity } from "../../compare/compareReports";
 import { ko } from "../../i18n/ko";
 
 type Props = {
@@ -153,17 +154,31 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
           {/* Verdict row */}
           <tr className="border-b border-slate-100 dark:border-slate-800">
             <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">판정</td>
-            {verdict.passed.map((p, i) => (
-              <td key={i} className="py-2 pr-4">
-                {p === null ? (
-                  "—"
-                ) : p ? (
-                  <span className="text-green-600 font-semibold">{ko.report.verdictPass}</span>
-                ) : (
-                  <span className="text-red-600 font-semibold">{ko.report.verdictFail}</span>
-                )}
-              </td>
-            ))}
+            {verdict.passed.map((p, i) => {
+              const pol =
+                i === baselineIdx ? "neutral" : verdictPolarity(verdict.passed[baselineIdx], p);
+              return (
+                <td key={i} className="py-2 pr-4">
+                  {p === null ? (
+                    "—"
+                  ) : p ? (
+                    <span className="text-green-600 font-semibold">{ko.report.verdictPass}</span>
+                  ) : (
+                    <span className="text-red-600 font-semibold">{ko.report.verdictFail}</span>
+                  )}
+                  {pol === "bad" && (
+                    <span className="ml-1 text-red-600 text-xs font-semibold">
+                      ▲{ko.compare.verdictWorse}
+                    </span>
+                  )}
+                  {pol === "good" && (
+                    <span className="ml-1 text-green-600 text-xs font-semibold">
+                      ▼{ko.compare.verdictBetter}
+                    </span>
+                  )}
+                </td>
+              );
+            })}
           </tr>
 
           {/* Summary section rows with spanning sub-header */}

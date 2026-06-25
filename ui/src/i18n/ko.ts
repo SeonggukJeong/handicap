@@ -957,6 +957,8 @@ export const ko = {
     worseAria: (text: string) => `더 나쁨: ${text}`,
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
+    verdictWorse: "악화",
+    verdictBetter: "개선",
     overlayBaselineLabel: (label: string) => `${label} (기준)`,
     overlayTitle: "초당 시계열 비교",
     overlayMetricsAria: "오버레이 메트릭 선택",
