@@ -410,7 +410,8 @@ describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
     renderPageWithCompare();
 
     await screen.findByLabelText("실행 V1 선택");
-    expect(screen.getByText(ko.report.verdictPass)).toBeInTheDocument();
+    // The badge ("합격") and the filter chip ("합격") both render — use getAllByText
+    expect(screen.getAllByText(ko.report.verdictPass).length).toBeGreaterThan(0);
     // The run without verdict renders the em-dash placeholder
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
@@ -551,7 +552,10 @@ describe("ScenarioRunsPage — filter/sort (run-list-filter-sort)", () => {
     mockApiRuns(RUNS);
     renderRuns();
     // verdict=fail + status=completed → 0 matches
-    await user.click(await screen.findByRole("button", { name: ko.runFilter.verdictFail }));
+    // pressed:false disambiguates the filter chip (aria-pressed) from the FailBadge button (aria-expanded, no aria-pressed)
+    await user.click(
+      await screen.findByRole("button", { name: ko.runFilter.verdictFail, pressed: false }),
+    );
     await user.click(screen.getByRole("button", { name: ko.runFilter.statusCompleted }));
     expect(await screen.findByText(ko.runFilter.emptyFiltered)).toBeInTheDocument();
     expect(screen.queryByText(ko.empty.runs)).not.toBeInTheDocument();
