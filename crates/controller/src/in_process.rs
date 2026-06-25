@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
+use clap::Parser;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_util::sync::CancellationToken;
@@ -387,6 +388,54 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
     })
 }
 
+/// worker/src/main.rs:6-11 미러 — `WorkerArgs`는 derive(Args)라 자체 파싱이 안 되므로
+/// flatten 래퍼가 `Parser`를 제공한다. (bundle-gated 모듈 안이라 cfg 불필요.)
+#[derive(clap::Parser)]
+struct WorkerCli {
+    #[command(flatten)]
+    args: handicap_worker::WorkerArgs,
+}
+
+/// 순수: argv[1]=="worker"면 그 토큰을 드롭하고 나머지를 `WorkerArgs`로 파싱한다.
+/// dispatcher argv = `[exe, "worker", "--controller", …]`(in_process.rs `with_leading_args`).
+/// `[synthetic_prog] ++ argv[2..]`를 `WorkerCli::try_parse_from`에 먹인다(합성 argv[0]=프로그램명).
+/// standalone `controller.exe`의 clap `Cmd::Worker`가 같은 argv를 소비하는 방식과 정합.
+fn worker_args_from<I, T>(argv: I) -> Option<handicap_worker::WorkerArgs>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString>,
+{
+    let v: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
+    if v.get(1)?.to_str()? != "worker" {
+        return None;
+    }
+    let synth = std::iter::once(std::ffi::OsString::from("worker")).chain(v.into_iter().skip(2));
+    WorkerCli::try_parse_from(synth).ok().map(|c| c.args)
+}
+
+/// 멀티콜 가드. `<exe> worker …`로 실행됐으면 워커로 동작 후 프로세스 종료(절대 return 안 함);
+/// 아니면 즉시 return해 호출자가 GUI를 띄우게 한다. **desktop `main()`의 첫 문장으로 호출**해야
+/// 한다(Tauri/런타임 init 전). `run_in_process`는 tracing init을 안 하므로(caller 소유) 워커
+/// 프로세스는 자기 `init_worker_tracing()`을 호출한다.
+pub fn run_worker_if_invoked() {
+    let Some(args) = worker_args_from(std::env::args_os()) else {
+        return;
+    };
+    handicap_worker::init_worker_tracing();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("build worker runtime");
+    let code = match rt.block_on(handicap_worker::run_dispatch(args)) {
+        Ok(()) => 0,
+        Err(e) => {
+            tracing::error!(error = ?e, "worker failed");
+            1
+        }
+    };
+    std::process::exit(code);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,5 +558,39 @@ mod tests {
         // 종료 후 health는 더 이상 안 떠야 한다.
         let after = reqwest::get(&url).await;
         assert!(after.is_err(), "shutdown 후 REST가 닫혀야 함");
+    }
+
+    #[test]
+    fn worker_args_from_parses_worker_invocation() {
+        let argv = [
+            "app",
+            "worker",
+            "--controller",
+            "http://127.0.0.1:8081",
+            "--run-id",
+            "r1",
+            "--worker-id",
+            "w1",
+        ];
+        let got = worker_args_from(argv).expect("worker invocation must parse");
+        assert_eq!(got.controller, "http://127.0.0.1:8081");
+        assert_eq!(got.run_id.as_deref(), Some("r1"));
+        assert_eq!(got.worker_id.as_deref(), Some("w1"));
+    }
+
+    #[test]
+    fn worker_args_from_ignores_controller_invocation() {
+        // GUI/컨트롤러 기동: argv[1]이 "worker"가 아니면 None(가드가 return해 GUI로).
+        assert!(worker_args_from(["app"]).is_none());
+        assert!(worker_args_from(["app", "--rest", "127.0.0.1:0"]).is_none());
+    }
+
+    #[test]
+    fn worker_args_from_pool_invocation_without_run_id() {
+        // 풀 워커: --run-id 생략(should_run_pool). 토큰 스킵 + 파싱 parity 확인.
+        let got = worker_args_from(["app", "worker", "--controller", "http://127.0.0.1:8081"])
+            .expect("pool worker invocation must parse");
+        assert_eq!(got.controller, "http://127.0.0.1:8081");
+        assert!(got.run_id.is_none());
     }
 }
