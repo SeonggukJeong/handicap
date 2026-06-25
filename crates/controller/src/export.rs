@@ -1,7 +1,7 @@
 //! CSV/XLSX serialization of reports (single-run + N-run comparison).
 //! Pure functions over `ReportJson` (built via build_report_for_run).
 use crate::report::ReportJson;
-use rust_xlsxwriter::{Workbook, Worksheet};
+use rust_xlsxwriter::{Color, Format, Workbook, Worksheet};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -34,6 +34,33 @@ fn delta(metric: &str, base: f64, val: f64) -> Delta {
         Polarity::Bad
     };
     Delta { pct, polarity }
+}
+
+/// pct 분수를 UI `formatPct`(CompareMatrix.tsx:12-14)와 동일하게: 부호 + 소수1자리 + '%'.
+/// 음수 pct는 자체 '-'를 가지므로 양수/0에만 '+'를 붙인다.
+fn format_pct(pct: f64) -> String {
+    let sign = if pct >= 0.0 { "+" } else { "" };
+    format!("{sign}{:.1}%", pct * 100.0)
+}
+
+/// 비교 Δ 셀 텍스트(글리프 + %)를 UI `DeltaChip`(CompareMatrix.tsx:17-49)과 1:1로 생성.
+/// pct None(base=0) → value>0 ? "신규" : "동일". 글리프: Bad=▲, Good=▼, Neutral=없음.
+fn delta_cell_text(d: &Delta, value: f64) -> String {
+    let base = match d.pct {
+        None => {
+            if value > 0.0 {
+                "신규".to_string()
+            } else {
+                "동일".to_string()
+            }
+        }
+        Some(p) => format_pct(p),
+    };
+    match d.polarity {
+        Polarity::Bad => format!("▲ {base}"),
+        Polarity::Good => format!("▼ {base}"),
+        Polarity::Neutral => base,
+    }
 }
 
 /// Extract one summary metric's value from a run (error_rate is a fraction).
@@ -235,6 +262,14 @@ pub fn report_to_csv(report: &ReportJson) -> Vec<u8> {
 /// Multi-run comparison XLSX: Summary + Steps + Runs sheets.
 pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8> {
     let mut wb = Workbook::new();
+    // Δ 셀 polarity 색(Excel 옅은 fill). set_background_color만으로 solid(0.79.4 기본).
+    // 1회 생성·재사용(루프마다 재생성 금지). neutral은 plain write_string(fill 없음).
+    let fmt_bad = Format::new()
+        .set_background_color(Color::RGB(0xFFC7CE))
+        .set_font_color(Color::RGB(0x9C0006));
+    let fmt_good = Format::new()
+        .set_background_color(Color::RGB(0xC6EFCE))
+        .set_font_color(Color::RGB(0x006100));
 
     // Summary: row0 = header(metric + run ids + delta cols), rows = metrics.
     let ws = wb.add_worksheet();
@@ -269,9 +304,15 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         let mut dcol = delta_start;
         for (i, r) in reports.iter().enumerate() {
             if i != baseline_idx {
-                if let Some(p) = delta(metric, base, summary_metric(&r.summary, metric)).pct {
-                    ws.write_number(row, dcol, p).expect("w");
+                let val = summary_metric(&r.summary, metric);
+                let d = delta(metric, base, val);
+                let text = delta_cell_text(&d, val);
+                match d.polarity {
+                    Polarity::Bad => ws.write_string_with_format(row, dcol, &text, &fmt_bad),
+                    Polarity::Good => ws.write_string_with_format(row, dcol, &text, &fmt_good),
+                    Polarity::Neutral => ws.write_string(row, dcol, &text),
                 }
+                .expect("w");
                 dcol += 1;
             }
         }
@@ -688,6 +729,88 @@ mod tests {
         // col 0 = metric label, col 1 = base run value, col 2 = candidate value.
         assert_eq!(sum.get_value((2, 1)), Some(&Data::Float(100.0)));
         assert_eq!(sum.get_value((2, 2)), Some(&Data::Float(150.0)));
+        // Δ 열(col 3 = delta_start = 1 metric + 2 run 값 뒤). p95 100→150:
+        // lower_is_better, val>base → Bad, pct=+50.0% → "▲ +50.0%".
+        assert_eq!(
+            sum.get_value((2, 3)),
+            Some(&calamine::Data::String("▲ +50.0%".into()))
+        );
+    }
+
+    #[test]
+    fn format_pct_mirrors_ui() {
+        assert_eq!(format_pct(0.5), "+50.0%");
+        assert_eq!(format_pct(-0.029), "-2.9%");
+        assert_eq!(format_pct(0.0), "+0.0%");
+        assert_eq!(format_pct(1.0), "+100.0%");
+    }
+
+    #[test]
+    fn delta_cell_text_mirrors_deltachip() {
+        use Polarity::*;
+        // 일반 pct + 글리프
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: Some(0.5),
+                    polarity: Bad
+                },
+                150.0
+            ),
+            "▲ +50.0%"
+        );
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: Some(-0.182),
+                    polarity: Good
+                },
+                9.0
+            ),
+            "▼ -18.2%"
+        );
+        // 동률(val==base) → Neutral, 글리프 없음
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: Some(0.0),
+                    polarity: Neutral
+                },
+                100.0
+            ),
+            "+0.0%"
+        );
+        // base=0 → "신규"/"동일" (골든 fixture 미커버 분기 — spec §5.1 nit)
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: None,
+                    polarity: Good
+                },
+                9.0
+            ),
+            "▼ 신규"
+        );
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: None,
+                    polarity: Bad
+                },
+                5.0
+            ),
+            "▲ 신규"
+        );
+        assert_eq!(
+            delta_cell_text(
+                &Delta {
+                    pct: None,
+                    polarity: Neutral
+                },
+                0.0
+            ),
+            "동일"
+        );
     }
 
     fn insight(kind: &str, severity: &str) -> crate::insights::Insight {
