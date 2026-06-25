@@ -1,5 +1,6 @@
 import type { Cell, CompareResult, CompareRow } from "../../compare/compareReports";
 import { verdictPolarity } from "../../compare/compareReports";
+import { runColor } from "../../compare/runLabel";
 import { ko } from "../../i18n/ko";
 
 type Props = {
@@ -138,8 +139,13 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
                 <button
                   type="button"
                   onClick={() => onBaselineChange(runId)}
-                  className="hover:underline text-left"
+                  className="inline-flex items-center gap-1.5 hover:underline text-left"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-3 h-3 rounded-sm ring-1 ring-black/10 dark:ring-white/20 shrink-0"
+                    style={{ backgroundColor: runColor(i) }}
+                  />
                   {labels[runId] ?? runId}
                   {i === baselineIdx && (
                     <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>

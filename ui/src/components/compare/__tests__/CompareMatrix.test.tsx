@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { CompareMatrix } from "../CompareMatrix";
 import type { CompareResult } from "../../../compare/compareReports";
+import { runColor } from "../../../compare/runLabel";
 
 const result: CompareResult = {
   runIds: ["A", "B"],
@@ -101,5 +102,19 @@ describe("CompareMatrix", () => {
     expect(screen.getByText(/일부만 비교/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /#B/ }));
     expect(onBaselineChange).toHaveBeenCalledWith("B");
+  });
+
+  it("renders a per-run color swatch in each header matching the overlay palette (spec §3.2/R3)", () => {
+    render(
+      <CompareMatrix result={result} labels={{ A: "#A", B: "#B" }} onBaselineChange={() => {}} />,
+    );
+    const colA = screen.getByRole("button", { name: /#A/ });
+    const colB = screen.getByRole("button", { name: /#B/ });
+    const swatchA = colA.querySelector('span[aria-hidden="true"]');
+    const swatchB = colB.querySelector('span[aria-hidden="true"]');
+    expect(swatchA).not.toBeNull();
+    expect(swatchB).not.toBeNull();
+    expect(swatchA).toHaveStyle({ backgroundColor: runColor(0) });
+    expect(swatchB).toHaveStyle({ backgroundColor: runColor(1) });
   });
 });
