@@ -409,9 +409,12 @@ describe("ScenarioRunsPage — verdict badge (Task 6)", () => {
     mockApiRuns([runWithVerdict, runWithoutVerdict]);
     renderPageWithCompare();
 
-    await screen.findByLabelText("실행 V1 선택");
-    // The badge ("합격") and the filter chip ("합격") both render — use getAllByText
-    expect(screen.getAllByText(ko.report.verdictPass).length).toBeGreaterThan(0);
+    // Scope to V1's table row so the badge (not the toolbar chip) is matched.
+    // The filter chip lives in RunListControls above the table, so within(v1Row)
+    // excludes it — getByText matches exactly the badge in that row.
+    const v1Row = (await screen.findByLabelText("실행 V1 선택")).closest("tr");
+    expect(v1Row).not.toBeNull();
+    expect(within(v1Row!).getByText(ko.report.verdictPass)).toBeInTheDocument();
     // The run without verdict renders the em-dash placeholder
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
@@ -574,6 +577,10 @@ describe("ScenarioRunsPage — filter/sort (run-list-filter-sort)", () => {
     const ids = screen.getAllByRole("link", { name: "view →" }).map((a) => a.getAttribute("href"));
     // verdict asc default → fail(0) first, then pass(1), then none(2)
     expect(ids).toEqual(["/runs/FAIL1", "/runs/PASS1", "/runs/RUN1"]);
+    const verdictHeader = screen
+      .getByRole("button", { name: ko.runSort.sortByHeaderAria(ko.runFilter.verdictLabel) })
+      .closest("th");
+    expect(verdictHeader).toHaveAttribute("aria-sort", "ascending");
   });
 
   it("keeps comparison selection independent of filtering (R16)", async () => {

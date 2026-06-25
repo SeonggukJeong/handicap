@@ -443,7 +443,10 @@ function SortableTh({
   const idx = sort.findIndex((k) => k.field === field);
   const active = sort[idx];
   return (
-    <th className="py-2 pr-4 font-medium">
+    <th
+      className="py-2 pr-4 font-medium"
+      aria-sort={active ? (active.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
       <button
         type="button"
         onClick={() => onSort(field)}
