@@ -3,7 +3,8 @@ mod launch;
 
 use std::sync::Mutex;
 
-use backend::{ControllerBackend, SidecarBackend};
+use backend::{ControllerBackend, InProcessBackend};
+use handicap_controller::in_process::InProcessConfig;
 use tauri::{Manager, RunEvent};
 
 /// 종료 훅이 접근할 backend 핸들(managed state).
@@ -16,15 +17,12 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let exe_dir = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
-                let sidecar = launch::resolve_sidecar_path(
-                    &exe_dir,
-                    std::env::var("HANDICAP_CONTROLLER_BIN").ok().as_deref(),
-                );
-                match SidecarBackend::start(sidecar, launch::SpawnConfig::default()).await {
+                // in-process 컨트롤러: DB는 HANDICAP_DB env override(dev/live-verify 격리) 또는 기본.
+                let cfg = InProcessConfig {
+                    db: std::env::var("HANDICAP_DB").ok(),
+                    ..InProcessConfig::default()
+                };
+                match InProcessBackend::start(cfg).await {
                     Ok(be) => {
                         let url = be.base_url();
                         if let Some(win) = handle.get_webview_window("main") {

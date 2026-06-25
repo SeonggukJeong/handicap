@@ -15,7 +15,6 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi", "dmg", "app"],
-    "externalBin": ["binaries/controller"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
