@@ -404,19 +404,11 @@ async fn execute_assignment(
     // Reuses run_cancel — SIGTERM and an inbound AbortRun both cancel the
     // in-flight scenario via the same token, which the engine watches for
     // `EngineError::Aborted` → Phase::Aborted.
-    let cancel_for_listener = run_cancel.clone();
-    let abort_run_id = run_id.clone();
-    let abort_listener = tokio::spawn(async move {
-        while let Some(msg) = inbound_rx.recv().await {
-            if let Some(ServerPayload::Abort(a)) = msg.payload {
-                if a.run_id == abort_run_id {
-                    info!(run_id = %abort_run_id, reason = %a.reason, "abort signal received");
-                    cancel_for_listener.cancel();
-                    break;
-                }
-            }
-        }
-    });
+    let abort_listener = tokio::spawn(abort_listener_loop(
+        inbound_rx,
+        run_id.clone(),
+        run_cancel.clone(),
+    ));
 
     let run_res = if is_vu_curve {
         run_scenario_vu_curve(scenario, plan, win_tx, run_cancel).await
@@ -636,6 +628,38 @@ fn phase_for_result(res: &Result<(), EngineError>) -> (i32, String) {
     }
 }
 
+/// 인바운드 서버 스트림에서 이 run의 Abort 신호를 감시한다.
+/// - 명시적 `Abort`(run_id 일치) 수신 → 취소하고 반환.
+/// - 명시적 Abort 없이 스트림이 닫힘(컨트롤러 크래시/연결 끊김) → **그것도 취소**한다
+///   (R4b: cross-platform 하드-크래시 백스톱 — 워커가 좀비 부하를 계속 돌리지 않게).
+///
+/// 정상 완료 경로에선 호출부가 이 태스크를 `abort()`로 먼저 죽이므로(스트림 close 관찰 전)
+/// close-without-abort 취소가 오탐을 내지 않는다. 호출부가 시나리오 완료(lib.rs:427) 직후
+/// listener를 abort(lib.rs:430)하는 그 찰나에 스트림이 닫혀 `cancel()`이 발화하더라도
+/// **benign-by-construction** — 시나리오는 이미 끝났으니 늦은 취소는 no-op이고, 풀은
+/// reconnect-per-run이라 run마다 새 `link`/`inbound_rx`를 받아 stale-channel 누수가 없다.
+pub(crate) async fn abort_listener_loop(
+    mut inbound_rx: mpsc::Receiver<pb::ServerMessage>,
+    run_id: String,
+    cancel: CancellationToken,
+) {
+    while let Some(msg) = inbound_rx.recv().await {
+        if let Some(ServerPayload::Abort(a)) = msg.payload {
+            if a.run_id == run_id {
+                info!(run_id = %run_id, reason = %a.reason, "abort signal received");
+                cancel.cancel();
+                return;
+            }
+        }
+    }
+    // 스트림이 명시적 Abort 없이 닫힘 = 컨트롤러 연결 끊김(크래시). 좀비 run 방지 취소.
+    info!(
+        run_id = %run_id,
+        "inbound stream closed without abort — cancelling run (controller disconnect)"
+    );
+    cancel.cancel();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -810,5 +834,46 @@ mod tests {
             "explicit --worker-id → stable"
         );
         assert!(!worker_id_is_stable(&None), "auto random ULID → ephemeral");
+    }
+
+    #[tokio::test]
+    async fn abort_listener_explicit_abort_cancels() {
+        let (tx, rx) = mpsc::channel::<pb::ServerMessage>(4);
+        let cancel = CancellationToken::new();
+        let h = tokio::spawn(abort_listener_loop(rx, "run-1".to_string(), cancel.clone()));
+        tx.send(pb::ServerMessage {
+            payload: Some(ServerPayload::Abort(pb::AbortRun {
+                run_id: "run-1".to_string(),
+                reason: "user".to_string(),
+            })),
+        })
+        .await
+        .unwrap();
+        h.await.unwrap();
+        assert!(cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn abort_listener_inbound_close_cancels() {
+        // R4b: 컨트롤러 크래시 시뮬레이션 — 명시적 Abort 없이 송신자 drop으로 스트림 close.
+        let (tx, rx) = mpsc::channel::<pb::ServerMessage>(4);
+        let cancel = CancellationToken::new();
+        let h = tokio::spawn(abort_listener_loop(rx, "run-1".to_string(), cancel.clone()));
+        drop(tx);
+        h.await.unwrap();
+        assert!(cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn abort_listener_aborted_before_close_no_false_positive() {
+        // 정상 완료 경로: 호출부가 listener를 먼저 abort → 그 뒤 스트림이 닫혀도 취소 안 됨.
+        let (tx, rx) = mpsc::channel::<pb::ServerMessage>(4);
+        let cancel = CancellationToken::new();
+        let h = tokio::spawn(abort_listener_loop(rx, "run-1".to_string(), cancel.clone()));
+        h.abort();
+        let _ = h.await;
+        drop(tx);
+        tokio::task::yield_now().await;
+        assert!(!cancel.is_cancelled());
     }
 }
