@@ -678,6 +678,11 @@ export const ko = {
     selectRunAria: (id: string) => `실행 ${id} 선택`,
     verdictSloTitle: "SLO",
     colMaxMs: "최대 ms",
+    colWorker: "워커",
+    colErrorRate: "오류율",
+    workerBreakdownLabel: "워커별 분해",
+    workerBreakdownTitle: (n: number) => `워커별 분해 (${n}개 워커)`,
+    workerLabel: (n: number) => `워커 ${n}`,
   },
   runDetail: {
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)

@@ -18,6 +18,7 @@ import { ScenarioSnapshot } from "./ScenarioSnapshot";
 import { DownloadJsonButton } from "./DownloadJsonButton";
 import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
+import { WorkerBreakdownTable } from "./WorkerBreakdownTable";
 import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
 import { ReportHeadline } from "./ReportHeadline";
@@ -185,6 +186,7 @@ export function ReportView({ report, profile }: Props) {
           byWorker={report.active_vu_by_worker ?? []}
         />
       ) : null}
+      <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} />
       {report.latency ? (
         <section aria-label={ko.report.latencyTitle}>
           <h3 className="text-lg font-semibold mb-2">{ko.report.latencyTitle}</h3>
