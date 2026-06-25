@@ -89,6 +89,8 @@ describe("ScenarioComparePage", () => {
     // Summary metric appears in the matrix
     expect(await screen.findByText("p95_ms")).toBeInTheDocument();
 
+    expect(screen.getByRole("region", { name: ko.compare.overlayTitle })).toBeInTheDocument();
+
     // Export buttons
     expect(screen.getByRole("button", { name: /Export CSV/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Export XLSX/i })).toBeInTheDocument();

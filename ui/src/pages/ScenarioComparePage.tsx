@@ -6,7 +6,9 @@ import { downloadFile } from "../api/download";
 import { compareReports } from "../compare/compareReports";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { CompareMatrix } from "../components/compare/CompareMatrix";
+import { CompareOverlaySection } from "../components/compare/CompareOverlaySection";
 import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix";
+import { runShortLabel } from "../compare/runLabel";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
@@ -146,7 +148,7 @@ function ScenarioCompareInner({
   const runLabels = useMemo<Record<string, string>>(() => {
     const labels: Record<string, string> = {};
     for (const id of runIds) {
-      labels[id] = `#${id.slice(-6)}`;
+      labels[id] = runShortLabel(id);
     }
     return labels;
   }, [runIds]);
@@ -231,6 +233,8 @@ function ScenarioCompareInner({
         labels={runLabels}
         onBaselineChange={onBaselineChange}
       />
+
+      <CompareOverlaySection reports={reports} baselineIdx={result.baselineIdx} />
 
       <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} labels={runLabels} />
     </div>

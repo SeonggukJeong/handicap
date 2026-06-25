@@ -958,6 +958,9 @@ export const ko = {
     betterAria: (text: string) => `더 좋음: ${text}`,
     neutralAria: (text: string) => `동일: ${text}`,
     overlayBaselineLabel: (label: string) => `${label} (기준)`,
+    overlayTitle: "초당 시계열 비교",
+    overlayMetricsAria: "오버레이 메트릭 선택",
+    overlayNoData: "시계열 데이터가 없습니다.",
   },
   triggerBuilder: {
     cronExpressionAria: "cron 표현식",
