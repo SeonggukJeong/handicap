@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { overlaySeries } from "../overlaySeries";
-import { runShortLabel } from "../runLabel";
+import { runColor, runShortLabel } from "../runLabel";
 import type { Report } from "../../api/schemas";
 
 function rep(
@@ -34,6 +34,8 @@ describe("overlaySeries", () => {
     expect(runs[0].label).toBe("#111111");
     expect(runs[1].label).toBe("#222222");
     expect(runs[0].color).not.toBe(runs[1].color);
+    expect(runs[0].color).toBe(runColor(0));
+    expect(runs[1].color).toBe(runColor(1));
   });
 
   it("selects the requested metric", () => {

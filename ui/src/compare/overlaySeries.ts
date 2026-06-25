@@ -1,14 +1,11 @@
 import type { Report } from "../api/schemas";
 import { bySecond, type Sec } from "../report/bySecond";
-import { runShortLabel } from "./runLabel";
+import { runColor, runShortLabel } from "./runLabel";
 
 export type MetricKey = "rps" | "p95" | "errors";
 export type OverlayRun = { key: string; label: string; color: string; baseline: boolean };
 export type OverlayRow = { elapsed: number } & Record<string, number | null>;
 export type OverlaySeries = { rows: OverlayRow[]; runs: OverlayRun[] };
-
-// Stable per-index palette (compare view is capped at 5 runs upstream).
-const RUN_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
 
 function metricValue(s: Sec, metric: MetricKey): number {
   if (metric === "rps") return s.count;
@@ -24,7 +21,7 @@ export function overlaySeries(
   const runs: OverlayRun[] = reports.map((r, i) => ({
     key: `run${i}`,
     label: runShortLabel(r.run.id),
-    color: RUN_COLORS[i % RUN_COLORS.length],
+    color: runColor(i),
     baseline: i === baselineIdx,
   }));
 
