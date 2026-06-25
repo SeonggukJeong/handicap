@@ -11,10 +11,12 @@ import {
   profileDurationSeconds,
   type RunPrefill,
 } from "../api/runPrefill";
+import type { Run } from "../api/schemas";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { RunDialog } from "../components/RunDialog";
+import { RunListControls } from "../components/RunListControls";
 import { StatusBadge } from "../components/StatusBadge";
 import { classifyRunStall } from "../api/runStall";
 import { VerdictBadge } from "../components/VerdictBadge";
@@ -22,6 +24,15 @@ import { RunVuCell } from "../components/RunVuCell";
 import { ko } from "../i18n/ko";
 import { isLoopStep } from "../scenario/model";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
+import {
+  DEFAULT_SORT,
+  filterRuns,
+  parseRunControls,
+  promoteSort,
+  serializeRunControls,
+  sortRuns,
+  type SortField,
+} from "../runs/runFilterSort";
 
 /** Snapshot we keep in state for the open prefill dialog. */
 type PrefillState = {
@@ -36,7 +47,7 @@ type PrefillState = {
 export function ScenarioRunsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const scenario = useScenario(id);
   const runs = useScenarioRuns(id);
   const createRun = useCreateRun();
@@ -47,6 +58,20 @@ export function ScenarioRunsPage() {
 
   const hasRunning = runs.data?.runs.some((r) => r.status === "running") ?? false;
   const now = useNow(hasRunning ? 1000 : null);
+
+  const { filter, sort: parsedSort } = parseRunControls(searchParams);
+  const sortKeys = parsedSort.length ? parsedSort : DEFAULT_SORT;
+  const dateNow = now; // useNow snapshot; date boundaries re-eval on filter/URL change/refetch
+
+  const applyControls = (next: { filter: typeof filter; sort: typeof sortKeys }) => {
+    const sp = serializeRunControls(next.filter, next.sort);
+    // preserve unrelated params (e.g. ?retry=) that this page also reads
+    const retry = searchParams.get("retry");
+    if (retry) sp.set("retry", retry);
+    setSearchParams(sp, { replace: true });
+  };
+  const onHeaderSort = (field: SortField) =>
+    applyControls({ filter, sort: promoteSort(sortKeys, field) });
 
   // Parse the scenario YAML once for both hasLoop + DataBindingPanel.
   // Parse failures fall back to null (no binding panel, no cap UI).
@@ -182,8 +207,9 @@ export function ScenarioRunsPage() {
       {runs.data &&
         runs.data.runs.length > 0 &&
         (() => {
-          const allRuns = runs.data!.runs;
-          const selected = allRuns.filter((r) => selectedIds.has(r.id));
+          const allRuns = runs.data!.runs as Run[]; // Zod .default() input-type leak workaround
+          const visible = sortRuns(filterRuns(allRuns, filter, dateNow), sortKeys);
+          const selected = allRuns.filter((r) => selectedIds.has(r.id)); // R16: over full set
           const n = selected.length;
           const baseline =
             n > 0
@@ -191,6 +217,13 @@ export function ScenarioRunsPage() {
               : "";
           return (
             <>
+              <RunListControls
+                filter={filter}
+                sort={sortKeys}
+                total={allRuns.length}
+                shown={visible.length}
+                onChange={applyControls}
+              />
               {n >= 1 && (
                 <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
                   {n > 50 ? (
@@ -251,16 +284,41 @@ export function ScenarioRunsPage() {
                 <thead className="border-b border-slate-200 text-left text-slate-600">
                   <tr>
                     <th className="py-2 pr-2 font-medium">비교</th>
-                    <th className="py-2 pr-4 font-medium">{ko.report.colStatus}</th>
-                    <th className="py-2 pr-4 font-medium">결과</th>
-                    <th className="py-2 pr-4 font-medium">{ko.report.colVus}</th>
-                    <th className="py-2 pr-4 font-medium">{ko.report.colDuration}</th>
-                    <th className="py-2 pr-4 font-medium">{ko.report.colCreated}</th>
+                    <SortableTh
+                      field="status"
+                      label={ko.runFilter.statusLabel}
+                      sort={sortKeys}
+                      onSort={onHeaderSort}
+                    />
+                    <SortableTh
+                      field="verdict"
+                      label={ko.runFilter.verdictLabel}
+                      sort={sortKeys}
+                      onSort={onHeaderSort}
+                    />
+                    <SortableTh
+                      field="vu"
+                      label={ko.report.colVus}
+                      sort={sortKeys}
+                      onSort={onHeaderSort}
+                    />
+                    <SortableTh
+                      field="duration"
+                      label={ko.report.colDuration}
+                      sort={sortKeys}
+                      onSort={onHeaderSort}
+                    />
+                    <SortableTh
+                      field="created"
+                      label={ko.report.colCreated}
+                      sort={sortKeys}
+                      onSort={onHeaderSort}
+                    />
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {allRuns.map((r) => {
+                  {visible.map((r) => {
                     const normalised = normalizeProfile(r.profile);
                     const env = envValueToRecord(r.env);
                     const stall = classifyRunStall(
@@ -361,9 +419,45 @@ export function ScenarioRunsPage() {
                   })}
                 </tbody>
               </table>
+              {visible.length === 0 && (
+                <p className="mt-3 text-sm text-slate-500">{ko.runFilter.emptyFiltered}</p>
+              )}
             </>
           );
         })()}
     </div>
+  );
+}
+
+function SortableTh({
+  field,
+  label,
+  sort,
+  onSort,
+}: {
+  field: SortField;
+  label: string;
+  sort: { field: SortField; dir: "asc" | "desc" }[];
+  onSort: (f: SortField) => void;
+}) {
+  const idx = sort.findIndex((k) => k.field === field);
+  const active = sort[idx];
+  return (
+    <th className="py-2 pr-4 font-medium">
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        aria-label={ko.runSort.sortByHeaderAria(label)}
+        className="inline-flex items-center gap-1 hover:text-slate-900"
+      >
+        {label}
+        {active && (
+          <span className="text-xs text-indigo-600">
+            {active.dir === "asc" ? "▲" : "▼"}
+            {sort.length > 1 ? idx + 1 : ""}
+          </span>
+        )}
+      </button>
+    </th>
   );
 }

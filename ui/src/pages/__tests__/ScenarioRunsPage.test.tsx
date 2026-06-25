@@ -477,3 +477,114 @@ describe("ScenarioRunsPage — 곡선/열린 run VU 열 (R1/R2)", () => {
     ).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// run-list-filter-sort: ScenarioRunsPage 배선
+// ---------------------------------------------------------------------------
+
+function RunsLocationProbe() {
+  return <div data-testid="runs-location">{useLocation().search}</div>;
+}
+function renderRuns(initialPath = "/scenarios/S1/runs") {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <RunsLocationProbe />
+        <Routes>
+          <Route path="/scenarios/:id/runs" element={<ScenarioRunsPage />} />
+          <Route path="/runs/:id" element={<div>run page</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("ScenarioRunsPage — filter/sort (run-list-filter-sort)", () => {
+  const RUNS = [
+    runRow({
+      id: "PASS1",
+      status: "completed",
+      verdict: { passed: true, criteria: [] },
+      created_at: 3000,
+    }),
+    runRow({
+      id: "FAIL1",
+      status: "failed",
+      verdict: {
+        passed: false,
+        criteria: [{ metric: "p95_ms", direction: "max", threshold: 1, actual: 9, passed: false }],
+      },
+      created_at: 2000,
+    }),
+    runRow({ id: "RUN1", status: "running", verdict: null, created_at: 1000 }),
+  ];
+
+  it("no-param page renders all rows newest-first (R8, R18)", async () => {
+    mockApiRuns(RUNS);
+    renderRuns();
+    await screen.findByRole("button", { name: ko.pages.runScenario });
+    const links = screen.getAllByRole("link", { name: "view →" });
+    expect(links).toHaveLength(3); // all rows visible
+  });
+
+  it("status filter hides non-matching rows (R5)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    await user.click(await screen.findByRole("button", { name: ko.runFilter.statusRunning }));
+    await screen.findByText(ko.runFilter.count(1, 3));
+    expect(screen.getAllByRole("link", { name: "view →" })).toHaveLength(1);
+  });
+
+  it("filter writes URL query params (R13)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    await user.click(await screen.findByRole("button", { name: ko.runFilter.statusRunning }));
+    await screen.findByText(ko.runFilter.count(1, 3));
+    expect(screen.getByTestId("runs-location").textContent).toContain("status=running");
+  });
+
+  it("shows the filtered empty state when nothing matches (R15)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    // verdict=fail + status=completed → 0 matches
+    await user.click(await screen.findByRole("button", { name: ko.runFilter.verdictFail }));
+    await user.click(screen.getByRole("button", { name: ko.runFilter.statusCompleted }));
+    expect(await screen.findByText(ko.runFilter.emptyFiltered)).toBeInTheDocument();
+    expect(screen.queryByText(ko.empty.runs)).not.toBeInTheDocument();
+  });
+
+  it("header click sorts by that field (R12)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    // 결과(verdict) 헤더 클릭 → promoteSort → [verdict:asc, created:desc]
+    await user.click(
+      await screen.findByRole("button", {
+        name: ko.runSort.sortByHeaderAria(ko.runFilter.verdictLabel),
+      }),
+    );
+    const ids = screen.getAllByRole("link", { name: "view →" }).map((a) => a.getAttribute("href"));
+    // verdict asc default → fail(0) first, then pass(1), then none(2)
+    expect(ids).toEqual(["/runs/FAIL1", "/runs/PASS1", "/runs/RUN1"]);
+  });
+
+  it("keeps comparison selection independent of filtering (R16)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    // select PASS1 and FAIL1 (both terminal)
+    await user.click(
+      await screen.findByRole("checkbox", { name: ko.report.selectRunAria("PASS1") }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: ko.report.selectRunAria("FAIL1") }));
+    expect(screen.getByRole("button", { name: "비교 (2)" })).toBeInTheDocument();
+    // now filter to running only — selected runs hidden, but compare count unchanged
+    await user.click(screen.getByRole("button", { name: ko.runFilter.statusRunning }));
+    await screen.findByText(ko.runFilter.count(1, 3));
+    expect(screen.getByRole("button", { name: "비교 (2)" })).toBeInTheDocument();
+  });
+});
