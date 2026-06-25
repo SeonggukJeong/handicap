@@ -25,6 +25,18 @@ export function computeDelta(metric: string, base: number, val: number): Delta {
   return { pct, polarity };
 }
 
+// Baseline-relative verdict polarity for the compare verdict row (spec R7).
+// UI-only — NOT part of the computeDelta/export.rs golden parity (R12).
+export function verdictPolarity(
+  baselinePassed: boolean | null,
+  candidatePassed: boolean | null,
+): Polarity {
+  if (baselinePassed === null || candidatePassed === null) return "neutral";
+  if (baselinePassed === candidatePassed) return "neutral";
+  // They differ: candidate passing while baseline failed = 개선; the reverse = 악화.
+  return candidatePassed ? "good" : "bad";
+}
+
 function summaryValue(r: Report, metric: string): number {
   const s = r.summary;
   if (metric === "error_rate") return s.count === 0 ? 0 : s.errors / s.count;

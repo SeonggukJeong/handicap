@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import nodePath from "node:path";
-import { compareReports, computeDelta } from "../compareReports";
+import { compareReports, computeDelta, verdictPolarity } from "../compareReports";
 
 // jsdom environment does not provide a file: import.meta.url, so we use
 // path.resolve(__dirname, ...) instead. __dirname is vitest's test file dir.
@@ -46,5 +46,23 @@ describe("golden cross-check vs Rust", () => {
         expect(cell.delta!.polarity).toBe(exp.polarity);
       });
     }
+  });
+});
+
+describe("verdictPolarity (baseline-relative, spec R7)", () => {
+  it("baseline PASS & candidate FAIL → bad (악화)", () => {
+    expect(verdictPolarity(true, false)).toBe("bad");
+  });
+  it("baseline FAIL & candidate PASS → good (개선)", () => {
+    expect(verdictPolarity(false, true)).toBe("good");
+  });
+  it("equal verdicts → neutral", () => {
+    expect(verdictPolarity(true, true)).toBe("neutral");
+    expect(verdictPolarity(false, false)).toBe("neutral");
+  });
+  it("null on either side → neutral", () => {
+    expect(verdictPolarity(null, false)).toBe("neutral");
+    expect(verdictPolarity(true, null)).toBe("neutral");
+    expect(verdictPolarity(null, null)).toBe("neutral");
   });
 });
