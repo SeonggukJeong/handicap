@@ -12,6 +12,18 @@
 
 ---
 
+## 다음 후보 (next-up shortlist — start-slice는 여기부터 읽는다)
+
+> **고정 후보 리스트.** 세션마다 흩어진 §B* 연기 항목에서 재합성하면 후보가 매번 달라지므로, 여기에 **손으로 큐레이트한 shortlist**를 둔다. `/start-slice`는 이 표를 1순위로 제시하고, `/finish-slice`는 (a) 착수해 끝낸 후보를 이 표에서 빼 "현재 상태"로 옮기고 (b) 새로 생긴 유력 후보를 여기에 추가해 항상 최신으로 유지한다. 전체 연기 항목 카탈로그는 아래 §B6–§B10·§A10.
+
+| # | 후보 | 가치 | 크기·의존성 |
+|---|---|---|---|
+| 1 | **비교 export Δ 조건부 서식 (XLSX 색)** — §B7 연기 | 방금 UI에 넣은 verdict/Δ baseline-상대 polarity 색을 XLSX 내보내기에도 → 비교 깊이 스토리를 화면↔export 대칭 완성 | 소~중·**백엔드** (`export.rs` `write_number`→색 포맷 + `testdata/compare_golden.json` golden parity + `rust_xlsxwriter` 색·`delta()` polarity 재사용). 새 spec/plan |
+| 2 | **비교 뷰 폴리시 묶음** — §B7 연기 (compare-view-depth 직속 후속) | CompareMatrix 헤더 **색 스와치(열↔오버레이 라인 색 연동)** = "파란 라인=어느 열" 시각 연결 + `InsightCompareMatrix`의 인라인 `#slice(-6)`→`runShortLabel` 수렴(최종 리뷰 지적) | 소·**UI-only**·이번 슬라이스 직속 후속. 새 spec/plan(작음) |
+| 3 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
+
+이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper)은 아래 §B* 참조.
+
 ## 현재 상태 (2026-06-25)
 
 - **✅ Run 비교 뷰 깊이 완료·master 머지 (2026-06-25, A4b/§B7 연기 2종 해소 — UI-only·read-only·schemas/엔진/proto/migration 0·wire byte-identical·ADR-0030 범위 내 additive)** — §B7 line 227(per-second 차트 오버레이)·line 230(verdict 행 baseline-상대 polarity) 해소. 비교 뷰(`ScenarioComparePage`)에 ① 2–5개 run의 초당 시계열을 메트릭별(req/s·p95·errors 다중-선택 피커)로 겹쳐 보는 **오버레이**(각 run t=0 경과초 정규화·null gap·`CompareTimeSeriesChart` `TimeSeriesChart` 패턴), ② verdict 행 **baseline-상대 polarity**(▲악화/▼개선·글리프+가시 라벨·색 단독 금지·기준 열 neutral). 이미 파싱된 `report.windows`·`CompareResult.verdict.passed`만 소비. 순수 헬퍼 `bySecond`(ReportView byte-identical 추출=단일소스)·`overlaySeries`·`runShortLabel`·`verdictPolarity`(UI-only·골든 parity 무관). STOP-gate 재개 fresh `/clear`·subagent-driven 4 task(전부 Sonnet) `f3da8bd`·`4da7d0a`·`26955eb`·`01f6092`+finish-docs `96529f8`·per-task 리뷰 전부 Approved(0 Crit/Imp)·handicap-reviewer **APPROVED**(8 불변식 PASS·wire 0-diff)·security **N/A**·라이브 **WAIVED**(read-only·신규 파싱 0→S-D 갭 부재). 병렬 `noncurve-fanout`과 `ReportView.tsx`/`ko.ts` 공유→master rebase 후 clean auto-merge+UI 게이트 green(135 files/1178). 상세 → `docs/build-log.md`. spec/plan `2026-06-25-compare-view-depth*`. **연기(spec §7)**: XLSX Δ 조건부 서식·per-step 오버레이·active-VU 비교 오버레이·색각 보조·CompareMatrix 헤더 색 스와치.
