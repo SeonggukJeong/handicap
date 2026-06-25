@@ -398,6 +398,14 @@ export const ActiveVuSampleSchema = z
   .strict();
 export type ActiveVuSample = z.infer<typeof ActiveVuSampleSchema>;
 
+export const WorkerActiveVuSeriesSchema = z
+  .object({
+    worker_id: z.string(),
+    samples: z.array(ActiveVuSampleSchema),
+  })
+  .strict();
+export type WorkerActiveVuSeries = z.infer<typeof WorkerActiveVuSeriesSchema>;
+
 export const ReportSchema = z
   .object({
     run: ReportRunSchema,
@@ -409,6 +417,7 @@ export const ReportSchema = z
     if_breakdown: z.array(IfBreakdownSchema).optional(),
     group_latency: z.array(GroupLatencySchema).optional(),
     active_vu_series: z.array(ActiveVuSampleSchema).optional(),
+    active_vu_by_worker: z.array(WorkerActiveVuSeriesSchema).optional(),
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
     dropped: z.number(),

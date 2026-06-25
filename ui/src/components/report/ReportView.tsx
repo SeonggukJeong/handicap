@@ -180,7 +180,10 @@ export function ReportView({ report, profile }: Props) {
         data={seconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
       />
       {report.active_vu_series && report.active_vu_series.length > 0 ? (
-        <ActiveVuChart series={report.active_vu_series} />
+        <ActiveVuChart
+          series={report.active_vu_series}
+          byWorker={report.active_vu_by_worker ?? []}
+        />
       ) : null}
       {report.latency ? (
         <section aria-label={ko.report.latencyTitle}>
