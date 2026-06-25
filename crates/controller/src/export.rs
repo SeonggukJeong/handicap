@@ -516,6 +516,7 @@ mod tests {
             latency: None,
             group_latency: vec![],
             active_vu_series: vec![],
+            active_vu_by_worker: vec![],
             connection: None,
         }
     }

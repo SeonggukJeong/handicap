@@ -929,6 +929,12 @@ pub async fn build_report_for_run(
     let groups = crate::store::metrics::group_breakdown(db, run_id).await?;
     let phases = crate::store::metrics::phase_breakdown(db, run_id).await?;
     let active_vu = crate::store::metrics::active_vu_series(db, run_id).await?;
+    // Per-worker breakdown is curve-only — skip the query entirely for non-curve runs.
+    let active_vu_by_worker = if row.profile.is_vu_curve() {
+        crate::store::metrics::active_vu_by_worker(db, run_id).await?
+    } else {
+        Vec::new()
+    };
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -939,6 +945,7 @@ pub async fn build_report_for_run(
         &groups,
         &phases,
         &active_vu,
+        &active_vu_by_worker,
     ))
 }
 

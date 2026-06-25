@@ -377,6 +377,30 @@ pub async fn insert_active_vu_batch(db: &Db, rows: &[ActiveVuRow]) -> sqlx::Resu
     tx.commit().await
 }
 
+/// Per-worker active-VU rows (NOT SUM-merged), for the curve fan-out breakdown.
+/// Excludes the legacy `''` worker_id (migration 0018 backfill / SUM-read output) —
+/// production ingest always writes a non-empty worker_id. Ordered worker_id, ts_second.
+pub async fn active_vu_by_worker(db: &Db, run_id: &str) -> sqlx::Result<Vec<ActiveVuRow>> {
+    let rows = sqlx::query(
+        "SELECT ts_second, worker_id, desired, actual \
+         FROM run_active_vu_metrics WHERE run_id = ? AND worker_id <> '' \
+         ORDER BY worker_id, ts_second",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ActiveVuRow {
+            run_id: run_id.to_string(),
+            ts_second: r.get("ts_second"),
+            worker_id: r.get("worker_id"),
+            desired: r.get("desired"),
+            actual: r.get("actual"),
+        })
+        .collect())
+}
+
 /// running run의 마지막 메트릭 윈도 wall-clock unix초(MAX(ts_second))를 scenario 단위로
 /// 한 번에. running 서브쿼리로 좁혀 동적 IN-바인딩을 피한다. running run이 0이거나 그 run의
 /// 메트릭이 0이면 맵에 부재(→ 핸들러가 None). G1b 목록 stall 배지의 raw 신호(advisory-only).
@@ -1077,5 +1101,63 @@ mod tests {
             "branch row persisted"
         );
         assert!(read.iter().all(|r| r.step_id == "p1"));
+    }
+
+    #[tokio::test]
+    async fn active_vu_by_worker_groups_per_worker_and_excludes_legacy() {
+        let db = pool().await;
+        // run_active_vu_metrics는 FK 없음(migration 0016) — 직접 insert.
+        insert_active_vu_batch(
+            &db,
+            &[
+                ActiveVuRow {
+                    run_id: "R1".into(),
+                    ts_second: 100,
+                    desired: 3,
+                    actual: 2,
+                    worker_id: "w-1".into(),
+                },
+                ActiveVuRow {
+                    run_id: "R1".into(),
+                    ts_second: 100,
+                    desired: 2,
+                    actual: 2,
+                    worker_id: "w-0".into(),
+                },
+                ActiveVuRow {
+                    run_id: "R1".into(),
+                    ts_second: 101,
+                    desired: 4,
+                    actual: 4,
+                    worker_id: "w-0".into(),
+                },
+                // legacy backfill sentinel (migration 0018) — must be excluded.
+                ActiveVuRow {
+                    run_id: "R1".into(),
+                    ts_second: 100,
+                    desired: 9,
+                    actual: 9,
+                    worker_id: "".into(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let rows = active_vu_by_worker(&db, "R1").await.unwrap();
+        // '' excluded; ordered by worker_id then ts_second.
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            (rows[0].worker_id.as_str(), rows[0].ts_second),
+            ("w-0", 100)
+        );
+        assert_eq!(
+            (rows[1].worker_id.as_str(), rows[1].ts_second),
+            ("w-0", 101)
+        );
+        assert_eq!(
+            (rows[2].worker_id.as_str(), rows[2].ts_second),
+            ("w-1", 100)
+        );
     }
 }
