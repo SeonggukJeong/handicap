@@ -15,7 +15,7 @@ export type SizingResult = {
 };
 
 /** 목표 RPS 유효 범위 = loadModelErrors의 targetRps와 동일(정수 1..=1_000_000). */
-function targetRpsValid(targetRps: number): boolean {
+export function targetRpsValid(targetRps: number): boolean {
   return Number.isInteger(targetRps) && targetRps >= 1 && targetRps <= 1_000_000;
 }
 
