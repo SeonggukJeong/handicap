@@ -8,6 +8,8 @@ pub mod dispatcher;
 pub mod error;
 pub mod export;
 pub mod grpc;
+#[cfg(feature = "bundle")]
+pub mod in_process;
 pub mod insights;
 pub mod launch;
 pub mod report;
