@@ -240,6 +240,11 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         info!(count = recovered, "marked orphan runs as failed on startup");
     }
     let coord_state = CoordinatorState::new(db.clone());
+    // NOTE: In-process mode uses Subprocess self-exe workers that do NOT present a token; the
+    // in-process gRPC listener's security boundary is the `127.0.0.1` loopback bind, not the
+    // token. `worker_token` here applies only to the LAN-pool model (remote workers presenting a
+    // shared PSK), which the in-process path does not use — so setting it on a bundle build has
+    // no effect on locally self-spawned workers. Do not mistake this for in-process gRPC auth.
     coord_state.set_worker_token(cfg.worker_token.clone());
 
     // 3) 포트 pre-bind(빈 포트 fallback) → 실제 주소 확보(브라우저/worker가 dial).
@@ -361,7 +366,13 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
                 async move { grpc_token.cancelled().await },
             );
 
-        let _ = tokio::join!(rest_fut, grpc_fut);
+        let (rest_res, grpc_res) = tokio::join!(rest_fut, grpc_fut);
+        if let Err(e) = rest_res {
+            warn!(error = ?e, "REST serve task ended with error");
+        }
+        if let Err(e) = grpc_res {
+            warn!(error = ?e, "gRPC serve task ended with error");
+        }
     });
 
     Ok(RunningController {
