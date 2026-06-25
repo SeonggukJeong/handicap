@@ -224,11 +224,11 @@
 - **D. 레이턴시 히스토그램/분위 곡선** — ✅ **완료 (2026-06-05, subagent-driven 6 task, master `4c84f9b`→`370a7cb` 6 commits)**: `build_report`가 이미 머지한 `overall` HDR에서 분위 곡선(고정 11분위)+로그-버킷 히스토그램(iter_recorded 값-기준 정확 분할, Σ==len)을 `ReportJson.latency: Option<LatencyDistribution>`(`#[serde(default, skip_serializing_if)]`)로 emit → UI Zod(`.nullish()`)+`formatLatency`+Recharts 차트 2개(`PercentileCurveChart` `type=linear`·`LatencyHistogramChart` 로그-버킷 바)+ReportView `<section aria-label="Latency">` 슬롯. **엔진 부하경로·워커·proto·마이그레이션 무변경**(`percentiles.rs` 리포트 헬퍼 `percentile_curve`/`log_buckets`만 추가, executor/aggregator 미참조). task별 2단계 리뷰(spec→code-quality, fix-subagent로 tooltip formatLatency·formatLatency 경계·section a11y fold-in) + 최종 handicap-reviewer READY-TO-MERGE(wire 1:1·partition Σ==len·load-path byte-identical) + 게이트 green(cargo workspace + UI 495 pass+tsc-b) + **라이브 run 검증**(3581 req, 히스토그램 Σ==count 실데이터 확인, 실 `/report` 응답이 `ReportSchema.parse` 통과 = S-D 갭 차단). spec `docs/superpowers/specs/2026-06-05-latency-distribution-report-design.md`, plan `docs/superpowers/plans/2026-06-05-latency-distribution-report.md`. ADR 불필요(additive). **연기**: step별 드릴다운·성공/오류 분리·run 비교 곡선 오버레이·per-window 히스토그램(spec §1.2 비목표).
 - **C. 트랜잭션 시간 분해**(DNS/TCP/TLS/TTFB): 엔진 계측 필요 — 더 큰 별도 슬라이스.
 - **A4c 리포트 요약**: A4 영역의 별도 하위 슬라이스.
-- **per-second 차트 오버레이**: 여러 run 시계열을 한 차트에(비교 뷰 후속).
+- **per-second 차트 오버레이** — ✅ **완료 (2026-06-25, compare-view-depth 슬라이스, UI-only·read-only)**: 비교 중 2–5개 run의 초당 시계열을 메트릭별(req/s·p95·errors 다중-선택 피커)로 겹쳐 보는 오버레이를 `ScenarioComparePage`에 추가 — 각 run t=0 경과초 정규화·null gap·`CompareTimeSeriesChart`(TimeSeriesChart 패턴)·`overlaySeries`/`runShortLabel`/`bySecond`(ReportView 단일소스 추출) 순수 헬퍼. schemas/엔진/proto/migration 0. build-log 참조. **연기**: per-step 오버레이·active-VU 비교 오버레이·색각 보조 라인 구분(dash)·CompareMatrix 헤더 색 스와치(열↔라인 색 연동)·N 상한 사용자 설정화(아래 라인).
 - **화면 N 상한 사용자 설정화**: v1은 5 고정(서버 export 상한 50은 별개).
 - **크로스-시나리오 비교**: step_id 매칭 의미 없어 범위 밖(같은 시나리오 강제).
-- **verdict 행의 baseline-상대 polarity**: spec §4.3는 candidate-FAIL&base-PASS→bad를 정의하나 v1은 PASS/FAIL 텍스트(녹/적)만 렌더 — polarity 색은 미구현.
-- **비교 export Δ 셀 조건부 서식**(XLSX 색): 현재 Δ%는 숫자만.
+- **verdict 행의 baseline-상대 polarity** — ✅ **완료 (2026-06-25, compare-view-depth 슬라이스, UI-only)**: 순수 `verdictPolarity(base,cand)` + CompareMatrix verdict 행에 글리프+가시 라벨(기준 PASS·cand FAIL→▲악화/red·기준 FAIL·cand PASS→▼개선/green·동일/null→neutral·기준 열 neutral·색 단독 금지). UI-only — `computeDelta`↔`export.rs::delta` 골든 parity 무관(R12). build-log 참조.
+- **비교 export Δ 셀 조건부 서식**(XLSX 색): 현재 Δ%는 숫자만. compare-view-depth spec §7서 명시 연기 — 백엔드 `export.rs`(`write_number`→포맷)+`testdata/compare_golden.json` parity 도메인이라 순수 UI 슬라이스서 분리, 작은 백엔드 follow-up(`rust_xlsxwriter` 색 포맷·`delta()` polarity 재사용).
 
 ### B8. 스텝 템플릿 (2026-06-12, ADR-0036) 연기 항목
 - **별도 관리 페이지 `/templates`**: v1은 삽입 모달 내 최소 관리(삭제)만. 팀 라이브러리가 커지면 EnvironmentsPage 미러(목록/이름변경/내용 미리보기/삭제)로 확장 — 사용자 결정(1안 진행, 불편 시 2안).
