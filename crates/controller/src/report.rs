@@ -33,6 +33,8 @@ pub struct ReportJson {
     pub active_vu_series: Vec<ActiveVuSample>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub active_vu_by_worker: Vec<WorkerActiveVuSeries>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worker_breakdown: Vec<WorkerBreakdown>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionStats>,
 }
@@ -187,6 +189,16 @@ pub struct ActiveVuSample {
 pub struct WorkerActiveVuSeries {
     pub worker_id: String,
     pub samples: Vec<ActiveVuSample>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct WorkerBreakdown {
+    pub worker_id: String,
+    pub count: u64,
+    pub errors: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+    pub p99_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -476,6 +488,25 @@ pub fn build_report(
     let mut total_count: u64 = 0;
     let mut total_errors: u64 = 0;
 
+    // Per-worker breakdown (ALL fan-out: closed/open/curve). Pre-scan distinct non-empty
+    // worker_ids so single-worker runs do ZERO extra per-worker work (byte-identical build
+    // cost); only >=2 -> accumulate below in the SAME loop (reuse the decoded `h`, no extra decode).
+    let multi_worker = {
+        let mut seen = std::collections::HashSet::new();
+        for r in rows {
+            if !r.worker_id.is_empty() {
+                seen.insert(r.worker_id.as_str());
+            }
+        }
+        seen.len() >= 2
+    };
+    struct WorkerAcc {
+        count: u64,
+        errors: u64,
+        hist: Option<Histogram<u64>>, // None until the first decodable HDR blob
+    }
+    let mut worker_acc: BTreeMap<String, WorkerAcc> = BTreeMap::new();
+
     for r in rows {
         let sc = parse_status_counts(&r.status_counts);
         let acc = window_acc
@@ -489,12 +520,36 @@ pub fn build_report(
         acc.count += r.count as u64;
         acc.error_count += r.error_count as u64;
         add_status(&mut acc.status, &sc);
+        // NEW: per-worker count/errors (multi-worker fan-out only; '' legacy excluded)
+        if multi_worker && !r.worker_id.is_empty() {
+            let w = worker_acc
+                .entry(r.worker_id.clone())
+                .or_insert_with(|| WorkerAcc {
+                    count: 0,
+                    errors: 0,
+                    hist: None,
+                });
+            w.count += r.count as u64;
+            w.errors += r.error_count as u64;
+        }
         if let Ok(Some(h)) = decode_hdr(&r.hdr_histogram) {
             merge_into(&mut overall, &h);
             let step_h = per_step.entry(r.step_id.clone()).or_insert_with(fresh_hist);
             merge_into(step_h, &h);
             let win_h = acc.hist.get_or_insert_with(fresh_hist);
             merge_into(win_h, &h);
+            // NEW: per-worker latency (reuse already-decoded `h`; tiny map -> 2nd .entry is cheap)
+            if multi_worker && !r.worker_id.is_empty() {
+                let w = worker_acc
+                    .entry(r.worker_id.clone())
+                    .or_insert_with(|| WorkerAcc {
+                        count: 0,
+                        errors: 0,
+                        hist: None,
+                    });
+                let wh = w.hist.get_or_insert_with(fresh_hist);
+                merge_into(wh, &h);
+            }
         }
         total_count += r.count as u64;
         total_errors += r.error_count as u64;
@@ -820,6 +875,26 @@ pub fn build_report(
         }
     };
 
+    // BTreeMap -> worker_id ascending (UI renders ordinal labels in this order).
+    let worker_breakdown: Vec<WorkerBreakdown> = worker_acc
+        .into_iter()
+        .map(|(worker_id, w)| {
+            let p = w
+                .hist
+                .as_ref()
+                .map(percentiles_of)
+                .unwrap_or_else(Percentiles::empty);
+            WorkerBreakdown {
+                worker_id,
+                count: w.count,
+                errors: w.errors,
+                p50_ms: p.p50_ms,
+                p95_ms: p.p95_ms,
+                p99_ms: p.p99_ms,
+            }
+        })
+        .collect();
+
     ReportJson {
         run: ReportRun {
             id: run.id.clone(),
@@ -844,6 +919,7 @@ pub fn build_report(
         group_latency,
         active_vu_series,
         active_vu_by_worker: worker_vu,
+        worker_breakdown,
         connection,
     }
 }
@@ -2052,5 +2128,118 @@ mod tests {
         // no connection rows → None (byte-identical)
         let rep2 = build_report(&r, yaml, &rows, &[], &[], &[], &[], &[], &[]);
         assert!(rep2.connection.is_none());
+    }
+
+    #[test]
+    fn build_report_attaches_worker_breakdown_for_multiworker() {
+        let r = run_row();
+        // Same (ts,step), two workers, distinct counts + latencies; rows out of worker order.
+        let rows = vec![
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-1".into(),
+                count: 5,
+                error_count: 1,
+                status_counts: r#"{"200":4,"500":1}"#.into(),
+                hdr_histogram: make_hdr_bytes(&[40_000, 40_000, 40_000, 40_000, 40_000]),
+            },
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-0".into(),
+                count: 3,
+                error_count: 0,
+                status_counts: r#"{"200":3}"#.into(),
+                hdr_histogram: make_hdr_bytes(&[10_000, 10_000, 10_000]),
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[]);
+        assert_eq!(rep.worker_breakdown.len(), 2);
+        // sorted by worker_id ascending
+        assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
+        assert_eq!(rep.worker_breakdown[0].count, 3);
+        assert_eq!(rep.worker_breakdown[0].errors, 0);
+        assert_eq!(rep.worker_breakdown[0].p99_ms, 10); // w-0 only saw 10ms
+        assert_eq!(rep.worker_breakdown[1].worker_id, "w-1");
+        assert_eq!(rep.worker_breakdown[1].count, 5);
+        assert_eq!(rep.worker_breakdown[1].errors, 1);
+        assert_eq!(rep.worker_breakdown[1].p99_ms, 40); // w-1 saw 40ms
+        // aggregate summary still merges across workers (byte-identical behavior)
+        assert_eq!(rep.summary.count, 8);
+        assert_eq!(rep.summary.errors, 1);
+        // typed round-trip
+        let v = serde_json::to_value(&rep).unwrap();
+        let _back: ReportJson = serde_json::from_value(v).unwrap();
+    }
+
+    #[test]
+    fn build_report_omits_worker_breakdown_for_single_worker() {
+        let r = run_row();
+        // win() uses worker_id "w-0" -> single distinct worker.
+        let rows = vec![
+            win(100, "s", 3, 0, r#"{"200":3}"#, &[10_000, 10_000, 10_000]),
+            win(101, "s", 2, 0, r#"{"200":2}"#, &[20_000, 20_000]),
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[]);
+        assert!(rep.worker_breakdown.is_empty());
+        // skip_serializing_if -> field absent (byte-identical)
+        let v = serde_json::to_value(&rep).unwrap();
+        assert!(v.get("worker_breakdown").is_none());
+    }
+
+    #[test]
+    fn build_report_excludes_legacy_empty_worker_id_from_breakdown() {
+        let r = run_row();
+        // legacy '' sentinel only -> 0 distinct non-empty -> no breakdown.
+        let rows = vec![WindowWithHdr {
+            ts_second: 100,
+            step_id: "s".into(),
+            worker_id: "".into(),
+            count: 4,
+            error_count: 0,
+            status_counts: r#"{"200":4}"#.into(),
+            hdr_histogram: make_hdr_bytes(&[15_000, 15_000, 15_000, 15_000]),
+        }];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[]);
+        assert!(rep.worker_breakdown.is_empty());
+    }
+
+    #[test]
+    fn build_report_worker_breakdown_tolerates_bad_hdr_blob() {
+        let r = run_row();
+        let rows = vec![
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-0".into(),
+                count: 2,
+                error_count: 0,
+                status_counts: r#"{"200":2}"#.into(),
+                hdr_histogram: vec![0xff, 0xff, 0xff, 0xff], // undecodable
+            },
+            WindowWithHdr {
+                ts_second: 100,
+                step_id: "s".into(),
+                worker_id: "w-1".into(),
+                count: 3,
+                error_count: 0,
+                status_counts: r#"{"200":3}"#.into(),
+                hdr_histogram: make_hdr_bytes(&[30_000, 30_000, 30_000]),
+            },
+        ];
+        let yaml = r.scenario_yaml.clone();
+        let rep = build_report(&r, &yaml, &rows, &[], &[], &[], &[], &[], &[]);
+        assert_eq!(rep.worker_breakdown.len(), 2);
+        // w-0: count counted despite bad blob, latency falls back to 0 (fail-soft)
+        assert_eq!(rep.worker_breakdown[0].worker_id, "w-0");
+        assert_eq!(rep.worker_breakdown[0].count, 2);
+        assert_eq!(rep.worker_breakdown[0].p50_ms, 0);
+        // w-1: normal
+        assert_eq!(rep.worker_breakdown[1].count, 3);
+        assert_eq!(rep.worker_breakdown[1].p50_ms, 30);
     }
 }
