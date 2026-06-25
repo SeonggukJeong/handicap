@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { InsightCompareMatrix } from "../InsightCompareMatrix";
 import type { Insight } from "../../../api/schemas";
+import { runColor, runShortLabel } from "../../../compare/runLabel";
 
 function ins(p: Partial<Insight> & { kind: string; severity: string }): Insight {
   return {
@@ -69,5 +70,29 @@ describe("InsightCompareMatrix", () => {
     ];
     render(<InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />);
     expect(screen.getByText("감지된 인사이트가 없습니다.")).toBeInTheDocument();
+  });
+
+  it("헤더 라벨은 labels 미주입 시 runShortLabel로 수렴 (인라인 slice 제거, R5)", () => {
+    const reports = [
+      { run: { id: "RUNAAAAAA" }, insights: [] },
+      { run: { id: "RUNBBBBBB" }, insights: [ins({ kind: "slo_pass", severity: "info" })] },
+    ];
+    render(<InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />);
+    expect(screen.getByText(runShortLabel("RUNAAAAAA"))).toBeInTheDocument();
+    expect(screen.getByText(runShortLabel("RUNBBBBBB"))).toBeInTheDocument();
+  });
+
+  it("각 run 헤더에 색 스와치(runColor[i])", () => {
+    const reports = [
+      { run: { id: "RUNAAAAAA" }, insights: [ins({ kind: "slo_pass", severity: "info" })] },
+      { run: { id: "RUNBBBBBB" }, insights: [] },
+    ];
+    const { container } = render(
+      <InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />,
+    );
+    const swatches = container.querySelectorAll('thead span[aria-hidden="true"]');
+    expect(swatches).toHaveLength(2);
+    expect(swatches[0]).toHaveStyle({ backgroundColor: runColor(0) });
+    expect(swatches[1]).toHaveStyle({ backgroundColor: runColor(1) });
   });
 });
