@@ -152,22 +152,25 @@ function Chips<T extends string>({
 }
 
 function DateFilter({ filter, onChange }: { filter: RunFilter; onChange: (f: RunFilter) => void }) {
+  const isCustom = !!(filter.dateFrom || filter.dateTo);
   return (
     <div className="flex items-center gap-1">
       <span className="text-slate-500">{ko.runFilter.dateLabel}:</span>
       <select
         aria-label={ko.runFilter.dateLabel}
-        value={filter.dateFrom || filter.dateTo ? "all" : filter.datePreset}
-        onChange={(e) =>
+        value={isCustom ? "custom" : filter.datePreset}
+        onChange={(e) => {
+          if (e.target.value === "custom") return;
           onChange({
             ...filter,
             datePreset: e.target.value as DatePreset,
             dateFrom: null,
             dateTo: null,
-          })
-        }
+          });
+        }}
         className="rounded border border-slate-300 bg-white px-2 py-0.5"
       >
+        {isCustom && <option value="custom">{ko.runFilter.dateCustom}</option>}
         {DATE_PRESETS.map((p) => (
           <option key={p} value={p}>
             {DATE_LABEL[p]}

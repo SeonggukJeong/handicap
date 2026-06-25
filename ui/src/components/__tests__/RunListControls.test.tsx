@@ -115,4 +115,37 @@ describe("RunListControls — sort builder (R6, R12)", () => {
       }),
     );
   });
+
+  it("moves a key down to lower priority", async () => {
+    const sort: SortKey[] = [
+      { field: "created", dir: "desc" },
+      { field: "verdict", dir: "asc" },
+    ];
+    const { onChange, user } = setup(EMPTY_FILTER, sort);
+    await user.click(
+      screen.getByRole("button", { name: ko.runSort.moveDownAria(ko.runSort.fieldCreated) }),
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sort: [
+          { field: "verdict", dir: "asc" },
+          { field: "created", dir: "desc" },
+        ],
+      }),
+    );
+  });
+
+  it("disables move-up on the first key and move-down on the last", () => {
+    const sort: SortKey[] = [
+      { field: "created", dir: "desc" },
+      { field: "verdict", dir: "asc" },
+    ];
+    setup(EMPTY_FILTER, sort);
+    expect(
+      screen.getByRole("button", { name: ko.runSort.moveUpAria(ko.runSort.fieldCreated) }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: ko.runSort.moveDownAria(ko.runSort.fieldVerdict) }),
+    ).toBeDisabled();
+  });
 });

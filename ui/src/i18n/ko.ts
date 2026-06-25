@@ -741,6 +741,7 @@ export const ko = {
     dateToday: "오늘",
     date7d: "최근 7일",
     date30d: "최근 30일",
+    dateCustom: "사용자 지정",
     dateFromAria: "시작일",
     dateToAria: "종료일",
     count: (shown: number, total: number) => `전체 ${total}개 중 ${shown}개 표시`,
