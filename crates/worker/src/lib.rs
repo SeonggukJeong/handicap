@@ -64,17 +64,30 @@ pub fn init_worker_tracing() {
 fn spawn_sigterm(cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
     let cancel_for_signal = cancel;
     tokio::spawn(async move {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = match signal(SignalKind::terminate()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to install SIGTERM handler");
-                return;
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to install SIGTERM handler");
+                    return;
+                }
+            };
+            if sigterm.recv().await.is_some() {
+                tracing::info!("SIGTERM received, cancelling run");
+                cancel_for_signal.cancel();
             }
-        };
-        if sigterm.recv().await.is_some() {
-            tracing::info!("SIGTERM received, cancelling run");
-            cancel_for_signal.cancel();
+        }
+        #[cfg(windows)]
+        {
+            match tokio::signal::ctrl_c().await {
+                Ok(()) => {
+                    tracing::info!("Ctrl-C received, cancelling run");
+                    cancel_for_signal.cancel();
+                }
+                Err(e) => tracing::warn!(error = %e, "failed to install Ctrl-C handler"),
+            }
         }
     })
 }

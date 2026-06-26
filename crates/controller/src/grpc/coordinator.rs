@@ -3119,12 +3119,11 @@ mod tests {
             )
             .await;
         coord.assign_pool_workers(&run_id, reserved).await.unwrap();
-        // Advance past stale threshold and tick.
-        tokio::time::pause();
-        tokio::time::advance(std::time::Duration::from_secs(31)).await;
+        // Advance past stale threshold and tick (synthetic future instant avoids
+        // sqlx pool acquire-timeout from tokio::time::advance — see spec §B).
         coord
             .pool_heartbeat_tick(
-                tokio::time::Instant::now(),
+                tokio::time::Instant::now() + Duration::from_secs(31),
                 std::time::Duration::from_secs(30),
             )
             .await;
