@@ -26,16 +26,16 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 | R3 | MUST **[중복 해제]** 버튼 — `dedupKey` 그룹마다 HAR 순서상 첫 요청만 두고 2번째+를 `excludedIndices`에 *추가*(순수 subtractive — 어떤 행도 재선택하지 않음, 수동 해제와 합성). | RTL: 중복 있는 HAR에서 클릭 후 그룹당 1개만 checked·기존 수동 해제 보존 | |
 | R4 | MUST 요청 fieldset에 요약 표기 **`선택 N / 전체 M · 중복 K (method+경로 기준)`** — N=현재 선택 수, M=미리보기 수, K=2번째+ 중복 수. 기준 문구 또는 HelpTip으로 "쿼리스트링 무시" 명시. | RTL: 셋 수치·"method+경로" 문구 단언 | |
 | R5 | MUST 미리보기 각 행에서 그룹 내 **2번째+ 발생**(=[중복 해제]가 끌 대상)에 **`중복` 배지** 표시. | RTL: 중복 행에 배지, 첫 발생엔 없음 | |
-| R6 | MUST 중복 판정은 순수 헬퍼로: `dedupKey(method,url)` = `method(대문자) + URL.pathname`(쿼리·프래그먼트·호스트 무시), `duplicateIndices(previewEntries)` = 그룹 2번째+ 원본 인덱스 Set. 미리보기(static/host 필터 통과) 집합 위에서만 동작. | `filters.test.ts` 골든(쿼리 무시·method 구분·파싱불가 URL 처리) | |
-| R7 | MUST 호스트 fieldset 아래 **옵트인 체크박스 "호스트를 `${변수}`로 바꾸기"**(기본 **off**). off면 기존과 동일. | RTL: 기본 off·토글 동작 | |
-| R8 | MUST 체크 시 **포함된 각 호스트마다 편집 가능한 변수명 입력**. 기본값 = 호스트를 (요청 수 desc, 동률 시 first-seen) 정렬해 첫 호스트 `BASE_URL`, 이후 `BASE_URL_2`, `BASE_URL_3`…. 호스트 체크 해제 시 그 매핑 사라짐. | RTL: 2-호스트 HAR에서 두 입력·기본명·호스트 토글 연동 | |
+| R6 | MUST 중복 판정은 순수 헬퍼로: `dedupKey(method,url)` = `method(대문자) + pathnameOf(url)`(쿼리·프래그먼트·호스트 무시), `duplicateIndices(previewEntries)` = 그룹 2번째+ 원본 인덱스 Set. **파싱불가/상대 URL도 `?`·`#` 앞까지만**(쿼리 무시 일관, R4와 정합). 미리보기(static/host 필터 통과) 집합 위에서만 동작. | `filters.test.ts` 골든(절대·상대 둘 다 쿼리 무시·method 구분) | |
+| R7 | MUST **옵트인 체크박스 "호스트를 `${변수}`로 바꾸기"**(기본 **off**) — 호스트-제외 fieldset(`hosts.length>1`에서만 렌더)과 **독립**으로 렌더(단일 호스트에도 노출). off면 기존과 동일. | RTL: 단일·다중 호스트 모두 노출·기본 off·토글 동작 | |
+| R8 | MUST 체크 시 **`previewEntries`에 등장하는 각 호스트마다 편집 가능한 변수명 입력**(host-제외 fieldset의 `includedHosts`(빈 제외셋이면 `null`)에 의존 금지 — 단일 호스트에서 항상 `null`). 기본값 = 호스트를 (요청 수 desc, 동률 시 first-seen) 정렬해 첫 호스트 `BASE_URL`, 이후 `BASE_URL_2`…. preview에서 사라진(호스트 해제) 호스트는 매핑도 사라짐. | RTL: **단일 호스트 HAR → `BASE_URL` 입력 1개**, 2-호스트 → 두 입력·기본명·호스트 토글 연동 | |
 | R9 | MUST 체크 시 URL 치환: 호스트가 매핑에 있는 URL의 `origin`(`scheme://host[:port]`) 접두사를 `${변수}`로 바꿔 `${BASE_URL}/path?q=1` 산출. 매핑에 없는 호스트·상대(파싱불가) URL은 **불변**. 출력은 여전히 **와이어-형**(엔진 `Request` 1:1). | `harToScenario.test.ts` 골든: `${BASE_URL}/path` 리터럴·미치환 케이스·와이어 구조 단언 | ✅ 엔진 `Request.url` 문자열 + `${ENV}` 토큰 해소 |
-| R10 | MUST **[환경으로 등록]** — 치환 켜진 상태에서만 노출. `useCreateEnvironment`로 `{변수명: origin, …}` + 편집 가능한 환경 이름(기본=시나리오 이름)으로 `POST /api/environments`. 성공/실패(이름 UNIQUE 409 등) 배너(`role="alert"`/성공 표기). | RTL: `createEnvironment` mock 호출 페이로드·성공·409 배너 | ✅ 기존 `EnvironmentInput`↔서버(계약 무변경) |
-| R11 | MUST 변수명 검증 — 빈 값·호스트 간 중복·식별자 패턴(`[A-Za-z_][A-Za-z0-9_]*`) 위반이면 [환경으로 등록] 비활성 + 인라인 경고. (패턴은 `${ENV}` 해소 가능 보장.) | RTL/단위: 빈·중복·`-` 포함 시 disabled+경고 | |
+| R10 | MUST **[환경으로 등록]** — 치환 켜진 상태에서만 노출. `useCreateEnvironment`로 `{변수명: origin, …}` + 편집 가능한 환경 이름(기본=시나리오 이름)으로 `POST /api/environments`. 성공/실패(이름 UNIQUE 409·빈 이름 400 등) 배너(`role="alert"`/성공 표기). | RTL: `createEnvironment` mock 호출 페이로드·성공·409 배너 | ✅ 기존 `EnvironmentInput`↔서버(계약 무변경) |
+| R11 | MUST 검증 — 변수명 빈 값·호스트 간 중복·식별자 패턴(`[A-Za-z_][A-Za-z0-9_]*`) 위반·**빈/공백 환경 이름**이면 [환경으로 등록] 비활성 + 인라인 경고. 패턴은 *구문적* `${ENV}` 해소만 보장 — **예약어(`vu_id`/`iter_id`/`loop_index`)는 엔진이 env보다 먼저 시스템값으로 해소**하므로 비차단 **soft 경고**(`EnvironmentsPage` `RESERVED` 미러). | RTL/단위: 빈·중복·`-` 포함·빈 환경이름 → disabled+경고; 예약어 → soft 경고(비차단) | |
 | R12 | MUST 치환 off = `harToScenarioYaml` 출력 **byte-identical**(기존 골든 그대로) · [환경으로 등록] 누르기 전엔 서버 mutation 0. | 기존 `harToScenario.test.ts` 전부 green + off-경로 단언 | |
 | R13 | MUST 신규 사용자-노출 문구(버튼·배지·라벨·aria-label·배너) 전부 `ko.import.*` 카탈로그(ADR-0035, 한국어). | `grep`로 인라인 영어/한국어 리터럴 0 | |
 
-- **seam(R9)**: 새 와이어 *계약*은 없음 — `url`은 엔진 `Request`의 `String`이라 `${BASE_URL}/path`도 유효 값. 단 생성 토큰이 **엔진 `${ENV}` 해소 패턴과 lockstep**이어야 함(R11의 식별자 패턴이 이를 보장) → 구현 시 엔진 template의 env-토큰 문법을 확인해 unresolvable 토큰을 만들지 않는다. golden은 와이어 구조(`name:`/`type: http`/`request.url`)를 단언(ui/CLAUDE.md "HAR import R2": 파싱 성공만으론 와이어-정확성 증명 불가).
+- **seam(R9)**: 새 와이어 *계약*은 없음 — `url`은 엔진 `Request`의 `String`이라 `${BASE_URL}/path`도 유효 값. 단 생성 토큰이 **엔진 `${ENV}` 해소 패턴과 lockstep**이어야 함(R11 패턴이 *구문상* 해소를 보장; 예약어 의미충돌은 §3.6 soft 경고가 담당) → 구현 시 엔진 template(`template.rs:122-148`)의 env-토큰 문법을 확인해 unresolvable 토큰을 만들지 않는다. golden은 와이어 구조(`name:`/`type: http`/`request.url`)를 단언(ui/CLAUDE.md "HAR import R2": 파싱 성공만으론 와이어-정확성 증명 불가).
 - **seam(R10)**: 기존 `POST /api/environments`(EnvironmentsPage가 이미 사용) 재사용 — `EnvironmentInput`/`EnvironmentSchema` 계약 **무변경**, 새 엔드포인트 없음.
 
 ---
@@ -46,29 +46,32 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 2. **중복은 "보이는 후보" 위에서.** `duplicateIndices`는 미리보기(static/host 필터 통과) 집합 위에서 그룹핑한다 — 끈 호스트·정적 리소스는 애초에 후보가 아니므로 중복 집계에서 빠진다(사용자가 보는 것과 일치). [중복 해제]는 **subtractive**(2번째+를 `excludedIndices`에 추가만)라 수동 해제·전체 해제와 자유 합성된다(R3).
 3. **배지는 구조적 속성.** `중복` 배지는 선택 상태가 아니라 "그룹 내 2번째+ 발생"이라는 구조에서 온다 → 수동으로 다시 체크해도 배지는 유지(왜 [중복 해제] 대상인지 일관 표시, R5).
 4. **치환은 url 문자열만 바꾼다.** origin 접두사만 `${VAR}`로 치환하므로 출력은 여전히 와이어-형(R9·R12). 변수 *값*은 `URL.origin`(끝 슬래시 없음), 나머지는 `pathname+search+hash` — `${VAR}` + 나머지로 재조립.
-5. **변수명 식별자 제약은 안전장치.** `${ENV}` 토큰으로 해소되려면 변수명이 엔진 패턴에 맞아야 한다 → R11이 `[A-Za-z_][A-Za-z0-9_]*`를 강제해 "치환은 했는데 run에서 안 풀리는" 함정을 사전 차단.
-6. **환경 등록은 시나리오 저장과 독립.** 환경은 별개 리소스라 import 시점에 만들어도 무방(R10). 시나리오는 나중에 에디터에서 저장되고, run 때 RunDialog가 그 환경을 선택해 `${BASE_URL}`을 해소한다 — 자동 선택은 비목표(§7).
+5. **변수명 식별자 제약은 *구문* 안전장치(의미 보장 아님).** `${ENV}` 토큰으로 해소되려면 변수명이 엔진 패턴(`crates/engine/src/template.rs:122-148`, `${NAME}`→`ctx.env.get`)에 맞아야 한다 → R11이 `[A-Za-z_][A-Za-z0-9_]*`를 강제해 *구문상* 해소 가능하게 한다. **단 이는 "올바른 env 바인딩"을 보장하지 않는다** — 다음 항목 참조.
+6. **예약어는 env보다 먼저 시스템값으로 해소된다.** 엔진은 `vu_id`/`iter_id`/`loop_index`를 env lookup *전에* 시스템값으로 치환(`template.rs:140-145`)하므로, 호스트 변수명을 그렇게 지으면 `${vu_id}/path`가 런타임에 `0/path`로 *조용히* 풀린다(unresolvable 아님 = 더 위험). 컨트롤러도 이를 막지 않고(`api/environments.rs:68-71` "UI가 soft 경고"), `EnvironmentsPage`(`RESERVED={vu_id,iter_id,loop_index}`)가 이미 그 경고를 렌더 → R11이 같은 비차단 soft 경고를 미러한다.
+7. **환경 등록은 시나리오 저장과 독립.** 환경은 별개 리소스라 import 시점에 만들어도 무방(R10). 시나리오는 나중에 에디터에서 저장되고, run 때 RunDialog가 그 환경을 선택해 `${BASE_URL}`을 해소한다 — 자동 선택은 비목표(§7).
 
 ---
 
 ## 4. 변경 상세
 
 ### 4.1 `import/filters.ts` — 충족 R: R6
-- `export function dedupKey(method: string, url: string): string` — `method.toUpperCase() + " " + pathnameOf(url)`. `pathnameOf`는 기존 `pathOf`(파싱불가 시 url 원문) 재사용.
+- `export function dedupKey(method: string, url: string): string` — `method.toUpperCase() + " " + pathnameOf(url)`.
+- `pathnameOf(url)` = `new URL(url).pathname`(성공 시), **파싱불가/상대 URL은 `?`·`#` 앞까지 잘라낸 문자열**(예: `/a?x=1`→`/a`) — 쿼리 무시를 절대·상대 양쪽에서 일관(R4 정합). 기존 `pathOf`(파싱불가 시 url 원문)는 표시명용으로 별개 유지.
 - `export function duplicateIndices(preview: {index:number; method:string; url:string}[]): ReadonlySet<number>` — 입력 순서대로 그룹 첫 발생을 기록, 2번째+의 `index`를 Set에 모음. (페이지의 `previewEntries`와 같은 shape를 받음 — 미리보기 위에서만.)
 
 ### 4.2 `import/harToScenario.ts` — 충족 R: R9, R12
-- `ConvertOptions`에 `hostVars: Record<string, string>` 추가(host→변수명; 빈 객체=치환 없음).
-- 순수 `parameterizeUrl(url: string, hostVars: Record<string,string>): string` — `new URL(url)` 성공 + `host`가 `hostVars`에 있으면 `"${"+varName+"}" + url.pathname + url.search + url.hash`, 아니면 원문.
+- `ConvertOptions`에 **`hostVars?: Record<string, string>`**(optional) 추가 — 미지정/빈 객체=치환 없음. **optional로 둬 기존 typed `DEFAULTS`(harToScenario.test.ts)·페이지 호출부가 0-edit으로 `tsc -b` 통과**(R12 "기존 골든 green"이 문자 그대로 성립).
+- 순수 `parameterizeUrl(url: string, hostVars?: Record<string,string>): string` — `new URL(url)` 성공 + `host`가 `(hostVars ?? {})`에 있으면 `"${"+varName+"}" + url.pathname + url.search + url.hash`, 아니면 원문.
 - `wireStep`의 `url` 산출을 `parameterizeUrl(entry.request.url, opts.hostVars)` 경유. `name`(`METHOD path`)·`pathOf`는 원본 url 기준 유지(표시명은 절대경로 path가 명확).
-- `harToScenarioYaml` 시그니처에 `hostVars` 포함(빈 객체 기본=byte-identical, R12).
+- `harToScenarioYaml`는 `opts.hostVars`를 그대로 전달(미지정=byte-identical, R12).
 
 ### 4.3 `import/hostEnv.ts` (신규) — 충족 R: R8, R10, R11
+- `hostsByRequestCount(previewEntries): string[]` — 요청 수 desc, 동률 first-seen. **`previewEntries`에서 도출**(host-제외 fieldset의 `includedHosts`/null 아님 — R8).
 - `defaultHostVars(hostsByCount: string[]): Record<string,string>` — 첫 `BASE_URL`, 이후 `BASE_URL_${i+1}`.
-- `originOf(host, entries): string` — 그 호스트의 첫 entry의 `URL.origin`.
+- `originOf(host, previewEntries): string` — 그 호스트의 **first-seen** entry의 `URL.origin`(결정적). **동일 host에 http/https 혼재 시 first-seen origin으로 통일**(한계 — §7 명시).
 - `buildEnvInput(hostVars, originByHost, name): EnvironmentInput` — `{name, vars:{변수명: origin}}`.
-- `validateVarNames(hostVars): { ok: boolean; emptyHosts: string[]; dupNames: string[]; invalidHosts: string[] }` — 빈값/호스트 간 중복/패턴(`/^[A-Za-z_][A-Za-z0-9_]*$/`) 위반을 분류해 인라인 경고에 사용.
-- `hostsByRequestCount(previewEntries): string[]` — 요청 수 desc, 동률 first-seen.
+- `RESERVED = {vu_id, iter_id, loop_index}`(EnvironmentsPage 미러) — soft 경고용(비차단).
+- `validateEnv(hostVars, envName): { ok: boolean; emptyHosts: string[]; dupNames: string[]; invalidHosts: string[]; reservedHosts: string[]; emptyEnvName: boolean }` — `ok`(=등록 활성)는 빈 변수명·중복·패턴 위반·**빈/공백 envName** 중 하나라도 있으면 false. `reservedHosts`는 **`ok`에 영향 없음**(soft 경고만). 패턴 `/^[A-Za-z_][A-Za-z0-9_]*$/`.
 
 ### 4.4 `pages/ScenarioImportPage.tsx` — 충족 R: R1–R5, R7–R11, R13
 - 요청 fieldset 상단: 요약(R4) + 툴바 버튼 3개(R1–R3). `previewEntries`로 `duplicateIndices` 메모, 배지 렌더(R5).
@@ -76,7 +79,7 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 - `useCreateEnvironment` 배선(성공/에러 상태). 모든 문구 `ko.import.*`.
 
 ### 4.5 `i18n/ko.ts` — 충족 R: R13
-- `ko.import`에 신규 키: `selectAll`/`deselectAll`/`dedup`/`selectionSummary(n,m,k)`/`dupBadge`/`dupCriteria`(HelpTip 본문)/`hostToEnv`/`hostToEnvHint`/`varNameLabel(host)`/`envNameLabel`/`registerEnv`/`envRegistered(name)`/`varNameEmpty`/`varNameDup`/`varNameInvalid` 등. 조사 병기형(ADR-0035, `(으)로`).
+- `ko.import`에 신규 키: `selectAll`/`deselectAll`/`dedup`/`selectionSummary(n,m,k)`/`dupBadge`/`dupCriteria`(HelpTip 본문)/`hostToEnv`/`hostToEnvHint`/`varNameLabel(host)`/`envNameLabel`/`registerEnv`/`envRegistered(name)`/`varNameEmpty`/`varNameDup`/`varNameInvalid`/`varNameReserved(name)`(soft 경고)/`envNameEmpty` 등. 조사 병기형(ADR-0035, `(으)로`).
 
 ---
 
@@ -98,10 +101,10 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 | R4 | RTL: 요약 수치 N/M/K + "method+경로" 문구 | |
 | R5 | RTL: 중복 행 배지 존재·첫 발생 부재 | |
 | R6 | `filters.test.ts`: dedupKey(쿼리 무시·method 구분), duplicateIndices(그룹 2번째+) | |
-| R7,R8 | RTL: 체크박스 기본 off·토글, 2-호스트 변수명 기본값·호스트 토글 연동 | |
+| R7,R8 | RTL: 체크박스 기본 off·토글, **단일 호스트 → `BASE_URL` 1개**·2-호스트 변수명 기본값·호스트 토글 연동 | |
 | R9 | `harToScenario.test.ts`: 치환 골든(`${BASE_URL}/path`·미치환·와이어 구조 리터럴) | |
 | R10 | RTL: `createEnvironment` mock 페이로드·성공/409 배너 | △(권장) |
-| R11 | RTL/단위: 빈·중복·`-` 포함 변수명 → disabled+경고 | |
+| R11 | RTL/단위: 빈·중복·`-` 포함 변수명·빈 환경이름 → disabled+경고; 예약어(`vu_id`) → soft 경고이되 **disabled 아님** | |
 | R12 | 기존 `harToScenario.test.ts` green + 치환 off byte-identical 단언 | |
 | R13 | `grep`로 인라인 영어/한국어 리터럴 0(R13 sweep) | |
 
@@ -116,6 +119,8 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 - **호스트별 개별 환경**: 한 환경에 전 호스트 변수를 모음(다중 환경 생성 아님).
 - **생성한 환경의 자동 선택/시나리오 연결**: 시나리오는 나중 저장되므로 import이 run 환경을 미리 못 박지 않음 — 사용자가 RunDialog에서 선택.
 - **경로(path) 변수화·동적 경로 토큰화**: 호스트만 변수화. 경로 내 id 등은 비목표.
+- **동일 host의 http/https 혼재**: `originOf`가 first-seen origin으로 통일 → 소수 scheme 요청은 그 scheme로 강제됨(드문 HAR 케이스, 한계로 수용·문서화). 필요 시 origin-키 매핑으로 후속.
+- **예약어 변수명을 강하게 막기(block)**: 이번엔 soft 경고만(EnvironmentsPage와 동일 정책). hard-block은 비목표.
 
 ---
 
