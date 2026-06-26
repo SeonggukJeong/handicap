@@ -382,6 +382,21 @@ describe("ScenarioImportPage", () => {
     expect(screen.getByText(ko.import.noRequests)).toBeInTheDocument();
   });
 
+  it("Finding1: 변수명 후행 공백은 trim돼야 YAML에 ${VAR }가 아닌 ${VAR}가 나온다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const varInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
+    await user.clear(varInput);
+    await user.type(varInput, "MYVAR "); // trailing space
+    const preview = screen.getByLabelText(ko.import.preview) as HTMLTextAreaElement;
+    await waitFor(() => expect(preview.value).toContain("url: ${MYVAR}/users"));
+    // 후행 공백이 보존되면 "${MYVAR }/users"가 나타남 — 이 단언이 실패하면 버그.
+    expect(preview.value).not.toContain("${MYVAR }");
+  });
+
   it("R10: 409면 서버 메시지를 alert로", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

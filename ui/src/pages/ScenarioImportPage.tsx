@@ -72,7 +72,8 @@ export function ScenarioImportPage() {
   );
 
   const selectAll = () => setExcludedIndices(new Set());
-  const deselectAll = () => setExcludedIndices(new Set(previewEntries.map((p) => p.index)));
+  const deselectAll = () =>
+    setExcludedIndices((prev) => new Set([...prev, ...previewEntries.map((p) => p.index)]));
   const dedup = () =>
     setExcludedIndices((prev) => {
       const next = new Set(prev);
@@ -312,7 +313,7 @@ export function ScenarioImportPage() {
                         aria-label={ko.import.varNameLabel(h)}
                         value={effectiveHostVars[h]}
                         onChange={(e) =>
-                          setHostVarOverrides((p) => ({ ...p, [h]: e.target.value }))
+                          setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
                         }
                         className="w-40 rounded border border-slate-300 px-2 py-1 font-mono"
                       />
