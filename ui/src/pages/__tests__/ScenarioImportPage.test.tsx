@@ -361,6 +361,27 @@ describe("ScenarioImportPage", () => {
     expect(await screen.findByText(ko.import.envRegistered("api.example.com"))).toBeInTheDocument();
   });
 
+  it("Minor: 미리보기 비면 선택 툴바를 숨긴다", async () => {
+    const user = userEvent.setup();
+    const staticOnly = JSON.stringify({
+      log: {
+        entries: [
+          {
+            request: { method: "GET", url: "https://cdn.example.com/app.js", headers: [] },
+            response: { status: 200, content: { mimeType: "application/javascript" } },
+          },
+        ],
+      },
+    });
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(staticOnly));
+    await screen.findByLabelText(ko.import.preview);
+    // previewEntries 비면 선택 툴바 없음
+    expect(screen.queryByRole("button", { name: ko.import.selectAll })).not.toBeInTheDocument();
+    // 안내 문구는 표시
+    expect(screen.getByText(ko.import.noRequests)).toBeInTheDocument();
+  });
+
   it("R10: 409면 서버 메시지를 alert로", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

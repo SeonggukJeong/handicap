@@ -243,21 +243,23 @@ export function ScenarioImportPage() {
 
           <fieldset className="flex flex-col gap-1 rounded-md border border-slate-200 p-4 text-sm">
             <legend className="font-medium text-slate-700">{ko.import.requests}</legend>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-600">
-                {ko.import.selectionSummary(selectedCount, previewEntries.length, dupSet.size)}
-              </span>
-              <span className="flex-1" />
-              <Button variant="secondary" onClick={selectAll}>
-                {ko.import.selectAll}
-              </Button>
-              <Button variant="secondary" onClick={deselectAll}>
-                {ko.import.deselectAll}
-              </Button>
-              <Button variant="secondary" onClick={dedup} disabled={dupSet.size === 0}>
-                {ko.import.dedup}
-              </Button>
-            </div>
+            {previewEntries.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-600">
+                  {ko.import.selectionSummary(selectedCount, previewEntries.length, dupSet.size)}
+                </span>
+                <span className="flex-1" />
+                <Button variant="secondary" onClick={selectAll}>
+                  {ko.import.selectAll}
+                </Button>
+                <Button variant="secondary" onClick={deselectAll}>
+                  {ko.import.deselectAll}
+                </Button>
+                <Button variant="secondary" onClick={dedup} disabled={dupSet.size === 0}>
+                  {ko.import.dedup}
+                </Button>
+              </div>
+            )}
             {previewEntries.length === 0 ? (
               <p className="text-slate-400">{ko.import.noRequests}</p>
             ) : (
