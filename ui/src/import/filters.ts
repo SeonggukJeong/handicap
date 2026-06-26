@@ -79,6 +79,39 @@ export interface SelectOptions {
   excludedIndices: ReadonlySet<number>; // har.log.entries 기준 인덱스
 }
 
+export interface PreviewEntry {
+  index: number;
+  method: string;
+  url: string;
+}
+
+// dedup용 경로 추출 — 절대 URL은 pathname, 파싱불가/상대 URL은 ?·# 앞까지(쿼리 무시 일관).
+// (표시명용 pathOf/static-detection pathOf와 별개의 dedup-전용 헬퍼.)
+function pathnameOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    const cut = url.search(/[?#]/);
+    return cut === -1 ? url : url.slice(0, cut);
+  }
+}
+
+export function dedupKey(method: string, url: string): string {
+  return `${method.toUpperCase()} ${pathnameOf(url)}`;
+}
+
+// 입력(미리보기) 순서대로 그룹 첫 발생을 기록하고, 2번째+의 index를 모은다.
+export function duplicateIndices(preview: readonly PreviewEntry[]): ReadonlySet<number> {
+  const seen = new Set<string>();
+  const dups = new Set<number>();
+  for (const p of preview) {
+    const k = dedupKey(p.method, p.url);
+    if (seen.has(k)) dups.add(p.index);
+    else seen.add(k);
+  }
+  return dups;
+}
+
 export function selectEntries(entries: HarEntry[], opts: SelectOptions): HarEntry[] {
   return entries.filter((e, i) => {
     if (opts.excludedIndices.has(i)) return false;
