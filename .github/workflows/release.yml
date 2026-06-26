@@ -33,6 +33,9 @@ jobs:
       # rust-embed가 컴파일타임에 ui/dist를 임베드하므로 cargo 빌드 전에 먼저.
       - name: Build UI (ui/dist)
         working-directory: ui
+        env:
+          # Vite+Monaco+Recharts 번들이 기본 V8 old-space(~2GiB)로 OOM (deploy/Dockerfile와 동일 처방).
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           pnpm install --frozen-lockfile
           pnpm build

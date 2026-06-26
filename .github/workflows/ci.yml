@@ -47,6 +47,9 @@ jobs:
         run: pnpm test
       - name: Build
         working-directory: ui
+        env:
+          # Vite+Monaco+Recharts 번들이 기본 V8 old-space(~2GiB)로 OOM (deploy/Dockerfile와 동일 처방).
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm build
 
   helm:
