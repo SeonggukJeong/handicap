@@ -1,16 +1,33 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "../SettingsPage";
 import { ko } from "../../i18n/ko";
 import { STARTUP_STALL_MS, MIDRUN_STALL_MS } from "../../api/runStall";
+import { usePoolWorkers } from "../../api/hooks";
+
+vi.mock("../../api/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/hooks")>()),
+  usePoolWorkers: vi.fn(),
+}));
+
+// `usePoolWorkers` returns a full React-Query result; we only need isSuccess/data.
+// `as unknown as` avoids tsc-b "conversion may be a mistake" on the partial.
+function mockPool(data: { pool_mode: boolean } | null) {
+  vi.mocked(usePoolWorkers).mockReturnValue(
+    (data
+      ? { isSuccess: true, data: { ...data, workers: [] } }
+      : { isSuccess: false, data: undefined }) as unknown as ReturnType<typeof usePoolWorkers>,
+  );
+}
 
 const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  mockPool(null);
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -71,28 +88,38 @@ const READONLY_ROW = {
   source: "readonly",
 };
 
+const KEEPALIVE_ROW = {
+  key: "pool_keepalive_seconds",
+  label: "풀 gRPC keepalive (서버측)",
+  group: "limits",
+  value: 20,
+  default: 20,
+  min: 0,
+  max: 0,
+  unit: "초",
+  mutable: false,
+  source: "readonly",
+};
+
 const SETTINGS_RESPONSE = {
   settings: [MUTABLE_ROW, OVERRIDE_ROW, READONLY_ROW],
 };
 
 describe("SettingsPage", () => {
-  it("renders both sections, mutable desc text, and readonly note", async () => {
+  it("renders env groups, sub-headers, mutable desc, and readonly note", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(SETTINGS_RESPONSE));
     renderPage();
 
-    // mutable section heading
-    expect(await screen.findByText(ko.opsSettings.mutableSection)).toBeInTheDocument();
-
-    // readonly section heading
-    expect(screen.getByText(ko.opsSettings.readonlySection)).toBeInTheDocument();
-
+    // env group header
+    expect(await screen.findByText(ko.opsSettings.groupCommon)).toBeInTheDocument();
+    // sub-section headers within the common group (SETTINGS_RESPONSE has mutable + readonly commons)
+    expect(screen.getByText(ko.opsSettings.subMutable)).toBeInTheDocument();
+    expect(screen.getByText(ko.opsSettings.subReadonly)).toBeInTheDocument();
     // mutable row desc is always visible
     expect(screen.getByText(ko.opsSettings.desc.worker_capacity_vus)).toBeInTheDocument();
-
     // readonly row shows readonlyNote
     expect(screen.getAllByText(ko.opsSettings.readonlyNote).length).toBeGreaterThan(0);
-
-    // applyNote banner (R12)
+    // applyNote banner
     expect(screen.getByText(ko.opsSettings.applyNote)).toBeInTheDocument();
   });
 
@@ -112,7 +139,7 @@ describe("SettingsPage", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     // find the input for worker_capacity_vus
     const input = screen.getByLabelText(MUTABLE_ROW.label);
@@ -140,7 +167,7 @@ describe("SettingsPage", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     const resetBtn = screen.getByRole("button", { name: ko.opsSettings.reset });
     await user.click(resetBtn);
@@ -152,7 +179,7 @@ describe("SettingsPage", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(SETTINGS_RESPONSE));
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     // Enter a value below min (min=1)
     const input = screen.getByLabelText(MUTABLE_ROW.label);
@@ -171,7 +198,7 @@ describe("SettingsPage", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(SETTINGS_RESPONSE));
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     // The help button for the first mutable row
     const helpBtns = screen.getAllByRole("button", { name: /도움말/ });
@@ -203,7 +230,7 @@ describe("SettingsPage", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     const input = screen.getByLabelText(MUTABLE_ROW.label) as HTMLInputElement;
     await user.clear(input);
@@ -230,7 +257,7 @@ describe("SettingsPage", () => {
 
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
 
     const input = screen.getByLabelText(MUTABLE_ROW.label);
     await user.clear(input);
@@ -299,7 +326,7 @@ describe("SettingsPage", () => {
       }),
     );
     renderPage();
-    await screen.findByText(ko.opsSettings.mutableSection);
+    await screen.findByText(ko.opsSettings.groupCommon);
     expect(screen.queryByText(ko.opsSettings.heartbeatMarginHint)).not.toBeInTheDocument();
   });
 
@@ -367,5 +394,82 @@ describe("SettingsPage", () => {
     expect(screen.getByText(ko.opsSettings.desc.run_startup_grace_seconds)).toBeInTheDocument();
     // 저장 버튼(편집 가능)
     expect(screen.getAllByRole("button", { name: ko.opsSettings.save }).length).toBeGreaterThan(0);
+  });
+
+  it("places reaper knobs in the pool group and common settings in the common group (R3)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30, KEEPALIVE_ROW],
+      }),
+    );
+    renderPage();
+    await screen.findByText(ko.opsSettings.groupCommon);
+
+    const poolRegion = screen.getByRole("region", { name: ko.opsSettings.groupPool });
+    const commonRegion = screen.getByRole("region", { name: ko.opsSettings.groupCommon });
+
+    // reaper 2종 → pool group
+    expect(within(poolRegion).getByText(HEARTBEAT_INTERVAL_ROW.label)).toBeInTheDocument();
+    expect(within(poolRegion).getByText(HEARTBEAT_STALE_ROW_30.label)).toBeInTheDocument();
+
+    // worker_capacity_vus + pool_keepalive_seconds → common group (keepalive is NOT pool-only)
+    expect(within(commonRegion).getByText(MUTABLE_ROW.label)).toBeInTheDocument();
+    expect(within(commonRegion).getByText(KEEPALIVE_ROW.label)).toBeInTheDocument();
+
+    // keepalive must NOT be in the pool group
+    expect(within(poolRegion).queryByText(KEEPALIVE_ROW.label)).not.toBeInTheDocument();
+
+    // R1: common group is rendered before the pool group (DOM order)
+    const regions = screen.getAllByRole("region");
+    expect(regions[0]).toBe(commonRegion);
+    expect(regions[1]).toBe(poolRegion);
+  });
+
+  it("shows the pool group note (R4)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30] }),
+    );
+    renderPage();
+    const poolRegion = await screen.findByRole("region", { name: ko.opsSettings.groupPool });
+    expect(within(poolRegion).getByText(ko.opsSettings.poolGroupNote)).toBeInTheDocument();
+  });
+
+  it("shows the env note on worker_capacity_vus and pool_keepalive_seconds (R6)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ settings: [MUTABLE_ROW, KEEPALIVE_ROW] }));
+    renderPage();
+    await screen.findByText(ko.opsSettings.groupCommon);
+    expect(screen.getByText(ko.opsSettings.envNote.workerCapacityPoolIgnored)).toBeInTheDocument();
+    expect(screen.getByText(ko.opsSettings.envNote.poolKeepaliveAllModes)).toBeInTheDocument();
+  });
+
+  it("shows the active-pool mode banner when pool_mode is true (R5)", async () => {
+    mockPool({ pool_mode: true });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30] }),
+    );
+    renderPage();
+    expect(await screen.findByText(ko.opsSettings.modeActivePool)).toBeInTheDocument();
+    expect(screen.queryByText(ko.opsSettings.modeInactive)).not.toBeInTheDocument();
+  });
+
+  it("shows the inactive mode banner when pool_mode is false (R5)", async () => {
+    mockPool({ pool_mode: false });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30] }),
+    );
+    renderPage();
+    expect(await screen.findByText(ko.opsSettings.modeInactive)).toBeInTheDocument();
+    expect(screen.queryByText(ko.opsSettings.modeActivePool)).not.toBeInTheDocument();
+  });
+
+  it("omits the mode banner while the pool query is unresolved/errored (R5 graceful)", async () => {
+    // default beforeEach mock: { isSuccess: false } → no banner
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ settings: [MUTABLE_ROW, HEARTBEAT_INTERVAL_ROW, HEARTBEAT_STALE_ROW_30] }),
+    );
+    renderPage();
+    await screen.findByText(ko.opsSettings.groupPool);
+    expect(screen.queryByText(ko.opsSettings.modeActivePool)).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.opsSettings.modeInactive)).not.toBeInTheDocument();
   });
 });

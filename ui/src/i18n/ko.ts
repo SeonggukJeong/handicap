@@ -1015,8 +1015,6 @@ export const ko = {
   },
   opsSettings: {
     title: "운영 상한",
-    mutableSection: "조정 가능한 운영 상한",
-    readonlySection: "배포 설정 (읽기 전용)",
     applyNote: "여기서 바꾼 값은 다음에 시작하는 run부터 적용됩니다(진행 중인 run엔 영향 없음).",
     heartbeatMarginHint:
       "권장: stale 타임아웃을 ping 주기의 2배 이상으로 두세요. 너무 가까우면 일시적 지연에도 건강한 워커가 응답 없음으로 잘못 처리될 수 있습니다.",
