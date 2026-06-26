@@ -4,7 +4,9 @@ import { StatusDistribution } from "../StatusDistribution";
 
 describe("StatusDistribution", () => {
   it("renders an SVG bar chart when distribution is non-empty", () => {
-    render(<StatusDistribution distribution={{ "200": 950, "500": 50 }} />);
+    render(
+      <StatusDistribution width={400} height={200} distribution={{ "200": 950, "500": 50 }} />,
+    );
     const region = screen.getByRole("region", { name: /상태 코드 분포/ });
     expect(region.querySelector("svg")).not.toBeNull();
     expect(region).toHaveTextContent("상태 코드");

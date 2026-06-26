@@ -6,6 +6,8 @@ describe("PercentileCurveChart", () => {
   it("renders an SVG line chart for the percentile curve", () => {
     render(
       <PercentileCurveChart
+        width={400}
+        height={200}
         curve={[
           { quantile: 0.5, value_us: 20_000 },
           { quantile: 0.99, value_us: 80_000 },
@@ -21,6 +23,8 @@ describe("PercentileCurveChart", () => {
   it("renders quantile labels on the x-axis", () => {
     render(
       <PercentileCurveChart
+        width={400}
+        height={200}
         curve={[
           { quantile: 0.5, value_us: 20_000 },
           { quantile: 0.99, value_us: 80_000 },

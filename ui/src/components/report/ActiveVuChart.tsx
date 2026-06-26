@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { ko } from "../../i18n/ko";
 import type { ActiveVuSample, WorkerActiveVuSeries } from "../../api/schemas";
 
@@ -13,7 +22,7 @@ type Props = {
 // fan-out N is small (2–4 typical); cycle a fixed palette.
 const WORKER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
 
-export function ActiveVuChart({ series, byWorker = [], width = 720, height = 220 }: Props) {
+export function ActiveVuChart({ series, byWorker = [], width, height }: Props) {
   const [byWorkerView, setByWorkerView] = useState(false);
   const multiWorker = byWorker.length >= 2;
   const t0 = series.length > 0 ? series[0].ts_second : 0;
@@ -42,6 +51,66 @@ export function ActiveVuChart({ series, byWorker = [], width = 720, height = 220
 
   const showByWorker = multiWorker && byWorkerView;
   const btnBase = "px-2 py-0.5 border text-xs";
+
+  const chart = showByWorker ? (
+    <LineChart width={width} height={height} data={perWorkerData}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
+      <YAxis label={{ value: "VU", angle: -90, position: "insideLeft" }} allowDecimals={false} />
+      <Tooltip />
+      <Legend />
+      {byWorker.flatMap((_w, i) => {
+        const color = WORKER_COLORS[i % WORKER_COLORS.length];
+        const name = ko.report.activeVuWorkerLabel(i + 1);
+        return [
+          <Line
+            key={`d${i}`}
+            type="linear"
+            dataKey={`d${i}`}
+            name={`${name} ${ko.report.activeVuDesired}`}
+            stroke={color}
+            strokeDasharray="4 2"
+            dot={false}
+            isAnimationActive={false}
+          />,
+          <Line
+            key={`a${i}`}
+            type="linear"
+            dataKey={`a${i}`}
+            name={`${name} ${ko.report.activeVuActual}`}
+            stroke={color}
+            dot={false}
+            isAnimationActive={false}
+          />,
+        ];
+      })}
+    </LineChart>
+  ) : (
+    <LineChart width={width} height={height} data={totalData}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
+      <YAxis label={{ value: "VU", angle: -90, position: "insideLeft" }} allowDecimals={false} />
+      <Tooltip />
+      <Legend />
+      <Line
+        type="linear"
+        dataKey="desired"
+        name={ko.report.activeVuDesired}
+        stroke="#94a3b8"
+        strokeDasharray="4 2"
+        dot={false}
+        isAnimationActive={false}
+      />
+      <Line
+        type="linear"
+        dataKey="actual"
+        name={ko.report.activeVuActual}
+        stroke="#2563eb"
+        dot={false}
+        isAnimationActive={false}
+      />
+    </LineChart>
+  );
 
   return (
     <section aria-label={ko.report.activeVuTitle} className="mb-6">
@@ -73,70 +142,12 @@ export function ActiveVuChart({ series, byWorker = [], width = 720, height = 220
       {multiWorker ? (
         <p className="text-xs text-slate-500 mb-1">{ko.report.activeVuFanout(byWorker.length)}</p>
       ) : null}
-      {showByWorker ? (
-        <LineChart width={width} height={height} data={perWorkerData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
-          <YAxis
-            label={{ value: "VU", angle: -90, position: "insideLeft" }}
-            allowDecimals={false}
-          />
-          <Tooltip />
-          <Legend />
-          {byWorker.flatMap((_w, i) => {
-            const color = WORKER_COLORS[i % WORKER_COLORS.length];
-            const name = ko.report.activeVuWorkerLabel(i + 1);
-            return [
-              <Line
-                key={`d${i}`}
-                type="linear"
-                dataKey={`d${i}`}
-                name={`${name} ${ko.report.activeVuDesired}`}
-                stroke={color}
-                strokeDasharray="4 2"
-                dot={false}
-                isAnimationActive={false}
-              />,
-              <Line
-                key={`a${i}`}
-                type="linear"
-                dataKey={`a${i}`}
-                name={`${name} ${ko.report.activeVuActual}`}
-                stroke={color}
-                dot={false}
-                isAnimationActive={false}
-              />,
-            ];
-          })}
-        </LineChart>
+      {width != null && height != null ? (
+        chart
       ) : (
-        <LineChart width={width} height={height} data={totalData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="x" label={{ value: "seconds", position: "insideBottom", offset: -4 }} />
-          <YAxis
-            label={{ value: "VU", angle: -90, position: "insideLeft" }}
-            allowDecimals={false}
-          />
-          <Tooltip />
-          <Legend />
-          <Line
-            type="linear"
-            dataKey="desired"
-            name={ko.report.activeVuDesired}
-            stroke="#94a3b8"
-            strokeDasharray="4 2"
-            dot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            type="linear"
-            dataKey="actual"
-            name={ko.report.activeVuActual}
-            stroke="#2563eb"
-            dot={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
+        <ResponsiveContainer width="100%" height={220}>
+          {chart}
+        </ResponsiveContainer>
       )}
       {showByWorker ? (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 mt-1">

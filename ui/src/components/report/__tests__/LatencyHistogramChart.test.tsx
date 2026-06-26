@@ -6,6 +6,8 @@ describe("LatencyHistogramChart", () => {
   it("renders an SVG bar chart for non-empty buckets", () => {
     render(
       <LatencyHistogramChart
+        width={400}
+        height={200}
         buckets={[
           { lower_us: 1_000, upper_us: 2_000, count: 10 },
           { lower_us: 2_000, upper_us: 4_000, count: 25 },
@@ -24,7 +26,13 @@ describe("LatencyHistogramChart", () => {
   });
 
   it("renders the lower-edge latency label on the x-axis", () => {
-    render(<LatencyHistogramChart buckets={[{ lower_us: 1_000, upper_us: 2_000, count: 10 }]} />);
+    render(
+      <LatencyHistogramChart
+        width={400}
+        height={200}
+        buckets={[{ lower_us: 1_000, upper_us: 2_000, count: 10 }]}
+      />,
+    );
     expect(screen.getByRole("region", { name: /지연 분포/ })).toHaveTextContent("1.0 ms");
   });
 });
