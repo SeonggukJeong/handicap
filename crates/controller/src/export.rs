@@ -318,12 +318,26 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         }
     }
 
-    // Steps: union of step_ids (sorted), columns = run p95.
+    // Steps: union of step_ids (sorted), columns = run p95, then per-step p95 Δ.
+    // Δ presence는 compareReports.ts step 행(62-75) 미러: baseline·candidate 둘 다
+    // 그 스텝을 가질 때만 Δ 셀 기록(하나라도 없으면 블랭크). absent-baseline은
+    // 화면이 블랭크라 export도 블랭크 — unwrap_or(0.0)로 "신규"를 내면 parity 깨짐.
     let ws = wb.add_worksheet();
     ws.set_name("Steps").expect("name");
     ws.write_string(0, 0, "step_id").expect("w");
     for (i, r) in reports.iter().enumerate() {
         ws.write_string(0, (1 + i) as u16, &r.run.id).expect("w");
+    }
+    let steps_delta_start = (1 + reports.len()) as u16;
+    {
+        let mut col = steps_delta_start;
+        for (i, r) in reports.iter().enumerate() {
+            if i != baseline_idx {
+                ws.write_string(0, col, format!("\u{0394}% {}", r.run.id))
+                    .expect("w");
+                col += 1;
+            }
+        }
     }
     let mut step_ids: Vec<String> = reports
         .iter()
@@ -334,10 +348,38 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
     for (ri, sid) in step_ids.iter().enumerate() {
         let row = (ri + 1) as u32;
         ws.write_string(row, 0, sid).expect("w");
+        // baseline p95 (그 스텝이 있을 때만 Some — absent면 None, unwrap_or 금지).
+        let base = reports[baseline_idx]
+            .steps
+            .iter()
+            .find(|s| &s.step_id == sid)
+            .map(|s| s.p95_ms as f64);
         for (i, r) in reports.iter().enumerate() {
             if let Some(st) = r.steps.iter().find(|s| &s.step_id == sid) {
                 ws.write_number(row, (1 + i) as u16, st.p95_ms as f64)
                     .expect("w");
+            }
+        }
+        // Δ 셀: 비-baseline run마다 dcol 무조건 전진, 기록은 base·val 둘 다 Some일 때만.
+        let mut dcol = steps_delta_start;
+        for (i, r) in reports.iter().enumerate() {
+            if i != baseline_idx {
+                let val = r
+                    .steps
+                    .iter()
+                    .find(|s| &s.step_id == sid)
+                    .map(|s| s.p95_ms as f64);
+                if let (Some(b), Some(v)) = (base, val) {
+                    let d = delta("p95_ms", b, v);
+                    let text = delta_cell_text(&d, v);
+                    match d.polarity {
+                        Polarity::Bad => ws.write_string_with_format(row, dcol, &text, &fmt_bad),
+                        Polarity::Good => ws.write_string_with_format(row, dcol, &text, &fmt_good),
+                        Polarity::Neutral => ws.write_string(row, dcol, &text),
+                    }
+                    .expect("w");
+                }
+                dcol += 1;
             }
         }
     }
@@ -735,6 +777,68 @@ mod tests {
             sum.get_value((2, 3)),
             Some(&calamine::Data::String("▲ +50.0%".into()))
         );
+
+        // Steps 시트: A·B 둘 다 step "s"를 가짐. row1 = "s",
+        // col1 = A p95 = 100, col2 = B p95 = 150, Δ start = 1+N = 3 → Δ%B col3.
+        let st = wb.worksheet_range("Steps").unwrap();
+        assert_eq!(st.get_value((1, 1)), Some(&Data::Float(100.0)));
+        assert_eq!(st.get_value((1, 2)), Some(&Data::Float(150.0)));
+        assert_eq!(st.get_value((1, 3)), Some(&Data::String("▲ +50.0%".into())));
+    }
+
+    #[test]
+    fn comparison_xlsx_steps_delta() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        // A = baseline(idx0), B(idx1), C(idx2).
+        // 스텝 이름을 알파벳순으로 둬 union sort 후 행 인덱스를 고정한다.
+        let mut a = report_with_steps(vec![
+            step("b_align", 1, 100),      // A·C에 있고 B엔 없음 → 정렬 테스트
+            step("c_candabsent", 1, 100), // A·B에 있고 C엔 없음 → candidate-absent
+            step("d_newbase0", 1, 0),     // A에 p95=0(present-but-zero), C는 >0
+        ]);
+        a.run.id = "A".into();
+        let mut b = report_with_steps(vec![step("c_candabsent", 1, 100)]);
+        b.run.id = "B".into();
+        let mut c = report_with_steps(vec![
+            step("a_absentbase", 1, 80), // C에만 있음(A 없음) → absent-baseline
+            step("b_align", 1, 200),
+            step("d_newbase0", 1, 50),
+        ]);
+        c.run.id = "C".into();
+        let bytes = comparison_to_xlsx(&[a, b, c], 0);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+        let st = wb.worksheet_range("Steps").unwrap();
+        // 열: step_id=0, A=1, B=2, C=3; delta_start = 1+3 = 4 → Δ%B=4, Δ%C=5.
+        // 행(union sort): a_absentbase=1, b_align=2, c_candabsent=3, d_newbase0=4.
+        let blank = |v: Option<&Data>| matches!(v, None | Some(Data::Empty));
+
+        // row1 a_absentbase: A 없음·C=80, base=None → Δ 둘 다 블랭크
+        // (unwrap_or(0.0)였다면 Δ%C가 "▲ 신규" → 이 단언이 회귀 가드).
+        assert!(blank(st.get_value((1, 1))));
+        assert_eq!(st.get_value((1, 3)), Some(&Data::Float(80.0)));
+        assert!(blank(st.get_value((1, 4))));
+        assert!(blank(st.get_value((1, 5))));
+
+        // row2 b_align: A=100·B 없음·C=200 → 정렬: Δ%B(4) 블랭크, Δ%C(5)="▲ +100.0%"
+        // (B의 블랭크가 C의 Δ를 col4로 당기지 않음 = Finding 2 가드).
+        assert_eq!(st.get_value((2, 1)), Some(&Data::Float(100.0)));
+        assert!(blank(st.get_value((2, 2))));
+        assert_eq!(st.get_value((2, 3)), Some(&Data::Float(200.0)));
+        assert!(blank(st.get_value((2, 4))));
+        assert_eq!(
+            st.get_value((2, 5)),
+            Some(&Data::String("▲ +100.0%".into()))
+        );
+
+        // row3 c_candabsent: A=100·B=100·C 없음 → C 값 셀·Δ%C 블랭크.
+        assert!(blank(st.get_value((3, 3))));
+        assert!(blank(st.get_value((3, 5))));
+
+        // row4 d_newbase0: A=0(present)·C=50 → present-but-zero → Δ%C="▲ 신규"
+        // (row1 absent=블랭크와 대조: present-but-zero만 "신규").
+        assert_eq!(st.get_value((4, 1)), Some(&Data::Float(0.0)));
+        assert_eq!(st.get_value((4, 5)), Some(&Data::String("▲ 신규".into())));
     }
 
     #[test]
