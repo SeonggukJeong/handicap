@@ -999,6 +999,19 @@ export const ko = {
     selectionSummary: (n: number, m: number, k: number) =>
       `선택 ${n} / 전체 ${m} · 중복 ${k} (method+경로 기준)`,
     dupBadge: "중복",
+    // 호스트→env (Task 5)
+    hostToEnv: "호스트를 환경변수로 (선택)",
+    hostToEnvHint: "호스트를 ${변수}로 바꾸기",
+    varNameLabel: (host: string) => `${host} 변수명`,
+    envNameLabel: "환경 이름",
+    registerEnv: "환경으로 등록",
+    envRegistered: (name: string) => `'${name}' 환경을 등록했습니다.`,
+    varNameEmpty: "변수명을 입력하세요.",
+    varNameDup: "변수명이 중복됩니다.",
+    varNameInvalid: "변수명은 영문자·숫자·밑줄만 쓸 수 있고 숫자로 시작할 수 없습니다.",
+    varNameReserved: (name: string) =>
+      `'${name}'은(는) 예약어라 실행 시 시스템 값으로 채워집니다. 다른 이름을 권장합니다.`,
+    envNameEmpty: "환경 이름을 입력하세요.",
   },
   opsSettings: {
     title: "운영 상한",

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -46,14 +47,24 @@ const DUP_HAR = JSON.stringify({
 });
 
 function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <MemoryRouter initialEntries={["/scenarios/import"]}>
-      <Routes>
-        <Route path="/scenarios/import" element={<ScenarioImportPage />} />
-        <Route path="/scenarios/new" element={<div>NEW</div>} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={["/scenarios/import"]}>
+        <Routes>
+          <Route path="/scenarios/import" element={<ScenarioImportPage />} />
+          <Route path="/scenarios/new" element={<div>NEW</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function harFile(content = HAR): File {
@@ -62,6 +73,33 @@ function harFile(content = HAR): File {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+const SINGLE_HOST_HAR = JSON.stringify({
+  log: {
+    entries: [
+      {
+        request: { method: "GET", url: "https://api.example.com/users", headers: [] },
+        response: { status: 200 },
+      },
+    ],
+  },
+});
+
+const TWO_HOST_HAR = JSON.stringify({
+  log: {
+    entries: [
+      {
+        request: { method: "GET", url: "https://api.example.com/users", headers: [] },
+        response: { status: 200 },
+      },
+      {
+        request: { method: "GET", url: "https://auth.example.com/login", headers: [] },
+        response: { status: 200 },
+      },
+    ],
+  },
 });
 
 describe("ScenarioImportPage", () => {
@@ -221,5 +259,122 @@ describe("ScenarioImportPage", () => {
     await waitFor(() =>
       expect(screen.getByText(ko.import.selectionSummary(2, 3, 1))).toBeInTheDocument(),
     );
+  });
+
+  it("R7/R8: 단일 호스트 HAR에서 치환 켜면 BASE_URL 입력 1개", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const varInput = screen.getByLabelText(
+      ko.import.varNameLabel("api.example.com"),
+    ) as HTMLInputElement;
+    expect(varInput.value).toBe("BASE_URL");
+  });
+
+  it("R9: 치환 켜면 YAML url이 ${BASE_URL}/path", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    await waitFor(() =>
+      expect((screen.getByLabelText(ko.import.preview) as HTMLTextAreaElement).value).toContain(
+        "url: ${BASE_URL}/users",
+      ),
+    );
+  });
+
+  it("R8: 2-호스트면 변수명 2개(BASE_URL, BASE_URL_2)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    expect(
+      (screen.getByLabelText(ko.import.varNameLabel("api.example.com")) as HTMLInputElement).value,
+    ).toBe("BASE_URL");
+    expect(
+      (screen.getByLabelText(ko.import.varNameLabel("auth.example.com")) as HTMLInputElement).value,
+    ).toBe("BASE_URL_2");
+  });
+
+  it("R11: 빈 변수명이면 [환경으로 등록] 비활성 + 경고", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const varInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
+    await user.clear(varInput);
+    expect(screen.getByRole("button", { name: ko.import.registerEnv })).toBeDisabled();
+    expect(screen.getByText(ko.import.varNameEmpty)).toBeInTheDocument();
+  });
+
+  it("R11: 예약어(vu_id)면 soft 경고지만 등록은 활성", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const varInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
+    await user.clear(varInput);
+    await user.type(varInput, "vu_id");
+    expect(screen.getByText(ko.import.varNameReserved("vu_id"))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.import.registerEnv })).toBeEnabled();
+  });
+
+  it("R10: [환경으로 등록] → POST /api/environments 페이로드 + 성공 표기", async () => {
+    const user = userEvent.setup();
+    let posted: unknown = null;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/api/environments") && init?.method === "POST") {
+        posted = JSON.parse(String(init.body));
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: "E1",
+              name: "api.example.com",
+              vars: { BASE_URL: "https://api.example.com" },
+              created_at: 1,
+              updated_at: 1,
+            },
+            201,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({ environments: [] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    await user.click(screen.getByRole("button", { name: ko.import.registerEnv }));
+    await waitFor(() =>
+      expect(posted).toEqual({
+        name: "api.example.com",
+        vars: { BASE_URL: "https://api.example.com" },
+      }),
+    );
+    expect(await screen.findByText(ko.import.envRegistered("api.example.com"))).toBeInTheDocument();
+  });
+
+  it("R10: 409면 서버 메시지를 alert로", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/api/environments") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ error: "같은 이름의 환경이 이미 있습니다" }, 409));
+      }
+      return Promise.resolve(jsonResponse({ environments: [] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    await user.click(screen.getByRole("button", { name: ko.import.registerEnv }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("같은 이름의 환경이 이미 있습니다");
   });
 });

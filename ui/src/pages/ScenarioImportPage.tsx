@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useCreateEnvironment } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { ko } from "../i18n/ko";
@@ -12,6 +13,12 @@ import {
   isStaticAsset,
 } from "../import/filters";
 import { type HeaderMode, harToScenarioYaml, inferName, parseHar } from "../import/harToScenario";
+import {
+  buildEnvInput,
+  defaultHostVars,
+  hostsByRequestCount,
+  validateEnv,
+} from "../import/hostEnv";
 
 // jsdom의 File에는 Blob.text()가 없어 `await file.text()`가 throw한다(브라우저엔 있음).
 // FileReader는 jsdom·브라우저 양쪽에서 동작 — 이 read가 기능 전체의 load-bearing I/O.
@@ -34,6 +41,10 @@ export function ScenarioImportPage() {
   const [excludeStatic, setExcludeStatic] = useState(true);
   const [excludedHosts, setExcludedHosts] = useState<ReadonlySet<string>>(new Set());
   const [excludedIndices, setExcludedIndices] = useState<ReadonlySet<number>>(new Set());
+  const [hostVarsEnabled, setHostVarsEnabled] = useState(false);
+  const [hostVarOverrides, setHostVarOverrides] = useState<Record<string, string>>({});
+  const [envName, setEnvName] = useState("");
+  const createEnv = useCreateEnvironment();
 
   const hosts = useMemo(() => (har ? distinctHosts(har.log.entries) : []), [har]);
   const includedHosts = useMemo<ReadonlySet<string> | null>(
@@ -69,6 +80,20 @@ export function ScenarioImportPage() {
       return next;
     });
 
+  // F4: These memos depend on previewEntries — must be AFTER previewEntries declaration,
+  // BEFORE yaml memo (useMemo callbacks run synchronously at the call site).
+  const hostsOrdered = useMemo(() => hostsByRequestCount(previewEntries), [previewEntries]);
+  const effectiveHostVars = useMemo(() => {
+    const defaults = defaultHostVars(hostsOrdered);
+    const out: Record<string, string> = {};
+    for (const h of hostsOrdered) out[h] = hostVarOverrides[h] ?? defaults[h];
+    return out;
+  }, [hostsOrdered, hostVarOverrides]);
+  const envValidation = useMemo(
+    () => validateEnv(effectiveHostVars, envName),
+    [effectiveHostVars, envName],
+  );
+
   const yaml = useMemo(() => {
     if (!har) return "";
     return harToScenarioYaml(har, {
@@ -78,8 +103,19 @@ export function ScenarioImportPage() {
       includedHosts,
       excludedIndices,
       name,
+      hostVars: hostVarsEnabled ? effectiveHostVars : undefined,
     });
-  }, [har, headerMode, statusAssert, excludeStatic, includedHosts, excludedIndices, name]);
+  }, [
+    har,
+    headerMode,
+    statusAssert,
+    excludeStatic,
+    includedHosts,
+    excludedIndices,
+    name,
+    hostVarsEnabled,
+    effectiveHostVars,
+  ]);
 
   const onPick = async (file: File | null) => {
     if (!file) return;
@@ -90,6 +126,9 @@ export function ScenarioImportPage() {
       setName(inferName(parsed));
       setExcludedHosts(new Set());
       setExcludedIndices(new Set());
+      setHostVarsEnabled(false);
+      setHostVarOverrides({});
+      setEnvName(inferName(parsed));
     } catch (e) {
       setHar(null);
       setParseError((e as Error).message);
@@ -111,6 +150,10 @@ export function ScenarioImportPage() {
       else next.add(index);
       return next;
     });
+  };
+
+  const registerEnv = () => {
+    createEnv.mutate(buildEnvInput(effectiveHostVars, previewEntries, envName));
   };
 
   return (
@@ -242,6 +285,85 @@ export function ScenarioImportPage() {
               </ul>
             )}
           </fieldset>
+
+          {previewEntries.length > 0 && (
+            <fieldset className="flex flex-col gap-2 rounded-md border border-slate-200 p-4 text-sm">
+              <legend className="font-medium text-slate-700">{ko.import.hostToEnv}</legend>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  aria-label={ko.import.hostToEnv}
+                  checked={hostVarsEnabled}
+                  onChange={(e) => setHostVarsEnabled(e.target.checked)}
+                />
+                {ko.import.hostToEnvHint}
+              </label>
+              {hostVarsEnabled && (
+                <>
+                  {hostsOrdered.map((h) => (
+                    <label key={h} className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
+                        {h}
+                      </span>
+                      <span aria-hidden="true">→</span>
+                      <input
+                        aria-label={ko.import.varNameLabel(h)}
+                        value={effectiveHostVars[h]}
+                        onChange={(e) =>
+                          setHostVarOverrides((p) => ({ ...p, [h]: e.target.value }))
+                        }
+                        className="w-40 rounded border border-slate-300 px-2 py-1 font-mono"
+                      />
+                    </label>
+                  ))}
+                  {envValidation.emptyHosts.length > 0 && (
+                    <p className="text-xs text-red-600">{ko.import.varNameEmpty}</p>
+                  )}
+                  {envValidation.invalidHosts.length > 0 && (
+                    <p className="text-xs text-red-600">{ko.import.varNameInvalid}</p>
+                  )}
+                  {envValidation.dupNames.length > 0 && (
+                    <p className="text-xs text-red-600">{ko.import.varNameDup}</p>
+                  )}
+                  {envValidation.reservedHosts.map((h) => (
+                    <p key={h} className="text-xs text-amber-700">
+                      {ko.import.varNameReserved(effectiveHostVars[h])}
+                    </p>
+                  ))}
+                  <label className="flex flex-col gap-1">
+                    <span className="font-medium text-slate-700">{ko.import.envNameLabel}</span>
+                    <input
+                      aria-label={ko.import.envNameLabel}
+                      value={envName}
+                      onChange={(e) => setEnvName(e.target.value)}
+                      className="rounded border border-slate-300 px-2 py-1"
+                    />
+                  </label>
+                  {envValidation.emptyEnvName && (
+                    <p className="text-xs text-red-600">{ko.import.envNameEmpty}</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={registerEnv}
+                      disabled={!envValidation.ok || createEnv.isPending}
+                    >
+                      {createEnv.isPending ? ko.common.loading : ko.import.registerEnv}
+                    </Button>
+                    {createEnv.isSuccess && (
+                      <span className="text-xs text-green-700">
+                        {ko.import.envRegistered(createEnv.data.name)}
+                      </span>
+                    )}
+                  </div>
+                  {createEnv.isError && (
+                    <p role="alert" className="text-xs text-red-600">
+                      {(createEnv.error as Error).message}
+                    </p>
+                  )}
+                </>
+              )}
+            </fieldset>
+          )}
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-slate-700">{ko.import.preview}</span>
