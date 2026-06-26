@@ -102,7 +102,6 @@ spec:
       port: 8081
       targetPort: grpc
       protocol: TCP
-
 ---
 # Source: handicap/templates/deployment.yaml
 apiVersion: apps/v1
