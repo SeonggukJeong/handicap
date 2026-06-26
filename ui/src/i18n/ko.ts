@@ -1027,6 +1027,20 @@ export const ko = {
     rangeHint: (min: number, max: number) => `허용 범위 ${min}~${max}`,
     defaultHint: (d: number | string) => `기본값 ${d}`,
     readonlyNote: "Helm/CLI 배포 설정으로 변경",
+    groupCommon: "모든 배포 공통",
+    groupPool: "분산 워커 풀(LAN) 전용",
+    subMutable: "조정 가능",
+    subReadonly: "읽기 전용",
+    poolGroupNote:
+      "풀(LAN 분산 워커) 모드에서만 효과가 있습니다 — Windows 단일 exe·로컬 실행에서는 무시됩니다.",
+    modeActivePool: "● 현재 풀 모드로 실행 중 — 이 그룹 설정이 적용됩니다.",
+    modeInactive: "○ 현재 풀 모드가 아님 — 이 그룹 설정은 효과가 없습니다.",
+    envNote: {
+      workerCapacityPoolIgnored:
+        "풀 모드에서는 이 값을 쓰지 않습니다 — 유휴 워커 수와 부하에 맞춰 워커 수를 정합니다.",
+      poolKeepaliveAllModes:
+        "풀 전용이 아닙니다 — 모든 배포의 gRPC 워커 연결에 적용되며, 특히 LAN 풀 워커의 끊긴 연결 감지·복구에 중요합니다.",
+    },
     runStartupStallLabel: "Run 시작 후 메트릭 미도착 경고 (advisory)",
     runMidrunStallLabel: "Run 진행 중 메트릭 침묵 경고 (advisory)",
     outOfRange: "허용 범위를 벗어났습니다",
