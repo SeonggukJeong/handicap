@@ -47,7 +47,7 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 3. **배지는 구조적 속성.** `중복` 배지는 선택 상태가 아니라 "그룹 내 2번째+ 발생"이라는 구조에서 온다 → 수동으로 다시 체크해도 배지는 유지(왜 [중복 해제] 대상인지 일관 표시, R5).
 4. **치환은 url 문자열만 바꾼다.** origin 접두사만 `${VAR}`로 치환하므로 출력은 여전히 와이어-형(R9·R12). 변수 *값*은 `URL.origin`(끝 슬래시 없음), 나머지는 `pathname+search+hash` — `${VAR}` + 나머지로 재조립.
 5. **변수명 식별자 제약은 *구문* 안전장치(의미 보장 아님).** `${ENV}` 토큰으로 해소되려면 변수명이 엔진 패턴(`crates/engine/src/template.rs:122-148`, `${NAME}`→`ctx.env.get`)에 맞아야 한다 → R11이 `[A-Za-z_][A-Za-z0-9_]*`를 강제해 *구문상* 해소 가능하게 한다. **단 이는 "올바른 env 바인딩"을 보장하지 않는다** — 다음 항목 참조.
-6. **예약어는 env보다 먼저 시스템값으로 해소된다.** 엔진은 `vu_id`/`iter_id`/`loop_index`를 env lookup *전에* 시스템값으로 치환(`template.rs:140-145`)하므로, 호스트 변수명을 그렇게 지으면 `${vu_id}/path`가 런타임에 `0/path`로 *조용히* 풀린다(unresolvable 아님 = 더 위험). 컨트롤러도 이를 막지 않고(`api/environments.rs:68-71` "UI가 soft 경고"), `EnvironmentsPage`(`RESERVED={vu_id,iter_id,loop_index}`)가 이미 그 경고를 렌더 → R11이 같은 비차단 soft 경고를 미러한다.
+6. **예약어는 env보다 먼저 시스템값으로 해소된다.** 엔진은 `vu_id`/`iter_id`/`loop_index`를 env lookup *전에* 시스템값으로 치환(`template.rs:132-140` — 시스템 arm 133-135, env fallback `other => ctx.env.get` 136)하므로, 호스트 변수명을 그렇게 지으면 `${vu_id}/path`가 런타임에 `0/path`로 *조용히* 풀린다(unresolvable 아님 = 더 위험). 컨트롤러도 이를 막지 않고(`api/environments.rs:68-71` "UI가 soft 경고"), `EnvironmentsPage`(`RESERVED={vu_id,iter_id,loop_index}`)가 이미 그 경고를 렌더 → R11이 같은 비차단 soft 경고를 미러한다.
 7. **환경 등록은 시나리오 저장과 독립.** 환경은 별개 리소스라 import 시점에 만들어도 무방(R10). 시나리오는 나중에 에디터에서 저장되고, run 때 RunDialog가 그 환경을 선택해 `${BASE_URL}`을 해소한다 — 자동 선택은 비목표(§7).
 
 ---
@@ -56,7 +56,7 @@ HAR 가져오기(`ScenarioImportPage`)는 전부 클라이언트 변환(`harToSc
 
 ### 4.1 `import/filters.ts` — 충족 R: R6
 - `export function dedupKey(method: string, url: string): string` — `method.toUpperCase() + " " + pathnameOf(url)`.
-- `pathnameOf(url)` = `new URL(url).pathname`(성공 시), **파싱불가/상대 URL은 `?`·`#` 앞까지 잘라낸 문자열**(예: `/a?x=1`→`/a`) — 쿼리 무시를 절대·상대 양쪽에서 일관(R4 정합). 기존 `pathOf`(파싱불가 시 url 원문)는 표시명용으로 별개 유지.
+- `pathnameOf(url)` = `new URL(url).pathname`(성공 시), **파싱불가/상대 URL은 `?`·`#` 앞까지 잘라낸 문자열**(예: `/a?x=1`→`/a`) — 쿼리 무시를 절대·상대 양쪽에서 일관(R4 정합). 신규 dedup 전용 헬퍼 — 기존 `pathOf`(filters.ts static-detection용, harToScenario.ts 표시명 `METHOD path`용)는 둘 다 그대로.
 - `export function duplicateIndices(preview: {index:number; method:string; url:string}[]): ReadonlySet<number>` — 입력 순서대로 그룹 첫 발생을 기록, 2번째+의 `index`를 Set에 모음. (페이지의 `previewEntries`와 같은 shape를 받음 — 미리보기 위에서만.)
 
 ### 4.2 `import/harToScenario.ts` — 충족 R: R9, R12
