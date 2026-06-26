@@ -15,7 +15,9 @@ import { StepPhaseBreakdown } from "./StepPhaseBreakdown";
 import { BranchStatsTable } from "./BranchStatsTable";
 import { GroupLatencyTable } from "./GroupLatencyTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
-import { DownloadJsonButton } from "./DownloadJsonButton";
+import { DownloadMenu } from "../DownloadMenu";
+import { downloadJson } from "../../api/downloadJson";
+import { HelpTip } from "../HelpTip";
 import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
 import { WorkerBreakdownTable } from "./WorkerBreakdownTable";
@@ -87,47 +89,57 @@ export function ReportView({ report, profile }: Props) {
       <ReportHeadline summary={report.summary} profile={profile} verdict={report.verdict} />
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
-        <div className="flex items-center gap-2">
-          <DownloadJsonButton filename={`run-${report.run.id}.json`} data={report} />
-          <button
-            type="button"
-            onClick={() =>
-              downloadFile(
-                api.reportCsvUrl(report.run.id),
-                `run-${report.run.id}-report.csv`,
-                "text/csv",
-              ).catch((e) => setDlErr((e as Error).message))
-            }
-            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
-          >
-            Download CSV
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              downloadFile(
-                api.reportXlsxUrl(report.run.id),
-                `run-${report.run.id}-report.xlsx`,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              ).catch((e) => setDlErr((e as Error).message))
-            }
-            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
-          >
-            Download XLSX
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              downloadFile(
-                api.reportInsightsCsvUrl(report.run.id),
-                `run-${report.run.id}-insights.csv`,
-                "text/csv",
-              ).catch((e) => setDlErr((e as Error).message))
-            }
-            className="inline-block px-3 py-1.5 text-sm bg-slate-700 text-white rounded hover:bg-slate-800"
-          >
-            Download 인사이트 CSV
-          </button>
+        <div className="flex items-center gap-1">
+          <DownloadMenu
+            label={ko.report.downloadMenu}
+            items={[
+              {
+                label: "JSON",
+                onSelect: () => void downloadJson(`run-${report.run.id}.json`, report),
+              },
+              {
+                label: "CSV",
+                onSelect: () =>
+                  downloadFile(
+                    api.reportCsvUrl(report.run.id),
+                    `run-${report.run.id}-report.csv`,
+                    "text/csv",
+                  ).catch((e) => setDlErr((e as Error).message)),
+              },
+              {
+                label: "XLSX",
+                onSelect: () =>
+                  downloadFile(
+                    api.reportXlsxUrl(report.run.id),
+                    `run-${report.run.id}-report.xlsx`,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  ).catch((e) => setDlErr((e as Error).message)),
+              },
+              {
+                label: ko.report.downloadInsightsCsv,
+                onSelect: () =>
+                  downloadFile(
+                    api.reportInsightsCsvUrl(report.run.id),
+                    `run-${report.run.id}-insights.csv`,
+                    "text/csv",
+                  ).catch((e) => setDlErr((e as Error).message)),
+              },
+            ]}
+          />
+          <HelpTip label={ko.report.downloadHelpAria}>
+            <span className="block">
+              <b>JSON</b> — {ko.report.downloadHelp.json}
+            </span>
+            <span className="block">
+              <b>CSV</b> — {ko.report.downloadHelp.csv}
+            </span>
+            <span className="block">
+              <b>XLSX</b> — {ko.report.downloadHelp.xlsx}
+            </span>
+            <span className="block">
+              <b>{ko.report.downloadInsightsCsv}</b> — {ko.report.downloadHelp.insights}
+            </span>
+          </HelpTip>
         </div>
       </div>
       {dlErr && (

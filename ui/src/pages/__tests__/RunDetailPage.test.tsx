@@ -6,7 +6,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { RunDetailPage } from "../RunDetailPage";
 import { ko } from "../../i18n/ko";
 
-// jsdom does not implement URL.createObjectURL — DownloadJsonButton in ReportView needs it.
+// jsdom does not implement URL.createObjectURL — the report's blob download path needs it.
 if (typeof URL.createObjectURL === "undefined") {
   Object.defineProperty(URL, "createObjectURL", { value: () => "blob:noop", writable: true });
   Object.defineProperty(URL, "revokeObjectURL", { value: () => {}, writable: true });

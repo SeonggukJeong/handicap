@@ -589,6 +589,15 @@ export const ko = {
     scenarioSnapshotLabel: "시나리오 스냅샷",
     scenarioSnapshotButton: "시나리오 YAML (실행 당시 스냅샷)",
     reportTitle: "리포트",
+    downloadMenu: "내려받기",
+    downloadHelpAria: "파일 형식 설명",
+    downloadInsightsCsv: "인사이트 CSV",
+    downloadHelp: {
+      json: "원시 전체 데이터 — 프로그램·재분석용",
+      csv: "표 형식 요약 — 엑셀·구글시트로 열기",
+      xlsx: "엑셀 통합문서 — 서식 포함",
+      insights: "자동 분석 결과만 표로",
+    },
     // ── 빈 상태 ──
     noStatusData: "상태 코드 데이터가 없습니다.",
     noLatencyData: "지연 데이터가 없습니다.",

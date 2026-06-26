@@ -1,4 +1,4 @@
-// jsdom doesn't implement createObjectURL; provide a no-op for DownloadJsonButton to mount.
+// jsdom doesn't implement createObjectURL; provide a no-op for the blob download path to run.
 if (typeof URL.createObjectURL === "undefined") {
   Object.defineProperty(URL, "createObjectURL", { value: () => "blob:noop", writable: true });
   Object.defineProperty(URL, "revokeObjectURL", { value: () => {}, writable: true });
@@ -11,6 +11,11 @@ import { ReportView } from "../ReportView";
 import type { Profile, Report } from "../../../api/schemas";
 import { api } from "../../../api/client";
 
+import { ko } from "../../../i18n/ko";
+vi.mock("../../../api/downloadJson", () => ({
+  downloadJson: vi.fn().mockResolvedValue(undefined),
+}));
+import { downloadJson } from "../../../api/downloadJson";
 vi.mock("../../../api/download", () => ({ downloadFile: vi.fn().mockResolvedValue(undefined) }));
 import { downloadFile } from "../../../api/download";
 
@@ -109,7 +114,7 @@ describe("ReportView", () => {
     expect(screen.getByRole("region", { name: /시계열 — 초당 에러/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /상태 코드 분포/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /스텝별 통계/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Download JSON/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.report.downloadMenu })).toBeInTheDocument();
   });
 
   it("resolves env in step URLs (resolveForDisplay)", () => {
@@ -180,18 +185,22 @@ describe("ReportView", () => {
     expect(screen.queryByRole("heading", { name: "지연" })).not.toBeInTheDocument();
   });
 
-  describe("CSV/XLSX download buttons", () => {
-    it("renders Download CSV and Download XLSX buttons", () => {
+  describe("download menu", () => {
+    it("collapses the 4 downloads into a single menu", async () => {
+      const user = userEvent.setup();
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-      expect(screen.getByRole("button", { name: /Download CSV/ })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Download XLSX/ })).toBeInTheDocument();
+      const trigger = screen.getByRole("button", { name: ko.report.downloadMenu });
+      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+      await user.click(trigger);
+      expect(screen.getAllByRole("menuitem")).toHaveLength(4);
     });
 
-    it("calls downloadFile with correct args when Download CSV is clicked", async () => {
+    it("downloads CSV with the existing args", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockClear();
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-      await user.click(screen.getByRole("button", { name: /Download CSV/ }));
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: "CSV" }));
       expect(downloadFile).toHaveBeenCalledWith(
         api.reportCsvUrl(FIXTURE.run.id),
         `run-${FIXTURE.run.id}-report.csv`,
@@ -199,11 +208,12 @@ describe("ReportView", () => {
       );
     });
 
-    it("calls downloadFile with correct args when Download XLSX is clicked", async () => {
+    it("downloads XLSX with the existing args", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockClear();
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-      await user.click(screen.getByRole("button", { name: /Download XLSX/ }));
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: "XLSX" }));
       expect(downloadFile).toHaveBeenCalledWith(
         api.reportXlsxUrl(FIXTURE.run.id),
         `run-${FIXTURE.run.id}-report.xlsx`,
@@ -211,11 +221,12 @@ describe("ReportView", () => {
       );
     });
 
-    it("인사이트 CSV 다운로드 버튼이 report-insights.csv를 받는다", async () => {
+    it("downloads insights CSV with the existing args", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockClear();
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-      await user.click(screen.getByRole("button", { name: "Download 인사이트 CSV" }));
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: ko.report.downloadInsightsCsv }));
       expect(downloadFile).toHaveBeenCalledWith(
         api.reportInsightsCsvUrl(FIXTURE.run.id),
         `run-${FIXTURE.run.id}-insights.csv`,
@@ -223,12 +234,33 @@ describe("ReportView", () => {
       );
     });
 
+    it("downloads JSON via the downloadJson helper", async () => {
+      const user = userEvent.setup();
+      vi.mocked(downloadJson).mockClear();
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: "JSON" }));
+      expect(downloadJson).toHaveBeenCalledWith(`run-${FIXTURE.run.id}.json`, FIXTURE);
+    });
+
     it("shows an error alert when downloadFile rejects", async () => {
       const user = userEvent.setup();
       vi.mocked(downloadFile).mockRejectedValueOnce(new Error("network error"));
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
-      await user.click(screen.getByRole("button", { name: /Download CSV/ }));
+      await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
+      await user.click(screen.getByRole("menuitem", { name: "CSV" }));
       expect(await screen.findByRole("alert")).toHaveTextContent("network error");
+    });
+
+    it("explains each format in a help tip", async () => {
+      const user = userEvent.setup();
+      render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+      await user.click(screen.getByRole("button", { name: ko.report.downloadHelpAria }));
+      const note = screen.getByRole("note");
+      expect(note).toHaveTextContent(ko.report.downloadHelp.json);
+      expect(note).toHaveTextContent(ko.report.downloadHelp.csv);
+      expect(note).toHaveTextContent(ko.report.downloadHelp.xlsx);
+      expect(note).toHaveTextContent(ko.report.downloadHelp.insights);
     });
   });
 

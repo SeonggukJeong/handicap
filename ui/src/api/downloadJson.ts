@@ -40,8 +40,7 @@ function saveViaBlobUrl(filename: string, json: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-/** Save `data` as a pretty-printed JSON file. Extracted from the former
- *  DownloadJsonButton so menu items (and any caller) can invoke it directly. */
+/** Save `data` as a pretty-printed JSON file. */
 export async function downloadJson(filename: string, data: unknown): Promise<void> {
   const json = JSON.stringify(data, null, 2);
   const saved = await saveViaPicker(filename, json);
