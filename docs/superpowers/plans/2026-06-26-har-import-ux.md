@@ -1,5 +1,8 @@
 # HAR 가져오기 UX 개선 Implementation Plan
 
+<!-- REVIEW-GATE: APPROVED -->
+<!-- spec-plan-reviewer(Opus): spec 2-round clean APPROVE, plan 2-round clean APPROVE (2026-06-26). -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** HAR 가져오기 화면에 요청 선택 툴바(전체 선택/해제·중복 해제)·중복 표시와, 옵트인 호스트→`${변수}` 치환 + 환경(Environment) 등록을 더해 가져오기 마찰을 줄인다.
@@ -802,7 +805,7 @@ const TWO_HOST_HAR = JSON.stringify({
 - [ ] **Step 2: 테스트가 실패하는지 확인**
 
 Run: `cd ui && pnpm test ScenarioImportPage`
-Expected: FAIL — env 섹션/등록 버튼 없음.
+Expected: FAIL — env 섹션/등록 버튼 없음(ko 키 미정의 → 참조 시 TypeError·RED).
 
 - [ ] **Step 3: ko 키 + 페이지 구현** (RED diff 생긴 뒤 src 편집 — tdd-guard 통과)
 
