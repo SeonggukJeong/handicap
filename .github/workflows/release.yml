@@ -1,0 +1,64 @@
+name: release
+
+# Windows Tauri 데스크톱 인스톨러(NSIS .exe + MSI)를 빌드해 GitHub Release에 첨부.
+# 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '생성할 릴리즈 태그 (예: v0.1.0)'
+        required: true
+
+permissions:
+  contents: write # 릴리즈 생성 + 에셋 업로드
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # rust-embed가 컴파일타임에 ui/dist를 임베드하므로 cargo 빌드 전에 먼저.
+      - name: Build UI (ui/dist)
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      # tonic-build(handicap-proto)이 빌드타임에 protoc를 요구.
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # desktop/src-tauri는 루트 워크스페이스 밖(자체 [workspace])이라 별도 target.
+          workspaces: desktop/src-tauri -> target
+
+      # tauri-action: tauri-cli 설치 → cargo tauri build → 태그로 릴리즈 생성 + NSIS/MSI 첨부.
+      # projectPath=desktop → desktop/src-tauri/tauri.conf.json 사용. externalBin 없음(ADR-0042 in-process).
+      - name: Build & release Windows installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: Handicap ${{ inputs.tag || github.ref_name }}
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis,msi

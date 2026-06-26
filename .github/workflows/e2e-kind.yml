@@ -1,8 +1,7 @@
 name: e2e-kind
+# 무거운 kind e2e(~20분)는 push/PR마다 돌리지 않고 수동 실행만 (비공개 저장소 Actions 분 절약).
 on:
-  push:
-    branches: [main, master]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   e2e:

@@ -1,8 +1,8 @@
-# Tauri 데스크톱 셸 빌드 런북 (ADR-0040, 옵션 B 접근 1)
+# Tauri 데스크톱 셸 빌드/릴리즈 런북 (ADR-0042, 접근 2: in-process)
 
-`desktop/`의 Tauri v2 셸은 **기존 `bundle`-feature `controller` exe를 사이드카로 감싸는** 네이티브 창이다. 셸은 controller/worker/engine/UI 코드를 한 줄도 안 고치고(소비만), 부팅 시 controller를 `127.0.0.1:0`(OS가 빈 포트 원자 할당)로 직접 spawn → 로그에서 실제 REST 포트 파싱 → `/api/health`==`ok` 준비 확인 후 창을 그 localhost로 navigate한다. 창을 닫으면 controller + self-spawn 워커를 **트리째** 종료한다(macOS killpg / Windows Job Object).
+`desktop/`의 Tauri v2 셸은 **컨트롤러를 in-process로 임베드하는** 네이티브 창이다(ADR-0042 — 구 ADR-0040의 사이드카 접근을 대체). `desktop/src-tauri/Cargo.toml`이 `handicap-controller`를 path 의존(`features=["bundle"]`)으로 컴파일하므로, 셸 프로세스 안에서 컨트롤러가 직접 돌고 워커만 `current_exe worker …`로 self-spawn된다. 사이드카 spawn·포트 로그 파싱·externalBin 복사는 **없다**.
 
-> 옵션 A(브라우저로 여는 단일 `controller.exe`)는 `docs/dev/single-exe-build.md`. 이 셸은 그 bundle exe를 *재사용*한다 — 별도 산출물이 아니라 같은 사이드카를 감싸는 추가 배포 형태.
+> 아키텍처·런타임 동작·보안 경계(멀티콜 워커, async shutdown 브리지, CSP, R4b disconnect-cancel 등)는 **`desktop/CLAUDE.md`와 `docs/adr/0042-tauri-in-process-controller.md`가 단일 소스**다. 이 파일은 *빌드/릴리즈 절차*만 다룬다.
 
 ---
 
@@ -11,74 +11,48 @@
 - **Rust** (워크스페이스 toolchain; `rust-toolchain.toml`이 고정). macOS는 Xcode CLT(`xcode-select --install`).
 - **Tauri CLI v2**: `cargo install tauri-cli --version "^2" --locked` (→ `cargo tauri`).
 - **Node/pnpm**: UI 빌드(`ui/dist`)용. (셸 프런트는 정적 스플래시 한 장이라 Node 무관 — `desktop/`는 `--manager cargo`로 스캐폴드돼 `package.json`/`node_modules` 없음.)
+- **protoc**: `desktop`가 `handicap-controller{bundle}` 그래프 전체를 컴파일하므로 `handicap-proto`→`tonic-build`가 `protoc`를 요구. fresh 머신은 `brew install protobuf`.
 - **Windows 전용**: Rust MSVC 타깃(`x86_64-pc-windows-msvc`) + WebView2 런타임. WebView2는 최신 Windows 10/11에 기본 탑재 — 없으면 MS "Evergreen Bootstrapper"로 설치 확인.
 
 `desktop/src-tauri`는 **루트 cargo 워크스페이스 밖**(자체 빈 `[workspace]` 테이블)이라 `cargo build --workspace`·pre-commit cargo 게이트가 Tauri 시스템 의존 없이 그대로 통과한다. desktop 크레이트 자체 테스트는 게이트 밖이므로 `cd desktop/src-tauri && cargo test`로 수동 확인.
 
 ---
 
-## 빌드 단계 (검증된 순서)
+## 로컬 빌드 단계 (검증된 순서)
 
 ```bash
-# 0) repo 루트에서. 타깃 triple 확보(사이드카 명명용)
-TRIPLE=$(rustc -vV | sed -n 's/host: //p')   # 예: aarch64-apple-darwin / x86_64-pc-windows-msvc
-
 # 1) UI 빌드 — bundle controller가 rust-embed로 ui/dist를 컴파일타임 임베드하므로 먼저
 pnpm --dir ui build
 
-# 2) (R14) 사이드카 의존 health 확인 — 기본 pre-commit 게이트는 bundle을 컴파일하지 않으므로 명시 검증
+# 2) (선택) bundle feature 컴파일/테스트 — 기본 pre-commit 게이트는 bundle을 안 컴파일하므로 명시 검증
 cargo test -p handicap-controller --features bundle      # 전체 green이어야 함
 
-# 3) 사이드카(bundle controller) release 빌드
-cargo build -p handicap-controller --bin controller --features bundle --release
-
-# 4) Tauri externalBin 규약대로 triple 접미사를 붙여 복사 (커밋 금지 — desktop/.gitignore가 무시)
-cp target/release/controller "desktop/src-tauri/binaries/controller-${TRIPLE}"
-#   Windows: cp target/release/controller.exe "desktop/src-tauri/binaries/controller-${TRIPLE}.exe"
-
-# 5) 데스크톱 앱 빌드 + 번들
-cd desktop && cargo tauri build
-#   macOS 산출물:   src-tauri/target/release/bundle/macos/Handicap.app  (+ dmg — 아래 주의)
-#   Windows 산출물: src-tauri/target/release/bundle/nsis/*.exe , bundle/msi/*.msi
+# 3) 데스크톱 앱 빌드 + 번들 (사이드카 복사 단계 없음 — in-process path 의존)
+cd desktop && cargo tauri build --bundles nsis,msi
+#   macOS 산출물:   src-tauri/target/release/bundle/macos/Handicap.app  (+ dmg — 아래 주의; --bundles app,dmg)
+#   Windows 산출물: src-tauri/target/release/bundle/nsis/Handicap_<ver>_x64-setup.exe , bundle/msi/Handicap_<ver>_x64_*.msi
 ```
 
-Tauri는 빌드 시 `binaries/controller-<triple>`에서 triple 접미사를 떼어 앱 안 셸 바이너리 *옆*에 복사한다 — macOS `.app`이면 `Contents/MacOS/controller`(셸 `Contents/MacOS/desktop`과 나란히). 셸의 `resolve_sidecar_path`가 `current_exe` 옆을 찾으므로 설치 형태에서 그대로 동작한다(검증: `.app` 안에 `Contents/MacOS/{desktop,controller}` 둘 다 존재).
+`tauri.conf.json`의 `bundle.targets`는 4종(`nsis`/`msi`/`dmg`/`app`)을 선언하지만 `cargo tauri build`는 호스트 OS에 맞는 타깃만 만든다(macOS=app/dmg, Windows=nsis/msi). 특정 타깃만 원하면 `--bundles <list>`.
 
 ### macOS 주의: `.app`은 headless OK, `.dmg`는 GUI 세션 필요
 
-`cargo tauri build`의 **`.app` 번들은 headless(SSH/CI/터미널)에서도 생성**되지만, **`.dmg` 변환 단계(`bundle_dmg.sh`)는 AppleScript로 DMG 창 외형을 꾸미느라 WindowServer(로그인된 GUI 세션)를 요구**한다. headless에서는 `rw.*.dmg` 중간 이미지만 남고 최종 dmg 생성이 실패한다(앱 빌드 자체는 성공).
-
-- 산출물만 필요하면(설치는 `.app` 드래그): `cargo tauri build --bundles app`
-- `.dmg`까지 만들려면 **로그인된 데스크톱 세션**에서 `cargo tauri build`(기본) 또는 `--bundles app,dmg`.
-
-`tauri.conf.json`의 `bundle.targets`는 4종(`nsis`/`msi`/`dmg`/`app`)을 선언하지만, `cargo tauri build`는 호스트 OS에 맞는 타깃만 만든다(macOS=app/dmg, Windows=nsis/msi). 특정 타깃만 원하면 `--bundles <list>`.
+`cargo tauri build`의 **`.app` 번들은 headless(SSH/CI/터미널)에서도 생성**되지만, **`.dmg` 변환 단계(`bundle_dmg.sh`)는 AppleScript로 DMG 창 외형을 꾸미느라 WindowServer(로그인된 GUI 세션)를 요구**한다. headless에서는 `rw.*.dmg` 중간 이미지만 남고 최종 dmg 생성이 실패한다(앱 빌드 자체는 성공). 산출물만 필요하면(설치는 `.app` 드래그) `cargo tauri build --bundles app`.
 
 ---
 
-## Windows 절차 (이 슬라이스에서 빌드만, 실행 검증은 갭으로 연기)
+## CI 릴리즈 (Windows 인스톨러)
 
-1. Rust(MSVC) + `cargo install tauri-cli --version "^2" --locked` + (UI 빌드용) Node/pnpm.
-2. 위 단계 1–4를 Windows에서(`controller.exe`를 `binaries/controller-x86_64-pc-windows-msvc.exe`로 복사).
-3. `cd desktop && cargo tauri build` → `src-tauri/target/release/bundle/nsis/Handicap_<ver>_x64-setup.exe`(+ `msi/`).
-4. WebView2 전제: 최신 Windows 기본 탑재. 없으면 Evergreen Bootstrapper 설치 후 재실행.
+`.github/workflows/release.yml`이 **Windows NSIS `.exe` + MSI 인스톨러를 빌드해 GitHub Release에 첨부**한다.
+
+- **트리거**: `v*` 태그 푸시(예: `git tag v0.1.0 && git push origin v0.1.0`) 또는 Actions UI의 수동 실행(`workflow_dispatch` — 태그 입력).
+- **흐름**: `windows-latest` 러너에서 `pnpm --dir ui build` → `protoc` 설치 → rust(MSVC) → `tauri-apps/tauri-action`(`projectPath: desktop`, `--bundles nsis,msi`) → 해당 태그로 릴리즈 생성 + 인스톨러 첨부.
+- **버전**: 인스톨러 파일명은 `desktop/src-tauri/tauri.conf.json`의 `version`을 따른다. 태그와 일치시키려면 **tauri.conf `version` bump → commit → 같은 버전 태그** 순서(예: `version: "0.2.0"` 커밋 후 `v0.2.0` 태그).
 
 ### Windows-검증 갭 체크리스트 (가용 머신이 macOS뿐 — Windows에서 1회 확인 필요)
 
+빌드 green ≠ 실행 검증. 인스톨러가 만들어지면 Windows 머신에서:
+
 - [ ] 인스톨러 설치 → 아이콘 실행 → 창에 핸디캡 UI 렌더 → responder 대상 run 1개 `completed` + 리포트.
-- [ ] **앱 종료 시 작업관리자에 `controller`/`worker` 프로세스 잔류 0** — R12 Job Object(`KILL_ON_JOB_CLOSE`)가 손자 워커까지 트리 종료. (macOS killpg는 검증됨; Windows 경로는 코드만 존재 → 여기서 확인.)
+- [ ] **앱 종료 시 작업관리자에 `controller`(in-process라 셸 프로세스)·`worker` 잔류 0** — R4d Windows Job Object가 self-spawn 워커까지 트리 종료(macOS killpg는 검증됨; Windows 경로는 코드만 존재 → 여기서 확인).
 - [ ] 리포트 **CSV/XLSX 다운로드**가 WebView2에서 저장됨(HAR 업로드 파일 선택·클립보드 복사 포함 — `csp:null`이라 동작 기대).
-
----
-
-## 보안 메모 (셸 경계)
-
-- **`HANDICAP_CONTROLLER_BIN`은 dev/live-verify 전용 *신뢰* 오버라이드다.** 설정되면 셸은 그 경로의 바이너리를 **앱 권한으로 그대로 spawn**한다(`launch.rs::resolve_sidecar_path`). 로컬 사용자(자기 앱을 실행)에겐 권한 경계 위반이 아니지만(이미 `Contents/MacOS/controller`를 교체할 수 있음), **상대 경로는 launch 시점 cwd에 의존**하므로 혼동/오용을 피하려면 **절대 경로**로 줄 것. 미설정(배포 기본)이면 셸은 자기 exe 옆 `controller`만 spawn한다.
-- **CSP — `tauri.conf.json`의 `app.security.csp: null`은 의도적이다.** 창이 실제로 로드하는 **controller-서빙 UI**(navigate 대상 `http://127.0.0.1:<port>/`)는 *자체* `<meta http-equiv="Content-Security-Policy">`(`default-src 'self'` + `worker-src 'self' blob:`)를 갖는다(`ui/index.html` — 웹/단일exe 배포와 **byte-identical**). 즉 데스크톱 셸은 새 XSS 표면을 추가하지 않고 기존 UI를 *감싸기만* 한다. Tauri가 주입하는 CSP는 원격 navigate된 controller origin엔 적용되지도 않으며, 셸-소유 `splash.html`은 인라인 스크립트 + `win.eval` 에러표시(JSON-인코딩→`textContent` 싱크, 원격/비신뢰 콘텐츠 0)를 쓰므로 엄격 CSP를 걸면 오히려 깨진다. → v1(loopback 데스크톱)에서 `null` 유지가 맞고, 보장의 무게중심은 **controller UI의 meta CSP**다(이 불변식을 깨지 말 것).
-
-## 위생 / 함정
-
-- **사이드카 바이너리는 빌드타임 복사물(커밋 금지)**: `desktop/.gitignore`가 `src-tauri/binaries/controller*`·`src-tauri/target/`을 무시한다. 플랫폼마다 위 단계 3–4를 다시 돌려 해당 triple 바이너리를 깐다.
-- **`binaries/controller-<triple>`가 없으면** `cargo build`/`cargo tauri build`가 externalBin 해석에서 실패한다 → 항상 단계 4를 먼저.
-- bundle controller의 *행동*은 웹/단일 exe 경로와 byte-identical(셸은 기존 CLI 인자·로그만 소비). 셸이 자식 env에 `RUST_LOG=info`(포트 로그 라인 보장) + `NO_COLOR=1`을 강제하는 것 외에 controller 동작 변경 없음.
-- **포트 파싱의 load-bearing 방어는 `launch.rs::parse_rest_port`의 ANSI strip이다(`NO_COLOR`가 아니라).** 실측: controller의 `tracing_subscriber::fmt()`는 stdout이 **파이프**(셸이 `Stdio::piped()`로 읽는 실제 형태)면 `NO_COLOR=1`을 줘도 ANSI 색 코드를 계속 낸다(`NO_COLOR`는 파일 리다이렉트에서만 듣는다). 그래서 `parse_rest_port`는 매칭 전 CSI 시퀀스를 제거하고(실-ANSI 라인 fixture로 드리프트 가드), `NO_COLOR=1`은 무해한 defense-in-depth로만 남긴다. 라이브 검증(2026-06-19)에서 실제 ANSI 파이프 라인 → 포트 파싱 → `/api/health`=`ok` → run 완료 → killpg 트리 종료(고아 0) 전 구간 확인.
-- 셸 프런트(`desktop/src/`)는 **`splash.html` 한 장뿐**이다(실 UI는 controller가 서빙). Tauri 스캐폴드의 `index.html`/`main.js` 등은 제거됨 — `frontendDist`가 dead JS를 번들에 싣지 않게.
