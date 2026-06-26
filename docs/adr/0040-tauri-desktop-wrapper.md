@@ -1,6 +1,6 @@
 # 0040. 라이트 Windows 데스크톱 배포 — 옵션 B(접근 1): Tauri 사이드카 셸
 
-- 상태: 채택 (2026-06-19)
+- 상태: 접근 1 채택 (2026-06-19) → 접근 2로 대체 ([ADR-0042](0042-tauri-in-process-controller.md), 2026-06-26)
 - 관련: [ADR-0039](0039-windows-desktop-distribution.md)(옵션 A/B 방향·LAN feasibility), [ADR-0019](0019-worker-dispatcher-abstraction.md)(dispatcher 추상), `docs/dev/tauri-desktop-build.md`(런북), `docs/dev/single-exe-build.md`(옵션 A)
 
 ## 맥락

@@ -192,6 +192,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0039** 라이트 Windows 데스크톱 배포: 단일 self-contained `.exe`(현 subprocess 로컬모드 패키징) → 필요 시 Tauri 래퍼, Flutter/RN 거절(웹 UI 리라이트). LAN 분산 워커는 프로토콜상 이미 가능(pull 모델)·격차=바인딩/오케스트레이션/mTLS. **옵션 A(단일 exe) 구현·머지**(cargo `bundle` feature off=byte-identical), Tauri(옵션 B)=ADR-0040, 서명/인스톨러는 후속
 - **0040** 라이트 Windows 데스크톱 배포 옵션 B(접근 1): Tauri v2 셸이 bundle controller exe를 사이드카로 spawn→포트 로그 파싱→헬스 확인→네이티브 창 navigate, 창 닫힘 시 killpg[Unix]/Job Object[Windows] 트리 종료. `desktop/`는 자체 `[workspace]`로 루트 워크스페이스 밖·`crates/**`+`ui/src` 0-diff·`ControllerBackend` 추상으로 접근2(in-process)/LAN 전방호환
 - **0041** LAN 분산 워커 L1: 세 번째 워커 모드 `pool` — 워커가 `--run-id` 없이 유휴 등록(reconnect-per-run)→`--worker-mode pool` 컨트롤러가 run 발사 시 유휴 워커에 샤드 push(기존 fan-out 재사용, N=min(유휴,부하상한)) + proto `Register.token` additive 공유 토큰 인증(미설정=byte-identical) + LAN 바인드. migration 0/엔진 무변경, push(컨트롤러 권위)·capacity 무시(L2)·mTLS 후속
+- **0042** 라이트 Windows 데스크톱 배포 옵션 B 접근 2: Tauri in-process 컨트롤러(`run_in_process`/`RunningController` 임베드·desktop `InProcessBackend`·워커 멀티콜 `run_worker_if_invoked`·사이드카/externalBin 제거·R4b disconnect-cancel 크래시 teardown·R4d Windows Job 트리거-연기·비-bundle byte-identical). ADR-0040(접근 1) 대체
 
 ## 코딩 컨벤션
 
