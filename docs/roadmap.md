@@ -18,22 +18,21 @@
 
 | # | 후보 | 가치 | 크기·의존성 |
 |---|---|---|---|
-| 1 | **사용성 묶음 B — 설정 화면 환경별 그룹핑** — §UX1 | Windows/K8s 설정 혼재로 관리자가 어느 값이 어느 환경 소속인지 모름 → 관리자 화면 명료화 | 중·`SettingsPage.tsx`·`ko.ts`·설정 분류 메타데이터 |
-| 2 | **사용성 묶음 C — Run 결과 + RunDialog 디자인 개선** — §UX1 | 그래프 정렬·Download 그룹핑·RunDialog 초보자 친화(최고 가치 표면) | 대·개방형 디자인·**frontend-design + 깊은 brainstorming** 필요·`RunDialog.tsx`(936줄)/`ReportView.tsx` |
-| 3 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
-| 4 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
+| 1 | **사용성 묶음 C — Run 결과 + RunDialog 디자인 개선** — §UX1 | 그래프 정렬·Download 그룹핑·RunDialog 초보자 친화(최고 가치 표면) | 대·개방형 디자인·**frontend-design + 깊은 brainstorming** 필요·`RunDialog.tsx`(936줄)/`ReportView.tsx` |
+| 2 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
+| 3 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
 
 이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper)은 아래 §B* 참조.
 
-### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A 진행 중·B/C 후보
+### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B 완료·C 후보
 
-사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A 완료(2026-06-26, 머지), B·C는 위 shortlist 후보.** 세부 항목 원문 보존:
+사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A·B 완료(2026-06-26, 머지), C는 위 shortlist 후보.** 세부 항목 원문 보존:
 
 - **A. HAR 가져오기 UX 개선 — ✅ 완료 (2026-06-26)** (`ScenarioImportPage.tsx`·`import/`):
   - ② HAR 업로드 시 모든 요청 체크박스가 기본 전체 선택이라 불편 → **전체 선택/전체 해제 버튼**, **중복 URL(method+url 동일) 표시**, **중복만 해제 버튼**.
   - ③ 가져오기 화면에서 **호스트를 환경변수로 등록할지 물어보고 등록**(비강제) — 환경(Environments) 리소스 연동.
-- **B. 설정 화면 환경별 그룹핑 — 후보** (`SettingsPage.tsx`·`ko.ts`):
-  - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심.
+- **B. 설정 화면 환경별 그룹핑 — ✅ 완료 (2026-06-26)** (`SettingsPage.tsx`·`ko.ts`·신규 `settingsEnv.ts`):
+  - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심. → **구현**: 정직한 taxonomy=공통/분산 풀 전용 **2그룹**(`is_pool_mode()` 게이트 reaper 2종만 pool·keepalive=공통 F1)·현재 컨트롤러 모드 배너(`usePoolWorkers().pool_mode` 재사용)·환경 주석 2종·분류 단일소스 `settingsEnv.ts` sparse 맵(미매핑 폴백 common→거짓 배지 불가)·전부 UI-only(백엔드/wire 0-diff). **연기(→§B11)**: 레지스트리 `env_scope` 백엔드 필드·환경 taxonomy 세분(Windows/로컬/K8s/LAN)·`max_open_loop_worker_count` 대칭 환경 주석.
 - **C. Run 결과화면 + RunDialog 디자인 개선 — 후보** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
   - ④ 결과화면 **그래프가 왼쪽 정렬이라 보기 불편 → 가운데 정렬**. **Download 버튼 4개(JSON·CSV·XLSX·비교)가 반복 노출 → 그룹핑**(드롭다운/메뉴 등 — 의견 필요). **RunDialog가 초보자에게 당황스러움 → frontend-design 스킬로 시각·사용성 전면 재검토**(개방형, 깊은 brainstorming 필요·가장 큼).
 
@@ -287,6 +286,12 @@
 출처: 2026-06-16 "내부 테스트 단계 — 편리함에 집중" 후보 검토. **응답기반 extract 작성**(§C 후속 8-1, [[response-based-extract-authoring]])·**스텝 템플릿 관리 페이지 + 변수 파라미터화**(아래, [[step-template-management]])는 둘 다 **✅ 완료·머지 (2026-06-18)**, **ko.common 한국어화 일괄 롤업**(아래)도 **✅ 완료·머지 (2026-06-19)** — **§B10 편의 트랙 3종 전부 완결**:
 - **✅ 스텝 템플릿 관리 페이지 + 변수 파라미터화 완료·머지 (2026-06-18, [[step-template-management]]·build-log)** — 전용 `/templates`(EnvironmentsPage 미러[목록/이름·설명 편집/미리보기/삭제·**생성 없음**]) + 삽입 시 `{{flow}}`/`${ENV}` 토큰별 유지/이름변경/리터럴 치환 2-phase 단일 Modal(자동 추측 0). 순수 `templateParams.ts`(Document 스칼라 visit·byte-identical 불변식) + `scanEnvVars`. `ui/`-only·엔진/proto/controller/migration 0. ADR-0036 범위 내(별도 ADR 불필요).
 - **✅ ko.common 한국어화 일괄 롤업 완료·머지 (2026-06-19, [[ko-common-rollup]]·build-log)** — ui/src 잔존 영어 + 카탈로그 밖 인라인 한국어(본문·버튼·표 헤더·placeholder·`aria-label`·`title`·배너)를 `ko.ts` 경유 한국어로 **전수 이전**, half-catalog 해소(ADR-0035 단일 소스 *완성*). 신규 `ko.common`(크로스커팅 동작/상태만, R2). **정규 범위 = R1 grep 잔존 0**(§목록 아님). production byte-identical(`<option value=>`·`tab=`·enum wire값 보존, 라벨만 한국어화 — R8), 머지 diff=ui/(+docs) only. 누적 출처(전부 "ko.common 도입 시 일괄"로 연기됐던) U2/U3/U4/B7-C 영어 잔존 전부 해소. subagent-driven 6 task, handicap+security reviewer 둘 다 APPROVE, 라이브 waived(ui/-only·spec §6). 함정: implementer의 "R1 잔존 0" self-report 불신 → orchestrator가 grep 직접 재실행해 6개 추가 적발(루트 CLAUDE.md). `ui/`-only·엔진/proto/controller/migration 0.
+
+### B11. 설정 화면 환경별 그룹핑 (2026-06-26, 사용성 묶음 B[UX1]) 연기 항목
+출처: `2026-06-26-settings-env-grouping-design.md` §7. 본 슬라이스는 UI-only 프레젠테이션 그룹핑(공통/분산 풀 전용 2그룹·모드 배너·환경 주석)으로 완료. 연기:
+- **레지스트리 `env_scope` 백엔드 필드** — 분류를 `settings.rs::SettingDef`로 올려 "새 knob = 컴파일러가 분류 강제"를 보장. 지금은 UI sparse 맵(`settingsEnv.ts`) + 그래이스풀 폴백(미매핑=common)으로 충분(거짓 풀 배지 구조적 불가). 와이어 변경 가치(예: 외부 도구가 scope 소비)가 생기면 별도 슬라이스(additive `SettingDef`+DTO+Zod `.strict()`+fixture).
+- **환경 taxonomy 세분(Windows / 로컬 멀티 / K8s / LAN 풀)** — 현재 효과 차이는 `is_pool_mode()` 게이트뿐이라 2그룹이 정직(Windows 단일 exe=subprocess 부분집합). subprocess 내부를 더 쪼갤 동작 차이가 생기면 재검토.
+- **`max_open_loop_worker_count` 환경 주석** — `worker_capacity_vus`와 대칭으로 env-divergent(둘 다 비-풀 fan-out에서만 소비, 풀은 부하로 N 도출). 지금은 대표 fan-out 노브인 `worker_capacity_vus`에만 주석(의도적 비대칭, YAGNI). 필요 시 `ENV_NOTE_KEY`에 한 줄로 확장.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
