@@ -3,7 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { ko } from "../i18n/ko";
-import { type Har, distinctHosts, entryHost, isStaticAsset } from "../import/filters";
+import {
+  type Har,
+  type PreviewEntry,
+  distinctHosts,
+  duplicateIndices,
+  entryHost,
+  isStaticAsset,
+} from "../import/filters";
 import { type HeaderMode, harToScenarioYaml, inferName, parseHar } from "../import/harToScenario";
 
 // jsdom의 File에는 Blob.text()가 없어 `await file.text()`가 throw한다(브라우저엔 있음).
@@ -35,8 +42,8 @@ export function ScenarioImportPage() {
   );
 
   // 미리보기 목록: static/host 필터 적용 후(요청별 체크박스 대상). 원본 인덱스 유지.
-  const previewEntries = useMemo(() => {
-    if (!har) return [] as { url: string; method: string; index: number }[];
+  const previewEntries = useMemo<PreviewEntry[]>(() => {
+    if (!har) return [];
     return har.log.entries
       .map((e, index) => ({ e, index }))
       .filter(({ e }) => !(excludeStatic && isStaticAsset(e)))
@@ -46,6 +53,21 @@ export function ScenarioImportPage() {
       })
       .map(({ e, index }) => ({ url: e.request.url, method: e.request.method, index }));
   }, [har, excludeStatic, excludedHosts]);
+
+  const dupSet = useMemo(() => duplicateIndices(previewEntries), [previewEntries]);
+  const selectedCount = useMemo(
+    () => previewEntries.filter((p) => !excludedIndices.has(p.index)).length,
+    [previewEntries, excludedIndices],
+  );
+
+  const selectAll = () => setExcludedIndices(new Set());
+  const deselectAll = () => setExcludedIndices(new Set(previewEntries.map((p) => p.index)));
+  const dedup = () =>
+    setExcludedIndices((prev) => {
+      const next = new Set(prev);
+      for (const i of duplicateIndices(previewEntries)) next.add(i);
+      return next;
+    });
 
   const yaml = useMemo(() => {
     if (!har) return "";
@@ -178,6 +200,21 @@ export function ScenarioImportPage() {
 
           <fieldset className="flex flex-col gap-1 rounded-md border border-slate-200 p-4 text-sm">
             <legend className="font-medium text-slate-700">{ko.import.requests}</legend>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-600">
+                {ko.import.selectionSummary(selectedCount, previewEntries.length, dupSet.size)}
+              </span>
+              <span className="flex-1" />
+              <Button variant="secondary" onClick={selectAll}>
+                {ko.import.selectAll}
+              </Button>
+              <Button variant="secondary" onClick={deselectAll}>
+                {ko.import.deselectAll}
+              </Button>
+              <Button variant="secondary" onClick={dedup} disabled={dupSet.size === 0}>
+                {ko.import.dedup}
+              </Button>
+            </div>
             {previewEntries.length === 0 ? (
               <p className="text-slate-400">{ko.import.noRequests}</p>
             ) : (
@@ -194,6 +231,11 @@ export function ScenarioImportPage() {
                       <span className="truncate">
                         {p.method} {p.url}
                       </span>
+                      {dupSet.has(p.index) && (
+                        <span className="shrink-0 rounded bg-amber-100 px-1 text-xs text-amber-700">
+                          {ko.import.dupBadge}
+                        </span>
+                      )}
                     </label>
                   </li>
                 ))}

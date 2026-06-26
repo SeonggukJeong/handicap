@@ -992,6 +992,13 @@ export const ko = {
     preview: "변환된 시나리오 YAML",
     copy: "복사",
     toEditor: "편집기로 보내기",
+    // 선택 툴바·중복 (Task 2)
+    selectAll: "전체 선택",
+    deselectAll: "전체 해제",
+    dedup: "중복 해제",
+    selectionSummary: (n: number, m: number, k: number) =>
+      `선택 ${n} / 전체 ${m} · 중복 ${k} (method+경로 기준)`,
+    dupBadge: "중복",
   },
   opsSettings: {
     title: "운영 상한",

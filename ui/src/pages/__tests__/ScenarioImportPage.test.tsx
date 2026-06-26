@@ -25,6 +25,26 @@ const HAR = JSON.stringify({
   },
 });
 
+// method+경로 중복이 있는 HAR: GET /a 두 번(쿼리만 다름) + POST /a 한 번.
+const DUP_HAR = JSON.stringify({
+  log: {
+    entries: [
+      {
+        request: { method: "GET", url: "https://api.example.com/a?p=1", headers: [] },
+        response: { status: 200 },
+      },
+      {
+        request: { method: "GET", url: "https://api.example.com/a?p=2", headers: [] },
+        response: { status: 200 },
+      },
+      {
+        request: { method: "POST", url: "https://api.example.com/a", headers: [] },
+        response: { status: 200 },
+      },
+    ],
+  },
+});
+
 function renderPage() {
   render(
     <MemoryRouter initialEntries={["/scenarios/import"]}>
@@ -162,5 +182,44 @@ describe("ScenarioImportPage", () => {
     await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByRole("button", { name: ko.import.toEditor }));
     expect(await screen.findByText("NEW")).toBeInTheDocument();
+  });
+
+  it("R4/R5: 요약에 선택/전체/중복 수와 기준 문구, 중복 행에 배지", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(DUP_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    // 3개 요청, 그 중 1개가 중복(2번째 GET /a)
+    expect(screen.getByText(ko.import.selectionSummary(3, 3, 1))).toBeInTheDocument();
+    // 중복 배지는 정확히 1개
+    expect(screen.getAllByText(ko.import.dupBadge)).toHaveLength(1);
+  });
+
+  it("R2: 전체 해제 → YAML steps 0, R1: 전체 선택 → 복구", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(DUP_HAR));
+    const preview = (await screen.findByLabelText(ko.import.preview)) as HTMLTextAreaElement;
+    await user.click(screen.getByRole("button", { name: ko.import.deselectAll }));
+    // 전체 해제해도 harToScenarioYaml은 `steps: []`를 emit한다(빈 배열) — 내용으로 단언(F1).
+    await waitFor(() => expect(preview.value).toContain("steps: []"));
+    await user.click(screen.getByRole("button", { name: ko.import.selectAll }));
+    await waitFor(() =>
+      expect((screen.getByLabelText(ko.import.preview) as HTMLTextAreaElement).value).toContain(
+        "/a",
+      ),
+    );
+  });
+
+  it("R3: 중복 해제 → 그룹당 첫 요청만 남는다(2번째 GET /a 해제)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(DUP_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByRole("button", { name: ko.import.dedup }));
+    // 중복 해제 후 선택 2 / 전체 3 / 중복 1
+    await waitFor(() =>
+      expect(screen.getByText(ko.import.selectionSummary(2, 3, 1))).toBeInTheDocument(),
+    );
   });
 });
