@@ -63,7 +63,12 @@ export function StepPhaseBreakdown({ steps, meta }: Props) {
                 key={s.step_id}
                 className="flex items-center gap-3 border-t border-slate-100 py-2"
               >
-                <div className="w-40 text-sm font-medium">{m?.name ?? s.step_id}</div>
+                <div
+                  className="w-40 shrink-0 truncate text-sm font-medium"
+                  title={m?.name ?? s.step_id}
+                >
+                  {m?.name ?? s.step_id}
+                </div>
                 <div
                   role="img"
                   aria-label={`${m?.name ?? s.step_id} ${ko.report.phaseWait} ${wait}ms ${ko.report.phaseDownload} ${dl}ms`}

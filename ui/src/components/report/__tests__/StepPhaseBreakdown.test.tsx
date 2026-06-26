@@ -18,6 +18,32 @@ const steps = [
 ];
 const meta = new Map([["s1", { id: "s1", name: "login", method: "POST", url: "/login" }]]);
 
+const longName = "POST /kramycard/cache/ajax/setupList.json";
+const stepsLong = [
+  {
+    step_id: "s2",
+    count: 50,
+    error_count: 0,
+    status_counts: { "200": 50 },
+    p50_ms: 100,
+    p95_ms: 120,
+    p99_ms: 130,
+    wait: { count: 50, p50_ms: 90, p95_ms: 110, p99_ms: 120, max_ms: 125 },
+    download: { count: 50, p50_ms: 10, p95_ms: 15, p99_ms: 18, max_ms: 20 },
+  },
+];
+const metaLong = new Map([
+  [
+    "s2",
+    {
+      id: "s2",
+      name: longName,
+      method: "POST",
+      url: "/kramycard/cache/ajax/setupList.json",
+    },
+  ],
+]);
+
 describe("StepPhaseBreakdown", () => {
   it("defaults to waterfall and toggles to chips", async () => {
     const user = userEvent.setup();
@@ -27,5 +53,13 @@ describe("StepPhaseBreakdown", () => {
     // toggle to chips view
     await user.click(screen.getByRole("button", { name: "칩" }));
     expect(screen.getByText(/대기/)).toBeInTheDocument();
+  });
+
+  it("waterfall label div has truncate class and title for long step names", () => {
+    render(<StepPhaseBreakdown steps={stepsLong as never} meta={metaLong} />);
+    // The label div renders the step name as text; bar div has role="img" and is distinct
+    const labelEl = screen.getByText(longName);
+    expect(labelEl).toHaveClass("truncate");
+    expect(labelEl).toHaveAttribute("title", longName);
   });
 });
