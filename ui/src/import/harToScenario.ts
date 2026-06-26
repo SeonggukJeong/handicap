@@ -15,6 +15,7 @@ export interface ConvertOptions extends SelectOptions {
   headerMode: HeaderMode;
   statusAssert: boolean;
   name: string;
+  hostVars?: Record<string, string>;
 }
 
 const VOLATILE = new Set([
@@ -88,9 +89,24 @@ function pathOf(url: string): string {
   }
 }
 
+// 매핑된 호스트의 origin(scheme://host[:port])을 ${변수}로 치환. 미매핑·상대 URL은 불변.
+export function parameterizeUrl(url: string, hostVars?: Record<string, string>): string {
+  if (!hostVars) return url;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  const varName = hostVars[parsed.host];
+  if (!varName) return url;
+  return `\${${varName}}${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
 function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown> {
   const method = entry.request.method.toUpperCase();
-  const url = entry.request.url;
+  const rawUrl = entry.request.url;
+  const url = parameterizeUrl(rawUrl, opts.hostVars);
   const request: Record<string, unknown> = {
     method,
     url,
@@ -102,7 +118,7 @@ function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown
   const assert = opts.statusAssert && typeof status === "number" ? [{ status }] : [];
   return {
     id: newStepId(),
-    name: `${method} ${pathOf(url)}`,
+    name: `${method} ${pathOf(rawUrl)}`,
     type: "http",
     request,
     assert,

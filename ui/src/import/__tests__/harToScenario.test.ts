@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import type { Har } from "../filters";
-import { type ConvertOptions, harToScenarioYaml, inferName, parseHar } from "../harToScenario";
+import {
+  type ConvertOptions,
+  harToScenarioYaml,
+  inferName,
+  parameterizeUrl,
+  parseHar,
+} from "../harToScenario";
 
 const DEFAULTS: ConvertOptions = {
   excludeStatic: false,
@@ -196,5 +202,40 @@ describe("harToScenarioYaml", () => {
     expect(() => parseHar("{not json")).toThrow();
     expect(() => parseHar(JSON.stringify({ log: { entries: [] } }))).toThrow();
     expect(parseHar(JSON.stringify(har([getEntry()]))).log.entries).toHaveLength(1);
+  });
+});
+
+describe("parameterizeUrl / hostVars (R9, R12)", () => {
+  it("매핑된 호스트의 origin을 ${변수}로 치환, path·query 유지", () => {
+    expect(
+      parameterizeUrl("https://api.example.com/users?p=1", { "api.example.com": "BASE_URL" }),
+    ).toBe("${BASE_URL}/users?p=1");
+  });
+
+  it("매핑에 없는 호스트·상대 URL은 불변", () => {
+    expect(parameterizeUrl("https://cdn.x.com/a", { "api.example.com": "BASE_URL" })).toBe(
+      "https://cdn.x.com/a",
+    );
+    expect(parameterizeUrl("/relative/path", { "api.example.com": "BASE_URL" })).toBe(
+      "/relative/path",
+    );
+  });
+
+  it("hostVars 미지정이면 불변(byte-identical)", () => {
+    expect(parameterizeUrl("https://api.example.com/a")).toBe("https://api.example.com/a");
+  });
+
+  it("harToScenarioYaml: hostVars 주면 step url이 ${BASE_URL}/path 와이어-형", () => {
+    const h = har([getEntry()]);
+    const yaml = harToScenarioYaml(h, { ...DEFAULTS, hostVars: { "api.example.com": "BASE_URL" } });
+    expect(yaml).toContain("url: ${BASE_URL}/users");
+    // 와이어 구조 유지(파싱 + step 존재). (ui/CLAUDE.md "HAR import R2")
+    const parsed = parseScenarioDoc(yaml);
+    expect("model" in parsed).toBe(true);
+  });
+
+  it("harToScenarioYaml: hostVars 미지정이면 기존 절대 URL(byte-identical 경로)", () => {
+    const h = har([getEntry()]);
+    expect(harToScenarioYaml(h, DEFAULTS)).toContain("url: https://api.example.com/users");
   });
 });
