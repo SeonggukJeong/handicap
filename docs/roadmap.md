@@ -18,10 +18,24 @@
 
 | # | 후보 | 가치 | 크기·의존성 |
 |---|---|---|---|
-| 1 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
-| 2 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
+| 1 | **사용성 묶음 B — 설정 화면 환경별 그룹핑** — §UX1 | Windows/K8s 설정 혼재로 관리자가 어느 값이 어느 환경 소속인지 모름 → 관리자 화면 명료화 | 중·`SettingsPage.tsx`·`ko.ts`·설정 분류 메타데이터 |
+| 2 | **사용성 묶음 C — Run 결과 + RunDialog 디자인 개선** — §UX1 | 그래프 정렬·Download 그룹핑·RunDialog 초보자 친화(최고 가치 표면) | 대·개방형 디자인·**frontend-design + 깊은 brainstorming** 필요·`RunDialog.tsx`(936줄)/`ReportView.tsx` |
+| 3 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
+| 4 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
 
 이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper)은 아래 §B* 참조.
+
+### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A 진행 중·B/C 후보
+
+사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A 착수(2026-06-26, worktree `har-import-ux`), B·C는 위 shortlist 후보.** 세부 항목 원문 보존:
+
+- **A. HAR 가져오기 UX 개선 — 🔄 진행 중** (`ScenarioImportPage.tsx`·`import/`):
+  - ② HAR 업로드 시 모든 요청 체크박스가 기본 전체 선택이라 불편 → **전체 선택/전체 해제 버튼**, **중복 URL(method+url 동일) 표시**, **중복만 해제 버튼**.
+  - ③ 가져오기 화면에서 **호스트를 환경변수로 등록할지 물어보고 등록**(비강제) — 환경(Environments) 리소스 연동.
+- **B. 설정 화면 환경별 그룹핑 — 후보** (`SettingsPage.tsx`·`ko.ts`):
+  - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심.
+- **C. Run 결과화면 + RunDialog 디자인 개선 — 후보** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
+  - ④ 결과화면 **그래프가 왼쪽 정렬이라 보기 불편 → 가운데 정렬**. **Download 버튼 4개(JSON·CSV·XLSX·비교)가 반복 노출 → 그룹핑**(드롭다운/메뉴 등 — 의견 필요). **RunDialog가 초보자에게 당황스러움 → frontend-design 스킬로 시각·사용성 전면 재검토**(개방형, 깊은 brainstorming 필요·가장 큼).
 
 ## 현재 상태 (2026-06-26)
 
