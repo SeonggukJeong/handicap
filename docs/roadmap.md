@@ -18,13 +18,13 @@
 
 | # | 후보 | 가치 | 크기·의존성 |
 |---|---|---|---|
-| 1 | **사용성 묶음 C — Run 결과 + RunDialog 디자인 개선** — §UX1 | 그래프 정렬·Download 그룹핑·RunDialog 초보자 친화(최고 가치 표면) | 대·개방형 디자인·**frontend-design + 깊은 brainstorming** 필요·`RunDialog.tsx`(936줄)/`ReportView.tsx` |
+| 1 | **사용성 묶음 C-2 — RunDialog 초보자 친화 디자인 재검토** — §UX1 | RunDialog가 초보자에게 당황스러움(최고 가치 표면). C-1(결과화면 차트 반응형+다운로드 드롭다운 메뉴) ✅ 완료 2026-06-27 | 대·개방형 디자인·**frontend-design + 깊은 brainstorming** 필요·`RunDialog.tsx`(936줄) |
 | 2 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
 | 3 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
 
 이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper)은 아래 §B* 참조.
 
-### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B 완료·C 후보
+### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B·C-1 완료·C-2 후보
 
 사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A·B 완료(2026-06-26, 머지), C는 위 shortlist 후보.** 세부 항목 원문 보존:
 
@@ -33,8 +33,9 @@
   - ③ 가져오기 화면에서 **호스트를 환경변수로 등록할지 물어보고 등록**(비강제) — 환경(Environments) 리소스 연동.
 - **B. 설정 화면 환경별 그룹핑 — ✅ 완료 (2026-06-26)** (`SettingsPage.tsx`·`ko.ts`·신규 `settingsEnv.ts`):
   - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심. → **구현**: 정직한 taxonomy=공통/분산 풀 전용 **2그룹**(`is_pool_mode()` 게이트 reaper 2종만 pool·keepalive=공통 F1)·현재 컨트롤러 모드 배너(`usePoolWorkers().pool_mode` 재사용)·환경 주석 2종·분류 단일소스 `settingsEnv.ts` sparse 맵(미매핑 폴백 common→거짓 배지 불가)·전부 UI-only(백엔드/wire 0-diff). **연기(→§B11)**: 레지스트리 `env_scope` 백엔드 필드·환경 taxonomy 세분(Windows/로컬/K8s/LAN)·`max_open_loop_worker_count` 대칭 환경 주석.
-- **C. Run 결과화면 + RunDialog 디자인 개선 — 후보** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
-  - ④ 결과화면 **그래프가 왼쪽 정렬이라 보기 불편 → 가운데 정렬**. **Download 버튼 4개(JSON·CSV·XLSX·비교)가 반복 노출 → 그룹핑**(드롭다운/메뉴 등 — 의견 필요). **RunDialog가 초보자에게 당황스러움 → frontend-design 스킬로 시각·사용성 전면 재검토**(개방형, 깊은 brainstorming 필요·가장 큼).
+- **C. Run 결과화면 + RunDialog 디자인 개선 — C-1 ✅ 완료·C-2 후보** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
+  - ④ **C-1 ✅ 완료 (2026-06-27, result-screen-polish)**: 결과화면 그래프 **반응형 전환**(차트 5종이 콘텐츠 폭 1104px 채움 — 고정폭 왼쪽 dead space 제거)·**Download 버튼 4개(JSON·CSV·XLSX·인사이트 CSV)→단일 WAI-ARIA 드롭다운 메뉴 `DownloadMenu`(키보드 풀) + 포맷 설명 HelpTip**(`downloadJson` 헬퍼 추출·`DownloadJsonButton` 제거·전부 UI-only·다운로드 byte-identical·`ko.report.download*`). 상세→build-log.
+  - **C-2 후보**: **RunDialog가 초보자에게 당황스러움 → frontend-design 스킬로 시각·사용성 전면 재검토**(개방형, 깊은 brainstorming 필요·가장 큼·`RunDialog.tsx` 936줄).
 
 ## 현재 상태 (2026-06-26)
 
