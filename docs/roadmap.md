@@ -294,6 +294,15 @@
 - **환경 taxonomy 세분(Windows / 로컬 멀티 / K8s / LAN 풀)** — 현재 효과 차이는 `is_pool_mode()` 게이트뿐이라 2그룹이 정직(Windows 단일 exe=subprocess 부분집합). subprocess 내부를 더 쪼갤 동작 차이가 생기면 재검토.
 - **`max_open_loop_worker_count` 환경 주석** — `worker_capacity_vus`와 대칭으로 env-divergent(둘 다 비-풀 fan-out에서만 소비, 풀은 부하로 N 도출). 지금은 대표 fan-out 노브인 `worker_capacity_vus`에만 주석(의도적 비대칭, YAGNI). 필요 시 `ENV_NOTE_KEY`에 한 줄로 확장.
 
+### B12. 디자인 시스템 확장 (2026-06-27, C-2) 연기 항목
+출처: `2026-06-27-rundialog-design-system-design.md` §7. 본 슬라이스는 RunDialog 트리만을 대상으로 토큰 레이어(`tailwind.config.ts`)·프리미티브 6종(`ui/src/components/ui/`)·Button accent 통일을 세우고 RunDialog를 byte-identical 재구성으로 완료. 연기:
+- **다른 화면 토큰 이주** (리포트·에디터/Inspector·목록·설정): 이번은 RunDialog 트리만. 차츰 같은 프리미티브로 확장.
+- **차트/compare 색 토큰화**: 데이터 식별 색(차트 stroke `#2563eb`·`StageCurvePreview` 곡선선·`runLabel.ts` compare 팔레트·`StatusBadge` running)은 컨트롤 색과 별 도메인 — 별도 검토.
+- **간단/상세 모드 토글·단계별 마법사**: 구조 A(번호 섹션·강한 위계)로 충분 — B(모드 토글)/C(마법사)는 효과 확인 후 재검토(사용자: "개선해보고 나서 추가 검토").
+- **기존 프리미티브(`Button`/`Modal`/`HelpTip`) `ui/` 폴더 통합**: import 경로 churn이 커서 이번엔 제자리 유지 — 후속 정리 슬라이스에서 이동.
+- **기존 HelpTip `label` aria 텍스트 `ko.ts` 이주**: 현재 "VU 설명" 등 일부 HelpTip label이 하드코딩돼 있음. byte-identical 유지 위해 이번 미이주 — ADR-0035 전수 정리 시 해소.
+- **기본값 숫자 재검토**: 추천 프레이밍은 추가했지만 기본값 자체(vus=2·duration=5·target_rps=100·max_in_flight=200·worker=1·timeout=30)는 byte-identical 유지. 데이터 기반 적정값으로 별도 논의.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
