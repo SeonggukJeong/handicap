@@ -71,21 +71,21 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 - 헤더(`<h3>` 행)에 `<Segmented value={mode} onChange={setMode} options=[간단,상세]>`(R1). title은 형제로(accname 오염 금지).
 - 본문을 모드로 게이트: 프로파일/measure/고급/바인딩/오버라이드/저장/램프다운/워커 disclosure는 `mode==="detailed"`일 때만 렌더(R3·R4). **state는 그대로 유지**(R5).
 - **프리셋 불러오기 strip(기존 RunDialog.tsx:492-513)** → 본문 최상단으로 이동(두 모드, `presets.data?.length>0`). **프리셋 저장/이름변경/삭제(기존 755-791)** → 본문 최하단·상세-only로 이동(R7).
-- **측정 토글(기존 744-751, 고급 그룹 내부)** → 상세 독립 섹션으로 승격(R9) — 가치 라벨 + HelpTip. 고급 그룹엔 SLO/스텝SLO/페이싱/http_timeout/loop_cap만 남김.
+- **측정 토글(기존 744-751, 고급 그룹 내부)** → 상세 독립 섹션으로 승격(R9) — 가치 라벨 + HelpTip. 고급 그룹엔 SLO/스텝SLO/페이싱/http_timeout/loop_cap만 남김. **측정이 collapse 밖으로 나가므로 고급 collapse 접힘 힌트(`advancedActiveCount` 기반, RunDialog.tsx:631-633)는 measure 항을 빼고 `sloActiveCount+pacingActiveCount`만 세야 한다**(빈 collapse가 "1개"로 보이는 off-by-one 차단·리뷰 A) — `detailedAppliedCount`(R6 위)는 measure를 별도 항으로 더함.
 - **실시간 요약 strip**: sticky footer(실행/취소 옆)에 `runSummary(loadState, ...)` 결과 텍스트 + 곡선이면 `StageCurvePreview` 소형(R8). 두 모드 공통.
 - **"상세 설정 N개 적용됨"(R6·리뷰 #4)**: 간단 모드에서만, **정의된 카운트** `detailedAppliedCount = advancedActiveCount(SLO+페이싱+measure) + (rateMode==="curve"?1:0) + (worker_count>1?1:0) + (http_timeout!==30?1:0) + (hasLoop && loop_cap!==256?1:0) + (rateMode==="curve" && ramp_down!=="graceful"?1:0)` 가 >0이면 그 N으로 표시. 정의를 못박아 "0개인데 배지" 모순 제거. **payload에 실제 emit되는 비기본만 카운트** — `ramp_down`은 곡선에서만 emit이라 곡선일 때만 +1(비-곡선의 inert `immediate`는 미계수·리뷰 후속). (env 오버라이드는 R18 별도 힌트로 분리 — 이 카운트엔 미포함.)
 - **`blockedReasons` Callout 게이트 일반화(R5 load-bearing·리뷰 #2)**: 기존 `!advancedOpen && (httpTimeoutInvalid|loopCapInvalid|thinkInvalid)`(RunDialog.tsx:799-826)를 **"해당 필드가 현재 모드에서 미렌더"**로 일반화 — `(mode==="simple" || !advancedOpen)` 분기 + **`mode==="simple" && loadModel==="open" && loadErrs.workerCountInvalid → ko.validation.workerCount` 추가**(간단에서 worker disclosure 숨김인데 `canSubmit`이 `workerCountInvalid`로 막음, RunDialog.tsx:344·352). `canSubmit` 전 항(338-371)을 "간단에서 렌더되나?"로 전수 대조: rampUp/targetRps/maxInFlight는 간단 렌더라 인라인 에러로 충분, stagesInvalid는 곡선=R17 경로. `bindingBlock`은 모드 무관 유지.
 - 모드 전환은 `buildProfile`/`canSubmit`(검증식)/프리셋/풀가드/에러 배너 **로직**을 건드리지 않는다(blockedReasons는 *표시 게이트*라 위처럼 모드를 반영하되, 검증식 자체는 불변).
 
-### 4.2 `ui/src/components/LoadModelFields.tsx` — 충족 R: R3·R4·R10·R12·R14
+### 4.2 `ui/src/components/LoadModelFields.tsx` — 충족 R: R3·R4·R10·R12·R14·R17
 - 신규 optional props(전부 ScheduleForm 미전달=기존 동작): `simpleMode?: boolean`, `loadModelTiles?: boolean`(타일 표현), `numeric?: boolean`(tabular-nums) — 또는 plan이 단일 `instrument?: boolean`로 묶을 수 있음(미전달=기존 라디오/라벨=byte-identical).
 - `simpleMode`일 때 숨김: 프로파일(고정/곡선) fieldset, 곡선 에디터, ramp_down, worker_count disclosure+worker 사이징, open-loop 구조 경고(idle/inert). 유지: 부하모델 선택, 크기 chips(closed), 주 수치 그리드, **VU 사이징 도우미(closed)·slot 사이징 도우미(open)** — 주 수치를 돕는 도우미라 두 모드 공통(R10).
 - **Simple + `rateMode==="curve"`(리뷰 #1·R17)**: 주 수치 그리드는 `rateMode==="fixed"` arm(LoadModelFields.tsx:420-464 closed / 583-617 open) 안이라 곡선이면 안 뜬다 → 간단에서 곡선이면(곡선 에디터·프로파일 선택은 숨긴 채) **"곡선 부하 설정됨 — 상세에서 편집" 읽기전용 카드**(+요약 스파크라인)를 렌더해 빈/부분 섹션을 막는다. `vu_stages` payload 불변, 토글이 curve→fixed로 **스냅 금지**(스냅=vu_stages 증발=R11 위반). 곡선 stage가 invalid면(간단에서 stage 에디터 숨김) 인라인 사유는 없고 `canSubmit`이 `stagesInvalid`로 막되 footer `runSummary`가 `설정을 확인하세요`로 신호(R8 fallback — R17 카드는 스파크라인이지 validity reason 아님·리뷰 후속). (R2가 곡선 prefill을 상세로 열지만 사용자가 수동 간단 전환 가능 → 이 상태 정의 필수.)
 - 부하모델 선택을 `loadModelTiles`면 라디오→**타일**(설명 동반, `radiogroup`)로(R14·R3). 미전달이면 기존 라디오(R12).
 - 사이징 도우미 게이트 락인: 기존 `it.each`(미렌더 매트릭스)에 `simpleMode` 축 추가 — VU/slot 도우미는 simple/detail 모두 해당 arm에서 렌더, worker 도우미는 detail-only.
 
-### 4.3 `ui/src/components/EnvironmentPicker.tsx` — 충족 R: R3·R12
-- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical. **`false`는 편집 UI만 가리고 부모 소유 `envEntries`/`selectedEnvId` state를 건드리지 않는다** → `resolveEnv` 결과(env payload) byte-identical(R11·리뷰 #6). **R18**: `showOverrides=false`(간단)에서 `overrides.length>0`이면 셀렉터 옆에 "변수 N개 적용됨 (상세에서 편집)" 힌트(`ko` 경유)를 렌더 — prefill된 숨은 env를 "(없음)" 셀렉터가 호도하지 않게.
+### 4.3 `ui/src/components/EnvironmentPicker.tsx` — 충족 R: R3·R12·R18
+- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical. **`false`는 편집 UI만 가리고 부모 소유 `envEntries`/`selectedEnvId` state를 건드리지 않는다** → `resolveEnv` 결과(env payload) byte-identical(R11·리뷰 #6). **R18**: `showOverrides=false`(간단)에서 `overrides.length>0`이면 셀렉터 옆에 "변수 N개 적용됨 (상세에서 편집)" 힌트(`ko` 경유)를 렌더 — prefill된 숨은 env를 "(없음)" 셀렉터가 호도하지 않게. `N = overrides.filter(o => o.key.trim()).length`(빈-키 행 제외 — `resolveEnv`가 drop하는 것과 일치).
 
 ### 4.4 `ui/src/components/runSummary.ts` (신규, 순수) — 충족 R: R8
 - `runSummary(input: Pick<LoadModelState, ...>): { text: string; tone: "ok"|"warn"; curve: boolean }`. 모드 분기는 §3.2 표대로. `fmtTime`(초→"5분"/"90초"/"1분 30초") 내장. wire 무접촉(표시 전용).
