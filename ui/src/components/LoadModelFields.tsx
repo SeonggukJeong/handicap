@@ -55,6 +55,10 @@ type Props = {
   poolMode?: boolean;
   // RunDialog 전용: 필수 입력에 '추천' Badge를 렌더. ScheduleForm은 미전달 → 미렌더 (B4).
   showRecommended?: boolean;
+  // RunDialog 재구성 게이트 props (모두 optional → 미전달 시 ScheduleForm byte-identical, R12).
+  simpleMode?: boolean; // 프로파일/곡선/rampDown/워커/경고 숨김 — 주 수치·크기 chips·사이징 헬퍼 유지
+  loadModelTiles?: boolean; // 부하 모델 라디오 → 타일(button[role=radio]) 전환
+  numeric?: boolean; // 주 수치 Input + raw curve/worker input에 tabular-nums 추가
 };
 
 const INPUT =
@@ -91,6 +95,9 @@ export function LoadModelFields({
   httpTimeout,
   poolMode,
   showRecommended,
+  simpleMode,
+  loadModelTiles,
+  numeric,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -196,7 +203,7 @@ export function LoadModelFields({
                   prev.map((r, j) => (j === i ? { ...r, target: e.target.value } : r)),
                 )
               }
-              className={INPUT}
+              className={numeric ? `${INPUT} tabular-nums` : INPUT}
             />
           </label>
           <label className="block text-sm flex-1 min-w-0">
@@ -211,7 +218,7 @@ export function LoadModelFields({
                   prev.map((r, j) => (j === i ? { ...r, duration_seconds: e.target.value } : r)),
                 )
               }
-              className={INPUT}
+              className={numeric ? `${INPUT} tabular-nums` : INPUT}
             />
           </label>
           <button
@@ -279,111 +286,151 @@ export function LoadModelFields({
       {/* 1차 축: 부하 모델 */}
       <fieldset className="mb-3">
         <legend className="text-sm text-slate-600 mb-1">부하 모델</legend>
-        <div className="flex items-center gap-4">
-          <span className="flex items-center">
-            <label className="flex items-center gap-1 text-sm cursor-pointer">
-              <input
-                type="radio"
-                name="load-model"
-                value="closed"
-                checked={loadModel === "closed"}
-                onChange={() => {
-                  setLoadModel("closed");
-                  // eager reset 제거 — closed+curve는 이제 유효한 모드
-                }}
-              />
-              {ko.loadModel.closedLoop}
-            </label>
-            <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
-          </span>
-          <span className="flex items-center">
-            <label className="flex items-center gap-1 text-sm cursor-pointer">
-              <input
-                type="radio"
-                name="load-model"
-                value="open"
-                checked={loadModel === "open"}
-                onChange={() => setLoadModel("open")}
-              />
-              {ko.loadModel.openLoop}
-            </label>
-            <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
-          </span>
-        </div>
+        {loadModelTiles ? (
+          /* 타일 모드 — button[role=radio] (accessible name = closedLoop/openLoop 텍스트 포함,
+             기존 getByRole("radio",{name:/사용자 수 기준/}) 셀렉터 보존).
+             HelpTip은 타일 button 바깥 형제 — 버튼 안에 넣으면 중첩 button + accname 오염 (U3). */
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={loadModel === "closed"}
+                onClick={() => setLoadModel("closed")}
+                className="flex flex-col items-start text-sm cursor-pointer"
+              >
+                <span>{ko.loadModel.closedLoop}</span>
+                <span className="text-xs text-slate-500">{ko.loadModel.tileClosedDesc}</span>
+              </button>
+              <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
+            </span>
+            <span className="flex items-center gap-1">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={loadModel === "open"}
+                onClick={() => setLoadModel("open")}
+                className="flex flex-col items-start text-sm cursor-pointer"
+              >
+                <span>{ko.loadModel.openLoop}</span>
+                <span className="text-xs text-slate-500">{ko.loadModel.tileOpenDesc}</span>
+              </button>
+              <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+            </span>
+          </div>
+        ) : (
+          /* 기존 라디오 모드 — ScheduleForm byte-identical */
+          <div className="flex items-center gap-4">
+            <span className="flex items-center">
+              <label className="flex items-center gap-1 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="load-model"
+                  value="closed"
+                  checked={loadModel === "closed"}
+                  onChange={() => {
+                    setLoadModel("closed");
+                    // eager reset 제거 — closed+curve는 이제 유효한 모드
+                  }}
+                />
+                {ko.loadModel.closedLoop}
+              </label>
+              <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
+            </span>
+            <span className="flex items-center">
+              <label className="flex items-center gap-1 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="load-model"
+                  value="open"
+                  checked={loadModel === "open"}
+                  onChange={() => setLoadModel("open")}
+                />
+                {ko.loadModel.openLoop}
+              </label>
+              <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+            </span>
+          </div>
+        )}
       </fieldset>
 
-      {/* 2차 축: 프로파일(고정/곡선) — 이제 closed에서도 곡선 활성 */}
-      <fieldset className="mb-3">
-        <legend className="text-sm text-slate-600 mb-1">프로파일</legend>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-1 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="rate-mode"
-              value="fixed"
-              checked={rateMode === "fixed"}
-              onChange={() => setRateMode("fixed")}
-            />
-            고정
-          </label>
-          {/* HelpTip은 label 밖 형제 — label 안에 넣으면 곡선 라디오 accname 오염 (U3) */}
-          <span className="flex items-center gap-1">
+      {/* 2차 축: 프로파일(고정/곡선) — simpleMode면 숨김(RunDialog R3) */}
+      {!simpleMode && (
+        <fieldset className="mb-3">
+          <legend className="text-sm text-slate-600 mb-1">프로파일</legend>
+          <div className="flex items-center gap-4">
             <label className="flex items-center gap-1 text-sm cursor-pointer">
               <input
                 type="radio"
                 name="rate-mode"
-                value="curve"
-                checked={rateMode === "curve"}
-                onChange={() => setRateMode("curve")}
+                value="fixed"
+                checked={rateMode === "fixed"}
+                onChange={() => setRateMode("fixed")}
               />
-              곡선
+              고정
             </label>
-            {loadModel === "closed" && (
-              <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
-            )}
-          </span>
-        </div>
-      </fieldset>
+            {/* HelpTip은 label 밖 형제 — label 안에 넣으면 곡선 라디오 accname 오염 (U3) */}
+            <span className="flex items-center gap-1">
+              <label className="flex items-center gap-1 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="rate-mode"
+                  value="curve"
+                  checked={rateMode === "curve"}
+                  onChange={() => setRateMode("curve")}
+                />
+                곡선
+              </label>
+              {loadModel === "closed" && (
+                <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
+              )}
+            </span>
+          </div>
+        </fieldset>
+      )}
 
       {loadModel === "closed" ? (
         rateMode === "curve" ? (
-          <>
-            {curveEditor}
-            {/* ramp_down 라디오 — HelpTip은 그룹 라벨 밖 형제 (U3 accname 오염 방지);
+          /* simpleMode: 곡선 영역에 아무것도 안 그림 — RunDialog R17 카드(T8)가 채움 */
+          simpleMode ? null : (
+            <>
+              {curveEditor}
+              {/* ramp_down 라디오 — HelpTip은 그룹 라벨 밖 형제 (U3 accname 오염 방지);
                 radiogroup+aria-label로 그룹 접근명 제공(파일 idiom: label+HelpTip 한 행) */}
-            <div className="mb-3">
-              <div className="flex items-center gap-1 mb-1">
-                <span className="text-sm text-slate-600">{ko.loadModel.rampDownLabel}</span>
-                <HelpTip label="줄이는 방식 설명">{ko.glossary.rampDown}</HelpTip>
+              <div className="mb-3">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-sm text-slate-600">{ko.loadModel.rampDownLabel}</span>
+                  <HelpTip label="줄이는 방식 설명">{ko.glossary.rampDown}</HelpTip>
+                </div>
+                <div
+                  role="radiogroup"
+                  aria-label={ko.loadModel.rampDownLabel}
+                  className="flex flex-col gap-1"
+                >
+                  <label className="flex items-center gap-1 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="ramp-down"
+                      value="graceful"
+                      checked={rampDown === "graceful"}
+                      onChange={() => setRampDown("graceful")}
+                    />
+                    {ko.loadModel.rampDownGraceful}
+                  </label>
+                  <label className="flex items-center gap-1 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="ramp-down"
+                      value="immediate"
+                      checked={rampDown === "immediate"}
+                      onChange={() => setRampDown("immediate")}
+                    />
+                    {ko.loadModel.rampDownImmediate}
+                  </label>
+                </div>
               </div>
-              <div
-                role="radiogroup"
-                aria-label={ko.loadModel.rampDownLabel}
-                className="flex flex-col gap-1"
-              >
-                <label className="flex items-center gap-1 text-sm cursor-pointer">
-                  <input
-                    type="radio"
-                    name="ramp-down"
-                    value="graceful"
-                    checked={rampDown === "graceful"}
-                    onChange={() => setRampDown("graceful")}
-                  />
-                  {ko.loadModel.rampDownGraceful}
-                </label>
-                <label className="flex items-center gap-1 text-sm cursor-pointer">
-                  <input
-                    type="radio"
-                    name="ramp-down"
-                    value="immediate"
-                    checked={rampDown === "immediate"}
-                    onChange={() => setRampDown("immediate")}
-                  />
-                  {ko.loadModel.rampDownImmediate}
-                </label>
-              </div>
-            </div>
-          </>
+            </>
+          )
         ) : (
           <>
             {/* 부하 크기 프리셋 chips */}
@@ -430,6 +477,7 @@ export function LoadModelFields({
                   min={1}
                   value={vus}
                   onChange={(e) => setVus(Number(e.target.value))}
+                  numeric={numeric}
                 />
               </Field>
               <Field
@@ -444,6 +492,7 @@ export function LoadModelFields({
                   min={1}
                   value={duration}
                   onChange={(e) => setDuration(Number(e.target.value))}
+                  numeric={numeric}
                 />
               </Field>
               <Field
@@ -459,6 +508,7 @@ export function LoadModelFields({
                   onChange={(e) => setRampUp(Number(e.target.value))}
                   aria-invalid={errs.rampInvalid}
                   aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
+                  numeric={numeric}
                 />
               </Field>
             </div>
@@ -496,6 +546,7 @@ export function LoadModelFields({
                 onChange={(e) => setMaxInFlight(e.target.value)}
                 aria-invalid={errs.maxInFlightInvalid}
                 aria-describedby={errs.maxInFlightInvalid ? "max-in-flight-error" : undefined}
+                numeric={numeric}
               />
             </Field>
           </div>
@@ -504,7 +555,7 @@ export function LoadModelFields({
               {ko.validation.maxInFlight}
             </p>
           )}
-          {inertWarn && (
+          {!simpleMode && inertWarn && (
             <p role="status" className="mb-3 max-w-xs text-amber-700 text-sm">
               {ko.openLoopCheck.inertSlots}
             </p>
@@ -513,7 +564,7 @@ export function LoadModelFields({
           {/* worker_count(수평 확장) 접이식 — RunDialog 전용(setWorkerCount 부재면 미렌더),
               open 모드(고정·곡선) 공통. 기본 접힘 + 값>1이면 자동 펼침·접힌 채면 "N개 설정됨"
               힌트로 비기본값 노출 (ui-optional-sections-collapsible). */}
-          {setWorkerCount !== undefined && loadModel === "open" && (
+          {!simpleMode && setWorkerCount !== undefined && loadModel === "open" && (
             <div className="mb-3 max-w-xs">
               <button
                 type="button"
@@ -545,7 +596,7 @@ export function LoadModelFields({
                     aria-label={ko.loadModel.workerCount}
                     value={workerCount ?? "1"}
                     onChange={(e) => setWorkerCount(e.target.value)}
-                    className={INPUT}
+                    className={numeric ? `${INPUT} tabular-nums` : INPUT}
                     aria-invalid={errs.workerCountInvalid}
                     aria-describedby={errs.workerCountInvalid ? "worker-count-error" : undefined}
                   />
@@ -598,6 +649,7 @@ export function LoadModelFields({
                     onChange={(e) => setTargetRps(e.target.value)}
                     aria-invalid={errs.targetRpsInvalid}
                     aria-describedby={errs.targetRpsInvalid ? "target-rps-error" : undefined}
+                    numeric={numeric}
                   />
                 </Field>
                 <Field
@@ -612,6 +664,7 @@ export function LoadModelFields({
                     min={1}
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value))}
+                    numeric={numeric}
                   />
                 </Field>
               </div>
@@ -631,7 +684,8 @@ export function LoadModelFields({
             </>
           ) : (
             <>
-              {curveEditor}
+              {/* simpleMode: 곡선 영역은 null — RunDialog R17 카드(T8)가 채움 */}
+              {!simpleMode && curveEditor}
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}

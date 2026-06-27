@@ -156,6 +156,8 @@ export const ko = {
       { label: "보통", vus: 50, durationSeconds: 60, hint: "50명 · 1분" },
       { label: "세게", vus: 200, durationSeconds: 180, hint: "200명 · 3분" },
     ],
+    tileClosedDesc: "N명이 동시에 반복 요청",
+    tileOpenDesc: "초당 N건씩 도착",
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",

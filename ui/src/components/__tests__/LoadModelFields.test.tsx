@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
 import type { Scenario } from "../../scenario/model";
+import { ko } from "../../i18n/ko";
 
 vi.mock("../VuSizingHelper", () => ({
   VuSizingHelper: () => <div data-testid="sizing-helper" />,
@@ -377,6 +378,52 @@ describe("LoadModelFields", () => {
       expect(screen.getAllByText("추천").length).toBeGreaterThan(0);
     },
   );
+
+  // ── Task 5: simpleMode / loadModelTiles / numeric 게이트 ─────────────────────
+  it("simpleMode closed hides profile/curve/rampdown, keeps VU helper + numbers", () => {
+    setup({
+      simpleMode: true,
+      loadModel: "closed",
+      rateMode: "fixed",
+      onApplyVus: vi.fn(),
+      sizingScenarioId: "s1",
+    });
+    expect(screen.queryByRole("group", { name: /프로파일/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("sizing-helper")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeInTheDocument(); // 타일/라디오 name 보존
+  });
+
+  it("simpleMode open hides worker disclosure, keeps slot helper", () => {
+    setup({
+      simpleMode: true,
+      loadModel: "open",
+      rateMode: "fixed",
+      onApplyMaxInFlight: vi.fn(),
+      sizingScenarioId: "s1",
+      setWorkerCount: vi.fn(),
+    });
+    expect(screen.queryByRole("button", { name: /워커 수/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("slot-sizing-helper")).toBeInTheDocument();
+  });
+
+  it("simpleMode + curve renders nothing for the curve area (RunDialog owns the R17 card)", () => {
+    setup({ simpleMode: true, loadModel: "closed", rateMode: "curve" });
+    expect(screen.queryByLabelText(ko.loadModelFields.stageTargetAria(0))).not.toBeInTheDocument();
+  });
+
+  it("loadModelTiles renders load-model as role=radio tiles inside the fieldset, name preserved", () => {
+    setup({ loadModelTiles: true, loadModel: "closed" });
+    const group = screen.getByRole("group", { name: /부하 모델/i });
+    expect(group.tagName).toBe("FIELDSET");
+    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeInTheDocument();
+    expect(screen.getByText(ko.loadModel.tileClosedDesc)).toBeInTheDocument();
+  });
+
+  it("without new props, renders legacy radios + profile + worker (ScheduleForm parity)", () => {
+    setup({ loadModel: "open", rateMode: "fixed", setWorkerCount: vi.fn() });
+    expect(screen.getByRole("radio", { name: /요청 속도 기준/ })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
+  });
 });
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;
