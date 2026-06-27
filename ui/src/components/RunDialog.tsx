@@ -37,6 +37,8 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
+import { runSummary } from "./runSummary";
+import { StageCurvePreview } from "./StageCurvePreview";
 import { Section } from "./ui/Section";
 import { Badge } from "./ui/Badge";
 import { Callout } from "./ui/Callout";
@@ -360,6 +362,15 @@ export function RunDialog({
     workerCount,
   };
   const loadErrs = loadModelErrors(loadState);
+  // 실시간 요약 footer (R8). loadState가 곧 form 상태라 sum은 항상 라이브.
+  const sum = runSummary(loadState);
+  // StageCurvePreview용 숫자 변환 (string-draft → Stage[], 유효 행만)
+  const previewStages = stages
+    .map((s) => ({ target: Number(s.target), duration_seconds: Number(s.duration_seconds) }))
+    .filter(
+      (s) =>
+        Number.isFinite(s.target) && Number.isFinite(s.duration_seconds) && s.duration_seconds > 0,
+    );
   const canSubmit =
     !poolConflict &&
     (loadModel === "open"
@@ -593,6 +604,16 @@ export function RunDialog({
           simpleMode={mode === "simple"}
           loadModelTiles
         />
+        {/* R17: 간단 모드에서 곡선이 설정된 경우 읽기전용 카드 표시. rateMode는 절대 변경하지 않음. */}
+        {mode === "simple" && rateMode === "curve" && previewStages.length > 0 && (
+          <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-medium">{ko.runDialog.curveCardTitle}</p>
+            <p className="text-xs text-slate-500 mb-1">{ko.runDialog.curveCardHint}</p>
+            <div role="img" aria-label={ko.loadModel.curvePreviewAriaVu} className="h-20">
+              <StageCurvePreview stages={previewStages} width={300} height={80} />
+            </div>
+          </div>
+        )}
       </Section>
       {pool.data?.pool_mode
         ? (() => {
@@ -990,21 +1011,47 @@ export function RunDialog({
           })()
         : null}
 
-      <div className="flex gap-2">
-        <Button
-          onClick={() =>
-            mutation.mutate(
-              { scenarioId, profile: buildProfile(), env },
-              { onSuccess: (run) => onCreated(run.id) },
-            )
-          }
-          disabled={!canSubmit}
-        >
-          {mutation.isPending ? ko.runDialog.running : ko.runDialog.run}
-        </Button>
-        <Button variant="secondary" onClick={onCancel}>
-          {ko.runDialog.cancel}
-        </Button>
+      {/* 실행 요약 footer (R8): 좌측 요약 시그니처 + 우측 Run/취소 버튼 */}
+      <div className="sticky bottom-0 bg-white border-t border-slate-200 pt-3 mt-3 flex items-center justify-between gap-3">
+        {/* 좌측: 강조 바 + 선택적 곡선 미리보기 + 요약 텍스트 */}
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-0.5 self-stretch rounded bg-accent-600" />
+          {sum.curve && previewStages.length > 0 && (
+            <div
+              role="img"
+              aria-label={
+                loadModel === "closed"
+                  ? ko.loadModel.curvePreviewAriaVu
+                  : ko.loadModel.curvePreviewAriaRps
+              }
+              className="shrink-0"
+            >
+              <StageCurvePreview stages={previewStages} width={60} height={30} />
+            </div>
+          )}
+          <span
+            className={sum.tone === "warn" ? "text-amber-700 text-sm" : "text-slate-900 text-sm"}
+          >
+            {sum.text}
+          </span>
+        </div>
+        {/* 우측: Run/취소 */}
+        <div className="flex gap-2 shrink-0">
+          <Button
+            onClick={() =>
+              mutation.mutate(
+                { scenarioId, profile: buildProfile(), env },
+                { onSuccess: (run) => onCreated(run.id) },
+              )
+            }
+            disabled={!canSubmit}
+          >
+            {mutation.isPending ? ko.runDialog.running : ko.runDialog.run}
+          </Button>
+          <Button variant="secondary" onClick={onCancel}>
+            {ko.runDialog.cancel}
+          </Button>
+        </div>
       </div>
     </div>
   );

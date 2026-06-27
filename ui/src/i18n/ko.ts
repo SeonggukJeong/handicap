@@ -114,6 +114,9 @@ export const ko = {
     measureDesc: "응답 시간을 DNS·연결·대기·다운로드로 나눠 측정 — 리포트에서 어디서 느린지 진단",
     // 간단 모드 상세 적용 힌트 (R6)
     appliedDetail: (n: number) => `상세 설정 ${n}개 적용됨`,
+    // 간단 모드 곡선 읽기전용 카드 (R17)
+    curveCardTitle: "곡선 부하 설정됨",
+    curveCardHint: "상세 모드에서 편집",
   },
   binding: {
     sectionTitle: "데이터 바인딩",

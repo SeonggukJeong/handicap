@@ -2583,3 +2583,138 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
     });
   });
 });
+
+// ───────────────────────────────────────────────────────────────
+// T8: 실시간 요약 footer (R8) + 곡선 읽기전용 카드 (R17)
+// ───────────────────────────────────────────────────────────────
+
+describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
+  it("closed 100명·300초 → footer에 '동시 사용자 100명' + '5분'", () => {
+    renderWithInitial({
+      profile: {
+        vus: 100,
+        duration_seconds: 300,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+      },
+      env: {},
+    });
+    expect(screen.getByText(/동시 사용자 100명/)).toBeInTheDocument();
+    expect(screen.getByText(/5분/)).toBeInTheDocument();
+  });
+
+  it("open-loop 전환 → footer에 '약 30,000건' (100 RPS × 300초)", async () => {
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 100,
+        duration_seconds: 300,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+      },
+      env: {},
+    });
+    await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
+    expect(screen.getByText(/약 30,000건/)).toBeInTheDocument();
+  });
+
+  it("vus=0 → footer에 warn 텍스트 '설정을 확인하세요'", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const vusInput = screen.getByLabelText(/동시 사용자/);
+    await user.clear(vusInput);
+    await user.type(vusInput, "0");
+    expect(screen.getByText("설정을 확인하세요")).toBeInTheDocument();
+  });
+
+  it("closed+curve prefill → footer에 곡선 텍스트 + StageCurvePreview(role=img)", () => {
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        vu_stages: [{ target: 50, duration_seconds: 30 }],
+      },
+      env: {},
+    });
+    // 곡선 요약 텍스트 (ko.runDialog.summaryCurveVu)
+    expect(screen.getByText(/최대 50명/)).toBeInTheDocument();
+    // footer의 StageCurvePreview가 role=img 컨테이너 안에 있어야 함
+    expect(screen.getAllByRole("img").length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("RunDialog — 곡선 읽기전용 카드 (R17·T8)", () => {
+  it("vu_stages prefill + 간단 전환 → 곡선 카드 + role=img + Run → vu_stages 유지", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R17",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 0, duration_seconds: 0 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        vu_stages: [
+          { target: 50, duration_seconds: 30 },
+          { target: 100, duration_seconds: 60 },
+        ],
+      },
+      env: {},
+    });
+
+    // 곡선 prefill → 상세로 열림
+    expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+
+    // 간단으로 전환 — rateMode는 "curve" 유지 (스냅 금지)
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+
+    // 읽기전용 곡선 카드 표시 (R17)
+    expect(screen.getByText("곡선 부하 설정됨")).toBeInTheDocument();
+    expect(screen.getByText("상세 모드에서 편집")).toBeInTheDocument();
+    // 곡선 카드 안 StageCurvePreview는 role=img 컨테이너 안
+    expect(screen.getAllByRole("img").length).toBeGreaterThanOrEqual(1);
+
+    // Run 클릭 → vu_stages payload 유지 확인
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.endsWith("/api/runs") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(call).toBeDefined();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.profile.vu_stages).toBeDefined();
+      expect(body.profile.vu_stages).toHaveLength(2);
+      expect(body.profile.vu_stages[0].target).toBe(50);
+      expect(body.profile.vu_stages[1].target).toBe(100);
+    });
+  });
+});
