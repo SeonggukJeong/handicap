@@ -517,8 +517,11 @@ export function RunDialog({
     });
   }
 
+  // 정밀계기 룩 — 섹션 타이틀 eyebrow 스타일 (RunDialog 국소)
+  const eyebrowCls = "text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500";
+
   return (
-    <div className="border border-slate-200 rounded-md p-4 bg-white">
+    <div className="border border-slate-200 rounded-md p-4 bg-white shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-lg font-semibold">{ko.runDialog.title}</h3>
         <Segmented
@@ -566,7 +569,7 @@ export function RunDialog({
       {/* 그룹 1: 부하 정의 — 항상 펼침 */}
       <Section
         index={1}
-        title={ko.runDialog.sectionLoadTitle}
+        title={<span className={eyebrowCls}>{ko.runDialog.sectionLoadTitle}</span>}
         badge={<Badge tone="required">{ko.common.required}</Badge>}
       >
         <p className="mb-2 text-xs text-accent-700">{ko.runDialog.recommendedNotice}</p>
@@ -603,6 +606,7 @@ export function RunDialog({
           showRecommended
           simpleMode={mode === "simple"}
           loadModelTiles
+          numeric
         />
         {/* R17: 간단 모드에서 곡선이 설정된 경우 읽기전용 카드 표시. rateMode는 절대 변경하지 않음. */}
         {mode === "simple" && rateMode === "curve" && previewStages.length > 0 && (
@@ -665,7 +669,7 @@ export function RunDialog({
       <Section
         index={2}
         divider
-        title={ko.runDialog.sectionTargetTitle}
+        title={<span className={eyebrowCls}>{ko.runDialog.sectionTargetTitle}</span>}
         badge={<Badge tone="optional">{ko.common.optional}</Badge>}
       >
         <EnvironmentPicker
@@ -692,7 +696,7 @@ export function RunDialog({
         <Section
           index={3}
           divider
-          title={ko.runDialog.sectionAdvancedTitle}
+          title={<span className={eyebrowCls}>{ko.runDialog.sectionAdvancedTitle}</span>}
           badge={<Badge tone="optional">{ko.common.optional}</Badge>}
           collapsible
           open={advancedOpen}
@@ -700,7 +704,7 @@ export function RunDialog({
           hint={collapseHintCount > 0 ? ko.runDialog.advancedSetHint(collapseHintCount) : undefined}
         >
           <>
-            <h4 className="mt-2 text-sm font-medium">
+            <h4 className={`mt-2 ${eyebrowCls}`}>
               {ko.runDialog.sectionSlo}
               <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
             </h4>
@@ -713,7 +717,7 @@ export function RunDialog({
 
             {loadModel === "closed" && (
               <>
-                <h4 className="mt-3 text-sm font-medium">
+                <h4 className={`mt-3 ${eyebrowCls}`}>
                   {ko.runDialog.sectionPacing}
                   <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
                 </h4>
@@ -760,7 +764,7 @@ export function RunDialog({
               </>
             )}
 
-            <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
+            <h4 className={`mt-3 ${eyebrowCls}`}>{ko.runDialog.sectionDiag}</h4>
             {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
             <div className="max-w-xs">
               <Field label={ko.loadModel.httpTimeout} htmlFor={httpTimeoutId}>

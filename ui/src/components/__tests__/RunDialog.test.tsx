@@ -2762,3 +2762,21 @@ describe("RunDialog — 곡선 읽기전용 카드 (R17·T8)", () => {
     ).toBeNull();
   });
 });
+
+// ─── T9: 정밀계기 룩 구조 단언 ───────────────────────────────────────────────
+describe("RunDialog — 정밀계기 룩 (T9)", () => {
+  it("주 수치 입력에 tabular-nums 클래스가 적용된다 (numeric prop)", () => {
+    renderDialog();
+    // LoadModelFields에 numeric=true가 전달되면 VU 수치 input에 tabular-nums가 붙는다
+    const vusInput = screen.getByLabelText(/동시 사용자/i);
+    expect(vusInput).toHaveClass("tabular-nums");
+  });
+
+  it("섹션 제목이 eyebrow 스타일(uppercase tracking)로 렌더된다", () => {
+    const { container } = renderDialog();
+    // eyebrow 클래스가 있는 요소 중 '부하 정의' 텍스트를 포함하는 것이 있어야 한다
+    const uppercaseEls = container.querySelectorAll(".uppercase");
+    const texts = Array.from(uppercaseEls).map((el) => el.textContent ?? "");
+    expect(texts.some((t) => t.includes("부하 정의"))).toBe(true);
+  });
+});
