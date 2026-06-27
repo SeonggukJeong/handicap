@@ -30,4 +30,13 @@ describe("Input/Select primitives", () => {
     expect(el.tagName).toBe("SELECT");
     expect(el.className).toContain("rounded-md");
   });
+
+  it("numeric off → no tabular-nums (default render unchanged)", () => {
+    const { container } = render(<Input />);
+    expect(container.querySelector("input")!.className).not.toContain("tabular-nums");
+  });
+  it("numeric on → adds tabular-nums", () => {
+    const { container } = render(<Input numeric />);
+    expect(container.querySelector("input")!.className).toContain("tabular-nums");
+  });
 });
