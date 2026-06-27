@@ -3,6 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useCreateEnvironment } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
+import { Badge } from "../components/ui/Badge";
+import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
+import { Select } from "../components/ui/Select";
 import { ko } from "../i18n/ko";
 import {
   type Har,
@@ -174,9 +178,9 @@ export function ScenarioImportPage() {
       </label>
 
       {parseError && (
-        <p role="alert" className="text-sm text-red-600">
+        <Callout variant="error" role="alert">
           {ko.import.parseError}: {parseError}
-        </p>
+        </Callout>
       )}
 
       {har && (
@@ -185,11 +189,10 @@ export function ScenarioImportPage() {
             <legend className="px-1 font-medium text-slate-700">{ko.import.options}</legend>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-slate-700">{ko.import.nameLabel}</span>
-              <input
+              <Input
                 aria-label={ko.import.nameLabel}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="rounded border border-slate-300 px-2 py-1"
               />
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -203,16 +206,15 @@ export function ScenarioImportPage() {
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-slate-700">{ko.import.headerMode}</span>
-              <select
+              <Select
                 aria-label={ko.import.headerMode}
                 value={headerMode}
                 onChange={(e) => setHeaderMode(e.target.value as HeaderMode)}
-                className="rounded border border-slate-300 px-2 py-1"
               >
                 <option value="all">{ko.import.headerModeAll}</option>
                 <option value="strip-volatile">{ko.import.headerModeStrip}</option>
                 <option value="semantic-only">{ko.import.headerModeSemantic}</option>
-              </select>
+              </Select>
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -278,8 +280,8 @@ export function ScenarioImportPage() {
                         {p.method} {p.url}
                       </span>
                       {dupSet.has(p.index) && (
-                        <span className="shrink-0 rounded bg-amber-100 px-1 text-xs text-amber-700">
-                          {ko.import.dupBadge}
+                        <span className="shrink-0">
+                          <Badge tone="warn">{ko.import.dupBadge}</Badge>
                         </span>
                       )}
                     </label>
@@ -309,14 +311,16 @@ export function ScenarioImportPage() {
                         {h}
                       </span>
                       <span aria-hidden="true">→</span>
-                      <input
-                        aria-label={ko.import.varNameLabel(h)}
-                        value={effectiveHostVars[h]}
-                        onChange={(e) =>
-                          setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
-                        }
-                        className="w-40 rounded border border-slate-300 px-2 py-1 font-mono"
-                      />
+                      <div className="w-40">
+                        <Input
+                          aria-label={ko.import.varNameLabel(h)}
+                          value={effectiveHostVars[h]}
+                          onChange={(e) =>
+                            setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
+                          }
+                          className="font-mono"
+                        />
+                      </div>
                     </label>
                   ))}
                   {envValidation.emptyHosts.length > 0 && (
@@ -335,11 +339,10 @@ export function ScenarioImportPage() {
                   ))}
                   <label className="flex flex-col gap-1">
                     <span className="font-medium text-slate-700">{ko.import.envNameLabel}</span>
-                    <input
+                    <Input
                       aria-label={ko.import.envNameLabel}
                       value={envName}
                       onChange={(e) => setEnvName(e.target.value)}
-                      className="rounded border border-slate-300 px-2 py-1"
                     />
                   </label>
                   {envValidation.emptyEnvName && (

@@ -397,6 +397,16 @@ describe("ScenarioImportPage", () => {
     expect(preview.value).not.toContain("${MYVAR }");
   });
 
+  it("ds-spread T2: var-name Input renders after HAR upload + host-var enabled", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(SINGLE_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    // After converting raw <input> → <Input>, aria-label passthrough must still work.
+    expect(screen.getByLabelText(ko.import.varNameLabel("api.example.com"))).toBeInTheDocument();
+  });
+
   it("R10: 409면 서버 메시지를 alert로", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
