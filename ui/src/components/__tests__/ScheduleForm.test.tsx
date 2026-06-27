@@ -134,4 +134,19 @@ describe("ScheduleForm", () => {
     const enabledCheckbox = screen.getByRole("checkbox", { name: /활성화/ });
     expect(enabledCheckbox).not.toBeChecked();
   });
+
+  // ── B4: ScheduleForm은 추천/바로실행 프레이밍을 렌더하지 않는다 (R6/R10) ────────
+  it("ScheduleForm은 추천/바로실행 프레이밍을 안 보인다", () => {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    expect(
+      screen.queryByText("추천값으로 채워져 있어 바로 실행할 수 있습니다."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("추천")).not.toBeInTheDocument();
+  });
 });

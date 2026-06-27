@@ -30,6 +30,7 @@ export const ko = {
     newItemValueAria: (label: string) => `새 ${label} 값`,
     required: "필수",
     optional: "선택",
+    recommended: "추천",
   },
   glossary: {
     vu: "동시 사용자(VU) — 동시에 요청을 보내는 가상 사용자 수입니다.",
@@ -58,6 +59,7 @@ export const ko = {
     varFlow: "{{변수}} — 흐름 변수. 시나리오 변수·값 추출·데이터셋 바인딩이 채웁니다.",
     varEnv: "${ENV} — 환경 변수. 실행 시 선택한 환경에서 주입됩니다.",
     varSys: "${vu_id} 등 — 시스템 변수. 엔진이 자동으로 채웁니다(가상 사용자 번호 등).",
+    duration: "지속 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
   },
   runDialog: {
     title: "새 실행",

@@ -349,6 +349,34 @@ describe("LoadModelFields", () => {
       expect(screen.queryByLabelText("부하 생성기 워커 수 (수평 확장)")).toBeNull();
     },
   );
+
+  // ── B4: duration HelpTip (신규) ───────────────────────────────────────────────
+  it("closed+fixed: duration HelpTip 존재 (지속 시간 설명 버튼)", () => {
+    renderFields({ loadModel: "closed", rateMode: "fixed" });
+    expect(screen.getByRole("button", { name: "지속 시간 설명" })).toBeInTheDocument();
+  });
+
+  it("open+fixed: duration HelpTip 존재 (지속 시간 설명 버튼)", () => {
+    renderFields({ loadModel: "open", rateMode: "fixed" });
+    expect(screen.getByRole("button", { name: "지속 시간 설명" })).toBeInTheDocument();
+  });
+
+  // ── B4: showRecommended 게이트 ─────────────────────────────────────────────────
+  it("showRecommended 미전달이면 '추천' Badge 미렌더 (기본 closed+fixed)", () => {
+    renderFields(); // showRecommended 미전달 → 기본 undefined
+    expect(screen.queryByText("추천")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { loadModel: "closed" as const, rateMode: "fixed" as const },
+    { loadModel: "open" as const, rateMode: "fixed" as const },
+  ])(
+    "$loadModel+$rateMode + showRecommended=true → '추천' Badge 렌더",
+    ({ loadModel, rateMode }) => {
+      renderFields({ loadModel, rateMode, showRecommended: true });
+      expect(screen.getAllByText("추천").length).toBeGreaterThan(0);
+    },
+  );
 });
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;

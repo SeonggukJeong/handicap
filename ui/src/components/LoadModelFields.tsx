@@ -4,6 +4,8 @@ import { LOAD_SHAPES } from "./loadShapes";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
+import { Field } from "./ui/Field";
+import { Input } from "./ui/Input";
 import { VuSizingHelper } from "./VuSizingHelper";
 import { SlotSizingHelper } from "./SlotSizingHelper";
 import { WorkerSizingHelper } from "./WorkerSizingHelper";
@@ -51,9 +53,12 @@ type Props = {
   httpTimeout?: number;
   // pool 모드 신호(RunDialog pool.data?.pool_mode). true → 두 경고 모두 suppress(R13).
   poolMode?: boolean;
+  // RunDialog 전용: 필수 입력에 '추천' Badge를 렌더. ScheduleForm은 미전달 → 미렌더 (B4).
+  showRecommended?: boolean;
 };
 
-const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
+const INPUT =
+  "mt-1 block w-full rounded-md border border-slate-300 px-2 py-1 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30";
 
 export function LoadModelFields({
   loadModel,
@@ -85,6 +90,7 @@ export function LoadModelFields({
   setWorkerCount,
   httpTimeout,
   poolMode,
+  showRecommended,
 }: Props) {
   const ids = {
     vus: useId(),
@@ -223,7 +229,7 @@ export function LoadModelFields({
         <button
           type="button"
           onClick={() => setStages((prev) => [...prev, { target: "100", duration_seconds: "30" }])}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-accent-600 hover:underline"
         >
           + 단계 추가
         </button>
@@ -412,49 +418,49 @@ export function LoadModelFields({
               })}
             </div>
             <div className="grid grid-cols-3 gap-4 mb-3">
-              <div className="block text-sm">
-                <label htmlFor={ids.vus} className="text-slate-600">
-                  {ko.loadModel.vus}
-                </label>
-                <HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>
-                <input
+              <Field
+                label={ko.loadModel.vus}
+                htmlFor={ids.vus}
+                help={<HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>}
+                recommended={showRecommended ? ko.common.recommended : undefined}
+              >
+                <Input
                   id={ids.vus}
                   type="number"
                   min={1}
                   value={vus}
                   onChange={(e) => setVus(Number(e.target.value))}
-                  className={INPUT}
                 />
-              </div>
-              <div className="block text-sm">
-                <label htmlFor={ids.durationClosed} className="text-slate-600">
-                  {ko.loadModel.duration}
-                </label>
-                <input
+              </Field>
+              <Field
+                label={ko.loadModel.duration}
+                htmlFor={ids.durationClosed}
+                help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
+                recommended={showRecommended ? ko.common.recommended : undefined}
+              >
+                <Input
                   id={ids.durationClosed}
                   type="number"
                   min={1}
                   value={duration}
                   onChange={(e) => setDuration(Number(e.target.value))}
-                  className={INPUT}
                 />
-              </div>
-              <div className="block text-sm">
-                <label htmlFor={ids.rampUp} className="text-slate-600">
-                  {ko.loadModel.rampUp}
-                </label>
-                <HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>
-                <input
+              </Field>
+              <Field
+                label={ko.loadModel.rampUp}
+                htmlFor={ids.rampUp}
+                help={<HelpTip label="ramp-up 설명">{ko.glossary.rampUp}</HelpTip>}
+              >
+                <Input
                   id={ids.rampUp}
                   type="number"
                   min={0}
                   value={rampUp}
                   onChange={(e) => setRampUp(Number(e.target.value))}
-                  className={INPUT}
                   aria-invalid={errs.rampInvalid}
                   aria-describedby={errs.rampInvalid ? "ramp-up-error" : undefined}
                 />
-              </div>
+              </Field>
             </div>
             {errs.rampInvalid && (
               <p id="ramp-up-error" className="mb-3 text-red-600 text-sm">
@@ -474,28 +480,24 @@ export function LoadModelFields({
       ) : (
         <>
           {/* Max in-flight — fixed/curve 공통, 1개 */}
-          <div className="mb-3 max-w-xs">
-            <div className="block text-sm">
-              <label htmlFor={ids.maxInFlight} className="text-slate-600">
-                {ko.loadModel.maxInFlight}
-              </label>
-              <HelpTip label="max in-flight 설명">{ko.glossary.maxInFlight}</HelpTip>
-              <input
+          <div className="max-w-xs">
+            <Field
+              label={ko.loadModel.maxInFlight}
+              htmlFor={ids.maxInFlight}
+              help={<HelpTip label="max in-flight 설명">{ko.glossary.maxInFlight}</HelpTip>}
+              hint="동시 요청 상한 — 서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다"
+            >
+              <Input
                 id={ids.maxInFlight}
                 type="number"
                 min={1}
                 max={10000}
                 value={maxInFlight}
                 onChange={(e) => setMaxInFlight(e.target.value)}
-                className={INPUT}
                 aria-invalid={errs.maxInFlightInvalid}
                 aria-describedby={errs.maxInFlightInvalid ? "max-in-flight-error" : undefined}
               />
-              <span className="text-xs text-slate-500">
-                동시 요청 상한 — 서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에
-                표시됩니다
-              </span>
-            </div>
+            </Field>
           </div>
           {errs.maxInFlightInvalid && (
             <p id="max-in-flight-error" className="mb-3 text-red-600 text-sm">
@@ -567,7 +569,7 @@ export function LoadModelFields({
                       <button
                         type="button"
                         onClick={() => setWorkerCount?.(String(idleWarn.peak))}
-                        className="text-blue-600 hover:underline"
+                        className="text-accent-600 hover:underline"
                       >
                         {ko.openLoopCheck.apply(idleWarn.peak)}
                       </button>
@@ -581,36 +583,37 @@ export function LoadModelFields({
           {rateMode === "fixed" ? (
             <>
               <div className="grid grid-cols-2 gap-4 mb-3">
-                <div className="block text-sm">
-                  <label htmlFor={ids.targetRps} className="text-slate-600">
-                    {ko.loadModel.targetRps}
-                  </label>
-                  <HelpTip label="RPS 설명">{ko.glossary.rps}</HelpTip>
-                  <input
+                <Field
+                  label={ko.loadModel.targetRps}
+                  htmlFor={ids.targetRps}
+                  help={<HelpTip label="RPS 설명">{ko.glossary.rps}</HelpTip>}
+                  recommended={showRecommended ? ko.common.recommended : undefined}
+                >
+                  <Input
                     id={ids.targetRps}
                     type="number"
                     min={1}
                     max={1000000}
                     value={targetRps}
                     onChange={(e) => setTargetRps(e.target.value)}
-                    className={INPUT}
                     aria-invalid={errs.targetRpsInvalid}
                     aria-describedby={errs.targetRpsInvalid ? "target-rps-error" : undefined}
                   />
-                </div>
-                <div className="block text-sm">
-                  <label htmlFor={ids.durationOpen} className="text-slate-600">
-                    {ko.loadModel.duration}
-                  </label>
-                  <input
+                </Field>
+                <Field
+                  label={ko.loadModel.duration}
+                  htmlFor={ids.durationOpen}
+                  help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
+                  recommended={showRecommended ? ko.common.recommended : undefined}
+                >
+                  <Input
                     id={ids.durationOpen}
                     type="number"
                     min={1}
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value))}
-                    className={INPUT}
                   />
-                </div>
+                </Field>
               </div>
               {errs.targetRpsInvalid && (
                 <p id="target-rps-error" className="mb-3 text-red-600 text-sm">
