@@ -609,7 +609,15 @@ export function RunDialog({
           <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
             <p className="text-sm font-medium">{ko.runDialog.curveCardTitle}</p>
             <p className="text-xs text-slate-500 mb-1">{ko.runDialog.curveCardHint}</p>
-            <div role="img" aria-label={ko.loadModel.curvePreviewAriaVu} className="h-20">
+            <div
+              role="img"
+              aria-label={
+                loadModel === "closed"
+                  ? ko.loadModel.curvePreviewAriaVu
+                  : ko.loadModel.curvePreviewAriaRps
+              }
+              className="h-20"
+            >
               <StageCurvePreview stages={previewStages} width={300} height={80} />
             </div>
           </div>

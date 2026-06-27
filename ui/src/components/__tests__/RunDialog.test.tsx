@@ -2717,4 +2717,48 @@ describe("RunDialog — 곡선 읽기전용 카드 (R17·T8)", () => {
       expect(body.profile.vu_stages[1].target).toBe(100);
     });
   });
+
+  it("stages prefill (open+curve) + 간단 전환 → 카드 aria-label은 RPS 변형 (open-loop a11y)", async () => {
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        max_in_flight: 50,
+        stages: [{ target: 100, duration_seconds: 10 }],
+      },
+      env: {},
+    });
+
+    // open+curve prefill → 상세로 열림
+    expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+
+    // 간단으로 전환 — rateMode는 "curve" 유지 (스냅 금지)
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+
+    // 읽기전용 곡선 카드 표시
+    expect(screen.getByText("곡선 부하 설정됨")).toBeInTheDocument();
+
+    // 카드 컨테이너 스코프 (footer의 role=img와 구분)
+    const cardContainer = screen.getByText("곡선 부하 설정됨").parentElement!;
+
+    // 카드 안 role=img는 RPS 변형 aria-label (open-loop)
+    expect(
+      within(cardContainer).getByRole("img", {
+        name: "레이트 곡선 미리보기 (x: 누적 초, y: RPS)",
+      }),
+    ).toBeInTheDocument();
+
+    // VU 변형은 카드 안에 없어야 함
+    expect(
+      within(cardContainer).queryByRole("img", {
+        name: "VU 곡선 미리보기 (x: 누적 초, y: VU)",
+      }),
+    ).toBeNull();
+  });
 });
