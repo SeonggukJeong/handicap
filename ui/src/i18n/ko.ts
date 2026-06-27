@@ -66,10 +66,6 @@ export const ko = {
     run: "실행",
     running: "시작 중…",
     cancel: "취소",
-    // 구 그룹 라벨(ko.test.ts 참조로 잔존 — RunDialog는 아래 section* 키 사용)
-    groupLoad: "부하 정의",
-    groupTarget: "대상 설정",
-    groupAdvanced: "판정·고급 (선택)",
     // Section 프리미티브용 라벨 (B1)
     sectionLoadTitle: "부하 정의",
     sectionTargetTitle: "대상 설정",
