@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SchedulesPage } from "../SchedulesPage";
@@ -63,13 +64,11 @@ describe("SchedulesPage", () => {
   it("에러 시 한국어 배너 표시 (R4)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: false,
-          status: 500,
-          json: () => Promise.resolve({ error: "서버 오류" }),
-        }),
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "서버 오류" }),
+      }),
     );
     wrap(<SchedulesPage />);
     expect(await screen.findByText(ko.common.failedToLoad("서버 오류"))).toBeInTheDocument();
@@ -80,6 +79,14 @@ describe("SchedulesPage", () => {
     expect(await screen.findByText("nightly")).toBeInTheDocument();
     expect(screen.getByText("매일 02:00")).toBeInTheDocument(); // describeTrigger
     expect(screen.getByText("fired")).toBeInTheDocument();
+  });
+
+  it("새 스케줄 버튼 클릭 시 폼 카드(region) 노출 — Callout 변환 가드 (ds-spread)", async () => {
+    const user = userEvent.setup();
+    wrap(<SchedulesPage />);
+    await screen.findByText("nightly"); // initial schedule list loaded
+    await user.click(screen.getByRole("button", { name: ko.pages.newSchedule }));
+    expect(screen.getByRole("region", { name: ko.schedule.formAria })).toBeInTheDocument();
   });
 
   it("빈 상태: 3요소 문구 + 스케줄 만들기 CTA", async () => {

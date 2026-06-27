@@ -13,6 +13,7 @@ import { describeTrigger } from "../components/triggerCron";
 import { ScheduleForm, type ScenarioOption } from "../components/ScheduleForm";
 import { ScheduleEventTimeline } from "../components/ScheduleEventTimeline";
 import { Button } from "../components/Button";
+import { Callout } from "../components/ui/Callout";
 import { EmptyState } from "../components/EmptyState";
 import { ko } from "../i18n/ko";
 
@@ -133,9 +134,9 @@ export function SchedulesPage() {
             {mode === "edit" ? ko.pages.editSchedule : ko.pages.newSchedule}
           </h3>
           {formError && (
-            <p role="alert" className="mb-2 text-sm text-red-600">
+            <Callout variant="error" role="alert" className="mb-2">
               {formError}
-            </p>
+            </Callout>
           )}
           <ScheduleForm
             key={editingId ?? "new"}
@@ -150,9 +151,9 @@ export function SchedulesPage() {
       )}
 
       {delError && (
-        <p role="alert" className="mb-4 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mb-4">
           삭제 실패: {delError}
-        </p>
+        </Callout>
       )}
 
       <section aria-label={ko.schedule.listAria}>
