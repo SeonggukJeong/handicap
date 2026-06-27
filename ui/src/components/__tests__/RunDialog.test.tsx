@@ -182,6 +182,7 @@ describe("RunDialog — env & ramp_up", () => {
   it("adds and removes env key/value pairs", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 환경 편집기는 상세 모드에서만 노출
 
     expect(within(envSection()).getByText(/환경 변수 없음/i)).toBeInTheDocument();
 
@@ -216,6 +217,7 @@ describe("RunDialog — env & ramp_up", () => {
 
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
+    await toDetailed(user); // 환경 편집기는 상세 모드에서만 노출
 
     const rampInput = screen.getByLabelText(/점진 시작/);
     await user.clear(rampInput);
@@ -247,6 +249,7 @@ describe("RunDialog — env & ramp_up", () => {
   it("adds env entry with name and value in one step", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 환경 편집기는 상세 모드에서만 노출
 
     await user.type(screen.getByLabelText("새 환경 변수 키"), "BASE_URL");
     await user.type(screen.getByLabelText("새 환경 변수 값"), "http://localhost:9090");
@@ -262,6 +265,7 @@ describe("RunDialog — env & ramp_up", () => {
   it("disables Add when name is empty even if value is filled", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 환경 편집기는 상세 모드에서만 노출
 
     await user.type(screen.getByLabelText("새 환경 변수 값"), "http://localhost:9090");
 
@@ -554,6 +558,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     const user = userEvent.setup();
     mockPresets([]);
     renderDialog();
+    await toDetailed(user); // 저장 섹션은 상세-only
     await user.type(screen.getByLabelText("프리셋 이름"), "saved");
     await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
     await waitFor(() => {
@@ -573,6 +578,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mockPresets([{ id: "P1", name: "dup" }]);
     renderDialog();
+    await toDetailed(user); // 저장 섹션은 상세-only
     await user.type(screen.getByLabelText("프리셋 이름"), "dup");
     await user.click(screen.getByRole("button", { name: "프리셋으로 저장" }));
     await waitFor(() => {
@@ -589,6 +595,7 @@ describe("RunDialog — save/manage preset (A2)", () => {
     mockPresets([{ id: "P1", name: "loadme" }]);
     renderDialog();
 
+    await toDetailed(user); // 이름변경 버튼은 상세-only
     // Load preset P1 to set loadedPresetId and reveal the rename button
     await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
     await waitFor(() =>
@@ -679,6 +686,7 @@ describe("RunDialog — load preset (A2)", () => {
     const user = userEvent.setup();
     mockPresets();
     renderPresetDialog();
+    await toDetailed(user); // 환경 편집기(override 행)는 상세 모드에서만 노출
     await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
     await waitFor(() => expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(50));
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
@@ -1426,6 +1434,7 @@ describe("RunDialog — environment overlay (B-2)", () => {
 
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 베이스 변수 목록 및 override 편집기는 상세 모드에서만 노출
     // wait for the environments list to load before selecting
     await screen.findByRole("option", { name: "staging" });
     await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
@@ -1474,6 +1483,7 @@ describe("RunDialog — environment overlay (B-2)", () => {
     });
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 베이스 변수 목록 및 override 편집기는 상세 모드에서만 노출
     // wait for the environments list to load before selecting
     await screen.findByRole("option", { name: "staging" });
     await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
@@ -1524,6 +1534,7 @@ describe("RunDialog — environment overlay (B-2)", () => {
 
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user); // 베이스 변수 목록은 상세 모드에서만 노출
     await screen.findByRole("option", { name: "staging" });
     await user.selectOptions(screen.getByLabelText("환경 선택"), "E1");
     await screen.findByText("BASE_URL"); // base list loaded
@@ -1644,6 +1655,150 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeChecked();
     expect(screen.getByLabelText("스테이지 0 목표")).toHaveValue(7);
     expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────
+// T7: 프리셋 동선·측정 노출·진단 표면 (R5·R6·R7·R9·R18)
+// ───────────────────────────────────────────────────────────────
+
+/**
+ * renderWithPresets — renderDialog 미러 + presets fetch 시드.
+ * usePresets(scenarioId)→GET /api/scenarios/{id}/presets→{ presets:[...] } (not bare array).
+ * PresetSummarySchema 6필드 전부 필수.
+ */
+function renderWithPresets() {
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (
+      String(url).includes("/api/scenarios/S1/presets") &&
+      (!init || !init.method || init.method === "GET")
+    ) {
+      return Promise.resolve(
+        jsonResponse({
+          presets: [
+            {
+              id: "P1",
+              name: "heavy",
+              vus: 50,
+              duration_seconds: 60,
+              created_at: 1,
+              updated_at: 1,
+            },
+          ],
+        }),
+      );
+    }
+    return Promise.resolve(jsonResponse({ presets: [] }));
+  });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <RunDialog
+        scenarioId="S1"
+        hasLoop={true}
+        scenario={null}
+        onCreated={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18)", () => {
+  it("preset load strip은 부하 모델 fieldset 앞; save block은 상세-only (R7)", async () => {
+    const user = userEvent.setup();
+    renderWithPresets();
+    // 프리셋 목록 로드 대기
+    const loadSelect = await screen.findByLabelText("프리셋 불러오기");
+    // 간단 모드: 저장 버튼 없어야
+    expect(screen.queryByRole("button", { name: /프리셋으로 저장/ })).not.toBeInTheDocument();
+    // DOM 순서: load strip이 부하 모델 fieldset보다 앞
+    const loadModelFieldset = screen.getByRole("group", { name: /부하 모델/i });
+    expect(
+      // DOCUMENT_POSITION_FOLLOWING(4) — loadModelFieldset이 loadSelect 뒤에 오면 true
+      loadSelect.compareDocumentPosition(loadModelFieldset) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // 상세 모드: 저장 버튼 보임
+    await toDetailed(user);
+    expect(screen.getByRole("button", { name: /프리셋으로 저장/ })).toBeInTheDocument();
+  });
+
+  it("측정 토글이 판정·고급 바깥 상세 섹션에 표시됨 (R9)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    // 판정·고급 Section은 기본 접힘 — 펼치지 않아도 '단계 분해' 라벨이 보여야
+    expect(screen.getByRole("button", { name: /판정·고급/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.getByText(/단계 분해/)).toBeInTheDocument();
+  });
+
+  it("간단 모드: 상세 값(SLO) 적용 시 '상세 설정 N개 적용됨' 표시 (R6)", async () => {
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        criteria: { max_p95_ms: 500 },
+      },
+      env: {},
+    });
+    // criteria → 상세로 열림 → 간단으로 전환
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(screen.getByText(/상세 설정.*개 적용됨/)).toBeInTheDocument();
+  });
+
+  it("간단 모드: measure_phases ON이 applied count에 포함됨 (R6·F1 이중계수 방지)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    // 측정 체크박스 ON
+    await user.click(screen.getByRole("checkbox", { name: /응답 시간 단계 분해/ }));
+    // 간단 전환
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    // measure가 계수에 포함돼야 (N≥1)
+    expect(screen.getByText(/상세 설정.*개 적용됨/)).toBeInTheDocument();
+  });
+
+  it("간단 모드: 숨겨진 invalid http_timeout이 blockedReasons에 표시됨 (R5)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    const timeout = screen.getByLabelText(/HTTP 타임아웃/);
+    await user.clear(timeout);
+    await user.type(timeout, "0");
+    // 간단 전환 — 접힌 상태에서도(mode==="simple") 이유가 보여야
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(screen.getByRole("button", { name: /^실행$/ })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/HTTP 타임아웃/);
+  });
+
+  it("env 오버라이드 prefill + 간단 → '변수 N개 적용됨' 힌트 (R18)", async () => {
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+      },
+      env: { BASE_URL: "x" },
+    });
+    // env override → 상세로 열림 → 간단으로 전환
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    // showOverrides=false 경로 → EnvironmentPicker가 적용 힌트 표시
+    expect(screen.getByText(/변수.*개 적용됨/)).toBeInTheDocument();
   });
 });
 

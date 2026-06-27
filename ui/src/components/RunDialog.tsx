@@ -333,6 +333,16 @@ export function RunDialog({
   // open 모드에서는 think time 입력이 비노출·payload 미포함이라 계산에서 제외.
   const advancedActiveCount =
     sloActiveCount + (loadModel === "closed" ? pacingActiveCount : 0) + (measurePhases ? 1 : 0);
+  // 판정·고급 접힘 힌트: measure는 이제 별도 섹션이라 collapse 힌트에서 제외 (R9·리뷰 A).
+  const collapseHintCount = sloActiveCount + (loadModel === "closed" ? pacingActiveCount : 0);
+  // 간단 모드에서 숨겨진 상세 설정 수 (R6). measure는 advancedActiveCount 경유로만 — 이중 계수 금지.
+  const detailedAppliedCount =
+    advancedActiveCount +
+    (rateMode === "curve" ? 1 : 0) +
+    (Number(workerCount) > 1 ? 1 : 0) +
+    (httpTimeout !== 30 ? 1 : 0) +
+    (hasLoop && loopCap !== 256 ? 1 : 0) +
+    (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0);
   // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
   const loadState: LoadModelState = {
     loadModel,
@@ -635,6 +645,7 @@ export function RunDialog({
           baseVars={baseVars}
           overrides={envEntries}
           onOverridesChange={setEnvEntries}
+          showOverrides={mode === "detailed"}
         />
         {mode === "detailed" && scenario && (
           <DataBindingPanel
@@ -657,9 +668,7 @@ export function RunDialog({
           collapsible
           open={advancedOpen}
           onToggle={() => setAdvancedOpen((v) => !v)}
-          hint={
-            advancedActiveCount > 0 ? ko.runDialog.advancedSetHint(advancedActiveCount) : undefined
-          }
+          hint={collapseHintCount > 0 ? ko.runDialog.advancedSetHint(collapseHintCount) : undefined}
         >
           <>
             <h4 className="mt-2 text-sm font-medium">
@@ -769,56 +778,67 @@ export function RunDialog({
                 {ko.validation.httpTimeout}
               </p>
             )}
+          </>
+        </Section>
+      )}
 
-            <label className="mt-2 flex items-center gap-2 text-sm">
+      {/* 측정 섹션 — 판정·고급 바깥, 상세-only (R9) */}
+      {mode === "detailed" && (
+        <div className="mt-3 mb-3">
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={measurePhases}
                 onChange={(e) => setMeasurePhases(e.target.checked)}
               />
-              측정: 레이턴시 단계 분해(TTFB/다운로드)
+              {ko.runDialog.measureTitle}
             </label>
-          </>
-        </Section>
+            <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
+          </div>
+        </div>
       )}
 
-      <div className="mb-3 flex items-center gap-2">
-        <Input
-          className="w-48"
-          aria-label={ko.runDialog.presetNameAria}
-          placeholder="프리셋 이름"
-          value={presetName}
-          onChange={(e) => setPresetName(e.target.value)}
-        />
-        <button
-          type="button"
-          onClick={savePreset}
-          disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
-          className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
-        >
-          프리셋으로 저장
-        </button>
-        {loadedPresetId && (
-          <>
-            <button
-              type="button"
-              onClick={renamePreset}
-              disabled={updatePreset.isPending}
-              className="text-slate-700 hover:underline text-sm disabled:opacity-50"
-            >
-              이름 변경
-            </button>
-            <button
-              type="button"
-              onClick={removePreset}
-              disabled={deletePreset.isPending}
-              className="text-red-600 hover:underline text-sm disabled:opacity-50"
-            >
-              프리셋 삭제
-            </button>
-          </>
-        )}
-      </div>
+      {/* 프리셋 저장/이름변경/삭제 — 상세-only, 본문 최하단 (R7) */}
+      {mode === "detailed" && (
+        <div className="mb-3 flex items-center gap-2">
+          <Input
+            className="w-48"
+            aria-label={ko.runDialog.presetNameAria}
+            placeholder="프리셋 이름"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={savePreset}
+            disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
+            className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
+          >
+            프리셋으로 저장
+          </button>
+          {loadedPresetId && (
+            <>
+              <button
+                type="button"
+                onClick={renamePreset}
+                disabled={updatePreset.isPending}
+                className="text-slate-700 hover:underline text-sm disabled:opacity-50"
+              >
+                이름 변경
+              </button>
+              <button
+                type="button"
+                onClick={removePreset}
+                disabled={deletePreset.isPending}
+                className="text-red-600 hover:underline text-sm disabled:opacity-50"
+              >
+                프리셋 삭제
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {mutation.error && !(mutation.error instanceof PoolCapacityError) && (
         <Callout variant="error" role="alert" className="mb-3">
@@ -826,16 +846,33 @@ export function RunDialog({
         </Callout>
       )}
 
+      {/* 간단 모드에서 숨겨진 상세 설정이 있을 때 안내 힌트 (R6) */}
+      {mode === "simple" && detailedAppliedCount > 0 && (
+        <p className="mb-3 text-xs text-slate-500">
+          {ko.runDialog.appliedDetail(detailedAppliedCount)}
+        </p>
+      )}
+
       {(() => {
         // 접힌 그룹의 진단 값이 invalid면 인라인 에러 p가 DOM에 없어 사유가 안 보인다.
         // advancedOpen(펼침)이면 인라인 에러가 이미 보이므로 중복 표시 안 함.
+        // 간단 모드(mode==="simple")에서도 숨겨진 invalid 값을 표면화 (R5).
         const blockedReasons: string[] = [
           ...(!bindingBlock.ok
             ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
             : []),
-          ...(!advancedOpen && httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
-          ...(!advancedOpen && loopCapInvalid ? [ko.validation.loopCap] : []),
-          ...(!advancedOpen && loadModel === "closed" && thinkInvalid ? [ko.validation.think] : []),
+          ...((mode === "simple" || !advancedOpen) && httpTimeoutInvalid
+            ? [ko.validation.httpTimeout]
+            : []),
+          ...((mode === "simple" || !advancedOpen) && loopCapInvalid
+            ? [ko.validation.loopCap]
+            : []),
+          ...((mode === "simple" || !advancedOpen) && loadModel === "closed" && thinkInvalid
+            ? [ko.validation.think]
+            : []),
+          ...(mode === "simple" && loadModel === "open" && loadErrs.workerCountInvalid
+            ? [ko.validation.workerCount]
+            : []),
         ];
         return (
           blockedReasons.length > 0 && (

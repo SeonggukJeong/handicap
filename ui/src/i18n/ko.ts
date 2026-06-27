@@ -109,6 +109,11 @@ export const ko = {
     modeSimple: "간단",
     modeDetail: "상세",
     modeAria: "설정 모드",
+    // 측정 섹션 (R9)
+    measureTitle: "응답 시간 단계 분해",
+    measureDesc: "응답 시간을 DNS·연결·대기·다운로드로 나눠 측정 — 리포트에서 어디서 느린지 진단",
+    // 간단 모드 상세 적용 힌트 (R6)
+    appliedDetail: (n: number) => `상세 설정 ${n}개 적용됨`,
   },
   binding: {
     sectionTitle: "데이터 바인딩",
