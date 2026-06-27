@@ -1,7 +1,7 @@
 # 디자인 시스템 확산 (설계) (§B12 / C-2 후속)
 
 - **날짜**: 2026-06-27
-- **상태**: 설계 (brainstorming 승인 2026-06-27) → spec-plan-reviewer 검토 대기
+- **상태**: 설계·plan 둘 다 spec-plan-reviewer **clean APPROVE**(spec 2라운드·plan 3라운드, 2026-06-27) + plan REVIEW-GATE 마커 → **구현 대기**(STOP-gate: `/clear`→fresh 컨텍스트). 사용자 spec 승인 후 **VF 정제**(R6 — 카드형 fieldset/`<h3>` 시각 회귀 방지) 반영. plan = `docs/superpowers/plans/2026-06-27-design-system-spread.md`
 - **출처**: 사용자 요청 (roadmap shortlist #3 = §B12 "디자인 시스템 확장"). C-2(`2026-06-27-rundialog-design-system-design.md`)가 토대를 세우고 RunDialog 트리만 채택했고, §7에서 "다른 화면 토큰 이주 … 차츰 같은 프리미티브로 확장"을 연기했다. 이 슬라이스가 그 확산을 실행한다.
 - **연관**:
   - **토대(소비만, 0-diff)**: `ui/src/components/ui/{Field,Input,Select,Section,Callout,Badge}.tsx`·`tailwind.config.ts`(accent 토큰)·`ui/src/components/Button.tsx`(accent primary).
@@ -12,6 +12,7 @@
   1. **간단/상세 토글은 이번 범위 밖**(별도 슬라이스로 연기). 이번은 확산만.
   2. **확산 대상 = 4개 화면 그룹**(Settings / ScenarioImport(HAR) / Datasets·Environments / Templates·Schedules) — 한 슬라이스·한 머지.
   3. **토대 동결(순수 소비)** — 프리미티브·토큰에 새 tone/variant 추가 없음. 데이터-식별 색·풀-모드 배너·소형 인라인 에러는 그대로 둔다.
+  4. **VF(visual fidelity) 정제(spec 승인 후, 사용자 "디자인이 이상해지지 않길")**: `Section`은 **이미 `<fieldset><legend>`인 그룹에만** 적용(legend→legend 무회귀). plain `<section>/<div>`+`<h3>` 단일 폼 카드는 Section으로 바꾸지 않는다(`Section` legend `text-sm`가 `<h3 text-md>` 제목을 축소 = 시각 회귀) — 카드 토큰 정합 + 입력(Input)·알림(Callout)만 교체. 시각 회귀 방지가 적용 깊이보다 우선(R6).
 
 ---
 
@@ -37,8 +38,8 @@ C-2는 RunDialog 한 화면에서 정보 위계·용어 안내·시각 통일을
 | R2 | `MUST`(불변식) **토대 동결** — `ui/src/components/ui/{Field,Input,Select,Section,Callout,Badge}.tsx`·`tailwind.config.ts`·`Button.tsx` **0-diff**(새 tone/variant/토큰 0). 이 슬라이스는 순수 소비 | `git diff --name-only`에 `ui/src/components/ui/`·`tailwind.config.ts`·`Button.tsx` 부재 | |
 | R3 | `MUST`(불변식) 각 폼의 **동작 byte-identical** — 뮤테이션 요청 본문(POST/PUT/PATCH/DELETE)·검증 게이트·이벤트 핸들러·react-query 훅·상태 round-trip이 재구성 전과 동일. JSX 마크업만 교체 | 각 페이지/컴포넌트 기존 테스트 전부 통과(payload·disable·mutation 분기); 로직 함수 0-diff(리뷰) | |
 | R4 | `MUST`(불변식) **데이터-식별 색 동결** — `SchedulesPage` `STATUS_STYLE`(fired/skipped_overlap/missed/error 색)·`SettingsPage` 풀-모드 배너(초록/회색)·`StatusBadge`·`StageCurvePreview`/차트 stroke은 손대지 않는다(C-2 R13 원칙: 데이터-식별 색은 별 도메인) | 그 마크업 0-diff(grep) | |
-| R5 | `MUST` raw **`<input>`/`<select>`**(`rounded border border-slate-300 px-2 py-1` 계열 ~25곳)을 `Input`/`Select`로 교체 — number/text/datetime/time/select. **정당 예외(구조 보존·프리미티브 비대상)**: `type="file"`·`type="checkbox"`·`type="radio"` 입력·`<textarea>`·**`aria-pressed` 토글 버튼(TriggerBuilder 요일 `:130`)·dashed 드롭존 컨테이너(UploadPanel `:89`)** 등 비-input 요소. **고정폭 입력(`w-40`/`w-64`/`w-24`/`w-48`)은 `Input` BASE `w-full`을 래퍼 `<div className="w-NN">`로 감싸 보존**(className 산출 순서 의존 회피 — C-2 RunDialog httpTimeout 래퍼 선례) | grep을 `<input`/`<select` 요소로 한정 시 raw `border-slate-300` 잔존 0(위 비-input 예외 제외); `pnpm build` 후 고정폭 시각 확인 | |
-| R6 | `MUST` **컨트롤을 직접 담는 폼-컨트롤 그룹**만 `Section`으로 — `border border-slate-200 rounded-md p-4 bg-white`+`<h3>` 편집-폼 카드(EnvironmentsPage `:112`·TemplatesPage `:105`·UploadPanel `:85`)·기존 `<fieldset><legend>`(Import 4·Templates preview·ScheduleForm SLO/고급·TriggerBuilder "트리거"). **접힘 동작(`aria-expanded`)이 이미 있는 ScheduleForm SLO/고급은 `Section collapsible`로 동작 보존 교체.** ⚠ `Section`은 `<fieldset><legend>`(role **group**)을 렌더 → **(a) plain 리스트/랜드마크 `<section aria-label>`(role region)** (DatasetsPage `:46`·EnvironmentsPage 리스트 `:233`·Settings 그룹 `:310`/`:331`)**, (b) 컨트롤이 아니라 하위 컴포넌트+타임라인을 감싸는 컨테이너**(SchedulesPage `:128` = `<ScheduleForm>`+`<ScheduleEventTimeline>` 래퍼)**에는 강제하지 않는다**(region 보존 또는 클래스 정합만; F3) | 폼-컨트롤 카드 헤딩/접힘 RTL 통과; 접힘 토글·열림 상태 보존; region 셀렉터 보존(R10) | |
+| R5 | `MUST` raw **`<input>`/`<select>`**(`rounded border border-slate-300 px-2 py-1` 계열 ~25곳)을 `Input`/`Select`로 교체 — number/text/datetime/time/select. **정당 예외(구조 보존·프리미티브 비대상)**: `type="file"`·`type="checkbox"`·`type="radio"` 입력·`<textarea>`·**`aria-pressed` 토글 버튼(TriggerBuilder 요일 `:130`)·dashed 드롭존 컨테이너(UploadPanel `:89`)** 등 비-input 요소. **(a) 고정폭 입력(`w-40`/`w-64`/`w-24`/`w-48`)은 `Input` BASE `w-full`을 래퍼 `<div className="w-NN">`로 감싸 보존**(className 산출 순서 의존 회피 — C-2 RunDialog httpTimeout 래퍼 선례). **(b) auto-width 컨트롤이 *수평 flex 행*에 있으면**(UploadPanel 옵션 select `flex flex-wrap`·TriggerBuilder 간격단위 select)도 `w-full` 확장이 행을 깨므로 폭 래퍼로 compact 유지(라이브 시각 확인). **(c) `font-mono` 입력**(Env var 키 `:138`/`:175`·ScenarioImport 호스트 var `:318`·cron)은 `<Input className="font-mono">`로 mono 보존 | grep을 `<input`/`<select` 요소로 한정 시 raw `border-slate-300` 잔존 0(위 비-input 예외 제외); `pnpm build` + 라이브에서 고정폭·flex-행·mono 시각 확인 | |
+| R6 | `MUST` `Section`은 **`border-t` 디바이더 그룹(legend + 위 구분선)에만** 적용 — `Section`은 카드 테두리/패딩/배경 없이 `<fieldset className="mb-4 [border-t border-slate-200 pt-3]"><legend class="text-sm">`만 렌더(RunDialog 내부 그룹용)하므로, 그 출력과 맞는 곳: **ScheduleForm SLO/고급(접힘 `border-t pt-3` `:367`/`:396`)·TriggerBuilder "트리거"(`border-t pt-3` `:78`)**. 접힘 동작 있는 SLO/고급은 `Section collapsible open onToggle divider` + **`hint=`(접힘 시 "N개 설정됨" 표시 보존)**. ⚠ **카드형 `<fieldset>`(ScenarioImport 4개 `rounded-md border p-4` `:184`/`:229`/`:245`/`:292`)·`min-w-0` 보존 fieldset(TemplatesPage preview `:128`)는 Section으로 바꾸지 않는다** — `Section`은 카드 테두리/패딩/`min-w-0`/`text-sm`를 못 실어 카드 룩·overflow 가드가 깨진다(시각 회귀). plain `<section>/<div>`+`<h3>` 단일 폼 카드(EnvironmentsPage `:112`·TemplatesPage 메인 `:105`·UploadPanel `:85`)·리스트 region(DatasetsPage `:46`·리스트 `:233`·Settings 그룹 `:310`/`:331`)·하위컴포넌트 래퍼(SchedulesPage `:128`)도 미변환(VF/F3). **비-Section 그룹은 컨테이너 클래스 토큰 정합 + 내부 입력(Input)·알림(Callout)만** 교체(구조·border·`<h3>`/legend·region·`aria-label`·`min-w-0` 보존) | Section 적용처(SLO/고급/트리거) 시각 무회귀+접힘/hint 보존; 카드형 fieldset border·`min-w-0` 보존(grep); 폼 카드 `<h3>`/region 보존(R10) | |
 | R7 | `MUST` **블록-레벨 알림**(페이지/폼 단위 `text-sm` 오류·상태·경고)을 `Callout`으로 전환하되 **기존 `role`을 정확히 보존**(없으면 안 만든다) — error `<p role="alert" text-red-600>` 블록(~10)·warn 박스(Settings apply-note `:295`=**roleless** `<p>`→role 추가 금지·ScheduleForm blocked-reasons `:462`=`role="status"` 보존)·Upload preview/parse. **필드-레벨 인라인(`text-xs text-red-600` borderless)·Upload 인라인 `<span role="alert">`(버튼 옆)은 인라인 유지**(전환=레이아웃 시프트/의미 손상). roleless 블록 오류는 Callout로 옮겨도 **role 미부여**(byte-identical) | 전환 박스 role이 전환 전과 1:1(roleless→무 role·alert→alert·status→status); 기존 role RTL 통과 | |
 | R8 | `MUST` warn 배지 **2곳만** `Badge tone="warn"`로 — `SettingsPage` "변경됨" 태그(`:67`)·`ScenarioImportPage` 중복 배지(`:281`). 나머지(status 배지)는 R4로 동결 | 그 2곳 `Badge` 적용; status 배지 0-diff | |
 | R9 | `MUST` `EnvironmentsPage` raw `<button>` "추가"(`:196`)를 공유 `Button variant="secondary"`로(명백한 디자인-시스템 드롭인). **EmptyState CTA의 link-style 버튼(EnvironmentsPage `:242`·SchedulesPage `:167`, `EmptyState`의 `action` prop으로 인라인 렌더)은 링크 어포던스 의도라 손대지 않음** | 그 버튼 `Button` 적용·`disabled` 동작 보존; EmptyState CTA 0-diff | |
@@ -75,26 +76,26 @@ C-2는 RunDialog 한 화면에서 정보 위계·용어 안내·시각 통일을
 - apply-note warn `<p ... bg-amber-50 border>`(`:295`) → `Callout variant="warn"`. load error `<p role="alert" text-red-600>`(`:301`) → `Callout variant="error" role="alert"`.
 - "변경됨" 배지(`:67`) → `Badge tone="warn"`(R8). **풀-모드 배너 `modeBanner()`(`:267`, 초록/회색)·행-레벨 소형 에러(`:103`/`:109`)는 동결**(R4·R7 인라인 유지).
 
-### 4.2 Group 2 — ScenarioImport (HAR) — 충족 R: `R1,R3,R5,R6,R7,R8,R10,R11`
-- 4개 `<fieldset ... rounded-md border border-slate-200 p-4>`(옵션/호스트/요청/Host→Env `:184`/`:229`/`:245`/`:292`) → `Section`(legend 텍스트 보존).
-- 입력: 시나리오 이름(`:188`)·var 이름(`:313`)·env 이름(`:339`)·헤더모드 `<select>`(`:206`) → `Input`/`Select`(`aria-label` 보존). YAML 미리보기 `<textarea readOnly>`(`:373`)는 `textarea`라 프리미티브 비대상 → **`Input`의 BASE 클래스 정합만**(또는 그대로). file/checkbox는 정당 예외(R5).
+### 4.2 Group 2 — ScenarioImport (HAR) — 충족 R: `R1,R3,R5,R7,R8,R10,R11`
+- 4개 `<fieldset ... rounded-md border border-slate-200 p-4 [text-sm]>`(옵션/호스트/요청/Host→Env `:184`/`:229`/`:245`/`:292`)는 **카드형이라 Section 미적용**(R6 — Section은 border/padding을 못 실음)·기존 `<fieldset><legend>` 구조·border·`text-sm` 보존(클래스 토큰 정합만), 내부 입력/알림만 교체.
+- 입력: 시나리오 이름(`:188`)·var 이름(`:313`, `w-40 font-mono`→래퍼+`className="font-mono"`)·env 이름(`:339`)·헤더모드 `<select>`(`:206`, flex 컬럼이라 w-full 허용·라이브 확인) → `Input`/`Select`(`aria-label` 보존). YAML 미리보기 `<textarea readOnly>`(`:373`)는 `textarea`라 프리미티브 비대상 → 그대로(클래스 토큰 정합만). file/checkbox는 정당 예외(R5).
 - HAR parse error `<p role="alert">`(`:177`) → `Callout variant="error" role="alert"`(role=alert 보존). 중복 배지(`:281`) → `Badge tone="warn"`로 교체하되 **`shrink-0` 래퍼 `<span>` 유지**(Badge엔 className 없음[R2 토대 동결] → flex 행에서 압축 방지·F1).
 - var 검증·예약 호스트 소형 인라인 에러(`:322`~`:334`/`:345`/`:361`)는 인라인 유지(R7).
 
 ### 4.3 Group 3 — Datasets · Environments · UploadPanel — 충족 R: `R1,R3,R5,R6,R7,R9,R10,R11`
 - **DatasetsPage**: 삭제 error `<p role="alert">`(`:41`)·load error `<p>`(`:49`) → `Callout`(role 보존/부여). 리스트 `<section aria-label>`(`:46`)는 폼 카드가 아니라 **그대로 유지**(R6 — plain 리스트엔 Section 미적용). DatasetsPage는 입력이 없어 Callout 적용만.
-- **EnvironmentsPage**: 폼 카드 `<section ... border rounded-md p-4 bg-white>`(`:112`) → `Section`. 이름(`:121`)·키(`:138`/`:173`)·값(`:147`/`:183`) 입력 → `Input`(`aria-label` 보존). raw "추가" `<button>`(`:196`) → `Button variant="secondary"`(R9·`disabled` 보존). 예약 var warn(`:204`)·폼/삭제 error(`:210`/`:227`) → `Callout`. **EmptyState CTA(`:244`) 동결**(R9).
-- **UploadPanel**: 업로드 카드 `<section ... border rounded-md p-4>`(`:85`) → `Section`. 데이터셋 이름(`:109`)·옵션 `<select>` 4~5개(`:117`~`:168`) → `Input`/`Select`(`aria-label` 보존). parse error `<p role="alert">`(`:180`) → `Callout error`. **parsing 상태 `<p role="status">`(`:175`)·업로드 인라인 `<span role="alert">`(`:219`, 버튼 옆)은 인라인 유지**(R7). file 입력·dashed 드롭존(`:89`) 정당 예외(R5).
+- **EnvironmentsPage**: 폼 카드 `<section aria-label ... bg-white>`(`:112`)는 **구조·`<h3>`·`aria-label` 보존**(Section 미적용·VF/R6)·카드 클래스 토큰 정합만. 이름(`:121`, `w-64`)·키(`:138`/`:173`, `w-40 font-mono`→래퍼+`className="font-mono"`)·값(`:147`/`:183`, `flex-1`→`className="flex-1"`) 입력 → `Input`(`aria-label` 보존). raw "추가" `<button>`(`:196`) → `Button variant="secondary"`(R9·`disabled`/실제 핸들러 보존; 라이브에서 입력 행 높이 정렬 확인). 폼 error(`:210`)·삭제 error(`:227`) → `Callout variant="error" role="alert"`. **예약 var warn(`:204`, `text-xs text-amber-700` borderless 필드-레벨)·EmptyState CTA(`:244`) 동결**(R7 인라인 유지·R9).
+- **UploadPanel**: 업로드 카드 `<section aria-label ... border rounded-md p-4>`(`:85`)는 **구조·`aria-label` 보존**(Section 미적용·VF/R6)·카드 클래스 토큰 정합만. 데이터셋 이름(`:109`, `w-48`) → `Input`(래퍼). 옵션 `<select>` 4~5개(`:117`~`:168`, **auto-width, `flex flex-wrap` 행 `:106`**) → `Select`로 바꾸되 **각 폭 래퍼로 compact 유지**(B — w-full로 퍼지면 side-by-side 깨짐; 래퍼 폭은 현재 렌더에 맞춰 라이브에서 확인). parse error `<p role="alert">`(`:180`) → `Callout error`. **parsing 상태 `<p role="status">`(`:175`)·업로드 인라인 `<span role="alert">`(`:219`, 버튼 옆)은 인라인 유지**(R7). file 입력·dashed 드롭존(`:89`) 정당 예외(R5).
 
 ### 4.4 Group 4 — Templates · Schedules · ScheduleForm · TriggerBuilder — 충족 R: `R1,R3,R4,R5,R6,R7,R10,R11`
-- **TemplatesPage**: 폼 카드 `<section ... border rounded-md p-4 bg-white>`(`:105`)·preview `<fieldset>`(`:128`) → `Section`. 이름(`:112`)·설명(`:120`) → `Input`(`aria-label` 보존). 폼/삭제 error(`:132`/`:148`) → `Callout error`.
+- **TemplatesPage**: 메인 폼 카드 `<section ... bg-white>`(`:105`)는 **구조·`<h3>` 보존**(Section 미적용·VF/R6)·카드 클래스 토큰 정합만. **preview `<fieldset className="min-w-0 mb-3">`(`:128`)도 Section 미적용**(R6 — Section은 `min-w-0` overflow 가드를 못 실음)·fieldset 구조 보존. 이름(`:112`)·설명(`:120`) → `Input`(`aria-label` 보존). 폼/삭제 error(`:132`/`:148`) → `Callout error`.
 - **SchedulesPage**: 폼 카드 `<section aria-label ... bg-white>`(`:128`)는 컨트롤이 아니라 `<ScheduleForm>`(자체 카드)+`<ScheduleEventTimeline>`을 감싸는 컨테이너라 **Section 미적용**(region 보존 또는 클래스 정합만·F3). 폼/삭제 error(`:135`/`:152`) → `Callout error`. **status 배지 `STATUS_STYLE`(`:199`)·EmptyState CTA(`:169`) 동결**(R4·R9).
-- **ScheduleForm**: 이름(`:266`)·시나리오 `<select>`(`:276`)·httpTimeout(`:329`)·loopCap(`:349`) 입력 → `Input`/`Select`(`aria-label` 보존). SLO/고급 접힘 `<fieldset ... border-t><legend><button aria-expanded>`(`:367`/`:396`) → `Section collapsible open onToggle divider`(접힘 동작·상태 보존, R6). blocked-reasons `<div role="status" ... bg-amber-50 border>`(`:462`) → `Callout variant="warn" role="status"`. checkbox(measurePhases/enabled) 정당 예외.
-- **TriggerBuilder**: 전체 `<fieldset ... border-t><legend>트리거</legend>`(`:78`) → `Section title divider`. once datetime(`:97`)·time(`:109`)·간격 N(`:143`)·간격 단위 `<select>`(`:153`)·cron(`:168`) 입력 → `Input`/`Select`(`aria-label` 보존). cron preview error `<p role="alert">`(`:181`)는 작아 인라인 유지 가능(R7). radio(트리거 모드)·요일 토글 정당 예외(구조 보존).
+- **ScheduleForm**: 이름(`:266`)·시나리오 `<select>`(`:276`)·httpTimeout(`:329`)·loopCap(`:349`) 입력 → `Input`/`Select`(`aria-label` 보존). SLO/고급 접힘 `<fieldset ... border-t pt-3><legend><button aria-expanded>`(`:367`/`:396`) → `Section collapsible open onToggle divider` + **`hint={!open && count>0 ? "N개 설정됨" : undefined}`로 접힘 카운트 인디케이터 보존**(`ui-optional-sections-collapsible` 메모·사용자 민감)·기존 caret span 제거(Section이 처리). blocked-reasons `<div role="status" ... bg-amber-50 border>`(`:462`) → `Callout variant="warn" role="status"`. checkbox(measurePhases/enabled) 정당 예외.
+- **TriggerBuilder**: 전체 `<fieldset className="mb-4 border-t pt-3"><legend>트리거</legend>`(`:78`)는 border-t 디바이더라 `Section title="트리거" divider`(인라인 문자열 그대로 이동·R11). once datetime(`:97`, w-full)·time(`:109`, w-full)·간격 N(`:143`, `w-24`)·cron(`:168`, w-full font-mono) → `Input`(R-1, w-24만 래퍼·font-mono className 유지)·간격 단위 `<select>`(`:153`, **auto-width, flex 행**)는 `Select`로 바꾸되 폭 래퍼로 compact 유지(B). cron preview error `<p role="alert">`(`:181`)는 작아 인라인 유지(R7). radio(트리거 모드)·요일 토글(`aria-pressed`) 정당 예외(구조 보존).
 
 ### 4.5 문구 — `ui/src/i18n/ko.ts` — 충족 R: `R11`
 - 신규 인라인 문자열 0이 원칙. 섹션 제목은 기존 출처(ko 키/legend 텍스트) 그대로 이동. 신규 노출 텍스트(예: Section `badge`에 필수/선택을 *의미 있게* 넣는 경우)만 `ko.common` 재사용/추가. **대부분의 단일-폼 섹션엔 required/optional 배지를 강요하지 않는다**(불필요 copy·잘못된 의미 부여 회피).
-- **dead-key 위생(M1)**: 폼 카드 `<section aria-label={formAria}>`를 `Section title=`로 옮기면 `aria-label` 출처 ko 키가 고아가 될 수 있다(예: `ko.environment.formAria` `:953`). 변환 후 더는 참조되지 않는 ko 키는 제거(C-2가 죽은 `ko.runDialog.group*`를 `c62080f`로 정리한 선례). `ko.schedule.formAria`(`:940`)는 SchedulesPage가 Section 미적용(F3)이라 보존.
+- **dead-key 위생(M1)**: VF 정제(R6)로 폼 카드 `<section aria-label={formAria}>`를 **그대로 보존**하므로 `ko.environment.formAria`(`:953`)·`ko.schedule.formAria`(`:940`)는 **고아 없음**(둘 다 계속 참조). 만에 하나 변환으로 더는 참조 안 되는 ko 키가 생기면 제거(C-2가 죽은 `ko.runDialog.group*`를 `c62080f`로 정리한 선례) — 이번 범위에선 발생 안 함.
 
 ---
 
@@ -153,18 +154,18 @@ C-2는 RunDialog 한 화면에서 정보 위계·용어 안내·시각 통일을
 > ⚠ **tdd-guard 사전조치(F4)**: `tdd-guard`는 `ui/src/**`(non-test) 편집 시 디스크에 *pending*(수정/미추적) test-path 파일을 요구하고, className/JSX-only 변경은 주석/공백 auto-pass에 안 들어간다. 셀렉터 보존으로 **테스트 변경이 불필요한 파일**은 pending diff가 없어 가드에 막힌다. 대응: (a) F6의 타깃 lockstep 단언을 *먼저* 그 파일의 test에 추가(=pending diff 생성, 회귀 가드도 겸함), 또는 (b) 단언 추가가 없는 파일엔 `ui/src/<...>/__tests__/_tdd_keepalive.test.tsx`(`it.todo`)를 미리 깔아 그 그룹 src 편집을 unblock하고 task 끝에 `rm`(커밋 금지). orchestrator는 implementer에 명시 경로만 `git add` 지시(`-A` 금지).
 
 **Phase 1 — Settings** (단일 파일·드롭인 밀도 높음·낮은 위험 = 시작점)
-1. `SettingsPage` — Input/Section/Callout/Badge 적용(R5~R8), 배너·소형 에러 동결(R4). 기존 `SettingsPage.test` lockstep.
+1. `SettingsPage` — Input/Callout/Badge 적용(R5/R7/R8); 그룹 region·`<ul>` 카드는 토큰 정합(Section 미적용·VF), 배너·소형 에러 동결(R4). 기존 `SettingsPage.test` lockstep(`getByRole("region")` 보존).
 
 **Phase 2 — ScenarioImport (HAR)**
-2. `ScenarioImportPage` — 4 fieldset→Section·입력→Input/Select·중복 Badge·HAR error Callout. 기존 `ScenarioImportPage.test` lockstep.
+2. `ScenarioImportPage` — 4 카드형 fieldset 유지(Section 미적용·R6)·입력→Input/Select(var 이름 font-mono)·중복 Badge·HAR error Callout. 기존 `ScenarioImportPage.test` lockstep(`group` 셀렉터 보존).
 
 **Phase 3 — Datasets · Environments · UploadPanel** (그룹 내 3 파일·각 독립 커밋)
-3. `DatasetsPage` — Callout/Section.
-4. `EnvironmentsPage` — Section·Input·Button(추가)·Callout. 기존 `EnvironmentsPage.test` lockstep(`nameAria`/`varKeyAria`).
-5. `datasets/UploadPanel` — Section·Input/Select·Callout. 기존 `UploadPanel.test` lockstep(`headerLabel`).
+3. `DatasetsPage` — Callout만(입력 없음·리스트 region 보존). 오류 `<p>` 렌더 단언 추가(F6).
+4. `EnvironmentsPage` — 카드 토큰 정합·Input·Button(추가)·Callout(Section 미적용·VF). 기존 `EnvironmentsPage.test` lockstep(`/환경 이름/`·placeholder `BASE_URL`/`/값/`).
+5. `datasets/UploadPanel` — 카드 토큰 정합·Input/Select·Callout(Section 미적용·VF). 기존 `UploadPanel.test` lockstep(`/파일 선택/`·`/구분자/`).
 
 **Phase 4 — Templates · Schedules · ScheduleForm · TriggerBuilder** (그룹 내 4 파일·각 독립 커밋)
-6. `TemplatesPage` — Section·Input·Callout. lockstep(`colName`).
+6. `TemplatesPage` — 메인 카드 토큰 정합·preview `<fieldset>` 유지(Section 미적용·`min-w-0` 보존·R6)·Input·Callout. lockstep(`colName`).
 7. `SchedulesPage` — Callout(폼/삭제 error)만; **폼-카드 Section 미적용(F3)**·status 배지 동결(R4). lockstep + 폼-카드 렌더 단언(F6).
 8. `ScheduleForm` — Input/Select·Section collapsible(SLO/고급)·blocked Callout. 기존 `ScheduleForm.test` lockstep(`httpTimeout`/`이름`/`시나리오`).
 9. `TriggerBuilder` — Section·Input/Select. 기존 `TriggerBuilder.test` lockstep(radio·`시각`).
