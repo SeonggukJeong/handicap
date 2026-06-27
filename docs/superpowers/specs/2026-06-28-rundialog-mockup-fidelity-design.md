@@ -65,6 +65,23 @@
 - payload 골든(R10)·ScheduleForm 불변(R12) 락인.
 - **시각 acceptance(R12)**: live-verify에서 간단·상세 스크린샷 → 저장 목업과 대조 기록.
 
+## 리뷰 1차 (spec-plan-reviewer, 2026-06-28) — **NEEDS-REWORK · 반영 필요** (rework 체크리스트)
+
+코드 앵커 8개는 전부 정확 확인됨(rework는 한정적·재설계 아님). 단 acceptance-레벨 모순/누락이 fresh 구현 세션 drift를 유발 → 아래를 반영 후 재검토:
+
+1. **R5 ↔ R12 모순(headline).** v3 HTML(`spark.innerHTML=''` 후 `rate==='curve'` 분기에서만 그래프 set) + PNG 2장 모두 **고정 모드 footer에 그래프 없음**. R5(고정 모드 부하-모양)는 **사용자 의도적 mockup-초과 요구** → R5 유지하되 **R12를 "고정 모드 footer 그래프 제외(의도적 초과 추가)"로 scope** + 고정-모드 시그니처용 *새 레퍼런스 스샷* 추가.
+2. **R5 메커니즘 정의.** `StageCurvePreview`는 `(0,0)` 시작 하드코딩(`:9`) → 고정 load 1-stage 주면 *대각 ramp*(평평 아님). **새 작은 컴포넌트 `LoadShapePreview`**(고정=flat 일정선·곡선=stages) 신설 권장(StageCurvePreview 불변 미접촉). invalid 상태(흐리게 vs 생략) 택1 명시.
+3. **footer 색.** mockup spark `#4f46e5`(accent/indigo) vs `StageCurvePreview` `#2563eb`(blue·ui/CLAUDE.md가 chart stroke의 accent화 금지). footer 시그니처는 *새 장식 컴포넌트*(데이터 차트 아님)라 `LoadShapePreview`에서 accent 사용 OK → 분리하면 해결·차트 규칙 무위반.
+4. **R11 재조정.** R6/R8이 **기존 ko 키 변경**(title `ko.ts:65`·run `:66`) → R11 "기존 키 변경 0/grep 0-diff"와 충돌. R11을 **"crates/proto/migration/schemas.ts 0-diff(진짜 wire)" + "ko.ts = 신규 tile-title 키 + 의도적 copy(title/run/summary-조각)만 변경"**으로 재서술(ko grep-0 폐기).
+5. **R6 완전 명세.** `runSummary`가 **구조화 조각** 반환(굵은 main + **회색 `.sub`** — mockup은 "동시 요청 상한 200"이 회색 비-bold; 현재는 단일색 join `runSummary.ts:51`). ko 전략 ADR-0035 준수(인라인 한국어 금지·조각 키). `runSummary.test.ts` 재작성 명시.
+6. **누락 fidelity 항목 추가**(또는 명시적 out-of-scope+근거): ① Section1 "부하 정의" eyebrow(`ko.ts:70`) + 안쪽 "부하 모델" `<legend>`(`LoadModelFields.tsx:288`) = **헤더 2개 중복**(mockup=eyebrow 1개 "부하 모델"). ② "대상 설정" Section(`RunDialog.tsx:678`, Badge 선택 이미 있음) → mockup은 **"환경 [선택]"+"데이터셋 바인딩 [선택]" 분리 eyebrow**(대상 설정 래퍼 없음). ③ "측정 [선택]" eyebrow(라이브 measure는 bare `<div>` `:824-838`). ④ "이 설정 저장 [선택]" eyebrow(라이브 프리셋 블록 bare). ⑤ "프로파일" eyebrow 스타일(라이브 plain `<legend>` `:360`).
+7. **R7 모호 해소.** #6②와 함께 — env를 독립 eyebrow "환경 [선택]"로 분리(현 "대상 설정" Section Badge와 이중 "선택" 회피).
+8. **테스트 blast radius(plan 명시).** `/^실행$/` anchored selector **≈39곳**이 "실행하기"로 깨짐 + 타일 라벨 **≈30곳**(`사용자 수 기준`×5/`요청 속도 기준`×25) = ~70 기계적 수정 sweep. ScheduleForm `/사용자 수 기준/`(`ScheduleForm.test.tsx:103`)은 라디오 유지=보존. R3 count-0 부재 단언 없음=always-render 안전.
+9. **R12 대조 STATE 명시.** 레퍼런스 PNG 2장 = **open+fixed 100/300/200**, 라이브 기본 = closed+fixed 2/5 → 사과-오렌지. 검증자는 **open 전환 + 100/300/200 입력 후** 대조.
+10. **teeth.** R1 accent-선택 단언에 **teeth-check**(선택→비-accent 뒤집어 FAIL 확인·jsdom `toHaveStyle` 규약 ui/CLAUDE.md). R3 클릭→상세·R13 toggle aria는 mockup-초과 a11y 추가(유지·의도 명시).
+
+> **스코프 주의:** #6의 section/eyebrow 재구성이 슬라이스를 "타일+측정+footer"에서 "전체 헤더/섹션 fidelity"로 확장한다. 사용자 의도(목업 충실)에 부합하나 fresh 구현 세션은 이 확장 스코프를 인지할 것.
+
 ## 비범위 / 후속
 
 - 모달화(인라인→오버레이+X·결정6).
