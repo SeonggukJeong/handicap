@@ -89,6 +89,15 @@ describe("EnvironmentsPage", () => {
     await waitFor(() => expect(posted).toEqual({ name: "prod", vars: { BASE_URL: "http://p" } }));
   });
 
+  it("add button disabled until key filled", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ environments: [] }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText(ko.empty.environments);
+    await user.click(screen.getByRole("button", { name: ko.pages.newEnvironment }));
+    expect(screen.getByRole("button", { name: /^추가$/ })).toBeDisabled();
+  });
+
   it("deletes an environment after confirm", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     fetchMock

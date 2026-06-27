@@ -10,6 +10,8 @@ import {
 import { getEnvironment, type EnvironmentInput } from "../api/environments";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
+import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
 import { ko } from "../i18n/ko";
 
 type VarRow = { key: string; value: string };
@@ -118,13 +120,14 @@ export function EnvironmentsPage() {
           </h3>
           <label className="block text-sm mb-3">
             <span className="text-slate-600">{ko.environment.nameLabel}</span>
-            <input
-              aria-label={ko.environment.nameAria}
-              className="mt-1 block w-64 rounded border border-slate-300 px-2 py-1"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="staging"
-            />
+            <div className="mt-1 w-64">
+              <Input
+                aria-label={ko.environment.nameAria}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="staging"
+              />
+            </div>
           </label>
 
           <h4 className="text-sm font-semibold text-slate-700 mb-2">
@@ -133,20 +136,22 @@ export function EnvironmentsPage() {
           <ul className="flex flex-col gap-2">
             {rows.map((entry, idx) => (
               <li key={idx} className="flex items-center gap-2">
-                <input
-                  aria-label={ko.environment.varKeyAria(idx)}
-                  className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-                  value={entry.key}
-                  onChange={(e) =>
-                    setRows((prev) =>
-                      prev.map((p, i) => (i === idx ? { ...p, key: e.target.value } : p)),
-                    )
-                  }
-                />
+                <div className="w-40">
+                  <Input
+                    aria-label={ko.environment.varKeyAria(idx)}
+                    className="font-mono"
+                    value={entry.key}
+                    onChange={(e) =>
+                      setRows((prev) =>
+                        prev.map((p, i) => (i === idx ? { ...p, key: e.target.value } : p)),
+                      )
+                    }
+                  />
+                </div>
                 <span className="text-slate-400 text-sm">=</span>
-                <input
+                <Input
                   aria-label={ko.environment.varValueAria(idx)}
-                  className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
+                  className="flex-1"
                   value={entry.value}
                   onChange={(e) =>
                     setRows((prev) =>
@@ -170,23 +175,25 @@ export function EnvironmentsPage() {
           </ul>
 
           <div className="flex items-center gap-2 mt-2">
-            <input
-              aria-label={ko.environment.newVarKeyAria}
-              className="w-40 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-              placeholder="BASE_URL"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
-            />
+            <div className="w-40">
+              <Input
+                aria-label={ko.environment.newVarKeyAria}
+                className="font-mono"
+                placeholder="BASE_URL"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+              />
+            </div>
             <span className="text-slate-400 text-sm">=</span>
-            <input
+            <Input
               aria-label={ko.environment.newVarValueAria}
-              className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm"
+              className="flex-1"
               placeholder={ko.environment.newVarValuePlaceholder}
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
             />
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => {
                 const k = newKey.trim();
                 if (!k) return;
@@ -195,10 +202,9 @@ export function EnvironmentsPage() {
                 setNewValue("");
               }}
               disabled={newKey.trim().length === 0}
-              className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
             >
               {ko.environment.addBtn}
-            </button>
+            </Button>
           </div>
 
           {reservedWarn.length > 0 && (
@@ -208,9 +214,9 @@ export function EnvironmentsPage() {
             </p>
           )}
           {formError && (
-            <p role="alert" className="mt-2 text-sm text-red-600">
+            <Callout variant="error" role="alert" className="mt-2">
               {formError}
-            </p>
+            </Callout>
           )}
 
           <div className="flex gap-2 mt-4">
@@ -225,9 +231,9 @@ export function EnvironmentsPage() {
       )}
 
       {delError && (
-        <p role="alert" className="mb-4 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mb-4">
           삭제 실패: {delError}
-        </p>
+        </Callout>
       )}
 
       <section aria-label={ko.environment.listAria}>
