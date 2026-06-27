@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreatePreset,
@@ -40,6 +40,9 @@ import { scaleVuStages, peakStageTarget } from "./sizing";
 import { Section } from "./ui/Section";
 import { Badge } from "./ui/Badge";
 import { Callout } from "./ui/Callout";
+import { Field } from "./ui/Field";
+import { Input } from "./ui/Input";
+import { Select } from "./ui/Select";
 
 type Props = {
   scenarioId: string;
@@ -173,6 +176,13 @@ export function RunDialog({
   const presets = usePresets(scenarioId);
   const pool = usePoolWorkers();
   const qc = useQueryClient();
+
+  // Stable ids for Field+Input pairs (B3). Must be at hook call site (Rules of Hooks).
+  const thinkMinId = useId();
+  const thinkMaxId = useId();
+  const thinkSeedId = useId();
+  const httpTimeoutId = useId();
+  const loopCapId = useId();
 
   async function loadPreset(id: string) {
     if (!id) return;
@@ -484,10 +494,9 @@ export function RunDialog({
           <label className="text-sm text-slate-600" htmlFor="load-preset">
             프리셋 불러오기
           </label>
-          <select
+          <Select
             id="load-preset"
             aria-label={ko.runDialog.loadPresetAria}
-            className="border border-slate-300 rounded px-2 py-1 text-sm"
             value=""
             onChange={(e) => {
               if (e.target.value) void loadPreset(e.target.value);
@@ -499,7 +508,7 @@ export function RunDialog({
                 {p.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       )}
       {presetError && (
@@ -513,6 +522,7 @@ export function RunDialog({
         title={ko.runDialog.sectionLoadTitle}
         badge={<Badge tone="required">{ko.common.required}</Badge>}
       >
+        <p className="mb-2 text-xs text-accent-700">{ko.runDialog.recommendedNotice}</p>
         <LoadModelFields
           loadModel={loadModel}
           setLoadModel={setLoadModel}
@@ -640,40 +650,37 @@ export function RunDialog({
                 <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
               </h4>
               <div className="grid grid-cols-2 gap-2">
-                <label className="block text-sm">
-                  <span className="text-slate-600">{ko.loadModel.thinkMin}</span>
-                  <input
+                <Field label={ko.loadModel.thinkMin} htmlFor={thinkMinId}>
+                  <Input
+                    id={thinkMinId}
                     type="number"
                     min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                     value={thinkMin}
                     onChange={(e) => setThinkMin(e.target.value)}
                     aria-invalid={thinkInvalid}
                     aria-describedby={thinkInvalid ? "think-time-error" : undefined}
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">{ko.loadModel.thinkMax}</span>
-                  <input
+                </Field>
+                <Field label={ko.loadModel.thinkMax} htmlFor={thinkMaxId}>
+                  <Input
+                    id={thinkMaxId}
                     type="number"
                     min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                     value={thinkMax}
                     onChange={(e) => setThinkMax(e.target.value)}
                     aria-invalid={thinkInvalid}
                     aria-describedby={thinkInvalid ? "think-time-error" : undefined}
                   />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-slate-600">{ko.loadModel.thinkSeed}</span>
-                  <input
+                </Field>
+                <Field label={ko.loadModel.thinkSeed} htmlFor={thinkSeedId}>
+                  <Input
+                    id={thinkSeedId}
                     type="number"
                     min="0"
-                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                     value={thinkSeed}
                     onChange={(e) => setThinkSeed(e.target.value)}
                   />
-                </label>
+                </Field>
               </div>
               {thinkInvalid ? (
                 <p id="think-time-error" className="mt-1 text-red-600 text-sm">
@@ -687,43 +694,38 @@ export function RunDialog({
 
           <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
           {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
-          <div className="mb-3 max-w-xs">
-            <label className="block text-sm">
-              <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
-              <input
+          <div className="max-w-xs">
+            <Field label={ko.loadModel.httpTimeout} htmlFor={httpTimeoutId}>
+              <Input
+                id={httpTimeoutId}
                 type="number"
                 min={1}
                 max={600}
-                aria-label={ko.loadModel.httpTimeout}
                 value={httpTimeout}
                 onChange={(e) => setHttpTimeout(Number(e.target.value))}
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
                 aria-invalid={httpTimeoutInvalid}
                 aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
               />
-            </label>
+            </Field>
           </div>
 
           {hasLoop && (
-            <div className="mb-3">
-              <label className="block text-sm">
-                {ko.loadModel.loopCap}
-                <input
-                  type="number"
-                  min={0}
-                  max={10000}
-                  aria-label={ko.loadModel.loopCap}
-                  value={loopCap}
-                  onChange={(e) => setLoopCap(Number(e.target.value))}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  aria-invalid={loopCapInvalid}
-                  aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
-                />
-                <span className="text-xs text-slate-500">
-                  0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
-                </span>
-              </label>
-            </div>
+            <Field
+              label={ko.loadModel.loopCap}
+              htmlFor={loopCapId}
+              hint="0 = 끄기 · 루프 스텝의 loop_index별 집계 상한"
+            >
+              <Input
+                id={loopCapId}
+                type="number"
+                min={0}
+                max={10000}
+                value={loopCap}
+                onChange={(e) => setLoopCap(Number(e.target.value))}
+                aria-invalid={loopCapInvalid}
+                aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+              />
+            </Field>
           )}
 
           {loopCapInvalid && (
@@ -750,9 +752,9 @@ export function RunDialog({
       </Section>
 
       <div className="mb-3 flex items-center gap-2">
-        <input
+        <Input
+          className="w-48"
           aria-label={ko.runDialog.presetNameAria}
-          className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"
           placeholder="프리셋 이름"
           value={presetName}
           onChange={(e) => setPresetName(e.target.value)}

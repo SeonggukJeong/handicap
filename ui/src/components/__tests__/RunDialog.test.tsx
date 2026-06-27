@@ -72,6 +72,11 @@ describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
     expect(screen.getAllByText("필수").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("선택").length).toBeGreaterThanOrEqual(1);
   });
+
+  it("부하 섹션 상단에 추천 안내를 보인다", () => {
+    renderDialog();
+    expect(screen.getByText("추천값으로 채워져 있어 바로 실행할 수 있습니다.")).toBeInTheDocument();
+  });
 });
 
 describe("RunDialog — env & ramp_up", () => {

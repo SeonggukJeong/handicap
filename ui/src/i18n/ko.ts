@@ -96,6 +96,7 @@ export const ko = {
     envBaseFrom: (name: string) => `${name} 기반 (읽기 전용):`,
     loadPresetAria: "프리셋 불러오기",
     presetNameAria: "프리셋 이름",
+    recommendedNotice: "추천값으로 채워져 있어 바로 실행할 수 있습니다.",
   },
   binding: {
     sectionTitle: "데이터 바인딩",
