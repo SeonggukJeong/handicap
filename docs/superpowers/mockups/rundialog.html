@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RunDialog — 정밀 계기 (라이트)</title>
+<style>
+  :root{
+    --bg:#eef1f6; --surface:#ffffff; --text:#0f172a; --t2:#475569; --t3:#64748b;
+    --hair:#e7ebf1; --hair2:#cdd5e1; --accent:#4f46e5; --accent-weak:#eef2ff;
+    --accent-text:#4338ca; --amber-bg:#fffbeb; --amber-bd:#fde68a; --amber-tx:#92600a;
+    --ok:#0f766e;
+    --num:"tabular-nums";
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  .page{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 24px 80px;}
+  .stage{width:100%;max-width:660px;}
+  .stage-note{font-size:12px;color:var(--t3);margin:0 2px 12px;}
+  /* ---- dialog ---- */
+  .dialog{background:var(--surface);border:1px solid var(--hair2);border-radius:10px;
+    box-shadow:0 12px 32px -12px rgba(15,23,42,.18);overflow:hidden;}
+  .head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--hair);}
+  .head h1{font-size:15px;font-weight:650;margin:0;letter-spacing:-.01em;flex:0 0 auto;}
+  .head .spacer{flex:1}
+  .xbtn{border:0;background:transparent;color:var(--t3);font-size:18px;line-height:1;cursor:pointer;
+    width:28px;height:28px;border-radius:6px;}
+  .xbtn:hover{background:var(--hair);color:var(--text);}
+  /* segmented */
+  .seg{display:inline-flex;background:#eef1f6;border:1px solid var(--hair);border-radius:8px;padding:3px;gap:2px;}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--t2);font-size:13px;font-weight:600;
+    padding:5px 14px;border-radius:6px;cursor:pointer;letter-spacing:-.01em;}
+  .seg button[aria-pressed="true"]{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(79,70,229,.35);}
+  /* body + sections */
+  .body{padding:4px 18px 8px;max-height:60vh;overflow:auto;}
+  .sect{padding:16px 0;border-top:1px solid var(--hair);}
+  .sect:first-child{border-top:0;}
+  .eyebrow{font-size:10px;font-weight:650;letter-spacing:.15em;text-transform:uppercase;color:var(--t3);
+    margin:0 0 10px;display:flex;align-items:center;gap:8px;}
+  .eyebrow .req{font-size:9px;letter-spacing:.08em;color:var(--accent-text);background:var(--accent-weak);
+    border-radius:4px;padding:1px 6px;}
+  .eyebrow .opt{font-size:9px;letter-spacing:.08em;color:var(--t3);background:#f1f5f9;border-radius:4px;padding:1px 6px;}
+  /* tiles */
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .tile{border:1px solid var(--hair2);border-radius:8px;padding:11px 12px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;background:#fff;}
+  .tile:hover{border-color:#aeb8c8;}
+  .tile.sel{border-color:var(--accent);background:var(--accent-weak);}
+  .dot{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--hair2);flex:0 0 auto;margin-top:1px;position:relative;}
+  .tile.sel .dot{border-color:var(--accent);}
+  .tile.sel .dot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--accent);}
+  .tile .tt{font-weight:600;font-size:13.5px;}
+  .tile .td{font-size:12px;color:var(--t2);margin-top:1px;}
+  /* chips */
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 2px;}
+  .chip{border:1px solid var(--hair2);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--t2);background:#fff;cursor:pointer;}
+  .chip:hover{background:#f8fafc;}
+  .chip.sel{border-color:var(--accent);background:var(--accent-weak);color:var(--accent-text);}
+  .chip small{color:inherit;opacity:.7;margin-left:4px;}
+  /* fields */
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:14px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
+  .field label{display:block;font-size:12.5px;color:var(--t2);margin-bottom:5px;}
+  .field label .rec{font-size:10px;color:var(--accent-text);background:var(--accent-weak);border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.02em;}
+  .field input,.field select{width:100%;height:36px;border:1px solid var(--hair2);border-radius:7px;padding:0 11px;
+    font-size:14px;font-family:inherit;background:#fff;color:var(--text);outline:none;}
+  .field input.num{font-variant-numeric:tabular-nums;}
+  .field input:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,.18);}
+  .hint{font-size:11.5px;color:var(--t3);margin-top:6px;}
+  /* detailed extras */
+  .disc{border-top:1px solid var(--hair);margin-top:4px;}
+  .disc>button{width:100%;text-align:left;background:transparent;border:0;cursor:pointer;display:flex;align-items:center;gap:8px;
+    padding:14px 0 4px;font-size:10px;font-weight:650;letter-spacing:.15em;text-transform:uppercase;color:var(--t3);}
+  .disc>button .car{font-size:11px;color:var(--t3);}
+  .disc>button .cnt{font-size:9px;letter-spacing:.05em;color:var(--accent-text);background:var(--accent-weak);border-radius:4px;padding:1px 6px;text-transform:none;}
+  .disc .inner{padding:8px 0 4px;}
+  .minirow{display:flex;gap:14px;flex-wrap:wrap;}
+  .minirow .field{flex:1;min-width:120px;}
+  .kv{display:flex;gap:8px;margin-top:8px;}
+  .kv input{flex:1;}
+  .muted-card{border:1px dashed var(--hair2);border-radius:8px;padding:10px 12px;font-size:12.5px;color:var(--t3);margin-top:10px;background:#fcfcfd;}
+  .applied{font-size:12px;color:var(--accent-text);background:var(--accent-weak);border-radius:6px;padding:6px 10px;margin-top:12px;display:inline-flex;align-items:center;gap:6px;}
+  /* footer / summary */
+  .foot{border-top:1px solid var(--hair);padding:14px 18px;display:flex;align-items:center;gap:16px;background:#fbfcfe;}
+  .summary{flex:1;display:flex;align-items:center;gap:11px;min-width:0;}
+  .summary .bar{width:3px;align-self:stretch;min-height:34px;border-radius:2px;background:var(--accent);flex:0 0 auto;}
+  .summary .sumtext{font-size:13px;color:var(--text);}
+  .summary .sumtext b{font-variant-numeric:tabular-nums;font-weight:700;}
+  .summary .sub{font-size:11.5px;color:var(--t3);margin-top:2px;}
+  .summary.warn .bar{background:#d97706;}
+  .summary.warn .sumtext{color:var(--amber-tx);}
+  .spark{flex:0 0 auto;}
+  .actions{display:flex;gap:8px;flex:0 0 auto;}
+  .btn{height:38px;padding:0 18px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:inherit;}
+  .btn.primary{background:var(--accent);color:#fff;}
+  .btn.primary:hover{background:#4338ca;}
+  .btn.ghost{background:#fff;color:var(--t2);border-color:var(--hair2);}
+  .btn.ghost:hover{background:#f8fafc;}
+  .preset-row{display:flex;gap:8px;align-items:center;margin-top:6px;}
+  .preset-row input{height:34px;border:1px solid var(--hair2);border-radius:7px;padding:0 10px;width:180px;font-size:13px;}
+  .preset-row .lnk{background:0;border:0;color:var(--accent-text);font-size:13px;cursor:pointer;}
+  .preset-row .lnk.del{color:#b91c1c;}
+  .help{display:inline-block;width:15px;height:15px;border-radius:50%;border:1px solid var(--hair2);color:var(--t3);
+    font-size:10px;line-height:13px;text-align:center;margin-left:5px;cursor:help;}
+  .hide{display:none !important;}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="stage">
+    <p class="stage-note">RunDialog 목업 — 위 토글로 <b>간단 ↔ 상세</b> 전환, 숫자를 바꾸면 하단 요약이 실시간 갱신됩니다. 실제 페이지(라이트)에 인라인으로 박히는 모습입니다.</p>
+    <div class="dialog">
+      <!-- header -->
+      <div class="head">
+        <h1>실행 설정</h1>
+        <div class="spacer"></div>
+        <div class="seg" role="radiogroup" aria-label="설정 모드">
+          <button id="m-simple" aria-pressed="true" onclick="setMode('simple')">간단</button>
+          <button id="m-detail" aria-pressed="false" onclick="setMode('detailed')">상세</button>
+        </div>
+        <button class="xbtn" title="닫기">✕</button>
+      </div>
+
+      <!-- body -->
+      <div class="body">
+        <!-- 부하 모델 -->
+        <div class="sect">
+          <p class="eyebrow">부하 모델 <span class="req">필수</span></p>
+          <div class="tiles">
+            <div class="tile sel" id="t-closed" onclick="setLoad('closed')">
+              <span class="dot"></span>
+              <span><span class="tt">동시 사용자 (VU)</span><span class="td">N명이 동시에 반복 요청</span></span>
+            </div>
+            <div class="tile" id="t-open" onclick="setLoad('open')">
+              <span class="dot"></span>
+              <span><span class="tt">목표 RPS</span><span class="td">초당 N건씩 도착</span></span>
+            </div>
+          </div>
+
+          <!-- profile axis (detailed only) -->
+          <div id="profile-axis" class="hide" style="margin-top:14px">
+            <p class="eyebrow" style="margin-bottom:8px">프로파일</p>
+            <div class="seg" role="radiogroup" aria-label="프로파일">
+              <button aria-pressed="true" id="r-fixed" onclick="setRate('fixed')">고정</button>
+              <button aria-pressed="false" id="r-curve" onclick="setRate('curve')">곡선</button>
+            </div>
+          </div>
+
+          <!-- size chips (closed only) -->
+          <div id="chips" class="chips">
+            <button class="chip" onclick="preset(10,60)">소 <small>10·60s</small></button>
+            <button class="chip sel" onclick="preset(100,300)">중 <small>100·5m</small></button>
+            <button class="chip" onclick="preset(500,600)">대 <small>500·10m</small></button>
+          </div>
+
+          <!-- numeric grid: CLOSED -->
+          <div id="g-closed" class="grid3">
+            <div class="field"><label>동시 사용자<span class="rec">추천</span></label><input class="num" id="vus" type="number" value="100" oninput="render()"></div>
+            <div class="field"><label>시간(초)<span class="rec">추천</span></label><input class="num" id="dur" type="number" value="300" oninput="render()"></div>
+            <div class="field"><label>램프업(초)<span class="help" title="0부터 서서히 부하를 올리는 시간">ⓘ</span></label><input class="num" id="ramp" type="number" value="0" oninput="render()"></div>
+          </div>
+
+          <!-- numeric grid: OPEN -->
+          <div id="g-open" class="grid3 hide">
+            <div class="field"><label>목표 RPS<span class="rec">추천</span></label><input class="num" id="rps" type="number" value="100" oninput="render()"></div>
+            <div class="field"><label>시간(초)<span class="rec">추천</span></label><input class="num" id="durO" type="number" value="300" oninput="render()"></div>
+            <div class="field"><label>동시 요청 상한<span class="help" title="서비스가 목표 속도를 못 따라가면 초과분은 drop">ⓘ</span></label><input class="num" id="mif" type="number" value="200" oninput="render()"></div>
+          </div>
+
+          <!-- worker disclosure (detailed + open) -->
+          <div id="worker-disc" class="disc hide">
+            <button onclick="toggle('worker-inner', this)"><span class="car">▸</span> 워커 수 (분산 실행)</button>
+            <div id="worker-inner" class="inner hide">
+              <div class="field" style="max-width:200px"><input class="num" type="number" value="1"></div>
+              <p class="hint">유휴 워커에 부하를 나눠 발생시킵니다. 용량 프리뷰·사이징 도우미 포함.</p>
+            </div>
+          </div>
+
+          <div id="applied" class="applied hide">⚙ 상세 설정 <b id="applied-n">0</b>개 적용됨</div>
+        </div>
+
+        <!-- 환경 -->
+        <div class="sect">
+          <p class="eyebrow">환경 <span class="opt">선택</span></p>
+          <div class="field" style="max-width:280px">
+            <select><option>staging</option><option>production</option><option>— 환경 없음 —</option></select>
+          </div>
+          <div id="env-overrides" class="hide">
+            <p class="hint" style="margin-top:10px">변수 오버라이드 (이 실행에만)</p>
+            <div class="kv"><input placeholder="BASE_URL"><input placeholder="https://staging.api.local"><button class="xbtn">✕</button></div>
+            <div class="kv"><input placeholder="키"><input placeholder="값"></div>
+          </div>
+        </div>
+
+        <!-- detailed: 램프다운 -->
+        <div id="rampdown" class="sect hide">
+          <p class="eyebrow">부하 줄이는 방식 <span class="opt">선택</span></p>
+          <label style="font-size:13px;display:block;margin-bottom:4px"><input type="radio" name="rd" checked> 끝낸 요청까지 기다림 (graceful)</label>
+          <label style="font-size:13px;display:block"><input type="radio" name="rd"> 즉시 중단 (immediate)</label>
+        </div>
+
+        <!-- detailed: 고급 (collapsible) -->
+        <div id="advanced" class="disc hide" style="border-top:1px solid var(--hair)">
+          <button onclick="toggle('adv-inner', this)"><span class="car">▸</span> 판정 · 고급 <span class="cnt" id="adv-cnt" style="display:none">2개 설정됨</span></button>
+          <div id="adv-inner" class="inner hide">
+            <p class="eyebrow" style="margin-top:6px">SLO 합격 기준</p>
+            <div class="minirow">
+              <div class="field"><label>p95 ≤ (ms)</label><input class="num" type="number" placeholder="500"></div>
+              <div class="field"><label>오류율 ≤ (%)</label><input class="num" type="number" placeholder="1"></div>
+              <div class="field"><label>최소 RPS</label><input class="num" type="number" placeholder="—"></div>
+            </div>
+            <p class="eyebrow" style="margin-top:16px">페이싱 · 진단</p>
+            <div class="minirow">
+              <div class="field"><label>think min(ms)</label><input class="num" type="number" placeholder="0"></div>
+              <div class="field"><label>think max(ms)</label><input class="num" type="number" placeholder="0"></div>
+              <div class="field"><label>HTTP 타임아웃(초)</label><input class="num" type="number" value="30"></div>
+            </div>
+            <label style="font-size:13px;display:block;margin-top:12px"><input type="checkbox"> 레이턴시 단계 분해 측정 (TTFB/다운로드)</label>
+          </div>
+        </div>
+
+        <!-- detailed: 데이터셋 바인딩 -->
+        <div id="binding" class="sect hide">
+          <p class="eyebrow">데이터셋 바인딩 <span class="opt">선택</span></p>
+          <div class="muted-card">＋ 데이터셋을 변수에 연결 — CSV 행을 {{변수}}에 주입 (per_vu / 순차 / 랜덤 / unique)</div>
+        </div>
+
+        <!-- detailed: 프리셋 -->
+        <div id="presets" class="sect hide">
+          <p class="eyebrow">프리셋 <span class="opt">선택</span></p>
+          <div class="field" style="max-width:280px;margin-bottom:8px"><select><option>— 불러오기 —</option><option>야간 부하</option></select></div>
+          <div class="preset-row">
+            <input placeholder="프리셋 이름">
+            <button class="btn ghost" style="height:34px;padding:0 12px;font-size:13px">프리셋으로 저장</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- footer -->
+      <div class="foot">
+        <div class="summary" id="summary">
+          <span class="bar"></span>
+          <span class="spark" id="spark"></span>
+          <span>
+            <span class="sumtext" id="sumtext">동시 사용자 <b>100</b>명 · <b>5분</b></span>
+            <span class="sub" id="sumsub">램프업 0초</span>
+          </span>
+        </div>
+        <div class="actions">
+          <button class="btn primary">실행하기</button>
+          <button class="btn ghost">취소</button>
+        </div>
+      </div>
+    </div>
+    <p class="stage-note" style="margin-top:14px">시그니처 = 좌하단 <b>실시간 요약</b>(닫힌 루프는 요청 수 미추정·열린 루프는 RPS×시간으로 정직 추정, 곡선은 스파크라인). 숫자는 모두 tabular-nums. 섹션은 헤어라인 구분선(고스트 카드 없음).</p>
+  </div>
+</div>
+
+<script>
+  let mode='simple', load='closed', rate='fixed';
+  function $(id){return document.getElementById(id);}
+  function setMode(m){
+    mode=m;
+    $('m-simple').setAttribute('aria-pressed', m==='simple');
+    $('m-detail').setAttribute('aria-pressed', m==='detailed');
+    const det = m==='detailed';
+    // detailed-only blocks
+    $('profile-axis').classList.toggle('hide', !det || load!=='closed' && false); // profile shown in detailed
+    $('profile-axis').classList.toggle('hide', !det);
+    $('rampdown').classList.toggle('hide', !(det && load==='closed' && rate==='curve'));
+    $('advanced').classList.toggle('hide', !det);
+    $('binding').classList.toggle('hide', !det);
+    $('presets').classList.toggle('hide', !det);
+    $('env-overrides').classList.toggle('hide', !det);
+    $('worker-disc').classList.toggle('hide', !(det && load==='open'));
+    // simple-only: applied indicator (mock: show when detailed has values — here static demo)
+    $('applied').classList.toggle('hide', det);
+    render();
+  }
+  function setLoad(l){
+    load=l;
+    $('t-closed').classList.toggle('sel', l==='closed');
+    $('t-open').classList.toggle('sel', l==='open');
+    $('t-closed').querySelector('.dot');
+    $('chips').classList.toggle('hide', l!=='closed' || rate==='curve');
+    $('g-closed').classList.toggle('hide', l!=='closed' || rate==='curve');
+    $('g-open').classList.toggle('hide', l!=='open' || rate==='curve');
+    $('worker-disc').classList.toggle('hide', !(mode==='detailed' && l==='open'));
+    $('rampdown').classList.toggle('hide', !(mode==='detailed' && l==='closed' && rate==='curve'));
+    render();
+  }
+  function setRate(r){
+    rate=r;
+    $('r-fixed').setAttribute('aria-pressed', r==='fixed');
+    $('r-curve').setAttribute('aria-pressed', r==='curve');
+    const curve = r==='curve';
+    $('chips').classList.toggle('hide', curve || load!=='closed');
+    $('g-closed').classList.toggle('hide', curve || load!=='closed');
+    $('g-open').classList.toggle('hide', curve || load!=='open');
+    $('rampdown').classList.toggle('hide', !(mode==='detailed' && load==='closed' && curve));
+    render();
+  }
+  function preset(v,d){ $('vus').value=v; $('dur').value=d; render(); }
+  function toggle(id,btn){ const el=$(id); el.classList.toggle('hide'); btn.querySelector('.car').textContent = el.classList.contains('hide')?'▸':'▾'; }
+  function fmtTime(s){ s=Math.round(s); if(!isFinite(s)||s<=0) return null;
+    if(s<60) return s+'초'; const m=Math.floor(s/60), r=s%60; return r? (m+'분 '+r+'초') : (m+'분'); }
+  function curveSpark(){
+    // simple ramp sparkline
+    return '<svg width="62" height="22" viewBox="0 0 62 22" aria-hidden="true"><polyline points="1,21 18,8 40,12 61,2" fill="none" stroke="#4f46e5" stroke-width="2"/></svg>';
+  }
+  function render(){
+    const sum=$('summary'), txt=$('sumtext'), sub=$('sumsub'), spark=$('spark');
+    sum.classList.remove('warn'); spark.innerHTML='';
+    let t='', s='';
+    if(rate==='curve'){
+      const peak = load==='closed' ? 100 : 100;
+      spark.innerHTML=curveSpark();
+      t = load==='closed' ? '최대 <b>'+peak+'</b>명 (곡선)' : '최대 <b>'+peak+'</b> RPS (곡선)';
+      s = '총 90초 · 3단계';
+    } else if(load==='closed'){
+      const v=+$('vus').value, d=+$('dur').value, r=+$('ramp').value;
+      const ft=fmtTime(d);
+      if(!v||v<1||!ft){ sum.classList.add('warn'); txt.innerHTML='설정을 확인하세요'; sub.textContent='동시 사용자·시간을 입력'; return; }
+      t='동시 사용자 <b>'+v+'</b>명 · <b>'+ft+'</b>';
+      s = r>0 ? ('램프업 '+r+'초') : '램프업 없음';
+    } else {
+      const rps=+$('rps').value, d=+$('durO').value, mif=+$('mif').value;
+      const ft=fmtTime(d);
+      if(!rps||rps<1||!ft){ sum.classList.add('warn'); txt.innerHTML='설정을 확인하세요'; sub.textContent='목표 RPS·시간을 입력'; return; }
+      const total=(rps*d).toLocaleString('ko');
+      t='목표 <b>'+rps+'</b> RPS · 약 <b>'+total+'</b>건 · <b>'+ft+'</b>';
+      s = '동시 요청 상한 '+(mif||'—');
+    }
+    txt.innerHTML=t; sub.textContent=s;
+  }
+  render();
+</script>
+</body>
+</html>
