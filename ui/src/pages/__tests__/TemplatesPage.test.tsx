@@ -51,6 +51,12 @@ it("lists templates (R1)", async () => {
   expect(await screen.findByText("login-flow")).toBeInTheDocument();
 });
 
+it("shows load error Callout when listing fails (R7-Callout)", async () => {
+  vi.mocked(api.listStepTemplates).mockRejectedValue(new Error("fail"));
+  wrap();
+  expect(await screen.findByText(/불러오기 실패/)).toBeInTheDocument();
+});
+
 it("shows empty state when there are no templates (R7)", async () => {
   vi.mocked(api.listStepTemplates).mockResolvedValue([]);
   wrap();

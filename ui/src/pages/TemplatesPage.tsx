@@ -158,7 +158,7 @@ export function TemplatesPage() {
       <section aria-label={ko.nav.stepTemplates}>
         {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
-          <p className="text-red-600">{ko.stepTemplates.loadFailed((error as Error).message)}</p>
+          <Callout variant="error">{ko.stepTemplates.loadFailed((error as Error).message)}</Callout>
         )}
         {data && data.length === 0 && !editingId && <EmptyState body={ko.empty.stepTemplates} />}
         {data && data.length > 0 && (

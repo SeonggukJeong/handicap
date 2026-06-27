@@ -239,7 +239,7 @@ export function EnvironmentsPage() {
       <section aria-label={ko.environment.listAria}>
         {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
-          <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
+          <Callout variant="error">{ko.common.failedToLoad((error as Error).message)}</Callout>
         )}
         {data && data.length === 0 && mode === "none" && (
           <EmptyState

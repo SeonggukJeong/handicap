@@ -98,6 +98,12 @@ describe("EnvironmentsPage", () => {
     expect(screen.getByRole("button", { name: /^추가$/ })).toBeDisabled();
   });
 
+  it("shows load error Callout when the list fetch fails (R7)", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("Network error"));
+    renderPage();
+    expect(await screen.findByText(/불러오기 실패/)).toBeInTheDocument();
+  });
+
   it("deletes an environment after confirm", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     fetchMock
