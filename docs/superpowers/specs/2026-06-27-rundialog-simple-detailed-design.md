@@ -15,7 +15,7 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 - **목표**: ① 헤더 `간단/상세` 세그먼트 토글로 초보자에게 **필수 7필드만** 보이고 전문가는 한 클릭으로 전체 제어. ② 실행 전 **실시간 요약**(시그니처)으로 "무엇이 실행되나"를 정직하게 보여 줌. ③ 프리셋 동선 정리(불러오기=위·저장=아래), 측정 옵션 노출. ④ "정밀 계기(라이트)" 룩 — 기존 라이트 디자인 시스템과 일관되되 distinctive. **사용성 #1, 심미 #2.**
 - **비목표(연기)**: §7. 복제 버튼·다크 테마·ReportView 측정 유도·모드 localStorage·ScheduleForm 동일 재디자인.
 
-**안전 경계(이 슬라이스의 핵심 불변식)**: 시각/구성은 자유롭게 바꾸되, **같은 입력이면 `profileForm.buildProfile` 출력(=POST /api/runs 페이로드)이 재디자인 전과 byte-identical**. 모드는 *가시성만* 게이트하고 wire/검증 계약은 불변. `schemas.ts`·`crates/**`·proto·migration 0-diff. ScheduleForm byte-identical.
+**안전 경계(이 슬라이스의 핵심 불변식)**: 시각/구성은 자유롭게 바꾸되, **같은 입력이면 POST /api/runs 페이로드의 `profile`(=`buildProfile` 출력) *및* `env`(=`resolveEnv(baseVars,envEntries)`) 둘 다 재디자인 전과 byte-identical**. 모드는 *가시성만* 게이트하고 wire/검증 계약은 불변(`EnvironmentPicker showOverrides=false`는 편집 UI만 가리고 `envEntries`/`selectedEnvId` state는 보존). `schemas.ts`·`crates/**`·proto·migration 0-diff. ScheduleForm byte-identical.
 
 ---
 
@@ -27,18 +27,19 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 | R2 | MUST: 기본 모드=간단. 단 `initial`(prefill: retry/preset)이 **비기본 상세값**(곡선·SLO·think-time·worker>1·measure_phases·비기본 http_timeout/loop_cap)을 가지면 상세로 연다(기존 `advancedOpen` 자동펼침 술어 재사용·단일소스). | RTL: detailed-value prefill→상세 마운트; plain prefill/신규→간단 | |
 | R3 | MUST: 간단 모드 렌더 집합 = [프리셋 불러오기 strip] · 부하모델(타일) · 크기 chips(closed) · 주 수치(closed: VU·시간·램프업 / open: RPS·시간·동시요청상한) · 환경 **선택만** · 사이징 도우미(접힘) · 실시간 요약 · 실행/취소. 그 외 섹션은 미렌더. | RTL: 간단에서 상세-전용 섹션(프로파일·measure·고급·바인딩·오버라이드·저장) 부재 | |
 | R4 | MUST: 상세 모드 = R3 ∪ {프로파일(고정/곡선)+곡선 에디터/미리보기, 워커 수, 램프다운, 측정, 판정·고급(SLO·스텝SLO·페이싱·http_timeout·loop_cap), 환경 오버라이드 편집, 데이터셋 바인딩, 프리셋 저장/이름변경/삭제}. | RTL: 상세에서 전 섹션 렌더 | |
-| R5 | MUST(불변식): 모든 폼 state는 RunDialog가 소유 → 모드 전환에 값 손실 0; 숨겨진 섹션의 invalid 값도 submit을 막고, 그 사유는 **기존 `blockedReasons` Callout**으로 노출(미렌더라 인라인 에러 부재 보완). | RTL: 상세값 입력→간단→상세 복귀 시 값 유지; 숨긴 invalid가 Run disable + blockedReasons에 사유 | |
+| R5 | MUST(불변식): 모든 폼 state는 RunDialog가 소유 → 모드 전환에 값 손실 0; **간단에서 미렌더되는 모든 gating 필드**(http_timeout·loop_cap·think·**worker_count**)의 invalid가 submit을 막고 그 사유가 **기존 `blockedReasons` Callout**에 떠야 함(`canSubmit` 항 전수 대조). | RTL: 상세값 입력→간단→상세 복귀 시 값 유지; 숨긴 invalid(worker_count 포함)가 Run disable + blockedReasons에 사유 | |
 | R6 | MUST: 간단 모드에서 숨겨진 상세 설정이 **비기본**이면 "상세 설정 N개 적용됨" 표시(silent config 금지·[[load-divergence-explain-confirm]] 정신). | RTL: 상세값 set 후 간단 전환 시 카운트 표시 | |
 | R7 | MUST: 프리셋 **불러오기**=본문 최상단(두 모드, 프리셋 존재 시) / 프리셋 **저장·이름변경·삭제**=본문 최하단(상세만, 실행 직전). | RTL: load strip 위치(최상단)·save 섹션 상세-only·간단에 save 부재 | |
 | R8 | MUST: 실시간 요약 strip(sticky footer, 두 모드)을 순수 헬퍼 `runSummary(...)`로 — closed=요청 수 미추정(서버-제한) / open=`목표 RPS·약 rps×duration건·시간` / 곡선=`최대 N (곡선)·총 M초`+스파크라인 / 미완성·invalid=`설정을 확인하세요`(가짜 "0" 금지). | `runSummary` 단위 테스트(모드별·invalid)·RTL 렌더 | |
 | R9 | MUST: 측정(`measure_phases`) 토글을 상세에서 **독립 가시 섹션**으로(판정·고급 collapse 밖)·가치 라벨("응답 시간을 DNS·연결·대기·다운로드로 분해") + HelpTip. | RTL: 상세에서 측정 섹션이 고급 collapse 밖에 가시 | |
 | R10 | MUST: 기존 편의기능 보존 — 추천 badge(간단·기존 `showRecommended`) · VU/slot 사이징 도우미(두 모드, 접힘, 주 수치 옆) · worker 사이징 도우미(상세) · `StageCurvePreview`(곡선=상세). | RTL `it.each`: 사이징 도우미 렌더 위치 락인 | |
-| R11 | MUST(불변식·byte-identical): 같은 필드값 → `profileForm.buildProfile` 출력 Profile이 재디자인 전과 deep-equal. 모드는 가시성만 게이트, buildProfile 입력 경로 불변. | 골든 단위: 간단-기본/대표 입력 → 기존 Profile과 `toEqual`; 라이브 run 1회 | ✅ wire: buildProfile→`POST /api/runs` |
+| R11 | MUST(불변식·byte-identical): 같은 필드값 → POST 페이로드의 `profile`(=`buildProfile` 출력) **및** `env`(=`resolveEnv`) 둘 다 재디자인 전과 deep-equal. 모드는 가시성만 게이트, buildProfile/env 입력 경로 불변(`showOverrides=false`가 env state를 비우지 않음). | 골든 단위: 간단-기본/대표 입력 → 기존 `profile`+`env`와 `toEqual`; 라이브 run 1회 | ✅ wire: buildProfile+env→`POST /api/runs` |
 | R12 | MUST(byte-identical): **ScheduleForm 무변경** — `LoadModelFields` 신규 prop(`simpleMode`·타일 표시 등)·`EnvironmentPicker.showOverrides`는 전부 optional이고 ScheduleForm은 미전달 → 렌더 동일. | RTL: 기존 ScheduleForm 테스트 그대로 green + `it.each` 미전달=기존 표시 락인 | |
 | R13 | MUST(0-diff): `ui/src/api/schemas.ts`·`crates/**`·proto·migration 무변경. `ko.ts`는 additive(신규 키만, 기존 키 0-diff). | `git diff` 해당 경로 0(ko.ts는 추가-only) | ✅ contract |
 | R14 | MUST: 정밀계기(라이트) 룩 — 신규 additive 프리미티브 `ui/Segmented`, `Input`에 optional `numeric`(=`tabular-nums`, 기본 off), eyebrow 라벨 스타일, 헤어라인 구분선 섹션, sticky footer. **기존 6 프리미티브·accent 토큰·차트 색 무변경** → 타 이주 화면 byte-identical. | 신규 프리미티브 단위 테스트 + 기존 폼 화면 스냅샷/테스트 불변 | |
 | R15 | MUST: a11y — 세그먼트/타일 `radiogroup`+키보드, focus 가시, 요약 strip은 과도한 live-region 금지(요약은 정적 텍스트), 무애니메이션(reduced-motion 자연 충족). | RTL role/aria + 키보드 | |
 | R16 | MUST: 신규 사용자-노출 문구(라벨·aria-label·요약·힌트) 전부 `ko.ts` 경유(ADR-0035), 인라인 영어 0. | grep: 신규 인라인 영어 0 | |
+| R17 | MUST: 간단 모드에서 `rateMode==="curve"`(상세-전용 곡선)면 곡선 에디터 대신 **"곡선 부하 — 상세에서 편집" 읽기전용 카드 + 요약 스파크라인**을 렌더(빈/부분 로드 섹션 금지)·`vu_stages` payload 불변·토글이 curve→fixed로 **스냅 금지**. | RTL: 간단+곡선 prefill→읽기전용 카드 + Run 가능 + payload에 `vu_stages` 유지 | |
 
 - **seam ✅ = R11(wire byte-identical), R13(contract 0-diff)** — 최종 리뷰가 buildProfile 경로 불변과 0-diff를 1:1 확인.
 
@@ -65,31 +66,32 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 > 파일·함수 단위. 각 묶음에 **충족 R** 태그.
 
 ### 4.1 `ui/src/components/RunDialog.tsx` — 충족 R: R1·R2·R3·R4·R5·R6·R7·R8·R9·R14·R15·R16
-- `const [mode, setMode] = useState<"simple"|"detailed">(...)` — 초기값은 기존 `advancedOpen` 자동펼침 술어(criteriaHasValue·initTT·think_seed·measure_phases·비기본 http_timeout/loop_cap)에 곡선(`deriveLoadMode`)·worker>1을 더한 단일 술어 `hasDetailedPrefill(initial)` → true면 `"detailed"`, else `"simple"`(R2). 이 술어는 `advancedOpen` 초기화와 **공유**(중복 분기 금지).
+- `const [mode, setMode] = useState<"simple"|"detailed">(...)` — 기존 6항 `advancedOpen` 자동펼침 술어(criteriaHasValue·initTT·think_seed·measure_phases·비기본 http_timeout/loop_cap)를 **명명 헬퍼 `advancedPrefill(initial)`로 추출**해 `advancedOpen` 초기화가 *그대로(unchanged)* 쓰고, **모드 초기값은 별개 술어** `mode = (advancedPrefill(initial) || isCurve(deriveLoadMode(...)) || worker_count>1) ? "detailed" : "simple"`(R2). 둘은 부분식을 공유하되 **동일 술어가 아니다** — `advancedOpen`에 곡선/worker를 합치면 값 없는 SLO collapse가 펼쳐지고 R6 힌트를 우회하는 회귀(리뷰 #3).
 - 헤더(`<h3>` 행)에 `<Segmented value={mode} onChange={setMode} options=[간단,상세]>`(R1). title은 형제로(accname 오염 금지).
 - 본문을 모드로 게이트: 프로파일/measure/고급/바인딩/오버라이드/저장/램프다운/워커 disclosure는 `mode==="detailed"`일 때만 렌더(R3·R4). **state는 그대로 유지**(R5).
 - **프리셋 불러오기 strip(기존 RunDialog.tsx:492-513)** → 본문 최상단으로 이동(두 모드, `presets.data?.length>0`). **프리셋 저장/이름변경/삭제(기존 755-791)** → 본문 최하단·상세-only로 이동(R7).
 - **측정 토글(기존 744-751, 고급 그룹 내부)** → 상세 독립 섹션으로 승격(R9) — 가치 라벨 + HelpTip. 고급 그룹엔 SLO/스텝SLO/페이싱/http_timeout/loop_cap만 남김.
 - **실시간 요약 strip**: sticky footer(실행/취소 옆)에 `runSummary(loadState, ...)` 결과 텍스트 + 곡선이면 `StageCurvePreview` 소형(R8). 두 모드 공통.
-- **"상세 설정 N개 적용됨"**: 간단 모드 + `advancedActiveCount>0`(기존 카운트 재사용) || 곡선 || worker>1 || open-loop비기본 → 표시(R6).
-- **`blockedReasons` Callout 게이트 일반화(R5 load-bearing)**: 기존 조건은 `!advancedOpen && (httpTimeoutInvalid|loopCapInvalid|thinkInvalid)`(접힌 고급 그룹의 숨은 invalid 노출용, RunDialog.tsx:799-826). 새 모드 모델에선 그 필드들이 간단 모드에서도 미렌더되므로, 조건을 **"해당 필드 섹션이 현재 미렌더"**(= `mode==="simple" || !advancedOpen`)로 일반화해야 숨은 invalid 사유가 계속 보인다(안 하면 간단 모드에서 Run은 disable인데 사유 부재). `bindingBlock` 분기는 모드 무관 유지.
+- **"상세 설정 N개 적용됨"(R6·리뷰 #4)**: 간단 모드에서만, **정의된 카운트** `detailedAppliedCount = advancedActiveCount(SLO+페이싱+measure) + (rateMode==="curve"?1:0) + (worker_count>1?1:0) + (http_timeout!==30?1:0) + (hasLoop && loop_cap!==256?1:0) + (ramp_down!=="graceful"?1:0)` 가 >0이면 그 N으로 표시. 정의를 못박아 "0개인데 배지" 모순 제거(곡선은 요약 strip에도 보이지만 숨은 비기본이라 카운트 포함).
+- **`blockedReasons` Callout 게이트 일반화(R5 load-bearing·리뷰 #2)**: 기존 `!advancedOpen && (httpTimeoutInvalid|loopCapInvalid|thinkInvalid)`(RunDialog.tsx:799-826)를 **"해당 필드가 현재 모드에서 미렌더"**로 일반화 — `(mode==="simple" || !advancedOpen)` 분기 + **`mode==="simple" && loadModel==="open" && loadErrs.workerCountInvalid → ko.validation.workerCount` 추가**(간단에서 worker disclosure 숨김인데 `canSubmit`이 `workerCountInvalid`로 막음, RunDialog.tsx:344·352). `canSubmit` 전 항(338-371)을 "간단에서 렌더되나?"로 전수 대조: rampUp/targetRps/maxInFlight는 간단 렌더라 인라인 에러로 충분, stagesInvalid는 곡선=R17 경로. `bindingBlock`은 모드 무관 유지.
 - 모드 전환은 `buildProfile`/`canSubmit`(검증식)/프리셋/풀가드/에러 배너 **로직**을 건드리지 않는다(blockedReasons는 *표시 게이트*라 위처럼 모드를 반영하되, 검증식 자체는 불변).
 
 ### 4.2 `ui/src/components/LoadModelFields.tsx` — 충족 R: R3·R4·R10·R12·R14
 - 신규 optional props(전부 ScheduleForm 미전달=기존 동작): `simpleMode?: boolean`, `loadModelTiles?: boolean`(타일 표현), `numeric?: boolean`(tabular-nums) — 또는 plan이 단일 `instrument?: boolean`로 묶을 수 있음(미전달=기존 라디오/라벨=byte-identical).
 - `simpleMode`일 때 숨김: 프로파일(고정/곡선) fieldset, 곡선 에디터, ramp_down, worker_count disclosure+worker 사이징, open-loop 구조 경고(idle/inert). 유지: 부하모델 선택, 크기 chips(closed), 주 수치 그리드, **VU 사이징 도우미(closed)·slot 사이징 도우미(open)** — 주 수치를 돕는 도우미라 두 모드 공통(R10).
+- **Simple + `rateMode==="curve"`(리뷰 #1·R17)**: 주 수치 그리드는 `rateMode==="fixed"` arm(LoadModelFields.tsx:420-464 closed / 583-617 open) 안이라 곡선이면 안 뜬다 → 간단에서 곡선이면(곡선 에디터·프로파일 선택은 숨긴 채) **"곡선 부하 설정됨 — 상세에서 편집" 읽기전용 카드**(+요약 스파크라인)를 렌더해 빈/부분 섹션을 막는다. `vu_stages` payload 불변, 토글이 curve→fixed로 **스냅 금지**(스냅=vu_stages 증발=R11 위반). (R2가 곡선 prefill을 상세로 열지만 사용자가 수동 간단 전환 가능 → 이 상태 정의 필수.)
 - 부하모델 선택을 `loadModelTiles`면 라디오→**타일**(설명 동반, `radiogroup`)로(R14·R3). 미전달이면 기존 라디오(R12).
 - 사이징 도우미 게이트 락인: 기존 `it.each`(미렌더 매트릭스)에 `simpleMode` 축 추가 — VU/slot 도우미는 simple/detail 모두 해당 arm에서 렌더, worker 도우미는 detail-only.
 
 ### 4.3 `ui/src/components/EnvironmentPicker.tsx` — 충족 R: R3·R12
-- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical.
+- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical. **`false`는 편집 UI만 가리고 부모 소유 `envEntries`/`selectedEnvId` state를 건드리지 않는다** → `resolveEnv` 결과(env payload) byte-identical(R11·리뷰 #6).
 
 ### 4.4 `ui/src/components/runSummary.ts` (신규, 순수) — 충족 R: R8
 - `runSummary(input: Pick<LoadModelState, ...>): { text: string; tone: "ok"|"warn"; curve: boolean }`. 모드 분기는 §3.2 표대로. `fmtTime`(초→"5분"/"90초"/"1분 30초") 내장. wire 무접촉(표시 전용).
 
 ### 4.5 신규 프리미티브 — 충족 R: R14
 - `ui/src/components/ui/Segmented.tsx` — `radiogroup` 세그먼트 컨트롤(active=accent). 공유 프리미티브(재사용).
-- `ui/src/components/ui/Input.tsx` — optional `numeric` prop 추가 → `tabular-nums` 클래스(기본 off=기존 byte-identical). 기존 prop/기본 렌더 0-diff.
+- `ui/src/components/ui/Input.tsx` — optional `numeric` prop 추가 → `tabular-nums` 클래스(기본 off=기존 byte-identical). 기존 prop/기본 렌더 0-diff. **단 곡선 stage·worker_count 같은 raw `<input className={INPUT}>`(LoadModelFields.tsx:188·204·540)는 `Input` 프리미티브가 아니라 `numeric` prop이 안 닿는다(리뷰 #5)** → 그 raw 입력의 tabular-nums는 LoadModelFields의 instrument/`numeric` 게이트 분기로만 적용하고, 공유 `INPUT` 상수(LoadModelFields.tsx:60-61)는 **0-diff**(ScheduleForm도 그 상수를 쓰므로 무조건 추가하면 R12 위반).
 - eyebrow 라벨: RunDialog/LoadModelFields-국소 유틸 className(`Eyebrow` 컴포넌트는 plan 재량 — 공유 프리미티브로 승격은 선택). 타일·요약 strip은 RunDialog-국소 JSX.
 
 ### 4.6 `ui/src/i18n/ko.ts` — 충족 R: R16
@@ -121,12 +123,13 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 | R8 | `runSummary` 단위(closed/open/곡선/invalid) + RTL 렌더 | |
 | R9 | RTL: 상세에서 측정 섹션 고급 collapse 밖 가시 | |
 | R10 | RTL `it.each`: 사이징 도우미 렌더 매트릭스(simpleMode 축 포함) | |
-| R11 | **골든 단위**: 대표 입력들 → buildProfile `toEqual` 기존 Profile + **라이브 run 1회**(간단·상세 각 1) | ✅ |
+| R11 | **골든 단위**: 대표 입력들 → `profile`(buildProfile)+`env`(resolveEnv) `toEqual` 기존값 + **라이브 run 1회**(간단·상세 각 1) | ✅ |
 | R12 | 기존 ScheduleForm 테스트 green + `it.each` 미전달 락인 | |
 | R13 | `git diff --stat`로 schemas/crates/proto/migration 0 | |
 | R14 | Segmented 단위 + 기존 폼 화면 테스트 불변 | |
 | R15 | RTL role/aria/키보드 | |
 | R16 | grep: 신규 인라인 영어 0 (라벨·aria-label) | |
+| R17 | RTL: 간단+곡선 prefill → 읽기전용 곡선 카드 + Run 가능 + payload `vu_stages` 유지 | |
 
 - **라이브 검증 필수**(R11·S-D 갭): RunDialog는 run-생성 경로 → 머지 전 `/live-verify`로 간단·상세 각각 run 1회 생성→리포트 도달 + console Zod 0. RTL fixture는 absent-not-null이라 서버 응답경로 버그를 못 잡는다.
 
