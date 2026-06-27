@@ -1752,7 +1752,9 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     });
     // criteria → 상세로 열림 → 간단으로 전환
     await user.click(screen.getByRole("radio", { name: "간단" }));
-    expect(screen.getByText(/상세 설정.*개 적용됨/)).toBeInTheDocument();
+    // max_p95_ms 1개만 활성 → 정확히 1개
+    expect(screen.getByText("상세 설정 1개 적용됨")).toBeInTheDocument();
+    expect(screen.queryByText("상세 설정 2개 적용됨")).not.toBeInTheDocument();
   });
 
   it("간단 모드: measure_phases ON이 applied count에 포함됨 (R6·F1 이중계수 방지)", async () => {
@@ -1763,8 +1765,9 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     await user.click(screen.getByRole("checkbox", { name: /응답 시간 단계 분해/ }));
     // 간단 전환
     await user.click(screen.getByRole("radio", { name: "간단" }));
-    // measure가 계수에 포함돼야 (N≥1)
-    expect(screen.getByText(/상세 설정.*개 적용됨/)).toBeInTheDocument();
+    // measure 단독 → 정확히 1개 (이중계수 시 2개가 되어 이 단언이 실패)
+    expect(screen.getByText("상세 설정 1개 적용됨")).toBeInTheDocument();
+    expect(screen.queryByText("상세 설정 2개 적용됨")).not.toBeInTheDocument();
   });
 
   it("간단 모드: 숨겨진 invalid http_timeout이 blockedReasons에 표시됨 (R5)", async () => {
