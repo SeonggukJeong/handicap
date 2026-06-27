@@ -89,6 +89,19 @@ describe("SchedulesPage", () => {
     expect(screen.getByRole("region", { name: ko.schedule.formAria })).toBeInTheDocument();
   });
 
+  it("목록 로드 오류 텍스트가 노출된다 — list-load error Callout 가드 (ds-spread R7)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: "목록 로드 실패" }),
+      }),
+    );
+    wrap(<SchedulesPage />);
+    expect(await screen.findByText(ko.common.failedToLoad("목록 로드 실패"))).toBeInTheDocument();
+  });
+
   it("빈 상태: 3요소 문구 + 스케줄 만들기 CTA", async () => {
     // 기존 beforeEach stub을 빈 목록 응답으로 덮어쓴다
     vi.stubGlobal(

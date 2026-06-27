@@ -159,7 +159,7 @@ export function SchedulesPage() {
       <section aria-label={ko.schedule.listAria}>
         {list.isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {list.error && (
-          <p className="text-red-600">{ko.common.failedToLoad((list.error as Error).message)}</p>
+          <Callout variant="error">{ko.common.failedToLoad((list.error as Error).message)}</Callout>
         )}
         {list.data && list.data.length === 0 && mode === "none" && (
           <EmptyState
