@@ -24,6 +24,10 @@ import { EnvironmentPicker } from "./EnvironmentPicker";
 import { TriggerBuilder } from "./TriggerBuilder";
 import type { BuilderState } from "./triggerCron";
 import { Button } from "./Button";
+import { Input } from "./ui/Input";
+import { Select } from "./ui/Select";
+import { Section } from "./ui/Section";
+import { Callout } from "./ui/Callout";
 import { ko } from "../i18n/ko";
 
 export type ScenarioOption = { id: string; name: string };
@@ -264,18 +268,18 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       <div className="grid grid-cols-2 gap-3 mb-3 max-w-2xl">
         <label className="block text-sm">
           <span className="text-slate-600">이름</span>
-          <input
+          <Input
             aria-label="이름"
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            className="mt-1"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
         <label className="block text-sm">
           <span className="text-slate-600">시나리오</span>
-          <select
+          <Select
             aria-label="시나리오"
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            className="mt-1"
             value={scenarioId}
             onChange={(e) => {
               setScenarioId(e.target.value);
@@ -292,7 +296,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
                 {o.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
 
@@ -328,14 +332,14 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       <div className="mb-3 max-w-xs">
         <label className="block text-sm">
           <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
-          <input
+          <Input
             type="number"
             min={1}
             max={600}
             aria-label={ko.loadModel.httpTimeout}
             value={httpTimeout}
             onChange={(e) => setHttpTimeout(Number(e.target.value))}
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            className="mt-1"
             aria-invalid={httpTimeoutInvalid}
           />
         </label>
@@ -346,14 +350,14 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         <div className="mb-3">
           <label className="block text-sm">
             {ko.loadModel.loopCap}
-            <input
+            <Input
               type="number"
               min={0}
               max={10000}
               aria-label={ko.loadModel.loopCap}
               value={loopCap}
               onChange={(e) => setLoopCap(Number(e.target.value))}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              className="mt-1"
               aria-invalid={loopCapInvalid}
             />
             <span className="text-xs text-slate-500">
@@ -364,60 +368,36 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       )}
 
       {/* SLO 기준 (선택) */}
-      <fieldset className="mt-3 mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setSloOpen((v) => !v)}
-            className="font-medium text-slate-700 hover:underline"
-            aria-expanded={sloOpen}
-          >
-            {sloOpen ? "▾" : "▸"} SLO 기준 (선택)
-            {!sloOpen && sloActiveCount > 0 ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">
-                · {sloActiveCount}개 설정됨
-              </span>
-            ) : null}
-          </button>
-        </legend>
-        {sloOpen && (
-          <>
-            <CriteriaFields value={criteriaState} onChange={setCriteria} />
-            <StepCriteriaFields
-              value={stepCriteria}
-              options={stepOptions}
-              onChange={setStepCriteria}
-            />
-          </>
-        )}
-      </fieldset>
+      <Section
+        title="SLO 기준 (선택)"
+        collapsible
+        open={sloOpen}
+        onToggle={() => setSloOpen((v) => !v)}
+        divider
+        hint={!sloOpen && sloActiveCount > 0 ? `${sloActiveCount}개 설정됨` : undefined}
+      >
+        <CriteriaFields value={criteriaState} onChange={setCriteria} />
+        <StepCriteriaFields value={stepCriteria} options={stepOptions} onChange={setStepCriteria} />
+      </Section>
 
       {/* 진단/고급 (선택) */}
-      <fieldset className="mt-3 mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen((v) => !v)}
-            className="font-medium text-slate-700 hover:underline"
-            aria-expanded={advancedOpen}
-          >
-            {advancedOpen ? "▾" : "▸"} 진단/고급 (선택)
-            {!advancedOpen && measurePhases ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">· 1개 설정됨</span>
-            ) : null}
-          </button>
-        </legend>
-        {advancedOpen && (
-          <label className="mt-2 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={measurePhases}
-              onChange={(e) => setMeasurePhases(e.target.checked)}
-            />
-            측정: 레이턴시 단계 분해(TTFB/다운로드)
-          </label>
-        )}
-      </fieldset>
+      <Section
+        title="진단/고급 (선택)"
+        collapsible
+        open={advancedOpen}
+        onToggle={() => setAdvancedOpen((v) => !v)}
+        divider
+        hint={!advancedOpen && measurePhases ? "1개 설정됨" : undefined}
+      >
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={measurePhases}
+            onChange={(e) => setMeasurePhases(e.target.checked)}
+          />
+          측정: 레이턴시 단계 분해(TTFB/다운로드)
+        </label>
+      </Section>
 
       {/* 환경 */}
       <EnvironmentPicker
@@ -458,17 +438,14 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         ];
         return (
           blockedReasons.length > 0 && (
-            <div
-              role="status"
-              className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
-            >
+            <Callout variant="warn" role="status" className="mb-3">
               <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
               <ul className="list-disc pl-5">
                 {blockedReasons.map((r, i) => (
                   <li key={i}>{r}</li>
                 ))}
               </ul>
-            </div>
+            </Callout>
           )
         );
       })()}

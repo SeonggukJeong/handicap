@@ -135,6 +135,18 @@ describe("ScheduleForm", () => {
     expect(enabledCheckbox).not.toBeChecked();
   });
 
+  it("SLO section toggles via aria-expanded (Section collapsible 전환 후도 보존)", async () => {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    const toggle = screen.getByRole("button", { name: /SLO 기준/ });
+    expect(toggle).toHaveAttribute("aria-expanded");
+  });
+
   // ── B4: ScheduleForm은 추천/바로실행 프레이밍을 렌더하지 않는다 (R6/R10) ────────
   it("ScheduleForm은 추천/바로실행 프레이밍을 안 보인다", () => {
     wrap(
