@@ -92,6 +92,7 @@ export const ko = {
     envOverriddenLabel: "재정의됨",
     envShadowsBase: (key: string) => `${key} 재정의`,
     envBaseFrom: (name: string) => `${name} 기반 (읽기 전용):`,
+    envAppliedHint: (n: number) => `변수 ${n}개 적용됨 (상세에서 편집)`,
     loadPresetAria: "프리셋 불러오기",
     presetNameAria: "프리셋 이름",
     recommendedNotice: "추천값으로 채워져 있어 바로 실행할 수 있습니다.",

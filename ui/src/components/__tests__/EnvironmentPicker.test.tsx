@@ -23,12 +23,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 function Host({
   baseVars,
   initialId = null,
+  initialOverrides = [],
+  showOverrides,
 }: {
   baseVars: Record<string, string>;
   initialId?: string | null;
+  initialOverrides?: EnvEntry[];
+  showOverrides?: boolean;
 }) {
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(initialId);
-  const [overrides, setOverrides] = useState<EnvEntry[]>([]);
+  const [overrides, setOverrides] = useState<EnvEntry[]>(initialOverrides);
   return (
     <EnvironmentPicker
       selectedEnvId={selectedEnvId}
@@ -36,10 +40,16 @@ function Host({
       baseVars={baseVars}
       overrides={overrides}
       onOverridesChange={setOverrides}
+      showOverrides={showOverrides}
     />
   );
 }
-function renderPicker(props: { baseVars: Record<string, string>; initialId?: string | null }) {
+function renderPicker(props: {
+  baseVars: Record<string, string>;
+  initialId?: string | null;
+  initialOverrides?: EnvEntry[];
+  showOverrides?: boolean;
+}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -104,5 +114,23 @@ describe("EnvironmentPicker", () => {
     await user.type(within(region()).getByPlaceholderText("BASE_URL"), "EXTRA");
     await user.click(within(region()).getByRole("button", { name: /^추가$/i }));
     expect(await screen.findByLabelText("환경 변수 키 0")).toHaveValue("EXTRA");
+  });
+
+  it("showOverrides=false hides override editor and shows applied hint", () => {
+    fetchMock.mockResolvedValue(jsonResponse({ environments: [] }));
+    renderPicker({
+      baseVars: {},
+      initialOverrides: [{ key: "BASE_URL", value: "x" }],
+      showOverrides: false,
+    });
+    expect(screen.getByText("변수 1개 적용됨 (상세에서 편집)")).toBeInTheDocument();
+    expect(screen.queryByLabelText("환경 변수 값 0")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+  });
+
+  it("default (showOverrides absent) shows override editor (byte-identical)", () => {
+    fetchMock.mockResolvedValue(jsonResponse({ environments: [] }));
+    renderPicker({ baseVars: {}, initialOverrides: [{ key: "BASE_URL", value: "x" }] });
+    expect(screen.getByDisplayValue("BASE_URL")).toBeInTheDocument();
   });
 });
