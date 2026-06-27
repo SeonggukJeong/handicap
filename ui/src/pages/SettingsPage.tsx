@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useSettings, usePutSetting, useResetSetting, usePoolWorkers } from "../api/hooks";
 import { Button } from "../components/Button";
 import { HelpTip } from "../components/HelpTip";
+import { Input } from "../components/ui/Input";
+import { Callout } from "../components/ui/Callout";
+import { Badge } from "../components/ui/Badge";
 import { ko } from "../i18n/ko";
 import type { Setting } from "../api/settings";
 import { STARTUP_STALL_MS, MIDRUN_STALL_MS } from "../api/runStall";
@@ -64,8 +67,8 @@ function MutableRow({
         </label>
         {hasEffect && <HelpTip label={`${s.label} 도움말`}>{effectBlocks(s.key)}</HelpTip>}
         {s.source === "override" && (
-          <span className="ml-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1">
-            변경됨
+          <span className="ml-2">
+            <Badge tone="warn">변경됨</Badge>
           </span>
         )}
       </div>
@@ -74,17 +77,18 @@ function MutableRow({
       </p>
       <EnvNote settingKey={s.key} />
       <div className="flex items-center gap-2 mt-1">
-        <input
-          id={inputId}
-          type="number"
-          className="w-40 rounded border border-slate-300 px-2 py-1 text-sm"
-          value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
-          min={s.min}
-          max={s.max}
-          aria-invalid={isInvalid ? true : undefined}
-          aria-describedby={isInvalid ? `${rangeHintId} ${outOfRangeHintId}` : rangeHintId}
-        />
+        <div className="w-40">
+          <Input
+            id={inputId}
+            type="number"
+            value={draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            min={s.min}
+            max={s.max}
+            aria-invalid={isInvalid ? true : undefined}
+            aria-describedby={isInvalid ? `${rangeHintId} ${outOfRangeHintId}` : rangeHintId}
+          />
+        </div>
         <span className="text-xs text-slate-500">{s.unit}</span>
         <Button variant="primary" onClick={onSave} disabled={isInvalid || saving || resetting}>
           {saving ? "저장 중…" : ko.opsSettings.save}
@@ -292,15 +296,15 @@ export function SettingsPage() {
       </div>
 
       {/* apply-note banner */}
-      <p className="mb-6 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+      <Callout variant="warn" className="mb-6">
         {ko.opsSettings.applyNote}
-      </p>
+      </Callout>
 
       {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
       {error && (
-        <p role="alert" className="text-red-600">
+        <Callout variant="error" role="alert">
           불러오기 실패: {(error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {settings && (

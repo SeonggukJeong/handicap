@@ -472,4 +472,13 @@ describe("SettingsPage", () => {
     expect(screen.queryByText(ko.opsSettings.modeActivePool)).not.toBeInTheDocument();
     expect(screen.queryByText(ko.opsSettings.modeInactive)).not.toBeInTheDocument();
   });
+
+  // ds-spread Task 1 lockstep: common group region is preserved after primitive conversions
+  it("keeps the common settings group region after ds-spread conversions", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(SETTINGS_RESPONSE));
+    renderPage();
+    expect(
+      await screen.findByRole("region", { name: ko.opsSettings.groupCommon }),
+    ).toBeInTheDocument();
+  });
 });
