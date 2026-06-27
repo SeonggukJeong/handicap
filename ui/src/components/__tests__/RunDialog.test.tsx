@@ -68,6 +68,51 @@ async function toDetailed(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("RunDialog — 간단/상세 모드 토글 (T6)", () => {
+  // R11: 간단 모드(기본) POST profile byte-identical 골든.
+  // 간단 모드에서 숨겨진 loop_breakdown_cap/http_timeout_seconds/measure_phases 기본값이
+  // POST payload에서 DROP되지 않음을 toEqual(exact)로 증명한다.
+  const DEFAULT_SIMPLE_PROFILE = {
+    loop_breakdown_cap: 256,
+    http_timeout_seconds: 30,
+    measure_phases: false,
+    vus: 2,
+    duration_seconds: 5,
+    ramp_up_seconds: 0,
+  };
+
+  it("R11 golden: 간단 모드 기본 POST profile is byte-identical (toEqual)", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    // 간단 모드 기본값 — toDetailed 호출 없음
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile).toEqual(DEFAULT_SIMPLE_PROFILE);
+    expect(body.env).toEqual({});
+  });
+
   it("defaults to 간단; detailed-only sections absent", () => {
     renderDialog();
     expect(screen.getByRole("radio", { name: "간단" })).toHaveAttribute("aria-checked", "true");
