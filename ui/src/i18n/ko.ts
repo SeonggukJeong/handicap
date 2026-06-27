@@ -95,6 +95,16 @@ export const ko = {
     loadPresetAria: "프리셋 불러오기",
     presetNameAria: "프리셋 이름",
     recommendedNotice: "추천값으로 채워져 있어 바로 실행할 수 있습니다.",
+    // ── 실행 요약 footer (R8) ──
+    summaryClosed: (vus: number, time: string) => `동시 사용자 ${vus}명 · ${time}`,
+    summaryRampUp: (sec: number) => (sec > 0 ? `램프업 ${sec}초` : "램프업 없음"),
+    summaryOpen: (rps: number, total: string, time: string) =>
+      `목표 ${rps} RPS · 약 ${total}건 · ${time}`,
+    summaryOpenSub: (mif: string) => `동시 요청 상한 ${mif || "—"}`,
+    summaryCurveVu: (peak: number) => `최대 ${peak}명 (곡선)`,
+    summaryCurveRps: (peak: number) => `최대 ${peak} RPS (곡선)`,
+    summaryCurveSub: (totalSec: number, stages: number) => `총 ${totalSec}초 · ${stages}단계`,
+    summaryInvalid: "설정을 확인하세요",
   },
   binding: {
     sectionTitle: "데이터 바인딩",
