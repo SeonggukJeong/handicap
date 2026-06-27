@@ -148,17 +148,23 @@ export function RunDialog({
         init.profile.loop_breakdown_cap !== 256)
     );
   }
+  // 상세 모드를 열어야 하는지 판단 — profile + env 기준. loadPreset과 mode 초기값에서 공유.
+  // 단방향 전환(상세→간단은 이 술어로 강제하지 않음).
+  function opensDetailed(profile: Profile, env: Record<string, string>): boolean {
+    return (
+      advancedPrefill({ profile, env }) ||
+      deriveLoadMode(profile).rateMode === "curve" ||
+      Number(profile.worker_count ?? 1) > 1 ||
+      Object.keys(env).length > 0 ||
+      seedBindingsFrom(profile).length > 0
+    );
+  }
   // '판정·고급' 단일 토글(SLO·페이싱·진단 통합, spec §6.1). 시드된 비기본값이 접힌
   // 그룹에 숨지 않게, 하나라도 있으면 펼친 채 시작.
   const [advancedOpen, setAdvancedOpen] = useState(() => advancedPrefill(initial));
   // 간단/상세 모드. 시드된 값이 상세-전용이면 상세로 시작.
   const [mode, setMode] = useState<"simple" | "detailed">(() =>
-    advancedPrefill(initial) ||
-    deriveLoadMode(initial?.profile ?? {}).rateMode === "curve" ||
-    Number(initial?.profile.worker_count ?? 1) > 1 ||
-    (initial != null && Object.keys(initial.env).length > 0)
-      ? "detailed"
-      : "simple",
+    initial != null && opensDetailed(initial.profile, initial.env) ? "detailed" : "simple",
   );
   // 다중 데이터 바인딩. 레거시 단일 data_binding은 한 카드로 복원(읽기 호환).
   const [bindings, setBindings] = useState<DataBinding[]>(seedBindingsFrom(initial?.profile));
@@ -269,6 +275,9 @@ export function RunDialog({
         );
       }
       setRampDown(prof.ramp_down ?? "graceful");
+      // Fix-1b: 프리셋이 상세-전용 설정(바인딩·곡선·멀티워커·env·고급)을 포함하면
+      // 간단 모드였어도 상세로 단방향 전환. 역방향(상세→간단) 강제는 없음.
+      if (opensDetailed(prof, envValueToRecord(p.env))) setMode("detailed");
       setLoadedPresetId(id);
       setPresetName(p.name);
     } catch (e) {
@@ -344,7 +353,9 @@ export function RunDialog({
     (Number(workerCount) > 1 ? 1 : 0) +
     (httpTimeout !== 30 ? 1 : 0) +
     (hasLoop && loopCap !== 256 ? 1 : 0) +
-    (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0);
+    (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0) +
+    // Fix-1c: 데이터 바인딩이 활성 상태면 카운트에 포함 (간단 모드에선 패널이 숨겨짐).
+    (bindings.length > 0 ? 1 : 0);
   // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
   const loadState: LoadModelState = {
     loadModel,
@@ -613,15 +624,9 @@ export function RunDialog({
           <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
             <p className="text-sm font-medium">{ko.runDialog.curveCardTitle}</p>
             <p className="text-xs text-slate-500 mb-1">{ko.runDialog.curveCardHint}</p>
-            <div
-              role="img"
-              aria-label={
-                loadModel === "closed"
-                  ? ko.loadModel.curvePreviewAriaVu
-                  : ko.loadModel.curvePreviewAriaRps
-              }
-              className="h-20"
-            >
+            {/* Fix-2: 카드 내 프리뷰는 장식용 — aria-hidden으로 SR 중복 억제.
+                푸터의 role="img"가 유일한 SR 구술 지점. */}
+            <div aria-hidden="true" className="h-20">
               <StageCurvePreview stages={previewStages} width={300} height={80} />
             </div>
           </div>

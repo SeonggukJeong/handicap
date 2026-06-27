@@ -160,6 +160,44 @@ describe("RunDialog — 간단/상세 모드 토글 (T6)", () => {
     });
     expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
   });
+
+  it("binding prefill opens 상세 (Fix-1a)", () => {
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        data_bindings: [{ dataset_id: "DS1", policy: "per_vu", mappings: [] }],
+      },
+      env: {},
+    });
+    expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("바인딩 prefill → 간단 전환 시 applied count에 포함됨 (Fix-1c)", async () => {
+    const user = userEvent.setup();
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        data_bindings: [{ dataset_id: "DS1", policy: "per_vu", mappings: [] }],
+      },
+      env: {},
+    });
+    // binding prefill → 상세로 열림 → 간단으로 전환
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    // binding 1개 → applied count에 포함 (Fix-1c)
+    expect(screen.getByText("상세 설정 1개 적용됨")).toBeInTheDocument();
+  });
 });
 
 describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
@@ -693,6 +731,58 @@ describe("RunDialog — load preset (A2)", () => {
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
     expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
     expect(screen.getByLabelText("환경 변수 값 0")).toHaveValue("http://heavy");
+  });
+
+  it("바인딩 있는 프리셋 로드 → 간단이었어도 상세로 전환됨 (Fix-1b)", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "PB",
+                name: "with-binding",
+                vus: 2,
+                duration_seconds: 5,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/PB")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "PB",
+            scenario_id: "S1",
+            name: "with-binding",
+            profile: {
+              vus: 2,
+              duration_seconds: 5,
+              ramp_up_seconds: 0,
+              loop_breakdown_cap: 256,
+              data_binding: null,
+              data_bindings: [{ dataset_id: "DS1", policy: "per_vu", mappings: [] }],
+            },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderPresetDialog();
+    // 시작은 간단 모드
+    expect(screen.getByRole("radio", { name: "간단" })).toHaveAttribute("aria-checked", "true");
+    // 바인딩 있는 프리셋 로드
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PB");
+    // Fix-1b: 상세 모드로 전환됐어야 함
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+    });
   });
 });
 
@@ -2718,7 +2808,7 @@ describe("RunDialog — 곡선 읽기전용 카드 (R17·T8)", () => {
     });
   });
 
-  it("stages prefill (open+curve) + 간단 전환 → 카드 aria-label은 RPS 변형 (open-loop a11y)", async () => {
+  it("stages prefill (open+curve) + 간단 전환 → 카드 프리뷰 aria-hidden + 푸터 role=img는 RPS (Fix-2·open-loop a11y)", async () => {
     const user = userEvent.setup();
     renderWithInitial({
       profile: {
@@ -2744,22 +2834,23 @@ describe("RunDialog — 곡선 읽기전용 카드 (R17·T8)", () => {
     // 읽기전용 곡선 카드 표시
     expect(screen.getByText("곡선 부하 설정됨")).toBeInTheDocument();
 
-    // 카드 컨테이너 스코프 (footer의 role=img와 구분)
+    // 카드 컨테이너 스코프
     const cardContainer = screen.getByText("곡선 부하 설정됨").parentElement!;
 
-    // 카드 안 role=img는 RPS 변형 aria-label (open-loop)
+    // Fix-2: 카드 안 프리뷰 wrapper는 aria-hidden (장식용 — SR 중복 억제)
+    const hiddenWrapper = cardContainer.querySelector("[aria-hidden='true']");
+    expect(hiddenWrapper).toBeInTheDocument();
+
+    // 카드 안에는 role=img 없음 (SR 구술은 푸터 role=img에서만 1회)
+    expect(within(cardContainer).queryByRole("img")).toBeNull();
+
+    // 푸터 role=img (SR 단일 구술): open-loop → RPS 변형 aria-label
     expect(
-      within(cardContainer).getByRole("img", {
-        name: "레이트 곡선 미리보기 (x: 누적 초, y: RPS)",
-      }),
+      screen.getByRole("img", { name: "레이트 곡선 미리보기 (x: 누적 초, y: RPS)" }),
     ).toBeInTheDocument();
 
-    // VU 변형은 카드 안에 없어야 함
-    expect(
-      within(cardContainer).queryByRole("img", {
-        name: "VU 곡선 미리보기 (x: 누적 초, y: VU)",
-      }),
-    ).toBeNull();
+    // VU 변형 label은 전체 화면에도 없어야 함 (open-loop)
+    expect(screen.queryByRole("img", { name: "VU 곡선 미리보기 (x: 누적 초, y: VU)" })).toBeNull();
   });
 });
 
