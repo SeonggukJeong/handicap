@@ -287,7 +287,7 @@ export function runSummary(s: LoadModelState): { text: string; tone: "ok" | "war
 
 > **tdd-guard 순서**: Step 1=테스트 → Step 2=ko → Step 3=구현.
 
-- [ ] **Step 1: Write the failing test (먼저!)** — append to `EnvironmentPicker.test.tsx`. **aria-label은 한국어 실제값**(`ko.runDialog.envValueAria(0)` = `"환경 변수 값 0"`).
+- [ ] **Step 1: Write the failing test (먼저!)** — append to `EnvironmentPicker.test.tsx`. **반드시 기존 파일의 render 헬퍼(QueryClientProvider 래핑, `:42-49`)를 재사용** — `EnvironmentPicker`가 `useEnvironments()`(React Query)를 호출하므로 bare `render(<EnvironmentPicker .../>)`는 "No QueryClient set"으로 throw. `showOverrides`는 그 헬퍼의 prop으로 통과시킨다. **aria-label은 한국어 실제값**(`ko.runDialog.envValueAria(0)` = `"환경 변수 값 0"`). (아래 snippet의 bare `render(...)`는 예시 — 헬퍼로 감쌀 것.)
 
 ```tsx
 it("showOverrides=false hides override editor and shows applied hint", () => {
@@ -370,7 +370,7 @@ it("without new props, renders legacy radios + profile + worker (ScheduleForm pa
 - [ ] **Step 2: Run to verify fail** — `pnpm test LoadModelFields` → FAIL.
 - [ ] **Step 3: ko 타일 설명 추가** — `ko.loadModel`에 `tileClosedDesc: "N명이 동시에 반복 요청"`, `tileOpenDesc: "초당 N건씩 도착"`.
 - [ ] **Step 4: Implement gating** — `LoadModelFields.tsx` Props에 optional 3종 추가·디스트럭처. 위 Interfaces대로:
-  - 부하모델 fieldset(280-313): `loadModelTiles`면 `<legend>` 유지한 채 두 `<label><input radio>`를 `<button role="radio" aria-checked onClick>`로 교체(접근명=`ko.loadModel.closedLoop`/`openLoop` 텍스트 포함 + `tileClosedDesc`/`tileOpenDesc` 보조 텍스트). HelpTip은 타일 안 형제로 유지 가능. 미전달이면 기존 라디오.
+  - 부하모델 fieldset(280-313): `loadModelTiles`면 `<legend>` 유지한 채 두 `<label><input radio>`를 `<button role="radio" aria-checked onClick>`로 교체(접근명=`ko.loadModel.closedLoop`/`openLoop` 텍스트 포함 + `tileClosedDesc`/`tileOpenDesc` 보조 텍스트). **HelpTip은 타일 `<button>` *바깥* 형제로**(버튼 안에 넣으면 중첩 `<button>` + accessible-name 오염 + ⓘ 클릭이 타일을 토글 — ui/CLAUDE.md U3). 미전달이면 기존 라디오.
   - `{!simpleMode && (프로파일 fieldset)}`·`{!simpleMode && (ramp_down)}`·`{!simpleMode && (worker disclosure)}`·`{!simpleMode && (idle/inert 경고)}`.
   - 곡선 arm: closed `rateMode==="curve" ? (simpleMode ? null : <>{curveEditor}{rampDownBlock}</>) : <fixedGrid>`; open 동형(`simpleMode ? null : curveEditor`). simple+curve = null.
   - 주 수치 `Input`에 `numeric={numeric}`; raw `<input className={INPUT}>`(188·204·540) → `className={numeric ? \`${INPUT} tabular-nums\` : INPUT}`.
@@ -421,7 +421,7 @@ it("env-override prefill opens 상세 (R2)", () => {
   expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
 });
 ```
-  - **byte-identical 골든(R11)**: 현 `RunDialog.test.tsx`의 `createRun` mock(`mutate` 인자 캡처) 패턴 재사용. 간단-기본 closed에서 Run 클릭 → `mutate`가 `{scenarioId, profile, env}`로 호출되고 `profile`이 현 기본값(`loop_breakdown_cap:0, http_timeout_seconds:30, measure_phases:false, vus:2, duration_seconds:5, ramp_up_seconds:0`)과 `toEqual`·`env` `toEqual {}`. (현 기본 payload는 리팩터 *전*에 한 번 캡처해 상수로 박는다.)
+  - **byte-identical 골든(R11)**: 현 `RunDialog.test.tsx`의 `createRun` mock(`mutate` 인자 캡처) 패턴 재사용. 간단-기본 closed에서 Run 클릭 → `mutate`가 `{scenarioId, profile, env}`로 호출되고 `profile`이 현 기본값과 `toEqual`·`env` `toEqual {}`. **현 기본 payload는 리팩터 *전*에 한 번 캡처해 상수로 박는다**(`renderDialog()` 기본 `hasLoop=true`라 `loop_breakdown_cap:256`[default loopCap], `http_timeout_seconds:30, measure_phases:false, vus:2, duration_seconds:5, ramp_up_seconds:0` — 캡처값이 정답·리스트는 예시).
   - **마이그레이션(핵심)**: 기존 테스트 중 렌더 후 아래 selector를 쓰는 것에 `await toDetailed(user)`를 렌더 직후 삽입:
     - `/판정·고급/` (≈21곳: 226,254,277,609,629,637,…)
     - 프로파일/곡선/고정 radios·`group {name:/프로파일/}` (≈10곳: 942,968,980,990,1000,1027,1037,1110,1119,1132 부근)
@@ -451,8 +451,10 @@ it("env-override prefill opens 상세 (R2)", () => {
 
 - [ ] **Step 1: 테스트 먼저** — `RunDialog.test.tsx` (헬퍼 `toDetailed` 재사용):
 ```tsx
+// renderWithPresets = renderDialog 미러 + presets fetch 시드. usePresets(scenarioId)→GET .../presets;
+// 정확 엔드포인트/shape는 api/presets.ts·hooks.ts(usePresets)에서 확인해 fetchMock에 [{id,name,...}] jsonResponse.
 it("preset load strip is above 부하 모델; save block is 상세-only at bottom (R7)", async () => {
-  const user = userEvent.setup(); renderWithPresets(); // 프리셋 ≥1 fixture
+  const user = userEvent.setup(); renderWithPresets(); // 프리셋 ≥1 fixture (위 주석대로 자작)
   // 불러오기 select가 부하모델 fieldset보다 DOM 앞 (compareDocumentPosition)
   expect(screen.queryByRole("button", { name: /프리셋으로 저장/ })).not.toBeInTheDocument(); // 간단
   await toDetailed(user);
@@ -464,7 +466,12 @@ it("측정 토글 is a visible 상세 section outside 판정·고급 (R9)", asyn
 });
 it("간단 shows '상세 설정 N개 적용됨' when hidden detailed values set (R6)", () => {
   renderWithInitial({ /* profile.criteria={max_p95_ms:500}, env:{} */ } as RunPrefill); // → 상세로 열림
-  // 간단 전환 후 카운트 — 또는 measure on 간단에서 카운트. ko.runDialog.appliedDetail(n) 매치.
+  // 간단 전환 후 카운트. ko.runDialog.appliedDetail(n) 매치.
+});
+it("간단 counts measure_phases in the applied count (R6·F1 — measure-driven)", async () => {
+  const user = userEvent.setup(); renderDialog(); await toDetailed(user);
+  // 측정 토글 ON → 간단 전환 → ko.runDialog.appliedDetail(N) (N≥1, measure가 계수에 포함되는지 검증)
+  // 이 테스트가 measure 누락(F1)을 잡는다 — SLO-driven 케이스로는 안 잡힘.
 });
 it("hidden invalid http_timeout surfaces via blockedReasons in 간단 (R5)", async () => {
   // 상세 → http_timeout=0 → 간단 → Run disabled + getByText(ko.validation.httpTimeout)
@@ -479,9 +486,9 @@ it("env-override prefill + 간단 → '변수 N개 적용됨' 힌트 (R18)", () 
 - [ ] **Step 4: Implement (spec §4.1)** —
   - 프리셋 **불러오기 strip**(현 492-513)을 본문 *최상단*으로(두 모드, `presets.data?.length>0`). **저장/이름변경/삭제**(755-791)을 본문 *최하단·`{mode==="detailed" && ...}`*.
   - **측정**(744-751)을 판정·고급 Section *밖*, 별도 `{mode==="detailed" && <측정 섹션>}`(가치 라벨 `measureTitle`/`measureDesc` + HelpTip).
-  - **고급 collapse 힌트 measure 제외**(631-633·리뷰 A): `advancedSetHint` 카운트를 `sloActiveCount + (loadModel==="closed"?pacingActiveCount:0)`로(measure 빠짐).
+  - **고급 collapse 힌트 measure 제외**(631-633·리뷰 A·F1): **`advancedActiveCount`(319-320)는 그대로 둔다**(measure 포함 — `detailedAppliedCount`가 이걸로 measure를 셈). collapse 힌트(`advancedSetHint`, 631-633)만 **새 식** `sloActiveCount + (loadModel==="closed"?pacingActiveCount:0)`(measure 제외)로 교체.
   - **EnvironmentPicker** 호출에 `showOverrides={mode==="detailed"}`.
-  - **applied(R6)**: `mode==="simple" && detailedAppliedCount>0` → `ko.runDialog.appliedDetail(detailedAppliedCount)`. `detailedAppliedCount = advancedActiveCount + (rateMode==="curve"?1:0) + (Number(workerCount)>1?1:0) + (httpTimeout!==30?1:0) + (hasLoop && loopCap!==256?1:0) + (loadModel==="closed" && rateMode==="curve" && rampDown!=="graceful"?1:0)`.
+  - **applied(R6·F1)**: `mode==="simple" && detailedAppliedCount>0` → `ko.runDialog.appliedDetail(detailedAppliedCount)`. `detailedAppliedCount = advancedActiveCount + (rateMode==="curve"?1:0) + (Number(workerCount)>1?1:0) + (httpTimeout!==30?1:0) + (hasLoop && loopCap!==256?1:0) + (loadModel==="closed" && rateMode==="curve" && rampDown!=="graceful"?1:0)`. **measure는 `advancedActiveCount` 경유로 1회만 계수**(별도 항 추가 금지=이중계수 방지). 위 measure-driven 테스트가 이 계수를 잠근다.
   - **blockedReasons 일반화(R5)**: 조건 `!advancedOpen`→`(mode==="simple" || !advancedOpen)` + `...(mode==="simple" && loadModel==="open" && loadErrs.workerCountInvalid ? [ko.validation.workerCount] : [])`. `bindingBlock` 불변.
 - [ ] **Step 5: Run** — `pnpm test RunDialog` → PASS.
 - [ ] **Step 6: Commit** — `git commit -m "feat(rundialog): 프리셋 동선·측정 노출·진단 표면 (R5·R6·R7·R9·R18)"`.
