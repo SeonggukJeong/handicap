@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useDatasets, useDeleteDataset } from "../api/hooks";
 import { Button } from "../components/Button";
+import { Callout } from "../components/ui/Callout";
 import { UploadPanel } from "../components/datasets/UploadPanel";
 import { EmptyState } from "../components/EmptyState";
 import { ko } from "../i18n/ko";
@@ -38,15 +39,15 @@ export function DatasetsPage() {
       <UploadPanel />
 
       {delError && (
-        <p role="alert" className="mt-4 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mt-4">
           삭제 실패: {delError}
-        </p>
+        </Callout>
       )}
 
       <section aria-label={ko.dataset.listAria} className="mt-8">
         {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
         {error && (
-          <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>
+          <Callout variant="error">{ko.common.failedToLoad((error as Error).message)}</Callout>
         )}
         {data && data.datasets.length === 0 && (
           <EmptyState body={ko.empty.datasets} action={<p>{ko.empty.datasetsCta}</p>} />

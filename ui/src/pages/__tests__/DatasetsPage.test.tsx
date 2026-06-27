@@ -55,6 +55,30 @@ describe("DatasetsPage", () => {
     expect(await screen.findByText(ko.empty.datasets)).toBeInTheDocument();
   });
 
+  it("shows delete error in a callout (F6 guard)", async () => {
+    const user = userEvent.setup();
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          datasets: [
+            {
+              id: "D1",
+              name: "users",
+              columns: ["email"],
+              row_count: 1,
+              byte_size: 9,
+              created_at: 1,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "서버 오류" }), { status: 500 }));
+    renderPage();
+    await screen.findByText("users");
+    await user.click(screen.getByRole("button", { name: /삭제/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/삭제/);
+  });
+
   it("deletes a dataset", async () => {
     fetchMock
       .mockResolvedValueOnce(
