@@ -24,8 +24,8 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (테스트/관찰) | seam? |
 |---|---|---|---|
 | R1 | MUST: RunDialog 헤더에 `간단`/`상세` 세그먼트 컨트롤(`role=radiogroup`, 키보드 탐색, active=accent fill) 배치. | RTL: 토글 클릭/키보드로 `aria-pressed` 전환 + 상세 섹션 렌더/미렌더 | |
-| R2 | MUST: 기본 모드=간단. 단 `initial`(prefill: retry/preset)이 **비기본 상세값**(곡선·SLO·think-time·worker>1·measure_phases·비기본 http_timeout/loop_cap)을 가지면 상세로 연다(기존 `advancedOpen` 자동펼침 술어 재사용·단일소스). | RTL: detailed-value prefill→상세 마운트; plain prefill/신규→간단 | |
-| R3 | MUST: 간단 모드 렌더 집합 = [프리셋 불러오기 strip] · 부하모델(타일) · 크기 chips(closed) · 주 수치(closed: VU·시간·램프업 / open: RPS·시간·동시요청상한) · 환경 **선택만** · 사이징 도우미(접힘) · 실시간 요약 · 실행/취소. 그 외 섹션은 미렌더. | RTL: 간단에서 상세-전용 섹션(프로파일·measure·고급·바인딩·오버라이드·저장) 부재 | |
+| R2 | MUST: 기본 모드=간단. 단 `initial`(prefill: retry/preset)이 **비기본 상세값**(곡선·SLO·think-time·worker>1·measure_phases·비기본 http_timeout/loop_cap·**env 오버라이드 존재**)을 가지면 상세로 연다(기존 `advancedOpen` 술어를 헬퍼로 추출·재사용 — §4.1). | RTL: detailed-value/env-override prefill→상세 마운트; plain prefill/신규→간단 | |
+| R3 | MUST: 간단 모드 렌더 집합 = [프리셋 불러오기 strip] · 부하모델(타일) · 크기 chips(closed) · 주 수치(고정: closed VU·시간·램프업 / open RPS·시간·동시요청상한 — **곡선이면 R17 카드로 대체**) · 환경 **선택**(+숨은 오버라이드 힌트 R18) · 사이징 도우미(접힘) · 실시간 요약 · 실행/취소. 그 외 섹션은 미렌더. | RTL: 간단에서 상세-전용 섹션(프로파일·measure·고급·바인딩·오버라이드 편집·저장) 부재 | |
 | R4 | MUST: 상세 모드 = R3 ∪ {프로파일(고정/곡선)+곡선 에디터/미리보기, 워커 수, 램프다운, 측정, 판정·고급(SLO·스텝SLO·페이싱·http_timeout·loop_cap), 환경 오버라이드 편집, 데이터셋 바인딩, 프리셋 저장/이름변경/삭제}. | RTL: 상세에서 전 섹션 렌더 | |
 | R5 | MUST(불변식): 모든 폼 state는 RunDialog가 소유 → 모드 전환에 값 손실 0; **간단에서 미렌더되는 모든 gating 필드**(http_timeout·loop_cap·think·**worker_count**)의 invalid가 submit을 막고 그 사유가 **기존 `blockedReasons` Callout**에 떠야 함(`canSubmit` 항 전수 대조). | RTL: 상세값 입력→간단→상세 복귀 시 값 유지; 숨긴 invalid(worker_count 포함)가 Run disable + blockedReasons에 사유 | |
 | R6 | MUST: 간단 모드에서 숨겨진 상세 설정이 **비기본**이면 "상세 설정 N개 적용됨" 표시(silent config 금지·[[load-divergence-explain-confirm]] 정신). | RTL: 상세값 set 후 간단 전환 시 카운트 표시 | |
@@ -40,6 +40,7 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 | R15 | MUST: a11y — 세그먼트/타일 `radiogroup`+키보드, focus 가시, 요약 strip은 과도한 live-region 금지(요약은 정적 텍스트), 무애니메이션(reduced-motion 자연 충족). | RTL role/aria + 키보드 | |
 | R16 | MUST: 신규 사용자-노출 문구(라벨·aria-label·요약·힌트) 전부 `ko.ts` 경유(ADR-0035), 인라인 영어 0. | grep: 신규 인라인 영어 0 | |
 | R17 | MUST: 간단 모드에서 `rateMode==="curve"`(상세-전용 곡선)면 곡선 에디터 대신 **"곡선 부하 — 상세에서 편집" 읽기전용 카드 + 요약 스파크라인**을 렌더(빈/부분 로드 섹션 금지)·`vu_stages` payload 불변·토글이 curve→fixed로 **스냅 금지**. | RTL: 간단+곡선 prefill→읽기전용 카드 + Run 가능 + payload에 `vu_stages` 유지 | |
+| R18 | MUST: 간단 모드에서 숨겨진 env 오버라이드(`overrides.length>0`)가 있으면 환경 셀렉터 근처에 "변수 N개 적용됨 (상세에서 편집)" 힌트 — "(없음)" 셀렉터가 숨은 env를 호도하지 않게(R6 silent-config 금지). | RTL: env 오버라이드 prefill+간단→힌트 표시 + payload에 env 유지 | |
 
 - **seam ✅ = R11(wire byte-identical), R13(contract 0-diff)** — 최종 리뷰가 buildProfile 경로 불변과 0-diff를 1:1 확인.
 
@@ -66,32 +67,32 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 > 파일·함수 단위. 각 묶음에 **충족 R** 태그.
 
 ### 4.1 `ui/src/components/RunDialog.tsx` — 충족 R: R1·R2·R3·R4·R5·R6·R7·R8·R9·R14·R15·R16
-- `const [mode, setMode] = useState<"simple"|"detailed">(...)` — 기존 6항 `advancedOpen` 자동펼침 술어(criteriaHasValue·initTT·think_seed·measure_phases·비기본 http_timeout/loop_cap)를 **명명 헬퍼 `advancedPrefill(initial)`로 추출**해 `advancedOpen` 초기화가 *그대로(unchanged)* 쓰고, **모드 초기값은 별개 술어** `mode = (advancedPrefill(initial) || isCurve(deriveLoadMode(...)) || worker_count>1) ? "detailed" : "simple"`(R2). 둘은 부분식을 공유하되 **동일 술어가 아니다** — `advancedOpen`에 곡선/worker를 합치면 값 없는 SLO collapse가 펼쳐지고 R6 힌트를 우회하는 회귀(리뷰 #3).
+- `const [mode, setMode] = useState<"simple"|"detailed">(...)` — 기존 6항 `advancedOpen` 자동펼침 술어(criteriaHasValue·initTT·think_seed·measure_phases·비기본 http_timeout/loop_cap)를 **명명 헬퍼 `advancedPrefill(initial)`로 추출**해 `advancedOpen` 초기화가 *그대로(unchanged)* 쓰고, **모드 초기값은 별개 술어** `mode = (advancedPrefill(initial) || isCurve(deriveLoadMode(...)) || worker_count>1 || envOverridesPresent(initial)) ? "detailed" : "simple"`(R2). `envOverridesPresent(initial)` = `initial && Object.keys(initial.env).length>0`(prefill이 env 오버라이드를 시드하면 상세로 열어 오버라이드를 보이게 — silent-submit 차단). 둘은 부분식을 공유하되 **동일 술어가 아니다** — `advancedOpen`에 곡선/worker/env를 합치면 값 없는 SLO collapse가 펼쳐지고 R6 힌트를 우회하는 회귀(리뷰 #3).
 - 헤더(`<h3>` 행)에 `<Segmented value={mode} onChange={setMode} options=[간단,상세]>`(R1). title은 형제로(accname 오염 금지).
 - 본문을 모드로 게이트: 프로파일/measure/고급/바인딩/오버라이드/저장/램프다운/워커 disclosure는 `mode==="detailed"`일 때만 렌더(R3·R4). **state는 그대로 유지**(R5).
 - **프리셋 불러오기 strip(기존 RunDialog.tsx:492-513)** → 본문 최상단으로 이동(두 모드, `presets.data?.length>0`). **프리셋 저장/이름변경/삭제(기존 755-791)** → 본문 최하단·상세-only로 이동(R7).
 - **측정 토글(기존 744-751, 고급 그룹 내부)** → 상세 독립 섹션으로 승격(R9) — 가치 라벨 + HelpTip. 고급 그룹엔 SLO/스텝SLO/페이싱/http_timeout/loop_cap만 남김.
 - **실시간 요약 strip**: sticky footer(실행/취소 옆)에 `runSummary(loadState, ...)` 결과 텍스트 + 곡선이면 `StageCurvePreview` 소형(R8). 두 모드 공통.
-- **"상세 설정 N개 적용됨"(R6·리뷰 #4)**: 간단 모드에서만, **정의된 카운트** `detailedAppliedCount = advancedActiveCount(SLO+페이싱+measure) + (rateMode==="curve"?1:0) + (worker_count>1?1:0) + (http_timeout!==30?1:0) + (hasLoop && loop_cap!==256?1:0) + (ramp_down!=="graceful"?1:0)` 가 >0이면 그 N으로 표시. 정의를 못박아 "0개인데 배지" 모순 제거(곡선은 요약 strip에도 보이지만 숨은 비기본이라 카운트 포함).
+- **"상세 설정 N개 적용됨"(R6·리뷰 #4)**: 간단 모드에서만, **정의된 카운트** `detailedAppliedCount = advancedActiveCount(SLO+페이싱+measure) + (rateMode==="curve"?1:0) + (worker_count>1?1:0) + (http_timeout!==30?1:0) + (hasLoop && loop_cap!==256?1:0) + (rateMode==="curve" && ramp_down!=="graceful"?1:0)` 가 >0이면 그 N으로 표시. 정의를 못박아 "0개인데 배지" 모순 제거. **payload에 실제 emit되는 비기본만 카운트** — `ramp_down`은 곡선에서만 emit이라 곡선일 때만 +1(비-곡선의 inert `immediate`는 미계수·리뷰 후속). (env 오버라이드는 R18 별도 힌트로 분리 — 이 카운트엔 미포함.)
 - **`blockedReasons` Callout 게이트 일반화(R5 load-bearing·리뷰 #2)**: 기존 `!advancedOpen && (httpTimeoutInvalid|loopCapInvalid|thinkInvalid)`(RunDialog.tsx:799-826)를 **"해당 필드가 현재 모드에서 미렌더"**로 일반화 — `(mode==="simple" || !advancedOpen)` 분기 + **`mode==="simple" && loadModel==="open" && loadErrs.workerCountInvalid → ko.validation.workerCount` 추가**(간단에서 worker disclosure 숨김인데 `canSubmit`이 `workerCountInvalid`로 막음, RunDialog.tsx:344·352). `canSubmit` 전 항(338-371)을 "간단에서 렌더되나?"로 전수 대조: rampUp/targetRps/maxInFlight는 간단 렌더라 인라인 에러로 충분, stagesInvalid는 곡선=R17 경로. `bindingBlock`은 모드 무관 유지.
 - 모드 전환은 `buildProfile`/`canSubmit`(검증식)/프리셋/풀가드/에러 배너 **로직**을 건드리지 않는다(blockedReasons는 *표시 게이트*라 위처럼 모드를 반영하되, 검증식 자체는 불변).
 
 ### 4.2 `ui/src/components/LoadModelFields.tsx` — 충족 R: R3·R4·R10·R12·R14
 - 신규 optional props(전부 ScheduleForm 미전달=기존 동작): `simpleMode?: boolean`, `loadModelTiles?: boolean`(타일 표현), `numeric?: boolean`(tabular-nums) — 또는 plan이 단일 `instrument?: boolean`로 묶을 수 있음(미전달=기존 라디오/라벨=byte-identical).
 - `simpleMode`일 때 숨김: 프로파일(고정/곡선) fieldset, 곡선 에디터, ramp_down, worker_count disclosure+worker 사이징, open-loop 구조 경고(idle/inert). 유지: 부하모델 선택, 크기 chips(closed), 주 수치 그리드, **VU 사이징 도우미(closed)·slot 사이징 도우미(open)** — 주 수치를 돕는 도우미라 두 모드 공통(R10).
-- **Simple + `rateMode==="curve"`(리뷰 #1·R17)**: 주 수치 그리드는 `rateMode==="fixed"` arm(LoadModelFields.tsx:420-464 closed / 583-617 open) 안이라 곡선이면 안 뜬다 → 간단에서 곡선이면(곡선 에디터·프로파일 선택은 숨긴 채) **"곡선 부하 설정됨 — 상세에서 편집" 읽기전용 카드**(+요약 스파크라인)를 렌더해 빈/부분 섹션을 막는다. `vu_stages` payload 불변, 토글이 curve→fixed로 **스냅 금지**(스냅=vu_stages 증발=R11 위반). (R2가 곡선 prefill을 상세로 열지만 사용자가 수동 간단 전환 가능 → 이 상태 정의 필수.)
+- **Simple + `rateMode==="curve"`(리뷰 #1·R17)**: 주 수치 그리드는 `rateMode==="fixed"` arm(LoadModelFields.tsx:420-464 closed / 583-617 open) 안이라 곡선이면 안 뜬다 → 간단에서 곡선이면(곡선 에디터·프로파일 선택은 숨긴 채) **"곡선 부하 설정됨 — 상세에서 편집" 읽기전용 카드**(+요약 스파크라인)를 렌더해 빈/부분 섹션을 막는다. `vu_stages` payload 불변, 토글이 curve→fixed로 **스냅 금지**(스냅=vu_stages 증발=R11 위반). 곡선 stage가 invalid면(간단에서 stage 에디터 숨김) 인라인 사유는 없고 `canSubmit`이 `stagesInvalid`로 막되 footer `runSummary`가 `설정을 확인하세요`로 신호(R8 fallback — R17 카드는 스파크라인이지 validity reason 아님·리뷰 후속). (R2가 곡선 prefill을 상세로 열지만 사용자가 수동 간단 전환 가능 → 이 상태 정의 필수.)
 - 부하모델 선택을 `loadModelTiles`면 라디오→**타일**(설명 동반, `radiogroup`)로(R14·R3). 미전달이면 기존 라디오(R12).
 - 사이징 도우미 게이트 락인: 기존 `it.each`(미렌더 매트릭스)에 `simpleMode` 축 추가 — VU/slot 도우미는 simple/detail 모두 해당 arm에서 렌더, worker 도우미는 detail-only.
 
 ### 4.3 `ui/src/components/EnvironmentPicker.tsx` — 충족 R: R3·R12
-- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical. **`false`는 편집 UI만 가리고 부모 소유 `envEntries`/`selectedEnvId` state를 건드리지 않는다** → `resolveEnv` 결과(env payload) byte-identical(R11·리뷰 #6).
+- 신규 optional `showOverrides?: boolean`(기본 `true`). `false`면 base-list·오버라이드 행·add-row를 미렌더하고 **환경 셀렉터만**(간단 모드). 기존 호출부(RunDialog 상세·TestRunSection 등)는 미전달=true=byte-identical. **`false`는 편집 UI만 가리고 부모 소유 `envEntries`/`selectedEnvId` state를 건드리지 않는다** → `resolveEnv` 결과(env payload) byte-identical(R11·리뷰 #6). **R18**: `showOverrides=false`(간단)에서 `overrides.length>0`이면 셀렉터 옆에 "변수 N개 적용됨 (상세에서 편집)" 힌트(`ko` 경유)를 렌더 — prefill된 숨은 env를 "(없음)" 셀렉터가 호도하지 않게.
 
 ### 4.4 `ui/src/components/runSummary.ts` (신규, 순수) — 충족 R: R8
 - `runSummary(input: Pick<LoadModelState, ...>): { text: string; tone: "ok"|"warn"; curve: boolean }`. 모드 분기는 §3.2 표대로. `fmtTime`(초→"5분"/"90초"/"1분 30초") 내장. wire 무접촉(표시 전용).
 
 ### 4.5 신규 프리미티브 — 충족 R: R14
 - `ui/src/components/ui/Segmented.tsx` — `radiogroup` 세그먼트 컨트롤(active=accent). 공유 프리미티브(재사용).
-- `ui/src/components/ui/Input.tsx` — optional `numeric` prop 추가 → `tabular-nums` 클래스(기본 off=기존 byte-identical). 기존 prop/기본 렌더 0-diff. **단 곡선 stage·worker_count 같은 raw `<input className={INPUT}>`(LoadModelFields.tsx:188·204·540)는 `Input` 프리미티브가 아니라 `numeric` prop이 안 닿는다(리뷰 #5)** → 그 raw 입력의 tabular-nums는 LoadModelFields의 instrument/`numeric` 게이트 분기로만 적용하고, 공유 `INPUT` 상수(LoadModelFields.tsx:60-61)는 **0-diff**(ScheduleForm도 그 상수를 쓰므로 무조건 추가하면 R12 위반).
+- `ui/src/components/ui/Input.tsx` — optional `numeric` prop 추가 → `tabular-nums` 클래스(기본 off=기존 byte-identical). 기존 prop/기본 렌더 0-diff. **단 곡선 stage·worker_count 같은 raw `<input className={INPUT}>`(LoadModelFields.tsx:188·204·540)는 `Input` 프리미티브가 아니라 `numeric` prop이 안 닿는다(리뷰 #5)** → 그 raw 입력의 tabular-nums는 LoadModelFields의 instrument/`numeric` 게이트 분기로만 적용하고, 공유 `INPUT` 상수(LoadModelFields.tsx:60-61)는 **0-diff**(ScheduleForm도 그 상수를 쓰므로 무조건 추가하면 R12 위반). className 합성은 **trailing space 없이**(`numeric` off가 기존 `className={INPUT}`와 정확히 동일 문자열이 되도록 — 조건부 토큰만 append).
 - eyebrow 라벨: RunDialog/LoadModelFields-국소 유틸 className(`Eyebrow` 컴포넌트는 plan 재량 — 공유 프리미티브로 승격은 선택). 타일·요약 strip은 RunDialog-국소 JSX.
 
 ### 4.6 `ui/src/i18n/ko.ts` — 충족 R: R16
@@ -130,6 +131,7 @@ RunDialog(944줄)는 한 화면에 부하 정의·환경·데이터 바인딩·S
 | R15 | RTL role/aria/키보드 | |
 | R16 | grep: 신규 인라인 영어 0 (라벨·aria-label) | |
 | R17 | RTL: 간단+곡선 prefill → 읽기전용 곡선 카드 + Run 가능 + payload `vu_stages` 유지 | |
+| R18 | RTL: env 오버라이드 prefill + 간단 → "변수 N개 적용됨" 힌트 + payload env 유지 | |
 
 - **라이브 검증 필수**(R11·S-D 갭): RunDialog는 run-생성 경로 → 머지 전 `/live-verify`로 간단·상세 각각 run 1회 생성→리포트 도달 + console Zod 0. RTL fixture는 absent-not-null이라 서버 응답경로 버그를 못 잡는다.
 
