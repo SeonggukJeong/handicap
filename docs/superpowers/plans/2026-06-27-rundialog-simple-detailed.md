@@ -287,7 +287,7 @@ export function runSummary(s: LoadModelState): { text: string; tone: "ok" | "war
 
 > **tdd-guard 순서**: Step 1=테스트 → Step 2=ko → Step 3=구현.
 
-- [ ] **Step 1: Write the failing test (먼저!)** — append to `EnvironmentPicker.test.tsx`. **반드시 기존 파일의 render 헬퍼(QueryClientProvider 래핑, `:42-49`)를 재사용** — `EnvironmentPicker`가 `useEnvironments()`(React Query)를 호출하므로 bare `render(<EnvironmentPicker .../>)`는 "No QueryClient set"으로 throw. `showOverrides`는 그 헬퍼의 prop으로 통과시킨다. **aria-label은 한국어 실제값**(`ko.runDialog.envValueAria(0)` = `"환경 변수 값 0"`). (아래 snippet의 bare `render(...)`는 예시 — 헬퍼로 감쌀 것.)
+- [ ] **Step 1: Write the failing test (먼저!)** — append to `EnvironmentPicker.test.tsx`. `EnvironmentPicker`가 `useEnvironments()`(React Query)를 호출하므로 bare `render(<EnvironmentPicker .../>)`는 "No QueryClient set"으로 throw. **기존 `Host`/`renderPicker`(`:23-49`)는 `{baseVars,initialId}`만 받고 `overrides`를 내부 `useState([])`로 하드코딩**하므로 그대로는 못 쓴다 → **둘 중 하나**: (a) `Host`/`renderPicker`를 `overrides`+`showOverrides`도 forward하게 일반화, 또는 (b) `:46-49`를 미러한 인라인 `QueryClientProvider`로 직접 `<EnvironmentPicker overrides={[...]} showOverrides={false}/>`를 감싼다. **aria-label은 한국어 실제값**(`ko.runDialog.envValueAria(0)` = `"환경 변수 값 0"`). (아래 snippet의 bare `render(...)`는 예시 — (a)/(b)로 감쌀 것.)
 
 ```tsx
 it("showOverrides=false hides override editor and shows applied hint", () => {
@@ -451,8 +451,10 @@ it("env-override prefill opens 상세 (R2)", () => {
 
 - [ ] **Step 1: 테스트 먼저** — `RunDialog.test.tsx` (헬퍼 `toDetailed` 재사용):
 ```tsx
-// renderWithPresets = renderDialog 미러 + presets fetch 시드. usePresets(scenarioId)→GET .../presets;
-// 정확 엔드포인트/shape는 api/presets.ts·hooks.ts(usePresets)에서 확인해 fetchMock에 [{id,name,...}] jsonResponse.
+// renderWithPresets = renderDialog 미러(이미 QueryClient 제공) + presets fetch 시드.
+// usePresets(scenarioId)→GET /api/scenarios/{id}/presets→PresetListSchema(={presets:[...]}).
+// fetchMock shape는 **bare 배열 아님**: jsonResponse({ presets: [{ id, name, vus, duration_seconds, created_at, updated_at }] })
+// (PresetSummarySchema 6필드 전부 필수 — 누락 시 Zod throw→presets.data undefined→load strip 미렌더→R7 fail).
 it("preset load strip is above 부하 모델; save block is 상세-only at bottom (R7)", async () => {
   const user = userEvent.setup(); renderWithPresets(); // 프리셋 ≥1 fixture (위 주석대로 자작)
   // 불러오기 select가 부하모델 fieldset보다 DOM 앞 (compareDocumentPosition)
@@ -486,7 +488,7 @@ it("env-override prefill + 간단 → '변수 N개 적용됨' 힌트 (R18)", () 
 - [ ] **Step 4: Implement (spec §4.1)** —
   - 프리셋 **불러오기 strip**(현 492-513)을 본문 *최상단*으로(두 모드, `presets.data?.length>0`). **저장/이름변경/삭제**(755-791)을 본문 *최하단·`{mode==="detailed" && ...}`*.
   - **측정**(744-751)을 판정·고급 Section *밖*, 별도 `{mode==="detailed" && <측정 섹션>}`(가치 라벨 `measureTitle`/`measureDesc` + HelpTip).
-  - **고급 collapse 힌트 measure 제외**(631-633·리뷰 A·F1): **`advancedActiveCount`(319-320)는 그대로 둔다**(measure 포함 — `detailedAppliedCount`가 이걸로 measure를 셈). collapse 힌트(`advancedSetHint`, 631-633)만 **새 식** `sloActiveCount + (loadModel==="closed"?pacingActiveCount:0)`(measure 제외)로 교체.
+  - **고급 collapse 힌트 measure 제외**(631-633·리뷰 A·F1): **`advancedActiveCount`(319-320)는 그대로 둔다**(measure 포함 — `detailedAppliedCount`가 이걸로 measure를 셈). collapse 힌트(631-633)만 **새 로컬 카운트** `collapseHintCount = sloActiveCount + (loadModel==="closed"?pacingActiveCount:0)`(measure 제외)로 교체. (로컬 변수명은 기존 `ko.runDialog.advancedSetHint` 포매터 키와 겹치지 않게 `collapseHintCount` 등으로.)
   - **EnvironmentPicker** 호출에 `showOverrides={mode==="detailed"}`.
   - **applied(R6·F1)**: `mode==="simple" && detailedAppliedCount>0` → `ko.runDialog.appliedDetail(detailedAppliedCount)`. `detailedAppliedCount = advancedActiveCount + (rateMode==="curve"?1:0) + (Number(workerCount)>1?1:0) + (httpTimeout!==30?1:0) + (hasLoop && loopCap!==256?1:0) + (loadModel==="closed" && rateMode==="curve" && rampDown!=="graceful"?1:0)`. **measure는 `advancedActiveCount` 경유로 1회만 계수**(별도 항 추가 금지=이중계수 방지). 위 measure-driven 테스트가 이 계수를 잠근다.
   - **blockedReasons 일반화(R5)**: 조건 `!advancedOpen`→`(mode==="simple" || !advancedOpen)` + `...(mode==="simple" && loadModel==="open" && loadErrs.workerCountInvalid ? [ko.validation.workerCount] : [])`. `bindingBlock` 불변.
@@ -551,3 +553,9 @@ it("간단 + 곡선 prefill → 읽기전용 곡선 카드 + Run 가능 + payloa
 - **Spec coverage**: R1(T6)·R2(T6 mode-init incl env)·R3/R4(T5+T6)·R5(T7 blockedReasons+workerCount)·R6(T7 detailedAppliedCount)·R7(T7 bookend)·R8(T3+T8)·R9(T7 측정)·R10(T5)·R11(T6 골든+live)·R12(T4/T5 미전달 락인)·R13/R16(T9 grep)·R14(T1/T2/T9)·R15(T1 a11y·T9)·R17(T5 null+T8 카드)·R18(T4 힌트+T7 wiring). 전 R 대응.
 - **리뷰 NEEDS-REWORK 반영**: ① T6에 기존-테스트 마이그레이션 명시(저-churn 전략: 타일 name 보존+fieldset 보존 → 29 셀렉터·`:877` 무변경, 상세-전환만 추가, `:1102` rework) — 거짓 "PASS" 제거. ② T3/T4 ko를 테스트 *뒤*로(tdd-guard). ③ `setup`(not `renderLMF`)·EnvironmentPicker.test append·한국어 aria-label `환경 변수 값 0`. ④ R17 카드=RunDialog(중복 카드 방지 명시).
 - **타입 일관성**: `Segmented`(T1)↔T6, `runSummary`(T3)↔T8, `showOverrides`(T4)↔T7, `simpleMode/loadModelTiles/numeric`(T5)↔T6 일치.
+
+---
+
+> spec(3차 APPROVE) + plan(NEEDS-REWORK→APPROVE-WITH-FIXES 2회→F1-F5 반영) 리뷰 루프 통과. F1(measure 계수) 핵심 수정 검증 tight, 잔여는 테스트-스캐폴드 문구 정정(처방대로 반영).
+
+REVIEW-GATE: APPROVED
