@@ -47,3 +47,24 @@ it("invalid (vus<1) → 설정을 확인하세요, tone warn", () => {
   expect(r.text).toBe("설정을 확인하세요");
   expect(r.tone).toBe("warn");
 });
+it("curve with no valid stages → warn + curve:true", () => {
+  const r = runSummary({ ...base, rateMode: "curve", stages: [] });
+  expect(r.tone).toBe("warn");
+  expect(r.curve).toBe(true);
+});
+it("open+curve → 최대 N RPS (곡선); 단계 count reflects only valid stages", () => {
+  const r = runSummary({
+    ...base,
+    loadModel: "open",
+    rateMode: "curve",
+    stages: [
+      { target: "50", duration_seconds: "30" },
+      { target: "100", duration_seconds: "60" },
+      { target: "80", duration_seconds: "0" },
+    ],
+  });
+  expect(r.curve).toBe(true);
+  expect(r.text).toContain("RPS"); // summaryCurveRps head (not the VU head)
+  expect(r.text).toContain("2단계"); // 0-duration stage excluded from the count (Fix 1)
+  expect(r.text).not.toContain("3단계");
+});

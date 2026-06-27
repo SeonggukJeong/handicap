@@ -29,7 +29,7 @@ export function runSummary(s: LoadModelState): {
         ? ko.runDialog.summaryCurveVu(peak)
         : ko.runDialog.summaryCurveRps(peak);
     return {
-      text: `${head} · ${ko.runDialog.summaryCurveSub(total, s.stages.length)}`,
+      text: `${head} · ${ko.runDialog.summaryCurveSub(total, valid.length)}`,
       tone: "ok",
       curve: true,
     };
