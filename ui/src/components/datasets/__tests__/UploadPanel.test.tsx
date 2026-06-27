@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { UploadPanel } from "../UploadPanel";
+import { ko } from "../../../i18n/ko";
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -68,6 +69,20 @@ describe("UploadPanel", () => {
     await screen.findByText("a");
     await user.click(screen.getByRole("button", { name: /데이터셋 저장/i }));
     await waitFor(() => expect(fetchMock.mock.calls[1][0]).toBe("/api/datasets"));
+  });
+
+  it("renders the header-mode select after file upload and preview", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ columns: ["a"], row_count: 1, sample: [{ a: "x" }] }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await user.upload(
+      screen.getByLabelText(/파일 선택/i),
+      new File(["a\nx\n"], "users.csv", { type: "text/csv" }),
+    );
+    await screen.findByText("a"); // wait for preview table
+    expect(screen.getByLabelText(ko.dataset.headerLabel)).toBeInTheDocument();
   });
 
   it("re-previews when delimiter override changes", async () => {

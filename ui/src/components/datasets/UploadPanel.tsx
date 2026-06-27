@@ -4,6 +4,9 @@ import type { DatasetPreview } from "../../api/schemas";
 import { useUploadDataset } from "../../api/hooks";
 import { Button } from "../Button";
 import { ko } from "../../i18n/ko";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
+import { Callout } from "../ui/Callout";
 
 type Options = {
   header: boolean;
@@ -106,66 +109,68 @@ export function UploadPanel() {
         <div className="mt-4 flex flex-wrap gap-3 items-end">
           <label className="block text-sm">
             <span className="text-slate-600">{ko.dataset.nameLabel}</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 block w-48 rounded border border-slate-300 px-2 py-1"
-            />
+            <div className="mt-1 w-48">
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
           </label>
           <label className="block text-sm">
             <span className="text-slate-600">{ko.dataset.headerLabel}</span>
-            <select
-              aria-label={ko.dataset.headerLabel}
-              value={opts.header ? "true" : "false"}
-              onChange={(e) => changeOpt({ header: e.target.value === "true" })}
-              className="mt-1 block border border-slate-300 rounded px-2 py-1"
-            >
-              <option value="true">첫 행 = 헤더</option>
-              <option value="false">헤더 없음</option>
-            </select>
+            <div className="mt-1 w-36">
+              <Select
+                aria-label={ko.dataset.headerLabel}
+                value={opts.header ? "true" : "false"}
+                onChange={(e) => changeOpt({ header: e.target.value === "true" })}
+              >
+                <option value="true">첫 행 = 헤더</option>
+                <option value="false">헤더 없음</option>
+              </Select>
+            </div>
           </label>
           <label className="block text-sm">
             <span className="text-slate-600">{ko.dataset.delimiterLabel}</span>
-            <select
-              aria-label={ko.dataset.delimiterLabel}
-              value={opts.delimiter}
-              onChange={(e) => changeOpt({ delimiter: e.target.value })}
-              className="mt-1 block border border-slate-300 rounded px-2 py-1"
-            >
-              <option value="">{ko.dataset.optionAuto}</option>
-              <option value=",">{ko.dataset.delimiterComma}</option>
-              <option value=";">{ko.dataset.delimiterSemicolon}</option>
-              <option value="\t">{ko.dataset.delimiterTab}</option>
-            </select>
+            <div className="mt-1 w-36">
+              <Select
+                aria-label={ko.dataset.delimiterLabel}
+                value={opts.delimiter}
+                onChange={(e) => changeOpt({ delimiter: e.target.value })}
+              >
+                <option value="">{ko.dataset.optionAuto}</option>
+                <option value=",">{ko.dataset.delimiterComma}</option>
+                <option value=";">{ko.dataset.delimiterSemicolon}</option>
+                <option value="\t">{ko.dataset.delimiterTab}</option>
+              </Select>
+            </div>
           </label>
           <label className="block text-sm">
             <span className="text-slate-600">{ko.dataset.encodingLabel}</span>
-            <select
-              aria-label={ko.dataset.encodingLabel}
-              value={opts.encoding}
-              onChange={(e) => changeOpt({ encoding: e.target.value })}
-              className="mt-1 block border border-slate-300 rounded px-2 py-1"
-            >
-              <option value="">{ko.dataset.optionAuto}</option>
-              <option value="utf-8">UTF-8</option>
-              <option value="cp949">CP949 (EUC-KR)</option>
-            </select>
+            <div className="mt-1 w-40">
+              <Select
+                aria-label={ko.dataset.encodingLabel}
+                value={opts.encoding}
+                onChange={(e) => changeOpt({ encoding: e.target.value })}
+              >
+                <option value="">{ko.dataset.optionAuto}</option>
+                <option value="utf-8">UTF-8</option>
+                <option value="cp949">CP949 (EUC-KR)</option>
+              </Select>
+            </div>
           </label>
           {preview?.sheets && preview.sheets.length > 1 && (
             <label className="block text-sm">
               <span className="text-slate-600">{ko.dataset.sheetLabel}</span>
-              <select
-                aria-label={ko.dataset.sheetLabel}
-                value={opts.sheet}
-                onChange={(e) => changeOpt({ sheet: e.target.value })}
-                className="mt-1 block border border-slate-300 rounded px-2 py-1"
-              >
-                {preview.sheets.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1 w-36">
+                <Select
+                  aria-label={ko.dataset.sheetLabel}
+                  value={opts.sheet}
+                  onChange={(e) => changeOpt({ sheet: e.target.value })}
+                >
+                  {preview.sheets.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </label>
           )}
         </div>
@@ -177,9 +182,9 @@ export function UploadPanel() {
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mt-3">
           {error}
-        </p>
+        </Callout>
       )}
 
       {preview && (
