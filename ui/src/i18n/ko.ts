@@ -106,6 +106,9 @@ export const ko = {
     summaryCurveRps: (peak: number) => `최대 ${peak} RPS (곡선)`,
     summaryCurveSub: (totalSec: number, stages: number) => `총 ${totalSec}초 · ${stages}단계`,
     summaryInvalid: "설정을 확인하세요",
+    modeSimple: "간단",
+    modeDetail: "상세",
+    modeAria: "설정 모드",
   },
   binding: {
     sectionTitle: "데이터 바인딩",

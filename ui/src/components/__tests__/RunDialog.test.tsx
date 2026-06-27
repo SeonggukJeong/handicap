@@ -63,6 +63,60 @@ function envSection() {
   return screen.getByRole("region", { name: /환경 변수/i });
 }
 
+async function toDetailed(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("radio", { name: "상세" }));
+}
+
+describe("RunDialog — 간단/상세 모드 토글 (T6)", () => {
+  it("defaults to 간단; detailed-only sections absent", () => {
+    renderDialog();
+    expect(screen.getByRole("radio", { name: "간단" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("button", { name: /판정·고급/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /프로파일/i })).not.toBeInTheDocument();
+  });
+
+  it("상세 reveals profile + 판정·고급", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /판정·고급/ })).toBeInTheDocument();
+  });
+
+  it("SLO prefill opens 상세 (R2)", () => {
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        criteria: { max_p95_ms: 500 },
+      },
+      env: {},
+    });
+    expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("env-override prefill opens 상세 (R2)", () => {
+    renderWithInitial({
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+      },
+      env: { BASE_URL: "x" },
+    });
+    expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
   it("3개 번호 섹션 + 필수/선택 배지로 렌더한다", () => {
     renderDialog();
@@ -222,7 +276,7 @@ describe("RunDialog — env & ramp_up", () => {
   it("disables Run and shows error when loop_breakdown_cap > 10000", async () => {
     const user = userEvent.setup();
     renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
     const cap = screen.getByLabelText(/루프 집계 상한/) as HTMLInputElement;
     await user.clear(cap);
@@ -250,7 +304,7 @@ describe("RunDialog — env & ramp_up", () => {
 
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
     const cap = screen.getByLabelText(/루프 집계 상한/) as HTMLInputElement;
     await user.clear(cap);
@@ -273,6 +327,7 @@ describe("RunDialog — env & ramp_up", () => {
   it("hides the cap input when the scenario has no loop step", async () => {
     const user = userEvent.setup();
     renderDialog(false);
+    await toDetailed(user);
     // 펼친 뒤에도 부재여야 의미 보존(접힘 상태 부재는 vacuous).
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     expect(screen.queryByLabelText(/루프 집계 상한/)).not.toBeInTheDocument();
@@ -605,7 +660,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     await user.type(screen.getByLabelText(/최대 p95/), "500");
     await user.type(screen.getByLabelText(/최대 에러율/), "1");
@@ -626,6 +681,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
   it("SLO inputs have type=number to prevent NaN from non-numeric text", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     expect(screen.getByLabelText(/최대 p50/)).toHaveAttribute("type", "number");
     expect(screen.getByLabelText(/최대 p95/)).toHaveAttribute("type", "number");
@@ -637,6 +693,7 @@ describe("RunDialog — SLO criteria (A4a)", () => {
   it("collapses the 판정·고급 group by default and expands on toggle", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     const toggle = screen.getByRole("button", { name: /판정·고급/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByLabelText(/최대 p95/)).not.toBeInTheDocument();
@@ -719,7 +776,7 @@ describe("RunDialog — Pacing think time (S-B)", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     await user.type(screen.getByLabelText(/think 최소/), "100");
     await user.type(screen.getByLabelText(/think 최대/), "500");
@@ -773,7 +830,7 @@ describe("RunDialog — Pacing think time (S-B)", () => {
   it("links the Pacing error to the think inputs via aria-describedby when invalid", async () => {
     const user = userEvent.setup();
     renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     // min > max → invalid
     await user.type(screen.getByLabelText(/think 최소/), "500");
@@ -938,6 +995,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seeded 1 row → set its target/duration
@@ -965,6 +1023,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: + 단계 추가 adds a row; × removes it", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getAllByLabelText(/스테이지.*목표/i)).toHaveLength(1);
@@ -977,6 +1036,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: Run disabled when all targets are 0", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     await user.clear(screen.getByLabelText("스테이지 0 목표"));
@@ -987,6 +1047,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("closed+curve: Run disabled when all targets are 0 (stagesInvalid 게이트)", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     // closed가 기본 — 곡선만 전환 (사용자 수 기준 유지)
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     await user.clear(screen.getByLabelText("스테이지 0 목표"));
@@ -1024,6 +1085,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: shows inline helpers for target, duration, and max in-flight", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getByText(/각 단계가 끝날 때의 목표 초당 요청 수/)).toBeInTheDocument();
@@ -1034,6 +1096,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("curve mode: selecting a load-shape template seeds stages", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // default seed is a single row
@@ -1099,14 +1162,17 @@ describe("RunDialog — open-loop mode (S-C)", () => {
 });
 
 describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
-  it("2차 축 '프로파일' fieldset이 항상 보인다", () => {
+  it("2차 축 '프로파일' fieldset이 상세에서 보인다", async () => {
+    const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
   });
 
   it("closed 모드에서 곡선 라디오가 활성화돼 선택 가능 (곧 지원 제거)", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     const curve = screen.getByRole("radio", { name: "곡선" });
     expect(curve).toBeEnabled();
     await user.click(curve);
@@ -1116,6 +1182,7 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
   it("open→곡선→closed 전환 시 rateMode가 유지된다 (eager reset 제거)", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     expect(screen.getByRole("radio", { name: "곡선" })).toBeChecked();
@@ -1127,6 +1194,7 @@ describe("RunDialog — load model 2축 리팩터 (Task 3)", () => {
   it("각 모드에서 HTTP timeout 입력은 정확히 1개", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
     expect(screen.getAllByLabelText(/HTTP 타임아웃/)).toHaveLength(1); // closed
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
@@ -1140,7 +1208,7 @@ describe("RunDialog — HTTP timeout (S-A)", () => {
   it("disables Run and shows error when http_timeout_seconds is out of range", async () => {
     const user = userEvent.setup();
     renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
     const timeout = screen.getByLabelText(/HTTP 타임아웃/) as HTMLInputElement;
     await user.clear(timeout);
@@ -1168,7 +1236,7 @@ describe("RunDialog — HTTP timeout (S-A)", () => {
 
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 그룹 펼침
     const timeout = screen.getByLabelText(/HTTP 타임아웃/) as HTMLInputElement;
     expect(timeout.value).toBe("30");
@@ -1207,7 +1275,7 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog(false);
-
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접힌 섹션 펼침
     await user.type(screen.getByLabelText(/최대 5xx 비율/), "2"); // 2% → 0.02
     await user.type(screen.getByLabelText(/최대 5xx 수/), "0");
@@ -1231,7 +1299,7 @@ describe("RunDialog — B6 status-class + window RPS criteria", () => {
   it("prefills rps_warmup_seconds from ramp when min_window_rps set (closed-loop)", async () => {
     const user = userEvent.setup();
     renderDialog(false);
-
+    await toDetailed(user);
     const rampInput = screen.getByLabelText(/점진 시작/);
     await user.clear(rampInput);
     await user.type(rampInput, "3");
@@ -1427,6 +1495,7 @@ describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
   it("접힌 진단 값이 invalid면 Run이 비활성이고 사유 블록에 이유가 보인다", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     const timeout = screen.getByLabelText(/HTTP 타임아웃/);
     await user.clear(timeout);
@@ -1441,6 +1510,7 @@ describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
   it("think time이 한 칸만 채워지면 접힌 상태에서도 사유 블록에 페이싱 이유가 보인다", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     await user.type(screen.getByLabelText(/think 최소/), "100");
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
@@ -1451,6 +1521,7 @@ describe("RunDialog — 사유 블록 일반화 (T4 fix)", () => {
   it("open 모드에선 잔존 think 값이 있어도 사유 블록이 뜨지 않는다", async () => {
     const user = userEvent.setup();
     renderDialog();
+    await toDetailed(user);
     await user.click(screen.getByRole("button", { name: /판정·고급/ }));
     await user.type(screen.getByLabelText(/think 최소/), "100"); // 한 칸만 = thinkInvalid
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 접기
@@ -1478,7 +1549,7 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     );
     const user = userEvent.setup();
     const { onCreated } = renderDialog(false);
-
+    await toDetailed(user);
     // Switch to closed+curve
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     // stage 행 입력
@@ -1664,6 +1735,7 @@ describe("RunDialog — 풀 모드 유휴 워커 프리뷰 (L2 R8/R9)", () => {
     // 배너 부재
     expect(screen.queryByText(/유휴 워커/)).not.toBeInTheDocument();
     // 기존 open-loop worker_count 입력 회귀 0: open-loop 전환 후 worker_count disclosure 버튼이 존재한다.
+    await toDetailed(user);
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     // worker_count는 접이식 disclosure 안에 있어 toggle 버튼이 존재하는 것으로 검증한다.
     expect(screen.getByRole("button", { name: /부하 생성기 워커 수/ })).toBeInTheDocument();
@@ -1900,7 +1972,7 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     const user = userEvent.setup();
     mockPoolWorkers([5, 5]); // idle capacity = 10
     renderDialog();
-
+    await toDetailed(user);
     // open+curve 전환
     await user.click(screen.getByRole("radio", { name: /요청 속도 기준/ }));
     await user.click(screen.getByRole("radio", { name: "곡선" }));
@@ -2153,7 +2225,7 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
     const user = userEvent.setup();
     mockPoolWorkers([5, 5]); // idle capacity = 10
     renderDialog();
-
+    await toDetailed(user);
     // closed+curve 전환
     await user.click(screen.getByRole("radio", { name: "곡선" }));
 
@@ -2201,7 +2273,7 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
     mockPoolWorkers([5, 5]); // idle capacity = 10
     const user = userEvent.setup();
     const { onCreated } = renderDialog();
-
+    await toDetailed(user);
     // closed+curve 전환 후 peak=8 (< 10)
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     await user.clear(screen.getByLabelText("스테이지 0 목표"));
@@ -2265,7 +2337,7 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
     mockPoolWorkers([15, 15]); // idle capacity = 30
     const user = userEvent.setup();
     renderDialog();
-
+    await toDetailed(user);
     // closed+curve 전환 후 stage peak=50 (> 30)
     await user.click(screen.getByRole("radio", { name: "곡선" }));
     await user.clear(screen.getByLabelText("스테이지 0 목표"));

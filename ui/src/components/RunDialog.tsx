@@ -43,6 +43,7 @@ import { Callout } from "./ui/Callout";
 import { Field } from "./ui/Field";
 import { Input } from "./ui/Input";
 import { Select } from "./ui/Select";
+import { Segmented } from "./ui/Segmented";
 
 type Props = {
   scenarioId: string;
@@ -129,19 +130,33 @@ export function RunDialog({
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
   const [measurePhases, setMeasurePhases] = useState(initial?.profile.measure_phases ?? false);
+  // 상세 모드 예측 술어 — mode 초기값·advancedOpen 초기값 양쪽에서 재사용.
+  function advancedPrefill(init: RunPrefill | undefined): boolean {
+    const iC = init?.profile.criteria ?? undefined;
+    const iCriteria = criteriaStateFrom(iC);
+    const iTT = init?.profile.think_time;
+    return (
+      criteriaHasValue(iCriteria) ||
+      iTT != null ||
+      init?.profile.think_seed != null ||
+      (init?.profile.measure_phases ?? false) ||
+      (init?.profile.http_timeout_seconds != null && init.profile.http_timeout_seconds !== 30) ||
+      (hasLoop &&
+        init?.profile.loop_breakdown_cap != null &&
+        init.profile.loop_breakdown_cap !== 256)
+    );
+  }
   // '판정·고급' 단일 토글(SLO·페이싱·진단 통합, spec §6.1). 시드된 비기본값이 접힌
   // 그룹에 숨지 않게, 하나라도 있으면 펼친 채 시작.
-  const [advancedOpen, setAdvancedOpen] = useState(
-    () =>
-      criteriaHasValue(initCriteria) ||
-      initTT != null ||
-      initial?.profile.think_seed != null ||
-      (initial?.profile.measure_phases ?? false) ||
-      (initial?.profile.http_timeout_seconds != null &&
-        initial.profile.http_timeout_seconds !== 30) ||
-      (hasLoop &&
-        initial?.profile.loop_breakdown_cap != null &&
-        initial.profile.loop_breakdown_cap !== 256),
+  const [advancedOpen, setAdvancedOpen] = useState(() => advancedPrefill(initial));
+  // 간단/상세 모드. 시드된 값이 상세-전용이면 상세로 시작.
+  const [mode, setMode] = useState<"simple" | "detailed">(() =>
+    advancedPrefill(initial) ||
+    deriveLoadMode(initial?.profile ?? {}).rateMode === "curve" ||
+    Number(initial?.profile.worker_count ?? 1) > 1 ||
+    (initial != null && Object.keys(initial.env).length > 0)
+      ? "detailed"
+      : "simple",
   );
   // 다중 데이터 바인딩. 레거시 단일 data_binding은 한 카드로 복원(읽기 호환).
   const [bindings, setBindings] = useState<DataBinding[]>(seedBindingsFrom(initial?.profile));
@@ -483,7 +498,18 @@ export function RunDialog({
 
   return (
     <div className="border border-slate-200 rounded-md p-4 bg-white">
-      <h3 className="text-lg font-semibold mb-3">{ko.runDialog.title}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold">{ko.runDialog.title}</h3>
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "simple", label: ko.runDialog.modeSimple },
+            { value: "detailed", label: ko.runDialog.modeDetail },
+          ]}
+          ariaLabel={ko.runDialog.modeAria}
+        />
+      </div>
       {scenarioChangedWarning && (
         <Callout variant="warn" role="alert" className="mb-3">
           이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.
@@ -554,6 +580,8 @@ export function RunDialog({
           httpTimeout={httpTimeout}
           poolMode={pool.data?.pool_mode}
           showRecommended
+          simpleMode={mode === "simple"}
+          loadModelTiles
         />
       </Section>
       {pool.data?.pool_mode
@@ -608,7 +636,7 @@ export function RunDialog({
           overrides={envEntries}
           onOverridesChange={setEnvEntries}
         />
-        {scenario && (
+        {mode === "detailed" && scenario && (
           <DataBindingPanel
             key={panelKey}
             scenario={scenario}
@@ -620,137 +648,139 @@ export function RunDialog({
       </Section>
 
       {/* 그룹 3: 판정·고급 — Section 접힘(Section이 open 게이트 소유) */}
-      <Section
-        index={3}
-        divider
-        title={ko.runDialog.sectionAdvancedTitle}
-        badge={<Badge tone="optional">{ko.common.optional}</Badge>}
-        collapsible
-        open={advancedOpen}
-        onToggle={() => setAdvancedOpen((v) => !v)}
-        hint={
-          advancedActiveCount > 0 ? ko.runDialog.advancedSetHint(advancedActiveCount) : undefined
-        }
-      >
-        <>
-          <h4 className="mt-2 text-sm font-medium">
-            {ko.runDialog.sectionSlo}
-            <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
-          </h4>
-          <CriteriaFields value={criteriaState} onChange={setCriteria} />
-          <StepCriteriaFields
-            value={stepCriteria}
-            options={stepOptions}
-            onChange={setStepCriteria}
-          />
-
-          {loadModel === "closed" && (
-            <>
-              <h4 className="mt-3 text-sm font-medium">
-                {ko.runDialog.sectionPacing}
-                <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
-              </h4>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label={ko.loadModel.thinkMin} htmlFor={thinkMinId}>
-                  <Input
-                    id={thinkMinId}
-                    type="number"
-                    min="0"
-                    value={thinkMin}
-                    onChange={(e) => setThinkMin(e.target.value)}
-                    aria-invalid={thinkInvalid}
-                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                  />
-                </Field>
-                <Field label={ko.loadModel.thinkMax} htmlFor={thinkMaxId}>
-                  <Input
-                    id={thinkMaxId}
-                    type="number"
-                    min="0"
-                    value={thinkMax}
-                    onChange={(e) => setThinkMax(e.target.value)}
-                    aria-invalid={thinkInvalid}
-                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                  />
-                </Field>
-                <Field label={ko.loadModel.thinkSeed} htmlFor={thinkSeedId}>
-                  <Input
-                    id={thinkSeedId}
-                    type="number"
-                    min="0"
-                    value={thinkSeed}
-                    onChange={(e) => setThinkSeed(e.target.value)}
-                  />
-                </Field>
-              </div>
-              {thinkInvalid ? (
-                <p id="think-time-error" className="mt-1 text-red-600 text-sm">
-                  min ≤ max ≤ 600000, 둘 다 입력
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
-              )}
-            </>
-          )}
-
-          <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
-          {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
-          <div className="max-w-xs">
-            <Field label={ko.loadModel.httpTimeout} htmlFor={httpTimeoutId}>
-              <Input
-                id={httpTimeoutId}
-                type="number"
-                min={1}
-                max={600}
-                value={httpTimeout}
-                onChange={(e) => setHttpTimeout(Number(e.target.value))}
-                aria-invalid={httpTimeoutInvalid}
-                aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-              />
-            </Field>
-          </div>
-
-          {hasLoop && (
-            <Field
-              label={ko.loadModel.loopCap}
-              htmlFor={loopCapId}
-              hint="0 = 끄기 · 루프 스텝의 loop_index별 집계 상한"
-            >
-              <Input
-                id={loopCapId}
-                type="number"
-                min={0}
-                max={10000}
-                value={loopCap}
-                onChange={(e) => setLoopCap(Number(e.target.value))}
-                aria-invalid={loopCapInvalid}
-                aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
-              />
-            </Field>
-          )}
-
-          {loopCapInvalid && (
-            <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
-              0 ~ 10000 사이여야 합니다.
-            </p>
-          )}
-
-          {httpTimeoutInvalid && (
-            <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
-              {ko.validation.httpTimeout}
-            </p>
-          )}
-
-          <label className="mt-2 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={measurePhases}
-              onChange={(e) => setMeasurePhases(e.target.checked)}
+      {mode === "detailed" && (
+        <Section
+          index={3}
+          divider
+          title={ko.runDialog.sectionAdvancedTitle}
+          badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+          collapsible
+          open={advancedOpen}
+          onToggle={() => setAdvancedOpen((v) => !v)}
+          hint={
+            advancedActiveCount > 0 ? ko.runDialog.advancedSetHint(advancedActiveCount) : undefined
+          }
+        >
+          <>
+            <h4 className="mt-2 text-sm font-medium">
+              {ko.runDialog.sectionSlo}
+              <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
+            </h4>
+            <CriteriaFields value={criteriaState} onChange={setCriteria} />
+            <StepCriteriaFields
+              value={stepCriteria}
+              options={stepOptions}
+              onChange={setStepCriteria}
             />
-            측정: 레이턴시 단계 분해(TTFB/다운로드)
-          </label>
-        </>
-      </Section>
+
+            {loadModel === "closed" && (
+              <>
+                <h4 className="mt-3 text-sm font-medium">
+                  {ko.runDialog.sectionPacing}
+                  <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label={ko.loadModel.thinkMin} htmlFor={thinkMinId}>
+                    <Input
+                      id={thinkMinId}
+                      type="number"
+                      min="0"
+                      value={thinkMin}
+                      onChange={(e) => setThinkMin(e.target.value)}
+                      aria-invalid={thinkInvalid}
+                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                    />
+                  </Field>
+                  <Field label={ko.loadModel.thinkMax} htmlFor={thinkMaxId}>
+                    <Input
+                      id={thinkMaxId}
+                      type="number"
+                      min="0"
+                      value={thinkMax}
+                      onChange={(e) => setThinkMax(e.target.value)}
+                      aria-invalid={thinkInvalid}
+                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                    />
+                  </Field>
+                  <Field label={ko.loadModel.thinkSeed} htmlFor={thinkSeedId}>
+                    <Input
+                      id={thinkSeedId}
+                      type="number"
+                      min="0"
+                      value={thinkSeed}
+                      onChange={(e) => setThinkSeed(e.target.value)}
+                    />
+                  </Field>
+                </div>
+                {thinkInvalid ? (
+                  <p id="think-time-error" className="mt-1 text-red-600 text-sm">
+                    min ≤ max ≤ 600000, 둘 다 입력
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
+                )}
+              </>
+            )}
+
+            <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
+            {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
+            <div className="max-w-xs">
+              <Field label={ko.loadModel.httpTimeout} htmlFor={httpTimeoutId}>
+                <Input
+                  id={httpTimeoutId}
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={httpTimeout}
+                  onChange={(e) => setHttpTimeout(Number(e.target.value))}
+                  aria-invalid={httpTimeoutInvalid}
+                  aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
+                />
+              </Field>
+            </div>
+
+            {hasLoop && (
+              <Field
+                label={ko.loadModel.loopCap}
+                htmlFor={loopCapId}
+                hint="0 = 끄기 · 루프 스텝의 loop_index별 집계 상한"
+              >
+                <Input
+                  id={loopCapId}
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={loopCap}
+                  onChange={(e) => setLoopCap(Number(e.target.value))}
+                  aria-invalid={loopCapInvalid}
+                  aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+                />
+              </Field>
+            )}
+
+            {loopCapInvalid && (
+              <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
+                0 ~ 10000 사이여야 합니다.
+              </p>
+            )}
+
+            {httpTimeoutInvalid && (
+              <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
+                {ko.validation.httpTimeout}
+              </p>
+            )}
+
+            <label className="mt-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={measurePhases}
+                onChange={(e) => setMeasurePhases(e.target.checked)}
+              />
+              측정: 레이턴시 단계 분해(TTFB/다운로드)
+            </label>
+          </>
+        </Section>
+      )}
 
       <div className="mb-3 flex items-center gap-2">
         <Input
