@@ -12,6 +12,8 @@ import type { Step } from "../scenario/model";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ko } from "../i18n/ko";
+import { Input } from "../components/ui/Input";
+import { Callout } from "../components/ui/Callout";
 
 function stepSummary(s: Step): string {
   const label = ko.stepTemplates.typeLabel[s.type] ?? s.type;
@@ -109,18 +111,20 @@ export function TemplatesPage() {
           <h3 className="text-md font-semibold mb-3">{ko.pages.editStepTemplate}</h3>
           <label className="block text-sm mb-3">
             <span className="text-slate-600">{ko.stepTemplates.colName}</span>
-            <input
-              aria-label={ko.stepTemplates.colName}
-              className="mt-1 block w-64 rounded border border-slate-300 px-2 py-1"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <div className="w-64">
+              <Input
+                aria-label={ko.stepTemplates.colName}
+                className="mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
           </label>
           <label className="block text-sm mb-3">
             <span className="text-slate-600">{ko.stepTemplates.colDescription}</span>
-            <input
+            <Input
               aria-label={ko.stepTemplates.colDescription}
-              className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+              className="mt-1"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -130,9 +134,9 @@ export function TemplatesPage() {
             <Preview stepsYaml={stepsYaml} />
           </fieldset>
           {formError && (
-            <p role="alert" className="mt-2 text-sm text-red-600">
+            <Callout variant="error" role="alert" className="mt-2">
               {formError}
-            </p>
+            </Callout>
           )}
           <div className="flex gap-2 mt-4">
             <Button onClick={save} disabled={updateTpl.isPending}>
@@ -146,9 +150,9 @@ export function TemplatesPage() {
       )}
 
       {delError && (
-        <p role="alert" className="mb-4 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mb-4">
           {ko.stepTemplates.deleteFailed(delError)}
-        </p>
+        </Callout>
       )}
 
       <section aria-label={ko.nav.stepTemplates}>

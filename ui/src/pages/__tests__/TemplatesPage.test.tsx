@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TemplatesPage } from "../TemplatesPage";
 import * as api from "../../api/stepTemplates";
+import { ko } from "../../i18n/ko";
 
 // Factory form (NOT bare `vi.mock(path)`): a bare auto-mock replaces the
 // StepTemplateConflictError constructor body, nulling `.message` → the R6
@@ -154,4 +155,23 @@ it("deletes with confirm (R4)", async () => {
   wrap();
   await user.click(await screen.findByRole("button", { name: "삭제" }));
   await waitFor(() => expect(api.deleteStepTemplate).toHaveBeenCalledWith("t1"));
+});
+
+it("renders the description input in edit form (F6)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listStepTemplates).mockResolvedValue([
+    { id: "t1", name: "x", description: "desc", step_count: 1, created_at: 1, updated_at: 1 },
+  ]);
+  vi.mocked(api.getStepTemplate).mockResolvedValue({
+    id: "t1",
+    name: "x",
+    description: "desc",
+    steps_yaml: STEPS,
+    step_count: 1,
+    created_at: 1,
+    updated_at: 1,
+  });
+  wrap();
+  await user.click(await screen.findByRole("button", { name: "편집" }));
+  expect(await screen.findByLabelText(ko.stepTemplates.colDescription)).toBeInTheDocument();
 });
