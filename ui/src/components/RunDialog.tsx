@@ -39,6 +39,7 @@ import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
 import { Section } from "./ui/Section";
 import { Badge } from "./ui/Badge";
+import { Callout } from "./ui/Callout";
 
 type Props = {
   scenarioId: string;
@@ -474,12 +475,9 @@ export function RunDialog({
     <div className="border border-slate-200 rounded-md p-4 bg-white">
       <h3 className="text-lg font-semibold mb-3">{ko.runDialog.title}</h3>
       {scenarioChangedWarning && (
-        <p
-          role="alert"
-          className="mb-3 p-2 rounded border border-amber-300 bg-amber-50 text-sm text-amber-800"
-        >
+        <Callout variant="warn" role="alert" className="mb-3">
           이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.
-        </p>
+        </Callout>
       )}
       {presets.data && presets.data.length > 0 && (
         <div className="mb-3 flex items-center gap-2">
@@ -505,9 +503,9 @@ export function RunDialog({
         </div>
       )}
       {presetError && (
-        <p role="alert" className="mb-3 text-red-600 text-sm">
+        <Callout variant="error" role="alert" className="mb-3">
           프리셋 오류: {presetError}
-        </p>
+        </Callout>
       )}
       {/* 그룹 1: 부하 정의 — 항상 펼침 */}
       <Section
@@ -572,13 +570,13 @@ export function RunDialog({
                   {drainedCount > 0 ? " " + ko.workers.poolPreviewDrained(drainedCount) : ""}
                 </p>
                 {over ? (
-                  <p className="text-sm text-amber-700" role="status">
+                  <Callout variant="warn" role="status">
                     {overCurve
                       ? ko.capacityGuard.overHintCurve(idleCapacity)
                       : overOpen
                         ? ko.capacityGuard.overHintOpen(idleCapacity)
                         : ko.capacityGuard.overHint(idleCapacity)}
-                  </p>
+                  </Callout>
                 ) : null}
               </div>
             );
@@ -790,7 +788,9 @@ export function RunDialog({
       </div>
 
       {mutation.error && !(mutation.error instanceof PoolCapacityError) && (
-        <p className="mb-3 text-red-600 text-sm">{(mutation.error as Error).message}</p>
+        <Callout variant="error" role="alert" className="mb-3">
+          {(mutation.error as Error).message}
+        </Callout>
       )}
 
       {(() => {
@@ -806,17 +806,18 @@ export function RunDialog({
         ];
         return (
           blockedReasons.length > 0 && (
-            <div
+            <Callout
+              variant="warn"
               role="status"
-              className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800"
+              className="mb-3"
+              title={ko.runDialog.blockedReasonsIntro}
             >
-              <p className="font-medium">{ko.runDialog.blockedReasonsIntro}</p>
               <ul className="list-disc pl-5">
                 {blockedReasons.map((r, i) => (
                   <li key={i}>{r}</li>
                 ))}
               </ul>
-            </div>
+            </Callout>
           )
         );
       })()}
@@ -826,10 +827,11 @@ export function RunDialog({
             const isOpenLoop = loadModel === "open";
             const isCurve = loadModel === "closed" && rateMode === "curve";
             return (
-              <div
+              <Callout
+                variant="warn"
                 role="alertdialog"
                 aria-label={ko.capacityGuard.dialogTitle}
-                className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
+                className="mb-3"
               >
                 <p className="mb-2 font-medium">{ko.capacityGuard.dialogTitle}</p>
                 <p className="mb-3">
@@ -913,7 +915,7 @@ export function RunDialog({
                     {ko.capacityGuard.cancel}
                   </Button>
                 </div>
-              </div>
+              </Callout>
             );
           })()
         : null}

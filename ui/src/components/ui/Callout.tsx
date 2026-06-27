@@ -9,12 +9,14 @@ const VARIANTS = {
 export function Callout({
   variant = "info",
   role,
+  "aria-label": ariaLabel,
   title,
   className,
   children,
 }: {
   variant?: keyof typeof VARIANTS;
   role?: string;
+  "aria-label"?: string;
   title?: ReactNode;
   className?: string;
   children: ReactNode;
@@ -22,6 +24,7 @@ export function Callout({
   return (
     <div
       role={role}
+      aria-label={ariaLabel}
       className={`rounded-md border p-2 text-sm ${VARIANTS[variant]} ${className ?? ""}`}
     >
       {title != null && <p className="mb-1 font-medium">{title}</p>}

@@ -2110,6 +2110,27 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
   });
 });
 
+describe("RunDialog — B2 Callout 변환", () => {
+  it("run 생성 mutation 오류를 role=alert Callout으로 보인다", async () => {
+    // 500 에러 → mutation.error (non-PoolCapacityError) → role=alert 신규
+    fetchMock.mockImplementation(
+      () =>
+        new Response(JSON.stringify({ error: "내부 서버 오류" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: /^실행$/ }));
+
+    // 에러 메시지가 role=alert 요소 안에 있어야 한다 (다른 alert 없는 시나리오)
+    const errText = await screen.findByText(/내부 서버 오류/);
+    expect(errText.closest("[role='alert']")).toBeInTheDocument();
+  });
+});
+
 describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)", () => {
   function mockPoolWorkers(capacities: number[]) {
     mockUsePoolWorkers.mockReturnValue({
