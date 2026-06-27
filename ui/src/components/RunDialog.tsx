@@ -37,6 +37,8 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
+import { Section } from "./ui/Section";
+import { Badge } from "./ui/Badge";
 
 type Props = {
   scenarioId: string;
@@ -508,8 +510,11 @@ export function RunDialog({
         </p>
       )}
       {/* 그룹 1: 부하 정의 — 항상 펼침 */}
-      <fieldset className="mb-4">
-        <legend className="text-sm font-semibold">{ko.runDialog.groupLoad}</legend>
+      <Section
+        index={1}
+        title={ko.runDialog.sectionLoadTitle}
+        badge={<Badge tone="required">{ko.common.required}</Badge>}
+      >
         <LoadModelFields
           loadModel={loadModel}
           setLoadModel={setLoadModel}
@@ -541,7 +546,7 @@ export function RunDialog({
           httpTimeout={httpTimeout}
           poolMode={pool.data?.pool_mode}
         />
-      </fieldset>
+      </Section>
       {pool.data?.pool_mode
         ? (() => {
             const idle = pool.data.workers.filter((w) => !w.drained && !w.busy);
@@ -581,8 +586,12 @@ export function RunDialog({
         : null}
 
       {/* 그룹 2: 대상 설정 — 항상 펼침 */}
-      <fieldset className="mb-4 border-t pt-3">
-        <legend className="text-sm font-semibold">{ko.runDialog.groupTarget}</legend>
+      <Section
+        index={2}
+        divider
+        title={ko.runDialog.sectionTargetTitle}
+        badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+      >
         <EnvironmentPicker
           selectedEnvId={selectedEnvId}
           onSelect={setSelectedEnvId}
@@ -599,154 +608,148 @@ export function RunDialog({
             onValidityChange={onBindingValidity}
           />
         )}
-      </fieldset>
+      </Section>
 
-      {/* 그룹 3: 판정·고급 — 단일 토글 접힘 */}
-      <fieldset className="mt-3 mb-4 border-t pt-3">
-        <legend className="text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen((v) => !v)}
-            className="font-semibold text-slate-700 hover:underline"
-            aria-expanded={advancedOpen}
-          >
-            {advancedOpen ? "▾" : "▸"} {ko.runDialog.groupAdvanced}
-            {!advancedOpen && advancedActiveCount > 0 ? (
-              <span className="ml-1 text-xs font-normal text-slate-500">
-                · {advancedActiveCount}개 설정됨
-              </span>
-            ) : null}
-          </button>
-        </legend>
-        {advancedOpen && (
-          <>
-            <h4 className="mt-2 text-sm font-medium">
-              {ko.runDialog.sectionSlo}
-              <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
-            </h4>
-            <CriteriaFields value={criteriaState} onChange={setCriteria} />
-            <StepCriteriaFields
-              value={stepCriteria}
-              options={stepOptions}
-              onChange={setStepCriteria}
-            />
+      {/* 그룹 3: 판정·고급 — Section 접힘(Section이 open 게이트 소유) */}
+      <Section
+        index={3}
+        divider
+        title={ko.runDialog.sectionAdvancedTitle}
+        badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+        collapsible
+        open={advancedOpen}
+        onToggle={() => setAdvancedOpen((v) => !v)}
+        hint={
+          advancedActiveCount > 0 ? ko.runDialog.advancedSetHint(advancedActiveCount) : undefined
+        }
+      >
+        <>
+          <h4 className="mt-2 text-sm font-medium">
+            {ko.runDialog.sectionSlo}
+            <HelpTip label="SLO 설명">{ko.glossary.slo}</HelpTip>
+          </h4>
+          <CriteriaFields value={criteriaState} onChange={setCriteria} />
+          <StepCriteriaFields
+            value={stepCriteria}
+            options={stepOptions}
+            onChange={setStepCriteria}
+          />
 
-            {loadModel === "closed" && (
-              <>
-                <h4 className="mt-3 text-sm font-medium">
-                  {ko.runDialog.sectionPacing}
-                  <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
-                </h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block text-sm">
-                    <span className="text-slate-600">{ko.loadModel.thinkMin}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                      value={thinkMin}
-                      onChange={(e) => setThinkMin(e.target.value)}
-                      aria-invalid={thinkInvalid}
-                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="text-slate-600">{ko.loadModel.thinkMax}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                      value={thinkMax}
-                      onChange={(e) => setThinkMax(e.target.value)}
-                      aria-invalid={thinkInvalid}
-                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="text-slate-600">{ko.loadModel.thinkSeed}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                      value={thinkSeed}
-                      onChange={(e) => setThinkSeed(e.target.value)}
-                    />
-                  </label>
-                </div>
-                {thinkInvalid ? (
-                  <p id="think-time-error" className="mt-1 text-red-600 text-sm">
-                    min ≤ max ≤ 600000, 둘 다 입력
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
-                )}
-              </>
-            )}
-
-            <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
-            {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
-            <div className="mb-3 max-w-xs">
-              <label className="block text-sm">
-                <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={600}
-                  aria-label={ko.loadModel.httpTimeout}
-                  value={httpTimeout}
-                  onChange={(e) => setHttpTimeout(Number(e.target.value))}
-                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                  aria-invalid={httpTimeoutInvalid}
-                  aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
-                />
-              </label>
-            </div>
-
-            {hasLoop && (
-              <div className="mb-3">
+          {loadModel === "closed" && (
+            <>
+              <h4 className="mt-3 text-sm font-medium">
+                {ko.runDialog.sectionPacing}
+                <HelpTip label="think time 설명">{ko.glossary.thinkTime}</HelpTip>
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
                 <label className="block text-sm">
-                  {ko.loadModel.loopCap}
+                  <span className="text-slate-600">{ko.loadModel.thinkMin}</span>
                   <input
                     type="number"
-                    min={0}
-                    max={10000}
-                    aria-label={ko.loadModel.loopCap}
-                    value={loopCap}
-                    onChange={(e) => setLoopCap(Number(e.target.value))}
+                    min="0"
                     className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
-                    aria-invalid={loopCapInvalid}
-                    aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+                    value={thinkMin}
+                    onChange={(e) => setThinkMin(e.target.value)}
+                    aria-invalid={thinkInvalid}
+                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
                   />
-                  <span className="text-xs text-slate-500">
-                    0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
-                  </span>
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">{ko.loadModel.thinkMax}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    value={thinkMax}
+                    onChange={(e) => setThinkMax(e.target.value)}
+                    aria-invalid={thinkInvalid}
+                    aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-slate-600">{ko.loadModel.thinkSeed}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                    value={thinkSeed}
+                    onChange={(e) => setThinkSeed(e.target.value)}
+                  />
                 </label>
               </div>
-            )}
+              {thinkInvalid ? (
+                <p id="think-time-error" className="mt-1 text-red-600 text-sm">
+                  min ≤ max ≤ 600000, 둘 다 입력
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
+              )}
+            </>
+          )}
 
-            {loopCapInvalid && (
-              <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
-                0 ~ 10000 사이여야 합니다.
-              </p>
-            )}
-
-            {httpTimeoutInvalid && (
-              <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
-                {ko.validation.httpTimeout}
-              </p>
-            )}
-
-            <label className="mt-2 flex items-center gap-2 text-sm">
+          <h4 className="mt-3 text-sm font-medium">{ko.runDialog.sectionDiag}</h4>
+          {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
+          <div className="mb-3 max-w-xs">
+            <label className="block text-sm">
+              <span className="text-slate-600">{ko.loadModel.httpTimeout}</span>
               <input
-                type="checkbox"
-                checked={measurePhases}
-                onChange={(e) => setMeasurePhases(e.target.checked)}
+                type="number"
+                min={1}
+                max={600}
+                aria-label={ko.loadModel.httpTimeout}
+                value={httpTimeout}
+                onChange={(e) => setHttpTimeout(Number(e.target.value))}
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                aria-invalid={httpTimeoutInvalid}
+                aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
               />
-              측정: 레이턴시 단계 분해(TTFB/다운로드)
             </label>
-          </>
-        )}
-      </fieldset>
+          </div>
+
+          {hasLoop && (
+            <div className="mb-3">
+              <label className="block text-sm">
+                {ko.loadModel.loopCap}
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  aria-label={ko.loadModel.loopCap}
+                  value={loopCap}
+                  onChange={(e) => setLoopCap(Number(e.target.value))}
+                  className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+                  aria-invalid={loopCapInvalid}
+                  aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+                />
+                <span className="text-xs text-slate-500">
+                  0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
+                </span>
+              </label>
+            </div>
+          )}
+
+          {loopCapInvalid && (
+            <p id="loop-cap-error" className="mb-3 text-red-600 text-sm">
+              0 ~ 10000 사이여야 합니다.
+            </p>
+          )}
+
+          {httpTimeoutInvalid && (
+            <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
+              {ko.validation.httpTimeout}
+            </p>
+          )}
+
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={measurePhases}
+              onChange={(e) => setMeasurePhases(e.target.checked)}
+            />
+            측정: 레이턴시 단계 분해(TTFB/다운로드)
+          </label>
+        </>
+      </Section>
 
       <div className="mb-3 flex items-center gap-2">
         <input

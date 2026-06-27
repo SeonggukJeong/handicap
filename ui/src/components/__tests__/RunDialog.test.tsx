@@ -63,6 +63,17 @@ function envSection() {
   return screen.getByRole("region", { name: /환경 변수/i });
 }
 
+describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
+  it("3개 번호 섹션 + 필수/선택 배지로 렌더한다", () => {
+    renderDialog();
+    expect(screen.getByText("부하 정의")).toBeInTheDocument();
+    expect(screen.getByText("대상 설정")).toBeInTheDocument();
+    // 필수/선택 배지 (Badge 텍스트)
+    expect(screen.getAllByText("필수").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("선택").length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("RunDialog — env & ramp_up", () => {
   it("adds and removes env key/value pairs", async () => {
     const user = userEvent.setup();

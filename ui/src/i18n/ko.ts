@@ -28,6 +28,8 @@ export const ko = {
     removeItemAria: (label: string, key: string) => `${label} ${key} 제거`,
     newItemKeyAria: (label: string) => `새 ${label} 키`,
     newItemValueAria: (label: string) => `새 ${label} 값`,
+    required: "필수",
+    optional: "선택",
   },
   glossary: {
     vu: "동시 사용자(VU) — 동시에 요청을 보내는 가상 사용자 수입니다.",
@@ -62,9 +64,15 @@ export const ko = {
     run: "실행",
     running: "시작 중…",
     cancel: "취소",
+    // 구 그룹 라벨(ko.test.ts 참조로 잔존 — RunDialog는 아래 section* 키 사용)
     groupLoad: "부하 정의",
     groupTarget: "대상 설정",
     groupAdvanced: "판정·고급 (선택)",
+    // Section 프리미티브용 라벨 (B1)
+    sectionLoadTitle: "부하 정의",
+    sectionTargetTitle: "대상 설정",
+    sectionAdvancedTitle: "판정·고급",
+    advancedSetHint: (n: number) => `${n}개 설정됨`,
     sectionSlo: "합격 기준(SLO)",
     sectionPacing: "페이싱 (think time)",
     sectionDiag: "진단",
