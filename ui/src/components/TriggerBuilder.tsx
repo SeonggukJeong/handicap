@@ -7,6 +7,9 @@ import {
 } from "./triggerCron";
 import { previewNext, type TriggerInput } from "../api/schedules";
 import { ko } from "../i18n/ko";
+import { Section } from "./ui/Section";
+import { Input } from "./ui/Input";
+import { Select } from "./ui/Select";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -75,8 +78,7 @@ export function TriggerBuilder({ onChange, initial }: Props) {
   ];
 
   return (
-    <fieldset className="mb-4 border-t pt-3">
-      <legend className="text-sm font-medium">트리거</legend>
+    <Section title="트리거" divider>
       <div className="flex flex-wrap gap-3 mb-3">
         {MODES.map((m) => (
           <label key={m.value} className="flex items-center gap-1 text-sm">
@@ -94,10 +96,10 @@ export function TriggerBuilder({ onChange, initial }: Props) {
       {state.mode === "once" && (
         <label className="block text-sm max-w-xs">
           <span className="text-slate-600">실행 일시</span>
-          <input
+          <Input
             type="datetime-local"
             aria-label="실행 일시"
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            className="mt-1"
             value={state.runAtLocal}
             onChange={(e) => set({ runAtLocal: e.target.value })}
           />
@@ -107,10 +109,10 @@ export function TriggerBuilder({ onChange, initial }: Props) {
       {(state.mode === "daily" || state.mode === "weekly") && (
         <label className="block text-sm max-w-xs">
           <span className="text-slate-600">시각</span>
-          <input
+          <Input
             type="time"
             aria-label="시각"
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1"
+            className="mt-1"
             value={state.time}
             onChange={(e) => set({ time: e.target.value })}
           />
@@ -141,35 +143,38 @@ export function TriggerBuilder({ onChange, initial }: Props) {
         <div className="flex items-end gap-2">
           <label className="block text-sm">
             <span className="text-slate-600">간격</span>
-            <input
-              type="number"
-              min={1}
-              aria-label="간격 N"
-              className="mt-1 block w-24 rounded border border-slate-300 px-2 py-1"
-              value={state.everyN}
-              onChange={(e) => set({ everyN: Number(e.target.value) })}
-            />
+            <div className="w-24">
+              <Input
+                type="number"
+                min={1}
+                aria-label="간격 N"
+                className="mt-1"
+                value={state.everyN}
+                onChange={(e) => set({ everyN: Number(e.target.value) })}
+              />
+            </div>
           </label>
-          <select
-            aria-label="간격 단위"
-            className="mb-1 rounded border border-slate-300 px-2 py-1 text-sm"
-            value={state.unit}
-            onChange={(e) => set({ unit: e.target.value as IntervalUnit })}
-          >
-            <option value="minutes">분마다</option>
-            <option value="hours">시간마다</option>
-          </select>
+          <div className="mb-1 w-28">
+            <Select
+              aria-label="간격 단위"
+              value={state.unit}
+              onChange={(e) => set({ unit: e.target.value as IntervalUnit })}
+            >
+              <option value="minutes">분마다</option>
+              <option value="hours">시간마다</option>
+            </Select>
+          </div>
         </div>
       )}
 
       {state.mode === "advanced" && (
         <label className="block text-sm max-w-md">
           <span className="text-slate-600">cron (5-field: 분 시 일 월 요일)</span>
-          <input
+          <Input
             type="text"
             aria-label={ko.triggerBuilder.cronExpressionAria}
             placeholder="0 2 * * *"
-            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 font-mono"
+            className="mt-1 font-mono"
             value={state.raw}
             onChange={(e) => set({ raw: e.target.value })}
           />
@@ -194,6 +199,6 @@ export function TriggerBuilder({ onChange, initial }: Props) {
           <p className="text-slate-400">다음 발사 시각을 보려면 트리거를 완성하세요.</p>
         )}
       </div>
-    </fieldset>
+    </Section>
   );
 }

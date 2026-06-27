@@ -9,6 +9,12 @@ beforeEach(() => {
 });
 
 describe("TriggerBuilder", () => {
+  it("renders the trigger section legend", () => {
+    render(<TriggerBuilder onChange={vi.fn()} />);
+    // fieldset → Section divider 변환 후에도 legend "트리거" 보존 확인
+    expect(screen.getByRole("group", { name: /트리거/ })).toBeInTheDocument();
+  });
+
   it("daily mode emits compiled cron trigger", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
