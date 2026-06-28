@@ -3008,3 +3008,13 @@ describe("RunDialog — 헤더 제목 (R8)", () => {
     expect(screen.getByRole("heading", { name: "실행 설정" })).toBeInTheDocument();
   });
 });
+
+// ─── T5: sticky footer 하단 여백 ──────────────────────────────────────────────
+describe("RunDialog — sticky footer 하단 여백 (T5)", () => {
+  it("sticky footer는 하단 여백(pb-*)을 가진다", () => {
+    renderDialog();
+    const sticky = document.querySelector('[class*="sticky"]') as HTMLElement;
+    expect(sticky).toBeTruthy();
+    expect(sticky.className).toMatch(/\bpb-\d/);
+  });
+});

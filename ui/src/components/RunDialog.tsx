@@ -1092,7 +1092,7 @@ export function RunDialog({
         : null}
 
       {/* 실행 요약 footer (R8): 좌측 요약 시그니처 + 우측 Run/취소 버튼 */}
-      <div className="sticky bottom-0 bg-white border-t border-slate-200 pt-3 mt-3 flex items-center justify-between gap-3">
+      <div className="sticky bottom-0 bg-white border-t border-slate-200 pt-3 pb-3 mt-3 flex items-center justify-between gap-3">
         {/* 좌측: 강조 바 + 선택적 곡선 미리보기 + 요약 텍스트 */}
         <div className="flex items-center gap-3 min-w-0">
           <span className="w-0.5 self-stretch rounded bg-accent-600" />
