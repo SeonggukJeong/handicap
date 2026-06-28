@@ -135,7 +135,12 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
         {step.request.url}
       </span>
       {urlMissing && (
-        <span title={ko.editor.urlMissingTitle} className="text-amber-500">
+        <span
+          role="img"
+          aria-label={ko.editor.urlMissingTitle}
+          title={ko.editor.urlMissingTitle}
+          className="text-amber-500"
+        >
           ⚠
         </span>
       )}

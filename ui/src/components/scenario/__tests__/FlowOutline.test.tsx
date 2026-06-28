@@ -175,6 +175,27 @@ steps:
     expect(screen.getAllByTitle("URL이 비어 있습니다")).toHaveLength(1);
   });
 
+  it("url-missing ⚠ badge has role=img and aria-label for screen readers (a11y)", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000042"
+    name: "empty-url"
+    type: http
+    request:
+      method: GET
+      url: ""
+    assert:
+      - status: 200
+`);
+    render(<FlowOutline />);
+    const badge = screen.getByRole("img", { name: "URL이 비어 있습니다" });
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("title", "URL이 비어 있습니다");
+  });
+
   it("shows the empty-state message and the 4 add buttons", () => {
     useScenarioEditor.getState().resetEmpty();
     render(<FlowOutline />);
