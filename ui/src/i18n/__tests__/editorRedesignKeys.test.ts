@@ -23,4 +23,11 @@ describe("editor redesign ko keys", () => {
     expect(ko.editor.problemGateIntro).not.toContain("캔버스");
     expect(ko.editor.problemGateIntro).toContain("에디터");
   });
+
+  it("죽은 탭 키가 제거됐다 (Task 4)", () => {
+    const e = ko.editor as Record<string, unknown>;
+    expect(e.tabCanvas).toBeUndefined();
+    expect(e.tabYaml).toBeUndefined();
+    expect(e.yamlTabNoInspector).toBeUndefined();
+  });
 });

@@ -19,8 +19,6 @@ variables: {}
 steps: []
 `;
 
-export type Tab = "canvas" | "yaml";
-
 export interface ScenarioEditorState {
   doc: Document | null;
   model: Scenario | null;
@@ -28,7 +26,6 @@ export interface ScenarioEditorState {
   yamlError: string | null;
 
   selectedStepId: string | null;
-  activeTab: Tab;
   pendingYamlText: string | null;
 
   loadFromString(yaml: string): void;
@@ -72,7 +69,6 @@ export interface ScenarioEditorState {
 
   // UI state
   select(id: string | null): void;
-  setActiveTab(tab: Tab): void;
 
   // Monaco-driven (debounced) sync
   setPendingYamlText(text: string): void;
@@ -82,14 +78,13 @@ export interface ScenarioEditorState {
 
 const INITIAL: Pick<
   ScenarioEditorState,
-  "doc" | "model" | "yamlText" | "yamlError" | "selectedStepId" | "activeTab" | "pendingYamlText"
+  "doc" | "model" | "yamlText" | "yamlError" | "selectedStepId" | "pendingYamlText"
 > = {
   doc: null,
   model: null,
   yamlText: "",
   yamlError: null,
   selectedStepId: null,
-  activeTab: "canvas",
   pendingYamlText: null,
 };
 
@@ -269,9 +264,6 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   select(id) {
     set({ selectedStepId: id });
   },
-  setActiveTab(tab) {
-    set({ activeTab: tab });
-  },
 
   // setPendingYamlText ONLY stores the text — it MUST NOT re-derive model.
   // Tests rely on referential equality: s.model === initialModel after this call.
@@ -366,7 +358,6 @@ const actions = (() => {
     addStepExtract: s.addStepExtract,
     insertTemplateSteps: s.insertTemplateSteps,
     select: s.select,
-    setActiveTab: s.setActiveTab,
     setPendingYamlText: s.setPendingYamlText,
     commitPendingYaml: s.commitPendingYaml,
     clearPendingYaml: s.clearPendingYaml,

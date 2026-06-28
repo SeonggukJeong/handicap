@@ -114,7 +114,6 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
     const editorKeys = [
       "inspectorAria",
       "inspectorEmpty",
-      "yamlTabNoInspector",
       "httpPanelTitle",
       "loopPanelTitle",
       "ifPanelTitle",

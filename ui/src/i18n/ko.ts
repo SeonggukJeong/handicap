@@ -379,7 +379,6 @@ export const ko = {
     // ── 스텝 설정 패널(구 Inspector) ──
     inspectorAria: "스텝 설정",
     inspectorEmpty: "캔버스에서 스텝을 선택하면 여기서 설정합니다.",
-    yamlTabNoInspector: "스텝 설정은 캔버스 탭에서 사용할 수 있습니다.",
     httpPanelTitle: "HTTP 스텝",
     loopPanelTitle: "반복(loop)",
     ifPanelTitle: "조건(if)",
@@ -521,8 +520,6 @@ export const ko = {
     removeAssertion: (n: number) => `검증 ${n} 제거`,
     removeExtract: (n: number) => `추출 ${n} 제거`,
     removeElif: (n: number) => `Elif ${n} 제거`,
-    tabCanvas: "캔버스",
-    tabYaml: "YAML",
     testRunTitle: "시나리오 미리 테스트",
     testRunResultTitle: "미리 테스트 결과",
     testRunIntro:
