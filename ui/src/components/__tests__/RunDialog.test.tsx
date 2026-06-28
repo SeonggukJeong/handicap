@@ -1844,9 +1844,9 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     });
     // criteria → 상세로 열림 → 간단으로 전환
     await user.click(screen.getByRole("radio", { name: "간단" }));
-    // max_p95_ms 1개만 활성 → 정확히 1개
-    expect(screen.getByText("상세 설정 1개 적용됨")).toBeInTheDocument();
-    expect(screen.queryByText("상세 설정 2개 적용됨")).not.toBeInTheDocument();
+    // max_p95_ms 1개만 활성 → 정확히 1개 (칩은 이제 button — accessible name이 aria-hidden ⚙ 제외)
+    expect(screen.getByRole("button", { name: /상세 설정 1개 적용됨/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /상세 설정 2개 적용됨/ })).not.toBeInTheDocument();
   });
 
   it("간단 모드: measure_phases ON이 applied count에 포함됨 (R6·F1 이중계수 방지)", async () => {
@@ -1858,8 +1858,17 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     // 간단 전환
     await user.click(screen.getByRole("radio", { name: "간단" }));
     // measure 단독 → 정확히 1개 (이중계수 시 2개가 되어 이 단언이 실패)
-    expect(screen.getByText("상세 설정 1개 적용됨")).toBeInTheDocument();
-    expect(screen.queryByText("상세 설정 2개 적용됨")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /상세 설정 1개 적용됨/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /상세 설정 2개 적용됨/ })).not.toBeInTheDocument();
+  });
+
+  it("간단 모드 기본(count 0): 적용 칩 보이고 클릭하면 상세로 (R3)", async () => {
+    const user = userEvent.setup();
+    renderDialog(); // 기본 = 간단·count 0
+    const chip = screen.getByRole("button", { name: /상세 설정 0개 적용됨/ });
+    expect(chip).toBeInTheDocument();
+    await user.click(chip);
+    expect(screen.getByRole("radio", { name: "상세" })).toBeChecked();
   });
 
   it("간단 모드: 숨겨진 invalid http_timeout이 blockedReasons에 표시됨 (R5)", async () => {

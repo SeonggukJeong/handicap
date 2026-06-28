@@ -885,11 +885,16 @@ export function RunDialog({
         </Callout>
       )}
 
-      {/* 간단 모드에서 숨겨진 상세 설정이 있을 때 안내 힌트 (R6) */}
-      {mode === "simple" && detailedAppliedCount > 0 && (
-        <p className="mb-3 text-xs text-slate-500">
+      {/* 간단 모드 적용-요약 칩 — 클릭하면 상세 모드 (R3·R6) */}
+      {mode === "simple" && (
+        <button
+          type="button"
+          onClick={() => setMode("detailed")}
+          className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-accent-50 px-2.5 py-1 text-xs text-accent-700 hover:bg-accent-100"
+        >
+          <span aria-hidden="true">⚙</span>
           {ko.runDialog.appliedDetail(detailedAppliedCount)}
-        </p>
+        </button>
       )}
 
       {(() => {
