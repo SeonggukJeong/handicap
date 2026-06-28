@@ -487,6 +487,10 @@ describe("RunDetailPage — save preset (A2)", () => {
     await user.click(await screen.findByRole("button", { name: "프리셋으로 저장" }));
 
     expect(await screen.findByText(/프리셋 저장 실패/)).toBeInTheDocument();
+    // pin: preset-save error box is reachable via role="alert" (Callout role preservation)
+    expect(
+      screen.getAllByRole("alert").some((a) => a.textContent?.includes("프리셋 저장 실패")),
+    ).toBe(true);
     promptSpy.mockRestore();
   });
 });
@@ -538,6 +542,8 @@ describe("RunDetailPage — stalled running banner (§7.4)", () => {
     mockRunningApi(Date.now() - 20_000, 0);
     renderWithRouter("SR1");
     expect(await screen.findByText(/워커가 시작하지 못했을 수 있습니다/)).toBeInTheDocument();
+    // pin: startup stall banner is role="status" (Callout role preservation)
+    expect(screen.getByRole("status")).toHaveTextContent(/워커가 시작하지 못했을/);
   });
 
   it("요청이 있으면 진단 배너가 안 뜬다", async () => {
@@ -710,6 +716,36 @@ describe("RunDetailPage — report on terminal", () => {
     expect(alert).toHaveTextContent(/boom/);
     // Live sections still render as fallback so the page isn't blank.
     expect(screen.getByRole("heading", { name: /메트릭 윈도우/ })).toBeInTheDocument();
+  });
+
+  it("shows failed-run message as role=alert (Callout pin)", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/FI1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "FI1",
+            scenario_id: "S9",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "failed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+            message: "worker exited unexpectedly",
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/FI1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "FI1", windows: [] }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("FI1");
+    // pin: failed-run message box is reachable via role="alert" (Callout role preservation)
+    // Note: report fetch 404 → second alert; use findAllByRole to handle both.
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((a) => a.textContent?.includes("실패 사유"))).toBe(true);
   });
 });
 

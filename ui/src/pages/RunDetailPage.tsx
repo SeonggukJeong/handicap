@@ -24,6 +24,7 @@ import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/RunVuCell";
+import { Callout } from "../components/ui/Callout";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
@@ -79,7 +80,7 @@ export function RunDetailPage() {
   }, [metrics.data]);
 
   if (run.isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
-  if (run.error) return <p className="text-red-600">{(run.error as Error).message}</p>;
+  if (run.error) return <Callout variant="error">{(run.error as Error).message}</Callout>;
   if (!run.data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const r = run.data;
@@ -177,33 +178,25 @@ export function RunDetailPage() {
       </div>
 
       {createRun.error && (
-        <div
-          role="alert"
-          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           재실행 실패: {(createRun.error as Error).message}
-        </div>
+        </Callout>
       )}
       {createPreset.error && (
-        <div
-          role="alert"
-          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           프리셋 저장 실패: {(createPreset.error as Error).message}
-        </div>
+        </Callout>
       )}
       {stall.kind === "startup" && (
-        <div
-          role="status"
-          className="mb-4 p-3 border border-amber-300 bg-amber-50 text-sm text-amber-800 rounded"
-        >
+        <Callout variant="warn" role="status" className="mb-4">
           {ko.runDetail.stalledRunning}
-        </div>
+        </Callout>
       )}
       {stall.kind === "midrun" && (
-        <div
+        <Callout
+          variant="warn"
           role="status"
-          className="mb-4 p-3 border border-amber-300 bg-amber-50 text-sm text-amber-800 rounded flex items-center justify-between gap-3"
+          className="mb-4 flex items-center justify-between gap-3"
         >
           <span>{ko.runDetail.midRunStall(formatDurationKo(stall.silentSeconds))}</span>
           <button
@@ -214,7 +207,7 @@ export function RunDetailPage() {
           >
             {abort.isPending ? ko.common.aborting : ko.common.abort}
           </button>
-        </div>
+        </Callout>
       )}
 
       <div className="grid grid-cols-4 gap-4 mb-6 text-sm">
@@ -232,12 +225,9 @@ export function RunDetailPage() {
       </div>
 
       {r.status === "failed" && typeof r.message === "string" && r.message.length > 0 && (
-        <div
-          role="alert"
-          className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           <span className="font-semibold">{ko.runDetail.failReason}:</span> {r.message}
-        </div>
+        </Callout>
       )}
 
       {terminal && report.data ? (
@@ -245,12 +235,9 @@ export function RunDetailPage() {
       ) : (
         <>
           {terminal && report.error && (
-            <div
-              role="alert"
-              className="mb-4 p-3 border border-red-200 bg-red-50 text-sm text-red-800 rounded"
-            >
+            <Callout variant="error" role="alert" className="mb-4">
               {ko.runDetail.reportLoadFailed}: {(report.error as Error).message}
-            </div>
+            </Callout>
           )}
           {terminal && report.isLoading && (
             <div
