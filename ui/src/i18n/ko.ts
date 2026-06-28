@@ -62,8 +62,8 @@ export const ko = {
     duration: "지속 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
   },
   runDialog: {
-    title: "새 실행",
-    run: "실행",
+    title: "실행 설정",
+    run: "실행하기",
     running: "시작 중…",
     cancel: "취소",
     // Section 프리미티브용 라벨 (B1)

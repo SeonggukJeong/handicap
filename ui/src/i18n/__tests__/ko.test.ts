@@ -33,7 +33,7 @@ describe("ko 카탈로그", () => {
   });
 
   it("U1b 네임스페이스(runDialog/loadModel/validation)가 비어 있지 않다", () => {
-    expect(ko.runDialog.title).toBe("새 실행");
+    expect(ko.runDialog.title).toBe("실행 설정");
     expect(ko.runDialog.sectionAdvancedTitle).toContain("고급");
     expect(ko.loadModel.vus).toContain("동시 사용자");
     expect(ko.loadModel.sizePresets.length).toBe(3);
