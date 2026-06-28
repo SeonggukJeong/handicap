@@ -756,7 +756,7 @@ export function RunDialog({
             <span className="flex flex-col">
               <span className="flex items-center gap-1 text-sm font-semibold">
                 {ko.runDialog.measureTitle}
-                <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
+                <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureHelp}</HelpTip>
               </span>
               <span className="text-xs text-slate-500">{ko.runDialog.measureDesc}</span>
             </span>

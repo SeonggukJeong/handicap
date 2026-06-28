@@ -1949,6 +1949,17 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     expect(body.profile.measure_phases).toBe(true);
   });
 
+  it("측정 HelpTip은 바깥 요약(measureDesc)보다 심화 내용(measureHelp)을 담는다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    // HelpTip 버튼 열기 (측정 섹션의 ⓘ — label = measureTitle)
+    await user.click(screen.getByRole("button", { name: ko.runDialog.measureTitle }));
+    const note = await screen.findByRole("note");
+    expect(note).toHaveTextContent("처리량은 더 오르지 않습니다"); // 심화 문구 식별 구절
+    expect(note.textContent).not.toBe(ko.runDialog.measureDesc); // 한 줄 요약과 다름
+  });
+
   it("간단 모드: measure_phases ON이 applied count에 포함됨 (R6·F1 이중계수 방지)", async () => {
     const user = userEvent.setup();
     renderDialog();
