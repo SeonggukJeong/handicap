@@ -232,6 +232,14 @@
 - **`RunListControls` 컴팩트 variant** (design-system-results-screens 연기): 결과화면 슬라이스가 동결한 컴팩트 툴바(`RunListControls.tsx`)를 디자인시스템에 흡수하려면 Input/Select 컴팩트(작은 padding) variant 필요 — 토대 변경이라 연기.
 - **severity 팔레트 토큰화** (design-system-results-screens 연기): `InsightPanel`/`InsightCompareMatrix` critical/warning/info 색맵을 토큰화 — severity 식별 색 도메인이라 별도 검토(동결 유지 중).
 
+### B13. 에디터 흐름 재설계 (2026-06-28, 슬라이스 1/3) 연기 항목
+출처: 사용자 요청(2026-06-28) — React Flow 팬 캔버스를 세로 인터랙티브 아웃라인으로 교체(글자 축소·팬 조작·실기능 없음·편집 폭 협소 4불편 해소). spec `docs/superpowers/specs/2026-06-28-editor-flow-outline-redesign-design.md`. **슬라이스 1**(이번): 세로 아웃라인(그룹내 드래그·선택·전체 중첩) + 디테일 편집기 1fr 확대 + 변수 접기 + YAML 모달(양방향) + React Flow 제거. 신규 ADR 등재 예정(에디터 1차 표현 = 캔버스→아웃라인). 의도적 연기:
+- **YAML 가져오기/내보내기 (file-I/O) — fast-follow (슬라이스 1.5 또는 2 흡수)**: 사용자 요청 기능이나, 핵심 *share→paste*는 슬라이스 1의 YAML 모달(Monaco 복사/붙여넣기)로 이미 충족되고, 파일 I/O는 직교적 footgun 표면(`FileReader.readAsText`·`window.showSaveFilePicker`·`picker.call(window,…)` 바운드 호출·blob revoke 타이밍 — 전부 `ui/CLAUDE.md` 함정)이라 캔버스→아웃라인 교체와 분리해 본 슬라이스를 타이트하게 유지(spec-plan-reviewer 권고 + 사용자 "크면 나눠라" 위임, 2026-06-28 사용자 승인). 구현 시 `api/downloadJson.ts`의 picker/blob 패턴 + `ScenarioImportPage.readText` 패턴 차용. **사용자 요청 기능이므로 우선순위 높은 빠른 후속.**
+- **하단 흐름 다이어그램 + 테스트 결과 색상 → 슬라이스 2**: 테스트 섹션 옆 가로 flex-wrap 칩(줄바꿈, React Flow 아님), `POST /api/test-runs` 트레이스의 스텝별 결과를 색+아이콘(✓녹색/✗빨강/○미실행, 색맹 a11y)으로 + 칩 클릭→스텝 선택. 사용자 요청(2026-06-28) — "스크롤 내려 테스트할 때 흐름을 가로로 줄바꿈 표시 + 성공/실패 색상". 테스트 통합 + 새 표현이라 독립 검증 단위.
+- **컨테이너 경계 넘는 드래그 / re-parent → 슬라이스 3**: 슬라이스 1은 같은 형제 그룹 내 재정렬만(기존 `moveStep(toIndex)` 재사용). loop 밖↔안 같은 자유 트리 DnD는 새 store 액션(재부모)·엣지케이스 다수라 분리. 사용자 최종 목표(2026-06-28: "최종적으로 컨테이너 경계 넘어 재배치하고 싶음"). dnd-kit 다중 컨텍스트라 슬라이스 1 토대 위 확장.
+- **`panelHint`(첫 스텝 추가 1회 안내) 드롭**: 넓어진 디테일 편집기가 선택 시 자명해 불필요 — `ko.editor.panelHint` 키는 미사용 잔존(다음 정리 슬라이스에서 제거).
+- **변수 접힘 상태 영속화(localStorage)**: 슬라이스 1은 컴포넌트 로컬 state — 사소·후속.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
