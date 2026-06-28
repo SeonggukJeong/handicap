@@ -213,8 +213,8 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 이 root 파일은 **매 프롬프트에 통째로 로드**되므로 "매 세션 필요한 것"(전역 규칙·현재상태 한 줄·크로스커팅 함정·인덱스)만 남기고, "가끔 필요한 것"(과거 이력·결정 근거·도메인 함정)은 *포인터 + on-demand 파일*로 뺀다. 따라서 기능 완료 시:
 
 - 구현 결과 요약(파이프라인·함정 출처·라이브 검증)은 root가 아니라 **`docs/build-log.md`에 한 단락 append**.
-- root **상태 줄은 한 줄로 *교체*(append 금지)** — "어디까지 됐나"만. 디테일은 build-log/ADR/메모리가 들고 있다.
+- root **상태 줄은 한 줄로 *교체*(append 금지)** — "어디까지 됐나"만. 디테일은 build-log/ADR/메모리가 들고 있다. **`후속 다수(…)` 인라인 카탈로그도 append 대상이 아니다** — 짧은 스코프 나열 + `최신 =` 한 줄만 교체하고, 새 기능의 전체 설명·함정 출처는 build-log가 단일 소스다(2026-06-28: 이 카탈로그가 슬라이스마다 append-누적되어 22KB까지 비대 → line 7을 build-log 포인터로 압축. 새 슬라이스는 카탈로그에 기능명 한 마디만 더하거나 그대로 두고, `최신 =`만 갱신).
 - **상태줄(line 7) 교체·`docs/roadmap.md` 불릿 삽입은 Python 스플라이스로** (run-list-filter-sort 2026-06-25): 둘 다 단일 초장문 라인이라 **Read 툴이 `limit`을 줘도 "exceeds max tokens"로 거부**하고 Edit 정확매치도 2KB+ old_string 재현이 깨지기 쉽다 → 작은 unique start/end 마커로 `s.index()` 찾아 splice하는 `.py`(`assert count==1`)로 교체/삽입. 상태줄 한 줄 자체는 `Read offset=7 limit=1`로는 읽힌다.
-  - **splice 정합성은 bracket-balance가 아니라 imbalance-vs-HEAD로 검증** (XLSX Δ 2026-06-26): 상태줄은 한국어 `[...]` 다용으로 **이미 불균형**(HEAD 기준 `[`−`]`=−2)이라 `count('[')==count(']')`는 무의미 — `git show HEAD:CLAUDE.md` line 7의 imbalance와 *같은지* 비교. `후속 다수(...)` 카탈로그에 `·feature[detail]`를 append할 때 close 앵커 `])까지 구현·머지 완료.`의 `]`는 `]]` 쌍의 *둘째*라, `]·feature[...]])까지`처럼 닫는 `]`를 중복하면 stray `]` 1개가 샌다 → `]·feature[...])까지`(제거한 만큼만 닫기)로 쓸 것.
+  - **splice 정합성은 bracket-balance가 아니라 imbalance-vs-HEAD로 검증** (XLSX Δ 2026-06-26): 상태줄·roadmap 불릿은 한국어 `[...]` 다용으로 **이미 불균형**일 수 있어 `count('[')==count(']')`는 무의미 — `git show HEAD:<파일>`의 해당 라인 imbalance와 *같은지* 비교(naive balance 검사는 false-positive). (line 7을 `·feature[detail]`로 append하던 close-앵커 `])까지 구현·머지 완료.` 규칙은 2026-06-28 카탈로그 압축으로 폐지 — 카탈로그는 더 이상 append 대상 아님, 위 규칙 참조.)
 - 새 ADR는 인덱스에 **한 줄만**(위 규칙), 기능별 상세 작업 메모는 자동메모리 `MEMORY.md` 항목.
 - 신호: root가 다시 ~50 KB를 넘으면 같은 기준으로 build-log/ADR/도메인 CLAUDE.md로 재분배.
