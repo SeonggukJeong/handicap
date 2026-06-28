@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { usePoolWorkers, usePatchPoolWorker, useExcludePoolWorker } from "../api/hooks";
 import type { PoolWorkerSummary } from "../api/pool";
 import { ko } from "../i18n/ko";
+import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
 
 // ── Small primitives ──────────────────────────────────────────────────────────
 
@@ -40,12 +42,14 @@ function ConfirmDialog({
         <p className="mb-3 text-sm text-slate-600">{body}</p>
         {hint ? <p className="mt-2 text-xs text-amber-700">{hint}</p> : null}
         {warn ? (
-          <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{warn}</p>
+          <Callout variant="warn" className="mb-3">
+            {warn}
+          </Callout>
         ) : null}
         {error ? (
-          <p role="alert" className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+          <Callout variant="error" role="alert" className="mb-3">
             {error}
-          </p>
+          </Callout>
         ) : null}
         <div className="flex justify-end gap-2">
           <button
@@ -103,19 +107,19 @@ function EditModal({
     >
       <div className="w-80 rounded-lg border border-slate-200 bg-white p-5 shadow-lg">
         <p className="mb-3 font-semibold text-slate-800">{title}</p>
-        <input
+        <Input
+          className="mb-2"
           type={inputType}
+          aria-label={title}
           value={val}
           onChange={(e) => setVal(e.target.value)}
-          className="mb-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-          aria-label={title}
         />
         <p className="mb-4 text-xs text-slate-500">{note}</p>
         {hint ? <p className="mt-2 text-xs text-amber-700">{hint}</p> : null}
         {error ? (
-          <p role="alert" className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+          <Callout variant="error" role="alert" className="mb-3">
             {error}
-          </p>
+          </Callout>
         ) : null}
         <div className="flex justify-end gap-2">
           <button
@@ -399,7 +403,12 @@ export function WorkerDashboardPage() {
         {ko.common.loading}
       </p>
     );
-  if (isError) return <p role="alert">{ko.workers.loadError}</p>;
+  if (isError)
+    return (
+      <Callout variant="error" role="alert">
+        {ko.workers.loadError}
+      </Callout>
+    );
   if (!data) return null;
 
   if (!data.pool_mode)
@@ -422,10 +431,7 @@ export function WorkerDashboardPage() {
       <p className="text-sm text-slate-500 mb-1">{ko.workers.subtitle}</p>
       <p className="text-sm text-slate-700 mb-4">{ko.workers.countSummary(idle, busy)}</p>
       {bannerError ? (
-        <div
-          role="alert"
-          className="mb-3 flex items-center justify-between rounded bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
+        <Callout variant="error" role="alert" className="mb-3 flex items-center justify-between">
           <span>{bannerError}</span>
           <button
             type="button"
@@ -435,7 +441,7 @@ export function WorkerDashboardPage() {
           >
             {ko.workers.bannerDismiss}
           </button>
-        </div>
+        </Callout>
       ) : null}
       {data.workers.length === 0 ? (
         <p className="text-slate-600">{ko.workers.emptyNoWorkers}</p>

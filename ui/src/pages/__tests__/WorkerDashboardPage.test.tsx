@@ -231,6 +231,9 @@ describe("WorkerDashboardPage", () => {
     // busy run failure warning includes run_id and "실패"
     expect(within(dialog).getByText(/r9/)).toBeInTheDocument();
     expect(within(dialog).getByText(/실패/)).toBeInTheDocument();
+
+    // role-preservation: warn box is roleless (no role="alert") — Callout variant="warn"
+    expect(within(dialog).queryByRole("alert")).toBeNull();
   });
 
   it("비우기 확인창에 '되돌리기'가 포함되고 실패 경고 없음", async () => {
@@ -322,6 +325,10 @@ describe("WorkerDashboardPage", () => {
     await user.click(screen.getByRole("button", { name: ko.workers.actionsLabel }));
     await user.click(screen.getByRole("menuitem", { name: ko.workers.editCapacity }));
 
+    // pin: EditModal input accessible via getByLabelText (scoped inside dialog) — preserved after Input swap
+    const editDialog = screen.getByRole("dialog", { name: ko.workers.editCapacity });
+    expect(within(editDialog).getByLabelText(ko.workers.editCapacity)).toBeInTheDocument();
+
     const inputA = screen.getByRole("spinbutton", { name: ko.workers.editCapacity });
     // Inject non-numeric string directly into the DOM property (bypasses jsdom type=number).
     // This simulates a programmatic/paste scenario where val is non-empty but NaN-producing.
@@ -406,6 +413,8 @@ describe("WorkerDashboardPage", () => {
     expect(await screen.findByText(ko.workers.actionError("제외 실패"))).toBeInTheDocument();
     // Dialog must stay open
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    // role-preservation: error box has role="alert" — Callout variant="error"
+    expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toBeInTheDocument();
   });
 
   it("shows page banner when undrain fails", async () => {
