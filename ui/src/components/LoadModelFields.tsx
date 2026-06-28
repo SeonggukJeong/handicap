@@ -12,6 +12,7 @@ import { WorkerSizingHelper } from "./WorkerSizingHelper";
 import { peakStageTarget } from "./sizing";
 import type { Scenario } from "../scenario/model";
 import { openLoopWarnings, type OpenLoopWarning } from "./openLoopChecks";
+import { Segmented } from "./ui/Segmented";
 
 type StageRow = { target: string; duration_seconds: string };
 
@@ -381,35 +382,55 @@ export function LoadModelFields({
       {/* 2차 축: 프로파일(고정/곡선) — simpleMode면 숨김(RunDialog R3) */}
       {!simpleMode && (
         <fieldset className="mb-3">
-          <legend className="text-sm text-slate-600 mb-1">프로파일</legend>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1 text-sm cursor-pointer">
-              <input
-                type="radio"
-                name="rate-mode"
-                value="fixed"
-                checked={rateMode === "fixed"}
-                onChange={() => setRateMode("fixed")}
+          <legend className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 mb-1">
+            프로파일
+          </legend>
+          {loadModelTiles ? (
+            <div className="flex items-center gap-1">
+              <Segmented
+                value={rateMode}
+                onChange={(v) => setRateMode(v as "fixed" | "curve")}
+                options={[
+                  { value: "fixed", label: "고정" },
+                  { value: "curve", label: "곡선" },
+                ]}
+                ariaLabel="프로파일"
               />
-              고정
-            </label>
-            {/* HelpTip은 label 밖 형제 — label 안에 넣으면 곡선 라디오 accname 오염 (U3) */}
-            <span className="flex items-center gap-1">
+              {loadModel === "closed" && (
+                <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
+              )}
+            </div>
+          ) : (
+            /* 기존 라디오 — ScheduleForm byte-identical (현행 그대로) */
+            <div className="flex items-center gap-4">
               <label className="flex items-center gap-1 text-sm cursor-pointer">
                 <input
                   type="radio"
                   name="rate-mode"
-                  value="curve"
-                  checked={rateMode === "curve"}
-                  onChange={() => setRateMode("curve")}
+                  value="fixed"
+                  checked={rateMode === "fixed"}
+                  onChange={() => setRateMode("fixed")}
                 />
-                곡선
+                고정
               </label>
-              {loadModel === "closed" && (
-                <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
-              )}
-            </span>
-          </div>
+              {/* HelpTip은 label 밖 형제 — label 안에 넣으면 곡선 라디오 accname 오염 (U3) */}
+              <span className="flex items-center gap-1">
+                <label className="flex items-center gap-1 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="rate-mode"
+                    value="curve"
+                    checked={rateMode === "curve"}
+                    onChange={() => setRateMode("curve")}
+                  />
+                  곡선
+                </label>
+                {loadModel === "closed" && (
+                  <HelpTip label="VU 곡선 설명">{ko.glossary.vuCurve}</HelpTip>
+                )}
+              </span>
+            </div>
+          )}
         </fieldset>
       )}
 

@@ -432,6 +432,21 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("radio", { name: /요청 속도 기준/ })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
   });
+
+  it("loadModelTiles=true: 프로파일이 Segmented(radio 고정/곡선) (R4)", () => {
+    setup({ loadModelTiles: true, simpleMode: false, loadModel: "closed" }); // setup가 내부 render — 래핑 금지
+    // Segmented는 role="radiogroup" aria-label="프로파일" 컨테이너를 렌더한다
+    expect(screen.getByRole("radiogroup", { name: "프로파일" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "고정" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "곡선" })).toBeInTheDocument(); // 정확매치 — ramp_down 라벨의 "곡선" 단어와 구분
+  });
+
+  it("loadModelTiles 미전달(라디오 모드): 프로파일 라디오 유지 (R12)", () => {
+    setup({ simpleMode: false, loadModel: "closed" }); // loadModelTiles 없음
+    // ScheduleForm 호환 라디오 모드: Segmented radiogroup이 없어야 한다
+    expect(screen.queryByRole("radiogroup", { name: "프로파일" })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "고정" })).toBeInTheDocument(); // input[type=radio] 유지
+  });
 });
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;
