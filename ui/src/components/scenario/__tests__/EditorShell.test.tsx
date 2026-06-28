@@ -55,29 +55,53 @@ describe("EditorShell", () => {
     expect(calls[calls.length - 1]).toBe(useScenarioEditor.getState().yamlText);
   });
 
-  it("hides the inspector when the YAML tab is active", async () => {
+  it("디테일 편집기 컬럼이 고정 320px가 아닌 가변(1fr)이다 (R1)", () => {
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    const grid = screen.getByTestId("editor-grid");
+    expect(grid.className).toContain("1fr"); // 디테일 = 1fr 가변
+    expect(grid.className).not.toContain("320px"); // 옛 고정폭 제거
+  });
+
+  it("YAML 버튼 클릭 시 모달에 Monaco(yaml-view)가 열리고 닫힌다", async () => {
     const user = userEvent.setup();
     render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    // 인스펙터는 항상 보인다(더 이상 탭 게이트 없음)
     expect(
       screen.getByRole("complementary", { name: ko.editor.inspectorAria }),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "YAML" }));
-    expect(
-      screen.queryByRole("complementary", { name: ko.editor.inspectorAria }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("yaml-view")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.editor.openYaml }));
+    expect(screen.getByTestId("yaml-view")).toBeInTheDocument();
+    // 디바운스 윈도에 미커밋 편집이 있다고 가정 — 닫기가 flush-커밋하는지(R8)를
+    // 관측가능 상태(model 갱신 + pendingYamlText null)로 검증(Monaco는 모킹이라 직접 못 침).
+    useScenarioEditor.setState({ pendingYamlText: 'version: 1\nname: "flushed"\nsteps: []\n' });
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByTestId("yaml-view")).not.toBeInTheDocument();
+    expect(useScenarioEditor.getState().model?.name).toBe("flushed"); // flush 커밋됨
+    expect(useScenarioEditor.getState().pendingYamlText).toBeNull();
   });
-});
 
-describe("EditorShell YAML tab placeholder (U3)", () => {
-  beforeEach(() => {
-    useScenarioEditor.setState(useScenarioEditor.getInitialState());
-  });
-
-  it("U3: YAML 탭에서 스텝 설정 패널 자리는 한국어 안내를 보여준다", async () => {
+  it("변수 토글 버튼이 VariablesPanel을 접고 편다", async () => {
     const user = userEvent.setup();
-    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
-    await user.click(screen.getByRole("tab", { name: "YAML" }));
-    expect(screen.getByText(/캔버스 탭에서 사용할 수 있습니다/)).toBeInTheDocument();
+    render(
+      <EditorShell
+        initialYaml={'version: 1\nname: "x"\nvariables: {BASE_URL: "http://h"}\nsteps: []\n'}
+      />,
+    );
+    // 펼친 기본 상태: 변수 패널(complementary, name=ko.editor.varsPanelAria) 보임.
+    // getByText(/변수/)는 토글 텍스트와 패널 h3 둘 다 매치해 throw → role로 정확 스코프(finding 2).
+    expect(
+      screen.getByRole("complementary", { name: ko.editor.varsPanelAria }),
+    ).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: ko.editor.varsToggleAria });
+    await user.click(toggle); // 접기
+    expect(
+      screen.queryByRole("complementary", { name: ko.editor.varsPanelAria }),
+    ).not.toBeInTheDocument();
+    await user.click(toggle); // 다시 펼치기
+    expect(
+      screen.getByRole("complementary", { name: ko.editor.varsPanelAria }),
+    ).toBeInTheDocument();
   });
 });
 

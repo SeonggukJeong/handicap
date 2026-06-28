@@ -3,14 +3,13 @@ import { ko } from "../../i18n/ko";
 import { collectProblems } from "../../scenario/problems";
 import { useScenarioEditor } from "../../scenario/store";
 
-/** 시나리오 문제 요약 배너 (U4, spec §5.4). 캔버스·YAML 두 탭 공통 상단 상시 슬롯 —
+/** 시나리오 문제 요약 배너 (U4, spec §5.4). 상단 상시 슬롯 —
  *  yamlError가 YAML 탭에서만 보이던 갭도 해소한다. 문제 0건이면 미렌더.
- *  스텝 항목 클릭 = 해당 스텝 선택(+캔버스 탭), 게이트 항목 = YAML 탭 유도만(모델 stale). */
-export function ValidationBanner() {
+ *  스텝 항목 클릭 = 해당 스텝 선택, 게이트 항목 = YAML 모달 열기(onOpenYaml). */
+export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {}) {
   const model = useScenarioEditor((s) => s.model);
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const select = useScenarioEditor((s) => s.select);
-  const setActiveTab = useScenarioEditor((s) => s.setActiveTab);
 
   const problems = useMemo(
     () => collectProblems(model?.steps ?? null, yamlError),
@@ -32,7 +31,7 @@ export function ValidationBanner() {
           <button
             type="button"
             className="shrink-0 underline decoration-amber-400 hover:text-amber-900"
-            onClick={() => setActiveTab("yaml")}
+            onClick={() => onOpenYaml?.()}
           >
             {ko.editor.problemGateAction}
           </button>
@@ -48,7 +47,6 @@ export function ValidationBanner() {
                 className="text-left underline decoration-amber-400 hover:text-amber-900"
                 onClick={() => {
                   select(p.stepId);
-                  setActiveTab("canvas");
                 }}
               >
                 {p.message}

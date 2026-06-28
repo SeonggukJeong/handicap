@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../../i18n/ko";
 import { useScenarioEditor } from "../../../scenario/store";
 import { ValidationBanner } from "../ValidationBanner";
@@ -29,31 +29,28 @@ describe("ValidationBanner", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("빈 URL 스텝을 나열하고 클릭 시 해당 스텝 선택 + 캔버스 탭 전환", async () => {
+  it("빈 URL 스텝을 나열하고 클릭 시 해당 스텝을 선택한다 (탭 전환 없음)", async () => {
     const user = userEvent.setup();
     useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML);
-    useScenarioEditor.getState().setActiveTab("yaml");
     render(<ValidationBanner />);
 
     expect(screen.getByText(ko.editor.problemsBannerTitle(1))).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /"ping" 스텝의 URL이 비어/ }));
     expect(useScenarioEditor.getState().selectedStepId).toBe(ULID_A);
-    expect(useScenarioEditor.getState().activeTab).toBe("canvas");
   });
 
-  it("게이트 에러는 스텝 항목을 숨기고 한국어 매핑 + YAML 탭 유도 버튼만 보인다", async () => {
+  it("게이트 에러는 스텝 항목을 숨기고 한국어 매핑 + YAML 모달 열기 버튼만 보인다", async () => {
     const user = userEvent.setup();
-    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML); // 모델엔 빈 URL 스텝 존재
+    const onOpenYaml = vi.fn();
+    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML);
     useScenarioEditor.setState({ yamlError: "steps.0.request.url: Required" });
-    render(<ValidationBanner />);
+    render(<ValidationBanner onOpenYaml={onOpenYaml} />);
 
-    // stale 모델 기준 스텝 선택은 거짓 정보 — 스텝 문제 버튼이 없어야 한다 (spec §5.4)
     expect(screen.queryByRole("button", { name: /"ping"/ })).not.toBeInTheDocument();
-    // 게이트 행 자체도 비클릭 — 배너의 유일한 버튼은 "YAML 탭에서 확인"이어야 한다
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByText(ko.editor.gateRequired("steps.0.request.url"))).toBeInTheDocument();
     expect(screen.getByText(ko.editor.problemGateIntro)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: ko.editor.problemGateAction }));
-    expect(useScenarioEditor.getState().activeTab).toBe("yaml");
+    expect(onOpenYaml).toHaveBeenCalledTimes(1);
   });
 });
