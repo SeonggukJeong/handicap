@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FlowOutline } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
+import { computeReorder } from "../../../scenario/reorder";
 
 const reset = () => useScenarioEditor.setState(useScenarioEditor.getInitialState());
 
@@ -225,5 +226,38 @@ steps:
     await user.click(screen.getByRole("button", { name: "+ 반복 안에 HTTP 스텝" }));
     const steps = useScenarioEditor.getState().model!.steps;
     expect(steps[0].type === "loop" && steps[0].do.length).toBe(2); // seed child + 1
+  });
+});
+
+describe("FlowOutline drag wiring", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: first
+    type: http
+    request: { method: GET, url: "/1" }
+    assert: [{ status: 200 }]
+  - id: "01HX0000000000000000000002"
+    name: second
+    type: http
+    request: { method: GET, url: "/2" }
+    assert: [{ status: 200 }]
+`);
+  });
+
+  it("renders a keyboard-operable drag handle per row", () => {
+    render(<FlowOutline />);
+    expect(screen.getByRole("button", { name: /"first" 스텝 순서 이동/ })).toBeInTheDocument();
+  });
+
+  it("computeReorder maps a same-group drop to moveStep's toIndex", () => {
+    // 순수 매핑 단언(헬퍼는 reorder.test가 전수) — 여기선 그룹 id 순서가 모델과 일치함을 핀
+    const ids = useScenarioEditor.getState().model!.steps.map((s) => s.id);
+    expect(computeReorder(ids, ids[0], ids[1])).toBe(1);
   });
 });
