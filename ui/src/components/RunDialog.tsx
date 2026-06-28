@@ -824,16 +824,27 @@ export function RunDialog({
       {/* 측정 섹션 — 판정·고급 바깥, 상세-only (R9) */}
       {mode === "detailed" && (
         <div className="mt-3 mb-3">
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={measurePhases}
-                onChange={(e) => setMeasurePhases(e.target.checked)}
+          <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={measurePhases}
+              aria-label={ko.runDialog.measureTitle}
+              onClick={() => setMeasurePhases(!measurePhases)}
+              className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${measurePhases ? "bg-accent-600" : "bg-slate-300"}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${measurePhases ? "left-[18px]" : "left-0.5"}`}
               />
-              {ko.runDialog.measureTitle}
-            </label>
-            <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
+            </button>
+            <span className="flex flex-col">
+              <span className="flex items-center gap-1 text-sm font-semibold">
+                {ko.runDialog.measureTitle}
+                <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
+              </span>
+              <span className="text-xs text-slate-500">{ko.runDialog.measureDesc}</span>
+            </span>
           </div>
         </div>
       )}

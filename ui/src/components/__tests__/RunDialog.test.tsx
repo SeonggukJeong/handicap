@@ -1849,12 +1849,45 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     expect(screen.queryByRole("button", { name: /상세 설정 2개 적용됨/ })).not.toBeInTheDocument();
   });
 
+  it("측정 토글(switch) on → measure_phases:true (R13)", async () => {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await user.click(screen.getByRole("radio", { name: "상세" }));
+    await user.click(screen.getByRole("switch", { name: /응답 시간 단계 분해/ }));
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.measure_phases).toBe(true);
+  });
+
   it("간단 모드: measure_phases ON이 applied count에 포함됨 (R6·F1 이중계수 방지)", async () => {
     const user = userEvent.setup();
     renderDialog();
     await toDetailed(user);
-    // 측정 체크박스 ON
-    await user.click(screen.getByRole("checkbox", { name: /응답 시간 단계 분해/ }));
+    // 측정 토글 switch ON
+    await user.click(screen.getByRole("switch", { name: /응답 시간 단계 분해/ }));
     // 간단 전환
     await user.click(screen.getByRole("radio", { name: "간단" }));
     // measure 단독 → 정확히 1개 (이중계수 시 2개가 되어 이 단언이 실패)
