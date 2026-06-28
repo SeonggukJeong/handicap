@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FlowOutline } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -133,7 +133,12 @@ describe("FlowOutline selection", () => {
   it("clicking the empty background clears selection", async () => {
     const user = userEvent.setup();
     render(<FlowOutline />);
-    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    // select() triggers a Zustand update that causes DndContext to re-render
+    // OutlineRows outside any act() boundary → act warning cascade.
+    // Wrapping the store update in act() flushes those re-renders synchronously.
+    await act(async () => {
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
     await user.click(screen.getByTestId("outline-blank"));
     expect(useScenarioEditor.getState().selectedStepId).toBeNull();
   });
