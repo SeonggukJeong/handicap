@@ -22,7 +22,7 @@ RunDialog 사용 중 발견한 5개 항목:
 |---|---|
 | 3 (고정 추천) | **Option A — 예시로 재구성** (정성 라벨·"추천" 프레이밍 제거, 중립 "빠른 입력" 숫자 칩 + "대상에 맞게 조정" 캡션). **Option C(기준 대비 상대 배수)는 roadmap 백로그로 남김.** |
 | 2 (HelpTip 위치) | **Option A — 제목 옆·테두리 안** (타일을 `div + 숨김 native radio + stretched label` 구조로 재구성, HelpTip을 제목 텍스트 옆 형제로). |
-| 1b (프리셋 표시) | **Option A — 수정 시 리셋** (불러온 직후 프리셋 이름 표시, 이후 폼 수정 시 `— 선택 —`으로 복귀 → 표시가 항상 폼과 일치). |
+| 1b (프리셋 표시) | **Option A — 수정 시 표시 복귀 (render-derived)** (불러온 직후 프리셋 이름 표시, 이후 폼 수정 시 `— 선택 —`으로 복귀 → 표시가 항상 폼과 일치). ※ 상태(`loadedPresetId`)를 *리셋하지 않고* 표시만 도출 — §3.1 참조(rename/delete 보존). |
 
 ## 3. 상세 설계
 
@@ -33,11 +33,21 @@ RunDialog 사용 중 발견한 5개 항목:
 
 **1a — 줄바꿈 방지.** "프리셋 불러오기" 라벨(`<label htmlFor="load-preset">`, 현 RunDialog.tsx:556–558)에 `shrink-0 whitespace-nowrap` 추가. 원인: 라벨이 `flex items-center gap-2` 행 안에 있고 형제 `<Select>`가 `block w-full`(Select 프리미티브 BASE)이라 라벨을 압축 → 줄바꿈.
 
-**1b — 선택 반영 + 수정 시 리셋.**
-- `<Select id="load-preset" value="">`(현 :562, `value=""` 하드코딩)을 `value={loadedPresetId ?? ""}`로 변경. `loadedPresetId` state·`loadPreset()`의 `setLoadedPresetId(id)`는 이미 존재(현 :196, :282).
-- **수정 시 리셋**: 프리셋을 불러온 뒤 부하 모델 관련 폼 값(vus·duration·rampUp·loadModel·rateMode·targetRps·maxInFlight·stages·rampDown·workerCount 등 `buildProfile()`이 보는 값)이 하나라도 바뀌면 `loadedPresetId`를 `null`로 클리어.
-- **권장 메커니즘**: `loadPreset()`이 적용하는 값들로부터 스냅샷(예: `buildProfile()` 결과의 정규화 문자열, 또는 적용 값 객체)을 만들어 보관하고, 폼 state를 deps로 하는 effect에서 현재 `buildProfile()` 결과가 스냅샷과 다르고 `loadedPresetId != null`이면 클리어. 스냅샷은 `loadPreset`이 *적용할 값*으로부터 직접 만들어 "불러온 직후 == 일치"를 보장(React setState 비동기 race 회피). 이 로직은 **state-only** — `buildProfile()` 출력·POST payload엔 영향 없음.
-- 불변식: 프리셋 불러오기 자체의 동작(어떤 필드를 채우는지)은 그대로. 드롭다운 표시 로직만 추가.
+**1b — 선택 반영 + 수정 시 표시 복귀 (render-derived, `loadedPresetId` 미클리어).**
+
+⚠️ **`loadedPresetId`를 클리어하지 말 것** (spec-reviewer CRITICAL): `loadedPresetId`는 드롭다운 표시 외에 **이름 변경/프리셋 삭제 버튼을 게이트**(현 :890 `{loadedPresetId && (…이름 변경…프리셋 삭제…)}`)하고 `renamePreset`/`removePreset`의 대상(현 :506·:520)이다. "수정 시 `loadedPresetId=null`"로 클리어하면 **불러온 뒤 한 글자라도 고치면 이름 변경/삭제 버튼이 사라져** 의도된 기능("불러와 고친 뒤 이름 변경 = 현재 상태를 새 이름으로 저장", 현 :501-504 NOTE)을 깬다. 기존 rename 테스트(`RunDialog.test.tsx:646-660`)는 *고치지 않고* 이름 변경해 이 회귀를 못 잡는다.
+
+- **표시는 render-derived divergence 비교로** (state 클리어 없음): `loadedPresetId`는 load 시 set·rename/remove에서만 갱신(현행 유지). 별도 `presetSnapshotKey` state를 두고, 드롭다운 값을
+  `value={loadedPresetId && currentProfileKey === presetSnapshotKey ? loadedPresetId : ""}`
+  로 매 렌더 도출(`currentProfileKey = JSON.stringify(buildProfile())`). 폼이 스냅샷과 일치하면 프리셋 이름이 보이고, 어긋나면 `""`(— 선택 —). effect로 state를 클리어하지 않으므로 무한 렌더·rename/delete 회귀 둘 다 없다.
+- **스냅샷은 *불러온 직후 committed 상태*의 `buildProfile()`과 by-construction 일치해야 한다** (reviewer IMPORTANT — `measure_phases` 트랩): `buildProfile()`이 보는 입력은 부하-모델 10개뿐 아니라 `loopCap·httpTimeout·bindings·think*·criteriaState(11개)·stepCriteria·measurePhases` 전부다(현 :456-466). 그리고 `loadPreset`은 **`measurePhases`를 의도적으로 시드하지 않는다**(현 :249-251 NOTE) → raw `prof.measure_phases`로 스냅샷을 만들면 load 직후 `buildProfile()`(=live measurePhases)와 어긋나 *불러오자마자* 표시가 `— 선택 —`으로 떨어진다. **권장 메커니즘**: `loadPreset`이 마지막에 단조 증가 `presetLoadTick`을 set하고, 그 tick을 dep로 한 effect가 **load의 모든 setState가 commit된 *뒤*** 그 시점 `buildProfile()`(=committed live 상태, measurePhases 포함)으로 스냅샷을 캡처한다(`setPresetLoadTick`이 `loadPreset`의 *마지막* 호출이라 모든 적용 필드가 commit된 렌더에서만 effect 발화 → React 18 배칭 여부와 무관하게 1회만, mount 시 1회는 `loadedPresetId===null`이라 무해). 이렇게 하면 deriveLoadMode 재구현·measurePhases 트랩 없이 "불러온 직후 == 일치"가 구조적으로 보장된다.
+
+  ⚠️ **`react-hooks/exhaustive-deps` 함정** (spec-reviewer IMPORTANT — `pnpm lint --max-warnings=0` 게이트가 잡음): effect 본문이 `currentProfileKey`를 참조하는데 dep 배열은 `[presetLoadTick]`뿐 → eslint가 누락 dep을 경고해 **UI 게이트 빌드 실패**. 그렇다고 `currentProfileKey`를 dep에 넣으면 *매 폼 수정마다* 스냅샷이 재캡처돼 `currentProfileKey === presetSnapshotKey`가 항상 참 → **드롭다운이 영영 복귀 안 함**(1b 기능 silent 무력화). **해결**: 매 렌더 `keyRef.current = currentProfileKey`(latest-value ref 패턴)로 갱신하고 effect는 `setPresetSnapshotKey(keyRef.current)`로 ref를 읽는다 — ref는 exhaustive-deps 예외라 dep 배열은 `[presetLoadTick]` 유지가 정당(또는 근거 단 `eslint-disable-next-line`). **`currentProfileKey`를 dep 배열에 넣지 말 것.** 정확한 ref/disable 형태는 plan 재량(단일 캡처 + revert 동작이 acceptance).
+
+- **save/rename 성공 시에도 스냅샷 재캡처** (reviewer MINOR — "표시가 항상 폼과 일치" 일관성): 불러와 고친 뒤(드롭다운 `— 선택 —`) `프리셋으로 저장`(덮어쓰기)이나 `이름 변경`을 하면 폼이 *저장된* 프리셋과 같아지므로 드롭다운도 그 이름을 보여야 한다. `savePreset`/`renamePreset`의 `onSuccess`(현 :490·:496은 `setLoadedPresetId`, :514는 `setPresetName(next)` — `renamePreset`은 `loadedPresetId`를 이미 가진 채라 재설정 안 함; 그 자리에 `presetLoadTick` bump를 *추가*)에서도 `presetLoadTick`을 bump해 같은 effect가 스냅샷을 재캡처한다(`removePreset`은 `loadedPresetId=null`이라 불필요). 회귀 아님(현 코드도 항상 `""` 표시)이나 일관성 향상.
+- **state-only·payload 무영향**: `presetSnapshotKey`/`presetLoadTick`/드롭다운 value 도출은 전부 표시 전용 — `buildProfile()` 출력·POST payload엔 영향 없음.
+- **env carve-out** (reviewer MINOR): 프리셋 식별은 `currentInput()`상 env도 포함하지만(현 :468-474) `buildProfile()`은 env를 제외한다. 따라서 **드롭다운 divergence는 Profile(부하 설정)만 비교** — 환경(env) 행만 고친 경우 드롭다운은 프리셋 이름을 유지한다(프리셋의 부하 설정은 그대로이므로 수용 가능한 carve-out). env까지는 비교하지 않는다(범위 최소화).
+- 불변식: 프리셋 불러오기 자체의 동작(어떤 필드를 채우는지)·rename/remove 동작은 그대로. 드롭다운 표시 도출 + 스냅샷 캡처만 추가.
 
 ### 3.2 ② 부하 모델 타일 HelpTip (LoadModelFields.tsx, item 2)
 
@@ -49,8 +59,8 @@ RunDialog 사용 중 발견한 5개 항목:
 - 컨테이너 `<div className="relative …">`(선택 시 `border-accent-500 bg-accent-50`, 아니면 `border-slate-200 hover:border-slate-300`).
 - 네이티브 `<input type="radio" name="load-model" id={…} className="sr-only" checked={loadModel===…} onChange={() => setLoadModel(…)} />` — 라디오 시맨틱·키보드 그룹 이동을 네이티브로 확보.
 - 장식 라디오 인디케이터 `<span aria-hidden …>`(선택 상태로 스타일, 현행과 동일).
-- 텍스트 열: 제목 행 `<span className="flex items-center gap-1"><label htmlFor={…} className="… cursor-pointer after:absolute after:inset-0">{제목}</label><HelpTip className="relative z-10">…</HelpTip></span>` + 설명 `<span className="text-xs text-slate-500">{desc}</span>`.
-- **"stretched label" 기법**: `label::after { position:absolute; inset:0 }`로 라벨의 클릭 영역을 카드 전체로 확장(타일 어디를 눌러도 선택). HelpTip은 `relative z-10`으로 라벨 오버레이 위에 떠 자기 클릭을 가로챔 → 카드 전체 클릭 + HelpTip 독립 동작.
+- 텍스트 열: 제목 행 `<span className="flex items-center gap-1"><label htmlFor={…} className="… cursor-pointer after:content-[''] after:absolute after:inset-0">{제목}</label><HelpTip className="relative z-10">…</HelpTip></span>` + 설명 `<span className="text-xs text-slate-500">{desc}</span>`.
+- **"stretched label" 기법**: `label::after { content:''; position:absolute; inset:0 }`로 라벨의 클릭 영역을 카드 전체로 확장(타일 어디를 눌러도 선택). HelpTip은 `relative z-10`으로 라벨 오버레이 위에 떠 자기 클릭을 가로챔 → 카드 전체 클릭 + HelpTip 독립 동작. ⚠️ **`after:content-['']`이 필수** (spec-reviewer IMPORTANT — Tailwind v3 함정): preflight가 `::after`에 `--tw-content:''`만 깔고 `content: var(--tw-content)`는 `content-*` 유틸리티에서만 emit된다 → `after:content-['']` 없이 `after:absolute after:inset-0`만 주면 `::after`의 `content`가 `normal`이라 의사요소 박스 자체가 안 생겨 **오버레이가 없음**(제목 텍스트만 클릭 가능, 카드 나머지·설명·인디케이터 클릭 무반응 → "타일 어디든 클릭"이 깨짐). 코드베이스에 `after:`/`before:` 의사요소 유틸리티 선례가 없으므로(grep 0) 라이브에서 "카드 빈 영역 클릭 시 선택"을 반드시 실측.
 
 **a11y 불변식**:
 - 두 옵션은 여전히 role=radio(네이티브 input)이고 같은 `name="load-model"` 그룹.
@@ -106,21 +116,29 @@ RunDialog는 페이지에 **inline** 렌더(`ScenarioRunsPage` `<div className="
 - **ScheduleForm byte-identical**: LoadModelFields 변경은 `loadModelTiles` 분기·`showRecommended`(RunDialog 전용 prop) 한정. ScheduleForm은 `loadModelTiles`/`showRecommended` 미전달 → 라디오 분기·Field(추천 미렌더는 원래 미전달과 동일) 모두 0-diff.
 - **a11y**: 부하 모델 옵션은 role=radio·그룹 유지·키보드 이동 가능, accessible name = 제목, HelpTip accname 비오염(U3).
 - **ko.ts**: 추가(measureHelp·sizePresetsCaption) + 기존 문구 수정(recommendedNotice·sizePresets·sizePresetsLabel). `ko.common.recommended`·`Field`/`Badge` 프리미티브 0-diff(미사용으로 남김).
-- **1b state-only**: `loadedPresetId` 클리어는 표시 전용, payload 무영향.
+- **1b state-only + rename/delete 보존**: 드롭다운 표시는 render-derived(`presetSnapshotKey` 비교)로 `loadedPresetId`를 **클리어하지 않는다** → 이름 변경/삭제 버튼·`renamePreset`/`removePreset` 동작 byte-identical 보존. 스냅샷/표시 도출은 payload 무영향.
 
 ## 5. 테스트 전략
 
-기존 RunDialog/LoadModelFields 테스트 파일에 추가(`ui/src/__tests__/` idiom). RTL:
-1. **1b**: 프리셋 불러오기 → 드롭다운 value가 프리셋 id/이름 반영 → 폼 필드(예: VU) 변경 → 드롭다운이 `""`(— 선택 —)로 복귀.
-2. **1a**: 프리셋 라벨에 `whitespace-nowrap` 클래스 존재(클래스 단언, 시각 회귀 보조).
-3. **2**: `getByRole("radio",{name: tileClosedTitle})`/`openTitle` 매칭(accname=제목), HelpTip 버튼 존재, 클릭 시 선택 토글, 카드 클릭으로도 선택.
+기존 RunDialog/LoadModelFields 테스트 파일(`ui/src/components/__tests__/`)에 추가/수정. **TDD 순서 함정**(ui/CLAUDE.md): src 편집 전 *테스트 파일을 먼저* 수정해 pending diff를 만들어야 `tdd-guard`가 첫 src 편집을 막지 않는다.
+
+**신규/변경 RTL 테스트:**
+1. **1b (render-derived)**: 프리셋 불러오기 → 드롭다운 value가 프리셋 id 반영(이름 표시) → 부하 폼 필드(예: VU) 변경 → 드롭다운이 `""`(— 선택 —)로 복귀. **⚠️ 비동기 단언**(reviewer MINOR): 스냅샷이 post-paint effect에서 잡혀 선택 직후 1프레임은 `""`이므로 "value가 프리셋 id 반영"은 `await waitFor`/`findBy`로(기존 rename 테스트 `RunDialog.test.tsx:646-660`이 같은 패턴). **추가 회귀 가드(finding 1)**: 같은 흐름에서 불러온 뒤 VU를 고쳐도 **이름 변경/프리셋 삭제 버튼이 그대로 있음**(`getByRole("button",{name:"이름 변경"})`/`"프리셋 삭제"` 잔존 — `loadedPresetId` 미클리어 증명).
+2. **1a**: 프리셋 라벨에 `shrink-0 whitespace-nowrap` 클래스 존재(클래스 단언, 시각 회귀 보조).
+3. **2**: `getByRole("radio",{name: tileClosedTitle})`/`openTitle` 매칭(accname=제목만), HelpTip 버튼 존재, 라디오 클릭 시 선택 토글. (카드 빈 영역 클릭 선택은 jsdom이 의사요소 레이아웃을 안 그려 RTL로 불충분 → **라이브에서 실측**.)
 4. **3**: "추천" Badge 부재(`queryByText("추천")` null), 빠른-입력 칩 클릭 시 vus/duration 적용(값 단언), `sizePresetsCaption` 텍스트 존재, 칩에 가볍게/보통/세게 라벨 부재.
 5. **4**: 측정 HelpTip body가 `measureDesc`와 다름(심화 문구의 식별 구절 — 예: "처리량은 더 오르지 않습니다" — 포함).
 6. **5**: 스티키 footer에 `pb-*` 클래스 존재(클래스 단언).
 
-게이트: `cd ui && pnpm lint && pnpm test && pnpm build`.
+**기존 테스트 *수정* (제거하면 회귀 가드 소실 — 반드시 갱신, reviewer finding 4):**
+- `RunDialog.test.tsx:213-215`("부하 섹션 상단에 추천 안내를 보인다")는 옛 문구 `"추천값으로 채워져 있어…"`를 정확 단언 → §3.3(b)의 새 `recommendedNotice`(또는 개명 키) 문구로 갱신.
+- `LoadModelFields.test.tsx:365-380`(B4 `it.each` "showRecommended=true → '추천' Badge")는 제거되는 `showRecommended` prop을 넘겨 `tsc -b`(removed prop)+런타임 둘 다 깨진다 → 블록을 **제거**하고 "추천" Badge 부재(prop 없이) 단언으로 대체(위 신규 3과 통합 가능).
 
-**라이브 검증**(run-생성/payload 경로는 안 건드리지만 시각·동작 회귀가 본질이라 권장): 워크트리 자체 바이너리 + responder + Playwright — (a) 프리셋 불러오기 후 드롭다운 표시·수정 시 리셋, (b) 부하 모델 HelpTip이 제목 옆·테두리 안, (c) 빠른-입력 칩·"추천" 부재, (d) 측정 HelpTip 심화 내용, (e) 스크롤 시 footer 하단 여백, (f) closed 1 run 생성 → payload byte-identical 확인.
+**non-issue 확인됨**(reviewer finding 6, 손댈 필요 없음): `ko.test.ts:39-43`은 `p.vus`/`p.durationSeconds`만 읽어 `hint` 제거 무영향; 타일 name 매처는 *title* 정규식이라 native-radio `<label>`로도 통과; footer `[class*="sticky"]` 셀렉터는 `pb-3` 추가에 불변.
+
+게이트: `cd ui && pnpm lint && pnpm test && pnpm build`(전체 — targeted-green ≠ full-green).
+
+**라이브 검증**(run-생성/payload 경로는 안 건드리지만 시각·동작 회귀가 본질이라 권장): 워크트리 자체 바이너리 + responder + Playwright — (a) 프리셋 불러오기 후 드롭다운에 이름 표시 → 폼 수정 시 "— 선택 —" 복귀 + **이름 변경/삭제 버튼 잔존**(finding 1), (b) 부하 모델 HelpTip이 제목 옆·테두리 안 + **타일 카드 빈 영역 클릭 시 선택**(`after:content-['']` 오버레이 실측, finding 2), (c) 빠른-입력 칩·"추천" 부재, (d) 측정 HelpTip 심화 내용, (e) 스크롤 시 footer 하단 여백, (f) closed 1 run 생성 → payload byte-identical 확인.
 
 ## 6. 범위 밖 / 백로그
 
@@ -133,7 +151,7 @@ RunDialog는 페이지에 **inline** 렌더(`ScenarioRunsPage` `<div className="
 - `ui/src/components/RunDialog.tsx` — 1a·1b·④·⑤.
 - `ui/src/components/LoadModelFields.tsx` — ②(타일 재구성)·③(칩 relabel·추천 제거·`showRecommended` prop 제거).
 - `ui/src/i18n/ko.ts` — `measureHelp`(신규)·`sizePresetsCaption`(신규)·`sizePresets`/`sizePresetsLabel`/`recommendedNotice`(수정).
-- `ui/src/__tests__/*` — 위 6개 테스트(기존 파일에 추가 또는 신규).
+- `ui/src/components/__tests__/RunDialog.test.tsx`·`LoadModelFields.test.tsx` — 위 신규/변경 테스트(§5; 기존 테스트 2건 수정 포함). ko 카탈로그 테스트는 `ui/src/i18n/__tests__/`(있으면).
 - (finish 시) `docs/build-log.md`·`docs/roadmap.md`(Option C 백로그)·루트 `CLAUDE.md` 상태줄.
 
 검증: `crates/**`·proto·migration·`schemas.ts`·`ScheduleForm.tsx`·`Field.tsx`·`Badge.tsx` **0-diff**.
