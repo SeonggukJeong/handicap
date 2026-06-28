@@ -417,14 +417,24 @@ describe("LoadModelFields", () => {
     expect(group.tagName).toBe("FIELDSET");
     expect(screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ })).toBeInTheDocument();
     expect(screen.getByText(ko.loadModel.tileClosedDesc)).toBeInTheDocument();
+    // ②: HelpTip이 제목 옆·테두리 안 (closed/open 각각)
+    expect(screen.getByRole("button", { name: "closed-loop 설명" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "open-loop 설명" })).toBeInTheDocument();
   });
 
   it("선택 타일에 accent 클래스, 비선택엔 부재 (R1) + teeth", () => {
-    setup({ loadModelTiles: true, loadModel: "closed" }); // setup가 내부에서 render — render() 래핑 금지(:56·이중렌더→multiple elements)
-    const closed = screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ });
-    const open = screen.getByRole("radio", { name: /목표 RPS/ });
+    setup({ loadModelTiles: true, loadModel: "closed" });
+    const closed = screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ }).closest("div")!;
+    const open = screen.getByRole("radio", { name: /목표 RPS/ }).closest("div")!;
     expect(closed).toHaveClass("border-accent-500"); // 선택
     expect(open).not.toHaveClass("border-accent-500"); // 비선택 (teeth: 선택을 open으로 뒤집으면 FAIL)
+  });
+
+  it("타일 라디오 accessible name은 제목만 (HelpTip 비오염, U3)", () => {
+    setup({ loadModelTiles: true, loadModel: "closed" });
+    // 정확매치: 설명/HelpTip 라벨이 섞이면 실패
+    expect(screen.getByRole("radio", { name: "동시 사용자 (VU)" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "목표 RPS" })).toBeInTheDocument();
   });
 
   it("without new props, renders legacy radios + profile + worker (ScheduleForm parity)", () => {

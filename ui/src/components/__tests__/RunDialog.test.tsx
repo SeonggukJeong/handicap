@@ -510,7 +510,7 @@ describe("RunDialog — initial prefill (A1)", () => {
 
   it("seeds vus / duration / ramp-up / loop cap from initial.profile", () => {
     renderWithInitial(initial);
-    expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(7);
+    expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(7);
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(9);
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(3);
     expect(screen.getByLabelText(/루프 집계 상한/)).toHaveValue(128);
@@ -789,7 +789,9 @@ describe("RunDialog — load preset (A2)", () => {
     renderPresetDialog();
     await toDetailed(user); // 환경 편집기(override 행)는 상세 모드에서만 노출
     await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
-    await waitFor(() => expect(screen.getByLabelText(/동시 사용자/)).toHaveValue(50));
+    await waitFor(() =>
+      expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(50),
+    );
     expect(screen.getByLabelText(/테스트 시간/)).toHaveValue(60);
     expect(screen.getByLabelText(/점진 시작/)).toHaveValue(5);
     expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
@@ -1107,7 +1109,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     };
     renderWithInitial(openLoopInitial);
     expect(screen.getByRole("radio", { name: /목표 RPS/ })).toBeChecked();
-    expect(screen.getByLabelText(/목표 RPS/i)).toHaveValue(750);
+    expect(screen.getByRole("spinbutton", { name: /목표 RPS/i })).toHaveValue(750);
     expect(screen.getByLabelText(/동시 요청 상한/)).toHaveValue(400);
   });
 
@@ -1116,7 +1118,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
 
-    const targetRpsInput = screen.getByLabelText(/목표 RPS/i);
+    const targetRpsInput = screen.getByRole("spinbutton", { name: /목표 RPS/i });
     await user.clear(targetRpsInput);
     // Empty value → invalid
     expect(screen.getByText(/목표 RPS는 1 ~ 1,000,000 사이여야 합니다/)).toBeInTheDocument();
@@ -1155,10 +1157,10 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
 
     // open-loop fields are visible
-    expect(screen.getByLabelText(/목표 RPS/i)).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /목표 RPS/i })).toBeInTheDocument();
 
     // Fill in target_rps so the only missing piece is max_in_flight
-    const targetRpsInput = screen.getByLabelText(/목표 RPS/i);
+    const targetRpsInput = screen.getByRole("spinbutton", { name: /목표 RPS/i });
     await user.clear(targetRpsInput);
     await user.type(targetRpsInput, "100");
 
@@ -1174,7 +1176,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
   it("closed-loop mode is default and shows VUs/ramp-up inputs", () => {
     renderDialog();
     expect(screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ })).toBeChecked();
-    expect(screen.getByLabelText(/동시 사용자/)).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toBeInTheDocument();
     expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
   });
 
@@ -1182,7 +1184,7 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     const user = userEvent.setup();
     renderDialog();
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
-    expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/테스트 시간/)).toBeInTheDocument();
   });
@@ -1343,8 +1345,8 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.clear(durationInput);
     await user.type(durationInput, "10");
 
-    await user.clear(screen.getByLabelText(/목표 RPS/i));
-    await user.type(screen.getByLabelText(/목표 RPS/i), "500");
+    await user.clear(screen.getByRole("spinbutton", { name: /목표 RPS/i }));
+    await user.type(screen.getByRole("spinbutton", { name: /목표 RPS/i }), "500");
 
     await user.clear(screen.getByLabelText(/동시 요청 상한/));
     await user.type(screen.getByLabelText(/동시 요청 상한/), "200");
@@ -2169,7 +2171,7 @@ describe("RunDialog — 풀 과부하 가드 (L3 R8/R9/R10)", () => {
     expect(screen.queryByText(/요청 VU가 풀 용량/)).not.toBeInTheDocument();
 
     // 20 VU로 늘리기 — capacity 10 초과
-    const vusInput = screen.getByLabelText(/동시 사용자/);
+    const vusInput = screen.getByRole("spinbutton", { name: /동시 사용자/ });
     await user.clear(vusInput);
     await user.type(vusInput, "20");
 
@@ -2459,7 +2461,7 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
     await user.clear(screen.getByLabelText(/테스트 시간/));
     await user.type(screen.getByLabelText(/테스트 시간/), "5");
-    const targetRps = screen.getByLabelText(/목표 RPS/i);
+    const targetRps = screen.getByRole("spinbutton", { name: /목표 RPS/i });
     await user.clear(targetRps);
     await user.type(targetRps, "100");
     const mif = screen.getByLabelText(/동시 요청 상한/);
@@ -2551,7 +2553,7 @@ describe("RunDialog — 풀 과부하 가드 open-loop 확장 (L4 R8/R9/R10)", (
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
     await user.clear(screen.getByLabelText(/테스트 시간/));
     await user.type(screen.getByLabelText(/테스트 시간/), "5");
-    const targetRps = screen.getByLabelText(/목표 RPS/i);
+    const targetRps = screen.getByRole("spinbutton", { name: /목표 RPS/i });
     await user.clear(targetRps);
     await user.type(targetRps, "100");
     const mif = screen.getByLabelText(/동시 요청 상한/);
@@ -2829,7 +2831,7 @@ describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
   it("vus=0 → footer에 warn 텍스트 '설정을 확인하세요' + shape 없음", async () => {
     const user = userEvent.setup();
     renderDialog();
-    const vusInput = screen.getByLabelText(/동시 사용자/);
+    const vusInput = screen.getByRole("spinbutton", { name: /동시 사용자/ });
     await user.clear(vusInput);
     await user.type(vusInput, "0");
     expect(footer()).toHaveTextContent("설정을 확인하세요");
@@ -2973,7 +2975,7 @@ describe("RunDialog — 정밀계기 룩 (T9)", () => {
   it("주 수치 입력에 tabular-nums 클래스가 적용된다 (numeric prop)", () => {
     renderDialog();
     // LoadModelFields에 numeric=true가 전달되면 VU 수치 input에 tabular-nums가 붙는다
-    const vusInput = screen.getByLabelText(/동시 사용자/i);
+    const vusInput = screen.getByRole("spinbutton", { name: /동시 사용자/i });
     expect(vusInput).toHaveClass("tabular-nums");
   });
 

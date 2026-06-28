@@ -108,6 +108,8 @@ export function LoadModelFields({
     durationOpen: useId(),
     maxInFlight: useId(),
     workerCount: useId(),
+    loadModelClosed: useId(),
+    loadModelOpen: useId(),
   };
   // worker_count 접이식 disclosure — 기본 접힘, 시드된 값(>1)이면 자동 펼침
   // (ui-optional-sections-collapsible 이디엄). 무조건 호출 hook(모드 분기 위).
@@ -292,55 +294,80 @@ export function LoadModelFields({
              HelpTip은 타일 button 바깥 형제 — 버튼 안에 넣으면 중첩 button + accname 오염 (U3).
              공유 closedLoop/openLoop 키는 라디오 분기(:336,:349)에 그대로 — ScheduleForm 보존(R2). */
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-start gap-1">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={loadModel === "closed"}
-                onClick={() => setLoadModel("closed")}
-                className={`flex-1 flex items-start gap-3 rounded-lg border p-3 text-left cursor-pointer ${
-                  loadModel === "closed"
-                    ? "border-accent-500 bg-accent-50"
-                    : "border-slate-200 hover:border-slate-300"
+            {/* closed 타일 — div + sr-only native radio + stretched label(after:content-[''])
+               HelpTip은 제목 옆 형제(라벨 밖)라 accname 비오염, relative z-10 래퍼로 오버레이 위. */}
+            <div
+              className={`relative flex items-start gap-3 rounded-lg border p-3 ${
+                loadModel === "closed"
+                  ? "border-accent-500 bg-accent-50"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="load-model"
+                id={ids.loadModelClosed}
+                className="sr-only"
+                checked={loadModel === "closed"}
+                onChange={() => setLoadModel("closed")}
+              />
+              <span
+                aria-hidden="true"
+                className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
+                  loadModel === "closed" ? "border-accent-500 bg-accent-500" : "border-slate-300"
                 }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
-                    loadModel === "closed" ? "border-accent-500 bg-accent-500" : "border-slate-300"
-                  }`}
-                />
-                <span className="flex flex-col">
-                  <span className="font-semibold">{ko.loadModel.tileClosedTitle}</span>
-                  <span className="text-xs text-slate-500">{ko.loadModel.tileClosedDesc}</span>
+              />
+              <span className="flex flex-col min-w-0">
+                <span className="flex items-center gap-1">
+                  <label
+                    htmlFor={ids.loadModelClosed}
+                    className="font-semibold cursor-pointer after:content-[''] after:absolute after:inset-0"
+                  >
+                    {ko.loadModel.tileClosedTitle}
+                  </label>
+                  <span className="relative z-10">
+                    <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
+                  </span>
                 </span>
-              </button>
-              <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
+                <span className="text-xs text-slate-500">{ko.loadModel.tileClosedDesc}</span>
+              </span>
             </div>
-            <div className="flex items-start gap-1">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={loadModel === "open"}
-                onClick={() => setLoadModel("open")}
-                className={`flex-1 flex items-start gap-3 rounded-lg border p-3 text-left cursor-pointer ${
-                  loadModel === "open"
-                    ? "border-accent-500 bg-accent-50"
-                    : "border-slate-200 hover:border-slate-300"
+            {/* open 타일 */}
+            <div
+              className={`relative flex items-start gap-3 rounded-lg border p-3 ${
+                loadModel === "open"
+                  ? "border-accent-500 bg-accent-50"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="load-model"
+                id={ids.loadModelOpen}
+                className="sr-only"
+                checked={loadModel === "open"}
+                onChange={() => setLoadModel("open")}
+              />
+              <span
+                aria-hidden="true"
+                className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
+                  loadModel === "open" ? "border-accent-500 bg-accent-500" : "border-slate-300"
                 }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
-                    loadModel === "open" ? "border-accent-500 bg-accent-500" : "border-slate-300"
-                  }`}
-                />
-                <span className="flex flex-col">
-                  <span className="font-semibold">{ko.loadModel.tileOpenTitle}</span>
-                  <span className="text-xs text-slate-500">{ko.loadModel.tileOpenDesc}</span>
+              />
+              <span className="flex flex-col min-w-0">
+                <span className="flex items-center gap-1">
+                  <label
+                    htmlFor={ids.loadModelOpen}
+                    className="font-semibold cursor-pointer after:content-[''] after:absolute after:inset-0"
+                  >
+                    {ko.loadModel.tileOpenTitle}
+                  </label>
+                  <span className="relative z-10">
+                    <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+                  </span>
                 </span>
-              </button>
-              <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
+                <span className="text-xs text-slate-500">{ko.loadModel.tileOpenDesc}</span>
+              </span>
             </div>
           </div>
         ) : (

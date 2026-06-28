@@ -90,7 +90,7 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     mockApi();
     renderPage();
     await user.click(await screen.findByRole("button", { name: "다시 실행" }));
-    expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4);
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(4);
     expect(screen.getByLabelText("환경 변수 키 0")).toHaveValue("BASE_URL");
   });
 
@@ -123,18 +123,20 @@ describe("ScenarioRunsPage — retry (A1)", () => {
   it("auto-opens prefilled when ?retry=<runId> is present", async () => {
     mockApi();
     renderPage("/scenarios/S1/runs?retry=R1");
-    expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4);
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(4);
   });
 
   it("does not re-open the dialog after Cancel when the runs list refetches", async () => {
     const user = userEvent.setup();
     mockApi();
     const { qc } = renderPage("/scenarios/S1/runs?retry=R1");
-    expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4); // opened via deep-link
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(4); // opened via deep-link
     await user.click(screen.getByRole("button", { name: "취소" }));
-    await waitFor(() => expect(screen.queryByLabelText(/동시 사용자/)).toBeNull()); // closed
+    await waitFor(() =>
+      expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).toBeNull(),
+    ); // closed
     await qc.refetchQueries({ queryKey: ["scenarios", "S1", "runs"] });
-    expect(screen.queryByLabelText(/동시 사용자/)).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).toBeNull();
   });
 
   it("does not re-open the ?retry dialog when createRun's identity changes (deps guard)", async () => {
@@ -145,13 +147,15 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     const user = userEvent.setup();
     mockApi({}, 400);
     renderPage("/scenarios/S1/runs?retry=R1");
-    expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4); // opened via deep-link
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(4); // opened via deep-link
     await user.click(screen.getByRole("button", { name: "취소" }));
-    await waitFor(() => expect(screen.queryByLabelText(/동시 사용자/)).toBeNull()); // closed
+    await waitFor(() =>
+      expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).toBeNull(),
+    ); // closed
     // Trigger a createRun error → its identity changes → effect re-fires.
     await user.click(screen.getByRole("button", { name: "즉시 재실행" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/scenario drifted/);
-    expect(screen.queryByLabelText(/동시 사용자/)).toBeNull(); // stays closed
+    expect(screen.queryByRole("spinbutton", { name: /동시 사용자/ })).toBeNull(); // stays closed
   });
 
   it("surfaces a createRun error from '즉시 재실행'", async () => {
@@ -168,7 +172,7 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "다시 실행" }));
     // dialog opened (VUs seeded) but no drift alert because snapshots match
-    expect(await screen.findByLabelText(/동시 사용자/)).toHaveValue(4);
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(4);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -371,7 +375,7 @@ describe("ScenarioRunsPage — U2 breadcrumb + 빈 상태", () => {
     expect(await screen.findByText(ko.empty.runs)).toBeInTheDocument();
     const cta = screen.getByRole("button", { name: `${ko.empty.runsCta} →` });
     await user.click(cta);
-    expect(await screen.findByLabelText(/동시 사용자/)).toBeInTheDocument();
+    expect(await screen.findByRole("spinbutton", { name: /동시 사용자/ })).toBeInTheDocument();
   });
 });
 
