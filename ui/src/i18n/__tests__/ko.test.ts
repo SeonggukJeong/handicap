@@ -124,7 +124,6 @@ describe("U2 카탈로그 (nav/breadcrumb/onboarding/empty/pages)", () => {
       "urlLabel",
       "urlPlaceholder",
       "urlEmptyWarning",
-      "urlMissingBadge",
       "canvasEmpty",
       "addHttpStep",
       "addHttpStepInLoop",

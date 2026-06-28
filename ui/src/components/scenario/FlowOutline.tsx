@@ -21,10 +21,9 @@ import {
   isIfStep,
   isParallelStep,
   summarizeCondition,
-  findStepSiblings,
   type Step,
 } from "../../scenario/model";
-import { computeReorder } from "../../scenario/reorder";
+import { resolveDragEnd } from "../../scenario/reorder";
 
 // 데이터-식별 팔레트(메서드별) — accent 토큰과 별개 도메인(ui/CLAUDE.md 디자인시스템 노트).
 const METHOD_BADGE: Record<string, string> = {
@@ -233,13 +232,9 @@ export function FlowOutline() {
     const { active, over } = event;
     const activeId = active.id as string;
     const overId = (over?.id ?? null) as string | null;
-    // findStepSiblings(steps, activeId) = 해당 그룹 Step[] (없으면 최상위 fallback).
-    // computeReorder는 active가 그 그룹 밖이면 null 반환 → no-op 안전.
-    const siblings = findStepSiblings(steps, activeId);
-    const siblingIds = siblings.map((s) => s.id);
-    const toIndex = computeReorder(siblingIds, activeId, overId);
-    if (toIndex !== null) {
-      moveStep(activeId, toIndex);
+    const result = resolveDragEnd(steps, activeId, overId);
+    if (result) {
+      moveStep(result.stepId, result.toIndex);
     }
   };
 

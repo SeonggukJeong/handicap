@@ -58,7 +58,7 @@ describe("Inspector — placeholder", () => {
   it("shows placeholder when no step is selected", () => {
     useScenarioEditor.getState().loadFromString(VALID_YAML);
     render(<Inspector />);
-    expect(screen.getByText(/캔버스에서 스텝을 선택/)).toBeInTheDocument();
+    expect(screen.getByText(/아웃라인에서 스텝을 선택/)).toBeInTheDocument();
   });
 });
 

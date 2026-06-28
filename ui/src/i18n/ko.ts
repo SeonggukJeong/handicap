@@ -378,7 +378,7 @@ export const ko = {
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──
     inspectorAria: "스텝 설정",
-    inspectorEmpty: "캔버스에서 스텝을 선택하면 여기서 설정합니다.",
+    inspectorEmpty: "아웃라인에서 스텝을 선택하면 여기서 설정합니다.",
     httpPanelTitle: "HTTP 스텝",
     loopPanelTitle: "반복(loop)",
     ifPanelTitle: "조건(if)",
@@ -391,7 +391,6 @@ export const ko = {
     urlLabel: "URL *",
     urlPlaceholder: "https://api.example.com/login 또는 ${BASE_URL}/login",
     urlEmptyWarning: "URL을 입력하세요 — 비어 있으면 요청이 실패합니다.",
-    urlMissingBadge: "URL이 비어 있습니다",
     urlMissingTitle: "URL이 비어 있습니다",
     // ── 아웃라인 재설계 (R14) ──
     varsToggle: "변수",
@@ -546,7 +545,7 @@ export const ko = {
   templates: {
     galleryAria: "시나리오 템플릿 선택",
     galleryTitle: "어떤 시나리오로 시작할까요?",
-    galleryHint: "선택 후 캔버스·YAML에서 자유롭게 고칠 수 있습니다.",
+    galleryHint: "선택 후 아웃라인·YAML에서 자유롭게 고칠 수 있습니다.",
     blankName: "빈 시나리오",
     blankDesc: "아무것도 없는 상태에서 직접 만듭니다.",
     getName: "단순 GET",

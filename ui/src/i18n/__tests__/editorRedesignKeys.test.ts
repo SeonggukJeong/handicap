@@ -22,6 +22,9 @@ describe("editor redesign ko keys", () => {
     expect(ko.editor.problemGateAction).not.toContain("탭");
     expect(ko.editor.problemGateIntro).not.toContain("캔버스");
     expect(ko.editor.problemGateIntro).toContain("에디터");
+    // S1/S2: inspectorEmpty·galleryHint도 캔버스 참조 없어야 한다
+    expect(ko.editor.inspectorEmpty).not.toContain("캔버스");
+    expect(ko.templates.galleryHint).not.toContain("캔버스");
   });
 
   it("죽은 탭 키가 제거됐다 (Task 4)", () => {
