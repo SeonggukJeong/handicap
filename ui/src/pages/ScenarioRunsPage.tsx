@@ -12,6 +12,7 @@ import {
   type RunPrefill,
 } from "../api/runPrefill";
 import type { Run } from "../api/schemas";
+import { Callout } from "../components/ui/Callout";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
@@ -135,7 +136,7 @@ export function ScenarioRunsPage() {
   }
 
   if (scenario.isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
-  if (scenario.error) return <p className="text-red-600">{(scenario.error as Error).message}</p>;
+  if (scenario.error) return <Callout variant="error">{(scenario.error as Error).message}</Callout>;
   if (!scenario.data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const scenarioChanged = !!prefillState && prefillState.runScenarioYaml !== scenario.data.yaml;
@@ -179,12 +180,9 @@ export function ScenarioRunsPage() {
       )}
 
       {createRun.error && (
-        <p
-          role="alert"
-          className="mb-4 p-2 rounded border border-red-200 bg-red-50 text-sm text-red-700"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           재실행 실패: {(createRun.error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {runs.isLoading && <p className="text-slate-500">{ko.common.loadingRuns}</p>}

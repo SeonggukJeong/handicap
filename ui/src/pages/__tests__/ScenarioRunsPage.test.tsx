@@ -164,6 +164,8 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "즉시 재실행" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/scenario drifted/);
+    // pin: run-creation error box is reachable via role="alert" and contains "실패"
+    expect(screen.getByRole("alert")).toHaveTextContent(/실패/);
   });
 
   it("does not show the drift warning when the run snapshot matches the live scenario", async () => {
