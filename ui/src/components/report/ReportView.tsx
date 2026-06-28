@@ -25,6 +25,7 @@ import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
 import { ReportHeadline } from "./ReportHeadline";
 import { bySecond } from "../../report/bySecond";
+import { Callout } from "../ui/Callout";
 
 type Props = { report: Report; profile: Profile };
 
@@ -143,12 +144,9 @@ export function ReportView({ report, profile }: Props) {
         </div>
       </div>
       {dlErr && (
-        <p
-          role="alert"
-          className="mb-4 p-2 rounded border border-red-200 bg-red-50 text-sm text-red-700"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           다운로드 실패: {dlErr}
-        </p>
+        </Callout>
       )}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}

@@ -249,7 +249,9 @@ describe("ReportView", () => {
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       await user.click(screen.getByRole("button", { name: ko.report.downloadMenu }));
       await user.click(screen.getByRole("menuitem", { name: "CSV" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("network error");
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("다운로드 실패:");
+      expect(alert).toHaveTextContent("network error");
     });
 
     it("explains each format in a help tip", async () => {
