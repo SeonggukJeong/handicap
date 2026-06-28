@@ -393,6 +393,18 @@ export const ko = {
     urlPlaceholder: "https://api.example.com/login 또는 ${BASE_URL}/login",
     urlEmptyWarning: "URL을 입력하세요 — 비어 있으면 요청이 실패합니다.",
     urlMissingBadge: "URL이 비어 있습니다",
+    urlMissingTitle: "URL이 비어 있습니다",
+    // ── 아웃라인 재설계 (R14) ──
+    varsToggle: "변수",
+    varsToggleAria: "변수 패널 접기/펼치기",
+    varsPanelAria: "변수",
+    openYaml: "YAML",
+    yamlModalTitle: "YAML 편집",
+    dragHandleAria: (name: string) => `"${name}" 스텝 순서 이동 (드래그)`,
+    outlineRowAria: (name: string) => `스텝: ${name}`,
+    containerLoop: "반복",
+    containerIf: "조건",
+    containerParallel: "동시",
     // ── 캔버스 (§5.1) ──
     canvasEmpty: "HTTP 스텝을 추가해 시작하세요. 스텝은 부하 중 반복 실행될 HTTP 요청 1개입니다.",
     addHttpStep: "+ HTTP 스텝",
@@ -421,8 +433,8 @@ export const ko = {
       `"${stepName}" 스텝의 URL이 비어 있습니다 — 실행하면 요청이 실패합니다.`,
     problemUrlNeedsScheme: (stepName: string) =>
       `"${stepName}" 스텝의 URL은 http:// 또는 https:// 로 시작해야 합니다 — 예: https://api.example.com/path 또는 \${BASE_URL}/path`,
-    problemGateIntro: "YAML이 유효하지 않아 캔버스가 마지막 정상 상태로 표시될 수 있습니다.",
-    problemGateAction: "YAML 탭에서 확인",
+    problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
+    problemGateAction: "YAML 열어 확인",
     gateRequired: (path: string) => `${path}: 필수 항목이 없습니다`,
     gateNameRequired: (path: string) => `${path}: 이름이 비어 있습니다`,
     gateInvalidLiteral: (path: string, expected: string) =>
