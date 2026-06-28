@@ -39,6 +39,7 @@ import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
 import { runSummary } from "./runSummary";
 import { StageCurvePreview } from "./StageCurvePreview";
+import { LoadShapePreview } from "./LoadShapePreview";
 import { Section } from "./ui/Section";
 import { Badge } from "./ui/Badge";
 import { Callout } from "./ui/Callout";
@@ -1033,23 +1034,38 @@ export function RunDialog({
         {/* 좌측: 강조 바 + 선택적 곡선 미리보기 + 요약 텍스트 */}
         <div className="flex items-center gap-3 min-w-0">
           <span className="w-0.5 self-stretch rounded bg-accent-600" />
-          {sum.curve && previewStages.length > 0 && (
-            <div
+          {sum.tone !== "warn" && (
+            <LoadShapePreview
+              kind={sum.curve ? "curve" : "flat"}
+              stages={sum.curve ? previewStages : undefined}
+              width={60}
+              height={30}
               role="img"
               aria-label={
-                loadModel === "closed"
-                  ? ko.loadModel.curvePreviewAriaVu
-                  : ko.loadModel.curvePreviewAriaRps
+                sum.curve
+                  ? loadModel === "closed"
+                    ? ko.loadModel.curvePreviewAriaVu
+                    : ko.loadModel.curvePreviewAriaRps
+                  : ko.runDialog.loadShapeAria
               }
               className="shrink-0"
-            >
-              <StageCurvePreview stages={previewStages} width={60} height={30} />
-            </div>
+            />
           )}
           <span
             className={sum.tone === "warn" ? "text-amber-700 text-sm" : "text-slate-900 text-sm"}
           >
-            {sum.text}
+            <span>
+              {sum.main.map((seg, i) =>
+                seg.bold ? (
+                  <b key={i} className="font-bold tabular-nums">
+                    {seg.text}
+                  </b>
+                ) : (
+                  <span key={i}>{seg.text}</span>
+                ),
+              )}
+            </span>
+            {sum.sub && <span className="block text-xs text-slate-500">{sum.sub}</span>}
           </span>
         </div>
         {/* 우측: Run/취소 */}

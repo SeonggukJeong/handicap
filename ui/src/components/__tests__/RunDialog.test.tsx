@@ -2681,7 +2681,11 @@ describe("RunDialog — 풀 과부하 가드 closed+curve 확장 (L5 R8/R9/R10)"
 // ───────────────────────────────────────────────────────────────
 
 describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
-  it("closed 100명·300초 → footer에 '동시 사용자 100명' + '5분'", () => {
+  // footer 컨테이너: sticky bottom div
+  const footer = () =>
+    screen.getByRole("button", { name: "실행하기" }).closest('[class*="sticky"]')!;
+
+  it("closed 100명·300초 → footer에 '동시 사용자 100명 · 5분' + 고정-모양 img", () => {
     renderWithInitial({
       profile: {
         vus: 100,
@@ -2694,8 +2698,9 @@ describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
       },
       env: {},
     });
-    expect(screen.getByText(/동시 사용자 100명/)).toBeInTheDocument();
-    expect(screen.getByText(/5분/)).toBeInTheDocument();
+    expect(footer()).toHaveTextContent("동시 사용자 100명 · 5분");
+    // 고정(flat) 모드에서도 footer LoadShapePreview가 role=img로 렌더됨
+    expect(screen.getByRole("img", { name: "부하 모양 미리보기" })).toBeInTheDocument();
   });
 
   it("open-loop 전환 → footer에 '약 30,000건' (100 RPS × 300초)", async () => {
@@ -2713,19 +2718,21 @@ describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
       env: {},
     });
     await user.click(screen.getByRole("radio", { name: /목표 RPS/ }));
-    expect(screen.getByText(/약 30,000건/)).toBeInTheDocument();
+    expect(footer()).toHaveTextContent("약 30,000건");
   });
 
-  it("vus=0 → footer에 warn 텍스트 '설정을 확인하세요'", async () => {
+  it("vus=0 → footer에 warn 텍스트 '설정을 확인하세요' + shape 없음", async () => {
     const user = userEvent.setup();
     renderDialog();
     const vusInput = screen.getByLabelText(/동시 사용자/);
     await user.clear(vusInput);
     await user.type(vusInput, "0");
-    expect(screen.getByText("설정을 확인하세요")).toBeInTheDocument();
+    expect(footer()).toHaveTextContent("설정을 확인하세요");
+    // warn 시 LoadShapePreview 미렌더
+    expect(screen.queryByRole("img", { name: "부하 모양 미리보기" })).toBeNull();
   });
 
-  it("closed+curve prefill → footer에 곡선 텍스트 + StageCurvePreview(role=img)", () => {
+  it("closed+curve prefill → footer에 곡선 텍스트 + LoadShapePreview(role=img, VU label)", () => {
     renderWithInitial({
       profile: {
         vus: 0,
@@ -2739,9 +2746,9 @@ describe("RunDialog — 실시간 요약 footer (R8·T8)", () => {
       },
       env: {},
     });
-    // 곡선 요약 텍스트 (ko.runDialog.summaryCurveVu)
-    expect(screen.getByText(/최대 50명/)).toBeInTheDocument();
-    // footer의 StageCurvePreview가 role=img 컨테이너 안에 있어야 함
+    // 곡선 요약 텍스트 (ko.runDialog.summaryCurveVu): <b>+<span> 분산이므로 toHaveTextContent 사용
+    expect(footer()).toHaveTextContent("최대 50명");
+    // footer의 LoadShapePreview가 role=img + VU label
     expect(screen.getAllByRole("img").length).toBeGreaterThanOrEqual(1);
   });
 });
@@ -2878,8 +2885,6 @@ describe("RunDialog — 정밀계기 룩 (T9)", () => {
 describe("RunDialog — 헤더 제목 (R8)", () => {
   it("헤더 제목 '실행 설정' (R8)", () => {
     renderDialog();
-    expect(
-      screen.getByRole("heading", { name: "실행 설정" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "실행 설정" })).toBeInTheDocument();
   });
 });

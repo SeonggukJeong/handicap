@@ -97,15 +97,38 @@ export const ko = {
     presetNameAria: "프리셋 이름",
     recommendedNotice: "추천값으로 채워져 있어 바로 실행할 수 있습니다.",
     // ── 실행 요약 footer (R8) ──
-    summaryClosed: (vus: number, time: string) => `동시 사용자 ${vus}명 · ${time}`,
+    // main: 굵은(bold) 수치 + 회색 레이블 세그먼트 배열; sub: 회색 보조 텍스트
+    summaryClosed: (vus: number, time: string) => [
+      { text: "동시 사용자 " },
+      { text: String(vus), bold: true },
+      { text: "명 · " },
+      { text: time, bold: true },
+    ],
     summaryRampUp: (sec: number) => (sec > 0 ? `램프업 ${sec}초` : "램프업 없음"),
-    summaryOpen: (rps: number, total: string, time: string) =>
-      `목표 ${rps} RPS · 약 ${total}건 · ${time}`,
+    summaryOpen: (rps: number, total: string, time: string) => [
+      { text: "목표 " },
+      { text: String(rps), bold: true },
+      { text: " RPS · 약 " },
+      { text: total, bold: true },
+      { text: "건 · " },
+      { text: time, bold: true },
+    ],
     summaryOpenSub: (mif: string) => `동시 요청 상한 ${mif || "—"}`,
-    summaryCurveVu: (peak: number) => `최대 ${peak}명 (곡선)`,
-    summaryCurveRps: (peak: number) => `최대 ${peak} RPS (곡선)`,
+    summaryCurveVu: (peak: number) => [
+      { text: "최대 " },
+      { text: String(peak), bold: true },
+      { text: "명 (곡선)" },
+    ],
+    summaryCurveRps: (peak: number) => [
+      { text: "최대 " },
+      { text: String(peak), bold: true },
+      { text: " RPS (곡선)" },
+    ],
     summaryCurveSub: (totalSec: number, stages: number) => `총 ${totalSec}초 · ${stages}단계`,
     summaryInvalid: "설정을 확인하세요",
+    summaryWarnClosedSub: "동시 사용자·시간을 입력",
+    summaryWarnOpenSub: "목표 RPS·시간을 입력",
+    loadShapeAria: "부하 모양 미리보기",
     modeSimple: "간단",
     modeDetail: "상세",
     modeAria: "설정 모드",
