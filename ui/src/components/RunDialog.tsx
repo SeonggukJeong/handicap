@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreatePreset,
@@ -194,6 +194,9 @@ export function RunDialog({
   const [panelKey, setPanelKey] = useState(0);
   // loadedPresetId / presetName: used by save/rename/delete preset controls.
   const [loadedPresetId, setLoadedPresetId] = useState<string | null>(null);
+  // 1b: 드롭다운 표시는 render-derived (loadedPresetId 미클리어 — rename/delete 보존).
+  const [presetSnapshotKey, setPresetSnapshotKey] = useState<string>("");
+  const [presetLoadTick, setPresetLoadTick] = useState(0);
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState<string | null>(null);
 
@@ -281,6 +284,7 @@ export function RunDialog({
       if (opensDetailed(prof, envValueToRecord(p.env))) setMode("detailed");
       setLoadedPresetId(id);
       setPresetName(p.name);
+      setPresetLoadTick((t) => t + 1); // 1b: commit 후 스냅샷 재캡처 트리거
     } catch (e) {
       setPresetError((e as Error).message);
     }
@@ -487,13 +491,19 @@ export function RunDialog({
         { id: existing.id, body: currentInput() },
         {
           onError: (e) => setPresetError((e as Error).message),
-          onSuccess: () => setLoadedPresetId(existing.id),
+          onSuccess: () => {
+            setLoadedPresetId(existing.id);
+            setPresetLoadTick((t) => t + 1);
+          },
         },
       );
     } else {
       createPreset.mutate(currentInput(), {
         onError: (e) => setPresetError((e as Error).message),
-        onSuccess: (p) => setLoadedPresetId(p.id),
+        onSuccess: (p) => {
+          setLoadedPresetId(p.id);
+          setPresetLoadTick((t) => t + 1);
+        },
       });
     }
   }
@@ -511,7 +521,10 @@ export function RunDialog({
       { id: loadedPresetId, body: { ...currentInput(), name: next } },
       {
         onError: (e) => setPresetError((e as Error).message),
-        onSuccess: () => setPresetName(next),
+        onSuccess: () => {
+          setPresetName(next);
+          setPresetLoadTick((t) => t + 1);
+        },
       },
     );
   }
@@ -528,6 +541,16 @@ export function RunDialog({
       },
     });
   }
+
+  // 1b: 현재 폼의 정규화 키 + latest-value ref (effect가 ref로 읽어 exhaustive-deps 회피).
+  const currentProfileKey = JSON.stringify(buildProfile());
+  const keyRef = useRef(currentProfileKey);
+  keyRef.current = currentProfileKey;
+  // load/save/rename이 commit된 뒤 그 시점 폼으로 스냅샷 캡처(단일 발화).
+  // currentProfileKey를 dep에 넣지 말 것 — 매 수정마다 재캡처돼 드롭다운이 복귀 안 함.
+  useEffect(() => {
+    setPresetSnapshotKey(keyRef.current);
+  }, [presetLoadTick]);
 
   // 정밀계기 룩 — 섹션 타이틀 eyebrow 스타일 (RunDialog 국소)
   const eyebrowCls = "text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500";
@@ -553,13 +576,16 @@ export function RunDialog({
       )}
       {presets.data && presets.data.length > 0 && (
         <div className="mb-3 flex items-center gap-2">
-          <label className="text-sm text-slate-600" htmlFor="load-preset">
+          <label
+            className="text-sm text-slate-600 shrink-0 whitespace-nowrap"
+            htmlFor="load-preset"
+          >
             프리셋 불러오기
           </label>
           <Select
             id="load-preset"
             aria-label={ko.runDialog.loadPresetAria}
-            value=""
+            value={loadedPresetId && currentProfileKey === presetSnapshotKey ? loadedPresetId : ""}
             onChange={(e) => {
               if (e.target.value) void loadPreset(e.target.value);
             }}
