@@ -671,11 +671,11 @@ export function RunDialog({
           })()
         : null}
 
-      {/* 그룹 2: 대상 설정 — 항상 펼침 */}
+      {/* 그룹 2: 환경 — 항상 펼침 */}
       <Section
         index={2}
         divider
-        title={<span className={eyebrowCls}>{ko.runDialog.sectionTargetTitle}</span>}
+        title={<span className={eyebrowCls}>{ko.runDialog.sectionEnvTitle}</span>}
         badge={<Badge tone="optional">{ko.common.optional}</Badge>}
       >
         <EnvironmentPicker
@@ -686,7 +686,16 @@ export function RunDialog({
           onOverridesChange={setEnvEntries}
           showOverrides={mode === "detailed"}
         />
-        {mode === "detailed" && scenario && (
+      </Section>
+
+      {/* 그룹 3: 데이터셋 바인딩 — 상세+시나리오 존재 시만 */}
+      {mode === "detailed" && scenario && (
+        <Section
+          index={3}
+          divider
+          title={<span className={eyebrowCls}>{ko.runDialog.sectionDatasetTitle}</span>}
+          badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+        >
           <DataBindingPanel
             key={panelKey}
             scenario={scenario}
@@ -694,13 +703,46 @@ export function RunDialog({
             onChange={setBindings}
             onValidityChange={onBindingValidity}
           />
-        )}
-      </Section>
+        </Section>
+      )}
 
-      {/* 그룹 3: 판정·고급 — Section 접힘(Section이 open 게이트 소유) */}
+      {/* 그룹 4: 측정 — 상세-only (R13·R14③) */}
       {mode === "detailed" && (
         <Section
-          index={3}
+          index={4}
+          divider
+          title={<span className={eyebrowCls}>{ko.runDialog.sectionMeasureTitle}</span>}
+          badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+        >
+          <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={measurePhases}
+              aria-label={ko.runDialog.measureTitle}
+              onClick={() => setMeasurePhases(!measurePhases)}
+              className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${measurePhases ? "bg-accent-600" : "bg-slate-300"}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${measurePhases ? "left-[18px]" : "left-0.5"}`}
+              />
+            </button>
+            <span className="flex flex-col">
+              <span className="flex items-center gap-1 text-sm font-semibold">
+                {ko.runDialog.measureTitle}
+                <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
+              </span>
+              <span className="text-xs text-slate-500">{ko.runDialog.measureDesc}</span>
+            </span>
+          </div>
+        </Section>
+      )}
+
+      {/* 그룹 5: 판정·고급 — Section 접힘(Section이 open 게이트 소유) */}
+      {mode === "detailed" && (
+        <Section
+          index={5}
           divider
           title={<span className={eyebrowCls}>{ko.runDialog.sectionAdvancedTitle}</span>}
           badge={<Badge tone="optional">{ko.common.optional}</Badge>}
@@ -821,73 +863,52 @@ export function RunDialog({
         </Section>
       )}
 
-      {/* 측정 섹션 — 판정·고급 바깥, 상세-only (R9) */}
+      {/* 그룹 6: 이 설정 저장 — 상세-only, 본문 최하단 (R7) */}
       {mode === "detailed" && (
-        <div className="mt-3 mb-3">
-          <div className="flex items-start gap-3 rounded-lg border border-slate-200 p-3">
+        <Section
+          index={6}
+          divider
+          title={<span className={eyebrowCls}>{ko.runDialog.sectionSaveTitle}</span>}
+          badge={<Badge tone="optional">{ko.common.optional}</Badge>}
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <Input
+              className="w-48"
+              aria-label={ko.runDialog.presetNameAria}
+              placeholder="프리셋 이름"
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+            />
             <button
               type="button"
-              role="switch"
-              aria-checked={measurePhases}
-              aria-label={ko.runDialog.measureTitle}
-              onClick={() => setMeasurePhases(!measurePhases)}
-              className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${measurePhases ? "bg-accent-600" : "bg-slate-300"}`}
+              onClick={savePreset}
+              disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
+              className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
             >
-              <span
-                aria-hidden="true"
-                className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${measurePhases ? "left-[18px]" : "left-0.5"}`}
-              />
+              프리셋으로 저장
             </button>
-            <span className="flex flex-col">
-              <span className="flex items-center gap-1 text-sm font-semibold">
-                {ko.runDialog.measureTitle}
-                <HelpTip label={ko.runDialog.measureTitle}>{ko.runDialog.measureDesc}</HelpTip>
-              </span>
-              <span className="text-xs text-slate-500">{ko.runDialog.measureDesc}</span>
-            </span>
+            {loadedPresetId && (
+              <>
+                <button
+                  type="button"
+                  onClick={renamePreset}
+                  disabled={updatePreset.isPending}
+                  className="text-slate-700 hover:underline text-sm disabled:opacity-50"
+                >
+                  이름 변경
+                </button>
+                <button
+                  type="button"
+                  onClick={removePreset}
+                  disabled={deletePreset.isPending}
+                  className="text-red-600 hover:underline text-sm disabled:opacity-50"
+                >
+                  프리셋 삭제
+                </button>
+              </>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* 프리셋 저장/이름변경/삭제 — 상세-only, 본문 최하단 (R7) */}
-      {mode === "detailed" && (
-        <div className="mb-3 flex items-center gap-2">
-          <Input
-            className="w-48"
-            aria-label={ko.runDialog.presetNameAria}
-            placeholder="프리셋 이름"
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={savePreset}
-            disabled={createPreset.isPending || updatePreset.isPending || deletePreset.isPending}
-            className="px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
-          >
-            프리셋으로 저장
-          </button>
-          {loadedPresetId && (
-            <>
-              <button
-                type="button"
-                onClick={renamePreset}
-                disabled={updatePreset.isPending}
-                className="text-slate-700 hover:underline text-sm disabled:opacity-50"
-              >
-                이름 변경
-              </button>
-              <button
-                type="button"
-                onClick={removePreset}
-                disabled={deletePreset.isPending}
-                className="text-red-600 hover:underline text-sm disabled:opacity-50"
-              >
-                프리셋 삭제
-              </button>
-            </>
-          )}
-        </div>
+        </Section>
       )}
 
       {mutation.error && !(mutation.error instanceof PoolCapacityError) && (

@@ -68,7 +68,10 @@ export const ko = {
     cancel: "취소",
     // Section 프리미티브용 라벨 (B1)
     sectionLoadTitle: "부하 모델", // was "부하 정의" (R14① 단일 헤더)
-    sectionTargetTitle: "대상 설정",
+    sectionEnvTitle: "환경",
+    sectionDatasetTitle: "데이터셋 바인딩",
+    sectionMeasureTitle: "측정",
+    sectionSaveTitle: "이 설정 저장",
     sectionAdvancedTitle: "판정·고급",
     advancedSetHint: (n: number) => `${n}개 설정됨`,
     sectionSlo: "합격 기준(SLO)",

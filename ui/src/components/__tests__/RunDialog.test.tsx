@@ -204,7 +204,7 @@ describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
   it("3개 번호 섹션 + 필수/선택 배지로 렌더한다", () => {
     renderDialog();
     expect(screen.getAllByText("부하 모델").length).toBeGreaterThanOrEqual(1); // Section title + sr-only legend 둘 다 존재
-    expect(screen.getByText("대상 설정")).toBeInTheDocument();
+    expect(screen.getAllByText("환경").length).toBeGreaterThanOrEqual(1); // Section title + sr-only legend
     // 필수/선택 배지 (Badge 텍스트)
     expect(screen.getAllByText("필수").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("선택").length).toBeGreaterThanOrEqual(1);
@@ -213,6 +213,21 @@ describe("RunDialog — Section 프리미티브 구조 (B1)", () => {
   it("부하 섹션 상단에 추천 안내를 보인다", () => {
     renderDialog();
     expect(screen.getByText("추천값으로 채워져 있어 바로 실행할 수 있습니다.")).toBeInTheDocument();
+  });
+});
+
+describe("RunDialog — Section 재구성 (R14②③④)", () => {
+  it("상세 모드: 환경·측정·저장 독립 Section, '대상 설정' 없음, 측정이 판정·고급 앞 (R14②③④)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole("radio", { name: "상세" }));
+    expect(screen.getAllByText("환경").length).toBeGreaterThanOrEqual(1); // Section title + sr-only legend
+    expect(screen.getAllByText("측정").length).toBeGreaterThanOrEqual(1); // 측정 Section eyebrow
+    expect(screen.getAllByText("이 설정 저장").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("대상 설정")).not.toBeInTheDocument();
+    // DOM 순서: 측정 eyebrow가 판정·고급 토글보다 앞
+    const html = document.body.innerHTML;
+    expect(html.indexOf("측정")).toBeLessThan(html.indexOf("판정·고급"));
   });
 });
 
