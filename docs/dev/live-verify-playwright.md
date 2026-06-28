@@ -2,7 +2,7 @@
 
 > 이 문서는 **`/live-verify` 할 때만** 읽으면 되는 Playwright-MCP *도구 자체의* 함정 모음이다 — UI 코드 지식과 무관한 순수 도구 메커니즘이라, `ui/` 작업마다 자동 로드되던 `ui/CLAUDE.md`에서 빼냈다(2026-06-28 최적화). UI 거동에 *결합된* 검증 노트("jsdom이 X를 못 잡으니 계약테스트 Y→Playwright Z 실측" 류)는 여전히 `ui/CLAUDE.md`에 인라인으로 남아 있다(그건 UI 짤 때 필요하므로).
 >
-> **참고**: 루트 `CLAUDE.md`의 "로컬 dev 실행 함정" 섹션에도 Playwright-MCP 함정이 더 있다(상시 로드) — `browser_take_screenshot` 상대경로=repo 루트·`browser_snapshot`=`.playwright-mcp/*.yml`(둘 다 gitignore 안 됨→머지 전 정리)·React controlled input은 native setter+`dispatchEvent('input')`·`el.click()` 직후 같은 evaluate 내 DOM 읽기는 React 18 batching으로 렌더 *전* 상태·`browser_console_messages({all:true})`는 cross-session 버퍼. 그쪽은 부하 페이싱/일반 라이브 검증용이고, 이 문서는 `ui/CLAUDE.md`에서 이주한 UI-슬라이스 검증용.
+> **참고**: 아래 "부하 페이싱·일반 라이브 검증" 섹션은 루트 `CLAUDE.md` "로컬 dev 실행 함정"에서 이주한 것(2026-06-28) — 루트엔 토픽 나열 포인터만 남겼다. 이 문서는 그 외에도 `ui/CLAUDE.md`에서 이주한 UI-슬라이스 시각 검증 함정을 담는다.
 
 ## 스크린샷 경로 / MCP cwd 고정 (시각-충실도 슬라이스)
 
@@ -15,3 +15,7 @@
 ## 트랜지언트 상태는 단일 `browser_evaluate`로
 
 - **트랜지언트 UI 상태(예: '복사됨' 1.5s 후 복귀)는 Playwright MCP 툴 호출 *사이*로 못 잡는다** (본문 뷰어 수동검증): `browser_click` → `browser_snapshot`을 별도 호출로 쪼개면 inter-call 지연이 revert 윈도우를 넘겨 이미 되돌아온 값을 본다. **단일 `browser_evaluate`** 안에서 `el.click()` → `await sleep(150)`(writeText microtask+React 렌더) → label 확인 → `await sleep(1700)` → revert 확인까지 한 번에. clipboard 검증도 같은 evaluate에서 `navigator.clipboard.readText()`(localhost=secure context라 허용).
+
+## 부하 페이싱·일반 라이브 검증 (루트 CLAUDE.md에서 이주)
+
+- UI 라운드트립은 Playwright — `browser_take_screenshot` 상대경로 파일은 **repo 루트**, `browser_snapshot`은 `.playwright-mcp/*.yml`에 떨어지고 **둘 다 gitignore 안 됨** → 머지 전 `rm -rf .playwright-mcp` + 루트 png 정리(안 하면 worktree 머지 시 untracked 잔류). **함정: Playwright MCP 서버의 cwd는 그 서버가 처음 기동된 워크트리에 고정된다 — 이전 세션의(삭제됐을 수 있는) 워크트리일 수 있다** (phase-breakdown): 그래서 `filename:` 상대 저장은 *현재* 워크트리가 아니라 그 고정-cwd로 가고(삭제됐으면 `ENOENT`), 위 "현재 디렉터리 정리"가 못 잡는다(역으로 현재 워크트리는 안 더럽혀질 수도). **라이브 검증은 `filename` 없는 인라인 `browser_snapshot`/`browser_evaluate`로** — 페이지 상태를 텍스트로 직접 뽑는 게 저장-경로 의존 없이 결정적이다(이번엔 step 테이블 헤더/셀을 `browser_evaluate`로 추출해 다운로드 컬럼 유무를 검증). **React controlled input은 `browser_type`이 아니라 evaluate 안에서 native setter로**: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el, v)` + `el.dispatchEvent(new Event('input',{bubbles:true}))` (U3 라이브 검증). **같은 evaluate 안에서 `el.click()` 직후 DOM을 읽으면 React 렌더 *전* 상태를 본다**(React 18 batching) — 클릭과 단언을 별도 evaluate 호출로 분리. **`browser_console_messages({all:true})`는 cross-session 버퍼를 돌려준다** (lan-l7 라이브): MCP 서버가 세션을 넘어 살아 있어 *이전 세션*의 stale 메시지(예: 컨트롤러가 죽었던 때의 `ERR_CONNECTION_REFUSED` 수백 개)가 섞여 나와 "라이브 실패"로 오인하게 한다 — 이번 슬라이스의 Zod-0 체크는 `all` 없이(현재 navigation만) 보고, fresh `browser_navigate` 직후 확인할 것. CONNECTION_REFUSED 같은 *네트워크-리소스* 에러는 Zod/앱 에러가 아니다(controller `curl 200`으로 살아있음 교차확인).
