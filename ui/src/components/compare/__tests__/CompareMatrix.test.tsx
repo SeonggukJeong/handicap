@@ -99,6 +99,8 @@ describe("CompareMatrix", () => {
       />,
     );
     expect(screen.getByText("p95_ms")).toBeInTheDocument();
+    // Mismatch banner must remain reachable via role="status" after Callout conversion
+    expect(screen.getByRole("status")).toBeInTheDocument();
     expect(screen.getByText(/일부만 비교/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /#B/ }));
     expect(onBaselineChange).toHaveBeenCalledWith("B");

@@ -2,6 +2,7 @@ import type { Cell, CompareResult, CompareRow } from "../../compare/compareRepor
 import { verdictPolarity } from "../../compare/compareReports";
 import { runColor } from "../../compare/runLabel";
 import { ko } from "../../i18n/ko";
+import { Callout } from "../ui/Callout";
 
 type Props = {
   result: CompareResult;
@@ -108,12 +109,9 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
     <div>
       {/* Step mismatch banner — stays above the table */}
       {stepMismatch && (
-        <p
-          role="status"
-          className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2"
-        >
+        <Callout variant="warn" role="status" className="mb-4">
           스텝 구성이 달라 일부만 비교됩니다
-        </p>
+        </Callout>
       )}
 
       {/*
