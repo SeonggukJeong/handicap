@@ -94,6 +94,8 @@ describe("EditorShell", () => {
       screen.getByRole("complementary", { name: ko.editor.varsPanelAria }),
     ).toBeInTheDocument();
     const toggle = screen.getByRole("button", { name: ko.editor.varsToggleAria });
+    // 장식 글리프는 a11y 트리에서 숨긴다 (</> 버튼과 대칭)
+    expect(toggle.querySelector('[aria-hidden="true"]')?.textContent).toContain("☰");
     await user.click(toggle); // 접기
     expect(
       screen.queryByRole("complementary", { name: ko.editor.varsPanelAria }),

@@ -45,7 +45,7 @@ export function EditorShell({
           onClick={() => setVarsOpen((v) => !v)}
           className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
         >
-          ☰ {ko.editor.varsToggle}
+          <span aria-hidden="true">☰</span> {ko.editor.varsToggle}
         </button>
         <button
           type="button"
