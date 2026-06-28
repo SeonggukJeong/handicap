@@ -49,6 +49,7 @@ curl -s "http://127.0.0.1:8080/api/runs/$RID/report" | python3 -c 'import sys,js
 - `http://127.0.0.1:8080`로 navigate. **`filename` 없는 `browser_evaluate`/`browser_snapshot`**으로 상태를 텍스트로 직접 추출(저장 png/yml은 고정-cwd로 가 ENOENT/잔류).
 - React controlled input은 native setter: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,v); el.dispatchEvent(new Event('input',{bubbles:true}))`. **click과 단언은 별도 evaluate**(React 18 batching).
 - 끝에 `browser_console_messages({level:'error'})`로 Zod 0 확인.
+- **추가 Playwright-MCP 도구 함정** → `docs/dev/live-verify-playwright.md`: 스크린샷 cwd 고정(MCP temp 절대경로 저장 후 `Read`)·`browser_file_upload` repo-루트 제한·트랜지언트('복사됨' 류) 상태 단일-`browser_evaluate`·목업 PNG 대조. (`ui/CLAUDE.md`에서 이주 — UI 슬라이스 시각 검증 시 읽을 것.)
 
 ## 4) 정리 (머지 전 필수)
 ```bash
