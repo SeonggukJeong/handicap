@@ -6,6 +6,8 @@
 
 > **참고**: `handicap-controller` 패키지엔 바이너리가 둘(`controller` + `e2e_kind_driver`)이라 `cargo run -p handicap-controller`만 쓰면 깨진다. 로컬 실행 footgun은 루트 `CLAUDE.md`의 "로컬 dev 실행 함정" 참고.
 
+> **유지 규칙**: 이 파일은 `crates/controller/` 작업 시 통째 로드된다(현재 ~78KB — 도메인 함정 파일 중 최대). 새 함정은 한 줄 + 인라인 `(Slice N)`/기능명 출처 태그로. **재비대 시 분리 후보**: 기능별 심화 섹션(LAN 분산 워커 풀·Run 스케줄러·리포트 export·운영 상한·bundle/단일 exe)을 `docs/dev/`로 빼고 *그 기능 작업 시 먼저 읽으라*는 명령형 포인터만 남긴다 — **삭제 금지·이동만**. 단, 분리는 auto-load(디렉토리 진입)→manual-load(포인터 능동 Read) 다운그레이드라, 크로스커팅 함정(axum·store·proto·dispatch)은 인라인 유지하고 *편집-트리거가 그 기능에만 국한*되는 섹션만 후보.
+
 ## axum / 라우팅 / SPA 서빙 / 업로드 (`app.rs`)
 
 - **axum 0.8 path syntax** (Slice 1): `/scenarios/:id` 아님, `/scenarios/{id}`. 0.7 문서/예제 검색하면 함정.

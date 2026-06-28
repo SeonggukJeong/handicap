@@ -4,6 +4,8 @@
 
 엔진은 부하 생성 라이브러리: 시나리오 모델(`scenario.rs`) + HTTP 실행(`executor.rs`) + 템플릿(`template.rs`) + 인터프리터(`runner.rs`/`execute_steps`) + 집계(`aggregator.rs`) + 퍼센타일(`percentiles.rs`).
 
+> **유지 규칙**: 이 파일은 `crates/engine/` 작업 시 통째 로드된다(현재 ~30KB). 새 함정은 한 줄 + 인라인 `(Slice N)`/기능명 출처 태그로. ~60KB 넘으면 기능별 심화를 `docs/dev/`로 분리하고 포인터만 남긴다 — **삭제 금지·이동만**(루트 CLAUDE.md "슬라이스/기능을 완료하면" 규칙의 도메인판).
+
 ## 시나리오 모델 / serde
 
 - **serde_yaml 0.9 + externally-tagged enum w/ map variants** (Slice 1): derive(Serialize, Deserialize)가 round-trip 안 됨. `Assertion::Status(u16)`, `Body::{Json|Form|Raw}` 같은 enum은 손수 `Serialize`/`Deserialize` 구현해서 `{key: value}` 맵 형태로 처리. derive 그대로 두면 직렬화 시 `!variant value` YAML 태그가 나오고, 사용자/UI가 만든 `{variant: value}` 맵을 역직렬화하려 하면 `invalid type: map, expected a YAML tag starting with '!'` 에러. Slice 1 fixture에 body가 없어서 Body 쪽은 Slice 3 UI(BodyEditor)가 처음 트리거할 때까지 잠복. **새 enum 추가할 때마다 이 패턴 확인.** (`crates/engine/src/scenario.rs::{Assertion, Body}` 참고.)
