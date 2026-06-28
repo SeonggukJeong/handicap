@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { downloadFile } from "../api/download";
 import { compareReports } from "../compare/compareReports";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
+import { Callout } from "../components/ui/Callout";
 import { CompareMatrix } from "../components/compare/CompareMatrix";
 import { CompareOverlaySection } from "../components/compare/CompareOverlaySection";
 import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix";
@@ -72,9 +73,9 @@ export function ScenarioComparePage() {
     return (
       <div className="p-6">
         <Breadcrumb items={crumbs} />
-        <p role="alert" className="text-red-600">
+        <Callout variant="error" role="alert">
           리포트 로드 실패: {msg}
-        </p>
+        </Callout>
       </div>
     );
   }
@@ -213,10 +214,7 @@ function ScenarioCompareInner({
 
       {/* Error banner for export failures */}
       {err && (
-        <div
-          role="alert"
-          className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
-        >
+        <Callout variant="error" role="alert" className="mb-4">
           내보내기 실패: {err}
           <button
             type="button"
@@ -225,7 +223,7 @@ function ScenarioCompareInner({
           >
             닫기
           </button>
-        </div>
+        </Callout>
       )}
 
       <CompareMatrix

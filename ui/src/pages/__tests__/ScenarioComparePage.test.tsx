@@ -174,4 +174,22 @@ describe("ScenarioComparePage", () => {
     // breadcrumb should still be present in the guard state
     expect(screen.getByRole("navigation", { name: ko.breadcrumb.ariaLabel })).toBeInTheDocument();
   });
+
+  it("shows export error banner with role=alert when download fails", async () => {
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) => {
+      if (id === "A") return Promise.resolve(baseReport);
+      if (id === "B") return Promise.resolve(reportB);
+      return Promise.reject(new Error("unknown"));
+    });
+    vi.spyOn(downloadModule, "downloadFile").mockRejectedValue(new Error("network error"));
+
+    const user = userEvent.setup();
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+
+    await screen.findByText("p95_ms");
+    await user.click(screen.getByRole("button", { name: /Export CSV/i }));
+
+    // Export error Callout renders with role="alert"
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
 });
