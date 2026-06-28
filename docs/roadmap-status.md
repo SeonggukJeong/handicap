@@ -12,7 +12,7 @@
 |---|---|---|---|
 | **보안·거버넌스** | 미착수 | **A10 RBAC / 기관 도입 보안 하드닝** — 코드 전에 brainstorming→ADR 선행(인증 위임[B] vs 인앱 계정[A]). 공공기관 도입 게이트라 후순위 아닌 **도입 전제**. §B1 민감값 마스킹+감사 로그 한 트랙 | roadmap.md §A10 |
 | **데스크톱 배포** | 단일 self-contained exe(ADR-0039)·Tauri in-process 백엔드(ADR-0042)·NSIS 설치본 | **R4d Windows Job belt-and-suspenders**(트리거: Windows hung-워커 고아 *실측* 시만) + **코드서명**(SmartScreen 마찰)·인스톨러 메타·트레이/자동업데이트 묶음. macOS 개발기 검증 불가 | roadmap.md §A·ADR-0042·[[windows-desktop-distribution]] |
-| **UX·디자인 시스템** | 토큰 토대(ADR-0043)+프리미티브 6종·4폼 화면 확산·RunDialog 간단/상세 재구성 | **§B12 나머지 화면 토큰 이주**(리포트·에디터/Inspector·시나리오 목록·run 상세·워커·비교) — 점진·byte-identical·토대 이미 존재(brainstorming 가벼움) | roadmap.md §B12 |
+| **UX·디자인 시스템** | 토큰 토대(ADR-0043)+프리미티브 6종·4폼+결과·표시 화면군(알림→Callout·EditModal→Input) 확산·RunDialog 간단/상세 재구성 | **§B12 에디터/Inspector 화면군 토큰 이주** + 결과·표시 화면 깊은 Section/카드 토큰화 — 점진·byte-identical·토대 이미 존재(brainstorming 가벼움) | roadmap.md §B12 |
 | **부하모델·페이싱 (영역 D)** | S-A 타임아웃·S-B think·S-C open-loop·S-D stages·closed-loop VU 곡선 + 곡선 멀티워커 샤딩 — **영역 D 완결** | (성숙) §B9 QoL — graceful grace 상한·fresh-spawn 모드·VU 배율 노브 | roadmap.md §D·§B9·ADR-0031/0032/0037 |
 | **리포트 깊이 (A4)** | SLO criteria(A4a)·run 비교+CSV/XLSX(A4b)·인사이트(A4c)·latency 분포(B7-D)·TTFB+다운로드(B7-C)·비교 뷰 깊이/polish | (성숙) B7 심화 — XLSX Δ 셀 조건부 서식(작은 백엔드)·트랜잭션 분해 DNS/TCP/TLS(큰 엔진 슬라이스) | roadmap.md §A4·§B7·ADR-0017/0028/0030 |
 | **분산 워커** | fan-out(A3·ADR-0027)·open-loop fan-out(ADR-0038)·LAN pool L1~L7(ADR-0041)·풀 견고성/제어상태 영속화 | (성숙) capacity-aware 풀 (L2 — 워커 용량 광고·존중; 현재 capacity 무시) | roadmap.md §A3·§B2''·ADR-0041 |

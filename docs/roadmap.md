@@ -220,8 +220,8 @@
 - **`max_open_loop_worker_count` 환경 주석** — `worker_capacity_vus`와 대칭으로 env-divergent(둘 다 비-풀 fan-out에서만 소비, 풀은 부하로 N 도출). 지금은 대표 fan-out 노브인 `worker_capacity_vus`에만 주석(의도적 비대칭, YAGNI). 필요 시 `ENV_NOTE_KEY`에 한 줄로 확장.
 
 ### B12. 디자인 시스템 확장 (2026-06-27, C-2) 연기 항목
-출처: `2026-06-27-rundialog-design-system-design.md` §7. C-2는 RunDialog 트리만을 대상으로 토큰 레이어(`tailwind.config.ts`)·프리미티브 6종(`ui/src/components/ui/`)·Button accent 통일을 세우고 RunDialog를 byte-identical 재구성으로 완료. **✅ 확산 1차 완료 (2026-06-27, design-system-spread)**: 그 프리미티브를 **4개 폼 화면 그룹(9 파일: Settings·ScenarioImport·Datasets·Environments·UploadPanel·Templates·Schedules·ScheduleForm·TriggerBuilder)**에 적용 — 입력→`Input`/`Select`·블록 알림→`Callout`(role 1:1)·warn 배지→`Badge`·`border-t` 디바이더 fieldset→`Section`(카드형·`min-w-0`·plain `<section>+<h3>`은 VF 보존 위해 미적용). 전부 UI-only·토대 0-diff·`ko.ts`조차 0-diff(문자열 출처 이동)·뮤테이션/wire byte-identical. 상세→build-log. 남은 연기:
-- **나머지 화면 토큰 이주** (리포트 `ReportView`/`report/*`·에디터/Inspector·시나리오 목록·run 상세 `RunDetailPage`·워커 `WorkerDashboardPage`·비교 `ScenarioComparePage`): 4그룹 외 폼/표시 화면. 차츰 같은 프리미티브로 확장.
+출처: `2026-06-27-rundialog-design-system-design.md` §7. C-2는 RunDialog 트리만을 대상으로 토큰 레이어(`tailwind.config.ts`)·프리미티브 6종(`ui/src/components/ui/`)·Button accent 통일을 세우고 RunDialog를 byte-identical 재구성으로 완료. **✅ 확산 1차 완료 (2026-06-27, design-system-spread)**: 그 프리미티브를 **4개 폼 화면 그룹(9 파일: Settings·ScenarioImport·Datasets·Environments·UploadPanel·Templates·Schedules·ScheduleForm·TriggerBuilder)**에 적용 — 입력→`Input`/`Select`·블록 알림→`Callout`(role 1:1)·warn 배지→`Badge`·`border-t` 디바이더 fieldset→`Section`(카드형·`min-w-0`·plain `<section>+<h3>`은 VF 보존 위해 미적용). 전부 UI-only·토대 0-diff·`ko.ts`조차 0-diff(문자열 출처 이동)·뮤테이션/wire byte-identical. 상세→build-log. **✅ 확산 2차 완료 (2026-06-28, design-system-results-screens)**: 결과·표시 화면(ScenarioList·ScenarioRuns·RunDetail·WorkerDashboard·ScenarioCompare·CompareMatrix·ReportView)의 블록-레벨 알림 박스 **20개→`Callout`**(role 1:1)·WorkerDashboard EditModal raw `<input>`→`Input`. 전부 UI-only·토대 0-diff·동작/wire byte-identical(CompareOverlaySection 변환대상 0 스킵). 상세→build-log. 남은 연기:
+- **나머지 화면 토큰 이주** (에디터/Inspector 화면군 + 위 결과·표시 화면의 *깊은* Section/카드·표시 입력 토큰화 — 2차는 블록 알림+EditModal input만 이주): 차츰 같은 프리미티브로 확장.
 - **차트/compare 색 토큰화**: 데이터 식별 색(차트 stroke `#2563eb`·`StageCurvePreview` 곡선선·`runLabel.ts` compare 팔레트·`StatusBadge` running)은 컨트롤 색과 별 도메인 — 별도 검토.
 - **간단/상세 모드 토글·단계별 마법사**: 구조 A(번호 섹션·강한 위계)로 충분 — B(모드 토글)/C(마법사)는 효과 확인 후 재검토(사용자: "개선해보고 나서 추가 검토").
 - **기존 프리미티브(`Button`/`Modal`/`HelpTip`) `ui/` 폴더 통합**: import 경로 churn이 커서 이번엔 제자리 유지 — 후속 정리 슬라이스에서 이동.
@@ -229,6 +229,8 @@
 - **기본값 숫자 재검토**: 추천 프레이밍은 추가했지만 기본값 자체(vus=2·duration=5·target_rps=100·max_in_flight=200·worker=1·timeout=30)는 byte-identical 유지. 데이터 기반 적정값으로 별도 논의.
 - **`Callout` success variant** (design-system-spread 연기): SettingsPage 풀-모드 초록 배너(`modeBanner()`)를 `Callout`으로 흡수하려면 success(초록) variant 추가 필요 — 토대 변경이라 연기(데이터 식별 색 정책과 함께 검토).
 - **status 배지 tone화** (design-system-spread 연기): SchedulesPage `STATUS_STYLE`(fired/skipped/missed/error 색)을 `Badge`로 흡수하려면 status tone 추가(토대 변경)·데이터 식별 색 도메인이라 별도 검토(R4 동결 유지 중).
+- **`RunListControls` 컴팩트 variant** (design-system-results-screens 연기): 결과화면 슬라이스가 동결한 컴팩트 툴바(`RunListControls.tsx`)를 디자인시스템에 흡수하려면 Input/Select 컴팩트(작은 padding) variant 필요 — 토대 변경이라 연기.
+- **severity 팔레트 토큰화** (design-system-results-screens 연기): `InsightPanel`/`InsightCompareMatrix` critical/warning/info 색맵을 토큰화 — severity 식별 색 도메인이라 별도 검토(동결 유지 중).
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
