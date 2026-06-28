@@ -22,7 +22,7 @@
 | 2 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
 | 3 | **나머지 화면 디자인 토큰 이주** — §B12 (디자인 시스템 후속) | **RunDialog 간단/상세 토글+정밀계기 완료(2026-06-28, rundialog-simple-detailed)·4개 폼 화면 확산 완료(2026-06-27)** → 남은 것: 아직 안 이주한 화면(리포트·에디터/Inspector·시나리오 목록·run 상세·워커·비교)에 프리미티브/accent 점진 적용 | 중·UI-only·점진 채택·**토대+패턴 이미 존재**(brainstorming 가벼움)·byte-identical 유지 |
 
-이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper)은 아래 §B* 참조.
+이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper, **RunDialog 크기 칩 상대배수 사이징[Option C — 고정 10/50/200 대신 기준 측정치 대비 0.5×/1×/2× — rundialog-ux-fixes §6 백로그]**)은 아래 §B* 참조.
 
 ### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B·C-1·C-2 모두 완료 ✅
 
