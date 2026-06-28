@@ -641,7 +641,6 @@ export function RunDialog({
           onApplyWorkerCount={(n) => setWorkerCount(String(n))}
           httpTimeout={httpTimeout}
           poolMode={pool.data?.pool_mode}
-          showRecommended
           simpleMode={mode === "simple"}
           loadModelTiles
           numeric

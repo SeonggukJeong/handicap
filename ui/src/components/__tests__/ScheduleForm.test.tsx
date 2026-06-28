@@ -157,7 +157,7 @@ describe("ScheduleForm", () => {
       />,
     );
     expect(
-      screen.queryByText("추천값으로 채워져 있어 바로 실행할 수 있습니다."),
+      screen.queryByText("기본값이 채워져 있어 바로 실행할 수 있습니다 — 대상에 맞게 조정하세요."),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("추천")).not.toBeInTheDocument();
   });

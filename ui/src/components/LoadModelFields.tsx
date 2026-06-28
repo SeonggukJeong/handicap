@@ -54,8 +54,6 @@ type Props = {
   httpTimeout?: number;
   // pool 모드 신호(RunDialog pool.data?.pool_mode). true → 두 경고 모두 suppress(R13).
   poolMode?: boolean;
-  // RunDialog 전용: 필수 입력에 '추천' Badge를 렌더. ScheduleForm은 미전달 → 미렌더 (B4).
-  showRecommended?: boolean;
   // RunDialog 재구성 게이트 props (모두 optional → 미전달 시 ScheduleForm byte-identical, R12).
   simpleMode?: boolean; // 프로파일/곡선/rampDown/워커/경고 숨김 — 주 수치·크기 chips·사이징 헬퍼 유지
   loadModelTiles?: boolean; // 부하 모델 라디오 → 타일(button[role=radio]) 전환
@@ -95,7 +93,6 @@ export function LoadModelFields({
   setWorkerCount,
   httpTimeout,
   poolMode,
-  showRecommended,
   simpleMode,
   loadModelTiles,
   numeric,
@@ -528,20 +525,17 @@ export function LoadModelFields({
                         : "border-slate-300 text-slate-600 hover:bg-slate-50"
                     }`}
                   >
-                    {p.label}{" "}
-                    <span className={active ? "text-xs text-indigo-500" : "text-xs text-slate-400"}>
-                      {p.hint}
-                    </span>
+                    {p.label}
                   </button>
                 );
               })}
             </div>
+            <p className="mb-3 text-xs text-slate-500">{ko.loadModel.sizePresetsCaption}</p>
             <div className="grid grid-cols-3 gap-4 mb-3">
               <Field
                 label={ko.loadModel.vus}
                 htmlFor={ids.vus}
                 help={<HelpTip label="VU 설명">{ko.glossary.vu}</HelpTip>}
-                recommended={showRecommended ? ko.common.recommended : undefined}
               >
                 <Input
                   id={ids.vus}
@@ -556,7 +550,6 @@ export function LoadModelFields({
                 label={ko.loadModel.duration}
                 htmlFor={ids.durationClosed}
                 help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
-                recommended={showRecommended ? ko.common.recommended : undefined}
               >
                 <Input
                   id={ids.durationClosed}
@@ -710,7 +703,6 @@ export function LoadModelFields({
                   label={ko.loadModel.targetRps}
                   htmlFor={ids.targetRps}
                   help={<HelpTip label="RPS 설명">{ko.glossary.rps}</HelpTip>}
-                  recommended={showRecommended ? ko.common.recommended : undefined}
                 >
                   <Input
                     id={ids.targetRps}
@@ -728,7 +720,6 @@ export function LoadModelFields({
                   label={ko.loadModel.duration}
                   htmlFor={ids.durationOpen}
                   help={<HelpTip label="지속 시간 설명">{ko.glossary.duration}</HelpTip>}
-                  recommended={showRecommended ? ko.common.recommended : undefined}
                 >
                   <Input
                     id={ids.durationOpen}

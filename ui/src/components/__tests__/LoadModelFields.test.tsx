@@ -117,29 +117,46 @@ describe("LoadModelFields", () => {
     expect(screen.queryByLabelText(/HTTP 타임아웃/i)).not.toBeInTheDocument();
   });
 
-  it("closed 모드에서 부하 크기 프리셋 chips가 보이고 클릭하면 VU·시간을 채운다", async () => {
+  it("closed 모드에서 빠른 입력 chips가 보이고 클릭하면 VU·시간을 채운다", async () => {
     const user = userEvent.setup();
     const props = setup();
-    expect(screen.getByRole("group", { name: /부하 크기 프리셋/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /보통/ }));
+    expect(screen.getByRole("group", { name: ko.loadModel.sizePresetsLabel })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.loadModel.sizePresets[1].label }));
     expect(props.setVus).toHaveBeenCalledWith(50);
     expect(props.setDuration).toHaveBeenCalledWith(60);
   });
 
-  it("open 모드에선 크기 chips가 없다", () => {
+  it("open 모드에선 빠른 입력 chips가 없다", () => {
     setup({ loadModel: "open" });
-    expect(screen.queryByRole("group", { name: /부하 크기 프리셋/ })).toBeNull();
+    expect(screen.queryByRole("group", { name: ko.loadModel.sizePresetsLabel })).toBeNull();
   });
 
   it("현재 VU·시간이 프리셋과 일치하면 해당 chip이 눌린 상태(aria-pressed)다", () => {
     setup({ vus: 10, duration: 30 });
-    expect(screen.getByRole("button", { name: /가볍게/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /보통/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: ko.loadModel.sizePresets[0].label })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: ko.loadModel.sizePresets[1].label })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("VU만 일치하고 시간이 다르면 chip이 눌리지 않는다", () => {
     setup({ vus: 10, duration: 60 });
-    expect(screen.getByRole("button", { name: /가볍게/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: ko.loadModel.sizePresets[0].label })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("빠른 입력 캡션과 중립 라벨 (가볍게/보통/세게 부재)", () => {
+    setup();
+    expect(screen.getByText(ko.loadModel.sizePresetsCaption)).toBeInTheDocument();
+    expect(screen.queryByText("가볍게")).not.toBeInTheDocument();
+    expect(screen.queryByText("보통")).not.toBeInTheDocument();
+    expect(screen.queryByText("세게")).not.toBeInTheDocument();
   });
 
   it("closed+curve: 목표 VU 라벨 + ramp_down 라디오 + vus/chips/ramp_up/duration/max_in_flight 비노출", () => {
@@ -151,7 +168,7 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("radiogroup", { name: "줄이는 방식" })).toBeInTheDocument();
     // 비노출 확인
     expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: /부하 크기 프리셋/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /빠른 입력/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/테스트 시간/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
@@ -362,22 +379,15 @@ describe("LoadModelFields", () => {
     expect(screen.getByRole("button", { name: "지속 시간 설명" })).toBeInTheDocument();
   });
 
-  // ── B4: showRecommended 게이트 ─────────────────────────────────────────────────
-  it("showRecommended 미전달이면 '추천' Badge 미렌더 (기본 closed+fixed)", () => {
-    renderFields(); // showRecommended 미전달 → 기본 undefined
+  // ── B4: '추천' Badge는 더 이상 렌더하지 않는다 (prop 제거됨) ──────────────────────
+  it("'추천' Badge 미렌더 (closed+fixed)", () => {
+    renderFields();
     expect(screen.queryByText("추천")).not.toBeInTheDocument();
   });
-
-  it.each([
-    { loadModel: "closed" as const, rateMode: "fixed" as const },
-    { loadModel: "open" as const, rateMode: "fixed" as const },
-  ])(
-    "$loadModel+$rateMode + showRecommended=true → '추천' Badge 렌더",
-    ({ loadModel, rateMode }) => {
-      renderFields({ loadModel, rateMode, showRecommended: true });
-      expect(screen.getAllByText("추천").length).toBeGreaterThan(0);
-    },
-  );
+  it("'추천' Badge 미렌더 (open+fixed)", () => {
+    renderFields({ loadModel: "open", rateMode: "fixed" });
+    expect(screen.queryByText("추천")).not.toBeInTheDocument();
+  });
 
   // ── Task 5: simpleMode / loadModelTiles / numeric 게이트 ─────────────────────
   it("simpleMode closed hides profile/curve/rampdown, keeps VU helper + numbers", () => {

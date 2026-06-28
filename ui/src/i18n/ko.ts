@@ -98,7 +98,7 @@ export const ko = {
     envAppliedHint: (n: number) => `변수 ${n}개 적용됨 (상세에서 편집)`,
     loadPresetAria: "프리셋 불러오기",
     presetNameAria: "프리셋 이름",
-    recommendedNotice: "추천값으로 채워져 있어 바로 실행할 수 있습니다.",
+    recommendedNotice: "기본값이 채워져 있어 바로 실행할 수 있습니다 — 대상에 맞게 조정하세요.",
     // ── 실행 요약 footer (R8) ──
     // main: 굵은(bold) 수치 + 회색 레이블 세그먼트 배열; sub: 회색 보조 텍스트
     summaryClosed: (vus: number, time: string) => [
@@ -187,11 +187,12 @@ export const ko = {
     rampDownLabel: "줄이는 방식",
     rampDownGraceful: "요청을 마친 뒤 줄이기 (권장) — 안전하지만 곡선보다 약간 늦게 줄어듭니다",
     rampDownImmediate: "즉시 줄이기 — 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다",
-    sizePresetsLabel: "부하 크기 프리셋",
+    sizePresetsLabel: "빠른 입력",
+    sizePresetsCaption: "대상 시스템에 맞게 조정하세요",
     sizePresets: [
-      { label: "가볍게", vus: 10, durationSeconds: 30, hint: "10명 · 30초" },
-      { label: "보통", vus: 50, durationSeconds: 60, hint: "50명 · 1분" },
-      { label: "세게", vus: 200, durationSeconds: 180, hint: "200명 · 3분" },
+      { label: "10명 · 30초", vus: 10, durationSeconds: 30 },
+      { label: "50명 · 1분", vus: 50, durationSeconds: 60 },
+      { label: "200명 · 3분", vus: 200, durationSeconds: 180 },
     ],
     tileClosedTitle: "동시 사용자 (VU)",
     tileOpenTitle: "목표 RPS",
