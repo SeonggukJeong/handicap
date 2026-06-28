@@ -3,6 +3,7 @@ import { useCloneScenario, useScenarios } from "../api/hooks";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { OnboardingGuide } from "../components/OnboardingGuide";
+import { Callout } from "../components/ui/Callout";
 import { ko } from "../i18n/ko";
 
 export function ScenarioListPage() {
@@ -32,11 +33,15 @@ export function ScenarioListPage() {
       {data && <OnboardingGuide firstScenarioId={data.scenarios[0]?.id ?? null} />}
 
       {isLoading && <p className="text-slate-500">{ko.common.loading}</p>}
-      {error && <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>}
+      {error && (
+        <Callout variant="error" className="mb-3">
+          {ko.common.failedToLoad((error as Error).message)}
+        </Callout>
+      )}
       {clone.error && (
-        <p role="alert" className="mb-3 text-sm text-red-600">
+        <Callout variant="error" role="alert" className="mb-3">
           복제 실패: {(clone.error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {data && data.scenarios.length === 0 && (

@@ -94,4 +94,10 @@ describe("ScenarioListPage 홈 온보딩 + 빈 상태 (U2)", () => {
     await screen.findByRole("link", { name: "demo" });
     expect(screen.queryByRole("region", { name: ko.onboarding.ariaLabel })).toBeNull();
   });
+
+  it("renders failedToLoad as an error Callout on list query error", async () => {
+    fetchMock.mockRejectedValue(new Error("network error"));
+    renderPage();
+    expect(await screen.findByText(/불러오기 실패/)).toBeInTheDocument();
+  });
 });
