@@ -1,6 +1,6 @@
 # Post-MVP1 로드맵 (data-driven 이후)
 
-> **이 문서의 목적**: MVP1 슬라이스 1–6 + Slice 7(loop) + 7-1(loop breakdown) + Slice 8(data-driven 8a/8b/8c)이 모두 끝난 시점에서, **다음에 무엇을 할지 고를 때 가장 먼저 보는 단일 진입점**. 후보 슬라이스 + 각 슬라이스에서 의도적으로 연기한 자잘한 항목들을 한곳에 모은다.
+> **이 문서의 목적**: post-MVP1 후보 슬라이스(§A 메뉴)와 각 슬라이스에서 의도적으로 연기한 자잘한 항목(§B)의 **상세 카탈로그**. "다음 뭐 하지?"의 *고르는* 진입점은 [roadmap-status.md](roadmap-status.md)(테마별 frontier+추천) — 거기서 테마를 정한 뒤 여기 §A/§B로 내려와 착수 메모·설계 질문·연기 항목을 읽는다.
 >
 > **언제 갱신**: 슬라이스를 하나 선택해 시작하면 그 슬라이스를 "진행 중"으로 표시하고, 끝나면 "완료"로 옮긴다. 새로 연기한 항목이 생기면 아래 §B에 출처 슬라이스와 함께 누적한다.
 >
@@ -12,34 +12,15 @@
 
 ---
 
-## 다음 후보 (next-up shortlist — start-slice는 여기부터 읽는다)
+## 다음 작업 — **[roadmap-status.md](roadmap-status.md)** 참조
 
-> **고정 후보 리스트.** 세션마다 흩어진 §B* 연기 항목에서 재합성하면 후보가 매번 달라지므로, 여기에 **손으로 큐레이트한 shortlist**를 둔다. `/start-slice`는 이 표를 1순위로 제시하고, `/finish-slice`는 (a) 착수해 끝낸 후보를 이 표에서 빼 "현재 상태"로 옮기고 (b) 새로 생긴 유력 후보를 여기에 추가해 항상 최신으로 유지한다. 전체 연기 항목 카탈로그는 아래 §B6–§B10·§A10.
-
-| # | 후보 | 가치 | 크기·의존성 |
-|---|---|---|---|
-| 1 | **A10 RBAC / 기관 도입 보안 하드닝** — §A10 | 사내 K8s 도입 게이트(멀티-테넌트·인증·감사) | 대·**brainstorming → ADR 선행** 필요. 최근 UI/리포트 스트릭에서 방향 전환 |
-| 2 | **R4d Windows Job belt-and-suspenders (트리거-기반)** — ADR-0042 연기 | in-process가 컨트롤러 자식을 없애 R4b(disconnect-cancel)가 1차 teardown을 크로스플랫폼 충족 → Windows에서 hung-워커 고아가 *실제 관측*되면 desktop-only Job Object 추가(트레잇 경계 보존). 코드서명/SmartScreen/인스톨러 메타데이터·트레이/자동업데이트도 같은 Windows 배포 묶음 | 소~중·**desktop/**·Windows 실측 필요(macOS 개발기 검증 불가)·트리거 미충족이면 보류 |
-| 3 | **나머지 화면 디자인 토큰 이주** — §B12 (디자인 시스템 후속) | **RunDialog 간단/상세 토글+정밀계기 완료(2026-06-28, rundialog-simple-detailed)·4개 폼 화면 확산 완료(2026-06-27)** → 남은 것: 아직 안 이주한 화면(리포트·에디터/Inspector·시나리오 목록·run 상세·워커·비교)에 프리미티브/accent 점진 적용 | 중·UI-only·점진 채택·**토대+패턴 이미 존재**(brainstorming 가벼움)·byte-identical 유지 |
-
-이외 소규모 후속(§B9 graceful grace 상한·fresh-spawn 모드·VU 배율 노브·per-worker p95/p99 분해, §B10 완결, G2 k8s register-전 reaper, **RunDialog 크기 칩 상대배수 사이징[Option C — 고정 10/50/200 대신 기준 측정치 대비 0.5×/1×/2× — rundialog-ux-fixes §6 백로그]**)은 아래 §B* 참조.
-
-### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B·C-1·C-2 모두 완료 ✅
-
-사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A·B·C 전부 완료·머지(A·B 2026-06-26, C-1·C-2 2026-06-27). 후속(디자인 시스템 확산)은 위 shortlist #3·§B12.** 세부 항목 원문 보존:
-
-- **A. HAR 가져오기 UX 개선 — ✅ 완료 (2026-06-26)** (`ScenarioImportPage.tsx`·`import/`):
-  - ② HAR 업로드 시 모든 요청 체크박스가 기본 전체 선택이라 불편 → **전체 선택/전체 해제 버튼**, **중복 URL(method+url 동일) 표시**, **중복만 해제 버튼**.
-  - ③ 가져오기 화면에서 **호스트를 환경변수로 등록할지 물어보고 등록**(비강제) — 환경(Environments) 리소스 연동.
-- **B. 설정 화면 환경별 그룹핑 — ✅ 완료 (2026-06-26)** (`SettingsPage.tsx`·`ko.ts`·신규 `settingsEnv.ts`):
-  - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심. → **구현**: 정직한 taxonomy=공통/분산 풀 전용 **2그룹**(`is_pool_mode()` 게이트 reaper 2종만 pool·keepalive=공통 F1)·현재 컨트롤러 모드 배너(`usePoolWorkers().pool_mode` 재사용)·환경 주석 2종·분류 단일소스 `settingsEnv.ts` sparse 맵(미매핑 폴백 common→거짓 배지 불가)·전부 UI-only(백엔드/wire 0-diff). **연기(→§B11)**: 레지스트리 `env_scope` 백엔드 필드·환경 taxonomy 세분(Windows/로컬/K8s/LAN)·`max_open_loop_worker_count` 대칭 환경 주석.
-- **C. Run 결과화면 + RunDialog 디자인 개선 — C-1·C-2 ✅ 둘 다 완료** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
-  - ④ **C-1 ✅ 완료 (2026-06-27, result-screen-polish)**: 결과화면 그래프 **반응형 전환**(차트 5종이 콘텐츠 폭 1104px 채움 — 고정폭 왼쪽 dead space 제거)·**Download 버튼 4개(JSON·CSV·XLSX·인사이트 CSV)→단일 WAI-ARIA 드롭다운 메뉴 `DownloadMenu`(키보드 풀) + 포맷 설명 HelpTip**(`downloadJson` 헬퍼 추출·`DownloadJsonButton` 제거·전부 UI-only·다운로드 byte-identical·`ko.report.download*`). 상세→build-log.
-  - ④c **C-2 ✅ 완료 (2026-06-27, rundialog-design-system)**: RunDialog 초보자 친화 재구성 — 먼저 **재사용 디자인 시스템 토대**(시맨틱 `accent` 토큰=indigo + `ui/src/components/ui/` 프리미티브 6종[Field·Input·Select·Section·Callout·Badge] + Button accent, ADR-0043)를 세우고 RunDialog(936줄)를 그 토대로 **byte-identical 재구성**(3그룹→번호 Section·경고/오류→Callout·입력→Field+추천 프레이밍·LoadModelFields 토큰화). 전부 UI-only·`buildProfile()`/검증/wire 0-diff. 상세→build-log. **후속(디자인 시스템 확산)=shortlist #3·§B12.**
+> **"다음 뭐 하지?"는 [roadmap-status.md](roadmap-status.md)에서** — 테마별 frontier + 추천 다음 작업 현황판이 과거 여기 있던 next-up shortlist를 **대체·흡수**했다(중복 차단: shortlist는 더 이상 이 파일에 없다). `/start-slice`는 그 현황판을 1순위로 읽는다.
+>
+> **이 문서(roadmap.md)는 *상세*만 든다**: §A 후보 메뉴(spec §4.5 + 착수 메모·설계 질문)·§B 슬라이스별 연기 항목. **96KB라 통째 Read는 25k 토큰 초과로 실패** — 테마/슬라이스명으로 `grep -n` 후 그 단락만 targeted `Read`(offset/limit). 완료 슬라이스 이력은 [roadmap-archive.md](roadmap-archive.md), 구현 결과·함정 출처는 `docs/build-log.md`.
 
 ## 현재 상태 (2026-06-28)
 
-최신 완료 = **RunDialog 간단/상세 모드 + 정밀계기 재디자인** (2026-06-28, 사용성 묶음 C-2[UX1] 후속). 전체 완료 슬라이스 이력(59건, 최신순)은 [roadmap-archive.md](roadmap-archive.md) §완료 이력으로 이주 — 각 슬라이스 상세는 `docs/build-log.md`, 함정은 도메인 `CLAUDE.md`, **다음 작업 후보는 위 shortlist**. 이 섹션엔 *현재/진행* 상태만 둔다(완료 로그는 archive로 — MEMORY.md·build-log와 삼중 중복 해소, 2026-06-28).
+최신 완료 = **RunDialog 간단/상세 모드 + 정밀계기 재디자인** (2026-06-28, 사용성 묶음 C-2[UX1] 후속). 전체 완료 슬라이스 이력(59건, 최신순)은 [roadmap-archive.md](roadmap-archive.md) §완료 이력으로 이주 — 각 슬라이스 상세는 `docs/build-log.md`, 함정은 도메인 `CLAUDE.md`, **다음 작업 후보는 [roadmap-status.md](roadmap-status.md)**. 이 섹션엔 *현재/진행* 상태만 둔다(완료 로그는 archive로 — MEMORY.md·build-log와 삼중 중복 해소, 2026-06-28).
 
 ---
 

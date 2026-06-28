@@ -65,3 +65,20 @@
 - **완료**: **codex 평가 후속 항목 1–4** (2026-06-03, master `5e59048`/`fffec3e`/`fee8041`) — lint 게이트 구멍 + dispatch fail-fast(P0: run failed+message+5xx) + dispatcher 테스트 + graceful-shutdown 로그. 잔여 5(open-loop·http_timeout)·6(skip/todo UI 테스트) → §B5.
 - **완료**: **영역 D / S-A (타임아웃)** — run-level `http_timeout_seconds`(profile, 30s 하드코드 대체) + per-step `timeout_seconds`(HttpStep 오버라이드) 구현+머지 완료(2026-06-03, subagent-driven 5 task, master `c5c3f27`→`8ff689d`). 마이그레이션 0건(profile_json serde default), absent→byte-identical, connect_timeout 의도적 제외(연기). wire 1:1 7-layer, handicap-reviewer READY-TO-MERGE. 상세 §D.
 - **완료**: **영역 D / S-B (think time)** — run-level(`Profile.think_time`) + per-step(`HttpStep.think_time`) 지연 + 사용자선택 시드(`think_seed`) + test-run `apply_think_time` 토글 구현+머지 완료(2026-06-04, subagent-driven 10 task, master `8ff689d`→`0dda5df`). 신규 `engine/src/pacing.rs`, 인터프리터 레이어 페이싱(executor byte-identical), 마이그레이션 0건, absent→byte-identical, 메트릭/proto 무변경, handicap-reviewer READY-TO-MERGE + 라이브 수동테스트 PASS(RPS 7341→9.99/13.3, test-run off=2ms/on=804ms, UI 3표면 round-trip). 영역 D 잔여: S-C(open-loop, ADR-0031)/S-D(stages). 상세 §D.
+
+## 완료: 사용성 개선 묶음 (UX1, roadmap.md '다음 후보'에서 이주 2026-06-28)
+
+> roadmap.md 최상단 shortlist 아래 달려 있던 완료-history 서브섹션(A·B·C-1·C-2 4종 전부 완료). shortlist를 roadmap-status.md로 옮기며 이 완료 narrative를 archive로 이주. 구현 상세는 `docs/build-log.md`.
+
+### UX1. 사용성 개선 묶음 (2026-06-26, 사용자 요청 4종) — A·B·C-1·C-2 모두 완료 ✅
+
+사용자가 한 번에 제시한 사용성 개선 4종. 한 슬라이스에 다 넣으면 초점이 흩어져 3개 슬라이스로 분할(②③은 같은 HAR 가져오기 표면이라 묶음). **A·B·C 전부 완료·머지(A·B 2026-06-26, C-1·C-2 2026-06-27). 후속(디자인 시스템 확산)은 §B12(디자인 시스템 후속).** 세부 항목 원문 보존:
+
+- **A. HAR 가져오기 UX 개선 — ✅ 완료 (2026-06-26)** (`ScenarioImportPage.tsx`·`import/`):
+  - ② HAR 업로드 시 모든 요청 체크박스가 기본 전체 선택이라 불편 → **전체 선택/전체 해제 버튼**, **중복 URL(method+url 동일) 표시**, **중복만 해제 버튼**.
+  - ③ 가져오기 화면에서 **호스트를 환경변수로 등록할지 물어보고 등록**(비강제) — 환경(Environments) 리소스 연동.
+- **B. 설정 화면 환경별 그룹핑 — ✅ 완료 (2026-06-26)** (`SettingsPage.tsx`·`ko.ts`·신규 `settingsEnv.ts`):
+  - ① 설정값이 Windows·쿠버네티스 환경 구분 없이 그대로 노출됨 → **전용 환경별 그룹핑**, **전용 환경이 필요함을 배지로 표시**, **둘 다 사용하는 값이면 각 환경에 맞는 설명 추가**. 어느 설정이 어느 환경(Windows 데스크톱 단일 exe / K8s·LAN 풀) 소속인지 분류 설계가 핵심. → **구현**: 정직한 taxonomy=공통/분산 풀 전용 **2그룹**(`is_pool_mode()` 게이트 reaper 2종만 pool·keepalive=공통 F1)·현재 컨트롤러 모드 배너(`usePoolWorkers().pool_mode` 재사용)·환경 주석 2종·분류 단일소스 `settingsEnv.ts` sparse 맵(미매핑 폴백 common→거짓 배지 불가)·전부 UI-only(백엔드/wire 0-diff). **연기(→§B11)**: 레지스트리 `env_scope` 백엔드 필드·환경 taxonomy 세분(Windows/로컬/K8s/LAN)·`max_open_loop_worker_count` 대칭 환경 주석.
+- **C. Run 결과화면 + RunDialog 디자인 개선 — C-1·C-2 ✅ 둘 다 완료** (`ReportView.tsx`·`RunDetailPage.tsx`·`RunDialog.tsx`):
+  - ④ **C-1 ✅ 완료 (2026-06-27, result-screen-polish)**: 결과화면 그래프 **반응형 전환**(차트 5종이 콘텐츠 폭 1104px 채움 — 고정폭 왼쪽 dead space 제거)·**Download 버튼 4개(JSON·CSV·XLSX·인사이트 CSV)→단일 WAI-ARIA 드롭다운 메뉴 `DownloadMenu`(키보드 풀) + 포맷 설명 HelpTip**(`downloadJson` 헬퍼 추출·`DownloadJsonButton` 제거·전부 UI-only·다운로드 byte-identical·`ko.report.download*`). 상세→build-log.
+  - ④c **C-2 ✅ 완료 (2026-06-27, rundialog-design-system)**: RunDialog 초보자 친화 재구성 — 먼저 **재사용 디자인 시스템 토대**(시맨틱 `accent` 토큰=indigo + `ui/src/components/ui/` 프리미티브 6종[Field·Input·Select·Section·Callout·Badge] + Button accent, ADR-0043)를 세우고 RunDialog(936줄)를 그 토대로 **byte-identical 재구성**(3그룹→번호 Section·경고/오류→Callout·입력→Field+추천 프레이밍·LoadModelFields 토큰화). 전부 UI-only·`buildProfile()`/검증/wire 0-diff. 상세→build-log. **후속(디자인 시스템 확산)=§B12.**
