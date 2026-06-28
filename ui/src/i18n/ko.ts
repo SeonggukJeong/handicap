@@ -67,7 +67,7 @@ export const ko = {
     running: "시작 중…",
     cancel: "취소",
     // Section 프리미티브용 라벨 (B1)
-    sectionLoadTitle: "부하 정의",
+    sectionLoadTitle: "부하 모델", // was "부하 정의" (R14① 단일 헤더)
     sectionTargetTitle: "대상 설정",
     sectionAdvancedTitle: "판정·고급",
     advancedSetHint: (n: number) => `${n}개 설정됨`,
@@ -167,6 +167,8 @@ export const ko = {
       { label: "보통", vus: 50, durationSeconds: 60, hint: "50명 · 1분" },
       { label: "세게", vus: 200, durationSeconds: 180, hint: "200명 · 3분" },
     ],
+    tileClosedTitle: "동시 사용자 (VU)",
+    tileOpenTitle: "목표 RPS",
     tileClosedDesc: "N명이 동시에 반복 요청",
     tileOpenDesc: "초당 N건씩 도착",
   },

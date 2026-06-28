@@ -415,8 +415,16 @@ describe("LoadModelFields", () => {
     setup({ loadModelTiles: true, loadModel: "closed" });
     const group = screen.getByRole("group", { name: /부하 모델/i });
     expect(group.tagName).toBe("FIELDSET");
-    expect(screen.getByRole("radio", { name: /사용자 수 기준/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ })).toBeInTheDocument();
     expect(screen.getByText(ko.loadModel.tileClosedDesc)).toBeInTheDocument();
+  });
+
+  it("선택 타일에 accent 클래스, 비선택엔 부재 (R1) + teeth", () => {
+    setup({ loadModelTiles: true, loadModel: "closed" }); // setup가 내부에서 render — render() 래핑 금지(:56·이중렌더→multiple elements)
+    const closed = screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ });
+    const open = screen.getByRole("radio", { name: /목표 RPS/ });
+    expect(closed).toHaveClass("border-accent-500"); // 선택
+    expect(open).not.toHaveClass("border-accent-500"); // 비선택 (teeth: 선택을 open으로 뒤집으면 FAIL)
   });
 
   it("without new props, renders legacy radios + profile + worker (ScheduleForm parity)", () => {

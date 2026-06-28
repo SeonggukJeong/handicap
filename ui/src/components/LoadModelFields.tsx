@@ -285,38 +285,62 @@ export function LoadModelFields({
     <>
       {/* 1차 축: 부하 모델 */}
       <fieldset className="mb-3">
-        <legend className="text-sm text-slate-600 mb-1">부하 모델</legend>
+        <legend className="sr-only">부하 모델</legend>
         {loadModelTiles ? (
-          /* 타일 모드 — button[role=radio] (accessible name = closedLoop/openLoop 텍스트 포함,
-             기존 getByRole("radio",{name:/사용자 수 기준/}) 셀렉터 보존).
-             HelpTip은 타일 button 바깥 형제 — 버튼 안에 넣으면 중첩 button + accname 오염 (U3). */
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1">
+          /* 타일 모드 — button[role=radio] accessible name = tileClosedTitle/tileOpenTitle + desc.
+             HelpTip은 타일 button 바깥 형제 — 버튼 안에 넣으면 중첩 button + accname 오염 (U3).
+             공유 closedLoop/openLoop 키는 라디오 분기(:336,:349)에 그대로 — ScheduleForm 보존(R2). */
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-start gap-1">
               <button
                 type="button"
                 role="radio"
                 aria-checked={loadModel === "closed"}
                 onClick={() => setLoadModel("closed")}
-                className="flex flex-col items-start text-sm cursor-pointer"
+                className={`flex-1 flex items-start gap-3 rounded-lg border p-3 text-left cursor-pointer ${
+                  loadModel === "closed"
+                    ? "border-accent-500 bg-accent-50"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
               >
-                <span>{ko.loadModel.closedLoop}</span>
-                <span className="text-xs text-slate-500">{ko.loadModel.tileClosedDesc}</span>
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
+                    loadModel === "closed" ? "border-accent-500 bg-accent-500" : "border-slate-300"
+                  }`}
+                />
+                <span className="flex flex-col">
+                  <span className="font-semibold">{ko.loadModel.tileClosedTitle}</span>
+                  <span className="text-xs text-slate-500">{ko.loadModel.tileClosedDesc}</span>
+                </span>
               </button>
               <HelpTip label="closed-loop 설명">{ko.glossary.closedLoop}</HelpTip>
-            </span>
-            <span className="flex items-center gap-1">
+            </div>
+            <div className="flex items-start gap-1">
               <button
                 type="button"
                 role="radio"
                 aria-checked={loadModel === "open"}
                 onClick={() => setLoadModel("open")}
-                className="flex flex-col items-start text-sm cursor-pointer"
+                className={`flex-1 flex items-start gap-3 rounded-lg border p-3 text-left cursor-pointer ${
+                  loadModel === "open"
+                    ? "border-accent-500 bg-accent-50"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
               >
-                <span>{ko.loadModel.openLoop}</span>
-                <span className="text-xs text-slate-500">{ko.loadModel.tileOpenDesc}</span>
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border ${
+                    loadModel === "open" ? "border-accent-500 bg-accent-500" : "border-slate-300"
+                  }`}
+                />
+                <span className="flex flex-col">
+                  <span className="font-semibold">{ko.loadModel.tileOpenTitle}</span>
+                  <span className="text-xs text-slate-500">{ko.loadModel.tileOpenDesc}</span>
+                </span>
               </button>
               <HelpTip label="open-loop 설명">{ko.glossary.openLoop}</HelpTip>
-            </span>
+            </div>
           </div>
         ) : (
           /* 기존 라디오 모드 — ScheduleForm byte-identical */
