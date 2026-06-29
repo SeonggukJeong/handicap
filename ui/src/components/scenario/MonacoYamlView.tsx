@@ -11,9 +11,7 @@ import { useScenarioEditor } from "../../scenario/store";
 // Some Chrome versions wrap module workers as blob: URLs — that is why
 // index.html's CSP includes `worker-src 'self' blob:`.
 if (typeof self !== "undefined") {
-  (
-    self as unknown as { MonacoEnvironment: monaco.Environment }
-  ).MonacoEnvironment = {
+  (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
     getWorker(_workerId: string, _label: string): Worker {
       return new editorWorker() as Worker;
     },
@@ -29,9 +27,7 @@ const DEBOUNCE_MS = 300;
 
 // Shared debounce body — used by both the component's onChange and the test
 // helper. Keeps a single source of truth for the commit scheduling.
-function scheduleCommit(
-  timerSlot: { current: ReturnType<typeof setTimeout> | null },
-): void {
+function scheduleCommit(timerSlot: { current: ReturnType<typeof setTimeout> | null }): void {
   if (timerSlot.current !== null) clearTimeout(timerSlot.current);
   timerSlot.current = setTimeout(() => {
     useScenarioEditor.getState().commitPendingYaml();
@@ -79,6 +75,7 @@ export function MonacoYamlView() {
           value={visibleText}
           onChange={onChange}
           options={{
+            automaticLayout: true,
             minimap: { enabled: false },
             wordWrap: "on",
             fontSize: 13,
@@ -89,9 +86,7 @@ export function MonacoYamlView() {
         />
       </div>
       {yamlError !== null && (
-        <p className="mt-2 text-xs text-red-600 font-mono">
-          YAML invalid: {yamlError}
-        </p>
+        <p className="mt-2 text-xs text-red-600 font-mono">YAML invalid: {yamlError}</p>
       )}
     </div>
   );

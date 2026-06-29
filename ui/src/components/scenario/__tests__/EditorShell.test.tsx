@@ -81,6 +81,14 @@ describe("EditorShell", () => {
     expect(useScenarioEditor.getState().pendingYamlText).toBeNull();
   });
 
+  it("R7: YAML 모달의 Monaco를 확정 높이(h-[70vh]) 컨테이너로 감싼다", async () => {
+    const user = userEvent.setup();
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    await user.click(screen.getByRole("button", { name: ko.editor.openYaml }));
+    const view = screen.getByTestId("yaml-view");
+    expect(view.parentElement).toHaveClass("h-[70vh]");
+  });
+
   it("변수 토글 버튼이 VariablesPanel을 접고 편다", async () => {
     const user = userEvent.setup();
     render(

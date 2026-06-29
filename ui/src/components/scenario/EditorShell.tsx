@@ -77,7 +77,9 @@ export function EditorShell({
         </div>
       </div>
       <Modal open={yamlOpen} onClose={closeYaml} title={ko.editor.yamlModalTitle}>
-        <MonacoYamlView />
+        <div className="h-[70vh]">
+          <MonacoYamlView />
+        </div>
       </Modal>
     </div>
   );
