@@ -11,6 +11,11 @@
 ## 파일 업로드 루트 제한
 
 - **Playwright MCP `browser_file_upload`는 repo 루트 밖 경로를 거부한다** (Slice 8c): 허용 루트는 `/Users/sgj/develop/handicap`(워크트리 포함) + `.playwright-mcp/`뿐 — `/tmp`의 파일은 `File access denied`. 브라우저 업로드 점검(데이터셋 등) 시 업로드 대상 파일을 repo 안(예: `.playwright-mcp/`)에 써둔 뒤 절대경로로 넘길 것.
+  - **정정(editor-yaml-io 2026-06-29): 허용 루트는 *현재* 워크트리가 아니라 MCP 서버가 *처음 기동된* 워크트리 + MCP temp(`/var/folders/.../T/.playwright-mcp/`)에 고정된다** (MCP cwd 고정 footgun의 업로드판) — 다른 워크트리에서 검증하면 현재 워크트리의 `.playwright-mcp/`도 거부(`outside allowed roots. Allowed roots: …/T/.playwright-mcp, …/worktrees/<옛-워크트리>`). **회피: 업로드 픽스처를 MCP temp 디렉터리에 쓰고 그 절대경로로 `browser_file_upload`**(다운로드도 거기 떨어지니 같은 디렉터리). 그리고 **MCP가 file chooser를 자체 인터셉트**하므로 인라인 `page.once('filechooser', fc=>fc.setFiles())`보다 MCP가 우선 — 보이는 버튼을 `browser_click`한 뒤 `browser_file_upload`로 파일을 넘기는 게 정석(인라인 setFiles는 무시됨).
+
+## 다운로드(File System Access / blob) 검증 — headless picker 함정
+
+- **headless Chromium에서 `window.showSaveFilePicker`는 *함수로 존재*한다(localhost=secure context)** (editor-yaml-io): 그래서 picker-우선 다운로드 코드(`saveViaPicker`→실패 시 blob 폴백)를 헤드리스로 클릭하면 실 picker가 UI 없이 **hang**(`waitForEvent('download')` 타임아웃) — plan이 "headless엔 picker 부재"를 가정하면 어긋난다. **blob 폴백 경로(=air-gapped 실사용 경로)를 결정적으로 실측하려면 클릭 전에 `page.evaluate(()=>{ window.showSaveFilePicker=undefined })`로 picker를 지워** `saveViaPicker`가 즉시 false→`saveViaBlobUrl`(anchor download)로 떨어지게 한 뒤 `page.waitForEvent('download')`로 `suggestedFilename()`+`createReadStream()` 내용 검증. 실 picker.call(window) bound-call 자체는 헤드리스로 못 덮으니(non-Abort throw→blob 폴백이라 bound-this 버그조차 같은 결과로 흡수됨) real-Chrome nice-to-have(비차단).
 
 ## 트랜지언트 상태는 단일 `browser_evaluate`로
 
