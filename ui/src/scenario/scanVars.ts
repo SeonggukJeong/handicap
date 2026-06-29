@@ -1,4 +1,4 @@
-import { flattenHttpSteps, type Scenario } from "./model";
+import { flattenHttpSteps, type Scenario, type Step, type Condition } from "./model";
 
 const FLOW_VAR_RE = /\{\{\s*([^}]+?)\s*\}\}/g;
 
@@ -72,4 +72,66 @@ export function scanFlowVars(scenario: Scenario): Set<string> {
     }
   }
   return out;
+}
+
+function collectCondRefs(c: Condition, out: Set<string>): void {
+  if ("all" in c) {
+    for (const x of c.all) collectCondRefs(x, out);
+    return;
+  }
+  if ("any" in c) {
+    for (const x of c.any) collectCondRefs(x, out);
+    return;
+  }
+  collectFromString(c.left, out);
+  if (c.right !== undefined) collectFromString(c.right, out);
+}
+
+/**
+ * Per-variable count of how many STEPS reference each `{{var}}`. Surfaces = the
+ * same http request fields as scanFlowVars (url / header values / body) PLUS
+ * if/elif condition operands (which scanFlowVars intentionally skips). Recurses
+ * through every container (loop `do`, if `then`/`elif[].then`/`else`, parallel
+ * `branches[].steps`), including one-level nesting. A var referenced multiple
+ * times within one step counts once for that step. Read-only — powers the
+ * editor's per-variable usage hint; a hint must not lie, hence condition coverage.
+ */
+export function countFlowVarUsage(scenario: Scenario): Map<string, number> {
+  const counts = new Map<string, number>();
+  const bump = (refs: Set<string>): void => {
+    for (const name of refs) counts.set(name, (counts.get(name) ?? 0) + 1);
+  };
+  const walk = (steps: ReadonlyArray<Step>): void => {
+    for (const s of steps) {
+      if (s.type === "http") {
+        const refs = new Set<string>();
+        collectFromString(s.request.url, refs);
+        for (const v of Object.values(s.request.headers)) collectFromString(v, refs);
+        const body = s.request.body;
+        if (body?.kind === "raw") {
+          collectFromString(body.value, refs);
+        } else if (body?.kind === "form") {
+          for (const v of Object.values(body.value)) collectFromString(v, refs);
+        } else if (body?.kind === "json") {
+          collectFromJson(body.value, refs);
+        }
+        bump(refs);
+      } else if (s.type === "loop") {
+        walk(s.do);
+      } else if (s.type === "parallel") {
+        for (const b of s.branches) walk(b.steps);
+      } else {
+        // if: the if step itself "uses" its own cond + every elif cond operand
+        const refs = new Set<string>();
+        collectCondRefs(s.cond, refs);
+        for (const e of s.elif) collectCondRefs(e.cond, refs);
+        bump(refs);
+        walk(s.then);
+        for (const e of s.elif) walk(e.then);
+        walk(s.else);
+      }
+    }
+  };
+  walk(scenario.steps);
+  return counts;
 }

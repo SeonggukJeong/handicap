@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scanFlowVars, scanEnvVars } from "../scanVars";
+import { scanFlowVars, scanEnvVars, countFlowVarUsage } from "../scanVars";
 import type { Scenario } from "../model";
 import { ScenarioModel } from "../model";
 
@@ -248,5 +248,146 @@ const scen = ScenarioModel.parse({
 describe("scanEnvVars", () => {
   it("collects ${ENV} names from http request fields, excluding reserved system vars", () => {
     expect([...scanEnvVars(scen)].sort()).toEqual(["API_HOST", "BASE_URL"]);
+  });
+});
+
+describe("countFlowVarUsage", () => {
+  it("counts http request-field usage per variable across steps", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/x?u={{tok}}", headers: {} },
+        assert: [],
+        extract: [],
+      },
+      {
+        id: "01HX0000000000000000000002",
+        name: "b",
+        type: "http",
+        request: { method: "GET", url: "/y", headers: { Authorization: "Bearer {{tok}}" } },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(countFlowVarUsage(s).get("tok")).toBe(2);
+  });
+
+  it("counts a variable referenced multiple times in one step as ONE step", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/{{id}}/{{id}}", headers: { "X-Id": "{{id}}" } },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(countFlowVarUsage(s).get("id")).toBe(1);
+  });
+
+  it("counts if + elif CONDITION operands that scanFlowVars omits (teeth)", () => {
+    const s = ScenarioModel.parse({
+      version: 1,
+      name: "x",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [
+        {
+          id: "01HX0000000000000000000010",
+          name: "gate",
+          type: "if",
+          cond: { left: "{{code}}", op: "eq", right: "{{want}}" },
+          then: [
+            {
+              id: "01HX0000000000000000000011",
+              name: "t",
+              type: "http",
+              request: { method: "GET", url: "/ok", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+          elif: [
+            {
+              cond: { left: "{{code}}", op: "eq", right: "404" },
+              then: [
+                {
+                  id: "01HX0000000000000000000012",
+                  name: "e",
+                  type: "http",
+                  request: { method: "GET", url: "/nf", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+            },
+          ],
+          else: [],
+        },
+      ],
+    });
+    const u = countFlowVarUsage(s);
+    // {{code}}는 같은 if 스텝의 cond + elif cond 둘 다 → 1 스텝
+    expect(u.get("code")).toBe(1);
+    // {{want}}는 if cond에만 → 조건 스캔이 동작함을 증명(scanFlowVars는 못 봄)
+    expect(u.get("want")).toBe(1);
+    expect(scanFlowVars(s).has("want")).toBe(false); // 대조: 옛 스캐너는 조건을 빠뜨린다
+  });
+
+  it("recurses across nested containers (if-in-loop: condition + leaf both reached)", () => {
+    const s = ScenarioModel.parse({
+      version: 1,
+      name: "x",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [
+        {
+          id: "01HX0000000000000000000030",
+          name: "lp",
+          type: "loop",
+          repeat: 1,
+          do: [
+            {
+              id: "01HX0000000000000000000031",
+              name: "ifinner",
+              type: "if",
+              cond: { left: "{{nestedCond}}", op: "exists" },
+              then: [
+                {
+                  id: "01HX0000000000000000000032",
+                  name: "h",
+                  type: "http",
+                  request: { method: "GET", url: "/{{nestedUrl}}", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+              elif: [],
+              else: [],
+            },
+          ],
+        },
+      ],
+    });
+    const u = countFlowVarUsage(s);
+    expect(u.get("nestedCond")).toBe(1); // 중첩 if 조건 도달
+    expect(u.get("nestedUrl")).toBe(1); // 중첩 http leaf 도달
+  });
+
+  it("returns no entry for an unreferenced variable name", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/static", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(countFlowVarUsage(s).get("ghost")).toBeUndefined();
   });
 });
