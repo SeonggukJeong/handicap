@@ -107,7 +107,7 @@ describe("FlowOutline render (full nesting)", () => {
     );
   });
 
-  it("R5: http leaf 의 이름과 URL 이 각각 truncate+title 한 줄이고 행은 items-start 다", () => {
+  it("R5: http leaf 의 이름과 URL 이 각각 truncate+title 한 줄이고 행은 items-center 다(드래그 핸들·메서드 배지 수직 중앙 정렬)", () => {
     render(<FlowOutline />);
     const name = screen.getByText("login");
     expect(name).toHaveClass("truncate");
@@ -115,8 +115,10 @@ describe("FlowOutline render (full nesting)", () => {
     const url = screen.getByText("/login");
     expect(url).toHaveClass("truncate");
     expect(url).toHaveAttribute("title", "/login");
+    // 드래그 핸들(⠿)·메서드 배지를 2줄 이름/URL 블록에 대해 수직 중앙 정렬(사용자 요청 2026-06-29).
+    // 블록이 최장 항목이라 스택은 시각적 무변경, 단일줄 형제(핸들/배지/⚠)만 중앙으로 내려온다.
     const row = screen.getByRole("option", { name: /login/ });
-    expect(row).toHaveClass("items-start");
+    expect(row).toHaveClass("items-center");
   });
 
   it("R6: 컨테이너 헤더 이름이 truncate+title 이고 행은 items-center 다", () => {

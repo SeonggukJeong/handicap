@@ -187,7 +187,7 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   // http leaf
   const urlMissing = step.request.url.trim() === "";
   return (
-    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-start`}>
+    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
       {dragHandle}
       <span
         className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${METHOD_BADGE[step.request.method] ?? "bg-slate-100 text-slate-600"}`}
