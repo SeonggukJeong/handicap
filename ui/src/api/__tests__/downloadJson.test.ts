@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { downloadJson } from "../downloadJson";
+import { downloadJson, downloadYaml } from "../downloadJson";
 
 // jsdom does not implement URL.createObjectURL / revokeObjectURL.
 if (typeof URL.createObjectURL === "undefined") {
@@ -67,5 +67,42 @@ describe("downloadJson", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("downloadYaml", () => {
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (window as PickerWindow).showSaveFilePicker;
+  });
+
+  it("uses YAML picker types and writes the raw text", async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const createWritable = vi.fn().mockResolvedValue({ write, close });
+    const picker = vi.fn().mockResolvedValue({ createWritable });
+    (window as PickerWindow).showSaveFilePicker = picker;
+
+    await downloadYaml("scenario.yaml", "version: 1\n");
+
+    expect(picker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggestedName: "scenario.yaml",
+        types: [{ description: "YAML", accept: { "application/yaml": [".yaml", ".yml"] } }],
+      }),
+    );
+    expect(write).toHaveBeenCalledWith("version: 1\n");
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a blob URL with the application/yaml mime when no picker", async () => {
+    await downloadYaml("scenario.yaml", "version: 1\n");
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    const blobArg = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    expect(blobArg.type).toBe("application/yaml");
   });
 });
