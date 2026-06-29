@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FlowOutline, OutlineRowPreview } from "../FlowOutline";
+import { FlowOutline, OutlineRowPreview, nearestByHeader } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
 import { computeReorder } from "../../../scenario/reorder";
 
@@ -340,6 +340,46 @@ describe("FlowOutline 컨테이너 노드 = 외곽 wrapper (형제 재정렬 프
     // role=option 인 단일 행 div — 컨테이너처럼 별도 헤더+밴드 wrapper 가 없다.
     expect(loginRow.getAttribute("data-depth")).toBe("0");
     expect(loginRow.tagName).toBe("DIV");
+  });
+});
+
+describe("nearestByHeader (드롭 대상=헤더 근접도 — Problem 1)", () => {
+  // 컨테이너의 sortable rect 는 자식 밴드까지 포함해 키가 크다. 드롭 대상을
+  // rect 전체 중심(closestCenter)으로 고르면 중심이 자식 영역으로 내려가
+  // "자식이 닿아야" 순서가 바뀐다 → nearestByHeader 는 컨테이너를 *헤더 띠*
+  // 중심으로만 비교해 부모 헤더 위치가 드롭을 결정하게 한다.
+  const HB = 44;
+
+  it("키 큰 컨테이너를 rect 전체 중심이 아니라 헤더 띠 중심으로 고른다", () => {
+    // leaf a: top0 h40 → 중심 20. 컨테이너 b: top50 h200 → 헤더중심 72, 전체중심 150.
+    // 포인터 70: 헤더 기준이면 b(거리2), 전체중심 기준이면 a(거리50) → b 여야 한다.
+    const items = [
+      { id: "a", top: 0, height: 40, isContainer: false },
+      { id: "b", top: 50, height: 200, isContainer: true },
+    ];
+    expect(nearestByHeader(items, 70, HB)).toBe("b");
+  });
+
+  it("포인터가 leaf 헤더에 가까우면 leaf 를 고른다", () => {
+    const items = [
+      { id: "a", top: 0, height: 40, isContainer: false },
+      { id: "b", top: 50, height: 200, isContainer: true },
+    ];
+    expect(nearestByHeader(items, 15, HB)).toBe("a");
+  });
+
+  it("여러 형제 중 헤더 중심이 포인터에 가장 가까운 것을 고른다", () => {
+    const items = [
+      { id: "a", top: 0, height: 40, isContainer: false }, // 중심 20
+      { id: "b", top: 44, height: 40, isContainer: false }, // 중심 64
+      { id: "c", top: 88, height: 200, isContainer: true }, // 헤더중심 110
+    ];
+    expect(nearestByHeader(items, 60, HB)).toBe("b");
+    expect(nearestByHeader(items, 108, HB)).toBe("c");
+  });
+
+  it("빈 목록은 null", () => {
+    expect(nearestByHeader([], 100, HB)).toBeNull();
   });
 });
 

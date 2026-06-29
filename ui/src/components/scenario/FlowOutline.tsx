@@ -310,6 +310,34 @@ function ContainerTag({ glyph, label }: { glyph: string; label: string }) {
   );
 }
 
+// 컨테이너의 키 큰 헤더 띠. 드롭 대상 비교에 쓰는 헤더 중심 추정 폭(px).
+const HEADER_BAND_PX = 44;
+
+// 드롭 대상 선택(Problem 1): 컨테이너의 sortable rect 는 자식 밴드까지 포함해
+// 키가 크다. rect 전체 중심으로 비교하면 중심이 자식 영역으로 내려가 "자식이
+// 닿아야" 순서가 바뀌는 비직관이 된다 → 컨테이너는 상단 헤더 띠(headerBandPx)
+// 중심, leaf 는 행 전체 중심을 포인터 Y 와 비교해 가장 가까운 형제를 고른다
+// (부모 헤더 위치가 드롭을 결정). 순수 함수 — 단위 테스트가 헤더-우선을 락인.
+// (이 파일 단일-스코프 유지: 순수 헬퍼 1개라 별 파일 분리 대신 react-refresh 예외.)
+// eslint-disable-next-line react-refresh/only-export-components
+export function nearestByHeader(
+  items: { id: string; top: number; height: number; isContainer: boolean }[],
+  pointerY: number,
+  headerBandPx: number,
+): string | null {
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const it of items) {
+    const center = it.isContainer ? it.top + headerBandPx / 2 : it.top + it.height / 2;
+    const dist = Math.abs(center - pointerY);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = it.id;
+    }
+  }
+  return best;
+}
+
 export function FlowOutline() {
   const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
@@ -332,12 +360,28 @@ export function FlowOutline() {
   // 그룹-스코프 충돌(spec §3.1): over 후보를 active의 형제 그룹으로만 좁혀
   // over가 중첩 컨테이너 자식이 되지 않게 → 교차-컨텍스트 취소·dead-zone 제거.
   // resolveDragEnd의 그룹내-전용 의미론과 정확히 일치(re-parenting 없음).
+  // 그 후보 중 드롭 대상은 nearestByHeader 로 *헤더(부모 행)* 근접도로 고른다
+  // (Problem 1: 컨테이너 wrapper 의 키 큰 중심이 아니라 헤더 위치로 결정).
+  // 포인터 없으면(키보드) closestCenter 폴백.
   const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const dragId = args.active.id as string;
       const siblingIds = new Set(findStepSiblings(steps, dragId).map((s) => s.id));
       const candidates = args.droppableContainers.filter((c) => siblingIds.has(c.id as string));
-      return closestCenter({ ...args, droppableContainers: candidates });
+      const pointerY = args.pointerCoordinates?.y;
+      if (candidates.length === 0 || pointerY == null) {
+        return closestCenter({ ...args, droppableContainers: candidates });
+      }
+      const items = candidates.flatMap((c) => {
+        const rect = args.droppableRects.get(c.id);
+        if (!rect) return [];
+        const cStep = findStepById(steps, c.id as string);
+        const isContainer =
+          cStep != null && (isLoopStep(cStep) || isIfStep(cStep) || isParallelStep(cStep));
+        return [{ id: c.id as string, top: rect.top, height: rect.height, isContainer }];
+      });
+      const overId = nearestByHeader(items, pointerY, HEADER_BAND_PX);
+      return overId != null ? [{ id: overId }] : [];
     },
     [steps],
   );
