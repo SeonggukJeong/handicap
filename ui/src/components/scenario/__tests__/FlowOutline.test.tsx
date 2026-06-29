@@ -290,6 +290,26 @@ steps:
   });
 });
 
+describe("FlowOutline 오버레이 배선 (메커니즘은 Task 3 Playwright)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().loadFromString(NESTED_YAML);
+  });
+
+  it("오버레이 배선 후에도 live(sortable) 행의 선택 accent·드래그 핸들 button 이 유지된다", () => {
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    render(<FlowOutline />);
+    // live 행은 여전히 accent (overlay 추가가 선택 표시를 회귀시키지 않음)
+    expect(screen.getByRole("option", { name: /login/ }).className).toMatch(
+      /border-accent-500|ring-accent/,
+    );
+    // live 드래그 핸들은 여전히 진짜 button (프리뷰 핸들은 정적 span — 드래그 없으면 미렌더)
+    expect(screen.getByRole("button", { name: /"login" 스텝 순서 이동/ })).toBeInTheDocument();
+    // 컨테이너 자식 재정렬도 그대로 마운트(중첩 SortableContext 회귀 없음)
+    expect(screen.getByText("ping")).toBeInTheDocument();
+  });
+});
+
 describe("OutlineRowPreview (DragOverlay 프리뷰 — 비대화형 재귀)", () => {
   beforeEach(() => {
     reset();

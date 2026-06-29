@@ -1,11 +1,16 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   KeyboardSensor,
+  closestCenter,
+  MeasuringStrategy,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -21,6 +26,8 @@ import {
   isIfStep,
   isParallelStep,
   summarizeCondition,
+  findStepById,
+  findStepSiblings,
   type Step,
 } from "../../scenario/model";
 import { resolveDragEnd } from "../../scenario/reorder";
@@ -168,17 +175,22 @@ function ContainerBands({
 // loop `do` / if 밴드(then·elif[].then·else) / parallel 레인을 라벨 붙은
 // 들여쓴 그룹으로 렌더하는 재귀 함수. depth는 data-depth로 노출(테스트 결정성).
 function OutlineRow({ step, depth }: { step: Step; depth: number }) {
-  const { attributes, listeners, setNodeRef, transform } = useSortable({
-    id: step.id,
-  });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
+    useSortable({
+      id: step.id,
+    });
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
   const selected = step.id === selectedStepId;
   const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
 
+  // 드래그 중 소스는 *숨김만*(opacity-0, DOM 제거 금지 — dnd-kit 측정 필요).
+  // 외곽 요소에 적용: 컨테이너는 wrapper(헤더+밴드), leaf는 행 div 자체(spec F1).
+  const hidden = isDragging ? "opacity-0" : "";
+
   const rowStyle: React.CSSProperties = {
     marginLeft: `${depth * 16}px`,
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
   };
   const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
   const rowProps = {
@@ -199,6 +211,7 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   const dragHandle = (
     <button
       type="button"
+      ref={setActivatorNodeRef}
       {...attributes}
       {...listeners}
       aria-label={ko.editor.dragHandleAria(step.name)}
@@ -207,8 +220,8 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       ⠿
     </button>
   );
-  const headerRow = (
-    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
+  const headerRow = (extra: string) => (
+    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center ${extra}`}>
       {dragHandle}
       <RowContent step={step} />
     </div>
@@ -216,8 +229,8 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
 
   if (isLoopStep(step) || isIfStep(step) || isParallelStep(step)) {
     return (
-      <div>
-        {headerRow}
+      <div className={hidden}>
+        {headerRow("")}
         <ContainerBands
           step={step}
           depth={depth}
@@ -235,8 +248,8 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       </div>
     );
   }
-  // http leaf — 단일 행 div 자체가 최외곽
-  return headerRow;
+  // http leaf — 단일 행 div 자체가 최외곽이라 hide를 직접 합친다
+  return headerRow(hidden);
 }
 
 // DragOverlay 안에 띄우는 비대화형 재귀 프리뷰. useSortable/SortableContext/onClick
@@ -294,12 +307,32 @@ export function FlowOutline() {
   const addParallelStep = useScenarioEditor((s) => s.addParallelStep);
   const moveStep = useScenarioEditor((s) => s.moveStep);
 
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeStep = activeId ? findStepById(steps, activeId) : null;
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // 그룹-스코프 충돌(spec §3.1): over 후보를 active의 형제 그룹으로만 좁혀
+  // over가 중첩 컨테이너 자식이 되지 않게 → 교차-컨텍스트 취소·dead-zone 제거.
+  // resolveDragEnd의 그룹내-전용 의미론과 정확히 일치(re-parenting 없음).
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      const dragId = args.active.id as string;
+      const siblingIds = new Set(findStepSiblings(steps, dragId).map((s) => s.id));
+      const candidates = args.droppableContainers.filter((c) => siblingIds.has(c.id as string));
+      return closestCenter({ ...args, droppableContainers: candidates });
+    },
+    [steps],
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
     const activeId = active.id as string;
     const overId = (over?.id ?? null) as string | null;
@@ -308,6 +341,7 @@ export function FlowOutline() {
       moveStep(result.stepId, result.toIndex);
     }
   };
+  const handleDragCancel = () => setActiveId(null);
 
   const selectedLoopId = useMemo(() => {
     const sel = steps.find((s) => s.id === selectedStepId);
@@ -315,7 +349,14 @@ export function FlowOutline() {
   }, [steps, selectedStepId]);
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       <div className="flex h-full flex-col">
         <div
           data-testid="outline-blank"
@@ -372,6 +413,9 @@ export function FlowOutline() {
         </div>
         <p className="mt-1 text-xs text-slate-400">{ko.editor.containerCaption}</p>
       </div>
+      <DragOverlay>
+        {activeStep ? <OutlineRowPreview step={activeStep} depth={0} /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
