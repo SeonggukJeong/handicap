@@ -106,6 +106,27 @@ describe("FlowOutline render (full nesting)", () => {
       Number(top.getAttribute("data-depth")),
     );
   });
+
+  it("R5: http leaf 의 이름과 URL 이 각각 truncate+title 한 줄이고 행은 items-start 다", () => {
+    render(<FlowOutline />);
+    const name = screen.getByText("login");
+    expect(name).toHaveClass("truncate");
+    expect(name).toHaveAttribute("title", "login");
+    const url = screen.getByText("/login");
+    expect(url).toHaveClass("truncate");
+    expect(url).toHaveAttribute("title", "/login");
+    const row = screen.getByRole("option", { name: /login/ });
+    expect(row).toHaveClass("items-start");
+  });
+
+  it("R6: 컨테이너 헤더 이름이 truncate+title 이고 행은 items-center 다", () => {
+    render(<FlowOutline />);
+    const gate = screen.getByText("gate"); // if 컨테이너 헤더
+    expect(gate).toHaveClass("truncate");
+    expect(gate).toHaveAttribute("title", "gate");
+    const gateRow = screen.getByRole("option", { name: /gate/ });
+    expect(gateRow).toHaveClass("items-center");
+  });
 });
 
 describe("FlowOutline selection", () => {

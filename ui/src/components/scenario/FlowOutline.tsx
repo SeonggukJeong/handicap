@@ -56,6 +56,10 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
     transform: CSS.Transform.toString(transform),
   };
 
+  // 정렬(items-*)은 렌더 사이트별로 명시 — 한 className에 items-center/items-start를
+  // 같이 두면 Tailwind가 소스 순서가 아닌 stylesheet 순서로 이겨 신뢰 불가.
+  const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
+
   // 행 컨테이너는 role="option" + tabIndex (button-in-button 회피 — 드래그 핸들이 별도 button).
   const rowProps = {
     role: "option" as const,
@@ -71,7 +75,6 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       }
     },
     style: rowStyle,
-    className: `flex items-center gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`,
   };
 
   // 드래그 핸들: 별도 button (role="option" 행과 별개 — button-in-button 회피).
@@ -82,7 +85,7 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       {...attributes}
       {...listeners}
       aria-label={ko.editor.dragHandleAria(step.name)}
-      className="cursor-grab text-slate-400 hover:text-slate-600"
+      className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600"
     >
       ⠿
     </button>
@@ -91,11 +94,13 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   if (isLoopStep(step)) {
     return (
       <div>
-        <div ref={setNodeRef} {...rowProps}>
+        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
           {dragHandle}
           <ContainerTag glyph="⟳" label={ko.editor.containerLoop} />
-          <span className="font-medium">{step.name}</span>
-          <span className="text-xs text-slate-500">× {step.repeat}</span>
+          <span className="min-w-0 truncate font-medium" title={step.name}>
+            {step.name}
+          </span>
+          <span className="shrink-0 text-xs text-slate-500">× {step.repeat}</span>
         </div>
         <div className="mt-1 flex flex-col gap-1 border-l-2 border-slate-200">
           <SortableContext items={step.do.map((c) => c.id)} strategy={verticalListSortingStrategy}>
@@ -115,11 +120,13 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
     ];
     return (
       <div>
-        <div ref={setNodeRef} {...rowProps}>
+        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
           {dragHandle}
           <ContainerTag glyph="⎇" label={ko.editor.containerIf} />
-          <span className="font-medium">{step.name}</span>
-          <span className="text-xs text-slate-500">{summarizeCondition(step.cond)}</span>
+          <span className="min-w-0 truncate font-medium" title={step.name}>
+            {step.name}
+          </span>
+          <span className="shrink-0 text-xs text-slate-500">{summarizeCondition(step.cond)}</span>
         </div>
         {bands.map((b) => (
           <div key={b.label} className="mt-1 border-l-2 border-slate-200">
@@ -147,10 +154,12 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   if (isParallelStep(step)) {
     return (
       <div>
-        <div ref={setNodeRef} {...rowProps}>
+        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
           {dragHandle}
           <ContainerTag glyph="⇉" label={ko.editor.containerParallel} />
-          <span className="font-medium">{step.name}</span>
+          <span className="min-w-0 truncate font-medium" title={step.name}>
+            {step.name}
+          </span>
         </div>
         {step.branches.map((b) => (
           <div key={b.name} className="mt-1 border-l-2 border-slate-200">
@@ -178,23 +187,27 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   // http leaf
   const urlMissing = step.request.url.trim() === "";
   return (
-    <div ref={setNodeRef} {...rowProps}>
+    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-start`}>
       {dragHandle}
       <span
-        className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${METHOD_BADGE[step.request.method] ?? "bg-slate-100 text-slate-600"}`}
+        className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${METHOD_BADGE[step.request.method] ?? "bg-slate-100 text-slate-600"}`}
       >
         {step.request.method}
       </span>
-      <span className="font-medium">{step.name}</span>
-      <span className="truncate text-xs text-slate-500" title={step.request.url}>
-        {step.request.url}
-      </span>
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate font-medium" title={step.name}>
+          {step.name}
+        </span>
+        <span className="truncate text-xs text-slate-500" title={step.request.url}>
+          {step.request.url}
+        </span>
+      </div>
       {urlMissing && (
         <span
           role="img"
           aria-label={ko.editor.urlMissingTitle}
           title={ko.editor.urlMissingTitle}
-          className="text-amber-500"
+          className="shrink-0 text-amber-500"
         >
           ⚠
         </span>
@@ -206,7 +219,7 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
 function ContainerTag({ glyph, label }: { glyph: string; label: string }) {
   // glyph는 장식(aria-hidden), 라벨 텍스트만 ko 경유(ADR-0035).
   return (
-    <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+    <span className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
       <span aria-hidden="true">{glyph}</span> {label}
     </span>
   );
