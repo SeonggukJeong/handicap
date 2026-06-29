@@ -22,11 +22,17 @@ coerce 실패는 엄격 실패(`EngineError::CastFailed`). UI는 Zod `.superRefi
 
 ## 범위
 
-v1 = flow `{{}}` + `:num`/`:bool`(+`:str`) + JSON body 한정. 연기: `:json`/변수 기반
-null·`${env}`/시스템 토큰 캐스트·nullable 규칙·form/raw/URL 캐스트.
+v1 = flow `{{}}` + `:num`/`:bool`(+`:str`) + JSON body 한정. **확장(2026-06-29)**: 같은
+캐스트를 env/시스템 토큰 `${}`에도 적용 + `:json`(값을 임의 JSON으로 파싱 → 객체/배열/
+숫자/불리언/문자열/null·변수 기반 null 포함). 잔여 연기: form/raw/URL 캐스트·empty/unbound→null
+같은 nullable 규칙.
 
 ## 결과
 
 proto/controller/worker/migration/`Body::Json` 모델 무변경. 캐스트 없으면 출력
 byte-identical(하위호환). 데이터바인딩(8c)과 직교 — 데이터셋 값은 여전히 문자열로
 바인딩되고 캐스트가 JSON leaf에서 coerce.
+
+`:json`은 순수 단일 토큰 leaf 하나를 파싱된 단일 JSON 값으로 치환할 뿐이라, 형제 키로 새는
+문자열 주입이 구조적으로 불가능하다(파싱→serde 재직렬화). env/시스템 토큰 캐스트는
+`parse_cast_leaf`가 `${name}` bare를 재구성하고 기존 `render`가 해석 — executor·`render` 무변경.
