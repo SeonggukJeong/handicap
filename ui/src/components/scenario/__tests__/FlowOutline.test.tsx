@@ -310,6 +310,39 @@ describe("FlowOutline 오버레이 배선 (메커니즘은 Task 3 Playwright)", 
   });
 });
 
+describe("FlowOutline 컨테이너 노드 = 외곽 wrapper (형제 재정렬 프리뷰; 실측은 Playwright)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().loadFromString(NESTED_YAML);
+  });
+
+  it("컨테이너 헤더와 자식 밴드가 단일 wrapper 아래 함께 있다 (sortable 노드=wrapper)", () => {
+    // 드래그 shift-transform 자체는 jsdom 불가(spec §6.2). 여기선 컨테이너의
+    // sortable 노드가 헤더가 아니라 헤더+자식 밴드를 감싼 *외곽 wrapper*라는
+    // 구조 계약만 락인한다 — 이 wrapper가 useSortable setNodeRef/transform 을
+    // 받아 재정렬 프리뷰 때 컨테이너 전체(헤더+자식)가 함께 이동한다(Problem 2 fix).
+    // 실제 transform 추종은 Playwright(orchestrator)로 실측.
+    render(<FlowOutline />);
+    const gateHeader = screen.getByRole("option", { name: /gate/ }); // if 컨테이너 헤더
+    const wrapper = gateHeader.parentElement!;
+    // wrapper 는 헤더 자신이 아니라 그 부모(role 없는 외곽 div)
+    expect(wrapper).not.toBe(gateHeader);
+    expect(wrapper.getAttribute("role")).toBeNull();
+    // 같은 wrapper 안에 헤더와 깊은 자식('ping')이 함께 존재 → transform 이 둘 다 옮긴다
+    expect(wrapper.contains(gateHeader)).toBe(true);
+    expect(wrapper.querySelector('[aria-label="스텝: ping"]')).not.toBeNull();
+  });
+
+  it("leaf 행은 자신이 sortable 노드 — 불필요한 wrapper 로 감싸지 않는다", () => {
+    render(<FlowOutline />);
+    const loginRow = screen.getByRole("option", { name: /login/ }); // http leaf
+    // leaf 의 부모는 그룹 컨테이너(SortableContext 래퍼 등)이고, leaf 자신이
+    // role=option 인 단일 행 div — 컨테이너처럼 별도 헤더+밴드 wrapper 가 없다.
+    expect(loginRow.getAttribute("data-depth")).toBe("0");
+    expect(loginRow.tagName).toBe("DIV");
+  });
+});
+
 describe("OutlineRowPreview (DragOverlay 프리뷰 — 비대화형 재귀)", () => {
   beforeEach(() => {
     reset();

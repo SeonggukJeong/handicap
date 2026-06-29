@@ -187,13 +187,15 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
   // 드래그 중 소스는 *숨김만*(opacity-0, DOM 제거 금지 — dnd-kit 측정 필요).
   // 외곽 요소에 적용: 컨테이너는 wrapper(헤더+밴드), leaf는 행 div 자체(spec F1).
   const hidden = isDragging ? "opacity-0" : "";
+  // 드래그 transform 은 sortable *노드*에 건다(드래그 중 소스는 오버레이가 시각
+  // 담당이라 0화). leaf=행 div 자체가 노드, 컨테이너=헤더+밴드 감싼 외곽 wrapper
+  // 가 노드 → 재정렬 프리뷰 때 컨테이너 전체(헤더+자식)가 한 덩어리로 이동한다.
+  // (헤더 div 에만 걸면 형제 자식 밴드가 안 밀려 드롭존이 어긋나 보인다.)
+  const nodeTransform = isDragging ? undefined : CSS.Transform.toString(transform);
 
-  const rowStyle: React.CSSProperties = {
-    marginLeft: `${depth * 16}px`,
-    transform: isDragging ? undefined : CSS.Transform.toString(transform),
-  };
   const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
-  const rowProps = {
+  // 헤더 행의 role/선택/키보드 속성(transform 제외 — transform 은 sortable 노드로).
+  const rowAria = {
     role: "option" as const,
     "aria-selected": selected,
     "aria-label": ko.editor.outlineRowAria(step.name),
@@ -206,7 +208,6 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
         select(step.id);
       }
     },
-    style: rowStyle,
   };
   const dragHandle = (
     <button
@@ -220,17 +221,20 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       ⠿
     </button>
   );
-  const headerRow = (extra: string) => (
-    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center ${extra}`}>
-      {dragHandle}
-      <RowContent step={step} />
-    </div>
-  );
 
   if (isLoopStep(step) || isIfStep(step) || isParallelStep(step)) {
+    // 컨테이너: sortable 노드 = 헤더+밴드를 감싼 외곽 wrapper(transform·숨김·측정).
+    // 헤더 div 는 marginLeft 와 role/선택만 — setNodeRef/transform 은 wrapper 가 받는다.
     return (
-      <div className={hidden}>
-        {headerRow("")}
+      <div ref={setNodeRef} style={{ transform: nodeTransform }} className={hidden}>
+        <div
+          {...rowAria}
+          style={{ marginLeft: `${depth * 16}px` }}
+          className={`${rowClassBase} items-center`}
+        >
+          {dragHandle}
+          <RowContent step={step} />
+        </div>
         <ContainerBands
           step={step}
           depth={depth}
@@ -248,8 +252,18 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
       </div>
     );
   }
-  // http leaf — 단일 행 div 자체가 최외곽이라 hide를 직접 합친다
-  return headerRow(hidden);
+  // http leaf — 행 div 자체가 sortable 노드(별도 헤더 wrapper 불요). 숨김도 이 행에 직접.
+  return (
+    <div
+      ref={setNodeRef}
+      {...rowAria}
+      style={{ marginLeft: `${depth * 16}px`, transform: nodeTransform }}
+      className={`${rowClassBase} items-center ${hidden}`}
+    >
+      {dragHandle}
+      <RowContent step={step} />
+    </div>
+  );
 }
 
 // DragOverlay 안에 띄우는 비대화형 재귀 프리뷰. useSortable/SortableContext/onClick
