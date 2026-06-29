@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FlowOutline } from "../FlowOutline";
+import { FlowOutline, OutlineRowPreview } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
 import { computeReorder } from "../../../scenario/reorder";
 
@@ -287,5 +287,58 @@ steps:
     // 순수 매핑 단언(헬퍼는 reorder.test가 전수) — 여기선 그룹 id 순서가 모델과 일치함을 핀
     const ids = useScenarioEditor.getState().model!.steps.map((s) => s.id);
     expect(computeReorder(ids, ids[0], ids[1])).toBe(1);
+  });
+});
+
+describe("OutlineRowPreview (DragOverlay 프리뷰 — 비대화형 재귀)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().loadFromString(NESTED_YAML);
+  });
+
+  const stepById = (id: string) =>
+    useScenarioEditor.getState().model!.steps.find((s) => s.id === id)!;
+
+  it("컨테이너 프리뷰가 헤더 + 자식 서브트리를 재귀로 렌더한다 (#4)", () => {
+    // 'gate'(if) → THEN → 'inner-loop'(loop) → 'ping'(http leaf)
+    render(<OutlineRowPreview step={stepById("01HX0000000000000000000010")} depth={0} />);
+    expect(screen.getByText("gate")).toBeInTheDocument();
+    expect(screen.getByText("THEN")).toBeInTheDocument();
+    expect(screen.getByText("inner-loop")).toBeInTheDocument();
+    expect(screen.getByText("ping")).toBeInTheDocument(); // depth-2 자식까지
+  });
+
+  it("프리뷰 root 는 aria-hidden (SR 이중 구술 방지)", () => {
+    const { container } = render(
+      <OutlineRowPreview step={stepById("01HX0000000000000000000001")} depth={0} />,
+    );
+    expect(container.firstChild).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("프리뷰는 비대화형 — 진짜 button 이 없고 핸들은 정적 aria-hidden span 이다", () => {
+    const { container } = render(
+      <OutlineRowPreview step={stepById("01HX0000000000000000000001")} depth={0} />,
+    );
+    // 프리뷰 root 가 aria-hidden 이라 getByRole 은 서브트리를 제외(teeth 없음) →
+    // DOM 레벨로 단언해야 진짜 button 누출을 잡는다([[implementation-rigor-over-spec]]).
+    expect(container.querySelector("button")).toBeNull();
+    // 핸들 글리프(⠿)는 정적 span(aria-hidden) — leaf 프리뷰엔 정확히 이 1개
+    const handle = container.querySelector('span[aria-hidden="true"]');
+    expect(handle?.textContent).toContain("⠿");
+  });
+
+  it("선택된 스텝이어도 프리뷰는 accent 를 표시하지 않는다 (F3 — store 미접촉)", () => {
+    useScenarioEditor.getState().select("01HX0000000000000000000010"); // 'gate' 선택
+    render(<OutlineRowPreview step={stepById("01HX0000000000000000000010")} depth={0} />);
+    const headerRow = screen.getByText("gate").parentElement!;
+    expect(headerRow.className).not.toMatch(/border-accent-500|ring-accent/);
+    expect(headerRow.className).toMatch(/border-slate-200/);
+  });
+
+  it("http leaf 프리뷰가 이름/URL/메서드 배지를 렌더한다", () => {
+    render(<OutlineRowPreview step={stepById("01HX0000000000000000000001")} depth={0} />);
+    expect(screen.getByText("login")).toBeInTheDocument();
+    expect(screen.getByText("POST")).toBeInTheDocument();
+    expect(screen.getByText("/login")).toBeInTheDocument();
   });
 });

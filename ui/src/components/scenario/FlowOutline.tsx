@@ -39,156 +39,45 @@ const METHOD_BADGE: Record<string, string> = {
 // 셀렉터 fallback은 모듈 스코프 안정 상수(M3 — 인라인 `?? []` 금지).
 const EMPTY_STEPS: Step[] = [];
 
-// loop `do` / if 밴드(then·elif[].then·else) / parallel 레인을 라벨 붙은
-// 들여쓴 그룹으로 렌더하는 재귀 함수. depth는 data-depth로 노출(테스트 결정성).
-function OutlineRow({ step, depth }: { step: Step; depth: number }) {
-  const { attributes, listeners, setNodeRef, transform } = useSortable({
-    id: step.id,
-  });
-  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
-  const select = useScenarioEditor((s) => s.select);
-  const selected = step.id === selectedStepId;
-  const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
-
-  // transform을 marginLeft와 병합 — data-depth/role/keyboard handler를 건드리지 않음.
-  const rowStyle: React.CSSProperties = {
-    marginLeft: `${depth * 16}px`,
-    transform: CSS.Transform.toString(transform),
-  };
-
-  // 정렬(items-*)은 렌더 사이트별로 명시 — 한 className에 items-center/items-start를
-  // 같이 두면 Tailwind가 소스 순서가 아닌 stylesheet 순서로 이겨 신뢰 불가.
-  const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
-
-  // 행 컨테이너는 role="option" + tabIndex (button-in-button 회피 — 드래그 핸들이 별도 button).
-  const rowProps = {
-    role: "option" as const,
-    "aria-selected": selected,
-    "aria-label": ko.editor.outlineRowAria(step.name),
-    tabIndex: 0,
-    "data-depth": String(depth),
-    onClick: () => select(step.id),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        select(step.id);
-      }
-    },
-    style: rowStyle,
-  };
-
-  // 드래그 핸들: 별도 button (role="option" 행과 별개 — button-in-button 회피).
-  // attributes/listeners를 핸들에만 스프레드해 키보드 센서가 핸들로 조작 가능.
-  const dragHandle = (
-    <button
-      type="button"
-      {...attributes}
-      {...listeners}
-      aria-label={ko.editor.dragHandleAria(step.name)}
-      className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600"
-    >
-      ⠿
-    </button>
-  );
-
+// 한 행 헤더의 "드래그 핸들 이후" 내용. 대화형 OutlineRow와 오버레이용
+// OutlineRowPreview가 공유 — 시각 드리프트 방지(spec §3.3).
+function RowContent({ step }: { step: Step }) {
   if (isLoopStep(step)) {
     return (
-      <div>
-        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
-          {dragHandle}
-          <ContainerTag glyph="⟳" label={ko.editor.containerLoop} />
-          <span className="min-w-0 truncate font-medium" title={step.name}>
-            {step.name}
-          </span>
-          <span className="shrink-0 text-xs text-slate-500">× {step.repeat}</span>
-        </div>
-        <div className="mt-1 flex flex-col gap-1 border-l-2 border-slate-200">
-          <SortableContext items={step.do.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-            {step.do.map((c) => (
-              <OutlineRow key={c.id} step={c} depth={depth + 1} />
-            ))}
-          </SortableContext>
-        </div>
-      </div>
+      <>
+        <ContainerTag glyph="⟳" label={ko.editor.containerLoop} />
+        <span className="min-w-0 truncate font-medium" title={step.name}>
+          {step.name}
+        </span>
+        <span className="shrink-0 text-xs text-slate-500">× {step.repeat}</span>
+      </>
     );
   }
   if (isIfStep(step)) {
-    const bands: Array<{ label: string; children: Step[] }> = [
-      { label: "THEN", children: step.then },
-      ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
-      ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
-    ];
     return (
-      <div>
-        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
-          {dragHandle}
-          <ContainerTag glyph="⎇" label={ko.editor.containerIf} />
-          <span className="min-w-0 truncate font-medium" title={step.name}>
-            {step.name}
-          </span>
-          <span className="shrink-0 text-xs text-slate-500">{summarizeCondition(step.cond)}</span>
-        </div>
-        {bands.map((b) => (
-          <div key={b.label} className="mt-1 border-l-2 border-slate-200">
-            <div
-              className="px-2 text-[11px] font-semibold text-slate-400"
-              style={{ marginLeft: `${(depth + 1) * 16}px` }}
-            >
-              {b.label}
-            </div>
-            <div className="flex flex-col gap-1">
-              <SortableContext
-                items={b.children.map((c) => c.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {b.children.map((c) => (
-                  <OutlineRow key={c.id} step={c} depth={depth + 1} />
-                ))}
-              </SortableContext>
-            </div>
-          </div>
-        ))}
-      </div>
+      <>
+        <ContainerTag glyph="⎇" label={ko.editor.containerIf} />
+        <span className="min-w-0 truncate font-medium" title={step.name}>
+          {step.name}
+        </span>
+        <span className="shrink-0 text-xs text-slate-500">{summarizeCondition(step.cond)}</span>
+      </>
     );
   }
   if (isParallelStep(step)) {
     return (
-      <div>
-        <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
-          {dragHandle}
-          <ContainerTag glyph="⇉" label={ko.editor.containerParallel} />
-          <span className="min-w-0 truncate font-medium" title={step.name}>
-            {step.name}
-          </span>
-        </div>
-        {step.branches.map((b) => (
-          <div key={b.name} className="mt-1 border-l-2 border-slate-200">
-            <div
-              className="px-2 text-[11px] font-semibold text-slate-400"
-              style={{ marginLeft: `${(depth + 1) * 16}px` }}
-            >
-              {b.name}
-            </div>
-            <div className="flex flex-col gap-1">
-              <SortableContext
-                items={b.steps.map((c) => c.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {b.steps.map((c) => (
-                  <OutlineRow key={c.id} step={c} depth={depth + 1} />
-                ))}
-              </SortableContext>
-            </div>
-          </div>
-        ))}
-      </div>
+      <>
+        <ContainerTag glyph="⇉" label={ko.editor.containerParallel} />
+        <span className="min-w-0 truncate font-medium" title={step.name}>
+          {step.name}
+        </span>
+      </>
     );
   }
   // http leaf
   const urlMissing = step.request.url.trim() === "";
   return (
-    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
-      {dragHandle}
+    <>
       <span
         className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${METHOD_BADGE[step.request.method] ?? "bg-slate-100 text-slate-600"}`}
       >
@@ -212,8 +101,177 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
           ⚠
         </span>
       )}
+    </>
+  );
+}
+
+// 컨테이너 자식 밴드 스캐폴딩(들여쓰기·border-l-2·밴드 라벨). 자식 렌더 방식만
+// renderGroup으로 주입 — 대화형(SortableContext+OutlineRow) vs 프리뷰(OutlineRowPreview).
+function ContainerBands({
+  step,
+  depth,
+  renderGroup,
+}: {
+  step: Step;
+  depth: number;
+  renderGroup: (children: Step[], childDepth: number) => React.ReactNode;
+}) {
+  if (isLoopStep(step)) {
+    return (
+      <div className="mt-1 flex flex-col gap-1 border-l-2 border-slate-200">
+        {renderGroup(step.do, depth + 1)}
+      </div>
+    );
+  }
+  if (isIfStep(step)) {
+    const bands: Array<{ label: string; children: Step[] }> = [
+      { label: "THEN", children: step.then },
+      ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
+      ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
+    ];
+    return (
+      <>
+        {bands.map((b) => (
+          <div key={b.label} className="mt-1 border-l-2 border-slate-200">
+            <div
+              className="px-2 text-[11px] font-semibold text-slate-400"
+              style={{ marginLeft: `${(depth + 1) * 16}px` }}
+            >
+              {b.label}
+            </div>
+            <div className="flex flex-col gap-1">{renderGroup(b.children, depth + 1)}</div>
+          </div>
+        ))}
+      </>
+    );
+  }
+  if (isParallelStep(step)) {
+    return (
+      <>
+        {step.branches.map((b) => (
+          <div key={b.name} className="mt-1 border-l-2 border-slate-200">
+            <div
+              className="px-2 text-[11px] font-semibold text-slate-400"
+              style={{ marginLeft: `${(depth + 1) * 16}px` }}
+            >
+              {b.name}
+            </div>
+            <div className="flex flex-col gap-1">{renderGroup(b.steps, depth + 1)}</div>
+          </div>
+        ))}
+      </>
+    );
+  }
+  return null;
+}
+
+// loop `do` / if 밴드(then·elif[].then·else) / parallel 레인을 라벨 붙은
+// 들여쓴 그룹으로 렌더하는 재귀 함수. depth는 data-depth로 노출(테스트 결정성).
+function OutlineRow({ step, depth }: { step: Step; depth: number }) {
+  const { attributes, listeners, setNodeRef, transform } = useSortable({
+    id: step.id,
+  });
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
+  const select = useScenarioEditor((s) => s.select);
+  const selected = step.id === selectedStepId;
+  const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
+
+  const rowStyle: React.CSSProperties = {
+    marginLeft: `${depth * 16}px`,
+    transform: CSS.Transform.toString(transform),
+  };
+  const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
+  const rowProps = {
+    role: "option" as const,
+    "aria-selected": selected,
+    "aria-label": ko.editor.outlineRowAria(step.name),
+    tabIndex: 0,
+    "data-depth": String(depth),
+    onClick: () => select(step.id),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select(step.id);
+      }
+    },
+    style: rowStyle,
+  };
+  const dragHandle = (
+    <button
+      type="button"
+      {...attributes}
+      {...listeners}
+      aria-label={ko.editor.dragHandleAria(step.name)}
+      className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600"
+    >
+      ⠿
+    </button>
+  );
+  const headerRow = (
+    <div ref={setNodeRef} {...rowProps} className={`${rowClassBase} items-center`}>
+      {dragHandle}
+      <RowContent step={step} />
     </div>
   );
+
+  if (isLoopStep(step) || isIfStep(step) || isParallelStep(step)) {
+    return (
+      <div>
+        {headerRow}
+        <ContainerBands
+          step={step}
+          depth={depth}
+          renderGroup={(children, childDepth) => (
+            <SortableContext
+              items={children.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {children.map((c) => (
+                <OutlineRow key={c.id} step={c} depth={childDepth} />
+              ))}
+            </SortableContext>
+          )}
+        />
+      </div>
+    );
+  }
+  // http leaf — 단일 행 div 자체가 최외곽
+  return headerRow;
+}
+
+// DragOverlay 안에 띄우는 비대화형 재귀 프리뷰. useSortable/SortableContext/onClick
+// 없음(이중 등록·중복 핸들 방지), store 미접촉, 선택 accent 미표시(F3), aria-hidden 장식.
+export function OutlineRowPreview({ step, depth }: { step: Step; depth: number }) {
+  const rowStyle: React.CSSProperties = { marginLeft: `${depth * 16}px` };
+  // 항상 중립 border-slate-200 — 선택 여부와 무관(store 미접촉).
+  const rowClass =
+    "flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm shadow-lg";
+  const staticHandle = (
+    <span className="shrink-0 cursor-grab text-slate-400" aria-hidden="true">
+      ⠿
+    </span>
+  );
+  const headerRow = (
+    <div style={rowStyle} className={rowClass}>
+      {staticHandle}
+      <RowContent step={step} />
+    </div>
+  );
+  if (isLoopStep(step) || isIfStep(step) || isParallelStep(step)) {
+    return (
+      <div aria-hidden="true">
+        {headerRow}
+        <ContainerBands
+          step={step}
+          depth={depth}
+          renderGroup={(children, childDepth) =>
+            children.map((c) => <OutlineRowPreview key={c.id} step={c} depth={childDepth} />)
+          }
+        />
+      </div>
+    );
+  }
+  return <div aria-hidden="true">{headerRow}</div>;
 }
 
 function ContainerTag({ glyph, label }: { glyph: string; label: string }) {
