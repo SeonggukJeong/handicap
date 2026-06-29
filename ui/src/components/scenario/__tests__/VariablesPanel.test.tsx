@@ -63,4 +63,46 @@ describe("VariablesPanel", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
+
+  it("R1/R2: 값을 전폭 textarea로 렌더하고 편집을 store에 커밋한다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setVariable("tok", "abc");
+    render(<VariablesPanel />);
+    const ta = screen.getByRole("textbox", { name: "tok 값" });
+    expect(ta.tagName).toBe("TEXTAREA");
+    expect(ta).toHaveClass("w-full");
+    await user.type(ta, "d");
+    expect(useScenarioEditor.getState().model!.variables.tok).toBe("abcd");
+  });
+
+  it("R1: 변수명은 truncate + title 로 전폭 표시한다", () => {
+    useScenarioEditor.getState().setVariable("a_very_long_variable_name", "v");
+    render(<VariablesPanel />);
+    const name = screen.getByText("a_very_long_variable_name");
+    expect(name).toHaveClass("truncate");
+    expect(name).toHaveAttribute("title", "a_very_long_variable_name");
+  });
+
+  it("R4: 사용되는 변수는 'N개 스텝에서 사용', 안 쓰이는 변수는 '미사용' 힌트를 보인다", () => {
+    // {{used}}를 한 http 스텝의 url에서 참조하는 시나리오 + 미참조 변수 {{lonely}}
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: x
+cookie_jar: auto
+variables:
+  used: "u"
+  lonely: "l"
+steps:
+  - id: "01HX0000000000000000000001"
+    name: s
+    type: http
+    request:
+      method: GET
+      url: "/x?q={{used}}"
+    assert:
+      - status: 200
+`);
+    render(<VariablesPanel />);
+    expect(screen.getByText("1개 스텝에서 사용")).toBeInTheDocument();
+    expect(screen.getByText("미사용")).toBeInTheDocument();
+  });
 });

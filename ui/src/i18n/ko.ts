@@ -419,6 +419,9 @@ export const ko = {
     variablesTitle: "변수",
     variablesEmpty: "변수 없음",
     variablesAdd: "추가",
+    variableUnused: "미사용",
+    variableUsage: (n: number) => `${n}개 스텝에서 사용`,
+    variableValueAria: (name: string) => `${name} 값`,
     // ── 새 시나리오 페이지 chrome ──
     create: "만들기",
     creating: "생성 중…",
