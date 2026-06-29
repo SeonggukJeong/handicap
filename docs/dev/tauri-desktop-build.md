@@ -47,7 +47,7 @@ cd desktop && cargo tauri build --bundles nsis,msi
 
 - **트리거**: `v*` 태그 푸시(예: `git tag v0.1.0 && git push origin v0.1.0`) 또는 Actions UI의 수동 실행(`workflow_dispatch` — 태그 입력).
 - **흐름**: `windows-latest` 러너에서 `pnpm --dir ui build` → `protoc` 설치 → rust(MSVC) → `tauri-apps/tauri-action`(`projectPath: desktop`, `--bundles nsis,msi`) → 해당 태그로 릴리즈 생성 + 인스톨러 첨부.
-- **버전**: 인스톨러 파일명은 `desktop/src-tauri/tauri.conf.json`의 `version`을 따른다. 태그와 일치시키려면 **tauri.conf `version` bump → commit → 같은 버전 태그** 순서(예: `version: "0.2.0"` 커밋 후 `v0.2.0` 태그).
+- **버전**: 인스톨러 파일명은 `desktop/src-tauri/tauri.conf.json`의 `version`을 따른다. 태그와 일치시키려면 **tauri.conf `version` bump → commit → 같은 버전 태그** 순서(예: `version: "0.2.0"` 커밋 후 `v0.2.0` 태그). 일관성을 위해 같은 커밋에서 `desktop/src-tauri/Cargo.toml` + `Cargo.lock`의 `desktop` 패키지 버전도 함께 bump(인스톨러 이름은 tauri.conf만 따르지만 crate 버전 불일치 방지). **이 bump 커밋은 desktop이 별도 `[workspace]`라 루트 pre-commit cargo 게이트를 발동시키지 않는다**(`no cargo-affecting paths staged` → 빠른 통과; `desktop/src-tauri/Cargo.toml`은 루트 cargo-영향 경로로 안 잡힘). 그 다음 `git push origin master`(태그 대상 커밋이 origin에 있어야 CI가 체크아웃)·`git tag -a v<ver>`·`git push origin v<ver>`. v0.1.0(2026-06-26)·v0.2.0(2026-06-29)이 이 절차로 발행됨.
 
 ### Windows-검증 갭 체크리스트 (가용 머신이 macOS뿐 — Windows에서 1회 확인 필요)
 
