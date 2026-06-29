@@ -13,6 +13,7 @@ export function YamlFileActions() {
   const [readError, setReadError] = useState<string | null>(null);
 
   const onExport = async () => {
+    setReadError(null);
     const s = useScenarioEditor.getState();
     const text = s.pendingYamlText ?? s.yamlText;
     // Derive the filename from the exact bytes being saved (not s.model, which

@@ -28,7 +28,23 @@ beforeEach(() => {
   useScenarioEditor.getState().loadFromString(EMPTY_YAML);
 });
 
+describe("YamlFileActions — a11y", () => {
+  it("aria-labels contain their visible button label (WCAG 2.5.3)", () => {
+    expect(ko.editor.importYamlAria).toContain(ko.editor.importYaml);
+    expect(ko.editor.exportYamlAria).toContain(ko.editor.exportYaml);
+  });
+});
+
 describe("YamlFileActions — export", () => {
+  it("clears a stale read-error banner when export is clicked", async () => {
+    vi.mocked(readTextFile).mockRejectedValueOnce(new Error("read boom"));
+    const { container } = render(<YamlFileActions />);
+    fireEvent.change(fileInput(container), { target: { files: [dummyFile()] } });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: ko.editor.exportYamlAria }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("downloads YAML with the filename derived from the scenario name", async () => {
     useScenarioEditor
       .getState()
