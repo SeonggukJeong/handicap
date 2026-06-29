@@ -8,6 +8,7 @@ describe("jsonBodyCastErrors", () => {
       age: "{{age:num}}",
       ok: "{{vip:bool}}",
       zip: "{{zip:str}}",
+      j: "{{cfg:json}}",
       name: "{{name}}",
       lit: "hello",
       n: 7,
@@ -39,10 +40,29 @@ describe("jsonBodyCastErrors", () => {
     expect(errs[0]).toContain("standalone");
   });
 
-  it("flags an env/system token cast (flow-only in v1)", () => {
-    const errs = jsonBodyCastErrors({ n: "${COUNT:num}" });
+  it("accepts a valid env/system token cast", () => {
+    expect(jsonBodyCastErrors({ n: "${COUNT:num}", uid: "${vu_id:num}" })).toEqual([]);
+  });
+
+  it("accepts a :json cast on flow and env tokens", () => {
+    expect(jsonBodyCastErrors({ o: "{{obj:json}}", c: "${cfg:json}" })).toEqual([]);
+  });
+
+  it("flags an unknown cast keyword on an env token", () => {
+    const errs = jsonBodyCastErrors({ n: "${COUNT:int}" });
     expect(errs).toHaveLength(1);
-    expect(errs[0]).toContain("env/system token cast not supported");
+    expect(errs[0]).toContain("unknown cast ':int'");
+  });
+
+  it("flags a cast inside a non-standalone env leaf", () => {
+    const errs = jsonBodyCastErrors({ msg: "n is ${COUNT:num}!" });
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toContain("standalone");
+  });
+
+  it("accepts the env default ending in a keyword as a cast (engine/UI lockstep)", () => {
+    // `${FOO:-bar:num}` → 엔진·UI 모두 마지막 :num을 캐스트로 본다(R3 경계).
+    expect(jsonBodyCastErrors({ x: "${FOO:-bar:num}" })).toEqual([]);
   });
 
   it("does not flag the env default operator :-", () => {
