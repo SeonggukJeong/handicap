@@ -23,6 +23,7 @@ import {
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
+import { HelpTip } from "../HelpTip";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -433,6 +434,15 @@ function JsonBodyField({ step }: { step: HttpStep }) {
 
   return (
     <div>
+      <div className="mb-1 flex items-center text-xs text-slate-500">
+        <span>{ko.editor.jsonCastHint}</span>
+        <HelpTip label={ko.editor.jsonCastLabel}>
+          <span className="block">{ko.glossary.jsonCastIntro}</span>
+          <span className="mt-1 block">{ko.glossary.jsonCastTypes}</span>
+          <span className="mt-1 block">{ko.glossary.jsonCastTokens}</span>
+          <span className="mt-1 block">{ko.glossary.jsonCastRule}</span>
+        </HelpTip>
+      </div>
       <textarea
         aria-label={ko.editor.jsonBodyAria}
         className="w-full h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"

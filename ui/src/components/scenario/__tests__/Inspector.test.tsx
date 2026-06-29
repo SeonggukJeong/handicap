@@ -1030,3 +1030,26 @@ describe("Inspector URL required marker (U3)", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
+  beforeEach(() => loadAndSelect());
+
+  it("shows the cast HelpTip only when body kind is JSON", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    // 본문 종류 = JSON 선택 (기본은 "없음")
+    await user.selectOptions(screen.getByDisplayValue(ko.editor.bodyNone), ko.editor.bodyJson);
+    // ⓘ 버튼(aria-label = ko.editor.jsonCastLabel) → 클릭 시 popover 본문 노출
+    const tip = screen.getByRole("button", { name: ko.editor.jsonCastLabel });
+    expect(tip).toBeInTheDocument();
+    await user.click(tip);
+    expect(screen.getByText(ko.glossary.jsonCastIntro)).toBeInTheDocument();
+  });
+
+  it("does NOT show the cast HelpTip for form body", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.selectOptions(screen.getByDisplayValue(ko.editor.bodyNone), ko.editor.bodyForm);
+    expect(screen.queryByRole("button", { name: ko.editor.jsonCastLabel })).not.toBeInTheDocument();
+  });
+});

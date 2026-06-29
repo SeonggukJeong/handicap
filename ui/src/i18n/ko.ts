@@ -59,6 +59,13 @@ export const ko = {
     varFlow: "{{변수}} — 흐름 변수. 시나리오 변수·값 추출·데이터셋 바인딩이 채웁니다.",
     varEnv: "${ENV} — 환경 변수. 실행 시 선택한 환경에서 주입됩니다.",
     varSys: "${vu_id} 등 — 시스템 변수. 엔진이 자동으로 채웁니다(가상 사용자 번호 등).",
+    jsonCastIntro:
+      "JSON 값에 변수를 넣을 땐 따옴표 안에 캐스트를 붙입니다 — 그래야 숫자/불리언/JSON으로 들어갑니다.",
+    jsonCastTypes:
+      '예: "{{age:num}}"→숫자, "{{ok:bool}}"→불리언, "{{zip:str}}"→문자열, "{{obj:json}}"→객체/배열/null.',
+    jsonCastTokens: "흐름 변수 {{var}}와 환경·시스템 변수 ${VAR} 둘 다 캐스트할 수 있습니다.",
+    jsonCastRule:
+      "따옴표 안에 캐스트 토큰 하나만 있어야 합니다. :json은 유효한 JSON이어야 하니(객체·배열·숫자·불리언·null·따옴표 친 문자열) 평범한 문자열엔 :str을 쓰세요.",
     duration: "지속 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
   },
   runDialog: {
@@ -421,6 +428,8 @@ export const ko = {
     panelHint: "오른쪽 '스텝 설정' 패널에서 스텝을 설정하세요.",
     // ── 변수 표기 치트시트 (§5.3) ──
     varCheatSheetLabel: "변수 표기 도움말",
+    jsonCastLabel: "JSON 캐스트 도움말",
+    jsonCastHint: "변수를 숫자·불리언·JSON으로",
     varCheatSheetContext: "변수 표기",
     // ── Variables 패널 (치트시트 부착 표면 동반 정리) ──
     variablesTitle: "변수",
