@@ -390,4 +390,73 @@ describe("countFlowVarUsage", () => {
     ]);
     expect(countFlowVarUsage(s).get("ghost")).toBeUndefined();
   });
+
+  it("counts http leaf inside parallel branches[].steps", () => {
+    const s = ScenarioModel.parse({
+      version: 1,
+      name: "x",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [
+        {
+          id: "01HX0000000000000000000050",
+          name: "par",
+          type: "parallel",
+          branches: [
+            {
+              name: "alpha",
+              steps: [
+                {
+                  id: "01HX0000000000000000000051",
+                  name: "leaf",
+                  type: "http",
+                  request: { method: "GET", url: "/{{branchVar}}", headers: {} },
+                  assert: [],
+                  extract: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(countFlowVarUsage(s).get("branchVar")).toBe(1);
+  });
+
+  it("counts condition operands inside all/any group nodes", () => {
+    const s = ScenarioModel.parse({
+      version: 1,
+      name: "x",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [
+        {
+          id: "01HX0000000000000000000060",
+          name: "gate",
+          type: "if",
+          cond: {
+            all: [
+              { left: "{{ga}}", op: "exists" },
+              { left: "{{gb}}", op: "exists" },
+            ],
+          },
+          then: [
+            {
+              id: "01HX0000000000000000000061",
+              name: "t",
+              type: "http",
+              request: { method: "GET", url: "/ok", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+          elif: [],
+          else: [],
+        },
+      ],
+    });
+    const u = countFlowVarUsage(s);
+    expect(u.get("ga")).toBe(1); // all 그룹 첫 번째 피연산자
+    expect(u.get("gb")).toBe(1); // all 그룹 두 번째 피연산자
+  });
 });
