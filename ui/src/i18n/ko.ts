@@ -398,6 +398,13 @@ export const ko = {
     varsPanelAria: "변수",
     openYaml: "YAML",
     yamlModalTitle: "YAML 편집",
+    // ── YAML 파일 가져오기/내보내기 (file-I/O) ──
+    importYaml: "파일에서 열기",
+    importYamlAria: "YAML 파일을 선택해 시나리오를 불러옵니다",
+    exportYaml: "파일로 저장",
+    exportYamlAria: "현재 시나리오를 YAML 파일로 저장합니다",
+    importReplaceConfirm: "현재 내용을 가져온 파일로 대체합니다. 계속할까요?",
+    importReadError: (msg: string) => `파일을 읽지 못했습니다: ${msg}`,
     dragHandleAria: (name: string) => `"${name}" 스텝 순서 이동 (드래그)`,
     outlineRowAria: (name: string) => `스텝: ${name}`,
     containerLoop: "반복",

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as monaco from "monaco-editor";
+import { YamlFileActions } from "./YamlFileActions";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import Editor, { loader } from "@monaco-editor/react";
 import { useScenarioEditor } from "../../scenario/store";
@@ -68,6 +69,7 @@ export function MonacoYamlView() {
 
   return (
     <div className="flex flex-col h-full">
+      <YamlFileActions />
       <div className="flex-1 min-h-[400px] border border-slate-200 rounded-md overflow-hidden">
         <Editor
           height="100%"
