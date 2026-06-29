@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use reqwest::cookie::Jar;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
-use crate::cast::{Cast, coerce_bool, coerce_num, parse_cast_leaf};
+use crate::cast::{Cast, coerce_bool, coerce_json, coerce_num, parse_cast_leaf};
 use crate::error::{EngineError, Result};
 use crate::extract::{ResponseFacts, evaluate as evaluate_extracts};
 use crate::scenario::{Assertion, Body, CookieJarMode, HttpMethod, HttpStep};
@@ -96,6 +96,14 @@ fn render_json_value(
                 coerce_bool(&r).ok_or(EngineError::CastFailed {
                     var: bare,
                     cast: "bool",
+                    value: r,
+                })?
+            }
+            Some((bare, Cast::Json)) => {
+                let r = render(&bare, ctx)?;
+                coerce_json(&r).ok_or(EngineError::CastFailed {
+                    var: bare,
+                    cast: "json",
                     value: r,
                 })?
             }
@@ -311,6 +319,10 @@ fn render_json_collecting(
             Some((bare, Cast::Bool)) => {
                 let r = render_collecting(&bare, ctx, unbound);
                 coerce_bool(&r).unwrap_or(Value::String(r))
+            }
+            Some((bare, Cast::Json)) => {
+                let r = render_collecting(&bare, ctx, unbound);
+                coerce_json(&r).unwrap_or(Value::String(r)) // best-effort: 실패 시 문자열
             }
             // 캐스트 없음/미지원 keyword/혼합/env → parse_cast_leaf None → 원문 s 그대로 렌더(byte-identical).
             None => Value::String(render_collecting(s, ctx, unbound)),
@@ -1068,6 +1080,104 @@ mod tests {
             render_json_value(&input, &ctx),
             Err(EngineError::UnknownVar(_))
         ));
+    }
+
+    #[test]
+    fn json_cast_env_and_system_tokens() {
+        let vars: BTreeMap<String, String> = BTreeMap::new();
+        let env: BTreeMap<String, String> = [("PORT".into(), "5000".into())].into_iter().collect();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 7,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "port": "${PORT:num}", "uid": "${vu_id:num}" });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(out, serde_json::json!({ "port": 5000, "uid": 7 }));
+    }
+
+    #[test]
+    fn json_cast_json_parses_object_and_null() {
+        let vars: BTreeMap<String, String> = [
+            ("obj".into(), r#"{"a":1,"b":[2,3]}"#.into()),
+            ("z".into(), "null".into()),
+        ]
+        .into_iter()
+        .collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "o": "{{obj:json}}", "n": "{{z:json}}" });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({ "o": {"a":1,"b":[2,3]}, "n": null })
+        );
+    }
+
+    #[test]
+    fn json_cast_json_failure_errors_strict() {
+        let vars: BTreeMap<String, String> = [("x".into(), "abc".into())].into_iter().collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "x": "{{x:json}}" });
+        assert!(matches!(
+            render_json_value(&input, &ctx),
+            Err(EngineError::CastFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn json_cast_json_trace_falls_back_to_string() {
+        let vars: BTreeMap<String, String> = [("x".into(), "abc".into())].into_iter().collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "x": "{{x:json}}" });
+        let mut unbound = Vec::new();
+        let out = render_json_collecting(&input, &ctx, &mut unbound);
+        // trace는 lenient → coerce 실패 시 원문 문자열 보존(Err 없음).
+        assert_eq!(out, serde_json::json!({ "x": "abc" }));
+    }
+
+    #[test]
+    fn json_cast_json_does_not_leak_to_siblings() {
+        // R9: `:json`은 그 leaf 하나만 파싱된 값으로 치환 — 형제 키로 새지 않는다.
+        let vars: BTreeMap<String, String> = [("x".into(), r#"{"injected":true}"#.into())]
+            .into_iter()
+            .collect();
+        let env = BTreeMap::new();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let input = serde_json::json!({ "evil": "{{x:json}}", "sibling": "safe", "n": 1 });
+        let out = render_json_value(&input, &ctx).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({ "evil": {"injected":true}, "sibling": "safe", "n": 1 })
+        );
     }
 
     #[test]
