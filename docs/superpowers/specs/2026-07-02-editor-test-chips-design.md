@@ -25,11 +25,11 @@
 |---|---|---|---|
 | R1 | MUST 신규 프레젠테이셔널 `TestFlowChips` 컴포넌트를 `TestRunSection` 컨트롤 섹션 내부(인트로 문단 아래·EnvironmentPicker 위)에 **상시 렌더**한다 — props는 `steps`(기존 `traceSteps` 재사용), `trace`(`testRun.data ?? null`), `selectedStepId`, `onSelect`; `steps.length === 0`(빈 시나리오·파싱 실패)이면 미렌더. | `TestRunSection.test`: 스텝 있는 yamlText로 마운트 → 스트립 렌더; 파싱 불가 yamlText → 스트립 부재. 두 에디터 페이지는 `TestRunSection` 공유라 자동 반영. | |
 | R2 | MUST 칩 스트립은 **문서 순서**의 가로 `flex flex-wrap`: http leaf = 단독 칩(`[메서드 배지 + 이름(말줄임+title) + 결과 아이콘]`), loop/if/parallel = **그룹 칩**(연한 테두리·배경의 inline-flex flex-wrap 단위, 앞머리에 작은 라벨 ⟳이름×N / ⎇이름 / ⇉이름, 자식 칩이 그 안에 들어감), 중첩 컨테이너는 그룹-안-그룹(모델 제약상 최대 2겹), **최상위 형제 사이에만 → 구분자**(aria-hidden 장식). | `TestFlowChips.test`: loop+if+parallel 섞인 모델에서 그룹 칩 안에 자식 칩이 DOM 중첩으로 들어있고(컨테이너 요소 `within` 스코프로 자식 매치), 라벨 glyph+이름 렌더, 최상위 구분자 개수 = 최상위 스텝 수 − 1. | |
-| R3 | MUST if 그룹 칩 내부는 분기 라벨(`then:` / `elif 1:` / `else:`)로 자식을 구획하고, parallel 그룹 칩 내부는 분기명 라벨로 구획한다; **실행 후 타진 분기(집합 — loop 안 if는 반복마다 다른 분기 가능)의 라벨은 violet 강조 + → 접두**, 안 타진 분기 라벨은 dimmed(자식은 R4의 ○); 타진 집합에 `"none"`이 있으면 if 그룹 라벨 옆에 `(미매치)` 표지. branch 라벨 문자열 매핑은 `TestRunPanel`의 `branchText`/`BRANCH_LABEL`을 `chipResults.ts`로 추출해 **단일 소스**로 쓴다(`TestRunPanel`은 import 경로만 변경, 렌더 문자열 byte-identical). | `TestFlowChips.test`: trace의 if 행 `branch:"then"` → then 라벨에 강조 클래스+→, else 라벨에 dimmed 클래스; then+else 두 행이면 **둘 다** 강조; `branch:"none"` 행이면 `(미매치)` 표지; `TestRunPanel.test` 기존 branch 라벨 단언 green 유지. | |
+| R3 | MUST if 그룹 칩 내부는 분기 라벨로 자식을 구획한다 — **구조 라벨·타진 매칭 키 = `then` / `elif_${i}`(0-based, 엔진 `select_branch`의 `format!("elif_{j}")`와 1:1 — 첫 elif 표시 = "elif 0:") / `else`, 표시 문자열은 추출된 `branchText(키)`**; parallel 그룹 칩 내부는 분기명 라벨로 구획하되 **parallel 라벨은 run 후에도 중립**(결정 행이 없고 전 분기 실행 — 강조/dimmed 비대상). if는 **실행 후 타진 분기(집합 — loop 안 if는 반복마다 다른 분기 가능)의 라벨에 violet 강조 + → 접두**, 안 타진 분기 라벨은 dimmed(자식은 R4의 ○); 타진 집합에 `"none"`이 있으면 if 그룹 라벨 옆에 `(미매치)` 표지. branch 라벨 문자열 매핑은 `TestRunPanel`의 `branchText`/`BRANCH_LABEL`을 `chipResults.ts`로 추출해 **단일 소스**로 쓴다(`TestRunPanel`은 import 경로만 변경, 렌더 문자열 byte-identical). | `TestFlowChips.test`: trace의 if 행 `branch:"then"` → then 라벨에 강조 클래스+→, else 라벨에 dimmed 클래스; then+else 두 행이면 **둘 다** 강조; **`branch:"elif_0"` 행 → 첫 elif 라벨("elif 0:") 강조**; `branch:"none"` 행이면 `(미매치)` 표지; parallel 라벨은 trace 유무와 무관하게 동일 클래스; `TestRunPanel.test` 기존 branch 라벨 단언 green 유지. | |
 | R4 | MUST 결과 도출은 순수 함수 `deriveChipResults(trace)`(신규 `ui/src/scenario/chipResults.ts`) — http: 같은 `step_id` 행 중 하나라도 `error != null ∥ response.status ≥ 400` → **fail**(기존 `statusClass`의 fail 판정과 동일 기준), 행 ≥1 & fail 아님 → **pass**(3xx 등 비-2xx 클린 행도 pass — 패널 status 칩의 3-상태 색과 달리 흐름 칩은 성공/실패/미실행 3상태로 단순화, reqwest가 redirect를 따라가 3xx 노출은 드묾); if: 행들의 non-null `branch` **고유 집합**을 그대로 운반; **trace에 행이 없는 스텝** = not-run. `trace == null`(run 전)이면 결과 장식 전무(플레인 흐름 미러). | `chipResults.test`: ① 클린 1행=pass ② error 행 포함=fail ③ status 500=fail ④ loop 3행 중 1 fail=fail ⑤ 행 없음=not-run(맵 미포함) ⑥ if 단일 then=`{then}` ⑦ if then+else 두 행=`{then,else}` ⑧ 3xx 클린 행=pass 단위 단언. | |
 | R5 | MUST 결과 시각화(색맹 a11y): pass = emerald 계열 + ✓, fail = red 계열 + ✗, not-run = slate dimmed + ○ — 아이콘은 `aria-hidden` 장식이고 결과 텍스트는 칩 `aria-label`("이름 — 성공/실패/미실행")에 실어 색 단독 전달 금지; run 전 플레인 칩의 aria-label은 이름만. 색은 데이터-식별 도메인(accent 토큰 금지, `TestRunPanel` emerald/red 계열과 통일). | `TestFlowChips.test`: trace 주입 후 pass/fail/not-run 칩 각각의 클래스 + `getByRole("button", {name:"… — 성공"})` 단언; trace 없으면 결과 접미 없는 name 단언. | |
 | R6 | MUST 칩(http leaf **및 컨테이너 그룹 라벨**)은 `<button>`이고 클릭 시 `onSelect(stepId)` — `TestRunSection`이 `useScenarioEditor` `select`로 배선해 위쪽 디테일 편집기(Inspector)가 그 스텝을 표시한다(기존 `selectedStepId` 메커니즘, 스크롤 점프 없음); `selectedStepId`와 일치하는 칩은 아웃라인 행과 동일한 accent 링. | `TestFlowChips.test`: 칩 클릭 → `onSelect` 인자 단언 + selected 칩 accent 클래스·비선택 칩 부재; `TestRunSection.test`: 칩 클릭 → store `selectedStepId` 갱신. | |
-| R7 | MUST 신규 사용자 노출 문구(스트립 제목/aria·결과 접미·mixed 라벨 등)는 전부 `ko.ts` 경유(ADR-0035); 단 공유 추출한 branch 라벨(`then`/`elif n`/`else`/`(미매치)`)은 **기존 문자열 byte-identical 유지**(ko 이주는 범위 밖 — §7). | `grep`으로 신규 컴포넌트 내 하드코딩 한국어/영어 문구 0(메서드명·glyph 제외) + `ko.editor.*` 신규 키 존재. | |
+| R7 | MUST 신규 사용자 노출 문구(스트립 제목/aria·결과 접미 등)는 전부 `ko.ts` 경유(ADR-0035); 단 공유 추출한 branch 라벨(`then`/`elif n`/`else`/`(미매치)`)은 **기존 문자열 byte-identical 유지**(ko 이주는 범위 밖 — §7). | `grep`으로 신규 컴포넌트 내 하드코딩 한국어/영어 문구 0(메서드명·glyph·branchText 경유 제외) + `ko.editor.*` 신규 키 존재. | |
 | R8 | MUST (불변식) 엔진·controller·proto·migration **무변경**(diff에 `crates/`·`*.proto`·`*.sql` 0건); `ScenarioTraceSchema`·`schemas.ts`·`model.ts`·`yamlDoc.ts`·`store.ts` **무변경**; `TestRunPanel`은 branch 라벨 추출 import 외 무변경; `TestRunSection`은 스트립 마운트 배선(subscribe/prop 전달)만 추가하고 기존 파싱·상태·mutation 로직 무변경. | 머지 diff 경로 검사 + `git diff` 상 해당 파일 무변경/최소변경 확인 + 기존 `TestRunSection`/`TestRunPanel`/`useTestRun` 테스트 green. | seam 없음(표시 전용) |
 | R9 | MUST 게이트: `pnpm lint`(`--max-warnings=0`)·`pnpm test`(전체)·`pnpm build` green + 머지 전 **라이브 Playwright 실측**(§6) — jsdom이 못 보는 실제 색 렌더·flex-wrap 줄바꿈·클릭→Inspector 반영을 확인([[implementation-rigor-over-spec]]: DOM 존재/텍스트만으로 PASS 금지). | 3 게이트 green + §6 라이브 체크리스트 수행 기록. | |
 
@@ -44,7 +44,7 @@
 3. **마운트 지점이 이미 모든 데이터를 들고 있다.** `TestRunSection`은 `traceSteps`(yamlText 파싱, `TestRunPanel` if-요약용으로 이미 존재)와 `testRun.data`(trace)를 둘 다 소유 → 스트립은 그 자식으로 props만 받는 프레젠테이셔널이 된다(R1). 선택 배선도 이 컴포넌트가 이미 `useScenarioEditor`를 import한다(extract 추가 경로). 새 상태·새 fetch·새 store 액션 0.
 4. **if 결과는 pass/fail이 아니라 "어느 분기"다.** if 결정 행엔 `error` 개념이 없고(조건 unbound는 경고 도메인 — §7 연기) 의미는 분기 선택뿐 → ✓/✗ 대신 타진 분기 라벨 + 색 구분(사용자 답 ②). 타진 라벨 violet 강조는 `TestRunPanel` IfRow의 violet 어휘와 통일. loop 안 if가 반복마다 다른 분기를 탈 수 있으므로 결과는 단일 분기가 아니라 **타진 분기 집합**으로 파생해 타진 라벨을 전부 강조 — "mixed" 같은 별도 표지 없이 밴드 자체가 사실을 보여준다(R4 ⑦).
 5. **"편집화면에 해당 칩 관련이 떠 있으면"은 기존 메커니즘이 공짜로 준다.** `select(id)` → `selectedStepId` → Inspector(디테일 편집기)가 그 스텝을 렌더 — 슬라이스 1이 만든 구동계 그대로(R6). 스크롤 점프는 결과를 보던 맥락을 깨므로 안 한다(사용자 답 ③); 클릭 피드백은 칩 자체의 accent 링이 준다.
-6. **run 후 버퍼 편집과의 정합은 "현재 버퍼 기준" 단일 규칙으로.** 스트립은 항상 *현재* `steps`를 렌더하고 결과 맵은 마지막 trace에서 파생 → 삭제된 스텝의 행은 자연 무시(맵에 있어도 칩이 없음), run 후 추가된 스텝은 행이 없어 ○(="지난 실행에 없었음" — 정직한 표시). 별도 stale 배지·무효화 로직 불요.
+6. **run 후 버퍼 편집과의 정합은 "현재 버퍼 기준" 단일 규칙으로.** 스트립은 항상 *현재* `steps`를 렌더하고 결과 맵은 마지막 trace에서 파생 → 삭제된 스텝의 행은 자연 무시(맵에 있어도 칩이 없음), run 후 추가된 스텝은 행이 없어 ○(="지난 실행에 없었음" — 정직한 표시). trace 셋업 실패(`trace.error` + `steps: []`)도 같은 규칙으로 전 칩 ○(패널 에러 배너가 원인 표시). 별도 stale 배지·무효화 로직 불요.
 
 ---
 
@@ -62,7 +62,8 @@
 - props: `{ steps: ReadonlyArray<Step>; trace: ScenarioTrace | null; selectedStepId: string | null; onSelect: (id: string) => void }`. `steps.length === 0`이면 `null` 반환(R1의 미렌더는 여기 가드로).
 - 재귀 렌더: http leaf → `<button>`(메서드 배지[`FlowOutline`의 `METHOD_BADGE` 팔레트와 동일 어휘 — 공유 여부는 plan에서 결정하되 시각 일치] + 이름 `max-w`+`truncate`+`title` + 결과 아이콘). 컨테이너 → 그룹 `<span>`(연한 테두리 `border-slate-200`·배경 `bg-slate-50` 계열, `inline-flex flex-wrap items-center`) 안에 라벨 `<button>`(glyph ⟳/⎇/⇉ + 이름 소형 + loop `×N`) + 자식 재귀. if/parallel은 분기 라벨 `<span>`(then:/elif n:/else:/분기명) 구획(R3).
 - 결과 장식: `deriveChipResults` 맵 lookup — pass `bg-emerald-*`+✓, fail `bg-red-*`+✗, 미존재(trace 있을 때) slate dimmed+○, trace `null`이면 전부 플레인(R4/R5). 아이콘 `<span aria-hidden>`, `aria-label`은 `ko.editor.*` 함수 키로 "이름 — 성공/실패/미실행" 조립(R7).
-- 선택: `selectedStepId === id` 칩에 `border-accent-500 ring-1 ring-accent-500`(아웃라인 행과 동일 규약, R6).
+- 선택: `selectedStepId === id`인 요소에 `border-accent-500 ring-1 ring-accent-500`(아웃라인 행과 동일 규약, R6). **링 타깃 = 클릭 대상과 동일** — http leaf는 칩 버튼 자체, 컨테이너는 그룹 박스가 아니라 **라벨 버튼**(클릭 대상=링 대상 일관, 그룹 테두리는 중립 유지).
+- if 분기 라벨의 구조 키는 `then`/`elif_${i}`(0-based)/`else` — R3의 타진 집합 매칭·표시(`branchText`) 계약을 그대로 구현. parallel 분기 라벨은 trace 유무 무관 중립 스타일 고정(R3).
 - 최상위 형제 사이 `→` 구분자 `<span aria-hidden>`(R2).
 
 ### 4.3 `ui/src/components/scenario/TestRunSection.tsx` — 충족 R: R1, R6, R8
@@ -96,7 +97,7 @@
 | R1 | `TestRunSection.test`: 스트립 렌더/파싱실패 미렌더 | |
 | R2 | `TestFlowChips.test`: 그룹 DOM 중첩(`within`)·라벨·최상위 구분자 수 | ✅(wrap 줄바꿈 실측) |
 | R3 | `TestFlowChips.test`: 타진 분기 강조/비타진 dimmed + `TestRunPanel.test` green | |
-| R4 | `chipResults.test`: 7케이스 단위 | |
+| R4 | `chipResults.test`: 8케이스 단위 | |
 | R5 | `TestFlowChips.test`: 결과 클래스+aria-label 접미; 플레인 모드 | ✅(실색 렌더 screenshot) |
 | R6 | `TestFlowChips.test`: 클릭→`onSelect`+선택 링; `TestRunSection.test`: store 반영 | ✅(클릭→Inspector 표시) |
 | R7 | grep 하드코딩 0 + ko 키 존재 | |
