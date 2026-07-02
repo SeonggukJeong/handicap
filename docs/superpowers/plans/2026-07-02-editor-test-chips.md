@@ -403,12 +403,14 @@ describe("TestFlowChips — 구조 (spec R2)", () => {
     expect(loopGroup).not.toBeNull();
     expect(within(loopGroup as HTMLElement).getByTitle("ping")).toBeInTheDocument();
     // 라벨: glyph(aria-hidden) + 이름 + × 2
+    expect(within(loopGroup as HTMLElement).getByText("⟳")).toBeInTheDocument();
     expect(within(loopGroup as HTMLElement).getByText("× 2")).toBeInTheDocument();
     // parallel 그룹: 분기명 라벨 + 자식
     const parGroup = container.querySelector('[data-group="01HX0000000000000000000030"]');
     expect(within(parGroup as HTMLElement).getByText("user:")).toBeInTheDocument();
     expect(within(parGroup as HTMLElement).getByTitle("get-feed")).toBeInTheDocument();
-    // 최상위 4개 → 구분자 3개 (밴드 라벨 "→then:"은 단일 텍스트 노드라 exact "→"에 안 걸림)
+    // 최상위 4개 → 구분자 3개 (RTL 텍스트 매치는 직계 텍스트 노드 join이라
+    // 밴드 라벨은 "→elif 0:"으로 조인돼 exact "→"에 안 걸림)
     expect(screen.getAllByText("→")).toHaveLength(3);
     // 빈 steps → null 렌더
     const empty = render(
@@ -438,9 +440,10 @@ describe("TestFlowChips — 결과 색/아이콘/aria (spec R4/R5)", () => {
     expect(fail.className).toContain("border-red-300");
     const notRun = screen.getByRole("button", { name: "get-feed — 미실행" });
     expect(notRun.className).toContain("border-slate-200");
-    expect(screen.getByText("✓")).toBeInTheDocument();
-    expect(screen.getByText("✗")).toBeInTheDocument();
-    expect(screen.getAllByText("○").length).toBeGreaterThanOrEqual(3); // confirm·cancel·get-feed
+    // TRACE 기준 pass 칩 3개(login·alt·get-user) — getByText는 다중매치 throw라 getAll로.
+    expect(screen.getAllByText("✓")).toHaveLength(3);
+    expect(screen.getAllByText("✗")).toHaveLength(1); // ping
+    expect(screen.getAllByText("○")).toHaveLength(3); // confirm·cancel·get-feed
   });
 });
 
@@ -451,6 +454,19 @@ describe("TestFlowChips — if 분기 라벨 (spec R3)", () => {
     expect(taken.className).toContain("text-violet-700");
     expect(screen.getByText("then:").className).toContain("text-slate-300");
     expect(screen.getByText("else:").className).toContain("text-slate-300");
+  });
+
+  it("then+else 두 행이면 두 라벨 모두 강조되고 elif는 dimmed (spec R3 '둘 다 강조')", () => {
+    const bothTrace = mkTrace([
+      ifRow("01HX0000000000000000000010", "then"),
+      ifRow("01HX0000000000000000000010", "else"),
+    ]);
+    render(
+      <TestFlowChips steps={STEPS} trace={bothTrace} selectedStepId={null} onSelect={noop} />,
+    );
+    expect(screen.getByText("→then:").className).toContain("text-violet-700");
+    expect(screen.getByText("→else:").className).toContain("text-violet-700");
+    expect(screen.getByText("elif 0:").className).toContain("text-slate-300");
   });
 
   it("branch none 행 = 그룹 라벨 옆 (미매치) 표지", () => {
@@ -735,7 +751,7 @@ export function TestFlowChips({
 - [ ] **Step 6: GREEN 확인**
 
 Run: `cd ui && pnpm test TestFlowChips`
-Expected: PASS (8 tests)
+Expected: PASS (9 tests)
 
 Run: `cd ui && pnpm test FlowOutline`
 Expected: PASS (METHOD_BADGE 추출 후 기존 아웃라인 테스트 green)
@@ -870,6 +886,9 @@ git diff master...HEAD -- ui/src/api/schemas.ts ui/src/scenario/model.ts ui/src/
 # R7: 신규 컴포넌트 하드코딩 문구 (ko 경유·branchText 경유·glyph·메서드명 외 0)
 grep -n '"[가-힣]' ui/src/components/scenario/TestFlowChips.tsx ui/src/scenario/chipResults.ts
 # → chipResults.ts의 BRANCH_LABEL("(미매치)" — byte-identical 추출, R7 허용 예외)만 나와야 함
+# R7: 영어 하드코딩 sweep (ternary/보간 속성 포함 — ko-common 롤업 grep 맹점 커버)
+grep -nE '(aria-label|title)="[A-Za-z]|(aria-label|title)=\{[^}]*"[A-Za-z]' ui/src/components/scenario/TestFlowChips.tsx
+# → 출력 없음 = OK (title={step.name}은 사용자 데이터·따옴표 리터럴 없음이라 매치 안 됨)
 ```
 
 - [ ] **Step 6: Commit** (단일 FOREGROUND 호출·타임아웃 600000ms)
