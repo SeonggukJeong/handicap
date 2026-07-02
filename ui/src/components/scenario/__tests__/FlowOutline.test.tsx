@@ -3,7 +3,8 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FlowOutline, OutlineRowPreview, nearestByHeader } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
-import { computeReorder } from "../../../scenario/reorder";
+import { computeReorder, resolveDrop } from "../../../scenario/reorder";
+import { ko } from "../../../i18n/ko";
 
 const reset = () => useScenarioEditor.setState(useScenarioEditor.getInitialState());
 
@@ -433,5 +434,40 @@ describe("OutlineRowPreview (DragOverlay 프리뷰 — 비대화형 재귀)", ()
     expect(screen.getByText("login")).toBeInTheDocument();
     expect(screen.getByText("POST")).toBeInTheDocument();
     expect(screen.getByText("/login")).toBeInTheDocument();
+  });
+});
+
+const REPARENT_YAML = `version: 1
+name: rp
+steps:
+  - id: "01HX0000000000000000000001"
+    name: ping
+    type: http
+    request: { method: GET, url: /ping }
+  - id: "01HX0000000000000000000005"
+    name: gate
+    type: if
+    cond: { left: "1", op: eq, right: "1" }
+    then:
+      - id: "01HX0000000000000000000006"
+        name: t1
+        type: http
+        request: { method: GET, url: /t1 }
+`;
+
+describe("FlowOutline re-parent 배선 (spec R3/R5)", () => {
+  it("ko placeholder 키가 존재하고, 드래그 중이 아니면 placeholder가 렌더되지 않는다", () => {
+    // ko 키 단언이 Task 3 Step 3 전까지 RED(esbuild 런타임 undefined) — 이 task의 RED 씨앗.
+    expect(ko.editor.emptyBandDropHint).toBeTruthy();
+    useScenarioEditor.getState().loadFromString(REPARENT_YAML);
+    render(<FlowOutline />);
+    expect(screen.queryByText(ko.editor.emptyBandDropHint)).not.toBeInTheDocument();
+  });
+
+  it("케이스 13 순수 계약 핀 — 헤더 행 드롭은 재정렬(FlowOutline이 쓰는 resolveDrop과 동일 모듈)", () => {
+    useScenarioEditor.getState().loadFromString(REPARENT_YAML);
+    const steps = useScenarioEditor.getState().model!.steps;
+    const res = resolveDrop(steps, steps[0].id, steps[1].id, "below");
+    expect(res?.kind).toBe("move");
   });
 });

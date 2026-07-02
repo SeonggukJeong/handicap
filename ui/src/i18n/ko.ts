@@ -414,6 +414,7 @@ export const ko = {
     importReadError: (msg: string) => `파일을 읽지 못했습니다: ${msg}`,
     dragHandleAria: (name: string) => `"${name}" 스텝 순서 이동 (드래그)`,
     outlineRowAria: (name: string) => `스텝: ${name}`,
+    emptyBandDropHint: "여기로 드롭",
     containerLoop: "반복",
     containerIf: "조건",
     containerParallel: "동시",

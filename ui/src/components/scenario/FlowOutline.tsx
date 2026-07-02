@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -8,8 +8,10 @@ import {
   MeasuringStrategy,
   useSensor,
   useSensors,
+  useDroppable,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -27,14 +29,52 @@ import {
   isParallelStep,
   summarizeCondition,
   findStepById,
-  findStepSiblings,
   type Step,
 } from "../../scenario/model";
-import { resolveDragEnd } from "../../scenario/reorder";
+import { resolveDrop } from "../../scenario/reorder";
+import {
+  bandIndex,
+  bandKey,
+  filterDropCandidates,
+  findParentBand,
+  keyboardCandidateIds,
+  legalTargetBands,
+  TOP_BAND,
+  type BandRef,
+} from "../../scenario/dropRules";
 import { METHOD_BADGE } from "./methodBadge";
 
 // 셀렉터 fallback은 모듈 스코프 안정 상수(M3 — 인라인 `?? []` 금지).
 const EMPTY_STEPS: Step[] = [];
+
+// 드래그 중 시각/판정 컨텍스트 — 행 트리에 prop으로 흘린다(store 미접촉).
+interface DragCtx {
+  activeId: string | null;
+  legal: ReadonlySet<string> | null;
+  over: { id: string; half: "above" | "below" } | null;
+  overBandKey: string | null;
+}
+const IDLE_DRAG: DragCtx = { activeId: null, legal: null, over: null, overBandKey: null };
+
+// 빈 else 밴드의 드롭 타깃(spec R4③ — else만 빈-가능 밴드). 드래그 중·합법일 때만 렌더.
+function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `band:${parentId}:${band}`,
+    data: { parentId, band, index: 0 },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mx-2 my-1 rounded border border-dashed px-2 py-1 text-xs ${
+        isOver
+          ? "border-accent-500 bg-accent-50 text-accent-700"
+          : "border-slate-300 text-slate-400"
+      }`}
+    >
+      {ko.editor.emptyBandDropHint}
+    </div>
+  );
+}
 
 // 한 행 헤더의 "드래그 핸들 이후" 내용. 대화형 OutlineRow와 오버레이용
 // OutlineRowPreview가 공유 — 시각 드리프트 방지(spec §3.3).
@@ -108,23 +148,31 @@ function ContainerBands({
   step,
   depth,
   renderGroup,
+  includeEmptyElse = false,
 }: {
   step: Step;
   depth: number;
-  renderGroup: (children: Step[], childDepth: number) => React.ReactNode;
+  renderGroup: (
+    children: Step[],
+    childDepth: number,
+    band: { parentId: string; band: string },
+  ) => React.ReactNode;
+  includeEmptyElse?: boolean;
 }) {
   if (isLoopStep(step)) {
     return (
       <div className="mt-1 flex flex-col gap-1 border-l-2 border-slate-200">
-        {renderGroup(step.do, depth + 1)}
+        {renderGroup(step.do, depth + 1, { parentId: step.id, band: "do" })}
       </div>
     );
   }
   if (isIfStep(step)) {
-    const bands: Array<{ label: string; children: Step[] }> = [
-      { label: "THEN", children: step.then },
-      ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, children: e.then })),
-      ...(step.else.length > 0 ? [{ label: "ELSE", children: step.else }] : []),
+    const bands: Array<{ label: string; key: string; children: Step[] }> = [
+      { label: "THEN", key: "then", children: step.then },
+      ...step.elif.map((e, i) => ({ label: `ELIF ${i + 1}`, key: `elif_${i}`, children: e.then })),
+      ...(step.else.length > 0 || includeEmptyElse
+        ? [{ label: "ELSE", key: "else", children: step.else }]
+        : []),
     ];
     return (
       <>
@@ -136,7 +184,9 @@ function ContainerBands({
             >
               {b.label}
             </div>
-            <div className="flex flex-col gap-1">{renderGroup(b.children, depth + 1)}</div>
+            <div className="flex flex-col gap-1">
+              {renderGroup(b.children, depth + 1, { parentId: step.id, band: b.key })}
+            </div>
           </div>
         ))}
       </>
@@ -145,7 +195,7 @@ function ContainerBands({
   if (isParallelStep(step)) {
     return (
       <>
-        {step.branches.map((b) => (
+        {step.branches.map((b, i) => (
           <div key={b.name} className="mt-1 border-l-2 border-slate-200">
             <div
               className="px-2 text-[11px] font-semibold text-slate-400"
@@ -153,7 +203,9 @@ function ContainerBands({
             >
               {b.name}
             </div>
-            <div className="flex flex-col gap-1">{renderGroup(b.steps, depth + 1)}</div>
+            <div className="flex flex-col gap-1">
+              {renderGroup(b.steps, depth + 1, { parentId: step.id, band: `branch_${i}` })}
+            </div>
           </div>
         ))}
       </>
@@ -164,10 +216,23 @@ function ContainerBands({
 
 // loop `do` / if 밴드(then·elif[].then·else) / parallel 레인을 라벨 붙은
 // 들여쓴 그룹으로 렌더하는 재귀 함수. depth는 data-depth로 노출(테스트 결정성).
-function OutlineRow({ step, depth }: { step: Step; depth: number }) {
+function OutlineRow({
+  step,
+  depth,
+  band = TOP_BAND,
+  index = 0,
+  drag = IDLE_DRAG,
+}: {
+  step: Step;
+  depth: number;
+  band?: BandRef;
+  index?: number;
+  drag?: DragCtx;
+}) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
       id: step.id,
+      data: { parentId: band.parentId, band: band.band, index },
     });
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
@@ -212,11 +277,27 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
     </button>
   );
 
+  // 삽입 예정 위치 인디케이터(spec R5): over 행의 above/below에 accent 라인.
+  // 컨테이너는 sortable 노드=외곽 wrapper라 border-b가 "컨테이너 뒤" 시맨틱과 일치(R4①).
+  const overHere = drag.over?.id === step.id;
+  const indicator = overHere
+    ? drag.over!.half === "above"
+      ? "border-t-2 border-t-accent-500"
+      : "border-b-2 border-b-accent-500"
+    : "";
+
   if (isLoopStep(step) || isIfStep(step) || isParallelStep(step)) {
-    // 컨테이너: sortable 노드 = 헤더+밴드를 감싼 외곽 wrapper(transform·숨김·측정).
-    // 헤더 div 는 marginLeft 와 role/선택만 — setNodeRef/transform 은 wrapper 가 받는다.
+    const includeEmptyElse =
+      isIfStep(step) &&
+      drag.activeId !== null &&
+      (drag.legal?.has(`${step.id}:else`) ?? false) &&
+      step.else.length === 0;
     return (
-      <div ref={setNodeRef} style={{ transform: nodeTransform }} className={hidden}>
+      <div
+        ref={setNodeRef}
+        style={{ transform: nodeTransform }}
+        className={`${hidden} ${indicator}`}
+      >
         <div
           {...rowAria}
           style={{ marginLeft: `${depth * 16}px` }}
@@ -228,27 +309,46 @@ function OutlineRow({ step, depth }: { step: Step; depth: number }) {
         <ContainerBands
           step={step}
           depth={depth}
-          renderGroup={(children, childDepth) => (
-            <SortableContext
-              items={children.map((c) => c.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {children.map((c) => (
-                <OutlineRow key={c.id} step={c} depth={childDepth} />
-              ))}
-            </SortableContext>
-          )}
+          includeEmptyElse={includeEmptyElse}
+          renderGroup={(children, childDepth, childBand) => {
+            const key = bandKey({ parentId: childBand.parentId, band: childBand.band });
+            const isOverBand = drag.overBandKey === key;
+            const legalHere = drag.legal?.has(key) ?? false;
+            return (
+              // P2: 이 wrapper는 밴드 컨테이너(flex flex-col gap-1)와 행 사이에 끼므로
+              // 자신이 flex flex-col gap-1을 실어야 행 간 4px gap이 보존된다(상시 렌더).
+              <div className={`flex flex-col gap-1${isOverBand ? " rounded bg-accent-50/60" : ""}`}>
+                <SortableContext
+                  items={children.map((c) => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {children.map((c, i) => (
+                    <OutlineRow
+                      key={c.id}
+                      step={c}
+                      depth={childDepth}
+                      band={childBand}
+                      index={i}
+                      drag={drag}
+                    />
+                  ))}
+                </SortableContext>
+                {children.length === 0 && drag.activeId !== null && legalHere && (
+                  <EmptyBandDrop parentId={childBand.parentId} band={childBand.band} />
+                )}
+              </div>
+            );
+          }}
         />
       </div>
     );
   }
-  // http leaf — 행 div 자체가 sortable 노드(별도 헤더 wrapper 불요). 숨김도 이 행에 직접.
   return (
     <div
       ref={setNodeRef}
       {...rowAria}
       style={{ marginLeft: `${depth * 16}px`, transform: nodeTransform }}
-      className={`${rowClassBase} items-center ${hidden}`}
+      className={`${rowClassBase} items-center ${hidden} ${indicator}`}
     >
       {dragHandle}
       <RowContent step={step} />
@@ -338,8 +438,14 @@ export function FlowOutline() {
   const addIfStep = useScenarioEditor((s) => s.addIfStep);
   const addParallelStep = useScenarioEditor((s) => s.addParallelStep);
   const moveStep = useScenarioEditor((s) => s.moveStep);
+  const reparentStep = useScenarioEditor((s) => s.reparentStep);
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overInfo, setOverInfo] = useState<{ id: string; half: "above" | "below" } | null>(null);
+  // dragStart 1회 계산물은 ref로 충돌 콜백([steps] memo)에 전달(리뷰 핀 N2).
+  const dragCalcRef = useRef<{ legal: Set<string>; index: Map<string, string> } | null>(null);
+  // R4 pointer-half: DragEndEvent엔 포인터 좌표가 없어 충돌 콜백이 판정을 기록.
+  const halfRef = useRef<{ overId: string; half: "above" | "below" } | null>(null);
   const activeStep = activeId ? findStepById(steps, activeId) : null;
 
   const sensors = useSensors(
@@ -347,21 +453,26 @@ export function FlowOutline() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // 그룹-스코프 충돌(spec §3.1): over 후보를 active의 형제 그룹으로만 좁혀
-  // over가 중첩 컨테이너 자식이 되지 않게 → 교차-컨텍스트 취소·dead-zone 제거.
-  // resolveDragEnd의 그룹내-전용 의미론과 정확히 일치(re-parenting 없음).
-  // 그 후보 중 드롭 대상은 nearestByHeader 로 *헤더(부모 행)* 근접도로 고른다
-  // (Problem 1: 컨테이너 wrapper 의 키 큰 중심이 아니라 헤더 위치로 결정).
-  // 포인터 없으면(키보드) closestCenter 폴백.
+  // 포인터 = 합법 밴드 전체(경계 넘기, spec R3) / 키보드 = 기존 형제-그룹 제한.
+  // 후보 중 드롭 대상은 nearestByHeader(헤더 근접) 유지. 판정 half를 ref에 기록(R4).
   const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const dragId = args.active.id as string;
-      const siblingIds = new Set(findStepSiblings(steps, dragId).map((s) => s.id));
-      const candidates = args.droppableContainers.filter((c) => siblingIds.has(c.id as string));
       const pointerY = args.pointerCoordinates?.y;
-      if (candidates.length === 0 || pointerY == null) {
+      const allIds = args.droppableContainers.map((c) => c.id as string);
+      if (pointerY == null) {
+        const kb = new Set(keyboardCandidateIds(steps, dragId, allIds));
+        const candidates = args.droppableContainers.filter((c) => kb.has(c.id as string));
         return closestCenter({ ...args, droppableContainers: candidates });
       }
+      const calc = dragCalcRef.current;
+      const candidateIds = new Set(
+        calc
+          ? filterDropCandidates(allIds, calc.legal, calc.index)
+          : keyboardCandidateIds(steps, dragId, allIds),
+      );
+      const candidates = args.droppableContainers.filter((c) => candidateIds.has(c.id as string));
+      if (candidates.length === 0) return [];
       const items = candidates.flatMap((c) => {
         const rect = args.droppableRects.get(c.id);
         if (!rect) return [];
@@ -371,30 +482,72 @@ export function FlowOutline() {
         return [{ id: c.id as string, top: rect.top, height: rect.height, isContainer }];
       });
       const overId = nearestByHeader(items, pointerY, HEADER_BAND_PX);
-      return overId != null ? [{ id: overId }] : [];
+      if (overId == null) return [];
+      const it = items.find((i) => i.id === overId);
+      if (it) {
+        const center = it.isContainer ? it.top + HEADER_BAND_PX / 2 : it.top + it.height / 2;
+        halfRef.current = { overId, half: pointerY < center ? "above" : "below" };
+      }
+      return [{ id: overId }];
     },
     [steps],
   );
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
+    const id = event.active.id as string;
+    setActiveId(id);
+    dragCalcRef.current = { legal: legalTargetBands(steps, id), index: bandIndex(steps) };
+    halfRef.current = null;
+    setOverInfo(null);
+  };
+  const handleDragMove = (event: DragMoveEvent) => {
+    const overId = (event.over?.id ?? null) as string | null;
+    const h = halfRef.current;
+    const next =
+      overId === null
+        ? null
+        : { id: overId, half: h && h.overId === overId ? h.half : ("below" as const) };
+    setOverInfo((prev) => (prev?.id === next?.id && prev?.half === next?.half ? prev : next));
   };
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
+    setOverInfo(null);
     const { active, over } = event;
-    const activeId = active.id as string;
+    const dragId = active.id as string;
     const overId = (over?.id ?? null) as string | null;
-    const result = resolveDragEnd(steps, activeId, overId);
-    if (result) {
-      moveStep(result.stepId, result.toIndex);
-    }
+    const half =
+      overId !== null && halfRef.current?.overId === overId ? halfRef.current.half : null;
+    dragCalcRef.current = null;
+    halfRef.current = null;
+    const res = resolveDrop(steps, dragId, overId, half);
+    if (res?.kind === "move") moveStep(res.stepId, res.toIndex);
+    else if (res?.kind === "reparent") reparentStep(res.stepId, res.target);
   };
-  const handleDragCancel = () => setActiveId(null);
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setOverInfo(null);
+    dragCalcRef.current = null;
+    halfRef.current = null;
+  };
 
   const selectedLoopId = useMemo(() => {
     const sel = steps.find((s) => s.id === selectedStepId);
     return sel && isLoopStep(sel) ? sel.id : null;
   }, [steps, selectedStepId]);
+
+  const overBandKey = useMemo(() => {
+    if (!overInfo) return null;
+    const ph = /^band:([^:]+):(.+)$/.exec(overInfo.id);
+    if (ph) return `${ph[1]}:${ph[2]}`;
+    const b = findParentBand(steps, overInfo.id);
+    return b ? bandKey(b) : null;
+  }, [overInfo, steps]);
+  const drag: DragCtx = {
+    activeId,
+    legal: dragCalcRef.current?.legal ?? null,
+    over: overInfo,
+    overBandKey,
+  };
 
   return (
     <DndContext
@@ -402,6 +555,7 @@ export function FlowOutline() {
       collisionDetection={collisionDetection}
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
@@ -415,8 +569,8 @@ export function FlowOutline() {
         >
           <div className="flex flex-col gap-1">
             <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-              {steps.map((s) => (
-                <OutlineRow key={s.id} step={s} depth={0} />
+              {steps.map((s, i) => (
+                <OutlineRow key={s.id} step={s} depth={0} band={TOP_BAND} index={i} drag={drag} />
               ))}
             </SortableContext>
           </div>
