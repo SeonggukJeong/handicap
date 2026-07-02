@@ -45,6 +45,7 @@ export type Edit =
   | { type: "setBranchName"; parallelId: string; branchIndex: number; name: string }
   | { type: "removeStep"; stepId: string }
   | { type: "moveStep"; stepId: string; toIndex: number }
+  | { type: "reparentStep"; stepId: string; parentId: string | null; band: string; index: number }
   | {
       type: "setStepField";
       stepId: string;
@@ -386,6 +387,32 @@ export function applyEdit(doc: Document, edit: Edit): void {
       parent.items.splice(edit.toIndex, 0, node);
       return;
     }
+    case "reparentStep": {
+      const path = findStepPath(doc, edit.stepId);
+      if (path === null) return;
+      const targetSeqPath = bandSeqPath(doc, edit.parentId, edit.band);
+      if (targetSeqPath === null) return;
+      const parentPath = path.slice(0, -1);
+      const fromIdx = path[path.length - 1] as number;
+      const parent = doc.getIn(parentPath) as YAMLSeq;
+      // 타깃 seq *노드*를 splice-out 전에 잡는다 — splice-out이 형제 인덱스를
+      // 밀면 경로 기반 재해석이 어긋나지만 노드 참조는 불변(리뷰 r1 FR류 방어).
+      let target = doc.getIn(targetSeqPath);
+      if (!isSeq(target)) {
+        // 빈(부재) else 밴드 — block seq로 생성(빈 flow seq splice = 한 줄 flow 직렬화 함정)
+        doc.setIn(targetSeqPath, doc.createNode([]));
+        target = doc.getIn(targetSeqPath);
+      }
+      const targetSeq = target as YAMLSeq;
+      targetSeq.flow = false;
+      const node = parent.items[fromIdx];
+      parent.items.splice(fromIdx, 1);
+      // 방어: 같은 seq로의 강하 케이스(리졸버는 same-band를 moveStep으로 위임하지만
+      // variant 자체는 total하게) — splice-out으로 밀린 인덱스 보정.
+      const idx = targetSeq === parent && edit.index > fromIdx ? edit.index - 1 : edit.index;
+      targetSeq.items.splice(Math.min(idx, targetSeq.items.length), 0, node);
+      return;
+    }
     case "setStepField": {
       const path = findStepPath(doc, edit.stepId);
       if (path === null) return;
@@ -447,6 +474,24 @@ function branchPath(branch: BranchSel): Array<string | number> {
   if (branch.kind === "then") return ["then"];
   if (branch.kind === "else") return ["else"];
   return ["elif", branch.index, "then"];
+}
+
+// 밴드 키 → doc 경로 (dropRules bandKey 계약과 1:1 — "do"/"then"/"else"/
+// "elif_{i}"(0-based)/"branch_{i}"; parentId null = 최상위 steps).
+function bandSeqPath(
+  doc: Document,
+  parentId: string | null,
+  band: string,
+): Array<string | number> | null {
+  if (parentId === null) return ["steps"];
+  const p = findStepPath(doc, parentId);
+  if (p === null) return null;
+  if (band === "do" || band === "then" || band === "else") return [...p, band];
+  const elif = /^elif_(\d+)$/.exec(band);
+  if (elif) return [...p, "elif", Number(elif[1]), "then"];
+  const br = /^branch_(\d+)$/.exec(band);
+  if (br) return [...p, "branches", Number(br[1]), "steps"];
+  return null;
 }
 
 // Build a plain JS condition tree for doc.createNode, omitting `right` for the

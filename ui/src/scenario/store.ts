@@ -55,6 +55,10 @@ export interface ScenarioEditorState {
   setBranchName(parallelId: string, branchIndex: number, name: string): void;
   removeStep(stepId: string): void;
   moveStep(stepId: string, toIndex: number): void;
+  reparentStep(
+    stepId: string,
+    target: { parentId: string | null; band: string; index: number },
+  ): void;
   setStepField(stepId: string, path: ReadonlyArray<string>, value: unknown): void;
   setStepAssert(stepId: string, asserts: ReadonlyArray<{ kind: "status"; code: number }>): void;
   setStepExtract(stepId: string, extract: ReadonlyArray<Extract>): void;
@@ -223,6 +227,23 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   moveStep(stepId, toIndex) {
     dispatch(set, get, { type: "moveStep", stepId, toIndex });
   },
+  reparentStep(stepId, target) {
+    const doc = get().doc;
+    if (!doc) return;
+    // 트랜잭셔널(spec R6): clone에 적용 → 재파싱 성공 시에만 커밋. generic dispatch는
+    // in-place 변이 후 재파싱 실패 시 롤백이 없다(아래 dispatch 참조) — re-parent는
+    // 불법 상태를 만들 수 있는 첫 edit라 원본 doc을 직접 변이하지 않는다.
+    const clone = doc.clone();
+    applyEdit(clone, { type: "reparentStep", stepId, ...target });
+    const reparsed = parseScenarioDoc(serializeDoc(clone));
+    if ("error" in reparsed) return; // 합법성 게이트(R2) 뚫린 버그 가드 — 상태 무변이 no-op
+    set({
+      doc: reparsed.doc,
+      model: reparsed.model,
+      yamlText: serializeDoc(reparsed.doc),
+      yamlError: null,
+    });
+  },
   setStepField(stepId, path, value) {
     dispatch(set, get, { type: "setStepField", stepId, path, value });
   },
@@ -352,6 +373,7 @@ const actions = (() => {
     setBranchName: s.setBranchName,
     removeStep: s.removeStep,
     moveStep: s.moveStep,
+    reparentStep: s.reparentStep,
     setStepField: s.setStepField,
     setStepAssert: s.setStepAssert,
     setStepExtract: s.setStepExtract,
