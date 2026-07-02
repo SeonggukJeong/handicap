@@ -305,6 +305,37 @@ describe("legalTargetBands — spec §5 매트릭스", () => {
     expect(legal(NI).has("top")).toBe(true);
   });
 
+  it("⑩-보강(P5a): NL은 I2.then의 유일 자식 — min(1)×중첩 interplay로 자기 밴드만", () => {
+    expect(legal("01HX000000000000000000000E")).toEqual(
+      new Set([`${"01HX000000000000000000000D"}:then`]),
+    );
+  });
+
+  it("⑨-예외(P5b): 최상위 유일 스텝도 경계 밖 합법 (top은 min 제약 없음)", () => {
+    const mini = parseScenarioDoc(`version: 1
+name: mini
+steps:
+  - id: "01HX0000000000000000000001"
+    name: solo
+    type: http
+    request: { method: GET, url: /solo }
+  - id: "01HX0000000000000000000002"
+    name: LX
+    type: loop
+    repeat: 1
+    do:
+      - id: "01HX0000000000000000000003"
+        name: lx1
+        type: http
+        request: { method: GET, url: /lx1 }
+`);
+    if (!("model" in mini)) throw new Error("mini fixture must parse");
+    // solo는 top의 2개 중 1개가 아니라… top 자체가 min 제약이 없음을 보이려면
+    // LX.do로 진입 가능해야 한다(top이 min(1)처럼 취급되면 여기서 갇힌다).
+    const s = legalTargetBands(mini.model.steps, "01HX0000000000000000000001");
+    expect(s.has(`${"01HX0000000000000000000002"}:do`)).toBe(true);
+  });
+
   it("자기 밴드는 항상 포함 (그룹내 재정렬 보존)", () => {
     expect(legal(S1).has("top")).toBe(true);
     expect(legal(L1A).has(`${L1}:do`)).toBe(true);
@@ -557,6 +588,7 @@ steps:
     name: s1
     type: http
     request: { method: GET, url: /s1 }
+  # keep-me — 노드 이동 시 주석 보존 단언용(P5c; 선두 아닌 item 주석은 노드에 붙는다)
   - id: "01HX0000000000000000000002"
     name: L1
     type: loop
@@ -699,10 +731,12 @@ describe("applyEdit reparentStep — YAML AST verbatim 이동", () => {
     expect(i1.type === "if" && i1.else.map((c) => c.id)).toEqual([S1]);
   });
 
-  it("전-http 컨테이너째 이동: L1 → I1.then (Loop↔NestedLoop YAML 동형)", () => {
+  it("전-http 컨테이너째 이동: L1 → I1.then (Loop↔NestedLoop YAML 동형 + 주석 동반 이동)", () => {
     const { doc } = freshModel();
     applyEdit(doc, { type: "reparentStep", stepId: L1, parentId: I1, band: "then", index: 1 });
-    const reparsed = parseScenarioDoc(serializeDoc(doc));
+    const text = serializeDoc(doc);
+    expect(text).toContain("# keep-me"); // P5c: verbatim 노드 이동 = 노드-부착 주석 보존
+    const reparsed = parseScenarioDoc(text);
     if (!("model" in reparsed)) throw new Error("must reparse");
     const i1 = reparsed.model.steps.find((s) => s.id === I1)!;
     expect(i1.type === "if" && i1.then.map((c) => c.id)).toEqual([T1, L1]);
@@ -912,6 +946,14 @@ function bandSeqPath(
   },
 ```
 
+**그리고 (P1 must-fix — 빠뜨리면 `tsc -b` 게이트 실패):** `store.ts` 하단 `getInitialState` 셤의 `actions` 캡처 블록(`store.ts:327-365` — 모든 액션을 나열)에 한 줄 추가:
+
+```ts
+    reparentStep: s.reparentStep,
+```
+
+(캡처 누락 시 `() => ScenarioEditorState` 반환 리터럴에 required 프로퍼티가 빠져 `pnpm test`는 green인데 `pnpm build`(`tsc -b`)만 빨간 — 이 plan이 선제하려는 바로 그 클래스.)
+
 - [ ] **Step 6: GREEN 확인**
 
 Run: `cd ui && pnpm test reparent`
@@ -941,20 +983,25 @@ git commit -m "feat(ui): resolveDrop 해석 + reparentStep 트랜잭셔널 edit 
 
 - [ ] **Step 1: 실패하는 테스트 먼저** — `FlowOutline.test.tsx`에 describe append (기존 테스트 무변경)
 
+> **spec R3/R5 RTL acceptance 다운그레이드 기록(P4)**: spec이 R3/R5 acceptance로 적은
+> "onDragEnd 불법 조합 주입 → 액션 미호출"·"인디케이터 클래스 단언"은 jsdom에서 실 드래그가
+> 불가하고(editor-drag-fixes 확립 정책) `OutlineRow`/`DragCtx`가 모듈-private이라, **동등
+> 보증을 순수 레이어로 이동**했다 — 불법 차단은 Task 1 `filterDropCandidates`(후보 제외 =
+> over 불가 = 액션 미호출의 상류 보증) + Task 2 `resolveDrop`, 인디케이터/placeholder 시각은
+> 라이브 R9 held-drag(②)가 권위. 최종 리뷰어는 이 매핑을 spec-drift가 아니라 의도된
+> 등가-이전으로 볼 것.
+
 ```tsx
 describe("FlowOutline re-parent 배선 (spec R3/R5)", () => {
-  it("드래그 중이 아니면 빈-밴드 placeholder가 없다", () => {
-    // 기존 파일의 렌더 헬퍼/스토어 시드 패턴 재사용: else 없는 if를 시드하고
-    // idle 상태에서 placeholder 텍스트("여기로 드롭")가 DOM에 없음을 단언.
+  it("ko placeholder 키가 존재하고, 드래그 중이 아니면 placeholder가 렌더되지 않는다", () => {
+    // ko 키 단언이 Task 3 Step 3 전까지 RED(esbuild 런타임 undefined) — 이 task의 RED 씨앗.
+    expect(ko.editor.emptyBandDropHint).toBeTruthy();
     useScenarioEditor.getState().loadFromString(REPARENT_YAML);
     render(<FlowOutline />);
-    expect(screen.queryByText("여기로 드롭")).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.editor.emptyBandDropHint)).not.toBeInTheDocument();
   });
 
-  it("행 sortable data에 밴드 좌표가 실린다 — 대신 순수 계약으로 핀", () => {
-    // jsdom에서 실제 드래그는 불가(기존 슬라이스와 동일 정책: 순수 레이어 + Playwright).
-    // 여기서는 배선의 순수 조각(케이스 13 헤더=재정렬)이 FlowOutline이 쓰는 resolveDrop과
-    // 동일 모듈임을 임포트 수준에서 고정한다.
+  it("케이스 13 순수 계약 핀 — 헤더 행 드롭은 재정렬(FlowOutline이 쓰는 resolveDrop과 동일 모듈)", () => {
     useScenarioEditor.getState().loadFromString(REPARENT_YAML);
     const steps = useScenarioEditor.getState().model!.steps;
     const res = resolveDrop(steps, steps[0].id, steps[1].id, "below");
@@ -962,6 +1009,8 @@ describe("FlowOutline re-parent 배선 (spec R3/R5)", () => {
   });
 });
 ```
+
+(`ko` import는 기존 파일에 이미 있으면 재사용 — 없으면 `import { ko } from "../../../i18n/ko";` 추가.)
 
 파일 상단에 필요한 import 추가(`resolveDrop` — `../../../scenario/reorder`)와 fixture 추가:
 
@@ -990,8 +1039,7 @@ steps:
 - [ ] **Step 2: RED 확인**
 
 Run: `cd ui && pnpm test FlowOutline`
-Expected: 신규 2 테스트 FAIL(placeholder 텍스트/ko 키 미존재·구현 전), 기존 PASS 유지
-(placeholder 부재 단언은 구현 전에도 통과할 수 있다 — 그 경우 이 테스트는 회귀 가드로 간주하고 진행)
+Expected: 신규 테스트 1(ko 키 단언)이 FAIL(`emptyBandDropHint` 미존재 → undefined → toBeTruthy RED), 신규 테스트 2는 Task 2 완료 상태라 PASS(순수 계약 핀 = 회귀 가드), 기존 PASS 유지
 
 - [ ] **Step 3: `ko.ts` — editor 섹션에 키 1개 추가** (드래그 관련 키 근처)
 
@@ -1192,7 +1240,11 @@ function OutlineRow({
             const isOverBand = drag.overBandKey === key;
             const legalHere = drag.legal?.has(key) ?? false;
             return (
-              <div className={isOverBand ? "rounded bg-accent-50/60" : undefined}>
+              // P2: 이 wrapper는 밴드 컨테이너(flex flex-col gap-1)와 행 사이에 끼므로
+              // 자신이 flex flex-col gap-1을 실어야 행 간 4px gap이 보존된다(상시 렌더).
+              <div
+                className={`flex flex-col gap-1${isOverBand ? " rounded bg-accent-50/60" : ""}`}
+              >
                 <SortableContext
                   items={children.map((c) => c.id)}
                   strategy={verticalListSortingStrategy}
