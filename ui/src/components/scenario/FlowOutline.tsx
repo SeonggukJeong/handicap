@@ -53,8 +53,15 @@ interface DragCtx {
   legal: ReadonlySet<string> | null;
   over: { id: string; half: "above" | "below" } | null;
   overBandKey: string | null;
+  activeBandKey: string | null;
 }
-const IDLE_DRAG: DragCtx = { activeId: null, legal: null, over: null, overBandKey: null };
+const IDLE_DRAG: DragCtx = {
+  activeId: null,
+  legal: null,
+  over: null,
+  overBandKey: null,
+  activeBandKey: null,
+};
 
 // 빈 else 밴드의 드롭 타깃(spec R4③ — else만 빈-가능 밴드). 드래그 중·합법일 때만 렌더.
 function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
@@ -279,7 +286,10 @@ function OutlineRow({
 
   // 삽입 예정 위치 인디케이터(spec R5): over 행의 above/below에 accent 라인.
   // 컨테이너는 sortable 노드=외곽 wrapper라 border-b가 "컨테이너 뒤" 시맨틱과 일치(R4①).
-  const overHere = drag.over?.id === step.id;
+  // same-band(재정렬)는 N1 핀에 따라 half 무시하고 verbatim 착지 — 인디케이터가
+  // half를 그리면 실제 착지와 모순될 수 있어 *교차-밴드일 때만* 렌더(최종리뷰 F1).
+  // sortable shift 애니메이션이 same-band 재정렬의 신호를 이미 담당한다.
+  const overHere = drag.over?.id === step.id && drag.overBandKey !== drag.activeBandKey;
   const indicator = overHere
     ? drag.over!.half === "above"
       ? "border-t-2 border-t-accent-500"
@@ -312,7 +322,8 @@ function OutlineRow({
           includeEmptyElse={includeEmptyElse}
           renderGroup={(children, childDepth, childBand) => {
             const key = bandKey({ parentId: childBand.parentId, band: childBand.band });
-            const isOverBand = drag.overBandKey === key;
+            // 자기-밴드(소스) 하이라이트는 신규 시각 요소 — 교차-밴드일 때만(최종리뷰 F1).
+            const isOverBand = drag.overBandKey === key && key !== drag.activeBandKey;
             const legalHere = drag.legal?.has(key) ?? false;
             return (
               // P2: 이 wrapper는 밴드 컨테이너(flex flex-col gap-1)와 행 사이에 끼므로
@@ -542,11 +553,16 @@ export function FlowOutline() {
     const b = findParentBand(steps, overInfo.id);
     return b ? bandKey(b) : null;
   }, [overInfo, steps]);
+  // 드래그 소스가 속한 밴드(N1 핀: same-band는 half 무시·verbatim 착지) —
+  // 인디케이터/하이라이트를 교차-밴드로만 게이트하는 기준(최종리뷰 F1).
+  const activeBandKey =
+    activeId !== null ? (dragCalcRef.current?.index.get(activeId) ?? null) : null;
   const drag: DragCtx = {
     activeId,
     legal: dragCalcRef.current?.legal ?? null,
     over: overInfo,
     overBandKey,
+    activeBandKey,
   };
 
   return (

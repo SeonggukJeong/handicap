@@ -456,6 +456,8 @@ steps:
 `;
 
 describe("FlowOutline re-parent 배선 (spec R3/R5)", () => {
+  beforeEach(() => reset());
+
   it("ko placeholder 키가 존재하고, 드래그 중이 아니면 placeholder가 렌더되지 않는다", () => {
     // ko 키 단언이 Task 3 Step 3 전까지 RED(esbuild 런타임 undefined) — 이 task의 RED 씨앗.
     expect(ko.editor.emptyBandDropHint).toBeTruthy();
