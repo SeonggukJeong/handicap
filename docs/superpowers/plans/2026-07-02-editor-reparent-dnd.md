@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+REVIEW-GATE: APPROVED
+
 **Goal:** `FlowOutline` 드래그를 컨테이너 경계 너머로 확장 — 합법성 규칙(깊이 2·loop↔if 상호 1레벨·parallel 최상위-only·min(1) 소스 가드) 안에서 스텝/컨테이너를 자유 재배치하고, 불법 타깃은 충돌 후보에서 구조적으로 제외한다.
 
 **Architecture:** 순수 레이어 우선 — ① `dropRules.ts`(밴드 열거·합법성·후보 필터, 순수) ② `reorder.ts` 확장(`resolveDrop` 해석) + `yamlDoc.ts` `reparentStep` variant + store 트랜잭셔널 액션 ③ `FlowOutline.tsx` 배선(충돌 확장·half ref·빈-else placeholder·인디케이터). 백엔드/proto/sql/schemas/model 0-diff (spec R8).
