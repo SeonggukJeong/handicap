@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+REVIEW-GATE: APPROVED
+
 **Goal:** `TestRunSection` 상단에 시나리오 흐름을 가로 flex-wrap 그룹 칩 스트립으로 상시 미러하고, test-run 트레이스로 스텝별 결과(✓/✗/○)를 색+아이콘으로 표시하며, 칩 클릭으로 스텝을 선택한다.
 
 **Architecture:** 순수 파생 모듈(`chipResults.ts` — trace→결과 맵, branch 라벨 단일 소스)과 프레젠테이셔널 컴포넌트(`TestFlowChips.tsx` — 재귀 그룹 칩 렌더)를 새로 만들고, `TestRunSection`이 이미 보유한 `traceSteps`/`testRun.data`/`useScenarioEditor`로 배선만 한다. 백엔드·스키마·store·모델 0-diff (spec R8).
