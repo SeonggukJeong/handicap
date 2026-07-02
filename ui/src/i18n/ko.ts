@@ -550,6 +550,11 @@ export const ko = {
     testRunOk: "성공",
     testRunFail: "실패",
     testRunMaxRequests: "최대 요청 수",
+    // ── 테스트 흐름 칩 스트립 (B13 슬라이스 2) ──
+    testFlowTitle: "테스트 흐름",
+    chipAriaPass: (name: string) => `${name} — 성공`,
+    chipAriaFail: (name: string) => `${name} — 실패`,
+    chipAriaNotRun: (name: string) => `${name} — 미실행`,
     extractVarNameAria: "추출 변수명",
     condGroupKindAria: "그룹 조건 종류",
     condLeftAria: "조건 왼쪽 값",
