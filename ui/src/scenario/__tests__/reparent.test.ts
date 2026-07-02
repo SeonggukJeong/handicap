@@ -59,6 +59,83 @@ function freshModel() {
   return p;
 }
 
+// 리뷰 Important(bandSeqPath 정규식 라우팅 미커버): elif_{i}/branch_{i} 밴드 fixture.
+// M1(top http) + IE(if: then t1 / elif[0].then e1) — elif_0 라우팅 전용.
+const ELIF_YAML = `version: 1
+name: fx-elif
+steps:
+  - id: "01HX0000000000000000000101"
+    name: m1
+    type: http
+    request: { method: GET, url: /m1 }
+  - id: "01HX0000000000000000000102"
+    name: IE
+    type: if
+    cond: { left: "1", op: eq, right: "1" }
+    then:
+      - id: "01HX0000000000000000000103"
+        name: t1
+        type: http
+        request: { method: GET, url: /t1 }
+    elif:
+      - cond: { left: "1", op: eq, right: "2" }
+        then:
+          - id: "01HX0000000000000000000104"
+            name: e1
+            type: http
+            request: { method: GET, url: /e1 }
+`;
+const M1 = "01HX0000000000000000000101";
+const IE = "01HX0000000000000000000102";
+const E1 = "01HX0000000000000000000104";
+
+// M2(top http) + PP(parallel: branch A=[pa1], branch B=[pb1,pb2]) — branch_1
+// 라우팅 전용(branch_0 아닌 branch_1로 인덱스 라우팅을 실제로 구분).
+const PARALLEL_YAML = `version: 1
+name: fx-parallel
+steps:
+  - id: "01HX0000000000000000000201"
+    name: m2
+    type: http
+    request: { method: GET, url: /m2 }
+  - id: "01HX0000000000000000000202"
+    name: PP
+    type: parallel
+    branches:
+      - name: A
+        steps:
+          - id: "01HX0000000000000000000203"
+            name: pa1
+            type: http
+            request: { method: GET, url: /pa1 }
+      - name: B
+        steps:
+          - id: "01HX0000000000000000000204"
+            name: pb1
+            type: http
+            request: { method: GET, url: /pb1 }
+          - id: "01HX0000000000000000000205"
+            name: pb2
+            type: http
+            request: { method: GET, url: /pb2 }
+`;
+const M2 = "01HX0000000000000000000201";
+const PP = "01HX0000000000000000000202";
+const PB1 = "01HX0000000000000000000204";
+const PB2 = "01HX0000000000000000000205";
+
+function freshElifModel() {
+  const p = parseScenarioDoc(ELIF_YAML);
+  if (!("model" in p)) throw new Error("elif fixture must parse");
+  return p;
+}
+
+function freshParallelModel() {
+  const p = parseScenarioDoc(PARALLEL_YAML);
+  if (!("model" in p)) throw new Error("parallel fixture must parse");
+  return p;
+}
+
 describe("resolveDrop — 같은 밴드 (N1 핀: computeReorder 동치)", () => {
   it("같은 밴드 드롭은 half와 무관하게 computeReorder 결과 verbatim", () => {
     const { model } = freshModel();
@@ -174,6 +251,36 @@ describe("applyEdit reparentStep — YAML AST verbatim 이동", () => {
     const moved = i1.type === "if" ? i1.then[0] : null;
     expect(moved && moved.type === "loop" && moved.repeat).toBe(2);
     expect(moved && moved.type === "loop" && moved.do.map((c) => c.id)).toEqual([L1A, L1B]);
+  });
+
+  it("top http → elif_0 밴드 (bandSeqPath의 elif_{i} 정규식 라우팅)", () => {
+    const { doc } = freshElifModel();
+    applyEdit(doc, { type: "reparentStep", stepId: M1, parentId: IE, band: "elif_0", index: 0 });
+    const reparsed = parseScenarioDoc(serializeDoc(doc));
+    if (!("model" in reparsed)) throw new Error("must reparse");
+    const ie = reparsed.model.steps.find((s) => s.id === IE)!;
+    expect(ie.type === "if" && ie.elif[0].then.map((c) => c.id)).toEqual([M1, E1]);
+    // top-level에선 사라짐(다른 밴드 아님)
+    expect(reparsed.model.steps.map((s) => s.id)).toEqual([IE]);
+  });
+
+  it("top http → branch_1 밴드 index 1 (bandSeqPath의 branch_{i} 정규식 라우팅)", () => {
+    const { doc } = freshParallelModel();
+    applyEdit(doc, {
+      type: "reparentStep",
+      stepId: M2,
+      parentId: PP,
+      band: "branch_1",
+      index: 1,
+    });
+    const reparsed = parseScenarioDoc(serializeDoc(doc));
+    if (!("model" in reparsed)) throw new Error("must reparse");
+    const pp = reparsed.model.steps.find((s) => s.id === PP)!;
+    expect(pp.type === "parallel" && pp.branches[1].steps.map((c) => c.id)).toEqual([PB1, M2, PB2]);
+    // branch_0(A)은 무변경
+    expect(pp.type === "parallel" && pp.branches[0].steps.map((c) => c.id)).toEqual([
+      "01HX0000000000000000000203",
+    ]);
   });
 });
 
