@@ -3,6 +3,7 @@ import type { ScenarioTrace, StepTrace } from "../../api/schemas";
 import { findStepById, isIfStep, summarizeCondition, type Step } from "../../scenario/model";
 import { suggestVarName } from "../../scenario/jsonPath";
 import type { Extract } from "../../scenario/model";
+import { branchText } from "../../scenario/chipResults";
 import { Modal } from "../Modal";
 import { ResponseBodyTree } from "./ResponseBodyTree";
 import { ExtractConfirmRow } from "./ExtractConfirmRow";
@@ -221,18 +222,6 @@ function BodyBlock({
       </Modal>
     </div>
   );
-}
-
-const BRANCH_LABEL: Record<string, string> = {
-  none: "(미매치)",
-  then: "then",
-  else: "else",
-};
-
-function branchText(branch: string): string {
-  if (BRANCH_LABEL[branch]) return BRANCH_LABEL[branch];
-  const m = /^elif_(\d+)$/.exec(branch);
-  return m ? `elif ${m[1]}` : branch;
 }
 
 function statusClass(status: number, error: string | null): string {
