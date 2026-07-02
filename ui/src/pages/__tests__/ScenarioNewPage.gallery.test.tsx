@@ -72,7 +72,9 @@ describe("ScenarioNewPage 템플릿 갤러리 (U3)", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: new RegExp(ko.templates.getName) }));
-    expect(await screen.findByText("헬스체크")).toBeInTheDocument(); // 캔버스 노드
+    // 캔버스(아웃라인) 노드로 스코프 — 테스트 흐름 칩 스트립도 같은 스텝명을 렌더해
+    // 텍스트만으로 쿼리하면 다중 매치(FlowOutline row role="option" + 칩)로 충돌한다.
+    expect(await screen.findByRole("option", { name: "스텝: 헬스체크" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: ko.editor.create })).toBeInTheDocument();
   });
 

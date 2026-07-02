@@ -27,11 +27,14 @@ vi.mock("../TestRunPanel", () => ({
 }));
 
 // Stub the scenario store so addStepExtract doesn't blow up.
+const select = vi.fn();
 vi.mock("../../../scenario/store", () => ({
   useScenarioEditor: Object.assign(
-    vi.fn(() => undefined),
+    vi.fn((selector?: (s: { selectedStepId: string | null }) => unknown) =>
+      selector ? selector({ selectedStepId: null }) : undefined,
+    ),
     {
-      getState: () => ({ addStepExtract: vi.fn() }),
+      getState: () => ({ addStepExtract: vi.fn(), select }),
     },
   ),
 }));
@@ -51,6 +54,7 @@ beforeEach(() => {
   isPending = false;
   testRunData = undefined;
   capturedOnAddExtract = undefined;
+  select.mockReset();
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -109,5 +113,32 @@ describe("TestRunSection addedNote transience", () => {
 
     // 안내가 사라졌어야 한다
     expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
+  });
+});
+
+// 스트립 렌더용 fixture — id는 유효 ULID 필수(비-ULID면 parseScenarioDoc가 실패해 스트립이 안 뜸)
+const CHIP_YAML = `version: 1
+name: s
+steps:
+  - id: "01HX0000000000000000000001"
+    name: ping
+    type: http
+    request:
+      method: GET
+      url: http://x/ping
+`;
+
+describe("TestRunSection flow chip strip (spec R1/R6)", () => {
+  it("파싱 가능한 버퍼면 스트립을 렌더하고 칩 클릭이 store select로 배선된다", async () => {
+    const user = userEvent.setup();
+    render(<TestRunSection yamlText={CHIP_YAML} />);
+    expect(screen.getByRole("group", { name: "테스트 흐름" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "ping" }));
+    expect(select).toHaveBeenCalledWith("01HX0000000000000000000001");
+  });
+
+  it("파싱 불가 버퍼면 스트립을 렌더하지 않는다", () => {
+    render(<TestRunSection yamlText={"version: ["} />);
+    expect(screen.queryByRole("group", { name: "테스트 흐름" })).not.toBeInTheDocument();
   });
 });

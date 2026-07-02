@@ -46,8 +46,10 @@ function renderWith(state: unknown) {
 describe("ScenarioNewPage import 핸드오프 (R9)", () => {
   it("location.state.importedYaml이 있으면 갤러리를 건너뛰고 그 YAML로 에디터를 시드한다", async () => {
     renderWith({ importedYaml: IMPORTED });
-    // 갤러리(템플릿 카드) 대신 에디터가 뜬다 — 시드된 step 이름이 캔버스 노드로
-    expect(await screen.findByText("GET /users")).toBeInTheDocument();
+    // 갤러리(템플릿 카드) 대신 에디터가 뜬다 — 시드된 step 이름이 캔버스 노드로.
+    // 캔버스(아웃라인) 노드로 스코프 — 테스트 흐름 칩 스트립도 같은 스텝명을 렌더해
+    // 텍스트만으로 쿼리하면 다중 매치(FlowOutline row role="option" + 칩)로 충돌한다.
+    expect(await screen.findByRole("option", { name: "스텝: GET /users" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: ko.editor.create })).toBeInTheDocument();
     // 갤러리 region은 없다
     expect(

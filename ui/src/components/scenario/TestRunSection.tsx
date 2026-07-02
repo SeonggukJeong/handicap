@@ -7,6 +7,7 @@ import type { Step } from "../../scenario/model";
 import { useScenarioEditor } from "../../scenario/store";
 import { Button } from "../Button";
 import { EnvironmentPicker } from "../EnvironmentPicker";
+import { TestFlowChips } from "./TestFlowChips";
 import { TestRunPanel } from "./TestRunPanel";
 
 /** Test-run controls + result panel for a scenario editor buffer. Self-contained
@@ -16,6 +17,7 @@ import { TestRunPanel } from "./TestRunPanel";
  *  condition summaries (the `ScenarioTrace` wire contract carries no cond text). */
 export function TestRunSection({ yamlText }: { yamlText: string }) {
   const testRun = useTestRun();
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [maxRequests, setMaxRequests] = useState<number>(50);
@@ -47,6 +49,12 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
       >
         <h3 className="text-lg font-semibold">{ko.editor.testRunTitle}</h3>
         <p className="text-sm text-slate-600">{ko.editor.testRunIntro}</p>
+        <TestFlowChips
+          steps={traceSteps}
+          trace={testRun.data ?? null}
+          selectedStepId={selectedStepId ?? null}
+          onSelect={(id) => useScenarioEditor.getState().select(id)}
+        />
         <EnvironmentPicker
           selectedEnvId={selectedEnvId}
           onSelect={setSelectedEnvId}
