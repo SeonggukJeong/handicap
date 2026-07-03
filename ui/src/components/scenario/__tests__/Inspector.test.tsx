@@ -1053,3 +1053,38 @@ describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
     expect(screen.queryByRole("button", { name: ko.editor.jsonCastLabel })).not.toBeInTheDocument();
   });
 });
+
+describe("StepNameField — 이름 blur-Untitled (R12/R13)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
+
+  it("이름을 전부 지워도 타이핑 중 Untitled로 스냅되지 않는다 — draft는 빈 채 유지, store는 직전 이름", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const input = screen.getByLabelText(ko.editor.fieldName);
+    await user.clear(input);
+    expect(input).toHaveValue(""); // 기존 구현은 여기서 "Untitled"로 스냅됨 → RED
+    expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("login"); // 빈 값 미커밋 (R13)
+  });
+
+  it("빈 이름으로 blur하면 Untitled가 커밋된다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const input = screen.getByLabelText(ko.editor.fieldName);
+    await user.clear(input);
+    await user.tab(); // blur
+    expect(input).toHaveValue("Untitled");
+    expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("Untitled");
+  });
+
+  it("비-빈 타이핑은 즉시 커밋된다 (아웃라인 라이브 갱신 유지)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const input = screen.getByLabelText(ko.editor.fieldName);
+    await user.clear(input);
+    await user.type(input, "로그인");
+    expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("로그인");
+  });
+});

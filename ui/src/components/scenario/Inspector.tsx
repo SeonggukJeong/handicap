@@ -232,13 +232,7 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
         </div>
       </header>
 
-      <Field label={ko.editor.fieldName}>
-        <input
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={step.name}
-          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
-        />
-      </Field>
+      <StepNameField stepId={step.id} name={step.name} />
 
       <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
         <legend className="px-1 text-xs font-semibold text-slate-600">
@@ -838,7 +832,6 @@ function ParallelBranchEditor({
 }
 
 function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) {
-  const setStepField = useScenarioEditor((s) => s.setStepField);
   const addBranch = useScenarioEditor((s) => s.addBranch);
   const removeStep = useScenarioEditor((s) => s.removeStep);
 
@@ -860,13 +853,7 @@ function ParallelInspector({ step }: { step: ParallelStep; topLevel: boolean }) 
         </div>
       </header>
 
-      <Field label={ko.editor.fieldName}>
-        <input
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={step.name}
-          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
-        />
-      </Field>
+      <StepNameField stepId={step.id} name={step.name} />
 
       <div className="flex flex-col gap-2">
         <div className="text-xs font-semibold text-slate-600">{ko.editor.branchesLabel}</div>
@@ -916,7 +903,6 @@ function ChildStepButton({ step, onClick }: { step: Step; onClick: () => void })
 }
 
 function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }) {
-  const setStepField = useScenarioEditor((s) => s.setStepField);
   const setLoopRepeat = useScenarioEditor((s) => s.setLoopRepeat);
   const removeStep = useScenarioEditor((s) => s.removeStep);
   const select = useScenarioEditor((s) => s.select);
@@ -952,13 +938,7 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
         </div>
       </header>
 
-      <Field label={ko.editor.fieldName}>
-        <input
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={step.name}
-          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
-        />
-      </Field>
+      <StepNameField stepId={step.id} name={step.name} />
 
       <Field label={ko.editor.fieldRepeat}>
         <input
@@ -1266,7 +1246,6 @@ function BranchPanel({
 }
 
 function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
-  const setStepField = useScenarioEditor((s) => s.setStepField);
   const setIfCond = useScenarioEditor((s) => s.setIfCond);
   const setElifCond = useScenarioEditor((s) => s.setElifCond);
   const addElif = useScenarioEditor((s) => s.addElif);
@@ -1288,13 +1267,7 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
         </div>
       </header>
 
-      <Field label={ko.editor.fieldName}>
-        <input
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={step.name}
-          onChange={(e) => setStepField(step.id, ["name"], e.target.value || "Untitled")}
-        />
-      </Field>
+      <StepNameField stepId={step.id} name={step.name} />
 
       <fieldset
         className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
@@ -1366,6 +1339,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs font-semibold text-slate-600">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** 이름 draft + 하이브리드 커밋(R12): 비-빈은 onChange 즉시 커밋(라이브 갱신),
+ *  빈 값은 미커밋(draft 유지), blur 시 trim-빈이면 "Untitled" 폴백. store엔 빈
+ *  이름이 절대 안 들어가 model min(1)/reparse 실패 경로 없음(R13). name dep
+ *  재시드는 YAML 모달 등 외부 편집이 같은 스텝 이름을 바꿔도 draft가 따라가게 한다. */
+function StepNameField({ stepId, name }: { stepId: string; name: string }) {
+  const setStepField = useScenarioEditor((s) => s.setStepField);
+  const [draft, setDraft] = useState(name);
+  useEffect(() => {
+    setDraft(name);
+  }, [stepId, name]);
+  return (
+    <Field label={ko.editor.fieldName}>
+      <input
+        className="w-full border border-slate-300 rounded px-2 py-1"
+        value={draft}
+        onChange={(e) => {
+          const v = e.target.value;
+          setDraft(v);
+          if (v !== "") setStepField(stepId, ["name"], v); // raw 검사 — trim은 blur만 (R12)
+        }}
+        onBlur={() => {
+          if (draft.trim() === "") {
+            setStepField(stepId, ["name"], "Untitled");
+            setDraft("Untitled");
+          }
+        }}
+      />
+    </Field>
   );
 }
 
