@@ -34,3 +34,7 @@
 
 - **멀티라인 `document.execCommand('insertText')`는 Monaco auto-indent를 타서 라인마다 들여쓰기가 복리로 붕괴**(YAML 파싱 실패 → 커밋 안 됨 — 첫 N줄만 확인하면 못 본다, 전체 라인 덤프로 검증). **`{`로 시작하는 삽입은 auto-closing bracket이 잉여 `}` 1개를 덧붙인다**(brace 불균형 → "Unexpected flow-map-end token"). 회피: **한 줄 flow-style YAML**(`{version: 1, name: x, steps: [{...}]}`)로 전체 교체(개행 0 = auto-indent 원천 회피) 후 `ControlOrMeta+End`+`Backspace`로 끝 잉여 문자 제거. 삽입 전 `.monaco-editor .view-lines` 클릭(hidden textarea는 view-line이 포인터 가로챔) + `ControlOrMeta+a`.
 - **YAML 모달 편집은 디바운스 300ms 후 `commitPendingYaml`로 *모달 닫기 없이* 라이브 커밋된다**(`MonacoYamlView.tsx`) — 헤더/브레드크럼 즉시-갱신 단언은 모달 열린 채 ~500ms 대기로 충분. 파싱 실패 시 커밋되지 않고 pendingYamlText가 남아 재오픈 시 깨진 버퍼가 그대로 보인다("시나리오 문제 N건" 배너 = 제품 정상 동작, 자동화 아티팩트와 구분할 것). 모달 내 키보드 Cmd+Z undo는 안 먹을 수 있다.
+
+## 뷰포트-고정(내부 스크롤) 레이아웃 실측 (editor-space-qol 2026-07-03)
+
+- **뷰포트에 고정되고 내부에서 스크롤되는 컨테이너(예: '스텝 넓게 보기' 와이드 셀 `max-h-[calc(100vh-16rem)]`)의 '페이지가 안 커진다' 검증은 *캡된 셀의* `getBoundingClientRect().height`로 판정 — `document.documentElement.scrollHeight`는 오염된다**: 상대/빈-URL fixture는 '시나리오 문제 N건' amber 검증 배너(스텝 수에 비례, 24스텝 = ~622px)를 그리드 *위에* 렌더해 페이지 높이를 수백 px 부풀린다(page overflow가 레이아웃 결함처럼 보임). 실제 셀은 정상적으로 뷰포트 캡돼 내부 스크롤(`scroller.scrollHeight > clientHeight`)한다 → 셀 rect 높이가 `calc(100vh-오프셋)`와 일치하고 스텝 수에 불변인지, 그리고 같은 시나리오에서 wide-ON page height ≤ wide-OFF page height인지(더 커지지 않음)를 본다. 배너를 없애려면 fixture URL을 절대(`http://127.0.0.1:.../x`)로. (배너 자체 footgun은 위 held-drag 섹션.)
