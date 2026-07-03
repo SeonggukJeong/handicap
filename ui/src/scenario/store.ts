@@ -36,22 +36,22 @@ export interface ScenarioEditorState {
   setCookieJar(value: "auto" | "off"): void;
   setVariable(key: string, value: string): void;
   removeVariable(key: string): void;
-  addStep(name: string): string; // returns new id
-  addLoopStep(name: string): string; // returns new loop id
-  addStepInLoop(loopId: string, name: string): string; // returns new child id
+  addStep(name: string): string | null; // returns new id (null when yamlError)
+  addLoopStep(name: string): string | null; // returns new loop id
+  addStepInLoop(loopId: string, name: string): string | null; // returns new child id
   setLoopRepeat(loopId: string, repeat: number): void;
-  addIfStep(name: string): string; // returns new if id
+  addIfStep(name: string): string | null; // returns new if id
   setIfCond(ifId: string, cond: Condition): void;
   setElifCond(ifId: string, index: number, cond: Condition): void;
-  addStepInBranch(ifId: string, branch: BranchSel, name: string): string; // returns child id
-  addLoopInBranch(ifId: string, branch: BranchSel, name: string): string; // returns new loop id
-  addIfInLoop(loopId: string, name: string): string; // returns new if id
+  addStepInBranch(ifId: string, branch: BranchSel, name: string): string | null; // returns child id
+  addLoopInBranch(ifId: string, branch: BranchSel, name: string): string | null; // returns new loop id
+  addIfInLoop(loopId: string, name: string): string | null; // returns new if id
   addElif(ifId: string): void;
   removeElif(ifId: string, index: number): void;
-  addParallelStep(name: string): string; // returns new parallel id
+  addParallelStep(name: string): string | null; // returns new parallel id
   addBranch(parallelId: string): void;
   removeBranch(parallelId: string, index: number): void;
-  addStepInParallelBranch(parallelId: string, branchIndex: number, name: string): string; // returns new child id
+  addStepInParallelBranch(parallelId: string, branchIndex: number, name: string): string | null; // returns new child id
   setBranchName(parallelId: string, branchIndex: number, name: string): void;
   removeStep(stepId: string): void;
   moveStep(stepId: string, toIndex: number): void;
@@ -135,17 +135,20 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "removeVariable", key });
   },
   addStep(name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     dispatch(set, get, { type: "addStep", id, name });
     return id;
   },
   addLoopStep(name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     const childId = newStepId();
     dispatch(set, get, { type: "addLoopStep", id, name, childId });
     return id;
   },
   addStepInLoop(loopId, name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     dispatch(set, get, { type: "addStepInLoop", loopId, id, name });
     return id;
@@ -154,6 +157,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "setLoopRepeat", loopId, repeat });
   },
   addIfStep(name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     const childId = newStepId();
     dispatch(set, get, { type: "addIfStep", id, name, childId });
@@ -166,17 +170,20 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "setElifCond", ifId, index, cond });
   },
   addStepInBranch(ifId, branch, name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     dispatch(set, get, { type: "addStepInBranch", ifId, branch, id, name });
     return id;
   },
   addLoopInBranch(ifId, branch, name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     const childId = newStepId();
     dispatch(set, get, { type: "addLoopInBranch", ifId, branch, id, name, childId });
     return id;
   },
   addIfInLoop(loopId, name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     const childId = newStepId();
     dispatch(set, get, { type: "addIfInLoop", loopId, id, name, childId });
@@ -190,6 +197,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "removeElif", ifId, index });
   },
   addParallelStep(name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     const branch1Id = newStepId();
     const branch2Id = newStepId();
@@ -213,6 +221,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "removeBranch", parallelId, index });
   },
   addStepInParallelBranch(parallelId, branchIndex, name) {
+    if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
     const id = newStepId();
     dispatch(set, get, { type: "addStepInParallelBranch", parallelId, branchIndex, id, name });
     return id;
@@ -221,6 +230,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     dispatch(set, get, { type: "setBranchName", parallelId, branchIndex, name });
   },
   removeStep(stepId) {
+    if (get().yamlError !== null) return; // 편집 게이트(R1) — selection clear 이전
     if (get().selectedStepId === stepId) set({ selectedStepId: null });
     dispatch(set, get, { type: "removeStep", stepId });
   },
@@ -230,6 +240,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   reparentStep(stepId, target) {
     const doc = get().doc;
     if (!doc) return;
+    if (get().yamlError !== null) return; // 편집 게이트(R1)
     // 트랜잭셔널(spec R6): clone에 적용 → 재파싱 성공 시에만 커밋. generic dispatch는
     // in-place 변이 후 재파싱 실패 시 롤백이 없다(아래 dispatch 참조) — re-parent는
     // 불법 상태를 만들 수 있는 첫 edit라 원본 doc을 직접 변이하지 않는다.
@@ -320,6 +331,7 @@ function dispatch(
 ): void {
   const doc = get().doc;
   if (!doc) return;
+  if (get().yamlError !== null) return; // 편집 게이트(R1): 깨진 YAML 버퍼 동안 무변이
   applyEdit(doc, edit);
   // Re-derive model from the mutated doc. This guarantees the model in state
   // is always the Zod-validated canonical output, not a raw mutation.

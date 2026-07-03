@@ -152,14 +152,14 @@ describe("store loop actions", () => {
   });
 
   it("addStepInLoop appends to the loop body", () => {
-    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop")!;
     useScenarioEditor.getState().addStepInLoop(loopId, "inner-2");
     const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
     if (loop.type === "loop") expect(loop.do).toHaveLength(2);
   });
 
   it("setLoopRepeat updates repeat", () => {
-    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop")!;
     useScenarioEditor.getState().setLoopRepeat(loopId, 5);
     const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId)!;
     if (loop.type === "loop") expect(loop.repeat).toBe(5);
@@ -196,7 +196,7 @@ describe("useScenarioEditor — if actions", () => {
   });
 
   it("setIfCond replaces the condition", () => {
-    const id = useScenarioEditor.getState().addIfStep("Branch");
+    const id = useScenarioEditor.getState().addIfStep("Branch")!;
     useScenarioEditor.getState().setIfCond(id, { left: "{{x}}", op: "eq", right: "1" });
     const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
     if (step?.type === "if") expect(step.cond).toEqual({ left: "{{x}}", op: "eq", right: "1" });
@@ -204,7 +204,7 @@ describe("useScenarioEditor — if actions", () => {
   });
 
   it("addStepInBranch adds an http step to else and returns its id", () => {
-    const id = useScenarioEditor.getState().addIfStep("Branch");
+    const id = useScenarioEditor.getState().addIfStep("Branch")!;
     const childId = useScenarioEditor.getState().addStepInBranch(id, { kind: "else" }, "E");
     const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
     if (step?.type === "if") {
@@ -214,7 +214,7 @@ describe("useScenarioEditor — if actions", () => {
   });
 
   it("addElif then setElifCond then removeElif", () => {
-    const id = useScenarioEditor.getState().addIfStep("Branch");
+    const id = useScenarioEditor.getState().addIfStep("Branch")!;
     useScenarioEditor.getState().addElif(id);
     useScenarioEditor.getState().setElifCond(id, 0, { left: "{{c}}", op: "eq", right: "2" });
     let step = useScenarioEditor.getState().model!.steps.find((s) => s.id === id);
@@ -229,7 +229,7 @@ describe("useScenarioEditor — if actions", () => {
   });
 
   it("addIfInLoop nests an if in a top-level loop body and returns its id (9c)", () => {
-    const loopId = useScenarioEditor.getState().addLoopStep("Loop");
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop")!;
     const ifId = useScenarioEditor.getState().addIfInLoop(loopId, "Inner if");
     const loop = useScenarioEditor.getState().model!.steps.find((s) => s.id === loopId);
     if (loop?.type === "loop") {
@@ -239,7 +239,7 @@ describe("useScenarioEditor — if actions", () => {
   });
 
   it("addLoopInBranch nests a loop in a top-level if branch and returns its id (9c)", () => {
-    const ifId = useScenarioEditor.getState().addIfStep("Branch");
+    const ifId = useScenarioEditor.getState().addIfStep("Branch")!;
     const loopId = useScenarioEditor
       .getState()
       .addLoopInBranch(ifId, { kind: "then" }, "Inner loop");
@@ -258,7 +258,7 @@ describe("useScenarioEditor — parallel addBranch", () => {
   });
 
   it("addBranch generates a non-colliding default name based on existing branch names", () => {
-    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out");
+    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out")!;
     // After addParallelStep the node has branch1 + branch2; addBranch should produce branch3
     useScenarioEditor.getState().addBranch(parallelId);
     const step = useScenarioEditor.getState().model!.steps.find((s) => s.id === parallelId);
@@ -268,7 +268,7 @@ describe("useScenarioEditor — parallel addBranch", () => {
   });
 
   it("addBranch with a collision at size+1 increments to the next free slot", () => {
-    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out");
+    const parallelId = useScenarioEditor.getState().addParallelStep("Fan-out")!;
     // addParallelStep seeds branch1 + branch2; rename branch2 → branch3
     // existing names = {branch1, branch3}; size=2, n starts at 3, collides → n=4
     useScenarioEditor.getState().setBranchName(parallelId, 1, "branch3");

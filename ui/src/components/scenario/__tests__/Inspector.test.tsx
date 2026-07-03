@@ -469,7 +469,7 @@ describe("Inspector — mutual nesting (9c)", () => {
 
   it("does NOT offer nesting buttons on a nested container (depth gate, 9c)", async () => {
     // if { then: [ loop ] }  — select the nested loop; it must not offer '+ Add if'
-    const ifId = useScenarioEditor.getState().addIfStep("If 1");
+    const ifId = useScenarioEditor.getState().addIfStep("If 1")!;
     const nestedLoopId = useScenarioEditor
       .getState()
       .addLoopInBranch(ifId, { kind: "then" }, "inner");
@@ -485,7 +485,7 @@ describe("Inspector — mutual nesting (9c)", () => {
 
   it("does NOT offer '+ Add loop' on a nested if's branches (symmetric depth gate, 9c)", async () => {
     // loop { do: [ if ] }  — select the nested if; its branches must not offer '+ Add loop'
-    const loopId = useScenarioEditor.getState().addLoopStep("Loop 1");
+    const loopId = useScenarioEditor.getState().addLoopStep("Loop 1")!;
     const nestedIfId = useScenarioEditor.getState().addIfInLoop(loopId, "inner");
     useScenarioEditor.getState().select(nestedIfId);
     render(<Inspector />);
@@ -835,7 +835,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
   function loadParallelAndSelect() {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
-    const pid = useScenarioEditor.getState().addParallelStep("Fan-out");
+    const pid = useScenarioEditor.getState().addParallelStep("Fan-out")!;
     // Rename the two default branches to recognizable names for assertions
     useScenarioEditor.getState().setBranchName(pid, 0, "user");
     useScenarioEditor.getState().setBranchName(pid, 1, "feed");
@@ -935,7 +935,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
   it("remove branch button is absent when only 1 branch remains", () => {
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
-    const pid = useScenarioEditor.getState().addParallelStep("Solo");
+    const pid = useScenarioEditor.getState().addParallelStep("Solo")!;
     // Remove one branch so only 1 remains
     useScenarioEditor.getState().removeBranch(pid, 1);
     useScenarioEditor.getState().select(pid);
