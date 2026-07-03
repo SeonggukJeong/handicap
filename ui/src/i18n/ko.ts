@@ -416,6 +416,8 @@ export const ko = {
     varsPanelAria: "변수",
     wideToggle: "스텝 넓게 보기",
     wideToggleAria: "스텝 넓게 보기 전환",
+    wideFlowStripAria: "스텝 흐름 (넓게 보기)",
+    stepDetailModalTitle: "스텝 편집",
     openYaml: "YAML",
     yamlModalTitle: "YAML 편집",
     // ── YAML 파일 가져오기/내보내기 (file-I/O) ──

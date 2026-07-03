@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../../i18n/ko";
@@ -169,6 +169,119 @@ steps:
         "false",
       );
     });
+  });
+
+  const WIDE_YAML2 = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+    assert:
+      - status: 200
+  - id: "01HX0000000000000000000002"
+    name: "next"
+    type: http
+    request:
+      method: GET
+      url: "/next"
+    assert:
+      - status: 200
+`;
+
+  // 주의: 기존 describe("EditorShell") 블록 *안에* 중첩(store-reset beforeEach 상속).
+  describe("와이드 칩 스트립·점프·편집 모달 (R7/R8)", () => {
+    beforeEach(() => {
+      window.localStorage.clear(); // 타이밍 섹션 펼침이 prefs에 남는 누수 방지
+    });
+
+    async function renderWide() {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML2} />);
+      await user.click(screen.getByRole("button", { name: ko.editor.wideToggleAria }));
+      return user;
+    }
+    const rowOf = (name: string) =>
+      screen.getByRole("option", { name: ko.editor.outlineRowAria(name) });
+
+    it("칩 스트립은 구분 wrapper region 안에 렌더 (R7 — 이중 role=group 회피)", async () => {
+      await renderWide();
+      const strip = screen.getByRole("region", { name: ko.editor.wideFlowStripAria });
+      expect(within(strip).getByText("login")).toBeInTheDocument();
+    });
+
+    it("칩 클릭 = 선택만, 모달 미오픈 (R7)", async () => {
+      const user = await renderWide();
+      const strip = screen.getByRole("region", { name: ko.editor.wideFlowStripAria });
+      await user.click(within(strip).getByRole("button", { name: /next/ }));
+      expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000002");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("행 활성화 → 편집 모달(Inspector 재사용), 닫기 후 선택 유지 (R8)", async () => {
+      const user = await renderWide();
+      await user.click(rowOf("login"));
+      const dialog = screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle });
+      expect(within(dialog).getByLabelText(ko.editor.inspectorAria)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000001");
+    });
+
+    it("모달 내 삭제 → 모달 닫힘, 이후 칩 클릭이 모달을 재오픈하지 않는다 (R8 상태머신)", async () => {
+      const user = await renderWide();
+      await user.click(rowOf("login"));
+      const dialog = screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle });
+      await user.click(within(dialog).getByRole("button", { name: ko.common.delete }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const strip = screen.getByRole("region", { name: ko.editor.wideFlowStripAria });
+      await user.click(within(strip).getByRole("button", { name: /next/ }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); // detailOpen 리셋 ②
+    });
+
+    it("와이드 재토글이 모달을 재오픈하지 않는다 (R8 리셋 ③)", async () => {
+      const user = await renderWide();
+      await user.click(rowOf("login"));
+      expect(
+        screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle }),
+      ).toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: ko.editor.wideToggleAria });
+      await user.click(toggle); // OFF — 모달 게이트로 언마운트
+      await user.click(toggle); // ON
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("draft 타이핑 후 ESC 닫기 → blur-flush로 store 커밋 (R8)", async () => {
+      const user = await renderWide();
+      await user.click(rowOf("login"));
+      const dialog = screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle });
+      await user.click(within(dialog).getByRole("button", { name: ko.editor.sectionTiming }));
+      await user.type(within(dialog).getByLabelText(ko.editor.fieldTimeout), "30");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(useScenarioEditor.getState().model?.steps[0]).toMatchObject({ timeout_seconds: 30 });
+    });
+
+    it("빈 이름 draft로 ESC 닫기 → blur-flush가 Untitled 커밋 — 빈 이름 비기록 불변 (R13)", async () => {
+      const user = await renderWide();
+      await user.click(rowOf("login"));
+      const dialog = screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle });
+      await user.clear(within(dialog).getByLabelText(ko.editor.fieldName));
+      await user.keyboard("{Escape}");
+      expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("Untitled");
+      // 재편집 정상 — 커밋된 이름으로 모달이 다시 열린다 (T6 클래스 회귀 가드)
+      await user.click(rowOf("Untitled"));
+      expect(within(screen.getByRole("dialog")).getByLabelText(ko.editor.fieldName)).toHaveValue(
+        "Untitled",
+      );
+    });
+    // (JSON 바디 ESC 변형은 의도적 미작성 — 같은 blur-flush 메커니즘을 타임아웃(위)·이름(이 테스트)
+    //  두 커밋 경로가 커버. JsonBodyField도 동일 onBlur commit이라 별도 이득 없음.)
   });
 });
 
