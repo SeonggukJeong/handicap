@@ -577,6 +577,11 @@ export const ko = {
     branchNameAria: (n: number) => `분기 ${n} 이름`,
     extractFromAria: (n: number) => `추출 ${n} 종류`,
     removeVariableAria: (key: string) => `${key} 변수 제거`,
+    // ── 시나리오 이름 인라인 편집 (scenario-delete-name-sync R8) ──
+    renameAria: "시나리오 이름 편집",
+    renameTitle: "이름을 클릭해 바로 수정합니다 (Enter 저장, Esc 취소)",
+    renameDisabledTitle: "YAML 파싱 오류를 먼저 해결해야 이름을 편집할 수 있습니다",
+    nameInputAria: "시나리오 이름",
   },
   templates: {
     galleryAria: "시나리오 템플릿 선택",

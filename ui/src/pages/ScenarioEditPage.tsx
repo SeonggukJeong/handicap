@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -54,12 +54,39 @@ export function ScenarioEditPage() {
     setYamlText(next);
   }, []);
 
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameEscapedRef = useRef(false);
+
   if (isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (error)
     return <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>;
   if (!data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const dirty = originalYaml !== yamlText;
+  // R7: 싱글톤 store의 stale 모델(이전 페이지 잔존물)이 시드 전 프레임에 새지
+  // 않도록 seeded로 게이트 — 시드 전·깨진-YAML(model=null)은 서버명 폴백.
+  const liveName = seeded ? (editorModel?.name ?? data.name) : data.name;
+  const nameEditable = seeded && editorModel !== null;
+
+  const startNameEdit = () => {
+    setNameDraft(liveName);
+    setNameEditing(true);
+  };
+  // 커밋: trim 후 빈 문자열이면 revert(ScenarioModel.name min(1) — 빈 커밋은
+  // doc/model 갈라짐), 동일 이름도 no-op. Enter 커밋 직후 unmount-blur가 한 번
+  // 더 불러도 liveName 동등성 가드로 멱등.
+  const commitName = () => {
+    if (nameEscapedRef.current) {
+      nameEscapedRef.current = false;
+      setNameEditing(false);
+      return;
+    }
+    setNameEditing(false);
+    const trimmed = nameDraft.trim();
+    if (trimmed.length === 0 || trimmed === liveName) return;
+    useScenarioEditor.getState().setName(trimmed);
+  };
   const scenariosLoaded = scenarios !== undefined;
 
   // 클론 소스는 항상 data.yaml(현재 저장본) 또는 next.yaml(방금 저장한 결과) — 둘 다
@@ -93,10 +120,40 @@ export function ScenarioEditPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: data.name }]} />
+      <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">{data.name}</h2>
+          {nameEditing ? (
+            <input
+              autoFocus
+              aria-label={ko.editor.nameInputAria}
+              className="rounded border border-slate-300 px-2 py-1 text-xl font-semibold"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitName();
+                if (e.key === "Escape") {
+                  nameEscapedRef.current = true;
+                  setNameEditing(false);
+                }
+              }}
+            />
+          ) : (
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-semibold">{liveName}</h2>
+              <button
+                type="button"
+                aria-label={ko.editor.renameAria}
+                title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
+                disabled={!nameEditable}
+                onClick={startNameEdit}
+                className="text-slate-500 hover:text-slate-700 disabled:text-slate-300"
+              >
+                <span aria-hidden="true">✎</span>
+              </button>
+            </div>
+          )}
           <p className="text-sm text-slate-600">
             v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
           </p>
