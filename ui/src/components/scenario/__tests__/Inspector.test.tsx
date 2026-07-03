@@ -1054,6 +1054,21 @@ describe("Inspector — assertion row status field label (ko-first)", () => {
   });
 });
 
+describe("Inspector — URL input adopts primitive Input (design-system-editor)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
+
+  it("URL input uses primitive Input with accent focus-ring class", () => {
+    render(<Inspector />);
+    const url = screen.getByLabelText(/URL/);
+    expect(url).toHaveClass("focus:ring-accent-500/30"); // Input BASE — RED before migration
+    expect(url).toHaveClass("font-mono"); // mono preserved
+    expect(url).toHaveClass("text-xs"); // size="sm" density preserved
+  });
+});
+
 describe("Inspector URL required marker (U3)", () => {
   beforeEach(() => {
     window.localStorage.clear();

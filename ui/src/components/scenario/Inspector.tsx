@@ -25,6 +25,8 @@ import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
 import { HelpTip } from "../HelpTip";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
 import {
   loadSectionPrefs,
   saveSectionPrefs,
@@ -308,23 +310,25 @@ function HttpStepInspector({
           <VarCheatSheet />
         </div>
         <Field label={ko.editor.fieldMethod}>
-          <select
-            className="border border-slate-300 rounded px-2 py-1"
-            value={step.request.method}
-            onChange={(e) =>
-              setStepField(step.id, ["request", "method"], e.target.value as HttpMethod)
-            }
-          >
-            {METHODS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <div className="w-fit">
+            <Select
+              value={step.request.method}
+              onChange={(e) =>
+                setStepField(step.id, ["request", "method"], e.target.value as HttpMethod)
+              }
+            >
+              {METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+          </div>
         </Field>
         <Field label={ko.editor.urlLabel}>
-          <input
-            className="w-full border border-slate-300 rounded px-2 py-1 font-mono text-xs"
+          <Input
+            size="sm"
+            className="font-mono"
             value={step.request.url}
             placeholder={ko.editor.urlPlaceholder}
             onChange={(e) => setStepField(step.id, ["request", "url"], e.target.value)}
@@ -360,11 +364,11 @@ function HttpStepInspector({
         onToggle={() => onToggleSection("timing")}
       >
         <Field label={ko.editor.fieldTimeout}>
-          <input
+          <Input
+            numeric
             type="number"
             min={1}
             max={600}
-            className="w-full border border-slate-300 rounded px-2 py-1"
             value={timeoutDraft}
             onChange={(e) => setTimeoutDraft(e.target.value)}
             onBlur={commitTimeout}
@@ -372,22 +376,22 @@ function HttpStepInspector({
         </Field>
 
         <Field label={ko.editor.fieldThinkMin}>
-          <input
+          <Input
+            numeric
             type="number"
             min={0}
             max={600000}
-            className="w-full border border-slate-300 rounded px-2 py-1"
             value={thinkMinDraft}
             onChange={(e) => setThinkMinDraft(e.target.value)}
             onBlur={commitThinkTime}
           />
         </Field>
         <Field label={ko.editor.fieldThinkMax}>
-          <input
+          <Input
+            numeric
             type="number"
             min={0}
             max={600000}
-            className="w-full border border-slate-300 rounded px-2 py-1"
             value={thinkMaxDraft}
             onChange={(e) => setThinkMaxDraft(e.target.value)}
             onBlur={commitThinkTime}
@@ -467,16 +471,14 @@ function BodyEditor({ step }: { step: HttpStep }) {
 
   return (
     <div>
-      <select
-        className="border border-slate-300 rounded px-2 py-1 text-sm mb-2"
-        value={kind}
-        onChange={(e) => setKind(e.target.value as BodyKind)}
-      >
-        <option value="none">{ko.editor.bodyNone}</option>
-        <option value="json">{ko.editor.bodyJson}</option>
-        <option value="form">{ko.editor.bodyForm}</option>
-        <option value="raw">{ko.editor.bodyRaw}</option>
-      </select>
+      <div className="w-fit">
+        <Select className="mb-2" value={kind} onChange={(e) => setKind(e.target.value as BodyKind)}>
+          <option value="none">{ko.editor.bodyNone}</option>
+          <option value="json">{ko.editor.bodyJson}</option>
+          <option value="form">{ko.editor.bodyForm}</option>
+          <option value="raw">{ko.editor.bodyRaw}</option>
+        </Select>
+      </div>
       {kind === "json" && <JsonBodyField step={step} />}
       {kind === "form" && <FormBodyField step={step} />}
       {kind === "raw" && <RawBodyField step={step} />}
@@ -610,20 +612,22 @@ function AssertEditor({
         {step.assert.map((a, idx) => (
           <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
             <span className="font-mono text-slate-600 w-16">{ko.editor.assertStatusField}</span>
-            <input
-              type="number"
-              min={100}
-              max={599}
-              className="w-24 border border-slate-300 rounded px-2 py-1"
-              value={a.code}
-              onChange={(e) => {
-                const code = Number(e.target.value);
-                if (!Number.isFinite(code)) return;
-                const next = [...step.assert];
-                next[idx] = { kind: "status", code };
-                setStepAssert(step.id, next);
-              }}
-            />
+            <div className="w-24">
+              <Input
+                numeric
+                type="number"
+                min={100}
+                max={599}
+                value={a.code}
+                onChange={(e) => {
+                  const code = Number(e.target.value);
+                  if (!Number.isFinite(code)) return;
+                  const next = [...step.assert];
+                  next[idx] = { kind: "status", code };
+                  setStepAssert(step.id, next);
+                }}
+              />
+            </div>
             <button
               type="button"
               aria-label={ko.editor.removeAssertion(idx)}
@@ -644,15 +648,18 @@ function AssertEditor({
         )}
       </ul>
       <div className="flex gap-2">
-        <input
-          type="number"
-          placeholder="200"
-          min={100}
-          max={599}
-          className="w-24 border border-slate-300 rounded px-2 py-1 text-xs"
-          value={newCode}
-          onChange={(e) => setNewCode(e.target.value)}
-        />
+        <div className="w-24">
+          <Input
+            numeric
+            size="sm"
+            type="number"
+            placeholder="200"
+            min={100}
+            max={599}
+            value={newCode}
+            onChange={(e) => setNewCode(e.target.value)}
+          />
+        </div>
         <button
           type="button"
           className="px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"
@@ -752,45 +759,52 @@ function ExtractEditor({ step }: { step: HttpStep }) {
       <ul className="flex flex-col gap-2">
         {drafts.map((x, idx) => (
           <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
-            <input
-              placeholder="var"
-              className="border border-slate-300 rounded px-2 py-1 font-mono w-24"
-              value={x.var}
-              onChange={(e) => updateDraft(idx, { ...x, var: e.target.value })}
-              onBlur={commitFromBlur}
-            />
-            <select
-              aria-label={ko.editor.extractFromAria(idx)}
-              className="border border-slate-300 rounded px-2 py-1"
-              value={x.from}
-              onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
-            >
-              <option value="body">본문</option>
-              <option value="header">헤더</option>
-              <option value="cookie">쿠키</option>
-              <option value="status">상태</option>
-            </select>
-            {x.from === "body" && (
-              <input
-                placeholder="$.path"
-                className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
-                value={x.path}
-                onChange={(e) => updateDraft(idx, { ...x, path: e.target.value })}
+            <div className="w-24">
+              <Input
+                placeholder="var"
+                className="font-mono"
+                value={x.var}
+                onChange={(e) => updateDraft(idx, { ...x, var: e.target.value })}
                 onBlur={commitFromBlur}
               />
+            </div>
+            <div className="w-fit">
+              <Select
+                aria-label={ko.editor.extractFromAria(idx)}
+                value={x.from}
+                onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
+              >
+                <option value="body">본문</option>
+                <option value="header">헤더</option>
+                <option value="cookie">쿠키</option>
+                <option value="status">상태</option>
+              </Select>
+            </div>
+            {x.from === "body" && (
+              <div className="flex-1 min-w-[120px]">
+                <Input
+                  placeholder="$.path"
+                  className="font-mono"
+                  value={x.path}
+                  onChange={(e) => updateDraft(idx, { ...x, path: e.target.value })}
+                  onBlur={commitFromBlur}
+                />
+              </div>
             )}
             {(x.from === "header" || x.from === "cookie") && (
-              <input
-                placeholder={
-                  x.from === "header"
-                    ? ko.editor.headerNamePlaceholder
-                    : ko.editor.cookieNamePlaceholder
-                }
-                className="border border-slate-300 rounded px-2 py-1 font-mono flex-1 min-w-[120px]"
-                value={x.name}
-                onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
-                onBlur={commitFromBlur}
-              />
+              <div className="flex-1 min-w-[120px]">
+                <Input
+                  placeholder={
+                    x.from === "header"
+                      ? ko.editor.headerNamePlaceholder
+                      : ko.editor.cookieNamePlaceholder
+                  }
+                  className="font-mono"
+                  value={x.name}
+                  onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
+                  onBlur={commitFromBlur}
+                />
+              </div>
             )}
             {x.from === "status" && (
               <span className="text-slate-400 italic flex-1">{ko.editor.noExtraField}</span>
@@ -877,9 +891,9 @@ function ParallelBranchEditor({
           {ko.editor.branchLabel(branchIndex + 1)}
         </label>
         <div className="flex-1 min-w-0">
-          <input
+          <Input
+            size="sm"
             aria-label={ko.editor.branchNameAria(branchIndex)}
-            className="w-full border border-slate-300 rounded px-2 py-1 text-xs"
             value={nameDraft}
             onChange={(e) => setNameDraft(e.target.value)}
             onBlur={commitName}
@@ -1029,15 +1043,17 @@ function LoopInspector({ step, topLevel }: { step: LoopStep; topLevel: boolean }
       <StepNameField stepId={step.id} name={step.name} />
 
       <Field label={ko.editor.fieldRepeat}>
-        <input
-          type="number"
-          min={1}
-          aria-label={ko.editor.fieldRepeat}
-          className="w-24 border border-slate-300 rounded px-2 py-1"
-          value={repeatDraft}
-          onChange={(e) => setRepeatDraft(e.target.value)}
-          onBlur={commitRepeat}
-        />
+        <div className="w-24">
+          <Input
+            numeric
+            type="number"
+            min={1}
+            aria-label={ko.editor.fieldRepeat}
+            value={repeatDraft}
+            onChange={(e) => setRepeatDraft(e.target.value)}
+            onBlur={commitRepeat}
+          />
+        </div>
       </Field>
 
       <div>
@@ -1166,18 +1182,20 @@ function ConditionNode({
     const wrap = (next: Condition[]): Condition => (kind === "all" ? { all: next } : { any: next });
     return (
       <div className="flex flex-col gap-2 border-l-2 border-indigo-200 pl-2">
-        <select
-          aria-label={ko.editor.condGroupKindAria}
-          className="border border-slate-300 rounded px-2 py-1 text-xs w-32"
-          value={kind}
-          onChange={(e) => {
-            const k = e.target.value as "all" | "any";
-            editCommit(path, (k === "all" ? { all: children } : { any: children }) as Condition);
-          }}
-        >
-          <option value="all">{ko.editor.condAll}</option>
-          <option value="any">{ko.editor.condAny}</option>
-        </select>
+        <div className="w-32">
+          <Select
+            size="sm"
+            aria-label={ko.editor.condGroupKindAria}
+            value={kind}
+            onChange={(e) => {
+              const k = e.target.value as "all" | "any";
+              editCommit(path, (k === "all" ? { all: children } : { any: children }) as Condition);
+            }}
+          >
+            <option value="all">{ko.editor.condAll}</option>
+            <option value="any">{ko.editor.condAny}</option>
+          </Select>
+        </div>
         {children.map((c, i) => (
           <div key={i} className="flex gap-1 items-start">
             <ConditionNode
@@ -1231,42 +1249,50 @@ function ConditionNode({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-1 items-center">
-        <input
-          aria-label={ko.editor.condLeftAria}
-          placeholder={ko.editor.condLeftPlaceholder}
-          className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
-          value={leaf.left}
-          onChange={(e) => editLocal(path, { ...leaf, left: e.target.value })}
-          onBlur={commitText}
-        />
-        <select
-          aria-label={ko.editor.condOpAria}
-          className="border border-slate-300 rounded px-2 py-1 text-xs"
-          value={leaf.op}
-          onChange={(e) => {
-            const op = e.target.value as CompareOp;
-            const next: Condition =
-              op === "exists" || op === "empty"
-                ? { left: leaf.left, op }
-                : { left: leaf.left, op, right: leaf.right ?? "" };
-            editCommit(path, next);
-          }}
-        >
-          {OPS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-        {!noRight && (
-          <input
-            aria-label={ko.editor.condRightAria}
-            placeholder={ko.editor.condRightPlaceholder}
-            className="border border-slate-300 rounded px-2 py-1 font-mono text-xs w-28 min-w-0"
-            value={leaf.right ?? ""}
-            onChange={(e) => editLocal(path, { ...leaf, right: e.target.value })}
+        <div className="w-28 min-w-0">
+          <Input
+            size="sm"
+            className="min-w-0 font-mono"
+            aria-label={ko.editor.condLeftAria}
+            placeholder={ko.editor.condLeftPlaceholder}
+            value={leaf.left}
+            onChange={(e) => editLocal(path, { ...leaf, left: e.target.value })}
             onBlur={commitText}
           />
+        </div>
+        <div className="w-fit">
+          <Select
+            size="sm"
+            aria-label={ko.editor.condOpAria}
+            value={leaf.op}
+            onChange={(e) => {
+              const op = e.target.value as CompareOp;
+              const next: Condition =
+                op === "exists" || op === "empty"
+                  ? { left: leaf.left, op }
+                  : { left: leaf.left, op, right: leaf.right ?? "" };
+              editCommit(path, next);
+            }}
+          >
+            {OPS.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {!noRight && (
+          <div className="w-28 min-w-0">
+            <Input
+              size="sm"
+              className="min-w-0 font-mono"
+              aria-label={ko.editor.condRightAria}
+              placeholder={ko.editor.condRightPlaceholder}
+              value={leaf.right ?? ""}
+              onChange={(e) => editLocal(path, { ...leaf, right: e.target.value })}
+              onBlur={commitText}
+            />
+          </div>
         )}
       </div>
       {regexBad && <span className="text-[11px] text-amber-600">⚠ invalid regex</span>}
@@ -1442,8 +1468,7 @@ function StepNameField({ stepId, name }: { stepId: string; name: string }) {
   }, [stepId, name]);
   return (
     <Field label={ko.editor.fieldName}>
-      <input
-        className="w-full border border-slate-300 rounded px-2 py-1"
+      <Input
         value={draft}
         onChange={(e) => {
           const v = e.target.value;
