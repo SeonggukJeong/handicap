@@ -29,3 +29,8 @@
 
 - **상대 URL fixture는 "시나리오 문제 N건" 검증 배너를 만들고, 이 배너가 *늦게* 렌더되며 아웃라인을 ~200px 밀어낸다** — 별도 툴 호출에서 미리 추출해 둔 행 좌표가 드래그 도중 무효화되어 엉뚱한(합법인) 행을 잡거나 엉뚱한 밴드에 드롭된다(재현: s1 드래그가 L1↔I1 재정렬/P.branch_0 착지로 둔갑). 회피 3종 세트: ① fixture URL은 절대(`http://127.0.0.1:9999/...`)로 만들어 배너 자체를 제거 ② 좌표 추출→드래그→검증을 **단일 `browser_run_code_unsafe`** 안에서 ③ 드래그 전 레이아웃 안정 대기(행 rect 스냅샷 2회 연속 일치까지 폴링).
 - **dnd-kit PointerSensor 활성화 플레이크**: `mouse.down` 직후 바로 `mouse.move`하면 드래그가 활성화되지 않을 수 있다(한 세션 1회 재현 — 샘플이 전부 idle 상태로 나와 "불법이라 제외"로 오독할 뻔). down→move 사이 ~100ms 대기 + `document.querySelector('[aria-pressed="true"]')` 프로브로 **활성화를 단언한 뒤** 판정 샘플을 신뢰할 것. mid-drag 상태 프로브는 소스 wrapper `[class*="opacity-0"]` 존재(드래그 생존)·인디케이터 `[class*="border-t-accent-500"],[class*="border-b-accent-500"]`·밴드 하이라이트 `[class*="bg-accent-50/60"]` 카운트 + **드래그 전 baseline 샘플**(대시보드에 상시 존재하는 border-dashed류 오염 제거)이 결정적이다.
+
+## Monaco(YAML 모달) 자동화 (scenario-delete-name-sync 2026-07-03)
+
+- **멀티라인 `document.execCommand('insertText')`는 Monaco auto-indent를 타서 라인마다 들여쓰기가 복리로 붕괴**(YAML 파싱 실패 → 커밋 안 됨 — 첫 N줄만 확인하면 못 본다, 전체 라인 덤프로 검증). **`{`로 시작하는 삽입은 auto-closing bracket이 잉여 `}` 1개를 덧붙인다**(brace 불균형 → "Unexpected flow-map-end token"). 회피: **한 줄 flow-style YAML**(`{version: 1, name: x, steps: [{...}]}`)로 전체 교체(개행 0 = auto-indent 원천 회피) 후 `ControlOrMeta+End`+`Backspace`로 끝 잉여 문자 제거. 삽입 전 `.monaco-editor .view-lines` 클릭(hidden textarea는 view-line이 포인터 가로챔) + `ControlOrMeta+a`.
+- **YAML 모달 편집은 디바운스 300ms 후 `commitPendingYaml`로 *모달 닫기 없이* 라이브 커밋된다**(`MonacoYamlView.tsx`) — 헤더/브레드크럼 즉시-갱신 단언은 모달 열린 채 ~500ms 대기로 충분. 파싱 실패 시 커밋되지 않고 pendingYamlText가 남아 재오픈 시 깨진 버퍼가 그대로 보인다("시나리오 문제 N건" 배너 = 제품 정상 동작, 자동화 아티팩트와 구분할 것). 모달 내 키보드 Cmd+Z undo는 안 먹을 수 있다.
