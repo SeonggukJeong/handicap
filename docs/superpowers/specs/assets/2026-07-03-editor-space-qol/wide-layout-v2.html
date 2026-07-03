@@ -1,0 +1,82 @@
+<h2>넓게 보기 v2 — A안 + 화면 고정 스크롤 + 가로 흐름 칩</h2>
+<p class="subtitle">주신 두 아이디어를 통합했습니다: ① 스텝 영역이 <b>화면 높이에 고정</b>되고 넘치면 영역 <b>안에서만</b> 스크롤, ② 이미 에디터에 있는 <b>테스트 흐름 칩 스트립</b>(가로 흐름)을 넓게 보기 상단에 고정해 "조망 + 점프" 역할. 난잡한지 직접 봐주세요.</p>
+
+<style>
+  .m-badge { display:inline-block; font-weight:700; font-size:10px; padding:1px 6px; border-radius:4px; margin-right:8px; flex-shrink:0; }
+  .m-get { background:#dcfce7; color:#166534; }
+  .m-post { background:#dbeafe; color:#1e40af; }
+  .m-name { font-weight:600; color:#1e293b; margin-right:10px; white-space:nowrap; }
+  .m-url { color:#64748b; font-family:monospace; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-chip { font-size:10px; color:#475569; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:9999px; padding:1px 7px; margin-left:6px; flex-shrink:0; white-space:nowrap; }
+  .m-grip { color:#94a3b8; margin-right:8px; flex-shrink:0; }
+  .m-row { display:flex; align-items:center; background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:6px 10px; margin:4px 0; font-size:12px; }
+  .m-band { border-left:3px solid #cbd5e1; padding-left:10px; margin:4px 0 4px 4px; }
+  .m-toolbtn { display:inline-block; border:1px solid #cbd5e1; border-radius:6px; padding:3px 10px; font-size:11px; color:#334155; background:#fff; margin-right:6px; }
+  .m-toolbtn.on { background:#eef2ff; border-color:#6366f1; color:#4338ca; font-weight:600; }
+  .m-flowchip { display:inline-flex; align-items:center; border:1px solid #cbd5e1; border-radius:9999px; padding:2px 10px; font-size:11px; color:#334155; background:#fff; white-space:nowrap; }
+  .m-flowchip.sel { border-color:#6366f1; background:#eef2ff; color:#4338ca; font-weight:600; }
+  .m-note { font-size:10px; color:#6366f1; font-weight:600; }
+  .m-scrollbar { position:absolute; right:3px; top:38px; bottom:8px; width:6px; background:#e2e8f0; border-radius:3px; }
+  .m-scrollthumb { position:absolute; right:3px; top:44px; width:6px; height:52px; background:#94a3b8; border-radius:3px; }
+</style>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">에디터 — "스텝 넓게 보기" ON (디테일 열 숨김, 아웃라인 전체 폭)</div>
+    <div class="mockup-body" style="background:#f8fafc; padding:10px; position:relative;">
+      <div style="margin-bottom:8px;">
+        <span class="m-toolbtn">☰ 변수</span>
+        <span class="m-toolbtn">&lt;/&gt; YAML 보기·편집</span>
+        <span class="m-toolbtn on">⛶ 스텝 넓게 보기</span>
+        <span class="m-note" style="margin-left:8px;">← 토글 (켜짐 상태 표시)</span>
+      </div>
+
+      <div style="display:flex; gap:6px; align-items:center; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:6px 10px; margin-bottom:8px; overflow:hidden;">
+        <span style="font-size:10px; color:#94a3b8; font-weight:700; flex-shrink:0;">흐름</span>
+        <span class="m-flowchip">POST 로그인</span><span style="color:#94a3b8;">→</span>
+        <span class="m-flowchip sel">반복 ×10</span><span style="color:#94a3b8;">→</span>
+        <span class="m-flowchip">GET 상품 목록</span><span style="color:#94a3b8;">→</span>
+        <span class="m-flowchip">GET 상품 상세</span><span style="color:#94a3b8;">→</span>
+        <span class="m-flowchip">POST 로그아웃</span>
+        <span class="m-note" style="margin-left:8px;">← 기존 "테스트 흐름" 칩 재사용 — 클릭하면 아래 목록이 그 스텝으로 스크롤·하이라이트 (모달은 안 뜸)</span>
+      </div>
+
+      <div style="border:1px solid #e2e8f0; border-radius:8px; background:#fff; padding:6px 14px 6px 8px; position:relative;">
+        <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-post">POST</span><span class="m-name">로그인</span><span class="m-url" style="flex:1">https://shop.example.com/api/auth/login</span><span class="m-chip">검증 1</span><span class="m-chip">추출 token</span></div>
+        <div class="m-row" style="background:#eef2ff; border-color:#6366f1;"><span class="m-grip">⠿</span><span class="m-name">상품 브라우징</span><span class="m-chip">반복 ×10</span><span class="m-note" style="margin-left:auto;">← 칩 클릭으로 점프한 스텝 (하이라이트)</span></div>
+        <div class="m-band">
+          <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-get">GET</span><span class="m-name">상품 목록</span><span class="m-url" style="flex:1">https://shop.example.com/api/products?page={{page}}&amp;sort=recent&amp;size=50</span><span class="m-chip">검증 2</span><span class="m-chip">think 200–500ms</span></div>
+          <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-get">GET</span><span class="m-name">상품 상세</span><span class="m-url" style="flex:1">https://shop.example.com/api/products/{{product_id}}</span><span class="m-chip">추출 price</span></div>
+        </div>
+        <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-post">POST</span><span class="m-name">로그아웃</span><span class="m-url" style="flex:1">https://shop.example.com/api/auth/logout</span></div>
+        <div style="text-align:center; font-size:10px; color:#94a3b8; padding:2px 0;">⋯ 스텝이 더 있으면 이 영역 안에서만 스크롤 (화면 높이 고정 — 페이지 전체는 안 움직임) ⋯</div>
+        <div class="m-scrollbar"></div><div class="m-scrollthumb"></div>
+      </div>
+
+      <div style="position:absolute; right:40px; top:150px; width:300px; background:#fff; border:1px solid #cbd5e1; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:10px; font-size:11px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><b>스텝 편집 — 상품 목록</b><span style="color:#94a3b8;">✕</span></div>
+        <div style="color:#475569; line-height:1.9;">
+          이름 · 메서드 · URL <span style="color:#94a3b8;">(항상 노출)</span><br/>
+          <span style="color:#94a3b8;">▸</span> 헤더 <span class="m-chip">2개</span><br/>
+          <span style="color:#94a3b8;">▸</span> 바디<br/>
+          <span style="color:#94a3b8;">▾</span> 검증 <span class="m-chip">2개</span> <span style="color:#6366f1;">(열어둔 섹션은 세션 동안 유지)</span><br/>
+          <span style="color:#94a3b8;">▸</span> 추출 <span class="m-chip">1개</span>
+        </div>
+        <div class="m-note" style="margin-top:6px;">← 스텝 행 클릭 시 모달로 편집 (항목 1의 접이식 섹션 그대로 재사용)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="v2-with-chips" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>이대로 간다 — 칩 스트립 포함 (추천)</h3><p>칩은 이미 있는 컴포넌트 재사용이고 한 줄이라 난잡하지 않습니다. B안의 장점(가로 조망)을 흡수하면서 목록은 A안 그대로. 칩 클릭=점프, 행 클릭=모달로 역할이 갈립니다.</p></div>
+  </div>
+  <div class="option" data-choice="v2-no-chips" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>칩 스트립은 뺀다</h3><p>넓게 보기에는 전폭 목록 + 내부 스크롤만. 더 미니멀하지만 긴 시나리오에서 점프 수단이 없어집니다.</p></div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:12px;">클릭해서 선택해 주세요. 세부 수정 의견(칩 위치, 하이라이트 방식, 모달 크기 등)은 터미널로 주시면 반영해 다시 그리겠습니다.</p>

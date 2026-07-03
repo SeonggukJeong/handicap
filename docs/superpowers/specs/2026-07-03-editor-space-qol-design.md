@@ -10,7 +10,7 @@
 
 ## 0. 시각 컴패니언 확정 사항 (구현 시 이 목록이 권위)
 
-브레인스토밍 시각 컴패니언(mockup: `.superpowers/brainstorm/4859-1783063395/content/` — gitignored, 이 spec이 내용을 전부 서술)에서 사용자가 클릭으로 확정:
+브레인스토밍 시각 컴패니언에서 사용자가 클릭으로 확정. **목업 원본은 tracked로 보존**: `docs/superpowers/specs/assets/2026-07-03-editor-space-qol/`(`wide-layout.html`·`wide-layout-v2.html` — 브라우저로 열면 프레임 CSS 없이도 레이아웃·주석 판독 가능). 구현·리뷰 시 아래 표와 목업 원본을 함께 참조할 것:
 
 | 화면 | 선택 | 의미 |
 |---|---|---|

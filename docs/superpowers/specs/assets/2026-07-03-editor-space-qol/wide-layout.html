@@ -1,0 +1,92 @@
+<h2>넓게 보기 — 스텝을 어떤 형태로 펼칠까요?</h2>
+<p class="subtitle">토글을 켜면 디테일 열이 사라지고 스텝 영역이 전체 폭을 씁니다(스텝 클릭 → 모달 편집, 합의됨). 남은 질문: 넓어진 공간에 스텝을 <b>어떻게 배치</b>할지입니다. 실제 시나리오(로그인 → 반복 → 조건 → 로그아웃)로 두 안을 그렸습니다.</p>
+
+<style>
+  .m-badge { display:inline-block; font-weight:700; font-size:10px; padding:1px 6px; border-radius:4px; margin-right:8px; flex-shrink:0; }
+  .m-get { background:#dcfce7; color:#166534; }
+  .m-post { background:#dbeafe; color:#1e40af; }
+  .m-name { font-weight:600; color:#1e293b; margin-right:10px; white-space:nowrap; }
+  .m-url { color:#64748b; font-family:monospace; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .m-chip { font-size:10px; color:#475569; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:9999px; padding:1px 7px; margin-left:6px; flex-shrink:0; white-space:nowrap; }
+  .m-grip { color:#94a3b8; margin-right:8px; flex-shrink:0; }
+  .m-row { display:flex; align-items:center; background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:6px 10px; margin:4px 0; font-size:12px; }
+  .m-bandlabel { font-size:10px; font-weight:700; color:#94a3b8; letter-spacing:.05em; margin:6px 0 2px; }
+  .m-band { border-left:3px solid #cbd5e1; padding-left:10px; margin:4px 0 4px 4px; }
+  .m-card { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; width:200px; font-size:11px; flex-shrink:0; }
+  .m-card .m-url { display:block; margin-top:2px; }
+  .m-ccard { background:#f8fafc; border:1px dashed #94a3b8; border-radius:8px; padding:8px 10px; width:230px; font-size:11px; flex-shrink:0; }
+  .m-mini { display:flex; align-items:center; background:#fff; border:1px solid #e2e8f0; border-radius:5px; padding:3px 6px; margin:3px 0; font-size:10px; }
+  .m-arrow { align-self:center; color:#94a3b8; flex-shrink:0; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a-fullwidth-list" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>전폭 세로 리스트 — 지금 순서 그대로, 한 줄에 정보를 다 편다</h3>
+      <p>지금의 세로 아웃라인이 전체 폭으로 늘어나고, 좁아서 잘리던 URL 전체 + 부가 정보 칩(검증·추출·think time)이 한 줄에 보입니다. 실행 순서 = 위→아래 그대로.</p>
+      <div class="mockup">
+        <div class="mockup-header">넓게 보기 ON — 세로 리스트가 전체 폭 사용</div>
+        <div class="mockup-body" style="background:#f8fafc; padding:10px;">
+          <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-post">POST</span><span class="m-name">로그인</span><span class="m-url" style="flex:1">https://shop.example.com/api/auth/login</span><span class="m-chip">검증 1</span><span class="m-chip">추출 token</span></div>
+          <div class="m-row" style="background:#f8fafc; border-style:dashed;"><span class="m-grip">⠿</span><span class="m-name">상품 브라우징</span><span class="m-chip">반복 ×10</span></div>
+          <div class="m-band">
+            <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-get">GET</span><span class="m-name">상품 목록</span><span class="m-url" style="flex:1">https://shop.example.com/api/products?page={{page}}&amp;sort=recent&amp;size=50</span><span class="m-chip">검증 2</span><span class="m-chip">think 200–500ms</span></div>
+            <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-get">GET</span><span class="m-name">상품 상세</span><span class="m-url" style="flex:1">https://shop.example.com/api/products/{{product_id}}</span><span class="m-chip">추출 price</span></div>
+          </div>
+          <div class="m-row"><span class="m-grip">⠿</span><span class="m-badge m-post">POST</span><span class="m-name">로그아웃</span><span class="m-url" style="flex:1">https://shop.example.com/api/auth/logout</span></div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul>
+          <li>실행 순서 읽기가 그대로 (위→아래)</li>
+          <li>드래그 재정렬이 와이드 모드에서도 그대로 동작 (현 드래그 구현이 세로 리스트 전제)</li>
+          <li>URL·검증·추출을 클릭 없이 훑을 수 있음 — 시나리오 검토에 강함</li>
+        </ul></div>
+        <div class="cons"><h4>단점</h4><ul>
+          <li>스텝이 많으면 세로 스크롤은 여전 (한 화면에 보이는 스텝 수는 동일)</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b-horizontal-cards" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>가로 카드 플로우 — 예전 캔버스처럼 왼→오른쪽으로 흐른다</h3>
+      <p>구 캔버스(가로 배치) 감각. 최상위 스텝이 카드로 왼→오른쪽으로 흐르고 화면 끝에서 다음 줄로 랩. 반복/조건 컨테이너는 자식을 카드 안에 세로로 품습니다. 한 화면에 더 많은 스텝이 들어옵니다.</p>
+      <div class="mockup">
+        <div class="mockup-header">넓게 보기 ON — 가로 카드 플로우</div>
+        <div class="mockup-body" style="background:#f8fafc; padding:10px;">
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <div class="m-card"><span class="m-badge m-post">POST</span><span class="m-name">로그인</span><span class="m-url">…/api/auth/login</span></div>
+            <div class="m-arrow">→</div>
+            <div class="m-ccard">
+              <div style="font-weight:600; color:#475569; margin-bottom:4px;">상품 브라우징 <span class="m-chip">반복 ×10</span></div>
+              <div class="m-mini"><span class="m-badge m-get">GET</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">상품 목록 …/products?page=…</span></div>
+              <div class="m-mini"><span class="m-badge m-get">GET</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">상품 상세 …/products/{{product_id}}</span></div>
+            </div>
+            <div class="m-arrow">→</div>
+            <div class="m-card"><span class="m-badge m-post">POST</span><span class="m-name">로그아웃</span><span class="m-url">…/api/auth/logout</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>장점</h4><ul>
+          <li>한 화면에 들어오는 스텝 수가 가장 많음 — 긴 시나리오 전체 조망</li>
+          <li>구 캔버스의 "흐름을 본다"는 감각 복원</li>
+        </ul></div>
+        <div class="cons"><h4>단점</h4><ul>
+          <li>줄바꿈(랩) 지점에서 읽기 순서가 꺾여 Z자로 읽어야 함</li>
+          <li>카드 폭이 좁아 URL은 다시 잘림 (칸이 좁아서 A만큼 정보를 못 실음)</li>
+          <li>드래그 재정렬 재작업 필요 — 현 드래그(세로 전제)를 와이드에서 끄고 시작해야 함</li>
+          <li>세로 아웃라인과 배치가 완전히 달라져 모드 전환 시 위치 감각 리셋</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:12px;">클릭해서 선택해 주세요. 제 추천은 <b>A</b>입니다 — "넓게 보기"의 목적이 <i>스텝 내용을 더 보는 것</i>이라면 A가 정확히 그걸 주고, 드래그·읽기 순서도 그대로라 구현 위험이 낮습니다. B는 "전체 흐름 조망"이 목적일 때 좋지만 URL이 다시 잘려서 이번 불편(위아래 왔다갔다)의 해결과는 거리가 있습니다. 다른 아이디어가 있으면 터미널로 알려주세요.</p>
