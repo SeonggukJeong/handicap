@@ -106,7 +106,11 @@ describe("InsertTemplateModal", () => {
   it("list fetch 실패 시 에러 배너 표시 + 빈 목록 문구 미표시 (Fix 2)", async () => {
     vi.mocked(listStepTemplates).mockRejectedValue(new Error("network down"));
     mount();
-    expect(await screen.findByRole("alert")).toHaveTextContent("network down");
+    const box = await screen.findByRole("alert");
+    expect(box).toHaveTextContent("network down");
+    // Callout 이주 구체 단언 — raw <p role="alert"> 는 박스 클래스가 없다(Task 4).
+    expect(box).toHaveClass("rounded-md");
+    expect(box).toHaveClass("bg-red-50");
     expect(screen.queryByText(/저장된 템플릿이 없습니다/)).not.toBeInTheDocument();
   });
 

@@ -7,6 +7,8 @@ import { useMemo, useState } from "react";
 import { useDeleteStepTemplate, useStepTemplates } from "../../api/hooks";
 import { getStepTemplate } from "../../api/stepTemplates";
 import { Button } from "../Button";
+import { Callout } from "../ui/Callout";
+import { Input } from "../ui/Input";
 import { Modal } from "../Modal";
 import { ko } from "../../i18n/ko";
 import { useScenarioEditor } from "../../scenario/store";
@@ -133,9 +135,9 @@ export function InsertTemplateModal({ onClose }: Props) {
     >
       <div className="flex flex-col gap-4">
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <Callout variant="error" role="alert">
             {error}
-          </p>
+          </Callout>
         )}
 
         {pending ? (
@@ -194,17 +196,17 @@ function TemplateList({ list, templates, del, busy, onInsert, onDelete }: ListPr
   return (
     <>
       {del.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <Callout variant="error" role="alert">
           {(del.error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {list.isLoading && <p className="text-sm text-slate-500">{ko.common.loading}</p>}
 
       {list.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <Callout variant="error" role="alert">
           {(list.error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {!list.isLoading && !list.error && templates.length === 0 && (
@@ -303,14 +305,16 @@ function ParamForm({
                 </div>
                 {s.kind === "rename" && (
                   <>
-                    <input
-                      aria-label={ko.stepTemplates.renameAria(name)}
-                      list={listId}
-                      className="w-56 rounded border border-slate-300 px-2 py-1 text-sm font-mono"
-                      placeholder={ko.stepTemplates.renamePlaceholder}
-                      value={s.to}
-                      onChange={(e) => setSub(ns, name, { kind: "rename", to: e.target.value })}
-                    />
+                    <div className="w-56">
+                      <Input
+                        aria-label={ko.stepTemplates.renameAria(name)}
+                        list={listId}
+                        className="font-mono"
+                        placeholder={ko.stepTemplates.renamePlaceholder}
+                        value={s.to}
+                        onChange={(e) => setSub(ns, name, { kind: "rename", to: e.target.value })}
+                      />
+                    </div>
                     <datalist id={listId}>
                       {hints.map((h) => (
                         <option key={h} value={h} />
@@ -329,13 +333,14 @@ function ParamForm({
                   </>
                 )}
                 {s.kind === "literal" && (
-                  <input
-                    aria-label={ko.stepTemplates.literalAria(name)}
-                    className="w-56 rounded border border-slate-300 px-2 py-1 text-sm"
-                    placeholder={ko.stepTemplates.literalPlaceholder}
-                    value={s.value}
-                    onChange={(e) => setSub(ns, name, { kind: "literal", value: e.target.value })}
-                  />
+                  <div className="w-56">
+                    <Input
+                      aria-label={ko.stepTemplates.literalAria(name)}
+                      placeholder={ko.stepTemplates.literalPlaceholder}
+                      value={s.value}
+                      onChange={(e) => setSub(ns, name, { kind: "literal", value: e.target.value })}
+                    />
+                  </div>
                 )}
               </li>
             );
