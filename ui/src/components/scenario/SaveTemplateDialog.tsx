@@ -8,6 +8,8 @@ import { useCreateStepTemplate, useUpdateStepTemplate } from "../../api/hooks";
 import { StepTemplateConflictError } from "../../api/stepTemplates";
 import { Button } from "../Button";
 import { Modal } from "../Modal";
+import { Input } from "../ui/Input";
+import { Callout } from "../ui/Callout";
 import { ko } from "../../i18n/ko";
 import { useScenarioEditor } from "../../scenario/store";
 import { topAncestorIndex } from "../../scenario/model";
@@ -108,12 +110,11 @@ export function SaveTemplateDialog({ onClose }: Props) {
           <label htmlFor="tpl-name" className="text-sm font-medium">
             {ko.stepTemplates.nameLabel}
           </label>
-          <input
+          <Input
             id="tpl-name"
             type="text"
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
             placeholder={ko.stepTemplates.namePlaceholder}
           />
         </div>
@@ -123,12 +124,11 @@ export function SaveTemplateDialog({ onClose }: Props) {
           <label htmlFor="tpl-desc" className="text-sm font-medium">
             {ko.stepTemplates.descriptionLabel}
           </label>
-          <input
+          <Input
             id="tpl-desc"
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           />
         </div>
 
@@ -155,16 +155,16 @@ export function SaveTemplateDialog({ onClose }: Props) {
 
         {/* 409 덮어쓰기 확인 */}
         {showOverwriteConfirm && (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <Callout variant="warn">
             {ko.stepTemplates.overwriteConfirm(conflictName ?? name.trim())}
-          </p>
+          </Callout>
         )}
 
         {/* 비-conflict 에러 배너 */}
         {error && (
-          <p role="alert" className="text-sm text-red-600">
+          <Callout variant="error" role="alert">
             {error}
-          </p>
+          </Callout>
         )}
 
         {/* 액션 버튼 */}

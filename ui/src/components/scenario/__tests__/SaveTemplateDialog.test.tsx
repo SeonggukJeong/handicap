@@ -172,7 +172,15 @@ describe("SaveTemplateDialog", () => {
     await user.click(screen.getByRole("button", { name: ko.stepTemplates.saveAction }));
 
     // 덮어쓰기 확인 메시지 노출
-    expect(screen.getByText(ko.stepTemplates.overwriteConfirm("my-template"))).toBeInTheDocument();
+    const overwriteText = screen.getByText(ko.stepTemplates.overwriteConfirm("my-template"));
+    expect(overwriteText).toBeInTheDocument();
+
+    // overwrite 확인은 roleless warn Callout 박스여야 함(구별 단언: raw는 px-3 py-2, Callout 캐넌은 p-2)
+    const overwriteBox = overwriteText.closest("div");
+    expect(overwriteBox).toHaveClass("rounded-md");
+    expect(overwriteBox).toHaveClass("bg-amber-50");
+    expect(overwriteBox).toHaveClass("p-2");
+    expect(overwriteBox).not.toHaveAttribute("role");
 
     // 덮어쓰기 클릭
     await user.click(screen.getByRole("button", { name: ko.stepTemplates.overwriteAction }));
@@ -196,6 +204,9 @@ describe("SaveTemplateDialog", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("steps parse: bad");
+    // 에러는 error Callout 박스여야 함
+    expect(alert).toHaveClass("rounded-md");
+    expect(alert).toHaveClass("bg-red-50");
     expect(onClose).not.toHaveBeenCalled();
   });
 
