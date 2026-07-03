@@ -172,4 +172,13 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
     );
     expect(screen.getByRole("heading", { name: "demo" })).toBeInTheDocument();
   });
+
+  it("YAML 오류(yamlError) 상태면 이름 편집 연필이 비활성 (R2)", async () => {
+    renderPage();
+    const pencil = await screen.findByRole("button", { name: ko.editor.renameAria });
+    expect(pencil).toBeEnabled(); // 정상 상태 = 활성 (R8)
+    act(() => useScenarioEditor.setState({ yamlError: "boom" }));
+    expect(pencil).toBeDisabled();
+    expect(pencil).toHaveAttribute("title", ko.editor.renameDisabledTitle);
+  });
 });

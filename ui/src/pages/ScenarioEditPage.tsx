@@ -69,7 +69,7 @@ export function ScenarioEditPage() {
   // R7: 싱글톤 store의 stale 모델(이전 페이지 잔존물)이 시드 전 프레임에 새지
   // 않도록 seeded로 게이트 — 시드 전·깨진-YAML(model=null)은 서버명 폴백.
   const liveName = seeded ? (editorModel?.name ?? data.name) : data.name;
-  const nameEditable = seeded && editorModel !== null;
+  const nameEditable = seeded && editorModel !== null && editorYamlError === null;
 
   const startNameEdit = () => {
     // 매 편집 세션은 클린 상태로 시작 — 이전 세션의 Escape가 남긴
