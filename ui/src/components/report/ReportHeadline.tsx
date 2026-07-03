@@ -1,6 +1,7 @@
 import type { Profile, ReportSummary, Verdict } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo, formatSecondsKo } from "../../i18n/duration";
+import { floorPct } from "./format";
 
 type Props = {
   summary: ReportSummary;
@@ -14,7 +15,7 @@ export function ReportHeadline({ summary, profile, verdict }: Props) {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
     p95: formatSecondsKo(summary.p95_ms),
-    errPct: `${summary.count === 0 ? "0" : ((summary.errors / summary.count) * 100).toFixed(1)}%`,
+    errPct: summary.count === 0 ? "0%" : floorPct((summary.errors / summary.count) * 100),
   };
   const isCurve = (profile.stages?.length ?? 0) > 0;
   const isVuCurve = (profile.vu_stages?.length ?? 0) > 0;

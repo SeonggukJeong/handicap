@@ -108,4 +108,16 @@ describe("ReportHeadline", () => {
     // closed-loop VU 수 표현이 없어야 함
     expect(region).not.toHaveTextContent("동시 사용자 50명");
   });
+
+  it("nonzero<0.05% 에러율은 '0.0%'가 아니라 '<0.1%'로 floor (R5)", () => {
+    render(
+      <ReportHeadline
+        summary={{ ...SUMMARY, count: 3000, errors: 1 }}
+        profile={CLOSED}
+        verdict={null}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "쉬운 요약" });
+    expect(region).toHaveTextContent(/<0\.1%/);
+  });
 });

@@ -1,6 +1,7 @@
 import type { WorkerBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { formatErrPct } from "./format";
 
 type Props = { breakdown: WorkerBreakdown[] };
 
@@ -38,9 +39,7 @@ export function WorkerBreakdownTable({ breakdown }: Props) {
               </td>
               <td className="py-2 pr-4">{w.count}</td>
               <td className="py-2 pr-4">{w.errors}</td>
-              <td className="py-2 pr-4">
-                {w.count === 0 ? "—" : `${((w.errors / w.count) * 100).toFixed(1)}%`}
-              </td>
+              <td className="py-2 pr-4">{formatErrPct(w.errors, w.count)}</td>
               <td className="py-2 pr-4">{w.p50_ms}</td>
               <td className="py-2 pr-4">{w.p95_ms}</td>
               <td className="py-2 pr-4">{w.p99_ms}</td>

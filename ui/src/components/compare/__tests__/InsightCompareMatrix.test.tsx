@@ -95,4 +95,24 @@ describe("InsightCompareMatrix", () => {
     expect(swatches[0]).toHaveStyle({ backgroundColor: runColor(0) });
     expect(swatches[1]).toHaveStyle({ backgroundColor: runColor(1) });
   });
+
+  it("nonzero<0.05% pct는 '<0.1%'로 floor (R5)", () => {
+    const reports = [
+      {
+        run: { id: "RUNAAAAAA" },
+        insights: [
+          ins({
+            kind: "status_class",
+            severity: "warning",
+            status_class: "5xx",
+            pct: 0.0003,
+            count: 1,
+          }),
+        ],
+      },
+      { run: { id: "RUNBBBBBB" }, insights: [] },
+    ];
+    render(<InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />);
+    expect(screen.getByText(/<0\.1%/)).toBeInTheDocument();
+  });
 });

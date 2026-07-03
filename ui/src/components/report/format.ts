@@ -10,3 +10,15 @@ export function formatLatency(us: number): string {
   if (ms < 999.5) return `${Math.round(ms)} ms`;
   return `${(us / 1_000_000).toFixed(1)} s`;
 }
+
+/** 백분율(0–100)을 표시 문자열로. nonzero인데 표시 최소값(0.1%) 미만이면 "<0.1%"로 floor
+ *  — 에러/드롭이 실재하는데 "0.0%"로 보이는 오해 방지(R5). 진짜 0은 "0.0%". */
+export function floorPct(pct: number): string {
+  if (pct > 0 && pct < 0.05) return "<0.1%";
+  return `${pct.toFixed(1)}%`;
+}
+
+/** 에러율(errors/count) 표시 — count 0이면 "—". */
+export function formatErrPct(errors: number, count: number): string {
+  return count === 0 ? "—" : floorPct((errors / count) * 100);
+}

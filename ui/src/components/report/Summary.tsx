@@ -1,6 +1,7 @@
 import type { ReportSummary } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { floorPct } from "./format";
 
 type Props = {
   summary: ReportSummary;
@@ -23,12 +24,12 @@ export function Summary({ summary, dropped, targetRps }: Props) {
     const droppedCount = dropped ?? 0;
     const total = droppedCount + summary.count;
     const dropRate = total === 0 ? 0 : droppedCount / total;
-    const dropPct = (dropRate * 100).toFixed(1);
+    const dropPct = floorPct(dropRate * 100);
     cards.push(
       { label: ko.report.cardTargetRps, value: targetRps.toLocaleString() },
       {
         label: ko.report.cardDropped,
-        value: `${droppedCount.toLocaleString()} (${dropPct}%)`,
+        value: `${droppedCount.toLocaleString()} (${dropPct})`,
         // 드롭 정의는 max in-flight 용어 정의가 단일 소스(초과분 drop 집계 설명 포함)
         help: ko.glossary.maxInFlight,
       },

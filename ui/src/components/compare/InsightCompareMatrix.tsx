@@ -1,6 +1,7 @@
 import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { runColor, runShortLabel } from "../../compare/runLabel";
+import { floorPct } from "../report/format";
 
 type MatrixReport = { run: { id: string }; insights?: Insight[] };
 type Props = {
@@ -25,7 +26,7 @@ function identity(i: Insight): string {
 
 function repNumber(i: Insight): string | null {
   if (i.value != null) return i.value.toLocaleString("en-US");
-  if (i.pct != null) return `${(i.pct * 100).toFixed(1)}%`;
+  if (i.pct != null) return floorPct(i.pct * 100);
   if (i.count != null) return i.count.toLocaleString("en-US");
   if (i.window_seconds != null) return `${i.window_seconds}s`;
   return null;

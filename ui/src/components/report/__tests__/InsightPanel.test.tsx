@@ -117,6 +117,14 @@ describe("InsightPanel", () => {
     expect(screen.queryByText(/worker_count를/)).toBeNull();
   });
 
+  it("nonzero<0.05% pct는 '<0.1%'로 floor (R5)", () => {
+    const insights: Insight[] = [
+      { kind: "status_class", severity: "critical", status_class: "5xx", pct: 0.0003, count: 1 },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(screen.getByText(/<0\.1%/)).toBeInTheDocument();
+  });
+
   it("load_gen_saturated onset_second면 포화 시점 절을 헤드라인에 렌더", () => {
     const insights: Insight[] = [
       {

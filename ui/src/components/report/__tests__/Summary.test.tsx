@@ -91,4 +91,12 @@ describe("Summary", () => {
     expect(screen.getByText("드롭")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "드롭 설명" })).toBeInTheDocument();
   });
+
+  it("nonzero<0.05% 드롭율은 '<0.1%'로 floor, 이중 %% 없음 (R6)", () => {
+    // dropped=1, count=3000 → dropRate = 1/(1+3000) ≈ 0.033% (<0.05%)
+    render(<Summary summary={{ ...baseSummary, count: 3000 }} dropped={1} targetRps={100} />);
+    const region = screen.getByRole("region", { name: /리포트 요약/ });
+    expect(region).toHaveTextContent(/1 \(<0\.1%\)/);
+    expect(region.textContent).not.toMatch(/<0\.1%%/);
+  });
 });

@@ -34,4 +34,14 @@ describe("WorkerBreakdownTable", () => {
     const { container } = render(<WorkerBreakdownTable breakdown={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("nonzero<0.05% 에러율은 '<0.1%'로 floor (R5)", () => {
+    const tinyRows: WorkerBreakdown[] = [
+      { worker_id: "run-w0", count: 3000, errors: 1, p50_ms: 10, p95_ms: 20, p99_ms: 30 },
+      { worker_id: "run-w1", count: 50, errors: 0, p50_ms: 12, p95_ms: 25, p99_ms: 40 },
+    ];
+    render(<WorkerBreakdownTable breakdown={tinyRows} />);
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("<0.1%")).toBeInTheDocument();
+  });
 });

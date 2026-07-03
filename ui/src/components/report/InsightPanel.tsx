@@ -1,5 +1,6 @@
 import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { floorPct } from "./format";
 
 // `as const` 객체는 string 키 인덱싱이 안 되므로 lookup용 넓힌 뷰를 한 번 만든다.
 const ACTIONS: Record<string, string | undefined> = ko.insightActions;
@@ -14,7 +15,7 @@ const SEV_CLASS: Record<string, string> = {
 };
 
 function pctStr(v: number | undefined): string {
-  return v === undefined ? "" : `${(v * 100).toFixed(1)}%`;
+  return v === undefined ? "" : floorPct(v * 100);
 }
 
 // 천단위 구분 — locale 고정(CI ICU 빌드 무관, RTL "1,203건" 단언).
