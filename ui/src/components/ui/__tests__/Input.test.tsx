@@ -40,3 +40,38 @@ describe("Input/Select primitives", () => {
     expect(container.querySelector("input")!.className).toContain("tabular-nums");
   });
 });
+
+describe("size variant", () => {
+  it("Input default size renders text-sm, not text-xs", () => {
+    render(<Input aria-label="i" />);
+    const el = screen.getByLabelText("i");
+    expect(el).toHaveClass("text-sm");
+    expect(el).not.toHaveClass("text-xs");
+  });
+  it("Input size='sm' renders text-xs, not text-sm", () => {
+    render(<Input aria-label="i" size="sm" />);
+    const el = screen.getByLabelText("i");
+    expect(el).toHaveClass("text-xs");
+    expect(el).not.toHaveClass("text-sm");
+  });
+  it("Select default size renders text-sm, not text-xs", () => {
+    render(
+      <Select aria-label="s">
+        <option>a</option>
+      </Select>,
+    );
+    const el = screen.getByLabelText("s");
+    expect(el).toHaveClass("text-sm");
+    expect(el).not.toHaveClass("text-xs");
+  });
+  it("Select size='sm' renders text-xs, not text-sm", () => {
+    render(
+      <Select aria-label="s" size="sm">
+        <option>a</option>
+      </Select>,
+    );
+    const el = screen.getByLabelText("s");
+    expect(el).toHaveClass("text-xs");
+    expect(el).not.toHaveClass("text-sm");
+  });
+});
