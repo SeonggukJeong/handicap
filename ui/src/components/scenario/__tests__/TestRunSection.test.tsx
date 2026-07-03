@@ -10,8 +10,10 @@ const mutate = vi.fn();
 let isPending = false;
 // data controls whether TestRunPanel (and the addedNote region) renders
 let testRunData: unknown = undefined;
+// error controls whether the error Callout renders
+let testRunError: unknown = null;
 vi.mock("../../../api/hooks", () => ({
-  useTestRun: () => ({ mutate, isPending, error: null, data: testRunData }),
+  useTestRun: () => ({ mutate, isPending, error: testRunError, data: testRunData }),
   useEnvironment: () => ({ data: undefined }),
   useEnvironments: () => ({ data: [] }),
 }));
@@ -53,6 +55,7 @@ beforeEach(() => {
   mutate.mockReset();
   isPending = false;
   testRunData = undefined;
+  testRunError = null;
   capturedOnAddExtract = undefined;
   select.mockReset();
 });
@@ -140,5 +143,36 @@ describe("TestRunSection flow chip strip (spec R1/R6)", () => {
   it("파싱 불가 버퍼면 스트립을 렌더하지 않는다", () => {
     render(<TestRunSection yamlText={"version: ["} />);
     expect(screen.queryByRole("group", { name: "테스트 흐름" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TestRunSection — maxRequests input adopts primitive Input (design-system-editor)", () => {
+  it("maxRequests input uses primitive Input with accent focus-ring class", () => {
+    render(<TestRunSection yamlText={VALID_YAML} />);
+    const maxRequests = screen.getByLabelText("최대 요청 수") as HTMLInputElement;
+    expect(maxRequests).toHaveClass("focus:ring-accent-500/30"); // Input BASE — RED before migration
+    expect(maxRequests.type).toBe("number");
+  });
+});
+
+describe("TestRunSection — error state adopts Callout (design-system-editor)", () => {
+  it("renders the test-run error as a roleless error Callout box", () => {
+    testRunError = new Error("boom");
+    render(<TestRunSection yamlText={VALID_YAML} />);
+    const message = screen.getByText("boom");
+    const box = message.closest("div");
+    expect(box).toHaveClass("rounded-md"); // Callout box — RED before migration (raw <p> has no box)
+    expect(box).toHaveClass("bg-red-50");
+    expect(box).not.toHaveAttribute("role"); // roleless (R7)
+  });
+
+  it("keeps the success emerald role=status inline note untouched (frozen R7)", () => {
+    testRunData = { steps: [] };
+    render(<TestRunSection yamlText={VALID_YAML} />);
+    act(() => {
+      capturedOnAddExtract!("step-1", { var: "token" });
+    });
+    const note = screen.getByRole("status", { hidden: true });
+    expect(note).toHaveClass("text-emerald-700");
   });
 });

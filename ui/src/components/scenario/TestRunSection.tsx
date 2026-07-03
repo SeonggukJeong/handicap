@@ -6,6 +6,8 @@ import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import type { Step } from "../../scenario/model";
 import { useScenarioEditor } from "../../scenario/store";
 import { Button } from "../Button";
+import { Callout } from "../ui/Callout";
+import { Input } from "../ui/Input";
 import { EnvironmentPicker } from "../EnvironmentPicker";
 import { TestFlowChips } from "./TestFlowChips";
 import { TestRunPanel } from "./TestRunPanel";
@@ -64,14 +66,16 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
         />
         <label className="flex items-center gap-2 text-sm">
           <span className="text-slate-600">{ko.editor.testRunMaxRequests}</span>
-          <input
-            type="number"
-            min={1}
-            max={10000}
-            value={maxRequests}
-            onChange={(e) => setMaxRequests(Number(e.target.value))}
-            className="w-28 rounded border border-slate-300 px-2 py-1 text-sm"
-          />
+          <div className="w-28">
+            <Input
+              numeric
+              type="number"
+              min={1}
+              max={10000}
+              value={maxRequests}
+              onChange={(e) => setMaxRequests(Number(e.target.value))}
+            />
+          </div>
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -86,9 +90,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
             {testRun.isPending ? ko.editor.testRunRunning : ko.editor.testRunRun}
           </Button>
         </div>
-        {testRun.error && (
-          <p className="text-sm text-red-700">{(testRun.error as Error).message}</p>
-        )}
+        {testRun.error && <Callout variant="error">{(testRun.error as Error).message}</Callout>}
       </section>
 
       {testRun.data && (

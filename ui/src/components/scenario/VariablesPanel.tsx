@@ -3,6 +3,7 @@ import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { VarCheatSheet } from "./VarCheatSheet";
 import { AutoGrowTextarea } from "../AutoGrowTextarea";
+import { Input } from "../ui/Input";
 import { countFlowVarUsage } from "../../scenario/scanVars";
 
 // 셀렉터 fallback은 안정 참조여야 한다 — 인라인 `?? {}`는 매 스냅샷 새 객체라
@@ -68,12 +69,14 @@ export function VariablesPanel() {
       </ul>
 
       <div className="flex gap-2">
-        <input
-          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-          placeholder="new_var"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-        />
+        <div className="flex-1 min-w-0">
+          <Input
+            className="min-w-0 font-mono"
+            placeholder="new_var"
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+          />
+        </div>
         <button
           type="button"
           onClick={() => {

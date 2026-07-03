@@ -106,3 +106,17 @@ steps:
     expect(screen.getByText("미사용")).toBeInTheDocument();
   });
 });
+
+describe("VariablesPanel — newKey input adopts primitive Input (design-system-editor)", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("newKey input uses primitive Input with accent focus-ring class", () => {
+    render(<VariablesPanel />);
+    const newKey = screen.getByPlaceholderText("new_var");
+    expect(newKey).toHaveClass("focus:ring-accent-500/30"); // Input BASE — RED before migration
+    expect(newKey).toHaveClass("font-mono"); // mono preserved
+  });
+});
