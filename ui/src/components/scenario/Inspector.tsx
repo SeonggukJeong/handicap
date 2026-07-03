@@ -615,6 +615,7 @@ function AssertEditor({
             <div className="w-24">
               <Input
                 numeric
+                size="sm"
                 type="number"
                 min={100}
                 max={599}
@@ -761,6 +762,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
           <li key={idx} className="flex flex-wrap gap-2 items-center text-xs">
             <div className="w-24">
               <Input
+                size="sm"
                 placeholder="var"
                 className="font-mono"
                 value={x.var}
@@ -770,6 +772,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             </div>
             <div className="w-fit">
               <Select
+                size="sm"
                 aria-label={ko.editor.extractFromAria(idx)}
                 value={x.from}
                 onChange={(e) => setFromKind(idx, e.target.value as Extract["from"])}
@@ -783,6 +786,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             {x.from === "body" && (
               <div className="flex-1 min-w-[120px]">
                 <Input
+                  size="sm"
                   placeholder="$.path"
                   className="font-mono"
                   value={x.path}
@@ -794,6 +798,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
             {(x.from === "header" || x.from === "cookie") && (
               <div className="flex-1 min-w-[120px]">
                 <Input
+                  size="sm"
                   placeholder={
                     x.from === "header"
                       ? ko.editor.headerNamePlaceholder

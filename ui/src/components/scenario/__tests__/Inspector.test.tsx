@@ -1127,6 +1127,25 @@ describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
   });
 });
 
+describe("Inspector — assert existing-row density (design-system-editor Task2 fold-in)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
+
+  it("existing-row assert code input inherits text-xs density, not primitive default text-sm", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
+    const assertSection = screen.getByRole("group", { name: ko.editor.assertionsLegend });
+    // Existing-row input has no placeholder; the new-row sibling has placeholder="200".
+    const inputs = within(assertSection).getAllByRole("spinbutton") as HTMLInputElement[];
+    const existingRow = inputs.find((i) => i.placeholder !== "200")!;
+    expect(existingRow).toHaveClass("text-xs");
+    expect(existingRow).not.toHaveClass("text-sm");
+  });
+});
+
 describe("StepNameField — 이름 blur-Untitled (R12/R13)", () => {
   beforeEach(() => {
     window.localStorage.clear();
