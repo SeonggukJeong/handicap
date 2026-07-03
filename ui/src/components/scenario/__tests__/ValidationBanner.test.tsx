@@ -39,6 +39,14 @@ describe("ValidationBanner", () => {
     expect(useScenarioEditor.getState().selectedStepId).toBe(ULID_A);
   });
 
+  it("배너는 role=status + aria-label + Callout warn 캐넌 클래스(rounded-md/bg-amber-50)로 렌더된다", () => {
+    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML);
+    render(<ValidationBanner />);
+    const banner = screen.getByRole("status", { name: ko.editor.problemsBannerAria });
+    expect(banner).toHaveClass("rounded-md");
+    expect(banner).toHaveClass("bg-amber-50");
+  });
+
   it("게이트 에러는 스텝 항목을 숨기고 한국어 매핑 + YAML 모달 열기 버튼만 보인다", async () => {
     const user = userEvent.setup();
     const onOpenYaml = vi.fn();

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { ko } from "../../i18n/ko";
 import { collectProblems } from "../../scenario/problems";
 import { useScenarioEditor } from "../../scenario/store";
+import { Callout } from "../ui/Callout";
 
 /** 시나리오 문제 요약 배너 (U4, spec §5.4). 상단 상시 슬롯 —
  *  yamlError가 YAML 탭에서만 보이던 갭도 해소한다. 문제 0건이면 미렌더.
@@ -20,11 +21,7 @@ export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {
   const hasGate = problems.some((p) => p.kind === "gate");
 
   return (
-    <div
-      role="status"
-      aria-label={ko.editor.problemsBannerAria}
-      className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
-    >
+    <Callout variant="warn" role="status" aria-label={ko.editor.problemsBannerAria}>
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium">{ko.editor.problemsBannerTitle(problems.length)}</p>
         {hasGate && (
@@ -57,6 +54,6 @@ export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {
           </li>
         ))}
       </ul>
-    </div>
+    </Callout>
   );
 }
