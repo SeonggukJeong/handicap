@@ -53,7 +53,7 @@ SIZE = { md: "text-sm", sm: "text-xs" };
 | `Inspector` `JsonBodyField` (:539) | `w-full h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono` | `<Textarea size="sm" className="h-32 font-mono" .../>` |
 | `Inspector` `RawBodyField` (:592) | `w-full h-24 … rounded … text-xs font-mono` | `<Textarea size="sm" className="h-24 font-mono" .../>` |
 | `BulkEditPanel` (:22) | `w-full min-w-0 h-32 … rounded … text-xs font-mono` | `<Textarea size="sm" className="min-w-0 h-32 font-mono" .../>` |
-| `ScenarioImportPage` (:376) | `rounded border border-slate-300 p-2 font-mono text-xs` readOnly rows=16 | `<Textarea size="sm" readOnly rows={16} className="font-mono" .../>` |
+| `ScenarioImportPage` (:376) | `rounded border border-slate-300 p-2 font-mono text-xs` readOnly rows=16 | `<Textarea size="sm" readOnly rows={16} className="py-2 font-mono" .../>` (현재 `p-2`=py-2라 `py-2` override, §3.1 패딩 보존) |
 | `AutoGrowTextarea` (:23) | 자체 base + 소비자가 border/rounded 전달 | 프리미티브 **합성**(아래) |
 
 - **텍스트 크기 보존**: xs 코드 필드는 `size="sm"`(text-xs 유지 — 밀도 회귀 방지, ui/CLAUDE.md 밀도 트랩). `AutoGrowTextarea` 소비자(`VariablesPanel`)는 현재 `text-sm`이므로 기본 `md`.
@@ -121,7 +121,7 @@ SIZE = { md: "text-sm", sm: "text-xs" };
 - `ko.ts` **0-diff**.
 - `tailwind.config.ts` **0-diff**(`accent` 토큰 이미 존재; `accent-{50,200,500,600,700}` 클래스는 소스에 리터럴로 등장하므로 JIT 생성).
 - 페이로드/wire/동작 **byte-identical**. 시각: indigo→accent 픽셀 동일, blue→accent 색 변경, textarea에 포커스 링+`rounded-md` 추가.
-- `Textarea` 채택 사이트의 **높이·패딩·텍스트 크기·`font-mono` 보존**(className으로), 변경은 포커스 링과 모서리(2px)뿐.
+- `Textarea` 채택 사이트의 **높이·패딩·텍스트 크기·`font-mono` 보존**(className으로), textarea의 실제 시각 변경은 (1) accent 포커스 링, (2) `rounded`→`rounded-md`(2px), (3) 프리미티브 BASE의 explicit `text-slate-900`(현재 raw textarea는 상속 검정 → `#0f172a`로 사실상 무감지, Input/Select 형제와 동일)뿐. BASE의 `disabled:*`·`aria-[invalid=true]:*` 클래스는 이 textarea들이 disabled/invalid가 아니라 **추가되지만 무효(inert)**.
 
 ## 7. 테스트 · 검증
 
