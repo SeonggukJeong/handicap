@@ -554,7 +554,13 @@ steps:
       - status: 200
 `;
 
+// 주의: 이 describe는 기존 describe("EditorShell") 블록 *안에* 중첩해 추가한다
+// (store-reset beforeEach 상속 — 파일의 기존 beforeEach는 그 블록 스코프다).
 describe("스텝 넓게 보기 토글 (R5/R10)", () => {
+  beforeEach(() => {
+    window.localStorage.clear(); // Inspector 섹션 prefs 누수 방지 (Global Constraint)
+  });
+
   it("ON: 인스펙터 열 미렌더 + 아웃라인 전폭 그리드, aria-pressed 토글", async () => {
     const user = userEvent.setup();
     render(<EditorShell initialYaml={WIDE_YAML} />);
@@ -755,7 +761,7 @@ export function FlowOutline({
   );
 ```
 
-`OutlineRow` props에 `view?: RowView` 추가 — 루트 렌더(`:589`)와 `ContainerBands` `renderGroup` 내부(`:337`) **두 곳** 모두 `view={view}`/`view={view0}` 전달(renderGroup은 OutlineRow 안이므로 자신의 `view` prop을 그대로 내림). `rowAria` 수정:
+`OutlineRow` props에 `view?: RowView` 추가 — 루트 렌더(`:589`)는 `view={view}`, `ContainerBands` `renderGroup` 내부(`:337`)는 OutlineRow가 받은 자신의 `view` prop을 그대로 자식에 `view={view}`로 내림(두 전달처 모두 같은 prop 이름). `rowAria` 수정:
 
 ```tsx
 const activate = (target: EventTarget) => {
@@ -860,7 +866,12 @@ steps:
       - status: 200
 `;
 
+// 주의: 기존 describe("EditorShell") 블록 *안에* 중첩(store-reset beforeEach 상속).
 describe("와이드 칩 스트립·점프·편집 모달 (R7/R8)", () => {
+  beforeEach(() => {
+    window.localStorage.clear(); // 타이밍 섹션 펼침이 prefs에 남는 누수 방지
+  });
+
   async function renderWide() {
     const user = userEvent.setup();
     render(<EditorShell initialYaml={WIDE_YAML2} />);
@@ -925,6 +936,22 @@ describe("와이드 칩 스트립·점프·편집 모달 (R7/R8)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(useScenarioEditor.getState().model?.steps[0]).toMatchObject({ timeout_seconds: 30 });
   });
+
+  it("빈 이름 draft로 ESC 닫기 → blur-flush가 Untitled 커밋 — 빈 이름 비기록 불변 (R13)", async () => {
+    const user = await renderWide();
+    await user.click(rowOf("login"));
+    const dialog = screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle });
+    await user.clear(within(dialog).getByLabelText(ko.editor.fieldName));
+    await user.keyboard("{Escape}");
+    expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("Untitled");
+    // 재편집 정상 — 커밋된 이름으로 모달이 다시 열린다 (T6 클래스 회귀 가드)
+    await user.click(rowOf("Untitled"));
+    expect(
+      within(screen.getByRole("dialog")).getByLabelText(ko.editor.fieldName),
+    ).toHaveValue("Untitled");
+  });
+  // (JSON 바디 ESC 변형은 의도적 미작성 — 같은 blur-flush 메커니즘을 타임아웃(위)·이름(이 테스트)
+  //  두 커밋 경로가 커버. JsonBodyField도 동일 onBlur commit이라 별도 이득 없음.)
 });
 ```
 
@@ -1025,7 +1052,7 @@ git commit -m "feat(ui): 와이드 흐름 칩 점프 + 스텝 편집 모달 — 
 - Modify: `docs/roadmap.md`
 - 검증만: `ui/src/components/scenario/*.tsx`
 
-- [ ] **Step 1: 하드코딩 sweep (R15)** — 이 슬라이스가 만진 파일 한정 2종 grep(둘 다 0건이어야; 기존 카탈로그 경유 문자열·주석은 제외 판단):
+- [ ] **Step 1: 하드코딩 sweep (R15)** — **orchestrator가 직접 실행**(implementer self-report 신뢰 천장 낮음 — CLAUDE.md 완성도-grep 규칙·spec §6). 이 슬라이스가 만진 파일 한정 2종 grep(둘 다 0건이어야; 기존 카탈로그 경유 문자열·주석은 제외 판단):
 
 ```bash
 cd /Users/sgj/develop/handicap/.claude/worktrees/editor-space-qol
@@ -1063,7 +1090,7 @@ git add docs/roadmap.md && git commit -m "docs(roadmap): 도그푸딩 미채택 
 
 > orchestrator가 직접 수행(subagent 아님). 백엔드 불필요 — `/scenarios/new`는 클라이언트-only. `docs/dev/live-verify-playwright.md`의 MCP 함정(스크린샷 cwd·업로드 루트) 참조.
 
-**Files:** 없음(검증만; `max-h` 오프셋 조정 시 `EditorShell.tsx` 소폭 수정 허용 — 수정하면 전체 게이트 재실행 후 fix 커밋).
+**Files:** 없음(검증만; `max-h` 오프셋 조정 시 `EditorShell.tsx` 소폭 수정 허용 — 수정하면 전체 게이트 재실행 후 fix 커밋. **tdd-guard 주의**: 오프셋 조정은 pending test 없는 src 편집이라 차단됨 — `EditorShell.test.tsx`에 `it.todo` stub을 먼저 추가(또는 테스트 파일 dirty 상태에서 수정)하고 fix 커밋 전에 stub 정리).
 
 - [ ] **Step 1: vite dev 기동** — `lsof -i :5173`으로 선점 확인(다른 워크트리 프로세스면 kill), `cd ui && pnpm dev` background. **navigate는 `localhost:5173`**(vite는 IPv6 `[::1]` 바인드 — `127.0.0.1` 금지).
 - [ ] **Step 2: 시나리오 구성** — `/scenarios/new` → 템플릿 선택 → 스텝 디테일에서 이름/URL fill(React controlled — Playwright fill이 onChange 발화) + `+ HTTP 스텝`으로 스텝 6개 이상(내부 스크롤 유발), 헤더/검증/추출 몇 개 설정(칩 확인용).
