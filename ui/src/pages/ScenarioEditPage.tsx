@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -26,7 +26,8 @@ export function ScenarioEditPage() {
   const [cloneDialog, setCloneDialog] = useState<CloneDialog>(null);
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [insertTplOpen, setInsertTplOpen] = useState(false);
-  const baselineSeededRef = useRef(false);
+  const [seededId, setSeededId] = useState<string | null>(null);
+  const seeded = data !== undefined && seededId === data.id;
 
   // 템플릿 진입점 게이트: store 상태로 판단 (parseScenarioDoc 재호출 금지 — 깨진 텍스트 중
   // 엔 store yamlText가 마지막 정상본이라 재파싱 결과가 다를 수 있음)
@@ -34,22 +35,23 @@ export function ScenarioEditPage() {
   const editorYamlError = useScenarioEditor((s) => s.yamlError);
   const tplReady = editorModel !== null && editorYamlError === null;
 
+  // ScenarioNewPage.chooseTemplate 선적재 패턴(U3 B1): EditorShell 마운트 전에
+  // store를 로드 텍스트로 적재하고 그 시점 canonical을 yamlText/originalYaml
+  // 양쪽에 시드 — 첫 onChange가 무엇을 캡처하든 baseline과 일치한다.
+  // 재시드는 시나리오 id 변경 시만 — loadedVersion도 id-키드(같은 id의
+  // 백그라운드 refetch가 낡은 편집 위에 새 버전을 silent 채택하지 않게, R9).
   useEffect(() => {
-    if (data) {
-      setLoadedVersion(data.version);
-      baselineSeededRef.current = false; // re-seed when data changes
-    }
-  }, [data]);
+    if (!data || seededId === data.id) return;
+    useScenarioEditor.getState().loadFromString(data.yaml);
+    const canonical = useScenarioEditor.getState().yamlText;
+    setYamlText(canonical);
+    setOriginalYaml(canonical);
+    setLoadedVersion(data.version);
+    setSeededId(data.id);
+  }, [data, seededId]);
 
-  // EditorShell calls this after every store yamlText change. The first call
-  // after a fresh data load captures the canonical (re-serialized) form as
-  // our baseline — so the dirty flag stays false until the user actually edits.
   const handleEditorChange = useCallback((next: string) => {
     setYamlText(next);
-    if (!baselineSeededRef.current) {
-      baselineSeededRef.current = true;
-      setOriginalYaml(next);
-    }
   }, []);
 
   if (isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
@@ -83,7 +85,6 @@ export function ScenarioEditPage() {
       const next = await update.mutateAsync({ yaml: yamlText, version: loadedVersion });
       setLoadedVersion(next.version);
       setOriginalYaml(next.yaml);
-      baselineSeededRef.current = true;
       await cloneAndGo(next.yaml, next.name);
     } catch (e) {
       setCloneDialog({ stage: "save-failed", message: (e as Error).message });
@@ -126,7 +127,6 @@ export function ScenarioEditPage() {
                   onSuccess: (next) => {
                     setLoadedVersion(next.version);
                     setOriginalYaml(next.yaml);
-                    baselineSeededRef.current = true; // server form is canonical; don't re-seed from next onChange
                   },
                 },
               )
@@ -155,7 +155,7 @@ export function ScenarioEditPage() {
         </p>
       )}
 
-      <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />
+      {seeded && <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />}
 
       <TestRunSection yamlText={yamlText} />
 
