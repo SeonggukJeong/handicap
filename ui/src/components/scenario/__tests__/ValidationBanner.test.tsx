@@ -61,4 +61,17 @@ describe("ValidationBanner", () => {
     await user.click(screen.getByRole("button", { name: ko.editor.problemGateAction }));
     expect(onOpenYaml).toHaveBeenCalledTimes(1);
   });
+
+  it("yamlError 상태면 편집 차단 안내를 렌더한다 (R4)", () => {
+    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML);
+    useScenarioEditor.setState({ yamlError: "steps.0.request.url: Required" });
+    render(<ValidationBanner />);
+    expect(screen.getByText(ko.editor.editBlockedWhileInvalid)).toBeInTheDocument();
+  });
+
+  it("step 문제만 있고 yamlError가 없으면 편집 차단 안내는 없다 (R4)", () => {
+    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML); // 빈 URL=step 문제, yamlError=null
+    render(<ValidationBanner />);
+    expect(screen.queryByText(ko.editor.editBlockedWhileInvalid)).not.toBeInTheDocument();
+  });
 });

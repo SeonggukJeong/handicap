@@ -470,6 +470,7 @@ export const ko = {
     problemUrlNeedsScheme: (stepName: string) =>
       `"${stepName}" 스텝의 URL은 http:// 또는 https:// 로 시작해야 합니다 — 예: https://api.example.com/path 또는 \${BASE_URL}/path`,
     problemGateIntro: "YAML이 유효하지 않아 에디터가 마지막 정상 상태로 표시될 수 있습니다.",
+    editBlockedWhileInvalid: "YAML 오류를 고칠 때까지 아웃라인·인스펙터 편집이 차단됩니다.",
     problemGateAction: "YAML 열어 확인",
     gateRequired: (path: string) => `${path}: 필수 항목이 없습니다`,
     gateNameRequired: (path: string) => `${path}: 이름이 비어 있습니다`,

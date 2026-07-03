@@ -35,6 +35,9 @@ export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {
         )}
       </div>
       {hasGate && <p className="mt-1 text-xs">{ko.editor.problemGateIntro}</p>}
+      {yamlError !== null && (
+        <p className="mt-1 text-xs font-medium">{ko.editor.editBlockedWhileInvalid}</p>
+      )}
       <ul className="mt-1 flex flex-col gap-1">
         {problems.map((p, i) => (
           <li key={`${p.kind}-${i}`}>
