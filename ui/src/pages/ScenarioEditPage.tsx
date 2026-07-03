@@ -8,6 +8,8 @@ import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 
@@ -60,7 +62,7 @@ export function ScenarioEditPage() {
 
   if (isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (error)
-    return <p className="text-red-600">{ko.common.failedToLoad((error as Error).message)}</p>;
+    return <Callout variant="error">{ko.common.failedToLoad((error as Error).message)}</Callout>;
   if (!data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
   const dirty = originalYaml !== yamlText;
@@ -129,10 +131,10 @@ export function ScenarioEditPage() {
       <div className="flex items-center justify-between">
         <div>
           {nameEditing ? (
-            <input
+            <Input
               autoFocus
               aria-label={ko.editor.nameInputAria}
-              className="rounded border border-slate-300 px-2 py-1 text-xl font-semibold"
+              className="text-xl font-semibold"
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={commitName}
@@ -210,11 +212,11 @@ export function ScenarioEditPage() {
         </div>
       </div>
 
-      {update.error && <p className="text-red-600">{(update.error as Error).message}</p>}
+      {update.error && <Callout variant="error">{(update.error as Error).message}</Callout>}
       {clone.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <Callout variant="error" role="alert">
           복제 실패: {(clone.error as Error).message}
-        </p>
+        </Callout>
       )}
 
       {seeded && <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />}

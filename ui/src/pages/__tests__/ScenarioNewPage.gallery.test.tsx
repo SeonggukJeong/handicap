@@ -10,6 +10,7 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  createShouldFail = false;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -30,9 +31,13 @@ const CREATED = {
   updated_at: 0,
 };
 
+let createShouldFail = false;
 function routeFetch(url: string, init?: RequestInit): Response {
   if (url.endsWith("/api/environments")) return jsonResponse({ environments: [] });
-  if (url.endsWith("/api/scenarios") && init?.method === "POST") return jsonResponse(CREATED, 201);
+  if (url.endsWith("/api/scenarios") && init?.method === "POST")
+    return createShouldFail
+      ? jsonResponse({ error: "create failed" }, 500)
+      : jsonResponse(CREATED, 201);
   return jsonResponse({ error: "unexpected" }, 500);
 }
 
@@ -124,5 +129,22 @@ describe("ScenarioNewPage 템플릿 갤러리 (U3)", () => {
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(await screen.findByText("HOME")).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+
+  it("만들기 실패 시 오류 Callout(roleless, rounded-md/bg-red-50)", async () => {
+    const user = userEvent.setup();
+    createShouldFail = true;
+    renderPage();
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.templates.blankName) }),
+    );
+    await user.click(await screen.findByRole("button", { name: ko.editor.create }));
+
+    const message = await screen.findByText(/create failed/);
+    const box = message.closest("div");
+    expect(box).not.toBeNull();
+    expect(box).toHaveClass("rounded-md");
+    expect(box).toHaveClass("bg-red-50");
+    expect(box).not.toHaveAttribute("role");
   });
 });

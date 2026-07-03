@@ -25,9 +25,11 @@ vi.mock("../../components/scenario/TestRunSection", () => ({
 }));
 
 const fetchMock = vi.fn();
+let putShouldFail = false;
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  putShouldFail = false;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -50,7 +52,9 @@ const DEMO = {
 function routeFetch(url: string, init?: RequestInit): Response {
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/scenarios/S1") && method === "PUT")
-    return jsonResponse({ ...DEMO, version: 2 });
+    return putShouldFail
+      ? jsonResponse({ error: "stale version" }, 409)
+      : jsonResponse({ ...DEMO, version: 2 });
   if (url.endsWith("/api/scenarios/S1")) return jsonResponse(DEMO);
   if (url.endsWith("/api/scenarios") && method === "GET")
     return jsonResponse({ scenarios: [DEMO] });
@@ -98,5 +102,23 @@ describe("ScenarioEditPage save", () => {
       yaml: "version: 1\nname: demo\nsteps: []\n# edited\n",
       version: 1,
     });
+  });
+
+  it("저장 실패 시 오류 Callout(roleless, rounded-md/bg-red-50)", async () => {
+    const user = userEvent.setup();
+    putShouldFail = true;
+    renderPage();
+    await screen.findByRole("button", { name: "저장" });
+    await user.click(screen.getByRole("button", { name: "seed" }));
+    await user.click(screen.getByRole("button", { name: "edit" }));
+
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    const message = await screen.findByText(/stale version/);
+    const box = message.closest("div");
+    expect(box).not.toBeNull();
+    expect(box).toHaveClass("rounded-md");
+    expect(box).toHaveClass("bg-red-50");
+    expect(box).not.toHaveAttribute("role");
   });
 });

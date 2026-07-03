@@ -50,7 +50,7 @@ function routeFetch(url: string, init?: RequestInit): Response {
   return jsonResponse({ error: "unexpected" }, 500);
 }
 
-function renderPage() {
+function renderPage(id = "S1") {
   fetchMock.mockImplementation((url: string | URL, init?: RequestInit) =>
     Promise.resolve(routeFetch(String(url), init)),
   );
@@ -60,7 +60,7 @@ function renderPage() {
   render(
     <React.StrictMode>
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/scenarios/S1"]}>
+        <MemoryRouter initialEntries={[`/scenarios/${id}`]}>
           <Routes>
             <Route path="/scenarios/:id" element={<ScenarioEditPage />} />
           </Routes>
@@ -117,5 +117,15 @@ describe("ScenarioEditPage dirty baseline (false-dirty 회귀, R9)", () => {
         Array.from(r.removedNodes).some((n) => n.textContent?.includes("other")),
     );
     expect(sawOther).toBe(false);
+  });
+
+  it("존재하지 않는 시나리오 로드 실패 시 오류 Callout(roleless, rounded-md/bg-red-50)", async () => {
+    renderPage("S999"); // routeFetch 미매치 → 기본 500 "unexpected"
+    const message = await screen.findByText(ko.common.failedToLoad("unexpected"));
+    const box = message.closest("div");
+    expect(box).not.toBeNull();
+    expect(box).toHaveClass("rounded-md");
+    expect(box).toHaveClass("bg-red-50");
+    expect(box).not.toHaveAttribute("role");
   });
 });

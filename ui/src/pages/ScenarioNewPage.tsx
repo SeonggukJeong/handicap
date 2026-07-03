@@ -7,6 +7,7 @@ import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { Callout } from "../components/ui/Callout";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
@@ -132,7 +133,7 @@ export function ScenarioNewPage() {
         </div>
       </div>
 
-      {mutation.error && <p className="text-red-600">{(mutation.error as Error).message}</p>}
+      {mutation.error && <Callout variant="error">{(mutation.error as Error).message}</Callout>}
 
       <EditorShell initialYaml={seedYaml} onChange={handleEditorChange} />
 

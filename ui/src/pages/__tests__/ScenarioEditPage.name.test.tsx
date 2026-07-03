@@ -93,6 +93,10 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
 
     await user.click(screen.getByRole("button", { name: ko.editor.renameAria }));
     const input = screen.getByRole("textbox", { name: ko.editor.nameInputAria });
+    // 디자인시스템 Input 이주: text-xl override가 BASE의 text-sm을 이기고,
+    // focus-ring 토큰(accent-500/30)이 적용됨을 확인 (RED before migration).
+    expect(input).toHaveClass("text-xl");
+    expect(input).toHaveClass("focus:ring-accent-500/30");
     await user.clear(input);
     await user.type(input, "새이름{Enter}");
 

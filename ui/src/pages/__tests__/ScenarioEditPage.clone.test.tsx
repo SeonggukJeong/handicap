@@ -54,6 +54,7 @@ const COPY = {
 };
 
 let putShould409 = false;
+let cloneShouldFail = false;
 function routeFetch(url: string, init?: RequestInit): Response {
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/scenarios/S1") && method === "PUT") {
@@ -63,7 +64,8 @@ function routeFetch(url: string, init?: RequestInit): Response {
   }
   if (url.endsWith("/api/scenarios/S1")) return jsonResponse(DEMO);
   if (url.endsWith("/api/scenarios/S2")) return jsonResponse(COPY);
-  if (url.endsWith("/api/scenarios") && method === "POST") return jsonResponse(COPY, 201);
+  if (url.endsWith("/api/scenarios") && method === "POST")
+    return cloneShouldFail ? jsonResponse({ error: "clone failed" }, 500) : jsonResponse(COPY, 201);
   if (url.endsWith("/api/scenarios") && method === "GET")
     return jsonResponse({ scenarios: [DEMO] });
   return jsonResponse({ error: "unexpected" }, 500);
@@ -103,6 +105,7 @@ function putCalled() {
 describe("ScenarioEditPage clone", () => {
   beforeEach(() => {
     putShould409 = false;
+    cloneShouldFail = false;
   });
 
   it("not dirty: clones immediately and navigates to the new scenario", async () => {
@@ -165,5 +168,24 @@ describe("ScenarioEditPage clone", () => {
 
     await waitFor(() => expect(postBody()?.yaml).toContain("name: demo (copy)"));
     await screen.findByRole("heading", { name: "demo (copy)" });
+  });
+
+  it("복제 실패 시 오류 Callout(alert, 구체 클래스: rounded-md/bg-red-50)", async () => {
+    // dirty → "저장 후 복제" 경로 사용: saveThenClone의 try/catch가 cloneAndGo의
+    // reject를 흡수해 unhandled rejection 없이 clone.error를 유도한다("not dirty"
+    // 즉시-복제 경로는 void cloneAndGo(...)라 실패 시 미흡수 rejection이 남는다).
+    const user = userEvent.setup();
+    cloneShouldFail = true;
+    renderPage();
+    await screen.findByRole("button", { name: "복제" });
+    await user.click(screen.getByRole("button", { name: "seed" }));
+    await user.click(screen.getByRole("button", { name: "edit" })); // dirty
+
+    await user.click(screen.getByRole("button", { name: "복제" }));
+    await user.click(await screen.findByRole("button", { name: "저장 후 복제" }));
+
+    const alertBox = await screen.findByRole("alert");
+    expect(alertBox).toHaveClass("rounded-md");
+    expect(alertBox).toHaveClass("bg-red-50");
   });
 });
