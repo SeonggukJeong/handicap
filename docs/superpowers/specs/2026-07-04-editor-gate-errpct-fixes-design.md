@@ -1,7 +1,7 @@
 # 에디터 편집 게이트 + 에러율 floor — pre-existing 버그 2건 수정 (설계) (버그처리·UI-only)
 
 - **날짜**: 2026-07-04
-- **상태**: 설계 승인 (spec-plan-reviewer clean APPROVE, 2026-07-04, 3라운드) → plan 대기
+- **상태**: plan 승인 (spec 3라운드 + plan 1라운드 clean APPROVE, 2026-07-04) → 구현 대기(fresh 컨텍스트)
 - **출처**: 사용자 요청("pre-existing 버그 처리" → "연기된 버그성 갭"). **왜 지금**: A는 scenario-delete-name-sync 최종리뷰가 Minor로 남긴 잠복 정확성 버그(연필 게이트가 `editorYamlError` 미검사), B는 U5/report의 표시-정확성 버그(에러율/비율 `.toFixed(1)`이 nonzero를 "0.0%"로) — 둘 다 UI-only·검증 가능하여 한 슬라이스로 묶음.
 - **연관**: `2026-07-03-scenario-delete-name-sync-design.md`(A 발견 출처·연필 인라인 편집), ADR-0044(FlowOutline 아웃라인), ADR-0043(디자인 시스템 — Callout).
 - **ADR**: 신규 불필요. 버그 수정이며 기존 편집 모델(ADR-0044)·리포트 파생(ADR-0017) 범위 내.
