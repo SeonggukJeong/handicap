@@ -71,6 +71,8 @@ describe("edit gate while yamlError is set (R1)", () => {
     expect(s.addStepInLoop("nope", "x")).toBeNull();
     expect(s.addIfInLoop("nope", "x")).toBeNull();
     expect(s.addStepInParallelBranch("nope", 0, "x")).toBeNull();
+    expect(s.addStepInBranch("nope", { kind: "then" }, "x")).toBeNull();
+    expect(s.addLoopInBranch("nope", { kind: "then" }, "x")).toBeNull();
     expect(useScenarioEditor.getState().model).toBe(s.model); // 여전히 무변이
   });
 
