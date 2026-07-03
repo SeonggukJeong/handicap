@@ -16,4 +16,17 @@ describe("ExtractConfirmRow — varName input adopts primitive Input (design-sys
     expect(varName).toHaveClass("focus:ring-accent-500/30"); // Input BASE — RED before migration
     expect(varName).toHaveClass("font-mono");
   });
+
+  it('varName input preserves inherited text-xs density (size="sm") — not the Input default text-sm', () => {
+    render(
+      <ExtractConfirmRow
+        proposed={{ var: "token", from: "body", path: "$.token" }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const varName = screen.getByLabelText(ko.editor.extractVarNameAria);
+    expect(varName).toHaveClass("text-xs");
+    expect(varName).not.toHaveClass("text-sm");
+  });
 });

@@ -50,6 +50,7 @@ export function ExtractConfirmRow({
           value={varName}
           onChange={(e) => setVarName(e.target.value)}
           className="font-mono"
+          size="sm"
         />
       </div>
       <span className="text-slate-400">←</span>
