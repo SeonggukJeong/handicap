@@ -1,5 +1,9 @@
 # 에디터 공간·이름 QoL Implementation Plan
 
+REVIEW-GATE: APPROVED
+
+> spec-plan-reviewer clean APPROVE: spec @80b7c27(정밀 수정 @9b025a4), plan @9b025a4 (2026-07-03, 3라운드 루프).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 스텝 인스펙터를 접이식 섹션(localStorage 영속)으로 압축하고, "스텝 넓게 보기" 모드(전폭 아웃라인 + 흐름 칩 점프 + 모달 편집)를 추가하며, 스텝 이름의 즉시-Untitled 스냅을 blur-시 폴백으로 바꾼다.
