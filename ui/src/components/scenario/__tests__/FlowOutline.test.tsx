@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, act, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FlowOutline, OutlineRowPreview, nearestByHeader } from "../FlowOutline";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -471,5 +471,68 @@ describe("FlowOutline re-parent 배선 (spec R3/R5)", () => {
     const steps = useScenarioEditor.getState().model!.steps;
     const res = resolveDrop(steps, steps[0].id, steps[1].id, "below");
     expect(res?.kind).toBe("move");
+  });
+});
+
+const RICH_ROW_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+    think_time: { min_ms: 100, max_ms: 200 }
+    assert:
+      - status: 200
+    extract:
+      - var: token
+        from: body
+        path: "$.token"
+`;
+
+function seedRich() {
+  useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  useScenarioEditor.getState().loadFromString(RICH_ROW_YAML);
+}
+
+describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
+  it("wide: http 행에 부가 칩 + data-step-id", () => {
+    seedRich();
+    render(<FlowOutline wide />);
+    const row = screen.getByRole("option", { name: ko.editor.outlineRowAria("login") });
+    expect(row).toHaveAttribute("data-step-id", "01HX0000000000000000000001");
+    expect(within(row).getByText(ko.editor.wideChipAssert(1))).toBeInTheDocument();
+    expect(within(row).getByText(ko.editor.wideChipExtract(1))).toHaveAttribute("title", "token");
+    expect(within(row).getByText(ko.editor.wideChipThink(100, 200))).toBeInTheDocument();
+  });
+
+  it("비-wide: 칩·data-step-id 부재 (byte-identical, R9)", () => {
+    seedRich();
+    render(<FlowOutline />);
+    const row = screen.getByRole("option", { name: ko.editor.outlineRowAria("login") });
+    expect(row).not.toHaveAttribute("data-step-id");
+    expect(within(row).queryByText(ko.editor.wideChipAssert(1))).not.toBeInTheDocument();
+  });
+
+  it("행 클릭/Enter/Space는 onActivateStep 호출, 드래그 핸들 클릭은 select만", async () => {
+    seedRich();
+    const user = userEvent.setup();
+    const onActivate = vi.fn();
+    render(<FlowOutline wide onActivateStep={onActivate} />);
+    const row = screen.getByRole("option", { name: ko.editor.outlineRowAria("login") });
+    await user.click(row);
+    expect(onActivate).toHaveBeenCalledWith("01HX0000000000000000000001");
+    onActivate.mockClear();
+    fireEvent.keyDown(row, { key: "Enter" });
+    fireEvent.keyDown(row, { key: " " });
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    onActivate.mockClear();
+    await user.click(screen.getByRole("button", { name: ko.editor.dragHandleAria("login") }));
+    expect(onActivate).not.toHaveBeenCalled(); // 핸들 무이동 클릭은 모달 활성화 제외
+    expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000001"); // select는 유지
   });
 });

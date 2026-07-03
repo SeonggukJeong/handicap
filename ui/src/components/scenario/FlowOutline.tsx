@@ -83,9 +83,14 @@ function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
   );
 }
 
+// wide 모드의 행 컨텍스트 — activate 훅 + wide 플래그를 트리 아래로 흘린다
+// (store 미접촉, prop-only). wide 미지정(undefined)이면 이 파일의 모든 렌더
+// 분기가 non-wide로 접혀 R9 byte-identical이 유지된다.
+type RowView = { wide: boolean; onActivate?: (id: string) => void };
+
 // 한 행 헤더의 "드래그 핸들 이후" 내용. 대화형 OutlineRow와 오버레이용
 // OutlineRowPreview가 공유 — 시각 드리프트 방지(spec §3.3).
-function RowContent({ step }: { step: Step }) {
+function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
   if (isLoopStep(step)) {
     return (
       <>
@@ -145,6 +150,29 @@ function RowContent({ step }: { step: Step }) {
           ⚠
         </span>
       )}
+      {wide &&
+        (step.assert.length > 0 || step.extract.length > 0 || step.think_time !== undefined) && (
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {step.assert.length > 0 && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
+                {ko.editor.wideChipAssert(step.assert.length)}
+              </span>
+            )}
+            {step.extract.length > 0 && (
+              <span
+                title={step.extract.map((x) => x.var).join(", ")}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600"
+              >
+                {ko.editor.wideChipExtract(step.extract.length)}
+              </span>
+            )}
+            {step.think_time !== undefined && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
+                {ko.editor.wideChipThink(step.think_time.min_ms, step.think_time.max_ms)}
+              </span>
+            )}
+          </span>
+        )}
     </>
   );
 }
@@ -229,12 +257,14 @@ function OutlineRow({
   band = TOP_BAND,
   index = 0,
   drag = IDLE_DRAG,
+  view,
 }: {
   step: Step;
   depth: number;
   band?: BandRef;
   index?: number;
   drag?: DragCtx;
+  view?: RowView;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
@@ -256,6 +286,10 @@ function OutlineRow({
   const nodeTransform = isDragging ? undefined : CSS.Transform.toString(transform);
 
   const rowClassBase = `flex gap-2 rounded-md border bg-white px-2 py-1.5 text-sm cursor-pointer ${accent}`;
+  const activate = (target: EventTarget) => {
+    // 드래그 핸들(행 안의 유일한 <button>) 경유 활성화 제외 — select만(spec §4.4).
+    if (!(target as HTMLElement).closest("button")) view?.onActivate?.(step.id);
+  };
   // 헤더 행의 role/선택/키보드 속성(transform 제외 — transform 은 sortable 노드로).
   const rowAria = {
     role: "option" as const,
@@ -263,11 +297,16 @@ function OutlineRow({
     "aria-label": ko.editor.outlineRowAria(step.name),
     tabIndex: 0,
     "data-depth": String(depth),
-    onClick: () => select(step.id),
+    ...(view?.wide ? { "data-step-id": step.id } : {}),
+    onClick: (e: React.MouseEvent) => {
+      select(step.id);
+      activate(e.target);
+    },
     onKeyDown: (e: React.KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         select(step.id);
+        activate(e.target);
       }
     },
   };
@@ -314,7 +353,7 @@ function OutlineRow({
           className={`${rowClassBase} items-center`}
         >
           {dragHandle}
-          <RowContent step={step} />
+          <RowContent step={step} wide={view?.wide ?? false} />
         </div>
         <ContainerBands
           step={step}
@@ -341,6 +380,7 @@ function OutlineRow({
                       band={childBand}
                       index={i}
                       drag={drag}
+                      view={view}
                     />
                   ))}
                 </SortableContext>
@@ -362,7 +402,7 @@ function OutlineRow({
       className={`${rowClassBase} items-center ${hidden} ${indicator}`}
     >
       {dragHandle}
-      <RowContent step={step} />
+      <RowContent step={step} wide={view?.wide ?? false} />
     </div>
   );
 }
@@ -439,7 +479,13 @@ export function nearestByHeader(
   return best;
 }
 
-export function FlowOutline() {
+export function FlowOutline({
+  wide = false,
+  onActivateStep,
+}: {
+  wide?: boolean;
+  onActivateStep?: (id: string) => void;
+} = {}) {
   const steps = useScenarioEditor((s) => s.model?.steps ?? EMPTY_STEPS);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const select = useScenarioEditor((s) => s.select);
@@ -564,6 +610,10 @@ export function FlowOutline() {
     overBandKey,
     activeBandKey,
   };
+  const view = useMemo<RowView>(
+    () => ({ wide, onActivate: onActivateStep }),
+    [wide, onActivateStep],
+  );
 
   return (
     <DndContext
@@ -586,7 +636,15 @@ export function FlowOutline() {
           <div className="flex flex-col gap-1">
             <SortableContext items={steps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
               {steps.map((s, i) => (
-                <OutlineRow key={s.id} step={s} depth={0} band={TOP_BAND} index={i} drag={drag} />
+                <OutlineRow
+                  key={s.id}
+                  step={s}
+                  depth={0}
+                  band={TOP_BAND}
+                  index={i}
+                  drag={drag}
+                  view={view}
+                />
               ))}
             </SortableContext>
           </div>
