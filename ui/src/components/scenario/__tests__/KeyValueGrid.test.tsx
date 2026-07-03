@@ -93,6 +93,12 @@ describe("KeyValueGrid — grid editing", () => {
     expect(inputs).toHaveLength(2);
     inputs.forEach((i) => expect(i).toHaveClass("min-w-0"));
   });
+
+  it("value input adopts primitive Input focus-ring", () => {
+    render(<Harness initial={{ A: "1" }} />);
+    const inputs = screen.getAllByRole("textbox");
+    expect(inputs[0]).toHaveClass("focus:ring-accent-500/30");
+  });
 });
 
 describe("KeyValueGrid — bulk edit toggle", () => {

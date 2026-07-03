@@ -3,6 +3,7 @@ import type { BulkFormat } from "../../scenario/kvBulk";
 import { findCommonHeader, type CommonHeader } from "../../scenario/commonHeaders";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { ko } from "../../i18n/ko";
+import { Input } from "../ui/Input";
 
 interface Row {
   key: string;
@@ -205,26 +206,32 @@ export function KeyValueGrid({
               checked={r.enabled}
               onChange={() => toggleEnabled(idx)}
             />
-            <input
-              aria-label={`${itemLabel} key ${idx}`}
-              list={hasCommon ? datalistId : undefined}
-              className="w-32 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
-              value={r.key}
-              onChange={(e) => updateKey(idx, e.target.value)}
-              onBlur={commitRows}
-            />
+            <div className="w-32 min-w-0">
+              <Input
+                size="sm"
+                aria-label={`${itemLabel} key ${idx}`}
+                list={hasCommon ? datalistId : undefined}
+                className="min-w-0 font-mono"
+                value={r.key}
+                onChange={(e) => updateKey(idx, e.target.value)}
+                onBlur={commitRows}
+              />
+            </div>
             <span className="text-slate-400 text-xs">=</span>
-            <input
-              ref={(el) => {
-                valueRefs.current[idx] = el;
-              }}
-              aria-label={`${itemLabel} value ${idx}`}
-              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
-              placeholder={valuePlaceholder}
-              value={r.value}
-              onChange={(e) => updateValue(idx, e.target.value)}
-              onBlur={commitRows}
-            />
+            <div className="flex-1 min-w-0">
+              <Input
+                size="sm"
+                ref={(el) => {
+                  valueRefs.current[idx] = el;
+                }}
+                aria-label={`${itemLabel} value ${idx}`}
+                className="min-w-0"
+                placeholder={valuePlaceholder}
+                value={r.value}
+                onChange={(e) => updateValue(idx, e.target.value)}
+                onBlur={commitRows}
+              />
+            </div>
             <button
               type="button"
               aria-label={ko.common.removeItemAria(itemLabel, r.key)}
@@ -241,29 +248,35 @@ export function KeyValueGrid({
       </ul>
 
       <div className="flex gap-2 mt-1">
-        <input
-          ref={newKeyRef}
-          aria-label={ko.common.newItemKeyAria(itemLabel)}
-          list={hasCommon ? datalistId : undefined}
-          className="w-32 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
-          placeholder={keyPlaceholder}
-          value={newKey}
-          onChange={(e) => onNewKeyChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addRow();
-          }}
-        />
+        <div className="w-32 min-w-0">
+          <Input
+            size="sm"
+            ref={newKeyRef}
+            aria-label={ko.common.newItemKeyAria(itemLabel)}
+            list={hasCommon ? datalistId : undefined}
+            className="min-w-0 font-mono"
+            placeholder={keyPlaceholder}
+            value={newKey}
+            onChange={(e) => onNewKeyChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addRow();
+            }}
+          />
+        </div>
         <span className="text-slate-400 text-xs">=</span>
-        <input
-          aria-label={ko.common.newItemValueAria(itemLabel)}
-          className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-xs"
-          placeholder={valuePlaceholder}
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addRow();
-          }}
-        />
+        <div className="flex-1 min-w-0">
+          <Input
+            size="sm"
+            aria-label={ko.common.newItemValueAria(itemLabel)}
+            className="min-w-0"
+            placeholder={valuePlaceholder}
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addRow();
+            }}
+          />
+        </div>
         <button
           type="button"
           className="shrink-0 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-50"

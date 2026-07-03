@@ -514,10 +514,12 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     // The Headers InspectorSection fieldset is a flex item in the narrow aside; min-w-0 lets it shrink.
     expect(screen.getByPlaceholderText("헤더 이름").closest("fieldset")).toHaveClass("min-w-0");
 
-    // Two-field add row.
+    // Two-field add row. The key input is now wrapped in its own width-authority
+    // <div className="w-32 min-w-0"> (Input migration, R4③) — closest("div") alone
+    // would stop at that wrapper, so scope to the outer flex row (class "flex").
     const addKey = screen.getByPlaceholderText("헤더 이름");
     expect(addKey).toHaveClass("min-w-0");
-    const addBtn = within(addKey.closest("div")!).getByRole("button", { name: "추가" });
+    const addBtn = within(addKey.closest("div.flex")!).getByRole("button", { name: "추가" });
     expect(addBtn).toHaveClass("shrink-0");
 
     // Add a non-common header (avoids datalist value-seeding) so a value row renders.
@@ -544,7 +546,8 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     await user.selectOptions(screen.getByDisplayValue("없음"), "form");
     const addField = screen.getByPlaceholderText("field");
     expect(addField).toHaveClass("min-w-0");
-    expect(within(addField.closest("div")!).getByRole("button", { name: "추가" })).toHaveClass(
+    // Same wrapper-div nuance as the Headers row above — scope to the outer flex row.
+    expect(within(addField.closest("div.flex")!).getByRole("button", { name: "추가" })).toHaveClass(
       "shrink-0",
     );
   });
