@@ -175,6 +175,14 @@ pub async fn referencing_dataset(db: &Db, dataset_id: &str) -> sqlx::Result<Vec<
     Ok(out)
 }
 
+/// 시나리오 삭제 soft 409 카운트용.
+pub async fn count_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM run_presets WHERE scenario_id = ?")
+        .bind(scenario_id)
+        .fetch_one(db)
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

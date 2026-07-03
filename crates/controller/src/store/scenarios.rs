@@ -128,3 +128,64 @@ pub async fn update(
         version: new_version,
     }))
 }
+
+#[derive(Debug, PartialEq)]
+pub enum DeleteOutcome {
+    Deleted,
+    ActiveRuns,
+}
+
+/// 시나리오와 참조 그래프 전체(run 이력+메트릭 6테이블·프리셋·스케줄)를 단일
+/// 트랜잭션으로 삭제한다 (ADR-0045). 권위 hard 가드는 트랜잭션 *안*의 재확인 —
+/// 핸들러의 advisory 체크와 이 트랜잭션 사이에 커밋된 run도 여기서 잡힌다.
+/// EXISTS와 첫 DELETE 사이에 끼어드는 동시 쓰기는 WAL busy/snapshot으로 tx가
+/// 시끄럽게 실패한다(silent 경로 없음 — spec §3-5).
+pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
+    let mut tx = db.begin().await?;
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM runs WHERE scenario_id = ? AND status IN ('pending','running'))",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if active {
+        tx.rollback().await?;
+        return Ok(DeleteOutcome::ActiveRuns);
+    }
+    // 자식 → 부모 순서 (foreign_keys=ON이 순서 오류를 즉시 거부).
+    // 메트릭 테이블 일부는 FK 없이 run_id만 가지므로 6테이블 전수 명시 삭제.
+    for table in [
+        "run_metrics",
+        "run_loop_metrics",
+        "run_if_metrics",
+        "run_group_metrics",
+        "run_phase_metrics",
+        "run_active_vu_metrics",
+    ] {
+        sqlx::query(&format!(
+            "DELETE FROM {table} WHERE run_id IN (SELECT id FROM runs WHERE scenario_id = ?)"
+        ))
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query("DELETE FROM runs WHERE scenario_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM run_presets WHERE scenario_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    // schedule_events는 schedules FK의 ON DELETE CASCADE로 함께 삭제된다(0011).
+    sqlx::query("DELETE FROM schedules WHERE scenario_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM scenarios WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(DeleteOutcome::Deleted)
+}

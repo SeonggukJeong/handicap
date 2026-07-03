@@ -469,6 +469,20 @@ pub async fn mark_orphans_failed(db: &Db, message: &str) -> sqlx::Result<u64> {
     Ok(res.rows_affected())
 }
 
+/// (전체 run 수, 활성[pending/running] run 수) — 시나리오 삭제의 soft 409
+/// 카운트·advisory hard fast-fail 판정용 (권위 판정은 delete_cascade in-tx).
+pub async fn count_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<(i64, i64)> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS total, \
+                COALESCE(SUM(CASE WHEN status IN ('pending','running') THEN 1 ELSE 0 END), 0) AS active \
+         FROM runs WHERE scenario_id = ?",
+    )
+    .bind(scenario_id)
+    .fetch_one(db)
+    .await?;
+    Ok((row.get("total"), row.get("active")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
