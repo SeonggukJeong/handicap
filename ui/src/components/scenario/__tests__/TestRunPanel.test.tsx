@@ -79,6 +79,13 @@ describe("TestRunPanel", () => {
     expect(screen.getByText(/다운로드 3ms/)).toBeInTheDocument();
   });
 
+  it("renders the limit-reached notice as a warn Callout (rounded-md + bg-amber-50, not raw rounded/bg-amber-100)", () => {
+    render(<TestRunPanel trace={TRACE} />);
+    const box = screen.getByText(/상한 도달/).closest("div");
+    expect(box).toHaveClass("rounded-md");
+    expect(box).toHaveClass("bg-amber-50");
+  });
+
   it("shows an ok summary when the trace succeeded and is not truncated", () => {
     render(<TestRunPanel trace={{ ...TRACE, ok: true, truncated: false, steps: [] }} />);
     expect(screen.queryByText(/상한 도달/)).not.toBeInTheDocument();

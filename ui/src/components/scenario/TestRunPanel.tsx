@@ -4,6 +4,7 @@ import { findStepById, isIfStep, summarizeCondition, type Step } from "../../sce
 import { suggestVarName } from "../../scenario/jsonPath";
 import type { Extract } from "../../scenario/model";
 import { branchText } from "../../scenario/chipResults";
+import { Callout } from "../ui/Callout";
 import { Modal } from "../Modal";
 import { ResponseBodyTree } from "./ResponseBodyTree";
 import { ExtractConfirmRow } from "./ExtractConfirmRow";
@@ -59,11 +60,7 @@ function BodyViewer({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      {truncated && (
-        <div className="rounded bg-amber-100 px-3 py-2 text-xs text-amber-800">
-          1 MiB에서 잘림 — 실제 응답은 더 큼
-        </div>
-      )}
+      {truncated && <Callout variant="warn">1 MiB에서 잘림 — 실제 응답은 더 큼</Callout>}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -186,10 +183,10 @@ function BodyBlock({
   // Fallback: request body, non-JSON, or truncated → existing raw rendering.
   const isLong = body.length > INLINE_PREVIEW_CHARS || truncated;
   const notice = onExtract ? (
-    <div className="mb-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+    <Callout variant="warn" className="mb-1">
       {truncated ? "본문이 잘려" : "본문이 JSON이 아니라"} 본문 필드 추출 불가 — Inspector에서 수동
       입력 (헤더·쿠키·상태는 가능)
-    </div>
+    </Callout>
   ) : null;
   if (!isLong) {
     return (
@@ -452,9 +449,9 @@ export function TestRunPanel({
       </div>
       {trace.error && <div className="mb-2 text-sm text-red-700">{trace.error}</div>}
       {trace.truncated && (
-        <div className="mb-2 rounded bg-amber-100 px-3 py-2 text-sm text-amber-800">
+        <Callout variant="warn" className="mb-2">
           상한 도달 — 일부만 실행됨 (max_requests 또는 시간 천장)
-        </div>
+        </Callout>
       )}
       {trace.steps.length === 0 ? (
         <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>
