@@ -4,6 +4,10 @@
 >
 > **참고**: 아래 "부하 페이싱·일반 라이브 검증" 섹션은 루트 `CLAUDE.md` "로컬 dev 실행 함정"에서 이주한 것(2026-06-28) — 루트엔 토픽 나열 포인터만 남겼다. 이 문서는 그 외에도 `ui/CLAUDE.md`에서 이주한 UI-슬라이스 시각 검증 함정을 담는다.
 
+## 포트 선점 + stale dist = "마이그레이션 안 된 옛 UI 서빙" (design-system-editor 2026-07-04)
+
+- **메인 체크아웃(`/Users/sgj/develop/handicap`)의 dev 컨트롤러가 8080을 선점하고 있으면, 내가 띄운 워크트리 컨트롤러는 bind 실패(또는 곧 죽고 그 자리를 stray가 차지)하고 브라우저는 *메인의 stale dist*를 받는다 — 마이그레이션한 컴포넌트가 옛 markup으로 렌더돼 "구현이 안 됐다"고 오진하게 된다** (포트 선점 footgun의 stale-dist 변종): 증상 = 소스·워크트리 dist는 새 코드(grep 확인)인데 브라우저 렌더는 옛 것. **결정적 진단**: `curl -s http://127.0.0.1:8080/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js'`(서빙 중인 청크 해시) vs `grep -oE 'assets/index-…' ui/dist/index.html`(디스크 해시) — **불일치면 다른 dist를 서빙**. 누가 8080을 쥐었나: `lsof -ti :8080` → `lsof -a -p <PID> -d cwd`(cwd)·`ps -o command= -p <PID>`(args — `--db ./handicap.db` = 메인 dev; `--db /tmp/x.db` = 내 것). ⚠ `ps -o cwd= -p <PID>`는 macOS에서 헤더만 출력하는 버그 있음 → `lsof -a -p <PID> -d cwd` 사용. **회피(안전·비파괴)**: 메인 컨트롤러를 죽이지 말고 **전용 포트 + 절대 `--ui-dir`**로 내 스택을 띄운다 — `./target/debug/controller --db /tmp/x.db --rest 127.0.0.1:8090 --grpc 127.0.0.1:8091 --ui-dir "$PWD/ui/dist"` → Playwright는 `http://127.0.0.1:8090`(다른 origin이라 브라우저 캐시도 fresh). 상대 `--ui-dir ui/dist`는 컨트롤러 cwd 기준이라 드리프트 위험(위 청크 해시 불일치의 근원) → **절대경로**로 못박는다. 시나리오도 8090에 새로 만들어야(POST가 8080 stray로 가면 그 db에 생성됨).
+
 ## 스크린샷 경로 / MCP cwd 고정 (시각-충실도 슬라이스)
 
 - **시각-충실도 슬라이스의 라이브 검증 스크린샷: Playwright-MCP cwd가 *삭제된* 과거 워크트리에 고정돼 상대/스크래치패드 경로가 ENOENT/access-denied** (rundialog-mockup-fidelity, 루트 "Playwright cwd 고정" 함정의 스크린샷 변형): `browser_take_screenshot`의 허용 루트는 MCP temp(`/var/folders/.../T/.playwright-mcp`)와 (죽었을 수 있는) 첫-기동 워크트리뿐 → 스크린샷은 **그 MCP temp 절대경로**로 저장 후 `Read`로 뷰. 목업 PNG 대조는 라이브 렌더 스크린샷 vs `docs/superpowers/mockups/*.png`를 둘 다 `Read`(vision)로 비교 — 의도적 잔존(번호 Section 배지·고정 footer 미니그래프·R9 사이징 도우미 카드는 목업이 단순화)은 미스매치 아님. **라이브 검증은 main dev 컨트롤러(8080) 안 죽이게 `--rest 8090 --grpc 8091`로**(소유 PID `lsof`+`ps -o cwd=` 확인 후 내 포트만 kill).
