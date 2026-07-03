@@ -70,6 +70,11 @@ export function ScenarioEditPage() {
   const nameEditable = seeded && editorModel !== null;
 
   const startNameEdit = () => {
+    // 매 편집 세션은 클린 상태로 시작 — 이전 세션의 Escape가 남긴
+    // nameEscapedRef를 여기서 리셋하지 않으면, jsdom/React가 언마운트
+    // 시 blur를 안 쏘는 탓에 플래그가 소비되지 않고 남아 *다음* 정상
+    // 커밋(Enter/blur)을 commitName 첫 분기가 취소로 오인해 삼킨다.
+    nameEscapedRef.current = false;
     setNameDraft(liveName);
     setNameEditing(true);
   };
@@ -148,7 +153,7 @@ export function ScenarioEditPage() {
                 title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
                 disabled={!nameEditable}
                 onClick={startNameEdit}
-                className="text-slate-500 hover:text-slate-700 disabled:text-slate-300"
+                className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
               >
                 <span aria-hidden="true">✎</span>
               </button>

@@ -131,6 +131,29 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
     expect(screen.getByRole("button", { name: ko.common.save })).toBeDisabled();
   });
 
+  it("Escape 후 재편집 커밋은 정상 동작 — stale 취소 플래그 없음", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "demo" });
+
+    // 1) 연필 → 입력 → Escape 취소 (기존 "Escape는 취소" 테스트와 동일 시퀀스)
+    await user.click(screen.getByRole("button", { name: ko.editor.renameAria }));
+    let input = screen.getByRole("textbox", { name: ko.editor.nameInputAria });
+    await user.clear(input);
+    await user.type(input, "버릴이름{Escape}");
+    await screen.findByRole("heading", { name: "demo" });
+
+    // 2) 다시 연필 → 입력 → Enter 커밋 (정상 rename)
+    await user.click(screen.getByRole("button", { name: ko.editor.renameAria }));
+    input = screen.getByRole("textbox", { name: ko.editor.nameInputAria });
+    await user.clear(input);
+    await user.type(input, "새이름{Enter}");
+
+    // stale nameEscapedRef가 이 커밋을 삼키면 h2가 "demo"로 남는다 — 갱신돼야 함.
+    await screen.findByRole("heading", { name: "새이름" });
+    await waitFor(() => expect(screen.getByRole("button", { name: ko.common.save })).toBeEnabled());
+  });
+
   it("깨진 YAML(model=null)이면 연필 disabled + 서버명 폴백", async () => {
     renderPage();
     await screen.findByRole("heading", { name: "demo" });
