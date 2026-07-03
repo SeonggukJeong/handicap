@@ -152,6 +152,38 @@ async function deleteDatasetImpl(id: string, force: boolean): Promise<DeleteData
   throw new ApiError(res.status, `${res.status} ${res.statusText}`);
 }
 
+export type ScenarioDeleteRefs = { runs: number; presets: number; schedules: number };
+export type DeleteScenarioResult = { deleted: true } | { deleted: false; refs: ScenarioDeleteRefs };
+
+/** DELETE a scenario. 204 → deleted. Soft 409 (참조 카운트 포함) →
+ *  {deleted:false, refs}. Hard 409 (활성 run — 문자열 error만)·기타 비-2xx → throws.
+ *  판별자: soft 409 본문에만 숫자 runs/presets/schedules 키가 있다 (deleteDatasetImpl 미러). */
+async function deleteScenarioImpl(id: string, force: boolean): Promise<DeleteScenarioResult> {
+  const res = await fetch(
+    `${BASE}/scenarios/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
+    { method: "DELETE" },
+  );
+  if (res.status === 204) return { deleted: true };
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    const b = body as { runs?: unknown; presets?: unknown; schedules?: unknown; error?: unknown };
+    if (
+      typeof b.runs === "number" &&
+      typeof b.presets === "number" &&
+      typeof b.schedules === "number"
+    ) {
+      return {
+        deleted: false,
+        refs: { runs: b.runs, presets: b.presets, schedules: b.schedules },
+      };
+    }
+    throw new ApiError(409, typeof b.error === "string" ? b.error : "conflict");
+  }
+  const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+  const msg = (body as { error?: unknown }).error;
+  throw new ApiError(res.status, typeof msg === "string" ? msg : `${res.status} ${res.statusText}`);
+}
+
 function buildDatasetForm(file: File, opts?: DatasetUploadOptions): FormData {
   const fd = new FormData();
   fd.append("file", file);
@@ -209,6 +241,8 @@ export const api = {
     requestMultipart("/datasets/preview", buildDatasetForm(file, opts), DatasetPreviewSchema),
   deleteDataset: (id: string, force = false): Promise<DeleteDatasetResult> =>
     deleteDatasetImpl(id, force),
+  deleteScenario: (id: string, force = false): Promise<DeleteScenarioResult> =>
+    deleteScenarioImpl(id, force),
 
   // File download URL builders — return raw URL strings (do NOT go through request()).
   reportCsvUrl: (runId: string) => `${BASE}/runs/${encodeURIComponent(runId)}/report.csv`,

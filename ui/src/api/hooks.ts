@@ -239,6 +239,16 @@ export function useDeleteDataset() {
   });
 }
 
+export function useDeleteScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) => api.deleteScenario(id, force),
+    onSuccess: (result) => {
+      if (result.deleted) qc.invalidateQueries({ queryKey: queryKeys.scenarios() });
+    },
+  });
+}
+
 export function usePresets(scenarioId: string | undefined) {
   return useQuery({
     queryKey: scenarioId ? queryKeys.presets(scenarioId) : ["presets", "missing"],
