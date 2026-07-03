@@ -113,6 +113,63 @@ describe("EditorShell", () => {
       screen.getByRole("complementary", { name: ko.editor.varsPanelAria }),
     ).toBeInTheDocument();
   });
+
+  const WIDE_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+    assert:
+      - status: 200
+`;
+
+  // 주의: 이 describe는 기존 describe("EditorShell") 블록 *안에* 중첩해 추가한다
+  // (store-reset beforeEach 상속 — 파일의 기존 beforeEach는 그 블록 스코프다).
+  describe("스텝 넓게 보기 토글 (R5/R10)", () => {
+    beforeEach(() => {
+      window.localStorage.clear(); // Inspector 섹션 prefs 누수 방지 (Global Constraint)
+    });
+
+    it("ON: 인스펙터 열 미렌더 + 아웃라인 전폭 그리드, aria-pressed 토글", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const toggle = screen.getByRole("button", { name: ko.editor.wideToggleAria });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByLabelText(ko.editor.inspectorAria)).toBeInTheDocument();
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(screen.queryByLabelText(ko.editor.inspectorAria)).not.toBeInTheDocument();
+      expect(screen.getByTestId("editor-grid").className).toContain("grid-cols-[210px_1fr]");
+    });
+
+    it("OFF 복귀: 기존 그리드 클래스 byte-identical", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const before = screen.getByTestId("editor-grid").className;
+      const toggle = screen.getByRole("button", { name: ko.editor.wideToggleAria });
+      await user.click(toggle);
+      await user.click(toggle);
+      expect(screen.getByTestId("editor-grid").className).toBe(before);
+    });
+
+    it("재마운트 시 와이드 OFF (R10 — 마운트 수명)", async () => {
+      const user = userEvent.setup();
+      const { unmount } = render(<EditorShell initialYaml={WIDE_YAML} />);
+      await user.click(screen.getByRole("button", { name: ko.editor.wideToggleAria }));
+      unmount();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      expect(screen.getByRole("button", { name: ko.editor.wideToggleAria })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+  });
 });
 
 describe("EditorShell 검증 배너 (U4)", () => {
