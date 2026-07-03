@@ -516,6 +516,10 @@ export const ko = {
     noFormFields: "필드 없음",
     // ── Inspector think time 도움말 ──
     thinkHint: "min=max면 고정 지연 (요청 후 대기)",
+    // ── Inspector 접이식 섹션 (R1–R3) ──
+    sectionTiming: "타이밍",
+    sectionSetHint: "설정됨",
+    sectionCountHint: (n: number) => `${n}개`,
     // ── Inspector JSON 바디 ──
     jsonBodyAria: "JSON 본문",
     formatButton: "포맷",

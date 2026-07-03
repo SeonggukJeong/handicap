@@ -52,6 +52,7 @@ function loadAndSelect() {
 
 describe("Inspector — placeholder", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
   });
 
@@ -63,11 +64,15 @@ describe("Inspector — placeholder", () => {
 });
 
 describe("Inspector — ExtractEditor", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
   it("adds a body extract row and writes it to the YAML", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
     const addBtn = within(extractSection).getByRole("button", { name: /추가/i });
@@ -93,6 +98,7 @@ describe("Inspector — ExtractEditor", () => {
   it("switching from to header swaps the second field from path to name", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
@@ -109,6 +115,7 @@ describe("Inspector — ExtractEditor", () => {
   it("removes a row when its delete button is clicked", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
     const extractSection = screen.getByRole("group", { name: "값 추출" });
 
     await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
@@ -129,6 +136,7 @@ describe("Inspector — ExtractEditor", () => {
   it("does not write to yamlText on every keystroke (commit-on-blur)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
 
     const extractSection = screen.getByRole("group", { name: "값 추출" });
     await user.click(within(extractSection).getByRole("button", { name: /추가/i }));
@@ -157,6 +165,7 @@ describe("Inspector — ExtractEditor", () => {
   it("does not blink on partial path edit of an existing row", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
 
     // Bootstrap: add one complete row.
     const extractSection = screen.getByRole("group", { name: "값 추출" });
@@ -190,6 +199,7 @@ describe("Inspector — ExtractEditor", () => {
 
 describe("Inspector — loop", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
@@ -247,6 +257,7 @@ describe("Inspector — loop", () => {
 
 describe("Inspector — move up/down (container steps)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
@@ -292,6 +303,7 @@ describe("Inspector — move up/down (container steps)", () => {
 
 describe("Inspector — if route", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().loadFromString(IF_YAML);
     useScenarioEditor.getState().select("01HX0000000000000000000010");
@@ -315,6 +327,7 @@ describe("Inspector — if route", () => {
 
 describe("Inspector — IfInspector (builder)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().loadFromString(IF_YAML);
     useScenarioEditor.getState().select("01HX0000000000000000000010");
@@ -421,6 +434,7 @@ describe("Inspector — IfInspector (builder)", () => {
 
 describe("Inspector — mutual nesting (9c)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
@@ -487,6 +501,7 @@ describe("Inspector — mutual nesting (9c)", () => {
 // `shrink-0` on the trailing buttons so the row can shrink to its column.
 describe("Inspector — narrow-column overflow guard (#1)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
   });
 
@@ -494,8 +509,9 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     const user = userEvent.setup();
     loadAndSelect();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.headersLabel }));
 
-    // The Request fieldset is a flex item in the narrow aside; min-w-0 lets it shrink.
+    // The Headers InspectorSection fieldset is a flex item in the narrow aside; min-w-0 lets it shrink.
     expect(screen.getByPlaceholderText("헤더 이름").closest("fieldset")).toHaveClass("min-w-0");
 
     // Two-field add row.
@@ -523,6 +539,7 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
     const user = userEvent.setup();
     loadAndSelect();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
 
     await user.selectOptions(screen.getByDisplayValue("없음"), "form");
     const addField = screen.getByPlaceholderText("field");
@@ -534,11 +551,15 @@ describe("Inspector — narrow-column overflow guard (#1)", () => {
 });
 
 describe("Inspector — JSON body Format", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
   it("reformats minified JSON to 2-space indent on Format", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
     await user.selectOptions(screen.getByDisplayValue("없음"), "json");
     const ta = screen.getByLabelText("JSON 본문") as HTMLTextAreaElement;
     // fireEvent (not userEvent.type) to avoid '{' key-descriptor parsing.
@@ -550,6 +571,7 @@ describe("Inspector — JSON body Format", () => {
   it("persists the parsed value on Format (writes it to the YAML)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
     await user.selectOptions(screen.getByDisplayValue("없음"), "json");
     fireEvent.change(screen.getByLabelText("JSON 본문"), { target: { value: '{"a":1}' } });
     await user.click(screen.getByRole("button", { name: "포맷" }));
@@ -559,6 +581,7 @@ describe("Inspector — JSON body Format", () => {
   it("shows an error and leaves text unchanged on invalid JSON", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
     await user.selectOptions(screen.getByDisplayValue("없음"), "json");
     const ta = screen.getByLabelText("JSON 본문") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "{not json}" } });
@@ -570,17 +593,21 @@ describe("Inspector — JSON body Format", () => {
 
 describe("Inspector — U3 Korean labels", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
 
-  it("U3: panel is labeled 스텝 설정 with Korean section titles", () => {
+  it("U3: panel is labeled 스텝 설정 with Korean section titles", async () => {
+    const user = userEvent.setup();
     const id = useScenarioEditor.getState().addStep("S1");
     useScenarioEditor.getState().select(id);
     render(<Inspector />);
     expect(screen.getByRole("complementary", { name: "스텝 설정" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "HTTP 스텝" })).toBeInTheDocument();
     expect(screen.getByText("응답 검증")).toBeInTheDocument();
+    // extracts 부연(힌트 문구)은 값 추출 섹션을 펼쳐야 렌더된다 (R1 기본 접힘)
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
     expect(screen.getByText(/응답에서 값을 꺼내/)).toBeInTheDocument(); // extracts 부연
   });
 });
@@ -604,6 +631,7 @@ steps:
 `;
 
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().loadFromString(HEADER_YAML);
     useScenarioEditor.getState().select("01HX0000000000000000000001");
@@ -612,6 +640,7 @@ steps:
   it("disabling a header moves it under request.disabled.headers in the YAML", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.headersLabel }));
     await user.click(screen.getByLabelText("header enabled 0")); // uncheck → disable
     const yaml = useScenarioEditor.getState().yamlText;
     const out = parseScenarioDoc(yaml);
@@ -624,11 +653,15 @@ steps:
 });
 
 describe("Inspector — timeout_seconds", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
   it("edits per-step timeout_seconds via setStepField (commits on blur)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     await user.clear(input);
@@ -650,6 +683,7 @@ describe("Inspector — timeout_seconds", () => {
       .getState()
       .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     await user.clear(input);
@@ -671,6 +705,7 @@ describe("Inspector — timeout_seconds", () => {
       .getState()
       .setStepField("01HX0000000000000000000001", ["timeout_seconds"], 30);
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const input = screen.getByLabelText(/타임아웃 \(초\)/i) as HTMLInputElement;
     // Type an out-of-range value (700 > max 600) then blur
@@ -691,11 +726,15 @@ describe("Inspector — timeout_seconds", () => {
 });
 
 describe("Inspector — think_time (S-B)", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
   it("commits per-step think_time on blur", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
     const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
@@ -720,6 +759,7 @@ describe("Inspector — think_time (S-B)", () => {
       max_ms: 300,
     });
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
     const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
@@ -740,6 +780,7 @@ describe("Inspector — think_time (S-B)", () => {
   it("does not write think_time when only one of min/max is filled (incomplete pair)", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
     await user.clear(minInput);
@@ -758,12 +799,14 @@ describe("Inspector — think_time (S-B)", () => {
   });
 
   it("reverts and does not write when both filled but invalid (max < min)", async () => {
+    const user = userEvent.setup();
     // Pre-seed a known-good value first.
     useScenarioEditor.getState().setStepField("01HX0000000000000000000001", ["think_time"], {
       min_ms: 100,
       max_ms: 300,
     });
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
     const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
     const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
@@ -798,6 +841,7 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
   }
 
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
   });
 
@@ -949,6 +993,7 @@ steps:
 `;
 
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().loadFromString(FORM_DISABLED_YAML);
     useScenarioEditor.getState().select("01HX0000000000000000000001");
@@ -957,6 +1002,7 @@ steps:
   it("switching body kind away from 'form' drops disabled.form but preserves disabled.headers", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
 
     // The body-kind selector shows "폼" (current body kind).
     const kindSelect = screen.getByDisplayValue("폼");
@@ -977,6 +1023,7 @@ steps:
 
 describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
@@ -992,10 +1039,15 @@ describe("Inspector — U3 VarCheatSheet in Request fieldset", () => {
 });
 
 describe("Inspector — assertion row status field label (ko-first)", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
-  it("assertion row renders the status field label from ko.editor.assertStatusField", () => {
+  it("assertion row renders the status field label from ko.editor.assertStatusField", async () => {
+    const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.assertionsLegend }));
     // VALID_YAML has `assert: - status: 200`, so an assertion row is visible.
     // The badge should show the localized 상태 label, not the bare English "status".
     expect(screen.getByText(ko.editor.assertStatusField)).toBeInTheDocument();
@@ -1004,6 +1056,7 @@ describe("Inspector — assertion row status field label (ko-first)", () => {
 
 describe("Inspector URL required marker (U3)", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useScenarioEditor.setState(useScenarioEditor.getInitialState());
     useScenarioEditor.getState().resetEmpty();
   });
@@ -1032,11 +1085,15 @@ describe("Inspector URL required marker (U3)", () => {
 });
 
 describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
-  beforeEach(() => loadAndSelect());
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadAndSelect();
+  });
 
   it("shows the cast HelpTip only when body kind is JSON", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
     // 본문 종류 = JSON 선택 (기본은 "없음")
     await user.selectOptions(screen.getByDisplayValue(ko.editor.bodyNone), ko.editor.bodyJson);
     // ⓘ 버튼(aria-label = ko.editor.jsonCastLabel) → 클릭 시 popover 본문 노출
@@ -1049,6 +1106,7 @@ describe("Inspector — JSON 바디 캐스트 HelpTip (R7)", () => {
   it("does NOT show the cast HelpTip for form body", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
     await user.selectOptions(screen.getByDisplayValue(ko.editor.bodyNone), ko.editor.bodyForm);
     expect(screen.queryByRole("button", { name: ko.editor.jsonCastLabel })).not.toBeInTheDocument();
   });

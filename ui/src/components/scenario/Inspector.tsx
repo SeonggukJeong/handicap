@@ -25,6 +25,12 @@ import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
 import { HelpTip } from "../HelpTip";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
+import {
+  loadSectionPrefs,
+  saveSectionPrefs,
+  type SectionKey,
+  type SectionPrefs,
+} from "../../scenario/editorPrefs";
 
 const METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 type BodyKind = "none" | "json" | "form" | "raw";
@@ -56,6 +62,13 @@ export function Inspector() {
     if (selectedStepId !== null && step === null) select(null);
   }, [selectedStepId, step, select]);
 
+  const [sectionPrefs, setSectionPrefs] = useState<SectionPrefs>(loadSectionPrefs);
+  const toggleSection = (k: SectionKey) => {
+    const next = { ...sectionPrefs, [k]: !sectionPrefs[k] };
+    setSectionPrefs(next);
+    saveSectionPrefs(next);
+  };
+
   if (step === null) {
     return (
       <aside aria-label={ko.editor.inspectorAria} className="text-sm text-slate-400 italic">
@@ -69,7 +82,9 @@ export function Inspector() {
   if (isLoopStep(step)) return <LoopInspector step={step} topLevel={topLevel} />;
   if (isIfStep(step)) return <IfInspector step={step} topLevel={topLevel} />;
   if (isParallelStep(step)) return <ParallelInspector step={step} topLevel={topLevel} />;
-  return <HttpStepInspector step={step} />;
+  return (
+    <HttpStepInspector step={step} sectionPrefs={sectionPrefs} onToggleSection={toggleSection} />
+  );
 }
 
 const OPS: CompareOp[] = [
@@ -149,7 +164,43 @@ function MoveButtons({ stepId }: { stepId: string }) {
   );
 }
 
-function HttpStepInspector({ step }: { step: HttpStep }) {
+/** 접이식 인스펙터 섹션(R1). fieldset+legend-버튼 disclosure — RunDialog SLO/
+ *  ScenarioSnapshot 이디엄. fieldset `min-w-0`은 canvas-fix overflow 가드(필수). */
+function InspectorSection({
+  title,
+  hint,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  hint: string | null;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
+      <legend className="px-1 text-xs font-semibold text-slate-600 flex items-center gap-1">
+        <button type="button" onClick={onToggle} aria-expanded={open} className="hover:underline">
+          <span aria-hidden="true">{open ? "▾" : "▸"}</span> {title}
+        </button>
+        {!open && hint !== null && <span className="font-normal text-slate-400">{hint}</span>}
+      </legend>
+      {open && children}
+    </fieldset>
+  );
+}
+
+function HttpStepInspector({
+  step,
+  sectionPrefs,
+  onToggleSection,
+}: {
+  step: HttpStep;
+  sectionPrefs: SectionPrefs;
+  onToggleSection: (k: SectionKey) => void;
+}) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
@@ -217,6 +268,20 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
     }
   };
 
+  const headerCount =
+    Object.keys(step.request.headers ?? {}).length +
+    Object.keys(step.request.disabled?.headers ?? {}).length;
+  const bodyKind: BodyKind = step.request.body?.kind ?? "none";
+  const bodyKindLabel: string | null =
+    bodyKind === "none"
+      ? null
+      : bodyKind === "json"
+        ? ko.editor.bodyJson
+        : bodyKind === "form"
+          ? ko.editor.bodyForm
+          : ko.editor.bodyRaw;
+  const hasTiming = step.timeout_seconds !== undefined || step.think_time !== undefined;
+
   return (
     <aside aria-label={ko.editor.inspectorAria} className="flex flex-col gap-4 text-sm">
       <header className="flex items-center justify-between">
@@ -270,48 +335,82 @@ function HttpStepInspector({ step }: { step: HttpStep }) {
             {ko.editor.urlEmptyWarning}
           </p>
         )}
-        <HeadersEditor step={step} />
-        <BodyEditor step={step} />
       </fieldset>
 
-      <Field label={ko.editor.fieldTimeout}>
-        <input
-          type="number"
-          min={1}
-          max={600}
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={timeoutDraft}
-          onChange={(e) => setTimeoutDraft(e.target.value)}
-          onBlur={commitTimeout}
-        />
-      </Field>
+      <InspectorSection
+        title={ko.editor.headersLabel}
+        hint={headerCount > 0 ? ko.editor.sectionCountHint(headerCount) : null}
+        open={sectionPrefs.headers}
+        onToggle={() => onToggleSection("headers")}
+      >
+        <HeadersEditor step={step} />
+      </InspectorSection>
+      <InspectorSection
+        title={ko.editor.bodyLabel}
+        hint={bodyKindLabel}
+        open={sectionPrefs.body}
+        onToggle={() => onToggleSection("body")}
+      >
+        <BodyEditor step={step} />
+      </InspectorSection>
+      <InspectorSection
+        title={ko.editor.sectionTiming}
+        hint={hasTiming ? ko.editor.sectionSetHint : null}
+        open={sectionPrefs.timing}
+        onToggle={() => onToggleSection("timing")}
+      >
+        <Field label={ko.editor.fieldTimeout}>
+          <input
+            type="number"
+            min={1}
+            max={600}
+            className="w-full border border-slate-300 rounded px-2 py-1"
+            value={timeoutDraft}
+            onChange={(e) => setTimeoutDraft(e.target.value)}
+            onBlur={commitTimeout}
+          />
+        </Field>
 
-      <Field label={ko.editor.fieldThinkMin}>
-        <input
-          type="number"
-          min={0}
-          max={600000}
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={thinkMinDraft}
-          onChange={(e) => setThinkMinDraft(e.target.value)}
-          onBlur={commitThinkTime}
-        />
-      </Field>
-      <Field label={ko.editor.fieldThinkMax}>
-        <input
-          type="number"
-          min={0}
-          max={600000}
-          className="w-full border border-slate-300 rounded px-2 py-1"
-          value={thinkMaxDraft}
-          onChange={(e) => setThinkMaxDraft(e.target.value)}
-          onBlur={commitThinkTime}
-        />
-      </Field>
-      <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
-
-      <AssertEditor step={step} setStepAssert={setStepAssert} />
-      <ExtractEditor step={step} />
+        <Field label={ko.editor.fieldThinkMin}>
+          <input
+            type="number"
+            min={0}
+            max={600000}
+            className="w-full border border-slate-300 rounded px-2 py-1"
+            value={thinkMinDraft}
+            onChange={(e) => setThinkMinDraft(e.target.value)}
+            onBlur={commitThinkTime}
+          />
+        </Field>
+        <Field label={ko.editor.fieldThinkMax}>
+          <input
+            type="number"
+            min={0}
+            max={600000}
+            className="w-full border border-slate-300 rounded px-2 py-1"
+            value={thinkMaxDraft}
+            onChange={(e) => setThinkMaxDraft(e.target.value)}
+            onBlur={commitThinkTime}
+          />
+        </Field>
+        <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
+      </InspectorSection>
+      <InspectorSection
+        title={ko.editor.assertionsLegend}
+        hint={step.assert.length > 0 ? ko.editor.sectionCountHint(step.assert.length) : null}
+        open={sectionPrefs.assert}
+        onToggle={() => onToggleSection("assert")}
+      >
+        <AssertEditor step={step} setStepAssert={setStepAssert} />
+      </InspectorSection>
+      <InspectorSection
+        title={ko.editor.extractsLegend}
+        hint={step.extract.length > 0 ? ko.editor.sectionCountHint(step.extract.length) : null}
+        open={sectionPrefs.extract}
+        onToggle={() => onToggleSection("extract")}
+      >
+        <ExtractEditor step={step} />
+      </InspectorSection>
     </aside>
   );
 }
@@ -320,7 +419,6 @@ function HeadersEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
   return (
     <div className="min-w-0">
-      <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.headersLabel}</div>
       <KeyValueGrid
         entries={step.request.headers ?? {}}
         disabledEntries={step.request.disabled?.headers ?? {}}
@@ -369,7 +467,6 @@ function BodyEditor({ step }: { step: HttpStep }) {
 
   return (
     <div>
-      <div className="text-xs font-semibold text-slate-600 mb-1">{ko.editor.bodyLabel}</div>
       <select
         className="border border-slate-300 rounded px-2 py-1 text-sm mb-2"
         value={kind}
@@ -508,10 +605,7 @@ function AssertEditor({
 }) {
   const [newCode, setNewCode] = useState("");
   return (
-    <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
-      <legend className="px-1 text-xs font-semibold text-slate-600">
-        {ko.editor.assertionsLegend}
-      </legend>
+    <div className="flex flex-col gap-2 min-w-0">
       <ul className="flex flex-col gap-1">
         {step.assert.map((a, idx) => (
           <li key={`${a.kind}-${a.code}-${idx}`} className="flex items-center gap-2 text-xs">
@@ -573,7 +667,7 @@ function AssertEditor({
           {ko.common.add}
         </button>
       </div>
-    </fieldset>
+    </div>
   );
 }
 
@@ -653,13 +747,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   };
 
   return (
-    <fieldset
-      className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
-      aria-label={ko.editor.extractsLegend}
-    >
-      <legend className="px-1 text-xs font-semibold text-slate-600">
-        {ko.editor.extractsLegend}
-      </legend>
+    <div className="flex flex-col gap-2 min-w-0">
       <p className="text-xs text-slate-500">{ko.editor.extractsHint}</p>
       <ul className="flex flex-col gap-2">
         {drafts.map((x, idx) => (
@@ -728,7 +816,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
       >
         {ko.common.add}
       </button>
-    </fieldset>
+    </div>
   );
 }
 
