@@ -291,6 +291,23 @@ steps:
   });
 });
 
+describe("FlowOutline 드래그 게이트 (yamlError, R3)", () => {
+  beforeEach(() => reset());
+
+  it("YAML 오류(yamlError) 상태면 드래그 핸들이 비활성 (R3)", () => {
+    useScenarioEditor.getState().loadFromString(NESTED_YAML);
+    useScenarioEditor.setState({ yamlError: "boom" });
+    render(<FlowOutline />);
+    expect(screen.getByRole("button", { name: ko.editor.dragHandleAria("login") })).toBeDisabled();
+  });
+
+  it("정상 상태면 드래그 핸들이 활성 (R8)", () => {
+    useScenarioEditor.getState().loadFromString(NESTED_YAML);
+    render(<FlowOutline />);
+    expect(screen.getByRole("button", { name: ko.editor.dragHandleAria("login") })).toBeEnabled();
+  });
+});
+
 describe("FlowOutline 오버레이 배선 (메커니즘은 Task 3 Playwright)", () => {
   beforeEach(() => {
     reset();

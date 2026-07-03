@@ -266,13 +266,15 @@ function OutlineRow({
   drag?: DragCtx;
   view?: RowView;
 }) {
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
+  const select = useScenarioEditor((s) => s.select);
+  const editLocked = useScenarioEditor((s) => s.yamlError) !== null; // 편집 게이트(R3)
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({
       id: step.id,
       data: { parentId: band.parentId, band: band.band, index },
+      disabled: editLocked,
     });
-  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
-  const select = useScenarioEditor((s) => s.select);
   const selected = step.id === selectedStepId;
   const accent = selected ? "border-accent-500 ring-1 ring-accent-500" : "border-slate-200";
 
@@ -313,6 +315,7 @@ function OutlineRow({
   const dragHandle = (
     <button
       type="button"
+      disabled={editLocked}
       ref={setActivatorNodeRef}
       {...attributes}
       {...listeners}
