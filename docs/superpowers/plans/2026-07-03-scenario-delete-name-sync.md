@@ -512,6 +512,34 @@ async fn soft_409_fires_for_presets_only() {
     assert_eq!(v["presets"], 1);
     assert_eq!(v["schedules"], 0);
 }
+
+#[tokio::test]
+async fn soft_409_fires_for_runs_only() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "runs-only").await;
+    seed_run(&db, &sid, "R1", "completed").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(v["runs"], 1);
+    assert_eq!(v["presets"], 0);
+    assert_eq!(v["schedules"], 0);
+}
+
+#[tokio::test]
+async fn soft_409_fires_for_schedules_only() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "sched-only").await;
+    seed_schedule(&db, &sid, "SC1").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(v["runs"], 0);
+    assert_eq!(v["presets"], 0);
+    assert_eq!(v["schedules"], 1);
+}
 ```
 
 - [ ] **Step 2: 컴파일은 되지만 라우트 부재로 실패 확인**
@@ -581,7 +609,7 @@ pub async fn delete(
 - [ ] **Step 4: 테스트 green 확인**
 
 Run: `cargo test -p handicap-controller --test scenario_delete_api_test`
-Expected: PASS (8 tests — Task 1의 3 + Task 2의 5).
+Expected: PASS (10 tests — Task 1의 3 + Task 2의 7; soft 409 콤보 = runs만/presets만/schedules만/셋 다, spec R3 acceptance 전수).
 
 - [ ] **Step 5: 커밋**
 
@@ -657,7 +685,11 @@ describe("api.deleteScenario", () => {
   });
 
   it("hard 409(문자열 error만) → ApiError throw", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ error: "실행 중 run" }, 409));
+    // 호출마다 fresh Response — 한 Response 재사용은 두 번째 res.json()이
+    // consumed body로 떨어져 단언이 약해진다
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse({ error: "실행 중 run" }, 409)),
+    );
     await expect(api.deleteScenario("S1")).rejects.toThrowError(
       expect.objectContaining({ message: "실행 중 run" }) as Error,
     );
@@ -835,6 +867,13 @@ const deleteCalls = () =>
     (c) => (c[1] as RequestInit | undefined)?.method === "DELETE",
   );
 
+const listCalls = () =>
+  fetchMock.mock.calls.filter(
+    (c) =>
+      String(c[0]).endsWith("/api/scenarios") &&
+      ((c[1] as RequestInit | undefined)?.method ?? "GET") === "GET",
+  );
+
 describe("ScenarioListPage delete", () => {
   it("참조 0: 1차 confirm 후 즉시 삭제 (force 없이 1회 호출)", async () => {
     const user = userEvent.setup();
@@ -848,6 +887,8 @@ describe("ScenarioListPage delete", () => {
     expect(String(deleteCalls()[0][0])).not.toContain("force");
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(ko.pages.deleteConfirm("demo"));
+    // deleted:true → ["scenarios"] invalidate → 목록 재페치 (R5 invalidate 조건)
+    await waitFor(() => expect(listCalls().length).toBeGreaterThanOrEqual(2));
   });
 
   it("1차 confirm 거절 시 호출 0", async () => {
@@ -894,6 +935,34 @@ describe("ScenarioListPage delete", () => {
 
     await waitFor(() => expect(deleteCalls()).toHaveLength(1));
     expect(confirmSpy).toHaveBeenCalledTimes(2);
+    // deleted:false(force 거절) → invalidate 없음 — 초기 목록 GET 1회뿐 (R5)
+    expect(listCalls()).toHaveLength(1);
+  });
+
+  it("삭제 진행 중엔 행 삭제 버튼 disabled (R6 pending)", async () => {
+    const user = userEvent.setup();
+    confirmSpy.mockReturnValue(true);
+    // 영영 안 끝나는 DELETE — pending 상태 고정
+    fetchMock.mockImplementation((url: string | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "DELETE") return new Promise<Response>(() => {});
+      return Promise.resolve(routeFetch([])(String(url), init));
+    });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <ScenarioListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("link", { name: "demo" });
+
+    const btn = screen.getByRole("button", { name: ko.pages.deleteBtn });
+    await user.click(btn);
+    await waitFor(() => expect(btn).toBeDisabled());
   });
 
   it("hard 409 → role=alert 배너에 서버 문구 passthrough", async () => {
@@ -981,7 +1050,7 @@ clone 에러 Callout 아래에 삭제-실패 배너(동일 관용구):
 - [ ] **Step 5: green 확인 + 기존 목록 테스트 회귀 확인**
 
 Run: `cd ui && pnpm test ScenarioListPage`
-Expected: PASS — delete 5 + 기존 clone/home 테스트 전부.
+Expected: PASS — delete 6(2단 confirm 3종 + invalidate 조건 양분기 + hard 배너 + pending disabled) + 기존 clone/home 테스트 전부.
 
 - [ ] **Step 6: 커밋**
 
@@ -1132,7 +1201,7 @@ Expected: FAIL — "로드 직후" 테스트에서 저장 버튼이 enabled (fal
 
 - [ ] **Step 3: 페이지 수정** — `ui/src/pages/ScenarioEditPage.tsx`:
 
-① `baselineSeededRef` 선언(:29)·기존 `[data]` effect(:37-42)·`handleEditorChange`의 시드 분기(:47-53)를 제거하고 다음으로 교체:
+① `baselineSeededRef` 선언(:29)·기존 `[data]` effect(:37-42)·`handleEditorChange`의 시드 분기(:47-53)를 제거하고 다음으로 교체. **react import(:1)에서 `useRef`도 제거** — `baselineSeededRef`가 유일 소비처였고, `noUnusedLocals`(tsconfig)+`no-unused-vars`(eslint error)라 남기면 이 task의 lint/build 게이트가 깨진다(Task 6이 다시 추가한다):
 
 ```tsx
   const [seededId, setSeededId] = useState<string | null>(null);
@@ -1375,7 +1444,7 @@ Expected: FAIL — `ko.editor.renameAria` 미정의 / 연필 버튼 부재.
 
 - [ ] **Step 4: 페이지 구현** — `ui/src/pages/ScenarioEditPage.tsx`:
 
-① 컴포넌트 본문(Task 5의 seed effect 아래)에 추가:
+① **react import에 `useRef` 재추가**(Task 5가 제거했음 — `nameEscapedRef`가 새 소비처) 후, 컴포넌트 본문(Task 5의 seed effect 아래)에 추가:
 
 ```tsx
   const [nameEditing, setNameEditing] = useState(false);
@@ -1449,7 +1518,7 @@ early-return 가드들(:55-58) *아래*(=`data` non-null 영역)에 추가:
 
 ③ Breadcrumb(:95)의 `{ label: data.name }`을 `{ label: liveName }`으로 교체.
 
-(주의: `useScenarioEditor` import는 이미 있음(:12). `useRef`는 기존 import 유지.)
+(주의: `useScenarioEditor` import는 이미 있음(:12).)
 
 - [ ] **Step 5: green 확인 + stale-model teeth-check**
 
@@ -1547,6 +1616,7 @@ Expected: 전 항목 PASS (실패 시 해당 task로 회귀).
 
 ## Self-Review 결과 (plan 작성자 수행)
 
-- **Spec coverage**: R1–R4(Task 1·2) R5(Task 3) R6(Task 4) R7·R8(Task 6) R9(Task 5) R10(Task 4·6 ko + Task 8 sweep) R11(구조적 — Task 1의 0005 주석 포함, `store.ts`/`yamlDoc.ts`/`model.ts`/`schemas.ts` 어느 task도 안 건드림) R12(Task 8) §4.8 ADR(Task 7). 갭 없음.
+- **Spec coverage**: R1–R4(Task 1·2 — soft 409 콤보 4종 전수) R5(Task 3 클라 분기 + Task 4 invalidate 조건 양분기) R6(Task 4 — pending disabled 포함) R7·R8(Task 6) R9(Task 5) R10(Task 4·6 ko + Task 8 sweep) R11(구조적 — Task 1의 0005 주석 포함, `store.ts`/`yamlDoc.ts`/`model.ts`/`schemas.ts` 어느 task도 안 건드림) R12(Task 8) §4.8 ADR(Task 7). 갭 없음.
+- **plan-review round 1 반영**: useRef import 시퀀싱(T5 제거→T6 재추가 — T5 단독 green 담보), R5 invalidate 테스트(T4), soft 409 콤보 2건 추가(T2), pending disabled(T4), hard-409 fresh Response(T3).
 - **Type consistency**: `DeleteOutcome`/`count_by_scenario` 시그니처 Task 1 정의 = Task 2 소비 일치; `DeleteScenarioResult.refs` Task 3 정의 = Task 4 소비 일치; `seeded` Task 5 도입 = Task 6 소비 일치.
 - **주의**: Task 5/6은 같은 파일(`ScenarioEditPage.tsx`)을 순차 수정 — Task 6 구현 전 Task 5 커밋 필수(순서 고정). Task 1–4(삭제 그룹)와 5–6(에디터 그룹)은 상호 독립.
