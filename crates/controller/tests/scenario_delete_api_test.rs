@@ -218,3 +218,125 @@ async fn count_helpers_report_totals_and_active() {
         1
     );
 }
+
+// ── Task 2: API 레벨 ─────────────────────────────────────────────
+
+async fn send_delete(app: &axum::Router, sid: &str, force: bool) -> (StatusCode, Value) {
+    let uri = if force {
+        format!("/api/scenarios/{sid}?force=true")
+    } else {
+        format!("/api/scenarios/{sid}")
+    };
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(uri)
+        .body(Body::empty())
+        .unwrap();
+    body_json(app.clone().oneshot(req).await.unwrap()).await
+}
+
+#[tokio::test]
+async fn delete_nonexistent_scenario_404() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let (status, _) = send_delete(&app, "NOPE", false).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn delete_unreferenced_scenario_immediate_204() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "fresh").await;
+
+    let (status, _) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(count(&db, "scenarios", "id", &sid).await, 0);
+
+    // 재요청(더블클릭/stale 목록) → 404
+    let (status, _) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn active_run_hard_409_for_both_force_values() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "busy").await;
+    seed_run(&db, &sid, "R1", "running").await;
+
+    for force in [false, true] {
+        let (status, v) = send_delete(&app, &sid, force).await;
+        assert_eq!(status, StatusCode::CONFLICT, "force={force}");
+        // hard shape: 문자열 error만, 숫자 카운트 키 없음 (soft와 구분 — R5 판별자)
+        assert!(v["error"].is_string(), "force={force}: {v:?}");
+        assert!(v.get("runs").is_none(), "force={force}: {v:?}");
+    }
+    assert_eq!(count(&db, "scenarios", "id", &sid).await, 1);
+}
+
+#[tokio::test]
+async fn soft_409_counts_then_force_cascades() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "referenced").await;
+    seed_run(&db, &sid, "R1", "completed").await;
+    seed_run(&db, &sid, "R2", "failed").await;
+    seed_preset(&db, &sid, "P1").await;
+    seed_schedule(&db, &sid, "SC1").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(v["error"].is_string());
+    assert_eq!(v["runs"], 2);
+    assert_eq!(v["presets"], 1);
+    assert_eq!(v["schedules"], 1);
+    assert_eq!(count(&db, "scenarios", "id", &sid).await, 1); // 무변이
+
+    let (status, _) = send_delete(&app, &sid, true).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(count(&db, "scenarios", "id", &sid).await, 0);
+    assert_eq!(count(&db, "runs", "scenario_id", &sid).await, 0);
+}
+
+#[tokio::test]
+async fn soft_409_fires_for_presets_only() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "preset-only").await;
+    seed_preset(&db, &sid, "P1").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(v["runs"], 0);
+    assert_eq!(v["presets"], 1);
+    assert_eq!(v["schedules"], 0);
+}
+
+#[tokio::test]
+async fn soft_409_fires_for_runs_only() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "runs-only").await;
+    seed_run(&db, &sid, "R1", "completed").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(v["runs"], 1);
+    assert_eq!(v["presets"], 0);
+    assert_eq!(v["schedules"], 0);
+}
+
+#[tokio::test]
+async fn soft_409_fires_for_schedules_only() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let sid = create_scenario(&app, "sched-only").await;
+    seed_schedule(&db, &sid, "SC1").await;
+
+    let (status, v) = send_delete(&app, &sid, false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(v["runs"], 0);
+    assert_eq!(v["presets"], 0);
+    assert_eq!(v["schedules"], 1);
+}

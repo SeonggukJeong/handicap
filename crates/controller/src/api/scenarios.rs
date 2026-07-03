@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use handicap_engine::{Scenario, Step};
 use serde::{Deserialize, Serialize};
@@ -153,5 +153,49 @@ pub async fn update(
             "stale version: client sent {}, current is {}",
             body.version, current
         ))),
+    }
+}
+
+const ACTIVE_RUN_DELETE_MSG: &str =
+    "이 시나리오의 실행 중(pending/running) run이 있어 삭제할 수 없습니다";
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteQuery {
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// DELETE /api/scenarios/{id}?force=
+/// - 활성(pending/running) run 참조 → hard 409 (force로도 못 지움). 핸들러 체크는
+///   advisory fast-fail — 권위 판정은 delete_cascade 트랜잭션 안(spec §3-5).
+/// - 그 외 참조(run 이력·프리셋·스케줄) + force=false → soft 409 + 카운트 JSON.
+/// - force=true → 참조 그래프 전체 cascade 삭제(ADR-0045) 후 204.
+pub async fn delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<DeleteQuery>,
+) -> Result<StatusCode, ApiError> {
+    if scenarios::get(&state.db, &id).await?.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    let (run_total, run_active) = crate::store::runs::count_by_scenario(&state.db, &id).await?;
+    if run_active > 0 {
+        return Err(ApiError::Conflict(ACTIVE_RUN_DELETE_MSG.into()));
+    }
+    let presets = crate::store::presets::count_by_scenario(&state.db, &id).await?;
+    let schedules = crate::store::schedules::count_by_scenario(&state.db, &id).await?;
+    if !q.force && (run_total + presets + schedules) > 0 {
+        return Err(ApiError::ConflictJson(serde_json::json!({
+            "error": "이 시나리오를 참조하는 데이터가 있습니다 — force=true로 함께 삭제할 수 있습니다",
+            "runs": run_total,
+            "presets": presets,
+            "schedules": schedules,
+        })));
+    }
+    match scenarios::delete_cascade(&state.db, &id).await? {
+        scenarios::DeleteOutcome::Deleted => Ok(StatusCode::NO_CONTENT),
+        scenarios::DeleteOutcome::ActiveRuns => {
+            Err(ApiError::Conflict(ACTIVE_RUN_DELETE_MSG.into()))
+        }
     }
 }

@@ -43,7 +43,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/scenarios/{id}",
-            get(scenarios_api::get).put(scenarios_api::update),
+            get(scenarios_api::get)
+                .put(scenarios_api::update)
+                .delete(scenarios_api::delete),
         )
         .route("/scenarios/{id}/runs", get(runs_api::list_for_scenario))
         .route(
