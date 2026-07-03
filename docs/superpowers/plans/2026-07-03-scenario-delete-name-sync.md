@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+REVIEW-GATE: APPROVED
+
 **Goal:** `DELETE /api/scenarios/{id}`(2층 가드 + 단일 트랜잭션 cascade) + 목록 행 삭제 UI, 에디터 헤더 이름 라이브 표시/연필 인라인 편집, 로드-직후 false-dirty 제거.
 
 **Architecture:** 백엔드는 datasets 삭제의 2층 가드 패턴을 시나리오에 이식하되 권위 hard 가드를 cascade 트랜잭션 *안*으로(레이스 봉쇄, spec §3-5), 핸들러는 advisory fast-fail + soft 카운트 409만. UI는 `deleteDatasetImpl`/`useDeleteDataset`/`DatasetsPage` 관용구 미러. 에디터는 `ScenarioNewPage.chooseTemplate` 선적재 패턴을 edit 페이지에 이식(`seeded` 게이트)하고 그 게이트 위에 `liveName`/연필 편집(기존 `setName` 재사용)을 올린다.
