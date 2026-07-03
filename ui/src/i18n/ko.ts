@@ -381,6 +381,17 @@ export const ko = {
     runsBtn: "실행 목록",
     duplicateBtn: "복제",
     duplicatingBtn: "복제 중…",
+    deleteBtn: "삭제",
+    deleteConfirm: (name: string) => `'${name}' 시나리오를 삭제할까요?`,
+    deleteCascadeConfirm: (name: string, runs: number, presets: number, schedules: number) => {
+      const parts = [
+        runs > 0 ? `run 이력 ${runs}건` : null,
+        presets > 0 ? `프리셋 ${presets}건` : null,
+        schedules > 0 ? `스케줄 ${schedules}건` : null,
+      ].filter((p): p is string => p !== null);
+      return `'${name}' 시나리오를 참조하는 ${parts.join("·")}이(가) 함께 삭제됩니다. 계속할까요?`;
+    },
+    deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
   },
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──

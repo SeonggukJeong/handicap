@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useCloneScenario, useScenarios } from "../api/hooks";
+import { useCloneScenario, useDeleteScenario, useScenarios } from "../api/hooks";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { OnboardingGuide } from "../components/OnboardingGuide";
@@ -9,12 +10,28 @@ import { ko } from "../i18n/ko";
 export function ScenarioListPage() {
   const { data, isLoading, error } = useScenarios();
   const clone = useCloneScenario();
+  const del = useDeleteScenario();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function onClone(scenario: { yaml: string; name: string }) {
     const existingNames = data?.scenarios.map((s) => s.name) ?? [];
     clone.reset();
     clone.mutate({ sourceYaml: scenario.yaml, sourceName: scenario.name, existingNames });
   }
+
+  const onDelete = async (s: { id: string; name: string }) => {
+    setDeleteError(null);
+    if (!window.confirm(ko.pages.deleteConfirm(s.name))) return;
+    try {
+      const result = await del.mutateAsync({ id: s.id, force: false });
+      if (result.deleted) return;
+      const { runs, presets, schedules } = result.refs;
+      if (!window.confirm(ko.pages.deleteCascadeConfirm(s.name, runs, presets, schedules))) return;
+      await del.mutateAsync({ id: s.id, force: true });
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    }
+  };
 
   return (
     <div>
@@ -41,6 +58,11 @@ export function ScenarioListPage() {
       {clone.error && (
         <Callout variant="error" role="alert" className="mb-3">
           복제 실패: {(clone.error as Error).message}
+        </Callout>
+      )}
+      {deleteError && (
+        <Callout variant="error" role="alert" className="mb-3">
+          {ko.pages.deleteFailed(deleteError)}
         </Callout>
       )}
 
@@ -86,6 +108,14 @@ export function ScenarioListPage() {
                       className="text-slate-700 hover:underline disabled:text-slate-400"
                     >
                       {ko.pages.duplicate}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(s)}
+                      disabled={del.isPending}
+                      className="text-red-600 hover:underline disabled:text-slate-400"
+                    >
+                      {ko.pages.deleteBtn}
                     </button>
                     <Link to={`/scenarios/${s.id}/runs`} className="text-slate-700 hover:underline">
                       {ko.pages.runsLink}
