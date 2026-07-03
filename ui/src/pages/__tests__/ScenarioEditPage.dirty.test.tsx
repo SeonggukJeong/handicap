@@ -97,7 +97,10 @@ describe("ScenarioEditPage dirty baseline (false-dirty 회귀, R9)", () => {
   it("시드 전 프레임에 stale store 모델 이름이 보이지 않는다 (R7 stale-model)", async () => {
     // 싱글톤 store 잔존물 재현: 다른 시나리오 모델 선주입
     useScenarioEditor.getState().loadFromString("version: 1\nname: other\nsteps: []\n");
-    const observer = new MutationObserver(() => {});
+    const seenRecords: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => {
+      seenRecords.push(...records);
+    });
     observer.observe(document.body, {
       subtree: true,
       childList: true,
@@ -106,9 +109,9 @@ describe("ScenarioEditPage dirty baseline (false-dirty 회귀, R9)", () => {
     });
     renderPage();
     await screen.findByRole("heading", { name: "demo" });
-    const records = observer.takeRecords();
+    seenRecords.push(...observer.takeRecords());
     observer.disconnect();
-    const sawOther = records.some(
+    const sawOther = seenRecords.some(
       (r) =>
         r.oldValue === "other" ||
         Array.from(r.removedNodes).some((n) => n.textContent?.includes("other")),
