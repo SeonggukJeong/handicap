@@ -22,7 +22,7 @@
 | **운영·스케줄러** | Run 스케줄러(A7·ADR-0034)·운영 상한 관리자 v1·설정 환경 그룹핑(B11) | (성숙) 알림 레이어(이메일/슬랙/웹훅, 이음새=`schedule_events`)·스케줄러 config 런타임 가변 | roadmap.md §A7·§B11·ADR-0034 |
 | **템플릿·캐스트** | JSON 바디 캐스트 ADR-0029 v1 + env/시스템 토큰·`:json`(객체/배열/숫자/불리언/문자열/null·변수기반 null) 확장 완료 (json-cast-extend) | (성숙) form/쿼리/raw 바디 캐스트(와이어 전부 문자열=검증-only 가치·저우선)·nullable 규칙(`:json?` empty/unbound→null)·**env-secret WARN-로그 노출 마스킹은 §B1 트랙** | roadmap.md §B1·ADR-0029 |
 
-**소규모 후속**(위 테마에 안 묶이는 자잘한 것 — 출처 §B*): G2 k8s register-전 reaper(현 60s watchdog 폴백) · RunDialog 크기 칩 상대배수 사이징(Option C — 고정 10/50/200 대신 기준 측정치 대비 0.5×/1×/2×, rundialog-ux-fixes §6 백로그) · per-worker p95/p99 분해 · best-effort/degraded 모드 토글(§B2''). → 착수 슬라이스 plan 작성 시 `roadmap.md §B`에서 흡수.
+**소규모 후속**(위 테마에 안 묶이는 자잘한 것 — 출처 §B*): G2 k8s register-전 reaper(현 60s watchdog 폴백) · RunDialog 크기 칩 상대배수 사이징(Option C — 고정 10/50/200 대신 기준 측정치 대비 0.5×/1×/2×, rundialog-ux-fixes §6 백로그) · per-worker p95/p99 분해 · best-effort/degraded 모드 토글(§B2'') · 에디터 연필 활성 게이트에 `editorYamlError === null` 추가(scenario-delete-name-sync 최종리뷰 Minor — 아웃라인/인스펙터 전 편집이 같은 last-good 클래스라 일괄 판단) · legacy EditPage 테스트(save/clone/testrun) StrictMode 렌더 통일. → 착수 슬라이스 plan 작성 시 `roadmap.md §B`에서 흡수.
 
 ## 갱신 규칙 (finish-slice가 손본다)
 
