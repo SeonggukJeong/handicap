@@ -435,4 +435,4 @@ Claude-Session: https://claude.ai/code/session_01Wq9C4mZ1nv4m8LbXTEccgz"
 - **Placeholder**: 모든 step에 실제 코드/명령/예상 출력. TBD 없음.
 - **타입 일관성**: `Textarea` 시그니처(Task 1 Produces)가 Task 2 채택부(size="sm"·className·ref)와 일치. `bg-accent-600`/`text-accent-600`/`border-accent-*` 클래스명이 Task 3 전반 일관.
 
-<!-- REVIEW-GATE: PENDING — spec-plan-reviewer clean APPROVE 후 APPROVED로 교체 -->
+<!-- REVIEW-GATE: APPROVED -->
