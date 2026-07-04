@@ -53,7 +53,7 @@ export function VariablesPanel() {
               </div>
               <AutoGrowTextarea
                 aria-label={ko.editor.variableValueAria(key)}
-                className="border border-slate-300 rounded px-2 py-1 text-sm font-mono"
+                className="font-mono"
                 value={value}
                 onChange={(e) => setVariable(key, e.target.value)}
               />

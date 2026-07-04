@@ -61,4 +61,12 @@ describe("BulkEditPanel", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
   });
+
+  it("일괄편집 textarea는 accent 포커스 링(프리미티브)을 쓴다", () => {
+    render(<BulkEditPanel entries={{}} format="header" onApply={vi.fn()} onCancel={vi.fn()} />);
+    const ta = screen.getByLabelText("일괄 편집 텍스트");
+    expect(ta).toHaveClass("focus:ring-accent-500/30"); // 이주 전 RED
+    expect(ta).toHaveClass("rounded-md");
+    expect(ta).toHaveClass("text-xs"); // size='sm' 밀도 보존
+  });
 });

@@ -27,6 +27,7 @@ import { HelpTip } from "../HelpTip";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { Textarea } from "../ui/Textarea";
 import {
   loadSectionPrefs,
   saveSectionPrefs,
@@ -536,9 +537,10 @@ function JsonBodyField({ step }: { step: HttpStep }) {
           <span className="mt-1 block">{ko.glossary.jsonCastRule}</span>
         </HelpTip>
       </div>
-      <textarea
+      <Textarea
+        size="sm"
         aria-label={ko.editor.jsonBodyAria}
-        className="w-full h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+        className="h-32 font-mono"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
@@ -589,8 +591,9 @@ function RawBodyField({ step }: { step: HttpStep }) {
   const body = step.request.body;
   const value = body?.kind === "raw" ? body.value : "";
   return (
-    <textarea
-      className="w-full h-24 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+    <Textarea
+      size="sm"
+      className="h-24 font-mono"
       value={value}
       onChange={(e) => setStepField(step.id, ["request", "body"], { raw: e.target.value })}
       spellCheck={false}

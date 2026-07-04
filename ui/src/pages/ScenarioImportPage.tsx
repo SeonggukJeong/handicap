@@ -7,6 +7,7 @@ import { Badge } from "../components/ui/Badge";
 import { Callout } from "../components/ui/Callout";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
+import { Textarea } from "../components/ui/Textarea";
 import { ko } from "../i18n/ko";
 import {
   type Har,
@@ -373,12 +374,13 @@ export function ScenarioImportPage() {
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-slate-700">{ko.import.preview}</span>
-            <textarea
+            <Textarea
+              size="sm"
               aria-label={ko.import.preview}
               readOnly
               value={yaml}
               rows={16}
-              className="rounded border border-slate-300 p-2 font-mono text-xs"
+              className="py-2 font-mono"
             />
           </label>
 

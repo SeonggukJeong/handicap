@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { parseBulk, formatEntries, type BulkFormat } from "../../scenario/kvBulk";
 import { ko } from "../../i18n/ko";
+import { Textarea } from "../ui/Textarea";
 
 interface BulkEditPanelProps {
   entries: Record<string, string>;
@@ -19,9 +20,10 @@ export function BulkEditPanel({ entries, format, onApply, onCancel }: BulkEditPa
 
   return (
     <div className="flex flex-col gap-1 min-w-0" aria-label={ko.bulkEdit.panelAria}>
-      <textarea
+      <Textarea
+        size="sm"
         aria-label={ko.bulkEdit.textAria}
-        className="w-full min-w-0 h-32 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+        className="min-w-0 h-32 font-mono"
         value={text}
         onChange={(e) => setText(e.target.value)}
         spellCheck={false}
