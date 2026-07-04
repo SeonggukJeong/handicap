@@ -11,6 +11,14 @@ import {
 } from "./model";
 import { newStepId } from "./ulid";
 import { applyEdit, parseScenarioDoc, serializeDoc, type Edit, type BranchSel } from "./yamlDoc";
+import {
+  collectProducedVars,
+  collectNamespacedProducers,
+  parallelExtractNames,
+  buildVarRefIndex,
+} from "./scanVars";
+
+export type RenameVarError = "self" | "invalid" | "shadow" | "collision";
 
 const STARTER_YAML = `version: 1
 name: "Untitled"
@@ -36,6 +44,10 @@ export interface ScenarioEditorState {
   setCookieJar(value: "auto" | "off"): void;
   setVariable(key: string, value: string): void;
   removeVariable(key: string): void;
+  /** flat 변수(선언·비-parallel extract) rename. 선언 키 + 모든 extract.var + 모든
+   *  {{old}} 참조(cast 보존) + 조건 오퍼랜드를 트랜잭셔널로 재작성. 실패 시 no-op +
+   *  에러코드 반환(null=성공·커밋됨). yamlError·shadow·충돌·불법 newName에서 no-op. */
+  renameVariable(oldName: string, newName: string): RenameVarError | null;
   addStep(name: string): string | null; // returns new id (null when yamlError)
   addLoopStep(name: string): string | null; // returns new loop id
   addStepInLoop(loopId: string, name: string): string | null; // returns new child id
@@ -133,6 +145,33 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   removeVariable(key) {
     dispatch(set, get, { type: "removeVariable", key });
+  },
+  renameVariable(oldName, newName) {
+    const doc = get().doc;
+    const model = get().model;
+    if (!doc || !model) return "invalid";
+    if (get().yamlError !== null) return "invalid"; // 편집 게이트(R7) — 깨진 버퍼 중 무변이
+    if (newName === oldName) return "self";
+    if (!/^[^\s{}:]+$/.test(newName)) return "invalid";
+    if (parallelExtractNames(model).has(oldName)) return "shadow"; // 슬라이스 B
+    const collisions = new Set<string>([
+      ...collectProducedVars(model),
+      ...collectNamespacedProducers(model),
+      ...buildVarRefIndex(model).keys(),
+    ]);
+    if (collisions.has(newName)) return "collision";
+    // 트랜잭셔널(reparentStep 선례): clone → apply → reparse → 성공 시에만 커밋.
+    const clone = doc.clone();
+    applyEdit(clone, { type: "renameVariable", oldName, newName });
+    const reparsed = parseScenarioDoc(serializeDoc(clone));
+    if ("error" in reparsed) return "invalid"; // 합법성 게이트 — 원본 doc 무오염
+    set({
+      doc: reparsed.doc,
+      model: reparsed.model,
+      yamlText: serializeDoc(reparsed.doc),
+      yamlError: null,
+    });
+    return null;
   },
   addStep(name) {
     if (get().yamlError !== null) return null; // 편집 게이트(R1) — phantom-select 방지
@@ -366,6 +405,7 @@ const actions = (() => {
     setCookieJar: s.setCookieJar,
     setVariable: s.setVariable,
     removeVariable: s.removeVariable,
+    renameVariable: s.renameVariable,
     addStep: s.addStep,
     addLoopStep: s.addLoopStep,
     addStepInLoop: s.addStepInLoop,

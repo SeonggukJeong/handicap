@@ -1,4 +1,15 @@
-import { parseDocument, Document, isMap, isSeq, Scalar, YAMLMap, YAMLSeq, type Node } from "yaml";
+import {
+  parseDocument,
+  Document,
+  isMap,
+  isSeq,
+  isScalar,
+  visit,
+  Scalar,
+  YAMLMap,
+  YAMLSeq,
+  type Node,
+} from "yaml";
 import { z } from "zod";
 import { ScenarioModel, StepModel, type Scenario, type Step, type Condition } from "./model";
 
@@ -67,6 +78,7 @@ export type Edit =
         | { var: string; from: "status" }
       >;
     }
+  | { type: "renameVariable"; oldName: string; newName: string }
   | { type: "insertSteps"; afterTopIndex: number | null; stepsYaml: string };
 
 export function parseScenarioDoc(yamlText: string): ParseResult {
@@ -447,6 +459,35 @@ export function applyEdit(doc: Document, edit: Edit): void {
       doc.setIn([...path, "extract"], doc.createNode(edit.extract));
       return;
     }
+    case "renameVariable": {
+      const { oldName, newName } = edit;
+      // (a) variables 맵 키를 in-place rename — 값 노드·주석·위치 보존(deleteIn+setIn 금지).
+      const vars = doc.getIn(["variables"]);
+      if (isMap(vars)) {
+        for (const pair of vars.items) {
+          const k = pair.key;
+          const kv = isScalar(k) ? k.value : k;
+          if (kv === oldName) {
+            if (isScalar(k)) k.value = newName;
+            else pair.key = plainScalar(newName);
+            break;
+          }
+        }
+      }
+      // (b) 구조적: 전 스텝 트리의 extract[].var === oldName → newName (bare-scalar-any-match 금지).
+      renameExtractVars(doc.getIn(["steps"]), oldName, newName);
+      // (c)+(d) 텍스트: 모든 스칼라 VALUE의 {{old}}/{{old:cast}} base만 재작성(cast·공백·나머지 byte 보존).
+      const re = new RegExp(`\\{\\{(\\s*)${escapeRegExp(oldName)}(?=[:}\\s])`, "g");
+      visit(doc, {
+        Scalar(key, node) {
+          if (key === "key") return; // 맵 키는 verbatim (헤더/JSON 키; variables 키는 (a) 소유)
+          if (typeof node.value !== "string") return;
+          const next = node.value.replace(re, (_m, ws: string) => `{{${ws}${newName}`);
+          if (next !== node.value) node.value = next;
+        },
+      });
+      return;
+    }
     case "insertSteps": {
       ensureSeq(doc, ["steps"]);
       const steps = doc.getIn(["steps"]) as YAMLSeq;
@@ -467,6 +508,40 @@ function plainScalar(value: string): Scalar {
   const s = new Scalar(value);
   s.type = Scalar.PLAIN;
   return s;
+}
+
+// extract[].var를 구조적으로만 rename — 스텝 트리를 searchSeq처럼 하강(loop do / if
+// then·elif[].then·else / parallel branches[].steps). 헤더/URL이 우연히 oldName과
+// 같아도 건드리지 않는다(bare-scalar-any-match 금지, ui/CLAUDE.md "id 키 일괄 교체" 클래스).
+function renameExtractVars(steps: unknown, oldName: string, newName: string): void {
+  if (!isSeq(steps)) return;
+  for (const item of steps.items) {
+    if (!isMap(item)) continue;
+    const extract = item.get("extract");
+    if (isSeq(extract)) {
+      for (const ex of extract.items) {
+        if (!isMap(ex)) continue;
+        const v = ex.get("var", true); // Scalar 노드(YAMLMap.get keepScalar)
+        if (isScalar(v) && v.value === oldName) v.value = newName;
+      }
+    }
+    renameExtractVars(item.get("do"), oldName, newName);
+    renameExtractVars(item.get("then"), oldName, newName);
+    renameExtractVars(item.get("else"), oldName, newName);
+    const elif = item.get("elif");
+    if (isSeq(elif))
+      for (const eb of elif.items)
+        if (isMap(eb)) renameExtractVars(eb.get("then"), oldName, newName);
+    const branches = item.get("branches");
+    if (isSeq(branches))
+      for (const br of branches.items)
+        if (isMap(br)) renameExtractVars(br.get("steps"), oldName, newName);
+  }
+}
+
+// 정규식 특수문자 이스케이프 (변수명은 `[^\s{}:]+`라 `.` 등 포함 가능).
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Doc path (relative to the if step) for a branch body. */
