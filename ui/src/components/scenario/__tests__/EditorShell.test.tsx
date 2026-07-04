@@ -62,6 +62,30 @@ describe("EditorShell", () => {
     expect(grid.className).not.toContain("320px"); // 옛 고정폭 제거
   });
 
+  it("#4: 비-wide 그리드는 뷰포트 높이 상한 + 열별 내부 스크롤 클래스 계약을 갖는다 (R3/R4/R13)", () => {
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    const grid = screen.getByTestId("editor-grid");
+    expect(grid.className).toContain("grid-rows-[minmax(0,1fr)]");
+    expect(grid.className).toContain("max-h-[calc(100vh-16rem)]");
+    expect(grid.className).not.toContain("min-h-[680px]");
+
+    // 아웃라인 열(FlowOutline은 DndContext[DOM 미생성]+`flex h-full flex-col` 래퍼를
+    // outline-blank의 부모로 두므로, EditorShell 자체 div는 그 조부모)
+    const outlineCol = screen.getByTestId("outline-blank").parentElement?.parentElement;
+    expect(outlineCol?.className).toContain("overflow-auto");
+    expect(outlineCol?.className).toContain("min-h-0");
+
+    // 디테일 열(Inspector aside를 감싸는 EditorShell div)
+    const detailCol = screen.getByLabelText(ko.editor.inspectorAria).parentElement;
+    expect(detailCol?.className).toContain("overflow-auto");
+    expect(detailCol?.className).toContain("min-h-0");
+
+    // 변수 aside는 overflow-visible(HelpTip 클립 방지) — 내부 ul만 스크롤(VariablesPanel.test.tsx)
+    const varsAside = screen.getByRole("complementary", { name: ko.editor.varsPanelAria });
+    expect(varsAside.className).toContain("overflow-visible");
+    expect(varsAside.className).toContain("min-h-0");
+  });
+
   it("YAML 버튼 클릭 시 모달에 Monaco(yaml-view)가 열리고 닫힌다", async () => {
     const user = userEvent.setup();
     render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
@@ -146,6 +170,10 @@ steps:
       expect(toggle).toHaveAttribute("aria-pressed", "true");
       expect(screen.queryByLabelText(ko.editor.inspectorAria)).not.toBeInTheDocument();
       expect(screen.getByTestId("editor-grid").className).toContain("grid-cols-[210px_1fr]");
+      // #4: 와이드 모드에서도 변수 aside는 자체 높이 상한을 갖는다 (R4)
+      expect(
+        screen.getByRole("complementary", { name: ko.editor.varsPanelAria }).className,
+      ).toContain("max-h-[calc(100vh-16rem)]");
     });
 
     it("OFF 복귀: 기존 그리드 클래스 byte-identical", async () => {

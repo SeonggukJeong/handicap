@@ -162,6 +162,13 @@ steps:
     expect(screen.getByText("brandnew")).toBeInTheDocument();
   });
 
+  it("scrolls the variable list while pinning header/add-var (R13)", () => {
+    render(<VariablesPanel />);
+    const list = screen.getByRole("list");
+    expect(list.className).toContain("overflow-auto");
+    expect(list.className).toContain("min-h-0");
+  });
+
   it("R4: 사용되는 변수는 'N개 스텝에서 사용', 안 쓰이는 변수는 '미사용' 힌트를 보인다", () => {
     // {{used}}를 한 http 스텝의 url에서 참조하는 시나리오 + 미참조 변수 {{lonely}}
     useScenarioEditor.getState().loadFromString(`version: 1

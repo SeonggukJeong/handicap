@@ -101,14 +101,14 @@ export function EditorShell({
         className={
           wideOpen
             ? `grid gap-4 ${varsOpen ? "grid-cols-[210px_1fr]" : "grid-cols-[1fr]"}`
-            : `grid gap-4 min-h-[680px] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
+            : `grid gap-4 max-h-[calc(100vh-16rem)] grid-rows-[minmax(0,1fr)] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
         }
       >
         {varsOpen && (
           <aside
             role="complementary"
             aria-label={ko.editor.varsPanelAria}
-            className="rounded-md border border-slate-200 bg-white p-3"
+            className={`flex min-h-0 flex-col overflow-visible rounded-md border border-slate-200 bg-white p-3 ${wideOpen ? "max-h-[calc(100vh-16rem)]" : ""}`}
           >
             <VariablesPanel onJumpToStep={jumpToStep} />
           </aside>
@@ -129,10 +129,10 @@ export function EditorShell({
           </div>
         ) : (
           <>
-            <div className="rounded-md border border-slate-200 bg-white p-3 overflow-auto">
+            <div className="rounded-md border border-slate-200 bg-white p-3 overflow-auto min-h-0">
               <FlowOutline />
             </div>
-            <div className="rounded-md border border-slate-200 bg-white p-3">
+            <div className="rounded-md border border-slate-200 bg-white p-3 overflow-auto min-h-0">
               <Inspector />
             </div>
           </>

@@ -198,18 +198,20 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const visibleRows = rows.filter(matchesRow);
 
   return (
-    <section aria-label={ko.editor.variablesTitle} className="flex flex-col gap-3">
-      <div className="flex items-center">
-        <h3 className="text-sm font-semibold text-slate-700">{ko.editor.variablesTitle}</h3>
-        <VarCheatSheet />
+    <section aria-label={ko.editor.variablesTitle} className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="shrink-0 flex flex-col gap-1">
+        <div className="flex items-center">
+          <h3 className="text-sm font-semibold text-slate-700">{ko.editor.variablesTitle}</h3>
+          <VarCheatSheet />
+        </div>
+        <Input
+          className="mt-1"
+          placeholder={ko.editor.varSearchPlaceholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
-      <Input
-        className="mt-1"
-        placeholder={ko.editor.varSearchPlaceholder}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <ul className="flex flex-col gap-3">
+      <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
         {visibleRows.map((row) => {
           if (row.kind === "declared") {
             return (
@@ -348,7 +350,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         )}
       </ul>
 
-      <div className="flex gap-2">
+      <div className="flex shrink-0 gap-2">
         <div className="flex-1 min-w-0">
           <Input
             className="min-w-0 font-mono"
