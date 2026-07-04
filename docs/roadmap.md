@@ -265,6 +265,15 @@
 - shadow flat+parallel의 flat-identity 행 복원(bare 참조 navigable화) — shadow 모호성을 다시 들여 보수성과 상충.
 - merge/오타-재연결 rename(충돌 차단 정책과 상충) — A/B 공통 연기.
 
+### B16. 에디터 UX 폴리시 — 변수 패널·뷰포트·rename 실시간 (2026-07-04, ADR 불필요·UI-only) 연기 항목
+출처: `docs/superpowers/specs/2026-07-04-editor-varpanel-viewport-polish-design.md` §7. 슬라이스 = #3 사용처 nav 팝오버·#4 뷰포트 높이/열별 스크롤·#5 rename 열린 스텝 실시간 반영·#6 변수 검색. 남은 의도적 연기:
+- 검색 고급 — 정규식·"미정의만/미사용만" 스코프 필터·값 하이라이트(이번은 이름·값·분기표기 부분일치만).
+- #3 팝오버 화살표키 내비/포커스 트랩 — 클릭·ESC·스크롤 닫힘만(리스트 키보드 순회는 a11y 심화 후속).
+- #4 전체화면 셸(test-run 탭/별도 스크롤 분리, 옵션 C) — 범위·test-run 접근성 변경이라 기각·후속.
+- 기존 HelpTip/KeyValueGrid 헤더메뉴 portal화 — 디테일 열 in-scroll 세로 클립이 라이브에서 수용 불가로 판명될 때만(HelpTip은 앱 전역 공유 + Modal-내 ESC 레이어링 caveat).
+- rename 외 구조편집(move/reparent 등) draft 재시드 — 현재는 필드 *내용*을 재작성하는 rename만 stale 유발. 향후 그런 액션이 생기면 `renameEpoch`(→ 일반화된 `fieldRewriteEpoch`) 패턴 재사용.
+- (구현 중 발견) `EditorShell.test.tsx`의 열-컨테이너 셀렉터가 FlowOutline 내부 구조에 결합(`getByTestId("outline-blank").parentElement.parentElement`) — EditorShell 아웃라인 wrapper에 `data-testid` 부여가 더 견고(test-robustness nit, 비차단).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
