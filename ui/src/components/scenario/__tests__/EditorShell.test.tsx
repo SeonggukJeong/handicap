@@ -210,6 +210,72 @@ steps:
     });
   });
 
+  describe("변수 넓게 보기 토글 (B/varsWide)", () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it("ON: grid-cols [1fr_minmax] + aria-pressed + 인스펙터 열 미렌더 + 변수 aside 유지", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const toggle = screen.getByRole("button", { name: ko.editor.varsWideToggleAria });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("editor-grid").className).toContain(
+        "grid-cols-[1fr_minmax(260px,300px)]",
+      );
+      expect(screen.queryByLabelText(ko.editor.inspectorAria)).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("complementary", { name: ko.editor.varsPanelAria }),
+      ).toBeInTheDocument();
+    });
+
+    it("varsWide↔wideOpen 상호배타", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const wideT = screen.getByRole("button", { name: ko.editor.wideToggleAria });
+      const varsWideT = screen.getByRole("button", { name: ko.editor.varsWideToggleAria });
+      await user.click(varsWideT);
+      expect(varsWideT).toHaveAttribute("aria-pressed", "true");
+      await user.click(wideT); // 스텝 넓게 켜기 → 변수 넓게 꺼짐
+      expect(wideT).toHaveAttribute("aria-pressed", "true");
+      expect(varsWideT).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("varsWide ON이면 변수 show/hide 토글 disabled(title 힌트)", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const varsToggle = screen.getByRole("button", { name: ko.editor.varsToggleAria });
+      expect(varsToggle).not.toBeDisabled();
+      await user.click(screen.getByRole("button", { name: ko.editor.varsWideToggleAria }));
+      expect(varsToggle).toBeDisabled();
+      expect(varsToggle).toHaveAttribute("title", ko.editor.varsWideActiveTitle);
+    });
+
+    it("varsWide OFF 복귀 시 그리드 className byte-identical", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      const before = screen.getByTestId("editor-grid").className;
+      const t = screen.getByRole("button", { name: ko.editor.varsWideToggleAria });
+      await user.click(t);
+      await user.click(t);
+      expect(screen.getByTestId("editor-grid").className).toBe(before);
+    });
+
+    it("varsWide 행 활성화 → 편집 모달(Inspector) + 아웃라인 행 data-step-id", async () => {
+      const user = userEvent.setup();
+      render(<EditorShell initialYaml={WIDE_YAML} />);
+      await user.click(screen.getByRole("button", { name: ko.editor.varsWideToggleAria }));
+      // 아웃라인 행에 data-step-id(스크롤 지원) 부여됨
+      expect(document.querySelector("[data-step-id]")).toBeInTheDocument();
+      await user.click(screen.getByRole("option", { name: ko.editor.outlineRowAria("login") }));
+      expect(
+        screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle }),
+      ).toBeInTheDocument();
+    });
+  });
+
   const WIDE_YAML2 = `version: 1
 name: "demo"
 cookie_jar: auto

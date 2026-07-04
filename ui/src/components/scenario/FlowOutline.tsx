@@ -299,7 +299,7 @@ function OutlineRow({
     "aria-label": ko.editor.outlineRowAria(step.name),
     tabIndex: 0,
     "data-depth": String(depth),
-    ...(view?.wide ? { "data-step-id": step.id } : {}),
+    ...(view?.wide || view?.onActivate ? { "data-step-id": step.id } : {}),
     onClick: (e: React.MouseEvent) => {
       select(step.id);
       activate(e.target);
