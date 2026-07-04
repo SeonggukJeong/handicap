@@ -251,6 +251,11 @@
 - **`panelHint`(첫 스텝 추가 1회 안내) 드롭**: 넓어진 디테일 편집기가 선택 시 자명해 불필요 — `ko.editor.panelHint` 키는 미사용 잔존(다음 정리 슬라이스에서 제거).
 - **변수 접힘 상태 영속화(localStorage)**: 슬라이스 1은 컴포넌트 로컬 state — 사소·후속.
 
+### B14. 에디터 변수 도구 A (2026-07-04, ADR 불필요·UI-only, 슬라이스 A) 연기 항목
+출처: `docs/superpowers/specs/2026-07-04-editor-var-tools-design.md` §7. 슬라이스 A = 미정의 ⚠ 경고 + 사용→스텝 nav + flat 변수 rename(선언·비-parallel extract). 남은 의도적 연기:
+- 에디터 변수 도구 B(parallel-분기 변수 rename): scope-aware — 분기 서브트리 bare {{var}} + 다운스트림 {{branch.var}} 재작성, 패널 (branch,var) identity로 rename 활성화(슬라이스 A는 분기/shadow 행 rename 비활성+배지).
+- 변수 도구 후속: parallel-row 내부-분기 bare nav 보강((branch,var) identity 통합; shadow flat-extract+parallel[같은 이름이 flat 스텝·분기 양쪽서 추출]은 슬라이스 A에서 namespaced 행만 뜨고 flat identity 행이 없어 bare 참조가 non-navigable — 같은 통합으로 해소)·bulk 변수 편집(BulkEditPanel+kvBulk 확장)·FlowOutline 스텝-레벨 미정의 배지·producer 스텝으로의 nav·merge/오타-재연결 rename(충돌 차단 정책과 상충).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
