@@ -8,6 +8,9 @@ import {
   parallelExtractNames,
   buildVarRefIndex,
   undefinedVars,
+  flatProducerNames,
+  collectBranchInternalRefs,
+  parallelVarIdentities,
 } from "../scanVars";
 import type { Scenario } from "../model";
 import { ScenarioModel } from "../model";
@@ -615,5 +618,155 @@ describe("undefinedVars (R4)", () => {
       },
     ]);
     expect(undefinedVars(s).has("vu_id")).toBe(true);
+  });
+});
+
+// 로컬 헬퍼(기존 테스트에 parseScenarioDoc→model 뽑는 헬퍼가 이미 있으면 그걸 쓸 것).
+import { parseScenarioDoc } from "../yamlDoc";
+function model(yaml: string) {
+  const r = parseScenarioDoc(yaml);
+  if ("error" in r) throw new Error(r.error);
+  return r.model;
+}
+
+describe("flatProducerNames (R2)", () => {
+  it("declared keys + non-parallel extracts, excludes parallel-branch extracts", () => {
+    const m = model(`version: 1
+name: "t"
+variables:
+  base: "x"
+steps:
+  - { id: "01HX0000000000000000000010", type: http, name: s1, request: { method: GET, url: "/a" }, extract: [ { var: flat1, from: status } ] }
+  - id: "01HX0000000000000000000020"
+    type: parallel
+    name: par
+    branches:
+      - name: B
+        steps:
+          - { id: "01HX0000000000000000000030", type: http, name: b1, request: { method: GET, url: "/b" }, extract: [ { var: ponly, from: status } ] }
+`);
+    const flat = flatProducerNames(m);
+    expect(flat.has("base")).toBe(true); // declared
+    expect(flat.has("flat1")).toBe(true); // non-parallel extract
+    expect(flat.has("ponly")).toBe(false); // parallel-only extract NOT flat
+  });
+
+  it("recurses loop/if bodies but not parallel branches", () => {
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000040"
+    type: loop
+    name: lp
+    repeat: 1
+    do:
+      - { id: "01HX0000000000000000000050", type: http, name: h, request: { method: GET, url: "/x" }, extract: [ { var: inLoop, from: status } ] }
+`);
+    expect(flatProducerNames(m).has("inLoop")).toBe(true);
+  });
+
+  it("multi-branch same-name extract is NOT flat (shadow only when a flat producer exists)", () => {
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000060"
+    type: parallel
+    name: par
+    branches:
+      - name: B
+        steps: [ { id: "01HX0000000000000000000070", type: http, name: b, request: { method: GET, url: "/b" }, extract: [ { var: s, from: status } ] } ]
+      - name: C
+        steps: [ { id: "01HX0000000000000000000080", type: http, name: c, request: { method: GET, url: "/c" }, extract: [ { var: s, from: status } ] } ]
+`);
+    expect(flatProducerNames(m).has("s")).toBe(false);
+  });
+});
+
+describe("collectBranchInternalRefs (R3)", () => {
+  it("collects branch-internal bare {{s}} keyed by `${BRANCH}.${base}` (NOT node name), cast-normalized, downstream excluded", () => {
+    // NOTE: parallel node name is "par" but the BRANCH is "B" — collectBranchInternalRefs keys by
+    // BRANCH name (engine runner.rs:638), so the key is "B.s", never "par.s". Downstream must use {{B.s}}.
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000090"
+    type: parallel
+    name: par
+    branches:
+      - name: B
+        steps:
+          - { id: "01HX00000000000000000000A0", type: http, name: prod, request: { method: GET, url: "/p" }, extract: [ { var: s, from: status } ] }
+          - { id: "01HX00000000000000000000B0", type: http, name: use, request: { method: GET, url: "/u?x={{s:num}}" } }
+  - { id: "01HX00000000000000000000C0", type: http, name: down, request: { method: GET, url: "/d?y={{B.s}}" } }
+`);
+    const idx = collectBranchInternalRefs(m);
+    expect(idx.get("B.s")).toEqual(["01HX00000000000000000000B0"]); // branch-internal bare {{s:num}}→s, keyed by BRANCH name
+    // downstream {{B.s}} (step C0) is not branch-internal → excluded from this map's "B.s".
+    expect(idx.get("B.s")).not.toContain("01HX00000000000000000000C0");
+  });
+
+  it("does not cross branches", () => {
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX00000000000000000000D0"
+    type: parallel
+    name: par
+    branches:
+      - name: B
+        steps: [ { id: "01HX00000000000000000000E0", type: http, name: b, request: { method: GET, url: "/b?x={{s}}" }, extract: [ { var: s, from: status } ] } ]
+      - name: C
+        steps: [ { id: "01HX00000000000000000000F0", type: http, name: c, request: { method: GET, url: "/c" }, extract: [ { var: s, from: status } ] } ]
+`);
+    const idx = collectBranchInternalRefs(m);
+    expect(idx.get("B.s")).toEqual(["01HX00000000000000000000E0"]);
+    expect(idx.get("C.s")).toBeUndefined(); // C never references bare {{s}}
+  });
+});
+
+describe("parallelVarIdentities (R1/R4)", () => {
+  it("one identity per branch extract, isShadow reflects flat collision, dedups display; branch/var kept structurally", () => {
+    const m = model(`version: 1
+name: "t"
+variables: { s: "flat" }
+steps:
+  - { id: "01HX0000000000000000000100", type: http, name: f, request: { method: GET, url: "/f" }, extract: [ { var: token, from: status } ] }
+  - id: "01HX0000000000000000000110"
+    type: parallel
+    name: auth
+    branches:
+      - name: auth
+        steps: [ { id: "01HX0000000000000000000120", type: http, name: a, request: { method: GET, url: "/a?x={{s}}" }, extract: [ { var: s, from: status }, { var: fresh, from: status } ] } ]
+`);
+    const ids = parallelVarIdentities(m);
+    const byDisplay = new Map(ids.map((i) => [i.display, i]));
+    // s is declared (flat) → shadow; fresh is not → non-shadow
+    expect(byDisplay.get("auth.s")?.isShadow).toBe(true);
+    expect(byDisplay.get("auth.fresh")?.isShadow).toBe(false);
+    expect(byDisplay.get("auth.fresh")?.branchName).toBe("auth");
+    expect(byDisplay.get("auth.fresh")?.varName).toBe("fresh");
+    // non-shadow branchRefIds: {{s}} is inside branch but s is shadow; fresh has no internal ref → []
+    expect(byDisplay.get("auth.fresh")?.branchRefIds).toEqual([]);
+  });
+
+  it("dot-containing var name keeps a valid display and structural split", () => {
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000130"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps: [ { id: "01HX0000000000000000000140", type: http, name: b, request: { method: GET, url: "/b" }, extract: [ { var: "a.b", from: status } ] } ]
+`);
+    const id = parallelVarIdentities(m).find((i) => i.varName === "a.b");
+    expect(id?.display).toBe("B.a.b");
+    expect(id?.branchName).toBe("B");
   });
 });

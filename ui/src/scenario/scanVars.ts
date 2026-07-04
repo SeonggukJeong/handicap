@@ -189,3 +189,100 @@ export function undefinedVars(scenario: Scenario): Set<string> {
     if (!produced.has(name) && !namespaced.has(name)) out.add(name);
   return out;
 }
+
+/** 선언 키 ∪ parallel 분기 **밖** http extract var (R2). parallel branches는 미하강 —
+ *  분기 extract는 flat이 아니라 `{{branch.var}}`로 네임스페이스되기 때문. shadow 판정용. */
+export function flatProducerNames(scenario: Scenario): Set<string> {
+  const out = new Set<string>();
+  for (const k of Object.keys(scenario.variables)) out.add(k);
+  const walk = (steps: ReadonlyArray<Step>): void => {
+    for (const s of steps) {
+      if (s.type === "http") {
+        for (const e of s.extract) out.add(e.var);
+      } else if (s.type === "loop") {
+        walk(s.do);
+      } else if (s.type === "if") {
+        walk(s.then);
+        for (const e of s.elif) walk(e.then);
+        walk(s.else);
+      }
+      // parallel: NOT descended (branch extracts are namespaced, not flat).
+    }
+  };
+  walk(scenario.steps);
+  return out;
+}
+
+/** key `${branch.name}.${base}` → 그 branch 서브트리에서 base를 참조하는 문서순 stepId (R3).
+ *  같은 이름 branch가 여러 parallel 노드에 있으면 합쳐진다(엔진 branch-이름 네임스페이스 충실).
+ *  분기 내부 자기 extract는 항상 bare `{{s}}`(base `s`)로 참조되므로 이 맵은 분기 내부 참조만
+ *  담고, 다운스트림 `{{B.s}}`(base `B.s`)는 buildVarRefIndex가 담당한다(R4에서 합류). */
+export function collectBranchInternalRefs(scenario: Scenario): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  for (const s of scenario.steps) {
+    if (s.type !== "parallel") continue;
+    for (const b of s.branches) {
+      for (const step of flattenHttpSteps(b.steps)) {
+        const refs = new Set<string>();
+        collectFromString(step.request.url, refs);
+        for (const v of Object.values(step.request.headers)) collectFromString(v, refs);
+        const body = step.request.body;
+        if (body?.kind === "raw") collectFromString(body.value, refs);
+        else if (body?.kind === "form")
+          for (const v of Object.values(body.value)) collectFromString(v, refs);
+        else if (body?.kind === "json") collectFromJson(body.value, refs);
+        for (const base of refs) {
+          const key = `${b.name}.${base}`;
+          const arr = index.get(key);
+          if (arr) arr.push(step.id);
+          else index.set(key, [step.id]);
+        }
+      }
+    }
+  }
+  return index;
+}
+
+export interface ParallelVarIdentity {
+  branchName: string;
+  varName: string;
+  /** `${branchName}.${varName}` — 엔진 다운스트림 네임스페이스 형(runner.rs:638). */
+  display: string;
+  /** varName이 flat producer(선언/비-parallel extract)와 충돌 = rename 비활성 근거. */
+  isShadow: boolean;
+  /** 분기 내부에서 bare `{{varName}}`을 참조하는 문서순 stepId. */
+  branchRefIds: string[];
+  /** 다운스트림 `{{display}}`을 참조하는 문서순 stepId. */
+  namespacedRefIds: string[];
+}
+
+/** top-level parallel 노드의 각 branch × 각 http extract var마다 1 identity (R1/R4).
+ *  display로 dedup(동명 branch·여러 스텝의 같은 var). 문자열 분해 없이 구조적 branch/var 유지. */
+export function parallelVarIdentities(scenario: Scenario): ParallelVarIdentity[] {
+  const flat = flatProducerNames(scenario);
+  const branchInternal = collectBranchInternalRefs(scenario);
+  const refIndex = buildVarRefIndex(scenario);
+  const out: ParallelVarIdentity[] = [];
+  const seen = new Set<string>();
+  for (const s of scenario.steps) {
+    if (s.type !== "parallel") continue;
+    for (const b of s.branches) {
+      for (const step of flattenHttpSteps(b.steps)) {
+        for (const e of step.extract) {
+          const display = `${b.name}.${e.var}`;
+          if (seen.has(display)) continue;
+          seen.add(display);
+          out.push({
+            branchName: b.name,
+            varName: e.var,
+            display,
+            isShadow: flat.has(e.var),
+            branchRefIds: branchInternal.get(display) ?? [],
+            namespacedRefIds: refIndex.get(display) ?? [],
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
