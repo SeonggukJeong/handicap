@@ -271,8 +271,8 @@ export function AutoGrowTextarea({
 Run: `cd ui && pnpm test BulkEditPanel AutoGrowTextarea Inspector ScenarioImportPage VariablesPanel`
 Expected: 전부 PASS.
 
-Run(완전성 — raw textarea 잔존 0): `grep -rn "<textarea" ui/src --include="*.tsx" | grep -v "\.test\."`
-Expected: **출력 없음**(5곳 전부 `<Textarea>`로 이주).
+Run(완전성 — raw `<textarea>` 잔존 0, 단 프리미티브 자신의 leaf는 제외): `grep -rn "<textarea" ui/src --include="*.tsx" | grep -v "\.test\." | grep -v "components/ui/Textarea.tsx"`
+Expected: **출력 없음**(5개 소비처 전부 `<Textarea>`로 이주; `ui/components/ui/Textarea.tsx`의 leaf `<textarea ref={ref}>`는 프리미티브 정의라 제외 — grep은 대소문자 구분이라 소비처 `<Textarea>`는 미매치).
 
 - [ ] **Step 5: 게이트 + 커밋**
 
@@ -317,41 +317,46 @@ Claude-Session: https://claude.ai/code/session_01Wq9C4mZ1nv4m8LbXTEccgz"
 
 - [ ] **Step 1: teeth 회귀 테스트 먼저(tdd-guard 언블록)**
 
-**(a) ExtractConfirmRow.test.tsx** — 기존 렌더 셋업을 재사용하는 새 `it` 추가. 확인 버튼(`ko` 확인 라벨)과 행 컨테이너 색을 단언:
+**(a) ExtractConfirmRow.test.tsx** — 새 `describe` 블록 추가. 확인 버튼(**정확 라벨 `"추가"`** — 리터럴, ko 키 아님; :68) + 행 배경 단언. `render`/`screen`/`vi`는 기존 파일에서 이미 import됨:
 
 ```tsx
-  it("확인 버튼과 행 배경은 accent 토큰(indigo→accent)", () => {
-    // (기존 테스트와 동일한 render(...)로 ExtractConfirmRow를 마운트)
-    const confirmBtn = screen.getByRole("button", { name: /확인/ });
-    expect(confirmBtn).toHaveClass("bg-accent-600"); // 이주 전 RED
-    // 행 배경(bg-accent-50)을 가진 컨테이너 — 버튼의 조상 div
-    const row = confirmBtn.closest("div");
-    expect(row?.className).toContain("bg-accent-50");
+describe("ExtractConfirmRow — accent 색 (button-accent-migration)", () => {
+  it("확인(추가) 버튼과 행 배경은 accent 토큰(indigo→accent)", () => {
+    render(
+      <ExtractConfirmRow
+        proposed={{ var: "token", from: "body", path: "$.token" }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const addBtn = screen.getByRole("button", { name: "추가" }); // 유일(다른 버튼="취소")
+    expect(addBtn).toHaveClass("bg-accent-600"); // 이주 전 RED (현 bg-indigo-600)
+    const row = addBtn.closest("div"); // 버튼의 직속 부모 = bg-*-50 행
+    expect(row?.className).toContain("bg-accent-50"); // 이주 전 RED (현 bg-indigo-50)
   });
+});
 ```
-(기존 파일의 `render(...)` 헬퍼/셋업을 그대로 복사해 이 `it`에서 사용. 확인 버튼 accessible name은 기존 테스트에서 확인.)
 
-**(b) StepCriteriaFields.test.tsx** — 추가 버튼(link-style, blue→accent)에 teeth:
+**(b) StepCriteriaFields.test.tsx** — 추가 버튼(link-style, blue→accent)에 teeth. 파일은 `test(...)` 관례(describe 없음)·모듈 스코프 `const opts = [{id:"A",label:...},{id:"B",label:...}]`가 이미 있음. 정확 라벨 `"+ 스텝 기준 추가"`:
 
 ```tsx
-  it("기준 추가 버튼은 accent 링크색(blue→accent)", () => {
-    // (기존 테스트와 동일한 render(...)로 StepCriteriaFields 마운트)
-    const addBtn = screen.getByRole("button", { name: /추가/ });
-    expect(addBtn).toHaveClass("text-accent-600"); // 이주 전 RED(현 text-blue-600)
-  });
+test("스텝 기준 추가 버튼은 accent 링크색(blue→accent)", () => {
+  render(<StepCriteriaFields value={[]} options={opts} onChange={() => {}} />);
+  const addBtn = screen.getByRole("button", { name: "+ 스텝 기준 추가" });
+  expect(addBtn).toHaveClass("text-accent-600"); // 이주 전 RED (현 text-blue-600)
+});
 ```
 
-**(c) ResponseBodyTree.test.tsx** — +추출 버튼(indigo→accent)에 teeth:
+**(c) ResponseBodyTree.test.tsx** — +추출 버튼(indigo→accent)에 teeth. **단일 스칼라 값**으로 렌더해 "+추출" 버튼이 정확히 1개(멀티 스칼라면 `getByRole` 다중매치 throw). 정확 라벨 `"+추출"`. `render`/`screen`/`vi` 기존 import:
 
 ```tsx
   it("+추출 버튼은 accent 토큰(indigo→accent)", () => {
-    // (기존 테스트와 동일한 render(...)로 ResponseBodyTree 마운트, +추출 버튼이 보이는 상태)
-    const extractBtn = screen.getByRole("button", { name: /추출/ });
-    expect(extractBtn).toHaveClass("bg-accent-600"); // 이주 전 RED
+    render(<ResponseBodyTree value={{ data: { token: "abc" } }} onCreate={vi.fn()} />);
+    const extractBtn = screen.getByRole("button", { name: "+추출" }); // 단일 스칼라=1개
+    expect(extractBtn).toHaveClass("bg-accent-600"); // 이주 전 RED (현 bg-indigo-600)
   });
 ```
-
-> 각 파일의 기존 `render`/props 셋업(mock·fixture)을 그대로 재사용하라 — 버튼이 이미 화면에 있는 테스트 케이스를 참고. accessible name 정규식이 기존 라벨과 매치하는지 확인(안 맞으면 정확 라벨로 교체).
+(이 `it`은 기존 `describe("ResponseBodyTree", …)` 안에 추가.)
 
 - [ ] **Step 2: 실패 확인**
 
@@ -363,7 +368,7 @@ Expected: 3개 새 `it` FAIL(현재 indigo-600/blue-600).
 | 파일 | old (부분) | new |
 |---|---|---|
 | `WorkerDashboardPage.tsx:67` | `: "bg-blue-600 hover:bg-blue-700"` | `: "bg-accent-600 hover:bg-accent-700"` (`destructive ? "bg-red-600 …"` 그대로) |
-| `WorkerDashboardPage.tsx:136` | `bg-blue-600 hover:bg-blue-700` | `bg-accent-600 hover:bg-accent-700` |
+| `WorkerDashboardPage.tsx:136` | `bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700` (:136은 두 토큰이 **비인접** — 중간 클래스 포함해야 매치) | `bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700` |
 | `WorkerDashboardPage.tsx:491` | `text-blue-600 hover:underline` | `text-accent-600 hover:underline` |
 | `SlotSizingHelper.tsx:105` | `text-blue-600 hover:underline` | `text-accent-600 hover:underline` |
 | `SlotSizingHelper.tsx:137` | `bg-indigo-600 px-2 py-1 text-sm text-white hover:bg-indigo-700` | `bg-accent-600 px-2 py-1 text-sm text-white hover:bg-accent-700` |
@@ -419,7 +424,7 @@ Claude-Session: https://claude.ai/code/session_01Wq9C4mZ1nv4m8LbXTEccgz"
 
 ## 최종 검증 (전 task 후, orchestrator)
 
-- [ ] **완전성 grep 재실행**(self-report 불신): 위 Task 2 Step 4 `<textarea>` grep = 0, Task 3 Step 4 `indigo-/blue-` grep = 동결 5곳만. orchestrator가 직접 재실행.
+- [ ] **완전성 grep 재실행**(self-report 불신): 위 Task 2 Step 4 `<textarea>` grep(프리미티브 `components/ui/Textarea.tsx` 제외 후) = 0, Task 3 Step 4 `indigo-/blue-` grep = 동결 5곳만. orchestrator가 직접 재실행.
 - [ ] **`handicap-reviewer`** APPROVE(크로스커팅·wire 1:1·0-diff 불변식 재확인). 보안 표면 게이트는 diff가 요청실행/템플릿/env·dataset 바인딩/업로드/trace 뷰어를 안 건드리므로 N/A(finish-slice §0 grep으로 확인).
 - [ ] **라이브 시각 검증(경량, Playwright)**: production diff가 UI-only(run-생성/report-파싱/엔진 무접촉)라 full live-verify 스택 불요. (1) `/scenarios/new` 에디터에서 http 스텝 JSON 바디 textarea 포커스 → accent 링(border-color `#6366f1` + box-shadow) 실측, (2) WorkerDashboard 버튼이 indigo(#4f46e5)인지 실측. 순수 UI·백엔드 불필요(vite dev는 IPv6 `[::1]`만 바인드 → `localhost`로 navigate, ui/CLAUDE.md).
 - [ ] **`/finish-slice`** — build-log·roadmap-status·CLAUDE 상태줄·메모리 기록 → ff-merge → ExitWorktree.
