@@ -17,11 +17,28 @@ export function AutoGrowTextarea({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    const full = el.scrollHeight;
     const MAX = 160; // max-h-40
-    el.style.height = `${Math.min(full, MAX)}px`;
-    el.style.overflowY = full > MAX ? "auto" : "hidden"; // 캡 넘칠 때만 스크롤(1줄=바 없음)
+    const resize = () => {
+      el.style.height = "auto";
+      const full = el.scrollHeight;
+      el.style.height = `${Math.min(full, MAX)}px`;
+      el.style.overflowY = full > MAX ? "auto" : "hidden"; // 캡 넘칠 때만 스크롤(1줄=바 없음)
+    };
+    resize();
+    // 폭이 바뀌면(예: 변수 넓게 보기 토글로 열이 넓어짐) 같은 값이 더 적은/많은 줄로
+    // 재배치되므로 높이를 다시 계산한다. value만 dep면 폭 변화에 안 따라와 좁을 때의
+    // 여러 줄 높이가 stale하게 남는다(#varsWide). 높이 자체를 바꾸면 ResizeObserver가
+    // 또 발화하므로 *너비*가 실제로 바뀔 때만 재계산해 되먹임 루프를 막는다.
+    let lastWidth = -1;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w !== lastWidth) {
+        lastWidth = w;
+        resize();
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [value]);
   return (
     <Textarea
