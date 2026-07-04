@@ -208,7 +208,10 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           className="mt-1"
           placeholder={ko.editor.varSearchPlaceholder}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setUsageNav(null); // 검색으로 앵커 행이 필터링되면 detached-anchor 팝오버 방지
+          }}
         />
       </div>
       <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">

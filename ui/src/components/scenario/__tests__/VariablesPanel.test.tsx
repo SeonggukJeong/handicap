@@ -169,6 +169,37 @@ steps:
     expect(list.className).toContain("min-h-0");
   });
 
+  it("검색어가 팝오버 앵커 행을 필터링하면 열린 사용처 팝오버를 닫는다 (whole-branch 리뷰 fold-in)", async () => {
+    const user = userEvent.setup();
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  token: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: a
+    type: http
+    request: { method: GET, url: "/x?a={{token}}", headers: {} }
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    render(<VariablesPanel />);
+
+    await user.click(screen.getByRole("button", { name: ko.editor.variableUsageNavAria("token") }));
+    expect(
+      await screen.findByRole("menu", { name: ko.editor.varUsageListAria }),
+    ).toBeInTheDocument(); // 검색 전: 팝오버 열림
+
+    // fireEvent.change(포인터 이벤트 없음)로 검증 — user.type/click은 검색창에
+    // pointerdown을 발화해 VarUsagePopover의 기존 "바깥 pointerdown→닫힘" 핸들러가
+    // 우연히 팝오버를 닫혀버려, 이 state-hygiene 버그(앵커 unmount 자체가 원인)를
+    // 가려버린다. fireEvent.change만 써서 그 우회 경로를 배제하고 진짜 버그만 노출.
+    const search = screen.getByPlaceholderText(ko.editor.varSearchPlaceholder);
+    fireEvent.change(search, { target: { value: "zzz" } }); // "token" 행을 필터링해 제거 → 앵커가 unmount
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument(); // 검색 후: 팝오버 닫힘
+  });
+
   it("R4: 사용되는 변수는 'N개 스텝에서 사용', 안 쓰이는 변수는 '미사용' 힌트를 보인다", () => {
     // {{used}}를 한 http 스텝의 url에서 참조하는 시나리오 + 미참조 변수 {{lonely}}
     useScenarioEditor.getState().loadFromString(`version: 1
