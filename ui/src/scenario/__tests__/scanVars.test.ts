@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { scanFlowVars, scanEnvVars, countFlowVarUsage } from "../scanVars";
+import {
+  scanFlowVars,
+  scanEnvVars,
+  countFlowVarUsage,
+  collectProducedVars,
+  collectNamespacedProducers,
+  parallelExtractNames,
+  buildVarRefIndex,
+  undefinedVars,
+} from "../scanVars";
 import type { Scenario } from "../model";
 import { ScenarioModel } from "../model";
 
@@ -458,5 +467,153 @@ describe("countFlowVarUsage", () => {
     const u = countFlowVarUsage(s);
     expect(u.get("ga")).toBe(1); // all 그룹 첫 번째 피연산자
     expect(u.get("gb")).toBe(1); // all 그룹 두 번째 피연산자
+  });
+});
+
+// 헬퍼: parallel 1분기(extract s) + 그 분기가 {{s}}(bare) 참조, 그리고 다운스트림 http가 {{alpha.s}}·{{typo.s}}·{{missing}} 참조.
+const parallelScen = ScenarioModel.parse({
+  version: 1,
+  name: "p",
+  cookie_jar: "auto",
+  variables: { declared: "v" },
+  steps: [
+    {
+      id: "01HX0000000000000000000050",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "alpha",
+          steps: [
+            {
+              id: "01HX0000000000000000000051",
+              name: "leaf",
+              type: "http",
+              request: { method: "GET", url: "/{{s}}", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.tok", var: "s" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000000052",
+      name: "after",
+      type: "http",
+      request: { method: "GET", url: "/x?a={{alpha.s}}&b={{typo.s}}&c={{missing}}", headers: {} },
+      assert: [],
+      extract: [{ from: "body", path: "$.u", var: "flatVar" }],
+    },
+  ],
+});
+
+describe("splitFlowToken normalization in scanners (R1/R13)", () => {
+  it("countFlowVarUsage keys a cast token by its base (token, not token:num)", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: {
+          method: "GET",
+          url: "/x",
+          headers: {},
+          body: { kind: "json", value: { n: "{{token:num}}" } },
+        },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(countFlowVarUsage(s).get("token")).toBe(1);
+    expect(countFlowVarUsage(s).get("token:num")).toBeUndefined();
+  });
+  it("keeps a non-keyword :suffix as the whole base (count:foo)", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: {
+          method: "GET",
+          url: "/x",
+          headers: {},
+          body: { kind: "json", value: { n: "{{count:foo}}" } },
+        },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(scanFlowVars(s).has("count:foo")).toBe(true);
+    expect(scanFlowVars(s).has("count")).toBe(false);
+  });
+});
+
+describe("collectProducedVars (R2)", () => {
+  it("unions declared keys and every http extract var (parallel branches included)", () => {
+    const p = collectProducedVars(parallelScen);
+    expect(p.has("declared")).toBe(true); // 선언
+    expect(p.has("s")).toBe(true); // parallel 분기 extract bare
+    expect(p.has("flatVar")).toBe(true); // flat extract
+  });
+});
+
+describe("collectNamespacedProducers (R3)", () => {
+  it("emits ${branch}.${var} for each parallel branch extract", () => {
+    const ns = collectNamespacedProducers(parallelScen);
+    expect(ns.has("alpha.s")).toBe(true);
+    expect(ns.has("s")).toBe(false); // bare는 여기 없음
+  });
+});
+
+describe("parallelExtractNames (R8 shadow)", () => {
+  it("returns bare names extracted inside any parallel branch", () => {
+    expect([...parallelExtractNames(parallelScen)]).toEqual(["s"]);
+  });
+});
+
+describe("buildVarRefIndex (R3/R10)", () => {
+  it("keys refs as-appears (bare vs branch.var), cast-normalized, in document-order stepIds", () => {
+    const idx = buildVarRefIndex(parallelScen);
+    expect(idx.get("s")).toEqual(["01HX0000000000000000000051"]); // 분기 내부 bare
+    expect(idx.get("alpha.s")).toEqual(["01HX0000000000000000000052"]); // 다운스트림 namespaced
+    expect(idx.get("missing")).toEqual(["01HX0000000000000000000052"]); // bare 미정의
+  });
+  it("counts derive from index length (a var used twice in one step = one stepId)", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/{{id}}/{{id}}", headers: { "X-Id": "{{id}}" } },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(buildVarRefIndex(s).get("id")).toEqual(["01HX0000000000000000000001"]);
+    expect(countFlowVarUsage(s).get("id")).toBe(1);
+  });
+});
+
+describe("undefinedVars (R4)", () => {
+  it("flags dangling refs but not valid namespaced / branch-internal bare refs", () => {
+    const u = undefinedVars(parallelScen);
+    expect(u.has("alpha.s")).toBe(false); // 유효 namespaced
+    expect(u.has("s")).toBe(false); // 분기 내부 bare는 collectProducedVars가 해소(conservative)
+    expect(u.has("typo.s")).toBe(true); // 당글링 namespaced
+    expect(u.has("missing")).toBe(true); // bare 미정의
+  });
+  it("treats {{vu_id}} as a real undefined flow var (no reserved-system subtraction)", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/x?v={{vu_id}}", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(undefinedVars(s).has("vu_id")).toBe(true);
   });
 });

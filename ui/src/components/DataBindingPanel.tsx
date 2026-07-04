@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataset, useDatasets } from "../api/hooks";
 import type { BindingPolicy, DataBinding, Mapping } from "../api/schemas";
-import { flattenHttpSteps, type Scenario } from "../scenario/model";
-import { scanFlowVars } from "../scenario/scanVars";
+import { type Scenario } from "../scenario/model";
+import { scanFlowVars, collectProducedVars } from "../scenario/scanVars";
 import { ko } from "../i18n/ko";
 
 type Props = {
@@ -304,15 +304,8 @@ function BindingCard({
   // Compute the set of vars this scenario references via {{var}} syntax.
   const scannedVars = useMemo(() => scanFlowVars(scenario), [scenario]);
 
-  // Compute the set of vars available from other sources (scenario.variables + extracts).
-  const availableElsewhere = useMemo<Set<string>>(() => {
-    const s = new Set<string>();
-    for (const k of Object.keys(scenario.variables)) s.add(k);
-    for (const step of flattenHttpSteps(scenario.steps)) {
-      for (const e of step.extract) s.add(e.var);
-    }
-    return s;
-  }, [scenario]);
+  // scenario.variables + 모든 extract(분기 포함)로 채워지는 var 집합 (공유 collectProducedVars).
+  const availableElsewhere = useMemo<Set<string>>(() => collectProducedVars(scenario), [scenario]);
 
   // Reconstruct the sibling-covered var set from the stable space-joined string. A var
   // supplied by another binding card is NOT "uncovered" here (Slice 8c false-alarm trap,

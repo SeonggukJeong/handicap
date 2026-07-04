@@ -4,7 +4,7 @@
  * 지원한다(flow·env/시스템 토큰 둘 다). 반환 배열이 비면 valid.
  * 캐스트 없는 토큰·리터럴·`${VAR:-default}`는 절대 flag하지 않는다.
  */
-const CAST_KEYWORDS: readonly string[] = ["str", "num", "bool", "json"];
+export const CAST_KEYWORDS: readonly string[] = ["str", "num", "bool", "json"];
 
 const FLOW_TOKEN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 const ENV_TOKEN = /\$\{([^}]*)\}/g;
@@ -61,7 +61,7 @@ function checkLeaf(s: string, errors: string[]): void {
 /** 토큰 inner의 trailing `:word` 캐스트 keyword, 없으면 null. env 기본값 연산자
  *  `:-default`는 제외(캐스트 콜론 앞은 `-`가 아님). 콜론 뒤 공백은 허용 —
  *  엔진 parse_cast_leaf이 `kw.trim()`이라 `{{ age : num }}`도 캐스트로 보기 때문(lockstep). */
-function trailingCast(inner: string): string | null {
+export function trailingCast(inner: string): string | null {
   const m = /(?:^|[^-]):\s*([A-Za-z][A-Za-z0-9]*)$/.exec(inner);
   return m ? m[1] : null;
 }
