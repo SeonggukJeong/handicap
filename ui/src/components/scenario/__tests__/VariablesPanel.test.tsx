@@ -337,6 +337,38 @@ steps:
     expect(yaml).toContain("{{B.renamed}}");
   });
 
+  it("R10: non-shadow parallel row nav cycles branch-internal ref before downstream ref, in doc order, wraps", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps:
+          - id: "01HX0000000000000000000020"
+            type: http
+            name: a
+            request: { method: GET, url: "/a?x={{fresh}}" }
+            extract: [ { var: fresh, from: status } ]
+  - id: "01HX0000000000000000000030"
+    type: http
+    name: d
+    request: { method: GET, url: "/d?y={{B.fresh}}" }
+`);
+    const onJump = vi.fn();
+    render(<VariablesPanel onJumpToStep={onJump} />);
+    const nav = screen.getByRole("button", { name: ko.editor.variableUsageNavAria("B.fresh") });
+    fireEvent.click(nav);
+    fireEvent.click(nav);
+    fireEvent.click(nav); // 3rd wraps
+    expect(onJump).toHaveBeenNthCalledWith(1, "01HX0000000000000000000020"); // branch-internal ref first (doc order)
+    expect(onJump).toHaveBeenNthCalledWith(2, "01HX0000000000000000000030"); // downstream namespaced ref
+    expect(onJump).toHaveBeenNthCalledWith(3, "01HX0000000000000000000020"); // cycle wraps
+  });
+
   it("shadow parallel row has no rename pencil and shows shadow title (R9)", () => {
     useScenarioEditor.getState().loadFromString(`version: 1
 name: "t"

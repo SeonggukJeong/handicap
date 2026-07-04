@@ -141,4 +141,28 @@ steps:
     expect(out).toContain('s: "literal-key"'); // header KEY 's' not renamed
     expect(out).toContain("var: s2");
   });
+
+  it("(b negative) bareRe lookahead does not corrupt non-matching cast/name tokens in the matched branch", () => {
+    const yaml = `version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX00000000000000000000F0"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps:
+          - id: "01HX00000000000000000000G0"
+            type: http
+            name: a
+            request: { method: GET, url: "/a?x={{s}}&y={{s:notacast}}&z={{sX}}" }
+            extract: [ { var: s, from: status } ]
+`;
+    const out = apply(yaml, "B", "s", "s2");
+    expect(out).toContain("{{s2}}"); // exact base match — rewritten
+    expect(out).toContain("{{s:notacast}}"); // notacast ∉ CAST_KEYWORDS → base is "s:notacast", not "s" — untouched
+    expect(out).toContain("{{sX}}"); // longer name — base is "sX", not "s" — untouched
+    expect(out).not.toContain("{{s2:notacast}}"); // the corruption an asymmetric lookahead would produce
+  });
 });
