@@ -80,6 +80,7 @@ export type Edit =
       >;
     }
   | { type: "renameVariable"; oldName: string; newName: string }
+  | { type: "renameParallelVar"; branchName: string; oldName: string; newName: string }
   | { type: "insertSteps"; afterTopIndex: number | null; stepsYaml: string };
 
 export function parseScenarioDoc(yamlText: string): ParseResult {
@@ -492,6 +493,55 @@ export function applyEdit(doc: Document, edit: Edit): void {
           if (typeof node.value !== "string") return;
           const next = node.value.replace(re, (_m, ws: string) => `{{${ws}${newName}`);
           if (next !== node.value) node.value = next;
+        },
+      });
+      return;
+    }
+    case "renameParallelVar": {
+      const { branchName, oldName, newName } = edit;
+      const castAlt = CAST_KEYWORDS.join("|");
+      // (b) 분기 내부 bare — 슬라이스 A와 대칭 lookahead(splitFlowToken base 정확일치).
+      const bareRe = new RegExp(
+        `\\{\\{(\\s*)${escapeRegExp(oldName)}(?=\\s*\\}\\}|\\s*:\\s*(?:${castAlt})\\s*\\}\\})`,
+        "g",
+      );
+      // (a)+(b): 이름이 branchName인 모든 top-level parallel branch(여러 노드 포함).
+      const steps = doc.getIn(["steps"]);
+      if (isSeq(steps)) {
+        for (const node of steps.items) {
+          if (!isMap(node)) continue;
+          const branches = node.get("branches");
+          if (!isSeq(branches)) continue;
+          for (const br of branches.items) {
+            if (!isMap(br)) continue;
+            if (br.get("name") !== branchName) continue;
+            const brSteps = br.get("steps");
+            if (!isSeq(brSteps)) continue;
+            // (a) 구조적 extract var — branch-스코프.
+            renameExtractVars(brSteps, oldName, newName);
+            // (b) 분기 내부 bare {{oldName}} base만 재작성(map 키 미오염).
+            visit(brSteps, {
+              Scalar(key, n) {
+                if (key === "key") return;
+                if (typeof n.value !== "string") return;
+                const next = n.value.replace(bareRe, (_m, ws: string) => `{{${ws}${newName}`);
+                if (next !== n.value) n.value = next;
+              },
+            });
+          }
+        }
+      }
+      // (c) 다운스트림 {{branchName.oldName}} → {{branchName.newName}}, 전-doc, base 정확일치.
+      const nsRe = new RegExp(
+        `\\{\\{(\\s*)${escapeRegExp(branchName)}\\.${escapeRegExp(oldName)}(?=\\s*\\}\\}|\\s*:\\s*(?:${castAlt})\\s*\\}\\})`,
+        "g",
+      );
+      visit(doc, {
+        Scalar(key, n) {
+          if (key === "key") return;
+          if (typeof n.value !== "string") return;
+          const next = n.value.replace(nsRe, (_m, ws: string) => `{{${ws}${branchName}.${newName}`);
+          if (next !== n.value) n.value = next;
         },
       });
       return;
