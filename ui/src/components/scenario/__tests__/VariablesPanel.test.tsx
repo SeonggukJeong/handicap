@@ -169,6 +169,13 @@ describe("VariablesPanel — unified rows", () => {
     expect(
       screen.getByRole("button", { name: ko.editor.renameVariableAria("flatVar") }),
     ).toBeInTheDocument();
+    // R5: flat-extract 행은 값 textarea/× 제거 버튼이 없다(둘 다 declared 전용)
+    expect(
+      screen.queryByRole("textbox", { name: ko.editor.variableValueAria("flatVar") }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.removeVariableAria("flatVar") }),
+    ).toBeNull();
     // parallel-extract alpha.s: "분기" 배지 + 연필 없음
     expect(screen.getByText("alpha.s")).toBeInTheDocument();
     expect(
@@ -225,6 +232,56 @@ steps:
     fireEvent.keyDown(input, { key: "Enter" });
     expect(useScenarioEditor.getState().yamlText).toContain("auth: seed");
     expect(useScenarioEditor.getState().yamlText).toContain("{{auth}}");
+  });
+
+  it("R10: 0-ref 변수는 '미사용' 텍스트만 렌더하고 nav 버튼을 만들지 않는다", () => {
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  lonely: "l"
+steps:
+  - id: 01HX0000000000000000000001
+    name: s
+    type: http
+    request:
+      method: GET
+      url: "/x"
+      headers: {}
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    render(<VariablesPanel />);
+    expect(screen.getByText(ko.editor.variableUnused)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.variableUsageNavAria("lonely") }),
+    ).toBeNull();
+  });
+
+  it("R9: 선언 + parallel 분기가 동일 이름을 추출(shadow)하면 declared 행은 rename 연필이 없다", () => {
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  s: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps:
+          - id: 01HX0000000000000000000002
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: s
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    render(<VariablesPanel />);
+    expect(screen.queryByRole("button", { name: ko.editor.renameVariableAria("s") })).toBeNull();
   });
 
   it("disables the rename pencil while yamlError is set", () => {
