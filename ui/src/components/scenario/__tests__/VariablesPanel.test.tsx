@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VariablesPanel } from "../VariablesPanel";
 import { useScenarioEditor } from "../../../scenario/store";
+import { ko } from "../../../i18n/ko";
 
 const reset = () =>
   useScenarioEditor.setState(
@@ -118,5 +119,122 @@ describe("VariablesPanel — newKey input adopts primitive Input (design-system-
     const newKey = screen.getByPlaceholderText("new_var");
     expect(newKey).toHaveClass("focus:ring-accent-500/30"); // Input BASE — RED before migration
     expect(newKey).toHaveClass("font-mono"); // mono preserved
+  });
+});
+
+const MIXED = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  token: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: consume
+    type: http
+    request:
+      method: GET
+      url: "/x?a={{token}}&b={{alpha.s}}&c={{missing}}"
+      headers: {}
+    extract:
+      - from: body
+        path: $.u
+        var: flatVar
+  - id: 01HX0000000000000000000050
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps:
+          - id: 01HX0000000000000000000051
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: s
+`;
+
+describe("VariablesPanel — unified rows", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  it("renders declared / flat-extract / parallel-extract / undefined rows with gated affordances", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    // 선언 token: 연필 있음(flat non-shadow)
+    expect(
+      screen.getByRole("button", { name: ko.editor.renameVariableAria("token") }),
+    ).toBeInTheDocument();
+    // flat-extract flatVar: 연필 있음, 값/× 없음
+    expect(
+      screen.getByRole("button", { name: ko.editor.renameVariableAria("flatVar") }),
+    ).toBeInTheDocument();
+    // parallel-extract alpha.s: "분기" 배지 + 연필 없음
+    expect(screen.getByText("alpha.s")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.renameVariableAria("alpha.s") }),
+    ).toBeNull();
+    // 미정의 missing: "정의안됨" + 연필 없음
+    expect(screen.getByText(ko.editor.variableUndefined)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.renameVariableAria("missing") }),
+    ).toBeNull();
+  });
+
+  it("nav count is a button when refs≥1 and cycles stepIds in document order; unused is not a button", () => {
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  token: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: a
+    type: http
+    request: { method: GET, url: "/x?a={{token}}", headers: {} }
+  - id: 01HX0000000000000000000002
+    name: b
+    type: http
+    request: { method: GET, url: "/y?b={{token}}", headers: {} }
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    const onJump = vi.fn();
+    render(<VariablesPanel onJumpToStep={onJump} />);
+    const nav = screen.getByRole("button", { name: ko.editor.variableUsageNavAria("token") });
+    fireEvent.click(nav);
+    fireEvent.click(nav);
+    fireEvent.click(nav); // 3rd wraps
+    expect(onJump).toHaveBeenNthCalledWith(1, "01HX0000000000000000000001");
+    expect(onJump).toHaveBeenNthCalledWith(2, "01HX0000000000000000000002");
+    expect(onJump).toHaveBeenNthCalledWith(3, "01HX0000000000000000000001"); // 순환
+  });
+
+  it("inline rename commits on Enter and shows an inline error on collision", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    // rename token → collide with 'flatVar' (existing producer)
+    fireEvent.click(screen.getByRole("button", { name: ko.editor.renameVariableAria("token") }));
+    const input = screen.getByRole("textbox", { name: ko.editor.variableRenameInputAria("token") });
+    fireEvent.change(input, { target: { value: "flatVar" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText(ko.editor.variableRenameCollision("flatVar"))).toBeInTheDocument();
+    expect(useScenarioEditor.getState().yamlText).toContain("token: seed"); // 미커밋
+
+    // valid rename commits
+    fireEvent.change(input, { target: { value: "auth" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(useScenarioEditor.getState().yamlText).toContain("auth: seed");
+    expect(useScenarioEditor.getState().yamlText).toContain("{{auth}}");
+  });
+
+  it("disables the rename pencil while yamlError is set", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    useScenarioEditor.getState().commitPendingYaml(); // yamlError 세팅 — model은 보존됨(store.commitPendingYaml)
+    render(<VariablesPanel />);
+    // model 보존이라 행은 렌더되지만 rename 연필은 disabled (R9 편집 게이트)
+    expect(
+      screen.getByRole("button", { name: ko.editor.renameVariableAria("token") }),
+    ).toBeDisabled();
   });
 });

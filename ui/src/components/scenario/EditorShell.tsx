@@ -110,7 +110,7 @@ export function EditorShell({
             aria-label={ko.editor.varsPanelAria}
             className="rounded-md border border-slate-200 bg-white p-3"
           >
-            <VariablesPanel />
+            <VariablesPanel onJumpToStep={jumpToStep} />
           </aside>
         )}
         {wideOpen ? (
