@@ -127,6 +127,11 @@
 - **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI.
 - **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형.
 
+**editor-viewport-polish-v2 연기 항목 (2026-07-05, 머지 후 백로그)**:
+- **스크롤바 정확히 8px**: A 얇은 스크롤바는 라이브 실측 11px(스펙 목표 8px 아님) — `scrollbar-width: thin`이 설정되면 Chromium이 표준 얇은 바를 쓰고 `::-webkit-scrollbar { width: 8px }`를 무시한다. 15→11px로 얇아지긴 함. 정확히 8px 원하면 `scrollbar-width`/`scrollbar-color`를 걷어내고 webkit 전용(`::-webkit-scrollbar`)으로 바꿔야 하나 그러면 Firefox가 얇은 바를 잃는 트레이드오프. `index.css` 소형. (사용자: 8px 불필수, 얇아진 것으로 수용 — 필요 시 조정.)
+- **헤더 접기 토글 `aria-controls`**: `ScenarioEditPage` 크롬 접기/펴기 버튼에 `aria-expanded`는 있으나 `aria-controls` 없음(접히는 브레드크럼·부제가 비인접 2영역이라 단일 id 부여에 DOM 재구성 필요 — spec §6이 라이브/후속으로 연기). `aria-expanded` 단독은 유효 ARIA(위반 아님). a11y 폴리시 소형.
+- **접힘 cap 11rem 정밀 튜닝**: fill-height 전환 후 접힘 그리드=724px(bottom 818, 82px 여백)로 뷰포트 내 안전하나, 접힘 크롬이 46px 줄고 cap은 80px 늘어 확장 상태(16rem, 20px 여백)와 여백 비대칭. 완전 대칭 원하면 ~13rem. 현재 11rem은 실용상 문제없음(모든 현실 내용 뷰포트 내). CSS 소형.
+
 ---
 
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
