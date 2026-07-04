@@ -256,6 +256,15 @@
 - 에디터 변수 도구 B(parallel-분기 변수 rename): scope-aware — 분기 서브트리 bare {{var}} + 다운스트림 {{branch.var}} 재작성, 패널 (branch,var) identity로 rename 활성화(슬라이스 A는 분기/shadow 행 rename 비활성+배지).
 - 변수 도구 후속: parallel-row 내부-분기 bare nav 보강((branch,var) identity 통합; shadow flat-extract+parallel[같은 이름이 flat 스텝·분기 양쪽서 추출]은 슬라이스 A에서 namespaced 행만 뜨고 flat identity 행이 없어 bare 참조가 non-navigable — 같은 통합으로 해소)·bulk 변수 편집(BulkEditPanel+kvBulk 확장)·FlowOutline 스텝-레벨 미정의 배지·producer 스텝으로의 nav·merge/오타-재연결 rename(충돌 차단 정책과 상충).
 
+### B15. 에디터 변수 도구 B (2026-07-04, ADR 불필요·UI-only, 슬라이스 B) 연기 항목
+출처: `docs/superpowers/specs/2026-07-04-editor-var-tools-b-design.md` §7. 슬라이스 B = parallel-분기 변수 scope-aware rename(branch,var identity — 분기 서브트리 bare `{{var}}` + 다운스트림 `{{branch.var}}` 재작성, B14의 "flat-only" 한계 해소). 남은 의도적 연기:
+- bulk 변수 편집(BulkEditPanel/kvBulk 확장) — 별 메커니즘·별 슬라이스.
+- FlowOutline 스텝-레벨 미정의 배지 — 패널 밖 표면(슬라이스 A R11이 패널-한정 유지).
+- producer 스텝으로의 nav — 현 nav는 참조(consumer)로만.
+- shadow(이름 충돌) 변수의 position-aware rename — 분기 내 참조 위치 분석 필요·correctness 위험·드문 authoring(사용자: non-shadow만).
+- shadow flat+parallel의 flat-identity 행 복원(bare 참조 navigable화) — shadow 모호성을 다시 들여 보수성과 상충.
+- merge/오타-재연결 rename(충돌 차단 정책과 상충) — A/B 공통 연기.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 

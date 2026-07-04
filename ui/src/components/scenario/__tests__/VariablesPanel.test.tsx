@@ -176,11 +176,12 @@ describe("VariablesPanel — unified rows", () => {
     expect(
       screen.queryByRole("button", { name: ko.editor.removeVariableAria("flatVar") }),
     ).toBeNull();
-    // parallel-extract alpha.s: "분기" 배지 + 연필 없음
-    expect(screen.getByText("alpha.s")).toBeInTheDocument();
+    // parallel-extract alpha.s (non-shadow) — split display + rename pencil + info-title badge
+    expect(screen.getByText("alpha.")).toBeInTheDocument(); // 고정 prefix span
     expect(
-      screen.queryByRole("button", { name: ko.editor.renameVariableAria("alpha.s") }),
-    ).toBeNull();
+      screen.getByRole("button", { name: ko.editor.renameVariableAria("alpha.s") }),
+    ).toBeInTheDocument();
+    expect(screen.getByTitle(ko.editor.variableBranchInfoTitle)).toBeInTheDocument();
     // 미정의 missing: "정의안됨" + 연필 없음
     expect(screen.getByText(ko.editor.variableUndefined)).toBeInTheDocument();
     expect(
@@ -299,5 +300,81 @@ steps:
     expect(
       screen.getByRole("button", { name: ko.editor.renameVariableAria("token") }),
     ).toBeDisabled();
+  });
+
+  it("non-shadow parallel row shows rename pencil and commits (R8)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps:
+          - id: "01HX0000000000000000000020"
+            type: http
+            name: a
+            request: { method: GET, url: "/a?x={{fresh}}" }
+            extract: [ { var: fresh, from: status } ]
+  - id: "01HX0000000000000000000030"
+    type: http
+    name: d
+    request: { method: GET, url: "/d?y={{B.fresh}}" }
+`);
+    render(<VariablesPanel />);
+    // pencil aria uses display "B.fresh"
+    await user.click(screen.getByRole("button", { name: ko.editor.renameVariableAria("B.fresh") }));
+    const input = screen.getByRole("textbox", {
+      name: ko.editor.variableRenameInputAria("B.fresh"),
+    });
+    await user.clear(input);
+    await user.type(input, "renamed{Enter}");
+    const yaml = useScenarioEditor.getState().yamlText;
+    expect(yaml).toContain("{{renamed}}");
+    expect(yaml).toContain("{{B.renamed}}");
+  });
+
+  it("shadow parallel row has no rename pencil and shows shadow title (R9)", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "t"
+variables: { s: "x" }
+steps:
+  - id: "01HX0000000000000000000040"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps: [ { id: "01HX0000000000000000000050", type: http, name: a, request: { method: GET, url: "/a" }, extract: [ { var: s, from: status } ] } ]
+`);
+    render(<VariablesPanel />);
+    expect(screen.queryByRole("button", { name: ko.editor.renameVariableAria("B.s") })).toBeNull();
+    expect(screen.getByTitle(ko.editor.variableBranchShadowTitle)).toBeInTheDocument();
+  });
+
+  it("parallel rename collision shows inline error, no commit (R8)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "t"
+variables: { taken: "x" }
+steps:
+  - id: "01HX0000000000000000000060"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps: [ { id: "01HX0000000000000000000070", type: http, name: a, request: { method: GET, url: "/a" }, extract: [ { var: fresh, from: status } ] } ]
+`);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.renameVariableAria("B.fresh") }));
+    const input = screen.getByRole("textbox", {
+      name: ko.editor.variableRenameInputAria("B.fresh"),
+    });
+    await user.clear(input);
+    await user.type(input, "taken{Enter}"); // into-shadow collision
+    expect(screen.getByText(ko.editor.variableRenameCollision("taken"))).toBeInTheDocument();
+    expect(useScenarioEditor.getState().yamlText).toContain("var: fresh"); // not committed
   });
 });
