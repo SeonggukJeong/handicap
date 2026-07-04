@@ -16,6 +16,8 @@ import {
   collectNamespacedProducers,
   parallelExtractNames,
   buildVarRefIndex,
+  flatProducerNames,
+  collectBranchInternalRefs,
 } from "./scanVars";
 
 export type RenameVarError = "self" | "invalid" | "shadow" | "collision";
@@ -48,6 +50,10 @@ export interface ScenarioEditorState {
    *  {{old}} 참조(cast 보존) + 조건 오퍼랜드를 트랜잭셔널로 재작성. 실패 시 no-op +
    *  에러코드 반환(null=성공·커밋됨). yamlError·shadow·충돌·불법 newName에서 no-op. */
   renameVariable(oldName: string, newName: string): RenameVarError | null;
+  /** parallel-분기 extract 변수(non-shadow) rename. 이름이 branchName인 모든 branch의
+   *  extract.var + 분기 내부 bare {{old}} + 다운스트림 {{branch.old}}를 트랜잭셔널 재작성.
+   *  yamlError·shadow·충돌·불법 newName·self에서 no-op + 에러코드(null=성공·커밋됨). */
+  renameParallelVar(branchName: string, oldName: string, newName: string): RenameVarError | null;
   addStep(name: string): string | null; // returns new id (null when yamlError)
   addLoopStep(name: string): string | null; // returns new loop id
   addStepInLoop(loopId: string, name: string): string | null; // returns new child id
@@ -165,6 +171,33 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
     applyEdit(clone, { type: "renameVariable", oldName, newName });
     const reparsed = parseScenarioDoc(serializeDoc(clone));
     if ("error" in reparsed) return "invalid"; // 합법성 게이트 — 원본 doc 무오염
+    set({
+      doc: reparsed.doc,
+      model: reparsed.model,
+      yamlText: serializeDoc(reparsed.doc),
+      yamlError: null,
+    });
+    return null;
+  },
+  renameParallelVar(branchName, oldName, newName) {
+    const doc = get().doc;
+    const model = get().model;
+    if (!doc || !model) return "invalid";
+    if (get().yamlError !== null) return "invalid"; // 편집 게이트(R6)
+    if (newName === oldName) return "self";
+    if (!/^[^\s{}:]+$/.test(newName)) return "invalid";
+    const flat = flatProducerNames(model);
+    if (flat.has(oldName)) return "shadow"; // 방어적 — 패널이 shadow 행 pencil 미표시
+    if (flat.has(newName)) return "collision"; // into-shadow
+    const display2 = `${branchName}.${newName}`;
+    if (collectNamespacedProducers(model).has(display2) || buildVarRefIndex(model).has(display2))
+      return "collision"; // namespaced target already produced/referenced
+    if ((collectBranchInternalRefs(model).get(display2) ?? []).length > 0) return "collision"; // 분기-내부 dangling bare
+    // 트랜잭셔널(reparentStep/renameVariable 선례): clone → apply → reparse → 성공 시에만 커밋.
+    const clone = doc.clone();
+    applyEdit(clone, { type: "renameParallelVar", branchName, oldName, newName });
+    const reparsed = parseScenarioDoc(serializeDoc(clone));
+    if ("error" in reparsed) return "invalid"; // 원본 doc 무오염
     set({
       doc: reparsed.doc,
       model: reparsed.model,
@@ -406,6 +439,7 @@ const actions = (() => {
     setVariable: s.setVariable,
     removeVariable: s.removeVariable,
     renameVariable: s.renameVariable,
+    renameParallelVar: s.renameParallelVar,
     addStep: s.addStep,
     addLoopStep: s.addLoopStep,
     addStepInLoop: s.addStepInLoop,
