@@ -227,6 +227,12 @@ steps:
     expect(screen.getByText(ko.editor.variableRenameCollision("flatVar"))).toBeInTheDocument();
     expect(useScenarioEditor.getState().yamlText).toContain("token: seed"); // 미커밋
 
+    // typing a corrected name clears the stale collision error (before any re-commit)
+    fireEvent.change(input, { target: { value: "somethingElse" } });
+    expect(
+      screen.queryByText(ko.editor.variableRenameCollision("flatVar")),
+    ).not.toBeInTheDocument();
+
     // valid rename commits
     fireEvent.change(input, { target: { value: "auth" } });
     fireEvent.keyDown(input, { key: "Enter" });

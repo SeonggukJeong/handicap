@@ -12,6 +12,7 @@ import {
 } from "yaml";
 import { z } from "zod";
 import { ScenarioModel, StepModel, type Scenario, type Step, type Condition } from "./model";
+import { CAST_KEYWORDS } from "./cast";
 
 export type BranchSel = { kind: "then" } | { kind: "else" } | { kind: "elif"; index: number };
 
@@ -477,7 +478,14 @@ export function applyEdit(doc: Document, edit: Edit): void {
       // (b) 구조적: 전 스텝 트리의 extract[].var === oldName → newName (bare-scalar-any-match 금지).
       renameExtractVars(doc.getIn(["steps"]), oldName, newName);
       // (c)+(d) 텍스트: 모든 스칼라 VALUE의 {{old}}/{{old:cast}} base만 재작성(cast·공백·나머지 byte 보존).
-      const re = new RegExp(`\\{\\{(\\s*)${escapeRegExp(oldName)}(?=[:}\\s])`, "g");
+      // lookahead는 splitFlowToken(flowToken.ts)의 base 판정과 대칭이어야 한다 — 콜론/공백
+      // 뒤가 CAST_KEYWORDS일 때만 base가 잘린다. 그 외(non-keyword suffix)는 base가 전체
+      // 토큰(`old:foo`/`old bar`)이라 oldName과 다르므로 rename 대상이 아니다.
+      const castAlt = CAST_KEYWORDS.join("|");
+      const re = new RegExp(
+        `\\{\\{(\\s*)${escapeRegExp(oldName)}(?=\\s*\\}\\}|\\s*:\\s*(?:${castAlt})\\s*\\}\\})`,
+        "g",
+      );
       visit(doc, {
         Scalar(key, node) {
           if (key === "key") return; // 맵 키는 verbatim (헤더/JSON 키; variables 키는 (a) 소유)

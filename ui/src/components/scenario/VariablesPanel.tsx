@@ -116,7 +116,10 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           aria-label={ko.editor.variableRenameInputAria(name)}
           className="min-w-0 font-mono"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setRenameError(null);
+          }}
           onBlur={() => commitRename(name)}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitRename(name);

@@ -48,6 +48,31 @@ describe("applyEdit renameVariable", () => {
     expect(out).toContain("{{team.old}}"); // namespaced 불매치
   });
 
+  it("(c-2) leaves {{old:foo}}(non-keyword suffix) and {{old bar}}(space, no keyword) untouched — scanner/rewrite symmetry", () => {
+    // splitFlowToken(flowToken.ts)의 base 판정과 대칭이어야 한다: base는 콜론/공백 뒤가
+    // CAST_KEYWORDS(str/num/bool/json)일 때만 분리된다. `foo`/`bar`는 keyword가 아니므로
+    // 전체(`old:foo`/`old bar`)가 base — oldName("old")과 다르므로 rename 대상이 아니다.
+    const outColon = rename(
+      `version: 1\nname: t\nvariables:\n  old: v\nsteps:\n` +
+        `  - id: 01HX0000000000000000000001\n    name: s\n    type: http\n` +
+        `    request:\n      method: GET\n      url: "/x?a={{old:foo}}"\n      headers: {}\n`,
+      "old",
+      "new",
+    );
+    expect(outColon).toContain("{{old:foo}}"); // 미오염(non-keyword suffix)
+    expect(outColon).not.toContain("{{new:foo}}");
+
+    const outSpace = rename(
+      `version: 1\nname: t\nvariables:\n  old: v\nsteps:\n` +
+        `  - id: 01HX0000000000000000000001\n    name: s\n    type: http\n` +
+        `    request:\n      method: GET\n      url: "/x?a={{old bar}}"\n      headers: {}\n`,
+      "old",
+      "new",
+    );
+    expect(outSpace).toContain("{{old bar}}"); // 미오염(공백, keyword 아님)
+    expect(outSpace).not.toContain("{{new bar}}");
+  });
+
   it("(d) rewrites condition operands in the (c) pass without creating a right key", () => {
     const out = rename(
       `version: 1\nname: t\nvariables:\n  old: v\nsteps:\n` +
