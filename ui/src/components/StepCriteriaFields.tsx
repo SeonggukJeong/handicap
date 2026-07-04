@@ -103,7 +103,7 @@ export function StepCriteriaFields({ value, options, onChange }: Props) {
               </div>
             );
           })}
-          <button type="button" className="text-sm text-blue-600 hover:underline" onClick={add}>
+          <button type="button" className="text-sm text-accent-600 hover:underline" onClick={add}>
             + 스텝 기준 추가
           </button>
         </>

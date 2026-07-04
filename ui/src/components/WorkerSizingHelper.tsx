@@ -92,7 +92,7 @@ export function WorkerSizingHelper({
                 <button
                   type="button"
                   onClick={() => onApply(applyN)}
-                  className="rounded bg-indigo-600 px-2 py-1 text-sm text-white hover:bg-indigo-700"
+                  className="rounded bg-accent-600 px-2 py-1 text-sm text-white hover:bg-accent-700"
                 >
                   {ko.workerSizing.apply}
                 </button>

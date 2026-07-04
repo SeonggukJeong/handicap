@@ -64,7 +64,7 @@ function ConfirmDialog({
             onClick={onProceed}
             disabled={pending}
             className={`rounded px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed ${
-              destructive ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+              destructive ? "bg-red-600 hover:bg-red-700" : "bg-accent-600 hover:bg-accent-700"
             }`}
           >
             {pending ? ko.workers.pending : ko.workers.confirmProceed}
@@ -133,7 +133,7 @@ function EditModal({
             type="button"
             onClick={() => onApply(val)}
             disabled={pending}
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {pending ? ko.workers.pending : ko.workers.apply}
           </button>
@@ -488,7 +488,7 @@ export function WorkerDashboardPage() {
                         {w.run_id ? (
                           <Link
                             to={`/runs/${w.run_id}`}
-                            className="ml-1 text-blue-600 hover:underline"
+                            className="ml-1 text-accent-600 hover:underline"
                           >
                             ({w.run_id})
                           </Link>

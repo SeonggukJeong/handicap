@@ -128,7 +128,7 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
             type="button"
             onClick={runMeasure}
             disabled={testRun.isPending || !scenarioQ.data?.yaml}
-            className="mt-1 text-sm text-blue-600 hover:underline disabled:opacity-40"
+            className="mt-1 text-sm text-accent-600 hover:underline disabled:opacity-40"
           >
             {testRun.isPending ? ko.sizing.measuring : ko.sizing.measureBtn}
           </button>
@@ -159,7 +159,7 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
           <button
             type="button"
             onClick={() => onApply(result.recommendedVus)}
-            className="rounded bg-indigo-600 px-2 py-1 text-sm text-white hover:bg-indigo-700"
+            className="rounded bg-accent-600 px-2 py-1 text-sm text-white hover:bg-accent-700"
           >
             {ko.sizing.apply}
           </button>

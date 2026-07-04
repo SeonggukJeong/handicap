@@ -139,7 +139,7 @@ function Chips<T extends string>({
             className={[
               "rounded border px-2 py-0.5",
               on
-                ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                ? "border-accent-500 bg-accent-50 text-accent-700"
                 : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50",
             ].join(" ")}
           >

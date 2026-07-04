@@ -264,7 +264,7 @@ export function ScenarioRunsPage() {
                           `/scenarios/${id}/compare?runs=${selected.map((r) => r.id).join(",")}&baseline=${baseline}`,
                         )
                       }
-                      className="rounded bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-700"
+                      className="rounded bg-accent-600 px-3 py-1 text-white hover:bg-accent-700"
                     >
                       {`비교 (${n})`}
                     </button>
@@ -453,7 +453,7 @@ function SortableTh({
       >
         {label}
         {active && (
-          <span className="text-xs text-indigo-600">
+          <span className="text-xs text-accent-600">
             {active.dir === "asc" ? "▲" : "▼"}
             {sort.length > 1 ? idx + 1 : ""}
           </span>

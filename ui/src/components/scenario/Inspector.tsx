@@ -1189,7 +1189,7 @@ function ConditionNode({
     const children = "all" in value ? value.all : (value as { any: Condition[] }).any;
     const wrap = (next: Condition[]): Condition => (kind === "all" ? { all: next } : { any: next });
     return (
-      <div className="flex flex-col gap-2 border-l-2 border-indigo-200 pl-2">
+      <div className="flex flex-col gap-2 border-l-2 border-accent-200 pl-2">
         <div className="w-32">
           <Select
             size="sm"

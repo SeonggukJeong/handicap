@@ -42,7 +42,7 @@ export function ExtractConfirmRow({
         : proposed.name;
   const valid = varName.trim().length > 0;
   return (
-    <div className="my-1 flex flex-wrap items-center gap-2 rounded bg-indigo-50 px-2 py-1 text-xs">
+    <div className="my-1 flex flex-wrap items-center gap-2 rounded bg-accent-50 px-2 py-1 text-xs">
       <span className="text-slate-500">변수명</span>
       <div className="w-32">
         <Input
@@ -63,7 +63,7 @@ export function ExtractConfirmRow({
         type="button"
         disabled={!valid}
         onClick={() => onConfirm(withVar(proposed, varName.trim()))}
-        className="rounded bg-indigo-600 px-2 py-0.5 text-white disabled:opacity-50"
+        className="rounded bg-accent-600 px-2 py-0.5 text-white disabled:opacity-50"
       >
         추가
       </button>

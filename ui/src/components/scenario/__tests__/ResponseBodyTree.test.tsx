@@ -45,6 +45,12 @@ describe("ResponseBodyTree", () => {
     expect(onCreate).toHaveBeenCalledWith({ var: "value", from: "body", path: "$" });
   });
 
+  it("+추출 버튼은 accent 토큰(indigo→accent)", () => {
+    render(<ResponseBodyTree value={{ data: { token: "abc" } }} onCreate={vi.fn()} />);
+    const extractBtn = screen.getByRole("button", { name: "+추출" }); // 단일 스칼라=1개
+    expect(extractBtn).toHaveClass("bg-accent-600"); // 이주 전 RED (현 bg-indigo-600)
+  });
+
   it("cancel closes the confirm row without calling onCreate", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();

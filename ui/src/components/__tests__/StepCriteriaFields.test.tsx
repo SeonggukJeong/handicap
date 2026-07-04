@@ -48,3 +48,9 @@ test("no http steps shows guidance", () => {
   render(<StepCriteriaFields value={[]} options={[]} onChange={() => {}} />);
   expect(screen.getByText(/http 스텝이 있는 시나리오/)).toBeInTheDocument();
 });
+
+test("스텝 기준 추가 버튼은 accent 링크색(blue→accent)", () => {
+  render(<StepCriteriaFields value={[]} options={opts} onChange={() => {}} />);
+  const addBtn = screen.getByRole("button", { name: "+ 스텝 기준 추가" });
+  expect(addBtn).toHaveClass("text-accent-600"); // 이주 전 RED (현 text-blue-600)
+});

@@ -102,7 +102,7 @@ export function SlotSizingHelper({
             type="button"
             onClick={runMeasure}
             disabled={testRun.isPending || !scenarioQ.data?.yaml}
-            className="mt-1 text-sm text-blue-600 hover:underline disabled:opacity-40"
+            className="mt-1 text-sm text-accent-600 hover:underline disabled:opacity-40"
           >
             {testRun.isPending ? ko.slotSizing.measuring : ko.slotSizing.measureBtn}
           </button>
@@ -134,7 +134,7 @@ export function SlotSizingHelper({
             <button
               type="button"
               onClick={() => onApply(result.recommendedSlots)}
-              className="rounded bg-indigo-600 px-2 py-1 text-sm text-white hover:bg-indigo-700"
+              className="rounded bg-accent-600 px-2 py-1 text-sm text-white hover:bg-accent-700"
             >
               {ko.slotSizing.apply}
             </button>

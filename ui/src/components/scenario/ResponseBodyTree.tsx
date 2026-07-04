@@ -64,7 +64,7 @@ function TreeNode({
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="shrink-0 rounded bg-indigo-600 px-1.5 py-0.5 text-[11px] text-white"
+            className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] text-white"
           >
             +추출
           </button>

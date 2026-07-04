@@ -40,7 +40,7 @@ export function ScheduleEventTimeline({ scheduleId }: Props) {
                 {new Date(e.at).toLocaleString()}
               </span>
               {e.run_id && (
-                <Link to={`/runs/${e.run_id}`} className="text-blue-600 hover:underline">
+                <Link to={`/runs/${e.run_id}`} className="text-accent-600 hover:underline">
                   리포트 →
                 </Link>
               )}

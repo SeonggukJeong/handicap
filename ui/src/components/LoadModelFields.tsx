@@ -521,7 +521,7 @@ export function LoadModelFields({
                     }}
                     className={`rounded-full border px-3 py-1 text-sm ${
                       active
-                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        ? "border-accent-500 bg-accent-50 text-accent-700"
                         : "border-slate-300 text-slate-600 hover:bg-slate-50"
                     }`}
                   >
