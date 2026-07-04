@@ -470,6 +470,7 @@ export const ko = {
     variableRenameCollision: (name: string) => `이미 존재하는 이름입니다: ${name}`,
     variableRenameInvalid: "변수 이름에 공백·{ } : 문자를 쓸 수 없습니다",
     variableUsageNavAria: (name: string) => `${name}을(를) 사용하는 스텝으로 이동`,
+    varUsageListAria: "사용 스텝 목록",
     // ── 새 시나리오 페이지 chrome ──
     create: "만들기",
     creating: "생성 중…",

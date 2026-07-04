@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VariablesPanel } from "../VariablesPanel";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -267,7 +267,8 @@ describe("VariablesPanel — unified rows", () => {
     ).toBeNull();
   });
 
-  it("nav count is a button when refs≥1 and cycles stepIds in document order; unused is not a button", () => {
+  it("nav count opens a usage popover listing refIds in document order and jumps without cycling/closing", async () => {
+    const user = userEvent.setup();
     const scenario = `version: 1
 name: t
 cookie_jar: auto
@@ -286,13 +287,89 @@ steps:
     useScenarioEditor.getState().loadFromString(scenario);
     const onJump = vi.fn();
     render(<VariablesPanel onJumpToStep={onJump} />);
-    const nav = screen.getByRole("button", { name: ko.editor.variableUsageNavAria("token") });
-    fireEvent.click(nav);
-    fireEvent.click(nav);
-    fireEvent.click(nav); // 3rd wraps
+    await user.click(screen.getByRole("button", { name: ko.editor.variableUsageNavAria("token") }));
+    const menu = await screen.findByRole("menu", { name: ko.editor.varUsageListAria });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items).toHaveLength(2);
+    await user.click(items[0]);
     expect(onJump).toHaveBeenNthCalledWith(1, "01HX0000000000000000000001");
+    expect(screen.getByRole("menu")).toBeInTheDocument(); // 클릭해도 안 닫힘
+    await user.click(items[1]);
     expect(onJump).toHaveBeenNthCalledWith(2, "01HX0000000000000000000002");
-    expect(onJump).toHaveBeenNthCalledWith(3, "01HX0000000000000000000001"); // 순환
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument(); // ESC는 닫음
+  });
+
+  it("toggle-close: pointerdown on the trigger keeps the menu open (anchor-exclusion); a second click closes it", async () => {
+    const user = userEvent.setup();
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  token: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: a
+    type: http
+    request: { method: GET, url: "/x?a={{token}}", headers: {} }
+  - id: 01HX0000000000000000000002
+    name: b
+    type: http
+    request: { method: GET, url: "/y?b={{token}}", headers: {} }
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    render(<VariablesPanel />);
+    const trigger = screen.getByRole("button", {
+      name: ko.editor.variableUsageNavAria("token"),
+    });
+
+    await user.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // 트리거 자신에 대한 바깥-pointerdown은 anchor-exclusion 가드로 무시돼야 열린 채 유지
+    fireEvent.pointerDown(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // 트리거 재클릭(React onClick 토글)이 실제 닫음
+    await user.click(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("switching to a different variable's usage trigger shows exactly one menu, updated to the new variable's steps", async () => {
+    const scenario = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  a: "1"
+  b: "2"
+steps:
+  - id: 01HX0000000000000000000001
+    name: step-a
+    type: http
+    request: { method: GET, url: "/x?q={{a}}", headers: {} }
+  - id: 01HX0000000000000000000002
+    name: step-b
+    type: http
+    request: { method: GET, url: "/y?q={{b}}", headers: {} }
+`;
+    useScenarioEditor.getState().loadFromString(scenario);
+    const user = userEvent.setup();
+    render(<VariablesPanel />);
+
+    // 실제 포인터 시퀀스(pointerdown→pointerup→click) — production onClick이 e.currentTarget을
+    // 핸들러 본문에서 로컬로 캡처해두므로(state-updater 안에서 읽지 않음) deferred-currentTarget
+    // 경합 없이 안전하게 트리거 전환을 검증한다.
+    await user.click(screen.getByRole("button", { name: ko.editor.variableUsageNavAria("a") }));
+    const firstMenu = await screen.findByRole("menu", { name: ko.editor.varUsageListAria });
+    expect(within(firstMenu).getByText("step-a")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: ko.editor.variableUsageNavAria("b") }));
+    const menus = screen.getAllByRole("menu");
+    expect(menus).toHaveLength(1);
+    expect(within(menus[0]).getByText("step-b")).toBeInTheDocument();
+    expect(within(menus[0]).queryByText("step-a")).not.toBeInTheDocument();
   });
 
   it("inline rename commits on Enter and shows an inline error on collision", () => {
@@ -415,7 +492,8 @@ steps:
     expect(yaml).toContain("{{B.renamed}}");
   });
 
-  it("R10: non-shadow parallel row nav cycles branch-internal ref before downstream ref, in doc order, wraps", () => {
+  it("R10: non-shadow parallel row's usage popover lists branch-internal ref before downstream ref, in doc order", async () => {
+    const user = userEvent.setup();
     useScenarioEditor.getState().loadFromString(`version: 1
 name: "t"
 variables: {}
@@ -438,13 +516,17 @@ steps:
 `);
     const onJump = vi.fn();
     render(<VariablesPanel onJumpToStep={onJump} />);
-    const nav = screen.getByRole("button", { name: ko.editor.variableUsageNavAria("B.fresh") });
-    fireEvent.click(nav);
-    fireEvent.click(nav);
-    fireEvent.click(nav); // 3rd wraps
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.variableUsageNavAria("B.fresh") }),
+    );
+    const menu = await screen.findByRole("menu", { name: ko.editor.varUsageListAria });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items).toHaveLength(2);
+    await user.click(items[0]);
     expect(onJump).toHaveBeenNthCalledWith(1, "01HX0000000000000000000020"); // branch-internal ref first (doc order)
+    expect(screen.getByRole("menu")).toBeInTheDocument(); // usages 사이 이동해도 유지
+    await user.click(items[1]);
     expect(onJump).toHaveBeenNthCalledWith(2, "01HX0000000000000000000030"); // downstream namespaced ref
-    expect(onJump).toHaveBeenNthCalledWith(3, "01HX0000000000000000000020"); // cycle wraps
   });
 
   it("shadow parallel row has no rename pencil and shows shadow title (R9)", () => {

@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { VarCheatSheet } from "./VarCheatSheet";
+import { VarUsagePopover } from "./VarUsagePopover";
 import { AutoGrowTextarea } from "../AutoGrowTextarea";
 import { Input } from "../ui/Input";
 import {
@@ -35,6 +36,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   // (getSnapshot 함정, ui/CLAUDE.md: 셀렉터 안 인라인 `?? {}` fallback 금지).
   const model = useScenarioEditor((s) => s.model);
   const yamlError = useScenarioEditor((s) => s.yamlError);
+  const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const setVariable = useScenarioEditor((s) => s.setVariable);
   const removeVariable = useScenarioEditor((s) => s.removeVariable);
   const renameVariable = useScenarioEditor((s) => s.renameVariable);
@@ -45,8 +47,13 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const [editing, setEditing] = useState<EditKey | null>(null); // rename 중인 행 식별
   const [draft, setDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
-  // nav 순환 인덱스(로컬·identity별) — 사이드이펙트라 ref(리렌더 불요).
-  const cycleRef = useRef<Map<string, number>>(new Map());
+  // 사용처 팝오버 상태(한 번에 하나만 열림) — 앵커 엘리먼트를 들고 있어야
+  // VarUsagePopover가 portal-fixed 위치를 계산한다(#3).
+  const [usageNav, setUsageNav] = useState<{
+    key: string;
+    anchor: HTMLElement;
+    refIds: string[];
+  } | null>(null);
 
   const rows = useMemo<VarRow[]>(() => {
     if (!model) return [];
@@ -120,14 +127,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
     cancelRename();
   };
 
-  const nav = (cycleKey: string, refIds: string[]) => {
-    if (refIds.length === 0) return;
-    const i = cycleRef.current.get(cycleKey) ?? 0;
-    onJumpToStep?.(refIds[i % refIds.length]);
-    cycleRef.current.set(cycleKey, i + 1);
-  };
-
-  // 사용 카운트 렌더(버튼 vs "미사용")
+  // 사용 카운트 렌더(버튼 vs "미사용") — 버튼 클릭이 사용처 팝오버를 토글(#3).
   const usageCell = (cycleKey: string, ariaName: string, refIds: string[]) =>
     refIds.length === 0 ? (
       <span className="text-xs text-slate-400">{ko.editor.variableUnused}</span>
@@ -135,7 +135,13 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
       <button
         type="button"
         aria-label={ko.editor.variableUsageNavAria(ariaName)}
-        onClick={() => nav(cycleKey, refIds)}
+        aria-expanded={usageNav?.key === cycleKey}
+        onClick={(e) => {
+          const anchor = e.currentTarget;
+          setUsageNav((prev) =>
+            prev?.key === cycleKey ? null : { key: cycleKey, anchor, refIds },
+          );
+        }}
         className="text-xs text-accent-600 hover:underline"
       >
         {ko.editor.variableUsage(refIds.length)}
@@ -366,6 +372,16 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           {ko.editor.variablesAdd}
         </button>
       </div>
+      {usageNav && model && (
+        <VarUsagePopover
+          anchor={usageNav.anchor}
+          refIds={usageNav.refIds}
+          steps={model.steps}
+          selectedStepId={selectedStepId}
+          onJump={(id) => onJumpToStep?.(id)}
+          onClose={() => setUsageNav(null)}
+        />
+      )}
     </section>
   );
 }
