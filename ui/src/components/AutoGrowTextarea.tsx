@@ -18,14 +18,17 @@ export function AutoGrowTextarea({
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const full = el.scrollHeight;
+    const MAX = 160; // max-h-40
+    el.style.height = `${Math.min(full, MAX)}px`;
+    el.style.overflowY = full > MAX ? "auto" : "hidden"; // 캡 넘칠 때만 스크롤(1줄=바 없음)
   }, [value]);
   return (
     <Textarea
       ref={ref}
       value={value}
       rows={1}
-      className={`resize-none overflow-y-auto max-h-40 ${className ?? ""}`}
+      className={`resize-none max-h-40 ${className ?? ""}`}
       {...rest}
     />
   );

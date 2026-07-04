@@ -26,4 +26,14 @@ describe("AutoGrowTextarea", () => {
     expect(ta).toHaveClass("resize-none"); // 사용자 리사이즈 핸들 없음(자동 성장)
     expect(ta).toHaveClass("border"); // caller className 병합
   });
+
+  it("E: 캡 미만 값은 세로 스크롤바 없음 — overflow-y-auto 제거, overflowY=hidden", () => {
+    render(<AutoGrowTextarea value="short" aria-label="v" onChange={() => {}} />);
+    const ta = screen.getByRole("textbox", { name: "v" }) as HTMLTextAreaElement;
+    expect(ta).not.toHaveClass("overflow-y-auto"); // A의 styled 바가 1줄에서 노출되던 원인 제거
+    expect(ta).toHaveClass("resize-none");
+    expect(ta).toHaveClass("max-h-40");
+    // jsdom scrollHeight=0 → full(0) ≤ MAX(160) → overflowY="hidden"
+    expect(ta.style.overflowY).toBe("hidden");
+  });
 });

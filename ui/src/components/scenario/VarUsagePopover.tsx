@@ -7,16 +7,21 @@ import { ko } from "../../i18n/ko";
 const POPOVER_WIDTH = 240;
 const POPOVER_MAX_H = 256; // max-h-64 와 lockstep
 
-function computePos(anchor: HTMLElement) {
+// computePos는 순수 위치 계산(테스트 대상)이라 export. 컴포넌트 파일이라
+// react-refresh 규칙이 mixed-export를 warn하지만 순수 헬퍼라 무해.
+// eslint-disable-next-line react-refresh/only-export-components
+export function computePos(anchor: HTMLElement, popoverH = POPOVER_MAX_H) {
   const r = anchor.getBoundingClientRect();
-  const left =
-    r.left + POPOVER_WIDTH > window.innerWidth ? Math.max(8, r.right - POPOVER_WIDTH) : r.left;
+  const M = 8;
+  let left = r.left + POPOVER_WIDTH > window.innerWidth - M ? r.right - POPOVER_WIDTH : r.left;
+  left = Math.max(M, Math.min(left, window.innerWidth - POPOVER_WIDTH - M));
   const below = r.bottom + 4;
-  // 하단 넘치고 위에 공간 있으면 앵커 위로 flip (R2 하단 edge-flip, F3)
-  const top =
-    below + POPOVER_MAX_H > window.innerHeight && r.top > POPOVER_MAX_H
-      ? r.top - 4 - POPOVER_MAX_H
-      : below;
+  const above = r.top - 4 - popoverH;
+  let top: number;
+  if (below + popoverH <= window.innerHeight - M) top = below;
+  else if (above >= M) top = above;
+  else top = window.innerHeight - popoverH - M;
+  top = Math.max(M, Math.min(top, window.innerHeight - popoverH - M));
   return { top, left };
 }
 
@@ -42,7 +47,10 @@ export function VarUsagePopover({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(() => computePos(anchor));
-  useLayoutEffect(() => setPos(computePos(anchor)), [anchor]);
+  useLayoutEffect(() => {
+    const h = panelRef.current?.getBoundingClientRect().height;
+    setPos(computePos(anchor, h || undefined));
+  }, [anchor]);
   // Modal.tsx와 동일 패턴: onClose를 ref에 보관해 매 렌더 새 클로저가 와도
   // 아래 리스너 effect는 anchor 변경 시에만 재구독(불필요한 churn 방지).
   const onCloseRef = useRef(onClose);
