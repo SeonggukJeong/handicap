@@ -454,6 +454,8 @@ export const ko = {
     variablesTitle: "변수",
     variablesEmpty: "변수 없음",
     variablesAdd: "추가",
+    varSearchPlaceholder: "변수 검색",
+    varSearchEmpty: "일치하는 변수 없음",
     variableUnused: "미사용",
     variableUsage: (n: number) => `${n}개 스텝에서 사용`,
     variableValueAria: (name: string) => `${name} 값`,

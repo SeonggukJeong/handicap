@@ -84,6 +84,84 @@ describe("VariablesPanel", () => {
     expect(name).toHaveAttribute("title", "a_very_long_variable_name");
   });
 
+  it("filters rows by case-insensitive substring over name, value, and branch display", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setVariable("auth", "Bearer X");
+    useScenarioEditor.getState().setVariable("token", "abc");
+    render(<VariablesPanel />);
+    const search = screen.getByPlaceholderText(ko.editor.varSearchPlaceholder);
+    await user.type(search, "AUT"); // 대소문자 무시 → auth 매치, token 미매치
+    expect(screen.getByText("auth")).toBeInTheDocument();
+    expect(screen.queryByText("token")).not.toBeInTheDocument();
+    await user.clear(search);
+    await user.type(search, "bearer"); // 값 매치
+    expect(screen.getByText("auth")).toBeInTheDocument();
+    await user.clear(search);
+    await user.type(search, "zzz"); // 무매치
+    expect(screen.getByText(ko.editor.varSearchEmpty)).toBeInTheDocument();
+  });
+
+  it("R7: filters a parallel-extract row by branch name alone, var name alone, and full branch.var display", async () => {
+    const user = userEvent.setup();
+    // non-shadow parallel-extract row: branch "B" extracts "fresh" → display "B.fresh"
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000010"
+    type: parallel
+    name: B
+    branches:
+      - name: B
+        steps:
+          - id: "01HX0000000000000000000020"
+            type: http
+            name: a
+            request: { method: GET, url: "/a?x={{fresh}}" }
+            extract: [ { var: fresh, from: status } ]
+  - id: "01HX0000000000000000000030"
+    type: http
+    name: d
+    request: { method: GET, url: "/d?y={{B.fresh}}" }
+`);
+    render(<VariablesPanel />);
+    const search = screen.getByPlaceholderText(ko.editor.varSearchPlaceholder);
+    const rowByRenamePencil = () =>
+      screen.queryByRole("button", { name: ko.editor.renameVariableAria("B.fresh") });
+
+    // (a) branch name alone
+    await user.type(search, "b"); // 대소문자 무시
+    expect(rowByRenamePencil()).toBeInTheDocument();
+    await user.clear(search);
+
+    // (b) var name alone
+    await user.type(search, "FRE"); // 대소문자 무시
+    expect(rowByRenamePencil()).toBeInTheDocument();
+    await user.clear(search);
+
+    // (c) full "branch.var" display, case-insensitively
+    await user.type(search, "B.FRESH");
+    expect(rowByRenamePencil()).toBeInTheDocument();
+    await user.clear(search);
+
+    // non-matching query hides the row
+    await user.type(search, "zzz");
+    expect(rowByRenamePencil()).not.toBeInTheDocument();
+    expect(screen.getByText(ko.editor.varSearchEmpty)).toBeInTheDocument();
+  });
+
+  it("clears the search query when a variable is added", async () => {
+    const user = userEvent.setup();
+    render(<VariablesPanel />);
+    await user.type(screen.getByPlaceholderText(ko.editor.varSearchPlaceholder), "zzz");
+    await user.type(screen.getByPlaceholderText("new_var"), "brandnew");
+    await user.click(screen.getByRole("button", { name: ko.editor.variablesAdd }));
+    expect(
+      (screen.getByPlaceholderText(ko.editor.varSearchPlaceholder) as HTMLInputElement).value,
+    ).toBe("");
+    expect(screen.getByText("brandnew")).toBeInTheDocument();
+  });
+
   it("R4: 사용되는 변수는 'N개 스텝에서 사용', 안 쓰이는 변수는 '미사용' 힌트를 보인다", () => {
     // {{used}}를 한 http 스텝의 url에서 참조하는 시나리오 + 미참조 변수 {{lonely}}
     useScenarioEditor.getState().loadFromString(`version: 1

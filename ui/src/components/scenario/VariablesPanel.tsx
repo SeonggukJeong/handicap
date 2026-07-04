@@ -41,6 +41,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const renameParallelVar = useScenarioEditor((s) => s.renameParallelVar);
 
   const [newKey, setNewKey] = useState("");
+  const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<EditKey | null>(null); // rename 중인 행 식별
   const [draft, setDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -180,14 +181,30 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
       </>
     );
 
+  const q = query.trim().toLowerCase();
+  const matchesRow = (r: VarRow): boolean => {
+    if (q === "") return true;
+    if (r.kind === "declared")
+      return r.name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q);
+    if (r.kind === "parallel-extract") return r.display.toLowerCase().includes(q);
+    return r.name.toLowerCase().includes(q); // flat-extract, undefined
+  };
+  const visibleRows = rows.filter(matchesRow);
+
   return (
     <section aria-label={ko.editor.variablesTitle} className="flex flex-col gap-3">
       <div className="flex items-center">
         <h3 className="text-sm font-semibold text-slate-700">{ko.editor.variablesTitle}</h3>
         <VarCheatSheet />
       </div>
+      <Input
+        className="mt-1"
+        placeholder={ko.editor.varSearchPlaceholder}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
       <ul className="flex flex-col gap-3">
-        {rows.map((row) => {
+        {visibleRows.map((row) => {
           if (row.kind === "declared") {
             return (
               <li key={`d:${row.name}`} className="flex flex-col gap-1">
@@ -320,6 +337,9 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         {rows.length === 0 && (
           <li className="text-xs text-slate-400 italic">{ko.editor.variablesEmpty}</li>
         )}
+        {rows.length > 0 && visibleRows.length === 0 && (
+          <li className="text-xs text-slate-400 italic">{ko.editor.varSearchEmpty}</li>
+        )}
       </ul>
 
       <div className="flex gap-2">
@@ -338,6 +358,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
             if (!k) return;
             setVariable(k, "");
             setNewKey("");
+            setQuery("");
           }}
           disabled={newKey.trim().length === 0}
           className="shrink-0 px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
