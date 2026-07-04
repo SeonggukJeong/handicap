@@ -417,6 +417,8 @@ export const ko = {
     wideToggle: "스텝 넓게 보기",
     wideToggleAria: "스텝 넓게 보기 전환",
     wideFlowStripAria: "스텝 흐름 (넓게 보기)",
+    chromeCollapse: "헤더 접기",
+    chromeExpand: "헤더 펴기",
     stepDetailModalTitle: "스텝 편집",
     openYaml: "YAML",
     yamlModalTitle: "YAML 편집",

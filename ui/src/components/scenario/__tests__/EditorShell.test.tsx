@@ -87,6 +87,16 @@ describe("EditorShell", () => {
     expect(varsAside.className).toContain("min-h-0");
   });
 
+  it("C3: chromeCollapsed prop이 그리드 cap을 11rem으로 토글(기본=16rem)", () => {
+    const yaml = 'version: 1\nname: "x"\nsteps: []\n';
+    const { rerender } = render(<EditorShell initialYaml={yaml} />);
+    expect(screen.getByTestId("editor-grid").className).toContain("max-h-[calc(100vh-16rem)]");
+    rerender(<EditorShell chromeCollapsed initialYaml={yaml} />);
+    const cls = screen.getByTestId("editor-grid").className;
+    expect(cls).toContain("max-h-[calc(100vh-11rem)]");
+    expect(cls).not.toContain("max-h-[calc(100vh-16rem)]");
+  });
+
   it("YAML 버튼 클릭 시 모달에 Monaco(yaml-view)가 열리고 닫힌다", async () => {
     const user = userEvent.setup();
     render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);

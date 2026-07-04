@@ -15,9 +15,11 @@ const EMPTY_STEPS: Step[] = []; // 셀렉터 안정 참조 — 인라인 `?? []`
 export function EditorShell({
   initialYaml,
   onChange,
+  chromeCollapsed = false,
 }: {
   initialYaml: string;
   onChange?: (yaml: string) => void;
+  chromeCollapsed?: boolean;
 }) {
   const loadFromString = useScenarioEditor((s) => s.loadFromString);
   const yamlText = useScenarioEditor((s) => s.yamlText);
@@ -63,6 +65,9 @@ export function EditorShell({
     document.querySelector(`[data-step-id="${id}"]`)?.scrollIntoView?.({ block: "nearest" });
   };
 
+  // C3: 접힘이면 크롬이 줄어 그리드가 세로를 되찾는다. 두 값 모두 소스 리터럴(JIT).
+  const capClass = chromeCollapsed ? "max-h-[calc(100vh-11rem)]" : "max-h-[calc(100vh-16rem)]";
+
   return (
     <div className="flex flex-col gap-3">
       <ValidationBanner onOpenYaml={() => setYamlOpen(true)} />
@@ -101,20 +106,22 @@ export function EditorShell({
         className={
           wideOpen
             ? `grid gap-4 ${varsOpen ? "grid-cols-[210px_1fr]" : "grid-cols-[1fr]"}`
-            : `grid gap-4 min-h-[520px] max-h-[calc(100vh-16rem)] grid-rows-[minmax(0,1fr)] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
+            : `grid gap-4 min-h-[520px] ${capClass} grid-rows-[minmax(0,1fr)] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
         }
       >
         {varsOpen && (
           <aside
             role="complementary"
             aria-label={ko.editor.varsPanelAria}
-            className={`flex min-h-0 flex-col overflow-visible rounded-md border border-slate-200 bg-white p-3 ${wideOpen ? "max-h-[calc(100vh-16rem)]" : ""}`}
+            className={`flex min-h-0 flex-col overflow-visible rounded-md border border-slate-200 bg-white p-3 ${wideOpen ? capClass : ""}`}
           >
             <VariablesPanel onJumpToStep={jumpToStep} />
           </aside>
         )}
         {wideOpen ? (
-          <div className="flex max-h-[calc(100vh-16rem)] min-h-0 flex-col gap-2 rounded-md border border-slate-200 bg-white p-3">
+          <div
+            className={`flex ${capClass} min-h-0 flex-col gap-2 rounded-md border border-slate-200 bg-white p-3`}
+          >
             <section aria-label={ko.editor.wideFlowStripAria} className="shrink-0">
               <TestFlowChips
                 steps={steps}

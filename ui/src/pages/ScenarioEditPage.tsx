@@ -30,6 +30,7 @@ export function ScenarioEditPage() {
   const [insertTplOpen, setInsertTplOpen] = useState(false);
   const [seededId, setSeededId] = useState<string | null>(null);
   const seeded = data !== undefined && seededId === data.id;
+  const [chromeCollapsed, setChromeCollapsed] = useState(false);
 
   // 템플릿 진입점 게이트: store 상태로 판단 (parseScenarioDoc 재호출 금지 — 깨진 텍스트 중
   // 엔 store yamlText가 마지막 정상본이라 재파싱 결과가 다를 수 있음)
@@ -127,88 +128,108 @@ export function ScenarioEditPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
-      <div className="flex items-center justify-between">
-        <div>
-          {nameEditing ? (
-            <Input
-              autoFocus
-              aria-label={ko.editor.nameInputAria}
-              className="text-xl font-semibold"
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitName();
-                if (e.key === "Escape") {
-                  nameEscapedRef.current = true;
-                  setNameEditing(false);
-                }
-              }}
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-semibold">{liveName}</h2>
-              <button
-                type="button"
-                aria-label={ko.editor.renameAria}
-                title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
-                disabled={!nameEditable}
-                onClick={startNameEdit}
-                className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
-              >
-                <span aria-hidden="true">✎</span>
-              </button>
+      {/* C: 전용 sticky 크롬 wrapper(브레드크럼+제목행만). 내부 gap-2, outer는 gap-4 유지.
+          bg-slate-50 = 페이지 배경(index.html:12 `<body class="bg-slate-50">`)이라 그리드 투과 방지.
+          정확한 top offset·z·bg·border는 라이브로 확정(§6 Q2 폴백). */}
+      <div className="sticky top-0 z-20 -mx-6 flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-6">
+        {!chromeCollapsed && (
+          <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
+        )}
+        <div className="flex items-center justify-between">
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              aria-label={chromeCollapsed ? ko.editor.chromeExpand : ko.editor.chromeCollapse}
+              aria-expanded={!chromeCollapsed}
+              onClick={() => setChromeCollapsed((v) => !v)}
+              className="mt-1 text-slate-500 hover:text-slate-700"
+            >
+              <span aria-hidden="true">{chromeCollapsed ? "▸" : "▾"}</span>
+            </button>
+            <div>
+              {nameEditing ? (
+                <Input
+                  autoFocus
+                  aria-label={ko.editor.nameInputAria}
+                  className="text-xl font-semibold"
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={commitName}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitName();
+                    if (e.key === "Escape") {
+                      nameEscapedRef.current = true;
+                      setNameEditing(false);
+                    }
+                  }}
+                />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-semibold">{liveName}</h2>
+                  <button
+                    type="button"
+                    aria-label={ko.editor.renameAria}
+                    title={nameEditable ? ko.editor.renameTitle : ko.editor.renameDisabledTitle}
+                    disabled={!nameEditable}
+                    onClick={startNameEdit}
+                    className="text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                  >
+                    <span aria-hidden="true">✎</span>
+                  </button>
+                </div>
+              )}
+              {!chromeCollapsed && (
+                <p className="text-sm text-slate-600">
+                  v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
+                </p>
+              )}
             </div>
-          )}
-          <p className="text-sm text-slate-600">
-            v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => setSaveTplOpen(true)}
-            disabled={!tplReady}
-            title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
-          >
-            {ko.stepTemplates.saveButton}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setInsertTplOpen(true)}
-            disabled={!tplReady}
-            title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
-          >
-            {ko.stepTemplates.insertButton}
-          </Button>
-          <Button
-            onClick={() =>
-              loadedVersion !== null &&
-              update.mutate(
-                { yaml: yamlText, version: loadedVersion },
-                {
-                  onSuccess: (next) => {
-                    setLoadedVersion(next.version);
-                    setOriginalYaml(next.yaml);
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setSaveTplOpen(true)}
+              disabled={!tplReady}
+              title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
+            >
+              {ko.stepTemplates.saveButton}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setInsertTplOpen(true)}
+              disabled={!tplReady}
+              title={tplReady ? undefined : ko.stepTemplates.gateTooltip}
+            >
+              {ko.stepTemplates.insertButton}
+            </Button>
+            <Button
+              onClick={() =>
+                loadedVersion !== null &&
+                update.mutate(
+                  { yaml: yamlText, version: loadedVersion },
+                  {
+                    onSuccess: (next) => {
+                      setLoadedVersion(next.version);
+                      setOriginalYaml(next.yaml);
+                    },
                   },
-                },
-              )
-            }
-            disabled={!dirty || update.isPending || loadedVersion === null}
-          >
-            {update.isPending ? ko.common.saving : ko.common.save}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={onCloneClick}
-            disabled={!scenariosLoaded || clone.isPending}
-          >
-            {clone.isPending ? ko.pages.duplicatingBtn : ko.pages.duplicateBtn}
-          </Button>
-          <Link to={`/scenarios/${data.id}/runs`}>
-            <Button variant="secondary">{ko.pages.runsBtn}</Button>
-          </Link>
+                )
+              }
+              disabled={!dirty || update.isPending || loadedVersion === null}
+            >
+              {update.isPending ? ko.common.saving : ko.common.save}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onCloneClick}
+              disabled={!scenariosLoaded || clone.isPending}
+            >
+              {clone.isPending ? ko.pages.duplicatingBtn : ko.pages.duplicateBtn}
+            </Button>
+            <Link to={`/scenarios/${data.id}/runs`}>
+              <Button variant="secondary">{ko.pages.runsBtn}</Button>
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -219,7 +240,13 @@ export function ScenarioEditPage() {
         </Callout>
       )}
 
-      {seeded && <EditorShell initialYaml={data.yaml} onChange={handleEditorChange} />}
+      {seeded && (
+        <EditorShell
+          initialYaml={data.yaml}
+          onChange={handleEditorChange}
+          chromeCollapsed={chromeCollapsed}
+        />
+      )}
 
       <TestRunSection yamlText={yamlText} />
 
