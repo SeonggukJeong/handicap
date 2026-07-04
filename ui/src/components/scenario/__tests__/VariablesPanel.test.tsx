@@ -167,6 +167,7 @@ steps:
     const list = screen.getByRole("list");
     expect(list.className).toContain("overflow-auto");
     expect(list.className).toContain("min-h-0");
+    expect(list.className).toContain("pr-1.5");
   });
 
   it("검색어가 팝오버 앵커 행을 필터링하면 열린 사용처 팝오버를 닫는다 (whole-branch 리뷰 fold-in)", async () => {

@@ -68,6 +68,7 @@ describe("EditorShell", () => {
     expect(grid.className).toContain("grid-rows-[minmax(0,1fr)]");
     expect(grid.className).toContain("max-h-[calc(100vh-16rem)]");
     expect(grid.className).not.toContain("min-h-[680px]");
+    expect(grid.className).toContain("min-h-[520px]");
 
     // 아웃라인 열(FlowOutline은 DndContext[DOM 미생성]+`flex h-full flex-col` 래퍼를
     // outline-blank의 부모로 두므로, EditorShell 자체 div는 그 조부모)

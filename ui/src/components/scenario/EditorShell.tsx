@@ -101,7 +101,7 @@ export function EditorShell({
         className={
           wideOpen
             ? `grid gap-4 ${varsOpen ? "grid-cols-[210px_1fr]" : "grid-cols-[1fr]"}`
-            : `grid gap-4 max-h-[calc(100vh-16rem)] grid-rows-[minmax(0,1fr)] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
+            : `grid gap-4 min-h-[520px] max-h-[calc(100vh-16rem)] grid-rows-[minmax(0,1fr)] ${varsOpen ? "grid-cols-[210px_minmax(260px,300px)_1fr]" : "grid-cols-[minmax(260px,300px)_1fr]"}`
         }
       >
         {varsOpen && (
