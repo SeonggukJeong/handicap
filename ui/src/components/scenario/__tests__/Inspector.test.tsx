@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Inspector } from "../Inspector";
@@ -591,6 +591,71 @@ describe("Inspector — JSON body Format", () => {
     await user.click(screen.getByRole("button", { name: "포맷" }));
     expect(ta.value).toBe("{not json}");
     expect(screen.getByText(/JSON:/)).toBeInTheDocument();
+  });
+});
+
+describe("Inspector — renameEpoch live reseed (#5)", () => {
+  const STEP_ID = "01HX0000000000000000000001";
+  const YAML_WITH_TOK = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "${STEP_ID}"
+    name: "login"
+    type: http
+    request:
+      method: GET
+      url: "/x"
+      headers:
+        Authorization: "{{tok}}"
+      body:
+        json: { k: "{{tok}}" }
+    extract:
+      - from: status
+        var: tok
+`;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(YAML_WITH_TOK);
+    useScenarioEditor.getState().select(STEP_ID);
+  });
+
+  it("re-seeds header/JSON-body/extract drafts live when a used variable is renamed", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+
+    // 세 섹션 모두 기본 접힘 — 펼친다 (editor-space-qol 함정).
+    await user.click(screen.getByRole("button", { name: ko.editor.headersLabel }));
+    await user.click(screen.getByRole("button", { name: ko.editor.bodyLabel }));
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+
+    expect((screen.getByLabelText(/header value 0/i) as HTMLInputElement).value).toContain(
+      "{{tok}}",
+    );
+    expect((screen.getByLabelText("JSON 본문") as HTMLTextAreaElement).value).toContain("{{tok}}");
+    const extractSection = screen.getByRole("group", { name: ko.editor.extractsLegend });
+    expect((within(extractSection).getByPlaceholderText("var") as HTMLInputElement).value).toBe(
+      "tok",
+    );
+
+    act(() => {
+      useScenarioEditor.getState().renameVariable("tok", "renamed");
+    });
+
+    // 재선택 없이 세 표면이 {{renamed}}/renamed로 갱신
+    expect((screen.getByLabelText(/header value 0/i) as HTMLInputElement).value).toContain(
+      "{{renamed}}",
+    );
+    expect((screen.getByLabelText("JSON 본문") as HTMLTextAreaElement).value).toContain(
+      "{{renamed}}",
+    );
+    const extractSectionAfter = screen.getByRole("group", { name: ko.editor.extractsLegend });
+    expect(
+      (within(extractSectionAfter).getByPlaceholderText("var") as HTMLInputElement).value,
+    ).toBe("renamed");
   });
 });
 

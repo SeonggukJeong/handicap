@@ -95,4 +95,16 @@ steps:
     useScenarioEditor.setState({ yamlError: "boom" });
     expect(useScenarioEditor.getState().renameParallelVar("B", "s", "s2")).toBe("invalid");
   });
+
+  it("increments renameEpoch on a successful rename, not on a no-op/failure", () => {
+    load(SC);
+    const before = useScenarioEditor.getState().renameEpoch;
+    const ok = useScenarioEditor.getState().renameParallelVar("B", "s", "s2");
+    expect(ok).toBeNull();
+    expect(useScenarioEditor.getState().renameEpoch).toBe(before + 1);
+    // 실패는 미증가
+    const err = useScenarioEditor.getState().renameParallelVar("B", "s2", "s2"); // self → 미증가
+    expect(err).not.toBeNull();
+    expect(useScenarioEditor.getState().renameEpoch).toBe(before + 1);
+  });
 });

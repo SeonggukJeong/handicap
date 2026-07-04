@@ -422,6 +422,9 @@ function HttpStepInspector({
 
 function HeadersEditor({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
+  // rename(#5)이 열린 스텝의 header 값 draft를 실시간 재시드하게 resetKey에 태운다 —
+  // KeyValueGrid는 resetKey 변화 시에만 entries/disabledEntries로부터 rows를 재시드.
+  const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
   return (
     <div className="min-w-0">
       <KeyValueGrid
@@ -435,7 +438,7 @@ function HeadersEditor({ step }: { step: HttpStep }) {
             buildDisabled(disabled, step.request.disabled?.form),
           );
         }}
-        resetKey={step.id}
+        resetKey={`${step.id}:${renameEpoch}`}
         bulkFormat="header"
         itemLabel="header"
         keyPlaceholder={ko.editor.headerKeyPlaceholder}
@@ -489,18 +492,21 @@ function BodyEditor({ step }: { step: HttpStep }) {
 
 function JsonBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
+  // rename(#5)이 열린 스텝의 JSON 바디 draft를 실시간 재시드하게 reseed dep에 태운다.
+  const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
   const body = step.request.body;
   const initial = body?.kind === "json" ? JSON.stringify(body.value, null, 2) : "{}";
   const [text, setText] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Reset local textarea only when the user switches to a different step,
-    // not on every body change (which would overwrite in-progress edits).
+    // Reset local textarea only when the user switches to a different step
+    // (or a rename reseeds it), not on every body change (which would
+    // overwrite in-progress edits).
     setText(body?.kind === "json" ? JSON.stringify(body.value, null, 2) : "{}");
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step.id]);
+  }, [step.id, renameEpoch]);
 
   const store = (parsed: unknown) => setStepField(step.id, ["request", "body"], { json: parsed });
 
@@ -562,6 +568,8 @@ function JsonBodyField({ step }: { step: HttpStep }) {
 
 function FormBodyField({ step }: { step: HttpStep }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
+  // rename(#5)이 열린 스텝의 form-body 값 draft를 실시간 재시드하게 resetKey에 태운다.
+  const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
   const body = step.request.body;
   const map = body?.kind === "form" ? body.value : {};
   return (
@@ -576,7 +584,7 @@ function FormBodyField({ step }: { step: HttpStep }) {
           buildDisabled(step.request.disabled?.headers, disabled),
         );
       }}
-      resetKey={step.id}
+      resetKey={`${step.id}:${renameEpoch}`}
       bulkFormat="form"
       itemLabel="form field"
       keyPlaceholder="field"
@@ -695,15 +703,17 @@ function draftFromExtract(e: Extract): DraftExtract {
 
 function ExtractEditor({ step }: { step: HttpStep }) {
   const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
+  // rename(#5)이 열린 스텝의 extract var draft를 실시간 재시드하게 reseed dep에 태운다.
+  const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
 
   // Local drafts let us show in-progress rows before they pass Zod validation.
   const [drafts, setDrafts] = useState<DraftExtract[]>(() => step.extract.map(draftFromExtract));
 
-  // Reset drafts when the selected step changes.
+  // Reset drafts when the selected step changes (or a rename reseeds it).
   useEffect(() => {
     setDrafts(step.extract.map(draftFromExtract));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step.id]);
+  }, [step.id, renameEpoch]);
 
   // Push valid rows to the store after every draft change.
   const commitDrafts = (next: DraftExtract[]) => {

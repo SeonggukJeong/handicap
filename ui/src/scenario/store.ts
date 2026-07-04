@@ -37,6 +37,10 @@ export interface ScenarioEditorState {
 
   selectedStepId: string | null;
   pendingYamlText: string | null;
+  /** 성공 rename(renameVariable/renameParallelVar)마다 +1 — 와이어 무접촉, Inspector가
+   *  이 값을 dep/resetKey에 넣어 재선택 없이 열린 스텝의 header/JSON-body/extract
+   *  draft를 실시간 재시드(#5). 실패/no-op(shadow·collision·self 등)는 미증가. */
+  renameEpoch: number;
 
   loadFromString(yaml: string): void;
   resetEmpty(): void;
@@ -100,7 +104,7 @@ export interface ScenarioEditorState {
 
 const INITIAL: Pick<
   ScenarioEditorState,
-  "doc" | "model" | "yamlText" | "yamlError" | "selectedStepId" | "pendingYamlText"
+  "doc" | "model" | "yamlText" | "yamlError" | "selectedStepId" | "pendingYamlText" | "renameEpoch"
 > = {
   doc: null,
   model: null,
@@ -108,6 +112,7 @@ const INITIAL: Pick<
   yamlError: null,
   selectedStepId: null,
   pendingYamlText: null,
+  renameEpoch: 0,
 };
 
 export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
@@ -176,6 +181,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
       model: reparsed.model,
       yamlText: serializeDoc(reparsed.doc),
       yamlError: null,
+      renameEpoch: get().renameEpoch + 1,
     });
     return null;
   },
@@ -203,6 +209,7 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
       model: reparsed.model,
       yamlText: serializeDoc(reparsed.doc),
       yamlError: null,
+      renameEpoch: get().renameEpoch + 1,
     });
     return null;
   },
