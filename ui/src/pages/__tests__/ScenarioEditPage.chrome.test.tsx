@@ -64,7 +64,9 @@ describe("ScenarioEditPage 헤더 접기/펴기 (C)", () => {
     expect(screen.getByText(/updated/)).toBeInTheDocument();
     expect(screen.getByText(ko.nav.scenarios)).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByTestId("editor-grid").className).toContain("max-h-[calc(100vh-16rem)]"),
+      expect(screen.getByTestId("editor-grid").className.split(/\s+/)).toContain(
+        "h-[calc(100vh-16rem)]",
+      ),
     );
 
     // 접기
@@ -73,9 +75,11 @@ describe("ScenarioEditPage 헤더 접기/펴기 (C)", () => {
     expect(screen.queryByText(ko.nav.scenarios)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "demo" })).toBeInTheDocument(); // 제목 유지
     expect(screen.getByRole("button", { name: ko.common.save })).toBeInTheDocument(); // 액션 유지
-    // 배선: 접힘이 EditorShell grid cap을 11rem으로
+    // 배선: 접힘이 EditorShell grid fill-height를 11rem으로
     await waitFor(() =>
-      expect(screen.getByTestId("editor-grid").className).toContain("max-h-[calc(100vh-11rem)]"),
+      expect(screen.getByTestId("editor-grid").className.split(/\s+/)).toContain(
+        "h-[calc(100vh-11rem)]",
+      ),
     );
 
     // 펴기

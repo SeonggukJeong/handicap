@@ -62,11 +62,13 @@ describe("EditorShell", () => {
     expect(grid.className).not.toContain("320px"); // 옛 고정폭 제거
   });
 
-  it("#4: 비-wide 그리드는 뷰포트 높이 상한 + 열별 내부 스크롤 클래스 계약을 갖는다 (R3/R4/R13)", () => {
+  it("#4: 비-wide 그리드는 뷰포트 높이를 채우고(fill) 열별 내부 스크롤 클래스 계약을 갖는다 (R3/R4/R13)", () => {
     render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
     const grid = screen.getByTestId("editor-grid");
     expect(grid.className).toContain("grid-rows-[minmax(0,1fr)]");
-    expect(grid.className).toContain("max-h-[calc(100vh-16rem)]");
+    // max-h(상한)가 아니라 h(채움) — 짧은 내용에도 패널이 뷰포트 높이를 채운다(한 화면에 넓게).
+    expect(grid.className.split(/\s+/)).toContain("h-[calc(100vh-16rem)]");
+    expect(grid.className.split(/\s+/)).not.toContain("max-h-[calc(100vh-16rem)]");
     expect(grid.className).not.toContain("min-h-[680px]");
     expect(grid.className).toContain("min-h-[520px]");
 
@@ -87,14 +89,16 @@ describe("EditorShell", () => {
     expect(varsAside.className).toContain("min-h-0");
   });
 
-  it("C3: chromeCollapsed prop이 그리드 cap을 11rem으로 토글(기본=16rem)", () => {
+  it("C3: chromeCollapsed prop이 그리드 fill-height를 11rem으로 토글(기본=16rem)", () => {
     const yaml = 'version: 1\nname: "x"\nsteps: []\n';
     const { rerender } = render(<EditorShell initialYaml={yaml} />);
-    expect(screen.getByTestId("editor-grid").className).toContain("max-h-[calc(100vh-16rem)]");
+    expect(screen.getByTestId("editor-grid").className.split(/\s+/)).toContain(
+      "h-[calc(100vh-16rem)]",
+    );
     rerender(<EditorShell chromeCollapsed initialYaml={yaml} />);
-    const cls = screen.getByTestId("editor-grid").className;
-    expect(cls).toContain("max-h-[calc(100vh-11rem)]");
-    expect(cls).not.toContain("max-h-[calc(100vh-16rem)]");
+    const cls = screen.getByTestId("editor-grid").className.split(/\s+/);
+    expect(cls).toContain("h-[calc(100vh-11rem)]");
+    expect(cls).not.toContain("h-[calc(100vh-16rem)]");
   });
 
   it("YAML 버튼 클릭 시 모달에 Monaco(yaml-view)가 열리고 닫힌다", async () => {
@@ -181,10 +185,10 @@ steps:
       expect(toggle).toHaveAttribute("aria-pressed", "true");
       expect(screen.queryByLabelText(ko.editor.inspectorAria)).not.toBeInTheDocument();
       expect(screen.getByTestId("editor-grid").className).toContain("grid-cols-[210px_1fr]");
-      // #4: 와이드 모드에서도 변수 aside는 자체 높이 상한을 갖는다 (R4)
+      // #4: 와이드 모드에서도 변수 aside는 뷰포트 높이를 채운다(fill) (R4)
       expect(
-        screen.getByRole("complementary", { name: ko.editor.varsPanelAria }).className,
-      ).toContain("max-h-[calc(100vh-16rem)]");
+        screen.getByRole("complementary", { name: ko.editor.varsPanelAria }).className.split(/\s+/),
+      ).toContain("h-[calc(100vh-16rem)]");
     });
 
     it("OFF 복귀: 기존 그리드 클래스 byte-identical", async () => {

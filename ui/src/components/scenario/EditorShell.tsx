@@ -67,7 +67,10 @@ export function EditorShell({
   };
 
   // C3: 접힘이면 크롬이 줄어 그리드가 세로를 되찾는다. 두 값 모두 소스 리터럴(JIT).
-  const capClass = chromeCollapsed ? "max-h-[calc(100vh-11rem)]" : "max-h-[calc(100vh-16rem)]";
+  // max-h(상한)가 아니라 h(채움) — 내용이 짧아도 그리드/열이 뷰포트 높이를 채워 패널이
+  // 한 화면에 넓게 들어온다(min-h-[520px]는 작은 화면 floor로 유지). 내용이 캡을 넘치면
+  // 열의 overflow-auto가 내부 스크롤을 담당(#4 grid-rows-[minmax(0,1fr)] 계약 유지).
+  const capClass = chromeCollapsed ? "h-[calc(100vh-11rem)]" : "h-[calc(100vh-16rem)]";
 
   return (
     <div className="flex flex-col gap-3">
