@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!-- REVIEW-GATE: PENDING — spec-plan-reviewer가 spec과 이 plan에 clean APPROVE를 내면, 이 줄을 정확히 `REVIEW-GATE: APPROVED`(또는 `<!-- REVIEW-GATE: APPROVED -->`)로 바꾼다. -->
+<!-- REVIEW-GATE: APPROVED -->
 
 **Goal:** 변수 패널의 단일 줄 행 3종(flat-extract·parallel-extract·undefined)에서 210px 열일 때 변수 이름이 27px로 눌려 안 보이는 문제를 `flex-wrap` + 이름 `min-w-[72px]`로 수리한다 — 좁은 열에선 사용처 버튼이 둘째 줄로, 넓은 varsWide 열에선 단일 줄 유지.
 
@@ -56,7 +56,7 @@
 - Modify: `ui/src/components/scenario/VariablesPanel.tsx` — className 9곳
 
 **Interfaces:**
-- Consumes: 기존 `MIXED` fixture(테스트 파일 `:242`, declared `token`·flat-extract `flatVar`·parallel non-shadow `alpha.s`·undefined `missing` 4행 전부 포함), `reset()` 헬퍼(`:8`), `ko.editor.*` aria 키.
+- Consumes: 기존 `MIXED` fixture(테스트 파일 `:242`, declared `token`·flat-extract `flatVar`·parallel non-shadow `alpha.s`·undefined `missing` 4행 전부 포함), store 리셋 인라인 이디엄 `useScenarioEditor.setState(useScenarioEditor.getInitialState())`(기존 `:276` describe와 동일), `ko.editor.*` aria 키.
 - Produces: 없음(후속 task가 소비하는 심볼 없음 — Task 2는 라이브 관찰만).
 
 - [ ] **Step 1: 실패하는 클래스 계약 테스트 작성** — `VariablesPanel.test.tsx` 파일 끝에 append:
@@ -153,8 +153,8 @@ steps:
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cd ui && pnpm test VariablesPanel > /tmp/extract-var-name-visibility-test.log 2>&1; tail -30 /tmp/extract-var-name-visibility-test.log`
-Expected: 새 테스트 3개 FAIL(`flex-wrap`/`min-w-[72px]` 토큰 부재), 기존 테스트는 green. (`pnpm test -- VariablesPanel`처럼 `--`를 넣으면 전체 스위트가 도니 금지 — ui/CLAUDE.md.)
+Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/extract-var-name-visibility/ui && { pnpm test VariablesPanel > /tmp/extract-var-name-visibility-test.log 2>&1 || true; } && tail -30 /tmp/extract-var-name-visibility-test.log`
+Expected: 새 테스트 3개 FAIL(`flex-wrap`/`min-w-[72px]` 토큰 부재), 기존 테스트는 green. (`pnpm test -- VariablesPanel`처럼 `--`를 넣으면 전체 스위트가 도니 금지 — ui/CLAUDE.md. `cd`는 반드시 절대경로 — 상대 `cd ui`는 cwd 잔존으로 단락돼 stale 로그를 읽는 함정, 루트 CLAUDE.md.)
 
 - [ ] **Step 3: `VariablesPanel.tsx` className 9곳 변경** — 아래 9곳만, 같은 문자열의 다른 3곳(`:222` declared 내부 div, `:227` declared non-renamable span, `:357` add-row 래퍼)은 **무변경**:
 
@@ -188,12 +188,12 @@ className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
 
 - [ ] **Step 4: GREEN 확인**
 
-Run: `cd ui && pnpm test VariablesPanel > /tmp/extract-var-name-visibility-test.log 2>&1; tail -15 /tmp/extract-var-name-visibility-test.log`
-Expected: 파일 전체 PASS(새 3개 + 기존 전부 — 기존 green이 R5의 절반).
+Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/extract-var-name-visibility/ui && pnpm test VariablesPanel > /tmp/extract-var-name-visibility-test.log 2>&1 && tail -15 /tmp/extract-var-name-visibility-test.log`
+Expected: exit 0 + 파일 전체 PASS(새 3개 + 기존 전부 — 기존 green이 R5의 절반). (절대경로 `cd`·`&& tail` — Step 2와 같은 stale-로그 함정 회피.)
 
 - [ ] **Step 5: 전체 게이트**
 
-Run: `cd ui && pnpm lint && pnpm test && pnpm build` (각각 `> /tmp/extract-var-name-visibility-<gate>.log` 리다이렉트 후 exit code 확인 — 워크트리-스코프 로그명, 고정 `/tmp/x.log` 재사용 금지)
+Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/extract-var-name-visibility/ui && pnpm lint && pnpm test && pnpm build` (각각 `> /tmp/extract-var-name-visibility-<gate>.log` 리다이렉트 후 exit code 확인 — 워크트리-스코프 로그명, 고정 `/tmp/x.log` 재사용 금지, `cd`는 절대경로)
 Expected: 전부 exit 0. full test에서 무관 파일 1개가 간헐 red면 격리 실행(`pnpm test <file>`)으로 flake 판정 후 재시도(ui/CLAUDE.md suite-wide flake).
 추가 확인(R5): `git diff --stat` 이 위 2개 파일만 나열.
 
@@ -247,5 +247,5 @@ return { nameW: n.width, nameTop: n.top, badgeTop: b.top, usageTop: u.top };
 - **R 커버리지**: R1–R6 전부 담당 task 있음(미매핑 0). seam ✅ 없음(wire 무접촉).
 - **인라인 acceptance**: Task 1은 RTL 토큰 단언 코드 자체가 acceptance, Task 2는 R3/R4/R6 부등식 인라인.
 - **Placeholder scan**: 모든 코드 블록 실제 코드(의사코드/`...` 없음).
-- **Type/idiom consistency**: 기존 `MIXED`/`reset()`/`getByTitle`/`fireEvent` 이디엄 재사용, `tokens()` 정확-토큰 방식.
+- **Type/idiom consistency**: 기존 `MIXED`/인라인 store 리셋/`getByTitle`/`fireEvent` 이디엄 재사용, `tokens()` 정확-토큰 방식.
 - **커밋 경계**: 테스트+구현 단일 green 커밋(UI-only, cargo 게이트 skip).
