@@ -103,6 +103,41 @@ export function parameterizeUrl(url: string, hostVars?: Record<string, string>):
   return `\${${varName}}${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
+// fold 후 후처리: Referer/Origin 헤더 값의 매핑된 호스트를 ${변수}로 치환.
+// Referer는 parameterizeUrl 규칙(경로·쿼리 보존), Origin은 bare ${VAR}
+// (RFC 6454 — origin에 trailing slash가 붙으면 안 되므로 parameterizeUrl 재사용 불가).
+// 미매핑 호스트·파싱 불가 값(Origin: null 등)·그 외 이름은 불변.
+export function parameterizeRefHeaders(
+  headers: Record<string, string>,
+  hostVars?: Record<string, string>,
+): Record<string, string> {
+  if (!hostVars) return headers;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === "referer") {
+      out[name] = parameterizeUrl(value, hostVars);
+    } else if (lower === "origin") {
+      out[name] = originVar(value, hostVars) ?? value;
+    } else {
+      out[name] = value;
+    }
+  }
+  return out;
+}
+
+function originVar(value: string, hostVars: Record<string, string>): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  const varName = hostVars[parsed.host];
+  if (!varName) return null;
+  return `\${${varName}}`;
+}
+
 function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown> {
   const method = entry.request.method.toUpperCase();
   const rawUrl = entry.request.url;
@@ -110,7 +145,10 @@ function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown
   const request: Record<string, unknown> = {
     method,
     url,
-    headers: foldHeaders(entry.request.headers, opts.headerMode),
+    headers: parameterizeRefHeaders(
+      foldHeaders(entry.request.headers, opts.headerMode),
+      opts.hostVars,
+    ),
   };
   const body = wireBody(entry.request.postData);
   if (body) request.body = body;
