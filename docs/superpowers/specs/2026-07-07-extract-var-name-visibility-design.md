@@ -10,7 +10,7 @@
 
 ## 1. 문제와 목표
 
-기본(비-wide) 에디터 그리드에서 변수 열은 210px 고정(`EditorShell.tsx` `grid-cols-[210px_…]`)인데, `VariablesPanel.tsx`의 단일 줄 행 3종(flat-extract·parallel-extract·undefined)은 `flex items-center gap-2`(no-wrap) 한 줄에 `[이름(flex-1 min-w-0)] [✎] [배지] [사용처 버튼]`을 전부 얹는다. 이름만 `min-w-0`으로 축소를 흡수하므로, 고정 요소(✎ 11px + "추출됨" 31px + "N개 스텝에서 사용" ~85px + gap 24px ≈ 151px)를 빼면 **이름에 27px만 남아 사실상 안 보인다**(라이브 실측: `token`이 `to…`로 렌더, 행폭 178px). 추출되고 *사용 중*인 변수가 정확히 최악 조합(배지 2개 모두 김)이라 사용자 보고와 일치한다. 선언 변수 행은 usage가 별도 줄이라 무사하다.
+기본 에디터 그리드에서 변수 열은 210px 고정(`EditorShell.tsx:131` `grid-cols-[210px_…]`; wideOpen ⛶ 모드도 `:130` `grid-cols-[210px_1fr]`로 동일 210px — 넓은 열은 varsWide ◧의 `1fr`뿐)인데, `VariablesPanel.tsx`의 단일 줄 행 3종(flat-extract·parallel-extract·undefined)은 `flex items-center gap-2`(no-wrap) 한 줄에 `[이름(flex-1 min-w-0)] [✎] [배지] [사용처 버튼]`을 전부 얹는다. 이름만 `min-w-0`으로 축소를 흡수하므로, 고정 요소(✎ 11px + "추출됨" 31px + "N개 스텝에서 사용" ~85px + gap 24px ≈ 151px)를 빼면 **이름에 27px만 남아 사실상 안 보인다**(라이브 실측: `token`이 `to…`로 렌더, 행폭 178px). 추출되고 *사용 중*인 변수가 정확히 최악 조합(배지 2개 모두 김)이라 사용자 보고와 일치한다. 선언 변수 행은 usage가 별도 줄이라 무사하다.
 
 - **목표**: 행을 `flex-wrap` + 이름 최소폭으로 바꿔, 좁은 열에선 사용처 버튼(필요시 배지)이 자동으로 둘째 줄로 내려가 이름이 항상 읽히고, 넓은 모드(varsWide)에선 현재의 단일 줄 밀도를 그대로 유지한다.
 - **비목표(연기)**: §7 참조. 문구 축약·선언 행 재구성·열 폭 조정 없음.
@@ -22,11 +22,11 @@
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법: 테스트명 또는 관찰) | seam? |
 |---|---|---|---|
 | R1 | MUST: 단일 줄 행 3종(flat-extract·parallel-extract·undefined)의 `<li>` 컨테이너는 `flex-wrap`을 허용하고 세로 간격은 행 간 간격(gap-3)보다 좁게(`gap-x-2 gap-y-1`) 둔다 | RTL: li `className.split(/\s+/)`에 `flex-wrap`·`gap-x-2`·`gap-y-1` 토큰 포함, `gap-2` 부재 | |
-| R2 | MUST: 이름 span 4곳(flat-extract/declared 공용 `nameCell`, parallel non-shadow, parallel shadow, undefined)과 rename 인라인 Input 래퍼 div 2곳(flat·parallel)은 `min-w-0` 대신 `min-w-[72px]`로 최소폭을 보장한다 | RTL: 이름 span/래퍼 `className` 토큰에 `min-w-[72px]` 포함·`min-w-0` 부재 | |
-| R3 | MUST: 좁은 기본 열(210px)에서 추출+사용 행의 이름 실폭이 72px 이상이고 사용처 버튼은 이름보다 아래 줄에 렌더된다 | 라이브 Playwright: `getBoundingClientRect()` — name.width ≥ 72 && usageBtn.top > name.top | |
-| R4 | MUST: varsWide(◧) 모드에서 같은 행이 단일 줄을 유지한다(밀도 무손실) | 라이브 Playwright: name.top === usageBtn.top (같은 행) | |
+| R2 | MUST: 이름 span 4곳(flat-extract/declared 공용 `nameCell`, parallel non-shadow, parallel shadow, undefined)과 rename 인라인 Input **래퍼 div** 2곳(flat·parallel)은 `min-w-0` 대신 `min-w-[72px]`로 최소폭을 보장한다 — 래퍼 안 `<Input>` 자신의 `min-w-0 font-mono`는 유지(줄어든 래퍼를 `w-full`로 채우는 데 필요) | RTL: 이름 span·래퍼(`input.parentElement`) `className` 토큰에 `min-w-[72px]` 포함·`min-w-0` 부재 — 단언 대상은 래퍼 div이지 `<Input>` 요소가 아님 | |
+| R3 | MUST: 좁은 210px 열(기본·wideOpen ⛶ 공통)에서 추출+사용 행의 이름 실폭이 72px 이상이고 사용처 버튼은 이름보다 아래 줄에 렌더된다 | 라이브 Playwright(뷰포트 1280×800 고정): `getBoundingClientRect()` — name.width ≥ 72 && usageBtn.top > name.top + 1 | |
+| R4 | MUST: varsWide(◧, 변수 열 `1fr`) 모드에서 같은 행이 단일 줄을 유지한다(밀도 무손실) | 라이브 Playwright(뷰포트 1280×800): `Math.abs(name.top − usageBtn.top) < 1` (같은 행) | |
 | R5 | MUST: 선언 변수 행의 구조·시각 결과, 문구(`ko.ts`)·usage 팝오버 동작·`truncate`+`title` 툴팁·모델/스토어/wire는 무변경 — 단 declared(renamable) 행이 공유하는 `nameCell`의 클래스 변경은 허용(폭이 넉넉해 min-width 미발동 = 시각 no-op) | `git diff` 범위 = `VariablesPanel.tsx`(+테스트)뿐, 기존 VariablesPanel 테스트 전부 green | |
-| R6 | SHOULD: 줄바꿈 시 이름+✎+상태 배지("추출됨"/"분기"/"⚠ 미정의")가 첫 줄에 우선 남고 사용처 버튼부터 내려간다(DOM 순서 유지로 자연 충족) | 라이브 Playwright: 배지.top === name.top (기본 열, 배지가 첫 줄) — parallel 행처럼 첫 줄이 넘치면 배지도 내려감은 허용 | |
+| R6 | SHOULD: 줄바꿈 시 이름+✎+상태 배지("추출됨"/"분기"/"⚠ 미정의")가 첫 줄에 우선 남고 사용처 버튼부터 내려간다(DOM 순서 유지로 자연 충족) | 라이브 Playwright: `Math.abs(배지.top − name.top) < 1` (기본 열, 배지가 첫 줄) — parallel 행처럼 첫 줄이 넘치면 배지도 내려감은 허용 | |
 
 ---
 
@@ -60,7 +60,8 @@
 - 엔진/컨트롤러/proto/migration/스토어/모델/Zod/ko.ts: 0-diff. 순수 프레젠테이션(className) 변경.
 - 선언 변수 행(이름+×/textarea/usage 3층 구조): 구조·시각 결과 불변 — 공유 `nameCell` 클래스만 바뀌고 min-width는 미발동(R5 단서).
 - "추출됨"/"분기"/"⚠ 미정의"/"N개 스텝에서 사용" 문구·`title` 툴팁·aria-label: byte-identical.
-- varsWide 모드 시각 결과: 단일 줄 유지(클래스는 바뀌지만 렌더 결과 동일 — wrap 미발동).
+- varsWide(◧, `1fr`) 모드 시각 결과: 단일 줄 유지(클래스는 바뀌지만 렌더 결과 동일 — wrap 미발동).
+- wideOpen(⛶) 모드는 변수 열이 동일 210px이라 **의도적으로 함께 수리된다**(행 레벨 클래스 변경이라 그리드 모드 무관 — R3의 줄바꿈이 여기서도 발동, 무변경 항목 아님).
 
 ---
 
@@ -70,10 +71,10 @@
 |---|---|---|
 | R1 | RTL `VariablesPanel.test.tsx` — li 클래스 토큰(`flex-wrap`·`gap-x-2`·`gap-y-1` 포함, `gap-2` 부재) | |
 | R2 | RTL — 이름 span·rename 래퍼 클래스 토큰(`min-w-[72px]` 포함, `min-w-0` 부재), rename은 ✎ 클릭 후 단언 | |
-| R3 | 라이브 Playwright(vite dev, `/scenarios/new` → "로그인 흐름" 템플릿): 기본 열에서 name rect.width ≥ 72 && usage.top > name.top | ✅ |
-| R4 | 라이브 Playwright: ◧ 토글 후 name.top === usage.top | ✅ |
+| R3 | 라이브 Playwright(vite dev, `/scenarios/new` → "로그인 흐름" 템플릿, 뷰포트 1280×800): 기본 열에서 name rect.width ≥ 72 && usage.top > name.top + 1 — ⛶ 모드는 열 폭이 동일 210px이라 기본 모드 측정이 대표 | ✅ |
+| R4 | 라이브 Playwright: ◧ 토글 후 `Math.abs(name.top − usage.top) < 1` | ✅ |
 | R5 | `git diff --stat` 범위 확인 + 기존 `VariablesPanel.test.tsx` 전체 green + `pnpm lint && pnpm test && pnpm build` | |
-| R6 | R3 측정에 배지 top 단언 포함(배지.top === name.top) | |
+| R6 | R3 측정에 배지 top 단언 포함(`Math.abs(배지.top − name.top) < 1`) | |
 
 - 라이브 검증은 클라이언트-only(`/scenarios/new`는 백엔드 불필요) — `/live-verify` 풀스택 불요, vite dev + Playwright rect 실측으로 충분. run-생성/리포트/엔진 경로 0-diff라 라이브 run은 불요.
 - 재현 기준값(수리 전, 2026-07-06 실측): 행폭 178px에서 name.width = 27px.
