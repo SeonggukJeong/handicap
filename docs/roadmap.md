@@ -279,6 +279,11 @@
 - rename 외 구조편집(move/reparent 등) draft 재시드 — 현재는 필드 *내용*을 재작성하는 rename만 stale 유발. 향후 그런 액션이 생기면 `renameEpoch`(→ 일반화된 `fieldRewriteEpoch`) 패턴 재사용.
 - (구현 중 발견) `EditorShell.test.tsx`의 열-컨테이너 셀렉터가 FlowOutline 내부 구조에 결합(`getByTestId("outline-blank").parentElement.parentElement`) — EditorShell 아웃라인 wrapper에 `data-testid` 부여가 더 견고(test-robustness nit, 비차단).
 
+### B17. ui/CLAUDE.md 도메인 분할 후속 — RunDialog 계열 전용 디렉토리 (2026-07-07) 연기 항목
+출처: `ui/CLAUDE.md`(143KB) 도메인별 2단계 중첩 분할(scenario/report/ui/compare 4개 신규 CLAUDE.md, `e2a214a`). 남은 의도적 연기:
+- `RunDialog.tsx`·`DataBindingPanel.tsx`·`LoadModelFields.tsx`·`StageCurvePreview.tsx`·`SlotSizingHelper.tsx`/`VuSizingHelper.tsx`/`WorkerSizingHelper.tsx`·`ScheduleForm.tsx`·`ScheduleEventTimeline.tsx`·`TriggerBuilder.tsx`·`EnvironmentPicker.tsx`·`CriteriaFields.tsx`/`StepCriteriaFields.tsx`·`RunVuCell.tsx`·`RunListControls.tsx`·`LoadShapePreview.tsx`(~15개 파일, ~38KB 상당 함정 노트)가 `ui/src/components/`에 flat하게 있어 전용 하위디렉토리(예: `components/run/`)가 없다 — 그래서 이 도메인 함정은 여전히 `ui/CLAUDE.md` 루트에 남아 있다.
+- 옮기려면: ① 새 디렉토리로 파일 이동 + 전 레포 import 경로 갱신(다수 소비처 — `pages/*.tsx` 등) ② `ui/src/components/run/CLAUDE.md` 신규 + 루트에서 해당 함정 노트 이주 ③ 라이브 게이트(lint/test/build) 재확인. 문서 정리보다 큰 소스 리팩터라 별도 슬라이스로 스코프(사용자 지시로 백로그 등록, 이번 분할엔 미포함).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
