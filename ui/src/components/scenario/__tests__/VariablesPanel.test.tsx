@@ -609,3 +609,91 @@ steps:
     expect(useScenarioEditor.getState().yamlText).toContain("var: fresh"); // not committed
   });
 });
+
+describe("VariablesPanel — 추출/미정의 행 적응형 줄바꿈 (extract-var-name-visibility)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  const tokens = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/);
+
+  // 선언 s를 alpha 분기가 다시 추출 → declared non-renamable + parallel shadow 행
+  const SHADOW = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  s: seed
+steps:
+  - id: 01HX0000000000000000000060
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps:
+          - id: 01HX0000000000000000000061
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: s
+`;
+
+  it("R1: flat-extract·parallel-extract·undefined 행 li는 flex-wrap + gap-x-2/gap-y-1 (gap-2 부재)", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    const lis = [
+      screen.getByTitle("flatVar").closest("li")!,
+      screen.getByTitle("alpha.s").closest("li")!,
+      screen.getByTitle(ko.editor.variableUndefinedAria("missing")).closest("li")!,
+    ];
+    for (const li of lis) {
+      const t = tokens(li);
+      expect(t).toContain("flex-wrap");
+      expect(t).toContain("gap-x-2");
+      expect(t).toContain("gap-y-1");
+      expect(t).not.toContain("gap-2");
+    }
+  });
+
+  it("R2: 이름 span은 min-w-[72px] (min-w-0 부재), rename 래퍼도 동일하되 <Input> 자신은 min-w-0 유지", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    // 이름 span 3/4곳: nameCell(flat-extract) · parallel non-shadow · undefined
+    for (const title of ["flatVar", "alpha.s", ko.editor.variableUndefinedAria("missing")]) {
+      const t = tokens(screen.getByTitle(title));
+      expect(t).toContain("min-w-[72px]");
+      expect(t).not.toContain("min-w-0");
+    }
+    // flat rename 래퍼: ✎ 클릭 → input.parentElement 가 래퍼 div (Input.tsx는 bare <input>)
+    fireEvent.click(screen.getByRole("button", { name: ko.editor.renameVariableAria("flatVar") }));
+    const input = screen.getByRole("textbox", {
+      name: ko.editor.variableRenameInputAria("flatVar"),
+    });
+    const wrapper = input.parentElement!;
+    expect(tokens(wrapper)).toContain("min-w-[72px]");
+    expect(tokens(wrapper)).not.toContain("min-w-0");
+    expect(tokens(input)).toContain("min-w-0"); // <Input> 자신은 유지 — w-full이 줄어든 래퍼를 채우는 데 필요(spec R2 단서)
+  });
+
+  it("R2/R5: parallel rename 래퍼·shadow 이름 span은 min-w-[72px], declared non-renamable span은 min-w-0 유지", () => {
+    // (a) non-shadow parallel rename 래퍼 — MIXED
+    useScenarioEditor.getState().loadFromString(MIXED);
+    const { unmount } = render(<VariablesPanel />);
+    fireEvent.click(screen.getByRole("button", { name: ko.editor.renameVariableAria("alpha.s") }));
+    const pInput = screen.getByRole("textbox", {
+      name: ko.editor.variableRenameInputAria("alpha.s"),
+    });
+    expect(tokens(pInput.parentElement!)).toContain("min-w-[72px]");
+    expect(tokens(pInput.parentElement!)).not.toContain("min-w-0");
+    unmount();
+    // (b) shadow span + declared non-renamable span — SHADOW
+    useScenarioEditor.getState().loadFromString(SHADOW);
+    render(<VariablesPanel />);
+    const shadow = screen.getByTitle("alpha.s"); // shadow 행 이름 span (title=display)
+    expect(tokens(shadow)).toContain("min-w-[72px]");
+    expect(tokens(shadow)).not.toContain("min-w-0");
+    const declared = screen.getByTitle("s"); // declared non-renamable span — 의도적으로 무변경(spec §4.1)
+    expect(tokens(declared)).toContain("min-w-0");
+    expect(tokens(declared)).not.toContain("min-w-[72px]");
+  });
+});

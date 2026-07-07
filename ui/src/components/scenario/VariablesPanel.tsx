@@ -151,7 +151,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   // rename 어퍼던스(연필 or 인라인 draft input) — declared/flat 공통
   const nameCell = (name: string) =>
     editing?.kind === "flat" && editing.name === name ? (
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-[72px]">
         <Input
           size="sm"
           autoFocus
@@ -172,7 +172,10 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
       </div>
     ) : (
       <>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600" title={name}>
+        <span
+          className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
+          title={name}
+        >
           {name}
         </span>
         <button
@@ -251,7 +254,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           }
           if (row.kind === "flat-extract") {
             return (
-              <li key={`f:${row.name}`} className="flex items-center gap-2">
+              <li key={`f:${row.name}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 {nameCell(row.name)}
                 <span className="shrink-0 text-xs text-slate-400">
                   {ko.editor.variableExtracted}
@@ -266,17 +269,17 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
               editing.branchName === row.branchName &&
               editing.varName === row.varName;
             return (
-              <li key={`p:${row.display}`} className="flex items-center gap-2">
+              <li key={`p:${row.display}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="shrink-0 font-mono text-xs text-slate-400">{row.branchName}.</span>
                 {row.isShadow ? (
                   <span
-                    className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600"
+                    className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
                     title={row.display}
                   >
                     {row.varName}
                   </span>
                 ) : isEditing ? (
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-[72px]">
                     <Input
                       size="sm"
                       autoFocus
@@ -298,7 +301,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                 ) : (
                   <>
                     <span
-                      className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600"
+                      className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
                       title={row.display}
                     >
                       {row.varName}
@@ -330,9 +333,9 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           }
           // undefined
           return (
-            <li key={`u:${row.name}`} className="flex items-center gap-2">
+            <li key={`u:${row.name}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span
-                className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600"
+                className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
                 title={ko.editor.variableUndefinedAria(row.name)}
               >
                 {row.name}
