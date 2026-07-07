@@ -177,6 +177,12 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
     renderPage();
     const pencil = await screen.findByRole("button", { name: ko.editor.renameAria });
     expect(pencil).toBeEnabled(); // 정상 상태 = 활성 (R8)
+    // EditorShell의 마운트 이펙트(loadFromString(initialYaml) 자기-재시드, StrictMode
+    // 이중 호출 포함)가 위 findByRole 해결 시점에 아직 전부 flush되지 않았을 수 있다 —
+    // 그 상태에서 곧장 store를 mutate하면, 나중에 도착하는 그 이펙트가 우리 변경을
+    // 덮어쓴다(이 파일의 다른 케이스들과 동일 클래스 — 남은 이펙트를 먼저 비우는
+    // 빈 async act로 해소).
+    await act(async () => {});
     act(() => useScenarioEditor.setState({ yamlError: "boom" }));
     expect(pencil).toBeDisabled();
     expect(pencil).toHaveAttribute("title", ko.editor.renameDisabledTitle);
