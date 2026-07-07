@@ -21,6 +21,10 @@
 
 - **headless Chromium에서 `window.showSaveFilePicker`는 *함수로 존재*한다(localhost=secure context)** (editor-yaml-io): 그래서 picker-우선 다운로드 코드(`saveViaPicker`→실패 시 blob 폴백)를 헤드리스로 클릭하면 실 picker가 UI 없이 **hang**(`waitForEvent('download')` 타임아웃) — plan이 "headless엔 picker 부재"를 가정하면 어긋난다. **blob 폴백 경로(=air-gapped 실사용 경로)를 결정적으로 실측하려면 클릭 전에 `page.evaluate(()=>{ window.showSaveFilePicker=undefined })`로 picker를 지워** `saveViaPicker`가 즉시 false→`saveViaBlobUrl`(anchor download)로 떨어지게 한 뒤 `page.waitForEvent('download')`로 `suggestedFilename()`+`createReadStream()` 내용 검증. 실 picker.call(window) bound-call 자체는 헤드리스로 못 덮으니(non-Abort throw→blob 폴백이라 bound-this 버그조차 같은 결과로 흡수됨) real-Chrome nice-to-have(비차단).
 
+## 라이브 검증 도중 src 편집(fold-in fix)은 HMR full-reload로 페이지 상태를 리셋한다
+
+- **vite dev로 라이브 검증하다가 검증 대상 컴포넌트 src를 고치면(사용자 fold-in fix 흐름) HMR이 full-reload로 떨어져 클라이언트-only 페이지 상태가 초기화된다** (extract-var-name-visibility): `/scenarios/new`가 템플릿 피커로 되돌아가 이전에 구성한 시나리오/변수/선택이 증발 — 이전 툴 호출에서 잡아둔 ref/좌표도 전부 무효. 편집 후 재검증은 **셋업(템플릿 선택→변수 추가→필드 fill)부터 다시 구동**하고, fresh `browser_snapshot`으로 ref를 재취득할 것(오류가 아니라 정상 리로드 — "구현이 사라졌다" 오진 금지).
+
 ## 트랜지언트 상태는 단일 `browser_evaluate`로
 
 - **트랜지언트 UI 상태(예: '복사됨' 1.5s 후 복귀)는 Playwright MCP 툴 호출 *사이*로 못 잡는다** (본문 뷰어 수동검증): `browser_click` → `browser_snapshot`을 별도 호출로 쪼개면 inter-call 지연이 revert 윈도우를 넘겨 이미 되돌아온 값을 본다. **단일 `browser_evaluate`** 안에서 `el.click()` → `await sleep(150)`(writeText microtask+React 렌더) → label 확인 → `await sleep(1700)` → revert 확인까지 한 번에. clipboard 검증도 같은 evaluate에서 `navigator.clipboard.readText()`(localhost=secure context라 허용).
