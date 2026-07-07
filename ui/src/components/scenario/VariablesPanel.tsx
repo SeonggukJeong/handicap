@@ -142,7 +142,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
             prev?.key === cycleKey ? null : { key: cycleKey, anchor, refIds },
           );
         }}
-        className="text-xs text-accent-600 hover:underline"
+        className="text-left text-xs text-accent-600 hover:underline"
       >
         {ko.editor.variableUsage(refIds.length)}
       </button>

@@ -696,4 +696,15 @@ steps:
     expect(tokens(declared)).toContain("min-w-0");
     expect(tokens(declared)).not.toContain("min-w-[72px]");
   });
+
+  it("사용처 버튼은 text-left — declared 행(flex-col stretch)에서 브라우저 기본 중앙정렬 방지, 전 행 좌측 통일", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    // declared token(flex-col li: 버튼이 full-width stretch라 text-align이 실렌더를 좌우)
+    // + parallel alpha.s(flex-row li: content-폭이라 무영향이지만 공유 셀 계약 락인)
+    for (const name of ["token", "alpha.s"]) {
+      const t = tokens(screen.getByRole("button", { name: ko.editor.variableUsageNavAria(name) }));
+      expect(t).toContain("text-left");
+    }
+  });
 });
