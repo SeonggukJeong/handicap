@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
 
 // recharts ResponsiveContainer (ReportView/RunDetailPage) requires ResizeObserver in jsdom.
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -13,11 +15,13 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 // Node.js 25 provides a native globalThis.localStorage that is file-backed and
 // does not implement the full Web Storage API (e.g. .clear() is missing when no
 // --localstorage-file path is given). Replace it with a simple in-memory
-// implementation so tests that use window.localStorage work correctly. This
-// polyfill is guarded on .clear being absent to avoid overwriting a fully
-// functional implementation (e.g. real jsdom Storage with a URL).
-// 가드의 `localStorage?.clear` 접근이 Node 25 lazy native storage를 건드려 테스트 실행마다 `Warning: '--localstorage-file' was provided without a valid path` 1회 출력됨 — 무해.
-if (typeof globalThis.localStorage?.clear !== "function") {
+// implementation so tests that use window.localStorage work correctly.
+//
+// 항상 재설치(guard 없음) — 이전엔 `.clear` 존재 여부로 skip했는데, 그 in-memory
+// `store`가 워커 내 파일 간 잔존해(globalThis가 파일 경계에서 안 리셋되는 실행
+// 환경에서) suite-wide 비결정 실패를 냈다(ui/CLAUDE.md "suite-wide 비결정 테스트
+// 격리 flake"). 매 파일 fresh store로 재설치해 잔존을 원천 차단.
+{
   const store: Record<string, string> = {};
   const inMemoryStorage: Storage = {
     get length() {
@@ -45,3 +49,8 @@ if (typeof globalThis.localStorage?.clear !== "function") {
     configurable: true,
   });
 }
+
+afterEach(() => {
+  cleanup();
+  globalThis.localStorage.clear();
+});

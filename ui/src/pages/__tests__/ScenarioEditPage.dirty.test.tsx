@@ -81,6 +81,12 @@ describe("ScenarioEditPage dirty baseline (false-dirty 회귀, R9)", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("heading", { name: "demo" });
+    // EditorShell의 마운트 이펙트(loadFromString(initialYaml) 자기-재시드)가
+    // 위 findByRole 해결 시점에 아직 flush되지 않았을 수 있다 — 그 상태에서
+    // 곧장 store를 mutate하면, 나중에 도착하는 그 이펙트가 우리 변경을 덮어쓴다
+    // (ScenarioEditPage.name.test.tsx와 동일 클래스 — 남은 이펙트를 먼저 비우는
+    // 빈 async act로 해소).
+    await act(async () => {});
 
     act(() => {
       useScenarioEditor.getState().addStep("새 스텝");
