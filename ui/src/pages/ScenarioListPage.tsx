@@ -57,7 +57,7 @@ export function ScenarioListPage() {
       )}
       {clone.error && (
         <Callout variant="error" role="alert" className="mb-3">
-          복제 실패: {(clone.error as Error).message}
+          {ko.pages.cloneFailed((clone.error as Error).message)}
         </Callout>
       )}
       {deleteError && (

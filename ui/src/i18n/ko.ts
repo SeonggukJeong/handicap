@@ -392,6 +392,7 @@ export const ko = {
       return `'${name}' 시나리오를 참조하는 ${parts.join("·")}이(가) 함께 삭제됩니다. 계속할까요?`;
     },
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
+    cloneFailed: (msg: string) => `복제 실패: ${msg}`,
   },
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──

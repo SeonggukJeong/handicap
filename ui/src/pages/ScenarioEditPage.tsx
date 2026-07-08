@@ -101,9 +101,16 @@ export function ScenarioEditPage() {
   // 서버가 준 유효 YAML. originalYaml(정규화·post-mount까지 "")은 클론 소스로 쓰지 않음.
   const cloneAndGo = async (sourceYaml: string, sourceName: string) => {
     const existingNames = scenarios?.scenarios.map((s) => s.name) ?? [];
-    const created = await clone.mutateAsync({ sourceYaml, sourceName, existingNames });
-    setCloneDialog(null);
-    navigate(`/scenarios/${created.id}`);
+    try {
+      const created = await clone.mutateAsync({ sourceYaml, sourceName, existingNames });
+      setCloneDialog(null);
+      navigate(`/scenarios/${created.id}`);
+    } catch {
+      // clone.error(useMutation 내부 상태)가 이미 페이지-레벨 Callout을 구동한다.
+      // 열려 있던 모달을 닫아 그 Callout이 backdrop에 가리지 않게 한다(non-dirty
+      // 즉시경로는 모달이 없으므로 no-op).
+      setCloneDialog(null);
+    }
   };
 
   const onCloneClick = () => {
@@ -236,7 +243,7 @@ export function ScenarioEditPage() {
       {update.error && <Callout variant="error">{(update.error as Error).message}</Callout>}
       {clone.error && (
         <Callout variant="error" role="alert">
-          복제 실패: {(clone.error as Error).message}
+          {ko.pages.cloneFailed((clone.error as Error).message)}
         </Callout>
       )}
 

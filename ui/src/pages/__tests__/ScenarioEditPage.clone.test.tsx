@@ -171,9 +171,8 @@ describe("ScenarioEditPage clone", () => {
   });
 
   it("복제 실패 시 오류 Callout(alert, 구체 클래스: rounded-md/bg-red-50)", async () => {
-    // dirty → "저장 후 복제" 경로 사용: saveThenClone의 try/catch가 cloneAndGo의
-    // reject를 흡수해 unhandled rejection 없이 clone.error를 유도한다("not dirty"
-    // 즉시-복제 경로는 void cloneAndGo(...)라 실패 시 미흡수 rejection이 남는다).
+    // R1 fix로 즉시경로("not dirty" → void cloneAndGo(...))도 안전해졌다 —
+    // cloneAndGo 내부 try/catch가 실패를 흡수하므로 unhandled rejection이 없다.
     const user = userEvent.setup();
     cloneShouldFail = true;
     renderPage();
@@ -187,5 +186,22 @@ describe("ScenarioEditPage clone", () => {
     const alertBox = await screen.findByRole("alert");
     expect(alertBox).toHaveClass("rounded-md");
     expect(alertBox).toHaveClass("bg-red-50");
+    // R2: 열려 있던 확인 모달이 닫혔다(backdrop에 Callout이 안 가림)
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // R5: "저장 실패" 모달이 아니라(clone 실패를 save 실패로 오분류하지 않음)
+    expect(screen.queryByText(/저장에 실패했습니다/)).toBeNull();
+  });
+
+  it("not dirty + 복제 실패: unhandled rejection 없이 Callout만 뜬다 (R1)", async () => {
+    const user = userEvent.setup();
+    cloneShouldFail = true;
+    renderPage();
+    await screen.findByRole("button", { name: "복제" });
+    await user.click(screen.getByRole("button", { name: "seed" })); // not dirty
+
+    await user.click(screen.getByRole("button", { name: "복제" }));
+
+    const alertBox = await screen.findByRole("alert");
+    expect(alertBox).toHaveTextContent("복제 실패: clone failed");
   });
 });
