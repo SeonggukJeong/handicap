@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -704,7 +704,13 @@ describe("RunDialog — save/manage preset (A2)", () => {
     // 정확-문자열 getByLabelText(ko.loadModel.vus="동시 사용자(VU)")는 타일 라벨("동시 사용자 (VU)", 공백)과
     // 정확매치 안 되므로 충돌 없음(Task 2 충돌은 *regex* getByLabelText만 해당).
     const vu = screen.getByLabelText(ko.loadModel.vus) as HTMLInputElement;
-    setNativeValue(vu, "999");
+    // setNativeValue의 raw dispatchEvent는 act() 미경유 — usePriorClosedRunAnchor 백그라운드
+    // 쿼리(useScenarioRuns/useRunReport)가 settle되며 내는 업데이트가 이 시점과 겹치면 act() 밖으로
+    // 샌다. act()로 감싸면 그 갱신까지 같은 동기 플러시에 포함돼 경고가 사라진다(대신 위/아래의
+    // 모든 await 지점은 RTL이 자체 act-wrap하므로, 테스트 전체에서 act 커버리지가 끊기는 지점이 없다).
+    act(() => {
+      setNativeValue(vu, "999");
+    });
     await waitFor(() => expect(select.value).toBe(""));
   });
 
@@ -718,7 +724,11 @@ describe("RunDialog — save/manage preset (A2)", () => {
       expect(screen.getByRole("button", { name: "이름 변경" })).toBeInTheDocument(),
     );
     const vu = screen.getByLabelText(ko.loadModel.vus) as HTMLInputElement;
-    setNativeValue(vu, "999");
+    // act()로 감싸는 이유는 위 1b와 동일(usePriorClosedRunAnchor 백그라운드 쿼리 settle 갱신을
+    // 같은 동기 플러시에 포함).
+    act(() => {
+      setNativeValue(vu, "999");
+    });
     // 수정 후에도 버튼 잔존
     expect(screen.getByRole("button", { name: "이름 변경" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "프리셋 삭제" })).toBeInTheDocument();
