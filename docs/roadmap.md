@@ -237,7 +237,7 @@
 - **나머지 화면 *깊은* 토큰 이주** (결과·표시 화면의 *깊은* Section/카드·표시 입력 토큰화 — 2/3차는 블록 알림+입력만 이주; 에디터/Inspector 화면군은 ✅3차 완료): 차츰 같은 프리미티브로 확장.
 - **Button-accent 드리프트 이주** (design-system-editor R10 연기): 에디터 indigo/blue 컨트롤 색(ExtractConfirmRow `bg-indigo-600` confirm·ResponseBodyTree `bg-indigo-600` +추출·ConditionNode `border-indigo-200` 레일)을 결과화면 R11 드리프트와 묶어 "Button-accent 이주" 별도 슬라이스(Input/Select/Callout 도메인과 분리).
 - **`Section` 카드 variant + `InspectorSection` 통합** (design-system-editor 연기): 에디터 카드형 fieldset을 카드 룩 보존한 채 `Section`화하려면 카드 variant(+`min-w-0`) 필요=토대 변경. `InspectorSection`(카드+localStorage disclosure)도 프리미티브 확장 후 별도 검토.
-- **pre-existing 버그 2건** (design-system-editor 라이브/리뷰 발견, 이 슬라이스 무접촉): `ScenarioEditPage`의 non-dirty 즉시-복제 경로 `void cloneAndGo(...)` 미처리 promise rejection(복제 실패 시)·복제 오류 "복제 실패:" 하드코딩 문자열 `ko.ts` 미경유(ADR-0035). 후속 정리 슬라이스에서.
+- **✅ pre-existing 버그 2건 완료 (2026-07-09, scenario-clone-error-fixes, 머지 `3232b8e`)**: `cloneAndGo` unhandled-rejection 제거(단일 try/catch, 3개 void 호출부+`saveThenClone`) + "복제 실패:" 하드코딩→`ko.pages.cloneFailed` 이주(ADR-0035). 상세→build-log.
 - **차트/compare 색 토큰화**: 데이터 식별 색(차트 stroke `#2563eb`·`StageCurvePreview` 곡선선·`runLabel.ts` compare 팔레트·`StatusBadge` running)은 컨트롤 색과 별 도메인 — 별도 검토.
 - **간단/상세 모드 토글·단계별 마법사**: 구조 A(번호 섹션·강한 위계)로 충분 — B(모드 토글)/C(마법사)는 효과 확인 후 재검토(사용자: "개선해보고 나서 추가 검토").
 - **기존 프리미티브(`Button`/`Modal`/`HelpTip`) `ui/` 폴더 통합**: import 경로 churn이 커서 이번엔 제자리 유지 — 후속 정리 슬라이스에서 이동.
