@@ -48,6 +48,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **React Query v5 `refetchInterval`의 시그니처** (Slice 2): `(query) => number | false`. `query.state.data`로 마지막 데이터에 접근. 4.x의 `(data) => ...` 시그니처와 다름.
 - **terminal 후 `/report` fetch가 silent로 실패하면 사용자는 "전환 없음"으로만 본다** (Slice 5): RunDetailPage 조건부가 `terminal && report.data` 라 fetch 실패 시 `report.error` 가 있어도 라이브 섹션이 fallthrough. `role="alert"` 배너로 에러 메시지를, `role="status"` 로 로딩을 표시해야 "404 / Zod parse fail / 네트워크 hang" 원인을 즉시 본다.
 - **multipart 업로드 클라이언트는 content-type을 직접 설정하면 안 된다** (Slice 8b): `ui/src/api/client.ts`의 `request`는 `content-type: application/json`을 강제 → FormData엔 못 쓴다. 별도 `requestMultipart`(헤더 미지정)로 브라우저가 boundary를 자동 설정하게 한다. DELETE(204, 빈 본문)는 `request(..., z.undefined())`로 기존 빈-본문 분기를 타게 해서 공유 `request` 시그니처를 안 건드린다.
+- **`useMutation`의 `error`/`isError` 상태는 호출자가 `mutateAsync` promise를 catch하는지와 무관하게 mutationFn 실행 자체로 독립 갱신된다** (scenario-clone-error-fixes): 그래서 fire-and-forget(`void mutateAsync(...)`) 호출부에서 실패를 try/catch로 삼켜도, 그 뮤테이션 객체의 `error`를 읽는 페이지-레벨 Callout(`{mutation.error && <Callout>...}`)은 안 깨진다 — catch는 오직 "unhandled promise rejection을 안 만드는 것"만 책임지면 된다. 단, `Modal`류(`fixed inset-0 z-50` 풀스크린 backdrop)가 열려 있으면 그 Callout이 backdrop 뒤에 가려지므로, catch 블록에서 모달을 닫아야 실패가 실제로 보인다.
 - **UploadPanel 라이브 미리보기는 요청 시퀀싱이 없다(8b 알려진 한계)** (Slice 8b): 옵션을 빠르게 연속 변경하면 `previewDataset` 응답이 도착 순서대로 `setPreview`돼 stale 미리보기가 남을 수 있다. 단일 사용자 수동 조작 + 빠른 파싱이라 8b에선 무시 가능; 필요 시 seq-ref/AbortController로 가드.
 
 ## 폼·입력 UX / 진단 표시 (RunDialog, RunDetail)
