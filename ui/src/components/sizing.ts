@@ -1,4 +1,6 @@
 import type { Run } from "../api/schemas";
+import { formatDurationKo } from "../i18n/duration";
+import { ko } from "../i18n/ko";
 
 /** RunDialog 닫힌 루프 사이징 헬퍼의 순수 계산. React 의존 없음 — 단위 테스트 대상.
  *  Little's Law: closed-loop에서 목표 RPS를 내려면 VU ≈ 목표RPS ÷ (VU당 RPS). */
@@ -44,6 +46,34 @@ export function pickLatestClosedRun(runs: Run[]): Run | null {
     if (best === null || r.created_at > best.created_at) best = r;
   }
   return best;
+}
+
+const SIZE_PRESET_MULTIPLIERS = [0.5, 1, 2] as const;
+
+/** "빠른 입력" 크기 칩 3개. anchor 있으면 그 VU·duration의 0.5×/1×/2×(최소 1 클램프,
+ *  반올림)로 계산 — 계산된 (vus,durationSeconds) 쌍이 배수 순서상 이전 항목과 완전히
+ *  같으면 그 칩은 건너뛴다(예: anchor.vus=1이면 0.5×/1× 모두 1로 collapse). anchor
+ *  없으면 ko.ts 고정 3개(spread 복사 — `ko`가 `as const`라 원본은 readonly tuple,
+ *  그대로 반환하면 mutable 반환타입과 안 맞아 tsc -b가 거부한다). */
+export function sizePresetsFor(
+  anchor: { vus: number; durationSeconds: number } | null,
+): { label: string; vus: number; durationSeconds: number }[] {
+  if (anchor === null) return [...ko.loadModel.sizePresets];
+  const seen = new Set<string>();
+  const presets: { label: string; vus: number; durationSeconds: number }[] = [];
+  for (const m of SIZE_PRESET_MULTIPLIERS) {
+    const vus = Math.max(1, Math.round(anchor.vus * m));
+    const durationSeconds = Math.max(1, Math.round(anchor.durationSeconds * m));
+    const key = `${vus}:${durationSeconds}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    presets.push({
+      label: `${vus}명 · ${formatDurationKo(durationSeconds)}`,
+      vus,
+      durationSeconds,
+    });
+  }
+  return presets;
 }
 
 /** 열린 루프 슬롯(max_in_flight) 사이징의 순수 계산. Little's Law: 동시 슬롯 ≈ 도착률 × 지연.

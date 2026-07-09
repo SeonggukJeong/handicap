@@ -7,8 +7,10 @@ import {
   peakStageTarget,
   peakThroughput,
   recommendWorkers,
+  sizePresetsFor,
 } from "../sizing";
 import type { Run } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 
 describe("recommendVus", () => {
   it("prior: 선형 스케일 (VU 50→200 RPS, 목표 400 → 100)", () => {
@@ -249,5 +251,39 @@ describe("recommendWorkers", () => {
     const wc = 2;
     const insightsM = Math.ceil(t / (peak / wc));
     expect(recommendWorkers(t, peak, wc)?.recommendedWorkers).toBe(insightsM);
+  });
+});
+
+describe("sizePresetsFor", () => {
+  it("anchor null → 기존 고정 3개(ko.loadModel.sizePresets)와 deep-equal", () => {
+    expect(sizePresetsFor(null)).toEqual(ko.loadModel.sizePresets);
+  });
+
+  it("anchor null → 반환값은 원본과 별개의 배열(참조 동일 아님, mutable 복사본)", () => {
+    const result = sizePresetsFor(null);
+    expect(result).not.toBe(ko.loadModel.sizePresets);
+  });
+
+  it("anchor 있음 → 0.5×/1×/2× 계산 (VU 20·60초 기준)", () => {
+    expect(sizePresetsFor({ vus: 20, durationSeconds: 60 })).toEqual([
+      { label: "10명 · 30초", vus: 10, durationSeconds: 30 },
+      { label: "20명 · 1분", vus: 20, durationSeconds: 60 },
+      { label: "40명 · 2분", vus: 40, durationSeconds: 120 },
+    ]);
+  });
+
+  it("최소 1 클램프 + 중복 collapse (VU 1·1초 기준 → 0.5×/1× 모두 1로 겹쳐 2개만)", () => {
+    expect(sizePresetsFor({ vus: 1, durationSeconds: 1 })).toEqual([
+      { label: "1명 · 1초", vus: 1, durationSeconds: 1 },
+      { label: "2명 · 2초", vus: 2, durationSeconds: 2 },
+    ]);
+  });
+
+  it("반올림 (VU 7·13초 기준 → 0.5×=3.5→4명/6.5→7초, 2×=14명/26초)", () => {
+    expect(sizePresetsFor({ vus: 7, durationSeconds: 13 })).toEqual([
+      { label: "4명 · 7초", vus: 4, durationSeconds: 7 },
+      { label: "7명 · 13초", vus: 7, durationSeconds: 13 },
+      { label: "14명 · 26초", vus: 14, durationSeconds: 26 },
+    ]);
   });
 });

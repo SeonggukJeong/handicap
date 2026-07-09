@@ -13,11 +13,14 @@ const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
  *  초과해도 멀티워커 fan-out(ADR-0027)으로 워커를 더 띄울 뿐 차단은 아니다 — 비현실적 권장값 안내(비차단). */
 const VU_SOFT_WARN_THRESHOLD = 2000;
 
-/** 최근 종료 균등-VU run에서 처리량 앵커(VU·달성RPS)를 도출. 없으면 null.
+/** RunDialog의 크기 프리셋 상대배수 사이징(Option C, sizing.ts::sizePresetsFor)에도
+ *  재사용하는 앵커 타입. */
+export type ClosedRunAnchor = { vus: number; rps: number; durationSeconds: number };
+
+/** 최근 종료 균등-VU run에서 처리량 앵커(VU·달성RPS·duration)를 도출. 없으면 null.
  *  반환값은 useMemo로 안정화 — 소비처 useEffect([anchor])가 값 변화에만 발화. */
-function usePriorClosedRunAnchor(
-  scenarioId: string | undefined,
-): { vus: number; rps: number } | null {
+// eslint-disable-next-line react-refresh/only-export-components
+export function usePriorClosedRunAnchor(scenarioId: string | undefined): ClosedRunAnchor | null {
   const runs = useScenarioRuns(scenarioId);
   // Cast: Zod parses defaults at runtime so the data is truly Run[], but tsc sees
   // nested-default input-type leak (ProfileSchema.ramp_up_seconds?.default → optional).
@@ -25,7 +28,11 @@ function usePriorClosedRunAnchor(
   const report = useRunReport(latest?.id, Boolean(latest));
   const vus = latest?.profile.vus ?? 0;
   const rps = report.data?.summary.rps ?? 0;
-  return useMemo(() => (vus > 0 && rps > 0 ? { vus, rps } : null), [vus, rps]);
+  const durationSeconds = latest?.profile.duration_seconds ?? 0;
+  return useMemo(
+    () => (vus > 0 && rps > 0 ? { vus, rps, durationSeconds } : null),
+    [vus, rps, durationSeconds],
+  );
 }
 
 type Props = {
