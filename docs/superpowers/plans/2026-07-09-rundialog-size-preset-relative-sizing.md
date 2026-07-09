@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-09-rundialog-size-preset-relative-sizing-design.md` (spec-plan-reviewer clean APPROVE, R1–R11).
 
+<!-- REVIEW-GATE: APPROVED -->
+
 ## Global Constraints
 
 - 배수 집합은 정확히 `[0.5, 1, 2]`(고정, 확장 불가) — spec R3.
