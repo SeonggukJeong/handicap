@@ -9,7 +9,9 @@ import { Input } from "./ui/Input";
 import { VuSizingHelper } from "./VuSizingHelper";
 import { SlotSizingHelper } from "./SlotSizingHelper";
 import { WorkerSizingHelper } from "./WorkerSizingHelper";
-import { peakStageTarget } from "./sizing";
+import { peakStageTarget, sizePresetsFor } from "./sizing";
+import type { ClosedRunAnchor } from "./VuSizingHelper";
+import { formatDurationKo } from "../i18n/duration";
 import type { Scenario } from "../scenario/model";
 import { openLoopWarnings, type OpenLoopWarning } from "./openLoopChecks";
 import { Segmented } from "./ui/Segmented";
@@ -42,6 +44,9 @@ type Props = {
   sizingScenario?: Scenario | null;
   sizingEnv?: Record<string, string>;
   onApplyVus?: (n: number) => void;
+  // "빠른 입력" 크기 칩 상대배수 사이징(Option C, RunDialog 전용 — ScheduleForm 미전달=undefined
+  // →기존 고정 3개). RunDialog가 usePriorClosedRunAnchor로 계산해 내려준다.
+  sizePresetAnchor?: ClosedRunAnchor | null;
   // 열린 루프 슬롯 사이징 힌트(RunDialog 전용 — ScheduleForm 미전달). open+fixed에서만.
   onApplyMaxInFlight?: (n: number) => void;
   // worker_count 사이징 헬퍼(RunDialog 전용 — ScheduleForm 미전달). open 모드에서만.
@@ -87,6 +92,7 @@ export function LoadModelFields({
   sizingScenario,
   sizingEnv,
   onApplyVus,
+  sizePresetAnchor,
   onApplyMaxInFlight,
   onApplyWorkerCount,
   workerCount,
@@ -502,13 +508,14 @@ export function LoadModelFields({
           )
         ) : (
           <>
-            {/* 부하 크기 프리셋 chips */}
+            {/* 부하 크기 프리셋 chips — sizePresetAnchor 있으면 그 직전 run의 0.5×/1×/2×,
+                없으면(ScheduleForm 미전달 등) ko.ts 고정 3개(sizePresetsFor(null) 폴백). */}
             <div
               role="group"
               aria-label={ko.loadModel.sizePresetsLabel}
               className="mb-2 flex flex-wrap gap-2"
             >
-              {ko.loadModel.sizePresets.map((p) => {
+              {sizePresetsFor(sizePresetAnchor ?? null).map((p) => {
                 const active = vus === p.vus && duration === p.durationSeconds;
                 return (
                   <button
@@ -530,7 +537,14 @@ export function LoadModelFields({
                 );
               })}
             </div>
-            <p className="mb-3 text-xs text-slate-500">{ko.loadModel.sizePresetsCaption}</p>
+            <p className="mb-3 text-xs text-slate-500">
+              {sizePresetAnchor
+                ? ko.loadModel.sizePresetsCaptionFromPrior(
+                    sizePresetAnchor.vus,
+                    formatDurationKo(sizePresetAnchor.durationSeconds),
+                  )
+                : ko.loadModel.sizePresetsCaption}
+            </p>
             <div className="grid grid-cols-3 gap-4 mb-3">
               <Field
                 label={ko.loadModel.vus}

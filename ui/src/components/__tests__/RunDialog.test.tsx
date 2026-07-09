@@ -6,7 +6,11 @@ import { RunDialog } from "../RunDialog";
 import { ko } from "../../i18n/ko";
 
 // null 렌더 — 헬퍼의 렌더/미렌더는 LoadModelFields.test.tsx가 검증. 여기선 RunDialog 단위 경계 유지(헬퍼 hook fetch 차단).
-vi.mock("../VuSizingHelper", () => ({ VuSizingHelper: () => null }));
+// usePriorClosedRunAnchor의 실제 구현은 보존(importOriginal spread) — RunDialog가 이 hook을 직접 호출한다.
+vi.mock("../VuSizingHelper", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../VuSizingHelper")>()),
+  VuSizingHelper: () => null,
+}));
 vi.mock("../SlotSizingHelper", () => ({
   SlotSizingHelper: ({ onApply }: { onApply: (n: number) => void }) => (
     <button type="button" onClick={() => onApply(123)}>
@@ -3016,5 +3020,75 @@ describe("RunDialog — sticky footer 하단 여백 (T5)", () => {
     const sticky = document.querySelector('[class*="sticky"]') as HTMLElement;
     expect(sticky).toBeTruthy();
     expect(sticky.className).toMatch(/\bpb-\d/);
+  });
+});
+
+// ─── Option C: 크기 프리셋 상대배수 사이징 ──────────────────────────────────
+describe("RunDialog — 크기 프리셋 상대배수 사이징 (Option C)", () => {
+  const RUN_PRIOR = {
+    id: "R-PRIOR",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "completed",
+    profile: { vus: 20, duration_seconds: 60 },
+    env: {},
+    started_at: 1,
+    ended_at: 2,
+    created_at: 1,
+  };
+
+  const REPORT_PRIOR = {
+    run: {
+      id: "R-PRIOR",
+      scenario_id: "S1",
+      status: "completed",
+      profile: null,
+      env: null,
+      started_at: 1,
+      ended_at: 2,
+      created_at: 1,
+    },
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    summary: {
+      count: 600,
+      errors: 0,
+      rps: 10,
+      duration_seconds: 60,
+      mean_ms: 5,
+      p50_ms: 5,
+      p95_ms: 5,
+      p99_ms: 5,
+    },
+    windows: [],
+    steps: [],
+    status_distribution: {},
+    dropped: 0,
+  };
+
+  it("직전 completed closed-loop run이 있으면 빠른 입력 칩이 그 값의 0.5×/1×/2×로 계산된다", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (
+        u.endsWith("/api/scenarios/S1/runs") &&
+        (!init || !init.method || init.method === "GET")
+      ) {
+        return Promise.resolve(jsonResponse({ runs: [RUN_PRIOR] }));
+      }
+      if (u.endsWith("/api/runs/R-PRIOR/report")) {
+        return Promise.resolve(jsonResponse(REPORT_PRIOR));
+      }
+      return Promise.resolve(jsonResponse({ presets: [] }));
+    });
+
+    renderDialog();
+
+    // "20명 · 1분"은 고정 폴백 3개(10/50/200명)엔 없는 값이라, 이게 뜨면 앵커 계산이
+    // 실제로 반영됐다는 뜨거운 증거다(고정 폴백만으로는 절대 나올 수 없는 라벨).
+    expect(await screen.findByRole("button", { name: "20명 · 1분" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "10명 · 30초" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "40명 · 2분" })).toBeInTheDocument();
+    expect(
+      screen.getByText(ko.loadModel.sizePresetsCaptionFromPrior(20, "1분")),
+    ).toBeInTheDocument();
   });
 });

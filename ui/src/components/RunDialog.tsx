@@ -37,6 +37,7 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
+import { usePriorClosedRunAnchor } from "./VuSizingHelper";
 import { runSummary } from "./runSummary";
 import { StageCurvePreview } from "./StageCurvePreview";
 import { LoadShapePreview } from "./LoadShapePreview";
@@ -201,6 +202,7 @@ export function RunDialog({
   const [presetError, setPresetError] = useState<string | null>(null);
 
   const presets = usePresets(scenarioId);
+  const sizePresetAnchor = usePriorClosedRunAnchor(scenarioId);
   const pool = usePoolWorkers();
   const qc = useQueryClient();
 
@@ -634,6 +636,7 @@ export function RunDialog({
           sizingScenarioId={scenarioId}
           sizingScenario={scenario}
           sizingEnv={env}
+          sizePresetAnchor={sizePresetAnchor}
           onApplyVus={setVus}
           onApplyMaxInFlight={(n) => setMaxInFlight(String(n))}
           workerCount={workerCount}

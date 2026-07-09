@@ -206,6 +206,8 @@ export const ko = {
       { label: "50명 · 1분", vus: 50, durationSeconds: 60 },
       { label: "200명 · 3분", vus: 200, durationSeconds: 180 },
     ],
+    sizePresetsCaptionFromPrior: (vus: number, durationLabel: string) =>
+      `직전 run(${vus}명 · ${durationLabel}) 기준입니다`,
     tileClosedTitle: "동시 사용자 (VU)",
     tileOpenTitle: "목표 RPS",
     tileClosedDesc: "N명이 동시에 반복 요청",
