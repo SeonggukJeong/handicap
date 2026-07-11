@@ -30,7 +30,7 @@
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법) | seam? |
 |---|---|---|---|
 | R1 | `MUST` 신설 `ui/src/components/ui/PageSection.tsx` — props `{ariaLabel: string; title: ReactNode; sub?: boolean; className?: string; children?: ReactNode}`, 렌더 `<section aria-label={ariaLabel} className={className ?? "mb-6"}>` + (sub 미지정: `<h3 className="text-lg font-semibold mb-2">{title}</h3>` / `sub`: `<h4 className="text-sm font-semibold text-slate-700 mb-2">{title}</h4>`) + children. `className`은 **통째 교체**(append 아님 — 실측상 섹션 클래스가 `mb-6`/`mb-6 text-sm`/`mt-8`/없음으로 갈려 append면 byte-identical 불가) | 단위 테스트: 두 캐넌의 태그·정확 클래스 문자열·aria-label·className 교체 규칙(기본 `mb-6`·`""` 전달 시 빈 class) 단언 | |
-| R2 | `MUST` `Badge` additive 확장 — `weight?: "semibold"\|"medium"`(기본 `semibold`)·`className?: string`(끝에 append), **기본값 경로의 클래스 문자열은 기존과 정확히 동일**(trailing space 포함 여부까지 기존 `Badge.test.tsx` 단언으로 락) | 기존 `Badge.test.tsx` 무수정 GREEN + weight/className 조합 신규 단언 | |
+| R2 | `MUST` `Badge` additive 확장 — `weight?: "semibold"\|"medium"`(기본 `semibold`)·`className?: string`(끝에 append), **기본값 경로(무 weight·무 className)의 클래스 문자열은 기존과 정확히 동일**(trailing space 금지). weight는 `{semibold:"font-semibold", medium:"font-medium"}` **리터럴 맵**으로(`font-${weight}` 템플릿 금지 — Tailwind JIT 리터럴 함정, ui/CLAUDE.md button-accent 노트) | **신규 정확-문자열(`toBe`/`toEqual`) 기본경로 단언**(기존 `Badge.test.tsx`는 `toContain`뿐이라 byte-identity를 못 락 — 리뷰 F1) + 기존 단언 무수정 GREEN + weight/className 조합 신규 단언 | |
 | R3 | `MUST` **메인 캐넌(h3) 12곳**을 `PageSection`으로 이주(§4.1 명단 — aria-label 키로 식별) — byte-identical(위 정의) | 각 파일 diff에 `PageSection` 적용 §4.1대로; 기존 해당 테스트 무수정 GREEN | |
 | R4 | `MUST` **차트 서브 캐넌(h4) 5곳**을 `PageSection sub`로 이주(§4.2 명단) — byte-identical | 동상 | |
 | R5 | `MUST` **워커 배지 3곳**(drained·ephemeral·stale)을 `Badge`로 이주 — `tone="warn"\|"neutral"` + `weight="medium"` + `className="ml-2"`(§4.3 매핑) — byte-identical(클래스 집합 동일·`ml-2` 위치만 끝으로) | `WorkerDashboardPage` diff + 기존 테스트 무수정 GREEN + 배지 클래스 집합 단언 | |
@@ -39,7 +39,7 @@
 | R8 | `MUST` InsightPanel h3 하드코딩 `핵심 인사이트` → 신규 `ko.report.insightsTitle`(값 동일) 경유(ADR-0035, pre-existing 위반 fold-in — 렌더 출력 동일) | `grep -rn '핵심 인사이트' ui/src --include='*.tsx'` 0(ko.ts만 잔존) | |
 | R9 | `MUST`(불변식) 와이어/모델 0-diff — `crates/`·proto·migration·`ui/src/api/**` 0-diff(cargo 게이트 비대상 확인) | `git diff --name-only`가 `ui/src/components|pages|i18n`+docs만 | |
 | R10 | `MUST` 기존 테스트 **무수정 GREEN**이 byte-identical의 1차 증거 — 이주로 기존 단언(헤딩 텍스트·aria-label·getByRole)이 깨지면 위반 신호로 취급(단언을 고치지 말고 이주를 고친다). 기존 클래스/구조 단언이 없는 대표 사이트에 정확 단언 신규 추가(F1 pending-diff 겸 tdd-guard unblock) | `pnpm test` 전체 GREEN + 신규 단언 diff | |
-| R11 | `SHOULD` 라이브 검증(경량) — 실 run 리포트 렌더에서 `getComputedStyle` 실측: h3 `fontSize 18px·fontWeight 600`·h4 `14px·#334155(rgb(51,65,85))`·이주 섹션 `marginBottom 24px`·워커 배지 `fontWeight 500` + 전/후 스크린샷 | `/live-verify` 절차 기록(수치 포함) | |
+| R11 | `SHOULD` 라이브 검증(경량) — `getComputedStyle` 실측: h3 `fontSize 18px·fontWeight 600`·h4 `14px·#334155(rgb(51,65,85))`·이주 섹션 `marginBottom 24px`·워커 배지 `fontWeight 500` + 전/후 스크린샷. **셋업(리뷰 Fe2)**: ① ReportView 섹션군 = 완료 run 리포트 ② RunDetail 3섹션은 `terminal && report.data`의 **else 분기에만 렌더** → report-less run으로 검증(예: 죽은 타깃 URL run — worker fail-fast로 결정적 report-less) ③ 워커 배지는 도달 가능한 상태 1종 이상(pool-mode + drain 액션 → "드레인 중" 배지)을 실측, 미도달 상태(stale·ephemeral)는 RTL 클래스 집합 단언으로 갈음 | `/live-verify` 절차 기록(수치 포함) | |
 | R12 | `MUST`(불변식) 신규 하드코딩 한글 0(신규 문자열 자체가 없음 — R8은 이주)·신규 `blue-*`/`indigo-*` 컨트롤 색 리터럴 0 | diff 스윕(python sweep — `'"[가-힣]'` grep의 비한글-선두 누락 함정 회피) | |
 
 ---
@@ -48,14 +48,14 @@
 
 - **캐넌은 실측으로 정의됐다 — per-file 매핑이 아니라 규칙**: "‘`<section aria-label>` 직속 첫 자식이 정확히 `<h3 className="text-lg font-semibold mb-2">`(또는 h4 서브 캐넌)’인 사이트 → `PageSection`". 1차 확산의 교훈(per-file 매핑이 Environments/Templates 누락)대로, §4 명단은 이 규칙의 **닫힌 전수 적용 결과**이고 최종 `handicap-reviewer`+orchestrator가 같은 규칙 grep을 재실행해 누락을 잡는다(§6).
 - **bespoke 헤더는 프리미티브에 안 싣는다**: 변형 사이트들의 헤더 행 클래스가 전부 다르다(StepPhaseBreakdown `mb-2 flex items-center justify-between`·CompareOverlaySection `flex flex-wrap items-center gap-4 mb-4`·ConnectionCostCard `mb-1 flex items-center`+text-base). 한 prop으로 byte-identical 흡수가 불가능 → `headerExtra` 같은 prop은 YAGNI 기각, 사이트 동결(§7 연기).
-- **`className` 통째-교체 설계**: 섹션 래퍼 클래스의 실측 분포(`mb-6` 대다수·`mb-6 text-sim`류 2·`mt-8` 1·없음 1)가 "기본 mb-6 + 예외는 명시 교체"를 요구한다. append 설계는 ReportView 레이턴시(클래스 없음)·InsightCompareMatrix(`mt-8`)에서 byte-identical을 깬다.
+- **`className` 통째-교체 설계**: 섹션 래퍼 클래스의 실측 분포(`mb-6` ×9·`mb-6 text-sm` ×1·`mt-8` ×1·없음 ×1)가 "기본 mb-6 + 예외는 명시 교체"를 요구한다. append 설계는 ReportView 레이턴시(클래스 없음)·InsightCompareMatrix(`mt-8`)에서 byte-identical을 깬다. 구현은 `className ?? "mb-6"`(`||` 금지 — `""`에 mb-6이 오주입됨).
 - **Badge weight가 확장의 전부인 이유**: 워커 배지 3곳의 raw 클래스는 Badge BASE·tone과 `font-medium` vs `font-semibold` 단 하나만 다르다(색·padding·radius 전부 일치 실측). weight prop 없이 이주하면 굵기 회귀(byte-identical 위반), className으로 `font-medium`을 얹으면 `font-semibold`와 동시 존재해 CSS 순서에 좌우되는 취약 상태 — weight prop이 유일하게 안전.
 
 ---
 
 ## 4. 변경 상세
 
-> 사이트 식별은 aria-label/제목 키 기준(라인 번호는 2026-07-11 HEAD 참고용 — drift 가능).
+> 사이트 식별은 **파일 + aria-label/제목 키** 기준(라인 번호는 2026-07-11 HEAD 참고용 — drift 가능). aria-label 키만으로는 유일하지 않음: `perStepStatsLabel`은 StepStatsTable(이주)·StepPhaseBreakdown(동결) 두 사이트가 공유(StepStatsTable은 StepPhaseBreakdown *내부*에서 fallback/칩 뷰로 렌더되는 중첩 관계 — 둘 다 한 리포트에 공존 가능하며 이주 유효).
 
 ### 4.1 메인 캐넌(h3) 12곳 → `<PageSection ariaLabel=… title=…>` — 충족 R: `R3`
 
@@ -77,6 +77,8 @@
 ### 4.2 차트 서브 캐넌(h4) 5곳 → `<PageSection sub …>` — 충족 R: `R4`
 
 `components/report/TimeSeriesChart.tsx`(`timeSeriesAria(title)`) · `PercentileCurveChart.tsx`(`latencyPercentileCurveLabel`) · `LatencyHistogramChart.tsx`(`latencyHistogramLabel`, 제목은 `latencyDistTitle`) · `ActiveVuChart.tsx` **단일워커 분기만**(`activeVuTitle` — 멀티워커 분기는 토글 flex 헤더라 동결 R7) · `components/compare/CompareTimeSeriesChart.tsx`(`timeSeriesAria(title)`). 전부 className 기본.
+
+**ActiveVuChart 주의(리뷰 Fe1 — 래핑이 아니라 재구조)**: 현재 단일 `<section>`이 조건부 헤더(멀티워커 flex-div vs 단일워커 bare h4)+공유 본문을 감싼다. PageSection은 자기 h4를 항상 먼저 emit하므로 그냥 감쌀 수 없음 → **section을 ternary로 호이스트**(멀티워커 = 기존 bespoke `<section>` 그대로 동결 / 단일워커 = `<PageSection sub>`, 본문 차트 블록 공유 — 단일워커 경로에선 캡션 `<p>`·후행 `<ul>`이 null이라 children=차트 블록만으로 byte-identical 성립). `ActiveVuChart.test.tsx` lockstep 필수.
 
 ### 4.3 워커 배지 3곳 → `Badge` — 충족 R: `R5`
 
@@ -114,7 +116,7 @@
 
 - **프리미티브 단위**: `PageSection.test.tsx` 신규(R1 acceptance 전체) + `Badge.test.tsx` 확장(R2 — 기존 단언 무수정).
 - **사이트 lockstep**: 기존 report/compare/RunDetail/WorkerDashboard 테스트 **무수정 GREEN**(R10). 대표 사이트 정확 클래스 단언 신규(Summary·TimeSeriesChart·워커 배지 1곳 권장 — plan에서 확정).
-- **규칙 전수 grep(orchestrator 직접 재실행 — subagent self-report 불신)**: 대상 화면군(`components/report/`·`components/compare/`·`pages/{RunDetail,ScenarioCompare,ScenarioRuns,ScenarioList,WorkerDashboard}Page.tsx`)에서 ① `text-lg font-semibold mb-2` 잔존 = §4.4 동결 목록(VerdictPanel·RunDetail metricWindows bare h3)뿐 ② `text-sm font-semibold text-slate-700` 잔존 = ActiveVuChart 멀티워커 분기뿐 ③ raw 배지 캐넌(`rounded px-1.5 py-0.5 text-xs font-medium`) 잔존 0 ④ `핵심 인사이트` ui/src 잔존 = ko.ts뿐.
+- **규칙 전수 grep(orchestrator 직접 재실행 — subagent self-report 불신)**: 대상 화면군(`components/report/`·`components/compare/`·`pages/{RunDetail,ScenarioCompare,ScenarioRuns,ScenarioList,WorkerDashboard}Page.tsx`)에서 ① `text-lg font-semibold mb-2` 잔존 = §4.4 동결 목록(VerdictPanel·RunDetail metricWindows bare h3)뿐 ② `<h4 className="text-sm font-semibold text-slate-700` (**h4-앵커 필수** — bare 서브스트링은 ScenarioSnapshot 접기 *버튼*(`:13`)이 오탐돼 동결 위반 유혹, 리뷰 F2) 잔존 = ActiveVuChart 멀티워커 분기뿐 ③ raw 배지 캐넌(`rounded px-1.5 py-0.5 text-xs font-medium`) 잔존 0 ④ `핵심 인사이트` ui/src 잔존 = ko.ts뿐.
 - **게이트**: `pnpm lint && pnpm test && pnpm build`(전체) → 최종 `handicap-reviewer`(cross-page 일관성은 per-task 리뷰 사각 — 1차 확산 실증) → 라이브 R11.
 - **라이브 검증(R11)**: run-생성/report-파싱/Zod 계약 무접촉(프레젠테이션-only)이라 S-D 갭 비해당이지만, [[implementation-rigor-over-spec]]대로 DOM-존재가 아닌 **computed-style 수치 실측**(§2 R11 수치) + 스크린샷. 리포트가 실데이터를 그려야 하므로 `/live-verify` 스택(controller+worker+run 1개)으로.
 - **tdd-guard 사전조치**: 각 task는 test-파일 편집(pending diff)을 src 편집보다 먼저(2차 spec §8 F1 패턴 그대로).
