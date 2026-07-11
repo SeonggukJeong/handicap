@@ -123,7 +123,7 @@ pnpm --version
 
 저장소를 Windows 머신에 복사한다.
 
-- **git이 있으면**: 이 저장소를 clone하거나, 개발 머신에서 `git bundle create handicap.bundle --all`로 번들을 만들어 복사 후 `git clone handicap.bundle handicap`
+- **git이 있으면**: `git clone https://github.com/SeonggukJeong/handicap.git` (공개 저장소). 오프라인 머신이면 개발 머신에서 `git bundle create handicap.bundle --all`로 번들을 만들어 복사 후 `git clone handicap.bundle handicap`
 - **git이 없으면**: zip으로 압축해 전달 후 압축 해제
 
 이후 모든 명령은 저장소 루트(`handicap\`)에서 실행한다.
@@ -196,7 +196,7 @@ copy target\release\controller.exe handicap.exe
 
 ## (선택) CI 부록 — GitHub Actions 예시
 
-> **이 저장소는 remote가 설정돼 있지 않아 지금은 동작하지 않는다.** GitHub에 푸시하면 사용할 수 있는 **참고용 YAML**이다.
+> 저장소는 `github.com/SeonggukJeong/handicap`에 공개돼 있고, 실제 릴리즈는 `v*` 태그 push 시 `release.yml`(Tauri NSIS/MSI 인스톨러)이 담당한다 — 상세는 `docs/dev/tauri-desktop-build.md` §CI 릴리즈. 아래는 인스톨러 없이 **단일 exe 아티팩트만** 뽑고 싶을 때 쓸 수 있는 **참고용 YAML**이다(현재 저장소에는 미설치).
 
 ```yaml
 name: Windows single-exe

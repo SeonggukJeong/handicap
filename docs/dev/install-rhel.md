@@ -12,9 +12,16 @@
 
 ---
 
-## 1. 코드 가져오기 (git remote 없음)
+## 1. 코드 가져오기
 
-이 repo는 **remote가 설정돼 있지 않다**(로컬 통합 브랜치 `master`, `main` 아님). `git clone <url>`이 안 되므로 **git bundle**로 히스토리째 옮기는 게 가장 깔끔하다.
+이 repo는 GitHub에 공개돼 있다(통합 브랜치는 `master`, `main` 아님). 인터넷이 되는 머신이면 그냥 clone한다:
+
+```bash
+git clone https://github.com/SeonggukJeong/handicap.git
+cd handicap      # 기본 브랜치가 master라 checkout 불필요
+```
+
+**오프라인(air-gapped) RHEL 머신이면** git bundle로 히스토리째 옮긴다:
 
 **소스 머신(현재 개발 머신)에서:**
 ```bash
