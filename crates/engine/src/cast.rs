@@ -27,14 +27,13 @@ pub(crate) fn parse_cast_leaf(s: &str) -> Option<(String, Cast)> {
                 return None;
             }
             ("{{", "}}", i)
-        } else if let Some(i) = t.strip_prefix("${").and_then(|x| x.strip_suffix('}')) {
+        } else {
+            let i = t.strip_prefix("${").and_then(|x| x.strip_suffix('}'))?;
             // env 가드(신규): 내부에 또 다른 토큰 마커(`{`/`}`/`$`)면 다중/비순수 → 거부.
             if i.contains('{') || i.contains('}') || i.contains('$') {
                 return None;
             }
             ("${", "}", i)
-        } else {
-            return None;
         };
     let (name, kw) = inner.rsplit_once(':')?; // 콜론 없으면 캐스트 아님
     let cast = match kw.trim() {

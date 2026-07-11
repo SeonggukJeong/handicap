@@ -2645,9 +2645,7 @@ steps:
     );
 
     // (c) The download field must be present (measure_phases: true was set).
-    let download = step
-        .get("download")
-        .and_then(|v| if v.is_null() { None } else { Some(v) });
+    let download = step.get("download").filter(|&v| !v.is_null());
     assert!(
         download.is_some(),
         "steps[0].download must be present when measure_phases=true; \
