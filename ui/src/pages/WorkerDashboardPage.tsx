@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { usePoolWorkers, usePatchPoolWorker, useExcludePoolWorker } from "../api/hooks";
 import type { PoolWorkerSummary } from "../api/pool";
 import { ko } from "../i18n/ko";
+import { Badge } from "../components/ui/Badge";
 import { Callout } from "../components/ui/Callout";
 import { Input } from "../components/ui/Input";
 
@@ -468,17 +469,17 @@ export function WorkerDashboardPage() {
                   <td className="py-2 pr-4 font-medium">
                     {w.hostname || "—"}
                     {w.drained ? (
-                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800">
+                      <Badge tone="warn" weight="medium" className="ml-2">
                         {ko.workers.drainedBadge}
-                      </span>
+                      </Badge>
                     ) : null}
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs" title={w.worker_id}>
                     {w.worker_id}
                     {!w.stable ? (
-                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-600">
+                      <Badge tone="neutral" weight="medium" className="ml-2">
                         {ko.workers.ephemeralBadge}
-                      </span>
+                      </Badge>
                     ) : null}
                   </td>
                   <td className="py-2 pr-4">
@@ -507,9 +508,9 @@ export function WorkerDashboardPage() {
                   <td className="py-2 pr-4">
                     {ko.workers.secsAgo(w.last_seen_secs_ago)}
                     {isStale ? (
-                      <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800">
+                      <Badge tone="warn" weight="medium" className="ml-2">
                         {ko.workers.stale}
-                      </span>
+                      </Badge>
                     ) : null}
                   </td>
                   <RowActions

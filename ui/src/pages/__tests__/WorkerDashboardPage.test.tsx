@@ -68,6 +68,8 @@ function renderPage() {
   );
 }
 
+const badgeClasses = (text: string) => screen.getByText(text).className.trim().split(/\s+/).sort();
+
 describe("WorkerDashboardPage", () => {
   it("풀-모드: 워커 행·hostname·상태·카운트·run 링크", async () => {
     fetchMock.mockResolvedValueOnce(
@@ -524,5 +526,70 @@ describe("WorkerDashboardPage", () => {
 
     // No ephemeral badge for stable worker
     expect(screen.queryByText(ko.workers.ephemeralBadge)).toBeNull();
+  });
+
+  // ── Task 6: Badge migration lockstep (design-system-deep) ──
+
+  it("워커 배지 3종 클래스 집합 lockstep (드레인·임시·응답없음)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        makePoolResponse([
+          makeWorker({ worker_id: "wkr-drained-b", hostname: "pc-drained-b", drained: true }),
+          makeWorker({ worker_id: "wkr-eph-b", hostname: "pc-eph-b", stable: false }),
+          makeWorker({
+            worker_id: "wkr-stale-b",
+            hostname: "pc-stale-b",
+            // heartbeat_interval_seconds=10, stale_timeout_seconds=30 (makePoolResponse defaults)
+            last_seen_secs_ago: 15,
+          }),
+        ]),
+      ),
+    );
+    renderPage();
+
+    await screen.findByText("pc-drained-b");
+
+    expect(badgeClasses(ko.workers.drainedBadge)).toEqual(
+      [
+        "ml-2",
+        "inline-flex",
+        "items-center",
+        "rounded",
+        "px-1.5",
+        "py-0.5",
+        "text-xs",
+        "font-medium",
+        "bg-amber-100",
+        "text-amber-800",
+      ].sort(),
+    );
+    expect(badgeClasses(ko.workers.ephemeralBadge)).toEqual(
+      [
+        "ml-2",
+        "inline-flex",
+        "items-center",
+        "rounded",
+        "px-1.5",
+        "py-0.5",
+        "text-xs",
+        "font-medium",
+        "bg-slate-100",
+        "text-slate-600",
+      ].sort(),
+    );
+    expect(badgeClasses(ko.workers.stale)).toEqual(
+      [
+        "ml-2",
+        "inline-flex",
+        "items-center",
+        "rounded",
+        "px-1.5",
+        "py-0.5",
+        "text-xs",
+        "font-medium",
+        "bg-amber-100",
+        "text-amber-800",
+      ].sort(),
+    );
   });
 });
