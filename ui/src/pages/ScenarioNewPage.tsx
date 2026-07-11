@@ -7,7 +7,9 @@ import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { UnsavedChangesDialog } from "../components/UnsavedChangesDialog";
 import { Callout } from "../components/ui/Callout";
+import { useUnsavedGuard } from "../hooks/useUnsavedGuard";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
@@ -35,6 +37,7 @@ export function ScenarioNewPage() {
   }, []);
 
   const dirty = yamlText !== originalYaml;
+  const { blocker, bypassNext } = useUnsavedGuard(dirty);
 
   // dirty baseline은 여기서 선험 확정한다. EditorShell의 첫 onChange는 mount-렌더에
   // 캡처된 *pre-load* store 텍스트(싱글톤 잔존물)라 baseline 시딩에 쓸 수 없다 —
@@ -58,9 +61,7 @@ export function ScenarioNewPage() {
     }
   }, [importedYaml, chooseTemplate]);
 
-  const cancel = () => {
-    if (!dirty || window.confirm(ko.editor.discardConfirm)) navigate("/");
-  };
+  const cancel = () => navigate("/");
 
   if (seedYaml === null) {
     return (
@@ -120,7 +121,10 @@ export function ScenarioNewPage() {
           <Button
             onClick={() =>
               mutation.mutate(yamlText, {
-                onSuccess: (created) => navigate(`/scenarios/${created.id}`),
+                onSuccess: (created) => {
+                  bypassNext();
+                  navigate(`/scenarios/${created.id}`);
+                },
               })
             }
             disabled={mutation.isPending || yamlText.trim().length === 0}
@@ -141,6 +145,12 @@ export function ScenarioNewPage() {
 
       {saveTplOpen && <SaveTemplateDialog onClose={() => setSaveTplOpen(false)} />}
       {insertTplOpen && <InsertTemplateModal onClose={() => setInsertTplOpen(false)} />}
+      <UnsavedChangesDialog
+        open={blocker.state === "blocked"}
+        body={ko.editor.discardConfirm}
+        onStay={() => blocker.reset?.()}
+        onDiscard={() => blocker.proceed?.()}
+      />
     </div>
   );
 }
