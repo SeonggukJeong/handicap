@@ -1,7 +1,7 @@
 # 저장 안 됨 이탈 가드 — 에디터 dirty 상태에서 페이지 이동 시 확인 다이얼로그 (UX 갭 수정)
 
 - **날짜**: 2026-07-12
-- **상태**: 설계 승인(사용자 2026-07-12) → plan 대기
+- **상태**: plan 승인(spec·plan 둘 다 spec-plan-reviewer clean APPROVE, 2026-07-12) → 구현 대기
 - **출처**: 사용자 요청 — "저장되지 않은 변경이 있는 상태에서 다른 곳을 눌렀을 때, 저장할지 물어보지 않고 페이지를 이동해서 데이터가 날아가버리는 문제". 긴 YAML 편집 세션이 무경고 유실되는 실사용 데이터-손실 버그라 지금 한다.
 - **연관**: 시나리오 복제 dirty 확인 다이얼로그(`docs/superpowers/specs/2026-06-06-scenario-clone-design.md` — 3버튼 패턴 선례), scenario-clone-error-fixes(모달 backdrop이 Callout 가림 함정), ADR-0035(ko.ts 카탈로그), ADR-0043(디자인 시스템 Modal).
 - **ADR**: 신규 불필요 — UI-only additive. react-router 내장 `useBlocker` + 기존 `Modal` 재사용으로 아키텍처 결정 없음(중앙 가드 레지스트리 기각은 §3-4에 근거 기록).

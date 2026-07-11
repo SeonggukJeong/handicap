@@ -1,6 +1,9 @@
 # 저장 안 됨 이탈 가드 Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> spec·plan 모두 spec-plan-reviewer clean APPROVE (spec: 1차 APPROVE-WITH-FIXES→반영→APPROVE / plan: 1차 APPROVE-WITH-FIXES(F1)→반영→APPROVE, 2026-07-12).
 
 **Goal:** 에디터 2페이지(`ScenarioNewPage`, `ScenarioEditPage`)에서 dirty 상태의 라우터 이동·탭 닫기를 확인 다이얼로그로 가드해 편집 데이터 무경고 유실을 없앤다.
 
