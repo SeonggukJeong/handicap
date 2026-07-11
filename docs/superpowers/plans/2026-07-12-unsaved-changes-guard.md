@@ -355,6 +355,7 @@ function GuardedPage({ initialDirty }: { initialDirty: boolean }) {
       <span data-testid="param">{id}</span>
       <span data-testid="blocker-state">{blocker.state}</span>
       <button onClick={() => setDirty(true)}>make-dirty</button>
+      <button onClick={() => setDirty(false)}>make-clean</button>
       <button onClick={() => bypassNext()}>arm-bypass</button>
       <button onClick={() => blocker.proceed?.()}>proceed</button>
       <button onClick={() => blocker.reset?.()}>reset</button>
@@ -446,6 +447,12 @@ describe("useUnsavedGuard", () => {
     const dirtyEvt = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(dirtyEvt);
     expect(dirtyEvt.defaultPrevented).toBe(true);
+
+    // dirty→clean 복귀 시 리스너 해제 (R7 "clean/unmount 시 해제" 자구)
+    await user.click(screen.getByRole("button", { name: "make-clean" }));
+    const backCleanEvt = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(backCleanEvt);
+    expect(backCleanEvt.defaultPrevented).toBe(false);
   });
 });
 ```
@@ -909,7 +916,9 @@ describe("ScenarioEditPage 이탈 가드", () => {
     await user.click(screen.getByRole("button", { name: ko.pages.duplicateBtn }));
     // 복제 자체 확인 다이얼로그(기존)에서 "저장 없이 복제"
     await user.click(await screen.findByRole("button", { name: "저장 없이 복제" }));
-    // 가드 다이얼로그가 끼어들지 않고 param-only 이동 완료 (S2 리시드 → 헤딩 교체)
+    // 가드 다이얼로그 개입 없이 S2 stub에 도착(이 하니스는 정적 stub 라우트라 페이지가
+    // 언마운트된다 — param-only 생존·seededId 리시드·잔존 플래그 회귀는 훅 테스트
+    // (useUnsavedGuard.test "clean 이동도 armed 플래그를 소비")가 커버, 중복 아님).
     await screen.findByRole("heading", { name: "demo (copy)" });
     expect(screen.queryByRole("dialog", { name: ko.editor.unsavedTitle })).not.toBeInTheDocument();
   });
@@ -1050,6 +1059,8 @@ cd ui && pnpm dev &   # 5173
 - [ ] **Step 2: 시나리오 준비** — UI(새 시나리오 → 템플릿 → 만들기)로 1개 생성.
 
 - [ ] **Step 3: spec §6 ①–⑥ 실측**
+
+(navigate는 `http://localhost:5173` — vite dev는 `[::1]`만 바인드라 `127.0.0.1`은 ERR_CONNECTION_REFUSED, `docs/dev/live-verify-playwright.md`.)
 
 ① 편집 페이지에서 스텝 추가(dirty) → 헤더 "데이터셋" 링크 클릭 → 모달 노출을 **스크린샷 + `getBoundingClientRect` 높이>0**으로 실측, URL 미변경 확인.
 ② [저장 후 이동] → PUT 반영(재진입 시 v2) + 데이터셋 페이지 도착.
