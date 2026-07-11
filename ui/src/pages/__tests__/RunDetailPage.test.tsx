@@ -878,3 +878,20 @@ describe("RunDetailPage — 곡선 run VU 표시 (R1/R7)", () => {
     expect(screen.queryByText(/vu_stages =/)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// PageSection lockstep 단언 (design-system-deep Task 5)
+// ---------------------------------------------------------------------------
+
+describe("RunDetailPage — PageSection lockstep", () => {
+  it("프로파일 섹션 클래스 통째-교체 lockstep (mb-6 text-sm)", async () => {
+    mockRunningApi(Date.now() - 1_000, 1);
+    renderWithRouter("SR1");
+    expect((await screen.findByRole("region", { name: ko.runDetail.profileLabel })).className).toBe(
+      "mb-6 text-sm",
+    );
+    expect(
+      screen.getByRole("heading", { level: 3, name: ko.runDetail.profileTitle }).className,
+    ).toBe("text-lg font-semibold mb-2");
+  });
+});

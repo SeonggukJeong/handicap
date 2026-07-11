@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { InsightCompareMatrix } from "../InsightCompareMatrix";
 import type { Insight } from "../../../api/schemas";
 import { runColor, runShortLabel } from "../../../compare/runLabel";
+import { ko } from "../../../i18n/ko";
 
 function ins(p: Partial<Insight> & { kind: string; severity: string }): Insight {
   return {
@@ -94,6 +95,15 @@ describe("InsightCompareMatrix", () => {
     expect(swatches).toHaveLength(2);
     expect(swatches[0]).toHaveStyle({ backgroundColor: runColor(0) });
     expect(swatches[1]).toHaveStyle({ backgroundColor: runColor(1) });
+  });
+
+  it("섹션 mt-8 통째-교체 lockstep", () => {
+    const reports = [
+      { run: { id: "R1" }, insights: [] },
+      { run: { id: "R2" }, insights: [] },
+    ];
+    render(<InsightCompareMatrix reports={reports} stepLabelMap={stepLabelMap} />);
+    expect(screen.getByRole("region", { name: ko.insightCompare.title }).className).toBe("mt-8");
   });
 
   it("nonzero<0.05% pct는 '<0.1%'로 floor (R5)", () => {

@@ -2,6 +2,7 @@ import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { runColor, runShortLabel } from "../../compare/runLabel";
 import { floorPct } from "../report/format";
+import { PageSection } from "../ui/PageSection";
 
 type MatrixReport = { run: { id: string }; insights?: Insight[] };
 type Props = {
@@ -57,8 +58,11 @@ export function InsightCompareMatrix({ reports, stepLabelMap, labels }: Props) {
   }
 
   return (
-    <section aria-label={ko.insightCompare.title} className="mt-8">
-      <h3 className="text-lg font-semibold mb-2">{ko.insightCompare.title}</h3>
+    <PageSection
+      ariaLabel={ko.insightCompare.title}
+      title={ko.insightCompare.title}
+      className="mt-8"
+    >
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">{ko.insightCompare.empty}</p>
       ) : (
@@ -126,6 +130,6 @@ export function InsightCompareMatrix({ reports, stepLabelMap, labels }: Props) {
           </tbody>
         </table>
       )}
-    </section>
+    </PageSection>
   );
 }

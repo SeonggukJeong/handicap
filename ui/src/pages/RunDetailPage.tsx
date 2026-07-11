@@ -25,6 +25,7 @@ import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/RunVuCell";
 import { Callout } from "../components/ui/Callout";
+import { PageSection } from "../components/ui/PageSection";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
@@ -249,8 +250,11 @@ export function RunDetailPage() {
           )}
           <EnvBlock env={r.env} />
 
-          <section aria-label={ko.runDetail.profileLabel} className="mb-6 text-sm">
-            <h3 className="text-lg font-semibold mb-2">{ko.runDetail.profileTitle}</h3>
+          <PageSection
+            ariaLabel={ko.runDetail.profileLabel}
+            title={ko.runDetail.profileTitle}
+            className="mb-6 text-sm"
+          >
             <ul className="font-mono text-slate-700">
               <li>vus = {r.profile.vus}</li>
               <li>duration = {r.profile.duration_seconds}s</li>
@@ -265,11 +269,10 @@ export function RunDetailPage() {
                 </li>
               )}
             </ul>
-          </section>
+          </PageSection>
 
           {stepOrder.length > 0 && (
-            <section aria-label={ko.runDetail.stepsLabel} className="mb-6">
-              <h3 className="text-lg font-semibold mb-2">{ko.runDetail.stepsTitle}</h3>
+            <PageSection ariaLabel={ko.runDetail.stepsLabel} title={ko.runDetail.stepsTitle}>
               <table className="min-w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-slate-600">
                   <tr>
@@ -303,7 +306,7 @@ export function RunDetailPage() {
                   })}
                 </tbody>
               </table>
-            </section>
+            </PageSection>
           )}
 
           <h3 className="text-lg font-semibold mb-2">{ko.runDetail.metricWindowsTitle}</h3>
@@ -374,8 +377,7 @@ function EnvBlock({ env }: { env: unknown }) {
       ? Object.entries(env as Record<string, unknown>)
       : [];
   return (
-    <section aria-label={ko.runDetail.envLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{ko.runDetail.envTitle}</h3>
+    <PageSection ariaLabel={ko.runDetail.envLabel} title={ko.runDetail.envTitle}>
       {entries.length === 0 ? (
         <p className="text-slate-500 text-sm italic">{ko.runDetail.noEnvSent}</p>
       ) : (
@@ -389,6 +391,6 @@ function EnvBlock({ env }: { env: unknown }) {
           ))}
         </ul>
       )}
-    </section>
+    </PageSection>
   );
 }
