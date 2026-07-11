@@ -7,13 +7,13 @@
 경마에서 *핸디캡*은 강한 말에 중량을 더 얹어 진짜 실력을 가늠하는 제도입니다.
 Handicap은 여러분의 시스템에 중량(부하)을 얹어, 장애가 나기 전에 한계를 알려줍니다.
 
-[![Release](https://img.shields.io/github/v/release/limvik/handicap)](https://github.com/limvik/handicap/releases/latest)
+[![Release](https://img.shields.io/github/v/release/SeonggukJeong/handicap)](https://github.com/SeonggukJeong/handicap/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Kubernetes-blue)
 ![Engine](https://img.shields.io/badge/engine-Rust-orange)
 ![UI](https://img.shields.io/badge/UI-TypeScript%20%2B%20React-3178c6)
 
-[**⬇ 다운로드**](https://github.com/limvik/handicap/releases/latest) ·
+[**⬇ 다운로드**](https://github.com/SeonggukJeong/handicap/releases/latest) ·
 [특장점](#-다른-도구와-무엇이-다른가) ·
 [환경별 설치](#-시작하기--환경별-설치-절차) ·
 [5분 튜토리얼](#-5분-튜토리얼--첫-부하-테스트) ·
@@ -59,7 +59,7 @@ Handicap의 핵심 설계입니다. 시나리오는 하나의 모델이고, 두 
 
 ### 2. 설치 장벽이 사실상 없음
 
-- **Windows**: [릴리즈 페이지](https://github.com/limvik/handicap/releases/latest)에서 인스톨러(`.exe`/`.msi`)를 받아 설치하면 끝. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
+- **Windows**: [릴리즈 페이지](https://github.com/SeonggukJeong/handicap/releases/latest)에서 인스톨러(`.exe`/`.msi`)를 받아 설치하면 끝. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
 - **서버(Linux)**: 바이너리 2개 + 정적 UI 폴더 1개. JVM도, Node도, 외부 DB도, 에이전트 설치도 필요 없습니다. DB는 SQLite가 내장되어 첫 실행 시 자동 생성·마이그레이션됩니다.
 - 단일 실행 파일(portable exe)로도 빌드할 수 있어 **USB에 담아 옮기는 것**도 가능합니다.
 
@@ -213,7 +213,7 @@ flowchart LR
 
 가장 쉬운 경로입니다. 빌드 도구가 전혀 필요 없습니다.
 
-1. [최신 릴리즈](https://github.com/limvik/handicap/releases/latest)에서 `Handicap_<버전>_x64-setup.exe`(NSIS) 또는 `.msi`를 내려받습니다.
+1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 `Handicap_<버전>_x64-setup.exe`(NSIS) 또는 `.msi`를 내려받습니다.
 2. 실행해 설치합니다.
    - **"Windows의 PC 보호" (SmartScreen) 경고가 뜨면**: 코드 서명이 없는 배포라 나타나는 정상 경고입니다. **"추가 정보" → "실행"**을 누르세요. (사내 배포 시 백신 allowlist 등록을 권장합니다.)
 3. 시작 메뉴에서 **Handicap**을 실행하면 네이티브 창에 UI가 뜹니다. 컨트롤러·워커가 앱 안에 내장되어 있어 **별도 서버 없이 즉시 사용** 가능하며, 창을 닫으면 모든 프로세스가 함께 정리됩니다.
