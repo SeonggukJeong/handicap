@@ -8,8 +8,10 @@ import { EditorShell } from "../components/scenario/EditorShell";
 import { InsertTemplateModal } from "../components/scenario/InsertTemplateModal";
 import { SaveTemplateDialog } from "../components/scenario/SaveTemplateDialog";
 import { TestRunSection } from "../components/scenario/TestRunSection";
+import { UnsavedChangesDialog } from "../components/UnsavedChangesDialog";
 import { Callout } from "../components/ui/Callout";
 import { Input } from "../components/ui/Input";
+import { useUnsavedGuard } from "../hooks/useUnsavedGuard";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 
@@ -61,12 +63,14 @@ export function ScenarioEditPage() {
   const [nameDraft, setNameDraft] = useState("");
   const nameEscapedRef = useRef(false);
 
+  const dirty = originalYaml !== yamlText;
+  const { blocker, bypassNext } = useUnsavedGuard(dirty);
+
   if (isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (error)
     return <Callout variant="error">{ko.common.failedToLoad((error as Error).message)}</Callout>;
   if (!data) return <p className="text-slate-500">{ko.common.notFound}</p>;
 
-  const dirty = originalYaml !== yamlText;
   // R7: 싱글톤 store의 stale 모델(이전 페이지 잔존물)이 시드 전 프레임에 새지
   // 않도록 seeded로 게이트 — 시드 전·깨진-YAML(model=null)은 서버명 폴백.
   const liveName = seeded ? (editorModel?.name ?? data.name) : data.name;
@@ -104,6 +108,7 @@ export function ScenarioEditPage() {
     try {
       const created = await clone.mutateAsync({ sourceYaml, sourceName, existingNames });
       setCloneDialog(null);
+      bypassNext();
       navigate(`/scenarios/${created.id}`);
     } catch {
       // clone.error(useMutation 내부 상태)가 이미 페이지-레벨 Callout을 구동한다.
@@ -130,6 +135,20 @@ export function ScenarioEditPage() {
       await cloneAndGo(next.yaml, next.name);
     } catch (e) {
       setCloneDialog({ stage: "save-failed", message: (e as Error).message });
+    }
+  };
+
+  const saveThenLeave = async () => {
+    if (loadedVersion === null) return;
+    try {
+      const next = await update.mutateAsync({ yaml: yamlText, version: loadedVersion });
+      setLoadedVersion(next.version);
+      setOriginalYaml(next.yaml);
+      blocker.proceed?.();
+    } catch {
+      // update.error가 페이지-레벨 Callout을 구동한다 — 모달을 닫아야 backdrop에
+      // 가리지 않는다(R6, scenario-clone-error-fixes 패턴).
+      blocker.reset?.();
     }
   };
 
@@ -311,6 +330,15 @@ export function ScenarioEditPage() {
           </div>
         </div>
       </Modal>
+
+      <UnsavedChangesDialog
+        open={blocker.state === "blocked"}
+        body={ko.editor.unsavedBodyEdit}
+        saving={update.isPending}
+        onStay={() => blocker.reset?.()}
+        onDiscard={() => blocker.proceed?.()}
+        onSave={() => void saveThenLeave()}
+      />
     </div>
   );
 }
