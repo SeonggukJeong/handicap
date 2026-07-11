@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { HistogramBucket } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 import { formatLatency } from "./format";
 
 type Props = {
@@ -35,8 +36,7 @@ export function LatencyHistogramChart({ buckets, width, height }: Props) {
     </BarChart>
   );
   return (
-    <section aria-label={ko.report.latencyHistogramLabel} className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.report.latencyDistTitle}</h4>
+    <PageSection sub ariaLabel={ko.report.latencyHistogramLabel} title={ko.report.latencyDistTitle}>
       {isEmpty ? (
         <p className="text-slate-500 text-sm italic">{ko.report.noLatencyData}</p>
       ) : width != null && height != null ? (
@@ -46,6 +46,6 @@ export function LatencyHistogramChart({ buckets, width, height }: Props) {
           {chart}
         </ResponsiveContainer>
       )}
-    </section>
+    </PageSection>
   );
 }

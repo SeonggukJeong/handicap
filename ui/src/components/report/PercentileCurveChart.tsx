@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import type { PercentilePoint } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 import { formatLatency } from "./format";
 
 type Props = {
@@ -52,10 +53,11 @@ export function PercentileCurveChart({ curve, width, height }: Props) {
     </LineChart>
   );
   return (
-    <section aria-label={ko.report.latencyPercentileCurveLabel} className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">
-        {ko.report.latencyPercentileCurveLabel}
-      </h4>
+    <PageSection
+      sub
+      ariaLabel={ko.report.latencyPercentileCurveLabel}
+      title={ko.report.latencyPercentileCurveLabel}
+    >
       {width != null && height != null ? (
         chart
       ) : (
@@ -63,6 +65,6 @@ export function PercentileCurveChart({ curve, width, height }: Props) {
           {chart}
         </ResponsiveContainer>
       )}
-    </section>
+    </PageSection>
   );
 }

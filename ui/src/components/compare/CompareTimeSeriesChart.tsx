@@ -1,6 +1,7 @@
 import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { ko } from "../../i18n/ko";
 import type { OverlayRow, OverlayRun } from "../../compare/overlaySeries";
+import { PageSection } from "../ui/PageSection";
 
 type Props = {
   title: string;
@@ -22,8 +23,7 @@ export function CompareTimeSeriesChart({
   height = 220,
 }: Props) {
   return (
-    <section aria-label={ko.report.timeSeriesAria(title)} className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">{title}</h4>
+    <PageSection sub ariaLabel={ko.report.timeSeriesAria(title)} title={title}>
       <LineChart width={width} height={height} data={rows}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis
@@ -46,6 +46,6 @@ export function CompareTimeSeriesChart({
           />
         ))}
       </LineChart>
-    </section>
+    </PageSection>
   );
 }

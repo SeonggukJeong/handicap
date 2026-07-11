@@ -25,4 +25,23 @@ describe("TimeSeriesChart", () => {
     render(<TimeSeriesChart title="Errors" yLabel="errors" data={[]} width={400} height={200} />);
     expect(screen.getByRole("region", { name: /시계열 — Errors/ })).toBeInTheDocument();
   });
+
+  it("서브 캐넌 클래스 lockstep", () => {
+    render(
+      <TimeSeriesChart
+        title="RPS"
+        yLabel="req/s"
+        data={[
+          { ts_second: 100, value: 0 },
+          { ts_second: 101, value: 50 },
+          { ts_second: 102, value: 75 },
+        ]}
+        width={400}
+        height={200}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 4 }).className).toBe(
+      "text-sm font-semibold text-slate-700 mb-2",
+    );
+  });
 });

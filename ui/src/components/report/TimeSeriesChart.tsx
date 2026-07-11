@@ -8,6 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 
 type Point = { ts_second: number; value: number };
 
@@ -33,8 +34,7 @@ export function TimeSeriesChart({ title, data, yLabel, width, height }: Props) {
     </LineChart>
   );
   return (
-    <section aria-label={ko.report.timeSeriesAria(title)} className="mb-6">
-      <h4 className="text-sm font-semibold text-slate-700 mb-2">{title}</h4>
+    <PageSection sub ariaLabel={ko.report.timeSeriesAria(title)} title={title}>
       {width != null && height != null ? (
         chart
       ) : (
@@ -42,6 +42,6 @@ export function TimeSeriesChart({ title, data, yLabel, width, height }: Props) {
           {chart}
         </ResponsiveContainer>
       )}
-    </section>
+    </PageSection>
   );
 }

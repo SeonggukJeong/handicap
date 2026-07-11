@@ -41,4 +41,22 @@ describe("ActiveVuChart", () => {
     expect(w1.closest("li")).toHaveAttribute("title", "01HWORKERA000000000000000");
     expect(w2.closest("li")).toHaveAttribute("title", "01HWORKERB000000000000000");
   });
+
+  it("단일워커: 서브 캐넌 h4 lockstep", () => {
+    render(<ActiveVuChart series={merged} byWorker={[]} width={400} height={200} />);
+    expect(screen.getByRole("heading", { level: 4, name: ko.report.activeVuTitle }).className).toBe(
+      "text-sm font-semibold text-slate-700 mb-2",
+    );
+    expect(screen.getByRole("region", { name: ko.report.activeVuTitle }).className).toBe("mb-6");
+  });
+
+  it("멀티워커: bespoke 헤더 동결 — h4는 mb-2 없는 변형 + 토글 존속 (R7)", () => {
+    render(<ActiveVuChart series={merged} byWorker={byWorker} width={400} height={200} />);
+    expect(screen.getByRole("heading", { level: 4, name: ko.report.activeVuTitle }).className).toBe(
+      "text-sm font-semibold text-slate-700",
+    );
+    expect(
+      screen.getByRole("group", { name: ko.report.activeVuViewToggleLabel }),
+    ).toBeInTheDocument();
+  });
 });

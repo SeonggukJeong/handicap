@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { ko } from "../../i18n/ko";
 import type { ActiveVuSample, WorkerActiveVuSeries } from "../../api/schemas";
+import { PageSection } from "../ui/PageSection";
 
 type Props = {
   series: ActiveVuSample[];
@@ -112,33 +113,8 @@ export function ActiveVuChart({ series, byWorker = [], width, height }: Props) {
     </LineChart>
   );
 
-  return (
-    <section aria-label={ko.report.activeVuTitle} className="mb-6">
-      {multiWorker ? (
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-semibold text-slate-700">{ko.report.activeVuTitle}</h4>
-          <div role="group" aria-label={ko.report.activeVuViewToggleLabel}>
-            <button
-              type="button"
-              aria-pressed={!byWorkerView}
-              onClick={() => setByWorkerView(false)}
-              className={`${btnBase} rounded-l ${!byWorkerView ? "bg-slate-700 text-white" : "bg-white text-slate-700"}`}
-            >
-              {ko.report.activeVuViewTotal}
-            </button>
-            <button
-              type="button"
-              aria-pressed={byWorkerView}
-              onClick={() => setByWorkerView(true)}
-              className={`${btnBase} rounded-r border-l-0 ${byWorkerView ? "bg-slate-700 text-white" : "bg-white text-slate-700"}`}
-            >
-              {ko.report.activeVuViewByWorker}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">{ko.report.activeVuTitle}</h4>
-      )}
+  const body = (
+    <>
       {multiWorker ? (
         <p className="text-xs text-slate-500 mb-1">{ko.report.activeVuFanout(byWorker.length)}</p>
       ) : null}
@@ -161,6 +137,37 @@ export function ActiveVuChart({ series, byWorker = [], width, height }: Props) {
           ))}
         </ul>
       ) : null}
+    </>
+  );
+
+  return multiWorker ? (
+    <section aria-label={ko.report.activeVuTitle} className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-semibold text-slate-700">{ko.report.activeVuTitle}</h4>
+        <div role="group" aria-label={ko.report.activeVuViewToggleLabel}>
+          <button
+            type="button"
+            aria-pressed={!byWorkerView}
+            onClick={() => setByWorkerView(false)}
+            className={`${btnBase} rounded-l ${!byWorkerView ? "bg-slate-700 text-white" : "bg-white text-slate-700"}`}
+          >
+            {ko.report.activeVuViewTotal}
+          </button>
+          <button
+            type="button"
+            aria-pressed={byWorkerView}
+            onClick={() => setByWorkerView(true)}
+            className={`${btnBase} rounded-r border-l-0 ${byWorkerView ? "bg-slate-700 text-white" : "bg-white text-slate-700"}`}
+          >
+            {ko.report.activeVuViewByWorker}
+          </button>
+        </div>
+      </div>
+      {body}
     </section>
+  ) : (
+    <PageSection sub ariaLabel={ko.report.activeVuTitle} title={ko.report.activeVuTitle}>
+      {body}
+    </PageSection>
   );
 }
