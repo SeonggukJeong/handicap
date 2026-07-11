@@ -1,6 +1,7 @@
 import type { WorkerBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { PageSection } from "../ui/PageSection";
 import { formatErrPct } from "./format";
 
 type Props = { breakdown: WorkerBreakdown[] };
@@ -9,10 +10,10 @@ export function WorkerBreakdownTable({ breakdown }: Props) {
   // Server emits only when >=2 distinct workers; mirror that gate defensively.
   if (breakdown.length < 2) return null;
   return (
-    <section aria-label={ko.report.workerBreakdownLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">
-        {ko.report.workerBreakdownTitle(breakdown.length)}
-      </h3>
+    <PageSection
+      ariaLabel={ko.report.workerBreakdownLabel}
+      title={ko.report.workerBreakdownTitle(breakdown.length)}
+    >
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
@@ -47,6 +48,6 @@ export function WorkerBreakdownTable({ breakdown }: Props) {
           ))}
         </tbody>
       </table>
-    </section>
+    </PageSection>
   );
 }

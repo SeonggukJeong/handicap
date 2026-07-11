@@ -1,5 +1,6 @@
 import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 
 // `as const` 객체는 string 키 인덱싱이 안 되므로 lookup용 넓힌 뷰를 한 번 만든다.
@@ -68,8 +69,7 @@ function actionFor(i: Insight): string | undefined {
 export function InsightPanel({ insights, meta }: Props) {
   if (insights.length === 0) return null;
   return (
-    <section aria-label={ko.report.insightsLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">핵심 인사이트</h3>
+    <PageSection ariaLabel={ko.report.insightsLabel} title={ko.report.insightsTitle}>
       <ul className="space-y-1">
         {insights.map((i, idx) => (
           <li
@@ -93,6 +93,6 @@ export function InsightPanel({ insights, meta }: Props) {
           </li>
         ))}
       </ul>
-    </section>
+    </PageSection>
   );
 }

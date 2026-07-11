@@ -26,6 +26,7 @@ import { LatencyHistogramChart } from "./LatencyHistogramChart";
 import { ReportHeadline } from "./ReportHeadline";
 import { bySecond } from "../../report/bySecond";
 import { Callout } from "../ui/Callout";
+import { PageSection } from "../ui/PageSection";
 
 type Props = { report: Report; profile: Profile };
 
@@ -178,11 +179,10 @@ export function ReportView({ report, profile }: Props) {
       ) : null}
       <WorkerBreakdownTable breakdown={report.worker_breakdown ?? []} />
       {report.latency ? (
-        <section aria-label={ko.report.latencyTitle}>
-          <h3 className="text-lg font-semibold mb-2">{ko.report.latencyTitle}</h3>
+        <PageSection ariaLabel={ko.report.latencyTitle} title={ko.report.latencyTitle} className="">
           <PercentileCurveChart curve={report.latency.percentile_curve} />
           <LatencyHistogramChart buckets={report.latency.histogram} />
-        </section>
+        </PageSection>
       ) : null}
       <StatusDistribution distribution={report.status_distribution} />
       {report.connection && <ConnectionCostCard stats={report.connection} />}

@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import type { ReportStep } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { PageSection } from "../ui/PageSection";
 
 type StepMeta = { id: string; name: string; method: string; url: string };
 
@@ -31,8 +32,7 @@ export function StepStatsTable({ steps, meta }: Props) {
   const colSpan = 8 + (anyDownload ? 3 : 0) + (anyWait ? 1 : 0);
 
   return (
-    <section aria-label={ko.report.perStepStatsLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{ko.report.stepsHeading}</h3>
+    <PageSection ariaLabel={ko.report.perStepStatsLabel} title={ko.report.stepsHeading}>
       {anyDownload && <p className="mb-2 text-xs text-slate-500">{ko.report.phaseCaveat}</p>}
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
@@ -136,6 +136,6 @@ export function StepStatsTable({ steps, meta }: Props) {
           })}
         </tbody>
       </table>
-    </section>
+    </PageSection>
   );
 }

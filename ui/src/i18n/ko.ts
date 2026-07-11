@@ -770,6 +770,7 @@ export const ko = {
     toggleBranchBreakdown: (name: string) => `${name} 분기 분해 표시 전환`,
     // ── InsightPanel 섹션 aria ──
     insightsLabel: "인사이트",
+    insightsTitle: "핵심 인사이트",
     // ── VerdictPanel 섹션 aria + 표 헤더 ──
     verdictSectionLabel: "SLO 판정",
     verdictMetric: "지표",

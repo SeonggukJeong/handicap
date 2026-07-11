@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 
 type Props = {
   distribution: Record<string, number>;
@@ -22,8 +23,7 @@ export function StatusDistribution({ distribution, width, height }: Props) {
     </BarChart>
   );
   return (
-    <section aria-label={ko.report.statusDistributionLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{ko.report.statusCodesTitle}</h3>
+    <PageSection ariaLabel={ko.report.statusDistributionLabel} title={ko.report.statusCodesTitle}>
       {isEmpty ? (
         <p className="text-slate-500 text-sm italic">{ko.report.noStatusData}</p>
       ) : width != null && height != null ? (
@@ -33,6 +33,6 @@ export function StatusDistribution({ distribution, width, height }: Props) {
           {chart}
         </ResponsiveContainer>
       )}
-    </section>
+    </PageSection>
   );
 }

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { Summary } from "../Summary";
+import { ko } from "../../../i18n/ko";
 
 const baseSummary = {
   count: 12345,
@@ -98,5 +99,13 @@ describe("Summary", () => {
     const region = screen.getByRole("region", { name: /리포트 요약/ });
     expect(region).toHaveTextContent(/1 \(<0\.1%\)/);
     expect(region.textContent).not.toMatch(/<0\.1%%/);
+  });
+
+  it("섹션·헤딩 캐넌 클래스 lockstep (byte-identical 가드)", () => {
+    render(<Summary summary={baseSummary} />);
+    expect(screen.getByRole("region", { name: ko.report.summaryLabel }).className).toBe("mb-6");
+    expect(screen.getByRole("heading", { level: 3, name: ko.report.summaryTitle }).className).toBe(
+      "text-lg font-semibold mb-2",
+    );
   });
 });

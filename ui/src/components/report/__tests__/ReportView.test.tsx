@@ -329,4 +329,23 @@ describe("ReportView", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: "쉬운 요약" })).toBeInTheDocument();
   });
+
+  it("레이턴시 섹션은 클래스 없음(class='') 보존 — spec §2 허용 편차 ②", () => {
+    const report: Report = {
+      ...FIXTURE,
+      latency: {
+        percentile_curve: [
+          { quantile: 0.5, value_us: 10_000 },
+          { quantile: 0.99, value_us: 90_000 },
+          { quantile: 1.0, value_us: 120_000 },
+        ],
+        histogram: [
+          { lower_us: 1_000, upper_us: 2_000, count: 8 },
+          { lower_us: 2_000, upper_us: 4_000, count: 7 },
+        ],
+      },
+    };
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
+    expect(screen.getByRole("region", { name: ko.report.latencyTitle }).className).toBe("");
+  });
 });

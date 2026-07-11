@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import type { IfBreakdown } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { PageSection } from "../ui/PageSection";
 
 type IfMeta = { name: string };
 type Props = { breakdown: IfBreakdown[]; meta: Map<string, IfMeta> };
@@ -36,8 +37,7 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
   }
 
   return (
-    <section aria-label={ko.report.branchDecisionsLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{ko.report.branchDecisionsTitle}</h3>
+    <PageSection ariaLabel={ko.report.branchDecisionsLabel} title={ko.report.branchDecisionsTitle}>
       <table className="min-w-full text-sm">
         <thead className="border-b border-slate-200 text-left text-slate-600">
           <tr>
@@ -99,6 +99,6 @@ export function BranchStatsTable({ breakdown, meta }: Props) {
           })}
         </tbody>
       </table>
-    </section>
+    </PageSection>
   );
 }

@@ -1,6 +1,7 @@
 import type { ReportSummary } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
+import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 
 type Props = {
@@ -39,8 +40,7 @@ export function Summary({ summary, dropped, targetRps }: Props) {
   const gridColsClass = targetRps != null ? "md:grid-cols-9" : "md:grid-cols-7";
 
   return (
-    <section aria-label={ko.report.summaryLabel} className="mb-6">
-      <h3 className="text-lg font-semibold mb-2">{ko.report.summaryTitle}</h3>
+    <PageSection ariaLabel={ko.report.summaryLabel} title={ko.report.summaryTitle}>
       <div className={`grid grid-cols-3 ${gridColsClass} gap-3 text-sm`}>
         {cards.map((c) => (
           <div key={c.label} className="border border-slate-200 rounded-md p-3 bg-white">
@@ -52,6 +52,6 @@ export function Summary({ summary, dropped, targetRps }: Props) {
           </div>
         ))}
       </div>
-    </section>
+    </PageSection>
   );
 }
