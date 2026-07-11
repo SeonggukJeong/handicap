@@ -1,5 +1,7 @@
 # design-system-deep 구현 계획 (디자인 시스템 확산 4차 — PageSection·Badge 깊은 토큰 이주)
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 신설 `PageSection` 프리미티브(표시 섹션 h3/h4 두 캐넌) + `Badge` additive 확장(weight·className)으로 결과·표시 화면군의 섹션 12곳·차트 5곳·워커 배지 3곳을 byte-identical 이주한다.
