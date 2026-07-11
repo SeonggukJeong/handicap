@@ -288,6 +288,14 @@
 - `RunDialog.tsx`·`DataBindingPanel.tsx`·`LoadModelFields.tsx`·`StageCurvePreview.tsx`·`SlotSizingHelper.tsx`/`VuSizingHelper.tsx`/`WorkerSizingHelper.tsx`·`ScheduleForm.tsx`·`ScheduleEventTimeline.tsx`·`TriggerBuilder.tsx`·`EnvironmentPicker.tsx`·`CriteriaFields.tsx`/`StepCriteriaFields.tsx`·`RunVuCell.tsx`·`RunListControls.tsx`·`LoadShapePreview.tsx`(~15개 파일, ~38KB 상당 함정 노트)가 `ui/src/components/`에 flat하게 있어 전용 하위디렉토리(예: `components/run/`)가 없다 — 그래서 이 도메인 함정은 여전히 `ui/CLAUDE.md` 루트에 남아 있다.
 - 옮기려면: ① 새 디렉토리로 파일 이동 + 전 레포 import 경로 갱신(다수 소비처 — `pages/*.tsx` 등) ② `ui/src/components/run/CLAUDE.md` 신규 + 루트에서 해당 함정 노트 이주 ③ 라이브 게이트(lint/test/build) 재확인. 문서 정리보다 큰 소스 리팩터라 별도 슬라이스로 스코프(사용자 지시로 백로그 등록, 이번 분할엔 미포함).
 
+### B18. 저장 안 됨 이탈 가드 (2026-07-12, ADR 불필요·UI-only) 연기 항목
+출처: unsaved-changes-guard (`useUnsavedGuard` 훅+`UnsavedChangesDialog`+beforeunload, spec §7). 확장은 훅+다이얼로그 재사용으로 페이지당 ~2줄.
+- HAR 가져오기 위저드(`ScenarioImportPage`) 가드 — 위저드 로컬 상태(파일 파싱·호스트 매핑)의 dirty 정의 별도 설계 필요(범위 확정에서 제외).
+- 기타 폼 페이지(환경·스케줄·템플릿 등) 가드 — 소규모 입력이라 유실 피해 작음.
+- Tauri 데스크톱 네이티브 창 닫기 가드 — wry는 창 닫기에 `beforeunload`를 발화/존중하지 않음, `onCloseRequested` 핸들링은 `desktop/` 별도 슬라이스.
+- 중앙 가드 레지스트리 — 가드 페이지가 5–6개로 늘면 훅+다이얼로그 래핑 리팩터(spec §3-4).
+- 최종 리뷰 nit 3(전부 비차단): ① `ui/src/test/setup.ts` Request signal-드롭 패치가 스위트 전역 — 미래에 요청 취소/abort를 단언하는 테스트 추가 시 조용히 통과시킬 수 있음(주석 문서화됨, 인지만) ② clone-confirm 모달 열린 채 차단 이동 시 guard 모달이 두 번째 z-50으로 스택(드문 경로·동작 coherent, 시각 wart) ③ 2버튼 변형(신규)에 `disabled={saving}` 방어 가드 없음(신규 페이지는 saving 미전달이라 도달 불가 콤보).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
