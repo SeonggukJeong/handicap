@@ -484,6 +484,14 @@ export const ko = {
     creating: "생성 중…",
     cancel: "취소",
     discardConfirm: "저장하지 않은 변경을 버릴까요?",
+    // ── 저장 안 됨 이탈 가드 (unsaved-changes-guard) ──
+    unsavedTitle: "저장되지 않은 변경",
+    unsavedBodyEdit: "저장되지 않은 변경이 있습니다. 이동하기 전에 저장할까요?",
+    leaveCancel: "취소",
+    leaveDiscard: "저장 안 하고 이동",
+    leaveSave: "저장 후 이동",
+    stayEditing: "계속 편집",
+    discardAndLeave: "버리고 이동",
     // ── 시나리오 문제 요약 배너 (§5.4, U4) ──
     problemsBannerAria: "시나리오 문제 요약",
     problemsBannerTitle: (n: number) => `시나리오 문제 ${n}건`,
