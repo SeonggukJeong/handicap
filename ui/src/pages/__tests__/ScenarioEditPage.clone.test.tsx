@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScenarioEditPage } from "../ScenarioEditPage";
 
@@ -78,14 +78,16 @@ function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const router = createMemoryRouter(
+    [
+      { path: "/scenarios/:id", element: <ScenarioEditPage /> },
+      { path: "/scenarios/S2", element: <h1>demo (copy)</h1> },
+    ],
+    { initialEntries: ["/scenarios/S1"] },
+  );
   render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/scenarios/S1"]}>
-        <Routes>
-          <Route path="/scenarios/:id" element={<ScenarioEditPage />} />
-          <Route path="/scenarios/S2" element={<h1>demo (copy)</h1>} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
 }

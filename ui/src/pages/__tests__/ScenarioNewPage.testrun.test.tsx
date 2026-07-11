@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../i18n/ko";
 import { ScenarioNewPage } from "../ScenarioNewPage";
@@ -36,14 +36,16 @@ function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const router = createMemoryRouter(
+    [
+      { path: "/scenarios/new", element: <ScenarioNewPage /> },
+      { path: "/", element: <div>HOME</div> },
+    ],
+    { initialEntries: ["/scenarios/new"] },
+  );
   render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/scenarios/new"]}>
-        <Routes>
-          <Route path="/scenarios/new" element={<ScenarioNewPage />} />
-          <Route path="/" element={<div>HOME</div>} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
 }

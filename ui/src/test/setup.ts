@@ -50,6 +50,33 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   });
 }
 
+// vitest's jsdom environment overrides globalThis.AbortController/AbortSignal
+// with jsdom's own implementation, but globalThis.Request/fetch/Response stay
+// Node's native (undici-backed) ones (jsdom doesn't implement fetch, so vitest
+// copies Node's native fetch/Request/Response onto the jsdom window instead of
+// shadowing them). react-router's data router (`createMemoryRouter`) builds a
+// fresh `new AbortController()` for every navigate() and passes `.signal` into
+// `new Request(url, {signal})` — undici's webidl brand-check rejects jsdom's
+// AbortSignal ("Expected signal ... to be an instance of AbortSignal"), which
+// crashes any real client-side navigation under RouterProvider. None of our
+// tests assert on request cancellation, so patch Request to drop `signal`
+// rather than try to reconcile the two AbortSignal implementations.
+{
+  const NativeRequest = globalThis.Request;
+  class PatchedRequest extends NativeRequest {
+    constructor(input: RequestInfo | URL, init: RequestInit = {}) {
+      if (init.signal) {
+        const rest = { ...init };
+        delete rest.signal;
+        super(input, rest);
+      } else {
+        super(input, init);
+      }
+    }
+  }
+  globalThis.Request = PatchedRequest as unknown as typeof Request;
+}
+
 afterEach(() => {
   cleanup();
   globalThis.localStorage.clear();
