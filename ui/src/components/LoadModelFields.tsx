@@ -9,7 +9,7 @@ import { Input } from "./ui/Input";
 import { VuSizingHelper } from "./VuSizingHelper";
 import { SlotSizingHelper } from "./SlotSizingHelper";
 import { WorkerSizingHelper } from "./WorkerSizingHelper";
-import { peakStageTarget, sizePresetsFor } from "./sizing";
+import { iterationRequestRange, peakStageTarget, sizePresetsFor, targetRpsValid } from "./sizing";
 import type { ClosedRunAnchor } from "./VuSizingHelper";
 import { formatDurationKo } from "../i18n/duration";
 import type { Scenario } from "../scenario/model";
@@ -124,6 +124,22 @@ export function LoadModelFields({
     const p = peakStageTarget(stages);
     return p != null ? String(p) : "";
   }, [stages]);
+
+  // 환산 힌트: 도착률(반복/초) → 초당 요청 수 범위. scenario 없으면(ScheduleForm) 미렌더.
+  const reqRange = useMemo(
+    () => (sizingScenario ? iterationRequestRange(sizingScenario.steps) : null),
+    [sizingScenario],
+  );
+  const reqConversion = (rate: number | null, peak: boolean): string | null => {
+    if (rate == null || !targetRpsValid(rate) || !reqRange || reqRange.max <= 0) return null;
+    const lo = (rate * reqRange.min).toLocaleString();
+    const hi = (rate * reqRange.max).toLocaleString();
+    if (reqRange.min === reqRange.max)
+      return peak ? ko.loadModel.reqPerSecPeakApprox(hi) : ko.loadModel.reqPerSecApprox(hi);
+    return peak
+      ? ko.loadModel.reqPerSecPeakApproxRange(lo, hi)
+      : ko.loadModel.reqPerSecApproxRange(lo, hi);
+  };
 
   // open-loop 구조 경고(순수·결정적). poolMode/closed/W>1 등 게이트는 openLoopWarnings 내부.
   const openLoopWarns = useMemo(
@@ -750,6 +766,10 @@ export function LoadModelFields({
                   {ko.validation.targetRps}
                 </p>
               )}
+              {(() => {
+                const hint = reqConversion(Number(targetRps), false);
+                return hint ? <p className="mb-3 -mt-2 text-xs text-slate-500">{hint}</p> : null;
+              })()}
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}
@@ -764,6 +784,11 @@ export function LoadModelFields({
             <>
               {/* simpleMode: 곡선 영역은 null — RunDialog R17 카드(T8)가 채움 */}
               {!simpleMode && curveEditor}
+              {!simpleMode &&
+                (() => {
+                  const hint = reqConversion(peakStageTarget(stages), true);
+                  return hint ? <p className="mb-3 text-xs text-slate-500">{hint}</p> : null;
+                })()}
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}

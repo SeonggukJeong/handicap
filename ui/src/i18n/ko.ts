@@ -214,6 +214,11 @@ export const ko = {
     tileOpenTitle: "도착률 (초당 반복)",
     tileClosedDesc: "N명이 동시에 반복 요청",
     tileOpenDesc: "초당 N회씩 반복 시작",
+    reqPerSecApprox: (n: string) => `≈ 초당 요청 ${n}건`,
+    reqPerSecApproxRange: (lo: string, hi: string) => `≈ 초당 요청 ${lo}~${hi}건`,
+    reqPerSecPeakApprox: (n: string) => `최고 단계 기준 ≈ 초당 요청 ${n}건`,
+    reqPerSecPeakApproxRange: (lo: string, hi: string) =>
+      `최고 단계 기준 ≈ 초당 요청 ${lo}~${hi}건`,
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",

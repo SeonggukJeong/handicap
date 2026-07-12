@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
-import type { Scenario } from "../../scenario/model";
+import type { Scenario, Step } from "../../scenario/model";
 import { ko } from "../../i18n/ko";
 
 vi.mock("../VuSizingHelper", () => ({
@@ -471,6 +471,34 @@ describe("LoadModelFields", () => {
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;
 
+// http leaf 필수 필드는 SlotSizingHelper.test.tsx의 http() 관행과 동형 — id/name/request 채운 뒤 캐스트.
+const http = (id: string): Step =>
+  ({
+    type: "http",
+    id,
+    name: id,
+    request: { method: "GET", url: "/x" },
+  }) as unknown as Step;
+
+const twoStepScenario = { steps: [http("a"), http("b")] } as unknown as Scenario;
+
+const branchScenario = {
+  steps: [
+    http("a"),
+    {
+      type: "if",
+      id: "I",
+      name: "I",
+      cond: {},
+      then: [http("b")],
+      elif: [],
+      else: [],
+    } as unknown as Step,
+  ],
+} as unknown as Scenario;
+
+const oneStepScenario = { steps: [http("a")] } as unknown as Scenario;
+
 describe("LoadModelFields — open-loop 구조 경고", () => {
   it("① 곡선 W>peak → 유휴 워커 경고 + 적용 버튼이 worker_count를 peak로", async () => {
     const user = userEvent.setup();
@@ -541,5 +569,65 @@ describe("LoadModelFields — open-loop 구조 경고", () => {
     });
     const warn = screen.getByText(/영향을 주지 않아요/);
     expect(warn.closest("[role='status']")).not.toBeNull();
+  });
+});
+
+describe("도착률→요청 환산 힌트", () => {
+  it("simpleMode에서도 fixed 환산 힌트 렌더(의도 — 입력 아래 보조 문구)", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "20",
+      sizingScenario: twoStepScenario,
+      simpleMode: true,
+    });
+    expect(screen.getByText("≈ 초당 요청 40건")).toBeInTheDocument();
+  });
+  it("open+fixed + scenario(http 2개) + 목표 20 → '≈ 초당 요청 40건'", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "20",
+      sizingScenario: twoStepScenario,
+    });
+    expect(screen.getByText("≈ 초당 요청 40건")).toBeInTheDocument();
+  });
+  it("분기 시나리오(http1 + if(then 1/else 빈)) + 목표 10 → 범위 '≈ 초당 요청 10~20건'", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "10",
+      sizingScenario: branchScenario,
+    });
+    expect(screen.getByText("≈ 초당 요청 10~20건")).toBeInTheDocument();
+  });
+  it("scenario 미전달(ScheduleForm 경로) → 힌트 미렌더", () => {
+    renderFields({ loadModel: "open", rateMode: "fixed", targetRps: "20" });
+    expect(screen.queryByText(/≈ 초당 요청/)).not.toBeInTheDocument();
+  });
+  it("목표 무효(빈 문자열) → 미렌더", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "fixed",
+      targetRps: "",
+      sizingScenario: twoStepScenario,
+    });
+    expect(screen.queryByText(/≈ 초당 요청/)).not.toBeInTheDocument();
+  });
+  it("open+curve + scenario(http 1개) + peak 50 → '최고 단계 기준 ≈ 초당 요청 50건'", () => {
+    renderFields({
+      loadModel: "open",
+      rateMode: "curve",
+      sizingScenario: oneStepScenario,
+      stages: [
+        { target: "50", duration_seconds: "30" },
+        { target: "10", duration_seconds: "30" },
+      ],
+    });
+    expect(screen.getByText("최고 단계 기준 ≈ 초당 요청 50건")).toBeInTheDocument();
+  });
+  it("closed 모드 → 미렌더 (VU 곡선에 환산 없음)", () => {
+    renderFields({ loadModel: "closed", rateMode: "fixed", sizingScenario: twoStepScenario });
+    expect(screen.queryByText(/≈ 초당 요청/)).not.toBeInTheDocument();
   });
 });
