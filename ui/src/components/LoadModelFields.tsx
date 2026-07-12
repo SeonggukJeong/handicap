@@ -753,6 +753,7 @@ export function LoadModelFields({
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}
+                  scenario={sizingScenario ?? null}
                   env={sizingEnv ?? {}}
                   targetRps={targetRps}
                   onApply={onApplyMaxInFlight}
@@ -766,6 +767,7 @@ export function LoadModelFields({
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}
+                  scenario={sizingScenario ?? null}
                   env={sizingEnv ?? {}}
                   targetRps={peakStr}
                   peakBased

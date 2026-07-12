@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useScenario, useScenarioRuns, useRunReport, useTestRun } from "../api/hooks";
 import type { Run } from "../api/schemas";
-import { pickLatestOpenRun, recommendSlots } from "./sizing";
+import type { Scenario } from "../scenario/model";
+import { pickLatestOpenRun, recommendSlots, iterationHoldMs } from "./sizing";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 
@@ -11,21 +12,50 @@ const INPUT = "mt-1 block w-full rounded border border-slate-300 px-2 py-1";
  *  초과 권장값은 적용해도 검증이 400으로 막으므로 비차단 경고를 띄운다(post-hoc capacity cause와 의미 연결). */
 const MAX_IN_FLIGHT_CAP = 10000;
 
-/** 최근 종료 open-loop run에서 지연 앵커(요청당 mean)를 도출. 없거나 mean==0이면 null.
- *  반환값은 useMemo로 안정화 — 소비처 분기가 값 변화에만 반응(닫힌 헬퍼 usePriorClosedRunAnchor 미러). */
-function usePriorOpenRunAnchor(scenarioId: string | undefined): { meanMs: number } | null {
+type SlotAnchor =
+  | { kind: "insight"; holdMs: number } // ⓐ 직전 포화 run 실측 hold 복원
+  | { kind: "walk"; holdMs: number }; // ⓑ per-step p50 + think 평균 walk
+
+/** 최근 종료 open-loop run에서 반복 점유시간(hold) 앵커 도출(ADR-0046 R8).
+ *  ⓐ 포화(cause=slots) 인사이트의 실측 achieved_per_sec + prior max_in_flight로
+ *  hold = M ÷ achieved 복원(목표-독립 — 현재 목표가 달라도 정확, R9 parity).
+ *  ⓑ 아니면 scenario walk(iterationHoldMs, p50 ?? mean_ms). hold<=0이면 null. */
+function usePriorOpenRunAnchor(
+  scenarioId: string | undefined,
+  scenario: Scenario | null | undefined,
+): SlotAnchor | null {
   const runs = useScenarioRuns(scenarioId);
   // Cast: Zod parses defaults at runtime so the data is truly Run[], but tsc sees a
   // nested-default input-type leak (ProfileSchema.ramp_up_seconds?.default → optional).
   const latest = useMemo(() => pickLatestOpenRun((runs.data?.runs ?? []) as Run[]), [runs.data]);
   const report = useRunReport(latest?.id, Boolean(latest));
-  const meanMs = report.data?.summary.mean_ms ?? 0;
-  // mean==0(localhost sub-ms run)이면 앵커 무효 → 추정/측정 UI 노출(spec §5.1 가드).
-  return useMemo(() => (meanMs > 0 ? { meanMs } : null), [meanMs]);
+  const priorMif = latest?.profile.max_in_flight ?? null;
+  return useMemo(() => {
+    const rep = report.data;
+    if (!rep) return null;
+    const sat = rep.insights?.find((i) => i.kind === "load_gen_saturated");
+    if (
+      sat?.cause === "slots" &&
+      sat.achieved_per_sec != null &&
+      sat.achieved_per_sec > 0 &&
+      priorMif != null &&
+      priorMif > 0
+    ) {
+      return { kind: "insight", holdMs: (priorMif / sat.achieved_per_sec) * 1000 };
+    }
+    if (scenario) {
+      const p50 = new Map(rep.steps.map((s) => [s.step_id, s.p50_ms] as const));
+      const hold = iterationHoldMs(scenario.steps, p50, rep.summary.mean_ms);
+      if (hold > 0) return { kind: "walk", holdMs: hold };
+    }
+    return null;
+  }, [report.data, priorMif, scenario]);
 }
 
 type Props = {
   scenarioId: string;
+  /** model Scenario(steps 보유) — hold walk 앵커(ⓑ)용. 미전달(하위호환) → ⓑ skip. */
+  scenario?: Scenario | null;
   env: Record<string, string>;
   /** 유효 목표 RPS 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 RPS, curve=stages 피크(상위 도출). */
   targetRps: string;
@@ -37,43 +67,38 @@ type Props = {
 
 export function SlotSizingHelper({
   scenarioId,
+  scenario,
   env,
   targetRps,
   peakBased = false,
   onApply,
 }: Props) {
-  const anchor = usePriorOpenRunAnchor(scenarioId);
+  const anchor = usePriorOpenRunAnchor(scenarioId, scenario);
   const scenarioQ = useScenario(scenarioId);
   const testRun = useTestRun();
   const [estMs, setEstMs] = useState("");
 
-  // test-run 측정(비-truncated): trace에서 요청 수 R + 1회 패스 wall-clock total_ms → 요청당 평균 지연.
+  // test-run 측정(비-truncated): 1회 패스 wall-clock total_ms를 반복 점유시간(hold)로 직접 사용
+  // (÷R 없음 — apply_think_time:true로 발사해 think time까지 포함된 전체 반복 시간).
   const trace = testRun.data;
   const truncated = trace?.truncated ?? false;
   const measuredR =
     trace && !trace.truncated ? trace.steps.filter((s) => s.response !== null).length : 0;
-  const measured =
-    trace && !trace.truncated && measuredR > 0 && trace.total_ms > 0
-      ? { latencyMs: trace.total_ms / measuredR, reqPerIter: measuredR }
-      : null;
+  const measuredHold = trace && !trace.truncated && trace.total_ms > 0 ? trace.total_ms : null;
 
   const estMsNum = Number(estMs);
-  // 지연 출처 precedence: prior > 수동 추정(estMs 입력) > 측정 (닫힌 헬퍼와 동형).
-  const latencyMs: number | null = anchor
-    ? anchor.meanMs
-    : estMs.trim() !== "" && Number.isFinite(estMsNum) && estMsNum > 0
-      ? estMsNum
-      : measured
-        ? measured.latencyMs
-        : null;
+  // hold 출처 precedence: prior 앵커(ⓐ/ⓑ) > 수동 추정(estMs 입력, ⓒ) > 측정(ⓓ).
+  const holdMs: number | null =
+    anchor?.holdMs ??
+    (estMs.trim() !== "" && Number.isFinite(estMsNum) && estMsNum > 0 ? estMsNum : measuredHold);
 
   const targetNum = Number(targetRps);
-  const result = latencyMs != null ? recommendSlots(targetNum, latencyMs) : null;
+  const result = holdMs != null ? recommendSlots(targetNum, holdMs) : null;
 
   const runMeasure = () => {
     const yaml = scenarioQ.data?.yaml;
     if (!yaml) return;
-    testRun.mutate({ scenario_yaml: yaml, env });
+    testRun.mutate({ scenario_yaml: yaml, env, apply_think_time: true });
   };
 
   return (
@@ -84,7 +109,11 @@ export function SlotSizingHelper({
       </div>
 
       {anchor ? (
-        <p className="text-xs text-slate-500 mb-2">{ko.slotSizing.fromPriorRun(anchor.meanMs)}</p>
+        <p className="text-xs text-slate-500 mb-2">
+          {anchor.kind === "insight"
+            ? ko.slotSizing.fromSaturatedRun
+            : ko.slotSizing.fromPriorRunWalk(Math.round(anchor.holdMs))}
+        </p>
       ) : (
         <div className="mb-2">
           <label className="block text-sm">
@@ -117,9 +146,9 @@ export function SlotSizingHelper({
               {ko.slotSizing.measureError}
             </p>
           )}
-          {measured && (
+          {measuredR > 0 && measuredHold != null && (
             <p className="text-xs text-slate-500 mt-1">
-              {ko.slotSizing.measured(measured.reqPerIter, Math.round(measured.latencyMs))}
+              {ko.slotSizing.measured(measuredR, Math.round(measuredHold))}
             </p>
           )}
         </div>
@@ -142,7 +171,7 @@ export function SlotSizingHelper({
           <p className="text-xs text-slate-500 mt-1">
             {(peakBased ? ko.slotSizing.formulaPeak : ko.slotSizing.formula)(
               targetNum,
-              Math.round(latencyMs as number),
+              Math.round(holdMs as number),
               result.recommendedSlots,
             )}
           </p>
@@ -150,14 +179,14 @@ export function SlotSizingHelper({
             <p className="text-xs text-amber-700 mt-1">{ko.slotSizing.overCapacity}</p>
           )}
         </>
-      ) : latencyMs == null ? (
-        // 지연 출처 없음 — 단, truncated일 땐 위에서 자체 안내가 떠 중복 표시 방지.
+      ) : holdMs == null ? (
+        // hold 출처 없음 — 단, truncated일 땐 위에서 자체 안내가 떠 중복 표시 방지.
         !truncated && <p className="text-xs text-slate-500">{ko.slotSizing.cannotCompute}</p>
       ) : targetRps.trim() === "" ? (
         <p className="text-xs text-slate-500">
           {peakBased ? ko.slotSizing.needTargetCurve : ko.slotSizing.needTarget}
         </p>
-      ) : // 지연은 있으나 targetRps가 non-empty-but-invalid(예: "1.5"/"2000000") → recommendSlots null.
+      ) : // hold는 있으나 targetRps가 non-empty-but-invalid(예: "1.5"/"2000000") → recommendSlots null.
       // 폼 자체의 targetRpsInvalid 에러가 이미 그 사유를 표시하므로 여기선 침묵(중복 방지).
       null}
     </div>
