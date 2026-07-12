@@ -869,3 +869,82 @@ steps:
     expect(tokens(nameSpan)).not.toContain("min-w-0");
   });
 });
+
+describe("VariablesPanel — 미정의 변수 원클릭 선언 (editor-var-conflict-quickadd R5–R8)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  const DOTTED_UNDEF = `version: 1
+name: t
+cookie_jar: auto
+variables: {}
+steps:
+  - id: 01HX0000000000000000000001
+    name: consume
+    type: http
+    request:
+      method: GET
+      url: "/x?a={{ghost.v}}"
+      headers: {}
+`;
+
+  it("R5: '선언 추가' 클릭 → 빈 값 선언·⚠ 행 소멸·선언 행 등장·검색어 유지", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    const search = screen.getByPlaceholderText(ko.editor.varSearchPlaceholder);
+    await user.type(search, "missing");
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.variableDeclareAddAria("missing") }),
+    );
+    expect(useScenarioEditor.getState().model!.variables).toHaveProperty("missing", "");
+    expect(useScenarioEditor.getState().yamlText).toContain("missing:");
+    expect(screen.queryByTitle(ko.editor.variableUndefinedAria("missing"))).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: ko.editor.variableValueAria("missing") }),
+    ).toBeInTheDocument();
+    // 검색어 미클리어(R5) — 하단 추가 경로의 setQuery("") 복사 금지
+    expect(search).toHaveValue("missing");
+  });
+
+  it("R7: 점 포함 미정의 이름도 리터럴 키로 선언", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(DOTTED_UNDEF);
+    render(<VariablesPanel />);
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.variableDeclareAddAria("ghost.v") }),
+    );
+    // 주의: toHaveProperty는 점을 경로로 해석 — 리터럴 키는 배열 형
+    expect(useScenarioEditor.getState().model!.variables).toHaveProperty(["ghost.v"], "");
+  });
+
+  it("R6: yamlError 상태에서 '선언 추가'·하단 '추가' 둘 다 disabled", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(MIXED);
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    useScenarioEditor.getState().commitPendingYaml(); // yamlError 세팅 — model은 보존됨
+    render(<VariablesPanel />);
+    expect(
+      screen.getByRole("button", { name: ko.editor.variableDeclareAddAria("missing") }),
+    ).toBeDisabled();
+    // 하단 버튼: 이름을 먼저 타이핑해 빈-이름 disabled와 구분(teeth)
+    await user.type(screen.getByPlaceholderText("new_var"), "x");
+    expect(screen.getByRole("button", { name: ko.editor.variablesAdd })).toBeDisabled();
+  });
+
+  it("R8: 미정의 행 사용처 팝오버가 열린 채 키보드로 '선언 추가' → 팝오버 닫힘", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.variableUsageNavAria("missing") }),
+    );
+    expect(
+      await screen.findByRole("menu", { name: ko.editor.varUsageListAria }),
+    ).toBeInTheDocument();
+    // 키보드 활성화(Enter) — 마우스 클릭은 팝오버의 outside-pointerdown이 선제로 닫아
+    // R8 setUsageNav(null) 없이도 통과(false-green)하므로 반드시 키보드 경로로(teeth)
+    screen.getByRole("button", { name: ko.editor.variableDeclareAddAria("missing") }).focus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+});

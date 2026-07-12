@@ -364,6 +364,18 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                 <span aria-hidden="true">⚠ </span>
                 {ko.editor.variableUndefined}
               </span>
+              <button
+                type="button"
+                aria-label={ko.editor.variableDeclareAddAria(row.name)}
+                disabled={yamlError !== null}
+                onClick={() => {
+                  setUsageNav(null); // 행 u:→d: 전이로 anchor unmount — detached 팝오버 방지(R8)
+                  setVariable(row.name, "");
+                }}
+                className="shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
+              >
+                {ko.editor.variableDeclareAdd}
+              </button>
               {usageCell(`u:${row.name}`, row.name, row.refIds)}
             </li>
           );
@@ -394,7 +406,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
             setNewKey("");
             setQuery("");
           }}
-          disabled={newKey.trim().length === 0}
+          disabled={newKey.trim().length === 0 || yamlError !== null}
           className="shrink-0 px-2 py-1 text-sm border border-slate-300 rounded disabled:opacity-50"
         >
           {ko.editor.variablesAdd}

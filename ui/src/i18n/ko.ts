@@ -483,6 +483,8 @@ export const ko = {
     variableOverwritten: "추출 덮어씀",
     variableOverwrittenTitle:
       "스텝 추출이 같은 이름에 값을 쓸 수 있습니다 — 추출이 실행된 이후 스텝은 선언값 대신 추출값을 봅니다",
+    variableDeclareAdd: "선언 추가",
+    variableDeclareAddAria: (name: string) => `${name}을(를) 변수로 선언`,
     renameVariableAria: (name: string) => `${name} 이름 바꾸기`,
     variableRenameInputAria: (name: string) => `${name} 새 이름`,
     variableRenameCollision: (name: string) => `이미 존재하는 이름입니다: ${name}`,
