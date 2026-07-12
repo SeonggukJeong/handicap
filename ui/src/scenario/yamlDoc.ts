@@ -11,7 +11,14 @@ import {
   type Node,
 } from "yaml";
 import { z } from "zod";
-import { ScenarioModel, StepModel, type Scenario, type Step, type Condition } from "./model";
+import {
+  ScenarioModel,
+  StepModel,
+  type Scenario,
+  type Step,
+  type Condition,
+  type ThinkTime,
+} from "./model";
 import { CAST_KEYWORDS } from "./cast";
 
 export type BranchSel = { kind: "then" } | { kind: "else" } | { kind: "elif"; index: number };
@@ -23,6 +30,7 @@ export type ParseResult = ParseOk | ParseErr;
 export type Edit =
   | { type: "setName"; value: string }
   | { type: "setCookieJar"; value: "auto" | "off" }
+  | { type: "setDefaultThinkTime"; value: ThinkTime | undefined }
   | { type: "setVariable"; key: string; value: string }
   | { type: "removeVariable"; key: string }
   | { type: "addStep"; id: string; name: string }
@@ -129,6 +137,16 @@ export function applyEdit(doc: Document, edit: Edit): void {
       return;
     case "setCookieJar":
       doc.setIn(["cookie_jar"], plainScalar(edit.value));
+      return;
+    case "setDefaultThinkTime":
+      if (edit.value === undefined) {
+        doc.deleteIn(["default_think_time"]); // removeVariable arm과 같은 삭제 API
+      } else {
+        doc.setIn(["default_think_time"], {
+          min_ms: edit.value.min_ms,
+          max_ms: edit.value.max_ms,
+        });
+      }
       return;
     case "setVariable":
       ensureMap(doc, ["variables"]);
@@ -709,6 +727,8 @@ function normalizeForModel(input: unknown): unknown {
     name: src.name,
     cookie_jar: src.cookie_jar ?? "auto",
     variables: src.variables ?? {},
+    // 루트 allowlist다 — 새 최상위 키는 여기를 통과시켜야 Zod가 본다(없으면 write-only).
+    default_think_time: src.default_think_time,
     steps: Array.isArray(src.steps) ? src.steps.map(normalizeStep) : [],
   };
   return out;

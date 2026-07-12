@@ -12,10 +12,12 @@ import {
   findStepById,
   findStepSiblings,
   summarizeCondition,
+  isInsideParallelBranch,
   type Scenario,
   type HttpStep,
   type Extract,
   type IfStep,
+  type Step,
   newEmptyScenario,
 } from "../model";
 
@@ -643,5 +645,32 @@ describe("helpers descend into parallel branches", () => {
   it("findStepSiblings returns the branch's step list", () => {
     const sibs = findStepSiblings([parallel as never], "01HX0000000000000000000011");
     expect(sibs.map((s) => s.id)).toEqual(["01HX0000000000000000000011"]);
+  });
+});
+
+describe("isInsideParallelBranch", () => {
+  const httpMin = (id: string): Step =>
+    ({
+      type: "http",
+      id,
+      name: id,
+      request: { method: "GET", url: "/x" },
+    }) as unknown as Step;
+
+  it("parallel 분기 내부만 true (loop/최상위는 false)", () => {
+    const steps: Step[] = [
+      httpMin("top"),
+      { type: "loop", id: "L", name: "L", repeat: 2, do: [httpMin("inLoop")] } as unknown as Step,
+      {
+        type: "parallel",
+        id: "P",
+        name: "P",
+        branches: [{ name: "b1", steps: [httpMin("inBranch")] }],
+      } as unknown as Step,
+    ];
+    expect(isInsideParallelBranch(steps, "top")).toBe(false);
+    expect(isInsideParallelBranch(steps, "inLoop")).toBe(false);
+    expect(isInsideParallelBranch(steps, "inBranch")).toBe(true);
+    expect(isInsideParallelBranch(steps, "없는id")).toBe(false); // 못 찾으면 false
   });
 });

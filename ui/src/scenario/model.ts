@@ -347,6 +347,33 @@ export function findStepById(steps: ReadonlyArray<Step>, stepId: string | null):
   return null;
 }
 
+/** stepId가 parallel 분기 서브트리 안에 있으면 true(분기 안의 중첩 loop/if 포함).
+ *  시나리오 기본 think time이 **적용되지 않는** 영역 판정 — 엔진 runner/trace의 Parallel arm이
+ *  분기 재귀에 default를 넘기지 않는 규칙(spec R4)의 UI 미러. 못 찾으면 false. */
+export function isInsideParallelBranch(steps: ReadonlyArray<Step>, stepId: string): boolean {
+  const walk = (list: ReadonlyArray<Step>, inBranch: boolean): boolean | null => {
+    for (const s of list) {
+      if (s.id === stepId) return inBranch;
+      if (s.type === "loop") {
+        const r = walk(s.do, inBranch);
+        if (r !== null) return r;
+      } else if (s.type === "parallel") {
+        for (const b of s.branches) {
+          const r = walk(b.steps, true);
+          if (r !== null) return r;
+        }
+      } else if (s.type === "if") {
+        for (const list2 of [s.then, ...s.elif.map((e) => e.then), s.else]) {
+          const r = walk(list2, inBranch);
+          if (r !== null) return r;
+        }
+      }
+    }
+    return null;
+  };
+  return walk(steps, false) ?? false;
+}
+
 /** 스텝이 속한 최상위 조상의 인덱스 (중첩이면 그 컨테이너, 최상위면 자신).
  *  저장 다이얼로그 기본 체크와 삽입 위치("선택 스텝의 최상위 조상 바로 뒤")가 공유. */
 export function topAncestorIndex(steps: ReadonlyArray<Step>, stepId: string | null): number | null {
@@ -366,6 +393,7 @@ export const ScenarioModel = z
     name: z.string().min(1, "name required"),
     cookie_jar: CookieJarMode.default("auto"),
     variables: z.record(z.string(), z.string()).default({}),
+    default_think_time: ThinkTimeModel.optional(),
     steps: z.array(StepModel).default([]),
   })
   .strict();

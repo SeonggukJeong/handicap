@@ -5,6 +5,7 @@ import {
   type Extract,
   type Scenario,
   type Condition,
+  type ThinkTime,
   findStepById,
   isParallelStep,
   topAncestorIndex,
@@ -48,6 +49,8 @@ export interface ScenarioEditorState {
   // Edit ops (mirror Edit variants)
   setName(value: string): void;
   setCookieJar(value: "auto" | "off"): void;
+  /** 시나리오 기본 think time(모든 http 스텝이 상속; parallel 분기 제외). undefined → 키 제거. */
+  setDefaultThinkTime(value: ThinkTime | undefined): void;
   setVariable(key: string, value: string): void;
   removeVariable(key: string): void;
   /** flat 변수(선언·비-parallel extract) rename. 선언 키 + 모든 extract.var + 모든
@@ -150,6 +153,9 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setCookieJar(value) {
     dispatch(set, get, { type: "setCookieJar", value });
+  },
+  setDefaultThinkTime(value) {
+    dispatch(set, get, { type: "setDefaultThinkTime", value });
   },
   setVariable(key, value) {
     dispatch(set, get, { type: "setVariable", key, value });
@@ -443,6 +449,7 @@ const actions = (() => {
     resetEmpty: s.resetEmpty,
     setName: s.setName,
     setCookieJar: s.setCookieJar,
+    setDefaultThinkTime: s.setDefaultThinkTime,
     setVariable: s.setVariable,
     removeVariable: s.removeVariable,
     renameVariable: s.renameVariable,

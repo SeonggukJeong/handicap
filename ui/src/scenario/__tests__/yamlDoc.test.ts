@@ -6,6 +6,7 @@ import {
   renameScenarioYaml,
   type Edit,
 } from "../yamlDoc";
+import { useScenarioEditor } from "../store";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -837,5 +838,67 @@ describe("renameScenarioYaml", () => {
     const parsed = parseScenarioDoc(out);
     expect("model" in parsed).toBe(true);
     if ("model" in parsed) expect(parsed.model.name).toBe("demo (copy)");
+  });
+});
+
+describe("default_think_time", () => {
+  it("default_think_time을 파싱해 모델에 보존한다 (normalize 읽기 경로)", () => {
+    const yaml = `version: 1
+name: "demo"
+default_think_time:
+  min_ms: 500
+  max_ms: 1000
+steps: []
+`;
+    const r = parseScenarioDoc(yaml);
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.model.default_think_time).toEqual({ min_ms: 500, max_ms: 1000 });
+  });
+
+  it("setDefaultThinkTime이 YAML에 쓰이고 재파싱된 모델에 되읽힌다 (왕복)", () => {
+    const store = useScenarioEditor.getState();
+    store.loadFromString(`version: 1
+name: "demo"
+steps: []
+`);
+    useScenarioEditor.getState().setDefaultThinkTime({ min_ms: 500, max_ms: 1000 });
+    const s1 = useScenarioEditor.getState();
+    expect(s1.yamlText).toContain("default_think_time");
+    expect(s1.model?.default_think_time).toEqual({ min_ms: 500, max_ms: 1000 });
+
+    // 제거 → 키가 사라지고 모델도 undefined
+    useScenarioEditor.getState().setDefaultThinkTime(undefined);
+    const s2 = useScenarioEditor.getState();
+    expect(s2.yamlText).not.toContain("default_think_time");
+    expect(s2.model?.default_think_time).toBeUndefined();
+  });
+
+  const withDefault = (block: string) => `version: 1
+name: "demo"
+${block}steps: []
+`;
+
+  it("default_think_time Zod: 유효/min>max/600001/absent", () => {
+    // 유효
+    const ok = parseScenarioDoc(
+      withDefault("default_think_time:\n  min_ms: 500\n  max_ms: 1000\n"),
+    );
+    expect("error" in ok).toBe(false);
+    // min > max → 거부
+    expect(
+      "error" in
+        parseScenarioDoc(withDefault("default_think_time:\n  min_ms: 900\n  max_ms: 100\n")),
+    ).toBe(true);
+    // max > 600000 → 거부
+    expect(
+      "error" in
+        parseScenarioDoc(withDefault("default_think_time:\n  min_ms: 0\n  max_ms: 600001\n")),
+    ).toBe(true);
+    // absent → undefined (현행 시나리오 회귀 0)
+    const bare = parseScenarioDoc(withDefault(""));
+    expect("error" in bare).toBe(false);
+    if ("error" in bare) return;
+    expect(bare.model.default_think_time).toBeUndefined();
   });
 });
