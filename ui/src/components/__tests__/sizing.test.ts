@@ -10,6 +10,7 @@ import {
   recommendWorkers,
   sizePresetsFor,
   iterationHoldMs,
+  iterationRequestRange,
 } from "../sizing";
 import type { Run } from "../../api/schemas";
 import type { Step } from "../../scenario/model";
@@ -340,6 +341,63 @@ describe("iterationHoldMs (R7)", () => {
     expect(iterationHoldMs([par], p50, 50)).toBe(200);
   });
   it("http leaf 0개면 0", () => expect(iterationHoldMs([], p50, 50)).toBe(0));
+});
+
+describe("iterationRequestRange (ADR-0046 ②)", () => {
+  it("flat http 2개 → {2,2}", () => {
+    expect(iterationRequestRange([http("a"), http("b")])).toEqual({ min: 2, max: 2 });
+  });
+  it("loop repeat 3 × (http 2개) → {6,6}", () => {
+    const steps = [
+      {
+        type: "loop",
+        id: "L",
+        name: "L",
+        repeat: 3,
+        do: [http("a"), http("b")],
+      } as unknown as Step,
+    ];
+    expect(iterationRequestRange(steps)).toEqual({ min: 6, max: 6 });
+  });
+  it("if(then 2건·elif 1건·else 빈 배열) → {0,2} — else 무요청이 min", () => {
+    const ifStep = {
+      type: "if",
+      id: "I",
+      name: "I",
+      cond: {},
+      then: [http("a"), http("b")],
+      elif: [{ cond: {}, then: [http("c")] }],
+      else: [],
+    } as unknown as Step;
+    expect(iterationRequestRange([ifStep])).toEqual({ min: 0, max: 2 });
+  });
+  it("parallel은 분기 '합'(전 분기 동시 실행 — 시간 walk의 max와 다름) — 2분기(2건·3건) → {5,5}", () => {
+    const par = {
+      type: "parallel",
+      id: "P",
+      name: "P",
+      branches: [
+        { name: "x", steps: [http("a"), http("b")] },
+        { name: "y", steps: [http("c"), http("d"), http("e")] },
+      ],
+    } as unknown as Step;
+    expect(iterationRequestRange([par])).toEqual({ min: 5, max: 5 });
+  });
+  it("http leaf 0개 → {0,0} (호출부 skip 신호)", () => {
+    expect(iterationRequestRange([])).toEqual({ min: 0, max: 0 });
+  });
+  it("혼합: http 1 + if(then 1건/else 빈) → {1,2}", () => {
+    const ifStep = {
+      type: "if",
+      id: "I2",
+      name: "I2",
+      cond: {},
+      then: [http("b")],
+      elif: [],
+      else: [],
+    } as unknown as Step;
+    expect(iterationRequestRange([http("a"), ifStep])).toEqual({ min: 1, max: 2 });
+  });
 });
 
 describe("pickLatestFixedOpenRun (R10 — 곡선 prior 제외)", () => {

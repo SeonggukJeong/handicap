@@ -17,7 +17,7 @@ export type SizingResult = {
   basis: ThroughputSource["kind"];
 };
 
-/** 목표 RPS 유효 범위 = loadModelErrors의 targetRps와 동일(정수 1..=1_000_000). */
+/** 목표 도착률(초당 반복) 유효 범위 = loadModelErrors의 targetRps와 동일(정수 1..=1_000_000). */
 export function targetRpsValid(targetRps: number): boolean {
   return Number.isInteger(targetRps) && targetRps >= 1 && targetRps <= 1_000_000;
 }
@@ -118,9 +118,50 @@ export function iterationHoldMs(
   return total;
 }
 
+export type RequestRange = { min: number; max: number };
+
+/** 반복 1회가 발사하는 HTTP 요청 수 범위 — iterationHoldMs(위)와 동형 재귀지만 집계 축이 다르다:
+ *  시간은 parallel=분기 max(동시 실행)지만 **요청 수는 parallel=분기 합**(전 분기 모두 실행).
+ *  if는 정확히 한 분기만 실행 → [분기별 min의 최소, 분기별 max의 최대](else 부재=빈 배열=0건).
+ *  loop = repeat ×. http leaf 0개면 {min:0,max:0} → 호출부 skip(환산 힌트 미표시).
+ *  ADR-0046 슬라이스 ② — "≈ 초당 요청 N건" 환산의 반복당 요청 수. */
+export function iterationRequestRange(steps: ReadonlyArray<Step>): RequestRange {
+  let min = 0;
+  let max = 0;
+  for (const s of steps) {
+    if (s.type === "http") {
+      min += 1;
+      max += 1;
+    } else if (s.type === "loop") {
+      const r = iterationRequestRange(s.do);
+      min += s.repeat * r.min;
+      max += s.repeat * r.max;
+    } else if (s.type === "parallel") {
+      for (const b of s.branches) {
+        const r = iterationRequestRange(b.steps);
+        min += r.min;
+        max += r.max;
+      }
+    } else {
+      // if — 단일 분기 실행: then / elif[].then / else 전체에서 min/max
+      const branches = [s.then, ...s.elif.map((e) => e.then), s.else];
+      let bmin = Infinity;
+      let bmax = 0;
+      for (const b of branches) {
+        const r = iterationRequestRange(b);
+        bmin = Math.min(bmin, r.min);
+        bmax = Math.max(bmax, r.max);
+      }
+      min += bmin;
+      max += bmax;
+    }
+  }
+  return { min, max };
+}
+
 export type SlotSizingResult = { recommendedSlots: number };
 
-/** 목표 RPS + 반복 1회 점유시간(ms, `iterationHoldMs`/실측/수동입력) → 권장 max_in_flight(하한).
+/** 목표 도착률 + 반복 1회 점유시간(ms, `iterationHoldMs`/실측/수동입력) → 권장 max_in_flight(하한).
  *  구현식은 무변경(`ceil(target × ms/1000)`) — 2번째 인자의 *의미*만 "요청당 지연"에서 "반복
  *  점유시간"으로 바뀐다(ADR-0046 R6). 계산 불가(목표 무효 / 점유시간 0·음수·NaN·Inf)면 null. */
 export function recommendSlots(targetRps: number, holdMs: number): SlotSizingResult | null {
@@ -201,10 +242,10 @@ export function scaleVuStages(
 
 export type WorkerSizingResult = { recommendedWorkers: number };
 
-/** report.windows(초별 (ts,step) count 행 — A3b 워커 머지 후)에서 초별 throughput 천장.
- *  초별 Σcount의 최대 = N워커 합산 초별 throughput peak. insights.rs:214-222 by_sec와 동형.
- *  빈 배열→0(앵커 peak>0 가드 뒤라 실제 도달 불가 — insights.rs는 summary.rps 폴백을 쓰지만
- *  이 헬퍼는 peak>0이 아니면 앵커가 null이라 그 분기로 안 간다). */
+/** report.windows(초별 (ts,step) count 행 — A3b 워커 머지 후)에서 초별 throughput(요청/초) 천장.
+ *  초별 Σcount의 최대. ADR-0046(R10)으로 워커 앵커가 달성 도착률 기반이 되며 소비처가 없어졌지만
+ *  표시용 관측 peak 후보로 유지(슬라이스 ① 결정 — 삭제 아님).
+ *  insights.rs load_gen_saturated arm의 by_sec와 동형(라인 고정 참조는 두지 않는다 — drift). */
 export function peakThroughput(windows: { ts_second: number; count: number }[]): number {
   const bySec = new Map<number, number>();
   for (const w of windows) {
