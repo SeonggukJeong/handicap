@@ -318,3 +318,82 @@ steps:
     assert!(slow.ok, "slow trace failed: {:?}", slow.error);
     assert!(slow.total_ms >= 300, "slow.total_ms={}", slow.total_ms);
 }
+
+#[tokio::test]
+async fn trace_parallel_branch_ignores_scenario_default_think() {
+    // 최종 리뷰 S2: trace.rs의 Parallel arm이 분기 재귀에 `None`을 넘기는 규칙(runner와
+    // 쌍둥이 — spec R4)에 대한 테스트가 없었다. 사이징 헬퍼(SlotSizingHelper/VuSizingHelper)가
+    // `apply_think_time: true`로 test-run trace를 발사해 `total_ms`를 측정 hold 앵커로 쓰므로,
+    // 이 배제가 회귀하면 (분기 스텝 수 × 기본값)만큼 hold가 조용히 부풀어 슬롯/VU
+    // 과대추천으로 이어진다(부하 divergence) — 그런데 지금은 아무 테스트도 안 잡는다.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let yaml = format!(
+        r#"
+version: 1
+name: d
+default_think_time:
+  min_ms: 300
+  max_ms: 300
+steps:
+  - type: parallel
+    id: 01HX0000000000000000000070
+    name: p
+    branches:
+      - name: b1
+        steps:
+          - type: http
+            id: 01HX0000000000000000000071
+            name: a
+            request: {{ method: GET, url: "{base}/a" }}
+"#,
+        base = server.uri()
+    );
+    let scenario = Scenario::from_yaml(&yaml).unwrap();
+
+    let mut o = opts(BTreeMap::new(), 10);
+    o.apply_think_time = true;
+    let no_default = trace_scenario(&scenario, &o).await;
+    assert!(no_default.ok, "trace failed: {:?}", no_default.error);
+    assert!(
+        no_default.total_ms < 300,
+        "분기엔 기본값이 미적용이어야 한다(안 잠) — total_ms={}",
+        no_default.total_ms
+    );
+
+    // 짝 단언: 분기 스텝에 think_time을 **명시**하면 여전히 적용된다(현행 보존).
+    let yaml_explicit = format!(
+        r#"
+version: 1
+name: d
+steps:
+  - type: parallel
+    id: 01HX0000000000000000000070
+    name: p
+    branches:
+      - name: b1
+        steps:
+          - type: http
+            id: 01HX0000000000000000000071
+            name: a
+            request: {{ method: GET, url: "{base}/a" }}
+            think_time:
+              min_ms: 300
+              max_ms: 300
+"#,
+        base = server.uri()
+    );
+    let scenario_explicit = Scenario::from_yaml(&yaml_explicit).unwrap();
+    let explicit = trace_scenario(&scenario_explicit, &o).await;
+    assert!(explicit.ok, "trace failed: {:?}", explicit.error);
+    assert!(
+        explicit.total_ms >= 300,
+        "분기 스텝의 명시 think_time은 적용돼야 한다 — total_ms={}",
+        explicit.total_ms
+    );
+}

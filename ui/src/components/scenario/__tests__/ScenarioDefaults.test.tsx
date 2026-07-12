@@ -139,6 +139,26 @@ describe("ScenarioDefaults", () => {
     expect(max).toHaveValue(1000);
   });
 
+  it("S1: yamlError 상태에서 min/max 입력이 disabled(형제 VariablesPanel과 동일 게이트)", async () => {
+    useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
+    render(<ScenarioDefaults />);
+    await userEvent.click(
+      screen.getByRole("button", { name: new RegExp(ko.editor.scenarioDefaultsTitle) }),
+    );
+    // YAML 버퍼를 깨뜨려 yamlError를 세팅(model은 보존) — VariablesPanel.test.tsx의
+    // "disables the rename pencil while yamlError is set" 이디엄과 동일.
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    act(() => {
+      useScenarioEditor.getState().commitPendingYaml();
+    });
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+
+    const min = screen.getByLabelText(ko.editor.fieldDefaultThinkMin);
+    const max = screen.getByLabelText(ko.editor.fieldDefaultThinkMax);
+    expect(min).toBeDisabled();
+    expect(max).toBeDisabled();
+  });
+
   it("F2: model.default_think_time이 외부(store 직접 mutate)에서 바뀌면 draft가 재시드된다", () => {
     useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
     render(<ScenarioDefaults />);

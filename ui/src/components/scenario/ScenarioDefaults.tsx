@@ -22,6 +22,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
  *  revert). `shrink-0`은 필수 — VariablesPanel이 flex-1이라 없으면 세로 공간을 다툰다. */
 export function ScenarioDefaults() {
   const model = useScenarioEditor((s) => s.model);
+  const yamlError = useScenarioEditor((s) => s.yamlError);
   const setDefaultThinkTime = useScenarioEditor((s) => s.setDefaultThinkTime);
   const defaultThink = model?.default_think_time;
 
@@ -81,6 +82,7 @@ export function ScenarioDefaults() {
                 value={minDraft}
                 onChange={(e) => setMinDraft(e.target.value)}
                 onBlur={commit}
+                disabled={yamlError !== null}
               />
             </Field>
             <Field label={ko.editor.fieldDefaultThinkMax}>
@@ -92,6 +94,7 @@ export function ScenarioDefaults() {
                 value={maxDraft}
                 onChange={(e) => setMaxDraft(e.target.value)}
                 onBlur={commit}
+                disabled={yamlError !== null}
               />
             </Field>
           </div>
