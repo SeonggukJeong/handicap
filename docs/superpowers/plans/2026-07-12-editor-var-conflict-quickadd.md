@@ -1,5 +1,7 @@
 # 에디터 변수 충돌 배지 + 미정의 변수 원클릭 선언 — Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 에디터 `VariablesPanel`에 (1) 선언 변수가 extract로 덮어써질 수 있음을 알리는 amber 배지, (2) ⚠ 미정의 변수 행의 원클릭 "선언 추가" 버튼을 추가한다.
@@ -14,7 +16,7 @@
 - **변경 파일 화이트리스트 (spec R11)**: `ui/src/scenario/scanVars.ts` · `ui/src/components/scenario/VariablesPanel.tsx` · `ui/src/i18n/ko.ts` + 테스트 2파일(`scanVars.test.ts`·`VariablesPanel.test.tsx`). 그 외 파일 diff 금지(`crates/**`·store/model/yamlDoc 0-diff).
 - **문구는 전부 `ko.editor.*` 카탈로그 경유 (ADR-0035, spec R10)** — aria-label·title 포함, 컴포넌트 한글 하드코딩 금지. 배지 title은 **조건형** 문구 byte-exact: `"스텝 추출이 같은 이름에 값을 쓸 수 있습니다 — 추출이 실행된 이후 스텝은 선언값 대신 추출값을 봅니다"`.
 - **tdd-guard**: 각 task에서 **테스트 파일 편집을 가장 먼저**(pending test 없으면 src 편집 차단 — 테스트 경로 파일은 항상 허용).
-- **클래스 단언은 정확-토큰**: `(el.getAttribute("class") ?? "").split(/\s+/)` 후 `toContain`/`not.toContain` — raw substring `toContain` 금지(`min-w-0` ⊂ `min-w-[72px]` 아님이지만 `gap-2` ⊂ `gap-x-2` 류 오염 방지, ui/CLAUDE.md).
+- **클래스 단언은 정확-토큰**: `(el.getAttribute("class") ?? "").split(/\s+/)` 후 `toContain`/`not.toContain` — raw substring `toContain` 금지(실위험 쌍 예: `max-h-[calc…]` ⊃ `h-[calc…]` false-green, ui/CLAUDE.md).
 - **단일 파일 테스트는 `pnpm test <이름>`** (`--` 붙이면 전체 스위트가 돎). task 마무리는 `cd ui && pnpm lint && pnpm test && pnpm build` 전체 3게이트(`pnpm test`는 인자 없이).
 - **커밋은 단일 FOREGROUND 호출**(`run_in_background` 금지, timeout 600000ms) — pre-commit UI 게이트(lint+test+build)가 자동으로 돈다. `git commit … | tail` 파이프 금지.
 - suite-wide flake 주의: full `pnpm test`가 무관 파일 1개를 간헐 실패시키면 그 파일을 격리 실행(`pnpm test <file>`)해 green이면 flake — 커밋 재시도(ui/CLAUDE.md).
@@ -615,7 +617,7 @@ Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/editor-var-conflict-quick
 Expected: 전부 PASS.
 
 Run: `grep -nE '"[^"]*[가-힣]' ui/src/components/scenario/VariablesPanel.tsx ui/src/scenario/scanVars.ts`
-Expected: 출력 0줄(문구 전부 ko.ts 경유 — 주석 내 한글은 `//` 뒤라 이 패턴에 안 걸림; 걸리는 건 JSX/문자열 리터럴만).
+Expected: **기존 주석 매치 2건만, 신규 매치 0건** (리뷰 M1 baseline 실측 — `VariablesPanel.tsx:115` `// 변경 없음`은 코드의 `""` 닫는 따옴표가 매치 시작점, `:130`은 주석 속 `"미사용"` 인용부호. 이 패턴은 라인 단위라 주석도 잡는다 — "출력 0줄"이 아니라 각 매치를 육안으로 문자열 리터럴/JSX 여부 판정해 **신규만 0건**이면 통과. 라인 번호는 이번 편집으로 밀릴 수 있으니 내용으로 식별).
 
 - [ ] **Step 7: Commit (foreground 단일 호출)**
 
@@ -635,6 +637,7 @@ git commit -m "feat(ui): 미정의 변수 원클릭 '선언 추가' + 추가 버
 - [ ] **Step 2 (배지)**: 템플릿 picker에서 extract가 있는 템플릿(예: 로그인 흐름) 선택 → 변수 패널 하단 입력으로 그 extract와 **같은 이름**의 변수 추가 → 선언 행에 "추출 덮어씀" 배지 실측: `getComputedStyle(badge).backgroundColor`가 amber(rgb(255 251 235))·`title` 속성 일치·이름 span `getBoundingClientRect().width ≥ 72`(R9 — DOM-존재만으로 PASS 금지, [[implementation-rigor-over-spec]]).
 - [ ] **Step 3 (원클릭 선언)**: 스텝 디테일 URL 필드에 `{{qa_probe}}` 추가(React controlled — fill이 onChange 발화) → 변수 패널 ⚠ 행 등장 → "선언 추가" 클릭 → 선언 행 전이 실측(값 textarea 존재·⚠ 부재) + YAML 모달 대신 **스텝 폼/패널 상태로 검증**(Monaco read 불신 — `ui/src/components/scenario/CLAUDE.md`).
 - [ ] **Step 4**: 스크린샷(배지 행 + 전이 후) 저장, 브라우저 콘솔 에러 0 확인(`browser_console_messages`). `.playwright-mcp` 산출물은 머지 전 정리.
+- [ ] **Step 5 (R11 최종 범위 확인)**: `git diff --stat master -- ui crates` — ui는 화이트리스트 5파일(scanVars.ts·VariablesPanel.tsx·ko.ts·테스트 2)만, `crates/**` 0-diff.
 
 ---
 
