@@ -245,22 +245,25 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       {row.name}
                     </span>
                   )}
-                  {row.overwritten && (
-                    <span
-                      className="shrink-0 rounded bg-amber-50 px-1.5 text-xs text-amber-700"
-                      title={ko.editor.variableOverwrittenTitle}
+                  {/* 배지+×는 한 묶음으로 wrap — ×만 단독 줄바꿈 방지 */}
+                  <span className="ml-auto flex shrink-0 items-center gap-x-2">
+                    {row.overwritten && (
+                      <span
+                        className="shrink-0 rounded bg-amber-50 px-1.5 text-xs text-amber-700"
+                        title={ko.editor.variableOverwrittenTitle}
+                      >
+                        {ko.editor.variableOverwritten}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeVariable(row.name)}
+                      aria-label={ko.editor.removeVariableAria(row.name)}
+                      className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
                     >
-                      {ko.editor.variableOverwritten}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeVariable(row.name)}
-                    aria-label={ko.editor.removeVariableAria(row.name)}
-                    className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
-                  >
-                    ×
-                  </button>
+                      ×
+                    </button>
+                  </span>
                 </div>
                 <AutoGrowTextarea
                   aria-label={ko.editor.variableValueAria(row.name)}

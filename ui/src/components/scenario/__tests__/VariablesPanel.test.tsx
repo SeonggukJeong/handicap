@@ -858,7 +858,18 @@ steps:
       within(li).queryByRole("button", { name: ko.editor.renameVariableAria("s") }),
     ).toBeNull();
     const badge = within(li).getByText(ko.editor.variableOverwritten); // flat extract s → 배지
-    const nameline = badge.parentElement!;
+    // 배지+×는 한 묶음(trailer group)으로 함께 wrap — ×만 단독 줄바꿈 방지(badge-x-wrap-fix)
+    const trailer = badge.parentElement!;
+    const tt = tokens(trailer);
+    expect(tt).toContain("ml-auto");
+    expect(tt).toContain("shrink-0");
+    expect(tt).toContain("gap-x-2");
+    expect(
+      within(trailer as HTMLElement).getByRole("button", {
+        name: ko.editor.removeVariableAria("s"),
+      }),
+    ).toBeInTheDocument();
+    const nameline = trailer.parentElement!;
     const nt = tokens(nameline);
     expect(nt).toContain("flex-wrap");
     expect(nt).toContain("gap-x-2");
