@@ -1,5 +1,9 @@
 # HAR 가져오기 URL 안전 디코딩 — 구현 계획
 
+REVIEW-GATE: APPROVED
+
+<!-- spec 53dc779 clean APPROVE(3R) · plan 5549d11 clean APPROVE(2R) — spec-plan-reviewer(Opus), 2026-07-12 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** HAR 가져오기 시 URL 경로·쿼리의 percent-인코딩을 "전송 의미가 안 바뀌는 문자만" 디코딩해 시나리오 YAML·스텝 이름·미리보기를 사람이 읽는 형태로 만든다.
