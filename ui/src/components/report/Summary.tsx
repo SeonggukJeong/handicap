@@ -3,14 +3,15 @@ import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
+import type { OpenLoopRates } from "./openLoopRates";
 
 type Props = {
   summary: ReportSummary;
   dropped?: number;
-  targetRps?: number | null;
+  openLoop?: OpenLoopRates | null;
 };
 
-export function Summary({ summary, dropped, targetRps }: Props) {
+export function Summary({ summary, dropped, openLoop }: Props) {
   const cards: Array<{ label: string; value: string; help?: string }> = [
     { label: ko.report.cardTotalRequests, value: summary.count.toLocaleString() },
     { label: ko.report.cardErrors, value: summary.errors.toLocaleString() },
@@ -21,13 +22,22 @@ export function Summary({ summary, dropped, targetRps }: Props) {
     { label: "p99", value: `${summary.p99_ms} ms`, help: ko.glossary.p99 },
   ];
 
-  if (targetRps != null) {
+  if (openLoop != null) {
     const droppedCount = dropped ?? 0;
     const total = droppedCount + summary.count;
     const dropRate = total === 0 ? 0 : droppedCount / total;
     const dropPct = floorPct(dropRate * 100);
     cards.push(
-      { label: ko.report.cardTargetRps, value: targetRps.toLocaleString() },
+      {
+        label: openLoop.curve ? ko.report.cardTargetRatePeak : ko.report.cardTargetRps,
+        value: openLoop.target.toLocaleString(),
+        help: ko.glossary.arrivalRate,
+      },
+      {
+        label: ko.report.cardAchievedRate,
+        value: openLoop.achieved != null ? openLoop.achieved.toFixed(1) : "—",
+        help: ko.report.cardAchievedRateHelp,
+      },
       {
         label: ko.report.cardDropped,
         value: `${droppedCount.toLocaleString()} (${dropPct})`,
@@ -37,7 +47,7 @@ export function Summary({ summary, dropped, targetRps }: Props) {
     );
   }
 
-  const gridColsClass = targetRps != null ? "md:grid-cols-9" : "md:grid-cols-7";
+  const gridColsClass = openLoop != null ? "md:grid-cols-10" : "md:grid-cols-7";
 
   return (
     <PageSection ariaLabel={ko.report.summaryLabel} title={ko.report.summaryTitle}>

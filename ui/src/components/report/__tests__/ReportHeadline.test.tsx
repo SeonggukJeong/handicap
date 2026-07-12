@@ -33,12 +33,12 @@ describe("ReportHeadline", () => {
     );
   });
 
-  it("open-loop(고정 rate) 문장은 목표 RPS 변형", () => {
+  it("open-loop(고정 rate) 문장은 목표 도착률 변형", () => {
     render(
       <ReportHeadline summary={SUMMARY} profile={{ ...CLOSED, target_rps: 100 }} verdict={null} />,
     );
     expect(screen.getByRole("region", { name: "쉬운 요약" })).toHaveTextContent(
-      "목표 100 RPS로 12,345회 요청",
+      "목표 도착률 초당 100회로 12,345회 요청",
     );
   });
 
@@ -51,7 +51,7 @@ describe("ReportHeadline", () => {
       />,
     );
     expect(screen.getByRole("region", { name: "쉬운 요약" })).toHaveTextContent(
-      "단계별 RPS 곡선으로 12,345회 요청",
+      "단계별 도착률 곡선으로 12,345회 요청",
     );
   });
 

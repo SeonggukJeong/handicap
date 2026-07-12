@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RunVuCell } from "../RunVuCell";
 
-const OPEN_HINT = "VU 해당 없음 — 열린 루프(RPS·슬롯 기반)";
+const OPEN_HINT = "VU 해당 없음 — 열린 루프(도착률·슬롯 기반)";
 
 describe("RunVuCell", () => {
   it("closed+fixed → 숫자 그대로 (R3)", () => {

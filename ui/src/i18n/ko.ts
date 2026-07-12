@@ -774,7 +774,7 @@ export const ko = {
     colStatus: "상태",
     colVus: "VU",
     vusCurvePeak: (n: number) => `최대 ${n} (곡선)`,
-    vusOpenHint: "VU 해당 없음 — 열린 루프(RPS·슬롯 기반)",
+    vusOpenHint: "VU 해당 없음 — 열린 루프(도착률·슬롯 기반)",
     colDuration: "테스트 시간",
     colCreated: "생성 시각",
     colName: "이름",
@@ -812,9 +812,9 @@ export const ko = {
       p95: string;
       errPct: string;
     }) =>
-      `${p.duration} 동안 목표 ${p.targetRps} RPS로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+      `${p.duration} 동안 목표 도착률 초당 ${p.targetRps}회로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineOpenCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
-      `${p.duration} 동안 단계별 RPS 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
+      `${p.duration} 동안 단계별 도착률 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
       `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
@@ -828,7 +828,11 @@ export const ko = {
     cardErrors: "에러",
     cardAvgRps: "평균 RPS",
     cardDuration: "테스트 시간",
-    cardTargetRps: "목표 RPS",
+    cardTargetRps: "목표 도착률",
+    cardTargetRatePeak: "목표 도착률(피크)",
+    cardAchievedRate: "달성 도착률",
+    cardAchievedRateHelp:
+      "실제로 시작된 초당 반복 수입니다. 드롭(유실)이 있으면 목표보다 낮아집니다. 곡선 run은 포화 인사이트가 있을 때만 계산됩니다.",
     cardDropped: "드롭",
     colStep: "스텝",
     colMethod: "메서드",

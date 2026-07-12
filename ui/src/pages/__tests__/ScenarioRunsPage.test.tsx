@@ -483,7 +483,7 @@ describe("ScenarioRunsPage — 곡선/열린 run VU 열 (R1/R2)", () => {
     });
     renderPage();
     expect(
-      await screen.findByLabelText("VU 해당 없음 — 열린 루프(RPS·슬롯 기반)"),
+      await screen.findByLabelText("VU 해당 없음 — 열린 루프(도착률·슬롯 기반)"),
     ).toBeInTheDocument();
   });
 });

@@ -24,6 +24,7 @@ import { WorkerBreakdownTable } from "./WorkerBreakdownTable";
 import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
 import { ReportHeadline } from "./ReportHeadline";
+import { openLoopRates } from "./openLoopRates";
 import { bySecond } from "../../report/bySecond";
 import { Callout } from "../ui/Callout";
 import { PageSection } from "../ui/PageSection";
@@ -154,7 +155,12 @@ export function ReportView({ report, profile }: Props) {
       <Summary
         summary={report.summary}
         dropped={report.dropped}
-        targetRps={(report.run.profile as { target_rps?: number } | null)?.target_rps ?? null}
+        openLoop={openLoopRates(
+          report.run.profile,
+          report.dropped,
+          report.summary.duration_seconds,
+          report.insights ?? [],
+        )}
       />
       <TimeSeriesChart
         title={ko.report.timeSeriesRequests}
