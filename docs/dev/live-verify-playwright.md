@@ -62,3 +62,8 @@
 - **차단된 내비게이션에서 `browser_navigate_back`(=page.goBack)은 "waiting for navigation until commit" 60s 타임아웃으로 끝난다 — 이게 차단 *성공*의 정상 신호다**(에러로 오진 금지: useBlocker가 POP을 막아 commit할 내비게이션이 없다). 검증은 goBack 대신 `browser_evaluate`로 `history.back()`(즉시 반환) 발사 후 **별도 evaluate**에서 모달 존재/URL 잔류 단언.
 - **cross-document back은 라우터 blocker가 아니라 beforeunload가 잡는다**: `browser_navigate`(page.goto)는 풀 로드 = 새 문서라, 그 직후 back은 이전 *문서*로의 언로드 → dirty면 네이티브 beforeunload 다이얼로그가 뜬다(MCP가 "Modal state: beforeunload dialog"로 표면화 → `browser_handle_dialog`). useBlocker의 POP 차단을 실측하려면 **same-document 히스토리**가 필요 — SPA 링크 체인(헤더/목록 링크 클릭으로 엔트리 축적) 후 `history.back()`. 둘 다 "가드 동작"이지만 발동 레이어가 다르다.
 - **beforeunload 실측은 비동기 스케줄 후 handle**: `browser_evaluate`로 `setTimeout(()=>location.reload(),100)`(evaluate가 다이얼로그 전에 반환) → 다음 툴 호출의 Modal state 보고를 `browser_handle_dialog(accept:…)`로 처리. accept=true면 reload 진행(dirty 데이터 소실 확인 가능), false면 잔류. clean 상태 대조군은 같은 스케줄-reload가 무다이얼로그로 통과하는지로.
+
+## 클라-only 에디터 검증 — 동명 버튼·vite proxy 500 (editor-var-conflict-quickadd 2026-07-12)
+
+- **동명 버튼을 페이지-wide 스캔으로 클릭하지 말 것**: 변수 패널 하단 "추가"와 테스트 패널 환경변수 "추가"가 같은 텍스트라 `[...querySelectorAll('button')].filter(t==='추가')`의 last-match `.click()`이 엉뚱한 버튼을 잡고도 `clicked:true`로 성공처럼 보인다(패널 상태 무변화가 유일한 신호 — 별도 evaluate 재검증으로만 발견). 앵커 요소(예: `input[placeholder="new_var"]`)에서 `parentElement`를 타고 올라가며 같은 컨테이너 안의 버튼을 찾아 클릭.
+- **백엔드 없는 클라-only 검증(`pnpm dev` 단독)에서 `/api/*`는 CONNECTION_REFUSED가 아니라 vite proxy가 500으로 표면화**: 콘솔 `Failed to load resource: 500 (/api/environments)`는 네트워크 리소스 에러(앱/Zod 에러 아님) — favicon 404와 같은 부류로 취급하고, 진짜 clean 신호는 Zod/React/getSnapshot 에러 0.
