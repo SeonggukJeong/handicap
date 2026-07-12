@@ -24,6 +24,7 @@ import {
   hostsByRequestCount,
   validateEnv,
 } from "../import/hostEnv";
+import { safeDecodeUrl } from "../import/urlDecode";
 
 // jsdom의 File에는 Blob.text()가 없어 `await file.text()`가 throw한다(브라우저엔 있음).
 // FileReader는 jsdom·브라우저 양쪽에서 동작 — 이 read가 기능 전체의 load-bearing I/O.
@@ -273,12 +274,12 @@ export function ScenarioImportPage() {
                     <label className="flex items-center gap-2">
                       <input
                         type="checkbox"
-                        aria-label={`${p.method} ${p.url}`}
+                        aria-label={`${p.method} ${safeDecodeUrl(p.url)}`}
                         checked={!excludedIndices.has(p.index)}
                         onChange={(e) => toggleIndex(p.index, e.target.checked)}
                       />
                       <span className="truncate">
-                        {p.method} {p.url}
+                        {p.method} {safeDecodeUrl(p.url)}
                       </span>
                       {dupSet.has(p.index) && (
                         <span className="shrink-0">

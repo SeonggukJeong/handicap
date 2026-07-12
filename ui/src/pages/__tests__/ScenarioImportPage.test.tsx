@@ -423,4 +423,27 @@ describe("ScenarioImportPage", () => {
     await user.click(screen.getByRole("button", { name: ko.import.registerEnv }));
     expect(await screen.findByRole("alert")).toHaveTextContent("같은 이름의 환경이 이미 있습니다");
   });
+
+  it("UD-R6c: 미리보기 행 텍스트·체크박스 aria-label이 디코딩 표시", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const encodedHar = JSON.stringify({
+      log: {
+        entries: [
+          {
+            request: {
+              method: "GET",
+              url: "https://api.example.com/%EA%B2%80%EC%83%89?q=%ED%95%9C%20%EA%B8%80",
+              headers: [],
+            },
+            response: { status: 200, content: { mimeType: "text/html" } },
+          },
+        ],
+      },
+    });
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(encodedHar));
+    // 행 텍스트와 체크박스 accname 둘 다 디코딩 형태 (인덱스 스코프 불필요 — 단일 행)
+    expect(await screen.findByText("GET https://api.example.com/검색?q=한 글")).toBeInTheDocument();
+    expect(screen.getByLabelText("GET https://api.example.com/검색?q=한 글")).toBeInTheDocument();
+  });
 });
