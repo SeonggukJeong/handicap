@@ -24,15 +24,15 @@ pub struct Insight {
     pub status_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_seconds: Option<i64>,
-    /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값). Little's Law: ceil(target × mean_sec).
+    /// 권장 max_in_flight (slot-bound일 때만 Some, 정수값).
+    /// ceil(target_eff × M ÷ achieved_arrival_rate). (ADR-0046)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<f64>,
-    /// 사이징/포화 원인: "slots"(max_in_flight 부족) | "loadgen"(부하기 워커 한계,
-    /// worker_count 권장) | "sut"(대상 서버 한계, 워커 증설 무익). None = 판별 불가.
+    /// 사이징/포화 원인: "slots"(max_in_flight 부족) | "sut"(대상 서버 한계, 슬롯 증설 무익).
+    /// None = 판별 불가. (ADR-0046: 2-way — loadgen arm 제거)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
-    /// 권장 worker_count (loadgen-bound open-loop 포화 시, M > 현재일 때만). spec §4.2.
-    /// `recommended`(=max_in_flight, slots용)와 의미가 달라 별도 필드.
+    /// DEPRECATED(ADR-0046): 사후 산출 제거 — 항상 None. 워커 텔레메트리 도입 시 재사용(roadmap §B20).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_workers: Option<f64>,
     /// 포화 도달 시점(run-relative seconds). ramp run에서만 Some(= t_peak − min_ts).
@@ -87,8 +87,45 @@ fn order_rank(i: &Insight) -> u8 {
     }
 }
 
-// 10 인자: A9 사이징(max_in_flight/target_rps) + worker_count 추천(worker_count_current)이
-// 기존 7 인자에 더해져 clippy 임계(7)를 넘는다.
+/// Open-loop run이 `duration_actual`초 동안 스케줄한 도착(반복) 총수. 고정 rate =
+/// target × duration; 곡선 = 0-start piecewise-linear 램프(엔진 runner.rs::rate_at 미러 —
+/// private라 재구현, 테스트 fixture가 의미 고정)의 사다리꼴 적분을 duration_actual에서
+/// 절단(끝을 지나면 마지막 target 유지). 어느 쪽도 없으면(비-open-loop) None. (ADR-0046 R2)
+pub(crate) fn scheduled_arrivals(
+    target_rps: Option<u32>,
+    stages: Option<&[handicap_engine::Stage]>,
+    duration_actual: f64,
+) -> Option<f64> {
+    if let Some(stages) = stages.filter(|s| !s.is_empty()) {
+        let mut total = 0.0f64;
+        let mut seg_start = 0.0f64;
+        let mut prev = 0.0f64;
+        for st in stages {
+            let span = f64::from(st.duration_seconds);
+            let target = f64::from(st.target);
+            let seg_end = seg_start + span;
+            if duration_actual >= seg_end {
+                total += (prev + target) / 2.0 * span; // 전체 stage
+            } else if duration_actual > seg_start && span > 0.0 {
+                let t = duration_actual - seg_start; // 부분 stage: t 지점 rate까지 선형 적분
+                let rate_at_t = prev + (target - prev) * (t / span);
+                return Some(total + (prev + rate_at_t) / 2.0 * t);
+            } else {
+                return Some(total);
+            }
+            seg_start = seg_end;
+            prev = target;
+        }
+        if duration_actual > seg_start {
+            total += prev * (duration_actual - seg_start); // 곡선 끝 이후: 마지막 target 유지
+        }
+        return Some(total);
+    }
+    target_rps.map(|t| f64::from(t) * duration_actual)
+}
+
+// 10 인자: A9 사이징(max_in_flight/target_rps/scheduled_arrivals)이 기존 7 인자에
+// 더해져 clippy 임계(7)를 넘는다.
 // 모두 별개 read-only 컨텍스트라 struct 묶음은 호출부만 번잡해진다(단일 prod 호출부 + 테스트).
 #[allow(clippy::too_many_arguments)]
 pub fn derive_insights(
@@ -101,7 +138,7 @@ pub fn derive_insights(
     dropped: u64,
     max_in_flight: Option<u32>,
     target_rps: Option<u32>,
-    worker_count_current: u32,
+    scheduled_arrivals: Option<f64>,
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -219,11 +256,11 @@ pub fn derive_insights(
     }
 
     // load_gen_saturated: open-loop run이 요청한 도착률을 못 냈다(슬롯 부족으로
-    // 발사 못한 요청 = dropped). dropped는 open-loop 스케줄러만 증가시키므로
+    // 발사 못한 반복 = dropped). dropped는 open-loop 스케줄러만 증가시키므로
     // (closed-loop은 항상 0) `dropped > 0`이 자동으로 open-loop에 한정된다.
-    // 관측 천장 = peak per-second throughput(초별 step count 합의 최대) — whole-run
-    // summary.rps는 ramp에서 0부터 평균돼 천장을 과소평가하므로 안 씀. 원인(부하기
-    // vs SUT)은 dropped만으로 단정 불가라 UI 행동 줄에서 사용자에게 위임(spec §2).
+    // 사이징(ADR-0046): 포화 중엔 M개 슬롯이 상시 사용 중이므로 반복 점유시간이
+    // hold = M ÷ 달성 도착률로 자기측정된다(think·멀티스텝·분기 자동 반영).
+    // required = ceil(target × hold). 관측 천장 value = peak 초당 요청 수(기존 의미 유지).
     if dropped > 0 {
         let mut by_sec: BTreeMap<i64, u64> = BTreeMap::new();
         for w in windows {
@@ -239,41 +276,29 @@ pub fn derive_insights(
         ins.count = Some(dropped);
         ins.onset_second = saturation_onset(&by_sec, peak);
 
-        // Little's Law 사이징: 목표 도착률을 관측(평균) 지연에서 내려면 필요한 동시 슬롯.
-        // mean==0(localhost sub-ms) 또는 profile 부재 → 판별 불가(cause None, A9 폴백).
-        let l_sec = summary.mean_ms as f64 / 1000.0;
-        let required: Option<u64> = if l_sec > 0.0 {
-            target_rps.map(|t| ((t as f64) * l_sec).ceil().max(1.0) as u64)
-        } else {
-            None
-        };
-        match (required, max_in_flight) {
-            (Some(req), Some(m)) if (m as u64) < req => {
-                // 슬롯이 목표에 수학적으로 부족 → 올리는 게 해법.
+        // fallback(target/M/scheduled 중 하나라도 None — 구식 run/profile 부재, 테스트 fixture
+        // 포함): 인사이트는 emit하되 cause/recommended/신규 필드 전부 None (기존 `_ => {}` 폴백 계승).
+        if let (Some(target), Some(m), Some(scheduled)) =
+            (target_rps, max_in_flight, scheduled_arrivals)
+        {
+            let duration = summary.duration_seconds.max(1) as f64;
+            let achieved = ((scheduled - dropped as f64) / duration).max(0.0);
+            ins.target_per_sec = Some(f64::from(target));
+            ins.achieved_per_sec = Some(achieved);
+            // sut 판정이 우선(R3·R13): 서버 열화면 슬롯 증설 권장 자체가 유해.
+            if sut_stress(status_distribution, windows) {
+                ins.cause = Some("sut".to_string());
+            } else {
                 ins.cause = Some("slots".to_string());
-                ins.recommended = Some(req as f64);
-            }
-            (Some(_), Some(_)) => {
-                // 슬롯은 충분했는데 포화 → 부하기(워커) vs 대상 서버(SUT) 귀속(spec R2).
-                if sut_stress(status_distribution, windows) {
-                    // 대상 서버 한계로 보임 → 워커 증설 무익 → recommended_workers 미설정.
-                    ins.cause = Some("sut".to_string());
+                // achieved 0(dropped ≥ scheduled)이면 validate 상한(10_000,
+                // api/runs.rs:290)으로 클램프 — "권장 불능"이 아니라 상한 신호.
+                let required = if achieved > 0.0 {
+                    (f64::from(target) * f64::from(m) / achieved).ceil()
                 } else {
-                    // 부하기(워커) 한계로 보임 → worker_count 권장(기존 수식 verbatim, parity).
-                    ins.cause = Some("loadgen".to_string());
-                    let wc = worker_count_current.max(1);
-                    if peak > 0 {
-                        if let Some(t) = target_rps {
-                            let per_worker = peak as f64 / wc as f64;
-                            let m = ((t as f64) / per_worker).ceil();
-                            if m > wc as f64 {
-                                ins.recommended_workers = Some(m);
-                            }
-                        }
-                    }
-                }
+                    10_000.0
+                };
+                ins.recommended = Some(required.clamp(1.0, 10_000.0));
             }
-            _ => {} // 폴백: cause/recommended None 유지
         }
         out.push(ins);
     }
@@ -324,7 +349,7 @@ fn latency_rose(windows: &[ReportWindow]) -> bool {
 }
 
 /// SUT-stress(spec R2): 5xx률 ≥ TAU_5XX(ground-truth) OR 지연상승(약한 신호).
-/// **슬롯 충분 arm 안에서만 호출**(폴백 None보다 뒤, spec CC2).
+/// sut 판정이 항상 선평가(ADR-0046) — target/M/scheduled 셋 다 있을 때 cause 분기 전에 먼저 호출.
 fn sut_stress(dist: &BTreeMap<String, u64>, windows: &[ReportWindow]) -> bool {
     let total = crate::report::http_response_total(dist);
     if total > 0 {
@@ -431,7 +456,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.is_empty());
     }
@@ -465,7 +490,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         let f = got
             .iter()
@@ -488,7 +513,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
@@ -516,7 +541,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         let h = got
             .iter()
@@ -540,7 +565,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
@@ -558,7 +583,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
@@ -597,7 +622,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         let t = got
             .iter()
@@ -621,7 +646,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -639,7 +664,7 @@ mod tests {
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -682,7 +707,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -705,7 +730,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
@@ -725,7 +750,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -749,7 +774,7 @@ steps:
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
         let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
         let v = verdict(false, 1);
-        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None, 1);
+        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None, None);
         let order: Vec<(&str, Option<&str>)> = got
             .iter()
             .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
@@ -775,7 +800,7 @@ steps:
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
-        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None, 1);
+        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None, None);
         assert!(
             got.len() >= 3,
             "error-heavy run should surface >=3 insights, got {}",
@@ -799,7 +824,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
         assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 8 then 9
@@ -819,7 +844,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         assert_eq!(got[0].step_id.as_deref(), Some("a"));
         assert_eq!(got[0].value, Some(100.0));
@@ -863,7 +888,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -876,7 +901,7 @@ steps:
     #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, 1);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None);
         let five = got
             .iter()
             .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
@@ -895,7 +920,7 @@ steps:
     fn status_class_excludes_status_0_from_denominator() {
         // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
         let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, 1);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None);
         let five = got
             .iter()
             .find(|i| i.status_class.as_deref() == Some("5xx"))
@@ -958,7 +983,7 @@ steps:
             5,
             None,
             None,
-            1,
+            None,
         );
         let s = got
             .iter()
@@ -982,7 +1007,7 @@ steps:
             0,
             None,
             None,
-            1,
+            None,
         );
         assert!(got.iter().all(|i| i.kind != "load_gen_saturated"));
     }
@@ -993,176 +1018,24 @@ steps:
         // summary() 헬퍼는 rps:0.0이라 0이 아닌 값을 명시해야 동어반복(==0) 회피.
         let mut s = summary();
         s.rps = 1234.6;
-        let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", 3, None, None, 1);
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            3,
+            None,
+            None,
+            None,
+        );
         let sat = got
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("load_gen_saturated present");
         assert_eq!(sat.value, Some(1235.0)); // 1234.6.round()
         assert_eq!(sat.count, Some(3));
-    }
-
-    #[test]
-    fn saturated_slots_recommends_when_underprovisioned() {
-        // target 10000 RPS at mean=50ms → required = ceil(10000*0.05) = 500;
-        // max_in_flight=100 < 500 → slots, recommended=500. value/count(A9)는 불변.
-        let mut s = summary();
-        s.mean_ms = 50;
-        let windows = vec![win_count(0, "a", 120)];
-        let got = derive_insights(
-            &s,
-            &[],
-            &windows,
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(100),
-            Some(10_000),
-            1,
-        );
-        let ins = got
-            .iter()
-            .find(|i| i.kind == "load_gen_saturated")
-            .expect("load_gen_saturated present");
-        assert_eq!(ins.cause.as_deref(), Some("slots"));
-        assert_eq!(ins.recommended, Some(500.0));
-        assert_eq!(ins.count, Some(7)); // dropped 불변
-        assert_eq!(ins.value, Some(120.0)); // peak 불변
-    }
-
-    #[test]
-    fn saturated_loadgen_when_slots_sufficient() {
-        // 같은 target/지연, max_in_flight=2000 ≥ 500 → 슬롯 충분 → loadgen, recommended None.
-        // windows 없음 + dist 없음 → sut_stress false → loadgen.
-        let mut s = summary();
-        s.mean_ms = 50;
-        let got = derive_insights(
-            &s,
-            &[],
-            &[],
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(2000),
-            Some(10_000),
-            1,
-        );
-        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
-        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
-        assert_eq!(ins.recommended, None);
-        assert_eq!(ins.recommended_workers, None); // peak=0(rps fallback) 가드
-    }
-
-    #[test]
-    fn saturated_loadgen_recommends_more_workers() {
-        // dropped>0, cause=loadgen, peak=1000(단일 워커), target=3000.
-        // mean=1ms → required=ceil(3000*0.001)=3, max_in_flight=2000 ≥ 3 → slots 충분.
-        // sut_stress: 5xx 없고 windows=1초라 latency_rose false → loadgen.
-        // per_worker = 1000/1 = 1000, M = ceil(3000/1000) = 3, 3 > 1 → Some(3.0).
-        let mut s = summary();
-        s.mean_ms = 1;
-        let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000
-        let got = derive_insights(
-            &s,
-            &[],
-            &windows,
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(2000),
-            Some(3000),
-            1, // worker_count_current
-        );
-        let ins = got
-            .iter()
-            .find(|i| i.kind == "load_gen_saturated")
-            .expect("load_gen_saturated present");
-        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
-        assert_eq!(ins.recommended_workers, Some(3.0));
-    }
-
-    #[test]
-    fn saturated_peak_zero_omits_worker_rec() {
-        // cause=loadgen arm에 *도달*하되 peak == 0 (windows 비고 summary.rps < 0.5라
-        // round → 0)인 경우 → div-by-zero 가드(peak > 0)로 recommended_workers None.
-        // mean=50ms라 required=ceil(3000*0.05)=150 ≤ max_in_flight=2000 → slots 충분 arm 진입
-        // (mean=0이면 required=None → fallback arm으로 새서 가드를 안 거치므로 의미 없는 통과).
-        // sut_stress: 5xx 없고 windows 비어 latency_rose false → loadgen.
-        // dropped>0이라 인사이트 자체는 emit.
-        let mut s = summary(); // rps = 0.0 → peak fallback = 0
-        s.mean_ms = 50;
-        let got = derive_insights(
-            &s,
-            &[],
-            &[],
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(2000),
-            Some(3000),
-            1, // worker_count_current
-        );
-        let ins = got
-            .iter()
-            .find(|i| i.kind == "load_gen_saturated")
-            .expect("load_gen_saturated present");
-        // loadgen arm을 실제로 탔는지 확인 — 그래야 None이 fallback이 아니라 가드 덕분.
-        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
-        assert_eq!(ins.recommended_workers, None);
-    }
-
-    #[test]
-    fn saturated_m_le_current_omits_worker_rec() {
-        // cause=loadgen, peak=1000(2워커 합산 → per_worker=500), target=900.
-        // M = ceil(900/500) = 2, NOT > 2 (현재) → None.
-        // sut_stress: 5xx 없고 windows=1초라 latency_rose false → loadgen.
-        let mut s = summary();
-        s.mean_ms = 1;
-        let windows = vec![win_count(0, "a", 1000)]; // peak per-second = 1000 (N=2 합산)
-        let got = derive_insights(
-            &s,
-            &[],
-            &windows,
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(2000),
-            Some(900),
-            2, // worker_count_current
-        );
-        let ins = got
-            .iter()
-            .find(|i| i.kind == "load_gen_saturated")
-            .expect("load_gen_saturated present");
-        assert_eq!(ins.cause.as_deref(), Some("loadgen"));
-        assert_eq!(ins.recommended_workers, None);
-    }
-
-    #[test]
-    fn saturated_sizing_falls_back_when_latency_zero() {
-        // mean==0(localhost sub-ms) → 판별 불가 → cause None. 인사이트 자체는 emit.
-        let s = summary(); // mean_ms = 0
-        let got = derive_insights(
-            &s,
-            &[],
-            &[],
-            &BTreeMap::new(),
-            None,
-            "",
-            7,
-            Some(100),
-            Some(10_000),
-            1,
-        );
-        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
-        assert_eq!(ins.cause, None);
-        assert_eq!(ins.recommended, None);
-        assert_eq!(ins.count, Some(7)); // A9 필드는 그대로 present
     }
 
     #[test]
@@ -1180,7 +1053,7 @@ steps:
             7,
             None,
             Some(10_000),
-            1,
+            Some(10_000.0),
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
@@ -1189,12 +1062,11 @@ steps:
 
     #[test]
     fn saturated_small_required_rounds_up_to_one() {
-        // 작은 target×지연(0.5)이 0으로 *내림*되지 않고 ceil로 1이 됨(required≥1, 0 권장 방지).
-        // 인자 순서는 (…, dropped=7, max_in_flight=Some(0), target_rps=Some(10)):
-        // target_rps=10, mean=50ms → 10*0.05=0.5 → ceil → 1. max_in_flight=0 < 1 → slots, recommended 1.0.
-        // (.max(1.0)는 target=0 같은 불가-입력 방어 — 이 테스트가 검증하는 건 ceil 올림.)
+        // 하한 검증(.clamp(1.0, …) 커버): target 1·M 1·dropped 1·duration 100·scheduled
+        // Some(100.0) → achieved (100-1)/100=0.99 → ceil(1×1/0.99)=2 → recommended=Some(2.0),
+        // 자연히 ≥1(required가 분수로 내려가도 하한 1 밑으로는 안 떨어짐을 커버).
         let mut s = summary();
-        s.mean_ms = 50;
+        s.duration_seconds = 100;
         let got = derive_insights(
             &s,
             &[],
@@ -1202,14 +1074,15 @@ steps:
             &BTreeMap::new(),
             None,
             "",
-            7,
-            Some(0),
-            Some(10),
             1,
+            Some(1),
+            Some(1),
+            Some(100.0),
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));
-        assert_eq!(ins.recommended, Some(1.0));
+        assert_eq!(ins.recommended, Some(2.0));
+        assert!(ins.recommended.unwrap() >= 1.0);
     }
 
     fn win_p95(ts: i64, p95: u64) -> ReportWindow {
@@ -1231,7 +1104,18 @@ steps:
         let mut s = summary();
         s.mean_ms = 50;
         let dist = dist(&[("200", 900), ("500", 100)]);
-        let got = derive_insights(&s, &[], &[], &dist, None, "", 7, Some(2000), Some(1000), 1);
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &dist,
+            None,
+            "",
+            7,
+            Some(2000),
+            Some(1000),
+            Some(1_000.0),
+        );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("sut"));
         assert_eq!(ins.recommended_workers, None);
@@ -1256,7 +1140,7 @@ steps:
             7,
             Some(2000),
             Some(1000),
-            1,
+            Some(1_000.0),
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("sut"));
@@ -1281,7 +1165,7 @@ steps:
             5,
             None,
             None,
-            1,
+            None,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, Some(8));
@@ -1304,7 +1188,7 @@ steps:
             5,
             None,
             None,
-            1,
+            None,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, None);
@@ -1328,20 +1212,10 @@ steps:
             5,
             None,
             None,
-            1,
+            None,
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, None);
-    }
-
-    #[test]
-    fn sut_stress_only_inside_slots_sufficient_arm() {
-        // mean=0(폴백 arm)이면 5xx가 있어도 cause None — sut_stress는 슬롯충분 arm 밖에서 미평가(CC2).
-        let s = summary(); // mean_ms = 0 → required None → 폴백
-        let dist = dist(&[("500", 1000)]);
-        let got = derive_insights(&s, &[], &[], &dist, None, "", 7, Some(100), Some(1000), 1);
-        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
-        assert_eq!(ins.cause, None);
     }
 
     #[test]
@@ -1358,5 +1232,140 @@ steps:
         let some_json = serde_json::to_value(&ins).unwrap();
         assert_eq!(some_json["achieved_per_sec"], 2.5);
         assert_eq!(some_json["target_per_sec"], 20.0);
+    }
+
+    #[test]
+    fn scheduled_arrivals_fixed_curve_and_truncated() {
+        use handicap_engine::Stage;
+        // 고정: target × duration
+        assert_eq!(scheduled_arrivals(Some(20), None, 15.0), Some(300.0));
+        // 곡선(spec §4.1 fixture): 0→10 램프 10s(사다리꼴 50) + 10 유지 10s(100) = 150
+        let stages = vec![
+            Stage {
+                target: 10,
+                duration_seconds: 10,
+            },
+            Stage {
+                target: 10,
+                duration_seconds: 10,
+            },
+        ];
+        assert_eq!(scheduled_arrivals(None, Some(&stages), 20.0), Some(150.0));
+        // 절단: 15s에서 끊으면 50 + 10×5 = 100
+        assert_eq!(scheduled_arrivals(None, Some(&stages), 15.0), Some(100.0));
+        // open-loop 아님 → None
+        assert_eq!(scheduled_arrivals(None, None, 15.0), None);
+    }
+
+    #[test]
+    fn saturated_slots_uses_measured_hold() {
+        // spec R1 fixture (라이브 Run C 재현): target 20·M 3·dropped 260·15s
+        // scheduled 300 → achieved (300-260)/15 = 2.667/s → ceil(20×3/2.667) = 23
+        let mut s = summary();
+        s.duration_seconds = 15;
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            260,
+            Some(3),
+            Some(20),
+            Some(300.0),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.recommended, Some(23.0));
+        assert_eq!(ins.target_per_sec, Some(20.0));
+        let a = ins.achieved_per_sec.unwrap();
+        assert!((a - 40.0 / 15.0).abs() < 1e-9, "achieved={a}");
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn sut_takes_priority_over_slots() {
+        // sut_stress(5xx≥1%)면 achieved와 무관하게 cause=sut·recommended None (R3·R13 우선순위)
+        let mut s = summary();
+        s.duration_seconds = 15;
+        let d = dist(&[("200", 80), ("500", 20)]); // 5xx 20% ≥ 1%
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &d,
+            None,
+            "",
+            260,
+            Some(3),
+            Some(20),
+            Some(300.0),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("sut"));
+        assert_eq!(ins.recommended, None);
+        assert_eq!(ins.target_per_sec, Some(20.0)); // 필드는 sut arm에도 실림
+        assert!(ins.achieved_per_sec.is_some());
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn saturated_clamps_recommended_when_achieved_zero() {
+        // dropped ≥ scheduled → achieved 0 → recommended = 10_000 클램프 (R13)
+        let mut s = summary();
+        s.duration_seconds = 15;
+        let got = derive_insights(
+            &s,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            300,
+            Some(3),
+            Some(20),
+            Some(300.0),
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.recommended, Some(10_000.0));
+    }
+
+    #[test]
+    fn saturated_falls_back_when_inputs_missing() {
+        // target/M/scheduled 중 하나라도 None → emit + cause None + 신규 필드 None (fallback arm 계승)
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            5,
+            None,
+            None,
+            None,
+        );
+        let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
+        assert_eq!(ins.cause, None);
+        assert_eq!(ins.recommended, None);
+        assert_eq!(ins.achieved_per_sec, None);
+        assert_eq!(ins.target_per_sec, None);
+        assert_eq!(ins.recommended_workers, None);
+    }
+
+    #[test]
+    fn no_cause_is_ever_loadgen() {
+        // R3: loadgen 생성 경로 부재 — 대표 slots/sut/fallback 3경로에서 단언 (위 테스트들과 중복이지만 명시 가드)
+        let mut s = summary();
+        s.duration_seconds = 15;
+        for (dropped, m, t, sch) in [
+            (260u64, Some(3), Some(20), Some(300.0)),
+            (5, None, None, None),
+        ] {
+            let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", dropped, m, t, sch);
+            assert!(got.iter().all(|i| i.cause.as_deref() != Some("loadgen")));
+        }
     }
 }

@@ -779,7 +779,11 @@ pub fn build_report(
                 .as_ref()
                 .and_then(|s| s.iter().map(|st| st.target).max())
         }),
-        run.profile.worker_count.unwrap_or(1),
+        crate::insights::scheduled_arrivals(
+            run.profile.target_rps,
+            run.profile.stages.as_deref(),
+            summary.duration_seconds as f64,
+        ),
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
@@ -1996,8 +2000,9 @@ mod tests {
 
     #[test]
     fn build_report_sizing_slots_recommendation() {
-        // open-loop: target 10000, max_in_flight=100(<500 needed at p50=50ms), dropped>0
-        // → load_gen_saturated에 cause="slots", recommended=500.
+        // open-loop: target 10_000, M=100, dropped=200, dur=2(run_row 100_000→102_000) →
+        // scheduled=target×dur=20_000 → achieved=(20_000-200)/2=9_900 →
+        // recommended=ceil(10_000×100/9_900)=ceil(101.0101)=102.
         let mut run = run_row();
         run.profile.target_rps = Some(10_000);
         run.profile.max_in_flight = Some(100);
@@ -2011,14 +2016,17 @@ mod tests {
             .find(|i| i.kind == "load_gen_saturated")
             .expect("saturation insight");
         assert_eq!(ins.cause.as_deref(), Some("slots"));
-        assert_eq!(ins.recommended, Some(500.0));
+        assert_eq!(ins.recommended, Some(102.0));
         assert_eq!(ins.count, Some(200));
+        assert!(ins.achieved_per_sec.is_some());
+        assert_eq!(ins.target_per_sec, Some(10_000.0));
     }
 
     #[test]
     fn build_report_sizing_uses_stages_peak() {
-        // target_rps 없음, stages-peak=12000 주입 → required=ceil(12000*0.05)=600.
-        // max_in_flight=100 < 600 → slots, recommended=600. (유효목표 산출=report.rs 책임.)
+        // target_rps 없음, stages=[{4000,10},{12000,10}], dur=2(절단, 첫 stage 안) →
+        // scheduled=(0+800)/2×2=800 → achieved=(800-50)/2=375 → target_eff(peak)=12_000
+        // (유효목표 산출=report.rs 책임) → recommended=ceil(12_000×100/375)=3200.
         let mut run = run_row();
         run.profile.target_rps = None;
         run.profile.stages = Some(vec![
@@ -2040,8 +2048,9 @@ mod tests {
             .iter()
             .find(|i| i.kind == "load_gen_saturated")
             .expect("saturation insight");
-        assert_eq!(ins.recommended, Some(600.0));
+        assert_eq!(ins.recommended, Some(3200.0));
         assert_eq!(ins.cause.as_deref(), Some("slots"));
+        assert_eq!(ins.target_per_sec, Some(12_000.0));
     }
 
     #[test]
