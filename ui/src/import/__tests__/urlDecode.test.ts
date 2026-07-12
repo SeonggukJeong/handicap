@@ -19,6 +19,10 @@ describe("safeDecodeUrl — 허용 집합 디코딩 (R1)", () => {
     const u = "https://a.com/q?v=%41%42%43";
     expect(safeDecodeUrl(u)).toBe(u);
   });
+
+  it("astral-plane 이모지(%F0%9F%98%80)는 가시 비ASCII로 디코딩", () => {
+    expect(safeDecodeUrl("/q?e=%F0%9F%98%80")).toBe("/q?e=😀");
+  });
 });
 
 describe("safeDecodeUrl — 보존 (R2)", () => {
@@ -51,6 +55,13 @@ describe("safeDecodeUrl — 보존 (R2)", () => {
   it("비가시 문자(nbsp %C2%A0, zwsp %E2%80%8B)는 불변", () => {
     const u = "https://a.com/q?x=%C2%A0y&z=%E2%80%8B";
     expect(safeDecodeUrl(u)).toBe(u);
+  });
+
+  it("UTF-8 BOM(%EF%BB%BF)은 단독·구조문자 인접 시 불변, 가시문자 인접 run은 BOM만 보존하고 가시문자는 디코딩", () => {
+    // c=%EA%B9%80%EF%BB%BF: 김(가시, R1)+BOM(비가시, R2)이 한 escape run — R2 "혼합 run 문자 단위
+    // 부분 디코딩"과 동일 패턴으로 김만 풀리고 BOM은 원문 escape로 남는다(전체 unchanged 아님).
+    const u = "https://a.com/q?a=%EF%BB%BF&b=%EF%BB%BF%26&c=%EA%B9%80%EF%BB%BF";
+    expect(safeDecodeUrl(u)).toBe("https://a.com/q?a=%EF%BB%BF&b=%EF%BB%BF%26&c=김%EF%BB%BF");
   });
 });
 
@@ -109,6 +120,9 @@ describe("safeDecodeUrl — 멱등 (R5)", () => {
       "https://a.com/q?bad=%EA%B9%80%FF",
       "/q?x=%2",
       "/q?x=%GG",
+      "https://a.com/q?a=%EF%BB%BF&b=%EF%BB%BF%26&c=%EA%B9%80%EF%BB%BF",
+      "/q?e=%F0%9F%98%80",
+      "%EF%BB%BF",
     ];
     for (const u of corpus) {
       const once = safeDecodeUrl(u);

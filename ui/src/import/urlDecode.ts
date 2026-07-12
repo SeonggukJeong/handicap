@@ -7,7 +7,7 @@ const ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g;
 const INVISIBLE = /[\p{C}\p{Z}]/u;
 const AUTHORITY = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]*/;
 
-const utf8 = new TextDecoder("utf-8", { fatal: true });
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 
 function decodeRun(run: string): string {
