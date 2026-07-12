@@ -8,6 +8,7 @@ import {
   type SelectOptions,
   selectEntries,
 } from "./filters";
+import { safeDecodeUrl } from "./urlDecode";
 
 export type HeaderMode = "all" | "strip-volatile" | "semantic-only";
 
@@ -141,7 +142,7 @@ function originVar(value: string, hostVars: Record<string, string>): string | nu
 function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown> {
   const method = entry.request.method.toUpperCase();
   const rawUrl = entry.request.url;
-  const url = parameterizeUrl(rawUrl, opts.hostVars);
+  const url = safeDecodeUrl(parameterizeUrl(rawUrl, opts.hostVars));
   const request: Record<string, unknown> = {
     method,
     url,
@@ -156,7 +157,7 @@ function wireStep(entry: HarEntry, opts: ConvertOptions): Record<string, unknown
   const assert = opts.statusAssert && typeof status === "number" ? [{ status }] : [];
   return {
     id: newStepId(),
-    name: `${method} ${pathOf(rawUrl)}`,
+    name: `${method} ${safeDecodeUrl(pathOf(rawUrl))}`,
     type: "http",
     request,
     assert,

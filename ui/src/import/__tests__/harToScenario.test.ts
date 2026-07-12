@@ -337,3 +337,84 @@ describe("Referer/Origin 호스트 치환 (spec 2026-07-06, RO-R1..R7)", () => {
     expect(yaml).not.toContain("${");
   });
 });
+
+describe("URL 안전 디코딩 (spec 2026-07-12, UD)", () => {
+  const encodedEntry = {
+    request: {
+      method: "GET",
+      // /검색?q=한 글&redirect=https://b.com/p — 한글·%20은 디코딩, 중첩 URL은 보존 대상
+      url: "https://api.example.com/%EA%B2%80%EC%83%89?q=%ED%95%9C%20%EA%B8%80&redirect=https%3A%2F%2Fb.com%2Fp",
+      headers: [],
+    },
+    response: { status: 200, content: { mimeType: "text/html" } },
+  };
+
+  function firstStep(yaml: string) {
+    const r = parseScenarioDoc(yaml);
+    expect("model" in r).toBe(true);
+    if (!("model" in r)) throw new Error("unreachable");
+    const s = r.model.steps[0];
+    if (s.type !== "http") throw new Error("expected http step");
+    return s;
+  }
+
+  it("UD-R6a: hostVars off — 스텝 URL이 안전 디코딩되고 중첩 URL은 보존", () => {
+    const s = firstStep(harToScenarioYaml(har([encodedEntry]), DEFAULTS));
+    expect(s.request.url).toBe(
+      "https://api.example.com/검색?q=한 글&redirect=https%3A%2F%2Fb.com%2Fp",
+    );
+  });
+
+  it("UD-R6a': hostVars on — ${VAR} 프리픽스 뒤 경로·쿼리 디코딩", () => {
+    const s = firstStep(
+      harToScenarioYaml(har([encodedEntry]), {
+        ...DEFAULTS,
+        hostVars: { "api.example.com": "BASE_URL" },
+      }),
+    );
+    expect(s.request.url).toBe("${BASE_URL}/검색?q=한 글&redirect=https%3A%2F%2Fb.com%2Fp");
+  });
+
+  it("UD-R6b: 스텝 이름도 디코딩 — GET /검색", () => {
+    const s = firstStep(harToScenarioYaml(har([encodedEntry]), DEFAULTS));
+    expect(s.name).toBe("GET /검색");
+  });
+
+  it("UD-R7: %XX가 든 Referer 값은 인코딩 그대로(치환 시에도) — vacuous 방지 teeth", () => {
+    const entry = {
+      request: {
+        method: "GET",
+        url: "https://api.example.com/%EA%B2%80%EC%83%89",
+        headers: [{ name: "Referer", value: "https://api.example.com/%ED%95%9C?q=%20" }],
+      },
+      response: { status: 200, content: { mimeType: "text/html" } },
+    };
+    // hostVars on: origin은 ${VAR}로 치환되지만 경로·쿼리 escape는 인코딩 유지
+    const on = firstStep(
+      harToScenarioYaml(har([entry]), { ...DEFAULTS, hostVars: { "api.example.com": "BASE_URL" } }),
+    );
+    expect(on.request.headers?.Referer).toBe("${BASE_URL}/%ED%95%9C?q=%20");
+    // hostVars off: 값 전체 원문
+    const off = firstStep(harToScenarioYaml(har([entry]), DEFAULTS));
+    expect(off.request.headers?.Referer).toBe("https://api.example.com/%ED%95%9C?q=%20");
+  });
+
+  it("UD-R8a: 디코딩이 ': '(콜론+공백)를 만들어도 YAML 인용으로 round-trip", () => {
+    // %3A(콜론)는 ASCII라 보존 — raw ':' + %20 조합으로만 ': ' 생성 가능 (spec §4.4)
+    const entry = {
+      request: { method: "GET", url: "https://x.com/p?q=key:%20val", headers: [] },
+      response: { status: 200, content: { mimeType: "text/html" } },
+    };
+    const s = firstStep(harToScenarioYaml(har([entry]), DEFAULTS));
+    expect(s.request.url).toBe("https://x.com/p?q=key: val");
+  });
+
+  it("UD-R8b: 보존된 #fragment 직전의 디코딩 공백도 YAML round-trip", () => {
+    const entry = {
+      request: { method: "GET", url: "https://x.com/p?q=%20#frag", headers: [] },
+      response: { status: 200, content: { mimeType: "text/html" } },
+    };
+    const s = firstStep(harToScenarioYaml(har([entry]), DEFAULTS));
+    expect(s.request.url).toBe("https://x.com/p?q= #frag");
+  });
+});
