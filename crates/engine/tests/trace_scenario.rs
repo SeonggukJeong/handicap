@@ -280,3 +280,41 @@ async fn trace_sleeps_when_apply_think_time_true() {
         "should honor 300ms think time"
     );
 }
+
+#[tokio::test]
+async fn trace_applies_scenario_default_think_only_when_enabled() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        r#"
+version: 1
+name: d
+default_think_time:
+  min_ms: 300
+  max_ms: 300
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: a
+    request: {{ method: GET, url: "{base}/a" }}
+"#,
+        base = server.uri()
+    );
+    let scenario = Scenario::from_yaml(&yaml).unwrap();
+
+    // apply_think_time=false(기본) → 상속값도 재우지 않는다(현행 게이트 유지).
+    let fast = trace_scenario(&scenario, &opts(BTreeMap::new(), 10)).await;
+    assert!(fast.ok, "fast trace failed: {:?}", fast.error);
+    assert!(fast.total_ms < 300, "fast.total_ms={}", fast.total_ms);
+
+    // apply_think_time=true → 스텝이 상속한 300ms를 실제로 잔다.
+    let mut o = opts(BTreeMap::new(), 10);
+    o.apply_think_time = true;
+    let slow = trace_scenario(&scenario, &o).await;
+    assert!(slow.ok, "slow trace failed: {:?}", slow.error);
+    assert!(slow.total_ms >= 300, "slow.total_ms={}", slow.total_ms);
+}

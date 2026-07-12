@@ -16,6 +16,14 @@ pub struct Scenario {
     pub variables: BTreeMap<String, String>,
     #[serde(default = "default_cookie_jar")]
     pub cookie_jar: CookieJarMode,
+    /// 시나리오 기본 think time. http 스텝에 `think_time`이 없으면 이 값을 상속하고,
+    /// `{min_ms: 0, max_ms: 0}`이면 그 스텝만 대기 없음, 값이 있으면 override.
+    /// **parallel 분기 서브트리에는 적용되지 않는다** — runner/trace의 Parallel arm이
+    /// 분기 재귀에 `None`을 넘겨 구조적으로 강제한다(분기 = 동시 리소스 로딩이라 사람의
+    /// 대기가 낄 자리가 아니고, 그룹/페이지 레이턴시 지표가 수면만큼 오염된다 — ADR-0033).
+    /// 분기 스텝에 **명시된** `think_time`은 지금처럼 적용된다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_think_time: Option<ThinkTime>,
     pub steps: Vec<Step>,
 }
 
@@ -1330,5 +1338,42 @@ steps:
         };
         assert_eq!(h2.think_time, None);
         assert!(!s2.to_yaml().unwrap().contains("think_time"));
+    }
+
+    #[test]
+    fn scenario_default_think_time_round_trips_and_omits_when_absent() {
+        let yaml = "version: 1
+name: t
+default_think_time:
+  min_ms: 500
+  max_ms: 1000
+steps:
+  - type: http
+    id: 01ARZ3NDEKTSV4RRFFQ69G5FAV
+    name: s
+    request:
+      method: GET
+      url: http://x/
+";
+        let s = Scenario::from_yaml(yaml).unwrap();
+        assert_eq!(
+            s.default_think_time,
+            Some(ThinkTime {
+                min_ms: 500,
+                max_ms: 1000
+            })
+        );
+        // round-trip: 재직렬화 → 재파싱해도 같은 값
+        let s2 = Scenario::from_yaml(&s.to_yaml().unwrap()).unwrap();
+        assert_eq!(s2.default_think_time, s.default_think_time);
+
+        // 없으면 키 자체가 안 나간다(기존 시나리오 byte-identical)
+        let bare = "version: 1
+name: t
+steps: []
+";
+        let b = Scenario::from_yaml(bare).unwrap();
+        assert_eq!(b.default_think_time, None);
+        assert!(!b.to_yaml().unwrap().contains("default_think_time"));
     }
 }

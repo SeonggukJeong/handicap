@@ -97,6 +97,7 @@ pub struct ScenarioTrace {
 use std::time::Instant;
 
 use crate::executor::{VuClient, execute_step_traced};
+use crate::pacing::ThinkTime;
 use crate::runner::select_branch;
 use crate::scenario::{CompareOp, Condition, IfStep, Scenario, Step};
 use crate::template::{TemplateContext, render_collecting};
@@ -143,6 +144,7 @@ pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> Scenari
         opts,
         deadline,
         &mut state,
+        scenario.default_think_time,
     ))
     .await;
 
@@ -205,6 +207,9 @@ async fn trace_steps(
     opts: &TraceOptions,
     deadline: Instant,
     state: &mut TraceState,
+    // 시나리오 기본 think time. http 스텝이 자기 `think_time`을 안 가지면 이 값을 쓴다.
+    // **Parallel arm은 분기 재귀에 `None`을 넘긴다**(spec R4, runner와 동일 규칙).
+    default_think: Option<ThinkTime>,
 ) {
     for step in steps {
         if state.truncated {
@@ -238,7 +243,7 @@ async fn trace_steps(
                     error: t.error,
                 });
                 if opts.apply_think_time {
-                    if let Some(tt) = &http.think_time {
+                    if let Some(tt) = http.think_time.or(default_think) {
                         let now = Instant::now();
                         if now < deadline {
                             let dur = tt.sample(&mut rand::thread_rng()).min(deadline - now);
@@ -268,6 +273,7 @@ async fn trace_steps(
                         opts,
                         deadline,
                         state,
+                        default_think,
                     ))
                     .await;
                     if state.truncated {
@@ -300,7 +306,15 @@ async fn trace_steps(
                     error: None,
                 });
                 Box::pin(trace_steps(
-                    client, taken, iter_vars, env, loop_index, opts, deadline, state,
+                    client,
+                    taken,
+                    iter_vars,
+                    env,
+                    loop_index,
+                    opts,
+                    deadline,
+                    state,
+                    default_think,
                 ))
                 .await;
             }
@@ -331,6 +345,11 @@ async fn trace_steps(
                         opts,
                         deadline,
                         state,
+                        // 시나리오 기본값은 분기 서브트리에 적용하지 않는다(spec R4, runner와 동일):
+                        // parallel = 동시 리소스 로딩 구간이라 사람의 대기가 낄 자리가 아니고,
+                        // 그룹 시간이 수면만큼 오염된다. 분기 스텝에 명시된 think_time은 위
+                        // Http arm에서 그대로 적용된다.
+                        None,
                     ))
                     .await;
                     for k in branch.output_var_names() {

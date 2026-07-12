@@ -394,6 +394,7 @@ async fn run_vu(
             &cancel,
             &mut think_rng,
             measure_phases,
+            scenario.default_think_time,
         )
         .await?;
         match flow {
@@ -440,6 +441,9 @@ async fn execute_steps(
     cancel: &CancellationToken,
     rng: &mut StdRng,
     measure_phases: bool,
+    // 시나리오 기본 think time. http 스텝이 자기 `think_time`을 안 가지면 이 값을 쓴다.
+    // **Parallel arm은 분기 재귀에 `None`을 넘긴다**(spec R4).
+    default_think: Option<ThinkTime>,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -499,7 +503,7 @@ async fn execute_steps(
                         }
                     }
                 } // drop the aggregator guard before the (possibly long) think-time sleep
-                if let Some(tt) = &http.think_time {
+                if let Some(tt) = http.think_time.or(default_think) {
                     match pace(tt.sample(rng), deadline, cancel).await {
                         PaceOutcome::Slept => {}
                         PaceOutcome::Cancelled => return Ok(StepFlow::Aborted),
@@ -528,6 +532,7 @@ async fn execute_steps(
                         cancel,
                         rng,
                         measure_phases,
+                        default_think,
                     ))
                     .await?;
                     match flow {
@@ -573,6 +578,7 @@ async fn execute_steps(
                     cancel,
                     rng,
                     measure_phases,
+                    default_think,
                 ))
                 .await?;
                 match flow {
@@ -608,6 +614,11 @@ async fn execute_steps(
                             cancel,
                             &mut branch_rng,
                             measure_phases,
+                            // 시나리오 기본값은 분기 서브트리에 적용하지 않는다(spec R4):
+                            // parallel = 동시 리소스 로딩 구간이라 사람의 대기가 낄 자리가 아니고,
+                            // 그룹 시간(= 페이지 로드 시간, ADR-0033)이 수면만큼 오염된다.
+                            // 분기 스텝에 명시된 think_time은 위 Http arm에서 그대로 적용된다.
+                            None,
                         ))
                         .await;
                         let branch_us = bt0.elapsed().as_micros() as u64;
@@ -1055,6 +1066,7 @@ async fn run_vu_curve(
                 &act,
                 &mut think_rng,
                 measure_phases,
+                scenario.default_think_time,
             )
             .await
             {
@@ -1403,6 +1415,7 @@ async fn run_arrival(
         cancel,
         rng,
         measure_phases,
+        scenario.default_think_time,
     )
     .await?;
     Ok(())
