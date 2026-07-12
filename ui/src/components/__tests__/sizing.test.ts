@@ -4,12 +4,15 @@ import {
   pickLatestClosedRun,
   recommendSlots,
   pickLatestOpenRun,
+  pickLatestFixedOpenRun,
   peakStageTarget,
   peakThroughput,
   recommendWorkers,
   sizePresetsFor,
+  iterationHoldMs,
 } from "../sizing";
 import type { Run } from "../../api/schemas";
+import type { Step } from "../../scenario/model";
 import { ko } from "../../i18n/ko";
 
 describe("recommendVus", () => {
@@ -210,14 +213,14 @@ describe("peakThroughput", () => {
   });
 });
 
-describe("recommendWorkers", () => {
-  it("기본: ceil(target × wc / peak) — ADR-0038 라이브 수치", () => {
-    // target 2000, peak 790, wc 2 → ceil(4000/790)=ceil(5.06)=6
+describe("recommendWorkers (분모=달성 도착률, ADR-0046 R10)", () => {
+  it("기본: ceil(target × wc / achieved)", () => {
+    // target 2000, achieved 790, wc 2 → ceil(4000/790)=ceil(5.06)=6
     expect(recommendWorkers(2000, 790, 2)?.recommendedWorkers).toBe(6);
   });
 
   it("단일 워커 prior", () => {
-    // target 1000, peak 200, wc 1 → ceil(5)=5
+    // target 1000, achieved 200, wc 1 → ceil(5)=5
     expect(recommendWorkers(1000, 200, 1)?.recommendedWorkers).toBe(5);
   });
 
@@ -231,7 +234,7 @@ describe("recommendWorkers", () => {
     expect(recommendWorkers(2_000_000, 200, 1)).toBeNull();
   });
 
-  it("무효: peak <= 0 / NaN / Inf → null", () => {
+  it("무효: achieved <= 0 / NaN / Inf → null", () => {
     expect(recommendWorkers(1000, 0, 1)).toBeNull();
     expect(recommendWorkers(1000, -5, 1)).toBeNull();
     expect(recommendWorkers(1000, NaN, 1)).toBeNull();
@@ -243,14 +246,13 @@ describe("recommendWorkers", () => {
     expect(recommendWorkers(1000, 200, 1.5)).toBeNull();
   });
 
-  it("parity: recommendWorkers == insights.rs:250 산술 ceil(t/(peak/wc))", () => {
-    // 대수적으로 ceil(t/(peak/wc)) == ceil(t*wc/peak)지만 IEEE-754에선 항상 bit-identical은
-    // 아니다 — 이 값(2000/790/2 → 둘 다 6)에선 일치(값 특정 단언).
+  it("대수적 동치: ceil(t×wc/achieved) == ceil(t/(achieved/wc))", () => {
+    // IEEE-754에선 항상 bit-identical은 아니다 — 이 값(2000/790/2 → 둘 다 6)에선 일치(값 특정 단언).
     const t = 2000;
-    const peak = 790;
+    const achieved = 790;
     const wc = 2;
-    const insightsM = Math.ceil(t / (peak / wc));
-    expect(recommendWorkers(t, peak, wc)?.recommendedWorkers).toBe(insightsM);
+    const altForm = Math.ceil(t / (achieved / wc));
+    expect(recommendWorkers(t, achieved, wc)?.recommendedWorkers).toBe(altForm);
   });
 });
 
@@ -285,5 +287,72 @@ describe("sizePresetsFor", () => {
       { label: "7명 · 13초", vus: 7, durationSeconds: 13 },
       { label: "14명 · 26초", vus: 14, durationSeconds: 26 },
     ]);
+  });
+});
+
+// http() 캐스트는 기존 pickLatestClosedRun/pickLatestOpenRun의 `as unknown as Run` fixture
+// 관행과 동형 — 여기선 최소 Step 필드만 채운 뒤 Step으로 캐스트.
+const http = (id: string, think?: { min_ms: number; max_ms: number }): Step =>
+  ({
+    type: "http",
+    id,
+    name: id,
+    request: { method: "GET", url: "/x" },
+    ...(think ? { think_time: think } : {}),
+  }) as unknown as Step;
+
+describe("iterationHoldMs (R7)", () => {
+  const p50 = new Map([
+    ["a", 100],
+    ["b", 200],
+  ]);
+  it("flat: Σ(p50 + think평균), 미관측 스텝은 fallback", () => {
+    // a=100 + think(500+1500)/2=1000 → 1100; b=200; c(미관측)=fallback 50 → 합 1350
+    const steps = [http("a", { min_ms: 500, max_ms: 1500 }), http("b"), http("c")];
+    expect(iterationHoldMs(steps, p50, 50)).toBe(1350);
+  });
+  it("loop: repeat 배수", () => {
+    const steps = [
+      { type: "loop", id: "L", name: "L", repeat: 3, do: [http("a")] } as unknown as Step,
+    ];
+    expect(iterationHoldMs(steps, p50, 50)).toBe(300);
+  });
+  it("if/parallel: 분기 max", () => {
+    const ifStep = {
+      type: "if",
+      id: "I",
+      name: "I",
+      cond: {},
+      then: [http("a")],
+      elif: [],
+      else: [http("b")],
+    } as unknown as Step;
+    expect(iterationHoldMs([ifStep], p50, 50)).toBe(200); // max(100, 200)
+    const par = {
+      type: "parallel",
+      id: "P",
+      name: "P",
+      branches: [
+        { name: "x", steps: [http("a")] },
+        { name: "y", steps: [http("b")] },
+      ],
+    } as unknown as Step;
+    expect(iterationHoldMs([par], p50, 50)).toBe(200);
+  });
+  it("http leaf 0개면 0", () => expect(iterationHoldMs([], p50, 50)).toBe(0));
+});
+
+describe("pickLatestFixedOpenRun (R10 — 곡선 prior 제외)", () => {
+  it("target_rps 있는 completed run만", () => {
+    const runs = [
+      { id: "1", status: "completed", created_at: 1, profile: { vus: 0, target_rps: 10 } },
+      {
+        id: "2",
+        status: "completed",
+        created_at: 2,
+        profile: { vus: 0, stages: [{ target: 5, duration_seconds: 10 }] },
+      },
+    ] as never[];
+    expect(pickLatestFixedOpenRun(runs)?.id).toBe("1"); // 곡선(2)은 제외
   });
 });

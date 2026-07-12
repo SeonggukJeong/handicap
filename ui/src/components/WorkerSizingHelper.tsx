@@ -1,31 +1,42 @@
 import { useMemo } from "react";
 import { useScenarioRuns, useRunReport } from "../api/hooks";
 import type { Run } from "../api/schemas";
-import { pickLatestOpenRun, peakThroughput, recommendWorkers } from "./sizing";
+import { pickLatestFixedOpenRun, recommendWorkers } from "./sizing";
 import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 
 /** validate_run_config worker_count 하드캡(api/runs.rs / schemas.ts:93 `.max(64)`)과 동기. */
 const WORKER_COUNT_CAP = 64;
 
-type WorkerAnchor = { peak: number; dropped: number; priorWorkerCount: number };
+type WorkerAnchor = {
+  achievedPerSec: number;
+  priorTarget: number;
+  dropped: number;
+  priorWorkerCount: number;
+};
 
-/** 최근 종료 open-loop run에서 워커당 천장 앵커 도출. peak(초별 count 합 최대)·dropped·prior_wc.
- *  요청 0건(peak==0)이면 null. count 기반이라 localhost sub-ms run도 앵커가 산다(p50 기반 슬롯
- *  헬퍼 usePriorOpenRunAnchor와 대비 — 그건 p50==0이면 null). 슬롯 헬퍼 앵커 훅 미러. */
+/** 최근 종료 '고정 rate' open-loop run에서 달성 도착률 앵커 도출(ADR-0046 R10).
+ *  achieved = prior_target − dropped/duration. 곡선 prior는 제외(pickLatestFixedOpenRun).
+ *  duration<=0 또는 achieved<=0이면 null. */
 function usePriorOpenRunWorkerAnchor(scenarioId: string | undefined): WorkerAnchor | null {
   const runs = useScenarioRuns(scenarioId);
   // Cast: Zod parses defaults at runtime so the data is truly Run[], but tsc sees a
   // nested-default input-type leak (ProfileSchema.ramp_up_seconds?.default → optional).
-  const latest = useMemo(() => pickLatestOpenRun((runs.data?.runs ?? []) as Run[]), [runs.data]);
-  const report = useRunReport(latest?.id, Boolean(latest));
-  const peak = report.data ? peakThroughput(report.data.windows) : 0;
-  const dropped = report.data?.dropped ?? 0;
-  const priorWorkerCount = latest?.profile.worker_count ?? 1;
-  return useMemo(
-    () => (peak > 0 ? { peak, dropped, priorWorkerCount } : null),
-    [peak, dropped, priorWorkerCount],
+  const latest = useMemo(
+    () => pickLatestFixedOpenRun((runs.data?.runs ?? []) as Run[]),
+    [runs.data],
   );
+  const report = useRunReport(latest?.id, Boolean(latest));
+  const dropped = report.data?.dropped ?? 0;
+  const duration = report.data?.summary.duration_seconds ?? 0;
+  const priorTarget = latest?.profile.target_rps ?? 0;
+  const priorWorkerCount = latest?.profile.worker_count ?? 1;
+  return useMemo(() => {
+    if (duration <= 0 || priorTarget <= 0) return null;
+    const achievedPerSec = Math.max(0, priorTarget - dropped / duration);
+    if (achievedPerSec <= 0) return null;
+    return { achievedPerSec, priorTarget, dropped, priorWorkerCount };
+  }, [duration, priorTarget, dropped, priorWorkerCount]);
 }
 
 type Props = {
@@ -49,7 +60,7 @@ export function WorkerSizingHelper({
 }: Props) {
   const anchor = usePriorOpenRunWorkerAnchor(scenarioId);
   const result = anchor
-    ? recommendWorkers(Number(targetRps), anchor.peak, anchor.priorWorkerCount)
+    ? recommendWorkers(Number(targetRps), anchor.achievedPerSec, anchor.priorWorkerCount)
     : null;
   const rawN = result?.recommendedWorkers ?? 0;
   const applyN = Math.min(rawN, WORKER_COUNT_CAP);
@@ -71,11 +82,15 @@ export function WorkerSizingHelper({
         <>
           {anchor.dropped > 0 ? (
             <p className="text-xs text-slate-500 mb-2">
-              {ko.workerSizing.strongBasis(anchor.priorWorkerCount, anchor.peak, anchor.dropped)}
+              {ko.workerSizing.strongBasis(
+                anchor.priorWorkerCount,
+                Math.round(anchor.achievedPerSec),
+                anchor.dropped,
+              )}
             </p>
           ) : (
             <p className="text-xs text-slate-500 mb-2">
-              {ko.workerSizing.weakBasis(anchor.priorWorkerCount, anchor.peak)}
+              {ko.workerSizing.weakBasis(anchor.priorWorkerCount, anchor.priorTarget)}
             </p>
           )}
 
@@ -108,6 +123,7 @@ export function WorkerSizingHelper({
                   {ko.workerSizing.needMaxInFlight(applyN, mifNum)}
                 </p>
               )}
+              <p className="text-xs text-slate-500 mt-1">{ko.workerSizing.slotSplitNote}</p>
             </>
           )}
         </>

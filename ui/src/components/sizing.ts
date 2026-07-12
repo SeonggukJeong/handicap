@@ -1,4 +1,5 @@
 import type { Run } from "../api/schemas";
+import type { Step } from "../scenario/model";
 import { formatDurationKo } from "../i18n/duration";
 import { ko } from "../i18n/ko";
 
@@ -76,18 +77,57 @@ export function sizePresetsFor(
   return presets;
 }
 
-/** 열린 루프 슬롯(max_in_flight) 사이징의 순수 계산. Little's Law: 동시 슬롯 ≈ 도착률 × 지연.
- *  post-hoc `load_gen_saturated` 인사이트의 `required = ceil(target_rps × mean_ms/1000)`와
- *  같은 수식·프록시(요청당 mean). 컨트롤러: crates/controller/src/insights.rs:229-231. */
+/** 열린 루프 슬롯(max_in_flight) 사이징의 순수 계산. Little's Law: 동시 슬롯 ≈ 도착률 × **반복 1회
+ *  점유시간**. post-hoc `load_gen_saturated` 인사이트의 `recommended = ceil(target_eff × M ÷
+ *  achieved_arrival_rate)`(M=max_in_flight)와 같은 Little's law — 사후는 실측(hold = M ÷ achieved),
+ *  사전(이 함수)은 `iterationHoldMs` 추정. 컨트롤러: crates/controller/src/insights.rs. */
+
+/** 반복 1회 점유시간(ms) 추정 — iterationTimeUpperBoundSeconds(openLoopChecks.ts:27) 구조 미러.
+ *  용도가 다르다: 그쪽은 상한(스텝 timeout·think max, inert_slots 경고용), 이쪽은 추정
+ *  (관측 p50 ?? fallback + think 평균 (min+max)/2, 슬롯 권장용). http leaf 0개면 0(호출부 skip).
+ *  ADR-0046 R7. */
+export function iterationHoldMs(
+  steps: ReadonlyArray<Step>,
+  perStepP50: ReadonlyMap<string, number>,
+  fallbackMs: number,
+): number {
+  let total = 0;
+  for (const s of steps) {
+    if (s.type === "http") {
+      const lat = perStepP50.get(s.id) ?? fallbackMs;
+      const think = s.think_time ? (s.think_time.min_ms + s.think_time.max_ms) / 2 : 0;
+      total += lat + think;
+    } else if (s.type === "loop") {
+      total += s.repeat * iterationHoldMs(s.do, perStepP50, fallbackMs);
+    } else if (s.type === "parallel") {
+      let mx = 0;
+      for (const b of s.branches) {
+        mx = Math.max(mx, iterationHoldMs(b.steps, perStepP50, fallbackMs));
+      }
+      total += mx;
+    } else {
+      // if — 단일 분기만 실행 → max 분기 (iterationTimeUpperBoundSeconds와 동일 정책)
+      let mx = iterationHoldMs(s.then, perStepP50, fallbackMs);
+      for (const e of s.elif) {
+        mx = Math.max(mx, iterationHoldMs(e.then, perStepP50, fallbackMs));
+      }
+      mx = Math.max(mx, iterationHoldMs(s.else, perStepP50, fallbackMs));
+      total += mx;
+    }
+  }
+  return total;
+}
 
 export type SlotSizingResult = { recommendedSlots: number };
 
-/** 목표 RPS + 지연(ms) → 권장 max_in_flight(하한). 계산 불가(목표 무효 / 지연 0·음수·NaN·Inf)면 null. */
-export function recommendSlots(targetRps: number, latencyMs: number): SlotSizingResult | null {
+/** 목표 RPS + 반복 1회 점유시간(ms, `iterationHoldMs`/실측/수동입력) → 권장 max_in_flight(하한).
+ *  구현식은 무변경(`ceil(target × ms/1000)`) — 2번째 인자의 *의미*만 "요청당 지연"에서 "반복
+ *  점유시간"으로 바뀐다(ADR-0046 R6). 계산 불가(목표 무효 / 점유시간 0·음수·NaN·Inf)면 null. */
+export function recommendSlots(targetRps: number, holdMs: number): SlotSizingResult | null {
   if (!targetRpsValid(targetRps)) return null;
-  if (!Number.isFinite(latencyMs) || latencyMs <= 0) return null;
-  // insights.rs:229-231 grouping: ceil(target * (latency/1000)), 최소 1.
-  const recommendedSlots = Math.max(1, Math.ceil(targetRps * (latencyMs / 1000)));
+  if (!Number.isFinite(holdMs) || holdMs <= 0) return null;
+  // ceil(target * (hold/1000)), 최소 1 — insights.rs 사후 recommended와 같은 Little's law.
+  const recommendedSlots = Math.max(1, Math.ceil(targetRps * (holdMs / 1000)));
   return { recommendedSlots };
 }
 
@@ -103,6 +143,18 @@ export function pickLatestOpenRun(runs: Run[]): Run | null {
     const p = r.profile;
     const isOpen = p.target_rps != null || (p.stages != null && p.stages.length > 0);
     if (!isOpen) continue;
+    if (best === null || r.created_at > best.created_at) best = r;
+  }
+  return best;
+}
+
+/** 워커 앵커용: 가장 최근 종료된 '고정 rate' open-loop run(target_rps 있음)만.
+ *  곡선 prior는 달성 도착률 산출에 stages 적분이 필요해 제외(ADR-0046 §7 연기). */
+export function pickLatestFixedOpenRun(runs: Run[]): Run | null {
+  let best: Run | null = null;
+  for (const r of runs) {
+    if (r.status !== "completed") continue;
+    if (r.profile.target_rps == null) continue;
     if (best === null || r.created_at > best.created_at) best = r;
   }
   return best;
@@ -142,9 +194,10 @@ export function scaleVuStages(
   });
 }
 
-/** 열린 루프 워커 수(worker_count) create-time 사이징의 순수 계산. (ADR-0038 멀티워커 fan-out)
- *  워커당 RPS 천장은 워커를 포화시켰을 때만 관측되므로, prior open-loop run의 관측 peak/워커수로
- *  외삽한다. 사후 load_gen_saturated의 recommended_workers(insights.rs:246-253)와 수식 1:1. */
+/** 열린 루프 워커 수(worker_count) create-time 사이징의 순수 계산. (ADR-0038 멀티워커 fan-out,
+ *  ADR-0046 R10 단위 통일) 워커당 도착률 천장은 워커를 포화시켰을 때만 관측되므로, prior 고정
+ *  rate open-loop run의 **달성 도착률**(관측 요청-peak 아님 — 구 request-peak 혼용 제거)/워커수로
+ *  외삽한다. `pickLatestFixedOpenRun`로 곡선 prior는 앵커에서 제외(§7 연기). */
 
 export type WorkerSizingResult = { recommendedWorkers: number };
 
@@ -162,19 +215,23 @@ export function peakThroughput(windows: { ts_second: number; count: number }[]):
   return peak;
 }
 
-/** 목표 RPS + prior run 관측 peak·워커수 → 권장 worker_count(하한).
- *  N = max(1, ceil(target × prior_wc / peak)). 각 워커에 prior가 증명한 속도(peak/wc) 이하만
- *  요구하므로 엔진 drop 측면 항상 안전(포화면 tight, 비포화면 보수적 상한). insights.rs:250
- *  ceil(t/(peak/wc))와 동일 산술. m>wc 발사 가드는 사후 전용(현재 wc 대비 증설 제안)이라
- *  create-time엔 없다 — 복원 금지. 무효(목표 무효 / peak<=0·NaN·Inf / wc<1·비정수)면 null. */
+/** 목표 도착률(반복/초) + prior run **달성 도착률**·워커수 → 권장 worker_count(하한). (ADR-0046 R10
+ *  — 2번째 인자 의미 교체: 구 관측 요청-peak → 달성 도착률, 단위 혼용 제거)
+ *  N = max(1, ceil(target × prior_wc / achieved)). 각 워커에 prior가 증명한 속도(achieved/wc)
+ *  이하만 요구하므로 엔진 drop 측면 항상 안전(포화면 tight, 비포화면 보수적 상한). m>wc 발사
+ *  가드는 사후 전용(현재 wc 대비 증설 제안)이라 create-time엔 없다 — 복원 금지.
+ *  무효(목표 무효 / achieved<=0·NaN·Inf / wc<1·비정수)면 null. */
 export function recommendWorkers(
   target: number,
-  priorPeak: number,
+  priorAchievedPerSec: number,
   priorWorkerCount: number,
 ): WorkerSizingResult | null {
   if (!targetRpsValid(target)) return null;
-  if (!Number.isFinite(priorPeak) || priorPeak <= 0) return null;
+  if (!Number.isFinite(priorAchievedPerSec) || priorAchievedPerSec <= 0) return null;
   if (!Number.isInteger(priorWorkerCount) || priorWorkerCount < 1) return null;
-  const recommendedWorkers = Math.max(1, Math.ceil((target * priorWorkerCount) / priorPeak));
+  const recommendedWorkers = Math.max(
+    1,
+    Math.ceil((target * priorWorkerCount) / priorAchievedPerSec),
+  );
   return { recommendedWorkers };
 }

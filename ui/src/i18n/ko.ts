@@ -1014,12 +1014,12 @@ export const ko = {
     title: "워커 수 도우미",
     helpLabel: "워커 수 사이징 설명",
     help: "워커 한 대가 낼 수 있는 최대 RPS는 요청 지연·페이로드·대상 서버에 따라 달라 고정값이 없어요. 그래서 한 번 돌려 워커가 한계에 부딪힐 때(드롭 발생) 비로소 정확히 알 수 있어요.",
-    strongBasis: (wc: number, peak: number, dropped: number) =>
-      `지난 run이 워커 ${wc}대로 최대 ${peak} RPS에서 요청이 밀렸어요(드롭 ${dropped}) → 워커당 ~${Math.round(
-        peak / wc,
-      )} RPS가 한계예요.`,
-    weakBasis: (wc: number, peak: number) =>
-      `지난 run은 워커 ${wc}대로 ${peak} RPS를 드롭 없이 냈어요 — 한계까진 안 밀어서 워커당 진짜 천장은 아직 몰라요.`,
+    strongBasis: (wc: number, achieved: number, dropped: number) =>
+      `지난 run이 워커 ${wc}대로 초당 ~${achieved}회 반복까지만 시작했어요(유실 ${dropped}건) → 워커당 초당 ~${Math.round(
+        achieved / wc,
+      )}회가 한계예요.`,
+    weakBasis: (wc: number, target: number) =>
+      `지난 run은 워커 ${wc}대로 목표(초당 ${target}회 반복)를 유실 없이 소화했어요 — 한계까진 안 밀어서 워커당 진짜 천장은 아직 몰라요.`,
     recommend: (n: number) => `목표엔 워커 ~${n}대가 필요해요.`,
     recommendPeak: (n: number) => `최고 단계 목표엔 워커 ~${n}대가 필요해요.`,
     weakRecommend: (n: number) =>
@@ -1032,6 +1032,8 @@ export const ko = {
       `권장 ${n}대가 상한(64)을 넘어요 — 64대로도 목표에 못 미칠 수 있어요. 목표를 낮추거나 워커당 부하(payload·지연)를 점검하세요.`,
     needMaxInFlight: (n: number, cur: number) =>
       `worker_count는 max_in_flight 이하여야 해요 — max_in_flight도 최소 ${n}(으)로 함께 올리세요 (현재 ${cur}).`,
+    slotSplitNote:
+      "워커를 늘려도 동시 슬롯 총량(max_in_flight)은 워커별로 나눠져요 — 슬롯 부족(포화 인사이트 cause=slots)이 원인이면 max_in_flight부터 올리세요.",
   },
   // open-loop 구조 경고(create-time advisory). 조사 병기((으)로) — 변수 뒤 조사 고정 금지(ADR-0035).
   openLoopCheck: {
