@@ -480,6 +480,9 @@ export const ko = {
     variableBranchShadowTitle: "이름 충돌 — 이름 바꾸기 불가",
     variableUndefined: "정의안됨",
     variableUndefinedAria: (name: string) => `${name} — 정의되지 않은 변수`,
+    variableOverwritten: "추출 덮어씀",
+    variableOverwrittenTitle:
+      "스텝 추출이 같은 이름에 값을 쓸 수 있습니다 — 추출이 실행된 이후 스텝은 선언값 대신 추출값을 봅니다",
     renameVariableAria: (name: string) => `${name} 이름 바꾸기`,
     variableRenameInputAria: (name: string) => `${name} 새 이름`,
     variableRenameCollision: (name: string) => `이미 존재하는 이름입니다: ${name}`,

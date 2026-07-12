@@ -675,7 +675,7 @@ steps:
     expect(tokens(input)).toContain("min-w-0"); // <Input> 자신은 유지 — w-full이 줄어든 래퍼를 채우는 데 필요(spec R2 단서)
   });
 
-  it("R2/R5: parallel rename 래퍼·shadow 이름 span은 min-w-[72px], declared non-renamable span은 min-w-0 유지", () => {
+  it("R2/R5: parallel rename 래퍼·shadow 이름 span은 min-w-[72px], declared non-renamable span도 min-w-[72px]", () => {
     // (a) non-shadow parallel rename 래퍼 — MIXED
     useScenarioEditor.getState().loadFromString(MIXED);
     const { unmount } = render(<VariablesPanel />);
@@ -692,9 +692,9 @@ steps:
     const shadow = screen.getByTitle("alpha.s"); // shadow 행 이름 span (title=display)
     expect(tokens(shadow)).toContain("min-w-[72px]");
     expect(tokens(shadow)).not.toContain("min-w-0");
-    const declared = screen.getByTitle("s"); // declared non-renamable span — 의도적으로 무변경(spec §4.1)
-    expect(tokens(declared)).toContain("min-w-0");
-    expect(tokens(declared)).not.toContain("min-w-[72px]");
+    const declared = screen.getByTitle("s"); // declared non-renamable span — 배지 동석 대비 min-w-[72px] 전환(editor-var-conflict-quickadd R9, 구 "의도적 무변경" 락인 반전)
+    expect(tokens(declared)).toContain("min-w-[72px]");
+    expect(tokens(declared)).not.toContain("min-w-0");
   });
 
   it("사용처 버튼은 text-left — declared 행(flex-col stretch)에서 브라우저 기본 중앙정렬 방지, 전 행 좌측 통일", () => {
@@ -706,5 +706,166 @@ steps:
       const t = tokens(screen.getByRole("button", { name: ko.editor.variableUsageNavAria(name) }));
       expect(t).toContain("text-left");
     }
+  });
+});
+
+describe("VariablesPanel — 선언↔추출 충돌 배지 (editor-var-conflict-quickadd R3/R4/R9)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  const tokens = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/);
+
+  // 선언 token을 비-parallel 스텝 extract가 다시 씀 → flat 충돌(R3①)
+  const FLAT_CONFLICT = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  token: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: login
+    type: http
+    request: { method: POST, url: "/login", headers: {} }
+    extract:
+      - from: body
+        path: $.tok
+        var: token
+`;
+
+  // bare 선언 s + parallel-only extract s → amber 배지 없음(R4, shadow 배지만)
+  const BARE_SHADOW = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  s: seed
+steps:
+  - id: 01HX0000000000000000000060
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps:
+          - id: 01HX0000000000000000000061
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: s
+`;
+
+  // 점 포함 선언 brX.tok == parallel merge 키 → 진짜 덮어쓰기 배지(R3③, 리뷰 F2)
+  const DOTTED = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  brX.tok: seed
+steps:
+  - id: 01HX0000000000000000000060
+    name: par
+    type: parallel
+    branches:
+      - name: brX
+        steps:
+          - id: 01HX0000000000000000000061
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: tok
+`;
+
+  // 3중 동명: 선언 s + flat extract s + parallel extract s → 배지 ∧ renamable=false (R9 최악 조합)
+  const TRIPLE = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  s: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: consume
+    type: http
+    request: { method: GET, url: "/x", headers: {} }
+    extract:
+      - from: body
+        path: $.u
+        var: s
+  - id: 01HX0000000000000000000060
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps:
+          - id: 01HX0000000000000000000061
+            name: leaf
+            type: http
+            request: { method: GET, url: "/y", headers: {} }
+            extract:
+              - from: body
+                path: $.t
+                var: s
+`;
+
+  it("R3①: flat 충돌 선언 행에 amber 배지 + 조건형 title, rename 연필은 유지", () => {
+    useScenarioEditor.getState().loadFromString(FLAT_CONFLICT);
+    render(<VariablesPanel />);
+    const badge = screen.getByText(ko.editor.variableOverwritten);
+    expect(badge).toHaveAttribute("title", ko.editor.variableOverwrittenTitle);
+    const t = tokens(badge);
+    expect(t).toContain("bg-amber-50");
+    expect(t).toContain("text-amber-700");
+    expect(t).toContain("shrink-0");
+    // flat 충돌은 rename 비활성 근거가 아니다(renamable은 parallelNames만 본다)
+    expect(
+      screen.getByRole("button", { name: ko.editor.renameVariableAria("token") }),
+    ).toBeInTheDocument();
+  });
+
+  it("R3②: 충돌 없는 선언 행(MIXED token)엔 배지 부재", () => {
+    useScenarioEditor.getState().loadFromString(MIXED);
+    render(<VariablesPanel />);
+    expect(screen.queryByText(ko.editor.variableOverwritten)).toBeNull();
+  });
+
+  it("R4: bare 선언 + parallel-only extract는 amber 배지 부재(shadow 배지만)", () => {
+    useScenarioEditor.getState().loadFromString(BARE_SHADOW);
+    render(<VariablesPanel />);
+    expect(screen.queryByText(ko.editor.variableOverwritten)).toBeNull();
+    expect(screen.getByTitle(ko.editor.variableBranchShadowTitle)).toBeInTheDocument();
+  });
+
+  it("R3③: 점 포함 선언이 merge 키와 리터럴 동일하면 배지 — 선언 행 within 스코프", () => {
+    useScenarioEditor.getState().loadFromString(DOTTED);
+    render(<VariablesPanel />);
+    // getByTitle("brX.tok")은 선언 span(title=name)과 parallel 행 span(title=display)을
+    // 동시 매치 — 선언 행 전용 앵커(값 textarea)로 li를 잡아 within 스코프(리뷰 nit #3)
+    const li = screen
+      .getByRole("textbox", { name: ko.editor.variableValueAria("brX.tok") })
+      .closest("li")!;
+    expect(within(li).getByText(ko.editor.variableOverwritten)).toBeInTheDocument();
+  });
+
+  it("R9: 배지 행 nameline은 flex-wrap(gap-2 부재), TRIPLE non-renamable 선언 span은 min-w-[72px] + 배지 동석", () => {
+    useScenarioEditor.getState().loadFromString(TRIPLE);
+    render(<VariablesPanel />);
+    const li = screen
+      .getByRole("textbox", { name: ko.editor.variableValueAria("s") })
+      .closest("li")!;
+    // renamable=false(parallel s 추출) → 연필 없음 = non-renamable span 경로
+    expect(
+      within(li).queryByRole("button", { name: ko.editor.renameVariableAria("s") }),
+    ).toBeNull();
+    const badge = within(li).getByText(ko.editor.variableOverwritten); // flat extract s → 배지
+    const nameline = badge.parentElement!;
+    const nt = tokens(nameline);
+    expect(nt).toContain("flex-wrap");
+    expect(nt).toContain("gap-x-2");
+    expect(nt).toContain("gap-y-1");
+    expect(nt).not.toContain("gap-2");
+    const nameSpan = within(li).getByTitle("s");
+    expect(tokens(nameSpan)).toContain("min-w-[72px]");
+    expect(tokens(nameSpan)).not.toContain("min-w-0");
   });
 });

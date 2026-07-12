@@ -11,10 +11,19 @@ import {
   buildVarRefIndex,
   undefinedVars,
   parallelVarIdentities,
+  flatExtractNames,
+  collectNamespacedProducers,
 } from "../../scenario/scanVars";
 
 type VarRow =
-  | { kind: "declared"; name: string; value: string; renamable: boolean; refIds: string[] }
+  | {
+      kind: "declared";
+      name: string;
+      value: string;
+      renamable: boolean;
+      overwritten: boolean;
+      refIds: string[];
+    }
   | { kind: "flat-extract"; name: string; refIds: string[] }
   | {
       kind: "parallel-extract";
@@ -62,6 +71,8 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
     const parallelNames = parallelExtractNames(model);
     const refIndex = buildVarRefIndex(model);
     const undef = undefinedVars(model);
+    const flatEx = flatExtractNames(model);
+    const namespaced = collectNamespacedProducers(model);
     const out: VarRow[] = [];
     // 선언(연필은 flat non-shadow일 때만)
     for (const [name, value] of Object.entries(model.variables))
@@ -70,6 +81,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         name,
         value,
         renamable: !parallelNames.has(name),
+        overwritten: flatEx.has(name) || namespaced.has(name),
         refIds: refIndex.get(name) ?? [],
       });
     // flat-extract = produced − 선언 − parallel(shadow) — 비-parallel 스텝에서만 추출된 이름
@@ -222,15 +234,23 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           if (row.kind === "declared") {
             return (
               <li key={`d:${row.name}`} className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   {row.renamable ? (
                     nameCell(row.name)
                   ) : (
                     <span
-                      className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600"
+                      className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
                       title={row.name}
                     >
                       {row.name}
+                    </span>
+                  )}
+                  {row.overwritten && (
+                    <span
+                      className="shrink-0 rounded bg-amber-50 px-1.5 text-xs text-amber-700"
+                      title={ko.editor.variableOverwrittenTitle}
+                    >
+                      {ko.editor.variableOverwritten}
                     </span>
                   )}
                   <button
