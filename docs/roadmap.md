@@ -301,7 +301,7 @@
 - 최종 리뷰 nit(비차단): URL/스텝-이름이 디코딩 후 **trailing space로 끝나는** 케이스(예: 쿼리 말미 `...=%20`)의 YAML round-trip golden 부재 — `yaml` 패키지가 trailing-space 스칼라를 자동 인용해 실동작 안전·R8 ⓐⓑ가 같은 인용 메커니즘 커버, 명시 golden 1건이면 회귀 가드 완결(소형).
 
 ### B20. open-loop 슬롯 사이징 2-way (2026-07-12, ADR-0046) 연기 항목
-출처: open-loop-slot-sizing(target_per_sec 반복/초 공식화·InsightPanel 2-way saturation 문구, R12/R13). 연기: 슬라이스 ②(open-loop 목표 라벨 개명 "도착률(초당 반복)"·"≈ 요청 N/s" 환산·리포트 목표/달성 도착률 표기·ko "RPS" 잔존 키 스윕), loadgen cause 재도입(워커 CPU 텔레메트리 proto 필요), per-second dropped 시리즈(곡선 required 정밀화), 곡선 prior run 워커 앵커(UI 적분 복제 필요) — 출처: ADR-0046·spec §7.
+출처: open-loop-slot-sizing(target_per_sec 반복/초 공식화·InsightPanel 2-way saturation 문구, R12/R13). ~~슬라이스 ②(open-loop 목표 라벨 개명·환산·리포트 도착률 표기·ko RPS 스윕)~~ **✅ 완료(2026-07-12, open-loop-rate-labels — 카드+헤드라인까지, build-log 참조)**. 잔존 연기: loadgen cause 재도입(워커 CPU 텔레메트리 proto 필요), per-second dropped 시리즈 + 목표/달성 도착률 **시리즈**(슬라이스 ②는 카드만 소화 — 달성 초별 데이터가 와이어에 없고, 목표 시리즈 단독은 요청/초 차트와 단위 혼합 오독이라 둘은 동반 필수·곡선 required 정밀화 겸용), 곡선 prior run 워커 앵커(UI 적분 복제 필요) — 출처: ADR-0046·spec §7·슬라이스 ② plan Task 4 범위 주.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
