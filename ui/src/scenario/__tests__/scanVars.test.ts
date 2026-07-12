@@ -9,6 +9,7 @@ import {
   buildVarRefIndex,
   undefinedVars,
   flatProducerNames,
+  flatExtractNames,
   collectBranchInternalRefs,
   parallelVarIdentities,
 } from "../scanVars";
@@ -681,6 +682,60 @@ steps:
         steps: [ { id: "01HX0000000000000000000080", type: http, name: c, request: { method: GET, url: "/c" }, extract: [ { var: s, from: status } ] } ]
 `);
     expect(flatProducerNames(m).has("s")).toBe(false);
+  });
+});
+
+describe("flatExtractNames (editor-var-conflict-quickadd R1)", () => {
+  it("collects non-parallel extracts; excludes declared-only keys and parallel-branch extracts; descends loop", () => {
+    const m = model(`version: 1
+name: "t"
+variables:
+  base: "x"
+steps:
+  - { id: "01HX0000000000000000000010", type: http, name: s1, request: { method: GET, url: "/a" }, extract: [ { var: flat1, from: status } ] }
+  - id: "01HX0000000000000000000040"
+    type: loop
+    name: lp
+    repeat: 1
+    do:
+      - { id: "01HX0000000000000000000050", type: http, name: h, request: { method: GET, url: "/x" }, extract: [ { var: inLoop, from: status } ] }
+  - id: "01HX0000000000000000000020"
+    type: parallel
+    name: par
+    branches:
+      - name: B
+        steps:
+          - { id: "01HX0000000000000000000030", type: http, name: b1, request: { method: GET, url: "/b" }, extract: [ { var: ponly, from: status } ] }
+`);
+    const ex = flatExtractNames(m);
+    expect(ex.has("flat1")).toBe(true); // 최상위 http extract
+    expect(ex.has("inLoop")).toBe(true); // loop do 하강
+    expect(ex.has("base")).toBe(false); // 선언-only는 extract가 아님 (flatProducerNames와의 차이)
+    expect(ex.has("ponly")).toBe(false); // parallel 분기 extract는 flat이 아님(네임스페이스 merge)
+  });
+
+  it("descends if then/elif/else", () => {
+    const m = model(`version: 1
+name: "t"
+variables: {}
+steps:
+  - id: "01HX0000000000000000000070"
+    type: if
+    name: cond
+    cond: { left: "{{a}}", op: exists }
+    then:
+      - { id: "01HX0000000000000000000071", type: http, name: t1, request: { method: GET, url: "/t" }, extract: [ { var: inThen, from: status } ] }
+    elif:
+      - cond: { left: "{{b}}", op: exists }
+        then:
+          - { id: "01HX0000000000000000000072", type: http, name: t2, request: { method: GET, url: "/e" }, extract: [ { var: inElif, from: status } ] }
+    else:
+      - { id: "01HX0000000000000000000073", type: http, name: t3, request: { method: GET, url: "/l" }, extract: [ { var: inElse, from: status } ] }
+`);
+    const ex = flatExtractNames(m);
+    expect(ex.has("inThen")).toBe(true);
+    expect(ex.has("inElif")).toBe(true);
+    expect(ex.has("inElse")).toBe(true);
   });
 });
 

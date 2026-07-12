@@ -190,11 +190,11 @@ export function undefinedVars(scenario: Scenario): Set<string> {
   return out;
 }
 
-/** 선언 키 ∪ parallel 분기 **밖** http extract var (R2). parallel branches는 미하강 —
- *  분기 extract는 flat이 아니라 `{{branch.var}}`로 네임스페이스되기 때문. shadow 판정용. */
-export function flatProducerNames(scenario: Scenario): Set<string> {
+/** 비-parallel 서브트리(최상위·loop `do`·if `then`/`elif[].then`/`else`)의 http extract
+ *  var 집합 — 선언 키 미포함. parallel branches는 미하강: 분기 extract는 flat이 아니라
+ *  `{{branch.var}}`로 네임스페이스되기 때문. 선언↔추출 충돌 배지 판정의 flat 항. */
+export function flatExtractNames(scenario: Scenario): Set<string> {
   const out = new Set<string>();
-  for (const k of Object.keys(scenario.variables)) out.add(k);
   const walk = (steps: ReadonlyArray<Step>): void => {
     for (const s of steps) {
       if (s.type === "http") {
@@ -210,6 +210,14 @@ export function flatProducerNames(scenario: Scenario): Set<string> {
     }
   };
   walk(scenario.steps);
+  return out;
+}
+
+/** 선언 키 ∪ parallel 분기 **밖** http extract var (R2) = 선언 ∪ flatExtractNames.
+ *  shadow 판정용 — walker는 flatExtractNames와 단일화. */
+export function flatProducerNames(scenario: Scenario): Set<string> {
+  const out = flatExtractNames(scenario);
+  for (const k of Object.keys(scenario.variables)) out.add(k);
   return out;
 }
 
