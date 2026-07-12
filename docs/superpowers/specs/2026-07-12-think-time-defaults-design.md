@@ -33,7 +33,7 @@
 | R10 | MUST 기본값이 없는 시나리오의 UI·엔진 거동은 현행과 완전히 동일(회귀 0) — 상속 힌트 숨김, 빈칸은 지금처럼 "대기 없음". | 기존 엔진·UI 테스트 전부 green + `pnpm lint && pnpm test && pnpm build` | |
 | R11 | SHOULD 아웃라인 wide 칩(`wideChipThink`)은 **스텝에 명시된 값만** 표시한다(상속값을 칩에 퍼뜨리지 않음 — 원본이 흐려짐). **현행 코드가 이미 그러하므로 lock-in 테스트만 추가**(0-diff 요구사항). | `FlowOutline.test.tsx` — 기본값만 있는 시나리오의 상속 스텝 칩에 think 칩 부재 | |
 | R12 | MUST 신규·개명 문구는 전부 `ui/src/i18n/ko.ts` 카탈로그 경유(ADR-0035), 컴포넌트 하드코딩 0. | `ko.test.ts` 키 존재 + 신규 컴포넌트 리터럴 한글 grep 0 | |
-| R13 | MUST 라이브 부하 경로에서 상속이 실제로 걸린다: closed-loop에서 기본값만 켠 시나리오의 `summary.rps`가 **`VUs × 스텝수 ÷ (대기하는 스텝수 × think)`**(리포트 `rps`는 *요청*/초 = `total_count/duration`, `report.rps:614` — 반복/초가 아니다) 예측대로 떨어지고, 0/0 opt-out 스텝은 쉬지 않으며(대기 지점이 줄어 rps가 예측대로 상승), parallel 그룹 레이턴시는 기본값만큼 늘지 않는다. | `/live-verify` — 리포트 `summary.rps` 실측(§6 수치) + parallel 그룹 레이턴시 비교 | ✅ 라이브 |
+| R13 | MUST 라이브 부하 경로에서 상속이 실제로 걸린다: closed-loop에서 기본값만 켠 시나리오의 `summary.rps`가 **`VUs × 스텝수 ÷ (대기하는 스텝수 × think)`**(리포트 `rps`는 *요청*/초 = `total_count/duration`, `report.rs:614` — 반복/초가 아니다) 예측대로 떨어지고, 0/0 opt-out 스텝은 쉬지 않으며(대기 지점이 줄어 rps가 예측대로 상승), parallel 그룹 레이턴시는 기본값만큼 늘지 않는다. | `/live-verify` — 리포트 `summary.rps` 실측(§6 수치) + parallel 그룹 레이턴시 비교 | ✅ 라이브 |
 | R14 | MUST `yamlDoc.ts::normalizeForModel`의 **루트 키 allowlist**에 `default_think_time`을 통과시킨다 — 없으면 Zod가 보기 전에 키가 잘려 나가 **write-only 버그**(YAML엔 써지는데 모델은 영영 `undefined`)가 된다(`request.disabled`/`normalizeRequest` 전례, `ui/CLAUDE.md`). | R7의 왕복 테스트가 이 게이트를 닫는다 + `yamlDoc.test.ts` 파싱 케이스 | ✅ wire: 읽기 경로(짝 = R1·R2) |
 | R15 | MUST 사전 사이징 워커가 기본값을 반영한다(부하 divergence 금지 — 사용자 상시 규칙): `sizing.ts::iterationHoldMs`와 `openLoopChecks.ts::iterationTimeUpperBoundSeconds`가 `default_think_time`을 받아 상속 스텝에 더하되 **parallel 분기 재귀엔 넘기지 않아**(엔진 R4 규칙 미러) 걷기 결과가 엔진 실행과 일치하고, **두 배선 지점**(`SlotSizingHelper.tsx:48`·`openLoopChecks.ts:89` `openLoopWarnings`)이 실제로 그 값을 넘기며, `VuSizingHelper`의 test-run 호출이 `apply_think_time: true`를 보낸다(`SlotSizingHelper`와 동일 — 지금은 빠져 있어 think time이 측정에서 통째 누락). | ① 순수함수: `sizing.test.ts`/`openLoopChecks.test.ts` — 상속 스텝 hold에 기본값 포함·분기 내부 스텝엔 미포함 ② **배선(필수 — 순수함수 테스트는 인자를 직접 주므로 배선을 잊어도 green)**: `SlotSizingHelper.test.tsx` 걷기 앵커 ⓑ 케이스가 기본값만큼 커짐 + `openLoopChecks.test.ts` `openLoopWarnings` `inert_slots` 임계값이 기본값 때문에 이동 ③ `VuSizingHelper` 페이로드에 `apply_think_time: true` 단언 | |
 | R16 | MUST **closed-loop VU 곡선 경로(`run_vu_curve`, `vu_stages`)도** 기본값을 적용한다 — `execute_steps` 비재귀 호출부는 `run_vu`·`run_vu_curve`·`run_arrival` **3곳**이고, 곡선 경로는 `run_vu` 본문의 의도적 복제라 가장 흘리기 쉽다(`crates/engine/CLAUDE.md` 경고). | `--test vu_curve`(또는 think_time에 곡선 케이스) — `vu_stages` run에서 상속 적용 단언 | |
@@ -126,6 +126,8 @@ pub default_think_time: Option<ThinkTime>,
 
 ## 6. 테스트 / 검증
 
+> **acceptance의 정본은 §2 R표다.** 이 표는 "무엇으로 닫나 + 라이브 필요 여부"의 요약이며, 둘이 어긋나면 **§2가 이긴다**(2라운드 리뷰에서 실제로 드리프트 발생 — plan은 §2를 오라클로 삼을 것).
+
 | R-id | 검증 방법 | 라이브? |
 |---|---|---|
 | R1 | `cargo test -p handicap-engine` — scenario round-trip(있음/없음) | |
@@ -142,9 +144,9 @@ pub default_think_time: Option<ThinkTime>,
 | R12 | `ko.test.ts` + 신규 컴포넌트 리터럴 한글 grep 0 | |
 | R13 | `/live-verify`(아래) | ✅ |
 | R14 | R7 왕복 테스트 + `yamlDoc.test.ts` — `default_think_time`이 든 YAML 파싱 시 모델에 보존 | |
-| R15 | `sizing.test.ts` — 상속 스텝 hold에 기본값 포함·분기 내부 스텝엔 미포함(엔진 규칙 미러); `openLoopChecks.test.ts` 동일; `VuSizingHelper.test.tsx` — 페이로드 `apply_think_time: true` | |
+| R15 | **§2 R15의 ①②③를 그대로** — ① 순수함수(`sizing.test.ts`·`openLoopChecks.test.ts`: 상속 스텝 hold에 기본값 포함, 분기 내부 미포함) ② **배선**(`SlotSizingHelper.test.tsx` 걷기앵커 ⓑ가 기본값만큼 증가 + `openLoopChecks.test.ts` `openLoopWarnings` `inert_slots` 임계 이동) ③ `VuSizingHelper.test.tsx` 페이로드 `apply_think_time: true`. **②를 빼면 배선을 잊어도 ①이 green이라 슬롯 추천이 계속 틀린다.** | |
 | R16 | `--test vu_curve`(또는 think_time 곡선 케이스) — `vu_stages` run에서 상속 적용 | |
-| R17 | `ko.test.ts` + `EditorShell.test.tsx` — 개명 문구, 토글이 두 섹션을 함께 접음 | |
+| R17 | `ko.test.ts` + `EditorShell.test.tsx` + `editorRedesignKeys.test.ts` — 개명 문구(값만·키 유지), 토글이 두 섹션을 함께 접음 | |
 
 **라이브(R13)** — CLAUDE.md S-B 레시피(python `ThreadingHTTPServer` 200-responder + **워크트리 자체 바이너리** + 격리 DB). **단위 주의**: 리포트 `summary.rps`는 *요청*/초(`total_count/duration`, `report.rs:614`)지 반복/초가 아니다 → 예측식은 **`rps ≈ VUs × 스텝수 ÷ (대기하는 스텝수 × think)`**(모든 스텝이 대기하면 스텝수가 상쇄돼 CLAUDE.md의 `VUs / think`와 같아진다).
 1. 기본값 500ms(min=max) + http 3스텝 + 2 VU(전부 상속) → 반복 ≈ 1.5s → `summary.rps` ≈ **2 × 3 ÷ (3 × 0.5) = 4.0** (기본값 없을 때 대비 수백 배 하락 = 신호 명확).
