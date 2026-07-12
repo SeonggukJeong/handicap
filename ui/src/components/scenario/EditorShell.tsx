@@ -8,6 +8,7 @@ import { Modal } from "../Modal";
 import { TestFlowChips } from "./TestFlowChips";
 import { ValidationBanner } from "./ValidationBanner";
 import { VariablesPanel } from "./VariablesPanel";
+import { ScenarioDefaults } from "./ScenarioDefaults";
 import type { Step } from "../../scenario/model";
 
 const EMPTY_STEPS: Step[] = []; // 셀렉터 안정 참조 — 인라인 `?? []` 금지(getSnapshot 함정)
@@ -135,9 +136,10 @@ export function EditorShell({
           <aside
             role="complementary"
             aria-label={ko.editor.varsPanelAria}
-            className={`flex min-h-0 flex-col overflow-visible rounded-md border border-slate-200 bg-white p-3 ${wideOpen ? capClass : ""}`}
+            className={`flex min-h-0 flex-col gap-3 overflow-visible rounded-md border border-slate-200 bg-white p-3 ${wideOpen ? capClass : ""}`}
           >
             <VariablesPanel onJumpToStep={jumpToStep} />
+            <ScenarioDefaults />
           </aside>
         )}
         {varsWide ? (

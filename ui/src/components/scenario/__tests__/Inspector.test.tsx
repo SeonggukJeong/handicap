@@ -1248,3 +1248,98 @@ describe("StepNameField — 이름 blur-Untitled (R12/R13)", () => {
     expect(useScenarioEditor.getState().model?.steps[0]?.name).toBe("로그인");
   });
 });
+
+const DEFAULTS_YAML = `version: 1
+name: "demo"
+default_think_time:
+  min_ms: 500
+  max_ms: 1000
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+  - id: "01HX0000000000000000000020"
+    name: "assets"
+    type: parallel
+    branches:
+      - name: "b1"
+        steps:
+          - id: "01HX0000000000000000000021"
+            name: "img"
+            type: http
+            request:
+              method: GET
+              url: "/img"
+`;
+
+// 섹션 제목 버튼은 기존 이디엄대로 ko.editor.sectionTiming("타이밍") — RunDialog의
+// 동명 개념("페이싱")과 문구가 다르니 혼동 주의(브리프 초안의 sectionPacing 오기 정정).
+async function openTiming(user: ReturnType<typeof userEvent.setup>) {
+  const btn = screen.queryByRole("button", { name: new RegExp(ko.editor.sectionTiming) });
+  if (btn && btn.getAttribute("aria-expanded") === "false") await user.click(btn);
+}
+
+describe("Inspector — think time 3상태 (think-time-defaults R8/R9)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("상속 중이면 시나리오 기본값 힌트를 보여준다 (기본값 없으면 안 보여준다)", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
+    render(<Inspector />);
+    await openTiming(user);
+    expect(screen.getByText(ko.editor.inheritedThink(500, 1000))).toBeInTheDocument();
+
+    // 기본값이 없는 시나리오 → 힌트 없음(R10 회귀 0)
+    act(() => {
+      useScenarioEditor.getState().loadFromString(VALID_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
+    expect(screen.queryByText(/상속 중/)).not.toBeInTheDocument();
+  });
+
+  it("'이 스텝은 대기 없음' 체크 → think_time {0,0} + 입력 disabled, 해제 → 키 제거(상속 복귀)", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
+    render(<Inspector />);
+    await openTiming(user);
+
+    await user.click(screen.getByLabelText(ko.editor.stepNoWaitLabel));
+    const step = () =>
+      useScenarioEditor
+        .getState()
+        .model!.steps.find((s) => s.id === "01HX0000000000000000000001") as {
+        think_time?: unknown;
+      };
+    expect(step().think_time).toEqual({ min_ms: 0, max_ms: 0 });
+    expect(screen.getByLabelText(ko.editor.fieldThinkMin)).toBeDisabled();
+    expect(screen.getByLabelText(ko.editor.fieldThinkMax)).toBeDisabled();
+
+    await user.click(screen.getByLabelText(ko.editor.stepNoWaitLabel));
+    expect(step().think_time).toBeUndefined();
+    expect(screen.getByLabelText(ko.editor.fieldThinkMin)).not.toBeDisabled();
+  });
+
+  it("parallel 분기 내부 스텝엔 미적용 안내가 뜨고 상속 힌트는 숨는다", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000021"); // 분기 안 http
+    });
+    render(<Inspector />);
+    await openTiming(user);
+    expect(screen.getByText(ko.editor.parallelNoDefaultNote)).toBeInTheDocument();
+    expect(screen.queryByText(ko.editor.inheritedThink(500, 1000))).not.toBeInTheDocument();
+  });
+});

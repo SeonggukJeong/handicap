@@ -421,9 +421,9 @@ export const ko = {
     urlEmptyWarning: "URL을 입력하세요 — 비어 있으면 요청이 실패합니다.",
     urlMissingTitle: "URL이 비어 있습니다",
     // ── 아웃라인 재설계 (R14) ──
-    varsToggle: "변수",
-    varsToggleAria: "변수 패널 접기/펼치기",
-    varsPanelAria: "변수",
+    varsToggle: "변수·기본값",
+    varsToggleAria: "변수·기본값 패널 접기/펼치기",
+    varsPanelAria: "변수·시나리오 기본값",
     wideToggle: "스텝 넓게 보기",
     wideToggleAria: "스텝 넓게 보기 전환",
     varsWideToggle: "변수 넓게 보기",
@@ -491,6 +491,16 @@ export const ko = {
     variableRenameInvalid: "변수 이름에 공백·{ } : 문자를 쓸 수 없습니다",
     variableUsageNavAria: (name: string) => `${name}을(를) 사용하는 스텝으로 이동`,
     varUsageListAria: "사용 스텝 목록",
+    // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
+    scenarioDefaultsTitle: "시나리오 기본값",
+    defaultThinkSetHint: "설정됨",
+    fieldDefaultThinkMin: "기본 think 최솟값 (ms)",
+    fieldDefaultThinkMax: "기본 think 최댓값 (ms)",
+    defaultThinkHint:
+      "모든 http 스텝이 요청 후 이만큼 쉽니다. 스텝에서 값을 입력하면 그 스텝만 그 값을 씁니다.",
+    defaultThinkParallelHelpLabel: "병렬 분기 미적용 설명",
+    defaultThinkParallelHelp:
+      "병렬(parallel) 분기 안의 요청에는 기본값이 적용되지 않습니다. 병렬 분기는 브라우저가 페이지 리소스를 동시에 받는 구간이라 사람이 쉬는 자리가 아니고, 여기에 대기를 넣으면 그룹(페이지) 응답 시간 지표가 그만큼 부풀기 때문입니다. 그 분기 스텝에 think time을 직접 입력하면 그대로 적용됩니다.",
     // ── 새 시나리오 페이지 chrome ──
     create: "만들기",
     creating: "생성 중…",
@@ -566,6 +576,11 @@ export const ko = {
     noFormFields: "필드 없음",
     // ── Inspector think time 도움말 ──
     thinkHint: "min=max면 고정 지연 (요청 후 대기)",
+    // ── Inspector think time 3상태 (think-time-defaults, R8/R9) ──
+    stepNoWaitLabel: "이 스텝은 대기 없음",
+    inheritedThink: (min: number, max: number) => `시나리오 기본값 ${min}–${max}ms 상속 중`,
+    parallelNoDefaultNote:
+      "병렬 분기 내부 — 시나리오 기본값이 적용되지 않습니다. 대기가 필요하면 아래에 직접 입력하세요.",
     // ── Inspector 접이식 섹션 (R1–R3) ──
     sectionTiming: "타이밍",
     sectionSetHint: "설정됨",

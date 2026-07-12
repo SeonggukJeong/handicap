@@ -553,3 +553,29 @@ describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
     expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000001"); // select는 유지
   });
 });
+
+const DEFAULTS_ONLY_YAML = `version: 1
+name: "demo"
+default_think_time:
+  min_ms: 500
+  max_ms: 1000
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+`;
+
+describe("FlowOutline wide 칩 — 시나리오 기본값 lock-in (R11, think-time-defaults)", () => {
+  beforeEach(reset);
+
+  it("wide 칩은 스텝 명시값만 — 시나리오 기본값 상속 스텝엔 think 칩이 없다", () => {
+    // default_think_time만 있고 스텝엔 think_time이 없는 시나리오 — 게이트는 여전히
+    // step.think_time !== undefined(FlowOutline.tsx 구현 변경 0)이라 칩이 뜨면 안 된다.
+    act(() => useScenarioEditor.getState().loadFromString(DEFAULTS_ONLY_YAML));
+    render(<FlowOutline wide />);
+    expect(screen.queryByText(/think \d+–\d+ms/)).not.toBeInTheDocument();
+  });
+});

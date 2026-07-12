@@ -153,6 +153,17 @@ describe("EditorShell", () => {
     ).toBeInTheDocument();
   });
 
+  it("왼쪽 패널이 변수와 시나리오 기본값을 함께 담고, 토글로 함께 접힌다 (R17)", async () => {
+    const user = userEvent.setup();
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    expect(screen.getByText(ko.editor.variablesTitle)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.scenarioDefaultsTitle)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: ko.editor.varsToggleAria }));
+    expect(screen.queryByText(ko.editor.variablesTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.editor.scenarioDefaultsTitle)).not.toBeInTheDocument();
+  });
+
   const WIDE_YAML = `version: 1
 name: "demo"
 cookie_jar: auto

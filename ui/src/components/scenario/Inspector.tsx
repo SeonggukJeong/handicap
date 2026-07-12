@@ -19,6 +19,7 @@ import {
   isLoopStep,
   isIfStep,
   isParallelStep,
+  isInsideParallelBranch,
 } from "../../scenario/model";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
@@ -208,6 +209,16 @@ function HttpStepInspector({
   const setStepAssert = useScenarioEditor((s) => s.setStepAssert);
   const removeStep = useScenarioEditor((s) => s.removeStep);
 
+  // 시나리오 기본 think time 3상태(R8/R9): 상속(think_time 키 없음) / override(값
+  // 명시) / "이 스텝만 대기 없음"({min_ms:0,max_ms:0}). parallel 분기 서브트리엔
+  // 기본값이 적용되지 않는다(ADR-0033 — 분기는 브라우저 동시 로딩 구간) — 그 판정은
+  // model.ts의 isInsideParallelBranch(엔진 runner/trace 배제 규칙의 UI 미러)와 동일.
+  const model = useScenarioEditor((s) => s.model);
+  const defaultThink = model?.default_think_time;
+  const insideParallel = model ? isInsideParallelBranch(model.steps, step.id) : false;
+  const noWait = step.think_time?.min_ms === 0 && step.think_time?.max_ms === 0;
+  const inheriting = step.think_time === undefined;
+
   // Numeric draft + commit-on-blur (F5 pattern), matching the loop Repeat field.
   // timeout_seconds is optional, so the draft round-trips the empty/undefined state.
   const [timeoutDraft, setTimeoutDraft] = useState(
@@ -376,12 +387,27 @@ function HttpStepInspector({
           />
         </Field>
 
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            checked={noWait}
+            onChange={(e) =>
+              setStepField(
+                step.id,
+                ["think_time"],
+                e.target.checked ? { min_ms: 0, max_ms: 0 } : undefined,
+              )
+            }
+          />
+          {ko.editor.stepNoWaitLabel}
+        </label>
         <Field label={ko.editor.fieldThinkMin}>
           <Input
             numeric
             type="number"
             min={0}
             max={600000}
+            disabled={noWait}
             value={thinkMinDraft}
             onChange={(e) => setThinkMinDraft(e.target.value)}
             onBlur={commitThinkTime}
@@ -393,11 +419,19 @@ function HttpStepInspector({
             type="number"
             min={0}
             max={600000}
+            disabled={noWait}
             value={thinkMaxDraft}
             onChange={(e) => setThinkMaxDraft(e.target.value)}
             onBlur={commitThinkTime}
           />
         </Field>
+        {insideParallel ? (
+          <p className="text-xs text-amber-700">{ko.editor.parallelNoDefaultNote}</p>
+        ) : inheriting && defaultThink ? (
+          <p className="text-xs text-slate-500">
+            {ko.editor.inheritedThink(defaultThink.min_ms, defaultThink.max_ms)}
+          </p>
+        ) : null}
         <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
       </InspectorSection>
       <InspectorSection
