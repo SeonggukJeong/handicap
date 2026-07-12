@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CriteriaSchema,
   IfBreakdownSchema,
+  InsightSchema,
   ProfileSchema,
   ReportSchema,
   ReportSummarySchema,
@@ -374,6 +375,26 @@ describe("ReportSummarySchema.mean_ms", () => {
       p99_ms: 0,
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("InsightSchema achieved/target_per_sec (ADR-0046 R5)", () => {
+  const base = { kind: "load_gen_saturated", severity: "warning" as const };
+
+  it("parses achieved_per_sec/target_per_sec when present", () => {
+    const parsed = InsightSchema.parse({
+      ...base,
+      achieved_per_sec: 2.5,
+      target_per_sec: 20.0,
+    });
+    expect(parsed.achieved_per_sec).toBe(2.5);
+    expect(parsed.target_per_sec).toBe(20.0);
+  });
+
+  it("treats absent achieved_per_sec/target_per_sec as undefined (server omits None)", () => {
+    const parsed = InsightSchema.parse(base);
+    expect(parsed.achieved_per_sec).toBeUndefined();
+    expect(parsed.target_per_sec).toBeUndefined();
   });
 });
 

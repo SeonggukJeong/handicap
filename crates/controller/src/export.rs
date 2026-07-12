@@ -85,8 +85,8 @@ const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_
 
 /// 모든 CSV/XLSX 인사이트 표면이 공유하는 정규 컬럼 순서(단일 소스).
 /// `Insight` 구조체(insights.rs) 필드 순서와 일치. 비교 표면은 `run_id` 열을
-/// 앞에 붙이고, 이 13열은 모든 표면에서 동일하다.
-const INSIGHT_COLUMNS: [&str; 13] = [
+/// 앞에 붙이고, 이 15열은 모든 표면에서 동일하다.
+const INSIGHT_COLUMNS: [&str; 15] = [
     "kind",
     "severity",
     "step_id",
@@ -100,9 +100,11 @@ const INSIGHT_COLUMNS: [&str; 13] = [
     "cause",
     "recommended_workers",
     "onset_second",
+    "achieved_per_sec",
+    "target_per_sec",
 ];
 
-/// 인사이트 하나를 13개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
+/// 인사이트 하나를 15개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
 fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
     let f = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
     let i = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_default();
@@ -120,10 +122,12 @@ fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
         ins.cause.clone().unwrap_or_default(),
         f(ins.recommended_workers),
         i(ins.onset_second),
+        f(ins.achieved_per_sec),
+        f(ins.target_per_sec),
     ]
 }
 
-/// 인사이트 하나의 13개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
+/// 인사이트 하나의 15개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
 /// 숫자 필드는 number로, `None`은 빈 셀(미기록). col_offset = 0(단일) | 1(비교 run_id 뒤).
 fn write_insight_xlsx_row(
     ws: &mut Worksheet,
@@ -166,6 +170,12 @@ fn write_insight_xlsx_row(
     }
     if let Some(v) = ins.onset_second {
         ws.write_number(row, c(12), v as f64).expect("w");
+    }
+    if let Some(v) = ins.achieved_per_sec {
+        ws.write_number(row, c(13), v).expect("w");
+    }
+    if let Some(v) = ins.target_per_sec {
+        ws.write_number(row, c(14), v).expect("w");
     }
 }
 
@@ -694,10 +704,13 @@ mod tests {
                 cause: None,
                 recommended_workers: None,
                 onset_second: None,
+                achieved_per_sec: None,
+                target_per_sec: None,
             },
-            // 사이징 3필드를 모두 채운 합성 행: 세 새 열 writer를 모두 운동시킨다.
-            // (실제 인사이트는 recommended[slots] ⊕ recommended_workers[loadgen]로 배타적이지만,
-            //  그 배타성은 insights.rs의 불변식이지 export writer의 관심사가 아니다.)
+            // 사이징 3필드 + achieved/target_per_sec를 모두 채운 합성 행: 다섯 새 열
+            // writer를 모두 운동시킨다. (실제 인사이트는 recommended[slots] ⊕
+            // recommended_workers[loadgen]로 배타적이지만, 그 배타성은 insights.rs의
+            // 불변식이지 export writer의 관심사가 아니다.)
             crate::insights::Insight {
                 kind: "load_gen_saturated".into(),
                 severity: "warning".into(),
@@ -712,6 +725,8 @@ mod tests {
                 cause: Some("slots".into()),
                 recommended_workers: Some(6.0),
                 onset_second: Some(14),
+                achieved_per_sec: Some(2.5),
+                target_per_sec: Some(20.0),
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -752,6 +767,21 @@ mod tests {
         assert_eq!(ws.get_value((2, 12)), Some(&Data::Float(14.0)));
         // slowest_step 행(row 1)은 onset None → 미기록(None 또는 Empty)
         assert!(matches!(ws.get_value((1, 12)), None | Some(Data::Empty)));
+        // 새 14/15번째 열 achieved_per_sec/target_per_sec (col 13/14 = N/O)
+        assert_eq!(
+            ws.get_value((0, 13)),
+            Some(&Data::String("achieved_per_sec".into()))
+        );
+        assert_eq!(
+            ws.get_value((0, 14)),
+            Some(&Data::String("target_per_sec".into()))
+        );
+        // 사이징 행(벡터 인덱스 1 → 시트 row 2)의 achieved/target_per_sec = 2.5/20.0
+        assert_eq!(ws.get_value((2, 13)), Some(&Data::Float(2.5)));
+        assert_eq!(ws.get_value((2, 14)), Some(&Data::Float(20.0)));
+        // slowest_step 행(row 1)은 achieved/target None → 미기록(None 또는 Empty)
+        assert!(matches!(ws.get_value((1, 13)), None | Some(Data::Empty)));
+        assert!(matches!(ws.get_value((1, 14)), None | Some(Data::Empty)));
     }
 
     #[test]
@@ -932,6 +962,8 @@ mod tests {
             cause: None,
             recommended_workers: None,
             onset_second: None,
+            achieved_per_sec: None,
+            target_per_sec: None,
         }
     }
 
@@ -948,7 +980,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second"
+            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec"
         );
         assert_eq!(lines.len(), 2); // header + 1 insight
         assert!(lines[1].starts_with("slowest_step,info,a,p95_ms,50,,,,,,,,"));
@@ -1001,7 +1033,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second"
+            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec"
         );
         assert_eq!(lines.len(), 3); // header + 2 rows (both from A)
         assert!(lines[1].starts_with("A,slowest_step,info,s,"));

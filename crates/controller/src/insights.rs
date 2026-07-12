@@ -39,6 +39,12 @@ pub struct Insight {
     /// flat/고정-레이트·windows 부재면 None. spec R6.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onset_second: Option<i64>,
+    /// 달성 도착률(반복/초) — open-loop 포화 인사이트에서 계산 가능할 때만 Some. (ADR-0046 R5)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub achieved_per_sec: Option<f64>,
+    /// 목표 도착률(반복/초, 곡선이면 peak) — 위와 동일 조건. (ADR-0046 R5)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_per_sec: Option<f64>,
 }
 
 impl Insight {
@@ -57,6 +63,8 @@ impl Insight {
             cause: None,
             recommended_workers: None,
             onset_second: None,
+            achieved_per_sec: None,
+            target_per_sec: None,
         }
     }
 }
@@ -1334,5 +1342,21 @@ steps:
         let got = derive_insights(&s, &[], &[], &dist, None, "", 7, Some(100), Some(1000), 1);
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
+    }
+
+    #[test]
+    fn insight_new_fields_serialize_when_some_and_omit_when_none() {
+        let mut ins = Insight::new("load_gen_saturated", "warning");
+        let none_json = serde_json::to_value(&ins).unwrap();
+        assert!(
+            none_json.get("achieved_per_sec").is_none(),
+            "None → 키 생략"
+        );
+        assert!(none_json.get("target_per_sec").is_none());
+        ins.achieved_per_sec = Some(2.5);
+        ins.target_per_sec = Some(20.0);
+        let some_json = serde_json::to_value(&ins).unwrap();
+        assert_eq!(some_json["achieved_per_sec"], 2.5);
+        assert_eq!(some_json["target_per_sec"], 20.0);
     }
 }
