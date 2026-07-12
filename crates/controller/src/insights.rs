@@ -1041,8 +1041,7 @@ steps:
     #[test]
     fn saturated_sizing_falls_back_when_max_in_flight_absent() {
         // max_in_flight None → 분류 불가(폴백). (prod 불가 케이스지만 방어.)
-        let mut s = summary();
-        s.mean_ms = 50;
+        let s = summary();
         let got = derive_insights(
             &s,
             &[],
@@ -1100,9 +1099,8 @@ steps:
 
     #[test]
     fn saturated_sut_via_5xx() {
-        // 슬롯 충분(required=ceil(1000*0.05)=50 ≤ 2000) + 5xx 10% → sut, worker rec 없음.
-        let mut s = summary();
-        s.mean_ms = 50;
+        // sut_stress(5xx≥1%) → sut 선평가 — achieved와 무관하게 cause=sut·recommended None (ADR-0046)
+        let s = summary();
         let dist = dist(&[("200", 900), ("500", 100)]);
         let got = derive_insights(
             &s,
@@ -1123,9 +1121,9 @@ steps:
 
     #[test]
     fn saturated_sut_via_latency_rise() {
-        // 5xx 없음 + p95가 early 10 → late 100 (1.5배↑, span 8≥6) → sut, worker rec 없음.
-        let mut s = summary();
-        s.mean_ms = 50;
+        // sut_stress(p95 상승) → sut 선평가 — achieved와 무관하게 cause=sut·recommended None (ADR-0046)
+        // 5xx 없음 + p95가 early 10 → late 100 (1.5배↑, span 8≥6) → sut 트리거.
+        let s = summary();
         let mut windows = vec![];
         for ts in 0..9 {
             windows.push(win_p95(ts, if ts >= 6 { 100 } else { 10 }));
