@@ -111,6 +111,7 @@ docs/
 ## Subagent dispatch 노하우
 
 - **SDD `scripts/task-brief PLAN N`은 숫자 `Task N` 헤딩만 매칭 — "Task A/B" 라벨 plan은 exit 3** (곡선 fan-out 워커 표시): awk 정규식이 `Task[ \t]+[0-9]+`라 letter-label plan에서 "task N not found"로 실패. 수동 추출 `awk '/^## Task A:/{f=1}/^## Task B:/{f=0}f' PLAN > brief.md`(또는 plan을 숫자 `Task N`으로 작성). `review-package`·`sdd-workspace`는 라벨 비의존이라 무관.
+- **`task-brief`는 그 task *섹션만* 자른다 — plan이 task-밖 공유 정본(카피 개명 표·keep-list 등)을 두면 implementer/리뷰어가 못 본다** (open-loop-rate-labels T2–T4): 공유 섹션을 `awk '/^## 카피 개명 표/,/^---$/'`류로 별도 파일(`.superpowers/sdd/copy-table.md`)로 추출해 brief와 함께 디스패치 prompt에 두 경로로 넘길 것("이 표의 문자열을 byte-exact로" 명시). T2·T3·T4가 같은 표를 참조해도 추출은 1회면 된다.
 - **`ui/src`를 한 줄이라도 건드리는 task는 plan/brief에 UI 테스트 스텝을 넣을 것** (open-loop-slot-sizing T1): Rust-TDD 위주 task에 UI Zod 2줄이 섞여도 tdd-guard가 UI-side pending test 부재로 `ui/src` 편집을 차단 — implementer가 즉석 테스트를 추가해 통과했지만(brief 밖 파일 커밋 유발), plan이 UI 테스트 스텝을 명시하면 재발 0.
 - **plan 인라인 Rust 코드에 2-arm `match … _ => {}` 금지 — `if let`으로 쓸 것** (open-loop-slot-sizing T2): verbatim 전사가 `clippy::single_match`(-D warnings)에 걸려 implementer가 등가 재작성을 해야 했다. plan 코드블록도 clippy-clean하게.
 - **워크트리에서 subagent를 띄울 땐 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 명시**: 안 하면 spec-reviewer 같은 lightweight 모델이 메인 체크아웃을 읽고 "코드가 없다"고 잘못 보고한다. 절대 경로로 박는 게 가장 안전.

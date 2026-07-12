@@ -53,6 +53,10 @@
 - **브라우저는 store(`useScenarioEditor`)를 window에 안 노출** → R1 store no-op은 직접 못 읽고 **outline 라벨 + block-notice 배너 지속으로 프록시 검증**: Inspector name 입력을 native setter(`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'HACKED')`+`input`/`change`/`blur` dispatch)로 "HACKED"로 편집 후 별도 evaluate에서 (a) 아웃라인 행 `[role=option]` aria-label 불변(=`model.name` 미변이=게이트 no-op) (b) 편집차단 배너 지속(=`yamlError` 미클리어 = 이 슬라이스가 고친 **버그 시그니처**의 부재)을 단언. 로컬 draft 입력값은 "HACKED"로 보여도 model은 불변(commit-on-blur draft라 정상).
 - **연필(R2)은 `/scenarios/new`(ScenarioNewPage=plain name Input, 연필 없음)엔 없고 저장 시나리오 `ScenarioEditPage`(`/scenarios/{id}`)에만 렌더**(aria `시나리오 이름 편집`) — 메인 dev 컨트롤러(8080)의 기존 시나리오를 전용포트 Vite dev로 로드해 read-only 검증(YAML을 깨도 저장 안 하면 DB 무변경). native `disabled` 드래그 무이동은 disabled 핸들에 `page.mouse.down→move(+80px)→up` 후 row `getBoundingClientRect().y` delta 0 + `[aria-pressed="true"]` 미발생(dnd-kit 미활성)으로 실측(disabled 버튼은 pointer 이벤트 미수신). 콘솔 `favicon.ico` 404는 네트워크 리소스라 앱 에러 아님(Zod/getSnapshot/key 경고 0이 진짜 clean 신호).
 
+## RunDialog 라디오 타일·라벨 겹침 스코핑 (open-loop-rate-labels 2026-07-12)
+
+- **RunDialog 부하모델 타일 radio는 `<label>` 요소가 아니라 `label:has-text(...)` 셀렉터가 미매치하고, accname도 `aria-label`이 아니라 `input.labels[0]`에서 온다** — evaluate 안에서 `input[type=radio]`를 모아 `labels[0].textContent`로 이름을 뽑아 `.click()`. 카피 개명으로 타일 제목·입력 라벨·HelpTip이 같은 단어("도착률")를 공유하면 전체-input 스캔의 첫 매치가 radio일 수 있다 — **값 입력 대상은 `input[type="number"]`로 스코프**하고, 정확 라벨은 공백 유무로 구분(타일 "도착률 (초당 반복)" vs 입력 "도착률(초당 반복)" — ko 표 #13/#9의 의도적 구분·RTL 정규식 tightening과 같은 트릭). 다이얼로그 제출 버튼("실행하기")도 `[role="dialog"]` 스코프 셀렉터가 미매치할 수 있어 evaluate에서 텍스트 정확일치로 찾는 게 결정적.
+
 ## useBlocker/beforeunload 이탈 가드 검증 (unsaved-changes-guard 2026-07-12)
 
 - **차단된 내비게이션에서 `browser_navigate_back`(=page.goBack)은 "waiting for navigation until commit" 60s 타임아웃으로 끝난다 — 이게 차단 *성공*의 정상 신호다**(에러로 오진 금지: useBlocker가 POP을 막아 commit할 내비게이션이 없다). 검증은 goBack 대신 `browser_evaluate`로 `history.back()`(즉시 반환) 발사 후 **별도 evaluate**에서 모달 존재/URL 잔류 단언.
