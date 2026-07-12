@@ -278,10 +278,10 @@ describe("SlotSizingHelper", () => {
     expect(screen.getByText(/슬롯 상한\(10,000\)을 넘어요/)).toBeInTheDocument();
   });
 
-  it("목표 RPS 비어있으면 안내(권장 미표시)", () => {
+  it("목표 도착률 비어있으면 안내(권장 미표시)", () => {
     setHooks({ runs: [openRun(100, 3)], report: saturatedReport });
     render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="" onApply={vi.fn()} />);
-    expect(screen.getByText(/목표 RPS를 먼저 입력/)).toBeInTheDocument();
+    expect(screen.getByText(/목표 도착률을 먼저 입력/)).toBeInTheDocument();
     expect(screen.queryByText(/max_in_flight를 최소/)).not.toBeInTheDocument();
   });
 
@@ -306,6 +306,6 @@ describe("SlotSizingHelper", () => {
     render(<SlotSizingHelper scenarioId="s1" env={{}} targetRps="" peakBased onApply={vi.fn()} />);
     expect(screen.getByText(/단계 목표를 먼저 입력/)).toBeInTheDocument();
     // fixed 변형 문구는 안 떠야 함(회귀 가드)
-    expect(screen.queryByText(/목표 RPS를 먼저 입력/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/목표 도착률을 먼저 입력/)).not.toBeInTheDocument();
   });
 });

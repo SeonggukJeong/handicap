@@ -26,9 +26,9 @@ it("closed+fixed: main 세그먼트에 굵은 vus·time, sub=램프업", () => {
   expect(r.sub).toBe("램프업 없음");
 });
 
-it("open+fixed: 굵은 rps·total·time, sub=동시 요청 상한", () => {
+it("open+fixed: 굵은 rate·total·time, sub=동시 요청 상한", () => {
   const r = runSummary({ ...base, loadModel: "open" });
-  expect(r.main.map((s) => s.text).join("")).toBe("목표 100 RPS · 약 30,000건 · 5분");
+  expect(r.main.map((s) => s.text).join("")).toBe("도착률 초당 100회 · 반복 약 30,000회 · 5분");
   expect(r.sub).toBe("동시 요청 상한 200");
 });
 
@@ -63,7 +63,7 @@ it("open+curve: summaryCurveRps 변형, curve=true", () => {
     ],
   });
   expect(r.curve).toBe(true);
-  expect(r.main.map((s) => s.text).join("")).toContain("RPS");
+  expect(r.main.map((s) => s.text).join("")).toBe("최대 초당 100회 반복 (곡선)");
   // 0-duration 제외 → 2단계
   expect(r.sub).toContain("2단계");
   expect(r.sub).not.toContain("3단계");

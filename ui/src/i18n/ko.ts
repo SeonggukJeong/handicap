@@ -42,12 +42,14 @@ export const ko = {
     closedLoop:
       "사용자 수 기준(closed-loop) — 가상 사용자 N명이 각자 응답을 받은 뒤 다음 요청을 보내는 방식입니다. 일반 시나리오에 적합합니다.",
     openLoop:
-      "요청 속도 기준(open-loop) — 응답 속도와 무관하게 목표 RPS로 요청을 발사하는 방식입니다. 처리량 한계 측정에 적합합니다.",
+      "도착률 기준(open-loop) — 응답 속도와 무관하게 매초 정해진 횟수만큼 시나리오 반복을 시작하는 방식입니다. 처리량 한계 측정에 적합합니다.",
     thinkTime: "think time — 실제 사용자처럼 요청 사이에 쉬는 시간입니다.",
     maxInFlight:
       "동시 요청 상한(max in-flight) — 동시에 진행 중일 수 있는 요청 수의 상한입니다. 서버가 목표 속도를 못 따라가면 초과분은 drop으로 집계됩니다.",
     workerCount:
-      "open-loop 부하를 여러 워커에 나눠 더 높은 목표 RPS를 냅니다. 한 워커가 목표를 못 내면 늘리세요 — 리포트가 권장값을 알려줍니다.",
+      "open-loop 부하를 여러 워커에 나눠 더 높은 도착률을 냅니다. 한 워커가 목표를 못 내면 늘리세요 — 리포트가 권장값을 알려줍니다.",
+    arrivalRate:
+      "도착률(초당 반복) — 매초 시작하는 시나리오 반복 횟수입니다. 반복 1회 = 시나리오 전체(모든 스텝) 실행이라, 초당 요청 수는 도착률 × 반복당 요청 수가 됩니다.",
     slo: "합격 기준(SLO) — 응답시간·에러율 등의 임계값입니다. 설정하면 run 종료 시 합격/불합격을 자동 판정합니다.",
     vuCurve:
       "VU 곡선 — 동시 사용자 수를 시간에 따라 단계별로 늘렸다 줄이는 부하 방식입니다. 점심 피크, 이벤트 오픈처럼 사용자 수가 변하는 상황을 재현합니다.",
@@ -115,12 +117,12 @@ export const ko = {
       { text: time, bold: true },
     ],
     summaryRampUp: (sec: number) => (sec > 0 ? `램프업 ${sec}초` : "램프업 없음"),
-    summaryOpen: (rps: number, total: string, time: string) => [
-      { text: "목표 " },
-      { text: String(rps), bold: true },
-      { text: " RPS · 약 " },
+    summaryOpen: (rate: number, total: string, time: string) => [
+      { text: "도착률 초당 " },
+      { text: String(rate), bold: true },
+      { text: "회 · 반복 약 " },
       { text: total, bold: true },
-      { text: "건 · " },
+      { text: "회 · " },
       { text: time, bold: true },
     ],
     summaryOpenSub: (mif: string) => `동시 요청 상한 ${mif || "—"}`,
@@ -130,14 +132,14 @@ export const ko = {
       { text: "명 (곡선)" },
     ],
     summaryCurveRps: (peak: number) => [
-      { text: "최대 " },
+      { text: "최대 초당 " },
       { text: String(peak), bold: true },
-      { text: " RPS (곡선)" },
+      { text: "회 반복 (곡선)" },
     ],
     summaryCurveSub: (totalSec: number, stages: number) => `총 ${totalSec}초 · ${stages}단계`,
     summaryInvalid: "설정을 확인하세요",
     summaryWarnClosedSub: "동시 사용자·시간을 입력",
-    summaryWarnOpenSub: "목표 RPS·시간을 입력",
+    summaryWarnOpenSub: "목표 도착률·시간을 입력",
     loadShapeAria: "부하 모양 미리보기",
     modeSimple: "간단",
     modeDetail: "상세",
@@ -149,7 +151,7 @@ export const ko = {
       "응답 시간을 네 단계로 나눕니다 — DNS(주소 조회) → 연결(TCP+TLS 핸드셰이크) → 대기(요청 전송부터 첫 바이트까지 ≈ 서버 처리 시간) → 다운로드(본문 수신). " +
       "keep-alive로 연결을 재사용하면 DNS·연결 비용은 첫 요청에만 들고 그다음 요청은 0입니다. " +
       "각 단계의 퍼센타일은 비가산이라 네 단계의 합이 전체 응답 시간과 다를 수 있습니다. " +
-      "서버 자원에 여유가 없으면 VU나 RPS를 올려도 '대기' 단계만 길어지고 처리량은 더 오르지 않습니다 — 이때 단계 분해로 병목이 서버(대기)인지 네트워크(DNS·연결)인지 가려냅니다.",
+      "서버 자원에 여유가 없으면 VU나 도착률을 올려도 '대기' 단계만 길어지고 처리량은 더 오르지 않습니다 — 이때 단계 분해로 병목이 서버(대기)인지 네트워크(DNS·연결)인지 가려냅니다.",
     // 간단 모드 상세 적용 힌트 (R6)
     appliedDetail: (n: number) => `상세 설정 ${n}개 적용됨`,
     // 간단 모드 곡선 읽기전용 카드 (R17)
@@ -177,11 +179,11 @@ export const ko = {
   },
   loadModel: {
     closedLoop: "사용자 수 기준 (closed-loop)",
-    openLoop: "요청 속도 기준 (open-loop)",
+    openLoop: "도착률 기준 (open-loop)",
     vus: "동시 사용자(VU)",
     duration: "테스트 시간(초)",
     rampUp: "점진 시작(초)",
-    targetRps: "목표 RPS",
+    targetRps: "도착률(초당 반복)",
     maxInFlight: "동시 요청 상한",
     workerCount: "부하 생성기 워커 수 (수평 확장)",
     workerCountHint: (n: number) => `${n}개 설정됨`,
@@ -191,11 +193,11 @@ export const ko = {
     thinkMax: "think 최대(ms)",
     thinkSeed: "think 시드 (선택)",
     curveTargetVu: "목표 VU",
-    curveTargetRps: "목표 RPS",
+    curveTargetRps: "목표 도착률",
     curveHintVu: "각 단계가 끝날 때의 목표 동시 사용자 수 (이전 값에서 선형 변화)",
-    curveHintRps: "각 단계가 끝날 때의 목표 초당 요청 수 (이전 값에서 선형 변화)",
+    curveHintRps: "각 단계가 끝날 때의 목표 도착률(초당 반복) (이전 값에서 선형 변화)",
     curvePreviewAriaVu: "VU 곡선 미리보기 (x: 누적 초, y: VU)",
-    curvePreviewAriaRps: "레이트 곡선 미리보기 (x: 누적 초, y: RPS)",
+    curvePreviewAriaRps: "레이트 곡선 미리보기 (x: 누적 초, y: 도착률)",
     rampDownLabel: "줄이는 방식",
     rampDownGraceful: "요청을 마친 뒤 줄이기 (권장) — 안전하지만 곡선보다 약간 늦게 줄어듭니다",
     rampDownImmediate: "즉시 줄이기 — 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다",
@@ -209,13 +211,13 @@ export const ko = {
     sizePresetsCaptionFromPrior: (vus: number, durationLabel: string) =>
       `직전 run(${vus}명 · ${durationLabel}) 기준입니다`,
     tileClosedTitle: "동시 사용자 (VU)",
-    tileOpenTitle: "목표 RPS",
+    tileOpenTitle: "도착률 (초당 반복)",
     tileClosedDesc: "N명이 동시에 반복 요청",
-    tileOpenDesc: "초당 N건씩 도착",
+    tileOpenDesc: "초당 N회씩 반복 시작",
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",
-    targetRps: "목표 RPS는 1 ~ 1,000,000 사이여야 합니다.",
+    targetRps: "도착률(초당 반복)은 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
     workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
@@ -250,7 +252,7 @@ export const ko = {
       `요청한 동시 요청 수 ${requested}가 현재 풀 용량 ${achievable} VU를 초과합니다.`,
     // guidance note shown in open-loop 409 dialog
     clampNoteOpen:
-      "동시 슬롯만 줄입니다 — 목표 RPS는 유지되어 드롭이 늘 수 있어요(포화 시 워커를 늘리세요).",
+      "동시 슬롯만 줄입니다 — 목표 도착률은 유지되어 드롭이 늘 수 있어요(포화 시 워커를 늘리세요).",
     clamp: (achievable: number) => `${achievable} VU로 줄여 진행`,
     // open-loop reduce button label (slots, not VUs)
     clampOpen: (achievable: number) => `동시 요청 ${achievable}개로 줄여 진행`,
@@ -983,7 +985,7 @@ export const ko = {
   slotSizing: {
     title: "동시 요청 수(슬롯) 도우미",
     helpLabel: "슬롯 사이징 도우미 설명",
-    help: "목표 RPS를 내려면 동시 요청 상한(max_in_flight)을 몇으로 잡아야 하는지 추정해 드려요. 너무 낮으면 요청이 버려져요(drop). 권장값은 최소 출발점이에요.",
+    help: "목표 도착률을 내려면 동시 요청 상한(max_in_flight)을 몇으로 잡아야 하는지 추정해 드려요. 너무 낮으면 요청이 버려져요(drop). 권장값은 최소 출발점이에요.",
     estMs: "반복 1회 예상 시간(ms) — 모든 스텝 응답 + 생각 시간 포함",
     measureBtn: "test-run으로 측정",
     measuring: "측정 중…",
@@ -1000,10 +1002,10 @@ export const ko = {
     formula: (targetRps: number, holdMs: number, n: number) =>
       `목표 도착 초당 ${targetRps}회 × 반복 1회 ${holdMs}ms ≈ 동시 ${n}슬롯`,
     apply: "적용",
-    needTarget: "위에서 목표 RPS를 먼저 입력하세요.",
+    needTarget: "위에서 목표 도착률을 먼저 입력하세요.",
     cannotCompute: "응답시간 정보가 없어요 — 예상 응답시간을 입력하거나 test-run으로 측정하세요.",
     overCapacity:
-      "권장값이 단일 워커 슬롯 상한(10,000)을 넘어요 — 목표 RPS를 낮추거나 워커를 늘려야 합니다.",
+      "권장값이 단일 워커 슬롯 상한(10,000)을 넘어요 — 목표 도착률을 낮추거나 워커를 늘려야 합니다.",
     formulaPeak: (targetRps: number, holdMs: number, n: number) =>
       `최고 단계 목표 초당 ${targetRps}회 × 반복 1회 ${holdMs}ms ≈ 동시 ${n}슬롯`,
     needTargetCurve: "단계 목표를 먼저 입력하세요.",
@@ -1012,7 +1014,7 @@ export const ko = {
   workerSizing: {
     title: "워커 수 도우미",
     helpLabel: "워커 수 사이징 설명",
-    help: "워커 한 대가 낼 수 있는 최대 RPS는 요청 지연·페이로드·대상 서버에 따라 달라 고정값이 없어요. 그래서 한 번 돌려 워커가 한계에 부딪힐 때(드롭 발생) 비로소 정확히 알 수 있어요.",
+    help: "워커 한 대가 낼 수 있는 최대 도착률은 요청 지연·페이로드·대상 서버에 따라 달라 고정값이 없어요. 그래서 한 번 돌려 워커가 한계에 부딪힐 때(드롭 발생) 비로소 정확히 알 수 있어요.",
     strongBasis: (wc: number, achieved: number, dropped: number) =>
       `지난 run이 워커 ${wc}대로 초당 ~${achieved}회 반복까지만 시작했어요(유실 ${dropped}건) → 워커당 초당 ~${Math.round(
         achieved / wc,
@@ -1040,7 +1042,7 @@ export const ko = {
       `워커 ${idle}대가 할 일이 없어요 — 곡선 최고점이 ${peak}라 워커 ${peak}대까지만 일하고 나머지는 유휴예요.`,
     apply: (peak: number) => `워커 수를 ${peak}(으)로 맞추기`,
     inertSlots:
-      "지금 목표 속도·타임아웃에선 동시 요청이 동시 요청 상한(max_in_flight)에 절대 도달하지 않아 이 값이 부하에 영향을 주지 않아요 — 부하 세기는 max_in_flight가 아니라 목표 RPS로 정해져요.",
+      "지금 목표 속도·타임아웃에선 동시 요청이 동시 요청 상한(max_in_flight)에 절대 도달하지 않아 이 값이 부하에 영향을 주지 않아요 — 부하 세기는 max_in_flight가 아니라 목표 도착률로 정해져요.",
   },
   // 닫힌 루프 생성 시점 VU 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   sizing: {
@@ -1237,7 +1239,7 @@ export const ko = {
       dataset_max_rows:
         '⬆ 올리면 더 큰 데이터셋을 반복 바인딩에 쓸 수 있습니다. 대신 워커 메모리 사용량이 커져 OOM 위험이 늘어납니다.\n⬇ 내리면 메모리는 안전하지만, 행이 많은 데이터셋 run은 "행 수 초과"로 거부됩니다.',
       max_open_loop_worker_count:
-        "⬆ 올리면 매우 높은 목표 RPS를 더 많은 워커로 분산할 수 있습니다. 대신 한 번에 많은 워커 Pod가 떠 클러스터를 압박합니다.\n⬇ 내리면 안전하지만, 아주 높은 목표 RPS를 워커가 못 따라가 포화(요청 누락)될 수 있습니다.",
+        "⬆ 올리면 매우 높은 도착률 목표를 더 많은 워커로 분산할 수 있습니다. 대신 한 번에 많은 워커 Pod가 떠 클러스터를 압박합니다.\n⬇ 내리면 안전하지만, 아주 높은 도착률 목표를 워커가 못 따라가 포화(요청 누락)될 수 있습니다.",
       max_data_bindings:
         "⬆ 올리면 더 복잡한 다중 데이터셋 시나리오가 가능합니다. 대신 워커의 다중 스트림 관리 부담이 커집니다.\n⬇ 내리면 단순·가볍지만, 바인딩이 많은 run은 거부됩니다.",
       max_loop_breakdown_cap:

@@ -716,7 +716,7 @@ export function LoadModelFields({
                 <Field
                   label={ko.loadModel.targetRps}
                   htmlFor={ids.targetRps}
-                  help={<HelpTip label="RPS 설명">{ko.glossary.rps}</HelpTip>}
+                  help={<HelpTip label="도착률 설명">{ko.glossary.arrivalRate}</HelpTip>}
                 >
                   <Input
                     id={ids.targetRps}

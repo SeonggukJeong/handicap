@@ -41,7 +41,7 @@ function usePriorOpenRunWorkerAnchor(scenarioId: string | undefined): WorkerAnch
 
 type Props = {
   scenarioId: string;
-  /** 유효 목표 RPS 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 RPS, curve=stages 피크(상위 도출). */
+  /** 유효 목표 도착률 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 도착률, curve=stages 피크(상위 도출). */
   targetRps: string;
   /** true면 곡선 문구(최고 단계 목표) — open+curve에서 LoadModelFields가 전달. */
   peakBased?: boolean;

@@ -90,17 +90,17 @@ describe("LoadModelFields", () => {
     expect(setRateMode).not.toHaveBeenCalled();
   });
 
-  it("closed 모드: 동시 사용자/점진 시작 입력, 목표 RPS·동시 요청 상한 입력 없음", () => {
+  it("closed 모드: 동시 사용자/점진 시작 입력, 목표 도착률·동시 요청 상한 입력 없음", () => {
     setup({ loadModel: "closed" });
     expect(screen.getByLabelText(/동시 사용자/)).toBeInTheDocument();
     expect(screen.getByLabelText(/점진 시작/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/목표 RPS/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/도착률\(초당 반복\)/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
   });
 
-  it("open+fixed 모드: 목표 RPS + 동시 요청 상한 각 1개, 동시 사용자 없음", () => {
+  it("open+fixed 모드: 목표 도착률 + 동시 요청 상한 각 1개, 동시 사용자 없음", () => {
     setup({ loadModel: "open", rateMode: "fixed" });
-    expect(screen.getByLabelText(/목표 RPS/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/도착률\(초당 반복\)/i)).toBeInTheDocument();
     expect(screen.getAllByLabelText(/동시 요청 상한/)).toHaveLength(1);
     expect(screen.queryByLabelText(/동시 사용자/)).not.toBeInTheDocument();
   });
@@ -174,9 +174,9 @@ describe("LoadModelFields", () => {
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
   });
 
-  it("open+curve: 기존 목표 RPS 라벨 유지 + ramp_down 비노출 (회귀 가드)", () => {
+  it("open+curve: 기존 목표 도착률 라벨 유지 + ramp_down 비노출 (회귀 가드)", () => {
     renderFields({ loadModel: "open", rateMode: "curve" });
-    expect(screen.getAllByText("목표 RPS").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("목표 도착률").length).toBeGreaterThan(0);
     expect(screen.queryByRole("radio", { name: /즉시 줄이기/ })).not.toBeInTheDocument();
   });
 
@@ -435,7 +435,7 @@ describe("LoadModelFields", () => {
   it("선택 타일에 accent 클래스, 비선택엔 부재 (R1) + teeth", () => {
     setup({ loadModelTiles: true, loadModel: "closed" });
     const closed = screen.getByRole("radio", { name: /동시 사용자 \(VU\)/ }).closest("div")!;
-    const open = screen.getByRole("radio", { name: /목표 RPS/ }).closest("div")!;
+    const open = screen.getByRole("radio", { name: /도착률/ }).closest("div")!;
     expect(closed).toHaveClass("border-accent-500"); // 선택
     expect(open).not.toHaveClass("border-accent-500"); // 비선택 (teeth: 선택을 open으로 뒤집으면 FAIL)
   });
@@ -444,12 +444,12 @@ describe("LoadModelFields", () => {
     setup({ loadModelTiles: true, loadModel: "closed" });
     // 정확매치: 설명/HelpTip 라벨이 섞이면 실패
     expect(screen.getByRole("radio", { name: "동시 사용자 (VU)" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "목표 RPS" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "도착률 (초당 반복)" })).toBeInTheDocument();
   });
 
   it("without new props, renders legacy radios + profile + worker (ScheduleForm parity)", () => {
     setup({ loadModel: "open", rateMode: "fixed", setWorkerCount: vi.fn() });
-    expect(screen.getByRole("radio", { name: /요청 속도 기준/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /도착률 기준/ })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /프로파일/i })).toBeInTheDocument();
   });
 

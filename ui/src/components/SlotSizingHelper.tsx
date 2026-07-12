@@ -57,7 +57,7 @@ type Props = {
   /** model Scenario(steps 보유) — hold walk 앵커(ⓑ)용. 미전달(하위호환) → ⓑ skip. */
   scenario?: Scenario | null;
   env: Record<string, string>;
-  /** 유효 목표 RPS 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 RPS, curve=stages 피크(상위 도출). */
+  /** 유효 목표 도착률 문자열(읽기 전용 — 자체 입력칸 없음). fixed=폼 목표 도착률, curve=stages 피크(상위 도출). */
   targetRps: string;
   /** true면 곡선 변형 문구(formulaPeak/needTargetCurve) 사용 — open+curve에서 LoadModelFields가 전달. */
   peakBased?: boolean;
