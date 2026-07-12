@@ -303,6 +303,13 @@
 ### B20. open-loop 슬롯 사이징 2-way (2026-07-12, ADR-0046) 연기 항목
 출처: open-loop-slot-sizing(target_per_sec 반복/초 공식화·InsightPanel 2-way saturation 문구, R12/R13). ~~슬라이스 ②(open-loop 목표 라벨 개명·환산·리포트 도착률 표기·ko RPS 스윕)~~ **✅ 완료(2026-07-12, open-loop-rate-labels — 카드+헤드라인까지, build-log 참조)**. 잔존 연기: loadgen cause 재도입(워커 CPU 텔레메트리 proto 필요), per-second dropped 시리즈 + 목표/달성 도착률 **시리즈**(슬라이스 ②는 카드만 소화 — 달성 초별 데이터가 와이어에 없고, 목표 시리즈 단독은 요청/초 차트와 단위 혼합 오독이라 둘은 동반 필수·곡선 required 정밀화 겸용), 곡선 prior run 워커 앵커(UI 적분 복제 필요) — 출처: ADR-0046·spec §7·슬라이스 ② plan Task 4 범위 주.
 
+### B21. think time 서버측 검증 + open-loop 정책 비대칭 (2026-07-13, think-time-defaults 연기 — **보안 리뷰 Medium 2건**)
+출처: think-time-defaults의 `security-reviewer`(Opus) APPROVED-with-Medium. **사용자 결정(2026-07-13)**: 그 슬라이스의 불변식 **R6(`crates/proto`·`crates/controller` 0-diff)를 지키기 위해 후속으로 분리** — 둘 다 controller 변경이 필요하고, ①은 스텝-레벨 `think_time`에도 이미 있는 기존 갭이라 함께 다뤄야 일관되다.
+
+- **① 시나리오/스텝 think time의 서버측 범위 검증 부재**: `POST /api/scenarios`는 `Scenario::from_yaml`만 돌린다 → 손편집/curl YAML의 `min_ms: 5000, max_ms: 100`(엔진 `ThinkTime::sample`의 `max.max(min)`이 조용히 **고정 5초**로 degrade)이나 거대한 `max_ms`가 통과한다. UI Zod(`0 ≤ min ≤ max ≤ 600000`)만 막고 서버는 안 막음. `default_think_time`은 한 줄이 **모든 http 스텝**에 퍼져 영향 범위가 크다(= 조용한 부하 divergence, 사용자 상시 규칙 위반). run-level `think_time`은 이미 `runs.rs`가 검증한다(비대칭). **선례**: `validate_parallel_branch_names`가 같은 자리(`api/scenarios.rs`)에 있는 "의도된 예외" — 같은 이유(조용한 데이터/부하 손상)로 승인됐다. 공유 술어 1개 + 호출부 3곳(시나리오 default·각 http 스텝 `think_time`·run-level 재사용)이면 닫힌다.
+- **② open-loop 정책 비대칭**: run-level `think_time`은 open-loop에서 **거부**되는데(`runs.rs`, "open-loop에선 run-level think_time을 쓸 수 없습니다"), 그 시나리오-와이드 아날로그인 `default_think_time`은 open-loop에서 적용되고 `max_in_flight` 슬롯을 점유한다. Zod 허용 범위 내의 큰 기본값(예: 10분)이면 슬롯이 전부 잡혀 대부분 `dropped`가 된다. 사이징 헬퍼는 R15로 반영했지만 **헬퍼를 안 열어본 사용자에겐 생성 시점 경고가 없다**(`openLoopChecks`는 슬롯 *과다*(`inert_slots`)만 경고하고 *과소*는 경고하지 않는다). → 결정 필요: open-loop에서도 기본값을 거부할지, 의도로 두고 **create-time 경고**를 추가할지.
+- 비고: 엔진은 deadline 클램프 + cancel select로 극단값에도 크래시·행이 없고 익스플로잇도 아니다(security-reviewer 실측). 우선순위는 "조용한 divergence 제거"이지 보안 사고 대응이 아니다.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 

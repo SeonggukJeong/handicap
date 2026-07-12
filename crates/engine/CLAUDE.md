@@ -45,6 +45,8 @@
 - **overflow는 엔진에서 `u32::MAX` sentinel** (Slice 7-1): loop_index cap 초과는 엔진 `aggregator.rs` 에서 `u32::MAX` 버킷으로 fold. controller가 이를 `null` 로 변환한다 — sentinel 의미를 아는 레이어는 엔진과 controller `build_report` 뿐. (변환 쪽은 `crates/controller/CLAUDE.md`.)
 - **분기 결정은 `Step::If` arm 에서 `Aggregator::record_branch(step_id, branch)` 로 기록** (Slice 9d): counts-only, **cap 없음**(브랜치 수 유한, `loop_breakdown_cap` 무관). `MetricFlush.branch_stats` 는 세 번째 드레인 벡터(periodic + final flush 둘 다). 레이블: `"then"` / `"elif_{j}"` / `"else"` / `"none"`. **`"none"` = 조건 false + elif 모두 false + else 비어있거나 absent** — http leaf가 없어 step 메트릭에 붙일 수 없는 전용 결정 카운터.
 
+- **시나리오-레벨 파라미터를 추가하면 부하 진입점 *3곳* 전부 배선 + 테스트도 각 진입점을 직접 타야 한다** (think-time-defaults): 워커가 프로파일에 따라 `run_scenario`(closed) / `run_scenario_vu_curve`(VU 곡선) / `run_scenario_open_loop`(open) 중 하나를 고르고(`worker/src/lib.rs`), 각각 `run_vu` / `run_vu_curve` / `run_arrival`이라는 **의도적으로 복제된** VU 루프를 돈다 → `execute_steps` 시그니처에 인자를 더하면 재귀 arm 말고 **비재귀 호출부 3곳**을 다 고쳐야 하고, `trace.rs::trace_steps`(test-run 쌍둥이)도 같이 간다. **함정**: `run_scenario`는 `vu_stages`/`target_rps`를 **무시**하므로, 테스트를 `run_scenario`로만 짜면 곡선·open-loop 배선을 빠뜨려도 green이다(= "절대 실패할 수 없는 테스트") — `tests/think_time.rs`의 `Mode::{Closed,Curve,Open}` 헬퍼처럼 진입점을 모드로 갈라 직접 spawn할 것(세 함수는 시그니처가 같아 `tokio::spawn` 타입이 일치).
+
 ## 오픈루프 (`run_scenario_open_loop`, S-C)
 
 - **closed-loop와 격리된 별도 함수** (S-C): `run_scenario`/`run_vu` 무변경(byte-identical 구조적 보장). `run_arrival`은 `run_vu` iteration-body의 의도된 복제(run-level think time 제외). `target_rps` 미지정 → `run_scenario`(기존) 호출 — open-loop 파일을 건드려도 closed-loop 회귀 0.
