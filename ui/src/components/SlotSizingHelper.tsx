@@ -45,7 +45,12 @@ function usePriorOpenRunAnchor(
     }
     if (scenario) {
       const p50 = new Map(rep.steps.map((s) => [s.step_id, s.p50_ms] as const));
-      const hold = iterationHoldMs(scenario.steps, p50, rep.summary.mean_ms);
+      const hold = iterationHoldMs(
+        scenario.steps,
+        p50,
+        rep.summary.mean_ms,
+        scenario.default_think_time,
+      );
       if (hold > 0) return { kind: "walk", holdMs: hold };
     }
     return null;

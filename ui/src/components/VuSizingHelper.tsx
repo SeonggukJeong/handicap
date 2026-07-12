@@ -88,7 +88,8 @@ export function VuSizingHelper({ scenarioId, scenario, env, onApply }: Props) {
   const runMeasure = () => {
     const yaml = scenarioQ.data?.yaml;
     if (!yaml) return;
-    testRun.mutate({ scenario_yaml: yaml, env });
+    // SlotSizingHelper와 같은 앵커 정의: 반복 점유시간에는 think time이 포함된다.
+    testRun.mutate({ scenario_yaml: yaml, env, apply_think_time: true });
   };
 
   return (

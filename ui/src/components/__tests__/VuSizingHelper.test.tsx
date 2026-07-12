@@ -133,4 +133,17 @@ describe("VuSizingHelper", () => {
     expect(screen.getByText(/요청 1개 · 250ms/)).toBeInTheDocument();
     expect(screen.getByText(/권장 VU: 최소 ~100개부터/)).toBeInTheDocument();
   });
+
+  it("측정은 apply_think_time: true로 발사한다 (SlotSizingHelper와 같은 앵커 정의)", async () => {
+    const mutate = vi.fn();
+    const user = userEvent.setup();
+    setHooks({
+      runs: [],
+      yaml: "version: 1\nname: d\nsteps: []\n",
+      testRun: { mutate, isPending: false, isError: false, data: undefined },
+    });
+    render(<VuSizingHelper scenarioId="s1" scenario={scenario} env={{}} onApply={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "test-run으로 측정" }));
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ apply_think_time: true }));
+  });
 });

@@ -138,6 +138,36 @@ describe("SlotSizingHelper", () => {
     expect(screen.getByText(/max_in_flight를 최소 ~6\(으\)로 설정하세요/)).toBeInTheDocument();
   });
 
+  it("ⓑ walk 앵커(R15 배선): 시나리오 기본 think time이 반복 점유시간에 반영된다", () => {
+    const scenario = {
+      steps: [http("a"), http("b")],
+      default_think_time: { min_ms: 500, max_ms: 500 },
+    } as unknown as Scenario;
+    setHooks({
+      runs: [openRun(100, null)],
+      report: {
+        insights: [],
+        steps: [
+          { step_id: "a", p50_ms: 100 },
+          { step_id: "b", p50_ms: 200 },
+        ],
+        summary: { mean_ms: 999 },
+      },
+    });
+    render(
+      <SlotSizingHelper
+        scenarioId="s1"
+        scenario={scenario}
+        env={{}}
+        targetRps="20"
+        onApply={vi.fn()}
+      />,
+    );
+    // hold = (100+500) + (200+500) = 1300ms (기본값 없을 땐 300ms) → ceil(20 × 1.3) = 26
+    expect(screen.getByText(/반복 1회 ~1300ms/)).toBeInTheDocument();
+    expect(screen.getByText(/max_in_flight를 최소 ~26\(으\)로 설정하세요/)).toBeInTheDocument();
+  });
+
   it("ⓑ 무효(p50 전부 0·mean 0) → hold 0 → ⓒ 수동 입력 폴백 렌더", () => {
     const scenario = { steps: [http("a")] } as unknown as Scenario;
     setHooks({

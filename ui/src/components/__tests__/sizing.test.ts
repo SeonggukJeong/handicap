@@ -343,6 +343,31 @@ describe("iterationHoldMs (R7)", () => {
   it("http leaf 0개면 0", () => expect(iterationHoldMs([], p50, 50)).toBe(0));
 });
 
+describe("iterationHoldMs — 시나리오 기본 think time (R15)", () => {
+  const p50 = new Map([
+    ["a", 100],
+    ["b", 200],
+  ]);
+  it("상속 스텝엔 기본값 평균이 더해지고, 스텝 명시값이 이긴다", () => {
+    const steps = [http("a"), http("b", { min_ms: 0, max_ms: 0 })];
+    expect(iterationHoldMs(steps, p50, 50)).toBe(300); // 기본값 없음: 100 + 200
+    // 기본값 200/400(평균 300): a는 상속(+300), b는 {0,0} 명시 → 대기 0
+    expect(iterationHoldMs(steps, p50, 50, { min_ms: 200, max_ms: 400 })).toBe(600);
+  });
+  it("parallel 분기 안 스텝엔 기본값이 적용되지 않는다 (엔진 R4 미러)", () => {
+    const par = {
+      type: "parallel",
+      id: "P",
+      name: "P",
+      branches: [{ name: "x", steps: [http("a")] }],
+    } as unknown as Step;
+    const steps = [par, http("b")];
+    expect(iterationHoldMs(steps, p50, 50)).toBe(300); // 기본값 없음: max(a=100) + b=200
+    // 기본값 500/500: 분기 a엔 미적용(100 유지), 최상위 b에만 +500 → 100 + 700 = 800
+    expect(iterationHoldMs(steps, p50, 50, { min_ms: 500, max_ms: 500 })).toBe(800);
+  });
+});
+
 describe("iterationRequestRange (ADR-0046 ②)", () => {
   it("flat http 2개 → {2,2}", () => {
     expect(iterationRequestRange([http("a"), http("b")])).toEqual({ min: 2, max: 2 });

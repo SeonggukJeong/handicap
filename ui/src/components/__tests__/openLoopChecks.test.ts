@@ -167,6 +167,50 @@ describe("openLoopWarnings — ② inert max_in_flight", () => {
   });
 });
 
+describe("시나리오 기본 think time (R15)", () => {
+  it("iterationTimeUpperBoundSeconds: 상한에 기본 think max를 더하되 분기엔 미적용", () => {
+    // 상속: timeout 30s + 기본 think max 1000ms = 31
+    expect(iterationTimeUpperBoundSeconds([http()], 30, { min_ms: 0, max_ms: 1000 })).toBe(31);
+    // 스텝 명시 {0,0}이 이긴다 → 30
+    expect(
+      iterationTimeUpperBoundSeconds([http({ think_time: { min_ms: 0, max_ms: 0 } })], 30, {
+        min_ms: 0,
+        max_ms: 1000,
+      }),
+    ).toBe(30);
+    // parallel 분기 안 스텝엔 미적용 → 30
+    const par = {
+      type: "parallel",
+      branches: [{ name: "x", steps: [http()] }],
+    } as unknown as Step;
+    expect(iterationTimeUpperBoundSeconds([par], 30, { min_ms: 0, max_ms: 1000 })).toBe(30);
+  });
+
+  // ② 배선 — 이 테스트가 openLoopChecks.ts:89의 3번째 인자를 강제한다.
+  //    (위 순수함수 테스트는 인자를 직접 주므로 배선을 잊어도 green이다.)
+  it("배선: openLoopWarnings가 scenario.default_think_time을 상한에 반영한다", () => {
+    // base(기본값 없음): T = 1s(timeout) → threshold = ceil(10 × 1) = 10
+    expect(openLoopWarnings(base)).toContainEqual({
+      kind: "inert_slots",
+      maxInFlight: 10000,
+      threshold: 10,
+    });
+    // 기본값 1000ms 상속: T = 1 + 1 = 2s → threshold = ceil(10 × 2) = 20
+    const withDefault = openLoopWarnings({
+      ...base,
+      scenario: {
+        steps: [http()],
+        default_think_time: { min_ms: 0, max_ms: 1000 },
+      } as unknown as Scenario,
+    });
+    expect(withDefault).toContainEqual({
+      kind: "inert_slots",
+      maxInFlight: 10000,
+      threshold: 20,
+    });
+  });
+});
+
 describe("openLoopWarnings — 게이트(R13/R7)", () => {
   it("poolMode=true → 둘 다 없음([])", () => {
     const w = openLoopWarnings({

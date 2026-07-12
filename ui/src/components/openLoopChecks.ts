@@ -1,4 +1,4 @@
-import type { Scenario, Step } from "../scenario/model";
+import type { Scenario, Step, ThinkTime } from "../scenario/model";
 import { peakStageTarget, targetRpsValid } from "./sizing";
 
 /** create-time open-loop 구조 경고(순수·결정적·측정 없음). spec 2026-06-25-open-loop-misconfig-warning.
@@ -27,28 +27,30 @@ export type OpenLoopInput = {
 export function iterationTimeUpperBoundSeconds(
   steps: ReadonlyArray<Step>,
   httpTimeoutSec: number,
+  /** 시나리오 기본 think time(상속 스텝의 상한에 max_ms를 더한다). parallel 분기 재귀엔 미전달 — 엔진 R4 미러. */
+  defaultThink?: ThinkTime,
 ): number {
   let total = 0;
   for (const s of steps) {
     if (s.type === "http") {
       const stepTimeout = s.timeout_seconds ?? httpTimeoutSec;
-      const thinkMs = s.think_time?.max_ms ?? 0;
+      const thinkMs = (s.think_time ?? defaultThink)?.max_ms ?? 0;
       total += stepTimeout + thinkMs / 1000;
     } else if (s.type === "loop") {
-      total += s.repeat * iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec);
+      total += s.repeat * iterationTimeUpperBoundSeconds(s.do, httpTimeoutSec, defaultThink);
     } else if (s.type === "parallel") {
       let mx = 0;
       for (const b of s.branches) {
-        mx = Math.max(mx, iterationTimeUpperBoundSeconds(b.steps, httpTimeoutSec));
+        mx = Math.max(mx, iterationTimeUpperBoundSeconds(b.steps, httpTimeoutSec)); // 분기엔 기본값 미적용
       }
       total += mx;
     } else {
       // if — 단일 분기만 실행 → 상한 = then/elif[].then/else 중 max
-      let mx = iterationTimeUpperBoundSeconds(s.then, httpTimeoutSec);
+      let mx = iterationTimeUpperBoundSeconds(s.then, httpTimeoutSec, defaultThink);
       for (const e of s.elif) {
-        mx = Math.max(mx, iterationTimeUpperBoundSeconds(e.then, httpTimeoutSec));
+        mx = Math.max(mx, iterationTimeUpperBoundSeconds(e.then, httpTimeoutSec, defaultThink));
       }
-      mx = Math.max(mx, iterationTimeUpperBoundSeconds(s.else, httpTimeoutSec));
+      mx = Math.max(mx, iterationTimeUpperBoundSeconds(s.else, httpTimeoutSec, defaultThink));
       total += mx;
     }
   }
@@ -86,7 +88,11 @@ export function openLoopWarnings(input: OpenLoopInput): OpenLoopWarning[] {
   const R =
     rateMode === "curve" ? peak : targetRpsValid(Number(targetRps)) ? Number(targetRps) : null;
   if (scenario != null && httpTimeoutSeconds != null && W <= 1 && R != null && R > 0) {
-    const T = iterationTimeUpperBoundSeconds(scenario.steps, httpTimeoutSeconds);
+    const T = iterationTimeUpperBoundSeconds(
+      scenario.steps,
+      httpTimeoutSeconds,
+      scenario.default_think_time,
+    );
     const M = Number(maxInFlight);
     if (T > 0 && Number.isFinite(M) && M >= 1 && M >= Math.ceil(R * T)) {
       out.push({ kind: "inert_slots", maxInFlight: M, threshold: Math.ceil(R * T) });

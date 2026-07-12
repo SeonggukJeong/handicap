@@ -1,5 +1,5 @@
 import type { Run } from "../api/schemas";
-import type { Step } from "../scenario/model";
+import type { Step, ThinkTime } from "../scenario/model";
 import { formatDurationKo } from "../i18n/duration";
 import { ko } from "../i18n/ko";
 
@@ -90,16 +90,22 @@ export function iterationHoldMs(
   steps: ReadonlyArray<Step>,
   perStepP50: ReadonlyMap<string, number>,
   fallbackMs: number,
+  /** 시나리오 기본 think time — 스텝이 자기 think_time을 안 가지면 이걸 쓴다.
+   *  parallel 분기 재귀엔 **넘기지 않는다**(엔진 R4 규칙 미러). */
+  defaultThink?: ThinkTime,
 ): number {
   let total = 0;
   for (const s of steps) {
     if (s.type === "http") {
       const lat = perStepP50.get(s.id) ?? fallbackMs;
-      const think = s.think_time ? (s.think_time.min_ms + s.think_time.max_ms) / 2 : 0;
+      const tt = s.think_time ?? defaultThink;
+      const think = tt ? (tt.min_ms + tt.max_ms) / 2 : 0;
       total += lat + think;
     } else if (s.type === "loop") {
-      total += s.repeat * iterationHoldMs(s.do, perStepP50, fallbackMs);
+      total += s.repeat * iterationHoldMs(s.do, perStepP50, fallbackMs, defaultThink);
     } else if (s.type === "parallel") {
+      // 시나리오 기본값은 분기 서브트리에 적용되지 않는다(엔진 runner/trace의 Parallel arm이
+      // 분기 재귀에 None을 넘김 — spec R4). 분기 스텝의 명시 think_time은 위 http arm이 반영.
       let mx = 0;
       for (const b of s.branches) {
         mx = Math.max(mx, iterationHoldMs(b.steps, perStepP50, fallbackMs));
@@ -107,11 +113,11 @@ export function iterationHoldMs(
       total += mx;
     } else {
       // if — 단일 분기만 실행 → max 분기 (iterationTimeUpperBoundSeconds와 동일 정책)
-      let mx = iterationHoldMs(s.then, perStepP50, fallbackMs);
+      let mx = iterationHoldMs(s.then, perStepP50, fallbackMs, defaultThink);
       for (const e of s.elif) {
-        mx = Math.max(mx, iterationHoldMs(e.then, perStepP50, fallbackMs));
+        mx = Math.max(mx, iterationHoldMs(e.then, perStepP50, fallbackMs, defaultThink));
       }
-      mx = Math.max(mx, iterationHoldMs(s.else, perStepP50, fallbackMs));
+      mx = Math.max(mx, iterationHoldMs(s.else, perStepP50, fallbackMs, defaultThink));
       total += mx;
     }
   }
