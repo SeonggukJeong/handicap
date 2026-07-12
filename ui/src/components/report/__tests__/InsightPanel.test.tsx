@@ -47,15 +47,18 @@ describe("InsightPanel", () => {
     expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it("load_gen_saturated 헤드라인과 다음 행동을 렌더한다", () => {
+  it("load_gen_saturated cause 없음 — 헤드라인 + 폴백 행동 줄 (워커 CPU 언급 없음, ADR-0046)", () => {
     const insights: Insight[] = [
       { kind: "load_gen_saturated", severity: "warning", value: 7500, count: 320 },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
     // 헤드라인: 초당 최대 N건 + 못 보낸 요청 M건 (천단위 구분)
     expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
-    // 다음 행동 줄
-    expect(screen.getByText(/대상 서버의 한계, 아니면 테스트 도구/)).toBeInTheDocument();
+    // 폴백 행동 줄 (R13 2-way: cause=slots|sut|없음 뿐, 워커 CPU 언급 없음)
+    expect(
+      screen.getByText(/동시 실행 수\(max_in_flight\)를 늘려 다시 실행하세요/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/워커 CPU/)).toBeNull();
   });
 
   it("slo_pass와 미지의 kind엔 행동 줄이 없다", () => {
@@ -67,53 +70,64 @@ describe("InsightPanel", () => {
     expect(screen.queryByText(/→/)).toBeNull();
   });
 
-  it("load_gen_saturated slots — 권장 max_in_flight를 행동 줄에 렌더", () => {
+  it("load_gen_saturated slots — 목표/달성 도착률·유실·권장 슬롯 수치를 행동 줄에 렌더 (R12)", () => {
     const insights: Insight[] = [
       {
         kind: "load_gen_saturated",
         severity: "warning",
-        value: 7500,
-        count: 320,
+        value: 3,
+        count: 260,
         cause: "slots",
-        recommended: 500,
+        recommended: 23,
+        target_per_sec: 20,
+        achieved_per_sec: 2.7,
       },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
-    expect(screen.getByText(/최소 ~500\(으\)로 올려/)).toBeInTheDocument();
+    expect(screen.getByText(/초당 20회/)).toBeInTheDocument();
+    expect(screen.getByText(/2\.7회/)).toBeInTheDocument();
+    // Math.max(0, 20-2.7)=17.3 → toFixed(1)="17.3", "~17"은 그 부분문자열
+    expect(screen.getByText(/~17/)).toBeInTheDocument();
+    expect(screen.getByText(/최소 ~23\(으\)로 올려/)).toBeInTheDocument();
+    // 상한(10,000) 미도달이면 slotsAtCap 문구는 없다
+    expect(screen.queryByText(/슬롯 상한/)).toBeNull();
   });
 
-  it("load_gen_saturated loadgen — worker_count 늘리라는 행동 줄 (추천 수 없음)", () => {
-    const insights: Insight[] = [
-      { kind: "load_gen_saturated", severity: "warning", value: 9000, count: 12, cause: "loadgen" },
-    ];
-    render(<InsightPanel insights={insights} meta={meta} />);
-    expect(screen.getByText(/worker_count를 늘리면 더 높은 RPS/)).toBeInTheDocument();
-  });
-
-  it("load_gen_saturated loadgen — recommended_workers면 worker_count 추천 행동 줄", () => {
+  it("load_gen_saturated slots — recommended가 슬롯 상한(10,000) 이상이면 상한 문구를 덧붙인다 (R13)", () => {
     const insights: Insight[] = [
       {
         kind: "load_gen_saturated",
         severity: "warning",
-        value: 1000,
-        count: 50,
-        cause: "loadgen",
-        recommended_workers: 3,
+        value: 50,
+        count: 9000,
+        cause: "slots",
+        recommended: 10_000,
+        target_per_sec: 100,
+        achieved_per_sec: 0.5,
       },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    // worker_count를 ~3개로 올리라는 추천이 보인다 (Math.round(3)=3 정확 문자열 락인)
-    expect(screen.getByText(/worker_count를 ~3개로/)).toBeInTheDocument();
+    expect(screen.getByText(/최소 ~10,000\(으\)로 올려/)).toBeInTheDocument();
+    expect(screen.getByText(/슬롯 상한\(10,000\)에 도달했어요/)).toBeInTheDocument();
   });
 
-  it("load_gen_saturated sut — 대상 서버 한계 행동 줄 (worker 추천 없음)", () => {
+  it("load_gen_saturated slots — target_per_sec/achieved_per_sec/recommended 중 하나라도 없으면 폴백 (구식 리포트 방어)", () => {
+    const insights: Insight[] = [
+      { kind: "load_gen_saturated", severity: "warning", value: 9000, count: 12, cause: "slots" },
+    ];
+    render(<InsightPanel insights={insights} meta={meta} />);
+    expect(
+      screen.getByText(/동시 실행 수\(max_in_flight\)를 늘려 다시 실행하세요/),
+    ).toBeInTheDocument();
+  });
+
+  it("load_gen_saturated sut — 서버 응답 열화 신호 + 슬롯·부하 증설을 보류하라는 행동 줄", () => {
     const insights: Insight[] = [
       { kind: "load_gen_saturated", severity: "warning", value: 800, count: 90, cause: "sut" },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
-    expect(screen.getByText(/대상 서버\(SUT\)가 한계로 보여요/)).toBeInTheDocument();
-    expect(screen.getByText(/지속 RPS는 안 올라요/)).toBeInTheDocument();
+    expect(screen.getByText(/대상 서버\(SUT\)가 응답 열화 신호를 보여요/)).toBeInTheDocument();
+    expect(screen.getByText(/지금 슬롯·부하를 늘리면 서버만 더 힘들어져요/)).toBeInTheDocument();
     expect(screen.queryByText(/worker_count를/)).toBeNull();
   });
 
@@ -132,7 +146,6 @@ describe("InsightPanel", () => {
         severity: "warning",
         value: 7500,
         count: 320,
-        cause: "loadgen",
         onset_second: 12,
       },
     ];

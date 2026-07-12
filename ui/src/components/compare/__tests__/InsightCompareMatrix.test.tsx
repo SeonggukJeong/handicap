@@ -16,7 +16,6 @@ function ins(p: Partial<Insight> & { kind: string; severity: string }): Insight 
     window_seconds: undefined,
     recommended: undefined,
     cause: undefined,
-    recommended_workers: undefined,
     onset_second: undefined,
     ...p,
   } as Insight;

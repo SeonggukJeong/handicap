@@ -52,16 +52,29 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
   }
 }
 
+// 도착률 표시: 소수 1자리, 정수면 정수로 (초보자 가독).
+function rate(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
 function actionFor(i: Insight): string | undefined {
   if (i.kind === "load_gen_saturated") {
-    if (i.cause === "slots") return ko.saturation.slots(n(i.recommended));
-    if (i.cause === "loadgen") {
-      return i.recommended_workers != null
-        ? ko.saturation.loadgenWithWorkers(Math.round(i.recommended_workers))
-        : ko.saturation.loadgen;
+    if (i.cause === "slots") {
+      const x = i.target_per_sec;
+      const y = i.achieved_per_sec;
+      if (x != null && y != null && i.recommended != null) {
+        const base = ko.saturation.slots(
+          rate(x),
+          rate(y),
+          rate(Math.max(0, x - y)),
+          n(i.recommended),
+        );
+        return i.recommended >= 10_000 ? `${base} ${ko.saturation.slotsAtCap}` : base;
+      }
+      return ko.insightActions.load_gen_saturated; // 방어(신규 필드 부재 — 구식 리포트)
     }
     if (i.cause === "sut") return ko.saturation.sut;
-    return ko.insightActions.load_gen_saturated; // 폴백(A9 일반, cause None)
+    return ko.insightActions.load_gen_saturated; // 폴백(cause None)
   }
   return ACTIONS[i.kind];
 }
