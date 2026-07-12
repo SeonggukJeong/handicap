@@ -296,6 +296,10 @@
 - 중앙 가드 레지스트리 — 가드 페이지가 5–6개로 늘면 훅+다이얼로그 래핑 리팩터(spec §3-4).
 - 최종 리뷰 nit 3(전부 비차단): ① `ui/src/test/setup.ts` Request signal-드롭 패치가 스위트 전역 — 미래에 요청 취소/abort를 단언하는 테스트 추가 시 조용히 통과시킬 수 있음(주석 문서화됨, 인지만) ② clone-confirm 모달 열린 채 차단 이동 시 guard 모달이 두 번째 z-50으로 스택(드문 경로·동작 coherent, 시각 wart) ③ 2버튼 변형(신규)에 `disabled={saving}` 방어 가드 없음(신규 페이지는 saving 미전달이라 도달 불가 콤보).
 
+### B19. HAR URL 안전 디코딩 (2026-07-12, ADR 불필요·UI-only) 연기 항목
+출처: har-query-decode (`urlDecode.ts`+wireStep·미리보기 배선). spec §7 연기(소급 디코딩·ASCII unreserved·쿼리 `+`→공백·헤더 값 디코딩·에디터 URL 도우미·fragment)는 **roadmap 비누적**(spec 문서 참조·재요청 시 재평가) — 아래는 최종 리뷰 nit만.
+- 최종 리뷰 nit(비차단): URL/스텝-이름이 디코딩 후 **trailing space로 끝나는** 케이스(예: 쿼리 말미 `...=%20`)의 YAML round-trip golden 부재 — `yaml` 패키지가 trailing-space 스칼라를 자동 인용해 실동작 안전·R8 ⓐⓑ가 같은 인용 메커니즘 커버, 명시 golden 1건이면 회귀 가드 완결(소형).
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
