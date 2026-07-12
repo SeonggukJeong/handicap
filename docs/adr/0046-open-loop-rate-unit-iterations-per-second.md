@@ -22,4 +22,4 @@
 
 - 엔진 0-diff(현 동작의 공식화). 단일 스텝 시나리오는 두 단위가 일치해 기존 사용 영향 없음.
 - 곡선 run의 실측 점유시간은 저율 구간 유휴가 섞여 과대(=권장 슬롯 상한) 추정 — 안전 방향이며 "(상한 추정)" 병기, per-second dropped 시리즈 도입 시 정밀화.
-- 사전 권장(UI 헬퍼)과 사후 인사이트의 parity는 "포화 prior run의 recommended passthrough"로 by-construction 격상.
+- 사전 권장(UI 헬퍼)과 사후 인사이트의 parity는 "포화 prior run의 실측 hold(M÷achieved_per_sec) 복원 + 동일 공식"으로 by-construction 격상(같은 목표면 동일값, 다른 목표면 올바른 스케일).

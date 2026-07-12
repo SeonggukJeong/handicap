@@ -52,7 +52,7 @@
 
 ### 4.1 `crates/controller/src/insights.rs` — 충족 R: R1, R2, R3, R4, R13
 - `derive_insights`의 `dropped > 0` 블록(현 213-271행) 재작성:
-  - **`scheduled_arrivals` 적분은 insights.rs의 순수 함수로 정의**(엔진 `rate_at`는 private라 미러 구현 — §4.1 fixture가 0-start 램프 의미를 고정): 고정 = `f64(target) × duration`; 곡선 = `Σ_stage 사다리꼴(prev_target→target, dur)`을 `duration_actual`에서 절단(마지막 부분 stage는 선형 보간 값까지 적분). **호출은 `report.rs`가 하고 결과를 전달**(아래 4.2) — `derive_insights`에 11번째 인자 `scheduled_arrivals: Option<f64>` 추가(`#[allow(clippy::too_many_arguments)]` 기존; 인라인 테스트 call site ~30곳 기계적 churn — §8).
+  - **`scheduled_arrivals` 적분은 insights.rs의 순수 함수로 정의**(엔진 `rate_at`는 private라 미러 구현 — §4.1 fixture가 0-start 램프 의미를 고정): 고정 = `f64(target) × duration`; 곡선 = `Σ_stage 사다리꼴(prev_target→target, dur)`을 `duration_actual`에서 절단(마지막 부분 stage는 선형 보간 값까지 적분). **호출은 `report.rs`가 하고 결과를 전달**(아래 4.2) — `derive_insights`의 10번째 인자 `worker_count_current: u32`(loadgen 제거로 dead)를 `scheduled_arrivals: Option<f64>`로 **교체**(인자 수 10 유지; 인라인 테스트 call site ~29곳 기계적 churn — §8).
   - `achieved_rate = ((scheduled − dropped as f64) / duration).max(0.0)`; `duration = summary.duration_seconds.max(1) as f64`.
   - `required = if achieved_rate > 0 { ceil(target_eff × M / achieved_rate) } else { 10_000 }`; `recommended = Some(min(required, 10_000))` (R13).
   - cause 평가 순서: **sut_stress를 먼저** — `sut_stress(...)` → `("sut", recommended=None)`, else `("slots", recommended)` (R3, R13은 slots arm 안). loadgen arm·`recommended_workers` 계산 블록 삭제(R4). 기존 `sut_stress_only_inside_slots_sufficient_arm`(CC2) invariant는 **의도적으로 반전**됨(sut가 항상 선평가) — 테스트 재설계(§8).
@@ -74,7 +74,7 @@
 ### 4.5 `ui/src/components/sizing.ts` — 충족 R: R6, R7, R10
 - `recommendSlots(targetRps, holdMs)`: 구현 동일(`ceil(target × ms/1000)`), doc 주석·호출부 의미를 hold로 전환.
 - 신규 `iterationHoldMs(steps: ReadonlyArray<Step>, perStepP50: ReadonlyMap<string, number>, fallbackMs: number): number` — R7 walk. think 평균 `(min_ms+max_ms)/2`.
-- `recommendWorkers(target, priorWc, priorAchievedArrivalRate)`: 분모를 달성 도착률로(R10). `peakThroughput`은 다른 소비처 없으면 worker 앵커에서 분리(삭제는 하지 않고 유지 — 표시용 관측 peak 계속 사용 가능).
+- `recommendWorkers(target, priorAchievedPerSec, priorWorkerCount)`: 2번째 인자를 달성 도착률로 교체(현행 인자 순서 유지, R10). `peakThroughput`은 다른 소비처 없으면 worker 앵커에서 분리(삭제는 하지 않고 유지 — 표시용 관측 peak 계속 사용 가능).
 - `pickLatestOpenRun` 무변경; worker 앵커용 `pickLatestFixedOpenRun`(target_rps 있는 run 한정) 추가 또는 앵커 훅에서 필터(R10).
 
 ### 4.6 `ui/src/components/SlotSizingHelper.tsx` — 충족 R: R8, R9, R12
@@ -117,7 +117,7 @@
 | R5 | serde round-trip + `insight_columns_are_single_source` + CSV/XLSX export 셀 | |
 | R6·R7 | `sizing.test.ts`: hold walk(flat/loop/if/parallel/think)·recommendSlots | |
 | R8 | RTL: ⓐ passthrough·ⓑ walk·ⓒ 수동·ⓓ 측정(apply_think_time·total_ms 직접) 각 경로+우선순위 | |
-| R9 | RTL ⓐ passthrough 동일값 + 서버 fixture(§4.1 숫자) 단언 | |
+| R9 | RTL ⓐ 같은-목표 동일값(23) + 서버 fixture(§4.1 숫자) 단언 | |
 | R10 | 단위 + RTL: 새 분모·경고 문구·곡선 prior 앵커 제외 | |
 | R11 | 기존 스위트 green(cargo nextest + pnpm test/build)·no_saturation 테스트 유지 | |
 | R12 | RTL 문구 단언 | ✅ |
@@ -140,7 +140,7 @@
 ## 8. 구현 순서 (plan 입력)
 
 1. **계약-먼저(R5)**: `Insight.achieved_per_sec`/`target_per_sec` serde + UI Zod `.optional()` + `INSIGHT_COLUMNS` 15열 — 한 green 커밋(와이어 양쪽 동시).
-2. **서버 공식(R1-R4, R13)**: `insights.rs` 재작성 + `report.rs` scheduled 전달 + 단위 테스트(fixture §4.1) — **기존 테스트 파급 전부 같은 커밋에서 갱신**: insights.rs slots-arm 3건(`saturated_slots_recommends_when_underprovisioned`·`saturated_small_required_rounds_up_to_one`·`saturated_sizing_falls_back_when_latency_zero` — mean 기반 fixture 재설계)·loadgen 케이스·CC2(`sut_stress_only_inside_slots_sufficient_arm` — invariant 반전 재설계)·report.rs `build_report_sizing_slots_recommendation`/`build_report_sizing_uses_stages_peak`(기대값 재산정)·`derive_insights` 11번째 인자 call site ~30곳.
+2. **서버 공식(R1-R4, R13)**: `insights.rs` 재작성 + `report.rs` scheduled 전달 + 단위 테스트(fixture §4.1) — **기존 테스트 파급 전부 같은 커밋에서 갱신**: insights.rs slots-arm 3건(`saturated_slots_recommends_when_underprovisioned`·`saturated_small_required_rounds_up_to_one`·`saturated_sizing_falls_back_when_latency_zero` — mean 기반 fixture 재설계)·loadgen 케이스·CC2(`sut_stress_only_inside_slots_sufficient_arm` — invariant 반전 재설계)·report.rs `build_report_sizing_slots_recommendation`/`build_report_sizing_uses_stages_peak`(기대값 재산정)·`derive_insights` 10번째 인자 교체 call site ~29곳·`sut_stress` doc 주석("슬롯 충분 arm 안에서만 호출") 갱신.
 3. **UI 사이징(R6-R10)**: `sizing.ts`(hold walk·worker 분모) → `SlotSizingHelper`(앵커 재설계) → `WorkerSizingHelper` — 각 green 커밋(테스트 동반).
 4. **문구(R12)** + ADR-0046(4.9) + roadmap §B20 연기 기록.
 5. **라이브(R14)**: `/live-verify` 3-run + 권장 적용 확인 → finish-slice.
