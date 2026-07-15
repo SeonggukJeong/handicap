@@ -7,6 +7,7 @@ import {
   criteriaStateFrom,
   EMPTY_CRITERIA,
   type CriteriaState,
+  type ProfileFormInput,
 } from "../profileForm";
 import type { LoadModelState } from "../loadModel";
 import type { DataBinding } from "../../api/schemas";
@@ -193,5 +194,53 @@ describe("buildProfile measure_phases", () => {
     };
     expect(buildProfile({ ...base, measurePhases: true }).measure_phases).toBe(true);
     expect(buildProfile({ ...base, measurePhases: false }).measure_phases).toBe(false);
+  });
+});
+
+const openFixedLoad: LoadModelState = {
+  loadModel: "open",
+  rateMode: "fixed",
+  vus: 0,
+  duration: 30,
+  rampUp: 0,
+  targetRps: "100",
+  maxInFlight: "50",
+  stages: [],
+  thinkMin: "",
+  thinkMax: "",
+  thinkSeed: "",
+  rampDown: "graceful",
+  workerCount: "1",
+};
+
+function base(loadState: LoadModelState, extra: Partial<ProfileFormInput> = {}) {
+  return buildProfile({
+    hasLoop: false,
+    loopCap: 256,
+    httpTimeout: 30,
+    bindings: [],
+    loadState,
+    criteria: EMPTY_CRITERIA,
+    measurePhases: false,
+    ...extra,
+  });
+}
+
+describe("buildProfile apply_scenario_think_time", () => {
+  it("includes false when open-loop + scenarioHasThink + toggle off", () => {
+    const p = base(openFixedLoad, { scenarioHasThink: true, applyScenarioThink: false });
+    expect(p.apply_scenario_think_time).toBe(false);
+  });
+  it("includes true when open-loop + scenarioHasThink + toggle on", () => {
+    const p = base(openFixedLoad, { scenarioHasThink: true, applyScenarioThink: true });
+    expect(p.apply_scenario_think_time).toBe(true);
+  });
+  it("omits when open-loop but scenario has NO think (byte-identical)", () => {
+    const p = base(openFixedLoad, { scenarioHasThink: false, applyScenarioThink: false });
+    expect(p).not.toHaveProperty("apply_scenario_think_time");
+  });
+  it("omits for closed-loop (byte-identical)", () => {
+    const p = base(closedLoad, { scenarioHasThink: true, applyScenarioThink: true });
+    expect(p).not.toHaveProperty("apply_scenario_think_time");
   });
 });

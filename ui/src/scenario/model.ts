@@ -277,6 +277,14 @@ export function flattenHttpSteps(steps: ReadonlyArray<Step>): HttpStep[] {
   return out;
 }
 
+/** True when the scenario applies any think time — root default or any (nested)
+ *  step's think_time. Drives the open-loop ignore toggle's visibility and the
+ *  buildProfile field gate (spec §6.4). */
+export function scenarioHasThink(sc: Scenario): boolean {
+  if (sc.default_think_time != null) return true;
+  return flattenHttpSteps(sc.steps).some((h) => h.think_time != null);
+}
+
 /** The sequence a step actually lives in — used by the inspector to clamp move
  *  up/down. Fully recursive (9c). Falls back to the top-level list if not found. */
 export function findStepSiblings(steps: ReadonlyArray<Step>, stepId: string): ReadonlyArray<Step> {

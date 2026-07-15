@@ -125,6 +125,10 @@ export type ProfileFormInput = {
   loadState: LoadModelState;
   criteria: CriteriaState;
   measurePhases: boolean;
+  /** open-loop 무시 토글 값(RunDialog 전용). 아래 scenarioHasThink와 함께 게이트. */
+  applyScenarioThink?: boolean;
+  /** 시나리오에 think가 있는가(RunDialog가 scenarioHasThink로 계산). 없으면 필드 생략. */
+  scenarioHasThink?: boolean;
 };
 
 export function buildProfile(i: ProfileFormInput): Profile {
@@ -137,5 +141,10 @@ export function buildProfile(i: ProfileFormInput): Profile {
     criteria: buildCriteria(i.criteria),
     measure_phases: i.measurePhases,
     ...buildLoadProfile(i.loadState),
+    // open-loop이고 시나리오에 think가 있을 때만 필드를 실는다 → closed·no-think open은
+    // byte-identical(필드 부재). 미전달(ScheduleForm)이면 scenarioHasThink=undefined→생략.
+    ...(i.loadState.loadModel === "open" && i.scenarioHasThink
+      ? { apply_scenario_think_time: !!i.applyScenarioThink }
+      : {}),
   };
 }

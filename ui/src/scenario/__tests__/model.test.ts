@@ -13,6 +13,7 @@ import {
   findStepSiblings,
   summarizeCondition,
   isInsideParallelBranch,
+  scenarioHasThink,
   type Scenario,
   type HttpStep,
   type Extract,
@@ -672,5 +673,40 @@ describe("isInsideParallelBranch", () => {
     expect(isInsideParallelBranch(steps, "inLoop")).toBe(false);
     expect(isInsideParallelBranch(steps, "inBranch")).toBe(true);
     expect(isInsideParallelBranch(steps, "없는id")).toBe(false); // 못 찾으면 false
+  });
+});
+
+describe("scenarioHasThink", () => {
+  it("false for a scenario with no think", () => {
+    expect(scenarioHasThink(newEmptyScenario())).toBe(false);
+  });
+  it("true when default_think_time is set", () => {
+    const s: Scenario = { ...newEmptyScenario(), default_think_time: { min_ms: 100, max_ms: 200 } };
+    expect(scenarioHasThink(s)).toBe(true);
+  });
+  it("true when a nested step has think_time", () => {
+    const s: Scenario = {
+      ...newEmptyScenario(),
+      steps: [
+        {
+          type: "loop",
+          id: "01HX0000000000000000000P02",
+          name: "L",
+          repeat: 1,
+          do: [
+            {
+              type: "http",
+              id: "01HX0000000000000000000AAA",
+              name: "s",
+              request: { method: "GET", url: "http://x/", headers: {} },
+              assert: [],
+              extract: [],
+              think_time: { min_ms: 1, max_ms: 2 },
+            },
+          ],
+        },
+      ],
+    } as unknown as Scenario;
+    expect(scenarioHasThink(s)).toBe(true);
   });
 });

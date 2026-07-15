@@ -98,6 +98,9 @@ export const ProfileSchema = z.object({
   // open-loop 멀티워커 fan-out 노브. 서버 #[serde(skip_serializing_if)] → absent → .optional()
   worker_count: z.number().int().min(1).max(64).optional(),
   measure_phases: z.boolean().default(false),
+  // open-loop think 무시 토글(§B21 ②). 서버 store는 skip_serializing_if(=true일 때 생략)라
+  // false일 때만 직렬화되고 null로는 오지 않는다 → .optional()(‼ .nullish() 아님).
+  apply_scenario_think_time: z.boolean().optional(),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
