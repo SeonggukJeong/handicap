@@ -12,7 +12,7 @@ import {
 } from "../api/hooks";
 import type { DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
-import { flattenHttpSteps } from "../scenario/model";
+import { flattenHttpSteps, scenarioHasThink } from "../scenario/model";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
@@ -130,6 +130,8 @@ export function RunDialog({
   const [thinkMin, setThinkMin] = useState(numToStr(initTT?.min_ms));
   const [thinkMax, setThinkMax] = useState(numToStr(initTT?.max_ms));
   const [thinkSeed, setThinkSeed] = useState(numToStr(initial?.profile.think_seed));
+  // open-loop 시나리오 think time 무시 토글(§B21 ②). 기본 false=무시(open-loop 기본).
+  const [applyScenarioThink, setApplyScenarioThink] = useState(false);
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
@@ -363,6 +365,8 @@ export function RunDialog({
     (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0) +
     // Fix-1c: 데이터 바인딩이 활성 상태면 카운트에 포함 (간단 모드에선 패널이 숨겨짐).
     (bindings.length > 0 ? 1 : 0);
+  // 이 시나리오에 think time이 있는가(§B21 ② 게이트) — 없으면 무시 토글 자체가 미렌더.
+  const scHasThink = scenario ? scenarioHasThink(scenario) : false;
   // 모드 state를 모아 순수 헬퍼에 위임(필드 형태·검증). 나머지 state는 RunDialog 소유.
   const loadState: LoadModelState = {
     loadModel,
@@ -468,6 +472,8 @@ export function RunDialog({
       loadState,
       criteria: criteriaState,
       measurePhases,
+      applyScenarioThink,
+      scenarioHasThink: scHasThink,
     });
   }
 
@@ -644,6 +650,9 @@ export function RunDialog({
           onApplyWorkerCount={(n) => setWorkerCount(String(n))}
           httpTimeout={httpTimeout}
           poolMode={pool.data?.pool_mode}
+          applyScenarioThink={applyScenarioThink}
+          onApplyScenarioThinkChange={setApplyScenarioThink}
+          scenarioHasThink={scHasThink}
           simpleMode={mode === "simple"}
           loadModelTiles
           numeric

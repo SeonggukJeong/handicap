@@ -219,6 +219,11 @@ export const ko = {
     reqPerSecPeakApprox: (n: string) => `최고 단계 기준 ≈ 초당 요청 ${n}건`,
     reqPerSecPeakApproxRange: (lo: string, hi: string) =>
       `최고 단계 기준 ≈ 초당 요청 ${lo}~${hi}건`,
+    applyScenarioThinkLabel: "시나리오 think time 적용",
+    applyScenarioThinkIgnoreNote:
+      "think time 무시 중 (open-loop 기본) — 도착률로만 부하를 제어합니다. 적용하려면 켜세요.",
+    applyScenarioThinkApplyNote:
+      "think time이 슬롯을 점유합니다 — 아래 슬롯 사이징 도우미로 max_in_flight를 확인하세요.",
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",

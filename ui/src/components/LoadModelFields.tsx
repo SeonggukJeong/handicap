@@ -59,6 +59,10 @@ type Props = {
   httpTimeout?: number;
   // pool 모드 신호(RunDialog pool.data?.pool_mode). true → 두 경고 모두 suppress(R13).
   poolMode?: boolean;
+  // open-loop think 무시 토글(RunDialog 전용 — ScheduleForm 미전달=미렌더). open 전체(fixed+curve).
+  applyScenarioThink?: boolean;
+  onApplyScenarioThinkChange?: (b: boolean) => void;
+  scenarioHasThink?: boolean;
   // RunDialog 재구성 게이트 props (모두 optional → 미전달 시 ScheduleForm byte-identical, R12).
   simpleMode?: boolean; // 프로파일/곡선/rampDown/워커/경고 숨김 — 주 수치·크기 chips·사이징 헬퍼 유지
   loadModelTiles?: boolean; // 부하 모델 라디오 → 타일(button[role=radio]) 전환
@@ -99,6 +103,9 @@ export function LoadModelFields({
   setWorkerCount,
   httpTimeout,
   poolMode,
+  applyScenarioThink,
+  onApplyScenarioThinkChange,
+  scenarioHasThink,
   simpleMode,
   loadModelTiles,
   numeric,
@@ -723,6 +730,24 @@ export function LoadModelFields({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {onApplyScenarioThinkChange && scenarioHasThink && (
+            <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={!!applyScenarioThink}
+                  onChange={(e) => onApplyScenarioThinkChange(e.target.checked)}
+                />
+                {ko.loadModel.applyScenarioThinkLabel}
+              </label>
+              <p className="mt-1 text-xs text-slate-500">
+                {applyScenarioThink
+                  ? ko.loadModel.applyScenarioThinkApplyNote
+                  : ko.loadModel.applyScenarioThinkIgnoreNote}
+              </p>
             </div>
           )}
 

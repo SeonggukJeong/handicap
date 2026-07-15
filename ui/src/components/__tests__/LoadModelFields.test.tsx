@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LoadModelFields } from "../LoadModelFields";
 import type { LoadModelErrors } from "../loadModel";
@@ -30,8 +30,10 @@ const noErrs: LoadModelErrors = {
 const setRateMode = vi.fn();
 const setRampDown = vi.fn();
 
-function setup(overrides: Partial<React.ComponentProps<typeof LoadModelFields>> = {}) {
-  const props: React.ComponentProps<typeof LoadModelFields> = {
+function baseProps(
+  overrides: Partial<React.ComponentProps<typeof LoadModelFields>> = {},
+): React.ComponentProps<typeof LoadModelFields> {
+  return {
     loadModel: "closed",
     setLoadModel: vi.fn(),
     rateMode: "fixed",
@@ -53,12 +55,27 @@ function setup(overrides: Partial<React.ComponentProps<typeof LoadModelFields>> 
     errs: noErrs,
     ...overrides,
   };
+}
+
+function setup(overrides: Partial<React.ComponentProps<typeof LoadModelFields>> = {}) {
+  const props = baseProps(overrides);
   render(<LoadModelFields {...props} />);
   return props;
 }
 
 // alias for clarity in new tests
 const renderFields = setup;
+
+// ── open-loop 무시 토글(Task 5②) 전용 prop factory — openFixedProps/openCurveProps/closedProps
+// 는 baseProps 위에 모드만 오버라이드한다(렌더는 호출부가 raw render/rerender로 직접 제어).
+const openFixedProps = () => baseProps({ loadModel: "open", rateMode: "fixed" });
+const openCurveProps = () =>
+  baseProps({
+    loadModel: "open",
+    rateMode: "curve",
+    stages: [{ target: "50", duration_seconds: "30" }],
+  });
+const closedProps = () => baseProps({ loadModel: "closed", rateMode: "fixed" });
 
 describe("LoadModelFields", () => {
   it("부하 모델 + 프로파일 두 fieldset을 렌더", () => {
@@ -466,6 +483,81 @@ describe("LoadModelFields", () => {
     // ScheduleForm 호환 라디오 모드: Segmented radiogroup이 없어야 한다
     expect(screen.queryByRole("radiogroup", { name: "프로파일" })).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "고정" })).toBeInTheDocument(); // input[type=radio] 유지
+  });
+
+  // ── Task 5②: open-loop 시나리오 think time 무시 토글 (§B21) ──────────────────
+  it("open-loop + think 있으면 무시 토글 노출(기본 무시) — open+curve도 노출, no-think/closed는 미노출", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <LoadModelFields
+        {...openFixedProps()}
+        scenarioHasThink
+        onApplyScenarioThinkChange={onChange}
+        applyScenarioThink={false}
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel });
+    expect(toggle).not.toBeChecked(); // default ignore
+    expect(screen.getByText(ko.loadModel.applyScenarioThinkIgnoreNote)).toBeInTheDocument();
+
+    // toggling calls the handler with true
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+
+    // still shown for open+curve (spec §6.1 — 토글은 open 양 arm 공통)
+    rerender(
+      <LoadModelFields
+        {...openCurveProps()}
+        scenarioHasThink
+        onApplyScenarioThinkChange={onChange}
+        applyScenarioThink={false}
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).toBeInTheDocument();
+
+    // hidden when scenario has no think
+    rerender(
+      <LoadModelFields
+        {...openFixedProps()}
+        scenarioHasThink={false}
+        onApplyScenarioThinkChange={onChange}
+      />,
+    );
+    expect(
+      screen.queryByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).not.toBeInTheDocument();
+
+    // hidden for closed-loop
+    rerender(
+      <LoadModelFields {...closedProps()} scenarioHasThink onApplyScenarioThinkChange={onChange} />,
+    );
+    expect(
+      screen.queryByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("applyScenarioThink=true면 적용 안내 문구로 전환된다", () => {
+    render(
+      <LoadModelFields
+        {...openFixedProps()}
+        scenarioHasThink
+        onApplyScenarioThinkChange={vi.fn()}
+        applyScenarioThink
+      />,
+    );
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).toBeChecked();
+    expect(screen.getByText(ko.loadModel.applyScenarioThinkApplyNote)).toBeInTheDocument();
+  });
+
+  it("onApplyScenarioThinkChange 미전달(ScheduleForm 경로)이면 scenarioHasThink=true여도 미렌더", () => {
+    render(<LoadModelFields {...openFixedProps()} scenarioHasThink />);
+    expect(
+      screen.queryByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).not.toBeInTheDocument();
   });
 });
 
