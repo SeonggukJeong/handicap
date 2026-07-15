@@ -82,6 +82,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         vu_stages: None,
         ramp_down: None,
         worker_count: None,
+        apply_scenario_think_time: true,
     };
     let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env)
         .await
@@ -220,6 +221,7 @@ async fn export_of_nonterminal_run_is_rejected() {
         vu_stages: None,
         ramp_down: None,
         worker_count: None,
+        apply_scenario_think_time: true,
     };
     let row = store::runs::insert(
         &db,
@@ -300,6 +302,7 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
         vu_stages: None,
         ramp_down: None,
         worker_count: None,
+        apply_scenario_think_time: true,
     };
 
     // Run A

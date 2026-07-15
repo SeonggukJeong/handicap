@@ -43,6 +43,7 @@ fn profile() -> Profile {
         vu_stages: None,
         ramp_down: None,
         worker_count: None,
+        apply_scenario_think_time: true,
     }
 }
 

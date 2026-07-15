@@ -45,6 +45,14 @@ fn default_http_timeout() -> u32 {
     30
 }
 
+fn apply_scenario_think_default() -> bool {
+    true
+}
+
+fn apply_scenario_think_is_default(v: &bool) -> bool {
+    *v // skip serializing when true (the default = apply)
+}
+
 /// step-level criterion (spec §2.1). metric×op(max/min)를 특정 http-leaf step에 적용.
 /// target은 v1 필수(step-level 전용); 모델은 일반형 유지 → optional relax가 순수 가산.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -147,6 +155,15 @@ pub struct Profile {
     /// proto에는 없음(컨트롤러가 register 시 워커별 프로필을 분할).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_count: Option<u32>,
+    /// open-loop에서 시나리오 think time(default_think_time + 스텝 think) 적용 여부.
+    /// 기본 true(적용) = 기존 저장 run·closed-loop byte-identical. open-loop 신규 run은
+    /// UI가 think 있을 때만 명시 전송. closed-loop에선 무시됨(strip은 open-loop 경로만,
+    /// `spawn_run`). proto에는 없음(워커는 strip된 YAML을 받는다 — 0-diff).
+    #[serde(
+        default = "apply_scenario_think_default",
+        skip_serializing_if = "apply_scenario_think_is_default"
+    )]
+    pub apply_scenario_think_time: bool,
 }
 
 impl Profile {
@@ -513,6 +530,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         };
         f(&mut p);
         p
@@ -650,6 +668,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         };
         let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -702,6 +721,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         };
         insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
             .await
@@ -914,6 +934,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Profile = serde_json::from_str(&s).unwrap();
@@ -1000,5 +1021,31 @@ mod tests {
         // None → omitted from output (skip_serializing_if)
         let out = serde_json::to_value(&p2).unwrap();
         assert!(out.get("stages").is_none());
+    }
+
+    #[test]
+    fn apply_scenario_think_time_defaults_true_and_skips_when_true() {
+        // Old profile_json (no field) → deserializes to true (apply = byte-identical history).
+        let old = r#"{"vus":1,"duration_seconds":10}"#;
+        let p: Profile = serde_json::from_str(old).unwrap();
+        assert!(
+            p.apply_scenario_think_time,
+            "absent field must default to apply=true"
+        );
+
+        // true → omitted from JSON (byte-identical storage).
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(
+            !json.contains("apply_scenario_think_time"),
+            "apply=true must be skipped in serialization: {json}"
+        );
+
+        // false → serialized, and round-trips.
+        let mut p2 = p.clone();
+        p2.apply_scenario_think_time = false;
+        let json2 = serde_json::to_string(&p2).unwrap();
+        assert!(json2.contains("\"apply_scenario_think_time\":false"));
+        let back: Profile = serde_json::from_str(&json2).unwrap();
+        assert!(!back.apply_scenario_think_time);
     }
 }

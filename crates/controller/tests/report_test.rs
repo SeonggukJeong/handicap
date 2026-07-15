@@ -90,6 +90,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         vu_stages: None,
         ramp_down: None,
         worker_count: None,
+        apply_scenario_think_time: true,
     };
     let row = store::runs::insert(db, "S-report-test", yaml, &profile, &env)
         .await

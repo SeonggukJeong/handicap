@@ -1319,6 +1319,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         }
     }
 
@@ -1527,6 +1528,7 @@ steps:
                 vu_stages: None,
                 ramp_down: None,
                 worker_count: None,
+                apply_scenario_think_time: true,
             }
         }
         let mk = |target: &str| {
@@ -1597,6 +1599,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         };
         let err = validate_run_config(&state, &p).await.unwrap_err();
         assert!(matches!(err, ApiError::BadRequest(_)), "0 must be rejected");
@@ -1646,6 +1649,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         }
     }
 
@@ -1698,6 +1702,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             worker_count: None,
+            apply_scenario_think_time: true,
         }
     }
 
