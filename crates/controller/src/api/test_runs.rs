@@ -6,6 +6,7 @@ use axum::extract::State;
 use handicap_engine::{Scenario, ScenarioTrace, TraceOptions, trace_scenario};
 use serde::Deserialize;
 
+use crate::api::scenarios::validate_scenario_think_times;
 use crate::error::ApiError;
 
 const DEFAULT_MAX_REQUESTS: u32 = 50;
@@ -47,6 +48,8 @@ pub async fn create(
     }
     let scenario = Scenario::from_yaml(&body.scenario_yaml)
         .map_err(|e| ApiError::Unprocessable(format!("scenario parse: {e}")))?;
+    validate_scenario_think_times(&scenario.steps, &scenario.default_think_time)
+        .map_err(ApiError::Unprocessable)?;
 
     let opts = TraceOptions {
         env: body.env,

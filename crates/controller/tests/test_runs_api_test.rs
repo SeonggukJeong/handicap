@@ -77,6 +77,35 @@ async fn test_run_rejects_out_of_range_max_requests_with_422() {
 }
 
 #[tokio::test]
+async fn test_run_rejects_out_of_range_step_think_time_with_422() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let yaml = "version: 1\nname: s\nsteps:\n  - type: http\n    id: 01HX0000000000000000000099\n    name: s1\n    request:\n      method: GET\n      url: http://x/\n    think_time: { min_ms: 5000, max_ms: 100 }\n";
+    let (status, _b) = post(
+        &app,
+        "/api/test-runs",
+        json!({ "scenario_yaml": yaml, "env": {} }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn test_run_rejects_out_of_range_default_think_time_with_422() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let yaml =
+        "version: 1\nname: s\ndefault_think_time: { min_ms: 0, max_ms: 700000 }\nsteps: []\n";
+    let (status, _b) = post(
+        &app,
+        "/api/test-runs",
+        json!({ "scenario_yaml": yaml, "env": {} }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn test_run_returns_200_trace_with_step_error_for_unreachable_target() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db);

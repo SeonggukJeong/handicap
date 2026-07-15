@@ -5,6 +5,7 @@ use handicap_engine::{Scenario, Step};
 use handicap_proto::v1 as pb;
 use serde::{Deserialize, Serialize};
 
+use crate::api::scenarios::think_time_in_range;
 use crate::app::AppState;
 use crate::binding::{BindingPolicy, collect_var_names};
 use crate::error::ApiError;
@@ -397,7 +398,7 @@ pub(crate) async fn validate_run_config(
         ));
     }
     if let Some(tt) = &profile.think_time {
-        if tt.min_ms > tt.max_ms || tt.max_ms > 600_000 {
+        if !think_time_in_range(tt) {
             return Err(ApiError::BadRequest(
                 "think_time: min_ms <= max_ms <= 600000 (10분) 이어야 합니다".into(),
             ));

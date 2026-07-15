@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use handicap_engine::{Scenario, Step};
+use handicap_engine::{Scenario, Step, ThinkTime};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
@@ -51,6 +51,63 @@ fn validate_parallel_branch_names(steps: &[Step]) -> Result<(), String> {
     Ok(())
 }
 
+/// True when the think-time range is well-formed: `min <= max <= 600_000` (10 min).
+/// Single source of truth shared by scenario/step validation (below) and the
+/// run-level check (`api/runs.rs`), mirroring the UI Zod `ThinkTimeModel` rule.
+pub(crate) fn think_time_in_range(tt: &ThinkTime) -> bool {
+    tt.min_ms <= tt.max_ms && tt.max_ms <= 600_000
+}
+
+/// Validate the scenario's root `default_think_time` and every step's
+/// `think_time` (recursing loop/if/parallel — the engine allows free nesting,
+/// and a parallel branch step's *explicit* think still degrades if out of range,
+/// so no step is exempt). Mirrors `validate_parallel_branch_names`' exhaustive walk.
+pub(crate) fn validate_scenario_think_times(
+    steps: &[Step],
+    default: &Option<ThinkTime>,
+) -> Result<(), String> {
+    if let Some(tt) = default {
+        if !think_time_in_range(tt) {
+            return Err(
+                "시나리오 기본 think time(default_think_time): min_ms <= max_ms <= 600000 (10분) 이어야 합니다"
+                    .into(),
+            );
+        }
+    }
+    validate_steps_think(steps)
+}
+
+fn validate_steps_think(steps: &[Step]) -> Result<(), String> {
+    for step in steps {
+        match step {
+            Step::Http(h) => {
+                if let Some(tt) = &h.think_time {
+                    if !think_time_in_range(tt) {
+                        return Err(format!(
+                            "스텝 \"{}\"의 think_time: min_ms <= max_ms <= 600000 (10분) 이어야 합니다",
+                            h.name
+                        ));
+                    }
+                }
+            }
+            Step::Loop(l) => validate_steps_think(&l.do_)?,
+            Step::If(i) => {
+                validate_steps_think(&i.then_)?;
+                for e in &i.elif {
+                    validate_steps_think(&e.then_)?;
+                }
+                validate_steps_think(&i.else_)?;
+            }
+            Step::Parallel(p) => {
+                for b in &p.branches {
+                    validate_steps_think(&b.steps)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateRequest {
     pub yaml: String,
@@ -72,6 +129,8 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<ScenarioResponse>), ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
     validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
+    validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
+        .map_err(ApiError::BadRequest)?;
     let row = scenarios::insert(&state.db, &parsed, &body.yaml).await?;
     Ok((
         StatusCode::CREATED,
@@ -138,6 +197,8 @@ pub async fn update(
 ) -> Result<Json<ScenarioResponse>, ApiError> {
     let parsed = Scenario::from_yaml(&body.yaml)?;
     validate_parallel_branch_names(&parsed.steps).map_err(ApiError::BadRequest)?;
+    validate_scenario_think_times(&parsed.steps, &parsed.default_think_time)
+        .map_err(ApiError::BadRequest)?;
     let outcome = scenarios::update(&state.db, &id, &parsed.name, &body.yaml, body.version).await?;
     match outcome {
         scenarios::UpdateOutcome::Updated(row) => Ok(Json(ScenarioResponse {
@@ -197,5 +258,103 @@ pub async fn delete(
         scenarios::DeleteOutcome::ActiveRuns => {
             Err(ApiError::Conflict(ACTIVE_RUN_DELETE_MSG.into()))
         }
+    }
+}
+
+#[cfg(test)]
+mod think_validation_tests {
+    use super::*;
+    use handicap_engine::Scenario;
+
+    fn scn(yaml: &str) -> Scenario {
+        Scenario::from_yaml(yaml).expect("valid yaml")
+    }
+
+    // ULID chars exclude I/L/O/U — use "01HX00000000000000000000AA"-style valid ids.
+    const HTTP: &str = r#"
+version: 1
+name: t
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: s1
+    request:
+      method: GET
+      url: http://x/
+"#;
+
+    #[test]
+    fn rejects_default_min_gt_max() {
+        let mut s = scn(HTTP);
+        s.default_think_time = Some(handicap_engine::ThinkTime {
+            min_ms: 5000,
+            max_ms: 100,
+        });
+        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_err());
+    }
+
+    #[test]
+    fn rejects_default_max_over_600000() {
+        let mut s = scn(HTTP);
+        s.default_think_time = Some(handicap_engine::ThinkTime {
+            min_ms: 0,
+            max_ms: 700_000,
+        });
+        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_err());
+    }
+
+    #[test]
+    fn rejects_step_think_out_of_range_nested() {
+        // step think inside a loop → walk must reach it and its name appears in the error.
+        let yaml = r#"
+version: 1
+name: t
+steps:
+  - id: 01HX0000000000000000000P02
+    type: loop
+    name: L
+    repeat: 2
+    do:
+      - id: 01HX0000000000000000000B01
+        type: http
+        name: innerstep
+        request: { method: GET, url: http://x/ }
+        think_time: { min_ms: 900000, max_ms: 900000 }
+"#;
+        let s = scn(yaml);
+        let err = validate_scenario_think_times(&s.steps, &s.default_think_time).unwrap_err();
+        assert!(
+            err.contains("innerstep"),
+            "error should name the step: {err}"
+        );
+    }
+
+    #[test]
+    fn accepts_in_range_and_absent() {
+        let s = scn(HTTP);
+        assert!(validate_scenario_think_times(&s.steps, &s.default_think_time).is_ok()); // absent
+        let mut s2 = scn(HTTP);
+        s2.default_think_time = Some(handicap_engine::ThinkTime {
+            min_ms: 100,
+            max_ms: 500,
+        });
+        assert!(validate_scenario_think_times(&s2.steps, &s2.default_think_time).is_ok());
+    }
+
+    #[test]
+    fn predicate_matches_run_level_condition() {
+        // byte-identical to the pre-existing run-level rule (min>max || max>600000).
+        assert!(think_time_in_range(&handicap_engine::ThinkTime {
+            min_ms: 0,
+            max_ms: 600_000
+        }));
+        assert!(!think_time_in_range(&handicap_engine::ThinkTime {
+            min_ms: 1,
+            max_ms: 0
+        }));
+        assert!(!think_time_in_range(&handicap_engine::ThinkTime {
+            min_ms: 0,
+            max_ms: 600_001
+        }));
     }
 }
