@@ -542,6 +542,74 @@ pub(crate) fn startup_grace_eff(
     floor + std::time::Duration::from_secs(leading_idle_secs(p))
 }
 
+/// open-loop에서 시나리오 think를 무시할 때만, 워커-전송 YAML에서 think를 제거한다.
+/// 무-think·apply·closed는 원본 clone(파싱조차 안 함). 라운드트립 속성
+/// (`from_yaml(to_yaml(s)) == s`, engine `scenario.rs` 테스트)이 안전 담보 — 워커가
+/// 어차피 재파싱하므로 리포맷/주석 손실은 실행에 무의미. 저장 스냅샷은 원본을 쓴다.
+fn maybe_strip_think(yaml: &str, profile: &Profile) -> String {
+    if !(profile.is_open_loop() && !profile.apply_scenario_think_time) {
+        return yaml.to_string();
+    }
+    let mut sc = match Scenario::from_yaml(yaml) {
+        Ok(s) => s,
+        // 파싱 실패는 생성 시 검증에서 이미 걸렸을 것 — 방어적으로 원본 유지.
+        Err(_) => return yaml.to_string(),
+    };
+    if strip_scenario_think(&mut sc) {
+        sc.to_yaml().unwrap_or_else(|_| yaml.to_string())
+    } else {
+        yaml.to_string()
+    }
+}
+
+/// 루트 default + 모든 스텝 think를 None으로. 하나라도 바꿨으면 true.
+fn strip_scenario_think(sc: &mut Scenario) -> bool {
+    let mut changed = sc.default_think_time.take().is_some();
+    if strip_steps_think(&mut sc.steps) {
+        changed = true;
+    }
+    changed
+}
+
+fn strip_steps_think(steps: &mut [Step]) -> bool {
+    let mut changed = false;
+    for step in steps.iter_mut() {
+        match step {
+            Step::Http(h) => {
+                if h.think_time.take().is_some() {
+                    changed = true;
+                }
+            }
+            Step::Loop(l) => {
+                if strip_steps_think(&mut l.do_) {
+                    changed = true;
+                }
+            }
+            Step::If(i) => {
+                if strip_steps_think(&mut i.then_) {
+                    changed = true;
+                }
+                for e in &mut i.elif {
+                    if strip_steps_think(&mut e.then_) {
+                        changed = true;
+                    }
+                }
+                if strip_steps_think(&mut i.else_) {
+                    changed = true;
+                }
+            }
+            Step::Parallel(p) => {
+                for b in &mut p.branches {
+                    if strip_steps_think(&mut b.steps) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    changed
+}
+
 /// 검증된 run을 발사: insert → data_binding 해석 → enqueue → dispatch.
 /// dispatch 실패 시 run을 failed로 마크하고 Err 반환(cancel_dispatch_failed +
 /// mark_failed 수행 후). REST `create`(권위 게이트 통과 후 호출)와 스케줄러
@@ -631,9 +699,13 @@ pub(crate) async fn spawn_run(
         })
         .collect();
 
+    // open-loop think 무시(§B21 ②): 워커-전송 복사본에서만 think strip. 스냅샷(line 578,
+    // runs::insert(&scenario.yaml))은 원본 유지 — 리포트 스텝 라벨·retry drift 정본.
+    let worker_yaml = maybe_strip_think(&scenario.yaml, profile);
+
     // Enqueue the assignment so the coordinator can hand shards to N workers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
-        scenario_yaml: scenario.yaml.clone(),
+        scenario_yaml: worker_yaml,
         profile: handicap_proto::v1::Profile {
             vus: profile.vus,
             ramp_up_seconds: profile.ramp_up_seconds,
@@ -2363,5 +2435,105 @@ steps:
                 .is_ok(),
             "curve peak 50 @ cap 25 → N=2; unique rows 2 >= 2 must pass"
         );
+    }
+}
+
+#[cfg(test)]
+mod strip_think_tests {
+    use super::*;
+
+    const YAML_THINK: &str = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 500, max_ms: 500 }
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: s1
+    request: { method: GET, url: http://x/ }
+    think_time: { min_ms: 300, max_ms: 300 }
+"#;
+
+    const YAML_NOTHINK: &str = r#"
+version: 1
+name: t
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: s1
+    request: { method: GET, url: http://x/ }
+"#;
+
+    fn open_profile(apply: bool) -> Profile {
+        // open-loop fixed: target_rps set (is_open_loop() == true).
+        let mut p = Profile {
+            duration_seconds: 10,
+            target_rps: Some(100),
+            max_in_flight: Some(50),
+            apply_scenario_think_time: apply,
+            ..closed_min()
+        };
+        p.vus = 0;
+        p
+    }
+
+    // Minimal closed profile literal helper (fill remaining required fields).
+    fn closed_min() -> Profile {
+        Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 10,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            worker_count: None,
+            apply_scenario_think_time: true,
+        }
+    }
+
+    #[test]
+    fn open_ignore_strips_think() {
+        let out = maybe_strip_think(YAML_THINK, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert!(
+            sc.default_think_time.is_none(),
+            "default_think_time removed"
+        );
+        if let Step::Http(h) = &sc.steps[0] {
+            assert!(h.think_time.is_none(), "step think removed");
+        } else {
+            panic!("expected http step");
+        }
+    }
+
+    #[test]
+    fn open_apply_keeps_original() {
+        let out = maybe_strip_think(YAML_THINK, &open_profile(true));
+        assert_eq!(out, YAML_THINK, "apply=true → original clone");
+    }
+
+    #[test]
+    fn closed_never_strips() {
+        let mut p = closed_min();
+        p.apply_scenario_think_time = false; // closed + false: still no strip (open-loop only)
+        let out = maybe_strip_think(YAML_THINK, &p);
+        assert_eq!(out, YAML_THINK);
+    }
+
+    #[test]
+    fn open_ignore_no_think_keeps_original() {
+        // gate passes but nothing to strip → original (changed==false).
+        let out = maybe_strip_think(YAML_NOTHINK, &open_profile(false));
+        assert_eq!(out, YAML_NOTHINK);
     }
 }
