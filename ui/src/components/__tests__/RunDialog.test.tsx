@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunDialog } from "../RunDialog";
 import { ko } from "../../i18n/ko";
+import type { Scenario } from "../../scenario/model";
+import { newEmptyScenario } from "../../scenario/model";
 
 // null 렌더 — 헬퍼의 렌더/미렌더는 LoadModelFields.test.tsx가 검증. 여기선 RunDialog 단위 경계 유지(헬퍼 hook fetch 차단).
 // usePriorClosedRunAnchor의 실제 구현은 보존(importOriginal spread) — RunDialog가 이 hook을 직접 호출한다.
@@ -46,7 +48,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function renderDialog(hasLoop = true) {
+function renderDialog(hasLoop = true, scenario: Scenario | null = null) {
   const onCreated = vi.fn();
   const onCancel = vi.fn();
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -55,7 +57,7 @@ function renderDialog(hasLoop = true) {
       <RunDialog
         scenarioId="S1"
         hasLoop={hasLoop}
-        scenario={null}
+        scenario={scenario}
         onCreated={onCreated}
         onCancel={onCancel}
       />
@@ -77,6 +79,13 @@ function envSection() {
 async function toDetailed(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("radio", { name: "상세" }));
 }
+
+// §B21 ② think 무시 토글 프리필 테스트 공통 fixture — scenarioHasThink()가 true가
+// 되도록 루트 default_think_time을 세팅(load-preset 블록 + 전용 describe 블록에서 공유).
+const scenarioWithThink: Scenario = {
+  ...newEmptyScenario("t"),
+  default_think_time: { min_ms: 100, max_ms: 200 },
+};
 
 describe("RunDialog — 간단/상세 모드 토글 (T6)", () => {
   // R11: 간단 모드(기본) POST profile byte-identical 골든.
@@ -483,14 +492,17 @@ describe("RunDialog — env & ramp_up", () => {
 
 import type { RunPrefill } from "../../api/runPrefill";
 
-function renderWithInitial(initial: RunPrefill, opts?: { scenarioChangedWarning?: boolean }) {
+function renderWithInitial(
+  initial: RunPrefill,
+  opts?: { scenarioChangedWarning?: boolean; scenario?: Scenario | null },
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <RunDialog
         scenarioId="S1"
         hasLoop={true}
-        scenario={null}
+        scenario={opts?.scenario ?? null}
         initial={initial}
         scenarioChangedWarning={opts?.scenarioChangedWarning ?? false}
         onCreated={vi.fn()}
@@ -777,14 +789,14 @@ describe("RunDialog — load preset (A2)", () => {
     });
   }
 
-  function renderPresetDialog() {
+  function renderPresetDialog(scenario: Scenario | null = null) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={qc}>
         <RunDialog
           scenarioId="S1"
           hasLoop={true}
-          scenario={null}
+          scenario={scenario}
           onCreated={vi.fn()}
           onCancel={vi.fn()}
         />
@@ -863,6 +875,60 @@ describe("RunDialog — load preset (A2)", () => {
     // Fix-1b: 상세 모드로 전환됐어야 함
     await waitFor(() => {
       expect(screen.getByRole("radio", { name: "상세" })).toHaveAttribute("aria-checked", "true");
+    });
+  });
+
+  // §B21 ② fix: loadPreset이 applyScenarioThink state를 재시딩해야 한다 —
+  // 안 하면 apply-think 프리셋을 로드해도 토글이 이전 값(대개 무시)에 머물러
+  // 다른 부하를 조용히 낸다([[load-divergence-explain-confirm]] 클래스).
+  it("think-apply 프리셋 로드 시 토글이 apply_scenario_think_time로 재시딩됨 (§B21 ②)", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "PT",
+                name: "think-apply",
+                vus: 2,
+                duration_seconds: 5,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/PT")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "PT",
+            scenario_id: "S1",
+            name: "think-apply",
+            profile: {
+              vus: 2,
+              duration_seconds: 5,
+              ramp_up_seconds: 0,
+              loop_breakdown_cap: 256,
+              data_binding: null,
+              target_rps: 50,
+              apply_scenario_think_time: true,
+            },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderPresetDialog(scenarioWithThink);
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PT");
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+      ).toBeChecked();
     });
   });
 });
@@ -1070,6 +1136,63 @@ describe("RunDialog — Pacing think time (S-B)", () => {
       "aria-describedby",
       "think-time-error",
     );
+  });
+});
+
+// §B21 ② Should-fix: applyScenarioThink 토글은 retry/preset에서 프리필돼야 한다 — 안
+// 그러면 apply-think open-loop run을 retry/load할 때 토글이 조용히 무시로 복귀해
+// 원본과 다른 부하를 낸다([[load-divergence-explain-confirm]] 클래스, spec §6.4).
+// 소비 규칙: `apply_scenario_think_time ?? true` (retry/preset), 신규 run만 false.
+describe("RunDialog — think 무시 토글 프리필 (§B21 ②, spec §6.4)", () => {
+  function openThinkProfile(overrides: Partial<RunPrefill["profile"]> = {}): RunPrefill {
+    return {
+      profile: {
+        vus: 2,
+        duration_seconds: 5,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 256,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        target_rps: 50,
+        ...overrides,
+      },
+      env: {},
+    };
+  }
+
+  it("retry of an apply run (apply_scenario_think_time absent) prefills the toggle CHECKED", () => {
+    renderWithInitial(openThinkProfile(), { scenario: scenarioWithThink });
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).toBeChecked();
+  });
+
+  it("retry of an ignore run (apply_scenario_think_time: false) prefills the toggle unchecked", () => {
+    renderWithInitial(openThinkProfile({ apply_scenario_think_time: false }), {
+      scenario: scenarioWithThink,
+    });
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).not.toBeChecked();
+  });
+
+  it("retry of an explicit apply run (apply_scenario_think_time: true) prefills the toggle CHECKED", () => {
+    renderWithInitial(openThinkProfile({ apply_scenario_think_time: true }), {
+      scenario: scenarioWithThink,
+    });
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).toBeChecked();
+  });
+
+  it("brand-new run (no initial) still defaults the toggle unchecked (ignore), even with an open+think scenario", async () => {
+    const user = userEvent.setup();
+    renderDialog(true, scenarioWithThink);
+    await user.click(screen.getByRole("radio", { name: /도착률/ }));
+    expect(
+      screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
+    ).not.toBeChecked();
   });
 });
 

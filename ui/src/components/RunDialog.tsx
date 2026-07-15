@@ -130,8 +130,13 @@ export function RunDialog({
   const [thinkMin, setThinkMin] = useState(numToStr(initTT?.min_ms));
   const [thinkMax, setThinkMax] = useState(numToStr(initTT?.max_ms));
   const [thinkSeed, setThinkSeed] = useState(numToStr(initial?.profile.think_seed));
-  // open-loop 시나리오 think time 무시 토글(§B21 ②). 기본 false=무시(open-loop 기본).
-  const [applyScenarioThink, setApplyScenarioThink] = useState(false);
+  // open-loop 시나리오 think time 무시 토글(§B21 ②). 신규 run(initial 없음) 기본
+  // false=무시. retry/preset 프리필(initial 있음)은 `apply_scenario_think_time ?? true`
+  // — 이 필드는 apply일 때 skip-when-true로 생략되므로(과거 open+think run도 부재)
+  // 부재=apply로 해석해야 한다(spec §6.4). 명시 false만 무시로 프리필.
+  const [applyScenarioThink, setApplyScenarioThink] = useState(
+    initial ? (initial.profile.apply_scenario_think_time ?? true) : false,
+  );
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() =>
     initial ? Object.entries(initial.env).map(([key, value]) => ({ key, value })) : [],
   );
@@ -253,6 +258,11 @@ export function RunDialog({
       setThinkMin(numToStr(ptt?.min_ms));
       setThinkMax(numToStr(ptt?.max_ms));
       setThinkSeed(numToStr(prof.think_seed ?? undefined));
+      // §B21 ② fix: think 무시 토글도 프리셋 값으로 재시딩(apply-skip-when-true라
+      // 부재=apply). 우리 필드는 실제 부하를 바꾸므로 measure_phases(관측-only)의
+      // 의도적 제외와 달리 반드시 재시딩해야 한다 — 안 하면 apply 프리셋 로드 후에도
+      // 토글이 이전 값(대개 무시)에 머물러 조용히 다른 부하를 낸다.
+      setApplyScenarioThink(prof.apply_scenario_think_time ?? true);
       // 프리셋의 비기본 고급 값이 접힌 그룹에 숨지 않게 펼침. measure_phases는 의도적
       // 제외 — loadPreset이 measurePhases state를 시드하지 않는 기존 갭이 있어(수정은
       // U1b 범위 밖), 조건에 넣으면 "펼쳤는데 체크박스 꺼짐" 불일치가 생긴다.
