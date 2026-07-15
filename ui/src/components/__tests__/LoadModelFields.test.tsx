@@ -559,6 +559,28 @@ describe("LoadModelFields", () => {
       screen.queryByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel }),
     ).not.toBeInTheDocument();
   });
+
+  // ── Task 6③: 관측 RPS 앵커 (open+fixed) (§B21) ──────────────────────────
+  it("offers the observed-RPS anchor in open+fixed and fills target_rps on click", () => {
+    const setTargetRps = vi.fn();
+    render(
+      <LoadModelFields
+        {...openFixedProps()}
+        setTargetRps={setTargetRps}
+        sizePresetAnchor={{ vus: 50, rps: 180.4, durationSeconds: 60 }}
+      />,
+    );
+    expect(screen.getByText(ko.loadModel.observedRpsAnchor(180))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: ko.loadModel.observedRpsApply }));
+    expect(setTargetRps).toHaveBeenCalledWith("180");
+  });
+
+  it("hides the anchor when there is no prior run", () => {
+    render(<LoadModelFields {...openFixedProps()} sizePresetAnchor={null} />);
+    expect(
+      screen.queryByRole("button", { name: ko.loadModel.observedRpsApply }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;

@@ -795,6 +795,18 @@ export function LoadModelFields({
                 const hint = reqConversion(Number(targetRps), false);
                 return hint ? <p className="mb-3 -mt-2 text-xs text-slate-500">{hint}</p> : null;
               })()}
+              {sizePresetAnchor && sizePresetAnchor.rps > 0 && (
+                <p className="mb-3 -mt-1 text-xs text-slate-500">
+                  {ko.loadModel.observedRpsAnchor(Math.round(sizePresetAnchor.rps))}{" "}
+                  <button
+                    type="button"
+                    onClick={() => setTargetRps(String(Math.round(sizePresetAnchor.rps)))}
+                    className="text-accent-600 hover:underline"
+                  >
+                    {ko.loadModel.observedRpsApply}
+                  </button>
+                </p>
+              )}
               {onApplyMaxInFlight && sizingScenarioId !== undefined && (
                 <SlotSizingHelper
                   scenarioId={sizingScenarioId}

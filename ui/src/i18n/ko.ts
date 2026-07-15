@@ -224,6 +224,8 @@ export const ko = {
       "think time 무시 중 (open-loop 기본) — 도착률로만 부하를 제어합니다. 적용하려면 켜세요.",
     applyScenarioThinkApplyNote:
       "think time이 슬롯을 점유합니다 — 아래 슬롯 사이징 도우미로 max_in_flight를 확인하세요.",
+    observedRpsAnchor: (n: number) => `직전 실행 관측 ≈ ${n} RPS`,
+    observedRpsApply: "이 값으로",
   },
   validation: {
     rampUp: "점진 시작은 테스트 시간 이하여야 합니다.",
