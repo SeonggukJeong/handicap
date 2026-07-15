@@ -699,8 +699,8 @@ pub(crate) async fn spawn_run(
         })
         .collect();
 
-    // open-loop think 무시(§B21 ②): 워커-전송 복사본에서만 think strip. 스냅샷(line 578,
-    // runs::insert(&scenario.yaml))은 원본 유지 — 리포트 스텝 라벨·retry drift 정본.
+    // open-loop think 무시(§B21 ②): 워커-전송 복사본에서만 think strip. 스냅샷
+    // (runs::insert(&scenario.yaml))은 원본 유지 — 리포트 스텝 라벨·retry drift 정본.
     let worker_yaml = maybe_strip_think(&scenario.yaml, profile);
 
     // Enqueue the assignment so the coordinator can hand shards to N workers.
@@ -2535,5 +2535,63 @@ steps:
         // gate passes but nothing to strip → original (changed==false).
         let out = maybe_strip_think(YAML_NOTHINK, &open_profile(false));
         assert_eq!(out, YAML_NOTHINK);
+    }
+
+    // Nested http steps (inside a loop body AND a parallel branch) must also have
+    // think stripped — a future edit turning a recursion arm (Step::Loop /
+    // Step::Parallel) into a no-op would otherwise silently let think survive the
+    // open-loop "ignore" toggle (§B21 ②).
+    const YAML_NESTED_THINK: &str = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 500, max_ms: 500 }
+steps:
+  - id: 01HX0000000000000000000BBB
+    type: loop
+    name: loopstep
+    repeat: 1
+    do:
+      - id: 01HX0000000000000000000CCC
+        type: http
+        name: inner
+        request: { method: GET, url: http://x/ }
+        think_time: { min_ms: 300, max_ms: 300 }
+  - id: 01HX0000000000000000000DDD
+    type: parallel
+    name: parstep
+    branches:
+      - name: branchA
+        steps:
+          - id: 01HX0000000000000000000EEE
+            type: http
+            name: pinner
+            request: { method: GET, url: http://x/ }
+            think_time: { min_ms: 300, max_ms: 300 }
+"#;
+
+    #[test]
+    fn open_ignore_strips_nested_think() {
+        let out = maybe_strip_think(YAML_NESTED_THINK, &open_profile(false));
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert!(
+            sc.default_think_time.is_none(),
+            "default_think_time removed"
+        );
+        let Step::Loop(l) = &sc.steps[0] else {
+            panic!("expected loop step");
+        };
+        if let Step::Http(h) = &l.do_[0] {
+            assert!(h.think_time.is_none(), "loop-body http think removed");
+        } else {
+            panic!("expected http step inside loop body");
+        }
+        let Step::Parallel(p) = &sc.steps[1] else {
+            panic!("expected parallel step");
+        };
+        if let Step::Http(h) = &p.branches[0].steps[0] {
+            assert!(h.think_time.is_none(), "parallel-branch http think removed");
+        } else {
+            panic!("expected http step inside parallel branch");
+        }
     }
 }
