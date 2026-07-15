@@ -97,12 +97,12 @@ steps:
 version: 1
 name: t
 steps:
-  - id: 01HX0000000000000000000LOP
+  - id: 01HX0000000000000000000P02
     type: loop
     name: L
     repeat: 2
     do:
-      - id: 01HX0000000000000000000BAD
+      - id: 01HX0000000000000000000B01
         type: http
         name: innerstep
         request: { method: GET, url: http://x/ }
@@ -651,7 +651,7 @@ describe("scenarioHasThink", () => {
       steps: [
         {
           type: "loop",
-          id: "01HX0000000000000000000LOP",
+          id: "01HX0000000000000000000P02",
           name: "L",
           repeat: 1,
           do: [
@@ -819,6 +819,12 @@ it("shows the ignore-think toggle only for open-loop with think, default ignore"
   fireEvent.click(toggle);
   expect(onChange).toHaveBeenCalledWith(true);
 
+  // still shown for open+curve (spec §6.1 — the toggle spans BOTH open sub-modes)
+  rerender(
+    <LoadModelFields {...openCurveProps()} scenarioHasThink onApplyScenarioThinkChange={onChange} applyScenarioThink={false} />,
+  );
+  expect(screen.getByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel })).toBeInTheDocument();
+
   // hidden when scenario has no think
   rerender(<LoadModelFields {...openFixedProps()} scenarioHasThink={false} onApplyScenarioThinkChange={onChange} />);
   expect(screen.queryByRole("checkbox", { name: ko.loadModel.applyScenarioThinkLabel })).not.toBeInTheDocument();
@@ -829,7 +835,7 @@ it("shows the ignore-think toggle only for open-loop with think, default ignore"
 });
 ```
 
-(Define `openFixedProps()`/`closedProps()` from the file's existing prop factory — `loadModel:"open"|"closed"`, `rateMode:"fixed"`, plus the required setters. Import `ko`, `vi`, `fireEvent`, `render`, `screen`.)
+(Define `openFixedProps()` (`loadModel:"open"`, `rateMode:"fixed"`), `openCurveProps()` (`loadModel:"open"`, `rateMode:"curve"`, with a non-empty `stages`), and `closedProps()` (`loadModel:"closed"`) from the file's existing prop factory, plus the required setters. Import `ko`, `vi`, `fireEvent`, `render`, `screen`.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1054,4 +1060,4 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 2. **Placeholder scan:** every code step has full code; no TBD/"handle errors"/"similar to". Literal churn (Task 2) is compiler-driven with the exact value `true`.
 3. **Type consistency:** `apply_scenario_think_time` (Rust field), `apply_scenario_think_time` (Zod/wire), `applyScenarioThink`/`scenarioHasThink` (UI camelCase props) — consistent across Tasks 2/4/5. `think_time_in_range`/`validate_scenario_think_times` names match between Task 1 producer and runs/test_runs consumers. `maybe_strip_think` consumes Task 2's field. `sizePresetAnchor.rps` (Task 6) matches the existing `ClosedRunAnchor` type.
 
-<!-- REVIEW-GATE: pending plan review -->
+<!-- REVIEW-GATE: APPROVED -->
