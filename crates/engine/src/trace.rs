@@ -117,6 +117,27 @@ pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> Scenari
     trace_scenario_with_seed(scenario, opts, &BTreeMap::new()).await
 }
 
+/// sequential test-run의 행 하나 결과 (R8 — 컨트롤러가 그대로 직렬화).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RowTrace {
+    /// 첫 바인딩 행 번호(= start_row + i, wrap 없음 — R17 앵커). 호출자가 부여.
+    pub row_index: u64,
+    pub trace: ScenarioTrace,
+}
+
+/// sequential test-run 응답의 엔진측 절반 (spec R8, ADR-0047).
+/// `truncated`/`ok`는 seeded_rows 기준 — R18 clamp 반영(요청 구간 축소 시
+/// all-green이어도 truncated)은 컨트롤러가 OR로 조정한다(정의는 spec R6 소유).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RowsTrace {
+    /// `!truncated && rows[].trace.ok 전부`.
+    pub ok: bool,
+    /// 시드 행을 전부 못 돌았거나(미실행 행 존재) 마지막 실행 행이 mid-cut.
+    pub truncated: bool,
+    pub total_ms: u64,
+    pub rows: Vec<RowTrace>,
+}
+
 /// `trace_scenario` + 데이터셋 시드 1행 주입 (test-run single_row, ADR-0047).
 /// 시드는 scenario.variables 위에 덮인다(충돌 시 데이터셋 우선 — run_vu의
 /// "variables.clone() 후 바인딩 insert" 순서 미러, runner.rs `run_vu` — R4).
@@ -148,6 +169,67 @@ pub async fn trace_scenario_with_seed(
         iter_id: 0,
     };
     trace_once(&client, scenario, opts, seed_vars, 0, deadline, &mut state).await
+}
+
+/// 시나리오를 시드 행마다 1회씩 순차 실행 (1 VU iter_sequential 미러 — ADR-0047).
+/// 클라이언트(cookie jar)는 1회 빌드해 행 간 공유(R5), `max_requests`·wall-clock
+/// deadline은 전 행 공유 단일 예산(R6). 실패 행에서도 계속(R10). 예산이 행 시작
+/// 전에 소진되면 그 행부터 `rows`에 없다(R6). Never returns `Err` — 극히 드문
+/// 클라이언트 빌드 실패는 `ok=false`·빈 `rows`로 축약(R8 와이어에 error 채널 없음).
+pub async fn trace_scenario_rows(
+    scenario: &Scenario,
+    opts: &TraceOptions,
+    seeded_rows: &[(u64, BTreeMap<String, String>)],
+) -> RowsTrace {
+    let started = Instant::now();
+    let deadline = started + opts.max_wall;
+    let client = match VuClient::new(scenario.cookie_jar) {
+        Ok(c) => c,
+        Err(_) => {
+            return RowsTrace {
+                ok: false,
+                truncated: false,
+                total_ms: 0,
+                rows: vec![],
+            };
+        }
+    };
+    let mut state = TraceState {
+        steps: Vec::new(),
+        requests: 0,
+        truncated: false,
+        iter_id: 0,
+    };
+    let mut rows: Vec<RowTrace> = Vec::with_capacity(seeded_rows.len());
+    let mut truncated = false;
+    for (i, (row_index, seed)) in seeded_rows.iter().enumerate() {
+        // 행 시작 전 예산 소진 → 이 행부터 미실행 (rows에 없음 — R6).
+        if state.requests >= opts.max_requests || Instant::now() >= deadline {
+            truncated = true;
+            break;
+        }
+        let trace = trace_once(
+            &client, scenario, opts, seed, i as u32, deadline, &mut state,
+        )
+        .await;
+        let mid_cut = trace.truncated;
+        rows.push(RowTrace {
+            row_index: *row_index,
+            trace,
+        });
+        if mid_cut {
+            // 마지막 실행 행 mid-cut (R6) — 이후 행도 미실행.
+            truncated = true;
+            break;
+        }
+    }
+    let ok = !truncated && rows.iter().all(|r| r.trace.ok);
+    RowsTrace {
+        ok,
+        truncated,
+        total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        rows,
+    }
 }
 
 /// 클라이언트 하나로 시나리오를 1패스 실행하는 내부 코어. `state.requests`
@@ -442,5 +524,30 @@ mod tests {
             serde_json::to_value(StepKind::If).unwrap(),
             serde_json::json!("if")
         );
+    }
+
+    #[test]
+    fn rows_trace_serde_round_trips() {
+        let rt = RowsTrace {
+            ok: false,
+            truncated: true,
+            total_ms: 7,
+            rows: vec![RowTrace {
+                row_index: 3,
+                trace: ScenarioTrace {
+                    ok: true,
+                    total_ms: 5,
+                    steps: vec![],
+                    final_vars: BTreeMap::new(),
+                    truncated: false,
+                    error: None,
+                },
+            }],
+        };
+        let json = serde_json::to_value(&rt).unwrap();
+        // 와이어 키 고정 (R8 — UI Zod 1:1 계약)
+        assert!(json.get("rows").unwrap()[0].get("row_index").is_some());
+        let back: RowsTrace = serde_json::from_value(json).unwrap();
+        assert_eq!(rt, back);
     }
 }
