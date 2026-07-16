@@ -149,3 +149,27 @@ describe("RunListControls — sort builder (R6, R12)", () => {
     ).toBeDisabled();
   });
 });
+
+describe("RunListControls — 디자인시스템 compact 이주 (5차 R5)", () => {
+  it("날짜 preset select가 Select 캐넌 compact를 쓴다 (rounded-md·포커스 링·py-0.5)", () => {
+    setup();
+    const sel = screen.getByLabelText(ko.runFilter.dateLabel);
+    expect(sel).toHaveClass("rounded-md"); // 이주 전 "rounded"라 FAIL
+    expect(sel).toHaveClass("py-0.5");
+    expect(sel).toHaveClass("focus:ring-accent-500/30");
+  });
+
+  it("날짜 from/to input이 Input 캐넌 compact를 쓴다 (px-1→px-2 fold-in)", () => {
+    setup();
+    for (const label of [ko.runFilter.dateFromAria, ko.runFilter.dateToAria]) {
+      const el = screen.getByLabelText(label);
+      expect(el).toHaveClass("rounded-md", "py-0.5", "px-2");
+      expect(el).not.toHaveClass("px-1");
+    }
+  });
+
+  it("동결: 정렬 pill 내부 select는 투명 인라인 유지 (이주 대상 아님)", () => {
+    setup(EMPTY_FILTER, [{ field: "created", dir: "desc" }]);
+    expect(screen.getByLabelText(ko.runSort.fieldSelectAria(1))).toHaveClass("bg-transparent");
+  });
+});

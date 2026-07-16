@@ -1,4 +1,6 @@
 import { ko } from "../i18n/ko";
+import { Input } from "./ui/Input";
+import { Select } from "./ui/Select";
 import {
   DATE_PRESETS,
   EMPTY_FILTER,
@@ -156,42 +158,48 @@ function DateFilter({ filter, onChange }: { filter: RunFilter; onChange: (f: Run
   return (
     <div className="flex items-center gap-1">
       <span className="text-slate-500">{ko.runFilter.dateLabel}:</span>
-      <select
-        aria-label={ko.runFilter.dateLabel}
-        value={isCustom ? "custom" : filter.datePreset}
-        onChange={(e) => {
-          if (e.target.value === "custom") return;
-          onChange({
-            ...filter,
-            datePreset: e.target.value as DatePreset,
-            dateFrom: null,
-            dateTo: null,
-          });
-        }}
-        className="rounded border border-slate-300 bg-white px-2 py-0.5"
-      >
-        {isCustom && <option value="custom">{ko.runFilter.dateCustom}</option>}
-        {DATE_PRESETS.map((p) => (
-          <option key={p} value={p}>
-            {DATE_LABEL[p]}
-          </option>
-        ))}
-      </select>
-      <input
-        type="date"
-        aria-label={ko.runFilter.dateFromAria}
-        value={filter.dateFrom ?? ""}
-        onChange={(e) => onChange({ ...filter, dateFrom: e.target.value || null })}
-        className="rounded border border-slate-300 bg-white px-1 py-0.5"
-      />
+      <div className="w-fit">
+        <Select
+          compact
+          aria-label={ko.runFilter.dateLabel}
+          value={isCustom ? "custom" : filter.datePreset}
+          onChange={(e) => {
+            if (e.target.value === "custom") return;
+            onChange({
+              ...filter,
+              datePreset: e.target.value as DatePreset,
+              dateFrom: null,
+              dateTo: null,
+            });
+          }}
+        >
+          {isCustom && <option value="custom">{ko.runFilter.dateCustom}</option>}
+          {DATE_PRESETS.map((p) => (
+            <option key={p} value={p}>
+              {DATE_LABEL[p]}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="w-fit">
+        <Input
+          compact
+          type="date"
+          aria-label={ko.runFilter.dateFromAria}
+          value={filter.dateFrom ?? ""}
+          onChange={(e) => onChange({ ...filter, dateFrom: e.target.value || null })}
+        />
+      </div>
       <span className="text-slate-400">~</span>
-      <input
-        type="date"
-        aria-label={ko.runFilter.dateToAria}
-        value={filter.dateTo ?? ""}
-        onChange={(e) => onChange({ ...filter, dateTo: e.target.value || null })}
-        className="rounded border border-slate-300 bg-white px-1 py-0.5"
-      />
+      <div className="w-fit">
+        <Input
+          compact
+          type="date"
+          aria-label={ko.runFilter.dateToAria}
+          value={filter.dateTo ?? ""}
+          onChange={(e) => onChange({ ...filter, dateTo: e.target.value || null })}
+        />
+      </div>
     </div>
   );
 }
