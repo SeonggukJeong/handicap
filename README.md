@@ -223,16 +223,20 @@ flowchart LR
 
 ### B. Windows — 단일 실행 파일 (포터블)
 
-`handicap.exe` **한 파일**로 만들어 설치 없이 배포하는 방식입니다. 소스에서 빌드합니다 (Visual Studio Build Tools + Rust + protoc + Node 필요).
+exe **한 파일**로 설치 없이 쓰는 방식입니다.
+
+1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 `Handicap_<버전>_x64-portable.exe`를 내려받습니다 (v0.4.0부터 제공).
+2. 아무 PC에나 복사해 더블클릭하면 브라우저가 자동으로 열립니다(포트 사용 중이면 빈 포트 자동 배정, `--no-open`으로 자동 열기 해제). SmartScreen 경고는 A와 동일하게 "추가 정보" → "실행".
+
+직접 빌드하려면 (Visual Studio Build Tools + Rust + protoc + Node 필요):
 
 ```powershell
-# 빌드 (개발 PC에서 1회)
 cd ui; pnpm install; pnpm build; cd ..
 cargo build --release --features bundle
 copy target\release\controller.exe handicap.exe
 ```
 
-`handicap.exe`를 아무 PC에나 복사해 더블클릭하면 브라우저가 자동으로 열립니다(포트 사용 중이면 빈 포트 자동 배정, `--no-open`으로 자동 열기 해제). 단계별 상세 절차·문제 해결표: **[단일 실행 파일 빌드 가이드](docs/dev/single-exe-build.md)**
+단계별 상세 절차·문제 해결표: **[단일 실행 파일 빌드 가이드](docs/dev/single-exe-build.md)**
 
 > 이 모드는 컨트롤러와 워커가 한 PC에서 돌아 라이트한 부하에 적합합니다. 고부하는 F(LAN 풀)·G(K8s)로.
 

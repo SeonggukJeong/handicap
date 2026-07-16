@@ -60,6 +60,8 @@ cargo build --release --features bundle
 
 ## Windows `.exe` 빌드 — 초보자용
 
+> **빌드 없이 쓰려면**: v0.4.0부터 [GitHub Release](https://github.com/SeonggukJeong/handicap/releases/latest)에 포터블 exe(`Handicap_<버전>_x64-portable.exe`)가 첨부된다(`release.yml`이 인스톨러와 함께 빌드). 아래는 직접 빌드가 필요할 때의 절차다.
+
 > **전제**: Windows 머신에서 모든 단계를 실행한다. 관리자 권한이 필요한 설치가 포함된다.
 
 ### 1단계: Visual Studio C++ 빌드 도구
@@ -196,7 +198,7 @@ copy target\release\controller.exe handicap.exe
 
 ## (선택) CI 부록 — GitHub Actions 예시
 
-> 저장소는 `github.com/SeonggukJeong/handicap`에 공개돼 있고, 실제 릴리즈는 `v*` 태그 push 시 `release.yml`(Tauri NSIS/MSI 인스톨러)이 담당한다 — 상세는 `docs/dev/tauri-desktop-build.md` §CI 릴리즈. 아래는 인스톨러 없이 **단일 exe 아티팩트만** 뽑고 싶을 때 쓸 수 있는 **참고용 YAML**이다(현재 저장소에는 미설치).
+> 저장소는 `github.com/SeonggukJeong/handicap`에 공개돼 있고, 실제 릴리즈는 `v*` 태그 push 시 `release.yml`(Tauri NSIS/MSI 인스톨러 + v0.4.0부터 포터블 단일 exe 첨부)이 담당한다 — 상세는 `docs/dev/tauri-desktop-build.md` §CI 릴리즈. 아래는 릴리즈와 무관하게 **단일 exe 아티팩트만** 뽑고 싶을 때 쓸 수 있는 **참고용 YAML**이다(현재 저장소에는 미설치).
 
 ```yaml
 name: Windows single-exe
