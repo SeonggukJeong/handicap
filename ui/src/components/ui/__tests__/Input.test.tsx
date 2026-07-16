@@ -75,3 +75,47 @@ describe("size variant", () => {
     expect(el).not.toHaveClass("text-sm");
   });
 });
+
+describe("compact 밀도 variant (디자인시스템 5차 R1)", () => {
+  it("Input compact는 py-0.5를 쓰고 py-1은 없다", () => {
+    render(<Input aria-label="c" compact />);
+    const el = screen.getByLabelText("c");
+    expect(el).toHaveClass("py-0.5");
+    expect(el).not.toHaveClass("py-1");
+  });
+
+  it("Input 미지정은 py-1 유지 (기존 경로 클래스 집합 불변)", () => {
+    render(<Input aria-label="n" />);
+    const el = screen.getByLabelText("n");
+    expect(el).toHaveClass("py-1");
+    expect(el).not.toHaveClass("py-0.5");
+  });
+
+  it("compact는 size와 직교 — compact+size=sm 조합", () => {
+    render(<Input aria-label="cs" compact size="sm" />);
+    const el = screen.getByLabelText("cs");
+    expect(el).toHaveClass("py-0.5");
+    expect(el).toHaveClass("text-xs");
+  });
+
+  it("Select compact는 py-0.5를 쓰고 py-1은 없다 — aria-invalid 클래스는 여전히 없음 (Input BASE 이식 금지)", () => {
+    render(
+      <Select aria-label="cSel" compact>
+        <option>a</option>
+      </Select>,
+    );
+    const el = screen.getByLabelText("cSel");
+    expect(el).toHaveClass("py-0.5");
+    expect(el).not.toHaveClass("py-1");
+    expect(el.className).not.toContain("aria-[invalid=true]");
+  });
+
+  it("Select 미지정은 py-1 유지", () => {
+    render(
+      <Select aria-label="nSel">
+        <option>a</option>
+      </Select>,
+    );
+    expect(screen.getByLabelText("nSel")).toHaveClass("py-1");
+  });
+});
