@@ -5,7 +5,7 @@
 ## 0. 사용자 스토리 (US) — 이 spec 자체가 규약 첫 적용
 
 - **US1 요구 왜곡 조기 확인**: 개발자-도구가 기능 브레인스토밍 직후, 자기가 말한 의도가 올바로 이해됐는지 **짧은 US 목록 하나만 읽고** 확인·수정한다 — spec 전체를 읽고 나서야 "이게 아닌데"를 발견하지 않는다.
-- **US2 방향 이탈 리뷰 적발**: 개발자가 spec-plan-reviewer 리포트에서 기술 결함뿐 아니라 **"이 R은 어떤 사용자 작업에도 안 걸린다"** 류의 방향 결함을 본다 — 완벽하게 구현 가능한 잘못된 기능이 APPROVE를 통과하지 않는다.
+- **US2 방향 이탈 리뷰 적발**: 개발자-도구가 spec-plan-reviewer 리포트에서 기술 결함뿐 아니라 **"이 R은 어떤 사용자 작업에도 안 걸린다"** 류의 방향 결함을 본다 — 완벽하게 구현 가능한 잘못된 기능이 APPROVE를 통과하지 않는다.
 - **US3 구현 디테일의 사용자 근거**: 개발자-도구가 task 리뷰/diff에서 UX·동작 디테일 결정이 brief에 첨부된 US를 근거로 이뤄졌음을 본다 — 머지 후 "spec은 맞는데 동작이 기대와 다름"이 줄어든다.
 - **US4 검증이 작업 재현**: user-path 슬라이스의 라이브 검증이 "엔드포인트 200"이 아니라 **US별 사용자 작업 재현 + 관찰 가능한 통과 신호**로 기록된다 (editor-dataset-testrun US1–4 패턴).
 
@@ -19,7 +19,7 @@
 ## 2. US 규약 (정본: `docs/dev/user-story-spine.md` 신설, ~1페이지)
 
 - **형식**: `USn: [행위자]가 [상황]에서 [하려는 일] — 성공하면 [관찰 가능한 결과]를 본다`
-- **고정 헤딩 = 추출 앵커**: 헤딩 텍스트에 `사용자 스토리 (US)` 문자열 고정(레벨 무관), spec 앞머리(요구사항 섹션 시작 전). task-brief 첨부(§3 row 5)가 이 헤딩부터 다음 동레벨 헤딩까지를 기계 추출한다.
+- **고정 헤딩 = 추출 앵커**: 헤딩 텍스트에 `사용자 스토리 (US)` 문자열 고정(레벨 무관), spec 앞머리(요구사항 섹션 시작 전). task-brief 첨부(§3 row 5)가 이 헤딩부터 다음 동레벨-이상 헤딩까지를 기계 추출한다(US 블록이 `###`여도 다음 `##`에서 종료 — spec 나머지를 끌고 가지 않기).
 - **행위자 어휘 고정**: QA / 운영자 / 도입담당(사내 도입·설치·배포를 결정·수행) / 개발자-도구(handicap 자체를 개발·운영 — 프로세스·도구 슬라이스의 행위자). 앞 둘은 ADR-0001의 1차 사용자, 뒤 둘은 이 정본이 신설 정의. "사용자로서" 같은 무명 행위자 금지.
 - **개수**: user-path US 기준 2–5 권장 — 6개 이상이면 분해 신호로 검토(자동 아님; 원칙-앵커형 US 표 선례 design-system-variants의 6개는 유효).
 - **품질 2규칙**: ① 솔루션 동사 금지 — "API 추가"·"필드 구현"이 문장의 골자면 리라이트, 골자는 사람의 작업("저장된 데이터 행을 UI에서 확인 못 함" ⭕). ② 성공 조건은 제3자가 동의 가능한 관찰 증거(화면·와이어·RPS·재현 숫자) — "더 편하게" 단독 불가.
@@ -33,7 +33,7 @@
 | 1 | `.claude/skills/start-slice/SKILL.md` §1 | 기존 "근거(가치·의존성·크기)"의 가치를 3칸으로 구조화: 누가 / 지금 막힘 / 완료 시 달라지는 관찰 + 유형 태그. 원천 = `roadmap.md` §A/§B 상세 발췌(손-큐레이트 `roadmap-status.md`의 추천 권위 불변). **못 채워도 자동 제외/강등 금지** — 미충족 표시 후 사용자에게 제시 | 솔루션형 인테이크 |
 | 2 | 같은 파일 §4 "둘 다 없음 → brainstorming부터" 불릿 **안** | 그 불릿에 1줄: brainstorming 산출 첫 게이트 = **spec 착수 전 US 초안(2–5)을 사용자에게 단독 제시·승인** (플러그인 brainstorming 스킬은 편집 대상 아님 — 규칙은 이 불릿에 산다). + 같은 §4 리뷰 루프 1스텝에 "plan 리뷰 디스패치엔 동반 spec 경로 병기" 1줄(row 4의 US 대조 전제) | 요구 전달 왜곡 |
 | 3 | `CLAUDE.md` 슬라이스 파이프라인 2단계(설계) | "spec → reviewer" 문구에 "spec 앞머리 US 규약(`docs/dev/user-story-spine.md`) — US 초안 사용자 승인 후 spec 착수" 한 구절 삽입 | spec 방향 이탈 |
-| 4 | `.claude/agents/spec-plan-reviewer.md` Method·Output | 기존 7항 뒤 **"Value checks (spec 리뷰만, 상한 3문항 고정)"**: ① 문제 문장이 솔루션 명세인가(막힌 사용자 작업 없이 "X 추가"만 있으면 finding) ② US(또는 재현 블록)마다 관찰 가능한 성공 조건이 있는가 ③ US·재현·비목표 어디에도 안 걸리는 R은 scope creep으로 보고. **적용 조건**: user-path·correctness-bug만 — `US: N/A` 슬라이스는 "N/A 사유가 타당한가" 1문항으로 대체(전 R을 finding으로 만들지 않기). plan 리뷰는 "US 대비 task 누락"만(spec 경로는 디스패치가 병기 — row 2). US가 R 복붙("사용자로서 R3를 원한다")이면 finding. 장문 제품 전략 토론 금지 — 문장 결함만. **Output 편입**: value finding은 기존 불릿(Feasibility/Contradictions)에 severity로 보고, 새 섹션 없음 — clean APPROVE 조건에 자연 흡수 | 리뷰어 가치 맹점 |
+| 4 | `.claude/agents/spec-plan-reviewer.md` Method (Output 섹션 텍스트 불변) | 기존 7항 뒤 **"Value checks (spec 리뷰만, 상한 3문항 고정)"**: ① 문제 문장이 솔루션 명세인가(막힌 사용자 작업 없이 "X 추가"만 있으면 finding) ② US(또는 재현 블록)마다 관찰 가능한 성공 조건이 있는가 ③ US·재현·비목표 어디에도 안 걸리는 R은 scope creep으로 보고. **적용 조건**: user-path·correctness-bug만 — `US: N/A` 슬라이스는 "N/A 사유가 타당한가" 1문항으로 대체(전 R을 finding으로 만들지 않기). plan 리뷰는 "US 대비 task 누락"만(spec 경로는 디스패치가 병기 — row 2). US가 R 복붙("사용자로서 R3를 원한다")이면 finding. 장문 제품 전략 토론 금지 — 문장 결함만. **Output 편입**: value finding은 기존 불릿(Feasibility/Contradictions)에 severity로 보고하라는 지시를 Method 문항에 포함(Output 섹션 텍스트 0-diff) — clean APPROVE 조건에 자연 흡수 | 리뷰어 가치 맹점 |
 | 5 | `CLAUDE.md` Subagent dispatch 노하우 | 기존 "task-brief는 그 task 섹션만 자른다 — 공유 정본 별도 추출" 불릿에 이어 1줄: **추출 원천=spec**(plan 아님) — spec의 `사용자 스토리 (US)` 고정 헤딩 블록(§2 앵커)을 1회 추출해 매 task-brief에 첨부(implementer가 UX/동작 디테일 결정 시 근거) | 구현 중 디테일 이탈 |
 | 6 | `.claude/skills/live-verify/SKILL.md` | 도입부(함정 요약 아래)에 1단락: user-path 슬라이스는 검증 체크리스트를 spec의 US-anchored 행(`US \| 절차 \| 통과 신호`)을 척추로 구성 — "동작함"이 아니라 "사용자 작업 재현"을 증명. 집계 리포트가 못 보는 것은 와이어/DOM 실측(editor-dataset-testrun 선례) | 동작함 ≠ 쓸 만함 |
 | 7 | `.claude/skills/finish-slice/SKILL.md` §4 | build-log 한 단락 append 불릿에 "+ 라이브로 증명된 US / 못 한 US 한 줄" 추가 | 사후 학습 누락 |
