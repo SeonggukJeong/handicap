@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { useDatasets, useDeleteDataset } from "../api/hooks";
 import { Button } from "../components/Button";
 import { Callout } from "../components/ui/Callout";
@@ -12,6 +12,8 @@ export function DatasetsPage() {
   const del = useDeleteDataset();
   const [delError, setDelError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 행마다 다른 미리보기 region id — 토글의 aria-controls 연결용(a11y fold-in, TestRunDatasetSection과 동일 이디엄).
+  const previewIdBase = useId();
 
   async function handleDelete(id: string) {
     setDelError(null);
@@ -65,45 +67,51 @@ export function DatasetsPage() {
               </tr>
             </thead>
             <tbody>
-              {data.datasets.map((d) => (
-                <Fragment key={d.id}>
-                  <tr className="border-b border-slate-100">
-                    <td className="py-2 pr-4 font-medium">{d.name}</td>
-                    <td className="py-2 pr-4 text-slate-600">{d.columns.join(", ")}</td>
-                    <td className="py-2 pr-4">{d.row_count}</td>
-                    <td className="py-2 pr-4">
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          aria-expanded={expandedId === d.id}
-                          onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
-                        >
-                          {ko.dataset.previewToggle}
-                        </Button>
-                        <Button
-                          variant="danger"
-                          onClick={() => handleDelete(d.id)}
-                          disabled={del.isPending}
-                        >
-                          {ko.common.delete}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                  {expandedId === d.id && (
-                    <tr>
-                      <td colSpan={4} className="p-0">
-                        <DatasetRowsPreview
-                          datasetId={d.id}
-                          name={d.name}
-                          columns={d.columns}
-                          rowCount={d.row_count}
-                        />
+              {data.datasets.map((d) => {
+                const isExpanded = expandedId === d.id;
+                const rowPreviewId = `${previewIdBase}-${d.id}`;
+                return (
+                  <Fragment key={d.id}>
+                    <tr className="border-b border-slate-100">
+                      <td className="py-2 pr-4 font-medium">{d.name}</td>
+                      <td className="py-2 pr-4 text-slate-600">{d.columns.join(", ")}</td>
+                      <td className="py-2 pr-4">{d.row_count}</td>
+                      <td className="py-2 pr-4">
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            aria-expanded={isExpanded}
+                            aria-controls={isExpanded ? rowPreviewId : undefined}
+                            onClick={() => setExpandedId(isExpanded ? null : d.id)}
+                          >
+                            {ko.dataset.previewToggle}
+                          </Button>
+                          <Button
+                            variant="danger"
+                            onClick={() => handleDelete(d.id)}
+                            disabled={del.isPending}
+                          >
+                            {ko.common.delete}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              ))}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={4} className="p-0">
+                          <DatasetRowsPreview
+                            id={rowPreviewId}
+                            datasetId={d.id}
+                            name={d.name}
+                            columns={d.columns}
+                            rowCount={d.row_count}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}

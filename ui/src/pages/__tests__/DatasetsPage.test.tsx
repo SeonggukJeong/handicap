@@ -230,16 +230,23 @@ describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
     renderPage();
     await screen.findByText("users");
     expect(fetchMock.mock.calls.every(([u]) => !String(u).includes("/rows"))).toBe(true);
+    // 닫힌 상태 토글엔 aria-controls 부재 (a11y fold-in).
+    expect(
+      screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0],
+    ).not.toHaveAttribute("aria-controls");
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]);
     const region = await screen.findByRole("region", {
       name: ko.dataset.previewAria("users"),
     });
     expect(await within(region).findByText("a@ex.com")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    const toggle = screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0];
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // 펼친 토글의 aria-controls는 열린 region의 id를 가리킨다 (a11y fold-in).
+    const controlsId = toggle.getAttribute("aria-controls");
+    expect(controlsId).toBeTruthy();
+    expect(region.id).toBeTruthy();
+    expect(controlsId).toBe(region.id);
   });
 
   it("다른 행을 펼치면 이전 패널이 접힌다 — 단일 확장 (R4)", async () => {
