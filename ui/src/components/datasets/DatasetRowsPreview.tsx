@@ -10,10 +10,20 @@ interface Props {
   name: string;
   columns: string[];
   rowCount: number;
+  /** 전달 시 행 클릭 = 선택(0-based 데이터셋 idx) — test-run 행 선택 재사용 (R12). */
+  onSelectRow?: (rowIndex: number) => void;
+  selectedRow?: number;
 }
 
 /** 저장된 데이터셋 행 미리보기 — DatasetsPage 확장 행 안에서 렌더 (spec §4.4). */
-export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props) {
+export function DatasetRowsPreview({
+  datasetId,
+  name,
+  columns,
+  rowCount,
+  onSelectRow,
+  selectedRow,
+}: Props) {
   const [offset, setOffset] = useState(0);
   const [jumpDraft, setJumpDraft] = useState("");
   const { data, error, isLoading, isPlaceholderData } = useDatasetRows(datasetId, offset);
@@ -112,16 +122,43 @@ export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => (
-                  <tr key={respOffset + i} className="border-b border-slate-100">
-                    <td className="px-2 py-1 tabular-nums text-slate-400">{respOffset + i + 1}</td>
-                    {columns.map((c) => (
-                      <td key={c} className="max-w-xs truncate px-2 py-1" title={row[c] ?? ""}>
-                        {row[c] ?? ""}
+                {rows.map((row, i) => {
+                  const rowIdx = respOffset + i;
+                  const selected = selectedRow === rowIdx;
+                  return (
+                    <tr
+                      key={rowIdx}
+                      className={`border-b border-slate-100${
+                        onSelectRow ? " cursor-pointer hover:bg-slate-100" : ""
+                      }${selected ? " bg-accent-50" : ""}`}
+                      onClick={onSelectRow ? () => onSelectRow(rowIdx) : undefined}
+                    >
+                      <td className="px-2 py-1 tabular-nums text-slate-400">
+                        {onSelectRow ? (
+                          <button
+                            type="button"
+                            aria-label={ko.dataset.selectRowAria(rowIdx + 1)}
+                            aria-pressed={selected}
+                            className="tabular-nums hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectRow(rowIdx);
+                            }}
+                          >
+                            {rowIdx + 1}
+                          </button>
+                        ) : (
+                          rowIdx + 1
+                        )}
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      {columns.map((c) => (
+                        <td key={c} className="max-w-xs truncate px-2 py-1" title={row[c] ?? ""}>
+                          {row[c] ?? ""}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

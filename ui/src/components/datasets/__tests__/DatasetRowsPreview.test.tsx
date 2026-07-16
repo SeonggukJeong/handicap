@@ -30,11 +30,21 @@ function mockRowsByUrl(total: number) {
     return Promise.resolve(jsonResponse({ rows, offset, total }));
   });
 }
-function renderPreview(rowCount = 1000, columns: string[] = ["name", "val"]) {
+function renderPreview(
+  rowCount = 1000,
+  columns: string[] = ["name", "val"],
+  extra: { onSelectRow?: (rowIndex: number) => void; selectedRow?: number } = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <DatasetRowsPreview datasetId="01J" name="users" columns={columns} rowCount={rowCount} />
+      <DatasetRowsPreview
+        datasetId="01J"
+        name="users"
+        columns={columns}
+        rowCount={rowCount}
+        {...extra}
+      />
     </QueryClientProvider>,
   );
 }
@@ -160,5 +170,34 @@ describe("DatasetRowsPreview", () => {
     await user.click(screen.getByRole("button", { name: ko.dataset.jumpGo }));
     await screen.findByText(ko.dataset.rowsRange(743, 792, 1000));
     expect(screen.getByLabelText(ko.dataset.jumpLabel)).toHaveValue(null);
+  });
+
+  it("onSelectRow 미전달이면 행 번호 셀에 버튼이 없다 (기존 거동 — R12)", async () => {
+    mockRowsByUrl(1000);
+    renderPreview();
+    await screen.findByText(ko.dataset.rowsRange(1, 50, 1000));
+    expect(screen.queryByRole("button", { name: /행 \d+ 선택/ })).not.toBeInTheDocument();
+  });
+
+  it("onSelectRow 전달 시 행 번호 버튼 클릭이 0-based idx로 콜백", async () => {
+    const user = userEvent.setup();
+    const onSelectRow = vi.fn();
+    mockRowsByUrl(1000);
+    renderPreview(1000, ["name", "val"], { onSelectRow });
+    await screen.findByText(ko.dataset.rowsRange(1, 50, 1000));
+    await user.click(screen.getByRole("button", { name: ko.dataset.selectRowAria(2) }));
+    expect(onSelectRow).toHaveBeenCalledWith(1); // 표시 1-based → 와이어 0-based
+  });
+
+  it("selectedRow 행은 하이라이트 + aria-pressed", async () => {
+    mockRowsByUrl(1000);
+    renderPreview(1000, ["name", "val"], { onSelectRow: () => {}, selectedRow: 1 });
+    await screen.findByText(ko.dataset.rowsRange(1, 50, 1000));
+    const btn = screen.getByRole("button", { name: ko.dataset.selectRowAria(2) });
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+    expect(btn.closest("tr")).toHaveClass("bg-accent-50");
+    // 비선택 행은 하이라이트 없음
+    const other = screen.getByRole("button", { name: ko.dataset.selectRowAria(1) });
+    expect(other.closest("tr")).not.toHaveClass("bg-accent-50");
   });
 });

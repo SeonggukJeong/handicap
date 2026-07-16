@@ -1133,6 +1133,7 @@ export const ko = {
     jumpLabel: "행 이동",
     jumpGo: "이동",
     noRows: "행이 없습니다",
+    selectRowAria: (n: number) => `행 ${n} 선택`,
   },
   bulkEdit: {
     panelAria: "일괄 편집",
