@@ -148,6 +148,7 @@ message Profile {
   bool measure_phases = 11;            // opt-in latency-phase breakdown (TTFB+download)
   repeated Stage vu_stages = 12;       // closed-loop VU curve; target = VU count (not RPS); empty = absent (spec §3.1)
   bool ramp_down_immediate = 13;       // VU-curve ramp-down: false = graceful (default)
+  optional uint32 graceful_ramp_down_seconds = 14;  // VU-curve graceful ramp-down 상한(초); 부재 = 무상한
 }
 
 message AbortRun {

@@ -1914,6 +1914,7 @@ mod tests {
                 measure_phases: false,
                 vu_stages: vec![],
                 ramp_down_immediate: false,
+                graceful_ramp_down_seconds: None,
             },
             env: HashMap::new(),
             data_bindings: vec![],

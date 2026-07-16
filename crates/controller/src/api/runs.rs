@@ -762,6 +762,7 @@ pub(crate) async fn spawn_run(
                 profile.ramp_down,
                 Some(handicap_engine::RampDown::Immediate)
             ),
+            graceful_ramp_down_seconds: profile.graceful_ramp_down_seconds,
         },
         env: env.clone(),
         data_bindings,

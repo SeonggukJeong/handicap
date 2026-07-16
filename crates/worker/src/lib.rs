@@ -228,6 +228,7 @@ async fn execute_assignment(
     // (profile.think_time) in the struct literal below make &profile invalid after.
     let is_open_loop = proto_is_open_loop(&profile);
     let is_vu_curve = proto_is_vu_curve(&profile);
+    let graceful_ramp_down = proto_graceful_ramp_down(&profile);
 
     let plan = RunPlan {
         vus: assignment.vu_count,
@@ -291,8 +292,9 @@ async fn execute_assignment(
         } else {
             RampDown::Graceful
         },
-        // TODO(Task 3): map proto graceful_ramp_down_seconds → Option<Duration>.
-        graceful_ramp_down: None,
+        // §B9: mapped via proto_graceful_ramp_down(&profile) above the literal —
+        // same partial-move constraint as is_open_loop/is_vu_curve.
+        graceful_ramp_down,
     };
     info!(
         vus = plan.vus,
@@ -612,6 +614,13 @@ fn proto_is_vu_curve(p: &pb::Profile) -> bool {
     !p.vu_stages.is_empty()
 }
 
+/// Graceful ramp-down cap (§B9): proto seconds → engine `Duration`. Absent
+/// (field not set) → `None` (unbounded graceful drain, unchanged behavior).
+fn proto_graceful_ramp_down(p: &pb::Profile) -> Option<Duration> {
+    p.graceful_ramp_down_seconds
+        .map(|s| Duration::from_secs(u64::from(s)))
+}
+
 /// Resolve the worker id: explicit `--worker-id` wins; otherwise (K8s Indexed
 /// Job) derive `"{run_id}-w{index}"` from `JOB_COMPLETION_INDEX` (default index
 /// 0 if unset). Subprocess always passes `--worker-id`, so the fallback is the
@@ -849,6 +858,21 @@ mod tests {
             "explicit --worker-id → stable"
         );
         assert!(!worker_id_is_stable(&None), "auto random ULID → ephemeral");
+    }
+
+    #[test]
+    fn maps_graceful_cap_seconds_to_duration() {
+        let p = pb::Profile {
+            graceful_ramp_down_seconds: Some(7),
+            ..Default::default()
+        };
+        assert_eq!(proto_graceful_ramp_down(&p), Some(Duration::from_secs(7)));
+
+        let p_absent = pb::Profile {
+            graceful_ramp_down_seconds: None,
+            ..Default::default()
+        };
+        assert_eq!(proto_graceful_ramp_down(&p_absent), None);
     }
 
     #[tokio::test]
