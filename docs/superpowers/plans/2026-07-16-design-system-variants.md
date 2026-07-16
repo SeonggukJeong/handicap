@@ -1,5 +1,7 @@
 # 디자인 시스템 5차 (compact·card variant + RunListControls 해동·InspectorSection 통합) Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `Input`/`Select`에 밀도 축 `compact` prop, `Section`에 `variant="card"`+`aria-label`+접힘 hint accname 픽스를 additive로 추가하고, 동결 채택처 2곳(RunListControls raw 컨트롤·Inspector 로컬 InspectorSection/카드 fieldset)을 해동/통합한다.
