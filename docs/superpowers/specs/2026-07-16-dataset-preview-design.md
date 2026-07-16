@@ -74,7 +74,7 @@
 
 ### 4.4 `ui/src/components/datasets/DatasetRowsPreview.tsx` (신설) — 충족 R: R5–R10, R13
 
-- props: `{ datasetId, columns, rowCount }`(목록 메타에서 — `rowCount`는 첫 응답 도착 전 "총 T행" 표시와 행 이동 clamp의 초기값, 응답 `total` 도착 후엔 응답이 권위). 내부 state: `offset`(0 시작), 행 이동 draft(string).
+- props: `{ datasetId, name, columns, rowCount }`(목록 메타에서 — `name`은 패널 aria-label(`previewAria(name)`)용, `rowCount`는 첫 응답 도착 전 "총 T행" 표시와 행 이동 clamp의 초기값, 응답 `total` 도착 후엔 응답이 권위). 내부 state: `offset`(0 시작), 행 이동 draft(string).
 - 렌더: 행 번호(#) 열 + `columns` 순서 셀(R8), `overflow-x-auto` + 셀 `max-w-xs truncate` + `title`(R9 — 폭 값은 plan에서 튜닝 가능), 페이징 컨트롤(R5) + 행 이동 입력(R7), 로딩/에러/빈 상태(R10). 테이블 시각은 UploadPanel 미리보기 테이블과 동일 톤(`min-w-full text-sm border …`).
 - **placeholder 일관성(R5·R6)**: 행 번호·"N–M" 범위 표기는 **응답의 `offset`/`total`** 에서 도출(로컬 state 아님 — `keepPreviousData` 창에서 옛 행+새 번호 오라벨 방지), 이전/다음은 `isPlaceholderData` 동안 disabled. 행 이동 clamp의 total도 같은 우선순위(응답 total, 첫 응답 전엔 `rowCount` prop).
 
@@ -93,7 +93,7 @@
 - **store 0-diff**: `get_rows_range`·`get_meta` 시그니처/동작 그대로(신규 쿼리 없음). migration 0.
 - **engine/proto/worker 0-diff**: 요청 실행 경로 미접촉.
 - **기존 엔드포인트 byte-identical**: `GET /api/datasets/{id}`(sample 20행)·`POST /api/datasets/preview`·upload·delete 무변경. UploadPanel·DataBindingPanel(`useDataset`) 무변경.
-- **RunDialog/스케줄러 미접촉** — 병렬 진행 중인 graceful-grace-cap 슬라이스(engine·proto·RunDialog 계열)와 파일 비충돌(ko.ts만 양쪽 append 가능 — 자잘한 머지).
+- **RunDialog/스케줄러 미접촉** — 병렬 슬라이스 graceful-ramp-down-cap(워크트리 graceful-grace-cap, engine·proto·RunDialog 계열 — 2026-07-16 master 머지 완료)과 파일 비충돌(ko.ts만 양쪽 append 가능 — 자잘한 머지).
 
 ---
 

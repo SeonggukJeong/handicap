@@ -107,8 +107,8 @@ async fn dataset_rows_param_validation_and_404() {
         let (status, v) = get_rows(&app, &id, qs).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{qs}: {v:?}");
     }
-    // 없는 id → 404 (R2)
-    let (status, _) = get_rows(&app, "01JNOSUCHDATASET0000000000", "").await;
+    // 없는 id → 404 (R2; Crockford-유효 26자 — I/L/O/U 배제, ULID fixture 함정 예방)
+    let (status, _) = get_rows(&app, "01JZZZZZZZZZZZZZZZZZZZZZZZ", "").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 ```
@@ -692,6 +692,45 @@ describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
       screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
     ).not.toBeInTheDocument();
   });
+
+  it("접었다 다시 펼치면 offset이 리셋된다 (R4 리셋)", async () => {
+    // 100행 데이터셋 — 다음 페이지로 간 뒤 접기→재펼침이 1페이지로 복귀해야 한다
+    // (remount 리셋이 CSS-hide 등으로 바뀌는 드리프트를 잡는 회귀 가드)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/rows")) {
+        const u = new URL(url, "http://localhost");
+        const offset = Number(u.searchParams.get("offset") ?? "0");
+        const rows = Array.from({ length: 50 }, (_, i) => ({ email: `u${offset + i}@ex.com` }));
+        return Promise.resolve(jsonResponse({ rows, offset, total: 100 }));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          datasets: [
+            {
+              id: "01A",
+              name: "users",
+              columns: ["email"],
+              row_count: 100,
+              byte_size: 10,
+              created_at: 1,
+            },
+          ],
+        }),
+      );
+    });
+    renderPage();
+    await screen.findByText("users");
+    const user = userEvent.setup();
+    const toggle = () => screen.getByRole("button", { name: ko.dataset.previewToggle });
+    await user.click(toggle());
+    const region = await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    await user.click(within(region).getByRole("button", { name: ko.dataset.nextPage }));
+    expect(await screen.findByText(ko.dataset.rowsRange(51, 100, 100))).toBeInTheDocument();
+    await user.click(toggle()); // 접기
+    await user.click(toggle()); // 재펼침 → remount → offset 0
+    expect(await screen.findByText(ko.dataset.rowsRange(1, 50, 100))).toBeInTheDocument();
+  });
 });
 ```
 
@@ -700,7 +739,7 @@ describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
 - [ ] **Step 7: RED 확인**
 
 Run: `cd ui && pnpm test DatasetsPage`
-Expected: 신규 3개 FAIL — 미리보기 버튼 부재. 기존 테스트는 PASS 유지.
+Expected: 신규 4개 FAIL — 미리보기 버튼 부재. 기존 테스트는 PASS 유지.
 
 - [ ] **Step 8: DatasetsPage 배선** — `ui/src/pages/DatasetsPage.tsx`:
   - import 추가: `import { Fragment, useState } from "react";`(기존 `useState` 대체), `import { DatasetRowsPreview } from "../components/datasets/DatasetRowsPreview";`
