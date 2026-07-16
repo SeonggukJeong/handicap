@@ -44,11 +44,11 @@
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법) | seam? |
 |---|---|---|---|
 | R1 | `MUST` `Input`/`Select`에 additive `compact?: boolean` — true면 세로 패딩 `py-0.5`, 미지정 `py-1`(기존). 폰트 축 `size?: "sm"`과 직교(조합 가능). **미지정 경로(md·sm)의 클래스 집합 불변** | 단위 테스트: compact→`py-0.5` 有+`py-1` 無, 미지정→`py-1` 有; `size="sm"` 조합; 기존 Input/Select 단언 무수정 GREEN | Task 3이 소비 |
-| R2 | `MUST` `Section`에 additive `variant?: "card"` — card: fieldset `flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3`, legend `px-1 text-xs font-semibold text-slate-600`(+collapsible이면 `flex items-center gap-1`), 본문 `mt-2` 래퍼 **없이** children 직접(fieldset flex gap이 간격 소유), collapsible 버튼은 `hover:underline`+`<span aria-hidden>▾/▸</span> {title}`(기본 variant의 titleRow `text-sm font-semibold text-slate-800` span **미적용** — 에디터 실측 캐넌 §4.2와 1:1). **기본 variant 경로의 클래스 집합 불변**. card에서 `index`/`badge`/`help`/`divider`는 미지원 — 타입으로 금지하지 않고(교차 조합 타입 복잡화 회피) card 렌더 경로가 **무시**하며, 소비처는 전달하지 않는다(사용처 없음 — YAGNI) | 단위 테스트: card 정확 클래스·구조(래퍼 無)·collapsible 토글·non-collapsible 렌더; 기본 variant 기존 단언 무수정 GREEN | Task 4가 소비 |
+| R2 | `MUST` `Section`에 additive `variant?: "card"` — card: fieldset `flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3`, legend `px-1 text-xs font-semibold text-slate-600`(+collapsible이면 `flex items-center gap-1`), 본문 `mt-2` 래퍼 **없이** children 직접(fieldset flex gap이 간격 소유), collapsible 버튼은 `hover:underline`+`<span aria-hidden>▾/▸</span> {title}`(기본 variant의 titleRow `text-sm font-semibold text-slate-800` span **미적용** — 에디터 실측 캐넌 §4.2와 1:1). **기본 variant 경로의 클래스 집합 불변**(유일한 승인된 기본-variant 구조 delta는 R4의 hint 이동뿐). card에서 `index`/`badge`/`help`/`divider`는 미지원 — 타입으로 금지하지 않고(교차 조합 타입 복잡화 회피) card 렌더 경로가 **무시**하며, 소비처는 전달하지 않는다(사용처 없음 — YAGNI) | 단위 테스트: card 정확 클래스·구조(래퍼 無)·collapsible 토글·non-collapsible 렌더; 기본 variant 기존 단언 무수정 GREEN | Task 4가 소비 |
 | R3 | `MUST` `Section`에 additive `"aria-label"?: string` passthrough(fieldset 속성) — Inspector 조건 카드의 기존 `aria-label` byte-identical용 | 단위 테스트: 전달 시 fieldset에 aria-label, 미전달 시 속성 부재 | Task 4가 소비 |
-| R4 | `MUST` `Section` 접힘 hint accname 캐넌 픽스 — hint `<span>`을 collapsible 버튼 **밖**(legend 내 형제)으로 이동, **두 variant 공통**. 접힘 버튼 accname == title(정확매치). 각 variant의 hint 클래스는 자기 캐넌 유지(기본 `text-xs font-normal text-slate-500` / card `font-normal text-slate-400`) | 신규 정확매치 단언: `getByRole("button",{name:"<제목>"})`(hint 켜진 접힘 상태에서) + hint 텍스트는 `getByText`로 여전히 노출; 기존 소비처 테스트(RunDialog·ScheduleForm — 정규식 매치) 무수정 GREEN | |
+| R4 | `MUST` `Section` 접힘 hint accname 캐넌 픽스 — hint `<span>`을 collapsible 버튼 **밖**으로 이동. **원칙은 두 variant 공통이되 DOM 모양은 variant별로 다르다**: 기본 variant는 legend가 non-flex라 버튼+hint를 감싸는 `<span className="flex items-center gap-2">` 래퍼 신설, card variant는 legend 자체가 flex라 hint를 legend 직속 형제로(래퍼 없음 — InspectorSection 현행과 1:1). 접힘 버튼 accname == title(정확매치). 각 variant의 hint 클래스는 자기 캐넌 유지(기본 `text-xs font-normal text-slate-500` / card `font-normal text-slate-400`) | 신규 정확매치 단언: `getByRole("button",{name:"<제목>"})`(hint 켜진 접힘 상태에서) + hint 텍스트는 `getByText`로 여전히 노출; 기존 소비처 테스트(RunDialog·ScheduleForm — 정규식 매치) 무수정 GREEN | |
 | R5 | `MUST` `RunListControls` 해동 — DateFilter `<select>`→`<Select compact>`·date `<input>` 2개→`<Input compact type="date">`(셋 다 `<div className="w-fit">` 래퍼 — `block w-full` BASE의 auto-width flex 행 캐넌, Inspector method Select 선례). **의도된 delta 3건**(§4.3 표: radius 4→6px·포커스 링 획득·date `px-1`→`px-2`)과 `bg-white`/`text-slate-900` 승계 여부는 라이브 실측으로 시각 동등 확인 | 컴포넌트 diff + 기존 RunListControls/ScenarioRunsPage 테스트 무수정 GREEN + 라이브 §6.2 | R1 소비 |
-| R6 | `MUST` Inspector 통합 — `InspectorSection` 정의 **삭제**, 접이식 5섹션 호출부를 `<Section variant="card" collapsible open onToggle title hint>`로; 비접이 요청 카드(`ko.editor.requestLegend`)·조건 카드(`ko.editor.conditionLegend`, `aria-label` passthrough)를 `<Section variant="card" title>`로 — DOM byte-identical(클래스 집합·aria·구조 1:1, §4.2 대조표) | Inspector 기존 테스트(섹션 토글 accname 정확매치 포함) **무수정 GREEN** + `grep -n "InspectorSection" ui/src` → 0 | R2·R3 소비 |
+| R6 | `MUST` Inspector 통합 — `InspectorSection` 정의 **삭제**, 접이식 5섹션 호출부를 `<Section variant="card" collapsible open onToggle title hint>`로; 비접이 요청 카드(`ko.editor.requestLegend`)·조건 카드(`ko.editor.conditionLegend`, `aria-label` passthrough)를 `<Section variant="card" title>`로 — DOM byte-identical(클래스 집합·aria·구조 1:1, §4.2 대조표) | Inspector 기존 테스트(섹션 토글 accname 정확매치 포함) **무수정 GREEN** + `grep -rn "function InspectorSection\|<InspectorSection" ui/src` → 0(**게이트는 정의·JSX 사용만** — 테스트 describe 문자열 `Inspector.sections.test.tsx:59`·주석 `Inspector.test.tsx:514`의 정당한 참조는 위반 아님·개명 불요, ui/CLAUDE.md grep-0 vs 정당 참조 함정) | R2·R3 소비 |
 | R7 | `MUST`(불변식) 동결 사이트 무접촉 — §4.4 근거표(elif 카드·정렬 pill 투명 select·필터 칩/리셋/+추가 버튼·ScenarioDefaults 카드·폼/표시 `rounded-md p-4` 카드 전부·LoadModelFields 자체 disclosure) | diff 리뷰: 동결 사이트 라인 무변경 | |
 | R8 | `MUST` 기존 테스트 무수정 GREEN이 byte-identical의 1차 증거 — 깨지면 단언이 아니라 이주를 고친다. **명시 예외**: R4 캐넌 픽스로 hint-in-button을 직접 단언하던 테스트가 있으면 그 단언만 캐넌에 맞게 갱신(현재 조사로는 없음 — Section.test·RunDialog 계열은 정규식/텍스트 매치) | `pnpm test` 전체 GREEN + 예외 발생 시 커밋 메시지에 사유 | |
 | R9 | `MUST`(불변식) 서버/와이어/모델 0-diff — `crates/`·proto·migration·`ui/src/api/**`·`ui/src/runs/runFilterSort.ts` 0-diff. URL 쿼리 직렬화·store 커밋 경로 무접촉 | `git diff --name-only`가 `ui/src/components`(+테스트)·docs만 | |
@@ -60,7 +60,9 @@
 ### 4.1 컴팩트 variant — `Input.tsx`/`Select.tsx` (충족 R: R1)
 
 ```tsx
-// Input.tsx (Select.tsx 동형 — 단 numeric은 Input 전용) — 패딩을 BASE에서 분리해 조건 조립
+// Input.tsx 스케치. ⚠ Select.tsx는 "같은 패턴"이지 "같은 BASE"가 아니다 — 각 파일의
+// *자기* 현행 BASE를 유지한 채 py-1만 PAD로 이동할 것. Select 현행 BASE엔
+// aria-[invalid=true]:* 두 줄이 없고 numeric prop도 없다(이식 금지 — R1 클래스 집합 불변 위반).
 const BASE =
   "block w-full rounded-md border border-slate-300 px-2 text-slate-900 " +
   "focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30 " +
@@ -80,7 +82,7 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
 
 ### 4.2 카드 variant + accname 픽스 — `Section.tsx` (충족 R: R2·R3·R4)
 
-에디터 실측 캐넌과 1:1 대조:
+에디터 실측 캐넌과 1:1 대조. **아래 표는 리터럴 계약이다** — 기존 Inspector 테스트 ~15개 단언(`getByRole("button",{name})` 정확매치·`closest("legend").textContent` hint·`closest("fieldset")` `min-w-0` 클래스·`getByRole("group",{name})` fieldset accname)이 이 클래스/구조를 그대로 강제하므로, 어떤 드리프트도 한꺼번에 다발 FAIL로 드러난다(의도된 teeth):
 
 | 부위 | card variant (신설) | 에디터 현행 (InspectorSection·요청/조건 카드) | 기본 variant (불변, hint 위치만 픽스) |
 |---|---|---|---|
@@ -133,7 +135,7 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
 - 토대 중 `Badge`/`Callout`/`Field`/`PageSection`/`Segmented`/`Textarea`/`tailwind.config.ts` **0-diff**(이번 토대 diff는 `Input`·`Select`·`Section` 3파일).
 - RunListControls의 필터/정렬 **동작**(핸들러·직렬화·`toggle`/`promoteSort`) 무접촉 — JSX className/컴포넌트 교체만.
 - Inspector의 섹션 접힘 localStorage 영속(`editorPrefs`)·store 커밋 경로 무접촉(open/onToggle prop 배선 그대로).
-- 기존 `size?: "sm"` 소비처(에디터 6곳) 렌더 불변.
+- 기존 `size?: "sm"` 소비처(5파일 22곳 — Inspector·KeyValueGrid·VariablesPanel·BulkEditPanel·ExtractConfirmRow) 렌더 불변(R1이 `compact`를 `size`와 직교로 두므로 전부 무영향).
 
 ## 6. 테스트 / 검증 절차 (US 표의 실행)
 
@@ -163,7 +165,7 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
 
 ### 6.3 완성도 게이트 (orchestrator 직접 재실행 — subagent self-report 불신)
 
-- `grep -n "InspectorSection" ui/src` → **0** (US6).
+- `grep -rn "function InspectorSection\|<InspectorSection" ui/src` → **0** (US6 — 정의·JSX 사용 스코프; 테스트 describe/주석의 정당한 참조는 게이트 밖).
 - 컴팩트 raw form 컨트롤 잔존 스윕: RunListControls에서 `py-0\.5`를 가진 `<select`/`<input` → 동결 명시(투명 select)만 잔존.
 - R7 동결 사이트 라인 무변경 diff 리뷰.
 
