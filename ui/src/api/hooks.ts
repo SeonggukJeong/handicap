@@ -1,4 +1,10 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "./client";
 import type { DatasetUploadOptions } from "./client";
 import { cloneName } from "../scenario/cloneName";
@@ -42,6 +48,7 @@ export const queryKeys = {
   runReport: (id: string) => ["runs", id, "report"] as const,
   datasets: () => ["datasets"] as const,
   dataset: (id: string) => ["datasets", id] as const,
+  datasetRows: (id: string, offset: number) => ["datasets", id, "rows", offset] as const,
   presets: (scenarioId: string) => ["presets", scenarioId] as const,
   preset: (id: string) => ["preset", id] as const,
   environments: () => ["environments"] as const,
@@ -217,6 +224,18 @@ export function useDataset(id: string | undefined) {
     queryKey: id ? queryKeys.dataset(id) : ["datasets", "missing"],
     queryFn: () => api.getDataset(id!),
     enabled: Boolean(id),
+  });
+}
+
+/** 미리보기 페이지 크기 (spec R5 — 50 고정). */
+export const DATASET_ROWS_PAGE_SIZE = 50;
+
+export function useDatasetRows(id: string | undefined, offset: number) {
+  return useQuery({
+    queryKey: id ? queryKeys.datasetRows(id, offset) : ["datasets", "missing", "rows"],
+    queryFn: () => api.getDatasetRows(id!, offset, DATASET_ROWS_PAGE_SIZE),
+    enabled: Boolean(id),
+    placeholderData: keepPreviousData,
   });
 }
 

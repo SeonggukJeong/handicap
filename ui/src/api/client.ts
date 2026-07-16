@@ -3,6 +3,7 @@ import {
   ApiErrorSchema,
   DatasetListSchema,
   DatasetPreviewSchema,
+  DatasetRowsSchema,
   DatasetSchema,
   MetricSummarySchema,
   ReportSchema,
@@ -235,6 +236,12 @@ export const api = {
   listDatasets: () => request("/datasets", { method: "GET" }, DatasetListSchema),
   getDataset: (id: string) =>
     request(`/datasets/${encodeURIComponent(id)}`, { method: "GET" }, DatasetSchema),
+  getDatasetRows: (id: string, offset: number, limit: number) =>
+    request(
+      `/datasets/${encodeURIComponent(id)}/rows?offset=${offset}&limit=${limit}`,
+      { method: "GET" },
+      DatasetRowsSchema,
+    ),
   uploadDataset: (file: File, opts?: DatasetUploadOptions): Promise<Dataset> =>
     requestMultipart("/datasets", buildDatasetForm(file, opts), DatasetSchema),
   previewDataset: (file: File, opts?: DatasetUploadOptions): Promise<DatasetPreview> =>

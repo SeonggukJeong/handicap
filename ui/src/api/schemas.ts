@@ -484,6 +484,14 @@ export const DatasetPreviewSchema = z.object({
 });
 export type DatasetPreview = z.infer<typeof DatasetPreviewSchema>;
 
+// rows 페이징 응답 (GET /datasets/{id}/rows) — 전 필드 항상 직렬화라 plain 타입 (.nullish()/.default() 불요)
+export const DatasetRowsSchema = z.object({
+  rows: z.array(z.record(z.string(), z.string())),
+  offset: z.number().int(),
+  total: z.number().int(),
+});
+export type DatasetRows = z.infer<typeof DatasetRowsSchema>;
+
 export const StepKindSchema = z.enum(["http", "if"]);
 export type StepKind = z.infer<typeof StepKindSchema>;
 
