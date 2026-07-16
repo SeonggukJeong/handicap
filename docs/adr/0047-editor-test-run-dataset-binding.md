@@ -16,7 +16,7 @@
 - **클라 주도(B) 기각**: 순차 N행이 N개 독립 HTTP 요청이 되어 전역 상한이 사라지고(요청마다 wall-clock 120s씩 — 대용량 데이터셋에서 폭주), 매핑 적용이 TS에 중복돼 run과의 주입 패리티가 코드 이원화로 약해지며, 탭 이탈 시 어중간 중단·서버 로그 N건. `var_overrides` 자체는 독립 가치가 있어 §8-2 후속으로 유지(이번 스코프에서 기각이 아니라 연기).
 - **모드는 정책 4종이 아니라 2종(single_row/sequential)**: per_vu/iter_random/unique는 멀티 VU·워커 분산 전제라 1 VU 단일 패스 trace에서 무의미하거나 오해 소지. sequential은 "1 VU·단일 워커 iter_sequential"과 정확히 일치하는 부분집합.
 - **자동 same-name 매핑은 서버 소유, 신호는 생략(None)만**: `mappings` 생략 = 서버가 전 컬럼→동명 변수 자동 매핑을 명시 매핑으로 실체화(이후 검증·주입은 명시 경로와 동일). **빈 배열 명시는 422** — run 와이어에선 `mappings: []`가 "주입 없음"이라(runs.rs 가드 주석), 같은 모양에 다른 뜻을 얹는 이중 계약을 금지한다(run 와이어 의미 불변). 클라 계산 자동 매핑은 클라이언트마다 재구현·드리프트라 기각.
-- **행 수는 서버가 clamp, wrap은 비-첫 바인딩만**: sequential 반복 수 `N = min(row_limit ?? 전체 잔여, max_requests)` — 0-http-leaf 시나리오도 행 수·응답 크기가 유계이고 행 로드는 바인딩별 ≤ min(len, N)행(전체 데이터셋 선로드 금지). 첫 바인딩은 wrap 없음(응답 `row_index = start_row + i` 항상 유일), 비-첫 바인딩은 `% len` wrap(run `iter_sequential`의 wrap 미러).
+- **행 수는 서버가 clamp, wrap은 비-첫 바인딩만**: sequential 반복 수 `N = min(row_limit ?? ∞, 첫 바인딩 row_count − start_row, max_requests)` — 0-http-leaf 시나리오도 행 수·응답 크기가 유계이고 행 로드는 바인딩별 ≤ min(len, N)행(전체 데이터셋 선로드 금지). 첫 바인딩은 wrap 없음(응답 `row_index = start_row + i` 항상 유일), 비-첫 바인딩은 `% len` wrap(run `iter_sequential`의 wrap 미러).
 - **cookie jar는 sequential 행 간 공유**: 실제 run에서 1 VU는 iteration 간 jar를 유지하므로(ADR-0018), 행 간 세션 누적이 보이는 게 검증 도구로서 정직한 미러.
 - **와이어는 Vec(멀티 바인딩), UI v1은 단일 데이터셋만 노출**: 후속 멀티 UI 확장 시 계약 무변경.
 
