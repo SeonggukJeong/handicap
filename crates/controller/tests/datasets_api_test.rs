@@ -388,3 +388,80 @@ async fn delete_allows_unreferenced_dataset() {
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+// ─── Task 1: GET /api/datasets/{id}/rows 페이징 (§A12 데이터셋 미리보기) ────────
+
+/// 명시 header=true 업로드 (rows 페이징 테스트용 — 자동감지 비의존).
+async fn upload_ds_with_header(app: &axum::Router, csv: &str) -> String {
+    let (ct, body) = multipart(&[
+        ("file", Some("data.csv"), csv.as_bytes()),
+        ("header", None, b"true"),
+    ]);
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/datasets")
+        .header("content-type", ct)
+        .body(Body::from(body))
+        .unwrap();
+    let (status, v) = body_json(app.clone().oneshot(req).await.unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "upload failed: {v:?}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+async fn get_rows(app: &axum::Router, id: &str, qs: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/datasets/{id}/rows{qs}"))
+        .body(Body::empty())
+        .unwrap();
+    body_json(app.clone().oneshot(req).await.unwrap()).await
+}
+
+#[tokio::test]
+async fn dataset_rows_default_and_paged() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let id = upload_ds_with_header(&app, "name,val\nr0,0\nr1,1\nr2,2\nr3,3\nr4,4\n").await;
+
+    // 기본값 offset=0/limit=50 → 전체 5행, idx 순서 (R1)
+    let (status, v) = get_rows(&app, &id, "").await;
+    assert_eq!(status, StatusCode::OK, "{v:?}");
+    assert_eq!(v["offset"], 0);
+    assert_eq!(v["total"], 5);
+    let rows = v["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0]["name"], "r0");
+
+    // offset=2&limit=2 → r2, r3 (R1)
+    let (status, v) = get_rows(&app, &id, "?offset=2&limit=2").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["offset"], 2);
+    assert_eq!(v["total"], 5);
+    let rows = v["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["name"], "r2");
+    assert_eq!(rows[1]["name"], "r3");
+
+    // offset이 total을 넘으면 빈 rows (에러 아님)
+    let (status, v) = get_rows(&app, &id, "?offset=10").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["rows"].as_array().unwrap().len(), 0);
+    assert_eq!(v["total"], 5);
+}
+
+#[tokio::test]
+async fn dataset_rows_param_validation_and_404() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let id = upload_ds_with_header(&app, "c\nx\n").await;
+
+    // 검증 3종 → 400 (R2; 한국어 메시지는 이 3종만 — 타입 불일치 ?offset=abc는
+    // axum Query 추출기의 영어 400이라 단언하지 않는다)
+    for qs in ["?offset=-1", "?limit=0", "?limit=201"] {
+        let (status, v) = get_rows(&app, &id, qs).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{qs}: {v:?}");
+    }
+    // 없는 id → 404 (R2; Crockford-유효 26자 — I/L/O/U 배제, ULID fixture 함정 예방)
+    let (status, _) = get_rows(&app, "01JZZZZZZZZZZZZZZZZZZZZZZZ", "").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

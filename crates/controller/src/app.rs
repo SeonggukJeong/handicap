@@ -85,6 +85,7 @@ pub fn router(state: AppState) -> Router {
             "/datasets/{id}",
             get(datasets_api::get).delete(datasets_api::delete),
         )
+        .route("/datasets/{id}/rows", get(datasets_api::rows))
         .route(
             "/scenarios/{id}/presets",
             post(presets_api::create).get(presets_api::list),

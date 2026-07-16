@@ -42,6 +42,22 @@ pub struct DeleteQuery {
     pub force: bool,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct RowsQuery {
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RowsResponse {
+    pub rows: Vec<BTreeMap<String, String>>,
+    pub offset: i64,
+    pub total: i64,
+}
+
+const ROWS_DEFAULT_LIMIT: i64 = 50;
+const ROWS_MAX_LIMIT: i64 = 200;
+
 const SAMPLE_LIMIT: usize = 20;
 
 /// multipart에서 파일 바이트 + 옵션 + 기본 이름(파일명에서 확장자 제거)을 추출.
@@ -226,6 +242,33 @@ pub async fn get(
         created_at: meta.created_at,
         sample,
         sheets: None,
+    }))
+}
+
+/// GET /api/datasets/{id}/rows — 저장된 행 페이징 조회 (§A12 미리보기).
+pub async fn rows(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<RowsQuery>,
+) -> Result<Json<RowsResponse>, ApiError> {
+    let offset = q.offset.unwrap_or(0);
+    let limit = q.limit.unwrap_or(ROWS_DEFAULT_LIMIT);
+    if offset < 0 {
+        return Err(ApiError::BadRequest("offset은 0 이상이어야 합니다".into()));
+    }
+    if !(1..=ROWS_MAX_LIMIT).contains(&limit) {
+        return Err(ApiError::BadRequest(format!(
+            "limit은 1 이상 {ROWS_MAX_LIMIT} 이하여야 합니다"
+        )));
+    }
+    let meta = store::datasets::get_meta(&state.db, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let rows = store::datasets::get_rows_range(&state.db, &id, offset, limit).await?;
+    Ok(Json(RowsResponse {
+        rows,
+        offset,
+        total: meta.row_count,
     }))
 }
 
