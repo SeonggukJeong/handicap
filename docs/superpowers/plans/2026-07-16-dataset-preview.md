@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+<!-- REVIEW-GATE: APPROVED -->
+<!-- spec-plan-reviewer: spec clean APPROVE (2026-07-16, 2라운드) · plan clean APPROVE (2026-07-16, 2라운드 — must-fix R4 리셋 테스트 반영 후) -->
+
 **Goal:** 저장된 데이터셋의 행을 `GET /api/datasets/{id}/rows`(offset/limit 페이징)로 노출하고, DatasetsPage 인라인 확장 행에서 행 번호·행 이동·페이징으로 열람한다.
 
 **Architecture:** 컨트롤러는 기존 `store::datasets::get_rows_range`를 REST 핸들러 하나로 노출(store/engine/proto/migration 0-diff). UI는 Zod 스키마 + client 함수 + `useDatasetRows` 훅(React Query v5 `keepPreviousData`) + 신설 `DatasetRowsPreview` 컴포넌트를 DatasetsPage의 확장 행(`<tr><td colSpan={4}>`)에 배선한다.
