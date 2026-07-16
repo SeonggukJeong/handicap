@@ -4,6 +4,7 @@ import type { Mapping, TestRunDatasetConfig, TestRunDatasetMode } from "../../ap
 import { Section } from "../ui/Section";
 import { Select } from "../ui/Select";
 import { Input } from "../ui/Input";
+import { Button } from "../Button";
 import { DatasetRowsPreview } from "../datasets/DatasetRowsPreview";
 import { ko } from "../../i18n/ko";
 
@@ -48,6 +49,7 @@ export function TestRunDatasetSection({
   const [startRowDraft, setStartRowDraft] = useState("");
   const [rowLimitDraft, setRowLimitDraft] = useState("");
   const [mappingRows, setMappingRows] = useState<MappingRow[] | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const datasetId = selected?.id ?? null;
   const rowCount = selected?.rowCount ?? 0;
@@ -104,6 +106,7 @@ export function TestRunDatasetSection({
     setStartRowDraft("");
     setRowLimitDraft("");
     setMappingRows(null);
+    setPreviewOpen(false);
   }
 
   return (
@@ -140,6 +143,8 @@ export function TestRunDatasetSection({
           derived={derived}
           expectedLeafCount={expectedLeafCount}
           maxRequests={maxRequests}
+          previewOpen={previewOpen}
+          onPreviewToggle={() => setPreviewOpen((o) => !o)}
         />
       )}
     </Section>
@@ -162,6 +167,8 @@ function DatasetBody({
   derived,
   expectedLeafCount,
   maxRequests,
+  previewOpen,
+  onPreviewToggle,
 }: {
   selected: SelectedDataset | null;
   onSelectDataset: (meta: SelectedDataset | null) => void;
@@ -178,11 +185,20 @@ function DatasetBody({
   derived: DatasetDraftState | null;
   expectedLeafCount: number;
   maxRequests: number;
+  previewOpen: boolean;
+  onPreviewToggle: () => void;
 }) {
   // 훅은 이 Body 컴포넌트(펼침 시에만 마운트) 안에만 — 접힘 중 fetch 0 계약.
   const datasets = useDatasets();
   const list = datasets.data?.datasets ?? [];
   const datasetId = selected?.id ?? null;
+
+  // sequential 미리보기 하이라이트 — derived의 startN과 동일식.
+  const seqStartN = Math.floor(Number(startRowDraft)) - 1;
+  const seqSelectedRow =
+    startRowDraft.trim() !== "" && Number.isFinite(seqStartN) && seqStartN >= 0
+      ? seqStartN
+      : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -242,36 +258,26 @@ function DatasetBody({
           </div>
 
           {mode === "single_row" && (
-            <>
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-slate-600">{ko.editor.dsRowNumLabel}</span>
-                <div className="w-24">
-                  <Input
-                    type="number"
-                    min={1}
-                    numeric
-                    value={rowIndex == null ? "" : rowIndex + 1}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw.trim() === "") {
-                        onRowIndexChange(null);
-                        return;
-                      }
-                      const n = Number(raw);
-                      onRowIndexChange(Number.isFinite(n) && n >= 1 ? Math.floor(n) - 1 : null);
-                    }}
-                  />
-                </div>
-              </label>
-              <DatasetRowsPreview
-                datasetId={selected.id}
-                name={selected.name}
-                columns={selected.columns}
-                rowCount={selected.rowCount}
-                selectedRow={rowIndex ?? undefined}
-                onSelectRow={onRowIndexChange}
-              />
-            </>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-slate-600">{ko.editor.dsRowNumLabel}</span>
+              <div className="w-24">
+                <Input
+                  type="number"
+                  min={1}
+                  numeric
+                  value={rowIndex == null ? "" : rowIndex + 1}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw.trim() === "") {
+                      onRowIndexChange(null);
+                      return;
+                    }
+                    const n = Number(raw);
+                    onRowIndexChange(Number.isFinite(n) && n >= 1 ? Math.floor(n) - 1 : null);
+                  }}
+                />
+              </div>
+            </label>
           )}
 
           {mode === "sequential" && (
@@ -310,6 +316,31 @@ function DatasetBody({
                 )}
             </div>
           )}
+
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              aria-expanded={previewOpen}
+              onClick={onPreviewToggle}
+              className="self-start"
+            >
+              {ko.editor.dsPreviewToggle}
+            </Button>
+            {previewOpen && (
+              <DatasetRowsPreview
+                datasetId={selected.id}
+                name={selected.name}
+                columns={selected.columns}
+                rowCount={selected.rowCount}
+                selectedRow={mode === "single_row" ? (rowIndex ?? undefined) : seqSelectedRow}
+                onSelectRow={
+                  mode === "single_row"
+                    ? onRowIndexChange
+                    : (idx) => onStartRowDraftChange(String(idx + 1))
+                }
+              />
+            )}
+          </div>
 
           <MappingEditor
             columns={selected.columns}

@@ -139,6 +139,7 @@ beforeEach(() => {
   fetchMock.mockClear();
   testRunResponse = TRACE_OK;
   vi.stubGlobal("fetch", fetchMock);
+  window.localStorage.clear();
 });
 
 // payload 단언 헬퍼: /test-runs 호출의 body를 파싱
@@ -352,5 +353,117 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
     expect(
       within(strip).queryByRole("button", { name: ko.editor.chipAriaFail("stepB") }),
     ).not.toBeInTheDocument();
+  });
+
+  it("T1: 데이터셋 선택 직후 — 미리보기 부재 + rows fetch 0 + 토글 aria-expanded=false (US1)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+
+    const toggle = screen.getByRole("button", { name: ko.editor.dsPreviewToggle });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/rows"))).toBe(false);
+  });
+
+  it("T2: 데이터 확인 클릭 → 렌더 + limit=10 fetch, 재클릭 → 닫힘 (US1)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    expect(
+      await screen.findByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).toBeInTheDocument();
+    const rowsCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/rows"));
+    expect(String(rowsCalls[0][0])).toContain("limit=10");
+
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    expect(
+      screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("T2b: 모드 전환에도 열림 상태 유지 (R1.3)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+
+    expect(screen.getByRole("button", { name: ko.editor.dsPreviewToggle })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).toBeInTheDocument();
+  });
+
+  it("T3: 미리보기 연 채 데이터셋 해제→재선택 → 닫힘 리셋 (R1.4)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+
+    await user.selectOptions(screen.getByLabelText(ko.editor.dsPickLabel), "");
+    await user.selectOptions(screen.getByLabelText(ko.editor.dsPickLabel), DATASET_ID);
+
+    expect(screen.getByRole("button", { name: ko.editor.dsPreviewToggle })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(
+      screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("T4: sequential — 행 클릭 → 시작 행 채움 + payload start_row 0-based (US3)", async () => {
+    const user = userEvent.setup();
+    testRunResponse = SEQ_OK;
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    await user.click(screen.getByRole("button", { name: ko.dataset.selectRowAria(7) }));
+
+    expect(screen.getByLabelText(ko.editor.dsStartRowLabel)).toHaveValue(7);
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunRun }));
+    const body = lastTestRunBody();
+    expect((body.dataset as { start_row: number }).start_row).toBe(6);
+  });
+
+  it("T5: sequential — 시작 행 직접 입력 → 해당 행 하이라이트, 빈 draft면 하이라이트 없음 (R3.3)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+
+    await user.type(screen.getByLabelText(ko.editor.dsStartRowLabel), "3");
+    expect(screen.getByRole("button", { name: ko.dataset.selectRowAria(3) })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.clear(screen.getByLabelText(ko.editor.dsStartRowLabel));
+    expect(screen.getByRole("button", { name: ko.dataset.selectRowAria(3) })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 });

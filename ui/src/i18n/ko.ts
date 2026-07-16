@@ -683,6 +683,7 @@ export const ko = {
     dsRowLimitLabel: "행 수 (비움=전체)",
     dsIncompleteRow: "행 번호를 선택하세요 — 미리보기에서 행을 클릭하거나 직접 입력",
     dsIncompleteSeq: "시작 행/행 수 입력이 올바르지 않습니다",
+    dsPreviewToggle: "데이터 확인",
     dsMappingAuto: "매핑: 자동 (컬럼명=변수명)",
     dsMappingEdit: "매핑 편집",
     dsMappingAdd: "+ 매핑 추가",
