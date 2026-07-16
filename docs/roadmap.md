@@ -125,7 +125,7 @@
 - **Think Time 일괄 지정**: 시나리오-레벨 기본 think time + 스텝별 override(전체 무시 설정 포함). 엔진 serde+와이어+UI 수직 슬라이스 — Opus path-gate·live-verify RPS 검증 필요. — **완료 2026-07-13(think-time-defaults, 도그푸딩 2호)**
 - **HAR 가져오기 host-환경 힌트**: 감지된 host가 기존 환경(environments)에 등록돼 있으면 어느 세트에 있는지 안내(비차단 — 다른 이름 저장 허용). UI-only 소형.
 - **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI. — **완료 2026-07-16(dataset-preview, 도그푸딩 3호 — build-log 참조)**
-- **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형.
+- **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형. — **완료 2026-07-16(editor-dataset-testrun, 도그푸딩 4호·ADR-0047 — build-log 참조)**
 
 **editor-viewport-polish-v2 연기 항목 (2026-07-05, 머지 후 백로그)**:
 - **스크롤바 정확히 8px**: A 얇은 스크롤바는 라이브 실측 11px(스펙 목표 8px 아님) — `scrollbar-width: thin`이 설정되면 Chromium이 표준 얇은 바를 쓰고 `::-webkit-scrollbar { width: 8px }`를 무시한다. 15→11px로 얇아지긴 함. 정확히 8px 원하면 `scrollbar-width`/`scrollbar-color`를 걷어내고 webkit 전용(`::-webkit-scrollbar`)으로 바꿔야 하나 그러면 Firefox가 얇은 바를 잃는 트레이드오프. `index.css` 소형. (사용자: 8px 불필수, 얇아진 것으로 수용 — 필요 시 조정.)
@@ -317,6 +317,15 @@
 ### B22. open-loop-think-time-ux 잔여 nit (2026-07-16, record-only — 둘 다 spec/scope 준수라 이 슬라이스에선 미반영)
 - **① [security nit] `spawn_run` 저장-시나리오 think 재검증 부재**: §B21 ①의 검증은 authoring(create/update/test-run) 시점만 → 생성 후 out-of-band SQLite 편집이나 이 슬라이스 *이전* 저장 행의 out-of-range think가 워커에 도달. 엔진 `ThinkTime::sample` clamp가 크래시/DoS는 차단(security-reviewer 실측)하고 authoring 게이트가 정위치라 **의도된 defense-in-depth**(bypass 아님). 닫으려면 `spawn_run`에서 `maybe_strip_think` 전에 `validate_scenario_think_times` 재호출 — 단 pre-slice out-of-range 시나리오의 run이 새로 400 거부되는 회귀에 주의.
 - **② [handicap nit] closed→open 전환 프리필**: closed run을 retry한 뒤 같은 다이얼로그에서 부하 모델을 open으로 전환하면 무시 토글이 apply(체크)로 시드된다(closed run은 `apply_scenario_think_time` omit → `?? true`). spec §6.4 `?? true` 준수·좁은 엣지·submit 전 visible(비-silent)이라 미반영. 바꾸려면 `useState` 시드를 `?? isOpenLoop(initial.profile)`로 — 단 spec §6.4 문언(`?? true`)과 상충하므로 spec 개정이 선행.
+
+### B23. 에디터 데이터셋 test-run (2026-07-16, ADR-0047) 연기 항목
+- **N1 빈 var 매핑 행 silent 수용**: 매핑 편집의 `dsMappingAdd`가 만든 `var: ""` 행이 전송되면 서버가 422 없이 수용(빈 이름 변수 주입 — 아무것도 참조 안 해 무해하나 무피드백). plan은 "서버 422가 유일 방어"라 적었지만 단일 빈 var는 422 아님(중복일 때만). derived에서 빈 var 행 drop 또는 incomplete 처리 + 서버 `resolve_bindings`에 빈 var 거부 추가. UI+컨트롤러 소형.
+- **N2 `seqTruncated` 카피 정밀화**: `row_limit > 잔여 행` clamp(예산 아닌 행 부족)에도 "상한 도달로 …" 문구가 뜬다 — 원인별 카피 분기(ko.ts). UI 소형.
+- **N3 중복 var 422 메시지**: "변수 '{var}'이 여러 데이터셋에 중복 매핑됨"이 단일 바인딩 내 중복에도 발화 — 문구만 부정확(`test_runs.rs`). 컨트롤러 소형.
+- **N4 `추출 추가됨 — …` 하드코딩 2번째 사본**: TestRunSection의 기존 debt를 SequentialRunPanel 배선이 byte-identical 복제 — 다음에 만질 때 ko.ts로 통합. UI 소형.
+- **T3 커버리지**: `row_limit > remaining` arm(요청 5행에 row_limit 10 → 5행+truncated) 잠그는 테스트 없음(산식은 최종 리뷰가 수동 검산) — N2 카피 fix와 묶어 후속.
+- **spec §7 연기(원문 참조)**: 멀티 데이터셋 UI(와이어 R17은 Vec freeze — UI만 1개 노출)·`var_overrides`(데이터셋 없는 임시값 주입)·Literal 매핑 편집 UI·민감값 마스킹(**§B1 소유** — 부분 fix 금지, 사용자 기결정)·검증 구성→run 프리셋 전환/실패 행만 필터/fail-fast 토글(수요 확인 후).
+- **R15 힌트 single_row 확장**: 예산 힌트가 sequential 블록에만 렌더(plan-mandated) — leaf 수>max_requests인 single_row 극단은 기존 truncated 경고가 사후 커버. 원하면 소형.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
