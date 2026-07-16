@@ -8,6 +8,10 @@
 
 - **메인 체크아웃(`/Users/sgj/develop/handicap`)의 dev 컨트롤러가 8080을 선점하고 있으면, 내가 띄운 워크트리 컨트롤러는 bind 실패(또는 곧 죽고 그 자리를 stray가 차지)하고 브라우저는 *메인의 stale dist*를 받는다 — 마이그레이션한 컴포넌트가 옛 markup으로 렌더돼 "구현이 안 됐다"고 오진하게 된다** (포트 선점 footgun의 stale-dist 변종): 증상 = 소스·워크트리 dist는 새 코드(grep 확인)인데 브라우저 렌더는 옛 것. **결정적 진단**: `curl -s http://127.0.0.1:8080/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js'`(서빙 중인 청크 해시) vs `grep -oE 'assets/index-…' ui/dist/index.html`(디스크 해시) — **불일치면 다른 dist를 서빙**. 누가 8080을 쥐었나: `lsof -ti :8080` → `lsof -a -p <PID> -d cwd`(cwd)·`ps -o command= -p <PID>`(args — `--db ./handicap.db` = 메인 dev; `--db /tmp/x.db` = 내 것). ⚠ `ps -o cwd= -p <PID>`는 macOS에서 헤더만 출력하는 버그 있음 → `lsof -a -p <PID> -d cwd` 사용. **회피(안전·비파괴)**: 메인 컨트롤러를 죽이지 말고 **전용 포트 + 절대 `--ui-dir`**로 내 스택을 띄운다 — `./target/debug/controller --db /tmp/x.db --rest 127.0.0.1:8090 --grpc 127.0.0.1:8091 --ui-dir "$PWD/ui/dist"` → Playwright는 `http://127.0.0.1:8090`(다른 origin이라 브라우저 캐시도 fresh). 상대 `--ui-dir ui/dist`는 컨트롤러 cwd 기준이라 드리프트 위험(위 청크 해시 불일치의 근원) → **절대경로**로 못박는다. 시나리오도 8090에 새로 만들어야(POST가 8080 stray로 가면 그 db에 생성됨).
 
+## computed-style 실측 — live 객체 함정
+
+- **`getComputedStyle(el)` 반환은 *live* CSSStyleDeclaration — 변수에 담아두고 포커스/상태를 바꾼 뒤 프로퍼티를 읽으면 *현재*(바뀐) 상태 값이 나온다** (design-system-variants 2026-07-16): focus ring 실측에서 `el.focus(); const cs = getComputedStyle(el); other.focus(); … cs.boxShadow`가 blur 상태 `"none"`을 반환해 거짓 FAIL. 측정 즉시 `String(getComputedStyle(el).boxShadow)`처럼 프리미티브로 고정하고, 요소 하나당 focus→읽기→blur를 한 흐름으로 끝낼 것.
+
 ## 스크린샷 경로 / MCP cwd 고정 (시각-충실도 슬라이스)
 
 - **시각-충실도 슬라이스의 라이브 검증 스크린샷: Playwright-MCP cwd가 *삭제된* 과거 워크트리에 고정돼 상대/스크래치패드 경로가 ENOENT/access-denied** (rundialog-mockup-fidelity, 루트 "Playwright cwd 고정" 함정의 스크린샷 변형): `browser_take_screenshot`의 허용 루트는 MCP temp(`/var/folders/.../T/.playwright-mcp`)와 (죽었을 수 있는) 첫-기동 워크트리뿐 → 스크린샷은 **그 MCP temp 절대경로**로 저장 후 `Read`로 뷰. 목업 PNG 대조는 라이브 렌더 스크린샷 vs `docs/superpowers/mockups/*.png`를 둘 다 `Read`(vision)로 비교 — 의도적 잔존(번호 Section 배지·고정 footer 미니그래프·R9 사이징 도우미 카드는 목업이 단순화)은 미스매치 아님. **라이브 검증은 main dev 컨트롤러(8080) 안 죽이게 `--rest 8090 --grpc 8091`로**(소유 PID `lsof`+`ps -o cwd=` 확인 후 내 포트만 kill).
