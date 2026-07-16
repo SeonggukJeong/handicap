@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -202,5 +202,110 @@ describe("DatasetsPage — soft delete (A2)", () => {
     expect(confirmSpy.mock.calls[0][0]).toMatch(/heavy/);
     await waitFor(() => expect(deleteCalls).toBe(2));
     confirmSpy.mockRestore();
+  });
+});
+
+const twoDatasets = {
+  datasets: [
+    { id: "01A", name: "users", columns: ["email"], row_count: 2, byte_size: 10, created_at: 1 },
+    { id: "01B", name: "items", columns: ["sku"], row_count: 1, byte_size: 5, created_at: 2 },
+  ],
+};
+function routeFetch() {
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/rows")) {
+      const which = url.includes("01A") ? "users" : "items";
+      const rows =
+        which === "users" ? [{ email: "a@ex.com" }, { email: "b@ex.com" }] : [{ sku: "S1" }];
+      return Promise.resolve(jsonResponse({ rows, offset: 0, total: rows.length }));
+    }
+    return Promise.resolve(jsonResponse(twoDatasets));
+  });
+}
+
+describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
+  it("접힌 상태에선 rows fetch 없음, 펼치면 패널 렌더 (R4·R13)", async () => {
+    routeFetch();
+    renderPage();
+    await screen.findByText("users");
+    expect(fetchMock.mock.calls.every(([u]) => !String(u).includes("/rows"))).toBe(true);
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]);
+    const region = await screen.findByRole("region", {
+      name: ko.dataset.previewAria("users"),
+    });
+    expect(await within(region).findByText("a@ex.com")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("다른 행을 펼치면 이전 패널이 접힌다 — 단일 확장 (R4)", async () => {
+    routeFetch();
+    renderPage();
+    await screen.findByText("users");
+    const user = userEvent.setup();
+    const toggles = () => screen.getAllByRole("button", { name: ko.dataset.previewToggle });
+    await user.click(toggles()[0]);
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    await user.click(toggles()[1]);
+    await screen.findByRole("region", { name: ko.dataset.previewAria("items") });
+    expect(
+      screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("같은 토글을 다시 누르면 접힌다 (R4)", async () => {
+    routeFetch();
+    renderPage();
+    await screen.findByText("users");
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]);
+    await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    await user.click(screen.getAllByRole("button", { name: ko.dataset.previewToggle })[0]);
+    expect(
+      screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("접었다 다시 펼치면 offset이 리셋된다 (R4 리셋)", async () => {
+    // 100행 데이터셋 — 다음 페이지로 간 뒤 접기→재펼침이 1페이지로 복귀해야 한다
+    // (remount 리셋이 CSS-hide 등으로 바뀌는 드리프트를 잡는 회귀 가드)
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/rows")) {
+        const u = new URL(url, "http://localhost");
+        const offset = Number(u.searchParams.get("offset") ?? "0");
+        const rows = Array.from({ length: 50 }, (_, i) => ({ email: `u${offset + i}@ex.com` }));
+        return Promise.resolve(jsonResponse({ rows, offset, total: 100 }));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          datasets: [
+            {
+              id: "01A",
+              name: "users",
+              columns: ["email"],
+              row_count: 100,
+              byte_size: 10,
+              created_at: 1,
+            },
+          ],
+        }),
+      );
+    });
+    renderPage();
+    await screen.findByText("users");
+    const user = userEvent.setup();
+    const toggle = () => screen.getByRole("button", { name: ko.dataset.previewToggle });
+    await user.click(toggle());
+    const region = await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    await user.click(within(region).getByRole("button", { name: ko.dataset.nextPage }));
+    expect(await screen.findByText(ko.dataset.rowsRange(51, 100, 100))).toBeInTheDocument();
+    await user.click(toggle()); // 접기
+    await user.click(toggle()); // 재펼침 → remount → offset 0
+    expect(await screen.findByText(ko.dataset.rowsRange(1, 50, 100))).toBeInTheDocument();
   });
 });

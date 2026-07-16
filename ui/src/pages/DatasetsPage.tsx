@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useDatasets, useDeleteDataset } from "../api/hooks";
 import { Button } from "../components/Button";
 import { Callout } from "../components/ui/Callout";
 import { UploadPanel } from "../components/datasets/UploadPanel";
+import { DatasetRowsPreview } from "../components/datasets/DatasetRowsPreview";
 import { EmptyState } from "../components/EmptyState";
 import { ko } from "../i18n/ko";
 
@@ -10,6 +11,7 @@ export function DatasetsPage() {
   const { data, isLoading, error } = useDatasets();
   const del = useDeleteDataset();
   const [delError, setDelError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
     setDelError(null);
@@ -64,20 +66,43 @@ export function DatasetsPage() {
             </thead>
             <tbody>
               {data.datasets.map((d) => (
-                <tr key={d.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-4 font-medium">{d.name}</td>
-                  <td className="py-2 pr-4 text-slate-600">{d.columns.join(", ")}</td>
-                  <td className="py-2 pr-4">{d.row_count}</td>
-                  <td className="py-2 pr-4">
-                    <Button
-                      variant="danger"
-                      onClick={() => handleDelete(d.id)}
-                      disabled={del.isPending}
-                    >
-                      {ko.common.delete}
-                    </Button>
-                  </td>
-                </tr>
+                <Fragment key={d.id}>
+                  <tr className="border-b border-slate-100">
+                    <td className="py-2 pr-4 font-medium">{d.name}</td>
+                    <td className="py-2 pr-4 text-slate-600">{d.columns.join(", ")}</td>
+                    <td className="py-2 pr-4">{d.row_count}</td>
+                    <td className="py-2 pr-4">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          aria-expanded={expandedId === d.id}
+                          onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                        >
+                          {ko.dataset.previewToggle}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => handleDelete(d.id)}
+                          disabled={del.isPending}
+                        >
+                          {ko.common.delete}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedId === d.id && (
+                    <tr>
+                      <td colSpan={4} className="p-0">
+                        <DatasetRowsPreview
+                          datasetId={d.id}
+                          name={d.name}
+                          columns={d.columns}
+                          rowCount={d.row_count}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
