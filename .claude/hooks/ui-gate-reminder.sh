@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # PostToolUse(Bash): after a `git commit` that includes ui/ files (fresh HEAD, or still-staged for
-# background/rejected commits), remind that the cargo-only pre-commit hook does NOT run the UI
-# gates and CI doesn't run without a remote (documented hole: a react-hooks/exhaustive-deps
-# warning slipped through this way). Non-blocking, always exits 0.
+# background/rejected commits), remind about the UI gate. Since 2026-06-13 pre-commit DOES run the
+# UI gate when ui/ (non-.md) is staged — but it gracefully SKIPS when ui/node_modules is missing
+# (fresh worktree), and CI doesn't run without a remote (documented hole: a react-hooks/
+# exhaustive-deps warning slipped through pre-2026-06-13). This is the backstop for the skip case.
+# Non-blocking, always exits 0. (Message accuracy fixed 2026-07-16 — it used to claim pre-commit
+# was cargo-only, which misled sessions into re-verifying the gate.)
 set -uo pipefail
 
 input=$(cat)
@@ -23,6 +26,6 @@ if ((now - last_ct < 300)); then
 fi
 printf '%s\n' "$files" | grep -E '^ui/' | grep -qvE '\.md$' || exit 0
 
-msg="이 커밋에 ui/ 변경 포함 — pre-commit 훅은 cargo만 검증하고 CI(remote 미설정)는 안 돈다. 아직 안 돌렸으면 지금: cd ui && pnpm lint && pnpm test && pnpm build (lint는 --max-warnings=0, 머지 전 필수 게이트)."
+msg="이 커밋에 ui/ 변경 포함 — pre-commit이 ui/ staged면 UI 게이트(lint+test+build)를 돌리지만 ui/node_modules 없으면 graceful skip이고 CI(remote 미설정)는 안 돈다. 커밋이 게이트 없이 지나갔을 수 있으면(fresh 워크트리 등) 수동 1회: cd ui && pnpm lint && pnpm test && pnpm build (lint는 --max-warnings=0, 머지 전 필수 게이트)."
 jq -n --arg m "$msg" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}'
 exit 0
