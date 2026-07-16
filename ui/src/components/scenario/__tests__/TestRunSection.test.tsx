@@ -13,7 +13,14 @@ let testRunData: unknown = undefined;
 // error controls whether the error Callout renders
 let testRunError: unknown = null;
 vi.mock("../../../api/hooks", () => ({
-  useTestRun: () => ({ mutate, isPending, error: testRunError, data: testRunData }),
+  useTestRun: () => ({ mutate, isPending, error: testRunError, data: testRunData, reset: vi.fn() }),
+  useTestRunSequential: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    error: null,
+    data: undefined,
+    reset: vi.fn(),
+  }),
   useEnvironment: () => ({ data: undefined }),
   useEnvironments: () => ({ data: [] }),
 }));
