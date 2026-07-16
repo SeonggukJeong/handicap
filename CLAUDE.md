@@ -112,6 +112,7 @@ docs/
 
 - **SDD `scripts/task-brief PLAN N`은 숫자 `Task N` 헤딩만 매칭 — "Task A/B" 라벨 plan은 exit 3** (곡선 fan-out 워커 표시): awk 정규식이 `Task[ \t]+[0-9]+`라 letter-label plan에서 "task N not found"로 실패. 수동 추출 `awk '/^## Task A:/{f=1}/^## Task B:/{f=0}f' PLAN > brief.md`(또는 plan을 숫자 `Task N`으로 작성). `review-package`·`sdd-workspace`는 라벨 비의존이라 무관.
 - **`task-brief`는 그 task *섹션만* 자른다 — plan이 task-밖 공유 정본(카피 개명 표·keep-list 등)을 두면 implementer/리뷰어가 못 본다** (open-loop-rate-labels T2–T4): 공유 섹션을 `awk '/^## 카피 개명 표/,/^---$/'`류로 별도 파일(`.superpowers/sdd/copy-table.md`)로 추출해 brief와 함께 디스패치 prompt에 두 경로로 넘길 것("이 표의 문자열을 byte-exact로" 명시). T2·T3·T4가 같은 표를 참조해도 추출은 1회면 된다.
+- **spec의 `사용자 스토리 (US)` 고정 헤딩 블록도 같은 방식으로 1회 추출해 매 task-brief 디스패치에 첨부** (US 스파인, ADR-0048): 추출 원천=**spec**(plan 아님), 그 헤딩부터 다음 동레벨-이상 헤딩까지 — implementer가 UX·동작 디테일을 결정할 때 근거로 쓴다. 규약 `docs/dev/user-story-spine.md`.
 - **`ui/src`를 한 줄이라도 건드리는 task는 plan/brief에 UI 테스트 스텝을 넣을 것** (open-loop-slot-sizing T1): Rust-TDD 위주 task에 UI Zod 2줄이 섞여도 tdd-guard가 UI-side pending test 부재로 `ui/src` 편집을 차단 — implementer가 즉석 테스트를 추가해 통과했지만(brief 밖 파일 커밋 유발), plan이 UI 테스트 스텝을 명시하면 재발 0.
 - **plan 인라인 Rust 코드에 2-arm `match … _ => {}` 금지 — `if let`으로 쓸 것** (open-loop-slot-sizing T2): verbatim 전사가 `clippy::single_match`(-D warnings)에 걸려 implementer가 등가 재작성을 해야 했다. plan 코드블록도 clippy-clean하게.
 - **워크트리에서 subagent를 띄울 땐 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 명시**: 안 하면 spec-reviewer 같은 lightweight 모델이 메인 체크아웃을 읽고 "코드가 없다"고 잘못 보고한다. 절대 경로로 박는 게 가장 안전.
@@ -138,7 +139,7 @@ docs/
 worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라서" 생략 금지** (2026-06-15 사고: `spec-plan-reviewer` 루프를 임의 건너뛰고 구현 직행 → reviewer가 뒤늦게 CRITICAL 1000× 단위 버그 적발. coverage≠correctness라 템플릿·체크리스트가 리뷰를 *대체 못 함*; 그래서 `spec-review-guard`가 reviewer 통과를 기계적으로 강제). 시작·마무리는 `/start-slice`·`/finish-slice` 스킬이 체크리스트, 아래가 전체 골격:
 
 1. **시작** `/start-slice` — worktree(`worktree-<X>`) + 작업 선택 + baseline(`pnpm install`·`cargo build`).
-2. **설계** spec → `spec-plan-reviewer` **clean `APPROVE`까지 반복**(`APPROVE-WITH-FIXES`/`NEEDS-REWORK`=미통과; finding은 `receiving-code-review`로 비판 평가 후 반영/기각). 이어 plan도 같은 루프. **clean APPROVE 후에만** plan에 `REVIEW-GATE: APPROVED` 마커 → 없으면 `spec-review-guard`가 `crates/*/src`·`ui/src` 편집 deny(미통과 상태 마킹 = 위조). **STOP-gate**: 이 세션에서 spec/plan을 새로 썼으면 커밋 후 `/clear`→fresh 컨텍스트로 3단계 진입. **사용자가 '바로 구현'을 요청해도 같은 세션 구현을 *권장/옵션으로 먼저 제시하지 말 것* — `/clear`→fresh가 기본 권장, 명시 고집 시에만 따른다**(2026-06-20 L2: 플랜 승인 후 '같은 세션 계속(추천)' 제시→채택→구현+라이브검증+finish로 컨텍스트 62% 소모, 사용자 교정. plan이 진실의 원천이라 fresh 구현이 품질·컨텍스트 양면 유리). [[stop-gate-fresh-context-impl]]
+2. **설계** brainstorming 종료 시 **US 초안(2–5개, 규약 `docs/dev/user-story-spine.md`)을 사용자에게 단독 제시·승인 후 spec 착수** — spec 앞머리에 `사용자 스토리 (US)` 고정 헤딩 블록 필수(버그는 재현/기대/실측, 내부-only는 `US: N/A — 이유` 대체 가; ADR-0048). spec → `spec-plan-reviewer` **clean `APPROVE`까지 반복**(`APPROVE-WITH-FIXES`/`NEEDS-REWORK`=미통과; finding은 `receiving-code-review`로 비판 평가 후 반영/기각). 이어 plan도 같은 루프. **clean APPROVE 후에만** plan에 `REVIEW-GATE: APPROVED` 마커 → 없으면 `spec-review-guard`가 `crates/*/src`·`ui/src` 편집 deny(미통과 상태 마킹 = 위조). **STOP-gate**: 이 세션에서 spec/plan을 새로 썼으면 커밋 후 `/clear`→fresh 컨텍스트로 3단계 진입. **사용자가 '바로 구현'을 요청해도 같은 세션 구현을 *권장/옵션으로 먼저 제시하지 말 것* — `/clear`→fresh가 기본 권장, 명시 고집 시에만 따른다**(2026-06-20 L2: 플랜 승인 후 '같은 세션 계속(추천)' 제시→채택→구현+라이브검증+finish로 컨텍스트 62% 소모, 사용자 교정. plan이 진실의 원천이라 fresh 구현이 품질·컨텍스트 양면 유리). [[stop-gate-fresh-context-impl]]
 3. **구현** `superpowers:subagent-driven-development` — task별 fresh subagent(plan의 인라인 acceptance 전달), 각 task **독립 green 커밋**.
 4. **최종 리뷰** `handicap-reviewer` APPROVE(크로스커팅·repo 함정·와이어 1:1). **+ 보안 표면 게이트(path-gated)**: diff가 요청실행·템플릿/캐스트·env/데이터셋 바인딩·업로드파싱·trace/body 뷰어를 건드리면 `security-reviewer`도 APPROVE 필수(blanket 아님 — `finish-slice` §0의 grep이 트리거; 매치 없으면 N/A 스킵). `security-reviewer`는 "쓸지 기억"이 아니라 diff가 결정. **plan/spec이 "N/A 예상"이라 적어놨어도 grep이 지배한다**(think-time-defaults: plan은 "think time은 페이싱뿐이라 무매치 예상"이라 썼으나 diff가 `crates/engine/src/trace.rs`를 건드려 매치 → security-reviewer 필수. 예측을 신뢰해 스킵하지 말고 `finish-slice §0`의 grep을 직접 돌릴 것).
 5. **라이브 검증** — run-생성/report-파싱/엔진 경로를 건드리면 **필수**(`/live-verify`, S-D 갭). production diff 0(docs/테스트-only)이면 생략 + 근거를 build-log에.
@@ -197,6 +198,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0045** 시나리오 삭제 정책: 2층 가드(활성 run hard 409[in-tx 권위]·참조 soft 409 카운트+force) + 앱-레벨 단일 tx 전체 cascade(FK CASCADE 마이그레이션·soft-delete 기각)
 - **0046** open-loop rate 단위·사이징 교정: target_rps=반복(시나리오 실행)/초 공식화 + 포화 사이징 실측 점유시간(hold=M÷달성 도착률 자기측정) 기반 + cause 2-way(slots/sut, loadgen·recommended_workers 산출 제거)
 - **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드(자동매핑 실체화·R9 검증·R18 clamp) + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 예산), proto/store/migration 0-diff
+- **0048** US 스파인(프로세스): 유저 스토리를 파이프라인 관통 오라클로 — brainstorming 승인→spec 고정 헤딩→리뷰어 value 3문항→task-brief 첨부→live US 척추→finish 한 줄, 새 단계·훅 0 (정본 `docs/dev/user-story-spine.md`)
 
 ## 코딩 컨벤션
 
