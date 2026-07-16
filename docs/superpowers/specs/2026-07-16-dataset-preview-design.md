@@ -49,7 +49,7 @@
 1. **페이징 쿼리는 이미 있다** — `get_rows_range`(`store/datasets.rs:129`)는 워커 스트리밍용(8c spec §7.3)으로 구현·테스트돼 있어 R1은 REST 노출만 하면 된다. store 0-diff(R12)의 근거.
 2. **전용 엔드포인트(접근 A)** — 기존 `GET /api/datasets/{id}`에 쿼리를 붙이는 안(B)은 `useDataset` 캐시 키가 페이지마다 갈라지고(DataBindingPanel 공유) `sample`의 "앞 20행" 의미가 오염돼 기각. 전체 다운로드(C)는 §A12의 "대용량 대비 페이징" 요구와 정면 충돌이라 기각. 라우트 `/datasets/{id}/rows`는 리터럴 세그먼트라 `{id}` 캡처와 무충돌(`/runs/{id}/report.csv` 선례, controller CLAUDE.md).
 3. **행 번호·행 이동은 스토리 2·3이 요구** — 바인딩 정책(unique/iter_sequential)이 전부 idx 기반이라 "N번째 행"을 못 찾는 미리보기는 진단 가치가 반감된다. 행 이동은 offset 임의 값(비-페이지-경계)으로 구현해 "743 입력 → #743이 첫 행"의 직관을 지킨다(백엔드는 이미 임의 offset 지원 — UI 레벨 추가만).
-4. **표시 1-base / 내부 0-base 분리** — QA에게 자연스러운 1-base("총 T행 중 N–M")로 통일 표시하되, offset 파라미터·store idx는 0-base 그대로(변환은 UI 렌더 경계 한 곳: R6의 `offset + i + 1`, R7의 `n - 1`).
+4. **표시 1-base / 내부 0-base 분리** — QA에게 자연스러운 1-base("총 T행 중 N–M")로 통일 표시하되, offset 파라미터·store idx는 0-base 그대로(변환은 UI 렌더 경계 한 곳: R6의 `response.offset + i + 1`, R7의 `n - 1`).
 5. **컬럼 순서는 메타가 권위** — 행 객체는 `BTreeMap` 직렬화라 키가 알파벳 순. 원본 파일의 컬럼 순서는 `datasets.columns_json`에만 보존돼 있으므로 UI는 목록 메타의 `columns`로 헤더·셀을 뽑는다(R8). rows 응답에 columns를 중복 포함하지 않는 이유(목록 페이지 안에서만 쓰이는 패널이라 메타가 항상 곁에 있다).
 6. **limit 상한 200** — UI는 50 고정이지만 curl 직접 호출 대비 서버가 상한을 소유(400). 상한은 방어용이고 UI 계약은 50.
 
