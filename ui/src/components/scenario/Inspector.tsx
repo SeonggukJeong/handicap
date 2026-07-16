@@ -29,6 +29,7 @@ import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { Textarea } from "../ui/Textarea";
+import { Section } from "../ui/Section";
 import {
   loadSectionPrefs,
   saveSectionPrefs,
@@ -168,34 +169,6 @@ function MoveButtons({ stepId }: { stepId: string }) {
   );
 }
 
-/** 접이식 인스펙터 섹션(R1). fieldset+legend-버튼 disclosure — RunDialog SLO/
- *  ScenarioSnapshot 이디엄. fieldset `min-w-0`은 canvas-fix overflow 가드(필수). */
-function InspectorSection({
-  title,
-  hint,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  hint: string | null;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
-      <legend className="px-1 text-xs font-semibold text-slate-600 flex items-center gap-1">
-        <button type="button" onClick={onToggle} aria-expanded={open} className="hover:underline">
-          <span aria-hidden="true">{open ? "▾" : "▸"}</span> {title}
-        </button>
-        {!open && hint !== null && <span className="font-normal text-slate-400">{hint}</span>}
-      </legend>
-      {open && children}
-    </fieldset>
-  );
-}
-
 function HttpStepInspector({
   step,
   sectionPrefs,
@@ -313,10 +286,7 @@ function HttpStepInspector({
 
       <StepNameField stepId={step.id} name={step.name} />
 
-      <fieldset className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3">
-        <legend className="px-1 text-xs font-semibold text-slate-600">
-          {ko.editor.requestLegend}
-        </legend>
+      <Section variant="card" title={ko.editor.requestLegend}>
         <div className="flex items-center text-xs text-slate-500">
           <span>{ko.editor.varCheatSheetContext}</span>
           <VarCheatSheet />
@@ -351,25 +321,31 @@ function HttpStepInspector({
             {ko.editor.urlEmptyWarning}
           </p>
         )}
-      </fieldset>
+      </Section>
 
-      <InspectorSection
+      <Section
+        variant="card"
+        collapsible
         title={ko.editor.headersLabel}
         hint={headerCount > 0 ? ko.editor.sectionCountHint(headerCount) : null}
         open={sectionPrefs.headers}
         onToggle={() => onToggleSection("headers")}
       >
         <HeadersEditor step={step} />
-      </InspectorSection>
-      <InspectorSection
+      </Section>
+      <Section
+        variant="card"
+        collapsible
         title={ko.editor.bodyLabel}
         hint={bodyKindLabel}
         open={sectionPrefs.body}
         onToggle={() => onToggleSection("body")}
       >
         <BodyEditor step={step} />
-      </InspectorSection>
-      <InspectorSection
+      </Section>
+      <Section
+        variant="card"
+        collapsible
         title={ko.editor.sectionTiming}
         hint={hasTiming ? ko.editor.sectionSetHint : null}
         open={sectionPrefs.timing}
@@ -433,23 +409,27 @@ function HttpStepInspector({
           </p>
         ) : null}
         <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
-      </InspectorSection>
-      <InspectorSection
+      </Section>
+      <Section
+        variant="card"
+        collapsible
         title={ko.editor.assertionsLegend}
         hint={step.assert.length > 0 ? ko.editor.sectionCountHint(step.assert.length) : null}
         open={sectionPrefs.assert}
         onToggle={() => onToggleSection("assert")}
       >
         <AssertEditor step={step} setStepAssert={setStepAssert} />
-      </InspectorSection>
-      <InspectorSection
+      </Section>
+      <Section
+        variant="card"
+        collapsible
         title={ko.editor.extractsLegend}
         hint={step.extract.length > 0 ? ko.editor.sectionCountHint(step.extract.length) : null}
         open={sectionPrefs.extract}
         onToggle={() => onToggleSection("extract")}
       >
         <ExtractEditor step={step} />
-      </InspectorSection>
+      </Section>
     </aside>
   );
 }
@@ -1435,15 +1415,13 @@ function IfInspector({ step, topLevel }: { step: IfStep; topLevel: boolean }) {
 
       <StepNameField stepId={step.id} name={step.name} />
 
-      <fieldset
-        className="flex flex-col gap-2 min-w-0 border border-slate-200 rounded p-3"
+      <Section
+        variant="card"
+        title={ko.editor.conditionLegend}
         aria-label={ko.editor.conditionLegend}
       >
-        <legend className="px-1 text-xs font-semibold text-slate-600">
-          {ko.editor.conditionLegend}
-        </legend>
         <ConditionEditor cond={step.cond} onCommit={(c) => setIfCond(step.id, c)} />
-      </fieldset>
+      </Section>
 
       <BranchPanel
         label={ko.editor.condThen}

@@ -133,3 +133,27 @@ describe("InspectorSection — 접이식 섹션 (R1/R2/R3)", () => {
     }
   });
 });
+
+describe("Inspector 카드 fieldset — Section variant=card 통합 락 (디자인시스템 5차 R6)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    loadRich();
+  });
+
+  it("요청 카드: 카드 fieldset 클래스 + legend 제목 유지", () => {
+    render(<Inspector />);
+    const fieldset = screen.getByLabelText(ko.editor.urlLabel).closest("fieldset")!;
+    expect(fieldset).toHaveClass("min-w-0", "border", "border-slate-200", "rounded", "p-3");
+    expect(fieldset.querySelector("legend")!).toHaveTextContent(ko.editor.requestLegend);
+  });
+
+  it("접이식 섹션: 펼쳐도 mt-2 본문 래퍼가 없다 (카드 경로 사용 증거)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const btn = screen.getByRole("button", { name: ko.editor.assertionsLegend });
+    await user.click(btn);
+    const fieldset = btn.closest("fieldset")!;
+    expect(fieldset).not.toHaveClass("mb-4");
+    expect(fieldset.querySelector(":scope > div.mt-2")).toBeNull();
+  });
+});
