@@ -29,18 +29,18 @@
 | ID | 요구사항 (MUST/SHOULD, 한 문장) | acceptance (충족 확인법) | seam? |
 |---|---|---|---|
 | R1 | MUST `GET /api/datasets/{id}/rows?offset=N&limit=M`이 idx 순서 행을 반환한다(기존 `store::datasets::get_rows_range` 재사용, offset 기본 0·limit 기본 50). | controller 통합 테스트: offset/limit 조합 페이징 | |
-| R2 | MUST 파라미터 검증 — `offset < 0`·`limit < 1`·`limit > 200`은 400(BadRequest, 한국어 메시지), 없는 dataset id는 404. | 통합 테스트: 400 3종 + 404 | |
+| R2 | MUST 파라미터 검증 — `offset < 0`·`limit < 1`·`limit > 200`은 400(BadRequest, 한국어 메시지), 없는 dataset id는 404. (타입 불일치 `?offset=abc`는 axum `Query` 추출기가 핸들러 전에 영어 400으로 거절 — 한국어 메시지·테스트 단언은 검증 3종에만 적용.) | 통합 테스트: 400 3종 + 404 | |
 | R3 | MUST 응답 shape은 `{"rows":[{col:val,…}],"offset":N,"total":row_count}` — 전 필드 항상 직렬화(Option 없음), UI Zod는 plain 타입(`.nullish()`/`.default()` 불요·금지). | Rust Serialize 테스트 ↔ UI Zod `DatasetRowsSchema` parse 테스트 + 라이브 curl | ✅ wire: UI Zod ↔ controller serde |
 | R4 | MUST DatasetsPage 각 행에 "미리보기" 토글 버튼(`aria-expanded`) — 클릭 시 그 행 아래 전폭 인라인 패널, **한 번에 하나만 확장**(다른 행 열면 이전 접힘), 접었다 펴면 offset 0으로 리셋. | RTL: 펼침/접힘/단일 확장/리셋 | |
-| R5 | MUST 페이징 — 페이지 크기 50 고정, "이전/다음" 버튼(경계에서 disabled), "N–M / 총 T행" 표시(1-base). | RTL: 페이지 전환·경계 disabled·표기 | |
-| R6 | MUST 미리보기 테이블 첫 열은 전역 행 번호(#) — 1-base(`offset + i + 1`), 내부 offset은 0-base 유지. | RTL: offset 50에서 첫 행 번호 51 | |
+| R5 | MUST 페이징 — 페이지 크기 50 고정, "이전/다음"은 `offset ∓ 50`(0 미만 clamp, 비경계 offset에서도 50씩 — 742→792), disabled 조건은 이전=`offset === 0`·다음=`offset + 50 >= total`, **`isPlaceholderData` 동안 둘 다 disabled**(연타로 stale total 대비 페이지 건너뜀 방지), "N–M / 총 T행" 표시(1-base). | RTL: 페이지 전환·경계/placeholder disabled·표기 | |
+| R6 | MUST 미리보기 테이블 첫 열은 전역 행 번호(#) — 1-base, **응답의 `offset` 기준**(`response.offset + i + 1` — `keepPreviousData` 창에선 로컬 offset은 새 값·표시 행은 옛 페이지라, 로컬 기준이면 옛 행에 새 번호가 붙는 오라벨). 내부 offset은 0-base 유지. | RTL: offset 50 응답에서 첫 행 번호 51 (번호 소스가 응답 offset임을 단언) | |
 | R7 | MUST "행 이동" 숫자 입력 + 이동 — n 입력 시 `offset = clamp(n-1, 0, max(total-1, 0))`으로 그 행부터 표시(페이지 경계 스냅 없음), 비숫자/빈 입력은 no-op. | RTL: 743 이동 → 첫 행 #743, 범위 밖 clamp | |
 | R8 | MUST 컬럼 헤더·셀 순서는 목록 메타 `columns` 순서(행 객체의 키 순서(BTreeMap 알파벳) 아님). | RTL: columns 순서 ≠ 알파벳 fixture로 헤더 순서 단언 | |
 | R9 | MUST 테이블은 `overflow-x-auto` 래퍼 + 셀 `max-w`·`truncate`·`title`(전체 값) — 긴 값이 행 높이를 키우지 않는다. | RTL: title 속성 단언 (시각은 라이브에서) | |
 | R10 | MUST 패널 내 상태 표시 — 로딩·에러(`Callout variant="error"`, 404/네트워크)·0행 "행 없음" 빈 상태. | RTL: fetch mock 에러/빈 응답 | |
 | R11 | MUST 신규 사용자 노출 문구(aria-label 포함)는 전부 `ko.dataset.*` 카탈로그 경유(ADR-0035). | grep: 신규 컴포넌트에 한글 하드코딩 0 (`"[^"]*[가-힣]` 패턴) | |
 | R12 | MUST 무변경 — store/engine/proto/migration 0-diff, 기존 `GET /api/datasets/{id}`(sample)·`POST /api/datasets/preview`·UploadPanel byte-identical. | `git diff` 범위 확인 + 기존 테스트 전부 green | |
-| R13 | MUST rows fetch는 패널이 펼쳐진 동안만(`enabled`), 페이지 전환 시 `placeholderData: keepPreviousData`(React Query v5)로 이전 페이지 유지. | RTL: 접힌 상태 fetch 0회 단언 | |
+| R13 | MUST rows fetch는 패널이 펼쳐진 동안만(mount-게이팅, §4.3 — 훅에 별도 enabled 플래그를 배관하지 않는다), 페이지 전환 시 `placeholderData: keepPreviousData`(React Query v5)로 이전 페이지 유지. | RTL: 접힌 상태 fetch 0회 단언 | |
 
 ---
 
@@ -76,6 +76,7 @@
 
 - props: `{ datasetId, columns, rowCount }`(목록 메타에서 — `rowCount`는 첫 응답 도착 전 "총 T행" 표시와 행 이동 clamp의 초기값, 응답 `total` 도착 후엔 응답이 권위). 내부 state: `offset`(0 시작), 행 이동 draft(string).
 - 렌더: 행 번호(#) 열 + `columns` 순서 셀(R8), `overflow-x-auto` + 셀 `max-w-xs truncate` + `title`(R9 — 폭 값은 plan에서 튜닝 가능), 페이징 컨트롤(R5) + 행 이동 입력(R7), 로딩/에러/빈 상태(R10). 테이블 시각은 UploadPanel 미리보기 테이블과 동일 톤(`min-w-full text-sm border …`).
+- **placeholder 일관성(R5·R6)**: 행 번호·"N–M" 범위 표기는 **응답의 `offset`/`total`** 에서 도출(로컬 state 아님 — `keepPreviousData` 창에서 옛 행+새 번호 오라벨 방지), 이전/다음은 `isPlaceholderData` 동안 disabled. 행 이동 clamp의 total도 같은 우선순위(응답 total, 첫 응답 전엔 `rowCount` prop).
 
 ### 4.5 `ui/src/pages/DatasetsPage.tsx` — 충족 R: R4
 
