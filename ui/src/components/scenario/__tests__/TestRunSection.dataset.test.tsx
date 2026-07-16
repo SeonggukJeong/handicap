@@ -294,6 +294,21 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
     expect(screen.getByText(ko.editor.dsIncompleteRow)).toBeInTheDocument();
   });
 
+  it("incomplete 게이트 — single_row 행 번호에 0 입력 시 실행 버튼 disabled + 안내 문구 (최종 리뷰 S1)", async () => {
+    const user = userEvent.setup();
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+
+    const rowNumInput = screen.getByLabelText(ko.editor.dsRowNumLabel);
+    await user.clear(rowNumInput);
+    await user.type(rowNumInput, "0");
+
+    expect(screen.getByRole("button", { name: ko.editor.testRunRun })).toBeDisabled();
+    expect(screen.getByText(ko.editor.dsIncompleteRow)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/test-runs"))).toBe(false);
+  });
+
   it("R15: 예상 요청 수가 최대 요청 수를 넘으면 힌트 표시, 넘지 않으면 미표시", async () => {
     const user = userEvent.setup();
     renderSection(YAML_2_STEPS);

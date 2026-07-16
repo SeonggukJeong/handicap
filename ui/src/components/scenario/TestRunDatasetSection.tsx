@@ -258,7 +258,7 @@ function DatasetBody({
                         return;
                       }
                       const n = Number(raw);
-                      onRowIndexChange(Number.isFinite(n) ? Math.floor(n) - 1 : null);
+                      onRowIndexChange(Number.isFinite(n) && n >= 1 ? Math.floor(n) - 1 : null);
                     }}
                   />
                 </div>
