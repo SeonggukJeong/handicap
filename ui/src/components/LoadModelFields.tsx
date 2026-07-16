@@ -542,7 +542,7 @@ export function LoadModelFields({
                   >
                     <Input
                       id={ids.gracefulCap}
-                      numeric
+                      numeric={numeric}
                       min={1}
                       value={gracefulCap}
                       onChange={(e) => setGracefulCap(e.target.value)}

@@ -147,6 +147,24 @@ describe("ScheduleForm", () => {
     expect(toggle).toHaveAttribute("aria-expanded");
   });
 
+  // ── §B9 리뷰 Should-fix: gracefulCapInvalid 게이트 회귀 테스트 (RunDialog.test.tsx
+  // 미러 — RunDialog는 동일 게이트에 전용 테스트가 있으나 ScheduleForm엔 없었다) ──────
+  it("closed+curve: 저장 disabled when graceful cap is invalid (gracefulCapInvalid 게이트, §B9)", async () => {
+    const user = userEvent.setup();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    // closed가 기본 — 곡선(rateMode)만 전환하면 closed+curve+graceful(rampDown 기본값)
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    const capInput = screen.getByLabelText(/느슨한 감축 상한/);
+    await user.type(capInput, "0");
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+  });
+
   // ── B4: ScheduleForm은 추천/바로실행 프레이밍을 렌더하지 않는다 (R6/R10) ────────
   it("ScheduleForm은 추천/바로실행 프레이밍을 안 보인다", () => {
     wrap(
