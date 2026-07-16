@@ -46,6 +46,7 @@ git -C <메인> log --oneline -3                  # landed 확인 — commit/mer
 - `docs/build-log.md`에 한 단락 append (파이프라인·함정 출처·라이브 검증 결과 + **라이브로 증명된 US / 못 한 US 한 줄** — US 스파인, 규약 `docs/dev/user-story-spine.md`; `US: N/A` 슬라이스는 생략)
 - 루트 CLAUDE.md의 상태 줄을 **한 줄 교체** (append 금지 — "어디까지 됐나"만): `grep -n '^\*\*상태:' CLAUDE.md`로 찾은 그 한 문단
 - 새 ADR이 생겼으면 "알아둘 결정들" 인덱스에 번호순 **한 줄만**
+- **`docs/roadmap.md` 완료 항목 마킹**: 이번 슬라이스가 roadmap의 후보/연기 항목을 닫았으면 그 불릿을 `~~취소선~~ + ✅ 완료(머지 SHA)`로 갱신 + `docs/roadmap-status.md` frontier 전진. **단 roadmap.md `## 현재 상태` 섹션은 건드리지 말 것** — 포인터-only로 동결됐다(2026-07-16 결정; "최신 완료 = X" 마커는 상태줄·build-log·MEMORY와 중복돼 드리프트하므로 재삽입 금지). roadmap-archive.md 완료 이력도 2026-06-28 스냅샷 동결이라 append 안 함.
 - 자동메모리(`~/.claude/projects/-Users-sgj-develop-handicap/memory/`): 해당 작업의 기존 메모리 파일 우선 업데이트(없으면 생성) + `MEMORY.md` 인덱스 한 줄 갱신. **MEMORY.md가 ~24KB 한도에 근접했으면 새 `직전 =` 추가 시 직전/직전직전 verbose 항목을 한 줄로 압축하며 demote**(상세는 build-log에 이미 있음) — 4번째 verbose 항목 append나 매번 `/curate-memory` 대신 compress-on-demote가 가볍다(곡선 VU 표시 세션 2026-06-24: 23KB→13.5KB)
 
 ## 5) CLAUDE.md 함정 기록

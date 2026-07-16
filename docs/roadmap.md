@@ -18,9 +18,11 @@
 >
 > **이 문서(roadmap.md)는 *상세*만 든다**: §A 후보 메뉴(spec §4.5 + 착수 메모·설계 질문)·§B 슬라이스별 연기 항목. **96KB라 통째 Read는 25k 토큰 초과로 실패** — 테마/슬라이스명으로 `grep -n` 후 그 단락만 targeted `Read`(offset/limit). 완료 슬라이스 이력은 [roadmap-archive.md](roadmap-archive.md), 구현 결과·함정 출처는 `docs/build-log.md`.
 
-## 현재 상태 (2026-06-28)
+## 현재 상태
 
-최신 완료 = **RunDialog 간단/상세 모드 + 정밀계기 재디자인** (2026-06-28, 사용성 묶음 C-2[UX1] 후속). 전체 완료 슬라이스 이력(59건, 최신순)은 [roadmap-archive.md](roadmap-archive.md) §완료 이력으로 이주 — 각 슬라이스 상세는 `docs/build-log.md`, 함정은 도메인 `CLAUDE.md`, **다음 작업 후보는 [roadmap-status.md](roadmap-status.md)**. 이 섹션엔 *현재/진행* 상태만 둔다(완료 로그는 archive로 — MEMORY.md·build-log와 삼중 중복 해소, 2026-06-28).
+**최신 완료 슬라이스 = root `CLAUDE.md` 상태 줄 / `docs/build-log.md` 최상단** 참조(매 슬라이스 갱신되는 단일 소스). **다음 작업 후보 → [roadmap-status.md](roadmap-status.md)**(테마별 frontier+추천 현황판). 완료 슬라이스 이력 → `docs/build-log.md`(단일 소스) + [roadmap-archive.md](roadmap-archive.md)(2026-06-28 이주 스냅샷). 함정 → 도메인 `CLAUDE.md`. 이 섹션엔 *현재/진행* 상태만 둔다.
+
+> **드리프트 방지(2026-07-16 결정)**: 여기에 슬라이스별 "최신 완료 = X (날짜)" 마커를 다시 두지 말 것 — 상태줄·build-log·MEMORY가 이미 "최신"을 들고 있어 중복이 곧 드리프트가 된다(이 섹션이 6/28에 멈춰 있던 원인). 이 섹션은 포인터로만 유지하고 finish-slice가 손대지 않는다.
 
 ---
 
