@@ -1,7 +1,7 @@
 # 에디터 데이터셋 test-run — test-run에 서버측 데이터셋 바인딩(1행 선택 주입 + 순차 N행 검증) (§A12 도그푸딩 백로그)
 
 - **날짜**: 2026-07-16
-- **상태**: 설계 승인(사용자 2026-07-16) → spec-plan-reviewer 루프 대기
+- **상태**: 설계 승인(사용자 2026-07-16) + spec-plan-reviewer clean APPROVE(2026-07-16, 3라운드) → plan 대기
 - **출처**: roadmap §A12 도그푸딩 백로그 "에디터 데이터셋 test-run"(마지막 잔여 항목). 데이터 기반 시나리오를 에디터에서 검증할 방법이 현재 전무 — 데이터셋 변수가 빈 문자열로 나가고 amber `unbound` 칩만 뜬다.
 - **연관**: `2026-06-01-scenario-editor-test-run-design.md`(§6이 데이터셋을 v1 의도 제외·§8-2 var_overrides 후속안), ADR-0026(test-run in-process trace), ADR-0022(데이터셋 리소스·바인딩), `2026-07-16-dataset-preview-design.md`(rows API·`useDatasetRows`), `2026-06-15-multi-dataset-binding-design.md`(Vec 바인딩).
 - **ADR**: **ADR-0047 신규** — test-run 데이터셋 주입을 서버측 바인딩(단일 요청·전역 상한·run 패리티)으로 결정, 클라 주도 N-요청(var_overrides 우회)은 기각. 초안 `docs/adr/0047-editor-test-run-dataset-binding.md` 동반.
