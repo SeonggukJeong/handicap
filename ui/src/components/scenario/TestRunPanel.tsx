@@ -423,6 +423,32 @@ function IfRow({ step, steps }: { step: StepTrace; steps?: ReadonlyArray<Step> }
   );
 }
 
+/** trace.steps 행 리스트 — TestRunPanel 본문이자 순차 결과 행 펼침 공유 (R13). */
+export function TraceStepList({
+  trace,
+  steps,
+  onAddExtract,
+}: {
+  trace: ScenarioTrace;
+  steps?: ReadonlyArray<Step>;
+  onAddExtract?: (stepId: string, extract: Extract) => void;
+}) {
+  if (trace.steps.length === 0) {
+    return <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>;
+  }
+  return (
+    <ul>
+      {trace.steps.map((step, i) =>
+        step.kind === "if" ? (
+          <IfRow key={`${step.step_id}-${i}`} step={step} steps={steps} />
+        ) : (
+          <HttpRow key={`${step.step_id}-${i}`} step={step} onAddExtract={onAddExtract} />
+        ),
+      )}
+    </ul>
+  );
+}
+
 export function TestRunPanel({
   trace,
   steps,
@@ -453,19 +479,7 @@ export function TestRunPanel({
           상한 도달 — 일부만 실행됨 (max_requests 또는 시간 천장)
         </Callout>
       )}
-      {trace.steps.length === 0 ? (
-        <p className="text-sm text-slate-500">실행할 스텝이 없습니다.</p>
-      ) : (
-        <ul>
-          {trace.steps.map((step, i) =>
-            step.kind === "if" ? (
-              <IfRow key={`${step.step_id}-${i}`} step={step} steps={steps} />
-            ) : (
-              <HttpRow key={`${step.step_id}-${i}`} step={step} onAddExtract={onAddExtract} />
-            ),
-          )}
-        </ul>
-      )}
+      <TraceStepList trace={trace} steps={steps} onAddExtract={onAddExtract} />
     </section>
   );
 }
