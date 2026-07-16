@@ -150,6 +150,11 @@ pub struct Profile {
     /// VU 곡선 ramp-down 노브. absent = graceful (spec §2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ramp_down: Option<handicap_engine::RampDown>,
+    /// Graceful ramp-down 상한(초). graceful VU 곡선 전용 — vu-curve 아니거나
+    /// ramp_down=Immediate면 거부(spec §7.2, B9). absent = 무제한(오늘과
+    /// byte-identical). proto/워커 배선은 Task 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graceful_ramp_down_seconds: Option<u32>,
     /// 멀티워커 open-loop fan-out 수 (spec 2026-06-15). absent/Some(1) = 단일 워커
     /// (오늘과 byte-identical). open-loop 전용 — closed-loop은 vus/capacity로 N 유도.
     /// proto에는 없음(컨트롤러가 register 시 워커별 프로필을 분할).
@@ -529,6 +534,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -667,6 +673,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -720,6 +727,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -933,6 +941,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -1021,6 +1030,16 @@ mod tests {
         // None → omitted from output (skip_serializing_if)
         let out = serde_json::to_value(&p2).unwrap();
         assert!(out.get("stages").is_none());
+    }
+
+    #[test]
+    fn none_graceful_cap_omitted_from_json() {
+        let p = profile_fixture(|_| {}); // graceful_ramp_down_seconds: None
+        let j = serde_json::to_value(&p).unwrap();
+        assert!(
+            j.get("graceful_ramp_down_seconds").is_none(),
+            "None must be omitted (byte-identical)"
+        );
     }
 
     #[test]

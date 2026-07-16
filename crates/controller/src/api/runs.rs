@@ -212,6 +212,24 @@ pub(crate) async fn validate_run_config(
             "ramp_down은 vu_stages(VU 곡선) 전용입니다".into(),
         ));
     }
+    // ── graceful ramp-down 상한은 graceful VU 곡선 전용 (spec §7.2) ──
+    if profile.graceful_ramp_down_seconds.is_some() {
+        if !profile.is_vu_curve() {
+            return Err(ApiError::BadRequest(
+                "graceful_ramp_down_seconds는 vu_stages(VU 곡선) 전용입니다".into(),
+            ));
+        }
+        if profile.ramp_down == Some(handicap_engine::RampDown::Immediate) {
+            return Err(ApiError::BadRequest(
+                "graceful_ramp_down_seconds는 graceful ramp-down에서만 유효합니다".into(),
+            ));
+        }
+        if profile.graceful_ramp_down_seconds == Some(0) {
+            return Err(ApiError::BadRequest(
+                "graceful_ramp_down_seconds는 1 이상이어야 합니다".into(),
+            ));
+        }
+    }
     // ── worker_count: open-loop 전용 멀티워커 fan-out 노브 (spec 2026-06-15) ──
     if let Some(w) = profile.worker_count {
         let cap = state.settings.max_open_loop_worker_count();
@@ -1390,6 +1408,7 @@ mod tests {
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -1599,6 +1618,7 @@ steps:
                 measure_phases: false,
                 vu_stages: None,
                 ramp_down: None,
+                graceful_ramp_down_seconds: None,
                 worker_count: None,
                 apply_scenario_think_time: true,
             }
@@ -1670,6 +1690,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -1720,6 +1741,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -1773,6 +1795,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -2436,6 +2459,84 @@ steps:
             "curve peak 50 @ cap 25 → N=2; unique rows 2 >= 2 must pass"
         );
     }
+
+    // ── graceful ramp-down cap (spec §7.2, B9) ──────────────────────────────
+
+    #[tokio::test]
+    async fn graceful_cap_rejected_when_not_vu_curve() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = ol_profile(); // fixed (not vu-curve)
+        p.graceful_ramp_down_seconds = Some(5);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(ref m) if m.contains("vu_stages")),
+            "reject cap outside vu-curve: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn graceful_cap_rejected_with_immediate() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = curve_profile(vec![
+            handicap_engine::Stage {
+                target: 3,
+                duration_seconds: 2,
+            },
+            handicap_engine::Stage {
+                target: 0,
+                duration_seconds: 2,
+            },
+        ]);
+        p.ramp_down = Some(handicap_engine::RampDown::Immediate);
+        p.graceful_ramp_down_seconds = Some(5);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(ref m) if m.contains("graceful")),
+            "reject cap with immediate: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn graceful_cap_rejected_when_zero() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = curve_profile(vec![
+            handicap_engine::Stage {
+                target: 3,
+                duration_seconds: 2,
+            },
+            handicap_engine::Stage {
+                target: 0,
+                duration_seconds: 2,
+            },
+        ]);
+        p.graceful_ramp_down_seconds = Some(0);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::BadRequest(ref m) if m.contains("1 이상")),
+            "reject cap=0: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn graceful_cap_accepted_on_graceful_vu_curve() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = curve_profile(vec![
+            handicap_engine::Stage {
+                target: 3,
+                duration_seconds: 2,
+            },
+            handicap_engine::Stage {
+                target: 0,
+                duration_seconds: 2,
+            },
+        ]); // ramp_down None(=graceful)
+        p.graceful_ramp_down_seconds = Some(10);
+        assert!(validate_run_config(&state, &p).await.is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -2496,6 +2597,7 @@ steps:
             measure_phases: false,
             vu_stages: None,
             ramp_down: None,
+            graceful_ramp_down_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }

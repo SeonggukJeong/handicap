@@ -89,6 +89,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         measure_phases: false,
         vu_stages: None,
         ramp_down: None,
+        graceful_ramp_down_seconds: None,
         worker_count: None,
         apply_scenario_think_time: true,
     };
