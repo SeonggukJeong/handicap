@@ -121,10 +121,10 @@
 
 ### §A12 도그푸딩 백로그 (2026-07-03, editor-space-qol 슬라이스에서 미채택 보존)
 
-- **변수명 충돌 감지**: 추출(extract) 변수명 ↔ 수동 설정 변수명(variables/데이터셋 바인딩) 충돌을 에디터에서 경고. UI-only 소형.
-- **Think Time 일괄 지정**: 시나리오-레벨 기본 think time + 스텝별 override(전체 무시 설정 포함). 엔진 serde+와이어+UI 수직 슬라이스 — Opus path-gate·live-verify RPS 검증 필요.
+- **변수명 충돌 감지**: 추출(extract) 변수명 ↔ 수동 설정 변수명(variables/데이터셋 바인딩) 충돌을 에디터에서 경고. UI-only 소형. — **완료 2026-07-12(editor-var-conflict-quickadd, 도그푸딩 1호)**
+- **Think Time 일괄 지정**: 시나리오-레벨 기본 think time + 스텝별 override(전체 무시 설정 포함). 엔진 serde+와이어+UI 수직 슬라이스 — Opus path-gate·live-verify RPS 검증 필요. — **완료 2026-07-13(think-time-defaults, 도그푸딩 2호)**
 - **HAR 가져오기 host-환경 힌트**: 감지된 host가 기존 환경(environments)에 등록돼 있으면 어느 세트에 있는지 안내(비차단 — 다른 이름 저장 허용). UI-only 소형.
-- **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI.
+- **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI. — **완료 2026-07-16(dataset-preview, 도그푸딩 3호 — build-log 참조)**
 - **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형.
 
 **editor-viewport-polish-v2 연기 항목 (2026-07-05, 머지 후 백로그)**:
