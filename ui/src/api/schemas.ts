@@ -536,3 +536,36 @@ export const ScenarioTraceSchema = z.object({
   error: z.string().nullable(),
 });
 export type ScenarioTrace = z.infer<typeof ScenarioTraceSchema>;
+
+// ── 에디터 test-run 데이터셋 (ADR-0047) ─────────────────────────────
+// 요청 방향(직렬화 전용)이라 Zod 불필수 — plain TS 타입 (spec §4.3).
+// row_index/start_row는 0-based 와이어 값 — UI 표시는 1-based, 변환은 컴포넌트에서.
+export type TestRunDatasetMode = "single_row" | "sequential";
+export interface TestRunBinding {
+  dataset_id: string;
+  /** 생략 = 서버 자동 매핑(컬럼명=변수명, R3). 빈 배열 전송 금지(422). */
+  mappings?: Mapping[];
+  /** single_row 전용(필수). */
+  row_index?: number;
+}
+export interface TestRunDatasetConfig {
+  mode: TestRunDatasetMode;
+  bindings: TestRunBinding[];
+  start_row?: number;
+  row_limit?: number;
+}
+
+// sequential 응답 — 엔진 RowsTrace 직렬화 1:1 (전 필드 항상 emit → plain 타입, R16).
+export const RowTraceSchema = z.object({
+  row_index: z.number().int(),
+  trace: ScenarioTraceSchema,
+});
+export type RowTrace = z.infer<typeof RowTraceSchema>;
+
+export const SequentialTraceSchema = z.object({
+  ok: z.boolean(),
+  truncated: z.boolean(),
+  total_ms: z.number().int(),
+  rows: z.array(RowTraceSchema),
+});
+export type SequentialTrace = z.infer<typeof SequentialTraceSchema>;

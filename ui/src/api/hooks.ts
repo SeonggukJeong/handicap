@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "./client";
-import type { DatasetUploadOptions } from "./client";
+import type { DatasetUploadOptions, TestRunBody } from "./client";
 import { cloneName } from "../scenario/cloneName";
 import { renameScenarioYaml } from "../scenario/yamlDoc";
 import { createPreset, deletePreset, listPresets, updatePreset, type PresetInput } from "./presets";
@@ -439,12 +439,14 @@ export function useResetSetting() {
 
 export function useTestRun() {
   return useMutation({
-    mutationFn: (body: {
-      scenario_yaml: string;
-      env: Record<string, string>;
-      max_requests?: number;
-      apply_think_time?: boolean;
-    }) => api.createTestRun(body),
+    mutationFn: (body: TestRunBody) => api.createTestRun(body),
+  });
+}
+
+/** sequential 모드 test-run — ephemeral이라 무invalidation (C-2 이디엄). */
+export function useTestRunSequential() {
+  return useMutation({
+    mutationFn: (body: TestRunBody) => api.createTestRunSequential(body),
   });
 }
 

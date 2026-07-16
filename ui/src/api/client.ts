@@ -12,10 +12,12 @@ import {
   ScenarioListSchema,
   ScenarioSchema,
   ScenarioTraceSchema,
+  SequentialTraceSchema,
   type Dataset,
   type DatasetPreview,
   type Profile,
   type Run,
+  type TestRunDatasetConfig,
 } from "./schemas";
 import { ko } from "../i18n/ko";
 
@@ -127,6 +129,14 @@ export type DatasetUploadOptions = {
   sheet?: string;
 };
 
+export interface TestRunBody {
+  scenario_yaml: string;
+  env: Record<string, string>;
+  max_requests?: number;
+  apply_think_time?: boolean;
+  dataset?: TestRunDatasetConfig;
+}
+
 export type PresetRef = { preset_id: string; name: string; scenario_id: string };
 export type DeleteDatasetResult = { deleted: true } | { deleted: false; presets: PresetRef[] };
 
@@ -216,12 +226,10 @@ export const api = {
     env: Record<string, string>,
     opts?: { force?: boolean },
   ) => createRunImpl(scenario_id, profile, env, opts),
-  createTestRun: (body: {
-    scenario_yaml: string;
-    env: Record<string, string>;
-    max_requests?: number;
-    apply_think_time?: boolean;
-  }) => request("/test-runs", { method: "POST", body: JSON.stringify(body) }, ScenarioTraceSchema),
+  createTestRun: (body: TestRunBody) =>
+    request("/test-runs", { method: "POST", body: JSON.stringify(body) }, ScenarioTraceSchema),
+  createTestRunSequential: (body: TestRunBody) =>
+    request("/test-runs", { method: "POST", body: JSON.stringify(body) }, SequentialTraceSchema),
   getRun: (id: string) => request(`/runs/${encodeURIComponent(id)}`, { method: "GET" }, RunSchema),
   getRunMetrics: (id: string) =>
     request(`/runs/${encodeURIComponent(id)}/metrics`, { method: "GET" }, MetricSummarySchema),
