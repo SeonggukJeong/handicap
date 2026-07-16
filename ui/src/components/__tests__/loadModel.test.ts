@@ -23,7 +23,23 @@ function base(): LoadModelState {
     thinkSeed: "",
     rampDown: "graceful",
     workerCount: "1",
+    gracefulCap: "",
   };
+}
+
+// closed+curve/closed+fixed/open+fixed/open+curve 기준 state 헬퍼 —
+// graceful cap 불변식 테스트가 4모드를 순회할 때 재사용.
+function baseClosedCurveState(): LoadModelState {
+  return { ...base(), loadModel: "closed", rateMode: "curve" };
+}
+function baseClosedFixedState(): LoadModelState {
+  return { ...base(), loadModel: "closed", rateMode: "fixed" };
+}
+function baseOpenFixedState(): LoadModelState {
+  return { ...base(), loadModel: "open", rateMode: "fixed" };
+}
+function baseOpenCurveState(): LoadModelState {
+  return { ...base(), loadModel: "open", rateMode: "curve" };
 }
 
 describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
@@ -103,6 +119,27 @@ describe("buildLoadProfile — 필드-형태 불변식 (§7.1)", () => {
       rampDown: "immediate",
     });
     expect(p.ramp_down).toBe("immediate");
+  });
+
+  // graceful ramp-down 상한 (§B9) — closed+curve+graceful+비어있지-않은 cap일 때만 emit.
+  it("closed+curve+graceful+cap emits graceful_ramp_down_seconds", () => {
+    const s = { ...baseClosedCurveState(), rampDown: "graceful" as const, gracefulCap: "12" };
+    expect(buildLoadProfile(s).graceful_ramp_down_seconds).toBe(12);
+  });
+  it("empty cap omits the field", () => {
+    const s = { ...baseClosedCurveState(), rampDown: "graceful" as const, gracefulCap: "" };
+    expect(buildLoadProfile(s)).not.toHaveProperty("graceful_ramp_down_seconds");
+  });
+  it("immediate omits cap even if set", () => {
+    const s = { ...baseClosedCurveState(), rampDown: "immediate" as const, gracefulCap: "12" };
+    expect(buildLoadProfile(s)).not.toHaveProperty("graceful_ramp_down_seconds");
+  });
+  it("non-curve modes never emit cap", () => {
+    for (const s of [baseClosedFixedState(), baseOpenFixedState(), baseOpenCurveState()]) {
+      expect(buildLoadProfile({ ...s, gracefulCap: "12" })).not.toHaveProperty(
+        "graceful_ramp_down_seconds",
+      );
+    }
   });
 
   // worker_count — open 모드(고정·곡선)에서만, >1일 때만 emit (N=1/미설정 byte-identical).
@@ -228,6 +265,21 @@ describe("loadModelErrors — 모드별 범위 검증", () => {
     expect(loadModelErrors({ ...base(), workerCount: "1" }).workerCountInvalid).toBe(false);
     expect(loadModelErrors({ ...base(), workerCount: "2" }).workerCountInvalid).toBe(false);
     expect(loadModelErrors({ ...base(), workerCount: "" }).workerCountInvalid).toBe(false);
+  });
+
+  it("gracefulCapInvalid on <1 or non-numeric", () => {
+    expect(
+      loadModelErrors({ ...baseClosedCurveState(), rampDown: "graceful", gracefulCap: "0" })
+        .gracefulCapInvalid,
+    ).toBe(true);
+    expect(
+      loadModelErrors({ ...baseClosedCurveState(), rampDown: "graceful", gracefulCap: "abc" })
+        .gracefulCapInvalid,
+    ).toBe(true);
+    expect(
+      loadModelErrors({ ...baseClosedCurveState(), rampDown: "graceful", gracefulCap: "5" })
+        .gracefulCapInvalid,
+    ).toBe(false);
   });
 });
 

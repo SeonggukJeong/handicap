@@ -1406,6 +1406,16 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
   });
 
+  it("closed+curve: Run disabled when graceful cap is invalid (gracefulCapInvalid 게이트, §B9)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    const capInput = screen.getByLabelText(/느슨한 감축 상한/);
+    await user.type(capInput, "0");
+    expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
+  });
+
   it("open+fixed: 슬롯 헬퍼 적용 → 동시 요청 상한 입력에 반영", async () => {
     const user = userEvent.setup();
     renderDialog();
@@ -1954,6 +1964,26 @@ describe("RunDialog — closed+curve (Task 7+8)", () => {
     expect(screen.getByLabelText("스테이지 0 목표")).toHaveValue(7);
     expect(screen.getByRole("radio", { name: /즉시 줄이기/ })).toBeChecked();
   });
+
+  it("graceful_ramp_down_seconds 든 run 프리필이 느슨한 감축 상한 입력에 시드된다 (§B9)", () => {
+    renderWithInitial({
+      profile: {
+        vus: 0,
+        duration_seconds: 0,
+        ramp_up_seconds: 0,
+        loop_breakdown_cap: 0,
+        http_timeout_seconds: 30,
+        measure_phases: false,
+        data_binding: null,
+        vu_stages: [{ target: 7, duration_seconds: 11 }],
+        ramp_down: "graceful",
+        graceful_ramp_down_seconds: 15,
+      },
+      env: {},
+    });
+    // <Input numeric>는 type="text"라 값은 문자열 — toHaveValue("15")(숫자 15 아님).
+    expect(screen.getByLabelText(/느슨한 감축 상한/)).toHaveValue("15");
+  });
 });
 
 // ───────────────────────────────────────────────────────────────
@@ -2110,6 +2140,21 @@ describe("RunDialog — 프리셋 동선·측정·진단 (T7 R5·R6·R7·R9·R18
     // measure 단독 → 정확히 1개 (이중계수 시 2개가 되어 이 단언이 실패)
     expect(screen.getByRole("button", { name: /상세 설정 1개 적용됨/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /상세 설정 2개 적용됨/ })).not.toBeInTheDocument();
+  });
+
+  it("간단 모드: graceful cap 설정이 applied count에 포함됨 (§B9, curve 자체 카운트 위 +1)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("radio", { name: "곡선" }));
+    // curve 전환만으로 이미 1개(rateMode==="curve" 항) — cap 추가로 정확히 2개가 되는지 확인.
+    const capInput = screen.getByLabelText(/느슨한 감축 상한/);
+    await user.type(capInput, "20");
+    // 간단 전환
+    await user.click(screen.getByRole("radio", { name: "간단" }));
+    expect(screen.getByRole("button", { name: /상세 설정 2개 적용됨/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /상세 설정 1개 적용됨/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /상세 설정 3개 적용됨/ })).not.toBeInTheDocument();
   });
 
   it("간단 모드 기본(count 0): 적용 칩 보이고 클릭하면 상세로 (R3)", async () => {

@@ -15,6 +15,7 @@ const base: Omit<LoadModelState, "loadModel"> = {
   thinkSeed: "",
   rampDown: "graceful",
   workerCount: "1",
+  gracefulCap: "",
 };
 
 it("closed+fixed: main 세그먼트에 굵은 vus·time, sub=램프업", () => {

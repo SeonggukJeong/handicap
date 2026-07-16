@@ -24,11 +24,13 @@ const noErrs: LoadModelErrors = {
   maxInFlightInvalid: false,
   stagesInvalid: false,
   workerCountInvalid: false,
+  gracefulCapInvalid: false,
 };
 
 // These spies are needed for the new tests and must be stable references
 const setRateMode = vi.fn();
 const setRampDown = vi.fn();
+const setGracefulCap = vi.fn();
 
 function baseProps(
   overrides: Partial<React.ComponentProps<typeof LoadModelFields>> = {},
@@ -52,6 +54,8 @@ function baseProps(
     setStages: vi.fn(),
     rampDown: "graceful",
     setRampDown,
+    gracefulCap: "",
+    setGracefulCap,
     errs: noErrs,
     ...overrides,
   };
@@ -189,6 +193,16 @@ describe("LoadModelFields", () => {
     expect(screen.queryByLabelText(/점진 시작/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/테스트 시간/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/동시 요청 상한/)).not.toBeInTheDocument();
+  });
+
+  it("closed+curve+graceful: 느슨한 감축 상한 입력 렌더", () => {
+    renderFields({ loadModel: "closed", rateMode: "curve", rampDown: "graceful" });
+    expect(screen.getByLabelText(ko.loadModel.gracefulCapLabel)).toBeInTheDocument();
+  });
+
+  it("closed+curve+immediate: 느슨한 감축 상한 입력 미렌더", () => {
+    renderFields({ loadModel: "closed", rateMode: "curve", rampDown: "immediate" });
+    expect(screen.queryByLabelText(ko.loadModel.gracefulCapLabel)).not.toBeInTheDocument();
   });
 
   it("open+curve: 기존 목표 도착률 라벨 유지 + ramp_down 비노출 (회귀 가드)", () => {

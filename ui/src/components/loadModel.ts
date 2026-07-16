@@ -15,6 +15,9 @@ export type LoadModelState = {
   thinkSeed: string;
   rampDown: "graceful" | "immediate";
   workerCount: string; // open 전용 fan-out 노브 (string draft, 빈칸/1 = 미설정)
+  // graceful ramp-down 상한(초, §B9). string draft — 빈칸 = 무제한(미설정). closed+curve+
+  // graceful일 때만 유효.
+  gracefulCap: string;
 };
 
 /** buildLoadProfile이 채우는 Profile의 부분집합. 나머지(loop_breakdown_cap/
@@ -30,6 +33,7 @@ export type LoadProfileFields = Pick<Profile, "vus" | "duration_seconds" | "ramp
       | "stages"
       | "vu_stages"
       | "ramp_down"
+      | "graceful_ramp_down_seconds"
       | "worker_count"
     >
   >;
@@ -40,6 +44,7 @@ export type LoadModelErrors = {
   maxInFlightInvalid: boolean; // open (fixed·curve 공통)
   stagesInvalid: boolean; // curve (open+curve / closed+curve 공통)
   workerCountInvalid: boolean; // open (fixed·curve 공통, optional — 빈칸=미설정 허용)
+  gracefulCapInvalid: boolean; // closed+curve+graceful (optional — 빈칸=무제한 허용)
 };
 
 /** closed-loop think time. 둘 다 채워야 emit(한 칸만 채우면 undefined = 미설정). */
@@ -64,6 +69,9 @@ export function buildLoadProfile(s: LoadModelState): LoadProfileFields {
       think_time: buildThinkTime(s), // closed-loop이므로 허용 (spec §3.2)
       think_seed: s.thinkSeed.trim() !== "" ? Number(s.thinkSeed) : undefined,
       ...(s.rampDown === "immediate" ? { ramp_down: "immediate" as const } : {}),
+      ...(s.rampDown === "graceful" && s.gracefulCap.trim() !== ""
+        ? { graceful_ramp_down_seconds: Number(s.gracefulCap) }
+        : {}),
       // NO target_rps, NO max_in_flight, NO stages
     };
   }
@@ -140,7 +148,22 @@ export function loadModelErrors(s: LoadModelState): LoadModelErrors {
   const wcNum = Number(s.workerCount);
   const workerCountInvalid =
     s.workerCount.trim() !== "" && (!Number.isInteger(wcNum) || wcNum < 1 || wcNum > 64);
-  return { rampInvalid, targetRpsInvalid, maxInFlightInvalid, stagesInvalid, workerCountInvalid };
+  // graceful ramp-down 상한: closed+curve+graceful에서만 의미가 있고, 채우면 1 이상 정수.
+  // 빈칸은 언제나 valid(무제한 = 미설정).
+  const gracefulCapInvalid =
+    s.loadModel === "closed" &&
+    s.rateMode === "curve" &&
+    s.rampDown === "graceful" &&
+    s.gracefulCap.trim() !== "" &&
+    (!Number.isInteger(Number(s.gracefulCap)) || Number(s.gracefulCap) < 1);
+  return {
+    rampInvalid,
+    targetRpsInvalid,
+    maxInFlightInvalid,
+    stagesInvalid,
+    workerCountInvalid,
+    gracefulCapInvalid,
+  };
 }
 
 export type LoadMode = { loadModel: "closed" | "open"; rateMode: "fixed" | "curve" };

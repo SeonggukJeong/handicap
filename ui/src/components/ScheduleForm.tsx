@@ -80,6 +80,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   // worker_count는 RunDialog에서만 편집 — ScheduleForm은 state로 round-trip만(입력 미렌더).
   const [workerCount] = useState(init?.worker_count != null ? String(init.worker_count) : "1");
   const [rampDown, setRampDown] = useState<"graceful" | "immediate">(init?.ramp_down ?? "graceful");
+  // graceful ramp-down 상한(초, §B9). string draft — 빈칸 = 무제한(미설정).
+  const [gracefulCap, setGracefulCap] = useState(
+    init?.graceful_ramp_down_seconds != null ? String(init.graceful_ramp_down_seconds) : "",
+  );
   const [stages, setStages] = useState<StageRow[]>(
     (init?.vu_stages?.length ? init.vu_stages : init?.stages)?.map((s) => ({
       target: String(s.target),
@@ -212,6 +216,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     thinkSeed,
     rampDown, // 실제 state 배선 (Task 7+8)
     workerCount,
+    gracefulCap,
   };
   const loadErrs = loadModelErrors(loadState);
 
@@ -232,7 +237,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
         : duration >= 1 && !loadErrs.targetRpsInvalid && !loadErrs.maxInFlightInvalid
       : rateMode === "curve"
-        ? !loadErrs.stagesInvalid
+        ? !loadErrs.stagesInvalid && !loadErrs.gracefulCapInvalid
         : vus >= 1 && duration >= 1 && !loadErrs.rampInvalid) &&
     !submitting;
 
@@ -325,6 +330,8 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
         }
         rampDown={rampDown}
         setRampDown={setRampDown}
+        gracefulCap={gracefulCap}
+        setGracefulCap={setGracefulCap}
         errs={loadErrs}
       />
 

@@ -96,6 +96,12 @@ export function RunDialog({
   const [rampDown, setRampDown] = useState<"graceful" | "immediate">(
     initial?.profile.ramp_down ?? "graceful",
   );
+  // graceful ramp-down 상한(초, §B9). string draft — 빈칸 = 무제한(미설정).
+  const [gracefulCap, setGracefulCap] = useState(
+    initial?.profile.graceful_ramp_down_seconds != null
+      ? String(initial.profile.graceful_ramp_down_seconds)
+      : "",
+  );
   const [stages, setStages] = useState<{ target: string; duration_seconds: string }[]>(
     (initial?.profile.vu_stages?.length ? initial.profile.vu_stages : initial?.profile.stages)?.map(
       (s) => ({
@@ -293,6 +299,9 @@ export function RunDialog({
         );
       }
       setRampDown(prof.ramp_down ?? "graceful");
+      setGracefulCap(
+        prof.graceful_ramp_down_seconds != null ? String(prof.graceful_ramp_down_seconds) : "",
+      );
       // Fix-1b: 프리셋이 상세-전용 설정(바인딩·곡선·멀티워커·env·고급)을 포함하면
       // 간단 모드였어도 상세로 단방향 전환. 역방향(상세→간단) 강제는 없음.
       if (opensDetailed(prof, envValueToRecord(p.env))) setMode("detailed");
@@ -373,6 +382,12 @@ export function RunDialog({
     (httpTimeout !== 30 ? 1 : 0) +
     (hasLoop && loopCap !== 256 ? 1 : 0) +
     (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0) +
+    (loadModel === "closed" &&
+    rateMode === "curve" &&
+    rampDown === "graceful" &&
+    gracefulCap.trim() !== ""
+      ? 1
+      : 0) +
     // Fix-1c: 데이터 바인딩이 활성 상태면 카운트에 포함 (간단 모드에선 패널이 숨겨짐).
     (bindings.length > 0 ? 1 : 0);
   // 이 시나리오에 think time이 있는가(§B21 ② 게이트) — 없으면 무시 토글 자체가 미렌더.
@@ -392,6 +407,7 @@ export function RunDialog({
     thinkSeed,
     rampDown, // 실제 state 배선 (Task 7+8)
     workerCount,
+    gracefulCap,
   };
   const loadErrs = loadModelErrors(loadState);
   // 실시간 요약 footer (R8). loadState가 곧 form 상태라 sum은 항상 라이브.
@@ -424,6 +440,7 @@ export function RunDialog({
           !mutation.isPending
       : rateMode === "curve"
         ? !loadErrs.stagesInvalid &&
+          !loadErrs.gracefulCapInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
           !thinkInvalid &&
@@ -648,6 +665,8 @@ export function RunDialog({
           setStages={setStages}
           rampDown={rampDown}
           setRampDown={setRampDown}
+          gracefulCap={gracefulCap}
+          setGracefulCap={setGracefulCap}
           errs={loadErrs}
           sizingScenarioId={scenarioId}
           sizingScenario={scenario}

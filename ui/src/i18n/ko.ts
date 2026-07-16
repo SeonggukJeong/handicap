@@ -55,6 +55,8 @@ export const ko = {
       "VU 곡선 — 동시 사용자 수를 시간에 따라 단계별로 늘렸다 줄이는 부하 방식입니다. 점심 피크, 이벤트 오픈처럼 사용자 수가 변하는 상황을 재현합니다.",
     rampDown:
       "줄이는 방식 — 곡선이 내려갈 때 초과분 사용자를 정리하는 방법입니다. '요청을 마친 뒤'는 안전하지만 약간 늦게 줄고, '즉시'는 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다.",
+    gracefulCap:
+      "감축(ramp-down) 중 은퇴한 VU가 현재 반복을 마칠 때까지 기다리는 최대 시간(초)입니다. 비우면 무제한이며, 초과하면 다음 스텝 경계에서 중단합니다.",
     scenario: "시나리오 — 부하를 줄 API 요청 흐름의 정의입니다.",
     step: "스텝 — 부하 중 반복 실행될 HTTP 요청 1개입니다.",
     run: "실행(run) — 시나리오에 부하 설정을 적용해 한 번 돌린 기록입니다.",
@@ -201,6 +203,8 @@ export const ko = {
     rampDownLabel: "줄이는 방식",
     rampDownGraceful: "요청을 마친 뒤 줄이기 (권장) — 안전하지만 곡선보다 약간 늦게 줄어듭니다",
     rampDownImmediate: "즉시 줄이기 — 곡선에 충실하지만 진행 중이던 요청 1개는 마저 끝납니다",
+    gracefulCapLabel: "느슨한 감축 상한(초)",
+    gracefulCapPlaceholder: "비우면 무제한",
     sizePresetsLabel: "빠른 입력",
     sizePresetsCaption: "대상 시스템에 맞게 조정하세요",
     sizePresets: [
@@ -232,6 +236,7 @@ export const ko = {
     targetRps: "도착률(초당 반복)은 1 ~ 1,000,000 사이여야 합니다.",
     maxInFlight: "동시 요청 상한은 1 ~ 10,000 사이여야 합니다.",
     workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
+    gracefulCap: "느슨한 감축 상한은 1 이상의 정수여야 합니다(비우면 무제한).",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",

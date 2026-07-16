@@ -37,6 +37,9 @@ type Props = {
   setStages: Dispatch<SetStateAction<StageRow[]>>;
   rampDown: "graceful" | "immediate";
   setRampDown: (m: "graceful" | "immediate") => void;
+  // graceful ramp-down 상한(초, §B9) — graceful일 때만 렌더(immediate엔 의미 없음).
+  gracefulCap: string;
+  setGracefulCap: (v: string) => void;
   errs: LoadModelErrors;
   // 닫힌 루프 사이징 헬퍼(RunDialog 전용 — ScheduleForm은 미전달, §3.1).
   // model Scenario(steps 보유)지 api Scenario 아님.
@@ -91,6 +94,8 @@ export function LoadModelFields({
   setStages,
   rampDown,
   setRampDown,
+  gracefulCap,
+  setGracefulCap,
   errs,
   sizingScenarioId,
   sizingScenario,
@@ -118,6 +123,7 @@ export function LoadModelFields({
     durationOpen: useId(),
     maxInFlight: useId(),
     workerCount: useId(),
+    gracefulCap: useId(),
     loadModelClosed: useId(),
     loadModelOpen: useId(),
   };
@@ -527,6 +533,31 @@ export function LoadModelFields({
                   </label>
                 </div>
               </div>
+              {rampDown === "graceful" && (
+                <div className="max-w-xs">
+                  <Field
+                    label={ko.loadModel.gracefulCapLabel}
+                    htmlFor={ids.gracefulCap}
+                    help={<HelpTip label="감축 상한 설명">{ko.glossary.gracefulCap}</HelpTip>}
+                  >
+                    <Input
+                      id={ids.gracefulCap}
+                      numeric
+                      min={1}
+                      value={gracefulCap}
+                      onChange={(e) => setGracefulCap(e.target.value)}
+                      placeholder={ko.loadModel.gracefulCapPlaceholder}
+                      aria-invalid={errs.gracefulCapInvalid}
+                      aria-describedby={errs.gracefulCapInvalid ? "graceful-cap-error" : undefined}
+                    />
+                  </Field>
+                  {errs.gracefulCapInvalid && (
+                    <p id="graceful-cap-error" className="mb-3 text-red-600 text-sm">
+                      {ko.validation.gracefulCap}
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )
         ) : (

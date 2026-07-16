@@ -26,6 +26,7 @@ const closedLoad: LoadModelState = {
   thinkSeed: "",
   rampDown: "graceful",
   workerCount: "1",
+  gracefulCap: "",
 };
 
 describe("buildCriteria", () => {
@@ -211,6 +212,7 @@ const openFixedLoad: LoadModelState = {
   thinkSeed: "",
   rampDown: "graceful",
   workerCount: "1",
+  gracefulCap: "",
 };
 
 function base(loadState: LoadModelState, extra: Partial<ProfileFormInput> = {}) {
