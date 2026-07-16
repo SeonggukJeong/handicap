@@ -330,6 +330,11 @@
 - **R15 힌트 single_row 확장**: 예산 힌트가 sequential 블록에만 렌더(plan-mandated) — leaf 수>max_requests인 single_row 극단은 기존 truncated 경고가 사후 커버. 원하면 소형.
 - ~~**미리보기 UX 후속 3건 (사용자 피드백 2026-07-16, 머지 직후)**: ① single_row 미리보기 opt-in ② 페이지 크기 선택 ③ sequential 모드 미리보기 클릭=시작 행~~ **✅ 완료(dataset-preview-optin, 2026-07-16, 머지 `7e897ae`)** — 공유 `DatasetRowsPreview`에 페이지 크기 선택(10/25/50/100 기본 10·localStorage 영속·`useDatasetRows` limit화·구 `DATASET_ROWS_PAGE_SIZE=50` 제거)·에디터 test-run "데이터 확인" opt-in 토글(aria-controls fold-in 2곳)·sequential 행 클릭=시작 행(1-based↔0-based start_row·aria-pressed). 잔여 nit: pageSize×경계 disabled flip 직접 단언 부재(간접 커버)·seqSelectedRow 부모 memo 재구현(sync 주석 有). 상세 → build-log.
 
+### B24. 릴리즈 버저닝 정리 — workspace crate version + `--version` 표면화 (2026-07-17, v0.4.0 릴리즈에서 표면화)
+- **현상**: `crates/*` 5개 전부 `version = "0.1.0"` 하드코딩(workspace 상속 없음)이고, controller/worker clap에 `#[command(version)]`이 없어 `--version` 플래그 자체가 부재 + `CARGO_PKG_VERSION` 읽는 사이트 0 → 크레이트 버전이 어디에도 안 드러남. v0.4.0부터 포터블 단일 exe(`Handicap_<ver>_x64-portable.exe`)를 릴리즈 에셋으로 배포하기 시작해, 복사·개명된 `handicap.exe`가 어느 릴리즈 빌드인지 자기 식별할 방법이 없는 갭이 실제 문제가 됨(QA "지금 쓰는 버전이 뭐예요?"에 답 불가. 인스톨러는 파일명·제어판에 남아 무관).
+- **후보 작업**: ① 루트 `[workspace.package] version` + 5개 크레이트 `version.workspace = true`(릴리즈마다 한 줄 bump) ② controller/worker CLI `#[command(version)]`(clap이 `CARGO_PKG_VERSION` 자동 사용) + 시작 `info!` 로그에 버전 한 줄 ③ 릴리즈 절차(tauri-desktop-build.md §CI 릴리즈)에 "desktop bump와 같은 커밋에서 workspace version도 bump" 추가.
+- **유의**: bump 커밋이 `Cargo.toml`/`Cargo.lock`을 건드려 매 릴리즈 커밋이 cargo-영향 경로화(full pre-commit 게이트 수 분). `crates/*/src` 편집이라 spec-review-guard 대상 — 정식 미니 슬라이스로.
+
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
 
