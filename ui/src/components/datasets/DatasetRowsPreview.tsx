@@ -30,6 +30,7 @@ export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props
     const n = Number(jumpDraft);
     if (!jumpDraft.trim() || !Number.isFinite(n)) return;
     setOffset(Math.min(Math.max(Math.floor(n) - 1, 0), Math.max(total - 1, 0)));
+    setJumpDraft("");
   }
 
   return (
@@ -50,7 +51,7 @@ export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props
       {data && total === 0 && <p className="text-slate-500">{ko.dataset.noRows}</p>}
       {data && total > 0 && (
         <>
-          <div className="mb-2 flex items-center gap-3 text-sm">
+          <div className="mb-2 flex flex-wrap items-center gap-3 text-sm">
             <span className="text-slate-600">
               {ko.dataset.rowsRange(respOffset + 1, respOffset + rows.length, total)}
             </span>
@@ -61,26 +62,28 @@ export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props
                 jump();
               }}
             >
-              <label className="text-slate-600" htmlFor={`jump-${datasetId}`}>
+              <label className="whitespace-nowrap text-slate-600" htmlFor={`jump-${datasetId}`}>
                 {ko.dataset.jumpLabel}
               </label>
-              <Input
-                id={`jump-${datasetId}`}
-                type="number"
-                min={1}
-                size="sm"
-                numeric
-                className="w-24"
-                value={jumpDraft}
-                onChange={(e) => setJumpDraft(e.target.value)}
-              />
-              <Button type="submit" variant="secondary">
+              <div className="w-24">
+                <Input
+                  id={`jump-${datasetId}`}
+                  type="number"
+                  min={1}
+                  size="sm"
+                  numeric
+                  value={jumpDraft}
+                  onChange={(e) => setJumpDraft(e.target.value)}
+                />
+              </div>
+              <Button type="submit" variant="secondary" className="whitespace-nowrap">
                 {ko.dataset.jumpGo}
               </Button>
             </form>
             <Button
               variant="secondary"
               disabled={prevDisabled}
+              className="whitespace-nowrap"
               onClick={() => setOffset(Math.max(offset - DATASET_ROWS_PAGE_SIZE, 0))}
             >
               {ko.dataset.prevPage}
@@ -88,6 +91,7 @@ export function DatasetRowsPreview({ datasetId, name, columns, rowCount }: Props
             <Button
               variant="secondary"
               disabled={nextDisabled}
+              className="whitespace-nowrap"
               onClick={() => setOffset(offset + DATASET_ROWS_PAGE_SIZE)}
             >
               {ko.dataset.nextPage}

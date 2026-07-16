@@ -138,4 +138,27 @@ describe("DatasetRowsPreview", () => {
     renderPreview();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
+
+  it("행 이동 입력은 w-24 래퍼로 폭 제한 — Input 직접 w-24는 w-full에 진다 (줄바꿈 회귀 가드)", async () => {
+    mockRowsByUrl(1000);
+    renderPreview();
+    await screen.findByText(ko.dataset.rowsRange(1, 50, 1000));
+    const input = screen.getByLabelText(ko.dataset.jumpLabel);
+    expect(input.parentElement).toHaveClass("w-24");
+    expect(input).not.toHaveClass("w-24");
+    for (const name of [ko.dataset.jumpGo, ko.dataset.prevPage, ko.dataset.nextPage]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("whitespace-nowrap");
+    }
+  });
+
+  it("이동 후 행 이동 입력이 비워진다", async () => {
+    const user = userEvent.setup();
+    mockRowsByUrl(1000);
+    renderPreview();
+    await screen.findByText(ko.dataset.rowsRange(1, 50, 1000));
+    await user.type(screen.getByLabelText(ko.dataset.jumpLabel), "743");
+    await user.click(screen.getByRole("button", { name: ko.dataset.jumpGo }));
+    await screen.findByText(ko.dataset.rowsRange(743, 792, 1000));
+    expect(screen.getByLabelText(ko.dataset.jumpLabel)).toHaveValue(null);
+  });
 });
