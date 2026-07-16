@@ -54,6 +54,7 @@ steps:
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();

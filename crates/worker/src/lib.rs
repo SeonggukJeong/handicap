@@ -291,6 +291,8 @@ async fn execute_assignment(
         } else {
             RampDown::Graceful
         },
+        // TODO(Task 3): map proto graceful_ramp_down_seconds → Option<Duration>.
+        graceful_ramp_down: None,
     };
     info!(
         vus = plan.vus,

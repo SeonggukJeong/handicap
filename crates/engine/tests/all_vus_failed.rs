@@ -43,6 +43,7 @@ steps:
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     };
     let (tx, _rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = tokio_util::sync::CancellationToken::new();

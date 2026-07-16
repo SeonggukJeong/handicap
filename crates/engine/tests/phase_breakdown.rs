@@ -27,6 +27,7 @@ fn plan(measure_phases: bool) -> RunPlan {
         measure_phases,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     }
 }
 

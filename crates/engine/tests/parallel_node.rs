@@ -29,6 +29,7 @@ fn plan(base: &str, secs: u64) -> RunPlan {
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     }
 }
 

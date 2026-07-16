@@ -38,6 +38,7 @@ fn plan_with(bindings: Vec<Arc<DataSet>>, vus: u32, secs: u64) -> RunPlan {
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     }
 }
 

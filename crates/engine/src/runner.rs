@@ -88,6 +88,11 @@ pub struct RunPlan {
     pub vu_stages: Option<Vec<Stage>>,
     /// VU-curve ramp-down mode. Only meaningful with `vu_stages` (controller-validated).
     pub ramp_down: RampDown,
+    /// VU-curve graceful ramp-down 상한. `Some(d)` → 은퇴(desired 하락) 후 현재
+    /// iteration이 `d`를 넘겨 lingering하면 supervisor가 activation 토큰을 취소해
+    /// 다음 스텝 경계에서 park시킨다(immediate 경로 재사용). `None` → 무상한(현재
+    /// 거동, byte-identical). graceful 모드에서만 참조(immediate가 항상 우선).
+    pub graceful_ramp_down: Option<Duration>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -729,6 +734,7 @@ pub async fn run_scenario_vu_curve(
     let think_seed = plan.think_seed;
     let measure_phases = plan.measure_phases;
     let immediate = plan.ramp_down == RampDown::Immediate;
+    let graceful_ramp_down = plan.graceful_ramp_down;
     let seq_counters = make_seq_counters(&datasets);
 
     // Desired active-VU count, broadcast to every VU task. VU `i` is active iff
@@ -741,6 +747,7 @@ pub async fn run_scenario_vu_curve(
 
     let mut set = JoinSet::new();
     let mut spawned: u32 = 0;
+    let mut retire_since: Vec<Option<Instant>> = vec![None; max_vus as usize];
 
     // Flusher: mirror of run_scenario's (MetricFlush drain site #5 — see engine
     // CLAUDE.md "드레인 6/guard 5"). dropped is always 0 on this path.
@@ -866,6 +873,8 @@ pub async fn run_scenario_vu_curve(
             for tok in g.iter().skip(desired as usize).flatten() {
                 tok.cancel();
             }
+        } else if let Some(cap) = graceful_ramp_down {
+            retire_expired(&slab, &mut retire_since, desired, spawned, cap, now);
         }
         tokio::select! {
             _ = ticker.tick() => {}
@@ -947,6 +956,37 @@ pub async fn run_scenario_vu_curve(
 
 fn clear_slot(slab: &std::sync::Mutex<Vec<Option<CancellationToken>>>, index: u32) {
     slab.lock().expect("slab mutex")[index as usize] = None;
+}
+
+/// graceful ramp-down 상한(spec §5.3): 은퇴(index >= desired) 후 `cap`을 넘겨
+/// 여전히 active(slab Some)인 VU의 토큰을 취소한다. 취소된 VU는 스텝 경계에서
+/// `StepFlow::Aborted` → park(immediate와 동일 경로, `failed` 미증가). `retire_since`는
+/// supervisor-소유 per-index 타이머(공유 없음). `index >= desired && slab Some`은
+/// 항상 원래 lingering 활성화(재활성은 desired > index를 요구)라 취소 안전.
+fn retire_expired(
+    slab: &std::sync::Mutex<Vec<Option<CancellationToken>>>,
+    retire_since: &mut [Option<Instant>],
+    desired: u32,
+    spawned: u32,
+    cap: Duration,
+    now: Instant,
+) {
+    let g = slab.lock().expect("slab mutex");
+    for index in (desired as usize)..(spawned as usize) {
+        if let Some(tok) = &g[index] {
+            match retire_since[index] {
+                None => retire_since[index] = Some(now),
+                Some(t0) if now.duration_since(t0) >= cap => tok.cancel(),
+                _ => {}
+            }
+        } else {
+            retire_since[index] = None; // 자발 park·미활성 → 타이머 리셋
+        }
+    }
+    // index < desired(desired-active)는 은퇴 대상 아님 → 리셋(재-desire 케이스)
+    for slot in retire_since.iter_mut().take(desired as usize) {
+        *slot = None;
+    }
 }
 
 /// One park-gated curve VU (spec §4.3).
@@ -1554,5 +1594,71 @@ mod tests {
         assert_eq!(rate_at(&s, 20.0), 500.0);
         // empty → 0
         assert_eq!(rate_at(&[], 5.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod graceful_cap_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio_util::sync::CancellationToken;
+
+    fn active_slab(
+        n: usize,
+    ) -> (
+        std::sync::Mutex<Vec<Option<CancellationToken>>>,
+        Vec<CancellationToken>,
+    ) {
+        let toks: Vec<CancellationToken> = (0..n).map(|_| CancellationToken::new()).collect();
+        let slab = std::sync::Mutex::new(toks.iter().cloned().map(Some).collect());
+        (slab, toks)
+    }
+
+    #[test]
+    fn sets_timer_then_cancels_after_cap() {
+        // desired=1, spawned=3: index 0 = desired-active, index 1·2 = over-desired active(=lingering).
+        let (slab, toks) = active_slab(3);
+        let mut since = vec![None; 3];
+        let cap = Duration::from_secs(2);
+        let base = Instant::now();
+        // 1st: 타이머만 세팅, 취소 0.
+        retire_expired(&slab, &mut since, 1, 3, cap, base);
+        assert!(since[0].is_none(), "index<desired resets");
+        assert!(since[1].is_some() && since[2].is_some());
+        assert!(!toks[1].is_cancelled() && !toks[2].is_cancelled());
+        // 2nd: cap 이내 → 취소 없음.
+        retire_expired(&slab, &mut since, 1, 3, cap, base + Duration::from_secs(1));
+        assert!(!toks[1].is_cancelled());
+        // 3rd: cap 도달 → index 1·2 취소.
+        retire_expired(&slab, &mut since, 1, 3, cap, base + Duration::from_secs(2));
+        assert!(toks[1].is_cancelled() && toks[2].is_cancelled());
+    }
+
+    #[test]
+    fn re_desire_resets_timer_no_cancel() {
+        // index 1이 은퇴 타이머를 갖다가 desired가 다시 오르면(2) 리셋 → cap 지나도 취소 안 함.
+        let (slab, toks) = active_slab(2);
+        let mut since = vec![None; 2];
+        let cap = Duration::from_secs(1);
+        let base = Instant::now();
+        retire_expired(&slab, &mut since, 1, 2, cap, base); // index1 retiring
+        assert!(since[1].is_some());
+        retire_expired(&slab, &mut since, 2, 2, cap, base + Duration::from_secs(2)); // desired 2 → index1 desired-active
+        assert!(since[1].is_none(), "re-desired index resets");
+        assert!(!toks[1].is_cancelled());
+    }
+
+    #[test]
+    fn parked_slot_not_cancelled() {
+        // index 1이 over-desired지만 slab None(자발 park) → 타이머·취소 없음.
+        let (slab, toks) = active_slab(2);
+        slab.lock().unwrap()[1] = None;
+        let mut since = vec![None; 2];
+        let cap = Duration::from_secs(1);
+        let base = Instant::now();
+        retire_expired(&slab, &mut since, 1, 2, cap, base);
+        retire_expired(&slab, &mut since, 1, 2, cap, base + Duration::from_secs(5));
+        assert!(since[1].is_none());
+        assert!(!toks[1].is_cancelled());
     }
 }

@@ -72,6 +72,7 @@ steps:
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -161,6 +162,7 @@ steps:
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     };
     let cancel = CancellationToken::new();
     let run = tokio::spawn(async move {
@@ -246,6 +248,7 @@ steps:
         measure_phases: false,
         vu_stages: None,
         ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
     };
     let cancel = CancellationToken::new();
     let cancel2 = cancel.clone();

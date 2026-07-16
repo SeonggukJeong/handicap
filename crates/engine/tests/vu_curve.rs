@@ -44,6 +44,7 @@ fn curve_plan(stages: Vec<Stage>, ramp_down: RampDown) -> RunPlan {
         measure_phases: false,
         vu_stages: Some(stages),
         ramp_down,
+        graceful_ramp_down: None,
     }
 }
 
@@ -292,4 +293,57 @@ async fn vu_curve_emits_active_vu_samples() {
     let mut uniq = secs.clone();
     uniq.dedup();
     assert_eq!(uniq.len(), secs.len(), "one active-VU sample per second");
+}
+
+fn scenario_n_steps(url: &str, n: usize) -> Arc<Scenario> {
+    let mut steps = String::new();
+    for i in 0..n {
+        // ULID는 Crockford base32(I/L/O/U 제외) — ...001{0..} 로 유효.
+        steps.push_str(&format!(
+            "  - id: 01HX000000000000000000001{i}\n    name: s{i}\n    type: http\n    request:\n      method: GET\n      url: {url}\n    assert:\n      - status: 200\n"
+        ));
+    }
+    let yaml = format!("version: 1\nname: vc\nsteps:\n{steps}");
+    Arc::new(serde_yaml::from_str(&yaml).unwrap())
+}
+
+async fn run_curve_count(server_uri: &str, cap: Option<Duration>) -> u64 {
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    // 곡선 [stage(2,1), stage(0,4)] = 5s run. VU1은 t≈0.75s 활성→t≈2s 은퇴.
+    // 20스텝×250ms = 5s iteration → 은퇴 후 남은 run(3s)보다 iteration이 길다:
+    //   uncapped VU1 = deadline(5s)에 잘림 ≈ (5−0.75)/0.25 ≈ 17스텝
+    //   capped   VU1 = cap(은퇴 t≈2 + 1s)에 t≈3s 취소 ≈ (3−0.75)/0.25 ≈ 9스텝
+    //   → 결정적 gap ≈ 8. iteration이 remaining-run보다 길어야 gap이 벌어진다(핵심).
+    let plan = RunPlan {
+        graceful_ramp_down: cap,
+        ..curve_plan(vec![stage(2, 1), stage(0, 4)], RampDown::Graceful)
+    };
+    let h = tokio::spawn(run_scenario_vu_curve(
+        scenario_n_steps(&format!("{server_uri}/"), 20),
+        plan,
+        tx,
+        CancellationToken::new(),
+    ));
+    let (count, errors) = drain(&mut rx).await;
+    h.await.unwrap().unwrap();
+    assert_eq!(errors, 0, "graceful cap run must not error");
+    count
+}
+
+#[tokio::test]
+async fn graceful_cap_cuts_lingering_iterations() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(250)))
+        .mount(&server)
+        .await;
+    // 실시간 sanity check — 결정적 증명은 retire_expired 단위 테스트. iteration(5s)이
+    // 은퇴 후 remaining-run(3s)보다 길어 uncapped=deadline-cut / capped=cap-cut로
+    // gap ≈ 8이 robust. **커밋 전 실측으로 gap을 확인**(escalate: 마진 없으면 스텝 수↑).
+    let uncapped = run_curve_count(&server.uri(), None).await;
+    let capped = run_curve_count(&server.uri(), Some(Duration::from_secs(1))).await;
+    assert!(
+        capped < uncapped,
+        "capped run should execute fewer requests (retiring VUs cut at cap): capped={capped} uncapped={uncapped}"
+    );
 }
