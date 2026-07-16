@@ -326,6 +326,7 @@
 - **T3 커버리지**: `row_limit > remaining` arm(요청 5행에 row_limit 10 → 5행+truncated) 잠그는 테스트 없음(산식은 최종 리뷰가 수동 검산) — N2 카피 fix와 묶어 후속.
 - **spec §7 연기(원문 참조)**: 멀티 데이터셋 UI(와이어 R17은 Vec freeze — UI만 1개 노출)·`var_overrides`(데이터셋 없는 임시값 주입)·Literal 매핑 편집 UI·민감값 마스킹(**§B1 소유** — 부분 fix 금지, 사용자 기결정)·검증 구성→run 프리셋 전환/실패 행만 필터/fail-fast 토글(수요 확인 후).
 - **R15 힌트 single_row 확장**: 예산 힌트가 sequential 블록에만 렌더(plan-mandated) — leaf 수>max_requests인 single_row 극단은 기존 truncated 경고가 사후 커버. 원하면 소형.
+- **미리보기 UX 후속 3건 (사용자 피드백 2026-07-16, 머지 직후)**: ① **single_row 미리보기 opt-in** — 데이터셋 선택만 해도 미리보기 테이블이 자동 노출되는 현재 동작이 "원하지도 않는 많은 데이터가 나와 시각적으로 피곤" → 명시 "데이터 확인" 버튼 뒤 기본 숨김([[ui-optional-sections-collapsible]] 축: 대량 데이터 뷰도 opt-in) ② **페이지 크기 선택** — 한 번에 볼 행 수 사용자 선택(공유 `DatasetRowsPreview`라 DatasetsPage 미리보기에도 동일 적용, 현재 `DATASET_ROWS_PAGE_SIZE=50` 고정) ③ **sequential 모드 미리보기** — 클릭=시작 행 지정(기존 `onSelectRow`/`selectedRow` prop 재사용, 와이어 무변경; 이용해보며 불편 확인되면). 셋 다 UI-only 소형 — ①②가 우선(이미 체감된 피로), 한 슬라이스로 묶기 적합.
 
 ### B3. 슬라이스 무관 tech-debt
 - → **`docs/followups-after-mvp1.md` "열린 항목"** 으로 관리(열린 항목 없음 — status-transition 갭은 2026-06-05 완료). 이 로드맵 문서와 중복 적지 않는다. 잔존 후속 후보: G1a(등록 후 hung 워커 진행 라이브니스)·G1b(C — mid-run stall advisory)·run 목록 stall 배지 전부 완료(2026-06-23) → **run 라이브니스 마무리 완결**. ~~잔존 B2(A/B/C 임계값 /settings 가변)~~ **✅ B2 완료(2026-06-23 — A/B grace 이주·C readonly; C 런타임 가변은 연기)**, 잔존 G2(k8s register-전 사망 reaper, 현재 60s watchdog 폴백).
