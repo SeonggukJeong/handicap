@@ -53,7 +53,7 @@
 | R8 | `MUST` 기존 테스트 무수정 GREEN이 byte-identical의 1차 증거 — 깨지면 단언이 아니라 이주를 고친다. **명시 예외**: R4 캐넌 픽스로 hint-in-button을 직접 단언하던 테스트가 있으면 그 단언만 캐넌에 맞게 갱신(현재 조사로는 없음 — Section.test·RunDialog 계열은 정규식/텍스트 매치) | `pnpm test` 전체 GREEN + 예외 발생 시 커밋 메시지에 사유 | |
 | R9 | `MUST`(불변식) 서버/와이어/모델 0-diff — `crates/`·proto·migration·`ui/src/api/**`·`ui/src/runs/runFilterSort.ts` 0-diff. URL 쿼리 직렬화·store 커밋 경로 무접촉 | `git diff --name-only`가 `ui/src/components`(+테스트)·docs만 | |
 | R10 | `SHOULD` 라이브 검증 — §6.2 computed-style 실측 표 + 전/후 스크린샷(run 목록 툴바·에디터 Inspector) | `/live-verify` 절차 기록(수치 포함) | |
-| R11 | `MUST`(불변식) 신규 하드코딩 한글 0(신규 사용자 문구 자체가 없음)·신규 `blue-*`/`indigo-*` 컨트롤 색 리터럴 0(accent만) | diff python sweep(`'"[가-힣]'` grep의 비한글-선두 누락 함정 회피) | |
+| R11 | `MUST`(불변식) 신규 하드코딩 한글 0(신규 사용자 문구 자체가 없음)·신규 `blue-*`/`indigo-*` 컨트롤 색 리터럴 0(accent만) — **스윕 스코프는 production 소스**(테스트 파일 제외: 신규 테스트의 단언용 한글 리터럴["판정·고급" 등]은 정당) | production diff python sweep(`'"[가-힣]'` grep의 비한글-선두 누락 함정 회피) | |
 
 ## 4. 변경 상세
 
