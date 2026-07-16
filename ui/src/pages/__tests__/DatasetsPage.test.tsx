@@ -273,12 +273,15 @@ describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
   it("접었다 다시 펼치면 offset이 리셋된다 (R4 리셋)", async () => {
     // 100행 데이터셋 — 다음 페이지로 간 뒤 접기→재펼침이 1페이지로 복귀해야 한다
     // (remount 리셋이 CSS-hide 등으로 바뀌는 드리프트를 잡는 회귀 가드)
+    // 기본 페이지 크기 10(spec R2) — limit 쿼리를 그대로 반영해 실제 요청 보폭과 fixture가 어긋나지 않게 한다.
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/rows")) {
         const u = new URL(url, "http://localhost");
         const offset = Number(u.searchParams.get("offset") ?? "0");
-        const rows = Array.from({ length: 50 }, (_, i) => ({ email: `u${offset + i}@ex.com` }));
+        const limit = Number(u.searchParams.get("limit") ?? "10");
+        const n = Math.max(Math.min(100 - offset, limit), 0);
+        const rows = Array.from({ length: n }, (_, i) => ({ email: `u${offset + i}@ex.com` }));
         return Promise.resolve(jsonResponse({ rows, offset, total: 100 }));
       }
       return Promise.resolve(
@@ -303,9 +306,9 @@ describe("DatasetsPage 미리보기 확장 (R4·R13)", () => {
     await user.click(toggle());
     const region = await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
     await user.click(within(region).getByRole("button", { name: ko.dataset.nextPage }));
-    expect(await screen.findByText(ko.dataset.rowsRange(51, 100, 100))).toBeInTheDocument();
+    expect(await screen.findByText(ko.dataset.rowsRange(11, 20, 100))).toBeInTheDocument();
     await user.click(toggle()); // 접기
     await user.click(toggle()); // 재펼침 → remount → offset 0
-    expect(await screen.findByText(ko.dataset.rowsRange(1, 50, 100))).toBeInTheDocument();
+    expect(await screen.findByText(ko.dataset.rowsRange(1, 10, 100))).toBeInTheDocument();
   });
 });

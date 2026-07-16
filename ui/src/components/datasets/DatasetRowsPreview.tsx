@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { DATASET_ROWS_PAGE_SIZE, useDatasetRows } from "../../api/hooks";
+import { DATASET_ROWS_PAGE_SIZES, useDatasetRows } from "../../api/hooks";
 import { Button } from "../Button";
 import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
 import { Callout } from "../ui/Callout";
 import { ko } from "../../i18n/ko";
+import { loadPreviewPageSize, savePreviewPageSize } from "./previewPrefs";
 
 interface Props {
   datasetId: string;
@@ -25,8 +27,9 @@ export function DatasetRowsPreview({
   selectedRow,
 }: Props) {
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(loadPreviewPageSize);
   const [jumpDraft, setJumpDraft] = useState("");
-  const { data, error, isLoading, isPlaceholderData } = useDatasetRows(datasetId, offset);
+  const { data, error, isLoading, isPlaceholderData } = useDatasetRows(datasetId, offset, pageSize);
 
   // placeholder 일관성(R5·R6): 번호·범위는 응답 기준, total은 응답 ?? 목록 메타
   const total = data?.total ?? rowCount;
@@ -34,7 +37,7 @@ export function DatasetRowsPreview({
   const rows = data?.rows ?? [];
 
   const prevDisabled = offset === 0 || isPlaceholderData;
-  const nextDisabled = offset + DATASET_ROWS_PAGE_SIZE >= total || isPlaceholderData;
+  const nextDisabled = offset + pageSize >= total || isPlaceholderData;
 
   function jump() {
     const n = Number(jumpDraft);
@@ -65,6 +68,27 @@ export function DatasetRowsPreview({
             <span className="text-slate-600">
               {ko.dataset.rowsRange(respOffset + 1, respOffset + rows.length, total)}
             </span>
+            <div className="flex items-center gap-1">
+              <span className="whitespace-nowrap text-slate-600">{ko.dataset.pageSizeLabel}</span>
+              <div className="w-20">
+                <Select
+                  size="sm"
+                  aria-label={ko.dataset.pageSizeLabel}
+                  value={String(pageSize)}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setPageSize(n);
+                    savePreviewPageSize(n);
+                  }}
+                >
+                  {DATASET_ROWS_PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
             <form
               className="ml-auto flex items-center gap-1"
               onSubmit={(e) => {
@@ -94,7 +118,7 @@ export function DatasetRowsPreview({
               variant="secondary"
               disabled={prevDisabled}
               className="whitespace-nowrap"
-              onClick={() => setOffset(Math.max(offset - DATASET_ROWS_PAGE_SIZE, 0))}
+              onClick={() => setOffset(Math.max(offset - pageSize, 0))}
             >
               {ko.dataset.prevPage}
             </Button>
@@ -102,7 +126,7 @@ export function DatasetRowsPreview({
               variant="secondary"
               disabled={nextDisabled}
               className="whitespace-nowrap"
-              onClick={() => setOffset(offset + DATASET_ROWS_PAGE_SIZE)}
+              onClick={() => setOffset(offset + pageSize)}
             >
               {ko.dataset.nextPage}
             </Button>

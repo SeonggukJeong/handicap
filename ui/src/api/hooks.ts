@@ -48,7 +48,8 @@ export const queryKeys = {
   runReport: (id: string) => ["runs", id, "report"] as const,
   datasets: () => ["datasets"] as const,
   dataset: (id: string) => ["datasets", id] as const,
-  datasetRows: (id: string, offset: number) => ["datasets", id, "rows", offset] as const,
+  datasetRows: (id: string, offset: number, limit: number) =>
+    ["datasets", id, "rows", offset, limit] as const,
   presets: (scenarioId: string) => ["presets", scenarioId] as const,
   preset: (id: string) => ["preset", id] as const,
   environments: () => ["environments"] as const,
@@ -227,13 +228,14 @@ export function useDataset(id: string | undefined) {
   });
 }
 
-/** 미리보기 페이지 크기 (spec R5 — 50 고정). */
-export const DATASET_ROWS_PAGE_SIZE = 50;
+/** 미리보기 페이지 크기 옵션 (opt-in 슬라이스 R2 — 서버 limit 1–200 내). */
+export const DATASET_ROWS_PAGE_SIZES = [10, 25, 50, 100] as const;
+export const DATASET_ROWS_DEFAULT_PAGE_SIZE = 10;
 
-export function useDatasetRows(id: string | undefined, offset: number) {
+export function useDatasetRows(id: string | undefined, offset: number, limit: number) {
   return useQuery({
-    queryKey: id ? queryKeys.datasetRows(id, offset) : ["datasets", "missing", "rows"],
-    queryFn: () => api.getDatasetRows(id!, offset, DATASET_ROWS_PAGE_SIZE),
+    queryKey: id ? queryKeys.datasetRows(id, offset, limit) : ["datasets", "missing", "rows"],
+    queryFn: () => api.getDatasetRows(id!, offset, limit),
     enabled: Boolean(id),
     placeholderData: keepPreviousData,
   });

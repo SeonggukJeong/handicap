@@ -1163,6 +1163,7 @@ export const ko = {
     jumpGo: "이동",
     noRows: "행이 없습니다",
     selectRowAria: (n: number) => `행 ${n} 선택`,
+    pageSizeLabel: "표시 행 수",
   },
   bulkEdit: {
     panelAria: "일괄 편집",
