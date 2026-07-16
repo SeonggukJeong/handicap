@@ -375,17 +375,24 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
     await openDatasetSection(user);
     await selectDataset(user);
 
-    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
-    expect(
-      await screen.findByRole("region", { name: ko.dataset.previewAria("users") }),
-    ).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: ko.editor.dsPreviewToggle });
+    await user.click(toggle);
+    const region = await screen.findByRole("region", { name: ko.dataset.previewAria("users") });
+    expect(region).toBeInTheDocument();
     const rowsCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/rows"));
     expect(String(rowsCalls[0][0])).toContain("limit=10");
 
-    await user.click(screen.getByRole("button", { name: ko.editor.dsPreviewToggle }));
+    // a11y fold-in(리뷰): 열린 토글은 region과 aria-controls로 연결돼야 한다.
+    const controlsId = toggle.getAttribute("aria-controls");
+    expect(controlsId).toBeTruthy();
+    expect(controlsId).toBe(region.getAttribute("id"));
+
+    await user.click(toggle);
     expect(
       screen.queryByRole("region", { name: ko.dataset.previewAria("users") }),
     ).not.toBeInTheDocument();
+    // 닫힘 상태에선 aria-controls가 없어야 한다(HelpTip/VerdictBadge 이디엄).
+    expect(toggle).not.toHaveAttribute("aria-controls");
   });
 
   it("T2b: 모드 전환에도 열림 상태 유지 (R1.3)", async () => {

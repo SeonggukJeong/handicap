@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useDatasets } from "../../api/hooks";
 import type { Mapping, TestRunDatasetConfig, TestRunDatasetMode } from "../../api/schemas";
 import { Section } from "../ui/Section";
@@ -50,6 +50,7 @@ export function TestRunDatasetSection({
   const [rowLimitDraft, setRowLimitDraft] = useState("");
   const [mappingRows, setMappingRows] = useState<MappingRow[] | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const previewId = useId();
 
   const datasetId = selected?.id ?? null;
   const rowCount = selected?.rowCount ?? 0;
@@ -145,6 +146,7 @@ export function TestRunDatasetSection({
           maxRequests={maxRequests}
           previewOpen={previewOpen}
           onPreviewToggle={() => setPreviewOpen((o) => !o)}
+          previewId={previewId}
         />
       )}
     </Section>
@@ -169,6 +171,7 @@ function DatasetBody({
   maxRequests,
   previewOpen,
   onPreviewToggle,
+  previewId,
 }: {
   selected: SelectedDataset | null;
   onSelectDataset: (meta: SelectedDataset | null) => void;
@@ -187,6 +190,7 @@ function DatasetBody({
   maxRequests: number;
   previewOpen: boolean;
   onPreviewToggle: () => void;
+  previewId: string;
 }) {
   // 훅은 이 Body 컴포넌트(펼침 시에만 마운트) 안에만 — 접힘 중 fetch 0 계약.
   const datasets = useDatasets();
@@ -321,6 +325,7 @@ function DatasetBody({
             <Button
               variant="secondary"
               aria-expanded={previewOpen}
+              aria-controls={previewOpen ? previewId : undefined}
               onClick={onPreviewToggle}
               className="self-start"
             >
@@ -328,6 +333,7 @@ function DatasetBody({
             </Button>
             {previewOpen && (
               <DatasetRowsPreview
+                id={previewId}
                 datasetId={selected.id}
                 name={selected.name}
                 columns={selected.columns}

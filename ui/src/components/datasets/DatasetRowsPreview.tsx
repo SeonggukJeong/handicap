@@ -15,6 +15,8 @@ interface Props {
   /** 전달 시 행 클릭 = 선택(0-based 데이터셋 idx) — test-run 행 선택 재사용 (R12). */
   onSelectRow?: (rowIndex: number) => void;
   selectedRow?: number;
+  /** 전달 시 region 루트에 적용 — 호출부 토글 버튼의 aria-controls 연결용(a11y fold-in). */
+  id?: string;
 }
 
 /** 저장된 데이터셋 행 미리보기 — DatasetsPage 확장 행 안에서 렌더 (spec §4.4). */
@@ -25,6 +27,7 @@ export function DatasetRowsPreview({
   rowCount,
   onSelectRow,
   selectedRow,
+  id,
 }: Props) {
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(loadPreviewPageSize);
@@ -48,6 +51,7 @@ export function DatasetRowsPreview({
 
   return (
     <section
+      id={id}
       aria-label={ko.dataset.previewAria(name)}
       className="my-2 rounded border border-slate-200 bg-slate-50 p-3"
     >
