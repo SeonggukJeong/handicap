@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use handicap_engine::{Scenario, StepKind, TraceOptions, trace_scenario};
+use handicap_engine::{Scenario, StepKind, TraceOptions, trace_scenario, trace_scenario_with_seed};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -396,4 +396,78 @@ steps:
         "분기 스텝의 명시 think_time은 적용돼야 한다 — total_ms={}",
         explicit.total_ms
     );
+}
+
+#[tokio::test]
+async fn seeded_trace_overrides_scenario_variables() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/u/dataset-user"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let yaml = format!(
+        r#"
+version: 1
+name: seeded
+variables:
+  username: scenario-user
+  keep: base
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: a
+    request: {{ method: GET, url: "{base}/u/{{{{username}}}}" }}
+"#,
+        base = server.uri()
+    );
+    let scenario = Scenario::from_yaml(&yaml).unwrap();
+    let mut seed = BTreeMap::new();
+    seed.insert("username".to_string(), "dataset-user".to_string());
+    let trace = trace_scenario_with_seed(&scenario, &opts(BTreeMap::new(), 50), &seed).await;
+    assert!(trace.ok, "{trace:?}");
+    // 시드가 동명 시나리오 변수를 이긴다 (run_vu의 variables.clone() 후 insert 미러 — R4)
+    let url = &trace.steps[0].request.as_ref().unwrap().url;
+    assert!(url.ends_with("/u/dataset-user"), "{url}");
+    // 시드 안 된 변수는 유지, final_vars엔 시드 반영
+    assert_eq!(
+        trace.final_vars.get("keep").map(String::as_str),
+        Some("base")
+    );
+    assert_eq!(
+        trace.final_vars.get("username").map(String::as_str),
+        Some("dataset-user")
+    );
+}
+
+#[tokio::test]
+async fn seeded_trace_with_empty_seed_matches_plain_trace_shape() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        r#"
+version: 1
+name: plain
+steps:
+  - type: http
+    id: 01HX0000000000000000000010
+    name: a
+    request: {{ method: GET, url: "{base}/a" }}
+"#,
+        base = server.uri()
+    );
+    let scenario = Scenario::from_yaml(&yaml).unwrap();
+    let plain = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let seeded =
+        trace_scenario_with_seed(&scenario, &opts(BTreeMap::new(), 50), &BTreeMap::new()).await;
+    // total_ms(월클록)만 다를 수 있다 — 구조 필드는 동일 (R1 위임 보존)
+    assert_eq!(plain.ok, seeded.ok);
+    assert_eq!(plain.steps.len(), seeded.steps.len());
+    assert_eq!(plain.final_vars, seeded.final_vars);
+    assert_eq!(plain.truncated, seeded.truncated);
 }

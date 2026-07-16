@@ -106,15 +106,28 @@ struct TraceState {
     steps: Vec<StepTrace>,
     requests: u32,
     truncated: bool,
+    /// 이 패스의 `${iter_id}` 값 — 단발/시드 = 0, sequential = 반복 순번 (R4).
+    iter_id: u32,
 }
 
 /// Run `scenario` once (1 VU, single pass) and capture a per-request trace.
 /// Never returns `Err` — setup failures land in `ScenarioTrace.error`, per-step
 /// failures in each `StepTrace.error`.
 pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> ScenarioTrace {
+    trace_scenario_with_seed(scenario, opts, &BTreeMap::new()).await
+}
+
+/// `trace_scenario` + 데이터셋 시드 1행 주입 (test-run single_row, ADR-0047).
+/// 시드는 scenario.variables 위에 덮인다(충돌 시 데이터셋 우선 — run_vu의
+/// "variables.clone() 후 바인딩 insert" 순서 미러, runner.rs `run_vu` — R4).
+/// 응답 형태는 기존 `ScenarioTrace` 그대로(R7) — setup 실패는 `error` 필드.
+pub async fn trace_scenario_with_seed(
+    scenario: &Scenario,
+    opts: &TraceOptions,
+    seed_vars: &BTreeMap<String, String>,
+) -> ScenarioTrace {
     let started = Instant::now();
     let deadline = started + opts.max_wall;
-
     let client = match VuClient::new(scenario.cookie_jar) {
         Ok(c) => c,
         Err(e) => {
@@ -128,31 +141,52 @@ pub async fn trace_scenario(scenario: &Scenario, opts: &TraceOptions) -> Scenari
             };
         }
     };
-
-    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
     let mut state = TraceState {
         steps: Vec::new(),
         requests: 0,
         truncated: false,
+        iter_id: 0,
     };
+    trace_once(&client, scenario, opts, seed_vars, 0, deadline, &mut state).await
+}
+
+/// 클라이언트 하나로 시나리오를 1패스 실행하는 내부 코어. `state.requests`
+/// (공유 요청 예산)는 호출 간 이월되고 `steps`/`truncated`/`iter_id`는 진입 시
+/// 리셋된다 — `trace_scenario_rows`(Task 2)가 행 루프에서 재사용 (R6).
+async fn trace_once(
+    client: &VuClient,
+    scenario: &Scenario,
+    opts: &TraceOptions,
+    seed_vars: &BTreeMap<String, String>,
+    iter_id: u32,
+    deadline: Instant,
+    state: &mut TraceState,
+) -> ScenarioTrace {
+    let started = Instant::now();
+    state.steps = Vec::new();
+    state.truncated = false;
+    state.iter_id = iter_id;
+    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+    for (k, v) in seed_vars {
+        iter_vars.insert(k.clone(), v.clone());
+    }
     Box::pin(trace_steps(
-        &client,
+        client,
         &scenario.steps,
         &mut iter_vars,
         &opts.env,
         None,
         opts,
         deadline,
-        &mut state,
+        state,
         scenario.default_think_time,
     ))
     .await;
-
     let ok = state.steps.iter().all(|s| s.error.is_none());
     ScenarioTrace {
         ok,
         total_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        steps: state.steps,
+        steps: std::mem::take(&mut state.steps),
         final_vars: iter_vars,
         truncated: state.truncated,
         error: None,
@@ -225,7 +259,7 @@ async fn trace_steps(
                     vars: iter_vars,
                     env,
                     vu_id: 0,
-                    iter_id: 0,
+                    iter_id: state.iter_id,
                     loop_index,
                 };
                 let t = execute_step_traced(client, http, &ctx).await;
@@ -287,7 +321,7 @@ async fn trace_steps(
                         vars: iter_vars,
                         env,
                         vu_id: 0,
-                        iter_id: 0,
+                        iter_id: state.iter_id,
                         loop_index,
                     };
                     let unbound = collect_if_condition_unbound(if_step, &ctx);
