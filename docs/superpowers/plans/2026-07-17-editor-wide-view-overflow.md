@@ -1,5 +1,7 @@
 # 에디터 칩 스트립 높이 캡 (editor-wide-view-overflow) Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [스텝 넓게 보기]에서 긴 시나리오의 "테스트 흐름" 칩 스트립이 세로 아웃라인을 가리는 버그를 칩 wrap 높이 캡(96px+내부 스크롤)으로 수정하고, TestRunSection에만 "전체 펼치기/접기" 토글을 추가한다.
