@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TestFlowChips } from "../TestFlowChips";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
@@ -259,5 +259,109 @@ describe("TestFlowChips — 클릭/선택 (spec R6)", () => {
     expect(selected.className).toContain("border-accent-500");
     const other = screen.getByTitle("confirm").closest("button");
     expect(other?.className).not.toContain("ring-accent-500");
+  });
+});
+
+describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-wide-view-overflow R1/R2)", () => {
+  // jsdom은 scrollHeight/clientHeight가 항상 0 — Element.prototype getter를 render *전*에 mock.
+  // (HTMLElement.prototype엔 own property가 없어 vi.spyOn이 throw — spec 리스크 노트.)
+  const mockOverflow = (scrollH: number, clientH: number) => {
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(scrollH);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(clientH);
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("T1: 칩 wrap div에 캡 토큰 — split 정확-토큰 단언", () => {
+    render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
+    const tokens = screen.getByTestId("chip-strip-wrap").className.split(/\s+/);
+    expect(tokens).toContain("max-h-24");
+    expect(tokens).toContain("overflow-y-auto");
+  });
+
+  it("T2: expandable 미전달 → overflow여도 토글 부재", () => {
+    mockOverflow(300, 96);
+    render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
+    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+  });
+
+  it("T3: expandable + overflow → 토글 렌더, aria-expanded/aria-controls 배선", () => {
+    mockOverflow(300, 96);
+    render(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    const toggle = screen.getByRole("button", { name: "전체 펼치기" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle.getAttribute("aria-controls")).toBe(screen.getByTestId("chip-strip-wrap").id);
+  });
+
+  it("T4: 토글 클릭 → 캡 토큰 제거 + '접기', 재클릭 → 캡 복귀", async () => {
+    const user = userEvent.setup();
+    mockOverflow(300, 96);
+    render(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    await user.click(screen.getByRole("button", { name: "전체 펼치기" }));
+    const expandedTokens = screen.getByTestId("chip-strip-wrap").className.split(/\s+/);
+    expect(expandedTokens).not.toContain("max-h-24");
+    expect(expandedTokens).not.toContain("overflow-y-auto");
+    const collapse = screen.getByRole("button", { name: "접기" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    await user.click(collapse);
+    expect(screen.getByTestId("chip-strip-wrap").className.split(/\s+/)).toContain("max-h-24");
+  });
+
+  it("T5: expandable + overflow 없음(jsdom 기본 0) → 토글 부재(죽은 컨트롤 미노출)", () => {
+    render(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+  });
+
+  it("T6: RO 재측정 경로 — wrap 등록 + 콜백 발화로 토글 등장", () => {
+    let roCallback: ResizeObserverCallback | undefined;
+    const observed: Element[] = [];
+    class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        roCallback = cb;
+      }
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    render(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    const wrap = screen.getByTestId("chip-strip-wrap");
+    expect(observed).toContain(wrap);
+    // mount 측정(0>0=false) → 토글 부재
+    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+    // overflow로 전이 — element 인스턴스 getter 주입 후 RO 콜백 수동 발화
+    Object.defineProperty(wrap, "scrollHeight", { configurable: true, value: 300 });
+    Object.defineProperty(wrap, "clientHeight", { configurable: true, value: 96 });
+    act(() => {
+      roCallback?.([], {} as ResizeObserver);
+    });
+    expect(screen.getByRole("button", { name: "전체 펼치기" })).toBeInTheDocument();
+  });
+
+  it("T2b: expandable 미전달이면 RO 관측 자체가 없음 (spec R2.3 게이트)", () => {
+    const observed: Element[] = [];
+    class MockResizeObserver {
+      constructor(_cb: ResizeObserverCallback) {}
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
+    expect(observed).toHaveLength(0);
   });
 });

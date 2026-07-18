@@ -656,6 +656,8 @@ export const ko = {
     chipAriaPass: (name: string) => `${name} — 성공`,
     chipAriaFail: (name: string) => `${name} — 실패`,
     chipAriaNotRun: (name: string) => `${name} — 미실행`,
+    chipStripExpand: "전체 펼치기",
+    chipStripCollapse: "접기",
     extractVarNameAria: "추출 변수명",
     condGroupKindAria: "그룹 조건 종류",
     condLeftAria: "조건 왼쪽 값",

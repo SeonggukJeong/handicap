@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ScenarioTrace } from "../../api/schemas";
 import { isIfStep, isLoopStep, isParallelStep, type Step } from "../../scenario/model";
 import { branchText, deriveChipResults, type ChipResult } from "../../scenario/chipResults";
@@ -156,24 +156,72 @@ function ChipNode({ step, results, selectedStepId, onSelect }: NodeProps) {
 
 /** 시나리오 흐름을 가로 flex-wrap 그룹 칩으로 미러하는 상시 스트립(spec R1/R2).
  *  run 전 = 플레인 미러, run 후 = deriveChipResults로 스텝별 ✓/✗/○(spec R4/R5).
- *  칩 클릭 = onSelect(stepId) — 부모가 store select로 배선(spec R6). */
+ *  칩 클릭 = onSelect(stepId) — 부모가 store select로 배선(spec R6).
+ *  칩 wrap은 기본 max-h-24 캡+내부 스크롤 — 긴 시나리오가 wide 아웃라인/결과 패널을
+ *  잠식하지 않게(editor-wide-view-overflow R1). expandable(TestRunSection만)이면
+ *  overflow 실측 시 "전체 펼치기/접기" 토글(R2). */
+const WRAP_BASE = "flex flex-wrap items-center gap-1.5";
+
 export function TestFlowChips({
   steps,
   trace,
   selectedStepId,
   onSelect,
+  expandable = false,
 }: {
   steps: ReadonlyArray<Step>;
   trace: ScenarioTrace | null;
   selectedStepId: string | null;
   onSelect: (id: string) => void;
+  /** true(TestRunSection)면 overflow 시 펼치기 토글 — EditorShell(wide)은 미전달=하드 캡(펼치면 가림 복귀). */
+  expandable?: boolean;
 }) {
   const results = useMemo(() => (trace ? deriveChipResults(trace) : null), [trace]);
+  // 훅은 전부 steps-empty early return 앞에 (rules-of-hooks).
+  const wrapId = useId();
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  // overflow 불리언의 모든 전이는 캡 경계(96px)를 지나며 wrap 박스 높이가 변하므로
+  // 재측정은 RO 전담으로 충분(캡에 눌린 96px→96px 내부 증감은 상태도 불변이라 무발화 무해).
+  // deps에 steps/trace를 넣으면 effect 본문 미참조로 exhaustive-deps 경고(--max-warnings=0).
+  // 알려진 한계(수용, spec §7): steps 0→>0로 wrap이 재마운트되면 새 div를 재관측하지
+  // 않아 overflowing이 stale할 수 있음(토글 가시성만 영향·리마운트로 회복).
+  useLayoutEffect(() => {
+    if (!expandable) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setOverflowing(el.scrollHeight > el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [expandable]);
+
   if (steps.length === 0) return null;
   return (
     <div role="group" aria-label={ko.editor.testFlowTitle} className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{ko.editor.testFlowTitle}</span>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-slate-500">{ko.editor.testFlowTitle}</span>
+        {expandable && (overflowing || expanded) && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={wrapId}
+            onClick={() => setExpanded((v) => !v)}
+            className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
+          >
+            {expanded ? ko.editor.chipStripCollapse : ko.editor.chipStripExpand}
+          </button>
+        )}
+      </div>
+      <div
+        id={wrapId}
+        ref={wrapRef}
+        data-testid="chip-strip-wrap"
+        className={expanded ? WRAP_BASE : `${WRAP_BASE} max-h-24 overflow-y-auto`}
+      >
         {steps.map((s, i) => (
           <Fragment key={s.id}>
             {i > 0 && (
