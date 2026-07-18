@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../../i18n/ko";
 import { EditorShell } from "../EditorShell";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -222,6 +222,26 @@ steps:
         "aria-pressed",
         "false",
       );
+    });
+
+    describe("wide 칩 스트립 하드 캡 (editor-wide-view-overflow R3)", () => {
+      // spy 누수 방지 — 단언 throw에도 Element.prototype getter 원복 (in-body restore 금지)
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it("펼치기 토글 부재 — expandable 미배선 락인 (overflow여도)", async () => {
+        // 실제 가치 = 향후 우발적 expandable 전달 가드. 레이아웃 검증은 라이브 rect가 권위(spec R3.2).
+        vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(300);
+        vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(96);
+        const user = userEvent.setup();
+        render(<EditorShell initialYaml={WIDE_YAML} />);
+        await user.click(screen.getByRole("button", { name: ko.editor.wideToggleAria }));
+        expect(screen.getByRole("group", { name: ko.editor.testFlowTitle })).toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: ko.editor.chipStripExpand }),
+        ).not.toBeInTheDocument();
+      });
     });
   });
 

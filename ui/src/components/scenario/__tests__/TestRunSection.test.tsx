@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestRunSection } from "../TestRunSection";
@@ -181,5 +181,23 @@ describe("TestRunSection — error state adopts Callout (design-system-editor)",
     });
     const note = screen.getByRole("status", { hidden: true });
     expect(note).toHaveClass("text-emerald-700");
+  });
+});
+
+describe("TestRunSection 칩 스트립 캡+펼치기 토글 (editor-wide-view-overflow US1)", () => {
+  // Element.prototype getter spy는 단언 throw에도 반드시 원복돼야 한다(누수 시 후속
+  // 케이스 오염) — in-body restore가 아니라 afterEach로. 파일 기존 afterEach의
+  // clearAllMocks는 spy 원복을 안 한다.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("칩 스트립 overflow 시 펼치기 토글 노출 — expandable 배선", () => {
+    // jsdom getter mock은 render 전에, Element.prototype 대상 (spec 리스크 노트)
+    vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(300);
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(96);
+    render(<TestRunSection yamlText={CHIP_YAML} />);
+    const strip = screen.getByRole("group", { name: "테스트 흐름" });
+    expect(within(strip).getByRole("button", { name: "전체 펼치기" })).toBeInTheDocument();
   });
 });

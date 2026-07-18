@@ -84,6 +84,7 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
           trace={chipTrace}
           selectedStepId={selectedStepId ?? null}
           onSelect={(id) => useScenarioEditor.getState().select(id)}
+          expandable
         />
         <EnvironmentPicker
           selectedEnvId={selectedEnvId}
