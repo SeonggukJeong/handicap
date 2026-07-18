@@ -241,6 +241,12 @@ steps:
         expect(
           screen.queryByRole("button", { name: ko.editor.chipStripExpand }),
         ).not.toBeInTheDocument();
+        // 토글 부재만으론 캡이 사라지는 회귀(소비처 className 오버라이드 등)를 못 잡는다 —
+        // wide 섹션 안 wrap의 캡 토큰을 직접 락인(substring toContain 금지, split 정확-토큰).
+        const wideStrip = screen.getByRole("region", { name: ko.editor.wideFlowStripAria });
+        const tokens = within(wideStrip).getByTestId("chip-strip-wrap").className.split(/\s+/);
+        expect(tokens).toContain("max-h-24");
+        expect(tokens).toContain("overflow-y-auto");
       });
     });
   });

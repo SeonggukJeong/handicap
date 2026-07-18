@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TestFlowChips } from "../TestFlowChips";
+import { ko } from "../../../i18n/ko";
 import { parseScenarioDoc } from "../../../scenario/yamlDoc";
 import type { ScenarioTrace, StepTrace } from "../../../api/schemas";
 
@@ -284,7 +285,9 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
   it("T2: expandable 미전달 → overflow여도 토글 부재", () => {
     mockOverflow(300, 96);
     render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
-    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.chipStripExpand }),
+    ).not.toBeInTheDocument();
   });
 
   it("T3: expandable + overflow → 토글 렌더, aria-expanded/aria-controls 배선", () => {
@@ -292,7 +295,7 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     render(
       <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
     );
-    const toggle = screen.getByRole("button", { name: "전체 펼치기" });
+    const toggle = screen.getByRole("button", { name: ko.editor.chipStripExpand });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle.getAttribute("aria-controls")).toBe(screen.getByTestId("chip-strip-wrap").id);
   });
@@ -303,11 +306,11 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     render(
       <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
     );
-    await user.click(screen.getByRole("button", { name: "전체 펼치기" }));
+    await user.click(screen.getByRole("button", { name: ko.editor.chipStripExpand }));
     const expandedTokens = screen.getByTestId("chip-strip-wrap").className.split(/\s+/);
     expect(expandedTokens).not.toContain("max-h-24");
     expect(expandedTokens).not.toContain("overflow-y-auto");
-    const collapse = screen.getByRole("button", { name: "접기" });
+    const collapse = screen.getByRole("button", { name: ko.editor.chipStripCollapse });
     expect(collapse).toHaveAttribute("aria-expanded", "true");
     await user.click(collapse);
     expect(screen.getByTestId("chip-strip-wrap").className.split(/\s+/)).toContain("max-h-24");
@@ -317,7 +320,9 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     render(
       <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
     );
-    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.chipStripExpand }),
+    ).not.toBeInTheDocument();
   });
 
   it("T6: RO 재측정 경로 — wrap 등록 + 콜백 발화로 토글 등장", () => {
@@ -340,14 +345,16 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     const wrap = screen.getByTestId("chip-strip-wrap");
     expect(observed).toContain(wrap);
     // mount 측정(0>0=false) → 토글 부재
-    expect(screen.queryByRole("button", { name: "전체 펼치기" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.editor.chipStripExpand }),
+    ).not.toBeInTheDocument();
     // overflow로 전이 — element 인스턴스 getter 주입 후 RO 콜백 수동 발화
     Object.defineProperty(wrap, "scrollHeight", { configurable: true, value: 300 });
     Object.defineProperty(wrap, "clientHeight", { configurable: true, value: 96 });
     act(() => {
       roCallback?.([], {} as ResizeObserver);
     });
-    expect(screen.getByRole("button", { name: "전체 펼치기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.editor.chipStripExpand })).toBeInTheDocument();
   });
 
   it("T2b: expandable 미전달이면 RO 관측 자체가 없음 (spec R2.3 게이트)", () => {
@@ -363,5 +370,76 @@ describe("TestFlowChips — 칩 스트립 높이 캡 + 펼치기 토글 (editor-
     vi.stubGlobal("ResizeObserver", MockResizeObserver);
     render(<TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} />);
     expect(observed).toHaveLength(0);
+  });
+
+  it("T7: steps 0→N으로 늦게 도착해도 새 wrap을 관측 — 에디터 페이지 마운트 순서 (US1 회귀)", () => {
+    // ScenarioEditPage는 yamlText=""로 TestRunSection을 먼저 마운트하므로 첫 렌더의
+    // steps는 []다(=wrap 미존재). fetch가 풀린 뒤 칩이 생겨도 RO를 안 걸면 토글이 영구 사망.
+    let roCallback: ResizeObserverCallback | undefined;
+    const observed: Element[] = [];
+    class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        roCallback = cb;
+      }
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    const { rerender } = render(
+      <TestFlowChips steps={[]} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    expect(observed).toHaveLength(0); // 빈 steps → wrap 자체가 없음
+    rerender(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    const wrap = screen.getByTestId("chip-strip-wrap");
+    expect(observed).toContain(wrap);
+    // 관측이 살아 있어야 overflow 전이가 토글을 띄운다
+    Object.defineProperty(wrap, "scrollHeight", { configurable: true, value: 300 });
+    Object.defineProperty(wrap, "clientHeight", { configurable: true, value: 96 });
+    act(() => {
+      roCallback?.([], {} as ResizeObserver);
+    });
+    expect(screen.getByRole("button", { name: ko.editor.chipStripExpand })).toBeInTheDocument();
+  });
+
+  it("T8: 펼친 동안의 RO 재측정이 overflowing을 지우지 않음 — 접기 시 토글·포커스 유지", async () => {
+    const user = userEvent.setup();
+    let roCallback: ResizeObserverCallback | undefined;
+    class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        roCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    render(
+      <TestFlowChips steps={STEPS} trace={null} selectedStepId={null} onSelect={noop} expandable />,
+    );
+    const wrap = screen.getByTestId("chip-strip-wrap");
+    // 실제 레이아웃 모사: 캡이 걸린 동안만 clientHeight가 96, 펼치면 콘텐츠 전체 높이(=scrollHeight).
+    Object.defineProperty(wrap, "scrollHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(wrap, "clientHeight", {
+      configurable: true,
+      get: () => (wrap.className.split(/\s+/).includes("max-h-24") ? 96 : 300),
+    });
+    act(() => {
+      roCallback?.([], {} as ResizeObserver);
+    });
+    await user.click(screen.getByRole("button", { name: ko.editor.chipStripExpand }));
+    // 브라우저에선 캡 제거로 박스 높이가 변해 RO가 반드시 한 번 더 발화한다.
+    act(() => {
+      roCallback?.([], {} as ResizeObserver);
+    });
+    await user.click(screen.getByRole("button", { name: ko.editor.chipStripCollapse }));
+    // 토글이 unmount되면 포커스가 <body>로 떨어져 키보드 사용자가 페이지 처음부터 다시 Tab.
+    const toggle = screen.getByRole("button", { name: ko.editor.chipStripExpand });
+    expect(toggle).toBeInTheDocument();
+    expect(document.activeElement).toBe(toggle);
   });
 });

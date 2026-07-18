@@ -2,6 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestRunSection } from "../TestRunSection";
+import { ko } from "../../../i18n/ko";
 
 // Spy on the test-run mutation. We mock the whole hooks module so that
 // useTestRun's mutate is observable and the EnvironmentPicker's data hooks
@@ -197,7 +198,9 @@ describe("TestRunSection 칩 스트립 캡+펼치기 토글 (editor-wide-view-ov
     vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(300);
     vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(96);
     render(<TestRunSection yamlText={CHIP_YAML} />);
-    const strip = screen.getByRole("group", { name: "테스트 흐름" });
-    expect(within(strip).getByRole("button", { name: "전체 펼치기" })).toBeInTheDocument();
+    const strip = screen.getByRole("group", { name: ko.editor.testFlowTitle });
+    expect(
+      within(strip).getByRole("button", { name: ko.editor.chipStripExpand }),
+    ).toBeInTheDocument();
   });
 });

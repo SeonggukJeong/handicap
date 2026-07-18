@@ -154,14 +154,14 @@ function ChipNode({ step, results, selectedStepId, onSelect }: NodeProps) {
   );
 }
 
+const WRAP_BASE = "flex flex-wrap items-center gap-1.5";
+
 /** 시나리오 흐름을 가로 flex-wrap 그룹 칩으로 미러하는 상시 스트립(spec R1/R2).
  *  run 전 = 플레인 미러, run 후 = deriveChipResults로 스텝별 ✓/✗/○(spec R4/R5).
  *  칩 클릭 = onSelect(stepId) — 부모가 store select로 배선(spec R6).
  *  칩 wrap은 기본 max-h-24 캡+내부 스크롤 — 긴 시나리오가 wide 아웃라인/결과 패널을
  *  잠식하지 않게(editor-wide-view-overflow R1). expandable(TestRunSection만)이면
  *  overflow 실측 시 "전체 펼치기/접기" 토글(R2). */
-const WRAP_BASE = "flex flex-wrap items-center gap-1.5";
-
 export function TestFlowChips({
   steps,
   trace,
@@ -183,21 +183,29 @@ export function TestFlowChips({
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
 
+  const hasSteps = steps.length > 0;
   // overflow 불리언의 모든 전이는 캡 경계(96px)를 지나며 wrap 박스 높이가 변하므로
   // 재측정은 RO 전담으로 충분(캡에 눌린 96px→96px 내부 증감은 상태도 불변이라 무발화 무해).
-  // deps에 steps/trace를 넣으면 effect 본문 미참조로 exhaustive-deps 경고(--max-warnings=0).
-  // 알려진 한계(수용, spec §7): steps 0→>0로 wrap이 재마운트되면 새 div를 재관측하지
-  // 않아 overflowing이 stale할 수 있음(토글 가시성만 영향·리마운트로 회복).
+  // hasSteps가 게이트이자 deps인 이유: 소비처(ScenarioEditPage)는 yamlText=""로 먼저
+  // 마운트돼 첫 렌더의 steps가 []다 → wrap 미존재 → RO 미생성. deps가 [expandable]뿐이면
+  // 칩이 뒤늦게 도착해도 effect가 재실행되지 않아 토글이 영구 사망한다(US1). 같은 이유로
+  // steps가 0으로 돌아갔다 돌아오는 경로의 detached-node stale observer도 함께 해소.
+  // expanded도 deps이자 measure 가드: 펼친 동안엔 캡이 없어 scrollHeight==clientHeight라
+  // 재측정이 overflowing을 지우고, 이어지는 접기 클릭이 토글을 unmount시켜 키보드 포커스가
+  // <body>로 떨어진다. 접힘 복귀 시엔 effect 재실행의 measure()가 즉시 정확값을 다시 잡는다.
   useLayoutEffect(() => {
-    if (!expandable) return;
+    if (!expandable || !hasSteps) return;
     const el = wrapRef.current;
     if (!el) return;
-    const measure = () => setOverflowing(el.scrollHeight > el.clientHeight);
+    const measure = () => {
+      if (expanded) return;
+      setOverflowing(el.scrollHeight > el.clientHeight);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [expandable]);
+  }, [expandable, hasSteps, expanded]);
 
   if (steps.length === 0) return null;
   return (
