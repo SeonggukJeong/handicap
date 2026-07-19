@@ -281,7 +281,11 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
 
   return (
     <Modal open={open} onClose={onClose} title={ko.editor.thinkBoardTitle}>
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+      <div
+        role="group"
+        aria-label={ko.editor.thinkBoardDefaultLabel}
+        className="mb-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"
+      >
         <span className="font-semibold">{ko.editor.thinkBoardDefaultLabel}</span>
         <div className="w-20">
           <Input

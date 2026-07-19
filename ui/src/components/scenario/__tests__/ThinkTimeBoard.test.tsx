@@ -411,7 +411,10 @@ describe("ThinkTimeBoard — 기본값 인라인 편집 (R2)", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     // 이빨 대상은 이 단언 하나다. 아래 행 단언은 normalizeEffective가 상류에서
     // 접어주므로 formatThink를 망가뜨려도 RED가 안 난다(일관성 락인으로만 유지).
-    expect(screen.getByTestId("default-summary")).toHaveTextContent(ko.editor.thinkNoWait);
+    // 앵커는 정규식 full-match다. 평문 `thinkNoWait`("대기없음")로 단언하면
+    // thinkBoardDefaultNone("없음 — 상속 스텝은 모두 대기없음")이 이를 **부분문자열로
+    // 포함**해 undefined 분기에서도 통과한다({0,0} 분기와 구별 불가).
+    expect(screen.getByTestId("default-summary")).toHaveTextContent(/^대기없음$/);
     expect(within(row("핑")).getByTestId("effective")).toHaveTextContent(ko.editor.thinkNoWait);
   });
 
