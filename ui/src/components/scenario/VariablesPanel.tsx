@@ -391,11 +391,15 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           // 빈 값을 성공적으로 보내게 만든다([[load-divergence-explain-confirm]] 조용한 부하 왜곡).
           // 형제 분기 위반(refKind==="sibling")은 후보 나열이 아니라 전용 문구.
           const hint = undefinedBranchHint(row.candidates, row.refKind, row.name);
+          // 힌트 <span>과 이름 <span>의 programmatic 연결(nit 4) — SettingsPage의
+          // `${prefix}-${key}` per-row 안정 id 관용구(useId 아님, 리스트 항목이라 key 파생).
+          const hintId = `variable-undefined-hint-${row.name}`;
           return (
             <li key={`u:${row.name}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span
                 className="min-w-[72px] flex-1 truncate font-mono text-xs text-slate-600"
                 title={ko.editor.variableUndefinedAria(row.name)}
+                aria-describedby={hint ? hintId : undefined}
               >
                 {row.name}
               </span>
@@ -418,7 +422,11 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                 </button>
               )}
               {usageCell(`u:${row.name}`, row.name, row.refIds)}
-              {hint && <span className="w-full shrink-0 text-xs text-slate-500">{hint}</span>}
+              {hint && (
+                <span id={hintId} className="w-full shrink-0 text-xs text-slate-500">
+                  {hint}
+                </span>
+              )}
             </li>
           );
         })}

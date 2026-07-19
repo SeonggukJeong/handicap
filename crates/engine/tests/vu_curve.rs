@@ -237,6 +237,43 @@ async fn vu_curve_all_spawned_vus_failed() {
     );
 }
 
+/// Mirrors `tests/all_vus_failed.rs::all_vus_failed_carries_first_failure_cause`
+/// for the vu-curve path. The vu-curve cause capture (`runner.rs`, the
+/// `if let Some(msg) = safe_cause(&e) { let _ = cause.set(msg); }` block
+/// mirroring `run_scenario`'s) had no test with teeth before this: the
+/// existing `vu_curve_all_spawned_vus_failed` test above only matches
+/// `AllVusFailed { .. }` — a copy-paste error in the mirrored capture (wrong
+/// slot, or a missing `safe_cause()` call leaving `cause: None`) would fail
+/// nothing there. Asserting `to_string()` carries the sampled cause closes
+/// that gap. Single VU (as the closed-loop acceptance test does) to keep the
+/// `OnceLock` first-writer nondeterminism a non-issue.
+#[tokio::test]
+async fn vu_curve_all_spawned_vus_failed_carries_cause() {
+    let yaml = "version: 1\nname: vc\nsteps:\n  - id: 01HX0000000000000000000010\n    name: bad\n    type: http\n    request:\n      method: GET\n      url: http://127.0.0.1:1/{{missing}}\n    assert:\n      - status: 200\n";
+    let sc: Arc<Scenario> = Arc::new(serde_yaml::from_str(yaml).unwrap());
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    let h = tokio::spawn(run_scenario_vu_curve(
+        sc,
+        curve_plan(vec![stage(1, 1)], RampDown::Graceful),
+        tx,
+        CancellationToken::new(),
+    ));
+    drain(&mut rx).await;
+    let res = h.await.unwrap();
+    match res {
+        Err(err @ handicap_engine::EngineError::AllVusFailed { failed, total, .. }) => {
+            assert_eq!(failed, 1, "expected 1 failed VU");
+            assert_eq!(total, 1, "expected 1 total VU");
+            assert_eq!(
+                err.to_string(),
+                "all VUs failed (1/1): template: unknown variable missing",
+                "vu-curve cause capture must mirror closed-loop (safe_cause sample)"
+            );
+        }
+        other => panic!("expected Err(AllVusFailed), got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn vu_curve_abort_cancels_run() {
     let server = MockServer::start().await;

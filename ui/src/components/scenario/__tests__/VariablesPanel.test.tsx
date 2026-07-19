@@ -644,7 +644,12 @@ describe("VariablesPanel — 분기 미스코프 힌트 + '선언 추가' 조건
         name: ko.editor.variableDeclareAddAria("missing"),
       }),
     ).toBeInTheDocument();
-    expect(within(missingLi).queryByText(/parallel 분기/)).toBeNull();
+    // ko 접근자 경유(고정 카피 프래그먼트 아님) — variableBranchCandidateHint 문구가
+    // 리워딩돼도 이 부재 단언은 vacuous하게 통과하지 않는다(fix-2 nit 3).
+    expect(within(missingLi).queryByText(ko.editor.variableSiblingBranchHint)).toBeNull();
+    expect(
+      within(missingLi).queryByText(ko.editor.variableBranchCandidateHint("alpha", "missing")),
+    ).toBeNull();
   });
 
   it("두 형제 분기가 같은 이름을 추출(candidates=2+)하면 후보 나열 힌트 + '선언 추가' 미렌더", () => {
@@ -696,6 +701,37 @@ steps:
     expect(within(vLi).getByText(ko.editor.variableSiblingBranchHint)).toBeInTheDocument();
     expect(
       within(vLi).queryByRole("button", { name: ko.editor.variableDeclareAddAria("v") }),
+    ).toBeNull();
+  });
+
+  it("fix-2 blocker: 서로 다른 두 top-level parallel 노드 — P2/use의 bare {{token}} 참조는 P1/auth의 candidate 힌트를 보여준다(형제 문구 아님)", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: cross
+cookie_jar: auto
+variables: {}
+steps:
+  - id: 01HX0000000000000000001100
+    name: p1
+    type: parallel
+    branches:
+      - name: auth
+        steps: [ { id: "01HX0000000000000000001101", type: http, name: login, request: { method: GET, url: "/login" }, extract: [ { var: token, from: status } ] } ]
+  - id: 01HX0000000000000000001200
+    name: p2
+    type: parallel
+    branches:
+      - name: use
+        steps: [ { id: "01HX0000000000000000001201", type: http, name: consume, request: { method: GET, url: "/x?t={{token}}" } } ]
+`);
+    render(<VariablesPanel />);
+    const tokenLi = screen.getByTitle(ko.editor.variableUndefinedAria("token")).closest("li")!;
+    expect(
+      within(tokenLi).getByText(ko.editor.variableBranchCandidateHint("auth", "token")),
+    ).toBeInTheDocument();
+    expect(within(tokenLi).queryByText(ko.editor.variableSiblingBranchHint)).toBeNull();
+    // candidates>=1이므로 "선언 추가"는 여전히 숨겨진다(빈 값으로 지우는 잘못된 fix 방지).
+    expect(
+      within(tokenLi).queryByRole("button", { name: ko.editor.variableDeclareAddAria("token") }),
     ).toBeNull();
   });
 

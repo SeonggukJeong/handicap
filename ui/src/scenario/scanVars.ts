@@ -246,8 +246,13 @@ export type UndefinedRef = {
   stepIds: string[];
   /** 이 bare 이름을 추출하는 분기명, 문서순·dedup. namespaced 키는 항상 []. */
   candidates: string[];
-  /** 위반 참조가 어떤 parallel 분기 서브트리 안에만 있으면 "sibling", 하나라도 그 밖(다운스트림/
-   *  namespaced)이면 "downstream"(더 흔하고 수정 가능한 쪽 우선). */
+  /** 위반 참조가 **같은 parallel 노드** 안 형제 분기 서브트리에만 있으면 "sibling", 하나라도
+   *  그 밖(최상위·분기 밖 loop/if·다른 parallel 노드의 분기·namespaced)이면 "downstream"(더
+   *  흔하고 수정 가능한 쪽 우선). 서로 다른 top-level parallel 노드는 순차 실행(엔진이 다음
+   *  노드를 시작하기 전에 앞 노드가 `join_all`로 병합·완료)이므로, 한 노드의 분기에서 **다른**
+   *  노드의 분기 extract를 bare로 참조해도 실제로는 정의돼 있다 — 그런 참조는 "sibling"이
+   *  아니라 "downstream"(fix-2 blocker: 노드 정체성 없이 "어떤 분기 안이냐"만 봤을 땐 이걸
+   *  형제로 오분류해 틀린 힌트를 냈다). */
   kind: "downstream" | "sibling";
 };
 
@@ -298,11 +303,11 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
   // 일치하는 건 ADR-0033의 top-level-only 강제(분기 안 재중첩 parallel을 UI가 만들 수
   // 없음) 덕분 — 이 강제가 풀려 분기 안에 parallel을 authoring할 수 있게 되면 이 둘의
   // 스캔 범위가 갈라진다(재검토 필요, 아래 `walk` parallel arm의 짝 주석 참고).
-  const branchOwn: { name: string; names: Set<string> }[] = [];
+  const branchOwn: { name: string; nodeId: string; names: Set<string> }[] = [];
   for (const s of scenario.steps) {
     if (s.type !== "parallel") continue;
     for (const b of s.branches)
-      branchOwn.push({ name: b.name, names: collectSubtreeExtractNames(b.steps) });
+      branchOwn.push({ name: b.name, nodeId: s.id, names: collectSubtreeExtractNames(b.steps) });
   }
   const candidatesFor = (bareName: string): string[] => {
     const out: string[] = [];
@@ -310,21 +315,43 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
       if (bp.names.has(bareName) && !out.includes(bp.name)) out.push(bp.name);
     return out;
   };
+  // 이 bare 이름을 추출하는 후보 분기들이 속한 parallel **노드** id 집합(fix-2 blocker) —
+  // candidatesFor와 같은 branchOwn 소스를 노드-id 축으로 인덱싱, kind(sibling/downstream)
+  // 재판정의 "같은 노드" 여부를 가리는 데만 쓰인다(candidates 자체는 여전히 bare 분기명만).
+  const candidateNodeIdsFor = (bareName: string): Set<string> => {
+    const out = new Set<string>();
+    for (const bp of branchOwn) if (bp.names.has(bareName)) out.add(bp.nodeId);
+    return out;
+  };
 
-  const acc = new Map<string, { stepIds: string[]; sawDownstream: boolean }>();
-  const record = (name: string, stepId: string, insideBranch: boolean): void => {
+  const acc = new Map<
+    string,
+    { stepIds: string[]; sawDownstream: boolean; ownerNodeIds: Set<string> }
+  >();
+  const record = (
+    name: string,
+    stepId: string,
+    insideBranch: boolean,
+    ownerNodeId: string | null,
+  ): void => {
     let a = acc.get(name);
     if (!a) {
-      a = { stepIds: [], sawDownstream: false };
+      a = { stepIds: [], sawDownstream: false, ownerNodeIds: new Set() };
       acc.set(name, a);
     }
     a.stepIds.push(stepId);
     if (!insideBranch) a.sawDownstream = true;
+    else if (ownerNodeId !== null) a.ownerNodeIds.add(ownerNodeId);
   };
 
-  // own = 현재 위치가 속한 분기의 자기 extract 집합(분기 밖이면 null). namespaced는 own과 무관하게
-  // 전역 `namespaced`로만 해석(위 doc의 declared-limit).
-  const judge = (refs: Set<string>, stepId: string, own: Set<string> | null): void => {
+  // own = 현재 위치가 속한 분기의 자기 extract 집합 + 그 분기를 소유한 parallel 노드 id(분기
+  // 밖이면 null). nodeId는 fix-2 blocker의 sibling/downstream 재판정(같은 노드인지)에만 쓰인다.
+  // namespaced는 own과 무관하게 전역 `namespaced`로만 해석(위 doc의 declared-limit).
+  const judge = (
+    refs: Set<string>,
+    stepId: string,
+    own: { nodeId: string; names: Set<string> } | null,
+  ): void => {
     for (const name of refs) {
       if (flatBase.has(name)) continue;
       if (name.includes(".")) {
@@ -335,15 +362,18 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         // inside a parallel branch, because a dotted ref only resolves after
         // the branch's `join_all` completes (never "sibling" — see `judge`'s
         // doc above and `UndefinedRef.kind`).
-        record(name, stepId, false);
+        record(name, stepId, false, null);
         continue;
       }
-      if (own !== null && own.has(name)) continue;
-      record(name, stepId, own !== null);
+      if (own !== null && own.names.has(name)) continue;
+      record(name, stepId, own !== null, own?.nodeId ?? null);
     }
   };
 
-  const walk = (steps: ReadonlyArray<Step>, own: Set<string> | null): void => {
+  const walk = (
+    steps: ReadonlyArray<Step>,
+    own: { nodeId: string; names: Set<string> } | null,
+  ): void => {
     for (const s of steps) {
       if (s.type === "http") {
         const refs = new Set<string>();
@@ -365,7 +395,8 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         // by construction (ADR-0033 forbids authoring a parallel nested inside
         // a branch), so this only ever fires for top-level parallels too — see
         // the `branchOwn` comment above for the invariant this depends on.
-        for (const b of s.branches) walk(b.steps, collectSubtreeExtractNames(b.steps));
+        for (const b of s.branches)
+          walk(b.steps, { nodeId: s.id, names: collectSubtreeExtractNames(b.steps) });
       } else {
         const refs = new Set<string>();
         collectCondRefs(s.cond, refs);
@@ -381,10 +412,23 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
 
   const out = new Map<string, UndefinedRef>();
   for (const [name, a] of acc) {
+    // sibling = 다운스트림 occurrence가 전혀 없고(sawDownstream===false) *그리고* 위반이
+    // 일어난 분기의 소유 노드 중 적어도 하나가 그 이름을 추출하는 후보 분기의 소유 노드와
+    // 일치할 때만(fix-2 blocker) — 서로 다른 top-level parallel 노드는 순차 실행(join_all 후
+    // 다음 노드)이라 노드 경계를 넘는 참조는 실제로 정의돼 있으므로 "downstream"으로 분류해
+    // 올바른 {{branch.var}} 힌트를 보여준다.
+    let kind: "downstream" | "sibling";
+    if (a.sawDownstream) {
+      kind = "downstream";
+    } else {
+      const candidateNodeIds = candidateNodeIdsFor(name);
+      const sameNode = [...a.ownerNodeIds].some((nid) => candidateNodeIds.has(nid));
+      kind = sameNode ? "sibling" : "downstream";
+    }
     out.set(name, {
       stepIds: a.stepIds,
       candidates: name.includes(".") ? [] : candidatesFor(name),
-      kind: a.sawDownstream ? "downstream" : "sibling",
+      kind,
     });
   }
   return out;

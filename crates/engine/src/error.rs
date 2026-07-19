@@ -39,9 +39,13 @@ pub type Result<T> = std::result::Result<T, EngineError>;
 /// `truncate_message` → the `runs.message` DB column → `GET /api/runs/{id}` →
 /// UI). **Allowlist, not denylist**: a new `EngineError` variant must be
 /// reviewed and explicitly added to an arm here before its `Display` output can
-/// reach a persisted record — the catch-all `_ => None` is the safe default
-/// (message falls back to the byte-identical pre-cause `"all VUs failed (N/N)"`
-/// form, same as before Task 2).
+/// reach a persisted record. The exclusion arm below names every excluded
+/// variant explicitly (no `_` catch-all) so that adding a new `EngineError`
+/// variant fails this match at *compile time* instead of silently falling
+/// through to `None` with no review signal — the fail-closed *behavior* is
+/// identical to a catch-all (message falls back to the byte-identical
+/// pre-cause `"all VUs failed (N/N)"` form, same as before Task 2), only the
+/// compile-time enforcement differs.
 ///
 /// `Http(#[from] reqwest::Error)` is the concrete reason for allowlist-over-
 /// denylist: its `Display` renders URLs (`… for url
@@ -66,10 +70,16 @@ pub fn safe_cause(e: &EngineError) -> Option<String> {
         EngineError::CastFailed { var, cast, .. } => {
             Some(format!("template: cannot cast {var} to {cast}"))
         }
-        // Http (URL-bearing, see above), Io, ExtractFailed, AllVusFailed (not a
-        // per-VU cause), Aborted (already excluded by the caller before this is
-        // ever invoked) — no arm, falls to `None`.
-        _ => None,
+        // Http (URL-bearing, see above), Io (may embed local paths),
+        // ExtractFailed (may embed response-body/JSON-parse-error snippets),
+        // AllVusFailed (not a per-VU cause — it's the very error this cause
+        // gets embedded into), Aborted (already excluded by the caller before
+        // this is ever invoked) — each named explicitly, not a wildcard.
+        EngineError::Http(_)
+        | EngineError::Io(_)
+        | EngineError::ExtractFailed(_)
+        | EngineError::AllVusFailed { .. }
+        | EngineError::Aborted => None,
     }
 }
 

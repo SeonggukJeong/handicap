@@ -1252,3 +1252,71 @@ describe("undefinedVarRefs kind tie-break (Task 3 review carry-over, no prior co
     expect(v?.candidates).toEqual(["B"]);
   });
 });
+
+// fix-2 blocker regression guard: TWO SEPARATE top-level parallel nodes — P1's branch
+// `auth` extracts `token`; a LATER node P2's branch `use` bare-references `{{token}}`.
+// Verified in the engine (runner.rs:684-686): each branch's outputs are merged into
+// `iter_vars` via `join_all` before the node returns, and P1 fully join_all's before P2
+// starts (top-level steps run sequentially) — so `{{token}}` genuinely resolves inside
+// P2's branch. This is NOT a same-node sibling violation (spec §2.4 scopes the sibling
+// copy to a reference inside branch A to branch B's extract WITHIN THE SAME parallel
+// node) — pre-fix, `branchOwn`/`own` carried no parallel-node identity so this was
+// misclassified "sibling" (wrong hint + hidden "선언 추가" action for an ordinary shape).
+const crossNodeDownstreamBare = ScenarioModel.parse({
+  version: 1,
+  name: "cross",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000001100",
+      name: "p1",
+      type: "parallel",
+      branches: [
+        {
+          name: "auth",
+          steps: [
+            {
+              id: "01HX0000000000000000001101",
+              name: "login",
+              type: "http",
+              request: { method: "GET", url: "/login", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.token", var: "token" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000001200",
+      name: "p2",
+      type: "parallel",
+      branches: [
+        {
+          name: "use",
+          steps: [
+            {
+              id: "01HX0000000000000000001201",
+              name: "consume",
+              type: "http",
+              request: { method: "GET", url: "/x?t={{token}}", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+describe("undefinedVarRefs cross-node parallel classification (fix-2 blocker)", () => {
+  it("a bare ref in a LATER top-level parallel node's branch to an EARLIER node's branch extract is downstream (join_all sequences the two nodes), not sibling", () => {
+    const refs = undefinedVarRefs(crossNodeDownstreamBare);
+    const t = refs.get("token");
+    expect(t).toBeDefined();
+    expect(t?.kind).toBe("downstream");
+    expect(t?.candidates).toEqual(["auth"]);
+  });
+});
