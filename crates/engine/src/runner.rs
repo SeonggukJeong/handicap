@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -141,6 +142,12 @@ pub async fn run_scenario(
     let started_at = Instant::now();
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
+    // Sample of the first non-Aborted VU failure cause (Task 2, US3). First
+    // writer wins (`OnceLock::set` on later failures is a no-op) — with a
+    // single VU this is deterministic; with multiple VUs it's a race, which is
+    // why acceptance only asserts single-cause/single-VU (see engine/tests
+    // all_vus_failed.rs doc comment).
+    let cause: Arc<OnceLock<String>> = Arc::new(OnceLock::new());
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
@@ -185,6 +192,7 @@ pub async fn run_scenario(
             let scenario = scenario.clone();
             let agg = agg.clone();
             let failed = failed.clone();
+            let cause = cause.clone();
             let env = env.clone();
             let cancel_vu = cancel.clone();
             let datasets = datasets.clone();
@@ -208,6 +216,18 @@ pub async fn run_scenario(
                 {
                     if !matches!(e, EngineError::Aborted) {
                         warn!(vu_id, error = ?e, "vu failed");
+                        // Capture the first non-Aborted cause HERE, inside this
+                        // gate, not after the JoinSet drain below. Defensive,
+                        // not observable today: `if cancel.is_cancelled() {
+                        // return Err(EngineError::Aborted); }` at runner.rs:335
+                        // already early-returns before `AllVusFailed` is ever
+                        // constructed on a cancelled run, so no reachable input
+                        // can carry a cancel-tainted cause. If that early
+                        // return is ever reordered or removed, this placement
+                        // keeps a user abort from being recorded as "the
+                        // failure cause". First writer wins (`OnceLock`); later
+                        // failures on other VUs are no-ops.
+                        let _ = cause.set(e.to_string());
                     }
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -321,6 +341,7 @@ pub async fn run_scenario(
         return Err(EngineError::AllVusFailed {
             failed: failed_count,
             total: plan.vus,
+            cause: cause.get().cloned(),
         });
     }
     if failed_count > 0 {
@@ -727,6 +748,9 @@ pub async fn run_scenario_vu_curve(
     let started_at = Instant::now();
     let deadline = started_at + plan.duration;
     let failed = Arc::new(AtomicU32::new(0));
+    // Sample of the first non-Aborted VU failure cause (Task 2, US3) — mirror
+    // of run_scenario's `cause` slot, see that function for the full rationale.
+    let cause: Arc<OnceLock<String>> = Arc::new(OnceLock::new());
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
@@ -818,6 +842,7 @@ pub async fn run_scenario_vu_curve(
             let scenario = scenario.clone();
             let agg = agg.clone();
             let failed = failed.clone();
+            let cause = cause.clone();
             let env = env.clone();
             let cancel_vu = cancel.clone();
             let datasets = datasets.clone();
@@ -846,6 +871,16 @@ pub async fn run_scenario_vu_curve(
                 {
                     if !matches!(e, EngineError::Aborted) {
                         warn!(vu_id, error = ?e, "vu failed");
+                        // Capture the first non-Aborted cause HERE, inside this
+                        // gate — mirror of run_scenario's placement (see that
+                        // function's spawn closure for the full rationale).
+                        // Defensive, not observable today: `if
+                        // cancel.is_cancelled() { return
+                        // Err(EngineError::Aborted); }` at runner.rs:963
+                        // already early-returns before `AllVusFailed` is ever
+                        // constructed on a cancelled run. First writer wins
+                        // (`OnceLock`).
+                        let _ = cause.set(e.to_string());
                     }
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -940,6 +975,7 @@ pub async fn run_scenario_vu_curve(
         return Err(EngineError::AllVusFailed {
             failed: failed_count,
             total: spawned,
+            cause: cause.get().cloned(),
         });
     }
     if failed_count > 0 {

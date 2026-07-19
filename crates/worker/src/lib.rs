@@ -708,6 +708,7 @@ mod tests {
         let res: Result<(), EngineError> = Err(EngineError::AllVusFailed {
             failed: 5,
             total: 5,
+            cause: None,
         });
         let (phase, msg) = phase_for_result(&res);
         assert_eq!(phase, pb::run_status::Phase::Failed as i32);
