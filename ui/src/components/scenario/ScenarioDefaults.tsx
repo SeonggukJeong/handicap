@@ -3,6 +3,7 @@ import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { HelpTip } from "../HelpTip";
 import { Input } from "../ui/Input";
+import { resolveThinkDraft } from "../../scenario/thinkTime";
 
 /** ScenarioDefaults의 min/max 입력 전용 로컬 Field — Inspector.tsx의 동명 로컬
  *  이디엄(label span + children, htmlFor 없는 암묵 연관)과 시각적으로 동일하게 유지. */
@@ -35,23 +36,23 @@ export function ScenarioDefaults() {
     setMaxDraft(defaultThink ? String(defaultThink.max_ms) : "");
   }, [defaultThink]);
 
+  // 4분기 커밋 규칙은 thinkTime.ts::resolveThinkDraft가 단일 소스다 — Inspector·
+  // ThinkTimeBoard와 규칙을 공유한다. 여기선 outcome에 따른 store/setState 호출만.
   const commit = () => {
-    const minR = minDraft.trim();
-    const maxR = maxDraft.trim();
-    if (minR === "" && maxR === "") {
-      setDefaultThinkTime(undefined); // 키 제거
-      return;
-    }
-    // 정확히 한 칸만 비면 입력 중 — no-op(draft 보존)
-    if (minR === "" || maxR === "") return;
-    const mn = Number(minR);
-    const mx = Number(maxR);
-    if (Number.isInteger(mn) && Number.isInteger(mx) && mn >= 0 && mx >= mn && mx <= 600_000) {
-      setDefaultThinkTime({ min_ms: mn, max_ms: mx });
-    } else {
-      // 마지막 커밋값으로 되돌리기 (NaN/범위밖/min>max 미기록)
-      setMinDraft(defaultThink ? String(defaultThink.min_ms) : "");
-      setMaxDraft(defaultThink ? String(defaultThink.max_ms) : "");
+    const outcome = resolveThinkDraft(minDraft, maxDraft);
+    switch (outcome.kind) {
+      case "clear":
+        setDefaultThinkTime(undefined);
+        return;
+      case "noop":
+        return;
+      case "commit":
+        setDefaultThinkTime(outcome.value);
+        return;
+      case "revert":
+        setMinDraft(defaultThink ? String(defaultThink.min_ms) : "");
+        setMaxDraft(defaultThink ? String(defaultThink.max_ms) : "");
+        return;
     }
   };
 
