@@ -128,7 +128,7 @@
 - **HAR 가져오기 host-환경 힌트**: 감지된 host가 기존 환경(environments)에 등록돼 있으면 어느 세트에 있는지 안내(비차단 — 다른 이름 저장 허용). UI-only 소형.
 - **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI. — **완료 2026-07-16(dataset-preview, 도그푸딩 3호 — build-log 참조)**
 - **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형. — **완료 2026-07-16(editor-dataset-testrun, 도그푸딩 4호·ADR-0047 — build-log 참조)**
-- **think-time 현황판**: 시나리오 기본값 외에 각 스텝별 think-time이 어떻게 설정돼 있는지(상속/override/대기없음) 한눈에 확인하고 그 자리에서 수정하는 현황판. think-time-defaults(도그푸딩 2호) 후속 — 사용자 제안 2026-07-17. UI-only 추정(모델은 이미 3상태 지원).
+- ~~**think-time 현황판**: 시나리오 기본값 외에 각 스텝별 think-time이 어떻게 설정돼 있는지(상속/override/대기없음) 한눈에 확인하고 그 자리에서 수정하는 현황판. think-time-defaults(도그푸딩 2호) 후속 — 사용자 제안 2026-07-17. UI-only 추정(모델은 이미 3상태 지원).~~ ✅ 완료(머지 `4ca2ccd`, 2026-07-19 — 5상태 배지+실효 대기 열·행별 편집·다중선택 일괄 3액션·병렬 비차단 안내·yamlError 게이트. UI-only 추정 적중). **후속 남음**: R1-a2 확산(기본값 `{0,0}`일 때 Inspector `0–0ms`·FlowOutline wide 칩이 현황판의 "대기없음"과 어긋남 — 같은 엔진 동작의 마지막 두 문자열)·일괄 [적용]/[대기없음으로]가 병렬 분기 행에 들어갈 때 안내 없음(ADR-0033 근거상 전 분기 일괄 주입은 이 현황판이 최초 어포던스).
 
 **editor-viewport-polish-v2 연기 항목 (2026-07-05, 머지 후 백로그)**:
 - **스크롤바 정확히 8px**: A 얇은 스크롤바는 라이브 실측 11px(스펙 목표 8px 아님) — `scrollbar-width: thin`이 설정되면 Chromium이 표준 얇은 바를 쓰고 `::-webkit-scrollbar { width: 8px }`를 무시한다. 15→11px로 얇아지긴 함. 정확히 8px 원하면 `scrollbar-width`/`scrollbar-color`를 걷어내고 webkit 전용(`::-webkit-scrollbar`)으로 바꿔야 하나 그러면 Firefox가 얇은 바를 잃는 트레이드오프. `index.css` 소형. (사용자: 8px 불필수, 얇아진 것으로 수용 — 필요 시 조정.)
