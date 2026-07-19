@@ -422,6 +422,13 @@ describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
     await user.click(within(row("로그인")).getByRole("checkbox"));
     expect(screen.getByRole("group", { name: ko.editor.thinkBoardBulkAria })).toBeInTheDocument();
 
+    // [적용]은 disabled={disabled || !bulkValid} 복합조건이다 — 일괄 min/max를 비운
+    // 채로 두면 !bulkValid가 이미 true라 disabled 게이트를 지워도 여전히 disabled로
+    // 남아 아래 단언이 yamlError에 대해 공허해진다. bulkValid를 참으로 만들어야
+    // "disabled ||"가 실제로 관측 가능한 게이트가 된다.
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria), "300");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMaxAria), "800");
+
     useScenarioEditor.getState().setPendingYamlText("steps: [oops");
     act(() => {
       useScenarioEditor.getState().commitPendingYaml();
