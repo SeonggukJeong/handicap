@@ -902,3 +902,180 @@ ${block}steps: []
     expect(bare.model.default_think_time).toBeUndefined();
   });
 });
+
+describe("setStepsThinkTime (일괄 think-time)", () => {
+  const MULTI = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+default_think_time:
+  min_ms: 200
+  max_ms: 500
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "a"
+    type: http
+    request:
+      method: GET
+      url: "/a"
+  # keep-me: 형제 주석
+  - id: "01HX0000000000000000000002"
+    name: "b"
+    type: http
+    request:
+      method: GET
+      url: "/b"
+  - id: "01HX0000000000000000000003"
+    name: "loop"
+    type: loop
+    repeat: 2
+    do:
+      - id: "01HX0000000000000000000004"
+        name: "c"
+        type: http
+        request:
+          method: GET
+          url: "/c"
+`;
+
+  const parse = (yaml: string) => {
+    const r = parseScenarioDoc(yaml);
+    if ("error" in r) throw new Error(`fixture parse failed: ${r.error}`);
+    return r;
+  };
+
+  const applyTo = (yaml: string, edit: Edit) => {
+    const { doc } = parse(yaml);
+    applyEdit(doc, edit);
+    return serializeDoc(doc);
+  };
+
+  it("지정한 id만 바뀌고 나머지는 보존된다", () => {
+    const out = applyTo(MULTI, {
+      type: "setStepsThinkTime",
+      stepIds: ["01HX0000000000000000000001", "01HX0000000000000000000004"],
+      value: { min_ms: 300, max_ms: 800 },
+    });
+    const sc = parse(out).model;
+    const rows = sc.steps;
+    expect(rows[0].type === "http" && rows[0].think_time).toEqual({ min_ms: 300, max_ms: 800 });
+    expect(rows[1].type === "http" && rows[1].think_time).toBeUndefined();
+    // rows[2].do[0]는 LoopBodyStep(http|nested-if) 판별 유니온이라 .type === "http"까지
+    // narrow해야 think_time 접근이 tsc를 통과한다(모델의 loop.do가 http-only가 아님 —
+    // 브리프 verbatim 코드는 이 유니온을 가정하지 않아 TS2339, self-audit로 발견).
+    expect(
+      rows[2].type === "loop" && rows[2].do[0].type === "http" && rows[2].do[0].think_time,
+    ).toEqual({
+      min_ms: 300,
+      max_ms: 800,
+    });
+  });
+
+  it("value undefined면 think_time 키가 사라진다", () => {
+    const seeded = applyTo(MULTI, {
+      type: "setStepsThinkTime",
+      stepIds: ["01HX0000000000000000000001", "01HX0000000000000000000002"],
+      value: { min_ms: 10, max_ms: 20 },
+    });
+    expect(seeded).toContain("think_time");
+
+    const cleared = applyTo(seeded, {
+      type: "setStepsThinkTime",
+      stepIds: ["01HX0000000000000000000001", "01HX0000000000000000000002"],
+      value: undefined,
+    });
+    // 주의: 원본 fixture(MULTI)의 `default_think_time:`이 부분문자열로
+    // "think_time:"을 포함하므로(`default_` + `think_time:`) raw
+    // `not.toContain("think_time:")`은 구현 정합성과 무관하게 항상 실패한다
+    // (브리프 verbatim 버그, self-audit로 발견 — task-2-report.md 참고).
+    // 파싱된 모델에서 대상 스텝의 think_time만 확인해 같은 의도를 검증한다.
+    const clearedModel = parse(cleared).model;
+    expect(
+      clearedModel.steps[0].type === "http" && clearedModel.steps[0].think_time,
+    ).toBeUndefined();
+    expect(
+      clearedModel.steps[1].type === "http" && clearedModel.steps[1].think_time,
+    ).toBeUndefined();
+  });
+
+  it("빈 stepIds는 문서를 바꾸지 않는다", () => {
+    const out = applyTo(MULTI, {
+      type: "setStepsThinkTime",
+      stepIds: [],
+      value: { min_ms: 1, max_ms: 2 },
+    });
+    expect(out).toBe(serializeDoc(parse(MULTI).doc));
+  });
+
+  it("존재하지 않는 id가 섞여도 나머지는 정상 적용된다", () => {
+    const out = applyTo(MULTI, {
+      type: "setStepsThinkTime",
+      stepIds: ["01HX0000000000000000000009", "01HX0000000000000000000002"],
+      value: { min_ms: 5, max_ms: 5 },
+    });
+    const sc = parse(out).model;
+    expect(sc.steps[1].type === "http" && sc.steps[1].think_time).toEqual({ min_ms: 5, max_ms: 5 });
+  });
+
+  it("형제 주석을 보존한다", () => {
+    const out = applyTo(MULTI, {
+      type: "setStepsThinkTime",
+      stepIds: ["01HX0000000000000000000002"],
+      value: { min_ms: 7, max_ms: 9 },
+    });
+    expect(out).toContain("keep-me: 형제 주석");
+  });
+});
+
+describe("store.setStepsThinkTime (http leaf 필터)", () => {
+  const YAML_WITH_LOOP = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000003"
+    name: "loop"
+    type: loop
+    repeat: 2
+    do:
+      - id: "01HX0000000000000000000004"
+        name: "c"
+        type: http
+        request:
+          method: GET
+          url: "/c"
+`;
+
+  it("컨테이너 id는 걸러져 doc/model divergence가 생기지 않는다", () => {
+    useScenarioEditor.getState().loadFromString(YAML_WITH_LOOP);
+    // 루프 컨테이너 id만 넘긴다 — 필터가 없으면 컨테이너에 think_time을 써서 Zod가 거부한다.
+    useScenarioEditor
+      .getState()
+      .setStepsThinkTime(["01HX0000000000000000000003"], { min_ms: 1, max_ms: 2 });
+    const s = useScenarioEditor.getState();
+    expect(s.yamlError).toBeNull();
+    expect(s.yamlText).not.toContain("think_time");
+  });
+
+  it("http leaf id는 정상 적용된다", () => {
+    useScenarioEditor.getState().loadFromString(YAML_WITH_LOOP);
+    useScenarioEditor
+      .getState()
+      .setStepsThinkTime(["01HX0000000000000000000004"], { min_ms: 1, max_ms: 2 });
+    const s = useScenarioEditor.getState();
+    expect(s.yamlError).toBeNull();
+    expect(s.yamlText).toContain("think_time");
+  });
+
+  it("yamlError 상태에서는 무변이다 (편집 게이트)", () => {
+    useScenarioEditor.getState().loadFromString(YAML_WITH_LOOP);
+    useScenarioEditor.getState().setPendingYamlText("steps: [oops");
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+    const before = useScenarioEditor.getState().yamlText;
+    useScenarioEditor
+      .getState()
+      .setStepsThinkTime(["01HX0000000000000000000004"], { min_ms: 1, max_ms: 2 });
+    expect(useScenarioEditor.getState().yamlText).toBe(before);
+  });
+});

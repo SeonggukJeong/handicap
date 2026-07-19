@@ -7,6 +7,7 @@ import {
   type Condition,
   type ThinkTime,
   findStepById,
+  flattenHttpSteps,
   isParallelStep,
   topAncestorIndex,
 } from "./model";
@@ -51,6 +52,8 @@ export interface ScenarioEditorState {
   setCookieJar(value: "auto" | "off"): void;
   /** 시나리오 기본 think time(모든 http 스텝이 상속; parallel 분기 제외). undefined → 키 제거. */
   setDefaultThinkTime(value: ThinkTime | undefined): void;
+  /** 여러 http 스텝의 think_time을 한 트랜잭션으로 설정/삭제(현황판 일괄 액션). */
+  setStepsThinkTime(stepIds: ReadonlyArray<string>, value: ThinkTime | undefined): void;
   setVariable(key: string, value: string): void;
   removeVariable(key: string): void;
   /** flat 변수(선언·비-parallel extract) rename. 선언 키 + 모든 extract.var + 모든
@@ -156,6 +159,17 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setDefaultThinkTime(value) {
     dispatch(set, get, { type: "setDefaultThinkTime", value });
+  },
+  setStepsThinkTime(stepIds, value) {
+    const model = get().model;
+    if (!model) return; // 빈 교집합과 같은 결과(no-op)
+    // http leaf 필터(필수 가드): findStepPath는 타입을 가리지 않으므로 컨테이너 id가
+    // 섞이면 컨테이너 노드에 think_time을 써서 .strict() Zod가 거부하고,
+    // dispatch는 doc을 이미 변형한 뒤라 doc-mutated/model-stale divergence가 남는다.
+    const allowed = new Set(flattenHttpSteps(model.steps).map((s) => s.id));
+    const filtered = stepIds.filter((id) => allowed.has(id));
+    if (filtered.length === 0) return;
+    dispatch(set, get, { type: "setStepsThinkTime", stepIds: filtered, value });
   },
   setVariable(key, value) {
     dispatch(set, get, { type: "setVariable", key, value });
@@ -450,6 +464,7 @@ const actions = (() => {
     setName: s.setName,
     setCookieJar: s.setCookieJar,
     setDefaultThinkTime: s.setDefaultThinkTime,
+    setStepsThinkTime: s.setStepsThinkTime,
     setVariable: s.setVariable,
     removeVariable: s.removeVariable,
     renameVariable: s.renameVariable,

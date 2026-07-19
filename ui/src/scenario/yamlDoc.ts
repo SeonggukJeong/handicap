@@ -31,6 +31,11 @@ export type Edit =
   | { type: "setName"; value: string }
   | { type: "setCookieJar"; value: "auto" | "off" }
   | { type: "setDefaultThinkTime"; value: ThinkTime | undefined }
+  | {
+      type: "setStepsThinkTime";
+      stepIds: ReadonlyArray<string>;
+      value: ThinkTime | undefined;
+    }
   | { type: "setVariable"; key: string; value: string }
   | { type: "removeVariable"; key: string }
   | { type: "addStep"; id: string; name: string }
@@ -460,6 +465,21 @@ export function applyEdit(doc: Document, edit: Edit): void {
           ? doc.createNode(edit.value)
           : edit.value;
       doc.setIn(fullPath, node);
+      return;
+    }
+    case "setStepsThinkTime": {
+      // setStepField와 같은 경로 로직을 id마다 반복한다. 모든 mutation이 이 함수 안에서
+      // 끝난 뒤 dispatch가 한 번만 재파싱·커밋하므로 관측 가능한 부분 적용 상태가 없다.
+      for (const stepId of edit.stepIds) {
+        const path = findStepPath(doc, stepId);
+        if (path === null) continue; // 못 찾은 id는 조용히 건너뛴다
+        const full: Array<string | number> = [...path, "think_time"];
+        if (edit.value === undefined) {
+          doc.deleteIn(full);
+        } else {
+          doc.setIn(full, doc.createNode(edit.value));
+        }
+      }
       return;
     }
     case "setStepAssert": {
