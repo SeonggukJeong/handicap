@@ -159,14 +159,6 @@ describe("ThinkTimeBoard — 읽기", () => {
     expect(screen.getByTestId("default-summary")).toHaveTextContent("200–500ms");
   });
 
-  it("기본값이 {0,0}이면 '대기없음' 요약 문구를 보여준다", () => {
-    useScenarioEditor.getState().loadFromString(YAML_DEFAULT_ZERO);
-    render(<ThinkTimeBoard open onClose={() => {}} />);
-    expect(screen.getByTestId("default-summary")).toHaveTextContent(
-      ko.editor.thinkBoardDefaultZero,
-    );
-  });
-
   it("스텝이 없으면 빈 상태 문구", () => {
     useScenarioEditor.getState().loadFromString(`version: 1
 name: "e"
@@ -387,6 +379,117 @@ describe("ThinkTimeBoard — 일괄", () => {
     // 지워졌는지는 행을 다시 선택해 액션 바를 재노출한 뒤 값을 직접 읽어야 한다.
     await selectRow(user, "로그인");
     expect(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria)).toHaveValue(null);
+  });
+});
+
+function defMinInput() {
+  return screen.getByLabelText(ko.editor.thinkBoardDefaultMinAria);
+}
+function defMaxInput() {
+  return screen.getByLabelText(ko.editor.thinkBoardDefaultMaxAria);
+}
+function defaultThink() {
+  return useScenarioEditor.getState().model?.default_think_time;
+}
+
+describe("ThinkTimeBoard — 기본값 인라인 편집 (R2)", () => {
+  it("US1: 기본값을 바꾸면 상속 행의 실효 대기가 같은 화면에서 갱신된다", () => {
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // 포커스를 옮기지 않는 이디엄(ScenarioDefaults.test.tsx:52-58)이 필수다.
+    // user.clear/type으로 min→max 이동하면 중간 상태 {min:"1000", max:"500"}에서
+    // 암묵 blur가 발화해 min>max → revert로 떨어져 올바른 구현에서도 FAIL한다.
+    fireEvent.change(defMinInput(), { target: { value: "1000" } });
+    fireEvent.change(defMaxInput(), { target: { value: "2000" } });
+    fireEvent.blur(defMaxInput());
+    expect(within(row("로그인")).getByTestId("effective")).toHaveTextContent("1000–2000ms");
+  });
+
+  it("R2-a: 기본값 {0,0}이면 요약이 '대기없음'이다", () => {
+    act(() => {
+      useScenarioEditor.getState().loadFromString(YAML_DEFAULT_ZERO);
+    });
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // 이빨 대상은 이 단언 하나다. 아래 행 단언은 normalizeEffective가 상류에서
+    // 접어주므로 formatThink를 망가뜨려도 RED가 안 난다(일관성 락인으로만 유지).
+    expect(screen.getByTestId("default-summary")).toHaveTextContent(ko.editor.thinkNoWait);
+    expect(within(row("핑")).getByTestId("effective")).toHaveTextContent(ko.editor.thinkNoWait);
+  });
+
+  it("두 칸을 비우고 blur하면 기본값 키가 사라진다", () => {
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    fireEvent.change(defMinInput(), { target: { value: "" } });
+    fireEvent.change(defMaxInput(), { target: { value: "" } });
+    fireEvent.blur(defMaxInput());
+    expect(defaultThink()).toBeUndefined();
+    expect(screen.getByTestId("default-summary")).toHaveTextContent(
+      ko.editor.thinkBoardDefaultNone,
+    );
+  });
+
+  it("한 칸만 비우면 no-op — draft가 보존되고 모델은 그대로다", () => {
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    fireEvent.change(defMinInput(), { target: { value: "" } });
+    fireEvent.blur(defMinInput());
+    expect(defaultThink()).toEqual({ min_ms: 200, max_ms: 500 });
+    expect(defMinInput()).toHaveValue(null); // 비운 채 보존(revert되지 않음)
+    expect(defMaxInput()).toHaveValue(500);
+  });
+
+  it("R2-c: 기본값 {0,0}이 빈 칸이 아니라 0/0으로 시드되고, 만지지 않으면 키가 산다", () => {
+    act(() => {
+      useScenarioEditor.getState().loadFromString(YAML_DEFAULT_ZERO);
+    });
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(defMinInput()).toHaveValue(0);
+    expect(defMaxInput()).toHaveValue(0);
+    fireEvent.blur(defMinInput());
+    expect(defaultThink()).toEqual({ min_ms: 0, max_ms: 0 });
+  });
+
+  it("R2-c: 다른 행을 커밋해도 입력 중인 기본값 draft가 살아남는다", () => {
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // fireEvent.change는 포커스를 옮기지 않는다 — user.clear/type을 쓰면 '주문' 행으로
+    // 포커스가 가는 순간 기본값에 암묵 blur가 발화하고, 그때 draft가 {"1000","500"}이라
+    // min>max → revert로 떨어져 dep과 무관하게 항상 FAIL한다(이빨 실증 불가).
+    fireEvent.change(defMinInput(), { target: { value: "1000" } }); // blur 안 함
+    // 대상은 반드시 '주문'(configured {800,900} 실재). 상속 행이면 draft가 둘 다
+    // ""라 resolveThinkDraft가 noop을 내고 dispatch가 없어 이 테스트가 공허해진다.
+    fireEvent.change(minInput("주문"), { target: { value: "850" } });
+    fireEvent.blur(minInput("주문"));
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 850, max_ms: 900 });
+    expect(defMinInput()).toHaveValue(1000);
+  });
+
+  it("R2-f: blur 없이 모달을 닫았다 열면 draft가 모델 값으로 재시드된다", () => {
+    const { rerender } = render(<ThinkTimeBoard open onClose={() => {}} />);
+    fireEvent.change(defMinInput(), { target: { value: "9999" } }); // blur 안 함
+    rerender(<ThinkTimeBoard open={false} onClose={() => {}} />);
+    rerender(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(defMinInput()).toHaveValue(200);
+  });
+
+  it("R2-g: 스텝이 0개여도 기본값 편집기가 보인다", () => {
+    act(() => {
+      useScenarioEditor.getState().loadFromString(`version: 1
+name: "e"
+cookie_jar: auto
+variables: {}
+steps: []
+`);
+    });
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(defMinInput()).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.thinkBoardEmpty)).toBeInTheDocument();
+  });
+
+  it("yamlError면 기본값 입력이 비활성화된다", () => {
+    // yamlError 유도는 기존 R6 게이트 테스트(:395-397)와 동일한 이디엄이다.
+    useScenarioEditor.getState().setPendingYamlText("steps: [oops");
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(defMinInput()).toBeDisabled();
+    expect(defMaxInput()).toBeDisabled();
   });
 });
 

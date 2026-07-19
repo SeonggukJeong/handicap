@@ -31,12 +31,6 @@ const STATE_TONE: Record<ThinkState, "neutral" | "accent" | "optional" | "warn">
   parallel_unset: "warn",
 };
 
-function defaultSummary(def: ThinkTime | undefined): string {
-  if (def === undefined) return ko.editor.thinkBoardDefaultNone;
-  if (def.min_ms === 0 && def.max_ms === 0) return ko.editor.thinkBoardDefaultZero;
-  return ko.editor.thinkBoardDefaultSummary(def.min_ms, def.max_ms);
-}
-
 function BoardRow({
   row,
   selected,
@@ -184,6 +178,7 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
   const model = useScenarioEditor((s) => s.model);
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const setStepsThinkTime = useScenarioEditor((s) => s.setStepsThinkTime);
+  const setDefaultThinkTime = useScenarioEditor((s) => s.setDefaultThinkTime);
   const rows = useMemo(() => (model ? buildThinkRows(model) : []), [model]);
 
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -191,6 +186,39 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
   const [bulkMax, setBulkMax] = useState("");
 
   const disabled = yamlError !== null;
+
+  const defaultThink = model?.default_think_time;
+  // dep은 원시값이어야 한다(BoardRow와 같은 이유) — 객체를 쓰면 표 어느 행에서
+  // 커밋할 때마다 model이 교체되어 입력 중이던 기본값 draft가 사라진다.
+  const defMin = defaultThink?.min_ms;
+  const defMax = defaultThink?.max_ms;
+  // 시드는 반드시 === undefined 비교다. truthy(`defMin ? … : ""`)로 쓰면 {0,0}이
+  // 빈 칸으로 시드되고 다음 blur가 clear로 떨어져 기본값 키를 지운다.
+  const [defMinDraft, setDefMinDraft] = useState(defMin === undefined ? "" : String(defMin));
+  const [defMaxDraft, setDefMaxDraft] = useState(defMax === undefined ? "" : String(defMax));
+
+  useEffect(() => {
+    setDefMinDraft(defMin === undefined ? "" : String(defMin));
+    setDefMaxDraft(defMax === undefined ? "" : String(defMax));
+  }, [defMin, defMax]);
+
+  const commitDefault = () => {
+    const outcome = resolveThinkDraft(defMinDraft, defMaxDraft);
+    switch (outcome.kind) {
+      case "clear":
+        setDefaultThinkTime(undefined);
+        return;
+      case "noop":
+        return;
+      case "commit":
+        setDefaultThinkTime(outcome.value);
+        return;
+      case "revert":
+        setDefMinDraft(defMin === undefined ? "" : String(defMin));
+        setDefMaxDraft(defMax === undefined ? "" : String(defMax));
+        return;
+    }
+  };
   const selectedIds = rows.filter((r) => selected.has(r.stepId)).map((r) => r.stepId);
   const allChecked = rows.length > 0 && selectedIds.length === rows.length;
 
@@ -209,8 +237,12 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
       setSelected(new Set());
       setBulkMin("");
       setBulkMax("");
+      // blur 없이 ESC/백드롭으로 닫으면 commit도 revert도 안 일어난다 — 다음
+      // 오픈에 stale draft가 모델과 어긋나 보이지 않도록 여기서 재시드한다(R2-f).
+      setDefMinDraft(defMin === undefined ? "" : String(defMin));
+      setDefMaxDraft(defMax === undefined ? "" : String(defMax));
     }
-  }, [open]);
+  }, [open, defMin, defMax]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -249,9 +281,44 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
 
   return (
     <Modal open={open} onClose={onClose} title={ko.editor.thinkBoardTitle}>
-      <p data-testid="default-summary" className="mb-2 text-sm text-slate-600">
-        {defaultSummary(model?.default_think_time)}
-      </p>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+        <span className="font-semibold">{ko.editor.thinkBoardDefaultLabel}</span>
+        <div className="w-20">
+          <Input
+            numeric
+            compact
+            size="sm"
+            type="number"
+            min={0}
+            max={600000}
+            aria-label={ko.editor.thinkBoardDefaultMinAria}
+            value={defMinDraft}
+            disabled={disabled}
+            onChange={(e) => setDefMinDraft(e.target.value)}
+            onBlur={commitDefault}
+          />
+        </div>
+        <span aria-hidden="true">–</span>
+        <div className="w-20">
+          <Input
+            numeric
+            compact
+            size="sm"
+            type="number"
+            min={0}
+            max={600000}
+            aria-label={ko.editor.thinkBoardDefaultMaxAria}
+            value={defMaxDraft}
+            disabled={disabled}
+            onChange={(e) => setDefMaxDraft(e.target.value)}
+            onBlur={commitDefault}
+          />
+        </div>
+        <span>ms</span>
+        <span data-testid="default-summary" className="text-slate-500">
+          {defaultThink === undefined ? ko.editor.thinkBoardDefaultNone : formatThink(defaultThink)}
+        </span>
+      </div>
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">{ko.editor.thinkBoardEmpty}</p>
       ) : (
