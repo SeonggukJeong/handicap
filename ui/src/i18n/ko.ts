@@ -601,7 +601,7 @@ export const ko = {
       "병렬 분기 내부 — 시나리오 기본값이 적용되지 않습니다. 대기가 필요하면 아래에 직접 입력하세요.",
     // ── think-time 현황판 (think-time-dashboard) ──
     thinkBoardOpen: "페이싱",
-    thinkBoardOpenAria: "think time 현황판 열기",
+    thinkBoardOpenAria: "페이싱 현황판 열기",
     thinkBoardTitle: "페이싱 현황판",
     thinkBoardTableAria: "스텝별 think time",
     thinkBoardEmpty: "스텝이 없습니다. 스텝을 추가하면 여기에 페이싱 설정이 표시됩니다.",

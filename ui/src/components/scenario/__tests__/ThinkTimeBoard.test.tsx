@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { act, render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThinkTimeBoard } from "../ThinkTimeBoard";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -409,9 +409,29 @@ describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
     expect(
       within(row("주문")).getByRole("button", { name: ko.editor.thinkBoardResetAria }),
     ).toBeDisabled();
-    // 일괄 버튼 3종은 이 테스트에서 단언하지 않는다: 체크박스가 전부 disabled라
-    // 액션 바(선택 1건 이상일 때만 렌더)에 자연스럽게 도달할 방법이 없다 — 클릭이
-    // 막힌 체크박스를 우회 조작(store 직접 mutate)해 강제로 열면 실제 UI 흐름과
-    // 무관한 단언이 된다.
+    // 일괄 버튼 3종은 별도 테스트(아래)에서 단언한다: 자연스러운 경로는 YAML이
+    // 유효할 때 행을 먼저 선택해 액션 바를 연 뒤 YAML을 깨는 것 — 선택은 컴포넌트
+    // 로컬 state(useState)라 yamlError가 세팅돼도 살아남고, 액션 바는
+    // `selectedIds.length > 0`(rows는 보존된 model에서 재계산)로 계속 마운트된
+    // 채 disabled만 켜진다.
+  });
+
+  it("행 선택 후 YAML을 깨면 일괄 버튼 3종이 disabled (액션 바는 유지)", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.click(within(row("로그인")).getByRole("checkbox"));
+    expect(screen.getByRole("group", { name: ko.editor.thinkBoardBulkAria })).toBeInTheDocument();
+
+    useScenarioEditor.getState().setPendingYamlText("steps: [oops");
+    act(() => {
+      useScenarioEditor.getState().commitPendingYaml();
+    });
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+
+    // 액션 바는 언마운트되지 않는다 — 선택이 살아 있으므로.
+    expect(screen.getByRole("group", { name: ko.editor.thinkBoardBulkAria })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.editor.thinkBoardBulkApply })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.editor.thinkBoardBulkInherit })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.editor.thinkBoardBulkNoWait })).toBeDisabled();
   });
 });
