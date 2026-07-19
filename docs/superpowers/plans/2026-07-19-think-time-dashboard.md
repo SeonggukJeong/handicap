@@ -65,7 +65,7 @@ function http(n: number, name: string, think?: ThinkTime): HttpStep {
     assert: [],
     extract: [],
     ...(think ? { think_time: think } : {}),
-  } as HttpStep;
+  } as unknown as HttpStep;
 }
 
 function scenario(steps: Step[], def?: ThinkTime): Scenario {
@@ -76,7 +76,7 @@ function scenario(steps: Step[], def?: ThinkTime): Scenario {
     variables: {},
     steps,
     ...(def ? { default_think_time: def } : {}),
-  } as Scenario;
+  } as unknown as Scenario;
 }
 
 const T = { min_ms: 200, max_ms: 500 };
@@ -161,7 +161,7 @@ describe("buildThinkRows", () => {
           { name: "b2", steps: [http(10, "par-b")] },
         ],
       },
-    ] as Step[]);
+    ] as unknown as Step[]);
 
     expect(buildThinkRows(sc).map((r) => r.name)).toEqual([
       "first",
@@ -188,7 +188,7 @@ describe("buildThinkRows", () => {
         else: [http(7, "ES")],
       },
       { id: ID(8), name: "동시", type: "parallel", branches: [{ name: "b1", steps: [http(9, "P")] }] },
-    ] as Step[]);
+    ] as unknown as Step[]);
 
     const byName = Object.fromEntries(buildThinkRows(sc).map((r) => [r.name, r.path]));
     expect(byName["top"]).toBe("");
@@ -204,7 +204,7 @@ describe("buildThinkRows", () => {
       [
         http(1, "seq"),
         { id: ID(2), name: "동시", type: "parallel", branches: [{ name: "b1", steps: [http(3, "par")] }] },
-      ] as Step[],
+      ] as unknown as Step[],
       T,
     );
     const rows = buildThinkRows(sc);
@@ -234,7 +234,7 @@ describe("buildThinkRows", () => {
         ],
       },
       { id: ID(5), name: "동시", type: "parallel", branches: [{ name: "b1", steps: [http(6, "par")] }] },
-    ] as Step[]);
+    ] as unknown as Step[]);
     const by = Object.fromEntries(buildThinkRows(sc).map((r) => [r.name, r.insideParallel]));
     expect(by["seq"]).toBe(false);
     expect(by["nested"]).toBe(false); // loop 안 if — 경로에 구분자가 있지만 분기가 아니다
@@ -242,7 +242,7 @@ describe("buildThinkRows", () => {
   });
 
   it("configured는 정규화하지 않는다 (입력 시드는 원본 그대로)", () => {
-    const sc = scenario([http(1, "z", ZERO)] as Step[]);
+    const sc = scenario([http(1, "z", ZERO)] as unknown as Step[]);
     expect(buildThinkRows(sc)[0].configured).toEqual(ZERO);
     expect(buildThinkRows(sc)[0].effective).toBeUndefined();
   });
@@ -784,6 +784,14 @@ describe("ThinkTimeBoard — 읽기", () => {
     expect(within(r).getByTestId("step-path")).toHaveTextContent("동시·b1");
   });
 
+  it("min === max여도 범위 형식을 유지한다 (별도 분기 없음, spec R2)", () => {
+    useScenarioEditor
+      .getState()
+      .setStepField("01HX0000000000000000000001", ["think_time"], { min_ms: 250, max_ms: 250 });
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(within(row("로그인")).getByTestId("effective")).toHaveTextContent("250–250ms");
+  });
+
   it("기본값 요약 줄을 보여준다", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     expect(screen.getByTestId("default-summary")).toHaveTextContent("200–500ms");
@@ -1186,6 +1194,38 @@ describe("ThinkTimeBoard — 일괄", () => {
     await selectRow(user, "이미지"); // think_time 없음 = parallel_unset
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("R4: 부분 선택이면 전체선택 체크박스가 indeterminate다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    const all = screen.getByRole("checkbox", {
+      name: ko.editor.thinkBoardSelectAllAria,
+    }) as HTMLInputElement;
+    expect(all.indeterminate).toBe(false);
+    await selectRow(user, "로그인");
+    expect(all.indeterminate).toBe(true);
+    expect(all.checked).toBe(false);
+    await user.click(all); // 전체선택
+    expect(all.indeterminate).toBe(false);
+    expect(all.checked).toBe(true);
+  });
+
+  it("R4: 모달을 닫으면 선택과 일괄 입력이 버려진다", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "로그인");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria), "300");
+    expect(screen.getByRole("group", { name: ko.editor.thinkBoardBulkAria })).toBeInTheDocument();
+
+    rerender(<ThinkTimeBoard open={false} onClose={() => {}} />);
+    rerender(<ThinkTimeBoard open onClose={() => {}} />);
+
+    expect(screen.queryByRole("group", { name: ko.editor.thinkBoardBulkAria })).not.toBeInTheDocument();
+    expect(
+      (screen.getByRole("checkbox", { name: ko.editor.thinkBoardSelectAllAria }) as HTMLInputElement)
+        .indeterminate,
+    ).toBe(false);
+  });
 });
 
 describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
@@ -1376,7 +1416,7 @@ function BoardRow({
 import를 보강한다(파일 상단):
 
 ```tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../ui/Input";
 ```
 
@@ -1398,6 +1438,24 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
   const disabled = yamlError !== null;
   const selectedIds = rows.filter((r) => selected.has(r.stepId)).map((r) => r.stepId);
   const allChecked = rows.length > 0 && selectedIds.length === rows.length;
+
+  // 부분 선택은 indeterminate(R4) — DOM 프로퍼티라 JSX 속성으로는 못 준다.
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedIds.length > 0 && !allChecked;
+    }
+  }, [selectedIds.length, allChecked]);
+
+  // 선택·일괄 입력은 모달을 닫으면 버린다(R4). ThinkTimeBoard 자신은 EditorShell이
+  // 항상 마운트하므로(Modal만 null을 반환) 이 리셋이 없으면 재오픈 시 이전 선택이 살아 있다.
+  useEffect(() => {
+    if (!open) {
+      setSelected(new Set());
+      setBulkMin("");
+      setBulkMax("");
+    }
+  }, [open]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -1446,6 +1504,7 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
               <tr className="text-left text-xs font-semibold text-slate-500">
                 <th className="w-8 px-2 py-1">
                   <input
+                    ref={selectAllRef}
                     type="checkbox"
                     aria-label={ko.editor.thinkBoardSelectAllAria}
                     checked={allChecked}
@@ -1554,9 +1613,10 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
 - [ ] **Step 6: 테스트 통과 확인**
 
 ```bash
-cd /Users/sgj/develop/handicap/.claude/worktrees/think-time-dashboard/ui && pnpm test yamlDoc; echo exit=$?
+cd /Users/sgj/develop/handicap/.claude/worktrees/think-time-dashboard/ui && pnpm test ThinkTimeBoard; echo exit=$?
+pnpm test thinkTime; echo exit=$?
 ```
-Expected: PASS.
+Expected: 둘 다 PASS.
 
 - [ ] **Step 7: R3 회귀 테스트의 이빨을 실증한다**
 
@@ -1578,8 +1638,12 @@ Expected: 셋 다 `=0`.
 
 ```bash
 cd /Users/sgj/develop/handicap/.claude/worktrees/think-time-dashboard
-git add ui/src/scenario/yamlDoc.ts ui/src/scenario/store.ts ui/src/scenario/__tests__/yamlDoc.test.ts
-git commit -m "feat(ui): setStepsThinkTime 일괄 Edit + http leaf 필터 store 액션"
+git add ui/src/components/scenario/ThinkTimeBoard.tsx \
+        ui/src/components/scenario/__tests__/ThinkTimeBoard.test.tsx \
+        ui/src/components/scenario/EditorShell.tsx \
+        ui/src/i18n/ko.ts
+git diff --cached --name-only   # 스테이징 확인 — 빈 커밋은 full 게이트를 돌고 'nothing to commit'
+git commit -m "feat(ui): 현황판 행별 편집·일괄 3액션·병렬 비차단 안내·yamlError 게이트"
 ```
 
 ---
@@ -1598,22 +1662,44 @@ git commit -m "feat(ui): setStepsThinkTime 일괄 Edit + http leaf 필터 store 
 
 - [ ] **Step 1: 선행 회귀 케이스를 먼저 추가한다**
 
-`Inspector.test.tsx`에, **분기 안에 값이 지정된 스텝**이 amber 병렬 안내를 렌더하는지 잠그는 케이스를 추가한다(파일의 기존 render 헬퍼·시나리오 로드 관용구를 따를 것). 이 케이스가 R1-c의 유일한 함정을 막는 그물이다:
+`Inspector.test.tsx`의 `describe("Inspector — ParallelInspector (P-b Task 8)")` 블록 **끝**에 추가한다. 이 케이스가 R1-c의 유일한 함정을 막는 그물이다 — **분기 안에 값이 지정된** 스텝은 `state`가 `override`라, `insideParallel`을 `state === "parallel_unset"`로 유도하면 amber 안내가 사라진다.
 
 ```tsx
+  /** 분기 *자식*(컨테이너 아님)을 선택하고 그 자식에 think_time을 지정한다.
+   *  기존 loadParallelAndSelect()는 parallel 컨테이너를 선택하므로 여기 못 쓴다. */
+  function selectBranchChildWithThink() {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+    const pid = useScenarioEditor.getState().addParallelStep("Fan-out")!;
+    const par = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (par.type !== "parallel") throw new Error("expected parallel step");
+    const childId = par.branches[0].steps[0].id;
+    // 값을 지정 → state는 override(=parallel_unset 아님). 이게 이 케이스의 요점이다.
+    useScenarioEditor.getState().setStepField(childId, ["think_time"], { min_ms: 50, max_ms: 60 });
+    useScenarioEditor.getState().select(childId);
+    return childId;
+  }
+
   it("분기 안에 think_time이 지정된 스텝도 병렬 미적용 안내를 보여준다", async () => {
-    // parallel 분기 안 http 스텝을 선택 상태로 만들고 think_time을 {50,60}으로 둔다
-    // (이 상태의 state는 override라 insideParallel을 state에서 유도하면 안내가 사라진다)
+    const user = userEvent.setup();
+    selectBranchChildWithThink();
+    render(<Inspector />);
+    // 타이밍 섹션은 기본 접힘(editorPrefs.timing = false)이라 먼저 펼친다.
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
+
+    // 이빨: 값이 실제로 지정돼 있어야 state가 override가 되어 이 케이스가 의미를 갖는다.
+    // (값이 없으면 parallel_unset이라 state 유도 구현도 통과해 버려 vacuous해진다.)
+    expect(screen.getByLabelText(/think 최솟값/i)).toHaveValue(50);
     expect(screen.getByText(ko.editor.parallelNoDefaultNote)).toBeInTheDocument();
   });
 ```
 
-- [ ] **Step 2: 케이스가 현재 통과하는지 확인 (수렴 전 baseline)**
+- [ ] **Step 2: 케이스가 현재(수렴 전) 통과하는지 확인**
 
 ```bash
 cd /Users/sgj/develop/handicap/.claude/worktrees/think-time-dashboard/ui && pnpm test Inspector; echo exit=$?
 ```
-Expected: PASS (수렴 전이므로 기존 인라인 판정이 이미 이 동작을 한다). **여기서 FAIL이면 케이스 작성이 틀린 것이니 고친 뒤 진행한다.**
+Expected: PASS — 수렴 전이므로 기존 인라인 판정이 이미 이 동작을 한다. **FAIL이면 케이스 작성이 틀린 것**(분기 자식이 아니라 컨테이너를 골랐거나 섹션을 안 펼쳤거나)이니 고친 뒤 진행한다. `toHaveValue(50)` 단언이 실패하면 `setStepField`가 안 먹은 것이므로 arrange를 먼저 고친다.
 
 - [ ] **Step 3: 판정을 `classifyThink`로 교체**
 
@@ -1691,9 +1777,13 @@ Expected: import 1줄 + state 1줄 + 버튼 블록 1개 + 모달 마운트 1줄.
 - [ ] **한국어 하드코딩 스윕** (따옴표 직후가 한글이 아닌 리터럴도 잡는 패턴)
 
 ```bash
-grep -rn '"[^"]*[가-힣]' ui/src/components/scenario/ThinkTimeBoard.tsx ui/src/scenario/thinkTime.ts | grep -v '^\s*//' | grep -v ko\\.
+grep -rn '"[^"]*[가-힣]' \
+  ui/src/components/scenario/ThinkTimeBoard.tsx \
+  ui/src/components/scenario/EditorShell.tsx \
+  ui/src/scenario/thinkTime.ts \
+  | grep -v ':[0-9]*: *//' | grep -v 'ko\.'
 ```
-Expected: 출력 없음(주석 제외 전부 `ko.` 경유).
+Expected: 출력 없음(주석 제외 전부 `ko.` 경유). 주석 필터는 `':[0-9]*: *//'` — `grep -rn` 출력이 `path:line:content`라 `'^\s*//'`는 파일명에 앵커돼 **절대 매치되지 않는다**(BSD grep은 `\s`도 미지원).
 
 - [ ] **최종 리뷰** — `handicap-reviewer` APPROVE. 보안 게이트는 `finish-slice §0`의 grep을 **직접 실행**해 판정한다(plan의 "UI-only라 N/A 예상"을 신뢰하지 말 것 — grep이 지배한다).
 
@@ -1714,7 +1804,7 @@ Expected: 출력 없음(주석 제외 전부 `ko.` 경유).
 | R1-c (Inspector 수렴, 마지막·드롭 가능) | Task 5 |
 | R2 (모달·진입점·표 구조·truncate) | Task 3 (+ Task 4가 7열로 확장) |
 | R3 (행별 편집 4분기·draft 격리·원시 dep) | Task 4 Step 4 + 이빨 실증 Step 7 |
-| R4 (선택·3액션·새 Edit·http leaf 필터) | Task 2(와이어) + Task 4(UI) |
+| R4 (선택·3액션·새 Edit·http leaf 필터·indeterminate·닫으면 버림) | Task 2(와이어) + Task 4(UI, indeterminate ref-effect + open=false 리셋 effect) |
 | R5 (병렬 비차단 안내·n 정의) | Task 4 Step 5 (`ThinkRow.insideParallel` 기반 — 경로 문자열 유추 금지) |
 | R6 (yamlError 게이트) | Task 4 Step 4-5 + 전용 describe |
 | R7 (ko 문구) | Task 3 Step 3 + Task 4 Step 3 |
