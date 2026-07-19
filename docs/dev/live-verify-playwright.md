@@ -71,3 +71,19 @@
 
 - **동명 버튼을 페이지-wide 스캔으로 클릭하지 말 것**: 변수 패널 하단 "추가"와 테스트 패널 환경변수 "추가"가 같은 텍스트라 `[...querySelectorAll('button')].filter(t==='추가')`의 last-match `.click()`이 엉뚱한 버튼을 잡고도 `clicked:true`로 성공처럼 보인다(패널 상태 무변화가 유일한 신호 — 별도 evaluate 재검증으로만 발견). 앵커 요소(예: `input[placeholder="new_var"]`)에서 `parentElement`를 타고 올라가며 같은 컨테이너 안의 버튼을 찾아 클릭.
 - **백엔드 없는 클라-only 검증(`pnpm dev` 단독)에서 `/api/*`는 CONNECTION_REFUSED가 아니라 vite proxy가 500으로 표면화**: 콘솔 `Failed to load resource: 500 (/api/environments)`는 네트워크 리소스 에러(앱/Zod 에러 아님) — favicon 404와 같은 부류로 취급하고, 진짜 clean 신호는 Zod/React/getSnapshot 에러 0.
+
+## MCP 백엔드가 멈췄을 때 (pair-input-blur-commit 2026-07-20)
+
+`browser_navigate`가 **`about:blank`조차** `TimeoutError: browserBackend.callTool: Timeout 60000ms exceeded`로 3연발 실패하면 페이지·서버 문제가 아니라 **이전 세션의 자동화 Chrome이 프로필 락을 쥔 채 살아 있는** 경우다. 진단·복구:
+
+```bash
+pgrep -fl "ms-playwright-mcp/mcp-chrome"   # user-data-dir에 mcp-chrome-*이 박힌 Chrome = 자동화용(사용자 실제 브라우저 아님)
+pgrep -fl "playwright-mcp"                 # MCP 서버 인스턴스가 2개 이상이면 그중 하나가 그 브라우저를 물고 있다
+kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽는다. MCP 서버는 죽이지 말 것(툴 연결이 끊긴다)
+```
+그 다음 `browser_navigate`는 한 번 `Target page, context or browser has been closed`로 실패하고 **두 번째 호출에서 새 브라우저로 정상 기동**한다(1회 재시도를 실패로 읽지 말 것). 죽이기 전 `--user-data-dir`를 반드시 확인 — `ms-playwright-mcp/`가 아니면 사용자 실제 Chrome이므로 건드리지 않는다.
+
+## FlowOutline 행 활성화(상세 모달 열기)의 두 함정
+
+- **행 활성화는 `버튼 바깥` 클릭에서만 발화한다** (`FlowOutline.tsx:294` — `if (!(target).closest("button")) view?.onActivate?.(step.id)`). 스텝 이름 칩이 `<button>`이라 그걸 클릭하면 **선택만 되고 모달은 안 열린다**. `wideOpen && detailOpen && selectedStepId !== null`에서 `detailOpen`만 false로 남아 "왜 안 열리지"가 된다.
+- **행이 뷰포트 밖일 수 있다** — `getBoundingClientRect()`가 `y: -162` 같은 음수면 `page.mouse.click(x, y)`는 엉뚱한 곳을 친다(조용히 아무 일도 안 일어남). 좌표 클릭 대신 **locator 클릭 + `position` 오프셋**(`locator.click({position:{x,y}})`)을 쓰면 Playwright가 스크롤해서 맞춘다.
