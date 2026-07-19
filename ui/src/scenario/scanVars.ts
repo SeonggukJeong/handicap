@@ -417,6 +417,11 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
     // 일치할 때만(fix-2 blocker) — 서로 다른 top-level parallel 노드는 순차 실행(join_all 후
     // 다음 노드)이라 노드 경계를 넘는 참조는 실제로 정의돼 있으므로 "downstream"으로 분류해
     // 올바른 {{branch.var}} 힌트를 보여준다.
+    //
+    // 혼합 케이스 tie-break(`.some()`): 한 이름이 같은-노드 위반과 교차-노드 위반에 **동시에**
+    // 걸리면 "sibling"이 이긴다. 행은 하나뿐인데 두 occurrence의 정답이 달라(교차-노드 쪽만
+    // {{B.v}}로 고칠 수 있다) 어느 문구를 골라도 한쪽엔 안 맞는 자리다 — 현재는 보수적으로
+    // "참조 불가"를 알린다. `.every()`로 바꾸면 실행 가능한 힌트 쪽을 우선하게 된다(§B13 후속).
     let kind: "downstream" | "sibling";
     if (a.sawDownstream) {
       kind = "downstream";
