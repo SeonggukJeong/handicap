@@ -1413,9 +1413,10 @@ describe("Inspector — think time 3상태 (think-time-defaults R8/R9)", () => {
     expect(screen.queryByText(/0–0ms/)).not.toBeInTheDocument();
   });
 
-  // spec 테스트 16 — 이 슬라이스가 건드리는 삼항(Inspector.tsx:411-417)이
-  // 기본값 {0,0}에서도 분기 우선순위를 유지하는지. 기존 :1362 테스트는
-  // {500,1000}만 덮으므로 {0,0} 변형이 따로 필요하다.
+  // spec 테스트 16 — insideParallel이 inheriting보다 우선함을 기본값 {0,0}에서도
+  // 락인한다. 주의: 이 경로에선 삼항의 첫 분기가 잡혀 formatThink가 **미평가**라
+  // R1(표시 단일 소스) 커버리지는 없다 — 그건 위 :1404와 thinkTime.test.ts가 담당.
+  // 기존 :1390은 같은 우선순위를 {500,1000}에서 덮는다.
   it("US2-①: 기본값이 {0,0}이어도 분기 안 스텝은 미적용 안내가 우선한다", async () => {
     const user = userEvent.setup();
     act(() => {
