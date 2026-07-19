@@ -21,6 +21,7 @@ import {
   isParallelStep,
   isInsideParallelBranch,
 } from "../../scenario/model";
+import { classifyThink } from "../../scenario/thinkTime";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -189,8 +190,11 @@ function HttpStepInspector({
   const model = useScenarioEditor((s) => s.model);
   const defaultThink = model?.default_think_time;
   const insideParallel = model ? isInsideParallelBranch(model.steps, step.id) : false;
-  const noWait = step.think_time?.min_ms === 0 && step.think_time?.max_ms === 0;
-  const inheriting = step.think_time === undefined;
+  // 판정 단일 소스 = thinkTime.ts(엔진 규칙 미러). insideParallel은 state에서 유도하면
+  // 안 된다 — 분기 안에 값이 지정된 스텝은 override/no_wait라 amber 안내가 사라진다.
+  const think = classifyThink(step, defaultThink, insideParallel);
+  const noWait = think.state === "no_wait";
+  const inheriting = think.state === "inherited" || think.state === "inherited_none";
 
   // Numeric draft + commit-on-blur (F5 pattern), matching the loop Repeat field.
   // timeout_seconds is optional, so the draft round-trips the empty/undefined state.

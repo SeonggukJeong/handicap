@@ -1032,6 +1032,34 @@ describe("Inspector — ParallelInspector (P-b Task 8)", () => {
     // After removing to 1, no more remove buttons
     expect(screen.queryByRole("button", { name: /분기.*제거/i })).not.toBeInTheDocument();
   });
+
+  /** 분기 *자식*(컨테이너 아님)을 선택하고 그 자식에 think_time을 지정한다.
+   *  기존 loadParallelAndSelect()는 parallel 컨테이너를 선택하므로 여기 못 쓴다. */
+  function selectBranchChildWithThink() {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().resetEmpty();
+    const pid = useScenarioEditor.getState().addParallelStep("Fan-out")!;
+    const par = useScenarioEditor.getState().model!.steps.find((s) => s.id === pid)!;
+    if (par.type !== "parallel") throw new Error("expected parallel step");
+    const childId = par.branches[0].steps[0].id;
+    // 값을 지정 → state는 override(=parallel_unset 아님). 이게 이 케이스의 요점이다.
+    useScenarioEditor.getState().setStepField(childId, ["think_time"], { min_ms: 50, max_ms: 60 });
+    useScenarioEditor.getState().select(childId);
+    return childId;
+  }
+
+  it("분기 안에 think_time이 지정된 스텝도 병렬 미적용 안내를 보여준다", async () => {
+    const user = userEvent.setup();
+    selectBranchChildWithThink();
+    render(<Inspector />);
+    // 타이밍 섹션은 기본 접힘(editorPrefs.timing = false)이라 먼저 펼친다.
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
+
+    // 이빨: 값이 실제로 지정돼 있어야 state가 override가 되어 이 케이스가 의미를 갖는다.
+    // (값이 없으면 parallel_unset이라 state 유도 구현도 통과해 버려 vacuous해진다.)
+    expect(screen.getByLabelText(/think 최솟값/i)).toHaveValue(50);
+    expect(screen.getByText(ko.editor.parallelNoDefaultNote)).toBeInTheDocument();
+  });
 });
 
 describe("Inspector — setKind orphan-drop (spec §7)", () => {
