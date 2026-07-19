@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { useState } from "react";
 import { act, render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThinkTimeBoard } from "../ThinkTimeBoard";
@@ -529,9 +530,26 @@ steps: []
 });
 
 describe("ThinkTimeBoard — 모달 닫힘 시 커밋 flush (R5)", () => {
-  it("ESC로 닫아도 마지막으로 친 쌍이 저장된다 (R5)", async () => {
+  // R5 리뷰 fold-in: 이전엔 `onClose={() => {}}`(no-op)라 `open`이 실제로
+  // true→false 전이하지 않아 ThinkTimeBoard의 `!open` 재시드 effect가 한 번도
+  // 발화하지 않았다. `Host`는 진짜 상태전이(부모가 `open`을 소유)를 만들고,
+  // "다시 열기" 버튼으로 재오픈해 reseed race를 노출시킨다(재오픈 시 입력이
+  // 방금 커밋한 새 쌍을 보여주는지 — 이게 이 fold-in의 핵심 단언이다).
+  function Host() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          다시 열기
+        </button>
+        <ThinkTimeBoard open={open} onClose={() => setOpen(false)} />
+      </>
+    );
+  }
+
+  it("ESC로 닫아도 마지막으로 친 쌍이 저장되고, 다시 열면 입력이 새 쌍을 보여준다 (R5)", async () => {
     const user = userEvent.setup();
-    render(<ThinkTimeBoard open onClose={() => {}} />);
+    render(<Host />);
 
     await user.clear(defMinInput());
     await user.type(defMinInput(), "200");
@@ -545,11 +563,29 @@ describe("ThinkTimeBoard — 모달 닫힘 시 커밋 flush (R5)", () => {
       min_ms: 200,
       max_ms: 400,
     });
+    // `open`이 실제로 false로 전이했는지(=Host가 리렌더해 모달이 언마운트됐는지)
+    // 확인 — 전이 없이는 재오픈 클릭도 재시드 effect도 아무 의미가 없다.
+    expect(
+      screen.queryByRole("dialog", { name: ko.editor.thinkBoardTitle }),
+    ).not.toBeInTheDocument();
+
+    // 재오픈: `!open` 재시드 effect가 실행된 뒤에도 draft가 방금 커밋한 값을
+    // 유지하는지(옛 베이스라인 200/500으로 되돌아가지 않는지)가 reseed race의
+    // 실제 관측 지점이다.
+    await user.click(screen.getByRole("button", { name: "다시 열기" }));
+    expect(defMinInput()).toHaveValue(200);
+    expect(defMaxInput()).toHaveValue(400);
   });
 
-  it("ESC로 닫을 때 min>max면 커밋하지 않는다 (US2가 닫힘 경로에서도 성립)", async () => {
+  // 방향-반대 가드(direction-opposite guard) — R5 teeth 없음: flush를 완전히
+  // 제거해도(onClose 직결) ESC는 blur를 만들지 않으므로 커밋 자체가 안 일어나고,
+  // 그 다음 `!open` 재시드 effect(R2-f, flush와 무관하게 항상 존재)가 draft를
+  // 베이스라인으로 되돌린다 — 즉 이 테스트는 flush 유무와 무관하게 동일하게
+  // green이다(아래 "이빨 실증" teeth 노트 참고). "닫힘 경로에서도 min>max
+  // revert 규칙이 성립한다"는 별개의 유효한 회귀 가드로서 존치.
+  it("ESC로 닫을 때 min>max면 커밋하지 않고, 다시 열어도 이전 값 그대로다 (direction-opposite guard — R5 teeth 없음, 아래 참고)", async () => {
     const user = userEvent.setup();
-    render(<ThinkTimeBoard open onClose={() => {}} />);
+    render(<Host />);
     const before = useScenarioEditor.getState().model!.default_think_time;
 
     await user.clear(defMinInput());
@@ -560,6 +596,13 @@ describe("ThinkTimeBoard — 모달 닫힘 시 커밋 flush (R5)", () => {
     fireEvent.keyDown(document, { key: "Escape" });
 
     expect(useScenarioEditor.getState().model!.default_think_time).toEqual(before);
+    expect(
+      screen.queryByRole("dialog", { name: ko.editor.thinkBoardTitle }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "다시 열기" }));
+    expect(defMinInput()).toHaveValue(before?.min_ms ?? 0);
+    expect(defMaxInput()).toHaveValue(before?.max_ms ?? 0);
   });
 });
 
