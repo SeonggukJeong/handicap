@@ -799,6 +799,36 @@ describe("Inspector — think_time (S-B)", () => {
     loadAndSelect();
   });
 
+  it("min→max 포커스 이동 중 중간 쌍이 커밋되지 않는다 (상향 편집)", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
+
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
+    const maxInput = screen.getByLabelText(/think 최댓값/i) as HTMLInputElement;
+
+    // 베이스라인 {200,500}을 먼저 커밋한다.
+    await user.clear(minInput);
+    await user.type(minInput, "200");
+    await user.clear(maxInput);
+    await user.type(maxInput, "500");
+    fireEvent.blur(maxInput);
+
+    // 범위를 올린다: min을 먼저 고치고 max로 포커스를 옮긴다.
+    await user.clear(minInput);
+    await user.type(minInput, "1000");
+    await user.click(maxInput); // 여기서 중간 쌍 {1000,500}이 커밋되면 안 된다
+    await user.clear(maxInput);
+    await user.type(maxInput, "2000");
+    fireEvent.blur(maxInput);
+
+    const step = useScenarioEditor.getState().model!.steps[0];
+    expect(step.type).toBe("http");
+    if (step.type === "http") {
+      expect(step.think_time).toEqual({ min_ms: 1000, max_ms: 2000 });
+    }
+  });
+
   it("commits per-step think_time on blur", async () => {
     const user = userEvent.setup();
     render(<Inspector />);
@@ -893,6 +923,50 @@ describe("Inspector — think_time (S-B)", () => {
     // Drafts revert to the last committed value.
     expect(minInput.value).toBe("100");
     expect(maxInput.value).toBe("300");
+  });
+
+  it("다른 스텝을 선택하면 think 입력이 그 스텝의 값으로 재시드된다 (resetKey)", async () => {
+    // useThinkTimePair의 resetKey(=step.id) 재시드 경로 커버 — Task 1은 이 경로를
+    // 실사용처 없이 커밋됐다. HttpStepInspector는 <HttpStepInspector key=...> 없이
+    // 재사용되므로(Inspector.tsx), 스텝 전환은 리마운트가 아니라 이 effect가 담당한다.
+    const TWO_STEP_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+    think_time:
+      min_ms: 100
+      max_ms: 300
+  - id: "01HX0000000000000000000002"
+    name: "logout"
+    type: http
+    request:
+      method: POST
+      url: "/logout"
+`;
+    act(() => {
+      useScenarioEditor.getState().loadFromString(TWO_STEP_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
+    render(<Inspector />);
+    await userEvent.setup().click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
+
+    expect((screen.getByLabelText(/think 최솟값/i) as HTMLInputElement).value).toBe("100");
+    expect((screen.getByLabelText(/think 최댓값/i) as HTMLInputElement).value).toBe("300");
+
+    // 같은 마운트 안에서 두 번째 스텝(think_time 없음)으로 전환한다.
+    act(() => {
+      useScenarioEditor.getState().select("01HX0000000000000000000002");
+    });
+
+    expect((screen.getByLabelText(/think 최솟값/i) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/think 최댓값/i) as HTMLInputElement).value).toBe("");
   });
 });
 

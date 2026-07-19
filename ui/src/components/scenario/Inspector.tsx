@@ -21,7 +21,8 @@ import {
   isParallelStep,
   isInsideParallelBranch,
 } from "../../scenario/model";
-import { classifyThink, formatThink, resolveThinkDraft } from "../../scenario/thinkTime";
+import { classifyThink, formatThink } from "../../scenario/thinkTime";
+import { useThinkTimePair } from "./useThinkTimePair";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -219,48 +220,14 @@ function HttpStepInspector({
     }
   };
 
-  // Per-step think_time min/max — same F5 draft + commit-on-blur pattern.
-  // think_time is optional ({min_ms,max_ms} | undefined); the drafts round-trip
-  // the empty/undefined state and both inputs share one commit handler.
-  const [thinkMinDraft, setThinkMinDraft] = useState(
-    step.think_time ? String(step.think_time.min_ms) : "",
-  );
-  const [thinkMaxDraft, setThinkMaxDraft] = useState(
-    step.think_time ? String(step.think_time.max_ms) : "",
-  );
-  // `step.think_time` is an object, so this re-fires after ANY field commit on
-  // the step (the model is re-derived from YAML each commit, minting a fresh
-  // object). Harmless: text inputs commit on blur, so a half-typed think draft
-  // can't coexist with another field's commit. (Same class as JsonBodyField's
-  // effect.) The real job is reseeding when the selected step/value changes.
-  useEffect(() => {
-    setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
-    setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
-  }, [step.id, step.think_time]);
-  // 4분기 커밋 규칙(clear/noop/commit/revert)은 thinkTime.ts::resolveThinkDraft가 단일
-  // 소스(R3) — ThinkTimeBoard의 행별 편집기와 규칙을 공유한다. 여기선 outcome에 따른
-  // setState/store 호출만 한다(부수효과는 호출부 소유).
-  const commitThinkTime = () => {
-    const outcome = resolveThinkDraft(thinkMinDraft, thinkMaxDraft);
-    switch (outcome.kind) {
-      case "clear":
-        setStepField(step.id, ["think_time"], undefined); // clears YAML key
-        return;
-      case "noop":
-        // Exactly one field empty = incomplete pair (e.g. focus moving between the
-        // two inputs mid-entry). Leave drafts untouched so the user can finish —
-        // don't coerce "" to 0 or revert a half-typed value.
-        return;
-      case "commit":
-        setStepField(step.id, ["think_time"], outcome.value);
-        return;
-      case "revert":
-        // revert to last committed (no NaN / out-of-range / min>max write)
-        setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
-        setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
-        return;
-    }
-  };
+  // 짝 입력의 draft/커밋 규칙은 useThinkTimePair가 단일 소스(4 사이트 공용).
+  // 여기선 store 배선만 한다.
+  const { minProps: thinkMinProps, maxProps: thinkMaxProps } = useThinkTimePair({
+    value: step.think_time,
+    resetKey: step.id,
+    onCommit: (v) => setStepField(step.id, ["think_time"], v),
+    onClear: () => setStepField(step.id, ["think_time"], undefined),
+  });
 
   const headerCount =
     Object.keys(step.request.headers ?? {}).length +
@@ -385,28 +352,10 @@ function HttpStepInspector({
           {ko.editor.stepNoWaitLabel}
         </label>
         <Field label={ko.editor.fieldThinkMin}>
-          <Input
-            numeric
-            type="number"
-            min={0}
-            max={600000}
-            disabled={noWait}
-            value={thinkMinDraft}
-            onChange={(e) => setThinkMinDraft(e.target.value)}
-            onBlur={commitThinkTime}
-          />
+          <Input numeric type="number" min={0} max={600000} disabled={noWait} {...thinkMinProps} />
         </Field>
         <Field label={ko.editor.fieldThinkMax}>
-          <Input
-            numeric
-            type="number"
-            min={0}
-            max={600000}
-            disabled={noWait}
-            value={thinkMaxDraft}
-            onChange={(e) => setThinkMaxDraft(e.target.value)}
-            onBlur={commitThinkTime}
-          />
+          <Input numeric type="number" min={0} max={600000} disabled={noWait} {...thinkMaxProps} />
         </Field>
         {insideParallel ? (
           <p className="text-xs text-amber-700">{ko.editor.parallelNoDefaultNote}</p>
