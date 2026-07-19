@@ -925,11 +925,20 @@ describe("Inspector — think_time (S-B)", () => {
     expect(maxInput.value).toBe("300");
   });
 
-  it("다른 스텝을 선택하면 think 입력이 그 스텝의 값으로 재시드된다 (resetKey)", async () => {
-    // useThinkTimePair의 resetKey(=step.id) 재시드 경로 커버 — Task 1은 이 경로를
-    // 실사용처 없이 커밋됐다. HttpStepInspector는 <HttpStepInspector key=...> 없이
-    // 재사용되므로(Inspector.tsx), 스텝 전환은 리마운트가 아니라 이 effect가 담당한다.
-    const TWO_STEP_YAML = `version: 1
+  it("다른 스텝을 선택하면 이전 스텝의 미커밋 draft가 아니라 그 스텝의 커밋값으로 재시드된다 (resetKey 격리)", async () => {
+    // useThinkTimePair의 resetKey(=step.id) 재시드 경로만 골라내는 테스트.
+    //
+    // 이전 버전(두 스텝의 think_time이 서로 달랐던 버전)은 스텝 전환 시 cfgMin/cfgMax도
+    // 같이 바뀌어 reseed(useCallback([cfgMin,cfgMax]))의 identity가 바뀌었다 — 그래서
+    // resetKey를 effect dep에서 완전히 빼도(`useEffect(() => reseed(), [reseed])`)
+    // "reseed 값-변경" 경로만으로 effect가 재발화해 테스트가 통과했다(공허).
+    //
+    // 여기선 두 스텝의 커밋된 think_time을 **동일**({min_ms:100,max_ms:300})하게
+    // 맞춰 cfgMin/cfgMax·reseed identity가 전환 전후로 불변이게 한다. 그 상태에서
+    // 첫 스텝 입력에 미커밋 draft("999")를 남기고 전환하면, resetKey가 유일한
+    // 트리거이므로 — 그게 없으면 "999" 잔존 draft가 두 번째 스텝 화면에 그대로
+    // 새어나가 아래 단언이 깨진다(이빨 실증: teeth-demo 참고).
+    const TWO_STEP_SAME_THINK_YAML = `version: 1
 name: "demo"
 cookie_jar: auto
 variables: {}
@@ -949,24 +958,36 @@ steps:
     request:
       method: POST
       url: "/logout"
+    think_time:
+      min_ms: 100
+      max_ms: 300
 `;
     act(() => {
-      useScenarioEditor.getState().loadFromString(TWO_STEP_YAML);
+      useScenarioEditor.getState().loadFromString(TWO_STEP_SAME_THINK_YAML);
       useScenarioEditor.getState().select("01HX0000000000000000000001");
     });
     render(<Inspector />);
     await userEvent.setup().click(screen.getByRole("button", { name: ko.editor.sectionTiming }));
 
-    expect((screen.getByLabelText(/think 최솟값/i) as HTMLInputElement).value).toBe("100");
+    const minInput = screen.getByLabelText(/think 최솟값/i) as HTMLInputElement;
+    expect(minInput.value).toBe("100");
     expect((screen.getByLabelText(/think 최댓값/i) as HTMLInputElement).value).toBe("300");
 
-    // 같은 마운트 안에서 두 번째 스텝(think_time 없음)으로 전환한다.
+    // 첫 스텝 min 입력에 미커밋 draft를 남긴다 — blur도, max(짝)로의 포커스
+    // 이동도 없음(커밋 경계를 건드리지 않고 순수 draft 상태만 바꾼다).
+    fireEvent.change(minInput, { target: { value: "999" } });
+    expect(minInput.value).toBe("999");
+
+    // 같은 마운트 안에서 두 번째 스텝(동일 커밋값)으로 전환한다.
     act(() => {
       useScenarioEditor.getState().select("01HX0000000000000000000002");
     });
 
-    expect((screen.getByLabelText(/think 최솟값/i) as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText(/think 최댓값/i) as HTMLInputElement).value).toBe("");
+    // resetKey가 없었다면 cfgMin/cfgMax가 두 스텝 모두 100/300이라 reseed identity가
+    // 안 바뀌어 이 재시드가 안 일어나고, 방금 남긴 "999" draft가 새 스텝 화면에 그대로
+    // 새어나간다 — 즉 이 두 단언이 resetKey 메커니즘 자체를 검증한다.
+    expect((screen.getByLabelText(/think 최솟값/i) as HTMLInputElement).value).toBe("100");
+    expect((screen.getByLabelText(/think 최댓값/i) as HTMLInputElement).value).toBe("300");
   });
 });
 
