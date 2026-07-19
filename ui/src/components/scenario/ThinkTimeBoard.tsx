@@ -61,7 +61,7 @@ function BoardRow({ row }: { row: ThinkRow }) {
         </div>
       </td>
       <td className="whitespace-nowrap px-2 py-1">
-        <span className="inline-flex items-center gap-1">
+        <span data-testid="state-badge" className="inline-flex items-center gap-1">
           <Badge tone={STATE_TONE[row.state]}>{STATE_LABEL[row.state]}</Badge>
           {row.state === "parallel_unset" && (
             <HelpTip label={ko.editor.defaultThinkParallelHelpLabel}>

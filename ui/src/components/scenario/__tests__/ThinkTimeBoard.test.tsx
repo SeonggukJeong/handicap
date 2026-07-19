@@ -50,6 +50,22 @@ steps:
               url: "/img"
 `;
 
+const YAML_DEFAULT_ZERO = `version: 1
+name: "demo-zero"
+cookie_jar: auto
+variables: {}
+default_think_time:
+  min_ms: 0
+  max_ms: 0
+steps:
+  - id: "01HX0000000000000000000006"
+    name: "핑"
+    type: http
+    request:
+      method: GET
+      url: "/ping"
+`;
+
 function table() {
   return screen.getByRole("table", { name: ko.editor.thinkBoardTableAria });
 }
@@ -81,14 +97,14 @@ describe("ThinkTimeBoard — 읽기", () => {
   it("상속 행 — 배지 '상속' + 실효 대기 200–500ms", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     const r = row("로그인");
-    expect(within(r).getByText(ko.editor.thinkStateInherited)).toBeInTheDocument();
+    expect(within(r).getByTestId("state-badge")).toHaveTextContent(ko.editor.thinkStateInherited);
     expect(within(r).getByTestId("effective")).toHaveTextContent("200–500ms");
   });
 
   it("지정 행 — 배지 '지정' + 실효 대기 800–900ms", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     const r = row("주문");
-    expect(within(r).getByText(ko.editor.thinkStateOverride)).toBeInTheDocument();
+    expect(within(r).getByTestId("state-badge")).toHaveTextContent(ko.editor.thinkStateOverride);
     expect(within(r).getByTestId("effective")).toHaveTextContent("800–900ms");
   });
 
@@ -96,16 +112,18 @@ describe("ThinkTimeBoard — 읽기", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     const r = row("즉시");
     // thinkStateNoWait와 thinkNoWait가 둘 다 문자열 "대기없음"이라(배지+실효 열 동일 문구 —
-    // 의도된 표시) 행 스코프 bare getByText도 다중매치 throw. 배지가 DOM에서 effective 열보다
-    // 먼저 나오므로 getAllByText[0]로 스코프(브리프 테스트에서 벗어난 최소 조정 — report 기록).
-    expect(within(r).getAllByText(ko.editor.thinkStateNoWait)[0]).toBeInTheDocument();
+    // 의도된 표시) 행 스코프 bare getByText는 다중매치 throw. 배지 셀을 data-testid로
+    // 직접 특정해 "실효 열의 <td>가 우연히 [0]으로 잡혀 통과"하는 실패 모드를 차단한다.
+    expect(within(r).getByTestId("state-badge")).toHaveTextContent(ko.editor.thinkStateNoWait);
     expect(within(r).getByTestId("effective")).toHaveTextContent(ko.editor.thinkNoWait);
   });
 
   it("US3: 병렬 분기 행은 '미적용' 배지 + 실효 '대기없음' (긍정 단언)", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     const r = row("이미지");
-    expect(within(r).getByText(ko.editor.thinkStateParallelUnset)).toBeInTheDocument();
+    expect(within(r).getByTestId("state-badge")).toHaveTextContent(
+      ko.editor.thinkStateParallelUnset,
+    );
     expect(within(r).getByTestId("effective")).toHaveTextContent(ko.editor.thinkNoWait);
     expect(within(r).queryByText(ko.editor.thinkStateInherited)).not.toBeInTheDocument();
     expect(within(r).getByTestId("step-path")).toHaveTextContent("동시·b1");
@@ -122,6 +140,14 @@ describe("ThinkTimeBoard — 읽기", () => {
   it("기본값 요약 줄을 보여준다", () => {
     render(<ThinkTimeBoard open onClose={() => {}} />);
     expect(screen.getByTestId("default-summary")).toHaveTextContent("200–500ms");
+  });
+
+  it("기본값이 {0,0}이면 '대기없음' 요약 문구를 보여준다", () => {
+    useScenarioEditor.getState().loadFromString(YAML_DEFAULT_ZERO);
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(screen.getByTestId("default-summary")).toHaveTextContent(
+      ko.editor.thinkBoardDefaultZero,
+    );
   });
 
   it("스텝이 없으면 빈 상태 문구", () => {
