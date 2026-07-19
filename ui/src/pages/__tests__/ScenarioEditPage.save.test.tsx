@@ -5,6 +5,10 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScenarioEditPage } from "../ScenarioEditPage";
 
+// `seed`/`edit`는 이 mock이 한 번에 렌더하므로, 비동기 경계(페이지 로드) 직후 첫 쿼리만
+// 노출된다 — `getByRole("seed")`(동기)는 부하 걸린 CI 러너에서 페이지 크롬보다 늦게
+// 마운트되는 순간에 걸려 간헐 실패했다(2026-07-20 ci 29708407603, 재실행은 코드 변경
+// 없이 green). `findByRole`은 getBy + 재시도라 단언이 약해지지 않는다 — 동기로 되돌리지 말 것.
 vi.mock("../../components/scenario/EditorShell", () => ({
   EditorShell: ({ onChange }: { onChange: (s: string) => void }) => (
     <div>
@@ -90,7 +94,7 @@ describe("ScenarioEditPage save", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("button", { name: "저장" });
-    await user.click(screen.getByRole("button", { name: "seed" })); // baseline → not dirty
+    await user.click(await screen.findByRole("button", { name: "seed" })); // baseline → not dirty
     await user.click(screen.getByRole("button", { name: "edit" })); // dirty → Save 활성화
 
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -108,7 +112,7 @@ describe("ScenarioEditPage save", () => {
     putShouldFail = true;
     renderPage();
     await screen.findByRole("button", { name: "저장" });
-    await user.click(screen.getByRole("button", { name: "seed" }));
+    await user.click(await screen.findByRole("button", { name: "seed" }));
     await user.click(screen.getByRole("button", { name: "edit" }));
 
     await user.click(screen.getByRole("button", { name: "저장" }));
