@@ -164,6 +164,13 @@ describe("EditorShell", () => {
     expect(screen.queryByText(ko.editor.scenarioDefaultsTitle)).not.toBeInTheDocument();
   });
 
+  it("헤더 툴바의 페이싱 버튼이 현황판을 연다", async () => {
+    const user = userEvent.setup();
+    render(<EditorShell initialYaml={'version: 1\nname: "x"\nsteps: []\n'} />);
+    await user.click(screen.getByRole("button", { name: ko.editor.thinkBoardOpenAria }));
+    expect(screen.getByRole("dialog", { name: ko.editor.thinkBoardTitle })).toBeInTheDocument();
+  });
+
   const WIDE_YAML = `version: 1
 name: "demo"
 cookie_jar: auto

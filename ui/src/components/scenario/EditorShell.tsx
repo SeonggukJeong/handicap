@@ -9,6 +9,7 @@ import { TestFlowChips } from "./TestFlowChips";
 import { ValidationBanner } from "./ValidationBanner";
 import { VariablesPanel } from "./VariablesPanel";
 import { ScenarioDefaults } from "./ScenarioDefaults";
+import { ThinkTimeBoard } from "./ThinkTimeBoard";
 import type { Step } from "../../scenario/model";
 
 const EMPTY_STEPS: Step[] = []; // 셀렉터 안정 참조 — 인라인 `?? []` 금지(getSnapshot 함정)
@@ -30,6 +31,7 @@ export function EditorShell({
   const select = useScenarioEditor((s) => s.select);
 
   const [yamlOpen, setYamlOpen] = useState(false);
+  const [thinkBoardOpen, setThinkBoardOpen] = useState(false);
   const [varsOpen, setVarsOpen] = useState(true);
   const [wideOpen, setWideOpen] = useState(false);
   const [varsWide, setVarsWide] = useState(false);
@@ -121,6 +123,14 @@ export function EditorShell({
         >
           <span aria-hidden="true">◧</span> {ko.editor.varsWideToggle}
         </button>
+        <button
+          type="button"
+          aria-label={ko.editor.thinkBoardOpenAria}
+          onClick={() => setThinkBoardOpen(true)}
+          className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+        >
+          <span aria-hidden="true">⏱</span> {ko.editor.thinkBoardOpen}
+        </button>
       </div>
       <div
         data-testid="editor-grid"
@@ -185,6 +195,7 @@ export function EditorShell({
       >
         <Inspector />
       </Modal>
+      <ThinkTimeBoard open={thinkBoardOpen} onClose={() => setThinkBoardOpen(false)} />
     </div>
   );
 }
