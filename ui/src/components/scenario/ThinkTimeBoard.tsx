@@ -233,8 +233,17 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
     setStepsThinkTime(selectedIds, value);
   };
 
+  // ESC는 blur 없이 언마운트하므로 onBlur-커밋 draft가 버려진다 — 동기 blur로
+  // 커밋을 flush한 뒤 닫는다(EditorShell.closeDetail과 같은 이디엄).
+  // 백드롭/✕는 mousedown이 이미 포커스를 옮겨 스스로 커밋하므로, 이 blur는
+  // 그 경로에선 입력이 이미 커밋된 뒤라 no-op이다.
+  const closeWithFlush = () => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    onClose();
+  };
+
   return (
-    <Modal open={open} onClose={onClose} title={ko.editor.thinkBoardTitle}>
+    <Modal open={open} onClose={closeWithFlush} title={ko.editor.thinkBoardTitle}>
       <div
         role="group"
         aria-label={ko.editor.thinkBoardDefaultLabel}

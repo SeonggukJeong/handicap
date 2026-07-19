@@ -528,6 +528,41 @@ steps: []
   });
 });
 
+describe("ThinkTimeBoard — 모달 닫힘 시 커밋 flush (R5)", () => {
+  it("ESC로 닫아도 마지막으로 친 쌍이 저장된다 (R5)", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+
+    await user.clear(defMinInput());
+    await user.type(defMinInput(), "200");
+    await user.click(defMaxInput());
+    await user.clear(defMaxInput());
+    await user.type(defMaxInput(), "400");
+    // blur 없이 ESC — Modal은 document에 keydown 리스너를 건다(Modal.tsx:55).
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(useScenarioEditor.getState().model!.default_think_time).toEqual({
+      min_ms: 200,
+      max_ms: 400,
+    });
+  });
+
+  it("ESC로 닫을 때 min>max면 커밋하지 않는다 (US2가 닫힘 경로에서도 성립)", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    const before = useScenarioEditor.getState().model!.default_think_time;
+
+    await user.clear(defMinInput());
+    await user.type(defMinInput(), "9000");
+    await user.click(defMaxInput());
+    await user.clear(defMaxInput());
+    await user.type(defMaxInput(), "100");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(useScenarioEditor.getState().model!.default_think_time).toEqual(before);
+  });
+});
+
 describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
   it("yamlError면 입력·체크박스가 전부 disabled", () => {
     useScenarioEditor.getState().setPendingYamlText("steps: [oops");
