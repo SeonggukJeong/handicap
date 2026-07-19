@@ -1,5 +1,9 @@
 # think-time 현황판 Implementation Plan
 
+REVIEW-GATE: APPROVED
+
+> spec `2026-07-19-think-time-dashboard-design.md`(`3c69889`)와 이 plan(`59c6b43`) 모두 `spec-plan-reviewer` 2라운드 끝에 clean `APPROVE`. spec must-fix 7건·plan must-fix 5건 전부 반영(기각 0건).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 시나리오 에디터에 모달 현황판을 추가해 전 http 스텝의 think-time 설정 상태와 **실효 대기 시간**을 한 표로 보이고, 행별 편집 + 체크박스 다중선택 일괄 3액션으로 그 자리에서 고치게 한다.
