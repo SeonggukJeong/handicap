@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ThinkTimeBoard } from "../ThinkTimeBoard";
 import { useScenarioEditor } from "../../../scenario/store";
 import { ko } from "../../../i18n/ko";
@@ -71,6 +72,17 @@ function table() {
 }
 function row(name: string) {
   return within(table()).getByRole("row", { name: new RegExp(name) });
+}
+function minInput(name: string) {
+  return within(row(name)).getByLabelText(ko.editor.thinkBoardRowMinAria);
+}
+function maxInput(name: string) {
+  return within(row(name)).getByLabelText(ko.editor.thinkBoardRowMaxAria);
+}
+function stepThink(id: string) {
+  const m = useScenarioEditor.getState().model;
+  const s = m?.steps.find((x) => x.id === id);
+  return s && s.type === "http" ? s.think_time : undefined;
 }
 
 beforeEach(() => {
@@ -159,5 +171,202 @@ steps: []
 `);
     render(<ThinkTimeBoard open onClose={() => {}} />);
     expect(screen.getByText(ko.editor.thinkBoardEmpty)).toBeInTheDocument();
+  });
+});
+
+describe("ThinkTimeBoard — 행별 편집", () => {
+  it("min/max를 채우고 blur하면 커밋된다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.clear(minInput("로그인"));
+    await user.type(minInput("로그인"), "300");
+    await user.clear(maxInput("로그인"));
+    await user.type(maxInput("로그인"), "800");
+    fireEvent.blur(maxInput("로그인"));
+    expect(stepThink("01HX0000000000000000000001")).toEqual({ min_ms: 300, max_ms: 800 });
+  });
+
+  it("둘 다 비우면 상속으로 되돌아간다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.clear(minInput("주문"));
+    await user.clear(maxInput("주문"));
+    fireEvent.blur(maxInput("주문"));
+    expect(stepThink("01HX0000000000000000000002")).toBeUndefined();
+  });
+
+  it("정확히 한 칸만 비면 no-op — 모델이 안 바뀐다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.clear(minInput("주문"));
+    fireEvent.blur(minInput("주문"));
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 800, max_ms: 900 });
+  });
+
+  it("R3 회귀: 다른 행의 커밋이 이 행에 반쯤 친 값을 지우지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // B행("로그인")에 min만 입력해 둔다
+    await user.clear(minInput("로그인"));
+    await user.type(minInput("로그인"), "123");
+    // A행("주문")에서 값을 바꾸고 커밋
+    await user.clear(maxInput("주문"));
+    await user.type(maxInput("주문"), "950");
+    fireEvent.blur(maxInput("주문"));
+    // B행의 draft가 살아 있어야 한다
+    expect(minInput("로그인")).toHaveValue(123);
+  });
+
+  it("R3 회귀(보강): 기존 configured 있는 행의 no-op 부분편집도 무관 커밋에 안 지워진다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // "즉시"(기존 configured {0,0} 있음)의 min만 비운다 — 정확히 한 칸만 비어 no-op,
+    // draft는 {min:"", max:"0"}로 남는다.
+    await user.clear(minInput("즉시"));
+    // "로그인"(기존 configured 없음)에 값을 채우고 커밋한다 — 포커스 이동으로 위 no-op이
+    // 먼저 blur-commit(no-op)되고, 이 커밋이 모델을 reparse해 "즉시".configured가
+    // 내용은 같아도(═{0,0}) 새 객체 레퍼런스를 받는다.
+    await user.clear(minInput("로그인"));
+    await user.type(minInput("로그인"), "300");
+    await user.clear(maxInput("로그인"));
+    await user.type(maxInput("로그인"), "800");
+    fireEvent.blur(maxInput("로그인"));
+    expect(minInput("즉시")).toHaveValue(null); // 여전히 빈 채로 — "0"으로 되돌아가면 버그
+  });
+
+  it("× 버튼이 상속으로 되돌린다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.click(
+      within(row("주문")).getByRole("button", { name: ko.editor.thinkBoardResetAria }),
+    );
+    expect(stepThink("01HX0000000000000000000002")).toBeUndefined();
+  });
+});
+
+describe("ThinkTimeBoard — 일괄", () => {
+  const selectRow = async (user: ReturnType<typeof userEvent.setup>, name: string) =>
+    user.click(within(row(name)).getByRole("checkbox"));
+
+  it("선택이 0이면 액션 바가 없다", () => {
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(
+      screen.queryByRole("group", { name: ko.editor.thinkBoardBulkAria }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("전체선택 → [대기없음으로] → 전 행이 {0,0}", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await user.click(screen.getByRole("checkbox", { name: ko.editor.thinkBoardSelectAllAria }));
+    await user.click(screen.getByRole("button", { name: ko.editor.thinkBoardBulkNoWait }));
+    expect(stepThink("01HX0000000000000000000001")).toEqual({ min_ms: 0, max_ms: 0 });
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 0, max_ms: 0 });
+  });
+
+  it("US2: 선택 행만 적용되고 비선택 행은 무변화", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "로그인");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria), "300");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMaxAria), "800");
+    await user.click(screen.getByRole("button", { name: ko.editor.thinkBoardBulkApply }));
+    expect(stepThink("01HX0000000000000000000001")).toEqual({ min_ms: 300, max_ms: 800 });
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 800, max_ms: 900 });
+  });
+
+  it("[적용]은 잘못된 입력에서 disabled (빈칸 / min>max / 600001)", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "로그인");
+    const apply = screen.getByRole("button", { name: ko.editor.thinkBoardBulkApply });
+    expect(apply).toBeDisabled(); // 빈칸
+
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria), "500");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMaxAria), "100");
+    expect(apply).toBeDisabled(); // min > max
+
+    await user.clear(screen.getByLabelText(ko.editor.thinkBoardBulkMaxAria));
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMaxAria), "600001");
+    expect(apply).toBeDisabled(); // 상한 초과
+  });
+
+  it("US4: 값이 지정된 병렬 행을 포함해 선택하면 안내가 뜨고 [상속으로]는 활성", async () => {
+    // 병렬 분기 스텝에 값을 넣어 n>=1을 만든다
+    useScenarioEditor
+      .getState()
+      .setStepField("01HX0000000000000000000004", ["think_time"], { min_ms: 50, max_ms: 60 });
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "이미지");
+    await selectRow(user, "로그인");
+    expect(screen.getByRole("status")).toHaveTextContent(ko.editor.thinkBoardParallelWarn(1));
+    expect(screen.getByRole("button", { name: ko.editor.thinkBoardBulkInherit })).toBeEnabled();
+  });
+
+  it("US4: 순차 행만 선택하면 안내가 없다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "로그인");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("이미 미설정인 병렬 행은 n에 안 세진다 (no-op 행 제외)", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "이미지"); // think_time 없음 = parallel_unset
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("R4: 부분 선택이면 전체선택 체크박스가 indeterminate다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    const all = screen.getByRole("checkbox", {
+      name: ko.editor.thinkBoardSelectAllAria,
+    }) as HTMLInputElement;
+    expect(all.indeterminate).toBe(false);
+    await selectRow(user, "로그인");
+    expect(all.indeterminate).toBe(true);
+    expect(all.checked).toBe(false);
+    await user.click(all); // 전체선택
+    expect(all.indeterminate).toBe(false);
+    expect(all.checked).toBe(true);
+  });
+
+  it("R4: 모달을 닫으면 선택과 일괄 입력이 버려진다", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ThinkTimeBoard open onClose={() => {}} />);
+    await selectRow(user, "로그인");
+    await user.type(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria), "300");
+    expect(screen.getByRole("group", { name: ko.editor.thinkBoardBulkAria })).toBeInTheDocument();
+
+    rerender(<ThinkTimeBoard open={false} onClose={() => {}} />);
+    rerender(<ThinkTimeBoard open onClose={() => {}} />);
+
+    expect(
+      screen.queryByRole("group", { name: ko.editor.thinkBoardBulkAria }),
+    ).not.toBeInTheDocument();
+    expect(
+      (
+        screen.getByRole("checkbox", {
+          name: ko.editor.thinkBoardSelectAllAria,
+        }) as HTMLInputElement
+      ).indeterminate,
+    ).toBe(false);
+  });
+});
+
+describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
+  it("yamlError면 입력·체크박스가 전부 disabled", () => {
+    useScenarioEditor.getState().setPendingYamlText("steps: [oops");
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    expect(minInput("로그인")).toBeDisabled();
+    expect(maxInput("로그인")).toBeDisabled();
+    expect(within(row("로그인")).getByRole("checkbox")).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: ko.editor.thinkBoardSelectAllAria }),
+    ).toBeDisabled();
   });
 });
