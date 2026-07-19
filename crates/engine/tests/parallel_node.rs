@@ -271,6 +271,63 @@ steps:
 }
 
 #[tokio::test]
+async fn parallel_branch_nested_loop_extract_reaches_downstream_request() {
+    // task-1-brief acceptance (load path): a branch's extract nested inside a
+    // loop/if is NOT merged if output_var_names() only walks top-level Http steps
+    // (the pre-fix bug). Assert the downstream request actually carries the
+    // extracted value — the wire-level proof, not just that the run completes.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/auth"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"token": "TOK123"})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/use"))
+        .and(query_param("t", "TOK123"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = r#"
+version: 1
+name: par
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fan
+    type: parallel
+    branches:
+      - name: auth
+        steps:
+          - id: "01HX0000000000000000000014"
+            name: lp
+            type: loop
+            repeat: 1
+            do:
+              - { id: "01HX0000000000000000000011", name: ga, type: http, request: { method: GET, url: "${BASE}/auth" }, assert: [], extract: [ { var: token, from: body, path: "$.token" } ] }
+  - id: "01HX0000000000000000000013"
+    name: use
+    type: http
+    request: { method: GET, url: "${BASE}/use?t={{auth.token}}" }
+    assert: []
+"#;
+    let sc = Arc::new(Scenario::from_yaml(yaml).unwrap());
+    let (tx, rx) = mpsc::channel(64);
+    run_scenario(sc, plan(&server.uri(), 1), tx, CancellationToken::new())
+        .await
+        .unwrap();
+    let _ = drain(rx).await;
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        reqs.iter()
+            .any(|r| r.url.path() == "/use" && r.url.query().unwrap_or("").contains("t=TOK123")),
+        "downstream request must carry auth.token extracted inside the branch's nested loop, got: {:?}",
+        reqs.iter().map(|r| r.url.to_string()).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
 async fn flat_scenario_emits_no_group_stats() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

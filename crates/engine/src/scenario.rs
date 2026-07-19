@@ -159,19 +159,42 @@ pub struct Branch {
 }
 
 impl Branch {
-    /// Variable names this branch declares as extract outputs (http-only in v1).
-    /// The parallel merge namespaces exactly these keys (key-origin, not value-diff
-    /// — a branch that re-extracts a parent's value is still exposed; design §3.2).
+    /// Variable names this branch declares as extract outputs. The parallel merge
+    /// namespaces exactly these keys (key-origin, not value-diff — a branch that
+    /// re-extracts a parent's value is still exposed; design §3.2).
+    ///
+    /// Recurses into nested `Loop`(`do`) and `If`(`then`/`elif[].then`/`else`) so
+    /// extracts inside a branch's control-flow subtree are found, not just its
+    /// top-level `Http` steps. Deliberately does **not** recurse into a nested
+    /// `Parallel` — that would need multi-layer `{{B.inner.v}}` namespacing, out of
+    /// scope (spec §3.2; `parallel_var_scope` task-1-brief).
     pub fn output_var_names(&self) -> Vec<&str> {
         let mut out = Vec::new();
-        for s in &self.steps {
-            if let Step::Http(h) = s {
+        collect_output_var_names(&self.steps, &mut out);
+        out
+    }
+}
+
+/// Walker shared by [`Branch::output_var_names`] — see that method's doc for the
+/// recursion rules (Loop/If yes, nested Parallel no).
+fn collect_output_var_names<'a>(steps: &'a [Step], out: &mut Vec<&'a str>) {
+    for s in steps {
+        match s {
+            Step::Http(h) => {
                 for e in &h.extract {
                     out.push(e.var());
                 }
             }
+            Step::Loop(l) => collect_output_var_names(&l.do_, out),
+            Step::If(i) => {
+                collect_output_var_names(&i.then_, out);
+                for elif in &i.elif {
+                    collect_output_var_names(&elif.then_, out);
+                }
+                collect_output_var_names(&i.else_, out);
+            }
+            Step::Parallel(_) => {}
         }
-        out
     }
 }
 
@@ -1246,6 +1269,100 @@ steps:
             })],
         };
         assert_eq!(b.output_var_names(), vec!["id", "code"]);
+    }
+
+    /// Builds a minimal `Step::Http` that extracts `var` from `$.<var>` via
+    /// `Extract::Body`, for the recursion tests below (task-1-brief acceptance).
+    fn mk_extract_http(id: &str, var: &str) -> Step {
+        Step::Http(HttpStep {
+            id: id.into(),
+            name: format!("h_{var}"),
+            request: Request {
+                method: HttpMethod::Get,
+                url: "/u".into(),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![Extract::Body {
+                var: var.into(),
+                path: format!("$.{var}"),
+            }],
+            timeout_seconds: None,
+            think_time: None,
+        })
+    }
+
+    #[test]
+    fn branch_output_var_names_recurses_into_loop() {
+        // Branch { loop { http(extract v) } } — output_var_names() must walk into
+        // the loop body, not just the branch's top-level steps (task-1-brief §acceptance).
+        let b = Branch {
+            name: "auth".into(),
+            steps: vec![Step::Loop(LoopStep {
+                id: "01HX0000000000000000000020".into(),
+                name: "lp".into(),
+                repeat: 1,
+                do_: vec![mk_extract_http("01HX0000000000000000000021", "v")],
+            })],
+        };
+        assert_eq!(b.output_var_names(), vec!["v"]);
+    }
+
+    #[test]
+    fn branch_output_var_names_recurses_into_if_all_arms() {
+        // Branch { if { then: [http(a)], elif: [http(b)], else: [http(c)] } } — all
+        // three arms must be walked (task-1-brief §acceptance: a,b,c all present).
+        let b = Branch {
+            name: "auth".into(),
+            steps: vec![Step::If(IfStep {
+                id: "01HX0000000000000000000030".into(),
+                name: "cond".into(),
+                cond: Condition::Compare {
+                    left: "1".into(),
+                    op: CompareOp::Eq,
+                    right: Some("1".into()),
+                },
+                then_: vec![mk_extract_http("01HX0000000000000000000031", "a")],
+                elif: vec![ElifBranch {
+                    cond: Condition::Compare {
+                        left: "1".into(),
+                        op: CompareOp::Eq,
+                        right: Some("2".into()),
+                    },
+                    then_: vec![mk_extract_http("01HX0000000000000000000032", "b")],
+                }],
+                else_: vec![mk_extract_http("01HX0000000000000000000033", "c")],
+            })],
+        };
+        let names = b.output_var_names();
+        assert!(names.contains(&"a"), "then arm missing: {names:?}");
+        assert!(names.contains(&"b"), "elif arm missing: {names:?}");
+        assert!(names.contains(&"c"), "else arm missing: {names:?}");
+    }
+
+    #[test]
+    fn branch_output_var_names_does_not_recurse_into_nested_parallel() {
+        // Branch { parallel { branch inner { http(extract x) } } } — nested parallel
+        // is a deliberate limit (spec §3.2: avoids multi-layer B.inner.v namespacing),
+        // NOT a bug. output_var_names() must NOT descend into it.
+        let b = Branch {
+            name: "outer".into(),
+            steps: vec![Step::Parallel(ParallelStep {
+                id: "01HX0000000000000000000040".into(),
+                name: "inner_par".into(),
+                branches: vec![Branch {
+                    name: "inner".into(),
+                    steps: vec![mk_extract_http("01HX0000000000000000000041", "x")],
+                }],
+            })],
+        };
+        assert_eq!(
+            b.output_var_names(),
+            Vec::<&str>::new(),
+            "nested parallel extract must not surface (§3.2 limit)"
+        );
     }
 
     #[test]

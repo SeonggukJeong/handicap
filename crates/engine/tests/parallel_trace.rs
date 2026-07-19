@@ -119,3 +119,62 @@ steps:
         t.final_vars
     );
 }
+
+#[tokio::test]
+async fn trace_merges_branch_extract_nested_in_loop() {
+    // task-1-brief acceptance (trace path): same fix as the runner — a branch's
+    // extract nested inside a loop must land in final_vars namespaced as
+    // {{branch.var}}, lockstep with the load-path test in parallel_node.rs
+    // (engine CLAUDE.md lockstep rule: verify both, not just one).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/auth"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"token": "TOK123"})),
+        )
+        .mount(&server)
+        .await;
+
+    let mut env = BTreeMap::new();
+    env.insert("BASE".to_string(), server.uri());
+
+    let yaml = r#"
+version: 1
+name: par
+steps:
+  - id: "01HX0000000000000000000010"
+    name: fan
+    type: parallel
+    branches:
+      - name: auth
+        steps:
+          - id: "01HX0000000000000000000014"
+            name: lp
+            type: loop
+            repeat: 1
+            do:
+              - id: "01HX0000000000000000000011"
+                name: ga
+                type: http
+                request: { method: GET, url: "${BASE}/auth" }
+                assert: []
+                extract:
+                  - { var: token, from: body, path: "$.token" }
+"#;
+
+    let sc = Scenario::from_yaml(yaml).unwrap();
+    let opts = TraceOptions {
+        env,
+        max_requests: 50,
+        max_wall: Duration::from_secs(10),
+        apply_think_time: false,
+    };
+    let t = trace_scenario(&sc, &opts).await;
+
+    assert_eq!(
+        t.final_vars.get("auth.token").map(String::as_str),
+        Some("TOK123"),
+        "auth.token (extracted inside branch's nested loop) not in final_vars: {:?}",
+        t.final_vars
+    );
+}
