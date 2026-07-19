@@ -21,7 +21,7 @@ import {
   isParallelStep,
   isInsideParallelBranch,
 } from "../../scenario/model";
-import { classifyThink } from "../../scenario/thinkTime";
+import { classifyThink, resolveThinkDraft } from "../../scenario/thinkTime";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -237,25 +237,28 @@ function HttpStepInspector({
     setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
     setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
   }, [step.id, step.think_time]);
+  // 4분기 커밋 규칙(clear/noop/commit/revert)은 thinkTime.ts::resolveThinkDraft가 단일
+  // 소스(R3) — ThinkTimeBoard의 행별 편집기와 규칙을 공유한다. 여기선 outcome에 따른
+  // setState/store 호출만 한다(부수효과는 호출부 소유).
   const commitThinkTime = () => {
-    const minR = thinkMinDraft.trim();
-    const maxR = thinkMaxDraft.trim();
-    if (minR === "" && maxR === "") {
-      setStepField(step.id, ["think_time"], undefined); // clears YAML key
-      return;
-    }
-    // Exactly one field empty = incomplete pair (e.g. focus moving between the
-    // two inputs mid-entry). Leave drafts untouched so the user can finish —
-    // don't coerce "" to 0 or revert a half-typed value.
-    if (minR === "" || maxR === "") return;
-    const mn = Number(minR);
-    const mx = Number(maxR);
-    if (Number.isInteger(mn) && Number.isInteger(mx) && mn >= 0 && mx >= mn && mx <= 600_000) {
-      setStepField(step.id, ["think_time"], { min_ms: mn, max_ms: mx });
-    } else {
-      // revert to last committed (no NaN / out-of-range / min>max write)
-      setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
-      setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
+    const outcome = resolveThinkDraft(thinkMinDraft, thinkMaxDraft);
+    switch (outcome.kind) {
+      case "clear":
+        setStepField(step.id, ["think_time"], undefined); // clears YAML key
+        return;
+      case "noop":
+        // Exactly one field empty = incomplete pair (e.g. focus moving between the
+        // two inputs mid-entry). Leave drafts untouched so the user can finish —
+        // don't coerce "" to 0 or revert a half-typed value.
+        return;
+      case "commit":
+        setStepField(step.id, ["think_time"], outcome.value);
+        return;
+      case "revert":
+        // revert to last committed (no NaN / out-of-range / min>max write)
+        setThinkMinDraft(step.think_time ? String(step.think_time.min_ms) : "");
+        setThinkMaxDraft(step.think_time ? String(step.think_time.max_ms) : "");
+        return;
     }
   };
 

@@ -53,6 +53,30 @@ export function classifyThink(
   return { state: "inherited", effective: normalizeEffective(defaultThink), insideParallel };
 }
 
+/** think_time min/max 편집기(Inspector·ThinkTimeBoard)가 공유하는 4분기 커밋 규칙(R3).
+ *  두 소비처가 이 로직을 한 줄씩 복제하면 한쪽 상한/규칙이 바뀔 때 다른 쪽이 조용히
+ *  어긋난다 — 이 순수 판정 함수가 단일 소스다. 호출부는 반환된 outcome에 따라 자기
+ *  setState/store 호출만 한다(부수효과는 여기서 하지 않는다 — 두 호출부의 revert 시드가
+ *  다르기 때문: Inspector는 step.think_time, ThinkTimeBoard는 row.configured). */
+export type ThinkDraftOutcome =
+  | { kind: "clear" } // 둘 다 빔 → think_time 키 삭제(상속 복귀)
+  | { kind: "noop" } // 정확히 한 칸만 빔 → 아무것도 안 함(draft 보존, 미완성 쌍)
+  | { kind: "commit"; value: ThinkTime } // 둘 다 유효 → 커밋
+  | { kind: "revert" }; // 그 외(범위 밖·비정수·min>max) → 마지막 커밋값으로 draft 되돌리기
+
+export function resolveThinkDraft(minDraft: string, maxDraft: string): ThinkDraftOutcome {
+  const minR = minDraft.trim();
+  const maxR = maxDraft.trim();
+  if (minR === "" && maxR === "") return { kind: "clear" };
+  if (minR === "" || maxR === "") return { kind: "noop" };
+  const mn = Number(minR);
+  const mx = Number(maxR);
+  if (Number.isInteger(mn) && Number.isInteger(mx) && mn >= 0 && mx >= mn && mx <= 600_000) {
+    return { kind: "commit", value: { min_ms: mn, max_ms: mx } };
+  }
+  return { kind: "revert" };
+}
+
 /** 전 http leaf를 아웃라인과 같은 깊이우선 순서로 낸다. `flattenHttpSteps`도 같은 순서를
  *  주지만 조상 경로를 잃으므로(그것만이 이 walker가 따로 있는 이유다) 여기서 다시 내려간다. */
 export function buildThinkRows(sc: Scenario): ThinkRow[] {

@@ -5,7 +5,12 @@ import { HelpTip } from "../HelpTip";
 import { Input } from "../ui/Input";
 import { ko } from "../../i18n/ko";
 import { useScenarioEditor } from "../../scenario/store";
-import { buildThinkRows, type ThinkRow, type ThinkState } from "../../scenario/thinkTime";
+import {
+  buildThinkRows,
+  resolveThinkDraft,
+  type ThinkRow,
+  type ThinkState,
+} from "../../scenario/thinkTime";
 import { METHOD_BADGE } from "./methodBadge";
 import type { ThinkTime } from "../../scenario/model";
 
@@ -59,22 +64,23 @@ function BoardRow({
     setMaxDraft(cfgMax === undefined ? "" : String(cfgMax));
   }, [row.stepId, cfgMin, cfgMax]);
 
-  // Inspector.commitThinkTime과 동일한 4분기 규칙.
+  // 4분기 커밋 규칙은 thinkTime.ts::resolveThinkDraft가 단일 소스(R3) — Inspector의
+  // commitThinkTime과 규칙을 공유한다. 여기선 outcome에 따른 setState/store 호출만.
   const commit = () => {
-    const minR = minDraft.trim();
-    const maxR = maxDraft.trim();
-    if (minR === "" && maxR === "") {
-      setStepField(row.stepId, ["think_time"], undefined);
-      return;
-    }
-    if (minR === "" || maxR === "") return; // 미완성 쌍 — draft 보존
-    const mn = Number(minR);
-    const mx = Number(maxR);
-    if (Number.isInteger(mn) && Number.isInteger(mx) && mn >= 0 && mx >= mn && mx <= 600_000) {
-      setStepField(row.stepId, ["think_time"], { min_ms: mn, max_ms: mx });
-    } else {
-      setMinDraft(cfgMin === undefined ? "" : String(cfgMin));
-      setMaxDraft(cfgMax === undefined ? "" : String(cfgMax));
+    const outcome = resolveThinkDraft(minDraft, maxDraft);
+    switch (outcome.kind) {
+      case "clear":
+        setStepField(row.stepId, ["think_time"], undefined);
+        return;
+      case "noop":
+        return; // 미완성 쌍 — draft 보존
+      case "commit":
+        setStepField(row.stepId, ["think_time"], outcome.value);
+        return;
+      case "revert":
+        setMinDraft(cfgMin === undefined ? "" : String(cfgMin));
+        setMaxDraft(cfgMax === undefined ? "" : String(cfgMax));
+        return;
     }
   };
 

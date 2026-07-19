@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildThinkRows, classifyThink, type ThinkState } from "../thinkTime";
+import { buildThinkRows, classifyThink, resolveThinkDraft, type ThinkState } from "../thinkTime";
 import type { HttpStep, Scenario, Step, ThinkTime } from "../model";
 
 const ID = (n: number) => `01HX00000000000000000000${String(n).padStart(2, "0")}`;
@@ -214,5 +214,75 @@ describe("buildThinkRows", () => {
 
   it("http leaf가 없으면 빈 배열", () => {
     expect(buildThinkRows(scenario([]))).toEqual([]);
+  });
+});
+
+describe("resolveThinkDraft — 4분기 커밋 규칙 (R3, Inspector·ThinkTimeBoard 공용)", () => {
+  it("둘 다 빔 → clear (think_time 키 삭제)", () => {
+    expect(resolveThinkDraft("", "")).toEqual({ kind: "clear" });
+  });
+
+  it("공백-only도 빔으로 취급 → clear", () => {
+    expect(resolveThinkDraft("   ", "  ")).toEqual({ kind: "clear" });
+  });
+
+  it("min만 빔 → noop (draft 보존, 미완성 쌍)", () => {
+    expect(resolveThinkDraft("", "20")).toEqual({ kind: "noop" });
+  });
+
+  it("max만 빔 → noop (draft 보존, 미완성 쌍)", () => {
+    expect(resolveThinkDraft("10", "")).toEqual({ kind: "noop" });
+  });
+
+  it("공백-only 한쪽만 빔인 경우도 noop", () => {
+    expect(resolveThinkDraft("   ", "20")).toEqual({ kind: "noop" });
+  });
+
+  it("둘 다 유효 → commit (trim 후 정수 변환)", () => {
+    expect(resolveThinkDraft("10", "20")).toEqual({
+      kind: "commit",
+      value: { min_ms: 10, max_ms: 20 },
+    });
+  });
+
+  it("앞뒤 공백은 trim 후 커밋된다", () => {
+    expect(resolveThinkDraft(" 10 ", " 20 ")).toEqual({
+      kind: "commit",
+      value: { min_ms: 10, max_ms: 20 },
+    });
+  });
+
+  it("경계값 0: min=0,max=0 → commit", () => {
+    expect(resolveThinkDraft("0", "0")).toEqual({
+      kind: "commit",
+      value: { min_ms: 0, max_ms: 0 },
+    });
+  });
+
+  it("경계값 600000(상한): max=600000 → commit", () => {
+    expect(resolveThinkDraft("0", "600000")).toEqual({
+      kind: "commit",
+      value: { min_ms: 0, max_ms: 600000 },
+    });
+  });
+
+  it("경계값 600001(상한 초과): max=600001 → revert", () => {
+    expect(resolveThinkDraft("0", "600001")).toEqual({ kind: "revert" });
+  });
+
+  it("min > max → revert", () => {
+    expect(resolveThinkDraft("100", "50")).toEqual({ kind: "revert" });
+  });
+
+  it("비정수(소수) → revert", () => {
+    expect(resolveThinkDraft("1.5", "10")).toEqual({ kind: "revert" });
+  });
+
+  it("숫자가 아닌 문자열(NaN) → revert", () => {
+    expect(resolveThinkDraft("abc", "10")).toEqual({ kind: "revert" });
+  });
+
+  it("음수 → revert", () => {
+    expect(resolveThinkDraft("-5", "10")).toEqual({ kind: "revert" });
   });
 });
