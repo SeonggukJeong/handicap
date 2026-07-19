@@ -497,6 +497,12 @@ export const ko = {
       "스텝 추출이 같은 이름에 값을 쓸 수 있습니다 — 추출이 실행된 이후 스텝은 선언값 대신 추출값을 봅니다",
     variableDeclareAdd: "선언 추가",
     variableDeclareAddAria: (name: string) => `${name}을(를) 변수로 선언`,
+    // ── 분기 미스코프 힌트 (parallel-var-scope Task 4, US1) ──
+    variableBranchCandidateHint: (branch: string, name: string) =>
+      `parallel 분기 ${branch}에서 추출됨 — {{${branch}.${name}}}(으)로 참조하세요`,
+    variableBranchCandidatesHint: (branches: string[], name: string) =>
+      `parallel 분기 ${branches.join(", ")} 중 하나에서 추출됨 — {{분기명.${name}}} 형태로 참조하세요`,
+    variableSiblingBranchHint: "형제 분기의 값은 참조할 수 없습니다(동시 실행)",
     renameVariableAria: (name: string) => `${name} 이름 바꾸기`,
     variableRenameInputAria: (name: string) => `${name} 새 이름`,
     variableRenameCollision: (name: string) => `이미 존재하는 이름입니다: ${name}`,

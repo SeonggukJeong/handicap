@@ -179,17 +179,6 @@ export function parallelExtractNames(scenario: Scenario): Set<string> {
   return out;
 }
 
-/** 참조되지만 producer가 없는 이름 = refs − produced − namespaced (R4). 예약 시스템
- *  감산 없음 — `{{}}`는 flow 네임스페이스라 `${vu_id}` system과 무관. */
-export function undefinedVars(scenario: Scenario): Set<string> {
-  const produced = collectProducedVars(scenario);
-  const namespaced = collectNamespacedProducers(scenario);
-  const out = new Set<string>();
-  for (const name of buildVarRefIndex(scenario).keys())
-    if (!produced.has(name) && !namespaced.has(name)) out.add(name);
-  return out;
-}
-
 /** 비-parallel 서브트리(최상위·loop `do`·if `then`/`elif[].then`/`else`)의 http extract
  *  var 집합 — 선언 키 미포함. parallel branches는 미하강: 분기 extract는 flat이 아니라
  *  `{{branch.var}}`로 네임스페이스되기 때문. 선언↔추출 충돌 배지 판정의 flat 항. */
@@ -286,9 +275,9 @@ function collectSubtreeExtractNames(steps: ReadonlyArray<Step>): Set<string> {
 }
 
 /**
- * 참조를 **위치**로 판정하는 미정의 변수 맵(Task 3, US1). `undefinedVars`(전역·conservative —
- * parallel 분기 extract를 어디서든 "생산됨"으로 봄, Task 4가 제거할 때까지 유지)와 달리, 이건 각
- * `{{token}}` 참조가 트리의 **어디**에 있는지로 판정한다:
+ * 참조를 **위치**로 판정하는 미정의 변수 맵(Task 3/4, US1 — VariablesPanel의 유일한 판정 소스,
+ * 옛 전역·conservative `undefinedVars`는 Task 4에서 제거됨). 각 `{{token}}` 참조가 트리의
+ * **어디**에 있는지로 판정한다:
  *   - parallel 분기 B의 서브트리 **안**(B 안 중첩 loop/if 포함, Trap A) = 선언 ∪ flatExtractNames ∪
  *     B **자신의** extract.
  *   - 그 외(최상위·분기 밖 loop/if·다른 형제 분기) = 선언 ∪ flatExtractNames만(B의 extract는 안 셈).

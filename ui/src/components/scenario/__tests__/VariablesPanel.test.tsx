@@ -610,6 +610,127 @@ steps:
   });
 });
 
+describe("VariablesPanel — 분기 미스코프 힌트 + '선언 추가' 조건부 숨김 (parallel-var-scope Task 4, US1)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  // MIXED + 최상위 뒤 스텝이 bare {{s}}로 참조(s는 분기 alpha가 추출). 기존 MIXED만으론 이 케이스가
+  // RED로 안 선다(브리프 F6/E3 — MIXED는 {{alpha.s}}를 namespaced로만 참조하고 분기 leaf는 참조 0이라
+  // 새 규칙에서도 행 집합이 그대로다).
+  const MIXED_DOWNSTREAM_BARE = `${MIXED.trimEnd()}
+  - id: 01HX0000000000000000000099
+    name: bareS
+    type: http
+    request: { method: GET, url: "/z?d={{s}}", headers: {} }
+`;
+
+  it("다운스트림 bare 미정의(candidates=1) 행 s: 힌트 렌더 + '선언 추가' 미렌더(핵심 회귀 가드)", () => {
+    useScenarioEditor.getState().loadFromString(MIXED_DOWNSTREAM_BARE);
+    render(<VariablesPanel />);
+    const sLi = screen.getByTitle(ko.editor.variableUndefinedAria("s")).closest("li")!;
+    expect(
+      within(sLi).getByText(ko.editor.variableBranchCandidateHint("alpha", "s")),
+    ).toBeInTheDocument();
+    expect(
+      within(sLi).queryByRole("button", { name: ko.editor.variableDeclareAddAria("s") }),
+    ).toBeNull();
+  });
+
+  it("candidates=0인 missing 행: 힌트 없음 + '선언 추가' 렌더(현행 유지)", () => {
+    useScenarioEditor.getState().loadFromString(MIXED_DOWNSTREAM_BARE);
+    render(<VariablesPanel />);
+    const missingLi = screen.getByTitle(ko.editor.variableUndefinedAria("missing")).closest("li")!;
+    expect(
+      within(missingLi).getByRole("button", {
+        name: ko.editor.variableDeclareAddAria("missing"),
+      }),
+    ).toBeInTheDocument();
+    expect(within(missingLi).queryByText(/parallel 분기/)).toBeNull();
+  });
+
+  it("두 형제 분기가 같은 이름을 추출(candidates=2+)하면 후보 나열 힌트 + '선언 추가' 미렌더", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: two
+cookie_jar: auto
+variables: {}
+steps:
+  - id: 01HX0000000000000000000100
+    name: par
+    type: parallel
+    branches:
+      - name: A
+        steps: [ { id: "01HX0000000000000000000101", type: http, name: a, request: { method: GET, url: "/a" }, extract: [ { var: dup, from: status } ] } ]
+      - name: B
+        steps: [ { id: "01HX0000000000000000000102", type: http, name: b, request: { method: GET, url: "/b" }, extract: [ { var: dup, from: status } ] } ]
+  - id: 01HX0000000000000000000103
+    name: after
+    type: http
+    request: { method: GET, url: "/u?v={{dup}}", headers: {} }
+`);
+    render(<VariablesPanel />);
+    const dupLi = screen.getByTitle(ko.editor.variableUndefinedAria("dup")).closest("li")!;
+    expect(
+      within(dupLi).getByText(ko.editor.variableBranchCandidatesHint(["A", "B"], "dup")),
+    ).toBeInTheDocument();
+    expect(
+      within(dupLi).queryByRole("button", { name: ko.editor.variableDeclareAddAria("dup") }),
+    ).toBeNull();
+  });
+
+  it("형제 분기 참조(sibling kind)는 전용 문구 + '선언 추가' 미렌더", () => {
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: sib
+cookie_jar: auto
+variables: {}
+steps:
+  - id: 01HX0000000000000000000200
+    name: par
+    type: parallel
+    branches:
+      - name: A
+        steps: [ { id: "01HX0000000000000000000201", type: http, name: a, request: { method: GET, url: "/x?v={{v}}" } } ]
+      - name: B
+        steps: [ { id: "01HX0000000000000000000202", type: http, name: b, request: { method: GET, url: "/y" }, extract: [ { var: v, from: status } ] } ]
+`);
+    render(<VariablesPanel />);
+    const vLi = screen.getByTitle(ko.editor.variableUndefinedAria("v")).closest("li")!;
+    expect(within(vLi).getByText(ko.editor.variableSiblingBranchHint)).toBeInTheDocument();
+    expect(
+      within(vLi).queryByRole("button", { name: ko.editor.variableDeclareAddAria("v") }),
+    ).toBeNull();
+  });
+
+  it("미정의 행 usage 팝오버는 stepIds만(분기 내부 정당 참조 step 제외) — refIndex 전체가 아님", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(`version: 1
+name: wiring
+cookie_jar: auto
+variables: {}
+steps:
+  - id: 01HX0000000000000000000300
+    name: par
+    type: parallel
+    branches:
+      - name: alpha
+        steps: [ { id: "01HX0000000000000000000301", type: http, name: leaf, request: { method: GET, url: "/{{s}}" }, extract: [ { var: s, from: status } ] } ]
+  - id: 01HX0000000000000000000302
+    name: after
+    type: http
+    request: { method: GET, url: "/z?d={{s}}" }
+`);
+    const onJump = vi.fn();
+    render(<VariablesPanel onJumpToStep={onJump} />);
+    const sLi = screen.getByTitle(ko.editor.variableUndefinedAria("s")).closest("li")!;
+    await user.click(
+      within(sLi).getByRole("button", { name: ko.editor.variableUsageNavAria("s") }),
+    );
+    const menu = await screen.findByRole("menu", { name: ko.editor.varUsageListAria });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items).toHaveLength(1); // 분기 내부 leaf(...301)는 정당 참조라 제외 — 다운스트림(...302)만
+    await user.click(items[0]);
+    expect(onJump).toHaveBeenNthCalledWith(1, "01HX0000000000000000000302");
+  });
+});
+
 describe("VariablesPanel — 추출/미정의 행 적응형 줄바꿈 (extract-var-name-visibility)", () => {
   beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
 

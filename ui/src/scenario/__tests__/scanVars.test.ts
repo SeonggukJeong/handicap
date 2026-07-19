@@ -7,7 +7,6 @@ import {
   collectNamespacedProducers,
   parallelExtractNames,
   buildVarRefIndex,
-  undefinedVars,
   undefinedVarRefs,
   flatProducerNames,
   flatExtractNames,
@@ -600,29 +599,6 @@ describe("buildVarRefIndex (R3/R10)", () => {
   });
 });
 
-describe("undefinedVars (R4)", () => {
-  it("flags dangling refs but not valid namespaced / branch-internal bare refs", () => {
-    const u = undefinedVars(parallelScen);
-    expect(u.has("alpha.s")).toBe(false); // 유효 namespaced
-    expect(u.has("s")).toBe(false); // 분기 내부 bare는 collectProducedVars가 해소(conservative)
-    expect(u.has("typo.s")).toBe(true); // 당글링 namespaced
-    expect(u.has("missing")).toBe(true); // bare 미정의
-  });
-  it("treats {{vu_id}} as a real undefined flow var (no reserved-system subtraction)", () => {
-    const s = scenario([
-      {
-        id: "01HX0000000000000000000001",
-        name: "a",
-        type: "http",
-        request: { method: "GET", url: "/x?v={{vu_id}}", headers: {} },
-        assert: [],
-        extract: [],
-      },
-    ]);
-    expect(undefinedVars(s).has("vu_id")).toBe(true);
-  });
-});
-
 // 로컬 헬퍼(기존 테스트에 parseScenarioDoc→model 뽑는 헬퍼가 이미 있으면 그걸 쓸 것).
 import { parseScenarioDoc } from "../yamlDoc";
 function model(yaml: string) {
@@ -1193,5 +1169,86 @@ describe("undefinedVarRefs (Task 3 — position-aware, US1)", () => {
     expect(undefinedVarRefs(parallelScenDownstreamBare).get("s")?.candidates).toEqual(["alpha"]);
     // 2: two sibling branches produce the same bare name, document order, dedup.
     expect(undefinedVarRefs(twoCandidatesScen).get("dup")?.candidates).toEqual(["A", "B"]);
+  });
+
+  // 이관(구 undefinedVars (R4) describe, Task 4 — undefinedVars export 제거로 살아있는
+  // 불변식만 이관): 예약 시스템 변수 무감산 — {{}}는 flow 네임스페이스라 ${vu_id} system과 무관.
+  it("treats {{vu_id}} as a real undefined flow var (no reserved-system subtraction)", () => {
+    const s = scenario([
+      {
+        id: "01HX0000000000000000000001",
+        name: "a",
+        type: "http",
+        request: { method: "GET", url: "/x?v={{vu_id}}", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ]);
+    expect(undefinedVarRefs(s).has("vu_id")).toBe(true);
+  });
+});
+
+// Task 3 리뷰 이관: kind tie-break("다운스트림 위반 하나라도 있으면 downstream 우선")에 커밋된
+// 테스트가 없었다 — sibling-only 분기는 이 discriminator에 직접 분기하므로 여기서 고정한다.
+// 형제 분기 A가 B의 extract를 bare로 참조(sibling-only라면 kind="sibling")+같은 이름을 최상위
+// 다운스트림 스텝도 bare로 참조 → kind="downstream"·stepIds가 분기/최상위 경계를 문서순으로 가로지름.
+const siblingPlusDownstreamScen = ScenarioModel.parse({
+  version: 1,
+  name: "tie",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000900",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "A",
+          steps: [
+            {
+              id: "01HX0000000000000000000901",
+              name: "a1",
+              type: "http",
+              request: { method: "GET", url: "/x?v={{v}}", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+        {
+          name: "B",
+          steps: [
+            {
+              id: "01HX0000000000000000000902",
+              name: "b1",
+              type: "http",
+              request: { method: "GET", url: "/y", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.v", var: "v" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000000903",
+      name: "after",
+      type: "http",
+      request: { method: "GET", url: "/z?v={{v}}", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ],
+});
+
+describe("undefinedVarRefs kind tie-break (Task 3 review carry-over, no prior committed test)", () => {
+  it("downstream wins when a name is violated both inside a sibling branch and downstream; stepIds cross the branch/top-level boundary in document order", () => {
+    const refs = undefinedVarRefs(siblingPlusDownstreamScen);
+    const v = refs.get("v");
+    expect(v).toBeDefined();
+    expect(v?.kind).toBe("downstream");
+    expect(v?.stepIds).toEqual(["01HX0000000000000000000901", "01HX0000000000000000000903"]);
+    expect(v?.candidates).toEqual(["B"]);
   });
 });

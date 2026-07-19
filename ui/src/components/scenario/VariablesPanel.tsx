@@ -9,7 +9,7 @@ import {
   collectProducedVars,
   parallelExtractNames,
   buildVarRefIndex,
-  undefinedVars,
+  undefinedVarRefs,
   parallelVarIdentities,
   flatExtractNames,
   collectNamespacedProducers,
@@ -33,11 +33,30 @@ type VarRow =
       isShadow: boolean;
       refIds: string[];
     }
-  | { kind: "undefined"; name: string; refIds: string[] };
+  | {
+      kind: "undefined";
+      name: string;
+      refIds: string[];
+      candidates: string[];
+      refKind: "downstream" | "sibling";
+    };
 
 type EditKey =
   | { kind: "flat"; name: string }
   | { kind: "parallel"; branchName: string; varName: string };
+
+/** 미정의 행의 분기 미스코프 힌트 텍스트(candidates=0이면 null=힌트 없음, US1). 형제 분기 위반
+ *  (refKind==="sibling")은 후보 개수와 무관하게 전용 문구 — 나머지는 후보 1개/2개+로 분기. */
+function undefinedBranchHint(
+  candidates: string[],
+  refKind: "downstream" | "sibling",
+  name: string,
+): string | null {
+  if (candidates.length === 0) return null;
+  if (refKind === "sibling") return ko.editor.variableSiblingBranchHint;
+  if (candidates.length === 1) return ko.editor.variableBranchCandidateHint(candidates[0], name);
+  return ko.editor.variableBranchCandidatesHint(candidates, name);
+}
 
 export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) => void }) {
   // 셀렉터는 model 전체를 그대로 참조(스토어 필드 자체라 안정 참조) — 파생 행 분석은
@@ -70,7 +89,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
     const produced = collectProducedVars(model);
     const parallelNames = parallelExtractNames(model);
     const refIndex = buildVarRefIndex(model);
-    const undef = undefinedVars(model);
+    const undef = undefinedVarRefs(model);
     const flatEx = flatExtractNames(model);
     const namespaced = collectNamespacedProducers(model);
     const out: VarRow[] = [];
@@ -102,9 +121,16 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         refIds,
       });
     }
-    // 미정의
-    for (const name of undef)
-      out.push({ kind: "undefined", name, refIds: refIndex.get(name) ?? [] });
+    // 미정의(위치 인식 — Task 4: refIds는 UndefinedRef.stepIds만, refIndex 전체가 아니다.
+    // 정당한 분기 내부 참조를 usage 팝오버가 안 가리키게).
+    for (const [name, ref] of undef)
+      out.push({
+        kind: "undefined",
+        name,
+        refIds: ref.stepIds,
+        candidates: ref.candidates,
+        refKind: ref.kind,
+      });
     return out;
   }, [model]);
 
@@ -354,7 +380,11 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
               </li>
             );
           }
-          // undefined
+          // undefined — candidates.length >= 1이면 parallel 분기 미스코프 힌트를 보여주고
+          // "선언 추가"는 숨긴다(spec §2.4.1): 그 버튼은 variables[name]="" 로 ⚠를 지우고 run이
+          // 빈 값을 성공적으로 보내게 만든다([[load-divergence-explain-confirm]] 조용한 부하 왜곡).
+          // 형제 분기 위반(refKind==="sibling")은 후보 나열이 아니라 전용 문구.
+          const hint = undefinedBranchHint(row.candidates, row.refKind, row.name);
           return (
             <li key={`u:${row.name}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span
@@ -367,19 +397,22 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                 <span aria-hidden="true">⚠ </span>
                 {ko.editor.variableUndefined}
               </span>
-              <button
-                type="button"
-                aria-label={ko.editor.variableDeclareAddAria(row.name)}
-                disabled={yamlError !== null}
-                onClick={() => {
-                  setUsageNav(null); // 행 u:→d: 전이로 anchor unmount — detached 팝오버 방지(R8)
-                  setVariable(row.name, "");
-                }}
-                className="shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
-              >
-                {ko.editor.variableDeclareAdd}
-              </button>
+              {row.candidates.length === 0 && (
+                <button
+                  type="button"
+                  aria-label={ko.editor.variableDeclareAddAria(row.name)}
+                  disabled={yamlError !== null}
+                  onClick={() => {
+                    setUsageNav(null); // 행 u:→d: 전이로 anchor unmount — detached 팝오버 방지(R8)
+                    setVariable(row.name, "");
+                  }}
+                  className="shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
+                >
+                  {ko.editor.variableDeclareAdd}
+                </button>
+              )}
               {usageCell(`u:${row.name}`, row.name, row.refIds)}
+              {hint && <span className="w-full shrink-0 text-xs text-slate-500">{hint}</span>}
             </li>
           );
         })}
