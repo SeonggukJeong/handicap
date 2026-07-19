@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThinkTimeBoard } from "../ThinkTimeBoard";
 import { useScenarioEditor } from "../../../scenario/store";
+import { flattenHttpSteps } from "../../../scenario/model";
 import { ko } from "../../../i18n/ko";
 
 const YAML = `version: 1
@@ -79,10 +80,14 @@ function minInput(name: string) {
 function maxInput(name: string) {
   return within(row(name)).getByLabelText(ko.editor.thinkBoardRowMaxAria);
 }
+// Finding 7: 최상위 배열만 훑으면 parallel 분기 등 중첩 컨테이너 안 http leaf(예:
+// "이미지")는 못 찾는다 — `flattenHttpSteps`(model.ts, loop/if/parallel 전부 재귀)로
+// 중첩 컨테이너까지 내려간다.
 function stepThink(id: string) {
   const m = useScenarioEditor.getState().model;
-  const s = m?.steps.find((x) => x.id === id);
-  return s && s.type === "http" ? s.think_time : undefined;
+  if (!m) return undefined;
+  const s = flattenHttpSteps(m.steps).find((x) => x.id === id);
+  return s?.think_time;
 }
 
 beforeEach(() => {
@@ -203,10 +208,16 @@ describe("ThinkTimeBoard — 행별 편집", () => {
     expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 800, max_ms: 900 });
   });
 
-  it("R3 회귀: 다른 행의 커밋이 이 행에 반쯤 친 값을 지우지 않는다", async () => {
+  // 주의(Finding 1): 대상 행("로그인")은 애초에 configured가 없어(undefined) 재파싱
+  // 후에도 `row.configured`는 항상 원시값 undefined다 — `Object.is(undefined, undefined)`가
+  // 성립해 재시드 dep을 객체(`row.configured`)로 되돌려도 이 테스트는 RED가 안 뜬다(vacuous).
+  // 즉 이 테스트는 dep 회귀 가드가 **아니다** — 실제 가드는 바로 아래 "R3 회귀(보강)"
+  // (configured 있는 행을 표적으로 삼는다). 이 테스트 자체는 별개로 유효한 케이스
+  // (미설정 행의 draft가 무관한 행 커밋에서도 보존된다)를 커버하므로 유지한다.
+  it("미설정 행의 draft는 무관한 행의 커밋에도 보존된다 (dep 회귀 가드는 아래 보강 테스트)", async () => {
     const user = userEvent.setup();
     render(<ThinkTimeBoard open onClose={() => {}} />);
-    // B행("로그인")에 min만 입력해 둔다
+    // B행("로그인", configured 없음)에 min만 입력해 둔다
     await user.clear(minInput("로그인"));
     await user.type(minInput("로그인"), "123");
     // A행("주문")에서 값을 바꾸고 커밋
@@ -234,6 +245,20 @@ describe("ThinkTimeBoard — 행별 편집", () => {
     expect(minInput("즉시")).toHaveValue(null); // 여전히 빈 채로 — "0"으로 되돌아가면 버그
   });
 
+  // Finding 4: 4분기 중 "그 외(유효하지 않은 입력) → 마지막 커밋값으로 revert"만
+  // 테스트가 없었다(다른 3분기는 위에 있음). 사용자가 친 입력이 버려지는 분기라
+  // 핀으로 고정한다.
+  it("잘못된 입력(min>max)이면 draft가 마지막 커밋값으로 되돌아간다 — 모델도 불변", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+    // "주문"의 기존 configured = {min:800,max:900}. min을 950으로 바꾸면 min>max.
+    await user.clear(minInput("주문"));
+    await user.type(minInput("주문"), "950");
+    fireEvent.blur(minInput("주문"));
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 800, max_ms: 900 }); // 모델 불변
+    expect(minInput("주문")).toHaveValue(800); // draft가 마지막 커밋값(800)으로 revert
+  });
+
   it("× 버튼이 상속으로 되돌린다", async () => {
     const user = userEvent.setup();
     render(<ThinkTimeBoard open onClose={() => {}} />);
@@ -255,13 +280,16 @@ describe("ThinkTimeBoard — 일괄", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("전체선택 → [대기없음으로] → 전 행이 {0,0}", async () => {
+  it("전체선택 → [대기없음으로] → 전 행이 {0,0} (병렬 분기 안 행 포함, Finding 7)", async () => {
     const user = userEvent.setup();
     render(<ThinkTimeBoard open onClose={() => {}} />);
     await user.click(screen.getByRole("checkbox", { name: ko.editor.thinkBoardSelectAllAria }));
     await user.click(screen.getByRole("button", { name: ko.editor.thinkBoardBulkNoWait }));
     expect(stepThink("01HX0000000000000000000001")).toEqual({ min_ms: 0, max_ms: 0 });
     expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 0, max_ms: 0 });
+    // "동시" 분기("b1") 안 "이미지"도 전체선택에 포함돼야 한다 — 최상위만 훑는
+    // stepThink 헬퍼였다면 이 단언 자체가 불가능했다(항상 undefined).
+    expect(stepThink("01HX0000000000000000000004")).toEqual({ min_ms: 0, max_ms: 0 });
   });
 
   it("US2: 선택 행만 적용되고 비선택 행은 무변화", async () => {
@@ -353,6 +381,12 @@ describe("ThinkTimeBoard — 일괄", () => {
         }) as HTMLInputElement
       ).indeterminate,
     ).toBe(false);
+
+    // Finding 2 teeth: 선택 리셋만으론 위 두 단언이 성립한다(액션 바 자체가
+    // 언마운트돼 stale bulkMin이 관측 불가능하므로) — 일괄 입력이 실제로
+    // 지워졌는지는 행을 다시 선택해 액션 바를 재노출한 뒤 값을 직접 읽어야 한다.
+    await selectRow(user, "로그인");
+    expect(screen.getByLabelText(ko.editor.thinkBoardBulkMinAria)).toHaveValue(null);
   });
 });
 
@@ -368,5 +402,16 @@ describe("ThinkTimeBoard — R6 깨진 YAML 게이트", () => {
     expect(
       screen.getByRole("checkbox", { name: ko.editor.thinkBoardSelectAllAria }),
     ).toBeDisabled();
+    // Finding 5: × 버튼("주문" — configured 있는 행이라 렌더됨. "로그인"은
+    // configured가 없어 버튼 자체가 안 뜬다)도 disabled여야 한다. yamlError는
+    // 깨진 pending YAML을 commit해도 doc/model은 보존되므로("주문"의 configured
+    // {800,900}이 그대로 남아 있다) 이 단언은 vacuous가 아니다.
+    expect(
+      within(row("주문")).getByRole("button", { name: ko.editor.thinkBoardResetAria }),
+    ).toBeDisabled();
+    // 일괄 버튼 3종은 이 테스트에서 단언하지 않는다: 체크박스가 전부 disabled라
+    // 액션 바(선택 1건 이상일 때만 렌더)에 자연스럽게 도달할 방법이 없다 — 클릭이
+    // 막힌 체크박스를 우회 조작(store 직접 mutate)해 강제로 열면 실제 UI 흐름과
+    // 무관한 단언이 된다.
   });
 });
