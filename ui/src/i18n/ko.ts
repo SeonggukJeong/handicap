@@ -459,7 +459,7 @@ export const ko = {
     emptyBandDropHint: "여기로 드롭",
     wideChipAssert: (n: number) => `검증 ${n}`,
     wideChipExtract: (n: number) => `추출 ${n}`,
-    wideChipThink: (min: number, max: number) => `think ${min}–${max}ms`,
+    wideChipThink: (formatted: string) => `think ${formatted}`,
     containerLoop: "반복",
     containerIf: "조건",
     containerParallel: "동시",
@@ -596,7 +596,7 @@ export const ko = {
     thinkHint: "min=max면 고정 지연 (요청 후 대기)",
     // ── Inspector think time 3상태 (think-time-defaults, R8/R9) ──
     stepNoWaitLabel: "이 스텝은 대기 없음",
-    inheritedThink: (min: number, max: number) => `시나리오 기본값 ${min}–${max}ms 상속 중`,
+    inheritedThink: (formatted: string) => `시나리오 기본값 ${formatted} 상속 중`,
     parallelNoDefaultNote:
       "병렬 분기 내부 — 시나리오 기본값이 적용되지 않습니다. 대기가 필요하면 아래에 직접 입력하세요.",
     // ── think-time 현황판 (think-time-dashboard) ──

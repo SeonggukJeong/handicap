@@ -32,6 +32,7 @@ import {
   type Step,
 } from "../../scenario/model";
 import { resolveDrop } from "../../scenario/reorder";
+import { formatThink } from "../../scenario/thinkTime";
 import {
   bandIndex,
   bandKey,
@@ -168,7 +169,7 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
             )}
             {step.think_time !== undefined && (
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
-                {ko.editor.wideChipThink(step.think_time.min_ms, step.think_time.max_ms)}
+                {ko.editor.wideChipThink(formatThink(step.think_time))}
               </span>
             )}
           </span>

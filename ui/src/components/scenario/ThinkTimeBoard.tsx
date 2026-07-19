@@ -7,6 +7,7 @@ import { ko } from "../../i18n/ko";
 import { useScenarioEditor } from "../../scenario/store";
 import {
   buildThinkRows,
+  formatThink,
   resolveThinkDraft,
   type ThinkRow,
   type ThinkState,
@@ -29,10 +30,6 @@ const STATE_TONE: Record<ThinkState, "neutral" | "accent" | "optional" | "warn">
   no_wait: "optional",
   parallel_unset: "warn",
 };
-
-function effectiveText(t: ThinkTime | undefined): string {
-  return t === undefined ? ko.editor.thinkNoWait : ko.editor.thinkRange(t.min_ms, t.max_ms);
-}
 
 function defaultSummary(def: ThinkTime | undefined): string {
   if (def === undefined) return ko.editor.thinkBoardDefaultNone;
@@ -175,7 +172,7 @@ function BoardRow({
         data-testid="effective"
         className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-slate-600"
       >
-        {effectiveText(row.effective)}
+        {formatThink(row.effective)}
       </td>
     </tr>
   );

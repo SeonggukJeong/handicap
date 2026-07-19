@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildThinkRows, classifyThink, resolveThinkDraft, type ThinkState } from "../thinkTime";
+import {
+  buildThinkRows,
+  classifyThink,
+  formatThink,
+  resolveThinkDraft,
+  type ThinkState,
+} from "../thinkTime";
 import type { HttpStep, Scenario, Step, ThinkTime } from "../model";
+import { ko } from "../../i18n/ko";
 
 const ID = (n: number) => `01HX00000000000000000000${String(n).padStart(2, "0")}`;
 
@@ -284,5 +291,30 @@ describe("resolveThinkDraft — 4분기 커밋 규칙 (R3, Inspector·ThinkTimeB
 
   it("음수 → revert", () => {
     expect(resolveThinkDraft("-5", "10")).toEqual({ kind: "revert" });
+  });
+});
+
+describe("formatThink — 표시 단일 소스 (R1)", () => {
+  it("undefined는 '대기없음'", () => {
+    expect(formatThink(undefined)).toBe(ko.editor.thinkNoWait);
+  });
+
+  it("{0,0}은 '대기없음' (엔진 pace(0)이 즉시 반환 — undefined와 구별 불가능)", () => {
+    expect(formatThink({ min_ms: 0, max_ms: 0 })).toBe(ko.editor.thinkNoWait);
+  });
+
+  // 이빨: 두 반환값을 서로 직접 비교한다. 각각을 리터럴 "대기없음"과 비교하면
+  // 한쪽 분기만 틀려도 통과할 수 있다.
+  it("undefined와 {0,0}이 같은 문자열이다 (동치 락인)", () => {
+    expect(formatThink(undefined)).toBe(formatThink({ min_ms: 0, max_ms: 0 }));
+  });
+
+  it("값이 있으면 범위 표기", () => {
+    expect(formatThink({ min_ms: 200, max_ms: 500 })).toBe(ko.editor.thinkRange(200, 500));
+  });
+
+  it("0이 한쪽만이면 범위 경로 (둘 다 0일 때만 대기없음)", () => {
+    expect(formatThink({ min_ms: 0, max_ms: 1 })).toBe(ko.editor.thinkRange(0, 1));
+    expect(formatThink({ min_ms: 1, max_ms: 0 })).toBe(ko.editor.thinkRange(1, 0));
   });
 });

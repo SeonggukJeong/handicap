@@ -516,6 +516,31 @@ function seedRich() {
   useScenarioEditor.getState().loadFromString(RICH_ROW_YAML);
 }
 
+const ZERO_CHIP_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "instant"
+    type: http
+    request:
+      method: GET
+      url: "/now"
+    think_time: { min_ms: 0, max_ms: 0 }
+  - id: "01HX0000000000000000000002"
+    name: "inherit"
+    type: http
+    request:
+      method: GET
+      url: "/later"
+`;
+
+function seedZeroChip() {
+  useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  useScenarioEditor.getState().loadFromString(ZERO_CHIP_YAML);
+}
+
 describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
   it("wide: http 행에 부가 칩 + data-step-id", () => {
     seedRich();
@@ -524,7 +549,9 @@ describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
     expect(row).toHaveAttribute("data-step-id", "01HX0000000000000000000001");
     expect(within(row).getByText(ko.editor.wideChipAssert(1))).toBeInTheDocument();
     expect(within(row).getByText(ko.editor.wideChipExtract(1))).toHaveAttribute("title", "token");
-    expect(within(row).getByText(ko.editor.wideChipThink(100, 200))).toBeInTheDocument();
+    expect(
+      within(row).getByText(ko.editor.wideChipThink(ko.editor.thinkRange(100, 200))),
+    ).toBeInTheDocument();
   });
 
   it("비-wide: 칩·data-step-id 부재 (byte-identical, R9)", () => {
@@ -551,6 +578,25 @@ describe("wide 모드 행 (R9) + 활성화 훅 (R8 전제)", () => {
     await user.click(screen.getByRole("button", { name: ko.editor.dragHandleAria("login") }));
     expect(onActivate).not.toHaveBeenCalled(); // 핸들 무이동 클릭은 모달 활성화 제외
     expect(useScenarioEditor.getState().selectedStepId).toBe("01HX0000000000000000000001"); // select는 유지
+  });
+
+  it("US2-②: {0,0} 스텝 칩은 'think 0–0ms'가 아니라 'think 대기없음'이다", () => {
+    seedZeroChip();
+    render(<FlowOutline wide />);
+    const zeroRow = screen.getByRole("option", { name: ko.editor.outlineRowAria("instant") });
+    expect(
+      within(zeroRow).getByText(ko.editor.wideChipThink(ko.editor.thinkNoWait)),
+    ).toBeInTheDocument();
+    expect(within(zeroRow).queryByText(/think 0–0ms/)).not.toBeInTheDocument();
+  });
+
+  // 비목표 락인 — 표시 조건(step.think_time !== undefined)은 이 슬라이스에서
+  // 바뀌지 않는다. 상속 스텝에 칩을 새로 띄우는 것은 범위 밖.
+  it("US2-②: think_time이 없는 스텝엔 여전히 think 칩이 없다", () => {
+    seedZeroChip();
+    render(<FlowOutline wide />);
+    const inheritRow = screen.getByRole("option", { name: ko.editor.outlineRowAria("inherit") });
+    expect(within(inheritRow).queryByText(/^think /)).not.toBeInTheDocument();
   });
 });
 

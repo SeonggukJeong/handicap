@@ -118,3 +118,12 @@ export function buildThinkRows(sc: Scenario): ThinkRow[] {
   visit(sc.steps, [], false);
   return out;
 }
+
+/** ThinkTime을 사람이 읽는 한 조각으로. {0,0}과 undefined는 엔진에서 구별 불가능한
+ *  동작이므로(pacing.rs:56-57 — pace(0)은 즉시 Slept) 같은 문자열이어야 한다.
+ *  판정(classifyThink)과 표시가 같은 모듈에 있어야 세 화면이 어긋나지 않는다(R1). */
+export function formatThink(t: ThinkTime | undefined): string {
+  return t === undefined || (t.min_ms === 0 && t.max_ms === 0)
+    ? ko.editor.thinkNoWait
+    : ko.editor.thinkRange(t.min_ms, t.max_ms);
+}

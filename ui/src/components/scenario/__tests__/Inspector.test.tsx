@@ -1303,6 +1303,32 @@ steps:
               url: "/img"
 `;
 
+const DEFAULTS_ZERO_YAML = `version: 1
+name: "demo"
+default_think_time:
+  min_ms: 0
+  max_ms: 0
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+  - id: "01HX0000000000000000000020"
+    name: "assets"
+    type: parallel
+    branches:
+      - name: "b1"
+        steps:
+          - id: "01HX0000000000000000000021"
+            name: "img"
+            type: http
+            request:
+              method: GET
+              url: "/img"
+`;
+
 // 섹션 제목 버튼은 기존 이디엄대로 ko.editor.sectionTiming("타이밍") — RunDialog의
 // 동명 개념("페이싱")과 문구가 다르니 혼동 주의(브리프 초안의 sectionPacing 오기 정정).
 async function openTiming(user: ReturnType<typeof userEvent.setup>) {
@@ -1324,7 +1350,9 @@ describe("Inspector — think time 3상태 (think-time-defaults R8/R9)", () => {
     });
     render(<Inspector />);
     await openTiming(user);
-    expect(screen.getByText(ko.editor.inheritedThink(500, 1000))).toBeInTheDocument();
+    expect(
+      screen.getByText(ko.editor.inheritedThink(ko.editor.thinkRange(500, 1000))),
+    ).toBeInTheDocument();
 
     // 기본값이 없는 시나리오 → 힌트 없음(R10 회귀 0)
     act(() => {
@@ -1368,6 +1396,37 @@ describe("Inspector — think time 3상태 (think-time-defaults R8/R9)", () => {
     render(<Inspector />);
     await openTiming(user);
     expect(screen.getByText(ko.editor.parallelNoDefaultNote)).toBeInTheDocument();
-    expect(screen.queryByText(ko.editor.inheritedThink(500, 1000))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(ko.editor.inheritedThink(ko.editor.thinkRange(500, 1000))),
+    ).not.toBeInTheDocument();
+  });
+
+  it("US2-①: 기본값이 {0,0}이면 '0–0ms'가 아니라 '대기없음'으로 안내한다", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useScenarioEditor.getState().loadFromString(DEFAULTS_ZERO_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000001");
+    });
+    render(<Inspector />);
+    await openTiming(user);
+    expect(screen.getByText(ko.editor.inheritedThink(ko.editor.thinkNoWait))).toBeInTheDocument();
+    expect(screen.queryByText(/0–0ms/)).not.toBeInTheDocument();
+  });
+
+  // spec 테스트 16 — 이 슬라이스가 건드리는 삼항(Inspector.tsx:411-417)이
+  // 기본값 {0,0}에서도 분기 우선순위를 유지하는지. 기존 :1362 테스트는
+  // {500,1000}만 덮으므로 {0,0} 변형이 따로 필요하다.
+  it("US2-①: 기본값이 {0,0}이어도 분기 안 스텝은 미적용 안내가 우선한다", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useScenarioEditor.getState().loadFromString(DEFAULTS_ZERO_YAML);
+      useScenarioEditor.getState().select("01HX0000000000000000000021"); // 분기 안 http
+    });
+    render(<Inspector />);
+    await openTiming(user);
+    expect(screen.getByText(ko.editor.parallelNoDefaultNote)).toBeInTheDocument();
+    expect(
+      screen.queryByText(ko.editor.inheritedThink(ko.editor.thinkNoWait)),
+    ).not.toBeInTheDocument();
   });
 });

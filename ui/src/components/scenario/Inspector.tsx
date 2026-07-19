@@ -21,7 +21,7 @@ import {
   isParallelStep,
   isInsideParallelBranch,
 } from "../../scenario/model";
-import { classifyThink, resolveThinkDraft } from "../../scenario/thinkTime";
+import { classifyThink, formatThink, resolveThinkDraft } from "../../scenario/thinkTime";
 import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -412,7 +412,7 @@ function HttpStepInspector({
           <p className="text-xs text-amber-700">{ko.editor.parallelNoDefaultNote}</p>
         ) : inheriting && defaultThink ? (
           <p className="text-xs text-slate-500">
-            {ko.editor.inheritedThink(defaultThink.min_ms, defaultThink.max_ms)}
+            {ko.editor.inheritedThink(formatThink(defaultThink))}
           </p>
         ) : null}
         <p className="text-xs text-slate-500">{ko.editor.thinkHint}</p>
