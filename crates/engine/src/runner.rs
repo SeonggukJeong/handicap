@@ -17,7 +17,7 @@ use crate::aggregator::{
 };
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
-use crate::error::{EngineError, Result};
+use crate::error::{EngineError, Result, safe_cause};
 use crate::executor::{VuClient, execute_step};
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
 use crate::scenario::{Scenario, Step};
@@ -227,7 +227,18 @@ pub async fn run_scenario(
                         // keeps a user abort from being recorded as "the
                         // failure cause". First writer wins (`OnceLock`); later
                         // failures on other VUs are no-ops.
-                        let _ = cause.set(e.to_string());
+                        //
+                        // `safe_cause` (not `e.to_string()`) — `cause` is
+                        // persisted (`runs.message`), not just logged, so it
+                        // must never carry a resolved template value (security
+                        // fix, see `error.rs::safe_cause` doc). A
+                        // non-allowlisted variant yields `None` here (no-op on
+                        // `OnceLock`, byte-identical message) — the `warn!`
+                        // above still gets the full `Debug` for operators
+                        // reading logs (pre-existing, unaffected).
+                        if let Some(msg) = safe_cause(&e) {
+                            let _ = cause.set(msg);
+                        }
                     }
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -880,7 +891,13 @@ pub async fn run_scenario_vu_curve(
                         // already early-returns before `AllVusFailed` is ever
                         // constructed on a cancelled run. First writer wins
                         // (`OnceLock`).
-                        let _ = cause.set(e.to_string());
+                        //
+                        // `safe_cause` mirror of run_scenario's placement — see
+                        // that spawn closure for the full security rationale
+                        // (`cause` is persisted, must be value-free).
+                        if let Some(msg) = safe_cause(&e) {
+                            let _ = cause.set(msg);
+                        }
                     }
                     failed.fetch_add(1, Ordering::Relaxed);
                 }

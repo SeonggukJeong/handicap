@@ -292,6 +292,12 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
   const namespaced = collectNamespacedProducers(scenario);
 
   // 최상위 parallel 노드 각 분기의 자기 extract 집합 — candidates 산출 전용, 문서순.
+  // `collectSubtreeExtractNames`가 여기와 아래 `walk`의 parallel arm 두 곳에서 각자
+  // 다시 호출된다(공유 메모 없음) — 여긴 `scenario.steps`만 스캔해 **최상위** parallel만
+  // 보고, `walk`는 자신이 순회하며 만나는 parallel(어떤 깊이든)을 전부 본다. 둘이 지금
+  // 일치하는 건 ADR-0033의 top-level-only 강제(분기 안 재중첩 parallel을 UI가 만들 수
+  // 없음) 덕분 — 이 강제가 풀려 분기 안에 parallel을 authoring할 수 있게 되면 이 둘의
+  // 스캔 범위가 갈라진다(재검토 필요, 아래 `walk` parallel arm의 짝 주석 참고).
   const branchOwn: { name: string; names: Set<string> }[] = [];
   for (const s of scenario.steps) {
     if (s.type !== "parallel") continue;
@@ -323,6 +329,12 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
       if (flatBase.has(name)) continue;
       if (name.includes(".")) {
         if (namespaced.has(name)) continue;
+        // `insideBranch=false` here is a *policy* choice, not a positional fact
+        // about where this ref sits — namespaced (`B.v`) refs are always
+        // classified "downstream" regardless of whether the ref is textually
+        // inside a parallel branch, because a dotted ref only resolves after
+        // the branch's `join_all` completes (never "sibling" — see `judge`'s
+        // doc above and `UndefinedRef.kind`).
         record(name, stepId, false);
         continue;
       }
@@ -346,6 +358,13 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
       } else if (s.type === "loop") {
         walk(s.do, own);
       } else if (s.type === "parallel") {
+        // `collectSubtreeExtractNames` re-derived here (no shared memo with the
+        // `branchOwn` precompute above) — this call sees *whatever* parallel
+        // `walk` recurses into, any depth, while `branchOwn` only scans
+        // `scenario.steps`-level (top-level) parallels. Currently equivalent
+        // by construction (ADR-0033 forbids authoring a parallel nested inside
+        // a branch), so this only ever fires for top-level parallels too — see
+        // the `branchOwn` comment above for the invariant this depends on.
         for (const b of s.branches) walk(b.steps, collectSubtreeExtractNames(b.steps));
       } else {
         const refs = new Set<string>();

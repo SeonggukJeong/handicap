@@ -168,6 +168,26 @@ impl Branch {
     /// top-level `Http` steps. Deliberately does **not** recurse into a nested
     /// `Parallel` — that would need multi-layer `{{B.inner.v}}` namespacing, out of
     /// scope (spec §3.2; `parallel_var_scope` task-1-brief).
+    ///
+    /// The returned `Vec` is a **multiset**, not a deduped set: the same name
+    /// declared in two `if` arms, or in both a top-level `Http` and a nested
+    /// `Loop`, yields duplicate entries. Both current callers
+    /// (`runner.rs`/`trace.rs` Parallel-arm merge) insert each into a
+    /// `BTreeMap<String, String>` keyed by the namespaced `"{branch}.{name}"`,
+    /// so duplicates are idempotent today — a future caller that counts or
+    /// zips this `Vec` instead of just inserting would be surprised.
+    ///
+    /// Because recursion covers **every** `If` arm regardless of which one
+    /// actually executes, the exposed key set can include a name declared only
+    /// in an `elif`/`else` arm that did **not** run. `branch_vars` (the callers'
+    /// per-branch scope) starts as a clone of the parent scope, so if that name
+    /// already existed upstream, the un-taken arm's declaration still makes it
+    /// a merge *candidate* and it surfaces as `{branch}.{name}` carrying the
+    /// **parent's** value (not re-extracted); if the name didn't exist upstream
+    /// either, the candidate is silently absent (no `branch_vars.get` hit). This
+    /// extends the documented key-origin rule above (key-origin, not
+    /// value-diff) — not a regression — but only the "branch re-extracts a
+    /// parent's value" case was previously written down here.
     pub fn output_var_names(&self) -> Vec<&str> {
         let mut out = Vec::new();
         collect_output_var_names(&self.steps, &mut out);

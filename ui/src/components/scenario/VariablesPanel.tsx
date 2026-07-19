@@ -45,8 +45,14 @@ type EditKey =
   | { kind: "flat"; name: string }
   | { kind: "parallel"; branchName: string; varName: string };
 
-/** 미정의 행의 분기 미스코프 힌트 텍스트(candidates=0이면 null=힌트 없음, US1). 형제 분기 위반
- *  (refKind==="sibling")은 후보 개수와 무관하게 전용 문구 — 나머지는 후보 1개/2개+로 분기. */
+/** 미정의 행의 분기 미스코프 힌트 텍스트 — **후보가 있으면(≥1)** 뜬다(candidates=0이면 항상
+ *  null=힌트 없음, 코드가 이 체크를 가장 먼저 함 — refKind==="sibling"도 예외 아님: 예를 들어
+ *  parallel 분기 안 오탈자 bare 참조처럼 그 이름을 추출하는 분기가 실제로 하나도 없으면
+ *  sibling+candidates:[]가 되어 힌트 없이 "선언 추가"만 보인다. 이 조합은 근접 오탈자만큼 흔히
+ *  일어나는 **trivially reachable** 케이스이지 근접-불가능한 예외가 아니다 — 동작 자체는 맞다:
+ *  진짜 미선언 변수는 "선언 추가"가 유일한 올바른 수정이라서다). candidates≥1일 때만: 형제 분기
+ *  위반(refKind==="sibling")은 후보 개수와 무관하게 전용 문구 — 나머지(downstream)는 후보
+ *  1개/2개+로 분기. */
 function undefinedBranchHint(
   candidates: string[],
   refKind: "downstream" | "sibling",
