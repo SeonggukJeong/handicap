@@ -119,6 +119,8 @@ docs/
 - `ui/src`를 한 줄이라도 건드리는 task는 brief에 UI 테스트 스텝 명시(tdd-guard가 UI-side pending test 요구).
 - plan 인라인 Rust는 clippy-clean으로 — 2-arm `match … _ => {}` 대신 `if let`(`-D warnings`).
 - **plan이 verbatim 지정한 테스트도 이빨이 없을 수 있다** — 회귀 가드를 표방하는 테스트는 brief의 "검증 의무"에 **고의 회귀→RED→원복→GREEN 실증**을 못박을 것(think-time-dashboard에서 3건 적발: 단언 대상이 버그와 무관하게 안정적인 값[`Object.is(undefined,undefined)`]·같은 행에 동일 문구 2개[위치 의존 `getAllBy...[0]`]·복합 `disabled` 조건에서 다른 항이 이미 참). plan-mandated 결함은 기각 대상이 아니라 finding이다 — plan이 자기 작업을 채점하지 않는다. → 메모리 [[plan-mandated-vacuous-tests]]
+- **plan은 코드뿐 아니라 *훅*에 대해서도 실행 가능해야 한다 — 스텝 순서를 `tdd-guard`로 시뮬레이션할 것**(thinkboard-defaults, spec-plan-reviewer가 차단 지점 2곳 적발): `tdd-guard.sh`는 `/ui/src/.+\.(ts|tsx|js|jsx)$`(=`i18n/ko.ts`도 포함)를 production으로 보고 **작업트리에 수정/미추적 테스트 파일이 0건이면 `exit 2`**. ① 직전 task 커밋 직후는 트리가 clean이므로 **task의 첫 스텝이 production 편집이면 무조건 차단** → 테스트 스텝을 먼저 두라. ② "테스트 파일 무수정"이 acceptance인 순수 리팩터 task는 **구조적으로 통과 불가** → 임시 `it.todo` 한 줄로 언블록하고 **커밋 전 제거를 독립 체크박스 스텝으로** 승격하라(훅은 파일 내용을 안 열고 존재만 본다 — `tdd-guard.sh:92`). 제거를 산문에 묻으면 아무도 못 잡는다: `it.todo`는 vitest에서 실패가 아니라 게이트가 green이고, `git add`가 소스만 스테이징하므로 커밋 diff도 깨끗하다.
+- **줄번호는 `grep -n`으로만 확정 — `sed -n 'N,Mp'` 출력 줄을 세지 말 것**(thinkboard-defaults에서 2회 오프바이원): 한 번은 *맞게* 적힌 spec 참조를 틀리게 "고쳤고"(리뷰어가 교정), 한 번은 plan 인용이 어긋났다. spec/plan의 `파일:줄` 주장은 리뷰어가 전수 대조하므로 오프바이원이 곧 finding이 된다.
 
 **디스패치**
 - 워크트리 작업이면 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 절대경로 명시(안 하면 메인 체크아웃을 읽고 "코드가 없다" 오보).
