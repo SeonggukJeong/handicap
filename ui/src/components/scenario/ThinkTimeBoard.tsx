@@ -8,11 +8,11 @@ import { useScenarioEditor } from "../../scenario/store";
 import {
   buildThinkRows,
   formatThink,
-  resolveThinkDraft,
   type ThinkRow,
   type ThinkState,
 } from "../../scenario/thinkTime";
 import { METHOD_BADGE } from "./methodBadge";
+import { useThinkTimePair } from "./useThinkTimePair";
 import type { ThinkTime } from "../../scenario/model";
 
 const STATE_LABEL: Record<ThinkState, string> = {
@@ -43,37 +43,15 @@ function BoardRow({
   disabled: boolean;
 }) {
   const setStepField = useScenarioEditor((s) => s.setStepField);
-  const [minDraft, setMinDraft] = useState(row.configured ? String(row.configured.min_ms) : "");
-  const [maxDraft, setMaxDraft] = useState(row.configured ? String(row.configured.max_ms) : "");
 
-  // dep은 원시값이어야 한다. `row.configured`(객체)를 쓰면 buildThinkRows가 useMemo([model])라
-  // 표 어디서든 한 번 커밋될 때마다 모든 행이 재시드되어, 다른 행에 반쯤 친 값이 사라진다.
-  const cfgMin = row.configured?.min_ms;
-  const cfgMax = row.configured?.max_ms;
-  useEffect(() => {
-    setMinDraft(cfgMin === undefined ? "" : String(cfgMin));
-    setMaxDraft(cfgMax === undefined ? "" : String(cfgMax));
-  }, [row.stepId, cfgMin, cfgMax]);
-
-  // 4분기 커밋 규칙은 thinkTime.ts::resolveThinkDraft가 단일 소스(R3) — Inspector의
-  // commitThinkTime과 규칙을 공유한다. 여기선 outcome에 따른 setState/store 호출만.
-  const commit = () => {
-    const outcome = resolveThinkDraft(minDraft, maxDraft);
-    switch (outcome.kind) {
-      case "clear":
-        setStepField(row.stepId, ["think_time"], undefined);
-        return;
-      case "noop":
-        return; // 미완성 쌍 — draft 보존
-      case "commit":
-        setStepField(row.stepId, ["think_time"], outcome.value);
-        return;
-      case "revert":
-        setMinDraft(cfgMin === undefined ? "" : String(cfgMin));
-        setMaxDraft(cfgMax === undefined ? "" : String(cfgMax));
-        return;
-    }
-  };
+  // 짝 입력의 draft/커밋 규칙은 useThinkTimePair가 단일 소스(4 사이트 공용). 커밋
+  // 경계는 "입력을 떠날 때"가 아니라 "짝을 떠날 때"(min→max 포커스 이동 오커밋 수정).
+  const { minProps, maxProps } = useThinkTimePair({
+    value: row.configured,
+    resetKey: row.stepId,
+    onCommit: (v) => setStepField(row.stepId, ["think_time"], v),
+    onClear: () => setStepField(row.stepId, ["think_time"], undefined),
+  });
 
   return (
     <tr className="border-t border-slate-100">
@@ -128,10 +106,8 @@ function BoardRow({
           min={0}
           max={600000}
           aria-label={ko.editor.thinkBoardRowMinAria}
-          value={minDraft}
           disabled={disabled}
-          onChange={(e) => setMinDraft(e.target.value)}
-          onBlur={commit}
+          {...minProps}
         />
       </td>
       <td className="w-20 px-1 py-1">
@@ -143,10 +119,8 @@ function BoardRow({
           min={0}
           max={600000}
           aria-label={ko.editor.thinkBoardRowMaxAria}
-          value={maxDraft}
           disabled={disabled}
-          onChange={(e) => setMaxDraft(e.target.value)}
-          onBlur={commit}
+          {...maxProps}
         />
       </td>
       <td className="w-8 px-1 py-1">
@@ -188,37 +162,18 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
   const disabled = yamlError !== null;
 
   const defaultThink = model?.default_think_time;
-  // dep은 원시값이어야 한다(BoardRow와 같은 이유) — 객체를 쓰면 표 어느 행에서
-  // 커밋할 때마다 model이 교체되어 입력 중이던 기본값 draft가 사라진다.
-  const defMin = defaultThink?.min_ms;
-  const defMax = defaultThink?.max_ms;
-  // 시드는 반드시 === undefined 비교다. truthy(`defMin ? … : ""`)로 쓰면 {0,0}이
-  // 빈 칸으로 시드되고 다음 blur가 clear로 떨어져 기본값 키를 지운다.
-  const [defMinDraft, setDefMinDraft] = useState(defMin === undefined ? "" : String(defMin));
-  const [defMaxDraft, setDefMaxDraft] = useState(defMax === undefined ? "" : String(defMax));
 
-  useEffect(() => {
-    setDefMinDraft(defMin === undefined ? "" : String(defMin));
-    setDefMaxDraft(defMax === undefined ? "" : String(defMax));
-  }, [defMin, defMax]);
-
-  const commitDefault = () => {
-    const outcome = resolveThinkDraft(defMinDraft, defMaxDraft);
-    switch (outcome.kind) {
-      case "clear":
-        setDefaultThinkTime(undefined);
-        return;
-      case "noop":
-        return;
-      case "commit":
-        setDefaultThinkTime(outcome.value);
-        return;
-      case "revert":
-        setDefMinDraft(defMin === undefined ? "" : String(defMin));
-        setDefMaxDraft(defMax === undefined ? "" : String(defMax));
-        return;
-    }
-  };
+  // 짝 입력의 draft/커밋 규칙은 useThinkTimePair가 단일 소스(4 사이트 공용). `reseed`는
+  // 아래 `!open` 재시드 effect의 안전망(blur 없이 ESC/백드롭으로 닫은 경우)에서 쓴다.
+  const {
+    minProps: defMinProps,
+    maxProps: defMaxProps,
+    reseed: reseedDefault,
+  } = useThinkTimePair({
+    value: defaultThink,
+    onCommit: (v) => setDefaultThinkTime(v),
+    onClear: () => setDefaultThinkTime(undefined),
+  });
   const selectedIds = rows.filter((r) => selected.has(r.stepId)).map((r) => r.stepId);
   const allChecked = rows.length > 0 && selectedIds.length === rows.length;
 
@@ -239,10 +194,9 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
       setBulkMax("");
       // blur 없이 ESC/백드롭으로 닫으면 commit도 revert도 안 일어난다 — 다음
       // 오픈에 stale draft가 모델과 어긋나 보이지 않도록 여기서 재시드한다(R2-f).
-      setDefMinDraft(defMin === undefined ? "" : String(defMin));
-      setDefMaxDraft(defMax === undefined ? "" : String(defMax));
+      reseedDefault();
     }
-  }, [open, defMin, defMax]);
+  }, [open, reseedDefault]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -296,10 +250,8 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
             min={0}
             max={600000}
             aria-label={ko.editor.thinkBoardDefaultMinAria}
-            value={defMinDraft}
             disabled={disabled}
-            onChange={(e) => setDefMinDraft(e.target.value)}
-            onBlur={commitDefault}
+            {...defMinProps}
           />
         </div>
         <span aria-hidden="true">–</span>
@@ -312,10 +264,8 @@ export function ThinkTimeBoard({ open, onClose }: { open: boolean; onClose: () =
             min={0}
             max={600000}
             aria-label={ko.editor.thinkBoardDefaultMaxAria}
-            value={defMaxDraft}
             disabled={disabled}
-            onChange={(e) => setDefMaxDraft(e.target.value)}
-            onBlur={commitDefault}
+            {...defMaxProps}
           />
         </div>
         <span>ms</span>

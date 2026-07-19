@@ -259,6 +259,21 @@ describe("ThinkTimeBoard — 행별 편집", () => {
     );
     expect(stepThink("01HX0000000000000000000002")).toBeUndefined();
   });
+
+  it("행별 편집: min→max 포커스 이동 중 중간 쌍이 커밋되지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+
+    // "주문" 행의 베이스라인은 {800,900} — 올리면 중간 쌍이 {2000,900}이 된다.
+    await user.clear(minInput("주문"));
+    await user.type(minInput("주문"), "2000");
+    await user.click(maxInput("주문"));
+    await user.clear(maxInput("주문"));
+    await user.type(maxInput("주문"), "3000");
+    fireEvent.blur(maxInput("주문"));
+
+    expect(stepThink("01HX0000000000000000000002")).toEqual({ min_ms: 2000, max_ms: 3000 });
+  });
 });
 
 describe("ThinkTimeBoard — 일괄", () => {
@@ -493,6 +508,23 @@ steps: []
     render(<ThinkTimeBoard open onClose={() => {}} />);
     expect(defMinInput()).toBeDisabled();
     expect(defMaxInput()).toBeDisabled();
+  });
+
+  it("현황판 기본값: min→max 포커스 이동 중 중간 쌍이 커밋되지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<ThinkTimeBoard open onClose={() => {}} />);
+
+    await user.clear(defMinInput());
+    await user.type(defMinInput(), "2000");
+    await user.click(defMaxInput());
+    await user.clear(defMaxInput());
+    await user.type(defMaxInput(), "3000");
+    fireEvent.blur(defMaxInput());
+
+    expect(useScenarioEditor.getState().model!.default_think_time).toEqual({
+      min_ms: 2000,
+      max_ms: 3000,
+    });
   });
 });
 
