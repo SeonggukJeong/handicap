@@ -159,6 +159,31 @@ describe("ScenarioDefaults", () => {
     expect(max).toBeDisabled();
   });
 
+  it("min→max 포커스 이동 중 중간 쌍이 커밋되지 않는다 (상향 편집)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
+    render(<ScenarioDefaults />);
+    await user.click(
+      screen.getByRole("button", { name: new RegExp(ko.editor.scenarioDefaultsTitle) }),
+    );
+
+    const min = screen.getByLabelText(ko.editor.fieldDefaultThinkMin);
+    const max = screen.getByLabelText(ko.editor.fieldDefaultThinkMax);
+
+    // {500,1000} → {2000,3000}: min을 먼저 올리면 중간 쌍이 {2000,1000}이 된다.
+    await user.clear(min);
+    await user.type(min, "2000");
+    await user.click(max);
+    await user.clear(max);
+    await user.type(max, "3000");
+    fireEvent.blur(max);
+
+    expect(useScenarioEditor.getState().model!.default_think_time).toEqual({
+      min_ms: 2000,
+      max_ms: 3000,
+    });
+  });
+
   it("F2: model.default_think_time이 외부(store 직접 mutate)에서 바뀌면 draft가 재시드된다", () => {
     useScenarioEditor.getState().loadFromString(DEFAULTS_YAML);
     render(<ScenarioDefaults />);
