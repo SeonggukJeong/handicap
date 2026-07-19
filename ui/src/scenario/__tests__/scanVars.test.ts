@@ -8,6 +8,7 @@ import {
   parallelExtractNames,
   buildVarRefIndex,
   undefinedVars,
+  undefinedVarRefs,
   flatProducerNames,
   flatExtractNames,
   collectBranchInternalRefs,
@@ -823,5 +824,374 @@ steps:
     const id = parallelVarIdentities(m).find((i) => i.varName === "a.b");
     expect(id?.display).toBe("B.a.b");
     expect(id?.branchName).toBe("B");
+  });
+});
+
+// Task 3 신규 fixture(브리프 필수): parallelScen + 다운스트림 http가 {{s}}를 BARE로 추가 참조.
+// 기존 parallelScen 단독으론 이 판정에 대해 RED가 안 난다(모든 옛 참조가 namespaced/typo/missing이라
+// 새 규칙에서도 그대로 green) — 이 fixture가 있어야 "다운스트림 bare → 미정의" 핵심 가드가 RED로 선다.
+const parallelScenDownstreamBare = ScenarioModel.parse({
+  version: 1,
+  name: "p2",
+  cookie_jar: "auto",
+  variables: { declared: "v" },
+  steps: [
+    {
+      id: "01HX0000000000000000000050",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "alpha",
+          steps: [
+            {
+              id: "01HX0000000000000000000051",
+              name: "leaf",
+              type: "http",
+              request: { method: "GET", url: "/{{s}}", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.tok", var: "s" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000000052",
+      name: "after",
+      type: "http",
+      request: {
+        method: "GET",
+        url: "/x?a={{alpha.s}}&b={{typo.s}}&c={{missing}}&d={{s}}",
+        headers: {},
+      },
+      assert: [],
+      extract: [{ from: "body", path: "$.u", var: "flatVar" }],
+    },
+  ],
+});
+
+// 형제 분기: A 안에서 B가 추출하는 var를 bare로 참조.
+const parallelScenSiblingBare = ScenarioModel.parse({
+  version: 1,
+  name: "p4",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000300",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "A",
+          steps: [
+            {
+              id: "01HX0000000000000000000301",
+              name: "a1",
+              type: "http",
+              request: { method: "GET", url: "/x?v={{v}}", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+        {
+          name: "B",
+          steps: [
+            {
+              id: "01HX0000000000000000000302",
+              name: "b1",
+              type: "http",
+              request: { method: "GET", url: "/y", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.v", var: "v" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+// cond 전용: if 조건 오퍼랜드에서만 참조되는 미정의 이름(함정 B 가드).
+const condOnlyScen = ScenarioModel.parse({
+  version: 1,
+  name: "c",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000400",
+      name: "gate",
+      type: "if",
+      cond: { left: "{{condOnly}}", op: "exists" },
+      then: [
+        {
+          id: "01HX0000000000000000000401",
+          name: "t",
+          type: "http",
+          request: { method: "GET", url: "/ok", headers: {} },
+          assert: [],
+          extract: [],
+        },
+      ],
+      elif: [],
+      else: [],
+    },
+  ],
+});
+
+// shadow: 다운스트림 bare가 flat(비-parallel) producer와 parallel 분기 producer 둘 다에 걸침 —
+// flat producer가 있으면 정의됨으로 보고해야 한다(shadow, 8a 의도된 관대함).
+const shadowScen = ScenarioModel.parse({
+  version: 1,
+  name: "shadow",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000500",
+      name: "flatProducer",
+      type: "http",
+      request: { method: "GET", url: "/f", headers: {} },
+      assert: [],
+      extract: [{ from: "body", path: "$.t", var: "token" }],
+    },
+    {
+      id: "01HX0000000000000000000510",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "auth",
+          steps: [
+            {
+              id: "01HX0000000000000000000511",
+              name: "a",
+              type: "http",
+              request: { method: "GET", url: "/a", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.tok", var: "token" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000000520",
+      name: "use",
+      type: "http",
+      request: { method: "GET", url: "/u?a={{auth.token}}&b={{token}}", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ],
+});
+
+// candidates=2: 두 형제 분기가 같은 bare 이름을 추출 + 다운스트림 bare 참조.
+const twoCandidatesScen = ScenarioModel.parse({
+  version: 1,
+  name: "two",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000600",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "A",
+          steps: [
+            {
+              id: "01HX0000000000000000000601",
+              name: "a",
+              type: "http",
+              request: { method: "GET", url: "/a", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.x", var: "dup" }],
+            },
+          ],
+        },
+        {
+          name: "B",
+          steps: [
+            {
+              id: "01HX0000000000000000000602",
+              name: "b",
+              type: "http",
+              request: { method: "GET", url: "/b", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.x", var: "dup" }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "01HX0000000000000000000610",
+      name: "after",
+      type: "http",
+      request: { method: "GET", url: "/u?v={{dup}}", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ],
+});
+
+// 의도된 false-negative(8a §2.2.2 한계, "고치지 말 것"): 같은 parallel 노드의 형제 분기 A 안에서
+// namespaced {{B.v}}를 참조 — 런타임엔 join_all 이후에나 병합돼 미해결이지만 8a는 정의됨으로 본다.
+const sameNodeNamespacedScen = ScenarioModel.parse({
+  version: 1,
+  name: "dn",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000700",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "A",
+          steps: [
+            {
+              id: "01HX0000000000000000000701",
+              name: "a",
+              type: "http",
+              request: { method: "GET", url: "/x?v={{B.v}}", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+        {
+          name: "B",
+          steps: [
+            {
+              id: "01HX0000000000000000000702",
+              name: "b",
+              type: "http",
+              request: { method: "GET", url: "/y", headers: {} },
+              assert: [],
+              extract: [{ from: "body", path: "$.v", var: "v" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+// Trap A: 분기 안에 loop이 중첩된 시나리오. UI Zod BranchModel은 http-only(steps: HttpStepModel[])라
+// ScenarioModel.parse로는 만들 수 없다 — model.test.ts:664 선례와 동일하게 as unknown as Scenario로
+// 우회(엔진 Branch.steps: Vec<Step>과의 표현력 비대칭은 US2 노트에 기록된 기지 한계, §7 비목표).
+const parallelScenNestedLoopBranch = {
+  version: 1,
+  name: "p5",
+  cookie_jar: "auto",
+  variables: {},
+  steps: [
+    {
+      id: "01HX0000000000000000000800",
+      name: "par",
+      type: "parallel",
+      branches: [
+        {
+          name: "beta",
+          steps: [
+            {
+              id: "01HX0000000000000000000801",
+              name: "lp",
+              type: "loop",
+              repeat: 1,
+              do: [
+                {
+                  id: "01HX0000000000000000000802",
+                  name: "extractor",
+                  type: "http",
+                  request: { method: "GET", url: "/x", headers: {} },
+                  assert: [],
+                  extract: [{ from: "body", path: "$.tok", var: "nested" }],
+                },
+              ],
+            },
+            {
+              id: "01HX0000000000000000000803",
+              name: "user",
+              type: "http",
+              request: { method: "GET", url: "/y?v={{nested}}", headers: {} },
+              assert: [],
+              extract: [],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+} as unknown as Scenario;
+
+describe("undefinedVarRefs (Task 3 — position-aware, US1)", () => {
+  it("flags a downstream bare ref to a branch extract as undefined (core guard): downstream kind, 1 candidate, stepIds exclude the branch-internal step", () => {
+    const refs = undefinedVarRefs(parallelScenDownstreamBare);
+    const s = refs.get("s");
+    expect(s).toBeDefined();
+    expect(s?.stepIds).toEqual(["01HX0000000000000000000052"]); // downstream only, NOT branch-internal 051
+    expect(s?.kind).toBe("downstream");
+    expect(s?.candidates).toEqual(["alpha"]);
+  });
+
+  it("does not flag a branch-internal bare ref to its own branch's extract (existing :606 intent preserved)", () => {
+    expect(undefinedVarRefs(parallelScen).has("s")).toBe(false);
+  });
+
+  it("does not flag a bare ref to an extract nested in a loop inside the SAME branch (Trap A guard)", () => {
+    expect(undefinedVarRefs(parallelScenNestedLoopBranch).has("nested")).toBe(false);
+  });
+
+  it("flags a bare ref to a SIBLING branch's extract: sibling kind, that branch as sole candidate", () => {
+    const refs = undefinedVarRefs(parallelScenSiblingBare);
+    const v = refs.get("v");
+    expect(v).toBeDefined();
+    expect(v?.stepIds).toEqual(["01HX0000000000000000000301"]);
+    expect(v?.candidates).toEqual(["B"]);
+    expect(v?.kind).toBe("sibling");
+  });
+
+  it("catches an undefined name referenced only in an if condition operand (Trap B guard): downstream kind, no candidates", () => {
+    const refs = undefinedVarRefs(condOnlyScen);
+    const c = refs.get("condOnly");
+    expect(c).toBeDefined();
+    expect(c?.stepIds).toEqual(["01HX0000000000000000000400"]);
+    expect(c?.kind).toBe("downstream");
+    expect(c?.candidates).toEqual([]);
+  });
+
+  it("gives an undefined namespaced key (typo.s) empty candidates — never dot-split against branch extracts", () => {
+    const refs = undefinedVarRefs(parallelScen);
+    const typo = refs.get("typo.s");
+    expect(typo).toBeDefined();
+    expect(typo?.candidates).toEqual([]);
+    expect(typo?.kind).toBe("downstream");
+  });
+
+  it("treats a valid namespaced {{B.v}} as defined, and a downstream bare ref as defined when a flat producer shadows the branch extract", () => {
+    const refs = undefinedVarRefs(shadowScen);
+    expect(refs.has("auth.token")).toBe(false); // namespaced, valid
+    expect(refs.has("token")).toBe(false); // bare, shadowed by the flat (non-parallel) producer
+  });
+
+  it("does NOT flag {{B.v}} referenced from inside sibling branch A as undefined (deliberate false-negative, spec §2.2.2 — do not tighten)", () => {
+    expect(undefinedVarRefs(sameNodeNamespacedScen).has("B.v")).toBe(false);
+  });
+
+  it("candidates accuracy — 0/1/2 cases", () => {
+    // 0: bare name with no producing branch at all.
+    expect(undefinedVarRefs(parallelScenDownstreamBare).get("missing")?.candidates).toEqual([]);
+    // 1: exactly one branch produces it (see core-guard test above too).
+    expect(undefinedVarRefs(parallelScenDownstreamBare).get("s")?.candidates).toEqual(["alpha"]);
+    // 2: two sibling branches produce the same bare name, document order, dedup.
+    expect(undefinedVarRefs(twoCandidatesScen).get("dup")?.candidates).toEqual(["A", "B"]);
   });
 });

@@ -251,6 +251,137 @@ export function collectBranchInternalRefs(scenario: Scenario): Map<string, strin
   return index;
 }
 
+/** `undefinedVarRefs`의 판정 결과 1건 (Task 3, US1). */
+export type UndefinedRef = {
+  /** 위반 참조의 문서순 stepId만(정당한 위치 참조 제외). */
+  stepIds: string[];
+  /** 이 bare 이름을 추출하는 분기명, 문서순·dedup. namespaced 키는 항상 []. */
+  candidates: string[];
+  /** 위반 참조가 어떤 parallel 분기 서브트리 안에만 있으면 "sibling", 하나라도 그 밖(다운스트림/
+   *  namespaced)이면 "downstream"(더 흔하고 수정 가능한 쪽 우선). */
+  kind: "downstream" | "sibling";
+};
+
+/** parallel 분기 B **자신의** http extract var 집합 — B의 steps를 재귀한다(Trap A: 분기 안
+ *  loop `do:`/if `then`/`elif[].then`/`else`까지 하강, 중첩 parallel은 하강 안 함). `flatExtractNames`의
+ *  narrowing 관용구를 그대로 본뜬 것 — 대상이 scenario.steps 대신 임의 서브트리라는 점만 다르다. */
+function collectSubtreeExtractNames(steps: ReadonlyArray<Step>): Set<string> {
+  const out = new Set<string>();
+  const walk = (list: ReadonlyArray<Step>): void => {
+    for (const s of list) {
+      if (s.type === "http") {
+        for (const e of s.extract) out.add(e.var);
+      } else if (s.type === "loop") {
+        walk(s.do);
+      } else if (s.type === "if") {
+        walk(s.then);
+        for (const e of s.elif) walk(e.then);
+        walk(s.else);
+      }
+      // parallel: 분기 안 재중첩은 비목표(ADR-0033 top-level-only) — 하강 안 함.
+    }
+  };
+  walk(steps);
+  return out;
+}
+
+/**
+ * 참조를 **위치**로 판정하는 미정의 변수 맵(Task 3, US1). `undefinedVars`(전역·conservative —
+ * parallel 분기 extract를 어디서든 "생산됨"으로 봄, Task 4가 제거할 때까지 유지)와 달리, 이건 각
+ * `{{token}}` 참조가 트리의 **어디**에 있는지로 판정한다:
+ *   - parallel 분기 B의 서브트리 **안**(B 안 중첩 loop/if 포함, Trap A) = 선언 ∪ flatExtractNames ∪
+ *     B **자신의** extract.
+ *   - 그 외(최상위·분기 밖 loop/if·다른 형제 분기) = 선언 ∪ flatExtractNames만(B의 extract는 안 셈).
+ *   - namespaced(점 포함) 참조는 위치 무관하게 `collectNamespacedProducers`로 전역 해석 — 같은
+ *     parallel 노드 **안**에서 `{{B.v}}`를 참조해도 정의됨으로 본다(런타임은 `join_all` 이후에나
+ *     병합돼 미해결이지만, spec §2.2.2가 명시한 의도된 false-negative — 고치지 말 것).
+ * `candidates`(bare 전용) = 그 이름을 자신의 extract로 갖는 분기명, 문서순·dedup 배열 — 점으로
+ * 쪼개 매칭하지 않는다(namespaced 미정의 키는 항상 `candidates: []`).
+ */
+export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> {
+  const flatBase = flatProducerNames(scenario); // 선언 ∪ 비-parallel extract
+  const namespaced = collectNamespacedProducers(scenario);
+
+  // 최상위 parallel 노드 각 분기의 자기 extract 집합 — candidates 산출 전용, 문서순.
+  const branchOwn: { name: string; names: Set<string> }[] = [];
+  for (const s of scenario.steps) {
+    if (s.type !== "parallel") continue;
+    for (const b of s.branches)
+      branchOwn.push({ name: b.name, names: collectSubtreeExtractNames(b.steps) });
+  }
+  const candidatesFor = (bareName: string): string[] => {
+    const out: string[] = [];
+    for (const bp of branchOwn)
+      if (bp.names.has(bareName) && !out.includes(bp.name)) out.push(bp.name);
+    return out;
+  };
+
+  const acc = new Map<string, { stepIds: string[]; sawDownstream: boolean }>();
+  const record = (name: string, stepId: string, insideBranch: boolean): void => {
+    let a = acc.get(name);
+    if (!a) {
+      a = { stepIds: [], sawDownstream: false };
+      acc.set(name, a);
+    }
+    a.stepIds.push(stepId);
+    if (!insideBranch) a.sawDownstream = true;
+  };
+
+  // own = 현재 위치가 속한 분기의 자기 extract 집합(분기 밖이면 null). namespaced는 own과 무관하게
+  // 전역 `namespaced`로만 해석(위 doc의 declared-limit).
+  const judge = (refs: Set<string>, stepId: string, own: Set<string> | null): void => {
+    for (const name of refs) {
+      if (flatBase.has(name)) continue;
+      if (name.includes(".")) {
+        if (namespaced.has(name)) continue;
+        record(name, stepId, false);
+        continue;
+      }
+      if (own !== null && own.has(name)) continue;
+      record(name, stepId, own !== null);
+    }
+  };
+
+  const walk = (steps: ReadonlyArray<Step>, own: Set<string> | null): void => {
+    for (const s of steps) {
+      if (s.type === "http") {
+        const refs = new Set<string>();
+        collectFromString(s.request.url, refs);
+        for (const v of Object.values(s.request.headers)) collectFromString(v, refs);
+        const body = s.request.body;
+        if (body?.kind === "raw") collectFromString(body.value, refs);
+        else if (body?.kind === "form")
+          for (const v of Object.values(body.value)) collectFromString(v, refs);
+        else if (body?.kind === "json") collectFromJson(body.value, refs);
+        judge(refs, s.id, own);
+      } else if (s.type === "loop") {
+        walk(s.do, own);
+      } else if (s.type === "parallel") {
+        for (const b of s.branches) walk(b.steps, collectSubtreeExtractNames(b.steps));
+      } else {
+        const refs = new Set<string>();
+        collectCondRefs(s.cond, refs);
+        for (const e of s.elif) collectCondRefs(e.cond, refs);
+        judge(refs, s.id, own);
+        walk(s.then, own);
+        for (const e of s.elif) walk(e.then, own);
+        walk(s.else, own);
+      }
+    }
+  };
+  walk(scenario.steps, null);
+
+  const out = new Map<string, UndefinedRef>();
+  for (const [name, a] of acc) {
+    out.set(name, {
+      stepIds: a.stepIds,
+      candidates: name.includes(".") ? [] : candidatesFor(name),
+      kind: a.sawDownstream ? "downstream" : "sibling",
+    });
+  }
+  return out;
+}
+
 export interface ParallelVarIdentity {
   branchName: string;
   varName: string;
