@@ -352,3 +352,21 @@ thinkboard-defaults가 라이브 L3에서 실측해 넘긴 **§B13 추천 항목
 **의도된 동작 델타(spec §7.1 — 회귀 아님)**: 편집을 중도에 포기하는 경로에서 수정 전후 결과가 갈린다. 기본값 `{500,1000}`에서 min `200` → max `400` → ESC는, 수정 전 `{200,1000}`(중간 쌍이 유효해 부분 커밋된 뒤 ESC가 못 되돌림) / R2만 적용 시 `{500,1000}`(아무것도 커밋 안 됨) / **채택안 R2+R5는 `{200,400}`** — 사용자가 실제로 친 쌍. 수용 기준의 "0-diff"는 `resolveThinkDraft`(규칙)에 걸리는 것이지 이 경로의 결과값에 걸리는 것이 아니다.
 
 **연기(후속 트랙):** ① **`ThinkTimeBoard`의 `bulkValid`가 경계 상수를 손으로 인라인**(`Number.isInteger`·`>=0`·`mx>=mn`·`<=600_000`) — 기존 코드이고 draft 상태기계가 아니라 spec §6.5 수렴 주장 밖이지만, 이제 그 상수가 `thinkTime.ts`에서 드리프트할 수 있는 **마지막 장소**다. `resolveThinkDraft(bulkMin, bulkMax).kind === "commit"`으로 접을 수 있다(최종 리뷰 Minor 3). ② **창/탭 전환(alt-tab) 중 짝을 떠나는 경우**는 여전히 값이 사라진다 — `relatedTarget`이 null이라 브라우저가 짝 내부/외부를 구분할 정보를 주지 않는다. spec §7.2가 **수용된 한계**로 명시(US1의 잔여 구멍). ③ `ScenarioDefaults`가 객체 dep → 원시값 dep으로 바뀌면서, **미커밋 draft가 동일 수치의 시나리오 재로드에서 살아남는다**(수정 전엔 파괴됐다). 진행 중 draft를 덜 파괴하는 안전한 방향이고 도달 경로가 극히 좁아 기록만 한다(최종 리뷰 Minor 4). ④ **`scenarioHasThink`의 `{0,0}` 비대칭**(`ui/src/scenario/model.ts:284`)은 thinkboard-defaults에서 연기된 그대로 — **부하 모델 슬라이스에서 sizing 회귀 테스트와 함께**(ADR-0046/§B21), 이번 범위 밖.
+
+## 속지 않는 오픈 시험 1차 (trustworthy-open-test / §A11, 머지 `f93544a`, 2026-07-20)
+
+**제품 베팅 1차 출하**: 종료 리포트에 시험 **유효성(`validity`)** · **내러티브(`narrative`)** 를 soft-only로 붙여 completed/SLO 초록과 분리. 엔진·워커·proto·migration **0-diff**. soft-only = run `status` 전이 · `evaluate_criteria` 식 · 스케줄 발사 **0-diff**.
+
+**아키텍처**: A4c와 동일 — `build_report` on-demand 순수 파생. 신규 `crates/controller/src/validity.rs` (`derive_validity` + `derive_narrative`). `insights::collect_unconditional` → `pub(crate)` + `http_step_has_status_assert` (H6 동일 tree-walk). `ReportJson` always-emit + `#[serde(default)]`(역직렬화 전용 default — 신규 빌드는 항상 재계산). UI Zod `.optional()` + 키 부재 시 배지/배너/내러티브 **숨김**(fake ok 금지). XLSX Summary 하단 additive 3행(level 문자열 · reason kinds 문자열 · events count 숫자 — f64 루프 밖 H2).
+
+**사유 5종**: `zero_requests`(critical) · `transport_heavy`(pct≥0.5→critical, 그 외 warning; **errors==0 게이트 금지** H0 — transport는 errors를 올림) · `silent_http_errors`(4xx+5xx 합 && errors==0) · `no_response_validation`(Status assert·활성 criteria 부재·공허 skip) · `load_not_delivered`(`load_gen_saturated` 재사용). level = any critical→suspect · nonempty→limited · else ok.
+
+**UI §5.3**: `RunDetailPage` 헤더 `ValidityBadge`(ok=slate·limited=amber·suspect=red) · `ReportHeadline` 합격 emerald 금지 when level≠ok(중립 카피 `headlineSloPassLimited|Suspect`) · `ReportView` **Banner→Narrative→Verdict→Insight**(구 Insight→Verdict 스왑) · ko 카탈로그 전수(ADR-0035).
+
+**파이프라인**: 직전 세션 docs-only `b0942a9`(spec/plan APPROVE + REVIEW-GATE) → `/clear` 없이 이 세션은 start-slice에서 **spec/plan ready 직진입**(파일 세션 시작 시 이미 존재). Task 1–4 fresh subagent + per-task review APPROVE · 최종 `handicap-reviewer` **READY-TO-MERGE** · 보안 표면 grep **N/A**. 4 commits: e2fab0e → eaa3c07 → 4a9f1c8 → f93544a.
+
+**라이브 R11**: 컨트롤러 **8099/8098**(8080=사용자 llama-server 점유 — 죽이지 않음) + responder 9999/50ms. **US2 PROVEN** dead port → level=suspect + `transport_heavy`(errors 수만). **US3 PROVEN** assert[] 200 → limited + `no_response_validation` + cannot `functional_correctness`. **clean PROVEN** assert+SLO → ok + can `slo_held` + cannot `production_identity` only. **US1 Headline 와이어** transport+loose SLO → verdict.passed=true + level=suspect. 브라우저 Playwright 부재 → DOM은 Task 4 RTL(Headline 이빨·document order 고의 RED→GREEN) + dist ko 문자열 존재로 대체.
+
+**US 한 줄**: US1–4 관찰 가능(헤더 배지·상단 배너/내러티브·transport 승격·검증 부재 경고·can/cannot). 브라우저 시각 계층 라이브는 환경 한계로 RTL 위임.
+
+**잔여/후속**: ValidityBanner empty-ok 제목만 마운트(Minor) · VerdictPanel emerald 유지(§5.3 비범위) · preflight/hard gate/목록 배지/compare 유효성/감리 번들 = §A11 2차·§A13. 신규 ADR 불필요(1차 additive 순수 파생).
