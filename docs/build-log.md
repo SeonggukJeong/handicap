@@ -365,7 +365,7 @@ thinkboard-defaults가 라이브 L3에서 실측해 넘긴 **§B13 추천 항목
 
 **파이프라인**: 직전 세션 docs-only `b0942a9`(spec/plan APPROVE + REVIEW-GATE) → `/clear` 없이 이 세션은 start-slice에서 **spec/plan ready 직진입**(파일 세션 시작 시 이미 존재). Task 1–4 fresh subagent + per-task review APPROVE · 최종 `handicap-reviewer` **READY-TO-MERGE** · 보안 표면 grep **N/A**. 4 commits: e2fab0e → eaa3c07 → 4a9f1c8 → f93544a.
 
-**라이브 R11**: 컨트롤러 **8099/8098**(8080=사용자 llama-server 점유 — 죽이지 않음) + responder 9999/50ms. **US2 PROVEN** dead port → level=suspect + `transport_heavy`(errors 수만). **US3 PROVEN** assert[] 200 → limited + `no_response_validation` + cannot `functional_correctness`. **clean PROVEN** assert+SLO → ok + can `slo_held` + cannot `production_identity` only. **US1 Headline 와이어** transport+loose SLO → verdict.passed=true + level=suspect. 브라우저 Playwright 부재 → DOM은 Task 4 RTL(Headline 이빨·document order 고의 RED→GREEN) + dist ko 문자열 존재로 대체.
+**라이브 R11**: 컨트롤러 **8099/8098**(8080=사용자 llama-server 점유 — 죽이지 않음) + responder 9999/50ms. **US2 PROVEN** dead port → level=suspect + `transport_heavy`. **US3 PROVEN** assert[] 200 → limited + `no_response_validation`. **clean PROVEN** assert+SLO → ok. **US1 Headline 와이어** transport+loose SLO → verdict.passed=true + level=suspect. **Playwright headless Chromium 17/17 PASS**(2026-07-20 후속): US2 해석 주의+시험 유효성+내러티브·US3 제한적 해석+사유 카피+cannot·clean 해석 가능+합격·US1 헤더 배지+`SLO 수치는 통과 · 시험 해석 주의`+**`text-emerald-700` 부재**(slate-700 `rgb(51,65,85)`)+Banner→Narrative document order·Zod console 0.
 
 **US 한 줄**: US1–4 관찰 가능(헤더 배지·상단 배너/내러티브·transport 승격·검증 부재 경고·can/cannot). 브라우저 시각 계층 라이브는 환경 한계로 RTL 위임.
 
