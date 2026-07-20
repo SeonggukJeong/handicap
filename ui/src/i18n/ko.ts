@@ -996,7 +996,7 @@ export const ko = {
   narrative: {
     sectionAria: "결과 해석",
     title: "결과 해석",
-    eventsHeading: "한눈에",
+    eventsHeading: "주요 사건",
     canHeading: "말할 수 있는 것",
     cannotHeading: "말할 수 없는 것",
     can: {

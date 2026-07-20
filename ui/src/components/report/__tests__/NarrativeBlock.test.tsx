@@ -21,6 +21,8 @@ describe("NarrativeBlock", () => {
     render(<NarrativeBlock narrative={SAMPLE} />);
     const region = screen.getByRole("region", { name: ko.narrative.sectionAria });
     expect(region).toHaveTextContent(ko.narrative.title);
+    // catalog label must stay a natural Korean section title (not bare "한눈에")
+    expect(ko.narrative.eventsHeading).toBe("주요 사건");
     expect(region).toHaveTextContent(ko.narrative.eventsHeading);
     expect(region).toHaveTextContent(ko.narrative.canHeading);
     expect(region).toHaveTextContent(ko.narrative.cannotHeading);
