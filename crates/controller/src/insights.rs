@@ -382,7 +382,9 @@ fn saturation_onset(by_sec: &BTreeMap<i64, u64>, peak: u64) -> Option<i64> {
 /// Collect ids of http steps that ALWAYS run: top-level + loop bodies (repeat>=1).
 /// if/elif/else branch steps are excluded — 0 requests there is expected (branch
 /// not taken), not a defect.
-fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String>) {
+///
+/// Shared with `validity` for `no_response_validation` (same walk rules — H6).
+pub(crate) fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String>) {
     for s in steps {
         match s {
             Step::Http(h) => {
@@ -410,6 +412,54 @@ fn collect_unconditional(steps: &[Step], conditional: bool, out: &mut Vec<String
             }
         }
     }
+}
+
+/// True if the http step with `id` has at least one `Assertion::Status` in its
+/// assert list. Walks the full step tree (including if branches / loop bodies /
+/// parallel) to locate the step — callers should only pass ids from
+/// [`collect_unconditional`] so conditional-only steps are not consulted for
+/// validity (plan H6).
+pub(crate) fn http_step_has_status_assert(steps: &[Step], id: &str) -> bool {
+    find_http_step(steps, id).is_some_and(|h| {
+        h.assert
+            .iter()
+            .any(|a| matches!(a, handicap_engine::Assertion::Status(_)))
+    })
+}
+
+fn find_http_step<'a>(steps: &'a [Step], id: &str) -> Option<&'a handicap_engine::HttpStep> {
+    for s in steps {
+        match s {
+            Step::Http(h) if h.id == id => return Some(h),
+            Step::Http(_) => {}
+            Step::Loop(l) => {
+                if let Some(h) = find_http_step(&l.do_, id) {
+                    return Some(h);
+                }
+            }
+            Step::If(i) => {
+                if let Some(h) = find_http_step(&i.then_, id) {
+                    return Some(h);
+                }
+                for e in &i.elif {
+                    if let Some(h) = find_http_step(&e.then_, id) {
+                        return Some(h);
+                    }
+                }
+                if let Some(h) = find_http_step(&i.else_, id) {
+                    return Some(h);
+                }
+            }
+            Step::Parallel(p) => {
+                for b in &p.branches {
+                    if let Some(h) = find_http_step(&b.steps, id) {
+                        return Some(h);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
