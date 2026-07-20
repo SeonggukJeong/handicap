@@ -369,4 +369,6 @@ thinkboard-defaults가 라이브 L3에서 실측해 넘긴 **§B13 추천 항목
 
 **US 한 줄**: US1–4 관찰 가능(헤더 배지·상단 배너/내러티브·transport 승격·검증 부재 경고·can/cannot). 브라우저 시각 계층 라이브는 환경 한계로 RTL 위임.
 
+**제품 회고(2026-07-20 세션 말)**: 사용자 기대=시나리오 신뢰도 점수+개선 가이드(에픽 문구에 가까움) ≠ 1차=사후 soft 라벨. 리포트 나열 밀도·초보자 피로 인정. **배지 확산형 2차 기각**. 다음 세션 (A) 점수+개선≤3 vs (C) 다른 테마 — `roadmap.md` §A11 회고 블록. 카피: `eventsHeading` 한눈에→주요 사건(`d456eff`). headful Playwright 육안 확인.
+
 **잔여/후속**: ValidityBanner empty-ok 제목만 마운트(Minor) · VerdictPanel emerald 유지(§5.3 비범위) · preflight/hard gate/목록 배지/compare 유효성/감리 번들 = §A11 2차·§A13. 신규 ADR 불필요(1차 additive 순수 파생).
