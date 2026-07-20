@@ -895,3 +895,157 @@ describe("RunDetailPage — PageSection lockstep", () => {
     ).toBe("text-lg font-semibold mb-2");
   });
 });
+
+// A11: ValidityBadge beside Status/Verdict after report loads (US1)
+describe("RunDetailPage — ValidityBadge (A11)", () => {
+  it("shows ValidityBadge next to Status/Verdict when report carries validity", async () => {
+    const reportBundle = {
+      run: {
+        id: "RV1",
+        scenario_id: "SV1",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        mean_ms: 15,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: 30,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+      dropped: 0,
+      validity: {
+        level: "limited",
+        reasons: [{ kind: "no_response_validation", severity: "warning" }],
+      },
+      narrative: {
+        events: ["validity:no_response_validation"],
+        can_claim: ["throughput_measured"],
+        cannot_claim: ["functional_correctness", "production_identity"],
+      },
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/RV1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "RV1",
+            scenario_id: "SV1",
+            scenario_yaml: reportBundle.scenario_yaml,
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/RV1/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "RV1", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/RV1/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      if (url.endsWith("/api/scenarios/SV1")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "SV1",
+            name: "x",
+            yaml: reportBundle.scenario_yaml,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("RV1");
+    // completed emerald StatusBadge stays; ValidityBadge appears beside it
+    expect(await screen.findByText("completed")).toBeInTheDocument();
+    expect(await screen.findByText(ko.validity.level.limited)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: ko.validity.bannerAria })).toBeInTheDocument();
+  });
+
+  it("does not show ValidityBadge when report omits validity (old report)", async () => {
+    const reportBundle = {
+      run: {
+        id: "RV0",
+        scenario_id: "SV0",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        mean_ms: 15,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: 30,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+      dropped: 0,
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/RV0")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "RV0",
+            scenario_id: "SV0",
+            scenario_yaml: reportBundle.scenario_yaml,
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/RV0/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "RV0", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/RV0/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      if (url.endsWith("/api/scenarios/SV0")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "SV0",
+            name: "x",
+            yaml: reportBundle.scenario_yaml,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("RV0");
+    await screen.findByRole("region", { name: /리포트 요약/ });
+    expect(screen.queryByText(ko.validity.level.ok)).toBeNull();
+    expect(screen.queryByText(ko.validity.level.limited)).toBeNull();
+    expect(screen.queryByText(ko.validity.level.suspect)).toBeNull();
+  });
+});

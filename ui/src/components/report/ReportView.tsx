@@ -20,6 +20,8 @@ import { downloadJson } from "../../api/downloadJson";
 import { HelpTip } from "../HelpTip";
 import { VerdictPanel } from "./VerdictPanel";
 import { InsightPanel } from "./InsightPanel";
+import { ValidityBanner } from "./ValidityBanner";
+import { NarrativeBlock } from "./NarrativeBlock";
 import { WorkerBreakdownTable } from "./WorkerBreakdownTable";
 import { PercentileCurveChart } from "./PercentileCurveChart";
 import { LatencyHistogramChart } from "./LatencyHistogramChart";
@@ -89,7 +91,12 @@ export function ReportView({ report, profile }: Props) {
 
   return (
     <div>
-      <ReportHeadline summary={report.summary} profile={profile} verdict={report.verdict} />
+      <ReportHeadline
+        summary={report.summary}
+        profile={profile}
+        verdict={report.verdict}
+        validity={report.validity}
+      />
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
         <div className="flex items-center gap-1">
@@ -150,8 +157,11 @@ export function ReportView({ report, profile }: Props) {
           다운로드 실패: {dlErr}
         </Callout>
       )}
-      <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
+      {/* A11 §5.3: Banner → Narrative → Verdict → Insight (swapped from Insight→Verdict) */}
+      <ValidityBanner validity={report.validity} />
+      <NarrativeBlock narrative={report.narrative} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
+      <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
       <Summary
         summary={report.summary}
         dropped={report.dropped}

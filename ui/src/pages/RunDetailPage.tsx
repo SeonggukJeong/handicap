@@ -16,6 +16,7 @@ import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../a
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { ValidityBadge } from "../components/ValidityBadge";
 import { ReportView } from "../components/report/ReportView";
 import type { RunStatus } from "../api/schemas";
 import { ko } from "../i18n/ko";
@@ -128,6 +129,7 @@ export function RunDetailPage() {
           <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
           <StatusBadge status={r.status} />
           <VerdictBadge verdict={report.data?.verdict} />
+          <ValidityBadge validity={report.data?.validity} />
         </h2>
         <div className="flex items-center gap-2">
           {r.status === "running" && (

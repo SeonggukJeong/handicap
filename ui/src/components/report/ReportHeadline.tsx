@@ -1,4 +1,4 @@
-import type { Profile, ReportSummary, Verdict } from "../../api/schemas";
+import type { Profile, ReportSummary, Validity, Verdict } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { formatDurationKo, formatSecondsKo } from "../../i18n/duration";
 import { floorPct } from "./format";
@@ -7,10 +7,12 @@ type Props = {
   summary: ReportSummary;
   profile: Profile;
   verdict: Verdict | null | undefined;
+  /** A11: when level is limited/suspect, SLO pass must not use emerald (H4). */
+  validity?: Validity | null;
 };
 
 /** §7.1 쉬운 요약 헤더 — 리포트 최상단 한 문장 + verdict 콜아웃(클라 파생, 백엔드 무변경). */
-export function ReportHeadline({ summary, profile, verdict }: Props) {
+export function ReportHeadline({ summary, profile, verdict, validity }: Props) {
   const common = {
     duration: formatDurationKo(summary.duration_seconds),
     count: summary.count.toLocaleString("en-US"),
@@ -32,19 +34,44 @@ export function ReportHeadline({ summary, profile, verdict }: Props) {
 
   return (
     <section aria-label={ko.report.headlineAria} className="mb-6">
-      {verdict ? (
-        <div
-          className={[
-            "mb-1 text-2xl font-bold",
-            verdict.passed ? "text-emerald-700" : "text-red-700",
-          ].join(" ")}
-        >
-          {verdict.passed ? ko.report.verdictPass : ko.report.verdictFail}
-        </div>
-      ) : (
+      {verdict ? <VerdictCallout verdict={verdict} validity={validity} /> : (
         <p className="mb-1 text-sm text-slate-500">{ko.report.sloHint}</p>
       )}
       <p className="text-base text-slate-800">{sentence}</p>
     </section>
+  );
+}
+
+function VerdictCallout({
+  verdict,
+  validity,
+}: {
+  verdict: Verdict;
+  validity?: Validity | null;
+}) {
+  // Fail always red. Pass with limited/suspect validity: neutral + coupled copy (no emerald).
+  if (!verdict.passed) {
+    return (
+      <div className="mb-1 text-2xl font-bold text-red-700">{ko.report.verdictFail}</div>
+    );
+  }
+  const level = validity?.level;
+  if (level === "suspect") {
+    return (
+      <div className="mb-1 text-2xl font-bold text-slate-700">
+        {ko.report.headlineSloPassSuspect}
+      </div>
+    );
+  }
+  if (level === "limited") {
+    return (
+      <div className="mb-1 text-2xl font-bold text-slate-700">
+        {ko.report.headlineSloPassLimited}
+      </div>
+    );
+  }
+  // level ok or validity absent (old report): keep existing emerald 합격 emphasis
+  return (
+    <div className="mb-1 text-2xl font-bold text-emerald-700">{ko.report.verdictPass}</div>
   );
 }

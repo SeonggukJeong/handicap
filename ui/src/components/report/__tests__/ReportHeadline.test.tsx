@@ -120,4 +120,59 @@ describe("ReportHeadline", () => {
     const region = screen.getByRole("region", { name: "쉬운 요약" });
     expect(region).toHaveTextContent(/<0\.1%/);
   });
+
+  // A11: SLO 수치 통과라도 시험 유효성이 limited/suspect면 emerald 강조 금지 (H4)
+  it("verdict.passed && validity.suspect → not emerald + headlineSloPassSuspect (both teeth)", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={CLOSED}
+        verdict={{ passed: true, criteria: [] }}
+        validity={{ level: "suspect", reasons: [] }}
+      />,
+    );
+    const passNode = screen.getByText(ko.report.headlineSloPassSuspect);
+    expect(passNode).not.toHaveClass("text-emerald-700");
+    expect(passNode).toHaveTextContent(ko.report.headlineSloPassSuspect);
+    // 기존 "합격" 단독 emerald 카피 없음
+    expect(screen.queryByText(ko.report.verdictPass)).toBeNull();
+  });
+
+  it("verdict.passed && validity.limited → not emerald + headlineSloPassLimited", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={CLOSED}
+        verdict={{ passed: true, criteria: [] }}
+        validity={{ level: "limited", reasons: [] }}
+      />,
+    );
+    const passNode = screen.getByText(ko.report.headlineSloPassLimited);
+    expect(passNode).not.toHaveClass("text-emerald-700");
+  });
+
+  it("verdict.passed && validity.ok → keeps emerald 합격", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={CLOSED}
+        verdict={{ passed: true, criteria: [] }}
+        validity={{ level: "ok", reasons: [] }}
+      />,
+    );
+    const passNode = screen.getByText(ko.report.verdictPass);
+    expect(passNode).toHaveClass("text-emerald-700");
+    expect(screen.queryByText(ko.report.headlineSloPassSuspect)).toBeNull();
+  });
+
+  it("verdict.passed && validity absent → keeps emerald 합격 (old reports)", () => {
+    render(
+      <ReportHeadline
+        summary={SUMMARY}
+        profile={CLOSED}
+        verdict={{ passed: true, criteria: [] }}
+      />,
+    );
+    expect(screen.getByText(ko.report.verdictPass)).toHaveClass("text-emerald-700");
+  });
 });
