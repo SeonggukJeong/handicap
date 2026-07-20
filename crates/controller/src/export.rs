@@ -456,6 +456,21 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
         ws.write_string(i as u32, 0, *k).expect("w");
         ws.write_number(i as u32, 1, *v).expect("w");
     }
+    // H2: validity/narrative are not f64 — separate string/number writes (rows 7–9).
+    let validity_kinds = report
+        .validity
+        .reasons
+        .iter()
+        .map(|r| r.kind.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    ws.write_string(7, 0, "validity_level").expect("w");
+    ws.write_string(7, 1, &report.validity.level).expect("w");
+    ws.write_string(8, 0, "validity_reason_kinds").expect("w");
+    ws.write_string(8, 1, &validity_kinds).expect("w");
+    ws.write_string(9, 0, "narrative_events_count").expect("w");
+    ws.write_number(9, 1, report.narrative.events.len() as f64)
+        .expect("w");
 
     // --- Steps sheet ---
     let ws = wb.add_worksheet();
@@ -612,6 +627,8 @@ mod tests {
             active_vu_by_worker: vec![],
             worker_breakdown: vec![],
             connection: None,
+            validity: Default::default(),
+            narrative: Default::default(),
         }
     }
 
@@ -682,6 +699,76 @@ mod tests {
         let steps = wb.worksheet_range("Steps").expect("Steps sheet");
         assert_eq!(steps.get_value((1, 0)), Some(&Data::String("a".into())));
         assert_eq!(steps.get_value((1, 4)), Some(&Data::Float(50.0)));
+    }
+
+    #[test]
+    fn xlsx_summary_includes_validity_narrative_rows() {
+        // H2: rows 0–6 remain numeric; 7–8 Data::String; 9 narrative_events_count number.
+        use crate::validity::{Narrative, Validity, ValidityReason};
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+
+        let mut r = report_with_steps(vec![step("a", 10, 50)]);
+        r.summary.count = 123;
+        r.validity = Validity {
+            level: "suspect".into(),
+            reasons: vec![
+                ValidityReason {
+                    kind: "transport_heavy".into(),
+                    severity: "critical".into(),
+                    pct: Some(0.8),
+                    count: Some(80),
+                    step_id: None,
+                    metric: None,
+                    value: None,
+                },
+                ValidityReason {
+                    kind: "load_not_delivered".into(),
+                    severity: "warning".into(),
+                    pct: None,
+                    count: Some(7),
+                    step_id: None,
+                    metric: None,
+                    value: None,
+                },
+            ],
+        };
+        r.narrative = Narrative {
+            events: vec![
+                "validity:transport_heavy".into(),
+                "validity:load_not_delivered".into(),
+                "insight:slowest_step".into(),
+            ],
+            can_claim: vec!["client_reachability_issue".into()],
+            cannot_claim: vec!["production_identity".into()],
+        };
+        let bytes = report_to_xlsx(&r);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> =
+            open_workbook_from_rs(Cursor::new(bytes)).expect("read xlsx");
+        let summary = wb.worksheet_range("Summary").expect("Summary sheet");
+        // rows 0–6 numeric summary unchanged
+        assert_eq!(summary.get_value((0, 1)), Some(&Data::Float(123.0)));
+        assert_eq!(
+            summary.get_value((7, 0)),
+            Some(&Data::String("validity_level".into()))
+        );
+        assert_eq!(
+            summary.get_value((7, 1)),
+            Some(&Data::String("suspect".into()))
+        );
+        assert_eq!(
+            summary.get_value((8, 0)),
+            Some(&Data::String("validity_reason_kinds".into()))
+        );
+        assert_eq!(
+            summary.get_value((8, 1)),
+            Some(&Data::String("transport_heavy,load_not_delivered".into()))
+        );
+        assert_eq!(
+            summary.get_value((9, 0)),
+            Some(&Data::String("narrative_events_count".into()))
+        );
+        assert_eq!(summary.get_value((9, 1)), Some(&Data::Float(3.0)));
     }
 
     #[test]

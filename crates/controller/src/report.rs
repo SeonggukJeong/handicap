@@ -37,6 +37,13 @@ pub struct ReportJson {
     pub worker_breakdown: Vec<WorkerBreakdown>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionStats>,
+    /// Soft validity (A11). Default = ok/empty for **deserialization only**;
+    /// production `build_report` always recomputes.
+    #[serde(default)]
+    pub validity: crate::validity::Validity,
+    /// Soft narrative (A11). Default empty for deserialization only; always recomputed.
+    #[serde(default)]
+    pub narrative: crate::validity::Narrative,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -899,6 +906,17 @@ pub fn build_report(
         })
         .collect();
 
+    // Soft validity + narrative (A11): any status — no new terminal gate. Always recompute.
+    let has_active = run.profile.criteria.as_ref().is_some_and(|c| c.has_any());
+    let validity = crate::validity::derive_validity(
+        &summary,
+        &status_dist,
+        scenario_yaml,
+        has_active,
+        &insights,
+    );
+    let narrative = crate::validity::derive_narrative(&validity, &summary, has_active, &insights);
+
     ReportJson {
         run: ReportRun {
             id: run.id.clone(),
@@ -925,6 +943,8 @@ pub fn build_report(
         active_vu_by_worker: worker_vu,
         worker_breakdown,
         connection,
+        validity,
+        narrative,
     }
 }
 
@@ -2252,5 +2272,120 @@ mod tests {
         // w-1: normal
         assert_eq!(rep.worker_breakdown[1].count, 3);
         assert_eq!(rep.worker_breakdown[1].p50_ms, 30);
+    }
+
+    /// Scenario with Status assert — avoids no_response_validation so transport is isolated.
+    const YAML_WITH_ASSERT: &str = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: step_a
+    name: a
+    request: { method: GET, url: "http://x/" }
+    assert:
+      - status: 200
+"#;
+
+    /// Unconditional http, no assert — triggers no_response_validation when no criteria.
+    const YAML_NO_ASSERT: &str = r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: step_a
+    name: a
+    request: { method: GET, url: "http://x/" }
+"#;
+
+    #[test]
+    fn build_report_attaches_validity_transport_suspect() {
+        // n0=80, n_http=20 → pct=0.8 critical → suspect; assert yaml isolates transport_heavy.
+        let run = run_row();
+        let rows = vec![win(
+            100,
+            "step_a",
+            100,
+            80,
+            r#"{"0":80,"200":20}"#,
+            &[10_000; 100],
+        )];
+        let rep = build_report(&run, YAML_WITH_ASSERT, &rows, &[], &[], &[], &[], &[], &[]);
+        assert_eq!(rep.validity.level, "suspect");
+        assert!(
+            rep.validity
+                .reasons
+                .iter()
+                .any(|r| r.kind == "transport_heavy"),
+            "transport_heavy reason attached"
+        );
+        assert!(
+            rep.narrative
+                .events
+                .iter()
+                .any(|e| e == "validity:transport_heavy")
+        );
+        assert!(
+            rep.narrative
+                .cannot_claim
+                .iter()
+                .any(|c| c == "sut_capacity")
+        );
+        assert!(
+            rep.narrative
+                .cannot_claim
+                .iter()
+                .any(|c| c == "production_identity"),
+            "always production_identity"
+        );
+    }
+
+    #[test]
+    fn build_report_attaches_validity_unchecked_limited() {
+        // 200-only, no assert, no criteria → no_response_validation → limited.
+        let run = run_row();
+        let rows = vec![win(100, "step_a", 10, 0, r#"{"200":10}"#, &[10_000; 10])];
+        let rep = build_report(&run, YAML_NO_ASSERT, &rows, &[], &[], &[], &[], &[], &[]);
+        assert_eq!(rep.validity.level, "limited");
+        assert!(
+            rep.validity
+                .reasons
+                .iter()
+                .any(|r| r.kind == "no_response_validation")
+        );
+        assert!(
+            rep.narrative
+                .can_claim
+                .iter()
+                .any(|c| c == "throughput_measured")
+        );
+        assert!(
+            rep.narrative
+                .cannot_claim
+                .iter()
+                .any(|c| c == "functional_correctness")
+        );
+        assert!(rep.narrative.cannot_claim.iter().any(|c| c == "slo_gate"));
+    }
+
+    #[test]
+    fn build_report_attaches_validity_clean_ok() {
+        // Assert present, all 200, no bad reasons → ok + production_identity only (cannot).
+        let run = run_row();
+        let rows = vec![win(100, "step_a", 10, 0, r#"{"200":10}"#, &[10_000; 10])];
+        let rep = build_report(&run, YAML_WITH_ASSERT, &rows, &[], &[], &[], &[], &[], &[]);
+        assert_eq!(rep.validity.level, "ok");
+        assert!(
+            rep.validity.reasons.is_empty(),
+            "clean run has no validity reasons"
+        );
+        assert!(
+            rep.narrative
+                .cannot_claim
+                .iter()
+                .any(|c| c == "production_identity")
+        );
+        // No active criteria → cannot claim slo_gate even when clean.
+        assert!(rep.narrative.cannot_claim.iter().any(|c| c == "slo_gate"));
     }
 }
