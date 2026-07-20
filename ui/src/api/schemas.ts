@@ -397,6 +397,32 @@ export const InsightSchema = z.object({
 });
 export type Insight = z.infer<typeof InsightSchema>;
 
+// A11 trustworthy open test — soft validity + narrative (Rust Validity/Narrative 1:1).
+// Optional fields use skip_serializing_if = "Option::is_none" → omit, not null → .optional().
+export const ValidityReasonSchema = z.object({
+  kind: z.string(),
+  severity: z.enum(["critical", "warning", "info"]),
+  pct: z.number().optional(),
+  count: z.number().int().nonnegative().optional(),
+  step_id: z.string().optional(),
+  metric: z.string().optional(),
+  value: z.number().optional(),
+});
+export type ValidityReason = z.infer<typeof ValidityReasonSchema>;
+
+export const ValiditySchema = z.object({
+  level: z.enum(["ok", "limited", "suspect"]),
+  reasons: z.array(ValidityReasonSchema),
+});
+export type Validity = z.infer<typeof ValiditySchema>;
+
+export const NarrativeSchema = z.object({
+  events: z.array(z.string()),
+  can_claim: z.array(z.string()),
+  cannot_claim: z.array(z.string()),
+});
+export type Narrative = z.infer<typeof NarrativeSchema>;
+
 export const ActiveVuSampleSchema = z
   .object({
     ts_second: z.number().int(),
@@ -441,6 +467,9 @@ export const ReportSchema = z
     worker_breakdown: z.array(WorkerBreakdownSchema).optional(),
     verdict: VerdictSchema.nullish(),
     insights: z.array(InsightSchema).optional(),
+    // A11: new servers always-emit; old servers/JSON omit → .optional() + UI hide (no fake ok)
+    validity: ValiditySchema.optional(),
+    narrative: NarrativeSchema.optional(),
     dropped: z.number(),
     latency: LatencyDistributionSchema.nullish(),
     connection: ConnectionStatsSchema.optional(),

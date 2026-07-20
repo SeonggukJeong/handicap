@@ -925,6 +925,9 @@ export const ko = {
     headlineClosedCurve: (p: { duration: string; count: string; p95: string; errPct: string }) =>
       `${p.duration} 동안 단계별 VU 곡선으로 ${p.count}회 요청 — 95%가 ${p.p95} 안에 응답, 에러 ${p.errPct}`,
     headlineNoRequests: "요청이 기록되지 않았습니다 — 시나리오 URL과 워커 상태를 확인하세요.",
+    // A11: SLO 수치 통과이더라도 시험 유효성이 limited/suspect일 때 emerald 강조 금지용 병기
+    headlineSloPassLimited: "SLO 수치는 통과 · 시험 해석은 제한적",
+    headlineSloPassSuspect: "SLO 수치는 통과 · 시험 해석 주의",
     headlineAria: "쉬운 요약",
     verdictPass: "합격",
     verdictFail: "불합격",
@@ -967,6 +970,72 @@ export const ko = {
     workerBreakdownLabel: "워커별 분해",
     workerBreakdownTitle: (n: number) => `워커별 분해 (${n}개 워커)`,
     workerLabel: (n: number) => `워커 ${n}`,
+  },
+  // A11 시험 유효성 (status/SLO와 직교). 배지·배너 문구.
+  validity: {
+    bannerAria: "시험 유효성",
+    title: "시험 유효성",
+    level: {
+      ok: "해석 가능",
+      limited: "제한적 해석",
+      suspect: "해석 주의",
+    },
+    reason: {
+      zero_requests: "요청이 한 건도 기록되지 않았습니다",
+      // pct/count는 호출부에서 표시 문자열로 포맷(floorPct·toLocaleString) 후 전달
+      transport_heavy: (pct: string, count: string) =>
+        `전송 실패(연결 단계)가 전체의 ${pct}% (${count}건)입니다 — 대상 서버 한계로 읽지 마세요`,
+      silent_http_errors:
+        "HTTP 오류 상태코드가 있으나 엔진 에러 수는 0입니다(응답 검증 부재 가능)",
+      no_response_validation:
+        "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다",
+      load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",
+    },
+  },
+  // A11 결과 해석 내러티브 — events + can_claim + cannot_claim 코드 맵 (spec §5.1–5.2).
+  narrative: {
+    sectionAria: "결과 해석",
+    title: "결과 해석",
+    eventsHeading: "한눈에",
+    canHeading: "말할 수 있는 것",
+    cannotHeading: "말할 수 없는 것",
+    can: {
+      client_reachability_issue: "클라이언트 도달·연결 문제(대상 서버 한계가 아님)가 있습니다",
+      http_error_statuses_seen: "HTTP 오류 상태코드가 관측되었습니다",
+      throughput_measured: "처리량(요청 수·RPS)은 측정되었습니다",
+      delivery_ceiling_observed: "부하 전달 상한(이 구성으로 보낼 수 있는 한계)이 관측되었습니다",
+      slo_held: "설정한 SLO 기준을 통과했습니다",
+      sut_errors_observed: "대상 서버(SUT) 오류가 관측되었습니다",
+      bottleneck_step: "상대적으로 느린(병목) 스텝을 식별할 수 있습니다",
+    },
+    cannot: {
+      any_performance_claim: "성능·용량에 대한 어떠한 주장도",
+      sut_capacity: "대상 서버(SUT) 용량 한계",
+      slo_as_capacity: "SLO 통과를 용량 증명으로 해석하는 것",
+      zero_engine_errors_means_ok: "엔진 에러 0 = 서비스 정상",
+      functional_correctness: "기능 정확성(응답 본문·비즈니스 규칙)",
+      error_free_service: "무오류 서비스",
+      target_load_applied: "목표한 부하가 전부 걸렸다는 것",
+      slo_gate: "SLO 게이트 판정(기준 미설정)",
+      production_identity: "프로덕션과 동일한 환경·데이터·트래픽 패턴",
+    },
+    // events 코드 = 서버 와이어 문자열 그대로 키(콜론 포함). 미지 코드는 호출부에서 raw fallback.
+    event: {
+      "validity:zero_requests": "요청이 한 건도 기록되지 않음",
+      "validity:transport_heavy": "전송 실패(연결 단계) 비중이 큼",
+      "validity:silent_http_errors": "HTTP 오류 상태코드 있음 · 엔진 에러 0",
+      "validity:no_response_validation": "응답 검증·SLO 기준 없음",
+      "validity:load_not_delivered": "목표 부하를 다 걸지 못함",
+      "insight:slo_failure": "SLO 기준 미달",
+      "insight:slo_pass": "SLO 기준 통과",
+      "insight:status_class:5xx": "5xx 응답 비중",
+      "insight:status_class:4xx": "4xx 응답 비중",
+      "insight:load_gen_saturated": "부하 생성기 포화",
+      "insight:error_hotspot": "에러 핫스팟 스텝",
+      "insight:status_temporal": "후반 5xx 등장",
+      "insight:no_request_step": "요청 없는 스텝",
+      "insight:slowest_step": "가장 느린 스텝",
+    },
   },
   runDetail: {
     // §7.4 영영-running 갭의 UI 측 완화(갭 자체 수정은 범위 밖)

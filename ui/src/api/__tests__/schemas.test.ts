@@ -3,12 +3,15 @@ import {
   CriteriaSchema,
   IfBreakdownSchema,
   InsightSchema,
+  NarrativeSchema,
   ProfileSchema,
   ReportSchema,
   ReportSummarySchema,
   RunSchema,
   ScheduleEventSchema,
   StageSchema,
+  ValidityReasonSchema,
+  ValiditySchema,
   VerdictSchema,
 } from "../schemas";
 
@@ -430,5 +433,109 @@ describe("verdict wire", () => {
     const ev = { id: "e1", at: 1, kind: "fired", run_id: "r1" };
     expect(ScheduleEventSchema.parse({ ...ev, verdict }).verdict?.passed).toBe(false);
     expect(ScheduleEventSchema.parse({ ...ev, verdict: null }).verdict).toBeNull();
+  });
+});
+
+describe("ReportSchema.validity / narrative (A11)", () => {
+  const base = {
+    run: {
+      id: "r1",
+      scenario_id: "s1",
+      status: "completed",
+      profile: {},
+      env: {},
+      started_at: 100,
+      ended_at: 102,
+      created_at: 99,
+    },
+    scenario_yaml: "version: 1\nname: x\nsteps: []\n",
+    summary: {
+      count: 10,
+      errors: 1,
+      rps: 5,
+      duration_seconds: 2,
+      mean_ms: 30,
+      p50_ms: 10,
+      p95_ms: 50,
+      p99_ms: 90,
+    },
+    windows: [],
+    steps: [],
+    status_distribution: { "200": 9, "0": 1 },
+    dropped: 0,
+  };
+
+  const validity = {
+    level: "suspect" as const,
+    reasons: [
+      {
+        kind: "transport_heavy",
+        severity: "critical" as const,
+        pct: 0.8,
+        count: 80,
+      },
+    ],
+  };
+
+  const narrative = {
+    events: ["validity:transport_heavy", "insight:slo_pass"],
+    can_claim: ["client_reachability_issue"],
+    cannot_claim: ["sut_capacity", "slo_as_capacity", "production_identity"],
+  };
+
+  it("parses a report carrying validity and narrative", () => {
+    const parsed = ReportSchema.parse({ ...base, validity, narrative });
+    expect(parsed.validity?.level).toBe("suspect");
+    expect(parsed.validity?.reasons[0].kind).toBe("transport_heavy");
+    expect(parsed.validity?.reasons[0].pct).toBe(0.8);
+    expect(parsed.validity?.reasons[0].count).toBe(80);
+    expect(parsed.narrative?.events).toEqual([
+      "validity:transport_heavy",
+      "insight:slo_pass",
+    ]);
+    expect(parsed.narrative?.can_claim).toEqual(["client_reachability_issue"]);
+    expect(parsed.narrative?.cannot_claim).toContain("production_identity");
+  });
+
+  it("treats absent validity/narrative as undefined (old servers omit)", () => {
+    const parsed = ReportSchema.parse(base);
+    expect(parsed.validity).toBeUndefined();
+    expect(parsed.narrative).toBeUndefined();
+  });
+
+  it("rejects unknown severity on ValidityReason", () => {
+    expect(
+      ValidityReasonSchema.safeParse({
+        kind: "zero_requests",
+        severity: "fatal",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unknown validity.level", () => {
+    expect(
+      ValiditySchema.safeParse({ level: "good", reasons: [] }).success,
+    ).toBe(false);
+  });
+
+  it("ValiditySchema / NarrativeSchema parse standalone", () => {
+    expect(ValiditySchema.parse({ level: "ok", reasons: [] }).level).toBe("ok");
+    expect(
+      NarrativeSchema.parse({ events: [], can_claim: [], cannot_claim: [] }).events,
+    ).toEqual([]);
+  });
+
+  it("ReportSchema.strict rejects unknown top-level keys", () => {
+    expect(() => ReportSchema.parse({ ...base, validity, extra_field: 1 })).toThrow();
+  });
+
+  it("rejects negative reason count", () => {
+    expect(
+      ValidityReasonSchema.safeParse({
+        kind: "transport_heavy",
+        severity: "warning",
+        count: -1,
+      }).success,
+    ).toBe(false);
   });
 });
