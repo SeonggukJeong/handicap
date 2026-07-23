@@ -274,7 +274,17 @@ impl Serialize for GenSpec {
 // ---- 평가 (파싱 시 검증 완료 → infallible) ----
 
 pub(crate) fn eval_date(g: &DateGen, now_utc: DateTime<Utc>) -> String {
-    let t = now_utc + chrono::Duration::seconds(g.offset_secs);
+    // checked + 포화(spec §4): 게이트-통과 극단 offset(9자리 `d`)이 chrono의 내부
+    // `.expect(...)` panic(dynamic-vars final review I1)을 못 넘도록 — VU 시드 루프에서
+    // panic하면 전 VU가 죽어 run이 AllVusFailed로 사망한다. 실사용 offset(±수 년 내)은
+    // checked_add_signed가 항상 Some이라 이 분기가 발동하지 않는다.
+    let t = now_utc
+        .checked_add_signed(chrono::Duration::seconds(g.offset_secs))
+        .unwrap_or(if g.offset_secs >= 0 {
+            DateTime::<Utc>::MAX_UTC
+        } else {
+            DateTime::<Utc>::MIN_UTC
+        });
     match g.format.as_str() {
         "unix" => t.timestamp().to_string(),
         "unix_ms" => t.timestamp_millis().to_string(),
@@ -462,6 +472,28 @@ mod tests {
             "2026년 07월 24일"
         );
     }
+    #[test]
+    fn eval_date_saturates_on_extreme_offset_instead_of_panicking() {
+        // 게이트-통과 극단 offset(9자리 `d`, 예: +99999999d ≈ 27만 년)은 `now_utc + Duration`의
+        // 내부 `.expect(...)`를 넘겨 panic한다(dynamic-vars final review I1) — checked 산술로
+        // 포화 처리해 run을 죽이지 않아야 한다(spec §4).
+        let g = |y: &str| match parse(y).unwrap().remove("d").unwrap() {
+            VarDecl::Gen(GenSpec::Date(g)) => g,
+            other => panic!("{other:?}"),
+        };
+        let now = Utc::now();
+        let future = eval_date(
+            &g("d: {gen: date, format: unix, offset: \"+99999999d\"}"),
+            now,
+        );
+        assert_eq!(future, DateTime::<Utc>::MAX_UTC.timestamp().to_string());
+        let past = eval_date(
+            &g("d: {gen: date, format: unix, offset: \"-99999999d\"}"),
+            now,
+        );
+        assert_eq!(past, DateTime::<Utc>::MIN_UTC.timestamp().to_string());
+    }
+
     #[test]
     fn random_int_stays_on_grid() {
         let g = RandomIntGen {

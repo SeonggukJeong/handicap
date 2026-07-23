@@ -207,6 +207,31 @@ describe("sampleFor", () => {
     expect(r).toEqual({ kind: "unsupported" });
   });
 
+  it("returns unsupported (not throw) for a gate-passing extreme offset producing an Invalid Date", () => {
+    // 게이트 정규식 `^[+-]\d{1,9}[smhd]$`는 9자리 `d`(예: +99999999d)를 수용한다 — ±8.64e15ms를
+    // 넘으면 Invalid Date가 되어 partsIn의 dtf.formatToParts가 RangeError를 throw한다
+    // (dynamic-vars final review I1). 접힌 행(GenSampleLine)도 렌더하므로 열람만 해도 크래시.
+    // NOW(2026)가 epoch(1970)에 가까워 -99999999d(8자리)는 아직 유효 범위 안이라, 음수
+    // 방향은 최대 9자리(-999999999d)로 확실히 경계를 넘긴다.
+    expect(() =>
+      sampleFor({ gen: "date", format: "%Y-%m-%d", tz: "UTC", offset: "+99999999d" }, NOW),
+    ).not.toThrow();
+    const r = sampleFor({ gen: "date", format: "%Y-%m-%d", tz: "UTC", offset: "+99999999d" }, NOW);
+    expect(r).toEqual({ kind: "unsupported" });
+    const rNeg = sampleFor(
+      { gen: "date", format: "%Y-%m-%d", tz: "UTC", offset: "-999999999d" },
+      NOW,
+    );
+    expect(rNeg).toEqual({ kind: "unsupported" });
+  });
+
+  it("returns unsupported (not NaN text) for unix/unix_ms with an extreme offset", () => {
+    const rUnix = sampleFor({ gen: "date", format: "unix", offset: "+99999999d" }, NOW);
+    expect(rUnix).toEqual({ kind: "unsupported" });
+    const rUnixMs = sampleFor({ gen: "date", format: "unix_ms", offset: "+99999999d" }, NOW);
+    expect(rUnixMs).toEqual({ kind: "unsupported" });
+  });
+
   it("random_int sample lands on the min/step grid", () => {
     const spec: GenSpec = { gen: "random_int", min: 1000, max: 10000, step: 100 };
     for (let i = 0; i < 20; i++) {

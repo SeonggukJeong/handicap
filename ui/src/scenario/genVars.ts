@@ -173,6 +173,10 @@ export function sampleFor(spec: GenSpec, now: Date = new Date()): SamplePreview 
   switch (spec.gen) {
     case "date": {
       const at = new Date(now.getTime() + offsetSeconds(spec.offset) * 1000);
+      // 게이트 정규식 `^[+-]\d{1,9}[smhd]$`는 9자리 `d`(예: +99999999d)를 수용해 ±8.64e15ms를
+      // 넘는 Invalid Date를 만들 수 있다 — 이후 dtf.formatToParts가 RangeError를 throw하므로
+      // (dynamic-vars final review I1) 여기서 먼저 걸러 unsupported로 처리한다.
+      if (Number.isNaN(at.getTime())) return { kind: "unsupported" };
       const fmt = spec.format ?? "%Y-%m-%d";
       if (fmt === "unix") return { kind: "ok", text: String(Math.floor(at.getTime() / 1000)) };
       if (fmt === "unix_ms") return { kind: "ok", text: String(at.getTime()) };

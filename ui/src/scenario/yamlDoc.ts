@@ -167,7 +167,9 @@ export function applyEdit(doc: Document, edit: Edit): void {
       // map을 새로 만들기 때문이다 — 별칭 감지는 *단일* createNode 호출의 순회 안에서
       // 동일 참조가 반복될 때만 발동하고, applyEdit은 디스패치당 createNode를 1회만
       // 부르는 이 API 패턴이라 spec 객체를 재사용해도 구조적으로 앵커가 생길 수 없다.
-      // clean은 별개 목적 — undefined 필드가 `key: null`로 YAML에 새는 것을 막는 방어다.
+      // clean은 별개 목적 — yaml 라이브러리의 기본 `keepUndefined: false`가 undefined 필드를
+      // 이미 걸러내므로 엄밀히는 불필요하지만, 그 기본값에 암묵 의존하지 않고 명시적으로
+      // 방어하기 위함이다(dynamic-vars final review, tighten-optional).
       const clean = Object.fromEntries(
         Object.entries(edit.spec).filter(([, v]) => v !== undefined),
       );
