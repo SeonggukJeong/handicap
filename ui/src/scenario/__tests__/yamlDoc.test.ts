@@ -279,6 +279,10 @@ describe("applyEdit — setVariableGen (스칼라↔맵)", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");
     applyEdit(out.doc, { type: "setVariableGen", key: "checkin", spec: { gen: "uuid" } });
+    // 중간 상태 단언: setVariableGen이 실제로 맵을 썼는지 먼저 확증한다 — 이게 없으면
+    // setVariableGen이 no-op이어도(스위치가 매치 안 돼도) 뒤이은 setVariable 한 줄만으로
+    // 최종 단언이 우연히 통과해버려 이 테스트가 setVariableGen을 전혀 실증하지 못한다.
+    expect(serializeDoc(out.doc)).toContain("gen: uuid");
     applyEdit(out.doc, { type: "setVariable", key: "checkin", value: "v" });
     const round = serializeDoc(out.doc);
     expect(round).toMatch(/\bcheckin:\s*v\b/);
@@ -331,15 +335,22 @@ describe("applyEdit — setVariableGen (스칼라↔맵)", () => {
     expect(round).not.toContain("gen: uuid");
   });
 
-  it("does not create YAML anchors/aliases when the same spec object is applied to two keys", () => {
+  it("emit 형상 문서화: 같은 spec 객체를 두 키에 적용해도 YAML에 앵커/별칭이 없다 (회귀 가드 아님 — yamlDoc.ts 주석 참고: doc.createNode가 호출마다 별칭-소스 추적을 리셋하는 이 API 패턴에서는 구현이 어떻든 구조적으로 성립)", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");
     const spec: GenSpec = { gen: "uuid" };
     applyEdit(out.doc, { type: "setVariableGen", key: "a", spec });
     applyEdit(out.doc, { type: "setVariableGen", key: "b", spec });
     const round = serializeDoc(out.doc);
+    // & / * 부재는 이 코드의 회귀 가드가 아니라 emit 형상의 문서화다: yaml의
+    // Document.createNode()는 호출마다 anchors.createNodeAnchors()로 새 sourceObjects
+    // map을 만들고, 별칭 감지는 *단일* createNode 호출의 순회 안에서 동일 참조가
+    // 반복될 때만 발동한다. applyEdit이 디스패치당 createNode를 1회만 부르는 이 패턴
+    // 에서는 spec 객체를 두 키에 재사용해도 앵커가 생길 수 없다 — 구현을 바꿔도(예:
+    // clean 객체 생성을 없애도) 이 부재는 그대로다.
     expect(round).not.toContain("&");
     expect(round).not.toContain("*");
+    // 값이 두 키 모두 올바른 GenSpec으로 round-trip하는지는 실질적 확인.
     const reparsed = parseScenarioDoc(round);
     if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
     expect(reparsed.model.variables.a).toEqual({ gen: "uuid" });

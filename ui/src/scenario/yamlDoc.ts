@@ -161,8 +161,13 @@ export function applyEdit(doc: Document, edit: Edit): void {
       return;
     case "setVariableGen": {
       ensureMap(doc, ["variables"]);
-      // spec은 GenSpecModel 통과형 — undefined 필드 제거 후 createNode(호출마다 새로:
-      // 같은 spec 객체를 재사용해도 clean은 매 호출 신규 객체라 앵커/별칭이 안 생긴다).
+      // spec은 GenSpecModel 통과형 — undefined 필드 제거(clean) 후 createNode. 앵커/별칭이
+      // 안 생기는 실제 이유는 clean이 매 호출 새 객체라서가 아니라, yaml의
+      // Document.createNode()가 호출마다 anchors.createNodeAnchors()로 sourceObjects
+      // map을 새로 만들기 때문이다 — 별칭 감지는 *단일* createNode 호출의 순회 안에서
+      // 동일 참조가 반복될 때만 발동하고, applyEdit은 디스패치당 createNode를 1회만
+      // 부르는 이 API 패턴이라 spec 객체를 재사용해도 구조적으로 앵커가 생길 수 없다.
+      // clean은 별개 목적 — undefined 필드가 `key: null`로 YAML에 새는 것을 막는 방어다.
       const clean = Object.fromEntries(
         Object.entries(edit.spec).filter(([, v]) => v !== undefined),
       );
