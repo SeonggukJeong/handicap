@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { jsonBodyCastErrors } from "./cast";
+import { GenSpecModel } from "./genVars";
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -400,7 +401,7 @@ export const ScenarioModel = z
     version: z.literal(1),
     name: z.string().min(1, "name required"),
     cookie_jar: CookieJarMode.default("auto"),
-    variables: z.record(z.string(), z.string()).default({}),
+    variables: z.record(z.string(), z.union([z.string(), GenSpecModel])).default({}),
     default_think_time: ThinkTimeModel.optional(),
     steps: z.array(StepModel).default([]),
   })

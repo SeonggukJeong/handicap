@@ -509,6 +509,16 @@ export const ko = {
     variableRenameInvalid: "변수 이름에 공백·{ } : 문자를 쓸 수 없습니다",
     variableUsageNavAria: (name: string) => `${name}을(를) 사용하는 스텝으로 이동`,
     varUsageListAria: "사용 스텝 목록",
+    // ── 동적 변수 생성기 (dynamic-vars T4) ──
+    genTypeDate: "날짜",
+    genTypeRandomInt: "랜덤 정수",
+    genTypeUuid: "UUID",
+    genTypeRandomString: "랜덤 문자열",
+    genDateToday: "오늘",
+    genTzWorkerLocal: "워커 로컬",
+    genStepUnit: "단위",
+    genSamplePrefix: "예:",
+    genSampleUnsupported: "미리보기 불가 — 실행 시 적용",
     // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
     scenarioDefaultsTitle: "시나리오 기본값",
     defaultThinkSetHint: "설정됨",
@@ -985,8 +995,7 @@ export const ko = {
       // pct/count는 호출부에서 표시 문자열로 포맷(floorPct·toLocaleString) 후 전달
       transport_heavy: (pct: string, count: string) =>
         `전송 실패(연결 단계)가 전체의 ${pct}% (${count}건)입니다 — 대상 서버 한계로 읽지 마세요`,
-      silent_http_errors:
-        "HTTP 오류 상태코드가 있으나 엔진 에러 수는 0입니다(응답 검증 부재 가능)",
+      silent_http_errors: "HTTP 오류 상태코드가 있으나 엔진 에러 수는 0입니다(응답 검증 부재 가능)",
       no_response_validation:
         "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다",
       load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",

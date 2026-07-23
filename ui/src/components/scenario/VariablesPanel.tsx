@@ -14,12 +14,13 @@ import {
   flatExtractNames,
   collectNamespacedProducers,
 } from "../../scenario/scanVars";
+import { declSearchText, genSummary, isGenSpec, type VarDeclValue } from "../../scenario/genVars";
 
 type VarRow =
   | {
       kind: "declared";
       name: string;
-      value: string;
+      value: VarDeclValue;
       renamable: boolean;
       overwritten: boolean;
       refIds: string[];
@@ -238,7 +239,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const matchesRow = (r: VarRow): boolean => {
     if (q === "") return true;
     if (r.kind === "declared")
-      return r.name.toLowerCase().includes(q) || r.value.toLowerCase().includes(q);
+      return r.name.toLowerCase().includes(q) || declSearchText(r.value).toLowerCase().includes(q);
     if (r.kind === "parallel-extract") return r.display.toLowerCase().includes(q);
     return r.name.toLowerCase().includes(q); // flat-extract, undefined
   };
@@ -297,12 +298,16 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     </button>
                   </span>
                 </div>
-                <AutoGrowTextarea
-                  aria-label={ko.editor.variableValueAria(row.name)}
-                  className="font-mono"
-                  value={row.value}
-                  onChange={(e) => setVariable(row.name, e.target.value)}
-                />
+                {isGenSpec(row.value) ? (
+                  <span className="text-xs text-slate-500">{genSummary(row.value)}</span>
+                ) : (
+                  <AutoGrowTextarea
+                    aria-label={ko.editor.variableValueAria(row.name)}
+                    className="font-mono"
+                    value={row.value}
+                    onChange={(e) => setVariable(row.name, e.target.value)}
+                  />
+                )}
                 {usageCell(`d:${row.name}`, row.name, row.refIds)}
               </li>
             );
