@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
 /// Knobs supplied by the controller per test-run.
@@ -248,7 +249,11 @@ async fn trace_once(
     state.steps = Vec::new();
     state.truncated = false;
     state.iter_id = iter_id;
-    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+    // 생성기 전용 rng — think_rng와 절대 공유 금지(spec §4). 행/반복마다 재평가.
+    let mut gen_rng = rand::rngs::StdRng::from_entropy();
+    let mut iter_vars: BTreeMap<String, String> =
+        crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    // 기존 데이터셋 overlay 루프 무변경 — 우선순위 생성 < 데이터셋 < extract.
     for (k, v) in seed_vars {
         iter_vars.insert(k.clone(), v.clone());
     }

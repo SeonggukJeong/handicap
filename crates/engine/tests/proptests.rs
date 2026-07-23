@@ -11,7 +11,9 @@ use handicap_engine::scenario::{
     HttpMethod, HttpStep, IfStep, LoopStep, Request, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
-use handicap_engine::{Scenario, evaluate_extracts};
+use handicap_engine::{
+    GenSpec, RandomIntGen, RandomStringGen, Scenario, VarDecl, evaluate_extracts,
+};
 use proptest::collection::{btree_map, vec};
 use proptest::option;
 use proptest::prelude::*;
@@ -168,11 +170,66 @@ fn arb_step() -> impl Strategy<Value = Step> {
     ]
 }
 
+// variables 값 전략: 정적 문자열 또는 생성기(GenSpec 4종). round-trip proptest가
+// 생성기까지 실제로 커버하도록 naive `VarDecl::Static` 래핑만 하지 않는다
+// (dynamic-vars Task 2). date는 serde 경유로만 만든다 — offset_secs/tz_parsed가
+// pub(crate)라 이 테스트 크레이트에서 DateGen 구조체 리터럴을 만들 수 없고,
+// serde가 캐시 필드를 정합되게 채우는 유일한 경로다.
+fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
+    prop_oneof![
+        ".*".prop_map(VarDecl::Static),
+        // date: 유효 파라미터만 (proptest는 round-trip 검증이 목적 — 거부 케이스는
+        // genvars 단위 테스트 소유).
+        (
+            prop_oneof![
+                Just(None),
+                Just(Some("+7d".to_string())),
+                Just(Some("-30m".to_string()))
+            ],
+            prop_oneof![
+                Just(None),
+                Just(Some("Asia/Seoul".to_string())),
+                Just(Some("UTC".to_string()))
+            ],
+            prop_oneof![
+                Just("%Y-%m-%d"),
+                Just("unix"),
+                Just("unix_ms"),
+                Just("%H:%M:%S")
+            ],
+        )
+            .prop_map(|(offset, tz, f)| {
+                // TryFrom 경유로 도메인 불변식(offset_secs/tz_parsed 캐시) 구축 — 수동 조립 금지.
+                let mut m = serde_yaml::Mapping::new();
+                m.insert("gen".into(), "date".into());
+                m.insert("format".into(), f.into());
+                if let Some(o) = &offset {
+                    m.insert("offset".into(), o.clone().into());
+                }
+                if let Some(t) = &tz {
+                    m.insert("tz".into(), t.clone().into());
+                }
+                serde_yaml::from_value::<VarDecl>(serde_yaml::Value::Mapping(m)).unwrap()
+            }),
+        (any::<i64>(), 0u32..10_000, 1u32..1000).prop_map(|(min, span, step)| {
+            let max = min.saturating_add(span as i64);
+            VarDecl::Gen(GenSpec::RandomInt(RandomIntGen {
+                min,
+                max: max.max(min),
+                step,
+            }))
+        }),
+        Just(VarDecl::Gen(GenSpec::Uuid)),
+        (1u32..=64)
+            .prop_map(|length| VarDecl::Gen(GenSpec::RandomString(RandomStringGen { length }))),
+    ]
+}
+
 fn arb_scenario() -> impl Strategy<Value = Scenario> {
     (
         arb_ident(),
         prop_oneof![Just(CookieJarMode::Auto), Just(CookieJarMode::Off)],
-        btree_map(arb_ident(), ".*", 0..3),
+        btree_map(arb_ident(), arb_var_decl(), 0..3),
         vec(arb_step(), 0..4),
     )
         .prop_map(|(name, cookie_jar, variables, steps)| Scenario {

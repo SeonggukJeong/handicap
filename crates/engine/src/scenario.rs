@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::error::{EngineError, Result};
+use crate::genvars::VarDecl;
 use crate::pacing::ThinkTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -13,7 +14,7 @@ pub struct Scenario {
     pub version: u32,
     pub name: String,
     #[serde(default)]
-    pub variables: BTreeMap<String, String>,
+    pub variables: BTreeMap<String, VarDecl>,
     #[serde(default = "default_cookie_jar")]
     pub cookie_jar: CookieJarMode,
     /// 시나리오 기본 think time. http 스텝에 `think_time`이 없으면 이 값을 상속하고,
@@ -1512,5 +1513,21 @@ steps: []
         let b = Scenario::from_yaml(bare).unwrap();
         assert_eq!(b.default_think_time, None);
         assert!(!b.to_yaml().unwrap().contains("default_think_time"));
+    }
+
+    // ---- dynamic-vars T2: variables: BTreeMap<String, VarDecl> 통합 ----
+    #[test]
+    fn static_only_scenario_serializes_without_gen_keys() {
+        let s = Scenario::from_yaml(FIXTURE).unwrap(); // 기존 fixture = 정적 변수만
+        let out = s.to_yaml().unwrap();
+        assert!(!out.contains("gen:"));
+        assert_eq!(Scenario::from_yaml(&out).unwrap(), s);
+    }
+
+    #[test]
+    fn generator_scenario_roundtrips() {
+        let y = "version: 1\nname: g\nvariables:\n  d: {gen: date, offset: \"+7d\", tz: Asia/Seoul}\nsteps: []";
+        let s = Scenario::from_yaml(y).unwrap();
+        assert_eq!(Scenario::from_yaml(&s.to_yaml().unwrap()).unwrap(), s);
     }
 }

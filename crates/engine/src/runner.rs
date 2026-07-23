@@ -388,13 +388,17 @@ async fn run_vu(
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
     };
+    // 생성기 전용 rng — think_rng와 분리 (spec §4: 난수열 교란·의도치 않은 재현성 방지).
+    let mut gen_rng = StdRng::from_entropy();
     let mut iter_id: u32 = 0;
     while Instant::now() < deadline {
         if cancel.is_cancelled() {
             return Err(EngineError::Aborted);
         }
-        // Per-iteration flow vars: start fresh from the scenario base.
-        let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+        // Per-iteration flow vars: start fresh from the scenario base (re-seeded
+        // per iteration — generator values re-evaluate every loop).
+        let mut iter_vars: BTreeMap<String, String> =
+            crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
         // Inject every binding in declared order. The first binding whose Unique
         // slice is exhausted (None) stops this VU; the partial inject is discarded.
         // Side effect (spec §7): an earlier IterSequential binding's shared counter
@@ -1081,6 +1085,8 @@ async fn run_vu_curve(
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
     };
+    // 생성기 전용 rng — think_rng와 분리, park를 넘어 지속(같은 수명, spec §4).
+    let mut gen_rng = StdRng::from_entropy();
     let mut iter_id: u32 = 0;
     let deadline_tokio = tokio::time::Instant::from_std(deadline);
     loop {
@@ -1122,7 +1128,8 @@ async fn run_vu_curve(
                 break;
             }
             // Per-iteration flow vars: lockstep with run_vu.
-            let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+            let mut iter_vars: BTreeMap<String, String> =
+                crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
             // Inject every binding in declared order (mirror of run_vu). First
             // exhausted Unique slice → permanent clean stop; partial inject discarded.
             // Side effect (spec §7): an earlier IterSequential counter advances one
@@ -1475,7 +1482,11 @@ async fn run_arrival(
     exhausted: &AtomicBool,
     measure_phases: bool,
 ) -> Result<()> {
-    let mut iter_vars: BTreeMap<String, String> = scenario.variables.clone();
+    // 생성기 전용 rng — think_rng(호출자가 넘긴 `rng` 파라미터)와 분리 (spec §4).
+    // arrival=1 반복이므로 per-arrival 생성이 곧 per-iteration 재평가.
+    let mut gen_rng = StdRng::from_entropy();
+    let mut iter_vars: BTreeMap<String, String> =
+        crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
     // and drop this arrival (partial inject discarded). Side effect (spec §7): an
