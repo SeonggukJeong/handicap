@@ -1246,6 +1246,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "chrono",
+ "chrono-tz",
  "futures",
  "hdrhistogram",
  "proptest",
