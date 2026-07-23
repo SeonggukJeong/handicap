@@ -532,6 +532,15 @@ export const ko = {
     genFieldMax: (name: string) => `${name} 최대`,
     genFieldStep: (name: string) => `${name} 단위`,
     genFieldLength: (name: string) => `${name} 길이`,
+    // ── 위 genField*는 aria-label 전용(name 프리픽스) — 시각 라벨은 아래 bare 문구
+    // (dynamic-vars T6 리뷰 Finding 1: WCAG 2.5.3, bare ⊆ aria-label 부분문자열) ──
+    genFieldLabelMin: "최소",
+    genFieldLabelMax: "최대",
+    genFieldLabelLength: "길이",
+    genFieldLabelOffset: "오프셋",
+    genFieldLabelTz: "타임존",
+    genFieldLabelFormat: "날짜 형식",
+    genFieldLabelCustomFormat: "형식 문자열",
     // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
     scenarioDefaultsTitle: "시나리오 기본값",
     defaultThinkSetHint: "설정됨",

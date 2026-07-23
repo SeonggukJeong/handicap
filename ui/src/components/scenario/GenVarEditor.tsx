@@ -162,11 +162,13 @@ export function GenVarEditor({
     if (!intSpec) return;
     const trimmed = stepDraft.trim();
     if (trimmed === "") {
+      if (intSpec.step === undefined) return; // 미편집(왕복) — 키 없음 그대로, 커밋 생략
       onCommitGen({ ...intSpec, step: undefined });
       return;
     }
     const n = Number(trimmed);
     if (Number.isInteger(n) && n >= 1) {
+      if (n === intSpec.step) return; // 미편집(왕복) — 값 불변, 커밋 생략
       onCommitGen({ ...intSpec, step: n });
     } else {
       setStepDraft(intSpec.step !== undefined ? String(intSpec.step) : ""); // revert
@@ -185,11 +187,13 @@ export function GenVarEditor({
     if (!strSpec) return;
     const trimmed = lengthDraft.trim();
     if (trimmed === "") {
+      if (strSpec.length === undefined) return; // 미편집(왕복) — 키 없음 그대로, 커밋 생략
       onCommitGen({ ...strSpec, length: undefined });
       return;
     }
     const n = Number(trimmed);
     if (Number.isInteger(n) && n >= 1 && n <= 64) {
+      if (n === (strSpec.length ?? 8)) return; // 미편집(왕복) — 값 불변(기본값 8 포함), 커밋 생략
       onCommitGen({ ...strSpec, length: n });
     } else {
       setLengthDraft(strSpec.length !== undefined ? String(strSpec.length) : "8"); // revert
@@ -226,7 +230,7 @@ export function GenVarEditor({
 
       {dateSpec && (
         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
-          <GenField label={ko.editor.genFieldFormatPreset(name)}>
+          <GenField label={ko.editor.genFieldLabelFormat}>
             <Select
               size="sm"
               aria-label={ko.editor.genFieldFormatPreset(name)}
@@ -243,7 +247,7 @@ export function GenVarEditor({
             </Select>
           </GenField>
           {presetValue === CUSTOM_FORMAT && (
-            <GenField label={ko.editor.genFieldFormatCustom(name)}>
+            <GenField label={ko.editor.genFieldLabelCustomFormat}>
               <Input
                 size="sm"
                 aria-label={ko.editor.genFieldFormatCustom(name)}
@@ -255,7 +259,7 @@ export function GenVarEditor({
               />
             </GenField>
           )}
-          <GenField label={ko.editor.genFieldOffset(name)}>
+          <GenField label={ko.editor.genFieldLabelOffset}>
             <Input
               size="sm"
               aria-label={ko.editor.genFieldOffset(name)}
@@ -267,7 +271,7 @@ export function GenVarEditor({
               className="w-20 font-mono"
             />
           </GenField>
-          <GenField label={ko.editor.genFieldTz(name)}>
+          <GenField label={ko.editor.genFieldLabelTz}>
             <Select
               size="sm"
               aria-label={ko.editor.genFieldTz(name)}
@@ -285,7 +289,7 @@ export function GenVarEditor({
 
       {intSpec && (
         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
-          <GenField label={ko.editor.genFieldMin(name)}>
+          <GenField label={ko.editor.genFieldLabelMin}>
             <Input
               size="sm"
               numeric
@@ -296,7 +300,7 @@ export function GenVarEditor({
               {...minProps}
             />
           </GenField>
-          <GenField label={ko.editor.genFieldMax(name)}>
+          <GenField label={ko.editor.genFieldLabelMax}>
             <Input
               size="sm"
               numeric
@@ -307,7 +311,7 @@ export function GenVarEditor({
               {...maxProps}
             />
           </GenField>
-          <GenField label={ko.editor.genFieldStep(name)}>
+          <GenField label={ko.editor.genStepUnit}>
             <Input
               size="sm"
               numeric
@@ -325,7 +329,7 @@ export function GenVarEditor({
 
       {strSpec && (
         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
-          <GenField label={ko.editor.genFieldLength(name)}>
+          <GenField label={ko.editor.genFieldLabelLength}>
             <Input
               size="sm"
               numeric

@@ -204,6 +204,26 @@ describe("GenVarEditor — 날짜 필드", () => {
     );
     expect(onCommitGen).toHaveBeenCalledWith({ ...spec, tz: "UTC" });
   });
+
+  it("시각 라벨은 name 프리픽스 없는 bare 문구('날짜 형식'/'오프셋'/'타임존'/'형식 문자열') — aria-label은 name 프리픽스 유지 (Finding 1)", () => {
+    setup({ gen: "date", format: "%Y년 %m월 %d일", tz: "Asia/Seoul" });
+    expect(screen.getByText(ko.editor.genFieldLabelFormat)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.genFieldLabelOffset)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.genFieldLabelTz)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.genFieldLabelCustomFormat)).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: ko.editor.genFieldFormatPreset("checkin") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: ko.editor.genFieldFormatCustom("checkin") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: ko.editor.genFieldOffset("checkin") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: ko.editor.genFieldTz("checkin") }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("GenVarEditor — 랜덤 정수", () => {
@@ -264,6 +284,43 @@ describe("GenVarEditor — 랜덤 정수", () => {
     expect(onCommitGen).not.toHaveBeenCalled();
     expect(input.value).toBe("5");
   });
+
+  it("random_int: step 필드를 편집 없이 blur만 하면(spec에 step 키 없음) 커밋 0회 (Finding 2, 왕복 불변식)", () => {
+    const spec: GenSpec = { gen: "random_int", min: 1, max: 100 };
+    const { onCommitGen } = setup(spec);
+    const input = screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") });
+    fireEvent.blur(input);
+    expect(onCommitGen).not.toHaveBeenCalled();
+  });
+
+  it("disabled=true면 min/max/step 필드가 비활성화된다 (Finding 3)", () => {
+    setup({ gen: "random_int", min: 1, max: 100, step: 5 }, true);
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldMax("checkin") }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") }),
+    ).toBeDisabled();
+  });
+
+  it("시각 라벨은 name 프리픽스 없는 bare 문구('최소'/'최대'/'단위') — aria-label은 name 프리픽스 유지 (Finding 1)", () => {
+    setup({ gen: "random_int", min: 1, max: 100, step: 5 });
+    expect(screen.getByText(ko.editor.genFieldLabelMin)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.genFieldLabelMax)).toBeInTheDocument();
+    expect(screen.getByText(ko.editor.genStepUnit)).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldMax("checkin") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("GenVarEditor — 랜덤 문자열", () => {
@@ -286,6 +343,29 @@ describe("GenVarEditor — 랜덤 문자열", () => {
     fireEvent.blur(input);
     expect(onCommitGen).not.toHaveBeenCalled();
     expect(input.value).toBe("8");
+  });
+
+  it("길이 필드를 편집 없이 blur만 하면(spec에 length 키 없음, draft 기본값 8) 커밋 0회 (Finding 2, 왕복 불변식)", () => {
+    const spec: GenSpec = { gen: "random_string" };
+    const { onCommitGen } = setup(spec);
+    const input = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    fireEvent.blur(input);
+    expect(onCommitGen).not.toHaveBeenCalled();
+  });
+
+  it("disabled=true면 길이 필드가 비활성화된다 (Finding 3)", () => {
+    setup({ gen: "random_string", length: 8 }, true);
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") }),
+    ).toBeDisabled();
+  });
+
+  it("시각 라벨은 name 프리픽스 없는 bare 문구('길이') — aria-label은 name 프리픽스 유지 (Finding 1)", () => {
+    setup({ gen: "random_string", length: 8 });
+    expect(screen.getByText(ko.editor.genFieldLabelLength)).toBeInTheDocument();
+    expect(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") }),
+    ).toBeInTheDocument();
   });
 });
 
