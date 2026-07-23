@@ -23,16 +23,18 @@
 
 **비목표(v1 연기)**: 리스트 랜덤 선택(사용자 제외) · 인라인 함수 토큰(`${random(1,100)}` — B안, 필요 시 후속) · 시드 재현성(`think_seed` 선례로 후속 가능; v1은 엔트로피) · 복합 오프셋(`+1d2h`) · 요청 위치마다 새 값(per-use) · `random_string` 문자군 선택.
 
+**plan 구조 가이드**: 엔진과 UI가 독립적으로 green일 수 있게 2단으로 — ① 엔진(모델/serde/검증 게이트 + 3 부하 진입점 + trace; US1~3은 YAML/curl/에코로 검증 가능) → ② UI(패널 C안 + Zod + 샘플 미리보기 + yamlDoc; US4 + GUI authoring). 단일 모놀리식 task 목록 금지(8b/8c 데이터셋 분할 선례).
+
 ## 3. 모델·와이어 (엔진 `scenario.rs`)
 
 `Scenario.variables: BTreeMap<String, String>` → `BTreeMap<String, VarDecl>`.
 
 ```rust
 enum VarDecl { Static(String), Gen(GenSpec) }   // 수동 serde: string ↔ map
-enum GenSpec {                                   // #[serde(tag = "gen")] 내부 태그
+enum GenSpec {                                   // 도메인 타입 (와이어 직접 derive 아님 — §3 serde 규칙)
     Date { format, offset, tz },                 // 전부 Option — 기본값 아래 표
     RandomInt { min, max, step },
-    Uuid {},
+    Uuid,
     RandomString { length },
 }
 ```
@@ -49,10 +51,10 @@ variables:
   tag:     { gen: random_string, length: 12 }
 ```
 
-**serde 규칙** (레포 함정 준수):
-- `VarDecl`은 수동 `Serialize`/`Deserialize`(`Body`/`Condition` 선례) — `Static`은 **plain string으로 emit**(기존 시나리오 파싱·재직렬화 byte-identical), 맵이면 `GenSpec`으로 위임.
-- `GenSpec`은 내부 태그(`tag = "gen"`, `Extract` 선례 round-trip OK) + **variant별 `deny_unknown_fields`**(내부 태그는 enum 레벨 강제 안 됨 함정).
-- round-trip 프로퍼티 테스트(`from_yaml(to_yaml(s)) == s`)에 생성기 변수 케이스 추가.
+**serde 규칙** (레포 함정 준수 — 메커니즘은 wire-struct + `TryFrom` **단일**로 고정):
+- `VarDecl`은 수동 `Serialize`/`Deserialize`(`Body`/`Condition` 선례) — `Static`은 **plain string으로 emit**(기존 시나리오 파싱·재직렬화 byte-identical), 맵이면 아래 wire-struct로 위임.
+- `GenSpec`은 **derive를 와이어에 직접 쓰지 않는다**(inline struct variant엔 `deny_unknown_fields`를 달 수 없고, 내부 태그 enum 레벨 deny는 이 레포 함정 + serde에서 미보증). 대신 **단일 wire 구조체** `GenSpecWire { gen: String, format/offset/tz/min/max/step/length: 모두 Option }` + `#[serde(deny_unknown_fields)]`(plain struct라 확실히 동작) → `TryFrom<GenSpecWire> for GenSpec`이 ① `gen` 값 판별 ② **per-gen 필드 allow-list**(예: `{gen: uuid, length: 5}` 거부 — 다른 생성기의 키 혼입 차단) ③ §3.1 범위 검증을 수행. Serialize는 `GenSpec → GenSpecWire`(None 필드 `skip_serializing_if`) 역변환.
+- round-trip 프로퍼티 테스트(`from_yaml(to_yaml(s)) == s`)에 생성기 변수 케이스 추가. **미지 키 거부 테스트 2종 필수**(`{gen: date, foo: 1}` = deny_unknown_fields 경로, `{gen: uuid, length: 5}` = allow-list 경로) — 회귀 가드로 **고의 회귀→RED→원복→GREEN 실증 의무**(이 게이트가 §5 전체의 전제).
 
 ### 3.1 생성기 파라미터·기본값·검증
 
@@ -66,15 +68,15 @@ variables:
 - `unix`/`unix_ms`는 `format` 값의 sentinel — 오프셋 적용 후 epoch 초/밀리초(타임존 무관·`tz`가 있어도 no-op).
 - `random_int` 값 집합 = `{ min + k·step | k ≥ 0, min + k·step ≤ max }` 균등 선택 — **anchor는 min**("1의 자리 고정"은 min이 결정). `step > max−min`이면 항상 `min`(허용). 오버플로는 i64 checked 산술로 방어.
 - `random_string` 문자군 = `[a-z0-9]` 고정.
-- `uuid` = UUIDv4 소문자 하이픈 표기. 생성은 VU rng 16바이트 + version/variant 비트(`uuid` crate `Builder::from_random_bytes` 또는 등가 수동 구현 — `getrandom` 직접 의존 없이 rng 일원화).
+- `uuid` = UUIDv4 소문자 하이픈 표기. 생성은 **수동 구현으로 확정**: 생성기 rng 16바이트에 version/variant 비트(`b[6]=(b[6]&0x0F)|0x40`, `b[8]=(b[8]&0x3F)|0x80`) 세팅 후 하이픈 hex 포맷 — **신규 crate 의존 0**(rng 일원화, v4 regex 형식 테스트로 락인).
 
-**의존성**: 엔진 `Cargo.toml`에 `chrono`/`chrono-tz` 추가(워크스페이스에 이미 있음 — controller 스케줄러가 사용 중). `rand`는 기존.
+**의존성**: 엔진 `Cargo.toml`에 `chrono`/`chrono-tz` 추가(워크스페이스에 이미 있음 — controller 스케줄러가 사용 중). `rand`는 기존. **`uuid` crate는 추가하지 않는다**(위 수동 v4).
 
 ## 4. 평가 의미론 (엔진)
 
 - **평가 시점 = 반복 시드**: `iter_vars` 시드 4곳 — `runner.rs:397`(run_vu)·`:1125`(vu_curve)·`:1478`(open-loop arrival)·`trace.rs:251`(test-run) — 의 `scenario.variables.clone()`을 공유 헬퍼 `seed_iter_vars(&scenario.variables, &mut rng)`로 교체. 생성기는 반복 시작마다 평가돼 그 반복 동안 고정(US2 "두 스텝 같은 값"). Static은 clone(현행과 동일 값).
 - **우선순위 불변**: 생성/정적 변수 < 데이터셋 바인딩(시드 직후 덮어씀) < extract. `VariablesPanel` "추출 덮어씀" 배지·바인딩 충돌 로직은 키 기준이라 무변경.
-- **RNG**: VU별 독립(3개 부하 진입점 각각의 VU 루프 스코프), trace는 패스당 entropy rng 1개. 시드 재현성은 비목표(§2).
+- **RNG**: **생성기 전용 entropy rng**를 VU별로 신설(`StdRng::from_entropy()`, 3개 부하 진입점 각각의 VU 루프 스코프) — 기존 think-time rng(`think_seed` 시드)와 **공유하지 않는다**(공유하면 생성기 추가가 think 난수열을 교란하고, `think_seed` 하에서 생성기가 의도치 않게 재현적이 되어 §2 "v1은 엔트로피"와 모순). trace는 `trace_once` **호출당** rng 1개 — 데이터셋 행 루프(`trace_scenario_rows`, `trace.rs:205`)에서는 **행마다 재생성**(행=반복 의미론과 일치, 의도된 동작: N행 test-run이면 생성기가 N회 평가). 시드 재현성은 비목표(§2).
 - **parallel**: 분기는 entry 스냅샷 clone — 같은 반복 = 같은 값(추가 작업 없음).
 - **런타임 무오류**: 파라미터는 파싱 시 검증 완료(§5)라 생성 자체는 infallible(chrono format은 사전 검증된 items로 수행). date 계산의 이론적 edge(오프셋 오버플로)는 checked 산술 + 포화로 처리하고 run을 죽이지 않는다.
 - **template.rs·cast.rs 0-diff**: 생성은 시드 레이어에서 끝난다 — 렌더러 문법·3진입점·UI resolver lockstep 함정을 구조적으로 회피. `{{qty:num}}` 캐스트는 생성 값(십진 문자열)에 자연 적용(시너지).
@@ -83,10 +85,10 @@ variables:
 
 잘못된 생성기(미지원 `gen`·잘못된 format/offset/tz·`min>max`·`step=0`·length 범위 밖·`gen` 맵의 미지 키)는 **`GenSpec` Deserialize에서 거부**(derive wire-struct + `try_from` 변환 또는 커스텀 visitor — 구현은 plan). 따라서 `Scenario::from_yaml`이 곧 게이트:
 
-- 시나리오 create/update(`api/scenarios.rs:130/198`) → 400
+- 시나리오 create/update(`api/scenarios.rs:130/198`) → 400 — **주 게이트**(생성기는 시나리오에 저장되므로 여기서 전부 걸린다)
 - test-run(`api/test_runs.rs`) → 422
-- run 생성 `validate_run_config`(`api/runs.rs:171`)·`spawn_run`(`:571`) → 저장분 방어
-- 워커 YAML 수신 → 파싱 실패 시 기존 실패 경로
+- 워커 YAML 수신 → 파싱 실패 시 기존 실패 경로(run 즉시 failed + message) — **저장분 불량(out-of-band 편집)의 실질 방어선**
+- (참고 — 게이트 아님) run-생성 경로의 `from_yaml` 접점 2곳은 조건부·비거부라 방어를 제공하지 않는다: `validate_step_criteria_targets`(`runs.rs:161` — step_criteria 있을 때만 파싱)·`maybe_strip_think`(`runs.rs:568` — open-loop strip 시만, 파싱 실패에도 원본 유지). 이들에 거부를 추가하는 건 비목표(pre-slice 시나리오 회귀 위험 — §B22 think 재검증 연기와 같은 계열).
 
 별도 validator 함수 0개. 에러 메시지는 serde 문구에 필드 컨텍스트가 실리도록 variant/필드명 유지(한국어 게이트 매핑은 기존 `problems.ts` 확장 범위 밖 — UI Zod가 선제 차단하므로 서버 문구 도달은 curl/손편집 한정).
 
