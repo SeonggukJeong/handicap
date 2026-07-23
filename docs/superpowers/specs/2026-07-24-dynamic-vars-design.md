@@ -83,12 +83,12 @@ variables:
 
 ## 5. 검증 게이트 — "parse, don't validate"
 
-잘못된 생성기(미지원 `gen`·잘못된 format/offset/tz·`min>max`·`step=0`·length 범위 밖·`gen` 맵의 미지 키)는 **`GenSpec` Deserialize에서 거부**(derive wire-struct + `try_from` 변환 또는 커스텀 visitor — 구현은 plan). 따라서 `Scenario::from_yaml`이 곧 게이트:
+잘못된 생성기(미지원 `gen`·잘못된 format/offset/tz·`min>max`·`step=0`·length 범위 밖·`gen` 맵의 미지 키)는 **`GenSpecWire` Deserialize(`deny_unknown_fields`) + `TryFrom` 변환에서 거부**(§3의 단일 메커니즘). 따라서 `Scenario::from_yaml`이 곧 게이트:
 
 - 시나리오 create/update(`api/scenarios.rs:130/198`) → 400 — **주 게이트**(생성기는 시나리오에 저장되므로 여기서 전부 걸린다)
 - test-run(`api/test_runs.rs`) → 422
 - 워커 YAML 수신 → 파싱 실패 시 기존 실패 경로(run 즉시 failed + message) — **저장분 불량(out-of-band 편집)의 실질 방어선**
-- (참고 — 게이트 아님) run-생성 경로의 `from_yaml` 접점 2곳은 조건부·비거부라 방어를 제공하지 않는다: `validate_step_criteria_targets`(`runs.rs:161` — step_criteria 있을 때만 파싱)·`maybe_strip_think`(`runs.rs:568` — open-loop strip 시만, 파싱 실패에도 원본 유지). 이들에 거부를 추가하는 건 비목표(pre-slice 시나리오 회귀 위험 — §B22 think 재검증 연기와 같은 계열).
+- (참고 — 게이트 아님) run-생성 경로의 `from_yaml` 접점 2곳은 조건부·비거부라 방어를 제공하지 않는다: `validate_step_criteria_targets`(`runs.rs:161` — step_criteria 있을 때만 파싱)·`maybe_strip_think`(`runs.rs:567` — open-loop strip 시만, 파싱 실패에도 원본 유지). 이들에 거부를 추가하는 건 비목표(pre-slice 시나리오 회귀 위험 — §B22 think 재검증 연기와 같은 계열).
 
 별도 validator 함수 0개. 에러 메시지는 serde 문구에 필드 컨텍스트가 실리도록 variant/필드명 유지(한국어 게이트 매핑은 기존 `problems.ts` 확장 범위 밖 — UI Zod가 선제 차단하므로 서버 문구 도달은 curl/손편집 한정).
 
