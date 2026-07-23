@@ -533,7 +533,7 @@ async fn run_and_collect(mode: Mode, dur_ms: u64) -> Vec<HashMap<String, String>
     }).collect()
 }
 
-fn assert_generated(reqs: &[HashMap<String, String>]) {
+fn assert_generated(reqs: &[HashMap<String, String>], check_pair_share: bool) {
     assert!(reqs.len() >= 2, "at least one full iteration");
     let uuid_re = regex::Regex::new(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").unwrap();
@@ -544,9 +544,13 @@ fn assert_generated(reqs: &[HashMap<String, String>]) {
             assert!((1000..=2000).contains(&q) && (q - 1000) % 100 == 0, "{q}");
         }
     }
-    // 같은 반복의 a/b는 같은 oid 공유: /a 직후 /b가 오는 쌍 검사(1 VU 순차라 인접).
-    let pair = reqs.windows(2).find(|w| w[0]["__path"] == "/a" && w[1]["__path"] == "/b");
-    if let Some(w) = pair { assert_eq!(w[0]["oid"], w[1]["oid"], "반복 내 값 공유"); }
+    // 같은 반복의 a/b는 같은 oid 공유 — **Closed/Curve만**(1 VU 순차라 /a 직후 /b가 같은
+    // 반복). Open은 max_in_flight=4 동시 arrival이라 received-order 인접이 반복 경계를
+    // 넘을 수 있어 false-fail 위험 → 검사 제외(반복 내 공유는 Closed/Curve가 증명).
+    if check_pair_share {
+        let pair = reqs.windows(2).find(|w| w[0]["__path"] == "/a" && w[1]["__path"] == "/b");
+        if let Some(w) = pair { assert_eq!(w[0]["oid"], w[1]["oid"], "반복 내 값 공유"); }
+    }
     // 반복 간 재평가: 서로 다른 oid가 존재(uuid 충돌 확률 0에 수렴).
     let oids: std::collections::HashSet<_> = reqs.iter()
         .filter(|r| r["__path"] == "/a").map(|r| r["oid"].clone()).collect();
@@ -556,11 +560,11 @@ fn assert_generated(reqs: &[HashMap<String, String>]) {
 }
 
 #[tokio::test]
-async fn closed_loop_seeds_generators() { assert_generated(&run_and_collect(Mode::Closed, 500).await); }
+async fn closed_loop_seeds_generators() { assert_generated(&run_and_collect(Mode::Closed, 500).await, true); }
 #[tokio::test]
-async fn vu_curve_seeds_generators() { assert_generated(&run_and_collect(Mode::Curve, 1000).await); }
+async fn vu_curve_seeds_generators() { assert_generated(&run_and_collect(Mode::Curve, 1000).await, true); }
 #[tokio::test]
-async fn open_loop_seeds_generators() { assert_generated(&run_and_collect(Mode::Open, 700).await); }
+async fn open_loop_seeds_generators() { assert_generated(&run_and_collect(Mode::Open, 700).await, false); }
 
 #[tokio::test]
 async fn trace_rows_regenerate_per_row() {
@@ -584,7 +588,7 @@ async fn trace_rows_regenerate_per_row() {
 
 wiremock `received_requests`는 기본 기록 활성(`MockServer::start`). `TraceOptions`/`trace_scenario_rows`/`RowsTrace`는 이미 pub 재수출(controller `test_runs.rs:8`이 import).
 
-- [ ] **Step 2: RED 확인** — `cargo test -p handicap-engine --test genvars_wiring 2>&1; echo exit=$?` → 컴파일 에러(variables 타입 불일치) = RED.
+- [ ] **Step 2: RED 확인** — `cargo test -p handicap-engine --test genvars_wiring 2>&1; echo exit=$?` → **런타임 FAIL** = RED. (테스트는 공개 API만 쓰므로 컴파일은 되고, pre-Task-2 코드에선 `variables`가 `BTreeMap<String,String>`이라 `{gen: uuid}` 맵 값을 `from_yaml`이 거부 → `Scenario::from_yaml(...).unwrap()` panic으로 FAIL. 컴파일 에러를 기대하지 말 것.)
 
 - [ ] **Step 3: 배선 구현**
 
@@ -625,9 +629,37 @@ use crate::genvars::VarDecl;
 ```
 (trace.rs에 `use rand::SeedableRng;` 필요 여부는 컴파일러가 알려줌.)
 
-이후 `cargo build --workspace 2>&1; echo exit=$?`로 **컴파일 리플 전수 수정**: `scenario.variables`를 `BTreeMap<String,String>`로 다루던 엔진/워커/컨트롤러 코드·테스트(예: 문자열 insert하는 fixture)는 `VarDecl::Static(...)` 또는 YAML 경유로 교체. e2e/통합 테스트는 전부 YAML 문자열이라 무변경 예상 — 컴파일러가 최종 판정.
+이후 `cargo build --workspace 2>&1; echo exit=$?`로 **컴파일 리플 전수 수정**. 알려진 필수 리플 사이트: **`crates/engine/tests/proptests.rs:171`** — `arb_scenario()`가 `variables`를 `btree_map(arb_ident(), ".*", 0..3)`(String 값 전략)으로 생성하므로 타입 전환 후 미컴파일. **naive `VarDecl::Static` 래핑만 하지 말고 전략을 GenSpec까지 확장**해 round-trip proptest가 생성기를 실제로 커버하게 한다:
 
-Step 1의 `todo!` trace 테스트를 실제 `trace_scenario_rows`(또는 공개 wrapper — `crates/engine/src/trace.rs`에서 `pub` 시그니처 확인) 호출로 완성: uuid 변수 1개 + http 1스텝 시나리오, 2행 데이터셋 seed로 두 행 trace의 요청 URL 속 oid 상이 단언.
+```rust
+fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
+    prop_oneof![
+        ".*".prop_map(VarDecl::Static),
+        // date: 유효 파라미터만 (proptest는 round-trip 검증이 목적 — 거부 케이스는 genvars 단위 테스트 소유)
+        (prop_oneof![Just(None), Just(Some("+7d".to_string())), Just(Some("-30m".to_string()))],
+         prop_oneof![Just(None), Just(Some("Asia/Seoul".to_string())), Just(Some("UTC".to_string()))],
+         prop_oneof![Just("%Y-%m-%d"), Just("unix"), Just("unix_ms"), Just("%H:%M:%S")])
+            .prop_map(|(offset, tz, f)| {
+                // TryFrom 경유로 도메인 불변식(offset_secs/tz_parsed 캐시) 구축 — 수동 조립 금지
+                let mut m = serde_yaml::Mapping::new();
+                m.insert("gen".into(), "date".into());
+                m.insert("format".into(), f.into());
+                if let Some(o) = &offset { m.insert("offset".into(), o.clone().into()); }
+                if let Some(t) = &tz { m.insert("tz".into(), t.clone().into()); }
+                serde_yaml::from_value::<VarDecl>(serde_yaml::Value::Mapping(m)).unwrap()
+            }),
+        (any::<i64>(), 0u32..10_000, 1u32..1000).prop_map(|(min, span, step)| {
+            let max = min.saturating_add(span as i64);
+            VarDecl::Gen(GenSpec::RandomInt(RandomIntGen { min, max: max.max(min), step }))
+        }),
+        Just(VarDecl::Gen(GenSpec::Uuid)),
+        (1u32..=64).prop_map(|length| VarDecl::Gen(GenSpec::RandomString(RandomStringGen { length }))),
+    ]
+}
+```
+(정확한 기존 전략 조합 형식은 `proptests.rs:171` 주변 코드에 맞춘다. `DateGen`을 struct 리터럴로 직접 만들지 말 것 — `offset_secs`/`tz_parsed`가 `pub(crate)`라 테스트 크레이트(`tests/`)에서 접근 불가이며, 캐시 불일치 값을 만들 수 있다. serde 경유가 유일 경로이자 정합 보장.) 그 밖의 리플(문자열 insert fixture 등)은 컴파일러가 최종 판정 — `VarDecl::Static(...)` 또는 YAML 경유로 교체.
+
+Step 1의 `trace_rows_regenerate_per_row`는 이미 완결형(steps:[] + `final_vars`) — 추가 작업 없음.
 
 - [ ] **Step 4: round-trip·정적 golden 테스트 추가 (scenario.rs 테스트 모듈)**
 
@@ -946,7 +978,7 @@ store: `setVariableGen(key, spec) { dispatch(set, get, { type: "setVariableGen",
   - ▸ 클릭 → 펼침: 타입 select·필드 렌더. 다시 클릭 → 접힘.
   - 타입 전환 static→date: `setVariableGen` 호출 payload에 `tz:"Asia/Seoul"` 포함(정확 `toEqual`). date→static: `setVariable(key,"")`.
   - 형식 프리셋 변경 즉시 커밋 / 직접 입력 format blur 커밋 / 오프셋 `+7x` blur → revert(커밋 미발생).
-  - min/max 쌍: **실제 포커스 이동으로**(`user.click`으로 min→max 이동 — `fireEvent.blur`는 relatedTarget:null이라 hold 경로를 못 밟음) `1000`·`2000` 입력 → blur 후 `setVariableGen`이 `{min:1000,max:2000}` 1회 — **이빨 실증**: hold 게이트를 임시 제거해 `{min:1000,max:100}`(중간쌍 revert) RED 확인 → 원복 GREEN. 픽스처는 중간쌍이 `min>max`가 되는 값(1000>100)으로.
+  - min/max 쌍: **실제 포커스 이동으로**(`user.click`으로 min→max 이동 — `fireEvent.blur`는 relatedTarget:null이라 hold 경로를 못 밟음). **픽스처는 중간쌍이 유효한 값으로**: 기존 스펙 `{min:1, max:5000}`에서 min에 `1000` 입력→max로 클릭 이동(중간쌍 `{1000,5000}` — **유효**)→max에 `2000` 입력→바깥 blur. 단언: `setVariableGen`이 **정확히 1회**, payload `{min:1000,max:2000}`. **이빨 실증**: hold 게이트(`relatedTarget === partner.current` 보류)를 임시 제거하면 min-blur가 유효 중간쌍 `{1000,5000}`을 즉시 커밋해 **2회 호출** → "정확히 1회" 단언 RED 확인 → 원복 GREEN. (중간쌍이 `min>max`가 되는 픽스처는 금지 — `min≤max` 커밋 가드가 hold 없이도 중간 커밋을 막아 이빨이 물리지 않는다. 공허 패턴 3: 복합 조건에서 다른 항이 이미 참.)
   - 샘플: `%j` format → `미리보기 불가` 문구.
   - `yamlError` 세팅 후(`setPendingYamlText`+`commitPendingYaml` 경로) 편집 disabled·토글 활성.
   - 동일 문구 충돌: 배지/요약에 쓰인 신규 ko 값이 기존 값과 양방향 부분문자열 충돌 없는지 grep 스텝(테스트 아님 — 커밋 전 체크리스트).
