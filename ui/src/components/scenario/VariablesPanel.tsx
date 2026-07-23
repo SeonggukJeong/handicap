@@ -14,7 +14,14 @@ import {
   flatExtractNames,
   collectNamespacedProducers,
 } from "../../scenario/scanVars";
-import { declSearchText, genSummary, isGenSpec, type VarDeclValue } from "../../scenario/genVars";
+import {
+  declSearchText,
+  genSummary,
+  genTypeLabel,
+  isGenSpec,
+  type VarDeclValue,
+} from "../../scenario/genVars";
+import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
 
 type VarRow =
   | {
@@ -73,12 +80,23 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const yamlError = useScenarioEditor((s) => s.yamlError);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const setVariable = useScenarioEditor((s) => s.setVariable);
+  const setVariableGen = useScenarioEditor((s) => s.setVariableGen);
   const removeVariable = useScenarioEditor((s) => s.removeVariable);
   const renameVariable = useScenarioEditor((s) => s.renameVariable);
   const renameParallelVar = useScenarioEditor((s) => s.renameParallelVar);
 
   const [newKey, setNewKey] = useState("");
   const [query, setQuery] = useState("");
+  // 펼침 상태(C안) — 컴포넌트 로컬, 영속화 비목표(B13 변수 접힘 선례). yamlError 동안에도
+  // 활성(읽기 전용 크롬) — 안의 편집 어포던스만 GenVarEditor의 disabled prop으로 잠긴다.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (name: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   const [editing, setEditing] = useState<EditKey | null>(null); // rename 중인 행 식별
   const [draft, setDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -268,6 +286,15 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
             return (
               <li key={`d:${row.name}`} className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(row.name)}
+                    aria-expanded={expanded.has(row.name)}
+                    aria-label={ko.editor.varExpandAria(row.name)}
+                    className="shrink-0 text-slate-400 hover:text-accent-600 text-xs"
+                  >
+                    <span aria-hidden="true">{expanded.has(row.name) ? "▾" : "▸"}</span>
+                  </button>
                   {row.renamable ? (
                     nameCell(row.name)
                   ) : (
@@ -276,6 +303,14 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       title={row.name}
                     >
                       {row.name}
+                    </span>
+                  )}
+                  {isGenSpec(row.value) && (
+                    <span
+                      className="shrink-0 rounded bg-indigo-50 px-1.5 text-xs text-indigo-600"
+                      title={genSummary(row.value)}
+                    >
+                      {genTypeLabel(row.value)}
                     </span>
                   )}
                   {/* 배지+×는 한 묶음으로 wrap — ×만 단독 줄바꿈 방지 */}
@@ -298,8 +333,19 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     </button>
                   </span>
                 </div>
-                {isGenSpec(row.value) ? (
-                  <span className="text-xs text-slate-500">{genSummary(row.value)}</span>
+                {expanded.has(row.name) ? (
+                  <GenVarEditor
+                    name={row.name}
+                    value={row.value}
+                    disabled={yamlError !== null}
+                    onCommitGen={(spec) => setVariableGen(row.name, spec)}
+                    onCommitStatic={(v) => setVariable(row.name, v)}
+                  />
+                ) : isGenSpec(row.value) ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                    <span>{genSummary(row.value)}</span>
+                    <GenSampleLine spec={row.value} />
+                  </div>
                 ) : (
                   <AutoGrowTextarea
                     aria-label={ko.editor.variableValueAria(row.name)}

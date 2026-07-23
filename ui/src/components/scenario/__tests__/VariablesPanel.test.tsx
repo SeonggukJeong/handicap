@@ -1116,3 +1116,119 @@ steps:
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });
+
+describe("VariablesPanel — 생성기 요약 행 + 그 자리 펼침 편집기 (dynamic-vars T6)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  const GEN_SCENARIO = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  checkin:
+    gen: date
+    format: "%Y-%m-%d"
+    offset: "+7d"
+    tz: "Asia/Seoul"
+  plain: seed
+steps:
+  - id: 01HX0000000000000000000001
+    name: s
+    type: http
+    request:
+      method: GET
+      url: "/x?c={{checkin}}"
+      headers: {}
+`;
+
+  it("생성기 행은 접힘 상태에서 타입 배지 + 요약 + 샘플을 렌더하고 값 textarea는 없다", () => {
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    const li = screen
+      .getByRole("button", { name: ko.editor.varExpandAria("checkin") })
+      .closest("li")!;
+    expect(within(li).getByText(ko.editor.genTypeDate)).toBeInTheDocument(); // 타입 배지
+    expect(within(li).getByText("오늘+7일 · Asia/Seoul")).toBeInTheDocument(); // 요약
+    expect(within(li).getByText(new RegExp(`^${ko.editor.genSamplePrefix}`))).toBeInTheDocument(); // 샘플
+    expect(
+      within(li).queryByRole("textbox", { name: ko.editor.variableValueAria("checkin") }),
+    ).toBeNull();
+  });
+
+  it("▸ 클릭 → 펼침(타입 select 등장), 다시 클릭 → 접힘", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    const toggle = screen.getByRole("button", { name: ko.editor.varExpandAria("checkin") });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox", { name: ko.editor.genFieldType("checkin") })).toBeNull();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }),
+    ).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox", { name: ko.editor.genFieldType("checkin") })).toBeNull();
+  });
+
+  it("정적 행도 펼침 토글이 있고, 펼치면 타입 select가 기존 값 textarea 위에 추가된다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    expect(
+      screen.getByRole("textbox", { name: ko.editor.variableValueAria("plain") }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: ko.editor.genFieldType("plain") })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("plain") }));
+    expect(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("plain") }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: ko.editor.variableValueAria("plain") }),
+    ).toBeInTheDocument();
+  });
+
+  it("타입 전환 static→date는 setVariableGen을 tz 명시 기본 스펙으로 정확히 호출한다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("plain") }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("plain") }),
+      ko.editor.genTypeDate,
+    );
+    expect(useScenarioEditor.getState().model!.variables.plain).toEqual({
+      gen: "date",
+      format: "%Y-%m-%d",
+      tz: "Asia/Seoul",
+    });
+  });
+
+  it("타입 전환 date→static은 빈 문자열로 커밋한다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("checkin") }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }),
+      ko.editor.genTypeStatic,
+    );
+    expect(useScenarioEditor.getState().model!.variables.checkin).toBe("");
+  });
+
+  it("yamlError 상태에서는 새 편집 어포던스가 disabled여도 펼침/접힘 토글은 활성 유지", () => {
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    useScenarioEditor.getState().commitPendingYaml(); // yamlError 세팅 — model은 보존됨
+    render(<VariablesPanel />);
+    const toggle = screen.getByRole("button", { name: ko.editor.varExpandAria("checkin") });
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle); // 로컬 state 토글 — store 접촉 없음, disabled 아니라 클릭 가능
+    expect(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }),
+    ).toBeDisabled();
+  });
+});
