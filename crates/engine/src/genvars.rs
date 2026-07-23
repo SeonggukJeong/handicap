@@ -79,6 +79,9 @@ fn parse_offset_secs(s: &str) -> Option<i64> {
         b'-' => (-1i64, &s[1..]),
         _ => return None,
     };
+    if !rest.is_ascii() {
+        return None;
+    }
     if rest.len() < 2 {
         return None;
     }
@@ -404,6 +407,8 @@ mod tests {
             "x: {gen: random_string, length: 65}",
             "x: {gen: date, offset: \"7d\"}",       // 부호 없음
             "x: {gen: date, offset: \"+7w\"}",      // 미지 단위
+            "x: {gen: date, offset: \"+7일\"}",     // 멀티바이트 (char-boundary panic 회귀 가드)
+            "x: {gen: date, offset: \"-1시\"}",     // 멀티바이트 (부호 분기 양쪽)
             "x: {gen: date, tz: \"Mars/Olympus\"}", // 미지 IANA
             "x: {gen: date, format: \"%Q\"}",       // 잘못된 strftime
             "x: 5",                                 // 비-문자열 스칼라 (현행과 동일 거부)
