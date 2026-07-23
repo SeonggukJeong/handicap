@@ -13,6 +13,7 @@ import {
 } from "./model";
 import { newStepId } from "./ulid";
 import { applyEdit, parseScenarioDoc, serializeDoc, type Edit, type BranchSel } from "./yamlDoc";
+import type { GenSpec } from "./genVars";
 import {
   collectProducedVars,
   collectNamespacedProducers,
@@ -55,6 +56,8 @@ export interface ScenarioEditorState {
   /** 여러 http 스텝의 think_time을 한 트랜잭션으로 설정/삭제(현황판 일괄 액션). */
   setStepsThinkTime(stepIds: ReadonlyArray<string>, value: ThinkTime | undefined): void;
   setVariable(key: string, value: string): void;
+  /** 변수를 생성기(GenSpec)로 선언 — 기존 스칼라/생성기 값을 맵으로 교체(스칼라↔맵 편집 경로). */
+  setVariableGen(key: string, spec: GenSpec): void;
   removeVariable(key: string): void;
   /** flat 변수(선언·비-parallel extract) rename. 선언 키 + 모든 extract.var + 모든
    *  {{old}} 참조(cast 보존) + 조건 오퍼랜드를 트랜잭셔널로 재작성. 실패 시 no-op +
@@ -173,6 +176,9 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setVariable(key, value) {
     dispatch(set, get, { type: "setVariable", key, value });
+  },
+  setVariableGen(key, spec) {
+    dispatch(set, get, { type: "setVariableGen", key, spec });
   },
   removeVariable(key) {
     dispatch(set, get, { type: "removeVariable", key });
@@ -466,6 +472,7 @@ const actions = (() => {
     setDefaultThinkTime: s.setDefaultThinkTime,
     setStepsThinkTime: s.setStepsThinkTime,
     setVariable: s.setVariable,
+    setVariableGen: s.setVariableGen,
     removeVariable: s.removeVariable,
     renameVariable: s.renameVariable,
     renameParallelVar: s.renameParallelVar,

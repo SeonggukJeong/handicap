@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { useScenarioEditor } from "../store";
 import type { Extract } from "../model";
+import type { GenSpec } from "../genVars";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -134,6 +135,33 @@ steps:
     const s = useScenarioEditor.getState();
     expect(s.selectedStepId).toBe("01HX0000000000000000000002");
     expect(s.model!.steps).toHaveLength(1);
+  });
+});
+
+describe("setVariableGen (스칼라↔맵)", () => {
+  beforeEach(() => {
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+  });
+
+  it("writes a generator spec and the model exposes it as a GenSpec", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    const spec: GenSpec = { gen: "date", offset: "+7d" };
+    useScenarioEditor.getState().setVariableGen("checkin", spec);
+    const s = useScenarioEditor.getState();
+    expect(s.yamlError).toBeNull();
+    expect(s.model!.variables.checkin).toEqual(spec);
+    expect(s.yamlText).toContain("gen: date");
+  });
+
+  it("is a no-op while yamlError is set (dispatch gate)", () => {
+    useScenarioEditor.getState().loadFromString(VALID_YAML);
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nsteps: [oops");
+    useScenarioEditor.getState().commitPendingYaml();
+    expect(useScenarioEditor.getState().yamlError).not.toBeNull();
+    const before = useScenarioEditor.getState().model;
+    useScenarioEditor.getState().setVariableGen("checkin", { gen: "uuid" });
+    const s = useScenarioEditor.getState();
+    expect(s.model).toBe(before); // 참조 동일 = 무변이 증명
   });
 });
 

@@ -7,6 +7,7 @@ import {
   type Edit,
 } from "../yamlDoc";
 import { useScenarioEditor } from "../store";
+import type { GenSpec } from "../genVars";
 
 const VALID_YAML = `version: 1
 name: "demo"
@@ -251,6 +252,119 @@ describe("applyEdit — setVariable / removeVariable / setName / setCookieJar", 
     applyEdit(out.doc, { type: "setCookieJar", value: "off" });
     const round = serializeDoc(out.doc);
     expect(round).toContain("cookie_jar: off");
+  });
+});
+
+describe("applyEdit — setVariableGen (스칼라↔맵)", () => {
+  it("writes a generator spec as a YAML map that round-trips into the model as a GenSpec", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "checkin",
+      spec: { gen: "date", format: "%Y-%m-%d", tz: "Asia/Seoul" },
+    });
+    const round = serializeDoc(out.doc);
+    expect(round).toContain("gen: date");
+    const reparsed = parseScenarioDoc(round);
+    if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
+    expect(reparsed.model.variables.checkin).toEqual({
+      gen: "date",
+      format: "%Y-%m-%d",
+      tz: "Asia/Seoul",
+    });
+  });
+
+  it("switching a generator variable to setVariable collapses the map back to a plain scalar (no leftover map keys)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, { type: "setVariableGen", key: "checkin", spec: { gen: "uuid" } });
+    applyEdit(out.doc, { type: "setVariable", key: "checkin", value: "v" });
+    const round = serializeDoc(out.doc);
+    expect(round).toMatch(/\bcheckin:\s*v\b/);
+    expect(round).not.toContain("gen:"); // 맵 키 잔존 없음
+    const reparsed = parseScenarioDoc(round);
+    if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
+    expect(reparsed.model.variables.checkin).toBe("v");
+  });
+
+  it("re-calling setVariableGen on the same key replaces the generator params", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "qty",
+      spec: { gen: "random_int", min: 1, max: 10 },
+    });
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "qty",
+      spec: { gen: "random_int", min: 100, max: 200, step: 10 },
+    });
+    const reparsed = parseScenarioDoc(serializeDoc(out.doc));
+    if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
+    expect(reparsed.model.variables.qty).toEqual({
+      gen: "random_int",
+      min: 100,
+      max: 200,
+      step: 10,
+    });
+  });
+
+  it("removeVariable/renameVariable operate on a generator row (rename preserves the value map + comment)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "orderRef",
+      spec: { gen: "uuid" },
+    });
+    applyEdit(out.doc, { type: "renameVariable", oldName: "orderRef", newName: "orderId" });
+    let round = serializeDoc(out.doc);
+    expect(round).toContain("gen: uuid");
+    expect(round).toMatch(/\borderId:/);
+    expect(round).not.toMatch(/\borderRef:/);
+
+    applyEdit(out.doc, { type: "removeVariable", key: "orderId" });
+    round = serializeDoc(out.doc);
+    expect(round).not.toMatch(/\borderId:/);
+    expect(round).not.toContain("gen: uuid");
+  });
+
+  it("does not create YAML anchors/aliases when the same spec object is applied to two keys", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    const spec: GenSpec = { gen: "uuid" };
+    applyEdit(out.doc, { type: "setVariableGen", key: "a", spec });
+    applyEdit(out.doc, { type: "setVariableGen", key: "b", spec });
+    const round = serializeDoc(out.doc);
+    expect(round).not.toContain("&");
+    expect(round).not.toContain("*");
+    const reparsed = parseScenarioDoc(round);
+    if ("error" in reparsed) throw new Error(`reparse failed: ${reparsed.error}`);
+    expect(reparsed.model.variables.a).toEqual({ gen: "uuid" });
+    expect(reparsed.model.variables.b).toEqual({ gen: "uuid" });
+  });
+
+  it("leaves other variables' values and comments untouched (targeted edit)", () => {
+    const yaml = `version: 1
+name: "demo"
+cookie_jar: auto
+variables:
+  base_url: "http://localhost:8080" # keep me
+  token: "abc"
+steps: []
+`;
+    const out = parseScenarioDoc(yaml);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "token",
+      spec: { gen: "uuid" },
+    });
+    const round = serializeDoc(out.doc);
+    expect(round).toContain('base_url: "http://localhost:8080" # keep me');
+    expect(round).toContain("gen: uuid");
   });
 });
 

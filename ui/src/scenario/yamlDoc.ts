@@ -20,6 +20,7 @@ import {
   type ThinkTime,
 } from "./model";
 import { CAST_KEYWORDS } from "./cast";
+import type { GenSpec } from "./genVars";
 
 export type BranchSel = { kind: "then" } | { kind: "else" } | { kind: "elif"; index: number };
 
@@ -37,6 +38,7 @@ export type Edit =
       value: ThinkTime | undefined;
     }
   | { type: "setVariable"; key: string; value: string }
+  | { type: "setVariableGen"; key: string; spec: GenSpec }
   | { type: "removeVariable"; key: string }
   | { type: "addStep"; id: string; name: string }
   | { type: "addLoopStep"; id: string; name: string; childId: string }
@@ -157,6 +159,16 @@ export function applyEdit(doc: Document, edit: Edit): void {
       ensureMap(doc, ["variables"]);
       doc.setIn(["variables", edit.key], edit.value);
       return;
+    case "setVariableGen": {
+      ensureMap(doc, ["variables"]);
+      // spec은 GenSpecModel 통과형 — undefined 필드 제거 후 createNode(호출마다 새로:
+      // 같은 spec 객체를 재사용해도 clean은 매 호출 신규 객체라 앵커/별칭이 안 생긴다).
+      const clean = Object.fromEntries(
+        Object.entries(edit.spec).filter(([, v]) => v !== undefined),
+      );
+      doc.setIn(["variables", edit.key], doc.createNode(clean));
+      return;
+    }
     case "removeVariable":
       doc.deleteIn(["variables", edit.key]);
       return;
