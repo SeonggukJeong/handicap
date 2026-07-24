@@ -206,16 +206,33 @@ function buildDatasetForm(file: File, opts?: DatasetUploadOptions): FormData {
   return fd;
 }
 
+/** 시나리오 저장 라우트의 axum 기본 DefaultBodyLimit(2MiB) — app.rs:35의 256MiB 상향은
+ *  데이터셋 라우트 전용이라 시나리오 저장은 기본값이 문이다(spec R6). 클라 임계(>=)가
+ *  서버 초과 기준(>)과 같거나 엄격 → UI 경로는 항상 사전 차단(서버 상태코드 매핑 불요). */
+const SCENARIO_SAVE_BODY_LIMIT = 2 * 1024 * 1024;
+
+function guardScenarioBody(body: string): string {
+  const size = new Blob([body]).size;
+  if (size >= SCENARIO_SAVE_BODY_LIMIT) {
+    throw new Error(ko.scenarioNotes.sizeLimitError((size / (1024 * 1024)).toFixed(1)));
+  }
+  return body;
+}
+
 export const api = {
   listScenarios: () => request("/scenarios", { method: "GET" }, ScenarioListSchema),
   getScenario: (id: string) =>
     request(`/scenarios/${encodeURIComponent(id)}`, { method: "GET" }, ScenarioSchema),
-  createScenario: (yaml: string) =>
-    request("/scenarios", { method: "POST", body: JSON.stringify({ yaml }) }, ScenarioSchema),
-  updateScenario: (id: string, yaml: string, version: number) =>
+  createScenario: async (yaml: string) =>
+    request(
+      "/scenarios",
+      { method: "POST", body: guardScenarioBody(JSON.stringify({ yaml })) },
+      ScenarioSchema,
+    ),
+  updateScenario: async (id: string, yaml: string, version: number) =>
     request(
       `/scenarios/${encodeURIComponent(id)}`,
-      { method: "PUT", body: JSON.stringify({ yaml, version }) },
+      { method: "PUT", body: guardScenarioBody(JSON.stringify({ yaml, version })) },
       ScenarioSchema,
     ),
   listRunsForScenario: (id: string) =>

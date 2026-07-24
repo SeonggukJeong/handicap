@@ -431,6 +431,8 @@ export const ko = {
     cancel: "취소",
     cancelAria: "공유 메모 편집 취소",
     textareaAria: "공유 메모 내용",
+    sizeLimitError: (mb: string) =>
+      `시나리오가 저장 한도(2MB)를 초과했습니다 (현재 ${mb}MB) — 공유 메모나 스텝 수를 줄여주세요.`,
   },
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──
