@@ -1,0 +1,79 @@
+<h2>공유 메모 — 최종 v4 (resize 수정)</h2>
+<p class="subtitle">v3 대비 변경: resize 양방향 동작(늘리기 가능) · 높이 기억 제거. ①에서 실제로 늘려/줄여 보세요.</p>
+
+<style>
+  .hd4 { display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border-bottom:1px solid #e2e8f0; padding:10px 14px; }
+  .hd4 .ttl { font-size:16px; font-weight:600; color:#0f172a; }
+  .b4 { font-size:11.5px; padding:5px 10px; border-radius:6px; border:1px solid #cbd5e1; background:#fff; color:#334155; white-space:nowrap; }
+  .b4.pri { background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .b4.dis { opacity:.45; }
+  .co4 { border:1px solid #c7d2fe; background:#eef2ff; color:#3730a3; border-radius:6px; padding:8px 10px; margin:10px 14px; font-size:12.5px; }
+  .co4 .cohd { display:flex; justify-content:space-between; align-items:center; }
+  .co4 .cottl { font-weight:600; display:flex; align-items:center; gap:6px; }
+  .g4 { font-size:11px; padding:2px 8px; border-radius:5px; border:1px solid #c7d2fe; background:#eef2ff; color:#3730a3; }
+  /* height는 JS가 min(내용, 9.5rem)으로 초기화 — max-height 없음이라 양방향 resize 가능 */
+  .body4 { margin:6px 0 0; font-family:inherit; font-size:12.5px; white-space:pre-wrap; color:#3730a3;
+           overflow-y:auto; resize:vertical; padding-right:4px; }
+  .grip4 { text-align:right; font-size:10px; color:#818cf8; margin-top:2px; user-select:none; }
+  .ed4 { display:flex; gap:10px; padding:10px 14px; }
+  .ed4 .col { border:1px dashed #cbd5e1; border-radius:6px; background:#f8fafc; color:#94a3b8; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  .thin4 { display:flex; justify-content:space-between; align-items:center; border:1px solid #c7d2fe; background:#eef2ff; color:#3730a3; border-radius:6px; padding:5px 10px; margin:10px 14px; font-size:12px; }
+  .add4 { margin:10px 14px; border:1px dashed #cbd5e1; border-radius:6px; color:#64748b; font-size:12px; padding:6px 10px; }
+</style>
+
+<div class="section">
+  <h3>① 메모 있음 — 이제 늘리기·줄이기 모두 됩니다</h3>
+  <div class="mockup">
+    <div class="mockup-header">초기 높이 = min(내용, 6줄) · 상한 없음 → 드래그로 자유 조절 (기억 안 함, 새로고침 시 기본 복귀)</div>
+    <div class="mockup-body" style="padding:0">
+      <div class="hd4">
+        <div><div class="ttl">결제 플로우 부하 ✎</div></div>
+        <div style="display:flex;gap:6px"><span class="b4">템플릿으로 저장</span><span class="b4">템플릿 삽입</span><span class="b4 pri dis">저장</span><span class="b4">복제</span><span class="b4">Run 목록</span></div>
+      </div>
+      <div class="co4">
+        <div class="cohd"><span class="cottl">📝 공유 메모</span><span style="display:flex;gap:6px"><span class="g4">접기</span><span class="g4">편집</span></span></div>
+        <div class="body4" id="memo-body">1. 운영 환경에 직접 돌리지 마세요 (스테이징 전용).
+2. BASE_URL 환경변수 필수 — env 미선택 시 전 스텝 실패.
+3. users.csv 데이터셋 바인딩 선행 필요.
+4. 로그인 계정은 공용 — 비밀번호 변경 금지.
+5. 캐시 워밍 후 측정할 것 (첫 1분 버림).
+6. p95 기준선은 320ms (2026-07 기준).
+7. 결제 스텝은 mock 서버로만 — 실PG 연결 금지.
+8. VU 50 초과 시 스테이징 DB 커넥션 풀 고갈 주의.
+9. 야간 배치(02:00~03:00)와 겹치지 않게.
+10. 종료 후 잔여 세션 정리 스크립트 실행.</div>
+        <div class="grip4">⟋ 드래그로 높이 조절</div>
+      </div>
+      <div class="ed4"><div class="col" style="flex:1;height:90px">아웃라인 (스텝 트리)</div><div class="col" style="flex:1.4;height:90px">디테일 편집기</div></div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var el = document.getElementById('memo-body');
+      var cap = parseFloat(getComputedStyle(el).fontSize) * 1.6 * 6; /* ≈6줄 */
+      el.style.height = Math.min(el.scrollHeight, cap) + 'px';
+    })();
+  </script>
+</div>
+
+<div class="section">
+  <h3>② 접힘 · ③ 편집 · ④ 빈 상태 (v3와 동일)</h3>
+  <div class="mockup"><div class="mockup-body" style="padding:0">
+    <div class="thin4"><span>📝 <b>공유 메모</b> · 운영 환경에 직접 돌리지 마세요 (스테이징 전용)…</span><span class="g4">펼치기</span></div>
+    <div class="add4">＋ 공유 메모 추가 — 팀원에게 전할 주의점을 남겨두세요 <span style="opacity:.6">(빈 상태일 때)</span></div>
+  </div></div>
+</div>
+
+<div class="section">
+  <h3>최종 확인</h3>
+  <div class="options">
+    <div class="option" data-choice="final-ok-v4" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>확정 — spec 작성 시작</h3><p>resize 양방향 · 높이 기억 없음 · notes는 저장/워커에 실리되 사용처 0(부하 트래픽 미포함).</p></div>
+    </div>
+    <div class="option" data-choice="final-changes-v4" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>수정 필요</h3><p>바꿀 부분을 터미널로.</p></div>
+    </div>
+  </div>
+</div>
