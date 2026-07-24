@@ -340,27 +340,44 @@ describe("GenVarEditor — 랜덤 정수", () => {
     expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
   });
 
-  it("단위(step) 무효 draft 안내 + min=1 속성", () => {
+  it("단위(step) 무효 draft 안내 + min=1 속성 + aria-describedby 배선(US: per-field 무효 안내)", () => {
     setup({ gen: "random_int", min: 1, max: 100, step: 5 });
     const st = screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") });
     expect(st).toHaveAttribute("min", "1");
     for (const bad of ["0", "-1", "1.5"]) {
       fireEvent.change(st, { target: { value: bad } });
-      expect(screen.getByText(ko.editor.genStepInvalid)).toBeInTheDocument();
+      const hint = screen.getByText(ko.editor.genStepInvalid);
       expect(st).toHaveAttribute("aria-invalid", "true");
+      expect(st.getAttribute("aria-describedby")).toBe(hint.id);
     }
+    fireEvent.change(st, { target: { value: "5" } }); // 유효 복귀 — describedby 해제
+    expect(st).not.toHaveAttribute("aria-describedby");
   });
 
-  it("최소/최대 비정수 draft는 per-field 안내", () => {
+  it("최소/최대 비정수 draft는 per-field 안내 + 각자 별도 id로 aria-describedby(US: per-field 무효 안내)", () => {
     // "abc" 등 순수 비숫자 문자열은 브리프 원안이지만, HTML5 number-input value
     // sanitization(스펙+jsdom 실측 — /tmp probe로 확인)이 저장 *전에* ""로 지워버려
     // 검증 로직에 도달 못 한다. "1.5"는 유효 float 문자열이라 살아남으면서도
     // parseValidInt(정수 전용 regex)엔 걸려 같은 genIntInvalid 분기를 태운다.
     setup({ gen: "random_int", min: 1, max: 100 });
-    fireEvent.change(screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") }), {
-      target: { value: "1.5" },
-    });
-    expect(screen.getByText(ko.editor.genIntInvalid)).toBeInTheDocument();
+    const min = screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") });
+    fireEvent.change(min, { target: { value: "1.5" } });
+    const minHint = screen.getByText(ko.editor.genIntInvalid); // max는 아직 유효 — 단일 매치
+    expect(min.getAttribute("aria-describedby")).toBe(minHint.id);
+    fireEvent.change(min, { target: { value: "1" } });
+    expect(min).not.toHaveAttribute("aria-describedby");
+
+    // min/max 둘 다 비정수면 같은 문구의 hint가 둘 존재 — 각 input은 *자기* id만 가리켜야 한다.
+    const max = screen.getByRole("spinbutton", { name: ko.editor.genFieldMax("checkin") });
+    fireEvent.change(min, { target: { value: "1.5" } });
+    fireEvent.change(max, { target: { value: "2.5" } });
+    const minId = min.getAttribute("aria-describedby");
+    const maxId = max.getAttribute("aria-describedby");
+    expect(minId).toBeTruthy();
+    expect(maxId).toBeTruthy();
+    expect(minId).not.toBe(maxId);
+    expect(document.getElementById(minId!)).toHaveTextContent(ko.editor.genIntInvalid);
+    expect(document.getElementById(maxId!)).toHaveTextContent(ko.editor.genIntInvalid);
   });
 
   it("US4: min>max면 적용되지 않음 안내 + 양측 aria-invalid + describedby, blur해도 no-op(정책 불변)", () => {
@@ -427,17 +444,19 @@ describe("GenVarEditor — 랜덤 문자열", () => {
     expect(len).toHaveAttribute("step", "1");
   });
 
-  it("US3: 범위 밖 길이 draft는 그 자리에서 안내 + aria-invalid", () => {
+  it("US3: 범위 밖 길이 draft는 그 자리에서 안내 + aria-invalid + aria-describedby(US: per-field 무효 안내)", () => {
     setup({ gen: "random_string", length: 8 });
     const len = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
     for (const bad of ["0", "-1", "65", "3.5"]) {
       fireEvent.change(len, { target: { value: bad } });
-      expect(screen.getByText(ko.editor.genLengthInvalid)).toBeInTheDocument(); // 전문 exact
+      const hint = screen.getByText(ko.editor.genLengthInvalid); // 전문 exact
       expect(len).toHaveAttribute("aria-invalid", "true");
+      expect(len.getAttribute("aria-describedby")).toBe(hint.id);
     }
     fireEvent.change(len, { target: { value: "12" } });
     expect(screen.queryByText(ko.editor.genLengthInvalid)).not.toBeInTheDocument();
     expect(len).not.toHaveAttribute("aria-invalid");
+    expect(len).not.toHaveAttribute("aria-describedby");
   });
 
   it("US3 특성화: 무효 길이는 blur 시 기존대로 revert되고 안내도 사라진다(정책 불변)", () => {
