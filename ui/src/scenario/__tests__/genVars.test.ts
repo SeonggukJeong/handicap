@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   GenSpecModel,
+  canonicalGenKey,
   declSearchText,
   formatStrftimeSubset,
-  genSummary,
+  genParamsSummary,
   genTypeLabel,
   isGenSpec,
+  lengthDraftValue,
   offsetKo,
   offsetSeconds,
   sampleFor,
+  samplePreview,
+  stepDraftValue,
   type GenSpec,
 } from "../genVars";
 
@@ -74,11 +78,6 @@ describe("isGenSpec / declSearchText", () => {
   it("declSearchText returns the raw value for static strings", () => {
     expect(declSearchText("hello world")).toBe("hello world");
   });
-
-  it("declSearchText returns the summary for GenSpec values", () => {
-    const spec: GenSpec = { gen: "random_int", min: 1, max: 100 };
-    expect(declSearchText(spec)).toBe(genSummary(spec));
-  });
 });
 
 describe("genTypeLabel", () => {
@@ -103,39 +102,120 @@ describe("offsetKo", () => {
   });
 });
 
-describe("genSummary", () => {
-  it("summarizes a date gen with offset+tz", () => {
-    expect(genSummary({ gen: "date", offset: "+7d", tz: "Asia/Seoul" })).toBe(
+describe("samplePreview — 시드 결정적", () => {
+  it("같은 (spec,name,tick)이면 어느 호출에서든 같은 텍스트", () => {
+    const spec: GenSpec = { gen: "random_string", length: 12 };
+    const a = samplePreview(spec, "sid", 0);
+    const b = samplePreview(spec, "sid", 0);
+    expect(a).toEqual(b);
+    if (a.kind !== "ok") throw new Error("expected ok");
+    expect(a.text).toHaveLength(12); // 길이 파라미터가 텍스트에 반영
+  });
+
+  it("tick이 바뀌면 랜덤 3종의 텍스트가 바뀐다", () => {
+    for (const spec of [
+      { gen: "random_string", length: 12 },
+      { gen: "random_int", min: 1, max: 1000000 },
+      { gen: "uuid" },
+    ] as GenSpec[]) {
+      const a = samplePreview(spec, "v", 0);
+      const b = samplePreview(spec, "v", 1);
+      expect(a).not.toEqual(b);
+    }
+  });
+
+  it("random_int 샘플은 min..max 구간의 step 배수 지점", () => {
+    const spec: GenSpec = { gen: "random_int", min: 10, max: 100, step: 10 };
+    const s = samplePreview(spec, "n", 3);
+    if (s.kind !== "ok") throw new Error("expected ok");
+    const v = Number(s.text);
+    expect(v).toBeGreaterThanOrEqual(10);
+    expect(v).toBeLessThanOrEqual(100);
+    expect((v - 10) % 10).toBe(0);
+  });
+
+  it("uuid 샘플은 8-4-4-4-12 v4 형식", () => {
+    const s = samplePreview({ gen: "uuid" }, "u", 0);
+    if (s.kind !== "ok") throw new Error("expected ok");
+    expect(s.text).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
+
+describe("canonicalGenKey", () => {
+  it("step 생략과 step:1은 같은 키(기본값 정규화)", () => {
+    expect(canonicalGenKey({ gen: "random_int", min: 1, max: 9 })).toBe(
+      canonicalGenKey({ gen: "random_int", min: 1, max: 9, step: 1 }),
+    );
+  });
+  it("length 생략과 8은 같은 키", () => {
+    expect(canonicalGenKey({ gen: "random_string" })).toBe(
+      canonicalGenKey({ gen: "random_string", length: 8 }),
+    );
+  });
+  it("파라미터가 다르면 키가 다르다", () => {
+    expect(canonicalGenKey({ gen: "random_string", length: 8 })).not.toBe(
+      canonicalGenKey({ gen: "random_string", length: 9 }),
+    );
+  });
+});
+
+describe("genParamsSummary (타입명 없는 요약)", () => {
+  // 기존 genSummary describe의 date/int 기대값은 그대로, uuid/rs만 새 값
+  it("date: offset+tz", () => {
+    expect(genParamsSummary({ gen: "date", offset: "+7d", tz: "Asia/Seoul" })).toBe(
       "오늘+7일 · Asia/Seoul",
     );
   });
-
-  it("summarizes a date gen without offset as '오늘'", () => {
-    expect(genSummary({ gen: "date", tz: "UTC" })).toBe("오늘 · UTC");
+  it("date: offset 없음 → 오늘", () => {
+    expect(genParamsSummary({ gen: "date", tz: "UTC" })).toBe("오늘 · UTC");
   });
-
-  it("summarizes a date gen without tz using the worker-local phrase", () => {
-    expect(genSummary({ gen: "date" })).toBe("오늘 · 워커 로컬");
+  it("date: tz 없음 → 워커 로컬", () => {
+    expect(genParamsSummary({ gen: "date" })).toBe("오늘 · 워커 로컬");
   });
-
-  it("summarizes random_int with step !== 1", () => {
-    expect(genSummary({ gen: "random_int", min: 1000, max: 10000, step: 100 })).toBe(
+  it("random_int: step!==1이면 단위 접미", () => {
+    expect(genParamsSummary({ gen: "random_int", min: 1000, max: 10000, step: 100 })).toBe(
       "1000 ~ 10000 · 100 단위",
     );
   });
-
-  it("summarizes random_int with step === 1 (or omitted) without unit suffix", () => {
-    expect(genSummary({ gen: "random_int", min: 1, max: 100 })).toBe("1 ~ 100");
-    expect(genSummary({ gen: "random_int", min: 1, max: 100, step: 1 })).toBe("1 ~ 100");
+  it("random_int: step 1/생략은 접미 없음", () => {
+    expect(genParamsSummary({ gen: "random_int", min: 1, max: 100 })).toBe("1 ~ 100");
+    expect(genParamsSummary({ gen: "random_int", min: 1, max: 100, step: 1 })).toBe("1 ~ 100");
   });
-
-  it("summarizes uuid", () => {
-    expect(genSummary({ gen: "uuid" })).toBe("UUID");
+  it("uuid: 빈 문자열(배지 단독)", () => {
+    expect(genParamsSummary({ gen: "uuid" })).toBe("");
   });
+  it("random_string: N자", () => {
+    expect(genParamsSummary({ gen: "random_string" })).toBe("8자");
+    expect(genParamsSummary({ gen: "random_string", length: 12 })).toBe("12자");
+  });
+});
 
-  it("summarizes random_string with default and explicit length", () => {
-    expect(genSummary({ gen: "random_string" })).toBe("랜덤 문자열 · 8");
-    expect(genSummary({ gen: "random_string", length: 12 })).toBe("랜덤 문자열 · 12");
+describe("declSearchText (타입명 포함 — 검색 하위호환+개선)", () => {
+  it("gen 값은 타입명+파라미터", () => {
+    expect(declSearchText({ gen: "random_int", min: 1, max: 100 })).toBe("랜덤 정수 1 ~ 100");
+    expect(declSearchText({ gen: "random_string", length: 12 })).toBe("랜덤 문자열 12자");
+  });
+  it("uuid는 매달린 공백 없이 타입명만", () => {
+    expect(declSearchText({ gen: "uuid" })).toBe("UUID");
+  });
+});
+
+describe("draft 유효성 헬퍼 (commit 술어와 동작 동일 — 특성화)", () => {
+  it("lengthDraftValue: 1..64 정수만", () => {
+    expect(lengthDraftValue("12")).toBe(12);
+    expect(lengthDraftValue(" 8 ")).toBe(8);
+    expect(lengthDraftValue("0")).toBeNull();
+    expect(lengthDraftValue("-1")).toBeNull();
+    expect(lengthDraftValue("65")).toBeNull();
+    expect(lengthDraftValue("3.5")).toBeNull();
+    expect(lengthDraftValue("")).toBeNull();
+  });
+  it("stepDraftValue: >=1 정수만", () => {
+    expect(stepDraftValue("1")).toBe(1);
+    expect(stepDraftValue("100")).toBe(100);
+    expect(stepDraftValue("0")).toBeNull();
+    expect(stepDraftValue("1.5")).toBeNull();
+    expect(stepDraftValue("")).toBeNull();
   });
 });
 

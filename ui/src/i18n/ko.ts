@@ -556,6 +556,7 @@ export const ko = {
     genFieldLabelMin: "최소",
     genFieldLabelMax: "최대",
     genFieldLabelLength: "길이",
+    genLengthSuffix: "자",
     genFieldLabelOffset: "오프셋",
     genFieldLabelTz: "타임존",
     genFieldLabelFormat: "날짜 형식",

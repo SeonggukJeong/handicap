@@ -78,8 +78,85 @@ export function genSummary(spec: GenSpec): string {
   }
 }
 
+export function canonicalGenKey(spec: GenSpec): string {
+  switch (spec.gen) {
+    case "date":
+      return `date:${spec.format ?? ""}:${spec.offset ?? ""}:${spec.tz ?? ""}`;
+    case "random_int":
+      return `ri:${spec.min}:${spec.max}:${spec.step ?? 1}`;
+    case "uuid":
+      return "uuid";
+    case "random_string":
+      return `rs:${spec.length ?? 8}`;
+  }
+}
+
+// FNV-1a 32-bit — 시드 파생 전용(암호학적 용도 아님)
+export function hashSeed(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// mulberry32 — 결정적 PRNG(미리보기 전용)
+export function seededRand(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 예시 미리보기 단일 진입점 — (이름·파라미터·틱)의 순수 함수라 어느 마운트에서든 동일 텍스트.
+ *  date 분기는 rand 미사용(시계 기반)이라 자연히 영향 없음. */
+export function samplePreview(spec: GenSpec, name: string, tick: number): SamplePreview {
+  return sampleFor(
+    spec,
+    new Date(),
+    seededRand(hashSeed(`${name}|${canonicalGenKey(spec)}|${tick}`)),
+  );
+}
+
+/** 접힘 요약 줄용 — 타입명은 배지가 담당하므로 파라미터만. uuid는 빈 문자열(배지 단독). */
+export function genParamsSummary(spec: GenSpec): string {
+  switch (spec.gen) {
+    case "date":
+      return `${offsetKo(spec.offset)} · ${spec.tz ?? ko.editor.genTzWorkerLocal}`;
+    case "random_int": {
+      const base = `${spec.min} ~ ${spec.max}`;
+      const step = spec.step ?? 1;
+      return step === 1 ? base : `${base} · ${step} ${ko.editor.genStepUnit}`;
+    }
+    case "uuid":
+      return "";
+    case "random_string":
+      return `${spec.length ?? 8}${ko.editor.genLengthSuffix}`;
+  }
+}
+
+// commit 술어와 바이트 동일 규칙(동작-보존): Number() + isInteger + 범위 — 정규식 강화 금지
+// (기존 commitLength/commitStep이 "5e0" 같은 지수 표기도 Number 경유로 수용하므로 그대로 미러)
+export function lengthDraftValue(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 1 && n <= 64 ? n : null;
+}
+export function stepDraftValue(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
 export function declSearchText(v: VarDeclValue): string {
-  return isGenSpec(v) ? genSummary(v) : v;
+  return isGenSpec(v) ? `${genTypeLabel(v)} ${genParamsSummary(v)}`.trim() : v;
 }
 
 // ---- 샘플 미리보기: strftime 부분집합 (spec §6.3 — %Y %y %m %d %H %M %S %s %%만; 밖이면 unsupported) ----
@@ -169,7 +246,11 @@ export function formatStrftimeSubset(fmt: string, p: Parts, epochSecs: number): 
 
 export type SamplePreview = { kind: "ok"; text: string } | { kind: "unsupported" };
 
-export function sampleFor(spec: GenSpec, now: Date = new Date()): SamplePreview {
+export function sampleFor(
+  spec: GenSpec,
+  now: Date = new Date(),
+  rand: () => number = Math.random,
+): SamplePreview {
   switch (spec.gen) {
     case "date": {
       const at = new Date(now.getTime() + offsetSeconds(spec.offset) * 1000);
@@ -186,11 +267,11 @@ export function sampleFor(spec: GenSpec, now: Date = new Date()): SamplePreview 
     }
     case "random_int": {
       const step = spec.step ?? 1;
-      const k = Math.floor(Math.random() * (Math.floor((spec.max - spec.min) / step) + 1));
+      const k = Math.floor(rand() * (Math.floor((spec.max - spec.min) / step) + 1));
       return { kind: "ok", text: String(spec.min + k * step) };
     }
     case "uuid": {
-      const b = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+      const b = Array.from({ length: 16 }, () => Math.floor(rand() * 256));
       b[6] = (b[6] & 0x0f) | 0x40;
       b[8] = (b[8] & 0x3f) | 0x80;
       const h = b.map((x) => x.toString(16).padStart(2, "0"));
@@ -204,9 +285,7 @@ export function sampleFor(spec: GenSpec, now: Date = new Date()): SamplePreview 
       const n = spec.length ?? 8;
       return {
         kind: "ok",
-        text: Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join(
-          "",
-        ),
+        text: Array.from({ length: n }, () => chars[Math.floor(rand() * chars.length)]).join(""),
       };
     }
   }
