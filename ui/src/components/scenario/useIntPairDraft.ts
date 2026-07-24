@@ -27,7 +27,7 @@ export type IntPairFieldProps = {
   ref: RefObject<HTMLInputElement>;
 };
 
-function parseValidInt(s: string): number | null {
+export function parseValidInt(s: string): number | null {
   const t = s.trim();
   if (!/^-?\d+$/.test(t)) return null;
   return Number(t);

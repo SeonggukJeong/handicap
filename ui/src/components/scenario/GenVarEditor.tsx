@@ -7,11 +7,13 @@ import {
   DATE_FORMAT_PRESETS,
   OFFSET_RE,
   isGenSpec,
-  sampleFor,
+  lengthDraftValue,
+  samplePreview,
+  stepDraftValue,
   type GenSpec,
   type VarDeclValue,
 } from "../../scenario/genVars";
-import { useIntPairDraft } from "./useIntPairDraft";
+import { parseValidInt, useIntPairDraft } from "./useIntPairDraft";
 
 type VarKind = "static" | GenSpec["gen"];
 
@@ -19,14 +21,18 @@ const CUSTOM_FORMAT = "__custom__";
 const TZ_WORKER_LOCAL = "__worker__";
 
 /** 생성기 값의 "예:" 샘플 줄 — 접힘 요약 행(VariablesPanel)과 이 펼침 편집기가 공유하는
- *  단일 소스(genSummary 선례와 동형). 파라미터 변경·재렌더마다 즉시 재계산(US4). */
-export function GenSampleLine({ spec }: { spec: GenSpec }) {
-  const sample = sampleFor(spec);
+ *  단일 소스(genSummary 선례와 동형). (name·spec·tick)의 결정적 함수라 무관 재렌더·검색
+ *  타이핑에는 안 바뀌고(US2), 파라미터 draft 변경·↻ 클릭에만 재계산(US1/US2). block truncate
+ *  + title(전문) — 좁은 열에서 잘려도 전체 텍스트를 hover로 확인 가능. */
+export function GenSampleLine({ spec, name, tick }: { spec: GenSpec; name: string; tick: number }) {
+  const sample = samplePreview(spec, name, tick);
+  const display =
+    sample.kind === "ok"
+      ? `${ko.editor.genSamplePrefix} ${sample.text}`
+      : ko.editor.genSampleUnsupported;
   return (
-    <span className="text-slate-400">
-      {sample.kind === "ok"
-        ? `${ko.editor.genSamplePrefix} ${sample.text}`
-        : ko.editor.genSampleUnsupported}
+    <span className="block min-w-0 truncate text-slate-400" title={display}>
+      {display}
     </span>
   );
 }
@@ -52,12 +58,16 @@ export function GenVarEditor({
   name,
   value,
   disabled,
+  sampleTick,
+  onSampleRefresh,
   onCommitGen,
   onCommitStatic,
 }: {
   name: string;
   value: VarDeclValue;
   disabled: boolean;
+  sampleTick: number;
+  onSampleRefresh: () => void;
   onCommitGen: (spec: GenSpec) => void;
   onCommitStatic: (v: string) => void;
 }) {
@@ -199,6 +209,28 @@ export function GenVarEditor({
       setLengthDraft(strSpec.length !== undefined ? String(strSpec.length) : "8"); // revert
     }
   };
+
+  // 미리보기 전용 스펙 도출(US1) — 커밋 경계는 그대로 blur/즉시-커밋(동작-보존)이지만, 예시는
+  // draft 값을 즉시 반영한다. 무효 draft(파싱 실패·범위 밖)는 커밋값(spec) 기준으로 유지한다.
+  const previewSpec: GenSpec | null = strSpec
+    ? (() => {
+        const n = lengthDraftValue(lengthDraft);
+        return n === null ? strSpec : { ...strSpec, length: n };
+      })()
+    : intSpec
+      ? {
+          ...intSpec,
+          ...(() => {
+            const minN = parseValidInt(minProps.value);
+            const maxN = parseValidInt(maxProps.value);
+            return minN !== null && maxN !== null && minN <= maxN ? { min: minN, max: maxN } : {};
+          })(),
+          ...(() => {
+            const st = stepDraftValue(stepDraft);
+            return st !== null ? { step: st } : {};
+          })(),
+        }
+      : spec; // date/uuid — draft 겹침 없음
 
   return (
     <div className="mt-1 flex flex-col gap-2 rounded border border-slate-200 bg-slate-50 p-2">
@@ -345,9 +377,18 @@ export function GenVarEditor({
         </div>
       )}
 
-      {spec && (
-        <div className="text-xs">
-          <GenSampleLine spec={spec} />
+      {previewSpec && (
+        <div className="flex items-center gap-1 text-xs">
+          <GenSampleLine spec={previewSpec} name={name} tick={sampleTick} />
+          <button
+            type="button"
+            aria-label={ko.editor.genSampleRefreshAria(name)}
+            title={ko.editor.genSampleRefreshTitle}
+            onClick={onSampleRefresh}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-accent-600"
+          >
+            <span aria-hidden="true">↻</span>
+          </button>
         </div>
       )}
     </div>

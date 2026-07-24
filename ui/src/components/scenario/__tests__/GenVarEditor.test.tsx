@@ -3,27 +3,31 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GenVarEditor } from "../GenVarEditor";
 import { ko } from "../../../i18n/ko";
-import type { GenSpec, VarDeclValue } from "../../../scenario/genVars";
+import { samplePreview, type GenSpec, type VarDeclValue } from "../../../scenario/genVars";
 
 /** 표준 하니스 — GenVarEditor는 프레젠테이셔널이라 store 접촉 없이 콜백만 스파이한다.
  *  "outside" 형제 버튼은 min/max 짝-hold 테스트가 짝 *바깥*으로 포커스를 옮기는 데 쓴다
- *  (useThinkTimePair.test.tsx의 Harness 이디엄과 동일). */
+ *  (useThinkTimePair.test.tsx의 Harness 이디엄과 동일). sampleTick/onSampleRefresh는 T2
+ *  신규 필수 props — 모든 기존 케이스는 tick=0(결정적) + no-op 스파이로 동작-보존. */
 function setup(value: VarDeclValue, disabled = false) {
   const onCommitGen = vi.fn();
   const onCommitStatic = vi.fn();
+  const onSampleRefresh = vi.fn();
   render(
     <div>
       <GenVarEditor
         name="checkin"
         value={value}
         disabled={disabled}
+        sampleTick={0}
+        onSampleRefresh={onSampleRefresh}
         onCommitGen={onCommitGen}
         onCommitStatic={onCommitStatic}
       />
       <button type="button">outside</button>
     </div>,
   );
-  return { onCommitGen, onCommitStatic };
+  return { onCommitGen, onCommitStatic, onSampleRefresh };
 }
 
 describe("GenVarEditor — 타입 select + 전환", () => {
@@ -321,6 +325,20 @@ describe("GenVarEditor — 랜덤 정수", () => {
       screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") }),
     ).toBeInTheDocument();
   });
+
+  it("US1: min/max draft 변경 즉시 예시가 새 구간을 반영한다", () => {
+    const spec: GenSpec = { gen: "random_int", min: 1, max: 100 };
+    setup(spec);
+    fireEvent.change(screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") }), {
+      target: { value: "500" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: ko.editor.genFieldMax("checkin") }), {
+      target: { value: "600" },
+    });
+    const expected = samplePreview({ gen: "random_int", min: 500, max: 600 }, "checkin", 0);
+    if (expected.kind !== "ok") throw new Error("expected ok");
+    expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
+  });
 });
 
 describe("GenVarEditor — 랜덤 문자열", () => {
@@ -367,9 +385,34 @@ describe("GenVarEditor — 랜덤 문자열", () => {
       screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") }),
     ).toBeInTheDocument();
   });
+
+  it("US1: 길이 draft 변경(blur 없이) 즉시 예시가 새 길이를 반영한다", () => {
+    const spec: GenSpec = { gen: "random_string", length: 8 };
+    const { onCommitGen } = setup(spec);
+    const len = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    fireEvent.change(len, { target: { value: "12" } });
+    const expected = samplePreview({ gen: "random_string", length: 12 }, "checkin", 0);
+    if (expected.kind !== "ok") throw new Error("expected ok");
+    expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
+    expect(onCommitGen).not.toHaveBeenCalled(); // 커밋 경계는 여전히 blur(동작-보존)
+  });
+
+  it("US1: 무효 길이 draft(0)는 예시를 커밋값 기준으로 유지한다", () => {
+    const spec: GenSpec = { gen: "random_string", length: 8 };
+    setup(spec);
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") }),
+      {
+        target: { value: "0" },
+      },
+    );
+    const expected = samplePreview(spec, "checkin", 0);
+    if (expected.kind !== "ok") throw new Error("expected ok");
+    expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
+  });
 });
 
-describe("GenVarEditor — 샘플 미리보기 (US4)", () => {
+describe("GenVarEditor — 샘플 미리보기", () => {
   it("지원 밖 포맷(%j)은 '미리보기 불가' 문구를 보인다(거짓 미리보기 금지)", () => {
     setup({ gen: "date", format: "%j", tz: "UTC" });
     expect(screen.getByText(ko.editor.genSampleUnsupported)).toBeInTheDocument();
@@ -380,13 +423,15 @@ describe("GenVarEditor — 샘플 미리보기 (US4)", () => {
     expect(screen.getByText(new RegExp(`^${ko.editor.genSamplePrefix}`))).toBeInTheDocument();
   });
 
-  it("US4: 값 prop이 갱신되면(커밋 후 부모 재전달을 흉내) 샘플이 즉시 재계산된다", () => {
+  it("값 prop이 갱신되면(커밋 후 부모 재전달을 흉내) 샘플이 즉시 재계산된다", () => {
     const onCommitGen = vi.fn();
     const { rerender } = render(
       <GenVarEditor
         name="checkin"
         value={{ gen: "date", format: "%j", tz: "UTC" }}
         disabled={false}
+        sampleTick={0}
+        onSampleRefresh={vi.fn()}
         onCommitGen={onCommitGen}
         onCommitStatic={vi.fn()}
       />,
@@ -397,11 +442,34 @@ describe("GenVarEditor — 샘플 미리보기 (US4)", () => {
         name="checkin"
         value={{ gen: "date", format: "%Y-%m-%d", tz: "UTC" }}
         disabled={false}
+        sampleTick={0}
+        onSampleRefresh={vi.fn()}
         onCommitGen={onCommitGen}
         onCommitStatic={vi.fn()}
       />,
     );
     expect(screen.queryByText(ko.editor.genSampleUnsupported)).toBeNull();
     expect(screen.getByText(new RegExp(`^${ko.editor.genSamplePrefix}`))).toBeInTheDocument();
+  });
+
+  it("↻ 버튼: onSampleRefresh 호출 + aria/title 계약 + yamlError(disabled)에도 활성", () => {
+    const spec: GenSpec = { gen: "random_string", length: 8 };
+    const onSampleRefresh = vi.fn();
+    render(
+      <GenVarEditor
+        name="checkin"
+        value={spec}
+        disabled={true}
+        sampleTick={0}
+        onSampleRefresh={onSampleRefresh}
+        onCommitGen={vi.fn()}
+        onCommitStatic={vi.fn()}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: ko.editor.genSampleRefreshAria("checkin") });
+    expect(btn).toHaveAttribute("title", ko.editor.genSampleRefreshTitle);
+    expect(btn).toBeEnabled(); // 미리보기-전용 로컬 조작 — 읽기 전용 크롬
+    fireEvent.click(btn);
+    expect(onSampleRefresh).toHaveBeenCalledTimes(1);
   });
 });

@@ -540,6 +540,9 @@ export const ko = {
     genStepUnit: "단위",
     genSamplePrefix: "예:",
     genSampleUnsupported: "미리보기 불가 — 실행 시 적용",
+    // ── 예시 안정화 배선 (genvar-preview-ux T2) ──
+    genSampleRefreshAria: (name: string) => `${name} 예시 다시 뽑기`,
+    genSampleRefreshTitle: "다시 뽑기 — 실행 시 반복마다 새 값이 생성됩니다",
     // ── 생성기 펼침 편집기 필드 (dynamic-vars T6) ──
     genFieldType: (name: string) => `${name} 타입`,
     genFieldFormatPreset: (name: string) => `${name} 날짜 형식`,

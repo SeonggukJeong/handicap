@@ -100,6 +100,10 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const [editing, setEditing] = useState<EditKey | null>(null); // rename 중인 행 식별
   const [draft, setDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
+  // 예시 안정화(US2) — 변수명별 재추첨 틱. 검색/펼침/다른 변수 편집 같은 무관 재렌더에는
+  // 안 바뀌고, GenVarEditor의 ↻(onSampleRefresh)로만 증가한다(genVars.samplePreview는
+  // (name,spec,tick) 순수함수라 tick 불변=텍스트 불변).
+  const [sampleTicks, setSampleTicks] = useState<Record<string, number>>({});
   // 사용처 팝오버 상태(한 번에 하나만 열림) — 앵커 엘리먼트를 들고 있어야
   // VarUsagePopover가 portal-fixed 위치를 계산한다(#3).
   const [usageNav, setUsageNav] = useState<{
@@ -339,13 +343,21 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     name={row.name}
                     value={row.value}
                     disabled={yamlError !== null}
+                    sampleTick={sampleTicks[row.name] ?? 0}
+                    onSampleRefresh={() =>
+                      setSampleTicks((prev) => ({ ...prev, [row.name]: (prev[row.name] ?? 0) + 1 }))
+                    }
                     onCommitGen={(spec) => setVariableGen(row.name, spec)}
                     onCommitStatic={(v) => setVariable(row.name, v)}
                   />
                 ) : isGenSpec(row.value) ? (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                     <span>{genSummary(row.value)}</span>
-                    <GenSampleLine spec={row.value} />
+                    <GenSampleLine
+                      spec={row.value}
+                      name={row.name}
+                      tick={sampleTicks[row.name] ?? 0}
+                    />
                   </div>
                 ) : (
                   <AutoGrowTextarea

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { VariablesPanel } from "../VariablesPanel";
 import { useScenarioEditor } from "../../../scenario/store";
 import { ko } from "../../../i18n/ko";
+import { samplePreview } from "../../../scenario/genVars";
 
 const reset = () =>
   useScenarioEditor.setState(
@@ -1243,5 +1244,51 @@ steps:
     expect(
       screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }),
     ).toBeDisabled();
+  });
+});
+
+describe("VariablesPanel — 예시 안정화(틱 lift) (genvar-preview-ux T2, US2)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  // 시딩 이디엄(위 T6 describe의 GEN_SCENARIO와 동형): loadFromString 후 render
+  const RS_SCENARIO = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  sid:
+    gen: random_string
+    length: 8
+steps:
+  - id: 01HX0000000000000000000001
+    name: s
+    type: http
+    request:
+      method: GET
+      url: "/x?s={{sid}}"
+      headers: {}
+`;
+
+  it("US2: 검색 타이핑 등 무관 재렌더에 접힘 예시가 바뀌지 않는다(결정적 텍스트)", async () => {
+    useScenarioEditor.getState().loadFromString(RS_SCENARIO);
+    render(<VariablesPanel />);
+    const expected = samplePreview({ gen: "random_string", length: 8 }, "sid", 0);
+    if (expected.kind !== "ok") throw new Error("expected ok");
+    const line = `${ko.editor.genSamplePrefix} ${expected.text}`;
+    expect(screen.getByTitle(line)).toBeInTheDocument();
+    await userEvent.setup().type(screen.getByPlaceholderText(ko.editor.varSearchPlaceholder), "si");
+    expect(screen.getByTitle(line)).toBeInTheDocument(); // 동일 텍스트 그대로
+  });
+
+  it("US2: 펼침→↻→접힘 후에도 갱신된 예시가 유지된다(틱 lift)", async () => {
+    useScenarioEditor.getState().loadFromString(RS_SCENARIO);
+    render(<VariablesPanel />);
+    const user = userEvent.setup();
+    // sid 행 펼침 → ↻ 클릭 → 접힘
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("sid") }));
+    await user.click(screen.getByRole("button", { name: ko.editor.genSampleRefreshAria("sid") }));
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("sid") }));
+    const expected = samplePreview({ gen: "random_string", length: 8 }, "sid", 1);
+    if (expected.kind !== "ok") throw new Error("expected ok");
+    expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
   });
 });
