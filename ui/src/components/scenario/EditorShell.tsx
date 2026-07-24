@@ -9,6 +9,7 @@ import { TestFlowChips } from "./TestFlowChips";
 import { ValidationBanner } from "./ValidationBanner";
 import { VariablesPanel } from "./VariablesPanel";
 import { ScenarioDefaults } from "./ScenarioDefaults";
+import { ScenarioNotesCallout } from "./ScenarioNotesCallout";
 import { ThinkTimeBoard } from "./ThinkTimeBoard";
 import type { Step } from "../../scenario/model";
 
@@ -77,6 +78,7 @@ export function EditorShell({
 
   return (
     <div className="flex flex-col gap-3">
+      <ScenarioNotesCallout />
       <ValidationBanner onOpenYaml={() => setYamlOpen(true)} />
       <div className="flex items-center gap-2">
         <button

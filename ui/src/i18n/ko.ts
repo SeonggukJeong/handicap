@@ -415,6 +415,23 @@ export const ko = {
     deleteFailed: (msg: string) => `삭제 실패: ${msg}`,
     cloneFailed: (msg: string) => `복제 실패: ${msg}`,
   },
+  // ── 시나리오 공유 메모 (scenario-notes) ──
+  scenarioNotes: {
+    title: "공유 메모",
+    addLine: "＋ 공유 메모 추가 — 팀원에게 전할 주의점을 남겨두세요",
+    addAria: "공유 메모 추가",
+    collapse: "접기",
+    collapseAria: "공유 메모 접기",
+    expand: "펼치기",
+    expandAria: "공유 메모 펼치기",
+    edit: "편집",
+    editAria: "공유 메모 편집",
+    done: "완료",
+    doneAria: "공유 메모 편집 완료",
+    cancel: "취소",
+    cancelAria: "공유 메모 편집 취소",
+    textareaAria: "공유 메모 내용",
+  },
   editor: {
     // ── 스텝 설정 패널(구 Inspector) ──
     inspectorAria: "스텝 설정",
