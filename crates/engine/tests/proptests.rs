@@ -237,6 +237,7 @@ fn arb_scenario() -> impl Strategy<Value = Scenario> {
             name,
             cookie_jar,
             default_think_time: None,
+            notes: None,
             variables,
             steps,
         })

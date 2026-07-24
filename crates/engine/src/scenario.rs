@@ -25,6 +25,10 @@ pub struct Scenario {
     /// 분기 스텝에 **명시된** `think_time`은 지금처럼 적용된다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_think_time: Option<ThinkTime>,
+    /// 팀 공유용 메모(2026-07-24 scenario-notes). 운반-전용 — 실행 경로(runner/trace/
+    /// 템플릿)는 이 값을 읽지 않는다. 없으면 직렬화 생략(기존 YAML byte-identical).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
     pub steps: Vec<Step>,
 }
 
