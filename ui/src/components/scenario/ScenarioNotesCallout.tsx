@@ -46,7 +46,7 @@ export function ScenarioNotesCallout() {
     const full = el.scrollHeight;
     if (full === 0) return; // jsdom — 레이아웃 미구현
     el.style.height = `${Math.min(full, INITIAL_CLAMP_PX)}px`;
-  }, [editing, notes]);
+  }, [editing, notes, collapsed]);
 
   if (model === null) return null; // YAML 파싱 불가 — 죽은 진입 라인 노출 금지(spec)
 
