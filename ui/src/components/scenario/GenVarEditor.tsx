@@ -232,6 +232,22 @@ export function GenVarEditor({
         }
       : spec; // date/uuid — draft 겹침 없음
 
+  // 무효 draft 인라인 안내(US3/US4) — 파생 표시 전용, commit 함수·useIntPairDraft 로직은
+  // 무변경. 빈 draft는 "아직 미편집"이라 안내 대상이 아니다(trim !== "" 게이트).
+  const lengthInvalid =
+    strSpec !== null && lengthDraft.trim() !== "" && lengthDraftValue(lengthDraft) === null;
+  const stepInvalid =
+    intSpec !== null && stepDraft.trim() !== "" && stepDraftValue(stepDraft) === null;
+  const minNotInt =
+    intSpec !== null && minProps.value.trim() !== "" && parseValidInt(minProps.value) === null;
+  const maxNotInt =
+    intSpec !== null && maxProps.value.trim() !== "" && parseValidInt(maxProps.value) === null;
+  const pairMin = parseValidInt(minProps.value);
+  const pairMax = parseValidInt(maxProps.value);
+  const minMaxConflict =
+    intSpec !== null && pairMin !== null && pairMax !== null && pairMin > pairMax;
+  const minMaxConflictId = `genvar-minmax-conflict-${name}`;
+
   return (
     <div className="mt-1 flex flex-col gap-2 rounded border border-slate-200 bg-slate-50 p-2">
       <div className="w-36">
@@ -320,43 +336,66 @@ export function GenVarEditor({
       )}
 
       {intSpec && (
-        <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
-          <GenField label={ko.editor.genFieldLabelMin}>
-            <Input
-              size="sm"
-              numeric
-              type="number"
-              aria-label={ko.editor.genFieldMin(name)}
-              disabled={disabled}
-              className="w-20"
-              {...minProps}
-            />
-          </GenField>
-          <GenField label={ko.editor.genFieldLabelMax}>
-            <Input
-              size="sm"
-              numeric
-              type="number"
-              aria-label={ko.editor.genFieldMax(name)}
-              disabled={disabled}
-              className="w-20"
-              {...maxProps}
-            />
-          </GenField>
-          <GenField label={ko.editor.genStepUnit}>
-            <Input
-              size="sm"
-              numeric
-              type="number"
-              aria-label={ko.editor.genFieldStep(name)}
-              disabled={disabled}
-              className="w-16"
-              value={stepDraft}
-              onChange={(e) => setStepDraft(e.target.value)}
-              onBlur={commitStep}
-            />
-          </GenField>
-        </div>
+        <>
+          <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+            <GenField label={ko.editor.genFieldLabelMin}>
+              <Input
+                size="sm"
+                numeric
+                type="number"
+                aria-label={ko.editor.genFieldMin(name)}
+                disabled={disabled}
+                className="w-20"
+                aria-invalid={minNotInt || minMaxConflict || undefined}
+                aria-describedby={minMaxConflict ? minMaxConflictId : undefined}
+                {...minProps}
+              />
+              {minNotInt && (
+                <p className="mt-0.5 text-xs text-red-600">{ko.editor.genIntInvalid}</p>
+              )}
+            </GenField>
+            <GenField label={ko.editor.genFieldLabelMax}>
+              <Input
+                size="sm"
+                numeric
+                type="number"
+                aria-label={ko.editor.genFieldMax(name)}
+                disabled={disabled}
+                className="w-20"
+                aria-invalid={maxNotInt || minMaxConflict || undefined}
+                aria-describedby={minMaxConflict ? minMaxConflictId : undefined}
+                {...maxProps}
+              />
+              {maxNotInt && (
+                <p className="mt-0.5 text-xs text-red-600">{ko.editor.genIntInvalid}</p>
+              )}
+            </GenField>
+            <GenField label={ko.editor.genStepUnit}>
+              <Input
+                size="sm"
+                numeric
+                type="number"
+                aria-label={ko.editor.genFieldStep(name)}
+                disabled={disabled}
+                className="w-16"
+                min={1}
+                step={1}
+                aria-invalid={stepInvalid || undefined}
+                value={stepDraft}
+                onChange={(e) => setStepDraft(e.target.value)}
+                onBlur={commitStep}
+              />
+              {stepInvalid && (
+                <p className="mt-0.5 text-xs text-red-600">{ko.editor.genStepInvalid}</p>
+              )}
+            </GenField>
+          </div>
+          {minMaxConflict && (
+            <p id={minMaxConflictId} className="mt-0.5 text-xs text-red-600">
+              {ko.editor.genMinMaxConflict}
+            </p>
+          )}
+        </>
       )}
 
       {strSpec && (
@@ -369,10 +408,17 @@ export function GenVarEditor({
               aria-label={ko.editor.genFieldLength(name)}
               disabled={disabled}
               className="w-16"
+              min={1}
+              max={64}
+              step={1}
+              aria-invalid={lengthInvalid || undefined}
               value={lengthDraft}
               onChange={(e) => setLengthDraft(e.target.value)}
               onBlur={commitLength}
             />
+            {lengthInvalid && (
+              <p className="mt-0.5 text-xs text-red-600">{ko.editor.genLengthInvalid}</p>
+            )}
           </GenField>
         </div>
       )}

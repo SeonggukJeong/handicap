@@ -564,6 +564,11 @@ export const ko = {
     genFieldLabelTz: "타임존",
     genFieldLabelFormat: "날짜 형식",
     genFieldLabelCustomFormat: "형식 문자열",
+    // ── gen 입력 구속 + 인라인 안내 (genvar-preview-ux T3) ──
+    genLengthInvalid: "1~64 사이 정수만 적용됩니다",
+    genStepInvalid: "단위는 1 이상 정수만 적용됩니다",
+    genIntInvalid: "정수만 입력할 수 있습니다",
+    genMinMaxConflict: "최소가 최대보다 커서 적용되지 않습니다",
     // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
     scenarioDefaultsTitle: "시나리오 기본값",
     defaultThinkSetHint: "설정됨",

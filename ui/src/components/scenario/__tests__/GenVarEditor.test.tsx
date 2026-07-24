@@ -339,6 +339,45 @@ describe("GenVarEditor — 랜덤 정수", () => {
     if (expected.kind !== "ok") throw new Error("expected ok");
     expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
   });
+
+  it("단위(step) 무효 draft 안내 + min=1 속성", () => {
+    setup({ gen: "random_int", min: 1, max: 100, step: 5 });
+    const st = screen.getByRole("spinbutton", { name: ko.editor.genFieldStep("checkin") });
+    expect(st).toHaveAttribute("min", "1");
+    for (const bad of ["0", "-1", "1.5"]) {
+      fireEvent.change(st, { target: { value: bad } });
+      expect(screen.getByText(ko.editor.genStepInvalid)).toBeInTheDocument();
+      expect(st).toHaveAttribute("aria-invalid", "true");
+    }
+  });
+
+  it("최소/최대 비정수 draft는 per-field 안내", () => {
+    // "abc" 등 순수 비숫자 문자열은 브리프 원안이지만, HTML5 number-input value
+    // sanitization(스펙+jsdom 실측 — /tmp probe로 확인)이 저장 *전에* ""로 지워버려
+    // 검증 로직에 도달 못 한다. "1.5"는 유효 float 문자열이라 살아남으면서도
+    // parseValidInt(정수 전용 regex)엔 걸려 같은 genIntInvalid 분기를 태운다.
+    setup({ gen: "random_int", min: 1, max: 100 });
+    fireEvent.change(screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") }), {
+      target: { value: "1.5" },
+    });
+    expect(screen.getByText(ko.editor.genIntInvalid)).toBeInTheDocument();
+  });
+
+  it("US4: min>max면 적용되지 않음 안내 + 양측 aria-invalid + describedby, blur해도 no-op(정책 불변)", () => {
+    const { onCommitGen } = setup({ gen: "random_int", min: 1, max: 100 });
+    const min = screen.getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") });
+    const max = screen.getByRole("spinbutton", { name: ko.editor.genFieldMax("checkin") });
+    fireEvent.change(min, { target: { value: "500" } });
+    fireEvent.change(max, { target: { value: "200" } });
+    const msg = screen.getByText(ko.editor.genMinMaxConflict); // 전문 exact
+    expect(min).toHaveAttribute("aria-invalid", "true");
+    expect(max).toHaveAttribute("aria-invalid", "true");
+    expect(min.getAttribute("aria-describedby")).toBe(msg.id);
+    fireEvent.blur(max); // relatedTarget=null → 짝-hold 미발동 → commit 경로 → min>max no-op
+    expect(onCommitGen).not.toHaveBeenCalled();
+    expect((min as HTMLInputElement).value).toBe("500"); // draft 보존(기존 동작)
+    expect(screen.getByText(ko.editor.genMinMaxConflict)).toBeInTheDocument(); // 안내는 남는다
+  });
 });
 
 describe("GenVarEditor — 랜덤 문자열", () => {
@@ -361,6 +400,37 @@ describe("GenVarEditor — 랜덤 문자열", () => {
     fireEvent.blur(input);
     expect(onCommitGen).not.toHaveBeenCalled();
     expect(input.value).toBe("8");
+  });
+
+  it("US3: 길이 input은 native 구속 속성(min/max/step)을 갖는다", () => {
+    setup({ gen: "random_string", length: 8 });
+    const len = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    expect(len).toHaveAttribute("min", "1");
+    expect(len).toHaveAttribute("max", "64");
+    expect(len).toHaveAttribute("step", "1");
+  });
+
+  it("US3: 범위 밖 길이 draft는 그 자리에서 안내 + aria-invalid", () => {
+    setup({ gen: "random_string", length: 8 });
+    const len = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    for (const bad of ["0", "-1", "65", "3.5"]) {
+      fireEvent.change(len, { target: { value: bad } });
+      expect(screen.getByText(ko.editor.genLengthInvalid)).toBeInTheDocument(); // 전문 exact
+      expect(len).toHaveAttribute("aria-invalid", "true");
+    }
+    fireEvent.change(len, { target: { value: "12" } });
+    expect(screen.queryByText(ko.editor.genLengthInvalid)).not.toBeInTheDocument();
+    expect(len).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("US3 특성화: 무효 길이는 blur 시 기존대로 revert되고 안내도 사라진다(정책 불변)", () => {
+    const { onCommitGen } = setup({ gen: "random_string", length: 8 });
+    const len = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    fireEvent.change(len, { target: { value: "65" } });
+    fireEvent.blur(len);
+    expect(onCommitGen).not.toHaveBeenCalled();
+    expect((len as HTMLInputElement).value).toBe("8"); // revert(기존 동작)
+    expect(screen.queryByText(ko.editor.genLengthInvalid)).not.toBeInTheDocument();
   });
 
   it("길이 필드를 편집 없이 blur만 하면(spec에 length 키 없음, draft 기본값 8) 커밋 0회 (Finding 2, 왕복 불변식)", () => {
