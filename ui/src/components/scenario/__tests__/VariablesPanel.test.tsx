@@ -1247,6 +1247,56 @@ steps:
   });
 });
 
+describe("VariablesPanel — 배지 이동·요약 2행 레이아웃 (genvar-preview-ux T4, US5)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  const BADGE_SCENARIO = `version: 1
+name: t
+cookie_jar: auto
+variables:
+  sid:
+    gen: random_string
+    length: 12
+  oid:
+    gen: uuid
+steps:
+  - id: 01HX0000000000000000000001
+    name: s
+    type: http
+    request:
+      method: GET
+      url: "/x?s={{sid}}&o={{oid}}"
+      headers: {}
+`;
+
+  it("US5: 타입 배지는 헤더 행이 아니라 요약 줄에 있다(배지로 인한 헤더 꺾임 원인 제거)", () => {
+    useScenarioEditor.getState().loadFromString(BADGE_SCENARIO);
+    render(<VariablesPanel />);
+    const li = screen.getByRole("button", { name: ko.editor.varExpandAria("sid") }).closest("li")!;
+    const headerRow = li.firstElementChild!; // 밀집 행(토글+이름+연필+ml-auto 묶음)
+    expect(headerRow.querySelector(".bg-indigo-50")).toBeNull();
+    const badge = li.querySelector(".bg-indigo-50")!; // 요약 줄의 배지
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe(ko.editor.genTypeRandomString);
+    expect(headerRow.contains(badge)).toBe(false);
+  });
+
+  it("US5: 요약 줄은 파라미터만(타입명 중복 없음) + title 전문, uuid는 배지 단독", () => {
+    useScenarioEditor.getState().loadFromString(BADGE_SCENARIO);
+    render(<VariablesPanel />);
+    expect(screen.getByText("12자")).toBeInTheDocument();
+    expect(screen.getByText("12자").closest("[title]")!.getAttribute("title")).toBe(
+      "랜덤 문자열 · 12자",
+    );
+    const uuidLi = screen
+      .getByRole("button", { name: ko.editor.varExpandAria("oid") })
+      .closest("li")!;
+    expect(uuidLi.querySelector(".bg-indigo-50")!.closest("[title]")!.getAttribute("title")).toBe(
+      "UUID",
+    );
+  });
+});
+
 describe("VariablesPanel — 예시 안정화(틱 lift) (genvar-preview-ux T2, US2)", () => {
   beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
 

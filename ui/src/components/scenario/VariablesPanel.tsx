@@ -16,9 +16,10 @@ import {
 } from "../../scenario/scanVars";
 import {
   declSearchText,
-  genSummary,
+  genParamsSummary,
   genTypeLabel,
   isGenSpec,
+  type GenSpec,
   type VarDeclValue,
 } from "../../scenario/genVars";
 import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
@@ -70,6 +71,13 @@ function undefinedBranchHint(
   if (refKind === "sibling") return ko.editor.variableSiblingBranchHint;
   if (candidates.length === 1) return ko.editor.variableBranchCandidateHint(candidates[0], name);
   return ko.editor.variableBranchCandidatesHint(candidates, name);
+}
+
+/** 접힘 요약 줄의 배지 title(전문) — 파라미터가 없으면(uuid) 타입명 단독, 있으면
+ *  "타입명 · 파라미터"(요약 줄 시각 표시와 동형, US5). */
+function genRowTitle(spec: GenSpec): string {
+  const params = genParamsSummary(spec);
+  return params === "" ? genTypeLabel(spec) : `${genTypeLabel(spec)} · ${params}`;
 }
 
 export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) => void }) {
@@ -310,15 +318,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       {row.name}
                     </span>
                   )}
-                  {isGenSpec(row.value) && (
-                    <span
-                      className="shrink-0 rounded bg-indigo-50 px-1.5 text-xs text-indigo-600"
-                      title={genSummary(row.value)}
-                    >
-                      {genTypeLabel(row.value)}
-                    </span>
-                  )}
-                  {/* 배지+×는 한 묶음으로 wrap — ×만 단독 줄바꿈 방지 */}
+                  {/* ×는 한 묶음으로 wrap — 단독 줄바꿈 방지(타입 배지는 US5로 요약 줄 이동) */}
                   <span className="ml-auto flex shrink-0 items-center gap-x-2">
                     {row.overwritten && (
                       <span
@@ -351,8 +351,18 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     onCommitStatic={(v) => setVariable(row.name, v)}
                   />
                 ) : isGenSpec(row.value) ? (
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                    <span>{genSummary(row.value)}</span>
+                  <div className="flex min-w-0 flex-col gap-0.5 text-xs text-slate-500">
+                    <div
+                      className="flex min-w-0 items-center gap-x-1.5"
+                      title={genRowTitle(row.value)}
+                    >
+                      <span className="shrink-0 rounded bg-indigo-50 px-1.5 text-xs text-indigo-600">
+                        {genTypeLabel(row.value)}
+                      </span>
+                      {genParamsSummary(row.value) !== "" && (
+                        <span className="min-w-0 truncate">{genParamsSummary(row.value)}</span>
+                      )}
+                    </div>
                     <GenSampleLine
                       spec={row.value}
                       name={row.name}

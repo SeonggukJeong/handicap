@@ -378,6 +378,16 @@ describe("GenVarEditor — 랜덤 정수", () => {
     expect((min as HTMLInputElement).value).toBe("500"); // draft 보존(기존 동작)
     expect(screen.getByText(ko.editor.genMinMaxConflict)).toBeInTheDocument(); // 안내는 남는다
   });
+
+  it("random_int 필드 컨테이너는 폭-적응 그리드, random_string 길이는 w-16 유지", () => {
+    setup({ gen: "random_int", min: 1, max: 100 });
+    const grid = screen
+      .getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") })
+      .closest("div.grid")!; // 그리드 전환 전(RED)엔 null → `!` deref throw = RED
+    const tokens = grid.className.split(/\s+/);
+    expect(tokens).toContain("grid");
+    expect(tokens).toContain("grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))]");
+  });
 });
 
 describe("GenVarEditor — 랜덤 문자열", () => {

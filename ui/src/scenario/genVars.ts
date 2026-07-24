@@ -62,22 +62,6 @@ export function genTypeLabel(spec: GenSpec): string {
   }
 }
 
-export function genSummary(spec: GenSpec): string {
-  switch (spec.gen) {
-    case "date":
-      return `${offsetKo(spec.offset)} · ${spec.tz ?? ko.editor.genTzWorkerLocal}`;
-    case "random_int": {
-      const base = `${spec.min} ~ ${spec.max}`;
-      const step = spec.step ?? 1;
-      return step === 1 ? base : `${base} · ${step} ${ko.editor.genStepUnit}`;
-    }
-    case "uuid":
-      return ko.editor.genTypeUuid;
-    case "random_string":
-      return `${ko.editor.genTypeRandomString} · ${spec.length ?? 8}`;
-  }
-}
-
 export function canonicalGenKey(spec: GenSpec): string {
   switch (spec.gen) {
     case "date":

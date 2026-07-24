@@ -123,8 +123,8 @@ describe("생성 변수 — 페이지 통합 스모크 + YAML 왕복 락인 (dyn
     ];
     for (const [name, label] of badges) {
       const li = screen.getByRole("button", { name: ko.editor.varExpandAria(name) }).closest("li")!;
-      // 배지는 header row(li의 첫 자식 div)에만 있다 — uuid는 genTypeLabel과 genSummary가
-      // 둘 다 "UUID"라 li 전체 getByText는 접힘 요약줄과 다중매치(false ambiguity, 버그
+      // 배지는 접힘 요약 줄에 있다(li-스코프 querySelector라 위치 이동에도 유효) — uuid는
+      // genTypeLabel이 "UUID"라 li 전체 getByText는 배지와 다중매치(false ambiguity, 버그
       // 아님) → 배지의 고유 클래스(bg-indigo-50)로 정확히 그 요소만 스코프.
       const badge = li.querySelector(".bg-indigo-50");
       expect(badge).not.toBeNull();

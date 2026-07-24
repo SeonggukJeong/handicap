@@ -21,7 +21,7 @@ const CUSTOM_FORMAT = "__custom__";
 const TZ_WORKER_LOCAL = "__worker__";
 
 /** 생성기 값의 "예:" 샘플 줄 — 접힘 요약 행(VariablesPanel)과 이 펼침 편집기가 공유하는
- *  단일 소스(genSummary 선례와 동형). (name·spec·tick)의 결정적 함수라 무관 재렌더·검색
+ *  단일 소스(genParamsSummary 선례와 동형). (name·spec·tick)의 결정적 함수라 무관 재렌더·검색
  *  타이핑에는 안 바뀌고(US2), 파라미터 draft 변경·↻ 클릭에만 재계산(US1/US2). block truncate
  *  + title(전문) — 좁은 열에서 잘려도 전체 텍스트를 hover로 확인 가능. */
 export function GenSampleLine({ spec, name, tick }: { spec: GenSpec; name: string; tick: number }) {
@@ -337,7 +337,7 @@ export function GenVarEditor({
 
       {intSpec && (
         <>
-          <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] items-end gap-x-2 gap-y-1">
             <GenField label={ko.editor.genFieldLabelMin}>
               <Input
                 size="sm"
@@ -345,7 +345,6 @@ export function GenVarEditor({
                 type="number"
                 aria-label={ko.editor.genFieldMin(name)}
                 disabled={disabled}
-                className="w-20"
                 aria-invalid={minNotInt || minMaxConflict || undefined}
                 aria-describedby={minMaxConflict ? minMaxConflictId : undefined}
                 {...minProps}
@@ -361,7 +360,6 @@ export function GenVarEditor({
                 type="number"
                 aria-label={ko.editor.genFieldMax(name)}
                 disabled={disabled}
-                className="w-20"
                 aria-invalid={maxNotInt || minMaxConflict || undefined}
                 aria-describedby={minMaxConflict ? minMaxConflictId : undefined}
                 {...maxProps}
@@ -377,7 +375,6 @@ export function GenVarEditor({
                 type="number"
                 aria-label={ko.editor.genFieldStep(name)}
                 disabled={disabled}
-                className="w-16"
                 min={1}
                 step={1}
                 aria-invalid={stepInvalid || undefined}

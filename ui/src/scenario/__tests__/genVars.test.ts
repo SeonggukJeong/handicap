@@ -160,7 +160,7 @@ describe("canonicalGenKey", () => {
 });
 
 describe("genParamsSummary (타입명 없는 요약)", () => {
-  // 기존 genSummary describe의 date/int 기대값은 그대로, uuid/rs만 새 값
+  // date/int 기대값은 옛 전체-요약 헬퍼와 동일, uuid/rs만 새 값(타입명 없음)
   it("date: offset+tz", () => {
     expect(genParamsSummary({ gen: "date", offset: "+7d", tz: "Asia/Seoul" })).toBe(
       "오늘+7일 · Asia/Seoul",
