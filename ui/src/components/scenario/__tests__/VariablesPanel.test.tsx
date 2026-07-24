@@ -1029,7 +1029,7 @@ steps:
     const nameline = trailer.parentElement!;
     const nt = tokens(nameline);
     expect(nt).toContain("flex-wrap");
-    expect(nt).toContain("gap-x-2");
+    expect(nt).toContain("gap-x-1.5"); // 밀집 행은 gap-x-2보다 좁게 — × 줄바꿈 여유
     expect(nt).toContain("gap-y-1");
     expect(nt).not.toContain("gap-2");
     const nameSpan = within(li).getByTitle("s");
@@ -1217,6 +1217,19 @@ steps:
       ko.editor.genTypeStatic,
     );
     expect(useScenarioEditor.getState().model!.variables.checkin).toBe("");
+  });
+
+  it("펼침 토글은 24px 정사각 히트영역 + text-base 캐럿 + 우측 negative margin(간격·행폭 회수)", () => {
+    useScenarioEditor.getState().loadFromString(GEN_SCENARIO);
+    render(<VariablesPanel />);
+    const toggle = screen.getByRole("button", { name: ko.editor.varExpandAria("checkin") });
+    const t = (toggle.getAttribute("class") ?? "").split(/\s+/);
+    expect(t).toContain("h-6");
+    expect(t).toContain("w-6");
+    expect(t).toContain("text-base");
+    // 히트영역 내부 여백(≈8px)이 gap-x-2와 겹으로 보이지 않게 + 배지 있는 행의 × 줄바꿈 방지
+    expect(t).toContain("-mr-1.5");
+    expect(t).not.toContain("text-xs");
   });
 
   it("yamlError 상태에서는 새 편집 어포던스가 disabled여도 펼침/접힘 토글은 활성 유지", () => {

@@ -285,13 +285,14 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           if (row.kind === "declared") {
             return (
               <li key={`d:${row.name}`} className="flex flex-col gap-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                {/* 밀집 행(토글+이름+연필+배지+×) — gap-x-1.5로 좁혀 배지 있는 이름에서 × 줄바꿈 여유 확보 */}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <button
                     type="button"
                     onClick={() => toggleExpanded(row.name)}
                     aria-expanded={expanded.has(row.name)}
                     aria-label={ko.editor.varExpandAria(row.name)}
-                    className="shrink-0 text-slate-400 hover:text-accent-600 text-xs"
+                    className="-mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-base leading-none text-slate-400 hover:bg-slate-100 hover:text-accent-600"
                   >
                     <span aria-hidden="true">{expanded.has(row.name) ? "▾" : "▸"}</span>
                   </button>
