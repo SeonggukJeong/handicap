@@ -419,7 +419,7 @@ export const ko = {
   scenarioNotes: {
     title: "공유 메모",
     addLine: "＋ 공유 메모 추가 — 팀원에게 전할 주의점을 남겨두세요",
-    addAria: "공유 메모 추가",
+    addAria: "공유 메모 추가 — 팀원에게 전할 주의점을 남겨두세요",
     collapse: "접기",
     collapseAria: "공유 메모 접기",
     expand: "펼치기",

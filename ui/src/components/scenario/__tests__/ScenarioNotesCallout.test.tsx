@@ -136,4 +136,9 @@ describe("ScenarioNotesCallout", () => {
     render(<EditorShell initialYaml={WITH_NOTES} />);
     expect(screen.getByRole("note", { name: ko.scenarioNotes.title })).toBeInTheDocument();
   });
+
+  it("addAria가 가시 CTA 전문을 포함한다 (WCAG 2.5.3 Label-in-Name)", () => {
+    const visibleWithoutSymbol = ko.scenarioNotes.addLine.replace(/^＋\s*/, "");
+    expect(ko.scenarioNotes.addAria).toContain(visibleWithoutSymbol);
+  });
 });
