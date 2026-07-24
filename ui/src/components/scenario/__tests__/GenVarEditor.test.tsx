@@ -379,7 +379,7 @@ describe("GenVarEditor — 랜덤 정수", () => {
     expect(screen.getByText(ko.editor.genMinMaxConflict)).toBeInTheDocument(); // 안내는 남는다
   });
 
-  it("random_int 필드 컨테이너는 폭-적응 그리드, random_string 길이는 w-16 유지", () => {
+  it("random_int 필드 컨테이너는 폭-적응 그리드", () => {
     setup({ gen: "random_int", min: 1, max: 100 });
     const grid = screen
       .getByRole("spinbutton", { name: ko.editor.genFieldMin("checkin") })
@@ -391,6 +391,13 @@ describe("GenVarEditor — 랜덤 정수", () => {
 });
 
 describe("GenVarEditor — 랜덤 문자열", () => {
+  it("길이 필드는 w-16 폭 유지(random_int 그리드 전환과 무관)", () => {
+    setup({ gen: "random_string", length: 8 });
+    const input = screen.getByRole("spinbutton", { name: ko.editor.genFieldLength("checkin") });
+    const tokens = input.className.split(/\s+/);
+    expect(tokens).toContain("w-16");
+  });
+
   it("길이(1~64) draft+blur 커밋", () => {
     const spec: GenSpec = { gen: "random_string", length: 8 };
     const { onCommitGen } = setup(spec);
