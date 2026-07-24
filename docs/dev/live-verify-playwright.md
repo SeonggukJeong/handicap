@@ -87,3 +87,8 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 
 - **행 활성화는 `버튼 바깥` 클릭에서만 발화한다** (`FlowOutline.tsx:294` — `if (!(target).closest("button")) view?.onActivate?.(step.id)`). 스텝 이름 칩이 `<button>`이라 그걸 클릭하면 **선택만 되고 모달은 안 열린다**. `wideOpen && detailOpen && selectedStepId !== null`에서 `detailOpen`만 false로 남아 "왜 안 열리지"가 된다.
 - **행이 뷰포트 밖일 수 있다** — `getBoundingClientRect()`가 `y: -162` 같은 음수면 `page.mouse.click(x, y)`는 엉뚱한 곳을 친다(조용히 아무 일도 안 일어남). 좌표 클릭 대신 **locator 클릭 + `position` 오프셋**(`locator.click({position:{x,y}})`)을 쓰면 Playwright가 스크롤해서 맞춘다.
+
+## Monaco·`/scenarios/new` 진입 (scenario-notes)
+
+- **Monaco는 프로그램 구동 불가** — 번들이 `window.monaco`를 노출하지 않고(`getModels()` 접근 불가) hidden textarea `value`도 빈 문자열. 모달 YAML *읽기*는 `.view-line` DOM 텍스트 추출로(짧은 문서는 가상화에 안 걸림), *쓰기* 검증은 등가 경로(같은 YAML을 API로 인입해 편집화면 표출 실측 + RTL `commitPendingYaml`)로 대체하고 그 근거를 build-log에 기록.
+- **`/scenarios/new`는 에디터가 아니라 템플릿 선택 화면("어떤 시나리오로 시작할까요?")이 먼저 마운트** — 에디터 컴포넌트(공유 메모 진입 라인 등) 검증은 "빈 시나리오" 카드 클릭 후. 진입 직후 컴포넌트가 안 보인다고 mount-path 버그로 오판하지 말 것. 신규 페이지 저장 버튼 라벨은 "저장"이 아니라 **"만들기"**.
