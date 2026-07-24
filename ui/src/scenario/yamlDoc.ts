@@ -32,6 +32,7 @@ export type Edit =
   | { type: "setName"; value: string }
   | { type: "setCookieJar"; value: "auto" | "off" }
   | { type: "setDefaultThinkTime"; value: ThinkTime | undefined }
+  | { type: "setNotes"; value: string | undefined }
   | {
       type: "setStepsThinkTime";
       stepIds: ReadonlyArray<string>;
@@ -153,6 +154,15 @@ export function applyEdit(doc: Document, edit: Edit): void {
           min_ms: edit.value.min_ms,
           max_ms: edit.value.max_ms,
         });
+      }
+      return;
+    case "setNotes":
+      if (edit.value === undefined) {
+        doc.deleteIn(["notes"]);
+      } else {
+        // plainScalar 금지 — PLAIN 강제는 멀티라인을 못 담는다. raw setIn이 setVariable
+        // 이디엄이고, 멀티라인은 yaml 라이브러리가 block scalar로 직렬화한다.
+        doc.setIn(["notes"], edit.value);
       }
       return;
     case "setVariable":
@@ -768,6 +778,7 @@ function normalizeForModel(input: unknown): unknown {
     variables: src.variables ?? {},
     // 루트 allowlist다 — 새 최상위 키는 여기를 통과시켜야 Zod가 본다(없으면 write-only).
     default_think_time: src.default_think_time,
+    notes: src.notes,
     steps: Array.isArray(src.steps) ? src.steps.map(normalizeStep) : [],
   };
   return out;

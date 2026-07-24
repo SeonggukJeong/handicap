@@ -403,6 +403,7 @@ export const ScenarioModel = z
     cookie_jar: CookieJarMode.default("auto"),
     variables: z.record(z.string(), z.union([z.string(), GenSpecModel])).default({}),
     default_think_time: ThinkTimeModel.optional(),
+    notes: z.string().optional(),
     steps: z.array(StepModel).default([]),
   })
   .strict();

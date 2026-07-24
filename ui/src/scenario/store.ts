@@ -53,6 +53,8 @@ export interface ScenarioEditorState {
   setCookieJar(value: "auto" | "off"): void;
   /** 시나리오 기본 think time(모든 http 스텝이 상속; parallel 분기 제외). undefined → 키 제거. */
   setDefaultThinkTime(value: ThinkTime | undefined): void;
+  /** 공유 메모(운반-전용 notes). undefined → 키 제거. */
+  setNotes(value: string | undefined): void;
   /** 여러 http 스텝의 think_time을 한 트랜잭션으로 설정/삭제(현황판 일괄 액션). */
   setStepsThinkTime(stepIds: ReadonlyArray<string>, value: ThinkTime | undefined): void;
   setVariable(key: string, value: string): void;
@@ -162,6 +164,9 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   },
   setDefaultThinkTime(value) {
     dispatch(set, get, { type: "setDefaultThinkTime", value });
+  },
+  setNotes(value) {
+    dispatch(set, get, { type: "setNotes", value });
   },
   setStepsThinkTime(stepIds, value) {
     const model = get().model;
@@ -470,6 +475,7 @@ const actions = (() => {
     setName: s.setName,
     setCookieJar: s.setCookieJar,
     setDefaultThinkTime: s.setDefaultThinkTime,
+    setNotes: s.setNotes,
     setStepsThinkTime: s.setStepsThinkTime,
     setVariable: s.setVariable,
     setVariableGen: s.setVariableGen,
