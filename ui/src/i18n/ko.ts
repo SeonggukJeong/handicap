@@ -1518,11 +1518,16 @@ export const ko = {
     chipUnverifiedSuffix: "(미확인)",
     /** yamlError 판정 보류 (spec §7.4) */
     chipPending: "—",
-    chipAriaGood:
-      "시나리오 신뢰도: 양호 — 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
-    chipAria: (level: string, failed: number) =>
-      `시나리오 신뢰도: ${level}, 고칠 곳 ${failed}개 — 열기`,
-    chipAriaPending: "시나리오 신뢰도: 판정 보류 — 열기",
+    /**
+     * 칩 접근명 **꼬리** (WCAG 2.5.3 Label in Name) — 접근명 = `가시 라벨 + " " + 꼬리`.
+     * 가시 라벨(`신뢰도 · <등급>[ N][ (미확인)]`)이 그대로 접근명 접두가 되므로 꼬리만 둔다.
+     */
+    chipAriaTailGood:
+      "— 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
+    /** 가시 라벨의 맨숫자(`보완 필요 2`의 2)를 해설한다 — 숫자 단독은 접근명에서 무의미. */
+    chipAriaTail: (failed: number) => `— 고칠 곳 ${failed}개. 열기`,
+    /** 보류 칩의 가시 라벨이 이미 `—`라 꼬리에 구분자를 겹치지 않는다. */
+    chipAriaTailPending: "판정 보류 — 열기",
 
     // ── 등급 어휘 ──
     level: {
@@ -1550,7 +1555,8 @@ export const ko = {
     checkAPass: "모든 스텝에 응답 검증이 있습니다",
 
     // ── 점검 B: 미정의 변수 ──
-    checkBFailTitle: "만들지 않는 변수를 참조합니다",
+    /** D14: B도 C(`checkCFailTitle`)와 같이 "개수 + 링크"를 낸다. */
+    checkBFailTitle: (n: number) => `만들지 않는 변수 ${n}개를 참조합니다`,
     /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
     checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
     checkBPass: "참조하는 변수를 모두 만듭니다",

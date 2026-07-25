@@ -63,6 +63,32 @@ export function EditorShell({
   );
   const showTrustChip = trustPending || trustReport !== null;
 
+  // 칩의 **가시 라벨을 한 번만** 만들어 렌더 콘텐츠와 접근명 접두에 함께 쓴다 — 두 값이
+  // 갈라질 수 없어야 한다(WCAG 2.5.3 Label in Name: aria-label이 텍스트 콘텐츠를 덮으므로
+  // 가시 라벨을 포함하지 않으면 음성 제어로 칩을 호출할 수 없다). 등급 색은 grade span만.
+  // `showTrustChip && trustReport === null`이면 곧 trustPending이라 별 분기가 필요 없다.
+  const trustGradeLead = `${ko.trust.chipLabel} · `;
+  const trustGrade = trustReport
+    ? `${ko.trust.level[trustReport.level]}${trustReport.failed > 0 ? ` ${trustReport.failed}` : ""}`
+    : ko.trust.chipPending;
+  // 보류 상태에는 접미를 붙이지 않는다(spec §7.4) — `trustReport !== null`이 그걸 보장한다.
+  const trustSuffix =
+    trustReport !== null && trustTestRun !== "verified" ? ` ${ko.trust.chipUnverifiedSuffix}` : "";
+  const trustVisible = `${trustGradeLead}${trustGrade}${trustSuffix}`;
+  const trustChipName = `${trustVisible} ${
+    trustReport === null
+      ? ko.trust.chipAriaTailPending
+      : trustReport.level === "good"
+        ? ko.trust.chipAriaTailGood
+        : ko.trust.chipAriaTail(trustReport.failed)
+  }`;
+  const trustGradeClass =
+    trustReport?.level === "weak"
+      ? "text-red-700"
+      : trustReport?.level === "caution"
+        ? "text-amber-700"
+        : undefined;
+
   const initialRef = useRef(initialYaml);
   useEffect(() => {
     loadFromString(initialRef.current);
@@ -158,44 +184,20 @@ export function EditorShell({
         >
           <span aria-hidden="true">⏱</span> {ko.editor.thinkBoardOpen}
         </button>
-        {showTrustChip &&
-          (trustPending ? (
-            <button
-              type="button"
-              aria-label={ko.trust.chipAriaPending}
-              onClick={() => setTrustOpen(true)}
-              className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
-            >
-              <span aria-hidden="true">◈</span> {ko.trust.chipLabel} · {ko.trust.chipPending}
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label={
-                trustReport!.level === "good"
-                  ? ko.trust.chipAriaGood
-                  : ko.trust.chipAria(ko.trust.level[trustReport!.level], trustReport!.failed)
-              }
-              onClick={() => setTrustOpen(true)}
-              className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
-            >
-              <span aria-hidden="true">◈</span> {ko.trust.chipLabel} ·{" "}
-              <span
-                className={
-                  trustReport!.level === "weak"
-                    ? "text-red-700"
-                    : trustReport!.level === "caution"
-                      ? "text-amber-700"
-                      : undefined
-                }
-              >
-                {ko.trust.level[trustReport!.level]}
-                {trustReport!.failed > 0 ? ` ${trustReport!.failed}` : ""}
-              </span>
-              {/* 보류 상태에서는 접미를 붙이지 않는다(spec §7.4) — 위 분기가 그걸 보장한다. */}
-              {trustTestRun !== "verified" && ` ${ko.trust.chipUnverifiedSuffix}`}
-            </button>
-          ))}
+        {showTrustChip && (
+          <button
+            type="button"
+            aria-label={trustChipName}
+            /* D10: 모달을 안 여는 마우스 사용자에게도 같은 문장이 닿아야 한다(spec §7.1). */
+            title={trustChipName}
+            onClick={() => setTrustOpen(true)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+          >
+            <span aria-hidden="true">◈</span> {trustGradeLead}
+            <span className={trustGradeClass}>{trustGrade}</span>
+            {trustSuffix}
+          </button>
+        )}
       </div>
       <div
         data-testid="editor-grid"

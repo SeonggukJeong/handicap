@@ -19,6 +19,10 @@
 
 **구현 후 의무**: 이 표에 없는 문구를 새로 추가했다면 그 값으로 `grep -c` 대조를 다시 돌릴 것.
 
+## 개정 이력
+
+- **2026-07-25 (T5 리뷰 fold)** — 칩 접근명 3개(`chipAriaGood`/`chipAria`/`chipAriaPending`)를 **꼬리 3개**(`chipAriaTailGood`/`chipAriaTail`/`chipAriaTailPending`)로 재구조화. 이유: **WCAG 2.5.3 Label in Name** — `aria-label`은 텍스트 콘텐츠를 덮으므로 접근명이 가시 라벨(`신뢰도 · 양호 (미확인)`)을 **그대로 포함**해야 음성 제어 사용자가 화면에 보이는 말로 칩을 호출할 수 있다. 옛 값(`시나리오 신뢰도: 보완 필요, 고칠 곳 2개 — 열기`)은 구분자(`·`↔`:`)·`(미확인)`·맨숫자가 어긋나 Level A 위반이었다(형제 페이싱 칩 `페이싱`/`페이싱 현황판 열기`는 이미 이 규약을 지킨다). 같은 fold에서 `checkBFailTitle`을 **개수 보간 함수**로 바꿨다 — spec D14가 B·C 양쪽에 "개수 + 링크"를 요구하고 `evaluateTrust`가 B의 `count`를 이미 채우는데 B만 고정 문구였다.
+
 ---
 
 ## `ko.trust` 네임스페이스 (신규 — 1차 `ko.validity`는 손대지 않는다)
@@ -31,11 +35,15 @@
     chipUnverifiedSuffix: "(미확인)",
     /** yamlError 판정 보류 (spec §7.4) */
     chipPending: "—",
-    chipAriaGood:
-      "시나리오 신뢰도: 양호 — 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
-    chipAria: (level: string, failed: number) =>
-      `시나리오 신뢰도: ${level}, 고칠 곳 ${failed}개 — 열기`,
-    chipAriaPending: "시나리오 신뢰도: 판정 보류 — 열기",
+    /**
+     * 칩 접근명 **꼬리** (WCAG 2.5.3 Label in Name) — 접근명 = `가시 라벨 + " " + 꼬리`.
+     * 가시 라벨(`신뢰도 · <등급>[ N][ (미확인)]`)이 그대로 접근명 접두가 되므로 꼬리만 둔다.
+     */
+    chipAriaTailGood: "— 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
+    /** 가시 라벨의 맨숫자(`보완 필요 2`의 2)를 해설한다 — 숫자 단독은 접근명에서 무의미. */
+    chipAriaTail: (failed: number) => `— 고칠 곳 ${failed}개. 열기`,
+    /** 보류 칩의 가시 라벨이 이미 `—`라 꼬리에 구분자를 겹치지 않는다. */
+    chipAriaTailPending: "판정 보류 — 열기",
 
     // ── 등급 어휘 ──
     level: {
@@ -64,7 +72,8 @@
     checkAPass: "모든 스텝에 응답 검증이 있습니다",
 
     // ── 점검 B: 미정의 변수 ──
-    checkBFailTitle: "만들지 않는 변수를 참조합니다",
+    /** D14: B도 C(`checkCFailTitle`)와 같이 "개수 + 링크"를 낸다. */
+    checkBFailTitle: (n: number) => `만들지 않는 변수 ${n}개를 참조합니다`,
     /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
     checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
     checkBPass: "참조하는 변수를 모두 만듭니다",
@@ -90,6 +99,24 @@
     runDialogLink: "에디터에서 보기",
   },
 ```
+
+## 칩 접근명 조립 규칙 (WCAG 2.5.3 — 코드가 여기 걸린다)
+
+`EditorShell`은 **가시 라벨을 한 번만** 만들어 렌더 콘텐츠와 접근명 접두에 함께 쓴다(두 값이 갈라질 수 없어야 한다):
+
+```
+가시 라벨 = `${chipLabel} · ${등급}${failed > 0 ? ` ${failed}` : ""}${미검증 ? ` ${chipUnverifiedSuffix}` : ""}`
+             (보류면 등급 자리에 chipPending, 접미 없음)
+접근명    = `${가시 라벨} ${꼬리}`   (aria-label == title, D10)
+```
+
+실측 결과(라운드트립 확인):
+
+| 상태 | 가시 라벨 | 접근명 = `aria-label` = `title` |
+|---|---|---|
+| good + 미검증 | `신뢰도 · 양호 (미확인)` | `신뢰도 · 양호 (미확인) — 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기` |
+| caution + 미검증 | `신뢰도 · 보완 필요 1 (미확인)` | `신뢰도 · 보완 필요 1 (미확인) — 고칠 곳 1개. 열기` |
+| 보류(yamlError) | `신뢰도 · —` | `신뢰도 · — 판정 보류 — 열기` |
 
 ## 비겹침 불변식 (테스트가 여기 걸린다)
 

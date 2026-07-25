@@ -5,7 +5,7 @@ import type { TestRunState, TrustCheck, TrustReport } from "../../scenario/trust
 
 const FAIL_TITLE: Record<TrustCheck["id"], (n: number) => string> = {
   response_validation: () => ko.trust.checkAFailTitle,
-  undefined_vars: () => ko.trust.checkBFailTitle,
+  undefined_vars: (n) => ko.trust.checkBFailTitle(n),
   broken_extract_chain: (n) => ko.trust.checkCFailTitle(n),
 };
 const FAIL_WHY: Record<TrustCheck["id"], string> = {
