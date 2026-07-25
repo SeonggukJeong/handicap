@@ -117,6 +117,11 @@ describe("TrustBoard", () => {
     board();
     await userEvent.click(screen.getByText(ko.trust.boardPassedFold(2)));
     expect(screen.getByText(ko.trust.checkAPass)).toBeInTheDocument();
+    expect(screen.getByText(ko.trust.checkBPass)).toBeInTheDocument();
+    // B는 "변수가 정의돼 있다"를 말해야 한다 — 앱의 다른 표면(변수 패널 배지 `정의안됨`,
+    // aria `정의되지 않은 변수`)과 같은 어휘여야 사용자가 두 화면을 같은 개념으로 읽는다.
+    // 리터럴 단언: 어휘가 `만들다`류로 되돌아가면 RED.
+    expect(screen.getByText(ko.trust.checkBPass).textContent).toContain("정의");
     // na 줄은 **어떤 점검이 왜** 해당 없는지 말해야 한다 — GOOD 픽스처의 na는 C(추출 없음)다.
     // 통과 줄들은 내용으로 자기를 식별하는데(checkAPass 등) na만 맥락 없는 "해당 항목 없음"이면
     // 처음 보는 사용자가 무엇이 해당 없는지 알 수 없다.

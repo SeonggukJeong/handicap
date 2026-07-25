@@ -1560,10 +1560,10 @@ export const ko = {
 
     // ── 점검 B: 미정의 변수 ──
     /** D14: B도 C(`checkCFailTitle`)와 같이 "개수 + 링크"를 낸다. */
-    checkBFailTitle: (n: number) => `만들지 않는 변수 ${n}개를 참조합니다`,
+    checkBFailTitle: (n: number) => `정의되지 않은 변수 ${n}개를 참조합니다`,
     /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
     checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
-    checkBPass: "참조하는 변수를 모두 만듭니다",
+    checkBPass: "참조하는 변수가 모두 정의돼 있습니다",
     /** na — 현재 판정에선 도달하지 않지만(B는 항상 pass/fail) 타입 완전성을 위해 둔다. */
     checkBNa: "참조하는 변수가 없어 점검할 것이 없습니다",
 
