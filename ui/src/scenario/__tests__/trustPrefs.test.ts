@@ -392,7 +392,12 @@ describe("버킷 상한 축출", () => {
   });
 
   it("adoptDraftBucket도 상한을 적용한다", () => {
-    seedBuckets(BUCKET_CAP, [DRAFT_KEY]); // 상한 초과 상태(51) — 이관은 순증 0이 아니다
+    // 상한 초과 상태(50 + DRAFT_KEY = 51)를 **직접 시드**한다. `adoptDraftBucket` 자체는
+    // 키를 하나 넣고 DRAFT_KEY를 같은 write에서 지우므로 **순증 0**이고, 이 모듈의 write만으로는
+    // 상한을 넘길 수 없다 — 그래서 이 케이스의 전제는 외부(다른 탭/구버전/상한 하향)에서 온
+    // 초과 저장소다. 위 케이스가 핀하는 "상한에서 최근 재검증 버킷이 축출되는" 경로가 이 모듈
+    // 단독으로 도달 가능한 주 경로이고, 이건 방어적 2차 경로다.
+    seedBuckets(BUCKET_CAP, [DRAFT_KEY]);
     adoptDraftBucket("SC_NEW");
     const store = readStore();
     expect(Object.keys(store).length).toBeLessThanOrEqual(BUCKET_CAP);
