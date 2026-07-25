@@ -21,6 +21,7 @@
 
 ## 개정 이력
 
+- **2026-07-25 (최종리뷰 fold)** — `chipAriaTailPending`을 `판정 보류 — 열기` → **`판정 보류입니다. 열기`**. 이유: 옛 값은 접근명이 `신뢰도 · — 판정 보류 — 열기`가 되어 em dash가 둘(가시 라벨의 보류 표시 + 꼬리)이라 스크린리더 구두점 상세 모드에서 "대시 … 대시"로 두 번 읽혔다. 첫 `—`는 **가시 지표라 유지**하고 꼬리에서만 뺐다 — Label-in-Name 포함 관계(접근명이 가시 라벨로 시작)는 세 상태 모두 그대로다. 이 fold는 `runDialogBFail`/`runDialogLine`의 **값은 건드리지 않았다**(RunDialog가 그중 어느 문장을 고르는지의 *조건*만 바뀜 — 바인딩이 있으면 전멸 단정 대신 등급 한 줄).
 - **2026-07-25 (T5 리뷰 fold)** — 칩 접근명 3개(`chipAriaGood`/`chipAria`/`chipAriaPending`)를 **꼬리 3개**(`chipAriaTailGood`/`chipAriaTail`/`chipAriaTailPending`)로 재구조화. 이유: **WCAG 2.5.3 Label in Name** — `aria-label`은 텍스트 콘텐츠를 덮으므로 접근명이 가시 라벨(`신뢰도 · 양호 (미확인)`)을 **그대로 포함**해야 음성 제어 사용자가 화면에 보이는 말로 칩을 호출할 수 있다. 옛 값(`시나리오 신뢰도: 보완 필요, 고칠 곳 2개 — 열기`)은 구분자(`·`↔`:`)·`(미확인)`·맨숫자가 어긋나 Level A 위반이었다(형제 페이싱 칩 `페이싱`/`페이싱 현황판 열기`는 이미 이 규약을 지킨다). 같은 fold에서 `checkBFailTitle`을 **개수 보간 함수**로 바꿨다 — spec D14가 B·C 양쪽에 "개수 + 링크"를 요구하고 `evaluateTrust`가 B의 `count`를 이미 채우는데 B만 고정 문구였다.
 
 ---
@@ -39,11 +40,15 @@
      * 칩 접근명 **꼬리** (WCAG 2.5.3 Label in Name) — 접근명 = `가시 라벨 + " " + 꼬리`.
      * 가시 라벨(`신뢰도 · <등급>[ N][ (미확인)]`)이 그대로 접근명 접두가 되므로 꼬리만 둔다.
      */
-    chipAriaTailGood: "— 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
+    chipAriaTailGood:
+      "— 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
     /** 가시 라벨의 맨숫자(`보완 필요 2`의 2)를 해설한다 — 숫자 단독은 접근명에서 무의미. */
     chipAriaTail: (failed: number) => `— 고칠 곳 ${failed}개. 열기`,
-    /** 보류 칩의 가시 라벨이 이미 `—`라 꼬리에 구분자를 겹치지 않는다. */
-    chipAriaTailPending: "판정 보류 — 열기",
+    /**
+     * 보류 칩의 가시 라벨이 이미 `—`(보류 표시)라 꼬리엔 대시를 쓰지 않는다 — 접근명에
+     * 대시가 둘이면 스크린리더 구두점 상세 모드에서 "대시 … 대시"로 두 번 읽힌다.
+     */
+    chipAriaTailPending: "판정 보류입니다. 열기",
 
     // ── 등급 어휘 ──
     level: {
@@ -59,8 +64,7 @@
     /** good일 때만 (US5) */
     boardGoodNote:
       "대상 시스템의 성능이 좋다는 뜻은 아닙니다 — 그건 실행 후 리포트에서 확인하세요.",
-    boardCount: (passed: number, applicable: number) =>
-      `점검 ${applicable}개 중 ${passed}개 통과`,
+    boardCount: (passed: number, applicable: number) => `점검 ${applicable}개 중 ${passed}개 통과`,
     boardPassedFold: (n: number) => `통과한 점검 ${n}개`,
     /** report === null (spec §7.4 보류) */
     boardGateBlocked: "YAML 오류를 먼저 해결하세요",
@@ -92,8 +96,7 @@
     testRunScope: "이 브라우저 기준입니다",
 
     // ── RunDialog 한 줄 ──
-    runDialogLine: (level: string, failed: number) =>
-      `시나리오 신뢰도: ${level} (${failed}건)`,
+    runDialogLine: (level: string, failed: number) => `시나리오 신뢰도: ${level} (${failed}건)`,
     /** B fail 전용 분기 — 등급 단어 대신 결과를 말한다(spec §7.3) */
     runDialogBFail: "이대로 실행하면 시작하자마자 모든 VU가 실패합니다",
     runDialogLink: "에디터에서 보기",
@@ -116,10 +119,15 @@
 |---|---|---|
 | good + 미검증 | `신뢰도 · 양호 (미확인)` | `신뢰도 · 양호 (미확인) — 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기` |
 | caution + 미검증 | `신뢰도 · 보완 필요 1 (미확인)` | `신뢰도 · 보완 필요 1 (미확인) — 고칠 곳 1개. 열기` |
-| 보류(yamlError) | `신뢰도 · —` | `신뢰도 · — 판정 보류 — 열기` |
+| 보류(yamlError) | `신뢰도 · —` | `신뢰도 · — 판정 보류입니다. 열기` |
+
+보류 접근명의 em dash는 **가시 라벨의 보류 표시 하나뿐**이다(꼬리엔 대시 없음) — 스크린리더 구두점 상세 모드에서 "대시 … 대시"로 두 번 읽히지 않게. `EditorShell.trust.test.tsx`가 대시 개수를 1로 못 박는다.
 
 ## 비겹침 불변식 (테스트가 여기 걸린다)
 
 - `boardSubtitle` ⊄ `boardGoodNote`, `boardGoodNote` ⊄ `boardSubtitle` — 겹치면 "양호 전용 문구가 `good`에만 렌더된다"는 단언이 두 분기 모두에서 통과해 **공허**해진다(`thinkboard-defaults` 4번째 공허 패턴).
 - `level.good`/`level.caution`/`level.weak` 셋 중 어느 것도 서로의 부분문자열이 아니다.
 - `checkAPass`/`checkBPass`/`checkCPass` 셋 다 서로 다른 어두로 시작한다 — 접힌 통과 목록에서 위치 의존 `getAllBy...[0]` 없이 개별 지목이 가능해야 한다.
+- **칩 꼬리 3개(`chipAriaTailGood`/`chipAriaTail(n)`/`chipAriaTailPending`)는 서로 부분문자열이 아니다** — 세 상태를 구별하는 단언이 공허해지지 않으려면 필수(현 값: `— 시험이 …`, `— 고칠 곳 N개. 열기`, `판정 보류입니다. 열기`).
+- **어느 꼬리에도 등급 단어(`양호`/`보완 필요`/`취약`)가 들어 있지 않다** — 들어 있으면 "접근명에 등급이 있다"는 단언이 등급 렌더와 무관하게 통과한다.
+- **`chipPending`(`—`, U+2014)은 세 상태의 접근명 *전부*에 들어 있다** — good·caution은 꼬리 선두 대시(`chipAriaTailGood`/`chipAriaTail`)로, 보류는 가시 라벨 자체로. 따라서 `expect(aria).toContain(ko.trust.chipPending)` 류 단언은 **모든 상태에서 통과**해 보류 판정으로는 공허하다. 보류 단언은 **가시 라벨**을 대상으로 해야 한다(현 테스트가 그렇게 한다: `visibleLabel(btn)`에 `chipPending` 포함 + `level.good` 부재). Fix 7이 `chipAriaTailPending`에서 대시를 뺀 것은 이 함정을 없앤 게 아니라 *중복 낭독*만 없앤 것이다.

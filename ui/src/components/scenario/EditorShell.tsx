@@ -268,7 +268,14 @@ export function EditorShell({
         onClose={() => setTrustOpen(false)}
         report={trustReport}
         testRun={trustTestRun}
-        onSelectStep={(sid) => select(sid)}
+        onSelectStep={(sid) => {
+          // US2 "그 스텝으로 바로 이동" — select만 하면 긴 시나리오에서 선택 행이 화면 밖일 수
+          // 있고(형제 점프 사이트들이 jumpToStep을 쓰는 이유), 와이드 레이아웃에서는
+          // Inspector가 detailOpen 모달 뒤에만 있어 클릭이 아무 일도 안 한 것처럼 보인다.
+          // 게이트는 모달 자신의 게이트(`(wideOpen || varsWide) && detailOpen`)를 미러한다.
+          jumpToStep(sid);
+          if (wideOpen || varsWide) setDetailOpen(true);
+        }}
         onOpenVars={() => setVarsOpen(true)}
       />
     </div>

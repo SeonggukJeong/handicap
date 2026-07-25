@@ -1046,7 +1046,15 @@ export function RunDialog({
           <div className="flex items-center justify-between gap-2">
             <span>
               <span aria-hidden="true">◈</span>{" "}
-              {trust.checks.find((c) => c.id === "undefined_vars")?.status === "fail"
+              {/* B fail의 전멸 단정은 **바인딩이 없을 때만** 낸다. 데이터셋 열이 그 변수를
+                  공급하는 정석 data-driven 흐름(ADR-0022)에서는 그 문장이 거짓이다 — 엔진이
+                  렌더 전에 바인딩 행 키를 iter_vars에 넣으므로(runner.rs) run은 성공한다.
+                  바인딩이 있는데도 미매핑 변수가 남아 있으면 DataBindingPanel이 자기 사유를
+                  위 blocked 배너에 띄우고 제출까지 막으므로(bindingBlock.ok → canSubmit),
+                  이 자리를 등급 한 줄로 낮춰도 사용자가 모르는 채 실행할 길은 없다.
+                  등급은 시나리오 텍스트에 대한 판정이라 그대로다(spec D4) — 문장만 바뀐다. */}
+              {trust.checks.find((c) => c.id === "undefined_vars")?.status === "fail" &&
+              bindings.length === 0
                 ? ko.trust.runDialogBFail
                 : ko.trust.runDialogLine(ko.trust.level[trust.level], trust.failed)}
             </span>

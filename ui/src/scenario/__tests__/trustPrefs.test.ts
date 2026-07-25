@@ -7,7 +7,20 @@ import {
   recordVerified,
   testRunStateFor,
 } from "../trustPrefs";
-import { ScenarioModel, type Scenario } from "../model";
+import {
+  BranchModel,
+  ElifBranchModel,
+  HttpStepModel,
+  IfStepModel,
+  LoopStepModel,
+  NestedElifBranchModel,
+  NestedIfStepModel,
+  NestedLoopStepModel,
+  ParallelStepModel,
+  RequestModel,
+  ScenarioModel,
+  type Scenario,
+} from "../model";
 
 const A = "01HZZZZZZZZZZZZZZZZZZZZZZA";
 const B = "01HZZZZZZZZZZZZZZZZZZZZZZB";
@@ -24,12 +37,21 @@ function sc(over: Record<string, unknown> = {}): Scenario {
   });
 }
 
+/**
+ * 기준 요청 — 빌더 기본값과 아래 변형(URL·method)이 **같은 헤더 집합**을 공유해야
+ * 그 변형 테스트가 검증 대상 필드 하나만 실제로 검증한다(T3 fold의 격리). 이 리터럴을
+ * 세 곳에 복붙해 두면 빌더 기본값을 바꿀 때 두 테스트에서 동시에 격리가 조용히 깨진다.
+ * 순수 객체 리터럴의 spread라 픽스처 규약(파싱된 `Step` union 멤버 사후 변형 금지)에
+ * 저촉되지 않는다 — 빌더 *입력*을 조립하는 것뿐이다.
+ */
+const baseRequest = { method: "GET", url: "https://e.test/a", headers: { X: "1", A: "2" } };
+
 function step(id: string, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id,
     name: `s-${id.slice(-1)}`,
     type: "http",
-    request: { method: "GET", url: "https://e.test/a", headers: { X: "1", A: "2" } },
+    request: { ...baseRequest },
     assert: [],
     extract: [],
     ...over,
@@ -116,28 +138,15 @@ describe("executionFingerprint — 무효화해야 하는 변경", () => {
   it("URL", () => {
     // 헤더는 baseline과 동일하게 유지 — URL만 바뀌어야 이 테스트가 URL 필드를
     // 실제로 지문에 검증한다(헤더까지 같이 바뀌면 canonRecord 세그먼트 차이로도
-    // 통과해버려 URL 자체는 아무것도 증명하지 못한다).
+    // 통과해버려 URL 자체는 아무것도 증명하지 못한다). `baseRequest` spread가 그 격리를
+    // 구조적으로 보장한다.
     const u = sc({
-      steps: [
-        step(A, {
-          request: {
-            method: "GET",
-            url: "https://e.test/CHANGED",
-            headers: { X: "1", A: "2" },
-          },
-        }),
-      ],
+      steps: [step(A, { request: { ...baseRequest, url: "https://e.test/CHANGED" } })],
     });
     expect(executionFingerprint(u)).not.toBe(executionFingerprint(base()));
   });
   it("method", () => {
-    const p = sc({
-      steps: [
-        step(A, {
-          request: { method: "POST", url: "https://e.test/a", headers: { X: "1", A: "2" } },
-        }),
-      ],
-    });
+    const p = sc({ steps: [step(A, { request: { ...baseRequest, method: "POST" } })] });
     expect(executionFingerprint(p)).not.toBe(executionFingerprint(base()));
   });
   it("timeout_seconds (test-run이 실제로 적용한다 — executor.rs:392 execute_step_traced)", () => {
@@ -330,5 +339,125 @@ describe("버킷 3상태 + 이관", () => {
   it("localStorage가 깨져 있어도 never로 fail-soft", () => {
     window.localStorage.setItem("handicap:trust-testrun:v1", "{not json");
     expect(testRunStateFor("SC1", base())).toBe("never");
+  });
+});
+
+// ── 버킷 상한 축출 ────────────────────────────────────────────────────────
+// 상한 값은 모듈 private다(export하지 않는다) — 여기서 미러하며, 값이 바뀌면 이 블록도 갱신.
+const BUCKET_CAP = 50;
+const STORAGE_KEY = "handicap:trust-testrun:v1";
+
+function readStore(): Record<string, number[] | undefined> {
+  return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<
+    string,
+    number[] | undefined
+  >;
+}
+
+/** localStorage에 버킷을 직접 심는다 — 다른 탭/옛 빌드가 남긴 **상한 초과** 저장소를
+ *  재현하기 위한 것(현재 모듈의 쓰기 경로만으로는 상한을 넘길 수 없다). */
+function seedBuckets(n: number, extra: string[] = []): void {
+  const b: Record<string, number[]> = {};
+  for (let i = 0; i < n; i += 1) b[`SC_${i}`] = [i + 1];
+  for (const k of extra) b[k] = [999];
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(b));
+}
+
+describe("버킷 상한 축출", () => {
+  it("가장 오래 쓰지 않은 버킷을 버린다 — 방금 기록한 버킷은 살아남는다", () => {
+    // 정확히 상한까지 채운다(축출 없음).
+    for (let i = 0; i < BUCKET_CAP; i += 1) recordVerified(`SC_${i}`, i + 1);
+    expect(Object.keys(readStore())).toHaveLength(BUCKET_CAP);
+
+    // 가장 먼저 만들어진 버킷을 **다시** 기록 → 이제 가장 최근 쓰기다.
+    recordVerified("SC_0", 12345);
+    // 새 시나리오 하나를 더하면 상한을 넘겨 하나를 버려야 한다.
+    recordVerified("SC_NEW", 777);
+
+    const store = readStore();
+    expect(Object.keys(store)).toHaveLength(BUCKET_CAP);
+    // 삽입 순서(=최초 쓰기 순서)로 버리면 방금 재기록한 SC_0이 희생된다 — 회귀 가드.
+    expect(store["SC_0"]).toContain(12345);
+    expect(store["SC_NEW"]).toContain(777);
+    expect(store["SC_1"]).toBeUndefined();
+  });
+
+  it("상한을 넘긴 저장소에서 가장 오래된 버킷에 기록해도 그 기록이 사라지지 않는다", () => {
+    seedBuckets(BUCKET_CAP + 1); // SC_0 … SC_50
+    recordVerified("SC_0", 4242);
+    const store = readStore();
+    // 재할당은 삽입 순서를 옮기지 않으므로, 지우지 않으면 방금 쓴 SC_0이 축출 대상에 든다.
+    expect(store["SC_0"]).toContain(4242);
+    expect(Object.keys(store)).toHaveLength(BUCKET_CAP);
+  });
+
+  it("adoptDraftBucket도 상한을 적용한다", () => {
+    seedBuckets(BUCKET_CAP, [DRAFT_KEY]); // 상한 초과 상태(51) — 이관은 순증 0이 아니다
+    adoptDraftBucket("SC_NEW");
+    const store = readStore();
+    expect(Object.keys(store).length).toBeLessThanOrEqual(BUCKET_CAP);
+    expect(store["SC_NEW"]).toEqual([999]);
+    expect(store[DRAFT_KEY]).toBeUndefined();
+  });
+});
+
+// ── 지문 필드 커버리지 핀 ────────────────────────────────────────────────
+// `canonStep`/`executionFingerprint`는 모델 필드를 **하나씩 열거**하므로, 기존 arm에
+// 새 필드가 추가되면 컴파일도 기존 테스트도 통과한 채 지문에서 조용히 빠진다
+// (= 실행 표면이 바뀌었는데도 영구 `verified` — 이 기능 최악의 실패 모드).
+// **이 테스트가 깨졌다면**: 새 필드가 지문에 들어가야 하는지 먼저 결정하고
+// (test-run이 그 필드를 실제로 행사하는가? — `timeout_seconds` 판정 선례 참고)
+// `trustPrefs.ts`를 갱신한 뒤 아래 목록을 고칠 것.
+// 배열/union으로 통째 직렬화되는 필드(assert·extract·cond·body.value)는 새 키가 자동
+// 반영되므로 목록에 없다 — 여기 있는 건 필드별로 열거되는 객체들뿐이다.
+const FINGERPRINT_SHAPES: Array<{ model: string; shape: object; keys: string[] }> = [
+  {
+    model: "RequestModel",
+    shape: RequestModel.shape,
+    keys: ["body", "disabled", "headers", "method", "url"],
+  },
+  {
+    model: "HttpStepModel",
+    shape: HttpStepModel.shape,
+    keys: ["assert", "extract", "id", "name", "request", "think_time", "timeout_seconds", "type"],
+  },
+  {
+    model: "LoopStepModel",
+    shape: LoopStepModel.shape,
+    keys: ["do", "id", "name", "repeat", "type"],
+  },
+  {
+    model: "NestedLoopStepModel",
+    shape: NestedLoopStepModel.shape,
+    keys: ["do", "id", "name", "repeat", "type"],
+  },
+  {
+    model: "IfStepModel",
+    shape: IfStepModel.shape,
+    keys: ["cond", "elif", "else", "id", "name", "then", "type"],
+  },
+  {
+    model: "NestedIfStepModel",
+    shape: NestedIfStepModel.shape,
+    keys: ["cond", "elif", "else", "id", "name", "then", "type"],
+  },
+  { model: "ElifBranchModel", shape: ElifBranchModel.shape, keys: ["cond", "then"] },
+  { model: "NestedElifBranchModel", shape: NestedElifBranchModel.shape, keys: ["cond", "then"] },
+  { model: "BranchModel", shape: BranchModel.shape, keys: ["name", "steps"] },
+  {
+    model: "ParallelStepModel",
+    shape: ParallelStepModel.shape,
+    keys: ["branches", "id", "name", "type"],
+  },
+  {
+    model: "ScenarioModel",
+    shape: ScenarioModel.shape,
+    keys: ["cookie_jar", "default_think_time", "name", "notes", "steps", "variables", "version"],
+  },
+];
+
+describe("지문 필드 커버리지 핀", () => {
+  it.each(FINGERPRINT_SHAPES)("$model 필드 집합이 고정돼 있다", ({ shape, keys }) => {
+    expect(Object.keys(shape).sort()).toEqual(keys);
   });
 });

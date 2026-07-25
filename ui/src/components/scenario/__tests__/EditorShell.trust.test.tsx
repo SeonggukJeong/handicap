@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { EditorShell } from "../EditorShell";
 import { ko } from "../../../i18n/ko";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -139,5 +140,24 @@ describe("EditorShell — 신뢰도 칩", () => {
     expect(aria.startsWith(visible)).toBe(true);
     expect(aria).toContain(ko.trust.chipAriaTailPending);
     expect(btn.getAttribute("title")).toBe(aria);
+    // 접근명의 em dash는 **가시 라벨의 보류 표시 하나뿐**이어야 한다 — 꼬리에 또 하나를 두면
+    // 스크린리더 구두점 상세 모드에서 "대시 … 대시"로 두 번 읽힌다.
+    expect(aria.match(/—/g) ?? []).toHaveLength(1);
+  });
+
+  // US2: "클릭해서 그 스텝으로 바로 이동". 와이드 레이아웃에서는 Inspector가
+  // detailOpen 모달 뒤에만 있으므로, 선택만 하면 클릭이 아무 일도 안 한 것처럼 보인다.
+  it("모달의 스텝 칩 클릭 → 그 스텝을 선택하고 와이드 레이아웃에서 편집 모달을 연다", async () => {
+    const user = userEvent.setup();
+    render(<EditorShell initialYaml={CAUTION_YAML} />);
+    await user.click(screen.getByRole("button", { name: ko.editor.wideToggleAria }));
+    await user.click(chip());
+    const board = screen.getByRole("dialog", { name: ko.trust.boardTitle });
+    // 같은 스텝명이 와이드 칩 스트립에도 있어 페이지 전역 쿼리는 다중 매치 — 모달로 스코프.
+    await user.click(within(board).getByRole("button", { name: "s-A" }));
+    expect(useScenarioEditor.getState().selectedStepId).toBe(A);
+    expect(
+      screen.getByRole("dialog", { name: ko.editor.stepDetailModalTitle }),
+    ).toBeInTheDocument();
   });
 });

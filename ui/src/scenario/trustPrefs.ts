@@ -115,16 +115,30 @@ function save(b: Buckets): void {
   }
 }
 
-/** 성공한 test-run의 지문 해시를 기록. LRU 갱신은 **쓰기 시에만**(읽기는 순서 불변). */
-export function recordVerified(scenarioKey: string, hash: number): void {
-  const b = load();
-  const list = (b[scenarioKey] ?? []).filter((h) => h !== hash);
-  list.push(hash);
-  b[scenarioKey] = list.slice(-PER_SCENARIO_CAP);
+/**
+ * 버킷 수 상한 축출. 객체 키 삽입 순서 = **최근 쓰기 순서**(아래 두 writer가 쓰기 전에
+ * 기존 키를 지우고 재할당하므로) → 앞쪽, 즉 가장 오래 *쓰지 않은* 버킷부터 버린다.
+ * 읽기(`testRunStateFor`)는 순서를 갱신하지 않으므로 LRU가 아니라 *쓰기-최근성* 축출이다.
+ */
+function evictOldest(b: Buckets): void {
   const keys = Object.keys(b);
   if (keys.length > BUCKET_CAP) {
     for (const k of keys.slice(0, keys.length - BUCKET_CAP)) delete b[k];
   }
+}
+
+/** 성공한 test-run의 지문 해시를 기록. 순서 갱신은 **쓰기 시에만**(읽기는 순서 불변). */
+export function recordVerified(scenarioKey: string, hash: number): void {
+  const b = load();
+  const list = (b[scenarioKey] ?? []).filter((h) => h !== hash);
+  list.push(hash);
+  // **재할당은 삽입 순서를 옮기지 않는다** — 먼저 지워야 이 키가 맨 뒤(=가장 최근 쓰기)로
+  // 간다. 안 지우면 ① 방금 재기록한 버킷이 여전히 "가장 오래된" 자리에 있어 다음 새
+  // 시나리오 기록에 축출되고, ② 저장소가 이미 상한을 넘긴 상태(다른 탭/옛 빌드)라면
+  // 방금 쓴 그 키가 이 호출의 축출 대상에 들어가 기록이 조용히 사라진다(칩이 영구 `(미확인)`).
+  delete b[scenarioKey];
+  b[scenarioKey] = list.slice(-PER_SCENARIO_CAP);
+  evictOldest(b);
   save(b);
 }
 
@@ -143,7 +157,11 @@ export function adoptDraftBucket(newScenarioId: string): void {
   const b = load();
   const draft = b[DRAFT_KEY];
   if (!draft || draft.length === 0) return;
+  // recordVerified와 동일 규약: 지우고 재할당해 새 id를 맨 뒤(최근 쓰기)로 보내고,
+  // 같은 상한을 적용한다(이 writer만 상한을 건너뛰면 저장소가 상한 위로 자란다).
+  delete b[newScenarioId];
   b[newScenarioId] = draft.slice(-PER_SCENARIO_CAP);
   delete b[DRAFT_KEY];
+  evictOldest(b);
   save(b);
 }
