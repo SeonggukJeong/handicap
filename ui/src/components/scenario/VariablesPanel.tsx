@@ -5,50 +5,15 @@ import { VarCheatSheet } from "./VarCheatSheet";
 import { VarUsagePopover } from "./VarUsagePopover";
 import { AutoGrowTextarea } from "../AutoGrowTextarea";
 import { Input } from "../ui/Input";
-import {
-  collectProducedVars,
-  parallelExtractNames,
-  buildVarRefIndex,
-  undefinedVarRefs,
-  parallelVarIdentities,
-  flatExtractNames,
-  collectNamespacedProducers,
-} from "../../scenario/scanVars";
+import { buildVarRows, type VarRow } from "../../scenario/varRows";
 import {
   declSearchText,
   genParamsSummary,
   genTypeLabel,
   isGenSpec,
   type GenSpec,
-  type VarDeclValue,
 } from "../../scenario/genVars";
 import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
-
-type VarRow =
-  | {
-      kind: "declared";
-      name: string;
-      value: VarDeclValue;
-      renamable: boolean;
-      overwritten: boolean;
-      refIds: string[];
-    }
-  | { kind: "flat-extract"; name: string; refIds: string[] }
-  | {
-      kind: "parallel-extract";
-      branchName: string;
-      varName: string;
-      display: string;
-      isShadow: boolean;
-      refIds: string[];
-    }
-  | {
-      kind: "undefined";
-      name: string;
-      refIds: string[];
-      candidates: string[];
-      refKind: "downstream" | "sibling";
-    };
 
 type EditKey =
   | { kind: "flat"; name: string }
@@ -120,56 +85,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
     refIds: string[];
   } | null>(null);
 
-  const rows = useMemo<VarRow[]>(() => {
-    if (!model) return [];
-    const declaredKeys = new Set(Object.keys(model.variables));
-    const produced = collectProducedVars(model);
-    const parallelNames = parallelExtractNames(model);
-    const refIndex = buildVarRefIndex(model);
-    const undef = undefinedVarRefs(model);
-    const flatEx = flatExtractNames(model);
-    const namespaced = collectNamespacedProducers(model);
-    const out: VarRow[] = [];
-    // 선언(연필은 flat non-shadow일 때만)
-    for (const [name, value] of Object.entries(model.variables))
-      out.push({
-        kind: "declared",
-        name,
-        value,
-        renamable: !parallelNames.has(name),
-        overwritten: flatEx.has(name) || namespaced.has(name),
-        refIds: refIndex.get(name) ?? [],
-      });
-    // flat-extract = produced − 선언 − parallel(shadow) — 비-parallel 스텝에서만 추출된 이름
-    for (const name of produced)
-      if (!declaredKeys.has(name) && !parallelNames.has(name))
-        out.push({ kind: "flat-extract", name, refIds: refIndex.get(name) ?? [] });
-    // parallel-extract(구조적 identity — non-shadow는 분기-내부∪다운스트림 refIds)
-    for (const id of parallelVarIdentities(model)) {
-      const refIds = id.isShadow
-        ? id.namespacedRefIds
-        : [...new Set([...id.branchRefIds, ...id.namespacedRefIds])];
-      out.push({
-        kind: "parallel-extract",
-        branchName: id.branchName,
-        varName: id.varName,
-        display: id.display,
-        isShadow: id.isShadow,
-        refIds,
-      });
-    }
-    // 미정의(위치 인식 — Task 4: refIds는 UndefinedRef.stepIds만, refIndex 전체가 아니다.
-    // 정당한 분기 내부 참조를 usage 팝오버가 안 가리키게).
-    for (const [name, ref] of undef)
-      out.push({
-        kind: "undefined",
-        name,
-        refIds: ref.stepIds,
-        candidates: ref.candidates,
-        refKind: ref.kind,
-      });
-    return out;
-  }, [model]);
+  const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
 
   const startRename = (name: string) => {
     setEditing({ kind: "flat", name });
