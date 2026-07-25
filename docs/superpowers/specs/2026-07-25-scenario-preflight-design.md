@@ -117,8 +117,11 @@ export type TrustCheckStatus = "pass" | "fail" | "na";
 export interface TrustCheck {
   id: TrustCheckId;
   status: TrustCheckStatus;
-  /** A 전용: 검증이 없는 http 스텝 id(문서순). B·C는 항상 빈 배열(D14). */
-  stepIds: string[];
+  /** A 전용: 검증이 없는 http 스텝(문서순). B·C는 항상 빈 배열(D14).
+   *  **이름을 함께 싣는다** — §7.2 목업의 칩이 `[로그인] [주문 조회]`이고 US2가 "영향받는
+   *  스텝을 보고"를 요구한다. 26자 ULID 칩은 그 목적을 무너뜨린다. 이름을 여기 실으면
+   *  `TrustBoard`가 id→이름 조회 prop을 따로 받을 필요도 없다. */
+  steps: Array<{ id: string; name: string }>;
   /** B·C 전용: 걸린 변수 개수(표시용). A는 0. */
   count: number;
 }
@@ -159,7 +162,7 @@ export type TestRunState = "verified" | "stale" | "never";
 
 - **대상**: `flattenHttpSteps(scenario.steps)` (`ui/src/scenario/model.ts:264`) — loop `do`·if `then`/`elif[].then`/`else`·parallel `branches`까지 **모든 http 스텝**(이 함수가 parallel 분기에 하강함을 확인).
 - **통과**: 모든 http 스텝이 `assert`에 `kind === "status"` 항목을 하나 이상 갖는다.
-- **실패**: 그렇지 않은 스텝이 하나라도 있음. `stepIds` = 그 스텝들(문서순).
+- **실패**: 그렇지 않은 스텝이 하나라도 있음. `steps` = 그 스텝들의 `{id, name}`(문서순).
 - **na**: http 스텝 0개(§3 계약대로 실질 도달 불가).
 - `AssertionModel`은 `{ kind: "status", code }` **단일 원소** discriminated union이다(`model.ts:41`). 그래서 조언이 실행 가능하다 — 방법이 하나뿐이다.
 
@@ -172,7 +175,7 @@ export type TestRunState = "verified" | "stale" | "never";
 
 ### 4.2 B `undefined_vars` — 미정의 변수 참조
 
-- **판정**: `undefinedVarRefs(scenario)` (`scanVars.ts:295`)가 비어 있지 않으면 실패. `count` = 맵 크기. `stepIds` 비움(D14).
+- **판정**: `undefinedVarRefs(scenario)` (`scanVars.ts:295`)가 비어 있지 않으면 실패. `count` = 맵 크기. `steps` 비움(D14).
 - **na 없음**.
 
 > **왜 신뢰도인가 (1판 정정)**: 엔진은 **strict**다. `crates/engine/src/executor.rs:87`이 `render(&bare, ctx)?`로 렌더하고(주석 "strict: 미바인딩이면 여기서 UnknownVar"), `template.rs:92,145`가 `EngineError::UnknownVar`를 낸다. 결과는 요청 전송이 아니라 **VU 전멸** — run이 `all VUs failed (N/N): template: unknown variable ...`로 끝난다(`error.rs:8`). 따라서 B는 **"이대로 부하를 걸면 시작하자마자 run이 전멸한다"**이다.
@@ -183,7 +186,7 @@ export type TestRunState = "verified" | "stale" | "never";
 
 extract로 뽑은 변수를 아무도 참조하지 않는 상태. 로그인 토큰을 뽑아 놓고 안 쓰면 **인증 없이 도는 시험**이 된다.
 
-- **판정**: §4.4 공유 행 빌더 결과 중 `kind`가 `flat-extract` 또는 `parallel-extract`이고 `refIds.length === 0`인 행이 하나 이상이면 실패. `count` = 그 개수. `stepIds` 비움.
+- **판정**: §4.4 공유 행 빌더 결과 중 `kind`가 `flat-extract` 또는 `parallel-extract`이고 `refIds.length === 0`인 행이 하나 이상이면 실패. `count` = 그 개수. `steps` 비움.
 - **na**: 그 두 종류의 행이 하나도 없음.
 
 이 정의는 **패널이 `미사용` 배지를 붙이는 조건과 동일**하다(`VariablesPanel.tsx:206` `usageCell`이 `refIds`로 분기). 두 표면이 어긋날 수 없다.
@@ -468,7 +471,8 @@ acceptance: **`VariablesPanel` 기존 테스트가 수정 없이 통과** + 신�
 - 칩: 등급 3종 문구·`failed` 수 · `(미확인)` 접미가 `testRun !== "verified"`에서만 · **접미가 색·등급을 바꾸지 않음** · `isTrustApplicable` false면 미렌더 · `yamlError` 시 보류(§7.4 우선순위) · **`aria-label`이 양호일 때 경계 문장 포함**(US5).
 - 모달: A 스텝 칩 클릭 → `select` + 닫힘 / B·C 링크 → 패널 열림 + 닫힘 / 통과 항목 기본 접힘 / **D 줄은 접힘 없이 상시 렌더되고 3상태를 구분** / **양호 전용 문구가 `good`에만**.
 - RunDialog: `good`이면 **미렌더** / `caution`이면 한 줄 + 링크 / **B fail이면 전용 문구** / `blockedReasons` **아래** 순서 / **localStorage에 어떤 test-run 기록이 있어도 렌더 여부가 안 바뀜**(FR1 런타임 가드 — 버킷을 채운 채/비운 채 두 번 렌더해 동일함을 단언).
-- **반응성(§6.4)**: test-run 성공 기록 → `testRunEpoch` 증가 → 칩 접미가 사라지는 것을 **페이지 레벨 한 트리**로 렌더해 단언한다. 형제를 따로 렌더하면 이 결함을 재현할 수 없다.
+- **반응성(§6.4)**: **두 반쪽으로 나눠 각각 독립 가드**한다 — ① **생산자**: `TestRunSection` 테스트에서 test-run 성공 시 `testRunEpoch`가 **증가**하는 것 ② **소비자**: `EditorShell` 테스트에서 `recordVerified` + `bumpTestRunEpoch` 후 칩 접미가 **사라지는** 것(`useMemo` deps에 `testRunEpoch`가 없으면 RED). 두 회귀는 서로 다른 파일에서 나므로 분리 가드가 페이지 레벨 단일 렌더보다 정확하다.
+  - **잔여 갭(수용)**: 두 반쪽 모두 `EditorShell`과 `TestRunSection`의 `scenarioKey`가 **서로 같은지**는 검증하지 않는다(둘 다 `useParams`로 독립 취득). 그건 라이브 US4가 담당한다.
 - **`__draft__` 이관(§6.2)**: 드래프트 test-run → 저장 → 새 id로 조회 시 `verified` 유지.
 
 **테스트 하네스(정본 재사용)**: D21로 bare 렌더 테스트는 자동으로 `__draft__` 키를 쓰므로 **버킷 오염 격리가 필수**다. 저장소에 그대로 쓸 정본이 있다 — `ScenarioNotesCallout.test.tsx:36-39`의 `beforeEach(() => { reset(); window.localStorage.clear(); })`, 그리고 "id 있는 키" 경로(이관 테스트)에는 `:23-31`의 `renderWithId`(`MemoryRouter` + `Route path="/scenarios/:id"`). 하네스를 새로 발명하지 말 것.
@@ -482,7 +486,7 @@ acceptance: **`VariablesPanel` 기존 테스트가 수정 없이 통과** + 신�
 3. **중첩 JSON 키 정렬** — 정렬을 최상위로만 한정하면 RED(M4가 막으려는 그 버그).
 4. 양호 전용 문구 — 상시 렌더로 바꾸면 RED.
 5. 반응성 — `testRunEpoch` 구독을 빼면 RED.
-6. `__draft__` 이관 — `adoptDraftBucket` 호출을 빼면 RED.
+6. `__draft__` 이관 — **단위 테스트로는 이빨을 만들 수 없다**: `trustPrefs` 테스트는 `adoptDraftBucket`을 직접 부르므로 `ScenarioNewPage`의 **호출부**를 지워도 GREEN이다. `ScenarioNewPage` 전체를 띄우는 테스트는 이 슬라이스 대비 비싸므로, **라이브 검증 §10의 FR2 행이 이 가드다**(드래프트 test-run → 저장 → 새 id에서 `verified` 유지). 라이브에서 반드시 확인할 것.
 7. **if 분기 정체성** — 직렬화를 §6.1 근거가 경고한 형태(**분기 구분 없이 `then`·`elif[i].then`·`else` 세 자식 목록을 평탄하게 이어 붙임**)로 되돌리면 "`then`→`else` 이동 → 변함"이 RED. **라벨만 제거하고 배열 구분자를 남기면 RED가 나지 않는다** — `[S1][][S2]`와 `[S1,S2][][]`는 여전히 다르다. 변이는 반드시 **평탄 연결**이어야 두 경우가 `S1S2`로 같아진다.
 
 (D의 등급 누출은 §9.1대로 **타입이 막으므로** 변이 실증 대상이 아니다 — 시그니처를 바꿔야만 재현되고, 그건 컴파일 실패다.)
