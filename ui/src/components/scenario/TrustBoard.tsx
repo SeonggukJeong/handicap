@@ -18,6 +18,14 @@ const PASS_TEXT: Record<TrustCheck["id"], string> = {
   undefined_vars: ko.trust.checkBPass,
   broken_extract_chain: ko.trust.checkCPass,
 };
+/** na 줄도 통과 줄처럼 **어떤 점검이 왜** 해당 없는지 말해야 한다 — 공통 "해당 항목 없음"은
+ *  이 목록에서 맥락을 잃어(통과 줄들은 내용으로 자기를 식별한다) 처음 보는 사용자가
+ *  무엇이 해당 없는지 알 수 없다. */
+const NA_TEXT: Record<TrustCheck["id"], string> = {
+  response_validation: ko.trust.checkANa,
+  undefined_vars: ko.trust.checkBNa,
+  broken_extract_chain: ko.trust.checkCNa,
+};
 const TEST_RUN_TEXT: Record<TestRunState, string> = {
   never: ko.trust.testRunNever,
   stale: ko.trust.testRunStale,
@@ -120,7 +128,7 @@ export function TrustBoard({
             {passedOpen && (
               <ul className="mt-1 flex flex-col gap-1 text-slate-600">
                 {rest.map((c) => (
-                  <li key={c.id}>{c.status === "na" ? ko.trust.naLabel : PASS_TEXT[c.id]}</li>
+                  <li key={c.id}>{c.status === "na" ? NA_TEXT[c.id] : PASS_TEXT[c.id]}</li>
                 ))}
               </ul>
             )}

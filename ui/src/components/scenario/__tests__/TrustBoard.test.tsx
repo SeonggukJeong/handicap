@@ -117,7 +117,13 @@ describe("TrustBoard", () => {
     board();
     await userEvent.click(screen.getByText(ko.trust.boardPassedFold(2)));
     expect(screen.getByText(ko.trust.checkAPass)).toBeInTheDocument();
-    expect(screen.getByText(ko.trust.naLabel)).toBeInTheDocument();
+    // na 줄은 **어떤 점검이 왜** 해당 없는지 말해야 한다 — GOOD 픽스처의 na는 C(추출 없음)다.
+    // 통과 줄들은 내용으로 자기를 식별하는데(checkAPass 등) na만 맥락 없는 "해당 항목 없음"이면
+    // 처음 보는 사용자가 무엇이 해당 없는지 알 수 없다.
+    expect(screen.getByText(ko.trust.checkCNa)).toBeInTheDocument();
+    // 리터럴 단언: 카피가 점검을 식별하는 말을 잃으면(다시 일반 라벨로 회귀) RED.
+    // (기대값과 렌더가 같은 ko 값을 쓰는 자기참조 단언만으로는 이 회귀를 못 잡는다.)
+    expect(screen.getByText(ko.trust.checkCNa).textContent).toContain("추출");
   });
 
   it("D 줄은 접힘 없이 상시 렌더되고 세 상태를 구분한다", () => {

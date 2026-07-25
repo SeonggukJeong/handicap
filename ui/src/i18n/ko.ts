@@ -1550,12 +1550,13 @@ export const ko = {
     boardPassedFold: (n: number) => `통과한 점검 ${n}개`,
     /** report === null (spec §7.4 보류) */
     boardGateBlocked: "YAML 오류를 먼저 해결하세요",
-    naLabel: "해당 항목 없음",
 
     // ── 점검 A: 응답 검증 ──
     checkAFailTitle: "응답 검증이 없는 스텝이 있습니다",
     checkAFailWhy: "4xx·5xx가 와도 실패로 잡히지 않습니다",
     checkAPass: "모든 스텝에 응답 검증이 있습니다",
+    /** na — 통과 줄과 같이 **어떤 점검이 왜** 해당 없는지 말한다(맥락 없는 "해당 항목 없음" 금지). */
+    checkANa: "요청 스텝이 없어 응답 검증을 점검할 것이 없습니다",
 
     // ── 점검 B: 미정의 변수 ──
     /** D14: B도 C(`checkCFailTitle`)와 같이 "개수 + 링크"를 낸다. */
@@ -1563,11 +1564,15 @@ export const ko = {
     /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
     checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
     checkBPass: "참조하는 변수를 모두 만듭니다",
+    /** na — 현재 판정에선 도달하지 않지만(B는 항상 pass/fail) 타입 완전성을 위해 둔다. */
+    checkBNa: "참조하는 변수가 없어 점검할 것이 없습니다",
 
     // ── 점검 C: 끊긴 추출 체인 ──
     checkCFailTitle: (n: number) => `추출한 변수 ${n}개를 아무도 쓰지 않습니다`,
     checkCFailWhy: "인증 토큰이 끊겼을 수 있습니다",
     checkCPass: "추출한 변수를 모두 사용합니다",
+    /** na — 실제로 사용자가 보는 유일한 na(추출이 아예 없는 시나리오). */
+    checkCNa: "추출한 변수가 없어 점검할 것이 없습니다",
     /** B·C의 위임 링크 — 스텝 칩 대신(spec D14) */
     varsPanelLink: "변수 패널에서 보기",
 
