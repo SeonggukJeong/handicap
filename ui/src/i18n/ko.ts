@@ -1511,4 +1511,67 @@ export const ko = {
         "⬆ 올리면 종료가 늦는 run에 관대해집니다. 대신 멈춘 run이 오래 남습니다.\n⬇ 내리면 멈춘 run을 빨리 정리하지만, 정상이지만 조금 늦게 끝나는 run을 잘못 실패 처리할 수 있습니다.",
     },
   },
+  trust: {
+    // ── 칩 (EditorShell) ──
+    chipLabel: "신뢰도",
+    /** 등급 미반영 D 접미 (spec D19) — 색·등급을 바꾸지 않는다. */
+    chipUnverifiedSuffix: "(미확인)",
+    /** yamlError 판정 보류 (spec §7.4) */
+    chipPending: "—",
+    chipAriaGood:
+      "시나리오 신뢰도: 양호 — 시험이 실패를 감지할 수 있다는 뜻이며, 대상 시스템 성능 평가가 아닙니다. 열기",
+    chipAria: (level: string, failed: number) =>
+      `시나리오 신뢰도: ${level}, 고칠 곳 ${failed}개 — 열기`,
+    chipAriaPending: "시나리오 신뢰도: 판정 보류 — 열기",
+
+    // ── 등급 어휘 ──
+    level: {
+      good: "양호",
+      caution: "보완 필요",
+      weak: "취약",
+    },
+
+    // ── 모달 (TrustBoard) ──
+    boardTitle: "시나리오 신뢰도",
+    /** 상시 부제 — boardGoodNote와 부분문자열이 겹치지 않아야 한다(spec §8). */
+    boardSubtitle: "이 점검은 시나리오가 실패를 감지할 수 있는 시험인지를 봅니다.",
+    /** good일 때만 (US5) */
+    boardGoodNote:
+      "대상 시스템의 성능이 좋다는 뜻은 아닙니다 — 그건 실행 후 리포트에서 확인하세요.",
+    boardCount: (passed: number, applicable: number) => `점검 ${applicable}개 중 ${passed}개 통과`,
+    boardPassedFold: (n: number) => `통과한 점검 ${n}개`,
+    /** report === null (spec §7.4 보류) */
+    boardGateBlocked: "YAML 오류를 먼저 해결하세요",
+    naLabel: "해당 항목 없음",
+
+    // ── 점검 A: 응답 검증 ──
+    checkAFailTitle: "응답 검증이 없는 스텝이 있습니다",
+    checkAFailWhy: "4xx·5xx가 와도 실패로 잡히지 않습니다",
+    checkAPass: "모든 스텝에 응답 검증이 있습니다",
+
+    // ── 점검 B: 미정의 변수 ──
+    checkBFailTitle: "만들지 않는 변수를 참조합니다",
+    /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
+    checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
+    checkBPass: "참조하는 변수를 모두 만듭니다",
+
+    // ── 점검 C: 끊긴 추출 체인 ──
+    checkCFailTitle: (n: number) => `추출한 변수 ${n}개를 아무도 쓰지 않습니다`,
+    checkCFailWhy: "인증 토큰이 끊겼을 수 있습니다",
+    checkCPass: "추출한 변수를 모두 사용합니다",
+    /** B·C의 위임 링크 — 스텝 칩 대신(spec D14) */
+    varsPanelLink: "변수 패널에서 보기",
+
+    // ── D: 시험 실행 (등급 미반영) ──
+    testRunNever: "아직 시험 실행으로 확인하지 않았습니다",
+    testRunStale: "시험 실행 이후 시나리오가 바뀌었습니다",
+    testRunVerified: "현재 내용으로 시험 실행해 확인했습니다",
+    testRunScope: "이 브라우저 기준입니다",
+
+    // ── RunDialog 한 줄 ──
+    runDialogLine: (level: string, failed: number) => `시나리오 신뢰도: ${level} (${failed}건)`,
+    /** B fail 전용 분기 — 등급 단어 대신 결과를 말한다(spec §7.3) */
+    runDialogBFail: "이대로 실행하면 시작하자마자 모든 VU가 실패합니다",
+    runDialogLink: "에디터에서 보기",
+  },
 } as const;

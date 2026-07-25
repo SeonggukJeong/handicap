@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { FlowOutline } from "./FlowOutline";
@@ -6,11 +7,14 @@ import { Inspector } from "./Inspector";
 import { MonacoYamlView } from "./MonacoYamlView";
 import { Modal } from "../Modal";
 import { TestFlowChips } from "./TestFlowChips";
+import { TrustBoard } from "./TrustBoard";
 import { ValidationBanner } from "./ValidationBanner";
 import { VariablesPanel } from "./VariablesPanel";
 import { ScenarioDefaults } from "./ScenarioDefaults";
 import { ScenarioNotesCallout } from "./ScenarioNotesCallout";
 import { ThinkTimeBoard } from "./ThinkTimeBoard";
+import { evaluateTrust, isTrustApplicable } from "../../scenario/trust";
+import { DRAFT_KEY, testRunStateFor } from "../../scenario/trustPrefs";
 import type { Step } from "../../scenario/model";
 
 const EMPTY_STEPS: Step[] = []; // 셀렉터 안정 참조 — 인라인 `?? []` 금지(getSnapshot 함정)
@@ -37,6 +41,27 @@ export function EditorShell({
   const [wideOpen, setWideOpen] = useState(false);
   const [varsWide, setVarsWide] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [trustOpen, setTrustOpen] = useState(false);
+  const { id } = useParams<{ id: string }>();
+  const scenarioKey = id ?? DRAFT_KEY;
+  const model = useScenarioEditor((s) => s.model);
+  const yamlError = useScenarioEditor((s) => s.yamlError);
+  const testRunEpoch = useScenarioEditor((s) => s.testRunEpoch);
+
+  // 검사 우선순위(spec §7.4): ① yamlError → 보류 ② model null → 미렌더
+  // ③ !isTrustApplicable → 미렌더 ④ 평가. isTrustApplicable을 null 모델에 부르지 않는다.
+  const trustPending = yamlError !== null;
+  const trustReport = useMemo(
+    () => (!trustPending && model && isTrustApplicable(model) ? evaluateTrust(model) : null),
+    [trustPending, model],
+  );
+  const trustTestRun = useMemo(
+    () => (model ? testRunStateFor(scenarioKey, model) : "never"),
+    // testRunEpoch는 localStorage 재조회 트리거다(값 자체는 안 쓴다).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model, scenarioKey, testRunEpoch],
+  );
+  const showTrustChip = trustPending || trustReport !== null;
 
   const initialRef = useRef(initialYaml);
   useEffect(() => {
@@ -133,6 +158,44 @@ export function EditorShell({
         >
           <span aria-hidden="true">⏱</span> {ko.editor.thinkBoardOpen}
         </button>
+        {showTrustChip &&
+          (trustPending ? (
+            <button
+              type="button"
+              aria-label={ko.trust.chipAriaPending}
+              onClick={() => setTrustOpen(true)}
+              className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+            >
+              <span aria-hidden="true">◈</span> {ko.trust.chipLabel} · {ko.trust.chipPending}
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label={
+                trustReport!.level === "good"
+                  ? ko.trust.chipAriaGood
+                  : ko.trust.chipAria(ko.trust.level[trustReport!.level], trustReport!.failed)
+              }
+              onClick={() => setTrustOpen(true)}
+              className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100"
+            >
+              <span aria-hidden="true">◈</span> {ko.trust.chipLabel} ·{" "}
+              <span
+                className={
+                  trustReport!.level === "weak"
+                    ? "text-red-700"
+                    : trustReport!.level === "caution"
+                      ? "text-amber-700"
+                      : undefined
+                }
+              >
+                {ko.trust.level[trustReport!.level]}
+                {trustReport!.failed > 0 ? ` ${trustReport!.failed}` : ""}
+              </span>
+              {/* 보류 상태에서는 접미를 붙이지 않는다(spec §7.4) — 위 분기가 그걸 보장한다. */}
+              {trustTestRun !== "verified" && ` ${ko.trust.chipUnverifiedSuffix}`}
+            </button>
+          ))}
       </div>
       <div
         data-testid="editor-grid"
@@ -198,6 +261,14 @@ export function EditorShell({
         <Inspector />
       </Modal>
       <ThinkTimeBoard open={thinkBoardOpen} onClose={() => setThinkBoardOpen(false)} />
+      <TrustBoard
+        open={trustOpen}
+        onClose={() => setTrustOpen(false)}
+        report={trustReport}
+        testRun={trustTestRun}
+        onSelectStep={(sid) => select(sid)}
+        onOpenVars={() => setVarsOpen(true)}
+      />
     </div>
   );
 }
