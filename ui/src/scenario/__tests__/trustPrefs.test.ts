@@ -114,10 +114,90 @@ describe("executionFingerprint — 무효화하지 않아야 하는 변경", () 
 
 describe("executionFingerprint — 무효화해야 하는 변경", () => {
   it("URL", () => {
+    // 헤더는 baseline과 동일하게 유지 — URL만 바뀌어야 이 테스트가 URL 필드를
+    // 실제로 지문에 검증한다(헤더까지 같이 바뀌면 canonRecord 세그먼트 차이로도
+    // 통과해버려 URL 자체는 아무것도 증명하지 못한다).
     const u = sc({
-      steps: [step(A, { request: { method: "GET", url: "https://e.test/CHANGED", headers: {} } })],
+      steps: [
+        step(A, {
+          request: {
+            method: "GET",
+            url: "https://e.test/CHANGED",
+            headers: { X: "1", A: "2" },
+          },
+        }),
+      ],
     });
     expect(executionFingerprint(u)).not.toBe(executionFingerprint(base()));
+  });
+  it("method", () => {
+    const p = sc({
+      steps: [
+        step(A, {
+          request: { method: "POST", url: "https://e.test/a", headers: { X: "1", A: "2" } },
+        }),
+      ],
+    });
+    expect(executionFingerprint(p)).not.toBe(executionFingerprint(base()));
+  });
+  it("timeout_seconds (test-run이 실제로 적용한다 — executor.rs:392 execute_step_traced)", () => {
+    const t = sc({ steps: [step(A, { timeout_seconds: 5 })] });
+    expect(executionFingerprint(t)).not.toBe(executionFingerprint(base()));
+  });
+  it("loop.repeat", () => {
+    const mk = (repeat: number) =>
+      executionFingerprint(
+        sc({
+          steps: [
+            {
+              id: A,
+              name: "l",
+              type: "loop",
+              repeat,
+              do: [step(B, { request: { method: "GET", url: "https://e.test/b", headers: {} } })],
+            },
+          ],
+        }),
+      );
+    expect(mk(2)).not.toBe(mk(3));
+  });
+  it("http body 값 변경 (키 순서가 아니라 값 자체)", () => {
+    const mk = (p: number) =>
+      executionFingerprint(
+        sc({
+          steps: [
+            step(A, {
+              request: {
+                method: "POST",
+                url: "https://e.test/a",
+                headers: {},
+                body: { kind: "json", value: { outer: { p } } },
+              },
+            }),
+          ],
+        }),
+      );
+    expect(mk(1)).not.toBe(mk(2));
+  });
+  it("if.cond", () => {
+    const mk = (right: string) =>
+      executionFingerprint(
+        sc({
+          variables: { v: "1" },
+          steps: [
+            {
+              id: A,
+              name: "i",
+              type: "if",
+              cond: { left: "{{v}}", op: "eq", right },
+              then: [step(B, { request: { method: "GET", url: "https://e.test/x", headers: {} } })],
+              elif: [],
+              else: [],
+            },
+          ],
+        }),
+      );
+    expect(mk("1")).not.toBe(mk("2"));
   });
   it("assert 추가", () => {
     expect(

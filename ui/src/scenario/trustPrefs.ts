@@ -53,8 +53,12 @@ function canonStep(s: Step): string {
           : r.body.kind === "raw"
             ? `raw:${JSON.stringify(r.body.value)}`
             : `json:${canonJson(r.body.value)}`;
-    // 스텝 name·id·think_time·timeout_seconds·request.disabled는 제외(실행 표면 아님).
-    return `http(${r.method}|${JSON.stringify(r.url)}|${canonRecord(r.headers)}|${body}|${canonJson(
+    // 스텝 name·id·think_time·request.disabled는 제외(실행 표면 아님 / test-run 미행사).
+    // timeout_seconds는 **포함** — test-run이 실행하는 트레이스 경로
+    // (execute_step_traced, crates/engine/src/executor.rs:392)가 이를 실제로
+    // request builder에 적용한다. 부재는 안정 토큰 "none"으로 표현(undefined 직렬화 회피).
+    const timeout = s.timeout_seconds === undefined ? "none" : String(s.timeout_seconds);
+    return `http(${r.method}|${JSON.stringify(r.url)}|${canonRecord(r.headers)}|${body}|${timeout}|${canonJson(
       s.assert,
     )}|${canonJson(s.extract)})`;
   }
