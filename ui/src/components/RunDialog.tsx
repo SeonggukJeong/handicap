@@ -13,6 +13,7 @@ import {
 import type { DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { flattenHttpSteps, scenarioHasThink } from "../scenario/model";
+import { evaluateTrust, isTrustApplicable } from "../scenario/trust";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
@@ -353,6 +354,12 @@ export function RunDialog({
       label: `${s.name || s.id} (${s.request.method} ${s.request.url || "—"})`,
     }));
   }, [scenario]);
+  // D(test-run 검증)는 여기 관여하지 않는다 — evaluateTrust가 그 상태를 받지 않으므로
+  // 지문·브라우저 저장소 경로가 이 화면에 아예 없다(spec D19/FR1).
+  const trust = useMemo(
+    () => (scenario && isTrustApplicable(scenario) ? evaluateTrust(scenario) : null),
+    [scenario],
+  );
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
@@ -1033,6 +1040,26 @@ export function RunDialog({
           )
         );
       })()}
+
+      {trust && trust.level !== "good" && (
+        <Callout variant="warn" role="status" className="mb-3">
+          <div className="flex items-center justify-between gap-2">
+            <span>
+              <span aria-hidden="true">◈</span>{" "}
+              {trust.checks.find((c) => c.id === "undefined_vars")?.status === "fail"
+                ? ko.trust.runDialogBFail
+                : ko.trust.runDialogLine(ko.trust.level[trust.level], trust.failed)}
+            </span>
+            {/* Router 비의존 — 기존 RunDialog 테스트 96곳에 Router가 없다. <Link> 금지. */}
+            <a
+              href={`/scenarios/${scenarioId}`}
+              className="shrink-0 underline hover:text-amber-900"
+            >
+              {ko.trust.runDialogLink}
+            </a>
+          </div>
+        </Callout>
+      )}
 
       {poolConflict
         ? (() => {
