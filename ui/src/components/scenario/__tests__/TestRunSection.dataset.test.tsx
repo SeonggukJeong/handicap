@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TestRunSection } from "../TestRunSection";
 import { ko } from "../../../i18n/ko";
+import { ScenarioModel, type Scenario } from "../../../scenario/model";
+import { DRAFT_KEY, testRunStateFor } from "../../../scenario/trustPrefs";
 
 // URL 라우팅 fetch 스텁 — one-shot 큐 금지(무조건-훅 함정 회피). Response 생성은
 // DatasetRowsPreview.test.tsx의 jsonResponse 헬퍼와 동일 형태를 이 파일에 복제.
@@ -166,6 +168,34 @@ steps:
       method: GET
       url: http://x/b
 `;
+
+/** YAML_2_STEPS와 동일한 시나리오 — 신뢰도 버킷 조회용 손-오라클(파서 재사용 아님). */
+function parsedTwoStepScenario(): Scenario {
+  return ScenarioModel.parse({
+    version: 1,
+    name: "s",
+    cookie_jar: "auto",
+    variables: {},
+    steps: [
+      {
+        id: STEP_A,
+        name: "stepA",
+        type: "http",
+        request: { method: "GET", url: "http://x/a", headers: {} },
+        assert: [],
+        extract: [],
+      },
+      {
+        id: STEP_B,
+        name: "stepB",
+        type: "http",
+        request: { method: "GET", url: "http://x/b", headers: {} },
+        assert: [],
+        extract: [],
+      },
+    ],
+  });
+}
 
 function renderSection(yaml: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -472,5 +502,23 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  // 순차 경로의 검증 기록 회귀 가드(T4 리뷰 fold). 기존 trust 테스트 3건은 단발
+  // mutate만 태우므로 sequential onSuccess의 markVerified가 사라져도 못 잡는다.
+  it("T6: sequential 성공(ok·!truncated) → 검증 기록 = verified (T4 리뷰 fold)", async () => {
+    const user = userEvent.setup();
+    testRunResponse = SEQ_OK;
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+
+    expect(testRunStateFor(DRAFT_KEY, parsedTwoStepScenario())).toBe("never");
+
+    await user.click(screen.getByRole("button", { name: ko.editor.testRunRun }));
+    await screen.findByRole("region", { name: ko.editor.seqResultAria });
+
+    expect(testRunStateFor(DRAFT_KEY, parsedTwoStepScenario())).toBe("verified");
   });
 });
