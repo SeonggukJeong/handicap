@@ -44,6 +44,10 @@ export interface ScenarioEditorState {
    *  이 값을 dep/resetKey에 넣어 재선택 없이 열린 스텝의 header/JSON-body/extract
    *  draft를 실시간 재시드(#5). 실패/no-op(shadow·collision·self 등)는 미증가. */
   renameEpoch: number;
+  /** test-run이 진짜로 성공(ok && !truncated)할 때마다 +1 — 와이어 무접촉, localStorage
+   *  기반 신뢰 배지(Task 5)가 이 값을 dep에 넣어 재선택 없이 재조회한다(localStorage
+   *  write는 React를 통지하지 않으므로 반응성은 이 카운터가 대신 짊어진다). */
+  testRunEpoch: number;
 
   loadFromString(yaml: string): void;
   resetEmpty(): void;
@@ -111,11 +115,22 @@ export interface ScenarioEditorState {
   setPendingYamlText(text: string): void;
   commitPendingYaml(): void;
   clearPendingYaml(): void;
+
+  /** testRunEpoch를 +1 — 실제 write(recordVerified)는 trustPrefs.ts(localStorage)가
+   *  담당, store는 반응성 신호만 소유(D는 등급에 안 섞인다 — trust.ts는 이 액션을 모른다). */
+  bumpTestRunEpoch(): void;
 }
 
 const INITIAL: Pick<
   ScenarioEditorState,
-  "doc" | "model" | "yamlText" | "yamlError" | "selectedStepId" | "pendingYamlText" | "renameEpoch"
+  | "doc"
+  | "model"
+  | "yamlText"
+  | "yamlError"
+  | "selectedStepId"
+  | "pendingYamlText"
+  | "renameEpoch"
+  | "testRunEpoch"
 > = {
   doc: null,
   model: null,
@@ -124,6 +139,7 @@ const INITIAL: Pick<
   selectedStepId: null,
   pendingYamlText: null,
   renameEpoch: 0,
+  testRunEpoch: 0,
 };
 
 export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
@@ -432,6 +448,8 @@ export const useScenarioEditor = create<ScenarioEditorState>((set, get) => ({
   clearPendingYaml() {
     set({ pendingYamlText: null, yamlError: null });
   },
+
+  bumpTestRunEpoch: () => set({ testRunEpoch: get().testRunEpoch + 1 }),
 }));
 
 function dispatch(
@@ -511,6 +529,7 @@ const actions = (() => {
     setPendingYamlText: s.setPendingYamlText,
     commitPendingYaml: s.commitPendingYaml,
     clearPendingYaml: s.clearPendingYaml,
+    bumpTestRunEpoch: s.bumpTestRunEpoch,
   };
 })();
 

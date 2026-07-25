@@ -13,6 +13,7 @@ import { useUnsavedGuard } from "../hooks/useUnsavedGuard";
 import { ko } from "../i18n/ko";
 import { useScenarioEditor } from "../scenario/store";
 import { BLANK_TEMPLATE_YAML, SCENARIO_TEMPLATES } from "../scenario/templates";
+import { adoptDraftBucket } from "../scenario/trustPrefs";
 
 // 빈 템플릿이 곧 기존 STARTER — 단일 소스는 templates.ts (기존 import 호환 re-export).
 export const STARTER_YAML = BLANK_TEMPLATE_YAML;
@@ -122,6 +123,7 @@ export function ScenarioNewPage() {
             onClick={() =>
               mutation.mutate(yamlText, {
                 onSuccess: (created) => {
+                  adoptDraftBucket(created.id); // ← navigate 이전
                   bypassNext();
                   navigate(`/scenarios/${created.id}`);
                 },

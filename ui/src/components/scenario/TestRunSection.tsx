@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useEnvironment, useTestRun, useTestRunSequential } from "../../api/hooks";
 import { ko } from "../../i18n/ko";
 import { resolveEnv, type EnvEntry } from "../../api/envOverlay";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps, type Step } from "../../scenario/model";
 import { useScenarioEditor } from "../../scenario/store";
+import { DRAFT_KEY, fingerprintHash, recordVerified } from "../../scenario/trustPrefs";
 import { Button } from "../Button";
 import { Callout } from "../ui/Callout";
 import { Input } from "../ui/Input";
@@ -23,6 +25,9 @@ import type { TestRunBody } from "../../api/client";
 export function TestRunSection({ yamlText }: { yamlText: string }) {
   const testRun = useTestRun();
   const testRunSeq = useTestRunSequential();
+  const { id } = useParams<{ id: string }>();
+  const scenarioKey = id ?? DRAFT_KEY;
+  const bumpTestRunEpoch = useScenarioEditor((s) => s.bumpTestRunEpoch);
   const selectedStepId = useScenarioEditor((s) => s.selectedStepId);
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
@@ -55,18 +60,39 @@ export function TestRunSection({ yamlText }: { yamlText: string }) {
       max_requests: maxRequests,
       apply_think_time: applyThinkTime,
     };
+
+    // 지문은 지금 보내는 내용 기준으로 고정한다 — onSuccess 시점에 다시 계산하면
+    // 그 사이 편집한 다른 내용이 verified로 기록된다.
+    const snap = parseScenarioDoc(yamlText);
+    const snapHash = "model" in snap ? fingerprintHash(snap.model) : null;
+
+    const markVerified = (ok: boolean, truncated: boolean) => {
+      // 클라 파싱 실패(snapHash===null)면 기록을 건너뛴다 — 무기록이 거짓 verified보다 안전.
+      if (snapHash === null || !ok || truncated) return;
+      recordVerified(scenarioKey, snapHash);
+      bumpTestRunEpoch();
+    };
+
     if (dsState?.kind === "ready" && dsState.config.mode === "sequential") {
       testRun.reset();
       setSeqRequested(dsState.requestedRows);
       testRunSeq.mutate(
         { ...base, dataset: dsState.config },
-        { onSuccess: (s) => setExpandedRow(defaultExpandedRow(s)) },
+        {
+          onSuccess: (s) => {
+            setExpandedRow(defaultExpandedRow(s));
+            markVerified(s.ok, s.truncated);
+          },
+        },
       );
     } else {
       testRunSeq.reset();
-      testRun.mutate({
+      const body = {
         ...base,
         ...(dsState?.kind === "ready" ? { dataset: dsState.config } : {}),
+      };
+      testRun.mutate(body, {
+        onSuccess: (t) => markVerified(t.ok, t.truncated),
       });
     }
   };
