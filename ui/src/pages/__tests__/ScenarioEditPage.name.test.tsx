@@ -175,7 +175,13 @@ describe("ScenarioEditPage 이름 라이브 표시 + 인라인 편집 (R7/R8)", 
   it("YAML 오류(yamlError) 상태면 이름 편집 연필이 비활성 (R2)", async () => {
     renderPage();
     const pencil = await screen.findByRole("button", { name: ko.editor.renameAria });
-    expect(pencil).toBeEnabled(); // 정상 상태 = 활성 (R8)
+    // 연필은 data 도착 커밋에서 *이미* 렌더되지만 그땐 아직 disabled다 —
+    // nameEditable이 `seeded`(=시드 useEffect가 setSeededId 한 뒤)에 걸려 있어
+    // "data 있음 + 미시드" 중간 커밋이 구조적으로 존재한다(관측: null→disabled→enabled).
+    // findByRole은 그 중간 커밋에 정당하게 매치하므로 동기 단언은 레이스다(CI-only 실패,
+    // 로컬은 이펙트 flush가 옵저버 콜백보다 먼저라 항상 통과) → waitFor로 재시도.
+    // 이빨은 그대로: 연필이 *영영* 비활성이면 타임아웃 실패.
+    await waitFor(() => expect(pencil).toBeEnabled()); // 정상 상태 = 활성 (R8)
     // EditorShell의 마운트 이펙트(loadFromString(initialYaml) 자기-재시드, StrictMode
     // 이중 호출 포함)가 위 findByRole 해결 시점에 아직 전부 flush되지 않았을 수 있다 —
     // 그 상태에서 곧장 store를 mutate하면, 나중에 도착하는 그 이펙트가 우리 변경을
