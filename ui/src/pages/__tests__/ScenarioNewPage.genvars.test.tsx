@@ -112,8 +112,11 @@ function renderNewPage() {
 describe("생성 변수 — 페이지 통합 스모크 + YAML 왕복 락인 (dynamic-vars T7)", () => {
   it("/scenarios/{id}: 스토어 loadFromString(4종 생성기 YAML) → 패널에 4종 배지 렌더 + model round-trip 유지", async () => {
     renderEditPage(GEN_SCENARIO_YAML);
-    // 데이터 로드+시드 완료 신호 — 기존 ScenarioEditPage.testrun 하니스와 동일.
-    await screen.findByRole("button", { name: "저장" });
+    // 시드 완료 신호는 *스토어 파생* 요소여야 한다 — 헤더 "저장"은 data 도착 커밋에
+    // 이미 있고 변수 행은 시드 useEffect 이후 커밋이라 한 틱 늦다(관측: save=1/var=0
+    // 중간 커밋 실재). "저장"을 신호로 쓰면 CI에서 갈라져 아래 동기 getByRole이 터진다.
+    // 4종 배지는 VariablesPanel이 한 커밋에 렌더하므로 첫 행만 기다리면 충분.
+    await screen.findByRole("button", { name: ko.editor.varExpandAria("checkin") });
 
     const badges: [string, string][] = [
       ["checkin", ko.editor.genTypeDate],
@@ -173,9 +176,10 @@ describe("생성 변수 — 페이지 통합 스모크 + YAML 왕복 락인 (dyn
   it("/scenarios/{id}: '워커 로컬' tz 선택 시 yamlText에서 tz: 키가 실제로 소멸한다(setVariableGen undefined-strip 계약, orchestrator fold)", async () => {
     const user = userEvent.setup();
     renderEditPage(GEN_SCENARIO_YAML);
-    await screen.findByRole("button", { name: "저장" });
-
-    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("checkin") }));
+    // 위와 같은 이유로 시드 신호는 스토어 파생 요소(변수 행)로.
+    await user.click(
+      await screen.findByRole("button", { name: ko.editor.varExpandAria("checkin") }),
+    );
     expect(useScenarioEditor.getState().yamlText).toMatch(/tz:\s*"?Asia\/Seoul"?/);
 
     await user.selectOptions(
