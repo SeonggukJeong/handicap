@@ -8,9 +8,9 @@ import type { TrustReport } from "../../../scenario/trust";
 const GOOD: TrustReport = {
   level: "good",
   checks: [
-    { id: "response_validation", status: "pass", steps: [], count: 0 },
-    { id: "undefined_vars", status: "pass", steps: [], count: 0 },
-    { id: "broken_extract_chain", status: "na", steps: [], count: 0 },
+    { id: "response_validation", status: "pass", steps: [], count: 0, vars: [] },
+    { id: "undefined_vars", status: "pass", steps: [], count: 0, vars: [] },
+    { id: "broken_extract_chain", status: "na", steps: [], count: 0, vars: [] },
   ],
   passed: 2,
   applicable: 2,
@@ -21,9 +21,15 @@ const GOOD: TrustReport = {
 const CAUTION: TrustReport = {
   level: "caution",
   checks: [
-    { id: "response_validation", status: "fail", steps: [{ id: "S1", name: "로그인" }], count: 0 },
-    { id: "undefined_vars", status: "pass", steps: [], count: 0 },
-    { id: "broken_extract_chain", status: "fail", steps: [], count: 2 },
+    {
+      id: "response_validation",
+      status: "fail",
+      steps: [{ id: "S1", name: "로그인" }],
+      count: 0,
+      vars: [],
+    },
+    { id: "undefined_vars", status: "pass", steps: [], count: 0, vars: [] },
+    { id: "broken_extract_chain", status: "fail", steps: [], count: 2, vars: [] },
   ],
   passed: 1,
   applicable: 3,
@@ -35,9 +41,18 @@ const CAUTION: TrustReport = {
 const WEAK: TrustReport = {
   level: "weak",
   checks: [
-    { id: "response_validation", status: "pass", steps: [], count: 0 },
-    { id: "undefined_vars", status: "fail", steps: [], count: 2 },
-    { id: "broken_extract_chain", status: "na", steps: [], count: 0 },
+    { id: "response_validation", status: "pass", steps: [], count: 0, vars: [] },
+    {
+      id: "undefined_vars",
+      status: "fail",
+      steps: [],
+      count: 2,
+      vars: [
+        { name: "ghost", strict: true },
+        { name: "ghost2", strict: true },
+      ],
+    },
+    { id: "broken_extract_chain", status: "na", steps: [], count: 0, vars: [] },
   ],
   passed: 1,
   applicable: 2,

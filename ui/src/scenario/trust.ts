@@ -18,6 +18,19 @@ export interface TrustCheck {
   steps: Array<{ id: string; name: string }>;
   /** B·C 전용: 걸린 변수 개수. A는 0. */
   count: number;
+  /** B 전용: 미정의 변수 이름 + 위치 클래스(walker가 위반을 처음 만난 순서). A·C는 항상 [].
+   *  UI 나열용이 아니다(D14 유지) — RunDialog 게이트(spec P5)와 문구 분기(P3)의 입력. 필수 필드(spec R2). */
+  vars: Array<{ name: string; strict: boolean }>;
+}
+
+/** spec P3 공유 술어 — TrustBoard·RunDialog가 같은 판정을 쓴다(사본 금지). 빈 입력이면 null:
+ *  의미는 호출부가 정한다(TrustBoard는 `c.vars`라 null≈B pass — §5.1이 폴백 정의,
+ *  RunDialog는 `uncovered`라 null="바인딩이 전부 공급"·B는 여전히 fail일 수 있다). */
+export function bFailMode(
+  vars: Array<{ name: string; strict: boolean }>,
+): "annihilation" | "misroute" | null {
+  if (vars.length === 0) return null;
+  return vars.some((v) => v.strict) ? "annihilation" : "misroute";
 }
 
 export interface TrustReport {
@@ -48,12 +61,13 @@ export function evaluateTrust(scenario: Scenario): TrustReport {
   const withAssertCount = https.length - missing.length;
   const a: TrustCheck =
     https.length === 0
-      ? { id: "response_validation", status: "na", steps: [], count: 0 }
+      ? { id: "response_validation", status: "na", steps: [], count: 0, vars: [] }
       : {
           id: "response_validation",
           status: missing.length > 0 ? "fail" : "pass",
           steps: missing.map((s) => ({ id: s.id, name: s.name })),
           count: 0,
+          vars: [],
         };
 
   // B — 위치 인식 판정은 undefinedVarRefs에 위임(재구현 금지).
@@ -63,21 +77,27 @@ export function evaluateTrust(scenario: Scenario): TrustReport {
     status: undef.size > 0 ? "fail" : "pass",
     steps: [],
     count: undef.size,
+    vars: [...undef].map(([name, r]) => ({ name, strict: r.hasStrictRef })),
   };
 
-  // C — VariablesPanel이 `미사용` 배지를 붙이는 조건과 **동일**(refIds가 빔).
-  const extractRows = buildVarRows(scenario).filter(
+  // C — 패널 행 빌더가 단일 소스(D15). 모집단 = extract 행 + 선언-충돌 flat overwrite 행(spec §4.2).
+  // 순수 미사용 선언(overwrittenByFlat 아님)은 C 밖 — 안 쓰는 선언은 끊긴 추출 체인이 아니다.
+  const rows = buildVarRows(scenario);
+  const extractRows = rows.filter(
     (r) => r.kind === "flat-extract" || r.kind === "parallel-extract",
   );
-  const unused = extractRows.filter((r) => r.refIds.length === 0);
+  const overwrittenDecl = rows.filter((r) => r.kind === "declared" && r.overwrittenByFlat);
+  const cRows = [...extractRows, ...overwrittenDecl];
+  const unused = cRows.filter((r) => r.refIds.length === 0);
   const c: TrustCheck =
-    extractRows.length === 0
-      ? { id: "broken_extract_chain", status: "na", steps: [], count: 0 }
+    cRows.length === 0
+      ? { id: "broken_extract_chain", status: "na", steps: [], count: 0, vars: [] }
       : {
           id: "broken_extract_chain",
           status: unused.length > 0 ? "fail" : "pass",
           steps: [],
           count: unused.length,
+          vars: [],
         };
 
   const checks = [a, b, c];
