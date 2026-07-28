@@ -625,6 +625,21 @@ describe("host-환경 힌트: 안내", () => {
     expect(hint.textContent).toContain("1");
   });
 
+  it("F4: 매치 행 input이 안내와 aria-describedby로 연결됨", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    await screen.findByText(ko.import.hostRegisteredIn("스테이징", "API_HOST"));
+    const apiInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
+    const describedById = apiInput.getAttribute("aria-describedby");
+    expect(describedById).toBeTruthy();
+    const hintEl = document.getElementById(describedById as string);
+    expect(hintEl?.textContent).toContain(ko.import.hostRegisteredIn("스테이징", "API_HOST"));
+  });
+
   it("US3: 안내가 있어도 이름 수정·등록 버튼 동작 불변", async () => {
     const user = userEvent.setup();
     stubEnvFetch([STAGING_ENV]);

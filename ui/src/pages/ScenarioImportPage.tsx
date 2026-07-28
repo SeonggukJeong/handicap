@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateEnvironment, useEnvironmentsWithVars } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -316,36 +316,39 @@ export function ScenarioImportPage() {
               )}
               {hostVarsEnabled && (
                 <>
-                  {hostsOrdered.map((h) => (
-                    <Fragment key={h}>
-                      <label className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
-                          {h}
-                        </span>
-                        <span aria-hidden="true">→</span>
-                        <div className="w-40">
-                          <Input
-                            aria-label={ko.import.varNameLabel(h)}
-                            value={effectiveHostVars[h]}
-                            onChange={(e) =>
-                              setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
-                            }
-                            className="font-mono"
-                          />
-                        </div>
-                      </label>
-                      {hostMatches[h] && (
-                        <p className="text-xs text-slate-500">
-                          {ko.import.hostRegisteredIn(
-                            hostMatches[h][0].envName,
-                            hostMatches[h][0].varName,
-                          )}
-                          {hostMatches[h].length > 1 &&
-                            ` · ${ko.import.hostRegisteredMore(hostMatches[h].length - 1)}`}
-                        </p>
-                      )}
-                    </Fragment>
-                  ))}
+                  {hostsOrdered.map((h) => {
+                    // F3: Task1 불변식(빈 배열 미저장)이 깨져도 크래시가 아니라 안내 부재로 강등.
+                    const ms = hostMatches[h];
+                    const first = ms?.[0];
+                    const hintId = `host-env-hint-${h}`;
+                    return (
+                      <div key={h} className="flex flex-col gap-0.5">
+                        <label className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
+                            {h}
+                          </span>
+                          <span aria-hidden="true">→</span>
+                          <div className="w-40">
+                            <Input
+                              aria-label={ko.import.varNameLabel(h)}
+                              aria-describedby={first ? hintId : undefined}
+                              value={effectiveHostVars[h]}
+                              onChange={(e) =>
+                                setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
+                              }
+                              className="font-mono"
+                            />
+                          </div>
+                        </label>
+                        {first && (
+                          <p id={hintId} className="truncate text-xs text-slate-500">
+                            {ko.import.hostRegisteredIn(first.envName, first.varName)}
+                            {ms.length > 1 && ` · ${ko.import.hostRegisteredMore(ms.length - 1)}`}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                   {envValidation.emptyHosts.length > 0 && (
                     <p className="text-xs text-red-600">{ko.import.varNameEmpty}</p>
                   )}

@@ -118,6 +118,29 @@ describe("matchHostsToEnvs", () => {
   it("빈 envs → 빈 결과", () => {
     expect(matchHostsToEnvs(hosts, preview, [])).toEqual({});
   });
+
+  // S-I1 (security Important): non-special scheme의 URL.origin은 문자열 "null" —
+  // env 값·HAR host 양쪽에서 이 리터럴이 동치가 되어 거짓 매칭이 생긴다.
+  it("S-I1: env 값이 non-special scheme(mysql://…, pure-origin 형태)이면 매치 안 됨", () => {
+    // HAR의 유일한 엔트리도 non-special(webcal://) — origin이 old code에서 "null" 문자열로 반환돼
+    // env 값(mysql://…)의 pure-origin("null")과 거짓 동치가 났던 경로를 그대로 재현한다.
+    const nonSpecialPreview = pv("webcal://api.example.com/cal");
+    const out = matchHostsToEnvs(["api.example.com"], nonSpecialPreview, [
+      env("E1", "db-env", { DB: "mysql://db.example.com/" }),
+    ]);
+    expect(out).toEqual({});
+  });
+
+  it("S-I1/S-I2: preview가 non-special scheme(webcal://)뿐인 host는 결과에서 제외됨", () => {
+    const mixedPreview = pv("https://api.example.com/x", "webcal://cal.example.com/x");
+    const out = matchHostsToEnvs(["api.example.com", "cal.example.com"], mixedPreview, [
+      env("E1", "s", { BASE_URL: "https://api.example.com" }),
+      // "null" pure-origin과 거짓 동치될 수 있는 후보 — cal.example.com에 안 붙어야 함
+      env("E2", "db", { DB: "mysql://anything/" }),
+    ]);
+    expect(out["cal.example.com"]).toBeUndefined();
+    expect(out["api.example.com"]).toEqual([{ envId: "E1", envName: "s", varName: "BASE_URL" }]);
+  });
 });
 
 describe("resolveHostVars", () => {
@@ -185,5 +208,19 @@ describe("resolveHostVars", () => {
     expect(resolveHostVars(["a.com"], { "a.com": m("API_URL") }, { "a.com": "" })).toEqual({
       "a.com": "",
     });
+  });
+
+  // F1 (final review): BASE_URL_{k} 루프의 overrideNames-단독 스킵 분기 —
+  // b.com 후보 BASE_URL_2는 usedByPrefill(a.com)이 점유, k=3은 overrideNames(c.com override)가
+  // 점유 → k=4까지 진행해야 한다. 이 분기가 없으면 b.com이 BASE_URL_3을 잡아 c.com override와는
+  // 안 겹치지만(override가 뒤에 별도 out[h]=o로 덮으므로) "점유된 이름을 건너뛴다"는 불변식이 깨진다.
+  it("BASE_URL_{k} 생성 시 usedByPrefill과 overrideNames를 모두 건너뛴다 (F1)", () => {
+    expect(
+      resolveHostVars(
+        ["a.com", "b.com", "c.com"],
+        { "a.com": m("BASE_URL_2") },
+        { "c.com": "BASE_URL_3" },
+      ),
+    ).toEqual({ "a.com": "BASE_URL_2", "b.com": "BASE_URL_4", "c.com": "BASE_URL_3" });
   });
 });
