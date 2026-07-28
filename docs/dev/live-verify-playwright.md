@@ -20,6 +20,7 @@
 
 - **Playwright MCP `browser_file_upload`는 repo 루트 밖 경로를 거부한다** (Slice 8c): 허용 루트는 `/Users/sgj/develop/handicap`(워크트리 포함) + `.playwright-mcp/`뿐 — `/tmp`의 파일은 `File access denied`. 브라우저 업로드 점검(데이터셋 등) 시 업로드 대상 파일을 repo 안(예: `.playwright-mcp/`)에 써둔 뒤 절대경로로 넘길 것.
   - **정정(editor-yaml-io 2026-06-29): 허용 루트는 *현재* 워크트리가 아니라 MCP 서버가 *처음 기동된* 워크트리 + MCP temp(`/var/folders/.../T/.playwright-mcp/`)에 고정된다** (MCP cwd 고정 footgun의 업로드판) — 다른 워크트리에서 검증하면 현재 워크트리의 `.playwright-mcp/`도 거부(`outside allowed roots. Allowed roots: …/T/.playwright-mcp, …/worktrees/<옛-워크트리>`). **회피: 업로드 픽스처를 MCP temp 디렉터리에 쓰고 그 절대경로로 `browser_file_upload`**(다운로드도 거기 떨어지니 같은 디렉터리). 그리고 **MCP가 file chooser를 자체 인터셉트**하므로 인라인 `page.once('filechooser', fc=>fc.setFiles())`보다 MCP가 우선 — 보이는 버튼을 `browser_click`한 뒤 `browser_file_upload`로 파일을 넘기는 게 정석(인라인 setFiles는 무시됨).
+  - **회피 2 — 파일시스템 자체가 불필요한 주입 (har-host-env-hint 2026-07-28)**: 업로드가 클라이언트 read 경로(`FileReader`, HAR import 등)라면 단일 `browser_evaluate` 안에서 `const dt = new DataTransfer(); dt.items.add(new File([jsonString], 'x.har', {type:'application/json'})); input.files = dt.files; input.dispatchEvent(new Event('change', {bubbles:true}))`로 주입 — 루트 제한·chooser 인터셉트·픽스처 파일 생성을 통째로 우회하고 컴포넌트의 onChange→FileReader 경로는 그대로 실행된다(OS 파일선택 UI 자체는 미검증으로 남음 — US가 그 UI를 요구하면 부적합).
 
 ## 다운로드(File System Access / blob) 검증 — headless picker 함정
 

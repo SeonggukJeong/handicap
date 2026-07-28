@@ -150,7 +150,7 @@
 
 - **변수명 충돌 감지**: 추출(extract) 변수명 ↔ 수동 설정 변수명(variables/데이터셋 바인딩) 충돌을 에디터에서 경고. UI-only 소형. — **완료 2026-07-12(editor-var-conflict-quickadd, 도그푸딩 1호)**
 - **Think Time 일괄 지정**: 시나리오-레벨 기본 think time + 스텝별 override(전체 무시 설정 포함). 엔진 serde+와이어+UI 수직 슬라이스 — Opus path-gate·live-verify RPS 검증 필요. — **완료 2026-07-13(think-time-defaults, 도그푸딩 2호)**
-- **HAR 가져오기 host-환경 힌트**: 감지된 host가 기존 환경(environments)에 등록돼 있으면 어느 세트에 있는지 안내(비차단 — 다른 이름 저장 허용). UI-only 소형.
+- **HAR 가져오기 host-환경 힌트**: 감지된 host가 기존 환경(environments)에 등록돼 있으면 어느 세트에 있는지 안내(비차단 — 다른 이름 저장 허용). UI-only 소형. — **완료 2026-07-28(har-host-env-hint, 머지 `a2a7187` — 안내 2표면+var 이름 프리필까지 확장, build-log 참조. 잔여 소형 연기: ① `originOf` non-http(s) 미필터 — 등록 경로가 리터럴 `"null"` 값 영속 가능[선재·loud fail·1줄 fix] ② env쪽 `pureOrigin` host-루프 내부 O(H×E×V)[적대적 대형 HAR 한정, 사전 인덱스 ~8줄] ③ §A10 RBAC 착수 시 서버측 매칭 엔드포인트로 전환 필수[현재 상위 20개 환경 var 값 전체를 클라 fetch])**
 - **데이터셋 미리보기**: 저장된 데이터셋 행 미리보기(페이징 — 대용량 대비). 컨트롤러 rows API + UI. — **완료 2026-07-16(dataset-preview, 도그푸딩 3호 — build-log 참조)**
 - **에디터 데이터셋 test-run**: 에디터 test-run에서 데이터셋 사용 — 원하는 1행 선택 주입 / 1VU 순차 진행(전체 또는 N행 검증). test-run 경로(엔진/컨트롤러)+UI 중형. — **완료 2026-07-16(editor-dataset-testrun, 도그푸딩 4호·ADR-0047 — build-log 참조)**
 - ~~**think-time 현황판**: 시나리오 기본값 외에 각 스텝별 think-time이 어떻게 설정돼 있는지(상속/override/대기없음) 한눈에 확인하고 그 자리에서 수정하는 현황판. think-time-defaults(도그푸딩 2호) 후속 — 사용자 제안 2026-07-17. UI-only 추정(모델은 이미 3상태 지원).~~ ✅ 완료(머지 `4ca2ccd`, 2026-07-19 — 5상태 배지+실효 대기 열·행별 편집·다중선택 일괄 3액션·병렬 비차단 안내·yamlError 게이트. UI-only 추정 적중). **후속**: ~~R1-a2 확산~~ ✅ 완료(`7c4c41d`) — 원문: R1-a2 확산(기본값 `{0,0}`일 때 Inspector `0–0ms`·FlowOutline wide 칩이 현황판의 "대기없음"과 어긋남 — 같은 엔진 동작의 마지막 두 문자열)·일괄 [적용]/[대기없음으로]가 병렬 분기 행에 들어갈 때 안내 없음(ADR-0033 근거상 전 분기 일괄 주입은 이 현황판이 최초 어포던스).
