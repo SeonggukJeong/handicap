@@ -411,7 +411,7 @@ describe("host-환경 힌트: 프리필", () => {
     const many = Array.from({ length: 21 }, (_, i) => ({
       id: `E${i}`,
       name: `env${i}`,
-      vars: { X: `https://other${i}.example.com` }, // 매치 무관 host — 힌트 간섭 없음
+      vars: { API_HOST: `https://other${i}.example.com` }, // 키는 STAGING_ENV와 동일(타입 추론 일치 — tsc -b), origin은 매치 무관 host라 힌트 간섭 없음
       created_at: 1,
       updated_at: i, // E0이 가장 오래됨 → 상위 20개에서 탈락
     }));
