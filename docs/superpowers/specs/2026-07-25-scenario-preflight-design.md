@@ -178,7 +178,7 @@ export type TestRunState = "verified" | "stale" | "never";
 - **판정**: `undefinedVarRefs(scenario)` (`scanVars.ts:295`)가 비어 있지 않으면 실패. `count` = 맵 크기. `steps` 비움(D14).
 - **na 없음**.
 
-> **왜 신뢰도인가 (1판 정정)**: 엔진은 **strict**다. `crates/engine/src/executor.rs:87`이 `render(&bare, ctx)?`로 렌더하고(주석 "strict: 미바인딩이면 여기서 UnknownVar"), `template.rs:92,145`가 `EngineError::UnknownVar`를 낸다. 결과는 요청 전송이 아니라 **VU 전멸** — run이 `all VUs failed (N/N): template: unknown variable ...`로 끝난다(`error.rs:8`). 따라서 B는 **"이대로 부하를 걸면 시작하자마자 run이 전멸한다"**이다.
+> **왜 신뢰도인가 (1판 정정)**: 엔진은 **strict**다. `crates/engine/src/executor.rs:87`이 `render(&bare, ctx)?`로 렌더하고(주석 "strict: 미바인딩이면 여기서 UnknownVar"), `template.rs:92,145`가 `EngineError::UnknownVar`를 낸다. 결과는 요청 전송이 아니라 **VU 전멸** — run이 `all VUs failed (N/N): template: unknown variable ...`로 끝난다(`error.rs:8`). 따라서 B는 **"이대로 부하를 걸면 시작하자마자 run이 전멸한다"**이다. **[정정 2026-07-28 trust-check-precision: 이 일반화는 요청 표면(url/헤더/바디)에만 참 — cond 오퍼랜드는 `render_lenient`라 run이 완주하고 분기만 오분류된다.]**
 
 `undefinedVarRefs`는 parallel 분기 스코프를 위치 기반으로 판정한다(`parallel-var-scope` 산출물). **의도된 false-negative를 상속한다** — 같은 parallel 노드 안 `{{B.v}}` 참조를 정의됨으로 본다(`scanVars.ts:289-291`). §11.7.
 
@@ -227,7 +227,7 @@ extract로 뽑은 변수를 아무도 참조하지 않는 상태. 로그인 토�
 ```
 noValidationAtAll  =  http 스텝 ≥ 1  AND  status assert를 가진 http 스텝 수 == 0
 
-weak     ⟸  B fail                                 (축 ① — 돌지 않는다)
+weak     ⟸  B fail                                 (축 ① — 돌지 않는다)   ← 정정 2026-07-28: 축①은 "의도대로 돌지 않는다"로 일반화(cond-only B fail은 죽지 않는다 — trust-check-precision)
          ∨  ( noValidationAtAll  AND  C fail )      (축 ② — 조용히 무의미하다)
 caution  ⟸  ¬weak  AND  failed ≥ 1
 good     ⟸  failed == 0
@@ -425,7 +425,7 @@ store에 `testRunEpoch: number`를 추가하고 기록 시 증가시킨다. `Edi
 - 상시 부제: `이 점검은 시나리오가 실패를 감지할 수 있는 시험인지를 봅니다.`
 - 양호 전용: `대상 시스템의 성능이 좋다는 뜻은 아닙니다 — 그건 실행 후 리포트에서 확인하세요.`
 
-**B 문구는 F1 정정을 반영한다** — "조용히 통과" 서사 금지:
+**B 문구는 F1 정정을 반영한다** — "조용히 통과" 서사 금지: **[정정 2026-07-28: cond-only 경로는 "조용한 오분기" 서사가 참 — trust-check-precision spec §6이 supersede.]**
 - 제목 `만들지 않는 변수를 참조합니다` / 이유 `이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다`
 - RunDialog 전용(§7.3) `이대로 실행하면 시작하자마자 모든 VU가 실패합니다`
 
@@ -525,9 +525,9 @@ test-run 실행이 필요하므로 `/live-verify` 스택(워크트리 자체 바
 7. **`undefinedVarRefs`의 의도된 false-negative 상속**: 같은 parallel 노드 안 `{{B.v}}` 참조를 정의됨으로 본다(`scanVars.ts:289-291`).
 8. **값이 틀린 변수**는 못 잡는다. 정적 분석의 한계이며 그게 D(test-run)가 들어간 이유다.
 9. **데이터셋 바인딩이 있으면 RunDialog의 B 단정 문구를 억제한다**(최종 리뷰 fold): ADR-0022 데이터 기반 시나리오는 `{{username}}`을 선언·추출 없이 **데이터셋 열**로 공급하므로 B가 실패하고 등급이 `취약`이 된다. 그러나 실행은 **성공한다** — `crates/engine/src/runner.rs:400-414`가 바인딩 행의 키를 렌더 전에 `iter_vars`에 넣는다. 그래서 `bindings.length > 0`이면 단정 문구(`이대로 실행하면 …모든 VU가 실패합니다`) 대신 등급 한 줄을 낸다. **등급 자체는 여전히 `취약`이다** — 그건 시나리오 *텍스트*에 대한 진술이고 D4(run config를 판정에서 제외)가 의도한 결과다.
-   - **잔여 한계(수용)**: `if`/`elif` **cond에만** 등장하는 미정의 변수 + 무관한 바인딩이 함께 있으면, `scanFlowVars`가 cond를 스캔하지 않아(`scanVars.ts:62-74`) `DataBindingPanel`의 `bindingBlock`도 막지 못하고 제출이 허용되는데 문구는 등급 한 줄로 내려간다. 실제로는 strict cond 렌더에서 죽는다. **거짓이 아니라 더 약한 참**(warn Callout + 에디터 링크는 그대로 나온다)이라 수용한다. 정확한 게이트는 B의 **변수 이름**이 필요하고, D14가 `steps: []`(개수만)로 그걸 의도적으로 withhold한다 → 이름을 실으려면 `TrustReport` 변경이 선행돼야 한다.
+   - **잔여 한계(수용)**: `if`/`elif` **cond에만** 등장하는 미정의 변수 + 무관한 바인딩이 함께 있으면, `scanFlowVars`가 cond를 스캔하지 않아(`scanVars.ts:62-74`) `DataBindingPanel`의 `bindingBlock`도 막지 못하고 제출이 허용되는데 문구는 등급 한 줄로 내려간다. 실제로는 strict cond 렌더에서 죽는다. **거짓이 아니라 더 약한 참**(warn Callout + 에디터 링크는 그대로 나온다)이라 수용한다. 정확한 게이트는 B의 **변수 이름**이 필요하고, D14가 `steps: []`(개수만)로 그걸 의도적으로 withhold한다 → 이름을 실으려면 `TrustReport` 변경이 선행돼야 한다. **[정정 2026-07-28 trust-check-precision: "strict cond 렌더에서 죽는다"는 틀림 — cond는 `render_lenient`(condition.rs)라 run은 완주하고 분기만 오분류된다. 이 잔여 한계 자체는 그 spec이 해소(B 이름 운반 + 위치 인식 문구 + RunDialog 공급-여부 게이트).]**
    - **에디터 `checkBFailWhy`는 억제하지 않는다(의도)**: 문구가 `**이대로** 부하를 걸면 …`이고, 에디터에는 참조할 run context가 없다(ADR-0013이 시나리오와 run config를 분리 — 같은 시나리오를 바인딩 있이/없이 돌릴 수 있다). "이대로"는 문자 그대로 참이고, B 행은 변수 패널 링크로 해결책을 함께 제시한다. RunDialog가 defect였던 이유는 **그 화면이 자기 문장을 반증하는 사실(`bindings`)을 이미 갖고 있었다**는 점이다. **에디터에 바인딩 컨텍스트를 밀어넣어 "고치지" 말 것, 문구를 무조건형으로 바꾸지도 말 것.**
-10. **C는 선언 변수와 이름이 겹치는 dangling extract를 못 본다**: `varRows.ts`가 그 행을 `declared`(+`overwritten`)로 접어 `flat-extract` 행을 만들지 않으므로 C는 `na`가 되고 모달은 `해당 항목 없음`을 낸다 — 같은 변수에 변수 패널은 `미사용` 배지를 붙인다. 행 정체성은 패널 기준이 정본이고(D15가 요구한 단일 소스) 바꾸면 패널 거동이 함께 바뀌므로 수용한다.
+10. **C는 선언 변수와 이름이 겹치는 dangling extract를 못 본다**: `varRows.ts`가 그 행을 `declared`(+`overwritten`)로 접어 `flat-extract` 행을 만들지 않으므로 C는 `na`가 되고 모달은 `해당 항목 없음`을 낸다 — 같은 변수에 변수 패널은 `미사용` 배지를 붙인다. 행 정체성은 패널 기준이 정본이고(D15가 요구한 단일 소스) 바꾸면 패널 거동이 함께 바뀌므로 수용한다. **[해소 2026-07-28: trust-check-precision이 C 모집단을 declared∧overwrittenByFlat로 확장 — 행 정체성(D15)·패널 렌더는 불변.]**
 11. **`variables`는 통째로 지문에 들어간다** → 아직 아무도 안 쓰는 변수를 **선언만 해도** `verified → stale`로 뒤집힌다(패널이 추가 즉시 `setVariable(name, "")`을 쓴다). 보수적 방향(거짓 `verified`가 아니라 거짓 `stale`)이라 수용하되, 일상에서 가장 흔한 false-`stale` 트리거다.
 
 ---
