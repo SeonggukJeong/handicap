@@ -28,7 +28,7 @@
 ### Task 1: 매칭·프리필 순수 함수 (`matchHostsToEnvs` + `resolveHostVars`)
 
 **Files:**
-- Modify: `ui/src/import/hostEnv.ts` (현재 91줄 — `RESERVED`/`VAR_NAME_RE`/`hostsByRequestCount`/`defaultHostVars`/`originOf` 기존)
+- Modify: `ui/src/import/hostEnv.ts` (현재 90줄 — `RESERVED`/`VAR_NAME_RE`/`hostsByRequestCount`/`defaultHostVars`/`originOf` 기존)
 - Test: `ui/src/import/__tests__/hostEnv.test.ts` (기존 파일 — 케이스 추가)
 
 **Interfaces:**
@@ -321,25 +321,9 @@ beforeEach(() => {
 
 (vitest import 라인에 `beforeEach` 추가. 기존 2개 fetch-스텁 테스트는 테스트 본문에서 자체 `vi.stubGlobal`로 baseline을 교체하므로 무영향.)
 
-이어 신규 픽스처 + 케이스:
+이어 신규 픽스처 + 케이스. **`TWO_HOST_HAR`는 신규 선언 금지 — 기존 픽스처(test:90, `api.example.com/users`+`auth.example.com/login` 동일 2-host·비정적)를 그대로 재사용**(중복 `const` 선언은 파일 전체 SyntaxError):
 
 ```ts
-// 두 비정적 호스트 HAR (기존 HAR의 cdn은 static이라 previewEntries에서 빠짐)
-const TWO_HOST_HAR = JSON.stringify({
-  log: {
-    entries: [
-      {
-        request: { method: "GET", url: "https://api.example.com/users", headers: [] },
-        response: { status: 200, content: { mimeType: "application/json" } },
-      },
-      {
-        request: { method: "GET", url: "https://auth.example.com/login", headers: [] },
-        response: { status: 200, content: { mimeType: "application/json" } },
-      },
-    ],
-  },
-});
-
 const STAGING_ENV = {
   id: "E10",
   name: "스테이징",
@@ -348,23 +332,22 @@ const STAGING_ENV = {
   updated_at: 5,
 };
 
-// 목록+단건을 함께 스텁하는 헬퍼 — 힌트 계열 케이스 공용
+// 목록+단건을 함께 스텁하는 헬퍼 — 힌트 계열 케이스 공용 (mock 반환 = call-count 단언용)
 function stubEnvFetch(envs: (typeof STAGING_ENV)[]) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((url: string) => {
-      const s = String(url);
-      const single = envs.find((e) => s.endsWith(`/api/environments/${e.id}`));
-      if (single) return Promise.resolve(jsonResponse(single));
-      return Promise.resolve(
-        jsonResponse({
-          environments: envs.map(({ id, name, created_at, updated_at, vars }) => ({
-            id, name, created_at, updated_at, var_count: Object.keys(vars).length,
-          })),
-        }),
-      );
-    }),
-  );
+  const fetchMock = vi.fn((url: string) => {
+    const s = String(url);
+    const single = envs.find((e) => s.endsWith(`/api/environments/${e.id}`));
+    if (single) return Promise.resolve(jsonResponse(single));
+    return Promise.resolve(
+      jsonResponse({
+        environments: envs.map(({ id, name, created_at, updated_at, vars }) => ({
+          id, name, created_at, updated_at, var_count: Object.keys(vars).length,
+        })),
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 ```
 
@@ -375,6 +358,7 @@ describe("host-환경 힌트: 프리필", () => {
     stubEnvFetch([STAGING_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     // 매치 settle 후: api 행 = API_HOST(매치), auth 행 = BASE_URL_2(기본 유지)
     expect(await screen.findByDisplayValue("API_HOST")).toBeInTheDocument();
@@ -386,6 +370,7 @@ describe("host-환경 힌트: 프리필", () => {
     stubEnvFetch([STAGING_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     await screen.findByDisplayValue("API_HOST");
     const preview = screen.getByLabelText(ko.import.preview) as HTMLTextAreaElement;
@@ -397,8 +382,11 @@ describe("host-환경 힌트: 프리필", () => {
     stubEnvFetch([STAGING_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
-    const apiInput = await screen.findByLabelText(ko.import.varNameLabel("api.example.com"));
+    // 매치가 실제로 도착·프리필됐음을 먼저 증명 — 없으면 프리필이 통째로 죽어도 green (이빨)
+    await screen.findByDisplayValue("API_HOST");
+    const apiInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
     await user.clear(apiInput);
     await user.type(apiInput, "MINE");
     expect(screen.getByDisplayValue("MINE")).toBeInTheDocument();
@@ -410,11 +398,36 @@ describe("host-환경 힌트: 프리필", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("boom"))));
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     expect(await screen.findByDisplayValue("BASE_URL")).toBeInTheDocument();
     expect(screen.getByDisplayValue("BASE_URL_2")).toBeInTheDocument();
     // 에러 배너 없음 (기존 parseError alert만 role=alert)
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("R1: fan-out 상한 K=20 — 21개 환경이면 단건 GET 정확히 20회, 최고(最古) 1개 탈락", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      id: `E${i}`,
+      name: `env${i}`,
+      vars: { X: `https://other${i}.example.com` }, // 매치 무관 host — 힌트 간섭 없음
+      created_at: 1,
+      updated_at: i, // E0이 가장 오래됨 → 상위 20개에서 탈락
+    }));
+    const fetchMock = stubEnvFetch(many);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await waitFor(() => {
+      const singles = fetchMock.mock.calls.filter(([u]) =>
+        /\/api\/environments\/E\d+$/.test(String(u)),
+      );
+      expect(singles.length).toBe(20);
+    });
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/environments/E0")),
+    ).toBe(false);
   });
 });
 ```
@@ -424,7 +437,7 @@ describe("host-환경 힌트: 프리필", () => {
 - [ ] **Step 2: 실패 확인**
 
 Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/har-host-env-hint/ui && pnpm test ScenarioImportPage; echo exit=$?`
-Expected: 신규 4케이스 FAIL (프리필 미배선 — `API_HOST` displayValue 부재), 기존 케이스는 baseline stub 하에 전부 PASS 유지
+Expected: 신규 5케이스 FAIL (프리필 미배선 — `API_HOST` displayValue 부재·K=20은 단건 GET 0회로 waitFor 타임아웃), 기존 케이스는 baseline stub 하에 전부 PASS 유지
 
 - [ ] **Step 3: 훅 구현** — `hooks.ts`의 `useEnvironment` 아래에 추가
 
@@ -459,7 +472,7 @@ export function useEnvironmentsWithVars(enabled: boolean): Environment[] {
 }
 ```
 
-`Environment` 타입이 hooks.ts에 이미 import돼 있는지 확인, 없으면 `import type { Environment } from "./environments";` 추가. `combine` 파라미터 타입이 react-query 기대 시그니처와 안 맞으면 `UseQueryResult<Environment, Error>[]`로 조정(`.flatMap` 내로잉은 판별 boolean 변수 함정 없이 성립 — `pnpm build`로 확정).
+hooks.ts엔 `Environment` 타입 import가 **없다**(실측 — `hooks.ts:13-20`은 `EnvironmentInput` 타입 + 함수 5개만): `import type { Environment } from "./environments";` 추가 필수. `combine`의 구조적 파라미터 타입 `Array<{ data: Environment | undefined }>`는 contravariant 호환으로 **그대로 컴파일된다**(리뷰 실측 — react-query가 `queryFn`에서 `TQueryFnData=Environment`를 추론). 굳이 `UseQueryResult<Environment, Error>[]`로 바꾸려면 그 타입 import도 함께 추가할 것.
 
 - [ ] **Step 4: 페이지 배선** — `ScenarioImportPage.tsx`
 
@@ -539,7 +552,8 @@ describe("host-환경 힌트: 안내", () => {
     renderPage(); // baseline stub = 환경 0개
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
     await screen.findByLabelText(ko.import.preview);
-    expect(screen.queryByText(ko.import.hostsRegisteredSummary(1))).not.toBeInTheDocument();
+    // n-무관 부재 단언 — n=1 고정이면 "호스트 0개…" 렌더 회귀가 false PASS (R7 "호스트" 부분매칭 회피 위해 꼬리 고정)
+    expect(screen.queryByText(/이미 환경에 등록돼 있습니다$/)).not.toBeInTheDocument();
   });
 
   it("US1-②: 행별 안내 — 환경명·var이름 표시, 체크박스 켠 뒤", async () => {
@@ -547,6 +561,7 @@ describe("host-환경 힌트: 안내", () => {
     stubEnvFetch([STAGING_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     const hint = await screen.findByText(ko.import.hostRegisteredIn("스테이징", "API_HOST"));
     // 보간 실존 별도 단언 (자기참조 회피)
@@ -566,6 +581,7 @@ describe("host-환경 힌트: 안내", () => {
     stubEnvFetch([STAGING_ENV, OLDER_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     const hint = await screen.findByText(
       (t) => t.includes(ko.import.hostRegisteredIn("스테이징", "API_HOST")),
@@ -579,6 +595,7 @@ describe("host-환경 힌트: 안내", () => {
     stubEnvFetch([STAGING_ENV]);
     renderPage();
     await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
     await user.click(screen.getByLabelText(ko.import.hostToEnv));
     const apiInput = await screen.findByLabelText(ko.import.varNameLabel("api.example.com"));
     await user.clear(apiInput);
