@@ -6,6 +6,7 @@
 
 ### 리뷰 반영 이력
 
+- **2차 리뷰(APPROVE-WITH-FIXES) 반영, 2026-07-28**: N1 §7에 null 폴백 전용 픽스처(`fail + vars: []`) 예외 명시 · N2 §4.2 등급 파급에 `good→caution` 추가(RunDialog Callout 신규 등장·칩 amber — 더 눈에 띄는 귀결) · N3 P9 §8 앵커 `:429`→`:428-430` 블록 교정 · nit N4(비권장→문서화 톤)·N5(§1.1 앵커 select_branch 통일)·N6(US1 strict 목록에 json leaf `:85-111` 추가) 반영. 기각 0건.
 - **1차 리뷰(APPROVE-WITH-FIXES) 반영, 2026-07-28**: F1 `checkBFailWhyCond`에 `이대로 부하를 걸면` 조건절 복원(무조건형은 바인딩-공급 run에서 새 거짓 단정 — US1과 같은 클래스) · F2/C6 §4.2 단조성 조건을 `overwrittenByFlat` 기준으로 정정+전이 3종·분모 변화·"순수 미사용 선언은 C 밖" 명시 · F3 증폭 규칙 경유 `caution→weak` 등급 이동 명시 · R1 `bFailMode` null 폴백=`checkBFailWhy` 확정+입력 계약 중립화 · R2/미정5 `vars` 필수+픽스처 갱신 노트 · C1/C2 P9 각주 대상 확장(전신 §4.2·§8·§5 축① 라벨) · C3 US2 기대를 관찰 조건으로 재작성 · C4 P5 두 갈래 분리 · C5 §6 충돌 서술을 실측으로 교체(신규↔신규 25자 코어가 진짜 위험) · F4 `executor.rs` 인용 4곳(`:137,140,172,177`)으로 교체 · F5 US1의 `runner.rs` 서술 교정(`select_branch:1532`) · F6 점-이름 위험 근거 교체 · R3 라이브 US1 시나리오 모양 고정+`if_breakdown` 증거 · R4/R5 §9 한계 2건 추가. 기각 0건.
 
 ## 사용자 스토리 (US)
@@ -15,7 +16,7 @@
 **US1 — B 문구가 cond-only 미정의 변수에서 거짓 단정 (이 슬라이스 착수 중 신규 발견)**
 - 재현: QA가 `if` 조건에만 미정의 `{{seg}}`를 쓰는 시나리오에서 신뢰도 모달 또는 RunDialog(바인딩 없음)를 연다.
 - 기대: 실제 결과를 말하는 안내 — 조건이 빈 값으로 평가되어 의도한 분기를 타지 않고, run은 실패 없이 끝나 결함이 숨는다는 것.
-- 실측: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다"(`ko.ts:1568`) — **거짓**. 엔진 조건 평가는 lenient(`crates/engine/src/condition.rs:1-7`이 `render_lenient` 사용, 분기 결정은 `select_branch`(`runner.rs:1532`)가 `eval_condition`(`:1536,1547`)으로)라 미해결 변수는 `""`가 되고 run은 completed로 끝난다. 반면 URL/헤더/바디는 strict `render`(`executor.rs:137`(url)·`:140`(헤더)·`:172`(form)·`:177`(raw))라 전멸 단정이 참. → **위치별 문구 분기 필요**. 거짓 단정을 본 사용자가 run 완주를 목격하면 신뢰도 기능 자체를 불신하게 된다(자기부정).
+- 실측: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다"(`ko.ts:1568`) — **거짓**. 엔진 조건 평가는 lenient(`crates/engine/src/condition.rs:1-7`이 `render_lenient` 사용, 분기 결정은 `select_branch`(`runner.rs:1532`)가 `eval_condition`(`:1536,1547`)으로)라 미해결 변수는 `""`가 되고 run은 completed로 끝난다. 반면 URL/헤더/바디는 strict `render`(`executor.rs:137`(url)·`:140`(헤더)·`:172`(form)·`:177`(raw)·`:85-111`(json leaf `render_json_value`))라 전멸 단정이 참. → **위치별 문구 분기 필요**. 거짓 단정을 본 사용자가 run 완주를 목격하면 신뢰도 기능 자체를 불신하게 된다(자기부정).
 
 **US2 — 바인딩 있는 RunDialog에서 cond-only 미정의 변수가 등급 한 줄로 약화 (§11.9)**
 - 재현: QA가 위 시나리오에 무관한 데이터셋 바인딩(예: `username` 열만 공급)을 더해 RunDialog에서 제출한다.
@@ -35,7 +36,7 @@
 
 scenario-preflight spec §4.2는 "B는 **이대로 부하를 걸면 시작하자마자 run이 전멸한다**"로 일반화했고 §11.9는 "실제로는 strict cond 렌더에서 죽는다"고 썼다. 요청 표면(url/헤더/바디)에는 참이지만 **cond 오퍼랜드에는 거짓**이다:
 
-- `crates/engine/src/condition.rs:1-7` — "Uses the **lenient** template resolver (`render_lenient`) so unresolved variables become `""`". `runner.rs:18`이 이 `eval_condition`을 import해 if 분기를 결정한다.
+- `crates/engine/src/condition.rs:1-7` — "Uses the **lenient** template resolver (`render_lenient`) so unresolved variables become `""`". if 분기 결정은 `select_branch`(`runner.rs:1532`)가 이 `eval_condition`(`:1536,1547`)으로 한다.
 - 귀결: cond-only 미정의 변수가 있는 run은 죽지 않는다. 조건이 매 반복 `""`로 평가되어 **조용히 한쪽 분기로 쏠린 부하**가 completed·초록으로 끝난다 — 이 에픽이 싸우는 "거짓 초록"의 정확한 사례이면서, 현재 문구는 반대 방향(전멸)의 거짓 단정을 낸다.
 
 B 판정 자체는 cond 참조를 이미 센다(`buildVarRefIndex`/`undefinedVarRefs`가 cond 오퍼랜드를 수집 — `scanVars.ts:124-127`·`:400-404`). 판정은 옳고 **문구만 위치를 몰라 거짓말한다**.
@@ -77,7 +78,7 @@ B 판정 자체는 cond 참조를 이미 센다(`buildVarRefIndex`/`undefinedVar
 | P6 | C 모집단 확장 | `declared ∧ overwrittenByFlat ∧ refIds 빈` 행을 C 실패로 추가 카운트, na 조건 동반 확장 | 그 행의 런타임 실체는 "추출했는데 아무도 안 쓰는 변수" — 패널이 `미사용`을 붙이는 그 조건과 일치(D15 정신) |
 | P7 | `overwrittenByFlat` | `varRows` declared 행에 additive(= `flatEx.has(name)`), 기존 `overwritten` 불변 | namespaced-overwrite(선언명에 점, 예 `B.v`)를 제외해 **이중 카운트 방지** — 그 경우 parallel-extract 행이 이미 세고 있다. 패널은 새 필드를 안 읽으므로 렌더 byte-identical |
 | P8 | RunDialog 문구에 변수 이름 미노출 | 이름은 게이트 로직에만 쓰고 카피는 기존 한 줄 형태 유지 | 밀도 규율. 고치는 자리는 에디터(링크로 이동)다 |
-| P9 | 전신 spec 정정 | `2026-07-25-…-design.md`의 **4곳**에 정정/해소 각주 1줄씩 (docs-only): §11.9(strict-cond 거짓 주장)·§11.10(해소됨)·**§4.2 blockquote**(":181"의 "run이 전멸한다" 일반화 — 거짓의 뿌리)·**§8 F1 문단**(":429"의 "'조용히 통과' 서사 금지" — cond 경로에선 이 spec으로 supersede)+**§5 축① 라벨**(":230" "돌지 않는다" → "의도대로 돌지 않는다" 일반화 각주) | 알려진-거짓 주장을 방치하면 후속 세션이 신뢰한다(이번에 실제로 일어날 뻔한 일). 뿌리(§4.2)를 비껴가면 P9 자신의 근거와 모순 |
+| P9 | 전신 spec 정정 | `2026-07-25-…-design.md`의 **4곳**에 정정/해소 각주 1줄씩 (docs-only): §11.9(strict-cond 거짓 주장)·§11.10(해소됨)·**§4.2 blockquote**(":181"의 "run이 전멸한다" 일반화 — 거짓의 뿌리)·**§8 F1 블록**(":428-430" — "'조용히 통과' 서사 금지" 선언(:428)과 이 spec이 분기시키는 두 카피(:429-430), cond 경로에선 이 spec으로 supersede)+**§5 축① 라벨**(":230" "돌지 않는다" → "의도대로 돌지 않는다" 일반화 각주) | 알려진-거짓 주장을 방치하면 후속 세션이 신뢰한다(이번에 실제로 일어날 뻔한 일). 뿌리(§4.2)를 비껴가면 P9 자신의 근거와 모순 |
 
 ---
 
@@ -136,7 +137,7 @@ fail ⟸ unused.length > 0 ; count = unused.length
 ```
 
 - overwrittenDecl은 순수 추가 항(flat-extract 행과 declared 행은 `!declaredKeys.has(name)` 필터로 상호배타)이라 변화는 **단조**다. 허용 전이 3종: **`na→pass`**(선언-충돌 extract가 참조됨 — applicable/passed 분모가 2→3으로 늘어 모달 `점검 N개 중 M개 통과`·접힘 라벨 숫자도 바뀐다, 의도됨) / **`na→fail`**(= US3 본체) / **`pass→fail`**(기존 extract 행이 전부 참조돼 pass였어도 선언-충돌 dangling이 있으면 fail — US3의 일반형, count 증가 포함). **`overwrittenByFlat` 행이 하나도 없는 시나리오만 판정·count·분모 완전 불변**.
-- **등급 파급(의도됨)**: 위 `na→fail`/`pass→fail` 전이는 §5 증폭 규칙(`noValidationAtAll ∧ C fail → weak`)을 경유해 기존 시나리오의 등급을 **`caution`(진리표 행 3) → `weak`(행 2)** 로 올릴 수 있다. 진리표는 A/B/C status의 함수로서 불변이고, 입력(C status)이 정확해진 결과다.
+- **등급 파급(의도됨)**: 위 `na→fail`/`pass→fail` 전이는 §5 증폭 규칙(`noValidationAtAll ∧ C fail → weak`)을 경유해 기존 시나리오의 등급을 **`caution`(진리표 행 3) → `weak`(행 2)** 로 올릴 수 있고, A·B pass 시나리오에선 **`good → caution`** 도 발생한다(`failed=1`) — 이쪽 귀결이 더 눈에 띈다: RunDialog는 `level !== "good"`일 때만 렌더하므로(`RunDialog.tsx:1044`) 경고 Callout이 없던 화면에 새로 생기고 에디터 칩도 중립 회색 → amber로 바뀐다(D9). 둘 다 의도된 결과다 — 진리표는 A/B/C status의 함수로서 불변이고, 입력(C status)이 정확해진 결과다. 후속 리뷰가 회귀로 오인하지 말 것.
 - **순수 미사용 선언은 C 밖으로 유지한다**: 패널의 `미사용` 배지는 `refIds.length===0`인 모든 행(참조 없는 순수 `declared` 행 포함)에 붙지만, C는 그중 `overwrittenByFlat`인 것만 센다 — 안 쓰는 선언은 "끊긴 추출 체인"이 아니다. 후속 세션이 "패널과의 일관성"을 이유로 전체 declared를 C에 넣지 말 것.
 - shadow parallel-extract 행 처리 불변(오늘도 refIds 빈 shadow 행은 카운트된다).
 - `checkCFailTitle`("추출한 변수 N개를 아무도 쓰지 않습니다")·`checkCNa`·`checkCFailWhy` 카피는 확장 후에도 참이라 불변.
@@ -182,7 +183,7 @@ mode      = bFailMode(uncovered)
 - **`scanVars.test.ts`** — `hasStrictRef` 4케이스: 요청-표면-only(true) / cond-only(false) / 혼합(true) / sibling-분기(위치 축과 kind 축 독립 확인). 기존 케이스는 필드 추가 외 무수정 green이어야 함(판정 불변의 증거).
 - **`trust.test.ts`** — B `vars` 운반(이름·순서·strict) · `bFailMode` 진리표(빈/전부 cond/혼합/전부 strict) · C 확장 4케이스: 선언-충돌 dangling(fail·count) / 선언-충돌이지만 참조됨(pass) / overwrittenDecl만 있고 extract 행 없음(na 아님) / 선언명에 점(namespaced overwrite)은 **비카운트**(이중 카운트 방지 — parallel-extract 행이 센다).
 - **`varRows.test.ts`** — `overwrittenByFlat` additive(flat 충돌 true / namespaced-only 충돌 false / 무충돌 false). `VariablesPanel` 기존 테스트 무수정 green(렌더 byte-identical 증거).
-- **`TrustBoard.test.tsx`** — B fail why 2분기 + null 폴백. `ko.*` 보간 단언은 자기참조 함정(공허 11호) 회피 — 두 분기를 **서로의 문구 부재**로 교차 단언하되, §6의 25자 코어 공유 때문에 단언은 전체일치 또는 키별 고유 조각으로만. **기존 `WEAK` 픽스처(`:35-46`)를 포함해 손-구성 리포트 픽스처는 `vars`를 실제 값으로 채운다**(`vars` 필수화로 `pnpm build`가 강제 — 방치하면 빈 vars가 null 폴백 경로만 태워 분기 테스트가 공허해진다).
+- **`TrustBoard.test.tsx`** — B fail why 2분기 + null 폴백. `ko.*` 보간 단언은 자기참조 함정(공허 11호) 회피 — 두 분기를 **서로의 문구 부재**로 교차 단언하되, §6의 25자 코어 공유 때문에 단언은 전체일치 또는 키별 고유 조각으로만. **기존 `WEAK` 픽스처(`:35-46`)를 포함해 손-구성 리포트 픽스처는 `vars`를 실제 값으로 채운다**(`vars` 필수화로 `pnpm build`가 강제 — 방치하면 빈 vars가 null 폴백 경로만 태워 분기 테스트가 공허해진다). **단 null 폴백 전용 픽스처 1개는 의도적으로 `status:"fail" + vars: []`** — 폴백 테스트는 정의상 이 조합이 필요하다(2차 리뷰 N1).
 - **`RunDialog.trust.test.tsx`** — 게이트 3분기: uncovered 빈(등급 한 줄) / uncovered에 strict(전멸) / uncovered 전부 cond(misroute). + 부분 공급 케이스(바인딩이 일부만 공급 → uncovered 잔여로 판정). 기존 `bindings.length === 0` 전제 테스트 갱신. 문구 단언은 §6 겹침 때문에 전체일치 정규식 또는 키별 고유 조각(§6에 키별로 명시)으로.
 - **이빨 실증 의무(전신 §9.5 계승)**: 회귀 가드 표방 테스트는 고의 회귀(예: `hasStrictRef` 전파를 상수 true로, C의 overwrittenDecl 항 제거, RunDialog uncovered를 `bindings.length===0`로 되돌림) → RED → 원복 → GREEN을 실증.
 - 전체 게이트: `pnpm lint && pnpm test && pnpm build` (게이트 판정은 파이프 없이 exit 명시 캡처).
@@ -203,7 +204,7 @@ mode      = bFailMode(uncovered)
 1. **strict 판정은 참조 위치 기준이지 실행 도달성 기준이 아니다**: `if false` 분기 안 요청 표면의 미정의 변수도 `strict`로 분류돼 전멸 문구가 뜨지만 실제로는 그 분기가 안 돌면 안 죽는다. 정적 분석의 한계(전신 §11.8과 같은 클래스)이고, 조언("만들지 않는 변수를 참조하지 말라")은 여전히 유효하다.
 2. **cond 오분기 문구는 방향까지 말하지 않는다**: `""`가 어느 분기로 떨어지는지는 연산자에 따라 다르다(`!=`면 then이 참이 될 수도). "의도한 분기를 타지 않습니다"는 이 불확정성을 포괄하는 표현이다.
 3. **`vars`는 운반되지만 나열되지 않는다**(P2·P8): 어떤 변수인지는 변수 패널(⚠ 행)이 보여 준다 — 두 표면 재나열은 D14 기각 사유 그대로.
-4. **선언명이 점을 포함하면서 flat extract와도 충돌하는 극단 케이스**(선언 `B.v` + flat extract `B.v`): `overwrittenByFlat` true라 카운트되는데, 그 이름이 동시에 parallel `B`/`v` 조합과도 겹치면 이론상 이중 카운트 가능. 점 든 flat 이름의 위험은 parallel 네임스페이스 충돌로 이미 문서화·비권장(`scanVars.ts:289-293`의 declared-limit 주석)이고 soft 신호라 수용. **bare 변종도 같은 수용**: 같은 이름이 flat extract와 parallel 분기 extract 양쪽에 있고 아무도 안 쓰면 declared(`overwrittenByFlat`) 행 + parallel-extract(shadow) 행 = count 2 — 이름은 하나지만 추출 지점이 실제로 둘이므로 수용(단 `추출한 변수 2개` 카피와의 긴장은 인지).
+4. **선언명이 점을 포함하면서 flat extract와도 충돌하는 극단 케이스**(선언 `B.v` + flat extract `B.v`): `overwrittenByFlat` true라 카운트되는데, 그 이름이 동시에 parallel `B`/`v` 조합과도 겹치면 이론상 이중 카운트 가능. 점 든 flat 이름의 위험 근거(parallel 네임스페이스와의 충돌)는 `scanVars.ts:289-293`의 declared-limit 주석에 문서화돼 있고, soft 신호라 수용. **bare 변종도 같은 수용**: 같은 이름이 flat extract와 parallel 분기 extract 양쪽에 있고 아무도 안 쓰면 declared(`overwrittenByFlat`) 행 + parallel-extract(shadow) 행 = count 2 — 이름은 하나지만 추출 지점이 실제로 둘이므로 수용(단 `추출한 변수 2개` 카피와의 긴장은 인지).
 5. **전신 spec §11.9의 나머지 절반(제출 허용)은 그대로다**: cond-only 미정의 변수는 여전히 `bindingBlock`에 안 걸려 제출된다 — 이 슬라이스는 soft 경고를 정직하게 만들 뿐 하드 게이트를 신설하지 않는다(§1.5 기각 근거).
 6. **빈 리터럴 매핑도 "공급"으로 센다**(1차 리뷰 R4): `DataBindingPanel`은 `value: ""`인 literal 매핑도 emit하고 bindingBlock도 막지 않으므로, cond-only 변수에 빈 리터럴을 매핑하면 uncovered가 비어 misroute 경고가 억제되는데 런타임 결과는 정확히 misroute다. 엔진 관점에선 `""` 공급이 실제로 일어나는 것이라(변수는 정의됨) B의 "미정의" 판정 축과 다른 문제(값 품질)이고, soft 신호라 수용.
 
