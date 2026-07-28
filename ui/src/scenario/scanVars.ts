@@ -254,6 +254,9 @@ export type UndefinedRef = {
    *  아니라 "downstream"(fix-2 blocker: 노드 정체성 없이 "어떤 분기 안이냐"만 봤을 땐 이걸
    *  형제로 오분류해 틀린 힌트를 냈다). */
   kind: "downstream" | "sibling";
+  /** 위반 참조 중 하나라도 http 요청 표면(url/헤더/바디 — strict 렌더 → VU 전멸)에 있으면 true.
+   *  false = 전부 if/elif cond 오퍼랜드(lenient `""` 평가 — run은 완주, 분기 오분류). */
+  hasStrictRef: boolean;
 };
 
 /** parallel 분기 B **자신의** http extract var 집합 — B의 steps를 재귀한다(Trap A: 분기 안
@@ -326,20 +329,22 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
 
   const acc = new Map<
     string,
-    { stepIds: string[]; sawDownstream: boolean; ownerNodeIds: Set<string> }
+    { stepIds: string[]; sawDownstream: boolean; sawStrict: boolean; ownerNodeIds: Set<string> }
   >();
   const record = (
     name: string,
     stepId: string,
     insideBranch: boolean,
     ownerNodeId: string | null,
+    strict: boolean,
   ): void => {
     let a = acc.get(name);
     if (!a) {
-      a = { stepIds: [], sawDownstream: false, ownerNodeIds: new Set() };
+      a = { stepIds: [], sawDownstream: false, sawStrict: false, ownerNodeIds: new Set() };
       acc.set(name, a);
     }
     a.stepIds.push(stepId);
+    if (strict) a.sawStrict = true;
     if (!insideBranch) a.sawDownstream = true;
     else if (ownerNodeId !== null) a.ownerNodeIds.add(ownerNodeId);
   };
@@ -351,6 +356,7 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
     refs: Set<string>,
     stepId: string,
     own: { nodeId: string; names: Set<string> } | null,
+    strict: boolean,
   ): void => {
     for (const name of refs) {
       if (flatBase.has(name)) continue;
@@ -362,11 +368,11 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         // inside a parallel branch, because a dotted ref only resolves after
         // the branch's `join_all` completes (never "sibling" — see `judge`'s
         // doc above and `UndefinedRef.kind`).
-        record(name, stepId, false, null);
+        record(name, stepId, false, null, strict);
         continue;
       }
       if (own !== null && own.names.has(name)) continue;
-      record(name, stepId, own !== null, own?.nodeId ?? null);
+      record(name, stepId, own !== null, own?.nodeId ?? null, strict);
     }
   };
 
@@ -384,7 +390,7 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         else if (body?.kind === "form")
           for (const v of Object.values(body.value)) collectFromString(v, refs);
         else if (body?.kind === "json") collectFromJson(body.value, refs);
-        judge(refs, s.id, own);
+        judge(refs, s.id, own, true);
       } else if (s.type === "loop") {
         walk(s.do, own);
       } else if (s.type === "parallel") {
@@ -401,7 +407,7 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
         const refs = new Set<string>();
         collectCondRefs(s.cond, refs);
         for (const e of s.elif) collectCondRefs(e.cond, refs);
-        judge(refs, s.id, own);
+        judge(refs, s.id, own, false);
         walk(s.then, own);
         for (const e of s.elif) walk(e.then, own);
         walk(s.else, own);
@@ -434,6 +440,7 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
       stepIds: a.stepIds,
       candidates: name.includes(".") ? [] : candidatesFor(name),
       kind,
+      hasStrictRef: a.sawStrict,
     });
   }
   return out;

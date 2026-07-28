@@ -1320,3 +1320,86 @@ describe("undefinedVarRefs cross-node parallel classification (fix-2 blocker)", 
     expect(t?.candidates).toEqual(["auth"]);
   });
 });
+
+describe("undefinedVarRefs — hasStrictRef (trust-check-precision US1)", () => {
+  const T = "01HZZZZZZZZZZZZZZZZZZZZZT";
+  const mkSc = (steps: unknown[]): Scenario =>
+    ScenarioModel.parse({ version: 1, name: "t", cookie_jar: "auto", variables: {}, steps });
+  const http = (id: string, url: string, extract: unknown[] = []) => ({
+    id,
+    name: "s",
+    type: "http",
+    request: { method: "GET", url, headers: {} },
+    assert: [],
+    extract,
+  });
+
+  it("요청 표면(url)에만 등장한 미정의 참조 → hasStrictRef=true", () => {
+    const undef = undefinedVarRefs(mkSc([http(`${T}1`, "https://e.test/{{ghost}}")]));
+    expect(undef.get("ghost")?.hasStrictRef).toBe(true);
+  });
+
+  it("if/elif cond에만 등장 → hasStrictRef=false (엔진 lenient — run은 완주)", () => {
+    const undef = undefinedVarRefs(
+      mkSc([
+        {
+          id: `${T}2`,
+          name: "gate",
+          type: "if",
+          cond: { left: "{{seg}}", op: "eq", right: "x" },
+          then: [http(`${T}3`, "https://e.test/a")],
+          elif: [
+            {
+              cond: { left: "{{seg2}}", op: "eq", right: "y" },
+              then: [http(`${T}4`, "https://e.test/b")],
+            },
+          ],
+          else: [],
+        },
+      ]),
+    );
+    expect(undef.get("seg")?.hasStrictRef).toBe(false);
+    expect(undef.get("seg2")?.hasStrictRef).toBe(false);
+  });
+
+  it("cond와 url 양쪽(혼합) → true (전멸이 우선)", () => {
+    const undef = undefinedVarRefs(
+      mkSc([
+        {
+          id: `${T}5`,
+          name: "gate",
+          type: "if",
+          cond: { left: "{{seg}}", op: "eq", right: "x" },
+          then: [http(`${T}6`, "https://e.test/{{seg}}")],
+          elif: [],
+          else: [],
+        },
+      ]),
+    );
+    expect(undef.get("seg")?.hasStrictRef).toBe(true);
+  });
+
+  it("위치 축은 kind 축과 독립 — 형제 분기 url 참조는 kind=sibling·hasStrictRef=true", () => {
+    const undef = undefinedVarRefs(
+      mkSc([
+        {
+          id: `${T}7`,
+          name: "par",
+          type: "parallel",
+          branches: [
+            {
+              name: "b1",
+              steps: [
+                http(`${T}8`, "https://e.test/a", [{ var: "tok", from: "body", path: "$.t" }]),
+              ],
+            },
+            { name: "b2", steps: [http(`${T}9`, "https://e.test/{{tok}}")] },
+          ],
+        },
+      ]),
+    );
+    const r = undef.get("tok");
+    expect(r?.kind).toBe("sibling");
+    expect(r?.hasStrictRef).toBe(true);
+  });
+});
