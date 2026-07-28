@@ -60,6 +60,35 @@ const WEAK: TrustReport = {
   noValidationAtAll: false,
 };
 
+// 전부 cond-only(strict:false) — misroute 문구 분기용.
+const WEAK_COND: TrustReport = {
+  level: "weak",
+  checks: [
+    { id: "response_validation", status: "pass", steps: [], count: 0, vars: [] },
+    {
+      id: "undefined_vars",
+      status: "fail",
+      steps: [],
+      count: 2,
+      vars: [
+        { name: "seg", strict: false },
+        { name: "seg2", strict: false },
+      ],
+    },
+    { id: "broken_extract_chain", status: "na", steps: [], count: 0, vars: [] },
+  ],
+  passed: 1,
+  applicable: 2,
+  failed: 1,
+  noValidationAtAll: false,
+};
+
+// null 폴백 전용 — spec §7 예외: 이 픽스처 1개만 의도적으로 fail + vars: [].
+const WEAK_EMPTY_VARS: TrustReport = {
+  ...WEAK_COND,
+  checks: WEAK_COND.checks.map((c) => (c.id === "undefined_vars" ? { ...c, vars: [] } : c)),
+};
+
 const noop = () => {};
 function board(props: Partial<Parameters<typeof TrustBoard>[0]> = {}) {
   return render(
@@ -166,5 +195,24 @@ describe("TrustBoard", () => {
     // 이 두 문구가 실제로 뜬다. testRunNever를 단언하면 픽스처가 대신 통과시켜 공허해진다.
     expect(screen.queryByText(ko.trust.testRunVerified)).not.toBeInTheDocument();
     expect(screen.queryByText(ko.trust.testRunScope)).not.toBeInTheDocument();
+  });
+});
+
+describe("B fail why — 위치 분기 (trust-check-precision US1)", () => {
+  it("전부 cond-only → misroute 문구·전멸 문구 부재 (교차-부재)", () => {
+    board({ report: WEAK_COND });
+    expect(screen.getByText(ko.trust.checkBFailWhyCond)).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.checkBFailWhy)).toBeNull();
+  });
+
+  it("strict 포함 → 기존 전멸 문구·cond 문구 부재 (교차-부재)", () => {
+    board({ report: WEAK }); // Task 3에서 vars strict:true로 채움
+    expect(screen.getByText(ko.trust.checkBFailWhy)).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.checkBFailWhyCond)).toBeNull();
+  });
+
+  it("방어: fail + 빈 vars → 기존 문구 폴백 (빈 문구 금지, spec §5.1)", () => {
+    board({ report: WEAK_EMPTY_VARS });
+    expect(screen.getByText(ko.trust.checkBFailWhy)).toBeInTheDocument();
   });
 });

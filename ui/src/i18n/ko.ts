@@ -1566,6 +1566,10 @@ export const ko = {
     checkBFailTitle: (n: number) => `정의되지 않은 변수 ${n}개를 참조합니다`,
     /** 엔진 strict(UnknownVar → all VUs failed) — "조용히 통과" 서사 금지(spec F1) */
     checkBFailWhy: "이대로 부하를 걸면 시작하자마자 모든 VU가 실패합니다",
+    /** B 위반 참조가 전부 if/elif cond일 때 — 엔진은 lenient(`""` 평가)라 run이 완주하고
+     *  분기만 오분류된다(spec US1). strict 포함이면 기존 checkBFailWhy. 문안 확정: spec §6. */
+    checkBFailWhyCond:
+      "이대로 부하를 걸면 조건이 빈 값으로 평가되어 의도한 분기를 타지 않습니다 — run은 실패 없이 끝나 결함이 숨습니다",
     checkBPass: "참조하는 변수가 모두 정의돼 있습니다",
     /** na — 현재 판정에선 도달하지 않지만(B는 항상 pass/fail) 타입 완전성을 위해 둔다. */
     checkBNa: "참조하는 변수가 없어 점검할 것이 없습니다",

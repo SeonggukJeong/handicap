@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Modal } from "../Modal";
 import { ko } from "../../i18n/ko";
 import type { TestRunState, TrustCheck, TrustReport } from "../../scenario/trust";
+import { bFailMode } from "../../scenario/trust";
 
 const FAIL_TITLE: Record<TrustCheck["id"], (n: number) => string> = {
   response_validation: () => ko.trust.checkAFailTitle,
@@ -80,7 +81,13 @@ export function TrustBoard({
               <p className="font-medium">
                 <span aria-hidden="true">✗</span> {FAIL_TITLE[c.id](c.count)}
               </p>
-              <p className="text-slate-600">{FAIL_WHY[c.id]}</p>
+              {/* B는 위치 클래스로 결과가 갈린다(spec §5.1): misroute만 cond 문구,
+                  annihilation·null(빈 vars 방어)은 기존 문구 — FAIL_WHY가 그 폴백. */}
+              <p className="text-slate-600">
+                {c.id === "undefined_vars" && bFailMode(c.vars) === "misroute"
+                  ? ko.trust.checkBFailWhyCond
+                  : FAIL_WHY[c.id]}
+              </p>
               {c.id === "response_validation" ? (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {c.steps.map((s) => (
