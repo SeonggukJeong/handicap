@@ -28,7 +28,7 @@
 
 - `ui/src/api/hooks.ts`에 신규. **내부 구성**: ① 목록은 훅 내부의 자체 `useQuery({ queryKey: queryKeys.environments(), queryFn: listEnvironments, enabled })` — 공유 `useEnvironments()`는 파라미터가 없고 호출부 2곳(`EnvironmentPicker`·`EnvironmentsPage`)이 있어 시그니처를 건드리지 않는다(같은 queryKey라 캐시는 공유됨). ② 단건은 `useQueries`로 fan-out — per-env 쿼리는 기존 `queryKeys.environment(id)`·`getEnvironment(id)` 재사용(RunDialog `useEnvironment` 캐시와 공유).
 - **fan-out 상한 K=20**: 목록을 `updated_at` desc로 정렬해 상위 20개만 단건 fetch(목록 summary에 `updated_at` 있음). R2 정렬과 같은 축이라 상한이 잘라도 "최근 환경 우선" 의미가 유지된다.
-- 반환: settle된 성공 쿼리만 모은 `Environment[]` — `useQueries`의 `combine` 옵션(설치본 v5.100.14에 존재)으로 **참조 안정화**(부분 결과 허용 — 쿼리별 에러 격리가 US4의 절반을 by-construction 충족).
+- 반환: settle된 성공 쿼리만 모은 `Environment[]` — `useQueries`의 `combine` 옵션(설치본 v5.100.14에 존재)으로 **참조 안정화**(부분 결과 허용 — 쿼리별 에러 격리가 US4의 절반을 by-construction 충족). `combine` 콜백은 **모듈 스코프**에 정의(인라인이면 identity 변화로 내부 memo가 매번 무효 — deep-equal `replaceEqualDeep`가 참조는 지켜주지만 매 렌더 재계산 낭비).
 - 참고: `useReports`(hooks.ts:208)는 `useQueries` *모양*의 선례일 뿐 — `enabled`·부분수집·`combine`은 이 훅이 신규다(기존 소비처 `ScenarioComparePage`는 all-or-nothing).
 - `ScenarioImportPage`는 `har !== null`일 때만 켠다(페이지 진입만으로 fan-out 금지). 서버 API 확장(`?include=vars`)은 기각(UI-only 스코프).
 
@@ -55,10 +55,13 @@ export function matchHostsToEnvs(
 
 ### R3. 프리필 우선순위 + 중복 방지 (US2·US3)
 
-- `effectiveHostVars` 도출: `hostVarOverrides[h] ?? 프리필 후보(h) ?? defaults[h]`.
+- **도출은 `hostEnv.ts`의 export 순수 함수로**: `resolveHostVars(hostsOrdered, matches, overrides): Record<string, string>` — 페이지의 `effectiveHostVars` memo는 이 함수 호출로 축소된다. 이유: 자격 규칙이 쓰는 `VAR_NAME_RE`가 `hostEnv.ts` module-private(export는 `RESERVED`뿐)이고, 아래 dedupe 단위 테스트가 `hostEnv.test.ts`에 배정돼 있다 — 페이지에 로직을 두면 regex ad-hoc export 또는 단위 테스트 도달 불가 중 하나가 강제된다.
+- **우선순위**: `overrides[h] ?? 프리필 후보(h) ?? defaults[h]` (defaults = 기존 `defaultHostVars`).
 - **프리필 후보 자격**: `matches[h][0].varName`이 ① `VAR_NAME_RE` 통과 ② `RESERVED`(vu_id 등) 아님일 때만. 자격 미달이면 후보 없음 → `defaults[h]` 폴백(행별 안내는 사실이므로 그대로 표시). 근거: `validateEnv`는 예약어를 soft 경고만 하고(`ok`에 미포함 — 기존 테스트가 "등록 활성"을 고정), 형식 위반도 [환경으로 등록]만 막을 뿐 [복사]·[편집기로 보내기]는 미게이트라, 프리필이 만든 나쁜 이름이 YAML로 샐 수 있다.
-- **프리필 중복 방지(dedupe)**: 서로 다른 환경이 같은 이름(전형: 둘 다 `BASE_URL`)을 쓰면 2-host HAR에서 두 행이 같은 이름으로 프리필돼, 미게이트 [복사]/[편집기로 보내기] 경로로 **사용자 행동 없이** 두 host가 한 `${BASE_URL}`로 붕괴한다(silent-config 클래스). 방지: `hostsOrdered` 순서로 순회하며 `used` 집합 유지 — 후보 이름이 이미 점유면 `defaults[h]`로 폴백, 그마저 점유면(앞 host의 매치명이 우연히 이 host의 기본명일 때) `BASE_URL_{k}`(k 증가)로 첫 미사용 이름. 결정적·전역 유일.
-- **override는 dedupe 대상 아님** — 사용자가 손댄 칸(`hostVarOverrides`)은 절대 덮지 않는다(US3). 사용자가 직접 만든 중복은 기존 `validateEnv` dup 빨간 문구가 잡는다(오늘과 동일 — 사용자 행동의 결과라 silent 아님).
+- **프리필 중복 방지(dedupe)**: 서로 다른 환경이 같은 이름(전형: 둘 다 `BASE_URL`)을 쓰면 2-host HAR에서 두 행이 같은 이름으로 프리필돼, 미게이트 [복사]/[편집기로 보내기] 경로로 **사용자 행동 없이** 두 host가 한 `${BASE_URL}`로 붕괴한다(silent-config 클래스). 방지 알고리즘:
+  1. **pre-pass**: `hostsOrdered`에 현재 존재하는 host의 `overrides` 값을 전부 `used`에 시드 — override 칸은 절대 재작성하지 않지만 **이름은 점유한다**(시드를 현재 host로 한정하는 이유: overrides는 파일 재선택 전까지 잔존하므로 제외된 host의 stale 항목이 이름을 예약하면 안 됨). 이게 없으면 "뒤 행에 override + 앞 행에 매치" 순서에서 늦은 프리필이 override와 같은 이름을 배정해 동일한 silent-collapse가 남는다.
+  2. **forward pass**: `hostsOrdered` 순서로 순회 — override 있는 host는 그 값 그대로(재작성 없음), 나머지는 후보→`defaults[h]`→`BASE_URL_{k}` 순으로 `used`에 없는 첫 이름을 배정. `BASE_URL_{k}`는 **k=2부터 증가**하며 `used` 재검사(`defaultHostVars`는 `BASE_URL_1`을 절대 내지 않음). **배정된 모든 이름은 즉시 `used`에 추가** — 이 불변식이 뒤 host의 무충돌을 보장한다. 결정적·전역 유일.
+- **override는 값 재작성 대상이 아님** — 사용자가 손댄 칸은 절대 덮지 않는다(US3). 사용자가 override로 직접 만든 중복(예: 두 칸에 같은 이름 타이핑)은 기존 `validateEnv` dup 빨간 문구가 잡는다.
 - 매치 데이터는 비동기 도착 — 안 만진 칸만 기본값→매치명으로 바뀐다.
 
 ### R4. 행별 안내 (US1-②)
@@ -83,7 +86,7 @@ export function matchHostsToEnvs(
   - `hostRegisteredIn: (env: string, varName: string) => \`'${env}' 환경에 ${varName}(으)로 등록됨\``
   - `hostRegisteredMore: (n: number) => \`외 ${n}개 환경\`` (구분자 ` · `는 JSX에서)
   - `hostsRegisteredSummary: (n: number) => \`호스트 ${n}개가 이미 환경에 등록돼 있습니다\``
-- 신규↔기존 카탈로그 **양방향 부분문자열 충돌 grep** 수행(신규가 기존 전체값을 포함/기존이 신규 전체값을 포함 — thinkboard-defaults 교훈, `toHaveTextContent` 부분매칭 오염 방지). 충돌 발견 시 같은 화면에 동시 렌더되는 쌍만 문제 삼는다(전 카탈로그 무충돌은 비현실 — "환경" 단독 키 등).
+- 신규↔기존 카탈로그 **양방향 부분문자열 충돌 grep** 수행(신규가 기존 전체값을 포함/기존이 신규 전체값을 포함 — thinkboard-defaults 교훈, `toHaveTextContent` 부분매칭 오염 방지). 충돌 발견 시 같은 화면에 동시 렌더되는 쌍만 문제 삼는다(전 카탈로그 무충돌은 비현실 — "환경" 단독 키 등). **측정된 same-screen 쌍 1건**: `ko.import.hosts`("호스트") ⊂ `hostsRegisteredSummary` — hosts fieldset legend(`hosts.length > 1`)와 R5 줄이 2-host HAR에서 동시 렌더되므로, 이 화면 테스트의 "호스트" 단언은 `toHaveTextContent`/정규식 부분매칭 금지(exact `getByText` 또는 스코프 한정).
 
 ### R8. 불변 (회귀 경계)
 
@@ -106,7 +109,7 @@ export function matchHostsToEnvs(
 
 ## 테스트 전략
 
-- **단위 (`hostEnv.test.ts`)**: `matchHostsToEnvs` — 정확 일치·후행 `/` 흡수·경로/쿼리 값 제외·파싱 불가 값 skip·다중 매치 정렬(updated_at desc→이름 asc)·환경 내 var 이름 asc 1건·빈 envs. 프리필 dedupe — 두 환경 같은 이름 충돌 시 `defaults` 폴백·기본명 점유 시 `_k` 증가·override 비대상.
+- **단위 (`hostEnv.test.ts`)**: `matchHostsToEnvs` — 정확 일치·후행 `/` 흡수·경로/쿼리 값 제외·파싱 불가 값 skip·다중 매치 정렬(updated_at desc→이름 asc)·환경 내 var 이름 asc 1건·빈 envs. `resolveHostVars` — 두 환경 같은 이름 충돌 시 `defaults` 폴백·기본명 점유 시 `_k`(k=2부터) 증가·override 값 재작성 없음·**override 시드 순서 케이스**(뒤 행 override `API_URL` + 앞 행 매치 `API_URL` → 앞 행이 `defaults` 폴백, override와 비충돌)·stale override(목록 밖 host)는 이름 예약 안 함.
 - **RTL (`ScenarioImportPage.test.tsx`)**: 신규 훅이 HAR 로드 시 **무조건 발화**하므로 기존 ~22개 미모킹 테스트가 undici 상대경로 reject로 깨진다(ui/CLAUDE.md "무조건 발화하는 React Query 훅" 함정) — **파일 공통 baseline fetch stub**(`beforeEach`에서 `/api/environments` → `{environments: []}` 반환)을 먼저 깔고, 힌트 케이스만 URL-디스패치 mock으로 목록+단건을 준다. 케이스: ① 행별 안내 렌더(US1-②) ② 발견성 한 줄 — 매치 있을 때만·체크박스 꺼진 상태에서도(US1-①/R5) ③ 프리필 3단 우선순위 — override > 매치 > 기본(US2·US3) ④ YAML 미리보기 토큰 반영(US2) ⑤ dedupe — 두 host 같은 매치명일 때 두 번째가 기본명 폴백(R3) ⑥ fetch reject 시 기존 화면 그대로(US4) ⑦ dup 검증 상호작용 — override로 만든 중복은 기존 빨간 문구(R3).
 - **이빨 실증**: 회귀 가드 표방 테스트는 고의 회귀(예: dedupe 제거·프리필 우선순위 뒤집기) 주입→RED→원복→GREEN. `ko.*(…)` 보간 단언은 자기참조 함정 회피 — 렌더된 환경명/숫자를 별도 단언([[plan-mandated-vacuous-tests]] 11호 클래스).
 - **게이트**: `pnpm lint && pnpm test && pnpm build`(각각 exit 코드 명시 캡처).
