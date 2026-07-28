@@ -93,3 +93,7 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 
 - **Monaco는 프로그램 구동 불가** — 번들이 `window.monaco`를 노출하지 않고(`getModels()` 접근 불가) hidden textarea `value`도 빈 문자열. 모달 YAML *읽기*는 `.view-line` DOM 텍스트 추출로(짧은 문서는 가상화에 안 걸림), *쓰기* 검증은 등가 경로(같은 YAML을 API로 인입해 편집화면 표출 실측 + RTL `commitPendingYaml`)로 대체하고 그 근거를 build-log에 기록.
 - **`/scenarios/new`는 에디터가 아니라 템플릿 선택 화면("어떤 시나리오로 시작할까요?")이 먼저 마운트** — 에디터 컴포넌트(공유 메모 진입 라인 등) 검증은 "빈 시나리오" 카드 클릭 후. 진입 직후 컴포넌트가 안 보인다고 mount-path 버그로 오판하지 말 것. 신규 페이지 저장 버튼 라벨은 "저장"이 아니라 **"만들기"**.
+
+## RunDialog 데이터 바인딩 매핑 (trust-check-precision)
+
+- **매핑 var 이름 커밋이 소스 select의 `aria-label`을 즉시 재계산한다**(`"매핑 변수명"` input blur → 소스 select가 `"<var명> 소스"`로 재라벨) — input 세팅과 select 조작을 **한 `browser_evaluate`에 넣으면** React 재렌더로 select 참조가 끊겨 `Cannot read properties of undefined`. input 커밋(input+blur 이벤트)을 별도 evaluate로 먼저 보내고, select는 **다음 evaluate에서 재조회**해서 조작할 것. cond-only 변수는 `scanFlowVars`가 cond를 안 보므로 자동 시드 행이 없다 — `+ 추가` 수동 행으로만 공급 가능(자동 행 부재 ≠ 기능 미동작).
