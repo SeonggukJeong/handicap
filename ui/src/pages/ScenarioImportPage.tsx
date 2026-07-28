@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useCreateEnvironment } from "../api/hooks";
+import { useCreateEnvironment, useEnvironmentsWithVars } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { Badge } from "../components/ui/Badge";
@@ -20,8 +20,9 @@ import {
 import { type HeaderMode, harToScenarioYaml, inferName, parseHar } from "../import/harToScenario";
 import {
   buildEnvInput,
-  defaultHostVars,
   hostsByRequestCount,
+  matchHostsToEnvs,
+  resolveHostVars,
   validateEnv,
 } from "../import/hostEnv";
 import { safeDecodeUrl } from "../import/urlDecode";
@@ -90,12 +91,15 @@ export function ScenarioImportPage() {
   // F4: These memos depend on previewEntries — must be AFTER previewEntries declaration,
   // BEFORE yaml memo (useMemo callbacks run synchronously at the call site).
   const hostsOrdered = useMemo(() => hostsByRequestCount(previewEntries), [previewEntries]);
-  const effectiveHostVars = useMemo(() => {
-    const defaults = defaultHostVars(hostsOrdered);
-    const out: Record<string, string> = {};
-    for (const h of hostsOrdered) out[h] = hostVarOverrides[h] ?? defaults[h];
-    return out;
-  }, [hostsOrdered, hostVarOverrides]);
+  const envsWithVars = useEnvironmentsWithVars(har !== null);
+  const hostMatches = useMemo(
+    () => matchHostsToEnvs(hostsOrdered, previewEntries, envsWithVars),
+    [hostsOrdered, previewEntries, envsWithVars],
+  );
+  const effectiveHostVars = useMemo(
+    () => resolveHostVars(hostsOrdered, hostMatches, hostVarOverrides),
+    [hostsOrdered, hostMatches, hostVarOverrides],
+  );
   const envValidation = useMemo(
     () => validateEnv(effectiveHostVars, envName),
     [effectiveHostVars, envName],

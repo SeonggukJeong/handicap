@@ -16,6 +16,7 @@ import {
   getEnvironment,
   listEnvironments,
   updateEnvironment,
+  type Environment,
   type EnvironmentInput,
 } from "./environments";
 import {
@@ -311,6 +312,34 @@ export function useEnvironment(id: string | undefined) {
     queryKey: id ? queryKeys.environment(id) : ["environments", "missing"],
     queryFn: () => getEnvironment(id!),
     enabled: Boolean(id),
+  });
+}
+
+// settle된 환경만 모은다 — 쿼리별 에러 격리(부분 결과 허용, spec R6 fail-soft).
+// 모듈 스코프 정의: 인라인이면 combine identity가 매 렌더 바뀌어 내부 memo가 무효
+// (참조 자체는 replaceEqualDeep이 지켜주지만 재계산 낭비, spec R1).
+const combineEnvironments = (results: Array<{ data: Environment | undefined }>): Environment[] =>
+  results.flatMap((r) => (r.data !== undefined ? [r.data] : []));
+
+const ENV_FANOUT_CAP = 20;
+
+export function useEnvironmentsWithVars(enabled: boolean): Environment[] {
+  const list = useQuery({
+    // 공유 useEnvironments()와 같은 queryKey — 캐시 공유, 시그니처는 비접촉 (spec R1)
+    queryKey: queryKeys.environments(),
+    queryFn: listEnvironments,
+    enabled,
+  });
+  const topK = [...(list.data ?? [])]
+    .sort((a, b) => b.updated_at - a.updated_at)
+    .slice(0, ENV_FANOUT_CAP);
+  return useQueries({
+    queries: topK.map((s) => ({
+      queryKey: queryKeys.environment(s.id),
+      queryFn: () => getEnvironment(s.id),
+      enabled,
+    })),
+    combine: combineEnvironments,
   });
 }
 

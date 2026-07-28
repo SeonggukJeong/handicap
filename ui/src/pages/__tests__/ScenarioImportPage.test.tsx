@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScenarioImportPage } from "../ScenarioImportPage";
 import { ko } from "../../i18n/ko";
 
@@ -74,6 +74,15 @@ function harFile(content = HAR): File {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  // 신규 useEnvironmentsWithVars가 HAR 로드 시 무조건 GET /api/environments를 발화 —
+  // 개별 테스트의 vi.stubGlobal이 이 baseline을 덮어쓴다.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(jsonResponse({ environments: [] }))),
+  );
 });
 
 const SINGLE_HOST_HAR = JSON.stringify({
@@ -445,5 +454,117 @@ describe("ScenarioImportPage", () => {
     // 행 텍스트와 체크박스 accname 둘 다 디코딩 형태 (인덱스 스코프 불필요 — 단일 행)
     expect(await screen.findByText("GET https://api.example.com/검색?q=한 글")).toBeInTheDocument();
     expect(screen.getByLabelText("GET https://api.example.com/검색?q=한 글")).toBeInTheDocument();
+  });
+});
+
+const STAGING_ENV = {
+  id: "E10",
+  name: "스테이징",
+  vars: { API_HOST: "https://api.example.com" },
+  created_at: 1,
+  updated_at: 5,
+};
+
+// 목록+단건을 함께 스텁하는 헬퍼 — 힌트 계열 케이스 공용 (mock 반환 = call-count 단언용)
+function stubEnvFetch(envs: (typeof STAGING_ENV)[]) {
+  const fetchMock = vi.fn((url: string) => {
+    const s = String(url);
+    const single = envs.find((e) => s.endsWith(`/api/environments/${e.id}`));
+    if (single) return Promise.resolve(jsonResponse(single));
+    return Promise.resolve(
+      jsonResponse({
+        environments: envs.map(({ id, name, created_at, updated_at, vars }) => ({
+          id,
+          name,
+          created_at,
+          updated_at,
+          var_count: Object.keys(vars).length,
+        })),
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("host-환경 힌트: 프리필", () => {
+  it("US2: 매치된 host의 var 입력이 기존 환경 이름으로 프리필", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    // 매치 settle 후: api 행 = API_HOST(매치), auth 행 = BASE_URL_2(기본 유지)
+    expect(await screen.findByDisplayValue("API_HOST")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("BASE_URL_2")).toBeInTheDocument();
+  });
+
+  it("US2: YAML 미리보기 토큰이 프리필 이름 사용", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    await screen.findByDisplayValue("API_HOST");
+    const preview = screen.getByLabelText(ko.import.preview) as HTMLTextAreaElement;
+    expect(preview.value).toContain("${API_HOST}");
+  });
+
+  it("US3: 사용자 override는 매치 프리필이 덮지 않음", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    // 매치가 실제로 도착·프리필됐음을 먼저 증명 — 없으면 프리필이 통째로 죽어도 green (이빨)
+    await screen.findByDisplayValue("API_HOST");
+    const apiInput = screen.getByLabelText(ko.import.varNameLabel("api.example.com"));
+    await user.clear(apiInput);
+    await user.type(apiInput, "MINE");
+    expect(screen.getByDisplayValue("MINE")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("API_HOST")).not.toBeInTheDocument();
+  });
+
+  it("US4: 환경 fetch 실패 시 기본 프리필·흐름 정상 (fail-soft)", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("boom"))),
+    );
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    expect(await screen.findByDisplayValue("BASE_URL")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("BASE_URL_2")).toBeInTheDocument();
+    // 에러 배너 없음 (기존 parseError alert만 role=alert)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("R1: fan-out 상한 K=20 — 21개 환경이면 단건 GET 정확히 20회, 최고(最古) 1개 탈락", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      id: `E${i}`,
+      name: `env${i}`,
+      vars: { API_HOST: `https://other${i}.example.com` }, // 키는 STAGING_ENV와 동일(타입 추론 일치 — tsc -b), origin은 매치 무관 host라 힌트 간섭 없음
+      created_at: 1,
+      updated_at: i, // E0이 가장 오래됨 → 상위 20개에서 탈락
+    }));
+    const fetchMock = stubEnvFetch(many);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await waitFor(() => {
+      const singles = fetchMock.mock.calls.filter(([u]) =>
+        /\/api\/environments\/E\d+$/.test(String(u)),
+      );
+      expect(singles.length).toBe(20);
+    });
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/environments/E0"))).toBe(
+      false,
+    );
   });
 });
