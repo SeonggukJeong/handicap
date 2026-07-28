@@ -23,6 +23,7 @@
 - **진리표(전신 spec §5) 불변** — 등급 규칙 코드(`trust.ts`의 level 산출식) 무변경. C의 *입력*이 정확해져 기존 시나리오 등급이 `good→caution`/`caution→weak`로 움직이는 것은 의도됨(spec §4.2).
 - **`TrustCheck.vars`는 필수 필드** — optional 금지(구성 사이트 전수 갱신을 `pnpm build`(tsc -b)가 강제; `pnpm test`는 못 잡는다).
 - **tdd-guard**: 전 diff가 `ui/src/**`이므로 각 task의 **첫 스텝은 반드시 테스트 파일 편집**(test-path는 항상 허용). 직전 task 커밋 직후 트리는 clean — production 편집을 먼저 하면 `[tdd-guard] Blocked`.
+- **spec-review-guard(리뷰 S3)**: 이 plan 파일 끝의 `REVIEW-GATE: APPROVED` 마커(리뷰어 clean APPROVE 후 orchestrator가 추가)가 없으면 `ui/src` 편집이 **첫 Edit부터 deny**된다 — 구현 세션 시작 시 마커 실존을 먼저 확인할 것(미통과 상태 마킹은 위조).
 - **게이트 판정은 파이프 금지**: `pnpm lint` 등은 `; echo "exit=$?"`로 종료코드 명시 캡처(`| tail`은 실패 마스킹).
 - **커밋은 단일 FOREGROUND Bash 호출(timeout 600000ms)** — pre-commit이 UI 게이트(lint+test 전체+build)를 돌린다. `git commit … | tail` 금지, `--no-verify` 금지. 커밋 후 `git log -1`로 landed 확인.
 - 단일 파일 테스트 반복은 `pnpm test <이름>`(`--` 붙이면 전체 스위트가 돈다).
@@ -317,6 +318,28 @@ describe("B vars 운반 + bFailMode (trust-check-precision US1·US2)", () => {
     expect(bFailMode([{ name: "a", strict: true }])).toBe("annihilation");
   });
 
+  it("vars 순서 = walker가 위반을 처음 만난 순서(문서순 결정론, spec §3)", () => {
+    const r = evaluateTrust(
+      sc({
+        steps: [
+          step(A, {
+            assert: OK,
+            request: { method: "GET", url: "https://e.test/{{first}}", headers: {} },
+          }),
+          step(B, {
+            assert: OK,
+            request: { method: "GET", url: "https://e.test/{{second}}", headers: {} },
+          }),
+        ],
+      }),
+    );
+    const b = r.checks.find((c) => c.id === "undefined_vars")!;
+    expect(b.vars).toEqual([
+      { name: "first", strict: true },
+      { name: "second", strict: true },
+    ]);
+  });
+
   it("A·C의 vars는 항상 빈 배열", () => {
     const r = evaluateTrust(sc({ steps: [step(A, DANGLING)] }));
     expect(r.checks.find((c) => c.id === "response_validation")!.vars).toEqual([]);
@@ -545,6 +568,8 @@ describe("B fail why — 위치 분기 (trust-check-precision US1)", () => {
 
 `FAIL_WHY` Record 자체는 불변(B 엔트리 = `checkBFailWhy`가 곧 null 폴백).
 
+**import 함정(리뷰 S1)**: `TrustBoard.tsx:4`는 `import type { … } from "../../scenario/trust"` — **타입 전용** import다. `bFailMode`를 그 라인에 끼우면 esbuild가 통째로 지워 런타임 `undefined`가 된다 — **별도의 값 import 라인**(`import { bFailMode } from "../../scenario/trust";`)을 새로 추가할 것.
+
 - [ ] **Step 5: GREEN 확인** — `pnpm test TrustBoard; echo "exit=$?"` → 전체 PASS(기존 케이스 포함).
 
 - [ ] **Step 6: 커밋** (FOREGROUND, timeout 600000ms)
@@ -614,7 +639,31 @@ describe("RunDialog — uncovered 게이트 (trust-check-precision US1·US2)", (
   it("무관한 바인딩이 있어도 cond-only 미정의가 남으면 misroute 문구 — 등급 한 줄로 약화되지 않는다 (US2 본체)", () => {
     renderDialog(condOnlyScen(), prefillSupplying("username"));
     expect(screen.getByText(ko.trust.runDialogBFailCond)).toBeInTheDocument();
-    expect(screen.queryByText(ko.trust.runDialogLine(ko.trust.level.weak, 1))).toBeNull();
+    // 자기참조 포맷터+failed 카운트 의존을 피해 관용구로(리뷰 N1) — 등급 한 줄 부재를 접두로 판정.
+    expect(screen.queryByText(/시나리오 신뢰도/)).toBeNull();
+  });
+
+  it("부분 공급: strict(url)만 공급되고 cond 변수가 남으면 misroute — bFailMode 입력은 bVars가 아니라 uncovered (리뷰 M1: 하이브리드 오구현 적발)", () => {
+    // B변수 2개(url {{ghost}}=strict + cond {{seg}}) 중 ghost만 바인딩 공급 → uncovered=[seg(cond)].
+    // 올바른 구현 bFailMode(uncovered)=misroute. 오구현 `uncovered.length===0 ? null : bFailMode(bVars)`는
+    // annihilation을 내 이 케이스만 가른다 — 다른 4케이스는 그 오구현도 통과한다.
+    const mixedScen = sc({
+      steps: [
+        step({ request: { method: "GET", url: "https://e.test/{{ghost}}", headers: {} } }),
+        {
+          id: "01HZZZZZZZZZZZZZZZZZZZZZZB",
+          name: "gate",
+          type: "if",
+          cond: { left: "{{seg}}", op: "eq", right: "x" },
+          then: [step({ id: "01HZZZZZZZZZZZZZZZZZZZZZZC", name: "s-C" })],
+          elif: [],
+          else: [],
+        },
+      ],
+    });
+    renderDialog(mixedScen, prefillSupplying("ghost"));
+    expect(screen.getByText(ko.trust.runDialogBFailCond)).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.runDialogBFail)).toBeNull();
   });
 
   it("그 변수를 공급하는 바인딩이 생기면 등급 한 줄로 완화 (공급 여부가 판정 축)", () => {
@@ -633,7 +682,7 @@ describe("RunDialog — uncovered 게이트 (trust-check-precision US1·US2)", (
 });
 ```
 
-주의: 기존 케이스 중 "B fail + 바인딩 존재 → 등급 한 줄"을 단언하는 것이 있으면 — 그 픽스처가 **바인딩이 그 변수를 공급하는** 형태(예: `{{username}}` + `boundPrefill()`)인지 확인. 공급하면 새 로직에서도 등급 한 줄(수렴)이라 무수정 green. 공급하지 않는 형태였다면 그 케이스는 **의도된 행동 변화**(spec P5 ②)이므로 새 기대값(전멸/misroute 문구)으로 갱신하고 커밋 메시지에 명시.
+기존 케이스 영향(리뷰가 실측 확정): 이 파일의 기존 2케이스는 **둘 다 수렴이라 무수정 green** — `:110`(url `{{nope}}`+프리필 없음 → uncovered 전체 → annihilation, 동일 문구)·`:123`(url `{{username}}`+`boundPrefill()`이 그 변수를 공급 → uncovered 빔 → 등급 한 줄, 동일). **갱신하지 말 것**(green 테스트를 "갱신"하면 수렴 증거가 사라진다).
 
 - [ ] **Step 2: RED 확인** — `pnpm test RunDialog.trust; echo "exit=$?"` → 신규 케이스 FAIL.
 
@@ -669,7 +718,7 @@ Callout(`:1044-1070`)의 기존 조건식·주석(`:1049-1059`)을 교체:
                   : ko.trust.runDialogLine(ko.trust.level[trust.level], trust.failed)}
 ```
 
-import에 `bFailMode` 추가(`:16`의 trust import 라인).
+import에 `bFailMode` 추가(`:16`의 trust import 라인 — **값 import**라 그대로 끼워도 안전).
 
 - [ ] **Step 5: GREEN + 전체 게이트** — `pnpm test RunDialog.trust; echo "exit=$?"` PASS → `pnpm test; echo "exit=$?"`(인자 없는 **전체**, targeted-green ≠ full-green) → `pnpm lint; echo "exit=$?"` → `pnpm build; echo "exit=$?"` 전부 PASS.
 
@@ -690,7 +739,7 @@ cd /Users/sgj/develop/handicap/.claude/worktrees/trust-check-precision && git ad
 
 **Interfaces:** 코드 무접촉. tdd-guard·spec-review-guard 비발동(docs 경로).
 
-- [ ] **Step 1: 같은-줄 append로 각주 5곳** — **새 줄 삽입 금지**(줄 수가 변하면 이 spec·다른 문서의 `:줄` 참조가 전부 stale). 각 대상 줄의 고유한 꼬리 조각을 `old_string`으로 잡아 Edit로 꼬리에 덧붙인다:
+- [ ] **Step 1: 같은-줄 append로 각주 5곳** — **새 줄 삽입 금지**(줄 수가 변하면 이 spec·다른 문서의 `:줄` 참조가 전부 stale). 각 대상 줄의 고유한 꼬리 조각을 `old_string`으로 잡아 Edit로 꼬리에 덧붙인다. **앵커 char-identity 경고(리뷰 S2, CLAUDE.md 반복 함정)**: 앵커를 손으로 타이핑하지 말고 **Read/`grep -n` 출력에서 복사**할 것 — `:181`은 곡선 따옴표(U+201C/U+201D, ASCII `"` 아님), `:230`은 `⟸`(U+27F8)·`①`(U+2460)·`—`(U+2014)+정렬용 다중 공백, `:428`은 em dash+곡선 따옴표를 포함한다(`:528`/`:530`은 평범한 한글+백틱). 0매치가 나면 앵커 바이트를 `python repr`로 확인:
   - `:181`(§4.2 blockquote "run이 전멸한다" 일반화) 꼬리에: ` **[정정 2026-07-28 trust-check-precision: 이 일반화는 요청 표면(url/헤더/바디)에만 참 — cond 오퍼랜드는 `render_lenient`라 run이 완주하고 분기만 오분류된다.]**`
   - `:230`(§5 코드블록 `weak ⟸ B fail (축 ① — 돌지 않는다)`) 꼬리에(코드블록 안이므로 플레인 텍스트): `   ← 정정 2026-07-28: 축①은 "의도대로 돌지 않는다"로 일반화(cond-only B fail은 죽지 않는다 — trust-check-precision)`
   - `:428`(§8 "'조용히 통과' 서사 금지") 꼬리에: ` **[정정 2026-07-28: cond-only 경로는 "조용한 오분기" 서사가 참 — trust-check-precision spec §6이 supersede.]**`
