@@ -133,3 +133,88 @@ describe("RunDialog — 신뢰도 한 줄", () => {
     expect(screen.getByText(ko.trust.runDialogLine(ko.trust.level.weak, 1))).toBeInTheDocument();
   });
 });
+
+/** cond에만 미정의 {{seg}} — B fail(strict:false), 스텝 자체는 assert OK. */
+const condOnlyScen = () =>
+  sc({
+    steps: [
+      step(),
+      {
+        id: "01HZZZZZZZZZZZZZZZZZZZZZZB",
+        name: "gate",
+        type: "if",
+        cond: { left: "{{seg}}", op: "eq", right: "x" },
+        then: [step({ id: "01HZZZZZZZZZZZZZZZZZZZZZZC", name: "s-C" })],
+        elif: [],
+        else: [],
+      },
+    ],
+  });
+
+/** boundPrefill 변형 — 매핑 var만 바꾼다. */
+const prefillSupplying = (varName: string): RunPrefill => ({
+  profile: normalizeProfile({
+    vus: 2,
+    duration_seconds: 5,
+    data_bindings: [
+      {
+        dataset_id: "DS1",
+        policy: "per_vu",
+        mappings: [{ kind: "column", var: varName, column: "c1" }],
+      },
+    ],
+  }),
+  env: {},
+});
+
+describe("RunDialog — uncovered 게이트 (trust-check-precision US1·US2)", () => {
+  it("바인딩 없음 + cond-only 미정의 → misroute 문구(전멸 문구 부재)", () => {
+    renderDialog(condOnlyScen());
+    expect(screen.getByText(ko.trust.runDialogBFailCond)).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.runDialogBFail)).toBeNull();
+  });
+
+  it("무관한 바인딩이 있어도 cond-only 미정의가 남으면 misroute 문구 — 등급 한 줄로 약화되지 않는다 (US2 본체)", () => {
+    renderDialog(condOnlyScen(), prefillSupplying("username"));
+    expect(screen.getByText(ko.trust.runDialogBFailCond)).toBeInTheDocument();
+    // 자기참조 포맷터+failed 카운트 의존을 피해 관용구로(리뷰 N1) — 등급 한 줄 부재를 접두로 판정.
+    expect(screen.queryByText(/시나리오 신뢰도/)).toBeNull();
+  });
+
+  it("부분 공급: strict(url)만 공급되고 cond 변수가 남으면 misroute — bFailMode 입력은 bVars가 아니라 uncovered (리뷰 M1: 하이브리드 오구현 적발)", () => {
+    // B변수 2개(url {{ghost}}=strict + cond {{seg}}) 중 ghost만 바인딩 공급 → uncovered=[seg(cond)].
+    // 올바른 구현 bFailMode(uncovered)=misroute. 오구현 `uncovered.length===0 ? null : bFailMode(bVars)`는
+    // annihilation을 내 이 케이스만 가른다 — 다른 4케이스는 그 오구현도 통과한다.
+    const mixedScen = sc({
+      steps: [
+        step({ request: { method: "GET", url: "https://e.test/{{ghost}}", headers: {} } }),
+        {
+          id: "01HZZZZZZZZZZZZZZZZZZZZZZB",
+          name: "gate",
+          type: "if",
+          cond: { left: "{{seg}}", op: "eq", right: "x" },
+          then: [step({ id: "01HZZZZZZZZZZZZZZZZZZZZZZC", name: "s-C" })],
+          elif: [],
+          else: [],
+        },
+      ],
+    });
+    renderDialog(mixedScen, prefillSupplying("ghost"));
+    expect(screen.getByText(ko.trust.runDialogBFailCond)).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.runDialogBFail)).toBeNull();
+  });
+
+  it("그 변수를 공급하는 바인딩이 생기면 등급 한 줄로 완화 (공급 여부가 판정 축)", () => {
+    renderDialog(condOnlyScen(), prefillSupplying("seg"));
+    expect(screen.getByText(ko.trust.runDialogLine(ko.trust.level.weak, 1))).toBeInTheDocument();
+    expect(screen.queryByText(ko.trust.runDialogBFailCond)).toBeNull();
+  });
+
+  it("바인딩이 있어도 공급 안 되는 strict(url) 변수가 남으면 전멸 단정 유지", () => {
+    const strictScen = sc({
+      steps: [step({ request: { method: "GET", url: "https://e.test/{{ghost}}", headers: {} } })],
+    });
+    renderDialog(strictScen, prefillSupplying("username"));
+    expect(screen.getByText(ko.trust.runDialogBFail)).toBeInTheDocument();
+  });
+});

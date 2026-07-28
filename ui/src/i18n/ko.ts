@@ -1593,6 +1593,8 @@ export const ko = {
     runDialogLine: (level: string, failed: number) => `시나리오 신뢰도: ${level} (${failed}건)`,
     /** B fail 전용 분기 — 등급 단어 대신 결과를 말한다(spec §7.3) */
     runDialogBFail: "이대로 실행하면 시작하자마자 모든 VU가 실패합니다",
+    /** uncovered가 전부 cond-only일 때 — run은 완주하고 분기만 오분류(spec US2). 문안 확정: spec §6. */
+    runDialogBFailCond: "이대로 실행하면 조건이 빈 값으로 평가되어 의도한 분기를 타지 않습니다",
     runDialogLink: "에디터에서 보기",
   },
 } as const;

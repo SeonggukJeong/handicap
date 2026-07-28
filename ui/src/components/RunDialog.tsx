@@ -13,7 +13,7 @@ import {
 import type { DataBinding, Profile } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { flattenHttpSteps, scenarioHasThink } from "../scenario/model";
-import { evaluateTrust, isTrustApplicable } from "../scenario/trust";
+import { bFailMode, evaluateTrust, isTrustApplicable } from "../scenario/trust";
 import { DataBindingPanel } from "./DataBindingPanel";
 import { Button } from "./Button";
 import type { RunPrefill } from "../api/runPrefill";
@@ -360,6 +360,16 @@ export function RunDialog({
     () => (scenario && isTrustApplicable(scenario) ? evaluateTrust(scenario) : null),
     [scenario],
   );
+  // B 억제는 "바인딩 존재"가 아니라 "공급 여부"(spec P5): uncovered = B.vars − 매핑 var.
+  // 엔진이 바인딩 행 키를 렌더 전에 iter_vars에 넣으므로(runner.rs) 공급된 변수의 참조는
+  // 실제로 해석된다 — 공급 안 된 변수가 남으면 결과 문구(전멸/오분기), 전부 공급이면 등급
+  // 한 줄. cond-only 변수는 bindingBlock(scanFlowVars가 cond 미스캔)에 안 걸려 제출이
+  // 허용되므로 이 줄이 유일한 경고다(soft, D2 — 막지 않고 말만 정확히 한다).
+  const trustBMode = useMemo(() => {
+    const bVars = trust?.checks.find((c) => c.id === "undefined_vars")?.vars ?? [];
+    const supplied = new Set(bindings.flatMap((b) => b.mappings.map((m) => m.var)));
+    return bFailMode(bVars.filter((v) => !supplied.has(v.name)));
+  }, [trust, bindings]);
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
@@ -1046,17 +1056,11 @@ export function RunDialog({
           <div className="flex items-center justify-between gap-2">
             <span>
               <span aria-hidden="true">◈</span>{" "}
-              {/* B fail의 전멸 단정은 **바인딩이 없을 때만** 낸다. 데이터셋 열이 그 변수를
-                  공급하는 정석 data-driven 흐름(ADR-0022)에서는 그 문장이 거짓이다 — 엔진이
-                  렌더 전에 바인딩 행 키를 iter_vars에 넣으므로(runner.rs) run은 성공한다.
-                  바인딩이 있는데도 미매핑 변수가 남아 있으면 DataBindingPanel이 자기 사유를
-                  위 blocked 배너에 띄우고 제출까지 막으므로(bindingBlock.ok → canSubmit),
-                  이 자리를 등급 한 줄로 낮춰도 사용자가 모르는 채 실행할 길은 없다.
-                  등급은 시나리오 텍스트에 대한 판정이라 그대로다(spec D4) — 문장만 바뀐다. */}
-              {trust.checks.find((c) => c.id === "undefined_vars")?.status === "fail" &&
-              bindings.length === 0
+              {trustBMode === "annihilation"
                 ? ko.trust.runDialogBFail
-                : ko.trust.runDialogLine(ko.trust.level[trust.level], trust.failed)}
+                : trustBMode === "misroute"
+                  ? ko.trust.runDialogBFailCond
+                  : ko.trust.runDialogLine(ko.trust.level[trust.level], trust.failed)}
             </span>
             {/* Router 비의존 — 기존 RunDialog 테스트 96곳에 Router가 없다. <Link> 금지. */}
             <a
