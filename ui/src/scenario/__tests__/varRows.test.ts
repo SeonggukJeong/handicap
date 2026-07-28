@@ -89,3 +89,61 @@ describe("buildVarRows", () => {
     expect(rows.find((r) => r.kind === "undefined")).toMatchObject({ name: "nope" });
   });
 });
+
+describe("declared.overwrittenByFlat (trust-check-precision US3)", () => {
+  const T = "01HZZZZZZZZZZZZZZZZZZZZZV";
+  const mkSc = (over: Record<string, unknown>): Scenario =>
+    ScenarioModel.parse({
+      version: 1,
+      name: "t",
+      cookie_jar: "auto",
+      variables: {},
+      steps: [],
+      ...over,
+    });
+  const http = (id: string, extract: unknown[] = []) => ({
+    id,
+    name: "s",
+    type: "http",
+    request: { method: "GET", url: "https://e.test/a", headers: {} },
+    assert: [],
+    extract,
+  });
+
+  it("flat extract와 이름 충돌 → overwrittenByFlat=true (overwritten도 true)", () => {
+    const rows = buildVarRows(
+      mkSc({
+        variables: { tok: "" },
+        steps: [http(`${T}1`, [{ var: "tok", from: "body", path: "$.t" }])],
+      }),
+    );
+    const d = rows.find((r) => r.kind === "declared" && r.name === "tok");
+    expect(d).toMatchObject({ overwritten: true, overwrittenByFlat: true });
+  });
+
+  it("namespaced-only 충돌(선언명에 점) → overwrittenByFlat=false (overwritten은 true)", () => {
+    const rows = buildVarRows(
+      mkSc({
+        variables: { "b1.tok": "" },
+        steps: [
+          {
+            id: `${T}2`,
+            name: "par",
+            type: "parallel",
+            branches: [
+              { name: "b1", steps: [http(`${T}3`, [{ var: "tok", from: "body", path: "$.t" }])] },
+            ],
+          },
+        ],
+      }),
+    );
+    const d = rows.find((r) => r.kind === "declared" && r.name === "b1.tok");
+    expect(d).toMatchObject({ overwritten: true, overwrittenByFlat: false });
+  });
+
+  it("무충돌 선언 → overwrittenByFlat=false", () => {
+    const rows = buildVarRows(mkSc({ variables: { plain: "v" } }));
+    const d = rows.find((r) => r.kind === "declared" && r.name === "plain");
+    expect(d).toMatchObject({ overwritten: false, overwrittenByFlat: false });
+  });
+});

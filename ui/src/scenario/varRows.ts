@@ -17,6 +17,10 @@ export type VarRow =
       value: VarDeclValue;
       renamable: boolean;
       overwritten: boolean;
+      /** flat extract(비-parallel 서브트리)가 이 이름을 덮어쓰는가 — trust C 확장 전용(spec P7).
+       *  namespaced-overwrite는 제외(parallel-extract 행이 이미 세므로 이중 카운트 방지).
+       *  패널은 이 필드를 읽지 않는다(렌더 byte-identical). */
+      overwrittenByFlat: boolean;
       refIds: string[];
     }
   | { kind: "flat-extract"; name: string; refIds: string[] }
@@ -56,6 +60,7 @@ export function buildVarRows(model: Scenario | null): VarRow[] {
       value,
       renamable: !parallelNames.has(name),
       overwritten: flatEx.has(name) || namespaced.has(name),
+      overwrittenByFlat: flatEx.has(name),
       refIds: refIndex.get(name) ?? [],
     });
   // flat-extract = produced − 선언 − parallel(shadow) — 비-parallel 스텝에서만 추출된 이름
