@@ -1,5 +1,7 @@
 # HAR host-환경 힌트 Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** HAR 가져오기 페이지에서 감지된 host가 이미 등록된 환경에 있으면 안내를 표시하고 var 이름을 그 환경의 이름으로 프리필한다 (spec: `docs/superpowers/specs/2026-07-28-har-host-env-hint-design.md`, US1~4).
