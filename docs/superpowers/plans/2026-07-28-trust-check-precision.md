@@ -319,24 +319,26 @@ describe("B vars 운반 + bFailMode (trust-check-precision US1·US2)", () => {
   });
 
   it("vars 순서 = walker가 위반을 처음 만난 순서(문서순 결정론, spec §3)", () => {
+    // 이름을 역-알파벳(zulu 앞·alpha 뒤)으로 골라 "문서순"과 "정렬순"의 축을 분리(리뷰 N3) —
+    // 정렬 기반 오구현이면 [alpha, zulu]가 나와 RED.
     const r = evaluateTrust(
       sc({
         steps: [
           step(A, {
             assert: OK,
-            request: { method: "GET", url: "https://e.test/{{first}}", headers: {} },
+            request: { method: "GET", url: "https://e.test/{{zulu}}", headers: {} },
           }),
           step(B, {
             assert: OK,
-            request: { method: "GET", url: "https://e.test/{{second}}", headers: {} },
+            request: { method: "GET", url: "https://e.test/{{alpha}}", headers: {} },
           }),
         ],
       }),
     );
     const b = r.checks.find((c) => c.id === "undefined_vars")!;
     expect(b.vars).toEqual([
-      { name: "first", strict: true },
-      { name: "second", strict: true },
+      { name: "zulu", strict: true },
+      { name: "alpha", strict: true },
     ]);
   });
 
@@ -762,3 +764,7 @@ cd /Users/sgj/develop/handicap/.claude/worktrees/trust-check-precision && git ad
 - [ ] **0-diff 완성도 grep**: `git diff $(git merge-base master HEAD) --stat`에 crates/**·VariablesPanel·DataBindingPanel·trustPrefs·EditorShell 부재 확인.
 - [ ] **최종 리뷰**: `handicap-reviewer`(+ `finish-slice` §0 보안 grep — 이 diff는 trace/body 뷰어·템플릿 실행 경로 무접촉이라 N/A 예상이나 **grep이 지배한다**).
 - [ ] **라이브 검증**: spec §8 표(US1 시나리오 모양 고정 — if 밖 무조건 http + then/else 각각 http, `if_breakdown` 반대 분기 카운트 확인).
+
+---
+
+REVIEW-GATE: APPROVED
