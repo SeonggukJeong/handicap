@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateEnvironment, useEnvironmentsWithVars } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -309,25 +309,42 @@ export function ScenarioImportPage() {
                 />
                 {ko.import.hostToEnvHint}
               </label>
+              {Object.keys(hostMatches).length > 0 && (
+                <p className="text-xs text-slate-500">
+                  {ko.import.hostsRegisteredSummary(Object.keys(hostMatches).length)}
+                </p>
+              )}
               {hostVarsEnabled && (
                 <>
                   {hostsOrdered.map((h) => (
-                    <label key={h} className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
-                        {h}
-                      </span>
-                      <span aria-hidden="true">→</span>
-                      <div className="w-40">
-                        <Input
-                          aria-label={ko.import.varNameLabel(h)}
-                          value={effectiveHostVars[h]}
-                          onChange={(e) =>
-                            setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
-                          }
-                          className="font-mono"
-                        />
-                      </div>
-                    </label>
+                    <Fragment key={h}>
+                      <label className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
+                          {h}
+                        </span>
+                        <span aria-hidden="true">→</span>
+                        <div className="w-40">
+                          <Input
+                            aria-label={ko.import.varNameLabel(h)}
+                            value={effectiveHostVars[h]}
+                            onChange={(e) =>
+                              setHostVarOverrides((p) => ({ ...p, [h]: e.target.value.trim() }))
+                            }
+                            className="font-mono"
+                          />
+                        </div>
+                      </label>
+                      {hostMatches[h] && (
+                        <p className="text-xs text-slate-500">
+                          {ko.import.hostRegisteredIn(
+                            hostMatches[h][0].envName,
+                            hostMatches[h][0].varName,
+                          )}
+                          {hostMatches[h].length > 1 &&
+                            ` · ${ko.import.hostRegisteredMore(hostMatches[h].length - 1)}`}
+                        </p>
+                      )}
+                    </Fragment>
                   ))}
                   {envValidation.emptyHosts.length > 0 && (
                     <p className="text-xs text-red-600">{ko.import.varNameEmpty}</p>

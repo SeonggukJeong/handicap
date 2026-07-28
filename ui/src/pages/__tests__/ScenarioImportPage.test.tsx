@@ -568,3 +568,77 @@ describe("host-환경 힌트: 프리필", () => {
     );
   });
 });
+
+describe("host-환경 힌트: 안내", () => {
+  it("US1-①: 발견성 한 줄 — 체크박스 꺼진 상태에서도, 매치 있을 때만", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    // 체크박스를 켜지 않은 상태에서 표시 (exact getByText — "호스트" 부분매칭 금지, spec R7)
+    expect(await screen.findByText(ko.import.hostsRegisteredSummary(1))).toBeInTheDocument();
+    // 렌더된 숫자를 별도 단언 (ko 보간 자기참조 함정 — 11호 클래스)
+    expect(screen.getByText(ko.import.hostsRegisteredSummary(1)).textContent).toContain("1");
+    expect(screen.getByLabelText(ko.import.hostToEnv)).not.toBeChecked();
+  });
+
+  it("US1-①: 매치 0건이면 발견성 줄 부재", async () => {
+    const user = userEvent.setup();
+    renderPage(); // baseline stub = 환경 0개
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    // n-무관 부재 단언 — n=1 고정이면 "호스트 0개…" 렌더 회귀가 false PASS (R7 "호스트" 부분매칭 회피 위해 꼬리 고정)
+    expect(screen.queryByText(/이미 환경에 등록돼 있습니다$/)).not.toBeInTheDocument();
+  });
+
+  it("US1-②: 행별 안내 — 환경명·var이름 표시, 체크박스 켠 뒤", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const hint = await screen.findByText(ko.import.hostRegisteredIn("스테이징", "API_HOST"));
+    // 보간 실존 별도 단언 (자기참조 회피)
+    expect(hint.textContent).toContain("스테이징");
+    expect(hint.textContent).toContain("API_HOST");
+  });
+
+  it("US1-②: 다중 매치 꼬리 '외 N개 환경' (N = 전체-1)", async () => {
+    const user = userEvent.setup();
+    const OLDER_ENV = {
+      id: "E11",
+      name: "개발",
+      vars: { API_HOST: "https://api.example.com" },
+      created_at: 1,
+      updated_at: 2, // STAGING_ENV(5)보다 과거 → 안내는 스테이징 기준
+    };
+    stubEnvFetch([STAGING_ENV, OLDER_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const hint = await screen.findByText((t) =>
+      t.includes(ko.import.hostRegisteredIn("스테이징", "API_HOST")),
+    );
+    expect(hint.textContent).toContain(ko.import.hostRegisteredMore(1));
+    expect(hint.textContent).toContain("1");
+  });
+
+  it("US3: 안내가 있어도 이름 수정·등록 버튼 동작 불변", async () => {
+    const user = userEvent.setup();
+    stubEnvFetch([STAGING_ENV]);
+    renderPage();
+    await user.upload(screen.getByLabelText(ko.import.chooseFile), harFile(TWO_HOST_HAR));
+    await screen.findByLabelText(ko.import.preview);
+    await user.click(screen.getByLabelText(ko.import.hostToEnv));
+    const apiInput = await screen.findByLabelText(ko.import.varNameLabel("api.example.com"));
+    await user.clear(apiInput);
+    await user.type(apiInput, "OTHER");
+    expect(screen.getByRole("button", { name: ko.import.registerEnv })).toBeEnabled();
+    // 안내는 등록 사실(불변)을 계속 표시
+    expect(
+      screen.getByText(ko.import.hostRegisteredIn("스테이징", "API_HOST")),
+    ).toBeInTheDocument();
+  });
+});
