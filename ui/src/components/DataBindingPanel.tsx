@@ -468,14 +468,14 @@ function BindingCard({
           {row.manual ? (
             <input
               aria-label={ko.binding.mappingVarNameAria}
-              className="w-28 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
+              className="w-48 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
               placeholder="var_name"
               value={row.varName}
               onChange={(e) => updateRow(idx, { varName: e.target.value })}
             />
           ) : (
             <span
-              className={`w-28 shrink-0 truncate font-mono text-xs px-2 py-1 rounded ${
+              className={`w-48 shrink-0 truncate font-mono text-xs px-2 py-1 rounded ${
                 hasError
                   ? "text-red-700 bg-red-50 border border-red-300"
                   : "text-slate-600 bg-slate-50 border border-slate-200"
@@ -564,13 +564,15 @@ function BindingCard({
 
         {/* Error hints (only when dataset is selected) */}
         {uncovered && (
-          <p className="ml-32 text-xs text-red-600">
+          <p className="ml-[200px] text-xs text-red-600">
             매핑되지 않음 — 시나리오 기본값/추출/env로 제공되거나 매핑돼야 함
           </p>
         )}
-        {stale && <p className="ml-32 text-xs text-red-600">선택한 컬럼이 현재 데이터셋에 없음</p>}
+        {stale && (
+          <p className="ml-[200px] text-xs text-red-600">선택한 컬럼이 현재 데이터셋에 없음</p>
+        )}
         {conflict && !stale && !uncovered && (
-          <p className="ml-32 text-xs text-red-600">{ko.binding.dupVar(row.varName)}</p>
+          <p className="ml-[200px] text-xs text-red-600">{ko.binding.dupVar(row.varName)}</p>
         )}
       </li>
     );

@@ -403,7 +403,7 @@ function MappingEditor({
               ))}
             </Select>
           </div>
-          <div className="w-32">
+          <div className="w-56">
             <Input
               aria-label={ko.editor.dsMappingVarAria(i)}
               value={row.var}

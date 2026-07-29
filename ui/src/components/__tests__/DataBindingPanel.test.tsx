@@ -974,3 +974,32 @@ describe("branch variable grouping", () => {
     expect(screen.getByTitle("late_var")).toBeInTheDocument();
   });
 });
+
+describe("var name column width (US2)", () => {
+  const tokens = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/);
+
+  it("locks the badge width", async () => {
+    renderPanel(makeScenarioWithMissing());
+    const badge = await screen.findByTitle("missing");
+    expect(tokens(badge)).toContain("w-48");
+    expect(tokens(badge)).not.toContain("w-28");
+  });
+
+  it("keeps the error-hint indent in step with the badge width", async () => {
+    // 힌트는 데이터셋이 선택돼야 렌더된다(`:641` "Error hints (only when dataset is selected)").
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL));
+    const user = userEvent.setup();
+    renderPanel(makeScenarioWithMissing());
+
+    const datasetSelect = await screen.findByLabelText(/데이터셋/i);
+    await screen.findByRole("option", { name: /users\.csv/i });
+    await user.selectOptions(datasetSelect, "DS1");
+
+    const hint = (await screen.findByText(/매핑되지 않음/)).closest("p");
+    expect(hint).not.toBeNull();
+    expect(tokens(hint as Element)).toContain("ml-[200px]");
+    expect(tokens(hint as Element)).not.toContain("ml-32");
+  });
+});
