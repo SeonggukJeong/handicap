@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -93,8 +93,19 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   // 확정 삭제일 때만 검색 입력으로 포커스를 옮기기 위한 1회성 플래그(Task 5에서 소비).
   // 취소는 Modal의 기본 복원(× 버튼)을 그대로 둬야 하므로 양 경로 공통 구현을 만들지 않는다.
   const refocusSearchRef = useRef(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
+
+  // 확정 삭제로 × 가 언마운트되면 포커스가 <body>로 유실된다 → 검색 입력으로 옮긴다.
+  // 플래그가 선 경우에만 돌므로 **취소 경로는 건드리지 않는다**(Modal이 × 로 복원).
+  // React 18은 한 passive flush에서 unmount(Modal 복원)를 mount보다 먼저 돌리므로
+  // 이 effect가 나중에 실행된다 — setTimeout/rAF 불필요.
+  useEffect(() => {
+    if (pendingDelete !== null || !refocusSearchRef.current) return;
+    refocusSearchRef.current = false;
+    searchRef.current?.focus();
+  }, [pendingDelete]);
 
   const startRename = (name: string) => {
     setEditing({ kind: "flat", name });
@@ -208,6 +219,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           <VarCheatSheet />
         </div>
         <Input
+          ref={searchRef}
           className="mt-1"
           placeholder={ko.editor.varSearchPlaceholder}
           value={query}

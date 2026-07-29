@@ -386,6 +386,37 @@ describe("VariablesPanel — 사용중인 변수 삭제 확인 (var-delete-confi
     expect(screen.queryByRole("menu")).toBeNull();
     expect(screen.getByRole("dialog", { name: ko.editor.varDeleteTitle })).toBeInTheDocument();
   });
+
+  it("R4①: 확정 삭제 후 포커스가 body가 아니라 변수 검색 입력으로 간다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.removeVariableAria("token") }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: ko.editor.varDeleteTitle })).getByRole("button", {
+        name: ko.common.delete,
+      }),
+    );
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByPlaceholderText(ko.editor.varSearchPlaceholder)).toHaveFocus();
+  });
+
+  it("R4②: 취소 후 포커스는 Modal 기본 복원대로 × 버튼으로 돌아간다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    // 다이얼로그는 반드시 user.click(또는 focus()+{Enter})으로 열 것 — fireEvent.click은
+    // 포커스를 옮기지 않아 Modal의 previouslyFocused가 <body>가 되고, 그러면 이 단언은
+    // 구현과 무관하게 실패한다(Modal.tsx:29).
+    const remove = screen.getByRole("button", { name: ko.editor.removeVariableAria("token") });
+    await user.click(remove);
+    await user.click(
+      within(screen.getByRole("dialog", { name: ko.editor.varDeleteTitle })).getByRole("button", {
+        name: ko.common.cancel,
+      }),
+    );
+    expect(remove).toHaveFocus();
+  });
 });
 
 describe("VariablesPanel — unified rows", () => {
