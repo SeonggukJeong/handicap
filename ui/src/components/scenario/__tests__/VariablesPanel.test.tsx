@@ -273,6 +273,121 @@ steps:
                 var: s
 `;
 
+// token: http 1곳(요청 표면) + if 1곳(조건 오퍼랜드)에서 참조 → refIds 2개.
+// if의 then 자식은 token을 참조하지 않아 N이 2로 고정된다(spec 테스트 §4 픽스처 주의).
+const REFERENCED = `version: 1
+name: t
+variables:
+  token: seed
+  unused: x
+steps:
+  - id: 01HX0000000000000000000001
+    name: 로그인
+    type: http
+    request:
+      method: POST
+      url: "/login?t={{token}}"
+      headers: {}
+  - id: 01HX0000000000000000000002
+    name: 분기
+    type: if
+    cond:
+      left: "{{token}}"
+      op: eq
+      right: ok
+    then:
+      - id: 01HX0000000000000000000003
+        name: 확인
+        type: http
+        request:
+          method: GET
+          url: "/ok"
+          headers: {}
+`;
+
+describe("VariablesPanel — 사용중인 변수 삭제 확인 (var-delete-confirm T4, US1·US2·US3)", () => {
+  beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
+
+  it("US1-a: 참조가 있는 변수의 × 는 즉시 지우지 않고 확인 다이얼로그를 연다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.removeVariableAria("token") }));
+    const dialog = screen.getByRole("dialog", { name: ko.editor.varDeleteTitle });
+
+    const body = within(dialog).getByText(ko.editor.varDeleteBody("token", 2));
+    expect(body).toBeInTheDocument();
+    // ko 포맷터 자기참조 단언 하드닝(ui/CLAUDE.md 공허-11호): 렌더된 숫자를 따로 본다.
+    expect(body.textContent).toContain("2");
+
+    // US2 — steps={model.steps} 배선 커버(이 단언이 없으면 steps=[]로 잘못 배선해도
+    // 다이얼로그가 ULID를 나열한 채 모든 테스트가 통과한다).
+    expect(within(dialog).getByText("로그인")).toBeInTheDocument();
+    expect(within(dialog).getByText("POST")).toBeInTheDocument();
+    expect(within(dialog).getByText("{{token}} eq ok")).toBeInTheDocument();
+
+    expect(useScenarioEditor.getState().model!.variables).toHaveProperty("token");
+  });
+
+  it("US1-b: 다이얼로그 [삭제]가 변수를 지우고 다이얼로그를 닫는다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.removeVariableAria("token") }));
+    const dialog = screen.getByRole("dialog", { name: ko.editor.varDeleteTitle });
+    await user.click(within(dialog).getByRole("button", { name: ko.common.delete }));
+    expect(useScenarioEditor.getState().model!.variables).not.toHaveProperty("token");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("US1-c: [취소]와 ESC는 변수를 남긴다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    const remove = screen.getByRole("button", { name: ko.editor.removeVariableAria("token") });
+
+    await user.click(remove);
+    await user.click(
+      within(screen.getByRole("dialog", { name: ko.editor.varDeleteTitle })).getByRole("button", {
+        name: ko.common.cancel,
+      }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useScenarioEditor.getState().model!.variables).toHaveProperty("token");
+
+    await user.click(remove);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useScenarioEditor.getState().model!.variables).toHaveProperty("token");
+  });
+
+  it("US3: 미사용 변수의 × 는 다이얼로그 없이 즉시 지운다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.removeVariableAria("unused") }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useScenarioEditor.getState().model!.variables).not.toHaveProperty("unused");
+  });
+
+  it("A1: 사용처 팝오버가 열린 채 × 를 키보드로 눌러도 팝오버가 남지 않는다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.variableUsageNavAria("token") }));
+    expect(screen.getByRole("menu", { name: ko.editor.varUsageListAria })).toBeInTheDocument();
+
+    // 반드시 키보드로 활성화한다: user.click은 pointerdown을 쏘고, 그 이벤트가
+    // VarUsagePopover의 outside-close 리스너를 발화시켜 수정이 없어도 팝오버가 닫힌다
+    // (= 이 테스트가 공허해진다).
+    screen.getByRole("button", { name: ko.editor.removeVariableAria("token") }).focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("dialog", { name: ko.editor.varDeleteTitle })).toBeInTheDocument();
+  });
+});
+
 describe("VariablesPanel — unified rows", () => {
   beforeEach(() => useScenarioEditor.setState(useScenarioEditor.getInitialState()));
 

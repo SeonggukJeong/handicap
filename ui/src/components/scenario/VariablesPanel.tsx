@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useScenarioEditor } from "../../scenario/store";
 import { ko } from "../../i18n/ko";
 import { VarCheatSheet } from "./VarCheatSheet";
@@ -14,6 +14,7 @@ import {
   type GenSpec,
 } from "../../scenario/genVars";
 import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
+import { DeleteVariableDialog } from "./DeleteVariableDialog";
 
 type EditKey =
   | { kind: "flat"; name: string }
@@ -84,6 +85,14 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
     anchor: HTMLElement;
     refIds: string[];
   } | null>(null);
+
+  // 사용중인 변수 삭제 확인(US1) — 열 때 refIds를 스냅샷으로 동결한다(행 객체를 들지 않음).
+  const [pendingDelete, setPendingDelete] = useState<{ name: string; refIds: string[] } | null>(
+    null,
+  );
+  // 확정 삭제일 때만 검색 입력으로 포커스를 옮기기 위한 1회성 플래그(Task 5에서 소비).
+  // 취소는 Modal의 기본 복원(× 버튼)을 그대로 둬야 하므로 양 경로 공통 구현을 만들지 않는다.
+  const refocusSearchRef = useRef(false);
 
   const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
 
@@ -246,7 +255,17 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     )}
                     <button
                       type="button"
-                      onClick={() => removeVariable(row.name)}
+                      onClick={() => {
+                        if (row.refIds.length === 0) {
+                          removeVariable(row.name); // 미사용 — 현행 그대로 즉시 삭제(US3)
+                          return;
+                        }
+                        setUsageNav(null); // 팝오버가 모달 뒤에 남지 않게(A1, 키보드 활성화 경로)
+                        // 확정 경로만 이 플래그를 세운다 — 여는 시점에 반드시 내려서 이전 확정의
+                        // 잔여 true가 다음 세션으로 새지 않게 한다(dangling-ref 가드).
+                        refocusSearchRef.current = false;
+                        setPendingDelete({ name: row.name, refIds: row.refIds });
+                      }}
                       aria-label={ko.editor.removeVariableAria(row.name)}
                       className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
                     >
@@ -460,6 +479,21 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
           selectedStepId={selectedStepId}
           onJump={(id) => onJumpToStep?.(id)}
           onClose={() => setUsageNav(null)}
+        />
+      )}
+      {pendingDelete && model && (
+        <DeleteVariableDialog
+          open
+          name={pendingDelete.name}
+          refIds={pendingDelete.refIds}
+          steps={model.steps}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            removeVariable(pendingDelete.name);
+            setUsageNav(null); // 방어 전용 — R1 트리거가 이미 비웠고 모달 중엔 다시 열 경로가 없다
+            refocusSearchRef.current = true;
+            setPendingDelete(null);
+          }}
         />
       )}
     </section>
