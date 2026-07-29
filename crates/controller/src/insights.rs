@@ -45,6 +45,10 @@ pub struct Insight {
     /// 목표 도착률(반복/초, 곡선이면 peak) — 위와 동일 조건. (ADR-0046 R5)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_per_sec: Option<f64>,
+    /// 2위 스텝의 p95(ms) — `slowest_step`에서만 Some.
+    /// UI가 격차·배수를 로직 복제 없이 표시하기 위한 값(spec §4.2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner_up_ms: Option<f64>,
 }
 
 impl Insight {
@@ -65,6 +69,7 @@ impl Insight {
             onset_second: None,
             achieved_per_sec: None,
             target_per_sec: None,
+            runner_up_ms: None,
         }
     }
 }
@@ -142,19 +147,38 @@ pub fn derive_insights(
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
-    // slowest_step: step with max p95 (first on tie — steps are sorted by step_id).
-    let mut slowest: Option<&ReportStep> = None;
-    for s in steps {
-        if slowest.is_none_or(|cur| s.p95_ms > cur.p95_ms) {
-            slowest = Some(s);
+    // slowest_step: 실질성 게이트(spec §4.1). top과 2위의 p95 격차가 절대·상대
+    // 하한을 모두 넘을 때만 발행한다. 동률 top은 gap==0이라 미발행이며 이는
+    // 의도된 동작이다(D10 — 똑같이 느린 두 스텝 중 하나를 지목하는 건 오도).
+    //
+    // runner_up은 top을 **인덱스로** 제외한 나머지의 최대다. 값으로 제외하면
+    // (`p95 != top`) 동률 top에서 3위가 runner_up이 되어 잘못 발행된다.
+    let mut top_idx: Option<usize> = None;
+    for (i, s) in steps.iter().enumerate() {
+        if top_idx.is_none_or(|cur| s.p95_ms > steps[cur].p95_ms) {
+            top_idx = Some(i);
         }
     }
-    if let Some(s) = slowest {
-        let mut ins = Insight::new("slowest_step", "info");
-        ins.step_id = Some(s.step_id.clone());
-        ins.metric = Some("p95_ms".to_string());
-        ins.value = Some(s.p95_ms as f64);
-        out.push(ins);
+    if let Some(ti) = top_idx {
+        let top = &steps[ti];
+        let runner_up = steps
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| (i != ti).then_some(s.p95_ms))
+            .max();
+        if let Some(ru) = runner_up {
+            let gap = top.p95_ms.saturating_sub(ru);
+            // 곱셈 형태 — 나눗셈이면 ru==0에서 0-나눗셈이 된다.
+            let ratio_ok = top.p95_ms as f64 >= TAU_SLOW_RATIO * ru as f64;
+            if gap >= TAU_SLOW_GAP_MS && ratio_ok {
+                let mut ins = Insight::new("slowest_step", "info");
+                ins.step_id = Some(top.step_id.clone());
+                ins.metric = Some("p95_ms".to_string());
+                ins.value = Some(top.p95_ms as f64);
+                ins.runner_up_ms = Some(ru as f64);
+                out.push(ins);
+            }
+        }
     }
 
     // slo_failure / slo_pass
@@ -311,6 +335,10 @@ pub fn derive_insights(
 const TAU_5XX: f64 = 0.01; // 5xx률 1% 이상이면 SUT-bound
 const TAU_LAT: f64 = 1.5; // late p95 중앙값이 early의 1.5배 이상이면 SUT-bound
 const TAU_SPAN: i64 = 6; // 지연상승은 run span >= 6초일 때만 평가
+
+/// 느린-스텝 인사이트 실질성 게이트 (spec §4.1 D2/D10).
+const TAU_SLOW_GAP_MS: u64 = 20; // 2위 스텝과의 p95 절대 격차 하한
+const TAU_SLOW_RATIO: f64 = 1.5; // 2위 스텝 대비 배수 하한
 
 /// 정렬 후 중앙값(짝수 길이는 두 중앙값 평균). 빈 슬라이스는 0.0.
 fn median(vals: &[u64]) -> f64 {
@@ -622,7 +650,7 @@ mod tests {
 
     #[test]
     fn slowest_step_picks_max_p95() {
-        let steps = vec![step("a", 50), step("b", 120), step("c", 90)];
+        let steps = vec![step("a", 50), step("b", 210), step("c", 90)];
         let got = derive_insights(
             &summary(),
             &steps,
@@ -638,7 +666,65 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
         assert_eq!(got[0].step_id.as_deref(), Some("b"));
-        assert_eq!(got[0].value, Some(120.0));
+        assert_eq!(got[0].value, Some(210.0));
+        assert_eq!(got[0].runner_up_ms, Some(90.0));
+    }
+
+    /// §8.1 게이트 경계 — 발행/미발행 양쪽을 잠근다. p95 목록으로 스텝을 만들어
+    /// `slowest_step` 인사이트만 뽑는다.
+    fn slowest_of(p95s: &[u64]) -> Option<Insight> {
+        let steps: Vec<ReportStep> = p95s
+            .iter()
+            .enumerate()
+            .map(|(i, p)| step(&format!("s{i}"), *p))
+            .collect();
+        derive_insights(
+            &summary(),
+            &steps,
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+        )
+        .into_iter()
+        .find(|i| i.kind == "slowest_step")
+    }
+
+    #[test]
+    fn slowest_step_gate_boundaries() {
+        // ── 발행 ──
+        let e = slowest_of(&[210, 50, 45]).expect("격차 160≥20 · 210≥1.5×50");
+        assert_eq!(e.value, Some(210.0));
+        assert_eq!(e.runner_up_ms, Some(50.0));
+        assert!(slowest_of(&[20, 0]).is_some(), "격차 경계 정확(20==20)");
+        assert!(
+            slowest_of(&[90, 60]).is_some(),
+            "배수 경계 정확(90==1.5×60)"
+        );
+
+        // runner_up 0 — 곱셈 형태라 0-나눗셈이 구조적으로 없다
+        let z = slowest_of(&[300, 0]).expect("runner_up 0이어도 발행");
+        assert_eq!(z.runner_up_ms, Some(0.0));
+        assert!(z.value.unwrap().is_finite(), "NaN/Infinity 금지");
+
+        // ── 미발행 ──
+        assert!(
+            slowest_of(&[3, 2, 1]).is_none(),
+            "격차 1ms — US4 원문 케이스"
+        );
+        assert!(slowest_of(&[210, 190, 180]).is_none(), "배수 1.105 미달");
+        assert!(slowest_of(&[19, 0]).is_none(), "격차 경계 −1");
+        assert!(slowest_of(&[89, 60]).is_none(), "배수 경계 −1");
+        assert!(slowest_of(&[500]).is_none(), "스텝 1개 — 2위 부재");
+        assert!(
+            slowest_of(&[120, 120, 40]).is_none(),
+            "D10 판별자: runner_up을 값이 아닌 *인덱스*로 제외해야 미발행. \
+             값으로 제외하면 runner_up=40이 되어 잘못 발행된다"
+        );
     }
 
     fn win(ts: i64, status: &[(&str, u64)]) -> ReportWindow {
@@ -772,7 +858,7 @@ steps:
         // empty yaml errors → no_request_step silently skipped (other insights survive).
         let got = derive_insights(
             &summary(),
-            &[step("a", 10)],
+            &[step("a", 10), step("b", 40)],
             &[],
             &BTreeMap::new(),
             None,
@@ -818,7 +904,7 @@ steps:
     #[test]
     fn insights_deterministic_order() {
         // all kinds present → assert the interleaved (severity,row) order.
-        let steps = vec![step_err("a", 50)];
+        let steps = vec![step_err("a", 50), step("b", 40)];
         let mut s = summary();
         s.errors = 50;
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
@@ -846,7 +932,7 @@ steps:
     #[test]
     fn error_heavy_run_yields_at_least_three() {
         // capability check: errors via failing asserts (error_count), 5xx, slow step.
-        let steps = vec![step_err("a", 200)];
+        let steps = vec![step_err("a", 200), step("b", 40)];
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
@@ -862,7 +948,7 @@ steps:
     fn all_pass_run_has_slowest_and_slo_pass() {
         // spec §5 edge: clean run (no errors/4xx/5xx) + passing verdict → exactly
         // slowest_step + slo_pass, NOT padded to 3.
-        let steps = vec![step("a", 80)];
+        let steps = vec![step("a", 80), step("b", 40)];
         let v = verdict(true, 0);
         let got = derive_insights(
             &summary(),
@@ -881,8 +967,9 @@ steps:
     }
 
     #[test]
-    fn slowest_step_first_on_tie() {
-        // invariant lock: equal p95 → first step (steps are sorted by step_id).
+    fn slowest_step_suppressed_on_tie() {
+        // 동률 top은 gap==0이라 미발행(D10) — 똑같이 느린 두 스텝 중 하나를
+        // 지목하는 건 오도.
         let steps = vec![step("a", 100), step("b", 100)];
         let got = derive_insights(
             &summary(),
@@ -896,8 +983,10 @@ steps:
             None,
             None,
         );
-        assert_eq!(got[0].step_id.as_deref(), Some("a"));
-        assert_eq!(got[0].value, Some(100.0));
+        assert!(
+            got.iter().all(|i| i.kind != "slowest_step"),
+            "동률 top은 미발행(D10)"
+        );
     }
 
     #[test]

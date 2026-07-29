@@ -298,6 +298,7 @@ mod tests {
             onset_second: None,
             achieved_per_sec: None,
             target_per_sec: None,
+            runner_up_ms: None,
         }
     }
 
@@ -748,5 +749,24 @@ steps:
         assert!(v.reasons.is_empty());
         let n = Narrative::default();
         assert!(n.events.is_empty() && n.can_claim.is_empty() && n.cannot_claim.is_empty());
+    }
+
+    #[test]
+    fn bottleneck_step_absent_when_slowest_suppressed() {
+        // 게이트가 slowest_step을 안 냈으면 "병목 스텝을 식별할 수 있다"는
+        // 주장도 사라져야 한다(spec §1 P4 — 게이트 도입 전엔 1ms 격차 run도 주장했다).
+        let d = dist(&[("200", 100)]);
+        let ins = vec![insight("slo_pass")]; // slowest_step 없음
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        assert_eq!(v.level, "ok", "다른 이유가 없으면 ok — 6~8 분기가 열린다");
+        let n = derive_narrative(&v, &summary(100, 0), true, &ins);
+        assert!(
+            !n.can_claim.contains(&"bottleneck_step".to_string()),
+            "slowest_step 부재 → bottleneck_step 미주장"
+        );
+        assert!(
+            n.can_claim.contains(&"slo_held".to_string()),
+            "형제 분기는 살아 있다"
+        );
     }
 }

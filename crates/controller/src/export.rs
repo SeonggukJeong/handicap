@@ -793,6 +793,7 @@ mod tests {
                 onset_second: None,
                 achieved_per_sec: None,
                 target_per_sec: None,
+                runner_up_ms: None,
             },
             // 사이징 3필드 + achieved/target_per_sec를 모두 채운 합성 행: 다섯 새 열
             // writer를 모두 운동시킨다. (실제 인사이트는 recommended[slots] ⊕
@@ -814,6 +815,7 @@ mod tests {
                 onset_second: Some(14),
                 achieved_per_sec: Some(2.5),
                 target_per_sec: Some(20.0),
+                runner_up_ms: None,
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -1051,6 +1053,7 @@ mod tests {
             onset_second: None,
             achieved_per_sec: None,
             target_per_sec: None,
+            runner_up_ms: None,
         }
     }
 
