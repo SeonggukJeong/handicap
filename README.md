@@ -252,7 +252,7 @@ copy target\release\controller.exe handicap.exe
    - 앱 아이콘 **우클릭 → "열기"** → 대화상자에서 다시 "열기" (첫 실행 1회만)
    - 또는 터미널에서 격리 속성 제거: `xattr -dr com.apple.quarantine /Applications/Handicap.app`
 
-- 요구사항: macOS 11+ (WebView는 시스템 WebKit 사용 — 별도 설치 불필요)
+- 요구사항: macOS 10.15+ (Tauri v2 기준. 앱 번들이 선언하는 최소 버전은 10.13이지만 실사용 검증은 최신 macOS에서만 했습니다.) WebView는 시스템 WebKit을 쓰므로 별도 설치가 필요 없습니다.
 - 데이터 위치: `~/Library/Application Support/handicap/handicap.db` — 이 파일 하나가 전부입니다 (백업 = 복사)
 
 **직접 빌드 (단일 바이너리 / 브라우저 모드)**
