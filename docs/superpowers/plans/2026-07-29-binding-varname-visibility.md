@@ -51,9 +51,9 @@
 
 `ui/src/scenario/__tests__/scanVars.test.ts`의 `describe("collectNamespacedProducers (R3)", …)` 블록 **뒤에** 추가. `parallelScen`은 그 파일에 이미 있는 픽스처를 재사용한다(파일 상단에서 이름을 확인할 것 — 없으면 `collectNamespacedProducers` 테스트가 쓰는 픽스처와 동일한 것을 쓴다).
 
-```ts
-import { namespacedProducerIndex } from "../scanVars";
+import는 새 줄을 만들지 말고 **파일 상단의 기존 `from "../scanVars"` 목록에 `namespacedProducerIndex`를 추가**한다(관례. 중간 삽입도 동작하지만 diff가 지저분하다).
 
+```ts
 describe("namespacedProducerIndex", () => {
   it("maps display key to structural branch/var without string splitting", () => {
     const idx = namespacedProducerIndex(parallelScen);
@@ -323,7 +323,7 @@ git commit -m "feat(ui): partitionBindingRows 표시용 분할 순수 함수 (bi
 
 **Files:**
 - Modify: `ui/src/i18n/ko.ts:180` (`binding` 네임스페이스 끝, `removeMappingAria` 다음 줄)
-- Modify: `ui/src/components/DataBindingPanel.tsx:5` (import), `:527-660` (`rows.length > 0 &&` 블록)
+- Modify: `ui/src/components/DataBindingPanel.tsx:5` (import), `:527-662` (`rows.length > 0 &&` 블록)
 - Test: `ui/src/components/__tests__/DataBindingPanel.test.tsx`
 
 **Interfaces:**
@@ -402,7 +402,7 @@ function visibleTextOf(el: Element): string {
 
 이어서 새 `describe` 블록:
 
-> **이 파일의 관용구를 그대로 쓴다(발명 금지)**: 렌더는 `renderPanel(scenario, onChange?, onValidityChange?)` 헬퍼(`:122-141`)를 쓴다 — raw `render(<DataBindingPanel …/>)`는 `QueryClientProvider`가 없어 깨진다. `renderPanel`은 `onChange`를 **단일 바인딩**으로 어댑트하고(`bindings[0] ?? null`), `onValidityChange`는 **`(ok, reasons)` 2인자**다. 데이터셋 모킹은 모듈 레벨 `fetchMock`+`jsonResponse`(`:12`·`:19`).
+> **이 파일의 관용구를 그대로 쓴다(발명 금지)**: 렌더는 `renderPanel(scenario, onChange?, onValidityChange?)` 헬퍼(`:125-142`)를 쓴다 — raw `render(<DataBindingPanel …/>)`는 `QueryClientProvider`가 없어 깨진다. `renderPanel`은 `onChange`를 **단일 바인딩**으로 어댑트하고(`bindings[0] ?? null`), `onValidityChange`는 **`(ok, reasons)` 2인자**다. 데이터셋 모킹은 모듈 레벨 `fetchMock`+`jsonResponse`(`:12`·`:19`).
 >
 > **`ko` import 추가 필요** — 이 파일 상단(`:1-7`)에 `ko`가 없다. `import { ko } from "../../i18n/ko";`를 추가할 것(경로 깊이 주의: `__tests__/`라 `../../`다 — 잘못된 깊이는 `pnpm test`를 통과하고 `tsc -b`만 잡는다).
 
@@ -503,7 +503,7 @@ import { partitionBindingRows } from "../scenario/bindingGroups";
 
 - [ ] **Step 6: 렌더 재구성**
 
-`:527-660`의 `{rows.length > 0 && ( … )}` 블록에서, 현재 `rows.map((row, idx) => { … })`의 **콜백 본문을 그대로** 지역 함수로 추출한다. 시그니처만 바꾸고 **내부 로직은 한 줄도 바꾸지 않는다**(폭은 Task 4, uncovered는 Task 5).
+`:527-662`의 `{rows.length > 0 && ( … )}` 블록에서, 현재 `rows.map((row, idx) => { … })`의 **콜백 본문을 그대로** 지역 함수로 추출한다. 시그니처만 바꾸고 **내부 로직은 한 줄도 바꾸지 않는다**(폭은 Task 4, uncovered는 Task 5).
 
 ```tsx
   // 기존 rows.map 콜백 본문을 그대로 옮긴 것. displayName만 새 인자다.
@@ -512,12 +512,29 @@ import { partitionBindingRows } from "../scenario/bindingGroups";
   };
 ```
 
+**`displayName`으로 바꾸는 곳은 배지의 자식 텍스트(`:561`) 딱 하나다.** 아래 `row.varName` 사용처는 **전부 전체 `display`(`분기.변수`)를 유지**한다 — spec §3.1(복사·검색 가능성)·§5(접근명에서 다른 분기의 동명 변수와 구별)의 요구다. "displayName으로 통일하는 게 깔끔하다"는 오판을 하지 말 것:
+
+| 줄 | 용도 | 유지 이유 |
+|---|---|---|
+| `:537` | `conflictingVars.has(row.varName)` | 교차-카드 중복 판정 키 |
+| `:550` | manual 입력 `updateRow({varName})` | 실제 모델 값 |
+| `:559` | 배지 `title` | 잘렸을 때의 복구 수단 |
+| `:564` | `autoMatchedVars.has(row.varName)` | auto-match 키 |
+| `:573` | `sourceForAria(row.varName)` | 접근명 — 동명 변수 구별 |
+| `:588-591` | `setAutoMatchedVars` delete 키 | 〃 |
+| `:622` | `literalForAria(row.varName)` | 접근명 (**어떤 테스트도 안 잡는다** — 특히 주의) |
+| `:634` | `removeMappingAria(row.varName \|\| idx)` | 접근명 (T4가 이 라벨로 버튼을 찾는다) |
+
 그리고 리스트를 다음 형태로 바꾼다:
 
 ```tsx
-<ul className="flex flex-col gap-2">
-  {ungrouped.map(({ row, idx }) => renderRow(row, idx, row.varName))}
-</ul>
+{/* 모든 변수가 분기 변수인 시나리오에서 빈 <ul>이 DOM에 남지 않게 게이트한다
+    (스크린리더가 빈 목록을 읽는다). US4 케이스에는 영향 없다. */}
+{ungrouped.length > 0 && (
+  <ul className="flex flex-col gap-2">
+    {ungrouped.map(({ row, idx }) => renderRow(row, idx, row.varName))}
+  </ul>
+)}
 {groups.map((g) => {
   // 가시 텍스트를 한 번만 만들고 접근명이 그걸 재사용한다 → 드리프트 구조적 불가.
   const visible = `${ko.binding.branchGroupLead} ${g.branchName}`;
@@ -617,7 +634,7 @@ describe("var name column width (US2)", () => {
 });
 ```
 
-> `DATASET_LIST`/`DATASET_DETAIL`(`:99-119`)의 열은 `["username","email"]`이라 `makeScenarioWithMissing()`의 `{{missing}}`이 uncovered로 남아 힌트가 렌더된다 — 새 픽스처를 만들 필요가 없다.
+> `DATASET_LIST`/`DATASET_DETAIL`(`:99-120`)의 열은 `["username","email"]`이라 `makeScenarioWithMissing()`의 `{{missing}}`이 uncovered로 남아 힌트가 렌더된다 — 새 픽스처를 만들 필요가 없다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -766,7 +783,7 @@ describe("namespaced vars are not false-flagged as uncovered (US5)", () => {
 - [ ] **Step 2: 실패 확인**
 
 Run: `cd ui && pnpm test DataBindingPanel`
-Expected: 첫 케이스 FAIL — `reasons`에 `{{checkout_branch.session_token}} …`·`{{checkout_branch.order_id}} …`가 남아 `[]`가 아니다.
+Expected: 첫 케이스 FAIL — `reasons`가 `[]`가 아니다. **잔존 사유는 `{{checkout_branch.order_id}}` 하나뿐**이다(`session_token`은 이 테스트가 `token` 열에 수동 매핑하므로 `mappedVars`에 들어가 uncovered에서 빠진다 — `:388`·`:392-394`). "2개일 것"이라 기대하고 헤매지 말 것.
 
 - [ ] **Step 3: 구현**
 
@@ -838,3 +855,11 @@ git commit -m "fix(ui): 분기 변수 uncovered 오판으로 실행이 막히던
 
 - `handicap-reviewer` APPROVE (크로스커팅·repo 함정·와이어 1:1).
 - **보안 게이트**: `finish-slice §0`의 grep을 **직접 실행**해 판정한다. UI-only·요청실행/템플릿/캐스트 미접촉이라 무매치 예상이나, **예측을 신뢰해 스킵하지 말 것**(think-time-defaults 선례). 매치가 있으면 `security-reviewer`도 APPROVE 필수.
+  - 추가 판단(기계 grep이 N/A여도): Task 5가 **실행 게이트를 여는** 변경이다. grep이 무매치여도 "가드를 약화시켰나"를 도메인 관점에서 한 번 더 본다 — 메모리 `security-gate-judgment-override`. 판단 근거는 spec §3.6 "방어 근거 3종"(서버 대응 게이트 부재·낙관성 동치·확립된 정책 정렬).
+
+---
+
+<!-- spec-plan-reviewer: spec 3라운드 clean APPROVE(7c35060) · plan 1라운드 clean APPROVE.
+     비차단 findings 5건은 이 문서에 fold-in 완료(Task5 Step2 문구·renderRow 유지 표·
+     ungrouped 게이트·앵커 범위 3건·Task1 import 관례). -->
+REVIEW-GATE: APPROVED
