@@ -48,8 +48,8 @@ describe("partitionBindingRows", () => {
 
   it("orders groups by first appearance", () => {
     const idx = new Map([
-      ["b2.x", { branchName: "b2", varName: "x" }],
       ["b1.y", { branchName: "b1", varName: "y" }],
+      ["b2.x", { branchName: "b2", varName: "x" }],
     ]);
     const out = partitionBindingRows([r("b2.x"), r("b1.y")], idx);
     expect(out.groups.map((g) => g.branchName)).toEqual(["b2", "b1"]);

@@ -1047,13 +1047,15 @@ describe("namespaced vars are not false-flagged as uncovered (US5)", () => {
     // 3번째 스텝(Use)의 url을 오타 참조로 교체 — 어떤 분기도 ghost를 생산하지 않는다.
     const use = scen.steps[2];
     if (use.type !== "http") throw new Error("fixture drift: steps[2] must be the http 'Use' step");
-    use.request.url = "http://example.com/o/{{ghost.token}}";
+    use.request.url = "http://example.com/o/{{ghost.session_token}}";
 
     renderPanel(scen, vi.fn(), onValidity);
     await selectNsDataset(user);
 
     await waitFor(() =>
-      expect((onValidity.mock.lastCall?.[1] as string[]).join(" ")).toContain("ghost.token"),
+      expect((onValidity.mock.lastCall?.[1] as string[]).join(" ")).toContain(
+        "ghost.session_token",
+      ),
     );
   });
 });

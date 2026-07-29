@@ -460,7 +460,7 @@ export function undefinedVarRefs(scenario: Scenario): Map<string, UndefinedRef> 
 export interface ParallelVarIdentity {
   branchName: string;
   varName: string;
-  /** `${branchName}.${varName}` — 엔진 다운스트림 네임스페이스 형(runner.rs:638). */
+  /** `${branchName}.${varName}` — 엔진 다운스트림 네임스페이스 형(runner.rs:690). */
   display: string;
   /** varName이 flat producer(선언/비-parallel extract)와 충돌 = rename 비활성 근거. */
   isShadow: boolean;
