@@ -933,6 +933,10 @@ describe("branch variable grouping", () => {
   it("group list accessible name starts with the visible header text", async () => {
     renderPanel(makeScenarioWithParallel());
     const header = await screen.findByTestId("branch-group-header");
+    // startsWith below is direction-blind to an empty/short header (vacuously true if the
+    // header renders "분기" alone or even nothing) — assert the branch name is actually
+    // ON SCREEN first, independent of the aria comparison.
+    expect(visibleTextOf(header)).toContain("checkout_branch");
     const groupList = screen.getByRole("list", { name: GROUP_ARIA });
     const aria = (groupList.getAttribute("aria-label") ?? "").replace(/\s+/g, " ");
     // 헤더는 두 인접 <span>(리드/분기명)을 CSS gap으로만 벌려 렌더한다 — JSX가
