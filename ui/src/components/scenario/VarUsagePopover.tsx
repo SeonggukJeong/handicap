@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { findStepById, summarizeCondition, type Step } from "../../scenario/model";
-import { METHOD_BADGE } from "./methodBadge";
+import { type Step } from "../../scenario/model";
+import { describeStepRef, STEP_REF_BADGE_CLASS } from "./stepRefLabel";
 import { ko } from "../../i18n/ko";
 
 const POPOVER_WIDTH = 240;
@@ -87,7 +87,7 @@ export function VarUsagePopover({
       className="z-50 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white p-1 text-xs shadow-lg"
     >
       {refIds.map((id) => {
-        const s = findStepById(steps, id);
+        const d = describeStepRef(steps, id);
         const active = id === selectedStepId;
         return (
           <button
@@ -98,21 +98,12 @@ export function VarUsagePopover({
             onClick={() => onJump(id)}
             className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-slate-100 ${active ? "bg-accent-50 text-accent-700" : "text-slate-700"}`}
           >
-            {s?.type === "http" && (
-              <span
-                className={`shrink-0 rounded px-1 font-mono text-[10px] ${METHOD_BADGE[s.request.method] ?? "bg-slate-100 text-slate-600"}`}
-              >
-                {s.request.method}
+            {d.badge && (
+              <span className={`${STEP_REF_BADGE_CLASS} ${d.badge.colorClass}`}>
+                {d.badge.text}
               </span>
             )}
-            {s?.type === "if" && (
-              <span className="shrink-0 rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-500">
-                IF
-              </span>
-            )}
-            <span className="min-w-0 flex-1 truncate">
-              {s ? (s.type === "if" ? summarizeCondition(s.cond) : s.name) : id}
-            </span>
+            <span className="min-w-0 flex-1 truncate">{d.label}</span>
           </button>
         );
       })}
