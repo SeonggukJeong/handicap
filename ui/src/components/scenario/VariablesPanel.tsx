@@ -279,7 +279,8 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                         setPendingDelete({ name: row.name, refIds: row.refIds });
                       }}
                       aria-label={ko.editor.removeVariableAria(row.name)}
-                      className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
+                      disabled={yamlError !== null}
+                      className="shrink-0 text-slate-500 hover:text-red-600 text-sm disabled:opacity-40"
                     >
                       ×
                     </button>

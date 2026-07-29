@@ -417,6 +417,16 @@ describe("VariablesPanel — 사용중인 변수 삭제 확인 (var-delete-confi
     );
     expect(remove).toHaveFocus();
   });
+
+  it("US4: yamlError 동안 × 가 비활성이다(확인 후 no-op 방지)", () => {
+    useScenarioEditor.getState().loadFromString(REFERENCED);
+    useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    useScenarioEditor.getState().commitPendingYaml(); // model은 보존되므로 행은 그대로 렌더된다
+    render(<VariablesPanel />);
+    expect(
+      screen.getByRole("button", { name: ko.editor.removeVariableAria("token") }),
+    ).toBeDisabled();
+  });
 });
 
 describe("VariablesPanel — unified rows", () => {
