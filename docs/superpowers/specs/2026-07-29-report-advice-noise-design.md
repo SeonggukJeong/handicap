@@ -1,6 +1,6 @@
 # run 완료 리포트 조언 밀도 축소 + 느린-스텝 인사이트 실질성 (report-advice-noise)
 
-- **날짜**: 2026-07-29 (rev3 — `spec-plan-reviewer` APPROVE-WITH-FIXES의 N1–N5 반영)
+- **날짜**: 2026-07-29 (rev3 — `spec-plan-reviewer` **APPROVE** 통과. N1–N5 반영 + 비차단 표기 nit 3건 정정)
 - **유형 태그**: `user-path` (주) + `correctness-bug` (US4 — 근거 없는 "병목" 주장 제거)
 - **테마**: §A11 속지 않는 오픈 시험 — **3차(사후 표면)**. 1차 `f93544a`, 2차 `1d7e8e4`, 정밀화 `4723e06`.
 - **발의**: 사용자 도그푸딩 원문 (2026-07-29)
@@ -130,7 +130,7 @@ pub runner_up_ms: Option<f64>,
 | 10' | `report.rs:2329`·`:2335`·`:2357`·`:2363`·`:2383` | **무변경** — 전부 `can_claim`/`cannot_claim` 단언이고 D4가 "무변경"으로 못박은 `production_identity`/`sut_capacity`/`throughput_measured`/`functional_correctness` 골든이다. **실측: `.events`는 `report.rs` 전체에 정확히 1회(`:2324`)뿐** — rev2 표의 5-사이트 인용은 과대였고 그대로 따르면 건강한 단언 4개를 재작성하게 된다 | — |
 | 11 | `ui/src/api/schemas.ts:419-423` `NarrativeSchema` | `events` 제거 | — |
 | 12 | `ui/src/components/report/__tests__/NarrativeBlock.test.tsx` | **파일 삭제** (컴포넌트가 사라짐) | — |
-| 13 | `ui/src/components/report/__tests__/ReportView.test.tsx` | narrative 픽스처 `events` 제거 + **`:392`가 참조하는 `ko.narrative.sectionAria`가 삭제되므로**(§6) 그 순서 테스트를 병합 후 구조로 재작성(→ §8.5 병합 불변식) | tsc 초과 속성 + 미해결 참조 |
+| 13 | `ui/src/components/report/__tests__/ReportView.test.tsx` | narrative 픽스처 `events` 제거 + **`:379` 순서 테스트**를 병합 후 구조로 재작성(→ §8.5 병합 불변식). 별건으로 **형제 테스트 `:392`("old reports omit validity/narrative")도 삭제 예정 `ko.narrative.sectionAria`를 참조**하므로 함께 갱신 | tsc 초과 속성 + 미해결 참조 |
 | 14 | `ui/src/api/__tests__/schemas.test.ts` | 픽스처 `events` + `parsed.narrative?.events` 단언 제거 | tsc |
 | 15 | `ui/src/pages/__tests__/RunDetailPage.test.tsx` | 픽스처 `events` 제거 | tsc |
 | 16 | `ui/src/i18n/ko.ts` | `narrative.eventsHeading` + `narrative.event`(14키) + `narrative.sectionAria` 삭제(§6) | — |
@@ -187,7 +187,7 @@ export function ValidityBanner({
 | `limited` | 상세 **기본 접힘** |
 
 - **`ok`면 `reasons` 유무와 무관하게 미렌더** — level 검사가 먼저 단락시킨다. `level === "ok"` ⟺ `reasons.length === 0`은 서버 불변식(`validity.rs:131-137`)이 보장하므로 정상 페이로드에선 차이가 없고, 그 불변식이 깨진 페이로드(`ok` + reasons 존재)는 이유가 **조용히 삼켜진다**(수용 — 서버가 유일한 생산자다). rev2의 "UI가 `reasons.length > 0`으로 게이트하므로 안 깨진다"는 근거는 `ok → return null` 도입으로 무효가 됐다.
-- **접힘 구현 = 조건부 미렌더**(`{open && <상세/>}`, `hidden` 속성 아님). 이 저장소의 disclosure 이디엄(`ScenarioSnapshot`·`InspectorSection`)과 일치하며, §8.5의 "`canHeading` 정확히 1개" 단언이 **펼친 상태를 전제**한다는 뜻이기도 하다(접힘 상태에선 0개가 정상).
+- **접힘 구현 = 조건부 미렌더**(`{open && <상세/>}`, `hidden` 속성 아님). 이 저장소의 disclosure 이디엄(`ScenarioSnapshot.tsx:17`·`Section.tsx:60`/`:106` — 구 `InspectorSection`은 `Section variant="card"`로 흡수돼 이제 없다)과 일치하며, §8.5의 "`canHeading` 정확히 1개" 단언이 **펼친 상태를 전제**한다는 뜻이기도 하다(접힘 상태에선 0개가 정상).
 - **토글 DOM 위치 (M3)**: 이유 `<ul>` **아래**, `Callout`의 `children` 안. `Callout.title`(`:30`에서 `<p>`로 감싸짐) 내부에 넣지 않는다 — `ok`가 미렌더가 되어 "한 줄" 제약이 사라졌으므로 `Callout` 내부 구조에 의존할 이유가 없다.
 - **토글은 가시 텍스트를 가진 `<button aria-expanded>`이고 `aria-label`을 붙이지 않는다.** 가시 텍스트 = `ko.narrative.title`("결과 해석") + caret. `aria-label`을 붙이면 접근명이 가시 텍스트를 덮어써 WCAG 2.5.3(Label in Name) 위반이며 이 저장소가 이미 두 번 적발한 클래스다.
 - **접힘 상태는 영속하지 않는다** — level에서 매번 도출. 영속시키면 사용자가 `suspect` 경고를 영구히 숨길 수 있다(A11 테제 위반). §5.3의 조치문 토글은 영속하는데 이쪽은 안 하는 **비대칭은 의도적**이며 근거가 다르다(경고 은닉 위험 vs 개인 취향).
@@ -271,7 +271,7 @@ export function ValidityBanner({
 | 스텝 1개 | `[500]` | 2위 부재 | 미발행 |
 | 0-나눗셈 회귀 | `[300, 0]` | — | 발행 + **패닉/NaN/Infinity 없음** |
 
-> **`[120,120,40]` 행은 생략 금지 — D10을 검증하는 유일한 픽스처다.** 기각안 (b)(`runner_up = max{p95 : p95 < top}`)로 구현하면 나머지 14개 픽스처가 **전부 GREEN**이라 두 구현이 구별되지 않는다(§8.2 row 2의 `[100,100]`도 (b)에선 "2위 부재"로 미발행이라 결과가 같다). 이 픽스처만 갈린다: (a) `runner_up=120` → 격차 0 → 미발행 / (b) `runner_up=40` → 격차 80·`120≥60` → **발행**. rev1이 실제로 (b) 방향으로 미끄러졌던 전례가 있으므로 이론적 위험이 아니다. `[100,100]`(§8.2)과 **병존**시킬 것 — 그건 "동률"이 아니라 "2위 부재"와 구별이 안 된다.
+> **`[120,120,40]` 행은 생략 금지 — D10을 검증하는 유일한 픽스처다.** 기각안 (b)(`runner_up = max{p95 : p95 < top}`)로 구현하면 나머지 15개 픽스처(§8.1의 D10 제외 9 + §8.2의 6)가 **전부 GREEN**이라 두 구현이 구별되지 않는다(§8.2 row 2의 `[100,100]`도 (b)에선 "2위 부재"로 미발행이라 결과가 같다). 이 픽스처만 갈린다: (a) `runner_up=120` → 격차 0 → 미발행 / (b) `runner_up=40` → 격차 80·`120≥60` → **발행**. rev1이 실제로 (b) 방향으로 미끄러졌던 전례가 있으므로 이론적 위험이 아니다. `[100,100]`(§8.2)과 **병존**시킬 것 — 그건 "동률"이 아니라 "2위 부재"와 구별이 안 된다.
 >
 > **구현 주의**: `runner_up`은 **top을 인덱스로 제외**한 나머지의 최대다(값으로 제외하면 (b)가 된다).
 
