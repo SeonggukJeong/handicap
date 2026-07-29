@@ -1,7 +1,10 @@
 name: release
 
-# Windows Tauri 데스크톱 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe(README §B, --features bundle)를
-# 빌드해 GitHub Release에 첨부. 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
+# Windows Tauri 데스크톱 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe(README §B, --features bundle) +
+# macOS .dmg(arm64/x64 각각 네이티브)를 빌드해 GitHub Release에 첨부.
+# 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
+# 릴리즈 *생성*은 windows-installer 잡의 tauri-action 하나만 담당 — macos-dmg는 그 릴리즈를 기다려 에셋만 올린다
+# (두 잡이 동시에 create를 시도하는 레이스 회피).
 on:
   push:
     tags:
@@ -86,3 +89,83 @@ jobs:
           $asset = "Handicap_${ver}_x64-portable.exe"
           Copy-Item target/release/controller.exe $asset
           gh release upload $tag $asset --clobber
+
+  # macOS 네이티브 앱 번들(.app) + .dmg. universal(lipo) 대신 **아키텍처별 네이티브 2개**를 만든다:
+  # lipo로 합친 바이너리는 서명이 날아가 arm64에서 실행이 거부될 수 있고, 링커가 붙이는 ad-hoc 서명은
+  # 네이티브 타깃 빌드에서만 온전하다. 서명/공증(notarization) 없음 → 사용자는 Gatekeeper 우회 필요(README §C).
+  macos-dmg:
+    runs-on: macos-latest
+    # 빌드(≈30분) + windows-installer가 릴리즈를 만들기까지의 대기(최대 30분) 합산.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false # 한쪽 아키텍처가 실패해도 다른 쪽 dmg는 출하한다.
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # rust-embed가 컴파일타임에 ui/dist를 임베드하므로 cargo 빌드 전에 먼저(windows 잡과 동일).
+      - name: Build UI (ui/dist)
+        working-directory: ui
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      # tonic-build(handicap-proto)이 빌드타임에 protoc를 요구.
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      # tagName 없이 호출 = 빌드만(릴리즈 생성·업로드 안 함). app을 dmg보다 먼저 두어,
+      # dmg 변환(bundle_dmg.sh — AppleScript)이 CI에서 실패해도 .app 산출물은 남는다.
+      - name: Build macOS app bundle + dmg
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: desktop
+          args: --target ${{ matrix.target }} --bundles app,dmg
+
+      # 릴리즈 업로드가 실패하더라도 산출물은 회수 가능하게(dmg 변환 실패 시 .app 확인용).
+      - name: Upload bundle as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-bundle-${{ matrix.target }}
+          path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: warn
+
+      - name: Attach dmg to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.tag || github.ref_name }}'
+          bundle_dir="desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg=$(find "$bundle_dir" -maxdepth 1 -name '*.dmg' | head -1)
+          [ -n "$dmg" ] || { echo "no .dmg produced in $bundle_dir"; exit 1; }
+          echo "dmg: $dmg"
+          # 릴리즈는 windows-installer 잡이 만든다(병렬 실행) — 생성될 때까지 최대 30분 폴링.
+          for i in $(seq 1 90); do
+            if gh release view "$tag" >/dev/null 2>&1; then break; fi
+            echo "release $tag not created yet ($i/90) — waiting 20s"
+            sleep 20
+          done
+          gh release upload "$tag" "$dmg" --clobber

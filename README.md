@@ -59,7 +59,7 @@ Handicap의 핵심 설계입니다. 시나리오는 하나의 모델이고, 두 
 
 ### 2. 설치 장벽이 사실상 없음
 
-- **Windows**: [릴리즈 페이지](https://github.com/SeonggukJeong/handicap/releases/latest)에서 인스톨러(`.exe`/`.msi`)를 받아 설치하면 끝. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
+- **Windows / macOS**: [릴리즈 페이지](https://github.com/SeonggukJeong/handicap/releases/latest)에서 인스톨러(`.exe`/`.msi`) 또는 `.dmg`를 받아 설치하면 끝. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
 - **서버(Linux)**: 바이너리 2개 + 정적 UI 폴더 1개. JVM도, Node도, 외부 DB도, 에이전트 설치도 필요 없습니다. DB는 SQLite가 내장되어 첫 실행 시 자동 생성·마이그레이션됩니다.
 - 단일 실행 파일(portable exe)로도 빌드할 수 있어 **USB에 담아 옮기는 것**도 가능합니다.
 
@@ -242,6 +242,21 @@ copy target\release\controller.exe handicap.exe
 
 ### C. macOS
 
+**데스크톱 앱 (`.dmg`, v0.7.0부터 제공)** — Windows의 A와 같은 네이티브 앱입니다.
+
+1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 칩에 맞는 dmg를 내려받습니다.
+   - Apple Silicon(M1~): `Handicap_<버전>_aarch64.dmg`
+   - Intel Mac: `Handicap_<버전>_x64.dmg`
+2. dmg를 열어 **Handicap.app**을 `/Applications`로 드래그합니다.
+3. **"확인되지 않은 개발자" / "손상되었기 때문에 열 수 없습니다" 경고가 뜨면**: 코드 서명·공증(notarization)이 없는 배포라 Gatekeeper가 막는 정상 경고입니다. 아래 중 하나로 해제하세요.
+   - 앱 아이콘 **우클릭 → "열기"** → 대화상자에서 다시 "열기" (첫 실행 1회만)
+   - 또는 터미널에서 격리 속성 제거: `xattr -dr com.apple.quarantine /Applications/Handicap.app`
+
+- 요구사항: macOS 11+ (WebView는 시스템 WebKit 사용 — 별도 설치 불필요)
+- 데이터 위치: `~/Library/Application Support/handicap/handicap.db` — 이 파일 하나가 전부입니다 (백업 = 복사)
+
+**직접 빌드 (단일 바이너리 / 브라우저 모드)**
+
 ```bash
 # 사전 준비: Xcode CLT + Rust + protoc + pnpm
 xcode-select --install
@@ -254,8 +269,7 @@ cargo build --release --features bundle
 ./target/release/controller        # 브라우저 자동 오픈
 ```
 
-- 데이터 위치: `~/Library/Application Support/handicap/handicap.db`
-- 네이티브 앱(`.app`)을 원하면: `cargo install tauri-cli --version "^2" --locked` 후 `cd desktop && cargo tauri build --bundles app` → [Tauri 빌드 런북](docs/dev/tauri-desktop-build.md)
+- 네이티브 앱(`.app`)을 직접 빌드하려면: `cargo install tauri-cli --version "^2" --locked` 후 `cd desktop && cargo tauri build --bundles app` → [Tauri 빌드 런북](docs/dev/tauri-desktop-build.md)
 
 ### D. Linux (RHEL 계열) 서버
 
