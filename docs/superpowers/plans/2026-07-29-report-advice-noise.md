@@ -630,7 +630,8 @@ Run: `cd ui && pnpm build > /tmp/ran-advice-11.log 2>&1; echo exit=$?; tail -20 
 - `export.rs:471-473` XLSX Summary row 9(`narrative_events_count`) 삭제 — row 9는 Summary 시트 **마지막** 행(다음은 Steps 시트 `:475-`)이라 인덱스 시프트 없음. `:459`·`:706` 주석의 "rows 7–9" → "rows 7–8"
 - `xlsx_summary_includes_validity_rows`에 **부재 단언** 1줄 추가(제거만 하면 "행이 사라졌다"를 아무도 안 지킨다):
   ```rust
-  assert!(matches!(ws.get_value((9, 0)), None | Some(Data::Empty)), "narrative_events_count 행 제거됨");
+  // 이 테스트의 워크시트 바인딩명은 `summary`다(`export.rs:748`) — 옆 테스트의 `ws`가 아니다.
+  assert!(matches!(summary.get_value((9, 0)), None | Some(Data::Empty)), "narrative_events_count 행 제거됨");
   ```
 
 - [ ] **Step 4: Zod 갱신**
@@ -735,7 +736,26 @@ describe("insightPrefs", () => {
   });
 ```
 
-> 이 파일 최상단에 `beforeEach(() => window.localStorage.clear())`가 필요하다(이 저장소의 localStorage 파일간 누수 선례).
+> **이 파일 최상단에 필요한 것** — 현재 import는 `{ render, screen }` + `{ describe, it, expect }` + `InsightPanel` + `type Insight`뿐이라 아래가 전부 없다(tsc/eslint가 즉시 잡지만 미리 넣을 것):
+>
+> ```tsx
+> import { beforeEach, describe, expect, it } from "vitest";
+> import userEvent from "@testing-library/user-event";
+> import { ko } from "../../../i18n/ko";
+>
+> // 픽스처 상수 — D7·remount 두 테스트가 공유한다.
+> const statusClass5xx: Insight = {
+>   kind: "status_class", severity: "critical", status_class: "5xx", pct: 0.12, count: 1203,
+> };
+> const saturatedWithSlots: Insight = {
+>   kind: "load_gen_saturated", severity: "warning", value: 40, count: 260,
+>   cause: "slots", recommended: 23, achieved_per_sec: 2.7, target_per_sec: 20,
+> };
+>
+> beforeEach(() => window.localStorage.clear()); // 저장소의 localStorage 파일간 누수 선례
+> ```
+>
+> `userEvent`를 쓰는 `it` 콜백은 `async`로 선언한다.
 
 - [ ] **Step 3: RED 확인**
 
@@ -987,5 +1007,15 @@ git commit -m "feat(report): 느린-스텝 문구 정직화 — 격차·배수 �
 - `handicap-reviewer` APPROVE — 서버 게이트 ↔ UI 표시 ↔ export 3표면의 **교차-task 일관성**(per-task 리뷰가 원리적으로 못 보는 영역).
 - **보안 게이트**: `finish-slice §0`의 grep을 **직접 실행**해 판정한다. 무매치 예상이지만 예상은 게이트가 아니다.
 
-<!-- REVIEW-GATE 마커는 spec-plan-reviewer가 이 plan에 clean APPROVE를 준 뒤에만 추가한다. -->
+## 리뷰 이력
+
+| 문서 | 라운드 | verdict |
+|---|---|---|
+| spec | 1 | `NEEDS-REWORK` — 산술 모순(`[120,120,40]`)·RED 셈 누락·UI 분석 전무·컴포넌트 계약 부재 |
+| spec | 2 | `APPROVE-WITH-FIXES` — N1 D10 무이빨·N2 `report.rs` 과대인용·N3 stale 근거·N4 픽스처 조건 |
+| spec | 3 | **`APPROVE`** (`40931c9`) |
+| plan | 1 | `APPROVE-WITH-FIXES` — M1 정규식 메타문자로 단언 사망·M2 이빨 주입 오대상·M3 US2 증거 0·M4 테스트 누락·M5 파이프 exit 마스킹 16곳 |
+| plan | 2 | **`APPROVE`** (`9e6ca61` + N1–N3 fold-in) |
+
+<!-- REVIEW-GATE: APPROVED -->
 
