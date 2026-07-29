@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { Insight } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
+import { readShowInsightActions, writeShowInsightActions } from "../../report/insightPrefs";
 import { PageSection } from "../ui/PageSection";
 import { floorPct } from "./format";
 
@@ -57,7 +59,11 @@ function rate(v: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
-function actionFor(i: Insight): string | undefined {
+type Action = { text: string; computed: boolean };
+
+// computed=true는 측정값·계산된 권장치(ko.saturation.*)라 토글과 무관하게 항상 표시한다.
+// sut arm은 "슬롯을 늘리지 말라"는 역방향 경고라 숨기면 위험하다.
+function actionFor(i: Insight): Action | undefined {
   if (i.kind === "load_gen_saturated") {
     if (i.cause === "slots") {
       const x = i.target_per_sec;
@@ -69,20 +75,38 @@ function actionFor(i: Insight): string | undefined {
           rate(Math.max(0, x - y)),
           n(i.recommended),
         );
-        return i.recommended >= 10_000 ? `${base} ${ko.saturation.slotsAtCap}` : base;
+        return {
+          text: i.recommended >= 10_000 ? `${base} ${ko.saturation.slotsAtCap}` : base,
+          computed: true,
+        };
       }
-      return ko.insightActions.load_gen_saturated; // 방어(신규 필드 부재 — 구식 리포트)
+      return { text: ko.insightActions.load_gen_saturated, computed: false }; // 방어(신규 필드 부재 — 구식 리포트)
     }
-    if (i.cause === "sut") return ko.saturation.sut;
-    return ko.insightActions.load_gen_saturated; // 폴백(cause None)
+    if (i.cause === "sut") return { text: ko.saturation.sut, computed: true };
+    return { text: ko.insightActions.load_gen_saturated, computed: false }; // 폴백(cause None)
   }
-  return ACTIONS[i.kind];
+  const t = ACTIONS[i.kind];
+  return t ? { text: t, computed: false } : undefined;
 }
 
 export function InsightPanel({ insights, meta }: Props) {
+  const [showGeneric, setShowGeneric] = useState(readShowInsightActions);
   if (insights.length === 0) return null;
   return (
     <PageSection ariaLabel={ko.report.insightsLabel} title={ko.report.insightsTitle}>
+      <div className="mb-2 flex justify-end">
+        <label className="flex items-center gap-1 text-xs">
+          <input
+            type="checkbox"
+            checked={showGeneric}
+            onChange={(e) => {
+              setShowGeneric(e.target.checked);
+              writeShowInsightActions(e.target.checked);
+            }}
+          />
+          {ko.report.insightActionsToggle}
+        </label>
+      </div>
       <ul className="space-y-1">
         {insights.map((i, idx) => (
           <li
@@ -96,12 +120,13 @@ export function InsightPanel({ insights, meta }: Props) {
             <div>{message(i, meta)}</div>
             {(() => {
               const action = actionFor(i);
-              return action ? (
+              if (!action || (!action.computed && !showGeneric)) return null;
+              return (
                 <div className="mt-0.5 text-xs opacity-90">
                   <span aria-hidden="true">→ </span>
-                  {action}
+                  {action.text}
                 </div>
-              ) : null;
+              );
             })()}
           </li>
         ))}

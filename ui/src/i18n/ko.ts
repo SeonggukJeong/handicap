@@ -962,6 +962,7 @@ export const ko = {
     // ── InsightPanel 섹션 aria ──
     insightsLabel: "인사이트",
     insightsTitle: "핵심 인사이트",
+    insightActionsToggle: "조치 안내 보기",
     // ── VerdictPanel 섹션 aria + 표 헤더 ──
     verdictSectionLabel: "SLO 판정",
     verdictMetric: "지표",

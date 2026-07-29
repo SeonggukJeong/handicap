@@ -1,9 +1,32 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { InsightPanel } from "../InsightPanel";
 import type { Insight } from "../../../api/schemas";
+import { ko } from "../../../i18n/ko";
 
 const meta = new Map([["s1", { id: "s1", name: "checkout", method: "GET", url: "/c" }]]);
+
+// 픽스처 상수 — D7·remount 두 테스트가 공유한다.
+const statusClass5xx: Insight = {
+  kind: "status_class",
+  severity: "critical",
+  status_class: "5xx",
+  pct: 0.12,
+  count: 1203,
+};
+const saturatedWithSlots: Insight = {
+  kind: "load_gen_saturated",
+  severity: "warning",
+  value: 40,
+  count: 260,
+  cause: "slots",
+  recommended: 23,
+  achieved_per_sec: 2.7,
+  target_per_sec: 20,
+};
+
+beforeEach(() => window.localStorage.clear()); // 저장소의 localStorage 파일간 누수 선례
 
 describe("InsightPanel", () => {
   it("renders nothing when empty", () => {
@@ -34,12 +57,15 @@ describe("InsightPanel", () => {
     expect(items[1]).toMatch(/가장 느림/);
   });
 
-  it("kind별 '다음 행동' 줄이 렌더된다", () => {
+  it("kind별 '다음 행동' 줄이 렌더된다", async () => {
     const insights: Insight[] = [
       { kind: "slowest_step", severity: "info", step_id: "s1", metric: "p95_ms", value: 1240 },
       { kind: "status_class", severity: "critical", status_class: "5xx", pct: 0.12, count: 3 },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
     const action = screen.getByText(/스텝 표를 내보내 개발팀과 공유하세요/);
     expect(action).toBeInTheDocument();
     expect(screen.getByText(/5xx면 서버 측 문제부터 확인하세요/)).toBeInTheDocument();
@@ -47,11 +73,14 @@ describe("InsightPanel", () => {
     expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it("load_gen_saturated cause 없음 — 헤드라인 + 폴백 행동 줄 (워커 CPU 언급 없음, ADR-0046)", () => {
+  it("load_gen_saturated cause 없음 — 헤드라인 + 폴백 행동 줄 (워커 CPU 언급 없음, ADR-0046)", async () => {
     const insights: Insight[] = [
       { kind: "load_gen_saturated", severity: "warning", value: 7500, count: 320 },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
     // 헤드라인: 초당 최대 N건 + 못 보낸 요청 M건 (천단위 구분)
     expect(screen.getByText(/초당 최대 7,500건.*못 보낸 요청이 320건/)).toBeInTheDocument();
     // 폴백 행동 줄 (R13 2-way: cause=slots|sut|없음 뿐, 워커 CPU 언급 없음)
@@ -61,13 +90,44 @@ describe("InsightPanel", () => {
     expect(screen.queryByText(/워커 CPU/)).toBeNull();
   });
 
-  it("slo_pass와 미지의 kind엔 행동 줄이 없다", () => {
+  it("slo_pass·미지 kind엔 토글을 켜도 조치 줄이 없다", async () => {
     const insights: Insight[] = [
       { kind: "slo_pass", severity: "info" },
       { kind: "future_kind", severity: "info" },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
     expect(screen.queryByText(/→/)).toBeNull();
+  });
+
+  it("기본(숨김)에서 일반 안내는 감추되 계산된 권장치는 남긴다", () => {
+    render(<InsightPanel insights={[statusClass5xx, saturatedWithSlots]} meta={new Map()} />);
+    // 일반 코칭은 숨김.
+    // ⚠ `new RegExp(ko.insightActions.status_class)`를 쓰지 말 것 — 그 문구의
+    // "(인증·파라미터)"가 캡처 그룹으로 소비돼 괄호 없는 문자열을 요구하게 되고,
+    // 그러면 일반 코칭이 *실제로 보여도* 이 단언이 통과한다(공허). 메타문자 없는
+    // 리터럴 조각으로 고정한다.
+    expect(screen.queryByText(/서버 측 문제부터 확인하세요/)).toBeNull();
+    // 측정값 기반 권장치는 항상 표시 — 이 단언이 없으면 "조치문 렌더를 통째로
+    // 지워도 통과"하는 공허한 테스트가 된다. 두 단언은 반드시 짝으로.
+    expect(screen.getByText(/max_in_flight/)).toBeInTheDocument();
+  });
+
+  // US2 — 영속 배선. 이 테스트가 없으면 구현자가 `useState(false)`로 써도
+  // ① prefs 단위 테스트 ② 토글 ON 테스트들 ③ 기본-숨김 테스트가 전부 통과해
+  // US2의 자동 증거가 0이 된다(라이브에서만 드러남).
+  it("토글 선택은 재마운트 후에도 유지된다", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<InsightPanel insights={[statusClass5xx]} meta={new Map()} />);
+    await user.click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
+    expect(screen.getByText(/서버 측 문제부터 확인하세요/)).toBeInTheDocument();
+
+    unmount();
+    render(<InsightPanel insights={[statusClass5xx]} meta={new Map()} />);
+    expect(screen.getByText(/서버 측 문제부터 확인하세요/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle })).toBeChecked();
   });
 
   it("load_gen_saturated slots — 목표/달성 도착률·유실·권장 슬롯 수치를 행동 줄에 렌더 (R12)", () => {
@@ -111,11 +171,14 @@ describe("InsightPanel", () => {
     expect(screen.getByText(/슬롯 상한\(10,000\)에 도달했어요/)).toBeInTheDocument();
   });
 
-  it("load_gen_saturated slots — target_per_sec/achieved_per_sec/recommended 중 하나라도 없으면 폴백 (구식 리포트 방어)", () => {
+  it("load_gen_saturated slots — target_per_sec/achieved_per_sec/recommended 중 하나라도 없으면 폴백 (구식 리포트 방어)", async () => {
     const insights: Insight[] = [
       { kind: "load_gen_saturated", severity: "warning", value: 9000, count: 12, cause: "slots" },
     ];
     render(<InsightPanel insights={insights} meta={meta} />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
     expect(
       screen.getByText(/동시 실행 수\(max_in_flight\)를 늘려 다시 실행하세요/),
     ).toBeInTheDocument();
