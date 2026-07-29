@@ -904,6 +904,10 @@ steps:
     #[test]
     fn insights_deterministic_order() {
         // all kinds present → assert the interleaved (severity,row) order.
+        // 주의: step_err(id, n)의 n은 p95가 아니라 error_count — p95는 항상 10
+        // 고정(:601-605). 여기 top는 "b"(p95=40, step()으로 명시 지정) vs
+        // runner-up "a"(p95=10 고정) → gap=30·ratio=4.0로 slowest_step이 emit된다
+        // ("a"의 50을 p95로 오독하면 gap=10·ratio=1.25로 emit 안 될 걸로 착각하기 쉽다).
         let steps = vec![step_err("a", 50), step("b", 40)];
         let mut s = summary();
         s.errors = 50;
@@ -932,6 +936,7 @@ steps:
     #[test]
     fn error_heavy_run_yields_at_least_three() {
         // capability check: errors via failing asserts (error_count), 5xx, slow step.
+        // (같은 함정: step_err("a", 200)의 200은 error_count — "a"의 p95는 10 고정.)
         let steps = vec![step_err("a", 200), step("b", 40)];
         let mut s = summary();
         s.errors = 200;

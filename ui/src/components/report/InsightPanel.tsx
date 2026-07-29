@@ -48,7 +48,7 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
       if (ru == null) return `스텝 ${name(i.step_id)}이(가) p95 ${n(i.value)}ms로 가장 느림`;
       const gap = Math.max(0, v - ru);
       // ru === 0이면 v/ru가 Infinity가 되므로 배수를 생략한다
-      const ratio = ru > 0 ? (v / ru).toFixed(1) : null;
+      const ratio = ru > 0 ? rate(v / ru) : null;
       return ko.report.slowestStep(name(i.step_id), n(v), n(Math.round(gap)), ratio);
     }
     case "load_gen_saturated": {
@@ -102,9 +102,7 @@ export function InsightPanel({ insights, meta }: Props) {
   if (insights.length === 0) return null;
   return (
     <PageSection ariaLabel={ko.report.insightsLabel} title={ko.report.insightsTitle}>
-      {/* PageSection의 title(h3)이 이미 mb-2로 아래쪽 간격을 준다 — 여기서 또 mb-2를
-          주면 제목↔토글 사이 간격이 이중으로 쌓인다(리뷰 finding). 단일 간격만 유지. */}
-      <div className="flex justify-end">
+      <div className="flex justify-end mb-2">
         <label className="flex items-center gap-1 text-xs">
           <input
             type="checkbox"

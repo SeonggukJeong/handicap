@@ -276,6 +276,12 @@ mod tests {
         i
     }
 
+    fn insight_sc(kind: &str, status_class: &str) -> Insight {
+        let mut i = insight(kind);
+        i.status_class = Some(status_class.to_string());
+        i
+    }
+
     /// Minimal top-level http, no assert.
     const YAML_NO_ASSERT: &str = r#"
 version: 1
@@ -665,6 +671,26 @@ steps:
         assert!(
             n.can_claim.contains(&"slo_held".to_string()),
             "형제 분기는 살아 있다"
+        );
+    }
+
+    #[test]
+    fn ok_level_sut_errors_observed_in_can_claim() {
+        // level==ok(=other 4 reasons 전부 미emit)인데 5xx status_class 인사이트가
+        // 있으면 sut_errors_observed가 can_claim에 실려야 한다(validity.rs:191의
+        // `if validity.level == "ok"` 블록 안, :195-200 — 이 분기는 events 테스트
+        // 삭제 후 zero-execution이었다: 삭제된 `insight_sc` 헬퍼 복원).
+        // errors=10(>0)이라 silent_http_errors 미emit, has_active_criteria=true +
+        // YAML_WITH_ASSERT라 no_response_validation 미emit, "0" 상태 없어 transport
+        // 미emit, count>0이라 zero_requests 미emit → level은 반드시 ok.
+        let d = dist(&[("200", 90), ("500", 10)]);
+        let ins = vec![insight_sc("status_class", "5xx")];
+        let v = derive_validity(&summary(100, 10), &d, YAML_WITH_ASSERT, true, &ins);
+        assert_eq!(v.level, "ok", "다른 이유가 없으면 ok — 6~8 분기가 열린다");
+        let n = derive_narrative(&v, &summary(100, 10), true, &ins);
+        assert!(
+            n.can_claim.contains(&"sut_errors_observed".to_string()),
+            "level==ok + 5xx status_class 인사이트 → sut_errors_observed 주장 가능해야 함"
         );
     }
 }

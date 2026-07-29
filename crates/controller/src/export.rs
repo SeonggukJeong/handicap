@@ -706,7 +706,7 @@ mod tests {
     #[test]
     fn xlsx_summary_includes_validity_rows() {
         // H2: rows 0–6 remain numeric; 7–8 Data::String.
-        use crate::validity::{Narrative, Validity, ValidityReason};
+        use crate::validity::{Validity, ValidityReason};
         use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
         use std::io::Cursor;
 
@@ -734,10 +734,6 @@ mod tests {
                     value: None,
                 },
             ],
-        };
-        r.narrative = Narrative {
-            can_claim: vec!["client_reachability_issue".into()],
-            cannot_claim: vec!["production_identity".into()],
         };
         let bytes = report_to_xlsx(&r);
         let mut wb: Xlsx<Cursor<Vec<u8>>> =

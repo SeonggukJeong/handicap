@@ -239,6 +239,28 @@ describe("InsightPanel", () => {
     expect(line).toHaveTextContent("4.2"); // 210 ÷ 50
   });
 
+  it("배수가 정수배면 소수점 없이 렌더한다 (rate() 재사용, .0 접미사 금지)", () => {
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "slowest_step",
+            severity: "info",
+            step_id: "a",
+            metric: "p95_ms",
+            value: 220,
+            runner_up_ms: 20,
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    const line = screen.getByTestId("insight");
+    // 220 ÷ 20 = 11 (정수) → "11"이어야 함, "11.0"이면 안 됨.
+    expect(line).toHaveTextContent("11");
+    expect(line.textContent).not.toContain("11.0");
+  });
+
   it("2위가 0ms면 배수를 말하지 않는다 (Infinity 금지)", () => {
     render(
       <InsightPanel
