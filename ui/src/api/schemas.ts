@@ -394,6 +394,7 @@ export const InsightSchema = z.object({
   onset_second: z.number().int().optional(),
   achieved_per_sec: z.number().optional(),
   target_per_sec: z.number().optional(),
+  runner_up_ms: z.number().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 

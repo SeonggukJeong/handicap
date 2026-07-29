@@ -41,8 +41,16 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
       return `스텝 ${name(i.step_id)}에 요청이 기록되지 않음`;
     case "error_hotspot":
       return `스텝 ${name(i.step_id)}이(가) 에러의 ${pctStr(i.pct)} (${n(i.count)}건)`;
-    case "slowest_step":
-      return `스텝 ${name(i.step_id)}이(가) p95 ${n(i.value)}ms로 가장 느림`;
+    case "slowest_step": {
+      const ru = i.runner_up_ms;
+      const v = i.value ?? 0;
+      // 구식 리포트(필드 부재)는 기존 문구로 폴백
+      if (ru == null) return `스텝 ${name(i.step_id)}이(가) p95 ${n(i.value)}ms로 가장 느림`;
+      const gap = Math.max(0, v - ru);
+      // ru === 0이면 v/ru가 Infinity가 되므로 배수를 생략한다
+      const ratio = ru > 0 ? (v / ru).toFixed(1) : null;
+      return ko.report.slowestStep(name(i.step_id), n(v), n(Math.round(gap)), ratio);
+    }
     case "load_gen_saturated": {
       const head =
         `목표한 부하를 다 걸지 못했어요 — 초당 최대 ${n(i.value)}건까지만 보냈어요` +
@@ -85,8 +93,8 @@ function actionFor(i: Insight): Action | undefined {
     if (i.cause === "sut") return { text: ko.saturation.sut, computed: true };
     return { text: ko.insightActions.load_gen_saturated, computed: false }; // 폴백(cause None)
   }
-  const t = ACTIONS[i.kind];
-  return t ? { text: t, computed: false } : undefined;
+  const genericAction = ACTIONS[i.kind];
+  return genericAction ? { text: genericAction, computed: false } : undefined;
 }
 
 export function InsightPanel({ insights, meta }: Props) {
@@ -94,7 +102,9 @@ export function InsightPanel({ insights, meta }: Props) {
   if (insights.length === 0) return null;
   return (
     <PageSection ariaLabel={ko.report.insightsLabel} title={ko.report.insightsTitle}>
-      <div className="mb-2 flex justify-end">
+      {/* PageSection의 title(h3)이 이미 mb-2로 아래쪽 간격을 준다 — 여기서 또 mb-2를
+          주면 제목↔토글 사이 간격이 이중으로 쌓인다(리뷰 finding). 단일 간격만 유지. */}
+      <div className="flex justify-end">
         <label className="flex items-center gap-1 text-xs">
           <input
             type="checkbox"

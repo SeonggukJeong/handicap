@@ -963,6 +963,12 @@ export const ko = {
     insightsLabel: "인사이트",
     insightsTitle: "핵심 인사이트",
     insightActionsToggle: "조치 안내 보기",
+    // ko.insight* 접두는 이미 셋(insightCompare/insightLabels/insightActions)이라
+    // 느린-스텝 문구는 새 네임스페이스 대신 여기(ko.report)에 둔다.
+    slowestStep: (name: string, ms: string, gap: string, ratio: string | null) =>
+      ratio === null
+        ? `스텝 ${name}이(가) p95 ${ms}ms — 2위 스텝보다 ${gap}ms 느립니다`
+        : `스텝 ${name}이(가) p95 ${ms}ms — 2위 스텝보다 ${gap}ms 느립니다(${ratio}배)`,
     // ── VerdictPanel 섹션 aria + 표 헤더 ──
     verdictSectionLabel: "SLO 판정",
     verdictMetric: "지표",
@@ -1073,7 +1079,7 @@ export const ko = {
       delivery_ceiling_observed: "부하 전달 상한(이 구성으로 보낼 수 있는 한계)이 관측되었습니다",
       slo_held: "설정한 SLO 기준을 통과했습니다",
       sut_errors_observed: "대상 서버(SUT) 오류가 관측되었습니다",
-      bottleneck_step: "상대적으로 느린(병목) 스텝을 식별할 수 있습니다",
+      bottleneck_step: "상대적으로 느린 스텝을 식별할 수 있습니다",
     },
     cannot: {
       any_performance_claim: "성능·용량에 대한 어떠한 주장도",
@@ -1194,7 +1200,7 @@ export const ko = {
   },
   // §7.3 인사이트 kind → "다음 행동" 한 줄 (slo_pass는 의도적 부재 — 행동 없음).
   insightActions: {
-    slowest_step: "이 API가 병목입니다 — 스텝 표를 내보내 개발팀과 공유하세요.",
+    slowest_step: "다른 스텝보다 뚜렷하게 느립니다 — 스텝 표를 내보내 개발팀과 공유하세요.",
     error_hotspot: "이 스텝의 응답 검증 조건과 서버 로그를 확인하세요.",
     no_request_step: "이 스텝에 요청이 없었습니다 — 조건 분기·시나리오 구조를 확인하세요.",
     status_class: "4xx면 요청 형식(인증·파라미터), 5xx면 서버 측 문제부터 확인하세요.",

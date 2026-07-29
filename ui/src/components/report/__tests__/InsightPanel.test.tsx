@@ -215,4 +215,53 @@ describe("InsightPanel", () => {
     render(<InsightPanel insights={insights} meta={meta} />);
     expect(screen.getByText(/약 12초 지점부터 포화/)).toBeInTheDocument();
   });
+
+  it("느린 스텝은 격차와 배수를 함께 말한다", () => {
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "slowest_step",
+            severity: "info",
+            step_id: "a",
+            metric: "p95_ms",
+            value: 210,
+            runner_up_ms: 50,
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    const line = screen.getByTestId("insight");
+    // 보간 소실을 잡기 위해 렌더된 *숫자*를 직접 확인한다 —
+    // ko.report.slowestStep(...)을 기대값으로 쓰면 자기참조라 카피 변이를 못 잡는다.
+    expect(line).toHaveTextContent("160"); // 210 − 50
+    expect(line).toHaveTextContent("4.2"); // 210 ÷ 50
+  });
+
+  it("2위가 0ms면 배수를 말하지 않는다 (Infinity 금지)", () => {
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "slowest_step",
+            severity: "info",
+            step_id: "a",
+            metric: "p95_ms",
+            value: 300,
+            runner_up_ms: 0,
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    const line = screen.getByTestId("insight");
+    expect(line).toHaveTextContent("300");
+    expect(line.textContent).not.toContain("Infinity");
+  });
+
+  it("병목이라 단정하지 않는다", () => {
+    expect(ko.insightActions.slowest_step).not.toContain("병목");
+    expect(ko.narrative.can.bottleneck_step).not.toContain("병목");
+  });
 });
