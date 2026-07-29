@@ -97,3 +97,10 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 ## RunDialog 데이터 바인딩 매핑 (trust-check-precision)
 
 - **매핑 var 이름 커밋이 소스 select의 `aria-label`을 즉시 재계산한다**(`"매핑 변수명"` input blur → 소스 select가 `"<var명> 소스"`로 재라벨) — input 세팅과 select 조작을 **한 `browser_evaluate`에 넣으면** React 재렌더로 select 참조가 끊겨 `Cannot read properties of undefined`. input 커밋(input+blur 이벤트)을 별도 evaluate로 먼저 보내고, select는 **다음 evaluate에서 재조회**해서 조작할 것. cond-only 변수는 `scanFlowVars`가 cond를 안 보므로 자동 시드 행이 없다 — `+ 추가` 수동 행으로만 공급 가능(자동 행 부재 ≠ 기능 미동작).
+
+## 확인 모달·이탈 가드·Monaco 쓰기 (var-delete-confirm 2026-07-29)
+
+- **`[role="dialog"] >> text=<짧은 한국어>`는 모달 *제목*에도 부분매치된다** — `text=삭제`가 제목 "변수 삭제"와 `[삭제]` 버튼 양쪽에 걸려, `nth(1)`로 고른 노드가 버튼이 아니라 헤더 쪽이었다. **증상이 조용하다**: 클릭은 성공하고 예외도 없는데 아무 일도 안 일어나 "기능이 안 된다"로 오판하게 된다. → 모달 안 버튼은 **`button:has-text("삭제")`** 로 요소 타입을 고정하거나 `getByRole("button", {name})`. (같은 뿌리: ko 카탈로그의 `삭제`/`변수`/`스텝`은 전역 다빈도어 — RTL 쪽 규칙 "모달 단언은 `within(dialog)` + exact"의 Playwright 판.)
+- **에디터에서 다른 URL로 `browser_navigate` 하면 저장 안 됨 이탈 가드의 native `beforeunload`가 뜨고 MCP가 60s 타임아웃으로 죽는다**(`TimeoutError: navigating to ... waiting until "domcontentloaded"`). 브라우저 모달은 이후 모든 명령을 막으므로 **`browser_handle_dialog({accept:true})`를 미리 로드**해 두고, 에디터 상태를 더럽힌 뒤의 화면 전환마다 호출. 세션이 굳었으면 이걸 먼저 의심할 것(§unsaved-changes-guard 절과 짝).
+- **Monaco 쓰기: `fill`은 들어가지만 auto-indent가 YAML을 망가뜨린다** — 위 scenario-notes 절의 "구동 불가"는 `window.monaco`/모델 API 얘기고, `.monaco-editor textarea`에 `fill`을 하면 **입력 자체는 반영된다**. 다만 여러 줄 YAML은 에디터의 자동 들여쓰기가 줄마다 공백을 덧붙여 `Nested mappings are not allowed in compact mappings` / `Implicit keys need to be on a single line`로 깨진다(내가 넣은 YAML은 멀쩡한데 파서가 거부 → YAML 문법 오류로 오판하기 쉽다). **의도적으로 깨진 YAML을 만드는 용도로는 오히려 편하다**(yamlError 게이트 검증). 반대로 **정상 픽스처가 필요하면 Monaco에 붙여넣지 말고** UI 자체로 만들 것 — `/scenarios/new` 스타터 카드 + 변수 패널 `추가` 버튼 조합이 확실하다.
+- **변수 패널 픽스처 요령**: `×`(삭제 어포던스)는 **선언 행에만** 있다 — "로그인 흐름" 스타터의 `token`은 *추출* 변수라 `×`가 없다(버그 아님). 같은 이름을 변수 패널 `추가`로 **선언**하면 `추출 덮어씀`(overwritten) 상태가 만들어져, 선언·추출이 겹치는 경로를 한 번에 실측할 수 있다. `추가` 버튼은 페이지에 2개(`미리 실행` 컨트롤에도 있음)라 `[data-testid="editor-grid"]`로 스코핑 필요.
