@@ -45,7 +45,7 @@
 
 **Files:**
 - Modify: `crates/controller/src/insights.rs` (구조체 `:9-48`, `Insight::new` `:50-70`, 게이트 `:145-158`, 상수 `:311-313` 근처, 테스트 `:497-1419`)
-- Modify: `crates/controller/src/validity.rs:284-302` (테스트 헬퍼 `insight()`)
+- Modify: `crates/controller/src/validity.rs:284-302` (테스트 헬퍼 `insight()`) + `mod tests`에 게이트↔내러티브 연동 테스트 1건(Step 8b)
 - Modify: `crates/controller/src/export.rs:780`, `:801`, `:1038` (완전 리터럴 3곳)
 
 **Interfaces:**
@@ -109,7 +109,7 @@
 
 - [ ] **Step 2: 테스트가 컴파일 실패하는지 확인**
 
-Run: `cargo test -p handicap-controller --lib insights:: 2>&1 | tail -20; echo exit=$?`
+Run: `cargo test -p handicap-controller --lib insights:: > /tmp/ran-advice-01.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-01.log`
 Expected: FAIL — `no field 'runner_up_ms' on type 'Insight'`
 
 - [ ] **Step 3: `Insight`에 필드 추가 + `Insight::new` 갱신**
@@ -180,7 +180,7 @@ const TAU_SLOW_RATIO: f64 = 1.5; // 2위 스텝 대비 배수 하한
 
 - [ ] **Step 7: 새 테스트 통과 확인**
 
-Run: `cargo test -p handicap-controller --lib insights::tests::slowest_step_gate_boundaries 2>&1 | tail -20; echo exit=$?`
+Run: `cargo test -p handicap-controller --lib insights::tests::slowest_step_gate_boundaries > /tmp/ran-advice-02.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-02.log`
 Expected: PASS
 
 - [ ] **Step 8: 게이트로 RED가 된 기존 테스트 6건 복구**
@@ -198,20 +198,42 @@ Expected: PASS
 
 > **주의**: `step_err(id, errors)`(`:573-577`)는 **p95를 10으로 하드코딩**한다. 그래서 위 3·5번은 p95를 명시한 두 번째 스텝 `step("b", 40)`이 필요하다(격차 30 ✓ · 40 ≥ 1.5×10 ✓).
 
+- [ ] **Step 8b: 게이트 ↔ 내러티브 연동 테스트 추가** (`validity.rs`의 `mod tests`)
+
+`validity.rs:232-234`의 `bottleneck_step`은 `any(kind == "slowest_step")`로 **코드 변경 0**인 채 게이트를 따라간다. 자동 연동이라 아무도 안 건드려도 통과하지만, 게이트↔내러티브 일관성은 D5(화면↔export parity)의 근거 자체라 잠근다.
+
+```rust
+    #[test]
+    fn bottleneck_step_absent_when_slowest_suppressed() {
+        // 게이트가 slowest_step을 안 냈으면 "병목 스텝을 식별할 수 있다"는
+        // 주장도 사라져야 한다(spec §1 P4 — 게이트 도입 전엔 1ms 격차 run도 주장했다).
+        let d = dist(&[("200", 100)]);
+        let ins = vec![insight("slo_pass")]; // slowest_step 없음
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        assert_eq!(v.level, "ok", "다른 이유가 없으면 ok — 6~8 분기가 열린다");
+        let n = derive_narrative(&v, &summary(100, 0), true, &ins);
+        assert!(
+            !n.can_claim.contains(&"bottleneck_step".to_string()),
+            "slowest_step 부재 → bottleneck_step 미주장"
+        );
+        assert!(n.can_claim.contains(&"slo_held".to_string()), "형제 분기는 살아 있다");
+    }
+```
+
 - [ ] **Step 9: controller 전체 테스트 통과 확인**
 
-Run: `cargo test -p handicap-controller 2>&1 | tail -30; echo exit=$?`
+Run: `cargo test -p handicap-controller > /tmp/ran-advice-03.log 2>&1; echo exit=$?; tail -30 /tmp/ran-advice-03.log`
 Expected: 0 failed
 
 - [ ] **Step 10: 이빨 실증 — D10 판별자가 실제로 (b)를 잡는지**
 
 `Step 6`의 `filter_map`을 일시적으로 `(s.p95_ms != top.p95_ms).then_some(s.p95_ms)`(=기각안 b)로 바꾼다.
-Run: `cargo test -p handicap-controller --lib insights::tests::slowest_step_gate_boundaries 2>&1 | tail -20; echo exit=$?`
+Run: `cargo test -p handicap-controller --lib insights::tests::slowest_step_gate_boundaries > /tmp/ran-advice-04.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-04.log`
 Expected: **FAIL** — `[120,120,40]` 단언이 깨져야 한다. 확인 후 **원복**하고 다시 PASS 확인.
 
 - [ ] **Step 11: 게이트 통과 후 커밋**
 
-Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings 2>&1 | tail -20; echo exit=$?`
+Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings > /tmp/ran-advice-05.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-05.log`
 
 ```bash
 git add crates/controller/src/insights.rs crates/controller/src/validity.rs crates/controller/src/export.rs
@@ -241,7 +263,7 @@ runner_up은 top을 인덱스로 제외한 나머지의 최대(값 제외는 동
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cargo test -p handicap-controller --lib export:: 2>&1 | tail -20; echo exit=$?`
+Run: `cargo test -p handicap-controller --lib export:: > /tmp/ran-advice-06.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-06.log`
 Expected: FAIL — 헤더 불일치 2건
 
 - [ ] **Step 3: `INSIGHT_COLUMNS` 확장**
@@ -287,8 +309,8 @@ Expected: FAIL — 헤더 불일치 2건
 
 - [ ] **Step 7: 통과 확인 + 커밋**
 
-Run: `cargo test -p handicap-controller 2>&1 | tail -20; echo exit=$?` → 0 failed
-Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings 2>&1 | tail -10; echo exit=$?`
+Run: `cargo test -p handicap-controller > /tmp/ran-advice-07.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-07.log` → 0 failed
+Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings > /tmp/ran-advice-08.log 2>&1; echo exit=$?; tail -10 /tmp/ran-advice-08.log`
 
 ```bash
 git add crates/controller/src/export.rs crates/controller/CLAUDE.md
@@ -373,11 +395,23 @@ git commit -m "feat(export): INSIGHT_COLUMNS 16열 — runner_up_ms
     );
     expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();
   });
+
+  // 위 테스트만 두면 `hasDetail = narrative != null`로 잘못 써도 통과한다 —
+  // "열 것이 없으면 토글도 없다"를 증명하려면 빈 배열 분기가 따로 필요하다.
+  it("can/cannot이 둘 다 비면 토글이 안 뜬다", () => {
+    render(
+      <ValidityBanner
+        validity={{ level: "limited", reasons: [{ kind: "no_response_validation", severity: "warning" }] }}
+        narrative={{ events: [], can_claim: [], cannot_claim: [] }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();
+  });
 ```
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cd ui && pnpm test ValidityBanner 2>&1 | tail -20; echo exit=$?`
+Run: `cd ui && pnpm test ValidityBanner > /tmp/ran-advice-09.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-09.log`
 Expected: FAIL (prop `narrative` 미지원 / ok가 렌더됨)
 
 - [ ] **Step 3: `ValidityBanner`를 병합 블록으로 재작성**
@@ -572,7 +606,7 @@ ko.narrative의 sectionAria/eventsHeading/event(14키) 삭제."
 - Modify: `crates/controller/src/export.rs:471-473`, `:705-`, `:736-745`
 - Modify: `crates/controller/src/report.rs:2322-2327`
 - Modify: `ui/src/api/schemas.ts:419-423`
-- Modify: `ui/src/api/__tests__/schemas.test.ts`, `ui/src/components/report/__tests__/ReportView.test.tsx`, `ui/src/pages/__tests__/RunDetailPage.test.tsx` (픽스처)
+- Modify: `ui/src/api/__tests__/schemas.test.ts`, `ui/src/components/report/__tests__/ReportView.test.tsx`, `ui/src/pages/__tests__/RunDetailPage.test.tsx`, `ui/src/components/report/__tests__/ValidityBanner.test.tsx` (픽스처 — 마지막은 T3이 넣어둔 `events: []`)
 
 - [ ] **Step 1: 테스트부터 — events 참조 제거 (RED 유도)**
 
@@ -584,8 +618,8 @@ TS: `schemas.test.ts`의 픽스처 `events` + `parsed.narrative?.events` 단언 
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cargo test -p handicap-controller 2>&1 | tail -20; echo exit=$?` (아직 필드가 있어 컴파일은 되나 삭제한 테스트만 사라진 상태)
-Run: `cd ui && pnpm build 2>&1 | tail -20; echo exit=$?` — 픽스처에서 `events`를 지웠으므로 **필수 필드 누락**으로 tsc FAIL
+Run: `cargo test -p handicap-controller > /tmp/ran-advice-10.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-10.log` — **기대: E0063 `missing field 'events' in initializer of 'Narrative'` 컴파일 에러**. Step 1이 `export.rs:736-745` 리터럴에서 `events`를 지웠는데 필드는 Step 3에서야 사라지기 때문이다(구현자가 자기 실수로 오인하지 말 것)
+Run: `cd ui && pnpm build > /tmp/ran-advice-11.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-11.log` — 픽스처에서 `events`를 지웠으므로 **필수 필드 누락**으로 tsc FAIL
 
 - [ ] **Step 3: Rust 필드·계산 제거**
 
@@ -594,6 +628,10 @@ Run: `cd ui && pnpm build 2>&1 | tail -20; echo exit=$?` — 픽스처에서 `ev
 - `validity.rs:177-187` events 계산 블록 삭제. **`push_unique`는 존치**(can/cannot에서 계속 사용), **`insights` 파라미터도 존치**(`:222-235`가 사용)
 - `validity.rs:253-257` 반환 리터럴에서 `events,` 줄 삭제
 - `export.rs:471-473` XLSX Summary row 9(`narrative_events_count`) 삭제 — row 9는 Summary 시트 **마지막** 행(다음은 Steps 시트 `:475-`)이라 인덱스 시프트 없음. `:459`·`:706` 주석의 "rows 7–9" → "rows 7–8"
+- `xlsx_summary_includes_validity_rows`에 **부재 단언** 1줄 추가(제거만 하면 "행이 사라졌다"를 아무도 안 지킨다):
+  ```rust
+  assert!(matches!(ws.get_value((9, 0)), None | Some(Data::Empty)), "narrative_events_count 행 제거됨");
+  ```
 
 - [ ] **Step 4: Zod 갱신**
 
@@ -601,8 +639,8 @@ Run: `cd ui && pnpm build 2>&1 | tail -20; echo exit=$?` — 픽스처에서 `ev
 
 - [ ] **Step 5: 게이트 + 커밋**
 
-Run: `cargo test -p handicap-controller 2>&1 | tail -20; echo exit=$?` → 0 failed
-Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings 2>&1 | tail -10; echo exit=$?`
+Run: `cargo test -p handicap-controller > /tmp/ran-advice-12.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-12.log` → 0 failed
+Run: `cargo fmt && cargo clippy -p handicap-controller --all-targets -- -D warnings > /tmp/ran-advice-13.log 2>&1; echo exit=$?; tail -10 /tmp/ran-advice-13.log`
 Run: `cd ui && pnpm lint; echo lint=$?; pnpm test; echo test=$?; pnpm build; echo build=$?`
 
 ```bash
@@ -670,18 +708,39 @@ describe("insightPrefs", () => {
 ```tsx
   it("기본(숨김)에서 일반 안내는 감추되 계산된 권장치는 남긴다", () => {
     render(<InsightPanel insights={[statusClass5xx, saturatedWithSlots]} meta={new Map()} />);
-    // 일반 코칭은 숨김
-    expect(screen.queryByText(new RegExp(ko.insightActions.status_class))).toBeNull();
+    // 일반 코칭은 숨김.
+    // ⚠ `new RegExp(ko.insightActions.status_class)`를 쓰지 말 것 — 그 문구의
+    // "(인증·파라미터)"가 캡처 그룹으로 소비돼 괄호 없는 문자열을 요구하게 되고,
+    // 그러면 일반 코칭이 *실제로 보여도* 이 단언이 통과한다(공허). 메타문자 없는
+    // 리터럴 조각으로 고정한다.
+    expect(screen.queryByText(/서버 측 문제부터 확인하세요/)).toBeNull();
     // 측정값 기반 권장치는 항상 표시 — 이 단언이 없으면 "조치문 렌더를 통째로
-    // 지워도 통과"하는 공허한 테스트가 된다
+    // 지워도 통과"하는 공허한 테스트가 된다. 두 단언은 반드시 짝으로.
     expect(screen.getByText(/max_in_flight/)).toBeInTheDocument();
+  });
+
+  // US2 — 영속 배선. 이 테스트가 없으면 구현자가 `useState(false)`로 써도
+  // ① prefs 단위 테스트 ② 토글 ON 테스트들 ③ 기본-숨김 테스트가 전부 통과해
+  // US2의 자동 증거가 0이 된다(라이브에서만 드러남).
+  it("토글 선택은 재마운트 후에도 유지된다", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<InsightPanel insights={[statusClass5xx]} meta={new Map()} />);
+    await user.click(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle }));
+    expect(screen.getByText(/서버 측 문제부터 확인하세요/)).toBeInTheDocument();
+
+    unmount();
+    render(<InsightPanel insights={[statusClass5xx]} meta={new Map()} />);
+    expect(screen.getByText(/서버 측 문제부터 확인하세요/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: ko.report.insightActionsToggle })).toBeChecked();
   });
 ```
 
+> 이 파일 최상단에 `beforeEach(() => window.localStorage.clear())`가 필요하다(이 저장소의 localStorage 파일간 누수 선례).
+
 - [ ] **Step 3: RED 확인**
 
-Run: `cd ui && pnpm test InsightPanel 2>&1 | tail -20; echo exit=$?` → FAIL (토글 체크박스 없음)
-Run: `cd ui && pnpm test insightPrefs 2>&1 | tail -20; echo exit=$?` → FAIL (모듈 없음)
+Run: `cd ui && pnpm test InsightPanel > /tmp/ran-advice-14.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-14.log` → FAIL (토글 체크박스 없음)
+Run: `cd ui && pnpm test insightPrefs > /tmp/ran-advice-15.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-15.log` → FAIL (모듈 없음)
 
 - [ ] **Step 4: prefs 모듈 작성**
 
@@ -790,9 +849,16 @@ function actionFor(i: Insight): Action | undefined {
 `ko.report`에 `insightActionsToggle: "조치 안내 보기",` 추가.
 **충돌 스윕**: `grep -n '"[^"]*조치 안내' ui/src/i18n/ko.ts` → 자기 자신 1건만이어야 한다.
 
-- [ ] **Step 8: 이빨 실증 — D7 짝 단언**
+- [ ] **Step 8: 이빨 실증 — D7 짝 단언 (양쪽 각각)**
 
-`actionFor`의 `sut` arm을 일시 `computed: false`로 → Step 2의 D7 테스트가 FAIL 하는지 확인 → 원복 → PASS.
+D7 테스트 픽스처는 `cause: "slots"`이므로 **`sut` arm을 뒤집어도 실행되지 않아 RED가 안 난다.** 두 절반을 각각 주입해 실증한다:
+
+| 절반 | 주입 | 기대 |
+|---|---|---|
+| "권장치는 남는다" | `actionFor`의 **`slots` arm** 반환을 `computed: false`로 | `getByText(/max_in_flight/)`가 FAIL |
+| "일반 코칭은 숨는다" | 렌더 조건 `(!action.computed && !showGeneric)`을 `!action`만 남겨 항상 표시 | `queryByText(/서버 측 문제부터 확인하세요/)).toBeNull()`이 FAIL |
+
+각각 확인 후 **원복**하고 PASS 재확인. (M1 수정 전이라면 두 번째 주입이 RED가 안 나는데, 그게 바로 정규식 메타문자로 단언이 죽어 있다는 증거다.)
 
 - [ ] **Step 9: 게이트 + 커밋**
 
@@ -854,7 +920,7 @@ ko.insightActions(일반 코칭 7종)만 토글 뒤로 숨기고 ko.saturation.*
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cd ui && pnpm test InsightPanel 2>&1 | tail -20; echo exit=$?`
+Run: `cd ui && pnpm test InsightPanel > /tmp/ran-advice-16.log 2>&1; echo exit=$?; tail -20 /tmp/ran-advice-16.log`
 Expected: FAIL (`runner_up_ms`가 타입에 없음 / "병목" 포함)
 
 - [ ] **Step 3: Zod 필드 추가**
