@@ -153,7 +153,9 @@ export function partitionBindingRows<T extends RowRef>(
 | 변수명 배지 (`:554`) | `w-28` (112px) | **`w-48` (192px)** |
 | manual 행 입력 (`:547`) | `w-28` | **`w-48`** |
 | 오류 힌트 (`:643,648,653`) | `ml-32` (128px) | **`ml-[200px]`** |
-| B 변수명 입력 (`TestRunDatasetSection.tsx:406`) | `w-32` (128px) | **`w-56` (224px)** |
+| B 변수명 입력 (`TestRunDatasetSection.tsx:406`) | `w-32` (128px) | **`w-64` (256px)** — rev2, 아래 참조 |
+
+> **rev2 정정 (2026-07-29, 라이브 실측)**: 이 칸은 최초 `w-56`(224px)로 고정했으나, 머지 전 라이브 검증에서 **US3가 실제로 실패**했다. B 화면은 A 화면과 달리 그룹핑이 없어 점 붙은 전체 이름이 그대로 들어가는데, 슬라이스를 촉발한 바로 그 이름 `checkout_branch.session_token`이 입력칸의 실제 폰트(14px `ui-sans-serif`, **mono 아님**)로 **209px**인 반면 `w-56`의 콘텐츠 폭은 224 − 18 = **206px** → `scrollWidth 225 > clientWidth 222`로 3px 초과. Windows Segoe UI는 더 넓어 여유가 더 줄어든다. `w-64`(콘텐츠 238px)로 올려 **+29px** 여유 확보. 사용자 재가로 "폭 상수 변경 금지" 제약보다 **라이브 실측이 지배**한다고 판정. (43자 `inventory_reservation_branch.reservation_id` = 288px는 `w-64`로도 안 들어간다 — B 화면 그룹핑은 비목표이므로 알려진 한계로 남긴다.) **위 배지 산술이 12px mono 기준인 것과 달리 이 칸은 14px sans라 자당 폭이 더 크다** — 두 표를 같은 환산으로 읽지 말 것.
 
 **폭 산술 (rev1 오류 정정 — 리뷰 F2)**: Tailwind preflight가 `box-sizing: border-box`이고 배지는 `px-2`(16px)+`border`(2px)를 가지므로 **콘텐츠 폭 = 전체 − 18px**이다. rev1은 §9-5에서 이 18px을 다시 빼지 않아 "24자"를 얻었다.
 
