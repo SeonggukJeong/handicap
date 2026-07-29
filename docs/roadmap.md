@@ -396,6 +396,11 @@
 
 ---
 
+### B26. 사용중인 변수 삭제 확인 (2026-07-29, `127403d`) 연기 항목
+
+- **선언 행 값 textarea의 yamlError 게이트** — 이번 슬라이스는 `×`만 게이트했다(US4). 같은 패널의 선언 행 **값 textarea**(`VariablesPanel`)는 지금도 미게이트라, YAML이 깨진 상태에서 입력이 `dispatch` early-return으로 조용히 삼켜진다(선재 결함, spec 비목표에 "알려진 한계"로 기록). `×`와 같은 `disabled={yamlError !== null}` 한 줄이면 닫히지만, 값 입력은 draft 상태기계를 끼고 있어 비활성 전환 시 draft 처리(폐기/보존)를 정해야 한다 — 소형이나 무설계 착수는 금물.
+- **테스트 이빨 보강 5건**(전부 non-blocking, 최종 리뷰가 "safe to leave"로 triage): ① `DeleteVariableDialog` "[삭제] 미포커스" 테스트가 `autoFocus` 회귀에 **구조적으로 무이빨**(autoFocus는 layout 단계, `Modal`의 `panel?.focus()`는 passive라 항상 나중에 이겨 테스트가 통과) — 실질 가드는 컴포넌트 docstring뿐. ② 같은 파일 "목록 비대화형"이 `role="button"`만 조회해 `<li>` 생 `onClick`을 못 잡음. ③ `stepRefLabel.test.ts` 색-토큰 부정 단언이 `bg-*`/`text-slate*`만 커버. ④ `VarUsagePopover.test.tsx` 미발견-id 케이스의 부정 단언이 형제 긍정 단언에 포섭됨. ⑤ `VariablesPanel` R4① `not.toBe(document.body)`가 뒤따르는 `toHaveFocus()`에 포섭됨(문서 가치만).
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
