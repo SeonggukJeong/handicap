@@ -529,6 +529,11 @@ export const ko = {
     variableUsageNavAria: (name: string) => `${name}을(를) 사용하는 스텝으로 이동`,
     varUsageListAria: "사용 스텝 목록",
     varExpandAria: (name: string) => `${name} 펼치기/접기`,
+    // ── 사용중인 변수 삭제 확인 (var-delete-confirm) ──
+    varDeleteTitle: "변수 삭제",
+    varDeleteBody: (name: string, n: number) =>
+      `${name} 변수를 참조하는 스텝이 ${n}개 있습니다. 삭제하면 그 참조가 미정의(⚠)로 남아 실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다.`,
+    varDeleteUsageListAria: "삭제할 변수를 참조하는 스텝",
     // ── 동적 변수 생성기 (dynamic-vars T4) ──
     genTypeDate: "날짜",
     genTypeRandomInt: "랜덤 정수",
