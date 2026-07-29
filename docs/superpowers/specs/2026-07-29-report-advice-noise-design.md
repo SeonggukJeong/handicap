@@ -1,6 +1,6 @@
 # run 완료 리포트 조언 밀도 축소 + 느린-스텝 인사이트 실질성 (report-advice-noise)
 
-- **날짜**: 2026-07-29 (rev2 — `spec-plan-reviewer` NEEDS-REWORK 반영)
+- **날짜**: 2026-07-29 (rev3 — `spec-plan-reviewer` APPROVE-WITH-FIXES의 N1–N5 반영)
 - **유형 태그**: `user-path` (주) + `correctness-bug` (US4 — 근거 없는 "병목" 주장 제거)
 - **테마**: §A11 속지 않는 오픈 시험 — **3차(사후 표면)**. 1차 `f93544a`, 2차 `1d7e8e4`, 정밀화 `4723e06`.
 - **발의**: 사용자 도그푸딩 원문 (2026-07-29)
@@ -126,10 +126,11 @@ pub runner_up_ms: Option<f64>,
 | 7 | `export.rs:471-473` XLSX Summary row 9 | 삭제. row 9는 Summary 시트 **마지막** 행(다음은 Steps 시트 `:475-`)이라 인덱스 시프트 없음 | — |
 | 8 | `export.rs:736-745` 테스트 내 `Narrative { events: vec![…], … }` | 리터럴에서 `events` 제거 | 컴파일 에러 |
 | 9 | `export.rs:705-` `xlsx_summary_includes_validity_narrative_rows` | row 9 단언 제거 + 테스트명 `..._includes_validity_rows`로 정정 | — |
-| 10 | `report.rs:2323`·`:2329`·`:2335`·`:2357`·`:2363` `rep.narrative…` 단언 | events 참조 단언 제거/재작성 | 컴파일 에러 |
+| 10 | `report.rs:2322-2327` — `assert!(rep.narrative.events.iter().any(…))` **단 하나** | 그 블록만 제거 | 컴파일 에러 |
+| 10' | `report.rs:2329`·`:2335`·`:2357`·`:2363`·`:2383` | **무변경** — 전부 `can_claim`/`cannot_claim` 단언이고 D4가 "무변경"으로 못박은 `production_identity`/`sut_capacity`/`throughput_measured`/`functional_correctness` 골든이다. **실측: `.events`는 `report.rs` 전체에 정확히 1회(`:2324`)뿐** — rev2 표의 5-사이트 인용은 과대였고 그대로 따르면 건강한 단언 4개를 재작성하게 된다 | — |
 | 11 | `ui/src/api/schemas.ts:419-423` `NarrativeSchema` | `events` 제거 | — |
 | 12 | `ui/src/components/report/__tests__/NarrativeBlock.test.tsx` | **파일 삭제** (컴포넌트가 사라짐) | — |
-| 13 | `ui/src/components/report/__tests__/ReportView.test.tsx` | narrative 픽스처 `events` 제거 + 순서 테스트 재작성(§8.4) | tsc 초과 속성 |
+| 13 | `ui/src/components/report/__tests__/ReportView.test.tsx` | narrative 픽스처 `events` 제거 + **`:392`가 참조하는 `ko.narrative.sectionAria`가 삭제되므로**(§6) 그 순서 테스트를 병합 후 구조로 재작성(→ §8.5 병합 불변식) | tsc 초과 속성 + 미해결 참조 |
 | 14 | `ui/src/api/__tests__/schemas.test.ts` | 픽스처 `events` + `parsed.narrative?.events` 단언 제거 | tsc |
 | 15 | `ui/src/pages/__tests__/RunDetailPage.test.tsx` | 픽스처 `events` 제거 | tsc |
 | 16 | `ui/src/i18n/ko.ts` | `narrative.eventsHeading` + `narrative.event`(14키) + `narrative.sectionAria` 삭제(§6) | — |
@@ -185,7 +186,8 @@ export function ValidityBanner({
 | `suspect` | 상세 **기본 펼침** |
 | `limited` | 상세 **기본 접힘** |
 
-- `level === "ok"` ⟺ `reasons.length === 0`은 서버 불변식(`validity.rs:131-137`)이나, UI는 `reasons.length > 0`으로 이유 렌더를 게이트해 두 표현이 어긋나도 깨지지 않는다.
+- **`ok`면 `reasons` 유무와 무관하게 미렌더** — level 검사가 먼저 단락시킨다. `level === "ok"` ⟺ `reasons.length === 0`은 서버 불변식(`validity.rs:131-137`)이 보장하므로 정상 페이로드에선 차이가 없고, 그 불변식이 깨진 페이로드(`ok` + reasons 존재)는 이유가 **조용히 삼켜진다**(수용 — 서버가 유일한 생산자다). rev2의 "UI가 `reasons.length > 0`으로 게이트하므로 안 깨진다"는 근거는 `ok → return null` 도입으로 무효가 됐다.
+- **접힘 구현 = 조건부 미렌더**(`{open && <상세/>}`, `hidden` 속성 아님). 이 저장소의 disclosure 이디엄(`ScenarioSnapshot`·`InspectorSection`)과 일치하며, §8.5의 "`canHeading` 정확히 1개" 단언이 **펼친 상태를 전제**한다는 뜻이기도 하다(접힘 상태에선 0개가 정상).
 - **토글 DOM 위치 (M3)**: 이유 `<ul>` **아래**, `Callout`의 `children` 안. `Callout.title`(`:30`에서 `<p>`로 감싸짐) 내부에 넣지 않는다 — `ok`가 미렌더가 되어 "한 줄" 제약이 사라졌으므로 `Callout` 내부 구조에 의존할 이유가 없다.
 - **토글은 가시 텍스트를 가진 `<button aria-expanded>`이고 `aria-label`을 붙이지 않는다.** 가시 텍스트 = `ko.narrative.title`("결과 해석") + caret. `aria-label`을 붙이면 접근명이 가시 텍스트를 덮어써 WCAG 2.5.3(Label in Name) 위반이며 이 저장소가 이미 두 번 적발한 클래스다.
 - **접힘 상태는 영속하지 않는다** — level에서 매번 도출. 영속시키면 사용자가 `suspect` 경고를 영구히 숨길 수 있다(A11 테제 위반). §5.3의 조치문 토글은 영속하는데 이쪽은 안 하는 **비대칭은 의도적**이며 근거가 다르다(경고 은닉 위험 vs 개인 취향).
@@ -265,8 +267,13 @@ export function ValidityBanner({
 | 격차 경계 −1 | `[19, 0]` | 19<20 ✗ | 미발행 |
 | 배수 경계 정확 | `[90, 60]` | 30≥20 ✓ · 90≥90 ✓ | 발행 |
 | 배수 경계 −1 | `[89, 60]` | 29≥20 ✓ · 89<90 ✗ | 미발행 |
+| **D10 판별자** | `[120, 120, 40]` | 격차 0 ✗ | **미발행** |
 | 스텝 1개 | `[500]` | 2위 부재 | 미발행 |
 | 0-나눗셈 회귀 | `[300, 0]` | — | 발행 + **패닉/NaN/Infinity 없음** |
+
+> **`[120,120,40]` 행은 생략 금지 — D10을 검증하는 유일한 픽스처다.** 기각안 (b)(`runner_up = max{p95 : p95 < top}`)로 구현하면 나머지 14개 픽스처가 **전부 GREEN**이라 두 구현이 구별되지 않는다(§8.2 row 2의 `[100,100]`도 (b)에선 "2위 부재"로 미발행이라 결과가 같다). 이 픽스처만 갈린다: (a) `runner_up=120` → 격차 0 → 미발행 / (b) `runner_up=40` → 격차 80·`120≥60` → **발행**. rev1이 실제로 (b) 방향으로 미끄러졌던 전례가 있으므로 이론적 위험이 아니다. `[100,100]`(§8.2)과 **병존**시킬 것 — 그건 "동률"이 아니라 "2위 부재"와 구별이 안 된다.
+>
+> **구현 주의**: `runner_up`은 **top을 인덱스로 제외**한 나머지의 최대다(값으로 제외하면 (b)가 된다).
 
 ### 8.2 서버 — 게이트 도입으로 RED가 되는 **기존** 테스트 6건
 
@@ -276,7 +283,7 @@ export function ValidityBanner({
 
 | 테스트 | 현재 | 왜 RED | 복구 픽스처 (검산) |
 |---|---|---|---|
-| `slowest_step_picks_max_p95` (`:624-642`) | `[50, 120, 90]` | 120 < 1.5×90=135 | `[step("a",50), step("b",210), step("c",90)]` → 격차 120 ✓ · 210≥135 ✓ · `step_id="b"`·`runner_up_ms=90` |
+| `slowest_step_picks_max_p95` (`:624-642`) | `[50, 120, 90]` | 120 < 1.5×90=135 | `[step("a",50), step("b",210), step("c",90)]` → 격차 120 ✓ · 210≥135 ✓ · `step_id="b"`·`runner_up_ms=90`. **`:641`의 `assert_eq!(got[0].value, Some(120.0))`도 `Some(210.0)`으로 갱신** |
 | `slowest_step_first_on_tie` (`:884-901`) | `[100, 100]` | 격차 0 (D10) | **테스트 재설정** — `slowest_step_suppressed_on_tie`로 개명, 같은 픽스처로 **미발행**을 단언. 옛 "첫 스텝" 불변식은 D10에 따라 관측 불가 |
 | `insights_deterministic_order` (`:818-844`) | 스텝 1개 `step_err("a",50)`(p95 10) | 2위 부재 | `vec![step_err("a",50), step("b",40)]` → top=b(40)·2위=10 · 격차 30 ✓ · 40≥15 ✓ → 발행 → **기대 배열의 `("slowest_step", None)` rank-8 항을 그대로 보존**(rev1의 "항을 제거해도 된다"는 자기모순이었다 — 제거하면 락인이 사라진다) |
 | `all_pass_run_has_slowest_and_slo_pass` (`:862-881`) | 스텝 1개 `step("a",80)` | 2위 부재 | `[step("a",80), step("b",40)]` → 격차 40 ✓ · 80≥60 ✓ · top=a 유지 → `kinds == ["slowest_step","slo_pass"]` 보존 |
@@ -314,13 +321,13 @@ rev1이 통째로 빠뜨린 분석이다(`ui/src/components/report/__tests__/Ins
 | 병합 블록 `suspect` | 상세 **펼침** |
 | 구식 리포트(`validity` 부재) | 미렌더 (가짜 ok 금지) |
 | `narrative` 부재 / can·cannot 둘 다 빔 | 토글 미렌더 |
-| **병합 불변식 (M5)** | `getAllByText(ko.narrative.canHeading)`가 **정확히 1개**이고 그것이 유효성 region(`getByRole("region",{name: ko.validity.bannerAria})`) **내부**에 있을 것. 별도 블록이 되살아나면 개수가 2가 되어 깨진다 — "은퇴 리터럴 부재" 대신 "살아있는 라벨 개수"로 표현한 형태 |
+| **병합 불변식 (M5)** | **픽스처 = `suspect`(기본 펼침) + `can_claim` 비지 않음** — 접힘은 조건부 미렌더이고 `canHeading`은 `can_claim.length > 0`일 때만 그려지므로(`NarrativeBlock.tsx:29-31` 계승), 둘 중 하나라도 빠지면 0개가 되어 단언이 **공허해진다**. 그 픽스처에서 `getAllByText(ko.narrative.canHeading)`가 **정확히 1개**이고 그것이 유효성 region(`getByRole("region",{name: ko.validity.bannerAria})`) **내부**일 것. 별도 블록이 되살아나면 개수가 2가 되어 깨진다 — "은퇴 리터럴 부재" 대신 "살아있는 라벨 개수"로 표현한 형태 |
 | 조치문 토글 off(기본) | `ko.insightActions.*` 부재 **그리고** `ko.saturation.*` 권장치 **존재** — **두 단언이 짝이어야 D7이 증명된다**(부재 단언만 두면 조치문 렌더를 통째로 지워도 통과) |
 | 조치문 토글 on | 일반 안내 복귀 |
 | 영속 | 토글 후 재마운트 시 유지 + malformed localStorage → 기본값(no-throw) |
 | 느린-스텝 문구 | `runner_up_ms > 0` → 격차+배수 / `=== 0` → 격차만 + **`"Infinity"` 문자열 부재** |
 
-**이빨 실증 의무**: 회귀 가드를 표방하는 것(§8.1 경계 9건, §8.5 병합 불변식·토글 off 이중 단언·Infinity 가드)은 **고의 회귀 주입 → RED → 원복 → GREEN**으로 증명한다. 특히:
+**이빨 실증 의무**: 회귀 가드를 표방하는 것(§8.1 경계 10건 — **`[120,120,40]` D10 판별자 포함**, §8.5 병합 불변식·토글 off 이중 단언·Infinity 가드)은 **고의 회귀 주입 → RED → 원복 → GREEN**으로 증명한다. D10 판별자의 주입은 "`runner_up`을 기각안 (b) 방식으로 바꿔 RED 확인 → 원복"이다. 특히:
 
 - **`ko.*` 보간 문구를 기대값으로 쓰는 단언은 자기참조**다(렌더와 기대가 같은 함수를 부름) → 느린-스텝 문구는 **렌더된 숫자**(`"160"`·`"4.2"`)를 별도 확인.
 - `toHaveTextContent`는 **부분문자열 매칭**이라 전체일치가 필요하면 `/^…$/`.
