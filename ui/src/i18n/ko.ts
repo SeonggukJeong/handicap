@@ -1060,11 +1060,9 @@ export const ko = {
       load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",
     },
   },
-  // A11 결과 해석 내러티브 — events + can_claim + cannot_claim 코드 맵 (spec §5.1–5.2).
+  // 결과 해석 — can_claim + cannot_claim 코드 맵 (spec §5.1). ValidityBanner의 접이식 상세.
   narrative: {
-    sectionAria: "결과 해석",
     title: "결과 해석",
-    eventsHeading: "주요 사건",
     canHeading: "말할 수 있는 것",
     cannotHeading: "말할 수 없는 것",
     can: {
@@ -1086,23 +1084,6 @@ export const ko = {
       target_load_applied: "목표한 부하가 전부 걸렸다는 것",
       slo_gate: "SLO 게이트 판정(기준 미설정)",
       production_identity: "프로덕션과 동일한 환경·데이터·트래픽 패턴",
-    },
-    // events 코드 = 서버 와이어 문자열 그대로 키(콜론 포함). 미지 코드는 호출부에서 raw fallback.
-    event: {
-      "validity:zero_requests": "요청이 한 건도 기록되지 않음",
-      "validity:transport_heavy": "전송 실패(연결 단계) 비중이 큼",
-      "validity:silent_http_errors": "HTTP 오류 상태코드 있음 · 엔진 에러 0",
-      "validity:no_response_validation": "응답 검증·SLO 기준 없음",
-      "validity:load_not_delivered": "목표 부하를 다 걸지 못함",
-      "insight:slo_failure": "SLO 기준 미달",
-      "insight:slo_pass": "SLO 기준 통과",
-      "insight:status_class:5xx": "5xx 응답 비중",
-      "insight:status_class:4xx": "4xx 응답 비중",
-      "insight:load_gen_saturated": "부하 생성기 포화",
-      "insight:error_hotspot": "에러 핫스팟 스텝",
-      "insight:status_temporal": "후반 5xx 등장",
-      "insight:no_request_step": "요청 없는 스텝",
-      "insight:slowest_step": "가장 느린 스텝",
     },
   },
   runDetail: {

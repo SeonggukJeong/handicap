@@ -1,4 +1,5 @@
-import type { Validity, ValidityReason } from "../../api/schemas";
+import { useState } from "react";
+import type { Narrative, Validity, ValidityReason } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { floorPct } from "./format";
 import { Callout } from "../ui/Callout";
@@ -36,9 +37,56 @@ const LEVEL_VARIANT: Record<Validity["level"], "info" | "warn" | "error"> = {
   suspect: "error",
 };
 
-/** Report-top reasons list for soft validity (A11 §5.3). Absent when key missing. */
-export function ValidityBanner({ validity }: { validity?: Validity | null }) {
-  if (!validity) return null;
+const CAN_LABELS: Record<string, string | undefined> = ko.narrative.can;
+const CANNOT_LABELS: Record<string, string | undefined> = ko.narrative.cannot;
+
+function label(map: Record<string, string | undefined>, code: string): string {
+  return map[code] ?? code;
+}
+
+function ClaimList({
+  heading,
+  codes,
+  map,
+}: {
+  heading: string;
+  codes: string[];
+  map: Record<string, string | undefined>;
+}) {
+  if (codes.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <h4 className="mb-1 text-sm font-semibold">{heading}</h4>
+      <ul className="list-disc space-y-0.5 pl-5">
+        {codes.map((code) => (
+          <li key={code}>{label(map, code)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * 시험 유효성 + 결과 해석 병합 블록 (spec §5.1).
+ * `ok`는 미렌더(US1 0줄), `limited`는 상세 접힘, `suspect`는 상세 펼침.
+ * 접힘 상태는 **영속하지 않는다** — 영속시키면 suspect 경고를 영구히 숨길 수 있다.
+ */
+export function ValidityBanner({
+  validity,
+  narrative,
+}: {
+  validity?: Validity | null;
+  narrative?: Narrative | null;
+}) {
+  const [open, setOpen] = useState(validity?.level === "suspect");
+
+  // `ok`면 reasons 유무와 무관하게 미렌더 — 서버 불변식(validity.rs:131-137)이
+  // ok ⟺ reasons 0을 보장한다. `!validity`(구식 리포트)도 미렌더(가짜 ok 금지).
+  if (!validity || validity.level === "ok") return null;
+
+  const hasDetail =
+    (narrative?.can_claim.length ?? 0) > 0 || (narrative?.cannot_claim.length ?? 0) > 0;
+
   return (
     <Callout
       variant={LEVEL_VARIANT[validity.level]}
@@ -53,6 +101,33 @@ export function ValidityBanner({ validity }: { validity?: Validity | null }) {
             <li key={`${r.kind}-${idx}`}>{reasonText(r)}</li>
           ))}
         </ul>
+      ) : null}
+      {hasDetail ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="mt-2 text-xs underline"
+          >
+            <span aria-hidden="true">{open ? "▾ " : "▸ "}</span>
+            {ko.narrative.title}
+          </button>
+          {open ? (
+            <div>
+              <ClaimList
+                heading={ko.narrative.canHeading}
+                codes={narrative?.can_claim ?? []}
+                map={CAN_LABELS}
+              />
+              <ClaimList
+                heading={ko.narrative.cannotHeading}
+                codes={narrative?.cannot_claim ?? []}
+                map={CANNOT_LABELS}
+              />
+            </div>
+          ) : null}
+        </>
       ) : null}
     </Callout>
   );

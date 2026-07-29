@@ -62,4 +62,89 @@ describe("ValidityBanner", () => {
       "future_reason",
     );
   });
+
+  // Task 3: merged validity + narrative block (spec §5.1). ok is unrendered (US1 — 0 lines),
+  // limited collapses the interpretation detail, suspect expands it.
+  it("suspect면 상세가 펼쳐지고 can/cannot이 유효성 region 안에 딱 한 번 있다", () => {
+    render(
+      <ValidityBanner
+        validity={{ level: "suspect", reasons: [{ kind: "zero_requests", severity: "critical" }] }}
+        narrative={{
+          events: [],
+          can_claim: ["client_reachability_issue"],
+          cannot_claim: ["production_identity"],
+        }}
+      />,
+    );
+    // 픽스처 조건: suspect(기본 펼침) + can_claim 비지 않음 — 둘 중 하나라도
+    // 빠지면 canHeading이 0개가 되어 이 단언이 공허해진다.
+    const headings = screen.getAllByText(ko.narrative.canHeading);
+    expect(headings).toHaveLength(1);
+    const region = screen.getByRole("region", { name: ko.validity.bannerAria });
+    expect(region).toContainElement(headings[0]);
+  });
+
+  it("limited면 상세가 접혀 있다", () => {
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [{ kind: "no_response_validation", severity: "warning" }],
+        }}
+        narrative={{
+          events: [],
+          can_claim: ["throughput_measured"],
+          cannot_claim: ["production_identity"],
+        }}
+      />,
+    );
+    expect(screen.queryByText(ko.narrative.canHeading)).toBeNull();
+    expect(screen.getByRole("button", { name: ko.narrative.title })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("ok면 블록 자체를 안 그린다 (US1 — 0줄)", () => {
+    const { container } = render(
+      <ValidityBanner
+        validity={{ level: "ok", reasons: [] }}
+        narrative={{ events: [], can_claim: [], cannot_claim: [] }}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("validity 부재(구식 리포트)면 미렌더 — 가짜 ok 금지", () => {
+    const { container } = render(<ValidityBanner validity={undefined} narrative={undefined} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("narrative가 없으면 토글도 안 뜬다", () => {
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [{ kind: "no_response_validation", severity: "warning" }],
+        }}
+        narrative={undefined}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();
+  });
+
+  // 위 테스트만 두면 `hasDetail = narrative != null`로 잘못 써도 통과한다 —
+  // "열 것이 없으면 토글도 없다"를 증명하려면 빈 배열 분기가 따로 필요하다.
+  it("can/cannot이 둘 다 비면 토글이 안 뜬다", () => {
+    render(
+      <ValidityBanner
+        validity={{
+          level: "limited",
+          reasons: [{ kind: "no_response_validation", severity: "warning" }],
+        }}
+        narrative={{ events: [], can_claim: [], cannot_claim: [] }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();
+  });
 });

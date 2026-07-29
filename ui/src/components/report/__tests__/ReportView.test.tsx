@@ -349,7 +349,7 @@ describe("ReportView", () => {
     expect(screen.getByRole("region", { name: ko.report.latencyTitle }).className).toBe("");
   });
 
-  // A11: Banner → Narrative → Verdict → Insight document order (R8)
+  // spec §5.1: 유효성+해석 병합 블록 → Verdict → Insight document order
   describe("A11 validity/narrative surfaces", () => {
     const A11_REPORT: Report = {
       ...FIXTURE,
@@ -365,7 +365,7 @@ describe("ReportView", () => {
         ],
       },
       narrative: {
-        events: ["validity:transport_heavy", "insight:slo_pass"],
+        events: [],
         can_claim: ["client_reachability_issue"],
         cannot_claim: ["sut_capacity", "production_identity"],
       },
@@ -373,23 +373,24 @@ describe("ReportView", () => {
       insights: [{ kind: "slo_pass", severity: "info" }],
     };
 
-    it("document order: ValidityBanner → NarrativeBlock → VerdictPanel → InsightPanel", () => {
+    it("document order: ValidityBanner(merged) → VerdictPanel → InsightPanel", () => {
       render(<ReportView report={A11_REPORT} profile={TEST_PROFILE} />);
       const banner = screen.getByRole("region", { name: ko.validity.bannerAria });
-      const narrative = screen.getByRole("region", { name: ko.narrative.sectionAria });
       const verdict = screen.getByRole("region", { name: ko.report.verdictSectionLabel });
       const insights = screen.getByRole("region", { name: ko.report.insightsLabel });
 
       // DOCUMENT_POSITION_FOLLOWING(4) — later node is after earlier in document order
-      expect(banner.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(narrative.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(verdict.compareDocumentPosition(insights) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        banner.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        verdict.compareDocumentPosition(insights) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
 
-    it("old reports omit validity/narrative → banner and narrative absent (no fake ok)", () => {
+    it("old reports omit validity/narrative → merged block absent (no fake ok)", () => {
       render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
       expect(screen.queryByRole("region", { name: ko.validity.bannerAria })).toBeNull();
-      expect(screen.queryByRole("region", { name: ko.narrative.sectionAria })).toBeNull();
       expect(screen.queryByText(ko.validity.level.ok)).toBeNull();
     });
   });
