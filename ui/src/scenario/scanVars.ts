@@ -155,17 +155,28 @@ export function collectProducedVars(scenario: Scenario): Set<string> {
   return out;
 }
 
-/** parallel 분기 B의 http extract var마다 `${B.name}.${var}` (R3/R4). parallel은
- *  top-level-only(ADR-0033)이라 최상위 스텝만 훑는다. */
-export function collectNamespacedProducers(scenario: Scenario): Set<string> {
-  const out = new Set<string>();
+/** parallel 분기 B의 http extract var마다 `${B.name}.${var}` → 구조적 분해(R3/R4).
+ *  parallel은 top-level-only(ADR-0033)이라 최상위 스텝만 훑는다.
+ *  **문자열 분해 금지의 단일 소스** — 분기명에 점이 있어도 안전하다. */
+export function namespacedProducerIndex(
+  scenario: Scenario,
+): Map<string, { branchName: string; varName: string }> {
+  const out = new Map<string, { branchName: string; varName: string }>();
   for (const s of scenario.steps) {
     if (s.type !== "parallel") continue;
     for (const b of s.branches)
       for (const step of flattenHttpSteps(b.steps))
-        for (const e of step.extract) out.add(`${b.name}.${e.var}`);
+        for (const e of step.extract) {
+          const display = `${b.name}.${e.var}`;
+          if (!out.has(display)) out.set(display, { branchName: b.name, varName: e.var });
+        }
   }
   return out;
+}
+
+/** 위 index의 키 집합. 순회 정의를 하나로 유지한다(거동 불변). */
+export function collectNamespacedProducers(scenario: Scenario): Set<string> {
+  return new Set(namespacedProducerIndex(scenario).keys());
 }
 
 /** parallel 분기에서 추출되는 bare 이름 집합 (R8 shadow 판정). */

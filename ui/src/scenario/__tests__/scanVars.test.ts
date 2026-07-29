@@ -5,6 +5,7 @@ import {
   countFlowVarUsage,
   collectProducedVars,
   collectNamespacedProducers,
+  namespacedProducerIndex,
   parallelExtractNames,
   buildVarRefIndex,
   undefinedVarRefs,
@@ -567,6 +568,55 @@ describe("collectNamespacedProducers (R3)", () => {
     const ns = collectNamespacedProducers(parallelScen);
     expect(ns.has("alpha.s")).toBe(true);
     expect(ns.has("s")).toBe(false); // bare는 여기 없음
+  });
+});
+
+describe("namespacedProducerIndex", () => {
+  it("maps display key to structural branch/var without string splitting", () => {
+    const idx = namespacedProducerIndex(parallelScen);
+    for (const [display, { branchName, varName }] of idx) {
+      expect(display).toBe(`${branchName}.${varName}`);
+    }
+    expect(idx.size).toBeGreaterThan(0);
+  });
+
+  it("keeps a branch name that itself contains a dot intact", () => {
+    const scen = {
+      ...parallelScen,
+      steps: [
+        {
+          id: "01HWAAAAAAAAAAAAAAAAAAAAAG",
+          name: "Fanout",
+          type: "parallel" as const,
+          branches: [
+            {
+              name: "a.b",
+              steps: [
+                {
+                  id: "01HWAAAAAAAAAAAAAAAAAAAAAH",
+                  name: "S",
+                  type: "http" as const,
+                  request: { method: "GET" as const, url: "http://x/", headers: {} },
+                  assert: [],
+                  extract: [{ var: "c", from: "body" as const, path: "$.c" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    // 첫 점으로 쪼갰다면 branchName="a", varName="b.c"가 됐을 것이다.
+    expect(namespacedProducerIndex(scen).get("a.b.c")).toEqual({
+      branchName: "a.b",
+      varName: "c",
+    });
+  });
+
+  it("collectNamespacedProducers stays equal to the index key set", () => {
+    expect(collectNamespacedProducers(parallelScen)).toEqual(
+      new Set(namespacedProducerIndex(parallelScen).keys()),
+    );
   });
 });
 
