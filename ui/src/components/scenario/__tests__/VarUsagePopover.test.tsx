@@ -20,6 +20,24 @@ const s2: Step = {
   assert: [],
   extract: [],
 };
+const sIf: Step = {
+  id: "s3",
+  type: "if",
+  name: "분기",
+  cond: { left: "{{token}}", op: "eq", right: "ok" },
+  then: [
+    {
+      id: "s4",
+      type: "http",
+      name: "확인",
+      request: { method: "GET", url: "/ok", headers: {} },
+      assert: [],
+      extract: [],
+    },
+  ],
+  elif: [],
+  else: [],
+};
 
 describe("VarUsagePopover", () => {
   it("renders referencing steps in a body portal and jumps without closing", async () => {
@@ -116,6 +134,73 @@ describe("VarUsagePopover", () => {
     const menuitem = screen.getByRole("menuitem");
     fireEvent.scroll(menuitem); // 팝오버 내부 스크롤(F2)
     expect(onCloseInner).not.toHaveBeenCalled();
+  });
+
+  it("http 참조는 메서드 배지+스텝 이름, if 참조는 IF 배지+조건 요약으로 렌더한다", () => {
+    const anchor = document.createElement("button");
+    document.body.appendChild(anchor);
+    render(
+      <VarUsagePopover
+        anchor={anchor}
+        refIds={["s1", "s2", "s3"]}
+        steps={[s1, s2, sIf]}
+        selectedStepId={null}
+        onJump={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByText("GET")).toBeInTheDocument();
+    expect(within(menu).getByText("POST")).toBeInTheDocument();
+    expect(within(menu).getByText("로그인")).toBeInTheDocument();
+    expect(within(menu).getByText("IF")).toBeInTheDocument();
+    expect(within(menu).getByText("{{token}} eq ok")).toBeInTheDocument();
+  });
+
+  it("배지 className이 공유 레이아웃 토큰과 종류별 색 토큰을 함께 갖는다", () => {
+    const anchor = document.createElement("button");
+    document.body.appendChild(anchor);
+    render(
+      <VarUsagePopover
+        anchor={anchor}
+        refIds={["s1", "s3"]}
+        steps={[s1, sIf]}
+        selectedStepId={null}
+        onJump={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const menu = screen.getByRole("menu");
+    const httpTokens = within(menu).getByText("GET").className.split(/\s+/);
+    expect(httpTokens).toContain("shrink-0");
+    expect(httpTokens).toContain("font-mono");
+    expect(httpTokens).toContain("text-[10px]");
+    expect(httpTokens).toContain("bg-emerald-100");
+    expect(httpTokens).toContain("text-emerald-700");
+    const ifTokens = within(menu).getByText("IF").className.split(/\s+/);
+    expect(ifTokens).toContain("shrink-0");
+    expect(ifTokens).toContain("font-mono");
+    expect(ifTokens).toContain("text-[10px]");
+    expect(ifTokens).toContain("bg-slate-100");
+    expect(ifTokens).toContain("text-slate-500");
+  });
+
+  it("스텝을 못 찾으면 raw id를 라벨로 쓰고 배지는 렌더하지 않는다", () => {
+    const anchor = document.createElement("button");
+    document.body.appendChild(anchor);
+    render(
+      <VarUsagePopover
+        anchor={anchor}
+        refIds={["ghost"]}
+        steps={[s1]}
+        selectedStepId={null}
+        onJump={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByText("ghost")).toBeInTheDocument();
+    expect(within(menu).queryByText("GET")).toBeNull();
   });
 });
 
