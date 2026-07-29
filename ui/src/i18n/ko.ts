@@ -178,6 +178,10 @@ export const ko = {
     sourceForAria: (v: string) => `${v || "변수"} 소스`,
     literalForAria: (v: string) => `${v || "변수"} 리터럴 값`,
     removeMappingAria: (v: string | number) => `${v} 매핑 제거`,
+    // 분기 변수 그룹 헤더. 가시 텍스트 = `${branchGroupLead} ${분기명}`,
+    // 접근명 = 가시 텍스트 + ` ${branchGroupAriaTail}` (aria ⊇ visible, WCAG 2.5.3).
+    branchGroupLead: "분기",
+    branchGroupAriaTail: "변수 매핑",
   },
   loadModel: {
     closedLoop: "사용자 수 기준 (closed-loop)",

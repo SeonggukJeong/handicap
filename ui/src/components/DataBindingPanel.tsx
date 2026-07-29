@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataset, useDatasets } from "../api/hooks";
 import type { BindingPolicy, DataBinding, Mapping } from "../api/schemas";
 import { type Scenario } from "../scenario/model";
-import { scanFlowVars, collectProducedVars } from "../scenario/scanVars";
+import { scanFlowVars, collectProducedVars, namespacedProducerIndex } from "../scenario/scanVars";
+import { partitionBindingRows } from "../scenario/bindingGroups";
 import { ko } from "../i18n/ko";
 
 type Props = {
@@ -307,6 +308,10 @@ function BindingCard({
   // scenario.variables + 모든 extract(분기 포함)로 채워지는 var 집합 (공유 collectProducedVars).
   const availableElsewhere = useMemo<Set<string>>(() => collectProducedVars(scenario), [scenario]);
 
+  // 분기 변수 그룹핑 — 표시용 재배치일 뿐이다(rows/emit 경로 불변).
+  const nsIndex = useMemo(() => namespacedProducerIndex(scenario), [scenario]);
+  const { ungrouped, groups } = useMemo(() => partitionBindingRows(rows, nsIndex), [rows, nsIndex]);
+
   // Reconstruct the sibling-covered var set from the stable space-joined string. A var
   // supplied by another binding card is NOT "uncovered" here (Slice 8c false-alarm trap,
   // multi-binding flavor). Memoized on the stable string → no new identity per render.
@@ -446,6 +451,131 @@ function BindingCard({
     setRows((prev) => [...prev, makeRow("", true)]);
   }
 
+  // 기존 rows.map 콜백 본문을 그대로 옮긴 것. displayName만 새 인자다.
+  const renderRow = (row: MappingRow, idx: number, displayName: string) => {
+    const uncovered = !row.manual && isUncovered(row);
+    const stale = isStaleColumn(row);
+    const isMapped =
+      (row.sourceKind === "column" && !!row.column) ||
+      (row.sourceKind === "literal" && row.literalValue !== "");
+    const conflict = !!selectedId && isMapped && conflictingVars.has(row.varName);
+    const hasError = uncovered || stale || conflict;
+
+    return (
+      <li key={idx} className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          {/* Var name: read-only badge for scanned vars, editable for manual */}
+          {row.manual ? (
+            <input
+              aria-label={ko.binding.mappingVarNameAria}
+              className="w-28 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
+              placeholder="var_name"
+              value={row.varName}
+              onChange={(e) => updateRow(idx, { varName: e.target.value })}
+            />
+          ) : (
+            <span
+              className={`w-28 shrink-0 truncate font-mono text-xs px-2 py-1 rounded ${
+                hasError
+                  ? "text-red-700 bg-red-50 border border-red-300"
+                  : "text-slate-600 bg-slate-50 border border-slate-200"
+              }`}
+              title={row.varName}
+            >
+              {displayName}
+            </span>
+          )}
+          {autoMatchedVars.has(row.varName) && row.sourceKind === "column" && (
+            <span className="ml-1 rounded bg-emerald-50 px-1 text-xs text-emerald-700">
+              자동 연결됨
+            </span>
+          )}
+
+          {/* Source select — only interactive when a dataset is selected */}
+          {selectedId ? (
+            <select
+              aria-label={ko.binding.sourceForAria(row.varName || "")}
+              className={`flex-1 min-w-0 border rounded px-2 py-1 text-sm ${
+                stale ? "border-red-400" : "border-slate-300"
+              }`}
+              value={
+                row.sourceKind === "none"
+                  ? "none"
+                  : row.sourceKind === "literal"
+                    ? "__literal__"
+                    : row.column
+              }
+              onChange={(e) => {
+                const v = e.target.value;
+                // 사용자가 직접 소스를 바꾸면 "자동 연결됨" 배지 제거
+                setAutoMatchedVars((prev) => {
+                  if (!prev.has(row.varName)) return prev;
+                  const n = new Set(prev);
+                  n.delete(row.varName);
+                  return n;
+                });
+                if (v === "none") {
+                  updateRow(idx, { sourceKind: "none", column: "" });
+                } else if (v === "__literal__") {
+                  updateRow(idx, { sourceKind: "literal", column: "" });
+                } else {
+                  updateRow(idx, { sourceKind: "column", column: v });
+                }
+              }}
+            >
+              <option value="none">— 없음 —</option>
+              {columns.map((col) => (
+                <option key={col} value={col}>
+                  {col}
+                  {dataset.data?.sample?.[0]?.[col] !== undefined
+                    ? ` (예: ${dataset.data.sample[0][col]})`
+                    : ""}
+                </option>
+              ))}
+              <option value="__literal__">literal…</option>
+            </select>
+          ) : (
+            <span className="flex-1 min-w-0 text-xs text-slate-400 italic px-2">
+              데이터셋 선택 후 매핑 가능
+            </span>
+          )}
+
+          {/* Literal value input */}
+          {selectedId && row.sourceKind === "literal" && (
+            <input
+              aria-label={ko.binding.literalForAria(row.varName || "")}
+              className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
+              placeholder="고정 값"
+              value={row.literalValue}
+              onChange={(e) => updateRow(idx, { literalValue: e.target.value })}
+            />
+          )}
+
+          {/* Remove button */}
+          <button
+            type="button"
+            onClick={() => removeRow(idx)}
+            aria-label={ko.binding.removeMappingAria(row.varName || idx)}
+            className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Error hints (only when dataset is selected) */}
+        {uncovered && (
+          <p className="ml-32 text-xs text-red-600">
+            매핑되지 않음 — 시나리오 기본값/추출/env로 제공되거나 매핑돼야 함
+          </p>
+        )}
+        {stale && <p className="ml-32 text-xs text-red-600">선택한 컬럼이 현재 데이터셋에 없음</p>}
+        {conflict && !stale && !uncovered && (
+          <p className="ml-32 text-xs text-red-600">{ko.binding.dupVar(row.varName)}</p>
+        )}
+      </li>
+    );
+  };
+
   const rowCount = dataset.data?.row_count;
   const selectedName = datasets.data?.datasets.find((d) => d.id === selectedId)?.name;
   const mappedCount = rows.filter(
@@ -527,137 +657,36 @@ function BindingCard({
           {rows.length > 0 && (
             <div className="mb-3">
               <span className="text-xs font-medium text-slate-600 block mb-2">변수 매핑</span>
-              <ul className="flex flex-col gap-2">
-                {rows.map((row, idx) => {
-                  const uncovered = !row.manual && isUncovered(row);
-                  const stale = isStaleColumn(row);
-                  const isMapped =
-                    (row.sourceKind === "column" && !!row.column) ||
-                    (row.sourceKind === "literal" && row.literalValue !== "");
-                  const conflict = !!selectedId && isMapped && conflictingVars.has(row.varName);
-                  const hasError = uncovered || stale || conflict;
-
-                  return (
-                    <li key={idx} className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        {/* Var name: read-only badge for scanned vars, editable for manual */}
-                        {row.manual ? (
-                          <input
-                            aria-label={ko.binding.mappingVarNameAria}
-                            className="w-28 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm font-mono"
-                            placeholder="var_name"
-                            value={row.varName}
-                            onChange={(e) => updateRow(idx, { varName: e.target.value })}
-                          />
-                        ) : (
-                          <span
-                            className={`w-28 shrink-0 truncate font-mono text-xs px-2 py-1 rounded ${
-                              hasError
-                                ? "text-red-700 bg-red-50 border border-red-300"
-                                : "text-slate-600 bg-slate-50 border border-slate-200"
-                            }`}
-                            title={row.varName}
-                          >
-                            {row.varName}
-                          </span>
-                        )}
-                        {autoMatchedVars.has(row.varName) && row.sourceKind === "column" && (
-                          <span className="ml-1 rounded bg-emerald-50 px-1 text-xs text-emerald-700">
-                            자동 연결됨
-                          </span>
-                        )}
-
-                        {/* Source select — only interactive when a dataset is selected */}
-                        {selectedId ? (
-                          <select
-                            aria-label={ko.binding.sourceForAria(row.varName || "")}
-                            className={`flex-1 min-w-0 border rounded px-2 py-1 text-sm ${
-                              stale ? "border-red-400" : "border-slate-300"
-                            }`}
-                            value={
-                              row.sourceKind === "none"
-                                ? "none"
-                                : row.sourceKind === "literal"
-                                  ? "__literal__"
-                                  : row.column
-                            }
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              // 사용자가 직접 소스를 바꾸면 "자동 연결됨" 배지 제거
-                              setAutoMatchedVars((prev) => {
-                                if (!prev.has(row.varName)) return prev;
-                                const n = new Set(prev);
-                                n.delete(row.varName);
-                                return n;
-                              });
-                              if (v === "none") {
-                                updateRow(idx, { sourceKind: "none", column: "" });
-                              } else if (v === "__literal__") {
-                                updateRow(idx, { sourceKind: "literal", column: "" });
-                              } else {
-                                updateRow(idx, { sourceKind: "column", column: v });
-                              }
-                            }}
-                          >
-                            <option value="none">— 없음 —</option>
-                            {columns.map((col) => (
-                              <option key={col} value={col}>
-                                {col}
-                                {dataset.data?.sample?.[0]?.[col] !== undefined
-                                  ? ` (예: ${dataset.data.sample[0][col]})`
-                                  : ""}
-                              </option>
-                            ))}
-                            <option value="__literal__">literal…</option>
-                          </select>
-                        ) : (
-                          <span className="flex-1 min-w-0 text-xs text-slate-400 italic px-2">
-                            데이터셋 선택 후 매핑 가능
-                          </span>
-                        )}
-
-                        {/* Literal value input */}
-                        {selectedId && row.sourceKind === "literal" && (
-                          <input
-                            aria-label={ko.binding.literalForAria(row.varName || "")}
-                            className="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm"
-                            placeholder="고정 값"
-                            value={row.literalValue}
-                            onChange={(e) => updateRow(idx, { literalValue: e.target.value })}
-                          />
-                        )}
-
-                        {/* Remove button */}
-                        <button
-                          type="button"
-                          onClick={() => removeRow(idx)}
-                          aria-label={ko.binding.removeMappingAria(row.varName || idx)}
-                          className="shrink-0 text-slate-500 hover:text-red-600 text-sm"
-                        >
-                          ×
-                        </button>
-                      </div>
-
-                      {/* Error hints (only when dataset is selected) */}
-                      {uncovered && (
-                        <p className="ml-32 text-xs text-red-600">
-                          매핑되지 않음 — 시나리오 기본값/추출/env로 제공되거나 매핑돼야 함
-                        </p>
-                      )}
-                      {stale && (
-                        <p className="ml-32 text-xs text-red-600">
-                          선택한 컬럼이 현재 데이터셋에 없음
-                        </p>
-                      )}
-                      {conflict && !stale && !uncovered && (
-                        <p className="ml-32 text-xs text-red-600">
-                          {ko.binding.dupVar(row.varName)}
-                        </p>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              {/* 모든 변수가 분기 변수인 시나리오에서 빈 <ul>이 DOM에 남지 않게 게이트한다
+                  (스크린리더가 빈 목록을 읽는다). US4 케이스에는 영향 없다. */}
+              {ungrouped.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                  {ungrouped.map(({ row, idx }) => renderRow(row, idx, row.varName))}
+                </ul>
+              )}
+              {groups.map((g) => {
+                // 가시 텍스트를 한 번만 만들고 접근명이 그걸 재사용한다 → 드리프트 구조적 불가.
+                const visible = `${ko.binding.branchGroupLead} ${g.branchName}`;
+                return (
+                  <div key={g.branchName} className="mt-3">
+                    <div
+                      data-testid="branch-group-header"
+                      className="mb-1 flex items-center gap-1 text-xs text-slate-500"
+                    >
+                      <span className="shrink-0">{ko.binding.branchGroupLead}</span>
+                      <span className="truncate font-mono text-slate-600" title={g.branchName}>
+                        {g.branchName}
+                      </span>
+                    </div>
+                    <ul
+                      aria-label={`${visible} ${ko.binding.branchGroupAriaTail}`}
+                      className="flex flex-col gap-2 border-l-2 border-slate-200 pl-2"
+                    >
+                      {g.items.map(({ row, idx, varName }) => renderRow(row, idx, varName))}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           )}
 

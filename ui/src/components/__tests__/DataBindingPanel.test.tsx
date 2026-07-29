@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DataBindingPanel } from "../DataBindingPanel";
 import type { Scenario } from "../../scenario/model";
 import type { DataBinding } from "../../api/schemas";
+import { ko } from "../../i18n/ko";
 
 // Mock the hooks module — same approach as RunDialog.test which stubs fetch globally.
 // DataBindingPanel uses useDatasets() and useDataset(id), which call the api module
@@ -835,5 +836,137 @@ describe("DataBindingPanel — multi-binding list editor", () => {
     });
     // No card shows the "uncovered" blocking hint.
     expect(screen.queryByText(/매핑되지 않음/)).not.toBeInTheDocument();
+  });
+});
+
+// ── Branch variable grouping (binding-varname T3, US1/US4) ─────────────────
+
+/** 스캔 순서가 [username, checkout_branch.session_token, checkout_branch.order_id, late_var]가
+ *  되도록 parallel 노드를 가운데 두고 뒤 스텝이 late_var를 참조한다.
+ *  → partition 순서(ungrouped 먼저)와 rows 순서가 달라져 idx/순서 회귀에 이빨이 생긴다. */
+function makeScenarioWithParallel(): Scenario {
+  return {
+    version: 1 as const,
+    name: "Parallel",
+    cookie_jar: "auto" as const,
+    variables: {},
+    steps: [
+      {
+        id: "01HWAAAAAAAAAAAAAAAAAAAAAC",
+        name: "Login",
+        type: "http" as const,
+        request: {
+          method: "POST" as const,
+          url: "http://example.com/login/{{username}}",
+          headers: {},
+        },
+        assert: [],
+        extract: [],
+      },
+      {
+        id: "01HWAAAAAAAAAAAAAAAAAAAAAD",
+        name: "Fanout",
+        type: "parallel" as const,
+        branches: [
+          {
+            name: "checkout_branch",
+            steps: [
+              {
+                id: "01HWAAAAAAAAAAAAAAAAAAAAAE",
+                name: "Session",
+                type: "http" as const,
+                request: { method: "GET" as const, url: "http://example.com/session", headers: {} },
+                assert: [],
+                extract: [
+                  { var: "session_token", from: "body" as const, path: "$.token" },
+                  { var: "order_id", from: "body" as const, path: "$.oid" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "01HWAAAAAAAAAAAAAAAAAAAAAF",
+        name: "Use",
+        type: "http" as const,
+        request: {
+          method: "GET" as const,
+          url: "http://example.com/o/{{checkout_branch.session_token}}/{{checkout_branch.order_id}}/{{late_var}}",
+          headers: {},
+        },
+        assert: [],
+        extract: [],
+      },
+    ],
+  };
+}
+
+/** 가시 텍스트를 DOM에서 뽑는다(공백 정규화) — 카피가 바뀌어도 살아남는 비교용. */
+function visibleTextOf(el: Element): string {
+  const clone = el.cloneNode(true) as Element;
+  clone.querySelectorAll("[aria-hidden='true']").forEach((n) => n.remove());
+  return (clone.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+const GROUP_ARIA = `${ko.binding.branchGroupLead} checkout_branch ${ko.binding.branchGroupAriaTail}`;
+
+describe("branch variable grouping", () => {
+  // T5 (US1)
+  it("shows branch vars by their bare name under one branch header", async () => {
+    renderPanel(makeScenarioWithParallel());
+
+    const groupList = await screen.findByRole("list", {
+      name: `${ko.binding.branchGroupLead} checkout_branch ${ko.binding.branchGroupAriaTail}`,
+    });
+    const badges = within(groupList).getAllByTitle(/^checkout_branch\./);
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveTextContent(/^session_token$/);
+    expect(badges[1]).toHaveTextContent(/^order_id$/);
+    // 접두사가 행에서 사라졌다 (헤더로 올라갔다)
+    expect(badges[0].textContent).not.toContain("checkout_branch");
+    // title은 전체 display를 유지한다 (복사·검색 가능성)
+    expect(badges[0]).toHaveAttribute("title", "checkout_branch.session_token");
+  });
+
+  // T7 — aria ⊇ visible (조립형이라 구조적으로 참, 드리프트 가드)
+  it("group list accessible name starts with the visible header text", async () => {
+    renderPanel(makeScenarioWithParallel());
+    const header = await screen.findByTestId("branch-group-header");
+    const groupList = screen.getByRole("list", { name: GROUP_ARIA });
+    const aria = (groupList.getAttribute("aria-label") ?? "").replace(/\s+/g, " ");
+    // 헤더는 두 인접 <span>(리드/분기명)을 CSS gap으로만 벌려 렌더한다 — JSX가
+    // span 사이 개행-only 공백을 드롭해 textContent엔 공백이 없다("분기checkout_branch")
+    // 반면 aria-label은 조립 시 명시 공백을 넣는다("분기 checkout_branch ..."). 둘 다
+    // 공백을 제거하고 비교해 이 CSS-gap-vs-space 차이에 면역이면서, aria-label을 독립
+    // 하드코딩 문자열로 바꾸는 미래의 드리프트는 여전히 잡는다.
+    const strip = (s: string) => s.replace(/\s+/g, "");
+    expect(strip(aria).startsWith(strip(visibleTextOf(header)))).toBe(true);
+  });
+
+  // T6 (US4) — 분기 없는 시나리오엔 새 구조가 안 생긴다
+  it("adds no extra list and no named list when the scenario has no parallel branch", async () => {
+    renderPanel(makeScenario());
+    await screen.findByText("변수 매핑");
+    expect(screen.getAllByRole("list")).toHaveLength(1);
+    expect(screen.queryAllByRole("list", { name: /.+/ })).toHaveLength(0);
+    expect(screen.queryByTestId("branch-group-header")).toBeNull();
+  });
+
+  // T4 — 그룹 행 조작이 원본 인덱스를 쓴다
+  it("removing a grouped row removes only that row (original index, not local)", async () => {
+    const user = userEvent.setup();
+    renderPanel(makeScenarioWithParallel());
+    const groupList = await screen.findByRole("list", { name: GROUP_ARIA });
+    await user.click(
+      within(groupList).getByRole("button", {
+        name: ko.binding.removeMappingAria("checkout_branch.session_token"),
+      }),
+    );
+    // username(원본 0)은 살아 있고, 지워진 건 session_token(원본 1)뿐이다.
+    expect(screen.getByTitle("username")).toBeInTheDocument();
+    expect(screen.queryByTitle("checkout_branch.session_token")).toBeNull();
+    expect(screen.getByTitle("checkout_branch.order_id")).toBeInTheDocument();
+    expect(screen.getByTitle("late_var")).toBeInTheDocument();
   });
 });
