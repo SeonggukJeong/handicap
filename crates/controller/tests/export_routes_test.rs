@@ -518,7 +518,7 @@ async fn single_run_insights_csv_export_returns_csv() {
     let first = text.lines().next().unwrap();
     assert_eq!(
         first,
-        "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec"
+        "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms"
     );
 }
 
