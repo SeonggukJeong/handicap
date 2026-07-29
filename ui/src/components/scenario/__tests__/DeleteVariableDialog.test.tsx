@@ -75,6 +75,21 @@ describe("DeleteVariableDialog", () => {
     expect(within(list).queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("목록 항목이 비대화형이라도 목록 자체는 키보드로 포커스·스크롤 가능하다", () => {
+    setup();
+    const list = screen.getByRole("list", { name: ko.editor.varDeleteUsageListAria });
+    expect(list).toHaveAttribute("tabindex", "0");
+    list.focus();
+    expect(list).toHaveFocus();
+  });
+
+  it("목록 항목 라벨은 truncate와 짝이 되는 title로 전체 텍스트를 보존한다", () => {
+    setup();
+    const list = screen.getByRole("list", { name: ko.editor.varDeleteUsageListAria });
+    expect(within(list).getByText("로그인")).toHaveAttribute("title", "로그인");
+    expect(within(list).getByText("{{token}} eq ok")).toHaveAttribute("title", "{{token}} eq ok");
+  });
+
   it("[삭제]는 onConfirm만, [취소]는 onCancel만 부른다", async () => {
     const user = userEvent.setup();
     const { onCancel, onConfirm } = setup();

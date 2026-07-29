@@ -532,7 +532,7 @@ export const ko = {
     // ── 사용중인 변수 삭제 확인 (var-delete-confirm) ──
     varDeleteTitle: "변수 삭제",
     varDeleteBody: (name: string, n: number) =>
-      `${name} 변수를 참조하는 스텝이 ${n}개 있습니다. 삭제하면 그 참조가 미정의(⚠)로 남아 실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다.`,
+      `${name} 변수를 참조하는 스텝이 ${n}개 있습니다. 삭제하면 그 참조를 채우던 선언이 사라져 실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다.`,
     varDeleteUsageListAria: "삭제할 변수를 참조하는 스텝",
     // ── 동적 변수 생성기 (dynamic-vars T4) ──
     genTypeDate: "날짜",

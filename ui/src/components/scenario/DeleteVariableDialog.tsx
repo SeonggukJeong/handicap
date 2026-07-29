@@ -31,6 +31,7 @@ export function DeleteVariableDialog({
         <p className="text-sm text-slate-700">{ko.editor.varDeleteBody(name, refIds.length)}</p>
         <ul
           aria-label={ko.editor.varDeleteUsageListAria}
+          tabIndex={0}
           className="max-h-64 overflow-auto rounded-md border border-slate-200 p-1 text-xs"
         >
           {refIds.map((id) => {
@@ -42,7 +43,9 @@ export function DeleteVariableDialog({
                     {d.badge.text}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate">{d.label}</span>
+                <span className="min-w-0 flex-1 truncate" title={d.label}>
+                  {d.label}
+                </span>
               </li>
             );
           })}

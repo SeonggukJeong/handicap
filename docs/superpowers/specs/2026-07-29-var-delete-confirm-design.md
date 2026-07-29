@@ -115,7 +115,7 @@ export function describeStepRef(steps: Step[], id: string): StepRefDesc;
 | 키 | 값 |
 |---|---|
 | `varDeleteTitle` | `"변수 삭제"` |
-| `varDeleteBody` | `(name: string, n: number) => \`${name} 변수를 참조하는 스텝이 ${n}개 있습니다. 삭제하면 그 참조가 미정의(⚠)로 남아 실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다.\`` |
+| `varDeleteBody` | `(name: string, n: number) => \`${name} 변수를 참조하는 스텝이 ${n}개 있습니다. 삭제하면 그 참조를 채우던 선언이 사라져 실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다.\`` (정정, 각주 참고) |
 | `varDeleteUsageListAria` | `"삭제할 변수를 참조하는 스텝"` |
 
 `[취소]`/`[삭제]` 버튼은 기존 `ko.common.cancel`/`ko.common.delete`를 재사용한다(신규 키 없음).
@@ -124,6 +124,7 @@ export function describeStepRef(steps: Step[], id: string): StepRefDesc;
   - **"요청이"가 아니라 "실행이"인 이유**: 요청 표면의 실제 파급은 요청 1건 실패가 아니라 VU 전멸 → `AllVusFailed`(위 배경 참조)다. "요청이"는 위험을 **축소** 전달한다.
   - **"수 있습니다" 헤지가 필요한 이유**: 조건 분기만 타는 VU가 있으면 run이 완주하므로 단정("실패합니다")은 과 주장이 된다. 반대로 요청 표면만 말하는 문구는 cond-only 변수에게 일어나지 않을 실패를 경고하고 진짜 위험(조용한 오분기)을 숨긴다. 두 양상을 다 담고 헤지하는 이 한 문장이 양쪽 오류를 동시에 피하는 유일한 형태다.
 - **참조 키 위치 주의**: 이 `×` 버튼의 기존 접근명 `removeVariableAria`는 위 블록이 **아니라 `ko.ts:773`**(editor 뒤쪽 절)에 있다 — 삭제 관련 문구가 두 곳으로 갈리므로 plan은 양쪽을 다 봐야 한다.
+- **정정(2026-07-29, 최종 리뷰 fold-in)**: 원안의 "그 참조가 미정의(⚠)로 남아" 절은 `flatProducerNames`(선언 ∪ non-parallel extract)에 의해 그 이름을 flat extract도 동시에 생산하는 경우(§엣지 케이스의 `overwritten` 배지 상태) 삭제 후에도 이름이 extract로 정의된 채라 **⚠가 결코 뜨지 않아** 거짓이었다 — 위 표는 "그 참조를 채우던 선언이 사라져"로 교정한 값이다. 뒤따르는 "실행이 실패하거나 조건 분기가 잘못 갈 수 있습니다" 결과절은 그대로 유지(§엣지 케이스가 이미 방어한 대로 extract보다 앞선 참조는 여전히 깨진다) — 두 양상을 한 문장에 담는 R6 원칙 자체는 안 바뀐다.
 
 **부분문자열 충돌 대조**(신규↔기존 **양방향** 전수 — `thinkboard-defaults` 교훈):
 
