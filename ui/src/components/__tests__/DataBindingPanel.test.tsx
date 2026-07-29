@@ -975,6 +975,89 @@ describe("branch variable grouping", () => {
   });
 });
 
+// ── Namespaced vars are not false-flagged as uncovered (binding-varname T5, US5) ──
+const DATASET_LIST_NS = {
+  datasets: [
+    {
+      id: "DS2",
+      name: "ns.csv",
+      columns: ["username", "late_var", "token"],
+      row_count: 10,
+      byte_size: 256,
+      created_at: 1000,
+    },
+  ],
+};
+
+const DATASET_DETAIL_NS = {
+  id: "DS2",
+  name: "ns.csv",
+  columns: ["username", "late_var", "token"],
+  row_count: 10,
+  byte_size: 256,
+  created_at: 1000,
+  sample: [{ username: "alice", late_var: "L1", token: "T1" }],
+};
+
+/** NS 데이터셋을 모킹하고 고른다 — 두 케이스가 공유. */
+async function selectNsDataset(user: ReturnType<typeof userEvent.setup>) {
+  const datasetSelect = await screen.findByLabelText(/데이터셋/i);
+  await screen.findByRole("option", { name: /ns\.csv/i });
+  await user.selectOptions(datasetSelect, "DS2");
+}
+
+describe("namespaced vars are not false-flagged as uncovered (US5)", () => {
+  it("emits no validity reason and keeps mappings in rows order", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST_NS))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL_NS));
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onValidity = vi.fn();
+    renderPanel(makeScenarioWithParallel(), onChange, onValidity);
+
+    await selectNsDataset(user);
+    // username·late_var는 이름이 열과 같아 auto-match된다(조건 ①).
+    // session_token은 token 열로 수동 매핑 — 조건 ②(partition 순서 ≠ rows 순서).
+    await user.selectOptions(
+      await screen.findByLabelText(ko.binding.sourceForAria("checkout_branch.session_token")),
+      "token",
+    );
+
+    // onValidityChange는 (ok, reasons) 2인자다.
+    await waitFor(() => expect(onValidity.mock.lastCall?.[1]).toEqual([]));
+
+    // 6b: emit된 mappings 순서 = rows 순서 (partition 순서가 아니다).
+    // renderPanel이 onChange를 단일 바인딩으로 어댑트한다(bindings[0] ?? null).
+    const mappings = onChange.mock.lastCall?.[0]?.mappings ?? [];
+    expect(mappings.map((m: { var: string }) => m.var)).toEqual([
+      "username",
+      "checkout_branch.session_token",
+      "late_var",
+    ]);
+  });
+
+  it("still flags a dotted name that no branch produces", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(DATASET_LIST_NS))
+      .mockResolvedValueOnce(jsonResponse(DATASET_DETAIL_NS));
+    const user = userEvent.setup();
+    const onValidity = vi.fn();
+    const scen = makeScenarioWithParallel();
+    // 3번째 스텝(Use)의 url을 오타 참조로 교체 — 어떤 분기도 ghost를 생산하지 않는다.
+    const use = scen.steps[2];
+    if (use.type !== "http") throw new Error("fixture drift: steps[2] must be the http 'Use' step");
+    use.request.url = "http://example.com/o/{{ghost.token}}";
+
+    renderPanel(scen, vi.fn(), onValidity);
+    await selectNsDataset(user);
+
+    await waitFor(() =>
+      expect((onValidity.mock.lastCall?.[1] as string[]).join(" ")).toContain("ghost.token"),
+    );
+  });
+});
+
 describe("var name column width (US2)", () => {
   const tokens = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/);
 

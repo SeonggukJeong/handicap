@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataset, useDatasets } from "../api/hooks";
 import type { BindingPolicy, DataBinding, Mapping } from "../api/schemas";
 import { type Scenario } from "../scenario/model";
-import { scanFlowVars, collectProducedVars, namespacedProducerIndex } from "../scenario/scanVars";
+import {
+  scanFlowVars,
+  collectProducedVars,
+  collectNamespacedProducers,
+  namespacedProducerIndex,
+} from "../scenario/scanVars";
 import { partitionBindingRows } from "../scenario/bindingGroups";
 import { ko } from "../i18n/ko";
 
@@ -305,8 +310,14 @@ function BindingCard({
   // Compute the set of vars this scenario references via {{var}} syntax.
   const scannedVars = useMemo(() => scanFlowVars(scenario), [scenario]);
 
-  // scenario.variables + 모든 extract(분기 포함)로 채워지는 var 집합 (공유 collectProducedVars).
-  const availableElsewhere = useMemo<Set<string>>(() => collectProducedVars(scenario), [scenario]);
+  // 네임스페이스 변수(`{{분기.변수}}`)는 엔진이 join_all 후 병합해 공급한다(ADR-0033,
+  // runner.rs:690) — 데이터셋에서 매핑할 대상이 아니다. collectProducedVars는 bare
+  // 이름만 담으므로(scanVars.ts:151) union 하지 않으면 항상 uncovered로 오판되어
+  // [실행]이 막힌다. 생산자 집합에 없는 dotted 이름(오타)은 여전히 잡힌다.
+  const availableElsewhere = useMemo<Set<string>>(
+    () => new Set([...collectProducedVars(scenario), ...collectNamespacedProducers(scenario)]),
+    [scenario],
+  );
 
   // 분기 변수 그룹핑 — 표시용 재배치일 뿐이다(rows/emit 경로 불변).
   const nsIndex = useMemo(() => namespacedProducerIndex(scenario), [scenario]);
