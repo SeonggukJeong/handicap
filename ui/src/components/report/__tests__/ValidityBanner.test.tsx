@@ -63,6 +63,25 @@ describe("ValidityBanner", () => {
     );
   });
 
+  // Task 3의 NarrativeBlock.test.tsx가 지녔던 커버리지: 미지 can_claim/cannot_claim
+  // 코드는 map[code] ?? code(ValidityBanner.tsx label())로 raw wire-code 문자열을
+  // 그대로 보여준다. level: "suspect"로 detail을 기본 펼침 상태로 만들어야 claim
+  // 목록이 실제로 렌더된다(접힌 상태면 이 분기에 도달 못 한다).
+  it("미지 can_claim/cannot_claim 코드는 raw wire-code 문자열로 폴백한다", () => {
+    render(
+      <ValidityBanner
+        validity={{ level: "suspect", reasons: [{ kind: "zero_requests", severity: "critical" }] }}
+        narrative={{
+          can_claim: ["future_can_claim_code"],
+          cannot_claim: ["future_cannot_claim_code"],
+        }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: ko.validity.bannerAria });
+    expect(region).toHaveTextContent("future_can_claim_code");
+    expect(region).toHaveTextContent("future_cannot_claim_code");
+  });
+
   // Task 3: merged validity + narrative block (spec §5.1). ok is unrendered (US1 — 0 lines),
   // limited collapses the interpretation detail, suspect expands it.
   it("suspect면 상세가 펼쳐지고 can/cannot이 유효성 region 안에 딱 한 번 있다", () => {
@@ -70,7 +89,6 @@ describe("ValidityBanner", () => {
       <ValidityBanner
         validity={{ level: "suspect", reasons: [{ kind: "zero_requests", severity: "critical" }] }}
         narrative={{
-          events: [],
           can_claim: ["client_reachability_issue"],
           cannot_claim: ["production_identity"],
         }}
@@ -92,7 +110,6 @@ describe("ValidityBanner", () => {
           reasons: [{ kind: "no_response_validation", severity: "warning" }],
         }}
         narrative={{
-          events: [],
           can_claim: ["throughput_measured"],
           cannot_claim: ["production_identity"],
         }}
@@ -109,7 +126,7 @@ describe("ValidityBanner", () => {
     const { container } = render(
       <ValidityBanner
         validity={{ level: "ok", reasons: [] }}
-        narrative={{ events: [], can_claim: [], cannot_claim: [] }}
+        narrative={{ can_claim: [], cannot_claim: [] }}
       />,
     );
     expect(container).toBeEmptyDOMElement();
@@ -142,7 +159,7 @@ describe("ValidityBanner", () => {
           level: "limited",
           reasons: [{ kind: "no_response_validation", severity: "warning" }],
         }}
-        narrative={{ events: [], can_claim: [], cannot_claim: [] }}
+        narrative={{ can_claim: [], cannot_claim: [] }}
       />,
     );
     expect(screen.queryByRole("button", { name: ko.narrative.title })).toBeNull();

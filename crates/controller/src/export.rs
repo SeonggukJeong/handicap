@@ -461,7 +461,7 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
         ws.write_string(i as u32, 0, *k).expect("w");
         ws.write_number(i as u32, 1, *v).expect("w");
     }
-    // H2: validity/narrative are not f64 — separate string/number writes (rows 7–9).
+    // H2: validity is not f64 — separate string writes (rows 7–8).
     let validity_kinds = report
         .validity
         .reasons
@@ -473,9 +473,6 @@ pub fn report_to_xlsx(report: &ReportJson) -> Vec<u8> {
     ws.write_string(7, 1, &report.validity.level).expect("w");
     ws.write_string(8, 0, "validity_reason_kinds").expect("w");
     ws.write_string(8, 1, &validity_kinds).expect("w");
-    ws.write_string(9, 0, "narrative_events_count").expect("w");
-    ws.write_number(9, 1, report.narrative.events.len() as f64)
-        .expect("w");
 
     // --- Steps sheet ---
     let ws = wb.add_worksheet();
@@ -707,8 +704,8 @@ mod tests {
     }
 
     #[test]
-    fn xlsx_summary_includes_validity_narrative_rows() {
-        // H2: rows 0–6 remain numeric; 7–8 Data::String; 9 narrative_events_count number.
+    fn xlsx_summary_includes_validity_rows() {
+        // H2: rows 0–6 remain numeric; 7–8 Data::String.
         use crate::validity::{Narrative, Validity, ValidityReason};
         use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
         use std::io::Cursor;
@@ -739,11 +736,6 @@ mod tests {
             ],
         };
         r.narrative = Narrative {
-            events: vec![
-                "validity:transport_heavy".into(),
-                "validity:load_not_delivered".into(),
-                "insight:slowest_step".into(),
-            ],
             can_claim: vec!["client_reachability_issue".into()],
             cannot_claim: vec!["production_identity".into()],
         };
@@ -769,11 +761,12 @@ mod tests {
             summary.get_value((8, 1)),
             Some(&Data::String("transport_heavy,load_not_delivered".into()))
         );
-        assert_eq!(
-            summary.get_value((9, 0)),
-            Some(&Data::String("narrative_events_count".into()))
+        // 이 테스트의 워크시트 바인딩명은 `summary`다(위 `let summary = ...`) —
+        // 옆 테스트(`xlsx_roundtrips_summary_and_steps`)의 `ws`가 아니다.
+        assert!(
+            matches!(summary.get_value((9, 0)), None | Some(Data::Empty)),
+            "narrative_events_count 행 제거됨"
         );
-        assert_eq!(summary.get_value((9, 1)), Some(&Data::Float(3.0)));
     }
 
     #[test]

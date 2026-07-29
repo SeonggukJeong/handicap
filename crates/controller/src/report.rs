@@ -2321,12 +2321,6 @@ steps:
         );
         assert!(
             rep.narrative
-                .events
-                .iter()
-                .any(|e| e == "validity:transport_heavy")
-        );
-        assert!(
-            rep.narrative
                 .cannot_claim
                 .iter()
                 .any(|c| c == "sut_capacity")

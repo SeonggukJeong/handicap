@@ -930,7 +930,6 @@ describe("RunDetailPage — ValidityBadge (A11)", () => {
         reasons: [{ kind: "no_response_validation", severity: "warning" }],
       },
       narrative: {
-        events: ["validity:no_response_validation"],
         can_claim: ["throughput_measured"],
         cannot_claim: ["functional_correctness", "production_identity"],
       },

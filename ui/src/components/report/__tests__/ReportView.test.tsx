@@ -365,7 +365,6 @@ describe("ReportView", () => {
         ],
       },
       narrative: {
-        events: [],
         can_claim: ["client_reachability_issue"],
         cannot_claim: ["sut_capacity", "production_identity"],
       },

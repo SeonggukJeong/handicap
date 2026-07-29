@@ -32,7 +32,6 @@ pub struct ValidityReason {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Narrative {
-    pub events: Vec<String>,
     pub can_claim: Vec<String>,
     pub cannot_claim: Vec<String>,
 }
@@ -148,25 +147,7 @@ fn push_unique(out: &mut Vec<String>, code: &str) {
     }
 }
 
-fn insight_event_code(i: &Insight) -> Option<String> {
-    match i.kind.as_str() {
-        "slo_failure" => Some("insight:slo_failure".to_string()),
-        "slo_pass" => Some("insight:slo_pass".to_string()),
-        "status_class" => match i.status_class.as_deref() {
-            Some("5xx") => Some("insight:status_class:5xx".to_string()),
-            Some("4xx") => Some("insight:status_class:4xx".to_string()),
-            _ => None,
-        },
-        "load_gen_saturated" => Some("insight:load_gen_saturated".to_string()),
-        "error_hotspot" => Some("insight:error_hotspot".to_string()),
-        "status_temporal" => Some("insight:status_temporal".to_string()),
-        "no_request_step" => Some("insight:no_request_step".to_string()),
-        "slowest_step" => Some("insight:slowest_step".to_string()),
-        _ => None,
-    }
-}
-
-/// Derive narrative events / can_claim / cannot_claim (spec §5).
+/// Derive narrative can_claim / cannot_claim (spec §5).
 /// Insights slice is already `order_rank`-sorted by `derive_insights` — do not re-sort (H7).
 pub fn derive_narrative(
     validity: &Validity,
@@ -174,18 +155,6 @@ pub fn derive_narrative(
     has_active_criteria: bool,
     insights: &[Insight],
 ) -> Narrative {
-    // §5.1 events
-    let mut events: Vec<String> = Vec::new();
-    for r in &validity.reasons {
-        push_unique(&mut events, &format!("validity:{}", r.kind));
-    }
-    for i in insights {
-        if let Some(code) = insight_event_code(i) {
-            push_unique(&mut events, &code);
-        }
-    }
-    events.truncate(5);
-
     // §5.2 can_claim / cannot_claim
     let mut can_claim: Vec<String> = Vec::new();
     let mut cannot_claim: Vec<String> = Vec::new();
@@ -251,7 +220,6 @@ pub fn derive_narrative(
     }
 
     Narrative {
-        events,
         can_claim,
         cannot_claim,
     }
@@ -302,21 +270,9 @@ mod tests {
         }
     }
 
-    fn insight_sc(kind: &str, status_class: &str) -> Insight {
-        let mut i = insight(kind);
-        i.status_class = Some(status_class.to_string());
-        i
-    }
-
     fn insight_count(kind: &str, count: u64) -> Insight {
         let mut i = insight(kind);
         i.count = Some(count);
-        i
-    }
-
-    fn insight_step(kind: &str, step_id: &str) -> Insight {
-        let mut i = insight(kind);
-        i.step_id = Some(step_id.to_string());
         i
     }
 
@@ -562,64 +518,6 @@ steps:
         );
     }
 
-    // ── narrative events (R7 §5.1) ──────────────────────────────────────
-
-    #[test]
-    fn events_validity_first_then_insights_max_5() {
-        let d = dist(&[("0", 80), ("200", 20)]);
-        // pre-sorted insight slice (order_rank order): status_class 5xx, load, no_request, slowest, slo_pass
-        let ins = vec![
-            insight_sc("status_class", "5xx"),
-            insight("load_gen_saturated"),
-            insight_step("no_request_step", "a"),
-            insight("slowest_step"),
-            insight("slo_pass"),
-        ];
-        // v has transport_heavy + load_not_delivered (from insight)
-        let v = derive_validity(&summary(100, 80), &d, YAML_WITH_ASSERT, true, &ins);
-        let n = derive_narrative(&v, &summary(100, 80), true, &ins);
-        assert!(n.events.len() <= 5);
-        // validity codes first
-        assert_eq!(n.events[0], "validity:transport_heavy");
-        assert_eq!(n.events[1], "validity:load_not_delivered");
-        // then insights in given order
-        assert_eq!(n.events[2], "insight:status_class:5xx");
-        assert_eq!(n.events[3], "insight:load_gen_saturated");
-        assert_eq!(n.events[4], "insight:no_request_step");
-        // truncated — slo_pass / slowest dropped
-        assert!(!n.events.iter().any(|e| e == "insight:slo_pass"));
-    }
-
-    #[test]
-    fn events_dedup_multiple_no_request_step() {
-        let v = Validity::default();
-        let ins = vec![
-            insight_step("no_request_step", "a"),
-            insight_step("no_request_step", "b"),
-            insight("slowest_step"),
-        ];
-        let n = derive_narrative(&v, &summary(10, 0), true, &ins);
-        let nrs: Vec<_> = n
-            .events
-            .iter()
-            .filter(|e| e.as_str() == "insight:no_request_step")
-            .collect();
-        assert_eq!(nrs.len(), 1);
-        assert!(n.events.contains(&"insight:slowest_step".to_string()));
-    }
-
-    #[test]
-    fn events_status_class_codes() {
-        let v = Validity::default();
-        let ins = vec![
-            insight_sc("status_class", "5xx"),
-            insight_sc("status_class", "4xx"),
-        ];
-        let n = derive_narrative(&v, &summary(10, 0), true, &ins);
-        assert!(n.events.contains(&"insight:status_class:5xx".to_string()));
-        assert!(n.events.contains(&"insight:status_class:4xx".to_string()));
-    }
-
     // ── can/cannot goldens (§5.2) ───────────────────────────────────────
 
     #[test]
@@ -748,7 +646,7 @@ steps:
         assert_eq!(v.level, "ok");
         assert!(v.reasons.is_empty());
         let n = Narrative::default();
-        assert!(n.events.is_empty() && n.can_claim.is_empty() && n.cannot_claim.is_empty());
+        assert!(n.can_claim.is_empty() && n.cannot_claim.is_empty());
     }
 
     #[test]

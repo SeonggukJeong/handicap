@@ -478,7 +478,6 @@ describe("ReportSchema.validity / narrative (A11)", () => {
   };
 
   const narrative = {
-    events: ["validity:transport_heavy", "insight:slo_pass"],
     can_claim: ["client_reachability_issue"],
     cannot_claim: ["sut_capacity", "slo_as_capacity", "production_identity"],
   };
@@ -489,10 +488,6 @@ describe("ReportSchema.validity / narrative (A11)", () => {
     expect(parsed.validity?.reasons[0].kind).toBe("transport_heavy");
     expect(parsed.validity?.reasons[0].pct).toBe(0.8);
     expect(parsed.validity?.reasons[0].count).toBe(80);
-    expect(parsed.narrative?.events).toEqual([
-      "validity:transport_heavy",
-      "insight:slo_pass",
-    ]);
     expect(parsed.narrative?.can_claim).toEqual(["client_reachability_issue"]);
     expect(parsed.narrative?.cannot_claim).toContain("production_identity");
   });
@@ -513,16 +508,12 @@ describe("ReportSchema.validity / narrative (A11)", () => {
   });
 
   it("rejects unknown validity.level", () => {
-    expect(
-      ValiditySchema.safeParse({ level: "good", reasons: [] }).success,
-    ).toBe(false);
+    expect(ValiditySchema.safeParse({ level: "good", reasons: [] }).success).toBe(false);
   });
 
   it("ValiditySchema / NarrativeSchema parse standalone", () => {
     expect(ValiditySchema.parse({ level: "ok", reasons: [] }).level).toBe("ok");
-    expect(
-      NarrativeSchema.parse({ events: [], can_claim: [], cannot_claim: [] }).events,
-    ).toEqual([]);
+    expect(NarrativeSchema.parse({ can_claim: [], cannot_claim: [] }).can_claim).toEqual([]);
   });
 
   it("ReportSchema.strict rejects unknown top-level keys", () => {

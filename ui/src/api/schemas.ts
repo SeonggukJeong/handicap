@@ -417,7 +417,6 @@ export const ValiditySchema = z.object({
 export type Validity = z.infer<typeof ValiditySchema>;
 
 export const NarrativeSchema = z.object({
-  events: z.array(z.string()),
   can_claim: z.array(z.string()),
   cannot_claim: z.array(z.string()),
 });
