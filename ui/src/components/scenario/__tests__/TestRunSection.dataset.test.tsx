@@ -7,6 +7,10 @@ import { ko } from "../../../i18n/ko";
 import { ScenarioModel, type Scenario } from "../../../scenario/model";
 import { DRAFT_KEY, testRunStateFor } from "../../../scenario/trustPrefs";
 
+// class 토큰 정확매치 헬퍼(VariablesPanel.test.tsx/DataBindingPanel.test.tsx와 동일 관용구) —
+// raw toContain("w-64")는 "max-w-64" 같은 부분문자열도 걸려 false-green이라 토큰 단위로 비교.
+const tokens = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/);
+
 // URL 라우팅 fetch 스텁 — one-shot 큐 금지(무조건-훅 함정 회피). Response 생성은
 // DatasetRowsPreview.test.tsx의 jsonResponse 헬퍼와 동일 형태를 이 파일에 복제.
 function jsonResponse(body: unknown, status = 200): Response {
@@ -313,6 +317,22 @@ describe("TestRunSection 데이터셋 섹션 (R11/R14/R15)", () => {
       { kind: "column", var: "login_id", column: "username" },
       { kind: "column", var: "password", column: "password" },
     ]);
+  });
+
+  it("매핑 변수명 입력 폭 — w-64 클래스 보유 + w-56 미보유 (US3, 라이브 실측 3px 초과 fix)", async () => {
+    const user = userEvent.setup();
+    testRunResponse = SEQ_OK;
+    renderSection(YAML_2_STEPS);
+    await openDatasetSection(user);
+    await selectDataset(user);
+    await user.click(screen.getByRole("radio", { name: ko.editor.dsModeSeq }));
+
+    await user.click(screen.getByRole("button", { name: ko.editor.dsMappingEdit }));
+    const varInput = screen.getByLabelText(ko.editor.dsMappingVarAria(0));
+    const wrapper = varInput.parentElement as HTMLElement;
+    const cls = tokens(wrapper);
+    expect(cls).toContain("w-64");
+    expect(cls).not.toContain("w-56");
   });
 
   it("incomplete 게이트 — single_row 행 미선택 시 실행 버튼 disabled + 안내 문구 (R11)", async () => {
