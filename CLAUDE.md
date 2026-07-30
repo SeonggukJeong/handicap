@@ -187,33 +187,33 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0020** Control-flow 노드: loop (재귀 스텝 트리, 단일 레벨, repeat-count)
 - **0021** loop 메트릭 breakdown: per-run cap + overflow sentinel, counts-only
 - **0022** Data-driven 데이터셋: 독립 리소스 + 서버 파싱(8b) + 4정책(per_vu/iter_sequential/iter_random/unique) 바인딩·주입(8c) — counts-only
-- **0023** Conditional 노드: if/elif/else + 재귀 조건 트리 + lenient 평가 + 상호 1레벨 중첩 + 분기별 결정 카운터(9a–9d, 최상위 `if_breakdown`)
+- **0023** Conditional 노드: if/elif/else + 재귀 조건 트리 + lenient 평가 + 상호 1레벨 중첩 + 분기별 결정 카운터
 - **0024** Run 프리셋: scenario-scoped 독립 리소스(`run_presets`) + Profile 재사용 + validate_run_config 공유 + dataset delete soft-guard
 - **0025** 환경(Environments): top-level 재사용 리소스(`environments`, migration 0007, UNIQUE→409) + 클라 오버레이 스냅샷(B-1+B-2)
 - **0026** 시나리오 에디터 test-run: 컨트롤러 in-process 단일패스 trace(ephemeral) + `POST /api/test-runs` + 미바인딩 토큰 수집(C-1+C-2)
-- **0027** 멀티 워커 fan-out: 컨트롤러 권위 N + shard 배정 + 글로벌 vu_id + 워커별 메트릭 머지(run_metrics PK +worker_id, migration 0008) + K8s Indexed Job(A3a–c)
-- **0028** Run-level SLO criteria: profile_json 스냅샷 + 고정 per-metric verdict + status-class/per-window RPS(B6) + `runs.verdict_json` 배지 영속(migration 0012)
+- **0027** 멀티 워커 fan-out: 컨트롤러 권위 N + shard 배정 + 글로벌 vu_id + 워커별 메트릭 머지 + K8s Indexed Job
+- **0028** Run-level SLO criteria: profile_json 스냅샷 + 고정 per-metric verdict + status-class/per-window RPS + verdict 배지 영속
 - **0029** JSON body 타입 캐스트: flow `{{var:num}}`/`{{var:bool}}`/`:str`, leaf 레벨 파싱, 엄격 실패(`CastFailed`), 캐스트 없으면 byte-identical
 - **0030** Run 비교 + 리포트 export: 하이브리드(클라 비교/서버 CSV·XLSX), same-scenario terminal-only, 골든 fixture TS↔Rust 패리티
 - **0031** Open-loop / arrival-rate: opt-in `target_rps` + 균등 틱 스케줄러 + `max_in_flight` 슬롯풀 + `dropped` 카운터(migration 0009), 단일워커 v1
-- **0032** 다단계 ramp: open-loop `stages:[{target,duration}]` piecewise-linear 곡선(고정 target_rps 일반화), 마이그레이션 0, stages 없으면 byte-identical
-- **0033** Parallel 노드: `type: parallel` `join_all` 동시 분기(공유 jar) + `{{branch.var}}` 네임스페이스 merge + 그룹/페이지 레이턴시(A2-2, migration 0010)
+- **0032** 다단계 ramp: open-loop `stages:[{target,duration}]` piecewise-linear 곡선(고정 target_rps 일반화), stages 없으면 byte-identical
+- **0033** Parallel 노드: `type: parallel` `join_all` 동시 분기(공유 jar) + `{{branch.var}}` 네임스페이스 merge + 그룹/페이지 레이턴시
 - **0034** Run 스케줄러: 컨트롤러 내장 cron 루프 + once/5-field 트리거(`croner`) + 단일 IANA TZ + `spawn_run` 발사 코어 + migration 0011(34a–c)
 - **0035** UI 문구: 한국어 통일 + `ko.ts` 메시지 카탈로그 경유 (고유명사 원어 병기 + HelpTip, i18n 라이브러리·토글 비목표)
 - **0036** 스텝 템플릿: top-level `step_templates` 리소스 + 복사-삽입 스냅샷(삽입 시 ULID 재발급), 참조 동기화 기각
 - **0037** closed-loop VU 곡선: park-gate 격리 함수 + vu_stages/ramp_down 와이어 + 단일워커 v1
-- **0038** open-loop 멀티워커 fan-out: 명시 worker_count(기본 1, open 전용) + 컨트롤러 워커별 레이트 분할(shard_split) + A3b 머지 재사용, 엔진/proto/migration 무변경
-- **0039** 라이트 Windows 데스크톱 배포: 단일 self-contained `.exe`(현 subprocess 로컬모드 패키징) → 필요 시 Tauri 래퍼, Flutter/RN 거절(웹 UI 리라이트). LAN 분산 워커는 프로토콜상 이미 가능(pull 모델)·격차=바인딩/오케스트레이션/mTLS. **옵션 A(단일 exe) 구현·머지**(cargo `bundle` feature off=byte-identical), Tauri(옵션 B)=ADR-0040, 서명/인스톨러는 후속
-- **0040** 라이트 Windows 데스크톱 배포 옵션 B(접근 1): Tauri v2 셸이 bundle controller exe를 사이드카로 spawn→포트 로그 파싱→헬스 확인→네이티브 창 navigate, 창 닫힘 시 killpg[Unix]/Job Object[Windows] 트리 종료. `desktop/`는 자체 `[workspace]`로 루트 워크스페이스 밖·`crates/**`+`ui/src` 0-diff·`ControllerBackend` 추상으로 접근2(in-process)/LAN 전방호환 (**→ ADR-0042 접근 2로 대체**)
-- **0041** LAN 분산 워커 L1: 세 번째 워커 모드 `pool` — 워커가 `--run-id` 없이 유휴 등록(reconnect-per-run)→`--worker-mode pool` 컨트롤러가 run 발사 시 유휴 워커에 샤드 push(기존 fan-out 재사용, N=min(유휴,부하상한)) + proto `Register.token` additive 공유 토큰 인증(미설정=byte-identical) + LAN 바인드. migration 0/엔진 무변경, push(컨트롤러 권위)·capacity 무시(L2)·mTLS 후속
-- **0042** 라이트 Windows 데스크톱 배포 옵션 B 접근 2: Tauri in-process 컨트롤러(`run_in_process`/`RunningController` 임베드·desktop `InProcessBackend`·워커 멀티콜 `run_worker_if_invoked`·사이드카/externalBin 제거·R4b disconnect-cancel 크래시 teardown·R4d Windows Job 트리거-연기·비-bundle byte-identical). ADR-0040(접근 1) 대체
-- **0043** UI 디자인 시스템: 시맨틱 accent 토큰(=indigo)+프리미티브 6종(Input·Select·Badge·Callout·Field·Section, `ui/src/components/ui/`)+Button accent — 점진 채택(RunDialog 첫 채택처·JSX-only byte-identical 재구성)·전면 리라이트/CSS-in-JS/3rd-party UI 라이브러리 기각
-- **0044** 에디터 1차 표현 캔버스→아웃라인: React Flow 팬 캔버스를 세로 인터랙티브 아웃라인(`FlowOutline` HTML 트리)으로 교체 + 디테일 편집기 1fr + 변수 접기 + YAML 양방향 모달 + dnd-kit 그룹내 드래그 재정렬(`resolveDragEnd`→`moveStep`, 경계 넘기/re-parent=슬라이스3 완료) + `@xyflow/react` 제거. 양방향 sync(0003/0015) 모델 유지(아웃라인=같은 store 위 새 뷰)·모델/wire byte-identical(에디터 구조 재설계 1/3)
-- **0045** 시나리오 삭제 정책: 2층 가드(활성 run hard 409[in-tx 권위]·참조 soft 409 카운트+force) + 앱-레벨 단일 tx 전체 cascade(FK CASCADE 마이그레이션·soft-delete 기각)
-- **0046** open-loop rate 단위·사이징 교정: target_rps=반복(시나리오 실행)/초 공식화 + 포화 사이징 실측 점유시간(hold=M÷달성 도착률 자기측정) 기반 + cause 2-way(slots/sut, loadgen·recommended_workers 산출 제거)
-- **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드(자동매핑 실체화·R9 검증·R18 clamp) + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 예산), proto·worker·migration 0-diff
-- **0048** US 스파인(프로세스): 유저 스토리를 파이프라인 관통 오라클로 — brainstorming 승인→spec 고정 헤딩→리뷰어 value 3문항→task-brief 첨부→live US 척추→finish 한 줄, 새 단계·훅 0 (정본 `docs/dev/user-story-spine.md`)
-- **0049** 실행 전 시나리오 신뢰도: 네 번째 판정 축(신뢰도 ⟂ validity ⟂ verdict ⟂ status, 어휘 분리) + 클라 순수함수 `evaluateTrust` 단일 소스·2축 증폭 등급·`na` 분모 제외, **D(시험 실행 검증)는 지문+localStorage로 등급에서 분리**(타입 강제 — 등급은 누가 보든 같아야 함)·soft only·밀도 상한 1급(칩 +1/배너 +0)
+- **0038** open-loop 멀티워커 fan-out: 명시 worker_count(기본 1, open 전용) + 컨트롤러 워커별 레이트 분할 + A3b 머지 재사용
+- **0039** 라이트 Windows 데스크톱 배포: 옵션 A = 단일 self-contained `.exe`(subprocess 로컬모드 패키징), Flutter/RN 기각, Tauri 래퍼는 ADR-0040
+- **0040** 라이트 Windows 데스크톱 배포 옵션 B(접근 1): Tauri v2 셸이 controller exe를 사이드카로 spawn (**→ ADR-0042 접근 2로 대체**)
+- **0041** LAN 분산 워커 L1: 세 번째 워커 모드 `pool`(유휴 등록→컨트롤러가 샤드 push) + proto `Register.token` 토큰 인증 + LAN 바인드
+- **0042** 라이트 Windows 데스크톱 배포 옵션 B 접근 2: Tauri in-process 컨트롤러 임베드(사이드카/`externalBin` 제거) — ADR-0040 대체
+- **0043** UI 디자인 시스템: 시맨틱 accent 토큰(=indigo) + 프리미티브 6종(`ui/src/components/ui/`) — 점진 채택, 전면 리라이트 기각
+- **0044** 에디터 1차 표현 캔버스→아웃라인: React Flow 캔버스 → 세로 아웃라인 `FlowOutline` + dnd-kit 드래그, 양방향 sync 모델 유지
+- **0045** 시나리오 삭제 정책: 2층 가드(활성 run hard 409·참조 soft 409+force) + 앱-레벨 단일 tx 전체 cascade(soft-delete 기각)
+- **0046** open-loop rate 단위·사이징 교정: target_rps=반복(시나리오 실행)/초 공식화 + 실측 점유시간 기반 사이징 + cause 2-way(slots/sut)
+- **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드 + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 상한)
+- **0048** US 스파인(프로세스): 유저 스토리를 spec→리뷰→brief→live→finish 관통 오라클로 (정본 `docs/dev/user-story-spine.md`)
+- **0049** 실행 전 시나리오 신뢰도: 네 번째 판정 축(신뢰도 ⟂ validity ⟂ verdict ⟂ status) + 클라 순수함수 `evaluateTrust` 단일 소스
 
 ## 코딩 컨벤션
 
