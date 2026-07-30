@@ -35,3 +35,12 @@
 #     · merge 행 — ⓒ가 날조는 걸러도, '합칠 만한 두 불릿이었나'는 사람만 판단할 수 있다.
 #
 # kind	source_anchor	dest_file	required_marker	min_dest_gain_bytes
+move	단언 대상이 버그와 무관하게 안정적인 값[`Object.is(undefined,undefined)`]	docs/dev/subagent-dispatch.md	4번째 패턴(thinkboard-defaults): 단언이 *부분문자열*로 통과	614
+move	충돌 표가 **신규↔신규만 대조하고 신규↔기존을 안 봐서**	docs/dev/subagent-dispatch.md	think-time-defaults의 "보안 게이트 N/A 예상"이 틀려	536
+move	임시 `it.todo` 한 줄로 언블록하고 **커밋 전 제거를 독립 체크박스 스텝으로**	docs/dev/subagent-dispatch.md	훅은 파일 내용을 안 열고 존재만 본다 — `tdd-guard.sh:92`	742
+move	한 번은 *맞게* 적힌 spec 참조를 틀리게 "고쳤고"(리뷰어가 교정)	docs/dev/subagent-dispatch.md	(thinkboard-defaults에서 2회 오프바이원)	268
+move	트리거 보수적으로 — 승격률 ~40% 넘으면 역손해	docs/dev/subagent-dispatch.md	승격률 ~40% 넘으면 역손해	482
+move	재리뷰가 싸고 "내 finding 반영됐나" 직접 검증	docs/dev/subagent-dispatch.md	코드베이스+직전 findings 보존	317
+move	특히 그 task가 plan에서 "드롭 가능"으로 표시돼 있으면 finding이 task와 함께 조용히 사라진다	docs/dev/subagent-dispatch.md	접을 곳을 고를 때 그 task의 생존 보장 여부부터 확인	337
+move	인접 형제 collapsing은 **뒤 요소의 `margin-top`**을 요구하는데	docs/dev/subagent-dispatch.md	결과: 간격 8px→**0px** + 거짓 근거를 단언하는 주석이	886
+move	"그 태그에서 도달 가능"만 뜻해 더 오래된 커밋이 전부 통과한다	docs/dev/subagent-dispatch.md	리뷰 디스패치에 넘기는 "orchestrator가 검증한 것" 목록도	763

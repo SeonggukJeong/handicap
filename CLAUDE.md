@@ -110,7 +110,7 @@ docs/
 
 ## Subagent dispatch 노하우
 
-> 여기엔 **규칙 요약만** — 사고 서사·복구 레시피·근거 수치 전체는 [`docs/dev/subagent-dispatch.md`](docs/dev/subagent-dispatch.md)(재비대 방지 추출 2026-07-16, commit-gates 선례와 동일). 규칙이 처음이거나 "왜?"가 필요하면 그 파일을 읽어라. 새 dispatch 함정은 규칙 한 줄을 여기, 서사를 그 파일에.
+> 여기엔 **규칙 요약만** — 사고 서사·사례·근거 수치·복구 레시피 전체는 [`docs/dev/subagent-dispatch.md`](docs/dev/subagent-dispatch.md)(재비대 방지 추출 2026-07-16, commit-gates 선례와 동일). 규칙이 처음이거나 "왜?"·사례가 필요하면 그 파일을 읽어라. 새 dispatch 함정은 규칙 한 줄을 여기, 서사를 그 파일에.
 
 **brief/plan 작성**
 - plan task 헤딩은 숫자 `Task N`으로 — `task-brief`가 문자 라벨("Task A") 미매칭 exit 3.
@@ -118,33 +118,33 @@ docs/
 - spec의 `사용자 스토리 (US)` 고정 헤딩 블록도 1회 추출해 매 brief에 첨부(US 스파인, ADR-0048 — 원천=spec, 헤딩부터 다음 동레벨-이상 헤딩까지; 규약 `docs/dev/user-story-spine.md`).
 - `ui/src`를 한 줄이라도 건드리는 task는 brief에 UI 테스트 스텝 명시(tdd-guard가 UI-side pending test 요구).
 - plan 인라인 Rust는 clippy-clean으로 — 2-arm `match … _ => {}` 대신 `if let`(`-D warnings`).
-- **plan이 verbatim 지정한 테스트도 이빨이 없을 수 있다** — 회귀 가드를 표방하는 테스트는 brief의 "검증 의무"에 **고의 회귀→RED→원복→GREEN 실증**을 못박을 것(think-time-dashboard에서 3건 적발: 단언 대상이 버그와 무관하게 안정적인 값[`Object.is(undefined,undefined)`]·같은 행에 동일 문구 2개[위치 의존 `getAllBy...[0]`]·복합 `disabled` 조건에서 다른 항이 이미 참). plan-mandated 결함은 기각 대상이 아니라 finding이다 — plan이 자기 작업을 채점하지 않는다. → 메모리 [[plan-mandated-vacuous-tests]] **4번째 패턴(thinkboard-defaults): 단언이 *부분문자열*로 통과** — `toHaveTextContent("대기없음")`이 "없음 — 상속 스텝은 모두 대기없음"에도 걸려 두 분기를 구별 못 했다. 상세는 `ui/CLAUDE.md`.
-- **plan의 *사실 주장*도 검증 대상이다 — "충돌 회피됨"·"N/A 예상"·"byte-identical"은 근거가 아니라 가설** (thinkboard-defaults): 그 plan의 Global Constraints는 신규 ko 4개가 "부분문자열 충돌까지 회피된 값"이라 단언했지만, 충돌 표가 **신규↔신규만 대조하고 신규↔기존을 안 봐서** 실제로는 거짓이었다(최종 리뷰가 적발). 같은 클래스: think-time-defaults의 "보안 게이트 N/A 예상"이 틀려 `trace.rs` 매치가 났던 건. **plan이 X를 확인했다고 적어놨으면 그 확인을 *다시 돌려라*** — 특히 전수 grep·충돌 대조·0-diff 주장처럼 기계로 재현 가능한 것은 orchestrator가 직접(self-report 신뢰 천장은 낮다).
-- **plan은 코드뿐 아니라 *훅*에 대해서도 실행 가능해야 한다 — 스텝 순서를 `tdd-guard`로 시뮬레이션할 것**(thinkboard-defaults, spec-plan-reviewer가 차단 지점 2곳 적발): `tdd-guard.sh`는 `/ui/src/.+\.(ts|tsx|js|jsx)$`(=`i18n/ko.ts`도 포함)를 production으로 보고 **작업트리에 수정/미추적 테스트 파일이 0건이면 `exit 2`**. ① 직전 task 커밋 직후는 트리가 clean이므로 **task의 첫 스텝이 production 편집이면 무조건 차단** → 테스트 스텝을 먼저 두라. ② "테스트 파일 무수정"이 acceptance인 순수 리팩터 task는 **구조적으로 통과 불가** → 임시 `it.todo` 한 줄로 언블록하고 **커밋 전 제거를 독립 체크박스 스텝으로** 승격하라(훅은 파일 내용을 안 열고 존재만 본다 — `tdd-guard.sh:92`). 제거를 산문에 묻으면 아무도 못 잡는다: `it.todo`는 vitest에서 실패가 아니라 게이트가 green이고, `git add`가 소스만 스테이징하므로 커밋 diff도 깨끗하다.
-- **줄번호는 `grep -n`으로만 확정 — `sed -n 'N,Mp'` 출력 줄을 세지 말 것**(thinkboard-defaults에서 2회 오프바이원): 한 번은 *맞게* 적힌 spec 참조를 틀리게 "고쳤고"(리뷰어가 교정), 한 번은 plan 인용이 어긋났다. spec/plan의 `파일:줄` 주장은 리뷰어가 전수 대조하므로 오프바이원이 곧 finding이 된다.
+- **plan이 verbatim 지정한 테스트도 공허할 수 있다** — 회귀 가드 표방 테스트는 brief에 고의 회귀→RED→원복→GREEN 실증 명시. plan-mandated 결함도 기각 말고 finding. → [[plan-mandated-vacuous-tests]]
+- **plan의 *사실 주장*도 가설** — "충돌 회피됨"·"N/A 예상"·"byte-identical"은 근거가 아니다. plan이 확인했다는 것은 다시 돌려라: 전수 grep·0-diff 등 기계 재현 가능한 건 orchestrator가 직접.
+- **plan은 훅에도 실행 가능해야 — 스텝 순서를 `tdd-guard`로 시뮬레이션**: ① 첫 스텝이 production 편집이면 차단(테스트 먼저) ② "테스트 무수정" 리팩터는 `it.todo` 언블록+제거는 독립 스텝.
+- **줄번호는 `grep -n`으로만 확정 — `sed -n 'N,Mp'` 출력 줄을 세지 말 것**: spec/plan의 `파일:줄` 주장은 리뷰어가 전수 대조하므로 오프바이원이 곧 finding이 된다.
 
 **디스패치**
 - 워크트리 작업이면 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 절대경로 명시(안 하면 메인 체크아웃을 읽고 "코드가 없다" 오보).
 - 리포트 경로는 `.superpowers/sdd/` 지정 + "worktree 루트에 `.md` 쓰기·`git add` 금지" 못박기.
 - implementer의 commit은 단일 FOREGROUND 호출(timeout 600000ms)·background+poll 금지(mid-poll truncate). orchestrator 자신의 커밋은 background가 맞다 — 단 두 커밋 동시 진행 금지(`target/`·`index.lock` 경합).
 - 무거운 env-setup·외부 바이너리 가정은 디스패치 전 orchestrator가 pre-warm·실측해 값으로 넘긴다(외부 바이너리 *행동*은 spec-plan-reviewer가 못 잡는다).
-- 1M-context 부모에서 `model:` 생략 디스패치는 즉사+가짜 completed — 항상 **명시 `model:`**(정의된 reviewer들도 1M 세션에선 명시 `model: opus`). notification `tool_uses`/`tokens`/`duration`이 0이면 실행 안 된 것 — status=completed를 결과로 신뢰 금지, 메인 폴백.
+- 1M-context 부모에서 `model:` 생략은 즉사+가짜 completed — 항상 **명시 `model:`**(reviewer도 1M 세션엔 `model: opus`). notification `tool_uses`/`tokens`/`duration` 0이면 미실행 — status=completed 불신, 메인 폴백.
 
 **리뷰**
-- task마다 두 단계 review(spec-compliance → code-quality), 둘 다 APPROVED여야 다음. **모델 라우팅: 기본 Sonnet, Opus는 조준 승격** — ① path-gate(engine/동시성/`unsafe`/proto·와이어/template·cast/env·dataset 바인딩/migration/대형 diff → 그 task의 code-quality를 `model: opus`) ② Sonnet self-flag(`escalate: true`) 재패스(트리거 보수적으로 — 승격률 ~40% 넘으면 역손해). 실행 중 Sonnet 자기승격 불가 — 승격은 항상 디스패처가. 정의된 `handicap-reviewer`/`security-reviewer`/`spec-plan-reviewer`는 `model: inherit`=Opus 유지(끌어내리지 말 것), `CLAUDE_CODE_SUBAGENT_MODEL` 설정 금지.
+- task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음. **기본 Sonnet, path-gate·`escalate: true`면 Opus 승격**(승격은 디스패처). reviewer 3종 `model: inherit`=Opus, `CLAUDE_CODE_SUBAGENT_MODEL` 금지.
 - 리뷰는 read-only만(`git diff`/`git show`) — `checkout`/`switch`/`stash`는 워크트리 attached HEAD 파괴라 금지.
-- 리뷰-수정 루프: read-only 리뷰어는 같은 subagent를 `SendMessage`로 resume(코드베이스+직전 findings 보존 — 재리뷰가 싸고 "내 finding 반영됐나" 직접 검증), 코드-fix는 fresh focused subagent로(자가검증 편향). clean APPROVE 목표 + **유한 valve**: finding은 `receiving-code-review`로 타당성 판정(틀림·과설계·범위밖은 근거 1줄 기각), 루프 5회 초과 시 사용자에게 질문.
+- 리뷰-수정 루프: read-only 리뷰는 같은 subagent `SendMessage` resume, 코드-fix는 fresh subagent(자가검증 편향). clean APPROVE 목표+**유한 valve**: finding은 `receiving-code-review` 판정, 5회 초과 시 사용자 질문.
 - 리뷰어가 "later fold 가능"이라 해도 **spec invariant 위반이면 그 슬라이스 안에서 fix**(미룬 건 사라진다).
-- **finding을 뒤 task로 접기로 했으면 그 task의 brief에 명시 추가**(think-time-dashboard): 대화에서 내린 결정은 `task-brief`가 자르는 plan 섹션에 없으므로 implementer에게 **도달하지 않는다**. 특히 그 task가 plan에서 "드롭 가능"으로 표시돼 있으면 finding이 task와 함께 조용히 사라진다(리뷰어가 이 위험을 먼저 지적했다 — 접을 곳을 고를 때 그 task의 생존 보장 여부부터 확인).
-- **리뷰 finding의 *사실 주장*도 가설이다 — fold-in 전에 검증할 것. 특히 렌더 결과(간격·정렬·폭) 주장** (report-advice-noise): 위 "plan의 사실 주장" 규칙의 자매편인데, **리뷰어에는 같은 회의를 적용하지 않는 실수**를 했다. T5 리뷰가 "토글 wrapper `mb-2`가 h3의 `mb-2`와 겹쳐 간격이 이중"이라 보고했고 사용자 간격 민감도를 근거로 그대로 다음 task brief에 접어 넣었으나 **거짓**이었다 — h3의 `margin-bottom`은 토글 *위*, wrapper의 것은 *아래* 간격을 지배하고 인접 형제 collapsing은 **뒤 요소의 `margin-top`**을 요구하는데 `ul.space-y-1`엔 없다(절대 겹치지 않음). 결과: 간격 8px→**0px** + 거짓 근거를 단언하는 주석이 다음 편집자에게 재삭제를 지시. `getBoundingClientRect` 실측으로 자력 발견·원복. **fold-in은 리뷰 루프를 우회한다**(내가 brief에 넣은 지시는 리뷰받지 않는다) → 공간/시각 주장은 기계로 재고 "무엇이 사라지나"까지 본 뒤 접을 것. 주장이 틀렸으면 주석은 **통째 삭제**(참인 조각만 남기면 그 프레이밍이 오류를 재유발). → 메모리 [[review-findings-are-hypotheses]]
-- 최종 whole-feature 리뷰는 `handicap-reviewer`(Zod↔serde 와이어 1:1·deferral 추적·게이트 재확인). 단일-task plan은 per-task 리뷰와 병합해 1회 — 리뷰 BASE는 implementer 디스패치 직전 커밋(`HEAD~1` 금지, 멀티커밋 절단).
+- **finding을 뒤 task로 접기로 했으면 그 task의 brief에 명시 추가** — 대화 결정은 `task-brief`가 자르는 plan 섹션에 없어 implementer에게 도달하지 않는다. 접을 곳은 그 task의 생존 보장부터 확인.
+- **리뷰 finding의 사실 주장도 가설 — fold-in 전에 검증**(특히 렌더 결과: 간격·정렬·폭): fold-in은 리뷰 루프 우회라 기계로 재라. 틀린 근거 주석은 통째 삭제 → [[review-findings-are-hypotheses]]
+- 최종 whole-feature 리뷰는 `handicap-reviewer`(Zod↔serde 와이어 1:1·deferral 추적·게이트 재확인). 단일-task plan은 per-task와 병합해 1회 — 리뷰 BASE는 implementer 디스패치 직전 커밋(`HEAD~1` 금지).
 - 다른 슬라이스로 미룬 항목은 코드 주석만으론 유실 — 후속 scoping 때 `grep -rn "<슬라이스>" crates/ docs/`로 deferral 훑기.
 
 **검증·재개 (subagent 불신 원칙)**
 - 새 `EnterWorktree` 워크트리엔 `ui/node_modules`·`target/` 없음 — 디스패치 전 `pnpm install` + `cargo build` baseline.
-- implementer는 mid-task truncate될 수 있다 — report(수치 포함) 불신, `git status`/`git diff HEAD`로 실상 확인 후 남은 step 직접 완료. Edit 직후 `<new-diagnostics>`도 STALE 가능 — 독립 `cargo build --workspace`+`cargo test --no-run`만 신뢰.
-- **orchestrator가 brief에 "내가 검증했다"고 적어 넘긴 사실도 가설이다** — implementer는 그걸 *신뢰해도 되는 것*으로 취급하라고 지시받으므로 의심하지 않고, 틀리면 **리뷰가 잡을 때까지 산출물에 남는다**(release-hygiene: `--is-ancestor <c> v0.6.0`을 구간 소속 검사로 오용 → v0.5.0에 **이미 공개 공지된** 항목이 v0.6.0 릴리즈 노트의 새 하이라이트로 들어갔다. `--is-ancestor`는 "그 태그에서 도달 가능"만 뜻해 더 오래된 커밋이 전부 통과한다. 소속 검사 = `git log --format=%H <구>..<신> | grep <sha>` 또는 `--is-ancestor c 신 && ! --is-ancestor c 구`). **처방**: brief엔 "확인했다"가 아니라 **확인한 명령**을 적어라(명령을 적는 순간 그게 그 주장을 증명하는지 보인다). 리뷰 디스패치에 넘기는 "orchestrator가 검증한 것" 목록도 **반박 가능한 것으로** 제시할 것 — 실제로 리뷰어가 반박해서 이 결함을 잡았다. → 메모리 [[orchestrator-verification-is-hypothesis]]
-- 완성도(전수 grep) 게이트는 orchestrator가 **직접 재실행**(self-report grep은 신뢰 천장 낮음). zsh: 대상군을 변수 1개로 넘기면 word-split 안 됨(`set --`/명시 나열), 스코프 게이트는 two-dot 금지 — `git diff $(git merge-base master HEAD)..HEAD`.
+- implementer는 mid-task truncate 가능 — report 수치 불신, `git status`/`git diff HEAD`로 확인 후 남은 step 완료. Edit 직후 `<new-diagnostics>`도 STALE 가능 — 독립 `cargo build --workspace`+`cargo test --no-run`만 신뢰.
+- **orchestrator가 brief에 넘긴 "검증했다"도 가설** — implementer가 의심 안 하므로 틀리면 리뷰까지 남는다. brief엔 "확인했다"가 아니라 **확인한 명령**을. → [[orchestrator-verification-is-hypothesis]]
+- 전수 grep 완성도 게이트는 orchestrator **직접 재실행**(self-report 불신). zsh: 변수 1개로 넘기면 word-split 안 됨(`set --`/명시 나열), 스코프는 two-dot 금지 — `git diff $(git merge-base master HEAD)..HEAD`.
 - 컨텍스트 리셋 후 재개는 **git 커밋이 진실의 원천** — `git log <base>..HEAD` vs plan 체크박스로 첫 미커밋 task부터(TodoWrite/subagent report 불신).
 
 ## 슬라이스 파이프라인 (순서·게이트·재개 — 단계 생략 금지)
