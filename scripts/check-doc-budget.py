@@ -3,12 +3,14 @@
 
 비대칭 설계(근거 → docs/dev/root-doc-maintenance.md):
   - **성장은 경고**(WARN, exit 0) — 도메인 파일은 커져도 매 프롬프트 비용이 아니다.
-  - **거짓 보고는 오류**(FAIL, exit 1) — root 예산 초과·상태줄 붕괴·죽은 참조·
-    검사 불능(섹션/baseline 대상 실종)은 문서가 사실이 아니게 되는 경로다.
+  - **거짓 보고는 오류**(FAIL, exit 1) — root 예산 초과·상태줄 붕괴·죽은 참조, 그리고
+    **검사 불능**(섹션·baseline 대상 실종, 검사 대상이 0으로 줄어듦)은 문서가 사실이
+    아니게 되는 경로다. 검사 대상이 비면 루프가 0회 돌고 **조용히 GREEN**이 되므로,
+    게이트를 무력화하는 가장 싼 방법이 곧 "대상을 없애기"다 — 하한 4종으로 막는다.
 
 단위는 전부 KiB(1024 B). 줄 바이트 = len(line.encode()) + 1(개행 포함).
 """
-import re, sys, pathlib
+import re, sys, pathlib, unicodedata
 
 ROOT = "CLAUDE.md"
 
@@ -16,6 +18,7 @@ ROOT = "CLAUDE.md"
 # 인상은 "파일을 실제로 압축했을 때만" 허용되고, check-doc-coverage.py 의 R18 이
 # 기계로 강제한다(인상인데 파일이 안 줄었으면 FAIL). 형식 제약: 모듈 최상위 대입문 +
 # flat dict 리터럴 — R18 의 parse_baselines() 가 ast 로 이 노드를 읽는다.
+# 단 R18 은 base ref 에 이 파일이 있을 때만 무장된다(→ root-doc-maintenance.md).
 BASELINES = {
     "ui/CLAUDE.md": 116129,
     "crates/controller/CLAUDE.md": 82481,
@@ -33,12 +36,25 @@ BULLET_SECTION = "Subagent dispatch 노하우"
 BULLET_MAX = 250        # 불릿 하나 상한(FAIL) — US2 "규칙만 말한다"의 기계적 대리 지표
 SECTION_MAX = 6144      # 6 KiB — 섹션 총합(WARN: 총량 방어는 root 절대 예산이 이미 한다)
 
+# --- "검사 불능 = FAIL" 하한 ------------------------------------------------
+# 래칫 WARN 을 없애는 가장 싼 방법은 dict 를 비우는 것이고, 250 B 검사를 없애는 가장 싼
+# 방법은 불릿 마커를 바꾸는 것이다 — 둘 다 R18 이 잡는 "baseline 인상"보다 싸다.
+BASELINES_MIN = 6       # 도메인 CLAUDE.md 개수. 파일을 실제로 지웠을 때만 내린다.
+L1_MIN_REFS = 21        # L1 이 검사해야 할 최소 참조 수. 포인터가 진짜 사라졌을 때만 내린다.
+
 # L1 사전 선언 예외. None = 존재 검사 제외, str = 그 경로로 해석해 존재 검사.
 L1_EXCEPTIONS = {
     "MEMORY.md": None,                                  # 레포 밖(사용자 자동메모리 디렉토리)
     "2026-05-27-handicap-mvp1-design.md":               # 맨 파일명으로 인용되는 MVP1 spec
         "docs/superpowers/specs/2026-05-27-handicap-mvp1-design.md",
 }
+
+# root 가 .md 를 가리키는 4가지 표기. 하나라도 빼면 그만큼 조용히 안 보인다.
+RE_BACKTICK = re.compile(r"`([^`\n]+?\.md)(?:[:#][\w.-]*)?`")     # `docs/x.md` `docs/x.md:207`
+RE_LINK = re.compile(r"""\[[^\]]*\]\(\s*<?([^)>\s]+)>?(?:\s+["'(][^)]*)?\s*\)""")
+RE_LINKDEF = re.compile(r"""(?m)^\s{0,3}\[[^\]]+\]:\s*<?([^>\s]+)>?""")   # [rd]: docs/x.md
+RE_PLAIN = re.compile(r"(?<![`(])(?:docs|crates|ui|deploy|desktop|scripts)"
+                      r"/[\w./-]+\.md\b")                          # **docs/x.md**(굵게)
 
 
 def nbytes(s):
@@ -91,18 +107,26 @@ def section_span(text, section):
 
 
 def md_refs(text):
-    """root 안의 .md 참조를 (원문, 앵커) 목록으로. backtick 인용 경로 + markdown 링크 양쪽.
+    """root 안의 .md 참조를 (경로, 앵커) 목록으로 — backtick·링크·링크정의·평문 **4표기 전부**.
 
-    root의 진짜 markdown 링크는 몇 개 안 되고 대부분은 backtick 경로로 인용된다 —
-    한쪽만 보면 이 검사는 사실상 아무것도 안 한다.
+    한쪽만 보면 이 검사는 사실상 아무것도 안 한다: root 의 진짜 markdown 링크는 파일 참조
+    4개뿐이고 대부분은 backtick 으로 인용된다. 그리고 **평문 굵게 포인터**
+    (`→ **docs/dev/live-verify-playwright.md**(／live-verify 시 로드)`)는 backtick 도 링크도
+    아니다 — 하필 이전 재분배가 만든 포인터라 R9 가 존재하는 이유 그 자체다.
+
+    `.md:207`·`.md#anchor` 꼬리는 흡수한다(경로만 검사). `docs/x.md:207` 표기는 이미
+    `docs/dev/root-doc-maintenance.md` 에서 관용적으로 쓰이고 곧 root 로 올라온다.
     """
     refs = []
-    for m in re.finditer(r"`([^`\n]+?\.md)`", text):                    # `docs/foo.md`
+    for m in RE_BACKTICK.finditer(text):
         refs.append((m.group(1), None))
-    for m in re.finditer(r"\[[^\]]*\]\(([^)\s]+)\)", text):             # [t](docs/foo.md#a)
-        path, _, anc = m.group(1).partition("#")
-        if path == "" or path.endswith(".md"):
-            refs.append((path, anc or None))
+    for rx in (RE_LINK, RE_LINKDEF):
+        for m in rx.finditer(text):
+            path, _, anc = m.group(1).partition("#")
+            if path == "" or path.endswith(".md"):
+                refs.append((path, anc or None))
+    for m in RE_PLAIN.finditer(text):
+        refs.append((m.group(0), None))
     return refs
 
 
@@ -167,10 +191,14 @@ def main():
             fails.append(f"FAIL [상태줄] {sb:,} B > 상한 {STATUS_MAX:,} B — "
                          f"append 말고 한 줄로 교체할 것(상세는 docs/build-log.md)")
 
-    # ③ L1 — 참조 실존 + 앵커 매치
+    # ③ L1 — 참조 실존 + 앵커 매치 (+ 검사량 하한: 검사가 줄면 그것도 검사 불능이다)
     n_file, n_anchor = check_l1(text, fails)
+    if n_file < L1_MIN_REFS:
+        fails.append(f"FAIL [L1] 검사한 참조 {n_file}건 < 하한 {L1_MIN_REFS}건 — "
+                     f"포인터가 사라졌거나 표기가 바뀌어 검사에서 빠졌다"
+                     f"(진짜로 없앤 거라면 L1_MIN_REFS를 같이 내릴 것)")
 
-    # ④ 불릿 상한 (US2) — 섹션이 사라지면 검사 불능이므로 FAIL
+    # ④ 불릿 상한 (US2) — 섹션·불릿이 사라지면 검사 불능이므로 FAIL
     body = section_span(text, BULLET_SECTION)
     if body is None:
         fails.append(f"FAIL [불릿] '## {BULLET_SECTION}' 섹션 없음 — 검사 불능(섹션명 불변 규약)")
@@ -179,6 +207,10 @@ def main():
         total = sum(line_bytes(l) for l in lines)
         bl = [l for l in lines if l.startswith("- ")]
         table.append((f"§{BULLET_SECTION}", total, SECTION_MAX, f"{total / SECTION_MAX * 100:.1f}%"))
+        if not bl:
+            # 마커를 '- '에서 '* '로 바꾸면 250 B 검사가 통째로 증발한다(0회 루프 → GREEN).
+            fails.append(f"FAIL [불릿] '## {BULLET_SECTION}'에 '- ' 불릿 0개 — "
+                         f"검사 불능(마커가 바뀌었나? 규약은 '- ')")
         for l in bl:
             n = line_bytes(l)
             if n > BULLET_MAX:
@@ -187,7 +219,10 @@ def main():
             warns.append(f"WARN [불릿] 섹션 총합 {total:,} B > {SECTION_MAX:,} B "
                          f"(불릿 {len(bl)}개) — 서사는 docs/dev/subagent-dispatch.md 로")
 
-    # ⑤ 도메인 성장 래칫 — 성장은 WARN, 대상 실종은 FAIL(거짓 보고)
+    # ⑤ 도메인 성장 래칫 — 성장은 WARN, 대상 실종·목록 축소는 FAIL(거짓 보고)
+    if len(BASELINES) < BASELINES_MIN:
+        fails.append(f"FAIL [래칫] BASELINES {len(BASELINES)}개 < 하한 {BASELINES_MIN}개 — "
+                     f"검사 불능(도메인 파일을 실제로 지웠을 때만 하한을 내릴 것)")
     for f, base in BASELINES.items():
         p = pathlib.Path(f)
         if not p.exists():
@@ -204,10 +239,17 @@ def main():
     for m in warns:
         print(m)
 
-    w = max(len(f) for f, *_ in table)
-    print(f"\n{'파일'.ljust(w)}  {'현재':>12}  {'기준':>12}  사용률/성장")
+    # 표 정렬은 글자 수가 아니라 **표시 폭**으로 — 한글/CJK는 터미널에서 2칸을 먹는다.
+    def dwidth(s):
+        return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+    def pad(s, w):
+        return s + " " * max(0, w - dwidth(s))
+
+    w = max(dwidth(f) for f, *_ in table)
+    print(f"\n{pad('파일', w)}  {'현재':>10}    {'기준':>10}    사용률/성장")
     for f, cur, base, note in table:
-        print(f"{f.ljust(w)}  {cur:>10,} B  {base:>10,} B  {note}")
+        print(f"{pad(f, w)}  {cur:>10,} B  {base:>10,} B  {note}")
 
     print(f"\n{'FAIL' if fails else 'OK'}: root {size:,}/{ROOT_MAX:,} B · "
           f"L1 참조 {n_file}건(앵커 {n_anchor}) · 래칫 {len(BASELINES)}개 · "
