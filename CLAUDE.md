@@ -110,7 +110,7 @@ docs/
 
 ## Subagent dispatch 노하우
 
-> 여기엔 **규칙 요약만** — 사고 서사·사례·근거 수치·복구 레시피 전체는 [`docs/dev/subagent-dispatch.md`](docs/dev/subagent-dispatch.md)(재비대 방지 추출 2026-07-16, commit-gates 선례와 동일). 규칙이 처음이거나 "왜?"·사례가 필요하면 그 파일을 읽어라. 새 dispatch 함정은 규칙 한 줄을 여기, 서사를 그 파일에.
+> 여기엔 **규칙 요약만** — 사고 서사·사례·근거 수치·복구 레시피 전체는 [`docs/dev/subagent-dispatch.md`](docs/dev/subagent-dispatch.md). 규칙이 처음이거나 "왜?"·사례가 필요하면 그 파일을 읽어라. 새 dispatch 함정은 규칙 한 줄을 여기, 서사를 그 파일에.
 
 **brief/plan 작성**
 - plan task 헤딩은 숫자 `Task N`으로 — `task-brief`가 문자 라벨("Task A") 미매칭 exit 3.
@@ -131,7 +131,8 @@ docs/
 - 1M-context 부모에서 `model:` 생략은 즉사+가짜 completed — 항상 **명시 `model:`**(reviewer도 1M 세션엔 `model: opus`). notification `tool_uses`/`tokens`/`duration` 0이면 미실행 — status=completed 불신, 메인 폴백.
 
 **리뷰**
-- task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음. 기본 Sonnet, path-gate/`escalate: true`면 code-quality만 Opus(승격=디스패처). reviewer 3종 `model: inherit`=Opus, `CLAUDE_CODE_SUBAGENT_MODEL` 금지.
+- 모델 라우팅: 기본 Sonnet, path-gate(engine/동시성/`unsafe`/proto/와이어/template/cast/env/dataset/migration/대형 diff)면 그 task code-quality만 `model: opus`, `escalate: true` 재패스, 승격=디스패처(자기승격 불가)
+- task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음. 정의된 `handicap-reviewer`/`security-reviewer`/`spec-plan-reviewer`는 `model: inherit`=Opus 유지(강등 금지), `CLAUDE_CODE_SUBAGENT_MODEL` 설정 금지
 - 리뷰는 read-only만(`git diff`/`git show`) — `checkout`/`switch`/`stash`는 워크트리 attached HEAD 파괴라 금지.
 - 리뷰-수정 루프: read-only 리뷰는 같은 subagent `SendMessage` resume, 코드-fix는 fresh subagent(자가검증 편향). clean APPROVE 목표+**유한 valve**: finding은 `receiving-code-review` 판정, 5회 초과 시 사용자 질문.
 - 리뷰어가 "later fold 가능"이라 해도 **spec invariant 위반이면 그 슬라이스 안에서 fix**(미룬 건 사라진다).
