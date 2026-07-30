@@ -519,7 +519,7 @@ dynamic-vars(877964c) 후속 UX 슬라이스(사용자 발의·roadmap 밖). **(
 
 **함정 출처**: 루트(`--is-ancestor`는 구간 소속 검사가 아니다 · 게이트 판정에 파이프 금지 재확인 · macOS 대소문자 무구분 fs에서 잘못된 케이스 `git add`는 **조용히 0건 스테이징**[이 레포는 `Justfile` 대문자] · `ps -o cwd=`는 macOS 미지원 → `lsof -a -p <pid> -d cwd` · python `yaml` 모듈 부재 → 워크플로 검증은 `actionlint`), `crates/controller/CLAUDE.md`(**bundle feature에서 `ui_dir: None`은 오히려 임베드 SPA fallback을 켠다** — 라우트 부재 진단이 404에서 JSON 파싱 panic으로 격하되나 이빨은 양 구성에서 생존).
 
-## claude-md-redistribute — root CLAUDE.md 재분배: 이관 검증·예산 게이트 2종 + 이관 정본 (2026-07-31, task 커밋 `2cff75a6`..`3b0ab516` — 머지 sha는 `/finish-slice`가 채운다)
+## claude-md-redistribute — root CLAUDE.md 재분배: 이관 검증·예산 게이트 2종 + 이관 정본 (2026-07-31, task 커밋 `2cff75a6`..`74b4cd9d`, 머지 `74b4cd9d`)
 
 **발의**: root `CLAUDE.md`는 매 프롬프트에 통째로 로드되는데 slice 누적으로 base(`17369d32`) 기준 **54,719 B**까지 불어 있었다. spec/plan(US1–US4)이 정한 목표는 "규칙·현재상태·인덱스는 그대로 두고 root ≤ 43,008 B(42 KiB)로, 덜어낸 내용은 root에 남은 포인터를 따라가면 전부 도달"(US1) + "불릿은 250 B 이하로 규칙만, 근거·서사는 정본에서"(US2) + "상태줄 팽창을 기계로 차단"(US3) + "다음 재분배도 같은 절차로 반복 가능하게 기준을 레포 안에"(US4).
 
