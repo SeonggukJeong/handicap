@@ -1,10 +1,13 @@
 name: release
 
-# Windows Tauri 데스크톱 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe(README §B, --features bundle) +
-# macOS .dmg(arm64/x64 각각 네이티브)를 빌드해 GitHub Release에 첨부.
+# Windows Tauri 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe(README §B, --features bundle) +
+# macOS .dmg(arch별 네이티브 2개)를 빌드해 GitHub Release에 첨부.
 # 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
-# 릴리즈 *생성*은 windows-installer 잡의 tauri-action 하나만 담당 — macos-dmg는 그 릴리즈를 기다려 에셋만 올린다
-# (두 잡이 동시에 create를 시도하는 레이스 회피).
+#
+# 구조(spec R8): preflight(버전 정합, 수 초) → windows-build / macos-build(둘 다 **빌드만**
+# + upload-artifact) → publish(artifact 다운로드 → gh release). 빌드와 게시를 갈라 놓아
+# GitHub API 장애로 게시가 실패해도 **실패한 publish 잡만 재실행**하면 되고(빌드 재실행 불필요,
+# 18분 → 수십 초), 릴리즈 생성 레이스도 없어져 구 macos 잡의 30분 폴링이 사라졌다.
 on:
   push:
     tags:
@@ -16,15 +19,31 @@ on:
         required: true
 
 permissions:
-  contents: write # 릴리즈 생성 + 에셋 업로드
+  contents: write # 릴리즈 생성 + 에셋 업로드 + generate-notes
 
 jobs:
+  # 태그↔workspace/desktop/tauri.conf/두 락파일 정합을 빌드 **전에** 검사한다.
+  # 실패 시 18분 빌드가 시작조차 하지 않고, 잘못 라벨된 에셋(v0.8.0 태그에 0.7.0 파일)이 막힌다.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_dispatch에서 ref를 안 주면 디스패치 브랜치를 체크아웃해
+          # 임의 태그를 master 매니페스트와 비교하게 된다(=이 검사가 막으려는 그 버그).
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Check version consistency
+        run: scripts/check-release-versions.sh "${{ inputs.tag || github.ref_name }}"
+
   windows-installer:
+    needs: preflight
     runs-on: windows-latest
-    # 인스톨러(desktop 워크스페이스) + 포터블 exe(루트 워크스페이스) 두 릴리즈 빌드라 60분으론 cold-cache에 빠듯.
+    # 인스톨러(desktop 워크스페이스) + 포터블 exe(루트 워크스페이스) 두 릴리즈 빌드라 cold-cache에 빠듯.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -59,50 +78,86 @@ jobs:
             desktop/src-tauri -> target
             . -> target
 
-      # tauri-action: tauri-cli 설치 → cargo tauri build → 태그로 릴리즈 생성 + NSIS/MSI 첨부.
-      # projectPath=desktop → desktop/src-tauri/tauri.conf.json 사용. externalBin 없음(ADR-0042 in-process).
-      - name: Build & release Windows installers
+      # tagName 없이 호출 = **빌드만**(릴리즈 생성·업로드 안 함). 게시는 publish 잡이 담당.
+      # id는 다음 스텝이 outputs.artifactPaths를 폴백으로 읽기 위해 필요하다.
+      - name: Build Windows installers
+        id: tauri
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: desktop
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: Handicap ${{ inputs.tag || github.ref_name }}
-          releaseDraft: false
-          prerelease: false
           args: --bundles nsis,msi
 
-      # 포터블 단일 exe(README §B, ADR-0039 옵션 A). ui/dist는 위 UI 빌드 단계가 이미 생성
-      # (rust-embed가 컴파일타임에 임베드). 루트 워크스페이스라 desktop과 별도 target.
+      # 포터블 단일 exe(README §B, ADR-0039 옵션 A). ui/dist는 위 UI 빌드가 이미 생성.
       - name: Build portable single exe
         run: cargo build --release -p handicap-controller --bin controller --features bundle
 
-      # tauri-action이 위에서 릴리즈를 이미 생성했으므로 같은 태그에 에셋만 추가.
-      - name: Attach portable exe to release
+      # tauri-action의 artifactPaths 출력을 폴백으로 쓴다(spec R8의 plan 의무):
+      # 하드코딩 경로는 Windows 러너에서만 검증 가능하고(개발기 macOS 재현 불가) 틀리면 18분째에
+      # 잡이 죽는다 → ① 먼저 번들 트리를 통째로 찍어 실패 시 실제 경로가 로그에 남게 하고
+      # ② 하드코딩 glob이 0개를 잡으면 artifactPaths(JSON 배열)에서 nsis/msi를 건져 복사한다.
+      - name: Stage release assets
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $tag = '${{ inputs.tag || github.ref_name }}'
           $ver = $tag.TrimStart('v')
-          $asset = "Handicap_${ver}_x64-portable.exe"
-          Copy-Item target/release/controller.exe $asset
-          gh release upload $tag $asset --clobber
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
 
-  # macOS 네이티브 앱 번들(.app) + .dmg. universal(lipo) 대신 **아키텍처별 네이티브 2개**를 만든다:
-  # lipo로 합친 바이너리는 서명이 날아가 arm64에서 실행이 거부될 수 있고, 링커가 붙이는 ad-hoc 서명은
-  # 네이티브 타깃 빌드에서만 온전하다. 서명/공증(notarization) 없음 → 사용자는 Gatekeeper 우회 필요(README §C).
+          # -ErrorAction SilentlyContinue가 load-bearing: bundle 루트 자체가 이동한 경우
+          # (=폴백이 존재하는 바로 그 시나리오) $ErrorActionPreference='Stop'이 이 줄을
+          # 종료 예외로 만들어 아래 폴백에 도달조차 못 한다.
+          # backtick 줄바꿈은 유지한다: `@( )`는 그룹 괄호와 달리 subexpression이라
+          # 개행이 문장 구분자로 동작해, backtick을 빼면 `-ErrorAction …`이 별개 문장으로
+          # 파싱된다(리뷰의 "괄호 안이라 불필요" 제안은 `( )`에만 해당). 검증 불가한
+          # 환경(pwsh 없음)에서는 확실히 유효한 형태를 남긴다.
+          Write-Host "== bundle tree (경로 오판 시 이 목록이 근거가 된다)"
+          $tree = @(Get-ChildItem desktop/src-tauri/target/release/bundle -Recurse -File `
+            -ErrorAction SilentlyContinue)
+          if ($tree.Count -eq 0) {
+            Write-Host "  (bundle 트리가 비었거나 루트 경로가 이동했다 — artifactPaths 폴백에 의존한다)"
+          } else {
+            $tree | Select-Object -ExpandProperty FullName
+          }
+
+          $installers = @(Get-ChildItem -Path `
+            desktop/src-tauri/target/release/bundle/nsis/*.exe, `
+            desktop/src-tauri/target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue)
+
+          if ($installers.Count -eq 0) {
+            Write-Host "하드코딩 경로에서 인스톨러를 못 찾음 → artifactPaths 폴백"
+            if (-not $env:ARTIFACT_PATHS) { throw "artifactPaths 출력도 비어 있다 — 위 트리 목록으로 경로를 고칠 것" }
+            $installers = @($env:ARTIFACT_PATHS | ConvertFrom-Json |
+              Where-Object { $_ -match '\.(exe|msi)$' } | ForEach-Object { Get-Item $_ })
+          }
+          if ($installers.Count -eq 0) { throw "인스톨러 산출물 0개" }
+          $installers | ForEach-Object { Copy-Item $_.FullName staging/ }
+
+          Copy-Item target/release/controller.exe "staging/Handicap_${ver}_x64-portable.exe"
+          Get-ChildItem staging | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-windows
+          path: staging/
+          if-no-files-found: error
+
+  # macOS 네이티브 앱 번들(.app) + .dmg. universal(lipo) 대신 **아키텍처별 네이티브 2개**:
+  # lipo로 합친 바이너리는 서명이 날아가 arm64에서 실행이 거부될 수 있다.
+  # 서명/공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C).
   macos-dmg:
+    needs: preflight
     runs-on: macos-latest
-    # 빌드(≈30분) + windows-installer가 릴리즈를 만들기까지의 대기(최대 30분) 합산.
-    timeout-minutes: 120
+    timeout-minutes: 90
     strategy:
       fail-fast: false # 한쪽 아키텍처가 실패해도 다른 쪽 dmg는 출하한다.
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -112,7 +167,6 @@ jobs:
         with:
           version: 9
 
-      # rust-embed가 컴파일타임에 ui/dist를 임베드하므로 cargo 빌드 전에 먼저(windows 잡과 동일).
       - name: Build UI (ui/dist)
         working-directory: ui
         env:
@@ -121,7 +175,6 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      # tonic-build(handicap-proto)이 빌드타임에 protoc를 요구.
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -135,15 +188,14 @@ jobs:
           workspaces: desktop/src-tauri -> target
           key: ${{ matrix.target }}
 
-      # tagName 없이 호출 = 빌드만(릴리즈 생성·업로드 안 함). app을 dmg보다 먼저 두어,
-      # dmg 변환(bundle_dmg.sh — AppleScript)이 CI에서 실패해도 .app 산출물은 남는다.
+      # app을 dmg보다 먼저 두어, dmg 변환(bundle_dmg.sh — AppleScript)이 실패해도 .app은 남는다.
       - name: Build macOS app bundle + dmg
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: desktop
           args: --target ${{ matrix.target }} --bundles app,dmg
 
-      # 릴리즈 업로드가 실패하더라도 산출물은 회수 가능하게(dmg 변환 실패 시 .app 확인용).
+      # 회수용(발행 대상 아님): dmg 변환 실패 시 .app 확인.
       - name: Upload bundle as workflow artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -152,20 +204,33 @@ jobs:
           path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
           if-no-files-found: warn
 
-      - name: Attach dmg to release
+      # 발행용: dmg만. publish 잡은 release-assets-* 패턴만 내려받는다.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-macos-${{ matrix.target }}
+          path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  # 게시 전담. 재실행 시 이 잡만 다시 돌면 artifact를 재사용해 수십 초에 끝난다.
+  # macOS가 양쪽 다 실패해도 Windows 3종으로 발행한다(에셋 이름은 불변, 완전성은 불변식이 아니다).
+  publish:
+    needs: [windows-installer, macos-dmg]
+    if: always() && needs.windows-installer.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      # 노트 파일(docs/release-notes/v<ver>.md)을 읽어야 하므로 publish도 체크아웃한다.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*   # 회수용 macos-bundle-*은 제외
+          merge-multiple: true
+          path: staging
+
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag='${{ inputs.tag || github.ref_name }}'
-          bundle_dir="desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
-          dmg=$(find "$bundle_dir" -maxdepth 1 -name '*.dmg' | head -1)
-          [ -n "$dmg" ] || { echo "no .dmg produced in $bundle_dir"; exit 1; }
-          echo "dmg: $dmg"
-          # 릴리즈는 windows-installer 잡이 만든다(병렬 실행) — 생성될 때까지 최대 30분 폴링.
-          for i in $(seq 1 90); do
-            if gh release view "$tag" >/dev/null 2>&1; then break; fi
-            echo "release $tag not created yet ($i/90) — waiting 20s"
-            sleep 20
-          done
-          gh release upload "$tag" "$dmg" --clobber
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: scripts/publish-release.sh "${{ inputs.tag || github.ref_name }}" staging
