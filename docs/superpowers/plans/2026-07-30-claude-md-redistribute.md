@@ -154,9 +154,10 @@ git commit -m "docs(adr): 0039·0044 신선도 해소 + root 0047 오기 정정 
 
 - `kind` = `move` | `merge`
 - **`move` 행 검사 4가지**: ① `source_anchor`가 base root에 존재 ② 현재 root에 부재 ③ `required_marker`(`|` 구분 다항)가 **`dest_file` 안에** 전부 존재 ④ **`dest_file`별로 그 파일을 목적지로 둔 행들의 `min_dest_gain_bytes` 합계**와 그 파일의 실제 바이트 증가를 **1회 비교**
+- **`move` 행 검사 ⑤(marker 신규성)**: `min_dest_gain_bytes > 0`인 행은 `required_marker`가 **`at(base, dest_file)`에 없어야** 한다. 있으면 `FAIL [move] marker가 base 목적지에 이미 존재 — 이 이동을 증명하지 못한다`. 이게 없으면 "우연히 목적지에 이미 있던 문구"를 marker로 골라 아무것도 안 옮기고 ③을 통과할 수 있다(`absorbed_marker` 유일성 규칙의 대칭). **`min_gain=0` 행(Task 6)은 제외** — 목적지에 내용이 선재하는 것이 그 행의 전제이고, 대신 표본 다항 marker에 의존한다.
 - **`merge` 행**은 컬럼 의미가 다르다: `source_anchor`=`absorbed_marker`, `dest_file`=`-`, `required_marker`=`surviving_anchor`, `min_dest_gain_bytes`=`0`. 검사 ⓐ `absorbed_marker`가 base root에 **정확히 1회** ⓑ 현재 root에서 `surviving_anchor`를 포함하는 불릿이 `absorbed_marker`도 포함
 
-**④를 누적으로 하는 이유:** Task 3–4는 9행이 전부 `docs/dev/subagent-dispatch.md`를 목적지로 둔다. 행별 비교면 *하나만* 크게 옮겨도 나머지 8행이 같은 총증가분을 보고 통과한다 — 검사 ④가 아무 일도 안 하면서 커버된 듯한 착시를 준다(리뷰 지적). 누적 비교는 "선언한 합만큼은 실제로 늘었다"를 보증한다. 그래도 **행 단위 실체는 ③이 담당**한다는 점을 manifest 주석에 적어 둔다.
+**④를 누적으로 하는 이유:** Task 4가 추가하는 9행이 전부 `docs/dev/subagent-dispatch.md`를 목적지로 둔다(Task 3은 정본에 기입만 하고 manifest 행은 만들지 않는다). 행별 비교면 *하나만* 크게 옮겨도 나머지 8행이 같은 총증가분을 보고 통과한다 — 검사 ④가 아무 일도 안 하면서 커버된 듯한 착시를 준다(리뷰 지적). 누적 비교는 "선언한 합만큼은 실제로 늘었다"를 보증한다. 그래도 **행 단위 실체는 ③이 담당**한다는 점을 manifest 주석에 적어 둔다.
 
 - [ ] **Step 1: fixture를 실제 구조와 같게 만든다**
 
@@ -232,10 +233,13 @@ def tokens(t):
     return s
 
 def corpus_paths():
-    return (["docs/build-log.md"] + sorted(glob.glob("docs/dev/*.md"))
-            + sorted(glob.glob("docs/adr/*.md")) + sorted(glob.glob("crates/*/CLAUDE.md"))
-            + [p for p in ("ui/CLAUDE.md", "deploy/CLAUDE.md", "desktop/CLAUDE.md")
-               if pathlib.Path(p).exists()])
+    # 리터럴 경로는 전부 .exists()로 감싼다 — glob은 자체 가드가 되지만 리터럴은 아니다.
+    # (비대칭으로 두면 부분 체크아웃·fixture에서 FileNotFoundError로 죽고, 그 크래시도
+    #  exit 1이라 "RED 실증 완료"로 오기록된다 — 이 스크립트가 막으려는 바로 그 실패다.)
+    lits = ["docs/build-log.md", "ui/CLAUDE.md", "deploy/CLAUDE.md", "desktop/CLAUDE.md"]
+    return ([p for p in lits if pathlib.Path(p).exists()]
+            + sorted(glob.glob("docs/dev/*.md")) + sorted(glob.glob("docs/adr/*.md"))
+            + sorted(glob.glob("crates/*/CLAUDE.md")))
 
 def rows():
     p = pathlib.Path("scripts/doc-move-manifest.tsv")
@@ -266,9 +270,13 @@ def main(base):
             if not dp.exists():
                 fails.append(f"FAIL [move] dest_file 없음: {dest}"); continue
             dtext = dp.read_text()
+            base_dest = at(base, dest) or ""
             for m in marker.split("|"):
                 if m not in dtext:
                     fails.append(f"FAIL [move] {dest}에 marker 없음: {m[:50]}")
+                elif int(gain) > 0 and m in base_dest:      # ⑤ marker 신규성
+                    fails.append(f"FAIL [move] marker가 base 목적지에 이미 존재 — "
+                                 f"이 이동을 증명하지 못한다: {m[:50]}")
             gain_need[dest] += int(gain)
         elif kind == "merge":
             n = base_root.count(anchor)
@@ -327,12 +335,20 @@ if __name__ == "__main__":
 
 **모든 진단은 `FAIL [...]` 접두로 통일한다** — 초안은 토큰 소실을 `WARN`으로 찍으면서 `exit 1`을 냈다(라벨과 동작 불일치).
 
-- [ ] **Step 3: 시나리오 ① — 목적지 기입 없이 삭제하면 RED**
+**이 스켈레톤은 orchestrator가 fixture에서 실제로 돌려봤다**(2026-07-30). 확인한 것과 그 명령: fixture baseline → `OK`/`exit=0` · 시나리오 ① RED → 예측한 정확히 2줄, R17 미발화 · ① GREEN → `OK`/`exit=0` · **검사 ⑤** → 목적지를 200 B 늘려 ④를 통과시키고 ③도 통과하는 상태에서 `FAIL [move] marker가 base 목적지에 이미 존재`가 발화. 구현자는 이 결과를 **신뢰하지 말고 Step 3–5에서 다시 돌려라** — 여기 적힌 것은 "이 코드가 그 시점에 그렇게 동작했다"이지 "네 트리에서도 그렇다"가 아니다.
 
-fixture에서 `RULE_A` 불릿을 지우고 manifest에 `move	RULE_A 서사 조각 alpha	docs/dev/d.md	alpha 서사	100` 을 넣고 실행.
+- [ ] **Step 3: 시나리오 ① — 목적지 기입 없이 압축하면 RED**
 
-Expected: 출력에 **`FAIL [move] docs/dev/d.md에 marker 없음`** 과 **`FAIL [move] docs/dev/d.md 증가 0 B < 선언 합계 100 B`** 가 있고 `exit=1`. *traceback이면 실패다 — 스크립트를 고치고 다시.*
-그 다음 `docs/dev/d.md`에 `alpha 서사` 본문(≥100 B)을 써 넣고 재실행 → `OK` + `exit=0`.
+**불릿을 지우지 말고 제자리 압축한다** — 실제 Task 4가 하는 일이 압축(불릿 27개 유지)이고, 삭제하면 R17이 영구히 걸려 **GREEN에 도달할 수 없다**(리뷰가 실행으로 확인).
+
+```
+- RULE_A 서사 조각 alpha   →   - RULE_A 규칙만
+manifest: move<TAB>RULE_A 서사 조각 alpha<TAB>docs/dev/d.md<TAB>alpha 서사<TAB>100
+```
+
+Expected(RED): 정확히 두 줄 — **`FAIL [move] docs/dev/d.md에 marker 없음: alpha 서사`** 과 **`FAIL [move] docs/dev/d.md 증가 0 B < 선언 합계 100 B`** · `exit=1`. R17은 걸리지 않는다(개수 3 유지 = 검사 격리). *traceback이면 실패다 — 스크립트를 고치고 다시.*
+
+그 다음 `docs/dev/d.md`에 `alpha 서사`를 포함한 본문(≥100 B)을 써 넣고 재실행 → **`OK: manifest 1행 …`** + `exit=0`.
 
 - [ ] **Step 4: 시나리오 ② — manifest 행째로 없어도 RED**
 
@@ -344,8 +360,11 @@ Expected: **`FAIL [R17] 'Subagent dispatch 노하우' 불릿 3→2 (허용 바�
 
 fixture를 base로 되돌리고 `RULE_C` 불릿을 지운 뒤 `merge	RULE_C 서사 조각 gamma	-	RULE_A	0` 을 넣고 실행.
 
-Expected: **`FAIL [merge] 병합 미확인 — 삭제만 했는가`** + `exit=1`.
-그 다음 `RULE_A` 불릿 끝에 `RULE_C 서사 조각 gamma`를 실제로 흡수시키고 재실행 → `OK` + `exit=0`.
+Expected(RED): **`FAIL [merge] 병합 미확인 — 삭제만 했는가: RULE_C 서사 조각 gamma`** + **`FAIL [R17] … 불릿 3→2 (허용 바닥 3)`** + `exit=1`.
+
+**R17이 함께 뜨는 것이 정상이다** — 선언만 하고 수행하지 않은 merge는 바닥을 낮춰주면 안 되고, `merged_floor`는 병합이 *확인된* `else` 분기에서만 증가하므로 그렇게 동작한다. 이 줄을 예상 못 하면 멀쩡한 스크립트를 디버깅하게 된다.
+
+그 다음 `RULE_A` 불릿 끝에 `RULE_C 서사 조각 gamma`를 실제로 흡수시키고 재실행 → `OK` + `exit=0`(바닥이 2로 내려간다).
 
 - [ ] **Step 6: 레포에 초기 파일 + Justfile 레시피**
 
@@ -416,6 +435,8 @@ Expected: **전부 `0`**.
 - [ ] **Step 3: 이관 확인 (GREEN)**
 
 Step 1의 명령을 재실행. Expected: **9개 전부 ≥1**. 추가로 `wc -c docs/dev/subagent-dispatch.md`가 base(16,239 B) 대비 **+5,000 B 이상**이어야 한다(서사 9건 합 7,061 B의 70%).
+
+**이 acceptance의 한계 — 리뷰가 반드시 볼 것**: 토큰 존재 + 바이트 증가는 *원문 이관*과 *토큰만 남긴 요약*을 구별하지 못한다(spec §3.5가 인정하고 리뷰에 위임한 바로 그 한계). 따라서 이 task의 code-quality 리뷰는 **base의 불릿 9건과 정본에 들어간 텍스트를 줄 단위로 대조**하는 것을 명시적 acceptance로 삼는다 — 요약됐으면 finding이다.
 
 - [ ] **Step 4: 커밋**
 
@@ -562,6 +583,17 @@ grep -c '^\*\*상태:' CLAUDE.md        # 정확히 1
 ```bash
 just doc-coverage; echo "exit=$?"
 ```
+
+**이 task는 토큰 FAIL이 뜨는 것이 정상이다** — 리뷰가 실측한 결과 이동 4건 중 **카탈로그·최신 문단만** 코퍼스에 없는 토큰을 남긴다(ADR 인덱스 축약은 0건). 예상 4건:
+
+| 토큰 | 근거(allowlist에 적을 것) |
+|---|---|
+| `gh release edit v0.6.0 --notes-file …` | build-log에 `notes-file` 2회 — 실체 보존 |
+| `--is-ancestor c v0.6.0` | build-log에 `is-ancestor` 2회 + 메모리 토픽 파일 |
+| `preflight → build×2 → publish` | build-log에 `preflight` 4회 |
+| `[workspace.package] version="0.7.0"` | 정본이 `Cargo.toml`이고 코퍼스는 의도적으로 문서만 본다 |
+
+각 토큰을 `scripts/doc-coverage-allowlist.txt`에 `<토큰><TAB># 근거`로 추가한다. **다른 토큰이 뜨면 그건 예상 밖이므로 먼저 실체를 확인**하고, 검사를 약화시키지 말 것. 최종 Expected: `OK` + `exit=0`.
 
 - [ ] **Step 5: 커밋**
 
@@ -758,7 +790,7 @@ git commit -m "docs: 재분배 절차 + L4 프로브 결과 + 게이트 이빨 �
 
 ## Self-Review
 
-**1. Spec coverage** (R-id를 plan 본문에 grep해 실제 수행 스텝을 확인) — R1 Task 7 Step 3·Task 9 Step 4 · R2 Task 3–7 · R3 **Task 3 전체(root 무변경 이관)**·Task 5 Step 1·Task 6 Step 1 · R4 Task 6 · R5 Task 8 · R6 Task 2 Step 2 · R7 Task 5+8+9 · R8 Task 8 Step 4 · R9 Task 8 Step 1+3③ · R10 Task 2 Step 6 생성 + **Task 4 Step 5·Task 5 Step 4·Task 6 Step 4·Task 7 Step 3의 채우는 지시** · R11 **Task 2 Step 3–5 + Task 8 Step 3 + Task 9 Step 5(기록)** · R12 Task 9 Step 2–3 · **R13 Task 7 Step 4(명시 분기)** · R14 Task 1 · R15 **Task 2·8의 양방향 실행 + Task 9 Step 5 기록** · R16 Task 2 스키마 · R17 Task 2 Step 2(구현)·Step 4(실증) · R18 Task 2 Step 2(구현, `parse_baselines`)·Task 8 Step 1(`BASELINES` 형식 제공). **갭 없음.**
+**1. Spec coverage** (R-id를 plan 본문에 grep해 실제 수행 스텝을 확인) — R1 Task 7 Step 3·Task 9 Step 4 · R2 Task 3–7 · R3 **Task 3 전체(root 무변경 이관)**·Task 5 Step 1·Task 6 Step 1 · R4 Task 6 · R5 Task 8 · R6 Task 2 Step 2 · R7 Task 5+8+9 · R8 Task 8 Step 4 · R9 Task 8 Step 1+3③ · R10 Task 2 Step 6 생성 + **채우는 지시는 Task 4 Step 5(정본)·Task 5 Step 4(참조)·Task 6 Step 4(예상 4건 표 포함)** — Task 7은 실측상 소실 토큰이 0건이라 지시가 없는 것이 맞다(초안 Self-Review는 Task 6·7에 지시가 있다고 적었으나 거짓이었다. 리뷰 지적) · R11 **Task 2 Step 3–5 + Task 8 Step 3 + Task 9 Step 5(기록)** · R12 Task 9 Step 2–3 · **R13 Task 7 Step 4(명시 분기)** · R14 Task 1 · R15 **Task 2·8의 양방향 실행 + Task 9 Step 5 기록** · R16 Task 2 스키마 · R17 Task 2 Step 2(구현)·Step 4(실증) · R18 Task 2 Step 2(구현, `parse_baselines`)·Task 8 Step 1(`BASELINES` 형식 제공). **갭 없음.**
 
 **2. Placeholder scan** — `parse_baselines`만 본문 정의 없이 남았으나, 파싱 대상 형식(`BASELINES = {…}`)을 Task 8 Step 1이 verbatim 제공하고 정규식까지 적었다. `section_of`·`corpus_paths`·`section_span`은 Step 2에 완전 구현돼 있다. Task 1 Step 2의 머지 sha는 "찾는 명령 + 못 찾을 때의 행동"까지 지정했다.
 
