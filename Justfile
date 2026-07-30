@@ -116,3 +116,7 @@ bump-version ver:
     scripts/check-release-versions.sh "v{{ver}}"
     echo
     echo "다음: git add -u && git commit -m 'chore(release): {{ver}} 버전 bump' && git tag -a v{{ver}} && git push origin master v{{ver}}"
+
+# root CLAUDE.md 재분배 이동 검증(R6·R16·R17·R18): manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분.
+doc-coverage BASE="17369d32":
+    python3 scripts/check-doc-coverage.py {{BASE}}

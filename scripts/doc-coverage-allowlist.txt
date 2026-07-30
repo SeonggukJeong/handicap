@@ -1,0 +1,8 @@
+# check-doc-coverage.py 토큰 차분(3차 방어선)의 예외 목록.
+# base root에는 있었는데 현재 root에도 corpus(도메인 CLAUDE.md·docs/dev·docs/adr·build-log)에도
+# 없는 토큰은 FAIL이다. 의도적으로 사라진 토큰만 여기에 '근거와 함께' 적는다.
+# 토큰 = `backtick` 인용(2–80자) · docs/**.md 경로 · ADR-dddd.
+#
+# 형식(탭 구분): token	근거
+#
+# token	# 근거

@@ -1,0 +1,23 @@
+# root CLAUDE.md → 도메인/정본 파일 이동 선언 (탭 구분, '#' 줄은 주석).
+# 검사는 scripts/check-doc-coverage.py — 'just doc-coverage'.
+#
+# kind = move | merge
+#   move  : root에서 덜어내 dest_file로 옮긴 내용
+#     ① source_anchor 가 base root에 존재  ② 현재 root에 부재
+#     ③ required_marker('|' 구분 다항)가 전부 dest_file 안에 존재
+#     ④ dest_file별 min_dest_gain_bytes '합계' ≤ 그 파일의 실제 바이트 증가 (누적 1회 비교)
+#     ⑤ min_dest_gain_bytes > 0 인 행은 required_marker가 base의 dest_file에 없어야 한다
+#        (marker 신규성 — 목적지에 이미 있던 문구를 marker로 고르면 아무것도 안 옮기고 ③을 통과한다)
+#   merge : root 불릿 두 개를 하나로 합친 경우 — 컬럼 의미가 다르다
+#     source_anchor=absorbed_marker · dest_file='-' · required_marker=surviving_anchor
+#     min_dest_gain_bytes=0
+#     ⓐ absorbed_marker가 base root에 정확히 1회
+#     ⓑ 현재 root에서 surviving_anchor를 포함하는 불릿이 absorbed_marker도 포함
+#
+# ④가 dest_file별 '누적'인 이유: 한 파일을 목적지로 둔 행이 여럿일 때 행별 비교면 하나만
+# 크게 옮겨도 나머지가 같은 총증가분을 보고 통과한다(검사가 커버된 듯한 착시).
+# 누적은 "선언한 합만큼은 실제로 늘었다"만 보증하고, **행 단위 실체는 ③(marker)이 담당**한다.
+#
+# marker 선정: 옮긴 본문에서만 나오는 구체 문구를 고를 것. 일반 명사·기존 소제목은 ③을 공허하게 한다.
+#
+# kind	source_anchor	dest_file	required_marker	min_dest_gain_bytes
