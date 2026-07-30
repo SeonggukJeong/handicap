@@ -48,3 +48,4 @@ move	Read 툴이 `limit`을 줘도 "exceeds max tokens"로 거부	docs/dev/root-
 move	naive balance 검사는 false-positive	docs/dev/root-doc-maintenance.md	해당 라인 imbalance와 *같은지* 비교	406
 move	앵커는 `python repr`/`xxd`로 **실 바이트 확인**	docs/dev/root-doc-maintenance.md	`assert count==1`은 0매치를 못 거르니(예외로 떨어짐) 앵커 정확도가 선결	501
 move	new_span에 old 전용 내용이 안 섞였는지	docs/dev/root-doc-maintenance.md	end_anchor는 순수 boilerplate(다음 문장·포인터)만으로 최소화해서 잡고	700
+move	Run 라이브니스 G1/G3+stall 배지·closed-loop 곡선 fan-out 샤딩	docs/build-log.md	트랜잭션 시간 분해|게이트-에러 한국어 매핑|저장 안 됨 이탈 가드|운영 상한 관리자|에디터 뷰포트 폴리시 v2|binding-varname-visibility|publish-release.sh|check-release-versions.sh	0

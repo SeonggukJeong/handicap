@@ -6,3 +6,7 @@
 # 형식(탭 구분): token	근거
 #
 # token	# 근거
+gh release edit v0.6.0 --notes-file …	# release-hygiene US3 실증 명령. 실체는 docs/build-log.md에 `notes-file` 2회로 보존(발췌 명령줄만 소실).
+--is-ancestor c v0.6.0	# orchestrator 오류 서사. 실체는 docs/build-log.md `is-ancestor` 2회 + 메모리 [[orchestrator-verification-is-hypothesis]].
+preflight → build×2 → publish	# 릴리즈 CI 4잡 구조. 실체는 docs/build-log.md `preflight` 4회에 보존(잡 이름 나열만 소실).
+[workspace.package] version="0.7.0"	# 정본은 Cargo.toml:5-6(코퍼스는 의도적으로 문서만 본다). 절차는 docs/dev/tauri-desktop-build.md:58.
