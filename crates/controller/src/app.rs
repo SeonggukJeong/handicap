@@ -37,6 +37,7 @@ const DATASET_UPLOAD_BODY_LIMIT: usize = 256 * 1024 * 1024; // 256 MiB
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/version", get(version))
         .route(
             "/scenarios",
             post(scenarios_api::create).get(scenarios_api::list),
@@ -173,4 +174,17 @@ pub fn router(state: AppState) -> Router {
     }
 
     app.with_state(state)
+}
+
+/// `GET /api/version` 응답. 필드는 `version` **하나만** — 경로·호스트명·설정값을
+/// 얹지 않는다(공개 표면 최소화, R4).
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct VersionResponse {
+    pub version: String,
+}
+
+async fn version() -> axum::Json<VersionResponse> {
+    axum::Json(VersionResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
 }
