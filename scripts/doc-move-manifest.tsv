@@ -44,3 +44,7 @@ move	재리뷰가 싸고 "내 finding 반영됐나" 직접 검증	docs/dev/subag
 move	특히 그 task가 plan에서 "드롭 가능"으로 표시돼 있으면 finding이 task와 함께 조용히 사라진다	docs/dev/subagent-dispatch.md	접을 곳을 고를 때 그 task의 생존 보장 여부부터 확인	337
 move	인접 형제 collapsing은 **뒤 요소의 `margin-top`**을 요구하는데	docs/dev/subagent-dispatch.md	결과: 간격 8px→**0px** + 거짓 근거를 단언하는 주석이	886
 move	"그 태그에서 도달 가능"만 뜻해 더 오래된 커밋이 전부 통과한다	docs/dev/subagent-dispatch.md	리뷰 디스패치에 넘기는 "orchestrator가 검증한 것" 목록도	763
+move	Read 툴이 `limit`을 줘도 "exceeds max tokens"로 거부	docs/dev/root-doc-maintenance.md	작은 unique start/end 마커로 `s.index()` 찾아 splice하는	338
+move	naive balance 검사는 false-positive	docs/dev/root-doc-maintenance.md	해당 라인 imbalance와 *같은지* 비교	406
+move	앵커는 `python repr`/`xxd`로 **실 바이트 확인**	docs/dev/root-doc-maintenance.md	`assert count==1`은 0매치를 못 거르니(예외로 떨어짐) 앵커 정확도가 선결	501
+move	new_span에 old 전용 내용이 안 섞였는지	docs/dev/root-doc-maintenance.md	end_anchor는 순수 boilerplate(다음 문장·포인터)만으로 최소화해서 잡고	700
