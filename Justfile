@@ -74,3 +74,44 @@ kind-down:
 
 bench-throughput vus='200' duration='30':
     VUS={{vus}} DURATION={{duration}} ./scripts/bench-throughput.sh
+
+# 릴리즈 버전 bump: 사람이 맞추는 3개 파일 + 생성물 락 2개 + 정합 검사(R7).
+# 커밋·태그·push는 하지 않는다(사람이 확인 후 수행).
+bump-version ver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 - "{{ver}}" <<'PY'
+    import pathlib, re, sys
+    ver = sys.argv[1]
+
+    def toml_section_set(path, section):
+        p = pathlib.Path(path)
+        s = p.read_text()
+        m = re.search(r'^\[' + re.escape(section) + r'\][^\[]*', s, re.M)
+        assert m, f"{path}: [{section}] 섹션 없음"
+        pat = r'^version\s*=\s*"[^"]*"'
+        # 개수를 먼저 센다 — subn(count=1)의 n은 최대 1이라 *중복*을 못 잡는다.
+        hits = len(re.findall(pat, m.group(0), re.M))
+        assert hits == 1, f"{path}: [{section}] 안 version 줄이 {hits}개(1개여야 함)"
+        block = re.sub(pat, f'version = "{ver}"', m.group(0), count=1, flags=re.M)
+        p.write_text(s[:m.start()] + block + s[m.end():])
+        print(f"  {path} [{section}] -> {ver}")
+
+    toml_section_set("Cargo.toml", "workspace.package")
+    toml_section_set("desktop/src-tauri/Cargo.toml", "package")
+
+    conf = pathlib.Path("desktop/src-tauri/tauri.conf.json")
+    s = conf.read_text()
+    vpat = r'("version"\s*:\s*)"[^"]*"'
+    vhits = len(re.findall(vpat, s))
+    assert vhits == 1, f'tauri.conf.json: "version" 키가 {vhits}개(1개여야 함)'
+    s2 = re.sub(vpat, lambda m: m.group(1) + f'"{ver}"', s, count=1)
+    conf.write_text(s2)
+    print(f"  desktop/src-tauri/tauri.conf.json -> {ver}")
+    PY
+    echo "락 재생성…"
+    cargo metadata --format-version 1 >/dev/null
+    cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --format-version 1 >/dev/null
+    scripts/check-release-versions.sh "v{{ver}}"
+    echo
+    echo "다음: git add -u && git commit -m 'chore(release): {{ver}} 버전 bump' && git tag -a v{{ver}} && git push origin master v{{ver}}"
