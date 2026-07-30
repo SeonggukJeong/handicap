@@ -253,7 +253,7 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
     let rest_addr = rest_listener.local_addr().context("REST local_addr")?;
     let grpc_listener = crate::launch::bind_with_fallback(cfg.grpc, true).context("bind gRPC")?;
     let grpc_addr = grpc_listener.local_addr().context("gRPC local_addr")?;
-    info!(rest = %rest_addr, grpc = %grpc_addr, "listeners (in-process)");
+    info!(version = env!("CARGO_PKG_VERSION"), rest = %rest_addr, grpc = %grpc_addr, "listeners (in-process)");
 
     // 4) dispatcher: in-process는 항상 Subprocess(self-exe 멀티콜 워커).
     let self_exe = std::env::current_exe()

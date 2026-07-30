@@ -33,6 +33,7 @@ enum WorkerMode {
 }
 
 #[derive(Debug, Parser)]
+#[command(version)]
 struct Cli {
     /// bundle 빌드에서만: `worker` 서브커맨드로 자기 자신을 워커로 재실행(멀티콜). 없으면 컨트롤러.
     #[cfg(feature = "bundle")]
@@ -152,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(feature = "bundle"))]
     {
         info!(
+            version = env!("CARGO_PKG_VERSION"),
             rest = %args.rest,
             grpc = %args.grpc,
             worker_mode = ?args.worker_mode,
@@ -365,6 +367,7 @@ async fn run_bundle(args: ControllerArgs) -> anyhow::Result<()> {
 
     // 보안: args를 통째 ?-덤프하지 말 것(worker_token 누출). 명시 필드 + bool만.
     info!(
+        version = env!("CARGO_PKG_VERSION"),
         rest = %args.rest,
         grpc = %args.grpc,
         worker_token_set = args.worker_token.is_some(),
@@ -445,5 +448,15 @@ mod cli_tests {
             }
             _ => panic!("expected Worker subcommand"),
         }
+    }
+
+    #[test]
+    fn cli_exposes_version_flag() {
+        use clap::CommandFactory;
+        let rendered = super::Cli::command().render_version().to_string();
+        assert!(
+            rendered.contains(env!("CARGO_PKG_VERSION")),
+            "--version은 크레이트 버전을 출력해야 한다: {rendered:?}"
+        );
     }
 }
