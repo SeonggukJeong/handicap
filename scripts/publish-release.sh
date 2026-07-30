@@ -47,7 +47,7 @@ if gh release view "$tag" >/dev/null 2>&1; then
   retry gh release upload "$tag" "${assets[@]}" --clobber
   if [ -f "$notes_file" ]; then
     retry gh release edit "$tag" --notes-file "$notes_file"
-  elif [ -z "$(gh release view "$tag" --json body -q .body)" ]; then
+  elif body="$(gh release view "$tag" --json body -q .body)" && [ -z "$body" ]; then
     # 바이트 수로 판정하지 말 것: 빈 본문은 `-q .body | wc -c` = 1(개행)이다.
     draft="$(mktemp)"
     retry generate_notes_to "$draft"
