@@ -45,22 +45,32 @@ def parse_baselines(text):
     ① docstring/주석이 이름을 먼저 언급하면 엉뚱한 dict를 잡고
     ② 값에 중첩 dict가 있으면 첫 '}'에서 잘리며 내부 키까지 오염된다 — 둘 다 조용한 오답이다.
     값이 int가 아닌 항목(중첩 dict 등)은 baseline이 아니므로 버린다.
+
+    `BASELINES = {...}`(Assign)과 `BASELINES: dict[str, int] = {...}`(AnnAssign)을 **둘 다** 받는다.
+    읽지 못하면 `{}`인데 그건 R18을 무음으로 통과시키므로, 호출부가 빈 dict를 FAIL로 승격한다.
     """
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return {}
     for node in ast.walk(tree):
+        value = None
         if isinstance(node, ast.Assign) and any(
                 isinstance(t, ast.Name) and t.id == "BASELINES" for t in node.targets):
-            try:
-                v = ast.literal_eval(node.value)
-            except (ValueError, SyntaxError, TypeError):
-                return {}
-            if not isinstance(v, dict):
-                return {}
-            return {k: n for k, n in v.items()
-                    if isinstance(k, str) and isinstance(n, int) and not isinstance(n, bool)}
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) \
+                and node.target.id == "BASELINES":
+            value = node.value              # 값 없는 선언(`BASELINES: dict`)이면 None
+        if value is None:
+            continue
+        try:
+            v = ast.literal_eval(value)     # dict(...)·컴프리헨션 등 비-리터럴은 ValueError
+        except (ValueError, SyntaxError, TypeError):
+            return {}
+        if not isinstance(v, dict):
+            return {}
+        return {k: n for k, n in v.items()
+                if isinstance(k, str) and isinstance(n, int) and not isinstance(n, bool)}
     return {}
 
 def corpus_paths():
@@ -163,9 +173,17 @@ def main(base):
     # R18: 양쪽 ref에 존재하는 baseline 행만
     base_budget, cur_budget = at(base, BUDGET), (pathlib.Path(BUDGET).read_text()
                                                  if pathlib.Path(BUDGET).exists() else None)
-    if base_budget and cur_budget:
-        cur_baselines = parse_baselines(cur_budget)
-        for f, bb in parse_baselines(base_budget).items():
+    if base_budget is not None and cur_budget is not None:
+        # 파일이 '아예 없을' 때(= Task 8 이전 상태)는 위 조건에서 걸러져 통째 skip — 그건 정상이다.
+        # 여기부터는 파일이 양쪽에 있는데 못 읽은 경우: 빈 dict면 아래 루프가 0회 돌고
+        # 아무 출력 없이 통과한다(= 고장났는데 조용히 GREEN). 그래서 FAIL로 승격한다.
+        # AnnAssign·구문오류·비-리터럴(dict(...)·컴프리헨션) 전부 이 가드가 덮는다.
+        base_baselines, cur_baselines = parse_baselines(base_budget), parse_baselines(cur_budget)
+        if not base_baselines:
+            fails.append(f"FAIL [R18] budget 소스에서 BASELINES를 읽지 못했다: {base}:{BUDGET}")
+        if not cur_baselines:
+            fails.append(f"FAIL [R18] budget 소스에서 BASELINES를 읽지 못했다: {BUDGET} (작업트리)")
+        for f, bb in base_baselines.items():
             cb = cur_baselines.get(f)
             if cb is None or cb <= bb:
                 continue                                        # 삭제·유지·인하는 스코프 밖
