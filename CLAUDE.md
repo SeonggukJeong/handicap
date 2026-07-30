@@ -210,7 +210,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0044** 에디터 1차 표현 캔버스→아웃라인: React Flow 팬 캔버스를 세로 인터랙티브 아웃라인(`FlowOutline` HTML 트리)으로 교체 + 디테일 편집기 1fr + 변수 접기 + YAML 양방향 모달 + dnd-kit 그룹내 드래그 재정렬(`resolveDragEnd`→`moveStep`, 경계 넘기/re-parent=슬라이스3 완료) + `@xyflow/react` 제거. 양방향 sync(0003/0015) 모델 유지(아웃라인=같은 store 위 새 뷰)·모델/wire byte-identical(에디터 구조 재설계 1/3)
 - **0045** 시나리오 삭제 정책: 2층 가드(활성 run hard 409[in-tx 권위]·참조 soft 409 카운트+force) + 앱-레벨 단일 tx 전체 cascade(FK CASCADE 마이그레이션·soft-delete 기각)
 - **0046** open-loop rate 단위·사이징 교정: target_rps=반복(시나리오 실행)/초 공식화 + 포화 사이징 실측 점유시간(hold=M÷달성 도착률 자기측정) 기반 + cause 2-way(slots/sut, loadgen·recommended_workers 산출 제거)
-- **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드(자동매핑 실체화·R9 검증·R18 clamp) + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 예산), proto/store/migration 0-diff
+- **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드(자동매핑 실체화·R9 검증·R18 clamp) + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 예산), proto·worker·migration 0-diff
 - **0048** US 스파인(프로세스): 유저 스토리를 파이프라인 관통 오라클로 — brainstorming 승인→spec 고정 헤딩→리뷰어 value 3문항→task-brief 첨부→live US 척추→finish 한 줄, 새 단계·훅 0 (정본 `docs/dev/user-story-spine.md`)
 - **0049** 실행 전 시나리오 신뢰도: 네 번째 판정 축(신뢰도 ⟂ validity ⟂ verdict ⟂ status, 어휘 분리) + 클라 순수함수 `evaluateTrust` 단일 소스·2축 증폭 등급·`na` 분모 제외, **D(시험 실행 검증)는 지문+localStorage로 등급에서 분리**(타입 강제 — 등급은 누가 보든 같아야 함)·soft only·밀도 상한 1급(칩 +1/배너 +0)
 

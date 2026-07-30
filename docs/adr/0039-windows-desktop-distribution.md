@@ -1,6 +1,6 @@
 # 0039 — 라이트 Windows 데스크톱 배포: 단일 self-contained `.exe`(→ Tauri 옵션), Flutter/RN 거절
 
-- Status: accepted (방향 확정 — 구현은 roadmap 후보, 미착수)
+- Status: accepted · **옵션 A(단일 self-contained exe) 구현·머지 완료**(머지 `bf207040`) — cargo `bundle` feature off이면 byte-identical, 서명/인스톨러는 후속. 상세 → `docs/build-log.md`의 single-exe 단락. 옵션 B(Tauri 래퍼)는 [ADR-0040](0040-tauri-desktop-wrapper.md) → [ADR-0042](0042-tauri-in-process-controller.md)로 이어짐.
 - Date: 2026-06-16
 
 ## Context
