@@ -120,7 +120,7 @@ docs/
 - plan 인라인 Rust는 clippy-clean으로 — 2-arm `match … _ => {}` 대신 `if let`(`-D warnings`).
 - **plan이 verbatim 지정한 테스트도 공허할 수 있다** — 회귀 가드 표방 테스트는 brief에 고의 회귀→RED→원복→GREEN 실증 명시. plan-mandated 결함도 기각 말고 finding. → [[plan-mandated-vacuous-tests]]
 - **plan의 *사실 주장*도 가설** — "충돌 회피됨"·"N/A 예상"·"byte-identical"은 근거가 아니다. plan이 확인했다는 것은 다시 돌려라: 전수 grep·0-diff 등 기계 재현 가능한 건 orchestrator가 직접.
-- **plan은 훅에도 실행 가능해야 — 스텝 순서를 `tdd-guard`로 시뮬레이션**: ① 첫 스텝이 production 편집이면 차단(테스트 먼저) ② "테스트 무수정" 리팩터는 `it.todo` 언블록+제거는 독립 스텝.
+- **plan은 훅에도 실행 가능해야 — `tdd-guard` 스텝 순서 시뮬레이션**: ① 첫 스텝 production 편집은 차단(테스트 먼저) ② 테스트 무수정 리팩터는 `it.todo`로 언블록, 커밋 전 제거는 독립 스텝.
 - **줄번호는 `grep -n`으로만 확정 — `sed -n 'N,Mp'` 출력 줄을 세지 말 것**: spec/plan의 `파일:줄` 주장은 리뷰어가 전수 대조하므로 오프바이원이 곧 finding이 된다.
 
 **디스패치**
@@ -131,7 +131,7 @@ docs/
 - 1M-context 부모에서 `model:` 생략은 즉사+가짜 completed — 항상 **명시 `model:`**(reviewer도 1M 세션엔 `model: opus`). notification `tool_uses`/`tokens`/`duration` 0이면 미실행 — status=completed 불신, 메인 폴백.
 
 **리뷰**
-- task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음. **기본 Sonnet, path-gate·`escalate: true`면 Opus 승격**(승격은 디스패처). reviewer 3종 `model: inherit`=Opus, `CLAUDE_CODE_SUBAGENT_MODEL` 금지.
+- task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음. 기본 Sonnet, path-gate/`escalate: true`면 code-quality만 Opus(승격=디스패처). reviewer 3종 `model: inherit`=Opus, `CLAUDE_CODE_SUBAGENT_MODEL` 금지.
 - 리뷰는 read-only만(`git diff`/`git show`) — `checkout`/`switch`/`stash`는 워크트리 attached HEAD 파괴라 금지.
 - 리뷰-수정 루프: read-only 리뷰는 같은 subagent `SendMessage` resume, 코드-fix는 fresh subagent(자가검증 편향). clean APPROVE 목표+**유한 valve**: finding은 `receiving-code-review` 판정, 5회 초과 시 사용자 질문.
 - 리뷰어가 "later fold 가능"이라 해도 **spec invariant 위반이면 그 슬라이스 안에서 fix**(미룬 건 사라진다).
@@ -142,7 +142,7 @@ docs/
 
 **검증·재개 (subagent 불신 원칙)**
 - 새 `EnterWorktree` 워크트리엔 `ui/node_modules`·`target/` 없음 — 디스패치 전 `pnpm install` + `cargo build` baseline.
-- implementer는 mid-task truncate 가능 — report 수치 불신, `git status`/`git diff HEAD`로 확인 후 남은 step 완료. Edit 직후 `<new-diagnostics>`도 STALE 가능 — 독립 `cargo build --workspace`+`cargo test --no-run`만 신뢰.
+- implementer는 mid-task truncate 가능 — report 불신(수치 포함), `git status`/`git diff HEAD`로 확인해 남은 step 완료. Edit 후 `<new-diagnostics>`도 STALE 가능: 독립 `cargo build --workspace`+`cargo test --no-run`만 신뢰.
 - **orchestrator가 brief에 넘긴 "검증했다"도 가설** — implementer가 의심 안 하므로 틀리면 리뷰까지 남는다. brief엔 "확인했다"가 아니라 **확인한 명령**을. → [[orchestrator-verification-is-hypothesis]]
 - 전수 grep 완성도 게이트는 orchestrator **직접 재실행**(self-report 불신). zsh: 변수 1개로 넘기면 word-split 안 됨(`set --`/명시 나열), 스코프는 two-dot 금지 — `git diff $(git merge-base master HEAD)..HEAD`.
 - 컨텍스트 리셋 후 재개는 **git 커밋이 진실의 원천** — `git log <base>..HEAD` vs plan 체크박스로 첫 미커밋 task부터(TodoWrite/subagent report 불신).
