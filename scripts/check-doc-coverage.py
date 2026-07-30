@@ -7,6 +7,9 @@ ROOT = "CLAUDE.md"
 SECTIONS = ["Subagent dispatch 노하우", "알아둘 결정들"]
 BUDGET = "scripts/check-doc-budget.py"
 
+# --- "검사 불능 = FAIL" 하한 (check-doc-budget.py의 BASELINES_MIN·L1_MIN_REFS와 자매 규약) ---
+MANIFEST_MIN = 1        # 활성 manifest 최소 행 수. rename 후 새 파일 생성을 잊으면 0행이 된다.
+
 def at(ref, path):
     r = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else None      # 없으면 None (R18 신규 행 판정)
@@ -103,6 +106,9 @@ def main(base):
 
     gain_need, merged_floor = defaultdict(int), defaultdict(int)
     manifest = rows()
+    if len(manifest) < MANIFEST_MIN:
+        fails.append("FAIL [manifest] 활성 manifest 0행 — 검사 불능"
+                     "(rename 후 새 파일을 만들었나?)")
 
     for cols in manifest:
         if len(cols) != 5:     # 언패킹 ValueError(traceback)를 진단으로 승격 — traceback은 RED가 아니다

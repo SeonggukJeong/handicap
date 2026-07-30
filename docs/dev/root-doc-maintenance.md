@@ -18,7 +18,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 재분배는 아래 5단계를 **이 순서로** 밟는다. 이 순서(이관을 압축보다 먼저)는 의도적이다 — 중간에 끊겨도 이미 목적지에 쓴 내용과 root 원본이 공존하는 상태이지 지식이 사라진 상태가 아니다.
 
-1. **manifest 작성** — **새 재분배는 새 manifest에 쓴다. 기존 파일에 append 금지.** 절차: ① 지금 있는 `scripts/doc-move-manifest.tsv`를 `scripts/doc-move-manifest-<직전-슬라이스-slug>.tsv`로 **rename**해 이력으로 남기고(지우지 말 것) ② 활성 경로 `scripts/doc-move-manifest.tsv`에 **이번 슬라이스 행만** 새로 쓴다(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`) ③ 4단계를 **이번 슬라이스의 base**로 돌린다. `check-doc-coverage.py:87`의 `rows()`는 활성 경로 **하나만** 읽으므로, 이름을 바꾼 옛 파일은 검사에서 빠지고 이력으로만 남는다. 아직 아무것도 옮기지 않는다 — "무엇을 어디로, 무엇으로 증명할지"만 선언한다. 이 단계는 검사 대상이 없으므로 RED가 나지 않는다.
+1. **manifest 작성** — **새 재분배는 새 manifest에 쓴다. 기존 파일에 append 금지.** 절차: ① 지금 있는 `scripts/doc-move-manifest.tsv`를 `scripts/doc-move-manifest-<직전-슬라이스-slug>.tsv`로 **rename**해 이력으로 남기고(지우지 말 것) ② 활성 경로 `scripts/doc-move-manifest.tsv`에 **이번 슬라이스 행만** 새로 쓴다(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`) ③ 4단계를 **이번 슬라이스의 base**로 돌린다. `check-doc-coverage.py:87`의 `rows()`는 활성 경로 **하나만** 읽으므로, 이름을 바꾼 옛 파일은 검사에서 빠지고 이력으로만 남는다. 아직 아무것도 옮기지 않는다 — "무엇을 어디로, 무엇으로 증명할지"만 선언한다. 이 단계는 검사 대상이 없으므로 RED가 나지 않는다. **단, ①만 하고 ②(새 파일 작성)를 잊으면 활성 manifest가 비거나 없어져 4단계에서 즉시 `FAIL [manifest] 활성 manifest 0행 — 검사 불능`이 뜬다**(`MANIFEST_MIN` 하한 — 아래 §"검사 불능=FAIL" 표).
    - **왜 append가 안 되나 — 행은 자기 base에서만 참이다.** 모든 `move` 행은 `source_anchor ∈ base:CLAUDE.md`(`check-doc-coverage.py:114`)와 `required_marker ∉ base:<dest_file>`(`:126`)를 주장하는데, 재분배가 끝나면 그 두 조건은 **뒤집힌다**(anchor는 root에서 이미 지워졌고 marker는 목적지에 이미 있다). 그래서 옛 행을 더 새로운 base로 돌리면 **전건 FAIL**한다 — 실측: 이 슬라이스의 14행 manifest를 `python3 scripts/check-doc-coverage.py 6ebf587e`(이 슬라이스 직후 커밋)로 돌리면 **29 FAIL**.
    - **옛 행을 삭제하지 말 것.** 삭제는 R17 `merged_floor` 회계(병합 선언이 바닥을 1 내려주는 그 행)와 "무엇을 어디로 옮겼다"는 이력 주장을 **조용히** 함께 없앤다. rename은 둘 다 보존한다. 새 base에서는 base 불릿 수가 이미 '병합 후' 값이라 옛 merge 행 없이도 R17 바닥이 맞다.
    - **R17의 보호력은 base 고정 때문에 시간이 갈수록 감쇠한다.** 바닥 = base 불릿 수라서 slack(현재 − 바닥)이 단조 증가하고, slack만큼은 불릿이 조용히 사라져도 안 걸린다. 오늘 실측 slack은 `Subagent dispatch 노하우` **1**, `알아둘 결정들` **0**. 새 슬라이스가 위 절차대로 **자기 base로 새 manifest**를 돌리면 slack이 0으로 리셋된다 — rename 절차는 이것도 같이 고친다.
@@ -58,7 +58,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 **차단해야 하는 건 문서가 사실이 아니게 되는 경로다.** root 예산 초과(매 프롬프트 비용), 상태줄 붕괴(`/finish-slice` §4의 `grep -n '^\*\*상태:'`가 의존 — 0건이면 조용히 아무것도 못 찾고 2건이면 엉뚱한 줄을 고친다), 죽은 참조(포인터를 따라갔더니 파일이 없으면 이관은 **삭제와 구별되지 않는다** — root에서 덜어낸 내용이 도달 가능하다는 US1의 후반절이 무너진다), 그리고 **검사 불능**.
 
-**"검사 불능"이 이 게이트의 주적이다.** 검사 대상이 0이 되면 루프가 0회 돌고 **조용히 GREEN**이 된다 — 즉 게이트를 무력화하는 가장 싼 방법은 검사를 실패시키는 게 아니라 **대상을 없애는 것**이고, 그건 위반보다 싸다(래칫 WARN이 거슬리면 `BASELINES`를 비우면 되고, 250 B FAIL이 거슬리면 불릿 마커를 `* `로 바꾸면 된다 — 둘 다 조용히 통과한다). 그래서 **0-iteration 경로 4개 전부**를 FAIL로 승격했다:
+**"검사 불능"이 이 게이트의 주적이다.** 검사 대상이 0이 되면 루프가 0회 돌고 **조용히 GREEN**이 된다 — 즉 게이트를 무력화하는 가장 싼 방법은 검사를 실패시키는 게 아니라 **대상을 없애는 것**이고, 그건 위반보다 싸다(래칫 WARN이 거슬리면 `BASELINES`를 비우면 되고, 250 B FAIL이 거슬리면 불릿 마커를 `* `로 바꾸면 된다 — 둘 다 조용히 통과한다). 그래서 **0-iteration 경로 5개 전부**를 FAIL로 승격했다:
 
 | 없어지는 것 | 하한 |
 |---|---|
@@ -66,6 +66,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 | 그 섹션들의 `- ` 불릿 | ≥ 1개(**각각**) |
 | `BASELINES` 항목 | ≥ `BASELINES_MIN`(6) |
 | L1이 검사한 참조 | ≥ `L1_MIN_REFS`(21) |
+| 활성 manifest(`scripts/doc-move-manifest.tsv`)의 데이터 행 | ≥ `MANIFEST_MIN`(1, `check-doc-coverage.py`) |
 
 **검사량이 줄어드는 것도 검사 불능이다.** 특히 L1은 표기를 바꾸는 것만으로 조용히 축소된다(backtick을 떼면 그 참조가 안 보이는 식) — 그래서 개수 하한을 둔다. 하한은 포인터를 **진짜로 없앴을 때만** 함께 내린다(`BASELINES` 인하와 같은 규율).
 
