@@ -18,3 +18,5 @@ ui/coverage
 # cargo-mutants audit reports (see /mutation-audit skill) — never committed.
 mutants.out/
 mutants.out.old/
+# 문서 게이트 스크립트(scripts/*.py)를 모듈로 import해 시험할 때 생기는 바이트코드 캐시.
+__pycache__/
