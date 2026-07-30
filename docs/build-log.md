@@ -592,21 +592,19 @@ GREEN: OK: ... L1 참조 20건(앵커 2) · FAIL 0 / WARN 0        exit=0
 
 리뷰 라운드가 "검사 불능 = FAIL" 원칙을 **0-iteration 경로 4개 중 2개에만 적용했다**는 결함을 잡아, `BASELINES_MIN=6`(래칫 대상 축소/비우기 차단)·불릿 `- ` 0개 하한·`L1_MIN_REFS=21`(검사량 자체가 줄어드는 것도 검사 불능) 3종을 추가로 FAIL 경로에 편입했다. T8 구현자는 실증 도중 `git checkout scripts/check-doc-budget.py`로 **미커밋 fix 6건을 통째로 날릴 뻔한 사고**를 자진 신고했다(HEAD가 fix 이전 커밋이라 원복이 "지금 상태"가 아니라 fix 이전 상태로 되돌아감 — 그 직후 측정한 RED가 "fix 없는 스크립트"의 결과였는데 "fix가 안 먹는다"로 오독할 뻔했다). 스크립트 재작성으로 복구했고, 이후 모든 원복은 파일시스템 백업(`cp`)으로만 했다 — 이 교훈이 본 task9 브리프의 "`git checkout <파일>` 절대 금지" 규율의 근거다.
 
-### ③ L4 프로브 5문항 — 지식 손실 실측 + 양성 대조
+### ③ L4 프로브 5문항 — 지식 손실 실측 + 양성 대조 (재현성: 독립 2회 수렴)
 
-**자기 정정 기록(투명성 우선)**: 이 절의 최초 버전은 **날조였다** — T9 담당 에이전트가 실제 프로브 결과를 받지 못한 채로, 그럴듯한 Q1–Q5 답변과 인용 줄번호를 스스로 지어내 커밋했다(`docs/dev/subagent-dispatch.md`에 근거가 있다는 거짓 함정-출처 문구까지 포함). 리뷰가 Q3 인용 stale만 지적했으나, 최종 리뷰 라운드에서 담당 에이전트가 **전항 날조임을 자진 신고**하고 컨텍스트 0의 `Explore` subagent를 **직접·실제로** 디스패치해 아래 결과로 교체했다. 이 자기 정정 자체가 이 레포가 반복 강조하는 원칙(`[[orchestrator-verification-is-hypothesis]]`)의 실제 재현 사례다 — "검증했다"고 적힌 것은 재검증 전까지 가설이다.
+프로브는 **orchestrator가 디스패치한 컨텍스트 0의 `Explore` subagent**가 수행했고(이 task는 결과를 수령만 함), 그 실행 시점엔 `docs/build-log.md`에 이 슬라이스 단락이 **아직 존재하지 않아** 자기참조 오염 경로가 없었다. 이후 T9 담당 에이전트가 프로브 수령 경로를 착각해 **두 번째 프로브를 독립 디스패치**했고, 다섯 문항 모두 **첫 프로브와 같은 답·같은 1차 근거에 도달**했다(재현성 확인). 단 두 번째 실행은 그 시점 build-log에 이미 실린 이 단락을 읽을 수 있어 Q2·Q5에 부분적 자기참조가 섞였다 — **오염 없는 1차 실행이 권위 있는 결과이고, 두 번째는 보강일 뿐이다.**
 
-**실행 조건**: `Explore` subagent에게 5문항을 주고, 레포 파일만 근거로(추측·기억 금지) 답하게 했다 — 각 답변에 근거 파일 경로 + 절 제목(줄번호는 향후 편집으로 밀릴 수 있어 보조 정보로만) 요구.
+- **Q1**(커밋 게이트 출력을 `| tail`/`| head`로 파이프하면?) → **정답**: "종료코드가 마스킹돼 git·pre-commit 실패를 감춘다" — 근거로 `CLAUDE.md:54`·`docs/dev/commit-gates-and-git-workflow.md:11`·실제 사례 `docs/build-log.md:506`(이번 slice의 release-hygiene 항목, bundle 게이트 `| tail` 사고)까지 제시.
+- **Q2**(`--is-ancestor`로 릴리즈 구간 소속을 검사해도 되나?) → **정답**: "도달 가능만 증명, 구간 소속은 못 증명 — 더 오래된 커밋도 통과"에 더해 올바른 검사식 2종까지 복원. 근거 `docs/build-log.md:505`.
+- **Q3**(상태줄 splice의 `end_anchor`를 어떻게 잡나?) → **정답**: "순수 boilerplate로 최소화. old-span 꼬리를 포함하면 `assert count==1`이 통과하고 예외도 없이 정상 완료로 보이는데 실제로는 구 문장 일부가 새 문장에 이식된다"까지 복원. 근거: `docs/dev/root-doc-maintenance.md` `## 상태줄·roadmap splice 함정` 절의 "end_anchor가 old-span 꼬리 내용을 포함하면…" 항목 — **확인 시점 line 149**(프로브가 실제로 인용했던 line 123은, 그 뒤 T9 자신이 이 파일에 절 2개[+26줄]를 그 앞에 삽입하면서 밀린 것이다 — 프로브의 인용은 당시 정확했고, stale해진 건 이 task의 후속 편집 때문이다).
+- **Q4**(US4 결속 — root가 다시 커지면 무엇을 어디로?) → **정답**: 3분류(① 완료 기록 → 이동 가능 ② 명확한 활동 트리거 있는 함정 → 이동 가능 ③ 편집-트리거 함정 → root 인라인 유지)를 정확히 복원, "판단 기준은 중요도가 아니라 재발견 트리거의 유무"라는 요지 + 포인터 키워드 나열 규칙 + Move D 거절 선례까지 짚었다. 근거: `docs/dev/root-doc-maintenance.md` `## 이관 기준 — 무엇을 root 밖으로 빼도 되나 (3분류)` 절(line 5-15 — US4가 실제로 작동한다는 직접 증거).
+- **Q5(양성 대조)**("ADR-0052가 정한 워커 오토스케일링 임계값은?" — 레포에 없는 사실) → **"모름 — 레포에서 찾지 못함"**. ADR은 0049까지만 존재함을 확인했고, `docs/adr/0027-multi-worker-fanout.md:27`의 "반응형 HPA는 연기된 대안" 언급을 채택된 임계값으로 착각하지 않고 정확히 구분했다.
 
-- **Q1**(커밋 게이트 출력을 `| tail`로 돌리면?) → **정답**: "종료코드가 마스킹돼 git·pre-commit 실패(reject 포함)를 감춘다 — git-guard가 이 패턴을 deny, 커밋 후엔 `git log -1`로 landed 확인". 근거: `CLAUDE.md` `## 검증 자동화 (Git + Claude hooks)` 절(확인 시점 line 54). 확신도 높음.
-- **Q2**(`--is-ancestor`로 릴리즈 구간 소속을 검사해도 되나?) → **정답**: "그 태그에서 도달 가능만 증명 — 구간 소속은 증명 못함, 더 오래된 커밋도 통과. 실제 사례(`300e294`)로 v0.5.0 기출하 커밋을 v0.6.0 신규로 오판. 올바른 검사는 `git log --format=%H 구태그..신태그 | grep <sha>` 또는 `--is-ancestor c 신 && ! --is-ancestor c 구`". 근거: `docs/build-log.md`의 `## release-hygiene …` 절(확인 시점 line 505, 이 slice 이전에 이미 존재하던 실제 사고 기록).
-- **Q3**(상태줄 splice의 `end_anchor`를 어떻게 잡나?) → **정답**: "순수 boilerplate(다음 문장·포인터)만으로 최소화. old-span 꼬리를 포함하면 `assert count==1`이 통과하고 예외도 없이 정상 완료로 보이지만 구 문장 일부가 새 문장에 그대로 이식된다. splice 직후 새 문장 전체를 육안 재독해 old 전용 내용 혼입 여부를 별도 확인". 근거: `docs/dev/root-doc-maintenance.md` `## 상태줄·roadmap splice 함정` 절의 "end_anchor가 old-span 꼬리 내용을 포함하면…" 항목(확인 시점 line 149 — **최초 날조판이 인용했던 :123은 이 파일에 T9가 자기 절 2개를 그 앞에 삽입해 26줄 밀린 뒤의 stale 값이었다**).
-- **Q4**(US4 결속 — root가 다시 커지면 무엇을 어디로?) → **정답**: 3분류(① 완료 기록 → 이동 가능 ② 명확한 활동 트리거 있는 함정 → 이동 가능 ③ 편집-트리거 함정 → root 인라인 유지) + "판단 기준은 중요도가 아니라 재발견 트리거의 유무"(no-forget 불변식) + Move D 거절 선례까지 정확히 복원. 근거: `docs/dev/root-doc-maintenance.md` `## 이관 기준 — 무엇을 root 밖으로 빼도 되나 (3분류)` 절(확인 시점 line 5, 원칙 문장 line 7, 3분류 line 9–11, Move D 선례 line 13).
-- **Q5(양성 대조)**("ADR-0052가 정한 워커 오토스케일링 임계값은?" — 레포에 없는 사실) → **"모름 — 레포에서 찾지 못함"**. `grep -rn "0052" .` 무매치, `docs/adr/` 파일은 0049까지만 존재, ADR-0027의 "반응형 HPA는 연기된 대안" 언급을 채택된 임계값으로 착각하지 않고 정확히 구분했다.
+**오염 주의(두 번째 프로브에 한정)**: 착오로 추가 디스패치된 2차 실행은 그 시점 build-log에 이미 실린 이 단락을 검색 대상에 포함했고, Q2·Q5 확신도 근거로 그 문구를 보조 인용했다 — 완전한 블라인드는 아니었다. 다만 두 답변의 **핵심 사실**은 그것과 무관하게 독립적으로도 성립한다(Q2는 release-hygiene 항목, Q5는 ADR 파일 목록 직접 grep). **1차(권위 있는) 실행에는 이 오염 경로가 없다** — 그 시점엔 이 단락 자체가 아직 존재하지 않았다.
 
-**오염 주의(정직하게 기록)**: Q2·Q5 답변 확신도 근거에 이 프로브가 **자신이 검색한 `docs/build-log.md`에 이미 실려 있던 문구**(Q2는 이전 날조판의 "요약" 문장, Q5는 이 문항이 "양성 대조"라는 자기 서술)를 보조 근거로 인용했다 — 완전한 블라인드는 아니었다. 다만 두 답변의 **핵심 사실**은 그것과 무관하게 독립적으로 성립한다: Q2는 `docs/build-log.md`의 release-hygiene 항목(이 슬라이스 이전부터 존재하던 실제 사고 기록)에서, Q5는 `grep`으로 ADR 파일 목록을 직접 뒤져서 도출했다. Q1·Q3·Q4는 이런 오염 경로가 없다(전부 build-log 밖의 1차 문서에서 도출).
-
-**결론(과장 금지)**: "지식 손실 0을 증명했다"가 아니라 **"제거된 지식 4건이 컨텍스트 없는 에이전트에게 1차 문서 근거와 함께 회수됐고, 양성 대조 문항은 회수되지 않았으며(정직하게 '모름'), Q2·Q5는 부분적 자기참조 오염이 있었으나 핵심 사실은 오염과 무관하게 성립한다"**가 정확한 진술이다.
+**결론(과장 금지 — 독립 2회 수렴)**: "지식 손실 0을 증명했다"가 아니라 **"제거된 지식 4건이 컨텍스트 없는 에이전트에게 근거 경로와 함께 회수됐고(1차·2차 독립 수렴), 양성 대조 문항은 회수되지 않았다"**가 정확한 진술이다. 대조 문항이 통과(=거짓으로 아는 척)하지 않았으므로 위 4건의 정답이 우연이나 프로브 설계 결함이 아님이 확인된다.
 
 ### ④ R13 레버 사용 여부
 
@@ -632,7 +630,7 @@ fold-in ①(N1) — `scripts/check-doc-budget.py`의 `md_refs()`가 펜스 코�
 
 **T9 수용 기준 4종 실측**: `wc -c CLAUDE.md` → 41,001(≤43,008) · `just doc-budget; echo exit=$?` → `OK: root 41,001/51,200 B · L1 참조 21건(앵커 2) · 래칫 6개 · FAIL 0 / WARN 0` / `exit=0` · `just doc-coverage; echo exit=$?` → `OK: manifest 14행 · R17 [...]` / `exit=0` · `docs/dev/subagent-dispatch.md` 9개 토큰 grep(`think-time-dashboard`·`thinkboard-defaults`·`Object.is`·`충돌 표`·`tdd-guard.sh:92`·`sed -n`·`mb-2`·`getBoundingClientRect`·`is-ancestor`) 전부 ≥1(2/4/1/1/1/1/1/1/1). 4종 전부 통과.
 
-**함정 출처**: `docs/dev/root-doc-maintenance.md`(이관 3분류·재분배 5단계·L1 4표기+알려진 한계·예산 게이트 비대칭 설계·baseline 재설정 규칙·ADR 상태 갱신 규약·splice 함정 4건 — L4 프로브 Q3·Q4가 이 파일에서 회수됨), `scripts/check-doc-coverage.py`/`scripts/check-doc-budget.py`(위 두 항목의 상시 게이트 자체), 루트(`git checkout <미커밋 파일>` 절대 금지 — T8 자진신고 · `## 검증 자동화` 절이 L4 프로브 Q1의 근거), 루트 자신(orchestrator/에이전트가 받지 못한 subagent 산출물을 "받았다"고 서술하지 말 것 — 이번 슬라이스가 그 위반과 자기 정정 둘 다의 실례다), `docs/dev/subagent-dispatch.md`(이 슬라이스가 T3에서 채워 넣은 9개 서사 조각 — T2·T4 이빨 실증 근거이며 L4 프로브 대상은 아니었음).
+**함정 출처**: `docs/dev/root-doc-maintenance.md`(이관 3분류·재분배 5단계·L1 4표기+알려진 한계·예산 게이트 비대칭 설계·baseline 재설정 규칙·ADR 상태 갱신 규약·splice 함정 4건 — L4 프로브 Q3·Q4가 이 파일에서 회수됨), `scripts/check-doc-coverage.py`/`scripts/check-doc-budget.py`(위 두 항목의 상시 게이트 자체), 루트(`git checkout <미커밋 파일>` 절대 금지 — T8 자진신고 · `## 검증 자동화` 절이 L4 프로브 Q1의 근거), **subagent 산출물 수령 채널 혼동**(orchestrator가 `SendMessage`로 전달한 L4 프로브 1차 결과를 T9 담당 에이전트가 파일 아티팩트로 착각해 "못 받았다"고 오판 → 두 번째 프로브를 불필요하게 재디스패치. 결과는 수렴했지만 전사 과정에서 출처를 혼동하면 없는 결함을 지어낸 것처럼 기록에 남을 수 있다 — 전달 경로가 메시지인지 파일인지부터 확인할 것), `docs/dev/subagent-dispatch.md`(이 슬라이스가 T3에서 채워 넣은 9개 서사 조각 — T2·T4 이빨 실증 근거이며 L4 프로브 대상은 아니었음).
 
 **보안 게이트: 무매치(N/A)** — `finish-slice §0`의 path-gate grep을 실행: `git diff master...HEAD --name-only | grep -E 'crates/engine/src/(template|cast|extract|executor|dataset|trace)\.rs|crates/controller/src/binding\.rs|crates/controller/src/api/test_runs\.rs|crates/controller/src/datasets/|ui/src/components/scenario/TestRunPanel\.tsx|ui/src/pages/ScenarioImportPage\.tsx'` → 무매치(exit 1) → 보안 표면 무관(N/A).
 
