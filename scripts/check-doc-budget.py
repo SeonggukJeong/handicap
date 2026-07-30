@@ -133,7 +133,7 @@ def md_refs(text):
 def check_l1(text, fails):
     """R9: 참조된 .md가 실존하고 내부 #앵커가 실제 헤딩과 매치하는가."""
     cache, seen, n_file, n_anchor = {ROOT: text}, set(), 0, 0
-    for raw, anc in md_refs(text):
+    for raw, anc in md_refs(strip_fences(text)):
         if (raw, anc) in seen:
             continue
         seen.add((raw, anc))

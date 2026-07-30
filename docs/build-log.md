@@ -518,3 +518,113 @@ dynamic-vars(877964c) 후속 UX 슬라이스(사용자 발의·roadmap 밖). **(
 **파이프라인**: 10 task SDD(per-task 2단계 리뷰 — T4·T5·T8·T9는 와이어/대형 diff/파괴적 경로라 **opus 승격**), fix round 1이 4건(T2 증거 보강·T8 I1·T9 노트 정정 7건·T10 이력 각주) → 최종 `handicap-reviewer`(opus) **NEEDS-FIXES → 단일 fix wave 7건(`6c80592`) → 재리뷰 all addressed**. 최종 리뷰가 **per-task가 원리적으로 못 본 것 3건**을 잡았다: 인접 두 CLI의 정반대 인자 규약(`check-…sh **v**0.7.0` vs `bump-version 0.7.0`)이 문서에서 구분되지 않아 `v0.8.0` 오타가 3파일을 `version = "v0.8.0"`으로 손상시키는 것(실측: python exit 0 → `cargo metadata`가 `unexpected character 'v'`로 거부 → abort → 락 미재생성 + 오염된 dirty 트리) · 위 거짓 로그 · 소급 노트의 게시 경로 부재. **연기 항목이 gitignore된 `.superpowers/` 레저에만 존재한다는 것도 최종 리뷰가 머지 게이트로 적발**(`ExitWorktree(discard_changes)`가 파괴) → 이 단락이 그 생존 경로다. 실카운트 정정: 연기 라벨 **26건**(orchestrator가 14로 오집계 — 12건이 조용히 사라질 뻔).
 
 **함정 출처**: 루트(`--is-ancestor`는 구간 소속 검사가 아니다 · 게이트 판정에 파이프 금지 재확인 · macOS 대소문자 무구분 fs에서 잘못된 케이스 `git add`는 **조용히 0건 스테이징**[이 레포는 `Justfile` 대문자] · `ps -o cwd=`는 macOS 미지원 → `lsof -a -p <pid> -d cwd` · python `yaml` 모듈 부재 → 워크플로 검증은 `actionlint`), `crates/controller/CLAUDE.md`(**bundle feature에서 `ui_dir: None`은 오히려 임베드 SPA fallback을 켠다** — 라우트 부재 진단이 404에서 JSON 파싱 panic으로 격하되나 이빨은 양 구성에서 생존).
+
+## claude-md-redistribute — root CLAUDE.md 재분배: 이관 검증·예산 게이트 2종 + 이관 정본 (2026-07-31, task 커밋 `2cff75a6`..`3b0ab516` — 머지 sha는 `/finish-slice`가 채운다)
+
+**발의**: root `CLAUDE.md`는 매 프롬프트에 통째로 로드되는데 slice 누적으로 base(`17369d32`) 기준 **54,719 B**까지 불어 있었다. spec/plan(US1–US4)이 정한 목표는 "규칙·현재상태·인덱스는 그대로 두고 root ≤ 43,008 B(42 KiB)로, 덜어낸 내용은 root에 남은 포인터를 따라가면 전부 도달"(US1) + "불릿은 250 B 이하로 규칙만, 근거·서사는 정본에서"(US2) + "상태줄 팽창을 기계로 차단"(US3) + "다음 재분배도 같은 절차로 반복 가능하게 기준을 레포 안에"(US4).
+
+**설계**: spec/plan 다회 리뷰(`spec-plan-reviewer` clean APPROVE, `docs/dev/subagent-dispatch.md`의 spec/plan 이력 참고) 끝에 9-task SDD로 확정. 핵심은 **자동 게이트가 하나도 안 걸리는 영역**(`.md`·`.py` 편집은 `tdd-guard.sh`/`spec-review-guard.sh` 정규식 밖)이라, "테스트"를 스크립트를 통과/실패 양방향으로 실제 실행하는 것으로 대체했다(spec §1.7). 두 스크립트가 이 슬라이스의 산출물이자 앞으로도 상시 게이트다:
+
+- **`scripts/check-doc-coverage.py`**(`just doc-coverage [BASE]`, 기본 `17369d32`) — **이관 검증**. `scripts/doc-move-manifest.tsv`(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`)의 각 `move`/`merge` 행에 검사 ①~⑤(marker 실재·root 미제거·목적지 바이트 증가·marker 신규성)를 적용하고, 섹션 불릿 개수 바닥(R17, base 대비 비감소)·baseline 인상 정합(R18, `parse_baselines`가 `ast`로 `BASELINES = {...}` 대입문을 읽음)·**3차 방어선인 토큰 소실 grep**(root에서 지운 backtick 토큰이 corpus 81파일 또는 allowlist 어딘가에 남아 있는지)까지 확인한다.
+- **`scripts/check-doc-budget.py`**(`just doc-budget`) — **크기·형식 게이트**. root 절대 예산(51,200 B FAIL / 46,080 B WARN)·상태줄 단일라인(1,229 B 상한)·L1 참조(root가 `.md`를 가리키는 backtick·markdown 링크·reference-style·**평문** 4표기 전부의 실존·앵커 매치)·도메인 6개 `CLAUDE.md` 성장 래칫(10,240 B 초과 WARN)·`## Subagent dispatch 노하우` 섹션 불릿 250 B 상한(US2의 기계적 대리 지표)을 본다.
+
+**비대칭 설계 원칙("성장은 경고, 거짓 보고는 오류")**과 **"검사 불능 = FAIL"**(검사 대상이 0이 되면 루프가 0회 돌고 조용히 GREEN이 되는 게, 위반보다 게이트를 무력화하는 더 싼 방법이라는 통찰)이 두 스크립트 전체를 관통한다 — 상세 근거·수치는 이번 슬라이스가 신설한 `docs/dev/root-doc-maintenance.md`가 정본이다.
+
+**9 task SDD**: T1 ADR 신선도 해소(`2cff75a6`) → T2 이동 검증 스크립트+manifest 스키마(`b321b207`, fix 2라운드 `aa66787f`·`795cfaa2`) → T3 subagent-dispatch 서사 9건 정본 기입(`29de50a8`) → T4 root Subagent 섹션 압축(`0747a009`, fix 2라운드 `d554d41b`·`abeb57ab` — 3차는 **27→28불릿 사용자 명시 승인**) → T5 splice 함정+이관 기준+ADR 규약을 `root-doc-maintenance.md`로 신설(`8afb149a`) → T6 상태줄 3부 구조 압축(`638cb738`) → T7 ADR 인덱스 축약(`dff5f0aa`) → T8 예산 게이트+`/finish-slice` 배선(`dedff6d9`, fix `3b0ab516`) → T9(본 task, 절차+프로브+증거). 실행 순서는 **절단이 나도 US1 증거가 남게**: 이관(T2·3, root 무변경)이 압축(T4·6·7)보다 먼저다.
+
+### ① T2 fixture 시나리오 ①②③ — RED 문구와 원복 GREEN
+
+`/tmp/doc-cov-fixture`(base `8b9c112` 및 파생 base 4개)에서 `check-doc-coverage.py`를 검사별로 고립 실증했다. 전부 **지정된 `FAIL [...]` 문구**(traceback 아님)를 확인 후 원복했다.
+
+**시나리오 ① — 목적지 기입 없이 압축(제자리 요약)하면 RED (검사 ③④)**
+```
+=== 시나리오 ① RED ===
+FAIL [move] docs/dev/d.md에 marker 없음: alpha 서사
+FAIL [move] docs/dev/d.md 증가 0 B < 선언 합계 100 B
+
+FAIL: manifest 1행 · R17 [...]
+exit=1
+```
+→ `docs/dev/d.md`에 marker를 포함한 본문(gain ≥ 선언치)을 실제로 채운 뒤: `OK: manifest 1행 · ... exit=0`.
+
+**시나리오 ② — manifest 행째로 안 옮기고 불릿만 삭제하면 RED (검사 R17)**
+```
+=== 시나리오 ② RED (RULE_B 불릿 삭제 · manifest 행 없음) ===
+FAIL [R17] 'Subagent dispatch 노하우' 불릿 3→2 (허용 바닥 3)
+
+FAIL: manifest 0행 · R17 [...]
+exit=1
+```
+→ 불릿 원복 후: `OK ... exit=0`.
+
+**시나리오 ③ — `merge` 선언 후 실제로 흡수하지 않고 삭제만 하면 RED (검사 merge-ⓑ + R17 동시 발화)**
+```
+=== 시나리오 ③ RED (merge 선언 후 삭제만) ===
+FAIL [merge] 병합 미확인 — 삭제만 했는가: RULE_C 서사 조각 gamma
+FAIL [R17] 'Subagent dispatch 노하우' 불릿 3→2 (허용 바닥 3)
+
+FAIL: manifest 1행 · R17 [...]
+exit=1
+```
+→ 흡수 대상 불릿에 `(RULE_C 서사 조각 gamma 흡수)`를 실제로 넣은 뒤: `OK ... exit=0` (바닥이 3→2로 내려가 `merged_floor`가 `else`(병합 확인) 분기에서만 증가함이 양방향으로 실증됨).
+
+T2는 이 3건 외에도 시나리오 ④(root 미제거, 검사 ②)·검사 ⑤(marker 신규성)·R18·토큰 3차 방어선을 전부 RED→GREEN으로 실증했고, 리뷰 fix 2라운드(C1 날조 merge·I1 컬럼 수 traceback·I2 `BASELINES` 오파싱·I3 crash·M1–M6·N1 AnnAssign/구문오류·N2 문서)에서 8건 이상의 "조용한 통과" 결함을 잡아 FAIL로 승격했다.
+
+### ② T8 이빨 실증 — root·상태줄·L1 (전부 RED 문구 확인 → 파일시스템 백업으로 원복)
+
+```
+① root 절대 예산 — CLAUDE.md에 12,000 B 덧붙임
+RED:  FAIL [root] CLAUDE.md 53,001 B > 예산 51,200 B (1,801 B 초과) — 재분배 절차: docs/dev/root-doc-maintenance.md
+      exit=1
+GREEN: OK: root 41,001/51,200 B · ... · FAIL 0 / WARN 0     exit=0
+
+② 상태줄 — line 7에 2,000 B 덧붙임
+RED:  FAIL [상태줄] 3,111 B > 상한 1,229 B — append 말고 한 줄로 교체할 것(상세는 docs/build-log.md)
+      exit=1
+GREEN: OK: root 41,001/51,200 B · ... · FAIL 0 / WARN 0     exit=0
+
+③ L1 — 실존 backtick 참조(docs/roadmap-status.md)를 없는 파일명으로 치환
+RED:  FAIL [L1] 참조 대상 없음: docs/roadmap-status-NOPE.md
+      exit=1
+GREEN: OK: ... L1 참조 20건(앵커 2) · FAIL 0 / WARN 0        exit=0
+```
+
+리뷰 라운드가 "검사 불능 = FAIL" 원칙을 **0-iteration 경로 4개 중 2개에만 적용했다**는 결함을 잡아, `BASELINES_MIN=6`(래칫 대상 축소/비우기 차단)·불릿 `- ` 0개 하한·`L1_MIN_REFS=21`(검사량 자체가 줄어드는 것도 검사 불능) 3종을 추가로 FAIL 경로에 편입했다. T8 구현자는 실증 도중 `git checkout scripts/check-doc-budget.py`로 **미커밋 fix 6건을 통째로 날릴 뻔한 사고**를 자진 신고했다(HEAD가 fix 이전 커밋이라 원복이 "지금 상태"가 아니라 fix 이전 상태로 되돌아감 — 그 직후 측정한 RED가 "fix 없는 스크립트"의 결과였는데 "fix가 안 먹는다"로 오독할 뻔했다). 스크립트 재작성으로 복구했고, 이후 모든 원복은 파일시스템 백업(`cp`)으로만 했다 — 이 교훈이 본 task9 브리프의 "`git checkout <파일>` 절대 금지" 규율의 근거다.
+
+### ③ L4 프로브 5문항 — 지식 손실 실측 + 양성 대조
+
+**컨텍스트 0의 fresh `Explore` subagent**(레포만 보고 근거 경로와 함께 답하도록 지시)에게 orchestrator가 별도 디스패치한 결과다(이 task는 프로브를 재실행하지 않고 결과만 수령):
+
+- **Q1**(커밋 게이트 출력을 `| tail`/`| head`로 파이프하면?) → **정답**: "종료코드가 마스킹돼 git·pre-commit 실패를 감춘다" — 근거로 `CLAUDE.md:54`·`docs/dev/commit-gates-and-git-workflow.md:11`·실제 사례 `docs/build-log.md:506`(이번 slice의 release-hygiene 항목, bundle 게이트 `| tail` 사고)까지 제시.
+- **Q2**(`--is-ancestor`로 릴리즈 구간 소속을 검사해도 되나?) → **정답**: "도달 가능만 증명, 구간 소속은 못 증명 — 더 오래된 커밋도 통과"에 더해 올바른 검사식 2종까지 복원. 근거 `docs/build-log.md:505`.
+- **Q3**(상태줄 splice의 `end_anchor`를 어떻게 잡나?) → **정답**: "순수 boilerplate로 최소화. old-span 꼬리를 포함하면 `assert count==1`이 통과하고 예외도 없이 정상 완료로 보이는데 실제로는 구 문장 일부가 새 문장에 이식된다"까지 복원. **근거가 `docs/dev/root-doc-maintenance.md:123`** — 이번 슬라이스가 T5에서 신설한 바로 그 파일.
+- **Q4**(US4 결속 — root가 다시 커지면 무엇을 어디로?) → **정답**: 3분류(① 완료 기록 → 이동 가능 ② 명확한 활동 트리거 있는 함정 → 이동 가능 ③ 편집-트리거 함정 → root 인라인 유지)를 정확히 복원, "판단 기준은 중요도가 아니라 재발견 트리거의 유무"라는 요지 + 포인터 키워드 나열 규칙 + Move D 거절 선례까지 짚었다. **근거가 `docs/dev/root-doc-maintenance.md:5-15`** — US4가 실제로 작동한다는 직접 증거.
+- **Q5(양성 대조)**("ADR-0052가 정한 워커 오토스케일링 임계값은?" — 레포에 없는 사실) → **"모름 — 레포에서 찾지 못함"**. ADR은 0049까지만 존재함을 확인했고, ADR-0027의 "반응형 HPA는 연기된 대안" 언급을 채택된 임계값으로 착각하지 않고 정확히 구분했다.
+
+**결론(과장 금지 — 5문항 단일 시행)**: "지식 손실 0을 증명했다"가 아니라 **"제거된 지식 4건이 컨텍스트 없는 에이전트에게 근거 경로와 함께 회수됐고, 양성 대조 문항은 회수되지 않았다"**가 정확한 진술이다. 대조 문항이 통과(=거짓으로 아는 척)하지 않았으므로 위 4건의 정답이 우연이나 프로브 설계 결함이 아님이 확인된다.
+
+### ④ R13 레버 사용 여부
+
+**사용하지 않음.** T7(ADR 인덱스 축약)이 끝난 시점에 root가 이미 41,001 B로 착지해 합격선(43,008 B) 대비 2,007 B 여유를 확보했고, 계획이 준비해 둔 추가 축소 레버(`## 검증 자동화`의 "매 커밋 일상 규칙" 재압축 등)는 시도조차 하지 않았다 — 해당 절은 T7 이후에도 원문 그대로다.
+
+### ⑤ 크기 before/after
+
+| 시점 | root `CLAUDE.md` | 비고 |
+|---|---:|---|
+| base(`17369d32`) | 54,719 B | Task2 `git show ... \| wc -c` 실측(오케스트레이터/spec의 54,720 B와 1 B 차이 — 트레일링 개행 계수차, 판정에 무영향) |
+| T1 이후 | 54,722 B | ADR 신선도 주석(+3 B), 불릿·토큰 집합 불변 |
+| T4 이후(Subagent 섹션 압축, 27→28불릿 3차 반영 후) | 49,870 B | |
+| T6 이후(상태줄 3부 구조: 5,029 B→1,111 B) | 43,374 B | 합격선을 366 B 초과한 채 T7로 이월(계획된 경로) |
+| T7 이후(ADR 인덱스 17줄 축약, R13 미사용) | 41,001 B | 합격선 대비 2,007 B 여유(사용률 95.3%) — **T9 시점까지 불변**(T9는 root를 건드리지 않음) |
+
+**net**: 54,719 B → 41,001 B = **-13,718 B**(-25.1%), 합격선 43,008 B 대비 최종 여유 **2,007 B**.
+
+### T9 자체 작업 — 절차 문서 + fold-in 2건
+
+`docs/dev/root-doc-maintenance.md`에 두 절을 신설했다: **"재분배 절차 — manifest 작성 → 목적지 기입 → root 축약 → 검증(순서 고정)"**(5단계와 각 단계에서 무엇이 RED를 내는지 + "0건이면 별칭·슬러그·대소문자로 재검색한 뒤에야 없다고 판정하라" — T6에서 실제로 겪은 `HAR 쿼리 안전 디코딩`↔`HAR 가져오기 URL 안전 디코딩`(슬러그 `har-query-decode`)·`Run 라이브니스`↔소문자 `run 라이브니스` 표기 불일치 사례를 근거로), **"L1의 알려진 한계"**(한글 조사가 경로 뒤에 바로 붙으면 유니코드 `\b`가 안 잡음, 괄호로 감싼 평문 경로도 lookbehind로 제외, `L1_MIN_REFS`는 하한이라 검사량이 안 줄면 아무도 모름 — 새 포인터는 backtick/링크 표기 권장).
+
+fold-in ①(N1) — `scripts/check-doc-budget.py`의 `md_refs()`가 펜스 코드블록(```) 안 예시 경로까지 L1 참조로 잡던 버그를 `md_refs(strip_fences(text))`로 수정. 적용 전후 root의 distinct 참조 집합이 정확히 동일함을 확인(펜스 안에 걸리는 항목이 현재는 없다 — 향후 문서에 예시 경로가 들어가는 순간 거짓 FAIL이 났을 것)하고, `just doc-budget`이 여전히 `FAIL 0 / WARN 0 / exit=0`·**L1 참조 21건 유지**임을 확인.
+
+**T9 수용 기준 4종 실측**: `wc -c CLAUDE.md` → 41,001(≤43,008) · `just doc-budget; echo exit=$?` → `OK: root 41,001/51,200 B · L1 참조 21건(앵커 2) · 래칫 6개 · FAIL 0 / WARN 0` / `exit=0` · `just doc-coverage; echo exit=$?` → `OK: manifest 14행 · R17 [...]` / `exit=0` · `docs/dev/subagent-dispatch.md` 9개 토큰 grep(`think-time-dashboard`·`thinkboard-defaults`·`Object.is`·`충돌 표`·`tdd-guard.sh:92`·`sed -n`·`mb-2`·`getBoundingClientRect`·`is-ancestor`) 전부 ≥1(2/4/1/1/1/1/1/1/1). 4종 전부 통과.
+
+**함정 출처**: `docs/dev/root-doc-maintenance.md`(이관 3분류·재분배 5단계·L1 4표기+알려진 한계·예산 게이트 비대칭 설계·baseline 재설정 규칙·ADR 상태 갱신 규약·splice 함정 4건), `scripts/check-doc-coverage.py`/`scripts/check-doc-budget.py`(위 두 항목의 상시 게이트 자체), 루트(`git checkout <미커밋 파일>` 절대 금지 — T8 자진신고), `docs/dev/subagent-dispatch.md`(이 슬라이스가 T3에서 채워 넣은 9개 서사 조각 — L4 프로브 Q1·Q2가 이 파일에서 회수됨).
