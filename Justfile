@@ -120,3 +120,7 @@ bump-version ver:
 # root CLAUDE.md 재분배 이동 검증(R6·R16·R17·R18): manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분.
 doc-coverage BASE="17369d32":
     python3 scripts/check-doc-coverage.py {{BASE}}
+
+# 문서 예산(R5·R8·R9): root 절대 예산·상태줄·L1 참조/앵커는 FAIL, 도메인 성장 래칫은 WARN.
+doc-budget:
+    python3 scripts/check-doc-budget.py
