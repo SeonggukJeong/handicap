@@ -47,11 +47,12 @@ git -C <메인> log --oneline -3                  # landed 확인 — commit/mer
 - 루트 CLAUDE.md의 상태 줄을 **한 줄 교체** (append 금지 — "어디까지 됐나"만): `grep -n '^\*\*상태:' CLAUDE.md`로 찾은 그 한 문단
 - 새 ADR이 생겼으면 "알아둘 결정들" 인덱스에 번호순 **한 줄만**
 - **`docs/roadmap.md` 완료 항목 마킹**: 이번 슬라이스가 roadmap의 후보/연기 항목을 닫았으면 그 불릿을 `~~취소선~~ + ✅ 완료(머지 SHA)`로 갱신 + `docs/roadmap-status.md` frontier 전진. **단 roadmap.md `## 현재 상태` 섹션은 건드리지 말 것** — 포인터-only로 동결됐다(2026-07-16 결정; "최신 완료 = X" 마커는 상태줄·build-log·MEMORY와 중복돼 드리프트하므로 재삽입 금지). roadmap-archive.md 완료 이력도 2026-06-28 스냅샷 동결이라 append 안 함.
-- **문서 예산 확인**: `just doc-budget` — root 초과면 재분배를 먼저(`docs/dev/root-doc-maintenance.md` 절차), WARN이면 다음 슬라이스에 예고
 - 자동메모리(`~/.claude/projects/-Users-sgj-develop-handicap/memory/`): 해당 작업의 기존 메모리 파일 우선 업데이트(없으면 생성) + `MEMORY.md` 인덱스 한 줄 갱신. **MEMORY.md가 ~24KB 한도에 근접했으면 새 `직전 =` 추가 시 직전/직전직전 verbose 항목을 한 줄로 압축하며 demote**(상세는 build-log에 이미 있음) — 4번째 verbose 항목 append나 매번 `/curate-memory` 대신 compress-on-demote가 가볍다(곡선 VU 표시 세션 2026-06-24: 23KB→13.5KB)
 
 ## 5) CLAUDE.md 함정 기록
 `claude-md-management:revise-claude-md` 스킬 호출 — 이번 세션 함정을 **변경이 속한 도메인**의 CLAUDE.md(ui 변경이면 `ui/CLAUDE.md` 등, 크로스커팅만 루트)에 한 줄씩, 출처 태그 포함.
+
+- **문서 예산 확인**: `just doc-budget` — root 초과면 재분배를 먼저(`docs/dev/root-doc-maintenance.md` 절차), WARN이면 다음 슬라이스에 예고. **§4가 아니라 여기(§5 끝)에서 돌린다** — §4의 상태줄 교체와 이 §5의 크로스커팅 함정 append가 root를 키우는 두 경로인데, §4에서 돌리면 **그 슬라이스 자신의 함정 추가**를 게이트가 못 본다.
 
 ## 6) 다음 작업 추천 → 종료
 `docs/roadmap.md` + 메모리 `MEMORY.md`를 읽고 후보 2–3개를 근거와 함께 표로 제시. 마지막 줄: "`/clear` 후 `/start-slice`로 시작하세요."

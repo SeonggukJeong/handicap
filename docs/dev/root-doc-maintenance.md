@@ -18,14 +18,17 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 재분배는 아래 5단계를 **이 순서로** 밟는다. 이 순서(이관을 압축보다 먼저)는 의도적이다 — 중간에 끊겨도 이미 목적지에 쓴 내용과 root 원본이 공존하는 상태이지 지식이 사라진 상태가 아니다.
 
-1. **manifest 작성** — `scripts/doc-move-manifest.tsv`에 한 행 append(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`). 아직 아무것도 옮기지 않는다 — "무엇을 어디로, 무엇으로 증명할지"만 선언한다. 이 단계는 검사 대상이 없으므로 RED가 나지 않는다.
+1. **manifest 작성** — **새 재분배는 새 manifest에 쓴다. 기존 파일에 append 금지.** 절차: ① 지금 있는 `scripts/doc-move-manifest.tsv`를 `scripts/doc-move-manifest-<직전-슬라이스-slug>.tsv`로 **rename**해 이력으로 남기고(지우지 말 것) ② 활성 경로 `scripts/doc-move-manifest.tsv`에 **이번 슬라이스 행만** 새로 쓴다(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`) ③ 4단계를 **이번 슬라이스의 base**로 돌린다. `check-doc-coverage.py:87`의 `rows()`는 활성 경로 **하나만** 읽으므로, 이름을 바꾼 옛 파일은 검사에서 빠지고 이력으로만 남는다. 아직 아무것도 옮기지 않는다 — "무엇을 어디로, 무엇으로 증명할지"만 선언한다. 이 단계는 검사 대상이 없으므로 RED가 나지 않는다.
+   - **왜 append가 안 되나 — 행은 자기 base에서만 참이다.** 모든 `move` 행은 `source_anchor ∈ base:CLAUDE.md`(`check-doc-coverage.py:114`)와 `required_marker ∉ base:<dest_file>`(`:126`)를 주장하는데, 재분배가 끝나면 그 두 조건은 **뒤집힌다**(anchor는 root에서 이미 지워졌고 marker는 목적지에 이미 있다). 그래서 옛 행을 더 새로운 base로 돌리면 **전건 FAIL**한다 — 실측: 이 슬라이스의 14행 manifest를 `python3 scripts/check-doc-coverage.py 6ebf587e`(이 슬라이스 직후 커밋)로 돌리면 **29 FAIL**.
+   - **옛 행을 삭제하지 말 것.** 삭제는 R17 `merged_floor` 회계(병합 선언이 바닥을 1 내려주는 그 행)와 "무엇을 어디로 옮겼다"는 이력 주장을 **조용히** 함께 없앤다. rename은 둘 다 보존한다. 새 base에서는 base 불릿 수가 이미 '병합 후' 값이라 옛 merge 행 없이도 R17 바닥이 맞다.
+   - **R17의 보호력은 base 고정 때문에 시간이 갈수록 감쇠한다.** 바닥 = base 불릿 수라서 slack(현재 − 바닥)이 단조 증가하고, slack만큼은 불릿이 조용히 사라져도 안 걸린다. 오늘 실측 slack은 `Subagent dispatch 노하우` **1**, `알아둘 결정들` **0**. 새 슬라이스가 위 절차대로 **자기 base로 새 manifest**를 돌리면 slack이 0으로 리셋된다 — rename 절차는 이것도 같이 고친다.
 2. **목적지 기입** — `dest_file`에 내용을 실제로 쓴다(정본화). 부족하면 여기서 처음 RED가 난다:
    - 검사 ③ `FAIL [move] <dest_file>에 marker 없음: <marker>` — 옮긴 본문에 `required_marker` 문구가 없다.
    - 검사 ④ `FAIL [move] <dest_file> 증가 N B < 선언 합계 M B` — 목적지가 선언한 `min_dest_gain_bytes`만큼 안 늘었다.
 3. **root 축약** — root에서 그 `source_anchor`를 지운다(요약 또는 삭제). 아직 지우지 않았으면:
    - 검사 ② `FAIL [move] root에 anchor 잔존(미제거): <source_anchor>`.
 4. **`just doc-coverage <base>`** — 이동 검증 전체(R6·R16·R17·R18)를 돈다. manifest 모든 행에 검사 ①~⑤(⑤=marker 신규성, `min_dest_gain_bytes>0`인 행만)를 적용하고, 그 위에 섹션 불릿 바닥(R17: `FAIL [R17] '<섹션>' 불릿 N→M (허용 바닥 N)`)·baseline 인상 정합(R18: `FAIL [R18] <파일> baseline 인상인데 파일이 줄지 않았다`)·**3차 방어선인 토큰 소실 grep**(`FAIL [토큰] 소실(목적지 어디에도 없음): <토큰>`, corpus/allowlist로 해소)까지 확인한다. 여기서 처음 통과하면 "옮긴 게 정말 살아 있다"가 기계로 확정된 것이다.
-5. **`just doc-budget`** — 크기·형식 게이트(R5·R8·R9). root 절대 예산·상태줄 단일 라인/상한·L1 참조 실존/앵커·도메인 래칫·불릿 250 B 상한을 본다. **doc-coverage와 독립된 축**이다 — coverage는 "지식이 살아있나", budget은 "지금 root가 예산 안이고 형식이 맞나"를 본다. 둘 다 green이어야 재분배가 끝난 것이다.
+5. **`just doc-budget`** — 크기·형식 게이트(R5·R8·R9). root 절대 예산·상태줄 단일 라인/상한·L1 참조 실존/앵커·도메인 래칫·**섹션별** 불릿 상한(250 B/170 B)을 본다. **doc-coverage와 독립된 축**이다 — coverage는 "지식이 살아있나", budget은 "지금 root가 예산 안이고 형식이 맞나"를 본다. 둘 다 green이어야 재분배가 끝난 것이다.
 
 ### "0건이면 없다"고 판정하지 말 것 — 표기 불일치가 거짓 0을 낸다
 
@@ -33,7 +36,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 ## 문서 예산 게이트 (`just doc-budget`)
 
-`scripts/check-doc-budget.py`가 상시 게이트다. `/finish-slice` §4에서 돌리고, 재분배를 시작하기 전에도 돌려 현재 여유를 본다. 단위는 전부 **KiB(1024 B)**, 줄 바이트는 개행 포함(`len(line.encode()) + 1`).
+`scripts/check-doc-budget.py`가 상시 게이트다. `/finish-slice` **§5 끝**에서 돌리고(§5의 크로스커팅 함정 append가 root 증가의 가장 흔한 경로라, §4에서 돌리면 그 슬라이스 자신의 증가를 못 본다), 재분배를 시작하기 전에도 돌려 현재 여유를 본다. 단위는 전부 **KiB(1024 B)**, 줄 바이트는 개행 포함(`len(line.encode()) + 1`).
 
 | 검사 | 대상 | 기준 | 위반 시 |
 |---|---|---|---|
@@ -43,8 +46,9 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 | L1 참조 | root의 `.md` 참조 **4표기 전부**(아래) | 파일 실존 · `#앵커`가 실제 헤딩과 매치 | **FAIL** |
 | L1 검사량 하한 | 검사한 참조 수 | ≥ **`L1_MIN_REFS`**(현재 21) | **FAIL** |
 | 불릿 상한 | `## Subagent dispatch 노하우`의 각 불릿 | ≤ **250 B** | **FAIL** |
-| 불릿 존재 | 같은 섹션의 `- ` 불릿 수 | ≥ 1 | **FAIL** |
-| 섹션 총합 | 같은 섹션 전체 | ≤ **6,144 B**(6 KiB) | WARN |
+| 불릿 상한 | `## 알아둘 결정들`(ADR 인덱스)의 각 불릿 | ≤ **170 B** | **FAIL** |
+| 불릿 존재 | **두 섹션 각각**의 `- ` 불릿 수 | ≥ 1 | **FAIL** |
+| 섹션 총합 | `## Subagent dispatch 노하우` 전체 | ≤ **6,144 B**(6 KiB) | WARN |
 | 도메인 래칫 | `BASELINES`의 6개 도메인 `CLAUDE.md` | 성장 ≤ **10,240 B**(10 KiB) | WARN |
 | 래칫 대상 하한 | `len(BASELINES)` | ≥ **`BASELINES_MIN`**(6) | **FAIL** |
 
@@ -58,8 +62,8 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 | 없어지는 것 | 하한 |
 |---|---|
-| `## Subagent dispatch 노하우` 섹션 | 섹션 실종 = FAIL |
-| 그 섹션의 `- ` 불릿 | ≥ 1개 |
+| 캡 대상 섹션(`## Subagent dispatch 노하우`·`## 알아둘 결정들`) | 섹션 실종 = FAIL(**각각**) |
+| 그 섹션들의 `- ` 불릿 | ≥ 1개(**각각**) |
 | `BASELINES` 항목 | ≥ `BASELINES_MIN`(6) |
 | L1이 검사한 참조 | ≥ `L1_MIN_REFS`(21) |
 
@@ -82,17 +86,23 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 **인상을 막는 장치는 지금 ①뿐이다.** 정직하게 적어 둔다:
 
 - ① **커밋 diff 리뷰** — 인상은 diff에 숫자로 드러난다. **출하 상태에서 유일하게 상시 작동하는 방어**다.
-- ② `check-doc-coverage.py`의 **R18**(baseline을 올렸는데 그 파일이 안 줄었으면 FAIL) — **아직 무장되지 않았다.** R18은 `at(base, "scripts/check-doc-budget.py")`가 있어야 도는데, 현 `just doc-coverage`의 기본 `BASE`(`Justfile`의 `BASE="17369d32"`)에는 그 파일이 없어 **블록이 통째로 skip**된다. 게다가 `doc-coverage`는 `/finish-slice`에 배선돼 있지 않다. **②는 budget 스크립트를 포함한 ref를 base로 줘서 돌릴 때 비로소 무장된다**(예: 다음 재분배 슬라이스가 `just doc-coverage <이번 슬라이스 이전 커밋>`으로 실행할 때). 그전까지 "기계로 강제된다"고 믿지 말 것.
+- ② `check-doc-coverage.py`의 **R18**(baseline을 올렸는데 그 파일이 안 줄었으면 FAIL) — **아직 무장되지 않았다.** R18은 `at(base, "scripts/check-doc-budget.py")`가 있어야 도는데, 현 `just doc-coverage`의 기본 `BASE`(`Justfile`의 `BASE="17369d32"`)에는 그 파일이 없어 **블록이 통째로 skip**된다. 게다가 `doc-coverage`는 `/finish-slice`에 배선돼 있지 않다(레포 전체에서 유일한 참조가 `Justfile:121`이다). **②는 budget 스크립트를 포함한 ref를 base로 줘서 돌릴 때 비로소 무장된다** — 즉 다음 재분배 슬라이스가 위 §재분배 절차 1단계대로 **새 manifest를 자기 base로** 돌릴 때부터다(지금 manifest를 더 새로운 base로 다시 돌리는 것은 답이 아니다 — 1단계의 29 FAIL 실측 참조). 그전까지 "기계로 강제된다"고 믿지 말 것.
 
 R18이 무장됐을 때의 형식 제약은 알아 둬야 한다 — `ast`로 `BASELINES` **대입문**을 읽으므로 **모듈 최상위 대입문 · flat dict 리터럴**이어야 한다. `dict(...)`·컴프리헨션·중첩 dict·빈 dict·구문 오류는 전부 `FAIL [R18] budget 소스에서 BASELINES를 읽지 못했다`가 된다(무음 통과를 막으려고 일부러 넣은 동작이다). `BASELINES: dict[str, int] = {...}` 형태는 지원된다.
 
 **그래서 "줄이기"는 예산 게이트 자신이 막는다.** R18이 잡는 건 *인상*뿐인데, 래칫 WARN을 없애는 더 싼 방법은 **dict를 비우거나 줄이는 것**이다(항목이 없으면 루프가 0회 돌고 `래칫 0개`를 찍으며 통과한다). 그래서 `BASELINES_MIN = 6` 하한을 `check-doc-budget.py` 안에 뒀다 — 도메인 파일을 **실제로 지웠을 때만** 내린다.
 
-### 불릿 상한 — 250 B는 US2의 기계적 대리 지표
+### 불릿 상한 — 250 B/170 B는 "규칙만 말한다"의 기계적 대리 지표
+
+캡은 `BULLET_SECTIONS = {섹션: (불릿 상한, 섹션 총합 WARN 또는 None)}` **딕트**다. 단일 문자열로 두면 캡이 한 섹션에만 걸리는데, root에서 줄이 늘 붙는 곳은 두 군데다.
 
 root의 `## Subagent dispatch 노하우`는 **규칙만** 말하고 근거·사고 서사는 `docs/dev/subagent-dispatch.md`가 들고 있다. "규칙만 말한다"는 사람 판단이라 기계로 잴 수 없어서, **불릿 한 줄 ≤ 250 B**를 대리 지표로 쓴다(서사가 섞이면 반드시 이 선을 넘는다). 이 검사는 가설이 아니라 **관측된 실패에 대한 대응**이다 — 재분배 작업 중 한 불릿이 251 B로 새어나갔고, 사람이 수동 재측정해서야 잡혔다. `check-doc-coverage.py`는 불릿 **개수**와 토큰만 보고 예산 게이트는 파일 **총합**만 봐서, 250 B를 보는 곳이 아무 데도 없었다.
 
-**총합 6,144 B가 WARN인 이유**: 현재 섹션이 6,128 B라 여유가 16 B뿐이다. FAIL로 두면 정당한 규칙 한 줄 추가도 즉시 막혀 게이트가 "우회 대상"이 된다. 반면 불릿 상한은 위반한 **그 불릿만** 줄이면 되니 정확하고 값싸다. 총량 방어는 root 절대 예산이 이미 하고 있으므로 이중이다.
+**`## 알아둘 결정들`(ADR 인덱스) 170 B**: root 규칙이 "번호 + 제목 + 핵심 한 마디 **한 줄만**"이고, T7 축약 결과의 실측 최대가 정확히 170 B다(= 현 상태 동결). ADR이 하나 생길 때마다 줄이 붙는 곳이라 **재비대의 가장 유력한 경로**인데, 캡이 단일 문자열이던 동안엔 여기에 아무 기계 검사도 없었다(49불릿 중 10개가 163–170 B로 캡에 밀착해 있다 — 한 줄이 서사로 새면 바로 걸린다).
+
+**총합 6,144 B가 WARN인 이유**: 현재 섹션이 6,128 B라 여유가 16 B뿐이다. FAIL로 두면 정당한 규칙 한 줄 추가도 즉시 막혀 게이트가 "우회 대상"이 된다. 반면 불릿 상한은 위반한 **그 불릿만** 줄이면 되니 정확하고 값싸다. 총량 방어는 root 절대 예산이 이미 하고 있으므로 이중이다. 같은 이유로 **WARN 문구는 "서사를 정본으로 옮겨라"가 아니라 "기존 불릿을 먼저 줄여라"** 다 — 99.7%까지 찬 섹션에서 이 WARN을 만나는 사람은 이미 서사가 아니라 **규칙 줄 자체**가 넘친 상황이고, 서사는 진작 `docs/dev/subagent-dispatch.md`에 있다.
+
+**ADR 인덱스에는 총합 WARN을 두지 않았다**(`section_max=None`): 현재 5,992 B라 6 KiB 캡이면 다음 ADR 한 줄(~150 B)에 바로 WARN이 뜨는데, 인덱스 줄은 이미 "한 줄" 규칙의 하한이라 **"줄여라"라는 유효한 처방이 없다**(줄일 방법이 ADR 항목 삭제뿐이고 그건 규칙 위반이다). 처방 없는 경고는 소음이 되고, 총량 방어는 root 절대 예산이 한다.
 
 ### L1이 보는 4가지 표기
 
@@ -109,12 +119,13 @@ root가 `.md`를 가리키는 방법은 하나가 아니다. **하나라도 빼�
 
 ### L1의 알려진 한계
 
-`check-doc-budget.py`의 `RE_PLAIN`은 완전하지 않다 — 아래 두 경우는 **조용히** 검사에서 빠진다(FAIL도 WARN도 없이 그냥 안 잡힌다):
+`check-doc-budget.py`의 `RE_PLAIN`은 완전하지 않다 — 아래 두 경우는 **조용히** 검사에서 빠지고(거짓 음성: FAIL도 WARN도 없이 그냥 안 잡힌다), 세 번째는 반대로 **없는 결함을 FAIL로 만든다**(거짓 양성):
 
 - **한글 조사가 바로 붙으면 안 잡힌다.** 평문 표기는 `\.md\b`로 경로 끝을 잡는데, 파이썬 정규식의 `\b`는 유니코드 기준이라 한글 음절도 단어문자로 취급된다 — `docs/build-log.md가`·`docs/build-log.md에`처럼 조사가 바로 붙으면 경계가 안 생겨 매치되지 않는다.
 - **괄호로 감싼 평문 경로도 제외된다.** `(docs/a.md)`처럼 여는 괄호가 바로 앞에 오면 `RE_PLAIN`의 부정 lookbehind(`(?<![`(])`, markdown 링크 `[t](docs/a.md)`와 겹쳐 세지 않으려는 장치)가 걸러낸다 — 순수 평문 괄호 표기까지 같이 걸린다.
+- **(거짓 양성) 평문 URL 안의 `docs/**.md`가 레포 경로로 잡힌다.** `RE_PLAIN`은 `docs/`로 *시작하는* 조각이면 앞이 무엇이든 매치하므로, root에 GitHub URL을 처음 넣는 사람이 영문 모를 FAIL을 만난다. 실측 — `참고: https://github.com/other/repo/blob/master/docs/dev/nope.md` → `FAIL [L1] 참조 대상 없음: docs/dev/nope.md`. **backtick·markdown 링크로 감싸면 오히려 FAIL이 2건이 된다**(URL 전체가 `.md`로 끝나 `RE_BACKTICK`/`RE_LINK`에도 잡히고, 꼬리 경로는 여전히 `RE_PLAIN`에 잡힌다 — 위 "backtick/링크가 안전하다"는 조언은 **레포 내부 경로에만** 해당한다). 확인된 회피는 **펜스 코드블록**뿐이다(`md_refs(strip_fences(text))` — 실측 `OK`/`exit 0`).
 
-**`L1_MIN_REFS`는 하한(floor)이라 개수가 줄지 않는다 — 그래서 아무도 모른다.** 위 두 경우 모두 검사한 참조 수(`n_file`)가 그대로거나 오히려 다른 표기로 상쇄돼, 21이라는 하한 아래로 절대 안 떨어질 수 있다. 즉 **하한 위반으로는 이 결함이 드러나지 않는다.** 새 포인터를 root에 넣을 땐 backtick 인용(`` `docs/x.md` ``)이나 markdown 링크 표기를 쓰는 편이 안전하다 — 이 두 표기는 조사·괄호 문제가 없다.
+**`L1_MIN_REFS`는 하한(floor)이라 개수가 줄지 않는다 — 그래서 아무도 모른다.** (거짓 양성인 세 번째는 FAIL로 시끄럽게 드러나니 여기 해당하지 않는다.) 위 두 거짓 음성 모두 검사한 참조 수(`n_file`)가 그대로거나 오히려 다른 표기로 상쇄돼, 21이라는 하한 아래로 절대 안 떨어질 수 있다. 즉 **하한 위반으로는 이 결함이 드러나지 않는다.** 새 포인터를 root에 넣을 땐 backtick 인용(`` `docs/x.md` ``)이나 markdown 링크 표기를 쓰는 편이 안전하다 — 이 두 표기는 조사·괄호 문제가 없다.
 
 ### L1 사전 선언 예외 2건
 

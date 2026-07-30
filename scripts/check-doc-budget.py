@@ -32,9 +32,20 @@ ROOT_MAX = 51200        # 50 KiB — 초과 시 FAIL
 ROOT_WARN = 46080       # 45 KiB(90%) — 이상이면 WARN
 STATUS_MAX = 1229       # 1.2 KiB — 상태줄 단일 라인 상한
 RATCHET = 10240         # 10 KiB — baseline 대비 이만큼 넘게 자라면 WARN
-BULLET_SECTION = "Subagent dispatch 노하우"
-BULLET_MAX = 250        # 불릿 하나 상한(FAIL) — US2 "규칙만 말한다"의 기계적 대리 지표
-SECTION_MAX = 6144      # 6 KiB — 섹션 총합(WARN: 총량 방어는 root 절대 예산이 이미 한다)
+# 섹션별 캡: {섹션명: (불릿 하나 상한 FAIL, 섹션 총합 WARN 또는 None)}.
+# 단일 문자열로 두면 캡이 한 섹션에만 걸린다 — root 에서 줄이 늘 붙는 곳은 두 군데다.
+#   `Subagent dispatch 노하우` 250 B — US2 "규칙만 말한다"의 기계적 대리 지표(서사가 섞이면
+#     반드시 넘는다. 실제로 251 B 가 새어나갔고 사람이 수동 재측정해서야 잡혔다).
+#   `알아둘 결정들`(ADR 인덱스) 170 B — root 규칙이 "번호 + 제목 + 핵심 한 마디" 한 줄이고,
+#     T7 축약 결과의 실측 최대가 정확히 170 B(= 현 상태 동결). 새 ADR 이 붙을 때마다 자라는
+#     곳이라 캡이 없으면 재비대의 가장 유력한 경로가 된다.
+# 섹션 총합 WARN 을 ADR 인덱스에 두지 않는 이유: 현재 5,992 B 라 6 KiB 캡이면 다음 ADR
+#   한 줄(~150 B)에 바로 WARN 이 뜨는데, 인덱스 줄은 이미 "한 줄" 규칙의 하한이라
+#   "줄여라"라는 유효한 처방이 없다 — 총량 방어는 root 절대 예산이 이미 하고 있다.
+BULLET_SECTIONS = {
+    "Subagent dispatch 노하우": (250, 6144),
+    "알아둘 결정들": (170, None),
+}
 
 # --- "검사 불능 = FAIL" 하한 ------------------------------------------------
 # 래칫 WARN 을 없애는 가장 싼 방법은 dict 를 비우는 것이고, 250 B 검사를 없애는 가장 싼
@@ -198,26 +209,32 @@ def main():
                      f"포인터가 사라졌거나 표기가 바뀌어 검사에서 빠졌다"
                      f"(진짜로 없앤 거라면 L1_MIN_REFS를 같이 내릴 것)")
 
-    # ④ 불릿 상한 (US2) — 섹션·불릿이 사라지면 검사 불능이므로 FAIL
-    body = section_span(text, BULLET_SECTION)
-    if body is None:
-        fails.append(f"FAIL [불릿] '## {BULLET_SECTION}' 섹션 없음 — 검사 불능(섹션명 불변 규약)")
-    else:
+    # ④ 불릿 상한 (US2) — 섹션·불릿이 사라지면 검사 불능이므로 FAIL (캡 대상 섹션 전부)
+    for sec, (bullet_max, section_max) in BULLET_SECTIONS.items():
+        body = section_span(text, sec)
+        if body is None:
+            fails.append(f"FAIL [불릿] '## {sec}' 섹션 없음 — 검사 불능(섹션명 불변 규약)")
+            continue
         lines = body.split("\n")
         total = sum(line_bytes(l) for l in lines)
         bl = [l for l in lines if l.startswith("- ")]
-        table.append((f"§{BULLET_SECTION}", total, SECTION_MAX, f"{total / SECTION_MAX * 100:.1f}%"))
         if not bl:
-            # 마커를 '- '에서 '* '로 바꾸면 250 B 검사가 통째로 증발한다(0회 루프 → GREEN).
-            fails.append(f"FAIL [불릿] '## {BULLET_SECTION}'에 '- ' 불릿 0개 — "
+            # 마커를 '- '에서 '* '로 바꾸면 불릿 상한 검사가 통째로 증발한다(0회 루프 → GREEN).
+            fails.append(f"FAIL [불릿] '## {sec}'에 '- ' 불릿 0개 — "
                          f"검사 불능(마커가 바뀌었나? 규약은 '- ')")
+        else:
+            mx = max(line_bytes(l) for l in bl)
+            table.append((f"§{sec}:최대 불릿", mx, bullet_max, f"{mx / bullet_max * 100:.1f}%"))
         for l in bl:
             n = line_bytes(l)
-            if n > BULLET_MAX:
-                fails.append(f"FAIL [불릿] {n} B > {BULLET_MAX} B: {l[:60]}…")
-        if total > SECTION_MAX:
-            warns.append(f"WARN [불릿] 섹션 총합 {total:,} B > {SECTION_MAX:,} B "
-                         f"(불릿 {len(bl)}개) — 서사는 docs/dev/subagent-dispatch.md 로")
+            if n > bullet_max:
+                fails.append(f"FAIL [불릿] '{sec}' {n} B > {bullet_max} B: {l[:60]}…")
+        if section_max is not None:
+            table.append((f"§{sec}", total, section_max, f"{total / section_max * 100:.1f}%"))
+            if total > section_max:
+                warns.append(f"WARN [불릿] '{sec}' 섹션 총합 {total:,} B > {section_max:,} B "
+                             f"(불릿 {len(bl)}개) — 서사는 이미 정본에 있다: "
+                             f"새 규칙을 넣기 전에 **기존 불릿을 먼저 줄일 것**")
 
     # ⑤ 도메인 성장 래칫 — 성장은 WARN, 대상 실종·목록 축소는 FAIL(거짓 보고)
     if len(BASELINES) < BASELINES_MIN:
