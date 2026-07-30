@@ -487,6 +487,7 @@ pub async fn run(args: WorkerArgs) -> anyhow::Result<()> {
         std::env::var("JOB_COMPLETION_INDEX").ok(),
     );
     info!(
+        version = env!("CARGO_PKG_VERSION"),
         controller = %args.controller,
         run_id = ?args.run_id,
         capacity_vus = args.capacity_vus,
@@ -536,7 +537,7 @@ pub async fn run_pool(args: WorkerArgs) -> anyhow::Result<()> {
     let signal_task = spawn_sigterm(cancel.clone());
     let token = args.token.as_deref().unwrap_or("");
     let hostname = resolve_hostname();
-    info!(%worker_id, "pool worker starting (idle)");
+    info!(version = env!("CARGO_PKG_VERSION"), %worker_id, "pool worker starting (idle)");
     loop {
         if cancel.is_cancelled() {
             break;
