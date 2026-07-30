@@ -16,6 +16,7 @@ export const ko = {
     saving: "저장 중…",
     cancel: "취소",
     close: "닫기",
+    versionTitle: "컨트롤러 버전",
     delete: "삭제",
     edit: "편집",
     add: "추가",

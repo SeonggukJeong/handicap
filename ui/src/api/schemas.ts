@@ -598,3 +598,7 @@ export const SequentialTraceSchema = z.object({
   rows: z.array(RowTraceSchema),
 });
 export type SequentialTrace = z.infer<typeof SequentialTraceSchema>;
+
+// GET /api/version — 컨트롤러가 항상 직렬화하는 non-Option 필드 (plain z.string()).
+export const VersionSchema = z.object({ version: z.string() }).strict();
+export type Version = z.infer<typeof VersionSchema>;

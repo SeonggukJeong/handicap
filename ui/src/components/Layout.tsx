@@ -1,14 +1,23 @@
 import { Link, Outlet } from "react-router-dom";
 import { ko } from "../i18n/ko";
+import { useVersion } from "../api/hooks";
 
 export function Layout() {
+  const version = useVersion();
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-slate-200 bg-white">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="text-xl font-semibold tracking-tight">
-            Handicap
-          </Link>
+          <div className="flex items-baseline gap-2">
+            <Link to="/" className="text-xl font-semibold tracking-tight">
+              Handicap
+            </Link>
+            {version.data && (
+              <span className="text-xs text-slate-400" title={ko.common.versionTitle}>
+                v{version.data.version}
+              </span>
+            )}
+          </div>
           <nav className="flex items-center gap-4 text-sm text-slate-600">
             <Link to="/" className="hover:text-slate-900">
               {ko.nav.scenarios}

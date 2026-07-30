@@ -62,7 +62,16 @@ export const queryKeys = {
   stepTemplate: (id: string) => ["step-templates", id] as const,
   settings: () => ["settings"] as const,
   poolWorkers: () => ["pool", "workers"] as const,
+  version: () => ["version"] as const,
 };
+
+export function useVersion() {
+  return useQuery({
+    queryKey: queryKeys.version(),
+    queryFn: api.getVersion,
+    staleTime: Infinity,
+  });
+}
 
 export function useScenarios() {
   return useQuery({ queryKey: queryKeys.scenarios(), queryFn: api.listScenarios });

@@ -13,6 +13,7 @@ import {
   ScenarioSchema,
   ScenarioTraceSchema,
   SequentialTraceSchema,
+  VersionSchema,
   type Dataset,
   type DatasetPreview,
   type Profile,
@@ -220,6 +221,7 @@ function guardScenarioBody(body: string): string {
 }
 
 export const api = {
+  getVersion: () => request("/version", { method: "GET" }, VersionSchema),
   listScenarios: () => request("/scenarios", { method: "GET" }, ScenarioListSchema),
   getScenario: (id: string) =>
     request(`/scenarios/${encodeURIComponent(id)}`, { method: "GET" }, ScenarioSchema),
