@@ -3,6 +3,7 @@
 # 불일치는 전부 출력한 뒤 1로 종료한다(첫 항목에서 멈추지 않는다 — 한 번에 다 고치게).
 # bash 3.2 호환(mapfile/연관배열 금지).
 set -euo pipefail
+cd "$(dirname "$0")/.."   # 전 경로가 repo-root 상대다 — 호출 cwd와 무관하게 동작
 
 [ $# -eq 1 ] || { echo "usage: $0 <tag>   (예: $0 v0.7.0)" >&2; exit 2; }
 tag="$1"

@@ -4,7 +4,7 @@ name: release
 # macOS .dmg(arch별 네이티브 2개)를 빌드해 GitHub Release에 첨부.
 # 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
 #
-# 구조(spec R8): preflight(버전 정합, 수 초) → windows-build / macos-build(둘 다 **빌드만**
+# 구조(spec R8): preflight(버전 정합, 수 초) → windows-installer / macos-dmg(둘 다 **빌드만**
 # + upload-artifact) → publish(artifact 다운로드 → gh release). 빌드와 게시를 갈라 놓아
 # GitHub API 장애로 게시가 실패해도 **실패한 publish 잡만 재실행**하면 되고(빌드 재실행 불필요,
 # 18분 → 수십 초), 릴리즈 생성 레이스도 없어져 구 macos 잡의 30분 폴링이 사라졌다.

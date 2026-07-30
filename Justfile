@@ -83,6 +83,7 @@ bump-version ver:
     python3 - "{{ver}}" <<'PY'
     import pathlib, re, sys
     ver = sys.argv[1]
+    assert re.fullmatch(r'\d+\.\d+\.\d+', ver), f"bad version: {ver!r} (v 접두·prerelease 불가, 예: 0.8.0)"
 
     def toml_section_set(path, section):
         p = pathlib.Path(path)

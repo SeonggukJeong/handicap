@@ -178,6 +178,7 @@ pub fn router(state: AppState) -> Router {
 
 /// `GET /api/version` 응답. 필드는 `version` **하나만** — 경로·호스트명·설정값을
 /// 얹지 않는다(공개 표면 최소화, R4).
+/// 필드 추가 시 UI `VersionSchema`(`.strict()`)도 함께 — 안 하면 헤더 배지가 조용히 사라진다.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct VersionResponse {
     pub version: String,

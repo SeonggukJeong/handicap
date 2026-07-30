@@ -47,7 +47,7 @@ cd desktop && cargo tauri build --bundles nsis,msi
 
 - **트리거**: `v*` 태그 푸시(예: `git tag v0.1.0 && git push origin v0.1.0`) 또는 Actions UI의 수동 실행(`workflow_dispatch` — 태그 입력).
 - **잡 그래프**:
-  - **`preflight`**(ubuntu, 수 초): `scripts/check-release-versions.sh "<태그>"`로 태그↔6개 버전 문자열(아래 "버전 bump" 참조) 정합을 검사한다. 실패하면 뒤따르는 18분짜리 빌드 잡들이 **시작조차 안 한다**.
+  - **`preflight`**(ubuntu, 수 초): `scripts/check-release-versions.sh "<태그>"`로 태그↔버전 문자열(3개 매니페스트 + 생성 락 2개, 총 14항목 — 아래 "버전 bump" 참조) 정합을 검사한다. 실패하면 뒤따르는 18분짜리 빌드 잡들이 **시작조차 안 한다**.
   - **`windows-installer`**(windows-latest, `needs: preflight`): `pnpm --dir ui build` → `protoc` 설치 → rust(MSVC) → `tauri-apps/tauri-action`(`projectPath: desktop`, `--bundles nsis,msi`, **`tagName` 없음 — 릴리즈를 만들지 않는다**) → 같은 잡에서 루트 워크스페이스 `cargo build --release -p handicap-controller --bin controller --features bundle`로 포터블 단일 exe도 빌드 → 인스톨러 3종을 `staging/`에 모아 artifact `release-assets-windows`로 업로드.
   - **`macos-dmg`**(macos-latest, `needs: preflight`, matrix `target ∈ {aarch64-apple-darwin, x86_64-apple-darwin}`, `fail-fast: false` — 한쪽이 실패해도 다른 쪽 dmg는 빌드된다): 아키텍처별 네이티브로 `tauri-action`을 **`tagName` 없이** `--bundles app,dmg` 호출(빌드만) → artifact 2종 업로드 — 발행용 `release-assets-macos-<target>`(dmg만, `if-no-files-found: error`) + 회수용 `macos-bundle-<target>`(`.app` 포함, `if: always()` — dmg 변환이 GUI 세션 요구로 실패해도 `.app`은 남는다). **`universal-apple-darwin`(lipo)을 쓰지 않는 이유**: lipo 합본은 링커가 붙인 ad-hoc 서명이 날아가 arm64에서 실행이 거부될 수 있다. 서명·공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C에 우클릭-열기/`xattr -dr com.apple.quarantine` 안내).
   - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg]`, `if: always() && needs.windows-installer.result == 'success'`): `download-artifact`를 `pattern: release-assets-*`(회수용 `macos-bundle-*`는 매치 안 됨)·`merge-multiple: true`로 받아 한 디렉터리에 합친 뒤 `scripts/publish-release.sh "<태그>" staging`을 실행 — 릴리즈 생성/에셋 업로드/노트 처리가 전부 여기 한 곳. **macOS 양쪽이 다 실패해도 Windows 3종만으로 발행된다**(에셋 **이름** 5종은 불변식이지만 **완전성**은 불변식이 아니다).
@@ -72,7 +72,7 @@ git push origin v<ver>
 
 ### 릴리즈 노트
 
-`docs/release-notes/v<ver>.md`가 있으면 `publish` 잡이 그 본문으로 릴리즈를 발행하고, **없으면 자동 초안(`--generate-notes`/`generate-notes` API)으로 채운다 — 빈 본문 발행은 불가능**하다. 노트 파일은 **bump 커밋과 같은 커밋에 넣는 것을 권장**(태그가 그 커밋을 가리키므로, CI가 체크아웃하는 트리에 노트가 이미 존재하게 된다). 선례: `docs/release-notes/v0.6.0.md`(소급 작성).
+`docs/release-notes/v<ver>.md`가 있으면 `publish` 잡이 그 본문으로 릴리즈를 발행하고, **없으면 자동 초안(`--generate-notes`/`generate-notes` API)으로 채운다 — 빈 본문 발행은 불가능**하다. 노트 파일은 **bump 커밋과 같은 커밋에 넣는 것을 권장**(태그가 그 커밋을 가리키므로, CI가 체크아웃하는 트리에 노트가 이미 존재하게 된다). 선례: `docs/release-notes/v0.6.0.md`(소급 작성). 기존 릴리즈에 소급 적용은 수동이다: `gh release edit v0.6.0 --notes-file docs/release-notes/v0.6.0.md`
 
 ### 장애 시 재실행
 

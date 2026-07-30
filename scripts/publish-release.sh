@@ -48,12 +48,13 @@ if gh release view "$tag" >/dev/null 2>&1; then
   if [ -f "$notes_file" ]; then
     retry gh release edit "$tag" --notes-file "$notes_file"
   elif body="$(gh release view "$tag" --json body -q .body)" && [ -z "$body" ]; then
-    # 바이트 수로 판정하지 말 것: 빈 본문은 `-q .body | wc -c` = 1(개행)이다.
+    # 대입의 종료상태가 load-bearing: gh 읽기 실패를 "빈 본문"으로 오판하면 손으로 쓴
+    # 노트를 자동 초안으로 덮어쓴다. (바이트 수 판정도 금지 — 빈 본문은 `-q .body | wc -c` = 1[개행]이다.)
     draft="$(mktemp)"
     retry generate_notes_to "$draft"
     retry gh release edit "$tag" --notes-file "$draft"
   else
-    echo "노트 파일 없음 + 기존 본문 있음 → 본문 유지"
+    echo "노트 파일 없음 + (기존 본문 있음 | 본문 조회 실패) → 본문 유지(안전측)"
   fi
 else
   echo "릴리즈 $tag 신규 생성"
