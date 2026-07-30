@@ -28,6 +28,7 @@
 - **도메인 래칫**: `현재 − baseline > 10,240 B` → WARN(`exit 0`). 절대 상한 없음.
 - **섹션명 불변**: `로컬 dev 실행 함정`·`Subagent dispatch 노하우`·`알아둘 결정들`·`로컬에서 curl로 직접 구동` 및 문구 `coverage≠correctness`는 외부 소비자 6곳이 참조한다(spec §1.6 표) — **바꾸지 말 것**.
 - **spec 대비 의도적 이탈 1건**: spec §3.2는 `.sh`를 지정하지만 이 계획은 **`.py`로 구현**한다. 근거: ① spec §3.2가 실제로 요구한 규약은 "레포 스크립트 + `just` 레시피 + 로컬 실행 가능"이지 bash 자체가 아니다 ② 검사 내용이 UTF-8 바이트 산술·집합 연산·유니코드 정규식이라 파이썬이 자연스럽다 ③ 이 레포는 root 상태줄 splice 등 문서 조작에 이미 python3에 의존한다. **`just` 레시피 이름은 spec대로 `doc-coverage`·`doc-budget` 유지**.
+- **spec 대비 의도적 이탈 2건째 (additive)**: spec §3.2·§7 US1은 `move` 행 **4검사**를 말하지만 이 계획은 **⑤(`required_marker` 신규성)를 더한다** — `min_gain>0` 행의 marker가 `at(base, dest_file)`에 이미 있으면 아무것도 안 옮기고 ③④를 통과할 수 있다. spec §9가 명시한 클래스("새 예외를 만들 때마다 그 선언 자체는 무엇이 검증하나")를 `required_marker`에 자기적용한 것이고, `absorbed_marker` 유일성 규칙의 대칭이다. **spec §7 US1의 "4검사"는 이 항목으로 읽는다**(강화 방향이라 수용 기준을 낮추지 않는다).
 - **이 슬라이스에는 자동 게이트가 없다**(spec §1.7, 리뷰가 훅 정규식으로 재확인): `tdd-guard.sh:26-30`은 `/crates/.+/src/.+\.rs$`·`/ui/src/.+\.(ts|tsx|js|jsx)$`에만, `spec-review-guard.sh`도 같은 두 패턴에만 걸리고 그 외엔 `exit 0`. 이 계획의 task별 첫 편집 대상(`docs/adr/*.md`·`scripts/*.py`·`docs/dev/*.md`·`CLAUDE.md`)은 **어디에도 매치하지 않는다** — 차단 지점 없음. 따라서 각 task의 "테스트"는 **스크립트를 통과/실패 양방향으로 실제 실행**하는 것이며(`scripts/check-release-versions.sh` 선례), 그 출력이 acceptance다.
 - **RED은 의도한 FAIL 줄이어야 한다**: 크래시(traceback)도 `exit 1`을 낸다. **종료코드만 보고 "RED 실증 완료"라고 기록하지 말 것** — 지정된 `FAIL [...]` 문구가 출력에 있어야 한다.
 - **`Justfile` 들여쓰기는 스페이스 4칸**(탭 아님, 기존 파일과 동일).
@@ -153,7 +154,7 @@ git commit -m "docs(adr): 0039·0044 신선도 해소 + root 0047 오기 정정 
 ```
 
 - `kind` = `move` | `merge`
-- **`move` 행 검사 4가지**: ① `source_anchor`가 base root에 존재 ② 현재 root에 부재 ③ `required_marker`(`|` 구분 다항)가 **`dest_file` 안에** 전부 존재 ④ **`dest_file`별로 그 파일을 목적지로 둔 행들의 `min_dest_gain_bytes` 합계**와 그 파일의 실제 바이트 증가를 **1회 비교**
+- **`move` 행 검사 ①–④**: ① `source_anchor`가 base root에 존재 ② 현재 root에 부재 ③ `required_marker`(`|` 구분 다항)가 **`dest_file` 안에** 전부 존재 ④ **`dest_file`별로 그 파일을 목적지로 둔 행들의 `min_dest_gain_bytes` 합계**와 그 파일의 실제 바이트 증가를 **1회 비교**
 - **`move` 행 검사 ⑤(marker 신규성)**: `min_dest_gain_bytes > 0`인 행은 `required_marker`가 **`at(base, dest_file)`에 없어야** 한다. 있으면 `FAIL [move] marker가 base 목적지에 이미 존재 — 이 이동을 증명하지 못한다`. 이게 없으면 "우연히 목적지에 이미 있던 문구"를 marker로 골라 아무것도 안 옮기고 ③을 통과할 수 있다(`absorbed_marker` 유일성 규칙의 대칭). **`min_gain=0` 행(Task 6)은 제외** — 목적지에 내용이 선재하는 것이 그 행의 전제이고, 대신 표본 다항 marker에 의존한다.
 - **`merge` 행**은 컬럼 의미가 다르다: `source_anchor`=`absorbed_marker`, `dest_file`=`-`, `required_marker`=`surviving_anchor`, `min_dest_gain_bytes`=`0`. 검사 ⓐ `absorbed_marker`가 base root에 **정확히 1회** ⓑ 현재 root에서 `surviving_anchor`를 포함하는 불릿이 `absorbed_marker`도 포함
 
@@ -366,7 +367,13 @@ Expected(RED): **`FAIL [merge] 병합 미확인 — 삭제만 했는가: RULE_C 
 
 그 다음 `RULE_A` 불릿 끝에 `RULE_C 서사 조각 gamma`를 실제로 흡수시키고 재실행 → `OK` + `exit=0`(바닥이 2로 내려간다).
 
-- [ ] **Step 6: 레포에 초기 파일 + Justfile 레시피**
+- [ ] **Step 6: 시나리오 ④ — root에서 안 지웠으면 RED (검사 ②)**
+
+시나리오 ①–③은 ③④⑤·R17·merge를 덮지만 검사 ②(`source_anchor`가 현재 root에 부재)는 아직 미실증이다. fixture를 base로 되돌리고 **root는 그대로 둔 채** `docs/dev/d.md`에 본문을 쓰고 `move` 행을 선언한다.
+
+Expected: **`FAIL [move] root에 anchor 잔존(미제거): RULE_A 서사 조각 alpha`** + `exit=1`(단일 FAIL). "옮겼다고 선언했는데 root에서 안 지움" = 중복이 남는 실패를 겨눈다.
+
+- [ ] **Step 7: 레포에 초기 파일 + Justfile 레시피**
 
 manifest는 주석 헤더만, allowlist는 형식 주석만 두고 시작한다(행은 Task 4–7이 추가).
 
@@ -375,7 +382,7 @@ doc-coverage BASE="17369d32":
     python3 scripts/check-doc-coverage.py {{BASE}}
 ```
 
-- [ ] **Step 7: 실제 트리에서 확인**
+- [ ] **Step 8: 실제 트리에서 확인**
 
 ```bash
 just doc-coverage; echo "exit=$?"
@@ -383,7 +390,7 @@ just doc-coverage; echo "exit=$?"
 
 Expected: manifest 0행이므로 move/merge는 공집합, R17은 `27`/`49` 그대로, 토큰 소실 0 → `OK` + `exit=0`.
 
-- [ ] **Step 8: 커밋**
+- [ ] **Step 9: 커밋**
 
 ```bash
 git add scripts/check-doc-coverage.py scripts/doc-move-manifest.tsv scripts/doc-coverage-allowlist.txt Justfile
@@ -479,7 +486,17 @@ Step 1의 명령 재실행. Expected: `불릿 27` · `섹션 ≤6144` · `250B�
 
 - [ ] **Step 4: manifest 행 추가**
 
-9건 각각에 `move` 행. `source_anchor`는 삭제된 서사에서 딴 조각(현재 root에 없어야 함), `required_marker`는 정본에 들어간 조각, `min_dest_gain_bytes`는 그 서사 크기의 70%(9행 합계가 `docs/dev/subagent-dispatch.md`의 실제 증가분과 **누적 비교**된다).
+9건 각각에 `move` 행. `source_anchor`는 삭제된 서사에서 딴 조각(현재 root에 없어야 함), `required_marker`는 정본에 들어간 조각, `min_dest_gain_bytes`는 그 서사 크기의 70%.
+
+**`min_dest_gain_bytes`는 `dest_file`별 누적 하한이다** — 9행 합계가 `docs/dev/subagent-dispatch.md`의 실제 증가분과 1회 비교된다. 개별 값이 다소 후해도 무해하고(④가 그만큼 약한 집합 주장이 될 뿐), 행 단위 실체는 ③이 담당한다.
+
+**`required_marker` 고르는 법 (검사 ⑤ 때문에 중요)**: **base 정본에 없는** 충분히 긴 조각을 골라야 한다 — ⑤가 "base 목적지에 이미 존재"를 거부한다. 넣기 전에 확인:
+
+```bash
+git show 17369d32:docs/dev/subagent-dispatch.md | grep -c '<marker 후보>'   # 0 이어야 함
+```
+
+**L136은 특히 주의**: 자연스러운 후보인 `유한 valve`가 base 정본 `:17`에 이미 있고, **그 줄이 같은 주제("리뷰-수정 루프")를 이미 다룬다**(orchestrator가 9건 전수 스캔 — 충돌은 이 1건뿐). 즉 L136 자료의 일부는 이미 정본에 있으므로, marker는 **이번에 새로 들어간 문장**에서 따라. 짧은 일반 문구는 우연히 이미 있을 수 있다.
 
 - [ ] **Step 5: 검증 — 토큰 소실이 뜨면 allowlist에 근거를 적는다**
 
@@ -790,7 +807,7 @@ git commit -m "docs: 재분배 절차 + L4 프로브 결과 + 게이트 이빨 �
 
 ## Self-Review
 
-**1. Spec coverage** (R-id를 plan 본문에 grep해 실제 수행 스텝을 확인) — R1 Task 7 Step 3·Task 9 Step 4 · R2 Task 3–7 · R3 **Task 3 전체(root 무변경 이관)**·Task 5 Step 1·Task 6 Step 1 · R4 Task 6 · R5 Task 8 · R6 Task 2 Step 2 · R7 Task 5+8+9 · R8 Task 8 Step 4 · R9 Task 8 Step 1+3③ · R10 Task 2 Step 6 생성 + **채우는 지시는 Task 4 Step 5(정본)·Task 5 Step 4(참조)·Task 6 Step 4(예상 4건 표 포함)** — Task 7은 실측상 소실 토큰이 0건이라 지시가 없는 것이 맞다(초안 Self-Review는 Task 6·7에 지시가 있다고 적었으나 거짓이었다. 리뷰 지적) · R11 **Task 2 Step 3–5 + Task 8 Step 3 + Task 9 Step 5(기록)** · R12 Task 9 Step 2–3 · **R13 Task 7 Step 4(명시 분기)** · R14 Task 1 · R15 **Task 2·8의 양방향 실행 + Task 9 Step 5 기록** · R16 Task 2 스키마 · R17 Task 2 Step 2(구현)·Step 4(실증) · R18 Task 2 Step 2(구현, `parse_baselines`)·Task 8 Step 1(`BASELINES` 형식 제공). **갭 없음.**
+**1. Spec coverage** (R-id를 plan 본문에 grep해 실제 수행 스텝을 확인) — R1 Task 7 Step 3·Task 9 Step 4 · R2 Task 3–7 · R3 **Task 3 전체(root 무변경 이관)**·Task 5 Step 1·Task 6 Step 1 · R4 Task 6 · R5 Task 8 · R6 Task 2 Step 2 · R7 Task 5+8+9 · R8 Task 8 Step 4 · R9 Task 8 Step 1+3③ · R10 Task 2 Step 7 생성 + **채우는 지시는 Task 4 Step 5(정본)·Task 5 Step 4(참조)·Task 6 Step 4(예상 4건 표 포함)** — Task 7은 실측상 소실 토큰이 0건이라 지시가 없는 것이 맞다(초안 Self-Review는 Task 6·7에 지시가 있다고 적었으나 거짓이었다. 리뷰 지적) · R11 **Task 2 Step 3–6 + Task 8 Step 3 + Task 9 Step 5(기록)** · R12 Task 9 Step 2–3 · **R13 Task 7 Step 4(명시 분기)** · R14 Task 1 · R15 **Task 2·8의 양방향 실행 + Task 9 Step 5 기록** · R16 Task 2 스키마 · R17 Task 2 Step 2(구현)·Step 4(실증) · R18 Task 2 Step 2(구현, `parse_baselines`)·Task 8 Step 1(`BASELINES` 형식 제공). **갭 없음.**
 
 **2. Placeholder scan** — `parse_baselines`만 본문 정의 없이 남았으나, 파싱 대상 형식(`BASELINES = {…}`)을 Task 8 Step 1이 verbatim 제공하고 정규식까지 적었다. `section_of`·`corpus_paths`·`section_span`은 Step 2에 완전 구현돼 있다. Task 1 Step 2의 머지 sha는 "찾는 명령 + 못 찾을 때의 행동"까지 지정했다.
 
@@ -799,3 +816,5 @@ git commit -m "docs: 재분배 절차 + L4 프로브 결과 + 게이트 이빨 �
 ## 실행 순서 근거
 
 절단이 나도 US1과 그 증거가 남는 순서다(spec §8): 신선도(1) → 검증 도구+이빨 실증(2) → **이관(3, root 무변경 — 여기서 끊겨도 손실 0)** → 압축(4) → splice 이동(5) → 상태줄(6) → ADR 인덱스(7, 여기서 42 KiB 달성) → 상시 게이트(8) → 절차·프로브·증거(9).
+
+<!-- REVIEW-GATE: APPROVED -->
