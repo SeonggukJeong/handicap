@@ -418,6 +418,16 @@
 - **선언 행 값 textarea의 yamlError 게이트** — 이번 슬라이스는 `×`만 게이트했다(US4). 같은 패널의 선언 행 **값 textarea**(`VariablesPanel`)는 지금도 미게이트라, YAML이 깨진 상태에서 입력이 `dispatch` early-return으로 조용히 삼켜진다(선재 결함, spec 비목표에 "알려진 한계"로 기록). `×`와 같은 `disabled={yamlError !== null}` 한 줄이면 닫히지만, 값 입력은 draft 상태기계를 끼고 있어 비활성 전환 시 draft 처리(폐기/보존)를 정해야 한다 — 소형이나 무설계 착수는 금물.
 - **테스트 이빨 보강 5건**(전부 non-blocking, 최종 리뷰가 "safe to leave"로 triage): ① `DeleteVariableDialog` "[삭제] 미포커스" 테스트가 `autoFocus` 회귀에 **구조적으로 무이빨**(autoFocus는 layout 단계, `Modal`의 `panel?.focus()`는 passive라 항상 나중에 이겨 테스트가 통과) — 실질 가드는 컴포넌트 docstring뿐. ② 같은 파일 "목록 비대화형"이 `role="button"`만 조회해 `<li>` 생 `onClick`을 못 잡음. ③ `stepRefLabel.test.ts` 색-토큰 부정 단언이 `bg-*`/`text-slate*`만 커버. ④ `VarUsagePopover.test.tsx` 미발견-id 케이스의 부정 단언이 형제 긍정 단언에 포섭됨. ⑤ `VariablesPanel` R4① `not.toBe(document.body)`가 뒤따르는 `toHaveFocus()`에 포섭됨(문서 가치만).
 
+### B27. error-taxonomy E1 (2026-08-01, `2a154db0`, ADR-0050) 연기 항목
+
+- **`e.without_url()` 교체 2곳 — E2 또는 E3 plan 필수 항목으로 fold** (security-reviewer 라우팅): `crates/engine/src/executor.rs`의 최상위 reqwest `e.to_string()` 두 곳. 부하 경로(:296 부근)는 현 소비자가 `is_some()` 불리언뿐이라 실질 무해(노출 금지 주석 부착됨). **test-run trace 경로(:455 부근)는 `HttpTrace.error`→`StepTrace`→`TestRunPanel`로 실도달** — `url: https://api/${TOKEN}/x`류 시나리오가 transport 실패하면 resolved 시크릿이 트레이스 에러 문자열로 화면에 뜰 수 있다(pre-existing, E1 무접촉·확대 없음). reqwest `Error::without_url()`이 정확히 이 용도 — 호출 2곳 교체로 끝.
+- **E2 조치문 단정 금지 1줄**: h2 GOAWAY debug-data(서버 제어 문자열)가 규칙 5 문자열 매치로 `tls` 오분류를 유발 가능 — E1에선 카운트 한 칸 오차(저위험)지만, E2가 지배 kind로 원인 후보 조치문을 낼 때 "SUT가 자기 진단 문구를 유도"하는 표면으로 격상된다. 조치문은 단정 금지 문구 유지.
+- **워커 스킵 가드 순수함수 추출**(`fn should_skip_batch`): forwarder 스킵 가드 8항이 전부 무테스트(항 하나를 지워도 전체 게이트 green — C1 동형 조용한 유실). 추출하면 표 기반 테스트로 8항+기존 `dropped` 항까지 소급 보호. 다음에 그 지점을 건드릴 때 함께.
+- **security nits 3건**(전부 선례 동형·비회귀, 위협 전제=손상된 워커): ① ingest에서 워커 유래 `kind` 무검증 영속 — `^[a-z0-9_]{1,32}$` 불합격을 `other`로 접는 정규화 권고(카디널리티/길이 유계화) ② report 롤업 비포화 `+=` → `saturating_add` ③ UI `t.labels[k.kind]` 프로토타입 체인 폴백(`kind==="__proto__"`면 객체 반환→React throw; ①의 서버측 정규화가 자동으로 닫음).
+- **curve/open final 드레인 이빨 부재**: 고의 회귀 실증은 closed-loop 3축만(3모드 periodic은 테스트 커버, 리터럴은 컴파일러 강제) — 커버 확장은 수요 시.
+- **분류 규칙 3(dns)·5(tls) 무테스트**: spec §9.1 의도 범위(규칙 1·2·4만 실물 핀). 메시지 기반 꼬리를 `classify_msgs` 순수함수로 추출하면 단위테스트화 가능.
+- **통합 테스트 ⑤ 환경 의존**: `10.255.255.1:81` SYN 스톨 전제(이 머신 실측 OK) — 10/8 사내망에선 즉시 unreachable→`Other`→FAIL 가능. 파일 내 backlog-포화 변형 주석이 폴백.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

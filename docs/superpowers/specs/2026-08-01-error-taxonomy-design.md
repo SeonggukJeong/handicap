@@ -165,7 +165,7 @@ onset_second = s_{t0} − s_1   (run 시작초 정본 = 첫 data-second s_1; Rep
 
 ### 7.2 리포트 분류표 (`ReportView`) — E1
 
-- 새 섹션 "Transport 실패 분류": kind ko 라벨 + count + 비율(status=0 총합 대비) 표. `error_kinds` absent/빈 배열이면 **섹션 자체 미렌더**. status 분포 섹션 인접, `PageSection` 캐넌.
+- 새 섹션 "Transport 실패 분류": kind ko 라벨 + count + 비율(분류 합 대비 — 구/신 워커 혼합 fan-out에서도 자기일관[합 100%]; E1 단독 run에선 status=0 총합과 항등. 최종 리뷰 정렬 2026-08-01) 표. `error_kinds` absent/빈 배열이면 **섹션 자체 미렌더**. status 분포 섹션 인접, `PageSection` 캐넌.
 
 ### 7.3 InsightPanel — E2
 

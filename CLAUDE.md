@@ -4,7 +4,7 @@
 
 > **함정(gotcha) 노트는 도메인별 중첩 CLAUDE.md로 분할됨** — 각 디렉토리 파일을 그 디렉토리 작업 시 자동 로드한다. 이 루트 파일엔 전역 규칙·상태·크로스커팅 함정만 남긴다. 인덱스는 아래 [도메인별 함정 인덱스](#도메인별-함정-인덱스).
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 후속 다수까지 구현·머지 완료(**전수 목록·구현 결과·함정 출처는 `docs/build-log.md`가 단일 소스**). 최신 = claude-md-redistribute (2026-07-31, 머지 74b4cd9d) — 상세는 `docs/build-log.md`. 완료 슬라이스/기능 상세·함정 출처 → `docs/build-log.md`, 다음 작업(테마별 frontier+추천) → `docs/roadmap-status.md`(현황판·shortlist 대체), 후보 메뉴·연기 항목 상세 → `docs/roadmap.md`, ADR 인덱스 → 아래 [알아둘 결정들](#알아둘-결정들), 결정 전문 → `docs/adr/`. 디자인 → `docs/superpowers/specs/`, 구현 계획 → `docs/superpowers/plans/`. MVP 1단계 spec=`2026-05-27-handicap-mvp1-design.md`(슬라이스 1–6), 후속은 그 §4.5 메뉴에서 각자 새 spec/plan으로.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 후속 다수까지 구현·머지 완료(**전수 목록·구현 결과·함정 출처는 `docs/build-log.md`가 단일 소스**). 최신 = error-taxonomy E1 (2026-08-01, 머지 2a154db0, ADR-0050) — 상세는 `docs/build-log.md`. 완료 슬라이스/기능 상세·함정 출처 → `docs/build-log.md`, 다음 작업(테마별 frontier+추천) → `docs/roadmap-status.md`(현황판·shortlist 대체), 후보 메뉴·연기 항목 상세 → `docs/roadmap.md`, ADR 인덱스 → 아래 [알아둘 결정들](#알아둘-결정들), 결정 전문 → `docs/adr/`. 디자인 → `docs/superpowers/specs/`, 구현 계획 → `docs/superpowers/plans/`. MVP 1단계 spec=`2026-05-27-handicap-mvp1-design.md`(슬라이스 1–6), 후속은 그 §4.5 메뉴에서 각자 새 spec/plan으로.**
 
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
@@ -126,7 +126,7 @@ docs/
 **디스패치**
 - 워크트리 작업이면 prompt 첫 줄에 `cd /Users/sgj/develop/handicap/.claude/worktrees/<name>` 절대경로 명시(안 하면 메인 체크아웃을 읽고 "코드가 없다" 오보).
 - 리포트 경로는 `.superpowers/sdd/` 지정 + "worktree 루트에 `.md` 쓰기·`git add` 금지" 못박기.
-- implementer의 commit은 단일 FOREGROUND 호출(timeout 600000ms)·background+poll 금지(mid-poll truncate). orchestrator 자신의 커밋은 background가 맞다 — 단 두 커밋 동시 진행 금지(`target/`·`index.lock` 경합).
+- implementer의 commit·검증은 단일 FOREGROUND 호출(600000ms) — background+poll/Monitor 대기 금지(truncate·미완주, E1; 복구=정본). orchestrator 커밋은 background가 맞다 — 단 두 커밋 동시 금지(`index.lock`).
 - 무거운 env-setup·외부 바이너리 가정은 디스패치 전 orchestrator가 pre-warm·실측해 값으로 넘긴다(외부 바이너리 *행동*은 spec-plan-reviewer가 못 잡는다).
 - 1M-context 부모에서 `model:` 생략은 즉사+가짜 completed — 항상 **명시 `model:`**(reviewer도 1M 세션엔 `model: opus`). notification `tool_uses`/`tokens`/`duration` 0이면 미실행 — status=completed 불신, 메인 폴백.
 
@@ -214,6 +214,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0047** 에디터 test-run 데이터셋 바인딩: 컨트롤러 서버측 시드 + single_row/sequential 2모드 + 엔진 행 루프(jar 공유·전역 상한)
 - **0048** US 스파인(프로세스): 유저 스토리를 spec→리뷰→brief→live→finish 관통 오라클로 (정본 `docs/dev/user-story-spine.md`)
 - **0049** 실행 전 시나리오 신뢰도: 네 번째 판정 축(신뢰도 ⟂ validity ⟂ verdict ⟂ status) + 클라 순수함수 `evaluateTrust` 단일 소스
+- **0050** transport 에러 taxonomy: send-실패 8종 kind 와이어 계약(snake_case verbatim) + counts-only 델타 운반 + 최상위 reqwest Display 금지
 
 ## 코딩 컨벤션
 

@@ -37,3 +37,9 @@
 
 - **subagent의 *자기 고발*도 다른 주장과 똑같이 가설이다 — 특히 근거가 "증거를 못 찾았다"일 때** (claude-md-redistribute 2026-07-31): Task 9 구현자가 L4 회상 프로브 결과를 build-log에 옮긴 뒤, `find`로 스크래치·task 디렉토리를 뒤져 프로브 아티팩트가 없자 **"나는 결과를 받은 적 없다 → 내가 지어냈다"**로 결론 내리고 "전항 날조" 자백을 **영속 기록에 커밋**했다(그리고 스스로 두 번째 프로브를 돌려 교체했는데, 그건 자기가 쓴 build-log 텍스트를 읽어 역인용하는 **오염**이 섞였다). 실제로는 orchestrator가 프로브를 디스패치해 **`SendMessage`로** 결과를 넘겼고 — 파일이 아니라 메시지였다 — 원본 절은 그 메시지의 충실한 전사였다. 판별은 1분: 내가 보낸 메시지와 커밋된 텍스트를 대조하니 **인용 줄번호까지 일치**했다(지어낸 글이 남의 메시지의 `:123`·`:5-15`와 우연히 같을 수 없다). **처방**: ① "증거가 없다"는 "그 일이 없었다"가 아니다 — **증거가 다른 채널(메시지·대화)에 있었을 가능성을 먼저 배제**하라 ② 자백을 영속 기록에 쓰기 전에 orchestrator에게 확인시켜라(자백은 되돌리기 비싸다 — 거짓 자백은 원래 결함보다 나쁘다) ③ orchestrator는 자기 고발을 **반갑다고 그대로 채택하지 마라**; 자기에게 불리한 진술이라는 이유로 검증을 면제하면 그게 곧 [[review-findings-are-hypotheses]]의 반대 방향 실패다.
 - **`git checkout <파일>`로 원복하지 마라 — 미커밋 작업을 통째로 날린다** (claude-md-redistribute 2026-07-31, Task 8): 게이트 이빨 실증 중 스크립트를 원복하려 `git checkout scripts/check-doc-budget.py`를 썼는데 HEAD가 **fix 이전 커밋**이라 그 시점까지의 **미커밋 fix 6건이 전부 사라졌다**. 더 나쁜 건 그 직후 측정한 RED이 "fix가 안 먹는다"가 아니라 **"fix가 없는 파일"**의 결과였다는 것 — 그대로 커밋했으면 "fix 완료" 메시지와 함께 fix 없는 스크립트가 들어갔다. **실증용 원복은 파일시스템 백업(`cp`)으로만** 하고, 매 RED 후 즉시 원복 + 끝에 `shasum`으로 원본 동일 확인 + `git status --porcelain`으로 잔재 0 확인.
+
+## 검증 대기 yield (E1 fix wave, 2026-08-01)
+
+commit뿐 아니라 **검증 명령**에서도 같은 실패 모드가 확인됐다. fix-wave implementer가 `cargo nextest`를 background로 띄운 뒤 "monitor 알림을 기다리겠다"며 turn을 끝냄 → subagent는 자기 background 자식이 끝나도 자동 재개되지 않아(orchestrator와 달리 notification이 안 옴) 2회 연속 대기-서사만 남기고 멈췄다. 각 라운드가 ~10분·70 tool-use를 소모했다.
+
+복구 레시피: ① orchestrator가 `git log`/`git status`로 실제 진척 판정(대기 서사 불신) ② 떠 있는 프로세스 확인(`pgrep -fl cargo`) — 살아 있으면 orchestrator 쪽에서 `while kill -0 <PID>; do sleep 3; done`를 background로 걸어 종료 시점을 잡는다 ③ 종료 후 `SendMessage`로 "재실행 말고 완주"를 지시 — 이때 "pre-commit 게이트가 어차피 전체를 다시 돌리는 권위 검증"임을 명시하면 중복 검증 재실행을 막는다. 예방: brief에 "검증→커밋을 한 흐름으로 연속 실행, Monitor/대기 금지"를 명시(단일 FOREGROUND 규칙의 검증-단계 확장).
