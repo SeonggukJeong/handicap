@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, it, expect } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { InsightPanel } from "../InsightPanel";
-import type { Insight } from "../../../api/schemas";
+import { InsightSchema, type Insight } from "../../../api/schemas";
 import { ko } from "../../../i18n/ko";
 
 const meta = new Map([["s1", { id: "s1", name: "checkout", method: "GET", url: "/c" }]]);
@@ -285,5 +285,86 @@ describe("InsightPanel", () => {
   it("병목이라 단정하지 않는다", () => {
     expect(ko.insightActions.slowest_step).not.toContain("병목");
     expect(ko.narrative.can.bottleneck_step).not.toContain("병목");
+  });
+
+  it("onset 인사이트를 렌더하고 조치문을 토글 off에서도 보여준다", () => {
+    // computed:true 계약 — 새 브라우저 프로필(토글 기본 false)에서도 보여야 한다.
+    window.localStorage.clear();
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "midrun_error_onset",
+            severity: "critical",
+            onset_second: 20,
+            count: 1500,
+            status_class: "5xx",
+            error_kind: "connection_reset",
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    const line = screen.getByTestId("insight");
+    expect(line).toHaveTextContent("20");
+    expect(line).toHaveTextContent("5xx 동반");
+    expect(screen.getByText(ko.errorOnset.sutExhaustion)).toBeInTheDocument();
+  });
+
+  it("status_class가 없으면 '5xx 동반'을 붙이지 않는다", () => {
+    window.localStorage.clear();
+    const ins: Insight = {
+      kind: "midrun_error_onset",
+      severity: "critical",
+      onset_second: 7,
+      count: 30,
+    };
+    render(<InsightPanel insights={[ins]} meta={new Map()} />);
+    expect(screen.getByTestId("insight")).not.toHaveTextContent("5xx 동반");
+  });
+
+  it("지배 kind에 따라 조치문이 갈린다", () => {
+    window.localStorage.clear();
+    // `severity`를 string으로 widening시키지 않도록 반드시 Insight로 annotate한다
+    // (annotate 없으면 pnpm test는 통과하고 pnpm build의 tsc -b만 잡는다).
+    const base: Insight = {
+      kind: "midrun_error_onset",
+      severity: "critical",
+      onset_second: 5,
+      count: 10,
+    };
+    const { rerender } = render(
+      <InsightPanel insights={[{ ...base, error_kind: "connect_refused" }]} meta={new Map()} />,
+    );
+    expect(screen.getByText(ko.errorOnset.refused)).toBeInTheDocument();
+
+    rerender(<InsightPanel insights={[base]} meta={new Map()} />);
+    expect(screen.getByText(ko.errorOnset.generic)).toBeInTheDocument();
+    expect(screen.queryByText(ko.errorOnset.refused)).not.toBeInTheDocument();
+  });
+
+  it("loadgen 포트 고갈은 대상 서버 문제가 아님을 명시한다", () => {
+    window.localStorage.clear();
+    render(
+      <InsightPanel
+        insights={[
+          {
+            kind: "loadgen_port_exhaustion",
+            severity: "critical",
+            count: 3,
+            error_kind: "local_port_exhaustion",
+          },
+        ]}
+        meta={new Map()}
+      />,
+    );
+    expect(screen.getByText(ko.errorOnset.loadgen)).toBeInTheDocument();
+  });
+
+  it("error_kind가 없는 과거 리포트도 파싱·렌더된다", () => {
+    // 서버 skip_serializing_if → 키 부재(null 아님). Zod .optional() 계약.
+    expect(
+      InsightSchema.safeParse({ kind: "midrun_error_onset", severity: "critical" }).success,
+    ).toBe(true);
   });
 });

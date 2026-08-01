@@ -400,6 +400,9 @@ export const InsightSchema = z.object({
   achieved_per_sec: z.number().optional(),
   target_per_sec: z.number().optional(),
   runner_up_ms: z.number().optional(),
+  // E2: onset 인사이트의 지배 transport kind. 서버가 skip_serializing_if(absent,
+  // null 아님)라 레포 규약대로 .optional()(.nullish() 아님).
+  error_kind: z.string().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 

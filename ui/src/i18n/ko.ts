@@ -986,6 +986,12 @@ export const ko = {
       ratio === null
         ? `스텝 ${name}이(가) p95 ${ms}ms — 2위 스텝보다 ${gap}ms 느립니다`
         : `스텝 ${name}이(가) p95 ${ms}ms — 2위 스텝보다 ${gap}ms 느립니다(${ratio}배)`,
+    // E2 인사이트 본문. 숫자는 호출부에서 en-US toLocaleString으로 고정.
+    midrunOnset: (sec: string, count: string, with5xx: boolean) =>
+      `약 ${sec}초 지점까지는 정상이었는데, 그 뒤로 실패가 급증했어요` +
+      `(${count}건${with5xx ? ", 5xx 동반" : ""})`,
+    loadgenPortExhaustion: (count: string) =>
+      `부하 발생기 머신의 포트가 부족했어요 (${count}건) — 이 run의 측정치가 오염됐을 수 있어요`,
     // ── VerdictPanel 섹션 aria + 표 헤더 ──
     verdictSectionLabel: "SLO 판정",
     verdictMetric: "지표",
@@ -1214,6 +1220,8 @@ export const ko = {
     status_class: "상태 코드 비율",
     status_temporal: "후반 5xx 등장",
     load_gen_saturated: "부하 생성기 포화",
+    midrun_error_onset: "런 도중 실패 급증",
+    loadgen_port_exhaustion: "부하 발생기 포트 고갈",
   },
   // §7.3 인사이트 kind → "다음 행동" 한 줄 (slo_pass는 의도적 부재 — 행동 없음).
   insightActions: {
@@ -1238,6 +1246,20 @@ export const ko = {
     sut:
       `대상 서버(SUT)가 응답 열화 신호를 보여요(에러·지연 상승) — 지금 슬롯·부하를 늘리면 서버만 더 힘들어져요. ` +
       `서버 용량·설정부터 점검한 뒤 다시 실행하세요.`,
+  },
+  // E2 원인 후보 안내(ADR-0050). 전부 computed:true로 렌더되므로 조치문 토글과
+  // 무관하게 보인다. **단정 금지** — 지배 kind는 SUT가 유도할 수 있는 입력이고
+  // (h2 GOAWAY debug-data가 tls 오분류를 낼 수 있다, roadmap §B27), 용량 주장도
+  // 하지 않는다(narrative cannot_claim: sut_capacity와의 공존 정책, spec §5.4).
+  errorOnset: {
+    sutExhaustion:
+      "대상 서버(SUT) 쪽 소켓·자원 고갈 가능성이 있어요. 측정치(RPS·응답 시간)로 서버 용량을 판단하지 말고(유효성 안내 참고), 서버 상태를 점검하세요: TIME_WAIT와 소켓 재사용(SO_REUSEADDR·tcp_tw_reuse) 설정, 연결 대기열(backlog), 파일 디스크립터(FD) 한도.",
+    refused:
+      "대상 서버(SUT)가 연결을 거부했어요 — 서비스가 내려갔거나 포트·주소가 잘못됐을 가능성이 있어요. 대상 주소와 서버 프로세스 상태를 확인하세요.",
+    generic:
+      "실패가 런 도중부터 늘었어요 — 그 시점의 서버 로그와 자원 지표(CPU·메모리·연결 수)를 확인하세요.",
+    loadgen:
+      "부하 발생기 머신 자체의 문제예요 — 대상 서버(SUT) 문제가 아닙니다. 이 머신의 임시 포트 범위(ephemeral port range)와 소켓 재사용 설정을 확인하세요. 이 run의 측정치는 신뢰하기 어렵습니다.",
   },
   // 열린 루프 생성 시점 슬롯 사이징 헬퍼. 조사 병기((으)로 등) — 변수 뒤 조사 고정 금지(ADR-0035).
   slotSizing: {

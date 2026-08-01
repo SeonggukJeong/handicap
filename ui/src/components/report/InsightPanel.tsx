@@ -57,6 +57,14 @@ function message(i: Insight, meta: Map<string, StepMeta>): string {
         `(= 이 구성의 지속 가능한 최대 RPS). 보내려다 못 보낸 요청이 ${n(i.count)}건 있어요`;
       return i.onset_second != null ? `${head} (약 ${i.onset_second}초 지점부터 포화)` : head;
     }
+    case "midrun_error_onset":
+      return ko.report.midrunOnset(
+        String(i.onset_second ?? 0),
+        n(i.count),
+        i.status_class === "5xx",
+      );
+    case "loadgen_port_exhaustion":
+      return ko.report.loadgenPortExhaustion(n(i.count));
     default:
       return i.kind;
   }
@@ -92,6 +100,25 @@ function actionFor(i: Insight): Action | undefined {
     }
     if (i.cause === "sut") return { text: ko.saturation.sut, computed: true };
     return { text: ko.insightActions.load_gen_saturated, computed: false }; // 폴백(cause None)
+  }
+  // E2: 두 kind 모두 run-특정 진단이라 computed:true — 조치문 토글(기본 off)과
+  // 무관하게 렌더한다. 이게 없으면 새 브라우저 프로필에서 US2/US4가 실패한다.
+  if (i.kind === "loadgen_port_exhaustion") {
+    return { text: ko.errorOnset.loadgen, computed: true };
+  }
+  if (i.kind === "midrun_error_onset") {
+    if (
+      i.error_kind === "connection_reset" ||
+      i.error_kind === "connect_timeout" ||
+      i.error_kind === "timeout"
+    ) {
+      return { text: ko.errorOnset.sutExhaustion, computed: true };
+    }
+    if (i.error_kind === "connect_refused") {
+      return { text: ko.errorOnset.refused, computed: true };
+    }
+    // 지배 kind 없음 / 과거 run(error_kinds 부재) → 일반 안내
+    return { text: ko.errorOnset.generic, computed: true };
   }
   const genericAction = ACTIONS[i.kind];
   return genericAction ? { text: genericAction, computed: false } : undefined;
