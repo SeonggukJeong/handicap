@@ -933,7 +933,7 @@ error_kinds_rolled.sort_by(|a, b| b.count.cmp(&a.count).then(a.kind.cmp(&b.kind)
 2. `api/runs.rs::build_report_for_run`: `let error_kinds = crate::store::metrics::error_kind_breakdown(db, run_id).await?;` + `build_report(...)` 호출에 `&error_kinds` 추가.
 3. `grep -rn "build_report(" crates/controller`로 나머지 호출부(테스트 다수)에 `&[]` 추가 — 컴파일러가 전부 강제.
 
-- [ ] **Step 4: e2e report smoke (spec §9.2 — 리뷰 P6)** — `crates/controller/tests/report_test.rs`에 1건: 이 파일의 기존 "run 생성 → 메트릭 삽입 → `GET /api/runs/{id}/report`" e2e 테스트 하나를 미러하되, 메트릭 삽입 단계에 `crate::store::metrics::insert_error_kind_batch`(또는 이 파일이 쓰는 coordinator `insert_batch` 경로에 `error_kind_stats` 포함 — 파일의 기존 삽입 방식이 정본)로 `[{step_id: <기존 fixture step>, kind: "connect_refused", count: 7}]`을 넣고, 응답 JSON에서 `error_kinds == [{"kind":"connect_refused","count":7}]` 단언. RED→구현이 아니라 Task 3~4 배선이 이미 끝난 상태의 통합 확인이므로 바로 GREEN이어야 한다 — FAIL이면 ingest/배선 회귀.
+- [ ] **Step 4: e2e report smoke (spec §9.2 — 리뷰 P6)** — `crates/controller/tests/report_test.rs`에 1건: 이 파일의 기존 "run 생성 → 메트릭 삽입 → `GET /api/runs/{id}/report`" e2e 테스트 하나를 미러하되, 메트릭 삽입 단계에 `handicap_controller::store::metrics::insert_error_kind_batch`(통합 테스트 크레이트라 `crate::` 아님 — `report_test.rs:8` 관례; 또는 이 파일이 쓰는 coordinator `insert_batch` 경로에 `error_kind_stats` 포함 — 파일의 기존 삽입 방식이 정본)로 `[{step_id: <기존 fixture step>, kind: "connect_refused", count: 7}]`을 넣고, 응답 JSON에서 `error_kinds == [{"kind":"connect_refused","count":7}]` 단언. RED→구현이 아니라 Task 3~4 배선이 이미 끝난 상태의 통합 확인이므로 바로 GREEN이어야 한다 — FAIL이면 ingest/배선 회귀.
 
 - [ ] **Step 5: GREEN + 전체 회귀** — `cargo test -p handicap-controller` → 전부 PASS(골든 fixture 무변경 = 빈 run 생략 증명).
 
@@ -1127,4 +1127,6 @@ while True:
 
 - Spec 커버리지: §3.1(T1) §3.2–3.3(T2) §4-E1(T3) §5.2(T4) §5.3(T5) §7.1/7.2/7.5-라벨(T6) §9.1(T1·T2) §9.2-E1(T4 store 단위 + T5 인라인 롤업 + T5 Step 4 `report_test.rs` e2e smoke) §9.3-E1(T6) §10-E1(T7). §5.4·§7.3·§7.4·§5.1은 E2/E3 plan 몫(의도적 제외).
 - 타입 일관성: `ErrorKindStat{step_id, kind: ErrorKind, count: u64}`(engine) vs proto `kind: String`(as_str 매핑, T3) vs DB/`ErrorKindRow.kind: String`(T4) vs `ErrorKindCount`(T5) vs Zod(T6) — 문자열 계약 8종은 Global Constraints가 단일 소스.
-- 줄번호는 작성 시점 grep 실측(`runner.rs:509`·`:283-293`·`:1579-1589`·`:388-397` 등) — Task 2 이후 밀림은 각 step의 grep 지시가 흡수.
+- 줄번호는 작성 시점 grep 실측(`runner.rs:509`·`:283-293`·`:1578-1593`·`:388-397` 등) — Task 2 이후 밀림은 각 step의 grep 지시가 흡수.
+
+REVIEW-GATE: APPROVED
