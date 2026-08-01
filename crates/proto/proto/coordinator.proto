@@ -45,6 +45,12 @@ message BranchStat {
   uint64 count = 3;     // decision count (counts-only: a branch decision has no error)
 }
 
+message ErrorKindStat {
+  string step_id = 1;
+  string kind = 2;      // "connect_refused"|"connection_reset"|"connect_timeout"|"timeout"|"dns"|"tls"|"local_port_exhaustion"|"other"
+  uint64 count = 3;     // delta since last flush
+}
+
 message GroupStat {
   string step_id = 1;        // the `parallel` node's id
   bytes hdr_histogram = 2;   // hdrhistogram V2 serialized (delta since last drain)
@@ -75,6 +81,7 @@ message MetricBatch {
   repeated GroupStat group_stats = 7;  // parallel 페이지-로드 레이턴시 (delta, controller merges)
   repeated PhaseStat phase_stats = 8;  // per-(step_id,phase) latency-phase breakdown (delta, controller merges)
   repeated ActiveVuSample active_vu_samples = 9;  // per-second active-VU gauge (curve only)
+  repeated ErrorKindStat error_kind_stats = 10;  // send-실패 분류 카운트 (delta, controller merges)
 }
 
 message MetricWindow {

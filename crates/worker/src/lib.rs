@@ -15,8 +15,8 @@ use handicap_worker_core::{WorkerError, WorkerLink, connect_with_backoff, load_d
 use pb::server_message::Payload as ServerPayload;
 use pb::worker_message::Payload as WorkerPayload;
 use pb::{
-    ActiveVuSample, BranchStat, GroupStat, LoopStat, MetricBatch, MetricWindow, PhaseStat,
-    RunStatus, WorkerMessage,
+    ActiveVuSample, BranchStat, ErrorKindStat, GroupStat, LoopStat, MetricBatch, MetricWindow,
+    PhaseStat, RunStatus, WorkerMessage,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -384,15 +384,19 @@ async fn execute_assignment(
                     actual: s.actual,
                 })
                 .collect();
+            let error_kind_stats = error_kind_stats_to_proto(flush.error_kind_stats);
             // Keep the `flush.dropped == 0` term: the open-loop final flush may carry the
             // run-total dropped count with empty windows. Dropping it would silently
             // discard `dropped` on all-empty-window final flushes (the C1 footgun).
+            // Keep `error_kind_stats.is_empty()` too (E1): an error_kind-only flush with
+            // all other vecs empty must not be silently skipped (the same C1 footgun).
             if windows.is_empty()
                 && loop_stats.is_empty()
                 && branch_stats.is_empty()
                 && group_stats.is_empty()
                 && phase_stats.is_empty()
                 && active_vu_samples.is_empty()
+                && error_kind_stats.is_empty()
                 && flush.dropped == 0
             {
                 continue;
@@ -407,6 +411,7 @@ async fn execute_assignment(
                     group_stats,
                     phase_stats,
                     active_vu_samples,
+                    error_kind_stats,
                     dropped: flush.dropped,
                 })),
             };
@@ -620,6 +625,19 @@ fn proto_is_vu_curve(p: &pb::Profile) -> bool {
 fn proto_graceful_ramp_down(p: &pb::Profile) -> Option<Duration> {
     p.graceful_ramp_down_seconds
         .map(|s| Duration::from_secs(u64::from(s)))
+}
+
+/// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
+/// (`kind` becomes the 8-way lowercase_snake string via `ErrorKind::as_str()`).
+fn error_kind_stats_to_proto(stats: Vec<handicap_engine::ErrorKindStat>) -> Vec<ErrorKindStat> {
+    stats
+        .into_iter()
+        .map(|s| ErrorKindStat {
+            step_id: s.step_id,
+            kind: s.kind.as_str().to_string(),
+            count: s.count,
+        })
+        .collect()
 }
 
 /// Resolve the worker id: explicit `--worker-id` wins; otherwise (K8s Indexed
@@ -916,5 +934,31 @@ mod tests {
         drop(tx);
         tokio::task::yield_now().await;
         assert!(!cancel.is_cancelled());
+    }
+
+    #[test]
+    fn error_kind_stats_map_to_proto_wire_strings() {
+        use handicap_engine::{ErrorKind, ErrorKindStat};
+        let out = error_kind_stats_to_proto(vec![
+            ErrorKindStat {
+                step_id: "s1".into(),
+                kind: ErrorKind::ConnectRefused,
+                count: 3,
+            },
+            ErrorKindStat {
+                step_id: "s2".into(),
+                kind: ErrorKind::LocalPortExhaustion,
+                count: 1,
+            },
+        ]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(
+            (out[0].step_id.as_str(), out[0].kind.as_str(), out[0].count),
+            ("s1", "connect_refused", 3)
+        );
+        assert_eq!(
+            (out[1].step_id.as_str(), out[1].kind.as_str(), out[1].count),
+            ("s2", "local_port_exhaustion", 1)
+        );
     }
 }
