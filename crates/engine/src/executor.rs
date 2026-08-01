@@ -69,6 +69,9 @@ pub struct ExecOutcome {
     /// Server-wait time (= latency − connect_total). `Some` whenever measuring (per request).
     pub wait: Option<Duration>,
     pub error: Option<String>,
+    /// Transport send-failure classification (spec 2026-08-01 §3.1) — `Some` only on
+    /// the send-Err arm; `None` on success or a post-send body-read failure.
+    pub error_kind: Option<crate::error_kind::ErrorKind>,
     pub extracted: BTreeMap<String, String>,
 }
 
@@ -237,6 +240,7 @@ pub async fn execute_step(
                         connect,
                         wait,
                         error: Some(format!("read body: {e}")),
+                        error_kind: None, // post-send body-read failure — not a send-failure classification target
                         extracted: BTreeMap::new(),
                     });
                 }
@@ -277,6 +281,7 @@ pub async fn execute_step(
                 connect,
                 wait,
                 error,
+                error_kind: None,
                 extracted,
             })
         }
@@ -289,6 +294,7 @@ pub async fn execute_step(
             connect: None,
             wait: None,
             error: Some(e.to_string()),
+            error_kind: Some(crate::error_kind::classify_send_error(&e)),
             extracted: BTreeMap::new(),
         }),
     }
@@ -439,6 +445,7 @@ pub async fn execute_step_traced(
 
     let resp = match outcome {
         Ok(r) => r,
+        // 분류는 부하 경로 전용(ExecOutcome.error_kind) — trace 비대상, spec 2026-08-01 §2.
         Err(e) => {
             return HttpTrace {
                 request,

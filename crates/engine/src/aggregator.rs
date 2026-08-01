@@ -5,6 +5,7 @@ use hdrhistogram::Histogram;
 use hdrhistogram::serialization::{Serializer, V2Serializer};
 
 use crate::error::{EngineError, Result};
+use crate::error_kind::ErrorKind;
 
 /// Overflow bucket key: any loop_index >= cap is folded here.
 pub const LOOP_OVERFLOW: u32 = u32::MAX;
@@ -33,6 +34,16 @@ struct LoopCount {
 pub struct BranchStat {
     pub step_id: String, // the `if` node's id
     pub branch: String,  // "then" | "elif_0".. | "else" | "none"
+    pub count: u64,
+}
+
+/// A per-(step_id, kind) transport-send-failure count delta since the last drain
+/// (spec 2026-08-01 §3.3). counts-only, `branch_counts` 동형 — no cap (kind set is
+/// finite: the 8-variant `ErrorKind` taxonomy).
+#[derive(Debug, Clone)]
+pub struct ErrorKindStat {
+    pub step_id: String,
+    pub kind: ErrorKind,
     pub count: u64,
 }
 
@@ -144,6 +155,8 @@ pub struct Aggregator {
     loop_counts: HashMap<(String, u32), LoopCount>,
     loop_cap: u32,
     branch_counts: HashMap<(String, String), u64>,
+    /// per-(step_id, kind) transport-send-failure count deltas (spec 2026-08-01 §3.3).
+    error_kind_counts: HashMap<(String, ErrorKind), u64>,
     /// per-parallel-node accumulating page-load latency + sample count (A2-2);
     /// keyed by (step_id, branch) — branch = "" is the page (whole concurrent block),
     /// branch = <name> is one parallel branch's wall-clock (per-branch breakdown).
@@ -162,6 +175,7 @@ impl Aggregator {
             loop_counts: HashMap::new(),
             loop_cap: loop_breakdown_cap,
             branch_counts: HashMap::new(),
+            error_kind_counts: HashMap::new(),
             group_hists: HashMap::new(),
             phase_hists: HashMap::new(),
             active_vu: BTreeMap::new(),
@@ -228,6 +242,25 @@ impl Aggregator {
             .map(|((step_id, branch), count)| BranchStat {
                 step_id,
                 branch,
+                count,
+            })
+            .collect()
+    }
+
+    /// spec 2026-08-01 §3.3 — send-실패 kind 카운트(delta). branch_counts 동형.
+    pub fn record_error_kind(&mut self, step_id: &str, kind: ErrorKind) {
+        *self
+            .error_kind_counts
+            .entry((step_id.to_string(), kind))
+            .or_default() += 1;
+    }
+
+    pub fn drain_error_kind_deltas(&mut self) -> Vec<ErrorKindStat> {
+        std::mem::take(&mut self.error_kind_counts)
+            .into_iter()
+            .map(|((step_id, kind), count)| ErrorKindStat {
+                step_id,
+                kind,
                 count,
             })
             .collect()
@@ -489,6 +522,27 @@ mod tests {
             a.drain_branch_deltas().is_empty(),
             "second drain empty (delta reset)"
         );
+    }
+
+    #[test]
+    fn records_and_drains_error_kinds() {
+        use crate::error_kind::ErrorKind;
+        let mut a = Aggregator::new(0);
+        a.record_error_kind("s1", ErrorKind::ConnectRefused);
+        a.record_error_kind("s1", ErrorKind::ConnectRefused);
+        a.record_error_kind("s2", ErrorKind::Timeout);
+        let mut v = a.drain_error_kind_deltas();
+        v.sort_by(|a, b| (&a.step_id, a.kind).cmp(&(&b.step_id, b.kind)));
+        assert_eq!(v.len(), 2);
+        assert_eq!(
+            (v[0].step_id.as_str(), v[0].kind, v[0].count),
+            ("s1", ErrorKind::ConnectRefused, 2)
+        );
+        assert_eq!(
+            (v[1].step_id.as_str(), v[1].kind, v[1].count),
+            ("s2", ErrorKind::Timeout, 1)
+        );
+        assert!(a.drain_error_kind_deltas().is_empty(), "drain resets");
     }
 
     #[test]

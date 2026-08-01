@@ -13,7 +13,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use crate::aggregator::{
-    ActiveVuSample, Aggregator, BranchStat, GroupStat, LoopStat, PhaseStat, StepWindow,
+    ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopStat, PhaseStat,
+    StepWindow,
 };
 use crate::condition::eval_condition;
 use crate::dataset::{BindingPolicy, DataSet};
@@ -113,6 +114,9 @@ pub struct MetricFlush {
     /// Per-second active-VU gauge samples since the last flush. Only the VU-curve path
     /// populates this; all other paths send an empty Vec (byte-identical).
     pub active_vu_samples: Vec<ActiveVuSample>,
+    /// Per-(step_id, kind) transport-send-failure count deltas since the last flush
+    /// (spec 2026-08-01 §3.3). All 3 entry points populate this identically.
+    pub error_kind_stats: Vec<ErrorKindStat>,
 }
 
 /// One shared worker-local cursor per binding, `Some` only for `IterSequential`
@@ -258,7 +262,7 @@ pub async fn run_scenario(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats, error_kind_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
@@ -266,6 +270,7 @@ pub async fn run_scenario(
                     g.drain_branch_deltas(),
                     g.drain_group_deltas(),
                     g.drain_phase_deltas(),
+                    g.drain_error_kind_deltas(),
                 )
             };
             if !drained.is_empty()
@@ -273,6 +278,7 @@ pub async fn run_scenario(
                 || !branch_stats.is_empty()
                 || !group_stats.is_empty()
                 || !phase_stats.is_empty()
+                || !error_kind_stats.is_empty()
             {
                 debug!(
                     count = drained.len(),
@@ -290,6 +296,7 @@ pub async fn run_scenario(
                         dropped: 0,
                         phase_stats,
                         active_vu_samples: vec![],
+                        error_kind_stats,
                     })
                     .await
                     .is_err()
@@ -310,7 +317,7 @@ pub async fn run_scenario(
         }
     }
 
-    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
+    let (final_windows, final_loops, final_branches, final_groups, final_phases, final_error_kinds) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
@@ -318,6 +325,7 @@ pub async fn run_scenario(
             g.drain_branch_deltas(),
             g.drain_group_deltas(),
             g.drain_phase_deltas(),
+            g.drain_error_kind_deltas(),
         )
     };
     if !final_windows.is_empty()
@@ -325,6 +333,7 @@ pub async fn run_scenario(
         || !final_branches.is_empty()
         || !final_groups.is_empty()
         || !final_phases.is_empty()
+        || !final_error_kinds.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -335,6 +344,7 @@ pub async fn run_scenario(
                 dropped: 0,
                 phase_stats: final_phases,
                 active_vu_samples: vec![],
+                error_kind_stats: final_error_kinds,
             })
             .await;
     }
@@ -513,6 +523,9 @@ async fn execute_steps(
                         outcome.error.is_some(),
                         loop_index,
                     );
+                    if let Some(k) = outcome.error_kind {
+                        a.record_error_kind(&outcome.step_id, k);
+                    }
                     if measure_phases {
                         if let Some(dl) = outcome.download {
                             a.record_phase(
@@ -798,7 +811,15 @@ pub async fn run_scenario_vu_curve(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats, phase_stats, active_vu_samples) = {
+            let (
+                drained,
+                loop_stats,
+                branch_stats,
+                group_stats,
+                phase_stats,
+                active_vu_samples,
+                error_kind_stats,
+            ) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
@@ -807,6 +828,7 @@ pub async fn run_scenario_vu_curve(
                     g.drain_group_deltas(),
                     g.drain_phase_deltas(),
                     g.drain_active_vu_completed(now_s),
+                    g.drain_error_kind_deltas(),
                 )
             };
             if (!drained.is_empty()
@@ -814,7 +836,8 @@ pub async fn run_scenario_vu_curve(
                 || !branch_stats.is_empty()
                 || !group_stats.is_empty()
                 || !phase_stats.is_empty()
-                || !active_vu_samples.is_empty())
+                || !active_vu_samples.is_empty()
+                || !error_kind_stats.is_empty())
                 && flush_out
                     .send(MetricFlush {
                         windows: drained,
@@ -824,6 +847,7 @@ pub async fn run_scenario_vu_curve(
                         dropped: 0,
                         phase_stats,
                         active_vu_samples,
+                        error_kind_stats,
                     })
                     .await
                     .is_err()
@@ -946,7 +970,15 @@ pub async fn run_scenario_vu_curve(
     }
 
     // Final flush (MetricFlush drain site #6, guarded — dropped always 0 here).
-    let (final_windows, final_loops, final_branches, final_groups, final_phases, final_active_vu) = {
+    let (
+        final_windows,
+        final_loops,
+        final_branches,
+        final_groups,
+        final_phases,
+        final_active_vu,
+        final_error_kinds,
+    ) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
@@ -955,6 +987,7 @@ pub async fn run_scenario_vu_curve(
             g.drain_group_deltas(),
             g.drain_phase_deltas(),
             g.drain_active_vu(),
+            g.drain_error_kind_deltas(),
         )
     };
     if !final_windows.is_empty()
@@ -963,6 +996,7 @@ pub async fn run_scenario_vu_curve(
         || !final_groups.is_empty()
         || !final_phases.is_empty()
         || !final_active_vu.is_empty()
+        || !final_error_kinds.is_empty()
     {
         let _ = out
             .send(MetricFlush {
@@ -973,6 +1007,7 @@ pub async fn run_scenario_vu_curve(
                 dropped: 0,
                 phase_stats: final_phases,
                 active_vu_samples: final_active_vu,
+                error_kind_stats: final_error_kinds,
             })
             .await;
     }
@@ -1268,7 +1303,7 @@ pub async fn run_scenario_open_loop(
         loop {
             ticker.tick().await;
             let now_s = chrono_second();
-            let (drained, loop_stats, branch_stats, group_stats, phase_stats) = {
+            let (drained, loop_stats, branch_stats, group_stats, phase_stats, error_kind_stats) = {
                 let mut g = flush_agg.lock().await;
                 (
                     g.drain_completed(now_s),
@@ -1276,13 +1311,15 @@ pub async fn run_scenario_open_loop(
                     g.drain_branch_deltas(),
                     g.drain_group_deltas(),
                     g.drain_phase_deltas(),
+                    g.drain_error_kind_deltas(),
                 )
             };
             let has_data = !drained.is_empty()
                 || !loop_stats.is_empty()
                 || !branch_stats.is_empty()
                 || !group_stats.is_empty()
-                || !phase_stats.is_empty();
+                || !phase_stats.is_empty()
+                || !error_kind_stats.is_empty();
             if has_data {
                 debug!(
                     count = drained.len(),
@@ -1300,6 +1337,7 @@ pub async fn run_scenario_open_loop(
                         dropped: 0,
                         phase_stats,
                         active_vu_samples: vec![],
+                        error_kind_stats,
                     })
                     .await
                     .is_err()
@@ -1434,7 +1472,7 @@ pub async fn run_scenario_open_loop(
     // The final flush also carries the run-total `dropped` (flusher sent dropped: 0
     // throughout, so no double count).
     let total_dropped = dropped;
-    let (final_windows, final_loops, final_branches, final_groups, final_phases) = {
+    let (final_windows, final_loops, final_branches, final_groups, final_phases, final_error_kinds) = {
         let mut g = agg.lock().await;
         (
             g.drain_all(),
@@ -1442,8 +1480,12 @@ pub async fn run_scenario_open_loop(
             g.drain_branch_deltas(),
             g.drain_group_deltas(),
             g.drain_phase_deltas(),
+            g.drain_error_kind_deltas(),
         )
     };
+    // open-loop final flush is UNGUARDED (always sent — carries run-total `dropped`
+    // unconditionally, pre-existing behavior). No `|| !error_kind_stats.is_empty()`
+    // guard term here by design (spec 2026-08-01 §3.3 — the 5 send-guards exclude this site).
     let _ = out
         .send(MetricFlush {
             windows: final_windows,
@@ -1453,6 +1495,7 @@ pub async fn run_scenario_open_loop(
             dropped: total_dropped,
             phase_stats: final_phases,
             active_vu_samples: vec![],
+            error_kind_stats: final_error_kinds,
         })
         .await;
     drop(out);
