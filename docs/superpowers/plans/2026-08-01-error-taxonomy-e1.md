@@ -254,9 +254,11 @@ async fn keepalive_clean_close_classifies_connection_reset() {
     // head를 **읽은 뒤** clean close(FIN) → hyper "connection closed before message
     // completed"(규칙 4 문자열 경로 핀 — RST면 규칙 1로 빠져 이 경로를 검증 못 한다.
     // head 발신 전 절단은 hyper-util 투명 재시도라 flake — 리뷰 N5).
+    // 서버측 전제(2번째 head 도착)는 JoinHandle로 본체에서 단언 — spawn 안 panic은
+    // await 없이는 테스트를 못 떨어뜨린다(리뷰 P7).
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
-    tokio::spawn(async move {
+    let srv = tokio::spawn(async move {
         let (mut s, _) = l.accept().await.unwrap();
         let mut buf = vec![0u8; 4096];
         // 1번째 요청 head 소비 후 keep-alive 200.
@@ -264,16 +266,17 @@ async fn keepalive_clean_close_classifies_connection_reset() {
         s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
             .await
             .unwrap();
-        // 2번째 요청 head 도착 확인 후 응답 없이 clean close.
-        let n = s.read(&mut buf).await.unwrap();
-        assert!(n > 0, "second request head must arrive before close");
-        drop(s);
+        // 2번째 요청 head 도착을 기다렸다가 응답 없이 clean close(drop=FIN).
+        s.read(&mut buf).await.unwrap()
     });
     let c = client(2000, None);
     let url = format!("http://{addr}/");
     let ok = c.get(&url).send().await.unwrap();
     assert_eq!(ok.status().as_u16(), 200);
+    drop(ok); // 응답 반환 → 커넥션이 풀로 돌아가 2번째 요청이 재사용 (리뷰 P7 부수)
     let e = send_err(&c, &url).await;
+    let n = srv.await.unwrap();
+    assert!(n > 0, "second request head must arrive before close");
     assert_eq!(classify_send_error(&e), ErrorKind::ConnectionReset);
 }
 
@@ -302,8 +305,10 @@ async fn connect_stall_classifies_connect_timeout() {
     //   let l = sock.listen(1).unwrap();               // backlog 1, accept 안 함
     //   let addr = l.local_addr().unwrap();
     //   let _c1 = tokio::net::TcpStream::connect(addr).await.unwrap(); // backlog 점유
-    //   let _c2 = tokio::net::TcpStream::connect(addr).await;          // 큐 포화 보조
+    //   let _c2 = tokio::net::TcpStream::connect(addr).await;          // 필요 여부 실측(backlog=1이면 _c1만으로 찰 수 있음 — 리뷰 P8)
     //   → 이후 connect가 SYN 대기에 걸림.
+    // 채택안(비라우팅 IP vs backlog-포화)은 오케스트레이터가 디스패치 전 실측해
+    // brief에 값으로 확정한다(리뷰 P8 — pre-warm 원칙).
     let e = send_err(&client(5000, Some(500)), "http://10.255.255.1:81/").await;
     assert_eq!(classify_send_error(&e), ErrorKind::ConnectTimeout);
 }
@@ -460,7 +465,9 @@ fn base_plan(dur_ms: u64) -> RunPlan {
 // ↑ 리터럴은 작성 시점 RunPlan 필드 전수(E3 전이라 connect_timeout 없음) —
 // 컴파일 에러가 나면 `crates/engine/tests/think_time.rs`의 동일 리터럴을 정본으로 맞출 것.
 
-async fn collect_kinds(mode: Mode, url: &str, dur_ms: u64) -> Vec<(String, ErrorKind, u64)> {
+/// 모든 flush를 **개별로** 수집한다 — concat하면 periodic/final 경로 구분이 사라져
+/// 6드레인+5가드 회귀를 원리적으로 못 잡는다(리뷰 P5).
+async fn collect_flushes(mode: Mode, url: &str, dur_ms: u64) -> Vec<MetricFlush> {
     let yaml = YAML_TPL.replace("{URI}", url);
     let scenario = Arc::new(Scenario::from_yaml(&yaml).unwrap());
     let mut plan = base_plan(dur_ms);
@@ -469,7 +476,8 @@ async fn collect_kinds(mode: Mode, url: &str, dur_ms: u64) -> Vec<(String, Error
         plan.max_in_flight = Some(4);
     }
     if let Mode::Curve = mode {
-        plan.vu_stages = Some(vec![handicap_engine::VuStage {
+        // 타입·필드 정본: `runner.rs:31-34`의 `Stage` + `vu_curve.rs:28-49` `curve_plan` (리뷰 P1)
+        plan.vu_stages = Some(vec![handicap_engine::Stage {
             target: 1,
             duration_seconds: (dur_ms / 1000).max(1) as u32,
         }]);
@@ -483,12 +491,26 @@ async fn collect_kinds(mode: Mode, url: &str, dur_ms: u64) -> Vec<(String, Error
     };
     let mut out = Vec::new();
     while let Some(f) = rx.recv().await {
-        for s in f.error_kind_stats {
-            out.push((s.step_id, s.kind, s.count));
-        }
+        out.push(f);
     }
     h.await.unwrap().unwrap();
     out
+}
+
+fn kind_total(flushes: &[MetricFlush], kind: ErrorKind) -> u64 {
+    flushes
+        .iter()
+        .flat_map(|f| f.error_kind_stats.iter())
+        .filter(|s| s.kind == kind)
+        .map(|s| s.count)
+        .sum()
+}
+
+fn loaded_flushes(flushes: &[MetricFlush]) -> usize {
+    flushes
+        .iter()
+        .filter(|f| !f.error_kind_stats.is_empty())
+        .count()
 }
 
 fn refused_url() -> String {
@@ -499,32 +521,59 @@ fn refused_url() -> String {
 }
 
 #[tokio::test]
-async fn closed_loop_flushes_error_kinds() {
-    let kinds = collect_kinds(Mode::Closed, &refused_url(), 1500).await;
-    let total: u64 = kinds
+async fn closed_loop_flushes_error_kinds_periodically() {
+    // 3초 run: periodic(500ms 틱) + final 양쪽에 실려 ≥2 flush.
+    // periodic 드레인을 지우면 final 1개로 줄어 RED (리뷰 P5 축 b).
+    let flushes = collect_flushes(Mode::Closed, &refused_url(), 3000).await;
+    assert!(kind_total(&flushes, ErrorKind::ConnectRefused) > 0);
+    assert!(
+        loaded_flushes(&flushes) >= 2,
+        "expected error_kind_stats in >=2 flushes (periodic+final), got {}",
+        loaded_flushes(&flushes)
+    );
+}
+
+#[tokio::test]
+async fn open_loop_flushes_error_kinds_periodically() {
+    let flushes = collect_flushes(Mode::Open, &refused_url(), 3000).await;
+    assert!(kind_total(&flushes, ErrorKind::ConnectRefused) > 0);
+    assert!(loaded_flushes(&flushes) >= 2, "got {}", loaded_flushes(&flushes));
+}
+
+#[tokio::test]
+async fn vu_curve_flushes_error_kinds_periodically() {
+    let flushes = collect_flushes(Mode::Curve, &refused_url(), 3000).await;
+    assert!(kind_total(&flushes, ErrorKind::ConnectRefused) > 0);
+    assert!(loaded_flushes(&flushes) >= 2, "got {}", loaded_flushes(&flushes));
+}
+
+#[tokio::test]
+async fn error_kind_totals_match_status0_window_counts() {
+    // 불변식: send-실패 1건 = 윈도 status "0" 1건 = error_kind 1건.
+    // 새 send-guard 항(`|| !error_kind_stats.is_empty()`)을 지우면 "윈도는 비었는데
+    // 에러 delta만 있는" 틱(초 중간 틱)에서 드레인된 delta가 send 없이 버려져
+    // 등식이 깨진다 — 가드 삭제 회귀의 결정적 검출 (리뷰 P5 축 a).
+    let flushes = collect_flushes(Mode::Closed, &refused_url(), 3000).await;
+    let kinds: u64 = flushes
         .iter()
-        .filter(|(_, k, _)| *k == ErrorKind::ConnectRefused)
-        .map(|(_, _, c)| c)
+        .flat_map(|f| f.error_kind_stats.iter())
+        .map(|s| s.count)
         .sum();
-    assert!(total > 0, "connect_refused must be flushed, got {kinds:?}");
+    let status0: u64 = flushes
+        .iter()
+        .flat_map(|f| f.windows.iter())
+        .map(|w| w.status_counts.get(&0).copied().unwrap_or(0))
+        .sum();
+    assert!(kinds > 0);
+    assert_eq!(kinds, status0, "every classified failure must reach the wire exactly once");
 }
 
 #[tokio::test]
-async fn open_loop_flushes_error_kinds() {
-    let kinds = collect_kinds(Mode::Open, &refused_url(), 1500).await;
-    assert!(
-        kinds.iter().any(|(_, k, c)| *k == ErrorKind::ConnectRefused && *c > 0),
-        "got {kinds:?}"
-    );
-}
-
-#[tokio::test]
-async fn vu_curve_flushes_error_kinds() {
-    let kinds = collect_kinds(Mode::Curve, &refused_url(), 1500).await;
-    assert!(
-        kinds.iter().any(|(_, k, c)| *k == ErrorKind::ConnectRefused && *c > 0),
-        "got {kinds:?}"
-    );
+async fn short_run_final_flush_carries_error_kinds() {
+    // 300ms run: 유의미한 periodic 틱 전에 종료 → final 드레인이 유일 경로.
+    // final 드레인을 지우면 total 0으로 RED (리뷰 P5 축 c).
+    let flushes = collect_flushes(Mode::Closed, &refused_url(), 300).await;
+    assert!(kind_total(&flushes, ErrorKind::ConnectRefused) > 0);
 }
 
 #[tokio::test]
@@ -537,12 +586,10 @@ async fn clean_run_has_empty_error_kinds() {
         .respond_with(ResponseTemplate::new(200))
         .mount(&server)
         .await;
-    let kinds = collect_kinds(Mode::Closed, &format!("{}/", server.uri()), 1000).await;
-    assert!(kinds.is_empty(), "clean run must not emit error_kind_stats: {kinds:?}");
+    let flushes = collect_flushes(Mode::Closed, &format!("{}/", server.uri()), 1000).await;
+    assert_eq!(loaded_flushes(&flushes), 0, "clean run must not emit error_kind_stats");
 }
 ```
-
-주의: `VuStage` 타입/필드명은 `runner.rs`의 실제 정의(`vu_curve.rs` 테스트가 쓰는 것)와 대조해 맞출 것 — 이름이 다르면 그 파일의 기존 사용례를 따른다(가짜 필드 줄도 제거).
 
 - [ ] **Step 3: RED 확인**
 
@@ -614,9 +661,13 @@ if let Some(k) = outcome.error_kind {
 - [ ] **Step 5: GREEN 확인**
 
 Run: `cargo test -p handicap-engine`
-Expected: 신규 5 + 기존 전부 PASS (기존 `MetricFlush{}` 리터럴 전부가 컴파일러에 걸렸다가 `error_kind_stats: vec![]`로 해소됐는지 이 명령이 증명).
+Expected: 신규(aggregator 단위 1 + 통합 7) + 기존 전부 PASS (기존 `MetricFlush{}` 리터럴 전부가 컴파일러에 걸렸다가 `error_kind_stats: vec![]`로 해소됐는지 이 명령이 증명).
 
-- [ ] **Step 6: 가드 이빨 실증 (고의 회귀→RED→원복)** — `runner.rs`의 closed-loop **periodic** send-guard에서 방금 넣은 `|| !error_kind_stats.is_empty()` 항만 임시 삭제 → `cargo test -p handicap-engine --test error_kind_flush closed_loop_flushes_error_kinds` — **이때 FAIL해야** 테스트에 이빨이 있는 것(에러-only 초의 flush가 조용히 스킵되는 회귀를 실제로 잡는지). PASS가 나오면 windows 벡터가 같은 flush에 실려 가드를 우회한 것 — 테스트를 "windows가 빈 flush에서도 error_kind_stats가 도착"하도록 강화(예: think_time으로 윈도 희소화)하거나 최소한 가드 삭제가 `clean_run` 외 케이스에서 관측되는 형태로 조정 후, **원복 → GREEN 재확인**. 결과를 커밋 메시지에 한 줄 기록.
+- [ ] **Step 6: 가드·드레인 이빨 실증 (고의 회귀 3종 → 각각 RED → 원복 → GREEN, 리뷰 P5)** — 회귀를 하나씩 적용·확인·원복:
+  - (a) closed-loop **periodic send-guard**의 `|| !error_kind_stats.is_empty()` 항만 삭제 → `cargo test -p handicap-engine --test error_kind_flush error_kind_totals_match_status0_window_counts` **RED**(초-중간 틱에서 드레인-후-미송신 유실 → 등식 붕괴).
+  - (b) closed-loop **periodic 드레인**에서 `drain_error_kind_deltas()`만 `vec![]`로 대체 → `closed_loop_flushes_error_kinds_periodically` **RED**(final 1 flush로 감소).
+  - (c) closed-loop **final 드레인**에서 `vec![]` 대체 → `short_run_final_flush_carries_error_kinds` **RED**.
+  세 축 중 RED가 안 나오는 축이 있으면 그 테스트의 기간/임계를 조정해 RED를 만든 뒤 원복 — **"3/3 RED 확인"을 커밋 메시지에 기록**.
 
 - [ ] **Step 7: 게이트 + 커밋**
 
@@ -724,7 +775,7 @@ git commit -m "feat(proto,worker): MetricBatch.error_kind_stats=10 + forwarder �
 ```rust
 #[tokio::test]
 async fn error_kind_upsert_accumulates_deltas() {
-    let db = test_db().await; // 이 파일/테스트 모듈의 기존 in-memory DB 헬퍼 관례를 따를 것
+    let db = pool().await; // 기존 헬퍼(`metrics.rs:454-458`) — in-memory + 마이그레이션 포함이라 신규 테이블 생성됨 (리뷰 P4)
     let r = |c: i64| ErrorKindRow {
         run_id: "r1".into(),
         step_id: "s1".into(),
@@ -740,7 +791,6 @@ async fn error_kind_upsert_accumulates_deltas() {
 }
 ```
 
-(`test_db()` 같은 헬퍼가 없으면 `insert_if_branch_batch`를 검증하는 기존 테스트의 DB 셋업을 그대로 미러.)
 
 - [ ] **Step 2: RED 확인** — `cargo test -p handicap-controller error_kind_upsert` → 컴파일 FAIL.
 
@@ -760,7 +810,7 @@ CREATE TABLE IF NOT EXISTS run_error_kind_metrics (
 
 2. `store/mod.rs`: `const MIGRATION_SQL_0020: &str = include_str!("migrations/0020_run_error_kind_metrics.sql");` + 실행 체인 끝에 `sqlx::query(MIGRATION_SQL_0020).execute(&pool).await?; // migration 0020: run_error_kind_metrics` (번호는 Step 0 재확인 결과로).
 3. `metrics.rs`: `ErrorKindRow` + `insert_error_kind_batch`(`insert_if_branch_batch` `:203-224` 동형 — 단일 tx, `ON CONFLICT(run_id,step_id,kind) DO UPDATE SET count = count + excluded.count`) + `error_kind_breakdown`(`SELECT step_id, kind, count FROM run_error_kind_metrics WHERE run_id = ? ORDER BY step_id, kind`).
-4. `grpc/coordinator.rs`: branch ingest 블록(`:1579-1589`) 직후 동형으로:
+4. `grpc/coordinator.rs`: branch ingest **블록은 `:1578-1593`**(`let branch_rows … if !branch_rows.is_empty() { if let Err … }`) — 삽입은 그 블록의 닫는 `}` **이후**(안쪽 아님 — 리뷰 P3). 이웃 3블록 동형으로 빈-배열 가드 + `run_id` 필드 포함(리뷰 P11):
 
 ```rust
 let ek_rows: Vec<crate::store::metrics::ErrorKindRow> = batch
@@ -773,14 +823,16 @@ let ek_rows: Vec<crate::store::metrics::ErrorKindRow> = batch
         count: s.count as i64,
     })
     .collect();
-if let Err(e) =
-    crate::store::metrics::insert_error_kind_batch(&state.db, &ek_rows).await
-{
-    warn!(error = %e, "error_kind metrics insert failed");
+if !ek_rows.is_empty() {
+    if let Err(e) =
+        crate::store::metrics::insert_error_kind_batch(&state.db, &ek_rows).await
+    {
+        warn!(run_id = %batch.run_id, error = %e, "error_kind metrics insert failed");
+    }
 }
 ```
 
-(주변 branch 블록의 실제 변수명·에러 처리 스타일을 그대로 미러 — `state` 접근 방식이 다르면 그쪽을 따른다.)
+(주변 branch 블록의 실제 변수명·`state` 접근 방식이 다르면 그쪽을 따른다.)
 
 - [ ] **Step 4: GREEN 확인** — `cargo test -p handicap-controller error_kind_upsert` → PASS, 이어 `cargo test -p handicap-controller` 전체 회귀.
 
@@ -805,33 +857,43 @@ git commit -m "feat(controller): run_error_kind_metrics migration+UPSERT ingest+
 - Consumes: Task 4의 `error_kind_breakdown` → `&[ErrorKindRow]`.
 - Produces: `#[derive(Debug, Serialize, Deserialize)] pub struct ErrorKindCount { pub kind: String, pub count: u64 }` + `ReportJson.error_kinds: Vec<ErrorKindCount>`(`#[serde(default, skip_serializing_if = "Vec::is_empty")]`) — Task 6(UI Zod)이 소비.
 
-- [ ] **Step 1: report 테스트 먼저 (RED)** — `report_test.rs`에 (기존 build_report 테스트의 fixture 구성 관례 미러):
+- [ ] **Step 1: 롤업 단위 테스트 먼저 (RED)** — **`crates/controller/src/report.rs` 인라인 `#[cfg(test)]`에** (리뷰 P2: `report_test.rs`는 axum app-레벨 e2e 파일이라 `build_report(...)` 직접 호출·헬퍼가 없다 — 최소-report 헬퍼 `run_row()`/`make_hdr_bytes()`와 ≈35개 `build_report` 호출부는 이 인라인 모듈이 정본):
 
 ```rust
 #[test]
 fn error_kinds_rollup_sorts_and_omits_when_empty() {
     // per-step rows → kind별 SUM, count desc → kind asc.
+    let ek_row = |step: &str, kind: &str, count: i64| crate::store::metrics::ErrorKindRow {
+        run_id: "r1".into(),
+        step_id: step.into(),
+        kind: kind.into(),
+        count,
+    };
     let rows = vec![
         ek_row("s1", "timeout", 5),
         ek_row("s2", "timeout", 5),          // 합산 10
         ek_row("s1", "connect_refused", 10), // 동률 → kind asc로 connect_refused 먼저
         ek_row("s1", "connection_reset", 1),
     ];
-    let report = build_minimal_report_with_error_kinds(&rows); // 기존 build_report 테스트 헬퍼에 error_kinds 인자만 추가
+    // 이 모듈의 기존 최소 build_report 호출(run_row()/make_hdr_bytes() 사용례)을
+    // 그대로 미러하되 error_kinds 인자만 `&rows`로 — 헬퍼 fn으로 감싼다.
+    let report = minimal_report_with_error_kinds(&rows);
     assert_eq!(
-        report.error_kinds.iter().map(|e| (e.kind.as_str(), e.count)).collect::<Vec<_>>(),
+        report
+            .error_kinds
+            .iter()
+            .map(|e| (e.kind.as_str(), e.count))
+            .collect::<Vec<_>>(),
         vec![("connect_refused", 10), ("timeout", 10), ("connection_reset", 1)]
     );
     // 빈 입력 → 필드 자체가 JSON에서 생략 (byte-identical 축).
-    let empty = build_minimal_report_with_error_kinds(&[]);
+    let empty = minimal_report_with_error_kinds(&[]);
     let json = serde_json::to_string(&empty).unwrap();
     assert!(!json.contains("error_kinds"), "empty must be omitted: {json}");
 }
 ```
 
-(`ek_row`/`build_minimal_report_with_error_kinds`는 이 테스트 파일의 기존 최소-report 구성 헬퍼를 재사용해 정의 — 파일에 이미 있는 `build_report(...)` 최소 호출을 감싸면 된다.)
-
-- [ ] **Step 2: RED 확인** — `cargo test -p handicap-controller --test report_test error_kinds_rollup` → 컴파일 FAIL.
+- [ ] **Step 2: RED 확인** — `cargo test -p handicap-controller --lib error_kinds_rollup` → 컴파일 FAIL(`error_kinds` 필드·인자 부재).
 
 - [ ] **Step 3: 구현**
 
@@ -871,13 +933,15 @@ error_kinds_rolled.sort_by(|a, b| b.count.cmp(&a.count).then(a.kind.cmp(&b.kind)
 2. `api/runs.rs::build_report_for_run`: `let error_kinds = crate::store::metrics::error_kind_breakdown(db, run_id).await?;` + `build_report(...)` 호출에 `&error_kinds` 추가.
 3. `grep -rn "build_report(" crates/controller`로 나머지 호출부(테스트 다수)에 `&[]` 추가 — 컴파일러가 전부 강제.
 
-- [ ] **Step 4: GREEN + 전체 회귀** — `cargo test -p handicap-controller` → 전부 PASS(골든 fixture 무변경 = 빈 run 생략 증명).
+- [ ] **Step 4: e2e report smoke (spec §9.2 — 리뷰 P6)** — `crates/controller/tests/report_test.rs`에 1건: 이 파일의 기존 "run 생성 → 메트릭 삽입 → `GET /api/runs/{id}/report`" e2e 테스트 하나를 미러하되, 메트릭 삽입 단계에 `crate::store::metrics::insert_error_kind_batch`(또는 이 파일이 쓰는 coordinator `insert_batch` 경로에 `error_kind_stats` 포함 — 파일의 기존 삽입 방식이 정본)로 `[{step_id: <기존 fixture step>, kind: "connect_refused", count: 7}]`을 넣고, 응답 JSON에서 `error_kinds == [{"kind":"connect_refused","count":7}]` 단언. RED→구현이 아니라 Task 3~4 배선이 이미 끝난 상태의 통합 확인이므로 바로 GREEN이어야 한다 — FAIL이면 ingest/배선 회귀.
 
-- [ ] **Step 5: 게이트 + 커밋**
+- [ ] **Step 5: GREEN + 전체 회귀** — `cargo test -p handicap-controller` → 전부 PASS(골든 fixture 무변경 = 빈 run 생략 증명).
+
+- [ ] **Step 6: 게이트 + 커밋**
 
 ```bash
 git add crates/controller/src/report.rs crates/controller/src/api/runs.rs crates/controller/tests/
-git commit -m "feat(controller): ReportJson.error_kinds run-level 롤업 (count desc, kind asc) (E1 Task 5)"
+git commit -m "feat(controller): ReportJson.error_kinds run-level 롤업 + e2e smoke (E1 Task 5)"
 ```
 
 ---
@@ -984,7 +1048,8 @@ export function ErrorKindTable({ kinds }: Props) {
   const total = kinds.reduce((s, k) => s + k.count, 0);
   const t = ko.report.errorKinds;
   return (
-    <PageSection ariaLabel={t.title} title={t.title} className="">
+    // className 미전달 = 기본 여백 유지 — 형제 StatusDistribution 관례 (리뷰 P9)
+    <PageSection ariaLabel={t.title} title={t.title}>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-gray-500">
@@ -997,7 +1062,7 @@ export function ErrorKindTable({ kinds }: Props) {
           {kinds.map((k) => (
             <tr key={k.kind} className="border-t border-gray-100">
               <td className="py-1 pr-4">{t.labels[k.kind] ?? k.kind}</td>
-              <td className="py-1 pr-4 tabular-nums">{k.count}</td>
+              <td className="py-1 pr-4 tabular-nums">{k.count.toLocaleString("en-US")}</td>
               <td className="py-1 tabular-nums">
                 {total > 0 ? `${((k.count / total) * 100).toFixed(1)}%` : "—"}
               </td>
@@ -1033,7 +1098,7 @@ git commit -m "feat(ui): 리포트 Transport 실패 분류표 + error_kinds Zod 
 
 ### Task 7: 라이브 검증 (orchestrator 직접 — US1·US1'·회귀)
 
-**Files:** 없음(검증만). `/live-verify` 스택 + spec §10 E1 행. **먼저 `cargo build -p handicap-worker --bin worker && cargo build -p handicap-controller --bin controller`** (워크트리 자체 바이너리 — 루트 CLAUDE.md 함정).
+**Files:** 없음(검증만). `/live-verify` 스택 + spec §10 E1 행. **먼저 `cargo build -p handicap-worker --bin worker && cargo build -p handicap-controller --bin controller` + `cd ui && pnpm build`**(UI 분류표 확인이 있으므로 stale `ui/dist` 함정 — `run-controller-with-ui`류는 dist가 *없을 때만* 빌드, 루트 CLAUDE.md; 브라우저 hard reload 포함 — 리뷰 P12).
 
 - [ ] **Step 1: US1** — 격리 DB로 컨트롤러 기동, 시나리오 2스텝(정상 responder + `http://127.0.0.1:1/` 닫힌 포트), run 생성 → `GET /api/runs/{id}/report`(curl→python 직결)에서 `error_kinds`에 `connect_refused` count>0 + 정상 스텝 오염 없음 + UI 분류표 렌더 확인.
 - [ ] **Step 2: US1'** — keep-alive 후 두 번째 요청 head를 읽고 close하는 responder(python, 아래)로 run → 분류표에 `connection_reset` count>0 (**`other`가 아님** — R2 실전 검증):
@@ -1060,6 +1125,6 @@ while True:
 
 ## Self-Review 체크 (plan 작성자 완료 표시)
 
-- Spec 커버리지: §3.1(T1) §3.2–3.3(T2) §4-E1(T3) §5.2(T4) §5.3(T5) §7.1/7.2/7.5-라벨(T6) §9.1(T1·T2) §9.2-E1(T4·T5) §9.3-E1(T6) §10-E1(T7). §5.4·§7.3·§7.4·§5.1은 E2/E3 plan 몫(의도적 제외).
+- Spec 커버리지: §3.1(T1) §3.2–3.3(T2) §4-E1(T3) §5.2(T4) §5.3(T5) §7.1/7.2/7.5-라벨(T6) §9.1(T1·T2) §9.2-E1(T4 store 단위 + T5 인라인 롤업 + T5 Step 4 `report_test.rs` e2e smoke) §9.3-E1(T6) §10-E1(T7). §5.4·§7.3·§7.4·§5.1은 E2/E3 plan 몫(의도적 제외).
 - 타입 일관성: `ErrorKindStat{step_id, kind: ErrorKind, count: u64}`(engine) vs proto `kind: String`(as_str 매핑, T3) vs DB/`ErrorKindRow.kind: String`(T4) vs `ErrorKindCount`(T5) vs Zod(T6) — 문자열 계약 8종은 Global Constraints가 단일 소스.
 - 줄번호는 작성 시점 grep 실측(`runner.rs:509`·`:283-293`·`:1579-1589`·`:388-397` 등) — Task 2 이후 밀림은 각 step의 grep 지시가 흡수.
