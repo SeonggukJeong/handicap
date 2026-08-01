@@ -9,7 +9,7 @@
 - **US1** *(E1)*: QA가 타임아웃·503이 급증한 run을 마친 뒤 리포트를 열어 실패의 정체를 확인하려 한다 — 성공하면 지금까지 status=0 한 버킷으로 뭉뚱그려졌던 transport 실패가 종류별 분류표(연결 거부/연결 끊김/연결 수립 타임아웃/요청 타임아웃/DNS/TLS/테스터측 포트 고갈)로 나뉘어 보인다.
 - **US2** *(E2)*: QA가 "처음엔 정상 → 런 도중부터 급증" 패턴의 run 리포트를 열면 — 성공하면 "t=N초까지 정상, 이후 transport 실패 급증(5xx 동반)" 시간 패턴 요약과 "SUT 측 소켓/포트 고갈 가능성 — TIME_WAIT·재사용 설정·backlog·FD 한도 확인" 원인 후보 안내를 본다(해당 패턴 없으면 블록 자체 미렌더).
 - **US3** *(E3)*: QA가 타임아웃의 정체를 좁히기 위해 connect 타임아웃을 별도 설정하고 재실행한다 — 성공하면 connect 단계에서 막힌 요청이 `connect_timeout` 클래스로 분리돼 "서버가 연결 자체를 못 받는 상태"라는 결정적 신호를 본다(미설정 시 현행 거동·와이어 byte-identical).
-- **US4** *(E1)*: QA가 부하 발생기 자신이 병목인 상황(로컬 ephemeral 포트 고갈)에서 run을 돌리면 — 성공하면 `local_port_exhaustion` 클래스로 분리돼 SUT 문제와 구분된 안내("부하 도구 머신의 포트 범위/재사용 설정 확인")를 본다 — SUT를 잘못 의심하는 역방향 오진 방지.
+- **US4** *(E1 분류 + E2 안내)*: QA가 부하 발생기 자신이 병목인 상황(로컬 ephemeral 포트 고갈)에서 run을 돌리면 — 성공하면 `local_port_exhaustion` 클래스로 분리돼 SUT 문제와 구분된 안내("부하 도구 머신의 포트 범위/재사용 설정 확인")를 본다 — SUT를 잘못 의심하는 역방향 오진 방지.
 
 ## 1. 문제
 
@@ -68,11 +68,11 @@ impl ErrorKind { pub fn as_str(&self) -> &'static str { … } }
 1. **io kind 매핑(선별적 — fall-through)**: `std::error::Error::source()` 체인을 walk하며 **kind ∈ {AddrNotAvailable, ConnectionRefused, ConnectionReset, BrokenPipe}인 첫 `std::io::Error`만** 채택 — `AddrNotAvailable → LocalPortExhaustion` / `ConnectionRefused → ConnectRefused` / `ConnectionReset | BrokenPipe → ConnectionReset`. 그 외 kind의 io::Error(예: DNS 실패 아래의 Other/Uncategorized, rustls의 InvalidData)는 **무시하고 계속 walk**, 매치 없으면 규칙 2로.
 2. **타임아웃**: `e.is_timeout()` → `e.is_connect()`도 참이면 `ConnectTimeout`, 아니면 `Timeout`. (노브 없이도 OS-레벨 connect ETIMEDOUT이 여기 올 수 있음 — "connect 단계에서 막힘" 의미는 동일하므로 허용, §10 US3 대조 주의.)
 3. **DNS**: `e.is_connect()`이고 체인 링크 메시지에 `"dns error"` 포함(hyper-util `ConnectError` Display 형식) → `Dns`.
-4. **keep-alive 조기 종료**: 체인 링크 메시지에 `"connection closed before message completed"` 또는 `"IncompleteMessage"` 포함 → `ConnectionReset`. **사고 앵커의 대표 형태** — 풀 재사용 커넥션에서 SUT가 RST/FIN을 주면 hyper는 io::Error 없이 이 형태로 감싼다(리뷰 R2).
+4. **keep-alive 조기 종료**: 체인 링크 메시지에 `"connection closed before message completed"` 포함 → `ConnectionReset`. **사고 앵커의 대표 형태** — 풀 재사용 커넥션에서 SUT가 요청 head 수신 후 절단하면 hyper는 io::Error 없이 이 Display로 감싼다(리뷰 R2; hyper `Kind::IncompleteMessage`의 Display 문자열이며 variant 이름 `"IncompleteMessage"`는 `to_string()`에 등장하지 않으므로 매치 대상 아님 — 리뷰 N2). 요청 head 발신 *전* 절단은 hyper-util이 투명 재시도하고, 비재시도 `Canceled`는 source 없는 Display라 `Other`로 떨어짐 — best-effort 허용(리뷰 N5).
 5. **TLS**: 체인 링크 메시지(소문자화)에 `"tls"`/`"certificate"`/`"handshake"` 포함 → `Tls`. rustls 타입 다운캐스트는 **하지 않는다** — engine에 rustls 직접 의존이 없고, 버전 어긋나면 다운캐스트가 조용히 실패(fail-open)하는 함정(리뷰 R3).
 6. 그 외 → `Other`.
 
-**체인 링크 메시지 = 각 `source()` 링크의 개별 `to_string()`만. 최상위 `reqwest::Error`의 `Display`는 절대 사용 금지** — URL(크레덴셜 포함 가능)을 렌더한다(리뷰 C3, §2 보안 항목과 동일 근거). 3·4·5는 best-effort 문자열 매치임을 함수 doc에 명시(미스매치는 `Other` 안전 폴백 — 오분류보다 미분류). 1·2·4는 통합 테스트로 실제 reqwest 거동에 핀 고정(§9.1).
+**체인 링크 메시지 = 각 `source()` 링크의 개별 `to_string()`만. 최상위 `reqwest::Error`의 `Display`는 절대 사용 금지 — URL(크레덴셜 포함 가능)을 렌더한다(리뷰 C3, §2 보안 항목과 동일 근거). `{:?}`(Debug)도 금지 — reqwest Error의 Debug는 `url` 필드를 그대로 찍는다(리뷰 N2).** 3·4·5는 best-effort 문자열 매치임을 함수 doc에 명시(미스매치는 `Other` 안전 폴백 — 오분류보다 미분류). 1·2·4는 통합 테스트로 실제 reqwest 거동에 핀 고정(§9.1).
 
 ### 3.2 `ExecOutcome` 확장 + 기록 지점 — E1
 
@@ -137,11 +137,12 @@ impl ErrorKind { pub fn as_str(&self) -> &'static str { … } }
 data_seconds = { t | Σ count(t) > 0 }를 오름차순 정렬한 s_1..s_m   (요청 0인 초는 존재하지 않는 초로 취급)
 bad(s_i) = (status "0" 합 + 5xx 합) / count 합   (해당 초; 5xx = 첫 글자 '5'인 status 키)
 h = bad(s_i) < 0.01 이 연속인 최장 프리픽스 길이 (프리픽스이므로 유일)
-발행 ⇔ h ≥ 10  ∧  h < m  ∧  bad(s_{h+1}) ≥ 0.10  ∧  |{ i > h : bad(s_i) ≥ 0.10 }| ≥ 0.5 × (m − h)
-onset_second = s_{h+1} − s_1   (run 시작초 정본 = 첫 data-second s_1; ReportRun.started_at 아님 — 리뷰 C5)
+t0 = min{ i > h : bad(s_i) ≥ 0.10 }   (최소성으로 유일 — 1~10% 밴드를 거치는 점진적 급증도 포착, 리뷰 N1)
+발행 ⇔ h ≥ 10  ∧  t0 존재  ∧  |{ i ≥ t0 : bad(s_i) ≥ 0.10 }| ≥ 0.5 × (m − t0 + 1)
+onset_second = s_{t0} − s_1   (run 시작초 정본 = 첫 data-second s_1; ReportRun.started_at 아님 — 리뷰 C5)
 ```
 
-- 내용 필드: `onset_second`, `status_class`: onset 후 5xx 합 ≥ 10이면 `Some("5xx")`, `error_kind`: 지배 kind(아래), `count`: onset 후 (status0+5xx) 합.
+- 내용 필드: `onset_second`(**기존 doc 주석이 `load_gen_saturated` 전용 서술이므로 두 kind 공용으로 갱신** — 리뷰 N6), `status_class`: onset 후 5xx 합 ≥ 10이면 `Some("5xx")`, `error_kind`: 지배 kind(아래), `count`: onset 후 (status0+5xx) 합.
 - **지배 kind**: `error_kinds` 총합 대비 ≥50%인 kind가 {`connection_reset`, `connect_timeout`, `timeout`} → "SUT 소켓/포트/자원 고갈 가능성" 조치문; `connect_refused` ≥50% → "SUT 리슨 안 함/포트 오설정" 조치문; **그 외·`error_kinds` 빈 경우(과거 run·구 워커 혼합) → `error_kind=None` + 일반 조치문**(리뷰 R10).
 - **조치문은 `computed: true`** — `load_gen_saturated` 선례(`InsightPanel.tsx:80-95`): run-특정 진단이므로 기본-숨김 토글(`readShowInsightActions()` 기본 false)과 무관하게 렌더. 이게 없으면 새 브라우저 프로필에서 US2가 실패한다(리뷰 C1).
 - **억제 규칙**: 이 인사이트가 발행되면 `status_temporal`(`insights.rs:236-263`) **미발행**(같은 현상의 더 구체적 판정이 우선 — 리뷰 R7).
@@ -191,15 +192,15 @@ kind 라벨 8종: 연결 거부 / 연결 끊김(reset) / 연결 수립 타임아
 
 ### 9.1 엔진 (E1·E3)
 
-- **분류 통합 테스트**(실 reqwest, `tests/error_kind.rs`): ① refused=bind 후 drop한 포트 ② **신선-커넥션 reset**=accept 직후 SO_LINGER 0 close ③ **keep-alive 재사용 reset**=1번째 요청 정상 응답(keep-alive) 후 2번째 요청 도착 시 RST — hyper "connection closed before message completed" 경로 핀(리뷰 R2, 사고 앵커 대표 형태) ④ timeout=accept 후 무응답 + 짧은 `http_timeout` ⑤ connect_timeout=비라우팅 IP(`10.255.255.1`) + `connect_timeout(1s)`. reqwest 플래그 조합(is_timeout/is_connect)을 핀 고정하는 것이 목적 — §3.1 규칙 1·2·4가 가설이므로 테스트가 진실.
-- **⑤의 폴백(결정)**: 비라우팅 IP가 CI/환경에서 즉시 unreachable을 주면 — skip 가드 금지 — **backlog-포화 리스너로 대체**: `TcpListener` backlog 최소로 bind + accept 안 하는 상태에서 선행 커넥션으로 백로그를 채워 이후 connect가 SYN 대기에 걸리게 함(로컬 결정적). plan 단계에서 두 방식 중 로컬 실측으로 확정.
+- **분류 통합 테스트**(실 reqwest, `tests/error_kind.rs`): ① refused=bind 후 drop한 포트 ② **신선-커넥션 reset**=accept 직후 SO_LINGER 0 close ③ **keep-alive 재사용 reset**=1번째 요청 정상 응답(keep-alive) 후 2번째 요청의 **head를 읽은 뒤** RST — hyper "connection closed before message completed" 경로 핀(리뷰 R2, 사고 앵커 대표 형태; head 발신 *전* 절단은 hyper-util 투명 재시도로 표면화 안 돼 flake — 리뷰 N5) ④ timeout=accept 후 무응답 + 짧은 `http_timeout` ⑤ connect_timeout=비라우팅 IP(`10.255.255.1`) + `connect_timeout(1s)`. reqwest 플래그 조합(is_timeout/is_connect)을 핀 고정하는 것이 목적 — §3.1 규칙 1·2·4가 가설이므로 테스트가 진실.
+- **⑤의 폴백(결정)**: 비라우팅 IP가 CI/환경에서 즉시 unreachable을 주면 — skip 가드 금지 — **backlog-포화 리스너로 대체**: `tokio::net::TcpSocket::new_v4()?.listen(1)`(std `TcpListener::bind`는 backlog 미노출·기본 128이라 부적합, tokio는 이미 dev-dep = 신규 의존 0 — 리뷰 N4)로 backlog 1 리스너를 만들고 accept 안 하는 상태에서 선행 커넥션으로 백로그를 채워 이후 connect가 SYN 대기에 걸리게 함(로컬 결정적). plan 단계에서 두 방식 중 로컬 실측으로 확정.
 - **`LocalPortExhaustion`/`Dns`/`Tls` 매핑 단위 테스트**: 실 유발이 위험/불안정하므로 소스-체인 walk 헬퍼를 `&dyn Error` 입력으로 분리해 합성 `io::Error` 체인으로 검증(fall-through 케이스 — 비매핑 kind가 있어도 계속 walk — 포함).
 - 드레인/가드: error_kind_stats가 periodic·final 양쪽 드레인 + 빈 run 미송신 — 3경로(`Mode::{Closed,Curve,Open}` 헬퍼 선례).
 - 회귀 가드 테스트는 **고의 회귀→RED→원복→GREEN 실증**(plan-mandated-vacuous-tests 규율).
 
 ### 9.2 controller (E1·E2·E3)
 
-- ingest UPSERT 가산·멀티 flush 합산·`build_report` 롤업 정렬. 인사이트: §5.4 수식 경계 양쪽(h=9 미발행/h=10 발행, bad 경계 0.01/0.10, sustained 50% 경계, 빈-초 갭 존재 fixture, `error_kinds` 빈 경우 일반 조치문, `status_temporal` 억제 확인) + 지배-kind 3분기 + loadgen 1건 발행. `validate_run_config` 2규칙 400(삽입 위치 뒤 기존 규칙 회귀 없음). export 17열 정합.
+- ingest UPSERT 가산·멀티 flush 합산·`build_report` 롤업 정렬. 인사이트: §5.4 수식 경계 양쪽(h=9 미발행/h=10 발행, bad 경계 0.01/0.10, sustained 50% 경계, 빈-초 갭 존재 fixture, **밴드 통과형(1%→5%→80%) 발행 fixture — 리뷰 N1**, `error_kinds` 빈 경우 일반 조치문, `status_temporal` 억제 확인) + 지배-kind 3분기 + loadgen 1건 발행. **`status_temporal` 기존 테스트 3건(`insights.rs:744`/`:773`/`:791`)과 fixture(`:930`)의 전제를 억제 규칙에 맞춰 조정**(리뷰 N6). `validate_run_config` 2규칙 400(삽입 위치 뒤 기존 규칙 회귀 없음). export 17열 정합.
 - e2e report smoke: 실패 유발 run 1개 → `/report`에 `error_kinds` 존재 + `ReportSchema.parse` 통과.
 
 ### 9.3 UI (E1·E2·E3)
@@ -221,7 +222,7 @@ kind 라벨 8종: 연결 거부 / 연결 끊김(reset) / 연결 수립 타임아
 
 ## 11. 보안 게이트 예상
 
-diff가 `executor.rs`(요청 실행)를 건드리므로 **security-reviewer 필수 예상**(finish-slice §0 grep 매치). 설계상 완화: 에러 원문은 어떤 새 sink에도 안 넣음(kind enum만) + 분류가 최상위 `Display`(URL 렌더)를 만지지 않음(§3.1) + `safe_cause` allowlist(`error.rs`) 무접촉(`EngineError` 변형 추가 없음).
+diff가 `executor.rs`(요청 실행)를 건드리므로 **security-reviewer 필수 예상**(finish-slice §0 grep 매치). 설계상 완화: 에러 원문은 어떤 새 sink에도 안 넣음(kind enum만) + 분류가 최상위 `Display`(URL 렌더)·`{:?}` Debug(reqwest Debug가 `url` 필드를 찍음 — 리뷰 N2)를 만지지 않음(§3.1) + `safe_cause` allowlist(`error.rs`) 무접촉(`EngineError` 변형 추가 없음).
 
 ## 12. ADR
 
