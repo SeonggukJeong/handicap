@@ -10,6 +10,7 @@ import { Summary } from "./Summary";
 import { TimeSeriesChart } from "./TimeSeriesChart";
 import { ActiveVuChart } from "./ActiveVuChart";
 import { StatusDistribution } from "./StatusDistribution";
+import { ErrorKindTable } from "./ErrorKindTable";
 import { ConnectionCostCard } from "./ConnectionCostCard";
 import { StepPhaseBreakdown } from "./StepPhaseBreakdown";
 import { BranchStatsTable } from "./BranchStatsTable";
@@ -199,6 +200,7 @@ export function ReportView({ report, profile }: Props) {
         </PageSection>
       ) : null}
       <StatusDistribution distribution={report.status_distribution} />
+      <ErrorKindTable kinds={report.error_kinds ?? []} />
       {report.connection && <ConnectionCostCard stats={report.connection} />}
       <StepPhaseBreakdown steps={report.steps} meta={stepMeta} />
       <BranchStatsTable breakdown={report.if_breakdown ?? []} meta={ifMeta} />

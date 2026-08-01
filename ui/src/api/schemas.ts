@@ -304,6 +304,11 @@ export const IfBreakdownSchema = z
   })
   .strict();
 
+// E1: run-level rollup of a single transport error kind (kind literal — 8-way
+// taxonomy, spec §3.1). Wire 1:1 with Rust ErrorKindCount.
+export const ErrorKindCountSchema = z.object({ kind: z.string(), count: z.number() }).strict();
+export type ErrorKindCount = z.infer<typeof ErrorKindCountSchema>;
+
 export const BranchLatencySchema = z
   .object({
     branch: z.string(),
@@ -461,6 +466,9 @@ export const ReportSchema = z
     steps: z.array(ReportStepSchema),
     status_distribution: StatusDistributionSchema,
     if_breakdown: z.array(IfBreakdownSchema).optional(),
+    // E1: server skip_serializing_if = Vec::is_empty → absent when no transport
+    // errors → .optional() (never null, per schemas.ts:98-106 convention).
+    error_kinds: z.array(ErrorKindCountSchema).optional(),
     group_latency: z.array(GroupLatencySchema).optional(),
     active_vu_series: z.array(ActiveVuSampleSchema).optional(),
     active_vu_by_worker: z.array(WorkerActiveVuSeriesSchema).optional(),

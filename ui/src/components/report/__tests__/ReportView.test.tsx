@@ -151,6 +151,20 @@ describe("ReportView", () => {
     expect(screen.getByText(/branchy/)).toBeInTheDocument();
   });
 
+  it("renders the Transport 실패 분류 section when error_kinds is present", () => {
+    const report: Report = {
+      ...FIXTURE,
+      error_kinds: [{ kind: "timeout", count: 3 }],
+    };
+    render(<ReportView report={report} profile={TEST_PROFILE} />);
+    expect(screen.getByText("Transport 실패 분류")).toBeInTheDocument();
+  });
+
+  it("omits the Transport 실패 분류 section when error_kinds is absent", () => {
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+    expect(screen.queryByText("Transport 실패 분류")).not.toBeInTheDocument();
+  });
+
   it("renders no SLO panel when report has no verdict", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.queryByText("PASS")).not.toBeInTheDocument();
