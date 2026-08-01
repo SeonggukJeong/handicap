@@ -135,7 +135,7 @@ pub enum DeleteOutcome {
     ActiveRuns,
 }
 
-/// 시나리오와 참조 그래프 전체(run 이력+메트릭 6테이블·프리셋·스케줄)를 단일
+/// 시나리오와 참조 그래프 전체(run 이력+메트릭 7테이블·프리셋·스케줄)를 단일
 /// 트랜잭션으로 삭제한다 (ADR-0045). 권위 hard 가드는 트랜잭션 *안*의 재확인 —
 /// 핸들러의 advisory 체크와 이 트랜잭션 사이에 커밋된 run도 여기서 잡힌다.
 /// EXISTS와 첫 DELETE 사이에 끼어드는 동시 쓰기는 WAL busy/snapshot으로 tx가
@@ -153,7 +153,7 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         return Ok(DeleteOutcome::ActiveRuns);
     }
     // 자식 → 부모 순서 (foreign_keys=ON이 순서 오류를 즉시 거부).
-    // 메트릭 테이블 일부는 FK 없이 run_id만 가지므로 6테이블 전수 명시 삭제.
+    // 메트릭 테이블 일부는 FK 없이 run_id만 가지므로 7테이블 전수 명시 삭제.
     for table in [
         "run_metrics",
         "run_loop_metrics",
@@ -161,6 +161,7 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         "run_group_metrics",
         "run_phase_metrics",
         "run_active_vu_metrics",
+        "run_error_kind_metrics",
     ] {
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE run_id IN (SELECT id FROM runs WHERE scenario_id = ?)"
