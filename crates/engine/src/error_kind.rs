@@ -170,9 +170,6 @@ mod tests {
 
     #[test]
     fn io_kind_falls_through_unmapped_kinds() {
-        // DNS 실패 형태: ConnectError("dns error") 아래 io::Error(Other) 아래엔 아무것도 없음
-        // → 비매핑 kind를 지나쳐 계속 walk, 매치 없으면 None (리뷰 R1의 결정적 분기).
-        //
         // 함정(brief 원안 대비 수정): std `io::Error::source()`는
         // `Custom(c) => c.error.source()`로 위임한다(자기 자신의 cause를 그대로
         // 반환하지 않음 — rustlib std/io/error.rs 확인) — 그래서

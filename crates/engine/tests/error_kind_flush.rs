@@ -176,18 +176,22 @@ async fn short_run_final_flush_carries_error_kinds() {
     // window count(수천 건)는 그대로인데 error_kind count만 0에 가깝게 빠져
     // 등식이 크게 어긋나 결정적 RED가 난다(리뷰 P5 축 c).
     let flushes = collect_flushes(Mode::Closed, &refused_url(), 300).await;
-    let window_total: u64 = flushes
+    let kinds: u64 = flushes
+        .iter()
+        .flat_map(|f| f.error_kind_stats.iter())
+        .map(|s| s.count)
+        .sum();
+    let status0: u64 = flushes
         .iter()
         .flat_map(|f| f.windows.iter())
-        .map(|w| w.count)
+        .map(|w| w.status_counts.get(&0).copied().unwrap_or(0))
         .sum();
-    let kind_total = kind_total(&flushes, ErrorKind::ConnectRefused);
     assert!(
-        window_total > 0,
+        status0 > 0,
         "sanity: run should attempt at least one request"
     );
     assert_eq!(
-        kind_total, window_total,
+        kinds, status0,
         "final drain must carry the error_kind delta not caught by the periodic path's one early tick"
     );
 }

@@ -1214,7 +1214,7 @@ mod tests {
 
     #[tokio::test]
     async fn error_kind_upsert_accumulates_deltas() {
-        let db = pool().await; // 기존 헬퍼(`metrics.rs:454-458`) — in-memory + 마이그레이션 포함이라 신규 테이블 생성됨 (리뷰 P4)
+        let db = pool().await; // 기존 pool() 헬퍼 — in-memory + 마이그레이션 포함이라 신규 테이블 생성됨 (리뷰 P4)
         let r = |c: i64| ErrorKindRow {
             run_id: "r1".into(),
             step_id: "s1".into(),

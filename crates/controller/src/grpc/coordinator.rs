@@ -2462,6 +2462,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ingest_stores_error_kind_stats() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let run_id = seed_run(&db).await;
+        let coord = CoordinatorState::new(db.clone());
+
+        let batch = pb::MetricBatch {
+            run_id: run_id.clone(),
+            worker_id: "w0".to_string(),
+            windows: vec![],
+            loop_stats: vec![],
+            branch_stats: vec![],
+            group_stats: vec![],
+            phase_stats: vec![],
+            active_vu_samples: vec![],
+            error_kind_stats: vec![pb::ErrorKindStat {
+                step_id: "p1".to_string(),
+                kind: "connect_refused".to_string(),
+                count: 3,
+            }],
+            dropped: 0,
+        };
+        ingest_metrics(&coord, &batch).await;
+
+        let rows = crate::store::metrics::error_kind_breakdown(&db, &run_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "single error_kind row (step_id,kind,count) expected; got: {rows:?}"
+        );
+        assert_eq!(rows[0].step_id, "p1");
+        assert_eq!(rows[0].kind, "connect_refused");
+        assert_eq!(
+            rows[0].count, 3,
+            "gRPC ingest 다리: batch count가 그대로 저장돼야 함"
+        );
+    }
+
+    #[tokio::test]
     async fn token_unset_accepts_any() {
         let db = crate::store::connect("sqlite::memory:").await.unwrap();
         let coord = CoordinatorState::new(db);

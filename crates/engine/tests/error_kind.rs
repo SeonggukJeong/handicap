@@ -13,7 +13,10 @@ fn client(timeout_ms: u64, connect_timeout_ms: Option<u64>) -> reqwest::Client {
 }
 
 async fn send_err(c: &reqwest::Client, url: &str) -> reqwest::Error {
-    c.get(url).send().await.expect_err("must fail")
+    match c.get(url).send().await {
+        Ok(_) => panic!("must fail"),
+        Err(e) => e,
+    }
 }
 
 #[tokio::test]
@@ -67,7 +70,9 @@ async fn keepalive_clean_close_classifies_connection_reset() {
     });
     let c = client(2000, None);
     let url = format!("http://{addr}/");
-    let ok = c.get(&url).send().await.unwrap();
+    let Ok(ok) = c.get(&url).send().await else {
+        panic!("first keep-alive request must succeed");
+    };
     assert_eq!(ok.status().as_u16(), 200);
     drop(ok); // 응답 반환 → 커넥션이 풀로 돌아가 2번째 요청이 재사용 (리뷰 P7 부수)
     let e = send_err(&c, &url).await;

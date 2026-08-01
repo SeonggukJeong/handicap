@@ -187,8 +187,9 @@ async fn report_endpoint_returns_bundle_for_seeded_run() {
 }
 
 /// E1 Task 5 e2e smoke: run-level `error_kinds` rollup surfaces on the report
-/// endpoint. This is an integration confirmation of Task 3~4's wiring (ingest ->
-/// store), not a RED-first test — it must be GREEN immediately.
+/// endpoint. This is store → report → HTTP 다리 검증(gRPC ingest 다리는
+/// coordinator.rs의 ingest 테스트가 담당), not a RED-first test — it must be
+/// GREEN immediately.
 #[tokio::test]
 async fn report_endpoint_includes_error_kinds_rollup() {
     let db = store::connect("sqlite::memory:").await.unwrap();

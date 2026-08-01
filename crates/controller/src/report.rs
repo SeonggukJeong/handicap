@@ -2464,7 +2464,7 @@ steps:
         let rows = vec![
             ek_row("s1", "timeout", 5),
             ek_row("s2", "timeout", 5),          // 합산 10
-            ek_row("s1", "connect_refused", 10), // 동률 → kind asc로 connect_refused 먼저
+            ek_row("s1", "connect_refused", 10), // 동률 kind asc는 BTreeMap 순회가 이미 보장(+ sort의 .then()이 map 타입 무관 방어) — 이 단언은 그 결과를 고정할 뿐 tie-break 코드 경로를 단독 검증하지 못한다
             ek_row("s1", "connection_reset", 1),
         ];
         let report = minimal_report_with_error_kinds(&rows);

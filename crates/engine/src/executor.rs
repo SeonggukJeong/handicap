@@ -293,6 +293,8 @@ pub async fn execute_step(
             dns: None,
             connect: None,
             wait: None,
+            // 이 문자열은 최상위 reqwest Display(URL 포함 가능) — 어떤 sink(로그/DB/리포트/trace)에도
+            // 노출 금지, 노출하려면 safe_cause류 redaction 필수 (현재 소비자는 runner의 is_some() 불리언뿐)
             error: Some(e.to_string()),
             error_kind: Some(crate::error_kind::classify_send_error(&e)),
             extracted: BTreeMap::new(),
