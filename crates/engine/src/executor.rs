@@ -461,8 +461,12 @@ pub async fn execute_step_traced(
                 response: None,
                 extracted: BTreeMap::new(),
                 unbound_vars: unbound,
-                // HttpTrace.error는 StepTrace → TestRunPanel로 실도달한다 —
-                // resolved 시크릿이 든 URL이 화면에 뜨지 않도록 without_url().
+                // reqwest 최상위 Display가 렌더하는 URL을 벗겨서 담는다 — 이 문자열이
+                // 어떤 sink로 흘러도 안전하도록 소스에서 차단(ADR-0050 / roadmap §B27).
+                // ⚠ 이것으로 test-run 화면의 시크릿 노출이 해소되는 건 아니다:
+                // 같은 HttpTrace의 `request.url`(위 `TracedRequest`)이 resolved URL을
+                // 그대로 담고 TestRunPanel이 이를 렌더한다(의도된 동작 — "무엇을 보냈나"를
+                // 보여주는 패널이다). 화면 노출은 §B27에 열린 채로 남는다.
                 error: Some(build_error.unwrap_or_else(|| e.without_url().to_string())),
             };
         }
