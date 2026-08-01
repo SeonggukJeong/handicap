@@ -4,6 +4,7 @@ pub mod condition;
 mod conn_timing;
 pub mod dataset;
 pub mod error;
+pub mod error_kind;
 pub mod executor;
 pub mod extract;
 mod genvars;
@@ -20,6 +21,7 @@ pub use aggregator::{
 pub use condition::eval_condition;
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
+pub use error_kind::{ErrorKind, classify_send_error};
 pub use executor::{ExecOutcome, VuClient, execute_step, execute_step_traced};
 pub use extract::{ResponseFacts, evaluate as evaluate_extracts};
 pub use genvars::{GenSpec, RandomIntGen, RandomStringGen, VarDecl, seed_iter_vars};
