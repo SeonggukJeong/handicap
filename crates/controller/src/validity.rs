@@ -267,6 +267,7 @@ mod tests {
             achieved_per_sec: None,
             target_per_sec: None,
             runner_up_ms: None,
+            error_kind: None,
         }
     }
 

@@ -49,6 +49,12 @@ pub struct Insight {
     /// UI가 격차·배수를 로직 복제 없이 표시하기 위한 값(spec §4.2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner_up_ms: Option<f64>,
+    /// transport 실패의 지배 kind(총합 대비 ≥50%). onset 인사이트가 원인 후보
+    /// 조치문을 고르는 근거이자 export 17번째 열. 지배 kind가 없거나
+    /// `error_kinds`가 비면(구 워커 혼합·과거 run) None → 일반 조치문.
+    /// `loadgen_port_exhaustion` 인사이트에선 항상 "local_port_exhaustion".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
 }
 
 impl Insight {
@@ -70,6 +76,7 @@ impl Insight {
             achieved_per_sec: None,
             target_per_sec: None,
             runner_up_ms: None,
+            error_kind: None,
         }
     }
 }

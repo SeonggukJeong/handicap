@@ -85,8 +85,8 @@ const SUMMARY_METRICS: [&str; 5] = ["p50_ms", "p95_ms", "p99_ms", "rps", "error_
 
 /// 모든 CSV/XLSX 인사이트 표면이 공유하는 정규 컬럼 순서(단일 소스).
 /// `Insight` 구조체(insights.rs) 필드 순서와 일치. 비교 표면은 `run_id` 열을
-/// 앞에 붙이고, 이 16열은 모든 표면에서 동일하다.
-const INSIGHT_COLUMNS: [&str; 16] = [
+/// 앞에 붙이고, 이 17열은 모든 표면에서 동일하다.
+const INSIGHT_COLUMNS: [&str; 17] = [
     "kind",
     "severity",
     "step_id",
@@ -103,9 +103,10 @@ const INSIGHT_COLUMNS: [&str; 16] = [
     "achieved_per_sec",
     "target_per_sec",
     "runner_up_ms",
+    "error_kind",
 ];
 
-/// 인사이트 하나를 16개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
+/// 인사이트 하나를 17개 CSV 셀로(None → 빈 문자열), `INSIGHT_COLUMNS` 순서.
 fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
     let f = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_default();
     let i = |v: Option<i64>| v.map(|x| x.to_string()).unwrap_or_default();
@@ -126,10 +127,11 @@ fn insight_csv_cells(ins: &crate::insights::Insight) -> Vec<String> {
         f(ins.achieved_per_sec),
         f(ins.target_per_sec),
         f(ins.runner_up_ms),
+        ins.error_kind.clone().unwrap_or_default(),
     ]
 }
 
-/// 인사이트 하나의 16개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
+/// 인사이트 하나의 17개 타입별 셀을 `ws`의 (row, col_offset + i)에 기록.
 /// 숫자 필드는 number로, `None`은 빈 셀(미기록). col_offset = 0(단일) | 1(비교 run_id 뒤).
 fn write_insight_xlsx_row(
     ws: &mut Worksheet,
@@ -181,6 +183,9 @@ fn write_insight_xlsx_row(
     }
     if let Some(v) = ins.runner_up_ms {
         ws.write_number(row, c(15), v).expect("w");
+    }
+    if let Some(v) = &ins.error_kind {
+        ws.write_string(row, c(16), v).expect("w");
     }
 }
 
@@ -789,6 +794,7 @@ mod tests {
                 achieved_per_sec: None,
                 target_per_sec: None,
                 runner_up_ms: Some(90.0),
+                error_kind: None,
             },
             // 사이징 3필드 + achieved/target_per_sec를 모두 채운 합성 행: 다섯 새 열
             // writer를 모두 운동시킨다. (실제 인사이트는 recommended[slots] ⊕
@@ -811,6 +817,7 @@ mod tests {
                 achieved_per_sec: Some(2.5),
                 target_per_sec: Some(20.0),
                 runner_up_ms: None,
+                error_kind: None,
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -1058,6 +1065,7 @@ mod tests {
             achieved_per_sec: None,
             target_per_sec: None,
             runner_up_ms: None,
+            error_kind: None,
         }
     }
 
@@ -1074,7 +1082,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms"
+            "kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind"
         );
         assert_eq!(lines.len(), 2); // header + 1 insight
         assert!(lines[1].starts_with("slowest_step,info,a,p95_ms,50,,,,,,,,"));
@@ -1103,6 +1111,29 @@ mod tests {
     }
 
     #[test]
+    fn insight_error_kind_column_round_trips() {
+        // E2: 17번째 열 `error_kind`. Some이면 셀에 kind 문자열, None이면 빈 셀.
+        // INSIGHT_COLUMNS는 Insight 필드 선언 순서와 1:1이므로 마지막 열이다.
+        assert_eq!(
+            INSIGHT_COLUMNS.len(),
+            17,
+            "E2가 error_kind 열을 더해 16→17이어야 한다"
+        );
+        assert_eq!(*INSIGHT_COLUMNS.last().expect("non-empty"), "error_kind");
+
+        let mut ins = insight("midrun_error_onset", "critical");
+        ins.error_kind = Some("connection_reset".to_string());
+        let cells = insight_csv_cells(&ins);
+        assert_eq!(cells.len(), 17);
+        assert_eq!(cells[16], "connection_reset");
+
+        let bare = insight("slo_pass", "info");
+        let bare_cells = insight_csv_cells(&bare);
+        assert_eq!(bare_cells.len(), 17);
+        assert_eq!(bare_cells[16], "", "None → 빈 문자열");
+    }
+
+    #[test]
     fn comparison_insights_csv_long_format() {
         let mut a = report_with_steps(vec![step("s", 1, 100)]);
         a.run.id = "A".into();
@@ -1127,7 +1158,7 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms"
+            "run_id,kind,severity,step_id,metric,value,pct,count,status_class,window_seconds,recommended,cause,recommended_workers,onset_second,achieved_per_sec,target_per_sec,runner_up_ms,error_kind"
         );
         assert_eq!(lines.len(), 3); // header + 2 rows (both from A)
         assert!(lines[1].starts_with("A,slowest_step,info,s,"));
