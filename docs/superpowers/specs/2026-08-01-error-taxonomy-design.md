@@ -233,7 +233,7 @@ diff가 `executor.rs`(요청 실행)를 건드리므로 **security-reviewer 필�
 리뷰 스코프 판정 수용: 한 슬라이스로는 (a) 새 메트릭 채널 전 계층 (b) 시계열 휴리스틱 서브시스템 (c) 프로필 노브 전 계층이 겹쳐 과대. A3a/b/c·34a/b/c 선례대로 영역 spec 1 + plan 3:
 
 - **E1 — taxonomy + 분류표** (US1·US4 표): §3.1–3.3 + §4(E1) + §5.2–5.3 + §7.1(error_kinds)·7.2·7.5(라벨 8종). 완료 시 US1·US1' 라이브 + US4 단위 테스트.
-- **E2 — onset·loadgen 인사이트** (US2·US4 안내): §5.4 + §7.1(Insight)·7.3·7.5(인사이트 문구) + export 17열. E1 데이터로 도그푸딩 후 임계 실측 보정 여지(R8/R9의 답이 E1 데이터에 있음). 완료 시 US2 라이브.
+- **E2 — onset·loadgen 인사이트** (US2·US4 안내): §5.4 + §7.1(Insight)·7.3·7.5(인사이트 문구) + export 17열. E1 데이터로 도그푸딩 후 임계 실측 보정 여지(R8/R9의 답이 E1 데이터에 있음). **E2 plan 필수 항목(리뷰 3차 잔여 관찰)**: 지속 구간 하한 conjunct(예: `m − t0 + 1 ≥ 5`) 도입 여부를 E1 실측으로 확정 또는 명시 기각 — 현행 수식은 마지막 1~2초 tail-blip도 발행한다(선례 `status_temporal`도 같은 모양이라 비차단 판정). 완료 시 US2 라이브.
 - **E3 — connect_timeout 노브** (US3): §3.4 + §4(E3) + §5.1 + §7.1(Profile)·7.4. 완료 시 US3 라이브.
 
 권장 순서 E1 → E2 → E3 (E2가 E1의 `error_kinds`에 의존; E3는 독립이라 E1 뒤 어디든 인터리브 가). 각 서브슬라이스가 독립 머지 단위(별도 plan + REVIEW-GATE + live-verify).
