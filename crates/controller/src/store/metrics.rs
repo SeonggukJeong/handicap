@@ -246,6 +246,57 @@ pub async fn if_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<IfBranchRow
 }
 
 #[derive(Debug, Clone)]
+pub struct ErrorKindRow {
+    pub run_id: String,
+    pub step_id: String,
+    pub kind: String, // spec 2026-08-01 §3.1 snake_case 8종 (connect_refused 등)
+    pub count: i64,
+}
+
+pub async fn insert_error_kind_batch(db: &Db, rows: &[ErrorKindRow]) -> sqlx::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // Single tx, individual upserts: kind deltas are incremental counts (like
+    // run_if_metrics), so accumulate on conflict.
+    let mut tx = db.begin().await?;
+    for r in rows {
+        sqlx::query(
+            "INSERT INTO run_error_kind_metrics(run_id,step_id,kind,count) \
+             VALUES(?,?,?,?) \
+             ON CONFLICT(run_id,step_id,kind) DO UPDATE SET \
+               count = count + excluded.count",
+        )
+        .bind(&r.run_id)
+        .bind(&r.step_id)
+        .bind(&r.kind)
+        .bind(r.count)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
+pub async fn error_kind_breakdown(db: &Db, run_id: &str) -> sqlx::Result<Vec<ErrorKindRow>> {
+    let rows = sqlx::query(
+        "SELECT step_id, kind, count FROM run_error_kind_metrics \
+         WHERE run_id = ? ORDER BY step_id, kind",
+    )
+    .bind(run_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ErrorKindRow {
+            run_id: run_id.to_string(),
+            step_id: r.get("step_id"),
+            kind: r.get("kind"),
+            count: r.get("count"),
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone)]
 pub struct GroupMetricRow {
     pub run_id: String,
     pub step_id: String, // the `parallel` node's id
@@ -1159,5 +1210,22 @@ mod tests {
             (rows[2].worker_id.as_str(), rows[2].ts_second),
             ("w-1", 100)
         );
+    }
+
+    #[tokio::test]
+    async fn error_kind_upsert_accumulates_deltas() {
+        let db = pool().await; // 기존 헬퍼(`metrics.rs:454-458`) — in-memory + 마이그레이션 포함이라 신규 테이블 생성됨 (리뷰 P4)
+        let r = |c: i64| ErrorKindRow {
+            run_id: "r1".into(),
+            step_id: "s1".into(),
+            kind: "connect_refused".into(),
+            count: c,
+        };
+        insert_error_kind_batch(&db, &[r(2)]).await.unwrap();
+        insert_error_kind_batch(&db, &[r(3)]).await.unwrap(); // 두 번째 flush delta
+        let rows = error_kind_breakdown(&db, "r1").await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, 5, "delta must accumulate on conflict");
+        assert!(error_kind_breakdown(&db, "r2").await.unwrap().is_empty());
     }
 }

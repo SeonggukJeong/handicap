@@ -1591,6 +1591,21 @@ async fn ingest_metrics(state: &CoordinatorState, batch: &pb::MetricBatch) {
             warn!(run_id = %batch.run_id, error = %e, "failed to insert if-branch metrics");
         }
     }
+    let ek_rows: Vec<crate::store::metrics::ErrorKindRow> = batch
+        .error_kind_stats
+        .iter()
+        .map(|s| crate::store::metrics::ErrorKindRow {
+            run_id: batch.run_id.clone(),
+            step_id: s.step_id.clone(),
+            kind: s.kind.clone(),
+            count: s.count as i64,
+        })
+        .collect();
+    if !ek_rows.is_empty() {
+        if let Err(e) = crate::store::metrics::insert_error_kind_batch(&state.db, &ek_rows).await {
+            warn!(run_id = %batch.run_id, error = %e, "error_kind metrics insert failed");
+        }
+    }
     let group_rows: Vec<crate::store::metrics::GroupMetricRow> = batch
         .group_stats
         .iter()
