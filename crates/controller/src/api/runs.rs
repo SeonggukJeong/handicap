@@ -1027,6 +1027,7 @@ pub async fn build_report_for_run(
     } else {
         Vec::new()
     };
+    let error_kinds = crate::store::metrics::error_kind_breakdown(db, run_id).await?;
     let scenario_yaml = row.scenario_yaml.clone();
     Ok(crate::report::build_report(
         &row,
@@ -1038,6 +1039,7 @@ pub async fn build_report_for_run(
         &phases,
         &active_vu,
         &active_vu_by_worker,
+        &error_kinds,
     ))
 }
 

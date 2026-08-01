@@ -620,6 +620,7 @@ mod tests {
             steps,
             status_distribution: BTreeMap::new(),
             if_breakdown: vec![],
+            error_kinds: vec![],
             verdict: None,
             insights: vec![],
             dropped: 0,

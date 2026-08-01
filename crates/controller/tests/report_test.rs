@@ -5,7 +5,9 @@ use axum::http::{Method, Request, StatusCode};
 use handicap_controller::dispatcher::subprocess::SubprocessDispatcher;
 use handicap_controller::grpc::coordinator::CoordinatorState;
 use handicap_controller::report::ReportJson;
-use handicap_controller::store::metrics::{MetricRow, insert_batch};
+use handicap_controller::store::metrics::{
+    ErrorKindRow, MetricRow, insert_batch, insert_error_kind_batch,
+};
 use handicap_controller::store::runs::{Profile, RunStatus};
 use handicap_controller::{app, store};
 use hdrhistogram::Histogram;
@@ -182,4 +184,48 @@ async fn report_endpoint_returns_bundle_for_seeded_run() {
 
     // Also typed-decode it to catch shape regressions
     let _typed: ReportJson = serde_json::from_value(json).unwrap();
+}
+
+/// E1 Task 5 e2e smoke: run-level `error_kinds` rollup surfaces on the report
+/// endpoint. This is an integration confirmation of Task 3~4's wiring (ingest ->
+/// store), not a RED-first test — it must be GREEN immediately.
+#[tokio::test]
+async fn report_endpoint_includes_error_kinds_rollup() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (run_id, _scenario_yaml) = seed_run_with_metrics(&db).await;
+
+    insert_error_kind_batch(
+        &db,
+        &[ErrorKindRow {
+            run_id: run_id.clone(),
+            step_id: "stepA".to_string(),
+            kind: "connect_refused".to_string(),
+            count: 7,
+        }],
+    )
+    .await
+    .unwrap();
+
+    let app = make_app(db);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/runs/{run_id}/report"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        json["error_kinds"],
+        serde_json::json!([{"kind": "connect_refused", "count": 7}])
+    );
 }
