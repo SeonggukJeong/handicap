@@ -35,8 +35,9 @@ pub struct Insight {
     /// DEPRECATED(ADR-0046): 사후 산출 제거 — 항상 None. 워커 텔레메트리 도입 시 재사용(roadmap §B20).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_workers: Option<f64>,
-    /// 포화 도달 시점(run-relative seconds). ramp run에서만 Some(= t_peak − min_ts).
-    /// flat/고정-레이트·windows 부재면 None. spec R6.
+    /// 시점(run-relative seconds). 두 kind가 공용한다:
+    /// `load_gen_saturated` = 포화 도달 시점(ramp run에서만 Some, spec R6),
+    /// `midrun_error_onset` = 실패 급증 시작 시점(= s_t0 − s_1, 항상 Some).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onset_second: Option<i64>,
     /// 달성 도착률(반복/초) — open-loop 포화 인사이트에서 계산 가능할 때만 Some. (ADR-0046 R5)
@@ -86,15 +87,19 @@ impl Insight {
 /// with the warnings. Lower rank first.
 fn order_rank(i: &Insight) -> u8 {
     match (i.kind.as_str(), i.status_class.as_deref()) {
-        ("slo_failure", _) => 1,
-        ("status_class", Some("5xx")) => 2,
-        ("load_gen_saturated", _) => 3,
-        ("no_request_step", _) => 4,
-        ("error_hotspot", _) => 5,
-        ("status_class", Some("4xx")) => 6,
-        ("status_temporal", _) => 7,
-        ("slowest_step", _) => 8,
-        ("slo_pass", _) => 9,
+        // E2: 측정 유효성 문제가 최상단(이 run의 수치를 믿을 수 있는가),
+        // 그 다음이 원인 후보를 든 시간 패턴.
+        ("loadgen_port_exhaustion", _) => 1,
+        ("midrun_error_onset", _) => 2,
+        ("slo_failure", _) => 3,
+        ("status_class", Some("5xx")) => 4,
+        ("load_gen_saturated", _) => 5,
+        ("no_request_step", _) => 6,
+        ("error_hotspot", _) => 7,
+        ("status_class", Some("4xx")) => 8,
+        ("status_temporal", _) => 9,
+        ("slowest_step", _) => 10,
+        ("slo_pass", _) => 11,
         _ => 99,
     }
 }
@@ -136,7 +141,126 @@ pub(crate) fn scheduled_arrivals(
     target_rps.map(|t| f64::from(t) * duration_actual)
 }
 
-// 10 인자: A9 사이징(max_in_flight/target_rps/scheduled_arrivals)이 기존 7 인자에
+/// `midrun_error_onset` 판정 상수 (spec §5.4 ①).
+/// 하한 conjunct는 사용자 결정 2026-08-01 — 없으면 t0 = m에서 1 ≥ 0.5×1이 항상
+/// 참이라 마지막 1초 blip에도 critical 인사이트가 발행된다.
+const ONSET_CLEAN_MAX: f64 = 0.01;
+const ONSET_BAD_MIN: f64 = 0.10;
+const ONSET_MIN_CLEAN_SECONDS: usize = 10;
+const ONSET_MIN_TAIL_SECONDS: usize = 5;
+/// onset 이후 5xx가 이만큼 쌓여야 `status_class = "5xx"`를 붙인다.
+const ONSET_5XX_MIN: u64 = 10;
+
+/// ts_second로 재집계한 한 초. `count`는 그 초의 총 요청 수(모든 스텝·워커 합).
+struct OnsetSecond {
+    ts: i64,
+    count: u64,
+    /// status "0"(transport 실패) + 5xx 합.
+    bad: u64,
+    fivexx: u64,
+}
+
+struct OnsetFacts {
+    onset_second: i64,
+    bad_after: u64,
+    fivexx_after: u64,
+}
+
+/// "처음엔 정상 → 도중부터 실패 급증" 시간 패턴을 초당 시계열에서 판정한다.
+/// 한계(spec §5.4 R9): bad(t)는 전 스텝 합산이라 N-스텝 시나리오에서 한 스텝만
+/// 전멸하면 bad ≤ 1/N — 11스텝 이상 단일-엔드포인트 국소 고갈은 미검출.
+/// per-step onset은 연기(spec §2).
+fn midrun_onset(windows: &[ReportWindow]) -> Option<OnsetFacts> {
+    let mut by_sec: BTreeMap<i64, (u64, u64, u64)> = BTreeMap::new();
+    for w in windows {
+        let five: u64 = w
+            .status_counts
+            .iter()
+            .filter(|(k, _)| k.starts_with('5'))
+            .map(|(_, v)| *v)
+            .sum();
+        let zero = w.status_counts.get("0").copied().unwrap_or(0);
+        let e = by_sec.entry(w.ts_second).or_insert((0, 0, 0));
+        e.0 += w.count;
+        e.1 += zero + five;
+        e.2 += five;
+    }
+    // 요청 0인 초는 "존재하지 않는 초"로 취급 — 갭이 h/t0 산정을 오염시키지 않는다.
+    let secs: Vec<OnsetSecond> = by_sec
+        .into_iter()
+        .filter(|(_, (count, _, _))| *count > 0)
+        .map(|(ts, (count, bad, fivexx))| OnsetSecond {
+            ts,
+            count,
+            bad,
+            fivexx,
+        })
+        .collect();
+    let m = secs.len();
+    if m == 0 {
+        return None;
+    }
+    let ratio = |s: &OnsetSecond| s.bad as f64 / s.count as f64; // count > 0 보장
+
+    // h = bad < 0.01이 연속인 최장 프리픽스 길이(프리픽스이므로 유일).
+    let h = secs
+        .iter()
+        .take_while(|s| ratio(s) < ONSET_CLEAN_MAX)
+        .count();
+    if h < ONSET_MIN_CLEAN_SECONDS {
+        return None;
+    }
+    // t0 = h 이후 처음으로 bad ≥ 0.10인 초(최소성으로 유일 — 밴드를 거치는
+    // 점진적 급증도 포착).
+    let t0 = (h..m).find(|&i| ratio(&secs[i]) >= ONSET_BAD_MIN)?;
+    let tail = m - t0;
+    if tail < ONSET_MIN_TAIL_SECONDS {
+        return None;
+    }
+    let bad_secs = (t0..m)
+        .filter(|&i| ratio(&secs[i]) >= ONSET_BAD_MIN)
+        .count();
+    if (bad_secs as f64) < 0.5 * tail as f64 {
+        return None;
+    }
+    Some(OnsetFacts {
+        // run 시작초 정본 = 첫 data-second(ReportRun.started_at 아님 — 리뷰 C5).
+        onset_second: secs[t0].ts - secs[0].ts,
+        bad_after: secs[t0..].iter().map(|s| s.bad).sum(),
+        fivexx_after: secs[t0..].iter().map(|s| s.fivexx).sum(),
+    })
+}
+
+/// 총합 대비 ≥50%를 차지하면서 **원인 후보를 특정할 수 있는** kind를 고른다.
+/// 인식 4종이 아니거나(예 `other`·`tls`) 지배 kind가 없으면 None → 일반 조치문.
+/// 동률은 kind 사전순으로 깬다(report.rs 롤업 정렬과 같은 규칙 → 결정적).
+fn dominant_error_kind(error_kinds: &[crate::report::ErrorKindCount]) -> Option<String> {
+    const RECOGNIZED: [&str; 4] = [
+        "connection_reset",
+        "connect_timeout",
+        "timeout",
+        "connect_refused",
+    ];
+    let total: u64 = error_kinds.iter().map(|k| k.count).sum();
+    if total == 0 {
+        return None;
+    }
+    let mut best: Option<&crate::report::ErrorKindCount> = None;
+    for k in error_kinds {
+        if best.is_none_or(|b| k.count > b.count || (k.count == b.count && k.kind < b.kind)) {
+            best = Some(k);
+        }
+    }
+    let best = best?;
+    if (best.count as f64) < 0.5 * total as f64 {
+        return None;
+    }
+    RECOGNIZED
+        .contains(&best.kind.as_str())
+        .then(|| best.kind.clone())
+}
+
+// 11 인자: A9 사이징(max_in_flight/target_rps/scheduled_arrivals)에 E2의 error_kinds가
 // 더해져 clippy 임계(7)를 넘는다.
 // 모두 별개 read-only 컨텍스트라 struct 묶음은 호출부만 번잡해진다(단일 prod 호출부 + 테스트).
 #[allow(clippy::too_many_arguments)]
@@ -151,6 +275,9 @@ pub fn derive_insights(
     max_in_flight: Option<u32>,
     target_rps: Option<u32>,
     scheduled_arrivals: Option<f64>,
+    // E1이 운반한 run-level transport 실패 분류(count desc → kind asc 정렬).
+    // 비어 있을 수 있다: 과거 run·구 워커 혼합 fan-out(§8 proto additive 거동).
+    error_kinds: &[crate::report::ErrorKindCount],
 ) -> Vec<Insight> {
     let mut out: Vec<Insight> = Vec::new();
 
@@ -237,10 +364,35 @@ pub fn derive_insights(
         }
     }
 
-    // status_temporal: 5xx that appears late. Interval = [min_ts, max_ts] over
-    // windows that actually have data. Emit only when the first 5xx second is
-    // strictly past the midpoint (early 5xx is already covered by status_class).
+    // midrun_error_onset (spec §5.4 ①, E2). status_temporal보다 구체적인 판정이라
+    // 발행되면 그쪽을 억제한다(리뷰 R7 — 같은 현상의 두 문장 방지).
+    let onset = midrun_onset(windows);
+    if let Some(f) = &onset {
+        let mut ins = Insight::new("midrun_error_onset", "critical");
+        ins.onset_second = Some(f.onset_second);
+        ins.count = Some(f.bad_after);
+        if f.fivexx_after >= ONSET_5XX_MIN {
+            ins.status_class = Some("5xx".to_string());
+        }
+        ins.error_kind = dominant_error_kind(error_kinds);
+        out.push(ins);
+    }
+
+    // loadgen_port_exhaustion (spec §5.4 ②, E2). 1건 임계는 의도 — 테스터 자신의
+    // 포트 고갈은 단 1건이라도 그 run의 측정 전체가 오염됐다는 신호다.
+    if let Some(k) = error_kinds
+        .iter()
+        .find(|k| k.kind == "local_port_exhaustion" && k.count >= 1)
     {
+        let mut ins = Insight::new("loadgen_port_exhaustion", "critical");
+        ins.count = Some(k.count);
+        ins.error_kind = Some("local_port_exhaustion".to_string());
+        out.push(ins);
+    }
+
+    // status_temporal: 5xx that appears late. onset이 같은 현상을 더 구체적으로
+    // 판정했다면 미발행(E2 억제 규칙, spec §5.4 R7).
+    if onset.is_none() {
         let mut sec_5xx: BTreeMap<i64, u64> = BTreeMap::new();
         let mut min_ts = i64::MAX;
         let mut max_ts = i64::MIN;
@@ -542,6 +694,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(got.is_empty());
     }
@@ -576,6 +729,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let f = got
             .iter()
@@ -599,6 +753,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let p = got.iter().find(|i| i.kind == "slo_pass").expect("slo_pass");
         assert_eq!(p.severity, "info");
@@ -627,6 +782,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let h = got
             .iter()
@@ -651,6 +807,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(got.iter().all(|i| i.kind != "error_hotspot"));
     }
@@ -669,6 +826,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].kind, "slowest_step");
@@ -696,6 +854,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         )
         .into_iter()
         .find(|i| i.kind == "slowest_step")
@@ -747,6 +906,349 @@ mod tests {
         }
     }
 
+    /// onset fixture 헬퍼 — 한 초의 (총 요청, 나쁜 요청) 쌍을 status_counts로 만든다.
+    /// `count`가 status 합과 일치하도록 "200"을 채운다(프로덕션 불변식 — bad(t) ∈ [0,1]).
+    fn win_bad(ts: i64, total: u64, bad: u64, bad_key: &str) -> ReportWindow {
+        let ok = total - bad;
+        let mut sc: BTreeMap<String, u64> = BTreeMap::new();
+        if ok > 0 {
+            sc.insert("200".to_string(), ok);
+        }
+        if bad > 0 {
+            sc.insert(bad_key.to_string(), bad);
+        }
+        ReportWindow {
+            ts_second: ts,
+            step_id: "a".to_string(),
+            count: total,
+            error_count: bad,
+            status_counts: sc,
+            p50_ms: 1,
+            p95_ms: 1,
+            p99_ms: 1,
+        }
+    }
+
+    /// clean 10초(ts 0..9) + 이후 `tail` 초를 전부 bad로 채운 표준 onset fixture.
+    fn onset_windows(tail: usize, bad_key: &str) -> Vec<ReportWindow> {
+        let mut v: Vec<ReportWindow> = (0..10).map(|t| win_bad(t, 100, 0, bad_key)).collect();
+        for k in 0..tail {
+            v.push(win_bad(10 + k as i64, 100, 100, bad_key));
+        }
+        v
+    }
+
+    fn kinds(pairs: &[(&str, u64)]) -> Vec<crate::report::ErrorKindCount> {
+        pairs
+            .iter()
+            .map(|(k, c)| crate::report::ErrorKindCount {
+                kind: k.to_string(),
+                count: *c,
+            })
+            .collect()
+    }
+
+    fn onset_of(windows: &[ReportWindow], ek: &[crate::report::ErrorKindCount]) -> Option<Insight> {
+        derive_insights(
+            &summary(),
+            &[],
+            windows,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            ek,
+        )
+        .into_iter()
+        .find(|i| i.kind == "midrun_error_onset")
+    }
+
+    #[test]
+    fn onset_emits_with_clean_prefix_and_sustained_tail() {
+        let w = onset_windows(5, "0");
+        let got = onset_of(&w, &kinds(&[("connection_reset", 400), ("other", 100)])).expect("발행");
+        assert_eq!(got.severity, "critical");
+        assert_eq!(got.onset_second, Some(10), "s_t0(=10) − s_1(=0)");
+        assert_eq!(got.count, Some(500), "onset 이후 status0+5xx 합");
+        assert_eq!(
+            got.error_kind.as_deref(),
+            Some("connection_reset"),
+            "400/500 = 80% ≥ 50% → 지배 kind"
+        );
+        assert_eq!(got.status_class, None, "5xx가 0건이므로 미부착");
+    }
+
+    #[test]
+    fn onset_not_emitted_when_clean_prefix_is_nine() {
+        // h = 9 < 10. 경계 아래.
+        let mut w: Vec<ReportWindow> = (0..9).map(|t| win_bad(t, 100, 0, "0")).collect();
+        for k in 0..10 {
+            w.push(win_bad(9 + k, 100, 100, "0"));
+        }
+        assert!(onset_of(&w, &[]).is_none());
+    }
+
+    #[test]
+    fn onset_not_emitted_when_tail_shorter_than_five() {
+        // 사용자 결정 2026-08-01: (m − t0 + 1) ≥ 5. tail=4는 미발행, tail=5는 발행.
+        assert!(
+            onset_of(&onset_windows(4, "0"), &[]).is_none(),
+            "tail 4초 — 하한 미달"
+        );
+        assert!(
+            onset_of(&onset_windows(5, "0"), &[]).is_some(),
+            "tail 5초 — 하한 충족"
+        );
+    }
+
+    #[test]
+    fn onset_not_emitted_for_tail_blip() {
+        // 하한 conjunct가 없으면 t0 = m에서 1 ≥ 0.5×1로 항상 참이 되어 발행됐다.
+        // 이 테스트가 그 회귀를 막는다.
+        let w = onset_windows(1, "0");
+        assert!(onset_of(&w, &[]).is_none(), "마지막 1초 blip은 발행 금지");
+    }
+
+    #[test]
+    fn onset_clean_threshold_is_strictly_below_one_percent() {
+        // clean 판정은 `< 0.01`. 10번째 초를 정확히 0.01로 두면 clean이 아니라서
+        // h = 9 → 미발행. 0.009면 clean이라 h = 10 → 발행.
+        // 두 fixture가 짝이어야 경계를 *구별*한다(한쪽만이면 h<10로 항상 None이라 공허).
+        let build = |tenth_bad: u64| {
+            let mut w: Vec<ReportWindow> = (0..9).map(|t| win_bad(t, 1000, 0, "0")).collect();
+            w.push(win_bad(9, 1000, tenth_bad, "0"));
+            for t in 10..20 {
+                w.push(win_bad(t, 1000, 1000, "0"));
+            }
+            w
+        };
+        assert!(
+            onset_of(&build(10), &[]).is_none(),
+            "10/1000 = 0.01은 clean이 아니다(< 아니라 =) → h=9 → 미발행"
+        );
+        assert!(
+            onset_of(&build(9), &[]).is_some(),
+            "9/1000 = 0.009 < 0.01 → clean → h=10 → 발행"
+        );
+    }
+
+    #[test]
+    fn onset_bad_threshold_is_at_least_ten_percent() {
+        // t0는 `bad ≥ 0.10`인 최초의 초. 정확히 0.10이면 t0가 된다.
+        // clean 10초 뒤 9% 초 5개 → t0 없음(미발행), 10%면 t0 성립(발행).
+        let build = |bad: u64| {
+            let mut w: Vec<ReportWindow> = (0..10).map(|t| win_bad(t, 1000, 0, "0")).collect();
+            for t in 10..20 {
+                w.push(win_bad(t, 1000, bad, "0"));
+            }
+            w
+        };
+        assert!(onset_of(&build(99), &[]).is_none(), "9.9% < 10% → t0 부재");
+        let got = onset_of(&build(100), &[]).expect("정확히 10%면 t0");
+        assert_eq!(got.onset_second, Some(10));
+    }
+
+    #[test]
+    fn onset_requires_half_the_tail_to_be_bad() {
+        // spec §9.2가 요구한 sustained 50% 경계. tail = 8일 때 ⌈0.5×8⌉ = 4.
+        // bad 3개(37.5%) → 미발행, 4개(50%) → 발행.
+        // 주의: t0 자신은 항상 bad이므로 bad 초는 t0 + (그 뒤 bad 개수)다.
+        let build = |bad_count: usize| {
+            let mut w: Vec<ReportWindow> = (0..10).map(|t| win_bad(t, 100, 0, "0")).collect();
+            for k in 0..8usize {
+                // 앞에서부터 bad_count개만 나쁘게, 나머지는 정상(2%: clean도 bad도 아님)
+                let bad = if k < bad_count { 100 } else { 2 };
+                w.push(win_bad(10 + k as i64, 100, bad, "0"));
+            }
+            w
+        };
+        assert!(
+            onset_of(&build(3), &[]).is_none(),
+            "tail 8초 중 bad 3초(37.5%) < 50% → 미발행"
+        );
+        assert!(
+            onset_of(&build(4), &[]).is_some(),
+            "tail 8초 중 bad 4초(50%) → 발행"
+        );
+    }
+
+    #[test]
+    fn onset_catches_gradual_band_crossing() {
+        // 리뷰 N1: 1% → 5% → 80%처럼 밴드를 거쳐 오르는 급증도 잡아야 한다.
+        // t0는 "≥10%인 최초의 초"라 5% 구간을 건너뛰고 80% 구간을 집는다.
+        let mut w: Vec<ReportWindow> = (0..10).map(|t| win_bad(t, 100, 0, "0")).collect();
+        w.push(win_bad(10, 100, 1, "0")); // 1% — clean 아님(≥0.01), bad도 아님
+        w.push(win_bad(11, 100, 5, "0")); // 5% — 여전히 밴드 안
+        for t in 12..20 {
+            w.push(win_bad(t, 100, 80, "0")); // 80%
+        }
+        let got = onset_of(&w, &[]).expect("발행");
+        assert_eq!(got.onset_second, Some(12), "≥10%인 최초 초 = ts 12");
+    }
+
+    #[test]
+    fn onset_ignores_seconds_with_no_requests() {
+        // 요청 0인 초는 "존재하지 않는 초" — 갭이 있어도 h/t0 산정에 안 낀다.
+        let mut w: Vec<ReportWindow> = (0..10).map(|t| win_bad(t, 100, 0, "0")).collect();
+        w.push(win_bad(10, 0, 0, "0")); // count=0 → 제외
+        for t in 11..17 {
+            w.push(win_bad(t, 100, 100, "0"));
+        }
+        let got = onset_of(&w, &[]).expect("발행");
+        assert_eq!(got.onset_second, Some(11));
+    }
+
+    #[test]
+    fn onset_aggregates_duplicate_rows_per_second() {
+        // per-step·per-worker로 같은 ts_second 행이 여러 개여도 전부 합산한다.
+        let mut w: Vec<ReportWindow> = Vec::new();
+        for t in 0..10 {
+            w.push(win_bad(t, 50, 0, "0"));
+            w.push(win_bad(t, 50, 0, "0")); // 같은 초, 다른 스텝
+        }
+        for t in 10..16 {
+            w.push(win_bad(t, 50, 50, "0"));
+            w.push(win_bad(t, 50, 50, "0"));
+        }
+        let got = onset_of(&w, &[]).expect("발행");
+        assert_eq!(got.onset_second, Some(10));
+        assert_eq!(got.count, Some(600), "6초 × (50+50)");
+    }
+
+    #[test]
+    fn onset_attaches_5xx_class_and_dominant_kinds() {
+        let w = onset_windows(6, "503");
+        let got = onset_of(&w, &kinds(&[("timeout", 300), ("dns", 100)])).expect("발행");
+        assert_eq!(
+            got.status_class.as_deref(),
+            Some("5xx"),
+            "onset 이후 5xx 600건 ≥ 10"
+        );
+        assert_eq!(got.error_kind.as_deref(), Some("timeout"), "300/400 = 75%");
+    }
+
+    #[test]
+    fn onset_error_kind_none_when_no_dominant_or_empty() {
+        // ① error_kinds 빈 경우(과거 run·구 워커) → None → 일반 조치문
+        let got = onset_of(&onset_windows(6, "0"), &[]).expect("발행");
+        assert_eq!(got.error_kind, None);
+        // ② 지배 kind 없음(어느 것도 50% 미만)
+        let got2 = onset_of(
+            &onset_windows(6, "0"),
+            &kinds(&[("connection_reset", 40), ("timeout", 35), ("dns", 30)]),
+        )
+        .expect("발행");
+        assert_eq!(got2.error_kind, None, "최대 40/105 = 38% < 50%");
+        // ③ 지배하지만 인식 4종이 아님 → None(일반 조치문)
+        let got3 =
+            onset_of(&onset_windows(6, "0"), &kinds(&[("other", 99), ("dns", 1)])).expect("발행");
+        assert_eq!(got3.error_kind, None, "other는 원인 후보를 특정 못 함");
+    }
+
+    #[test]
+    fn onset_suppresses_status_temporal() {
+        // 같은 현상의 더 구체적 판정이 우선(spec §5.4 R7).
+        let w = onset_windows(6, "503");
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &w,
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            &[],
+        );
+        assert!(got.iter().any(|i| i.kind == "midrun_error_onset"));
+        assert!(
+            got.iter().all(|i| i.kind != "status_temporal"),
+            "onset 발행 시 status_temporal 억제"
+        );
+    }
+
+    #[test]
+    fn loadgen_port_exhaustion_emits_on_single_occurrence() {
+        // 1건 임계는 의도 — 테스터 자신의 포트 고갈은 1건이라도 측정 오염 신호.
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            &kinds(&[("local_port_exhaustion", 1), ("connect_refused", 900)]),
+        );
+        let l = got
+            .iter()
+            .find(|i| i.kind == "loadgen_port_exhaustion")
+            .expect("발행");
+        assert_eq!(l.severity, "critical");
+        assert_eq!(l.count, Some(1));
+        assert_eq!(l.error_kind.as_deref(), Some("local_port_exhaustion"));
+    }
+
+    #[test]
+    fn loadgen_port_exhaustion_absent_without_the_kind() {
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &[],
+            &BTreeMap::new(),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            &kinds(&[("connect_refused", 900)]),
+        );
+        assert!(got.iter().all(|i| i.kind != "loadgen_port_exhaustion"));
+    }
+
+    #[test]
+    fn new_insights_sort_above_existing_ones() {
+        // order_rank: loadgen(측정 유효성) 최상단, onset 그 다음, 이후 기존 순서.
+        let w = onset_windows(6, "503");
+        let got = derive_insights(
+            &summary(),
+            &[],
+            &w,
+            &dist(&[("200", 900), ("500", 100)]),
+            None,
+            "",
+            0,
+            None,
+            None,
+            None,
+            &kinds(&[("local_port_exhaustion", 2), ("timeout", 400)]),
+        );
+        let order: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
+        let li = order
+            .iter()
+            .position(|k| *k == "loadgen_port_exhaustion")
+            .expect("loadgen");
+        let oi = order
+            .iter()
+            .position(|k| *k == "midrun_error_onset")
+            .expect("onset");
+        let si = order
+            .iter()
+            .position(|k| *k == "status_class")
+            .expect("status_class 5xx");
+        assert!(li < oi, "loadgen이 onset보다 앞");
+        assert!(oi < si, "onset이 기존 인사이트보다 앞");
+    }
+
     #[test]
     fn status_temporal_emits_when_5xx_is_late() {
         // run spans ts 0..10; 5xx first at ts 9 (> midpoint 5).
@@ -766,6 +1268,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let t = got
             .iter()
@@ -790,6 +1293,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -808,6 +1312,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(got.iter().all(|i| i.kind != "status_temporal"));
     }
@@ -851,6 +1356,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -874,6 +1380,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         assert!(got.iter().all(|i| i.kind != "no_request_step"));
         assert!(got.iter().any(|i| i.kind == "slowest_step")); // still computed
@@ -894,6 +1401,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -921,7 +1429,19 @@ steps:
         let d = dist(&[("200", 100), ("404", 20), ("500", 30)]);
         let windows = vec![win(0, &[("200", 1)]), win(9, &[("500", 1)])];
         let v = verdict(false, 1);
-        let got = derive_insights(&s, &steps, &windows, &d, Some(&v), "", 7, None, None, None);
+        let got = derive_insights(
+            &s,
+            &steps,
+            &windows,
+            &d,
+            Some(&v),
+            "",
+            7,
+            None,
+            None,
+            None,
+            &[],
+        );
         let order: Vec<(&str, Option<&str>)> = got
             .iter()
             .map(|i| (i.kind.as_str(), i.status_class.as_deref()))
@@ -948,7 +1468,7 @@ steps:
         let mut s = summary();
         s.errors = 200;
         let d = dist(&[("200", 800), ("500", 200)]);
-        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None, None);
+        let got = derive_insights(&s, &steps, &[], &d, None, "", 0, None, None, None, &[]);
         assert!(
             got.len() >= 3,
             "error-heavy run should surface >=3 insights, got {}",
@@ -973,9 +1493,10 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let kinds: Vec<&str> = got.iter().map(|i| i.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 8 then 9
+        assert_eq!(kinds, vec!["slowest_step", "slo_pass"]); // order_rank 10 then 11
     }
 
     #[test]
@@ -994,6 +1515,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         assert!(
             got.iter().all(|i| i.kind != "slowest_step"),
@@ -1040,6 +1562,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let flagged: Vec<&str> = got
             .iter()
@@ -1052,7 +1575,7 @@ steps:
     #[test]
     fn status_class_emits_4xx_and_5xx() {
         let d = dist(&[("200", 800), ("404", 100), ("500", 100)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None, &[]);
         let five = got
             .iter()
             .find(|i| i.kind == "status_class" && i.status_class.as_deref() == Some("5xx"))
@@ -1071,7 +1594,7 @@ steps:
     fn status_class_excludes_status_0_from_denominator() {
         // 900 transport failures (status 0) + 100 real responses, 50 of them 5xx.
         let d = dist(&[("0", 900), ("200", 50), ("500", 50)]);
-        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None);
+        let got = derive_insights(&summary(), &[], &[], &d, None, "", 0, None, None, None, &[]);
         let five = got
             .iter()
             .find(|i| i.status_class.as_deref() == Some("5xx"))
@@ -1135,6 +1658,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let s = got
             .iter()
@@ -1159,6 +1683,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         assert!(got.iter().all(|i| i.kind != "load_gen_saturated"));
     }
@@ -1180,6 +1705,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let sat = got
             .iter()
@@ -1204,6 +1730,7 @@ steps:
             None,
             Some(10_000),
             Some(10_000.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
@@ -1228,6 +1755,7 @@ steps:
             Some(1),
             Some(1),
             Some(100.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));
@@ -1264,6 +1792,7 @@ steps:
             Some(2000),
             Some(1000),
             Some(1_000.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("sut"));
@@ -1290,6 +1819,7 @@ steps:
             Some(2000),
             Some(1000),
             Some(1_000.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("sut"));
@@ -1315,6 +1845,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, Some(8));
@@ -1338,6 +1869,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, None);
@@ -1362,6 +1894,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.onset_second, None);
@@ -1423,6 +1956,7 @@ steps:
             Some(3),
             Some(20),
             Some(300.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));
@@ -1450,6 +1984,7 @@ steps:
             Some(3),
             Some(20),
             Some(300.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("sut"));
@@ -1475,6 +2010,7 @@ steps:
             Some(3),
             Some(20),
             Some(300.0),
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause.as_deref(), Some("slots"));
@@ -1495,6 +2031,7 @@ steps:
             None,
             None,
             None,
+            &[],
         );
         let ins = got.iter().find(|i| i.kind == "load_gen_saturated").unwrap();
         assert_eq!(ins.cause, None);
@@ -1513,7 +2050,19 @@ steps:
             (260u64, Some(3), Some(20), Some(300.0)),
             (5, None, None, None),
         ] {
-            let got = derive_insights(&s, &[], &[], &BTreeMap::new(), None, "", dropped, m, t, sch);
+            let got = derive_insights(
+                &s,
+                &[],
+                &[],
+                &BTreeMap::new(),
+                None,
+                "",
+                dropped,
+                m,
+                t,
+                sch,
+                &[],
+            );
             assert!(got.iter().all(|i| i.cause.as_deref() != Some("loadgen")));
         }
     }

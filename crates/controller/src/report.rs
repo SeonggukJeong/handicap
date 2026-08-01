@@ -818,6 +818,7 @@ pub fn build_report(
             run.profile.stages.as_deref(),
             summary.duration_seconds as f64,
         ),
+        &error_kinds_rolled,
     );
 
     // Group (page-load) latency: a SEPARATE accumulator keyed by (parallel node id, branch).
