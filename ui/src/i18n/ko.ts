@@ -1088,6 +1088,8 @@ export const ko = {
       no_response_validation:
         "응답 검증(status assert)과 SLO 기준이 없어 성공·실패를 확정할 수 없습니다",
       load_not_delivered: "목표한 부하를 다 걸지 못했습니다(도착 실패/드롭)",
+      loadgen_port_exhaustion: (count: string) =>
+        `부하 발생기 머신의 포트가 부족했습니다 (${count}건) — 대상 서버(SUT) 문제가 아니며 이 run의 수치는 오염됐습니다`,
     },
   },
   // 결과 해석 — can_claim + cannot_claim 코드 맵 (spec §5.1). ValidityBanner의 접이식 상세.

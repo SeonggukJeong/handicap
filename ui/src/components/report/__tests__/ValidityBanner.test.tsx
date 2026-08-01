@@ -52,6 +52,21 @@ describe("ValidityBanner", () => {
     );
   });
 
+  it("loadgen_port_exhaustion reason names the load generator machine, not SUT (F1)", () => {
+    // F1: before this reason existed, `level` could compute to "ok" ("해석 가능")
+    // while InsightPanel already rendered the critical loadgen_port_exhaustion
+    // insight — a contradiction. ValidityBanner must surface the same reason text.
+    const validity: Validity = {
+      level: "suspect",
+      reasons: [{ kind: "loadgen_port_exhaustion", severity: "critical", count: 3 }],
+    };
+    render(<ValidityBanner validity={validity} />);
+    const expected = ko.validity.reason.loadgen_port_exhaustion((3).toLocaleString("en-US"));
+    expect(screen.getByRole("region", { name: ko.validity.bannerAria })).toHaveTextContent(
+      expected,
+    );
+  });
+
   it("unknown reason kind falls back to the wire code string", () => {
     const validity: Validity = {
       level: "limited",

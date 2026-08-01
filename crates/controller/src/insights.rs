@@ -54,6 +54,11 @@ pub struct Insight {
     /// 조치문을 고르는 근거이자 export 17번째 열. 지배 kind가 없거나
     /// `error_kinds`가 비면(구 워커 혼합·과거 run) None → 일반 조치문.
     /// `loadgen_port_exhaustion` 인사이트에선 항상 "local_port_exhaustion".
+    /// **범위(F4)**: `midrun_error_onset`의 값은 **run 전체**의 `error_kinds`에서
+    /// 뽑는다(onset 이전 clean prefix 포함) — `count` 필드(onset 이후만)와 달리
+    /// onset-scoped가 아니다. 고빈도 run에서는 clean prefix의 절대 실패 건수가
+    /// onset 이후 스파이크보다 클 수 있어, 이 값이 온전히 onset 이전 노이즈에서
+    /// 선택될 수 있다(counts-only라 초당 kind 분해가 없어 스코프를 못 좁힘).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
 }
@@ -142,11 +147,12 @@ pub(crate) fn scheduled_arrivals(
 }
 
 /// `midrun_error_onset` 판정 상수 (spec §5.4 ①).
-/// 하한 conjunct는 사용자 결정 2026-08-01 — 없으면 t0 = m에서 1 ≥ 0.5×1이 항상
-/// 참이라 마지막 1초 blip에도 critical 인사이트가 발행된다.
+/// 이 초의 실패율이 이 값 미만이어야 "clean"으로 센다(clean-prefix 상한).
 const ONSET_CLEAN_MAX: f64 = 0.01;
 const ONSET_BAD_MIN: f64 = 0.10;
 const ONSET_MIN_CLEAN_SECONDS: usize = 10;
+/// tail 하한 conjunct는 사용자 결정 2026-08-01 — 없으면 t0 = m에서 1 ≥ 0.5×1이 항상
+/// 참이라 마지막 1초 blip에도 critical 인사이트가 발행된다.
 const ONSET_MIN_TAIL_SECONDS: usize = 5;
 /// onset 이후 5xx가 이만큼 쌓여야 `status_class = "5xx"`를 붙인다.
 const ONSET_5XX_MIN: u64 = 10;
@@ -234,6 +240,9 @@ fn midrun_onset(windows: &[ReportWindow]) -> Option<OnsetFacts> {
 /// 총합 대비 ≥50%를 차지하면서 **원인 후보를 특정할 수 있는** kind를 고른다.
 /// 인식 4종이 아니거나(예 `other`·`tls`) 지배 kind가 없으면 None → 일반 조치문.
 /// 동률은 kind 사전순으로 깬다(report.rs 롤업 정렬과 같은 규칙 → 결정적).
+/// **범위(F4)**: `error_kinds`는 **run 전체**(clean prefix 포함) 합산이라, 이
+/// 함수의 판정도 run 전체 스코프다 — onset 이후만 보는 `count`(bad_after)와
+/// 다르다. spec-accepted(E1은 counts-only): 필요해지면 초당 kind 분해 도입.
 fn dominant_error_kind(error_kinds: &[crate::report::ErrorKindCount]) -> Option<String> {
     const RECOGNIZED: [&str; 4] = [
         "connection_reset",
@@ -380,6 +389,9 @@ pub fn derive_insights(
 
     // loadgen_port_exhaustion (spec §5.4 ②, E2). 1건 임계는 의도 — 테스터 자신의
     // 포트 고갈은 단 1건이라도 그 run의 측정 전체가 오염됐다는 신호다.
+    // `k.count >= 1`은 죽은 조건이 아니다(F11) — report.rs:501의 롤업이
+    // `r.count.max(0) as u64`라 0-count 행이 존재할 수 있고, 이 가드가 없으면
+    // "포트가 부족했어요 (0건)"이 발행된다.
     if let Some(k) = error_kinds
         .iter()
         .find(|k| k.kind == "local_port_exhaustion" && k.count >= 1)
@@ -1103,7 +1115,9 @@ mod tests {
 
     #[test]
     fn onset_aggregates_duplicate_rows_per_second() {
-        // per-step·per-worker로 같은 ts_second 행이 여러 개여도 전부 합산한다.
+        // per-step으로 같은 ts_second 행이 여러 개여도 전부 합산한다(워커별
+        // 중복은 report.rs:599-620이 derive_insights 도달 전 (ts_second,step_id)
+        // 당 한 행으로 collapse — F7).
         let mut w: Vec<ReportWindow> = Vec::new();
         for t in 0..10 {
             w.push(win_bad(t, 50, 0, "0"));

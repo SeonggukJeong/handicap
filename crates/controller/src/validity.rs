@@ -127,6 +127,19 @@ pub fn derive_validity(
         reasons.push(r);
     }
 
+    // 6. loadgen_port_exhaustion — 부하 발생기 자신이 포트를 소진했다. transport_heavy의
+    //    비율/건수 임계와 무관하게 이 run의 수치는 오염됐다(간헐 1건도 임박 신호이므로
+    //    insights 쪽 count>=1 임계와 보조를 맞춘다). 이게 없으면 critical 인사이트와
+    //    "해석 가능" 배지가 한 화면에 동시에 뜬다(F1, US4).
+    if let Some(ins) = insights
+        .iter()
+        .find(|i| i.kind == "loadgen_port_exhaustion")
+    {
+        let mut r = reason_base("loadgen_port_exhaustion", "critical");
+        r.count = ins.count;
+        reasons.push(r);
+    }
+
     let level = if reasons.iter().any(|r| r.severity == "critical") {
         "suspect"
     } else if !reasons.is_empty() {
@@ -503,6 +516,33 @@ steps:
         assert_eq!(r.count, Some(42));
         assert_eq!(r.severity, "warning");
         assert_eq!(v.level, "limited");
+    }
+
+    #[test]
+    fn loadgen_port_exhaustion_insight_emits_critical_reason_and_suspect() {
+        // F1: without this reason, at 1-49 transport_heavy events under 5%,
+        // `level` could compute to "ok" ("해석 가능") while InsightPanel already
+        // renders the critical loadgen_port_exhaustion insight — a contradiction
+        // that undermines US4. Mirrors load_gen_saturated → load_not_delivered.
+        let d = dist(&[("200", 100)]);
+        let ins = [insight_count("loadgen_port_exhaustion", 3)];
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &ins);
+        let r = v
+            .reasons
+            .iter()
+            .find(|r| r.kind == "loadgen_port_exhaustion")
+            .expect("loadgen_port_exhaustion");
+        assert_eq!(r.severity, "critical");
+        assert_eq!(r.count, Some(3));
+        assert_eq!(v.level, "suspect");
+    }
+
+    #[test]
+    fn loadgen_port_exhaustion_absent_without_the_insight() {
+        let d = dist(&[("200", 100)]);
+        let v = derive_validity(&summary(100, 0), &d, YAML_WITH_ASSERT, true, &[]);
+        assert!(!kinds(&v).contains(&"loadgen_port_exhaustion"));
+        assert_eq!(v.level, "ok");
     }
 
     #[test]

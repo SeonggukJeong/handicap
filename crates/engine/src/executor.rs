@@ -239,7 +239,7 @@ pub async fn execute_step(
                         dns,
                         connect,
                         wait,
-                        error: Some(format!("read body: {e}")),
+                        error: Some(format!("read body: {}", e.without_url())),
                         error_kind: None, // post-send body-read failure — not a send-failure classification target
                         extracted: BTreeMap::new(),
                     });
@@ -505,7 +505,7 @@ pub async fn execute_step_traced(
                 }),
                 extracted: BTreeMap::new(),
                 unbound_vars: unbound,
-                error: Some(format!("read body: {e}")),
+                error: Some(format!("read body: {}", e.without_url())),
             };
         }
     };
@@ -615,7 +615,7 @@ mod tests {
         let step = step_at(&url);
         let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
 
-        // ① 부하 경로 (executor.rs:298)
+        // ① 부하 경로 (executor.rs:304)
         let outcome = execute_step(&client, &step, &ctx).await.unwrap();
         let load_err = outcome.error.expect("transport 실패");
         assert!(
@@ -623,7 +623,7 @@ mod tests {
             "부하 경로 에러 문자열에 URL이 남았다: {load_err}"
         );
 
-        // ② trace 경로 (executor.rs:457) — HttpTrace.error는 TestRunPanel로 실도달한다.
+        // ② trace 경로 (executor.rs:470) — HttpTrace.error는 TestRunPanel로 실도달한다.
         let trace = execute_step_traced(&client, &step, &ctx).await;
         let trace_err = trace.error.expect("transport 실패");
         assert!(

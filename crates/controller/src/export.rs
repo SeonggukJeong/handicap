@@ -817,7 +817,7 @@ mod tests {
                 achieved_per_sec: Some(2.5),
                 target_per_sec: Some(20.0),
                 runner_up_ms: None,
-                error_kind: None,
+                error_kind: Some("connection_reset".into()),
             },
         ];
         let bytes = report_to_xlsx(&r);
@@ -882,6 +882,19 @@ mod tests {
         assert_eq!(ws.get_value((1, 15)), Some(&Data::Float(90.0)));
         // 사이징 행은 None → 미기록(None 또는 Empty 양쪽 허용)
         assert!(matches!(ws.get_value((2, 15)), None | Some(Data::Empty)));
+        // 17번째 열 error_kind (col 16 = Q, F2 — 이전엔 두 픽스처 모두 None이라
+        // if let Some 분기가 어떤 테스트에서도 실행되지 않았다).
+        assert_eq!(
+            ws.get_value((0, 16)),
+            Some(&Data::String("error_kind".into()))
+        );
+        // 사이징 행(벡터 인덱스 1 → 시트 row 2)의 error_kind = "connection_reset"
+        assert_eq!(
+            ws.get_value((2, 16)),
+            Some(&Data::String("connection_reset".into()))
+        );
+        // slowest_step 행(row 1)은 error_kind None → 미기록(None 또는 Empty)
+        assert!(matches!(ws.get_value((1, 16)), None | Some(Data::Empty)));
     }
 
     #[test]

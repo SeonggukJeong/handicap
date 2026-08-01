@@ -341,6 +341,20 @@ describe("InsightPanel", () => {
     rerender(<InsightPanel insights={[base]} meta={new Map()} />);
     expect(screen.getByText(ko.errorOnset.generic)).toBeInTheDocument();
     expect(screen.queryByText(ko.errorOnset.refused)).not.toBeInTheDocument();
+
+    // F3: `timeout`은 오늘 http_timeout 만료로 도달 가능하고, `connect_timeout`은
+    // E3의 헤드라인 kind다. 둘 다 sutExhaustion 조치문으로 라우팅돼야 하는데
+    // (InsightPanel.tsx의 3-way OR), 리터럴 오타가 있어도 generic으로 조용히
+    // 격하될 뿐이라 이 두 분기는 별도로 운동시켜야 한다.
+    rerender(<InsightPanel insights={[{ ...base, error_kind: "timeout" }]} meta={new Map()} />);
+    expect(screen.getByText(ko.errorOnset.sutExhaustion)).toBeInTheDocument();
+    expect(screen.queryByText(ko.errorOnset.generic)).not.toBeInTheDocument();
+
+    rerender(
+      <InsightPanel insights={[{ ...base, error_kind: "connect_timeout" }]} meta={new Map()} />,
+    );
+    expect(screen.getByText(ko.errorOnset.sutExhaustion)).toBeInTheDocument();
+    expect(screen.queryByText(ko.errorOnset.generic)).not.toBeInTheDocument();
   });
 
   it("loadgen 포트 고갈은 대상 서버 문제가 아님을 명시한다", () => {
@@ -361,10 +375,20 @@ describe("InsightPanel", () => {
     expect(screen.getByText(ko.errorOnset.loadgen)).toBeInTheDocument();
   });
 
-  it("error_kind가 없는 과거 리포트도 파싱·렌더된다", () => {
+  it("error_kind가 없는 과거 리포트도 파싱된다", () => {
     // 서버 skip_serializing_if → 키 부재(null 아님). Zod .optional() 계약.
     expect(
       InsightSchema.safeParse({ kind: "midrun_error_onset", severity: "critical" }).success,
     ).toBe(true);
+  });
+
+  it("error_kind가 있으면 값을 보존해 파싱한다 (F9 — 스키마에서 필드를 지워도 위 부재 테스트는 안 죽는다)", () => {
+    expect(
+      InsightSchema.parse({
+        kind: "midrun_error_onset",
+        severity: "critical",
+        error_kind: "connection_reset",
+      }).error_kind,
+    ).toBe("connection_reset");
   });
 });
