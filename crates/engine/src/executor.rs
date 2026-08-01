@@ -285,20 +285,27 @@ pub async fn execute_step(
                 extracted,
             })
         }
-        Err(e) => Ok(ExecOutcome {
-            step_id: step.id.clone(),
-            status: 0,
-            latency,
-            download: None,
-            dns: None,
-            connect: None,
-            wait: None,
-            // 이 문자열은 최상위 reqwest Display(URL 포함 가능) — 어떤 sink(로그/DB/리포트/trace)에도
-            // 노출 금지, 노출하려면 safe_cause류 redaction 필수 (현재 소비자는 runner의 is_some() 불리언뿐)
-            error: Some(e.to_string()),
-            error_kind: Some(crate::error_kind::classify_send_error(&e)),
-            extracted: BTreeMap::new(),
-        }),
+        Err(e) => {
+            // 분류를 먼저 바인딩한다 — `without_url()`이 `e`를 소비하므로
+            // 리터럴 안에서 `&e`를 뒤에 쓰면 E0382(borrow after move)다.
+            let error_kind = crate::error_kind::classify_send_error(&e);
+            Ok(ExecOutcome {
+                step_id: step.id.clone(),
+                status: 0,
+                latency,
+                download: None,
+                dns: None,
+                connect: None,
+                wait: None,
+                // reqwest 최상위 Display는 URL(크레덴셜 포함 가능)을 렌더하므로
+                // without_url()로 벗겨서 담는다(ADR-0050 / roadmap §B27).
+                // 현재 소비자는 runner의 is_some() 불리언뿐이지만, 새 sink가
+                // 붙어도 안전하도록 소스에서 차단한다.
+                error: Some(e.without_url().to_string()),
+                error_kind: Some(error_kind),
+                extracted: BTreeMap::new(),
+            })
+        }
     }
 }
 
@@ -454,7 +461,9 @@ pub async fn execute_step_traced(
                 response: None,
                 extracted: BTreeMap::new(),
                 unbound_vars: unbound,
-                error: Some(build_error.unwrap_or_else(|| e.to_string())),
+                // HttpTrace.error는 StepTrace → TestRunPanel로 실도달한다 —
+                // resolved 시크릿이 든 URL이 화면에 뜨지 않도록 without_url().
+                error: Some(build_error.unwrap_or_else(|| e.without_url().to_string())),
             };
         }
     };
@@ -557,6 +566,66 @@ mod tests {
 
     fn empty_env() -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    /// bind 후 drop한 포트 — OS가 즉시 거절하므로 transport 실패가 결정적이다.
+    fn dead_port_url() -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        format!("http://{addr}/secret-path")
+    }
+
+    fn step_at(url: &str) -> HttpStep {
+        HttpStep {
+            id: "01HX0000000000000000000042".into(),
+            name: "redaction".into(),
+            request: Request {
+                method: HttpMethod::Get,
+                url: url.to_string(),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![],
+            timeout_seconds: None,
+            think_time: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn send_error_string_never_carries_the_url() {
+        // ADR-0050 / roadmap §B27: 최상위 reqwest Display는 URL(크레덴셜 포함
+        // 가능)을 렌더한다. 두 경로 모두 without_url()로 벗겨야 한다.
+        let url = dead_port_url();
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let step = step_at(&url);
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+
+        // ① 부하 경로 (executor.rs:298)
+        let outcome = execute_step(&client, &step, &ctx).await.unwrap();
+        let load_err = outcome.error.expect("transport 실패");
+        assert!(
+            !load_err.contains("secret-path") && !load_err.contains("127.0.0.1"),
+            "부하 경로 에러 문자열에 URL이 남았다: {load_err}"
+        );
+
+        // ② trace 경로 (executor.rs:457) — HttpTrace.error는 TestRunPanel로 실도달한다.
+        let trace = execute_step_traced(&client, &step, &ctx).await;
+        let trace_err = trace.error.expect("transport 실패");
+        assert!(
+            !trace_err.contains("secret-path") && !trace_err.contains("127.0.0.1"),
+            "trace 경로 에러 문자열에 URL이 남았다: {trace_err}"
+        );
     }
 
     #[tokio::test]
