@@ -183,6 +183,16 @@
 
 **명시적 비목표(가짜 차별화)**: 라이브 대시보드 경쟁(ADR-0009), 프로토콜 수집형 확장, AI 시나리오 양산만(신뢰·리뷰 없이), RPS 벤치 자랑 단독.
 
+### A14. 커넥션 모델 노브 — 커넥션 재사용 끄기 (다수-유저 포트 점유 시뮬) — **후보 (2026-08-01 등록, 영역 E 세션 파생)**
+
+- **누가**: 소켓/포트 고갈류 장애를 랩에서 재현하려는 QA·개발자.
+- **지금 막힘**: 엔진은 VU당(closed, `runner.rs` run_vu) / 슬롯당(open, slot pool) `VuClient` 1개를 run 내내 재사용(keep-alive 기본)한다 — "요청마다 새 커넥션을 여는 짧은-커넥션 클라이언트 다수" 형태(수신측 소켓·TIME_WAIT 고갈을 유발하는 실제 장애 프로파일 — 영역 E 앵커 사고)를 의도적으로 만들 수 없다. `local_port_exhaustion`(E1 US4) 분류도 장애의 2차 증상으로만 관찰된다.
+- **완료 시 달라지는 관찰**: run-level opt-in 노브로 재사용을 끄면 요청마다 신규 커넥션 → 수신측 TIME_WAIT 축적·소켓 고갈 부하를 정상 SUT에도 걸 수 있고, E 분류표(`connect_refused`/`local_port_exhaustion`)와 결합해 앵커 사고를 재현·검증할 수 있다.
+- 유형: user-path (부하 모델 확장 — 영역 D 인접, 영역 E와 시너지).
+- 구현 스케치: `executor.rs` `VuClient::with_timeout` builder에 `pool_max_idle_per_host(0)` 조건 추가 + `RunPlan`/profile/RunDialog additive 와이어. 설정대로 부하를 내므로 divergence 아님([[load-divergence-explain-confirm]] 비해당)이나, 커넥션 수립 비용이 지연·RPS에 포함되는 특성 변화는 도움말에 명시.
+- 후속 아이디어(같은 축, 별도 판단): iteration마다 새 클라이언트(쿠키 jar 리셋 = 진짜 신규 유저 시뮬), 소스 IP 다중화(멀티워커 fan-out이 이미 부분 제공). step 헤더 `Connection: close` 수동 우회가 현재도 가능한지는 미검증 가설.
+- 출처: 2026-08-01 error-taxonomy(E1) 세션 사용자 질문 — "keep-alive면 포트를 재사용할 텐데 포트 초과 문제를 발견할 수 있나? 여러 사람처럼 포트를 점유하게 할 수는 없나?"
+
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
 
 각 항목은 출처 슬라이스 기준으로 "왜 연기했나 + 어느 슬라이스에서 자연히 풀리나"를 적는다. 어느 슬라이스를 하든 그 슬라이스 plan 작성 시 이 목록을 훑어 관련 항목을 흡수한다.
