@@ -1,9 +1,8 @@
+import type { ErrorKindCount } from "../../api/schemas";
 import { ko } from "../../i18n/ko";
 import { PageSection } from "../ui/PageSection";
 
-interface Props {
-  kinds: { kind: string; count: number }[];
-}
+type Props = { kinds: ErrorKindCount[] };
 
 export function ErrorKindTable({ kinds }: Props) {
   if (kinds.length === 0) return null;
