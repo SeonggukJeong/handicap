@@ -1119,7 +1119,7 @@ CLAUDE.md 항목은 숫자(~17→15)뿐 아니라 '어느 것도 테스트가 �
 E3에서 의도적 기각' 서술 전체가 거짓이 됐다 → 현황(추출 완료·표 테스트·
 잔여 위험은 작성자 편향·픽스처에 ..Default::default() 금지)으로 교체.
 
-build-log에 spec 요구 기록 3건: 연기(데이터바인딩 slot_count 무테스트·
+build-log에 spec 요구 기록 2건 + 이빨 실증 표: 연기(데이터바인딩 slot_count 무테스트·
 라운드트립 기각 근거·vu_count/vu_offset 위치 전치는 fanout e2e가 커버) ·
 라이브 검증 생략 근거(production diff는 0이 아니다 — e2e 6파일이 근거) ·
 이빨 실증 R1~R9 결과 표(커밋에 남겨야 재개 시 판정 가능)."
@@ -1157,4 +1157,4 @@ build-log에 spec 요구 기록 3건: 연기(데이터바인딩 slot_count 무�
 
 ---
 
-REVIEW-GATE: PENDING
+REVIEW-GATE: APPROVED
