@@ -95,6 +95,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
   const [rampUp, setRampUp] = useState(init?.ramp_up_seconds ?? 0);
   const [loopCap, setLoopCap] = useState(init?.loop_breakdown_cap ?? 256);
   const [httpTimeout, setHttpTimeout] = useState(init?.http_timeout_seconds ?? 30);
+  // E3: 폼 입력은 RunDialog만(spec §2 Non-goal). 단 여기서 넘기지 않으면
+  // API로 설정된 스케줄의 connect_timeout_seconds가 편집 저장 시 소실되므로 pass-through.
+  const connectTimeout =
+    init?.connect_timeout_seconds != null ? String(init.connect_timeout_seconds) : "";
 
   // ── think-time state — DEFERRED (no UI, kept as empty strings) ───────────
   const [thinkMin] = useState("");
@@ -222,6 +226,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
 
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
+  // pass-through된 connect_timeout이 현재 http_timeout과 모순이면 저장 전에 막고 이유를 밝힌다
+  // (이 폼엔 해당 입력이 없어 서버 400을 받으면 사용자가 손쓸 방법이 없다).
+  const connectTimeoutConflict = connectTimeout !== "" && Number(connectTimeout) >= httpTimeout;
 
   const env: Record<string, string> = resolveEnv(baseVars, envEntries);
 
@@ -232,6 +239,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     bindingBlock.ok &&
     !loopCapInvalid &&
     !httpTimeoutInvalid &&
+    !connectTimeoutConflict &&
     (loadModel === "open"
       ? rateMode === "curve"
         ? !loadErrs.maxInFlightInvalid && !loadErrs.stagesInvalid
@@ -250,6 +258,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
       loadState,
       criteria: criteriaState,
       measurePhases,
+      connectTimeout,
     });
   }
 
@@ -441,6 +450,9 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
             ? bindingBlock.reasons.map((r) => ko.runDialog.bindingReasonPrefix + r)
             : []),
           ...(httpTimeoutInvalid ? [ko.validation.httpTimeout] : []),
+          ...(connectTimeoutConflict
+            ? [ko.validation.connectTimeoutStored(Number(connectTimeout))]
+            : []),
           ...(loopCapInvalid ? [ko.validation.loopCap] : []),
         ];
         return (

@@ -98,6 +98,9 @@ export const ProfileSchema = z.object({
   // graceful ramp-down 상한(초, §B9). 서버 #[serde(skip_serializing_if)] → absent → .optional()
   // (‼ .nullish() 아님 — null로는 오지 않음).
   graceful_ramp_down_seconds: z.number().int().positive().optional(),
+  // connect 단계 전용 타임아웃(초, E3). 서버 #[serde(skip_serializing_if)] → absent → .optional()
+  // (‼ .nullish() 아님 — null로는 오지 않는다). 상한은 서버 권위(1..=600) — 클라 복제는 드리프트.
+  connect_timeout_seconds: z.number().int().positive().optional(),
   // open-loop 멀티워커 fan-out 노브. 서버 #[serde(skip_serializing_if)] → absent → .optional()
   worker_count: z.number().int().min(1).max(64).optional(),
   measure_phases: z.boolean().default(false),

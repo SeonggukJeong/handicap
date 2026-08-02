@@ -3272,3 +3272,106 @@ describe("RunDialog — 크기 프리셋 상대배수 사이징 (Option C)", () 
     ).toBeInTheDocument();
   });
 });
+
+// ─── E3: connect_timeout_seconds 입력 + 배선 6지점 ──────────────────────────
+describe("RunDialog — 연결 수립 타임아웃 (E3)", () => {
+  // ‼ 이 새 테스트들이 쓰는 프리필 fixture는 **모든 필드가 기본값**이어야 한다.
+  // 다른 필드(예: http_timeout_seconds: 120)가 섞이면 advancedPrefill이 그 필드만으로
+  // 이미 참이 돼 배선 ② 없이도 (a)가 통과한다 — ②의 유일한 가드가 공허해진다.
+  // (T6 describe의 DEFAULT_SIMPLE_PROFILE은 POST 골든이라 재사용 금지: describe 스코프
+  //  밖이고, 골든을 나중에 손보면 (a)의 의미가 조용히 바뀐다.)
+  const ALL_DEFAULT_PREFILL: RunPrefill = {
+    profile: {
+      vus: 2,
+      duration_seconds: 5,
+      ramp_up_seconds: 0,
+      loop_breakdown_cap: 256,
+      http_timeout_seconds: 30,
+      measure_phases: false,
+      data_binding: null,
+    },
+    env: {},
+  };
+
+  it("값을 넣으면 payload에 connect_timeout_seconds가 실린다", async () => {
+    // fetchMock은 beforeEach에서 mockReset만 되므로(:38) 구현을 주지 않으면 fetch가
+    // undefined를 resolve해 mutation이 실패한다 — :103-132 관례를 통째로 따른다.
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id: "R1",
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "3");
+    await user.click(screen.getByRole("button", { name: ko.runDialog.run }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body.profile.connect_timeout_seconds).toBe(3);
+  });
+
+  it("http_timeout 이상이면 인라인 안내 + 제출 차단", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "30"); // 기본 http_timeout=30
+    // 펼친 상태이므로 인라인 p 하나만 — Callout 중복 없음(:1021-1031 가드).
+    expect(screen.getByText(ko.validation.connectTimeout)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.runDialog.run })).toBeDisabled();
+  });
+
+  // (a) 프리필: mode가 detailed로 시작하고 그룹이 펼쳐지며 값이 채워진다 (배선 ①②⑤).
+  //     appliedDetail 칩은 mode==="simple"에서만 렌더되므로 여기서 함께 단언할 수 없다.
+  it("프리셋/초기값에 connect_timeout이 있으면 상세로 열리고 값이 채워진다", () => {
+    renderWithInitial({
+      ...ALL_DEFAULT_PREFILL,
+      profile: { ...ALL_DEFAULT_PREFILL.profile, connect_timeout_seconds: 2 },
+    });
+    expect(screen.getByLabelText(ko.loadModel.connectTimeout)).toHaveValue(2);
+  });
+
+  // (b) ④ detailedAppliedCount 전용 RED — 칩은 간단 모드에서만 렌더되므로 되돌아와야 한다.
+  //     renderDialog() 기본값에서 baseline은 0이라 타이핑 후 정확히 1.
+  it("connect_timeout을 설정하고 간단 모드로 돌아오면 적용 수에 포함된다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "3");
+    await user.click(screen.getByRole("radio", { name: /간단/ }));
+    expect(screen.getByText(ko.runDialog.appliedDetail(1))).toBeInTheDocument();
+  });
+
+  // (c) ⑥ collapseHintCount — 접었을 때 값이 숨지 않는다는 보장.
+  //     이 사용자가 반복 지적한 "접힌 섹션에 값이 숨는" 결함 클래스 (spec §7.4 R12).
+  //     ‼ hint는 토글 버튼 **밖 형제 span**이다(`ui/Section.tsx:88-102` — accname 오염 방지
+  //     의도적 설계). 버튼에 toHaveTextContent를 걸면 ⑥ 유무와 무관하게 실패해 가드가
+  //     공허해진다. 반드시 getByText로 span 자체를 겨눌 것.
+  it("connect_timeout을 설정하고 그룹을 접으면 접힘 힌트에 수가 잡힌다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "3");
+    await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 재조회 후 접기
+    expect(screen.getByText(ko.runDialog.advancedSetHint(1))).toBeInTheDocument();
+  });
+});

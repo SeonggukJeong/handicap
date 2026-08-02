@@ -195,6 +195,8 @@ export const ko = {
     workerCount: "부하 생성기 워커 수 (수평 확장)",
     workerCountHint: (n: number) => `${n}개 설정됨`,
     httpTimeout: "HTTP 타임아웃(초)",
+    connectTimeout: "연결 수립 타임아웃(초)",
+    connectTimeoutHint: "비워두면 미설정 · connect 단계 정지를 요청 타임아웃과 구분해 분류합니다",
     loopCap: "루프 집계 상한",
     thinkMin: "think 최소(ms)",
     thinkMax: "think 최대(ms)",
@@ -243,6 +245,9 @@ export const ko = {
     workerCount: "워커 수는 1~64 사이 정수여야 합니다.",
     gracefulCap: "느슨한 감축 상한은 1 이상의 정수여야 합니다(비우면 무제한).",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
+    connectTimeout: "연결 수립 타임아웃은 1초 이상, HTTP 타임아웃보다 작아야 합니다.",
+    connectTimeoutStored: (n: number) =>
+      `이 스케줄에 저장된 연결 수립 타임아웃(${n}초)보다 HTTP 타임아웃이 커야 합니다.`,
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",
   },

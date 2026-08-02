@@ -129,6 +129,11 @@ export type ProfileFormInput = {
   applyScenarioThink?: boolean;
   /** 시나리오에 think가 있는가(RunDialog가 scenarioHasThink로 계산). 없으면 필드 생략. */
   scenarioHasThink?: boolean;
+  /**
+   * connect 단계 전용 타임아웃 draft(초). 빈 문자열/미전달 = 미설정 → 키 자체 생략.
+   * RunDialog가 입력을 소유하고, ScheduleForm은 초기값을 pass-through만 한다.
+   */
+  connectTimeout?: string;
 };
 
 export function buildProfile(i: ProfileFormInput): Profile {
@@ -145,6 +150,11 @@ export function buildProfile(i: ProfileFormInput): Profile {
     // byte-identical(필드 부재). 미전달(ScheduleForm)이면 scenarioHasThink=undefined→생략.
     ...(i.loadState.loadModel === "open" && i.scenarioHasThink
       ? { apply_scenario_think_time: !!i.applyScenarioThink }
+      : {}),
+    // 빈칸/미전달이면 키 자체가 없다(byte-identical). undefined 대입이 아니라 spread —
+    // 대입하면 키가 present-but-undefined로 남아 toHaveProperty가 참이 된다.
+    ...(i.connectTimeout && i.connectTimeout.trim() !== ""
+      ? { connect_timeout_seconds: Number(i.connectTimeout) }
       : {}),
   };
 }

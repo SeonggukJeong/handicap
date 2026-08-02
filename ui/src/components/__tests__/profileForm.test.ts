@@ -246,3 +246,20 @@ describe("buildProfile apply_scenario_think_time", () => {
     expect(p).not.toHaveProperty("apply_scenario_think_time");
   });
 });
+
+describe("buildProfile connectTimeout (E3)", () => {
+  it("connectTimeout 미전달이면 connect_timeout_seconds 키를 생략한다", () => {
+    const p = base(closedLoad);
+    expect(p).not.toHaveProperty("connect_timeout_seconds");
+  });
+
+  it("connectTimeout 빈 문자열이면 키를 생략한다", () => {
+    const p = base(closedLoad, { connectTimeout: "  " });
+    expect(p).not.toHaveProperty("connect_timeout_seconds");
+  });
+
+  it("connectTimeout 값이 있으면 숫자로 싣는다", () => {
+    const p = base(closedLoad, { connectTimeout: "3" });
+    expect(p.connect_timeout_seconds).toBe(3);
+  });
+});

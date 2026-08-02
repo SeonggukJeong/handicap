@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ScheduleForm } from "../ScheduleForm";
 import type { Profile } from "../../api/schemas";
 import * as schedApi from "../../api/schedules";
+import { ko } from "../../i18n/ko";
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -178,5 +179,69 @@ describe("ScheduleForm", () => {
       screen.queryByText("기본값이 채워져 있어 바로 실행할 수 있습니다 — 대상에 맞게 조정하세요."),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("추천")).not.toBeInTheDocument();
+  });
+
+  it("저장된 connect_timeout_seconds가 편집 저장 라운드트립에서 보존된다", async () => {
+    // pass-through가 없으면 buildProfileShared 재구성 과정에서 조용히 사라진다.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: {
+            vus: 1,
+            duration_seconds: 5,
+            ramp_up_seconds: 0,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            connect_timeout_seconds: 3,
+          } as Profile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    expect(onSubmit.mock.calls[0][0].profile.connect_timeout_seconds).toBe(3);
+  });
+
+  it("저장된 connect_timeout이 http_timeout 이상이면 저장을 막고 저장값을 밝힌다", async () => {
+    // 이 폼엔 connect_timeout 입력이 없다 — 막기만 하면 사용자가 얼마로 올려야 할지
+    // 알 수 없으므로 저장값(초)을 문구로 노출해야 한다.
+    const user = userEvent.setup();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+        initial={{
+          name: "nightly",
+          scenario_id: "s1",
+          profile: {
+            vus: 1,
+            duration_seconds: 5,
+            ramp_up_seconds: 0,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            connect_timeout_seconds: 5,
+          } as Profile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    await user.clear(screen.getByLabelText(ko.loadModel.httpTimeout));
+    await user.type(screen.getByLabelText(ko.loadModel.httpTimeout), "3");
+    // http_timeout=3 자체는 유효(1..600)하고 hasLoop=false·bindingBlock.ok=true라
+    // 이 사유가 목록의 유일한 항이다 = 비혼동.
+    expect(screen.getByText(ko.validation.connectTimeoutStored(5))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
   });
 });

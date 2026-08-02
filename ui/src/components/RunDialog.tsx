@@ -103,6 +103,12 @@ export function RunDialog({
       ? String(initial.profile.graceful_ramp_down_seconds)
       : "",
   );
+  // 연결 수립 타임아웃(초, E3). string draft — 빈칸 = 미설정.
+  const [connectTimeout, setConnectTimeout] = useState(
+    initial?.profile.connect_timeout_seconds != null
+      ? String(initial.profile.connect_timeout_seconds)
+      : "",
+  );
   const [stages, setStages] = useState<{ target: string; duration_seconds: string }[]>(
     (initial?.profile.vu_stages?.length ? initial.profile.vu_stages : initial?.profile.stages)?.map(
       (s) => ({
@@ -159,6 +165,7 @@ export function RunDialog({
       init?.profile.think_seed != null ||
       (init?.profile.measure_phases ?? false) ||
       (init?.profile.http_timeout_seconds != null && init.profile.http_timeout_seconds !== 30) ||
+      init?.profile.connect_timeout_seconds != null ||
       (hasLoop &&
         init?.profile.loop_breakdown_cap != null &&
         init.profile.loop_breakdown_cap !== 256)
@@ -225,6 +232,7 @@ export function RunDialog({
   const thinkMaxId = useId();
   const thinkSeedId = useId();
   const httpTimeoutId = useId();
+  const connectTimeoutId = useId();
   const loopCapId = useId();
 
   async function loadPreset(id: string) {
@@ -241,6 +249,9 @@ export function RunDialog({
       setRampUp(prof.ramp_up_seconds);
       setLoopCap(prof.loop_breakdown_cap);
       setHttpTimeout(prof.http_timeout_seconds);
+      setConnectTimeout(
+        prof.connect_timeout_seconds != null ? String(prof.connect_timeout_seconds) : "",
+      );
       setEnvEntries(
         Object.entries(envValueToRecord(p.env)).map(([key, value]) => ({ key, value })),
       );
@@ -278,6 +289,7 @@ export function RunDialog({
         ptt != null ||
         prof.think_seed != null ||
         prof.http_timeout_seconds !== 30 ||
+        prof.connect_timeout_seconds != null ||
         (hasLoop && prof.loop_breakdown_cap !== 256)
       ) {
         setAdvancedOpen(true);
@@ -373,6 +385,13 @@ export function RunDialog({
   // Only meaningful while the cap control is shown (scenario has a loop step).
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
+  // 빈칸은 유효(미설정). 값이 있으면 1..600 정수 AND < httpTimeout.
+  const connectTimeoutInvalid =
+    connectTimeout.trim() !== "" &&
+    (!Number.isInteger(Number(connectTimeout)) ||
+      Number(connectTimeout) < 1 ||
+      Number(connectTimeout) > 600 ||
+      Number(connectTimeout) >= httpTimeout);
   // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
   // active criteria aren't silently hidden.
   const sloActiveCount = criteriaActiveCount(criteriaState);
@@ -390,13 +409,18 @@ export function RunDialog({
   const advancedActiveCount =
     sloActiveCount + (loadModel === "closed" ? pacingActiveCount : 0) + (measurePhases ? 1 : 0);
   // 판정·고급 접힘 힌트: measure는 이제 별도 섹션이라 collapse 힌트에서 제외 (R9·리뷰 A).
-  const collapseHintCount = sloActiveCount + (loadModel === "closed" ? pacingActiveCount : 0);
+  const collapseHintCount =
+    sloActiveCount +
+    (loadModel === "closed" ? pacingActiveCount : 0) +
+    // E3: opt-in·기본 빈칸이라 httpTimeout/loopCap의 "항상 값 있음" 제외 근거가 안 통한다.
+    (connectTimeout.trim() !== "" ? 1 : 0);
   // 간단 모드에서 숨겨진 상세 설정 수 (R6). measure는 advancedActiveCount 경유로만 — 이중 계수 금지.
   const detailedAppliedCount =
     advancedActiveCount +
     (rateMode === "curve" ? 1 : 0) +
     (Number(workerCount) > 1 ? 1 : 0) +
     (httpTimeout !== 30 ? 1 : 0) +
+    (connectTimeout.trim() !== "" ? 1 : 0) +
     (hasLoop && loopCap !== 256 ? 1 : 0) +
     (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0) +
     (loadModel === "closed" &&
@@ -445,6 +469,7 @@ export function RunDialog({
           !loadErrs.workerCountInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
+          !connectTimeoutInvalid &&
           bindingBlock.ok &&
           !mutation.isPending
         : duration >= 1 &&
@@ -453,6 +478,7 @@ export function RunDialog({
           !loadErrs.workerCountInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
+          !connectTimeoutInvalid &&
           bindingBlock.ok &&
           !mutation.isPending
       : rateMode === "curve"
@@ -460,6 +486,7 @@ export function RunDialog({
           !loadErrs.gracefulCapInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
+          !connectTimeoutInvalid &&
           !thinkInvalid &&
           bindingBlock.ok &&
           !mutation.isPending
@@ -468,6 +495,7 @@ export function RunDialog({
           !loadErrs.rampInvalid &&
           !loopCapInvalid &&
           !httpTimeoutInvalid &&
+          !connectTimeoutInvalid &&
           !thinkInvalid &&
           bindingBlock.ok &&
           !mutation.isPending);
@@ -518,6 +546,7 @@ export function RunDialog({
       measurePhases,
       applyScenarioThink,
       scenarioHasThink: scHasThink,
+      connectTimeout,
     });
   }
 
@@ -910,6 +939,22 @@ export function RunDialog({
                   aria-describedby={httpTimeoutInvalid ? "http-timeout-error" : undefined}
                 />
               </Field>
+              <Field
+                label={ko.loadModel.connectTimeout}
+                htmlFor={connectTimeoutId}
+                hint={ko.loadModel.connectTimeoutHint}
+              >
+                <Input
+                  id={connectTimeoutId}
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={connectTimeout}
+                  onChange={(e) => setConnectTimeout(e.target.value)}
+                  aria-invalid={connectTimeoutInvalid}
+                  aria-describedby={connectTimeoutInvalid ? "connect-timeout-error" : undefined}
+                />
+              </Field>
             </div>
 
             {hasLoop && (
@@ -940,6 +985,12 @@ export function RunDialog({
             {httpTimeoutInvalid && (
               <p id="http-timeout-error" className="mb-3 text-red-600 text-sm">
                 {ko.validation.httpTimeout}
+              </p>
+            )}
+
+            {connectTimeoutInvalid && (
+              <p id="connect-timeout-error" className="mb-3 text-red-600 text-sm">
+                {ko.validation.connectTimeout}
               </p>
             )}
           </>
@@ -1022,6 +1073,9 @@ export function RunDialog({
             : []),
           ...((mode === "simple" || !advancedOpen) && httpTimeoutInvalid
             ? [ko.validation.httpTimeout]
+            : []),
+          ...((mode === "simple" || !advancedOpen) && connectTimeoutInvalid
+            ? [ko.validation.connectTimeout]
             : []),
           ...((mode === "simple" || !advancedOpen) && loopCapInvalid
             ? [ko.validation.loopCap]
