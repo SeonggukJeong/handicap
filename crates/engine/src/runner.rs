@@ -99,7 +99,8 @@ pub struct RunPlan {
     /// `ClientBuilder::connect_timeout`으로 설치돼, connect에서 막힌 요청이
     /// 전체-요청 `timeout`이 아니라 `ErrorKind::ConnectTimeout`으로 분류된다.
     /// `None` = 미설정(오늘과 byte-identical — 빌더 호출 자체가 없음).
-    /// 컨트롤러가 `connect_timeout_seconds < http_timeout_seconds`를 강제한다.
+    /// 컨트롤러가 `connect_timeout_seconds < http_timeout_seconds`를 강제한다
+    /// (E3 Task 3 — 아직 구현 전이라 오늘은 아무것도 강제하지 않는다).
     pub connect_timeout: Option<Duration>,
 }
 
