@@ -472,7 +472,7 @@ api/runs.rs의 인라인 pb::Profile 리터럴(15필드)을 grpc/profile.rs 순�
 > **알려진 한계 — `vu_count`/`vu_offset` 위치 인자 전치는 이 단위 테스트가 못 잡는다.** 추출 전엔 이름 있는 필드 매핑(`vus: assignment.vu_count` / `vu_offset: assignment.vu_offset`)이었으나 추출 후엔 같은 타입(`u32`)·같은 출처의 인접 **위치 인자 2개**가 된다. 단위 테스트는 함수를 직접 부르므로(233/244를 명시 전달) 호출부 전치를 원리적으로 못 본다.
 > - `&pb::RunAssignment`를 받아 필드명을 함수 안에 남기는 대안은 **불가능**하다 — `lib.rs:144`의 `let profile = assignment.profile.expect(…)`가 `assignment`를 **partial move**시켜 이후 전체 차용이 안 된다(우회하려면 `.clone()`이 필요해 "표현식 이동뿐" 불변식을 깬다).
 > - **대신 기존 e2e가 이 전치를 잡는다**(메커니즘 확인함):
->   - **open-loop fan-out** — `crates/controller/tests/multi_worker_fanout_e2e.rs:531-539`가 `vu<10`과 `vu>=10` 요청이 **둘 다** 도달했는지 단언한다. 스왑하면 worker 0 = `(vus=0, vu_offset=10)`, worker 1 = `(vus=10, vu_offset=10)` → **두 워커의 `vu_offset`이 모두 10**이 되어 `vu<10` 요청이 아예 발생하지 않는다. (주의: 이 경로는 `plan.vus`를 **쓰지 않는다** — 슬롯풀은 `max_in_flight`가 정하고 vu id는 `plan.vu_offset.saturating_add(index)`다(`crates/engine/src/runner.rs:895`). "worker 0의 vus가 0이라 요청이 사라진다"는 설명은 **틀렸다**.)
+>   - **open-loop fan-out** — `crates/controller/tests/multi_worker_fanout_e2e.rs:531-539`가 `vu<10`과 `vu>=10` 요청이 **둘 다** 도달했는지 단언한다. 스왑하면 worker 0 = `(vus=0, vu_offset=10)`, worker 1 = `(vus=10, vu_offset=10)` → **두 워커의 `vu_offset`이 모두 10**이 되어 `vu<10` 요청이 아예 발생하지 않는다. (주의: 이 경로는 `plan.vus`를 **쓰지 않는다** — 슬롯풀은 `max_in_flight`가 정하고(`runner.rs:1299-1300`, `(0..max_in_flight)`) vu id는 `vu_offset.saturating_add(slot as u32)`다(`crates/engine/src/runner.rs:1427`, open-loop 함수는 `:1276`부터 — `:895`는 VU-곡선 경로라 무관). "worker 0의 vus가 0이라 요청이 사라진다"는 설명은 **틀렸다**.)
 >   - **closed-loop** — 더 단순하고 강한 근거: closed-loop은 `plan.vus`만큼 VU를 띄우므로 스왑으로 `vus=0`이 되면 요청이 0건이 되어 어떤 closed-loop e2e든 깨진다.
 
 - [ ] **Step 1: 실패하는 테스트를 먼저 쓴다**
@@ -882,7 +882,7 @@ C3 ramp_down_immediate=true→Immediate · C4 0-폴백."
 
 **Interfaces:**
 - Consumes: Task 1의 `to_proto_profile`, Task 2의 `to_run_plan`.
-- Produces: 없음(검증 산출물은 아래 결과 표).
+- Produces: R1~R9 결과 표 — **Task 4 Step 4로 이관**해 커밋에 영속시킨다(이 task 자체는 커밋 없음).
 
 > **왜 필요한가:** 회귀 가드를 표방하는 테스트는 이빨을 실증해야 한다(레포 규율 — plan이 지시한 테스트도 공허할 수 있다). 각 항목마다 회귀를 심고 **RED를 눈으로 확인**한 뒤 원복하고 GREEN을 확인한다.
 >
@@ -974,7 +974,7 @@ Run — **lib 유닛만 결정적으로**(R9와 같은 이유: `crash_recovery_t
 cargo test -p handicap-controller --lib --no-run 2>&1 \
   | grep -cE '^\s*--> crates/controller/src/grpc/profile\.rs'
 ```
-Expected: **2** — `c1_profile()`과 `c2_absent_and_defaults`의 `Profile {` 리터럴 2곳. **0이면 실증 실패**다.
+Expected: **2 이상** — `c1_profile()`과 `c2_absent_and_defaults`의 `Profile {` 리터럴 2곳(픽스처가 늘면 그만큼 는다). **`0`이면 픽스처가 강제 대상이 아니다 = 공허**다.
 
 > **통과 신호가 "컴파일 에러 발생"이 아닌 이유:** `store::Profile`은 `Default`를 파생하지 않아 기존 픽스처 헬퍼(`unique_profile`·`profile_with` 등)도 이미 exhaustive다. 따라서 더미 필드를 넣으면 **이 슬라이스가 없어도** 컴파일 에러가 난다. 새 픽스처가 그 강제 대상에 포함되는지를 봐야 실증이 공허하지 않다.
 >
@@ -1043,7 +1043,7 @@ R1~R9(10건) 각각의 RED/에러 확인 여부를 표로 정리해 **Task 4의 
 
 ---
 
-### Task 4: 함정 문서 갱신 + spec 요구 기록 3건
+### Task 4: 함정 문서 갱신 + spec 요구 기록 2건 + 이빨 실증 결과 표
 
 **Files:**
 - Modify: `crates/controller/CLAUDE.md` (매핑 함정 항목 — 파일 마지막 불릿)
@@ -1090,7 +1090,7 @@ spec §2.2와 §6.1이 **build-log 기록을 명시적으로 요구**한다. `do
 closed-loop은 `plan.vus=0`이 되어 VU가 0개(요청 0건)가 되고, open-loop
 `multi_worker_fanout_e2e.rs:531-539`는 **두 워커의 `vu_offset`이 모두 10**이 되어
 `vu<10` 요청이 사라진다(open-loop 경로는 `plan.vus`를 쓰지 않는다 — 슬롯풀은
-`max_in_flight`, vu id는 `plan.vu_offset + index`, `engine/src/runner.rs:895`).
+`max_in_flight`, vu id는 `vu_offset + slot`, `engine/src/runner.rs:1427`).
 
 **라이브 검증 생략 근거(spec §6.1)**: 이 슬라이스는 `spawn_run`(run-생성 경로)과
 `execute_assignment`(엔진 경로) **프로덕션 코드를 바꾸므로** 파이프라인 5단계의
@@ -1146,7 +1146,7 @@ build-log에 spec 요구 기록 3건: 연기(데이터바인딩 slot_count 무�
 | §4.2 C1 픽스처 의미론 "의도임을 명시" | Task 1 Step 1 · Task 2 Step 1 (두 픽스처 doc 주석) |
 | §5 결선 완료 게이트 (리전 스코프 + 호출 존재) | Task 1 Step 9, Task 2 Step 6 (둘 다 리전 스코프 — 전역 카운트 금지) |
 | §5 함정 문서 갱신(`CLAUDE.md` 항목 통째 + `~17`→`15`) | Task 4 Steps 1–2 |
-| §6 이빨 실증 R1~R9(10건) + R7·R8 좁힌 신호 | Task 3 (결과 표는 Task 4 커밋에 영속) |
+| §6 이빨 실증 R1~R9(10건) + R7·R8·R9 좁힌/결정적 신호 | Task 3 (결과 표는 Task 4 커밋에 영속) |
 | §2.2 데이터바인딩 연기 **build-log 기록** | Task 4 Step 3 |
 | §6.1 라이브 검증 생략 **근거를 build-log에** | Task 4 Step 3 |
 | §7 한계 — `vu_count`/`vu_offset` 위치 전치 | Task 2 함수 doc + Task 4 Step 3 (fanout e2e가 커버) |
