@@ -76,14 +76,17 @@ fn plan(
         p.max_in_flight = Some(4);
     }
     if let Mode::Curve = mode {
-        // `rate_at`(runner.rs)은 stage duration의 절반 지점에서야
-        // desired=round(0.5)=1에 도달한다(선형보간) — stage 길이를 dur_ms에 비례시키면
-        // dur_ms가 짧을 때 VU가 spawn되기도 전에 deadline을 맞는다. 1초 stage로
-        // 고정해 spawn 지연을 ~500ms로 못박고, 실제 duration(dur_ms)은 호출부가 그보다
-        // 넉넉히 길게 고른다.
+        // `rate_at`(runner.rs:750-767)에서 duration_seconds=0인 stage는 항상 target(1)을
+        // 반환한다 — elapsed<=seg_end(==0)일 때 span<=0.0 조기 return, elapsed>0에서도
+        // fallthrough가 prev_target=target으로 떨어져 동일값. 그래서 첫 tick(t≈0)부터
+        // desired=1이라 VU가 ramp 지연 없이 즉시 spawn한다(구 버전은 1초 stage를 써서
+        // 선형보간 절반 지점인 ~500ms에야 spawn — 리뷰 Minor 1: 그 설계는 margin을
+        // duration보다 크게 잡아도 wall-clock이 안 늘어난다는 잘못된 전제로 margin을
+        // 최소치에 묶어뒀었다). duration(dur_ms)은 이제 spawn 마진이 아니라 순전히
+        // "슈퍼바이저가 몇 ms 더 도는가"만 결정한다(각 테스트 주석 참고).
         p.vu_stages = Some(vec![Stage {
             target: 1,
-            duration_seconds: 1,
+            duration_seconds: 0,
         }]);
     }
     p
@@ -114,9 +117,9 @@ async fn kind_totals(
     totals.into_iter().collect()
 }
 
-/// ON-path shared assertion for all three modes: connect_timeout must be recorded,
-/// and it must never leak into the generic Timeout bucket (would mean the 4th
-/// `with_timeout` argument on that mode's builder site didn't reach reqwest).
+/// 3 모드 공통 ON-path 단언: connect_timeout이 집계돼야 하고, 일반 Timeout 버킷으로
+/// 새면 안 된다(새면 그 모드의 builder 사이트에서 4번째 `with_timeout` 인자가
+/// reqwest까지 도달하지 못했다는 뜻).
 fn assert_connect_timeout_only(totals: &[(ErrorKind, u64)]) {
     let ct = totals
         .iter()
@@ -153,10 +156,9 @@ async fn knob_on_classifies_connect_timeout_closed() {
 #[tokio::test]
 async fn knob_off_classifies_plain_timeout() {
     // 대조군: 노브 없이 전체 타임아웃만 2s → 단계 불명 `timeout`. closed-loop 하나로
-    // 충분하다(리뷰 B-1: curve/open은 각자 ON 배선만 확인하면 됨 — OFF 의미론은 3경로가
-    // 공유하는 `VuClient::with_timeout`(None이면 빌더 호출 자체가 없음)과
-    // `classify_send_error` 한 곳에서 결정되고, 그 판별은 이미 이 테스트가 closed-loop로
-    // 검증한다).
+    // 충분하다 — OFF 의미론은 3경로가 공유하는 `VuClient::with_timeout`(None이면 빌더
+    // 호출 자체가 없음)과 `classify_send_error` 한 곳에서 결정되고, 그 판별은 이미 이
+    // 테스트가 closed-loop로 검증한다(curve/open은 각자 ON 배선만 확인하면 된다).
     // spec 리뷰 R14: 전체-타임아웃이 먼저 터지면 is_connect가 성립하지 않는다.
     let totals = kind_totals(Mode::Closed, 6000, Duration::from_secs(2), None).await;
     let t = totals
@@ -180,15 +182,15 @@ async fn knob_on_classifies_connect_timeout_curve() {
     //
     // closed-loop와 실행 모델이 다르다: 슈퍼바이저는 `Instant::now() >= deadline`까지
     // 250ms tick을 계속 돌고 나서야 `join_next()`로 넘어간다(VU가 먼저 끝나도 루프가
-    // 조기 종료하지 않는다) — 그래서 duration을 너무 크게 잡으면 그 값 자체가
-    // wall-clock 하한이 돼 버린다. 1200ms로 고른 근거: `plan()`의 1초 stage가 spawn을
-    // ~500ms에 만들고, 1200ms는 그보다 700ms 여유가 있으면서도 connect_timeout
-    // 완료(spawn ~500ms + connect 1s ≈ 1.5s)보다 짧다 — 슈퍼바이저가 1200ms에서 먼저
-    // 빠져나가고 남은 ~300ms는 `join_next()`가 흡수해, duration을 더 키워도 얻는 게
-    // 없다(총 wall ≈ 1.5s).
+    // 조기 종료하지 않는다). `plan()`의 duration_seconds=0 stage가 VU를 t≈0에 spawn시켜
+    // (위 주석) duration=800ms는 spawn 마진이 아니라 순전히 "슈퍼바이저가 몇 ms 더
+    // 도는가"만 결정한다 — 800ms(< connect_timeout 1s 완료 시점)로 짧게 잡아 슈퍼바이저가
+    // 먼저 빠져나가고 `join_next()`가 남은 대기를 흡수하게 한다(리뷰 Minor 1: wall이
+    // ~1.5s→~1.0s로 줄어든다). 1000ms를 넘기면 VU의 per-VU while 루프가 두 번째
+    // iteration을 시작해 총 wall이 ~2.5s로 뛴다.
     let totals = kind_totals(
         Mode::Curve,
-        1200,
+        800,
         Duration::from_secs(3),
         Some(Duration::from_secs(1)),
     )
