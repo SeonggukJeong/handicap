@@ -1031,8 +1031,9 @@ mod tests {
         );
     }
 
-    /// C1 sentinel `pb::Profile` — Task 1의 컨트롤러 픽스처가 만들어내는 것과
-    /// 같은 값들. 필드마다 다르다.
+    /// C1 sentinel `pb::Profile` — 컨트롤러 픽스처(`grpc/profile.rs`)와 같은
+    /// 값으로 골랐다(가독성 규약일 뿐 크로스-크레이트로 강제되지 않는다 —
+    /// 드리프트해도 양쪽 테스트는 각자 옳다). 필드마다 다르다.
     ///
     /// ⚠ `..Default::default()` 금지 — 15필드 전부 명시하는 것이 목적이다
     /// (proto 필드 추가 시 여기서 컴파일 에러가 나야 한다).
@@ -1127,7 +1128,10 @@ mod tests {
             connect_timeout,
         } = plan;
 
-        assert_eq!(vus, 233, "vus는 assignment.vu_count에서 온다");
+        assert_eq!(
+            vus, 233,
+            "vus는 첫 u32 인자에서 온다 — 호출부 전치는 e2e가 잡는다"
+        );
         assert_eq!(vu_offset, 244, "vu_offset");
         assert_eq!(ramp_up, Duration::from_secs(22), "ramp_up");
         // 파생값: run_duration_secs가 vu_stages 우선 → 155 + 177 = 332.

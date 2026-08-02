@@ -678,7 +678,7 @@ opt-in `connect_timeout_seconds` 하나를 UI 입력 → Zod → `store::Profile
 
 ## store-proto-mapping — store::Profile→pb::Profile / pb::Profile→RunPlan 매핑 순수함수 추출 + 회귀 가드 (2026-08-02, task 커밋 `710e2135`..`7f7c3151`, 머지 예정 — `/finish-slice`는 이 단락에 이어 쓸 것)
 
-E3(`connect_timeout` 노브)가 남긴 연기 항목 — `api/runs.rs`의 `PendingAssignment` 리터럴 안에 인라인이라 ~17필드 중 어느 것도 테스트가 없던 `store::Profile → pb::Profile` 매핑 — 을 해소한다. Task 1이 컨트롤러 쪽을 `grpc/profile.rs::to_proto_profile(&Profile) -> pb::Profile` 순수함수로, Task 2가 워커 쪽을 대칭으로 `worker/src/lib.rs::to_run_plan`으로 추출했다(둘 다 표현식 이동뿐 — 새 분기·새 값·새 호출 0, 프로덕션 거동 byte-identical). 두 픽스처(`store::Profile` 20필드 / `pb::Profile` 15필드)는 `..Default::default()` 없이 전 필드를 sentinel로 명시해, 향후 필드 추가가 컴파일 에러로 "와이어까지 가야 하나"를 강제 판단시킨다(Task 3 R7·R8이 이 강제력 자체를 실증). Task 3은 커밋 없는 이빨 실증 단계로 R1~R9(10건, 아래 표)를 전부 고의 회귀→RED→원복→GREEN으로 관측했다.
+E3(`connect_timeout` 노브)가 남긴 연기 항목 — `api/runs.rs`의 `PendingAssignment` 리터럴 안에 인라인이라 ~17필드 중 어느 것도 테스트가 없던 `store::Profile → pb::Profile` 매핑 — 을 해소한다. Task 1이 컨트롤러 쪽을 `grpc/profile.rs::to_proto_profile(&Profile) -> pb::Profile` 순수함수로, Task 2가 워커 쪽을 대칭으로 `worker/src/lib.rs::to_run_plan`으로 추출했다(둘 다 표현식 이동뿐 — 새 분기·새 값·새 호출 0, 프로덕션 거동 byte-identical). 두 픽스처(`store::Profile` 20필드 / `pb::Profile` 15필드)는 `..Default::default()` 없이 전 필드를 sentinel로 명시해, 향후 필드 추가가 컴파일 에러로 "와이어까지 가야 하나"를 강제 판단시킨다(Task 3 R7·R8이 이 강제력 자체를 실증). Task 3은 커밋 없는 이빨 실증 단계로 R1~R9(10건, 아래 표)를 전부 고의 회귀→RED→원복→GREEN으로 관측했다(R7~R9의 RED는 테스트 실패가 아니라 컴파일 에러 신호 — grep 카운트, 아래 표 참조).
 
 **연기(build-log 기록, spec §2.2)**: 같은 `spawn_run` 블록의 **데이터바인딩 매핑**
 (`PendingDataBinding` 생성 + `slot_count` 3분기: `vu_curve_max` / `max_in_flight` /
