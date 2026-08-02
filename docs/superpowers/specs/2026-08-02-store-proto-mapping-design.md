@@ -38,7 +38,7 @@ E3(connect_timeout) 슬라이스에서 이 갭이 발화 직전까지 갔다: T1
 
 - `loop_breakdown_e2e`는 `loop_breakdown_cap: 256`을 보내지만(`:846`) 단언은 "overflow 버킷 없음(repeat=3 < cap)"(`:947–954`)이라 **cap이 30으로 전치돼도 통과**한다.
 - 가장 날카로운 것도 값이 아니라 존재 단언이다 — `phase_breakdown_report_e2e_smoke`(`:2489`)가 `measure_phases: true`(`:2584`)로 run을 만들고 `steps[0].download`의 **존재**를 단언한다(`:2651`).
-- 페이로드에 아예 등장하지 않는 필드도 있다(테스트 디렉토리 전수 키 grep): `http_timeout_seconds` · `think_time` · `think_seed` · `graceful_ramp_down_seconds` · `connect_timeout_seconds` **0건**. `ramp_up_seconds`는 등장하지만 값이 전부 `0`(기본값)이라 판별력이 없다.
+- 페이로드에 아예 등장하지 않는 필드도 있다(테스트 디렉토리 전수 키 grep): `http_timeout_seconds` · `think_time` · `think_seed` · `graceful_ramp_down_seconds` · `connect_timeout_seconds` **0건**. `ramp_up_seconds`는 등장하지만 **실 워커 e2e 페이로드에선 값이 전부 `0`**(기본값)이라 판별력이 없다(유일한 비-0은 `presets_api_test.rs:70`의 `1`인데 프리셋 REST 왕복이라 와이어를 타지 않는다).
 - `vus`는 특수하다 — **`pb::Profile.vus`를 읽는 프로덕션 코드가 아예 없다**(직접 확인: 워커는 `RunPlan.vus = assignment.vu_count`(`lib.rs:235`)만 쓰고, `coordinator.rs`의 `.vus` 히트 0건, `vu_count`는 `shard_split(rw.total_vus, …)`(`coordinator.rs:761–763`)에서 오며 `total_vus`는 **store** 프로필로 계산된다(`runs.rs:800–806`)). 오늘은 write-only 와이어 필드라 e2e가 관측할 수 없다.
 
 → **이 슬라이스의 겨냥 집합은 proto 15필드 전부다.** e2e 유무로 필드를 등급화해 범위를 좁히지 않는다(그 등급은 유지 비용만 크고, 어차피 값 단언이 0이라 겨냥 집합을 줄이지 못한다). e2e의 역할은 §6.1에서 **라이브 검증 생략 근거**로 쓰이는 것이다 — "추출이 두 경로를 깨뜨리면 게이트가 먼저 실패한다"는 결선 보증이지, 필드 값 보증이 아니다.
