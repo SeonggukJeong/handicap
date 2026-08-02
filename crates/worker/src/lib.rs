@@ -224,81 +224,16 @@ async fn execute_assignment(
         Vec::new()
     };
 
-    // Capture predicates BEFORE the RunPlan build — partial field moves
-    // (profile.think_time) in the struct literal below make &profile invalid after.
     let is_open_loop = proto_is_open_loop(&profile);
     let is_vu_curve = proto_is_vu_curve(&profile);
-    let graceful_ramp_down = proto_graceful_ramp_down(&profile);
-    let connect_timeout = proto_connect_timeout(&profile);
 
-    let plan = RunPlan {
-        vus: assignment.vu_count,
-        ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
-        duration: Duration::from_secs(run_duration_secs(&profile)),
+    let plan = to_run_plan(
+        &profile,
+        assignment.vu_count,
+        assignment.vu_offset,
         env,
-        loop_breakdown_cap: profile.loop_breakdown_cap,
-        vu_offset: assignment.vu_offset,
-        // N independent bindings: field 10 (data_bindings) when present, else the
-        // legacy field-5 binding as a 1-element list (loaded into `datasets` above).
-        data_bindings: datasets,
-        // proto default 0 (absent field from an old controller) → fall back to 30s
-        // so the byte-identical invariant holds; current controllers send 1..=600.
-        http_timeout: Duration::from_secs(u64::from(if profile.http_timeout_seconds == 0 {
-            30
-        } else {
-            profile.http_timeout_seconds
-        })),
-        think_time: profile.think_time.map(|t| handicap_engine::ThinkTime {
-            min_ms: t.min_ms,
-            max_ms: t.max_ms,
-        }),
-        think_seed: profile.think_seed,
-        // Open-loop: proto optional uint32 → Option<u32>. Some(rps) selects the
-        // open-loop execution path below; None → closed-loop run_scenario.
-        target_rps: profile.target_rps,
-        max_in_flight: profile.max_in_flight,
-        // S-D: map proto stages to engine Stage structs; empty → None (closed/fixed path).
-        stages: if profile.stages.is_empty() {
-            None
-        } else {
-            Some(
-                profile
-                    .stages
-                    .iter()
-                    .map(|s| handicap_engine::Stage {
-                        target: s.target,
-                        duration_seconds: s.duration_seconds,
-                    })
-                    .collect(),
-            )
-        },
-        measure_phases: profile.measure_phases,
-        // VU-curve: map proto vu_stages → engine Stage vec; empty → None (closed/flat path).
-        vu_stages: if profile.vu_stages.is_empty() {
-            None
-        } else {
-            Some(
-                profile
-                    .vu_stages
-                    .iter()
-                    .map(|s| handicap_engine::Stage {
-                        target: s.target,
-                        duration_seconds: s.duration_seconds,
-                    })
-                    .collect(),
-            )
-        },
-        ramp_down: if profile.ramp_down_immediate {
-            RampDown::Immediate
-        } else {
-            RampDown::Graceful
-        },
-        // §B9: mapped via proto_graceful_ramp_down(&profile) above the literal —
-        // same partial-move constraint as is_open_loop/is_vu_curve.
-        graceful_ramp_down,
-        // E3: connect 단계 전용 타임아웃. 부재/0 = None = 빌더 호출 없음(byte-identical).
-        connect_timeout,
-    };
+        datasets,
+    );
     info!(
         vus = plan.vus,
         duration_s = plan.duration.as_secs(),
@@ -637,6 +572,88 @@ fn proto_connect_timeout(p: &pb::Profile) -> Option<std::time::Duration> {
     p.connect_timeout_seconds
         .filter(|s| *s > 0)
         .map(|s| std::time::Duration::from_secs(u64::from(s)))
+}
+
+/// proto `Profile` + shard 배정 → 엔진 `RunPlan`.
+///
+/// `execute_assignment`에서 추출한 순수 매핑이라 18필드를 단위 테스트로
+/// 잠글 수 있다(추출 전엔 0건이었다). `profile`은 참조 — 호출부가 리터럴
+/// 뒤에서 `profile.ramp_up_seconds`를 로그로 다시 읽기 때문이다.
+fn to_run_plan(
+    profile: &pb::Profile,
+    vu_count: u32,
+    vu_offset: u32,
+    env: BTreeMap<String, String>,
+    data_bindings: Vec<Arc<DataSet>>,
+) -> RunPlan {
+    RunPlan {
+        vus: vu_count,
+        ramp_up: Duration::from_secs(profile.ramp_up_seconds.into()),
+        duration: Duration::from_secs(run_duration_secs(profile)),
+        env,
+        loop_breakdown_cap: profile.loop_breakdown_cap,
+        vu_offset,
+        // N independent bindings: field 10 (data_bindings) when present, else the
+        // legacy field-5 binding as a 1-element list. 로딩은 호출부
+        // (`execute_assignment`)가 하고 여기엔 결과만 전달된다.
+        data_bindings,
+        // proto default 0 (absent field from an old controller) → fall back to 30s
+        // so the byte-identical invariant holds; current controllers send 1..=600.
+        http_timeout: Duration::from_secs(u64::from(if profile.http_timeout_seconds == 0 {
+            30
+        } else {
+            profile.http_timeout_seconds
+        })),
+        think_time: profile.think_time.map(|t| handicap_engine::ThinkTime {
+            min_ms: t.min_ms,
+            max_ms: t.max_ms,
+        }),
+        think_seed: profile.think_seed,
+        // Open-loop: proto optional uint32 → Option<u32>. Some(rps) selects the
+        // open-loop execution path in the caller; None → closed-loop run_scenario.
+        target_rps: profile.target_rps,
+        max_in_flight: profile.max_in_flight,
+        // S-D: map proto stages to engine Stage structs; empty → None (closed/fixed path).
+        stages: if profile.stages.is_empty() {
+            None
+        } else {
+            Some(
+                profile
+                    .stages
+                    .iter()
+                    .map(|s| handicap_engine::Stage {
+                        target: s.target,
+                        duration_seconds: s.duration_seconds,
+                    })
+                    .collect(),
+            )
+        },
+        measure_phases: profile.measure_phases,
+        // VU-curve: map proto vu_stages → engine Stage vec; empty → None (closed/flat path).
+        vu_stages: if profile.vu_stages.is_empty() {
+            None
+        } else {
+            Some(
+                profile
+                    .vu_stages
+                    .iter()
+                    .map(|s| handicap_engine::Stage {
+                        target: s.target,
+                        duration_seconds: s.duration_seconds,
+                    })
+                    .collect(),
+            )
+        },
+        ramp_down: if profile.ramp_down_immediate {
+            RampDown::Immediate
+        } else {
+            RampDown::Graceful
+        },
+        // §B9: graceful ramp-down 상한(초) → Duration. 부재 = 무상한.
+        graceful_ramp_down: proto_graceful_ramp_down(profile),
+        // E3: connect 단계 전용 타임아웃. 부재/0 = None = 빌더 호출 없음(byte-identical).
+        connect_timeout: proto_connect_timeout(profile),
+    }
 }
 
 /// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
@@ -1012,5 +1029,226 @@ mod tests {
             (out[1].step_id.as_str(), out[1].kind.as_str(), out[1].count),
             ("s2", "local_port_exhaustion", 1)
         );
+    }
+
+    /// C1 sentinel `pb::Profile` — Task 1의 컨트롤러 픽스처가 만들어내는 것과
+    /// 같은 값들. 필드마다 다르다.
+    ///
+    /// ⚠ `..Default::default()` 금지 — 15필드 전부 명시하는 것이 목적이다
+    /// (proto 필드 추가 시 여기서 컴파일 에러가 나야 한다).
+    ///
+    /// ⚠ `target_rps` + `stages` + `vu_stages`를 **동시에** 채운 것은 **의도**다.
+    /// 실제 run에선 `validate_run_config`가 거부하는 조합이지만, 순수 매핑
+    /// 함수는 검증을 하지 않고, 세 필드를 모두 채워야 같은-타입 이웃 전치
+    /// 판별력이 최대가 된다. "잘못된 픽스처"로 보고 고치지 말 것.
+    fn c1_pb_profile() -> pb::Profile {
+        pb::Profile {
+            vus: 11,
+            ramp_up_seconds: 22,
+            duration_seconds: 33,
+            loop_breakdown_cap: 44,
+            http_timeout_seconds: 55,
+            think_time: Some(pb::ThinkTime {
+                min_ms: 66,
+                max_ms: 77,
+            }),
+            think_seed: Some(88),
+            target_rps: Some(99),
+            max_in_flight: Some(111),
+            stages: vec![pb::Stage {
+                target: 122,
+                duration_seconds: 133,
+            }],
+            measure_phases: true,
+            // 원소 2개 필수 — 파생 duration(합=332)이 자기 구성요소와
+            // 겹치지 않아야 sentinel 유일성이 유지된다.
+            vu_stages: vec![
+                pb::Stage {
+                    target: 144,
+                    duration_seconds: 155,
+                },
+                pb::Stage {
+                    target: 166,
+                    duration_seconds: 177,
+                },
+            ],
+            ramp_down_immediate: false,
+            graceful_ramp_down_seconds: Some(188),
+            connect_timeout_seconds: Some(199),
+        }
+    }
+
+    fn c1_dataset() -> Arc<DataSet> {
+        Arc::new(DataSet {
+            policy: BindingPolicy::PerVu,
+            seed: 255,
+            rows: vec![BTreeMap::from([("k".to_string(), "v".to_string())])],
+        })
+    }
+
+    /// C1(워커): 전 필드 sentinel.
+    ///
+    /// `..` 없는 **전 필드 구조분해**가 핵심 장치다 — `RunPlan`에 필드가
+    /// 추가되면 이 패턴이 컴파일 에러를 낸다. (`RunPlan`은 `PartialEq`를
+    /// 파생하지 않고, `Vec<Arc<DataSet>>` 때문에 파생시키려면 엔진
+    /// 프로덕션 타입까지 손대야 하므로 통째 비교 대신 이 방식을 쓴다.)
+    /// 구조분해한 바인딩은 **전부 단언**한다 — 안 하면 `unused_variables`가
+    /// `-D warnings`(게이트가 `--all-targets`)로 실패한다.
+    #[test]
+    fn c1_worker_all_fields_map_to_distinct_sentinels() {
+        let env = BTreeMap::from([("E".to_string(), "1".to_string())]);
+        let ds = c1_dataset();
+        let plan = to_run_plan(
+            &c1_pb_profile(),
+            233,
+            244,
+            env.clone(),
+            vec![Arc::clone(&ds)],
+        );
+
+        let RunPlan {
+            vus,
+            ramp_up,
+            duration,
+            env: plan_env,
+            loop_breakdown_cap,
+            vu_offset,
+            data_bindings,
+            http_timeout,
+            think_time,
+            think_seed,
+            target_rps,
+            max_in_flight,
+            stages,
+            measure_phases,
+            vu_stages,
+            ramp_down,
+            graceful_ramp_down,
+            connect_timeout,
+        } = plan;
+
+        assert_eq!(vus, 233, "vus는 assignment.vu_count에서 온다");
+        assert_eq!(vu_offset, 244, "vu_offset");
+        assert_eq!(ramp_up, Duration::from_secs(22), "ramp_up");
+        // 파생값: run_duration_secs가 vu_stages 우선 → 155 + 177 = 332.
+        // (입력 duration_seconds=33이 아니다.)
+        assert_eq!(duration, Duration::from_secs(332), "duration(vu_stages 합)");
+        assert_eq!(plan_env, env, "env");
+        assert_eq!(loop_breakdown_cap, 44, "loop_breakdown_cap");
+        assert_eq!(data_bindings.len(), 1, "data_bindings.len");
+        assert!(
+            Arc::ptr_eq(&data_bindings[0], &ds),
+            "data_bindings는 같은 Arc를 그대로 전달해야 한다"
+        );
+        assert_eq!(http_timeout, Duration::from_secs(55), "http_timeout");
+        assert_eq!(
+            think_time.map(|t| (t.min_ms, t.max_ms)),
+            Some((66, 77)),
+            "think_time"
+        );
+        assert_eq!(think_seed, Some(88), "think_seed");
+        assert_eq!(target_rps, Some(99), "target_rps");
+        assert_eq!(max_in_flight, Some(111), "max_in_flight");
+        assert_eq!(
+            stages.map(|v| v
+                .iter()
+                .map(|s| (s.target, s.duration_seconds))
+                .collect::<Vec<_>>()),
+            Some(vec![(122, 133)]),
+            "stages"
+        );
+        assert!(measure_phases, "measure_phases");
+        assert_eq!(
+            vu_stages.map(|v| v
+                .iter()
+                .map(|s| (s.target, s.duration_seconds))
+                .collect::<Vec<_>>()),
+            Some(vec![(144, 155), (166, 177)]),
+            "vu_stages"
+        );
+        assert_eq!(ramp_down, RampDown::Graceful, "ramp_down");
+        assert_eq!(
+            graceful_ramp_down,
+            Some(Duration::from_secs(188)),
+            "graceful_ramp_down"
+        );
+        assert_eq!(
+            connect_timeout,
+            Some(Duration::from_secs(199)),
+            "connect_timeout"
+        );
+    }
+
+    /// C2(워커): 전부 부재/기본.
+    ///
+    /// ⚠ 기대값이 입력의 직역이 **아니다**: `http_timeout_seconds = 0`은
+    /// 0-폴백으로 **30초**가 되고(`Duration::ZERO`를 기대하면 엉뚱한 이유로
+    /// RED), 모든 stage 리스트가 비어 `duration`은 `duration_seconds`로
+    /// 폴백하며, `ramp_down_immediate=false` → `Graceful`이다.
+    #[test]
+    fn c2_worker_absent_and_defaults() {
+        let p = pb::Profile {
+            vus: 0,
+            ramp_up_seconds: 0,
+            duration_seconds: 7,
+            loop_breakdown_cap: 0,
+            http_timeout_seconds: 0,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: vec![],
+            measure_phases: false,
+            vu_stages: vec![],
+            ramp_down_immediate: false,
+            graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
+        };
+        let plan = to_run_plan(&p, 0, 0, BTreeMap::new(), vec![]);
+
+        assert_eq!(plan.stages, None, "빈 stages → None");
+        assert_eq!(plan.vu_stages, None, "빈 vu_stages → None");
+        assert_eq!(plan.think_time, None, "think_time");
+        assert_eq!(plan.think_seed, None, "think_seed");
+        assert_eq!(plan.target_rps, None, "target_rps");
+        assert_eq!(plan.max_in_flight, None, "max_in_flight");
+        assert_eq!(plan.graceful_ramp_down, None, "graceful_ramp_down");
+        assert_eq!(plan.connect_timeout, None, "connect_timeout");
+        assert!(!plan.measure_phases, "measure_phases");
+        assert_eq!(plan.ramp_down, RampDown::Graceful, "ramp_down");
+        assert_eq!(plan.duration, Duration::from_secs(7), "duration은 폴백");
+        assert!(plan.data_bindings.is_empty(), "data_bindings");
+        // 0-폴백. C4와 중복이지만 spec §4.2가 명시적으로 요구한다 — 이 단언이
+        // 없으면 위 ⚠ 주석이 존재하지 않는 커버리지를 사칭한다.
+        assert_eq!(
+            plan.http_timeout,
+            Duration::from_secs(30),
+            "http_timeout 0-폴백"
+        );
+    }
+
+    /// C3(워커): `bool` 2상태 → `RampDown`.
+    ///
+    /// **이 케이스가 없으면 `ramp_down: RampDown::Graceful` 하드코딩 회귀가
+    /// 전 케이스를 통과한다** — C1·C2가 둘 다 `false`쪽이기 때문이다.
+    /// 이 슬라이스가 겨냥하는 placeholder 실패 모드 그 자체다(R6).
+    #[test]
+    fn c3_worker_ramp_down_immediate_maps_to_immediate() {
+        let mut p = c1_pb_profile();
+        p.ramp_down_immediate = true;
+        let plan = to_run_plan(&p, 1, 0, BTreeMap::new(), vec![]);
+        assert_eq!(plan.ramp_down, RampDown::Immediate, "true → Immediate");
+        // 다른 bool이 이 자리를 대신 채우고 있지 않은지 교차 확인.
+        assert!(plan.measure_phases, "measure_phases는 여전히 true");
+    }
+
+    /// C4: `http_timeout_seconds == 0` → 30초 폴백(옛 컨트롤러 호환).
+    /// `!= 0` 경로는 C1(55초)이 덮는다.
+    #[test]
+    fn c4_worker_http_timeout_zero_falls_back_to_30s() {
+        let mut p = c1_pb_profile();
+        p.http_timeout_seconds = 0;
+        let plan = to_run_plan(&p, 1, 0, BTreeMap::new(), vec![]);
+        assert_eq!(plan.http_timeout, Duration::from_secs(30));
     }
 }
