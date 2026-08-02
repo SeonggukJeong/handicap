@@ -738,47 +738,7 @@ pub(crate) async fn spawn_run(
     // Enqueue the assignment so the coordinator can hand shards to N workers.
     let assignment = crate::grpc::coordinator::PendingAssignment {
         scenario_yaml: worker_yaml,
-        profile: handicap_proto::v1::Profile {
-            vus: profile.vus,
-            ramp_up_seconds: profile.ramp_up_seconds,
-            duration_seconds: profile.duration_seconds,
-            loop_breakdown_cap: profile.loop_breakdown_cap,
-            http_timeout_seconds: profile.http_timeout_seconds,
-            think_time: profile.think_time.map(|t| handicap_proto::v1::ThinkTime {
-                min_ms: t.min_ms,
-                max_ms: t.max_ms,
-            }),
-            think_seed: profile.think_seed,
-            target_rps: profile.target_rps,
-            max_in_flight: profile.max_in_flight,
-            stages: profile
-                .stages
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|s| handicap_proto::v1::Stage {
-                    target: s.target,
-                    duration_seconds: s.duration_seconds,
-                })
-                .collect(),
-            measure_phases: profile.measure_phases,
-            vu_stages: profile
-                .vu_stages
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(|s| handicap_proto::v1::Stage {
-                    target: s.target,
-                    duration_seconds: s.duration_seconds,
-                })
-                .collect(),
-            ramp_down_immediate: matches!(
-                profile.ramp_down,
-                Some(handicap_engine::RampDown::Immediate)
-            ),
-            graceful_ramp_down_seconds: profile.graceful_ramp_down_seconds,
-            connect_timeout_seconds: profile.connect_timeout_seconds,
-        },
+        profile: crate::grpc::profile::to_proto_profile(profile),
         env: env.clone(),
         data_bindings,
     };
