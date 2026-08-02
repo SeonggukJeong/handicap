@@ -156,6 +156,7 @@ message Profile {
   repeated Stage vu_stages = 12;       // closed-loop VU curve; target = VU count (not RPS); empty = absent (spec §3.1)
   bool ramp_down_immediate = 13;       // VU-curve ramp-down: false = graceful (default)
   optional uint32 graceful_ramp_down_seconds = 14;  // VU-curve graceful ramp-down 상한(초); 부재 = 무상한
+  optional uint32 connect_timeout_seconds = 15;  // E3: connect 단계 전용 타임아웃(초); 부재 = 미설정
 }
 
 message AbortRun {

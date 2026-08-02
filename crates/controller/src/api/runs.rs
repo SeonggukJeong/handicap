@@ -763,6 +763,9 @@ pub(crate) async fn spawn_run(
                 Some(handicap_engine::RampDown::Immediate)
             ),
             graceful_ramp_down_seconds: profile.graceful_ramp_down_seconds,
+            // E3 Task 2: 컨트롤러 내부 Profile 모델엔 아직 connect_timeout 필드가
+            // 없다(Task 3이 추가 + 여기서 매핑) — 지금은 None(구 컨트롤러와 byte-identical).
+            connect_timeout_seconds: None,
         },
         env: env.clone(),
         data_bindings,

@@ -229,6 +229,7 @@ async fn execute_assignment(
     let is_open_loop = proto_is_open_loop(&profile);
     let is_vu_curve = proto_is_vu_curve(&profile);
     let graceful_ramp_down = proto_graceful_ramp_down(&profile);
+    let connect_timeout = proto_connect_timeout(&profile);
 
     let plan = RunPlan {
         vus: assignment.vu_count,
@@ -295,10 +296,8 @@ async fn execute_assignment(
         // §B9: mapped via proto_graceful_ramp_down(&profile) above the literal —
         // same partial-move constraint as is_open_loop/is_vu_curve.
         graceful_ramp_down,
-        // TODO(E3 Task 2): temporary placeholder to keep the workspace compiling —
-        // Task 2 replaces this with the real proto mapping (connect_timeout_seconds).
-        // This is NOT final behavior.
-        connect_timeout: None,
+        // E3: connect 단계 전용 타임아웃. 부재/0 = None = 빌더 호출 없음(byte-identical).
+        connect_timeout,
     };
     info!(
         vus = plan.vus,
@@ -631,6 +630,15 @@ fn proto_graceful_ramp_down(p: &pb::Profile) -> Option<Duration> {
         .map(|s| Duration::from_secs(u64::from(s)))
 }
 
+/// E3: proto `optional uint32`(초) → 엔진 `Option<Duration>`. 부재 = 미설정.
+/// `Some(0)`은 `None`으로 접는다 — reqwest는 0을 즉시-실패 타임아웃으로 설치하므로
+/// 신뢰 경계에서 막는다(`http_timeout_seconds == 0 → 30` 방어와 같은 이유).
+fn proto_connect_timeout(p: &pb::Profile) -> Option<std::time::Duration> {
+    p.connect_timeout_seconds
+        .filter(|s| *s > 0)
+        .map(|s| std::time::Duration::from_secs(u64::from(s)))
+}
+
 /// send-실패 분류 delta counts (E1): engine `ErrorKindStat` → proto wire
 /// (`kind` becomes the 8-way lowercase_snake string via `ErrorKind::as_str()`).
 fn error_kind_stats_to_proto(stats: Vec<handicap_engine::ErrorKindStat>) -> Vec<ErrorKindStat> {
@@ -897,6 +905,46 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(proto_graceful_ramp_down(&p_absent), None);
+    }
+
+    #[test]
+    fn connect_timeout_maps_seconds_to_duration() {
+        // E3: proto optional uint32 → Option<Duration> 직결.
+        let p = pb::Profile {
+            duration_seconds: 10,
+            http_timeout_seconds: 30,
+            connect_timeout_seconds: Some(3),
+            ..Default::default()
+        };
+        assert_eq!(
+            proto_connect_timeout(&p),
+            Some(std::time::Duration::from_secs(3))
+        );
+    }
+
+    #[test]
+    fn connect_timeout_absent_maps_to_none() {
+        // 구 컨트롤러(필드 부재) → None → 빌더 호출 없음(byte-identical).
+        let p = pb::Profile {
+            duration_seconds: 10,
+            http_timeout_seconds: 30,
+            ..Default::default()
+        };
+        assert_eq!(proto_connect_timeout(&p), None);
+    }
+
+    #[test]
+    fn connect_timeout_zero_maps_to_none() {
+        // Some(0)을 그대로 넘기면 reqwest가 "즉시 실패" 타임아웃을 설치해 모든 요청이
+        // 깨진다. 컨트롤러가 0을 거부하지만 워커가 신뢰 경계 —
+        // http_timeout_seconds==0 → 30 방어(lib.rs:243-249)와 같은 자리.
+        let p = pb::Profile {
+            duration_seconds: 10,
+            http_timeout_seconds: 30,
+            connect_timeout_seconds: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(proto_connect_timeout(&p), None);
     }
 
     #[tokio::test]

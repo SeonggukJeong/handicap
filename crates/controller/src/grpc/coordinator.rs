@@ -1930,6 +1930,7 @@ mod tests {
                 vu_stages: vec![],
                 ramp_down_immediate: false,
                 graceful_ramp_down_seconds: None,
+                connect_timeout_seconds: None,
             },
             env: HashMap::new(),
             data_bindings: vec![],
