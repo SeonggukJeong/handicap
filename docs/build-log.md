@@ -674,4 +674,47 @@ opt-in `connect_timeout_seconds` 하나를 UI 입력 → Zod → `store::Profile
 
 **라이브 검증(US 스파인, 전용 포트 8099/8098 — 8080은 사용자 소유 PID라 비접촉)**: **US3 PROVEN** — 노브 ON(ct=2·http=10·20s)이 `connect_timeout` **10건, `timeout` 행 부재**. **US3-대조 PROVEN** — 노브 미설정(http=5·20s)이 `timeout` **4건, `connect_timeout` 부재**. 건수까지 기계적으로 갈린다(20÷2=10 vs 20÷5=4)는 점이 핵심: 매핑이 `None`을 실었다면 ON도 4건 `timeout`이었다. **두 영속 확인(`GET /api/runs/{id}`·`report.run.profile`)은 같은 DB 행이라 이 판별을 못 한다 — 오직 kind 결과만이 와이어를 증명한다**(리뷰 I1). 검증 400×3(경계·0·601) 정확 문구, 회귀(정상 responder·think 50ms로 ~9 rps — E2 포트고갈 교훈) `error_kinds` 키 부재 + `connect_timeout_seconds` **문자 그대로 부재**(null 아님 ⇒ `skip_serializing_if`↔Zod `.optional()` 계약 라이브 확인). **리뷰어가 소스로 유도만 해둔 미측정 조합 `measure_phases:true` + 노브도 실측** → `connect_timeout` 6건(`other` 아님)으로 tower `TimeoutLayer` 경로 확정. **UI 왕복**: ct=30(=기본 http 30)에서 `aria-invalid`·`aria-describedby`→에러 노드·**제출 버튼 disabled**, ct=2에서 해제, 제출 후 영속=2, 빈칸 제출은 키 부재, **콘솔 에러 0**. **배선 ⑥ 라이브 증명** — 그룹을 접으면 형제 span "1개 설정됨"이 뜨고 **입력은 DOM에서 사라진다**(`inputStillInDom:false`) ⇒ ⑥이 없으면 설정값이 보이지 않는 채 제출된다. Playwright는 **exact 매칭**으로 조회(필드 라벨이 E1 kind 라벨의 진부분집합이라 substring 기본값이 오탐).
 
-**연기(build-log 기록)**: store→proto 매핑 무테스트(~17필드 전반 — `fn to_proto_profile(&Profile) -> pb::Profile` 추출이 기계적 해법이나 5라운드 리뷰된 plan 밖 프로덕션 리팩터라 **이번 슬라이스에서 기각**) · 엔진 테스트는 `None` 방향만 가드(curve/open에 `Some(x)` 하드코딩은 통과 — 단 인자 4종이 서로 다른 타입이라 위치 전치는 컴파일 불가) · RunDialog `canSubmit` 4-arm 중 1개만 실행 커버 · ScheduleForm은 저장된 값을 **지울 UI 경로가 없다**(입력 미제공이 spec §2 연기라 API가 유일 탈출구) · 적용된 값의 사후 UI 노출 없음(`RunDetailPage`가 profile 필드를 열거식으로 렌더).
+**연기(build-log 기록)**: store→proto 매핑 무테스트(실제 15필드 — `fn to_proto_profile(&Profile) -> pb::Profile` 추출이 기계적 해법이나 5라운드 리뷰된 plan 밖 프로덕션 리팩터라 **이번 슬라이스에서 기각**; **2026-08-02 store-proto-mapping 슬라이스가 해소**) · 엔진 테스트는 `None` 방향만 가드(curve/open에 `Some(x)` 하드코딩은 통과 — 단 인자 4종이 서로 다른 타입이라 위치 전치는 컴파일 불가) · RunDialog `canSubmit` 4-arm 중 1개만 실행 커버 · ScheduleForm은 저장된 값을 **지울 UI 경로가 없다**(입력 미제공이 spec §2 연기라 API가 유일 탈출구) · 적용된 값의 사후 UI 노출 없음(`RunDetailPage`가 profile 필드를 열거식으로 렌더).
+
+## store-proto-mapping — store::Profile→pb::Profile / pb::Profile→RunPlan 매핑 순수함수 추출 + 회귀 가드 (2026-08-02, task 커밋 `710e2135`..`7f7c3151`, 머지 예정 — `/finish-slice`는 이 단락에 이어 쓸 것)
+
+E3(`connect_timeout` 노브)가 남긴 연기 항목 — `api/runs.rs`의 `PendingAssignment` 리터럴 안에 인라인이라 ~17필드 중 어느 것도 테스트가 없던 `store::Profile → pb::Profile` 매핑 — 을 해소한다. Task 1이 컨트롤러 쪽을 `grpc/profile.rs::to_proto_profile(&Profile) -> pb::Profile` 순수함수로, Task 2가 워커 쪽을 대칭으로 `worker/src/lib.rs::to_run_plan`으로 추출했다(둘 다 표현식 이동뿐 — 새 분기·새 값·새 호출 0, 프로덕션 거동 byte-identical). 두 픽스처(`store::Profile` 20필드 / `pb::Profile` 15필드)는 `..Default::default()` 없이 전 필드를 sentinel로 명시해, 향후 필드 추가가 컴파일 에러로 "와이어까지 가야 하나"를 강제 판단시킨다(Task 3 R7·R8이 이 강제력 자체를 실증). Task 3은 커밋 없는 이빨 실증 단계로 R1~R9(10건, 아래 표)를 전부 고의 회귀→RED→원복→GREEN으로 관측했다.
+
+**연기(build-log 기록, spec §2.2)**: 같은 `spawn_run` 블록의 **데이터바인딩 매핑**
+(`PendingDataBinding` 생성 + `slot_count` 3분기: `vu_curve_max` / `max_in_flight` /
+`vus`)은 여전히 무테스트다 — 관심사가 다르고(데이터셋 행 배분 ≠ 부하 노브 배선)
+이번 슬라이스에서 의도적으로 제외했다. 생성 사이트는 `api/runs.rs`의 그 블록
+하나뿐이고 전용 테스트 0건. · **크로스-크레이트 라운드트립 단위 테스트**는
+기술적으로 가능하나(`controller/Cargo.toml`이 이미 `handicap-worker`를 optional
+의존) 채택하지 않았다 — prost가 양쪽에 같은 이름 필드를 생성해 번역 층이 없고,
+진짜 잔여 위험인 "같은 작성자가 양쪽 기대값을 쓴다"는 편향을 라운드트립도 못
+줄이며, e2e가 이미 더 강한 링크다. · **`vu_count`/`vu_offset` 호출부 위치 전치**는
+새 단위 테스트가 원리적으로 못 잡는다(함수를 직접 호출하므로) — 기존 e2e가 커버한다:
+closed-loop은 `plan.vus=0`이 되어 VU가 0개(요청 0건)가 되고, open-loop
+`multi_worker_fanout_e2e.rs:531-539`는 **두 워커의 `vu_offset`이 모두 10**이 되어
+`vu<10` 요청이 사라진다(open-loop 경로는 `plan.vus`를 쓰지 않는다 — 슬롯풀은
+`max_in_flight`, vu id는 `vu_offset + slot`, `engine/src/runner.rs:1427`).
+
+**라이브 검증 생략 근거(spec §6.1)**: 이 슬라이스는 `spawn_run`(run-생성 경로)과
+`execute_assignment`(엔진 경로) **프로덕션 코드를 바꾸므로** 파이프라인 5단계의
+"production diff 0" 면제 조항이 문자 그대로는 적용되지 않는다. 그럼에도 생략한
+근거 = ① 변경의 성질이 표현식 이동뿐(새 분기·새 값·새 호출 0) ② 실 워커
+바이너리를 spawn하는 e2e 6개 파일이 정규 게이트에서 그 두 경로를 관통하므로
+추출이 결선을 깨면 **라이브보다 먼저 실패한다** ③ 결선 자체는 리전 스코프 grep
+게이트(§5)가 기계 검증한다. (이빨 실증은 결선의 근거가 **아니다** — 함수 내용만
+증명한다.)
+
+**이빨 실증 R1~R9 결과 표** (Task 3, 커밋 없음 — 모든 회귀는 편집 즉시 원복):
+
+| R# | 홉 | 고의 회귀 | 관측 결과 |
+|---|---|---|---|
+| R1 | ③ E3 재현 | `connect_timeout_seconds: p.connect_timeout_seconds` → `None` 하드코딩 | `cargo test -p handicap-controller --lib grpc::profile` → 2 FAILED(`c1_all_fields_map_to_distinct_sentinels`, `c1_per_field_assertions_name_the_field: connect_timeout_seconds left=None right=Some(199)`); 원복 후 4 passed |
+| R2 | ① target_rps/max_in_flight | `target_rps`↔`max_in_flight` 소스 전치(컴파일 통과) | 2 FAILED(`c1_per_field_assertions_name_the_field: target_rps left=Some(111) right=Some(99)`); 원복 후 4 passed |
+| R3a | ① stages/vu_stages(컨트롤러) | `to_proto_profile`의 `stages`↔`vu_stages` 소스 전치 | 2 FAILED(`stages.len left=2 right=1`); 원복 후 4 passed |
+| R3b | ② stages/vu_stages(워커) | `to_run_plan`의 `stages`↔`vu_stages` 소스 전치 | `cargo test -p handicap-worker --lib c1_worker` → 1 FAILED(`stages left=Some([(144,155),(166,177)]) right=Some([(122,133)])`); 원복 후 1 passed |
+| R4 | ① bool 이웃(measure_phases) | `measure_phases: p.measure_phases` → `p.apply_scenario_think_time` | 3 FAILED(C1·C2 양방향 모두 잡힘, `panicked … measure_phases`); 원복 후 4 passed |
+| R5 | ② http_timeout 0-폴백 | 0-폴백 분기 삭제(단순 직결) | `cargo test -p handicap-worker --lib c4_worker` → 1 FAILED(`left=0ns right=30s`); 원복 후 1 passed |
+| R6 | ② ramp_down | `ramp_down` 전체를 `RampDown::Graceful` 하드코딩 | `cargo test -p handicap-worker --lib c3_worker` → 1 FAILED(`true → Immediate: left=Graceful right=Immediate`); 원복 후 1 passed |
+| R7 | ① 강제력(store::Profile) | `store::Profile`에 `dummy_teeth_probe: bool` 추가 | `--no-run` grep 카운트 = **2**(≥2 충족) — `profile.rs:77`(c1_profile)·`profile.rs:222`(c2 fixture); 원복 후 `--no-run` 성공 |
+| R8 | ② 강제력(proto Profile) | `.proto Profile`에 `dummy_teeth_probe = 16` 추가 | 컨트롤러 grep 카운트 = **3**(≥3 충족, 프로덕션 1+C1 기대 1+C2 기대 1) / 워커 grep 카운트 = **2**(≥1 충족, 두 픽스처); 원복 후 양쪽 `--no-run` 성공 |
+| R9 | ③ 강제력(RunPlan) | `engine::RunPlan`에 `dummy_teeth_probe: bool` 추가 | `grep -c 'E0027'` = **3**(≥1 충족; 실제 진단 1건 `lib.rs:1109` 전필드 구조분해 + 요약줄 2건, 프로덕션 리터럴은 별도 E0063); 원복 후 `--no-run` 성공 |
