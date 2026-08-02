@@ -32,16 +32,16 @@ E3(connect_timeout) 슬라이스에서 이 갭이 발화 직전까지 갔다: T1
 
 ### 1.1 오늘 이 두 홉을 지키는 것 (정확히)
 
-"라이브 검증뿐"이 아니다. 자동 커버가 **부분적으로** 존재한다. 실제 워커 바이너리를 빌드·spawn하는 컨트롤러 테스트는 **6개 파일**이다(`e2e_test.rs` · `pool_e2e.rs` · `pool_capacity_guard_test.rs` · `multi_worker_fanout_e2e.rs` · `pool_vu_curve_capacity_test.rs` · `pool_open_loop_capacity_test.rs` — 전부 `#[ignore]` 0건이라 **정규 게이트에서 돈다**).
+"라이브 검증뿐"이 아니다. 자동 커버가 **부분적으로** 존재한다. 실제 워커 바이너리를 빌드·spawn하는 컨트롤러 테스트는 **6개 파일**이다(`e2e_test.rs` · `pool_e2e.rs` · `pool_capacity_guard_test.rs` · `multi_worker_fanout_e2e.rs` · `pool_vu_curve_capacity_test.rs` · `pool_open_loop_capacity_test.rs` — 전부 `#[ignore]` 0건이라 **정규 게이트에서 돈다**). 이들은 `POST /api/runs` → `spawn_run` → gRPC → `RunPlan` → 엔진 → wiremock을 관통한다(`full_slice_1_e2e:65`, `loop_breakdown_e2e:756` — `:747` 주석에 "RunDialog cap → profile → proto → engine Aggregator" 명시).
 
-| 커버 등급 | 필드 | 근거 |
-|---|---|---|
-| **값 단언 있음** | `duration_seconds` · `loop_breakdown_cap` (+`env`) | `e2e_test.rs`가 `POST /api/runs` → `spawn_run` → gRPC → `RunPlan` → 엔진 → wiremock을 관통(`full_slice_1_e2e:65`, `two_step_with_env_e2e:229`, `loop_breakdown_e2e:756` — `:747` 주석에 "RunDialog cap → profile → proto → engine Aggregator" 명시) |
-| **거동 단언만**(값 단언 없음) | `target_rps` · `max_in_flight` · `vu_stages` | `multi_worker_fanout_e2e.rs:490`이 `{target_rps:200, max_in_flight:20, worker_count:2}`로 실 run을 돌려 vu 0–9/10–19 분할 도달 + 리포트 count≈wiremock count를 단언(`:517–556`) — 와이어로 안 가면 깨진다. `pool_vu_curve_capacity_test.rs:237,333,416,471`이 `vu_stages` 페이로드로 실 run |
-| **커버 0** | `ramp_up_seconds` · `http_timeout_seconds` · `think_time` · `think_seed` · `stages` · `measure_phases` · `ramp_down_immediate` · `graceful_ramp_down_seconds` · `connect_timeout_seconds` (**9개**) | — |
-| **프로덕션 리더 0개**(write-only 와이어 필드) | `vus` | `pb::Profile.vus`를 읽는 프로덕션 코드가 없다(직접 확인): 워커는 `RunPlan.vus = assignment.vu_count`(`lib.rs:235`)만 쓰고, `coordinator.rs`의 `.vus` 히트 0건, `vu_count`는 `shard_split(rw.total_vus, …)`(`coordinator.rs:761–763`)에서 오며 `total_vus`는 **store** 프로필로 계산된다(`runs.rs:800–806`). 아무도 안 읽으므로 e2e가 관측할 수 없다 |
+**그러나 어떤 e2e도 Profile 필드의 *값*을 단언하지 않는다.** 전부 거동 단언이고, 대부분 전치에 둔감하다:
 
-**이 슬라이스가 겨냥하는 집합 = 13**(커버 0인 9개 + 거동 단언만인 3개 + `vus`). `vus`는 오늘 리더가 없지만 C1이 핀하는 게 옳다 — 미래에 리더가 생겼을 때의 가드다.
+- `loop_breakdown_e2e`는 `loop_breakdown_cap: 256`을 보내지만(`:846`) 단언은 "overflow 버킷 없음(repeat=3 < cap)"(`:947–954`)이라 **cap이 30으로 전치돼도 통과**한다.
+- 가장 날카로운 것도 값이 아니라 존재 단언이다 — `phase_breakdown_report_e2e_smoke`(`:2489`)가 `measure_phases: true`(`:2584`)로 run을 만들고 `steps[0].download`의 **존재**를 단언한다(`:2651`).
+- 페이로드에 아예 등장하지 않는 필드도 있다(테스트 디렉토리 전수 키 grep): `http_timeout_seconds` · `think_time` · `think_seed` · `graceful_ramp_down_seconds` · `connect_timeout_seconds` **0건**. `ramp_up_seconds`는 등장하지만 값이 전부 `0`(기본값)이라 판별력이 없다.
+- `vus`는 특수하다 — **`pb::Profile.vus`를 읽는 프로덕션 코드가 아예 없다**(직접 확인: 워커는 `RunPlan.vus = assignment.vu_count`(`lib.rs:235`)만 쓰고, `coordinator.rs`의 `.vus` 히트 0건, `vu_count`는 `shard_split(rw.total_vus, …)`(`coordinator.rs:761–763`)에서 오며 `total_vus`는 **store** 프로필로 계산된다(`runs.rs:800–806`)). 오늘은 write-only 와이어 필드라 e2e가 관측할 수 없다.
+
+→ **이 슬라이스의 겨냥 집합은 proto 15필드 전부다.** e2e 유무로 필드를 등급화해 범위를 좁히지 않는다(그 등급은 유지 비용만 크고, 어차피 값 단언이 0이라 겨냥 집합을 줄이지 못한다). e2e의 역할은 §6.1에서 **라이브 검증 생략 근거**로 쓰이는 것이다 — "추출이 두 경로를 깨뜨리면 게이트가 먼저 실패한다"는 결선 보증이지, 필드 값 보증이 아니다.
 
 ### 1.2 컴파일러가 이미 막는 것 / 막지 못하는 것
 
@@ -177,7 +177,8 @@ profile: crate::grpc::profile::to_proto_profile(profile),
 **C1 픽스처의 의미론** — `target_rps` + `stages` + `vu_stages`를 동시에 채우는 것은 실제 run에선 불가능한 조합이다(`validate_run_config`가 거부). 순수 매핑 함수는 검증을 하지 않으므로 무해하고, 전치 판별력을 최대화하려면 이 조합이 필요하다. spec/plan에 **의도임을 명시**한다.
 
 **C2 — 부재/기본 (변환 규칙의 반대 방향)**
-전부 `None`/빈 값 → `stages: vec![]`, `vu_stages: vec![]`, `think_time: None`, `ramp_down_immediate: false`, optional 전부 `None`. `stages: Some(vec![])`도 `vec![]`로 매핑됨을 확인한다(빈 Vec ≡ 부재 규약, `is_open_loop`/`is_vu_curve` 판별과 일관).
+- **컨트롤러**: 전부 `None`/빈 값 → `stages: vec![]`, `vu_stages: vec![]`, `think_time: None`, `ramp_down_immediate: false`, optional 전부 `None`. `stages: Some(vec![])`도 `vec![]`로 매핑됨을 확인한다(빈 Vec ≡ 부재 규약, `is_open_loop`/`is_vu_curve` 판별과 일관).
+- **워커** — ⚠ **기대값이 입력의 직역이 아니다**(C1과 같은 파생값 함정 클래스): `http_timeout_seconds = 0` → **`Duration::from_secs(30)`**(0-폴백, `lib.rs:246–250` — `Duration::ZERO`를 기대하면 엉뚱한 이유로 RED), `duration` → 모든 stage 리스트가 비어 `run_duration_secs`가 `duration_seconds`로 폴백, `ramp_down` → `Graceful`. C4와 0-폴백 단언이 겹치는데 중복이지 결함은 아니다.
 
 **C3 — `ramp_down` 상태 (양쪽 홉, 어휘가 다름)**
 - **컨트롤러** (`Option<RampDown>` 3상태 → `bool`): `None` → `false`, `Some(Graceful)` → `false`, `Some(Immediate)` → `true`. C2가 `None`을, C1이 `Some(Graceful)`을 덮으므로 `Some(Immediate)` 1건을 추가한다(§4.2 C1-4의 bool 판별도 겸한다).
@@ -193,9 +194,23 @@ profile: crate::grpc::profile::to_proto_profile(profile),
 ## 5. 완료 정의
 
 - `to_proto_profile` / `to_run_plan` 추출 완료, 두 인라인 리터럴 소멸, 호출부 각 1줄.
-- **결선 완료 grep 2종**(아래 §6.1 참조 — 이빨 실증은 결선을 증명하지 못한다):
-  - `grep -c 'v1::Profile {' crates/controller/src/api/runs.rs` = **0**
-  - `grep -n 'RunPlan {' crates/worker/src/lib.rs`가 `to_run_plan` 본문 **1곳만** (구현자가 리터럴을 *복사*해 함수를 만들고 인라인을 안 지우면 모든 테스트가 통과하면서 프로덕션엔 중복 코드가 남는다)
+- **결선 완료 게이트**(아래 §6.1 참조 — 이빨 실증은 결선을 증명하지 못한다). 구현자가 리터럴을 *복사*해 함수를 만들고 인라인을 안 지우면 모든 테스트가 통과하면서 프로덕션엔 중복 코드가 남으므로, **"리터럴 소멸" + "호출 존재"를 둘 다** 기계 검사한다.
+
+  ⚠ **파일 전역 카운트를 쓰지 말 것.** §4.1 ③의 구조분해 `let RunPlan { … } = plan;`이 `RunPlan {`에 매치되므로, 전역 `grep -c 'RunPlan {'`류는 슬라이스 후 값이 늘어 **구조적으로 통과 불가**다. 리전 스코프를 쓴다(아래 명령은 baseline에서 각각 `1`을 냄을 확인했다 — 추출 후 `0`이어야 한다):
+
+  ```bash
+  # ① 컨트롤러: 프로덕션 리전(첫 #[cfg(test)] 이전)에 Profile 리터럴 0건
+  #    — 'v1::Profile {'만 보면 'pb::Profile {' 철자로 우회된다(그 파일은 이미 pb를 씀, runs.rs:549)
+  awk '/^#\[cfg\(test\)\]/{exit} /(v1|pb)::Profile[[:space:]]*\{/{c++} END{print c+0}' \
+      crates/controller/src/api/runs.rs            # → 0
+  grep -c 'to_proto_profile(' crates/controller/src/api/runs.rs   # → 1 (호출 존재)
+
+  # ② 워커: execute_assignment 본문에 RunPlan 리터럴 0건
+  awk '/^async fn execute_assignment\(/{inside=1} inside && /^pub async fn run\(/{exit} \
+       inside && /RunPlan[[:space:]]*\{/{c++} END{print c+0}' \
+      crates/worker/src/lib.rs                     # → 0
+  grep -c 'to_run_plan(' crates/worker/src/lib.rs  # → ≥2 (정의 + execute_assignment 호출)
+  ```
 - C1~C4 통과(§4.2 케이스×홉 배정 표대로 — 워커측 `ramp_down_immediate=true` 포함), §4.1 ①②③ 3중 장치 전부 배치(② 필드별 단언 병행 포함).
 - `lib.rs:227–228` 스테일 주석 **삭제**.
 - `crates/controller/CLAUDE.md:178` 함정 항목을 **통째로 현황에 맞게 갱신** — 숫자 `~17`→`15`뿐 아니라 "어느 것도 테스트가 없다"·"기계적 해법이 필요해지면 `to_proto_profile` 추출이 …(E3에서는 의도적으로 기각)"이 전부 이 슬라이스 후 거짓이 된다. 갱신 후 내용 = 추출 완료·단위 테스트 존재·**잔여 위험은 작성자 편향**(§7). `docs/build-log.md:677`의 "~17필드"도 정정.
@@ -206,15 +221,16 @@ profile: crate::grpc::profile::to_proto_profile(profile),
 
 `docs/dev/subagent-dispatch.md`·[[plan-mandated-vacuous-tests]] 규율: **회귀 가드를 표방하는 테스트는 이빨을 실증해야 한다.** plan은 각 항목을 독립 스텝으로 명시하고, 각각 *고의 회귀 → RED 확인 → 원복 → GREEN 확인*을 실행한다.
 
-| # | 고의 회귀 | 겨냥 | 통과 신호 | US |
-|---|---|---|---|---|
-| R1 | `to_proto_profile`에서 `connect_timeout_seconds: None` 하드코딩 | E3 실제 사고 재현 | RED | US1 |
-| R2 | `target_rps` ↔ `max_in_flight` 전치 | `Option<u32>` 이웃 | RED | US3 |
-| R3 | `stages` ↔ `vu_stages` 전치 | `Vec<Stage>` 이웃 | RED | US3 |
-| R4 | `measure_phases: profile.apply_scenario_think_time`로 교체 | **bool 이웃**(C1+C3 조합 판별력) | RED | US3 |
-| R5 | 워커 `http_timeout` 0-폴백 제거(`profile.http_timeout_seconds` 직결) | C4 | RED | US1 |
-| R6 | 워커 `ramp_down: RampDown::Graceful` 하드코딩 | **워커측 placeholder** — C3 워커 케이스가 없으면 통과한다(§4.2 ⚠) | RED | US1 |
-| R7 | `store::Profile`에 더미 필드 1개 추가 | ①의 강제력 | **컴파일 에러가 `crates/controller/src/grpc/profile.rs`에서도 발생** | US2 |
+| # | 홉 | 고의 회귀 | 겨냥 | 통과 신호 | US |
+|---|---|---|---|---|---|
+| R1 | 컨트롤러 | `to_proto_profile`에서 `connect_timeout_seconds: None` 하드코딩 | E3 실제 사고 재현 | RED | US1 |
+| R2 | 컨트롤러 | `target_rps` ↔ `max_in_flight` 전치 | `Option<u32>` 이웃 | RED | US3 |
+| R3a | 컨트롤러 | `stages` ↔ `vu_stages` 전치 | `Vec<Stage>` 이웃 | RED | US3 |
+| R3b | **워커** | `stages` ↔ `vu_stages` 전치 | 워커측은 컨트롤러와 로직이 다르다 — `if profile.stages.is_empty() { None } else { Some(…) }` 분기(`lib.rs:261–290`). R3a만으로는 이 분기가 이빨 실증을 못 받는다 | RED | US3 |
+| R4 | 컨트롤러 | `measure_phases: profile.apply_scenario_think_time`로 교체 | **bool 이웃**(C1+C3 조합 판별력) | RED | US3 |
+| R5 | 워커 | `http_timeout` 0-폴백 제거(`profile.http_timeout_seconds` 직결) | C4 | RED | US1 |
+| R6 | 워커 | `ramp_down: RampDown::Graceful` 하드코딩 | **워커측 placeholder** — C3 워커 케이스가 없으면 통과한다(§4.2 ⚠) | RED | US1 |
+| R7 | 컨트롤러 | `store::Profile`에 더미 필드 1개 추가 | ①의 강제력 | **컴파일 에러가 `crates/controller/src/grpc/profile.rs`에서도 발생** | US2 |
 
 **R7의 통과 신호는 "컴파일 에러 발생"이 아니다.** `store::Profile`은 `Default`를 파생하지 않고 기존 픽스처 헬퍼들(`unique_profile`·`profile_with` 등)도 이미 exhaustive라, 더미 필드를 추가하면 **이 슬라이스가 없어도** 컴파일 에러가 난다. 따라서 R7은 에러가 **새 픽스처 파일에서도** 나는지로 좁혀 판정한다 — plan은 컴파일 에러 출력에서 `grpc/profile.rs`를 grep하는 명령을 명시할 것. (넓은 신호를 쓰면 [[plan-mandated-vacuous-tests]] 클래스의 공허한 실증이 된다.)
 
@@ -225,7 +241,7 @@ profile: crate::grpc::profile::to_proto_profile(profile),
 1. **변경의 성질이 표현식 이동뿐**이다 — 새 분기·새 값·새 호출이 없다(§3.3).
 2. **자동 e2e가 이미 그 두 경로를 관통한다**(§1.1) — 실 워커 바이너리를 spawn하는 6개 파일이 정규 게이트에서 `spawn_run` → gRPC → `RunPlan` → 엔진을 돌린다. 추출이 두 경로를 깨뜨리면 **이 e2e가 라이브 검증보다 먼저 실패한다**. 이것이 생략의 **주 근거**다.
 
-**이빨 실증(§6)은 결선의 근거가 아니다.** R1~R7은 추출된 함수에 회귀를 심고 *그 함수를 직접 호출하는* 단위 테스트가 RED가 되는지를 볼 뿐, `spawn_run`/`execute_assignment`가 그 함수를 **호출한다는 것**은 증명하지 않는다 — 구현자가 리터럴을 복사해 함수를 만들고 인라인을 지우지 않아도 R1~R7은 전부 정상 동작한다. 결선은 §5의 완료 grep 2종과 위 e2e가 담보한다.
+**이빨 실증(§6)은 결선의 근거가 아니다.** R1~R7(8건)은 추출된 함수에 회귀를 심고 *그 함수를 직접 호출하는* 단위 테스트가 RED가 되는지를 볼 뿐, `spawn_run`/`execute_assignment`가 그 함수를 **호출한다는 것**은 증명하지 않는다 — 구현자가 리터럴을 복사해 함수를 만들고 인라인을 지우지 않아도 R1~R7은 전부 정상 동작한다. 결선은 §5의 **결선 완료 게이트**(리전 스코프 리터럴 0건 + 호출 존재, 4개 명령)와 위 e2e가 담보한다.
 
 이 근거를 build-log에 그대로 남긴다.
 
