@@ -28,6 +28,7 @@ fn plan(measure_phases: bool) -> RunPlan {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     }
 }
 

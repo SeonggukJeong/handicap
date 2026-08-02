@@ -69,6 +69,7 @@ steps:
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();

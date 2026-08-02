@@ -69,6 +69,7 @@ steps:
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -143,6 +144,7 @@ steps:
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);
@@ -217,6 +219,7 @@ steps:
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
 
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(16);

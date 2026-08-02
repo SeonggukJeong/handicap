@@ -45,6 +45,7 @@ fn curve_plan(stages: Vec<Stage>, ramp_down: RampDown) -> RunPlan {
         vu_stages: Some(stages),
         ramp_down,
         graceful_ramp_down: None,
+        connect_timeout: None,
     }
 }
 

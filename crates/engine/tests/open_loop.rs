@@ -27,6 +27,7 @@ fn plan(target_rps: u32, max_in_flight: u32, secs: u64) -> RunPlan {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     }
 }
 
@@ -148,6 +149,7 @@ async fn open_loop_stages_curve_runs_and_drops_nothing_when_capacity_ample() {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
     let cancel = CancellationToken::new();
     let mut total: u64 = 0;

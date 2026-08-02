@@ -21,22 +21,32 @@ pub struct VuClient {
 }
 
 impl VuClient {
-    /// Back-compat constructor: 30s total request timeout, no phase instrumentation.
+    /// Back-compat constructor: 30s total request timeout, no phase instrumentation,
+    /// no separate connect timeout. trace/test-run 경로(`trace.rs:153,187`)가 이걸
+    /// 쓰므로 E3 노브는 그 경로에 자동으로 미적용된다(spec §2 Non-goal).
     pub fn new(cookie_mode: CookieJarMode) -> Result<Self> {
-        Self::with_timeout(cookie_mode, Duration::from_secs(30), false)
+        Self::with_timeout(cookie_mode, Duration::from_secs(30), false, None)
     }
 
     /// Build a client with an explicit total request timeout and optional phase
-    /// instrumentation. `run_vu`/`run_arrival`/`run_vu_curve` thread `RunPlan.http_timeout`
-    /// and `RunPlan.measure_phases`; `new` delegates here with the 30s default + off.
+    /// instrumentation. `run_vu`/`run_arrival`/`run_vu_curve` thread `RunPlan.http_timeout`,
+    /// `RunPlan.measure_phases`, `RunPlan.connect_timeout`; `new` delegates here with
+    /// the 30s default + off + None.
+    ///
+    /// `connect_timeout`이 `None`이면 `ClientBuilder::connect_timeout`을 **호출하지 않는다**
+    /// — 미설정 run의 byte-identical 불변식(spec §8).
     pub fn with_timeout(
         cookie_mode: CookieJarMode,
         timeout: Duration,
         measure_phases: bool,
+        connect_timeout: Option<Duration>,
     ) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
             .user_agent("handicap/0.1");
+        if let Some(ct) = connect_timeout {
+            builder = builder.connect_timeout(ct);
+        }
         if let CookieJarMode::Auto = cookie_mode {
             let jar = Arc::new(Jar::default());
             builder = builder.cookie_provider(jar);
@@ -1533,6 +1543,7 @@ mod tests {
             crate::scenario::CookieJarMode::Off,
             std::time::Duration::from_secs(30),
             true,
+            None,
         )
         .unwrap();
         let first = execute_step(&client, &step, &ctx).await.unwrap();
@@ -1550,6 +1561,7 @@ mod tests {
             crate::scenario::CookieJarMode::Off,
             std::time::Duration::from_secs(30),
             false,
+            None,
         )
         .unwrap();
         let o = execute_step(&plain, &step, &ctx).await.unwrap();

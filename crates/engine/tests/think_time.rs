@@ -54,6 +54,7 @@ async fn count_all(
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
     tweak(&mut plan);
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
@@ -268,6 +269,7 @@ async fn count_requests(plan_think: Option<ThinkTime>, dur_ms: u64) -> u64 {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
     let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
     let cancel = CancellationToken::new();
@@ -341,6 +343,7 @@ async fn per_step_think_time_reduces_requests() {
             vu_stages: None,
             ramp_down: RampDown::Graceful,
             graceful_ramp_down: None,
+            connect_timeout: None,
         };
         let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
         let h = tokio::spawn(run_scenario(scenario, plan, tx, CancellationToken::new()));

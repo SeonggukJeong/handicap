@@ -61,6 +61,7 @@ async fn run_and_collect(mode: Mode, dur_ms: u64) -> Vec<HashMap<String, String>
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
     match mode {
         Mode::Closed => {}

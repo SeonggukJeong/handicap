@@ -95,6 +95,12 @@ pub struct RunPlan {
     /// 다음 스텝 경계에서 park시킨다(immediate 경로 재사용). `None` → 무상한(현재
     /// 거동, byte-identical). graceful 모드에서만 참조(immediate가 항상 우선).
     pub graceful_ramp_down: Option<Duration>,
+    /// connect(TCP+TLS) 단계 전용 타임아웃 (E3, spec §3.4). `Some`이면
+    /// `ClientBuilder::connect_timeout`으로 설치돼, connect에서 막힌 요청이
+    /// 전체-요청 `timeout`이 아니라 `ErrorKind::ConnectTimeout`으로 분류된다.
+    /// `None` = 미설정(오늘과 byte-identical — 빌더 호출 자체가 없음).
+    /// 컨트롤러가 `connect_timeout_seconds < http_timeout_seconds`를 강제한다.
+    pub connect_timeout: Option<Duration>,
 }
 
 /// One flush from the engine to the worker: a batch of completed 1s windows
@@ -155,6 +161,7 @@ pub async fn run_scenario(
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
+    let connect_timeout = plan.connect_timeout;
     let think_time = plan.think_time;
     let think_seed = plan.think_seed;
     let measure_phases = plan.measure_phases;
@@ -215,6 +222,7 @@ pub async fn run_scenario(
                     think_time,
                     think_seed,
                     measure_phases,
+                    connect_timeout,
                 )
                 .await
                 {
@@ -392,8 +400,14 @@ async fn run_vu(
     think_time: Option<ThinkTime>,
     think_seed: Option<u32>,
     measure_phases: bool,
+    connect_timeout: Option<Duration>,
 ) -> Result<()> {
-    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout, measure_phases)?;
+    let client = VuClient::with_timeout(
+        scenario.cookie_jar,
+        http_timeout,
+        measure_phases,
+        connect_timeout,
+    )?;
     let mut think_rng = match think_seed {
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
@@ -782,6 +796,7 @@ pub async fn run_scenario_vu_curve(
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
+    let connect_timeout = plan.connect_timeout;
     let think_time = plan.think_time;
     let think_seed = plan.think_seed;
     let measure_phases = plan.measure_phases;
@@ -905,6 +920,7 @@ pub async fn run_scenario_vu_curve(
                     think_time,
                     think_seed,
                     measure_phases,
+                    connect_timeout,
                 )
                 .await
                 {
@@ -1112,10 +1128,16 @@ async fn run_vu_curve(
     think_time: Option<ThinkTime>,
     think_seed: Option<u32>,
     measure_phases: bool,
+    connect_timeout: Option<Duration>,
 ) -> Result<()> {
     // Client + rng + iter_id persist across park (Park & 재사용, spec §2):
     // the cookie jar IS the session, and iter_id stays monotonic.
-    let client = VuClient::with_timeout(scenario.cookie_jar, http_timeout, measure_phases)?;
+    let client = VuClient::with_timeout(
+        scenario.cookie_jar,
+        http_timeout,
+        measure_phases,
+        connect_timeout,
+    )?;
     let mut think_rng = match think_seed {
         Some(s) => StdRng::seed_from_u64(crate::dataset::mix(s, vu_id, 0)),
         None => StdRng::from_entropy(),
@@ -1265,6 +1287,7 @@ pub async fn run_scenario_open_loop(
     let env = Arc::new(plan.env);
     let datasets = plan.data_bindings.clone();
     let http_timeout = plan.http_timeout;
+    let connect_timeout = plan.connect_timeout;
     let think_seed = plan.think_seed;
     let vu_offset = plan.vu_offset;
     let measure_phases = plan.measure_phases;
@@ -1280,6 +1303,7 @@ pub async fn run_scenario_open_loop(
                 scenario.cookie_jar,
                 http_timeout,
                 measure_phases,
+                connect_timeout,
             )?))
         })
         .collect::<Result<_>>()?;

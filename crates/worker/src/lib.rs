@@ -295,6 +295,10 @@ async fn execute_assignment(
         // §B9: mapped via proto_graceful_ramp_down(&profile) above the literal —
         // same partial-move constraint as is_open_loop/is_vu_curve.
         graceful_ramp_down,
+        // TODO(E3 Task 2): temporary placeholder to keep the workspace compiling —
+        // Task 2 replaces this with the real proto mapping (connect_timeout_seconds).
+        // This is NOT final behavior.
+        connect_timeout: None,
     };
     info!(
         vus = plan.vus,

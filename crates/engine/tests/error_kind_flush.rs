@@ -43,10 +43,11 @@ fn base_plan(dur_ms: u64) -> RunPlan {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     }
 }
-// ↑ 리터럴은 작성 시점 RunPlan 필드 전수(E3 전이라 connect_timeout 없음) —
-// 컴파일 에러가 나면 `crates/engine/tests/think_time.rs`의 동일 리터럴을 정본으로 맞출 것.
+// ↑ 리터럴은 작성 시점 RunPlan 필드 전수 — 컴파일 에러가 나면
+// `crates/engine/tests/think_time.rs`의 동일 리터럴을 정본으로 맞출 것.
 
 /// 모든 flush를 **개별로** 수집한다 — concat하면 periodic/final 경로 구분이 사라져
 /// 6드레인+5가드 회귀를 원리적으로 못 잡는다(리뷰 P5).

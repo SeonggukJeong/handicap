@@ -30,6 +30,7 @@ fn plan(base: &str, secs: u64) -> RunPlan {
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     }
 }
 

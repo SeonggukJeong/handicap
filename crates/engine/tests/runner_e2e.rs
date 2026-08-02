@@ -55,6 +55,7 @@ steps:
         vu_stages: None,
         ramp_down: RampDown::Graceful,
         graceful_ramp_down: None,
+        connect_timeout: None,
     };
 
     let cancel = tokio_util::sync::CancellationToken::new();
