@@ -420,13 +420,25 @@
 
 ### B27. error-taxonomy E1 (2026-08-01, `2a154db0`, ADR-0050) 연기 항목
 
-- **`e.without_url()` 교체 2곳 — E2 또는 E3 plan 필수 항목으로 fold** (security-reviewer 라우팅): `crates/engine/src/executor.rs`의 최상위 reqwest `e.to_string()` 두 곳. 부하 경로(:296 부근)는 현 소비자가 `is_some()` 불리언뿐이라 실질 무해(노출 금지 주석 부착됨). **test-run trace 경로(:455 부근)는 `HttpTrace.error`→`StepTrace`→`TestRunPanel`로 실도달** — `url: https://api/${TOKEN}/x`류 시나리오가 transport 실패하면 resolved 시크릿이 트레이스 에러 문자열로 화면에 뜰 수 있다(pre-existing, E1 무접촉·확대 없음). reqwest `Error::without_url()`이 정확히 이 용도 — 호출 2곳 교체로 끝.
-- **E2 조치문 단정 금지 1줄**: h2 GOAWAY debug-data(서버 제어 문자열)가 규칙 5 문자열 매치로 `tls` 오분류를 유발 가능 — E1에선 카운트 한 칸 오차(저위험)지만, E2가 지배 kind로 원인 후보 조치문을 낼 때 "SUT가 자기 진단 문구를 유도"하는 표면으로 격상된다. 조치문은 단정 금지 문구 유지.
+- ~~**`e.without_url()` 교체 2곳 — E2 또는 E3 plan 필수 항목으로 fold**~~ → **✅ 부분 완료 (E2 `68992091`+`6ef41b49`)** — `executor.rs`의 부하 경로·trace 경로 2곳에 `without_url()` 적용, 최종 wave에서 `format!("read body: {e}")` 2곳까지 총 4곳으로 확대(reqwest가 body-decode 에러에 URL을 안 붙인다는 **내부 성질에만 기대던 것을 구성으로 고정** — 버전 bump가 조용히 되돌리는 것을 차단). **단 화면 노출은 미해소로 남는다 — 이 항목을 완료로 닫지 말 것**: 같은 `HttpTrace`의 `request.url`(`TracedRequest`)이 resolved URL을 그대로 담고 `ui/src/components/scenario/TestRunPanel.tsx:308`이 이를 렌더한다(패널의 존재 이유가 "무엇을 보냈나"라 의도된 동작). E2가 없앤 것은 **에러 문자열 쪽 중복 사본**뿐이고, `executor.rs`의 trace-path 주석이 이 사실을 명시한다. security-reviewer 판정: REST에 인증 미들웨어가 없고 `GET /api/environments/{id}`가 이미 평문 `vars`를 반환하므로 이 노출은 **기존 미인증 GET보다 약하다** → 진짜 항목은 마스킹-at-rest·접근모델(§B1·§A10)이지 trace URL이 아니다.
+- ~~**E2 조치문 단정 금지 1줄**~~ → **✅ 완료 (E2)** — 조치문 4종 전부 "가능성"·"확인하세요" 형태로 출하. 덤으로 security-reviewer가 **위협 자체가 구조적으로 사문**임을 확정: GOAWAY debug-data가 규칙 5로 `tls` 오분류를 유발해도 `tls`는 `insights.rs`의 `RECOGNIZED`(4종) 밖이라 조치문 분기를 못 바꾼다 — 유일한 SUT-조종 가능 타깃은 규칙 4→`connection_reset`→`sutExhaustion`이고 그건 hedge돼 있다.
 - **워커 스킵 가드 순수함수 추출**(`fn should_skip_batch`): forwarder 스킵 가드 8항이 전부 무테스트(항 하나를 지워도 전체 게이트 green — C1 동형 조용한 유실). 추출하면 표 기반 테스트로 8항+기존 `dropped` 항까지 소급 보호. 다음에 그 지점을 건드릴 때 함께.
 - **security nits 3건**(전부 선례 동형·비회귀, 위협 전제=손상된 워커): ① ingest에서 워커 유래 `kind` 무검증 영속 — `^[a-z0-9_]{1,32}$` 불합격을 `other`로 접는 정규화 권고(카디널리티/길이 유계화) ② report 롤업 비포화 `+=` → `saturating_add` ③ UI `t.labels[k.kind]` 프로토타입 체인 폴백(`kind==="__proto__"`면 객체 반환→React throw; ①의 서버측 정규화가 자동으로 닫음).
 - **curve/open final 드레인 이빨 부재**: 고의 회귀 실증은 closed-loop 3축만(3모드 periodic은 테스트 커버, 리터럴은 컴파일러 강제) — 커버 확장은 수요 시.
 - **분류 규칙 3(dns)·5(tls) 무테스트**: spec §9.1 의도 범위(규칙 1·2·4만 실물 핀). 메시지 기반 꼬리를 `classify_msgs` 순수함수로 추출하면 단위테스트화 가능.
 - **통합 테스트 ⑤ 환경 의존**: `10.255.255.1:81` SYN 스톨 전제(이 머신 실측 OK) — 10/8 사내망에선 즉시 unreachable→`Other`→FAIL 가능. 파일 내 backlog-포화 변형 주석이 폴백.
+
+### B28. error-taxonomy E2 (2026-08-02, `6ef41b49`) 연기 항목
+
+- **`ONSET_MIN_TAIL_SECONDS = 5`는 튜너블 — 도그푸딩 후 재평가**: 값 5는 실측이 아니라 수식 내적 근거로 골랐다(E1 라이브 run이 ephemeral `/tmp` DB와 함께 사라져 소급 측정 불가). 50% 규칙과 결합하면 tail=5는 bad 초 최소 3개를 요구 = "한 번 튄 것"이 아니라 패턴임을 요구하는 최소 길이. (a) 실제 고갈 run이 미발행되거나 (b) 여전히 거짓양성이면 재조정.
+- **`error_kind`의 스코프 불일치(문서화만 됨)**: `count`는 onset-스코프(`bad_after`)인데 `error_kind`는 **run 전체** `error_kinds`에서 뽑는다 — clean 프리픽스도 초당 0.99%까지 허용되므로 고처리량에서는 프리픽스가 절대량으로 스파이크를 넘을 수 있고(10k rps × 20s × 0.9% = 1,800 vs tail 500), 그러면 조치문이 **onset 이전 노이즈로 결정**된다. spec 수용(E1이 counts-only라 per-second kind breakdown이 없음) — 해소하려면 kind 시계열이 필요. 현재는 `insights.rs`의 필드 doc + `dominant_error_kind` docstring에 스코프를 명시해 뒀다.
+- **per-step onset 미검출**: `bad(t)`가 전 스텝 합산이라 N-스텝 시나리오에서 한 스텝만 전멸하면 `bad ≤ 1/N` — 11스텝 이상에서 단일 엔드포인트만 고갈되면 onset이 안 잡힌다.
+- **비교 뷰 onset 행 분리**: `InsightCompareMatrix.tsx:24-26`의 행 키가 `kind | step_id ?? status_class`라, 5xx 동반 run과 transport-only run을 비교하면 "런 도중 실패 급증 · 5xx"와 "런 도중 실패 급증" 두 행이 생긴다. 기존 매트릭스 메커니즘의 새 발현이고 정보 손실은 없어 v1 수용.
+- **소급 발행(수용)**: 리포트는 조회 시 재계산이라 슬라이스 이전 run에도 onset이 소급 등장할 수 있고(그 run들은 `error_kinds`가 비어 일반 조치문), 그때 `status_temporal`이 억제로 사라질 수 있다.
+- **validity 연동은 1건만 열었다**: F1이 `loadgen_port_exhaustion` → `derive_validity` reason 하나만 추가했다(배지-인사이트 모순 해소용, spec §2 Non-goal을 사용자 결정으로 넘음). `evaluateTrust`/validity 전면 통합은 여전히 연기.
+- **판정 보존 — 아래는 "고치지 말 것"으로 리뷰가 확정한 항목이다**(SDD ledger는 gitignore라 여기 남긴다): ① `insights.rs`의 `k.count >= 1`은 **죽은 조건이 아니다** — `report.rs:501`이 `r.count.max(0) as u64`로 롤업해 0-count 행이 가능하고, 빼면 UI가 "포트가 부족했어요 (0건)"을 렌더한다. ② "h≥10인데 뒤 conjunct에서 기각 + `status_temporal`은 발행" fixture는 **구성상 공허** — 억제 게이트가 `onset.is_none()`만 보므로 어느 conjunct가 `None`을 만들었는지 구별 못 한다(no-op 테스트로 "닫지" 말 것). ③ `dominant_error_kind`의 알파벳 tie-break 무테스트는 의도 — `report.rs:507`이 이미 `count desc → kind asc`로 정렬해 루프가 입력 첫 원소와 일치할 수밖에 없다. ④ `derive_insights` 11 positional args는 plan이 param struct를 명시 기각한 결과. ⑤ `send_error_string_never_carries_the_url`이 `outcome.error_kind`를 단언하지 않는 것은 무해 — 그 불변식은 **컴파일러가 강제**한다(`without_url()`이 `e`를 소비하므로 분류가 앞설 수밖에 없다).
+- **비포화 산술 2곳**(security N2, §B27 nit ②와 동류): `insights.rs`의 kind 합 `sum()`과 onset의 `ts` 뺄셈. 도달하려면 워커가 말도 안 되는 `ts_second`나 2^64 초과 합계를 보내야 하고 영향은 debug 빌드 리포트 핸들러 panic(연결 1개 끊김) — §B27 ②를 손볼 때 함께.
+- **pre-commit 훅의 comment/whitespace-only Rust fast-path가 root CLAUDE.md에 미문서화**: 훅에는 "cargo-영향 경로 staged면 전체 게이트" 외에 **주석/공백만 바뀐 `.rs`면 fmt+build+clippy는 돌리고 nextest/doctest만 건너뛰는** 별도 분기가 실재한다(재리뷰가 `.githooks/pre-commit`을 직접 읽어 확인). root의 축약 설명에 이 갈래가 없어 "게이트가 안 돌았다"는 오해를 부른다.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 
