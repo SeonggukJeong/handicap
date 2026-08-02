@@ -16,8 +16,8 @@
 - **`..Default::default()` 금지** — 테스트 입력 픽스처(`store::Profile` 20필드 / `pb::Profile` 15필드)와 컨트롤러 기대값(`pb::Profile`)은 전 필드를 명시한다. 이게 미래 필드 추가를 컴파일 에러로 바꾸는 장치다. 픽스처 위에 금지 주석 필수.
 - **sentinel 값 유일성** — 어떤 두 수치 필드도 같은 값을 갖지 않는다. **파생값 `RunPlan.duration`(= `vu_stages`의 duration 합 = 332)도 유일성 검사에 포함**하며, 자기 구성요소(155·177)와 충돌하지 않도록 `vu_stages`는 반드시 **원소 2개**다(1개면 합 = 그 원소라 정의상 충돌).
 - **bool 판별은 C1+C3 조합** — bool은 두 값뿐이라 한 케이스로 3개(`measure_phases`·`apply_scenario_think_time`·`ramp_down_immediate`)를 구분할 수 없다. C1 = `(mp=true, ast=false, rdi=false)`, C3 = `rdi=true`.
-- **커밋 규율(레포)**: cargo-영향 커밋은 전체 workspace 빌드라 수 분 → `git commit`을 `run_in_background`로 돌리고 그동안 다른 `cargo` 호출 금지. **`git commit … | tail`/`| head` 파이프 금지**(종료코드 마스킹, git-guard가 deny). `--no-verify` 금지. `git add` 후 `git diff --cached --name-only`로 staged 확인.
-- **tdd-guard**: `crates/*/src` 편집은 작업트리에 pending 테스트가 있어야 한다. 각 task의 Step 1은 항상 테스트를 먼저 쓴다.
+- **커밋 규율(레포)**: 이 plan의 커밋 스텝은 implementer가 실행한다 → **단일 FOREGROUND 호출(timeout 600000ms)**. background+폴링/Monitor 대기 **금지**(truncate·미완주 사고 이력 — 루트 `CLAUDE.md` "implementer의 commit·검증은 단일 FOREGROUND 호출"). `run_in_background`는 *orchestrator 자신의* 커밋에만 해당한다. **`git commit … | tail`/`| head` 파이프 금지**(종료코드 마스킹, git-guard가 deny). `--no-verify` 금지. `git add` 후 `git diff --cached --name-only`로 staged 확인.
+- **tdd-guard 실행 가능성(검증함)**: 훅(`.claude/hooks/tdd-guard.sh`)은 ① 편집 대상 `.rs`가 디스크에 `#[cfg(test)]`를 갖거나 ② **편집 내용 자체가 `#[cfg(test)]`를 도입**하면 통과시킨다(`:63-77`, "the write IS the test"). 따라서 인라인 테스트를 담은 새 `.rs` Write는 통과한다. **그러나 `#[cfg(test)]`가 없는 src 편집(예: `grpc/mod.rs`에 `pub mod profile;` 한 줄)은 차단된다** — pending 스캔이 **test-path 파일만**(`/tests/*.rs`·`_test.rs`·`*.test.tsx`…) 인정하기 때문. 이 경우에만 keepalive가 필요하다(Task 1 Step 0). 문서화된 함정 C-1(`docs/dev/commit-gates-and-git-workflow.md`).
 
 ---
 
@@ -47,6 +47,19 @@
 - Produces: `pub(crate) fn to_proto_profile(p: &crate::store::runs::Profile) -> handicap_proto::v1::Profile` — Task 3의 R1·R2·R3a·R4·R7이 이 함수에 회귀를 심는다.
 - Consumes: 없음.
 
+- [ ] **Step 0: tdd-guard keepalive를 만든다 (Step 2가 차단되는 것을 막는다)**
+
+Step 1의 `profile.rs` Write는 내용에 `#[cfg(test)]`가 있어 훅을 통과하지만, **Step 2의 `grpc/mod.rs` 편집은 차단된다**(그 파일엔 `#[cfg(test)]`가 없고 pending 스캔은 test-path 파일만 센다). 실측 확인된 차단이다.
+
+```bash
+cat > crates/controller/tests/_tdd_keepalive.rs <<'EOF'
+// tdd-guard keepalive — 이 task의 src 편집을 언블록하기 위한 임시 파일.
+// Step 10 커밋 **전에** 반드시 삭제한다.
+#[test]
+fn keepalive() {}
+EOF
+```
+
 - [ ] **Step 1: 테스트만 담은 새 모듈을 만든다 (아직 프로덕션 함수 없음)**
 
 `crates/controller/src/grpc/profile.rs` 를 아래 내용으로 생성:
@@ -55,11 +68,14 @@
 //! `store::Profile` → `pb::Profile` 와이어 매핑. `spawn_run`에서 추출한 순수
 //! 함수라 15필드를 단위 테스트로 잠글 수 있다(추출 전엔 0건이었다).
 
+use crate::store::runs::Profile;
+use handicap_proto::v1 as pb;
+
 #[cfg(test)]
 mod tests {
+    // `use super::*;`만 둔다 — Step 4가 모듈 레벨에 `Profile`/`pb`를 임포트하므로
+    // 여기서 다시 선언하면 잉여다(컴파일은 되지만 리뷰 finding).
     use super::*;
-    use crate::store::runs::Profile;
-    use handicap_proto::v1 as pb;
 
     /// C1 sentinel 픽스처 — **필드마다 서로 다른 값**.
     ///
@@ -72,6 +88,12 @@ mod tests {
     /// bool 3종은 C1에서 `(measure_phases=true, apply_scenario_think_time=false,
     /// ramp_down→false)`, C3에서 `ramp_down→true`로 갈려 임의의 bool 전치가
     /// 최소 한 케이스에서 RED가 된다.
+    ///
+    /// ⚠ `target_rps` + `stages` + `vu_stages`를 **동시에** 채운 것은
+    /// **의도**다. 실제 run에선 `validate_run_config`가 거부하는 조합이지만,
+    /// 순수 매핑 함수는 검증을 하지 않고, 세 필드를 모두 채워야 같은-타입
+    /// 이웃 전치(`stages`↔`vu_stages` 등) 판별력이 최대가 된다.
+    /// "잘못된 픽스처"로 보고 고치지 말 것.
     fn c1_profile() -> Profile {
         Profile {
             vus: 11,
@@ -220,16 +242,13 @@ pub mod shard;
 - [ ] **Step 3: 컴파일 실패(RED)를 확인한다**
 
 Run: `cargo test -p handicap-controller --lib grpc::profile 2>&1 | head -30`
-Expected: FAIL — `cannot find function `to_proto_profile` in this scope` (그리고 `use super::*;`가 빈 모듈을 가리켜 unused 경고). 이게 RED다.
+Expected: FAIL — ``cannot find function `to_proto_profile` in this scope`` (3회, 각 테스트에서). 이게 RED다.
 
 - [ ] **Step 4: `api/runs.rs:741-781`의 리터럴을 함수로 옮긴다**
 
-`crates/controller/src/grpc/profile.rs` 의 `#[cfg(test)] mod tests` **위에** 아래를 추가:
+`crates/controller/src/grpc/profile.rs` 의 모듈 레벨 `use` 아래, `#[cfg(test)] mod tests` **위에** 아래를 추가:
 
 ```rust
-use crate::store::runs::Profile;
-use handicap_proto::v1 as pb;
-
 /// `spawn_run`이 워커에 보낼 `PendingAssignment.profile`을 만든다.
 ///
 /// store 20필드 중 15개가 와이어로 간다. 의도적 미매핑 5개:
@@ -395,23 +414,29 @@ grep -c 'to_proto_profile(' crates/controller/src/api/runs.rs
 ```
 Expected: 첫 명령 **`0`** (추출 전 baseline은 `1`이었다 — 0이 아니면 인라인 리터럴이 남아있다는 뜻), 둘째 **`1` 이상**.
 
-> **왜 파일 전역 카운트를 쓰지 않는가:** Task 2가 도입할 `let RunPlan { … } = plan;` 구조분해가 `RunPlan {`에 매치되므로 전역 `grep -c`류는 슬라이스 후 값이 늘어 구조적으로 통과 불가다. 리전 스코프 awk만 쓸 것.
+- [ ] **Step 10: keepalive 삭제 → 전체 게이트 → 커밋**
 
-- [ ] **Step 10: 전체 게이트 + 커밋**
-
-먼저 게이트를 파이프 없이 돌려 종료코드를 명시 캡처:
+먼저 Step 0의 keepalive를 지운다(남기면 커밋에 섞인다):
 
 ```bash
-cargo fmt --check ; echo "fmt exit=$?"
+rm crates/controller/tests/_tdd_keepalive.rs
+```
+
+게이트를 파이프 없이 돌려 종료코드를 명시 캡처. **plan의 인라인 코드는 rustfmt canonical이 아니므로 `cargo fmt`가 재포맷하는 것이 정상이다**(회귀 아님) — write 후 `--check`로 확인한다:
+
+```bash
+cargo fmt ; echo "fmt exit=$?"
+cargo fmt --check ; echo "fmt-check exit=$?"
 cargo clippy --workspace --all-targets -- -D warnings ; echo "clippy exit=$?"
 cargo nextest run --workspace ; echo "nextest exit=$?"
 ```
-Expected: 셋 다 `exit=0`.
+Expected: 넷 다 `exit=0`. (doctest는 pre-commit이 별도로 돌리므로 커밋 시 커버된다.)
 
-그다음 커밋(cargo-영향이라 **`run_in_background`로**, 파이프 금지):
+그다음 커밋 — **단일 FOREGROUND 호출(timeout 600000ms)**, background/폴링 금지, 파이프 금지:
 
 ```bash
 git add crates/controller/src/grpc/profile.rs crates/controller/src/grpc/mod.rs crates/controller/src/api/runs.rs
+git status --porcelain    # _tdd_keepalive.rs가 남아있지 않은지 확인
 git diff --cached --name-only
 git commit -m "refactor(controller): store→proto Profile 매핑을 to_proto_profile로 추출 + 표 테스트
 
@@ -441,6 +466,10 @@ api/runs.rs의 인라인 pb::Profile 리터럴(15필드)을 grpc/profile.rs 순�
 - Produces: `fn to_run_plan(profile: &pb::Profile, vu_count: u32, vu_offset: u32, env: BTreeMap<String, String>, data_bindings: Vec<Arc<DataSet>>) -> RunPlan` — Task 3의 R3b·R5·R6이 이 함수에 회귀를 심는다.
 
 > **시그니처 근거(바꾸지 말 것):** `profile`은 **참조**다. `lib.rs:305`의 `info!(ramp_up_s = profile.ramp_up_seconds, …)`가 리터럴 **뒤에서** `profile`을 다시 읽는다. 값으로 받으면 그 로그가 깨진다(로그를 `plan.ramp_up.as_secs()`로 바꾸면 컴파일은 되지만 호출부를 건드리게 되므로 채택 안 함). `env`·`data_bindings`는 리터럴 이후 미사용이라 값으로 받는다.
+>
+> **알려진 한계 — `vu_count`/`vu_offset` 위치 인자 전치는 이 단위 테스트가 못 잡는다.** 추출 전엔 이름 있는 필드 매핑(`vus: assignment.vu_count` / `vu_offset: assignment.vu_offset`)이었으나 추출 후엔 같은 타입(`u32`)·같은 출처의 인접 **위치 인자 2개**가 된다. 단위 테스트는 함수를 직접 부르므로(233/244를 명시 전달) 호출부 전치를 원리적으로 못 본다.
+> - `&pb::RunAssignment`를 받아 필드명을 함수 안에 남기는 대안은 **불가능**하다 — `lib.rs:144`의 `let profile = assignment.profile.expect(…)`가 `assignment`를 **partial move**시켜 이후 전체 차용이 안 된다(우회하려면 `.clone()`이 필요해 "표현식 이동뿐" 불변식을 깬다).
+> - **대신 기존 e2e가 이 전치를 잡는다**(확인함): `crates/controller/tests/multi_worker_fanout_e2e.rs:517-539`가 `vu<10`과 `vu>=10` 요청이 **둘 다** 도달했는지 단언한다. 두 인자를 바꾸면 worker 0의 `vus`가 0이 되어 shard 0 요청이 사라지고 그 단언이 깨진다.
 
 - [ ] **Step 1: 실패하는 테스트를 먼저 쓴다**
 
@@ -452,6 +481,11 @@ api/runs.rs의 인라인 pb::Profile 리터럴(15필드)을 grpc/profile.rs 순�
     ///
     /// ⚠ `..Default::default()` 금지 — 15필드 전부 명시하는 것이 목적이다
     /// (proto 필드 추가 시 여기서 컴파일 에러가 나야 한다).
+    ///
+    /// ⚠ `target_rps` + `stages` + `vu_stages`를 **동시에** 채운 것은 **의도**다.
+    /// 실제 run에선 `validate_run_config`가 거부하는 조합이지만, 순수 매핑
+    /// 함수는 검증을 하지 않고, 세 필드를 모두 채워야 같은-타입 이웃 전치
+    /// 판별력이 최대가 된다. "잘못된 픽스처"로 보고 고치지 말 것.
     fn c1_pb_profile() -> pb::Profile {
         pb::Profile {
             vus: 11,
@@ -617,7 +651,8 @@ fn to_run_plan(
         loop_breakdown_cap: profile.loop_breakdown_cap,
         vu_offset,
         // N independent bindings: field 10 (data_bindings) when present, else the
-        // legacy field-5 binding as a 1-element list (loaded into `datasets` above).
+        // legacy field-5 binding as a 1-element list. 로딩은 호출부
+        // (`execute_assignment`)가 하고 여기엔 결과만 전달된다.
         data_bindings,
         // proto default 0 (absent field from an old controller) → fall back to 30s
         // so the byte-identical invariant holds; current controllers send 1..=600.
@@ -698,7 +733,7 @@ fn to_run_plan(
 
 > **주석을 왜 고치지 않고 지우는가:** 227–228의 "partial field moves (profile.think_time) … make `&profile` invalid after"는 **오늘 이미 거짓**이다. `pb::ThinkTime`이 `derive(Clone, Copy, …)`라 `Option<ThinkTime>: Copy`이고, 리터럴의 나머지 읽기는 전부 Copy 스칼라이거나 `.iter()`/`.is_empty()` 차용이라 partial move가 일어나지 않는다. 추출 후엔 `is_open_loop`/`is_vu_curve`가 `lib.rs:438/440`(`let run_res = if is_vu_curve { … } else if is_open_loop {`)에서 쓰이는 평범한 지역 변수일 뿐이고, 위치를 강제하는 제약이 아예 없다. 거짓 주석을 다른 거짓 주석으로 바꾸지 말고 삭제한다.
 
-304행의 `info!` 블록은 **그대로 둔다**(`profile`을 참조로 넘겼으므로 무손상).
+302–307행의 `info!` 블록은 **그대로 둔다**(`profile`을 참조로 넘겼으므로 무손상 — `:305`가 `ramp_up_s = profile.ramp_up_seconds`를 읽는 그 줄이다).
 
 - [ ] **Step 5: 테스트 통과(GREEN) 확인**
 
@@ -710,9 +745,14 @@ Expected: PASS.
 ```bash
 awk '/^async fn execute_assignment\(/{inside=1} inside && /^pub async fn run\(/{exit} \
      inside && /RunPlan[[:space:]]*\{/{c++} END{print c+0}' crates/worker/src/lib.rs
-grep -c 'to_run_plan(' crates/worker/src/lib.rs
+awk '/^async fn execute_assignment\(/{i=1} i&&/^pub async fn run\(/{exit} \
+     i&&/to_run_plan\(/{c++} END{print c+0}' crates/worker/src/lib.rs
 ```
-Expected: 첫 명령 **`0`** (baseline은 `1`이었다), 둘째 **`2` 이상**(정의 + `execute_assignment` 호출).
+Expected: 첫 명령 **`0`**(baseline은 `1`이었다 — 인라인 리터럴 소멸), 둘째 **`1`**(`execute_assignment` 안의 호출 1개 = 결선).
+
+> 둘째도 리전 스코프여야 한다. 파일 전역 `grep -c 'to_run_plan('`은 테스트가 4회 호출하므로 ~6이 나와 **프로덕션 호출을 빼먹어도 통과**한다(공허한 신호).
+>
+> **왜 파일 전역 카운트를 쓰지 않는가:** Step 1이 도입한 `let RunPlan { … } = plan;` 구조분해가 `RunPlan {`에 매치되므로 전역 `grep -c`류는 슬라이스 후 값이 늘어 구조적으로 통과 불가다. 리전 스코프 awk만 쓸 것.
 
 - [ ] **Step 7: C2·C3(워커)·C4를 추가한다**
 
@@ -758,6 +798,13 @@ Expected: 첫 명령 **`0`** (baseline은 `1`이었다), 둘째 **`2` 이상**(�
         assert_eq!(plan.ramp_down, RampDown::Graceful, "ramp_down");
         assert_eq!(plan.duration, Duration::from_secs(7), "duration은 폴백");
         assert!(plan.data_bindings.is_empty(), "data_bindings");
+        // 0-폴백. C4와 중복이지만 spec §4.2가 명시적으로 요구한다 — 이 단언이
+        // 없으면 위 ⚠ 주석이 존재하지 않는 커버리지를 사칭한다.
+        assert_eq!(
+            plan.http_timeout,
+            Duration::from_secs(30),
+            "http_timeout 0-폴백"
+        );
     }
 
     /// C3(워커): `bool` 2상태 → `RampDown`.
@@ -793,14 +840,17 @@ Expected: PASS — 기존 테스트 + 신규 4건.
 
 - [ ] **Step 9: 전체 게이트 + 커밋**
 
+**plan의 인라인 코드는 rustfmt canonical이 아니므로 `cargo fmt`가 재포맷하는 것이 정상이다**(회귀 아님):
+
 ```bash
-cargo fmt --check ; echo "fmt exit=$?"
+cargo fmt ; echo "fmt exit=$?"
+cargo fmt --check ; echo "fmt-check exit=$?"
 cargo clippy --workspace --all-targets -- -D warnings ; echo "clippy exit=$?"
 cargo nextest run --workspace ; echo "nextest exit=$?"
 ```
-Expected: 셋 다 `exit=0`.
+Expected: 넷 다 `exit=0`.
 
-커밋(`run_in_background`, 파이프 금지):
+커밋 — **단일 FOREGROUND 호출(timeout 600000ms)**, background/폴링 금지, 파이프 금지:
 
 ```bash
 git add crates/worker/src/lib.rs
@@ -832,7 +882,7 @@ C3 ramp_down_immediate=true→Immediate · C4 0-폴백."
 
 > **왜 필요한가:** 회귀 가드를 표방하는 테스트는 이빨을 실증해야 한다(레포 규율 — plan이 지시한 테스트도 공허할 수 있다). 각 항목마다 회귀를 심고 **RED를 눈으로 확인**한 뒤 원복하고 GREEN을 확인한다.
 >
-> **주의:** 이빨 실증은 **결선을 증명하지 않는다.** 구현자가 리터럴을 복사해 함수를 만들고 인라인을 안 지워도 R1~R7은 전부 정상 동작한다. 결선은 Task 1 Step 9 / Task 2 Step 6의 게이트가 담보한다.
+> **주의:** 이빨 실증은 **결선을 증명하지 않는다.** 구현자가 리터럴을 복사해 함수를 만들고 인라인을 안 지워도 R1~R9는 전부 정상 동작한다. 결선은 Task 1 Step 9 / Task 2 Step 6의 게이트가 담보한다.
 
 - [ ] **Step 1: R1 — `connect_timeout_seconds: None` 하드코딩 (E3 실제 사고 재현)**
 
@@ -919,24 +969,63 @@ Expected: **1 이상** — 즉 컴파일 에러 목록에 `crates/controller/src
 
 더미 필드 원복 후 `cargo build -p handicap-controller --tests` → 성공 확인.
 
-- [ ] **Step 9: 작업트리가 깨끗한지 확인**
+- [ ] **Step 9: R8 — ②의 강제력 (proto 필드 추가 = 양쪽 픽스처 컴파일 에러)**
+
+US2는 "`store::Profile` **또는** `pb::Profile`에 필드를 추가할 때"를 약속한다. R7이 앞의 절반이면 R8이 뒤의 절반이다.
+
+`crates/proto/proto/coordinator.proto` 의 `message Profile` 마지막(`connect_timeout_seconds = 15;` 뒤)에 추가:
+
+```proto
+  optional uint32 dummy_teeth_probe = 16;
+```
+
+Run:
+```bash
+cargo build --workspace --tests 2>&1 | grep -oE 'crates/(controller/src/grpc/profile|worker/src/lib)\.rs' | sort -u
+```
+Expected: **두 줄 모두** 출력 — `crates/controller/src/grpc/profile.rs` **와** `crates/worker/src/lib.rs`.
+
+> R7과 같은 이유로 "컴파일 에러 발생"은 신호가 못 된다 — `to_proto_profile` 본문과 `base_assignment()`(`grpc/coordinator.rs`)가 이미 exhaustive라 이 슬라이스 없이도 에러가 난다. **새 픽스처 두 개가 강제 대상에 포함되는지**를 봐야 공허하지 않다.
+
+`.proto` 원복 후 `cargo build --workspace --tests` → 성공 확인.
+
+- [ ] **Step 10: R9 — ③의 강제력 (`RunPlan` 필드 추가 = 구조분해 컴파일 에러)**
+
+`crates/engine/src/runner.rs` 의 `pub struct RunPlan` 마지막 필드(`connect_timeout`) 뒤에 추가:
+
+```rust
+    pub dummy_teeth_probe: bool,
+```
+
+Run:
+```bash
+cargo build --workspace --tests 2>&1 | grep -c 'E0027'
+```
+Expected: **1 이상** — `E0027`(pattern does not mention field)이 나야 한다. 이게 `..` 없는 전 필드 구조분해가 실제로 강제력을 갖는다는 증거다. (프로덕션 `to_run_plan` 리터럴은 별도로 E0063을 내는데, 그건 추출 전에도 나던 것이라 신호가 아니다 — **E0027이 이 슬라이스가 새로 만든 강제력**이다.)
+
+`runner.rs` 원복 후 `cargo build --workspace --tests` → 성공 확인.
+
+- [ ] **Step 11: 작업트리가 깨끗한지 확인**
 
 Run: `git status --porcelain`
 Expected: **출력 없음**(모든 회귀가 원복됐다). 출력이 있으면 원복 누락 — 반드시 해소할 것.
 
-- [ ] **Step 10: 결과를 기록한다 (커밋 없음)**
+- [ ] **Step 12: 결과 표를 Task 4로 넘긴다**
 
-R1~R7(8건) 각각의 RED 확인 여부를 subagent 리포트에 표로 남긴다. 커밋할 파일 변경은 없다.
+R1~R9(10건) 각각의 RED/에러 확인 여부를 표로 정리해 **Task 4의 build-log 단락과 커밋 메시지에 싣는다**. 이 task 자체는 커밋할 파일 변경이 없으므로, 결과가 subagent 리포트에만 남으면 컨텍스트 리셋 후 "Task 3이 돌았나"를 판정할 수 없다(레포 규율: 재개 판정의 진실의 원천은 **git 커밋** — TodoWrite/subagent report 불신).
 
 ---
 
-### Task 4: 함정 문서 갱신
+### Task 4: 함정 문서 갱신 + spec 요구 기록 3건
 
 **Files:**
 - Modify: `crates/controller/CLAUDE.md` (매핑 함정 항목 — 파일 마지막 불릿)
-- Modify: `docs/build-log.md:677`
+- Modify: `docs/build-log.md:677` (연기 항목 정정)
+- Modify: `docs/build-log.md` (이 슬라이스 단락 append — Step 4)
 
-**Interfaces:** 없음(docs-only — pre-commit fast-path).
+**Interfaces:**
+- Consumes: Task 3 Step 12의 R1~R9 결과 표.
+- Produces: 없음(docs-only — pre-commit fast-path).
 
 - [ ] **Step 1: `crates/controller/CLAUDE.md`의 매핑 함정 항목을 통째로 갱신한다**
 
@@ -954,19 +1043,54 @@ R1~R7(8건) 각각의 RED 확인 여부를 subagent 리포트에 표로 남긴�
 store→proto 매핑 무테스트(실제 15필드 — `fn to_proto_profile(&Profile) -> pb::Profile` 추출이 기계적 해법이나 5라운드 리뷰된 plan 밖 프로덕션 리팩터라 **이번 슬라이스에서 기각**; **2026-08-02 store-proto-mapping 슬라이스가 해소**)
 ```
 
-- [ ] **Step 3: 커밋**
+- [ ] **Step 3: spec이 요구한 기록 2건을 build-log 슬라이스 단락에 넣는다**
 
-docs-only라 pre-commit fast-path(수초).
+spec §2.2와 §6.1이 **build-log 기록을 명시적으로 요구**한다. `/finish-slice`가 build-log 단락을 쓰지만, 이 두 항목은 그 단락에 반드시 들어가야 하므로 여기서 초안을 확정한다. `docs/build-log.md` 끝에 이 슬라이스 단락을 append하며 아래를 포함:
+
+```markdown
+**연기(build-log 기록, spec §2.2)**: 같은 `spawn_run` 블록의 **데이터바인딩 매핑**
+(`PendingDataBinding` 생성 + `slot_count` 3분기: `vu_curve_max` / `max_in_flight` /
+`vus`)은 여전히 무테스트다 — 관심사가 다르고(데이터셋 행 배분 ≠ 부하 노브 배선)
+이번 슬라이스에서 의도적으로 제외했다. 생성 사이트는 `api/runs.rs`의 그 블록
+하나뿐이고 전용 테스트 0건. · **크로스-크레이트 라운드트립 단위 테스트**는
+기술적으로 가능하나(`controller/Cargo.toml`이 이미 `handicap-worker`를 optional
+의존) 채택하지 않았다 — prost가 양쪽에 같은 이름 필드를 생성해 번역 층이 없고,
+진짜 잔여 위험인 "같은 작성자가 양쪽 기대값을 쓴다"는 편향을 라운드트립도 못
+줄이며, e2e가 이미 더 강한 링크다. · **`vu_count`/`vu_offset` 호출부 위치 전치**는
+새 단위 테스트가 원리적으로 못 잡는다(함수를 직접 호출하므로) — `multi_worker_
+fanout_e2e.rs:517-539`가 커버한다.
+
+**라이브 검증 생략 근거(spec §6.1)**: 이 슬라이스는 `spawn_run`(run-생성 경로)과
+`execute_assignment`(엔진 경로) **프로덕션 코드를 바꾸므로** 파이프라인 5단계의
+"production diff 0" 면제 조항이 문자 그대로는 적용되지 않는다. 그럼에도 생략한
+근거 = ① 변경의 성질이 표현식 이동뿐(새 분기·새 값·새 호출 0) ② 실 워커
+바이너리를 spawn하는 e2e 6개 파일이 정규 게이트에서 그 두 경로를 관통하므로
+추출이 결선을 깨면 **라이브보다 먼저 실패한다** ③ 결선 자체는 리전 스코프 grep
+게이트(§5)가 기계 검증한다. (이빨 실증은 결선의 근거가 **아니다** — 함수 내용만
+증명한다.)
+```
+
+- [ ] **Step 4: 이빨 실증 결과 표를 같은 단락에 싣는다**
+
+Task 3 Step 12의 R1~R9 결과를 표로 append한다(형식: `R# | 홉 | 고의 회귀 | 관측 결과`). 이 표가 커밋에 남아야 컨텍스트 리셋 후 Task 3 완료를 판정할 수 있다.
+
+- [ ] **Step 5: 커밋**
+
+docs-only라 pre-commit fast-path(수초). **단일 FOREGROUND 호출**, 파이프 금지:
 
 ```bash
 git add crates/controller/CLAUDE.md docs/build-log.md
 git diff --cached --name-only
-git commit -m "docs: store→proto 매핑 함정 항목을 현황으로 갱신 (~17→15, 추출 완료)
+git commit -m "docs: store→proto 매핑 함정 갱신 + 연기·라이브생략 근거·이빨 실증 결과
 
-CLAUDE.md 항목은 숫자뿐 아니라 '어느 것도 테스트가 없다'·'추출은 E3에서
-의도적 기각' 서술 전체가 거짓이 됐다 → 현황(추출 완료·표 테스트 4건·
+CLAUDE.md 항목은 숫자(~17→15)뿐 아니라 '어느 것도 테스트가 없다'·'추출은
+E3에서 의도적 기각' 서술 전체가 거짓이 됐다 → 현황(추출 완료·표 테스트·
 잔여 위험은 작성자 편향·픽스처에 ..Default::default() 금지)으로 교체.
-아직 무테스트인 이웃(PendingDataBinding slot_count)도 명시."
+
+build-log에 spec 요구 기록 3건: 연기(데이터바인딩 slot_count 무테스트·
+라운드트립 기각 근거·vu_count/vu_offset 위치 전치는 fanout e2e가 커버) ·
+라이브 검증 생략 근거(production diff는 0이 아니다 — e2e 6파일이 근거) ·
+이빨 실증 R1~R9 결과 표(커밋에 남겨야 재개 시 판정 가능)."
 ```
 
 ---
@@ -986,11 +1110,14 @@ CLAUDE.md 항목은 숫자뿐 아니라 '어느 것도 테스트가 없다'·'�
 | §4.2 케이스×홉 배정 (C1 양쪽·C2 양쪽·C3 양쪽·C4 워커) | Task 1 Steps 1·7 / Task 2 Steps 1·7 |
 | §4.2 sentinel 유일성 + 파생값 + `vu_stages` 2원소 | Global Constraints, Task 1 Step 1 |
 | §4.2 C1 bool 배정 + `apply_scenario_think_time` 명시 `false` | Task 1 Step 1 |
-| §4.2 C2 워커 파생 기대값(0→30s 등) | Task 2 Step 7 |
-| §5 결선 완료 게이트 (리전 스코프 + 호출 존재) | Task 1 Step 9, Task 2 Step 6 |
-| §5 함정 문서 갱신 | Task 4 |
-| §6 이빨 실증 R1~R7(8건) + R7 좁힌 신호 | Task 3 |
-| §6.1 라이브 검증 생략 | 해당 task 없음(의도) |
+| §4.2 C2 워커 파생 기대값(0→30s 등) | Task 2 Step 7 — `http_timeout` 30초 단언 **포함**(C4와 중복이나 spec이 명시 요구) |
+| §4.2 C1 픽스처 의미론 "의도임을 명시" | Task 1 Step 1 · Task 2 Step 1 (두 픽스처 doc 주석) |
+| §5 결선 완료 게이트 (리전 스코프 + 호출 존재) | Task 1 Step 9, Task 2 Step 6 (둘 다 리전 스코프 — 전역 카운트 금지) |
+| §5 함정 문서 갱신(`CLAUDE.md` 항목 통째 + `~17`→`15`) | Task 4 Steps 1–2 |
+| §6 이빨 실증 R1~R9(10건) + R7·R8 좁힌 신호 | Task 3 (결과 표는 Task 4 커밋에 영속) |
+| §2.2 데이터바인딩 연기 **build-log 기록** | Task 4 Step 3 |
+| §6.1 라이브 검증 생략 **근거를 build-log에** | Task 4 Step 3 |
+| §7 한계 — `vu_count`/`vu_offset` 위치 전치 | Task 2 함수 doc + Task 4 Step 3 (fanout e2e가 커버) |
 
 **2. Placeholder scan:** "TBD"/"적절히"/"유사하게" 없음. 모든 코드 스텝에 실제 코드 블록이 있고, 두 task가 같은 패턴을 쓰는 곳도 복붙 대신 각자 전문을 실었다(task를 순서 밖으로 읽어도 자족).
 
