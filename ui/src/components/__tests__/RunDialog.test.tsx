@@ -931,6 +931,56 @@ describe("RunDialog — load preset (A2)", () => {
       ).toBeChecked();
     });
   });
+
+  // E3 review fix (Important): wiring point ⑤ (loadPreset) had zero coverage — test (a)
+  // only exercises ①② via renderWithInitial's useState initializers, never loadPreset().
+  // 값이 채워지는 것과 접힌 '판정·고급' 그룹이 자동으로 펼쳐지는 것 둘 다 증명해야 한다
+  // (findByLabelText 자체가 그룹이 펼쳐졌다는 증거 — 접혀 있으면 input이 DOM에 없다).
+  it("connect_timeout 있는 프리셋 로드 시 값이 채워지고 판정·고급 그룹이 자동으로 펼쳐진다", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            presets: [
+              {
+                id: "PC",
+                name: "connect-timeout",
+                vus: 2,
+                duration_seconds: 5,
+                created_at: 1,
+                updated_at: 1,
+              },
+            ],
+          }),
+        );
+      }
+      if (url.endsWith("/api/presets/PC")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "PC",
+            scenario_id: "S1",
+            name: "connect-timeout",
+            profile: {
+              vus: 2,
+              duration_seconds: 5,
+              ramp_up_seconds: 0,
+              loop_breakdown_cap: 256,
+              data_binding: null,
+              connect_timeout_seconds: 4,
+            },
+            env: {},
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderPresetDialog();
+    await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "PC");
+    expect(await screen.findByLabelText(ko.loadModel.connectTimeout)).toHaveValue(4);
+  });
 });
 
 describe("RunDialog — SLO criteria (A4a)", () => {
@@ -3373,5 +3423,19 @@ describe("RunDialog — 연결 수립 타임아웃 (E3)", () => {
     await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "3");
     await user.click(screen.getByRole("button", { name: /판정·고급/ })); // 재조회 후 접기
     expect(screen.getByText(ko.runDialog.advancedSetHint(1))).toBeInTheDocument();
+  });
+
+  // E3 review fix (Minor): gracefulCap이 최근접 semantic 아날로그(optional·string-draft·
+  // blank=unset) — placeholder가 "비워두면 미설정" 의미를 빈 칸 *안쪽*에 둔다(힌트 문단만으론
+  // 부족하다는 리뷰 지적).
+  it("빈 칸에 미설정 placeholder가 보인다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    expect(screen.getByLabelText(ko.loadModel.connectTimeout)).toHaveAttribute(
+      "placeholder",
+      ko.loadModel.connectTimeoutPlaceholder,
+    );
   });
 });

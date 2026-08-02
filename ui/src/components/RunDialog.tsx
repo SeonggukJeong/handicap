@@ -951,6 +951,7 @@ export function RunDialog({
                   max={600}
                   value={connectTimeout}
                   onChange={(e) => setConnectTimeout(e.target.value)}
+                  placeholder={ko.loadModel.connectTimeoutPlaceholder}
                   aria-invalid={connectTimeoutInvalid}
                   aria-describedby={connectTimeoutInvalid ? "connect-timeout-error" : undefined}
                 />
