@@ -155,6 +155,16 @@ pub struct Profile {
     /// byte-identical). proto/워커 배선은 Task 3.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graceful_ramp_down_seconds: Option<u32>,
+    /// connect(TCP+TLS) 단계 전용 타임아웃(초) — E3, spec §3.4. absent = 미설정
+    /// (오늘과 byte-identical). `validate_run_config`가 1..=600 이고
+    /// `< http_timeout_seconds` 임을 강제한다. skip_serializing_if → UI Zod `.optional()`.
+    ///
+    /// 한계(spec §5.1 명시): per-step `HttpStep.timeout_seconds` 오버라이드가
+    /// run-level `http_timeout_seconds`보다 짧으면 그 스텝에선 전체-요청 타임아웃이
+    /// 먼저 발화해 kind가 `connect_timeout`이 아니라 `timeout`으로 남는다 —
+    /// cross-field 검사는 run-level만 보증한다(스텝별 검사는 비목표).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_timeout_seconds: Option<u32>,
     /// 멀티워커 open-loop fan-out 수 (spec 2026-06-15). absent/Some(1) = 단일 워커
     /// (오늘과 byte-identical). open-loop 전용 — closed-loop은 vus/capacity로 N 유도.
     /// proto에는 없음(컨트롤러가 register 시 워커별 프로필을 분할).
@@ -535,6 +545,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -674,6 +685,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -728,6 +740,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -942,6 +955,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -1040,6 +1054,24 @@ mod tests {
             j.get("graceful_ramp_down_seconds").is_none(),
             "None must be omitted (byte-identical)"
         );
+    }
+
+    #[test]
+    fn none_connect_timeout_omitted_from_json() {
+        // skip_serializing_if → 키 부재(null 아님). UI Zod `.optional()`의 근거.
+        let p = profile_fixture(|_| {}); // connect_timeout_seconds: None
+        let j = serde_json::to_value(&p).unwrap();
+        assert!(
+            j.get("connect_timeout_seconds").is_none(),
+            "None must be omitted (byte-identical)"
+        );
+    }
+
+    #[test]
+    fn profile_json_without_connect_timeout_deserializes() {
+        // 하위호환: E3 이전에 저장된 profile_json엔 키가 없다.
+        let p: Profile = serde_json::from_str(r#"{"duration_seconds":10}"#).unwrap();
+        assert_eq!(p.connect_timeout_seconds, None);
     }
 
     #[test]

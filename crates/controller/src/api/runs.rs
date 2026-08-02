@@ -415,6 +415,20 @@ pub(crate) async fn validate_run_config(
             "http_timeout_seconds must be between 1 and 600".into(),
         ));
     }
+    if let Some(ct) = profile.connect_timeout_seconds {
+        if !(1..=600).contains(&ct) {
+            return Err(ApiError::BadRequest(
+                "connect_timeout_seconds must be between 1 and 600".into(),
+            ));
+        }
+        // http_timeout_seconds는 바로 위에서 1..=600으로 검증된 실값(serde default 30).
+        // 같으면 어느 쪽이 먼저 발화할지 보장 못 하므로 < 를 강제한다.
+        if ct >= profile.http_timeout_seconds {
+            return Err(ApiError::BadRequest(
+                "connect_timeout_seconds must be less than http_timeout_seconds".into(),
+            ));
+        }
+    }
     if let Some(tt) = &profile.think_time {
         if !think_time_in_range(tt) {
             return Err(ApiError::BadRequest(
@@ -763,9 +777,7 @@ pub(crate) async fn spawn_run(
                 Some(handicap_engine::RampDown::Immediate)
             ),
             graceful_ramp_down_seconds: profile.graceful_ramp_down_seconds,
-            // E3 Task 2: 컨트롤러 내부 Profile 모델엔 아직 connect_timeout 필드가
-            // 없다(Task 3이 추가 + 여기서 매핑) — 지금은 None(구 컨트롤러와 byte-identical).
-            connect_timeout_seconds: None,
+            connect_timeout_seconds: profile.connect_timeout_seconds,
         },
         env: env.clone(),
         data_bindings,
@@ -1415,6 +1427,7 @@ mod tests {
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -1625,6 +1638,7 @@ steps:
                 vu_stages: None,
                 ramp_down: None,
                 graceful_ramp_down_seconds: None,
+                connect_timeout_seconds: None,
                 worker_count: None,
                 apply_scenario_think_time: true,
             }
@@ -1697,6 +1711,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         };
@@ -1748,6 +1763,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -1802,6 +1818,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }
@@ -2543,6 +2560,97 @@ steps:
         p.graceful_ramp_down_seconds = Some(10);
         assert!(validate_run_config(&state, &p).await.is_ok());
     }
+
+    // ── connect_timeout_seconds (E3 Task 3, spec §3.4) ──────────────────────
+
+    // Minimal closed profile literal helper (fill remaining required fields).
+    fn closed_min() -> Profile {
+        Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 10,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
+            worker_count: None,
+            apply_scenario_think_time: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_zero_is_rejected() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = closed_min();
+        p.http_timeout_seconds = 30;
+        p.connect_timeout_seconds = Some(0);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("between 1 and 600")),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_over_600_is_rejected() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = closed_min();
+        p.http_timeout_seconds = 600;
+        p.connect_timeout_seconds = Some(601);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("between 1 and 600")),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_equal_to_http_timeout_is_rejected() {
+        // 경계: 같아도 거부(< 강제). 어느 쪽이 먼저 발화할지 보장 못 하면 분류가 무의미.
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = closed_min();
+        p.http_timeout_seconds = 5;
+        p.connect_timeout_seconds = Some(5);
+        let err = validate_run_config(&state, &p).await.unwrap_err();
+        assert!(
+            matches!(&err, ApiError::BadRequest(m) if m.contains("less than http_timeout_seconds")),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_below_http_timeout_is_accepted() {
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = closed_min();
+        p.http_timeout_seconds = 5;
+        p.connect_timeout_seconds = Some(4);
+        assert!(validate_run_config(&state, &p).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn connect_timeout_absent_is_accepted() {
+        // 미설정 = 오늘과 동일 경로(하위호환 — 기존 프리셋/스케줄이 400을 맞지 않는다).
+        let db = crate::store::connect("sqlite::memory:").await.unwrap();
+        let state = state_with(db, 0).await;
+        let mut p = closed_min();
+        p.connect_timeout_seconds = None;
+        assert!(validate_run_config(&state, &p).await.is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -2604,6 +2712,7 @@ steps:
             vu_stages: None,
             ramp_down: None,
             graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
             worker_count: None,
             apply_scenario_think_time: true,
         }

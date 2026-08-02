@@ -68,6 +68,7 @@ async fn seed_pending_run(db: &Db) -> String {
         vu_stages: None,
         ramp_down: None,
         graceful_ramp_down_seconds: None,
+        connect_timeout_seconds: None,
         worker_count: None,
         apply_scenario_think_time: true,
     };
