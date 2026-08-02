@@ -56,7 +56,7 @@
 | `mode` 초기값(`:182-184`)은 `opensDetailed(initial.profile, initial.env)`면 `"detailed"`. `appliedDetail` 칩은 `mode === "simple"`일 때만 렌더(`:1004-1013`) → **프리필과 칩은 한 렌더에서 공존 불가** | 파일 직접 확인 |
 | RTL 관례: `toDetailed(user)`(`RunDialog.test.tsx:79`)는 상세 라디오만 클릭 → 접힌 그룹은 `user.click(screen.getByRole("button", { name: /판정·고급/ }))`로 **한 번 더** 펼쳐야 한다(`:404`·`:432` 선례). payload는 `JSON.parse((call![1] as RequestInit).body as string)`(`:124-132`), 골든은 `DEFAULT_SIMPLE_PROFILE`(`:94`) | 파일 직접 확인 |
 | controller 테스트 헬퍼 실명: `state_with(db, capacity).await`(`api/runs.rs:1374`)·`think_profile(…)`(`:1729`)·`ol_profile()`(`:1783`)·`closed_min()`(`:2585`)·`profile_fixture(\|p\| …)`(`store/runs.rs:519`). **"키 부재" 직렬화 테스트 선례** = `none_graceful_cap_omitted_from_json`(`store/runs.rs:1035-1043`) | `grep -n "fn state_with\|fn ol_profile\|fn closed_min\|fn think_profile" …` |
-| **`ReportJson`(`report.rs:14-52`)엔 profile 필드가 없다** → 리포트 JSON으로 `connect_timeout_seconds` 부재를 확인하는 것은 **공허**. 확인은 `GET /api/runs/{id}`의 `profile`로 | `grep -n "pub struct ReportJson" -A 40 crates/controller/src/report.rs` |
+| ~~`ReportJson`엔 profile 필드가 없다~~ **← 이 주장은 거짓이었다(최종 리뷰가 반증, 2026-08-02)**: `ReportJson.run: ReportRun` → `ReportRun.profile: serde_json::Value`(`report.rs:59`, `:953`에서 채움)라 `report.run.profile.connect_timeout_seconds`가 실제로 존재한다. 단 **정정해도 더 나은 오라클은 아니다** — 같은 `store::Profile` 행의 재직렬화라 `GET /api/runs/{id}`와 같은 것을 읽는다. 둘 다 와이어를 증명하지 못하며, 오직 리포트의 `error_kinds` kind 결과만이 증명한다 | `grep -n "pub struct ReportJson" -A 40 crates/controller/src/report.rs` |
 | **비라우팅 IP `10.255.255.1:81`이 이 머신에서 결정적으로 connect-stall**(리뷰어 독립 실측: raw 소켓 >2.6초 무응답) → spec §9.1이 plan으로 미룬 "비라우팅 IP vs backlog-포화"는 **비라우팅 IP 확정** | `cargo test -p handicap-engine --test error_kind connect_stall` → `1 passed … 0.50s` |
 | **E1이 `ErrorKind::ConnectTimeout` 분류 규칙과 통합 테스트 ⑤를 이미 출하**(`error_kind.rs:78-84`, `tests/error_kind.rs:97-116`, 재실행 통과 확인) → 이 슬라이스는 분류기를 건드리지 않는다 | 위 명령 |
 | **대조군 `knob_off`는 공허하지 않다**: reqwest 0.12.28에서 전체-요청 타임아웃은 `error::request(TimedOut)`을 내고 그 체인엔 `hyper_util` connect 에러가 없어 `is_connect() == false` → 규칙 2 → `ErrorKind::Timeout` (리뷰어가 reqwest 소스로 확인) | 리뷰어 교차검증 |
@@ -103,7 +103,7 @@
 - Produces: `RunPlan { …, pub connect_timeout: Option<Duration> }` — Task 2의 워커 매핑이 채운다.
 - Produces: `VuClient::with_timeout(cookie_mode: CookieJarMode, timeout: Duration, measure_phases: bool, connect_timeout: Option<Duration>) -> Result<Self>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `crates/engine/tests/connect_timeout_knob.rs` 신규:
 
@@ -221,12 +221,12 @@ async fn knob_off_classifies_plain_timeout() {
 }
 ```
 
-- [ ] **Step 2: 테스트가 컴파일 실패하는지 확인**
+- [x] **Step 2: 테스트가 컴파일 실패하는지 확인**
 
 Run: `cargo test -p handicap-engine --test connect_timeout_knob 2>&1 | tail -20`
 Expected: FAIL — `struct RunPlan has no field named connect_timeout`.
 
-- [ ] **Step 3: `VuClient::with_timeout`에 4번째 인자 추가**
+- [x] **Step 3: `VuClient::with_timeout`에 4번째 인자 추가**
 
 `crates/engine/src/executor.rs` — `new`(:25-27)와 `with_timeout`(:32-53):
 
@@ -274,7 +274,7 @@ Expected: FAIL — `struct RunPlan has no field named connect_timeout`.
 
 `executor.rs:1532`·`:1549`의 테스트 호출에 `None` 4번째 인자 추가.
 
-- [ ] **Step 4: `RunPlan`에 필드 추가**
+- [x] **Step 4: `RunPlan`에 필드 추가**
 
 `crates/engine/src/runner.rs` — `RunPlan`의 `graceful_ramp_down` 뒤(구조체는 `:49-98`):
 
@@ -287,7 +287,7 @@ Expected: FAIL — `struct RunPlan has no field named connect_timeout`.
     pub connect_timeout: Option<Duration>,
 ```
 
-- [ ] **Step 5: `runner.rs` 9개 지점 스레딩**
+- [x] **Step 5: `runner.rs` 9개 지점 스레딩**
 
 **중요**: `run_vu`·`run_vu_curve`는 `plan`을 스코프에 갖지 않는다 — `http_timeout`은 **함수 파라미터**다. 따라서 `plan.connect_timeout`을 함수 안에서 읽을 수 없고, `http_timeout`과 **똑같이** 파라미터로 흘려야 한다. 두 함수 모두 이미 `#[allow(clippy::too_many_arguments)]`가 붙어 있어(`:380`·`:1097`) 인자 추가로 새 lint가 뜨지 않는다.
 
@@ -305,7 +305,7 @@ Expected: FAIL — `struct RunPlan has no field named connect_timeout`.
 
 정확한 줄번호는 편집 중 이동하므로 `grep -n "http_timeout" crates/engine/src/runner.rs`로 **`http_timeout`이 나오는 모든 지점을 정본으로 삼아 1:1 미러링**할 것 — `connect_timeout`은 `http_timeout`과 완전히 같은 경로를 탄다.
 
-- [ ] **Step 6: `RunPlan {` 리터럴 43곳 churn**
+- [x] **Step 6: `RunPlan {` 리터럴 43곳 churn**
 
 Run: `cargo build --workspace --all-targets 2>&1 | grep "missing field \`connect_timeout\`" | wc -l`
 
@@ -324,19 +324,19 @@ Run: `cargo build --workspace --all-targets 2>&1 | grep "missing field \`connect
 
 `crates/worker/src/lib.rs:233`의 `RunPlan {` 리터럴에도 지금은 `connect_timeout: None,`을 넣는다 — **Task 2가 실제 매핑으로 교체할 의도적 임시값**이다(커밋 메시지 본문에 명시해 bisect 시 최종 거동으로 오독되지 않게).
 
-- [ ] **Step 7: 테스트 통과 확인**
+- [x] **Step 7: 테스트 통과 확인**
 
 Run: `cargo test -p handicap-engine --test connect_timeout_knob 2>&1 | tail -20`
 Expected: PASS — 2 passed.
 
-- [ ] **Step 8: 회귀 가드 이빨 실증 (고의 회귀 → RED → 원복 → GREEN)**
+- [x] **Step 8: 회귀 가드 이빨 실증 (고의 회귀 → RED → 원복 → GREEN)**
 
 `plan-mandated-vacuous-tests` 규율. `runner.rs:396`(`run_vu`)의 4번째 인자를 `connect_timeout` → `None`으로 **일시 교체**:
 
 Run: `cargo test -p handicap-engine --test connect_timeout_knob knob_on 2>&1 | tail -20`
 Expected: **FAIL** — 첫 assert가 터진다. 분포는 `[(Timeout, N)]`(duration 6s > http_timeout 3s라 전체 타임아웃이 여유 있게 기록됨). 원복 후 재실행 → PASS. **RED 출력을 커밋 메시지 본문이나 리포트에 인용할 것** — 인용 없으면 실증 미완.
 
-- [ ] **Step 9: 전체 게이트**
+- [x] **Step 9: 전체 게이트**
 
 Run: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -20`
 Expected: 경고 0.
@@ -344,7 +344,7 @@ Expected: 경고 0.
 Run: `cargo test --workspace 2>&1 | tail -30`
 Expected: 전부 PASS (특히 `error_kind_flush`·`http_timeout`·`phase_breakdown`·`vu_curve`).
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 
 ```bash
 git add crates/engine crates/worker
@@ -369,7 +369,7 @@ worker/src/lib.rs:233의 connect_timeout: None은 Task 2가 실제 proto 매핑�
 - Produces: proto `Profile.connect_timeout_seconds: Option<u32>` — Task 3의 컨트롤러 매핑이 채운다.
 - Produces: `fn proto_connect_timeout(p: &pb::Profile) -> Option<std::time::Duration>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `crates/worker/src/lib.rs`의 기존 `#[cfg(test)] mod tests` 안(`pb::Profile`을 쓰는 테스트가 `:762`부터 있고 전부 `..Default::default()` 관례):
 
@@ -415,12 +415,12 @@ worker/src/lib.rs:233의 connect_timeout: None은 Task 2가 실제 proto 매핑�
     }
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 Run: `cargo test -p handicap-worker connect_timeout 2>&1 | tail -20`
 Expected: FAIL — `no field connect_timeout_seconds` / `cannot find function proto_connect_timeout`.
 
-- [ ] **Step 3: proto 필드 추가**
+- [x] **Step 3: proto 필드 추가**
 
 `crates/proto/proto/coordinator.proto`의 `message Profile` 마지막 줄(`optional uint32 graceful_ramp_down_seconds = 14;`) 뒤:
 
@@ -428,7 +428,7 @@ Expected: FAIL — `no field connect_timeout_seconds` / `cannot find function pr
   optional uint32 connect_timeout_seconds = 15;  // E3: connect 단계 전용 타임아웃(초); 부재 = 미설정
 ```
 
-- [ ] **Step 4: 워커 매핑 헬퍼 + 리터럴 배선**
+- [x] **Step 4: 워커 매핑 헬퍼 + 리터럴 배선**
 
 ```rust
 /// E3: proto `optional uint32`(초) → 엔진 `Option<Duration>`. 부재 = 미설정.
@@ -456,7 +456,7 @@ Task 1이 넣은 `connect_timeout: None,`을 교체:
     };
 ```
 
-- [ ] **Step 5: 전수 prost 리터럴 churn 3곳**
+- [x] **Step 5: 전수 prost 리터럴 churn 3곳**
 
 `..Default::default()` 없이 14필드를 다 쓰는 리터럴만 깨진다. `connect_timeout_seconds: None,` 추가:
 - `crates/controller/src/grpc/coordinator.rs:1918` (**controller 크레이트** — 이걸 놓치면 workspace 빌드가 깨진다)
@@ -465,7 +465,7 @@ Task 1이 넣은 `connect_timeout: None,`을 교체:
 Run: `cargo build --workspace --all-targets 2>&1 | grep "missing field \`connect_timeout_seconds\`" | wc -l`
 Expected: 0 (반복해서 0이 될 때까지).
 
-- [ ] **Step 6: 테스트 통과 확인**
+- [x] **Step 6: 테스트 통과 확인**
 
 Run: `cargo test -p handicap-worker connect_timeout 2>&1 | tail -20`
 Expected: PASS — 3 passed.
@@ -473,7 +473,7 @@ Expected: PASS — 3 passed.
 Run: `cargo test -p handicap-proto 2>&1 | tail -20`
 Expected: PASS.
 
-- [ ] **Step 7: 게이트 + 커밋**
+- [x] **Step 7: 게이트 + 커밋**
 
 Run: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -20`
 Expected: 경고 0.
@@ -497,7 +497,7 @@ git commit -m "feat(proto,worker): Profile.connect_timeout_seconds=15 → RunPla
 - Consumes: proto `Profile.connect_timeout_seconds: Option<u32>` (Task 2)
 - Produces: `store::Profile.connect_timeout_seconds: Option<u32>` — `skip_serializing_if` → 미설정이면 JSON **키 부재**(null 아님) → Task 4 Zod가 `.optional()`인 근거.
 
-- [ ] **Step 1: 실패하는 테스트 작성 (직렬화 — `store/runs.rs`)**
+- [x] **Step 1: 실패하는 테스트 작성 (직렬화 — `store/runs.rs`)**
 
 `crates/controller/src/store/runs.rs`의 `none_graceful_cap_omitted_from_json`(`:1035-1043`) 바로 뒤, 같은 `profile_fixture` 관례로:
 
@@ -521,7 +521,7 @@ git commit -m "feat(proto,worker): Profile.connect_timeout_seconds=15 → RunPla
     }
 ```
 
-- [ ] **Step 2: 실패하는 테스트 작성 (검증 — `api/runs.rs`)**
+- [x] **Step 2: 실패하는 테스트 작성 (검증 — `api/runs.rs`)**
 
 기존 `validate_run_config` 테스트들과 같은 관례로. `state_with(db, capacity).await`(`:1374`)·`closed_min()`(`:2585`)를 쓰고, state 생성 2줄은 인접 `graceful_ramp_down_seconds` 테스트(`:2473-2541`)와 동일:
 
@@ -590,12 +590,12 @@ git commit -m "feat(proto,worker): Profile.connect_timeout_seconds=15 → RunPla
     }
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인**
+- [x] **Step 3: 테스트가 실패하는지 확인**
 
 Run: `cargo test -p handicap-controller connect_timeout 2>&1 | tail -20`
 Expected: FAIL — `no field connect_timeout_seconds on type Profile`.
 
-- [ ] **Step 4: `store::Profile`에 필드 추가**
+- [x] **Step 4: `store::Profile`에 필드 추가**
 
 `crates/controller/src/store/runs.rs` — `graceful_ramp_down_seconds`(`:156-157`) 뒤, `worker_count`(`:161`) 앞:
 
@@ -612,7 +612,7 @@ Expected: FAIL — `no field connect_timeout_seconds on type Profile`.
     pub connect_timeout_seconds: Option<u32>,
 ```
 
-- [ ] **Step 5: 검증 2규칙 + proto 매핑**
+- [x] **Step 5: 검증 2규칙 + proto 매핑**
 
 `crates/controller/src/api/runs.rs` — 기존 http_timeout 블록(`:413-417`) **바로 뒤**. 순서가 중요하다: 여기 도달한 시점에 `http_timeout_seconds`는 1..=600으로 검증된 실값이다(serde default 30이 항상 채움) → "미설정" 분기가 없다.
 
@@ -639,7 +639,7 @@ Expected: FAIL — `no field connect_timeout_seconds on type Profile`.
             connect_timeout_seconds: profile.connect_timeout_seconds,
 ```
 
-- [ ] **Step 6: `store::Profile {` 리터럴 churn 23곳**
+- [x] **Step 6: `store::Profile {` 리터럴 churn 23곳**
 
 전수 목록(검증됨 — depth-1 struct-update `..ol_profile()` 사이트는 면제. **중첩 `Criteria { ..Default::default() }`에 속지 말 것** — `store/runs.rs:923`은 Profile 자체는 전수라 포함된다):
 
@@ -681,19 +681,19 @@ crates/controller/tests/export_routes_test.rs:289
 Run: `cargo build --workspace --all-targets 2>&1 | grep "missing field \`connect_timeout_seconds\`" | wc -l`
 Expected: 반복해서 0. (한 번의 빌드가 lib/test 유닛을 다 못 보므로 위 23곳을 다 고친 뒤에도 한 번 더 돌릴 것.) `git add crates/controller`가 `crates/controller/tests/`까지 포함하므로 커밋 범위는 그대로다.
 
-- [ ] **Step 7: 테스트 통과 확인**
+- [x] **Step 7: 테스트 통과 확인**
 
 Run: `cargo test -p handicap-controller connect_timeout 2>&1 | tail -20`
 Expected: PASS — 7 passed.
 
-- [ ] **Step 8: 회귀 가드 이빨 실증**
+- [x] **Step 8: 회귀 가드 이빨 실증**
 
 Step 5의 **두 번째** `if` 블록(교차검증)을 일시 삭제:
 
 Run: `cargo test -p handicap-controller connect_timeout_equal 2>&1 | tail -20`
 Expected: **FAIL** — `called Result::unwrap_err() on an Ok value`. 원복 후 PASS. **RED 출력 인용 필수.**
 
-- [ ] **Step 9: 전체 게이트**
+- [x] **Step 9: 전체 게이트**
 
 Run: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -20`
 Expected: 경고 0.
@@ -701,7 +701,7 @@ Expected: 경고 0.
 Run: `cargo test --workspace 2>&1 | tail -30`
 Expected: 전부 PASS — 특히 골든 fixture(ADR-0030)와 preset/schedule 라운드트립(미설정이면 키 부재라 무변경).
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 
 ```bash
 git add crates/controller
@@ -724,7 +724,7 @@ git commit -m "feat(controller): Profile.connect_timeout_seconds + 검증 2규�
 - Consumes: 서버 JSON `connect_timeout_seconds?: number` (Task 3, absent이지 null 아님)
 - Produces: `ProfileFormInput.connectTimeout?: string` — 빈 문자열/미전달 = 미설정 → **키 자체를 생략**(spread-conditional).
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `profileForm.test.ts` — payload 형태(기존 `apply_scenario_think_time` 관례 `:242/:246`가 정본). 팩토리는 `base(loadState, extra)`(`:218-229`)이고 **이미 내부에서 `buildProfile`을 호출**한다 — 감싸지 말 것:
 
@@ -919,12 +919,12 @@ git commit -m "feat(controller): Profile.connect_timeout_seconds + 검증 2규�
   });
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
 Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/error-taxonomy-e3/ui && pnpm test -- RunDialog profileForm ScheduleForm; echo "exit=$?"`
 Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. (ScheduleForm 2건도 Step 1에서 작성했으므로 여기 RED에 포함된다.)
 
-- [ ] **Step 3: Zod 스키마**
+- [x] **Step 3: Zod 스키마**
 
 `ui/src/api/schemas.ts` — `graceful_ramp_down_seconds`(`:100`) 뒤:
 
@@ -934,7 +934,7 @@ Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. 
   connect_timeout_seconds: z.number().int().positive().optional(),
 ```
 
-- [ ] **Step 4: ko 카탈로그**
+- [x] **Step 4: ko 카탈로그**
 
 `ui/src/i18n/ko.ts` — `loadModel.httpTimeout`(`:197`) 뒤:
 
@@ -949,7 +949,7 @@ Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. 
     connectTimeout: "연결 수립 타임아웃은 1초 이상, HTTP 타임아웃보다 작아야 합니다.",
 ```
 
-- [ ] **Step 5: `buildProfile` 배선 (spread-conditional)**
+- [x] **Step 5: `buildProfile` 배선 (spread-conditional)**
 
 `ui/src/components/profileForm.ts` — `ProfileFormInput`에:
 
@@ -971,7 +971,7 @@ Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. 
       : {}),
 ```
 
-- [ ] **Step 6: RunDialog 배선 6지점 + 입력 UI**
+- [x] **Step 6: RunDialog 배선 6지점 + 입력 UI**
 
 **① state + prefill** (`gracefulCap`:101-105 선례 — `httpTimeout`과 달리 **string draft**):
 
@@ -1071,7 +1071,7 @@ Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. 
             )}
 ```
 
-- [ ] **Step 7: ScheduleForm pass-through + 교차검증 가드 (입력 UI 없음)**
+- [x] **Step 7: ScheduleForm pass-through + 교차검증 가드 (입력 UI 없음)**
 
 `ScheduleForm.tsx`는 `initial.profile`을 `buildProfileShared`로 통째 재구성하므로(`:244-254`), 넘기지 않으면 API로 설정된 값이 **편집 한 번에 소실**된다. `normalizeProfile`(=`ProfileSchema.parse`)은 Task 4 Step 3 이후 이 키를 보존하므로 `init?.connect_timeout_seconds`가 `number | undefined`로 들어온다. 폼 입력은 만들지 않되(spec §2 Non-goal) 값은 보존한다:
 
@@ -1108,12 +1108,12 @@ Expected: FAIL — `ko.loadModel.connectTimeout` undefined / 라벨 못 찾음. 
       `이 스케줄에 저장된 연결 수립 타임아웃(${n}초)보다 HTTP 타임아웃이 커야 합니다.`,
 ```
 
-- [ ] **Step 8: 테스트 통과 확인**
+- [x] **Step 8: 테스트 통과 확인**
 
 Run: `cd /Users/sgj/develop/handicap/.claude/worktrees/error-taxonomy-e3/ui && pnpm test -- RunDialog profileForm ScheduleForm; echo "exit=$?"`
 Expected: `exit=0`.
 
-- [ ] **Step 9: 회귀 가드 이빨 실증 4건**
+- [x] **Step 9: 회귀 가드 이빨 실증 4건**
 
 각 항목을 **하나씩** 일시 삭제 → 지정 테스트만 RED → 원복. 한 번에 여러 개 지우지 말 것(어느 가드가 물었는지 불분명해진다).
 
@@ -1128,7 +1128,7 @@ Run(각 회차): `cd /Users/sgj/develop/handicap/.claude/worktrees/error-taxonom
 
 4건 전부 원복 후 재실행 → `exit=0`. **4개 RED 출력 모두 인용할 것** — 인용 없으면 실증 미완.
 
-- [ ] **Step 10: UI 게이트 3종 — 파이프 금지, 종료코드 명시 캡처**
+- [x] **Step 10: UI 게이트 3종 — 파이프 금지, 종료코드 명시 캡처**
 
 `pnpm lint && pnpm test | tail`은 test 실패를 마스킹한 채 `&&` 후속으로 진행한다(레포 문서화 함정). 각각 따로:
 
@@ -1141,7 +1141,7 @@ pnpm build; echo "build exit=$?"
 
 Expected: 셋 다 `exit=0`. `pnpm build`(`tsc -b && vite build`)가 최종 게이트.
 
-- [ ] **Step 11: 커밋**
+- [x] **Step 11: 커밋**
 
 ```bash
 git add ui/
@@ -1184,7 +1184,7 @@ steps:
 | **US3** | `connect_timeout_seconds=2`, `http_timeout_seconds=10`, vus=1, duration=20 | 리포트 "Transport 실패 분류" 표에 **`연결 수립 타임아웃`(connect_timeout) count>0**, `요청 타임아웃`(timeout) 행 **부재** |
 | **US3 대조** | 노브 미설정, `http_timeout_seconds=5`, vus=1, duration=20 | 같은 표에 **`요청 타임아웃`(timeout) count>0**, `connect_timeout` 행 **부재** — 이 대조가 성립해야 US3의 "결정적 신호"가 판별력을 갖는다(spec 리뷰 R14) |
 | **검증 400** | `connect_timeout_seconds=10`, `http_timeout_seconds=10` | `POST /api/runs` → 400 `connect_timeout_seconds must be less than http_timeout_seconds` |
-| **영속 왕복** | US3 run 생성 후 | `GET /api/runs/{id}` → `profile.connect_timeout_seconds == 2`. **리포트 JSON으로 확인하지 말 것** — `ReportJson`엔 profile 필드가 없어 공허하게 통과한다 |
+| **영속 왕복** | US3 run 생성 후 | `GET /api/runs/{id}` → `profile.connect_timeout_seconds == 2`. 확인 자체는 `GET /api/runs/{id}`로. (~~`ReportJson`엔 profile 필드가 없다~~는 원문 주장은 **거짓** — 위 사전 실측 표 참조. 다만 `report.run.profile`도 같은 DB 행이라 **어느 영속 확인도 와이어를 증명하지 못한다**: 매핑이 `None`을 실어도 둘 다 `2`를 보고한다. 와이어 오라클은 `error_kinds`의 kind 결과뿐) |
 | **회귀** | 정상 responder(think_time로 ~20 rps) + 노브 미설정 | 분류표 미렌더 · 리포트 JSON에 `error_kinds` 키 부재 · `GET /api/runs/{id}`의 `profile`에 `connect_timeout_seconds` 키 부재 |
 | **UI 왕복** | RunDialog에서 2 입력 → 실행; 빈칸으로도 1회 | 제출 성공 + 위 영속 확인. 빈칸 제출 시 키 부재. **값 입력 후 '판정·고급' 그룹을 접었을 때 힌트에 수가 잡히는지**(배선 ⑥ 라이브 확인) |
 | **caveat(수용, 유발 안 함)** | per-step `timeout_seconds` < run-level | 그 스텝은 `timeout`으로 남는다(spec §5.1 한계). 라이브 유발 대상 아님 — 필드 doc-comment로 기록됨 |

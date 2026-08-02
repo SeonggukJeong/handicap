@@ -4,7 +4,7 @@
 
 > **함정(gotcha) 노트는 도메인별 중첩 CLAUDE.md로 분할됨** — 각 디렉토리 파일을 그 디렉토리 작업 시 자동 로드한다. 이 루트 파일엔 전역 규칙·상태·크로스커팅 함정만 남긴다. 인덱스는 아래 [도메인별 함정 인덱스](#도메인별-함정-인덱스).
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 후속 다수까지 구현·머지 완료(**전수 목록·구현 결과·함정 출처는 `docs/build-log.md`가 단일 소스**). 최신 = error-taxonomy E2 (2026-08-02, 머지 6ef41b49 — onset·원인 후보 인사이트) — 상세는 `docs/build-log.md`. 완료 슬라이스/기능 상세·함정 출처 → `docs/build-log.md`, 다음 작업(테마별 frontier+추천) → `docs/roadmap-status.md`(현황판·shortlist 대체), 후보 메뉴·연기 항목 상세 → `docs/roadmap.md`, ADR 인덱스 → 아래 [알아둘 결정들](#알아둘-결정들), 결정 전문 → `docs/adr/`. 디자인 → `docs/superpowers/specs/`, 구현 계획 → `docs/superpowers/plans/`. MVP 1단계 spec=`2026-05-27-handicap-mvp1-design.md`(슬라이스 1–6), 후속은 그 §4.5 메뉴에서 각자 새 spec/plan으로.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 후속 다수까지 구현·머지 완료(**전수 목록·구현 결과·함정 출처는 `docs/build-log.md`가 단일 소스**). 최신 = error-taxonomy E3 (2026-08-02, 머지 <MERGE_SHA> — connect_timeout 노브, 영역 E 종결) — 상세는 `docs/build-log.md`. 완료 슬라이스/기능 상세·함정 출처 → `docs/build-log.md`, 다음 작업(테마별 frontier+추천) → `docs/roadmap-status.md`(현황판·shortlist 대체), 후보 메뉴·연기 항목 상세 → `docs/roadmap.md`, ADR 인덱스 → 아래 [알아둘 결정들](#알아둘-결정들), 결정 전문 → `docs/adr/`. 디자인 → `docs/superpowers/specs/`, 구현 계획 → `docs/superpowers/plans/`. MVP 1단계 spec=`2026-05-27-handicap-mvp1-design.md`(슬라이스 1–6), 후속은 그 §4.5 메뉴에서 각자 새 spec/plan으로.**
 
 라이브 대시보드는 MVP 범위 자체에서 제외(ADR-0009 — 종료 후 HTML/JSON 리포트로 충분, 실시간은 APM 사용).
 
@@ -121,7 +121,7 @@ docs/
 - `ui/src`를 한 줄이라도 건드리는 task는 brief에 UI 테스트 스텝 명시(tdd-guard가 UI-side pending test 요구).
 - plan 인라인 Rust는 clippy-clean으로 — 2-arm `match … _ => {}` 대신 `if let`(`-D warnings`).
 - **plan이 verbatim 지정한 테스트도 공허할 수 있다** — 회귀 가드 표방 테스트는 brief에 고의 회귀→RED→원복→GREEN 실증 명시. plan-mandated 결함도 기각 말고 finding. → [[plan-mandated-vacuous-tests]]
-- **plan의 *사실 주장*도 가설** — "충돌 회피됨"·"N/A 예상"·"byte-identical"은 근거가 아니다. plan이 확인했다는 것은 다시 돌려라: 전수 grep·0-diff 등 기계 재현 가능한 건 orchestrator가 직접.
+- **plan의 *사실 주장*도 가설** — grep·카운트·줄번호 등 기계 재현 가능한 건 디스패치 전 orchestrator가 직접. 리뷰 라운드 수는 사실을 보증 안 한다 → `docs/dev/subagent-dispatch.md`.
 - **plan은 훅에도 실행 가능해야 — `tdd-guard` 스텝 순서 시뮬레이션**: ① 첫 스텝 production 편집은 차단(테스트 먼저) ② 테스트 무수정 리팩터는 `it.todo`로 언블록, 커밋 전 제거는 독립 스텝.
 - **줄번호는 `grep -n`으로만 확정 — `sed -n 'N,Mp'` 출력 줄을 세지 말 것**: spec/plan의 `파일:줄` 주장은 리뷰어가 전수 대조하므로 오프바이원이 곧 finding이 된다.
 

@@ -43,3 +43,21 @@
 commit뿐 아니라 **검증 명령**에서도 같은 실패 모드가 확인됐다. fix-wave implementer가 `cargo nextest`를 background로 띄운 뒤 "monitor 알림을 기다리겠다"며 turn을 끝냄 → subagent는 자기 background 자식이 끝나도 자동 재개되지 않아(orchestrator와 달리 notification이 안 옴) 2회 연속 대기-서사만 남기고 멈췄다. 각 라운드가 ~10분·70 tool-use를 소모했다.
 
 복구 레시피: ① orchestrator가 `git log`/`git status`로 실제 진척 판정(대기 서사 불신) ② 떠 있는 프로세스 확인(`pgrep -fl cargo`) — 살아 있으면 orchestrator 쪽에서 `while kill -0 <PID>; do sleep 3; done`를 background로 걸어 종료 시점을 잡는다 ③ 종료 후 `SendMessage`로 "재실행 말고 완주"를 지시 — 이때 "pre-commit 게이트가 어차피 전체를 다시 돌리는 권위 검증"임을 명시하면 중복 검증 재실행을 막는다. 예방: brief에 "검증→커밋을 한 흐름으로 연속 실행, Monitor/대기 금지"를 명시(단일 FOREGROUND 규칙의 검증-단계 확장).
+
+## 리뷰 라운드 수는 사실을 보증하지 않는다 (error-taxonomy E3, 2026-08-02)
+
+E3 plan은 `spec-plan-reviewer` **5라운드**를 돌아 clean `APPROVE` + `REVIEW-GATE: APPROVED`를 받았다. 그런데도 orchestrator가 디스패치 직전에 돌린 grep이 **사실 오류 4건**을 잡았다:
+
+| plan 주장 | 실제 | 원인 |
+|---|---|---|
+| `RunPlan {` 리터럴 churn 43곳 | **37곳** | `-> RunPlan {` 함수 시그니처 6개 + `pub struct RunPlan {` 정의를 리터럴로 셈 |
+| `store::Profile {` churn 23곳 | **22곳** | 목록에 `impl Profile {`(임플 블록)이 섞임 |
+| Task 3 churn 목록의 줄번호 | 전량 stale | 앞 task가 3줄 삽입 — plan 작성 시점 기준으로 굳어 있었다 |
+| "`ReportJson`엔 profile 필드가 없어 리포트 JSON 확인은 공허" (2곳) | **거짓** | `ReportJson.run: ReportRun` → `ReportRun.profile`(`report.rs:59`, `:953`) |
+
+**교훈**: 리뷰는 *추론*(설계 정합성·모순·범위)을 검증하지 *사실*(grep 결과·필드 존재)을 재실행하지 않는다. 라운드를 더 돌려도 이 클래스는 안 잡힌다 — 리뷰어도 같은 plan 텍스트를 읽기 때문이다. 기계 재현 가능한 주장(전수 grep·카운트·줄번호·필드 존재)은 **orchestrator가 디스패치 전에 직접** 돌리는 것 외에 방법이 없다.
+
+부수 교훈 2건:
+- **컴파일러가 강제하는 churn 카운트는 틀려도 안전하다**(빌드가 수렴시킨다) — 그러나 틀린 숫자는 구현자를 유령 사이트 사냥으로 보낸다. brief엔 숫자와 함께 **"컴파일러가 권위"**를 명시하고, 편집하면 안 되는 매치(시그니처·impl·struct-update)를 열거해 줄 것.
+- **정정 자체도 가설이다**: 위 4번째를 정정한 뒤 "그럼 `report.run.profile`로 확인하면 되겠다"가 자연스러운 다음 수인데, 그것도 **같은 DB 행의 재직렬화**라 더 나은 오라클이 아니다(최종 리뷰가 지적). 사실을 고칠 때 그 사실이 *무엇을 위해* 인용됐는지까지 다시 볼 것.
+
