@@ -73,8 +73,7 @@ use handicap_proto::v1 as pb;
 
 #[cfg(test)]
 mod tests {
-    // `use super::*;`만 둔다 — Step 4가 모듈 레벨에 `Profile`/`pb`를 임포트하므로
-    // 여기서 다시 선언하면 잉여다(컴파일은 되지만 리뷰 finding).
+    // 테스트는 부모 모듈의 임포트(`Profile`·`pb`)를 glob으로 받는다.
     use super::*;
 
     /// C1 sentinel 픽스처 — **필드마다 서로 다른 값**.
@@ -242,7 +241,7 @@ pub mod shard;
 - [ ] **Step 3: 컴파일 실패(RED)를 확인한다**
 
 Run: `cargo test -p handicap-controller --lib grpc::profile 2>&1 | head -30`
-Expected: FAIL — ``cannot find function `to_proto_profile` in this scope`` (3회, 각 테스트에서). 이게 RED다.
+Expected: FAIL — ``cannot find function `to_proto_profile` in this scope`` (**2회** — 이 시점의 테스트는 2개다. C2·C3는 Step 7에서 추가된다). 이게 RED다.
 
 - [ ] **Step 4: `api/runs.rs:741-781`의 리터럴을 함수로 옮긴다**
 
@@ -410,9 +409,12 @@ Expected: PASS — 4 tests.
 ```bash
 awk '/^#\[cfg\(test\)\]/{exit} /(v1|pb)::Profile[[:space:]]*\{/{c++} END{print c+0}' \
     crates/controller/src/api/runs.rs
-grep -c 'to_proto_profile(' crates/controller/src/api/runs.rs
+awk '/^#\[cfg\(test\)\]/{exit} /to_proto_profile\(/{c++} END{print c+0}' \
+    crates/controller/src/api/runs.rs
 ```
-Expected: 첫 명령 **`0`** (추출 전 baseline은 `1`이었다 — 0이 아니면 인라인 리터럴이 남아있다는 뜻), 둘째 **`1` 이상**.
+Expected: 첫 명령 **`0`**(추출 전 baseline은 `1`이었다 — 0이 아니면 인라인 리터럴이 남아있다), 둘째 **`1`**(프로덕션 호출 1개 = 결선).
+
+> 둘째도 리전 스코프다(Task 2 Step 6과 대칭). 오늘은 `api/runs.rs`의 테스트 리전에 이 함수 호출이 없어 전역 `grep -c`도 1을 내지만, 그 파일에 호출하는 테스트가 생기면 조용히 약해진다.
 
 - [ ] **Step 10: keepalive 삭제 → 전체 게이트 → 커밋**
 
@@ -436,7 +438,7 @@ Expected: 넷 다 `exit=0`. (doctest는 pre-commit이 별도로 돌리므로 커
 
 ```bash
 git add crates/controller/src/grpc/profile.rs crates/controller/src/grpc/mod.rs crates/controller/src/api/runs.rs
-git status --porcelain    # _tdd_keepalive.rs가 남아있지 않은지 확인
+test ! -e crates/controller/tests/_tdd_keepalive.rs ; echo "keepalive-gone exit=$?"   # 0이어야 한다
 git diff --cached --name-only
 git commit -m "refactor(controller): store→proto Profile 매핑을 to_proto_profile로 추출 + 표 테스트
 
@@ -469,7 +471,9 @@ api/runs.rs의 인라인 pb::Profile 리터럴(15필드)을 grpc/profile.rs 순�
 >
 > **알려진 한계 — `vu_count`/`vu_offset` 위치 인자 전치는 이 단위 테스트가 못 잡는다.** 추출 전엔 이름 있는 필드 매핑(`vus: assignment.vu_count` / `vu_offset: assignment.vu_offset`)이었으나 추출 후엔 같은 타입(`u32`)·같은 출처의 인접 **위치 인자 2개**가 된다. 단위 테스트는 함수를 직접 부르므로(233/244를 명시 전달) 호출부 전치를 원리적으로 못 본다.
 > - `&pb::RunAssignment`를 받아 필드명을 함수 안에 남기는 대안은 **불가능**하다 — `lib.rs:144`의 `let profile = assignment.profile.expect(…)`가 `assignment`를 **partial move**시켜 이후 전체 차용이 안 된다(우회하려면 `.clone()`이 필요해 "표현식 이동뿐" 불변식을 깬다).
-> - **대신 기존 e2e가 이 전치를 잡는다**(확인함): `crates/controller/tests/multi_worker_fanout_e2e.rs:517-539`가 `vu<10`과 `vu>=10` 요청이 **둘 다** 도달했는지 단언한다. 두 인자를 바꾸면 worker 0의 `vus`가 0이 되어 shard 0 요청이 사라지고 그 단언이 깨진다.
+> - **대신 기존 e2e가 이 전치를 잡는다**(메커니즘 확인함):
+>   - **open-loop fan-out** — `crates/controller/tests/multi_worker_fanout_e2e.rs:531-539`가 `vu<10`과 `vu>=10` 요청이 **둘 다** 도달했는지 단언한다. 스왑하면 worker 0 = `(vus=0, vu_offset=10)`, worker 1 = `(vus=10, vu_offset=10)` → **두 워커의 `vu_offset`이 모두 10**이 되어 `vu<10` 요청이 아예 발생하지 않는다. (주의: 이 경로는 `plan.vus`를 **쓰지 않는다** — 슬롯풀은 `max_in_flight`가 정하고 vu id는 `plan.vu_offset.saturating_add(index)`다(`crates/engine/src/runner.rs:895`). "worker 0의 vus가 0이라 요청이 사라진다"는 설명은 **틀렸다**.)
+>   - **closed-loop** — 더 단순하고 강한 근거: closed-loop은 `plan.vus`만큼 VU를 띄우므로 스왑으로 `vus=0`이 되면 요청이 0건이 되어 어떤 closed-loop e2e든 깨진다.
 
 - [ ] **Step 1: 실패하는 테스트를 먼저 쓴다**
 
@@ -872,7 +876,7 @@ C3 ramp_down_immediate=true→Immediate · C4 0-폴백."
 
 ---
 
-### Task 3: 이빨 실증 (고의 회귀 → RED → 원복 → GREEN) 8건
+### Task 3: 이빨 실증 (고의 회귀 → RED → 원복 → GREEN) 10건
 
 **Files:** 임시 편집만 — **커밋되는 변경 없음**. 각 회귀는 확인 즉시 원복한다.
 
@@ -881,6 +885,8 @@ C3 ramp_down_immediate=true→Immediate · C4 0-폴백."
 - Produces: 없음(검증 산출물은 아래 결과 표).
 
 > **왜 필요한가:** 회귀 가드를 표방하는 테스트는 이빨을 실증해야 한다(레포 규율 — plan이 지시한 테스트도 공허할 수 있다). 각 항목마다 회귀를 심고 **RED를 눈으로 확인**한 뒤 원복하고 GREEN을 확인한다.
+>
+> **0-diff 불변식과의 화해:** R7·R8·R9는 각각 `store/runs.rs`·`.proto`·`engine/src/runner.rs`를 **일시 편집**한다. Global Constraints의 "`.proto` 0-diff"는 **커밋 diff** 기준이며, 세 편집은 확인 즉시 원복되어 Step 11의 `git status --porcelain`이 빈 출력임을 기계 보증한다.
 >
 > **주의:** 이빨 실증은 **결선을 증명하지 않는다.** 구현자가 리터럴을 복사해 함수를 만들고 인라인을 안 지워도 R1~R9는 전부 정상 동작한다. 결선은 Task 1 Step 9 / Task 2 Step 6의 게이트가 담보한다.
 
@@ -962,12 +968,19 @@ Expected: **FAIL**.
     pub dummy_teeth_probe: bool,
 ```
 
-Run: `cargo build -p handicap-controller --tests 2>&1 | grep -c 'grpc/profile.rs'`
-Expected: **1 이상** — 즉 컴파일 에러 목록에 `crates/controller/src/grpc/profile.rs`가 **포함**되어야 한다.
+Run — **lib 유닛만 결정적으로**(R9와 같은 이유: `crash_recovery_test.rs`·`export_routes_test.rs`·`dispatcher_subprocess_test.rs`·`report_test.rs`가 `Profile {`를 지어 통합 테스트가 먼저 실패하면 lib-test가 안 지어진다):
+
+```bash
+cargo test -p handicap-controller --lib --no-run 2>&1 \
+  | grep -cE '^\s*--> crates/controller/src/grpc/profile\.rs'
+```
+Expected: **2** — `c1_profile()`과 `c2_absent_and_defaults`의 `Profile {` 리터럴 2곳. **0이면 실증 실패**다.
 
 > **통과 신호가 "컴파일 에러 발생"이 아닌 이유:** `store::Profile`은 `Default`를 파생하지 않아 기존 픽스처 헬퍼(`unique_profile`·`profile_with` 등)도 이미 exhaustive다. 따라서 더미 필드를 넣으면 **이 슬라이스가 없어도** 컴파일 에러가 난다. 새 픽스처가 그 강제 대상에 포함되는지를 봐야 실증이 공허하지 않다.
+>
+> R8의 컨트롤러 신호와 달리 여기선 "경로가 나오면" 그 자체로 충분하다 — `to_proto_profile`은 `store::Profile`을 **읽기만** 하고 생성하지 않으므로, 그 파일의 히트는 반드시 픽스처의 것이다.
 
-더미 필드 원복 후 `cargo build -p handicap-controller --tests` → 성공 확인.
+더미 필드 원복 후 `cargo test -p handicap-controller --lib --no-run` → 성공 확인.
 
 - [ ] **Step 9: R8 — ②의 강제력 (proto 필드 추가 = 양쪽 픽스처 컴파일 에러)**
 
@@ -979,15 +992,24 @@ US2는 "`store::Profile` **또는** `pb::Profile`에 필드를 추가할 때"를
   optional uint32 dummy_teeth_probe = 16;
 ```
 
-Run:
+Run — **두 크레이트를 따로, `--no-run`으로**(전체 워크스페이스 빌드는 첫 실패 후 스케줄링을 멈춰 원하는 유닛이 안 지어질 수 있다):
+
 ```bash
-cargo build --workspace --tests 2>&1 | grep -oE 'crates/(controller/src/grpc/profile|worker/src/lib)\.rs' | sort -u
+# 컨트롤러: 에러 위치(-->) 줄만 센다
+cargo test -p handicap-controller --lib --no-run 2>&1 \
+  | grep -cE '^\s*--> crates/controller/src/grpc/profile\.rs'
+# 워커
+cargo test -p handicap-worker --lib --no-run 2>&1 \
+  | grep -cE '^\s*--> crates/worker/src/lib\.rs'
 ```
-Expected: **두 줄 모두** 출력 — `crates/controller/src/grpc/profile.rs` **와** `crates/worker/src/lib.rs`.
 
-> R7과 같은 이유로 "컴파일 에러 발생"은 신호가 못 된다 — `to_proto_profile` 본문과 `base_assignment()`(`grpc/coordinator.rs`)가 이미 exhaustive라 이 슬라이스 없이도 에러가 난다. **새 픽스처 두 개가 강제 대상에 포함되는지**를 봐야 공허하지 않다.
+Expected: 컨트롤러 **`3` 이상**, 워커 **`1` 이상**.
 
-`.proto` 원복 후 `cargo build --workspace --tests` → 성공 확인.
+> **컨트롤러 신호가 "존재"가 아니라 "개수"인 이유(공허 방지):** 추출 후 `grpc/profile.rs`에는 **프로덕션 `to_proto_profile` 본문**(= 이전한 기존 exhaustive 리터럴)과 픽스처가 **함께** 산다. proto 필드를 더하면 프로덕션 본문만으로도 그 경로가 에러 목록에 뜨므로, "경로가 나온다"는 신호는 **새 픽스처가 강제 대상인지 판별하지 못한다**(R7이 피하려던 바로 그 함정). 기대 `3` = 프로덕션 본문 1 + C1 기대 리터럴 1 + C2 기대 리터럴 1. **`1`이면 프로덕션 본문뿐 = 픽스처가 강제 대상이 아니다 = 공허**다.
+>
+> 워커 쪽은 "존재"로 충분하다 — 워커 프로덕션엔 `pb::Profile` 리터럴이 없고 기존 테스트 픽스처 9개는 전부 `..Default::default()`라(`lib.rs:786`~`945`) 그 경로 히트는 반드시 신규 픽스처(`c1_pb_profile`/`c2_worker_absent_and_defaults`)의 것이다.
+
+`.proto` 원복 후 `cargo test -p handicap-controller --lib --no-run && cargo test -p handicap-worker --lib --no-run` → 성공 확인.
 
 - [ ] **Step 10: R9 — ③의 강제력 (`RunPlan` 필드 추가 = 구조분해 컴파일 에러)**
 
@@ -997,13 +1019,18 @@ Expected: **두 줄 모두** 출력 — `crates/controller/src/grpc/profile.rs` 
     pub dummy_teeth_probe: bool,
 ```
 
-Run:
-```bash
-cargo build --workspace --tests 2>&1 | grep -c 'E0027'
-```
-Expected: **1 이상** — `E0027`(pattern does not mention field)이 나야 한다. 이게 `..` 없는 전 필드 구조분해가 실제로 강제력을 갖는다는 증거다. (프로덕션 `to_run_plan` 리터럴은 별도로 E0063을 내는데, 그건 추출 전에도 나던 것이라 신호가 아니다 — **E0027이 이 슬라이스가 새로 만든 강제력**이다.)
+Run — **워커 lib 유닛만 결정적으로 짓는다**:
 
-`runner.rs` 원복 후 `cargo build --workspace --tests` → 성공 확인.
+```bash
+cargo test -p handicap-worker --lib --no-run 2>&1 | grep -c 'E0027'
+```
+Expected: **1 이상** — `E0027`(pattern does not mention field). 이게 `..` 없는 전 필드 구조분해가 실제로 강제력을 갖는다는 증거다.
+
+> **`cargo build --workspace --tests`를 쓰지 말 것:** `RunPlan` 필드 추가는 **~35개 컴파일 유닛**을 깨뜨린다(엔진 통합 테스트 20파일 + `worker/tests/abort_and_env.rs` + 프로덕션 리터럴). cargo는 첫 실패 후 새 유닛 스케줄링을 멈추므로, 워커 lib-test가 아예 안 지어져 `grep -c 'E0027'`가 **0**이 나올 수 있다(거짓 FAIL). `-p handicap-worker --lib`는 의존이 engine/proto/worker-core **lib**뿐이고 셋 다 정상 컴파일되므로 결정적이다.
+>
+> **다른 유닛 수십 개가 E0063으로 빨개지는 것은 정상이다** — 프로덕션 `to_run_plan` 리터럴의 E0063은 추출 전에도 나던 것이라 신호가 아니다. **E0027이 이 슬라이스가 새로 만든 강제력**이다.
+
+`runner.rs` 원복 후 `cargo test -p handicap-worker --lib --no-run` → 성공 확인.
 
 - [ ] **Step 11: 작업트리가 깨끗한지 확인**
 
@@ -1045,7 +1072,9 @@ store→proto 매핑 무테스트(실제 15필드 — `fn to_proto_profile(&Prof
 
 - [ ] **Step 3: spec이 요구한 기록 2건을 build-log 슬라이스 단락에 넣는다**
 
-spec §2.2와 §6.1이 **build-log 기록을 명시적으로 요구**한다. `/finish-slice`가 build-log 단락을 쓰지만, 이 두 항목은 그 단락에 반드시 들어가야 하므로 여기서 초안을 확정한다. `docs/build-log.md` 끝에 이 슬라이스 단락을 append하며 아래를 포함:
+spec §2.2와 §6.1이 **build-log 기록을 명시적으로 요구**한다. `docs/build-log.md` 끝에 이 슬라이스 단락을 append하며 아래를 포함한다.
+
+> ⚠ **`/finish-slice`는 새 단락을 만들지 말고 이 단락에 이어 쓸 것.** 파이프라인 6단계도 build-log 슬라이스 단락을 쓰므로, 못박아두지 않으면 같은 슬라이스 단락이 둘 남는다.
 
 ```markdown
 **연기(build-log 기록, spec §2.2)**: 같은 `spawn_run` 블록의 **데이터바인딩 매핑**
@@ -1057,8 +1086,11 @@ spec §2.2와 §6.1이 **build-log 기록을 명시적으로 요구**한다. `/f
 의존) 채택하지 않았다 — prost가 양쪽에 같은 이름 필드를 생성해 번역 층이 없고,
 진짜 잔여 위험인 "같은 작성자가 양쪽 기대값을 쓴다"는 편향을 라운드트립도 못
 줄이며, e2e가 이미 더 강한 링크다. · **`vu_count`/`vu_offset` 호출부 위치 전치**는
-새 단위 테스트가 원리적으로 못 잡는다(함수를 직접 호출하므로) — `multi_worker_
-fanout_e2e.rs:517-539`가 커버한다.
+새 단위 테스트가 원리적으로 못 잡는다(함수를 직접 호출하므로) — 기존 e2e가 커버한다:
+closed-loop은 `plan.vus=0`이 되어 VU가 0개(요청 0건)가 되고, open-loop
+`multi_worker_fanout_e2e.rs:531-539`는 **두 워커의 `vu_offset`이 모두 10**이 되어
+`vu<10` 요청이 사라진다(open-loop 경로는 `plan.vus`를 쓰지 않는다 — 슬롯풀은
+`max_in_flight`, vu id는 `plan.vu_offset + index`, `engine/src/runner.rs:895`).
 
 **라이브 검증 생략 근거(spec §6.1)**: 이 슬라이스는 `spawn_run`(run-생성 경로)과
 `execute_assignment`(엔진 경로) **프로덕션 코드를 바꾸므로** 파이프라인 5단계의
