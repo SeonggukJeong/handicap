@@ -925,7 +925,7 @@ export function RunDialog({
             )}
 
             <h4 className={`mt-3 ${eyebrowCls}`}>{ko.runDialog.sectionDiag}</h4>
-            {/* HTTP timeout — 모든 모드 공통(transport 설정), 1개만 */}
+            {/* transport 타임아웃 2종 — 모든 모드 공통 */}
             <div className="max-w-xs">
               <Field label={ko.loadModel.httpTimeout} htmlFor={httpTimeoutId}>
                 <Input

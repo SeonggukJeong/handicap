@@ -3438,4 +3438,15 @@ describe("RunDialog — 연결 수립 타임아웃 (E3)", () => {
       ko.loadModel.connectTimeoutPlaceholder,
     );
   });
+
+  // final-fix-wave N3: 힌트가 발행 전엔 "HTTP 타임아웃보다 작아야 한다"는 교차-필드
+  // 제약을 언급하지 않아 검증 에러를 밟기 전엔 알 수 없었다 — 리터럴로(ko 참조 아님,
+  // 자기참조 회피) 힌트 문단에 그 제약이 드러나는지 확인.
+  it("힌트에 HTTP 타임아웃보다 작아야 한다는 제약이 미리 안내된다", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+    expect(screen.getByText(/HTTP 타임아웃보다 작게/)).toBeInTheDocument();
+  });
 });

@@ -196,7 +196,8 @@ export const ko = {
     workerCountHint: (n: number) => `${n}개 설정됨`,
     httpTimeout: "HTTP 타임아웃(초)",
     connectTimeout: "연결 수립 타임아웃(초)",
-    connectTimeoutHint: "비워두면 미설정 · connect 단계 정지를 요청 타임아웃과 구분해 분류합니다",
+    connectTimeoutHint:
+      "비워두면 미설정 · connect 단계 정지를 요청 타임아웃과 구분해 분류합니다 · HTTP 타임아웃보다 작게 설정해야 합니다",
     connectTimeoutPlaceholder: "비워두면 미설정",
     loopCap: "루프 집계 상한",
     thinkMin: "think 최소(ms)",
