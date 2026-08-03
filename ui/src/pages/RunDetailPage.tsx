@@ -130,13 +130,15 @@ export function RunDetailPage() {
         ]}
       />
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold flex items-center gap-3">
-          {ko.runDetail.heading}{" "}
-          <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold flex items-center gap-3">
+            {ko.runDetail.heading}{" "}
+            <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
+          </h2>
           <StatusBadge status={r.status} />
           <VerdictBadge verdict={report.data?.verdict} />
           <ValidityBadge validity={report.data?.validity} />
-        </h2>
+        </div>
         <div className="flex items-center gap-2">
           {r.status === "running" && (
             <button

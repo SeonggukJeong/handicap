@@ -1087,3 +1087,88 @@ describe("RunDetailPage — ValidityBadge (A11)", () => {
     expect(screen.queryByText(ko.validity.level.suspect)).toBeNull();
   });
 });
+
+// a11y-bundle C2: FAIL popover가 열려도 h2 접근명은 오염되지 않는다 (US4)
+describe("RunDetailPage — heading과 배지 분리 (a11y-bundle C2)", () => {
+  it("FAIL popover 열림 상태에서 h2 접근명 = '실행 RV2' (배지·미달 기준 미합류)", async () => {
+    const reportBundle = {
+      run: {
+        id: "RV2",
+        scenario_id: "SV2",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        mean_ms: 15,
+        p50_ms: 10,
+        p95_ms: 250,
+        p99_ms: 300,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+      dropped: 0,
+      verdict: {
+        passed: false,
+        criteria: [
+          { metric: "p95_ms", direction: "max", threshold: 100, actual: 250, passed: false },
+        ],
+      },
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/RV2")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "RV2",
+            scenario_id: "SV2",
+            scenario_yaml: reportBundle.scenario_yaml,
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/RV2/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "RV2", windows: [] }));
+      }
+      if (url.endsWith("/api/runs/RV2/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      if (url.endsWith("/api/scenarios/SV2")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "SV2",
+            name: "x",
+            yaml: reportBundle.scenario_yaml,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    const user = userEvent.setup();
+    renderWithRouter("RV2");
+
+    const failBtn = await screen.findByRole("button", { name: ko.report.verdictFail });
+    await user.click(failBtn);
+    // popover가 실제로 열렸음을 먼저 양성 단언 — 닫힌 상태의 accname 검사는 공허(spec §4)
+    expect(screen.getByText(ko.report.failReasonTitle)).toBeInTheDocument();
+
+    const h2 = screen.getByRole("heading", { level: 2 });
+    expect(h2).toHaveAccessibleName(`${ko.runDetail.heading} RV2`);
+  });
+});
