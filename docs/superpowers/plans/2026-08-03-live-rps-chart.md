@@ -433,3 +433,5 @@ git commit -m "docs(adr): ADR-0051 실행 중 진행 차트 — ADR-0009 후속-
 - placeholder 스캔: TBD/TODO/"적절히" 없음 — 전 코드 스텝에 실제 코드 포함.
 - 타입 일관성: `LiveSecond`/`liveBySecond` 시그니처가 T1 Produces ↔ T2 Consumes 1:1. `WindowSummary` fixture 필드는 F2와 일치.
 - tdd-guard 시뮬레이션: T1 Step1=테스트 파일(항상 허용), T2 Step1=테스트 파일 → 이후 src 편집 시 pending test 존재. T3는 docs-only(가드 밖).
+
+REVIEW-GATE: APPROVED
