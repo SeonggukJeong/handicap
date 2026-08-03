@@ -48,7 +48,7 @@
 **변경**: 선두 `"동시 요청 상한 — "` 제거 → `"서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다"`. 소비처 전수는 **이중 grep**(키 이름 + 카피 리터럴 — 키 grep만으론 리터럴 참조를 구조적으로 못 본다):
 
 - 키 참조(`grep -rn "maxInFlightHint" ui/src`): `LoadModelFields.tsx`(125·672·673·685·686 — 렌더 1곳+id 배선, **양 폼 공용이라 RunDialog·ScheduleForm 자동 적용**)·테스트 3곳(`RunDialog.test.tsx:1329`·`LoadModelFields.test.tsx:602`·`ScheduleForm.test.tsx:336` — ko 키 참조라 자동 추종).
-- 카피 리터럴 참조(`grep -rn "동시 요청 상한" ui/src`, ko.ts 제외): hint 카피의 **선두+` — `를 참조하는 곳은 `RunDialog.test.tsx:1508`**(`getByText(/동시 요청 상한 — /)`) **1건 — A2에서 갱신 필수**(옛 roadmap 서술 "전부 ko 키 참조라 자동 추종"은 이 리터럴을 놓친 거짓 전수였다). 나머지 다수 매치는 `getByLabelText(/동시 요청 상한/)` 라벨 정규식(라벨 무변경이라 무영향)·`ko.ts:49` glossary·`ko.ts:131` summaryOpenSub(다른 키, 무변경).
+- 카피 리터럴 참조(`grep -rn "동시 요청 상한" ui/src`, ko.ts 제외): hint 카피의 **선두+` — `를 참조하는 곳은 `RunDialog.test.tsx:1508`**(`getByText(/동시 요청 상한 — /)`) **1건 — A2에서 갱신 필수**(옛 roadmap 서술 "전부 ko 키 참조라 자동 추종"은 이 리터럴을 놓친 거짓 전수였다). 판정 기준은 기계적 — **매치 중 ` — `를 포함하는 것만 hint 카피 참조**이고, 그 기준으로 1508 유일. 나머지 매치는 전부 라벨 정규식 쿼리·다른 키의 카피·테스트 제목 문자열이라 A2 무영향.
 
 ### 2.3 B — 에디터 헤더 접기 토글 `aria-controls`
 
@@ -66,9 +66,9 @@
 
 ### 2.5 C2 — run 상세 배지 3종 heading 밖 형제 배치
 
-**현재** (`ui/src/pages/RunDetailPage.tsx:133–139`): `<h2>`가 heading 텍스트+`#id` span+`StatusBadge`+`VerdictBadge`+`ValidityBadge`를 모두 포함. `VerdictBadge`의 FAIL popover(`components/VerdictBadge.tsx` — `usePopover`, badge `<span>` 서브트리 안에 절대배치 `role="note"`)가 열리는 동안 미달 기준 텍스트가 h2 **접근명에 일시 합류**한다. `ValidityBadge`(button/usePopover/aria-expanded 0건)·`StatusBadge`(정적 span)는 비인터랙티브지만, 배지 3종을 함께 옮겨 heading을 항구적으로 간결화한다(사용자 결정).
+**현재** (`ui/src/pages/RunDetailPage.tsx:133–139`): `<h2>`가 heading 텍스트+`<id8>` span+`StatusBadge`+`VerdictBadge`+`ValidityBadge`를 모두 포함. `VerdictBadge`의 FAIL popover(`components/VerdictBadge.tsx` — `usePopover`, badge `<span>` 서브트리 안에 절대배치 `role="note"`)가 열리는 동안 미달 기준 텍스트가 h2 **접근명에 일시 합류**한다. `ValidityBadge`(button/usePopover/aria-expanded 0건)·`StatusBadge`(정적 span)는 비인터랙티브지만, 배지 3종을 함께 옮겨 heading을 항구적으로 간결화한다(사용자 결정).
 
-**변경**: h2는 heading 텍스트+`#id` span만 유지, 배지 3종은 h2의 **형제**로 — 기존 h2의 `flex items-center gap-3`을 감싸는 wrapper로 올려 시각 동일 한 줄 유지:
+**변경**: h2는 heading 텍스트+`<id8>` span만 유지, 배지 3종은 h2의 **형제**로 — 기존 h2의 `flex items-center gap-3`을 감싸는 wrapper로 올려 시각 동일 한 줄 유지:
 
 ```tsx
 <div className="flex items-center gap-3">
@@ -82,7 +82,7 @@
 </div>
 ```
 
-`VerdictBadge`/`usePopover` 컴포넌트 자체는 **0-diff**(다른 소비처 `ScenarioRunsPage`·`ScheduleEventTimeline` 무영향 — VerdictBadge의 조건부 `aria-controls`는 34). h2 접근명이 배지 텍스트를 항구적으로 잃는 것은 **의도된 개선**(heading 간결화) — **기존 테스트 갱신 0 확정**: `RunDetailPage.test.tsx`의 heading 쿼리는 h3 2곳(718 메트릭 윈도우·933 profileTitle)뿐이고 verdict 배지 문구(`verdictFail`/`verdictPass`) 참조 0건.
+`VerdictBadge`/`usePopover` 컴포넌트 자체는 **0-diff**(다른 소비처 `ScenarioRunsPage`·`ScheduleEventTimeline` 무영향 — VerdictBadge의 조건부 `aria-controls`는 34). h2 접근명이 배지 텍스트를 항구적으로 잃는 것은 **의도된 개선**(heading 간결화) — **기존 테스트 갱신 0 확정**: `RunDetailPage.test.tsx`의 heading 쿼리 콜사이트 8곳 전부 name이 `/메트릭 윈도우/`(7곳, level 미지정) 또는 `profileTitle`(933, level 3)라 h2 접근명("실행 <id8>")과 무매치(C2 후에도 무매치), verdict 배지 문구(`verdictFail`/`verdictPass`) 참조 0건.
 
 ### 2.6 D — 헤더 버전 배지 대비·접근명
 
@@ -123,10 +123,10 @@
 
 | US | 절차 | 통과 신호 |
 |---|---|---|
-| US1 | RunDialog 열기 → **상세 모드 전환 → [판정·고급] 섹션 펼침**(think 입력은 `mode==="detailed"`(856) + Section 5 collapsible 안 — 기본 미노출) → closed-loop think min 포커스 / open-loop로 maxInFlight 포커스 | a11y 스냅샷에서 min/max description="min=max면 고정 지연"; invalid 입력 시 description 선두가 에러 문구+힌트 잔존; maxInFlight description이 "동시 요청 상한"으로 시작하지 않음 |
+| US1 | RunDialog 열기 → **상세 모드 전환 → [판정·고급] 섹션 펼침**(think 입력은 `mode==="detailed"`(857) + Section 5 collapsible 안 — 기본 미노출) → closed-loop think min 포커스 / open-loop로 maxInFlight 포커스 | a11y 스냅샷에서 min/max description="min=max면 고정 지연"; invalid 입력 시 description 선두가 에러 문구+힌트 잔존; maxInFlight description이 "동시 요청 상한"으로 시작하지 않음 |
 | US2 | `/scenarios/{id}` 토글 펼침/접힘 | 펼침: `aria-controls` 두 id 모두 `document.getElementById` 실존; 접힘: 속성 null |
 | US3 | 게이트 문제 있는 시나리오로 배너 렌더(`/scenarios/new`·`/scenarios/{id}` **두 진입 화면**) | DOM 순서 제목→intro→버튼 + 버튼 `getBoundingClientRect` 우상단(제목 행과 y 겹침) |
-| US4 | FAIL run 상세에서 FAIL 배지 클릭 | 열린 상태 h2 accname = heading+#id뿐(미달 기준 문구 부재), 시각 한 줄 유지(h2와 배지 y 겹침) |
+| US4 | FAIL run 상세에서 FAIL 배지 클릭 | 열린 상태 h2 accname = "실행 <id8>"뿐(미달 기준 문구 부재), 시각 한 줄 유지(h2와 배지 y 겹침) |
 | US5 | 헤더 배지 | `getComputedStyle` color가 slate-500(`rgb(100, 116, 139)`) + 접근명에 "컨트롤러 버전" 포함 |
 
 ## 6. 주의 함정 (도메인 CLAUDE.md·메모리)
@@ -151,7 +151,7 @@
 | A1이 깨뜨리는 기존 describedby 정확값 단언(1181–1188 ×2) | `sed -n '1170,1190p' components/__tests__/RunDialog.test.tsx` |
 | think 입력 도달 게이트(detailed 856 + Section 5 collapsible) | `sed -n '855,882p' components/RunDialog.tsx` |
 | `ko.runDetail.heading`="실행"(1169) — US4 accname 실측 근거 | `grep -n "heading" i18n/ko.ts` |
-| RunDetailPage.test에 h2 accname 배지 조회 부재(heading 쿼리 h3 2곳뿐·verdict 문구 0건) | `grep -n "ByRole(\"heading\"" pages/__tests__/RunDetailPage.test.tsx` · `grep -c "verdictFail\|verdictPass" pages/__tests__/RunDetailPage.test.tsx` |
+| RunDetailPage.test에 h2 accname 배지 조회 부재(heading 쿼리 콜사이트 8곳 = /메트릭 윈도우/ 7 + profileTitle 1 — h2 접근명 무매치·verdict 문구 0건) | `grep -n "ByRole(\"heading\"" pages/__tests__/RunDetailPage.test.tsx` · `grep -c "verdictFail\|verdictPass" pages/__tests__/RunDetailPage.test.tsx` |
 | ScheduleForm think UI 부재(DEFERRED) | `grep -n "think" components/ScheduleForm.tsx` |
 | 접기 토글 aria-controls 부재·조건부 영역 2곳(161·207)·ScenarioNewPage 무관 | `grep -rn "chromeCollapsed\|aria-controls\|aria-expanded" components/scenario/EditorShell.tsx pages/ScenarioEditPage.tsx` + `grep -rln "chromeCollapsed" --include="*.tsx" .` |
 | ValidationBanner DOM 순서·마운트 1곳(EditorShell:133, 양 페이지 사용) | `sed -n '1,80p' components/scenario/ValidationBanner.tsx` · `grep -rn "ValidationBanner" --include="*.tsx" .` · `grep -n "EditorShell" pages/ScenarioEditPage.tsx pages/ScenarioNewPage.tsx` |
