@@ -336,4 +336,57 @@ describe("ScheduleForm", () => {
       ko.loadModel.maxInFlightHint,
     );
   });
+
+  it("루프 시나리오 선택 시 loopCap hint가 aria-describedby로 연결된다 (#4, US2)", async () => {
+    const user = userEvent.setup();
+    const LOOP_YAML = [
+      "version: 1",
+      "name: loop-scn",
+      "steps:",
+      '  - id: "01HX0000000000000000000001"',
+      "    name: L",
+      "    type: loop",
+      "    repeat: 2",
+      "    do:",
+      '      - id: "01HX0000000000000000000002"',
+      "        name: ping",
+      "        type: http",
+      "        request:",
+      "          method: GET",
+      '          url: "/ping"',
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: RequestInfo | URL) =>
+        Promise.resolve(
+          String(url).includes("/scenarios/s1")
+            ? new Response(
+                JSON.stringify({
+                  id: "s1",
+                  name: "loop-scn",
+                  yaml: LOOP_YAML,
+                  version: 1,
+                  created_at: 1754200000000,
+                  updated_at: 1754200000000,
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              )
+            : new Response(JSON.stringify({ scenarios: [] }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+        ),
+      ),
+    );
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "loop-scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+    const input = await screen.findByLabelText(ko.loadModel.loopCap);
+    expect(input).toHaveAccessibleDescription(ko.loadModel.loopCapHint);
+  });
 });

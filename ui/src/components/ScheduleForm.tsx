@@ -104,6 +104,7 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
     init?.connect_timeout_seconds != null ? String(init.connect_timeout_seconds) : "",
   );
   const connectHintId = useId();
+  const loopCapHintId = useId();
 
   // ── think-time state — DEFERRED (no UI, kept as empty strings) ───────────
   const [thinkMin] = useState("");
@@ -400,9 +401,10 @@ export function ScheduleForm({ scenarioOptions, onSubmit, submitting, initial, o
               onChange={(e) => setLoopCap(Number(e.target.value))}
               className="mt-1"
               aria-invalid={loopCapInvalid}
+              aria-describedby={loopCapHintId}
             />
-            <span className="text-xs text-slate-500">
-              0 = 끄기 · 루프 스텝의 loop_index별 집계 상한
+            <span id={loopCapHintId} className="text-xs text-slate-500">
+              {ko.loadModel.loopCapHint}
             </span>
           </label>
         </div>
