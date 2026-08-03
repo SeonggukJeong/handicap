@@ -306,6 +306,7 @@ describe("ScheduleForm", () => {
     expect(input).toHaveValue(1.5); // 착지 확인 — sanitize가 지웠으면 아래가 공허해진다
     expect(screen.getByText(ko.validation.connectTimeout)).toBeInTheDocument();
     expect(input).toHaveAttribute("aria-invalid", "true"); // 유일한 인라인 신호 가드(spec §3-1, 리뷰 M2)
+    expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
   });
 
   it("connect_timeout 입력에 hint가 aria-describedby로 연결된다", () => {
