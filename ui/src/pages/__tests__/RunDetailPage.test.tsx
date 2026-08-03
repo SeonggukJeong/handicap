@@ -1168,7 +1168,7 @@ describe("RunDetailPage — heading과 배지 분리 (a11y-bundle C2)", () => {
     // popover가 실제로 열렸음을 먼저 양성 단언 — 닫힌 상태의 accname 검사는 공허(spec §4)
     expect(screen.getByText(ko.report.failReasonTitle)).toBeInTheDocument();
 
-    const h2 = screen.getByRole("heading", { level: 2 });
+    const h2 = screen.getByRole("heading", { level: 2, name: new RegExp(ko.runDetail.heading) });
     expect(h2).toHaveAccessibleName(`${ko.runDetail.heading} RV2`);
   });
 });

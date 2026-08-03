@@ -68,6 +68,7 @@ describe("Layout 버전 표시", () => {
     const badge = screen.getByTitle(ko.common.versionTitle);
     expect(badge.className).toContain("text-slate-500");
     expect(badge.className).not.toContain("text-slate-400");
+    expect(badge.querySelector("span")).toHaveClass("sr-only");
     expect(badge).toHaveTextContent(new RegExp(`^${ko.common.versionTitle} v9\\.9\\.9$`));
   });
 });
