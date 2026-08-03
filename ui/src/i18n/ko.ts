@@ -192,8 +192,7 @@ export const ko = {
     rampUp: "점진 시작(초)",
     targetRps: "도착률(초당 반복)",
     maxInFlight: "동시 요청 상한",
-    maxInFlightHint:
-      "동시 요청 상한 — 서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다",
+    maxInFlightHint: "서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다",
     workerCount: "부하 생성기 워커 수 (수평 확장)",
     workerCountHint: (n: number) => `${n}개 설정됨`,
     httpTimeout: "HTTP 타임아웃(초)",

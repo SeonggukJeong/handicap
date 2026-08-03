@@ -82,6 +82,10 @@ const openCurveProps = () =>
 const closedProps = () => baseProps({ loadModel: "closed", rateMode: "fixed" });
 
 describe("LoadModelFields", () => {
+  it("maxInFlightHint는 라벨 문구로 시작하지 않는다 (SR 라벨 중복 낭독 가드, a11y-bundle A2)", () => {
+    expect(ko.loadModel.maxInFlightHint.startsWith(ko.loadModel.maxInFlight)).toBe(false);
+  });
+
   it("부하 모델 + 프로파일 두 fieldset을 렌더", () => {
     setup();
     expect(screen.getByRole("group", { name: /부하 모델/i })).toBeInTheDocument();
