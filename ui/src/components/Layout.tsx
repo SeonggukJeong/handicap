@@ -13,8 +13,8 @@ export function Layout() {
               Handicap
             </Link>
             {version.data && (
-              <span className="text-xs text-slate-400" title={ko.common.versionTitle}>
-                v{version.data.version}
+              <span className="text-xs text-slate-500" title={ko.common.versionTitle}>
+                <span className="sr-only">{ko.common.versionTitle} </span>v{version.data.version}
               </span>
             )}
           </div>

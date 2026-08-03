@@ -50,7 +50,7 @@ describe("Layout 버전 표시", () => {
     mockVersion({ version: "9.9.9" });
     renderLayout();
     const badge = screen.getByTitle(ko.common.versionTitle);
-    expect(badge).toHaveTextContent(/^v9\.9\.9$/);
+    expect(badge).toHaveTextContent(new RegExp(`^${ko.common.versionTitle} v9\\.9\\.9$`));
     // 로고 접근명이 오염되지 않는다(버전은 <Link> 밖 형제여야 한다)
     expect(screen.getByRole("link", { name: "Handicap" })).not.toHaveTextContent("9.9.9");
   });
@@ -60,5 +60,14 @@ describe("Layout 버전 표시", () => {
     renderLayout();
     expect(screen.queryByTitle(ko.common.versionTitle)).not.toBeInTheDocument();
     expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+  });
+
+  it("버전 배지: AA 대비 slate-500 + title 존치 + sr-only 맥락 접두 (a11y-bundle D)", () => {
+    mockVersion({ version: "9.9.9" });
+    renderLayout();
+    const badge = screen.getByTitle(ko.common.versionTitle);
+    expect(badge.className).toContain("text-slate-500");
+    expect(badge.className).not.toContain("text-slate-400");
+    expect(badge).toHaveTextContent(new RegExp(`^${ko.common.versionTitle} v9\\.9\\.9$`));
   });
 });
