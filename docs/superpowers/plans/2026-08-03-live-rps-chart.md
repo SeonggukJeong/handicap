@@ -129,7 +129,7 @@ export function liveBySecond(windows: WindowSummary[]): LiveSecond[] {
 
 - [ ] **Step 4: GREEN 확인** — Run: `pnpm test liveSeries`. Expected: 5 passed.
 
-- [ ] **Step 5: 트림 이빨 실증** — `liveSeries.ts`의 상수를 일시 `= 0`으로 수정 → `pnpm test liveSeries` → **케이스 1·2·4가 RED**(각각 3점째 등장/2점째 등장/1점 잔존) 확인 → `= 1`로 원복 → GREEN 재확인. 결과(RED 케이스 수)를 커밋 메시지가 아니라 작업 보고에 기록.
+- [ ] **Step 5: 트림 이빨 실증** — `liveSeries.ts`의 상수를 일시 `= 0`으로 수정 → `pnpm test liveSeries` → **케이스 1·2·4·5가 RED**(각각 102 등장/101 등장/100 잔존/106 등장 — 3=빈 입력만 불변) 확인 → `= 1`로 원복 → GREEN 재확인. 결과(RED 케이스 수 4)를 커밋 메시지가 아니라 작업 보고에 기록.
 
 - [ ] **Step 6: 커밋**
 
@@ -223,17 +223,73 @@ describe("RunDetailPage — 라이브 궤적 섹션", () => {
 });
 ```
 
-케이스 ②(terminal + report.data → 섹션 부재)는 기존 describe `"RunDetailPage — report on terminal"`의 fixture(`:583-655`, reportBundle)를 쓰는 **기존 it 안이 아니라 새 it**로 — 그 describe의 mock 구조를 복사하되 metrics 응답에 `liveWindows`를 넣고:
+케이스 ②(terminal + report.data → 섹션 부재)도 **같은 새 describe 안**에 둔다(`liveWindows` 스코프 공유 — 기존 describe의 `reportBundle`은 `it` 콜백 내부(:585)라 형제 it에서 참조 불가). report 본문은 기존 `:585-611` 리터럴을 **verbatim 복사**(id만 R7/S7로 — 즉흥 본문이 `ReportSchema`를 통과 못 하면 else 가지로 새어 엉뚱한 이유로 실패한다):
 
 ```tsx
-expect(
-  screen.queryByRole("region", { name: ko.runDetail.liveSectionTitle }),
-).not.toBeInTheDocument();
+  it("② terminal + report 적재 → 섹션 미렌더 (삼항 밖 호이스팅을 잡는 배치 이빨)", async () => {
+    // 기존 :585-611 reportBundle 리터럴 기반 (id만 R7/S7).
+    const reportBundle = {
+      run: {
+        id: "R7",
+        scenario_id: "S7",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        mean_ms: 15,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: 30,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+      dropped: 0,
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R7")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R7",
+            scenario_id: "S7",
+            scenario_yaml: reportBundle.scenario_yaml,
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R7/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R7", windows: liveWindows }));
+      }
+      if (url.endsWith("/api/runs/R7/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R7");
+    await screen.findByRole("region", { name: /리포트 요약/ });
+    expect(
+      screen.queryByRole("region", { name: ko.runDetail.liveSectionTitle }),
+    ).not.toBeInTheDocument();
+  });
 ```
 
-(삼항 밖 호이스팅을 잡는 배치 이빨 — windows가 있는데도 ReportView 가지에선 안 떠야 한다.)
+(windows가 있는데도 ReportView 가지에선 안 떠야 한다 — 섹션을 삼항 밖으로 호이스팅하면 RED.)
 
-- [ ] **Step 2: RED 확인** — Run: `pnpm test RunDetailPage`. Expected: 신규 4건 FAIL(`liveSectionTitle` 미존재로 TS 에러 또는 region not found), 기존 케이스는 GREEN 유지.
+- [ ] **Step 2: RED 확인** — Run: `pnpm test RunDetailPage`. Expected: 신규 4건 FAIL. 사유 주의 — vitest는 esbuild transpile이라 TS 에러가 아니다: 이 시점 `ko.runDetail.liveSectionTitle`은 런타임 `undefined`이고 Testing Library는 `name: undefined`를 **필터 미지정으로 취급**하므로 페이지의 다른 region들이 전부 매치되어 **"Found multiple elements"**로 터진다(④의 `queryByRole`도 다중 매치에서 throw). 기존 케이스는 GREEN 유지.
 
 - [ ] **Step 3: ko 키 추가** — `ui/src/i18n/ko.ts`의 `runDetail: {` 블록(:1135) 안에 한 줄:
 
