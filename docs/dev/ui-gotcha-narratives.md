@@ -33,13 +33,9 @@ vitest `populateGlobal`이 `AbortController`/`AbortSignal`은 jsdom 구현으로
 
 같은 페이지의 빈 미리보기 선택 툴바는 `previewEntries.length > 0` 게이트로 숨김(호스트→env 섹션과 동일 게이트·전부 정적/제외 호스트로 preview 비면 "0/0" 무의미 툴바 제거).
 
-### `URL.origin` 거짓 매치 — `blob:` 변종
-
-`blob:https://…` URL은 반대로 `host===""`인데 `origin`은 실제 https origin이라 빈-host 항목이 진짜 origin에 매치되는 변종도 있다.
-
 ### fan-out memo 안 per-item 전패스 — 20k 엔트리 HAR 실측
 
-`matchHostsToEnvs`가 host마다 preview 전패스(`originOf`)를 불러 20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록(중단 UI도 안 뜸) → 함수 시작부 1패스 `host→origin` 맵으로 42×.
+20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록(중단 UI도 안 뜸)
 
 ### commit-on-blur 짝 편집 — 발견·제품 결함 확인·해소 이전 이디엄
 
@@ -109,10 +105,6 @@ vitest `populateGlobal`이 `AbortController`/`AbortSignal`은 jsdom 구현으로
 
 `ScenarioNewPage.genvars`가 `await findByRole("저장")`을 시드 완료로 믿고 곧장 `getByRole(varExpandAria("checkin"))`를 동기 호출 → CI에서 `Unable to find … "checkin 펼치기/접기"`. 헤더 "저장"은 `if (!data) return` 통과 직후 커밋에 있고 변수 행은 `loadFromString` 시드 *이후* 커밋이라 한 틱 늦다(프로브 실측: `save=0/var=0` → **`save=1/var=0`** → `save=1/var=1`).
 
-### A11 validity — `NarrativeBlock` 삭제와 미렌더 규칙 확장 이력
-
-`NarrativeBlock`은 삭제됐다(report-advice-noise) — can/cannot 상세는 `ValidityBanner`의 접이식 토글로 흡수됐고, 미렌더 규칙은 **ValidityBanner에 한해** "키 부재"에서 "키 부재 ∨ level==ok"로 확장됐다(ValidityBadge는 ok도 렌더 — ok run의 유일한 잔여 표면).
-
 ### CLAUDE.md 규칙 스코프 — `ValidityBadge` 표면을 지울 뻔한 경위
 
 `ValidityBanner`를 "level==ok면 미렌더"로 바꾸면서 위 A11 불릿을 `ValidityBadge/Banner`를 함께 지칭하는 문장 안에서 확장해버렸는데, `ValidityBadge.tsx`는 `!validity`만 가드하고 **ok도 의도적으로 렌더**한다(`NarrativeBlock` 삭제 후 ok run의 **유일한 잔여** 유효성 표면). 문서를 믿은 다음 편집자가 그 표면을 지울 함정 — per-task 리뷰는 두 컴포넌트가 한 diff에 없어 원리적으로 못 본다(최종 whole-branch가 적발).
@@ -155,10 +147,6 @@ vitest `populateGlobal`이 `AbortController`/`AbortSignal`은 jsdom 구현으로
 
 early-return 가드(`if (!data) return …`) 뒤에서 `data`는 non-undefined로 narrow되지만, 그 아래 `function onClick(){ … data.yaml … }`(hoisted 선언)의 본문은 스코프 최상단(가드 *이전*) 기준으로 분석돼 `data: T|undefined`로 되돌아가 `TS18048 'data' is possibly undefined`. JSX 인라인 화살표(`onClick={() => …data.yaml…}`)는 in-place 평가라 narrowing 보존 → 안 깨진다. 그래서 한 컴포넌트 안에 핸들러가 선언/인라인 섞이면 선언만 빨갛다.
 
-### `__tests__/` 밖 테스트 미실행 — S-D 응답파싱 갭을 결정적으로 잡은 활용법
-
-**활용(S-D 응답파싱 갭 결정적 검증)**: 라이브 run의 실 `/report` JSON을 파일로 저장 → `__tests__/`에 throwaway 테스트가 `readFileSync` + `ReportSchema.safeParse`(실패 시 `r.error.issues` throw)로 파싱 확인 → 돌리고 삭제(커밋 안 함). Playwright보다 싸고 결정적인 parse-half 검증(아래 `.nullish()` 함정과 짝).
-
 ### targeted green ≠ full green — 실제로 놓쳤던 red
 
 (예: `ReportSchema` fixture가 필수 `dropped` 누락)
@@ -187,10 +175,6 @@ mid-run advisory 배너의 [중단] 버튼과 헤더 abort 버튼이 둘 다 `ko
 
 localStorage 픽스 후에도 GitHub Actions에서 `ScenarioEditPage.name.test.tsx`의 R2 케이스(`yamlError` 세팅 직후 disabled 단언)가 재실패 — 같은 파일의 다른 케이스들이 이미 쓰는 "`findByRole` 뒤 EditorShell 마운트 이펙트(`loadFromString` 자기-재시드, StrictMode 이중 호출 포함)를 비우는 빈 `await act(async () => {})`" 방어 flush가 이 케이스에만 빠져 있었다(`194cfa3`).
 
-### run 목록 필터/정렬 — 도입 당시 byte-identical 범위
-
-비교 선택은 `allRuns` 위·`tbody`만 `visible`(필터 독립). 기본 URL(파라미터 0)=byte-identical.
-
 ### `pnpm lint`가 hook에 없어 경고가 잠복한 사례
 
 (`react-hooks/exhaustive-deps` 누락 한 건이 이렇게 통과했었음 — `ScenarioRunsPage.tsx` effect deps)
@@ -199,13 +183,7 @@ localStorage 픽스 후에도 GitHub Actions에서 `ScenarioEditPage.name.test.t
 
 `client.ts`의 `request<T>` 시그니처를 `z.ZodType<T,def,unknown>`로 푸는 우회는 불필요(plain 타입이면 누출 자체가 없다).
 
-### Zod 3종 분기 — S-D `.nullish()` 함정과의 대칭 관계
-
-세 가지를 혼동하면 run 생성·리포트 파싱·trace 파싱 중 하나가 런타임 Zod 에러가 된다 — S-D `.nullish()` 함정(`.optional()`이 서버 null 거부)과 대칭되는 패턴.
-
 ### JSON 캐스트 검증에서 `${env}` 캐스트 *거부* — json-cast-extend로 뒤집힘
-
-`${env}` 캐스트
 
 (**`${env}` 캐스트 *거부*는 아래 json-cast-extend로 뒤집힘** — 위 "`${env}` 캐스트를 에러로"는 이제 틀림.)
 
@@ -214,14 +192,6 @@ localStorage 픽스 후에도 GitHub Actions에서 `ScenarioEditPage.name.test.t
 모델/Zod/store 무변경(`BodyModel.superRefine` 배선 그대로·검증 내용만 확장).
 
 (=드문 'UI 통과·엔진 실패' 방향이나 **fail-closed·loud**·이 슬라이스가 도입 아님=`ENV_TOKEN` regex 불변·테스트/요구사항 미커버)
-
-### 4-way `StepModel` — `addBranch` 기본명 생성 구현 기록
-
-`addBranch` store action은 `findStepById`(top-level `.find` 아님)로 노드 찾아 유니크 `branch{N}` 기본명 생성(superRefine 즉시 트립 방지).
-
-### `<EnvironmentPicker>` swap — 기존 env 테스트를 살린 aria-label 동형 유지
-
-picker의 aria-label(`select environment`/`env key N`/`new env key`/`Remove env X`/region `Environment variables`)을 기존 RunDialog env 섹션과 동일하게 둬서 swap 후에도 기존 env 테스트가 그대로 통과.
 
 ### `tsc -b` 전체 타입체크 — 9c widening이 나중 task 테스트를 깬 사례
 
@@ -241,27 +211,15 @@ RunDialog Env 입력 1차 구현이 placeholder="BASE_URL" 한 칸 + Add였는�
 
 ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다.
 
-### `KeyValueGrid` active+disabled 2-맵 — 도입 슬라이스(B4) 구현 기록
+### `KeyValueGrid` active+disabled 2-맵 — 도입 동기와 무변경 범위
 
 Postman식 "행 끄되 보존".
 
-비활성 행도 **정상 편집 가능**(readOnly·muting·취소선 없음 — 의도적).
+`BulkEditPanel`/`kvBulk.ts` 시그니처 무변경
 
-Bulk는 active만 `BulkEditPanel`에 넘기고(`splitRows(rows).active`) apply 시 disabled 행 **보존**(충돌 key만 drop) — `BulkEditPanel`/`kvBulk.ts` 시그니처 무변경.
-
-body kind가 form을 떠나면(`BodyEditor.setKind`) orphan될 `disabled.form`을 drop(헤더 disabled는 body-kind 무관 유지).
-
-### RunDialog 간단/상세 모드 — F1 이중계수와 prefill 갭의 적발 경위
-
-**F1 이중계수 함정**: 한 값(`measure_phases`)을 두 파생 카운트(applied-count·collapse-hint)에서 쓰면 이중계수 주의 — 한 카운트(`advancedActiveCount`) 경유 1회만·별도 항 금지·테스트는 *정확-카운트+teeth-check*(loose regex `/N개 적용됨/`는 2개도 통과해 무용).
-
-(`simpleMode`/`loadModelTiles`/`numeric`·`showOverrides` 기본 true·`numeric` 기본 off)
+### RunDialog 간단/상세 모드 — prefill 갭의 적발 경위
 
 양 최종 리뷰어[handicap+security]가 독립 수렴 적발
-
-### R11 회귀 가드가 *정확* `toEqual`인 근거
-
-(부분 `toMatchObject` 아님 — extra/changed/dropped 필드까지 잡음)
 
 ### 타일·Segmented teeth — RED가 사실 green이었던 자가플래그와 teeth 입증
 
@@ -307,19 +265,9 @@ body kind가 form을 떠나면(`BodyEditor.setKind`) orphan될 `disabled.form`�
 
 RunDetailPage Duration·Avg RPS 카드, ScenarioRunsPage Duration 열이 곡선 run에서 `0s`/`0 RPS`로 떴었다(리포트 Summary는 자체 윈도라 정상).
 
-### 곡선 VU 표시 — raw 프로필 줄이 별개인 이유
-
-RunDetailPage raw 프로필 `<li>vus =`(와이어값)·곡선 `<li>vu_stages = 최대 N · M단계`(`terminal && report.data` else 가지=running/report-less만)는 별개.
-
-### 곡선 fan-out 워커별 active-VU — 컨트롤러측 도입 경위
+### 곡선 fan-out 워커별 active-VU — SUM 머지가 가렸던 것(도입 동기)
 
 기존 `active_vu_series`는 worker별 행을 `SUM…GROUP BY ts_second`로 머지해 "어느 워커가 desired 미달인지"를 못 본다.
-
-컨트롤러가 같은 `run_active_vu_metrics`(worker_id PK·migration 0018)를 비-SUM으로 읽는 `active_vu_by_worker`(store)를 추가하고 `build_report`가 곡선 fan-out일 때만[caller `is_vu_curve()` fetch-gate + 내부 distinct non-empty worker≥2 게이트] `ReportJson.active_vu_by_worker: Vec<WorkerActiveVuSeries{worker_id,samples}>`를 emit한다(`#[serde(default, skip_serializing_if="Vec::is_empty")]`→단일워커/비-곡선=생략=기존 리포트 byte-identical).
-
-### `ActiveVuChart` 워커별 토글 — UI 구현 기록
-
-`ActiveVuChart`는 `byWorker.length>=2`면 `[합계|워커별]` 토글(기본 합계=byte-identical)+캡션 "{n}개 워커로 분산 실행"·워커별=워커당 desired(점선)+actual(실선)·범례 서수 "워커 {n}"+`<li title=worker_id>`(raw worker_id).
 
 ### 부하 모드 셀렉터 2축 — closed+curve가 도달 불가였던 시절 (해체됨)
 
@@ -333,16 +281,8 @@ closed 라디오 `onChange`가 `setRateMode("fixed")` eager 리셋 + 곡선 라�
 
 **이 게이트 패턴은 이제 3회 검증됨** (open+curve 슬롯 힌트 2026-06-15): open+fixed arm의 `SlotSizingHelper`(open-loop 슬롯 사이징, `onApplyMaxInFlight && sizingScenarioId!==undefined`)에 이어 **open+curve arm도 동일** 헬퍼를 같은 게이트로 렌더(`peakBased` prop만 추가). 즉 슬롯 헬퍼는 이제 open(fixed/curve) **양 arm**에 뜨고 closed 2모드만 미렌더 — 슬롯 락인 `it.each`를 open+curve "미렌더→렌더"로 flip하고 closed+fixed·closed+curve만 미렌더로 남긴다. VU 헬퍼(`onApplyVus`·testid `sizing-helper`)는 **여전히 closed+fixed 전용**이라 open+curve에선 미렌더(슬롯 testid `slot-sizing-helper`와 별개라 무충돌 — 두 `it.each` 락인이 공존).
 
-① **단일 공유 disclosure 렌더**(`onApplyWorkerCount && sizingScenarioId!==undefined`로 worker_count 접이식 disclosure 안에서 — 이 disclosure는 `loadModel==="open"` 단일 공유 블록이라 rateMode 분기 *앞*·**한 번만** 렌더, 슬롯 헬퍼 per-arm 복붙 금지; `rateMode==="curve"?peakStr:targetRps`+`peakBased` 삼항으로 모드별 문구). ② **count 기반 앵커**(`usePriorOpenRunWorkerAnchor`의 peak=`peakThroughput(windows)`=초별 Σcount 최대) — p50 기반 슬롯/VU 앵커와 달리 localhost sub-ms run에서도 `peak>0`이라 앵커가 산다. ③ **env/measure 경로 없음**(워커당 천장은 포화 시에만 관측 → 무부하 측정 무의미, prior-run-only).
+② **count 기반 앵커**(`usePriorOpenRunWorkerAnchor`의 peak=`peakThroughput(windows)`=초별 Σcount 최대) — p50 기반 슬롯/VU 앵커와 달리 localhost sub-ms run에서도 `peak>0`이라 앵커가 산다. ③ **env/measure 경로 없음**(워커당 천장은 포화 시에만 관측 → 무부하 측정 무의미, prior-run-only).
 
-cross-field 비차단 경고 `needMaxInFlight`(적용값>max_in_flight, `runs.rs:346`)도 추가(`(으)로` 병기).
-
-### closed+curve(VU 곡선) 활성화 — 구현 항목 전개 (ADR-0037)
+### closed+curve(VU 곡선) 활성화 — "곧 지원" 게이트 해체 (ADR-0037)
 
 위 "곧 지원" 해체.
-
-① `buildLoadProfile`에 closed+curve arm 추가(`vus:0`·`duration_seconds:0`·`vu_stages` map·`ramp_down`은 immediate일 때만 emit=graceful absent).
-
-③ `LoadModelFields`는 곡선 에디터(stage 행·미리보기) 호이스팅 후 라벨만 모드 분기(목표 VU↔RPS), closed+curve에서만 ramp_down `role="radiogroup"`+`aria-label`. ④ `stagesInvalid`는 `rateMode==="curve"` 공통(open 한정 제거).
-
-⑦ `profileDurationSeconds`(runPrefill)는 vu_stages-first 합산.

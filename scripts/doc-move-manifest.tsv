@@ -4,8 +4,7 @@ move	jsdom은 `navigator.clipboard` 미구현+read-only라 configurable definePr
 move	BOM 삭제로 text가 3바이트 짧아져 byteIdx desync	docs/dev/ui-gotcha-narratives.md	BOM 삭제로 text가 3바이트 짧아져 byteIdx desync	198
 move	undici webidl brand-check에서 거부돼	docs/dev/ui-gotcha-narratives.md	undici webidl brand-check에서 거부돼	324
 move	머지 전 `security-reviewer`가 correctness 렌즈로 flag→fold	docs/dev/ui-gotcha-narratives.md	머지 전 `security-reviewer`가 correctness 렌즈로 flag→fold	453
-move	빈-host 항목이 진짜 origin에 매치되는 변종도 있다	docs/dev/ui-gotcha-narratives.md	빈-host 항목이 진짜 origin에 매치되는 변종도 있다	96
-move	20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록	docs/dev/ui-gotcha-narratives.md	20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록	135
+move	20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록	docs/dev/ui-gotcha-narratives.md	20k 엔트리 HAR에서 pass당 31.5s×21회 메인스레드 블록	54
 move	기존 테스트들이 안 깨진 건 중간 상태가 항상	docs/dev/ui-gotcha-narratives.md	기존 테스트들이 안 깨진 건 중간 상태가 항상	1248
 move	`matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때	docs/dev/ui-gotcha-narratives.md	`matches` 연산자에 깨진 정규식을 입력해 유효성 경고를 트리거할 때	68
 move	기존 ~13 테스트가 *2차 fetch*에 큐가 어긋나 깨졌다	docs/dev/ui-gotcha-narratives.md	기존 ~13 테스트가 *2차 fetch*에 큐가 어긋나 깨졌다	157
@@ -21,7 +20,6 @@ move	보이는 라벨이 "페이싱"인데 aria가 "think time 현황판 열기"
 move	2026-07-11 클러스터는 `ui` 잡이 아니라 `rust` 잡의 Clippy였다	docs/dev/ui-gotcha-narratives.md	2026-07-11 클러스터는 `ui` 잡이 아니라 `rust` 잡의 Clippy였다	73
 move	`expect(pencil).toBeEnabled()`가 `disabled=""`로 실패	docs/dev/ui-gotcha-narratives.md	`expect(pencil).toBeEnabled()`가 `disabled=""`로 실패	383
 move	프로브 실측: `save=0/var=0`	docs/dev/ui-gotcha-narratives.md	프로브 실측: `save=0/var=0`	259
-move	can/cannot 상세는 `ValidityBanner`의 접이식 토글로 흡수됐고	docs/dev/ui-gotcha-narratives.md	can/cannot 상세는 `ValidityBanner`의 접이식 토글로 흡수됐고	189
 move	문서를 믿은 다음 편집자가 그 표면을 지울 함정	docs/dev/ui-gotcha-narratives.md	문서를 믿은 다음 편집자가 그 표면을 지울 함정	312
 move	`checkCFailTitle(2)`에서 `${n}`을 지워도 통과했다	docs/dev/ui-gotcha-narratives.md	`checkCFailTitle(2)`에서 `${n}`을 지워도 통과했다	62
 move	구분자(`·`↔`:`)·`(미확인)`·맨숫자가 접근명에 없어 음성제어로 호출 불가였다	docs/dev/ui-gotcha-narratives.md	구분자(`·`↔`:`)·`(미확인)`·맨숫자가 접근명에 없어 음성제어로 호출 불가였다	232
@@ -32,28 +30,22 @@ move	plan verbatim "3개 사이트" 사실 오류가 이 오염	docs/dev/ui-gotc
 move	`fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만	docs/dev/ui-gotcha-narratives.md	`fc.constantFrom("GET","POST",...)`는 런타임에 동작하지만	155
 move	passthrough 사이트(extract 원소·cond·request.disabled)에서만 도달	docs/dev/ui-gotcha-narratives.md	passthrough 사이트(extract 원소·cond·request.disabled)에서만 도달	132
 move	그 아래 `function onClick(){ … data.yaml … }`(hoisted 선언)의 본문은 스코프 최상단	docs/dev/ui-gotcha-narratives.md	그 아래 `function onClick(){ … data.yaml … }`(hoisted 선언)의 본문은 스코프 최상단	318
-move	라이브 run의 실 `/report` JSON을 파일로 저장	docs/dev/ui-gotcha-narratives.md	라이브 run의 실 `/report` JSON을 파일로 저장	224
 move	예: `ReportSchema` fixture가 필수 `dropped` 누락	docs/dev/ui-gotcha-narratives.md	예: `ReportSchema` fixture가 필수 `dropped` 누락	34
 move	mid-run advisory 배너의 [중단] 버튼과 헤더 abort 버튼이 둘 다	docs/dev/ui-gotcha-narratives.md	mid-run advisory 배너의 [중단] 버튼과 헤더 abort 버튼이 둘 다	142
 move	(implementer 시도→리뷰 기각)	docs/dev/ui-gotcha-narratives.md	(implementer 시도→리뷰 기각)	22
 move	기존 `ScenarioNewPage` 테스트 2건이 이 함정으로 role-스코프 수정됨	docs/dev/ui-gotcha-narratives.md	기존 `ScenarioNewPage` 테스트 2건이 이 함정으로 role-스코프 수정됨	52
 move	div의 직계 텍스트 노드는 `action.text` 하나뿐이라	docs/dev/ui-gotcha-narratives.md	div의 직계 텍스트 노드는 `action.text` 하나뿐이라	140
 move	full-suite에서 각기 다르게 red였다가 재실행하면 green	docs/dev/ui-gotcha-narratives.md	full-suite에서 각기 다르게 red였다가 재실행하면 green	823
-move	비교 선택은 `allRuns` 위·`tbody`만 `visible`(필터 독립)	docs/dev/ui-gotcha-narratives.md	비교 선택은 `allRuns` 위·`tbody`만 `visible`(필터 독립)	67
 move	`react-hooks/exhaustive-deps` 누락 한 건이 이렇게 통과했었음	docs/dev/ui-gotcha-narratives.md	`react-hooks/exhaustive-deps` 누락 한 건이 이렇게 통과했었음	69
 move	`z.ZodType<T,def,unknown>`로 푸는 우회는 불필요	docs/dev/ui-gotcha-narratives.md	`z.ZodType<T,def,unknown>`로 푸는 우회는 불필요	87
-move	세 가지를 혼동하면 run 생성·리포트 파싱·trace 파싱 중 하나가 런타임 Zod 에러가 된다	docs/dev/ui-gotcha-narratives.md	세 가지를 혼동하면 run 생성·리포트 파싱·trace 파싱 중 하나가 런타임 Zod 에러가 된다	123
-move	아래 json-cast-extend로 뒤집힘	docs/dev/ui-gotcha-narratives.md	아래 json-cast-extend로 뒤집힘	93
+move	아래 json-cast-extend로 뒤집힘	docs/dev/ui-gotcha-narratives.md	아래 json-cast-extend로 뒤집힘	81
 move	이 슬라이스가 도입 아님=`ENV_TOKEN` regex 불변	docs/dev/ui-gotcha-narratives.md	이 슬라이스가 도입 아님=`ENV_TOKEN` regex 불변	156
-move	유니크 `branch{N}` 기본명 생성(superRefine 즉시 트립 방지)	docs/dev/ui-gotcha-narratives.md	유니크 `branch{N}` 기본명 생성(superRefine 즉시 트립 방지)	96
-move	기존 RunDialog env 섹션과 동일하게 둬서 swap 후에도	docs/dev/ui-gotcha-narratives.md	기존 RunDialog env 섹션과 동일하게 둬서 swap 후에도	136
 move	9c: Task2 모델 widening이 `proptests.test.ts` 직렬화기	docs/dev/ui-gotcha-narratives.md	9c: Task2 모델 widening이 `proptests.test.ts` 직렬화기	84
 move	`RunDialog`가 두 값을 하드코딩(`ramp_up_seconds: 0`, `env: {}`)으로 보내고 있었다	docs/dev/ui-gotcha-narratives.md	`RunDialog`가 두 값을 하드코딩(`ramp_up_seconds: 0`, `env: {}`)으로 보내고 있었다	151
 move	사용자가 URL을 키 칸에 통째로 적어	docs/dev/ui-gotcha-narratives.md	사용자가 URL을 키 칸에 통째로 적어	115
 move	ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다	docs/dev/ui-gotcha-narratives.md	ULID만 보이면 점검자가 어떤 URL을 때리는지 모른다	42
-move	Bulk는 active만 `BulkEditPanel`에 넘기고	docs/dev/ui-gotcha-narratives.md	Bulk는 active만 `BulkEditPanel`에 넘기고	264
-move	한 값(`measure_phases`)을 두 파생 카운트(applied-count·collapse-hint)에서 쓰면	docs/dev/ui-gotcha-narratives.md	한 값(`measure_phases`)을 두 파생 카운트(applied-count·collapse-hint)에서 쓰면	288
-move	부분 `toMatchObject` 아님 — extra/changed/dropped 필드까지 잡음	docs/dev/ui-gotcha-narratives.md	부분 `toMatchObject` 아님 — extra/changed/dropped 필드까지 잡음	47
+move	`BulkEditPanel`/`kvBulk.ts` 시그니처 무변경	docs/dev/ui-gotcha-narratives.md	`BulkEditPanel`/`kvBulk.ts` 시그니처 무변경	53
+move	양 최종 리뷰어[handicap+security]가 독립 수렴 적발	docs/dev/ui-gotcha-narratives.md	양 최종 리뷰어[handicap+security]가 독립 수렴 적발	39
 move	게이트(`loadModelTiles ?`)를 일시 `false ?`로 뒤집어	docs/dev/ui-gotcha-narratives.md	게이트(`loadModelTiles ?`)를 일시 `false ?`로 뒤집어	127
 move	`runSummary`를 string→`{main:SummarySegment[];sub;tone;curve}`로 조각화할 땐	docs/dev/ui-gotcha-narratives.md	`runSummary`를 string→`{main:SummarySegment[];sub;tone;curve}`로 조각화할 땐	194
 move	그 번호 갭(1,2,(빠짐),4,5,6)은 깨진-시나리오 degraded 상태의 수용된 LOW 한계	docs/dev/ui-gotcha-narratives.md	그 번호 갭(1,2,(빠짐),4,5,6)은 깨진-시나리오 degraded 상태의 수용된 LOW 한계	182
@@ -64,9 +56,7 @@ move	코드베이스에 `after:`/`before:` 의사요소 선례 0이라 특히 �
 move	plan이 RunDialog.test 14곳만 예상했으나	docs/dev/ui-gotcha-narratives.md	plan이 RunDialog.test 14곳만 예상했으나	75
 move	switch를 먼저 잡는다(엉뚱한 토글 클릭)	docs/dev/ui-gotcha-narratives.md	switch를 먼저 잡는다(엉뚱한 토글 클릭)	139
 move	곡선 run에서 `0s`/`0 RPS`로 떴었다	docs/dev/ui-gotcha-narratives.md	곡선 run에서 `0s`/`0 RPS`로 떴었다	98
-move	RunDetailPage raw 프로필 `<li>vus =`(와이어값)	docs/dev/ui-gotcha-narratives.md	RunDetailPage raw 프로필 `<li>vus =`(와이어값)	104
-move	`SUM…GROUP BY ts_second`로 머지해	docs/dev/ui-gotcha-narratives.md	`SUM…GROUP BY ts_second`로 머지해	379
-move	캡션 "{n}개 워커로 분산 실행"·워커별=워커당 desired(점선)+actual(실선)	docs/dev/ui-gotcha-narratives.md	캡션 "{n}개 워커로 분산 실행"·워커별=워커당 desired(점선)+actual(실선)	156
+move	`SUM…GROUP BY ts_second`로 머지해	docs/dev/ui-gotcha-narratives.md	`SUM…GROUP BY ts_second`로 머지해	85
 move	closed 라디오 `onChange`가 `setRateMode("fixed")` eager 리셋	docs/dev/ui-gotcha-narratives.md	closed 라디오 `onChange`가 `setRateMode("fixed")` eager 리셋	239
-move	**이 게이트 패턴은 이제 3회 검증됨** (open+curve 슬롯 힌트 2026-06-15)	docs/dev/ui-gotcha-narratives.md	**이 게이트 패턴은 이제 3회 검증됨** (open+curve 슬롯 힌트 2026-06-15)	956
-move	① `buildLoadProfile`에 closed+curve arm 추가	docs/dev/ui-gotcha-narratives.md	① `buildLoadProfile`에 closed+curve arm 추가	308
+move	**이 게이트 패턴은 이제 3회 검증됨** (open+curve 슬롯 힌트 2026-06-15)	docs/dev/ui-gotcha-narratives.md	**이 게이트 패턴은 이제 3회 검증됨** (open+curve 슬롯 힌트 2026-06-15)	660
+move	위 "곧 지원" 해체	docs/dev/ui-gotcha-narratives.md	위 "곧 지원" 해체	15
