@@ -27,7 +27,7 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # workflow_dispatch에서 ref를 안 주면 디스패치 브랜치를 체크아웃해
           # 임의 태그를 master 매니페스트와 비교하게 된다(=이 검사가 막으려는 그 버그).
@@ -41,15 +41,15 @@ jobs:
     # 인스톨러(desktop 워크스페이스) + 포터블 exe(루트 워크스페이스) 두 릴리즈 빌드라 cold-cache에 빠듯.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 9
 
@@ -64,7 +64,7 @@ jobs:
           pnpm build
 
       # tonic-build(handicap-proto)이 빌드타임에 protoc를 요구.
-      - uses: arduino/setup-protoc@v3
+      - uses: arduino/setup-protoc@v3 # node20 타깃이나 node24 상위 메이저 부재(2026-08, master도 node20) — 러너가 node24로 강제 실행, 경고만 잔존
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -137,7 +137,7 @@ jobs:
           Copy-Item target/release/controller.exe "staging/Handicap_${ver}_x64-portable.exe"
           Get-ChildItem staging | Select-Object Name, Length
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-assets-windows
           path: staging/
@@ -155,15 +155,15 @@ jobs:
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 9
 
@@ -175,7 +175,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - uses: arduino/setup-protoc@v3
+      - uses: arduino/setup-protoc@v3 # node20 타깃이나 node24 상위 메이저 부재(2026-08, master도 node20) — 러너가 node24로 강제 실행, 경고만 잔존
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -198,14 +198,14 @@ jobs:
       # 회수용(발행 대상 아님): dmg 변환 실패 시 .app 확인.
       - name: Upload bundle as workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: macos-bundle-${{ matrix.target }}
           path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
           if-no-files-found: warn
 
       # 발행용: dmg만. publish 잡은 release-assets-* 패턴만 내려받는다.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-assets-macos-${{ matrix.target }}
           path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
@@ -219,11 +219,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # 노트 파일(docs/release-notes/v<ver>.md)을 읽어야 하므로 publish도 체크아웃한다.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: release-assets-*   # 회수용 macos-bundle-*은 제외
           merge-multiple: true
