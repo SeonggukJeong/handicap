@@ -53,6 +53,12 @@ BULLET_SECTIONS = {
 BASELINES_MIN = 6       # 도메인 CLAUDE.md 개수. 파일을 실제로 지웠을 때만 내린다.
 L1_MIN_REFS = 21        # L1 이 검사해야 할 최소 참조 수. 포인터가 진짜 사라졌을 때만 내린다.
 
+# 문서화 절대-임계값(파일 상단 유지 규칙 노트에 숫자가 있는 파일만 — ui/CLAUDE.md:9 "~120KB",
+# crates/engine/CLAUDE.md:7 "~60KB". controller 등 문서화 값 없는 파일은 의도적 제외:
+# 래칫이 커버하고, 절대값 결정은 그 도메인 큐레이션 슬라이스의 몫).
+ABS_WARN = {"ui/CLAUDE.md": 122880, "crates/engine/CLAUDE.md": 61440}
+ABS_WARN_MIN = 2        # 하한 — dict 비우기로 검사를 증발시키는 경로 차단(BASELINES_MIN 동형)
+
 # L1 사전 선언 예외. None = 존재 검사 제외, str = 그 경로로 해석해 존재 검사.
 L1_EXCEPTIONS = {
     "MEMORY.md": None,                                  # 레포 밖(사용자 자동메모리 디렉토리)
@@ -251,6 +257,21 @@ def main():
             warns.append(f"WARN [래칫] {f} {cur - base:+,} B (기준 {base:,} → {cur:,}) "
                          f"> {RATCHET:,} B — 도메인 파일 재분배 검토")
 
+    # ⑥ 절대-임계값 — 문서화 상한 대비 상시 근접도 표시 + 초과 시 WARN(재비대 최종 백스톱)
+    if len(ABS_WARN) < ABS_WARN_MIN:
+        fails.append(f"FAIL [절대] ABS_WARN {len(ABS_WARN)}개 < 하한 {ABS_WARN_MIN}개 — "
+                     f"검사 불능(문서화 임계값을 실제로 없앴을 때만 내릴 것)")
+    for f, cap in ABS_WARN.items():
+        p = pathlib.Path(f)
+        if not p.exists():
+            fails.append(f"FAIL [절대] 대상 파일 없음: {f} (임계값 {cap:,} B)")
+            continue
+        cur = nbytes(p.read_text())
+        table.append((f"{f} (절대)", cur, cap, f"{cur / cap * 100:.1f}%"))
+        if cur > cap:
+            warns.append(f"WARN [절대] {f} {cur:,} B > 문서화 임계값 {cap:,} B — "
+                         f"유지 규칙 노트 기준 재분배 검토(도메인 큐레이션 슬라이스)")
+
     for m in fails:
         print(m)
     for m in warns:
@@ -270,7 +291,7 @@ def main():
 
     print(f"\n{'FAIL' if fails else 'OK'}: root {size:,}/{ROOT_MAX:,} B · "
           f"L1 참조 {n_file}건(앵커 {n_anchor}) · 래칫 {len(BASELINES)}개 · "
-          f"FAIL {len(fails)} / WARN {len(warns)}")
+          f"절대 {len(ABS_WARN)}개 · FAIL {len(fails)} / WARN {len(warns)}")
     return 1 if fails else 0
 
 

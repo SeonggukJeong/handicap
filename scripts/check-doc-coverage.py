@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""이동 검증: manifest(+merge) + 불릿 개수 비감소(R17) + baseline 조건(R18) + 토큰 차분."""
+"""이동 검증: manifest(+merge) + 불릿 개수 비감소(R17 — 섹션은 base 소스의 `## ` 헤딩에서
+동적 도출) + baseline 조건(R18) + 토큰 차분."""
 import re, subprocess, sys, pathlib, glob, ast
 from collections import defaultdict
 
 ROOT = "CLAUDE.md"
-SECTIONS = ["Subagent dispatch 노하우", "알아둘 결정들"]
 BUDGET = "scripts/check-doc-budget.py"
 
 # --- "검사 불능 = FAIL" 하한 (check-doc-budget.py의 BASELINES_MIN·L1_MIN_REFS와 자매 규약) ---
@@ -31,9 +31,9 @@ def bullets(text, section):
     body = section_span(text, section)
     return [] if body is None else [l for l in body.split("\n") if l.startswith("- ")]
 
-def sections_of(text, needle):
-    """needle을 포함하는 불릿이 있는 SECTIONS 원소 '전부'(다중 매치를 호출부가 알 수 있게)."""
-    return [s for s in SECTIONS if any(needle in l for l in bullets(text, s))]
+def sections_of(text, needle, secs):
+    """needle을 포함하는 불릿이 있는 secs 원소 '전부'(다중 매치를 호출부가 알 수 있게)."""
+    return [s for s in secs if any(needle in l for l in bullets(text, s))]
 
 def tokens(t):
     s = set(re.findall(r"`([^`\n]{2,80})`", t))
@@ -97,12 +97,17 @@ def rows():
             out.append(l.split("\t"))
     return out
 
-def main(base):
+def main(base, src=ROOT):
     fails = []
-    base_root = at(base, ROOT)
+    base_root = at(base, src)
     if base_root is None:
-        print(f"FAIL [setup] {base}:{ROOT} 를 읽을 수 없다"); return 1
-    cur_root = pathlib.Path(ROOT).read_text()
+        print(f"FAIL [setup] {base}:{src} 를 읽을 수 없다"); return 1
+    cur_root = pathlib.Path(src).read_text()
+    # R17 섹션 동적 도출 — base 소스의 `## ` 헤딩 전부(오늘 실측: 펜스 안 `## ` 줄은
+    # root·ui 양쪽 0건이라 raw regex로 충분 — section_span과 동일 raw-text 규약).
+    secs_dyn = re.findall(r"(?m)^## (.+?)[ \t]*$", base_root)
+    if not secs_dyn:
+        fails.append(f"FAIL [R17] {base}:{src}에 '## ' 헤딩 0개 — 검사 불능")
 
     gain_need, merged_floor = defaultdict(int), defaultdict(int)
     manifest = rows()
@@ -154,7 +159,7 @@ def main(base):
             elif anchor not in surv[0]:
                 fails.append(f"FAIL [merge] 병합 미확인 — 삭제만 했는가: {anchor[:50]}")
             elif not forged:                       # 날조면 R17 바닥을 내려주지 않는다
-                secs = sections_of(cur_root, marker)
+                secs = sections_of(cur_root, marker, secs_dyn)
                 if len(secs) > 1:
                     print(f"WARN [merge] surviving_anchor가 섹션 {secs}에 모두 매치 — "
                           f"첫 섹션으로 바닥 계산(비차단): {marker[:50]}")
@@ -167,10 +172,9 @@ def main(base):
         if got < need:
             fails.append(f"FAIL [move] {dest} 증가 {got} B < 선언 합계 {need} B")
 
-    for sec in SECTIONS:                                       # R17
-        if section_span(base_root, sec) is None:
-            # 양쪽 다 섹션이 없으면 0 vs 0으로 '조용히 통과'한다 — 유일한 백스톱이 사라지는 경로.
-            fails.append(f"FAIL [R17] base root에 '## {sec}' 섹션 없음 — 검사 불능"); continue
+    for sec in secs_dyn:                                       # R17
+        if section_span(cur_root, sec) is None:
+            fails.append(f"FAIL [R17] '## {sec}' 섹션이 작업트리에서 실종(rename 비목표)"); continue
         b, c = len(bullets(base_root, sec)), len(bullets(cur_root, sec))
         floor = b - merged_floor[sec]
         if c < floor:
@@ -207,8 +211,9 @@ def main(base):
             fails.append(f"FAIL [토큰] 소실(목적지 어디에도 없음): {t[:60]}")
 
     for f in fails: print(f)
-    print(f"\n{'FAIL' if fails else 'OK'}: manifest {len(manifest)}행 · R17 {SECTIONS}")
+    print(f"\n{'FAIL' if fails else 'OK'}: manifest {len(manifest)}행 · R17 섹션 {len(secs_dyn)}개")
     return 1 if fails else 0
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "17369d32"))
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "17369d32",
+                  sys.argv[2] if len(sys.argv) > 2 else ROOT))
