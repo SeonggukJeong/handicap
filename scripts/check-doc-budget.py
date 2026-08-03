@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""문서 예산 게이트: root 절대 예산 · 상태줄 · L1 링크/앵커 · 도메인 성장 래칫 · 불릿 상한.
+"""문서 예산 게이트: root 절대 예산 · 상태줄 · L1 링크/앵커 · 도메인 성장 래칫 · 불릿 상한 · 절대-임계값.
 
 비대칭 설계(근거 → docs/dev/root-doc-maintenance.md):
   - **성장은 경고**(WARN, exit 0) — 도메인 파일은 커져도 매 프롬프트 비용이 아니다.
   - **거짓 보고는 오류**(FAIL, exit 1) — root 예산 초과·상태줄 붕괴·죽은 참조, 그리고
     **검사 불능**(섹션·baseline 대상 실종, 검사 대상이 0으로 줄어듦)은 문서가 사실이
     아니게 되는 경로다. 검사 대상이 비면 루프가 0회 돌고 **조용히 GREEN**이 되므로,
-    게이트를 무력화하는 가장 싼 방법이 곧 "대상을 없애기"다 — 하한 4종으로 막는다.
+    게이트를 무력화하는 가장 싼 방법이 곧 "대상을 없애기"다 — 하한 5종으로 막는다
+    (섹션 없음·불릿 0개·L1_MIN_REFS·BASELINES_MIN·ABS_WARN_MIN).
 
 단위는 전부 KiB(1024 B). 줄 바이트 = len(line.encode()) + 1(개행 포함).
 """
@@ -20,7 +21,7 @@ ROOT = "CLAUDE.md"
 # flat dict 리터럴 — R18 의 parse_baselines() 가 ast 로 이 노드를 읽는다.
 # 단 R18 은 base ref 에 이 파일이 있을 때만 무장된다(→ root-doc-maintenance.md).
 BASELINES = {
-    "ui/CLAUDE.md": 102392,
+    "ui/CLAUDE.md": 102354,
     "crates/controller/CLAUDE.md": 82481,
     "crates/engine/CLAUDE.md": 37057,
     "crates/worker-core/CLAUDE.md": 11388,
@@ -54,7 +55,7 @@ BASELINES_MIN = 6       # 도메인 CLAUDE.md 개수. 파일을 실제로 지웠
 L1_MIN_REFS = 21        # L1 이 검사해야 할 최소 참조 수. 포인터가 진짜 사라졌을 때만 내린다.
 
 # 문서화 절대-임계값(파일 상단 유지 규칙 노트에 숫자가 있는 파일만 — ui/CLAUDE.md:9 "~120KB",
-# crates/engine/CLAUDE.md:7 "~60KB". controller 등 문서화 값 없는 파일은 의도적 제외:
+# crates/engine/CLAUDE.md:7 "~60KB". controller 등 문서화된 *임계값*이 없는 파일은 의도적 제외:
 # 래칫이 커버하고, 절대값 결정은 그 도메인 큐레이션 슬라이스의 몫).
 ABS_WARN = {"ui/CLAUDE.md": 122880, "crates/engine/CLAUDE.md": 61440}
 ABS_WARN_MIN = 2        # 하한 — dict 비우기로 검사를 증발시키는 경로 차단(BASELINES_MIN 동형)

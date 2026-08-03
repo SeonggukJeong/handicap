@@ -2,6 +2,9 @@
 # base root에는 있었는데 현재 root에도 corpus(도메인 CLAUDE.md·docs/dev·docs/adr·build-log)에도
 # 없는 토큰은 FAIL이다. 의도적으로 사라진 토큰만 여기에 '근거와 함께' 적는다.
 # 토큰 = `backtick` 인용(2–80자) · docs/**.md 경로 · ADR-dddd.
+# 주의: 일부 토큰의 끝에 붙은 공백은 load-bearing이다(짝이 밀린 산문 조각 토큰이 공백에서
+# 끊긴 것) — trailing-whitespace 트리머로 이 파일의 기존 행을 재저장/트림하지 말 것
+# (공백이 사라지면 토큰이 더 이상 일치하지 않아 그 예외가 조용히 무효화된다).
 #
 # 형식(탭 구분): token	근거
 #

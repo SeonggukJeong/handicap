@@ -51,6 +51,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 | 섹션 총합 | `## Subagent dispatch 노하우` 전체 | ≤ **6,144 B**(6 KiB) | WARN |
 | 도메인 래칫 | `BASELINES`의 6개 도메인 `CLAUDE.md` | 성장 ≤ **10,240 B**(10 KiB) | WARN |
 | 래칫 대상 하한 | `len(BASELINES)` | ≥ **`BASELINES_MIN`**(6) | **FAIL** |
+| 절대-임계값 | `ABS_WARN` 2개 파일 | 문서화 상한 초과 | WARN |
 
 ### 왜 비대칭인가 — 성장은 경고, 거짓 보고는 오류
 
@@ -58,7 +59,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 **차단해야 하는 건 문서가 사실이 아니게 되는 경로다.** root 예산 초과(매 프롬프트 비용), 상태줄 붕괴(`/finish-slice` §4의 `grep -n '^\*\*상태:'`가 의존 — 0건이면 조용히 아무것도 못 찾고 2건이면 엉뚱한 줄을 고친다), 죽은 참조(포인터를 따라갔더니 파일이 없으면 이관은 **삭제와 구별되지 않는다** — root에서 덜어낸 내용이 도달 가능하다는 US1의 후반절이 무너진다), 그리고 **검사 불능**.
 
-**"검사 불능"이 이 게이트의 주적이다.** 검사 대상이 0이 되면 루프가 0회 돌고 **조용히 GREEN**이 된다 — 즉 게이트를 무력화하는 가장 싼 방법은 검사를 실패시키는 게 아니라 **대상을 없애는 것**이고, 그건 위반보다 싸다(래칫 WARN이 거슬리면 `BASELINES`를 비우면 되고, 250 B FAIL이 거슬리면 불릿 마커를 `* `로 바꾸면 된다 — 둘 다 조용히 통과한다). 그래서 **0-iteration 경로 5개 전부**를 FAIL로 승격했다:
+**"검사 불능"이 이 게이트의 주적이다.** 검사 대상이 0이 되면 루프가 0회 돌고 **조용히 GREEN**이 된다 — 즉 게이트를 무력화하는 가장 싼 방법은 검사를 실패시키는 게 아니라 **대상을 없애는 것**이고, 그건 위반보다 싸다(래칫 WARN이 거슬리면 `BASELINES`를 비우면 되고, 250 B FAIL이 거슬리면 불릿 마커를 `* `로 바꾸면 된다 — 둘 다 조용히 통과한다). 그래서 **0-iteration 경로 6개 전부**를 FAIL로 승격했다:
 
 | 없어지는 것 | 하한 |
 |---|---|
@@ -67,6 +68,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 | `BASELINES` 항목 | ≥ `BASELINES_MIN`(6) |
 | L1이 검사한 참조 | ≥ `L1_MIN_REFS`(21) |
 | 활성 manifest(`scripts/doc-move-manifest.tsv`)의 데이터 행 | ≥ `MANIFEST_MIN`(1, `check-doc-coverage.py`) |
+| `ABS_WARN` 항목 | ≥ `ABS_WARN_MIN`(2) |
 
 **검사량이 줄어드는 것도 검사 불능이다.** 특히 L1은 표기를 바꾸는 것만으로 조용히 축소된다(backtick을 떼면 그 참조가 안 보이는 식) — 그래서 개수 하한을 둔다. 하한은 포인터를 **진짜로 없앴을 때만** 함께 내린다(`BASELINES` 인하와 같은 규율).
 
@@ -87,7 +89,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 **인상을 막는 장치는 지금 ①뿐이다.** 정직하게 적어 둔다:
 
 - ① **커밋 diff 리뷰** — 인상은 diff에 숫자로 드러난다. **출하 상태에서 유일하게 상시 작동하는 방어**다.
-- ② `check-doc-coverage.py`의 **R18**(baseline을 올렸는데 그 파일이 안 줄었으면 FAIL) — **아직 무장되지 않았다.** R18은 `at(base, "scripts/check-doc-budget.py")`가 있어야 도는데, 현 `just doc-coverage`의 기본 `BASE`(`Justfile`의 `BASE="17369d32"`)에는 그 파일이 없어 **블록이 통째로 skip**된다. 게다가 `doc-coverage`는 `/finish-slice`에 배선돼 있지 않다(레포 전체에서 유일한 참조가 `Justfile:121`이다). **②는 budget 스크립트를 포함한 ref를 base로 줘서 돌릴 때 비로소 무장된다** — 즉 다음 재분배 슬라이스가 위 §재분배 절차 1단계대로 **새 manifest를 자기 base로** 돌릴 때부터다(지금 manifest를 더 새로운 base로 다시 돌리는 것은 답이 아니다 — 1단계의 29 FAIL 실측 참조). 그전까지 "기계로 강제된다"고 믿지 말 것.
+- ② `check-doc-coverage.py`의 **R18**(baseline을 올렸는데 그 파일이 안 줄었으면 FAIL) — **무장됨(2026-08-03 ui-claude-md-curation — 기본 `BASE="f870cfd9"`에 budget 스크립트 존재).** `doc-coverage`는 여전히 `/finish-slice`에 배선돼 있지 않다(`.claude/skills/finish-slice/SKILL.md`는 `just doc-budget`만 돈다) — **수동으로 `just doc-coverage`를 실행할 때만** R18이 돈다.
 
 R18이 무장됐을 때의 형식 제약은 알아 둬야 한다 — `ast`로 `BASELINES` **대입문**을 읽으므로 **모듈 최상위 대입문 · flat dict 리터럴**이어야 한다. `dict(...)`·컴프리헨션·중첩 dict·빈 dict·구문 오류는 전부 `FAIL [R18] budget 소스에서 BASELINES를 읽지 못했다`가 된다(무음 통과를 막으려고 일부러 넣은 동작이다). `BASELINES: dict[str, int] = {...}` 형태는 지원된다.
 
