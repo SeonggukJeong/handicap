@@ -238,7 +238,9 @@ export function RunDialog({
   const thinkSeedId = useId();
   const httpTimeoutId = useId();
   const connectTimeoutId = useId();
+  const connectTimeoutHintId = useId();
   const loopCapId = useId();
+  const loopCapHintId = useId();
 
   async function loadPreset(id: string) {
     if (!id) return;
@@ -943,6 +945,7 @@ export function RunDialog({
                 label={ko.loadModel.connectTimeout}
                 htmlFor={connectTimeoutId}
                 hint={ko.loadModel.connectTimeoutHint}
+                hintId={connectTimeoutHintId}
               >
                 <Input
                   id={connectTimeoutId}
@@ -953,7 +956,11 @@ export function RunDialog({
                   onChange={(e) => setConnectTimeout(e.target.value)}
                   placeholder={ko.loadModel.connectTimeoutPlaceholder}
                   aria-invalid={connectTimeoutInvalid}
-                  aria-describedby={connectTimeoutInvalid ? "connect-timeout-error" : undefined}
+                  aria-describedby={
+                    connectTimeoutInvalid
+                      ? `connect-timeout-error ${connectTimeoutHintId}`
+                      : connectTimeoutHintId
+                  }
                 />
               </Field>
             </div>
@@ -962,7 +969,8 @@ export function RunDialog({
               <Field
                 label={ko.loadModel.loopCap}
                 htmlFor={loopCapId}
-                hint="0 = 끄기 · 루프 스텝의 loop_index별 집계 상한"
+                hint={ko.loadModel.loopCapHint}
+                hintId={loopCapHintId}
               >
                 <Input
                   id={loopCapId}
@@ -972,7 +980,9 @@ export function RunDialog({
                   value={loopCap}
                   onChange={(e) => setLoopCap(Number(e.target.value))}
                   aria-invalid={loopCapInvalid}
-                  aria-describedby={loopCapInvalid ? "loop-cap-error" : undefined}
+                  aria-describedby={
+                    loopCapInvalid ? `loop-cap-error ${loopCapHintId}` : loopCapHintId
+                  }
                 />
               </Field>
             )}

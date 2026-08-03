@@ -200,6 +200,7 @@ export const ko = {
       "비워두면 미설정 · connect 단계 정지를 요청 타임아웃과 구분해 분류합니다 · HTTP 타임아웃보다 작게 설정해야 합니다",
     connectTimeoutPlaceholder: "비워두면 미설정",
     loopCap: "루프 집계 상한",
+    loopCapHint: "0 = 끄기 · 루프 스텝의 loop_index별 집계 상한",
     thinkMin: "think 최소(ms)",
     thinkMax: "think 최대(ms)",
     thinkSeed: "think 시드 (선택)",

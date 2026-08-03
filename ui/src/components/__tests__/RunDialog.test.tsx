@@ -3450,3 +3450,37 @@ describe("RunDialog — 연결 수립 타임아웃 (E3)", () => {
     expect(screen.getByText(/HTTP 타임아웃보다 작게/)).toBeInTheDocument();
   });
 });
+
+describe("hint SR 연결 (rundialog-hint-sr)", () => {
+  async function openDiag(user: ReturnType<typeof userEvent.setup>) {
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+  }
+  it("connect timeout hint가 accessible description으로 낭독된다 (US1)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openDiag(user);
+    expect(screen.getByLabelText(ko.loadModel.connectTimeout)).toHaveAccessibleDescription(
+      ko.loadModel.connectTimeoutHint,
+    );
+  });
+  it("loopCap hint가 accessible description으로 낭독된다 (US2)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openDiag(user);
+    expect(screen.getByLabelText(ko.loadModel.loopCap)).toHaveAccessibleDescription(
+      ko.loadModel.loopCapHint,
+    );
+  });
+  it("invalid connect은 에러를 먼저, hint를 이어서 둘 다 낭독한다 (US3)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await openDiag(user);
+    const input = screen.getByLabelText(ko.loadModel.connectTimeout);
+    await user.type(input, "60"); // http 기본 30 → connect 60 = invalid
+    expect(input).toHaveValue(60); // 착지 확인 — sanitize가 지웠으면 아래가 공허해진다
+    expect(input).toHaveAccessibleDescription(
+      `${ko.validation.connectTimeout} ${ko.loadModel.connectTimeoutHint}`,
+    );
+  });
+});
