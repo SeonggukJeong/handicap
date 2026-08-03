@@ -149,7 +149,7 @@
 | maxInFlightHint 키 참조 전수(프로덕션 LoadModelFields 1파일+테스트 3곳) | `grep -rn "maxInFlightHint" .` (ui/src 루트에서) |
 | hint 카피 리터럴 참조 = `RunDialog.test.tsx:1508` 유일(라벨 정규식 다수는 무영향) | `grep -rn "동시 요청 상한" . \| grep -v "^./i18n/ko.ts"` — ` — ` 포함 매치만 hint 참조 |
 | A1이 깨뜨리는 기존 describedby 정확값 단언(1181–1188 ×2) | `sed -n '1170,1190p' components/__tests__/RunDialog.test.tsx` |
-| think 입력 도달 게이트(detailed 856 + Section 5 collapsible) | `sed -n '855,882p' components/RunDialog.tsx` |
+| think 입력 도달 게이트(detailed 857 + Section 5 collapsible) | `sed -n '855,882p' components/RunDialog.tsx` |
 | `ko.runDetail.heading`="실행"(1169) — US4 accname 실측 근거 | `grep -n "heading" i18n/ko.ts` |
 | RunDetailPage.test에 h2 accname 배지 조회 부재(heading 쿼리 콜사이트 8곳 = /메트릭 윈도우/ 7 + profileTitle 1 — h2 접근명 무매치·verdict 문구 0건) | `grep -n "ByRole(\"heading\"" pages/__tests__/RunDetailPage.test.tsx` · `grep -c "verdictFail\|verdictPass" pages/__tests__/RunDetailPage.test.tsx` |
 | ScheduleForm think UI 부재(DEFERRED) | `grep -n "think" components/ScheduleForm.tsx` |
