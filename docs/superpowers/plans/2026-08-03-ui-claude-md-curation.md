@@ -34,7 +34,14 @@
 
 - [ ] **Step 1: coverage 파라미터화 — 소스 파일 인자**
 
-`scripts/check-doc-coverage.py`에서 아래 4곳을 수정한다(현행 코드는 인용 그대로 실재 — 사전 `grep -n`으로 위치 확인 후 편집):
+**편집 전 baseline 캡처**(두-상태 규율 — Step 3의 판별 근거):
+```bash
+python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md > /tmp/ui-claude-md-curation-pre.log 2>&1; echo exit=$?
+grep -c '^FAIL \[' /tmp/ui-claude-md-curation-pre.log; tail -1 /tmp/ui-claude-md-curation-pre.log
+```
+Expected(사전 실측 확인됨): `exit=1` · FAIL **29건**(anchor 없음 14 + marker 이미 존재 13 + 증가 부족 2) · 요약줄이 **구형식** `FAIL: manifest 14행 · R17 ['Subagent dispatch 노하우', '알아둘 결정들']` — argv[2]가 **무시**되어 root 스코프로 돈 증거.
+
+`scripts/check-doc-coverage.py`에서 아래 4곳을 수정한다(현행 코드는 인용 그대로 실재 — 사전 `grep -n`으로 위치 확인 후 편집). **FAIL 메시지 문자열("base root에 anchor 없음"·"root에 anchor 잔존" 등)은 바꾸지 말 것** — 소스-중립 문구로 개명하고 싶어져도, T1 Step 3·T2 Step 4의 grep 판정이 이 문자열에 의존한다:
 
 ① `SECTIONS = ["Subagent dispatch 노하우", "알아둘 결정들"]` 상수 삭제 → base 소스에서 동적 도출로 대체(아래 ③). 모듈 docstring의 R17 설명에 "섹션은 base 소스의 `## ` 헤딩에서 동적 도출" 한 줄 반영.
 
@@ -85,12 +92,13 @@ python3 scripts/check-doc-coverage.py 17369d32 CLAUDE.md; echo exit=$?
 ```
 Expected: 두 실행 모두 `OK: manifest 14행 · R17 섹션 14개` + `exit=0`. (**사전 실측 baseline**: 파라미터화 *전* bare `just doc-coverage`가 `OK: manifest 14행 · R17 ['Subagent dispatch 노하우', '알아둘 결정들']`로 green이었다 — R17이 2→14섹션으로 **확대**된 것 외에 판정 불변이어야 한다. FAIL이 하나라도 늘면 동적 도출이 root의 다른 섹션에서 뭔가 깨뜨린 것이니 STOP.)
 
-- [ ] **Step 3: 신규 경로 RED — 소스 전환이 실제로 검사 대상을 바꾼다**
+- [ ] **Step 3: 신규 경로 — 소스 전환이 실제로 검사 대상을 바꾼다 (판별자 = 요약줄)**
 
 ```bash
-python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md; echo exit=$?
+python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md > /tmp/ui-claude-md-curation-post.log 2>&1; echo exit=$?
+grep -c '^FAIL \[' /tmp/ui-claude-md-curation-post.log; tail -1 /tmp/ui-claude-md-curation-post.log
 ```
-Expected: `exit=1` + `FAIL [move] base root에 anchor 없음` **14건**(활성 manifest는 아직 redistribute의 root 행 — 그 anchor들은 base *ui* 파일에 없다). R17은 ui 8섹션 기준 green, 토큰 차분 green. 이 RED가 "인자가 무시되던" 종전 동작(스크립트가 argv[2]를 아예 안 읽던 것)이 실제로 바뀌었음을 증명한다.
+Expected: `exit=1` + FAIL **29건 그대로 3클래스**(`base root에 anchor 없음` 14 — 이번엔 base *ui* 파일 기준 + `marker가 base 목적지에 이미 존재` 13 + `증가 0 B < 선언 합계` 2 — redistribute 행들의 dest·gain 상황은 소스와 무관해 동일). **FAIL 카운트는 Step 1 baseline과 같으므로 변경 증거가 아니다** — 판별자는 요약줄: 구형식 `R17 [2섹션 리스트]` → **신형식 `R17 섹션 8개`**(ui의 `## ` 8개 동적 도출). 요약줄이 안 바뀌었으면 파라미터화가 안 먹은 것이니 STOP.
 
 - [ ] **Step 4: budget ABS_WARN 추가**
 
@@ -239,7 +247,7 @@ manifest 각 행에 대해: 해당 불릿에서 `source_anchor`를 포함한 서
 ```markdown
 > 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narratives.md` §<섹션명> (키워드: <이 섹션에서 이관된 토픽들을 쉼표 나열>)
 ```
-키워드는 grep 발견성이 목적이므로 이관 항목의 식별 어휘(컴포넌트명·함정명)를 나열한다(정본 §이관 기준 말미 요건). ② 유지 규칙 노트(`ui/CLAUDE.md:9` blockquote — line 7 하위 도메인 목록 아님)에 1줄 추가: `이관된 서사·이력은 docs/dev/ui-gotcha-narratives.md(on-demand).`
+키워드는 grep 발견성이 목적이므로 이관 항목의 식별 어휘(컴포넌트명·함정명)를 나열한다(정본 §이관 기준 말미 요건). ② 유지 규칙 노트(`ui/CLAUDE.md:9` blockquote — line 7 하위 도메인 목록 아님)의 **line 9 줄 끝에 문장 append**(새 줄 삽입 금지 — 삽입하면 이후 전 줄번호가 밀려 Step 3의 preamble 검사 기대값 `[9]`가 깨진다): ` 이관된 서사·이력은 `docs/dev/ui-gotcha-narratives.md`(on-demand).`
 
 - [ ] **Step 3: 검증 — coverage 전체 green + 크기 + 범위 밖 불변**
 
@@ -342,9 +350,9 @@ just doc-coverage; echo exit=$?          # 기대: exit=1 + FAIL [R18] ... 인�
 just doc-coverage; echo exit=$?
 just doc-budget > /tmp/ui-claude-md-curation-budget-final.log; echo exit=$?
 grep -c '(절대)' /tmp/ui-claude-md-curation-budget-final.log
-grep -c 'WARN' /tmp/ui-claude-md-curation-budget-final.log
+grep -c '^WARN \[' /tmp/ui-claude-md-curation-budget-final.log
 ```
-Expected: coverage `exit=0` · budget `exit=0` · `(절대)` 행 **2** · WARN **0**(ui 래칫은 하향된 baseline 대비 `+0 B` 부근, 절대 96 KiB/120 KiB ≈ 80%).
+Expected: coverage `exit=0` · budget `exit=0` · `(절대)` 행 **2** · `^WARN [` 발화 **0**(bare `'WARN'` 패턴은 요약줄 `FAIL 0 / WARN 0`에 항상 1회 매치되므로 금지 — 앵커 필수. ui 래칫은 하향된 baseline 대비 `+0 B` 부근, 절대 96 KiB/120 KiB ≈ 80%).
 
 - [ ] **Step 5: 육안 대조 준비 (spec §5 "지식 보존")**
 

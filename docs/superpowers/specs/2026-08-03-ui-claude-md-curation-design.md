@@ -85,7 +85,7 @@
 | coverage 파라미터화 | `python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md` → 현행 스크립트는 인자 무시·root 검사(ui 미검증임을 확인) | 동일 명령이 ui manifest 행 전부에 ①~⑤ + R17(ui 8섹션) + 토큰-차분 green |
 | coverage 하위호환 | — | **green 실행으로 증명할 수 없다**(활성 manifest가 ui 스코프인데 root 실행은 "행은 자기 base에서만 참" 규약상 무의미 — 정본 §재분배 절차 1). 대신 ① 인자 생략 시 `source_file` 기본값이 `CLAUDE.md`임을 코드로 확인 ② root 스코프 기능 자체는 파라미터화 diff가 R17 동적 도출 외 root 경로를 안 바꿈을 diff 리뷰로 확인(다음 root 재분배가 자기 manifest·자기 base로 무변경 사용) |
 | ABS_WARN 이빨 | 작업트리에서 임계값을 현재 크기 미만으로 임시 하향 → **지정 WARN 문구를 grep으로 확인**(RED — WARN은 exit 0이므로 종료코드로 판정 금지, 정본 §게이트를 고칠 때) → 원복(GREEN) | `just doc-budget` green + 표에 ABS 행 2개 상시 표시 |
-| ABS_WARN 하한 이빨 | `ABS_WARN` dict를 임시로 비움 → `FAIL [설정]` 확인(FAIL은 exit 1 — 종료코드 판정 가) → 원복 | 상동 |
+| ABS_WARN 하한 이빨 | `ABS_WARN` dict를 임시로 비움 → `FAIL [절대]`(하한 미달) 확인(FAIL은 exit 1 — 종료코드 판정 가) → 원복 | 상동 |
 | **지식-가드 이빨(회귀 방지, 사용자 지시 2026-08-03)** | 축약 완료 상태에서 ① ui 잔류 불릿 1개 임시 삭제 → `just doc-coverage` `FAIL [R17]` 확인 ② 목적지 marker 1개 임시 훼손 → `FAIL [move] marker 없음` 확인 ③ 잔류 규칙의 backtick 토큰 1개 임시 삭제 → `FAIL [토큰] 소실` 확인 — **토큰 선정 조건**: 삭제 전 사전 grep으로 ⓐ ui/CLAUDE.md 내 유일(2회 이상이면 set-diff에 안 잡혀 항상 GREEN) ⓑ corpus 전 경로(`corpus_paths()` — 이 슬라이스가 신설하는 narratives 파일 **포함**)·allowlist 0건임을 확인한 토큰만 사용(아니면 공허-이빨) → 각각 원복 | 3종 모두 원복 후 `just doc-coverage` green — 지식-회귀 방어선 자체의 이빨이 실증됨 |
 | 크기 목표 | `wc -c ui/CLAUDE.md` = 119,111 B | ≤ 98,304 B |
 | 지식 보존 | — | manifest 전 행 marker 실재 + R17 바닥 + 토큰-차분 0소실 + **이관 불릿 무작위 3개 육안 대조**(규칙 잔류분만으로 함정 회피 가능한지 사람 판정) |
