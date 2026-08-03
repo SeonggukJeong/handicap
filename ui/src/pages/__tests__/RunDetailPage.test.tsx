@@ -1172,3 +1172,129 @@ describe("RunDetailPage — heading과 배지 분리 (a11y-bundle C2)", () => {
     expect(h2).toHaveAccessibleName(`${ko.runDetail.heading} RV2`);
   });
 });
+
+describe("RunDetailPage — 라이브 궤적 섹션", () => {
+  const liveWindows = [
+    { ts_second: 100, step_id: "s1", count: 3, error_count: 0, status_counts: {} },
+    { ts_second: 100, step_id: "s2", count: 2, error_count: 1, status_counts: {} },
+    { ts_second: 101, step_id: "s1", count: 4, error_count: 0, status_counts: {} },
+  ];
+
+  function mockRun(status: string, windows: unknown[], report?: { body: unknown; status: number }) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/runs/R7") && (!init || init.method !== "POST")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R7",
+            scenario_id: "S7",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status,
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
+            env: {},
+            started_at: 1,
+            ended_at: null,
+            created_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R7/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R7", windows }));
+      }
+      if (url.endsWith("/api/runs/R7/report") && report) {
+        return Promise.resolve(jsonResponse(report.body, report.status));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("① running + windows(2초 이상) → 섹션과 차트 region 2개가 보인다", async () => {
+    mockRun("running", liveWindows);
+    renderWithRouter("R7");
+    const section = await screen.findByRole("region", { name: ko.runDetail.liveSectionTitle });
+    expect(
+      within(section).getByRole("region", {
+        name: ko.report.timeSeriesAria(ko.report.timeSeriesRequests),
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByRole("region", {
+        name: ko.report.timeSeriesAria(ko.report.timeSeriesErrors),
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("④ running + windows 없음 → 섹션 미렌더", async () => {
+    mockRun("running", []);
+    renderWithRouter("R7");
+    await screen.findByText(ko.runDetail.waitingFirstBatch);
+    expect(
+      screen.queryByRole("region", { name: ko.runDetail.liveSectionTitle }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("③ terminal + report 에러 + windows → 섹션이 남는다 (N4 수명 핀)", async () => {
+    mockRun("failed", liveWindows, { body: { error: "boom" }, status: 500 });
+    renderWithRouter("R7");
+    await screen.findByRole("region", { name: ko.runDetail.liveSectionTitle });
+  });
+
+  it("② terminal + report 적재 → 섹션 미렌더 (삼항 밖 호이스팅을 잡는 배치 이빨)", async () => {
+    // 기존 :585-611 reportBundle 리터럴 기반 (id만 R7/S7).
+    const reportBundle = {
+      run: {
+        id: "R7",
+        scenario_id: "S7",
+        status: "completed",
+        profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+        env: {},
+        started_at: 100,
+        ended_at: 102,
+        created_at: 99,
+      },
+      scenario_yaml: "version: 1\nname: x\ncookie_jar: auto\nvariables: {}\nsteps: []\n",
+      summary: {
+        count: 10,
+        errors: 0,
+        rps: 5.0,
+        duration_seconds: 2,
+        mean_ms: 15,
+        p50_ms: 10,
+        p95_ms: 20,
+        p99_ms: 30,
+      },
+      windows: [],
+      steps: [],
+      status_distribution: { "200": 10 },
+      dropped: 0,
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/R7")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "R7",
+            scenario_id: "S7",
+            scenario_yaml: reportBundle.scenario_yaml,
+            status: "completed",
+            profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+            env: {},
+            started_at: 100,
+            ended_at: 102,
+            created_at: 99,
+          }),
+        );
+      }
+      if (url.endsWith("/api/runs/R7/metrics")) {
+        return Promise.resolve(jsonResponse({ run_id: "R7", windows: liveWindows }));
+      }
+      if (url.endsWith("/api/runs/R7/report")) {
+        return Promise.resolve(jsonResponse(reportBundle));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("R7");
+    await screen.findByRole("region", { name: /리포트 요약/ });
+    expect(
+      screen.queryByRole("region", { name: ko.runDetail.liveSectionTitle }),
+    ).not.toBeInTheDocument();
+  });
+});

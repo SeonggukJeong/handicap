@@ -33,6 +33,8 @@ import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/RunVuCell";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
+import { TimeSeriesChart } from "../components/report/TimeSeriesChart";
+import { liveBySecond } from "../runs/liveSeries";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
@@ -86,6 +88,8 @@ export function RunDetailPage() {
     }
     return m;
   }, [metrics.data]);
+
+  const liveSeconds = useMemo(() => liveBySecond(metrics.data?.windows ?? []), [metrics.data]);
 
   if (run.isLoading) return <p className="text-slate-500">{ko.common.loading}</p>;
   if (run.error) return <Callout variant="error">{(run.error as Error).message}</Callout>;
@@ -257,6 +261,24 @@ export function RunDetailPage() {
             >
               {ko.runDetail.reportGenerating}
             </div>
+          )}
+          {liveSeconds.length > 0 && (
+            <PageSection
+              ariaLabel={ko.runDetail.liveSectionTitle}
+              title={ko.runDetail.liveSectionTitle}
+              className="mb-6"
+            >
+              <TimeSeriesChart
+                title={ko.report.timeSeriesRequests}
+                yLabel="req/s"
+                data={liveSeconds.map((s) => ({ ts_second: s.ts_second, value: s.count }))}
+              />
+              <TimeSeriesChart
+                title={ko.report.timeSeriesErrors}
+                yLabel="errors"
+                data={liveSeconds.map((s) => ({ ts_second: s.ts_second, value: s.errors }))}
+              />
+            </PageSection>
           )}
           <EnvBlock env={r.env} />
 

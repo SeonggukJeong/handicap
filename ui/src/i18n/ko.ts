@@ -1146,6 +1146,7 @@ export const ko = {
     cardAvgRps: "평균 RPS",
     cardCreated: "생성 시각",
     // ── 섹션 제목/aria-label ──
+    liveSectionTitle: "라이브 궤적",
     profileLabel: "프로필",
     profileTitle: "프로필",
     profileVuStages: (peak: number, count: number) => `최대 ${peak} · ${count}단계`,
