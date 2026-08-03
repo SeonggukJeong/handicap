@@ -248,8 +248,6 @@ export const ko = {
     gracefulCap: "느슨한 감축 상한은 1 이상의 정수여야 합니다(비우면 무제한).",
     httpTimeout: "HTTP 타임아웃은 1 ~ 600초 사이여야 합니다.",
     connectTimeout: "연결 수립 타임아웃은 1초 이상, HTTP 타임아웃보다 작아야 합니다.",
-    connectTimeoutStored: (n: number) =>
-      `이 스케줄에 저장된 연결 수립 타임아웃(${n}초)보다 HTTP 타임아웃이 커야 합니다.`,
     loopCap: "루프 집계 상한은 0 ~ 10000 사이여야 합니다.",
     think: "페이싱(think time)은 min ≤ max ≤ 600000, 두 칸 모두 입력해야 합니다.",
   },

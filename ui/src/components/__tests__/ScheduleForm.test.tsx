@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ScheduleForm } from "../ScheduleForm";
@@ -182,7 +182,7 @@ describe("ScheduleForm", () => {
   });
 
   it("저장된 connect_timeout_seconds가 편집 저장 라운드트립에서 보존된다", async () => {
-    // pass-through가 없으면 buildProfileShared 재구성 과정에서 조용히 사라진다.
+    // 입력이 init에서 시드되므로 무수정 저장 시 값이 그대로 실린다(구 pass-through의 의미 계승).
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     wrap(
@@ -211,9 +211,7 @@ describe("ScheduleForm", () => {
     expect(onSubmit.mock.calls[0][0].profile.connect_timeout_seconds).toBe(3);
   });
 
-  it("저장된 connect_timeout이 http_timeout 이상이면 저장을 막고 저장값을 밝힌다", async () => {
-    // 이 폼엔 connect_timeout 입력이 없다 — 막기만 하면 사용자가 얼마로 올려야 할지
-    // 알 수 없으므로 저장값(초)을 문구로 노출해야 한다.
+  it("connect_timeout이 http_timeout 이상이면 저장을 막고 일반 검증 문구를 보인다", async () => {
     const user = userEvent.setup();
     wrap(
       <ScheduleForm
@@ -221,7 +219,7 @@ describe("ScheduleForm", () => {
         onSubmit={vi.fn()}
         submitting={false}
         initial={{
-          name: "nightly",
+          name: "n",
           scenario_id: "s1",
           profile: {
             vus: 1,
@@ -239,9 +237,87 @@ describe("ScheduleForm", () => {
     );
     await user.clear(screen.getByLabelText(ko.loadModel.httpTimeout));
     await user.type(screen.getByLabelText(ko.loadModel.httpTimeout), "3");
-    // http_timeout=3 자체는 유효(1..600)하고 hasLoop=false·bindingBlock.ok=true라
-    // 이 사유가 목록의 유일한 항이다 = 비혼동.
-    expect(screen.getByText(ko.validation.connectTimeoutStored(5))).toBeInTheDocument();
+    expect(screen.getByText(ko.validation.connectTimeout)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /저장/ })).toBeDisabled();
+  });
+
+  it("US2: 시드된 connect_timeout을 비우고 저장하면 키 자체가 빠진다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+        initial={{
+          name: "n",
+          scenario_id: "s1",
+          profile: {
+            vus: 1,
+            duration_seconds: 5,
+            ramp_up_seconds: 0,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            connect_timeout_seconds: 3,
+          } as Profile,
+          env: {},
+          trigger: { kind: "cron", cron_expr: "0 2 * * *" },
+          enabled: true,
+        }}
+      />,
+    );
+    const input = screen.getByLabelText(ko.loadModel.connectTimeout);
+    // 시드 실증 — 빈 칸이면 아래 not.toHaveProperty가 공허 통과한다(auto-seed 공허 클래스).
+    expect(input).toHaveValue(3);
+    await user.clear(input);
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    expect(onSubmit.mock.calls[0][0].profile).not.toHaveProperty("connect_timeout_seconds");
+  });
+
+  it("US1: connect_timeout을 입력해 저장하면 숫자로 실린다", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={onSubmit}
+        submitting={false}
+      />,
+    );
+    await user.type(screen.getByLabelText(/이름/), "nightly");
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+    // 트리거: 기본 daily 02:00 → trigger != null (기존 :54-59 저장 케이스와 동일 전제)
+    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "5");
+    await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].profile.connect_timeout_seconds).toBe(5);
+  });
+
+  it("비정수 connect_timeout은 저장을 막는다", () => {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    const input = screen.getByLabelText(ko.loadModel.connectTimeout);
+    fireEvent.change(input, { target: { value: "1.5" } });
+    expect(input).toHaveValue(1.5); // 착지 확인 — sanitize가 지웠으면 아래가 공허해진다
+    expect(screen.getByText(ko.validation.connectTimeout)).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true"); // 유일한 인라인 신호 가드(spec §3-1, 리뷰 M2)
+  });
+
+  it("connect_timeout 입력에 hint가 aria-describedby로 연결된다", () => {
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    expect(screen.getByLabelText(ko.loadModel.connectTimeout)).toHaveAccessibleDescription(
+      ko.loadModel.connectTimeoutHint,
+    );
   });
 });
