@@ -9,7 +9,7 @@ ADR-0009는 MVP에서 라이브 대시보드를 제외하며 후속 한도를 "�
 
 ## Decision
 
-**이미 수집·영속되고 이미 폴링 중인 1s windows의 클라이언트 표시(in-run 진행 차트)를 허용한다.** 이는 ADR-0009의 "후속은 옵션 2 정도" 한 줄을 supersede하는 확장이다(차트가 실행 중에 뜬다). ADR-0009의 나머지는 전부 유지: WebSocket/SSE·서버 push·시계열 DB·전용 라이브 대시보드·APM 대체는 계속 비목표다. 이 기능은 신규 데이터 경로도 신규 라이브러리도 만들지 않는다 — 서버/proto/스토어 0-diff.
+**이미 수집·영속되고 이미 폴링 중인 1s windows의 클라이언트 표시(in-run 진행 차트)를 허용한다.** 이는 [ADR-0009](0009-no-live-dashboard-mvp.md)의 "후속은 옵션 2 정도" 한 줄을 supersede하는 확장이다(차트가 실행 중에 뜬다). ADR-0009의 나머지는 전부 유지: WebSocket/SSE·서버 push·시계열 DB·전용 라이브 대시보드·APM 대체는 계속 비목표다. 이 기능은 신규 데이터 경로도 신규 라이브러리도 만들지 않는다 — 서버/proto/스토어 0-diff.
 
 구현: `liveBySecond` 순수 헬퍼(스텝 간 합산·후미 1초 트림 — 멀티워커 도착 skew가 유일한 부분합 벡터, 엔진 flush는 완성 초만 전송) + `RunDetailPage` else 가지에 `TimeSeriesChart` 2종(RPS·에러). 설계: `docs/superpowers/specs/2026-08-03-live-rps-chart-design.md`.
 
@@ -17,4 +17,4 @@ ADR-0009는 MVP에서 라이브 대시보드를 제외하며 후속 한도를 "�
 
 **Positive**: 실행 중 궤적 가시성(자리 비움 후 복귀 시 전체 이력) · 에러 시작 시점의 실시간 파악(중단 판단) · 라이브·리포트가 같은 1s windows 기반이라 사후 분석과 연속.
 
-**Negative / Trade-offs**: 최신 1초는 트림되어 표시가 1초 늦다 · 트래픽 정체 시 마지막 실데이터 1초가 숨는다(stall 배너가 상보) · 레이턴시(p50/p95) 라이브는 여전히 불가(windows에 없음 — 수요 확인 후 별도 결정).
+**Negative / Trade-offs**: 최신 1초는 트림되어 표시가 1초 늦다 · 트래픽 정체 시 마지막 실데이터 1초가 숨는다(stall 배너가 상보 — 침묵 120초 후 발동, `runStall.ts` `MIDRUN_STALL_MS`) · 레이턴시(p50/p95) 라이브는 여전히 불가(windows에 없음 — 수요 확인 후 별도 결정).

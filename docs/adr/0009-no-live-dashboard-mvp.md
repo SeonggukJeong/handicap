@@ -1,6 +1,6 @@
 # 0009. MVP에 라이브 대시보드 없음
 
-- **상태**: Accepted
+- **상태**: Accepted (후속 한도 한 줄은 [ADR-0051](0051-in-run-progress-chart.md), 2026-08-03로 확장)
 - **날짜**: 2026-05-27
 
 ## Context
