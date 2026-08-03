@@ -42,4 +42,21 @@ describe("Field", () => {
     expect(err.id).toBe("t-err");
     expect(screen.getByLabelText("타임아웃").getAttribute("aria-describedby")).toBe("t-err");
   });
+  it("hintId를 주면 hint <p>가 그 id를 가져 aria-describedby 연결이 가능하다", () => {
+    render(
+      <Field label="연결" htmlFor="c" hint="힌트 문구" hintId="c-hint">
+        <Input id="c" aria-describedby="c-hint" />
+      </Field>,
+    );
+    expect(screen.getByText("힌트 문구").id).toBe("c-hint");
+    expect(screen.getByLabelText("연결")).toHaveAccessibleDescription("힌트 문구");
+  });
+  it("hintId 미전달이면 hint <p>에 id 속성이 없다 (기존 소비처 DOM byte-identical 가드)", () => {
+    render(
+      <Field label="연결2" htmlFor="c2" hint="힌트 문구">
+        <Input id="c2" />
+      </Field>,
+    );
+    expect(screen.getByText("힌트 문구")).not.toHaveAttribute("id");
+  });
 });

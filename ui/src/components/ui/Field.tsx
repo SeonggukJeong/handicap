@@ -7,6 +7,7 @@ export function Field({
   recommended,
   help,
   hint,
+  hintId,
   error,
   errorId,
   children,
@@ -16,6 +17,9 @@ export function Field({
   recommended?: ReactNode;
   help?: ReactNode;
   hint?: ReactNode;
+  /** hint <p>의 id — aria-describedby 연결용(errorId와 대칭).
+      이 id를 describedby에 참조하는 caller는 hint를 무조건 렌더할 것(조건부 hint + 상시 참조 = dangling). */
+  hintId?: string;
   error?: ReactNode;
   errorId?: string;
   children: ReactNode;
@@ -29,7 +33,11 @@ export function Field({
         {help}
       </div>
       {children}
-      {hint != null && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+      {hint != null && (
+        <p id={hintId} className="mt-1 text-xs text-slate-500">
+          {hint}
+        </p>
+      )}
       {error != null && (
         <p id={errorId} className="mt-1 text-sm text-red-600">
           {error}
