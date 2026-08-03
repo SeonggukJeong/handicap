@@ -118,8 +118,8 @@ bump-version ver:
     echo "다음: git add -u && git commit -m 'chore(release): {{ver}} 버전 bump' && git tag -a v{{ver}} && git push origin master v{{ver}}"
 
 # root CLAUDE.md 재분배 이동 검증(R6·R16·R17·R18): manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분.
-doc-coverage BASE="17369d32":
-    python3 scripts/check-doc-coverage.py {{BASE}}
+doc-coverage BASE="f870cfd9" FILE="ui/CLAUDE.md":
+    python3 scripts/check-doc-coverage.py {{BASE}} {{FILE}}
 
 # 문서 예산(R5·R8·R9): root 절대 예산·상태줄·L1 참조/앵커는 FAIL, 도메인 성장 래칫은 WARN.
 doc-budget:

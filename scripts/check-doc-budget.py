@@ -20,7 +20,7 @@ ROOT = "CLAUDE.md"
 # flat dict 리터럴 — R18 의 parse_baselines() 가 ast 로 이 노드를 읽는다.
 # 단 R18 은 base ref 에 이 파일이 있을 때만 무장된다(→ root-doc-maintenance.md).
 BASELINES = {
-    "ui/CLAUDE.md": 116129,
+    "ui/CLAUDE.md": 102392,
     "crates/controller/CLAUDE.md": 82481,
     "crates/engine/CLAUDE.md": 37057,
     "crates/worker-core/CLAUDE.md": 11388,
