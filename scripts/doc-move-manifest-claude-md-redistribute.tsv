@@ -1,0 +1,51 @@
+# root CLAUDE.md → 도메인/정본 파일 이동 선언 (탭 구분, '#' 줄은 주석).
+# 검사는 scripts/check-doc-coverage.py — 'just doc-coverage'.
+#
+# kind = move | merge
+#   move  : root에서 덜어내 dest_file로 옮긴 내용
+#     ① source_anchor 가 base root에 존재  ② 현재 root에 부재
+#     ③ required_marker('|' 구분 다항)가 전부 dest_file 안에 존재
+#     ④ dest_file별 min_dest_gain_bytes '합계' ≤ 그 파일의 실제 바이트 증가 (누적 1회 비교)
+#     ⑤ min_dest_gain_bytes > 0 인 행은 required_marker가 base의 dest_file에 없어야 한다
+#        (marker 신규성 — 목적지에 이미 있던 문구를 marker로 고르면 아무것도 안 옮기고 ③을 통과한다)
+#   merge : root 불릿 두 개를 하나로 합친 경우 — 컬럼 의미가 다르다
+#     source_anchor=absorbed_marker · dest_file='-' · required_marker=surviving_anchor
+#     min_dest_gain_bytes=0
+#     ⓐ absorbed_marker가 base root에 정확히 1회
+#     ⓑ 현재 root에서 surviving_anchor를 포함하는 불릿이 absorbed_marker도 포함
+#     ⓒ base root에서 두 마커가 '서로 다른' 불릿에 있어야 한다
+#        (이미 한 불릿 안에 있던 두 조각을 뽑아 쓰면 ⓐⓑ가 자동 충족돼, 병합이 한 건도 없는데
+#         R17 바닥만 1 내려가고 무관한 불릿이 조용히 사라진다 — 이미 병합된 '현재' root를 보고
+#         마커를 뽑으면 정확히 이 상태가 된다)
+#        absorbed_marker는 base에서 surviving_anchor를 포함하지 않는 조각으로 고를 것 —
+#        아니면 정당한 merge도 forged로 걸린다.
+#
+# ④가 dest_file별 '누적'인 이유: 한 파일을 목적지로 둔 행이 여럿일 때 행별 비교면 하나만
+# 크게 옮겨도 나머지가 같은 총증가분을 보고 통과한다(검사가 커버된 듯한 착시).
+# 누적은 "선언한 합만큼은 실제로 늘었다"만 보증하고, **행 단위 실체는 ③(marker)이 담당**한다.
+#
+# marker 선정: 옮긴 본문에서만 나오는 구체 문구를 고를 것. 일반 명사·기존 소제목은 ③을 공허하게 한다.
+#
+# ★ 이 파일의 행은 '검사를 통과시키는 선언'이 아니라 '검사받는 주장'이다. 아래 셋은
+#   scripts/doc-coverage-allowlist.txt와 **동급의 리뷰 대상**이며 스크립트가 대신 판정해 주지 못한다:
+#     · min_dest_gain_bytes — 실제 삭제한 블록 크기와 대조할 것. 스크립트는 '하한'만 보므로
+#       316 B를 지우고 3 B만 적어도 전 검사를 통과한다(총량 휴리스틱은 정당한 압축까지 거짓 FAIL을
+#       내므로 코드로 막지 않기로 했다 — 대신 리뷰가 본다).
+#     · required_marker 선정 — 위 'marker 선정' 규칙 준수 여부.
+#     · merge 행 — ⓒ가 날조는 걸러도, '합칠 만한 두 불릿이었나'는 사람만 판단할 수 있다.
+#
+# kind	source_anchor	dest_file	required_marker	min_dest_gain_bytes
+move	단언 대상이 버그와 무관하게 안정적인 값[`Object.is(undefined,undefined)`]	docs/dev/subagent-dispatch.md	4번째 패턴(thinkboard-defaults): 단언이 *부분문자열*로 통과	614
+move	충돌 표가 **신규↔신규만 대조하고 신규↔기존을 안 봐서**	docs/dev/subagent-dispatch.md	think-time-defaults의 "보안 게이트 N/A 예상"이 틀려	536
+move	임시 `it.todo` 한 줄로 언블록하고 **커밋 전 제거를 독립 체크박스 스텝으로**	docs/dev/subagent-dispatch.md	훅은 파일 내용을 안 열고 존재만 본다 — `tdd-guard.sh:92`	742
+move	한 번은 *맞게* 적힌 spec 참조를 틀리게 "고쳤고"(리뷰어가 교정)	docs/dev/subagent-dispatch.md	(thinkboard-defaults에서 2회 오프바이원)	268
+move	트리거 보수적으로 — 승격률 ~40% 넘으면 역손해	docs/dev/subagent-dispatch.md	승격률 ~40% 넘으면 역손해	482
+move	재리뷰가 싸고 "내 finding 반영됐나" 직접 검증	docs/dev/subagent-dispatch.md	코드베이스+직전 findings 보존	317
+move	특히 그 task가 plan에서 "드롭 가능"으로 표시돼 있으면 finding이 task와 함께 조용히 사라진다	docs/dev/subagent-dispatch.md	접을 곳을 고를 때 그 task의 생존 보장 여부부터 확인	337
+move	인접 형제 collapsing은 **뒤 요소의 `margin-top`**을 요구하는데	docs/dev/subagent-dispatch.md	결과: 간격 8px→**0px** + 거짓 근거를 단언하는 주석이	886
+move	"그 태그에서 도달 가능"만 뜻해 더 오래된 커밋이 전부 통과한다	docs/dev/subagent-dispatch.md	리뷰 디스패치에 넘기는 "orchestrator가 검증한 것" 목록도	763
+move	Read 툴이 `limit`을 줘도 "exceeds max tokens"로 거부	docs/dev/root-doc-maintenance.md	작은 unique start/end 마커로 `s.index()` 찾아 splice하는	338
+move	naive balance 검사는 false-positive	docs/dev/root-doc-maintenance.md	해당 라인 imbalance와 *같은지* 비교	406
+move	앵커는 `python repr`/`xxd`로 **실 바이트 확인**	docs/dev/root-doc-maintenance.md	`assert count==1`은 0매치를 못 거르니(예외로 떨어짐) 앵커 정확도가 선결	501
+move	new_span에 old 전용 내용이 안 섞였는지	docs/dev/root-doc-maintenance.md	end_anchor는 순수 boilerplate(다음 문장·포인터)만으로 최소화해서 잡고	700
+move	Run 라이브니스 G1/G3+stall 배지·closed-loop 곡선 fan-out 샤딩	docs/build-log.md	트랜잭션 시간 분해|게이트-에러 한국어 매핑|저장 안 됨 이탈 가드|운영 상한 관리자|에디터 뷰포트 폴리시 v2|binding-varname-visibility|publish-release.sh|check-release-versions.sh	0
