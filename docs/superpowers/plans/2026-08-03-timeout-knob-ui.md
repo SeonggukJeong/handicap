@@ -1,5 +1,7 @@
 # timeout-knob-ui Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** ScheduleForm에서 connect timeout을 설정·해제할 수 있게 하고, 명시 설정된 run-level 타임아웃 2종을 리포트/Run 상세에 조건부 한 줄로 노출한다.
