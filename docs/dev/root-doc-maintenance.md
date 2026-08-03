@@ -86,7 +86,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 `BASELINES`는 **파일을 실제로 압축했을 때만** 내린다. 값을 **올리는 것은 규칙 위반**이다 — 그건 "자랐으니 기준을 자라게 하자"라서 래칫이 아무것도 안 하게 된다.
 
-**인상을 막는 장치는 지금 ①뿐이다.** 정직하게 적어 둔다:
+**상시 작동하는 인상 방어는 ①뿐이다(② R18은 무장됐지만 수동 실행).** 정직하게 적어 둔다:
 
 - ① **커밋 diff 리뷰** — 인상은 diff에 숫자로 드러난다. **출하 상태에서 유일하게 상시 작동하는 방어**다.
 - ② `check-doc-coverage.py`의 **R18**(baseline을 올렸는데 그 파일이 안 줄었으면 FAIL) — **무장됨(2026-08-03 ui-claude-md-curation — 기본 `BASE="f870cfd9"`에 budget 스크립트 존재).** `doc-coverage`는 여전히 `/finish-slice`에 배선돼 있지 않다(`.claude/skills/finish-slice/SKILL.md`는 `just doc-budget`만 돈다) — **수동으로 `just doc-coverage`를 실행할 때만** R18이 돈다.

@@ -175,7 +175,7 @@ mid-run advisory 배너의 [중단] 버튼과 헤더 abort 버튼이 둘 다 `ko
 
 localStorage 픽스 후에도 GitHub Actions에서 `ScenarioEditPage.name.test.tsx`의 R2 케이스(`yamlError` 세팅 직후 disabled 단언)가 재실패 — 같은 파일의 다른 케이스들이 이미 쓰는 "`findByRole` 뒤 EditorShell 마운트 이펙트(`loadFromString` 자기-재시드, StrictMode 이중 호출 포함)를 비우는 빈 `await act(async () => {})`" 방어 flush가 이 케이스에만 빠져 있었다(`194cfa3`).
 
-### `pnpm lint`가 hook에 없어 경고가 잠복한 사례
+### `pnpm lint`가 hook에 없던 시절 경고가 잠복한 사례(이후 `1a465af9`로 pre-commit UI 게이트에 편입)
 
 (`react-hooks/exhaustive-deps` 누락 한 건이 이렇게 통과했었음 — `ScenarioRunsPage.tsx` effect deps)
 
