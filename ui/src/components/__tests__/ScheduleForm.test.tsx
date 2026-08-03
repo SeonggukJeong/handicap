@@ -321,4 +321,19 @@ describe("ScheduleForm", () => {
       ko.loadModel.connectTimeoutHint,
     );
   });
+
+  it("open 모드 maxInFlight hint가 aria-describedby로 연결된다 (US2, ScheduleForm 통합)", async () => {
+    const user = userEvent.setup();
+    wrap(
+      <ScheduleForm
+        scenarioOptions={[{ id: "s1", name: "scn" }]}
+        onSubmit={vi.fn()}
+        submitting={false}
+      />,
+    );
+    await user.click(screen.getByRole("radio", { name: /도착률 기준/ }));
+    expect(screen.getByLabelText(ko.loadModel.maxInFlight)).toHaveAccessibleDescription(
+      ko.loadModel.maxInFlightHint,
+    );
+  });
 });

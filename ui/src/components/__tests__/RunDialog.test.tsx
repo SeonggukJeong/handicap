@@ -1326,7 +1326,11 @@ describe("RunDialog — open-loop mode (S-C)", () => {
     await user.clear(maxInFlightInput);
     // Empty value → invalid
     expect(screen.getByText(/동시 요청 상한은 1 ~ 10,000 사이여야 합니다/)).toBeInTheDocument();
-    expect(maxInFlightInput).toHaveAttribute("aria-describedby", "max-in-flight-error");
+    const hintEl = screen.getByText(ko.loadModel.maxInFlightHint);
+    expect(maxInFlightInput).toHaveAttribute(
+      "aria-describedby",
+      `max-in-flight-error ${hintEl.id}`,
+    );
     expect(screen.getByRole("button", { name: "실행하기" })).toBeDisabled();
   });
 

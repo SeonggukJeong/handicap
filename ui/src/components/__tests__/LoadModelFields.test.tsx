@@ -595,6 +595,13 @@ describe("LoadModelFields", () => {
       screen.queryByRole("button", { name: ko.loadModel.observedRpsApply }),
     ).not.toBeInTheDocument();
   });
+
+  it("open 모드 maxInFlight hint가 accessible description으로 낭독된다 (US2)", () => {
+    renderFields({ loadModel: "open", rateMode: "fixed" });
+    expect(screen.getByLabelText(ko.loadModel.maxInFlight)).toHaveAccessibleDescription(
+      ko.loadModel.maxInFlightHint,
+    );
+  });
 });
 
 const oneHttp = { steps: [{ type: "http" }] } as unknown as Scenario;

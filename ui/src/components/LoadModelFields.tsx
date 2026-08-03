@@ -122,6 +122,7 @@ export function LoadModelFields({
     targetRps: useId(),
     durationOpen: useId(),
     maxInFlight: useId(),
+    maxInFlightHint: useId(),
     workerCount: useId(),
     gracefulCap: useId(),
     loadModelClosed: useId(),
@@ -668,7 +669,8 @@ export function LoadModelFields({
               label={ko.loadModel.maxInFlight}
               htmlFor={ids.maxInFlight}
               help={<HelpTip label="max in-flight 설명">{ko.glossary.maxInFlight}</HelpTip>}
-              hint="동시 요청 상한 — 서비스가 목표 속도를 못 따라가면 초과분은 drop되어 리포트에 표시됩니다"
+              hint={ko.loadModel.maxInFlightHint}
+              hintId={ids.maxInFlightHint}
             >
               <Input
                 id={ids.maxInFlight}
@@ -678,7 +680,11 @@ export function LoadModelFields({
                 value={maxInFlight}
                 onChange={(e) => setMaxInFlight(e.target.value)}
                 aria-invalid={errs.maxInFlightInvalid}
-                aria-describedby={errs.maxInFlightInvalid ? "max-in-flight-error" : undefined}
+                aria-describedby={
+                  errs.maxInFlightInvalid
+                    ? `max-in-flight-error ${ids.maxInFlightHint}`
+                    : ids.maxInFlightHint
+                }
                 numeric={numeric}
               />
             </Field>
