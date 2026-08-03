@@ -67,12 +67,16 @@ export const StageSchema = z.object({
 });
 export type Stage = z.infer<typeof StageSchema>;
 
+/** run-level HTTP 타임아웃 기본값(초). 서버 store serde default와 lockstep
+ *  (crates/controller/src/store/runs.rs Profile.http_timeout_seconds). */
+export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30;
+
 export const ProfileSchema = z.object({
   vus: z.number().int().nonnegative(),
   ramp_up_seconds: z.number().int().nonnegative().default(0),
   duration_seconds: z.number().int().nonnegative(),
   loop_breakdown_cap: z.number().int().min(0).max(10000).default(256),
-  http_timeout_seconds: z.number().int().min(1).max(600).default(30),
+  http_timeout_seconds: z.number().int().min(1).max(600).default(DEFAULT_HTTP_TIMEOUT_SECONDS),
   // These Option fields are serialized as `null` (not omitted) in run responses —
   // the controller store Profile uses #[serde(default)] without skip_serializing_if.
   // So they must accept null (.nullish), like data_binding/criteria below. (`stages`

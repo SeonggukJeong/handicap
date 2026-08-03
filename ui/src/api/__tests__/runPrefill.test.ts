@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appliedTimeoutKnobs,
   envValueToRecord,
   normalizeProfile,
   profileDurationSeconds,
@@ -114,5 +115,40 @@ describe("normalizeProfile", () => {
       data_binding: { dataset_id: "D1", policy: "per_vu", mappings: [] },
     });
     expect(p.data_binding?.dataset_id).toBe("D1");
+  });
+});
+
+describe("appliedTimeoutKnobs (timeout-knob-ui — spec §4 표시 게이트)", () => {
+  it("둘 다 기본이면 show=false (필드 부재 raw profile 포함)", () => {
+    expect(appliedTimeoutKnobs({ http_timeout_seconds: 30 })).toEqual({
+      http: 30,
+      connect: null,
+      show: false,
+    });
+    expect(appliedTimeoutKnobs({})).toEqual({ http: 30, connect: null, show: false });
+  });
+  it("connect 설정 시 show=true·connect null-정규화 없음", () => {
+    expect(appliedTimeoutKnobs({ http_timeout_seconds: 30, connect_timeout_seconds: 5 })).toEqual({
+      http: 30,
+      connect: 5,
+      show: true,
+    });
+  });
+  it("http만 비기본이어도 show=true·raw undefined http는 기본 정규화", () => {
+    expect(appliedTimeoutKnobs({ http_timeout_seconds: 10 })).toEqual({
+      http: 10,
+      connect: null,
+      show: true,
+    });
+    expect(appliedTimeoutKnobs({ connect_timeout_seconds: 5 })).toEqual({
+      http: 30,
+      connect: 5,
+      show: true,
+    });
+  });
+  it("connect null(서버 직렬화 아님·방어)은 미설정과 동일", () => {
+    expect(
+      appliedTimeoutKnobs({ http_timeout_seconds: 30, connect_timeout_seconds: null }).show,
+    ).toBe(false);
   });
 });

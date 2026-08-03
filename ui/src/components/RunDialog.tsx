@@ -11,6 +11,7 @@ import {
   queryKeys,
 } from "../api/hooks";
 import type { DataBinding, Profile } from "../api/schemas";
+import { DEFAULT_HTTP_TIMEOUT_SECONDS } from "../api/schemas";
 import type { Scenario } from "../scenario/model";
 import { flattenHttpSteps, scenarioHasThink } from "../scenario/model";
 import { bFailMode, evaluateTrust, isTrustApplicable } from "../scenario/trust";
@@ -31,6 +32,7 @@ import {
   criteriaStateFrom,
   criteriaHasValue,
   criteriaActiveCount,
+  isConnectTimeoutDraftInvalid,
 } from "./profileForm";
 import { CriteriaFields } from "./CriteriaFields";
 import { StepCriteriaFields, type StepOption } from "./StepCriteriaFields";
@@ -121,7 +123,9 @@ export function RunDialog({
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
   const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
   const [loopCap, setLoopCap] = useState(initial?.profile.loop_breakdown_cap ?? 256);
-  const [httpTimeout, setHttpTimeout] = useState(initial?.profile.http_timeout_seconds ?? 30);
+  const [httpTimeout, setHttpTimeout] = useState(
+    initial?.profile.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS,
+  );
   const initC = initial?.profile.criteria ?? undefined;
   const initCriteria = criteriaStateFrom(initC);
   const [maxP50, setMaxP50] = useState(initCriteria.maxP50);
@@ -164,7 +168,8 @@ export function RunDialog({
       iTT != null ||
       init?.profile.think_seed != null ||
       (init?.profile.measure_phases ?? false) ||
-      (init?.profile.http_timeout_seconds != null && init.profile.http_timeout_seconds !== 30) ||
+      (init?.profile.http_timeout_seconds != null &&
+        init.profile.http_timeout_seconds !== DEFAULT_HTTP_TIMEOUT_SECONDS) ||
       init?.profile.connect_timeout_seconds != null ||
       (hasLoop &&
         init?.profile.loop_breakdown_cap != null &&
@@ -288,7 +293,7 @@ export function RunDialog({
         criteriaHasValue(pc) ||
         ptt != null ||
         prof.think_seed != null ||
-        prof.http_timeout_seconds !== 30 ||
+        prof.http_timeout_seconds !== DEFAULT_HTTP_TIMEOUT_SECONDS ||
         prof.connect_timeout_seconds != null ||
         (hasLoop && prof.loop_breakdown_cap !== 256)
       ) {
@@ -386,12 +391,7 @@ export function RunDialog({
   const loopCapInvalid = hasLoop && (loopCap < 0 || loopCap > 10000);
   const httpTimeoutInvalid = httpTimeout < 1 || httpTimeout > 600;
   // 빈칸은 유효(미설정). 값이 있으면 1..600 정수 AND < httpTimeout.
-  const connectTimeoutInvalid =
-    connectTimeout.trim() !== "" &&
-    (!Number.isInteger(Number(connectTimeout)) ||
-      Number(connectTimeout) < 1 ||
-      Number(connectTimeout) > 600 ||
-      Number(connectTimeout) >= httpTimeout);
+  const connectTimeoutInvalid = isConnectTimeoutDraftInvalid(connectTimeout, httpTimeout);
   // Count of filled SLO inputs — shown as a hint on the toggle when collapsed so
   // active criteria aren't silently hidden.
   const sloActiveCount = criteriaActiveCount(criteriaState);
@@ -419,7 +419,7 @@ export function RunDialog({
     advancedActiveCount +
     (rateMode === "curve" ? 1 : 0) +
     (Number(workerCount) > 1 ? 1 : 0) +
-    (httpTimeout !== 30 ? 1 : 0) +
+    (httpTimeout !== DEFAULT_HTTP_TIMEOUT_SECONDS ? 1 : 0) +
     (connectTimeout.trim() !== "" ? 1 : 0) +
     (hasLoop && loopCap !== 256 ? 1 : 0) +
     (loadModel === "closed" && rateMode === "curve" && rampDown !== "graceful" ? 1 : 0) +

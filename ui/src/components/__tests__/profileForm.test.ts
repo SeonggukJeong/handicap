@@ -5,6 +5,7 @@ import {
   criteriaHasValue,
   criteriaActiveCount,
   criteriaStateFrom,
+  isConnectTimeoutDraftInvalid,
   EMPTY_CRITERIA,
   type CriteriaState,
   type ProfileFormInput,
@@ -261,5 +262,23 @@ describe("buildProfile connectTimeout (E3)", () => {
   it("connectTimeout 값이 있으면 숫자로 싣는다", () => {
     const p = base(closedLoad, { connectTimeout: "3" });
     expect(p.connect_timeout_seconds).toBe(3);
+  });
+});
+
+describe("isConnectTimeoutDraftInvalid (timeout-knob-ui — RunDialog·ScheduleForm 공유 술어)", () => {
+  it("빈/공백 draft는 유효(미설정)", () => {
+    expect(isConnectTimeoutDraftInvalid("", 30)).toBe(false);
+    expect(isConnectTimeoutDraftInvalid("  ", 30)).toBe(false);
+  });
+  it("1..=600 정수이면서 http보다 작으면 유효", () => {
+    expect(isConnectTimeoutDraftInvalid("5", 30)).toBe(false);
+    expect(isConnectTimeoutDraftInvalid("1", 2)).toBe(false);
+    expect(isConnectTimeoutDraftInvalid("600", 601)).toBe(false);
+  });
+  it("http 이상·범위 밖·비정수는 invalid", () => {
+    expect(isConnectTimeoutDraftInvalid("30", 30)).toBe(true); // == http도 invalid (< 강제)
+    expect(isConnectTimeoutDraftInvalid("0", 30)).toBe(true);
+    expect(isConnectTimeoutDraftInvalid("601", 700)).toBe(true);
+    expect(isConnectTimeoutDraftInvalid("1.5", 30)).toBe(true);
   });
 });

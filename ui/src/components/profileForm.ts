@@ -131,7 +131,7 @@ export type ProfileFormInput = {
   scenarioHasThink?: boolean;
   /**
    * connect 단계 전용 타임아웃 draft(초). 빈 문자열/미전달 = 미설정 → 키 자체 생략.
-   * RunDialog가 입력을 소유하고, ScheduleForm은 초기값을 pass-through만 한다.
+   * RunDialog·ScheduleForm 둘 다 입력을 소유한다(timeout-knob-ui).
    */
   connectTimeout?: string;
 };
@@ -157,4 +157,13 @@ export function buildProfile(i: ProfileFormInput): Profile {
       ? { connect_timeout_seconds: Number(i.connectTimeout) }
       : {}),
   };
+}
+
+/** connect timeout draft(문자열)의 폼-레벨 유효성 — RunDialog·ScheduleForm 공유(spec §3-2).
+ *  빈/공백 문자열 = 미설정(유효 — buildProfile이 키를 생략한다). 서버
+ *  validate_run_config(1..=600 ∧ < http_timeout)와 lockstep. true = invalid. */
+export function isConnectTimeoutDraftInvalid(draft: string, httpTimeout: number): boolean {
+  if (draft.trim() === "") return false;
+  const n = Number(draft);
+  return !Number.isInteger(n) || n < 1 || n > 600 || n >= httpTimeout;
 }

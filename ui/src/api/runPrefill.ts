@@ -1,4 +1,9 @@
-import { ProfileSchema, type DataBinding, type Profile } from "./schemas";
+import {
+  DEFAULT_HTTP_TIMEOUT_SECONDS,
+  ProfileSchema,
+  type DataBinding,
+  type Profile,
+} from "./schemas";
 
 /** Decode a stored run/preset env (arbitrary JSON value) into a string→string
  *  record, dropping non-string values. The backend now rejects non-string env at
@@ -60,3 +65,16 @@ export function seedBindingsFrom(
 
 /** Shape of RunDialog's `initial` prop — a past run's profile + decoded env. */
 export type RunPrefill = { profile: Profile; env: Record<string, string> };
+
+/** 적용 타임아웃 노브 표시 판정(spec §4). 입력을 느슨한 구조 타입으로 받는 이유:
+ *  normalizeProfile 통과 Profile(http 항상 number)과 raw RunSchema.profile
+ *  (중첩 .default() 누출 → number|undefined) 양쪽을 한 헬퍼로 수용해야 해서다
+ *  (Pick<Profile,…>이면 raw 쪽에서 tsc -b가 깨진다 — ui/CLAUDE.md 누출 함정). */
+export function appliedTimeoutKnobs(p: {
+  http_timeout_seconds?: number;
+  connect_timeout_seconds?: number | null;
+}): { http: number; connect: number | null; show: boolean } {
+  const http = p.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS;
+  const connect = p.connect_timeout_seconds ?? null;
+  return { http, connect, show: connect != null || http !== DEFAULT_HTTP_TIMEOUT_SECONDS };
+}
