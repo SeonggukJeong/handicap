@@ -27,7 +27,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
    - 검사 ④ `FAIL [move] <dest_file> 증가 N B < 선언 합계 M B` — 목적지가 선언한 `min_dest_gain_bytes`만큼 안 늘었다.
 3. **root 축약** — root에서 그 `source_anchor`를 지운다(요약 또는 삭제). 아직 지우지 않았으면:
    - 검사 ② `FAIL [move] root에 anchor 잔존(미제거): <source_anchor>`.
-4. **`just doc-coverage <base>`** — 이동 검증 전체(R6·R16·R17·R18)를 돈다. manifest 모든 행에 검사 ①~⑤(⑤=marker 신규성, `min_dest_gain_bytes>0`인 행만)를 적용하고, 그 위에 섹션 불릿 바닥(R17: `FAIL [R17] '<섹션>' 불릿 N→M (허용 바닥 N)`)·baseline 인상 정합(R18: `FAIL [R18] <파일> baseline 인상인데 파일이 줄지 않았다`)·**3차 방어선인 토큰 소실 grep**(`FAIL [토큰] 소실(목적지 어디에도 없음): <토큰>`, corpus/allowlist로 해소)까지 확인한다. 여기서 처음 통과하면 "옮긴 게 정말 살아 있다"가 기계로 확정된 것이다.
+4. **`just doc-coverage <base>`** — 이동 검증 전체(R6·R16·R17·R18)를 돈다. manifest 모든 행에 검사 ①~⑤(⑤=marker 신규성, `min_dest_gain_bytes>0`인 행만)를 적용하고, 그 위에 섹션 불릿 바닥(R17: `FAIL [R17] '<섹션>' 불릿 N→M (허용 바닥 N)`)·baseline 인상 정합(R18: `FAIL [R18] <파일> baseline 인상인데 파일이 줄지 않았다`)·**3차 방어선인 토큰 소실 grep**(`FAIL [토큰] 소실(목적지 어디에도 없음): <토큰>`, corpus/allowlist로 해소)까지 확인한다. 여기서 처음 통과하면 "옮긴 게 정말 살아 있다"가 기계로 확정된 것이다. **토큰 차분 함정 2종**(ui-claude-md-curation): ① `scripts/doc-coverage-allowlist.txt`의 토큰 필드는 탭 앞 **후행 공백까지 byte-exact** — trailing-whitespace 트리머를 이 파일에 돌리면 무관한 `FAIL [토큰]`으로 빨개진다(헤더 주석에도 경고). ② 2자 미만·80자 초과 인라인코드는 `tokens()`의 backtick 짝을 밀어 **두 코드 스팬 사이 산문**을 토큰으로 오인시킨다 — 이런 아티팩트는 근거를 달아 allowlist로(식별자 소실 탐지력은 유지됨. 실개수 10건 중 5건은 corpus 소스-자기포함에 가려짐 — 게이트 개선 후속은 roadmap-status 문서 테마).
 5. **`just doc-budget`** — 크기·형식 게이트(R5·R8·R9). root 절대 예산·상태줄 단일 라인/상한·L1 참조 실존/앵커·도메인 래칫·**섹션별** 불릿 상한(250 B/170 B)을 본다. **doc-coverage와 독립된 축**이다 — coverage는 "지식이 살아있나", budget은 "지금 root가 예산 안이고 형식이 맞나"를 본다. 둘 다 green이어야 재분배가 끝난 것이다.
 
 ### "0건이면 없다"고 판정하지 말 것 — 표기 불일치가 거짓 0을 낸다
