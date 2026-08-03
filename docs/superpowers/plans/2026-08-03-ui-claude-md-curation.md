@@ -5,7 +5,7 @@ REVIEW-GATE: APPROVED
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 > 리뷰 이력: spec 3라운드(c63cb1e3 clean APPROVE) · plan 2라운드(98789e01 clean APPROVE, spec-plan-reviewer). 이빨 실증 경로 8종(하위호환 2·ABS 2·지식-가드 3·R18 1) 전부 결정적 RED/GREEN 기계 검증됨.
 
-**Goal:** ui/CLAUDE.md 119,111 B를 규칙 잔류·이력 이관으로 ≤ 98,304 B(96 KiB)로 압축하고, 그 이동을 기계 검증하도록 doc-coverage를 소스-파일 파라미터화하며, doc-budget에 문서화 절대-임계값 WARN을 추가한다.
+**Goal:** ui/CLAUDE.md 119,111 B를 규칙 잔류·이력 이관으로 ≤ 102,400 B(100 KiB; 재협상 2026-08-03 — 원 96 KiB는 §2 준수 시 도달 불가 실측, 사용자 승인)로 압축하고, 그 이동을 기계 검증하도록 doc-coverage를 소스-파일 파라미터화하며, doc-budget에 문서화 절대-임계값 WARN을 추가한다.
 
 **Architecture:** spec = `docs/superpowers/specs/2026-08-03-ui-claude-md-curation-design.md` (c63cb1e3, clean APPROVE). 정본 절차 = `docs/dev/root-doc-maintenance.md` §재분배 절차(순서 고정: manifest → 목적지 기입 → 축약 → 검증). 게이트 파라미터화(T1)를 절차 앞에 둔다 — T4 검증이 ui 스코프로 돌 수 있어야 하므로.
 
@@ -16,7 +16,7 @@ REVIEW-GATE: APPROVED
 - **base = `f870cfd9`** (worktree 분기점 = master). ui/CLAUDE.md 줄번호 인용은 전부 이 커밋 기준(`git show f870cfd9:ui/CLAUDE.md`) — spec 커밋들은 ui/CLAUDE.md를 건드리지 않았으므로 작업트리와 동일하다(T3 시작 전까지).
 - **압축 대상 = ui/CLAUDE.md 4개 섹션만**: `오프라인(CSP) · 테스트 인프라`(44불릿)·`빌드·타입 게이트`(36)·`폼·입력 UX / 진단 표시 (RunDialog, RunDetail)`(30)·`다단계 ramp UI (RunDialog stages 편집·미리보기, S-D)`(10). 그 밖 편집의 **유일 예외 = 유지 규칙 노트(`ui/CLAUDE.md:9` blockquote)에 포인터 1줄 추가**. 섹션 rename 금지.
 - **삭제 금지·이동만**(no-forget): 함정의 현행 진술·현행 처방·load-bearing 디테일·출처 태그는 잔류. 발견 경위·superseded 중간 상태·동형사례 2번째 이후 상세만 이관. **이번 슬라이스 merge 행 0** — 불릿 개수는 8개 섹션 전부 base와 동일해야 한다(R17 floor == base count).
-- **크기 목표**: `wc -c ui/CLAUDE.md` ≤ **98,304 B**. §2 기준을 지키고도 미달이면 **STOP — 실측을 들고 사용자에게 재협상 보고**(무리한 삭제로 채우지 않는다).
+- **크기 목표**: `wc -c ui/CLAUDE.md` ≤ **102,400 B**(재협상 2026-08-03 — T2 리뷰의 계약·처방 12건 회수 후 §2 준수 정직 도달치 ≈101,483 B 실측, 사용자 승인으로 원 98,304 B에서 완화. Σ≥22,000 하한도 Σ=18,528로 대체 확정). §2 기준을 지키고도 미달이면 **STOP — 실측을 들고 사용자에게 재협상 보고**(무리한 삭제로 채우지 않는다).
 - 게이트 판정은 파이프 금지 — `<명령>; echo exit=$?`로 종료코드 명시 캡처. WARN 계열 RED 판정은 종료코드가 아니라 **지정 문구 grep**(WARN은 exit 0).
 - tracked 파일명은 **`Justfile`**(대문자 — macOS 대소문자 무구분이라 소문자로도 열리지만 `git add justfile`은 0건 스테이징).
 - tdd-guard·spec-review-guard: 이 plan의 편집 대상은 docs/·scripts/·Justfile뿐이라 두 훅 모두 비발동(`crates/*/src`·`ui/src` 0-diff). 커밋은 전부 pre-commit fast-path.
@@ -238,7 +238,7 @@ git log -1 --oneline
 
 **Interfaces:**
 - Consumes: Task 2의 활성 manifest(행 단위 작업 목록), `docs/dev/ui-gotcha-narratives.md`(이관 완료 확인용)
-- Produces: 압축된 ui/CLAUDE.md ≤ 98,304 B (Task 4가 BASELINES 하향값으로 실측 사용)
+- Produces: 압축된 ui/CLAUDE.md ≤ 102,400 B (Task 4가 BASELINES 하향값으로 실측 사용)
 
 - [ ] **Step 1: 행 단위 축약**
 
@@ -258,7 +258,7 @@ manifest 각 행에 대해: 해당 불릿에서 `source_anchor`를 포함한 서
 python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md; echo exit=$?
 wc -c ui/CLAUDE.md
 ```
-Expected: `OK` + `exit=0`(잔존 FAIL 소멸 = 축약 완료·marker/R17/토큰 green 유지) · `wc -c` ≤ **98,304**. 미달이면 STOP — 재협상 밸브(무리한 삭제 금지).
+Expected: `OK` + `exit=0`(잔존 FAIL 소멸 = 축약 완료·marker/R17/토큰 green 유지) · `wc -c` ≤ **102,400**(재협상 목표). 미달이면 STOP — 재협상 밸브(무리한 삭제 금지).
 
 범위 밖 불변 확인(4개 비대상 섹션 + line 9 외 preamble이 base와 byte-동일):
 ```bash
@@ -355,7 +355,7 @@ just doc-budget > /tmp/ui-claude-md-curation-budget-final.log; echo exit=$?
 grep -c '(절대)' /tmp/ui-claude-md-curation-budget-final.log
 grep -c '^WARN \[' /tmp/ui-claude-md-curation-budget-final.log
 ```
-Expected: coverage `exit=0` · budget `exit=0` · `(절대)` 행 **2** · `^WARN [` 발화 **0**(bare `'WARN'` 패턴은 요약줄 `FAIL 0 / WARN 0`에 항상 1회 매치되므로 금지 — 앵커 필수. ui 래칫은 하향된 baseline 대비 `+0 B` 부근, 절대 96 KiB/120 KiB ≈ 80%).
+Expected: coverage `exit=0` · budget `exit=0` · `(절대)` 행 **2** · `^WARN [` 발화 **0**(bare `'WARN'` 패턴은 요약줄 `FAIL 0 / WARN 0`에 항상 1회 매치되므로 금지 — 앵커 필수. ui 래칫은 하향된 baseline 대비 `+0 B` 부근, 절대 ~100 KiB/120 KiB ≈ 83%).
 
 - [ ] **Step 5: 육안 대조 준비 (spec §5 "지식 보존")**
 
