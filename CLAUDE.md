@@ -219,7 +219,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0048** US 스파인(프로세스): 유저 스토리를 spec→리뷰→brief→live→finish 관통 오라클로 (정본 `docs/dev/user-story-spine.md`)
 - **0049** 실행 전 시나리오 신뢰도: 네 번째 판정 축(신뢰도 ⟂ validity ⟂ verdict ⟂ status) + 클라 순수함수 `evaluateTrust` 단일 소스
 - **0050** transport 에러 taxonomy: send-실패 8종 kind 와이어 계약(snake_case verbatim) + counts-only 델타 운반 + 최상위 reqwest Display 금지
-- **0051** 실행 중 진행 차트: 이미 폴링 중인 1s windows의 클라 표시 허용 (ADR-0009 "후속은 옵션 2" 한도 supersede, 스트리밍 인프라·라이브 대시보드는 계속 비목표)
+- **0051** 실행 중 진행 차트: 이미 폴링 중인 1s windows의 클라 표시 허용 (ADR-0009 후속-한도 supersede, 라이브 대시보드는 비목표)
 
 ## 코딩 컨벤션
 
