@@ -3,7 +3,7 @@
 - **날짜**: 2026-08-03 · **유형**: user-path · **슬라이스 브랜치**: `worktree-timeout-knob-ui`
 - **연관**: error-taxonomy E3(`0ecc9821`, ADR-0050 — connect_timeout 8계층 와이어를 깐 슬라이스; 이 슬라이스는 그 spec §2 Non-goals의 "ScheduleForm connect_timeout 입력 (연기)"의 회수) · S-A 타임아웃(`http_timeout_seconds` 도입) · report-advice-noise(`6b0a776` — 리포트 밀도 규율)
 - **ADR**: 불필요 — additive UI 표면 2곳, 새 결정 축 없음(와이어·서버 계약 무변경). E3 연기 항목의 회수는 ADR-0050이 이미 참조 맥락을 든다.
-- **서버/proto/migration/`schemas.ts` diff**: **0** — UI-only. 근거는 §9 클레임 레저 C1·C2·C8·C10.
+- **서버/proto/migration diff**: **0** — UI-only. `schemas.ts`는 **와이어 계약 무변경**(변경은 기본값 상수 `DEFAULT_HTTP_TIMEOUT_SECONDS` 정의 + `.default(상수)` 참조 치환뿐 — 값 동일이라 파싱 동작 byte-identical, §5). 근거는 §9 클레임 레저 C1·C2·C8·C10.
 
 ## 사용자 스토리 (US)
 
@@ -27,7 +27,7 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 - per-step `HttpStep.timeout_seconds` **값의** 리포트 노출 — run-level 노브만. 단 오도 방지 꼬리 문구는 §4에 포함(리뷰 R1 — "요청 30s"만 보고 스텝 오버라이드를 배제하는 오독 차단).
 - export(CSV/XLSX)·비교 뷰의 타임아웃 표시 — 연기.
 - 공유 `TimeoutFields` **레이아웃 컴포넌트** 추출(B안) — 두 폼의 레이아웃 이디엄이 달라(Field+hint vs 인라인 라벨 스팬) 기각. 단 **검증 술어와 기본값 상수는 공유한다**(§3-2, 리뷰 F4 — 레이아웃 논거로 로직 공유까지 기각하지 않는다).
-- 서버 검증 변경 — 무접촉. RunDialog는 **기계적 추출-호출 diff만** 허용(§3-2의 술어·상수 공유 — 동작 byte-identical, 신규 UI 없음).
+- 서버 검증 변경 — 무접촉. RunDialog는 **기계적 추출-호출·상수 치환 diff만** 허용(§3-2 술어 공유·§5 상수 — 동작 byte-identical, 신규 UI 없음).
 - ScheduleForm의 인라인 에러 `<p>` 신설 — 이 폼은 "막힘 사유 블록" 방식(C5)이므로 그 이디엄 유지(인라인 신호는 `aria-invalid`만, §3-1).
 
 ## 3. ScheduleForm 입력 (US1·US2)
@@ -39,7 +39,7 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 1. **입력 추가**: `connectTimeout`을 `const` → `useState(init?.connect_timeout_seconds != null ? String(...) : "")`로 전환(시드 안전 근거: `SchedulesPage.tsx:142`가 `key={editingId ?? "new"}`로 리마운트하므로 reseed effect 불요 — C15, 기존 RunDialog reseed-by-key 패턴과 동일). httpTimeout 입력 블록(`ScheduleForm.tsx:347-362`, C5 — `max-w-xs` div > `label` > 라벨 스팬 + `Input aria-label`) 바로 아래에 같은 이디엄으로 connect timeout number 입력 추가:
    - 라벨·aria-label = `ko.loadModel.connectTimeout`, placeholder = `ko.loadModel.connectTimeoutPlaceholder`(C6).
    - `aria-invalid={connectTimeoutInvalid}` 필수(리뷰 모호성 해소 — §2가 인라인 `<p>`를 금지했으므로 이것이 유일한 인라인 신호).
-   - **hint 노출**(리뷰 R7): 입력 아래 muted 한 줄(`text-xs text-slate-500` 계열 `<p>`)로 `ko.loadModel.connectTimeoutHint`(C6 — "HTTP 타임아웃보다 작게"의 유일한 사전 안내)를 표시하고 `aria-describedby`로 연결. placeholder만으로는 순서 제약이 사전에 안 보인다.
+   - **hint 노출**(리뷰 R7): 입력 아래 muted 한 줄(`text-xs text-slate-500` 계열 `<p>`)로 `ko.loadModel.connectTimeoutHint`(C6 — "HTTP 타임아웃보다 작게"의 유일한 사전 안내)를 표시하고 `aria-describedby`로 연결. placeholder만으로는 순서 제약이 사전에 안 보인다. id는 `useId()`로(RunDialog.tsx:235 패턴 — 이 폼 최초의 id 도입이므로 하드코딩 금지, 리뷰 N3).
 2. **검증 술어 공유**(리뷰 F4/R2 결정): `profileForm.ts`(두 폼의 기존 공유 모듈)에 순수 술어 **`isConnectTimeoutDraftInvalid(draft: string, httpTimeout: number): boolean`** 신설 — 식은 RunDialog 현행(C3)과 동일: `draft.trim() !== "" && (!Number.isInteger(Number(draft)) || < 1 || > 600 || >= httpTimeout)`. RunDialog(`RunDialog.tsx:389-394`)는 인라인 식을 이 호출로 교체(동작 byte-identical — 기존 RunDialog 테스트가 가드), ScheduleForm은 기존 `connectTimeoutConflict`(`:231`)를 이 호출 결과 `connectTimeoutInvalid`로 교체. `canSubmit`의 `!connectTimeoutConflict`(`:242`)도 교체. 막힘 사유 블록(C5)의 항목을 `ko.validation.connectTimeoutStored(n)`에서 **`ko.validation.connectTimeout`**(RunDialog와 동일 문구, C6)으로 교체.
 3. **stale 주석 정리**(리뷰 R3): 무효가 되는 주석 3곳을 같은 task에서 갱신 — `ScheduleForm.tsx:98-99`("폼 입력은 RunDialog만…pass-through"), `:229-230`("pass-through된 connect_timeout이…"), **`profileForm.ts:133-134`**(공유 모듈 계약 docstring "ScheduleForm은 초기값을 pass-through만 한다"). 거짓 근거 주석은 코드 결함보다 오래 산다([[review-findings-are-hypotheses]]).
 4. **orphan 정리**: `ko.validation.connectTimeoutStored`는 교체 후 사용처가 0이 된다(C11 — 현재 사용처는 ScheduleForm:454·그 테스트:244·ko.ts 정의 3곳 전수) → 키 삭제. 기존 테스트 2건(C12)은 재작성: `:184`(pass-through 라운드트립)는 "init 시드 → 무수정 저장 시 보존"으로 의미 유지, `:214`(저장값 공개 문구)는 입력이 생겨 전제("이 폼엔 입력이 없다")가 사라지므로 일반 검증 문구·저장 차단 단언으로 교체.
@@ -49,13 +49,13 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 
 ## 4. 리포트 표면 (US3)
 
-**공유 게이트 헬퍼**(리뷰 R2): 표시 판정을 순수 헬퍼 한 벌로 — `appliedTimeoutKnobs(p: { http_timeout_seconds?: number; connect_timeout_seconds?: number | null }): { http: number; connect: number | null; show: boolean }` (배치는 plan에서 — `profileForm.ts` 또는 `runPrefill.ts`의 leak-free 헬퍼 관례). 입력 타입을 **느슨한 구조 타입**으로 두는 이유: `AppliedTimeouts`는 `normalizeProfile` 통과 `Profile`(C7 — http 항상 number)을 받지만 RunDetailPage 비-terminal `<ul>`은 **raw `r.profile`**(RunSchema 중첩 `.default()` 누출 → `number|undefined`)을 읽는다 — `Pick<Profile,…>`로 받으면 raw 쪽에서 `tsc -b`가 깨진다(ui/CLAUDE.md 누출 함정). 내부에서 `http = p.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS` 정규화. `show = connect != null || http !== DEFAULT_HTTP_TIMEOUT_SECONDS`.
+**공유 게이트 헬퍼**(리뷰 R2): 표시 판정을 순수 헬퍼 한 벌로 — `appliedTimeoutKnobs(p: { http_timeout_seconds?: number; connect_timeout_seconds?: number | null }): { http: number; connect: number | null; show: boolean }`. 배치는 **`ui/src/api/runPrefill.ts`**(리뷰 N7 — `profileDurationSeconds`/`seedBindingsFrom` 등 leak-free 헬퍼의 집이고, `profileForm.ts`에 두면 report 컴포넌트가 폼 모듈을 import하게 된다). 입력 타입을 **느슨한 구조 타입**으로 두는 이유: `AppliedTimeouts`는 `normalizeProfile` 통과 `Profile`(C7 — http 항상 number)을 받지만 RunDetailPage 비-terminal `<ul>`은 **raw `r.profile`**(RunSchema 중첩 `.default()` 누출 → `number|undefined`)을 읽는다 — `Pick<Profile,…>`로 받으면 raw 쪽에서 `tsc -b`가 깨진다(ui/CLAUDE.md 누출 함정). 내부에서 `http = p.http_timeout_seconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS` 정규화. `show = connect != null || http !== DEFAULT_HTTP_TIMEOUT_SECONDS`.
 
 **신규 컴포넌트** `ui/src/components/report/AppliedTimeouts.tsx`:
 
-- **입력**: `profile: Profile`(ReportView가 이미 받는 prop, C7) + `hasStepTimeoutOverride: boolean`(ReportView가 이미 파싱하는 시나리오 모델에서 `flattenHttpSteps(model.steps).some(s => s.timeout_seconds != null)`로 도출 — C17, `timeout_seconds`는 `HttpStepModel` 루트 필드. 파싱 실패 시 `false` = 꼬리 생략, fail-soft §10).
+- **입력**: `profile: Profile`(ReportView가 이미 받는 prop, C7) + `hasStepTimeoutOverride: boolean`(ReportView가 이미 파싱하는 시나리오 모델에서 `flattenHttpSteps(model.steps).some(s => s.timeout_seconds != null)`로 도출 — C17, `timeout_seconds`는 `HttpStepModel` 루트 필드. `flattenHttpSteps`는 loop/parallel/if 완전 재귀라 중첩 오버라이드도 잡히며, `scenarioHasThink`(`model.ts:284-287`)가 동일 이디엄의 기존 선례다. 파싱 실패 시 `false` = 꼬리 생략, fail-soft §10).
 - **렌더 게이트**: `appliedTimeoutKnobs(profile).show` — 아니면 `null` (기본값 run 0-diff).
-- **표시**: muted 한 줄(비대화형·roleless·`text-sm text-slate-600` 계열, 정확 클래스는 plan에서 이웃과 정합 확인): `적용 타임아웃 — 요청 {N}s · 연결 {M}s`. connect 미설정이면 `· 연결 …` 세그먼트 생략, `http === 30`(connect만 설정된 경우)이면 `요청 30s (기본값)`으로 병기해 맥락 보존. **오도 방지 꼬리**(리뷰 R1 — spec 결정): `hasStepTimeoutOverride`가 참이면 `· 일부 스텝은 자체 타임아웃 사용` 세그먼트를 덧붙인다 — per-step 오버라이드(C17)가 run-level보다 짧으면 그 스텝은 run 기본과 다른 타임아웃으로 동작하므로(서버 store 주석이 문서화, C9 인접 `runs.rs:162-166`), 꼬리 없이는 "요청 30s"가 거짓 진술이 된다. 값 노출은 비목표(§2) — 존재 신호만.
+- **표시**: muted 한 줄(비대화형·roleless·`text-sm text-slate-600` 계열, 정확 클래스는 plan에서 이웃과 정합 확인): `적용 타임아웃 — 요청 {N}s · 연결 {M}s`. connect 미설정이면 `· 연결 …` 세그먼트 생략, `http === 30`(connect만 설정된 경우)이면 `요청 30s (기본값)`으로 병기해 맥락 보존. **오도 방지 꼬리**(리뷰 R1 — spec 결정): `hasStepTimeoutOverride`가 참이면 `· 일부 스텝은 자체 타임아웃 사용` 세그먼트를 덧붙인다 — per-step 오버라이드(C17)가 run-level보다 짧으면 그 스텝은 run 기본과 다른 타임아웃으로 동작하므로(서버 store 주석이 문서화, `store/runs.rs:162-165` — C9), 꼬리 없이는 "요청 30s"가 거짓 진술이 된다. 값 노출은 비목표(§2) — 존재 신호만.
 - **배치**: `ReportView.tsx`의 `<Summary>` 직전(`:164` 앞) — 해석 표면(Validity/Verdict/Insight) 뒤·수치 앞.
 - **한계(명시)**: `http_timeout_seconds`는 non-optional 와이어(C10 — store `u32`, UI가 항상 emit)라 "명시로 30을 넣은 run"과 "기본 30"을 원리적으로 구별할 수 없다 → 값 30은 일괄 "(기본값)" 취급. 30을 명시한 사용자에게 잃는 정보는 없다(적용값 자체는 30으로 동일).
 
@@ -63,7 +63,7 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 
 ## 5. 카피 (ko 카탈로그, ADR-0035) + 기본값 상수
 
-**공유 상수**(리뷰 R5): `profileForm.ts`에 `export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30` 신설(서버 기본과 lockstep — store serde default, C10). RunDialog의 기존 `!== 30` 하드코딩 3곳(`RunDialog.tsx:167,291,422`, C18)도 이 상수로 교체(기계적 same-value diff). §4 헬퍼·ko 템플릿이 이 상수를 소비 — 카피에 30이 하드코딩되지 않는다.
+**공유 상수**(리뷰 R5·N1·N2): **`ui/src/api/schemas.ts`에 `export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30` 신설 + `:75`의 `.default(30)`을 `.default(DEFAULT_HTTP_TIMEOUT_SECONDS)`로 치환** — 클라이언트의 권위 기본값(Zod)과 상수가 같은 정의를 공유하는 진짜 단일 소스(리뷰 N2 옵션 (a); 값 동일이라 파싱 동작 byte-identical, header 참조). 서버 기본과는 lockstep 주석(C10 — store serde default). 소비처 교체는 **비교 3곳 + 시드 2곳 전수 5곳**(리뷰 N1 — C18 재실측: `RunDialog.tsx:167,291,422`의 `!== 30`과 `RunDialog.tsx:124`·`ScheduleForm.tsx:97`의 `useState(... ?? 30)`, 기계적 same-value diff). §4 헬퍼·ko 템플릿이 이 상수를 소비 — 카피에 30이 하드코딩되지 않는다.
 
 신규 키는 `ko.report` 아래(정확 값은 plan에서 확정하되 아래를 기본으로):
 
@@ -82,6 +82,7 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 - 설정 저장: 값 입력 → 저장 → `onSubmit` payload `profile.connect_timeout_seconds === N`(number).
 - 해제 저장(US2 핵심, 리뷰 R4-a 하드닝): 시드된 폼에서 **먼저 `expect(input).toHaveValue(3)` 중간-상태 단언**(시드가 깨지면 빈 칸 → `not.toHaveProperty`가 공허 통과하는 auto-seed 클래스 차단) → 칸 비움 → 저장 → payload `expect(profile).not.toHaveProperty("connect_timeout_seconds")`.
 - invalid(`>= httpTimeout`·범위 밖·비정수): 저장 버튼 disabled + 막힘 사유 블록에 `ko.validation.connectTimeout` 표시. **비정수 케이스는 "abc"가 아니라 "1.5"로**(HTML5 number sanitize 함정 — ui/CLAUDE.md).
+- hint a11y(리뷰 N6): `expect(input).toHaveAccessibleDescription(ko.loadModel.connectTimeoutHint)` — R7로 새로 노출하는 표면의 `aria-describedby` 배선 가드.
 - 기존 2건(C12) 재작성은 §3-4.
 
 **AppliedTimeouts RTL**(신규 파일): 렌더 조건 분기 — ① connect set·http 30 → 라인 + "(기본값)" ② connect set·http≠30 → 두 세그먼트 숫자 ③ connect 미설정·http≠30 → 요청 세그먼트만 ④ 둘 다 기본 → `container.firstChild === null` ⑤ 꼬리: `hasStepTimeoutOverride` true → 꼬리 세그먼트 존재 / false → 부재. **①·②를 구별하는 단언은 전체일치**(`/^…$/` 또는 `textContent` 정확 비교 — §5-① substring 포함관계 방어). 숫자는 별도 `toContain("5")` 병기(§5-②).
@@ -94,7 +95,7 @@ E3가 `connect_timeout_seconds`를 UI(RunDialog)→Zod→store→검증→proto�
 
 ## 7. 라이브 검증 (`/live-verify` — 필수)
 
-**필수 근거(정정, 리뷰 지적)**: `schemas.ts` 0-diff라 S-D 클래스(서버 `null`↔`.optional()`)는 구조적으로 발생 불가 — 라이브가 필요한 진짜 이유는 **스케줄 payload → 스케줄러 발사 → run profile 전파의 end-to-end**(RTL이 못 밟는 경로, US1·US2)다. US3은 순수 렌더지만 실 리포트 DOM으로 확인한다.
+**필수 근거(정정, 리뷰 지적)**: `schemas.ts`는 파싱 형상 무변경(§5 상수 치환뿐)이라 S-D 클래스(서버 `null`↔`.optional()`)는 구조적으로 발생 불가 — 라이브가 필요한 진짜 이유는 **스케줄 payload → 스케줄러 발사 → run profile 전파의 end-to-end**(RTL이 못 밟는 경로, US1·US2)다. US3은 순수 렌더지만 실 리포트 DOM으로 확인한다.
 
 레시피 보강(리뷰 R6): 컨트롤러를 **`--scheduler-tick-seconds 5`**로 띄운다(기본 30s — 대기 단축, C16). 발사된 run id는 **`GET /api/schedules/{id}`의 `last_run_id`**(C16)로 얻는다(`GET /api/runs` 목록 엔드포인트 없음 — 루트 CLAUDE.md).
 
@@ -103,7 +104,7 @@ US-anchored (규약 `docs/dev/user-story-spine.md`):
 | US | 절차 | 통과 신호 |
 |---|---|---|
 | US1 | 스케줄 폼에서 connect 5s 입력 + `once` 근미래 트리거로 저장 → 발사 대기(≤5s tick) → `last_run_id` 조회 | 발사된 run의 `GET /api/runs/{id}` `profile.connect_timeout_seconds === 5` |
-| US1' (보조 li) | US1 run이 도는 동안(duration을 30s 이상으로) `/runs/{id}` 상세 열람 | raw profile 목록에 `connect_timeout = 5s` `<li>` 렌더(실행 중 = 리포트 없음 상태) |
+| US3' (보조 li) | US1 run이 도는 동안(duration을 30s 이상으로) `/runs/{id}` 상세 열람 | raw profile 목록에 `connect_timeout = 5s` `<li>` 렌더(실행 중 = 리포트 없음 상태) |
 | US2 | 같은 스케줄 편집 → 칸 비움 → `once` 재설정 저장 → 발사 대기 | `GET /api/schedules/{id}` profile에 키 부재 **및** 다음 발사 run profile에 키 부재 |
 | US3 | US1 run 종료 후 리포트 열람 + 대조로 미설정 run 리포트 열람 | 설정 run: "적용 타임아웃 — … 연결 5s" 라인 렌더(실제 DOM) / 미설정 run: 라인 부재 / 양쪽 콘솔 Zod 에러 0 |
 
@@ -132,7 +133,7 @@ US-anchored (규약 `docs/dev/user-story-spine.md`):
 | C15 | SchedulesPage가 key로 리마운트(useState 시드 안전) | `sed -n '140,144p' ui/src/pages/SchedulesPage.tsx` | `key={editingId ?? "new"}` |
 | C16 | 스케줄러 tick 기본 30s(`--scheduler-tick-seconds`) · `ScheduleResponse.last_run_id` 존재 · 발사 시 `sched.profile` 그대로 `spawn_run` | `sed -n '88,96p' crates/controller/src/main.rs` · `grep -n "last_run_id" crates/controller/src/api/schedules.rs` · `grep -n "spawn_run" crates/controller/src/schedule/runner.rs` | `default_value_t = 30` · `:78`·`:152` · runner `:189`(리뷰어 확인) |
 | C17 | `timeout_seconds`는 `HttpStepModel` 루트 optional 필드 | `sed -n '85,100p' ui/src/scenario/model.ts` | `:95` (request가 아니라 step 루트) |
-| C18 | RunDialog의 `!== 30` 하드코딩 3곳 | `grep -n "== 30" ui/src/components/RunDialog.tsx` | `:167`·`:291`·`:422` |
+| C18 | `30` 하드코딩 전수 = 비교 3곳 + 시드 2곳(테스트 제외 src 전수, 리뷰 N1 확장) | `grep -rn "?? 30\|== 30" ui/src --include="*.tsx" --include="*.ts" \| grep -v __tests__` | RunDialog `:124`(시드)·`:167`·`:291`·`:422` · ScheduleForm `:97`(시드) — 5곳 외 0건 |
 | C19 | 조건부 spread는 기존 유닛 테스트가 커버(이빨 주입 지점 판단 근거) | `sed -n '250,263p' ui/src/components/__tests__/profileForm.test.ts` | 미전달/빈문자열 키 생략·값 숫자 적재 3건 |
 
 ## 10. 알려진 한계 (수용)
