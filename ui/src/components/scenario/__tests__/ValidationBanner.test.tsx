@@ -74,4 +74,17 @@ describe("ValidationBanner", () => {
     render(<ValidationBanner />);
     expect(screen.queryByText(ko.editor.editBlockedWhileInvalid)).not.toBeInTheDocument();
   });
+
+  it("게이트 배너 낭독 순서: 제목 → intro → 액션 버튼 (a11y-bundle C1)", () => {
+    useScenarioEditor.getState().loadFromString(EMPTY_URL_YAML);
+    useScenarioEditor.setState({ yamlError: "steps.0.request.url: Required" });
+    render(<ValidationBanner />);
+
+    const title = screen.getByText(/시나리오 문제 \d+건/);
+    const intro = screen.getByText(ko.editor.problemGateIntro);
+    const action = screen.getByRole("button", { name: ko.editor.problemGateAction });
+
+    expect(title.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(intro.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

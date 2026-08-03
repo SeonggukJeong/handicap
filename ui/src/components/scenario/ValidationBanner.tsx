@@ -22,22 +22,24 @@ export function ValidationBanner({ onOpenYaml }: { onOpenYaml?: () => void } = {
 
   return (
     <Callout variant="warn" role="status" aria-label={ko.editor.problemsBannerAria}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">{ko.editor.problemsBannerTitle(problems.length)}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-medium">{ko.editor.problemsBannerTitle(problems.length)}</p>
+          {hasGate && <p className="mt-1 text-xs">{ko.editor.problemGateIntro}</p>}
+          {yamlError !== null && (
+            <p className="mt-1 text-xs font-medium">{ko.editor.editBlockedWhileInvalid}</p>
+          )}
+        </div>
         {hasGate && (
           <button
             type="button"
-            className="shrink-0 underline decoration-amber-400 hover:text-amber-900"
+            className="shrink-0 self-start underline decoration-amber-400 hover:text-amber-900"
             onClick={() => onOpenYaml?.()}
           >
             {ko.editor.problemGateAction}
           </button>
         )}
       </div>
-      {hasGate && <p className="mt-1 text-xs">{ko.editor.problemGateIntro}</p>}
-      {yamlError !== null && (
-        <p className="mt-1 text-xs font-medium">{ko.editor.editBlockedWhileInvalid}</p>
-      )}
       <ul className="mt-1 flex flex-col gap-1">
         {problems.map((p, i) => (
           <li key={`${p.kind}-${i}`}>
