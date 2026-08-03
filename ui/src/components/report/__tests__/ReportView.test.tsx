@@ -117,6 +117,23 @@ describe("ReportView", () => {
     expect(screen.getByRole("button", { name: ko.report.downloadMenu })).toBeInTheDocument();
   });
 
+  it("스텝 timeout_seconds가 있으면 적용 타임아웃 줄에 오버라이드 꼬리가 붙는다 (도출 배선 그물)", () => {
+    // 프리랩 주입이 아니라 scenario_yaml → parseScenarioDoc → flattenHttpSteps 도출 경로를 관통한다.
+    const yamlWithOverride = FIXTURE.scenario_yaml.replace(
+      "    assert: []",
+      "    timeout_seconds: 10\n    assert: []",
+    );
+    render(
+      <ReportView
+        report={{ ...FIXTURE, scenario_yaml: yamlWithOverride }}
+        profile={{ ...TEST_PROFILE, connect_timeout_seconds: 5 }}
+      />,
+    );
+    expect(screen.getByText(new RegExp(ko.report.appliedTimeoutsLead)).textContent).toContain(
+      ko.report.appliedTimeoutsStepOverride,
+    );
+  });
+
   it("resolves env in step URLs (resolveForDisplay)", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     const stepRegion = screen.getByRole("region", { name: /스텝별 통계/ });

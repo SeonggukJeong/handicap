@@ -876,6 +876,45 @@ describe("RunDetailPage — 곡선 run VU 표시 (R1/R7)", () => {
     renderWithRouter("SR1");
     await screen.findByRole("heading", { name: /메트릭 윈도우/ });
     expect(screen.queryByText(/vu_stages =/)).toBeNull();
+    // 타임아웃 노브 미설정 run: http_timeout/connect_timeout li 둘 다 부재(줄별 게이트 0-diff).
+    expect(screen.queryByText(/_timeout = /)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 적용 타임아웃 줄별 게이트 — running run raw profile 목록 (US3 보조 관찰)
+// ---------------------------------------------------------------------------
+
+describe("RunDetailPage — 적용 타임아웃 줄별 게이트 (US3 보조 관찰)", () => {
+  it("실행 중 run의 raw profile 목록: 설정된 타임아웃 노브만 li로 (줄별 게이트)", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/api/runs/TOR1"))
+        return Promise.resolve(
+          jsonResponse({
+            id: "TOR1",
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "running",
+            profile: {
+              vus: 1,
+              ramp_up_seconds: 0,
+              duration_seconds: 30,
+              connect_timeout_seconds: 5,
+            },
+            env: {},
+            started_at: Date.now(),
+            ended_at: null,
+            created_at: Date.now(),
+          }),
+        );
+      if (url.endsWith("/api/runs/TOR1/metrics"))
+        return Promise.resolve(jsonResponse({ run_id: "TOR1", windows: [] }));
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderWithRouter("TOR1");
+    // http_timeout_seconds: 30 = 기본 → http 줄은 부재해야 한다(줄별 게이트 회귀 가드).
+    expect(await screen.findByText("connect_timeout = 5s")).toBeInTheDocument();
+    expect(screen.queryByText(/http_timeout =/)).not.toBeInTheDocument();
   });
 });
 

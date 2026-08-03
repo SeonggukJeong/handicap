@@ -16,6 +16,7 @@ import { StepPhaseBreakdown } from "./StepPhaseBreakdown";
 import { BranchStatsTable } from "./BranchStatsTable";
 import { GroupLatencyTable } from "./GroupLatencyTable";
 import { ScenarioSnapshot } from "./ScenarioSnapshot";
+import { AppliedTimeouts } from "./AppliedTimeouts";
 import { DownloadMenu } from "../DownloadMenu";
 import { downloadJson } from "../../api/downloadJson";
 import { HelpTip } from "../HelpTip";
@@ -86,6 +87,14 @@ export function ReportView({ report, profile }: Props) {
     }
     return m;
   }, [report.scenario_yaml, report.group_latency]);
+
+  const hasStepTimeoutOverride = useMemo(() => {
+    const parsed = parseScenarioDoc(report.scenario_yaml);
+    // flattenHttpSteps는 loop/parallel/if 완전 재귀 — 중첩 오버라이드 포함(scenarioHasThink 선례).
+    return "model" in parsed
+      ? flattenHttpSteps(parsed.model.steps).some((s) => s.timeout_seconds != null)
+      : false; // 파싱 실패 = 꼬리 생략(fail-soft, spec §10)
+  }, [report.scenario_yaml]);
 
   const [dlErr, setDlErr] = useState<string | null>(null);
 
@@ -161,6 +170,7 @@ export function ReportView({ report, profile }: Props) {
       <ValidityBanner validity={report.validity} narrative={report.narrative} />
       {report.verdict ? <VerdictPanel verdict={report.verdict} steps={stepMeta} /> : null}
       <InsightPanel insights={report.insights ?? []} meta={stepMeta} />
+      <AppliedTimeouts profile={profile} hasStepTimeoutOverride={hasStepTimeoutOverride} />
       <Summary
         summary={report.summary}
         dropped={report.dropped}

@@ -950,6 +950,12 @@ export const ko = {
     scenarioSnapshotLabel: "시나리오 스냅샷",
     scenarioSnapshotButton: "시나리오 YAML (실행 당시 스냅샷)",
     reportTitle: "리포트",
+    // ── 적용 타임아웃 한 줄 (US3) ──
+    appliedTimeoutsLead: "적용 타임아웃",
+    appliedTimeoutsHttp: (n: number) => `요청 ${n}s`,
+    appliedTimeoutsHttpDefault: (n: number) => `요청 ${n}s (기본값)`,
+    appliedTimeoutsConnect: (n: number) => `연결 ${n}s`,
+    appliedTimeoutsStepOverride: "일부 스텝은 자체 타임아웃 사용",
     downloadMenu: "내려받기",
     downloadHelpAria: "파일 형식 설명",
     downloadInsightsCsv: "인사이트 CSV",

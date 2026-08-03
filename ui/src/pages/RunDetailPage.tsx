@@ -12,7 +12,13 @@ import {
 import { useNow } from "../hooks/useNow";
 import { computeRunStall } from "../api/runStall";
 import { formatDurationKo } from "../i18n/duration";
-import { envValueToRecord, normalizeProfile, profileDurationSeconds } from "../api/runPrefill";
+import {
+  appliedTimeoutKnobs,
+  envValueToRecord,
+  normalizeProfile,
+  profileDurationSeconds,
+} from "../api/runPrefill";
+import { DEFAULT_HTTP_TIMEOUT_SECONDS } from "../api/schemas";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { StatusBadge } from "../components/StatusBadge";
 import { VerdictBadge } from "../components/VerdictBadge";
@@ -261,6 +267,17 @@ export function RunDetailPage() {
               <li>vus = {r.profile.vus}</li>
               <li>duration = {r.profile.duration_seconds}s</li>
               <li>ramp_up = {r.profile.ramp_up_seconds ?? 0}s</li>
+              {(() => {
+                const knobs = appliedTimeoutKnobs(r.profile);
+                return (
+                  <>
+                    {knobs.http !== DEFAULT_HTTP_TIMEOUT_SECONDS && (
+                      <li>http_timeout = {knobs.http}s</li>
+                    )}
+                    {knobs.connect != null && <li>connect_timeout = {knobs.connect}s</li>}
+                  </>
+                );
+              })()}
               {r.profile.vu_stages && r.profile.vu_stages.length > 0 && (
                 <li>
                   vu_stages ={" "}
