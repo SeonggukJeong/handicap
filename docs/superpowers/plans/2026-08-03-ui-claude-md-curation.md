@@ -1,6 +1,9 @@
 # ui/CLAUDE.md 큐레이션 Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 리뷰 이력: spec 3라운드(c63cb1e3 clean APPROVE) · plan 2라운드(98789e01 clean APPROVE, spec-plan-reviewer). 이빨 실증 경로 8종(하위호환 2·ABS 2·지식-가드 3·R18 1) 전부 결정적 RED/GREEN 기계 검증됨.
 
 **Goal:** ui/CLAUDE.md 119,111 B를 규칙 잔류·이력 이관으로 ≤ 98,304 B(96 KiB)로 압축하고, 그 이동을 기계 검증하도록 doc-coverage를 소스-파일 파라미터화하며, doc-budget에 문서화 절대-임계값 WARN을 추가한다.
 
