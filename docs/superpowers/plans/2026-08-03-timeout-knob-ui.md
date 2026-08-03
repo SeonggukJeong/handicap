@@ -285,7 +285,7 @@ git commit -m "feat(ui): timeout-knob 공유 토대 — DEFAULT_HTTP_TIMEOUT_SEC
   });
 ```
 
-(d) 신규 — US1 설정 저장:
+(d) 신규 — US1 설정 저장 (셋업은 기존 저장-성공 케이스 `:54-59` 정본을 인라인 — `canSubmit`이 `name.trim() !== ""`(`ScheduleForm.tsx:236`)를 요구하므로 이름 없이 저장은 disabled·`mock.calls[0]` TypeError, 리뷰 M3):
 
 ```ts
   it("US1: connect_timeout을 입력해 저장하면 숫자로 실린다", async () => {
@@ -294,23 +294,28 @@ git commit -m "feat(ui): timeout-knob 공유 토대 — DEFAULT_HTTP_TIMEOUT_SEC
     wrap(
       <ScheduleForm scenarioOptions={[{ id: "s1", name: "scn" }]} onSubmit={onSubmit} submitting={false} />,
     );
-    await user.selectOptions(screen.getByLabelText("시나리오"), "s1");
+    await user.type(screen.getByLabelText(/이름/), "nightly");
+    await user.selectOptions(screen.getByLabelText(/시나리오/), "s1");
+    // 트리거: 기본 daily 02:00 → trigger != null (기존 :54-59 저장 케이스와 동일 전제)
     await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "5");
     await user.click(screen.getByRole("button", { name: /저장/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(onSubmit.mock.calls[0][0].profile.connect_timeout_seconds).toBe(5);
   });
 ```
 
-**주의**: 신규-스케줄 폼의 필수 입력(name·trigger 등)이 비어 저장이 disabled일 수 있다 — 이 파일의 기존 "저장 성공" 테스트가 쓰는 최소 셋업 헬퍼/절차를 그대로 복사해 맞출 것(구체 셀렉터는 파일 상단 기존 케이스가 정본). 시나리오 select의 실제 aria-label도 기존 케이스에서 복사.
+(`waitFor`는 이 파일이 이미 import — `:59` 사용 선례.)
 
-(e) 신규 — 비정수 draft("1.5" — "abc"는 HTML5 sanitize로 도달 불가, ui/CLAUDE.md):
+(e) 신규 — 비정수 draft("1.5" — "abc"는 HTML5 sanitize로 도달 불가, ui/CLAUDE.md). **`user.type` 금지**(중간 sanitize로 "15"/"5" 착지 위험) — 레포 실측 선례 `GenVarEditor.test.tsx:357-373`의 `fireEvent.change` 관용구로(리뷰 M4). `fireEvent`는 이 파일 import에 없으면 `@testing-library/react` import에 추가:
 
 ```ts
-  it("비정수 connect_timeout은 저장을 막는다", async () => {
-    const user = userEvent.setup();
+  it("비정수 connect_timeout은 저장을 막는다", () => {
     wrap(<ScheduleForm scenarioOptions={[{ id: "s1", name: "scn" }]} onSubmit={vi.fn()} submitting={false} />);
-    await user.type(screen.getByLabelText(ko.loadModel.connectTimeout), "1.5");
+    const input = screen.getByLabelText(ko.loadModel.connectTimeout);
+    fireEvent.change(input, { target: { value: "1.5" } });
+    expect(input).toHaveValue(1.5); // 착지 확인 — sanitize가 지웠으면 아래가 공허해진다
     expect(screen.getByText(ko.validation.connectTimeout)).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true"); // 유일한 인라인 신호 가드(spec §3-1, 리뷰 M2)
   });
 ```
 
@@ -427,7 +432,7 @@ git commit -m "feat(ui): ScheduleForm connect timeout 입력·해제 (US1·US2) 
 - Modify: `ui/src/components/report/ReportView.tsx` (`:1-33` import·`:37` 부근 useMemo·`:164` `<Summary>` 직전)
 - Modify: `ui/src/pages/RunDetailPage.tsx` (`:260-273` `<ul>` 안)
 - Modify: `ui/src/i18n/ko.ts` (`report:` 섹션 `:895-` 안에 5키 추가)
-- Test: `ui/src/components/report/__tests__/AppliedTimeouts.test.tsx`(신규), `ui/src/pages/__tests__/RunDetailPage.test.tsx`(추가)
+- Test: `ui/src/components/report/__tests__/AppliedTimeouts.test.tsx`(신규), `ui/src/components/report/__tests__/ReportView.test.tsx`(도출 그물 1건 추가), `ui/src/pages/__tests__/RunDetailPage.test.tsx`(추가)
 
 **Interfaces:**
 - Consumes: `appliedTimeoutKnobs`·`DEFAULT_HTTP_TIMEOUT_SECONDS`(Task 1) · `flattenHttpSteps`(기존 `scenario/model`) · `parseScenarioDoc`(기존 — ReportView가 이미 import).
@@ -493,13 +498,42 @@ describe("AppliedTimeouts (spec §4 — 명시 설정 시에만 한 줄)", () =>
     expect(screen.getByText(new RegExp(ko.report.appliedTimeoutsLead)).textContent).toContain(
       ko.report.appliedTimeoutsStepOverride,
     );
+    // false면 부재 — 제목이 약속한 양쪽을 다 단언(공허 제목 9호 방지, 리뷰 M5).
+    // 2번째 render는 screen 다중매치를 피해 반환 container로 단언.
+    const { container: cf } = render(
+      <AppliedTimeouts profile={prof({ connect_timeout_seconds: 5 })} hasStepTimeoutOverride={false} />,
+    );
+    expect(cf.textContent).not.toContain(ko.report.appliedTimeoutsStepOverride);
   });
 });
 ```
 
 (주의: `new RegExp(ko.report.appliedTimeoutsLead)` — "적용 타임아웃"엔 정규식 메타문자 없음. ko 값 변경 시 이 전제 재확인.)
 
-`ui/src/pages/__tests__/RunDetailPage.test.tsx` — 이 파일의 기존 **비-terminal(running) fixture** 케이스를 찾아(profile `<ul>`을 이미 단언하는 케이스가 정본) 형제 케이스 추가:
+**ReportView 도출 그물(리뷰 M1 — R1 요구의 유일한 테스트)**: `ui/src/components/report/__tests__/ReportView.test.tsx`에 케이스 1건 추가. `FIXTURE.scenario_yaml`(`:33-` 배열 join, 단일 스텝)과 `TEST_PROFILE`(`:99`)을 재사용 — `ko` import는 파일 기존 import에 없으면 추가:
+
+```tsx
+  it("스텝 timeout_seconds가 있으면 적용 타임아웃 줄에 오버라이드 꼬리가 붙는다 (도출 배선 그물)", () => {
+    // 프리랩 주입이 아니라 scenario_yaml → parseScenarioDoc → flattenHttpSteps 도출 경로를 관통한다.
+    const yamlWithOverride = FIXTURE.scenario_yaml.replace(
+      "    assert: []",
+      "    timeout_seconds: 10\n    assert: []",
+    );
+    render(
+      <ReportView
+        report={{ ...FIXTURE, scenario_yaml: yamlWithOverride }}
+        profile={{ ...TEST_PROFILE, connect_timeout_seconds: 5 }}
+      />,
+    );
+    expect(screen.getByText(new RegExp(ko.report.appliedTimeoutsLead)).textContent).toContain(
+      ko.report.appliedTimeoutsStepOverride,
+    );
+  });
+```
+
+(오버라이드 없는 false 쪽은 기존 FIXTURE 자체가 커버 — 기존 케이스들은 노브 미설정 TEST_PROFILE이라 줄 자체가 미렌더.)
+
+`ui/src/pages/__tests__/RunDetailPage.test.tsx` — 이 파일의 기존 **비-terminal(running) fixture** 케이스를 찾아 형제 케이스 추가 — 정본은 `makeCurveRunningRun()`(`:834-855`) + 인라인 `fetchMock.mockImplementation`(`:857-871`) 및 `mockRunningApi`(`:516-538`)·`renderWithRouter`·`jsonResponse` 이디엄(리뷰 지목):
 
 ```tsx
   it("실행 중 run의 raw profile 목록: 설정된 타임아웃 노브만 li로 (줄별 게이트)", async () => {
@@ -515,8 +549,8 @@ describe("AppliedTimeouts (spec §4 — 명시 설정 시에만 한 줄)", () =>
 
 - [ ] **Step 2: RED 확인**
 
-Run: `cd ui && pnpm test AppliedTimeouts; pnpm test RunDetailPage`
-Expected: AppliedTimeouts 모듈 없음 FAIL · RunDetailPage 신규 케이스 FAIL(li 없음).
+Run: `cd ui && pnpm test AppliedTimeouts; pnpm test ReportView; pnpm test RunDetailPage`
+Expected: AppliedTimeouts 모듈 없음 FAIL · ReportView 신규 케이스 FAIL(ko 키·꼬리 없음) · RunDetailPage 신규 케이스 FAIL(li 없음).
 
 - [ ] **Step 3: ko 키 추가**
 
@@ -613,14 +647,14 @@ export function AppliedTimeouts({ profile, hasStepTimeoutOverride }: Props) {
 
 Run: `cd ui && pnpm test AppliedTimeouts; pnpm test RunDetailPage; pnpm test ReportView`
 Expected: PASS.
-이빨: `AppliedTimeouts.tsx`의 `if (!k.show) return null;`을 일시 제거 → 케이스 ④ RED 확인 → 원복 GREEN. `appliedTimeoutKnobs`의 `!==`를 `===`로 일시 반전 → ③·④ RED 확인 → 원복.
+이빨: `AppliedTimeouts.tsx`의 `if (!k.show) return null;`을 일시 제거 → 케이스 ④ RED 확인 → 원복 GREEN. `appliedTimeoutKnobs`의 `!==`를 `===`로 일시 반전 → ③·④ RED 확인 → 원복. (후자는 Task 1의 `runPrefill.test.ts` 유닛도 함께 RED가 된다 — 헬퍼 자체 회귀라 이중 커버가 정상이며 주입 격리 위반이 아니다.)
 
 - [ ] **Step 8: 전체 게이트 + 커밋**
 
 Run: `cd ui && pnpm lint && pnpm test && pnpm build; echo exit=$?` — Expected: exit=0.
 
 ```bash
-git add ui/src/components/report/AppliedTimeouts.tsx ui/src/components/report/__tests__/AppliedTimeouts.test.tsx ui/src/components/report/ReportView.tsx ui/src/pages/RunDetailPage.tsx ui/src/pages/__tests__/RunDetailPage.test.tsx ui/src/i18n/ko.ts
+git add ui/src/components/report/AppliedTimeouts.tsx ui/src/components/report/__tests__/AppliedTimeouts.test.tsx ui/src/components/report/__tests__/ReportView.test.tsx ui/src/components/report/ReportView.tsx ui/src/pages/RunDetailPage.tsx ui/src/pages/__tests__/RunDetailPage.test.tsx ui/src/i18n/ko.ts
 git commit -m "feat(ui): 적용 타임아웃 사후 노출 (US3) — AppliedTimeouts 한 줄·RunDetailPage 줄별 li·스텝 오버라이드 꼬리"
 ```
 
