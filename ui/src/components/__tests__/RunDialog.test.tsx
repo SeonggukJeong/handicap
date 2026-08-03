@@ -1178,14 +1178,29 @@ describe("RunDialog — Pacing think time (S-B)", () => {
 
     const err = screen.getByText(/min ≤ max ≤ 600000/);
     expect(err).toHaveAttribute("id", "think-time-error");
+    const hint = screen.getByText(ko.loadModel.thinkHint); // invalid에서도 비소거
+    const hintId = hint.getAttribute("id")!;
     expect(screen.getByLabelText(/think 최소/)).toHaveAttribute(
       "aria-describedby",
-      "think-time-error",
+      `think-time-error ${hintId}`,
     );
     expect(screen.getByLabelText(/think 최대/)).toHaveAttribute(
       "aria-describedby",
-      "think-time-error",
+      `think-time-error ${hintId}`,
     );
+  });
+
+  it("think hint를 min/max에 aria-describedby로 상시 연결한다 (valid, a11y-bundle A1)", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await toDetailed(user);
+    await user.click(screen.getByRole("button", { name: /판정·고급/ }));
+
+    const hint = screen.getByText(ko.loadModel.thinkHint);
+    const hintId = hint.getAttribute("id");
+    expect(hintId).toBeTruthy();
+    expect(screen.getByLabelText(/think 최소/)).toHaveAttribute("aria-describedby", hintId!);
+    expect(screen.getByLabelText(/think 최대/)).toHaveAttribute("aria-describedby", hintId!);
   });
 });
 

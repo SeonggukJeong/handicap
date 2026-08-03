@@ -205,6 +205,7 @@ export const ko = {
     loopCapHint: "0 = 끄기 · 루프 스텝의 loop_index별 집계 상한",
     thinkMin: "think 최소(ms)",
     thinkMax: "think 최대(ms)",
+    thinkHint: "min=max면 고정 지연",
     thinkSeed: "think 시드 (선택)",
     curveTargetVu: "목표 VU",
     curveTargetRps: "목표 도착률",

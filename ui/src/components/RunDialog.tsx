@@ -235,6 +235,7 @@ export function RunDialog({
   // Stable ids for Field+Input pairs (B3). Must be at hook call site (Rules of Hooks).
   const thinkMinId = useId();
   const thinkMaxId = useId();
+  const thinkHintId = useId();
   const thinkSeedId = useId();
   const httpTimeoutId = useId();
   const connectTimeoutId = useId();
@@ -892,7 +893,9 @@ export function RunDialog({
                       value={thinkMin}
                       onChange={(e) => setThinkMin(e.target.value)}
                       aria-invalid={thinkInvalid}
-                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                      aria-describedby={
+                        thinkInvalid ? `think-time-error ${thinkHintId}` : thinkHintId
+                      }
                     />
                   </Field>
                   <Field label={ko.loadModel.thinkMax} htmlFor={thinkMaxId}>
@@ -903,7 +906,9 @@ export function RunDialog({
                       value={thinkMax}
                       onChange={(e) => setThinkMax(e.target.value)}
                       aria-invalid={thinkInvalid}
-                      aria-describedby={thinkInvalid ? "think-time-error" : undefined}
+                      aria-describedby={
+                        thinkInvalid ? `think-time-error ${thinkHintId}` : thinkHintId
+                      }
                     />
                   </Field>
                   <Field label={ko.loadModel.thinkSeed} htmlFor={thinkSeedId}>
@@ -916,13 +921,14 @@ export function RunDialog({
                     />
                   </Field>
                 </div>
-                {thinkInvalid ? (
+                {thinkInvalid && (
                   <p id="think-time-error" className="mt-1 text-red-600 text-sm">
                     min ≤ max ≤ 600000, 둘 다 입력
                   </p>
-                ) : (
-                  <p className="mt-1 text-xs text-slate-500">min=max면 고정 지연</p>
                 )}
+                <p id={thinkHintId} className="mt-1 text-xs text-slate-500">
+                  {ko.loadModel.thinkHint}
+                </p>
               </>
             )}
 
