@@ -10,3 +10,8 @@ gh release edit v0.6.0 --notes-file …	# release-hygiene US3 실증 명령. 실
 --is-ancestor c v0.6.0	# orchestrator 오류 서사. 실체는 docs/build-log.md `is-ancestor` 2회 + 메모리 [[orchestrator-verification-is-hypothesis]].
 preflight → build×2 → publish	# 릴리즈 CI 4잡 구조. 실체는 docs/build-log.md `preflight` 4회에 보존(잡 이름 나열만 소실).
 [workspace.package] version="0.7.0"	# 정본은 Cargo.toml:5-6(코퍼스는 의도적으로 문서만 본다). 절차는 docs/dev/tauri-desktop-build.md:58.
+)가 행과 함께 사라져 복원 대상이 없다(	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`×`)가 `{2,80}` 밖이라 backtick 짝이 밀려 잡힌 산문 조각(식별자 아님). 양 절반 보존 — ui/CLAUDE.md `행과 함께 사라져 복원 대상이 없다` + docs/dev/ui-gotcha-narratives.md §파괴적 액션 Modal 포커스 유실.
+가 switch를 먼저 잡는다(엉뚱한 토글 클릭). HelpTip만 집으려면 	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`?`)로 backtick 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `HelpTip만 집으려면` + docs/dev/ui-gotcha-narratives.md §한 aria-label을 두 요소가 공유.
+로 sibling 누수 방지(jsdom은 	# ui-curation 토큰 아티팩트: 85자 코드 스팬(`Object.defineProperty(navigator,…)`)이 `{2,80}` 밖이라 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `sibling 누수 방지` + docs/dev/ui-gotcha-narratives.md §clipboard 모킹 순서.
+로 시작한다. 따라서 	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`*`·`{`)로 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `JSX 주석은` + docs/dev/ui-gotcha-narratives.md §`tdd-guard` 주석 예외가 JSX 주석을 못 본 사례.
+의 stale 주석 1줄 정정 같은 편집이 단독으로는 pending test 없음으로 deny된다. **우회하지 말 것**(훅 비활성화·	# ui-curation 토큰 아티팩트: 같은 줄 1글자 인라인코드(`*`·`{`)로 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `우회하지 말 것` + docs/dev/ui-gotcha-narratives.md §`tdd-guard` 주석 예외가 JSX 주석을 못 본 사례.
