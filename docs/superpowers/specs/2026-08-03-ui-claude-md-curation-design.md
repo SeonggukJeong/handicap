@@ -21,7 +21,7 @@
 | 불릿 145개 | `grep -c '^- ' ui/CLAUDE.md` | 145 |
 | 섹션별 불릿 합계 | `awk '/^## /{sec=substr($0,4)} /^- /{n[sec]++; b[sec]+=length($0)+1} END{for(s in n) print s, n[s], b[s]}' ui/CLAUDE.md` | 아래 표 |
 | 1,500 B 초과 XL 불릿 8개(합 18,314 B) | `awk '/^- /{sz=length($0)+1; if(sz>1500) print sz, NR}' ui/CLAUDE.md` | line 31·76·79·99·102·103·149·159 |
-| superseded/정정 마커 | `grep -n '이제 틀림\|SUPERSEDED\|해체됨\|뒤집힘\|해소됨\|대체됐' ui/CLAUDE.md` | 6건 (line 39·101·149) |
+| superseded/정정 마커 | `grep -n '이제 틀림\|SUPERSEDED\|해체됨\|뒤집힘\|해소됨\|대체됐' ui/CLAUDE.md` + 건수는 패턴별 python 전수 카운트(BSD `grep -o` 멀티바이트 오답 회피) | **4건/3줄** (39=이제 틀림·뒤집힘, 101=해체됨, 149=해소됨) |
 | 기존 하위 분할(2026-07-07) 실존 | `find ui -name CLAUDE.md \| xargs wc -c` | `components/scenario` 47,205 · `compare` 11,596 · `components/ui` 11,168 · `components/report` 9,753 B |
 
 압축 대상 4개 섹션(그 외 4개 섹션은 이번 슬라이스에서 **불변**):
@@ -34,7 +34,7 @@
 | 다단계 ramp UI | 10 | 12,036 | 4,038 |
 | **계** | **120** | **100,345** | — |
 
-목표 산술: −20,807 B 필요 = 대상 섹션의 ~20.7%. 조달 경로 = XL 8개 수술(~−9 KB) + superseded 정정 누적 3곳 현행-진실화(~−2 KB) + 나머지 불릿 이력 꼬리 절제(평균 ~−90 B × ~110개 ≈ −10 KB). **plan의 불릿별 manifest가 이 산술을 행 단위로 증명해야 하며, 기준(§2)을 지키고도 96 KiB에 못 미치면 그 시점 실측을 들고 사용자에게 목표 재협상을 보고한다(무리한 삭제로 채우지 않는다).**
+목표 산술: −20,807 B 필요 = 대상 섹션의 ~20.7%. 조달 경로 = XL 8개 수술(~−9 KB) + superseded 정정 누적 3곳 현행-진실화(~−2 KB) + 나머지 불릿 이력 꼬리 절제(평균 ~−90 B × ~110개 ≈ −10 KB). **단 세 버킷은 겹친다**(line 149는 XL이자 superseded, 39·101은 2·3버킷 이중 소속) — additive 합산 금지, slack ~0.2 KB뿐이므로 **plan의 불릿별 manifest가 버킷 합산이 아니라 불릿별 실측 절감으로 이 산술을 행 단위로 증명해야 하며, 기준(§2)을 지키고도 96 KiB에 못 미치면 그 시점 실측을 들고 사용자에게 목표 재협상을 보고한다(무리한 삭제로 채우지 않는다).**
 
 ## 2. 불릿 수술 기준 — 무엇이 남고 무엇이 이관되나 (no-forget 불변식)
 
@@ -59,7 +59,7 @@
 
 - 목적지 = **새 파일 `docs/dev/ui-gotcha-narratives.md`** 단일. ui/CLAUDE.md의 4개 섹션명을 미러링한 `##` 아래 이관 항목별 `###`. `docs/dev/*.md`는 coverage 토큰-차분 corpus에 이미 포함된다(`check-doc-coverage.py::corpus_paths`).
 - 포인터는 **대상 섹션당 1줄**(불릿별 아님): 섹션 도입부에 `> 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → docs/dev/ui-gotcha-narratives.md §<섹션> (키워드: …)` — 정본 규약대로 **옮긴 토픽 키워드를 나열**해 grep 발견성을 보존한다.
-- ui/CLAUDE.md 상단 유지 규칙 노트에 목적지 파일을 1줄 추가(하위 도메인 문서 목록과 나란히).
+- ui/CLAUDE.md 상단에 목적지 파일 포인터 1줄 추가 — 삽입 지점은 **유지 규칙 노트 blockquote(`ui/CLAUDE.md:9`) 단일**("별도 docs로 빼고 포인터만" 규약이 사는 곳). line 7의 하위 도메인 문서 목록 blockquote가 아니다.
 
 ## 4. 게이트 변경 (scripts 2개)
 
@@ -67,7 +67,7 @@
 
 현행은 `ROOT = "CLAUDE.md"` 고정 + R17 섹션 리스트가 root 전용이라 ui 이관을 검증할 수 없다. 변경:
 
-- CLI: `check-doc-coverage.py <base> [source_file]` (기본 `CLAUDE.md` — **기존 호출 하위호환**). justfile: `doc-coverage BASE="17369d32" FILE="CLAUDE.md"`.
+- CLI: `check-doc-coverage.py <base> [source_file]` (기본 `CLAUDE.md` — **기존 호출 하위호환**). `Justfile`(tracked 이름 대문자 — macOS 대소문자 함정): 기본값을 **`doc-coverage BASE="f870cfd9" FILE="ui/CLAUDE.md"`로 갱신** — 활성 manifest(ui 행)의 base를 인코딩해 bare `just doc-coverage`가 참인 green 검사로 남는다(redistribute 선례: 현 기본 `17369d32` = 그 슬라이스의 base. 기본값을 안 바꾸면 활성 manifest 전 행이 옛 base에서 보장 FAIL — 정본 "행은 자기 base에서만 참").
 - manifest `move`/`merge`의 anchor·marker 검사와 토큰-차분의 기준을 `source_file`로 치환. manifest 형식(5컬럼)·rename 절차는 불변 — **한 manifest = 한 소스 파일**(이번 활성 manifest는 ui 행만).
 - R17(불릿 비감소): 섹션 리스트를 고정 상수 대신 **base `source_file`의 `## ` 헤딩에서 동적 도출**. base에 있던 섹션이 작업트리에서 사라지면 FAIL(섹션 rename은 이 슬라이스 비목표). root로 돌릴 때도 동적 도출이 기존 2섹션을 포함하므로 보호 약화 없음 — 오히려 root 전 섹션으로 확대.
 - R18(baseline 인상 차단)은 소스 무관 그대로. **이번 슬라이스 base(`f870cfd9`)에는 `check-doc-budget.py`가 존재하므로 R18이 이 레포 역사상 처음 무장된다**(정본 §baseline 재설정 규칙의 "다음 재분배 슬라이스" = 바로 이번).
@@ -76,6 +76,7 @@
 
 - `ABS_WARN = {"ui/CLAUDE.md": 122880, "crates/engine/CLAUDE.md": 61440}` 신설 — **파일 상단 유지 규칙 노트에 숫자가 문서화된 파일만** 인코딩한다(ui "~120KB"=`ui/CLAUDE.md:9`, engine "~60KB"=`crates/engine/CLAUDE.md:7`). controller·worker-core·deploy·desktop은 문서화 값이 없어 **의도적으로 제외**(래칫이 커버; controller 절대값 결정은 controller 큐레이션 슬라이스로 연기 — §7). 초과 시 WARN(성장 래칫과 동일 비차단 축 — "성장은 경고" 비대칭 설계 유지), 표에 `현재/임계값` 행 상시 출력. `BASELINES_MIN` 동형의 하한(`ABS_WARN_MIN = 2`)으로 dict 비우기 무력화를 막는다.
 - `BASELINES["ui/CLAUDE.md"]`를 압축 후 실측값으로 **하향**(이득 고정 — 재비대 시 래칫이 새 기준에서 문다). 인하는 R18 스코프 밖(인상만 차단)이므로 충돌 없음. 다른 파일 baseline 불변.
+- **US3 서사와 기제의 관계를 명확히 해 둔다**: US3의 고통("119.1 KB인데 OK만")을 직접 해소하는 것은 **압축 + BASELINES 하향**이다 — ABS_WARN 자체는 현재 크기(119,111 B = 122,880 B의 96.9%)에서 발화하지 않는 **재비대 최종 백스톱**이고, US3의 관찰 조건("근접도가 보인다")은 표의 상시 행(현재/임계값·사용률)이 채운다. 재비대의 조기 신호는 하향된 baseline의 래칫(+10 KiB ≈ 106 KiB 부근)이 절대 임계값(120 KiB)보다 **먼저** 문다.
 
 ## 5. 검증 계획 — 게이트 두 상태 + 이빨 실증
 
@@ -83,8 +84,9 @@
 |---|---|---|
 | coverage 파라미터화 | `python3 scripts/check-doc-coverage.py f870cfd9 ui/CLAUDE.md` → 현행 스크립트는 인자 무시·root 검사(ui 미검증임을 확인) | 동일 명령이 ui manifest 행 전부에 ①~⑤ + R17(ui 8섹션) + 토큰-차분 green |
 | coverage 하위호환 | — | **green 실행으로 증명할 수 없다**(활성 manifest가 ui 스코프인데 root 실행은 "행은 자기 base에서만 참" 규약상 무의미 — 정본 §재분배 절차 1). 대신 ① 인자 생략 시 `source_file` 기본값이 `CLAUDE.md`임을 코드로 확인 ② root 스코프 기능 자체는 파라미터화 diff가 R17 동적 도출 외 root 경로를 안 바꿈을 diff 리뷰로 확인(다음 root 재분배가 자기 manifest·자기 base로 무변경 사용) |
-| ABS_WARN 이빨 | 작업트리에서 임계값을 현재 크기 미만으로 임시 하향 → WARN 출력 확인(RED) → 원복(GREEN). fixture 주입식 이빨 실증 | `just doc-budget` green + 표에 ABS 행 2개 상시 표시 |
-| ABS_WARN 하한 이빨 | `ABS_WARN` dict를 임시로 비움 → `FAIL [설정]` 확인 → 원복 | 상동 |
+| ABS_WARN 이빨 | 작업트리에서 임계값을 현재 크기 미만으로 임시 하향 → **지정 WARN 문구를 grep으로 확인**(RED — WARN은 exit 0이므로 종료코드로 판정 금지, 정본 §게이트를 고칠 때) → 원복(GREEN) | `just doc-budget` green + 표에 ABS 행 2개 상시 표시 |
+| ABS_WARN 하한 이빨 | `ABS_WARN` dict를 임시로 비움 → `FAIL [설정]` 확인(FAIL은 exit 1 — 종료코드 판정 가) → 원복 | 상동 |
+| **지식-가드 이빨(회귀 방지, 사용자 지시 2026-08-03)** | 축약 완료 상태에서 ① ui 잔류 불릿 1개 임시 삭제 → `just doc-coverage` `FAIL [R17]` 확인 ② 목적지 marker 1개 임시 훼손 → `FAIL [move] marker 없음` 확인 ③ 잔류 규칙의 backtick 토큰 1개 임시 삭제 → `FAIL [토큰] 소실` 확인 → 각각 원복 | 3종 모두 원복 후 `just doc-coverage` green — 지식-회귀 방어선 자체의 이빨이 실증됨 |
 | 크기 목표 | `wc -c ui/CLAUDE.md` = 119,111 B | ≤ 98,304 B |
 | 지식 보존 | — | manifest 전 행 marker 실재 + R17 바닥 + 토큰-차분 0소실 + **이관 불릿 무작위 3개 육안 대조**(규칙 잔류분만으로 함정 회피 가능한지 사람 판정) |
 | 상태줄·root | root CLAUDE.md는 이 슬라이스에서 **불변**(상태줄 교체는 finish-slice 단계) | `just doc-budget` root 축 green 유지 |
@@ -106,4 +108,4 @@
 
 ## 8. 검토 기각 — "더 세분화"를 하지 않는 이유 (2026-08-03 사용자 검토 요청·A안 승인)
 
-중첩 분할은 2026-07-07에 이미 실행됐고(4개 하위 도메인, 당시 143 KB→분리), 남은 119 KB의 3대 섹션은 ① 테스트 인프라 — 테스트 파일이 `ui/src` 전역 `__tests__` ~18곳에 흩어져 어느 단일 디렉토리도 트리거를 포착 못 함, ② 빌드·타입 게이트 — 전 TS 파일 크로스커팅, ③ 폼 UX — 해당 소스가 `ui/src/components/`에 flat(전용 하위 디렉토리 없음, `ui/CLAUDE.md:7`에 문서화)이라 소스 이동이 선행돼야 함. 즉 세분화가 닿는 소재가 아니다. 소스 재배치를 전제한 분할(C안)은 24 KB를 위해 209파일 디렉토리를 흔드는 비용이라 기각.
+중첩 분할은 2026-07-07에 이미 실행됐고(4개 하위 도메인, 당시 143 KB→분리), 남은 119 KB의 3대 섹션은 ① 테스트 인프라 — 테스트 파일이 `ui/src` 전역 `__tests__` 19곳에 흩어져 어느 단일 디렉토리도 트리거를 포착 못 함, ② 빌드·타입 게이트 — 전 TS 파일 크로스커팅, ③ 폼 UX — 해당 소스가 `ui/src/components/`에 flat(전용 하위 디렉토리 없음, `ui/CLAUDE.md:7`에 문서화)이라 소스 이동이 선행돼야 함. 즉 세분화가 닿는 소재가 아니다. 소스 재배치를 전제한 분할(C안)은 24 KB를 위해 209파일 디렉토리를 흔드는 비용이라 기각.
