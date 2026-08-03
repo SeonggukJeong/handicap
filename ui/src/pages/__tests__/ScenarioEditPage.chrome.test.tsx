@@ -85,4 +85,24 @@ describe("ScenarioEditPage 헤더 접기/펴기 (C)", () => {
     await user.click(screen.getByRole("button", { name: ko.editor.chromeExpand }));
     expect(screen.getByText(/updated/)).toBeInTheDocument();
   });
+
+  it("접기 토글이 펼침 상태에서 aria-controls로 브레드크럼·부제 두 영역을 가리킨다 (a11y-bundle B)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "demo" });
+
+    const toggle = screen.getByRole("button", { name: ko.editor.chromeCollapse });
+    const controls = toggle.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    const ids = (controls ?? "").split(" ");
+    expect(ids).toHaveLength(2); // 양성 단언 선행 — 속성 부재/빈 값의 0회 루프 공허 차단
+    for (const id of ids) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+
+    // 접힘: 참조 대상 언마운트 → 속성도 제거 (VerdictBadge.tsx:34 캐넌)
+    await user.click(toggle);
+    const collapsed = screen.getByRole("button", { name: ko.editor.chromeExpand });
+    expect(collapsed).not.toHaveAttribute("aria-controls");
+  });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useCloneScenario, useScenario, useScenarios, useUpdateScenario } from "../api/hooks";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -33,6 +33,8 @@ export function ScenarioEditPage() {
   const [seededId, setSeededId] = useState<string | null>(null);
   const seeded = data !== undefined && seededId === data.id;
   const [chromeCollapsed, setChromeCollapsed] = useState(false);
+  const breadcrumbRegionId = useId();
+  const subtitleRegionId = useId();
 
   // 템플릿 진입점 게이트: store 상태로 판단 (parseScenarioDoc 재호출 금지 — 깨진 텍스트 중
   // 엔 store yamlText가 마지막 정상본이라 재파싱 결과가 다를 수 있음)
@@ -159,7 +161,9 @@ export function ScenarioEditPage() {
           정확한 top offset·z·bg·border는 라이브로 확정(§6 Q2 폴백). */}
       <div className="sticky top-0 z-20 -mx-6 flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-6">
         {!chromeCollapsed && (
-          <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
+          <div id={breadcrumbRegionId}>
+            <Breadcrumb items={[{ label: ko.nav.scenarios, to: "/" }, { label: liveName }]} />
+          </div>
         )}
         <div className="flex items-center justify-between">
           <div className="flex items-start gap-2">
@@ -167,6 +171,9 @@ export function ScenarioEditPage() {
               type="button"
               aria-label={chromeCollapsed ? ko.editor.chromeExpand : ko.editor.chromeCollapse}
               aria-expanded={!chromeCollapsed}
+              aria-controls={
+                chromeCollapsed ? undefined : `${breadcrumbRegionId} ${subtitleRegionId}`
+              }
               onClick={() => setChromeCollapsed((v) => !v)}
               className="mt-1 text-slate-500 hover:text-slate-700"
             >
@@ -205,7 +212,7 @@ export function ScenarioEditPage() {
                 </div>
               )}
               {!chromeCollapsed && (
-                <p className="text-sm text-slate-600">
+                <p id={subtitleRegionId} className="text-sm text-slate-600">
                   v{data.version} · updated {new Date(data.updated_at).toLocaleString()}
                 </p>
               )}
