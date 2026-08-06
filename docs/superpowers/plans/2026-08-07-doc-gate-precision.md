@@ -1,5 +1,7 @@
 # doc-gate-precision Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `check-doc-coverage.py` 토큰 차분 게이트의 유령 토큰(짝-밀림)·소스 자기-은폐를 원인 제거하고, 아티팩트 allowlist 5행을 삭제하며, 게이트 안내 문서 3곳을 현행화한다 (spec: `docs/superpowers/specs/2026-08-07-doc-gate-precision-design.md`, clean APPROVE `188dd25c`).
