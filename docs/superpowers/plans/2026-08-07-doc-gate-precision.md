@@ -329,7 +329,7 @@ grep -n "root" scripts/doc-coverage-allowlist.txt scripts/check-doc-coverage.py 
 
 **판정 기준(파티션 불변식 — 이것이 PASS 조건):**
 - sweep 1·2: 매치가 **전부 `docs/superpowers/`(specs·plans) 아래**여야 한다. `scripts/`·`Justfile`·`docs/dev/`·`CLAUDE.md`·`ui/CLAUDE.md`·`.claude/`·`.githooks/`·`.github/` 매치 **0건**.
-- sweep 3(개념 grep, 소문자 "root"): `scripts/doc-coverage-allowlist.txt` **0건** · `scripts/check-doc-coverage.py`는 **:107 주석 1건만**(R17 실측 서사 — 정당) · `Justfile`은 **doc-budget 주석(:124) 1건만**(root 예산 — 정당) · `root-doc-maintenance.md`는 파일 주제(root 재분배 절차) 서술만 — **"검사 대상 소스"를 root로 지칭하는 문장 0건**(e1~e5 반영 후 육안 1패스).
+- sweep 3(개념 grep, 소문자 "root"): `scripts/doc-coverage-allowlist.txt` **0건** · `scripts/check-doc-coverage.py`는 **2건** — **:110 R17 주석**(실측 서사 — 정당; T1 편집으로 :107에서 밀림) + **:41 tokens() 주석의 파일명 인용**(`root-doc-maintenance.md` — T1 Step 5가 넣은 주석. 파일명이지 소스 지칭 아님 — 정당) · `Justfile`은 **doc-budget 주석(:124) 1건만**(root 예산 — 정당) · `root-doc-maintenance.md`는 파일 주제(root 재분배 절차) 서술만 — **"검사 대상 소스"를 root로 지칭하는 문장 0건**(e1~e5 반영 후 육안 1패스). (keep-list 정정은 구현 중 실측 — 작성 시점 keep-list가 T1 자기-삽입 주석과 줄 밀림을 미반영, T2 STOP → orchestrator 재현 후 갱신.)
 - 참고(작성 시점 실측, 자기참조라 디스패치 직전 재실측이 정본 — spec S1 규칙): sweep 1 `docs/superpowers/` 내 매치 = 이력 plan 2파일 6건(`2026-07-30-…:267,269,374`·`2026-08-03-…:47,104,220`) + spec 4곳 + 이 plan 자신 **4행**(Task 1 Step 6 old 블록 2행 · Task 2 Step 1 e3 old 1행 · 이 Step의 sweep 1 명령줄 1행). sweep 2 = spec 1곳 + 이 plan 자신 **2행**(e1·e2 old).
 
 - [ ] **Step 6: V5 — US3 오라클 3항**
