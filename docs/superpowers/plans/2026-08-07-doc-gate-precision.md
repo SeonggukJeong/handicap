@@ -211,10 +211,10 @@ new = header + lines[7:15] + lines[20:]   # 8행(빈 주석)~15행(실식별자 
 p.write_text("\n".join(new))
 EOF
 git diff -U0 scripts/doc-coverage-allowlist.txt
-git diff -U0 scripts/doc-coverage-allowlist.txt > /tmp/doc-gate-precision-allowdiff.log; grep -c "is-ancestor\|preflight\|workspace.package\|gh release" /tmp/doc-gate-precision-allowdiff.log; echo "grep=$?"
+git diff -U0 scripts/doc-coverage-allowlist.txt > /tmp/doc-gate-precision-allowdiff.log; grep -Ec '^[+-].*(is-ancestor|preflight|workspace\.package|gh release)' /tmp/doc-gate-precision-allowdiff.log; echo "grep=$?"
 ```
 
-Expected: diff가 헤더 블록 교체와 아티팩트 5행 삭제만이고, **실식별자 4행은 ±(추가/삭제) 줄로 등장하지 않는다**(byte-exact 보존 증명 — `-U0` 필수: 기본 `-U3`에선 문맥 줄로는 보이므로 `--stat`이나 기본 diff로는 판정 불가). 검산 grep 카운트 **0**(exit 1).
+Expected: diff가 헤더 블록 교체와 아티팩트 5행 삭제만이고, **실식별자 4행은 ±(추가/삭제) 줄로 등장하지 않는다**(byte-exact 보존 증명 — `-U0` 필수: 기본 `-U3`에선 문맥 줄로는 보이므로 `--stat`이나 기본 diff로는 판정 불가). 검산 grep 카운트 **0**(exit 1). grep은 `^[+-]` diff 줄만 스캔한다 — git hunk 헤더의 function-context가 인접 실식별자 행을 에코하므로(`@@ -16,5 +17,0 @@ preflight …` 실측) 무필터 스캔은 오탐 1건을 낸다(구현 중 T1 STOP → orchestrator 재현 후 명령 교정. 이 검산은 변경-후 상태가 있어야 실행 가능해 작성 시점 두-상태 검증이 구조적으로 불가했던 부류).
 
 - [ ] **Step 10: V1 after-arm — 아티팩트 행 없이 green**
 
