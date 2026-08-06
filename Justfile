@@ -117,7 +117,7 @@ bump-version ver:
     echo
     echo "다음: git add -u && git commit -m 'chore(release): {{ver}} 버전 bump' && git tag -a v{{ver}} && git push origin master v{{ver}}"
 
-# root CLAUDE.md 재분배 이동 검증(R6·R16·R17·R18): manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분.
+# 문서 이동 검증(R6·R16·R17·R18) — 소스 파라미터화 <base> [source]: manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분(corpus는 소스 제외).
 doc-coverage BASE="f870cfd9" FILE="ui/CLAUDE.md":
     python3 scripts/check-doc-coverage.py {{BASE}} {{FILE}}
 

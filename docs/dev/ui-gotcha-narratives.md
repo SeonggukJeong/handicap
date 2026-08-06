@@ -229,7 +229,7 @@ Postman식 "행 끄되 보존".
 
 ### `LoadShapePreview` 조각화(R10) — 리팩터 당시 제약
 
-`runSummary`를 string→`{main:SummarySegment[];sub;tone;curve}`로 조각화할 땐 **판정 로직(warn 게이트·curve 분기·total 식) byte-identical 유지**(반환 *모양*만 변경=R10)·`SummarySegment`는 로컬 TS 타입(schemas.ts 미접촉)·footer는 `toHaveTextContent`로 단언(`<b>` 단편화 무관).
+`runSummary`를 string→`{main:SummarySegment[];sub;tone;curve}`로 조각화할 땐 **판정 로직(warn 게이트·curve 분기·total 식) byte-identical 유지**(반환 *모양*만 변경=R10 — **그 리팩터 task의 no-behavior-change 제약이었다. 현행 상시 제약 아님**: 이후 판정 로직을 바꾸는 슬라이스는 이 제약에 묶이지 않는다)·`SummarySegment`는 로컬 TS 타입(schemas.ts 미접촉)·footer는 `toHaveTextContent`로 단언(`<b>` 단편화 무관).
 
 ### 번호 `Section` 재구성 — `scenario={null}` 번호 갭을 LOW로 수용한 기록
 
