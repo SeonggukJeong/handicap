@@ -38,7 +38,7 @@ def sections_of(text, needle, secs):
 def tokens(t):
     # backtick run을 구분자로 스팬을 길이 무관하게 짝 소비(1자·80자 초과가 짝을 밀어
     # 산문을 토큰으로 오인시키던 결함 제거), 토큰 '채택'만 2–80자로 유지.
-    # 잔존 한계(줄 안 backtick 홀수·run-길이 불일치)는 root-doc-maintenance.md §게이트.
+    # 잔존 한계(줄 안 backtick 홀수·run-길이 불일치)는 root-doc-maintenance.md §재분배 절차 4단계(토큰 차분 함정).
     s = {m[1] for m in re.findall(r"(`+)([^`\n]*?)\1", t) if 2 <= len(m[1]) <= 80}
     s |= set(re.findall(r"docs/[A-Za-z0-9/_.-]+\.md", t))
     s |= set(re.findall(r"ADR-\d{4}", t))

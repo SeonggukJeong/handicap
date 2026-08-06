@@ -1,7 +1,8 @@
 # check-doc-coverage.py 토큰 차분(3차 방어선)의 예외 목록.
-# base:<소스>에는 있었는데 corpus(소스 제외 — 도메인 CLAUDE.md·docs/dev·docs/adr·build-log)에
-# 없는 토큰은 FAIL이다. 문구 2종: 소스에도 raw로 없으면 '소실(목적지 어디에도 없음)',
-# 소스에 산문으로 남았지만 목적지 증명이 없으면 '소스에 산문으로 잔존 — 목적지 미확인'.
+# base:<소스>에 토큰으로 있었는데 현재 소스 토큰에서는 사라졌고 corpus(소스 제외 — 도메인
+# CLAUDE.md·docs/dev·docs/adr·build-log)에도 없는 토큰은 FAIL이다. 문구 2종: 소스에도 raw로
+# 없으면 '소실(목적지 어디에도 없음)', 소스에 산문으로 남았지만 목적지 증명이 없으면
+# '소스에 산문으로 잔존 — 목적지 미확인'.
 # allowlist는 두 분기 공통 억제 — 의도적으로 corpus 증명 없이 남긴 토큰만 '근거와 함께' 적는다.
 # 토큰 = `backtick` 인용(2–80자) · docs/**.md 경로 · ADR-dddd.
 # 주의: 토큰 필드는 탭 앞까지 byte-exact다(후행 공백 포함 — backtick 스팬은 공백으로 끝날 수
