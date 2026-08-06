@@ -81,7 +81,7 @@ grep -rn "check-doc-coverage.py:[0-9]" docs/ CLAUDE.md .claude/
 grep -n "root" scripts/doc-coverage-allowlist.txt scripts/check-doc-coverage.py Justfile docs/dev/root-doc-maintenance.md
 ```
 
-- **sweep 1 기대(열거형 — 현재 12건 → 변경 후 9건, 리뷰 n2)**: 이력 plan 2파일 6건 — `docs/superpowers/plans/2026-07-30-claude-md-redistribute.md:267,269,374` + `2026-08-03-ui-claude-md-curation.md:47,104,220`(당시 plan-local 판정이 이 문자열에 의존했던 기록 — 수정 금지) + 이 spec 자신 3건(§2.1-4 개명 서술·§2.3-1 인용·§2.4 이 명령줄). **그 외 0건**(특히 `scripts/`·`Justfile`·`docs/dev/` 0건).
+- **sweep 1 기대(열거형, 리뷰 n2·S1)**: 이력 plan 2파일 **6건 고정** — `docs/superpowers/plans/2026-07-30-claude-md-redistribute.md:267,269,374` + `2026-08-03-ui-claude-md-curation.md:47,104,220`(당시 plan-local 판정이 이 문자열에 의존했던 기록 — 수정 금지) + **이 spec 자신**(개명 서술·`:29` 인용·sweep 명령줄·C11 재현 명령 — spec 편집마다 개수가 변하는 자기참조라 **숫자를 spec에 박지 않고 plan이 디스패치 직전 실측으로 고정**한다; 리뷰 S1 시점 실측 4곳). **그 외 0건**(특히 `scripts/`·`Justfile`·`docs/dev/`·`.claude/`·`.githooks/`·`.github/` 0건).
 - **sweep 2 기대**: 이 spec 자신 외 0건.
 - **sweep 3 기대(keep-list)**: 정당한 root-특정 서술만 잔존 — `check-doc-coverage.py`의 `ROOT` 상수·R17/R18 등 root 개념 자체를 다루는 줄, `root-doc-maintenance.md`의 root 재분배 절차 서술(파일 주제가 root), Justfile의 다른 레시피. **"검사 대상을 root로 오지칭"하는 매치 0건** — plan이 변경 후 실측으로 keep-list를 줄 단위 고정한다.
 - 이력 기록(`docs/build-log.md`·`docs/superpowers/plans/*`·메모리)은 당시 사실이므로 **수정 금지**. root CLAUDE.md 상태줄·roadmap-status의 연기 언급은 finish-slice가 교체하므로 이 슬라이스 sweep 대상 아님.
