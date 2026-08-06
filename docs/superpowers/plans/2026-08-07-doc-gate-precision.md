@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **production 0-diff**: `crates/`·`ui/`·`proto/`·`deploy/`·`desktop/` 아래 파일을 한 글자도 건드리지 않는다. 건드리게 되면 STOP — plan이 틀린 것.
+- **production 0-diff**: `crates/`·`ui/`·`proto/`·`deploy/`·`desktop/` 아래 파일을 한 글자도 건드리지 않는다. 건드리게 되면 STOP — plan이 틀린 것. **단 하나의 예외**: V2 이빨(T1 Step 3·11)의 `ui/CLAUDE.md` **임시** 변형+즉시 원복 — 커밋에 들어가지 않는 것이 가드다(Step 13의 staged/status 확인).
 - **이력 기록 수정 금지**: `docs/build-log.md`·`docs/superpowers/plans/2026-07-30-claude-md-redistribute.md`·`docs/superpowers/plans/2026-08-03-ui-claude-md-curation.md`는 읽기만. sweep에서 매치가 나와도 그대로 둔다(당시 사실).
 - **allowlist 유지 행(12–15행) byte-exact 보존**: 파일 전체 재포맷·trailing-whitespace 트리밍 금지. 편집은 아래 지정된 python 수술로만(헤더 교체 + 행 삭제).
 - **게이트 판정에 파이프 금지**: 항상 `just doc-coverage > /tmp/doc-gate-precision-<step>.log; echo exit=$?` 형태(리다이렉트는 허용, `| tail`·`| head` 금지 — 종료코드 마스킹). 로그 파일명은 반드시 `doc-gate-precision-` 접두(다른 워크트리 stale 로그 오독 방지).
@@ -22,6 +22,7 @@
 
 - [ ] spec §5 Claims ledger C1~C12를 **일괄 재실행**해 전 수치 일치 확인 (C1 gate OK · C2 FAIL 후보 0 · C3 0/4펜스/0 · C4 437 · C5 88/125/137 · C6 4행 미등장 · C7 +42/−65·+28/−48·+8/−17·+5/−8 · C9 15발생/13행 · C10 :29 인용 · C11 61 · C12 28). 불일치 시 STOP — spec/plan 갱신 먼저.
 - [ ] Task 2의 sweep 자기-매치 핀(§Task 2 Step 5)을 디스패치 직전 재실측해 어긋나면 그 스텝의 "작성 시점 실측" 숫자만 갱신(스펙 S1 규칙 — 자기참조 숫자는 실측이 정본).
+- [ ] **각 task brief에 이 plan의 Global Constraints 절 전문 + spec의 `사용자 스토리 (US)` 블록을 첨부**(리뷰 n2 — `task-brief`는 task 섹션만 잘라 상단 규칙이 구현자에게 도달하지 않는다; byte-exact 보존·게이트 파이프 금지·`git checkout` 금지·/tmp 백업 규칙이 전부 저 절에 산다).
 
 ---
 
@@ -207,10 +208,11 @@ header = [
 new = header + lines[7:15] + lines[20:]   # 8행(빈 주석)~15행(실식별자 4행) 유지, 16–20 삭제
 p.write_text("\n".join(new))
 EOF
-git diff --stat scripts/doc-coverage-allowlist.txt
+git diff -U0 scripts/doc-coverage-allowlist.txt
+git diff -U0 scripts/doc-coverage-allowlist.txt > /tmp/doc-gate-precision-allowdiff.log; grep -c "is-ancestor\|preflight\|workspace.package\|gh release" /tmp/doc-gate-precision-allowdiff.log; echo "grep=$?"
 ```
 
-Expected: diff가 헤더 블록과 아티팩트 5행 삭제만 — **12–15행(실식별자 4행: `gh release edit…`·`--is-ancestor…`·`preflight →…`·`[workspace.package]…`)은 diff에 등장하지 않아야 한다**(byte-exact 보존 증명).
+Expected: diff가 헤더 블록 교체와 아티팩트 5행 삭제만이고, **실식별자 4행은 ±(추가/삭제) 줄로 등장하지 않는다**(byte-exact 보존 증명 — `-U0` 필수: 기본 `-U3`에선 문맥 줄로는 보이므로 `--stat`이나 기본 diff로는 판정 불가). 검산 grep 카운트 **0**(exit 1).
 
 - [ ] **Step 10: V1 after-arm — 아티팩트 행 없이 green**
 
@@ -247,13 +249,14 @@ Expected: `['real_token']` — 산문 조각 소멸 + 실토큰 정상 포획(ba
 - [ ] **Step 13: Commit**
 
 ```bash
+git status --porcelain ui/CLAUDE.md
 git add scripts/check-doc-coverage.py scripts/doc-coverage-allowlist.txt
 git diff --cached --name-only
 git commit -m "feat(gates): doc-coverage 토큰 차분 정밀화 — 짝-보존 토크나이저·corpus 소스 제외·진단 2분화·아티팩트 allowlist 5행 삭제"
 git log -1 --oneline
 ```
 
-Expected: staged 2파일, 커밋 landed. (`ui/CLAUDE.md`가 staged에 있으면 STOP — 원복 누락.)
+Expected: 첫 status **빈 출력**(unstaged 잔존 변형도 없음 — 리뷰 n1), staged 2파일, 커밋 landed. (`ui/CLAUDE.md`가 status·staged 어디든 나오면 STOP — 원복 누락.)
 
 ---
 
@@ -336,7 +339,7 @@ grep -n "marker 신규성" scripts/check-doc-coverage.py
 grep -n "현행 상시 제약 아님" docs/dev/ui-gotcha-narratives.md
 ```
 
-Expected: 앞 3개 각 **정확히 1건**(검사명 인용이 grep 1회로 코드 도달 — 문서 인용 문구가 이 문자열을 byte-exact 포함하는지 e1·e2와 대조) · 마지막 1건(`:232` — V5ⓒ). ⓐ는 Step 5 판정 기준 충족으로 갈음.
+Expected: 앞 3개 각 **정확히 1건** · 마지막 1건(`:232` — V5ⓒ). ⓐ는 Step 5 판정 기준 충족으로 갈음. **byte-exact 대조 범위(리뷰 P3)**: e2의 두 문자열(`base 소스에 anchor`·`marker 신규성`)만 — e1은 함수명 인용(`rows()`)이라 도달 문자열은 정의부 `def rows`(1건)로 별도이며, `rows()`로 grep하면 호출부 포함 2건이 나오는 게 정상이다.
 
 - [ ] **Step 7: Commit**
 
