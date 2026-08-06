@@ -1,9 +1,11 @@
 # check-doc-coverage.py 토큰 차분(3차 방어선)의 예외 목록.
-# base root에는 있었는데 현재 root에도 corpus(도메인 CLAUDE.md·docs/dev·docs/adr·build-log)에도
-# 없는 토큰은 FAIL이다. 의도적으로 사라진 토큰만 여기에 '근거와 함께' 적는다.
+# base:<소스>에는 있었는데 corpus(소스 제외 — 도메인 CLAUDE.md·docs/dev·docs/adr·build-log)에
+# 없는 토큰은 FAIL이다. 문구 2종: 소스에도 raw로 없으면 '소실(목적지 어디에도 없음)',
+# 소스에 산문으로 남았지만 목적지 증명이 없으면 '소스에 산문으로 잔존 — 목적지 미확인'.
+# allowlist는 두 분기 공통 억제 — 의도적으로 corpus 증명 없이 남긴 토큰만 '근거와 함께' 적는다.
 # 토큰 = `backtick` 인용(2–80자) · docs/**.md 경로 · ADR-dddd.
-# 주의: 일부 토큰의 끝에 붙은 공백은 load-bearing이다(짝이 밀린 산문 조각 토큰이 공백에서
-# 끊긴 것) — trailing-whitespace 트리머로 이 파일의 기존 행을 재저장/트림하지 말 것
+# 주의: 토큰 필드는 탭 앞까지 byte-exact다(후행 공백 포함 — backtick 스팬은 공백으로 끝날 수
+# 있다). trailing-whitespace 트리머로 이 파일의 기존 행을 재저장/트림하지 말 것
 # (공백이 사라지면 토큰이 더 이상 일치하지 않아 그 예외가 조용히 무효화된다).
 #
 # 형식(탭 구분): token	근거
@@ -13,8 +15,3 @@ gh release edit v0.6.0 --notes-file …	# release-hygiene US3 실증 명령. 실
 --is-ancestor c v0.6.0	# orchestrator 오류 서사. 실체는 docs/build-log.md `is-ancestor` 2회 + 메모리 [[orchestrator-verification-is-hypothesis]].
 preflight → build×2 → publish	# 릴리즈 CI 4잡 구조. 실체는 docs/build-log.md `preflight` 4회에 보존(잡 이름 나열만 소실).
 [workspace.package] version="0.7.0"	# 정본은 Cargo.toml:5-6(코퍼스는 의도적으로 문서만 본다). 절차는 docs/dev/tauri-desktop-build.md:58.
-)가 행과 함께 사라져 복원 대상이 없다(	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`×`)가 `{2,80}` 밖이라 backtick 짝이 밀려 잡힌 산문 조각(식별자 아님). 양 절반 보존 — ui/CLAUDE.md `행과 함께 사라져 복원 대상이 없다` + docs/dev/ui-gotcha-narratives.md §파괴적 액션 Modal 포커스 유실.
-가 switch를 먼저 잡는다(엉뚱한 토글 클릭). HelpTip만 집으려면 	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`?`)로 backtick 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `HelpTip만 집으려면` + docs/dev/ui-gotcha-narratives.md §한 aria-label을 두 요소가 공유.
-로 sibling 누수 방지(jsdom은 	# ui-curation 토큰 아티팩트: 85자 코드 스팬(`Object.defineProperty(navigator,…)`)이 `{2,80}` 밖이라 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `sibling 누수 방지` + docs/dev/ui-gotcha-narratives.md §clipboard 모킹 순서.
-로 시작한다. 따라서 	# ui-curation 토큰 아티팩트: 1글자 인라인코드(`*`·`{`)로 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `JSX 주석은` + docs/dev/ui-gotcha-narratives.md §`tdd-guard` 주석 예외가 JSX 주석을 못 본 사례.
-의 stale 주석 1줄 정정 같은 편집이 단독으로는 pending test 없음으로 deny된다. **우회하지 말 것**(훅 비활성화·	# ui-curation 토큰 아티팩트: 같은 줄 1글자 인라인코드(`*`·`{`)로 짝이 밀린 산문 조각. 양 절반 보존 — ui/CLAUDE.md `우회하지 말 것` + docs/dev/ui-gotcha-narratives.md §`tdd-guard` 주석 예외가 JSX 주석을 못 본 사례.
