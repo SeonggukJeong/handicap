@@ -61,3 +61,12 @@ E3 plan은 `spec-plan-reviewer` **5라운드**를 돌아 clean `APPROVE` + `REVI
 - **컴파일러가 강제하는 churn 카운트는 틀려도 안전하다**(빌드가 수렴시킨다) — 그러나 틀린 숫자는 구현자를 유령 사이트 사냥으로 보낸다. brief엔 숫자와 함께 **"컴파일러가 권위"**를 명시하고, 편집하면 안 되는 매치(시그니처·impl·struct-update)를 열거해 줄 것.
 - **정정 자체도 가설이다**: 위 4번째를 정정한 뒤 "그럼 `report.run.profile`로 확인하면 되겠다"가 자연스러운 다음 수인데, 그것도 **같은 DB 행의 재직렬화**라 더 나은 오라클이 아니다(최종 리뷰가 지적). 사실을 고칠 때 그 사실이 *무엇을 위해* 인용됐는지까지 다시 볼 것.
 
+## 변경-후 상태에서만 실행 가능한 검산 — 시간-비대칭 부류 (doc-gate-precision, 2026-08-07)
+
+plan의 검산 명령 중 **변경-후 상태가 존재해야 실행 자체가 가능한 부류**(수술 후 diff를 검사하는 grep, 같은 plan의 앞 task가 삽입할 텍스트까지 세어야 하는 sweep keep-list)는 저작 시점 "두 상태" 규율([[spec-plan-authoring-selfcheck]])로 잡을 수 없다 — baseline은 돌릴 수 있지만 변경-후 arm은 상상으로만 쓰게 된다. doc-gate-precision에서 구현 STOP 2회가 모두 이 부류였다:
+
+- **T1 Step 9**: allowlist 수술 diff에서 "유지 행이 ± 줄로 등장하지 않는다"를 검사하는 grep이 무필터로 로그 전체를 스캔 → `git diff -U0`의 **hunk 헤더 function-context**(`@@ -16,5 +17,0 @@ preflight …` — git이 인접 문맥 행을 헤더에 에코)를 오탐. **diff 로그에 대한 내용-grep은 `^[+-]` 필터가 필수다.** 교정 커밋 `e8bd949c`.
+- **T2 sweep 3**: keep-list가 "이 파일은 :107 주석 1건만"으로 줄-단위 고정돼 있었는데, 같은 plan의 T1이 삽입한 새 주석(파일명 인용)과 그로 인한 줄 밀림(:107→:110)을 미반영 — plan이 자기 앞 task의 산출을 자기 뒤 task의 기대치에 못 넣은 것. 실측 정정 `e17497d7`.
+
+**정상 처리 경로가 두 번 다 실작동했다**: implementer는 Expected에 실측을 맞추려 명령·코드를 조작하지 않고 그 자리에서 STOP·BLOCKED 보고 → orchestrator가 주장을 기계 재현(리뷰 finding과 같은 지위 — [[review-findings-are-hypotheses]]) → plan을 실측으로 정정·커밋 → 재개. 비용은 라운드트립 2회. **처방은 규칙 추가가 아니라 표지**: 저작 시점에 이 부류 명령의 Expected에는 "작성 시점 실측 — 구현 중 재실측이 정본"(S1 규칙 동류)을 달아, implementer가 불일치를 결함이 아니라 실측-갱신 신호로 읽고 자신 있게 STOP하게 한다. brief에는 "불일치 시 STOP — 맞추려 조작 금지"를 명시해 두는 것이 이 경로의 전제였다.
+
