@@ -29,7 +29,7 @@
 **감축 수단 3종 (우선순위순)**:
 
 1. **서사 조각 압축** — 240–250 B 불릿 13개(C2)가 주 대상. 떼는 것: 슬라이스 출처 태그(`(E1; …)` 류), 예시 절, 정본·메모리에 이미 있는 부연. 남기는 것: 규칙의 지시(what to do)와 위반 신호(why it bites) 한 마디. 규칙 자체를 정본-only로 강등하는 것은 **금지** — 불릿의 존재 이유가 상시 로드다.
-2. **겹침 병합 1건** — L137(모델 라우팅, 248 B)·L138(2단계 리뷰, 250 B)이 모델 라우팅 내용을 나눠 들고 있다. 재배분: 라우팅 전체(기본 Sonnet · path-gate opus 승격 · `escalate: true` 재패스 · 승격=디스패처 · 정의된 3 리뷰어 `model: inherit`=Opus 유지 · `CLAUDE_CODE_SUBAGENT_MODEL` 설정 금지)를 한 불릿으로, "task별 2단계 review(spec-compliance→code-quality) 둘 다 APPROVED여야 다음"은 짧은 독립 불릿으로. 두 규칙 모두 생존(부록 A R16·R17). 불릿 수는 29→29(2불릿이 2불릿으로 재배분)라 R17(불릿 비감소) 자명 통과 — **manifest merge 행 불사용**.
+2. **겹침 쌍 압축 (재배분 실측 기각)** — L137(모델 라우팅, 248 B)·L138(2단계 리뷰, 250 B)이 모델 라우팅 내용을 나눠 들고 있다. 초판이 계획한 "라우팅 전체를 한 불릿으로" 재배분은 **plan 저작 시 실측 296 B > 캡 250 B로 불가**(C17) — 대신 현행 배분(라우팅 코어 / 2단계+정의된 리뷰어 inherit·env 금지)을 유지: 라우팅 불릿은 문면 유지(+마침표 1 B, 249 B), 2단계 불릿만 압축(250→205 B) — 합 454 B, 원본 498 B 대비 −44 B. 두 규칙 모두 생존(부록 A R16·R17). 불릿 수는 29→29라 R17(불릿 비감소) 자명 통과 — **manifest merge 행 불사용**.
 3. **프리앰블 압축** — 상단 blockquote를 짧게. 단 `[docs/dev/subagent-dispatch.md](…)` 링크(L1 검사 대상)와 "규칙 한 줄은 여기, 서사는 그 파일에" 규약 문장은 유지.
 
 **불변 제약**: `## Subagent dispatch 노하우` 헤딩 문자열·`- ` 불릿 마커·4그룹(`**brief/plan 작성**`/`**디스패치**`/`**리뷰**`/`**검증·재개 …**`) 구조 유지(게이트 검사 앵커), 각 불릿 ≤250 B, 압축으로 떼는 서사 조각 중 정본에 없는 사실은 **정본에 선-추가 후** root에서 제거(이동이지 삭제 아님 — 이 이동들이 §6 신규 manifest의 행이 된다).
@@ -129,8 +129,8 @@
 | R13 | L132 | implementer commit=단일 FOREGROUND(600000ms), background+poll 금지 / orchestrator 커밋은 background, 두 커밋 동시 금지 | 압축 |
 | R14 | L133 | 무거운 env-setup·외부 바이너리는 디스패치 전 pre-warm·실측(외부 바이너리 행동은 리뷰어가 못 잡음) | 압축 |
 | R15 | L134 | 1M 부모에서 `model:` 생략=즉사+가짜 completed — 항상 명시 / notification 0-tell이면 미실행, 메인 폴백 | 압축 |
-| R16 | L137 | 모델 라우팅: 기본 Sonnet · path-gate opus · `escalate` 재패스 · 승격=디스패처(자기승격 불가) | 병합 불릿 A(라우팅 통합) |
-| R17 | L138 | task별 2단계 review 둘 다 APPROVED / 정의된 3 리뷰어 `model: inherit` 유지·`CLAUDE_CODE_SUBAGENT_MODEL` 금지 | 2단계-APPROVED는 독립 불릿 B로, inherit·env 금지는 병합 불릿 A로 |
+| R16 | L137 | 모델 라우팅: 기본 Sonnet · path-gate opus · `escalate` 재패스 · 승격=디스패처(자기승격 불가) | 유지(249 B — 문면 동일+마침표, C17: 통합안 296 B 캡 초과 기각) |
+| R17 | L138 | task별 2단계 review 둘 다 APPROVED / 정의된 3 리뷰어 `model: inherit` 유지·`CLAUDE_CODE_SUBAGENT_MODEL` 금지 | 압축(205 B — 배분 유지, 동일 C17) |
 | R18 | L139 | 리뷰는 read-only만(`checkout`/`switch`/`stash` 금지 — attached HEAD 파괴) | 유지(128 B) |
 | R19 | L140 | 리뷰-수정 루프: read-only는 같은 subagent resume, 코드-fix는 fresh / clean APPROVE + 유한 valve(5회 초과=사용자 질문) | 압축 |
 | R20 | L141 | "later fold 가능"이어도 spec invariant 위반은 슬라이스 내 fix | 유지(137 B) |
@@ -247,3 +247,4 @@
 - C14 corpus 구성: `check-doc-coverage.py:82 corpus_paths()` — 리터럴 4 + `docs/dev/*.md` + `docs/adr/*.md` + `crates/*/CLAUDE.md` glob, 소스 자신 제외(주석 :208–209, 제외 코드 :212–213)
 - C15 ④ 누적-gain 코드·단본 크기: `sed -n '170,180p' scripts/check-doc-coverage.py` → `got = len(cur dest) − len(base dest)`, `got < Σ gain`이면 FAIL(:173–177); 단본 실측 `python len(encode())+1` → :16 = 689 B · :23 = 454 B · 합 1,143 B
 - C16 선례 BASE의 정체: `git log --oneline -1 f870cfd9` + `git log f870cfd9~1..cc8114ea | tail` → `f870cfd9`는 ui-claude-md-curation spec 커밋(`f58445fa`) **직전** 커밋 — "base = 큐레이션 직전 상태" 규약의 선례
+- C17 병합 재배분 실측 기각: python `len(encode())+1` — "라우팅 전체 통합" 불릿 296 B > 캡 250 B / 채택안 = 라우팅 코어 249 B + 2단계·inherit 205 B(원본 498 B 대비 −44 B)
