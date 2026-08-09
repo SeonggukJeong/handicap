@@ -1172,6 +1172,13 @@ export const ko = {
     reportGenerating: "리포트 생성 중…",
     // ── h2 Run 제목 ──
     heading: "실행",
+    // ── run-identity Task 7: 라벨 표시/편집(US4) + 설정 요약 줄(US6) ──
+    // 편집 버튼 aria는 WCAG 2.5.3 조립식(가시 라벨 + " 편집") — scenario-preflight의
+    // "가시 라벨 + 꼬리" 캐넌과 동일해 라벨 텍스트가 바뀌어도 접근명이 못 어긋난다.
+    labelEdit: (visible: string) => `${visible} 편집`,
+    labelInputAria: "실행 라벨",
+    labelEmpty: "라벨 없음",
+    labelSaveFail: "라벨 저장 실패",
   },
   runStall: {
     badge: "정지 의심",

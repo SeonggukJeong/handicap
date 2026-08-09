@@ -40,6 +40,7 @@ import { ko } from "../i18n/ko";
 import { HelpTip } from "./HelpTip";
 import { PoolCapacityError } from "../api/client";
 import { scaleVuStages, peakStageTarget } from "./sizing";
+import { RUN_LABEL_MAX_CHARS } from "../compare/runLabel";
 import { usePriorClosedRunAnchor } from "./VuSizingHelper";
 import { runSummary } from "./runSummary";
 import { StageCurvePreview } from "./StageCurvePreview";
@@ -663,7 +664,7 @@ export function RunDialog({
         <Input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          maxLength={200}
+          maxLength={RUN_LABEL_MAX_CHARS}
           placeholder={ko.runDialog.labelPlaceholder}
           aria-label={ko.runDialog.labelField}
         />

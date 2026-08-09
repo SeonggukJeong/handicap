@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   useAbortRun,
@@ -8,6 +8,7 @@ import {
   useRunMetrics,
   useRunReport,
   useScenario,
+  useUpdateRunLabel,
 } from "../api/hooks";
 import { useNow } from "../hooks/useNow";
 import { computeRunStall } from "../api/runStall";
@@ -33,8 +34,11 @@ import { resolveForDisplay } from "../scenario/template";
 import { RunVuCell } from "../components/RunVuCell";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
+import { Input } from "../components/ui/Input";
 import { TimeSeriesChart } from "../components/report/TimeSeriesChart";
 import { liveBySecond } from "../runs/liveSeries";
+import { profileSummary } from "../runs/profileSummary";
+import { runDisplayLabel, runShortLabel, RUN_LABEL_MAX_CHARS } from "../compare/runLabel";
 
 const TERMINAL: ReadonlyArray<RunStatus> = ["completed", "failed", "aborted"];
 
@@ -47,6 +51,12 @@ export function RunDetailPage() {
   const abort = useAbortRun(id ?? "");
   const createRun = useCreateRun();
   const createPreset = useCreatePreset(run.data?.scenario_id ?? "");
+  const updateLabel = useUpdateRunLabel();
+  // run-identity Task 7: 라벨 인라인 편집(US4) — ScenarioEditPage 이름-편집 캐넌(로컬
+  // draft·Enter/blur 커밋·ESC 취소 ref) 재사용, 편집 실패는 role=alert 배너로.
+  const [labelEditing, setLabelEditing] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
+  const labelEscapedRef = useRef(false);
   const terminal = run.data ? TERMINAL.includes(run.data.status) : false;
   const metrics = useRunMetrics(id, terminal);
   const report = useRunReport(id, terminal);
@@ -120,6 +130,25 @@ export function RunDetailPage() {
     });
   }
 
+  // run-identity Task 7 — 라벨 인라인 편집 시작/커밋(ScenarioEditPage 이름-편집 캐넌).
+  function startLabelEdit() {
+    labelEscapedRef.current = false;
+    setLabelDraft(r.label ?? "");
+    setLabelEditing(true);
+  }
+  function commitLabel() {
+    if (labelEscapedRef.current) {
+      labelEscapedRef.current = false;
+      setLabelEditing(false);
+      return;
+    }
+    setLabelEditing(false);
+    const trimmed = labelDraft.trim();
+    const next = trimmed.length === 0 ? null : trimmed;
+    if (next === (r.label ?? null)) return; // no-op — 미변경 커밋은 PUT 생략
+    updateLabel.mutate({ id: r.id, scenarioId: r.scenario_id, label: next });
+  }
+
   return (
     <div>
       <Breadcrumb
@@ -130,14 +159,14 @@ export function RunDetailPage() {
             to: `/scenarios/${r.scenario_id}`,
           },
           { label: ko.breadcrumb.runs, to: `/scenarios/${r.scenario_id}/runs` },
-          { label: `#${r.id.slice(0, 8)}` },
+          { label: runDisplayLabel(r.id, r.label) },
         ]}
       />
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-semibold flex items-center gap-3">
             {ko.runDetail.heading}{" "}
-            <span className="font-mono text-base text-slate-600">{r.id.slice(0, 8)}</span>
+            <span className="font-mono text-base text-slate-600">{runShortLabel(r.id)}</span>
           </h2>
           <StatusBadge status={r.status} />
           <VerdictBadge verdict={report.data?.verdict} />
@@ -192,6 +221,49 @@ export function RunDetailPage() {
           )}
         </div>
       </div>
+
+      {/* run-identity Task 7: 라벨 표시/편집(US4) — h2 밖 형제 행(배지 형제 배치 캐넌)
+          + 그 아래 설정 요약 한 줄(US6, profileSummary). */}
+      <div className="flex items-center gap-2 mb-1">
+        {labelEditing ? (
+          <div className="w-64">
+            <Input
+              autoFocus
+              aria-label={ko.runDetail.labelInputAria}
+              value={labelDraft}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onBlur={commitLabel}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitLabel();
+                if (e.key === "Escape") {
+                  labelEscapedRef.current = true;
+                  setLabelEditing(false);
+                }
+              }}
+              maxLength={RUN_LABEL_MAX_CHARS}
+              placeholder={ko.runDetail.labelEmpty}
+            />
+          </div>
+        ) : (
+          <>
+            <span className="text-sm text-slate-700">{runDisplayLabel(r.id, r.label)}</span>
+            <button
+              type="button"
+              onClick={startLabelEdit}
+              aria-label={ko.runDetail.labelEdit(runDisplayLabel(r.id, r.label))}
+              className="text-slate-500 hover:text-slate-700"
+            >
+              <span aria-hidden="true">✎</span>
+            </button>
+          </>
+        )}
+      </div>
+      <p className="text-sm text-slate-500 mb-6">{profileSummary(r.profile)}</p>
+      {updateLabel.error && (
+        <Callout variant="error" role="alert" className="mb-4">
+          {ko.runDetail.labelSaveFail}: {(updateLabel.error as Error).message}
+        </Callout>
+      )}
 
       {createRun.error && (
         <Callout variant="error" role="alert" className="mb-4">

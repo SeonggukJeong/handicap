@@ -3634,6 +3634,78 @@ describe("RunDialog — 라벨 (run-identity Task 6)", () => {
     });
   });
 
+  // fold-in (Task 6 리뷰): 3제출 경로 중 force만 무테스트였다 — 409 mock 이디엄 재사용,
+  // "용량 무시하고 강행" 클릭 후 2번째 /api/runs 호출 body에 label 잔존 + ?force=true.
+  it("force 제출 경로(용량 무시하고 강행)에서도 2번째 /api/runs 호출 body에 label이 잔존한다", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).includes("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-FORCE",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 20, ramp_up_seconds: 0, duration_seconds: 5 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockUsePoolWorkers.mockReturnValue({
+      data: { pool_mode: true, workers: [{ worker_id: "w1", hostname: "h1", capacity_vus: 10 }] },
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    const vusInput = screen.getByRole("spinbutton", { name: /동시 사용자/ });
+    await user.clear(vusInput);
+    await user.type(vusInput, "20");
+    await user.type(screen.getByRole("textbox", { name: ko.runDialog.labelField }), "풀 2배");
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+
+    await user.click(screen.getByRole("button", { name: ko.capacityGuard.force }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([u, i]) =>
+          typeof u === "string" &&
+          u.includes("/api/runs") &&
+          (i as RequestInit | undefined)?.method === "POST",
+      );
+      expect(calls.length).toBe(2);
+      expect(String(calls[1]![0])).toContain("?force=true");
+      const body = JSON.parse((calls[1]![1] as RequestInit).body as string);
+      expect(body.label).toBe("풀 2배");
+    });
+  });
+
   describe("프리셋 no-clobber", () => {
     function mockPresets() {
       fetchMock.mockImplementation((url: string, init?: RequestInit) => {

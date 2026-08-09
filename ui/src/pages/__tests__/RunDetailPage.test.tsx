@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { RunDetailPage } from "../RunDetailPage";
 import { ko } from "../../i18n/ko";
+import { queryKeys } from "../../api/hooks";
+import { profileSummary } from "../../runs/profileSummary";
 
 // jsdom does not implement URL.createObjectURL — the report's blob download path needs it.
 if (typeof URL.createObjectURL === "undefined") {
@@ -222,6 +224,7 @@ describe("RunDetailPage — retry (A1)", () => {
             started_at: 1,
             ended_at: 2,
             created_at: 1,
+            label: "이전 라벨",
           }),
         );
       }
@@ -278,6 +281,8 @@ describe("RunDetailPage — retry (A1)", () => {
       const body = JSON.parse((posted![1] as RequestInit).body as string);
       expect(body.profile.vus).toBe(6);
       expect(body.env).toEqual({ TOKEN: "abc" });
+      // fold-in (Task 6 리뷰): 즉시재실행 승계 — 원본 run의 label이 페이로드에 실린다.
+      expect(body.label).toBe("이전 라벨");
     });
   });
 
@@ -1169,7 +1174,9 @@ describe("RunDetailPage — heading과 배지 분리 (a11y-bundle C2)", () => {
     expect(screen.getByText(ko.report.failReasonTitle)).toBeInTheDocument();
 
     const h2 = screen.getByRole("heading", { level: 2, name: new RegExp(ko.runDetail.heading) });
-    expect(h2).toHaveAccessibleName(`${ko.runDetail.heading} RV2`);
+    // run-identity: h2 스팬이 raw id 앞8자(#RV2 였던 예전 `r.id.slice(0,8)`)가 아니라
+    // runShortLabel(=#끝6자, "RV2"는 6자 미만이라 전체가 그대로 꼬리)로 축약 통일됐다.
+    expect(h2).toHaveAccessibleName(`${ko.runDetail.heading} #RV2`);
   });
 });
 
@@ -1296,5 +1303,167 @@ describe("RunDetailPage — 라이브 궤적 섹션", () => {
     expect(
       screen.queryByRole("region", { name: ko.runDetail.liveSectionTitle }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run-identity Task 7: 라벨 표시·편집(US4 사후 편집) + 축약 통일(#끝6자) + 설정 요약
+// 줄(US6). `renderWithRouter`는 내부 QueryClient를 노출하지 않으므로, invalidate
+// 스파이가 필요한 이 블록만 별도 헬퍼로 qc를 함께 반환한다.
+// ---------------------------------------------------------------------------
+
+function renderRunDetailWithClient(runId: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const utils = render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[`/runs/${runId}`]}>
+        <Routes>
+          <Route path="/runs/:id" element={<RunDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { ...utils, qc };
+}
+
+describe("RunDetailPage — 라벨 표시·편집 + 축약 통일 + 설정 요약 (Task 7)", () => {
+  // 26자 ULID형 id — 앞8자(#01HXXXXX, 구 breadcrumb 축약)와 끝6자(#ABCDEF, 신규
+  // runShortLabel)가 서로 달라야 회귀가 판정 가능하다.
+  const LONG_ID = "01HXXXXXXXXXXABCDEF";
+
+  function mockRun(id: string, opts: { label?: string | null; profile?: unknown } = {}) {
+    let currentLabel = opts.label ?? null;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith(`/api/runs/${id}/label`) && init?.method === "PUT") {
+        currentLabel = (JSON.parse(init.body as string) as { label: string | null }).label;
+        return Promise.resolve(
+          jsonResponse({
+            id,
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "completed",
+            profile: opts.profile ?? { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
+            env: {},
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+            label: currentLabel,
+          }),
+        );
+      }
+      if (url.endsWith(`/api/runs/${id}`) && (!init || !init.method || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            id,
+            scenario_id: "S1",
+            scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+            status: "completed",
+            profile: opts.profile ?? { vus: 1, ramp_up_seconds: 0, duration_seconds: 5 },
+            env: {},
+            started_at: 1,
+            ended_at: 2,
+            created_at: 1,
+            label: currentLabel,
+          }),
+        );
+      }
+      if (url.endsWith(`/api/runs/${id}/metrics`)) {
+        return Promise.resolve(jsonResponse({ run_id: id, windows: [] }));
+      }
+      if (url.endsWith(`/api/runs/${id}/report`)) {
+        return Promise.resolve(jsonResponse({}, 404));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+  }
+
+  it("① breadcrumb: 라벨 있는 run → runDisplayLabel 값(라벨 텍스트)", async () => {
+    mockRun(LONG_ID, { label: "커넥션 풀 2배 후" });
+    renderRunDetailWithClient(LONG_ID);
+    const bc = await screen.findByRole("navigation", { name: ko.breadcrumb.ariaLabel });
+    expect(within(bc).getByText("커넥션 풀 2배 후")).toBeInTheDocument();
+  });
+
+  it("① breadcrumb: 무라벨 run → #끝6자 (앞8자 `#`+8hex 아님 — 기존 단언 갱신)", async () => {
+    mockRun(LONG_ID, { label: null });
+    renderRunDetailWithClient(LONG_ID);
+    const bc = await screen.findByRole("navigation", { name: ko.breadcrumb.ariaLabel });
+    expect(within(bc).getByText("#ABCDEF")).toBeInTheDocument();
+    expect(within(bc).queryByText(`#${LONG_ID.slice(0, 8)}`)).toBeNull();
+  });
+
+  it("② h2 스팬: #끝6자 (라벨 유무와 무관하게 항상 축약)", async () => {
+    mockRun(LONG_ID, { label: "커넥션 풀 2배 후" });
+    renderRunDetailWithClient(LONG_ID);
+    const h2 = await screen.findByRole("heading", {
+      level: 2,
+      name: new RegExp(ko.runDetail.heading),
+    });
+    expect(h2).toHaveTextContent("#ABCDEF");
+    expect(h2).not.toHaveTextContent(LONG_ID.slice(0, 8));
+  });
+
+  it("③ 라벨 행: 표시 → 연필 클릭 → input → 타이핑+Enter → PUT + invalidate 2키", async () => {
+    mockRun("RL1", { label: null });
+    const user = userEvent.setup();
+    const { qc } = renderRunDetailWithClient("RL1");
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+
+    const editBtn = await screen.findByRole("button", { name: "#RL1 편집" });
+    await user.click(editBtn);
+    const input = screen.getByRole("textbox", { name: ko.runDetail.labelInputAria });
+    await user.type(input, "새 라벨");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          typeof u === "string" &&
+          u.endsWith("/api/runs/RL1/label") &&
+          (i as RequestInit | undefined)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+      expect(JSON.parse((put![1] as RequestInit).body as string)).toEqual({ label: "새 라벨" });
+    });
+
+    // invalidate prefix가 runReport까지 도달(spec C24) — 여기선 두 키의 정확한 도달을 핀.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.run("RL1") });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.scenarioRuns("S1") });
+  });
+
+  it("③ ESC 취소 — 편집 input이 사라지고 PUT은 호출되지 않는다", async () => {
+    mockRun("RL2", { label: null });
+    const user = userEvent.setup();
+    renderRunDetailWithClient("RL2");
+
+    const editBtn = await screen.findByRole("button", { name: "#RL2 편집" });
+    await user.click(editBtn);
+    const input = screen.getByRole("textbox", { name: ko.runDetail.labelInputAria });
+    await user.type(input, "취소될 라벨");
+    await user.keyboard("{Escape}");
+
+    expect(
+      screen.queryByRole("textbox", { name: ko.runDetail.labelInputAria }),
+    ).not.toBeInTheDocument();
+    // 편집이 아니라 표시 상태로 복귀했음을 편집 버튼 재등장으로 확인(다른 값 아님 = 취소 성공).
+    expect(await screen.findByRole("button", { name: "#RL2 편집" })).toBeInTheDocument();
+
+    const put = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        typeof u === "string" &&
+        u.endsWith("/api/runs/RL2/label") &&
+        (i as RequestInit | undefined)?.method === "PUT",
+    );
+    expect(put).toBeUndefined();
+  });
+
+  it("④ 요약 줄: profileSummary 값 + 렌더 숫자 (US6)", async () => {
+    const profile = { vus: 3, ramp_up_seconds: 0, duration_seconds: 45 };
+    mockRun("SUM1", { profile });
+    renderRunDetailWithClient("SUM1");
+    const expected = profileSummary(profile);
+    const p = await screen.findByText(expected);
+    expect(p.textContent).toContain("3");
+    expect(p.textContent).toContain("45");
   });
 });

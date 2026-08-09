@@ -265,6 +265,10 @@ export const api = {
       { method: "POST" },
       z.object({}).passthrough(),
     ),
+  // run-identity Task 7: 사후 라벨 편집(US4) — Task 3 PUT /api/runs/{id}/label,
+  // body {label: string|null}(빈 문자열=제거는 호출부가 trim해 null로 넘긴다) → RunResponse.
+  updateRunLabel: (id: string, label: string | null) =>
+    request(`/runs/${id}/label`, { method: "PUT", body: JSON.stringify({ label }) }, RunSchema),
   listDatasets: () => request("/datasets", { method: "GET" }, DatasetListSchema),
   getDataset: (id: string) =>
     request(`/datasets/${encodeURIComponent(id)}`, { method: "GET" }, DatasetSchema),

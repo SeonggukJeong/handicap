@@ -185,6 +185,21 @@ export function useRun(id: string | undefined) {
   });
 }
 
+// run-identity Task 7: 사후 라벨 편집(US4). invalidate 프리픽스 `runs(id)`가
+// `["runs", id, "report"]`(runReport)까지 도달(spec C24) — 라벨을 포함한 리포트
+// 파생 표면도 함께 신선해진다.
+export function useUpdateRunLabel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, label }: { id: string; scenarioId: string; label: string | null }) =>
+      api.updateRunLabel(id, label),
+    onSuccess: (_run, vars) => {
+      qc.invalidateQueries({ queryKey: queryKeys.run(vars.id) }); // prefix → report까지
+      qc.invalidateQueries({ queryKey: queryKeys.scenarioRuns(vars.scenarioId) });
+    },
+  });
+}
+
 export function useAbortRun(runId: string) {
   const qc = useQueryClient();
   return useMutation({

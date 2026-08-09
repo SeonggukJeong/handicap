@@ -1,5 +1,10 @@
 // runLabel.ts — run 표시 정체성(짧은 라벨 + 위치-인덱스 색)을 비교 매트릭스 헤더와
 // 오버레이 범례가 공유해 두 표면이 절대 어긋나지 않게 하는 단일 소스(spec R1/R5).
+
+/** 서버 `normalize_label`(controller)의 200자(chars().count()) 상한과 동기 — 클라
+ *  라벨 입력의 `maxLength`는 전부 이 상수를 경유(run-identity Task 7 fold-in). */
+export const RUN_LABEL_MAX_CHARS = 200;
+
 export function runShortLabel(id: string): string {
   return `#${id.slice(-6)}`;
 }
