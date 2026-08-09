@@ -400,6 +400,11 @@ export function ScenarioRunsPage() {
                             <button
                               type="button"
                               onClick={() => {
+                                // 재리뷰 gap fix: RunDetailPage.tsx startLabelEdit()의
+                                // labelEscapedRef 리셋을 미러 — 없으면 ESC 후 blur가
+                                // 발화하지 않는 브라우저에서 플래그가 true로 남아 *다음*
+                                // 정상 편집의 commitLabel이 escape 분기를 타 조용히 버려진다.
+                                labelEscapedRef.current = false;
                                 setEditingLabelId(r.id);
                                 setLabelDraft(r.label ?? "");
                               }}

@@ -873,6 +873,40 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
     expect(put).toBeUndefined();
   });
 
+  it("ESC 취소 뒤 재편집 시작은 억제 플래그를 리셋한다 (재리뷰 gap — edit-start 리셋)", async () => {
+    const user = userEvent.setup();
+    mockApiLabelFlow();
+    renderPage();
+
+    // 1) 편집 시작 → ESC(억제 플래그 세팅, blur는 발화 안 시킴 — 실브라우저의
+    //    remove-on-focus blur 비보장 시나리오를 재현: 플래그가 리셋 없이 true로 남는다).
+    const editBtn1 = await screen.findByRole("button", { name: "#R1 라벨 편집" });
+    await user.click(editBtn1);
+    const input1 = screen.getByRole("textbox", { name: "#R1 라벨 편집" });
+    fireEvent.keyDown(input1, { key: "Escape" });
+    expect(await screen.findByRole("button", { name: "#R1 라벨 편집" })).toBeInTheDocument();
+
+    // 2) 재편집 시작 → 실제 변경 입력 → Enter 커밋.
+    const editBtn2 = screen.getByRole("button", { name: "#R1 라벨 편집" });
+    await user.click(editBtn2);
+    const input2 = screen.getByRole("textbox", { name: "#R1 라벨 편집" });
+    await user.type(input2, "정상 커밋될 라벨");
+    await user.keyboard("{Enter}");
+
+    // edit-start 리셋이 없으면 commitLabel이 (leftover) escape 분기를 타 PUT 없이 조용히
+    // 편집기만 닫힌다 — 리셋이 있어야 실제 PUT이 나간다.
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/api/runs/R1/label") && (i as RequestInit)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+      expect(JSON.parse((put![1] as RequestInit).body as string)).toEqual({
+        label: "정상 커밋될 라벨",
+      });
+    });
+  });
+
   it("라벨 셀은 긴 라벨을 truncate + title로 노출한다 (M4)", async () => {
     const longLabel = "가".repeat(200);
     const labeled = makeRun("LBL3", "completed", 100);
