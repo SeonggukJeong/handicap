@@ -1196,6 +1196,11 @@ export const ko = {
     openCurve: (peak: number, s: number) => `열린 곡선 최대 ${peak}/s · ${s}s`,
   },
   runFilter: {
+    // run-identity Task 8: 목록 라벨 열 + 인라인 편집(US4/US2·US5 관찰). aria는 WCAG 2.5.3
+    // 조립식(가시 라벨 + " 라벨 편집") — runDetail.labelEdit(" 편집")과는 다른 문구(목록
+    // 전용 함수형 키, 자기참조 회피용 명명 분리).
+    labelCol: "라벨",
+    labelEditAria: (name: string) => `${name} 라벨 편집`,
     verdictLabel: "결과",
     statusLabel: "상태",
     modeLabel: "부하모드",

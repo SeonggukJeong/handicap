@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { downloadFile } from "../api/download";
-import { useCreateRun, useScenario, useScenarioRuns } from "../api/hooks";
+import { useCreateRun, useScenario, useScenarioRuns, useUpdateRunLabel } from "../api/hooks";
 import { formatDurationKo } from "../i18n/duration";
 import { useNow } from "../hooks/useNow";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../api/runPrefill";
 import type { Run } from "../api/schemas";
 import { Callout } from "../components/ui/Callout";
+import { Input } from "../components/ui/Input";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
@@ -25,6 +26,7 @@ import { RunVuCell } from "../components/RunVuCell";
 import { ko } from "../i18n/ko";
 import { isLoopStep } from "../scenario/model";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
+import { runDisplayLabel, runShortLabel, RUN_LABEL_MAX_CHARS } from "../compare/runLabel";
 import {
   DEFAULT_SORT,
   filterRuns,
@@ -52,10 +54,23 @@ export function ScenarioRunsPage() {
   const scenario = useScenario(id);
   const runs = useScenarioRuns(id);
   const createRun = useCreateRun();
+  const updateLabel = useUpdateRunLabel();
   const [showDialog, setShowDialog] = useState(false);
   const [prefillState, setPrefillState] = useState<PrefillState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportErr, setExportErr] = useState<string | null>(null);
+  // run-identity Task 8: 목록 인라인 라벨 편집(US4) — 페이지 레벨 1쌍(한 번에 한 행 편집).
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [labelDraft, setLabelDraft] = useState("");
+
+  // onSuccess에서만 편집 종료=draft 폐기 — invalidate 재페치가 서버 값을 렌더하게 한다
+  // (per-row stale draft 함정 회피, brief Step 4 이빨 실증 대상).
+  function commitLabel(r: Run) {
+    updateLabel.mutate(
+      { id: r.id, scenarioId: r.scenario_id, label: labelDraft.trim() || null },
+      { onSuccess: () => setEditingLabelId(null) },
+    );
+  }
 
   const hasRunning = runs.data?.runs.some((r) => r.status === "running") ?? false;
   const now = useNow(hasRunning ? 1000 : null);
@@ -186,6 +201,12 @@ export function ScenarioRunsPage() {
         </Callout>
       )}
 
+      {updateLabel.error && (
+        <Callout variant="error" role="alert" className="mb-4">
+          {ko.runDetail.labelSaveFail}: {(updateLabel.error as Error).message}
+        </Callout>
+      )}
+
       {runs.isLoading && <p className="text-slate-500">{ko.common.loadingRuns}</p>}
       {runs.data && runs.data.runs.length === 0 && (
         <EmptyState
@@ -283,6 +304,7 @@ export function ScenarioRunsPage() {
                 <thead className="border-b border-slate-200 text-left text-slate-600">
                   <tr>
                     <th className="py-2 pr-2 font-medium">비교</th>
+                    <th className="py-2 pr-4 font-medium">{ko.runFilter.labelCol}</th>
                     <SortableTh
                       field="status"
                       label={ko.runFilter.statusLabel}
@@ -336,6 +358,44 @@ export function ScenarioRunsPage() {
                             onChange={() => toggleSelect(r.id)}
                             aria-label={ko.report.selectRunAria(r.id)}
                           />
+                        </td>
+                        <td className="py-3 pr-4">
+                          {editingLabelId === r.id ? (
+                            <Input
+                              value={labelDraft}
+                              onChange={(e) => setLabelDraft(e.target.value)}
+                              maxLength={RUN_LABEL_MAX_CHARS}
+                              aria-label={ko.runFilter.labelEditAria(
+                                runDisplayLabel(r.id, r.label),
+                              )}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitLabel(r);
+                                if (e.key === "Escape") setEditingLabelId(null);
+                              }}
+                              onBlur={() => commitLabel(r)}
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingLabelId(r.id);
+                                setLabelDraft(r.label ?? "");
+                              }}
+                              className="text-left hover:underline"
+                              aria-label={ko.runFilter.labelEditAria(
+                                runDisplayLabel(r.id, r.label),
+                              )}
+                            >
+                              {r.label ? (
+                                r.label
+                              ) : (
+                                <span className="font-mono text-slate-400">
+                                  {runShortLabel(r.id)}
+                                </span>
+                              )}
+                            </button>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           <StatusBadge status={r.status} />

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ko } from "../../i18n/ko";
+import { runShortLabel } from "../../compare/runLabel";
 import { ScenarioRunsPage } from "../ScenarioRunsPage";
 
 const fetchMock = vi.fn();
@@ -617,5 +618,102 @@ describe("ScenarioRunsPage — filter/sort (run-list-filter-sort)", () => {
     await user.click(screen.getByRole("button", { name: ko.runFilter.statusRunning }));
     await screen.findByText(ko.runFilter.count(1, 3));
     expect(screen.getByRole("button", { name: "비교 (2)" })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 8: run 목록 라벨 열 + 인라인 편집 (US4 사후 편집 — 목록 / US2·US5 목록 관찰)
+// ---------------------------------------------------------------------------
+
+/** PUT /api/runs/R1/label 후 다음 목록 GET이 "다른" label을 돌려주는 상태 보존 mock —
+ *  onSuccess의 setEditing(null)이 없으면 stale draft가 남는 이빨(brief Step 4). */
+function mockApiLabelFlow() {
+  let serverLabel: string | null = null;
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith("/api/scenarios/S1") && (!init || init.method === "GET")) {
+      return Promise.resolve(
+        jsonResponse({
+          id: "S1",
+          name: "demo",
+          yaml: SCENARIO_YAML,
+          version: 1,
+          created_at: 1,
+          updated_at: 1,
+        }),
+      );
+    }
+    if (url.endsWith("/api/scenarios/S1/runs")) {
+      return Promise.resolve(jsonResponse({ runs: [runRow({ label: serverLabel })] }));
+    }
+    if (url.endsWith("/api/datasets")) {
+      return Promise.resolve(jsonResponse({ datasets: [] }));
+    }
+    if (url.endsWith("/api/runs/R1/label") && init?.method === "PUT") {
+      serverLabel = "서버값(다른라벨)";
+      return Promise.resolve(jsonResponse(runRow({ label: serverLabel })));
+    }
+    return Promise.resolve(jsonResponse({}, 404));
+  });
+}
+
+describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
+  it("라벨 열 헤더가 '비교' 뒤·'상태' 앞에 plain th로 존재한다(정렬 비대상)", async () => {
+    mockApi();
+    renderPage();
+    await screen.findByRole("button", { name: "다시 실행" });
+    const header = screen.getByRole("columnheader", { name: ko.runFilter.labelCol });
+    expect(header.tagName).toBe("TH");
+    expect(header).not.toHaveAttribute("aria-sort");
+
+    const headers = screen.getAllByRole("columnheader");
+    const labelIdx = headers.indexOf(header);
+    expect(headers[labelIdx - 1]).toHaveTextContent("비교");
+    expect(within(headers[labelIdx + 1]).getByText(ko.runFilter.statusLabel)).toBeInTheDocument();
+  });
+
+  it("라벨 있는 행은 라벨 텍스트, 없는 행은 muted #끝6자를 셀에 보여준다", async () => {
+    const labeled = makeRun("LBL1", "completed", 100);
+    (labeled as Record<string, unknown>).label = "커넥션 풀 2배";
+    const unlabeled = makeRun("NOLBL2", "completed", 200);
+    mockApiRuns([labeled, unlabeled]);
+    renderPageWithCompare();
+
+    const row1 = (await screen.findByLabelText("실행 LBL1 선택")).closest("tr")!;
+    expect(within(row1).getByText("커넥션 풀 2배")).toBeInTheDocument();
+
+    const row2 = screen.getByLabelText("실행 NOLBL2 선택").closest("tr")!;
+    const shortEl = within(row2).getByText(runShortLabel("NOLBL2"));
+    expect(shortEl).toBeInTheDocument();
+    expect(shortEl).toHaveClass("text-slate-400");
+  });
+
+  it("셀 편집: 편집 클릭→타이핑→Enter→PUT + 성공 후 서버 값 표시(stale draft 회귀 가드)", async () => {
+    const user = userEvent.setup();
+    mockApiLabelFlow();
+    renderPage();
+
+    const editBtn = await screen.findByRole("button", {
+      name: ko.runFilter.labelEditAria(runShortLabel("R1")),
+    });
+    await user.click(editBtn);
+
+    const input = screen.getByRole("textbox", {
+      name: ko.runFilter.labelEditAria(runShortLabel("R1")),
+    });
+    await user.type(input, "내가 입력한 초안");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/api/runs/R1/label") && (i as RequestInit)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+    });
+
+    // 이빨: onSuccess에서 setEditing(null)이 없으면 input이 draft("내가 입력한 초안")를
+    // 계속 보여준다 — invalidate 재페치로 서버 값("서버값(다른라벨)")이 대신 보여야 GREEN.
+    expect(await screen.findByText("서버값(다른라벨)")).toBeInTheDocument();
+    expect(screen.queryByText("내가 입력한 초안")).toBeNull();
   });
 });

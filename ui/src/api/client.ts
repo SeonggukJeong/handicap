@@ -267,8 +267,14 @@ export const api = {
     ),
   // run-identity Task 7: 사후 라벨 편집(US4) — Task 3 PUT /api/runs/{id}/label,
   // body {label: string|null}(빈 문자열=제거는 호출부가 trim해 null로 넘긴다) → RunResponse.
+  // Task 8 fold-in(리뷰): 형제 run 엔드포인트 전부의 encodeURIComponent(id) 패턴으로
+  // retrofit — id는 ULID라 실질 값 불변, 기존 테스트 무영향.
   updateRunLabel: (id: string, label: string | null) =>
-    request(`/runs/${id}/label`, { method: "PUT", body: JSON.stringify({ label }) }, RunSchema),
+    request(
+      `/runs/${encodeURIComponent(id)}/label`,
+      { method: "PUT", body: JSON.stringify({ label }) },
+      RunSchema,
+    ),
   listDatasets: () => request("/datasets", { method: "GET" }, DatasetListSchema),
   getDataset: (id: string) =>
     request(`/datasets/${encodeURIComponent(id)}`, { method: "GET" }, DatasetSchema),
