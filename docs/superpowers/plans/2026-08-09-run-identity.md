@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **라벨 규칙**: trim → 빈=None(제거), **문자 수**(`chars().count()`) 200 초과=400. 유니크 강제 없음. 스케줄러 경로만 truncate(`chars().take(200)`) — **바이트 슬라이스 `&s[..200]` 금지**(char-boundary panic).
-- **Zod 3종 분기**(spec §5): `RunResponse.label`=plain Option→null→`.nullish()` / `ReportRun.label`=`#[serde(default, skip_serializing_if)]`→absent→`.optional()`. 혼동 금지.
+- **Zod 2종 분기**(spec §5): `RunResponse.label`=plain Option→null→`.nullish()` / `ReportRun.label`=`#[serde(default, skip_serializing_if)]`→absent→`.optional()`. 혼동 금지.
 - **byte-identical**: 무라벨 payload에 `label` 키 자체가 없어야 함(조건부 spread — `label: undefined` 금지). 무라벨 run 리포트 JSON 키셋 불변. 기본 URL(파라미터 0) byte-identical.
 - **ko 카탈로그**(ADR-0035): 모든 사용자 노출 문구·aria는 `ko.ts` 경유. 신규↔기존 양방향 부분문자열 sweep. `ko.*(n)` 보간 단언엔 렌더 숫자 별도 단언 병기.
 - **게이트**: UI task는 커밋 전 `pnpm lint && pnpm test && pnpm build`(전체), Rust task는 pre-commit cargo 게이트. 파이프 금지(`; echo exit=$?`). cargo-영향 커밋은 수 분 — 그동안 다른 cargo 호출 금지.
@@ -26,19 +26,23 @@
 - Modify: `crates/controller/src/store/mod.rs` (0021 가드 함수 + `connect()` 배선 — `ensure_runs_verdict_json` `:175-187` 미러)
 - Modify: `crates/controller/src/store/runs.rs` (`RunRow` `:255-269`·`insert` `:271-310`·`get` `:311+`·목록 SELECT·신규 `update_label`·인라인 테스트)
 - Modify (기계적 — `insert` 호출에 `None` 추가): `crates/controller/tests/crash_recovery_test.rs`(5곳) · `tests/export_routes_test.rs`(4곳) · `tests/dispatcher_subprocess_test.rs`(1곳) · `tests/report_test.rs`(1곳) · `src/schedule/runner.rs:404` · `src/grpc/coordinator.rs:1843,1970` · `src/store/schedules.rs:619` · `src/store/runs.rs:692,747`(bare) · `src/api/runs.rs:679`(프로덕션 — 이 task에선 `None`, Task 2가 실값 배선)
+- Modify (기계적 — `RunRow` **리터럴**에 `label: None` 추가, 위 호출처 축과 별개): `crates/controller/src/report.rs:997`(`run_row()` 테스트 헬퍼 — Task 4 이전이지만 **이 task 스코프가 맞다**, RunRow 필드 추가가 깨뜨림)
 
 **Interfaces:**
+- US: US2·US4·US5의 저장 토대(단독 관찰 US 없음 — 전 task의 전제)
 - Produces: `runs::insert(db, scenario_id, scenario_yaml, profile, env, label: Option<&str>) -> sqlx::Result<RunRow>` · `runs::update_label(db, id: &str, label: Option<&str>) -> sqlx::Result<Option<RunRow>>` · `RunRow.label: Option<String>`
 - Consumes: 없음 (phase 1 선두)
 
-- [ ] **Step 1: 실패 테스트 작성** — `store/runs.rs`의 기존 `#[cfg(test)] mod tests`에 추가 (기존 테스트 헬퍼 `test_db`/시나리오 시드 이디엄 재사용 — `:667` 부근 기존 테스트가 모델):
+- [ ] **Step 1: 실패 테스트 작성** — ① `store/runs.rs`의 기존 `#[cfg(test)] mod tests`에 추가. **시나리오 시드와 `Profile` 리터럴 둘 다 이 파일 기존 테스트(`:665-691`)에서 복사할 것** — `scenarios::insert`는 `(db, &Scenario, yaml)` 시그니처라 `serde_yaml::from_str` 선행이 필요하고, `Profile`은 **Default 미구현**이라 전 필드 명시 리터럴이어야 한다(아래 스니펫의 두 표기는 축약 — 실제 형태는 `:665-691` verbatim):
 
 ```rust
 #[tokio::test]
 async fn insert_and_update_label_round_trip() {
     let db = test_db().await;
-    let sc = scenarios::insert(&db, "label-sc", "version: 1\nname: label-sc\nsteps: []").await.unwrap();
-    let profile = Profile { vus: 1, duration_seconds: 1, ..Default::default() };
+    let yaml = "version: 1\nname: label-sc\nsteps: []";
+    let scenario: Scenario = serde_yaml::from_str(yaml).unwrap(); // :665-667 이디엄
+    let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+    let profile = /* :670-691의 전-필드 Profile 리터럴 복사 (Default 없음) */;
     // 유라벨 insert → get 왕복
     let run = insert(&db, &sc.id, "y", &profile, &serde_json::json!({}), Some("커넥션 풀 2배 후"))
         .await.unwrap();
@@ -57,7 +61,7 @@ async fn insert_and_update_label_round_trip() {
 }
 ```
 
-주의: `Profile::default()`가 없으면(struct에 Default 미구현) 기존 테스트가 쓰는 profile 생성 이디엄을 그대로 복사할 것 — **이 파일의 기존 테스트(`:692` 부근)가 실제로 쓰는 형태가 권위**다.
+② `store/mod.rs`의 기존 `mod tests`에 **무조건** 멱등 테스트 추가 — 기존 `ensure_runs_verdict_json_is_idempotent`(`store/mod.rs:435`)를 이름만 바꿔 verbatim 미러(그 테스트의 "FIRST guard call…" 주석이 문서화한 호출-순서 미묘함까지 포함): `ensure_runs_label_is_idempotent` — 가드 2회 호출 후 Ok + 컬럼 존재 확인. 기존 멱등 테스트들(`:337`/`:435`/`:548`/`:610`)은 **`ensure_runs_label`을 실행하지 않으므로 통과 확인으로 대체 불가**(spec §12 의무).
 
 - [ ] **Step 2: RED 확인** — `cargo test -p handicap-controller --lib store::runs 2>&1 | tail -5; echo exit=$?` → `insert` 인자 개수/`update_label` 미정의 컴파일 에러 = RED.
 - [ ] **Step 3: 구현** — ① `store/mod.rs`에 0021 가드(+`connect()`에서 `ensure_runs_verdict_json` 배선 직후 호출):
@@ -97,7 +101,7 @@ pub async fn update_label(db: &Db, id: &str, label: Option<&str>) -> sqlx::Resul
 
 ⑥ 위 Files의 **전 호출 사이트에 `None` 부착**(컴파일러가 전부 지적 — `cargo build --workspace --tests`가 0 에러가 될 때까지).
 
-- [ ] **Step 4: GREEN 확인** — `cargo build --workspace --tests 2>&1 | tail -3; echo exit=$?` 후 `cargo test -p handicap-controller --lib store::runs 2>&1 | tail -5; echo exit=$?` → PASS. 멱등성: 기존 connect-재실행류 테스트가 있으면 통과 확인, 없으면 인라인 `ensure_runs_label` 2회 호출 테스트 1개 추가(가드 함수 직접 2회 await → Ok).
+- [ ] **Step 4: GREEN 확인** — `cargo build --workspace --tests 2>&1 | tail -3; echo exit=$?` 후 `cargo test -p handicap-controller --lib 2>&1 | tail -5; echo exit=$?` → PASS(Step 1의 round-trip + 멱등 테스트 둘 다).
 - [ ] **Step 5: 커밋** — `git add -A && git commit -m "feat(store): runs.label 컬럼(0021)+insert/update_label"` (cargo 게이트 수 분 — FOREGROUND 600000ms).
 
 ### Task 2: create·스케줄러 라벨 관통 — `normalize_label` + `CreateRunRequest.label` + `spawn_run` 7-param + `RunResponse.label`
@@ -108,6 +112,7 @@ pub async fn update_label(db: &Db, id: &str, label: Option<&str>) -> sqlx::Resul
 - Test: `crates/controller/tests/api_test.rs` (create-with-label 통합)
 
 **Interfaces:**
+- US: US2(생성 시 라벨 — 서버 절반)·US5(스케줄 자동 라벨)
 - Consumes: Task 1 `runs::insert(…, label)`.
 - Produces: `normalize_label(raw: Option<String>) -> Result<Option<String>, String>` · `spawn_run(state, scenario, profile, validated_metas, env, force, label: Option<&str>)` · `RunResponse.label: Option<String>`(plain — None→JSON null) · 스케줄 발사 run은 `label == Some(스케줄이름 trim·200자)`.
 
@@ -179,6 +184,7 @@ fn schedule_label(name: &str) -> String {
 - Test: `crates/controller/tests/api_test.rs`
 
 **Interfaces:**
+- US: US4(사후 편집 — 서버 절반)
 - Consumes: Task 1 `update_label` · Task 2 `normalize_label`·`RunResponse.label`.
 - Produces: `PUT /api/runs/{id}/label` body `{"label": string|null}` → 200 `RunResponse` / 404 / 400.
 
@@ -206,7 +212,7 @@ pub async fn update_label(
 }
 ```
 
-`app.rs`: 기존 `/runs/{id}/abort` 라우트 옆에 `.route("/runs/{id}/label", put(api::runs::update_label))`(axum 0.8 `{id}` 문법·`put` import 확인).
+`app.rs`: 기존 `/runs/{id}/abort` 라우트 옆에 `.route("/runs/{id}/label", put(runs_api::update_label))` — **모듈 별칭 주의**: `app.rs:8-13`이 `runs as runs_api`로 임포트한다(`api::runs::` 직접 경로 아님). `put`은 `app.rs:5`에 이미 임포트됨.
 
 - [ ] **Step 4: GREEN 확인** — `cargo test -p handicap-controller --test api_test 2>&1 | tail -5; echo exit=$?` → PASS. 전체 `cargo test -p handicap-controller`도 1회.
 - [ ] **Step 5: 커밋** — `git commit -m "feat(api): PUT /api/runs/{id}/label 사후 편집"`.
@@ -218,6 +224,7 @@ pub async fn update_label(
 - Modify: `crates/controller/src/export.rs` (픽스처 `:603`·Runs 시트 `:407-425`·라운드트립 테스트 `:901+`)
 
 **Interfaces:**
+- US: US1(비교 표면 와이어)·US6(XLSX Runs 시트 label 열)
 - Consumes: Task 1 `RunRow.label`.
 - Produces: `ReportRun.label: Option<String>`(`#[serde(default, skip_serializing_if = "Option::is_none")]` — 무라벨 absent) · Runs 시트 헤더 `["run_id","label","status","started_at","ended_at","count"]`.
 
@@ -254,6 +261,7 @@ fn report_run_label_serialization_two_states() {
 - Test: `ui/src/compare/__tests__/runLabel.test.ts`(신규) · `ui/src/runs/__tests__/profileSummary.test.ts`(신규) · 기존 스키마 파싱 테스트 파일이 있으면 거기, 없으면 `ui/src/api/__tests__/schemas.label.test.ts`(신규)
 
 **Interfaces:**
+- US: US1~US6 공통 토대(스키마 파싱·표시 폴백·설정 요약)
 - Consumes: Task 2·4 와이어.
 - Produces: `RunSchema.label: z.string().nullish()` · `ReportRunSchema.label: z.string().optional()` · `runDisplayLabel(id: string, label?: string | null): string` · `profileSummary(p: Pick<Profile, "vus" | "target_rps" | "stages" | "vu_stages" | "duration_seconds">): string` · `ko.runSummary.{closedFixed(vus,s), closedCurve(peak,s), openFixed(rps,s), openCurve(peak,s)}`.
 
@@ -337,11 +345,12 @@ runSummary: {
 **Files:**
 - Modify: `ui/src/api/client.ts` (`createRunImpl` `:47-57`·`api.createRun` `:242-247`) · `ui/src/api/hooks.ts` (`useCreateRun` `:149-167`) · `ui/src/api/runPrefill.ts` (`RunPrefill` `:67`)
 - Modify: `ui/src/components/RunDialog.tsx` (라벨 state+입력·`loadPreset` `:330`·mutate 3곳 `:1206`/`:1222`/`:1288`)
-- Modify: `ui/src/pages/ScenarioRunsPage.tsx` (`setPrefillState` `:104`/`:382`·즉시 재실행 `:396`) · `ui/src/pages/RunDetailPage.tsx` (다시 실행 mutate `:162`)
+- Modify: `ui/src/pages/ScenarioRunsPage.tsx` (`setPrefillState` `:104`/`:382`·즉시 재실행 `:396`) · `ui/src/pages/RunDetailPage.tsx` (**"동일 설정 즉시 재실행"** 버튼 mutate `:162` — "다시 실행"은 `:177`의 `<Link>`라 별개, 문구 grep 시 혼동 주의)
 - Modify: `ui/src/i18n/ko.ts` (라벨 입력 라벨/placeholder)
 - Test: `ui/src/components/__tests__/RunDialog.test.tsx`(기존 파일 확장 — 정확 파일명은 `ls ui/src/components/__tests__/ | grep -i rundialog`로 확정) · `ui/src/pages/__tests__/ScenarioRunsPage.test.tsx`
 
 **Interfaces:**
+- US: US2(생성 시 라벨 — UI 절반, 라벨 승계 포함)
 - Consumes: Task 5 `RunSchema.label`.
 - Produces: `api.createRun(scenario_id, profile, env, opts?: { force?: boolean; label?: string })` · `useCreateRun` vars `{ scenarioId, profile, env, force?, label? }` · `RunPrefill = { profile; env; label?: string | null }`.
 - **주의(리뷰어 당부)**: 4계층+제출 3곳은 **이 한 task에서 전부** — 쪼개면 풀-용량 clamp 경로가 라벨을 조용히 유실([[load-divergence-explain-confirm]] 클래스).
@@ -384,6 +393,7 @@ runSummary: {
 - Test: `ui/src/pages/__tests__/RunDetailPage.test.tsx`(기존 확장)
 
 **Interfaces:**
+- US: US4(사후 편집 — 상세)·US6(상세 설정 요약 줄)
 - Consumes: Task 3 PUT·Task 5 `runDisplayLabel`/`profileSummary`.
 - Produces: `api.updateRunLabel(id: string, label: string | null): Promise<Run>` · `useUpdateRunLabel()`(mutationFn `{ id, scenarioId, label }` — onSuccess에서 `qc.invalidateQueries({ queryKey: queryKeys.run(id) })`(**prefix가 `runReport`까지 도달** — spec C24) + `qc.invalidateQueries({ queryKey: queryKeys.scenarioRuns(scenarioId) })`).
 
@@ -424,6 +434,7 @@ export function useUpdateRunLabel() {
 - Test: `ui/src/pages/__tests__/ScenarioRunsPage.test.tsx`
 
 **Interfaces:**
+- US: US4(사후 편집 — 목록)·US2/US5의 목록 관찰(라벨 열 표시)
 - Consumes: Task 5 `runDisplayLabel` · Task 7 `useUpdateRunLabel`.
 - Produces: "라벨" 열("비교" 뒤·"상태" 앞, **plain `<th>`** — `SortableTh`/`aria-sort` 비대상).
 
@@ -448,14 +459,14 @@ export function useUpdateRunLabel() {
   ) : (
     <button type="button" onClick={() => { setEditing(r.id); setDraft(r.label ?? ""); }}
       className="text-left hover:underline"
-      aria-label={`${runDisplayLabel(r.id, r.label)} 라벨 편집`}>
+      aria-label={ko.runFilter.labelEditAria(runDisplayLabel(r.id, r.label))}>
       {r.label ? r.label : <span className="font-mono text-slate-400">{runShortLabel(r.id)}</span>}
     </button>
   )}
 </td>
 ```
 
-`commitLabel`: `updateLabel.mutate({ id: r.id, scenarioId: r.scenario_id, label: draft.trim() || null }, { onSuccess: () => setEditing(null) })` — **onSuccess에서 편집 종료=draft 폐기**(invalidate 재페치가 서버 값 렌더 — per-row stale draft 함정 회피). 실패 시 `role="alert"` 배너 + 편집 유지. ko: `runFilter.labelCol: "라벨"`·`labelEditAria` 등.
+`commitLabel`: `updateLabel.mutate({ id: r.id, scenarioId: r.scenario_id, label: draft.trim() || null }, { onSuccess: () => setEditing(null) })` — **onSuccess에서 편집 종료=draft 폐기**(invalidate 재페치가 서버 값 렌더 — per-row stale draft 함정 회피). 실패 시 `role="alert"` 배너 + 편집 유지. ko: `runFilter.labelCol: "라벨"` + **함수형** `labelEditAria: (name: string) => \`${name} 라벨 편집\``(하드코딩 백틱 템플릿 금지 — 편집 input의 aria도 같은 함수 재사용, WCAG 2.5.3 조립식). `ko.*(n)` 자기참조 방지: aria 단언에 `runDisplayLabel` 결과 문자열 포함을 별도 단언.
 
 - [ ] **Step 4: 이빨 실증** — onSuccess의 `setEditing(null)` 임시 제거 → ③ 테스트 RED → 원복 GREEN.
 - [ ] **Step 5: GREEN 확인** — `pnpm lint && pnpm test && pnpm build; echo exit=$?`.
@@ -470,6 +481,7 @@ export function useUpdateRunLabel() {
 - Test: `ui/src/components/compare/__tests__/CompareMatrix.test.tsx` · `ui/src/compare/__tests__/overlaySeries.test.ts`
 
 **Interfaces:**
+- US: US1(비교 헤더·오버레이 식별)
 - Consumes: Task 5 `runDisplayLabel`/`profileSummary`·`ReportRunSchema.label`.
 - Produces: `CompareMatrix` **additive optional prop** `sublines?: Record<string, string>`(미전달=미렌더 — 기존 render 사이트 무churn) · `InsightCompareMatrix`는 labels 맵 경유 자동(코드 무변경).
 
@@ -486,7 +498,7 @@ export function useUpdateRunLabel() {
 </th>
 ```
 
-② `ScenarioComparePage` — 라벨 맵(`:150-154`)을 `runDisplayLabel(id, report?.run.label)`로(리포트 로딩 전엔 기존 `runShortLabel` 폴백 유지), sublines 계산(useMemo — labels와 동일 dep):
+② `ScenarioComparePage` — 라벨 맵(`:150-154`)을 리포트에서 도출: `labels[id] = runDisplayLabel(id, reports.find((x) => x.run.id === id)?.run.label)` — **useMemo dep에 `reports` 추가 필수**(`react-hooks/exhaustive-deps`=warn + `--max-warnings=0`이라 lint가 강제). 로딩-전 폴백 헤지는 불요 — `runLabels`는 `ScenarioCompareInner` 소속이라 loading/error early-return(`:56-83`) 뒤에만 렌더된다. sublines 계산(useMemo — 같은 `[reports]` dep):
 
 ```ts
 const runSublines = useMemo(() => {
@@ -514,6 +526,7 @@ const runSublines = useMemo(() => {
 - Test: `ui/src/runs/__tests__/runFilterSort.test.ts`(기존 확장) · `ui/src/pages/__tests__/ScenarioRunsPage.test.tsx`
 
 **Interfaces:**
+- US: US3(검색으로 과거 run 되찾기)
 - Consumes: Task 6에서 `RunSchema.label`이 이미 목록 데이터에 실려 옴.
 - Produces: `RunFilter.q: string`.
 
@@ -535,20 +548,22 @@ function matchesQ(r: Run, needle: string): boolean {
 }
 ```
 
-③ `parseRunControls` filter에 `q: sp.get("q") ?? "",` · `serializeRunControls`에 `if (filter.q.trim() !== "") sp.set("q", filter.q);` · `hasActiveControls`에 `filter.q.trim() !== "" ||`. **세 지점 전부 `trim()` 기준 — 한 지점이라도 raw를 보면 공백 하나로 모순**(spec §9). ④ `RunListControls` 상단 flex 행에:
+③ `parseRunControls` filter에 `q: sp.get("q") ?? "",` · `serializeRunControls`에 `if (filter.q.trim() !== "") sp.set("q", filter.q);` · `hasActiveControls`에 `filter.q.trim() !== "" ||`. **세 지점 전부 `trim()` 기준 — 한 지점이라도 raw를 보면 공백 하나로 모순**(spec §9). ④ `RunListControls` 상단 flex 행에 — **`w-fit`/폭 래퍼 div 필수**(`Input` BASE가 `block w-full`이고 단순 문자열 연결이라 `className="w-48"`은 `w-full`에 진다 — 같은 파일 날짜 입력 2개(`:184-191`/`:193-201`)가 div 래퍼를 쓰는 이유):
 
 ```tsx
-<Input
-  compact
-  value={filter.q}
-  onChange={(e) => setFilter({ ...filter, q: e.target.value })}
-  placeholder={ko.runFilter.searchPlaceholder}
-  aria-label={ko.runFilter.searchLabel}
-  className="w-48"
-/>
+<div className="w-48">
+  <Input
+    compact
+    value={filter.q}
+    onChange={(e) => setFilter({ ...filter, q: e.target.value })}
+    placeholder={ko.runFilter.searchPlaceholder}
+    aria-label={ko.runFilter.searchLabel}
+  />
+</div>
 ```
 
 ⑤ ko: `runFilter.searchLabel: "라벨·ID 검색"`·`searchPlaceholder: "라벨·ID 검색"`.
+⑥ **전 슬라이스 ko sweep(마지막 ko-터치 task라 여기서 전수)**: `grep -rn '"[^"]*[가-힣]' ui/src --include='*.tsx' --include='*.ts' | grep -v 'i18n/ko' | grep -v '__tests__'` **+ 백틱 arm** `grep -rn '\`[^\`]*[가-힣]' ui/src --include='*.tsx' | grep -v '__tests__'`(spec §11 패턴은 큰따옴표-직후만 봐서 백틱 템플릿 하드코딩을 구조적으로 못 잡는다 — 이 슬라이스 신규 diff 줄에 매치 0 확인, 선재 매치는 record-only) + 신규↔기존 카탈로그 양방향 부분문자열 sweep.
 
 - [ ] **Step 4: GREEN 확인** — `pnpm lint && pnpm test && pnpm build; echo exit=$?`.
 - [ ] **Step 5: 커밋** — `git commit -m "feat(ui): run 목록 라벨·ID 검색 축(q)"`.
