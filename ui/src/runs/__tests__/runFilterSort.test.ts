@@ -143,6 +143,51 @@ describe("filterRuns (R1–R5)", () => {
   });
 });
 
+describe("filterRuns q (Task 10, US3)", () => {
+  // "A1B2C3" in the id lets a "#a1b2c3" (lowercase, leading #) query match via
+  // the id predicate — case-insensitive, # stripped. runB carries no label so
+  // it can only ever match on id.
+  const runA = mkRun({
+    id: "01ARZ3NDEKTSV4RRA1B2C3FAV",
+    label: "Connection pool retest",
+  });
+  const runB = mkRun({ id: "01BXAB000000000000000000" });
+  const runs = [runA, runB];
+  const now = 10_000;
+
+  it("라벨 부분일치(대소문자 무시)", () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "POOL" };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([runA.id]);
+  });
+
+  it('id 부분일치(대소문자 무시, 선행 "#" 1회 제거)', () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "#a1b2c3" };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([runA.id]);
+  });
+
+  it('"#" 단독 = 술어만 전 행 통과', () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "#" };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([runA.id, runB.id]);
+  });
+
+  it("공백만 있는 q = 전 행 통과(빈 판정 공유 정의, spec §9)", () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "  " };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([runA.id, runB.id]);
+  });
+
+  it("무라벨 run은 라벨 매치를 스킵 — id로만 매치한다", () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "01bxab" };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([runB.id]);
+  });
+
+  it("무라벨 run에서 label 필드를 문자열화(String(undefined)='undefined')해 오매치하지 않는다", () => {
+    // matchesQ가 `String(r.label).toLowerCase().includes(needle)` 같은 버그 구현이면
+    // runB(label 없음)가 "undefined" 검색에 거짓 매치한다 — r.label && ... 가드의 이빨.
+    const f: RunFilter = { ...EMPTY_FILTER, q: "undefined" };
+    expect(filterRuns(runs, f, now).map((r) => r.id)).toEqual([]);
+  });
+});
+
 describe("filterRuns date (R4)", () => {
   const day = 86_400_000;
   const now = 100 * day; // 충분히 큰 기준
@@ -272,6 +317,7 @@ describe("parse/serialize round-trip (R13)", () => {
       datePreset: "all",
       dateFrom: "2026-06-01",
       dateTo: "2026-06-25",
+      q: "connection pool",
     };
     const keys: SortKey[] = [
       { field: "verdict", dir: "asc" },
@@ -302,6 +348,21 @@ describe("parse/serialize round-trip (R13)", () => {
     expect(sp.get("from")).toBe("2026-06-01");
     expect(sp.get("date")).toBeNull();
   });
+
+  it("q 있는 필터는 round-trip 한다(Task 10)", () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "pool test" };
+    const sp = serializeRunControls(f, DEFAULT_SORT);
+    expect(sp.get("q")).toBe("pool test");
+    const back = parseRunControls(sp);
+    expect(back.filter).toEqual(f);
+  });
+
+  it("trim-빈 q는 파라미터 부재 — 기본 URL byte-identical(Task 10)", () => {
+    const f: RunFilter = { ...EMPTY_FILTER, q: "   " };
+    const sp = serializeRunControls(f, DEFAULT_SORT);
+    expect(sp.toString()).toBe("");
+    expect(sp.get("q")).toBeNull();
+  });
 });
 
 describe("hasActiveControls (R14)", () => {
@@ -312,5 +373,11 @@ describe("hasActiveControls (R14)", () => {
   it("true when any filter or non-default sort", () => {
     expect(hasActiveControls({ ...EMPTY_FILTER, statuses: ["running"] }, DEFAULT_SORT)).toBe(true);
     expect(hasActiveControls(EMPTY_FILTER, [{ field: "verdict", dir: "asc" }])).toBe(true);
+  });
+  it("q trim-빈 = false(Task 10)", () => {
+    expect(hasActiveControls({ ...EMPTY_FILTER, q: "  " }, DEFAULT_SORT)).toBe(false);
+  });
+  it("q 값 있으면 true(Task 10)", () => {
+    expect(hasActiveControls({ ...EMPTY_FILTER, q: "pool" }, DEFAULT_SORT)).toBe(true);
   });
 });

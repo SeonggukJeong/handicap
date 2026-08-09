@@ -72,6 +72,18 @@ export function RunListControls({ filter, sort, total, shown, onChange }: Props)
   return (
     <div className="mb-3 space-y-2 text-sm">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* run-identity Task 10: 라벨·ID 검색(US3). w-48 래퍼 필수 — Input BASE가
+         *  block w-full이라 className="w-48"만으론 폭이 안 먹는다(같은 파일 날짜
+         *  입력 2개와 동일 이유). */}
+        <div className="w-48">
+          <Input
+            compact
+            value={filter.q}
+            onChange={(e) => setFilter({ ...filter, q: e.target.value })}
+            placeholder={ko.runFilter.searchPlaceholder}
+            aria-label={ko.runFilter.searchLabel}
+          />
+        </div>
         <Chips
           label={ko.runFilter.verdictLabel}
           options={VERDICT_KEYS}

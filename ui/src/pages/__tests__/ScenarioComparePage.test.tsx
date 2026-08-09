@@ -184,6 +184,33 @@ describe("ScenarioComparePage", () => {
     expect(screen.getByRole("button", { name: /커넥션 풀 2배 후/ })).toBeInTheDocument();
   });
 
+  it("run.profile이 ProfileSchema를 통과하지 못하면 서브라인은 시각만 보여준다(fail-soft, Task 9 리뷰 fold-in)", async () => {
+    const reportBroken = {
+      ...reportB,
+      run: { ...reportB.run, profile: "garbage" },
+    };
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) => {
+      if (id === "A") return Promise.resolve(baseReport);
+      if (id === "B") return Promise.resolve(reportBroken);
+      return Promise.reject(new Error("unknown"));
+    });
+
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+
+    expect(await screen.findByText("p95_ms")).toBeInTheDocument();
+
+    // B has no label → header button shows the #끝6자 fallback ("#B" — id is 1 char).
+    const btnB = screen.getByRole("button", { name: /#B/ });
+    const thB = btnB.closest("th");
+    expect(thB).not.toBeNull();
+    const expectedTs = new Date(reportBroken.run.created_at).toLocaleString();
+
+    // 시각-단독: " · " 구분자도, profileSummary 요약 세그먼트도 없다(시각 뿐인 그 자체
+    // 텍스트로 서브라인 div가 존재해야 — 요약이 붙어 있으면 exact-text 매치가 실패한다).
+    expect(within(thB!).getByText(expectedTs)).toBeInTheDocument();
+    expect(thB!.textContent).not.toContain(" · ");
+  });
+
   it("shows guard message when fewer than 2 runs provided", () => {
     vi.spyOn(api, "getRunReport").mockResolvedValue(baseReport);
     renderPage("/scenarios/S1/compare?runs=A&baseline=A");

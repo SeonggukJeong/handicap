@@ -619,6 +619,26 @@ describe("ScenarioRunsPage — filter/sort (run-list-filter-sort)", () => {
     await screen.findByText(ko.runFilter.count(1, 3));
     expect(screen.getByRole("button", { name: "비교 (2)" })).toBeInTheDocument();
   });
+
+  it("검색(q) 입력 → 행 필터 + 초기화 버튼 표시 → 클릭 시 전체 복귀 (Task 10, US3)", async () => {
+    const user = userEvent.setup();
+    mockApiRuns(RUNS);
+    renderRuns();
+    await screen.findByRole("button", { name: ko.pages.runScenario });
+    expect(screen.getAllByRole("link", { name: "view →" })).toHaveLength(3);
+
+    const search = screen.getByRole("textbox", { name: ko.runFilter.searchLabel });
+    // "pass1"(소문자) 입력이 대문자 id "PASS1"에 대소문자 무시로 매치.
+    await user.type(search, "pass1");
+    await screen.findByText(ko.runFilter.count(1, 3));
+    expect(screen.getAllByRole("link", { name: "view →" })).toHaveLength(1);
+    expect(screen.getByTestId("runs-location").textContent).toContain("q=pass1");
+
+    const resetBtn = screen.getByRole("button", { name: ko.runFilter.reset });
+    await user.click(resetBtn);
+    expect(screen.getAllByRole("link", { name: "view →" })).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: ko.runFilter.reset })).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

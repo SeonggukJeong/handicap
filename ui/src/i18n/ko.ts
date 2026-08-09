@@ -1224,6 +1224,10 @@ export const ko = {
     dateCustom: "사용자 지정",
     dateFromAria: "시작일",
     dateToAria: "종료일",
+    // run-identity Task 10: 목록 검색 축 q(US3). placeholder도 동일 문구(짧은 라벨·ID
+    // 검색 힌트라 aria-label과 굳이 분리할 정보가 없다).
+    searchLabel: "라벨·ID 검색",
+    searchPlaceholder: "라벨·ID 검색",
     count: (shown: number, total: number) => `전체 ${total}개 중 ${shown}개 표시`,
     reset: "필터 초기화",
     emptyFiltered: "조건에 맞는 run이 없습니다.",

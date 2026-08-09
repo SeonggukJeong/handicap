@@ -17,6 +17,9 @@ export type RunFilter = {
   datePreset: DatePreset; // "all" 기본
   dateFrom: string | null; // YYYY-MM-DD
   dateTo: string | null;
+  // 라벨·ID 검색(Task 10, US3). 빈 판정 공유 정의(spec §9) = q.trim() === "" —
+  // 술어·URL 직렬화·hasActiveControls 세 지점 전부 trim 기준.
+  q: string;
 };
 
 export const VERDICT_KEYS: VerdictKey[] = ["pass", "fail", "none"];
@@ -32,6 +35,7 @@ export const EMPTY_FILTER: RunFilter = {
   datePreset: "all",
   dateFrom: null,
   dateTo: null,
+  q: "",
 };
 export const DEFAULT_SORT: SortKey[] = [{ field: "created", dir: "desc" }];
 
@@ -106,14 +110,22 @@ function dateBounds(f: RunFilter, now: number): [number | null, number | null] {
   }
 }
 
+/** q 술어(spec §9): 선행 # 1회 제거·소문자 부분일치를 label·full id 양쪽에. */
+function matchesQ(r: Run, needle: string): boolean {
+  if (r.label && r.label.toLowerCase().includes(needle)) return true;
+  return r.id.toLowerCase().includes(needle);
+}
+
 export function filterRuns(runs: Run[], f: RunFilter, now: number): Run[] {
   const [from, to] = dateBounds(f, now);
+  const needle = f.q.trim().replace(/^#/, "").toLowerCase();
   return runs.filter((r) => {
     if (f.verdicts.length && !f.verdicts.includes(verdictKey(r.verdict))) return false;
     if (f.statuses.length && !f.statuses.includes(r.status as StatusKey)) return false;
     if (f.modes.length && !f.modes.includes(modeKey(r.profile))) return false;
     if (from != null && r.created_at < from) return false;
     if (to != null && r.created_at > to) return false;
+    if (needle !== "" && !matchesQ(r, needle)) return false;
     return true;
   });
 }
@@ -215,6 +227,7 @@ export function parseRunControls(sp: URLSearchParams): { filter: RunFilter; sort
       datePreset,
       dateFrom: parseDateParam(sp.get("from")),
       dateTo: parseDateParam(sp.get("to")),
+      q: sp.get("q") ?? "",
     },
     sort: parseSort(sp.get("sort")),
   };
@@ -231,6 +244,7 @@ export function serializeRunControls(filter: RunFilter, sort: SortKey[]): URLSea
   } else if (filter.datePreset !== "all") {
     sp.set("date", filter.datePreset);
   }
+  if (filter.q.trim() !== "") sp.set("q", filter.q);
   if (!isDefaultSort(sort)) sp.set("sort", sort.map((k) => `${k.field}:${k.dir}`).join(","));
   return sp;
 }
@@ -243,6 +257,7 @@ export function hasActiveControls(filter: RunFilter, sort: SortKey[]): boolean {
     filter.datePreset !== "all" ||
     !!filter.dateFrom ||
     !!filter.dateTo ||
+    filter.q.trim() !== "" ||
     !isDefaultSort(sort)
   );
 }
