@@ -88,7 +88,7 @@ create(REST)와 사후-편집 PUT이 **같은 함수**를 쓴다. 스케줄러�
 
 **RunDialog** (C17 — 현재 라벨 입력 없음):
 - 최상단(모드 토글 아래·간단/상세 **공통** — 식별 필드는 가시성 게이트 밖)에 선택 `Input` 1개: 라벨(placeholder 예: "예: 커넥션 풀 2배 후"), `maxLength={200}`. 라벨·placeholder·aria 전부 ko 카탈로그 경유(§11).
-- **프리셋 로드 시 no-clobber 시드**: `loadPreset`(C17 `:330` 부근)에서 라벨 칸이 비어 있을 때만 `p.name`으로 시드(이미 입력했으면 안 덮음 — KeyValueGrid 헤더 피커 no-clobber 이디엄).
+- **프리셋 로드 시 no-clobber 시드**: `loadPreset`(C17 `:330` 부근)에서 라벨 칸이 비어 있을 때만 `p.name`으로 시드(이미 입력했으면 안 덮음 — KeyValueGrid 헤더 피커 no-clobber 이디엄). **의도된 제품 결정(리뷰 N3)**: 이 시드로 프리셋-발사 run은 목록에 프리셋 이름이 라벨로 뜬다(두 입력 칸이 같은 문자열을 잠시 보이는 것 포함) — 스케줄 발사 run이 스케줄 이름을 자동으로 다는 §4.2와 **대칭**이고, 프리셋 이름("스파이크 200VU" 류)은 그 자체가 시험 의도의 표현이라 `#끝6자` 폴백보다 식별 가치가 높다. 원치 않으면 사용자가 제출 전 지우면 된다(강제 아님·편집 가능).
 - **retry 프리필**: `RunPrefill` 타입에 `label?: string | null` 추가(C23 — 현재 `{profile, env}`뿐이라 타입 확장 없인 시드가 컴파일 불가). 구성 사이트 전수 2곳(`ScenarioRunsPage.tsx:104` `?retry=` deep-link·`:382` "다시 실행" 버튼 — C23)에 `label: r.label` 추가, RunDialog는 `initial?.label ?? ""` 시드(reseed-by-key 기존 구조 그대로 — 같은 시험 재실행이니 라벨 승계가 자연, 중복 허용 도메인).
 - **즉시 재실행(다이얼로그 없는 직접 mutate — 리뷰 R3 결정: 라벨 승계)**: `ScenarioRunsPage.tsx:396`·`RunDetailPage.tsx:162`의 `createRun.mutate` 두 곳도 `label: r.label ?? undefined` 전달 — retry와 일관(같은 시험 재발사). 승계 안 하면 US2로 붙인 라벨이 재실행에서 소리 없이 사라진다.
 - payload는 §5의 4계층 조건부 spread. `buildProfile`은 무접촉(라벨은 profile 밖 top-level — ADR-0013의 run config와도 구분되는 run 메타데이터).
@@ -126,8 +126,9 @@ create(REST)와 사후-편집 PUT이 **같은 함수**를 쓴다. 스케줄러�
 `runFilterSort.ts`(C13)에 텍스트 축 1개:
 
 - `RunFilter.q: string`(기본 `""`) — **`EMPTY_FILTER`와 `hasActiveControls`(C24 — `:238`) 둘 다 확장**. 후자를 빠뜨리면 `q`만 설정된 상태에서 "N/M" 카운트 줄과 **초기화 버튼**(`RunListControls.tsx:70` 게이트)이 안 떠서 §13 US3의 통과 신호("초기화로 전체 복귀")가 도달 불가(리뷰 R4).
-- 술어(**의미론 핀, 리뷰 A4**): `q.trim()` 후 **선행 `#` 1회 제거** → 소문자 비교로 **label(없으면 스킵)·full id 양쪽에** 부분일치(ULID는 대문자 저장이라 case-insensitive 필수 — 비교 화면에서 복사한 `#a1b2c3` 붙여넣기 지원). **strip 결과가 빈 문자열이면(`""` 또는 `"#"` 입력) 전 행 통과**.
-- URL: `q` 파라미터 — 빈 값이면 미직렬화(**기본 URL byte-identical** — 기존 계약 유지, parse/serialize에 1키 추가).
+- **빈 판정 공유 정의(리뷰 N4)**: `q.trim() === ""`이면 **세 지점 동일하게** 비활성 — URL 미직렬화 + `hasActiveControls` false + 술어 전 행 통과. 한 지점이라도 raw `q`를 보면 공백 하나가 `q=+`로 직렬화되고 초기화 버튼이 켜진 채 아무것도 필터하지 않는 모순이 생긴다.
+- 술어(**의미론 핀, 리뷰 A4**): `q.trim()` 후 **선행 `#` 1회 제거** → 소문자 비교로 **label(없으면 스킵)·full id 양쪽에** 부분일치(ULID는 대문자 저장이라 case-insensitive 필수 — 비교 화면에서 복사한 `#a1b2c3` 붙여넣기 지원). **`#`-strip 결과가 빈 문자열이면(`"#"` 단독 입력) 술어만 전 행 통과**(trim 비어있지 않으므로 직렬화·초기화 버튼은 정상 동작 — 일관).
+- URL: `q` 파라미터 — 위 공유 정의대로 trim-빈이면 미직렬화(**기본 URL byte-identical** — 기존 계약 유지, parse/serialize에 1키 추가).
 - UI: `RunListControls`에 텍스트 `Input` 1개(즉시 URL 반영 — 기존 날짜 입력과 동일 이디엄). 정렬 축 추가 없음.
 
 ## 10. export
@@ -179,7 +180,7 @@ create(REST)와 사후-편집 PUT이 **같은 함수**를 쓴다. 스케줄러�
 | C10 | RunSchema label 없음·`.nullish()` 선례 | `sed -n '194,216p' ui/src/api/schemas.ts` | `verdict`/`last_metric_ts` `.nullish()` |
 | C11 | ReportRunSchema `.strict()` 8키·profile unknown | `grep -n "ReportRunSchema" -A 14 ui/src/api/schemas.ts` | `:379-390` |
 | C12 | ReportRun 구조·리터럴 사이트 전수 | `grep -n "pub struct ReportRun" -A 12 crates/controller/src/report.rs` + `grep -rn "ReportRun {" crates/` | 정의 `:55-64`·리터럴 `report.rs:949`+`export.rs:603` |
-| C13 | 필터에 텍스트 축 없음·**export 전수** | `grep -n "export " ui/src/runs/runFilterSort.ts`(무경계 — 리뷰 R4가 bounded `sed`의 맹점 적발) | RunFilter 6필드 enum/날짜뿐·`hasActiveControls` `:238` 실존 |
+| C13 | 필터에 텍스트 축 없음·**export 전수** | `grep -n "export " ui/src/runs/runFilterSort.ts`(무경계 — 리뷰 R4가 bounded `sed`의 맹점 적발) + `sed -n '13,21p' ui/src/runs/runFilterSort.ts`(RunFilter 필드) | RunFilter 6필드 enum/날짜뿐·`hasActiveControls` `:238` 실존 |
 | C14 | 비교 라벨 흐름·overlay 예외·리포트-fetch | `grep -n "runShortLabel\|labels\|useReports" ui/src/pages/ScenarioComparePage.tsx` + `sed -n '15,30p' ui/src/compare/overlaySeries.ts` + `sed -n '130,155p' ui/src/components/compare/CompareMatrix.tsx` | 맵 `:150-154`→`:231`/`:237` 전달·overlay `:23`은 직접 호출·헤더 버튼 `:137-151`·데이터는 `useReports` 훅뿐(`:3` import) |
 | C15 | Runs 시트 5열·입력은 `&[ReportJson]` | `sed -n '405,428p' crates/controller/src/export.rs` | label 없음 |
 | C16 | 스케줄 이름 실존 | `grep -n "pub struct ScheduleRow" -A 10 crates/controller/src/store/schedules.rs` | `:16` `pub name: String` |
@@ -192,6 +193,6 @@ create(REST)와 사후-편집 PUT이 **같은 함수**를 쓴다. 스케줄러�
 | C23 | RunPrefill에 label 없음·구성/직접-mutate 사이트 | `grep -n "RunPrefill" ui/src/api/runPrefill.ts` + `grep -n "setPrefillState({" ui/src/pages/ScenarioRunsPage.tsx` + `grep -n "createRun.mutate" ui/src/pages/ScenarioRunsPage.tsx ui/src/pages/RunDetailPage.tsx` | 타입 `:67` `{profile, env}`·구성 `:104`/`:382`·직접 mutate `ScenarioRunsPage:396`+`RunDetailPage:162` |
 | C24 | `hasActiveControls` 게이트·query key 관계·리포트 캐시 | `grep -n "hasActiveControls" ui/src/runs/runFilterSort.ts ui/src/components/RunListControls.tsx` + `sed -n '44,50p' ui/src/api/hooks.ts` + `grep -n "staleTime" ui/src/api/hooks.ts` | `:238` 정의·`RunListControls:70` 초기화 게이트·`run(id)`⊂`runReport(id)` prefix·`scenarioRuns`는 별도 네임스페이스·`useReports` `staleTime: Infinity` |
 | C25 | 스케줄 이름 검증은 non-empty뿐 | `grep -n "name.trim" crates/controller/src/api/schedules.rs` | `:175` `is_empty` 검사만 — 길이 상한 없음 |
-| C26 | 스케줄러 발사 단위테스트 실존 | `grep -n "async fn cron_due_fires\|async fn once_due" crates/controller/src/schedule/runner.rs` | `:347`·`:444`·`:461` — `spawn_run`→`insert`까지 도는 단위 e2e |
+| C26 | 스케줄러 발사 단위테스트 실존 | `grep -n "async fn .*fires" crates/controller/src/schedule/runner.rs` | `:347`·`:444`·`:461` — `spawn_run`→`insert`까지 도는 단위 e2e |
 | C27 | deriveLoadMode curve=비빈 배열·open rate 미제공 | `sed -n '176,203p' ui/src/components/loadModel.ts` | `:179-180` non-empty 게이트·`VuDisplay` open arm에 rate 없음 |
 | C28 | Runs 시트 단언 테스트 부재 | `grep -rn '"Runs"' crates/ --include="*.rs"` | writer `export.rs:409` 1건뿐 — 단언 0(신규 테스트 필요) |
