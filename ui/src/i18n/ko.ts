@@ -1201,6 +1201,9 @@ export const ko = {
     // 전용 함수형 키, 자기참조 회피용 명명 분리).
     labelCol: "라벨",
     labelEditAria: (name: string) => `${name} 라벨 편집`,
+    // 최종 리뷰 M7 fix: runDetail.labelSaveFail 크로스 참조 해소(네임스페이스 카탈로그
+    // 컨벤션 — 이 페이지 전용 실패 배너는 이 페이지 네임스페이스의 키를 쓴다).
+    labelSaveFail: "라벨 저장 실패",
     verdictLabel: "결과",
     statusLabel: "상태",
     modeLabel: "부하모드",

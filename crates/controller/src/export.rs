@@ -973,6 +973,13 @@ mod tests {
             runs.get_value((1, 1)),
             Some(&Data::String("기준 라벨".into()))
         );
+        // M5 fix: status/count 열도 단언(이전엔 col 0·1만 확인) — report_with_steps 픽스처는
+        // status="completed"·summary.count=0 고정(둘 다 오버라이드 안 됨, 위에서 확인).
+        assert_eq!(
+            runs.get_value((1, 2)),
+            Some(&Data::String("completed".into()))
+        );
+        assert_eq!(runs.get_value((1, 5)), Some(&Data::Float(0.0)));
 
         // row2 = B(무라벨): label 셀 빈 문자열(`write_string("")`)
         // — calamine은 이를 `Data::Empty`로 읽는다(빈 셀과 구별 불가, export.rs 기존 blank 관례).

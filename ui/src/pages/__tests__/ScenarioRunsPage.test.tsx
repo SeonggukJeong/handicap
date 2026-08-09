@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -734,5 +734,154 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
     // 계속 보여준다 — invalidate 재페치로 서버 값("서버값(다른라벨)")이 대신 보여야 GREEN.
     expect(await screen.findByText("서버값(다른라벨)")).toBeInTheDocument();
     expect(screen.queryByText("내가 입력한 초안")).toBeNull();
+  });
+
+  it("무변경 blur: draft가 원래 라벨과 같으면 PUT 미발생 + 편집기가 닫힌다 (I1 no-op 가드)", async () => {
+    const user = userEvent.setup();
+    const labeled = { ...makeRun("R1", "completed", 100), label: "변경없음" };
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "demo",
+            yaml: SCENARIO_YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1/runs")) {
+        return Promise.resolve(jsonResponse({ runs: [labeled] }));
+      }
+      if (url.endsWith("/api/datasets")) {
+        return Promise.resolve(jsonResponse({ datasets: [] }));
+      }
+      // 가드가 없으면(버그) 이 PUT이 실제로 호출된다 — 성공 응답을 둬 결과가 "PUT 호출 여부"에만
+      // 좌우되게 한다(미모킹 404로 인한 무한대기 타임아웃이 아니라).
+      if (url.endsWith("/api/runs/R1/label") && init?.method === "PUT") {
+        return Promise.resolve(jsonResponse({ ...labeled, label: "변경없음" }));
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderPageWithCompare();
+
+    const editBtn = await screen.findByRole("button", { name: "변경없음 라벨 편집" });
+    await user.click(editBtn);
+    const input = screen.getByRole("textbox", { name: "변경없음 라벨 편집" });
+    // 아무 타이핑도 하지 않고(=draft === 기존 라벨) blur.
+    fireEvent.blur(input);
+
+    // 편집기가 닫혀 표시 버튼(라벨 텍스트)으로 복귀.
+    expect(await screen.findByRole("button", { name: "변경없음 라벨 편집" })).toBeInTheDocument();
+    const put = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith("/api/runs/R1/label") && (i as RequestInit)?.method === "PUT",
+    );
+    expect(put).toBeUndefined();
+  });
+
+  it("행-스코프: A 커밋 pending 중 B 편집 시작 → A onSuccess가 B 편집기를 닫지 않는다 (I1)", async () => {
+    const user = userEvent.setup();
+    let resolvePutA: ((v: Response) => void) | null = null;
+    const runs = [
+      { ...makeRun("R1", "completed", 100), label: null },
+      { ...makeRun("R2", "completed", 200), label: null },
+    ];
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/scenarios/S1") && (!init || init.method === "GET")) {
+        return Promise.resolve(
+          jsonResponse({
+            id: "S1",
+            name: "demo",
+            yaml: SCENARIO_YAML,
+            version: 1,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
+      if (url.endsWith("/api/scenarios/S1/runs")) {
+        return Promise.resolve(jsonResponse({ runs }));
+      }
+      if (url.endsWith("/api/datasets")) {
+        return Promise.resolve(jsonResponse({ datasets: [] }));
+      }
+      if (url.endsWith("/api/runs/R1/label") && init?.method === "PUT") {
+        // A의 PUT을 보류해 B 편집이 시작될 여지를 만든다.
+        return new Promise<Response>((resolve) => {
+          resolvePutA = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse({}, 404));
+    });
+    renderPage();
+
+    const editA = await screen.findByRole("button", { name: "#R1 라벨 편집" });
+    await user.click(editA);
+    const inputA = screen.getByRole("textbox", { name: "#R1 라벨 편집" });
+    await user.type(inputA, "A 초안");
+    fireEvent.blur(inputA); // commitLabel(A) → PUT pending(미해결)
+
+    // A의 PUT이 아직 안 끝난 상태에서 B 편집을 연다.
+    const editB = screen.getByRole("button", { name: "#R2 라벨 편집" });
+    await user.click(editB);
+    const inputB = screen.getByRole("textbox", { name: "#R2 라벨 편집" });
+    await user.type(inputB, "B 초안");
+
+    // 이제 A의 PUT을 완료시킨다 — onSuccess가 행-스코프가 아니면 B의 편집기가 닫힌다.
+    resolvePutA!(jsonResponse({ ...runs[0], label: "A 초안" }));
+
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.find(
+        ([u, i]) =>
+          String(u).endsWith("/api/runs/R1/label") && (i as RequestInit)?.method === "PUT",
+      );
+      expect(put).toBeTruthy();
+    });
+
+    // B의 입력이 여전히 draft("B 초안")를 보여준다 = 편집기가 안 닫혔다.
+    expect(screen.getByRole("textbox", { name: "#R2 라벨 편집" })).toHaveValue("B 초안");
+  });
+
+  it("ESC 취소 후 blur가 발화해도 PUT이 발생하지 않는다 (M2 — Escape 커밋 억제)", async () => {
+    const user = userEvent.setup();
+    mockApiLabelFlow();
+    renderPage();
+
+    const editBtn = await screen.findByRole("button", { name: "#R1 라벨 편집" });
+    await user.click(editBtn);
+    const input = screen.getByRole("textbox", { name: "#R1 라벨 편집" });
+    await user.type(input, "취소될 라벨");
+
+    // keydown(Escape)과 blur를 같은 act() 안에서 발화 — 커밋 전(unmount 전) 경합을 재현한다
+    // (RunDetailPage.tsx의 labelEscapedRef 패턴 미러 — 실브라우저의 remove-on-focus blur는
+    // 비보장이라 방어적으로 억제 플래그가 필요하다, ui/CLAUDE.md 참고).
+    act(() => {
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.blur(input);
+    });
+    // mutate()의 실제 fetch 호출은 마이크로태스크 뒤이므로 한 틱 흘려보낸 뒤 확인한다
+    // (동기 직후 확인은 가드가 없어도 우연히 통과하는 공허 신호 — RED 실측으로 확정).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const put = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith("/api/runs/R1/label") && (i as RequestInit)?.method === "PUT",
+    );
+    expect(put).toBeUndefined();
+  });
+
+  it("라벨 셀은 긴 라벨을 truncate + title로 노출한다 (M4)", async () => {
+    const longLabel = "가".repeat(200);
+    const labeled = makeRun("LBL3", "completed", 100);
+    (labeled as Record<string, unknown>).label = longLabel;
+    mockApiRuns([labeled]);
+    renderPageWithCompare();
+
+    const cellBtn = await screen.findByRole("button", { name: `${longLabel} 라벨 편집` });
+    expect(cellBtn).toHaveClass("max-w-[16rem]", "truncate", "block");
+    expect(cellBtn).toHaveAttribute("title", longLabel);
   });
 });

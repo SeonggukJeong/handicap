@@ -62,13 +62,31 @@ export function ScenarioRunsPage() {
   // run-identity Task 8: 목록 인라인 라벨 편집(US4) — 페이지 레벨 1쌍(한 번에 한 행 편집).
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
+  // 최종 리뷰 I1/M2 fix: RunDetailPage.tsx의 labelEscapedRef 패턴 미러(ESC 커밋 억제).
+  const labelEscapedRef = useRef(false);
 
   // onSuccess에서만 편집 종료=draft 폐기 — invalidate 재페치가 서버 값을 렌더하게 한다
   // (per-row stale draft 함정 회피, brief Step 4 이빨 실증 대상).
+  //
+  // 최종 리뷰 I1 fix: ① no-op 가드 — draft가 기존 라벨과 같으면 PUT을 생략하고 그 행만
+  // 즉시 닫는다(무변경 blur가 불필요한 네트워크·invalidate·실패 배너를 만드는 것 방지).
+  // ② onSuccess는 행-스코프(cur===r.id일 때만 닫음) — 행 A 편집 중 행 B로 옮겨가면 A의
+  // blur가 A의 PUT을 쏘지만, 그 응답이 늦게 도착했을 때 이미 열려 있는 B의 편집기를
+  // 잘못 닫아버리면 안 된다.
   function commitLabel(r: Run) {
+    if (labelEscapedRef.current) {
+      labelEscapedRef.current = false;
+      setEditingLabelId((cur) => (cur === r.id ? null : cur));
+      return;
+    }
+    const next = labelDraft.trim() || null;
+    if (next === (r.label ?? null)) {
+      setEditingLabelId((cur) => (cur === r.id ? null : cur));
+      return;
+    }
     updateLabel.mutate(
-      { id: r.id, scenarioId: r.scenario_id, label: labelDraft.trim() || null },
-      { onSuccess: () => setEditingLabelId(null) },
+      { id: r.id, scenarioId: r.scenario_id, label: next },
+      { onSuccess: () => setEditingLabelId((cur) => (cur === r.id ? null : cur)) },
     );
   }
 
@@ -203,7 +221,7 @@ export function ScenarioRunsPage() {
 
       {updateLabel.error && (
         <Callout variant="error" role="alert" className="mb-4">
-          {ko.runDetail.labelSaveFail}: {(updateLabel.error as Error).message}
+          {ko.runFilter.labelSaveFail}: {(updateLabel.error as Error).message}
         </Callout>
       )}
 
@@ -370,7 +388,10 @@ export function ScenarioRunsPage() {
                               )}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") commitLabel(r);
-                                if (e.key === "Escape") setEditingLabelId(null);
+                                if (e.key === "Escape") {
+                                  labelEscapedRef.current = true;
+                                  setEditingLabelId(null);
+                                }
                               }}
                               onBlur={() => commitLabel(r)}
                               autoFocus
@@ -382,7 +403,8 @@ export function ScenarioRunsPage() {
                                 setEditingLabelId(r.id);
                                 setLabelDraft(r.label ?? "");
                               }}
-                              className="text-left hover:underline"
+                              className="max-w-[16rem] truncate block text-left hover:underline"
+                              title={r.label ?? undefined}
                               aria-label={ko.runFilter.labelEditAria(
                                 runDisplayLabel(r.id, r.label),
                               )}

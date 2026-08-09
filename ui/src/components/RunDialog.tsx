@@ -236,6 +236,7 @@ export function RunDialog({
   const qc = useQueryClient();
 
   // Stable ids for Field+Input pairs (B3). Must be at hook call site (Rules of Hooks).
+  const labelFieldId = useId();
   const thinkMinId = useId();
   const thinkMaxId = useId();
   const thinkHintId = useId();
@@ -659,16 +660,17 @@ export function RunDialog({
           ariaLabel={ko.runDialog.modeAria}
         />
       </div>
-      <label className="block mb-3">
-        <span className="text-sm text-slate-600">{ko.runDialog.labelField}</span>
+      {/* 최종 리뷰 M6 fix: 형제들과 동일한 Field 프리미티브(ui/src/components/ui/CLAUDE.md
+          "caller-소유 id 주입 계약") — htmlFor/label이 접근명을 제공하므로 중복 aria-label 제거. */}
+      <Field label={ko.runDialog.labelField} htmlFor={labelFieldId}>
         <Input
+          id={labelFieldId}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           maxLength={RUN_LABEL_MAX_CHARS}
           placeholder={ko.runDialog.labelPlaceholder}
-          aria-label={ko.runDialog.labelField}
         />
-      </label>
+      </Field>
       {scenarioChangedWarning && (
         <Callout variant="warn" role="alert" className="mb-3">
           이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.

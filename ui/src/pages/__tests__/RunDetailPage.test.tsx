@@ -1427,8 +1427,13 @@ describe("RunDetailPage — 라벨 표시·편집 + 축약 통일 + 설정 요�
     });
 
     // invalidate prefix가 runReport까지 도달(spec C24) — 여기선 두 키의 정확한 도달을 핀.
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.run("RL1") });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.scenarioRuns("S1") });
+    // M3 fix: 이 두 단언은 PUT 확인(위 waitFor) 후에도 여전히 비동기(mutate의 onSuccess가
+    // 별도 마이크로태스크에서 invalidateQueries를 호출)이므로 waitFor 밖의 동기 단언은
+    // CI-only flake 클래스(ui/CLAUDE.md "CI-only 간헐 실패" 참고)다.
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.run("RL1") });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.scenarioRuns("S1") });
+    });
   });
 
   it("③ ESC 취소 — 편집 input이 사라지고 PUT은 호출되지 않는다", async () => {
