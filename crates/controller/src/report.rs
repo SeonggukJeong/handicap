@@ -61,6 +61,8 @@ pub struct ReportRun {
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
     pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -955,6 +957,7 @@ pub fn build_report(
             started_at: run.started_at,
             ended_at: run.ended_at,
             created_at: run.created_at,
+            label: run.label.clone(),
         },
         scenario_yaml: scenario_yaml.to_string(),
         summary,
@@ -2490,5 +2493,27 @@ steps:
             !json.contains("error_kinds"),
             "empty must be omitted: {json}"
         );
+    }
+
+    #[test]
+    fn report_run_label_serialization_two_states() {
+        let mut rr = ReportRun {
+            id: "r".into(),
+            scenario_id: "s".into(),
+            status: "completed".into(),
+            profile: serde_json::Value::Null,
+            env: serde_json::Value::Null,
+            started_at: None,
+            ended_at: None,
+            created_at: 0,
+            label: None,
+        };
+        let v = serde_json::to_value(&rr).unwrap();
+        assert!(
+            v.get("label").is_none(),
+            "무라벨은 키 자체가 없어야(byte-identical)"
+        );
+        rr.label = Some("라벨".into());
+        assert_eq!(serde_json::to_value(&rr).unwrap()["label"], "라벨");
     }
 }

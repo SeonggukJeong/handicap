@@ -404,24 +404,33 @@ pub fn comparison_to_xlsx(reports: &[ReportJson], baseline_idx: usize) -> Vec<u8
         }
     }
 
-    // Runs meta: id, status, started_at, ended_at, count.
+    // Runs meta: id, label, status, started_at, ended_at, count.
     let ws = wb.add_worksheet();
     ws.set_name("Runs").expect("name");
-    for (c, h) in ["run_id", "status", "started_at", "ended_at", "count"]
-        .iter()
-        .enumerate()
+    for (c, h) in [
+        "run_id",
+        "label",
+        "status",
+        "started_at",
+        "ended_at",
+        "count",
+    ]
+    .iter()
+    .enumerate()
     {
         ws.write_string(0, c as u16, *h).expect("w");
     }
     for (i, r) in reports.iter().enumerate() {
         let row = (i + 1) as u32;
         ws.write_string(row, 0, &r.run.id).expect("w");
-        ws.write_string(row, 1, &r.run.status).expect("w");
-        ws.write_number(row, 2, r.run.started_at.unwrap_or(0) as f64)
+        ws.write_string(row, 1, r.run.label.as_deref().unwrap_or(""))
             .expect("w");
-        ws.write_number(row, 3, r.run.ended_at.unwrap_or(0) as f64)
+        ws.write_string(row, 2, &r.run.status).expect("w");
+        ws.write_number(row, 3, r.run.started_at.unwrap_or(0) as f64)
             .expect("w");
-        ws.write_number(row, 4, r.summary.count as f64).expect("w");
+        ws.write_number(row, 4, r.run.ended_at.unwrap_or(0) as f64)
+            .expect("w");
+        ws.write_number(row, 5, r.summary.count as f64).expect("w");
     }
 
     // Insights: long-format, run_id prepend (어느 run이라도 인사이트 있을 때만).
@@ -609,6 +618,7 @@ mod tests {
                 started_at: Some(0),
                 ended_at: Some(1000),
                 created_at: 0,
+                label: None,
             },
             scenario_yaml: String::new(),
             summary: ReportSummary {
@@ -927,6 +937,47 @@ mod tests {
         assert_eq!(st.get_value((1, 1)), Some(&Data::Float(100.0)));
         assert_eq!(st.get_value((1, 2)), Some(&Data::Float(150.0)));
         assert_eq!(st.get_value((1, 3)), Some(&Data::String("▲ +50.0%".into())));
+    }
+
+    #[test]
+    fn comparison_xlsx_runs_sheet_has_label_column() {
+        use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
+        use std::io::Cursor;
+        let mut a = report_with_steps(vec![step("s", 1, 100)]);
+        a.run.id = "A".into();
+        a.run.label = Some("기준 라벨".into());
+        let mut b = report_with_steps(vec![step("s", 1, 150)]);
+        b.run.id = "B".into();
+        // b.run.label 은 무라벨(None) 그대로 — 빈 셀 기대.
+        let bytes = comparison_to_xlsx(&[a, b], 0);
+        let mut wb: Xlsx<Cursor<Vec<u8>>> = open_workbook_from_rs(Cursor::new(bytes)).unwrap();
+        let runs = wb.worksheet_range("Runs").unwrap();
+
+        // 헤더 6열 정확일치, label이 2번째.
+        assert_eq!(runs.get_value((0, 0)), Some(&Data::String("run_id".into())));
+        assert_eq!(runs.get_value((0, 1)), Some(&Data::String("label".into())));
+        assert_eq!(runs.get_value((0, 2)), Some(&Data::String("status".into())));
+        assert_eq!(
+            runs.get_value((0, 3)),
+            Some(&Data::String("started_at".into()))
+        );
+        assert_eq!(
+            runs.get_value((0, 4)),
+            Some(&Data::String("ended_at".into()))
+        );
+        assert_eq!(runs.get_value((0, 5)), Some(&Data::String("count".into())));
+
+        // row1 = A(유라벨): label 셀에 문자열.
+        assert_eq!(runs.get_value((1, 0)), Some(&Data::String("A".into())));
+        assert_eq!(
+            runs.get_value((1, 1)),
+            Some(&Data::String("기준 라벨".into()))
+        );
+
+        // row2 = B(무라벨): label 셀 빈 문자열(`write_string("")`)
+        // — calamine은 이를 `Data::Empty`로 읽는다(빈 셀과 구별 불가, export.rs 기존 blank 관례).
+        assert_eq!(runs.get_value((2, 0)), Some(&Data::String("B".into())));
+        assert!(matches!(runs.get_value((2, 1)), None | Some(Data::Empty)));
     }
 
     #[test]
