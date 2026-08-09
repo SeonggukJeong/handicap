@@ -8,6 +8,9 @@ type Props = {
   result: CompareResult;
   labels: Record<string, string>;
   onBaselineChange: (runId: string) => void;
+  /** Additive optional (run-identity Task 9) — per-run header subline (예: 시각·설정
+   *  요약). 미전달=미렌더, 기존 소비처(InsightCompareMatrix 등)는 무churn. */
+  sublines?: Record<string, string>;
 };
 
 function formatPct(pct: number): string {
@@ -101,7 +104,7 @@ function SectionRows({
   );
 }
 
-export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
+export function CompareMatrix({ result, labels, onBaselineChange, sublines }: Props) {
   const { runIds, baselineIdx, summary, steps, status, verdict, stepMismatch } = result;
   const colCount = runIds.length;
 
@@ -149,6 +152,9 @@ export function CompareMatrix({ result, labels, onBaselineChange }: Props) {
                     <span className="ml-1 text-xs text-slate-500 font-normal">(base)</span>
                   )}
                 </button>
+                {sublines?.[runId] && (
+                  <div className="mt-0.5 text-xs font-normal text-slate-500">{sublines[runId]}</div>
+                )}
               </th>
             ))}
           </tr>

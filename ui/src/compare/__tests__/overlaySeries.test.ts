@@ -6,8 +6,9 @@ import type { Report } from "../../api/schemas";
 function rep(
   id: string,
   windows: Array<{ ts_second: number; count: number; error_count: number; p95_ms: number }>,
+  label?: string,
 ): Report {
-  return { run: { id }, windows } as unknown as Report;
+  return { run: { id, label }, windows } as unknown as Report;
 }
 
 describe("runShortLabel", () => {
@@ -43,5 +44,19 @@ describe("overlaySeries", () => {
     expect(overlaySeries([a], 0, "errors").rows[0].run0).toBe(3);
     expect(overlaySeries([a], 0, "p95").rows[0].run0).toBe(7);
     expect(overlaySeries([a], 0, "rps").rows[0].run0).toBe(10);
+  });
+
+  it("uses run.label when present, falls back to runShortLabel otherwise (run-identity Task 9)", () => {
+    const labeled = rep(
+      "aaaaaa111111",
+      [{ ts_second: 1000, count: 10, error_count: 0, p95_ms: 5 }],
+      "커넥션 풀 2배 후",
+    );
+    const unlabeled = rep("bbbbbb222222", [
+      { ts_second: 1000, count: 20, error_count: 0, p95_ms: 9 },
+    ]);
+    const { runs } = overlaySeries([labeled, unlabeled], 0, "rps");
+    expect(runs[0].label).toBe("커넥션 풀 2배 후");
+    expect(runs[1].label).toBe("#222222");
   });
 });

@@ -9,10 +9,12 @@ import { Callout } from "../components/ui/Callout";
 import { CompareMatrix } from "../components/compare/CompareMatrix";
 import { CompareOverlaySection } from "../components/compare/CompareOverlaySection";
 import { InsightCompareMatrix } from "../components/compare/InsightCompareMatrix";
-import { runShortLabel } from "../compare/runLabel";
+import { runDisplayLabel } from "../compare/runLabel";
+import { profileSummary } from "../runs/profileSummary";
 import { ko } from "../i18n/ko";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
+import { ProfileSchema } from "../api/schemas";
 import type { Report } from "../api/schemas";
 
 export function ScenarioComparePage() {
@@ -145,14 +147,26 @@ function ScenarioCompareInner({
     [result, stepLabelMap],
   );
 
-  // Run column labels: short human id
+  // Run column labels: user label if set, else short human id (run-identity US1)
   const runLabels = useMemo<Record<string, string>>(() => {
     const labels: Record<string, string> = {};
     for (const id of runIds) {
-      labels[id] = runShortLabel(id);
+      labels[id] = runDisplayLabel(id, reports.find((r) => r.run.id === id)?.run.label);
     }
     return labels;
-  }, [runIds]);
+  }, [runIds, reports]);
+
+  // Run column sublines: created-at timestamp + profile summary (run-identity US1/US6).
+  // fail-soft — an unparseable profile still shows the timestamp alone.
+  const runSublines = useMemo<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const rep of reports) {
+      const parsed = ProfileSchema.safeParse(rep.run.profile);
+      const ts = new Date(rep.run.created_at).toLocaleString();
+      m[rep.run.id] = parsed.success ? `${ts} · ${profileSummary(parsed.data)}` : ts;
+    }
+    return m;
+  }, [reports]);
 
   const handleExportCsv = () => {
     downloadFile(
@@ -229,6 +243,7 @@ function ScenarioCompareInner({
       <CompareMatrix
         result={labeledResult}
         labels={runLabels}
+        sublines={runSublines}
         onBaselineChange={onBaselineChange}
       />
 

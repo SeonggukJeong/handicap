@@ -120,3 +120,43 @@ describe("CompareMatrix", () => {
     expect(swatchB).toHaveStyle({ backgroundColor: runColor(1) });
   });
 });
+
+describe("CompareMatrix sublines (run-identity Task 9, additive optional prop)", () => {
+  const twoRunResult: CompareResult = {
+    runIds: ["abc123", "xyz789"],
+    // baseline is xyz789 (index 1) so the "(base)" suffix never lands on the
+    // abc123 button — its accessible name stays exactly "#abc123" below.
+    baselineIdx: 1,
+    summary: [],
+    steps: [],
+    status: [],
+    verdict: { passed: [null, null] },
+    stepMismatch: false,
+  };
+  const labels = { abc123: "#abc123", xyz789: "#xyz789" };
+
+  it("renders the subline text beside the header button without joining the baseline toggle button's accessible name", () => {
+    render(
+      <CompareMatrix
+        result={twoRunResult}
+        labels={labels}
+        sublines={{ abc123: "2026-08-09 10:00 · 고정 20 VU · 60s" }}
+        onBaselineChange={() => {}}
+      />,
+    );
+    // Subline text renders in the header.
+    expect(screen.getByText("2026-08-09 10:00 · 고정 20 VU · 60s")).toBeInTheDocument();
+    // getByRole name-matching is exact by default — this only succeeds if the
+    // subline text did NOT join the button's accessible name (it must be a
+    // sibling of the button, not a descendant).
+    expect(screen.getByRole("button", { name: "#abc123" })).toBeInTheDocument();
+  });
+
+  it("omits the subline element entirely when the sublines prop is not passed", () => {
+    const { container } = render(
+      <CompareMatrix result={twoRunResult} labels={labels} onBaselineChange={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: "#abc123" })).toBeInTheDocument();
+    expect(container.querySelectorAll("th div")).toHaveLength(0);
+  });
+});

@@ -167,6 +167,23 @@ describe("ScenarioComparePage", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
+  it("shows the run label in the column header when the report carries one (run-identity Task 9, US1)", async () => {
+    const labeledReportB = {
+      ...reportB,
+      run: { ...reportB.run, label: "커넥션 풀 2배 후" },
+    };
+    vi.spyOn(api, "getRunReport").mockImplementation((id: string) => {
+      if (id === "A") return Promise.resolve(baseReport);
+      if (id === "B") return Promise.resolve(labeledReportB);
+      return Promise.reject(new Error("unknown"));
+    });
+
+    renderPage("/scenarios/S1/compare?runs=A,B&baseline=A");
+
+    expect(await screen.findByText("p95_ms")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /커넥션 풀 2배 후/ })).toBeInTheDocument();
+  });
+
   it("shows guard message when fewer than 2 runs provided", () => {
     vi.spyOn(api, "getRunReport").mockResolvedValue(baseReport);
     renderPage("/scenarios/S1/compare?runs=A&baseline=A");

@@ -1,6 +1,6 @@
 import type { Report } from "../api/schemas";
 import { bySecond, type Sec } from "../report/bySecond";
-import { runColor, runShortLabel } from "./runLabel";
+import { runColor, runDisplayLabel } from "./runLabel";
 
 export type MetricKey = "rps" | "p95" | "errors";
 export type OverlayRun = { key: string; label: string; color: string; baseline: boolean };
@@ -20,7 +20,7 @@ export function overlaySeries(
 ): OverlaySeries {
   const runs: OverlayRun[] = reports.map((r, i) => ({
     key: `run${i}`,
-    label: runShortLabel(r.run.id),
+    label: runDisplayLabel(r.run.id, r.run.label),
     color: runColor(i),
     baseline: i === baselineIdx,
   }));
