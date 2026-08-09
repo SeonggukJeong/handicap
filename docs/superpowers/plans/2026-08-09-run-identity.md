@@ -1,6 +1,9 @@
 # run-identity Implementation Plan
 
+REVIEW-GATE: APPROVED
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> spec-plan-reviewer 4라운드(NEEDS-REWORK→AWF→AWF→**clean APPROVE**, `8ab92176` 기준) — spec은 v3(`febb9683`) 3라운드 clean APPROVE.
 
 **Goal:** run에 사용자 라벨(`runs.label`) + 자동 설정 요약을 도입해 목록·상세·비교·오버레이·export에서 run을 사람이 구분할 수 있게 한다 (spec: `docs/superpowers/specs/2026-08-09-run-identity-design.md`, 리뷰 3라운드 clean APPROVE).
 
