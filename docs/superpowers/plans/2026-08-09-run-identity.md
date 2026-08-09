@@ -566,12 +566,14 @@ function matchesQ(r: Run, needle: string): boolean {
 ⑥ **전 슬라이스 ko sweep(마지막 ko-터치 task라 여기서 전수·diff-스코프 — 선재 328+64건 때문에 트리 전체 grep은 판정 불가)**:
 
 ```bash
-git diff $(git merge-base master HEAD)..HEAD -- ui/src \
+git diff $(git merge-base master HEAD)..HEAD -- \
+  'ui/src/**/*.ts' 'ui/src/**/*.tsx' \
+  ':(exclude)ui/src/i18n/ko.ts' ':(exclude)ui/src/**/__tests__/**' \
   | grep '^+' | grep -v '^+++' \
-  | grep -E '["`][^"`]*[가-힣]' | grep -v 'i18n/ko'
+  | grep -E '["`][^"`]*[가-힣]'
 ```
 
-기대 **0줄**(기계 판정 — 파일타입 무관 `.ts`/`.tsx` 커버, 큰따옴표·백틱 두 arm 한 패스; spec §11 패턴은 큰따옴표-직후만 봐서 백틱 템플릿 하드코딩을 구조적으로 못 잡는다. 테스트 파일의 정당한 한국어 단언이 매치되면 그 줄만 개별 판정·record). + 신규↔기존 카탈로그 양방향 부분문자열 sweep.
+기대 **0줄**(잔여 매치 = 따옴표 낀 한국어 **주석**(`//`·`/* */`) → 육안 pass, **JSX/속성 문자열** → 위반). ko.ts·`__tests__`·doc 산문은 **pathspec에서 제외**(diff 출력의 콘텐츠 줄엔 경로가 없어 `grep -v 'i18n/ko'` 후처리는 무력 — 리뷰 3라운드 실측). 큰따옴표·백틱 두 arm 한 패스(spec §11 패턴은 큰따옴표-직후만 봐서 백틱 템플릿 하드코딩을 구조적으로 못 잡는다). + 신규↔기존 카탈로그 양방향 부분문자열 sweep.
 
 - [ ] **Step 4: GREEN 확인** — `pnpm lint && pnpm test && pnpm build; echo exit=$?`.
 - [ ] **Step 5: 커밋** — `git commit -m "feat(ui): run 목록 라벨·ID 검색 축(q)"`.
