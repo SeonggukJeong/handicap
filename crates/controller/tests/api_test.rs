@@ -121,19 +121,35 @@ async fn create_run_without_label_is_null() {
     let app = make_app(db.clone());
     let single_step_yaml = "version: 1\nname: no-label-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
     let scenario_id = create_scenario(&app, single_step_yaml).await;
-    let run_id = create_run(&app, &scenario_id).await;
 
+    let body = json!({
+        "scenario_id": scenario_id,
+        "profile": { "vus": 1, "duration_seconds": 30 },
+        "env": {}
+    });
     let req = Request::builder()
-        .method(Method::GET)
-        .uri(format!("/api/runs/{run_id}"))
-        .body(Body::empty())
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["label"], Value::Null, "no-label run response has null");
+    // serde_json's Index impl returns `&Value::Null` for an ABSENT key too, so
+    // `v["label"] == Value::Null` alone would pass even if `label` were dropped
+    // by `skip_serializing_if` (the exact regression Global Constraints' "Zod
+    // 2종 분기 혼동 금지" warns about — RunResponse.label must stay plain
+    // Option, unlike ReportRun.label). Assert key presence explicitly first.
+    let obj = v.as_object().expect("run response is an object");
+    assert!(
+        obj.contains_key("label"),
+        "label key must be present (plain Option, no skip_serializing_if)"
+    );
+    assert!(obj["label"].is_null(), "no-label run response has null");
 }
 
 #[tokio::test]
