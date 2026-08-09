@@ -449,7 +449,7 @@ export function useUpdateRunLabel() {
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       maxLength={200}
-      aria-label={ko.runFilter.labelEditAria}
+      aria-label={ko.runFilter.labelEditAria(runDisplayLabel(r.id, r.label))}
       onKeyDown={(e) => {
         if (e.key === "Enter") commitLabel(r);
         if (e.key === "Escape") setEditing(null);
@@ -563,7 +563,15 @@ function matchesQ(r: Run, needle: string): boolean {
 ```
 
 ⑤ ko: `runFilter.searchLabel: "라벨·ID 검색"`·`searchPlaceholder: "라벨·ID 검색"`.
-⑥ **전 슬라이스 ko sweep(마지막 ko-터치 task라 여기서 전수)**: `grep -rn '"[^"]*[가-힣]' ui/src --include='*.tsx' --include='*.ts' | grep -v 'i18n/ko' | grep -v '__tests__'` **+ 백틱 arm** `grep -rn '\`[^\`]*[가-힣]' ui/src --include='*.tsx' | grep -v '__tests__'`(spec §11 패턴은 큰따옴표-직후만 봐서 백틱 템플릿 하드코딩을 구조적으로 못 잡는다 — 이 슬라이스 신규 diff 줄에 매치 0 확인, 선재 매치는 record-only) + 신규↔기존 카탈로그 양방향 부분문자열 sweep.
+⑥ **전 슬라이스 ko sweep(마지막 ko-터치 task라 여기서 전수·diff-스코프 — 선재 328+64건 때문에 트리 전체 grep은 판정 불가)**:
+
+```bash
+git diff $(git merge-base master HEAD)..HEAD -- ui/src \
+  | grep '^+' | grep -v '^+++' \
+  | grep -E '["`][^"`]*[가-힣]' | grep -v 'i18n/ko'
+```
+
+기대 **0줄**(기계 판정 — 파일타입 무관 `.ts`/`.tsx` 커버, 큰따옴표·백틱 두 arm 한 패스; spec §11 패턴은 큰따옴표-직후만 봐서 백틱 템플릿 하드코딩을 구조적으로 못 잡는다. 테스트 파일의 정당한 한국어 단언이 매치되면 그 줄만 개별 판정·record). + 신규↔기존 카탈로그 양방향 부분문자열 sweep.
 
 - [ ] **Step 4: GREEN 확인** — `pnpm lint && pnpm test && pnpm build; echo exit=$?`.
 - [ ] **Step 5: 커밋** — `git commit -m "feat(ui): run 목록 라벨·ID 검색 축(q)"`.
