@@ -213,6 +213,9 @@ export const RunSchema = z.object({
   // G1b 목록 stall 배지: 마지막 메트릭 윈도 wall-clock unix초. running list 경로만 number,
   // 그 외/메트릭0은 서버에서 null. 서버 항상-직렬화(skip_serializing_if 없음)라 .nullish().
   last_metric_ts: z.number().int().nullish(),
+  // run-identity: 사람이 붙이는 짧은 식별 라벨. plain Option<String>(skip_serializing_if
+  // 없음) → None이 null로 옴 → .nullish()(.optional()만 쓰면 무라벨 run 파싱이 깨진다).
+  label: z.string().nullish(),
 });
 export type Run = z.infer<typeof RunSchema>;
 
@@ -386,6 +389,10 @@ export const ReportRunSchema = z
     started_at: z.number().int().nullable(),
     ended_at: z.number().int().nullable(),
     created_at: z.number().int(),
+    // run-identity: ReportRun.label is #[serde(default, skip_serializing_if)] —
+    // omitted (not null) when unlabeled, so .optional() (not .nullish() —
+    // asymmetric with RunSchema.label above, see shared-constraints Zod 2종 분기).
+    label: z.string().optional(),
   })
   .strict();
 

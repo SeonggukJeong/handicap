@@ -1174,6 +1174,16 @@ export const ko = {
     badgeTitleMidrun: (d: string) => `${d} 진행 없음 — 워커가 멈췄을 수 있어요`,
     badgeTitleStartup: "부하 시작 전 — 워커가 멈췄을 수 있어요",
   },
+  // run-identity §8 자동 설정 요약(profileSummary). 어휘는 기존 표면과 일치: "곡선"·"최대"는
+  // RunVuCell(report.vusCurvePeak) 문구, 열린 루프 쪽은 모드 필터 칩(runFilter.modeOpenFixed/
+  // Curve "열린+…")·vusOpenHint("열린 루프")와 통일해 "열린"을 쓴다("개방"은 카탈로그
+  // 어디에도 없는 신규 동의어라 배제).
+  runSummary: {
+    closedFixed: (vus: number, s: number) => `고정 ${vus} VU · ${s}s`,
+    closedCurve: (peak: number, s: number) => `곡선 최대 ${peak} VU · ${s}s`,
+    openFixed: (rps: number, s: number) => `열린 ${rps}/s · ${s}s`,
+    openCurve: (peak: number, s: number) => `열린 곡선 최대 ${peak}/s · ${s}s`,
+  },
   runFilter: {
     verdictLabel: "결과",
     statusLabel: "상태",

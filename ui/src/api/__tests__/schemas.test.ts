@@ -5,6 +5,7 @@ import {
   InsightSchema,
   NarrativeSchema,
   ProfileSchema,
+  ReportRunSchema,
   ReportSchema,
   ReportSummarySchema,
   RunSchema,
@@ -147,6 +148,65 @@ describe("RunSchema.message", () => {
   it("accepts an absent message field (backward compat)", () => {
     const parsed = RunSchema.parse(base);
     expect(parsed.message).toBeUndefined();
+  });
+});
+
+describe("RunSchema.label", () => {
+  // RunResponse.label is a plain Option<String> — None serializes to null
+  // (no skip_serializing_if), so RunSchema must accept null (.nullish()), like
+  // .message above.
+  const base = {
+    id: "R1",
+    scenario_id: "S1",
+    scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+    status: "completed" as const,
+    profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+    env: {},
+    started_at: 100,
+    ended_at: 102,
+    created_at: 99,
+  };
+
+  it("accepts a non-empty label string", () => {
+    const parsed = RunSchema.parse({ ...base, label: "커넥션 풀 2배 후" });
+    expect(parsed.label).toBe("커넥션 풀 2배 후");
+  });
+
+  it("accepts an explicit null label", () => {
+    const parsed = RunSchema.parse({ ...base, label: null });
+    expect(parsed.label).toBeNull();
+  });
+
+  it("accepts an absent label field (backward compat)", () => {
+    const parsed = RunSchema.parse(base);
+    expect(parsed.label).toBeUndefined();
+  });
+});
+
+describe("ReportRunSchema.label", () => {
+  // ReportRun.label is #[serde(default, skip_serializing_if)] — omitted (not
+  // null) when there's no label, so ReportRunSchema must use .optional() (not
+  // .nullish()). ReportRunSchema is .strict(), so BEFORE this key is added,
+  // parsing a payload that carries the key fails (RED signal, task-5-brief).
+  const base = {
+    id: "R1",
+    scenario_id: "S1",
+    status: "completed",
+    profile: { vus: 1, ramp_up_seconds: 0, duration_seconds: 2 },
+    env: {},
+    started_at: 100,
+    ended_at: 102,
+    created_at: 99,
+  };
+
+  it("accepts an absent label field (unlabeled run)", () => {
+    const parsed = ReportRunSchema.parse(base);
+    expect(parsed.label).toBeUndefined();
+  });
+
+  it("accepts a present label field (labeled run)", () => {
+    const parsed = ReportRunSchema.parse({ ...base, label: "커넥션 풀 2배 후" });
+    expect(parsed.label).toBe("커넥션 풀 2배 후");
   });
 });
 

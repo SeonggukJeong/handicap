@@ -4,6 +4,11 @@ export function runShortLabel(id: string): string {
   return `#${id.slice(-6)}`;
 }
 
+/** 표시 폴백 단일 소스(run-identity spec §7): 라벨 있으면 라벨, 없으면 #끝6자. */
+export function runDisplayLabel(id: string, label?: string | null): string {
+  return label?.trim() ? label : runShortLabel(id);
+}
+
 // 비교 뷰는 상류(ScenarioRunsPage)에서 5개 run으로 상한 → modulo는 실제로 순환 안 함(방어적).
 const RUN_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed"];
 
