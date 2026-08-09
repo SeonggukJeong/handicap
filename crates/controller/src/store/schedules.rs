@@ -622,6 +622,7 @@ mod tests {
             "version: 1\nname: t\nsteps: []\n",
             &profile(),
             &serde_json::json!({}),
+            None,
         )
         .await
         .unwrap();

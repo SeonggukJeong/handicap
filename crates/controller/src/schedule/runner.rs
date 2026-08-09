@@ -407,6 +407,7 @@ mod tests {
             "version: 1\nname: s\nsteps: []\n",
             &profile(),
             &serde_json::json!({}),
+            None,
         )
         .await
         .unwrap();

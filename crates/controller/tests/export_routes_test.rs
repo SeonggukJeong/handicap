@@ -86,7 +86,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         worker_count: None,
         apply_scenario_think_time: true,
     };
-    let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env)
+    let row = store::runs::insert(db, "S-export-test", yaml, &profile, &env, None)
         .await
         .unwrap();
     store::runs::set_status(db, &row.id, RunStatus::Completed, Some(100), Some(102))
@@ -233,6 +233,7 @@ async fn export_of_nonterminal_run_is_rejected() {
         yaml,
         &profile,
         &serde_json::json!({}),
+        None,
     )
     .await
     .unwrap();
@@ -312,9 +313,16 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
     };
 
     // Run A
-    let run_a = store::runs::insert(db, scenario_id, yaml, &profile, &serde_json::json!({}))
-        .await
-        .unwrap();
+    let run_a = store::runs::insert(
+        db,
+        scenario_id,
+        yaml,
+        &profile,
+        &serde_json::json!({}),
+        None,
+    )
+    .await
+    .unwrap();
     store::runs::set_status(db, &run_a.id, RunStatus::Completed, Some(100), Some(102))
         .await
         .unwrap();
@@ -331,9 +339,16 @@ async fn seed_two_runs(db: &handicap_controller::store::Db) -> (String, String, 
     insert_batch(db, &metrics_a).await.unwrap();
 
     // Run B
-    let run_b = store::runs::insert(db, scenario_id, yaml, &profile, &serde_json::json!({}))
-        .await
-        .unwrap();
+    let run_b = store::runs::insert(
+        db,
+        scenario_id,
+        yaml,
+        &profile,
+        &serde_json::json!({}),
+        None,
+    )
+    .await
+    .unwrap();
     store::runs::set_status(db, &run_b.id, RunStatus::Completed, Some(200), Some(202))
         .await
         .unwrap();

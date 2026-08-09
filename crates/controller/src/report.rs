@@ -1029,6 +1029,7 @@ mod tests {
             message: None,
             dropped: 0,
             verdict: None,
+            label: None,
         }
     }
 

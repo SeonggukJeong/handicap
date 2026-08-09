@@ -676,7 +676,15 @@ pub(crate) async fn spawn_run(
     // env is already map<string,string> (rejected at the API boundary otherwise).
     // Serialize back to a JSON object for storage; clone the map for the proto.
     let env_value = serde_json::to_value(env).expect("env map serializes to a JSON object");
-    let row = runs::insert(&state.db, &scenario.id, &scenario.yaml, profile, &env_value).await?;
+    let row = runs::insert(
+        &state.db,
+        &scenario.id,
+        &scenario.yaml,
+        profile,
+        &env_value,
+        None,
+    )
+    .await?;
 
     // Resolve each binding for the workers (spec §4/§7): proto policy, a
     // deterministic seed folded from the run id, and the sliced row count.

@@ -96,7 +96,7 @@ async fn seed_run_with_metrics(db: &handicap_controller::store::Db) -> (String, 
         worker_count: None,
         apply_scenario_think_time: true,
     };
-    let row = store::runs::insert(db, "S-report-test", yaml, &profile, &env)
+    let row = store::runs::insert(db, "S-report-test", yaml, &profile, &env, None)
         .await
         .unwrap();
     // Move to completed so the report endpoint can answer for a terminal run.

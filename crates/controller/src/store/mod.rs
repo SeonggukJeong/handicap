@@ -83,6 +83,7 @@ pub async fn connect(db_url: &str) -> anyhow::Result<Db> {
     ensure_active_vu_worker_id(&pool).await?; // migration 0018 (Rust-guarded; see fn)
     sqlx::query(MIGRATION_SQL_0019).execute(&pool).await?; // migration 0019: pool_worker_overrides
     sqlx::query(MIGRATION_SQL_0020).execute(&pool).await?; // migration 0020: run_error_kind_metrics
+    ensure_runs_label(&pool).await?; // migration 0021 (Rust-guarded; see fn)
     Ok(pool)
 }
 
@@ -180,6 +181,21 @@ async fn ensure_runs_verdict_json(db: &Db) -> anyhow::Result<()> {
     .await?;
     if has == 0 {
         sqlx::query("ALTER TABLE runs ADD COLUMN verdict_json TEXT")
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+/// migration 0021: runs.label (nullable). 사용자 run 라벨(run-identity spec §3).
+/// verdict_json(0012) 가드와 동형 — pragma로 가드, 별도 .sql 파일 없음.
+async fn ensure_runs_label(db: &Db) -> anyhow::Result<()> {
+    let has: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'label'")
+            .fetch_one(db)
+            .await?;
+    if has == 0 {
+        sqlx::query("ALTER TABLE runs ADD COLUMN label TEXT")
             .execute(db)
             .await?;
     }
@@ -504,6 +520,69 @@ mod tests {
             verdict.is_none(),
             "existing run row must get NULL verdict_json"
         );
+    }
+
+    #[tokio::test]
+    async fn ensure_runs_label_is_idempotent() {
+        // Build a pool with the OLD schema (no `label` column), mirroring
+        // `ensure_runs_verdict_json_is_idempotent` — so the FIRST guard call exercises
+        // the real `ALTER TABLE` branch and the second exercises the no-op branch.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(MIGRATION_SQL_0001)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Seed scenario + run so we can assert the existing row is preserved.
+        sqlx::query(
+            "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,?)",
+        )
+        .bind("S1")
+        .bind("n")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
+             VALUES(?,?,?,?,?,?,?)",
+        )
+        .bind("R1")
+        .bind("S1")
+        .bind("version: 1\nname: n\nsteps: []\n")
+        .bind("{}")
+        .bind("{}")
+        .bind("completed")
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // First call: adds the `label` column.
+        ensure_runs_label(&pool).await.expect("first call");
+        // Second call: no-op (idempotent).
+        ensure_runs_label(&pool)
+            .await
+            .expect("idempotent second call");
+
+        let has: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'label'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(has, 1, "guard must not duplicate the column");
     }
 
     // Catches the "guard defined but never wired into connect()" regression — the test

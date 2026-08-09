@@ -266,6 +266,9 @@ pub struct RunRow {
     pub dropped: i64,
     /// A4a SLO verdict, 완료 시 영속(없으면/criteria 없으면 None). 손상 JSON도 None.
     pub verdict: Option<crate::report::Verdict>,
+    /// 사용자(또는 스케줄러 자동) run 라벨. trim 후 빈 문자열은 저장하지 않음(None) —
+    /// run-identity spec §3. 유니크 강제 없음.
+    pub label: Option<String>,
 }
 
 pub async fn insert(
@@ -274,14 +277,15 @@ pub async fn insert(
     scenario_yaml: &str,
     profile: &Profile,
     env: &serde_json::Value,
+    label: Option<&str>,
 ) -> sqlx::Result<RunRow> {
     let id = Ulid::new().to_string();
     let now = super::now_ms();
     let profile_json = serde_json::to_string(profile).expect("serialize profile");
     let env_json = serde_json::to_string(env).expect("serialize env");
     sqlx::query(
-        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at) \
-         VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO runs(id,scenario_id,scenario_yaml,profile_json,env_json,status,created_at,label) \
+         VALUES(?,?,?,?,?,?,?,?)",
     )
     .bind(&id)
     .bind(scenario_id)
@@ -290,6 +294,7 @@ pub async fn insert(
     .bind(&env_json)
     .bind(RunStatus::Pending.as_str())
     .bind(now)
+    .bind(label)
     .execute(db)
     .await?;
     Ok(RunRow {
@@ -305,12 +310,13 @@ pub async fn insert(
         message: None,
         dropped: 0,
         verdict: None,
+        label: label.map(str::to_string),
     })
 }
 
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
     let row = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label \
          FROM runs WHERE id = ?",
     )
     .bind(id)
@@ -338,12 +344,13 @@ pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<RunRow>> {
         verdict: r
             .get::<Option<String>, _>("verdict_json")
             .and_then(|s| serde_json::from_str(&s).ok()),
+        label: r.get("label"),
     }))
 }
 
 pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<RunRow>> {
     let rows = sqlx::query(
-        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json \
+        "SELECT id,scenario_id,scenario_yaml,profile_json,env_json,status,started_at,ended_at,created_at,message,dropped,verdict_json,label \
          FROM runs WHERE scenario_id = ? ORDER BY created_at DESC",
     )
     .bind(scenario_id)
@@ -372,9 +379,24 @@ pub async fn list_by_scenario(db: &Db, scenario_id: &str) -> sqlx::Result<Vec<Ru
             verdict: r
                 .get::<Option<String>, _>("verdict_json")
                 .and_then(|s| serde_json::from_str(&s).ok()),
+            label: r.get("label"),
         });
     }
     Ok(out)
+}
+
+/// run 라벨 사후 편집(spec §4.3). None = 라벨 제거. 미존재 id → Ok(None) → 호출자 404.
+pub async fn update_label(db: &Db, id: &str, label: Option<&str>) -> sqlx::Result<Option<RunRow>> {
+    let n = sqlx::query("UPDATE runs SET label = ? WHERE id = ?")
+        .bind(label)
+        .bind(id)
+        .execute(db)
+        .await?
+        .rows_affected();
+    if n == 0 {
+        return Ok(None);
+    }
+    get(db, id).await
 }
 
 pub async fn set_status(
@@ -644,6 +666,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn insert_and_update_label_round_trip() {
+        use crate::store::scenarios;
+        use handicap_engine::Scenario;
+
+        let db = test_db().await;
+
+        let yaml = "version: 1\nname: label-sc\nsteps: []";
+        let scenario: Scenario = serde_yaml::from_str(yaml).unwrap();
+        let sc = scenarios::insert(&db, &scenario, yaml).await.unwrap();
+
+        let profile = Profile {
+            vus: 1,
+            ramp_up_seconds: 0,
+            duration_seconds: 1,
+            loop_breakdown_cap: 256,
+            http_timeout_seconds: 30,
+            data_binding: None,
+            data_bindings: vec![],
+            criteria: None,
+            think_time: None,
+            think_seed: None,
+            target_rps: None,
+            max_in_flight: None,
+            stages: None,
+            measure_phases: false,
+            vu_stages: None,
+            ramp_down: None,
+            graceful_ramp_down_seconds: None,
+            connect_timeout_seconds: None,
+            worker_count: None,
+            apply_scenario_think_time: true,
+        };
+
+        // Labeled insert -> get round-trip.
+        let run = insert(
+            &db,
+            &sc.id,
+            "y",
+            &profile,
+            &serde_json::json!({}),
+            Some("커넥션 풀 2배 후"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(run.label.as_deref(), Some("커넥션 풀 2배 후"));
+        let got = get(&db, &run.id).await.unwrap().unwrap();
+        assert_eq!(got.label.as_deref(), Some("커넥션 풀 2배 후"));
+
+        // Unlabeled insert -> None.
+        let bare = insert(&db, &sc.id, "y", &profile, &serde_json::json!({}), None)
+            .await
+            .unwrap();
+        assert!(get(&db, &bare.id).await.unwrap().unwrap().label.is_none());
+
+        // update_label: set -> replace -> clear (None) -> unknown id => Ok(None).
+        let up = update_label(&db, &bare.id, Some("사후 라벨"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(up.label.as_deref(), Some("사후 라벨"));
+        let cleared = update_label(&db, &bare.id, None).await.unwrap().unwrap();
+        assert!(cleared.label.is_none());
+        assert!(
+            update_label(&db, "01NOPE", Some("x"))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn set_status_missing_run_is_ok_noop() {
         let db = test_db().await;
         // No scenario/run inserted. Updating a non-existent run must NOT error (warn-only).
@@ -689,7 +782,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
         };
-        let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}))
+        let run = insert(&db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
             .unwrap();
         assert_eq!(run.status, RunStatus::Pending);
@@ -744,7 +837,7 @@ mod tests {
             worker_count: None,
             apply_scenario_think_time: true,
         };
-        insert(db, &sc.id, yaml, &profile, &serde_json::json!({}))
+        insert(db, &sc.id, yaml, &profile, &serde_json::json!({}), None)
             .await
             .unwrap()
             .id

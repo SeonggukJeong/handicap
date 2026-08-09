@@ -1846,6 +1846,7 @@ mod tests {
             scenario_yaml,
             &profile,
             &serde_json::json!({}),
+            None,
         )
         .await
         .unwrap()
@@ -1973,6 +1974,7 @@ mod tests {
             scenario_yaml,
             &profile,
             &serde_json::json!({}),
+            None,
         )
         .await
         .unwrap();

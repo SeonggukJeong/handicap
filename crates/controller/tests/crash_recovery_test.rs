@@ -62,6 +62,7 @@ async fn orphan_pending_and_running_become_failed() {
         "version: 1\nname: x\nsteps: []\n",
         &profile(),
         &env,
+        None,
     )
     .await
     .expect("insert pending");
@@ -71,6 +72,7 @@ async fn orphan_pending_and_running_become_failed() {
         "version: 1\nname: x\nsteps: []\n",
         &profile(),
         &env,
+        None,
     )
     .await
     .expect("insert running");
@@ -85,6 +87,7 @@ async fn orphan_pending_and_running_become_failed() {
         "version: 1\nname: x\nsteps: []\n",
         &profile(),
         &env,
+        None,
     )
     .await
     .expect("insert completed");
@@ -104,6 +107,7 @@ async fn orphan_pending_and_running_become_failed() {
         "version: 1\nname: x\nsteps: []\n",
         &profile(),
         &env,
+        None,
     )
     .await
     .expect("insert aborted");
@@ -155,6 +159,7 @@ async fn second_call_is_noop_if_no_orphans_remain() {
         "version: 1\nname: x\nsteps: []\n",
         &profile(),
         &env,
+        None,
     )
     .await
     .expect("insert pending");
