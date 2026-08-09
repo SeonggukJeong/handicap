@@ -692,14 +692,13 @@ describe("ScenarioRunsPage — 라벨 열 + 인라인 편집 (Task 8)", () => {
     mockApiLabelFlow();
     renderPage();
 
-    const editBtn = await screen.findByRole("button", {
-      name: ko.runFilter.labelEditAria(runShortLabel("R1")),
-    });
+    // 이빨(자기참조 방지): 기대값을 production과 같은 ko.runFilter.labelEditAria() 호출로
+    // 계산하지 않는다 — 독립 리터럴("#R1 라벨 편집" = runShortLabel("R1") + " 라벨 편집")로
+    // WCAG 2.5.3 label-in-name 회귀(예: labelEditAria가 인자를 무시)를 잡을 수 있게 한다.
+    const editBtn = await screen.findByRole("button", { name: "#R1 라벨 편집" });
     await user.click(editBtn);
 
-    const input = screen.getByRole("textbox", {
-      name: ko.runFilter.labelEditAria(runShortLabel("R1")),
-    });
+    const input = screen.getByRole("textbox", { name: "#R1 라벨 편집" });
     await user.type(input, "내가 입력한 초안");
     await user.keyboard("{Enter}");
 
