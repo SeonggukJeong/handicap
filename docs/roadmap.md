@@ -446,6 +446,16 @@
 - **비포화 산술 2곳**(security N2, §B27 nit ②와 동류): `insights.rs`의 kind 합 `sum()`과 onset의 `ts` 뺄셈. 도달하려면 워커가 말도 안 되는 `ts_second`나 2^64 초과 합계를 보내야 하고 영향은 debug 빌드 리포트 핸들러 panic(연결 1개 끊김) — §B27 ②를 손볼 때 함께.
 - **pre-commit 훅의 comment/whitespace-only Rust fast-path가 root CLAUDE.md에 미문서화**: 훅에는 "cargo-영향 경로 staged면 전체 게이트" 외에 **주석/공백만 바뀐 `.rs`면 fmt+build+clippy는 돌리고 nextest/doctest만 건너뛰는** 별도 분기가 실재한다(재리뷰가 `.githooks/pre-commit`을 직접 읽어 확인). root의 축약 설명에 이 갈래가 없어 "게이트가 안 돌았다"는 오해를 부른다.
 
+### B29. run 라벨·식별성 (2026-08-09, 코드 `67acd9e9`, ADR-0052) 연기 항목
+
+- **run-레벨 장문 메모**: 라벨 한 줄로 한정 — 시나리오 `notes`가 장문 담당, run 회고 장문은 수요 확인 후.
+- **`schedule_id`/preset 구조 링크 컬럼**: 라벨 문자열이 출처를 나름(사용자 결정 2026-08-09, 접근 C 기각) — "이 스케줄이 발사한 run만" 구조 필터가 필요해지면 재검토.
+- **비교 export 고정 파일명(`comparison.*`) fix**: 사용자 결정으로 이번 제외(A4b 시절부터 잔존).
+- **CSV(단일·비교) 라벨 열**: XLSX Runs 시트만 추가 — CSV 소비처 수요 확인 후.
+- **라벨 정렬 축**: 검색 축 `q`로 충분 판단 — 목록 라벨 열은 plain `<th>`(SortableTh/aria-sort 비대상, 테스트로 핀).
+- **라벨 유니크 강제·편집 이력/감사**: 중복 허용 도메인·단순 UPDATE.
+- **InsightCompareMatrix 서브라인**: 밀도 사유로 라벨만 공유(시각·설정 요약 서브라인은 CompareMatrix만).
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
