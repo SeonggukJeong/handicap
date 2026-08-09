@@ -78,6 +78,10 @@ export const ko = {
     run: "실행하기",
     running: "시작 중…",
     cancel: "취소",
+    // run-identity §8: 생성 시 라벨 입력(선택). 빈 값 제출 시 payload에 label 키 자체가
+    // 없어야 함(byte-identical) — trim은 제출부에서.
+    labelField: "라벨 (선택)",
+    labelPlaceholder: "예: 커넥션 풀 2배 후",
     // Section 프리미티브용 라벨 (B1)
     sectionLoadTitle: "부하 모델", // was "부하 정의" (R14① 단일 헤더)
     sectionEnvTitle: "환경",

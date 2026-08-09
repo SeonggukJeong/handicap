@@ -48,12 +48,17 @@ async function createRunImpl(
   scenario_id: string,
   profile: Profile,
   env: Record<string, string>,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; label?: string },
 ): Promise<Run> {
   const res = await fetch(`${BASE}/runs${opts?.force ? "?force=true" : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scenario_id, profile, env }),
+    body: JSON.stringify({
+      scenario_id,
+      profile,
+      env,
+      ...(opts?.label ? { label: opts.label } : {}),
+    }),
   });
   const text = await res.text();
   if (res.status === 409) {
@@ -243,7 +248,7 @@ export const api = {
     scenario_id: string,
     profile: Profile,
     env: Record<string, string>,
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; label?: string },
   ) => createRunImpl(scenario_id, profile, env, opts),
   createTestRun: (body: TestRunBody) =>
     request("/test-runs", { method: "POST", body: JSON.stringify(body) }, ScenarioTraceSchema),

@@ -63,8 +63,10 @@ export function seedBindingsFrom(
   return profile.data_binding ? [profile.data_binding] : [];
 }
 
-/** Shape of RunDialog's `initial` prop — a past run's profile + decoded env. */
-export type RunPrefill = { profile: Profile; env: Record<string, string> };
+/** Shape of RunDialog's `initial` prop — a past run's profile + decoded env.
+ *  `label` carries the source run's label forward (retry/즉시재실행 승계, run-identity §8) —
+ *  optional/nullish since older runs predate the field. */
+export type RunPrefill = { profile: Profile; env: Record<string, string>; label?: string | null };
 
 /** 적용 타임아웃 노브 표시 판정(spec §4). 입력을 느슨한 구조 타입으로 받는 이유:
  *  normalizeProfile 통과 Profile(http 항상 number)과 raw RunSchema.profile

@@ -3503,3 +3503,217 @@ describe("hint SR 연결 (rundialog-hint-sr)", () => {
     );
   });
 });
+
+// run-identity Task 6: run 생성 경로 라벨 관통 — client 4계층 + RunDialog 입력 +
+// 프리셋/retry/즉시재실행 승계. 제출 3곳(일반·clamp·force) 전부가 label을 유실 없이
+// 실어야 한다(빠뜨리면 풀-용량 clamp 경로가 라벨을 조용히 유실 — [[load-divergence-explain-confirm]] 클래스).
+describe("RunDialog — 라벨 (run-identity Task 6)", () => {
+  function mockRunPost(id = "R1") {
+    fetchMock.mockImplementation(() =>
+      jsonResponse({
+        id,
+        scenario_id: "S1",
+        scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+        status: "pending",
+        profile: { vus: 2, ramp_up_seconds: 0, duration_seconds: 5 },
+        env: {},
+        started_at: null,
+        ended_at: null,
+        created_at: 1,
+      }),
+    );
+  }
+
+  function findRunsPostCall() {
+    return fetchMock.mock.calls.find(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+  }
+
+  it("라벨 입력 시 POST payload에 label이 정확히 실린다 (payload 정확 단언)", async () => {
+    mockRunPost();
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await user.type(screen.getByRole("textbox", { name: ko.runDialog.labelField }), "풀 2배");
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = findRunsPostCall();
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body).toEqual({
+      scenario_id: "S1",
+      profile: expect.anything(),
+      env: {},
+      label: "풀 2배",
+    });
+  });
+
+  it("라벨 미입력 제출은 payload에 label 키가 없다 (byte-identical)", async () => {
+    mockRunPost();
+    const user = userEvent.setup();
+    const { onCreated } = renderDialog();
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("R1"));
+
+    const call = findRunsPostCall();
+    expect(call).toBeDefined();
+    const body = JSON.parse((call![1] as RequestInit).body as string);
+    expect(body).not.toHaveProperty("label");
+  });
+
+  it("clamp 경로(줄여 진행)에서도 2번째 /api/runs 호출 body에 label이 잔존한다 (이빨 의무)", async () => {
+    let runsCallCount = 0;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/runs") &&
+        (init as RequestInit | undefined)?.method === "POST"
+      ) {
+        runsCallCount++;
+        if (runsCallCount === 1) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ error: "capacity exceeded", achievable_vus: 10, requested_vus: 20 }),
+              { status: 409, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "R-CLAMP",
+              scenario_id: "S1",
+              scenario_yaml: "version: 1\nname: t\nsteps: []\n",
+              status: "pending",
+              profile: { vus: 10, ramp_up_seconds: 0, duration_seconds: 5 },
+              env: {},
+              started_at: null,
+              ended_at: null,
+              created_at: 1,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ presets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+
+    mockUsePoolWorkers.mockReturnValue({
+      data: { pool_mode: true, workers: [{ worker_id: "w1", hostname: "h1", capacity_vus: 10 }] },
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    const vusInput = screen.getByRole("spinbutton", { name: /동시 사용자/ });
+    await user.clear(vusInput);
+    await user.type(vusInput, "20");
+    await user.type(screen.getByRole("textbox", { name: ko.runDialog.labelField }), "풀 2배");
+    await user.click(screen.getByRole("button", { name: "실행하기" }));
+    await screen.findByRole("alertdialog", { name: /풀 용량 부족/ });
+
+    await user.click(screen.getByRole("button", { name: /10 VU로 줄여 진행/ }));
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(
+        ([u, i]) =>
+          typeof u === "string" &&
+          u.endsWith("/api/runs") &&
+          (i as RequestInit | undefined)?.method === "POST",
+      );
+      expect(calls.length).toBe(2);
+      const body = JSON.parse((calls[1]![1] as RequestInit).body as string);
+      expect(body.label).toBe("풀 2배");
+    });
+  });
+
+  describe("프리셋 no-clobber", () => {
+    function mockPresets() {
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/scenarios/S1/presets") && (!init || init.method === "GET")) {
+          return Promise.resolve(
+            jsonResponse({
+              presets: [
+                {
+                  id: "P1",
+                  name: "heavy",
+                  vus: 50,
+                  duration_seconds: 60,
+                  created_at: 1,
+                  updated_at: 1,
+                },
+              ],
+            }),
+          );
+        }
+        if (url.endsWith("/api/presets/P1")) {
+          return Promise.resolve(
+            jsonResponse({
+              id: "P1",
+              scenario_id: "S1",
+              name: "heavy",
+              profile: {
+                vus: 50,
+                duration_seconds: 60,
+                ramp_up_seconds: 5,
+                loop_breakdown_cap: 256,
+                data_binding: null,
+              },
+              env: {},
+              created_at: 1,
+              updated_at: 1,
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}, 404));
+      });
+    }
+
+    it("라벨 비어있을 때 프리셋 로드 → 라벨 입력값 = 프리셋 이름", async () => {
+      mockPresets();
+      const user = userEvent.setup();
+      renderDialog();
+      await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
+      await waitFor(() =>
+        expect(screen.getByRole("textbox", { name: ko.runDialog.labelField })).toHaveValue("heavy"),
+      );
+    });
+
+    it("라벨에 선입력 후 프리셋 로드 → 안 덮임", async () => {
+      mockPresets();
+      const user = userEvent.setup();
+      renderDialog();
+      await user.type(screen.getByRole("textbox", { name: ko.runDialog.labelField }), "내 라벨");
+      await user.selectOptions(await screen.findByLabelText("프리셋 불러오기"), "P1");
+      // heavy 프리셋 로드 완료 대기(다른 필드로 확인) 후 라벨 불변 단언
+      await waitFor(() =>
+        expect(screen.getByRole("spinbutton", { name: /동시 사용자/ })).toHaveValue(50),
+      );
+      expect(screen.getByRole("textbox", { name: ko.runDialog.labelField })).toHaveValue("내 라벨");
+    });
+  });
+
+  it("retry 프리필: initial.label이 라벨 입력 초기값으로 승계된다", () => {
+    renderWithInitial({
+      profile: {
+        vus: 7,
+        duration_seconds: 9,
+        ramp_up_seconds: 3,
+        loop_breakdown_cap: 128,
+        http_timeout_seconds: 120,
+        measure_phases: false,
+        data_binding: null,
+      },
+      env: {},
+      label: "이전 라벨",
+    });
+    expect(screen.getByRole("textbox", { name: ko.runDialog.labelField })).toHaveValue("이전 라벨");
+  });
+});

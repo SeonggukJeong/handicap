@@ -154,12 +154,14 @@ export function useCreateRun() {
       profile,
       env,
       force,
+      label,
     }: {
       scenarioId: string;
       profile: Profile;
       env: Record<string, string>;
       force?: boolean;
-    }) => api.createRun(scenarioId, profile, env, { force }),
+      label?: string;
+    }) => api.createRun(scenarioId, profile, env, { force, label }),
     onSuccess: (run) => {
       markRunCreated(); // U2 온보딩 ②: UI 경유 run 생성 성공 시 1회성 플래그
       qc.invalidateQueries({ queryKey: queryKeys.scenarioRuns(run.scenario_id) });

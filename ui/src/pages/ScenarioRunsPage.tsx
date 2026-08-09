@@ -107,6 +107,7 @@ export function ScenarioRunsPage() {
         prefill: {
           profile: normalizeProfile(target.profile),
           env: envValueToRecord(target.env),
+          label: target.label,
         },
       });
       setShowDialog(true);
@@ -382,7 +383,7 @@ export function ScenarioRunsPage() {
                                 setPrefillState({
                                   runId: r.id,
                                   runScenarioYaml: r.scenario_yaml,
-                                  prefill: { profile: normalised, env },
+                                  prefill: { profile: normalised, env, label: r.label },
                                 });
                                 setShowDialog(true);
                               }}
@@ -398,6 +399,7 @@ export function ScenarioRunsPage() {
                                     scenarioId: r.scenario_id,
                                     profile: normalised,
                                     env,
+                                    ...(r.label ? { label: r.label } : {}),
                                   },
                                   { onSuccess: (created) => navigate(`/runs/${created.id}`) },
                                 );

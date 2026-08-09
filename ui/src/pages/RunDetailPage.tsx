@@ -164,6 +164,7 @@ export function RunDetailPage() {
                       scenarioId: r.scenario_id,
                       profile: normalizeProfile(r.profile),
                       env: envValueToRecord(r.env),
+                      ...(r.label ? { label: r.label } : {}),
                     },
                     { onSuccess: (created) => navigate(`/runs/${created.id}`) },
                   )

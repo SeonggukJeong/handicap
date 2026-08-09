@@ -119,6 +119,8 @@ export function RunDialog({
       }),
     ) ?? [{ target: "100", duration_seconds: "30" }],
   );
+  // run-identity §8: 생성 시 라벨(선택). trim → 빈 = 제출 시 payload에서 키 자체 생략(byte-identical).
+  const [label, setLabel] = useState(initial?.label ?? "");
   const [vus, setVus] = useState(initial?.profile.vus ?? 2);
   const [duration, setDuration] = useState(initial?.profile.duration_seconds ?? 5);
   const [rampUp, setRampUp] = useState(initial?.profile.ramp_up_seconds ?? 0);
@@ -328,6 +330,9 @@ export function RunDialog({
       if (opensDetailed(prof, envValueToRecord(p.env))) setMode("detailed");
       setLoadedPresetId(id);
       setPresetName(p.name);
+      // run-identity §8: 라벨이 비어 있을 때만 프리셋 이름으로 시드 — 사용자가 이미
+      // 입력한 라벨은 no-clobber(프리셋 name-echo가 덮지 않음).
+      setLabel((cur) => (cur.trim() ? cur : p.name));
       setPresetLoadTick((t) => t + 1); // 1b: commit 후 스냅샷 재캡처 트리거
     } catch (e) {
       setPresetError((e as Error).message);
@@ -653,6 +658,16 @@ export function RunDialog({
           ariaLabel={ko.runDialog.modeAria}
         />
       </div>
+      <label className="block mb-3">
+        <span className="text-sm text-slate-600">{ko.runDialog.labelField}</span>
+        <Input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={200}
+          placeholder={ko.runDialog.labelPlaceholder}
+          aria-label={ko.runDialog.labelField}
+        />
+      </label>
       {scenarioChangedWarning && (
         <Callout variant="warn" role="alert" className="mb-3">
           이 시나리오는 이 run 이후 수정됨 — 설정이 안 맞을 수 있습니다.
@@ -1204,7 +1219,12 @@ export function RunDialog({
                       setPoolConflict(null);
                       mutation.reset();
                       mutation.mutate(
-                        { scenarioId, profile: clamped, env },
+                        {
+                          scenarioId,
+                          profile: clamped,
+                          env,
+                          ...(label.trim() ? { label: label.trim() } : {}),
+                        },
                         { onSuccess: (run) => onCreated(run.id) },
                       );
                     }}
@@ -1220,7 +1240,13 @@ export function RunDialog({
                       setPoolConflict(null);
                       mutation.reset();
                       mutation.mutate(
-                        { scenarioId, profile: buildProfile(), env, force: true },
+                        {
+                          scenarioId,
+                          profile: buildProfile(),
+                          env,
+                          force: true,
+                          ...(label.trim() ? { label: label.trim() } : {}),
+                        },
                         { onSuccess: (run) => onCreated(run.id) },
                       );
                     }}
@@ -1286,7 +1312,12 @@ export function RunDialog({
           <Button
             onClick={() =>
               mutation.mutate(
-                { scenarioId, profile: buildProfile(), env },
+                {
+                  scenarioId,
+                  profile: buildProfile(),
+                  env,
+                  ...(label.trim() ? { label: label.trim() } : {}),
+                },
                 { onSuccess: (run) => onCreated(run.id) },
               )
             }

@@ -112,6 +112,20 @@ describe("ScenarioRunsPage — retry (A1)", () => {
     });
   });
 
+  it("'즉시 재실행' 라벨 승계: 라벨 있는 run 행의 즉시 재실행 POST 페이로드에 label이 실린다 (run-identity Task 6)", async () => {
+    const user = userEvent.setup();
+    mockApi({ label: "이전 라벨" });
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "즉시 재실행" }));
+    await waitFor(() => expect(screen.getByText("run page")).toBeInTheDocument());
+    const posted = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith("/api/runs") && (i as RequestInit)?.method === "POST",
+    );
+    expect(posted).toBeTruthy();
+    const body = JSON.parse((posted![1] as RequestInit).body as string);
+    expect(body.label).toBe("이전 라벨");
+  });
+
   it("shows the drift warning when the run snapshot differs from the live scenario", async () => {
     const user = userEvent.setup();
     mockApi({ scenario_yaml: SCENARIO_YAML.replace("http://x", "http://OLD") });

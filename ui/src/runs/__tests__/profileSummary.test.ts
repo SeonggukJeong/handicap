@@ -31,13 +31,13 @@ describe("profileSummary", () => {
     expect(s).toContain("45");
   });
 
-  it("open+curve는 피크", () => {
+  it("open+curve는 피크 (Math.max vs last-stage 구분: 내림차순 픽스처)", () => {
     const s = profileSummary({
       vus: 0,
       duration_seconds: 0,
       stages: [
-        { target: 80, duration_seconds: 20 },
         { target: 150, duration_seconds: 25 },
+        { target: 80, duration_seconds: 20 },
       ],
     });
     expect(s).toBe(ko.runSummary.openCurve(150, 45));
