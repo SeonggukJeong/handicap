@@ -27,6 +27,8 @@ pub struct CreateRunRequest {
     pub profile: Profile,
     #[serde(default)]
     pub env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,10 +51,26 @@ pub struct RunResponse {
     /// 마지막 메트릭 윈도의 wall-clock unix초(running run 진행 stall 판정용, G1b 목록 배지).
     /// running이 아니거나 메트릭 0이면 None. advisory-only — list 경로만 채운다(FIX-3).
     pub last_metric_ts: Option<i64>,
+    /// 사용자(또는 스케줄러 자동) run 라벨. 없으면 JSON `null`(run-identity spec §3/§5).
+    pub label: Option<String>,
 }
 
 pub(crate) fn loop_cap_ok(cap: u32, max: u32) -> bool {
     cap <= max
+}
+
+/// run 라벨 정규화(spec §3): trim → 빈=None, 문자 수 200 초과=Err(400 메시지).
+/// create·PUT 공유. 스케줄러는 이 함수 대신 truncate(자동 경로는 400 불가).
+fn normalize_label(raw: Option<String>) -> Result<Option<String>, String> {
+    let Some(s) = raw else { return Ok(None) };
+    let t = s.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    if t.chars().count() > 200 {
+        return Err("라벨은 200자 이하여야 합니다".into());
+    }
+    Ok(Some(t.to_string()))
 }
 
 /// run-level criteria 검증(spec §7). DB 불필요 — 순수. 위반은 BadRequest 메시지.
@@ -655,6 +673,7 @@ pub(crate) async fn spawn_run(
     validated_metas: Vec<datasets::DatasetMeta>,
     env: &std::collections::HashMap<String, String>,
     force: bool,
+    label: Option<&str>,
 ) -> Result<runs::RunRow, ApiError> {
     // L3/L4/L5: pool capacity precheck (before any DB insert → 409 leaves no run row, R3).
     // Covers closed-loop, open-loop (fixed+curve), AND closed-loop VU curve.
@@ -682,7 +701,7 @@ pub(crate) async fn spawn_run(
         &scenario.yaml,
         profile,
         &env_value,
-        None,
+        label,
     )
     .await?;
 
@@ -958,6 +977,7 @@ pub async fn create(
 
     let validated_meta = validate_run_config(&state, &body.profile).await?;
     validate_step_criteria_targets(&body.profile, &scenario.yaml).map_err(ApiError::BadRequest)?;
+    let label = normalize_label(body.label).map_err(ApiError::BadRequest)?;
 
     let row = spawn_run(
         &state,
@@ -966,6 +986,7 @@ pub async fn create(
         validated_meta,
         &body.env,
         q.force,
+        label.as_deref(),
     )
     .await?;
 
@@ -1275,6 +1296,7 @@ fn to_response(r: runs::RunRow, last_metric_ts: Option<i64>) -> RunResponse {
         message: r.message,
         verdict: r.verdict,
         last_metric_ts,
+        label: r.label,
     }
 }
 
@@ -1295,6 +1317,20 @@ mod tests {
         assert!(super::loop_cap_ok(256, max));
         assert!(super::loop_cap_ok(10_000, max));
         assert!(!super::loop_cap_ok(10_001, max)); // over cap rejected
+    }
+
+    #[test]
+    fn normalize_label_table() {
+        assert_eq!(normalize_label(None), Ok(None));
+        assert_eq!(normalize_label(Some("".into())), Ok(None));
+        assert_eq!(normalize_label(Some("  ".into())), Ok(None));
+        assert_eq!(normalize_label(Some("  x  ".into())), Ok(Some("x".into())));
+        let two_hundred: String = "가".repeat(200);
+        assert_eq!(
+            normalize_label(Some(two_hundred.clone())),
+            Ok(Some(two_hundred))
+        );
+        assert!(normalize_label(Some("가".repeat(201))).is_err());
     }
 
     #[test]

@@ -583,6 +583,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(has, 1, "guard must not duplicate the column");
+
+        // Existing row gets NULL (nullable ADD COLUMN, no DEFAULT) — label is
+        // forward-only, pre-feature runs stay NULL.
+        let label: Option<String> = sqlx::query_scalar("SELECT label FROM runs WHERE id='R1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(label.is_none(), "existing run row must get NULL label");
     }
 
     // Catches the "guard defined but never wired into connect()" regression — the test

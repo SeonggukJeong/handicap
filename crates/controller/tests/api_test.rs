@@ -75,6 +75,68 @@ async fn get_run_status(app: &axum::Router, run_id: &str) -> String {
 }
 
 #[tokio::test]
+async fn create_run_with_label_trims_and_persists() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let single_step_yaml = "version: 1\nname: label-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, single_step_yaml).await;
+
+    let body = json!({
+        "scenario_id": scenario_id,
+        "profile": { "vus": 1, "duration_seconds": 30 },
+        "env": {},
+        "label": "  통합 라벨  "
+    });
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/api/runs")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["label"], "통합 라벨", "create response trims label");
+    let run_id = v["id"].as_str().unwrap().to_string();
+
+    let req2 = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/runs/{run_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp2 = app.clone().oneshot(req2).await.unwrap();
+    let bytes2 = axum::body::to_bytes(resp2.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v2: Value = serde_json::from_slice(&bytes2).unwrap();
+    assert_eq!(v2["label"], "통합 라벨", "re-fetched run keeps label");
+}
+
+#[tokio::test]
+async fn create_run_without_label_is_null() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let single_step_yaml = "version: 1\nname: no-label-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, single_step_yaml).await;
+    let run_id = create_run(&app, &scenario_id).await;
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/runs/{run_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["label"], Value::Null, "no-label run response has null");
+}
+
+#[tokio::test]
 async fn abort_run_marks_run_aborted() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db.clone());

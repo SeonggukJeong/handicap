@@ -12,6 +12,12 @@ use crate::store::{now_ms, runs, scenarios, schedules};
 /// 흡수하고, 장기 다운만 cron에서 missed로 친다. grace ≥ 기본 틱(30s).
 const MISS_GRACE_MS: i64 = 300_000;
 
+/// 스케줄 이름 → run 자동 라벨(spec §4.2): trim + 문자 수 200 truncate.
+/// 자동 경로라 normalize_label(400 반환) 대신 클램프. &s[..200] 바이트 슬라이스 금지(panic).
+fn schedule_label(name: &str) -> String {
+    name.trim().chars().take(200).collect()
+}
+
 /// 한 틱의 처리 요약(테스트 가독성·info 로깅).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct TickSummary {
@@ -183,6 +189,7 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        let label = schedule_label(&sched.name);
         match spawn_run(
             state,
             &scenario,
@@ -190,6 +197,7 @@ pub(crate) async fn process_due_schedules(state: &AppState, now_ms: i64) -> Tick
             validated_meta,
             &env,
             false,
+            Some(&label),
         )
         .await
         {
@@ -362,10 +370,19 @@ mod tests {
         let run_id = g.last_run_id.expect("run created");
         let run = runs::get(&state.db, &run_id).await.unwrap().unwrap();
         assert_eq!(run.scenario_id, sid);
+        assert_eq!(run.label.as_deref(), Some("s"));
         let evs = schedules::recent_events(&state.db, &id, 10).await.unwrap();
         assert_eq!(evs.len(), 1);
         assert_eq!(evs[0].kind, "fired");
         assert_eq!(evs[0].run_id.as_deref(), Some(run_id.as_str()));
+    }
+
+    #[test]
+    fn schedule_label_truncates_korean_without_panic() {
+        let name = format!("  {}  ", "라".repeat(300));
+        let label = schedule_label(&name); // 300자 한국어: 바이트 슬라이스였다면 panic
+        assert_eq!(label.chars().count(), 200);
+        assert_eq!(schedule_label("  nightly  "), "nightly"); // trim
     }
 
     #[tokio::test]

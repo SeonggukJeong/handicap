@@ -266,8 +266,9 @@ pub struct RunRow {
     pub dropped: i64,
     /// A4a SLO verdict, 완료 시 영속(없으면/criteria 없으면 None). 손상 JSON도 None.
     pub verdict: Option<crate::report::Verdict>,
-    /// 사용자(또는 스케줄러 자동) run 라벨. trim 후 빈 문자열은 저장하지 않음(None) —
-    /// run-identity spec §3. 유니크 강제 없음.
+    /// 사용자(또는 스케줄러 자동) run 라벨. 정규화(trim·빈→None·200자 상한)는 API
+    /// 계층(`normalize_label`)·스케줄러(`schedule_label`) 책임이며 스토어는 받은
+    /// 값을 그대로 저장한다(run-identity spec §3). 유니크 강제 없음.
     pub label: Option<String>,
 }
 
