@@ -72,6 +72,7 @@ pub fn router(state: AppState) -> Router {
             get(runs_api::report_insights_csv),
         )
         .route("/runs/{id}/abort", post(runs_api::abort_run))
+        .route("/runs/{id}/label", put(runs_api::update_label))
         .route(
             "/datasets",
             post(datasets_api::upload)

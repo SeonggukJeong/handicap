@@ -1001,6 +1001,26 @@ pub async fn get(
     Ok(Json(to_response(row, None)))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateLabelRequest {
+    #[serde(default)]
+    pub label: Option<String>, // 키 부재·null 동일 = 라벨 제거 (spec §4.3)
+}
+
+/// 사후 편집(US4): `PUT /api/runs/{id}/label`. `normalize_label`을 create와
+/// 공유(trim→빈=None, 200자 초과=400). 미존재 id는 404.
+pub async fn update_label(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateLabelRequest>,
+) -> Result<Json<RunResponse>, ApiError> {
+    let label = normalize_label(body.label).map_err(ApiError::BadRequest)?;
+    let row = runs::update_label(&state.db, &id, label.as_deref())
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(to_response(row, None)))
+}
+
 pub async fn metrics(
     State(state): State<AppState>,
     Path(id): Path<String>,

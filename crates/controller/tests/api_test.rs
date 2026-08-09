@@ -752,3 +752,95 @@ async fn create_open_loop_run_with_worker_count_fanout() {
         "worker_count=2 with max_in_flight=1 must be rejected (worker gets 0 slots)"
     );
 }
+
+#[tokio::test]
+async fn put_run_label_sets_updates_and_clears() {
+    // Task 3: PUT /api/runs/{id}/label sets/updates/clears a run's label after
+    // the fact (US4). ① set → 200, response label matches, re-fetch matches.
+    // ② set null → 200, label removed (null). ③ over-length → 400. ④ missing
+    // id → 404. (oneshot PUT mirrors the existing abort POST idiom, method swapped.)
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db.clone());
+    let single_step_yaml = "version: 1\nname: label-put-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
+    let scenario_id = create_scenario(&app, single_step_yaml).await;
+    let run_id = create_run(&app, &scenario_id).await;
+
+    // ① PUT {"label":"사후"} → 200, response label == "사후", GET re-fetch matches.
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri(format!("/api/runs/{run_id}/label"))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "label": "사후" }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "setting a label must return 200"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["label"], "사후", "PUT response reflects the new label");
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/runs/{run_id}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["label"], "사후", "re-fetched run keeps the PUT label");
+
+    // ② PUT {"label":null} → 200, label removed (null).
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri(format!("/api/runs/{run_id}/label"))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "label": null }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "clearing a label must return 200"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(v["label"].is_null(), "null label must clear it");
+
+    // ③ over-length label ("가" x 201, chars().count() > 200) → 400.
+    let too_long = "가".repeat(201);
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri(format!("/api/runs/{run_id}/label"))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "label": too_long }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "label over 200 chars must be rejected"
+    );
+
+    // ④ missing run id → 404.
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/runs/nonexistent-run-id/label")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "label": "x" }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "PUT label on a missing run id must 404"
+    );
+}
