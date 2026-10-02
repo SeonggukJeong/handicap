@@ -196,8 +196,20 @@
 - **완료 시 달라지는 관찰**: run-level opt-in 노브로 재사용을 끄면 요청마다 신규 커넥션 → 수신측 TIME_WAIT 축적·소켓 고갈 부하를 정상 SUT에도 걸 수 있고, E 분류표(`connect_refused`/`local_port_exhaustion`)와 결합해 앵커 사고를 재현·검증할 수 있다.
 - 유형: user-path (부하 모델 확장 — 영역 D 인접, 영역 E와 시너지).
 - 구현 스케치: `executor.rs` `VuClient::with_timeout` builder에 `pool_max_idle_per_host(0)` 조건 추가 + `RunPlan`/profile/RunDialog additive 와이어. 설정대로 부하를 내므로 divergence 아님([[load-divergence-explain-confirm]] 비해당)이나, 커넥션 수립 비용이 지연·RPS에 포함되는 특성 변화는 도움말에 명시.
-- 후속 아이디어(같은 축, 별도 판단): iteration마다 새 클라이언트(쿠키 jar 리셋 = 진짜 신규 유저 시뮬), 소스 IP 다중화(멀티워커 fan-out이 이미 부분 제공). step 헤더 `Connection: close` 수동 우회가 현재도 가능한지는 미검증 가설.
+- 후속 아이디어(같은 축, 별도 판단): iteration마다 새 클라이언트(쿠키 jar 리셋 = 진짜 신규 유저 시뮬), 소스 IP 다중화(멀티워커 fan-out이 이미 부분 제공). step 헤더 `Connection: close` 수동 우회는 **현재도 동작함 (2026-10-02 실측)** — test-run 3스텝을 로깅 responder로 보내 헤더 없음=클라 포트 61771×3(재사용) / `Connection: close`=61774·61775·61776(요청마다 신규). 단 스텝마다 수동 기입이라 노브 대체는 아님.
 - 출처: 2026-08-01 error-taxonomy(E1) 세션 사용자 질문 — "keep-alive면 포트를 재사용할 텐데 포트 초과 문제를 발견할 수 있나? 여러 사람처럼 포트를 점유하게 할 수는 없나?"
+
+### A15. 출발지 IP 다중화 — VU별 source IP 풀 (단일 PC에서 다수 IP 모사) — **후보 (2026-10-02 등록, §A14 같은 축)**
+
+- **누가**: 앞단 L4/L7 분산 장비·IP 기반 정책(레이트 리밋·WAF·source-IP persistence) 뒤의 사내 SUT에 부하를 거는 QA·운영.
+- **지금 막힘**: 한 워커의 VU는 쿠키 jar·커넥션 풀은 VU별로 분리되지만 **출발지 IP는 전부 그 PC 하나**다. 분산 장비가 source-IP hash/persistence면 전 부하가 WAS 1대(→그 WAS가 붙는 DB 1대)로 쏠려 "분산 구성 전체의 용량"이 아니라 "1대의 용량"을 재게 된다 — 결과가 조용히 틀리는 부류(§A11 인접). 우회는 PC 여러 대(LAN 분산 워커)뿐이고, K8s fan-out은 Pod IP가 달라도 노드 NAT 뒤면 밖에서 단일 IP로 보일 수 있다.
+- **완료 시 달라지는 관찰**: run-level opt-in으로 로컬 IP 목록(또는 CIDR)을 주면 VU마다 `vu_id` 기준으로 출발지 IP를 배정 → 분산 장비가 실제 다수 클라이언트로 보고 WAS/DB로 분산한다. 진짜 TCP 출발지라 응답도 정상 수신(패킷 위조 아님).
+- 유형: user-path (부하 모델 확장 — 영역 D 인접, §A14와 같은 "클라이언트 신원" 축).
+- 구현 스케치: `executor.rs` `VuClient::with_timeout` builder에 `local_address(ip)` 조건 추가(VU별 클라이언트 구조라 자연스럽게 맞음 — closed=VU당, open=슬롯당) + `RunPlan`/profile/proto/RunDialog additive 와이어(미설정이면 byte-identical). 멀티워커는 워커마다 자기 NIC의 IP 목록이 달라 **워커 로컬 설정**(컨트롤러 권위 배분 아님)일 가능성 — 설계 시 결정. 바인드 실패(`EADDRNOTAVAIL` — alias 미설정 IP)는 E 분류표에 새 kind 또는 preflight 검사로 표면화. OS 측 준비(IP alias: Windows `netsh interface ip add address`, macOS `ifconfig en0 alias`, Linux `ip addr add`; 사내망 대역 할당·라우팅은 망 담당 협의)는 도움말/runbook으로.
+- 동반 후보(같은 축, 별도 판단): ① **목적지 분포 관측** — reqwest `Response::remote_addr()`로 요청별 접속 IP 분포를 리포트에 노출(DNS round-robin인데 hyper가 첫 A 레코드만 쓰는 쏠림 진단), 응답 헤더 기반 서버 식별(예: `X-Instance`) 분포. 쏠림을 "발생시키는" 게 아니라 "보이게" 하는 쪽이라 A15 본체보다 먼저일 수 있다. ② 클라이언트별 프록시 풀(출구 IP가 다른 프록시를 VU에 분배 — VU별 VPN의 현실적 대체).
+- 현재도 가능한 부분 우회: SUT가 `X-Forwarded-For`를 신뢰하는 구성이면 헤더 템플릿으로 VU별 IP 주입 가능(헤더 값은 `render` 경유 — `executor.rs` `execute_step`). 예: `X-Forwarded-For: "10.20.${vu_id}.1"`(VU>255면 깨짐 → `per_vu` 데이터셋 `{{ip}}`). 앞단 장비가 헤더를 덮어쓰지/지우지 않아야 하며, L4 분산 장비(TCP 레벨)는 헤더를 안 보므로 무효.
+- 다른 도구 대응 기능: LoadRunner IP Spoofing(IP Wizard)·JMeter HTTP Request "Source address"·Gatling `localAddresses`·k6 `--local-ips` — 사내 LoadRunner 대체 목표상 기능 공백.
+- 출처: 2026-10-02 사용자 질문 — 사내망에서 부하 시 **DB 부하가 분산되지 않고 DB 1대에만 걸림**(WAS 쏠림은 미확인). 원인 미확정 — source-IP persistence 외 후보: 시나리오 URL이 VIP가 아닌 WAS 1대 직결 / DB가 원래 active-standby·쓰기 primary 단일 / 테스트 데이터 키(계정·행) 동일로 같은 샤드 / DNS round-robin 첫 레코드 쏠림. 실측 확인(분산 장비 persistence 설정·WAS 인스턴스별 요청 수) 전에는 A15가 해결책이라고 단정하지 말 것.
 
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
 
