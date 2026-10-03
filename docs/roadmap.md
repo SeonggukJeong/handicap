@@ -211,6 +211,7 @@
 - 다른 도구 대응 기능: LoadRunner IP Spoofing(IP Wizard)·JMeter HTTP Request "Source address"·Gatling `localAddresses`·k6 `--local-ips` — 사내 LoadRunner 대체 목표상 기능 공백.
 - 출처: 2026-10-02 사용자 질문 — 사내망에서 부하 시 **DB 부하가 분산되지 않고 DB 1대에만 걸림**(WAS 쏠림은 미확인). 원인 미확정 — source-IP persistence 외 후보: 시나리오 URL이 VIP가 아닌 WAS 1대 직결 / DB가 원래 active-standby·쓰기 primary 단일 / 테스트 데이터 키(계정·행) 동일로 같은 샤드 / DNS round-robin 첫 레코드 쏠림. 실측 확인(분산 장비 persistence 설정·WAS 인스턴스별 요청 수) 전에는 A15가 해결책이라고 단정하지 말 것.
 - **후속 정황 (2026-10-02 같은 세션)**: 사용자 확인 — URL은 도메인→**L4 대표주소**(DNS RR 쏠림 배제)·L4 사용 확인·DBA가 "왜 2번 DB로만?" 질의(DB 1대 고정 정황)·단순 조회 트래픽(샤드 키 쏠림 배제) → **source-IP persistence/hash가 최유력**. 인프라 변경(L4 persistence 해제)은 휴일 테스트 출근 인원 증가로 기각 → 구현 쪽 선호. **검토 후 기각한 대안**: L4 우회 목적지 지정(WAS 실IP 직결 — 데이터셋 `{{was}}` URL+`Host` 헤더 오버라이드는 현 엔진으로 동작 실측[서버 수신 `host=도메인`], HTTPS용으로는 reqwest `ClientBuilder::resolve` per-VU 오버라이드 스케치) — 대상이 **HTTPS + WAS 실IP 접근제어**라 이 환경에선 불가. 다른 환경용 별도 후보로는 유효. **구현 전 값싼 가설 검증 권장**: PC 3~4대(LAN 분산 워커)로 같은 부하를 걸어 DB 1번에도 부하가 생기는지 확인 — 생기면 A15 가설 확정. 전제: 부하 PC용 추가 IP 10~20개 할당 가능 여부(사용자 사내 확인 대기).
+- **결정 (2026-10-03)**: 사용자 확인 — L4는 **source-IP persistence**, 추가 IP 할당도 **가능**. 그러나 타 부서 협조 부담을 피해 **기존 LAN 분산 워커로 주변 PC 3~4대 사용**을 택함 → A15는 **주차**(재개 신호: PC 대수로 분산이 부족하거나 PC 확보가 반복 부담이 될 때). PC 단위 분산의 한계 = persistence가 신규 IP를 배정하는 방식에 따라 PC:WAS 매핑이 고르지 않을 수 있다(3대/WAS 2대면 최선도 2:1).
 
 ## B. 슬라이스에서 의도적으로 연기한 자잘한 항목
 
