@@ -72,6 +72,19 @@ describe("TestRunPanel", () => {
     expect(screen.getByText(/status 500 != 200/)).toBeInTheDocument();
   });
 
+  it("긴 추출값 칩은 박스 안에서 줄바꿈된다 (공백 없는 토큰도 break-all)", () => {
+    // jsdom은 레이아웃이 없어 폭을 못 잰다 — 줄바꿈 계약(break-all)을 클래스 토큰으로 락인하고,
+    // 실제 박스 내 줄바꿈은 라이브 getBoundingClientRect로 확인한다.
+    const longToken = "eyJ" + "A".repeat(600);
+    const trace: ScenarioTrace = {
+      ...TRACE,
+      steps: [{ ...TRACE.steps[1], extracted: { token: longToken } }],
+    };
+    render(<TestRunPanel trace={trace} />);
+    const chipEl = screen.getByText(`token=${longToken}`);
+    expect(chipEl.className.split(/\s+/)).toContain("break-all");
+  });
+
   it("shows TTFB and download_ms on the http response row", () => {
     render(<TestRunPanel trace={TRACE} />);
     // The http row (status 500, latency_ms 9, download_ms 3) should show TTFB and download

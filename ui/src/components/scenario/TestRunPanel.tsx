@@ -231,7 +231,7 @@ function chip(text: string, cls: string) {
   return (
     <span
       key={text}
-      className={["inline-block rounded px-2 py-0.5 text-xs font-medium", cls].join(" ")}
+      className={["inline-block rounded px-2 py-0.5 text-xs font-medium break-all", cls].join(" ")}
     >
       {text}
     </span>
