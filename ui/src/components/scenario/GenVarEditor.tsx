@@ -6,11 +6,13 @@ import { AutoGrowTextarea } from "../AutoGrowTextarea";
 import {
   DATE_FORMAT_PRESETS,
   OFFSET_RE,
+  PICK_ARRAY_DEFAULT,
   isGenSpec,
   lengthDraftValue,
   samplePreview,
   stepDraftValue,
   type GenSpec,
+  type PickArraySpec,
   type VarDeclValue,
 } from "../../scenario/genVars";
 import { parseValidInt, useIntPairDraft } from "./useIntPairDraft";
@@ -62,6 +64,7 @@ export function GenVarEditor({
   onSampleRefresh,
   onCommitGen,
   onCommitStatic,
+  onOpenPickArray,
 }: {
   name: string;
   value: VarDeclValue;
@@ -70,6 +73,7 @@ export function GenVarEditor({
   onSampleRefresh: () => void;
   onCommitGen: (spec: GenSpec) => void;
   onCommitStatic: (v: string) => void;
+  onOpenPickArray?: (initial: PickArraySpec, origin: "edit" | "switch") => void;
 }) {
   const kind: VarKind = isGenSpec(value) ? value.gen : "static";
   const spec = isGenSpec(value) ? value : null;
@@ -78,6 +82,12 @@ export function GenVarEditor({
   const changeKind = (k: VarKind) => {
     if (k === kind) return;
     if (k === "static") return onCommitStatic("");
+    // pick_array는 즉시 커밋하지 않고 팝업으로(적용 시 커밋·취소 시 원래 타입 유지 — spec §6.1).
+    // 아래 삼항 체인은 미지 kind를 random_string으로 떨어뜨리므로 이 분기가 반드시 먼저여야 한다.
+    if (k === "pick_array") {
+      onOpenPickArray?.(PICK_ARRAY_DEFAULT, "switch");
+      return;
+    }
     onCommitGen(
       k === "date"
         ? { gen: "date", format: "%Y-%m-%d", tz: "Asia/Seoul" }
@@ -267,6 +277,7 @@ export function GenVarEditor({
           <option value="random_int">{ko.editor.genTypeRandomInt}</option>
           <option value="uuid">{ko.editor.genTypeUuid}</option>
           <option value="random_string">{ko.editor.genTypeRandomString}</option>
+          <option value="pick_array">{ko.editor.genTypePickArray}</option>
         </Select>
       </div>
 
@@ -436,6 +447,18 @@ export function GenVarEditor({
             )}
           </GenField>
         </div>
+      )}
+
+      {spec?.gen === "pick_array" && (
+        <button
+          type="button"
+          aria-label={ko.editor.pickEditOpenAria(name)}
+          disabled={disabled}
+          onClick={() => onOpenPickArray?.(spec, "edit")}
+          className="self-start rounded border border-accent-200 bg-accent-50 px-2 py-0.5 text-xs text-accent-700 hover:bg-accent-100 disabled:opacity-40"
+        >
+          {ko.editor.pickEditOpen}
+        </button>
       )}
 
       {previewSpec && (

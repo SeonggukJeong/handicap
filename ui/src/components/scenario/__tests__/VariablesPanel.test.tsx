@@ -1498,3 +1498,132 @@ steps:
     expect(screen.getByTitle(`${ko.editor.genSamplePrefix} ${expected.text}`)).toBeInTheDocument();
   });
 });
+
+describe("VariablesPanel — pick_array", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+  const JSON_REF = `version: 1
+name: p
+steps:
+  - id: "01HX0000000000000000000001"
+    name: a
+    type: http
+    request:
+      method: POST
+      url: "http://x"
+      body:
+        json:
+          seats: "{{seats:json}}"
+          plain: "{{plainvar}}"
+`;
+  it("접힘 행: 배지·요약·편집 → 팝업, 적용 시 store 1회 갱신·취소 시 불변", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .setVariableGen("flags", { gen: "pick_array", length: 30, min: 2, max: 3 });
+    render(<VariablesPanel />);
+    expect(screen.getByText("선택 배열")).toBeInTheDocument();
+    expect(screen.getByText("30칸 · 2~3개 선택 · 전체 자리")).toBeInTheDocument();
+    const before = useScenarioEditor.getState().yamlText;
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const dialog = screen.getByRole("dialog");
+    await user.clear(within(dialog).getByRole("textbox", { name: ko.editor.pickSectionPositions }));
+    await user.type(
+      within(dialog).getByRole("textbox", { name: ko.editor.pickSectionPositions }),
+      "1-5",
+    );
+    expect(useScenarioEditor.getState().yamlText).toBe(before); // 적용 전 불변
+    await user.click(within(dialog).getByRole("button", { name: ko.common.cancel }));
+    expect(useScenarioEditor.getState().yamlText).toBe(before); // 취소 후 불변
+    expect(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") })).toHaveFocus(); // Modal 기본 복원
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const d2 = screen.getByRole("dialog");
+    const pos = within(d2).getByRole("textbox", { name: ko.editor.pickSectionPositions });
+    await user.clear(pos);
+    await user.type(pos, "1-5");
+    await user.click(within(d2).getByRole("button", { name: ko.editor.pickApply }));
+    expect(useScenarioEditor.getState().model!.variables.flags).toEqual({
+      gen: "pick_array",
+      length: 30,
+      min: 2,
+      max: 3,
+      positions: "1-5",
+    });
+  });
+
+  it("배열로 추가: :json 순수 참조에만 노출, 적용=선언+편집 버튼 포커스, 취소=미선언", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().loadFromString(JSON_REF);
+    render(<VariablesPanel />);
+    expect(
+      screen.queryByRole("button", { name: ko.editor.pickDeclareAria("plainvar") }),
+    ).toBeNull();
+    const declare = screen.getByRole("button", { name: ko.editor.pickDeclareAria("seats") });
+    await user.click(declare);
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: ko.common.cancel }),
+    );
+    expect(useScenarioEditor.getState().model!.variables).not.toHaveProperty("seats");
+    expect(declare).toHaveFocus();
+    await user.click(declare);
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: ko.editor.pickApply }),
+    );
+    expect(useScenarioEditor.getState().model!.variables.seats).toEqual({
+      gen: "pick_array",
+      length: 10,
+      min: 1,
+      max: 3,
+    });
+    expect(screen.getByRole("button", { name: ko.editor.pickEditAria("seats") })).toHaveFocus();
+  });
+
+  it("yamlError 동안 편집·편집…·배열로 추가 disabled", async () => {
+    const user = userEvent.setup();
+    const s = useScenarioEditor.getState();
+    s.loadFromString(JSON_REF);
+    s.setVariableGen("flags", { gen: "pick_array", length: 4, min: 1, max: 1 });
+    s.setVariableGen("other", { gen: "pick_array", length: 4, min: 1, max: 1 });
+    // 기존 yamlError 락인 이디엄(VariablesPanel.test.tsx의 yamlError 케이스): 깨진 버퍼 커밋 후 render.
+    s.setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+    s.commitPendingYaml();
+    render(<VariablesPanel />);
+    expect(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.editor.pickDeclareAria("seats") })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("other") })); // 펼침 토글은 읽기 전용 크롬이라 활성
+    expect(
+      screen.getByRole("button", { name: ko.editor.pickEditOpenAria("other") }),
+    ).toBeDisabled();
+  });
+
+  it("타입 전환 경로: 고정값 → 선택 배열 적용 시 커밋, 취소 시 원래 타입·select 값 유지", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setVariable("v", "abc");
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("v") }));
+    const select = screen.getByRole("combobox", { name: ko.editor.genFieldType("v") });
+    await user.selectOptions(select, "pick_array");
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: ko.common.cancel }),
+    );
+    expect(useScenarioEditor.getState().model!.variables.v).toBe("abc");
+    expect(screen.getByRole("combobox", { name: ko.editor.genFieldType("v") })).toHaveValue(
+      "static",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("v") }),
+      "pick_array",
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: ko.editor.pickApply }),
+    );
+    expect(useScenarioEditor.getState().model!.variables.v).toEqual({
+      gen: "pick_array",
+      length: 10,
+      min: 1,
+      max: 3,
+    });
+  });
+});

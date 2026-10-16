@@ -579,3 +579,71 @@ describe("GenVarEditor — 샘플 미리보기", () => {
     expect(onSampleRefresh).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("GenVarEditor — pick_array", () => {
+  const props = {
+    name: "flags",
+    disabled: false,
+    sampleTick: 0,
+    onSampleRefresh: () => {},
+  };
+  it("타입 select에서 선택 배열 → 커밋 없이 onOpenPickArray(default, 'switch')", async () => {
+    const user = userEvent.setup();
+    const onCommitGen = vi.fn();
+    const onCommitStatic = vi.fn();
+    const onOpenPickArray = vi.fn();
+    render(
+      <GenVarEditor
+        {...props}
+        value="x"
+        onCommitGen={onCommitGen}
+        onCommitStatic={onCommitStatic}
+        onOpenPickArray={onOpenPickArray}
+      />,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("flags") }),
+      "pick_array",
+    );
+    expect(onOpenPickArray).toHaveBeenCalledWith(
+      { gen: "pick_array", length: 10, min: 1, max: 3 },
+      "switch",
+    );
+    expect(onCommitGen).not.toHaveBeenCalled(); // random_string 낙하 회귀 가드
+    expect(onCommitStatic).not.toHaveBeenCalled();
+  });
+  it("pick_array 값이면 인라인 필드 대신 편집… 버튼", async () => {
+    const user = userEvent.setup();
+    const onOpenPickArray = vi.fn();
+    const spec = { gen: "pick_array" as const, length: 6, min: 1, max: 2 };
+    render(
+      <GenVarEditor
+        {...props}
+        value={spec}
+        onCommitGen={vi.fn()}
+        onCommitStatic={vi.fn()}
+        onOpenPickArray={onOpenPickArray}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditOpenAria("flags") }));
+    expect(onOpenPickArray).toHaveBeenCalledWith(spec, "edit");
+  });
+  it("선택 배열 → UUID 전환은 즉시 커밋되고 pick 키가 남지 않는다", async () => {
+    const user = userEvent.setup();
+    const onCommitGen = vi.fn();
+    render(
+      <GenVarEditor
+        {...props}
+        value={{ gen: "pick_array", length: 6, min: 1, max: 2, pick: 1 }}
+        onCommitGen={onCommitGen}
+        onCommitStatic={vi.fn()}
+        onOpenPickArray={vi.fn()}
+      />,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: ko.editor.genFieldType("flags") }),
+      "uuid",
+    );
+    expect(onCommitGen).toHaveBeenCalledWith({ gen: "uuid" });
+  });
+});

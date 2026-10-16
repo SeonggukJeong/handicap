@@ -642,6 +642,12 @@ export const ko = {
     pickErrValueEmpty: "값을 입력하세요",
     pickErrValueQuoted: "따옴표 문자열이 올바르지 않아요",
     pickErrValueNonFinite: "너무 큰 숫자예요",
+    pickEdit: "편집",
+    pickEditAria: (name: string) => `${name} 선택 배열 편집`,
+    pickEditOpen: "편집…",
+    pickEditOpenAria: (name: string) => `${name} 선택 배열 편집…`,
+    pickDeclare: "배열로 추가",
+    pickDeclareAria: (name: string) => `${name} 배열로 추가`,
     // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
     scenarioDefaultsTitle: "시나리오 기본값",
     defaultThinkSetHint: "설정됨",

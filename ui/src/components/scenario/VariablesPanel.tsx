@@ -11,10 +11,17 @@ import {
   genParamsSummary,
   genTypeLabel,
   isGenSpec,
+  isPickArray,
+  PICK_ARRAY_DEFAULT,
   type GenSpec,
+  type PickArraySpec,
 } from "../../scenario/genVars";
+import { jsonCastVarNames } from "../../scenario/scanVars";
 import { GenSampleLine, GenVarEditor } from "./GenVarEditor";
 import { DeleteVariableDialog } from "./DeleteVariableDialog";
+import { PickArrayDialog } from "./PickArrayDialog";
+
+const EMPTY_NAMES: ReadonlySet<string> = new Set();
 
 type EditKey =
   | { kind: "flat"; name: string }
@@ -95,7 +102,26 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   const refocusSearchRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // 선택 배열 팝업(spec §6.3) — 진입 4곳(접힘 편집·펼침 편집…·타입 select·배열로 추가)의 단일 소유.
+  const [pickDialog, setPickDialog] = useState<{
+    name: string;
+    initial: PickArraySpec;
+    origin: "edit" | "switch" | "declare";
+  } | null>(null);
+  // declare 적용만 트리거(배열로 추가)가 행 전이로 사라진다 → 새 행의 편집 버튼으로 1회 포커스.
+  // 다른 경로는 Modal 기본 복원(트리거 생존)이라 이 플래그를 세우지 않는다(var-delete-confirm 이디엄).
+  const focusPickEditRef = useRef<string | null>(null);
+  const pickEditRefs = useRef(new Map<string, HTMLButtonElement>());
+
   const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
+  const jsonCastNames = useMemo(() => (model ? jsonCastVarNames(model) : EMPTY_NAMES), [model]);
+
+  useEffect(() => {
+    if (pickDialog !== null || focusPickEditRef.current === null) return;
+    const name = focusPickEditRef.current;
+    focusPickEditRef.current = null;
+    pickEditRefs.current.get(name)?.focus();
+  }, [pickDialog]);
 
   // 확정 삭제로 × 가 언마운트되면 포커스가 <body>로 유실된다 → 검색 입력으로 옮긴다.
   // 플래그가 선 경우에만 돌므로 **취소 경로는 건드리지 않는다**(Modal이 × 로 복원).
@@ -297,6 +323,10 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     }
                     onCommitGen={(spec) => setVariableGen(row.name, spec)}
                     onCommitStatic={(v) => setVariable(row.name, v)}
+                    onOpenPickArray={(initial, origin) => {
+                      setUsageNav(null);
+                      setPickDialog({ name: row.name, initial, origin });
+                    }}
                   />
                 ) : isGenSpec(row.value) ? (
                   <div className="flex min-w-0 flex-col gap-0.5 text-xs text-slate-500">
@@ -309,6 +339,25 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       </span>
                       {genParamsSummary(row.value) !== "" && (
                         <span className="min-w-0 truncate">{genParamsSummary(row.value)}</span>
+                      )}
+                      {isPickArray(row.value) && (
+                        <button
+                          type="button"
+                          ref={(el) => {
+                            if (el) pickEditRefs.current.set(row.name, el);
+                            else pickEditRefs.current.delete(row.name);
+                          }}
+                          aria-label={ko.editor.pickEditAria(row.name)}
+                          disabled={yamlError !== null}
+                          onClick={() => {
+                            if (!isPickArray(row.value)) return;
+                            setUsageNav(null);
+                            setPickDialog({ name: row.name, initial: row.value, origin: "edit" });
+                          }}
+                          className="ml-auto shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
+                        >
+                          {ko.editor.pickEdit}
+                        </button>
                       )}
                     </div>
                     <GenSampleLine
@@ -443,6 +492,24 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                   {ko.editor.variableDeclareAdd}
                 </button>
               )}
+              {row.candidates.length === 0 && jsonCastNames.has(row.name) && (
+                <button
+                  type="button"
+                  aria-label={ko.editor.pickDeclareAria(row.name)}
+                  disabled={yamlError !== null}
+                  onClick={() => {
+                    setUsageNav(null);
+                    setPickDialog({
+                      name: row.name,
+                      initial: PICK_ARRAY_DEFAULT,
+                      origin: "declare",
+                    });
+                  }}
+                  className="shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
+                >
+                  {ko.editor.pickDeclare}
+                </button>
+              )}
               {usageCell(`u:${row.name}`, row.name, row.refIds)}
               {hint && (
                 <span id={hintId} className="w-full shrink-0 text-xs text-slate-500">
@@ -506,6 +573,18 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
             setUsageNav(null); // 방어 전용 — R1 트리거가 이미 비웠고 모달 중엔 다시 열 경로가 없다
             refocusSearchRef.current = true;
             setPendingDelete(null);
+          }}
+        />
+      )}
+      {pickDialog && (
+        <PickArrayDialog
+          name={pickDialog.name}
+          initial={pickDialog.initial}
+          onCancel={() => setPickDialog(null)}
+          onApply={(spec) => {
+            setVariableGen(pickDialog.name, spec);
+            if (pickDialog.origin === "declare") focusPickEditRef.current = pickDialog.name;
+            setPickDialog(null);
           }}
         />
       )}
