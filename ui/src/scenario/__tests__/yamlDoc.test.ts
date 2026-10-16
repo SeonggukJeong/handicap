@@ -6,6 +6,7 @@ import {
   renameScenarioYaml,
   type Edit,
 } from "../yamlDoc";
+import { parse } from "yaml";
 import { useScenarioEditor } from "../store";
 import type { GenSpec } from "../genVars";
 
@@ -1238,5 +1239,70 @@ steps:
       .getState()
       .setStepsThinkTime(["01HX0000000000000000000004"], { min_ms: 1, max_ms: 2 });
     expect(useScenarioEditor.getState().yamlText).toBe(before);
+  });
+});
+
+describe("pick_array YAML 왕복", () => {
+  it("문자열 값은 따옴표로 보존되고 기본값·전체 positions는 키 생략", () => {
+    const s = useScenarioEditor.getState();
+    s.resetEmpty();
+    s.setVariableGen("flags", {
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 2,
+      pick: "True",
+      rest: "1",
+    });
+    const y = useScenarioEditor.getState().yamlText;
+    expect(y).toMatch(/pick: "True"|pick: 'True'/);
+    expect(y).toMatch(/rest: "1"|rest: '1'/);
+    const v = useScenarioEditor.getState().model!.variables.flags;
+    expect(v).toEqual({ gen: "pick_array", length: 4, min: 1, max: 2, pick: "True", rest: "1" });
+    s.setVariableGen("g", { gen: "pick_array", length: 4, min: 1, max: 2 });
+    const y2 = useScenarioEditor.getState().yamlText;
+    // store는 STARTER의 `variables: {}`를 flow 스타일로 유지하므로 블록 슬라이스는 공허 — 파싱된 키 목록으로 단언.
+    expect(Object.keys(parse(y2).variables.g)).toEqual(["gen", "length", "min", "max"]);
+  });
+  it("선택 배열 → UUID 전환 시 pick_array 키가 YAML에 남지 않는다 (setIn 맵 통째 교체)", () => {
+    const s = useScenarioEditor.getState();
+    s.resetEmpty();
+    s.setVariableGen("f", {
+      gen: "pick_array",
+      length: 6,
+      min: 1,
+      max: 2,
+      positions: "2-4",
+      pick: 1,
+      rest: 0,
+    });
+    expect(useScenarioEditor.getState().yamlText).toContain("positions:"); // 중간 상태 — 첫 호출이 no-op이면 아래가 공허
+    s.setVariableGen("f", { gen: "uuid" });
+    const y = useScenarioEditor.getState().yamlText;
+    expect(Object.keys(parse(y).variables.f)).toEqual(["gen"]);
+    expect(useScenarioEditor.getState().model!.variables.f).toEqual({ gen: "uuid" });
+  });
+  it("rename은 pick_array 맵 전체를 보존", () => {
+    const s = useScenarioEditor.getState();
+    s.resetEmpty();
+    s.setVariableGen("flags", {
+      gen: "pick_array",
+      length: 6,
+      min: 1,
+      max: 2,
+      positions: "2-4",
+      pick: 1,
+      rest: 0,
+    });
+    s.renameVariable("flags", "seats");
+    expect(useScenarioEditor.getState().model!.variables.seats).toEqual({
+      gen: "pick_array",
+      length: 6,
+      min: 1,
+      max: 2,
+      positions: "2-4",
+      pick: 1,
+      rest: 0,
+    });
   });
 });

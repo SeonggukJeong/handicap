@@ -351,3 +351,29 @@ describe("sampleFor", () => {
     if (r.kind === "ok") expect(r.text).toHaveLength(8);
   });
 });
+
+describe("pick_array 표시", () => {
+  const base = { gen: "pick_array" as const, length: 30, min: 2, max: 3 };
+  it("라벨·요약(불리언 전제 문구 없음)", () => {
+    expect(genTypeLabel(base)).toBe("선택 배열");
+    expect(genParamsSummary(base)).toBe("30칸 · 2~3개 선택 · 전체 자리");
+    expect(genParamsSummary({ ...base, min: 2, max: 2, positions: "1-5, 8" })).toBe(
+      "30칸 · 2개 선택 · 후보 6자리",
+    );
+    expect(genParamsSummary({ ...base, pick: 1, rest: 0 })).toBe(
+      "30칸 · 2~3개 선택 · 전체 자리 · 1/0",
+    );
+    expect(genParamsSummary({ ...base, pick: "1", rest: "0" })).toBe(
+      '30칸 · 2~3개 선택 · 전체 자리 · "1"/"0"',
+    );
+    expect(genParamsSummary(base)).not.toMatch(/true|불리언/);
+  });
+  it("canonicalGenKey는 값 타입을 구분", () => {
+    expect(canonicalGenKey({ ...base, pick: 1 })).not.toBe(canonicalGenKey({ ...base, pick: "1" }));
+  });
+  it("sampleFor는 JSON 배열 문자열", () => {
+    const s = sampleFor(base, new Date(), () => 0.5);
+    expect(s.kind).toBe("ok");
+    if (s.kind === "ok") expect(JSON.parse(s.text)).toHaveLength(30);
+  });
+});

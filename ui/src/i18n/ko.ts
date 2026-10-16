@@ -556,6 +556,7 @@ export const ko = {
     genTypeRandomInt: "랜덤 정수",
     genTypeUuid: "UUID",
     genTypeRandomString: "랜덤 문자열",
+    genTypePickArray: "선택 배열",
     genTypeStatic: "고정값",
     genDateToday: "오늘",
     genTzWorkerLocal: "워커 로컬",
@@ -591,6 +592,17 @@ export const ko = {
     genStepInvalid: "단위는 1 이상 정수만 적용됩니다",
     genIntInvalid: "정수만 입력할 수 있습니다",
     genMinMaxConflict: "최소가 최대보다 커서 적용되지 않습니다",
+    // ── 선택 배열 (pick-array) — 값이 불리언이라는 전제 문구 금지(spec §3) ──
+    pickSummary: (
+      length: number,
+      min: number,
+      max: number,
+      candidates: number | null,
+      values: string | null,
+    ) =>
+      `${length}칸 · ${min === max ? `${min}개 선택` : `${min}~${max}개 선택`} · ${
+        candidates === null ? "전체 자리" : `후보 ${candidates}자리`
+      }${values ? ` · ${values}` : ""}`,
     // ── 시나리오 기본값 섹션 (think-time-defaults, R7) ──
     scenarioDefaultsTitle: "시나리오 기본값",
     defaultThinkSetHint: "설정됨",

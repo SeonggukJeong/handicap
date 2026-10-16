@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { ko } from "../i18n/ko";
+import {
+  POSITIONS_MAX_CHARS,
+  PICK_ARRAY_MAX_LEN,
+  candidatesOf,
+  formatValueLiteral,
+  isFullRange,
+  parsePositions,
+  samplePickArray,
+} from "./pickArray";
 
 export const OFFSET_RE = /^[+-]\d{1,9}[smhd]$/;
 
@@ -26,17 +35,77 @@ const RandomStringGenModel = z
     length: z.number().int().min(1).max(64).optional(),
   })
   .strict();
+const JsonScalarModel = z.union([z.boolean(), z.number().finite(), z.string(), z.null()]);
+const PickArrayGenModel = z
+  .object({
+    gen: z.literal("pick_array"),
+    length: z.number().int().min(1).max(PICK_ARRAY_MAX_LEN),
+    min: z.number().int().min(0),
+    max: z.number().int().min(0),
+    // yaml 패키지는 `positions: 8`을 숫자로 읽는다 — 엔진(serde_yaml 평문 스칼라=문자열)과
+    // 맞추려 정수를 문자열로 정규화(spec §4.1). 필드 레벨 transform이라 멤버는 ZodObject 유지.
+    positions: z
+      .union([z.string(), z.number().int().min(0)])
+      .transform(String)
+      .optional(),
+    pick: JsonScalarModel.optional(),
+    rest: JsonScalarModel.optional(),
+  })
+  .strict();
 
 // cross-field(min≤max)는 union 레벨 superRefine — 멤버에 붙이면 ZodEffects라
 // discriminatedUnion이 거부한다 (BodyModel/StepModel 함정).
 export const GenSpecModel = z
-  .discriminatedUnion("gen", [DateGenModel, RandomIntGenModel, UuidGenModel, RandomStringGenModel])
+  .discriminatedUnion("gen", [
+    DateGenModel,
+    RandomIntGenModel,
+    UuidGenModel,
+    RandomStringGenModel,
+    PickArrayGenModel,
+  ])
   .superRefine((v, ctx) => {
     if (v.gen === "random_int" && v.min > v.max)
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min > max", path: ["min"] });
+    if (v.gen === "pick_array") {
+      if (v.min > v.max)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min > max", path: ["min"] });
+      if (v.max > v.length)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "max > length", path: ["max"] });
+      if (v.positions !== undefined && v.positions.length > POSITIONS_MAX_CHARS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "positions too long",
+          path: ["positions"],
+        });
+        return;
+      }
+      const cand = v.positions === undefined ? null : parsePositions(v.positions, v.length);
+      if (cand !== null && !cand.ok) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "positions invalid",
+          path: ["positions"],
+        });
+        return;
+      }
+      const c = cand === null ? v.length : cand.set.length;
+      if (c === 0)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "no candidates",
+          path: ["positions"],
+        });
+      else if (v.min > c)
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min > candidates", path: ["min"] });
+    }
   });
 export type GenSpec = z.infer<typeof GenSpecModel>;
 export type VarDeclValue = string | GenSpec;
+export type PickArraySpec = Extract<GenSpec, { gen: "pick_array" }>;
+export const PICK_ARRAY_DEFAULT: PickArraySpec = { gen: "pick_array", length: 10, min: 1, max: 3 };
+export function isPickArray(v: VarDeclValue): v is PickArraySpec {
+  return typeof v !== "string" && v.gen === "pick_array";
+}
 
 export function isGenSpec(v: VarDeclValue): v is GenSpec {
   return typeof v !== "string";
@@ -59,6 +128,8 @@ export function genTypeLabel(spec: GenSpec): string {
       return ko.editor.genTypeUuid;
     case "random_string":
       return ko.editor.genTypeRandomString;
+    case "pick_array":
+      return ko.editor.genTypePickArray;
   }
 }
 
@@ -72,6 +143,8 @@ export function canonicalGenKey(spec: GenSpec): string {
       return "uuid";
     case "random_string":
       return `rs:${spec.length ?? 8}`;
+    case "pick_array":
+      return `pa:${spec.length}:${spec.min}:${spec.max}:${spec.positions ?? ""}:${JSON.stringify(spec.pick ?? true)}:${JSON.stringify(spec.rest ?? false)}`;
   }
 }
 
@@ -121,6 +194,23 @@ export function genParamsSummary(spec: GenSpec): string {
       return "";
     case "random_string":
       return `${spec.length ?? 8}${ko.editor.genLengthSuffix}`;
+    case "pick_array": {
+      const cand = candidatesOf(spec);
+      const full = cand === null || isFullRange(cand, spec.length);
+      const pick = spec.pick === undefined ? true : spec.pick;
+      const rest = spec.rest === undefined ? false : spec.rest;
+      const values =
+        pick === true && rest === false
+          ? null
+          : `${formatValueLiteral(pick)}/${formatValueLiteral(rest)}`;
+      return ko.editor.pickSummary(
+        spec.length,
+        spec.min,
+        spec.max,
+        full ? null : cand.length,
+        values,
+      );
+    }
   }
 }
 
@@ -271,6 +361,10 @@ export function sampleFor(
         kind: "ok",
         text: Array.from({ length: n }, () => chars[Math.floor(rand() * chars.length)]).join(""),
       };
+    }
+    case "pick_array": {
+      const text = samplePickArray(spec, rand);
+      return text === null ? { kind: "unsupported" } : { kind: "ok", text };
     }
   }
 }
