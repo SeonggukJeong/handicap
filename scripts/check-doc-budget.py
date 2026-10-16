@@ -201,7 +201,7 @@ def main():
     status = [l for l in text.split("\n") if l.startswith("**상태:")]
     if len(status) != 1:
         fails.append(f"FAIL [상태줄] '^**상태:' 매치 {len(status)}건 — 정확히 1건이어야 한다"
-                     f"(finish-slice §4의 한 줄 교체 규칙)")
+                     f"(finish-slice §2의 한 줄 교체 규칙)")
     else:
         sb = line_bytes(status[0])
         table.append(("CLAUDE.md:상태줄", sb, STATUS_MAX, f"{sb / STATUS_MAX * 100:.1f}%"))

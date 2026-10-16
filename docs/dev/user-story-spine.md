@@ -42,7 +42,7 @@
 | plan 리뷰 | US 대비 task 누락만 — 디스패치에 동반 spec 경로 병기 | `start-slice` §4 루프 1스텝 |
 | task 디스패치 | US 블록 1회 추출 → 매 brief 첨부 | CLAUDE.md Subagent dispatch 노하우 |
 | 라이브 검증 | user-path면 US-anchored 행(`US \| 절차 \| 통과 신호`) 척추 | `live-verify` |
-| finish | build-log 단락에 "증명된 US / 못 한 US" 한 줄 | `finish-slice` §4 |
+| finish | build-log 단락에 "증명된 US / 못 한 US" 한 줄 | `finish-slice` §2 |
 
 ## 형식주의 방지
 
