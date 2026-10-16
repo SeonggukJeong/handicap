@@ -44,6 +44,25 @@ steps:
           - status: 200
 `;
 
+const DECODE_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables: {}
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "login"
+    type: http
+    request:
+      method: POST
+      url: "/login"
+    extract:
+      - var: uid
+        from: header
+        name: Authorization
+        decode: jwt
+        claim: $.sub
+`;
+
 function loadAndSelect() {
   useScenarioEditor.setState(useScenarioEditor.getInitialState());
   useScenarioEditor.getState().loadFromString(VALID_YAML);
@@ -194,6 +213,112 @@ describe("Inspector — ExtractEditor", () => {
     await user.tab();
     expect(useScenarioEditor.getState().yamlText).toMatch(/path:\s*"?\$\.new"?/);
     expect(useScenarioEditor.getState().yamlText).not.toMatch(/path:\s*"?\$\.old"?/);
+  });
+  function extractSectionOf() {
+    return screen.getByRole("group", { name: "값 추출" });
+  }
+
+  async function addHeaderRow(user: ReturnType<typeof userEvent.setup>) {
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    const sec = extractSectionOf();
+    await user.click(within(sec).getByRole("button", { name: /추가/i }));
+    await user.type(within(sec).getByPlaceholderText("var"), "uid");
+    await user.selectOptions(within(sec).getByLabelText(ko.editor.extractFromAria(0)), "header");
+    await user.type(
+      within(sec).getByPlaceholderText(ko.editor.headerNamePlaceholder),
+      "Authorization",
+    );
+    await user.tab();
+    return sec;
+  }
+
+  it("decode select writes decode and reveals claim; claim commits on blur (R9)", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    expect(within(sec).queryByLabelText(ko.editor.extractClaimAria(0))).toBeNull();
+
+    await user.selectOptions(within(sec).getByLabelText(ko.editor.extractDecodeAria(0)), "jwt");
+    expect(useScenarioEditor.getState().yamlText).toMatch(/decode:\s*jwt/);
+
+    const claim = within(sec).getByLabelText(ko.editor.extractClaimAria(0));
+    await user.type(claim, "$.sub");
+    expect(useScenarioEditor.getState().yamlText).not.toMatch(/claim:/); // onBlur commit
+    await user.tab();
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    expect(useScenarioEditor.getState().yamlText).toMatch(/claim:\s*"?\$\.sub"?/);
+  });
+
+  it("choosing 없음 removes both decode and claim keys (R9/R11)", async () => {
+    useScenarioEditor.getState().loadFromString(DECODE_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    const sec = extractSectionOf();
+    expect(within(sec).getByLabelText(ko.editor.extractClaimAria(0))).toHaveValue("$.sub");
+
+    await user.selectOptions(
+      within(sec).getByLabelText(ko.editor.extractDecodeAria(0)),
+      ko.editor.extractDecodeNone,
+    );
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    const yaml = useScenarioEditor.getState().yamlText;
+    expect(yaml).not.toMatch(/decode:/);
+    expect(yaml).not.toMatch(/claim:/);
+    expect(yaml).toMatch(/name:\s*Authorization/);
+  });
+
+  it("switching to cookie keeps decode; status drops decode/claim (R9)", async () => {
+    useScenarioEditor.getState().loadFromString(DECODE_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    const sec = extractSectionOf();
+    const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
+
+    await user.selectOptions(from, "cookie");
+    expect(useScenarioEditor.getState().yamlText).toMatch(/decode:\s*jwt/);
+
+    await user.selectOptions(from, "status");
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    const yaml = useScenarioEditor.getState().yamlText;
+    expect(yaml).toMatch(/from:\s*status/);
+    expect(yaml).not.toMatch(/decode:/);
+    expect(yaml).not.toMatch(/claim:/);
+    expect(within(sec).queryByLabelText(ko.editor.extractDecodeAria(0))).toBeNull();
+  });
+
+  it("empty claim is not written (R11)", async () => {
+    const user = userEvent.setup();
+    const sec = await addHeaderRow(user);
+    await user.selectOptions(within(sec).getByLabelText(ko.editor.extractDecodeAria(0)), "base64");
+    const claim = within(sec).getByLabelText(ko.editor.extractClaimAria(0));
+    await user.type(claim, "x");
+    await user.clear(claim); // draft claim === "" (not undefined) — the case R11 guards
+    await user.tab();
+    // A `claim: ""` write fails Zod .min(1) and dispatch only sets yamlError
+    // (yamlText unchanged) — so this null check is what gives the test teeth.
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    const yaml = useScenarioEditor.getState().yamlText;
+    expect(yaml).toMatch(/decode:\s*base64/);
+    expect(yaml).not.toMatch(/claim:/);
+  });
+
+  it("new decode controls are disabled while the YAML buffer is broken", async () => {
+    useScenarioEditor.getState().loadFromString(DECODE_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000001");
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: ko.editor.extractsLegend }));
+    act(() => {
+      useScenarioEditor.getState().setPendingYamlText("version: 1\nname: t\nsteps: [\n");
+      useScenarioEditor.getState().commitPendingYaml();
+    });
+    const sec = extractSectionOf();
+    expect(within(sec).getByLabelText(ko.editor.extractDecodeAria(0))).toBeDisabled();
+    expect(within(sec).getByLabelText(ko.editor.extractClaimAria(0))).toBeDisabled();
   });
 });
 

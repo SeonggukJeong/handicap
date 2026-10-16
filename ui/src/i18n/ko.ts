@@ -794,6 +794,11 @@ export const ko = {
     condRightPlaceholder: "오른쪽",
     branchNameAria: (n: number) => `분기 ${n} 이름`,
     extractFromAria: (n: number) => `추출 ${n} 종류`,
+    extractDecodeAria: (n: number) => `추출 ${n} 디코딩`,
+    extractClaimAria: (n: number) => `추출 ${n} claim 경로`,
+    extractDecodeNone: "디코딩 없음",
+    extractDecodeBase64: "base64",
+    extractDecodeJwt: "JWT",
     removeVariableAria: (key: string) => `${key} 변수 제거`,
     // ── 시나리오 이름 인라인 편집 (scenario-delete-name-sync R8) ──
     renameAria: "시나리오 이름 편집",

@@ -6,6 +6,7 @@ import type {
   CompareOp,
   Condition,
   Extract,
+  ExtractDecode,
   HttpMethod,
   HttpStep,
   IfStep,
@@ -661,20 +662,41 @@ function AssertEditor({
 }
 
 // Draft type mirrors Extract but allows empty strings during editing.
+type DecodeDraft = { decode?: ExtractDecode; claim?: string };
 type DraftExtract =
-  | { var: string; from: "body"; path: string }
-  | { var: string; from: "header"; name: string }
-  | { var: string; from: "cookie"; name: string }
+  | ({ var: string; from: "body"; path: string } & DecodeDraft)
+  | ({ var: string; from: "header"; name: string } & DecodeDraft)
+  | ({ var: string; from: "cookie"; name: string } & DecodeDraft)
   | { var: string; from: "status" };
 
 function draftFromExtract(e: Extract): DraftExtract {
   return e as DraftExtract;
 }
 
+// R11: never write `decode: undefined`/`claim: ""` — only present, non-empty keys.
+function decodeFields(d: DraftExtract): DecodeDraft {
+  if (d.from === "status" || !d.decode) return {};
+  return d.claim ? { decode: d.decode, claim: d.claim } : { decode: d.decode };
+}
+
+function toExtract(d: DraftExtract): Extract {
+  switch (d.from) {
+    case "body":
+      return { var: d.var, from: "body", path: d.path, ...decodeFields(d) };
+    case "header":
+      return { var: d.var, from: "header", name: d.name, ...decodeFields(d) };
+    case "cookie":
+      return { var: d.var, from: "cookie", name: d.name, ...decodeFields(d) };
+    case "status":
+      return { var: d.var, from: "status" };
+  }
+}
+
 function ExtractEditor({ step }: { step: HttpStep }) {
   const setStepExtract = useScenarioEditor((s) => s.setStepExtract);
   // rename(#5)이 열린 스텝의 extract var draft를 실시간 재시드하게 reseed dep에 태운다.
   const renameEpoch = useScenarioEditor((s) => s.renameEpoch);
+  const yamlError = useScenarioEditor((s) => s.yamlError);
 
   // Local drafts let us show in-progress rows before they pass Zod validation.
   const [drafts, setDrafts] = useState<DraftExtract[]>(() => step.extract.map(draftFromExtract));
@@ -694,7 +716,7 @@ function ExtractEditor({ step }: { step: HttpStep }) {
       if (d.from === "body") return d.path.length > 0 && d.path !== "$.";
       if (d.from === "header" || d.from === "cookie") return d.name.length > 0;
       return true; // status needs no extra field
-    }) as Extract[];
+    }).map(toExtract);
     setStepExtract(step.id, valid);
   };
 
@@ -713,22 +735,41 @@ function ExtractEditor({ step }: { step: HttpStep }) {
   // Structural from-kind change: update draft AND commit immediately.
   const setFromKind = (idx: number, from: Extract["from"]) => {
     const x = drafts[idx];
+    const keep = decodeFields(x);
     const list = drafts.slice();
     if (from === "body")
-      list[idx] = { var: x.var, from, path: (x as { path?: string }).path ?? "$." };
+      list[idx] = { var: x.var, from, path: (x as { path?: string }).path ?? "$.", ...keep };
     else if (from === "header")
-      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "" };
+      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "", ...keep };
     else if (from === "cookie")
-      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "" };
+      list[idx] = { var: x.var, from, name: (x as { name?: string }).name ?? "", ...keep };
     else list[idx] = { var: x.var, from: "status" };
     setDrafts(list);
     commitDrafts(list); // structural change — commit immediately
   };
 
+  // Decode choice is structural (like from-kind): commit immediately. "" = none →
+  // drop both keys (R9/R11).
+  const setDecode = (idx: number, value: string) => {
+    const x = drafts[idx];
+    if (x.from === "status") return;
+    const next = { ...x };
+    if (value === "") {
+      delete next.decode;
+      delete next.claim;
+    } else {
+      next.decode = value as ExtractDecode;
+    }
+    const list = drafts.slice();
+    list[idx] = next;
+    setDrafts(list);
+    commitDrafts(list);
+  };
+
   const remove = (idx: number) => {
     const list = drafts.filter((_, i) => i !== idx);
     setDrafts(list);
-    setStepExtract(step.id, list as Extract[]);
+    setStepExtract(step.id, list.map(toExtract));
   };
 
   const append = () => {
@@ -790,6 +831,35 @@ function ExtractEditor({ step }: { step: HttpStep }) {
                   className="font-mono"
                   value={x.name}
                   onChange={(e) => updateDraft(idx, { ...x, name: e.target.value })}
+                  onBlur={commitFromBlur}
+                />
+              </div>
+            )}
+            {x.from !== "status" && (
+              <div className="w-fit">
+                <Select
+                  size="sm"
+                  aria-label={ko.editor.extractDecodeAria(idx)}
+                  value={x.decode ?? ""}
+                  disabled={yamlError !== null}
+                  onChange={(e) => setDecode(idx, e.target.value)}
+                >
+                  <option value="">{ko.editor.extractDecodeNone}</option>
+                  <option value="base64">{ko.editor.extractDecodeBase64}</option>
+                  <option value="jwt">{ko.editor.extractDecodeJwt}</option>
+                </Select>
+              </div>
+            )}
+            {x.from !== "status" && x.decode && (
+              <div className="flex-1 min-w-[96px]">
+                <Input
+                  size="sm"
+                  placeholder="$.sub"
+                  aria-label={ko.editor.extractClaimAria(idx)}
+                  className="font-mono"
+                  value={x.claim ?? ""}
+                  disabled={yamlError !== null}
+                  onChange={(e) => updateDraft(idx, { ...x, claim: e.target.value })}
                   onBlur={commitFromBlur}
                 />
               </div>
