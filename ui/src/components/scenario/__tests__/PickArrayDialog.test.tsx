@@ -234,6 +234,24 @@ describe("PickArrayDialog", () => {
     expect(max.getAttribute("aria-describedby")).toContain(err.id);
   });
 
+  it("자리 목록·직접 입력 값 오류 문구가 aria-describedby로 입력에 연결된다", async () => {
+    const user = userEvent.setup();
+    const { dialog, posInput } = setup({ gen: "pick_array", length: 4, min: 1, max: 1, pick: "Y", rest: null });
+    await user.clear(posInput);
+    const posErr = within(dialog).getByText(ko.editor.pickErrNoCandidates);
+    expect(posErr.id).not.toBe("");
+    expect(posInput.getAttribute("aria-describedby")).toContain(posErr.id);
+    const pick = within(dialog).getByRole("textbox", { name: ko.editor.pickFieldPick });
+    const rest = within(dialog).getByRole("textbox", { name: ko.editor.pickFieldRest });
+    await user.clear(pick);
+    await user.clear(rest);
+    const errs = within(dialog).getAllByText(ko.editor.pickErrValueEmpty);
+    expect(errs).toHaveLength(2);
+    expect(errs[0].id).not.toBe(errs[1].id);
+    expect(pick.getAttribute("aria-describedby")).toContain(errs[0].id);
+    expect(rest.getAttribute("aria-describedby")).toContain(errs[1].id);
+  });
+
   it("값 형식 토글이 aria-controls로 영역을 가리킨다", async () => {
     const user = userEvent.setup();
     const { dialog } = setup({ gen: "pick_array", length: 4, min: 1, max: 1 });

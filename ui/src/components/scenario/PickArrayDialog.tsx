@@ -101,6 +101,7 @@ export function PickArrayDialog({
   const sizeErrId = `${uid}-size-err`;
   const countErrId = `${uid}-count-err`;
   const valuesRegionId = `${uid}-values`;
+  const posErrId = `${uid}-pos-err`;
   const minN = intText(minText);
   const maxN = intText(maxText);
   const pickRes: LiteralResult =
@@ -241,11 +242,14 @@ export function PickArrayDialog({
             className="font-mono"
             aria-label={ko.editor.pickSectionPositions}
             aria-invalid={posError !== null || undefined}
+            aria-describedby={posError ? posErrId : undefined}
             value={positionsText}
             onChange={(e) => setPositionsText(e.target.value)}
           />
           {posError ? (
-            <p className="text-xs text-red-600">{posError}</p>
+            <p id={posErrId} className="text-xs text-red-600">
+              {posError}
+            </p>
           ) : (
             <p className="text-xs text-slate-400">{ko.editor.pickPositionsHint}</p>
           )}
@@ -310,17 +314,20 @@ export function PickArrayDialog({
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-x-3 gap-y-1">
                   {(
                     [
-                      [ko.editor.pickFieldPick, pickText, setPickText, pickRes],
-                      [ko.editor.pickFieldRest, restText, setRestText, restRes],
+                      [ko.editor.pickFieldPick, pickText, setPickText, pickRes, `${uid}-pick-err`],
+                      [ko.editor.pickFieldRest, restText, setRestText, restRes, `${uid}-rest-err`],
                     ] as const
-                  ).map(([label, text, setText, res]) => (
+                  ).map(([label, text, setText, res, errId]) => (
                     <label key={label} className="flex flex-col gap-0.5">
                       <span className="text-[11px] text-slate-400">
                         {label}
                         {res.ok ? ` · ${ko.editor.pickValueKind[jsonScalarKind(res.value)]}` : ""}
                       </span>
-                      <Input size="sm" className="font-mono" aria-label={label} aria-invalid={!res.ok || undefined} value={text} onChange={(e) => setText(e.target.value)} />
-                      {!res.ok && <span className="text-xs text-red-600">{literalErrorText(res)}</span>}
+                      <Input size="sm" className="font-mono" aria-label={label} aria-invalid={!res.ok || undefined} aria-describedby={res.ok ? undefined : errId} value={text} onChange={(e) => setText(e.target.value)} />
+                      {!res.ok && (
+                        <span id={errId} className="text-xs text-red-600">{literalErrorText(res)}
+                        </span>
+                      )}
                     </label>
                   ))}
                   <p className="col-span-full text-[11px] text-slate-400">{ko.editor.pickValueKindHint}</p>
