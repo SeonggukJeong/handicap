@@ -51,7 +51,7 @@ fn generator_vectors() {
         let got = serde_yaml::from_str::<VarDecl>(&v.yaml);
         match v.expect.as_str() {
             "accept" => assert!(got.is_ok(), "should accept {}: {:?}", v.yaml, got.err()),
-            // known_divergence: 엔진은 원문(`0x8`)을 문법 오류로 거부한다(UI만 수용).
+            // known_divergence: 엔진(serde_yaml)은 `1e3`을 실수로 읽어 거부한다(UI yaml 패키지는 정수 1000으로 수용 — spec §4.1).
             "reject" | "known_divergence" => assert!(got.is_err(), "should reject {}", v.yaml),
             other => panic!("unknown expect {other}"),
         }
@@ -134,8 +134,8 @@ fn eval_preserves_value_types_including_null() {
         &one("{gen: pick_array, length: 4, min: 2, max: 2, pick: 1, rest: 0}"),
         &mut rng,
     );
-    assert_eq!(nums.iter().filter(|v| **v == (1)).count(), 2);
-    assert_eq!(nums.iter().filter(|v| **v == (0)).count(), 2);
+    assert_eq!(nums.iter().filter(|v| **v == 1).count(), 2);
+    assert_eq!(nums.iter().filter(|v| **v == 0).count(), 2);
     let strs = eval(
         &one(r#"{gen: pick_array, length: 4, min: 1, max: 1, pick: "True", rest: "False"}"#),
         &mut rng,
