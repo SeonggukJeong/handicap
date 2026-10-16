@@ -498,6 +498,31 @@
 
 **(6) 테스트 polish (리뷰 minor, 저우선)**: 원문-추출 실패 우선순위 핀이 Header arm만(Body/Cookie arm 미핀 — 구조 동일) · `extract.rs` 테스트 모듈의 중복 명시 import(`Decode`·`STANDARD_NO_PAD`·`URL_SAFE_NO_PAD`) · `DecodeError` doc 주석이 "입력 바이트를 echo"로 과장(실제는 바이트 값+offset) · 리터럴 필드 순서 불일치(새 필드가 앞) · `Inspector.test.tsx` 새 헬퍼 앞 빈 줄.
 
+### B31. 선택 배열 생성 변수 pick_array (2026-10-17, 코드 `0fa6064c`..`b67a69bc`, spec `docs/superpowers/specs/2026-10-17-pick-array-design.md`) 연기 항목
+
+**(1) orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다):
+- **R-a pick/rest 문자열 64자(코드 포인트) 상한** — security-reviewer 차단 finding(문자열 하나가 반복마다 최대 1000번 복제돼 test-run이 컨트롤러 프로세스에서 GB 단위 메모리를 먹을 수 있었다). `random_string`의 64자 상한에 맞췄다(엔진 `chars().count()` ↔ UI `[...s].length`, 공유 벡터 64/65·이모지 64/65). **비용**: 64자를 넘는 표식 문자열이 필요한 QA가 검증 오류를 본다. **해소**: 상수 하나씩(엔진·UI)과 벡터를 함께 올린다.
+- **R-b 시나리오 전체 pick_array 크기 무상한 (security 잔여, 연기)** — 변수당 최대 ~387KB로 막혔지만 변수 개수·`length` 합계는 무제한. 2MB 본문 한도 안에서 ~8000개 선언을 일부러 만들면 test-run 1회 반복이 1~3GB(계산치, 미측정). **비용**: 악의적 내부자가 공유 컨트롤러를 test-run으로 OOM시킬 수 있다(우연한 붙여넣기 경로는 R-a로 닫힘). **해소**: 엔진 게이트에 시나리오 레벨 `Σlength ≤ 10,000` 검사 + `ScenarioModel` 레벨 Zod superRefine 미러 + 벡터(spec 개정 필요).
+- **R-c UI가 쓰는 문자열 pick/rest는 항상 큰따옴표** — `yaml`(1.2 core)은 `"0b101"`·`"+0x1F"`·`"-0x10"`을 따옴표 없이 쓰는데 serde_yaml은 이를 정수로 읽어 미리보기(`"0b101"`)와 와이어(`5`)가 갈렸다. 엔진 파싱 대신 UI 작성기를 고쳤다(`setVariableGen`이 문자열 노드에 `QUOTE_DOUBLE`). **비용**: 손으로 쓴 YAML의 따옴표 없는 스칼라는 여전히 두 라이브러리가 다르게 읽는다(아래 R-d). **해소**: R-d 참조.
+- **R-d 손으로 쓴 YAML 스칼라 발산은 문서화로 수용** — `positions: 00001`(UI 수용/엔진 거부)·`positions: +0x8`·`0b1000`(엔진 수용/UI 거부)·`1e3`(엔진 거부/UI 수용)은 `known_divergence` 벡터로 고정(양쪽 판정이 바뀌면 테스트가 깨짐), **`pick: 01`/`rest: 00`은 엔진이 문자열 `"01"`, UI가 숫자 1로 읽는다 — 코드 미수정**(UI 요약·미리보기가 와이어와 다르게 보이고, 무관한 팝업 적용이 이를 숫자로 다시 써 와이어 타입이 바뀐다). spec §4.1·§9에 목록 기재. **비용**: 손 편집 엣지 YAML에서 요약/미리보기≠와이어. **해소**: `yaml` 패키지에 serde_yaml과 같은 int 해석 커스텀 태그(스키마)를 넣거나, 엔진 쪽을 YAML 1.2 core로 맞추기 — 둘 다 다른 생성기 파라미터에도 영향이라 별도 슬라이스.
+- **R-e Task 1 테스트의 plan-지정 거짓 주석 정정** — plan 원문이 `0x8`을 known_divergence라 적었으나 실제는 `1e3`. spec 우선으로 고쳤다. 비용 0.
+- **R-f Task 3 `x{{mixed:json}}` 픽스처를 파싱 후 주입** — brief의 YAML이 ScenarioModel Zod에 거부돼 파싱된 모델에 leaf를 주입해 가드를 시험. 실사용에선 혼합 `:json` leaf가 문서를 무효로 만들어 `yamlError`로 어포던스가 어차피 비활성. **비용**: 테스트 1건이 약간 약함.
+- **R-g Task 5 Shift-범위 앵커 수정(plan verbatim 코드 이탈)** — 길이 축소 후 이전 앵커로 Shift+클릭하면 범위가 길이를 넘어 대화상자가 문법 오류 상태가 되고 포커스가 trap 밖으로 빠졌다. 길이 커밋 시 앵커 리셋 + 범위 끝 clamp. 비용 0.
+- **R-h 리뷰 minor를 수정 wave에 접음** — act 경고 제거·Shift+Space keyup 1회 억제(Shift 먼저 떼기 포함, 라이브 실측)·aria-invalid/aria-describedby/aria-controls·`select-none`·미리보기 시드 통일(팝업이 패널의 재추첨 카운터를 받음 — 팝업에서 재추첨 후 취소해도 패널 예시가 바뀐다, store 무변경)·declare 포커스 폴백·prettier.
+
+**(2) 리뷰 minor — 연기 (저우선, 해소 경로 포함)**:
+- 기존 생성기 4종의 거부 문구가 새 키(`positions`/`pick`/`rest`)를 언급하지 않음(plan "문구 불변") — `date`는 "min/max/step/length를 받지 않는다"로 원인 키를 못 짚는다. 해소: 문구에 키 목록 추가(값-free 유지).
+- `PickArrayGen`의 `length/min/max`가 `pub`(`candidates`는 `pub(crate)`) — 크레이트 내부 코드가 파싱 후 `length`를 바꾸면 eval이 범위 밖 인덱스. 사용자 YAML로는 도달 불가. 해소: 필드 비공개 + getter.
+- UI가 키 입력마다 모든 변수의 positions를 재파싱(superRefine·요약·샘플) — 악의적 대형 YAML에서만 의미. 해소: `candidatesOf` positions 문자열별 memo.
+- 1000칸 그리드 렌더 비용(인라인 ref 콜백·비-memo 그리드) — 라이브에서 체감 문제 없음. 해소: `PositionGrid` memo + 안정 ref 콜백.
+- 비정형 positions(`"1 - 3"`)는 팝업을 열 때 미리보기가 패널과 다를 수 있다(정규형 키가 달라서; 적용 후 일치). 표시만.
+- 팝업 `badLength` 분기는 도달 불가(스위치 exhaustive용).
+
+**(3) 테스트 polish (리뷰 minor, 저우선)**: proptest가 `rest`를 생성하지 않고 min/max 고정 1/2 · test-run 422 테스트가 상태만 단언(사유 미단언) · GET 보존 단언(`"1-5, 8"`)은 저장소가 원문을 보관하면 자명 · UI `parseValueLiteral`은 유니코드 `trim()`(UI 전용) · 엔진/UI 4096자 판정 단위가 바이트/UTF-16으로 달라 장문 비-ASCII에서 오류 *종류*만 다를 수 있음(수용/거부는 일치) · 따옴표 보존 이빨은 테스트 측만(라이브 US3이 실측 보완) · 이빨이 `max>length`만(다른 거부 분기는 벡터 의존) · 문구 금지 테스트가 접힌 상태만 검사 · `setVariableGen` 호출 횟수 spy 없음(제목 "1회 갱신" 미단언) · 테스트 제목 과장 2건 · 접힘 `편집`·타입 전환 적용 후 포커스 복귀 미핀(라이브는 PASS) · `pickEditOpenAria`의 리터럴 `…` · 접힘 `편집` 버튼이 행 `title` 툴팁 상속 · `PickArrayDialog.tsx` 등 prettier는 게이트 밖(이번엔 정리됨).
+
+**(4) spec 비목표(v1) — 재개 신호와 함께**: 원소별 생성기 배열(랜덤 정수 × N) · 자리별 "항상 선택" 3상태 · 길이 1000 초과 · 기존 정적 `""` 변수가 `:json`으로 쓰일 때의 신뢰도 경고 · `:arr` 캐스트 · 시드 재현성 — 도그푸딩에서 수요 확인 시.
+
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

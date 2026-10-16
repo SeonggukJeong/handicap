@@ -1,6 +1,7 @@
 # 선택 배열 생성 변수 (pick-array) — 설계
 
 - 날짜: 2026-10-17 · 유형: **user-path** · 워크트리: `genvar-array` (브랜치 `worktree-genvar-array`)
+- **상태: 완료** (2026-10-17, 코드 `0fa6064c`..`b67a69bc`, 라이브 US1~US5 PROVEN) — 판단·연기 항목은 `docs/roadmap.md` §B31
 - **목업(구현 참조본)**: `docs/superpowers/mockups/2026-10-17-pick-array-mockup.html` — 패널 행·팝업 배치·문구·상호작용(텍스트↔칸 동기화·draft→적용)의 기준. 구현이 목업과 다르면 이 spec의 명시 규칙이 우선하고, spec이 침묵하는 시각·상호작용 디테일은 목업을 따른다. **목업의 JS 로직은 복사 금지** — 목업 파서는 빈 항목을 건너뛰고(§4.3은 거부) 길이 규칙을 `change` 이벤트에 걸었다(§6.3 커밋 경계 규칙이 권위). 목업은 시각·흐름 참조일 뿐이다.
 - 선행: dynamic-vars(`2026-07-24-dynamic-vars-design.md`, 생성 변수 4종)·genvar-preview-ux(`2026-07-24-genvar-preview-ux-design.md`, 결정적 미리보기)·json-cast-extend(`:json` 캐스트)
 - 관련 ADR: 0003(양방향 sync)·0014(변수 표기)·0029(JSON 캐스트)·0035(한국어 카피)
