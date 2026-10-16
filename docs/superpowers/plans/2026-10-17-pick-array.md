@@ -15,7 +15,8 @@
 - 사용자 노출 문구는 전부 `ui/src/i18n/ko.ts` 경유(ADR-0035). **값이 불리언이어야 한다는 인상을 주는 문구 금지** — "true 개수"·"true 자리"·"불리언 배열" 금지(값 형식 프리셋 라벨 `true / false`·예시 값 자체는 예외). 타입명 = `선택 배열`.
 - YAML 키·순서: `gen, length, min, max, positions?, pick?, rest?`. `positions` 생략 = 전체 자리, `pick` 생략 = `true`, `rest` 생략 = `false`.
 - 검증(엔진·Zod 동일): `1 ≤ length ≤ 1000` · `0 ≤ min ≤ max ≤ length` · positions 문자열 ≤ 4096자 · positions 문법(§4.3) · 후보 ≥ 1 · `min ≤ 후보 수` · pick/rest는 bool·유한 number·string·null. `max > 후보 수`는 허용(평가 시 상한, UI 경고).
-- positions 문법: 쉼표 분리 → 항목 trim → `N` 또는 `N-M`(하이픈 주변 공백 허용), 숫자는 ASCII 1~4자리, `1 ≤ N ≤ M ≤ length`, 빈 항목 거부, 빈 문자열/공백만 = 빈 집합(후보 0 규칙으로 거부). 정규형 = 오름차순·연속 병합·`", "` 구분.
+- positions 문법: 쉼표 분리 → 항목 **ASCII 공백만** trim(` \t\n\r\f` — Rust `trim_matches(char::is_ascii_whitespace)` ↔ TS `/^[ \t\n\r\f]+|[ \t\n\r\f]+$/g`; JS `trim()`/Rust `trim()`은 유니코드 공백 집합이 달라 금지) → `N` 또는 `N-M`(하이픈 주변 공백 허용), 숫자는 ASCII 1~4자리, `1 ≤ N ≤ M ≤ length`, 빈 항목 거부, 빈 문자열/공백만 = 빈 집합(후보 0 규칙으로 거부). 정규형 = 오름차순·연속 병합·`", "` 구분. 길이 상한 4096은 Rust 바이트·TS UTF-16 단위로 다르게 세지만 비-ASCII는 어차피 문법 거부라 판정 동일.
+- positions YAML 스칼라: 문자열 또는 **0 이상 정수**(yaml 정수 표기 `8`·`0x8`·`+5` 모두 → 10진 문자열 `"8"`·`"5"`), `null`/빈 값/실수/음수/시퀀스는 거부 — 엔진은 `present_positions` 헬퍼로, UI는 Zod로 같은 규칙(spec §4.1 개정).
 - UI 커밋 경계: 팝업 안 편집은 로컬 draft만, **store/YAML 쓰기는 `적용` 1회**. 취소·✕·ESC·바깥 클릭 = 폐기.
 - `yamlError !== null`이면 새 어포던스(`편집`·`편집…`·`배열로 추가`·타입 select) 전부 disabled.
 - 커밋 규칙: cargo-영향 커밋은 `run_in_background` 금지 아님 — **implementer는 단일 FOREGROUND 호출(timeout 600000)**로 커밋. `git commit … | tail` 금지, `--no-verify` 금지, 커밋 후 `git log -1`로 확인. `testdata/` 단독 커밋은 게이트를 안 타므로 항상 `crates/`·`ui/` 파일과 같이 스테이징.
@@ -25,7 +26,7 @@
 
 1. 손으로 쓴 YAML의 비정형 positions(`"1 - 3"`·`"007"`·`" 3 , 1 "`)가 엔진·UI 모두 수용되고 패널 요약이 올바른 후보 수를 보인다 → Task 1·3 벡터(공유 파일)에 포함.
 2. 길이 1000·전체 후보에서 팝업이 1000칸을 그리고 칸 1개 토글이 텍스트를 정규형으로 바꾼다(성능·정합) → Task 5 RTL "length 1000" 케이스.
-3. `선택 배열` → 다른 타입(UUID)으로 타입 select 전환 시 즉시 커밋되고 pick_array 키(`positions`/`pick`/`rest`)가 YAML에 남지 않는다 → Task 6 GenVarEditor 케이스.
+3. `선택 배열` → 다른 타입(UUID)으로 타입 select 전환 시 즉시 커밋되고 pick_array 키(`positions`/`pick`/`rest`)가 YAML에 남지 않는다 → Task 6 GenVarEditor 케이스(콜백 인자) + Task 4 yamlDoc 케이스(store YAML에 키 부재 — `setVariableGen`의 `setIn` 맵 교체가 실제 방어선).
 4. 선택 배열 변수의 rename이 spec 전체(맵 노드)를 보존한다 → Task 4 yamlDoc 케이스.
 5. 캐스트 없는 `"{{flags}}"`·혼합 leaf `"x{{flags:json}}"`·env `"${F:json}"`로만 쓰인 미정의 변수엔 `배열로 추가`가 **안** 뜬다 → Task 3 `jsonCastVarNames` + Task 6 패널 케이스.
 
@@ -79,7 +80,8 @@ Task 1·2 = engine path-gate → code-quality 리뷰 `model: opus`. Task 3~6 = U
     { "text": "+1", "length": 30, "expect": "reject" },
     { "text": "00001", "length": 30, "expect": "reject" },
     { "text": "１", "length": 30, "expect": "reject" },
-    { "text": "1 2", "length": 30, "expect": "reject" }
+    { "text": "1 2", "length": 30, "expect": "reject" },
+    { "text": "\u00a01", "length": 30, "expect": "reject" }
   ],
   "generators": [
     { "yaml": "{gen: pick_array, length: 10, min: 1, max: 3}", "expect": "accept" },
@@ -115,12 +117,19 @@ Task 1·2 = engine path-gate → code-quality 리뷰 `model: opus`. Task 3~6 = U
     { "yaml": "{gen: date, positions: \"1\"}", "expect": "reject" },
     { "yaml": "{gen: random_int, min: 1, max: 2, rest: 0}", "expect": "reject" },
     { "yaml": "{gen: random_string, length: 3, positions: \"1\"}", "expect": "reject" },
-    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 0x8}", "expect": "known_divergence" }
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 0x8}", "expect": "accept" },
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: +5}", "expect": "accept" },
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: null}", "expect": "reject" },
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: -3}", "expect": "reject" },
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 2.5}", "expect": "reject" },
+    { "yaml": "{gen: pick_array, length: 1000, min: 1, max: 1, positions: 1e3}", "expect": "known_divergence" }
   ]
 }
 ```
 
-`known_divergence` = 엔진 거부·UI 수용(spec §4.1 — 저장 시 가시적 400).
+`known_divergence` = 엔진 거부·UI 수용(spec §4.1 — yaml 패키지는 `1e3`을 정수 1000으로, serde_yaml은 실수로 읽는다. 저장 시 가시적 400).
+
+`\u00a01`(NBSP+1) reject 벡터 = ASCII-only trim 계약의 양쪽 핀(JS `trim()`/Rust `trim()`이면 수용돼 RED).
 
 - [ ] **Step 2: 실패하는 엔진 통합 테스트 작성**
 
@@ -277,15 +286,19 @@ fn roundtrip_preserves_string_vs_typed_values() {
         "{gen: pick_array, length: 4, min: 1, max: 2, pick: 1, rest: null}",
         "{gen: pick_array, length: 4, min: 1, max: 2, pick: true, rest: false}",
         "{gen: pick_array, length: 10, min: 1, max: 1, positions: 8}",
+        "{gen: pick_array, length: 10, min: 1, max: 1, positions: 0x8}",
     ] {
         let m = one(spec);
         let out = serde_yaml::to_string(&m).unwrap();
         let back: BTreeMap<String, VarDecl> = serde_yaml::from_str(&out).unwrap();
         assert_eq!(back, m, "spec={spec} out={out}");
     }
-    // 방출 순서·생략 규칙: 기본 생략 필드는 키 자체가 없다
+    // 방출 순서·생략 규칙: 기본 생략 필드는 키 자체가 없다 ("pick"은 "gen: pick_array"에도 있으므로 키 형태로 검사)
     let out = serde_yaml::to_string(&one("{gen: pick_array, length: 10, min: 1, max: 3}")).unwrap();
-    assert!(!out.contains("positions") && !out.contains("pick") && !out.contains("rest"), "{out}");
+    assert!(
+        !out.contains("positions:") && !out.contains("pick:") && !out.contains("rest:"),
+        "{out}"
+    );
     let g = out.find("gen").unwrap();
     let l = out.find("length").unwrap();
     let mi = out.find("min").unwrap();
@@ -342,7 +355,7 @@ impl PickArrayGen {
 (b) wire 필드 — `GenSpecWire`의 `length` 필드 아래에:
 
 ```rust
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present_positions")]
     positions: Option<String>,
     #[serde(default, deserialize_with = "present_value")]
     pick: Option<serde_json::Value>,
@@ -385,17 +398,36 @@ fn present_value<'de, D: Deserializer<'de>>(d: D) -> Result<Option<serde_json::V
     Ok(Some(out))
 }
 
+/// positions: 문자열 또는 0 이상 정수(→ 10진 문자열). null/실수/음수/컬렉션은 거부 —
+/// Option<String> 기본 경로는 `positions: null`을 None(=전체)으로 조용히 받아 UI(Zod 거부)와
+/// 갈린다(spec §4.1 개정).
+fn present_positions<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    use serde_yaml::Value as Y;
+    match Y::deserialize(d)? {
+        Y::String(s) => Ok(Some(s)),
+        Y::Number(n) => n
+            .as_u64()
+            .map(|u| Some(u.to_string()))
+            .ok_or_else(|| de::Error::custom("positions는 문자열 또는 0 이상 정수")),
+        _ => Err(de::Error::custom("positions는 문자열 또는 0 이상 정수")),
+    }
+}
+
+fn trim_ascii_ws(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_ascii_whitespace())
+}
+
 /// 자리 범위 문법(spec §4.3) — "1-5, 8" → [1,2,3,4,5,8]. 빈/공백 문자열 = Ok(빈 집합)
 /// (후보 0은 호출부가 거부). 오류 문구는 값-free(항목 번호만).
 pub fn parse_positions(text: &str, length: u32) -> Result<Vec<u32>, String> {
     if text.len() > POSITIONS_MAX_CHARS {
         return Err(format!("positions는 {POSITIONS_MAX_CHARS}자 이하"));
     }
-    if text.trim().is_empty() {
+    if trim_ascii_ws(text).is_empty() {
         return Ok(Vec::new());
     }
     fn num(s: &str) -> Option<u32> {
-        let s = s.trim();
+        let s = trim_ascii_ws(s);
         if s.is_empty() || s.len() > 4 || !s.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
@@ -403,7 +435,7 @@ pub fn parse_positions(text: &str, length: u32) -> Result<Vec<u32>, String> {
     }
     let mut mark = vec![false; length as usize];
     for (i, raw) in text.split(',').enumerate() {
-        let item = raw.trim();
+        let item = trim_ascii_ws(raw);
         let (a, b) = match item.split_once('-') {
             Some((x, y)) => (num(x), num(y)),
             None => (num(item), num(item)),
@@ -538,11 +570,13 @@ Run: `cargo test -p handicap-engine --test pick_array` → 전부 PASS. 이어�
 
 - [ ] **Step 6: 이빨 실증 (리포트에 기록)**
 
-(1) 기존 `"uuid"` arm의 `|| w.pick.is_some()` 항을 임시 삭제 → `generator_vectors`가 `{gen: uuid, pick: 1}`로 RED → 원복. (2) `pick` 필드의 `deserialize_with = "present_value"`를 임시 삭제 → `eval_preserves_value_types_including_null`이 RED → 원복. (3) `eval_pick_array`의 `lo..=hi`를 `lo..hi`로 임시 변경 → `eval_respects_count_range_and_candidates`가 RED(k=3 미발생) → 원복.
+(1) 기존 `"uuid"` arm의 `|| w.pick.is_some()` 항을 임시 삭제 → `generator_vectors`가 `{gen: uuid, pick: 1}`로 RED → 원복. (2) **`rest`** 필드의 `deserialize_with = "present_value"`를 임시 삭제 → `eval_preserves_value_types_including_null`이 RED(`rest: null`이 기본 false로 떨어짐) → 원복. (참고: `pick`에서 지우면 대신 `generator_vectors`가 `pick: [1]`·`.inf` 수용으로 RED.) (4) `positions`의 `deserialize_with = "present_positions"`를 임시 삭제 → `generator_vectors`가 `positions: null` 수용으로 RED → 원복. (5) `trim_ascii_ws`를 `str::trim`으로 임시 교체 → `positions_vectors`의 NBSP 항목 RED → 원복. (3) `eval_pick_array`의 `lo..=hi`를 `lo..hi`로 임시 변경 → `eval_respects_count_range_and_candidates`가 RED(k=3 미발생) → 원복.
 
-- [ ] **Step 7: 커밋 (FOREGROUND, 600000ms)**
+- [ ] **Step 7: 포맷 + 커밋 (FOREGROUND, 600000ms)**
 
 ```bash
+cargo fmt --all
+cargo clippy -p handicap-engine --all-targets -- -D warnings; echo exit=$?
 git add testdata/pick_array_vectors.json crates/engine/tests/pick_array.rs crates/engine/src/genvars.rs crates/engine/src/lib.rs
 git diff --cached --name-only
 git commit -m "feat(engine): pick_array 선택 배열 생성기 — 게이트·평가·공유 벡터"
@@ -737,9 +771,10 @@ Run: `cargo test -p handicap-engine --test genvars_wiring pick_array` / `cargo t
 
 - [ ] **Step 5: 이빨 실증** — 와이어 테스트: PICK_BODY의 `"{{flags:json}}"`을 임시로 `"{{flags}}"`로 바꾸면 `as_array().expect` RED(문자열로 나감) → 원복.
 
-- [ ] **Step 6: 커밋 (FOREGROUND, 600000ms)**
+- [ ] **Step 6: 포맷 + 커밋 (FOREGROUND, 600000ms)**
 
 ```bash
+cargo fmt --all
 git add crates/engine/tests/genvars_wiring.rs crates/controller/tests/scenario_genvars_gate_test.rs crates/engine/tests/proptests.rs
 git diff --cached --name-only
 git commit -m "test(engine,controller): pick_array JSON 바디 와이어·게이트 400/422·proptest"
@@ -1001,18 +1036,20 @@ export type PositionsError =
 export type PositionsResult = { ok: true; set: number[] } | { ok: false; error: PositionsError };
 
 const NUM = /^[0-9]{1,4}$/;
+// ASCII 공백만 — 엔진 trim_ascii_ws와 lockstep(JS trim()은 NBSP·U+FEFF까지 지워 엔진과 갈린다).
+const trimAscii = (s: string) => s.replace(/^[ \t\n\r\f]+|[ \t\n\r\f]+$/g, "");
 
 export function parsePositions(text: string, length: number): PositionsResult {
   if (text.length > POSITIONS_MAX_CHARS) return { ok: false, error: { kind: "tooLong" } };
-  if (text.trim() === "") return { ok: true, set: [] };
+  if (trimAscii(text) === "") return { ok: true, set: [] };
   const mark = new Array<boolean>(Math.max(0, length)).fill(false);
   const items = text.split(",");
   for (let i = 0; i < items.length; i++) {
-    const item = items[i].trim();
+    const item = trimAscii(items[i]);
     const dash = item.indexOf("-");
     const [x, y] = dash === -1 ? [item, item] : [item.slice(0, dash), item.slice(dash + 1)];
-    const xs = x.trim();
-    const ys = y.trim();
+    const xs = trimAscii(x);
+    const ys = trimAscii(y);
     if (!NUM.test(xs) || !NUM.test(ys)) return { ok: false, error: { kind: "badItem", index: i + 1 } };
     const a = Number(xs);
     const b = Number(ys);
@@ -1275,8 +1312,17 @@ describe("pick_array YAML 왕복", () => {
     expect(v).toEqual({ gen: "pick_array", length: 4, min: 1, max: 2, pick: "True", rest: "1" });
     s.setVariableGen("g", { gen: "pick_array", length: 4, min: 1, max: 2 });
     const y2 = useScenarioEditor.getState().yamlText;
-    const gBlock = y2.slice(y2.indexOf("g:"));
-    expect(gBlock).not.toMatch(/positions|pick|rest/);
+    const gBlock = y2.slice(y2.indexOf("\n  g:"));
+    expect(gBlock).not.toMatch(/positions:|pick:|rest:/); // "gen: pick_array"와 구분하려 키 형태로
+  });
+  it("선택 배열 → UUID 전환 시 pick_array 키가 YAML에 남지 않는다 (setIn 맵 통째 교체)", () => {
+    const s = useScenarioEditor.getState();
+    s.resetEmpty();
+    s.setVariableGen("f", { gen: "pick_array", length: 6, min: 1, max: 2, positions: "2-4", pick: 1, rest: 0 });
+    s.setVariableGen("f", { gen: "uuid" });
+    const y = useScenarioEditor.getState().yamlText;
+    expect(y).not.toMatch(/positions:|pick:|rest:|length:/);
+    expect(useScenarioEditor.getState().model!.variables.f).toEqual({ gen: "uuid" });
   });
   it("rename은 pick_array 맵 전체를 보존", () => {
     const s = useScenarioEditor.getState();
@@ -1326,7 +1372,7 @@ const PickArrayGenModel = z
     max: z.number().int().min(0),
     // yaml 패키지는 `positions: 8`을 숫자로 읽는다 — 엔진(serde_yaml 평문 스칼라=문자열)과
     // 맞추려 정수를 문자열로 정규화(spec §4.1). 필드 레벨 transform이라 멤버는 ZodObject 유지.
-    positions: z.union([z.string(), z.number().int()]).transform(String).optional(),
+    positions: z.union([z.string(), z.number().int().min(0)]).transform(String).optional(),
     pick: JsonScalarModel.optional(),
     rest: JsonScalarModel.optional(),
   })
@@ -1405,7 +1451,7 @@ export function isPickArray(v: VarDeclValue): v is PickArraySpec {
 
 - [ ] **Step 5: 통과 확인** — `pnpm test pickArrayVectors` · `pnpm test genVars` · `pnpm test yamlDoc` → PASS. 그다음 `pnpm build` — `positions` transform으로 `GenSpec`(output)·input 타입이 갈려 깨지는 소비처가 있으면 output 타입(`GenSpec`)을 쓰도록 고친다(예상: 없음 — yamlDoc·store는 output 형을 받는다).
 
-- [ ] **Step 6: 이빨 실증** — `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복.
+- [ ] **Step 6: 이빨 실증** — (1) `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복. (2) 따옴표 보존: yamlDoc 테스트의 기대를 임시로 `toMatch(/pick: True$/m)`(따옴표 없는 형태)로 바꿔 RED 확인 → 원복(방출이 실제로 따옴표를 붙인다는 실증). (3) `positions`의 `.min(0)`을 임시 삭제 → 벡터 `positions: -3`이 Zod 수용(`"-3"`은 문법 거부라 여전히 reject될 수 있음 — 그 경우 이 항목은 '엔진·UI 모두 문법 단계에서 거부'로 리포트에 기록).
 
 - [ ] **Step 7: 게이트+커밋 (FOREGROUND)**
 
@@ -1526,9 +1572,14 @@ describe("PickArrayDialog", () => {
     expect(apply).toBeDisabled(); // min > 후보
   });
 
-  it("문법 오류 동안 칸은 비활성·전체는 활성, 빈 문자열이면 칸 활성", async () => {
+  it("문법 오류 동안 칸은 직전 유효 집합을 흐리게·비활성, 전체는 활성, 빈 문자열이면 칸 활성", async () => {
     const user = userEvent.setup();
     const { dialog, posInput, grid } = setup();
+    await user.type(posInput, ","); // "1-5, 8, 12-20," — 후행 빈 항목 = 문법 오류
+    expect(cell(grid, 8)).toHaveAttribute("aria-pressed", "true"); // 직전 유효 집합 유지(spec §6.3)
+    expect(cell(grid, 9)).toHaveAttribute("aria-pressed", "false");
+    expect(cell(grid, 8)).toBeDisabled();
+    expect(within(dialog).getByText(ko.editor.pickErrBadItem(4))).toBeInTheDocument();
     await user.clear(posInput);
     await user.type(posInput, "1,,2");
     expect(cell(grid, 1)).toBeDisabled();
@@ -1553,6 +1604,8 @@ describe("PickArrayDialog", () => {
     expect(posInput).toHaveValue("1-5, 8");
   });
 
+  // jsdom에선 RTL이 이벤트마다 act로 재렌더를 정착시켜 '첫 클릭 삼킴'을 재현하지 못한다 —
+  // 이 케이스는 동작 명세 핀이고, 회귀 가드는 라이브 검증(US4 행)이 담당한다.
   it("무효 길이를 고친 직후 적용 첫 클릭이 동작 (live 길이로 활성 판정)", async () => {
     const user = userEvent.setup();
     const { onApply, dialog, apply } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
@@ -1572,7 +1625,8 @@ describe("PickArrayDialog", () => {
     const toggle = within(dialog).getByRole("button", { name: ko.editor.pickValuesToggle("true", "false") });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await user.click(toggle);
-    await user.click(within(dialog).getByRole("radio", { name: /1 \/ 0/ }));
+    expect(within(dialog).getByRole("radio", { name: /"Y" \/ "N"/ })).toBeInTheDocument(); // 프리셋 라벨은 문자열에 따옴표(목업)
+    await user.click(within(dialog).getByRole("radio", { name: /^1 \/ 0/ }));
     await user.click(apply);
     expect(onApply).toHaveBeenLastCalledWith({ gen: "pick_array", length: 4, min: 1, max: 1, pick: 1, rest: 0 });
   });
@@ -1595,7 +1649,7 @@ describe("PickArrayDialog", () => {
   it("roving: 그리드 Tab 정지 1개, 화살표 이동, Home/End", async () => {
     const user = userEvent.setup();
     const { grid } = setup({ gen: "pick_array", length: 12, min: 1, max: 1 });
-    const tabbable = within(grid).getAllByRole("button").filter((b) => b.tabIndex === 0);
+    const tabbable = Array.from(grid.querySelectorAll("button")).filter((b) => b.tabIndex === 0);
     expect(tabbable).toHaveLength(1);
     cell(grid, 1).focus();
     await user.keyboard("{ArrowRight}");
@@ -1604,7 +1658,16 @@ describe("PickArrayDialog", () => {
     expect(cell(grid, 12)).toHaveFocus();
     await user.keyboard("{Home}");
     expect(cell(grid, 1)).toHaveFocus();
-    expect(within(grid).getAllByRole("button").filter((b) => b.tabIndex === 0)).toHaveLength(1);
+    expect(Array.from(grid.querySelectorAll("button")).filter((b) => b.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("Shift+Space = 직전 토글 자리부터 범위, 1회만", async () => {
+    const user = userEvent.setup();
+    const { posInput, grid } = setup({ gen: "pick_array", length: 8, min: 0, max: 1, positions: "1" });
+    await user.click(cell(grid, 2)); // anchor=2, "1-2"
+    cell(grid, 5).focus();
+    await user.keyboard("{Shift>} {/Shift}");
+    expect(posInput).toHaveValue("1-5");
   });
 
   it("Space는 네이티브 활성화로 1회만 토글", async () => {
@@ -1617,11 +1680,17 @@ describe("PickArrayDialog", () => {
 
   it("길이 1000: 1000칸 렌더·토글이 텍스트를 정규형으로", async () => {
     const user = userEvent.setup();
-    const { posInput, grid } = setup({ gen: "pick_array", length: 1000, min: 0, max: 5 });
-    expect(within(grid).getAllByRole("button")).toHaveLength(1000);
-    await user.click(cell(grid, 500));
-    expect(posInput).toHaveValue("1-499, 501-1000");
-  });
+    // setup()의 role 쿼리는 1000칸 접근명 계산으로 느리다 — 이 케이스는 DOM 쿼리로 직접.
+    render(
+      <PickArrayDialog name="flags" initial={{ gen: "pick_array", length: 1000, min: 0, max: 5 }} onApply={vi.fn()} onCancel={vi.fn()} />,
+    );
+    const grid = document.querySelector('[aria-label="' + ko.editor.pickGridAria + '"]')!;
+    const cells = grid.querySelectorAll("button");
+    expect(cells).toHaveLength(1000);
+    await user.click(cells[499]);
+    const pos = document.querySelector('input[aria-label="' + ko.editor.pickSectionPositions + '"]') as HTMLInputElement;
+    expect(pos.value).toBe("1-499, 501-1000");
+  }, 30_000);
 
   it("사용 안내와 미리보기(유효 시 JSON 배열)", () => {
     const { dialog } = setup({ gen: "pick_array", length: 4, min: 1, max: 1 });
@@ -1640,7 +1709,6 @@ describe("PickArrayDialog", () => {
 - [ ] **Step 2: ko 키 추가** — `ko.editor`의 `pickSummary` 다음에:
 
 ```ts
-    pickDialogTitle: (name: string) => `${name} · 선택 배열`,
     pickSectionSize: "크기",
     pickFieldLength: "배열 길이 (1~1000)",
     pickFieldMin: "선택 개수 최소",
@@ -1769,11 +1837,14 @@ export function PickArrayDialog({
   const [valuesOpen, setValuesOpen] = useState(initPreset !== 0);
   const [tick, setTick] = useState(0);
   const anchorRef = useRef<number | null>(null);
+  // 문법 오류 동안 칸 그리드가 보일 직전 유효 집합(spec §6.3) — 렌더 중 ref 갱신(파생 표시 전용).
+  const lastValidRef = useRef<number[]>([]);
 
   // live 길이(무효면 마지막 유효) — 활성 판정·칸 수. 깎기 규칙은 비파괴 미리보기로만.
   const liveLength = lengthOf(lengthText) ?? committedLength;
   const effText = trimPositionsForLength(positionsText, committedLength, liveLength);
   const pos = parsePositions(effText, liveLength);
+  if (pos.ok) lastValidRef.current = pos.set;
 
   const commitLength = () => {
     const n = lengthOf(lengthText);
@@ -1861,8 +1932,9 @@ export function PickArrayDialog({
   };
 
   return (
-    <Modal open onClose={onCancel} title={ko.editor.pickDialogTitle(name)}>
+    <Modal open onClose={onCancel} title={name}>
       <div className="flex flex-col gap-4 text-sm">
+        <span className="self-start rounded bg-indigo-50 px-1.5 text-xs text-indigo-600">{ko.editor.genTypePickArray}</span>
         <section className="flex flex-col gap-1.5">
           <h3 className="text-xs font-semibold text-slate-500">{ko.editor.pickSectionSize}</h3>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-x-3 gap-y-1">
@@ -1930,7 +2002,7 @@ export function PickArrayDialog({
           </div>
           <PositionGrid
             length={liveLength}
-            selected={pos.ok ? new Set(pos.set) : new Set()}
+            selected={new Set(pos.ok ? pos.set : lastValidRef.current)}
             disabled={!pos.ok}
             onToggle={toggle}
           />
@@ -1951,7 +2023,8 @@ export function PickArrayDialog({
               {VALUE_PRESETS.map((p, i) => (
                 <label key={i} className="flex items-center gap-2 text-xs">
                   <input type="radio" name={`pick-values-${name}`} checked={valueMode === i} onChange={() => setValueMode(i)} />
-                  <code>{`${formatValueLiteral(p.pick)} / ${formatValueLiteral(p.rest)}`}</code>
+                  {/* 프리셋 라벨만 문자열에 따옴표(목업) — 토글 라벨·패널 요약은 formatValueLiteral(spec §6.3) */}
+                  <code>{`${JSON.stringify(p.pick)} / ${JSON.stringify(p.rest)}`}</code>
                   <span className="text-slate-400">{ko.editor.pickValueKind[jsonScalarKind(p.pick)]}</span>
                 </label>
               ))}
@@ -2106,7 +2179,7 @@ function PositionGrid({
 
 - [ ] **Step 5: 통과 확인** — `pnpm test PickArrayDialog` → PASS. 실패 케이스가 있으면 테스트 의도(spec §6.3)를 기준으로 구현을 고친다(테스트를 약화하지 말 것).
 
-- [ ] **Step 6: 이빨 실증** — (1) `onChange`가 길이 규칙을 키마다 적용하도록 임시 변경(`onChange={(e)=>{setLengthText(e.target.value); const n=lengthOf(e.target.value); if(n){setPositionsText(trimPositionsForLength(positionsText, committedLength, n)); setCommittedLength(n);}}}`) → "30 → 25" 케이스 RED → 원복. (2) `tabIndex={i === current ? 0 : -1}`을 `tabIndex={0}`으로 → roving 케이스 RED → 원복. (3) PositionGrid `onKeyDown`에 `else if (e.key === " ") onToggle(i, false);` 추가 → Space 1회 토글 케이스 RED → 원복.
+- [ ] **Step 6: 이빨 실증** — (0) `selected={new Set(pos.ok ? pos.set : lastValidRef.current)}`를 `pos.ok ? new Set(pos.set) : new Set()`으로 → "직전 유효 집합" 단언 RED → 원복. (1) `onChange`가 길이 규칙을 키마다 적용하도록 임시 변경(`onChange={(e)=>{setLengthText(e.target.value); const n=lengthOf(e.target.value); if(n){setPositionsText(trimPositionsForLength(positionsText, committedLength, n)); setCommittedLength(n);}}}`) → "30 → 25" 케이스 RED → 원복. (2) `tabIndex={i === current ? 0 : -1}`을 `tabIndex={0}`으로 → roving 케이스 RED → 원복. (3) PositionGrid `onKeyDown`에 `else if (e.key === " ") onToggle(i, false);` 추가 → Space 1회 토글 케이스 RED → 원복.
 
 - [ ] **Step 7: 게이트+커밋 (FOREGROUND)**
 
@@ -2187,6 +2260,10 @@ describe("GenVarEditor — pick_array", () => {
 
 ```tsx
 describe("VariablesPanel — pick_array", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
   const JSON_REF = `version: 1
 name: p
 steps:
@@ -2245,15 +2322,35 @@ steps:
     expect(screen.getByRole("button", { name: ko.editor.pickEditAria("seats") })).toHaveFocus();
   });
 
-  it("yamlError 동안 편집·배열로 추가 disabled", () => {
-    useScenarioEditor.getState().loadFromString(JSON_REF);
-    useScenarioEditor.getState().setVariableGen("flags", { gen: "pick_array", length: 4, min: 1, max: 1 });
-    render(<VariablesPanel />);
+  it("yamlError 동안 편집·편집…·배열로 추가 disabled", async () => {
+    const user = userEvent.setup();
     const s = useScenarioEditor.getState();
-    s.setPendingYamlText(`${s.yamlText}\n  : : broken`);
+    s.loadFromString(JSON_REF);
+    s.setVariableGen("flags", { gen: "pick_array", length: 4, min: 1, max: 1 });
+    s.setVariableGen("other", { gen: "pick_array", length: 4, min: 1, max: 1 });
+    // 기존 yamlError 락인 이디엄(VariablesPanel.test.tsx의 yamlError 케이스): 깨진 버퍼 커밋 후 render.
+    s.setPendingYamlText("version: 1\nname: t\nsteps: [\n");
     s.commitPendingYaml();
+    render(<VariablesPanel />);
     expect(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") })).toBeDisabled();
     expect(screen.getByRole("button", { name: ko.editor.pickDeclareAria("seats") })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("other") })); // 펼침 토글은 읽기 전용 크롬이라 활성
+    expect(screen.getByRole("button", { name: ko.editor.pickEditOpenAria("other") })).toBeDisabled();
+  });
+
+  it("타입 전환 경로: 고정값 → 선택 배열 적용 시 커밋, 취소 시 원래 타입·select 값 유지", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setVariable("v", "abc");
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("v") }));
+    const select = screen.getByRole("combobox", { name: ko.editor.genFieldType("v") });
+    await user.selectOptions(select, "pick_array");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: ko.common.cancel }));
+    expect(useScenarioEditor.getState().model!.variables.v).toBe("abc");
+    expect(screen.getByRole("combobox", { name: ko.editor.genFieldType("v") })).toHaveValue("static");
+    await user.selectOptions(screen.getByRole("combobox", { name: ko.editor.genFieldType("v") }), "pick_array");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: ko.editor.pickApply }));
+    expect(useScenarioEditor.getState().model!.variables.v).toEqual({ gen: "pick_array", length: 10, min: 1, max: 3 });
   });
 });
 ```
@@ -2350,7 +2447,7 @@ steps:
   }, [pickDialog]);
 ```
 
-(d) 접힘 생성기 행(`isGenSpec(row.value) ? (…)` 분기)의 `<GenSampleLine …/>` 다음, 같은 `div` 안에:
+(d) 접힘 생성기 행(`isGenSpec(row.value) ? (…)` 분기)의 **요약 줄 div**(`title={genRowTitle(row.value)}`를 단 `flex min-w-0 items-center gap-x-1.5` div — 배지·`genParamsSummary` span이 든 줄) 안, 요약 span 다음에(spec §6.1 "요약 줄에"; 버튼은 `ml-auto shrink-0`로 오른쪽 끝, 요약 span의 truncate가 남은 폭을 흡수):
 
 ```tsx
                     {isPickArray(row.value) && (
@@ -2367,7 +2464,7 @@ steps:
                           setUsageNav(null);
                           setPickDialog({ name: row.name, initial: row.value, origin: "edit" });
                         }}
-                        className="self-start text-xs text-accent-600 hover:underline disabled:opacity-40"
+                        className="ml-auto shrink-0 text-xs text-accent-600 hover:underline disabled:opacity-40"
                       >
                         {ko.editor.pickEdit}
                       </button>
@@ -2421,7 +2518,7 @@ steps:
 
 - [ ] **Step 6: 통과 확인** — `pnpm test GenVarEditor` · `pnpm test VariablesPanel` → PASS. 이어서 전체 `pnpm test` 1회(targeted≠full).
 
-- [ ] **Step 7: 이빨 실증** — (1) `changeKind`의 `pick_array` 분기를 삭제 → GenVarEditor "커밋 없이" 케이스 RED(`random_string` 커밋) → 원복. (2) `focusPickEditRef.current = …` 줄을 삭제 → 배열로 추가 "편집 버튼 포커스" 단언 RED → 원복. (3) `jsonCastNames.has(row.name) &&`를 삭제 → `plainvar`에 버튼 노출로 RED → 원복.
+- [ ] **Step 7: 이빨 실증** — (0) `PickArrayDialog`의 positions `onChange`에서 임시로 `onApply(...)`를 부르게 하거나, 패널의 `onCancel`을 `setVariableGen` 호출로 바꿔 → "적용 전/취소 후 yamlText 불변" 단언 RED → 원복. (1) `changeKind`의 `pick_array` 분기를 삭제 → GenVarEditor "커밋 없이" 케이스 RED(`random_string` 커밋) → 원복. (2) `focusPickEditRef.current = …` 줄을 삭제 → 배열로 추가 "편집 버튼 포커스" 단언 RED → 원복. (3) `jsonCastNames.has(row.name) &&`를 삭제 → `plainvar`에 버튼 노출로 RED → 원복.
 
 - [ ] **Step 8: 게이트+커밋 (FOREGROUND)**
 
