@@ -614,7 +614,7 @@ export const ko = {
     pickLegendOn: "선택 후보",
     pickLegendOff: "항상 나머지 자리 값",
     pickLegendRange: "Shift+클릭 = 범위",
-    pickGridAria: "선택될 수 있는 자리 칸 (Shift+클릭으로 범위)",
+    pickGridAria: "선택될 수 있는 자리 칸 (방향키로 이동, Shift+클릭 또는 Shift+Space로 범위)",
     pickCellAria: (i: number) => `${i}번 자리`,
     pickValuesToggle: (pick: string, rest: string) => `값 형식: ${pick} / ${rest}`,
     pickValuesAria: "값 형식",

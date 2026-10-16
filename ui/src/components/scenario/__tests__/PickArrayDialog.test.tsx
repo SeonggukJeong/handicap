@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PickArrayDialog } from "../PickArrayDialog";
 import { ko } from "../../../i18n/ko";
@@ -167,7 +167,7 @@ describe("PickArrayDialog", () => {
     const { grid } = setup({ gen: "pick_array", length: 12, min: 1, max: 1 });
     const tabbable = Array.from(grid.querySelectorAll("button")).filter((b) => b.tabIndex === 0);
     expect(tabbable).toHaveLength(1);
-    cell(grid, 1).focus();
+    act(() => cell(grid, 1).focus());
     await user.keyboard("{ArrowRight}");
     expect(cell(grid, 2)).toHaveFocus();
     await user.keyboard("{End}");
@@ -181,7 +181,7 @@ describe("PickArrayDialog", () => {
     const user = userEvent.setup();
     const { posInput, grid } = setup({ gen: "pick_array", length: 8, min: 0, max: 1, positions: "1" });
     await user.click(cell(grid, 2)); // anchor=2, "1-2"
-    cell(grid, 5).focus();
+    act(() => cell(grid, 5).focus());
     await user.keyboard("{Shift>} {/Shift}");
     expect(posInput).toHaveValue("1-5");
   });
@@ -189,9 +189,59 @@ describe("PickArrayDialog", () => {
   it("Space는 네이티브 활성화로 1회만 토글", async () => {
     const user = userEvent.setup();
     const { posInput, grid } = setup({ gen: "pick_array", length: 5, min: 0, max: 1, positions: "1" });
-    cell(grid, 3).focus();
+    act(() => cell(grid, 3).focus());
     await user.keyboard(" ");
     expect(posInput).toHaveValue("1, 3");
+  });
+
+  it("길이를 줄인 뒤 Shift+클릭이 옛 앵커로 범위를 만들지 않는다 (30 → 10)", async () => {
+    const user = userEvent.setup();
+    const { dialog, posInput, grid } = setup();
+    await user.click(cell(grid, 25)); // anchor=25
+    const len = within(dialog).getByRole("spinbutton", { name: ko.editor.pickFieldLength });
+    await user.clear(len);
+    await user.type(len, "10");
+    await user.tab(); // 커밋
+    await user.keyboard("{Shift>}");
+    await user.click(cell(grid, 6));
+    await user.keyboard("{/Shift}");
+    expect(posInput).toHaveValue("1-6, 8");
+    expect(cell(grid, 6)).toBeEnabled();
+  });
+
+  it("Shift를 Space보다 먼저 떼도 따라오는 keyup(=네이티브 click)이 1회 억제된다", () => {
+    // jsdom/user-event는 keyup→click을 모사하지 않으므로 keyup의 defaultPrevented(=click 억제)를 직접 본다.
+    const { grid } = setup({ gen: "pick_array", length: 8, min: 0, max: 1, positions: "1" });
+    const c = cell(grid, 5);
+    fireEvent.keyDown(c, { key: " ", shiftKey: true });
+    expect(fireEvent.keyUp(c, { key: " ", shiftKey: false })).toBe(false); // 억제됨
+    expect(fireEvent.keyUp(c, { key: " ", shiftKey: false })).toBe(true); // 1회만
+  });
+
+  it("무효 크기에서 aria-invalid·aria-describedby로 오류 문구가 연결된다", async () => {
+    const user = userEvent.setup();
+    const { dialog } = setup();
+    const min = within(dialog).getByRole("spinbutton", { name: ko.editor.pickFieldMin });
+    const max = within(dialog).getByRole("spinbutton", { name: ko.editor.pickFieldMax });
+    expect(max).not.toHaveAttribute("aria-invalid");
+    await user.clear(max);
+    await user.type(max, "1"); // min 2 > max 1
+    expect(min).toHaveAttribute("aria-invalid", "true");
+    expect(max).toHaveAttribute("aria-invalid", "true");
+    const err = within(dialog).getByText(ko.editor.pickErrMinGtMax);
+    expect(err.id).not.toBe("");
+    expect(min.getAttribute("aria-describedby")).toContain(err.id);
+    expect(max.getAttribute("aria-describedby")).toContain(err.id);
+  });
+
+  it("값 형식 토글이 aria-controls로 영역을 가리킨다", async () => {
+    const user = userEvent.setup();
+    const { dialog } = setup({ gen: "pick_array", length: 4, min: 1, max: 1 });
+    const toggle = within(dialog).getByRole("button", { name: ko.editor.pickValuesToggle("true", "false") });
+    await user.click(toggle);
+    const id = toggle.getAttribute("aria-controls");
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)).toContainElement(within(dialog).getByRole("radiogroup", { name: ko.editor.pickValuesAria }));
   });
 
   it("길이 1000: 1000칸 렌더·토글이 텍스트를 정규형으로", async () => {

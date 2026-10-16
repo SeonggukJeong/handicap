@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Modal } from "../Modal";
 import { Button } from "../Button";
 import { Input } from "../ui/Input";
@@ -93,9 +93,14 @@ export function PickArrayDialog({
     const n = lengthOf(lengthText);
     if (n === null) return;
     setPositionsText(trimPositionsForLength(positionsText, committedLength, n));
+    if (n !== committedLength) anchorRef.current = null; // 옛 길이 기준 앵커로 범위를 만들지 않는다
     setCommittedLength(n);
   };
 
+  const uid = useId();
+  const sizeErrId = `${uid}-size-err`;
+  const countErrId = `${uid}-count-err`;
+  const valuesRegionId = `${uid}-values`;
   const minN = intText(minText);
   const maxN = intText(maxText);
   const pickRes: LiteralResult =
@@ -128,6 +133,14 @@ export function PickArrayDialog({
           : null
       : null;
 
+  const lenBad = lengthOf(lengthText) === null;
+  const minBad = !lenBad && (minN === null || (maxN !== null && minN > maxN)) || countVsCand?.level === "error";
+  const maxBad = !lenBad && (maxN === null || (minN !== null && minN > maxN) || (sizeError === ko.editor.pickErrMaxGtLength));
+  const describe = (ids: (string | false)[]) => ids.filter(Boolean).join(" ") || undefined;
+  const lenDesc = describe([lenBad && sizeError !== null && sizeErrId]);
+  const minDesc = describe([minBad && sizeError !== null && sizeErrId, countVsCand?.level === "error" && countErrId]);
+  const maxDesc = describe([maxBad && sizeError !== null && sizeErrId, countVsCand?.level === "warn" && countErrId]);
+
   const spec: PickArraySpec | null =
     sizeError === null &&
     posError === null &&
@@ -159,7 +172,7 @@ export function PickArrayDialog({
     const set = new Set(pos.set);
     const turnOn = !set.has(i);
     const from = range && anchorRef.current !== null ? Math.min(anchorRef.current, i) : i;
-    const to = range && anchorRef.current !== null ? Math.max(anchorRef.current, i) : i;
+    const to = Math.min(liveLength, range && anchorRef.current !== null ? Math.max(anchorRef.current, i) : i);
     for (let j = from; j <= to; j++) {
       if (turnOn) set.add(j);
       else set.delete(j);
@@ -190,6 +203,8 @@ export function PickArrayDialog({
                 min={1}
                 max={PICK_ARRAY_MAX_LEN}
                 aria-label={ko.editor.pickFieldLength}
+                aria-invalid={lenBad || undefined}
+                aria-describedby={lenDesc}
                 value={lengthText}
                 onChange={(e) => setLengthText(e.target.value)}
                 onBlur={commitLength}
@@ -200,16 +215,20 @@ export function PickArrayDialog({
             </label>
             <label className="flex flex-col gap-0.5">
               <span className="text-[11px] text-slate-400">{ko.editor.pickFieldMin}</span>
-              <Input size="sm" numeric type="number" min={0} aria-label={ko.editor.pickFieldMin} value={minText} onChange={(e) => setMinText(e.target.value)} />
+              <Input size="sm" numeric type="number" min={0} aria-label={ko.editor.pickFieldMin} aria-invalid={minBad || undefined} aria-describedby={minDesc} value={minText} onChange={(e) => setMinText(e.target.value)} />
             </label>
             <label className="flex flex-col gap-0.5">
               <span className="text-[11px] text-slate-400">{ko.editor.pickFieldMax}</span>
-              <Input size="sm" numeric type="number" min={0} aria-label={ko.editor.pickFieldMax} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
+              <Input size="sm" numeric type="number" min={0} aria-label={ko.editor.pickFieldMax} aria-invalid={maxBad || undefined} aria-describedby={maxDesc} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
             </label>
           </div>
-          {sizeError && <p className="text-xs text-red-600">{sizeError}</p>}
+          {sizeError && (
+            <p id={sizeErrId} className="text-xs text-red-600">
+              {sizeError}
+            </p>
+          )}
           {countVsCand && (
-            <p className={countVsCand.level === "error" ? "text-xs text-red-600" : "self-start rounded bg-amber-50 px-1.5 text-xs text-amber-700"}>
+            <p id={countErrId} className={countVsCand.level === "error" ? "text-xs text-red-600" : "self-start rounded bg-amber-50 px-1.5 text-xs text-amber-700"}>
               {countVsCand.text}
             </p>
           )}
@@ -255,6 +274,7 @@ export function PickArrayDialog({
           <button
             type="button"
             aria-expanded={valuesOpen}
+            aria-controls={valuesRegionId}
             onClick={() => setValuesOpen((o) => !o)}
             className="self-start text-left text-xs font-semibold text-slate-500 hover:text-accent-600"
           >
@@ -262,7 +282,7 @@ export function PickArrayDialog({
             {ko.editor.pickValuesToggle(pickShown, restShown)}
           </button>
           {valuesOpen && (
-            <div role="radiogroup" aria-label={ko.editor.pickValuesAria} className="flex flex-col gap-1 pl-4">
+            <div id={valuesRegionId} role="radiogroup" aria-label={ko.editor.pickValuesAria} className="flex flex-col gap-1 pl-4">
               {VALUE_PRESETS.map((p, i) => (
                 <label key={i} className="flex items-center gap-2 text-xs">
                   <input type="radio" name={`pick-values-${name}`} checked={valueMode === i} onChange={() => setValueMode(i)} />
@@ -351,6 +371,8 @@ function PositionGrid({
 }) {
   const [active, setActive] = useState(1);
   const gridRef = useRef<HTMLDivElement>(null);
+  // Shift+Space로 범위를 만든 뒤 따라오는 Space keyup(=네이티브 click)을 1회 억제 — Shift를 먼저 떼도 유효.
+  const suppressSpaceUp = useRef(false);
   const cellRefs = useRef(new Map<number, HTMLButtonElement>());
   const current = Math.min(active, length);
 
@@ -377,6 +399,7 @@ function PositionGrid({
       move(length);
     } else if (e.key === " " && e.shiftKey) {
       e.preventDefault();
+      suppressSpaceUp.current = true;
       onToggle(i, true);
     }
   };
@@ -386,7 +409,7 @@ function PositionGrid({
       ref={gridRef}
       role="group"
       aria-label={ko.editor.pickGridAria}
-      className={`grid max-h-44 grid-cols-[repeat(auto-fill,minmax(2.1rem,1fr))] gap-[3px] overflow-y-auto overflow-x-hidden rounded border border-slate-200 bg-slate-50 p-1 ${disabled ? "opacity-50" : ""}`}
+      className={`grid select-none max-h-44 grid-cols-[repeat(auto-fill,minmax(2.1rem,1fr))] gap-[3px] overflow-y-auto overflow-x-hidden rounded border border-slate-200 bg-slate-50 p-1 ${disabled ? "opacity-50" : ""}`}
     >
       {Array.from({ length }, (_, k) => k + 1).map((i) => (
         <button
@@ -404,7 +427,13 @@ function PositionGrid({
           onClick={(e) => onToggle(i, e.shiftKey)}
           onKeyDown={(e) => onKeyDown(e, i)}
           onKeyUp={(e) => {
-            if (e.key === " " && e.shiftKey) e.preventDefault();
+            if (e.key === " " && suppressSpaceUp.current) {
+              suppressSpaceUp.current = false;
+              e.preventDefault();
+            }
+          }}
+          onBlur={() => {
+            suppressSpaceUp.current = false;
           }}
           className={`h-6 min-w-0 rounded-sm border font-mono text-[10px] tabular-nums ${
             selected.has(i) ? "border-accent-600 bg-accent-600 text-white" : "border-slate-300 bg-white text-slate-400"
