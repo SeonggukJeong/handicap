@@ -8,6 +8,9 @@
 
 **Tech Stack:** Rust(serde/serde_yaml 0.9/serde_json/rand 0.8), React+TS, Zod 3, `yaml` 2.x Document API, vitest+RTL, fast-check.
 
+<!-- spec-plan-reviewer: spec clean APPROVE (R3) · plan clean APPROVE (R4), 2026-10-17 -->
+REVIEW-GATE: APPROVED
+
 **Spec:** `docs/superpowers/specs/2026-10-17-pick-array-design.md` (US1~US5 = 그 문서 `## 사용자 스토리 (US)` 블록). **목업:** `docs/superpowers/mockups/2026-10-17-pick-array-mockup.html` — 시각·흐름 참조만, **목업 JS 로직 복사 금지**(빈 항목 허용·`change` 이벤트 길이 규칙이 spec과 다름).
 
 ## Global Constraints
