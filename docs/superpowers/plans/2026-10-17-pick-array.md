@@ -15,7 +15,7 @@
 - 사용자 노출 문구는 전부 `ui/src/i18n/ko.ts` 경유(ADR-0035). **값이 불리언이어야 한다는 인상을 주는 문구 금지** — "true 개수"·"true 자리"·"불리언 배열" 금지(값 형식 프리셋 라벨 `true / false`·예시 값 자체는 예외). 타입명 = `선택 배열`.
 - YAML 키·순서: `gen, length, min, max, positions?, pick?, rest?`. `positions` 생략 = 전체 자리, `pick` 생략 = `true`, `rest` 생략 = `false`.
 - 검증(엔진·Zod 동일): `1 ≤ length ≤ 1000` · `0 ≤ min ≤ max ≤ length` · positions 문자열 ≤ 4096자 · positions 문법(§4.3) · 후보 ≥ 1 · `min ≤ 후보 수` · pick/rest는 bool·유한 number·string·null. `max > 후보 수`는 허용(평가 시 상한, UI 경고).
-- positions 문법: 쉼표 분리 → 항목 **ASCII 공백만** trim(` \t\n\r\f` — Rust `trim_matches(char::is_ascii_whitespace)` ↔ TS `/^[ \t\n\r\f]+|[ \t\n\r\f]+$/g`; JS `trim()`/Rust `trim()`은 유니코드 공백 집합이 달라 금지) → `N` 또는 `N-M`(하이픈 주변 공백 허용), 숫자는 ASCII 1~4자리, `1 ≤ N ≤ M ≤ length`, 빈 항목 거부, 빈 문자열/공백만 = 빈 집합(후보 0 규칙으로 거부). 정규형 = 오름차순·연속 병합·`", "` 구분. 길이 상한 4096은 Rust 바이트·TS UTF-16 단위로 다르게 세지만 비-ASCII는 어차피 문법 거부라 판정 동일.
+- positions 문법: 쉼표 분리 → 항목 **ASCII 공백만** trim(` \t\n\r\f` — Rust `trim_matches(|c: char| c.is_ascii_whitespace())` ↔ TS `/^[ \t\n\r\f]+|[ \t\n\r\f]+$/g`; JS `trim()`/Rust `trim()`은 유니코드 공백 집합이 달라 금지) → `N` 또는 `N-M`(하이픈 주변 공백 허용), 숫자는 ASCII 1~4자리, `1 ≤ N ≤ M ≤ length`, 빈 항목 거부, 빈 문자열/공백만 = 빈 집합(후보 0 규칙으로 거부). 정규형 = 오름차순·연속 병합·`", "` 구분. 길이 상한 4096은 Rust 바이트·TS UTF-16 단위로 다르게 세지만 비-ASCII는 어차피 문법 거부라 판정 동일.
 - positions YAML 스칼라: 문자열 또는 **0 이상 정수**(yaml 정수 표기 `8`·`0x8`·`+5` 모두 → 10진 문자열 `"8"`·`"5"`), `null`/빈 값/실수/음수/시퀀스는 거부 — 엔진은 `present_positions` 헬퍼로, UI는 Zod로 같은 규칙(spec §4.1 개정).
 - UI 커밋 경계: 팝업 안 편집은 로컬 draft만, **store/YAML 쓰기는 `적용` 1회**. 취소·✕·ESC·바깥 클릭 = 폐기.
 - `yamlError !== null`이면 새 어포던스(`편집`·`편집…`·`배열로 추가`·타입 select) 전부 disabled.
@@ -1312,16 +1312,17 @@ describe("pick_array YAML 왕복", () => {
     expect(v).toEqual({ gen: "pick_array", length: 4, min: 1, max: 2, pick: "True", rest: "1" });
     s.setVariableGen("g", { gen: "pick_array", length: 4, min: 1, max: 2 });
     const y2 = useScenarioEditor.getState().yamlText;
-    const gBlock = y2.slice(y2.indexOf("\n  g:"));
-    expect(gBlock).not.toMatch(/positions:|pick:|rest:/); // "gen: pick_array"와 구분하려 키 형태로
+    // store는 STARTER의 `variables: {}`를 flow 스타일로 유지하므로 블록 슬라이스는 공허 — 파싱된 키 목록으로 단언.
+    expect(Object.keys(parse(y2).variables.g)).toEqual(["gen", "length", "min", "max"]);
   });
   it("선택 배열 → UUID 전환 시 pick_array 키가 YAML에 남지 않는다 (setIn 맵 통째 교체)", () => {
     const s = useScenarioEditor.getState();
     s.resetEmpty();
     s.setVariableGen("f", { gen: "pick_array", length: 6, min: 1, max: 2, positions: "2-4", pick: 1, rest: 0 });
+    expect(useScenarioEditor.getState().yamlText).toContain("positions:"); // 중간 상태 — 첫 호출이 no-op이면 아래가 공허
     s.setVariableGen("f", { gen: "uuid" });
     const y = useScenarioEditor.getState().yamlText;
-    expect(y).not.toMatch(/positions:|pick:|rest:|length:/);
+    expect(Object.keys(parse(y).variables.f)).toEqual(["gen"]);
     expect(useScenarioEditor.getState().model!.variables.f).toEqual({ gen: "uuid" });
   });
   it("rename은 pick_array 맵 전체를 보존", () => {
@@ -1336,7 +1337,7 @@ describe("pick_array YAML 왕복", () => {
 });
 ```
 
-(`renameVariable`의 실제 시그니처/반환은 `ui/src/scenario/store.ts`에서 확인 후 맞춘다 — 반환값이 있으면 무시.)
+(`yamlDoc.test.ts` 상단에 `import { parse } from "yaml";`가 없으면 추가. `renameVariable(old, new)`는 `RenameVarError | null`을 반환 — 무시.)
 
 - [ ] **Step 2: 실패 확인** — `cd ui && pnpm test pickArrayVectors` · `pnpm test genVars` · `pnpm test yamlDoc` → FAIL.
 
@@ -1451,7 +1452,7 @@ export function isPickArray(v: VarDeclValue): v is PickArraySpec {
 
 - [ ] **Step 5: 통과 확인** — `pnpm test pickArrayVectors` · `pnpm test genVars` · `pnpm test yamlDoc` → PASS. 그다음 `pnpm build` — `positions` transform으로 `GenSpec`(output)·input 타입이 갈려 깨지는 소비처가 있으면 output 타입(`GenSpec`)을 쓰도록 고친다(예상: 없음 — yamlDoc·store는 output 형을 받는다).
 
-- [ ] **Step 6: 이빨 실증** — (1) `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복. (2) 따옴표 보존: yamlDoc 테스트의 기대를 임시로 `toMatch(/pick: True$/m)`(따옴표 없는 형태)로 바꿔 RED 확인 → 원복(방출이 실제로 따옴표를 붙인다는 실증). (3) `positions`의 `.min(0)`을 임시 삭제 → 벡터 `positions: -3`이 Zod 수용(`"-3"`은 문법 거부라 여전히 reject될 수 있음 — 그 경우 이 항목은 '엔진·UI 모두 문법 단계에서 거부'로 리포트에 기록).
+- [ ] **Step 6: 이빨 실증** — (1) `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복. (2) 따옴표 보존: yamlDoc 테스트의 기대를 임시로 `toMatch(/pick: True$/m)`(따옴표 없는 형태)로 바꿔 RED 확인 → 원복(방출이 실제로 따옴표를 붙인다는 실증). (`.min(0)`은 이빨 대상 아님 — `"-3"`은 positions 문법이 어차피 거부하므로 `.min(0)`은 오류 위치를 앞당기는 명시성 장치일 뿐.)
 
 - [ ] **Step 7: 게이트+커밋 (FOREGROUND)**
 
