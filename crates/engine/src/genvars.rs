@@ -26,6 +26,7 @@ pub enum GenSpec {
     RandomInt(RandomIntGen),
     Uuid,
     RandomString(RandomStringGen),
+    PickArray(PickArrayGen),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,30 @@ pub struct RandomStringGen {
     pub length: u32,
 }
 
+pub const PICK_ARRAY_MAX_LEN: u32 = 1000;
+pub const POSITIONS_MAX_CHARS: usize = 4096;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickArrayGen {
+    pub length: u32,
+    pub min: u32,
+    pub max: u32,
+    /// 검증된 원문 보존(emit용, 엔진은 정규화하지 않는다). None = 전체 자리.
+    pub positions: Option<String>,
+    /// None = true. 존재하면 명시 null도 Some(Value::Null) (present_value).
+    pub pick: Option<serde_json::Value>,
+    /// None = false.
+    pub rest: Option<serde_json::Value>,
+    /// 파싱 결과 — 1-based, 오름차순, 중복 없음, 비어 있지 않음.
+    pub(crate) candidates: Vec<u32>,
+}
+
+impl PickArrayGen {
+    pub fn candidates(&self) -> &[u32] {
+        &self.candidates
+    }
+}
+
 /// 와이어 형태 — plain struct라 deny_unknown_fields가 확실히 동작(내부 태그 enum 미보증 함정 회피).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +96,102 @@ struct GenSpecWire {
     step: Option<u32>,
     #[serde(default)]
     length: Option<u32>,
+    #[serde(default, deserialize_with = "present_positions")]
+    positions: Option<String>,
+    #[serde(default, deserialize_with = "present_value")]
+    pick: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "present_value")]
+    rest: Option<serde_json::Value>,
+}
+
+/// pick/rest: 키가 **존재하면** 항상 Some — 평문 `null`도 Some(Value::Null)(serde_yaml의
+/// deserialize_option은 null을 None으로 보내므로 Option<Value> 기본 경로를 쓰지 않는다).
+/// serde_yaml::Value로 받아 스칼라만 수동 변환 — 비유한 f64는 변환 **전에** 거부한다
+/// (Value::deserialize/serde_json::to_value 경로는 .inf/.nan을 조용히 Null로 만든다).
+fn present_value<'de, D: Deserializer<'de>>(d: D) -> Result<Option<serde_json::Value>, D::Error> {
+    use serde_yaml::Value as Y;
+    let v = Y::deserialize(d)?;
+    let out = match v {
+        Y::Null => serde_json::Value::Null,
+        Y::Bool(b) => serde_json::Value::Bool(b),
+        Y::String(s) => serde_json::Value::String(s),
+        Y::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                serde_json::Value::from(i)
+            } else if let Some(u) = n.as_u64() {
+                serde_json::Value::from(u)
+            } else {
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                serde_json::Number::from_f64(f)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| de::Error::custom("pick/rest 숫자는 유한해야 한다"))?
+            }
+        }
+        _ => {
+            return Err(de::Error::custom(
+                "pick/rest는 스칼라(불리언·숫자·문자열·null)만 받는다",
+            ));
+        }
+    };
+    Ok(Some(out))
+}
+
+/// positions: 문자열 또는 0 이상 정수(→ 10진 문자열). null/실수/음수/컬렉션은 거부 —
+/// Option<String> 기본 경로는 `positions: null`을 None(=전체)으로 조용히 받아 UI(Zod 거부)와
+/// 갈린다(spec §4.1 개정).
+fn present_positions<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    use serde_yaml::Value as Y;
+    match Y::deserialize(d)? {
+        Y::String(s) => Ok(Some(s)),
+        Y::Number(n) => n
+            .as_u64()
+            .map(|u| Some(u.to_string()))
+            .ok_or_else(|| de::Error::custom("positions는 문자열 또는 0 이상 정수")),
+        _ => Err(de::Error::custom("positions는 문자열 또는 0 이상 정수")),
+    }
+}
+
+fn trim_ascii_ws(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_ascii_whitespace())
+}
+
+/// 자리 범위 문법(spec §4.3) — "1-5, 8" → [1,2,3,4,5,8]. 빈/공백 문자열 = Ok(빈 집합)
+/// (후보 0은 호출부가 거부). 오류 문구는 값-free(항목 번호만).
+pub fn parse_positions(text: &str, length: u32) -> Result<Vec<u32>, String> {
+    if text.len() > POSITIONS_MAX_CHARS {
+        return Err(format!("positions는 {POSITIONS_MAX_CHARS}자 이하"));
+    }
+    if trim_ascii_ws(text).is_empty() {
+        return Ok(Vec::new());
+    }
+    fn num(s: &str) -> Option<u32> {
+        let s = trim_ascii_ws(s);
+        if s.is_empty() || s.len() > 4 || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    }
+    let mut mark = vec![false; length as usize];
+    for (i, raw) in text.split(',').enumerate() {
+        let item = trim_ascii_ws(raw);
+        let (a, b) = match item.split_once('-') {
+            Some((x, y)) => (num(x), num(y)),
+            None => (num(item), num(item)),
+        };
+        let (Some(a), Some(b)) = (a, b) else {
+            return Err(format!("positions {}번째 항목을 읽을 수 없다", i + 1));
+        };
+        if a > b {
+            return Err(format!("positions {}번째 항목: 앞 번호가 더 크다", i + 1));
+        }
+        if a < 1 || b > length {
+            return Err(format!("positions {}번째 항목: 자리는 1~{length}", i + 1));
+        }
+        for p in a..=b {
+            mark[(p - 1) as usize] = true;
+        }
+    }
+    Ok((1..=length).filter(|p| mark[(p - 1) as usize]).collect())
 }
 
 fn parse_offset_secs(s: &str) -> Option<i64> {
@@ -112,7 +233,13 @@ impl TryFrom<GenSpecWire> for GenSpec {
         match w.r#gen.as_str() {
             "date" => {
                 deny(
-                    w.min.is_some() || w.max.is_some() || w.step.is_some() || w.length.is_some(),
+                    w.min.is_some()
+                        || w.max.is_some()
+                        || w.step.is_some()
+                        || w.length.is_some()
+                        || w.positions.is_some()
+                        || w.pick.is_some()
+                        || w.rest.is_some(),
                     "date 생성기는 min/max/step/length를 받지 않는다",
                 )?;
                 let format = w.format.unwrap_or_else(|| "%Y-%m-%d".to_string());
@@ -143,7 +270,10 @@ impl TryFrom<GenSpecWire> for GenSpec {
                     w.format.is_some()
                         || w.offset.is_some()
                         || w.tz.is_some()
-                        || w.length.is_some(),
+                        || w.length.is_some()
+                        || w.positions.is_some()
+                        || w.pick.is_some()
+                        || w.rest.is_some(),
                     "random_int 생성기는 format/offset/tz/length를 받지 않는다",
                 )?;
                 let (min, max) = match (w.min, w.max) {
@@ -167,7 +297,10 @@ impl TryFrom<GenSpecWire> for GenSpec {
                         || w.min.is_some()
                         || w.max.is_some()
                         || w.step.is_some()
-                        || w.length.is_some(),
+                        || w.length.is_some()
+                        || w.positions.is_some()
+                        || w.pick.is_some()
+                        || w.rest.is_some(),
                     "uuid 생성기는 파라미터를 받지 않는다",
                 )?;
                 Ok(GenSpec::Uuid)
@@ -179,7 +312,10 @@ impl TryFrom<GenSpecWire> for GenSpec {
                         || w.tz.is_some()
                         || w.min.is_some()
                         || w.max.is_some()
-                        || w.step.is_some(),
+                        || w.step.is_some()
+                        || w.positions.is_some()
+                        || w.pick.is_some()
+                        || w.rest.is_some(),
                     "random_string 생성기는 length만 받는다",
                 )?;
                 let length = w.length.unwrap_or(8);
@@ -187,6 +323,50 @@ impl TryFrom<GenSpecWire> for GenSpec {
                     return Err(format!("length는 1~64: {length}"));
                 }
                 Ok(GenSpec::RandomString(RandomStringGen { length }))
+            }
+            "pick_array" => {
+                deny(
+                    w.format.is_some() || w.offset.is_some() || w.tz.is_some() || w.step.is_some(),
+                    "pick_array 생성기는 format/offset/tz/step을 받지 않는다",
+                )?;
+                let length = w
+                    .length
+                    .ok_or_else(|| "pick_array는 length가 필수".to_string())?;
+                if !(1..=PICK_ARRAY_MAX_LEN).contains(&length) {
+                    return Err(format!("length는 1~{PICK_ARRAY_MAX_LEN}: {length}"));
+                }
+                let (min, max) = match (w.min, w.max) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => return Err("pick_array는 min·max가 필수".into()),
+                };
+                if min < 0 {
+                    return Err(format!("min은 0 이상: {min}"));
+                }
+                if min > max {
+                    return Err(format!("min({min}) > max({max})"));
+                }
+                if max > i64::from(length) {
+                    return Err(format!("max({max}) > length({length})"));
+                }
+                let candidates = match &w.positions {
+                    Some(p) => parse_positions(p, length)?,
+                    None => (1..=length).collect(),
+                };
+                if candidates.is_empty() {
+                    return Err("positions: 선택될 수 있는 자리가 없다".into());
+                }
+                if min as usize > candidates.len() {
+                    return Err(format!("min({min}) > 후보 수({})", candidates.len()));
+                }
+                Ok(GenSpec::PickArray(PickArrayGen {
+                    length,
+                    min: min as u32,
+                    max: max as u32,
+                    positions: w.positions,
+                    pick: w.pick,
+                    rest: w.rest,
+                    candidates,
+                }))
             }
             other => Err(format!("알 수 없는 생성기: {other}")),
         }
@@ -230,7 +410,8 @@ impl Serialize for VarDecl {
 impl Serialize for GenSpec {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         // 필드 emit 규칙: gen 태그 + (date) format 항상·offset/tz는 Some만 /
-        // (random_int) min·max 항상·step은 ≠1만 / (random_string) length 항상.
+        // (random_int) min·max 항상·step은 ≠1만 / (random_string) length 항상 /
+        // (pick_array) length·min·max 항상·positions/pick/rest는 Some만.
         match self {
             GenSpec::Date(g) => {
                 let n = 2 + g.offset.is_some() as usize + g.tz.is_some() as usize;
@@ -265,6 +446,27 @@ impl Serialize for GenSpec {
                 let mut m = s.serialize_map(Some(2))?;
                 m.serialize_entry("gen", "random_string")?;
                 m.serialize_entry("length", &g.length)?;
+                m.end()
+            }
+            GenSpec::PickArray(g) => {
+                let n = 4
+                    + g.positions.is_some() as usize
+                    + g.pick.is_some() as usize
+                    + g.rest.is_some() as usize;
+                let mut m = s.serialize_map(Some(n))?;
+                m.serialize_entry("gen", "pick_array")?;
+                m.serialize_entry("length", &g.length)?;
+                m.serialize_entry("min", &g.min)?;
+                m.serialize_entry("max", &g.max)?;
+                if let Some(p) = &g.positions {
+                    m.serialize_entry("positions", p)?;
+                }
+                if let Some(v) = &g.pick {
+                    m.serialize_entry("pick", v)?;
+                }
+                if let Some(v) = &g.rest {
+                    m.serialize_entry("rest", v)?;
+                }
                 m.end()
             }
         }
@@ -336,6 +538,21 @@ pub(crate) fn eval_random_string(g: &RandomStringGen, rng: &mut StdRng) -> Strin
         .collect()
 }
 
+pub(crate) fn eval_pick_array(g: &PickArrayGen, rng: &mut StdRng) -> String {
+    // 검증: 1 ≤ 후보 수, min ≤ 후보 수, min ≤ max → lo ≤ hi, k ≤ 후보 수(sample panic 불가).
+    let c = g.candidates.len();
+    let hi = (g.max as usize).min(c);
+    let lo = (g.min as usize).min(hi);
+    let k = rng.gen_range(lo..=hi);
+    let pick = g.pick.clone().unwrap_or(serde_json::Value::Bool(true));
+    let rest = g.rest.clone().unwrap_or(serde_json::Value::Bool(false));
+    let mut out = vec![rest; g.length as usize];
+    for idx in rand::seq::index::sample(rng, c, k).iter() {
+        out[(g.candidates[idx] - 1) as usize] = pick.clone();
+    }
+    serde_json::to_string(&out).unwrap_or_default()
+}
+
 /// 반복 시드: 정적은 clone, 생성기는 지금 평가. 호출부(runner 3곳·trace 1곳)가
 /// **생성기 전용** entropy rng를 넘긴다 — think rng 공유 금지 (spec §4).
 pub fn seed_iter_vars(
@@ -351,6 +568,7 @@ pub fn seed_iter_vars(
                 VarDecl::Gen(GenSpec::RandomInt(g)) => eval_random_int(g, rng),
                 VarDecl::Gen(GenSpec::Uuid) => eval_uuid(rng),
                 VarDecl::Gen(GenSpec::RandomString(g)) => eval_random_string(g, rng),
+                VarDecl::Gen(GenSpec::PickArray(g)) => eval_pick_array(g, rng),
             };
             (k.clone(), v)
         })
