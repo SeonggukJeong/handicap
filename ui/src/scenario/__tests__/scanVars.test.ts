@@ -13,6 +13,7 @@ import {
   flatExtractNames,
   collectBranchInternalRefs,
   parallelVarIdentities,
+  jsonCastVarNames,
 } from "../scanVars";
 import type { Scenario } from "../model";
 import { ScenarioModel } from "../model";
@@ -1451,5 +1452,44 @@ describe("undefinedVarRefs — hasStrictRef (trust-check-precision US1)", () => 
     const r = undef.get("tok");
     expect(r?.kind).toBe("sibling");
     expect(r?.hasStrictRef).toBe(true);
+  });
+});
+
+describe("jsonCastVarNames", () => {
+  it("JSON 바디의 순수 {{x:json}}만 모은다 — 중첩 컨테이너 포함, 혼합·캐스트없음·env 제외", () => {
+    const parsed = parseScenarioDoc(`version: 1
+name: j
+steps:
+  - id: "01HX0000000000000000000001"
+    name: a
+    type: http
+    request:
+      method: POST
+      url: "http://x"
+      body:
+        json:
+          a: "{{seats:json}}"
+          b: "{{plain}}"
+          d: "\${ENVV:json}"
+          e: { deep: [" {{ nested : json }} "] }
+          f: "{{numy:num}}"
+  - id: "01HX0000000000000000000002"
+    name: L
+    type: loop
+    repeat: 1
+    do:
+      - id: "01HX0000000000000000000003"
+        name: inner
+        type: http
+        request:
+          method: POST
+          url: "http://x"
+          body: { json: { g: "{{inloop:json}}" } }
+`);
+    if (!("model" in parsed)) throw new Error(JSON.stringify(parsed));
+    // 모델 Zod가 혼합 leaf 캐스트를 거부하므로(ModelParse), 가드 자체는 파싱 후 주입해 검증한다.
+    const b0 = parsed.model.steps[0] as { request: { body?: { value?: Record<string, unknown> } } };
+    if (b0.request.body?.value) b0.request.body.value.c = "x{{mixed:json}}";
+    expect(jsonCastVarNames(parsed.model)).toEqual(new Set(["seats", "nested", "inloop"]));
   });
 });

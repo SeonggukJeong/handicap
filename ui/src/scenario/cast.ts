@@ -8,7 +8,7 @@ export const CAST_KEYWORDS: readonly string[] = ["str", "num", "bool", "json"];
 
 const FLOW_TOKEN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 const ENV_TOKEN = /\$\{([^}]*)\}/g;
-const PURE_FLOW = /^\{\{\s*([^{}]*?)\s*\}\}$/;
+export const PURE_FLOW = /^\{\{\s*([^{}]*?)\s*\}\}$/;
 const PURE_ENV = /^\$\{([^}]*)\}$/;
 
 export function jsonBodyCastErrors(value: unknown): string[] {

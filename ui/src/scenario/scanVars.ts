@@ -1,5 +1,6 @@
 import { flattenHttpSteps, type Scenario, type Step, type Condition } from "./model";
 import { splitFlowToken } from "./flowToken";
+import { PURE_FLOW } from "./cast";
 
 const FLOW_VAR_RE = /\{\{\s*([^}]+?)\s*\}\}/g;
 
@@ -497,6 +498,30 @@ export function parallelVarIdentities(scenario: Scenario): ParallelVarIdentity[]
         }
       }
     }
+  }
+  return out;
+}
+
+/** JSON 바디에서 **순수 단일 flow 토큰** `"{{x:json}}"`으로 쓰인 변수의 base 이름(pick-array
+ *  spec §5) — 미정의 행의 `배열로 추가` 노출 조건. 혼합 leaf·캐스트 없음·env 토큰은 제외. */
+export function jsonCastVarNames(scenario: Scenario): Set<string> {
+  const out = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") {
+      const m = PURE_FLOW.exec(v.trim());
+      if (m) {
+        const { base, cast } = splitFlowToken(m[1]);
+        if (cast === "json") out.add(base);
+      }
+    } else if (Array.isArray(v)) {
+      for (const x of v) walk(x);
+    } else if (v !== null && typeof v === "object") {
+      for (const x of Object.values(v as Record<string, unknown>)) walk(x);
+    }
+  };
+  for (const s of flattenHttpSteps(scenario.steps)) {
+    const b = s.request.body;
+    if (b && b.kind === "json") walk(b.value);
   }
   return out;
 }
