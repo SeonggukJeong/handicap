@@ -573,7 +573,7 @@ pub async fn execute_step_traced(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::{Body, DisabledRows, Extract, HttpMethod, HttpStep, Request};
+    use crate::scenario::{Body, Decode, DisabledRows, Extract, HttpMethod, HttpStep, Request};
     use std::collections::BTreeMap;
     use wiremock::matchers::{body_json, body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -688,6 +688,76 @@ mod tests {
             outcome.extracted.get("token").map(String::as_str),
             Some("T0K3N")
         );
+    }
+
+    #[tokio::test]
+    async fn decode_jwt_claim_same_in_load_and_trace() {
+        use base64::Engine as _;
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let payload = URL_SAFE_NO_PAD.encode(r#"{"sub":"u-9f3k","tenant":"t_1"}"#);
+        let jwt = format!("eyJhbGciOiJub25lIn0.{payload}.c2ln");
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Authorization", format!("Bearer {jwt}").as_str())
+                    .set_body_string(format!(r#"{{"access_token":"{jwt}"}}"#)),
+            )
+            .mount(&server)
+            .await;
+
+        let step = HttpStep {
+            id: "01HX0000000000000000000001".into(),
+            name: "login".into(),
+            request: Request {
+                method: HttpMethod::Post,
+                url: format!("{}/login", server.uri()),
+                headers: BTreeMap::new(),
+                body: None,
+                disabled: DisabledRows::default(),
+            },
+            assert: vec![],
+            extract: vec![
+                Extract::Body {
+                    var: "uid".into(),
+                    path: "$.access_token".into(),
+                    decode: Some(Decode::Jwt),
+                    claim: Some("$.sub".into()),
+                },
+                Extract::Header {
+                    var: "tenant".into(),
+                    name: "Authorization".into(),
+                    decode: Some(Decode::Jwt),
+                    claim: Some("$.tenant".into()),
+                },
+            ],
+            timeout_seconds: None,
+            think_time: None,
+        };
+        let vars = BTreeMap::new();
+        let env = empty_env();
+        let ctx = TemplateContext {
+            vars: &vars,
+            env: &env,
+            vu_id: 0,
+            iter_id: 0,
+            loop_index: None,
+        };
+        let client = VuClient::new(crate::scenario::CookieJarMode::Off).unwrap();
+        let load = execute_step(&client, &step, &ctx).await.unwrap();
+        assert!(load.error.is_none(), "load error: {:?}", load.error);
+        assert_eq!(
+            load.extracted.get("uid").map(String::as_str),
+            Some("u-9f3k")
+        );
+        assert_eq!(
+            load.extracted.get("tenant").map(String::as_str),
+            Some("t_1")
+        );
+        let trace = execute_step_traced(&client, &step, &ctx).await;
+        assert!(trace.error.is_none(), "trace error: {:?}", trace.error);
+        assert_eq!(trace.extracted, load.extracted);
     }
 
     #[tokio::test]

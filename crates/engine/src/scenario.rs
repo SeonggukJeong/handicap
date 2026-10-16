@@ -825,6 +825,29 @@ steps:
     }
 
     #[test]
+    fn header_cookie_extract_without_decode_serializes_no_new_keys() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    extract:
+      - var: h
+        from: header
+        name: X-A
+      - var: c
+        from: cookie
+        name: SID
+"#;
+        let yaml = Scenario::from_yaml(y).unwrap().to_yaml().unwrap();
+        assert!(!yaml.contains("decode"), "{yaml}");
+        assert!(!yaml.contains("claim"), "{yaml}");
+    }
+
+    #[test]
     fn rejects_status_extract_with_decode() {
         let y = r#"
 version: 1
