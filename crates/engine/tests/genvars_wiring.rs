@@ -180,3 +180,98 @@ async fn trace_rows_regenerate_per_row() {
         rt.rows[1].trace.final_vars["oid"]
     );
 }
+
+const PICK_BODY: &str = "version: 1
+name: p
+variables:
+  flags: {gen: pick_array, length: 6, min: 1, max: 2, positions: \"2-4\", pick: 1, rest: 0}
+steps:
+  - id: \"01HX0000000000000000000001\"
+    name: a
+    type: http
+    request:
+      method: POST
+      url: \"{URI}/p\"
+      body:
+        json:
+          flags: \"{{flags:json}}\"
+";
+
+fn assert_pick_body(body: &[u8]) {
+    let v: serde_json::Value = serde_json::from_slice(body).unwrap();
+    let arr = v["flags"].as_array().expect("문자열이 아니라 진짜 배열");
+    assert_eq!(arr.len(), 6);
+    let ones: Vec<usize> = (0..6).filter(|&i| arr[i] == serde_json::json!(1)).collect();
+    assert!((1..=2).contains(&ones.len()), "{arr:?}");
+    assert!(
+        ones.iter().all(|i| (1..=3).contains(i)),
+        "후보 2-4(0-based 1..=3): {arr:?}"
+    );
+    assert!(
+        arr.iter()
+            .all(|x| x == &serde_json::json!(1) || x == &serde_json::json!(0))
+    );
+}
+
+#[tokio::test]
+async fn pick_array_json_body_closed_loop() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let scenario =
+        Arc::new(Scenario::from_yaml(&PICK_BODY.replace("{URI}", &server.uri())).unwrap());
+    let plan = RunPlan {
+        vus: 1,
+        ramp_up: Duration::ZERO,
+        duration: Duration::from_millis(300),
+        env: Default::default(),
+        loop_breakdown_cap: 0,
+        vu_offset: 0,
+        data_bindings: vec![],
+        http_timeout: Duration::from_secs(30),
+        think_time: None,
+        think_seed: None,
+        target_rps: None,
+        max_in_flight: None,
+        stages: None,
+        measure_phases: false,
+        vu_stages: None,
+        ramp_down: RampDown::Graceful,
+        graceful_ramp_down: None,
+        connect_timeout: None,
+    };
+    let (tx, mut rx) = mpsc::channel::<MetricFlush>(64);
+    let h = tokio::spawn(run_scenario(scenario, plan, tx, CancellationToken::new()));
+    while rx.recv().await.is_some() {}
+    h.await.unwrap().unwrap();
+    let reqs = server.received_requests().await.unwrap();
+    assert!(reqs.len() >= 2);
+    for r in &reqs {
+        assert_pick_body(&r.body);
+    }
+    let distinct: std::collections::HashSet<_> = reqs.iter().map(|r| r.body.clone()).collect();
+    assert!(distinct.len() >= 2, "반복마다 다른 배열");
+}
+
+#[tokio::test]
+async fn pick_array_json_body_trace() {
+    use handicap_engine::{TraceOptions, trace_scenario};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let scenario = Scenario::from_yaml(&PICK_BODY.replace("{URI}", &server.uri())).unwrap();
+    let opts = TraceOptions {
+        env: Default::default(),
+        max_requests: 5,
+        max_wall: Duration::from_secs(5),
+        apply_think_time: false,
+    };
+    let _ = trace_scenario(&scenario, &opts).await;
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(reqs.len(), 1);
+    assert_pick_body(&reqs[0].body);
+}

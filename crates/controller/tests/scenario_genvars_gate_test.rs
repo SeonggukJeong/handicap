@@ -204,6 +204,51 @@ async fn create_accepts_all_four_generators_and_get_preserves_gen_key() {
     assert!(yaml.contains("random_string"), "got: {yaml}");
 }
 
+// ---- pick_array (spec 2026-10-17) ----
+
+#[tokio::test]
+async fn create_accepts_pick_array_and_get_preserves_it() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let yaml = scenario_with_var(
+        "pick-ok",
+        r#"{gen: pick_array, length: 30, min: 2, max: 3, positions: "1-5, 8", pick: "Y", rest: "N"}"#,
+    );
+    let (status, created) = post_scenario(&app, &yaml).await;
+    assert_eq!(status, StatusCode::CREATED, "body: {created}");
+    let id = created["id"].as_str().unwrap();
+    let (status, fetched) = get_scenario(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let y = fetched["yaml"].as_str().unwrap();
+    assert!(y.contains("pick_array") && y.contains("1-5, 8"), "got: {y}");
+}
+
+#[tokio::test]
+async fn create_rejects_pick_array_max_over_length() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let yaml = scenario_with_var("pick-bad", "{gen: pick_array, length: 10, min: 1, max: 11}");
+    let (status, body) = post_scenario(&app, &yaml).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+    let msg = body["error"].as_str().unwrap();
+    assert!(
+        msg.contains("max(11)") && msg.contains("length(10)"),
+        "got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn test_run_rejects_pick_array_without_candidates_with_422() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let app = make_app(db);
+    let yaml = scenario_with_var(
+        "pick-tr-bad",
+        r#"{gen: pick_array, length: 10, min: 0, max: 1, positions: ""}"#,
+    );
+    let (status, body) = post_test_run(&app, &yaml).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "body: {body}");
+}
+
 // ---- POST /api/test-runs: 422 ----
 
 #[tokio::test]

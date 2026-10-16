@@ -254,6 +254,35 @@ fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
         Just(VarDecl::Gen(GenSpec::Uuid)),
         (1u32..=64)
             .prop_map(|length| VarDecl::Gen(GenSpec::RandomString(RandomStringGen { length }))),
+        // pick_array: serde 경유 구성(candidates 캐시가 pub(crate)) — 유효 파라미터만.
+        (
+            1u32..=40,
+            prop_oneof![Just(None), Just(Some("1")), Just(Some("1-3, 5"))],
+            prop_oneof![
+                Just(None),
+                Just(Some(serde_yaml::Value::from("True"))),
+                Just(Some(serde_yaml::Value::Number(1.into()))),
+                Just(Some(serde_yaml::Value::Null)),
+            ],
+        )
+            .prop_map(|(len, pos, pick)| {
+                let length = len.max(5); // "1-3, 5"가 유효하도록
+                let mut m = serde_yaml::Mapping::new();
+                m.insert("gen".into(), "pick_array".into());
+                m.insert(
+                    "length".into(),
+                    serde_yaml::Value::Number(u64::from(length).into()),
+                );
+                m.insert("min".into(), serde_yaml::Value::Number(1.into()));
+                m.insert("max".into(), serde_yaml::Value::Number(2.into()));
+                if let Some(p) = pos {
+                    m.insert("positions".into(), p.into());
+                }
+                if let Some(v) = pick {
+                    m.insert("pick".into(), v);
+                }
+                serde_yaml::from_value::<VarDecl>(serde_yaml::Value::Mapping(m)).unwrap()
+            }),
     ]
 }
 
