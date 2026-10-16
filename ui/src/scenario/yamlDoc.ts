@@ -179,7 +179,16 @@ export function applyEdit(doc: Document, edit: Edit): void {
       const clean = Object.fromEntries(
         Object.entries(edit.spec).filter(([, v]) => v !== undefined),
       );
-      doc.setIn(["variables", edit.key], doc.createNode(clean));
+      const node = doc.createNode(clean);
+      // pick/rest 문자열은 항상 큰따옴표 — yaml(1.2 core)은 `0b101`·`+0x1F`·`-0o7`을 평문으로 두지만
+      // serde_yaml은 그걸 정수로 읽어 미리보기(문자열)와 와이어(숫자)가 갈린다(엔진 무변경으로 해소).
+      if (edit.spec.gen === "pick_array" && isMap(node)) {
+        for (const key of ["pick", "rest"]) {
+          const n = node.get(key, true);
+          if (isScalar(n) && typeof n.value === "string") n.type = Scalar.QUOTE_DOUBLE;
+        }
+      }
+      doc.setIn(["variables", edit.key], node);
       return;
     }
     case "removeVariable":

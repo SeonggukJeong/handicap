@@ -6,7 +6,9 @@ import {
   candidatesOf,
   formatValueLiteral,
   isFullRange,
+  isPickLength,
   parsePositions,
+  pickValueTooLong,
   samplePickArray,
 } from "./pickArray";
 
@@ -35,7 +37,13 @@ const RandomStringGenModel = z
     length: z.number().int().min(1).max(64).optional(),
   })
   .strict();
-const JsonScalarModel = z.union([z.boolean(), z.number().finite(), z.string(), z.null()]);
+// 문자열 64자(코드 포인트) 상한 — 엔진 present_value와 lockstep(증폭 방지, pickArray.PICK_VALUE_MAX_CHARS).
+const JsonScalarModel = z.union([
+  z.boolean(),
+  z.number().finite(),
+  z.string().refine((s) => !pickValueTooLong(s), "value too long"),
+  z.null(),
+]);
 const PickArrayGenModel = z
   .object({
     gen: z.literal("pick_array"),
@@ -71,6 +79,9 @@ export const GenSpecModel = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min > max", path: ["min"] });
       if (v.max > v.length)
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "max > length", path: ["max"] });
+      // length가 필드 검증(.int/.min/.max)에 실패해도 zod는 superRefine을 돌린다 — 그 length로
+      // positions/후보를 계산하면 2.5는 throw, 1e9는 대량 할당. 필드 issue가 이미 보고하므로 건너뛴다.
+      if (!isPickLength(v.length)) return;
       if (v.positions !== undefined && v.positions.length > POSITIONS_MAX_CHARS) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

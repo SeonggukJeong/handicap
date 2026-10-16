@@ -3,9 +3,15 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PickArrayDialog } from "../PickArrayDialog";
 import { ko } from "../../../i18n/ko";
-import type { PickArraySpec } from "../../../scenario/genVars";
+import { samplePreview, type PickArraySpec } from "../../../scenario/genVars";
 
-const BASE: PickArraySpec = { gen: "pick_array", length: 30, min: 2, max: 3, positions: "1-5, 8, 12-20" };
+const BASE: PickArraySpec = {
+  gen: "pick_array",
+  length: 30,
+  min: 2,
+  max: 3,
+  positions: "1-5, 8, 12-20",
+};
 
 function setup(initial: PickArraySpec = BASE) {
   const onApply = vi.fn();
@@ -138,18 +144,34 @@ describe("PickArrayDialog", () => {
   it("값 형식: 기본 접힘, 프리셋 선택, 직접 입력 무효면 적용 disabled", async () => {
     const user = userEvent.setup();
     const { onApply, dialog, apply } = setup({ gen: "pick_array", length: 4, min: 1, max: 1 });
-    const toggle = within(dialog).getByRole("button", { name: ko.editor.pickValuesToggle("true", "false") });
+    const toggle = within(dialog).getByRole("button", {
+      name: ko.editor.pickValuesToggle("true", "false"),
+    });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await user.click(toggle);
     expect(within(dialog).getByRole("radio", { name: /"Y" \/ "N"/ })).toBeInTheDocument(); // 프리셋 라벨은 문자열에 따옴표(목업)
     await user.click(within(dialog).getByRole("radio", { name: /^1 \/ 0/ }));
     await user.click(apply);
-    expect(onApply).toHaveBeenLastCalledWith({ gen: "pick_array", length: 4, min: 1, max: 1, pick: 1, rest: 0 });
+    expect(onApply).toHaveBeenLastCalledWith({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: 1,
+      rest: 0,
+    });
   });
 
   it("직접 입력: 타입 표시·null 보존·빈 값 disabled", async () => {
     const user = userEvent.setup();
-    const { onApply, dialog, apply } = setup({ gen: "pick_array", length: 4, min: 1, max: 1, pick: "Y", rest: null });
+    const { onApply, dialog, apply } = setup({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: "Y",
+      rest: null,
+    });
     // 기본이 아니면 펼친 채로 열리고 직접 입력이 선택돼 있다
     const pick = within(dialog).getByRole("textbox", { name: ko.editor.pickFieldPick });
     const rest = within(dialog).getByRole("textbox", { name: ko.editor.pickFieldRest });
@@ -159,7 +181,14 @@ describe("PickArrayDialog", () => {
     expect(apply).toBeDisabled();
     await user.type(pick, '"1"');
     await user.click(apply);
-    expect(onApply).toHaveBeenLastCalledWith({ gen: "pick_array", length: 4, min: 1, max: 1, pick: "1", rest: null });
+    expect(onApply).toHaveBeenLastCalledWith({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: "1",
+      rest: null,
+    });
   });
 
   it("roving: 그리드 Tab 정지 1개, 화살표 이동, Home/End", async () => {
@@ -174,12 +203,20 @@ describe("PickArrayDialog", () => {
     expect(cell(grid, 12)).toHaveFocus();
     await user.keyboard("{Home}");
     expect(cell(grid, 1)).toHaveFocus();
-    expect(Array.from(grid.querySelectorAll("button")).filter((b) => b.tabIndex === 0)).toHaveLength(1);
+    expect(
+      Array.from(grid.querySelectorAll("button")).filter((b) => b.tabIndex === 0),
+    ).toHaveLength(1);
   });
 
   it("Shift+Space = 직전 토글 자리부터 범위, 1회만", async () => {
     const user = userEvent.setup();
-    const { posInput, grid } = setup({ gen: "pick_array", length: 8, min: 0, max: 1, positions: "1" });
+    const { posInput, grid } = setup({
+      gen: "pick_array",
+      length: 8,
+      min: 0,
+      max: 1,
+      positions: "1",
+    });
     await user.click(cell(grid, 2)); // anchor=2, "1-2"
     act(() => cell(grid, 5).focus());
     await user.keyboard("{Shift>} {/Shift}");
@@ -188,7 +225,13 @@ describe("PickArrayDialog", () => {
 
   it("Space는 네이티브 활성화로 1회만 토글", async () => {
     const user = userEvent.setup();
-    const { posInput, grid } = setup({ gen: "pick_array", length: 5, min: 0, max: 1, positions: "1" });
+    const { posInput, grid } = setup({
+      gen: "pick_array",
+      length: 5,
+      min: 0,
+      max: 1,
+      positions: "1",
+    });
     act(() => cell(grid, 3).focus());
     await user.keyboard(" ");
     expect(posInput).toHaveValue("1, 3");
@@ -236,7 +279,14 @@ describe("PickArrayDialog", () => {
 
   it("자리 목록·직접 입력 값 오류 문구가 aria-describedby로 입력에 연결된다", async () => {
     const user = userEvent.setup();
-    const { dialog, posInput } = setup({ gen: "pick_array", length: 4, min: 1, max: 1, pick: "Y", rest: null });
+    const { dialog, posInput } = setup({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: "Y",
+      rest: null,
+    });
     await user.clear(posInput);
     const posErr = within(dialog).getByText(ko.editor.pickErrNoCandidates);
     expect(posErr.id).not.toBe("");
@@ -255,24 +305,35 @@ describe("PickArrayDialog", () => {
   it("값 형식 토글이 aria-controls로 영역을 가리킨다", async () => {
     const user = userEvent.setup();
     const { dialog } = setup({ gen: "pick_array", length: 4, min: 1, max: 1 });
-    const toggle = within(dialog).getByRole("button", { name: ko.editor.pickValuesToggle("true", "false") });
+    const toggle = within(dialog).getByRole("button", {
+      name: ko.editor.pickValuesToggle("true", "false"),
+    });
     await user.click(toggle);
     const id = toggle.getAttribute("aria-controls");
     expect(id).toBeTruthy();
-    expect(document.getElementById(id!)).toContainElement(within(dialog).getByRole("radiogroup", { name: ko.editor.pickValuesAria }));
+    expect(document.getElementById(id!)).toContainElement(
+      within(dialog).getByRole("radiogroup", { name: ko.editor.pickValuesAria }),
+    );
   });
 
   it("길이 1000: 1000칸 렌더·토글이 텍스트를 정규형으로", async () => {
     const user = userEvent.setup();
     // setup()의 role 쿼리는 1000칸 접근명 계산으로 느리다 — 이 케이스는 DOM 쿼리로 직접.
     render(
-      <PickArrayDialog name="flags" initial={{ gen: "pick_array", length: 1000, min: 0, max: 5 }} onApply={vi.fn()} onCancel={vi.fn()} />,
+      <PickArrayDialog
+        name="flags"
+        initial={{ gen: "pick_array", length: 1000, min: 0, max: 5 }}
+        onApply={vi.fn()}
+        onCancel={vi.fn()}
+      />,
     );
     const grid = document.querySelector('[aria-label="' + ko.editor.pickGridAria + '"]')!;
     const cells = grid.querySelectorAll("button");
     expect(cells).toHaveLength(1000);
     await user.click(cells[499]);
-    const pos = document.querySelector('input[aria-label="' + ko.editor.pickSectionPositions + '"]') as HTMLInputElement;
+    const pos = document.querySelector(
+      'input[aria-label="' + ko.editor.pickSectionPositions + '"]',
+    ) as HTMLInputElement;
     expect(pos.value).toBe("1-499, 501-1000");
   }, 30_000);
 
@@ -281,6 +342,71 @@ describe("PickArrayDialog", () => {
     expect(within(dialog).getByText(ko.editor.pickUsageHint("flags"))).toBeInTheDocument();
     const pre = within(dialog).getByTestId("pick-preview");
     expect(JSON.parse(pre.textContent!)).toHaveLength(4);
+  });
+
+  it("직접 입력 64자 상한: 65자면 오류 문구·적용 disabled, 64자면 적용 (F1)", async () => {
+    const user = userEvent.setup();
+    const { onApply, dialog, apply } = setup({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: "Y",
+      rest: null,
+    });
+    const pick = within(dialog).getByRole("textbox", { name: ko.editor.pickFieldPick });
+    fireEvent.change(pick, { target: { value: "a".repeat(65) } });
+    expect(apply).toBeDisabled();
+    expect(pick).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByText(ko.editor.pickErrValueTooLong)).toBeInTheDocument();
+    fireEvent.change(pick, { target: { value: "a".repeat(64) } });
+    expect(apply).toBeEnabled();
+    await user.click(apply);
+    expect(onApply).toHaveBeenLastCalledWith({
+      gen: "pick_array",
+      length: 4,
+      min: 1,
+      max: 1,
+      pick: "a".repeat(64),
+      rest: null,
+    });
+  });
+
+  it("미리보기 = 패널 예시와 같은 시드(samplePreview, 같은 spec·tick) (F5)", async () => {
+    const user = userEvent.setup();
+    const spec: PickArraySpec = { gen: "pick_array", length: 30, min: 2, max: 3 };
+    const { dialog } = setup(spec);
+    const pre = within(dialog).getByTestId("pick-preview");
+    const at = (tick: number) => {
+      const r = samplePreview(spec, "flags", tick);
+      return r.kind === "ok" ? r.text : null;
+    };
+    expect(pre.textContent).toBe(at(0));
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickPreviewReroll }));
+    expect(pre.textContent).toBe(at(1));
+  });
+
+  it("sampleTick/onSampleRefresh가 오면 그 틱으로 미리보기·↻는 부모에 위임 (F5)", async () => {
+    const user = userEvent.setup();
+    const spec: PickArraySpec = { gen: "pick_array", length: 30, min: 2, max: 3 };
+    const onSampleRefresh = vi.fn();
+    render(
+      <PickArrayDialog
+        name="flags"
+        initial={spec}
+        sampleTick={7}
+        onSampleRefresh={onSampleRefresh}
+        onApply={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    const r = samplePreview(spec, "flags", 7);
+    expect(within(dialog).getByTestId("pick-preview").textContent).toBe(
+      r.kind === "ok" ? r.text : null,
+    );
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickPreviewReroll }));
+    expect(onSampleRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("불리언 전제 문구가 없다", () => {

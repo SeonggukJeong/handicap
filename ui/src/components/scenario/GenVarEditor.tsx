@@ -65,6 +65,7 @@ export function GenVarEditor({
   onCommitGen,
   onCommitStatic,
   onOpenPickArray,
+  pickEditRef,
 }: {
   name: string;
   value: VarDeclValue;
@@ -74,6 +75,8 @@ export function GenVarEditor({
   onCommitGen: (spec: GenSpec) => void;
   onCommitStatic: (v: string) => void;
   onOpenPickArray?: (initial: PickArraySpec, origin: "edit" | "switch") => void;
+  /** `편집…` 버튼 ref — 패널이 배열로 추가 적용 후 포커스 대상으로 쓴다(접힘 `편집`과 같은 맵). */
+  pickEditRef?: (el: HTMLButtonElement | null) => void;
 }) {
   const kind: VarKind = isGenSpec(value) ? value.gen : "static";
   const spec = isGenSpec(value) ? value : null;
@@ -452,6 +455,7 @@ export function GenVarEditor({
       {spec?.gen === "pick_array" && (
         <button
           type="button"
+          ref={pickEditRef}
           aria-label={ko.editor.pickEditOpenAria(name)}
           disabled={disabled}
           onClick={() => onOpenPickArray?.(spec, "edit")}

@@ -2,7 +2,7 @@
 // UI vitest(pickArray.test.ts·pickArrayVectors.test.ts)가 같은 파일을 읽어 양방향 lockstep.
 use std::collections::{BTreeMap, HashSet};
 
-use handicap_engine::{GenSpec, VarDecl, parse_positions, seed_iter_vars};
+use handicap_engine::{GenSpec, PICK_ARRAY_MAX_LEN, VarDecl, parse_positions, seed_iter_vars};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::Deserialize;
@@ -27,6 +27,9 @@ struct PosVec {
 struct GenVec {
     yaml: String,
     expect: String,
+    /// known_divergence 전용 — 이 쪽(엔진) 판정. UI 판정은 `ui` 필드(vitest가 읽음).
+    #[serde(default)]
+    engine: Option<String>,
 }
 
 fn vectors() -> Vectors {
@@ -49,10 +52,19 @@ fn positions_vectors() {
 fn generator_vectors() {
     for v in vectors().generators {
         let got = serde_yaml::from_str::<VarDecl>(&v.yaml);
-        match v.expect.as_str() {
+        // known_divergence: 두 YAML 라이브러리가 같은 평문 스칼라를 다르게 읽는 문서화된 예외
+        // (spec §4.1 — serde_yaml은 `1e3`=실수·`00001`=문자열·`+0x8`/`0b1000`=정수, yaml 1.2 core는
+        // 그 반대). 판정은 벡터의 `engine` 필드가 정한다(UI는 `ui` 필드).
+        let expect = match v.expect.as_str() {
+            "known_divergence" => v
+                .engine
+                .as_deref()
+                .expect("known_divergence에는 engine 필드가 필수"),
+            other => other,
+        };
+        match expect {
             "accept" => assert!(got.is_ok(), "should accept {}: {:?}", v.yaml, got.err()),
-            // known_divergence: 엔진(serde_yaml)은 `1e3`을 실수로 읽어 거부한다(UI yaml 패키지는 정수 1000으로 수용 — spec §4.1).
-            "reject" | "known_divergence" => assert!(got.is_err(), "should reject {}", v.yaml),
+            "reject" => assert!(got.is_err(), "should reject {}", v.yaml),
             other => panic!("unknown expect {other}"),
         }
     }
@@ -67,6 +79,58 @@ fn positions_over_4096_chars_rejected_and_at_limit_accepted() {
     let over = format!("{at} ");
     assert_eq!(over.len(), 4097);
     assert!(parse_positions(&over, 10).is_err());
+}
+
+#[test]
+fn parse_positions_rejects_out_of_range_length_before_allocating() {
+    // 공개 API — 게이트 밖 호출자가 length를 검증 안 해도 1~1000 밖이면 할당 전에 거부.
+    assert!(parse_positions("1", PICK_ARRAY_MAX_LEN + 1).is_err());
+    assert!(parse_positions("", 0).is_err());
+    assert!(parse_positions("1", u32::MAX).is_err()); // 가드 없으면 ~4 GB 할당
+    assert_eq!(
+        parse_positions("1000", PICK_ARRAY_MAX_LEN).unwrap(),
+        vec![1000]
+    );
+}
+
+#[test]
+fn pick_rest_string_cap_counts_chars_and_message_is_value_free() {
+    let long = "s".repeat(65);
+    let err = serde_yaml::from_str::<VarDecl>(&format!(
+        r#"{{gen: pick_array, length: 4, min: 1, max: 2, pick: "{long}"}}"#
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(!err.contains(&long[..20]), "값-free 문구여야 한다: {err}");
+    // 64 Unicode 문자(바이트 256) — 바이트가 아니라 문자 수로 센다
+    let astral = "😀".repeat(64);
+    assert!(
+        serde_yaml::from_str::<VarDecl>(&format!(
+            r#"{{gen: pick_array, length: 4, min: 1, max: 2, rest: "{astral}"}}"#
+        ))
+        .is_ok()
+    );
+}
+
+#[test]
+fn quoted_radix_like_string_stays_string_on_wire() {
+    // UI가 `0b101`·`+0x1F`를 따옴표로 방출하는 이유(F3) — 따옴표가 있으면 엔진도 문자열로 본다.
+    let mut rng = StdRng::seed_from_u64(5);
+    for s in ["0b101", "+0x1F", "-0x10", "-0o7"] {
+        let arr = eval(
+            &one(&format!(
+                r#"{{gen: pick_array, length: 2, min: 2, max: 2, pick: "{s}"}}"#
+            )),
+            &mut rng,
+        );
+        assert_eq!(arr, vec![Value::String(s.into()), Value::String(s.into())]);
+    }
+    // 대조군: 따옴표 없는 `0b101`은 serde_yaml이 정수 5로 읽는다(이 테스트가 공허하지 않은 근거)
+    let bare = eval(
+        &one("{gen: pick_array, length: 1, min: 1, max: 1, pick: 0b101}"),
+        &mut rng,
+    );
+    assert_eq!(bare, vec![Value::from(5)]);
 }
 
 fn one(spec: &str) -> BTreeMap<String, VarDecl> {

@@ -622,7 +622,8 @@ export const ko = {
     pickFieldPick: "선택 자리 값",
     pickFieldRest: "나머지 자리 값",
     pickValueKind: { boolean: "불리언", number: "숫자", string: "문자열", null: "null" } as const,
-    pickValueKindHint: "true·false·null·숫자는 그 타입으로, 나머지는 문자열로 · 숫자를 문자열로 보내려면 \"1\"",
+    pickValueKindHint:
+      'true·false·null·숫자는 그 타입으로, 나머지는 문자열로 · 숫자를 문자열로 보내려면 "1"',
     pickPreviewTitle: "미리보기 (반복마다 새로 뽑힘)",
     pickPreviewReroll: "↻ 다시 뽑기",
     pickPreviewInvalid: "설정을 고치면 예시가 나와요",
@@ -642,6 +643,7 @@ export const ko = {
     pickErrValueEmpty: "값을 입력하세요",
     pickErrValueQuoted: "따옴표 문자열이 올바르지 않아요",
     pickErrValueNonFinite: "너무 큰 숫자예요",
+    pickErrValueTooLong: "값은 64자 이하로 입력하세요",
     pickEdit: "편집",
     pickEditAria: (name: string) => `${name} 선택 배열 편집`,
     pickEditOpen: "편집…",

@@ -111,7 +111,15 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
   // declare 적용만 트리거(배열로 추가)가 행 전이로 사라진다 → 새 행의 편집 버튼으로 1회 포커스.
   // 다른 경로는 Modal 기본 복원(트리거 생존)이라 이 플래그를 세우지 않는다(var-delete-confirm 이디엄).
   const focusPickEditRef = useRef<string | null>(null);
+  // 접힘 `편집`과 펼침 `편집…`은 상호배타로 마운트되므로 같은 맵·같은 키를 공유한다 — 이름이 펼침 집합에
+  // 남아 있으면(삭제 후 재선언) 펼친 편집기의 `편집…`이 포커스 대상이 된다(<body> 유실 방지).
   const pickEditRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pickEditRef = (name: string) => (el: HTMLButtonElement | null) => {
+    if (el) pickEditRefs.current.set(name, el);
+    else pickEditRefs.current.delete(name);
+  };
+  const bumpSampleTick = (name: string) =>
+    setSampleTicks((prev) => ({ ...prev, [name]: (prev[name] ?? 0) + 1 }));
 
   const rows = useMemo<VarRow[]>(() => buildVarRows(model), [model]);
   const jsonCastNames = useMemo(() => (model ? jsonCastVarNames(model) : EMPTY_NAMES), [model]);
@@ -318,15 +326,14 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                     value={row.value}
                     disabled={yamlError !== null}
                     sampleTick={sampleTicks[row.name] ?? 0}
-                    onSampleRefresh={() =>
-                      setSampleTicks((prev) => ({ ...prev, [row.name]: (prev[row.name] ?? 0) + 1 }))
-                    }
+                    onSampleRefresh={() => bumpSampleTick(row.name)}
                     onCommitGen={(spec) => setVariableGen(row.name, spec)}
                     onCommitStatic={(v) => setVariable(row.name, v)}
                     onOpenPickArray={(initial, origin) => {
                       setUsageNav(null);
                       setPickDialog({ name: row.name, initial, origin });
                     }}
+                    pickEditRef={pickEditRef(row.name)}
                   />
                 ) : isGenSpec(row.value) ? (
                   <div className="flex min-w-0 flex-col gap-0.5 text-xs text-slate-500">
@@ -343,10 +350,7 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       {isPickArray(row.value) && (
                         <button
                           type="button"
-                          ref={(el) => {
-                            if (el) pickEditRefs.current.set(row.name, el);
-                            else pickEditRefs.current.delete(row.name);
-                          }}
+                          ref={pickEditRef(row.name)}
                           aria-label={ko.editor.pickEditAria(row.name)}
                           disabled={yamlError !== null}
                           onClick={() => {
@@ -580,6 +584,8 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
         <PickArrayDialog
           name={pickDialog.name}
           initial={pickDialog.initial}
+          sampleTick={sampleTicks[pickDialog.name] ?? 0}
+          onSampleRefresh={() => bumpSampleTick(pickDialog.name)}
           onCancel={() => setPickDialog(null)}
           onApply={(spec) => {
             setVariableGen(pickDialog.name, spec);

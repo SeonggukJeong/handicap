@@ -44,7 +44,10 @@ describe("parsePositions / formatPositions — 공유 벡터(엔진 lockstep)", 
 
   it("오류 종류와 1-based 항목 번호", () => {
     expect(parsePositions("1, x", 10)).toEqual({ ok: false, error: { kind: "badItem", index: 2 } });
-    expect(parsePositions("1, 11", 10)).toEqual({ ok: false, error: { kind: "outOfRange", index: 2 } });
+    expect(parsePositions("1, 11", 10)).toEqual({
+      ok: false,
+      error: { kind: "outOfRange", index: 2 },
+    });
     expect(parsePositions("5-3", 10)).toEqual({ ok: false, error: { kind: "reversed", index: 1 } });
   });
 
@@ -105,7 +108,7 @@ describe("parseValueLiteral / formatValueLiteral", () => {
       fc.boolean(),
       fc.constant(null),
       fc.double({ noNaN: true, noDefaultInfinity: true }).filter((n) => !Object.is(n, -0)),
-      fc.string(),
+      fc.string({ maxLength: 64 }), // 64자 상한(F1) 안쪽만 — 왕복 대상
     ) as fc.Arbitrary<JsonScalar>;
     fc.assert(
       fc.property(scalar, (v) => {
@@ -152,5 +155,33 @@ describe("samplePickArray", () => {
       expect(arr.filter(Boolean).length).toBeLessThanOrEqual(3);
     }
     expect(samplePickArray({ length: 10, min: 1, max: 1, positions: "x" }, rand)).toBeNull();
+  });
+});
+
+describe("pick/rest 문자열 64자 상한 (F1 — 엔진 present_value와 lockstep)", () => {
+  it("코드 포인트로 센다 — 64 수용·65 거부, 서로게이트 쌍도 1자", () => {
+    const a64 = "a".repeat(64);
+    expect(parseValueLiteral(a64)).toEqual({ ok: true, value: a64 });
+    expect(parseValueLiteral("a".repeat(65))).toEqual({ ok: false, reason: "tooLong" });
+    expect(parseValueLiteral(JSON.stringify("b".repeat(65)))).toEqual({
+      ok: false,
+      reason: "tooLong",
+    });
+    const e64 = "😀".repeat(64); // UTF-16 128 단위 — s.length로 세면 거부되는 경계
+    expect(parseValueLiteral(e64)).toEqual({ ok: true, value: e64 });
+    expect(parseValueLiteral("😀".repeat(65))).toEqual({ ok: false, reason: "tooLong" });
+  });
+});
+
+describe("범위 밖 length 가드 (F2)", () => {
+  it("parsePositions·candidatesOf·samplePickArray는 throw·대량 할당 없이 실패", () => {
+    // 2.5가 먼저 — 가드가 없으면 new Array(2.5)가 RangeError를 던진다(1e9는 ~8 GB 할당).
+    for (const length of [2.5, 0, -1, 1001, Number.NaN, 1e10, 1e9]) {
+      expect(parsePositions("1", length).ok).toBe(false);
+      expect(parsePositions("", length).ok).toBe(false);
+      expect(candidatesOf({ length, min: 0, max: 0 })).toBeNull();
+      expect(samplePickArray({ length, min: 0, max: 0 }, seededRand(1))).toBeNull();
+    }
+    expect(parsePositions("1000", 1000)).toEqual({ ok: true, set: [1000] });
   });
 });

@@ -1264,6 +1264,24 @@ describe("pick_array YAML 왕복", () => {
     // store는 STARTER의 `variables: {}`를 flow 스타일로 유지하므로 블록 슬라이스는 공허 — 파싱된 키 목록으로 단언.
     expect(Object.keys(parse(y2).variables.g)).toEqual(["gen", "length", "min", "max"]);
   });
+  it("진법 모양 문자열(0b101·+0x1F·-0x10·-0o7)은 큰따옴표로 방출 — serde_yaml이 정수로 읽지 않게 (F3)", () => {
+    const s = useScenarioEditor.getState();
+    for (const v of ["0b101", "+0x1F", "-0x10", "-0o7"]) {
+      s.resetEmpty();
+      s.setVariableGen("f", { gen: "pick_array", length: 2, min: 1, max: 1, pick: v, rest: v });
+      const y = useScenarioEditor.getState().yamlText;
+      expect(y).toContain(`pick: "${v}"`);
+      expect(y).toContain(`rest: "${v}"`);
+      expect(parse(y).variables.f).toMatchObject({ pick: v, rest: v });
+      expect(useScenarioEditor.getState().model!.variables.f).toMatchObject({ pick: v, rest: v });
+    }
+    // 숫자·불리언·null은 따옴표 없이 (문자열만 강제)
+    s.resetEmpty();
+    s.setVariableGen("n", { gen: "pick_array", length: 2, min: 1, max: 1, pick: 1, rest: null });
+    const y = useScenarioEditor.getState().yamlText;
+    expect(y).toMatch(/pick: 1\b/);
+    expect(y).toMatch(/rest: null\b/);
+  });
   it("선택 배열 → UUID 전환 시 pick_array 키가 YAML에 남지 않는다 (setIn 맵 통째 교체)", () => {
     const s = useScenarioEditor.getState();
     s.resetEmpty();

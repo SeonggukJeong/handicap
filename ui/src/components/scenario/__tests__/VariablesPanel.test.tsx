@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VariablesPanel } from "../VariablesPanel";
 import { useScenarioEditor } from "../../../scenario/store";
@@ -1578,6 +1578,35 @@ steps:
       max: 3,
     });
     expect(screen.getByRole("button", { name: ko.editor.pickEditAria("seats") })).toHaveFocus();
+  });
+
+  it("배열로 추가 적용 시 이름이 펼침 상태면 펼친 편집기의 편집…으로 포커스 (F6)", async () => {
+    const user = userEvent.setup();
+    const s = useScenarioEditor.getState();
+    s.loadFromString(JSON_REF);
+    s.setVariableGen("seats", { gen: "pick_array", length: 4, min: 1, max: 1 });
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("seats") }));
+    act(() => useScenarioEditor.getState().removeVariable("seats")); // 펼침 집합에는 이름이 남는다
+    await user.click(screen.getByRole("button", { name: ko.editor.pickDeclareAria("seats") }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: ko.editor.pickApply }),
+    );
+    expect(screen.getByRole("button", { name: ko.editor.pickEditOpenAria("seats") })).toHaveFocus();
+  });
+
+  it("편집 적용 후 패널 예시 = 팝업이 마지막에 보인 미리보기 (F5)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .setVariableGen("flags", { gen: "pick_array", length: 12, min: 2, max: 3 });
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickPreviewReroll }));
+    const shown = within(dialog).getByTestId("pick-preview").textContent;
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickApply }));
+    expect(screen.getByText(`${ko.editor.genSamplePrefix} ${shown}`)).toBeInTheDocument();
   });
 
   it("yamlError 동안 편집·편집…·배열로 추가 disabled", async () => {

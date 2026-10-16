@@ -55,6 +55,9 @@ pub struct RandomStringGen {
 
 pub const PICK_ARRAY_MAX_LEN: u32 = 1000;
 pub const POSITIONS_MAX_CHARS: usize = 4096;
+/// pick/rest 문자열 상한(Unicode 문자 수) — random_string 64 상한과 같은 선. 상한이 없으면
+/// 거대 문자열 × length 1000이 반복마다 GB급 증폭을 만든다(test-run은 컨트롤러 프로세스 공유).
+pub const PICK_VALUE_MAX_CHARS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PickArrayGen {
@@ -114,7 +117,12 @@ fn present_value<'de, D: Deserializer<'de>>(d: D) -> Result<Option<serde_json::V
     let out = match v {
         Y::Null => serde_json::Value::Null,
         Y::Bool(b) => serde_json::Value::Bool(b),
-        Y::String(s) => serde_json::Value::String(s),
+        Y::String(s) => {
+            if s.chars().count() > PICK_VALUE_MAX_CHARS {
+                return Err(de::Error::custom("pick/rest 문자열은 64자 이하여야 한다"));
+            }
+            serde_json::Value::String(s)
+        }
         Y::Number(n) => {
             if let Some(i) = n.as_i64() {
                 serde_json::Value::from(i)
@@ -158,6 +166,10 @@ fn trim_ascii_ws(s: &str) -> &str {
 /// 자리 범위 문법(spec §4.3) — "1-5, 8" → [1,2,3,4,5,8]. 빈/공백 문자열 = Ok(빈 집합)
 /// (후보 0은 호출부가 거부). 오류 문구는 값-free(항목 번호만).
 pub fn parse_positions(text: &str, length: u32) -> Result<Vec<u32>, String> {
+    // 공개 API — 호출자가 length를 검증하지 않았어도 할당(`vec![false; length]`) 전에 거부.
+    if !(1..=PICK_ARRAY_MAX_LEN).contains(&length) {
+        return Err(format!("length는 1~{PICK_ARRAY_MAX_LEN}"));
+    }
     if text.len() > POSITIONS_MAX_CHARS {
         return Err(format!("positions는 {POSITIONS_MAX_CHARS}자 이하"));
     }
