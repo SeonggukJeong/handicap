@@ -1,7 +1,7 @@
 # extract-base64-decode — 추출 단계 base64/JWT 디코딩 + claim 추출
 
 - **날짜**: 2026-10-15 · **유형**: user-path · **슬라이스 브랜치**: `worktree-extract-base64-decode`
-- **상태**: spec 리뷰 APPROVE(spec-plan-reviewer 4라운드, 2026-10-15) → 사용자 검토 → plan 대기
+- **상태**: ✅ 구현·머지 완료(2026-10-16, 코드 `46e72d44`..`74e3f382`) — spec 4R·plan 2R APPROVE → SDD 4 task + 최종 fix wave 1 → handicap-reviewer·security-reviewer APPROVE → 라이브 US1~3+R10 PROVEN. 연기 → `docs/roadmap.md` §B30.
 - **plan 메모(리뷰 비차단 제안)**: `Base64TextError`·`JwtShapeError`는 데이터 없는 변형으로 유지 — 하위 라이브러리 에러 문구가 메시지에 섞일 경로 자체를 없앤다(R6).
 - **출처**: 사용자 요청 2026-10-15 — "BASE64 URL Safe 형식으로 인코딩하거나 디코딩해야 하는 경우"(동기 = JWT). 슬라이스 **1/2**. 2 = 요청 측 인코딩(`{{var:b64}}`·`{{var:b64url}}`, 합성 문자열 인코딩[Basic 인증 `id:pw`] 설계 미결 — §7).
 - **연관**: Slice 4(extract 모델·`ExtractFailed`) · 응답기반 extract 작성(`ExtractConfirmRow`·`+추출`) · C-1/C-2(test-run trace가 같은 `evaluate`를 공유) · parallel-var-scope(`safe_cause` allowlist가 `ExtractFailed`를 persisted 표면에서 차단)

@@ -470,6 +470,34 @@
 - **라벨 유니크 강제·편집 이력/감사**: 중복 허용 도메인·단순 UPDATE.
 - **InsightCompareMatrix 서브라인**: 밀도 사유로 라벨만 공유(시각·설정 요약 서브라인은 CompareMatrix만).
 
+### B30. 추출 base64/JWT 디코딩 (2026-10-16, 코드 `46e72d44`..`74e3f382`, spec `docs/superpowers/specs/2026-10-15-extract-base64-decode-design.md`) 연기 항목
+
+**(1) 다음 슬라이스 후보 — 슬라이스 2/2: 요청 측 인코딩** — `{{var:b64}}`(표준=패딩)·`{{var:b64url}}`(URL-safe=무패딩) 캐스트. **미결 설계**: Basic 인증처럼 여러 값을 합친 문자열(`{{id}}:{{pw}}`)의 인코딩 표현 — 현행 캐스트(ADR-0029)는 단일 토큰 단위라 합성 문자열을 감쌀 문법이 없다. 착수 시 spec에서 먼저 결정할 것. 원 요청 = 2026-10-15 사용자 "BASE64 URL Safe 형식으로 인코딩하거나 디코딩해야 하는 경우"의 인코딩 절반.
+
+**(2) 구현 중 orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다):
+- **R-a 공백만 있는 claim이 그대로 저장됨** — `Inspector.tsx` `decodeFields`가 `d.claim ?`(truthiness)로 판정해 `"  "`가 YAML에 쓰이고 Zod `min(1)`도 통과 → 런타임에 `invalid claim path:   `로 실패. 기존 path 입력칸도 같은 동작이고 미리 실행에서 즉시 드러나 이번엔 미수정. **비용**: QA가 빈칸처럼 보이는 claim에 대해 이해하기 어려운 에러를 본다. **해소**: `decodeFields`에서 `d.claim?.trim()`으로 판정(+ Zod `.trim()` 또는 `refine(s => s.trim().length > 0)`), path/name 입력칸도 같은 규칙으로 맞출지 함께 결정. 소형 UI 슬라이스 또는 Inspector 입력 정리 슬라이스에 fold.
+- **R-b 데스크톱 `desktop/src-tauri/Cargo.lock` 미동기화** — 그 lock의 `handicap-engine` 항목에 `base64` 의존 줄이 없다(별도 cargo workspace라 루트 빌드로 안 바뀜). spec §5가 "갱신 허용, 강제 아님". **비용**: 다음 데스크톱 빌드에서 cargo가 lock을 다시 써 무관한 diff가 하나 생긴다(`--locked` 사용처 없음이라 빌드 실패는 아님; `base64 0.22.1`은 그 lock에 이미 있어 다운로드도 없음). **해소**: 다음 `just bump-version` 때 함께 커밋되는지 확인 — 안 되면 `cd desktop/src-tauri && cargo update -p handicap-engine --offline`.
+- **R-c 엄격성 핀이 거부 *사유*를 단언하지 않음** — 엔진 `rejects_status_extract_with_decode`/`rejects_unknown_decode_value`는 `is_err()`만, UI `status+decode`는 `toThrow()`만 본다. 거부 픽스처가 통과 픽스처와 시험 대상 필드 하나만 달라 사유가 유일하다는 최종 리뷰 분석에 따라 유지. **비용**: 향후 리팩터링이 다른 이유로 파싱을 깨면 핀이 엉뚱한 이유로 계속 green. **해소**: 에러 문자열에 `unknown variant`/`unknown field` 포함 단언 추가(엔진), Zod issue path 단언(UI).
+- **R-d claim placeholder `$.sub` 리터럴(ko.ts 미경유)** — spec §4.6이 리터럴 유지를 명시. **비용**: ko 키 하나(문구 정책이 "예시 값도 카탈로그"로 바뀌면).
+- (참고, 비용 0으로 확인된 판단) T2 Step 4b 테스트 모듈 중복 import는 clippy가 실제로 unused 경고를 내서 삭제됨 · T1 리뷰의 Header/Cookie byte-identical 미가드는 T2에 테스트로 이관·해소.
+
+**(3) 이번 브랜치 이전부터 있던 버그 (최종 리뷰 발견, 비회귀)**:
+- **추출 행 `remove`가 빈 draft 행까지 커밋** — `ExtractEditor`에서 "추가"로 빈 행(var/path 빈 문자열)을 만든 채 다른 행의 `×`를 누르면 `remove`가 모든 draft를 `setStepExtract`로 보낸다 → Zod 거부 → `yamlError`로 편집기가 잠기는데 yaml 문서 쪽은 이미 바뀌어 문서·모델이 어긋난다. 구 코드(`list as Extract[]`)도 동일. **해소**: `remove`에서 미완성 행을 필터하거나 커밋 실패 시 문서 롤백 — store `dispatch`의 실패-시 원복 규약을 먼저 확인.
+
+**(4) spec §7 의도적 연기 (원문 요약 — 재개 신호와 함께)**:
+- `from: var`(B안 — 데이터셋/변수 값 디코딩): 수요 확인 시. `decode`/`claim` 필드 재사용 가능.
+- `+추출`(응답 트리)에서 JWT 감지·디코딩 제안: 편집기 수동 지정으로 충분한지 도그푸딩 후.
+- 퍼센트 인코딩된 쿠키 값(`abc%3D%3D`): `%`가 base64 문자가 아니라 `not base64`로 실패 — URL 디코딩 단계 추가는 실사용 사례 확인 후.
+- 기존 추출 실패 문구(`no header: X` 등)에 변수명 붙이기: R7 byte-identical 유지를 위해 신규 문구만 `{var}:` 접두.
+- Inspector 기존 입력(추출 var/path/name 등) 전반의 `yamlError` 게이트: 선재 갭 — 이번엔 새 디코딩 컨트롤만 게이트돼 같은 행 안에서 비활성 상태가 섞여 보인다.
+- 범위 밖 확정: JWT 서명·`exp` 검증, hex 등 바이너리 디코딩, JWE(5조각).
+
+**(5) 보안·성능 메모 (security-reviewer nit, 수정 불요)**:
+- 디코딩 결과는 임의 UTF-8 → CR/LF/NUL 포함 시 헤더 템플릿에 넣으면 `HeaderValue::from_str` 거부(주입·누출 없음, 부하 경로는 그 VU 영구 종료 = 가용성 영향). body 추출 JSON 문자열의 `\n`과 동류. UI 디코딩 HelpTip에 "디코딩 값은 헤더에 그대로 넣기 안전하지 않을 수 있음" 한 줄 추가를 고려.
+- `claim` JSONPath를 요청마다 `JsonPath::parse` — 기존 `jsonpath_first`와 같은 방식. 핫패스 프로파일에서 보이면 추출 정의별 파싱 캐시를 body path와 함께.
+
+**(6) 테스트 polish (리뷰 minor, 저우선)**: 원문-추출 실패 우선순위 핀이 Header arm만(Body/Cookie arm 미핀 — 구조 동일) · `extract.rs` 테스트 모듈의 중복 명시 import(`Decode`·`STANDARD_NO_PAD`·`URL_SAFE_NO_PAD`) · `DecodeError` doc 주석이 "입력 바이트를 echo"로 과장(실제는 바이트 값+offset) · 리터럴 필드 순서 불일치(새 필드가 앞) · `Inspector.test.tsx` 새 헬퍼 앞 빈 줄.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

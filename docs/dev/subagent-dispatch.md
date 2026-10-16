@@ -68,3 +68,9 @@ plan의 검산 명령 중 **변경-후 상태가 존재해야 실행 자체가 �
 
 **정상 처리 경로가 두 번 다 실작동했다**: implementer는 Expected에 실측을 맞추려 명령·코드를 조작하지 않고 그 자리에서 STOP·BLOCKED 보고 → orchestrator가 주장을 기계 재현(리뷰 finding과 같은 지위 — [[review-findings-are-hypotheses]]) → plan을 실측으로 정정·커밋 → 재개. 비용은 라운드트립 2회. **처방은 규칙 추가가 아니라 표지**: 저작 시점에 이 부류 명령의 Expected에는 "작성 시점 실측 — 구현 중 재실측이 정본"(S1 규칙 동류)을 달아, implementer가 불일치를 결함이 아니라 실측-갱신 신호로 읽고 자신 있게 STOP하게 한다. brief에는 "불일치 시 STOP — 맞추려 조작 금지"를 명시해 두는 것이 이 경로의 전제였다.
 
+
+## 워크트리-격리 샌드박스의 커밋·스크립트 함정 (extract-base64-decode, 2026-10-16)
+
+- **커밋 메시지 en-dash(`–`)·두 번째 `-m`이 거부될 수 있다** — 워크트리-격리 세션의 명령 검증기가 "검증하기 너무 복잡한" 명령을 git 우회 의심으로 거부한다. implementer는 하이픈으로 바꾸고(`R3-R8`), 두 번째 `-m`을 빼서 **Co-Authored-By 트레일러가 누락**된 채 커밋했다. brief의 커밋 블록은 **단일 `-m`에 트레일러까지 개행으로 넣은 한 덩어리**(또는 `-F <파일>`)로 쓰고, 메시지에 en-dash를 쓰지 말 것.
+- **scratchpad의 이전 task 스크립트를 다음 implementer가 재실행할 수 있다** — Task 4 implementer가 Task 2가 남긴 `ins.py`를 돌려 엔진 파일을 부분 수정했다가 `git restore`로 복원했다. orchestrator는 "복원했다"를 믿지 말고 `git status --short` + `git diff <task-base> HEAD -- <건드리면 안 되는 경로>`가 **비어 있음**을 직접 확인한다. brief에 "이전 세션/task의 scratchpad 스크립트 실행 금지"를 넣는 것이 싸다.
+- **zsh에서 `echo ======`는 `=` 확장으로 실패한다**(`===== not found`) — 구분선은 `echo '----'`.
