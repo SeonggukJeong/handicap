@@ -1452,7 +1452,7 @@ export function isPickArray(v: VarDeclValue): v is PickArraySpec {
 
 - [ ] **Step 5: 통과 확인** — `pnpm test pickArrayVectors` · `pnpm test genVars` · `pnpm test yamlDoc` → PASS. 그다음 `pnpm build` — `positions` transform으로 `GenSpec`(output)·input 타입이 갈려 깨지는 소비처가 있으면 output 타입(`GenSpec`)을 쓰도록 고친다(예상: 없음 — yamlDoc·store는 output 형을 받는다).
 
-- [ ] **Step 6: 이빨 실증** — (1) `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복. (2) 따옴표 보존: yamlDoc 테스트의 기대를 임시로 `toMatch(/pick: True$/m)`(따옴표 없는 형태)로 바꿔 RED 확인 → 원복(방출이 실제로 따옴표를 붙인다는 실증). (`.min(0)`은 이빨 대상 아님 — `"-3"`은 positions 문법이 어차피 거부하므로 `.min(0)`은 오류 위치를 앞당기는 명시성 장치일 뿐.)
+- [ ] **Step 6: 이빨 실증** — (1) `superRefine`의 `max > length` 분기를 임시 삭제 → 벡터 `{… min: 1, max: 11}` RED → 원복. (2) 따옴표 보존: yamlDoc 테스트의 기대를 임시로 `toMatch(/pick: True[,}\s]/)`(따옴표 없는 형태 — flow 출력이라 줄끝 앵커 금지)로 바꿔 RED 확인 → 원복. 실제 회귀 가드는 같은 테스트의 모델 `toEqual({… pick: "True", rest: "1"})`(따옴표가 빠지면 불리언으로 재파싱돼 RED). (`.min(0)`은 이빨 대상 아님 — `"-3"`은 positions 문법이 어차피 거부하므로 `.min(0)`은 오류 위치를 앞당기는 명시성 장치일 뿐.)
 
 - [ ] **Step 7: 게이트+커밋 (FOREGROUND)**
 
