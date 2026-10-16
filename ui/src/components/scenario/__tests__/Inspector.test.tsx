@@ -279,7 +279,11 @@ describe("Inspector — ExtractEditor", () => {
     const from = within(sec).getByLabelText(ko.editor.extractFromAria(0));
 
     await user.selectOptions(from, "cookie");
-    expect(useScenarioEditor.getState().yamlText).toMatch(/decode:\s*jwt/);
+    expect(useScenarioEditor.getState().yamlError).toBeNull();
+    const cookieYaml = useScenarioEditor.getState().yamlText;
+    expect(cookieYaml).toMatch(/from:\s*cookie/);
+    expect(cookieYaml).toMatch(/decode:\s*jwt/);
+    expect(cookieYaml).toMatch(/claim:\s*"?\$\.sub"?/);
 
     await user.selectOptions(from, "status");
     expect(useScenarioEditor.getState().yamlError).toBeNull();

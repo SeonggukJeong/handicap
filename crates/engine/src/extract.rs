@@ -543,6 +543,12 @@ mod tests {
         let m = err_msg(eval_header(&blob, hdr("b", Decode::Base64, Some("$.k"))));
         assert_no_leak(&m, "b", Some("$.k"), &[&blob, "plain text"]);
         assert_eq!(m, "b: decoded value is not JSON");
+
+        // Order pin (spec §4.3): JSON parse (⑤) precedes claim-path parse (⑥) —
+        // non-JSON decoded text + invalid claim path must report the JSON reason.
+        let m = err_msg(eval_header(&blob, hdr("b", Decode::Base64, Some("$["))));
+        assert_no_leak(&m, "b", Some("$["), &[&blob, "plain text"]);
+        assert_eq!(m, "b: decoded value is not JSON");
     }
 
     #[test]

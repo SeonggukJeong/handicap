@@ -151,6 +151,12 @@ describe("RequestModel", () => {
 });
 
 describe("ExtractModel", () => {
+  it("rejects an empty claim string", () => {
+    expect(() =>
+      ExtractModel.parse({ var: "u", from: "header", name: "X", decode: "jwt", claim: "" }),
+    ).toThrow();
+  });
+
   it("accepts the four variants", () => {
     const cases: Extract[] = [
       { var: "t", from: "body", path: "$.x" },
