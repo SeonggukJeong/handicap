@@ -43,35 +43,61 @@ export const AssertionModel = z.discriminatedUnion("kind", [
 ]);
 export type Assertion = z.infer<typeof AssertionModel>;
 
-export const ExtractModel = z.discriminatedUnion("from", [
-  z
-    .object({
-      var: z.string().min(1),
-      from: z.literal("body"),
-      path: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      var: z.string().min(1),
-      from: z.literal("header"),
-      name: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      var: z.string().min(1),
-      from: z.literal("cookie"),
-      name: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      var: z.string().min(1),
-      from: z.literal("status"),
-    })
-    .strict(),
-]);
+export const ExtractDecodeModel = z.enum(["base64", "jwt"]);
+export type ExtractDecode = z.infer<typeof ExtractDecodeModel>;
+
+// extract-base64-decode: optional post-extract decoding (engine `Decode`).
+// No `.default()` — nested default leaks `T | undefined` into parents (ui/CLAUDE.md).
+const extractDecodeFields = {
+  decode: ExtractDecodeModel.optional(),
+  claim: z.string().min(1).optional(),
+};
+
+export const ExtractModel = z
+  .discriminatedUnion("from", [
+    z
+      .object({
+        var: z.string().min(1),
+        from: z.literal("body"),
+        path: z.string().min(1),
+        ...extractDecodeFields,
+      })
+      .strict(),
+    z
+      .object({
+        var: z.string().min(1),
+        from: z.literal("header"),
+        name: z.string().min(1),
+        ...extractDecodeFields,
+      })
+      .strict(),
+    z
+      .object({
+        var: z.string().min(1),
+        from: z.literal("cookie"),
+        name: z.string().min(1),
+        ...extractDecodeFields,
+      })
+      .strict(),
+    z
+      .object({
+        var: z.string().min(1),
+        from: z.literal("status"),
+      })
+      .strict(),
+  ])
+  // Cross-field rule on the WHOLE union (a member-level refine makes a
+  // ZodEffects that discriminatedUnion rejects — same as BodyModel/StepModel).
+  // English wire text; problems.ts maps it to Korean.
+  .superRefine((e, ctx) => {
+    if (e.from !== "status" && e.claim !== undefined && e.decode === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["claim"],
+        message: "claim requires decode",
+      });
+    }
+  });
 export type Extract = z.infer<typeof ExtractModel>;
 
 export const ThinkTimeModel = z

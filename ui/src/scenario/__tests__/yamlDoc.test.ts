@@ -413,6 +413,42 @@ describe("extract — model integration", () => {
     ]);
   });
 
+  it("round-trips extract decode/claim through doc edits (R10)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setStepExtract",
+      stepId: "01HX0000000000000000000001",
+      extract: [
+        { var: "uid", from: "body", path: "$.access_token", decode: "jwt", claim: "$.sub" },
+        { var: "blob", from: "header", name: "X-Blob", decode: "base64" },
+      ],
+    });
+    const round = serializeDoc(out.doc);
+    const out2 = parseScenarioDoc(round);
+    if ("error" in out2) throw new Error(`re-parse failed: ${out2.error}`);
+    const s0 = out2.model.steps[0];
+    if (s0.type !== "http") throw new Error("expected http step");
+    expect(s0.extract).toEqual([
+      { var: "uid", from: "body", path: "$.access_token", decode: "jwt", claim: "$.sub" },
+      { var: "blob", from: "header", name: "X-Blob", decode: "base64" },
+    ]);
+  });
+
+  // 고정 핀(변경 전에도 통과): yaml 2.9 createNode가 undefined 값 키를 생략함을 못 박는다.
+  it("undefined decode/claim keys are not written (R11)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setStepExtract",
+      stepId: "01HX0000000000000000000001",
+      extract: [{ var: "t", from: "body", path: "$.a", decode: undefined, claim: undefined }],
+    });
+    const round = serializeDoc(out.doc);
+    expect(round).not.toContain("decode");
+    expect(round).not.toContain("claim");
+  });
+
   it("setting empty extract clears the key", () => {
     const out = parseScenarioDoc(VALID_YAML);
     if ("error" in out) throw new Error("expected ok");

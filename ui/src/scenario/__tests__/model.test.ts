@@ -174,6 +174,29 @@ describe("ExtractModel", () => {
   it("rejects unknown from", () => {
     expect(() => ExtractModel.parse({ var: "x", from: "headers", name: "X" })).toThrow();
   });
+
+  it("accepts decode/claim on body/header/cookie", () => {
+    for (const c of [
+      { var: "u", from: "body", path: "$.t", decode: "jwt", claim: "$.sub" },
+      { var: "u", from: "header", name: "X", decode: "base64" },
+      { var: "u", from: "cookie", name: "S", decode: "base64", claim: "$.k" },
+    ]) {
+      expect(() => ExtractModel.parse(c)).not.toThrow();
+    }
+  });
+
+  it("rejects decode on status, unknown decode values, and claim without decode", () => {
+    expect(() => ExtractModel.parse({ var: "s", from: "status", decode: "base64" })).toThrow();
+    expect(() =>
+      ExtractModel.parse({ var: "u", from: "body", path: "$.t", decode: "base64url" }),
+    ).toThrow();
+    const r = ExtractModel.safeParse({ var: "u", from: "header", name: "X", claim: "$.sub" });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues[0].path).toEqual(["claim"]);
+      expect(r.error.issues[0].message).toBe("claim requires decode");
+    }
+  });
 });
 
 const LOOP_YAML_JS = {

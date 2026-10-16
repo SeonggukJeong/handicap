@@ -425,4 +425,23 @@ steps:
 `);
     expect(formatGateMessages(err)).toContain(ko.editor.gateRepeatMin("steps.0.repeat"));
   });
+
+  it("extract claim without decode → 한국어 게이트 문구", () => {
+    const err = gateError(`version: 1
+name: s
+steps:
+  - type: http
+    id: ${ULID_A}
+    name: x
+    request: { method: GET, url: /x }
+    extract:
+      - var: uid
+        from: header
+        name: Authorization
+        claim: $.sub
+`);
+    expect(formatGateMessages(err)).toContain(
+      ko.editor.gateExtractClaimNeedsDecode("steps.0.extract.0.claim"),
+    );
+  });
 });

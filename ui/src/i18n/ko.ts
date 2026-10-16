@@ -646,6 +646,8 @@ export const ko = {
       `${path}: parallel 노드에 분기가 최소 1개 필요합니다`,
     gateBranchStepsMin: (path: string) => `${path}: 분기에 스텝이 최소 1개 필요합니다`,
     gateRepeatMin: (path: string) => `${path}: 반복 횟수는 1 이상이어야 합니다`,
+    gateExtractClaimNeedsDecode: (path: string) =>
+      `${path}: claim 경로를 쓰려면 디코딩(base64/JWT)을 먼저 선택해야 합니다`,
     // ── Inspector 필드 라벨 ──
     fieldName: "이름",
     fieldMethod: "메서드",

@@ -17,6 +17,7 @@ import {
   type Scenario,
   type Step,
   type Condition,
+  type Extract,
   type ThinkTime,
 } from "./model";
 import { CAST_KEYWORDS } from "./cast";
@@ -88,12 +89,7 @@ export type Edit =
   | {
       type: "setStepExtract";
       stepId: string;
-      extract: ReadonlyArray<
-        | { var: string; from: "body"; path: string }
-        | { var: string; from: "header"; name: string }
-        | { var: string; from: "cookie"; name: string }
-        | { var: string; from: "status" }
-      >;
+      extract: ReadonlyArray<Extract>;
     }
   | { type: "renameVariable"; oldName: string; newName: string }
   | { type: "renameParallelVar"; branchName: string; oldName: string; newName: string }
