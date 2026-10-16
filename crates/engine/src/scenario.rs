@@ -382,13 +382,47 @@ impl<'de> Deserialize<'de> for Assertion {
     }
 }
 
+/// Post-extract decoding (extract-base64-decode). Data-less enum → derive
+/// round-trips in serde_yaml 0.9 (same class as `CompareOp`/`CookieJarMode`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Decode {
+    Base64,
+    Jwt,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "from", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Extract {
-    Body { var: String, path: String },
-    Header { var: String, name: String },
-    Cookie { var: String, name: String },
-    Status { var: String },
+    Body {
+        var: String,
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decode: Option<Decode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<String>,
+    },
+    Header {
+        var: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decode: Option<Decode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<String>,
+    },
+    Cookie {
+        var: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        decode: Option<Decode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        claim: Option<String>,
+    },
+    // No decode for status: a 3-digit code has nothing to decode (spec §3.6);
+    // enum-level deny_unknown_fields rejects `decode` here at parse time.
+    Status {
+        var: String,
+    },
 }
 
 impl Extract {
@@ -651,7 +685,7 @@ steps:
         };
         assert_eq!(login.extract.len(), 1);
         match &login.extract[0] {
-            Extract::Body { var, path } => {
+            Extract::Body { var, path, .. } => {
                 assert_eq!(var, "token");
                 assert_eq!(path, "$.access_token");
             }
@@ -724,6 +758,105 @@ steps:
       - var: t
         from: nope
         path: "$.a"
+"#;
+        assert!(Scenario::from_yaml(y).is_err());
+    }
+
+    #[test]
+    fn extract_decode_fields_round_trip() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    extract:
+      - var: uid
+        from: body
+        path: "$.access_token"
+        decode: jwt
+        claim: "$.sub"
+      - var: raw
+        from: header
+        name: X-Blob
+        decode: base64
+      - var: c
+        from: cookie
+        name: SID
+        decode: base64
+        claim: "$.k"
+"#;
+        let s = Scenario::from_yaml(y).expect("parses");
+        let Step::Http(step) = &s.steps[0] else {
+            panic!("expected http step");
+        };
+        assert_eq!(
+            step.extract[0],
+            Extract::Body {
+                var: "uid".into(),
+                path: "$.access_token".into(),
+                decode: Some(Decode::Jwt),
+                claim: Some("$.sub".into()),
+            }
+        );
+        assert_eq!(
+            step.extract[1],
+            Extract::Header {
+                var: "raw".into(),
+                name: "X-Blob".into(),
+                decode: Some(Decode::Base64),
+                claim: None,
+            }
+        );
+        let yaml = s.to_yaml().unwrap();
+        assert!(yaml.contains("decode: jwt"), "{yaml}");
+        assert!(yaml.contains("decode: base64"), "{yaml}");
+        assert_eq!(Scenario::from_yaml(&yaml).unwrap(), s);
+    }
+
+    #[test]
+    fn extract_without_decode_serializes_no_new_keys() {
+        let s = Scenario::from_yaml(TWO_STEP_FIXTURE).unwrap();
+        let yaml = s.to_yaml().unwrap();
+        assert!(!yaml.contains("decode"), "{yaml}");
+        assert!(!yaml.contains("claim"), "{yaml}");
+    }
+
+    #[test]
+    fn rejects_status_extract_with_decode() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    extract:
+      - var: s
+        from: status
+        decode: base64
+"#;
+        assert!(Scenario::from_yaml(y).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_decode_value() {
+        let y = r#"
+version: 1
+name: x
+steps:
+  - id: "01HX0000000000000000000001"
+    name: x
+    type: http
+    request: { method: GET, url: "/" }
+    extract:
+      - var: t
+        from: body
+        path: "$.a"
+        decode: base64url
 "#;
         assert!(Scenario::from_yaml(y).is_err());
     }
@@ -1284,6 +1417,8 @@ steps:
                 assert: vec![],
                 extract: vec![
                     Extract::Body {
+                        decode: None,
+                        claim: None,
                         var: "id".into(),
                         path: "$.id".into(),
                     },
@@ -1311,6 +1446,8 @@ steps:
             },
             assert: vec![],
             extract: vec![Extract::Body {
+                decode: None,
+                claim: None,
                 var: var.into(),
                 path: format!("$.{var}"),
             }],

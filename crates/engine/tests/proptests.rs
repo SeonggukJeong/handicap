@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use handicap_engine::extract::ResponseFacts;
 use handicap_engine::scenario::{
-    Assertion, Body, CompareOp, Condition, CookieJarMode, DisabledRows, ElifBranch, Extract,
-    HttpMethod, HttpStep, IfStep, LoopStep, Request, Step,
+    Assertion, Body, CompareOp, Condition, CookieJarMode, Decode, DisabledRows, ElifBranch,
+    Extract, HttpMethod, HttpStep, IfStep, LoopStep, Request, Step,
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{
@@ -38,16 +38,48 @@ fn arb_assertion() -> impl Strategy<Value = Assertion> {
     (100u16..600u16).prop_map(Assertion::Status)
 }
 
+fn arb_decode() -> impl Strategy<Value = Decode> {
+    prop_oneof![Just(Decode::Base64), Just(Decode::Jwt)]
+}
+
 fn arb_extract() -> impl Strategy<Value = Extract> {
     prop_oneof![
-        (arb_ident(), "[a-zA-Z_][a-zA-Z0-9_.$]{0,16}").prop_map(|(var, path)| Extract::Body {
-            var,
-            path: format!("${path}")
-        }),
-        (arb_ident(), "[A-Za-z][A-Za-z0-9-]{0,20}")
-            .prop_map(|(var, name)| Extract::Header { var, name }),
-        (arb_ident(), "[A-Za-z][A-Za-z0-9_]{0,20}")
-            .prop_map(|(var, name)| Extract::Cookie { var, name }),
+        (
+            arb_ident(),
+            "[a-zA-Z_][a-zA-Z0-9_.$]{0,16}",
+            option::of(arb_decode()),
+            option::of("\\$\\.[a-z]{1,8}"),
+        )
+            .prop_map(|(var, path, decode, claim)| Extract::Body {
+                var,
+                path: format!("${path}"),
+                decode,
+                claim,
+            }),
+        (
+            arb_ident(),
+            "[A-Za-z][A-Za-z0-9-]{0,20}",
+            option::of(arb_decode()),
+            option::of("\\$\\.[a-z]{1,8}"),
+        )
+            .prop_map(|(var, name, decode, claim)| Extract::Header {
+                var,
+                name,
+                decode,
+                claim
+            }),
+        (
+            arb_ident(),
+            "[A-Za-z][A-Za-z0-9_]{0,20}",
+            option::of(arb_decode()),
+            option::of("\\$\\.[a-z]{1,8}"),
+        )
+            .prop_map(|(var, name, decode, claim)| Extract::Cookie {
+                var,
+                name,
+                decode,
+                claim
+            }),
         arb_ident().prop_map(|var| Extract::Status { var }),
     ]
 }
@@ -268,8 +300,8 @@ proptest! {
             body: body.as_bytes(),
         };
         let xs = vec![
-            Extract::Header { var: "h".into(), name: "X-T".into() },
-            Extract::Cookie { var: "c".into(), name: name.clone() },
+            Extract::Header { var: "h".into(), name: "X-T".into(), decode: None, claim: None },
+            Extract::Cookie { var: "c".into(), name: name.clone(), decode: None, claim: None },
             Extract::Status { var: "s".into() },
         ];
         let a = evaluate_extracts(&xs, &facts);

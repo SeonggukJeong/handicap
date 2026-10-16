@@ -663,6 +663,8 @@ mod tests {
             },
             assert: vec![],
             extract: vec![Extract::Body {
+                decode: None,
+                claim: None,
                 var: "token".into(),
                 path: "$.access_token".into(),
             }],
@@ -709,6 +711,8 @@ mod tests {
             },
             assert: vec![],
             extract: vec![Extract::Body {
+                decode: None,
+                claim: None,
                 var: "t".into(),
                 path: "$.no".into(),
             }],

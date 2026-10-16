@@ -29,7 +29,7 @@ pub fn evaluate(
 
     for e in extracts {
         match e {
-            Extract::Body { var, path } => {
+            Extract::Body { var, path, .. } => {
                 let json = match body_json.as_ref() {
                     Some(v) => v,
                     None => {
@@ -45,7 +45,7 @@ pub fn evaluate(
                     .ok_or_else(|| EngineError::ExtractFailed(format!("no match: {path}")))?;
                 out.insert(var.clone(), stringify(&value));
             }
-            Extract::Header { var, name } => {
+            Extract::Header { var, name, .. } => {
                 let value = facts
                     .headers
                     .iter()
@@ -54,7 +54,7 @@ pub fn evaluate(
                     .ok_or_else(|| EngineError::ExtractFailed(format!("no header: {name}")))?;
                 out.insert(var.clone(), value);
             }
-            Extract::Cookie { var, name } => {
+            Extract::Cookie { var, name, .. } => {
                 let value = facts
                     .set_cookies
                     .iter()
@@ -115,6 +115,8 @@ mod tests {
         let body = r#"{"access_token":"T0K3N"}"#;
         let facts = body_facts(body);
         let xs = vec![Extract::Body {
+            decode: None,
+            claim: None,
             var: "token".into(),
             path: "$.access_token".into(),
         }];
@@ -126,6 +128,8 @@ mod tests {
     fn body_jsonpath_number_coerced() {
         let facts = body_facts(r#"{"id": 42}"#);
         let xs = vec![Extract::Body {
+            decode: None,
+            claim: None,
             var: "id".into(),
             path: "$.id".into(),
         }];
@@ -137,6 +141,8 @@ mod tests {
     fn body_jsonpath_miss_is_error() {
         let facts = body_facts(r#"{}"#);
         let xs = vec![Extract::Body {
+            decode: None,
+            claim: None,
             var: "t".into(),
             path: "$.nope".into(),
         }];
@@ -150,6 +156,8 @@ mod tests {
     fn body_not_json_is_error() {
         let facts = body_facts("<html>");
         let xs = vec![Extract::Body {
+            decode: None,
+            claim: None,
             var: "t".into(),
             path: "$.a".into(),
         }];
@@ -169,6 +177,8 @@ mod tests {
             body: b"",
         };
         let xs = vec![Extract::Header {
+            decode: None,
+            claim: None,
             var: "tr".into(),
             name: "x-trace".into(),
         }];
@@ -180,6 +190,8 @@ mod tests {
     fn header_missing_is_error() {
         let facts = body_facts("");
         let xs = vec![Extract::Header {
+            decode: None,
+            claim: None,
             var: "x".into(),
             name: "X-None".into(),
         }];
@@ -199,6 +211,8 @@ mod tests {
             body: b"",
         };
         let xs = vec![Extract::Cookie {
+            decode: None,
+            claim: None,
             var: "jsession".into(),
             name: "JSESSIONID".into(),
         }];
@@ -210,6 +224,8 @@ mod tests {
     fn cookie_missing_is_error() {
         let facts = body_facts("");
         let xs = vec![Extract::Cookie {
+            decode: None,
+            claim: None,
             var: "x".into(),
             name: "None".into(),
         }];
@@ -238,10 +254,14 @@ mod tests {
         let facts = body_facts(body);
         let xs = vec![
             Extract::Body {
+                decode: None,
+                claim: None,
                 var: "first".into(),
                 path: "$.a".into(),
             },
             Extract::Body {
+                decode: None,
+                claim: None,
                 var: "second".into(),
                 path: "$.b".into(),
             },
