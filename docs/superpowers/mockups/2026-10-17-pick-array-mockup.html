@@ -1,0 +1,309 @@
+<title>선택 배열 생성기 시안</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: 에디터 화면 목업(210px 변수 열 + 나머지) 위에 편집 모달. 패널엔 요약만, 편집은 모달 draft → 적용. Handicap UI(slate + indigo) 재현. */
+:root {
+  --bg: #f8fafc; --panel: #ffffff; --sub: #f8fafc; --line: #e2e8f0; --line-strong: #cbd5e1;
+  --fg: #0f172a; --muted: #64748b; --faint: #94a3b8; --scrim: rgba(15, 23, 42, 0.45);
+  --accent: #4f46e5; --accent-soft: #eef2ff; --accent-line: #c7d2fe; --on-accent: #ffffff;
+  --warn: #b45309; --warn-soft: #fffbeb; --err: #dc2626;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1120; --panel: #111827; --sub: #0f172a; --line: #334155; --line-strong: #475569;
+  --fg: #e2e8f0; --muted: #94a3b8; --faint: #64748b; --scrim: rgba(2, 6, 23, 0.65);
+  --accent: #818cf8; --accent-soft: #1e1b4b; --accent-line: #4338ca; --on-accent: #0b1120;
+  --warn: #fbbf24; --warn-soft: #292524; --err: #f87171; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1120; --panel: #111827; --sub: #0f172a; --line: #334155; --line-strong: #475569;
+  --fg: #e2e8f0; --muted: #94a3b8; --faint: #64748b; --scrim: rgba(2, 6, 23, 0.65);
+  --accent: #818cf8; --accent-soft: #1e1b4b; --accent-line: #4338ca; --on-accent: #0b1120;
+  --warn: #fbbf24; --warn-soft: #292524; --err: #f87171; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 48px; }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-size: 20px; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); margin: 4px 0 0; max-width: 72ch; }
+code { font-family: var(--mono); font-size: 0.92em; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mini { font: inherit; font-size: 11px; padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--fg); cursor: pointer; }
+.btn { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 에디터 화면 목업 */
+.screen { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 12px; display: grid; grid-template-columns: 210px 1fr; gap: 12px; min-height: 560px; overflow: hidden; }
+@media (max-width: 640px) { .screen { grid-template-columns: 1fr; } .fake { display: none; } }
+.aside { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; align-self: start; }
+.fake { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; color: var(--faint); font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+.fake .bar { height: 26px; border-radius: 4px; background: var(--sub); border: 1px solid var(--line); }
+.panel-h { font-size: 12px; font-weight: 600; color: var(--muted); }
+.row { border-top: 1px solid var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.row.first { border-top: 0; padding-top: 0; }
+.row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vname { font-family: var(--mono); font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); white-space: nowrap; }
+.x { margin-left: auto; border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 14px; padding: 0 2px; }
+.trunc { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { font-size: 12px; color: var(--muted); }
+.ex { font-size: 12px; font-family: var(--mono); color: var(--faint); }
+.editbtn { align-self: flex-start; font: inherit; font-size: 11px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 8px; cursor: pointer; margin-top: 2px; }
+.static-val { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* 모달 (목업 화면 안에서만 덮음) */
+.scrim { position: absolute; inset: 0; background: var(--scrim); display: flex; align-items: flex-start; justify-content: center; padding: 20px 12px; overflow-y: auto; }
+.modal { width: 100%; max-width: 620px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; }
+.m-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.m-head h2 { font-size: 15px; margin: 0; font-family: var(--mono); }
+.m-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.m-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); align-items: center; }
+.m-foot .note { margin-right: auto; font-size: 11px; color: var(--faint); }
+.sec { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sec-h { font-size: 12px; font-weight: 600; color: var(--muted); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 6px 10px; align-items: end; }
+.f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.f > .cap { font-size: 11px; color: var(--faint); }
+input[type=text], input[type=number] { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--fg); width: 100%; min-width: 0; }
+input.mono { font-family: var(--mono); }
+input[aria-invalid="true"] { border-color: var(--err); }
+.hint { font-size: 11px; color: var(--faint); }
+.err { font-size: 11px; color: var(--err); }
+.warn { font-size: 11px; color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 2px 6px; align-self: flex-start; }
+.grid-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.legend { font-size: 11px; color: var(--faint); display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; border: 1px solid var(--line-strong); }
+.sw.on { background: var(--accent); border-color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.1rem, 1fr)); gap: 3px; max-height: 10.5rem; overflow-y: auto; overflow-x: hidden; padding: 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--sub); }
+.cell { font: inherit; font-family: var(--mono); font-size: 10px; height: 1.65rem; border-radius: 3px; cursor: pointer; border: 1px solid var(--line-strong); background: var(--panel); color: var(--faint); font-variant-numeric: tabular-nums; padding: 0; min-width: 0; }
+.cell[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.preview { font-family: var(--mono); font-size: 12px; color: var(--fg); background: var(--sub); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; max-height: 5.5rem; overflow-y: auto; overflow-wrap: anywhere; }
+.preview.empty { color: var(--faint); font-family: var(--sans); }
+.usage { font-size: 12px; color: var(--muted); }
+.linkbtn { font: inherit; font-size: 12px; font-weight: 600; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; text-align: left; align-self: flex-start; }
+.presets { display: flex; flex-direction: column; gap: 4px; padding-left: 14px; }
+.preset { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.usage code { background: var(--sub); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.notes { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--muted); }
+.notes ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.notes b { color: var(--fg); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+.chip { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>선택 배열 생성기 · 팝업 편집안 (구현 참조본)</h1>
+    <p class="lede">변수 열(실제 폭 210px)에는 요약만 두고, 편집은 팝업에서 합니다. 팝업에서 고친 값은 <b>적용</b>을 눌러야 시나리오에 들어가고, 취소·ESC·바깥 클릭은 버립니다. 팝업을 닫으면 변수 패널이 어떻게 보이는지 확인할 수 있습니다.</p>
+  </header>
+
+  <div class="controls">길이 예시로 채우기
+    <button class="chip" data-preset="10">10</button><button class="chip" data-preset="30">30</button><button class="chip" data-preset="200">200</button><button class="chip" data-preset="1000">1000</button>
+  </div>
+
+  <div class="screen" id="screen">
+    <aside class="aside" id="aside" aria-label="변수 패널"></aside>
+    <div class="fake" aria-hidden="true"><span>스텝 흐름 · 상세 (목업)</span><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar" style="width:70%"></div></div>
+    <div id="modalHost"></div>
+  </div>
+
+  <div class="notes">
+    <b>정리된 규칙</b>
+    <ul>
+      <li>변수 패널: 이름 · <b>선택 배열</b> 배지 · 요약 한 줄 · 예시 한 줄 · <b>편집</b> 버튼. 행을 펼쳐도 인라인 편집기는 없습니다.</li>
+      <li>팝업에선 텍스트 입력과 칸 그리드가 <b>함께</b> 보이고 항상 같은 상태입니다. 입력칸이 비면 "후보 없음" 오류이고, 적용 버튼이 잠깁니다.</li>
+      <li>전체 자리가 후보일 땐 <code>1-30</code>처럼 전체 범위가 적힙니다. 이때 길이를 바꾸면 후보도 새 전체 범위를 따라갑니다.</li>
+      <li>칸 클릭 = 켜기/끄기, Shift+클릭 = 범위. 번호는 1부터. 그리드는 높이 상한 안에서 세로로만 스크롤됩니다.</li>
+      <li>값 형식은 기본 접힘(<code>true / false</code>). 프리셋 4종 또는 직접 입력. 직접 입력에선 true·false·null·숫자는 그 타입으로, 나머지는 문자열로.</li>
+      <li>미정의 변수가 JSON 바디에서 <code>"{{x:json}}"</code>로 쓰이면 <b>배열로 추가</b>가 보입니다(목업의 seats 행은 시연용으로 flags 팝업을 엽니다).</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// 커밋된 값(=YAML) S, 팝업 draft D
+let S = { len: 30, min: 2, max: 3, pos: "1-5, 8, 12-20", onV: "true", offV: "false" };
+let D = null, seed = 1, lastClick = null, valOpen = false, customForced = false;
+const PRESETS = [{ on: "true", off: "false", kind: "불리언" }, { on: '"True"', off: '"False"', kind: "문자열" }, { on: "1", off: "0", kind: "숫자" }, { on: '"Y"', off: '"N"', kind: "문자열" }];
+function presetIndex(x) { if (customForced) return -1; return PRESETS.findIndex(p => p.on === lit(x.onV) && p.off === lit(x.offV)); }
+
+function parseRanges(t, n) {
+  const s = new Set(), txt = t.trim();
+  if (txt === "") return { set: s, err: "선택될 수 있는 자리를 1개 이상 지정하세요" };
+  for (const raw of txt.split(",")) {
+    const p = raw.trim(); if (p === "") continue;
+    const m = p.match(/^(\d+)\s*(?:-\s*(\d+))?$/);
+    if (!m) return { set: null, err: `"${p}"을(를) 읽을 수 없어요 · 예: 1-5, 8` };
+    const a = +m[1], b = m[2] ? +m[2] : a;
+    if (a < 1 || b > n) return { set: null, err: `${p}: 자리는 1~${n}` };
+    if (a > b) return { set: null, err: `${p}: 앞 번호가 더 커요` };
+    for (let i = a; i <= b; i++) s.add(i);
+  }
+  return { set: s, err: s.size === 0 ? "선택될 수 있는 자리를 1개 이상 지정하세요" : null };
+}
+function toRanges(set) {
+  const xs = [...set].sort((a, b) => a - b), out = [];
+  for (let i = 0; i < xs.length;) { let j = i; while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j++;
+    out.push(i === j ? `${xs[i]}` : `${xs[i]}-${xs[j]}`); i = j + 1; }
+  return out.join(", ");
+}
+function lit(v) { const t = v.trim();
+  if (t === "true" || t === "false" || t === "null") return t;
+  if (/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(t)) return t;
+  if (/^".*"$/.test(t)) return t;
+  return JSON.stringify(v); }
+function typeKo(v) { const l = lit(v); if (l === "true" || l === "false") return "불리언"; if (l === "null") return "null"; if (l[0] === '"') return "문자열"; return "숫자"; }
+function rng(s) { let a = s >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+function analyze(x) {
+  const P = parseRanges(x.pos, x.len); let iss = null;
+  if (P.set && !P.err) { const c = P.set.size;
+    if (x.min > x.max) iss = { level: "err", msg: "최소가 최대보다 커요" };
+    else if (x.min > c) iss = { level: "err", msg: `후보가 ${c}자리뿐이라 최소 ${x.min}개를 선택할 수 없어요` };
+    else if (x.max > c) iss = { level: "warn", msg: `후보가 ${c}자리라 최대 ${c}개까지만 선택돼요` }; }
+  const ok = !P.err && !(iss && iss.level === "err");
+  return { P, iss, ok };
+}
+function sample(x, P) {
+  if (!P.set || P.err) return null;
+  const r = rng(seed * 7919 + x.len), cand = [...P.set], hi = Math.min(x.max, cand.length), lo = Math.min(x.min, hi);
+  const k = lo + Math.floor(r() * (hi - lo + 1));
+  for (let i = cand.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [cand[i], cand[j]] = [cand[j], cand[i]]; }
+  const on = new Set(cand.slice(0, k)), a = lit(x.onV), b = lit(x.offV), out = [];
+  for (let i = 1; i <= x.len; i++) out.push(on.has(i) ? a : b);
+  return `[${out.join(",")}]`;
+}
+function summary(x, P) {
+  const cnt = x.min === x.max ? `${x.min}개 선택` : `${x.min}~${x.max}개 선택`;
+  const pos = P.set.size === x.len ? "전체 자리" : `후보 ${P.set.size}자리`;
+  const vals = (lit(x.onV) === "true" && lit(x.offV) === "false") ? "" : ` · ${lit(x.onV)}/${lit(x.offV)}`;
+  return `${x.len}칸 · ${cnt} · ${pos}${vals}`;
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderAside() {
+  const { P } = analyze(S), sum = summary(S, P), ex = sample(S, P);
+  aside.innerHTML = `<div class="panel-h">변수</div>
+  <div class="row first"><div class="row-top"><span class="vname">base_url</span><button class="x" tabindex="-1" aria-hidden="true">×</button></div>
+    <div class="static-val trunc" title="https://api.example.com">https://api.example.com</div></div>
+  <div class="row">
+    <div class="row-top"><span class="vname">flags</span><span class="badge">선택 배열</span><button class="x" aria-label="flags 삭제">×</button></div>
+    <span class="meta trunc" title="${esc(sum)}">${esc(sum)}</span>
+    <span class="ex trunc" title="${esc(ex)}">예: ${esc(ex)}</span>
+    <button class="editbtn" data-edit aria-label="flags 선택 배열 편집">편집</button>
+  </div>
+  <div class="row"><div class="row-top"><span class="vname" style="font-weight:400">seats</span><span style="font-size:11px;color:var(--warn)">⚠ 미정의</span></div>
+    <div style="display:flex;gap:8px;font-size:12px"><button class="linkbtn" style="color:var(--accent);font-weight:400" tabindex="-1">선언 추가</button><button class="linkbtn" style="color:var(--accent);font-weight:400" data-edit>배열로 추가</button></div>
+    <span class="hint">바디에서 "{{seats:json}}"로 쓰인 변수에만 '배열로 추가'가 보입니다</span></div>
+  <div class="row"><div class="row-top"><span class="vname">uid</span><span class="badge">UUID</span><button class="x" tabindex="-1" aria-hidden="true">×</button></div>
+    <span class="ex trunc">예: 3f2a9c1e-…</span></div>`;
+}
+
+function renderModal() {
+  if (!D) { modalHost.innerHTML = ""; return; }
+  const { P, iss, ok } = analyze(D), ex = sample(D, P), set = P.set || new Set();
+  let cells = "";
+  for (let i = 1; i <= D.len; i++) cells += `<button class="cell" data-cell="${i}" aria-pressed="${set.has(i)}" aria-label="${i}번 자리">${i}</button>`;
+  const dirty = JSON.stringify(D) !== JSON.stringify(S);
+  modalHost.innerHTML = `<div class="scrim" data-scrim>
+   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+    <div class="m-head"><h2 id="mtitle">flags</h2><span class="badge">선택 배열</span><button class="x" data-cancel aria-label="닫기">✕</button></div>
+    <div class="m-body">
+      <div class="sec"><span class="sec-h">크기</span>
+        <div class="fields">
+          <label class="f"><span class="cap">배열 길이 (1~1000)</span><input type="number" id="d-len" data-len min="1" max="1000" value="${D.len}"></label>
+          <label class="f"><span class="cap">선택 개수 최소</span><input type="number" id="d-min" data-min min="0" value="${D.min}" aria-invalid="${iss?.level === "err"}"></label>
+          <label class="f"><span class="cap">선택 개수 최대</span><input type="number" id="d-max" data-max min="0" value="${D.max}" aria-invalid="${iss?.level === "err"}"></label>
+        </div>
+        ${iss ? `<span class="${iss.level}">${esc(iss.msg)}</span>` : ""}
+      </div>
+      <div class="sec"><span class="sec-h">선택될 수 있는 자리</span>
+        <input type="text" class="mono" id="d-pos" data-pos value="${esc(D.pos)}" aria-label="선택될 수 있는 자리" aria-invalid="${!!P.err}">
+        ${P.err ? `<span class="err">${esc(P.err)}</span>` : `<span class="hint">쉼표와 범위로 · 예: 1-5, 8, 12-20 · 후보가 아닌 자리는 항상 나머지 자리 값</span>`}
+        <div class="grid-tools"><button class="mini" data-all>전체</button><button class="mini" data-none>모두 끄기</button>
+          <span class="legend"><span><span class="sw on"></span>선택 후보</span><span><span class="sw"></span>항상 나머지 자리 값</span><span>Shift+클릭 = 범위</span></span></div>
+        <div class="grid" id="d-grid" role="group" aria-label="선택될 수 있는 자리 칸">${cells}</div>
+      </div>
+      <div class="sec">
+        <button class="linkbtn" data-valtog aria-expanded="${valOpen}">${valOpen ? "▾" : "▸"} 값 형식: ${esc(lit(D.onV))} / ${esc(lit(D.offV))}</button>
+        ${valOpen ? `<div class="presets" role="radiogroup" aria-label="값 형식">
+          ${PRESETS.map((p, i) => `<label class="preset"><input type="radio" name="vp" data-preset-i="${i}" ${presetIndex(D) === i ? "checked" : ""}> <code>${esc(p.on)} / ${esc(p.off)}</code> <span class="hint">${p.kind}</span></label>`).join("")}
+          <label class="preset"><input type="radio" name="vp" data-preset-i="-1" ${presetIndex(D) === -1 ? "checked" : ""}> 직접 입력</label>
+          ${presetIndex(D) === -1 ? `<div class="fields">
+            <label class="f"><span class="cap">선택 자리 값 · ${typeKo(D.onV)}</span><input type="text" class="mono" id="d-on" data-on value="${esc(D.onV)}"></label>
+            <label class="f"><span class="cap">나머지 자리 값 · ${typeKo(D.offV)}</span><input type="text" class="mono" id="d-off" data-off value="${esc(D.offV)}"></label>
+          </div><span class="hint">true·false·null·숫자는 그 타입으로, 나머지는 문자열로. 숫자를 문자열로 보내려면 "1"</span>` : ""}
+        </div>` : ""}
+      </div>
+      <div class="sec"><div class="grid-tools"><span class="sec-h">미리보기 (반복마다 새로 뽑힘)</span><button class="mini" data-reroll style="margin-left:auto">↻ 다시 뽑기</button></div>
+        <div class="preview ${ex ? "" : "empty"}">${ex ? esc(ex) : "후보 자리를 지정하면 예시가 나와요"}</div>
+        <span class="usage">JSON 바디에서 <code>"flags": "{{flags:json}}"</code> 로 쓰면 배열로 들어갑니다.</span>
+      </div>
+    </div>
+    <div class="m-foot"><span class="note">${dirty ? "적용하지 않은 변경이 있어요" : ""}</span>
+      <button class="btn" data-cancel>취소</button><button class="btn primary" data-apply ${ok ? "" : "disabled"}>적용</button></div>
+   </div></div>`;
+}
+
+function render() {
+  const act = document.activeElement, id = act?.id, sel = id && act.selectionStart != null ? [act.selectionStart, act.selectionEnd] : null;
+  const g = document.getElementById("d-grid"), gs = g ? g.scrollTop : 0;
+  renderAside(); renderModal();
+  const g2 = document.getElementById("d-grid"); if (g2) g2.scrollTop = gs;
+  if (id) { const el = document.getElementById(id); if (el) { el.focus(); if (sel) try { el.setSelectionRange(...sel); } catch (e) {} } }
+}
+function openModal() { D = { ...S }; lastClick = null; customForced = false; valOpen = !(lit(S.onV) === "true" && lit(S.offV) === "false"); render(); setTimeout(() => document.getElementById("d-len")?.focus(), 0); }
+function closeModal() { D = null; render(); document.querySelector("[data-edit]")?.focus(); }
+function setLen(n) {
+  n = Math.max(1, Math.min(1000, n | 0)); const cur = parseRanges(D.pos, D.len);
+  const wasAll = cur.set && !cur.err && cur.set.size === D.len; D.len = n;
+  if (wasAll) D.pos = `1-${n}`; else if (cur.set && !cur.err) D.pos = toRanges(new Set([...cur.set].filter(i => i <= n)));
+}
+
+document.addEventListener("click", e => {
+  if (e.target.matches("[data-scrim]")) return closeModal();
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.preset) { const n = +t.dataset.preset;
+    S = n === 10 ? { ...S, len: 10, min: 2, max: 3, pos: "1-2, 4-6, 8-10" }
+      : n === 30 ? { ...S, len: 30, min: 2, max: 3, pos: "1-5, 8, 12-20" }
+      : { ...S, len: n, min: 5, max: 12, pos: n === 1000 ? "1-40, 61-90, 150-160, 500-520" : "1-40, 61-90, 150-160" };
+    if (D) D = { ...S }; return render(); }
+  if (t.hasAttribute("data-edit")) return openModal();
+  if (!D) return;
+  if (t.hasAttribute("data-cancel")) return closeModal();
+  if (t.hasAttribute("data-apply")) { S = { ...D }; return closeModal(); }
+  if (t.hasAttribute("data-reroll")) { seed++; return render(); }
+  if (t.hasAttribute("data-valtog")) { valOpen = !valOpen; return render(); }
+  if (t.hasAttribute("data-all")) { D.pos = `1-${D.len}`; return render(); }
+  if (t.hasAttribute("data-none")) { D.pos = ""; return render(); }
+  if (t.dataset.cell) {
+    const i = +t.dataset.cell, set = new Set(parseRanges(D.pos, D.len).set || []), turnOn = !set.has(i);
+    if (e.shiftKey && lastClick) { const [a, b] = [Math.min(lastClick, i), Math.max(lastClick, i)]; for (let j = a; j <= b; j++) turnOn ? set.add(j) : set.delete(j); }
+    else turnOn ? set.add(i) : set.delete(i);
+    lastClick = i; D.pos = toRanges(set); render();
+  }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && D) closeModal(); });
+document.addEventListener("input", e => {
+  if (!D) return; const t = e.target;
+  if (t.hasAttribute("data-pos")) D.pos = t.value;
+  else if (t.hasAttribute("data-on")) D.onV = t.value;
+  else if (t.hasAttribute("data-off")) D.offV = t.value;
+  else return;
+  render();
+});
+document.addEventListener("change", e => {
+  if (!D) return; const t = e.target;
+  if (t.dataset.presetI !== undefined) { const i = +t.dataset.presetI;
+    if (i === -1) customForced = true; else { customForced = false; D.onV = PRESETS[i].on.replace(/^"(.*)"$/, '"$1"'); D.offV = PRESETS[i].off; }
+    return render(); }
+  if (t.hasAttribute("data-len")) setLen(+t.value || 1);
+  else if (t.hasAttribute("data-min")) D.min = Math.max(0, +t.value | 0);
+  else if (t.hasAttribute("data-max")) D.max = Math.max(0, +t.value | 0);
+  else return;
+  render();
+});
+D = { ...S }; render();
+</script>
