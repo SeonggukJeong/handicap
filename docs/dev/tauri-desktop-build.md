@@ -68,6 +68,8 @@ git tag -a v<ver>
 git push origin v<ver>
 ```
 
+**릴리즈 전 master CI 녹색 확인 (필수, 2026-10-17)**: `gh run list --workflow ci --branch master --limit 3`의 최신 행이 `success`인지 본다. release 워크플로는 clippy를 안 돌려 **빨간 CI 위에서도 릴리즈가 성공한다** — v0.9.0이 그렇게 나갔다(master `ci` rust 잡이 Rust 1.99 신규 clippy lint로 2회 연속 실패한 상태). 원인은 `rust-toolchain.toml`이 `stable`만 고정해 CI(최신 stable)와 로컬 pre-commit(설치된 stable)의 clippy 버전이 갈리는 것이라, 로컬 게이트가 green이어도 CI는 빨갈 수 있다. 의심되면 `rustup toolchain install <CI 버전> --component clippy rustfmt` 후 `CARGO_TARGET_DIR="$PWD/target/clippy-<ver>" rustup run <ver> cargo clippy --workspace --all-targets -- -D warnings`로 로컬 재현(별도 target dir로 기본 빌드 캐시 보존 — **절대경로로**: 상대경로면 `cargo test` 재현 시 e2e가 워커를 크레이트 디렉토리 기준으로 빌드해 `crates/*/target/`에 untracked GB급 산출물이 생긴다). 툴체인 고정 여부는 roadmap §B32 R-e(미결정).
+
 **주의**: bump가 이제 루트 `Cargo.toml`/`Cargo.lock`도 건드리므로(과거엔 `desktop/src-tauri/`만 건드려 루트 pre-commit cargo 게이트를 안 탔다) 이 커밋은 **cargo-영향 경로 커밋**이라 전체 게이트(fmt/build/clippy/nextest/doctest, 수 분)를 돈다 — 루트 `CLAUDE.md`의 "매 커밋 일상 규칙"대로 `git commit`을 단일 FOREGROUND 호출로 돌릴 것.
 
 ### 릴리즈 노트

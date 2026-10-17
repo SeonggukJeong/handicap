@@ -1,7 +1,7 @@
 # 생성 변수 "요청마다 새로 뽑기" (`refresh: request`) — 설계
 
 - 날짜: 2026-10-17 · 유형: **user-path** · 워크트리: `pick-array-per-request` (브랜치 `worktree-pick-array-per-request`)
-- **상태: 설계 중**
+- **상태: 완료** (2026-10-17, 코드 `37acb093`..`468ac3ac` — 최종·보안 리뷰 fix 포함, 라이브 US1~5 PROVEN, v0.10.0) · 연기·판단 → `docs/roadmap.md` §B32
 - 선행: dynamic-vars(`2026-07-24-dynamic-vars-design.md` — 생성 변수 4종·반복 시드, §2 비목표 "요청 위치마다 새 값(per-use)"을 이번에 해소) · genvar-preview-ux(`2026-07-24-genvar-preview-ux-design.md`) · pick-array(`2026-10-17-pick-array-design.md` — 5번째 생성기·팝업 편집기)
 - 관련 ADR: 0003(양방향 sync)·0014(변수 표기)·0035(한국어 카피). 새 ADR 없음 — ADR-0014 범위 안의 additive YAML 키(`Request.disabled` B4 선례와 같은 부류).
 

@@ -523,6 +523,34 @@
 **(4) spec 비목표(v1) — 재개 신호와 함께**: 원소별 생성기 배열(랜덤 정수 × N) · 자리별 "항상 선택" 3상태 · 길이 1000 초과 · 기존 정적 `""` 변수가 `:json`으로 쓰일 때의 신뢰도 경고 · `:arr` 캐스트 · 시드 재현성 — 도그푸딩에서 수요 확인 시.
 
 
+### B32. 생성 변수 요청마다 새로 뽑기 `refresh: request` (2026-10-17, 코드 `37acb093`..`468ac3ac`, CI 복구 `29b34d80`, spec `docs/superpowers/specs/2026-10-17-genvar-per-request-design.md`) 연기 항목
+
+**(1) orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다):
+- **R-a Task 2 리뷰 minor를 Task 3에 접음** — `collect_http`의 `if`(then/elif/else)·`parallel` 순회에 단위 테스트가 없었다(arm을 비워도 green → 그 분기 요청이 재평가 대상에서 빠져 이전 값을 조용히 보낸다). Task 3 brief addendum으로 `nested_if_and_parallel_requests_are_targets` 추가(이빨 3종 실증). **비용**: 테스트 1건. 해소 완료.
+- **R-b 점(.) 든 refresh 변수 × parallel 병합 키 — 최종 리뷰 M1을 머지 전 수정** — 엔진·UI 모두 변수명의 `.`을 허용(UI 추가 행=비어있지 않음만·rename 정규식 `/^[^\s{}:]+$/`·엔진 무검증)이라 `x.f: {gen: uuid, refresh: request}` + 분기 `x`가 `f` 추출 시 병합 키가 재평가로 덮였다. runner·trace 병합 지점 양쪽에서 부모 `ReqGen::mark_written`(`9063e8ed`). **비용**: 없음(동작이 spec §4.2 우선순위로 수렴). 부수 관찰(재리뷰 out-of-scope): 병합은 분기 추출이 `k`를 *안* 써도 `{branch}.{k}`에 부모 값을 복사하므로(parallel-var-scope 기존 동작) 그 경우에도 점 든 refresh 변수가 죽는다 — 부모 레벨 "생성<추출" 규칙과 일관이라 무조치.
+- **R-c 보안 리뷰 3건 전부 반영** (`0aeba3db`): I1 사전계산 O(N×T)→O(T)(name→index 맵·BTreeSet — 2MB 본문으로 ~25k 선언×~100k 토큰이면 test-run이 컨트롤러 런타임 스레드를 수 초 점유) / M1 refresh rng를 부모 생성기 rng의 32바이트로 시드(64비트면 1e9 반복에서 ~3% 확률로 값 묶음 전체가 겹쳐 UUID 고유키 409를 도구가 자가 유발) / N1 trace parallel 분기 `ReqGen` 일괄 fork(runner와 lockstep — Nit였지만 test-run≠run 불변식 위반이라 반영). **비용**: diff 증가뿐. `request_flow_refs` 시그니처가 `(req, dummy_env, index)`로 바뀜(엔진 CLAUDE.md lockstep 줄 갱신됨). M1로 반복당 `gen_rng` 소비가 u64 1개→32바이트로 늘어 기존 생성 변수의 *값 시퀀스*가 커밋 전후로 다르다 — 생성 변수는 시드 재현성 계약이 없어(spec §2 비목표) 무해.
+- **R-d 성능 테스트를 기준선 비율로** (`468ac3ac`) — `build_is_linear_in_declarations_times_tokens`의 1s 고정 상한(실측 0.285s, 여유 3.5×)은 pre-commit·GitHub CI 느린 러너에서 flake by construction(한 번 터지면 그 머신의 이후 cargo 커밋 전부 거부 — `aggregator::records_and_serializes`·`connect_timeout_knob` 선례). N=1 기준선 대비 `full < 30×baseline`(측정 linear ~1.33× / quadratic ~700×, 양쪽 ≥4× 여유), 3회 min. **비용**: 머신 간 비율이 10× 이상 흔들리면 재조정 필요 — 해소: 비율 위반 시 `eprintln!` 출력(baseline/full)으로 R 재산정.
+- **R-e CI 복구는 lint 수정으로, 툴체인 고정은 미결정** (`29b34d80`, 사용자 요청 "CI 실패 확인") — master `ci` rust 잡이 `e4bc1729`·`854a22de`(v0.9.0 bump) 2회 연속 실패. 원인: `rust-toolchain.toml`이 `channel = "stable"`만 고정 → CI(`dtolnay/rust-toolchain@stable`)는 1.99, 로컬은 1.97이라 1.99 신규 clippy lint 3종(`result_large_err`·`result_unit_err`·`double_must_use`)을 pre-commit이 못 봤다. **v0.9.0은 빨간 CI 위에서 릴리즈됐다**(release 워크플로는 clippy를 안 돌려 성공). 수정: `WorkerError::Rpc(Box<tonic::Status>)`+수동 `From`·`PoolAssignFailed` 단위 타입·`WorkerDispatcher` trait allow + `crates/worker-core/tests/error_size.rs`(128B 가드 — 1.97에서도 RED). rustup 1.99.0으로 CI 4단계 로컬 재현 exit 0. **비용**: 다음 stable 릴리즈가 또 새 lint를 켜면 같은 일이 반복된다. **해소 경로(사용자 결정 대기)**: ① `rust-toolchain.toml`을 정확한 버전(예 `1.99.0`)으로 고정 + 주기적 수동 승급(로컬·CI 동일, 대가: 승급 작업), 또는 ② 현행 유지 + 릴리즈 전 `gh run list`로 master CI 녹색 확인을 finish-slice/릴리즈 절차에 추가. 후자는 이번에 절차 문서(`docs/dev/tauri-desktop-build.md` §CI 릴리즈)에 반영.
+- **R-f 라이브 검증 대체 경로** — US5 "YAML 모달에서 `refresh: request` 추가/삭제"는 Monaco 프로그램 편집이 불가(루트 CLAUDE.md 함정)해 **서버 저장 YAML 교체 → 에디터 재로드**로 같은 `parseScenarioDoc` 경로를 검증했다(체크·배지 반영 + 삭제 후 와이어 복귀). **비용**: 모달 commit 버튼 배선 자체는 미관측(기존 기능이라 위험 낮음). 해소: 다음 수동 점검 때 모달에서 한 줄 편집.
+
+**(2) spec 알려진 한계·연기 (재개 신호와 함께)**:
+- **parallel 노드 뒤의 `if` 조건은 분기 안에서 뽑힌 값을 못 본다** — parallel 진입 전 값을 본다(spec §4.2 표). 분기 값은 부모로 안 돌아온다(병합은 추출 값 `{branch}.{k}`뿐). 재개 신호: 도그푸딩에서 "parallel 뒤 조건 분기가 refresh 값에 의존" 사례.
+- **`if` 조건 평가 시점 재평가 없음** — 조건은 직전 요청이 쓴 값(없으면 반복 시작 값)을 본다(조건에서만 참조되는 refresh 변수는 재평가되지 않음, run은 정상 — `condition_only_reference_does_not_break_run`).
+- **§B31 R-b(시나리오 전체 pick_array 크기 무상한) 그대로 연기** — 재평가는 참조하는 요청에서만 일어나 요청당 비용이 그 요청 렌더 크기와 같은 차수(spec §7). 단 R-c I1로 *사전계산* 쪽 증폭은 닫았다.
+- **spec 비목표(v1)**: 사용처 표기 `{{x:fresh}}`(렌더러 3진입점·캐스트·UI resolver lockstep 비용 — 필요하면 변수 2개 선언) · 시나리오 전체 스위치 · 정적 변수의 refresh · 시드 재현성.
+
+**(3) 리뷰 minor — 연기 (저우선, 해소 경로 포함)** — 최종 리뷰 triage에서 전부 OK-TO-DEFER:
+- `testdata/pick_array_vectors.json` 신규 refresh 벡터가 `{"yaml"`(기존은 `{ "yaml"`) — 표기만. 해소: 다음 벡터 편집 때 정렬.
+- 공유 벡터의 `refresh: iteration` 수용 케이스가 uuid뿐(spec §5는 5종) — 엔진은 refresh를 per-gen allow-list 전에 떼고 Zod 5멤버가 한 `RefreshModel`을 공유해 구조적으로 무해.
+- `request_flow_refs`의 `loop_index: Some(0)` 무테스트 — 영향은 이름이 정확히 `loop_index`인 refresh 변수의 무해한 과대 판정뿐.
+- parallel 노드마다 `branch_reqs: Vec<Option<ReqGen>>` 할당(refresh 미사용이어도) — 노드가 이미 분기마다 vars를 clone하므로 무시 가능. 해소: `req.is_some()` 게이트.
+- nextest "leaky" 플래그 1회(구현자 실행, 재현 안 됨).
+- `GenVarEditor` 타입 전환 refresh carry는 random_int 1방향만 이빨 테스트(spec §9 "대표" 요구 충족) — date/uuid/random_string은 같은 `...carry` 줄.
+- `PickArrayDialog` 미리보기 제목 테스트가 `unmount()`+`setup()`을 한 `it`에 — 가독성만.
+- `build_is_linear_…`의 `eprintln!` 진단 출력(nextest가 캡처, 실패 시만 노출).
+
+**(4) 프로세스 관찰**: 보안 게이트가 이번에도 실전 적발(I1 — 사전계산 비용은 spec §7의 "요청당 비용" 논증이 다루지 않은 별개 축). per-task 리뷰 5회 clean 뒤 whole-branch가 교차 결함(R-b)을 적발 — [[whole-branch-review-catches-interaction-bugs]] 4호.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
