@@ -186,6 +186,8 @@ export function PickArrayDialog({
           ...(isFullRange(pos.set, liveLength) ? {} : { positions: formatPositions(pos.set) }),
           ...(pickRes.value === true ? {} : { pick: pickRes.value }),
           ...(restRes.value === false ? {} : { rest: restRes.value }),
+          // 팝업은 refresh를 편집하지 않는다 — initial 값을 그대로 싣는다(없으면 키 없음, spec §6.3).
+          ...(initial.refresh !== undefined ? { refresh: initial.refresh } : {}),
         }
       : null;
 
@@ -439,7 +441,11 @@ export function PickArrayDialog({
 
         <section className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
-            <h3 className="text-xs font-semibold text-slate-500">{ko.editor.pickPreviewTitle}</h3>
+            <h3 className="text-xs font-semibold text-slate-500">
+              {initial.refresh === "request"
+                ? ko.editor.pickPreviewTitleRequest
+                : ko.editor.pickPreviewTitle}
+            </h3>
             <Button variant="secondary" className="ml-auto" disabled={!spec} onClick={reroll}>
               {ko.editor.pickPreviewReroll}
             </Button>

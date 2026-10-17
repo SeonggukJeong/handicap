@@ -50,7 +50,8 @@ function undefinedBranchHint(
  *  "타입명 · 파라미터"(요약 줄 시각 표시와 동형, US5). */
 function genRowTitle(spec: GenSpec): string {
   const params = genParamsSummary(spec);
-  return params === "" ? genTypeLabel(spec) : `${genTypeLabel(spec)} · ${params}`;
+  const base = params === "" ? genTypeLabel(spec) : `${genTypeLabel(spec)} · ${params}`;
+  return spec.refresh === "request" ? `${base} · ${ko.editor.genRefreshBadge}` : base;
 }
 
 export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) => void }) {
@@ -344,6 +345,11 @@ export function VariablesPanel({ onJumpToStep }: { onJumpToStep?: (id: string) =
                       <span className="shrink-0 rounded bg-indigo-50 px-1.5 text-xs text-indigo-600">
                         {genTypeLabel(row.value)}
                       </span>
+                      {row.value.refresh === "request" && (
+                        <span className="shrink-0 rounded bg-sky-50 px-1.5 text-xs text-sky-700">
+                          {ko.editor.genRefreshBadge}
+                        </span>
+                      )}
                       {genParamsSummary(row.value) !== "" && (
                         <span className="min-w-0 truncate">{genParamsSummary(row.value)}</span>
                       )}

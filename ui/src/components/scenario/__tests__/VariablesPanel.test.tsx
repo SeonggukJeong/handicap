@@ -1656,3 +1656,75 @@ steps:
     });
   });
 });
+
+describe("VariablesPanel — 요청마다 새로 뽑기", () => {
+  beforeEach(() => {
+    reset();
+    useScenarioEditor.getState().resetEmpty();
+  });
+
+  it("접힘 행: refresh: request면 `요청마다` 배지·행 title 접미, 없으면 둘 다 없음", () => {
+    const s = useScenarioEditor.getState();
+    s.setVariableGen("f", { gen: "uuid", refresh: "request" });
+    s.setVariableGen("o", { gen: "uuid" });
+    render(<VariablesPanel />);
+    const badges = screen.getAllByText(ko.editor.genRefreshBadge);
+    expect(badges).toHaveLength(1);
+    expect(badges[0].closest("[title]")).toHaveAttribute(
+      "title",
+      `${ko.editor.genTypeUuid} · ${ko.editor.genRefreshBadge}`,
+    );
+  });
+
+  it("펼침 → 체크 → YAML에 refresh: request 마지막 키·배지 등장, 해제 → 키 삭제", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor.getState().setVariableGen("q", { gen: "random_int", min: 1, max: 9 });
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("q") }));
+    await user.click(screen.getByRole("checkbox", { name: ko.editor.genRefreshAria("q") }));
+    const yaml = useScenarioEditor.getState().yamlText;
+    const block = yaml.slice(yaml.indexOf("q:"));
+    expect(block.indexOf("refresh: request")).toBeGreaterThan(block.indexOf("max:"));
+    expect(useScenarioEditor.getState().model!.variables.q).toEqual({
+      gen: "random_int",
+      min: 1,
+      max: 9,
+      refresh: "request",
+    });
+    // 접어서 배지 확인(펼친 동안엔 접힘 행이 렌더되지 않는다)
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("q") }));
+    expect(screen.getByText(ko.editor.genRefreshBadge)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.editor.varExpandAria("q") }));
+    await user.click(screen.getByRole("checkbox", { name: ko.editor.genRefreshAria("q") }));
+    expect(useScenarioEditor.getState().yamlText).not.toContain("refresh");
+  });
+
+  it("refresh: request 선택 배열을 팝업으로 편집해도 refresh가 남는다 (Review Focus 5)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .setVariableGen("flags", {
+        gen: "pick_array",
+        length: 30,
+        min: 2,
+        max: 3,
+        refresh: "request",
+      });
+    render(<VariablesPanel />);
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(ko.editor.pickPreviewTitleRequest)).toBeInTheDocument();
+    const pos = within(dialog).getByRole("textbox", { name: ko.editor.pickSectionPositions });
+    await user.clear(pos);
+    await user.type(pos, "1-5");
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickApply }));
+    expect(useScenarioEditor.getState().model!.variables.flags).toEqual({
+      gen: "pick_array",
+      length: 30,
+      min: 2,
+      max: 3,
+      positions: "1-5",
+      refresh: "request",
+    });
+  });
+});

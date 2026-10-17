@@ -413,4 +413,54 @@ describe("PickArrayDialog", () => {
     const { dialog } = setup();
     expect(dialog.textContent).not.toMatch(/true 개수|true 자리|불리언 배열|true 후보/);
   });
+
+  it("적용은 initial.refresh를 보존한다 — 길이만 바꿔도 사라지지 않음 (spec §6.3)", async () => {
+    const user = userEvent.setup();
+    const { onApply, dialog, apply } = setup({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "request",
+    });
+    const len = within(dialog).getByRole("spinbutton", { name: ko.editor.pickFieldLength });
+    await user.clear(len);
+    await user.type(len, "6");
+    await user.click(apply);
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply.mock.calls[0][0]).toStrictEqual({
+      gen: "pick_array",
+      length: 6,
+      min: 1,
+      max: 2,
+      refresh: "request",
+    });
+  });
+
+  it("refresh 없는 initial은 적용 결과에 refresh 키가 없다", async () => {
+    const user = userEvent.setup();
+    const { onApply, apply } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    await user.click(apply);
+    expect(onApply.mock.calls[0][0]).toStrictEqual({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+    });
+  });
+
+  it("미리보기 제목은 refresh에 따라 요청마다/반복마다", () => {
+    const { unmount } = render(
+      <PickArrayDialog
+        name="flags"
+        initial={{ gen: "pick_array", length: 5, min: 1, max: 2, refresh: "request" }}
+        onApply={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(ko.editor.pickPreviewTitleRequest)).toBeInTheDocument();
+    unmount();
+    setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    expect(screen.getByText(ko.editor.pickPreviewTitle)).toBeInTheDocument();
+  });
 });
