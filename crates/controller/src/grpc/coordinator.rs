@@ -196,6 +196,11 @@ pub enum RegisterOutcome {
     NoRun,
 }
 
+/// `assign_pool_workers` 실패(워커 이탈·배정 불가) — 호출부는 `is_err()`만 본다.
+/// `Result<(), ()>`는 clippy `result_unit_err`(Rust 1.99+ CI)가 거부해 이름 있는 단위 타입으로.
+#[derive(Debug)]
+pub struct PoolAssignFailed;
+
 #[derive(Clone)]
 pub struct CoordinatorState {
     pub db: Db,
@@ -298,7 +303,7 @@ impl CoordinatorState {
         &self,
         run_id: &str,
         reserved: Vec<(String, WorkerTx)>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), PoolAssignFailed> {
         for (worker_id, tx) in reserved {
             let outcome = self.register(run_id, &worker_id, tx.clone()).await;
             let (shard_index, shard_count, vu_offset, vu_count, set_running) = match outcome {
@@ -310,7 +315,7 @@ impl CoordinatorState {
                     first,
                 } => (shard_index, shard_count, vu_offset, vu_count, first),
                 // 풀 발사에선 일어나지 않아야 함(예약 수==expected). 방어적으로 실패.
-                _ => return Err(()),
+                _ => return Err(PoolAssignFailed),
             };
             let Some((assignment, streams)) = self
                 .assignment_for(
@@ -323,7 +328,7 @@ impl CoordinatorState {
                 )
                 .await
             else {
-                return Err(());
+                return Err(PoolAssignFailed);
             };
             if tx
                 .send(Ok(ServerMessage {
@@ -333,7 +338,7 @@ impl CoordinatorState {
                 .is_err()
             {
                 // 워커 이탈 → 즉시 fail-fast (R7) — assigned_run은 reserve가 이미 Some
-                return Err(());
+                return Err(PoolAssignFailed);
             }
             if set_running {
                 let _ = runs::set_status(

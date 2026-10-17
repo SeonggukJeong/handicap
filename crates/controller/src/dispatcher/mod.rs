@@ -9,6 +9,9 @@ pub mod subprocess;
 /// A `WorkerDispatcher` knows how to start a worker process for a run, and
 /// how to clean up after the run finishes. Implementations are swappable at
 /// startup via `--worker-mode`.
+// `async_trait`가 생성하는 메서드가 `#[must_use]`(무메시지) + `Pin<Box<dyn Future>>`(이미 must_use)라
+// clippy `double_must_use`(Rust 1.99+ CI)가 매크로 확장 코드에서 발화한다 — 우리 코드가 아니라 허용.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait WorkerDispatcher: Send + Sync {
     /// Start `worker_count` workers for the given run. Each implementation owns

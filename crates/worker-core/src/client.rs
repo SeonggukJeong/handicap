@@ -168,7 +168,7 @@ pub async fn connect_and_register(
                     return Err(WorkerError::NoAssignment);
                 }
             },
-            Some(Err(e)) => return Err(WorkerError::Rpc(e)),
+            Some(Err(e)) => return Err(WorkerError::from(e)),
             None => return Err(WorkerError::NoAssignment),
         }
     };
@@ -492,7 +492,7 @@ mod forward_tests {
                         break Err(WorkerError::NoAssignment);
                     }
                 },
-                Some(Err(e)) => break Err(WorkerError::Rpc(e)),
+                Some(Err(e)) => break Err(WorkerError::from(e)),
                 None => break Err(WorkerError::NoAssignment),
             }
         };
