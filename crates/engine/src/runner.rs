@@ -750,7 +750,11 @@ async fn execute_steps(
                     }
                     for k in branch.output_var_names() {
                         if let Some(v) = branch_vars.get(k) {
-                            iter_vars.insert(format!("{}.{}", branch.name, k), v.clone());
+                            let key = format!("{}.{}", branch.name, k);
+                            iter_vars.insert(key.clone(), v.clone());
+                            if let Some(rg) = req.as_mut() {
+                                rg.mark_written(std::iter::once(&key));
+                            }
                         }
                     }
                     branch_samples.push((branch.name.as_str(), branch_us));

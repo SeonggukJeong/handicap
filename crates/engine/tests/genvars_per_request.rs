@@ -490,3 +490,79 @@ async fn trace_rows_seed_shadows_refresh_var() {
         );
     }
 }
+
+const PAR_MERGE: &str = "version: 1
+name: g
+variables:
+  x.f: {gen: uuid, refresh: request}
+  o: {gen: uuid}
+steps:
+  - id: \"01HX00000000000000000000P0\"
+    name: par
+    type: parallel
+    branches:
+      - name: x
+        steps:
+          - id: \"01HX0000000000000000000021\"
+            name: x1
+            type: http
+            request: { method: GET, url: \"{URI}/a\" }
+            extract:
+              - var: f
+                from: body
+                path: \"$.tok\"
+  - { id: \"01HX0000000000000000000002\", name: z, type: http, request: { method: GET, url: \"{URI}/z?f={{x.f}}&o={{o}}\" } }
+";
+
+#[tokio::test]
+async fn parallel_merge_back_stops_regeneration_of_namespaced_key() {
+    // M1: 분기 x가 추출한 f가 부모에 `x.f`로 병합되면 그 키는 더 이상 재평가되지 않는다(generated < extract).
+    let s = extract_server().await;
+    let reqs = run_collect(Mode::Closed, PAR_MERGE, 300, |_| {}, &s).await;
+    let zs: Vec<_> = reqs.iter().filter(|(p, _)| p == "/z").collect();
+    assert!(!zs.is_empty(), "{reqs:?}");
+    for (_, q) in zs {
+        assert_eq!(q["f"], "X", "병합된 추출 값이 나가야 한다");
+    }
+}
+
+fn trace_opts() -> TraceOptions {
+    TraceOptions {
+        env: Default::default(),
+        max_requests: 10,
+        max_wall: Duration::from_secs(5),
+        apply_think_time: false,
+    }
+}
+
+#[tokio::test]
+async fn trace_parallel_merge_back_stops_regeneration() {
+    let s = extract_server().await;
+    let yaml = PAR_MERGE.replace("{URI}", &s.uri());
+    let sc = Scenario::from_yaml(&yaml).unwrap();
+    let t = trace_scenario(&sc, &trace_opts()).await;
+    let z = t
+        .steps
+        .iter()
+        .find(|st| st.request.as_ref().is_some_and(|r| r.url.contains("/z?")))
+        .expect("z step");
+    assert!(
+        z.request.as_ref().unwrap().url.contains("f=X"),
+        "{}",
+        z.request.as_ref().unwrap().url
+    );
+}
+
+#[tokio::test]
+async fn trace_extract_stops_regeneration() {
+    // M2: test-run도 추출이 쓴 키는 재평가 중지 — a는 새 값, b는 추출 값.
+    let s = extract_server().await;
+    let yaml = EXTRACT
+        .replace("{PATH}", "$.tok")
+        .replace("{URI}", &s.uri());
+    let sc = Scenario::from_yaml(&yaml).unwrap();
+    let t = trace_scenario(&sc, &trace_opts()).await;
+    let url = |i: usize| t.steps[i].request.as_ref().unwrap().url.clone();
+    assert!(!url(0).contains("f=X"), "{}", url(0));
+    assert!(url(1).contains("f=X"), "{}", url(1));
+}
