@@ -176,9 +176,11 @@ export function applyEdit(doc: Document, edit: Edit): void {
       // clean은 별개 목적 — yaml 라이브러리의 기본 `keepUndefined: false`가 undefined 필드를
       // 이미 걸러내므로 엄밀히는 불필요하지만, 그 기본값에 암묵 의존하지 않고 명시적으로
       // 방어하기 위함이다(dynamic-vars final review, tighten-optional).
-      const clean = Object.fromEntries(
-        Object.entries(edit.spec).filter(([, v]) => v !== undefined),
-      );
+      // refresh는 항상 맨 끝 키(엔진 방출 순서와 일치, spec 2026-10-17-genvar-per-request §5) —
+      // `{...spec, offset}`처럼 spec에 없던 키를 더하는 편집은 그 키를 refresh 뒤에 붙인다.
+      const { refresh, ...rest } = edit.spec;
+      const ordered = refresh === undefined ? rest : { ...rest, refresh };
+      const clean = Object.fromEntries(Object.entries(ordered).filter(([, v]) => v !== undefined));
       const node = doc.createNode(clean);
       // pick/rest 문자열은 항상 큰따옴표 — yaml(1.2 core)은 `0b101`·`+0x1F`·`-0o7`을 평문으로 두지만
       // serde_yaml은 그걸 정수로 읽어 미리보기(문자열)와 와이어(숫자)가 갈린다(엔진 무변경으로 해소).

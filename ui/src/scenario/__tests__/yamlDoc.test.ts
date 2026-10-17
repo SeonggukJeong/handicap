@@ -378,6 +378,42 @@ steps: []
     expect(round).toContain('base_url: "http://localhost:8080" # keep me');
     expect(round).toContain("gen: uuid");
   });
+
+  it("refresh: request는 항상 마지막 키 — spec에 없던 키(offset)를 뒤에 추가해도(키 순서 이빨)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    const spec = { gen: "date", format: "unix_ms", refresh: "request", offset: "+1d" } as GenSpec;
+    applyEdit(out.doc, { type: "setVariableGen", key: "checkin", spec });
+    const round = serializeDoc(out.doc);
+    const block = round.slice(round.indexOf("checkin:"));
+    expect(block.indexOf("offset:")).toBeGreaterThan(-1);
+    expect(block.indexOf("refresh: request")).toBeGreaterThan(block.indexOf("offset:"));
+    const reparsed = parseScenarioDoc(round);
+    if ("error" in reparsed) throw new Error(reparsed.error);
+    expect(reparsed.model.variables.checkin).toEqual({
+      gen: "date",
+      format: "unix_ms",
+      offset: "+1d",
+      refresh: "request",
+    });
+  });
+
+  it("refresh가 undefined면 키를 쓰지 않는다(해제 = 키 삭제)", () => {
+    const out = parseScenarioDoc(VALID_YAML);
+    if ("error" in out) throw new Error("expected ok");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "checkin",
+      spec: { gen: "uuid", refresh: "request" },
+    });
+    expect(serializeDoc(out.doc)).toContain("refresh: request");
+    applyEdit(out.doc, {
+      type: "setVariableGen",
+      key: "checkin",
+      spec: { gen: "uuid", refresh: undefined },
+    });
+    expect(serializeDoc(out.doc)).not.toContain("refresh");
+  });
 });
 
 describe("extract — model integration", () => {

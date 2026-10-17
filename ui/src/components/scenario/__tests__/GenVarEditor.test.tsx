@@ -647,3 +647,112 @@ describe("GenVarEditor — pick_array", () => {
     expect(onCommitGen).toHaveBeenCalledWith({ gen: "uuid" });
   });
 });
+
+describe("GenVarEditor — 요청마다 새로 뽑기 (refresh)", () => {
+  const cb = () => screen.getByRole("checkbox", { name: ko.editor.genRefreshAria("checkin") });
+
+  it("생성기에 체크박스, 켜면 refresh: request로 즉시 커밋", () => {
+    const { onCommitGen } = setup({ gen: "uuid" });
+    expect(cb()).not.toBeChecked();
+    fireEvent.click(cb());
+    expect(onCommitGen).toHaveBeenCalledTimes(1);
+    expect(onCommitGen.mock.calls[0][0]).toStrictEqual({ gen: "uuid", refresh: "request" });
+  });
+
+  it("켜진 상태에서 끄면 refresh를 undefined로 커밋(키 삭제)", () => {
+    const { onCommitGen } = setup({ gen: "uuid", refresh: "request" });
+    expect(cb()).toBeChecked();
+    fireEvent.click(cb());
+    expect(onCommitGen.mock.calls[0][0]).toStrictEqual({ gen: "uuid", refresh: undefined });
+  });
+
+  it("손으로 쓴 refresh: iteration은 꺼진 상태로 보인다 (Review Focus 1)", () => {
+    const { onCommitGen } = setup({ gen: "uuid", refresh: "iteration" });
+    expect(cb()).not.toBeChecked();
+    fireEvent.click(cb());
+    expect(onCommitGen.mock.calls[0][0]).toStrictEqual({ gen: "uuid", refresh: "request" });
+  });
+
+  it("고정값엔 체크박스 없음", () => {
+    setup("hello");
+    expect(screen.queryByRole("checkbox", { name: ko.editor.genRefreshAria("checkin") })).toBeNull();
+  });
+
+  it("disabled면 체크박스도 disabled", () => {
+    setup({ gen: "uuid" }, true);
+    expect(cb()).toBeDisabled();
+  });
+
+  it("생성기 → 다른 생성기 전환은 refresh를 보존 (Review Focus 5)", () => {
+    const { onCommitGen } = setup({ gen: "uuid", refresh: "request" });
+    fireEvent.change(screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }), {
+      target: { value: "random_int" },
+    });
+    expect(onCommitGen.mock.calls[0][0]).toStrictEqual({
+      gen: "random_int",
+      min: 1,
+      max: 100,
+      refresh: "request",
+    });
+  });
+
+  it("refresh 없는 생성기 전환은 refresh 키를 만들지 않는다(byte-identical)", () => {
+    const { onCommitGen } = setup({ gen: "uuid" });
+    fireEvent.change(screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }), {
+      target: { value: "random_string" },
+    });
+    expect(onCommitGen.mock.calls[0][0]).toStrictEqual({ gen: "random_string", length: 8 });
+  });
+
+  it("선택 배열로 전환 시 팝업 initial에 refresh가 실린다", () => {
+    const onOpenPickArray = vi.fn();
+    render(
+      <GenVarEditor
+        name="checkin"
+        value={{ gen: "uuid", refresh: "request" }}
+        disabled={false}
+        sampleTick={0}
+        onSampleRefresh={vi.fn()}
+        onCommitGen={vi.fn()}
+        onCommitStatic={vi.fn()}
+        onOpenPickArray={onOpenPickArray}
+      />,
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: ko.editor.genFieldType("checkin") }), {
+      target: { value: "pick_array" },
+    });
+    expect(onOpenPickArray).toHaveBeenCalledWith(
+      { gen: "pick_array", length: 10, min: 1, max: 3, refresh: "request" },
+      "switch",
+    );
+  });
+
+  it("↻ title은 refresh에 따라 요청마다/반복마다", () => {
+    const { unmount } = render(
+      <GenVarEditor
+        name="a"
+        value={{ gen: "uuid", refresh: "request" }}
+        disabled={false}
+        sampleTick={0}
+        onSampleRefresh={vi.fn()}
+        onCommitGen={vi.fn()}
+        onCommitStatic={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: ko.editor.genSampleRefreshAria("a") })).toHaveAttribute(
+      "title",
+      ko.editor.genSampleRefreshTitleRequest,
+    );
+    unmount();
+    setup({ gen: "uuid" });
+    expect(
+      screen.getByRole("button", { name: ko.editor.genSampleRefreshAria("checkin") }),
+    ).toHaveAttribute("title", ko.editor.genSampleRefreshTitle);
+  });
+
+  it("체크박스 접근명은 가시 라벨을 포함한다 (WCAG 2.5.3 — 리터럴로 고정, 카탈로그 자기참조 회피)", () => {
+    setup({ gen: "uuid" });
+    expect(screen.getByRole("checkbox", { name: "checkin 요청마다 새로 뽑기" })).toBeInTheDocument();
+    expect(screen.getByText("요청마다 새로 뽑기")).toBeInTheDocument();
+  });
+});

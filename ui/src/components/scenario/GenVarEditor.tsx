@@ -3,6 +3,7 @@ import { ko } from "../../i18n/ko";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { AutoGrowTextarea } from "../AutoGrowTextarea";
+import { HelpTip } from "../HelpTip";
 import {
   DATE_FORMAT_PRESETS,
   OFFSET_RE,
@@ -85,20 +86,23 @@ export function GenVarEditor({
   const changeKind = (k: VarKind) => {
     if (k === kind) return;
     if (k === "static") return onCommitStatic("");
+    // 생성기 → 생성기 전환은 refresh를 보존(spec §6.2) — 없으면 키를 만들지 않는다(byte-identical).
+    const carry: Pick<GenSpec, "refresh"> =
+      spec?.refresh !== undefined ? { refresh: spec.refresh } : {};
     // pick_array는 즉시 커밋하지 않고 팝업으로(적용 시 커밋·취소 시 원래 타입 유지 — spec §6.1).
     // 아래 삼항 체인은 미지 kind를 random_string으로 떨어뜨리므로 이 분기가 반드시 먼저여야 한다.
     if (k === "pick_array") {
-      onOpenPickArray?.(PICK_ARRAY_DEFAULT, "switch");
+      onOpenPickArray?.({ ...PICK_ARRAY_DEFAULT, ...carry }, "switch");
       return;
     }
     onCommitGen(
       k === "date"
-        ? { gen: "date", format: "%Y-%m-%d", tz: "Asia/Seoul" }
+        ? { gen: "date", format: "%Y-%m-%d", tz: "Asia/Seoul", ...carry }
         : k === "random_int"
-          ? { gen: "random_int", min: 1, max: 100 }
+          ? { gen: "random_int", min: 1, max: 100, ...carry }
           : k === "uuid"
-            ? { gen: "uuid" }
-            : { gen: "random_string", length: 8 },
+            ? { gen: "uuid", ...carry }
+            : { gen: "random_string", length: 8, ...carry },
     );
   };
 
@@ -465,13 +469,38 @@ export function GenVarEditor({
         </button>
       )}
 
+      {spec && (
+        <div className="flex items-center gap-1 text-xs text-slate-600">
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              aria-label={ko.editor.genRefreshAria(name)}
+              checked={spec.refresh === "request"}
+              disabled={disabled}
+              onChange={(e) =>
+                onCommitGen({ ...spec, refresh: e.target.checked ? "request" : undefined })
+              }
+            />
+            <span>{ko.editor.genRefreshLabel}</span>
+          </label>
+          {/* HelpTip은 label 밖 형제 — 체크박스 accname 오염 방지(U3). 패널 안이라 Modal ESC 함정 무관. */}
+          <HelpTip label={ko.editor.genRefreshHelpLabel}>
+            <span className="block">{ko.glossary.genRefreshIntro}</span>
+            <span className="mt-1 block">{ko.glossary.genRefreshPriority}</span>
+          </HelpTip>
+        </div>
+      )}
       {previewSpec && (
         <div className="flex items-center gap-1 text-xs">
           <GenSampleLine spec={previewSpec} name={name} tick={sampleTick} />
           <button
             type="button"
             aria-label={ko.editor.genSampleRefreshAria(name)}
-            title={ko.editor.genSampleRefreshTitle}
+            title={
+              spec?.refresh === "request"
+                ? ko.editor.genSampleRefreshTitleRequest
+                : ko.editor.genSampleRefreshTitle
+            }
             onClick={onSampleRefresh}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-accent-600"
           >

@@ -72,6 +72,9 @@ export const ko = {
     jsonCastRule:
       "따옴표 안에 캐스트 토큰 하나만 있어야 합니다. :json은 유효한 JSON이어야 하니(객체·배열·숫자·불리언·null·따옴표 친 문자열) 평범한 문자열엔 :str을 쓰세요.",
     duration: "지속 시간 — 부하를 주는 총 시간(초)입니다. 짧게 시작해 점차 늘려보세요.",
+    genRefreshIntro:
+      "켜면 이 변수를 쓰는 요청이 나갈 때마다 새 값을 뽑습니다. 끄면 반복(시나리오 1회 실행) 동안 같은 값을 씁니다.",
+    genRefreshPriority: "같은 이름을 데이터셋이나 추출 값이 채우면 그 값이 우선합니다.",
   },
   runDialog: {
     title: "실행 설정",
@@ -566,6 +569,12 @@ export const ko = {
     // ── 예시 안정화 배선 (genvar-preview-ux T2) ──
     genSampleRefreshAria: (name: string) => `${name} 예시 다시 뽑기`,
     genSampleRefreshTitle: "다시 뽑기 — 실행 시 반복마다 새 값이 생성됩니다",
+    genSampleRefreshTitleRequest: "다시 뽑기 — 실행 시 요청마다 새 값이 생성됩니다",
+    // ── 요청마다 새로 뽑기 (genvar-per-request) ──
+    genRefreshLabel: "요청마다 새로 뽑기",
+    genRefreshAria: (name: string) => `${name} 요청마다 새로 뽑기`,
+    genRefreshHelpLabel: "요청마다 새로 뽑기 도움말",
+    genRefreshBadge: "요청마다",
     // ── 생성기 펼침 편집기 필드 (dynamic-vars T6) ──
     genFieldType: (name: string) => `${name} 타입`,
     genFieldFormatPreset: (name: string) => `${name} 날짜 형식`,
@@ -625,6 +634,7 @@ export const ko = {
     pickValueKindHint:
       'true·false·null·숫자는 그 타입으로, 나머지는 문자열로 · 숫자를 문자열로 보내려면 "1"',
     pickPreviewTitle: "미리보기 (반복마다 새로 뽑힘)",
+    pickPreviewTitleRequest: "미리보기 (요청마다 새로 뽑힘)",
     pickPreviewReroll: "↻ 다시 뽑기",
     pickPreviewInvalid: "설정을 고치면 예시가 나와요",
     pickUsageHint: (name: string) => `JSON 바디에서 "{{${name}:json}}" 로 쓰면 배열로 들어갑니다.`,
