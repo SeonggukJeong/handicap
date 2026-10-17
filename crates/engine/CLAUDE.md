@@ -25,6 +25,7 @@
 - **JSONPath 라이브러리 선택** (Slice 4): `serde_json_path` (RFC 9535 compliant). `jsonpath-rust`는 의존성이 더 무겁고 API가 변동적. `JsonPath::parse(path).query(json).first()` 패턴이면 충분.
 - **extract `decode`/`claim` 실패 문구에 하위 에러 Display 금지** (extract-base64-decode): `post_process`의 모든 실패는 `"{var}: <고정 사유>"` — base64 `DecodeError`는 입력 바이트 값+offset을, `serde_json::Error`는 입력 조각을 실어 나르므로 `map_err(|_| …)`로 버리고, 에러 타입(`Base64TextError`·`JwtShapeError`)은 **데이터 없는 변형만** 둬서 운반 경로 자체를 없앤다. 판정 순서(①claim⇒decode ②jwt 3조각 ③base64 ④UTF-8 ⑤JSON ⑥claim 파싱 ⑦쿼리)는 다중결함 입력의 보고를 결정적으로 만드는 계약 — ⑤↔⑥을 "fail-fast"로 뒤집지 말 것(테스트로 핀). 기존 `no header`/`body not JSON: {e}` 문구는 R7 byte-identical이라 손대지 않는다. **디코딩 결과는 임의 UTF-8**이라 CR/LF가 섞이면 헤더 템플릿에서 `HeaderValue` 거부(가용성 영향만, body 추출 `\n`과 동류).
 - **엔진과 UI에 같은 템플릿 문법을 두 번 구현** (Slice 4 M3): 엔진 `template.rs`는 runtime/엄격, UI `template.ts::resolveForDisplay`는 display/관대(미해결 토큰은 그대로). 새 토큰(`${session_id}` 등)이나 새 문법을 엔진에 추가하면 **반드시 UI resolver도 동시에**, 아니면 Run 상세의 진단 표시가 거짓말을 한다.
+- **`request_flow_refs`(executor.rs)는 `execute_step` 렌더 지점과 lockstep** (genvar-per-request): `refresh: request` 변수의 요청별 재평가 대상을 url·헤더 값·JSON·form 값·raw 렌더로 미리 계산한다 — `execute_step`에 새 렌더 필드를 추가하면 여기도 추가(빠뜨리면 그 필드에서만 반복 값이 조용히 나간다). 수집 sink가 `{{x}}`/`${X}`를 구분 안 하므로 env에 대상 이름을 더미로 넣는 컨텍스트가 load-bearing(`reqgen.rs` 테스트 `env_and_system_tokens_are_not_targets`).
 
 ## 제어 흐름 (loop, `execute_steps`)
 

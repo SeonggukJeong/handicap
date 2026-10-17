@@ -369,6 +369,51 @@ fn render_json_collecting(
     }
 }
 
+/// 요청이 참조하는 `names`(refresh: request 변수) 인덱스 — 실행 시작 시 1회
+/// (spec 2026-10-17-genvar-per-request §4.3). **렌더러 자신의 수집 경로를 재사용**하고,
+/// `execute_step`의 렌더 지점(url·헤더 값·JSON·form 값·raw)과 lockstep이다 — 새 렌더
+/// 필드를 추가하면 여기도 추가할 것(빠뜨리면 그 필드에서만 반복 값이 나간다).
+/// 수집 sink는 미해결 `{{x}}`와 `${X}`를 구분 없이 담으므로, env에 `names`를 더미로
+/// 넣어 `${f}`가 수집되지 않게 하고 `loop_index: Some(0)`로 `${loop_index}`도 막은 뒤
+/// `names`와 교집합한다(`${BASE_URL}` 같은 다른 env 이름은 교집합에서 빠진다).
+#[allow(dead_code)] // Task 3 배선 후 제거
+pub(crate) fn request_flow_refs(req: &crate::scenario::Request, names: &[String]) -> Vec<usize> {
+    let vars: BTreeMap<String, String> = BTreeMap::new();
+    let env: BTreeMap<String, String> = names.iter().map(|n| (n.clone(), String::new())).collect();
+    let ctx = TemplateContext {
+        vars: &vars,
+        env: &env,
+        vu_id: 0,
+        iter_id: 0,
+        loop_index: Some(0),
+    };
+    let mut unbound: Vec<String> = Vec::new();
+    render_collecting(&req.url, &ctx, &mut unbound);
+    for v in req.headers.values() {
+        render_collecting(v, &ctx, &mut unbound);
+    }
+    match &req.body {
+        Some(Body::Json(v)) => {
+            render_json_collecting(v, &ctx, &mut unbound);
+        }
+        Some(Body::Form(map)) => {
+            for v in map.values() {
+                render_collecting(v, &ctx, &mut unbound);
+            }
+        }
+        Some(Body::Raw(s)) => {
+            render_collecting(s, &ctx, &mut unbound);
+        }
+        None => {}
+    }
+    names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| unbound.iter().any(|u| u == *n))
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// Trace sibling of [`execute_step`]: renders leniently (collecting unbound tokens)
 /// and KEEPS the resolved request + response detail. Never errors — failures are
 /// captured in the returned `HttpTrace.error`. Does not touch the load hot path.

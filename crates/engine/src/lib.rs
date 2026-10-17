@@ -10,6 +10,7 @@ pub mod extract;
 mod genvars;
 pub mod pacing;
 pub mod percentiles;
+mod reqgen;
 pub mod runner;
 pub mod scenario;
 pub mod template;
