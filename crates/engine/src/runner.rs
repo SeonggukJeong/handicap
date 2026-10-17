@@ -434,7 +434,7 @@ async fn run_vu(
             crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
         let mut req = reqgen
             .as_ref()
-            .map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
+            .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
         // Inject every binding in declared order. The first binding whose Unique
         // slice is exhausted (None) stops this VU; the partial inject is discarded.
         // Side effect (spec §7): an earlier IterSequential binding's shared counter
@@ -1234,7 +1234,7 @@ async fn run_vu_curve(
                 crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
             let mut req = reqgen
                 .as_ref()
-                .map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
+                .map(|p| ReqGen::new(p.clone(), &mut gen_rng));
             // Inject every binding in declared order (mirror of run_vu). First
             // exhausted Unique slice → permanent clean stop; partial inject discarded.
             // Side effect (spec §7): an earlier IterSequential counter advances one
@@ -1611,7 +1611,7 @@ async fn run_arrival(
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_vars: BTreeMap<String, String> =
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
-    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
+    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
     // and drop this arrival (partial inject discarded). Side effect (spec §7): an

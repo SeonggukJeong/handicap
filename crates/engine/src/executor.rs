@@ -376,12 +376,17 @@ fn render_json_collecting(
 /// 수집 sink는 미해결 `{{x}}`와 `${X}`를 구분 없이 담으므로, env에 `names`를 더미로
 /// 넣어 `${f}`가 수집되지 않게 하고 `loop_index: Some(0)`로 `${loop_index}`도 막은 뒤
 /// `names`와 교집합한다(`${BASE_URL}` 같은 다른 env 이름은 교집합에서 빠진다).
-pub(crate) fn request_flow_refs(req: &crate::scenario::Request, names: &[String]) -> Vec<usize> {
+/// `dummy_env`(names를 빈 값으로 담은 맵)와 `index`(name→인덱스)는 호출부가 run당 1회
+/// 만들어 넘긴다 — 수집분을 `index`로 1회 순회해 O(토큰 수), 결과는 정렬·중복 제거된 인덱스.
+pub(crate) fn request_flow_refs(
+    req: &crate::scenario::Request,
+    dummy_env: &BTreeMap<String, String>,
+    index: &std::collections::HashMap<String, usize>,
+) -> Vec<usize> {
     let vars: BTreeMap<String, String> = BTreeMap::new();
-    let env: BTreeMap<String, String> = names.iter().map(|n| (n.clone(), String::new())).collect();
     let ctx = TemplateContext {
         vars: &vars,
-        env: &env,
+        env: dummy_env,
         vu_id: 0,
         iter_id: 0,
         loop_index: Some(0),
@@ -405,12 +410,11 @@ pub(crate) fn request_flow_refs(req: &crate::scenario::Request, names: &[String]
         }
         None => {}
     }
-    names
+    let hit: std::collections::BTreeSet<usize> = unbound
         .iter()
-        .enumerate()
-        .filter(|(_, n)| unbound.iter().any(|u| u == *n))
-        .map(|(i, _)| i)
-        .collect()
+        .filter_map(|u| index.get(u).copied())
+        .collect();
+    hit.into_iter().collect()
 }
 
 /// Trace sibling of [`execute_step`]: renders leniently (collecting unbound tokens)

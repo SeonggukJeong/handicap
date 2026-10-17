@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use rand::{RngCore, SeedableRng};
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
 /// Knobs supplied by the controller per test-run.
@@ -277,7 +277,7 @@ async fn trace_once(
     let mut iter_vars: BTreeMap<String, String> =
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
     // 행/반복마다 새 상태 — 행 간 죽은 집합이 새지 않는다.
-    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
+    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), &mut gen_rng));
     // 기존 데이터셋 overlay 루프 무변경 — 우선순위 생성 < 데이터셋 < extract.
     for (k, v) in seed_vars {
         iter_vars.insert(k.clone(), v.clone());
@@ -487,7 +487,14 @@ async fn trace_steps(
                 // No decision row for the node itself (all branches run); each branch
                 // http appears as an ordinary Http row in declaration order.
                 let entry: BTreeMap<String, String> = iter_vars.clone();
-                for branch in &par.branches {
+                // runner와 동일하게 모든 분기 ReqGen을 merge-back 전에 한꺼번에 fork한다
+                // (앞 분기의 `<branch>.<k>` mark_written이 뒤 분기 fork에 새지 않게).
+                let branch_reqs: Vec<Option<ReqGen>> = par
+                    .branches
+                    .iter()
+                    .map(|_| req.as_mut().map(ReqGen::fork))
+                    .collect();
+                for (branch, mut branch_req) in par.branches.iter().zip(branch_reqs) {
                     if state.truncated {
                         return;
                     }
@@ -496,7 +503,6 @@ async fn trace_steps(
                     // intentionally preserved so the preview shows what resolved.
                     // Do NOT add an early-return between the recursion and the merge.
                     let mut branch_vars = entry.clone();
-                    let mut branch_req = req.as_mut().map(ReqGen::fork);
                     Box::pin(trace_steps(
                         client,
                         &branch.steps,

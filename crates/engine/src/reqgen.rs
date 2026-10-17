@@ -1,10 +1,10 @@
 //! 생성 변수 요청 단위 재평가 (spec 2026-10-17-genvar-per-request §4.2–4.4).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use rand::rngs::StdRng;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 
 use crate::executor::request_flow_refs;
 use crate::genvars::{GenSpec, Refresh, VarDecl, eval_gen};
@@ -15,6 +15,8 @@ use crate::scenario::{HttpStep, Scenario, Step};
 pub(crate) struct RequestGenPlan {
     names: Vec<String>,
     specs: Vec<GenSpec>,
+    /// name → names 인덱스(`mark_written` O(1), 사전계산 선형화).
+    index: HashMap<String, usize>,
     /// step_id → 재평가 대상(names 인덱스). 같은 step_id 여러 스텝은 합집합(§4.3).
     by_step: HashMap<String, Vec<usize>>,
 }
@@ -39,22 +41,29 @@ impl RequestGenPlan {
         }
         let mut https: Vec<&HttpStep> = Vec::new();
         collect_http(&scenario.steps, &mut https);
-        let mut by_step: HashMap<String, Vec<usize>> = HashMap::new();
+        let index: HashMap<String, usize> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i))
+            .collect();
+        let dummy_env: BTreeMap<String, String> =
+            names.iter().map(|n| (n.clone(), String::new())).collect();
+        let mut union: HashMap<String, BTreeSet<usize>> = HashMap::new();
         for h in https {
-            let refs = request_flow_refs(&h.request, &names);
+            let refs = request_flow_refs(&h.request, &dummy_env, &index);
             if refs.is_empty() {
                 continue;
             }
-            let e = by_step.entry(h.id.clone()).or_default();
-            for i in refs {
-                if !e.contains(&i) {
-                    e.push(i);
-                }
-            }
+            union.entry(h.id.clone()).or_default().extend(refs);
         }
+        let by_step = union
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect();
         Some(Arc::new(Self {
             names,
             specs,
+            index,
             by_step,
         }))
     }
@@ -93,12 +102,12 @@ pub(crate) struct ReqGen {
 }
 
 impl ReqGen {
-    /// `seed`는 호출부의 **생성기** rng에서 뽑는다(think rng 금지).
-    pub(crate) fn new(plan: Arc<RequestGenPlan>, seed: u64) -> Self {
+    /// 시드(256비트)는 호출부의 **생성기** rng(`parent`)에서 뽑는다(think rng 금지).
+    pub(crate) fn new(plan: Arc<RequestGenPlan>, parent: &mut StdRng) -> Self {
         let n = plan.names.len();
         Self {
             plan,
-            rng: StdRng::seed_from_u64(seed),
+            rng: StdRng::from_seed(parent.r#gen::<[u8; 32]>()),
             dead: vec![false; n],
         }
     }
@@ -107,7 +116,7 @@ impl ReqGen {
     /// (우선순위 생성 < 데이터셋 < 추출 유지).
     pub(crate) fn mark_written<'a>(&mut self, keys: impl IntoIterator<Item = &'a String>) {
         for k in keys {
-            if let Some(i) = self.plan.names.iter().position(|n| n == k) {
+            if let Some(&i) = self.plan.index.get(k) {
                 self.dead[i] = true;
             }
         }
@@ -132,7 +141,7 @@ impl ReqGen {
     pub(crate) fn fork(&mut self) -> Self {
         Self {
             plan: self.plan.clone(),
-            rng: StdRng::seed_from_u64(self.rng.next_u64()),
+            rng: StdRng::from_seed(self.rng.r#gen::<[u8; 32]>()),
             dead: self.dead.clone(),
         }
     }
@@ -274,7 +283,7 @@ mod tests {
             &http(ID_A, "http://x/{{f}}/{{g}}"),
         );
         let p = RequestGenPlan::build(&s).unwrap();
-        let mut rg = ReqGen::new(p, 7);
+        let mut rg = ReqGen::new(p, &mut StdRng::seed_from_u64(7));
         let mut vars: BTreeMap<String, String> = [
             ("f".to_string(), "F0".to_string()),
             ("g".to_string(), "G0".to_string()),
@@ -297,7 +306,7 @@ mod tests {
             &http(ID_A, "http://x/{{f}}/{{g}}"),
         );
         let p = RequestGenPlan::build(&s).unwrap();
-        let mut parent = ReqGen::new(p, 7);
+        let mut parent = ReqGen::new(p, &mut StdRng::seed_from_u64(7));
         parent.mark_written([&"g".to_string()]);
         let mut a = parent.fork();
         let mut b = parent.fork();
@@ -339,5 +348,32 @@ mod tests {
         for (id, v) in ids.iter().zip(["a", "b", "c", "d", "e"]) {
             assert_eq!(names_for(&p, id), vec![v.to_string()], "step {id}");
         }
+    }
+
+    /// 사전계산이 선형이어야 한다(보안 리뷰 I1): 선언 2.5만 × 토큰 10만 개에서도 즉시 끝난다.
+    #[test]
+    fn build_is_linear_in_declarations_times_tokens() {
+        let n = 25_000;
+        let mut vars = String::new();
+        for i in 0..n {
+            vars.push_str(&format!("  v{i}: {{gen: uuid, refresh: request}}\n"));
+        }
+        let url = format!("http://x/{{{{v0}}}}{}", "{{zz}}".repeat(100_000));
+        let s = sc(vars.trim_end_matches('\n'), &http(ID_A, &url));
+        let t = std::time::Instant::now();
+        let p = RequestGenPlan::build(&s).unwrap();
+        let el = t.elapsed();
+        assert_eq!(names_for(&p, ID_A), vec!["v0".to_string()]);
+        assert!(el < std::time::Duration::from_secs(1), "build took {el:?}");
+    }
+
+    #[test]
+    fn mark_written_uses_index() {
+        let s = sc(
+            "  f: {gen: uuid, refresh: request}\n  g: {gen: uuid, refresh: request}",
+            &http(ID_A, "http://x/{{f}}/{{g}}"),
+        );
+        let p = RequestGenPlan::build(&s).unwrap();
+        assert_eq!(p.index["g"], 1);
     }
 }
