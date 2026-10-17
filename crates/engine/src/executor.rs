@@ -376,7 +376,6 @@ fn render_json_collecting(
 /// 수집 sink는 미해결 `{{x}}`와 `${X}`를 구분 없이 담으므로, env에 `names`를 더미로
 /// 넣어 `${f}`가 수집되지 않게 하고 `loop_index: Some(0)`로 `${loop_index}`도 막은 뒤
 /// `names`와 교집합한다(`${BASE_URL}` 같은 다른 env 이름은 교집합에서 빠진다).
-#[allow(dead_code)] // Task 3 배선 후 제거
 pub(crate) fn request_flow_refs(req: &crate::scenario::Request, names: &[String]) -> Vec<usize> {
     let vars: BTreeMap<String, String> = BTreeMap::new();
     let env: BTreeMap<String, String> = names.iter().map(|n| (n.clone(), String::new())).collect();

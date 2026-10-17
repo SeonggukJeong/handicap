@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use rand::SeedableRng;
+use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 /// Knobs supplied by the controller per test-run.
@@ -95,10 +95,12 @@ pub struct ScenarioTrace {
     pub error: Option<String>,
 }
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::executor::{VuClient, execute_step_traced};
 use crate::pacing::ThinkTime;
+use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::runner::select_branch;
 use crate::scenario::{CompareOp, Condition, IfStep, Scenario, Step};
 use crate::template::{TemplateContext, render_collecting};
@@ -149,6 +151,7 @@ pub async fn trace_scenario_with_seed(
     seed_vars: &BTreeMap<String, String>,
 ) -> ScenarioTrace {
     let started = Instant::now();
+    let reqgen = RequestGenPlan::build(scenario);
     let deadline = started + opts.max_wall;
     let client = match VuClient::new(scenario.cookie_jar) {
         Ok(c) => c,
@@ -169,7 +172,17 @@ pub async fn trace_scenario_with_seed(
         truncated: false,
         iter_id: 0,
     };
-    trace_once(&client, scenario, opts, seed_vars, 0, deadline, &mut state).await
+    trace_once(
+        &client,
+        scenario,
+        opts,
+        seed_vars,
+        0,
+        deadline,
+        &mut state,
+        reqgen.as_ref(),
+    )
+    .await
 }
 
 /// 시나리오를 시드 행마다 1회씩 순차 실행 (1 VU iter_sequential 미러 — ADR-0047).
@@ -183,6 +196,7 @@ pub async fn trace_scenario_rows(
     seeded_rows: &[(u64, BTreeMap<String, String>)],
 ) -> RowsTrace {
     let started = Instant::now();
+    let reqgen = RequestGenPlan::build(scenario);
     let deadline = started + opts.max_wall;
     let client = match VuClient::new(scenario.cookie_jar) {
         Ok(c) => c,
@@ -210,7 +224,14 @@ pub async fn trace_scenario_rows(
             break;
         }
         let trace = trace_once(
-            &client, scenario, opts, seed, i as u32, deadline, &mut state,
+            &client,
+            scenario,
+            opts,
+            seed,
+            i as u32,
+            deadline,
+            &mut state,
+            reqgen.as_ref(),
         )
         .await;
         let mid_cut = trace.truncated;
@@ -236,6 +257,7 @@ pub async fn trace_scenario_rows(
 /// 클라이언트 하나로 시나리오를 1패스 실행하는 내부 코어. `state.requests`
 /// (공유 요청 예산)는 호출 간 이월되고 `steps`/`truncated`/`iter_id`는 진입 시
 /// 리셋된다 — `trace_scenario_rows`(Task 2)가 행 루프에서 재사용 (R6).
+#[allow(clippy::too_many_arguments)]
 async fn trace_once(
     client: &VuClient,
     scenario: &Scenario,
@@ -244,6 +266,7 @@ async fn trace_once(
     iter_id: u32,
     deadline: Instant,
     state: &mut TraceState,
+    reqgen: Option<&Arc<RequestGenPlan>>,
 ) -> ScenarioTrace {
     let started = Instant::now();
     state.steps = Vec::new();
@@ -253,9 +276,14 @@ async fn trace_once(
     let mut gen_rng = rand::rngs::StdRng::from_entropy();
     let mut iter_vars: BTreeMap<String, String> =
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    // 행/반복마다 새 상태 — 행 간 죽은 집합이 새지 않는다.
+    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
     // 기존 데이터셋 overlay 루프 무변경 — 우선순위 생성 < 데이터셋 < extract.
     for (k, v) in seed_vars {
         iter_vars.insert(k.clone(), v.clone());
+    }
+    if let Some(rg) = req.as_mut() {
+        rg.mark_written(seed_vars.keys());
     }
     Box::pin(trace_steps(
         client,
@@ -267,6 +295,7 @@ async fn trace_once(
         deadline,
         state,
         scenario.default_think_time,
+        &mut req,
     ))
     .await;
     let ok = state.steps.iter().all(|s| s.error.is_none());
@@ -331,6 +360,8 @@ async fn trace_steps(
     // 시나리오 기본 think time. http 스텝이 자기 `think_time`을 안 가지면 이 값을 쓴다.
     // **Parallel arm은 분기 재귀에 `None`을 넘긴다**(spec R4, runner와 동일 규칙).
     default_think: Option<ThinkTime>,
+    // 요청 단위 재평가 상태(runner::execute_steps와 동일 규칙). None = refresh 변수 없음.
+    req: &mut Option<ReqGen>,
 ) {
     for step in steps {
         if state.truncated {
@@ -342,6 +373,9 @@ async fn trace_steps(
         }
         match step {
             Step::Http(http) => {
+                if let Some(rg) = req.as_mut() {
+                    rg.refresh(&http.id, iter_vars);
+                }
                 let ctx = TemplateContext {
                     vars: iter_vars,
                     env,
@@ -350,6 +384,9 @@ async fn trace_steps(
                     loop_index,
                 };
                 let t = execute_step_traced(client, http, &ctx).await;
+                if let Some(rg) = req.as_mut() {
+                    rg.mark_written(t.extracted.keys());
+                }
                 iter_vars.extend(t.extracted.clone());
                 state.requests += 1;
                 state.steps.push(StepTrace {
@@ -395,6 +432,7 @@ async fn trace_steps(
                         deadline,
                         state,
                         default_think,
+                        req,
                     ))
                     .await;
                     if state.truncated {
@@ -436,6 +474,7 @@ async fn trace_steps(
                     deadline,
                     state,
                     default_think,
+                    req,
                 ))
                 .await;
             }
@@ -457,6 +496,7 @@ async fn trace_steps(
                     // intentionally preserved so the preview shows what resolved.
                     // Do NOT add an early-return between the recursion and the merge.
                     let mut branch_vars = entry.clone();
+                    let mut branch_req = req.as_mut().map(ReqGen::fork);
                     Box::pin(trace_steps(
                         client,
                         &branch.steps,
@@ -471,6 +511,7 @@ async fn trace_steps(
                         // 그룹 시간이 수면만큼 오염된다. 분기 스텝에 명시된 think_time은 위
                         // Http arm에서 그대로 적용된다.
                         None,
+                        &mut branch_req,
                     ))
                     .await;
                     for k in branch.output_var_names() {

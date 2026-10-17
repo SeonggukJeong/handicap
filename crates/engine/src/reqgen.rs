@@ -12,7 +12,6 @@ use crate::scenario::{HttpStep, Scenario, Step};
 
 /// run당 1회 계산(부하 3진입점은 VU spawn 전, test-run은 trace 호출당) — `Arc`로 VU 공유.
 #[derive(Debug)]
-#[allow(dead_code)] // Task 3 배선 후 제거
 pub(crate) struct RequestGenPlan {
     names: Vec<String>,
     specs: Vec<GenSpec>,
@@ -22,7 +21,6 @@ pub(crate) struct RequestGenPlan {
 
 impl RequestGenPlan {
     /// `refresh: request` 선언이 없으면 `None` — 호출부는 상태를 만들지 않는다(hot path 분기 1회).
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn build(scenario: &Scenario) -> Option<Arc<Self>> {
         let mut names = Vec::new();
         let mut specs = Vec::new();
@@ -61,7 +59,6 @@ impl RequestGenPlan {
         }))
     }
 
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn targets(&self, step_id: &str) -> &[usize] {
         self.by_step.get(step_id).map(Vec::as_slice).unwrap_or(&[])
     }
@@ -89,7 +86,6 @@ fn collect_http<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
 }
 
 /// 반복(또는 parallel 분기) 단위 재평가 상태 — 생성기 rng + 죽은 집합(§4.2).
-#[allow(dead_code)] // Task 3 배선 후 제거
 pub(crate) struct ReqGen {
     plan: Arc<RequestGenPlan>,
     rng: StdRng,
@@ -98,7 +94,6 @@ pub(crate) struct ReqGen {
 
 impl ReqGen {
     /// `seed`는 호출부의 **생성기** rng에서 뽑는다(think rng 금지).
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn new(plan: Arc<RequestGenPlan>, seed: u64) -> Self {
         let n = plan.names.len();
         Self {
@@ -110,7 +105,6 @@ impl ReqGen {
 
     /// 데이터셋 주입·추출이 **실제로 쓴** 키 — 그 반복(분기)의 남은 요청에서 재평가 중지
     /// (우선순위 생성 < 데이터셋 < 추출 유지).
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn mark_written<'a>(&mut self, keys: impl IntoIterator<Item = &'a String>) {
         for k in keys {
             if let Some(i) = self.plan.names.iter().position(|n| n == k) {
@@ -120,7 +114,6 @@ impl ReqGen {
     }
 
     /// 요청 직전: 이 스텝이 참조하는 살아 있는 refresh 변수만 새로 평가해 덮어쓴다.
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn refresh(&mut self, step_id: &str, vars: &mut BTreeMap<String, String>) {
         let targets = self.plan.targets(step_id);
         if targets.is_empty() {
@@ -136,7 +129,6 @@ impl ReqGen {
     }
 
     /// parallel 분기용 복제 — 죽은 집합 복사 + 부모 생성기 rng에서 시드 1개.
-    #[allow(dead_code)] // Task 3 배선 후 제거
     pub(crate) fn fork(&mut self) -> Self {
         Self {
             plan: self.plan.clone(),
@@ -316,5 +308,36 @@ mod tests {
         assert_eq!(va["g"], "G");
         assert_eq!(vb["g"], "G");
         assert_ne!(va["f"], vb["f"], "분기마다 다른 rng");
+    }
+
+    /// `collect_http`가 if(then·elif·else)·parallel 분기 안의 요청도 모은다(spec §4.3 "중첩 포함").
+    /// arm이 비면 그 요청은 재평가 대상에서 빠져 이전 값이 조용히 나간다(과소 판정).
+    #[test]
+    fn nested_if_and_parallel_requests_are_targets() {
+        let vars = "  a: {gen: uuid, refresh: request}\n  b: {gen: uuid, refresh: request}\n  c: {gen: uuid, refresh: request}\n  d: {gen: uuid, refresh: request}\n  e: {gen: uuid, refresh: request}";
+        let h = |id: &str, v: &str| {
+            format!(
+                "{{ id: \"{id}\", name: s, type: http, request: {{ method: GET, url: \"http://x/{{{{{v}}}}}\" }} }}"
+            )
+        };
+        let ids = [
+            "01HX0000000000000000000011",
+            "01HX0000000000000000000012",
+            "01HX0000000000000000000013",
+            "01HX0000000000000000000014",
+            "01HX0000000000000000000015",
+        ];
+        let steps = format!(
+            "  - id: \"01HX00000000000000000000F0\"\n    name: c\n    type: if\n    cond: {{left: \"1\", op: exists}}\n    then:\n      - {}\n    elif:\n      - cond: {{left: \"1\", op: exists}}\n        then:\n          - {}\n    else:\n      - {}\n  - id: \"01HX00000000000000000000P0\"\n    name: par\n    type: parallel\n    branches:\n      - name: x\n        steps:\n          - {}\n      - name: y\n        steps:\n          - {}\n",
+            h(ids[0], "a"),
+            h(ids[1], "b"),
+            h(ids[2], "c"),
+            h(ids[3], "d"),
+            h(ids[4], "e"),
+        );
+        let p = RequestGenPlan::build(&sc(vars, &steps)).unwrap();
+        for (id, v) in ids.iter().zip(["a", "b", "c", "d", "e"]) {
+            assert_eq!(names_for(&p, id), vec![v.to_string()], "step {id}");
+        }
     }
 }

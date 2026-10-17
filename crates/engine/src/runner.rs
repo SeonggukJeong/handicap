@@ -21,6 +21,7 @@ use crate::dataset::{BindingPolicy, DataSet};
 use crate::error::{EngineError, Result, safe_cause};
 use crate::executor::{VuClient, execute_step};
 use crate::pacing::{PaceOutcome, ThinkTime, pace};
+use crate::reqgen::{ReqGen, RequestGenPlan};
 use crate::scenario::{Scenario, Step};
 use crate::template::TemplateContext;
 
@@ -168,6 +169,8 @@ pub async fn run_scenario(
     // One shared worker-local counter per binding (IterSequential | Unique only),
     // created once per run; index = binding order.
     let seq_counters = make_seq_counters(&datasets);
+    // refresh: request 판정 — run당 1회, VU 공유(spec §4.3). None이면 요청 경로는 지금과 같다.
+    let reqgen = RequestGenPlan::build(&scenario);
 
     let mut set = JoinSet::new();
 
@@ -208,6 +211,7 @@ pub async fn run_scenario(
             let cancel_vu = cancel.clone();
             let datasets = datasets.clone();
             let seq_counters = seq_counters.clone();
+            let reqgen = reqgen.clone();
             set.spawn(async move {
                 if let Err(e) = run_vu(
                     scenario,
@@ -223,6 +227,7 @@ pub async fn run_scenario(
                     think_seed,
                     measure_phases,
                     connect_timeout,
+                    reqgen,
                 )
                 .await
                 {
@@ -386,7 +391,10 @@ pub async fn run_scenario(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip(scenario, agg, env, datasets, seq_counters), fields(vu_id))]
+#[instrument(
+    skip(scenario, agg, env, datasets, seq_counters, reqgen),
+    fields(vu_id)
+)]
 async fn run_vu(
     scenario: Arc<Scenario>,
     vu_id: u32,
@@ -401,6 +409,7 @@ async fn run_vu(
     think_seed: Option<u32>,
     measure_phases: bool,
     connect_timeout: Option<Duration>,
+    reqgen: Option<Arc<RequestGenPlan>>,
 ) -> Result<()> {
     let client = VuClient::with_timeout(
         scenario.cookie_jar,
@@ -423,6 +432,9 @@ async fn run_vu(
         // per iteration — generator values re-evaluate every loop).
         let mut iter_vars: BTreeMap<String, String> =
             crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+        let mut req = reqgen
+            .as_ref()
+            .map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
         // Inject every binding in declared order. The first binding whose Unique
         // slice is exhausted (None) stops this VU; the partial inject is discarded.
         // Side effect (spec §7): an earlier IterSequential binding's shared counter
@@ -434,6 +446,9 @@ async fn run_vu(
                 Some(idx) => {
                     for (k, v) in &ds.rows[idx] {
                         iter_vars.insert(k.clone(), v.clone());
+                    }
+                    if let Some(rg) = req.as_mut() {
+                        rg.mark_written(ds.rows[idx].keys());
                     }
                 }
                 // unique slice exhausted → stop this VU (clean Ok, not a failure).
@@ -460,6 +475,7 @@ async fn run_vu(
             &mut think_rng,
             measure_phases,
             scenario.default_think_time,
+            &mut req,
         )
         .await?;
         match flow {
@@ -509,6 +525,8 @@ async fn execute_steps(
     // 시나리오 기본 think time. http 스텝이 자기 `think_time`을 안 가지면 이 값을 쓴다.
     // **Parallel arm은 분기 재귀에 `None`을 넘긴다**(spec R4).
     default_think: Option<ThinkTime>,
+    // 요청 단위 재평가 상태(spec 2026-10-17-genvar-per-request §4.4). None = refresh 변수 없음.
+    req: &mut Option<ReqGen>,
 ) -> Result<StepFlow> {
     for step in steps {
         if Instant::now() >= deadline {
@@ -519,6 +537,9 @@ async fn execute_steps(
         }
         match step {
             Step::Http(http) => {
+                if let Some(rg) = req.as_mut() {
+                    rg.refresh(&http.id, iter_vars);
+                }
                 let ctx = TemplateContext {
                     vars: iter_vars,
                     env: env.as_ref(),
@@ -527,6 +548,9 @@ async fn execute_steps(
                     loop_index,
                 };
                 let outcome = execute_step(client, http, &ctx).await?;
+                if let Some(rg) = req.as_mut() {
+                    rg.mark_written(outcome.extracted.keys());
+                }
                 iter_vars.extend(outcome.extracted.clone());
                 {
                     let mut a = agg.lock().await;
@@ -601,6 +625,7 @@ async fn execute_steps(
                         rng,
                         measure_phases,
                         default_think,
+                        req,
                     ))
                     .await?;
                     match flow {
@@ -647,6 +672,7 @@ async fn execute_steps(
                     rng,
                     measure_phases,
                     default_think,
+                    req,
                 ))
                 .await?;
                 match flow {
@@ -664,35 +690,45 @@ async fn execute_steps(
                 // can't share &mut rng, so each gets an independent StdRng.
                 let seeds: Vec<u64> = (0..par.branches.len()).map(|_| rng.next_u64()).collect();
 
-                let futs = par.branches.iter().zip(seeds).map(|(branch, seed)| {
-                    let mut branch_vars = entry.clone();
-                    let mut branch_rng = StdRng::seed_from_u64(seed);
-                    async move {
-                        let bt0 = Instant::now();
-                        let flow = Box::pin(execute_steps(
-                            client,
-                            &branch.steps,
-                            &mut branch_vars,
-                            agg,
-                            deadline,
-                            env,
-                            vu_id,
-                            iter_id,
-                            loop_index,
-                            cancel,
-                            &mut branch_rng,
-                            measure_phases,
-                            // 시나리오 기본값은 분기 서브트리에 적용하지 않는다(spec R4):
-                            // parallel = 동시 리소스 로딩 구간이라 사람의 대기가 낄 자리가 아니고,
-                            // 그룹 시간(= 페이지 로드 시간, ADR-0033)이 수면만큼 오염된다.
-                            // 분기 스텝에 명시된 think_time은 위 Http arm에서 그대로 적용된다.
-                            None,
-                        ))
-                        .await;
-                        let branch_us = bt0.elapsed().as_micros() as u64;
-                        (branch, branch_vars, flow, branch_us)
-                    }
-                });
+                // 분기별 재평가 상태 — 부모 **생성기** rng에서 시드(think rng 시드와 별개, §4.2).
+                let branch_reqs: Vec<Option<ReqGen>> = par
+                    .branches
+                    .iter()
+                    .map(|_| req.as_mut().map(ReqGen::fork))
+                    .collect();
+                let futs = par.branches.iter().zip(seeds).zip(branch_reqs).map(
+                    |((branch, seed), branch_req)| {
+                        let mut branch_vars = entry.clone();
+                        let mut branch_rng = StdRng::seed_from_u64(seed);
+                        let mut branch_req = branch_req;
+                        async move {
+                            let bt0 = Instant::now();
+                            let flow = Box::pin(execute_steps(
+                                client,
+                                &branch.steps,
+                                &mut branch_vars,
+                                agg,
+                                deadline,
+                                env,
+                                vu_id,
+                                iter_id,
+                                loop_index,
+                                cancel,
+                                &mut branch_rng,
+                                measure_phases,
+                                // 시나리오 기본값은 분기 서브트리에 적용하지 않는다(spec R4):
+                                // parallel = 동시 리소스 로딩 구간이라 사람의 대기가 낄 자리가 아니고,
+                                // 그룹 시간(= 페이지 로드 시간, ADR-0033)이 수면만큼 오염된다.
+                                // 분기 스텝에 명시된 think_time은 위 Http arm에서 그대로 적용된다.
+                                None,
+                                &mut branch_req,
+                            ))
+                            .await;
+                            let branch_us = bt0.elapsed().as_micros() as u64;
+                            (branch, branch_vars, flow, branch_us)
+                        }
+                    },
+                );
                 // wait-all: every branch runs to completion before the node returns.
                 // Time the whole concurrent block: page-load latency ≈ max(branches) (A2-2).
                 let t0 = Instant::now();
@@ -803,6 +839,8 @@ pub async fn run_scenario_vu_curve(
     let immediate = plan.ramp_down == RampDown::Immediate;
     let graceful_ramp_down = plan.graceful_ramp_down;
     let seq_counters = make_seq_counters(&datasets);
+    // refresh: request 판정 — run당 1회, VU 공유(spec §4.3). None이면 요청 경로는 지금과 같다.
+    let reqgen = RequestGenPlan::build(&scenario);
 
     // Desired active-VU count, broadcast to every VU task. VU `i` is active iff
     // `desired > i`.
@@ -903,6 +941,7 @@ pub async fn run_scenario_vu_curve(
             let seq_counters = seq_counters.clone();
             let rx = desired_rx.clone();
             let slab_vu = slab.clone();
+            let reqgen = reqgen.clone();
             set.spawn(async move {
                 if let Err(e) = run_vu_curve(
                     scenario,
@@ -921,6 +960,7 @@ pub async fn run_scenario_vu_curve(
                     think_seed,
                     measure_phases,
                     connect_timeout,
+                    reqgen,
                 )
                 .await
                 {
@@ -1129,6 +1169,7 @@ async fn run_vu_curve(
     think_seed: Option<u32>,
     measure_phases: bool,
     connect_timeout: Option<Duration>,
+    reqgen: Option<Arc<RequestGenPlan>>,
 ) -> Result<()> {
     // Client + rng + iter_id persist across park (Park & 재사용, spec §2):
     // the cookie jar IS the session, and iter_id stays monotonic.
@@ -1187,6 +1228,9 @@ async fn run_vu_curve(
             // Per-iteration flow vars: lockstep with run_vu.
             let mut iter_vars: BTreeMap<String, String> =
                 crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+            let mut req = reqgen
+                .as_ref()
+                .map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
             // Inject every binding in declared order (mirror of run_vu). First
             // exhausted Unique slice → permanent clean stop; partial inject discarded.
             // Side effect (spec §7): an earlier IterSequential counter advances one
@@ -1197,6 +1241,9 @@ async fn run_vu_curve(
                     Some(idx) => {
                         for (k, v) in &ds.rows[idx] {
                             iter_vars.insert(k.clone(), v.clone());
+                        }
+                        if let Some(rg) = req.as_mut() {
+                            rg.mark_written(ds.rows[idx].keys());
                         }
                     }
                     // unique slice exhausted → permanent clean stop (mirror run_vu).
@@ -1224,6 +1271,7 @@ async fn run_vu_curve(
                 &mut think_rng,
                 measure_phases,
                 scenario.default_think_time,
+                &mut req,
             )
             .await
             {
@@ -1295,6 +1343,8 @@ pub async fn run_scenario_open_loop(
     let mut arrival_counter: u64 = 0;
     let exhausted = Arc::new(AtomicBool::new(false));
     let seq_counters = make_seq_counters(&datasets);
+    // refresh: request 판정 — run당 1회, VU 공유(spec §4.3). None이면 요청 경로는 지금과 같다.
+    let reqgen = RequestGenPlan::build(&scenario);
 
     // Slot pool: max_in_flight reusable clients, index = vu_id (offset applied at use).
     let pool: Vec<Arc<VuClient>> = (0..max_in_flight)
@@ -1434,6 +1484,7 @@ pub async fn run_scenario_open_loop(
                 let cancel_vu = cancel.clone();
                 let datasets = datasets.clone();
                 let seq_counters = seq_counters.clone();
+                let reqgen = reqgen.clone();
                 let exhausted = exhausted.clone();
                 let slot_tx = slot_tx.clone();
                 set.spawn(async move {
@@ -1467,6 +1518,7 @@ pub async fn run_scenario_open_loop(
                         &mut rng,
                         &exhausted,
                         measure_phases,
+                        reqgen.as_ref(),
                     )
                     .await
                     {
@@ -1548,12 +1600,14 @@ async fn run_arrival(
     rng: &mut StdRng,
     exhausted: &AtomicBool,
     measure_phases: bool,
+    reqgen: Option<&Arc<RequestGenPlan>>,
 ) -> Result<()> {
     // 생성기 전용 rng — think_rng(호출자가 넘긴 `rng` 파라미터)와 분리 (spec §4).
     // arrival=1 반복이므로 per-arrival 생성이 곧 per-iteration 재평가.
     let mut gen_rng = StdRng::from_entropy();
     let mut iter_vars: BTreeMap<String, String> =
         crate::genvars::seed_iter_vars(&scenario.variables, &mut gen_rng);
+    let mut req = reqgen.map(|p| ReqGen::new(p.clone(), gen_rng.next_u64()));
     // Inject every binding in declared order (single arrival, no per-VU loop).
     // First exhausted Unique slice → signal the scheduler to stop new arrivals
     // and drop this arrival (partial inject discarded). Side effect (spec §7): an
@@ -1563,6 +1617,9 @@ async fn run_arrival(
             Some(idx) => {
                 for (k, v) in &ds.rows[idx] {
                     iter_vars.insert(k.clone(), v.clone());
+                }
+                if let Some(rg) = req.as_mut() {
+                    rg.mark_written(ds.rows[idx].keys());
                 }
             }
             // unique slice exhausted → signal the scheduler to stop new arrivals.
@@ -1587,6 +1644,7 @@ async fn run_arrival(
         rng,
         measure_phases,
         scenario.default_think_time,
+        &mut req,
     )
     .await?;
     Ok(())
