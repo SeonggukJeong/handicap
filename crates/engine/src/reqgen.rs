@@ -350,21 +350,37 @@ mod tests {
         }
     }
 
-    /// 사전계산이 선형이어야 한다(보안 리뷰 I1): 선언 2.5만 × 토큰 10만 개에서도 즉시 끝난다.
+    const RATIO: u32 = 30;
+
+    /// 사전계산이 선형이어야 한다(보안 리뷰 I1): 선언 2.5만 × 토큰 10만 개.
+    /// 고정 시간 상한은 느린 CI/pre-commit에서 flake라 같은 URL·N=1 기준선 대비 비율로 단언한다(머신 독립).
     #[test]
     fn build_is_linear_in_declarations_times_tokens() {
-        let n = 25_000;
-        let mut vars = String::new();
-        for i in 0..n {
-            vars.push_str(&format!("  v{i}: {{gen: uuid, refresh: request}}\n"));
-        }
         let url = format!("http://x/{{{{v0}}}}{}", "{{zz}}".repeat(100_000));
-        let s = sc(vars.trim_end_matches('\n'), &http(ID_A, &url));
-        let t = std::time::Instant::now();
-        let p = RequestGenPlan::build(&s).unwrap();
-        let el = t.elapsed();
-        assert_eq!(names_for(&p, ID_A), vec!["v0".to_string()]);
-        assert!(el < std::time::Duration::from_secs(1), "build took {el:?}");
+        let time_build = |n: usize| {
+            let mut vars = String::new();
+            for i in 0..n {
+                vars.push_str(&format!("  v{i}: {{gen: uuid, refresh: request}}\n"));
+            }
+            let s = sc(vars.trim_end_matches('\n'), &http(ID_A, &url));
+            (0..3)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    let p = RequestGenPlan::build(&s).unwrap();
+                    let el = t.elapsed();
+                    assert_eq!(names_for(&p, ID_A), vec!["v0".to_string()]);
+                    el
+                })
+                .min()
+                .unwrap()
+        };
+        let baseline = time_build(1);
+        let full = time_build(25_000);
+        eprintln!("reqgen perf: baseline={baseline:?} full={full:?}");
+        assert!(
+            full < baseline * RATIO,
+            "build not linear: full {full:?} vs baseline {baseline:?} (limit x{RATIO})"
+        );
     }
 
     #[test]
