@@ -17,7 +17,16 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VarDecl {
     Static(String),
-    Gen(GenSpec),
+    Gen { spec: GenSpec, refresh: Refresh },
+}
+
+/// 생성 변수 평가 시점 (spec 2026-10-17-genvar-per-request §4.1). 기본 = 반복 시작 1회.
+/// `Request`면 그 변수를 참조하는 HTTP 요청 직전마다 다시 평가된다(`reqgen.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Refresh {
+    #[default]
+    Iteration,
+    Request,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +114,20 @@ struct GenSpecWire {
     pick: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "present_value")]
     rest: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "present_refresh")]
+    refresh: Option<Refresh>,
+}
+
+/// refresh: 키가 **있으면** 문자열 "request"|"iteration"만. 명시 null·빈 값도 거부 —
+/// Option<String> 기본 경로는 null을 None(=생략)으로 조용히 받아 UI(Zod enum은 null 거부)와
+/// 갈린다(positions 선례, spec §4.1).
+fn present_refresh<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Refresh>, D::Error> {
+    use serde_yaml::Value as Y;
+    match Y::deserialize(d)? {
+        Y::String(s) if s == "request" => Ok(Some(Refresh::Request)),
+        Y::String(s) if s == "iteration" => Ok(Some(Refresh::Iteration)),
+        _ => Err(de::Error::custom("refresh는 request 또는 iteration")),
+    }
 }
 
 /// pick/rest: 키가 **존재하면** 항상 Some — 평문 `null`도 Some(Value::Null)(serde_yaml의
@@ -400,9 +423,11 @@ impl<'de> Deserialize<'de> for VarDecl {
                 Ok(VarDecl::Static(s))
             }
             fn visit_map<M: MapAccess<'de>>(self, m: M) -> Result<VarDecl, M::Error> {
-                let wire = GenSpecWire::deserialize(de::value::MapAccessDeserializer::new(m))?;
+                let mut wire = GenSpecWire::deserialize(de::value::MapAccessDeserializer::new(m))?;
+                // refresh는 5종 공통 키 — per-gen allow-list(TryFrom) 밖에서 떼어낸다.
+                let refresh = wire.refresh.take().unwrap_or_default();
                 GenSpec::try_from(wire)
-                    .map(VarDecl::Gen)
+                    .map(|spec| VarDecl::Gen { spec, refresh })
                     .map_err(de::Error::custom)
             }
         }
@@ -414,20 +439,43 @@ impl Serialize for VarDecl {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         match self {
             VarDecl::Static(v) => s.serialize_str(v),
-            VarDecl::Gen(g) => g.serialize(s),
+            VarDecl::Gen { spec, refresh } => {
+                // refresh는 Request일 때만, 항상 맨 끝 키(spec §4.1). Iteration은 방출 안 함 —
+                // 옵션 미사용 선언은 도입 전과 byte-identical.
+                let per_request = *refresh == Refresh::Request;
+                let mut m = s.serialize_map(Some(spec.entry_count() + per_request as usize))?;
+                spec.serialize_entries(&mut m)?;
+                if per_request {
+                    m.serialize_entry("refresh", "request")?;
+                }
+                m.end()
+            }
         }
     }
 }
 
-impl Serialize for GenSpec {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        // 필드 emit 규칙: gen 태그 + (date) format 항상·offset/tz는 Some만 /
-        // (random_int) min·max 항상·step은 ≠1만 / (random_string) length 항상 /
-        // (pick_array) length·min·max 항상·positions/pick/rest는 Some만.
+impl GenSpec {
+    /// 방출 맵 항목 수(gen 포함, refresh 제외) — serialize_map 길이 힌트.
+    fn entry_count(&self) -> usize {
+        match self {
+            GenSpec::Date(g) => 2 + g.offset.is_some() as usize + g.tz.is_some() as usize,
+            GenSpec::RandomInt(g) => 3 + (g.step != 1) as usize,
+            GenSpec::Uuid => 1,
+            GenSpec::RandomString(_) => 2,
+            GenSpec::PickArray(g) => {
+                4 + g.positions.is_some() as usize
+                    + g.pick.is_some() as usize
+                    + g.rest.is_some() as usize
+            }
+        }
+    }
+
+    /// 필드 emit 규칙: gen 태그 + (date) format 항상·offset/tz는 Some만 /
+    /// (random_int) min·max 항상·step은 ≠1만 / (random_string) length 항상 /
+    /// (pick_array) length·min·max 항상·positions/pick/rest는 Some만.
+    fn serialize_entries<M: SerializeMap>(&self, m: &mut M) -> Result<(), M::Error> {
         match self {
             GenSpec::Date(g) => {
-                let n = 2 + g.offset.is_some() as usize + g.tz.is_some() as usize;
-                let mut m = s.serialize_map(Some(n))?;
                 m.serialize_entry("gen", "date")?;
                 m.serialize_entry("format", &g.format)?;
                 if let Some(o) = &g.offset {
@@ -436,36 +484,23 @@ impl Serialize for GenSpec {
                 if let Some(t) = &g.tz {
                     m.serialize_entry("tz", t)?;
                 }
-                m.end()
             }
             GenSpec::RandomInt(g) => {
-                let n = 3 + (g.step != 1) as usize;
-                let mut m = s.serialize_map(Some(n))?;
                 m.serialize_entry("gen", "random_int")?;
                 m.serialize_entry("min", &g.min)?;
                 m.serialize_entry("max", &g.max)?;
                 if g.step != 1 {
                     m.serialize_entry("step", &g.step)?;
                 }
-                m.end()
             }
             GenSpec::Uuid => {
-                let mut m = s.serialize_map(Some(1))?;
                 m.serialize_entry("gen", "uuid")?;
-                m.end()
             }
             GenSpec::RandomString(g) => {
-                let mut m = s.serialize_map(Some(2))?;
                 m.serialize_entry("gen", "random_string")?;
                 m.serialize_entry("length", &g.length)?;
-                m.end()
             }
             GenSpec::PickArray(g) => {
-                let n = 4
-                    + g.positions.is_some() as usize
-                    + g.pick.is_some() as usize
-                    + g.rest.is_some() as usize;
-                let mut m = s.serialize_map(Some(n))?;
                 m.serialize_entry("gen", "pick_array")?;
                 m.serialize_entry("length", &g.length)?;
                 m.serialize_entry("min", &g.min)?;
@@ -479,9 +514,9 @@ impl Serialize for GenSpec {
                 if let Some(v) = &g.rest {
                     m.serialize_entry("rest", v)?;
                 }
-                m.end()
             }
         }
+        Ok(())
     }
 }
 
@@ -565,7 +600,19 @@ pub(crate) fn eval_pick_array(g: &PickArrayGen, rng: &mut StdRng) -> String {
     serde_json::to_string(&out).unwrap_or_default()
 }
 
-/// 반복 시드: 정적은 clone, 생성기는 지금 평가. 호출부(runner 3곳·trace 1곳)가
+/// 생성기 1회 평가 — 반복 시드(`seed_iter_vars`)와 요청 단위 재평가(`reqgen.rs`)의 단일 소스.
+pub(crate) fn eval_gen(spec: &GenSpec, rng: &mut StdRng, now: DateTime<Utc>) -> String {
+    match spec {
+        GenSpec::Date(g) => eval_date(g, now),
+        GenSpec::RandomInt(g) => eval_random_int(g, rng),
+        GenSpec::Uuid => eval_uuid(rng),
+        GenSpec::RandomString(g) => eval_random_string(g, rng),
+        GenSpec::PickArray(g) => eval_pick_array(g, rng),
+    }
+}
+
+/// 반복 시드: 정적은 clone, 생성기는 지금 평가(refresh와 무관하게 전부 — 첫 요청 전의
+/// `if` 조건이 값을 볼 수 있게, spec §4.2). 호출부(runner 3곳·trace 1곳)가
 /// **생성기 전용** entropy rng를 넘긴다 — think rng 공유 금지 (spec §4).
 pub fn seed_iter_vars(
     vars: &BTreeMap<String, VarDecl>,
@@ -576,11 +623,7 @@ pub fn seed_iter_vars(
         .map(|(k, d)| {
             let v = match d {
                 VarDecl::Static(s) => s.clone(),
-                VarDecl::Gen(GenSpec::Date(g)) => eval_date(g, now),
-                VarDecl::Gen(GenSpec::RandomInt(g)) => eval_random_int(g, rng),
-                VarDecl::Gen(GenSpec::Uuid) => eval_uuid(rng),
-                VarDecl::Gen(GenSpec::RandomString(g)) => eval_random_string(g, rng),
-                VarDecl::Gen(GenSpec::PickArray(g)) => eval_pick_array(g, rng),
+                VarDecl::Gen { spec, .. } => eval_gen(spec, rng, now),
             };
             (k.clone(), v)
         })
@@ -624,7 +667,10 @@ mod tests {
     fn date_defaults_applied() {
         let m = parse("d: {gen: date}").unwrap();
         match &m["d"] {
-            VarDecl::Gen(GenSpec::Date(g)) => {
+            VarDecl::Gen {
+                spec: GenSpec::Date(g),
+                ..
+            } => {
                 assert_eq!(g.format, "%Y-%m-%d");
                 assert_eq!(g.offset, None);
                 assert_eq!(g.tz, None);
@@ -665,7 +711,10 @@ mod tests {
     #[test]
     fn date_eval_format_offset_tz() {
         let g = |y: &str| match parse(y).unwrap().remove("d").unwrap() {
-            VarDecl::Gen(GenSpec::Date(g)) => g,
+            VarDecl::Gen {
+                spec: GenSpec::Date(g),
+                ..
+            } => g,
             other => panic!("{other:?}"),
         };
         // 2026-07-24 15:00:00 UTC = 2026-07-25 00:00:00 KST
@@ -708,7 +757,10 @@ mod tests {
         // 내부 `.expect(...)`를 넘겨 panic한다(dynamic-vars final review I1) — checked 산술로
         // 포화 처리해 run을 죽이지 않아야 한다(spec §4).
         let g = |y: &str| match parse(y).unwrap().remove("d").unwrap() {
-            VarDecl::Gen(GenSpec::Date(g)) => g,
+            VarDecl::Gen {
+                spec: GenSpec::Date(g),
+                ..
+            } => g,
             other => panic!("{other:?}"),
         };
         let now = Utc::now();
@@ -784,5 +836,79 @@ mod tests {
         assert_eq!(a["base"], "http://x");
         assert_eq!(b["base"], "http://x");
         assert_ne!(a["u"], b["u"], "반복마다 재평가");
+    }
+
+    // ---- refresh (spec 2026-10-17-genvar-per-request §4.1) ----
+    #[test]
+    fn refresh_parses_default_and_request() {
+        let m = parse(
+            "a: {gen: uuid}\nb: {gen: uuid, refresh: request}\nc: {gen: uuid, refresh: iteration}",
+        )
+        .unwrap();
+        assert_eq!(
+            m["a"],
+            VarDecl::Gen {
+                spec: GenSpec::Uuid,
+                refresh: Refresh::Iteration
+            }
+        );
+        assert_eq!(
+            m["b"],
+            VarDecl::Gen {
+                spec: GenSpec::Uuid,
+                refresh: Refresh::Request
+            }
+        );
+        assert_eq!(
+            m["c"],
+            VarDecl::Gen {
+                spec: GenSpec::Uuid,
+                refresh: Refresh::Iteration
+            }
+        );
+    }
+    #[test]
+    fn refresh_rejects_null_empty_and_unknown() {
+        for bad in [
+            "x: {gen: uuid, refresh: null}",
+            "x: {gen: uuid, refresh: }",
+            "x: {gen: uuid, refresh: Request}",
+            "x: {gen: uuid, refresh: true}",
+            "x: {refresh: request}",
+        ] {
+            assert!(parse(bad).is_err(), "should reject: {bad}");
+        }
+    }
+    #[test]
+    fn refresh_request_emits_last_and_iteration_omitted() {
+        let m = parse(
+            "p: {gen: pick_array, length: 4, min: 1, max: 2, rest: 0, refresh: request}\n\
+             d: {gen: date, format: unix_ms, refresh: iteration}",
+        )
+        .unwrap();
+        let out = serde_yaml::to_string(&m).unwrap();
+        let p_line = out
+            .lines()
+            .skip_while(|l| !l.starts_with("p:"))
+            .take(8)
+            .collect::<Vec<_>>()
+            .join("\n");
+        // refresh가 p 맵의 마지막 키(rest 뒤)
+        assert!(
+            p_line.find("rest").unwrap() < p_line.find("refresh: request").unwrap(),
+            "{out}"
+        );
+        // iteration은 방출하지 않음
+        assert!(!out.contains("iteration"), "{out}");
+        assert_eq!(parse(&out).unwrap(), m);
+    }
+    #[test]
+    fn no_refresh_scenario_emits_byte_identically() {
+        // 옵션 미사용 선언은 방출이 refresh 도입 전과 같아야 한다(키 순서·키 집합).
+        let m = parse("q: {gen: random_int, min: 1, max: 9, step: 2}\nu: {gen: uuid}").unwrap();
+        assert_eq!(
+            serde_yaml::to_string(&m).unwrap(),
+            "q:\n  gen: random_int\n  min: 1\n  max: 9\n  step: 2\nu:\n  gen: uuid\n"
+        );
     }
 }

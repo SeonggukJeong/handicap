@@ -12,7 +12,7 @@ use handicap_engine::scenario::{
 };
 use handicap_engine::template::{TemplateContext, render};
 use handicap_engine::{
-    GenSpec, RandomIntGen, RandomStringGen, Scenario, VarDecl, evaluate_extracts,
+    GenSpec, RandomIntGen, RandomStringGen, Refresh, Scenario, VarDecl, evaluate_extracts,
 };
 use proptest::collection::{btree_map, vec};
 use proptest::option;
@@ -207,7 +207,7 @@ fn arb_step() -> impl Strategy<Value = Step> {
 // (dynamic-vars Task 2). date는 serde 경유로만 만든다 — offset_secs/tz_parsed가
 // pub(crate)라 이 테스트 크레이트에서 DateGen 구조체 리터럴을 만들 수 없고,
 // serde가 캐시 필드를 정합되게 채우는 유일한 경로다.
-fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
+fn arb_var_decl_base() -> impl Strategy<Value = VarDecl> {
     prop_oneof![
         ".*".prop_map(VarDecl::Static),
         // date: 유효 파라미터만 (proptest는 round-trip 검증이 목적 — 거부 케이스는
@@ -245,15 +245,23 @@ fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
             }),
         (any::<i64>(), 0u32..10_000, 1u32..1000).prop_map(|(min, span, step)| {
             let max = min.saturating_add(span as i64);
-            VarDecl::Gen(GenSpec::RandomInt(RandomIntGen {
-                min,
-                max: max.max(min),
-                step,
-            }))
+            VarDecl::Gen {
+                spec: GenSpec::RandomInt(RandomIntGen {
+                    min,
+                    max: max.max(min),
+                    step,
+                }),
+                refresh: Refresh::Iteration,
+            }
         }),
-        Just(VarDecl::Gen(GenSpec::Uuid)),
-        (1u32..=64)
-            .prop_map(|length| VarDecl::Gen(GenSpec::RandomString(RandomStringGen { length }))),
+        Just(VarDecl::Gen {
+            spec: GenSpec::Uuid,
+            refresh: Refresh::Iteration
+        }),
+        (1u32..=64).prop_map(|length| VarDecl::Gen {
+            spec: GenSpec::RandomString(RandomStringGen { length }),
+            refresh: Refresh::Iteration,
+        }),
         // pick_array: serde 경유 구성(candidates 캐시가 pub(crate)) — 유효 파라미터만.
         (
             1u32..=40,
@@ -284,6 +292,18 @@ fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
                 serde_yaml::from_value::<VarDecl>(serde_yaml::Value::Mapping(m)).unwrap()
             }),
     ]
+}
+
+// refresh 차원(spec 2026-10-17-genvar-per-request §9): 생성기면 절반 확률로 Request.
+// round-trip이 `refresh: request` 방출·재파싱까지 덮는다.
+fn arb_var_decl() -> impl Strategy<Value = VarDecl> {
+    (arb_var_decl_base(), any::<bool>()).prop_map(|(d, per_request)| match d {
+        VarDecl::Gen { spec, .. } if per_request => VarDecl::Gen {
+            spec,
+            refresh: Refresh::Request,
+        },
+        other => other,
+    })
 }
 
 fn arb_scenario() -> impl Strategy<Value = Scenario> {

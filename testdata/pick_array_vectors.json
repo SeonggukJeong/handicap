@@ -77,6 +77,18 @@
     { "yaml": "{gen: pick_array, length: 1000, min: 1, max: 1, positions: 1e3}", "expect": "known_divergence", "engine": "reject", "ui": "accept" },
     { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 00001}", "expect": "known_divergence", "engine": "reject", "ui": "accept" },
     { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: +0x8}", "expect": "known_divergence", "engine": "accept", "ui": "reject" },
-    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 0b1000}", "expect": "known_divergence", "engine": "accept", "ui": "reject" }
+    { "yaml": "{gen: pick_array, length: 10, min: 1, max: 1, positions: 0b1000}", "expect": "known_divergence", "engine": "accept", "ui": "reject" },
+    {"yaml": "{gen: uuid, refresh: request}", "expect": "accept"},
+    {"yaml": "{gen: uuid, refresh: iteration}", "expect": "accept"},
+    {"yaml": "{gen: date, format: unix_ms, refresh: request}", "expect": "accept"},
+    {"yaml": "{gen: random_int, min: 1, max: 9, refresh: request}", "expect": "accept"},
+    {"yaml": "{gen: random_string, length: 8, refresh: request}", "expect": "accept"},
+    {"yaml": "{gen: pick_array, length: 10, min: 1, max: 3, refresh: request}", "expect": "accept"},
+    {"yaml": "{gen: uuid, refresh: Request}", "expect": "reject"},
+    {"yaml": "{gen: uuid, refresh: true}", "expect": "reject"},
+    {"yaml": "{gen: uuid, refresh: step}", "expect": "reject"},
+    {"yaml": "{gen: uuid, refresh: null}", "expect": "reject"},
+    {"yaml": "{gen: uuid, refresh: }", "expect": "reject"},
+    {"yaml": "{refresh: request}", "expect": "reject"}
   ]
 }

@@ -14,12 +14,17 @@ import {
 
 export const OFFSET_RE = /^[+-]\d{1,9}[smhd]$/;
 
+// 평가 시점(spec 2026-10-17-genvar-per-request §5) — 5 멤버 공통. `.strict()` 멤버라 하나라도
+// 빠뜨리면 그 생성기만 refresh를 거부해 엔진과 판정이 갈린다. null은 거부(엔진 present_refresh).
+const RefreshModel = z.enum(["iteration", "request"]);
+
 const DateGenModel = z
   .object({
     gen: z.literal("date"),
     format: z.string().optional(),
     offset: z.string().regex(OFFSET_RE, "offset").optional(),
     tz: z.string().optional(),
+    refresh: RefreshModel.optional(),
   })
   .strict();
 const RandomIntGenModel = z
@@ -28,13 +33,17 @@ const RandomIntGenModel = z
     min: z.number().int(),
     max: z.number().int(),
     step: z.number().int().min(1).optional(),
+    refresh: RefreshModel.optional(),
   })
   .strict();
-const UuidGenModel = z.object({ gen: z.literal("uuid") }).strict();
+const UuidGenModel = z
+  .object({ gen: z.literal("uuid"), refresh: RefreshModel.optional() })
+  .strict();
 const RandomStringGenModel = z
   .object({
     gen: z.literal("random_string"),
     length: z.number().int().min(1).max(64).optional(),
+    refresh: RefreshModel.optional(),
   })
   .strict();
 // 문자열 64자(코드 포인트) 상한 — 엔진 present_value와 lockstep(증폭 방지, pickArray.PICK_VALUE_MAX_CHARS).
@@ -58,6 +67,7 @@ const PickArrayGenModel = z
       .optional(),
     pick: JsonScalarModel.optional(),
     rest: JsonScalarModel.optional(),
+    refresh: RefreshModel.optional(),
   })
   .strict();
 

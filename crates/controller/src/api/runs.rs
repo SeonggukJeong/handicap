@@ -2693,6 +2693,36 @@ steps:
     think_time: { min_ms: 300, max_ms: 300 }
 "#;
 
+    const YAML_THINK_REFRESH: &str = r#"
+version: 1
+name: t
+default_think_time: { min_ms: 500, max_ms: 500 }
+variables:
+  f: { gen: uuid, refresh: request }
+steps:
+  - id: 01HX0000000000000000000AAA
+    type: http
+    name: s1
+    request: { method: GET, url: "http://x/?f={{f}}" }
+"#;
+
+    #[test]
+    fn open_ignore_strip_keeps_refresh_request() {
+        // maybe_strip_think는 엔진 Serialize로 재직렬화하는 유일한 소비처(spec §4.1) —
+        // refresh가 빠지면 이 run만 조용히 반복 단위로 돌아간다.
+        let out = maybe_strip_think(YAML_THINK_REFRESH, &open_profile(false));
+        assert_ne!(out, YAML_THINK_REFRESH, "strip 경로를 실제로 탔어야 한다");
+        assert!(out.contains("refresh: request"), "{out}");
+        let sc = Scenario::from_yaml(&out).unwrap();
+        assert!(matches!(
+            sc.variables["f"],
+            handicap_engine::VarDecl::Gen {
+                refresh: handicap_engine::Refresh::Request,
+                ..
+            }
+        ));
+    }
+
     const YAML_NOTHINK: &str = r#"
 version: 1
 name: t

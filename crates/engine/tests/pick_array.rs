@@ -251,7 +251,10 @@ fn roundtrip_preserves_string_vs_typed_values() {
 #[test]
 fn candidates_accessor_full_range_when_positions_absent() {
     match &one("{gen: pick_array, length: 4, min: 1, max: 2}")["x"] {
-        VarDecl::Gen(GenSpec::PickArray(g)) => assert_eq!(g.candidates(), &[1, 2, 3, 4]),
+        VarDecl::Gen {
+            spec: GenSpec::PickArray(g),
+            ..
+        } => assert_eq!(g.candidates(), &[1, 2, 3, 4]),
         other => panic!("{other:?}"),
     }
 }
