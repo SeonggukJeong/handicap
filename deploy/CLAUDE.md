@@ -14,6 +14,7 @@ kind 단일 노드 + Helm chart 1개로 controller + worker가 K8s Job 로 동�
 ## Dockerfile / 빌드
 
 - **Dockerfile 에서 CMD/ENTRYPOINT 둘 다 의도적으로 미설정** (Slice 6): 멀티-바이너리(controller + worker) 이미지라 default 가 있으면 "controller container 가 worker binary 를 실행" 같은 사고가 가능. 둘 다 비우고 모든 consumer(Helm Deployment, `build_job_spec` 의 K8s Job spec)가 `command:` 를 명시하도록 강제. 새 consumer 추가 시도 같은 컨벤션.
+- **`FROM rust:<ver>-bookworm`은 `rust-toolchain.toml`의 channel과 같아야 한다** (toolchain-pin): 다르면 ci `rust` 잡 첫 스텝 `scripts/check-rust-toolchain.sh`가 MISMATCH로 실패. 손으로 고치지 말고 `just bump-rust <X.Y.Z>`(6곳 일괄).
 - **Vite + Monaco + Recharts 빌드는 Docker 안에서 Node OOM** (Slice 6): `pnpm build` 의 default V8 old-space limit(≈2GiB)가 우리 UI 번들(Monaco lazy chunk + Recharts + React Flow)에는 부족해 multi-stage Dockerfile 의 UI 빌드 스테이지가 OOM kill. `ENV NODE_OPTIONS=--max-old-space-size=4096` 한 줄로 해소. macOS 호스트의 `pnpm build` 가 통과하는 건 Node 가 호스트 메모리 압력에 따라 동적으로 더 잡기 때문 — container cgroup limit 안에선 다르다.
 
 ## kind 점검 / port-forward

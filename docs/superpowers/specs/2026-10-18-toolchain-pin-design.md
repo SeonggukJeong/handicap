@@ -1,6 +1,7 @@
 # Rust 툴체인 정확 버전 고정 + 릴리즈 CI-녹색 게이트 — 설계
 
 - 날짜: 2026-10-18 · 유형: **platform** · 워크트리: `toolchain-pin` (브랜치 `worktree-toolchain-pin`)
+- **상태: 완료** (2026-10-18, 코드 `b17c6bd1`..`11e1eb72` — 최종 리뷰 M1 fix[게이트가 `pull_request` run 무시] 포함; CI 실측은 master push 후, release·Docker 경로는 다음 태그에서) · 판단·연기 → `docs/roadmap.md` §B33
 - 선행: release-hygiene(`6c80592` — preflight→build×2→publish 4잡, 판정 로직을 레포 스크립트로 빼 로컬 양방향 실행 검증하는 패턴) · genvar-per-request CI 복구(`29b34d80`)
 - 출처: `docs/roadmap.md` §B32 R-e (방향 합의 2026-10-18). 새 ADR 없음 — 빌드 인프라 설정이며 결정 근거는 이 spec과 §B32 R-e가 든다.
 - **합의 대비 편차 2건**(이 spec에서 결정): ① 고정 버전은 합의 문구의 `1.99.0`이 아니라 **`1.99.1`**(§1 근거) ② CI-녹색 게이트 위치는 합의 문구의 `preflight`가 아니라 **`publish` 잡**(사용자 선택 2026-10-18 — preflight 시점엔 같은 push로 시작된 ci가 아직 도는 중이라 대기가 필요하고, publish는 ~18분 빌드 뒤라 보통 이미 끝나 있다).
