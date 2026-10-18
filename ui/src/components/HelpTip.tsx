@@ -11,7 +11,12 @@ import { createPortal } from "react-dom";
 import { computeTipPos, TIP_WIDTH_PX } from "./helpTipPos";
 
 const stop = (e: SyntheticEvent) => e.stopPropagation();
-const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+// clientWidth/Height는 페이지 스크롤바를 제외 — tip이 스크롤바 밑에 깔리지 않게.
+// jsdom 등 0을 주는 환경은 inner*로 폴백.
+const viewport = () => ({
+  width: document.documentElement.clientWidth || window.innerWidth,
+  height: document.documentElement.clientHeight || window.innerHeight,
+});
 
 /**
  * 도움말(?) 버튼 클릭 토글 popover (spec 2026-06-11 UX §2.2, ADR-0035).

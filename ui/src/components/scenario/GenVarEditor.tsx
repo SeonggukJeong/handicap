@@ -483,7 +483,7 @@ export function GenVarEditor({
             />
             <span>{ko.editor.genRefreshLabel}</span>
           </label>
-          {/* HelpTip은 label 밖 형제 — 체크박스 accname 오염 방지(U3). 패널 안이라 Modal ESC 함정 무관. */}
+          {/* HelpTip은 label 밖 형제 — 체크박스 accname 오염 방지(U3). */}
           <HelpTip label={ko.editor.genRefreshHelpLabel}>
             <span className="block">{ko.glossary.genRefreshIntro}</span>
             <span className="mt-1 block">{ko.glossary.genRefreshPriority}</span>

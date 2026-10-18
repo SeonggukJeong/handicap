@@ -100,6 +100,48 @@ describe("HelpTip", () => {
     expect(note.style.overflowY).toBe("auto");
   });
 
+  it("아래 공간이 부족하면 실측 높이로 위로 뒤집힌다(re-measure)", async () => {
+    const user = userEvent.setup();
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const isNote = this.getAttribute("role") === "note";
+        return (
+          isNote
+            ? {
+                left: 0,
+                right: 224,
+                top: 0,
+                bottom: 200,
+                width: 224,
+                height: 200,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+              }
+            : {
+                left: 100,
+                right: 116,
+                top: 700,
+                bottom: 716,
+                width: 16,
+                height: 16,
+                x: 100,
+                y: 700,
+                toJSON: () => ({}),
+              }
+        ) as DOMRect;
+      });
+    try {
+      render(<HelpTip label="설명">내용</HelpTip>);
+      await user.click(screen.getByRole("button", { name: "설명" }));
+      // 아래 = 716+4 = 720, 720+200 > 768-8 → 위 = 700-4-200 = 496 (re-measure 없으면 720px)
+      expect(screen.getByRole("note").style.top).toBe("496px");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("모달 안이면 popover가 그 다이얼로그 안에 붙는다(aria-modal 범위 유지)", async () => {
     const user = userEvent.setup();
     render(

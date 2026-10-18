@@ -117,8 +117,8 @@ release 빌드 `seed_iter_vars` 1회 평가(2만 회 평균, 측정 코드는 �
 
 ### 6.3 선택 배열 팝업 (`PickArrayDialog.tsx`)
 
-  - **대체됨(2026-10-18)**: 팝업도 "요청마다 새로 뽑기" 체크박스를 draft로 편집한다 — `docs/superpowers/specs/2026-10-18-pick-refresh-helptip-portal-design.md` §2.
 - 팝업은 refresh를 편집하지 않는다. 단 **적용 시 `initial.refresh`를 결과 spec에 그대로 싣는다** — 현재 적용 spec 생성(`PickArrayDialog.tsx:182` 객체 리터럴)은 필드를 새로 조립하므로, 손대지 않으면 팝업에서 길이만 바꿔도 `refresh: request`가 **조용히 사라진다**(회귀 테스트 필수, 이빨 실증 대상).
+  - **대체됨(2026-10-18)**: 팝업도 "요청마다 새로 뽑기" 체크박스를 draft로 편집한다 — `docs/superpowers/specs/2026-10-18-pick-refresh-helptip-portal-design.md` §2.
 - 미리보기 섹션 제목은 refresh에 따라 §3 문구.
 - `배열로 추가`(미정의 행) 경로는 refresh 없음으로 시작(기본값).
 
