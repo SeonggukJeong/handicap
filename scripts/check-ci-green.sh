@@ -13,12 +13,13 @@ sha="$1"
 poll="${CI_GATE_POLL_SECONDS:-30}"
 max_wait="${CI_GATE_MAX_WAIT_SECONDS:-1800}"
 
+# push·workflow_dispatch run만 본다 — pull_request run은 태그 트리가 아닌 merge 커밋을 검사한다.
 # 최신 run 1개(createdAt 기준 — 배열 순서에 기대지 않는다)를 "status conclusion url" 한 줄로. run 0개면 빈 줄.
 latest_run() {
   gh run list ${GITHUB_REPOSITORY:+--repo "$GITHUB_REPOSITORY"} \
     --workflow ci --commit "$sha" --limit 20 \
-    --json status,conclusion,createdAt,url \
-    --jq 'sort_by(.createdAt) | last
+    --json event,status,conclusion,createdAt,url \
+    --jq 'map(select(.event == "push" or .event == "workflow_dispatch")) | sort_by(.createdAt) | last
           | if . == null then ""
             else "\(.status) \(if (.conclusion // "") == "" then "-" else .conclusion end) \(.url)" end'
 }
