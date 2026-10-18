@@ -3,6 +3,7 @@
 > 루트 `CLAUDE.md` "Subagent dispatch 노하우" 섹션은 이 파일의 **규칙 요약**만 든다(재비대 방지 추출 2026-07-16, `commit-gates-and-git-workflow.md` 선례). 규칙의 "왜"·사고 경위·복구 레시피·수치는 여기가 단일 소스. 새 dispatch 함정을 배우면: 규칙 한 줄은 루트에, 서사는 여기에 추가.
 
 - **SDD `scripts/task-brief PLAN N`은 숫자 `Task N` 헤딩만 매칭 — "Task A/B" 라벨 plan은 exit 3** (곡선 fan-out 워커 표시): awk 정규식이 `Task[ \t]+[0-9]+`라 letter-label plan에서 "task N not found"로 실패. 수동 추출 `awk '/^## Task A:/{f=1}/^## Task B:/{f=0}f' PLAN > brief.md`(또는 plan을 숫자 `Task N`으로 작성). `review-package`·`sdd-workspace`는 라벨 비의존이라 무관.
+- **SDD 스크립트(`sdd-workspace`·`task-brief`·`review-package`)는 워크트리 cwd에서 절대경로로 호출** (pick-random-tooltip): 스킬 디렉토리로 `cd`해 실행하면 `fatal: not a git repository`(스크립트가 cwd의 git root를 쓴다). plan 경로 인자는 워크트리 상대경로로.
 - **`task-brief`는 그 task *섹션만* 자른다 — plan이 task-밖 공유 정본(카피 개명 표·keep-list 등)을 두면 implementer/리뷰어가 못 본다** (open-loop-rate-labels T2–T4): 공유 섹션을 `awk '/^## 카피 개명 표/,/^---$/'`류로 별도 파일(`.superpowers/sdd/copy-table.md`)로 추출해 brief와 함께 디스패치 prompt에 두 경로로 넘길 것("이 표의 문자열을 byte-exact로" 명시). T2·T3·T4가 같은 표를 참조해도 추출은 1회면 된다.
 - **spec의 `사용자 스토리 (US)` 고정 헤딩 블록도 같은 방식으로 1회 추출해 매 task-brief 디스패치에 첨부** (US 스파인, ADR-0048): 추출 원천=**spec**(plan 아님), 그 헤딩부터 다음 동레벨-이상 헤딩까지 — implementer가 UX·동작 디테일을 결정할 때 근거로 쓴다. 규약 `docs/dev/user-story-spine.md`.
 - **`ui/src`를 한 줄이라도 건드리는 task는 plan/brief에 UI 테스트 스텝을 넣을 것** (open-loop-slot-sizing T1): Rust-TDD 위주 task에 UI Zod 2줄이 섞여도 tdd-guard가 UI-side pending test 부재로 `ui/src` 편집을 차단 — implementer가 즉석 테스트를 추가해 통과했지만(brief 밖 파일 커밋 유발), plan이 UI 테스트 스텝을 명시하면 재발 0.

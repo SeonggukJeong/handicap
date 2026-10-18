@@ -591,6 +591,27 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **비용(미수정 동안)**: 0에서 시작하는 완만한 open-loop 램프(UI 곡선 프리셋 `점증·유지`·`소크`의 첫 구간 포함)는 설정보다 훨씬 적은 부하를 낸다 — [[load-divergence-explain-confirm]] 위반(조용한 부하 왜곡). 리포트의 목표/달성 도착률 카드가 차이를 보여주긴 하지만 원인 설명은 없다.
 - **해소 경로**: 누적 arrival 적분 역산 — 다음 arrival 시각 t' = Λ⁻¹(Λ(t)+1), Λ(t)=∫₀ᵗ rate. piecewise-linear라 구간별 2차식의 닫힌 해(기울기 0 구간은 선형). rate 0 구간 poll-step·deadline clamp·고정 레이트 경로(byte-identical)는 유지. 엔진 path-gated(Opus 코드리뷰)·위 표를 회귀 테스트(arrival 수 ≈ ∫rate ±1) + 라이브 RPS 재측정으로 검증.
 
+### B35. HelpTip portal + 선택 배열 팝업 refresh 체크박스 (2026-10-18, 코드 `7cd6ef0e`..`a75154ef`, spec `docs/superpowers/specs/2026-10-18-pick-refresh-helptip-portal-design.md`) 연기 항목
+
+**(1) orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다):
+- **R-a 뒤집기 re-measure 테스트를 머지 전 추가** (최종 리뷰 M1, `a75154ef`) — jsdom 높이 0이라 `useLayoutEffect` 재계산을 지워도 전 테스트가 green이었다(spec §3.1 무보증). prototype `getBoundingClientRect` 스파이(finally 복원)로 popover 높이 200·앵커 top 700 → `top 496px` 단언, 무력화 시 720px RED 실증. **비용**: 테스트 1개.
+- **R-b 뷰포트 = `documentElement.clientWidth/Height`, 0이면 `innerWidth/Height` 폴백** (최종 리뷰 nit) — inner*는 페이지 스크롤바를 포함해 우단 tip이 스크롤바 밑 ~3px 깔렸다. standards mode(`<!doctype html>`)라 실브라우저는 항상 양수, 폴백은 jsdom용. **비용**: 분기 1개. quirks mode로 바뀌면 clientHeight가 문서 높이가 되니 주의.
+- **R-c 낡은 주석·spec 포인터 정리** (`GenVarEditor.tsx` "Modal ESC 함정 무관" 문장 삭제, genvar-per-request spec §6.3 대체 포인터를 대체 대상 불릿 아래로). **비용**: 없음.
+- **R-d 보안 게이트 N/A 판단** — §0 grep 무매치 + 판단 렌즈: popover는 `ko.glossary` 정적 문구만 렌더하고 값을 새 sink로 옮기지 않는다.
+
+**(2) 보류(park) — 미수정 결함, 비용·해소 경로**:
+- **P-a fixed tip은 스크롤 없는 레이아웃 이동을 따라가지 않는다** (최종 리뷰 M3) — RunDialog 풀 모드에서 `usePoolWorkers`가 3s마다 갱신돼 워커 목록 높이가 바뀌면 그 아래(측정·SLO·think-time) tip의 앵커는 움직이지만 tip은 제자리. absolute 시절엔 같이 움직였다. **비용**: 풀 모드·워커 수 변동 시 닫을 때까지 tip이 앵커에서 떨어져 보임(내용 손실 없음). **해소**: `ResizeObserver`(앵커 조상) 또는 rAF로 열림 동안 rect 재계산 — spec §5 "스크롤 추적 안 함"과 같은 트레이드오프라 수요 시.
+- **P-b 키보드로 연 tip이 이후 열린 모달 위에 남고, 열림 동안 window-capture ESC가 다른 키보드 위젯의 ESC를 먼저 먹는다** (최종 리뷰 M4) — 예: `GenVarEditor` `?`를 Enter로 열고 Shift+Tab→`편집…` Enter → body-level tip(z-60)이 PickArrayDialog 백드롭 위에 뜨고(aria-modal 밖이라 SR 미도달) 첫 ESC는 tip으로 간다. 이름 바꾸기 입력·`DownloadMenu`도 tip 열림 중엔 첫 ESC를 잃는다. **비용**: 키보드 사용자 a11y 마찰(ESC 한 번 더로 복구, 데이터 손실 없음). **해소**: document capture `focusin`이 버튼 span·popover·컨테이너 자신 밖이면 닫기(컨테이너 예외 필수 — 모달 안 tip 본문 클릭이 `tabIndex=-1` 패널로 포커스를 옮긴다).
+- **P-c tip 높이는 열 때만 재측정** — 열린 채 children 높이가 바뀌면 뒤집기 판정이 낡는다. 정적 glossary + 스크롤/리사이즈 닫힘이라 실질 무해. **해소**: P-a와 같은 관찰자.
+
+**(3) spec §5 범위 밖 — 재개 신호**:
+- `VerdictBadge`(FAIL 사유)·`DownloadMenu`를 같은 portal 방식으로 이전 — 둘 다 아직 `usePopover`/absolute. **`usePopover`의 ESC는 Modal 안에서 여전히 동작 안 한다**(`usePopover.ts` JSDoc 기록, 현 소비처 VerdictBadge는 Modal 밖이라 무해). 재개 신호: 그 popover가 좁은 열/모달 안에 들어갈 때 — `HelpTip.tsx`의 window-capture ESC·portal 컨테이너 선택을 공용 훅으로 승격.
+- tip 스크롤 추적(현재는 닫힘) — P-a와 같은 묶음.
+
+**(4) 테스트 polish (저우선)**:
+- PickArrayDialog ESC 테스트는 tip 본문 클릭을 먼저 하지 않는다 — "본문 클릭 유지"는 HelpTip 단위 테스트(실 Modal)가 커버.
+- 체크박스 줄은 heading 없는 bare `div`(spec §2 의도) — 라이브에서 행 높이 17px·`gap-4` 열 리듬 유지 확인.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

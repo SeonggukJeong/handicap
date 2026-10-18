@@ -30,6 +30,10 @@
 
 - **vite dev로 라이브 검증하다가 검증 대상 컴포넌트 src를 고치면(사용자 fold-in fix 흐름) HMR이 full-reload로 떨어져 클라이언트-only 페이지 상태가 초기화된다** (extract-var-name-visibility): `/scenarios/new`가 템플릿 피커로 되돌아가 이전에 구성한 시나리오/변수/선택이 증발 — 이전 툴 호출에서 잡아둔 ref/좌표도 전부 무효. 편집 후 재검증은 **셋업(템플릿 선택→변수 추가→필드 fill)부터 다시 구동**하고, fresh `browser_snapshot`으로 ref를 재취득할 것(오류가 아니라 정상 리로드 — "구현이 사라졌다" 오진 금지).
 
+## 스크롤-닫힘 popover + ESC 레이어링 판정 (pick-random-tooltip 2026-10-18)
+
+- **합성 `browser_evaluate`에서 `scrollIntoView` 뒤 연 fixed popover(HelpTip·VarUsagePopover)는 늦은 scroll 이벤트로 *설계대로* 닫힐 수 있다 → 이어 누른 ESC가 모달까지 닫아 "ESC 레이어링 결함"처럼 보인다** (첫 시도 1회 관측, 동일 이력 재현 4/4 정상): 결함 판정 전에 `browser_click`(실클릭)으로 열고 **ESC 직전 `[role=note]` 존재를 별도 evaluate로 확인**한 뒤 `browser_press_key`. 짝: RunDialog는 `role=dialog` 없는 인라인이라 `[role=dialog]` 스코프 쿼리가 null — document 레벨로 찾을 것.
+
 ## 트랜지언트 상태는 단일 `browser_evaluate`로
 
 - **트랜지언트 UI 상태(예: '복사됨' 1.5s 후 복귀)는 Playwright MCP 툴 호출 *사이*로 못 잡는다** (본문 뷰어 수동검증): `browser_click` → `browser_snapshot`을 별도 호출로 쪼개면 inter-call 지연이 revert 윈도우를 넘겨 이미 되돌아온 값을 본다. **단일 `browser_evaluate`** 안에서 `el.click()` → `await sleep(150)`(writeText microtask+React 렌더) → label 확인 → `await sleep(1700)` → revert 확인까지 한 번에. clipboard 검증도 같은 evaluate에서 `navigator.clipboard.readText()`(localhost=secure context라 허용).

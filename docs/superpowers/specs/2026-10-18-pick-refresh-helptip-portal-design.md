@@ -1,6 +1,7 @@
 # 선택 배열 팝업 "요청마다 새로 뽑기" + HelpTip 클립 해소 — 설계
 
 - 날짜: 2026-10-18 · 워크트리 `worktree-pick-random-tooltip` · 유형: user-path + correctness-bug(UI 클립)
+- 상태: **완료** (2026-10-18, 코드 `7cd6ef0e`..`a75154ef`) — 연기·판단은 `docs/roadmap.md` §B35, 엔진 곡선 버그는 §B34
 - 선행: pick-array(`2026-10-17-pick-array-design.md`), genvar-per-request(`2026-10-17-genvar-per-request-design.md` §6.3 — "팝업은 refresh를 편집하지 않는다"를 이 spec이 대체)
 - 범위 밖(별도 엔진 슬라이스): open-loop 곡선 저레이트 램프 무부하 버그 — 재현·원인만 이 슬라이스에서 roadmap §B34로 기록(§6).
 
