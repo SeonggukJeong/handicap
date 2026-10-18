@@ -68,7 +68,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
+      # `+` 없는 rustc = rust-toolchain.toml로 해석된, cargo가 실제로 쓰는 버전(액션 자체 출력은 `rustc +<ver>`라 공허).
+      - name: Effective toolchain
+        run: rustc --version && cargo --version
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -179,9 +182,12 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
+      # `+` 없는 rustc = rust-toolchain.toml로 해석된, cargo가 실제로 쓰는 버전(액션 자체 출력은 `rustc +<ver>`라 공허).
+      - name: Effective toolchain
+        run: rustc --version && cargo --version
 
       - uses: Swatinem/rust-cache@v2
         with:

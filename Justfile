@@ -117,6 +117,55 @@ bump-version ver:
     echo
     echo "다음: git add -u && git commit -m 'chore(release): {{ver}} 버전 bump' && git tag -a v{{ver}} && git push origin master v{{ver}}"
 
+# Rust 툴체인 승급: rust-toolchain.toml(원천) + 워크플로 dtolnay 거울 + Dockerfile FROM을 한 번에.
+# 전부 검증한 뒤 전부 쓴다(검증 실패 시 파일 무변경). 새 clippy lint는 승급 커밋 안에서 고친다.
+bump-rust ver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ver="{{ver}}"
+    if ! printf '%s\n' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+      echo "bad version: '$ver' (X.Y.Z만 — v 접두·stable·1.99 불가, 예: 1.99.1)" >&2
+      exit 2
+    fi
+    echo "거울 대상 실존 확인…"
+    git ls-remote --exit-code https://github.com/dtolnay/rust-toolchain "refs/heads/$ver" >/dev/null \
+      || { echo "dtolnay/rust-toolchain@$ver 브랜치 없음 — Rust 릴리즈 직후면 수일 내 생긴다" >&2; exit 1; }
+    curl -sf -o /dev/null "https://hub.docker.com/v2/repositories/library/rust/tags/$ver-bookworm" \
+      || { echo "rust:$ver-bookworm 태그 없음 — 릴리즈 직후이거나 bookworm 태그 중단(Dockerfile 베이스 결정 필요)" >&2; exit 1; }
+    python3 - "$ver" <<'PY'
+    import pathlib, re, sys
+    ver = sys.argv[1]
+    plan = []  # (path, new_text, count) — 전부 계산한 뒤에만 쓴다
+
+    def compute(path, pat, repl, exact=None):
+        p = pathlib.Path(path)
+        new, n = re.subn(pat, repl, p.read_text(), flags=re.M)
+        if exact is not None:
+            assert n == exact, f"{path}: 매치 {n}개({exact}개여야 함)"
+        else:
+            assert n >= 1, f"{path}: 매치 0개"
+        plan.append((p, new, n))
+
+    compute("rust-toolchain.toml", r'^(channel\s*=\s*)"[^"]*"', lambda m: m.group(1) + f'"{ver}"', exact=1)
+    total = 0
+    for p in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+        new, n = re.subn(r'(dtolnay/rust-toolchain@)\S+', lambda m: m.group(1) + ver, p.read_text())
+        if n:
+            plan.append((p, new, n))
+            total += n
+    assert total >= 1, "워크플로: dtolnay/rust-toolchain@ 매치 0개"
+    compute("deploy/Dockerfile", r'^(FROM\s+rust:)[^-\s]+', lambda m: m.group(1) + ver)
+
+    for p, new, n in plan:
+        p.write_text(new)
+        print(f"  {p}: {n}곳 -> {ver}")
+    PY
+    scripts/check-rust-toolchain.sh
+    rustup toolchain install "$ver" --component rustfmt --component clippy
+    echo
+    echo "다음: 승급 커밋 → pre-commit이 새 clippy로 전체 cargo 게이트를 돈다(새 lint는 같은 커밋에서 수정)."
+    echo "에어갭 빌드 머신은 반입 아카이브를 새 버전으로 다시 만들 것(docs/dev/install-rhel-airgapped.md §4.3)."
+
 # 문서 이동 검증(R6·R16·R17·R18) — 소스 파라미터화 <base> [source]: manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분(corpus는 소스 제외).
 doc-coverage BASE="f870cfd9" FILE="ui/CLAUDE.md":
     python3 scripts/check-doc-coverage.py {{BASE}} {{FILE}}

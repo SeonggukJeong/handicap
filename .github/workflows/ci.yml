@@ -9,11 +9,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # 툴체인 고정 정합(원천 rust-toolchain.toml ↔ 워크플로·Dockerfile 거울). 툴체인 불필요라 맨 앞.
+      - name: Toolchain pin consistency
+        run: scripts/check-rust-toolchain.sh
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy
+      # `+` 없는 rustc = rust-toolchain.toml로 해석된, cargo가 실제로 쓰는 버전(액션 자체 출력은 `rustc +<ver>`라 공허).
+      - name: Effective toolchain
+        run: rustc --version && cargo --version
       - uses: Swatinem/rust-cache@v2
       - name: Format check
         run: cargo fmt --all -- --check

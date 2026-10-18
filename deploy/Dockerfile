@@ -17,7 +17,7 @@ RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm build
 RUN test -f dist/index.html
 
 # ---------- Stage 2: build Rust ----------
-FROM rust:1.85-bookworm AS rust-build
+FROM rust:1.99.1-bookworm AS rust-build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler ca-certificates pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -26,7 +26,8 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/work/target \
-    cargo build --release -p handicap-controller -p handicap-worker \
+    rustc --version \
+    && cargo build --release -p handicap-controller -p handicap-worker \
     && mkdir -p /out \
     && cp target/release/controller /out/controller \
     && cp target/release/worker /out/worker
