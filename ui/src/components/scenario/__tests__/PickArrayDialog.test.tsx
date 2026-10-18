@@ -463,4 +463,90 @@ describe("PickArrayDialog", () => {
     setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
     expect(screen.getByText(ko.editor.pickPreviewTitle)).toBeInTheDocument();
   });
+  // ── 팝업 refresh 체크박스 (pick-random-tooltip, US1·US2) ──
+  const refreshBox = (dialog: HTMLElement) =>
+    within(dialog).getByRole("checkbox", { name: ko.editor.genRefreshLabel });
+
+  it("① 체크 → 적용하면 refresh: request가 실린다", async () => {
+    const user = userEvent.setup();
+    const { onApply, dialog, apply } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    expect(refreshBox(dialog)).not.toBeChecked();
+    await user.click(refreshBox(dialog));
+    await user.click(apply);
+    expect(onApply.mock.calls[0][0]).toStrictEqual({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "request",
+    });
+  });
+
+  it("② 초기 request를 해제 → 적용하면 refresh 키가 없다", async () => {
+    const user = userEvent.setup();
+    const { onApply, dialog, apply } = setup({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "request",
+    });
+    expect(refreshBox(dialog)).toBeChecked();
+    await user.click(refreshBox(dialog));
+    await user.click(apply);
+    expect(onApply.mock.calls[0][0]).not.toHaveProperty("refresh");
+  });
+
+  it("③ 체크 후 취소하면 적용되지 않는다", async () => {
+    const user = userEvent.setup();
+    const { onApply, onCancel, dialog } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    await user.click(refreshBox(dialog));
+    await user.click(within(dialog).getByRole("button", { name: ko.common.cancel }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("④ 체크 즉시 미리보기 제목이 요청마다로 바뀌고, 해제하면 돌아온다", async () => {
+    const user = userEvent.setup();
+    const { dialog } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    expect(within(dialog).getByText(ko.editor.pickPreviewTitle)).toBeInTheDocument();
+    await user.click(refreshBox(dialog));
+    expect(within(dialog).getByText(ko.editor.pickPreviewTitleRequest)).toBeInTheDocument();
+    expect(within(dialog).queryByText(ko.editor.pickPreviewTitle)).toBeNull();
+    await user.click(refreshBox(dialog));
+    expect(within(dialog).getByText(ko.editor.pickPreviewTitle)).toBeInTheDocument();
+  });
+
+  it("⑤ 손으로 쓴 refresh: iteration은 체크박스를 안 건드리면 보존된다", async () => {
+    const user = userEvent.setup();
+    const { onApply, dialog, apply } = setup({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "iteration",
+    });
+    expect(refreshBox(dialog)).not.toBeChecked();
+    await user.click(apply);
+    expect(onApply.mock.calls[0][0]).toStrictEqual({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "iteration",
+    });
+  });
+
+  it("팝업의 도움말을 열고 ESC를 누르면 도움말만 닫히고 팝업은 남는다", async () => {
+    const user = userEvent.setup();
+    const { onCancel, dialog } = setup({ gen: "pick_array", length: 5, min: 1, max: 2 });
+    await user.click(
+      within(dialog).getByRole("button", { name: ko.editor.genRefreshHelpLabel }),
+    );
+    expect(within(dialog).getByRole("note")).toHaveTextContent(ko.glossary.genRefreshIntro);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
 });

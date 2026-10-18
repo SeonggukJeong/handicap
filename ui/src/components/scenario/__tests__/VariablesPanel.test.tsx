@@ -1727,4 +1727,43 @@ describe("VariablesPanel — 요청마다 새로 뽑기", () => {
       refresh: "request",
     });
   });
+
+  it("팝업에서 요청마다 새로 뽑기를 켜고 적용하면 YAML·배지에 반영된다 (US1)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .setVariableGen("flags", { gen: "pick_array", length: 5, min: 1, max: 2 });
+    render(<VariablesPanel />);
+    expect(screen.queryByText(ko.editor.genRefreshBadge)).toBeNull();
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const dialog = screen.getByRole("dialog");
+    // 패널 <label>도 같은 텍스트를 감싸므로 반드시 dialog 스코프 + role 쿼리(spec §4)
+    await user.click(within(dialog).getByRole("checkbox", { name: ko.editor.genRefreshLabel }));
+    await user.click(within(dialog).getByRole("button", { name: ko.editor.pickApply }));
+    expect(useScenarioEditor.getState().model!.variables.flags).toEqual({
+      gen: "pick_array",
+      length: 5,
+      min: 1,
+      max: 2,
+      refresh: "request",
+    });
+    expect(useScenarioEditor.getState().yamlText).toContain("refresh: request");
+    expect(screen.getByText(ko.editor.genRefreshBadge)).toBeInTheDocument();
+  });
+
+  it("팝업에서 체크박스를 바꿨다가 취소하면 YAML이 그대로다 (US2)", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .setVariableGen("flags", { gen: "pick_array", length: 5, min: 1, max: 2 });
+    render(<VariablesPanel />);
+    const before = useScenarioEditor.getState().yamlText;
+    await user.click(screen.getByRole("button", { name: ko.editor.pickEditAria("flags") }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: ko.editor.genRefreshLabel }));
+    await user.click(within(dialog).getByRole("button", { name: ko.common.cancel }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useScenarioEditor.getState().yamlText).toBe(before);
+    expect(screen.queryByText(ko.editor.genRefreshBadge)).toBeNull();
+  });
 });

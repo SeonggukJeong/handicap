@@ -2,6 +2,7 @@ import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Modal } from "../Modal";
 import { Button } from "../Button";
 import { Input } from "../ui/Input";
+import { HelpTip } from "../HelpTip";
 import { ko } from "../../i18n/ko";
 import { samplePreview, type PickArraySpec } from "../../scenario/genVars";
 import {
@@ -94,6 +95,9 @@ export function PickArrayDialog({
   const controlledTick = sampleTick !== undefined && onSampleRefresh !== undefined;
   const tick = controlledTick ? sampleTick : localTick;
   const reroll = controlledTick ? onSampleRefresh : () => setLocalTick((t) => t + 1);
+  // "요청마다 새로 뽑기" draft — 원값 보존(손으로 쓴 `iteration` 포함), 토글은 패널 체크박스와
+  // 같은 규칙(체크=request, 해제=키 없음). 적용 시에만 커밋(spec 2026-10-18 §2).
+  const [refreshDraft, setRefreshDraft] = useState<PickArraySpec["refresh"]>(initial.refresh);
   const anchorRef = useRef<number | null>(null);
   // 문법 오류 동안 칸 그리드가 보일 직전 유효 집합(spec §6.3) — 렌더 중 ref 갱신(파생 표시 전용).
   const lastValidRef = useRef<number[]>([]);
@@ -186,8 +190,8 @@ export function PickArrayDialog({
           ...(isFullRange(pos.set, liveLength) ? {} : { positions: formatPositions(pos.set) }),
           ...(pickRes.value === true ? {} : { pick: pickRes.value }),
           ...(restRes.value === false ? {} : { rest: restRes.value }),
-          // 팝업은 refresh를 편집하지 않는다 — initial 값을 그대로 싣는다(없으면 키 없음, spec §6.3).
-          ...(initial.refresh !== undefined ? { refresh: initial.refresh } : {}),
+          // refresh는 팝업 draft(미조작이면 initial 그대로, 없으면 키 없음 — spec 2026-10-18 §2).
+          ...(refreshDraft !== undefined ? { refresh: refreshDraft } : {}),
         }
       : null;
 
@@ -439,10 +443,26 @@ export function PickArrayDialog({
           )}
         </section>
 
+        <div className="flex items-center gap-1 text-xs text-slate-600">
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={refreshDraft === "request"}
+              onChange={(e) => setRefreshDraft(e.target.checked ? "request" : undefined)}
+            />
+            <span>{ko.editor.genRefreshLabel}</span>
+          </label>
+          {/* HelpTip은 label 밖 형제 — 체크박스 accname 오염 방지(U3). 모달 안 ESC는 tip만 닫는다. */}
+          <HelpTip label={ko.editor.genRefreshHelpLabel}>
+            <span className="block">{ko.glossary.genRefreshIntro}</span>
+            <span className="mt-1 block">{ko.glossary.genRefreshPriority}</span>
+          </HelpTip>
+        </div>
+
         <section className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-semibold text-slate-500">
-              {initial.refresh === "request"
+              {refreshDraft === "request"
                 ? ko.editor.pickPreviewTitleRequest
                 : ko.editor.pickPreviewTitle}
             </h3>
