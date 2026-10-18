@@ -3,6 +3,9 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # 릴리즈 publish 게이트의 "run 없음" 해소 경로: gh workflow run ci --ref <태그>
+  # (ci는 push의 head 커밋에서만 돌아, 한 push의 중간 커밋엔 run이 없다).
+  workflow_dispatch:
 
 jobs:
   rust:

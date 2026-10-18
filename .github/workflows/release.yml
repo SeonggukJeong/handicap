@@ -5,7 +5,7 @@ name: release
 # 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
 #
 # 구조(spec R8): preflight(버전 정합, 수 초) → windows-installer / macos-dmg(둘 다 **빌드만**
-# + upload-artifact) → publish(artifact 다운로드 → gh release). 빌드와 게시를 갈라 놓아
+# + upload-artifact) → publish(CI 녹색 게이트 → artifact 다운로드 → gh release). 빌드와 게시를 갈라 놓아
 # GitHub API 장애로 게시가 실패해도 **실패한 publish 잡만 재실행**하면 되고(빌드 재실행 불필요,
 # 18분 → 수십 초), 릴리즈 생성 레이스도 없어져 구 macos 잡의 30분 폴링이 사라졌다.
 on:
@@ -223,11 +223,26 @@ jobs:
     needs: [windows-installer, macos-dmg]
     if: always() && needs.windows-installer.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 45 # CI 게이트 대기 상한 30분 + 게시 여유
+    # job-level permissions는 top-level을 통째로 대체한다 → contents: write도 다시 적는다.
+    # actions: read는 CI 게이트(gh run list)용 — 서드파티 액션이 도는 빌드 잡엔 주지 않으려고 여기에만.
+    permissions:
+      contents: write
+      actions: read
     steps:
       # 노트 파일(docs/release-notes/v<ver>.md)을 읽어야 하므로 publish도 체크아웃한다.
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      # 빨간 CI 위 릴리즈 차단(v0.9.0 사고). 게시보다 앞이라 실패 시 아무것도 안 나간다.
+      # SHA는 github.sha가 아니라 checkout 후 HEAD — workflow_dispatch에서 github.sha는
+      # 디스패치 브랜치 커밋이라 엉뚱한 커밋을 검사하게 된다(preflight 주석과 같은 함정).
+      - name: CI green gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: scripts/check-ci-green.sh "$(git rev-parse HEAD)"
 
       - uses: actions/download-artifact@v7
         with:
