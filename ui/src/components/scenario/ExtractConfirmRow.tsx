@@ -18,10 +18,10 @@ function withVar(proposed: Extract, v: string): Extract {
   }
 }
 
-/** Inline confirm row for creating an extract. PLAIN inline JSX — NO <Modal> and NO
- *  <HelpTip>: both use capture-phase ESC handling, and this row also renders INSIDE
- *  the BodyViewer <Modal>, so a nested modal's ESC would close the outer one
- *  (ui/CLAUDE.md HelpTip-in-Modal trap, R11). */
+/** Inline confirm row for creating an extract. PLAIN inline JSX — NO <Modal>: this row
+ *  renders INSIDE the BodyViewer <Modal>, so a nested modal's ESC would close the outer
+ *  one (R11). (<HelpTip> is safe here since 2026-10-18 — its window-capture ESC closes
+ *  only the tip — but the row needs none.) */
 export function ExtractConfirmRow({
   proposed,
   preview,

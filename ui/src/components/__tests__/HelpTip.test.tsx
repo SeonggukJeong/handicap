@@ -2,6 +2,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { HelpTip } from "../HelpTip";
+import { Modal } from "../Modal";
+import { TIP_WIDTH_PX } from "../helpTipPos";
 
 describe("HelpTip", () => {
   it("기본은 닫힘 — 버튼만 보이고 popover는 없다", () => {
@@ -64,29 +66,125 @@ describe("HelpTip", () => {
     expect(btn).toHaveAttribute("aria-controls", note.getAttribute("id"));
   });
 
-  it("기본은 left-0 정렬이다", async () => {
+  it("popover는 portal로 body에 붙는다 — 루트 span의 자손이 아니다", async () => {
     const user = userEvent.setup();
-    render(<HelpTip label="설명">내용</HelpTip>);
+    const { container } = render(<HelpTip label="설명">내용</HelpTip>);
+    const root = container.querySelector("span")!;
     await user.click(screen.getByRole("button", { name: "설명" }));
-    expect(screen.getByRole("note").className).toContain("left-0");
+    const note = screen.getByRole("note");
+    expect(root.contains(note)).toBe(false);
+    expect(note.parentElement).toBe(document.body);
   });
 
-  it("뷰포트 우단을 넘치면 right-0로 뒤집힌다", async () => {
+  it("fixed 위치·폭·높이 상한 — 앵커 rect 기준", async () => {
     const user = userEvent.setup();
     const { container } = render(<HelpTip label="설명">내용</HelpTip>);
     const root = container.querySelector("span")!;
     vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
-      left: window.innerWidth - 10,
-      right: window.innerWidth,
-      top: 0,
-      bottom: 0,
-      width: 10,
-      height: 10,
-      x: window.innerWidth - 10,
-      y: 0,
+      left: 100,
+      right: 116,
+      top: 50,
+      bottom: 66,
+      width: 16,
+      height: 16,
+      x: 100,
+      y: 50,
       toJSON: () => ({}),
     } as DOMRect);
     await user.click(screen.getByRole("button", { name: "설명" }));
-    expect(screen.getByRole("note").className).toContain("right-0");
+    const note = screen.getByRole("note");
+    expect(note.style.position).toBe("fixed");
+    expect(note.style.top).toBe("70px");
+    expect(note.style.left).toBe("100px");
+    expect(note.style.width).toBe(`${TIP_WIDTH_PX}px`);
+    expect(note.style.overflowY).toBe("auto");
+  });
+
+  it("모달 안이면 popover가 그 다이얼로그 안에 붙는다(aria-modal 범위 유지)", async () => {
+    const user = userEvent.setup();
+    render(
+      <Modal open onClose={vi.fn()} title="모달">
+        <HelpTip label="설명">내용</HelpTip>
+      </Modal>,
+    );
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    expect(screen.getByRole("note").parentElement).toBe(screen.getByRole("dialog"));
+  });
+
+  it("aria-modal 없는 평범한 role=dialog 안이면 body로 간다", async () => {
+    const user = userEvent.setup();
+    render(
+      <div role="dialog" aria-label="비모달">
+        <HelpTip label="설명">내용</HelpTip>
+      </div>,
+    );
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    expect(screen.getByRole("note").parentElement).toBe(document.body);
+  });
+
+  it("모달 안에서 popover가 열려 있으면 ESC는 popover만 닫는다 — 모달 유지", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} title="모달">
+        <HelpTip label="설명">내용</HelpTip>
+      </Modal>,
+    );
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("popover 안 pointerdown은 닫지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<HelpTip label="설명">내용</HelpTip>);
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    fireEvent.pointerDown(screen.getByRole("note"));
+    expect(screen.getByRole("note")).toBeInTheDocument();
+  });
+
+  it("바깥 스크롤·리사이즈는 닫고, popover 자체 스크롤은 유지한다", async () => {
+    const user = userEvent.setup();
+    render(<HelpTip label="설명">내용</HelpTip>);
+    const btn = screen.getByRole("button", { name: "설명" });
+    await user.click(btn);
+    fireEvent.scroll(screen.getByRole("note"));
+    expect(screen.getByRole("note")).toBeInTheDocument();
+    fireEvent.scroll(window);
+    expect(screen.queryByRole("note")).toBeNull();
+    await user.click(btn);
+    fireEvent.scroll(document);
+    expect(screen.queryByRole("note")).toBeNull();
+    await user.click(btn);
+    fireEvent(window, new Event("resize"));
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("열림 동안만 버튼 aria-describedby가 popover id를 가리킨다", async () => {
+    const user = userEvent.setup();
+    render(<HelpTip label="설명">내용</HelpTip>);
+    const btn = screen.getByRole("button", { name: "설명" });
+    expect(btn).not.toHaveAttribute("aria-describedby");
+    await user.click(btn);
+    expect(btn).toHaveAttribute("aria-describedby", screen.getByRole("note").id);
+    await user.click(btn);
+    expect(btn).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("popover 본문 클릭은 React 트리 조상의 onClick으로 버블하지 않는다", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    render(
+      <div onClick={onRowClick}>
+        <HelpTip label="설명">내용</HelpTip>
+      </div>,
+    );
+    await user.click(screen.getByRole("button", { name: "설명" }));
+    onRowClick.mockClear(); // 버튼 클릭 자체의 버블은 기존 동작
+    await user.click(screen.getByRole("note"));
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 });
