@@ -8,7 +8,7 @@
 
 ## 사전 준비
 
-- **Rust** (워크스페이스 toolchain; `rust-toolchain.toml`이 고정). macOS는 Xcode CLT(`xcode-select --install`).
+- **Rust** (`rust-toolchain.toml`이 정확 버전을 고정 — rustup이 자동 선택·설치). macOS는 Xcode CLT(`xcode-select --install`).
 - **Tauri CLI v2**: `cargo install tauri-cli --version "^2" --locked` (→ `cargo tauri`).
 - **Node/pnpm**: UI 빌드(`ui/dist`)용. (셸 프런트는 정적 스플래시 한 장이라 Node 무관 — `desktop/`는 `--manager cargo`로 스캐폴드돼 `package.json`/`node_modules` 없음.)
 - **protoc**: `desktop`가 `handicap-controller{bundle}` 그래프 전체를 컴파일하므로 `handicap-proto`→`tonic-build`가 `protoc`를 요구. fresh 머신은 `brew install protobuf`.
@@ -50,7 +50,7 @@ cd desktop && cargo tauri build --bundles nsis,msi
   - **`preflight`**(ubuntu, 수 초): `scripts/check-release-versions.sh "<태그>"`로 태그↔버전 문자열(3개 매니페스트 + 생성 락 2개, 총 14항목 — 아래 "버전 bump" 참조) 정합을 검사한다. 실패하면 뒤따르는 18분짜리 빌드 잡들이 **시작조차 안 한다**.
   - **`windows-installer`**(windows-latest, `needs: preflight`): `pnpm --dir ui build` → `protoc` 설치 → rust(MSVC) → `tauri-apps/tauri-action`(`projectPath: desktop`, `--bundles nsis,msi`, **`tagName` 없음 — 릴리즈를 만들지 않는다**) → 같은 잡에서 루트 워크스페이스 `cargo build --release -p handicap-controller --bin controller --features bundle`로 포터블 단일 exe도 빌드 → 인스톨러 3종을 `staging/`에 모아 artifact `release-assets-windows`로 업로드.
   - **`macos-dmg`**(macos-latest, `needs: preflight`, matrix `target ∈ {aarch64-apple-darwin, x86_64-apple-darwin}`, `fail-fast: false` — 한쪽이 실패해도 다른 쪽 dmg는 빌드된다): 아키텍처별 네이티브로 `tauri-action`을 **`tagName` 없이** `--bundles app,dmg` 호출(빌드만) → artifact 2종 업로드 — 발행용 `release-assets-macos-<target>`(dmg만, `if-no-files-found: error`) + 회수용 `macos-bundle-<target>`(`.app` 포함, `if: always()` — dmg 변환이 GUI 세션 요구로 실패해도 `.app`은 남는다). **`universal-apple-darwin`(lipo)을 쓰지 않는 이유**: lipo 합본은 링커가 붙인 ad-hoc 서명이 날아가 arm64에서 실행이 거부될 수 있다. 서명·공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C에 우클릭-열기/`xattr -dr com.apple.quarantine` 안내).
-  - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg]`, `if: always() && needs.windows-installer.result == 'success'`): `download-artifact`를 `pattern: release-assets-*`(회수용 `macos-bundle-*`는 매치 안 됨)·`merge-multiple: true`로 받아 한 디렉터리에 합친 뒤 `scripts/publish-release.sh "<태그>" staging`을 실행 — 릴리즈 생성/에셋 업로드/노트 처리가 전부 여기 한 곳. **macOS 양쪽이 다 실패해도 Windows 3종만으로 발행된다**(에셋 **이름** 5종은 불변식이지만 **완전성**은 불변식이 아니다).
+  - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg]`, `if: always() && needs.windows-installer.result == 'success'`): 먼저 **CI 녹색 게이트**(`scripts/check-ci-green.sh "$(git rev-parse HEAD)"` — 태그 커밋의 ci 최신 run이 success여야 통과, 진행 중이면 최대 30분 대기, 빨강·run 없음·gh 실패는 사유+해소법과 함께 실패해 아무것도 게시되지 않는다; job-level `permissions: contents: write, actions: read`)를 통과한 뒤 `download-artifact`를 `pattern: release-assets-*`(회수용 `macos-bundle-*`는 매치 안 됨)·`merge-multiple: true`로 받아 한 디렉터리에 합친 뒤 `scripts/publish-release.sh "<태그>" staging`을 실행 — 릴리즈 생성/에셋 업로드/노트 처리가 전부 여기 한 곳. **macOS 양쪽이 다 실패해도 Windows 3종만으로 발행된다**(에셋 **이름** 5종은 불변식이지만 **완전성**은 불변식이 아니다).
 - **구 30분 폴링이 사라진 이유**: 이전엔 windows/macos 두 잡이 각자 릴리즈를 만들려 해 동시-create 레이스가 있었고, macos 잡은 windows 잡이 릴리즈를 먼저 만들 때까지 20초 간격 최대 30분 폴링한 뒤에야 업로드했다. 이제 릴리즈 생성(및 첫 업로드)이 `publish` 한 곳으로 모여 애초에 레이스가 없다 — 폴링이 통째로 삭제됐다.
 
 ### 버전 bump
@@ -68,7 +68,7 @@ git tag -a v<ver>
 git push origin v<ver>
 ```
 
-**릴리즈 전 master CI 녹색 확인 (필수, 2026-10-17)**: `gh run list --workflow ci --branch master --limit 3`의 최신 행이 `success`인지 본다. release 워크플로는 clippy를 안 돌려 **빨간 CI 위에서도 릴리즈가 성공한다** — v0.9.0이 그렇게 나갔다(master `ci` rust 잡이 Rust 1.99 신규 clippy lint로 2회 연속 실패한 상태). 원인은 `rust-toolchain.toml`이 `stable`만 고정해 CI(최신 stable)와 로컬 pre-commit(설치된 stable)의 clippy 버전이 갈리는 것이라, 로컬 게이트가 green이어도 CI는 빨갈 수 있다. 의심되면 `rustup toolchain install <CI 버전> --component clippy rustfmt` 후 `CARGO_TARGET_DIR="$PWD/target/clippy-<ver>" rustup run <ver> cargo clippy --workspace --all-targets -- -D warnings`로 로컬 재현(별도 target dir로 기본 빌드 캐시 보존 — **절대경로로**: 상대경로면 `cargo test` 재현 시 e2e가 워커를 크레이트 디렉토리 기준으로 빌드해 `crates/*/target/`에 untracked GB급 산출물이 생긴다). 툴체인 고정 여부는 roadmap §B32 R-e(미결정).
+**릴리즈 전 master CI 녹색 확인 (보조, 2026-10-17 도입 → 2026-10-18 publish 게이트로 강제)**: `publish` 잡이 태그 커밋의 ci 녹색을 기계로 확인하므로(위 잡 그래프) 빨간 CI 위 게시는 구조적으로 막힌다(v0.9.0 사고의 재발 방지). 태그 전 `gh run list --workflow ci --branch master --limit 3`으로 미리 보면 18분 빌드 낭비를 피한다. **게이트가 "ci run 없음"으로 실패하면**: ci는 push의 head 커밋에서만 돌므로 태그가 한 push의 중간 커밋을 가리킨 경우다 → `gh workflow run ci --ref <태그>` → 녹색 확인 → 실패한 `publish` 잡만 재실행. **게이트가 배선 문제로 실패하면**(예: 권한 누락 403): master를 고친 뒤 release를 `workflow_dispatch`(입력 `tag`)로 재실행 — 워크플로 정의는 디스패치한 master 것이 쓰인다. 단 각 잡은 `ref: <태그>`를 체크아웃하므로 **`check-ci-green.sh` 스크립트 자체의 버그**는 새 태그가 필요하다. 툴체인은 `rust-toolchain.toml`의 정확 버전으로 고정돼 로컬 pre-commit clippy = CI clippy(승급은 `just bump-rust`).
 
 **주의**: bump가 이제 루트 `Cargo.toml`/`Cargo.lock`도 건드리므로(과거엔 `desktop/src-tauri/`만 건드려 루트 pre-commit cargo 게이트를 안 탔다) 이 커밋은 **cargo-영향 경로 커밋**이라 전체 게이트(fmt/build/clippy/nextest/doctest, 수 분)를 돈다 — 루트 `CLAUDE.md`의 "매 커밋 일상 규칙"대로 `git commit`을 단일 FOREGROUND 호출로 돌릴 것.
 
@@ -80,7 +80,7 @@ git push origin v<ver>
 
 - **게시(`publish`)만 실패**(예: GitHub API 일시 장애) → Actions에서 해당 워크플로 실행을 열고 **"Re-run failed jobs"**. `windows-installer`/`macos-dmg`가 남긴 artifact를 그대로 재사용하므로 **수십 초**에 끝난다(18분 빌드를 다시 돌리지 않는다). 이 개선의 동기는 v0.5.0 사고: 18분 빌드 후 게시가 503으로 실패했고, 당시 구조는 재실행이 곧 전체 재실행이라 `setup-protoc` 단계에서 2분 만에 재실패했다(빌드가 통째로 다시 돌았기 때문).
 - **워크플로 자체가 못 뜨는 경우**(예: Actions 장애로 `publish`조차 스케줄 안 됨) → `windows-installer`/`macos-dmg`가 남긴 artifact를 각 잡 페이지에서 내려받아 로컬에서 수동 `gh release create v<ver> <파일들...>`(이미 릴리즈가 있으면 `gh release upload v<ver> <파일들...> --clobber`).
-- **소급 적용 안 됨**: 모든 잡이 `ref: <태그>`로 그 태그 시점의 트리를 체크아웃한다. **이 4-잡 구조 도입 이전에 자른 태그**(예: v0.7.0)를 `workflow_dispatch`로 재발행하려 하면 그 태그 트리엔 `scripts/check-release-versions.sh`가 없어 `preflight`에서 즉시 실패한다(파괴적이지는 않다) — "게시만 재실행" 혜택은 이 변경 **이후에 자른 태그에만** 적용된다.
+- **소급 적용 안 됨**: 모든 잡이 `ref: <태그>`로 그 태그 시점의 트리를 체크아웃한다. **이 4-잡 구조 도입 이전에 자른 태그**(예: v0.7.0)를 `workflow_dispatch`로 재발행하려 하면 그 태그 트리엔 `scripts/check-release-versions.sh`가 없어 `preflight`에서 즉시 실패한다(파괴적이지는 않다) — "게시만 재실행" 혜택은 이 변경 **이후에 자른 태그에만** 적용된다. 같은 이유로 CI 녹색 게이트(`scripts/check-ci-green.sh`) 도입 이전 태그를 재발행하면 그 트리엔 스크립트가 없어 **18분 빌드 뒤 `publish`에서** 실패한다(preflight가 아니라 게시 직전이라 늦게 실패).
 
 ### 버전 bump 이력
 

@@ -45,7 +45,7 @@ just install-hooks
 just build && just lint && just test     # 18 tests must pass
 ```
 
-`rust-toolchain.toml`은 채널(`stable`)만 고정한다 — **로컬 설치 stable ≠ CI 최신 stable**이라 CI clippy가 로컬 pre-commit이 못 본 lint로 master를 깨뜨릴 수 있다(v0.9.0이 빨간 CI 위에서 나감). CI 버전 재현: `CARGO_TARGET_DIR="$PWD/target/clippy-<ver>" rustup run <ver> cargo clippy --workspace --all-targets -- -D warnings`(**절대경로 필수** — 상대경로면 `cargo test`의 e2e가 워커를 빌드할 때 크레이트 디렉토리 기준으로 재해석돼 `crates/*/target/`에 GB급 untracked 빌드가 생긴다; roadmap §B32 R-e). **`just install-hooks`는 필수다** — 층상 pre-commit 게이트가 tracked `.githooks/`에 살아 있고, 이 명령이 `core.hooksPath`를 거기로 지정해야 클론에 적용된다(안 하면 게이트 없이 커밋됨).
+`rust-toolchain.toml`이 **정확한 Rust 버전**을 고정하고(원천) CI 워크플로 4곳의 `dtolnay/rust-toolchain@<ver>`·`deploy/Dockerfile`의 `FROM rust:<ver>-…`가 같은 버전을 거울로 명시한다 — 로컬 pre-commit clippy = CI clippy(과거 `stable` 채널만 고정해 v0.9.0이 빨간 CI 위에서 나갔다). 승급은 **`just bump-rust <X.Y.Z>`**(6곳 검증-후-일괄기록 + 정합 검사; 새 lint는 그 승급 커밋에서 수정) — 한 곳만 손으로 고치면 ci `rust` 잡 첫 스텝 `scripts/check-rust-toolchain.sh`가 실패한다. 릴리즈 `publish` 잡은 태그 커밋의 ci 녹색을 확인한 뒤에만 게시한다(`scripts/check-ci-green.sh`). 다른 버전 시험: `CARGO_TARGET_DIR="$PWD/target/clippy-<ver>" rustup run <ver> cargo clippy --workspace --all-targets -- -D warnings`(**절대경로 필수** — 상대경로면 `cargo test`의 e2e가 워커를 빌드할 때 크레이트 디렉토리 기준으로 재해석돼 `crates/*/target/`에 GB급 untracked 빌드가 생긴다). **`just install-hooks`는 필수다** — 층상 pre-commit 게이트가 tracked `.githooks/`에 살아 있고, 이 명령이 `core.hooksPath`를 거기로 지정해야 클론에 적용된다(안 하면 게이트 없이 커밋됨).
 
 ## 검증 자동화 (Git + Claude hooks)
 

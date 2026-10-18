@@ -233,10 +233,9 @@ jobs:
           version: '29.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Rust (stable-msvc)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable-x86_64-pc-windows-msvc
+      # 버전은 레포 rust-toolchain.toml의 고정 버전과 같게(정합은 scripts/check-rust-toolchain.sh가 .github/workflows만 검사 — 이 샘플은 대상 아님).
+      - name: Setup Rust (MSVC)
+        uses: dtolnay/rust-toolchain@<rust-toolchain.toml의 channel>
 
       - name: Build single exe
         run: cargo build --release --features bundle

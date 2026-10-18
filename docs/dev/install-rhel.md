@@ -5,7 +5,7 @@
 > RHEL 10 특이사항 두 가지: ① 패키지 매니저가 **dnf5**(`dnf` 명령은 그대로 호환), ② **DNF modularity(AppStream 모듈)가 제거**됨 — RHEL 9의 `dnf module enable nodejs:20` 같은 방식이 사라지고 Node.js는 일반 패키지로 직접 설치한다(기본 Node 22, 요구사항 ≥20 충족).
 
 요약하면 빌드에 필요한 건 네 가지다:
-- **Rust** stable (edition 2024 / MSRV 1.85) — `rust-toolchain.toml`이 채널·컴포넌트 고정
+- **Rust** — `rust-toolchain.toml`이 정확 버전·컴포넌트 고정(edition 2024 / MSRV 1.85)
 - **protoc** (protobuf 컴파일러) — `crates/proto/build.rs`의 tonic-build가 빌드 타임에 사용 (필수)
 - **C 빌드 도구**(gcc/make) — rustls의 `ring`, sqlx의 bundled SQLite 빌드용 (OpenSSL dev는 **불필요** — TLS는 전부 rustls)
 - **Node ≥20 + pnpm ≥9** — UI 빌드/실행 시에만
@@ -84,7 +84,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
   --default-toolchain stable --component rustfmt --component clippy
 . "$HOME/.cargo/env"
 ```
-`rust-toolchain.toml`이 stable + rustfmt + clippy를 고정하므로, 이후 `cargo` 호출만으로 올바른 toolchain을 잡는다.
+`rust-toolchain.toml`이 정확한 Rust 버전 + rustfmt + clippy를 고정하므로, 레포 안에서 `cargo`를 처음 호출하면 rustup이 그 버전을 자동 설치·선택한다(위 `--default-toolchain stable`은 레포 밖 기본값일 뿐).
 
 ### 2.4 just (태스크 러너)
 

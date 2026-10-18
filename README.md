@@ -483,7 +483,7 @@ curl http://127.0.0.1:8080/api/runs/<run_id>    # status·summary(p50/p95/p99·r
 ## 🛠 개발자 가이드 (기여·소스 빌드)
 
 ```bash
-# 요구: Rust stable (edition 2024 / MSRV 1.85) + protoc + just + Node≥20/pnpm
+# 요구: rustup(rust-toolchain.toml의 고정 버전을 자동 설치) + protoc + just + Node≥20/pnpm
 brew install protobuf just        # macOS 기준
 just install-hooks                # 클론 후 1회 — pre-commit 게이트 설치
 

@@ -113,7 +113,7 @@ Nexus/Artifactory/Satellite 등 사내 미러가 있으면 폐쇄망에서도 �
   [source.internal]
   registry = "sparse+https://<nexus-host>/repository/cargo/"
   ```
-- **rustup 툴체인**: `export RUSTUP_DIST_SERVER=https://<mirror>/rust-static` `RUSTUP_UPDATE_ROOT=https://<mirror>/rustup`
+- **rustup 툴체인**: `export RUSTUP_DIST_SERVER=https://<mirror>/rust-static` `RUSTUP_UPDATE_ROOT=https://<mirror>/rustup` — 미러에 `rust-toolchain.toml`의 **정확한 버전**이 있어야 한다(`stable` 채널만 미러링하면 고정 버전과 어긋나 설치 실패).
 - **pnpm/npm**: `ui/.npmrc`에 `registry=https://<nexus-host>/repository/npm/`
 
 이후는 [install-rhel.md](install-rhel.md) §2~§4 그대로.
@@ -139,6 +139,8 @@ sudo dnf install --disablerepo='*' ./rpms/*.rpm
 ```
 
 ### 4.3 Rust 툴체인 오프라인
+**레포는 정확한 Rust 버전을 고정한다**(`rust-toolchain.toml`의 `channel`) — 연결 머신의 기본 `stable`이 그 버전과 다르면 반입한 `~/.rustup`엔 필요한 툴체인이 없어 폐쇄망 빌드가 실패한다. 아카이브 **전에** 연결 머신의 레포 루트에서 `rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --component rustfmt --component clippy`를 실행한다(버전 승급 때마다 아카이브를 다시 만든다).
+
 가장 간단한 방법은 연결 머신의 `~/.rustup` + `~/.cargo`를 통째로 옮기는 것:
 ```bash
 # 연결 머신

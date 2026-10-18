@@ -12,7 +12,7 @@
 
 ## CI 툴체인 드리프트 (로컬 게이트 green인데 CI rust job만 red)
 
-**CI(`ci.yml`)의 `dtolnay/rust-toolchain@stable`은 항상 최신 stable을 받고, 로컬 stable은 `rustup update`를 안 하면 뒤처진다** (2026-07-11, Rust 1.97 릴리즈 직후): 새 stable의 clippy가 lint를 확장하면(예: 1.97 `question_mark`가 `else if let … else { return None }`을, `manual_filter`가 `and_then(|v| if … { None } else { Some(v) })`을 새로 잡음) **로컬 pre-commit 게이트는 통과하는데 CI Clippy만 `-D warnings`로 red**가 된다. Rust는 ~6주마다 릴리즈라 주기적 재발 가능. 증상 = "코드 안 바꾼 docs 커밋부터 CI rust job 연속 실패". 대응: `rustup check`로 드리프트 확인 → `rustup update stable` → `cargo clippy --workspace --all-targets -- -D warnings`로 CI와 동일 명령 재현 → lint 제안대로 수정. **첫 crate 에러에서 clippy가 멈추므로 한 건 고치면 뒤에 가려진 위반이 더 드러날 수 있다** — clean(exit 0)까지 반복. `rust-toolchain.toml`은 채널만 고정(`stable`)이라 버전 핀 변경은 불필요.
+**툴체인은 정확 버전으로 고정돼 있다** (toolchain-pin 2026-10-18; 이전 함정 2026-07-11·2026-10-16): 과거엔 `rust-toolchain.toml`이 `stable` 채널만 지정해 CI(`dtolnay/rust-toolchain@stable` = 실행 시점 최신 stable)와 로컬(마지막 `rustup update` 시점 stable)의 clippy가 갈렸고, 새 stable이 lint를 늘릴 때마다 **로컬 pre-commit은 통과·CI Clippy만 `-D warnings`로 red**가 됐다(1.97 `question_mark`·`manual_filter`, 1.99 `result_large_err`·`result_unit_err`·`double_must_use` — 후자는 v0.9.0이 빨간 CI 위에서 릴리즈됨). 지금은 `rust-toolchain.toml`(원천)·워크플로 4곳·`deploy/Dockerfile`이 같은 정확 버전이고 `scripts/check-rust-toolchain.sh`가 ci 첫 스텝에서 정합을 강제한다. **승급 = `just bump-rust <X.Y.Z>`** → 승급 커밋에서 pre-commit이 `rust-toolchain.toml` staged로 전체 cargo 게이트를 새 clippy로 돈다 → 새 lint는 그 커밋에서 수정. **첫 crate 에러에서 clippy가 멈추므로 한 건 고치면 뒤에 가려진 위반이 더 드러날 수 있다** — clean(exit 0)까지 반복. 승급 주기 2~3개월 또는 필요 시.
 
 ## cold-build flake (engine/worker 변경 커밋의 e2e race)
 
