@@ -559,8 +559,9 @@
 - **R-c Task 1·3 커밋 트레일러가 "Claude Sonnet 5.5"** (plan은 Opus 5.5 지정) — 작성 subagent 모델을 정확히 적은 것이고 amend하면 전체 cargo 게이트를 다시 돈다. **비용**: 이력의 표기 1줄.
 - **R-d 보안 게이트 판단** — finish-slice §0 grep 무매치(diff = scripts·워크플로·Dockerfile·Justfile·docs). 별도 security-reviewer 대신 최종 handicap-reviewer에 토큰·권한 렌즈를 붙였다: `GH_TOKEN`은 게이트 스텝에만, publish 잡엔 서드파티 액션 없음, 새 `run:` 줄에 `${{ }}` 없음. **선재**: `release.yml`의 `run:` 안 `${{ inputs.tag || github.ref_name }}` 보간(36·107·257행 부근)은 이 브랜치 이전부터 있던 것 — 아래 (3)의 기존 "`{{ver}}` 셸 보간"·권한 최소화 후속과 같은 묶음.
 
-**(2) 미실측 — 다음 실제 태그/이미지 빌드에서 확인** (시험용 태그를 만들지 않았다):
-- master push 후 ci `rust` 잡 로그: `Toolchain pin consistency` `ok` 6줄 + `Effective toolchain` `rustc 1.99.1`(US1·US2·US4) — `gh run view <id> --log` grep.
+**(2) 실측 현황** (시험용 태그를 만들지 않았다):
+- ✅ **CI 실측 완료(2026-10-18)** — master push(`e634dec2`) 후 ci run `39125132007` success: `Toolchain pin consistency` `ok` 6줄 + `Effective toolchain` `rustc 1.99.1`·`cargo 1.99.1`(US1·US2·US4의 CI분). 게이트 스크립트 자체로 대기(진행 중 30s 재조회 12회 → `ci green`).
+- **미실측 — 다음 실제 태그/이미지 빌드에서 확인**:
 - release 경로: publish `CI green gate` 통과/차단(US3) · Windows 잡 `Effective toolchain`의 pwsh `&&`(plan Review Focus 5) · macOS 잡 `targets`가 고정 툴체인에 붙는지.
 - Docker: `rustc --version` 줄은 `cargo build` 레이어 재빌드 때만 찍힌다(태그 없이 보려면 `e2e-kind` 수동 디스패치). 공식 이미지가 `--profile minimal`이라 빌드 중 rustfmt·clippy 컴포넌트를 받을 수 있다(수 MB, spec §1).
 
@@ -570,7 +571,7 @@
 - `check-ci-green.sh` 대기 상한이 poll 1회 + gh 호출 시간만큼 넘칠 수 있다(최대 ~30초, 잡 타임아웃 45분 대비 무해).
 - 게이트 "run 없음" 메시지가 `pull_request` run을 무시한다는 사실을 말하지 않는다. 해소: 한 줄 추가.
 - `docs/dev/single-exe-build.md` 샘플의 `@<rust-toolchain.toml의 channel>`은 그대로 붙여넣을 수 없는 자리표시자(정합 검사 범위 밖임을 주석으로 명시).
-- **로컬 환경(이 브랜치 무관)**: 메인 클론의 `core.hooksPath`가 `.githooks`가 아니라 절대경로 `/Users/sgj/develop/handicap/.git/hooks`로 설정돼 있다(2026-10-18 리뷰 발견, 현재 그 사본은 `.githooks/pre-commit`과 byte-identical이라 게이트는 실제로 돌았다). `.githooks/` 수정이 반영되지 않으니 `just install-hooks` 재실행 필요.
+- **로컬 환경(이 브랜치 무관)**: 메인 클론의 `core.hooksPath`가 `.githooks`가 아니라 절대경로 `/Users/sgj/develop/handicap/.git/hooks`로 설정돼 있다(2026-10-18 리뷰 발견, 현재 그 사본은 `.githooks/pre-commit`과 byte-identical이라 게이트는 실제로 돌았다). ~~`.githooks/` 수정이 반영되지 않으니 `just install-hooks` 재실행 필요~~ ✅ 해소(2026-10-18 사용자가 `just install-hooks` 실행 → `core.hooksPath=.githooks`).
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 
