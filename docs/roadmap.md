@@ -573,6 +573,24 @@
 - `docs/dev/single-exe-build.md` 샘플의 `@<rust-toolchain.toml의 channel>`은 그대로 붙여넣을 수 없는 자리표시자(정합 검사 범위 밖임을 주석으로 명시).
 - **로컬 환경(이 브랜치 무관)**: 메인 클론의 `core.hooksPath`가 `.githooks`가 아니라 절대경로 `/Users/sgj/develop/handicap/.git/hooks`로 설정돼 있다(2026-10-18 리뷰 발견, 현재 그 사본은 `.githooks/pre-commit`과 byte-identical이라 게이트는 실제로 돌았다). ~~`.githooks/` 수정이 반영되지 않으니 `just install-hooks` 재실행 필요~~ ✅ 해소(2026-10-18 사용자가 `just install-hooks` 실행 → `core.hooksPath=.githooks`).
 
+### B34. open-loop 곡선 저레이트 램프 무부하 버그 (2026-10-18 재현, pick-random-tooltip 슬라이스에서 기록 — 수정은 별도 엔진 슬라이스, 사용자 결정)
+
+사용자 보고 "곡선 부하 줄 때 부하가 아예 안 나간다". **재현 / 기대 / 실측** (워크트리 바이너리·responder 50ms·`max_in_flight` 50, API 직접 생성):
+
+| 곡선(open-loop `stages`) | 기대(∫rate) | 실측 count |
+|---|---|---|
+| `[{target:5,duration_seconds:10}]` | ~25 | **1** |
+| `[{target:10,duration_seconds:6}]` | ~30 | **2** |
+| `[{target:20,duration_seconds:6}]` | ~60 | 46 |
+| `[{target:20,duration_seconds:6}]` + `worker_count:2` | ~60 | 4 |
+| 대조 `[{20,1},{20,7}]` 단일/2워커 | ~150 | 148 / 142 |
+
+closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 req, active VU 0→5 추종).
+
+- **원인**: `crates/engine/src/runner.rs:1461-1476` — 곡선 interval = `1/rate_at(stages, next_elapsed)`(예약 tick의 **순간** 레이트). t=0은 rate 0 → 100ms poll 후 `next = Instant::now()`(≈0.1s), 0→5/10s에서 rate≈0.05 → interval≈20s → deadline clamp(`:1449`)까지 다음 arrival 없음. 기울기가 완만할수록, fan-out으로 워커당 레이트가 줄수록 손실이 커진다. `crates/engine/CLAUDE.md` S-D 항목("`next` 기준 평가로 ramp 초반 버그 해소")은 `now` 대비 개선일 뿐 이 결함을 못 막는다(그 항목도 수정 슬라이스에서 정정).
+- **비용(미수정 동안)**: 0에서 시작하는 완만한 open-loop 램프(UI 곡선 프리셋 `점증·유지`·`소크`의 첫 구간 포함)는 설정보다 훨씬 적은 부하를 낸다 — [[load-divergence-explain-confirm]] 위반(조용한 부하 왜곡). 리포트의 목표/달성 도착률 카드가 차이를 보여주긴 하지만 원인 설명은 없다.
+- **해소 경로**: 누적 arrival 적분 역산 — 다음 arrival 시각 t' = Λ⁻¹(Λ(t)+1), Λ(t)=∫₀ᵗ rate. piecewise-linear라 구간별 2차식의 닫힌 해(기울기 0 구간은 선형). rate 0 구간 poll-step·deadline clamp·고정 레이트 경로(byte-identical)는 유지. 엔진 path-gated(Opus 코드리뷰)·위 표를 회귀 테스트(arrival 수 ≈ ∫rate ±1) + 라이브 RPS 재측정으로 검증.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
