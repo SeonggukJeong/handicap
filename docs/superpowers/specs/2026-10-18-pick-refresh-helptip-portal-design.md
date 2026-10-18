@@ -68,7 +68,7 @@
 
 ### 3.4 함께 정정할 문서·주석 (portal·ESC 레이어링으로 거짓이 되는 서술)
 
-- `ui/src/components/usePopover.ts:1-8` 주석 — 소비처에서 HelpTip 제거, U1a "현 소비처는 전부 Modal 밖"(이미 ThinkTimeBoard로 거짓) 정정: VerdictBadge만 해당.
+- `ui/src/components/usePopover.ts:3-8` 주석 — 소비처에서 HelpTip 제거, U1a "현 소비처는 전부 Modal 밖"(이미 ThinkTimeBoard로 거짓) 정정: VerdictBadge만 해당.
 - `ui/CLAUDE.md` `<HelpTip>` 항목("Modal 안에서 ESC 레이어링이 안 된다"·"`right-0` edge-flip") → portal+fixed·window-capture ESC로 갱신.
 - `ui/src/components/scenario/CLAUDE.md:12` "변수 aside는 `overflow-visible`로 224px HelpTip 미클립" → `<ul>` 레벨 클립 사실 + portal 해소로 정정. 같은 파일 `:84` "중첩 Modal/HelpTip 금지 — ESC 함정" → HelpTip ESC 함정 해소 반영(중첩 Modal 금지는 유지).
 - `ui/src/components/scenario/ExtractConfirmRow.tsx:21-24` 주석의 HelpTip ESC 근거 → 갱신(행 자체 구조는 무변경).
