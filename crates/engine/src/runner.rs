@@ -806,6 +806,108 @@ fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {
     prev_target
 }
 
+/// One stage of the open-loop curve as a linear-rate segment (§B34):
+/// `r(t) = r0 + slope·(t − t0)` on `[t0, t0 + dur]`, `cum0` = Λ(t0), `area` = ∫ over the stage.
+#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
+#[derive(Debug, Clone, Copy)]
+struct Seg {
+    t0: f64,
+    dur: f64,
+    r0: f64,
+    slope: f64,
+    cum0: f64,
+    area: f64,
+}
+
+/// Inverse of the cumulative arrival curve Λ(t) = ∫₀ᵗ rate_at(stages, s) ds, evaluated
+/// with a monotone cursor (§B34): the k-th arrival attempt fires at Λ⁻¹(k + ½), so
+/// [0, T) holds Λ(T) arrivals rounded (|error| ≤ ½). Same curve as `rate_at`; 0-rate
+/// stretches are skipped by the inverse itself. Callers must pass non-decreasing `m`.
+#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
+struct ArrivalSchedule {
+    segs: Vec<Seg>,
+    /// Index of the first segment that may still contain `m` — only ever moves forward,
+    /// so a whole run advances it at most `segs.len()` times (amortized O(1) per arrival).
+    cursor: usize,
+    end_t: f64,
+    end_cum: f64,
+    /// Last target: past the curve's end `rate_at` holds it, and so does the inverse.
+    tail_rate: f64,
+    /// Segments inspected by `time_at` (test-only lock on the amortized-O(1) cursor, G2).
+    #[cfg(test)]
+    scans: u64,
+}
+
+#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
+impl ArrivalSchedule {
+    fn new(stages: &[Stage]) -> Self {
+        let mut segs = Vec::with_capacity(stages.len());
+        let mut t0 = 0.0_f64;
+        let mut cum0 = 0.0_f64;
+        let mut r0 = 0.0_f64;
+        for stage in stages {
+            let dur = f64::from(stage.duration_seconds);
+            let target = f64::from(stage.target);
+            // A 0-duration stage (controller-rejected; defensive here) is a pure rate jump
+            // like `rate_at`'s span-0 case: no area, slope 0 so no inf/NaN enters the table.
+            let (slope, area) = if dur > 0.0 {
+                ((target - r0) / dur, (r0 + target) / 2.0 * dur)
+            } else {
+                (0.0, 0.0)
+            };
+            segs.push(Seg {
+                t0,
+                dur,
+                r0,
+                slope,
+                cum0,
+                area,
+            });
+            t0 += dur;
+            cum0 += area;
+            r0 = target;
+        }
+        Self {
+            segs,
+            cursor: 0,
+            end_t: t0,
+            end_cum: cum0,
+            tail_rate: r0,
+            #[cfg(test)]
+            scans: 0,
+        }
+    }
+
+    /// Smallest t (seconds since `started_at`) with Λ(t) = `m`; `None` if unreachable
+    /// (empty stages, or the curve ends at rate 0 and `m` exceeds its total area).
+    fn time_at(&mut self, m: f64) -> Option<f64> {
+        while let Some(seg) = self.segs.get(self.cursor).copied() {
+            #[cfg(test)]
+            {
+                self.scans += 1;
+            }
+            if seg.area > 0.0 && m <= seg.cum0 + seg.area {
+                let delta = (m - seg.cum0).max(0.0);
+                if delta == 0.0 {
+                    return Some(seg.t0);
+                }
+                // slope/2·τ² + r0·τ = Δ in the cancellation-free form — one expression for
+                // rising, falling and flat segments. Δ ≤ area keeps the discriminant ≥ target²,
+                // so `max(0, ·)` only guards float noise; denominator > 0 because Δ > 0.
+                let disc = (seg.r0 * seg.r0 + 2.0 * seg.slope * delta).max(0.0);
+                let tau = 2.0 * delta / (seg.r0 + disc.sqrt());
+                return Some(seg.t0 + tau.min(seg.dur));
+            }
+            self.cursor += 1;
+        }
+        if self.tail_rate > 0.0 {
+            Some(self.end_t + (m - self.end_cum).max(0.0) / self.tail_rate)
+        } else {
+            None
+        }
+    }
+}
+
 /// Closed-loop VU curve (spec §4): drive a piecewise-linear *active VU count*
 /// `desired(t) = round(rate_at(vu_stages, elapsed))` with park-gated reusable VU
 /// tasks. Isolated from `run_scenario`/`run_scenario_open_loop` — the fixed
@@ -1787,6 +1889,181 @@ mod tests {
         assert_eq!(rate_at(&s, 20.0), 500.0);
         // empty → 0
         assert_eq!(rate_at(&[], 5.0), 0.0);
+    }
+
+    fn st(target: u32, duration_seconds: u32) -> Stage {
+        Stage {
+            target,
+            duration_seconds,
+        }
+    }
+
+    /// 독립 기준 Λ(Σdur): 구현의 `cum0`을 재사용하지 않고 stage별 사다리꼴을 따로 합한다
+    /// (같은 오류를 같이 품지 않도록 — spec §6.1 b).
+    fn lambda_ref(stages: &[Stage]) -> f64 {
+        let mut prev = 0.0_f64;
+        let mut sum = 0.0_f64;
+        for s in stages {
+            let t = f64::from(s.target);
+            sum += (prev + t) / 2.0 * f64::from(s.duration_seconds);
+            prev = t;
+        }
+        sum
+    }
+
+    /// [0, T=Σdur)에 드는 도착 시도 수 — 스케줄러 곡선 분기와 같은 질의(k+½).
+    fn arrivals_before_end(stages: &[Stage]) -> u64 {
+        let end: f64 = stages.iter().map(|s| f64::from(s.duration_seconds)).sum();
+        let mut sched = ArrivalSchedule::new(stages);
+        let mut k = 0u64;
+        while let Some(t) = sched.time_at(k as f64 + 0.5) {
+            if t >= end {
+                break;
+            }
+            k += 1;
+        }
+        k
+    }
+
+    #[test]
+    fn arrival_schedule_matches_closed_form_on_single_ramp() {
+        // [{5,10}]: rate(t)=t/2 → Λ(t)=t²/4 → Λ⁻¹(m)=√(4m). (§6.1 a)
+        let mut s = ArrivalSchedule::new(&[st(5, 10)]);
+        for k in 0..25u64 {
+            let m = k as f64 + 0.5;
+            let got = s.time_at(m).expect("within the curve");
+            assert!((got - (4.0 * m).sqrt()).abs() < 1e-9, "k={k} got={got}");
+        }
+    }
+
+    #[test]
+    fn arrival_schedule_count_rounds_cumulative_area() {
+        // (§6.1 b) 곡선마다 [0, Σdur)의 도착 수가 독립 Λ(Σdur)의 ±½ 안.
+        // 바깥은 배열(by-ref 순회만 하므로 vec!이면 clippy::useless_vec — -D warnings).
+        let curves: [Vec<Stage>; 10] = [
+            vec![st(5, 10)],                                 // §B34 재현 1 (Λ=25)
+            vec![st(10, 6)],                                 // §B34 재현 2 / 2워커 몫 (Λ=30)
+            vec![st(20, 6)],                                 // §B34 재현 3 (Λ=60)
+            vec![st(20, 1), st(20, 7)],                      // §B34 대조 (Λ=150)
+            vec![st(100, 1), st(100, 1)],                    // ramp + hold
+            vec![st(0, 1), st(10, 2)],                       // 선행 0 hold
+            vec![st(10, 1), st(10, 1), st(0, 1)],            // 0으로 끝나는 ramp-down
+            vec![st(30, 2), st(10, 3), st(50, 1), st(0, 2)], // 상승/하강 다구간
+            vec![st(7, 3)],                                  // 비정수 Λ=10.5 (Review Focus 4)
+            vec![st(1000, 2), st(1000, 6)],                  // US2 고레이트 곡선 (Λ=7000)
+        ];
+        for c in &curves {
+            let want = lambda_ref(c);
+            let got = arrivals_before_end(c) as f64;
+            assert!((got - want).abs() <= 0.5, "curve={c:?} got={got} Λ={want}");
+        }
+    }
+
+    #[test]
+    fn arrival_schedule_cursor_is_monotone_and_matches_fresh() {
+        // (§6.1 c ①②) 연속 결과 비감소 + 재사용 인스턴스 == 매번 fresh 인스턴스(낡은 커서 검출).
+        // 면적 190, 꼬리 rate 20 → k≥190은 곡선 끝 이후 연장 구간까지 지난다.
+        let c = [st(30, 2), st(10, 3), st(50, 1), st(0, 2), st(20, 2)];
+        let mut reused = ArrivalSchedule::new(&c);
+        let mut prev = 0.0_f64;
+        for k in 0..200u64 {
+            let m = k as f64 + 0.5;
+            let r = reused.time_at(m);
+            let fresh = ArrivalSchedule::new(&c).time_at(m);
+            assert_eq!(r, fresh, "k={k}");
+            let t = r.expect("tail rate 20 keeps arrivals reachable");
+            assert!(t >= prev, "k={k}: {t} < {prev}");
+            prev = t;
+        }
+    }
+
+    #[test]
+    fn arrival_schedule_scan_count_is_amortized_constant() {
+        // (§6.1 c ③, G2) 1000-stage 곡선(10↔20 rps 교대, 각 1s, 면적 14990)을 끝 근처까지 질의.
+        // 총 구간 검사 수 ≤ 호출 수 + stage 수. 커서를 매 호출 처음부터 훑으면 ~7.5M으로 RED.
+        let c: Vec<Stage> = (0..1000)
+            .map(|i| st(if i % 2 == 0 { 10 } else { 20 }, 1))
+            .collect();
+        let n = (lambda_ref(&c) - 1.0).floor() as u64;
+        let mut s = ArrivalSchedule::new(&c);
+        for k in 0..n {
+            assert!(s.time_at(k as f64 + 0.5).is_some(), "k={k}");
+        }
+        let bound = n + s.segs.len() as u64;
+        assert!(
+            s.scans <= bound,
+            "scans={} > N+segs={bound}: cursor rescans from the start (G2 regression)",
+            s.scans
+        );
+    }
+
+    #[test]
+    fn arrival_schedule_skips_zero_rate_hold() {
+        // (§6.1 d) 선행 0 hold는 Λ가 평평 → 첫 도착은 hold 뒤.
+        let mut s = ArrivalSchedule::new(&[st(0, 2), st(10, 2)]);
+        let t = s.time_at(0.5).expect("second stage has area");
+        assert!(
+            t >= 2.0,
+            "first arrival must land after the 0-rate hold, got {t}"
+        );
+    }
+
+    #[test]
+    fn arrival_schedule_exhausts_when_curve_ends_at_zero() {
+        // (§6.1 e) 면적 20, 꼬리 rate 0 → 20번째 이후 도달 불가.
+        let mut s = ArrivalSchedule::new(&[st(10, 2), st(0, 2)]);
+        let t = s.time_at(19.5).expect("inside the ramp-down");
+        assert!(t < 4.0, "{t}");
+        assert_eq!(s.time_at(20.5), None);
+    }
+
+    #[test]
+    fn arrival_schedule_extends_past_end_at_last_target() {
+        // (§6.1 f) 면적 5, 끝 이후는 rate_at처럼 마지막 target(10) 유지 → 1 + 0.5/10.
+        let mut s = ArrivalSchedule::new(&[st(10, 1)]);
+        let t = s.time_at(5.5).expect("tail rate 10");
+        assert!((t - 1.05).abs() < 1e-12, "{t}");
+    }
+
+    #[test]
+    fn arrival_schedule_empty_or_all_zero_curve_has_no_arrivals() {
+        // (§6.1 g) 빈 stages + (Review Focus 1) fan-out 정수 분할로 몫이 0이 된 곡선.
+        assert_eq!(ArrivalSchedule::new(&[]).time_at(0.5), None);
+        assert_eq!(
+            ArrivalSchedule::new(&[st(0, 5), st(0, 3)]).time_at(0.5),
+            None
+        );
+    }
+
+    #[test]
+    fn arrival_schedule_zero_duration_stage_is_a_rate_jump() {
+        // (Review Focus 2) 0-dur stage = rate_at의 span 0처럼 점프, area 0, inf/NaN 없음.
+        // 점프 후 10 rps × 2s → Λ=20, 첫 도착 0.5/10.
+        let c = [st(10, 0), st(10, 2)];
+        let mut s = ArrivalSchedule::new(&c);
+        assert!(
+            s.segs
+                .iter()
+                .all(|g| g.slope.is_finite() && g.area.is_finite())
+        );
+        let t = s.time_at(0.5).expect("second stage has area");
+        assert!((t - 0.05).abs() < 1e-12, "{t}");
+        assert_eq!(arrivals_before_end(&c), 20);
+    }
+
+    #[test]
+    fn arrival_schedule_is_precise_at_soak_scale() {
+        // (Review Focus 3) target 상한 1M × 24h ramp: Λ(t)=(1e6/86400)/2·t², 총면적 4.32e10.
+        let mut s = ArrivalSchedule::new(&[st(1_000_000, 86_400)]);
+        // `_f64` 접미 필수 — 없으면 `m`이 {float}로 남아 `.sqrt()`가 E0689(plan 리뷰 R1 실측).
+        for m in [0.5_f64, 1e6 + 0.5, 4.32e10 - 0.5] {
+            let want = (2.0 * m * 86_400.0 / 1e6).sqrt();
+            let got = s.time_at(m).expect("within the curve");
+            assert!(
+                got.is_finite() && (got - want).abs() <= want * 1e-9,
+                "m={m} got={got} want={want}"
+            );
+        }
     }
 }
 
