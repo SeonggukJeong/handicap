@@ -75,8 +75,9 @@ pub struct RunPlan {
     /// `target_rps` is set (controller-validated). Each slot = one `VuClient` + cookie jar.
     pub max_in_flight: Option<u32>,
     /// Open-loop multi-stage rate curve (S-D). `Some(non-empty)` → the open-loop
-    /// scheduler drives arrivals at `rate_at(stages, elapsed)` instead of the fixed
-    /// `target_rps`. `None` → fixed rate (byte-identical to S-C). The worker sets
+    /// scheduler fires the k-th arrival attempt at Λ⁻¹(k + ½), Λ = ∫`rate_at(stages)`
+    /// (`ArrivalSchedule`, §B34), instead of the fixed `target_rps`. `None` → fixed
+    /// rate (byte-identical to S-C). The worker sets
     /// `duration == sum(stage durations)` as an invariant (the engine derives the
     /// deadline from `plan.duration`, not from `stages`).
     pub stages: Option<Vec<Stage>>,
@@ -808,7 +809,6 @@ fn rate_at(stages: &[Stage], elapsed_secs: f64) -> f64 {
 
 /// One stage of the open-loop curve as a linear-rate segment (§B34):
 /// `r(t) = r0 + slope·(t − t0)` on `[t0, t0 + dur]`, `cum0` = Λ(t0), `area` = ∫ over the stage.
-#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
 #[derive(Debug, Clone, Copy)]
 struct Seg {
     t0: f64,
@@ -823,7 +823,6 @@ struct Seg {
 /// with a monotone cursor (§B34): the k-th arrival attempt fires at Λ⁻¹(k + ½), so
 /// [0, T) holds Λ(T) arrivals rounded (|error| ≤ ½). Same curve as `rate_at`; 0-rate
 /// stretches are skipped by the inverse itself. Callers must pass non-decreasing `m`.
-#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
 struct ArrivalSchedule {
     segs: Vec<Seg>,
     /// Index of the first segment that may still contain `m` — only ever moves forward,
@@ -838,7 +837,6 @@ struct ArrivalSchedule {
     scans: u64,
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // Task 2 wires it into run_scenario_open_loop
 impl ArrivalSchedule {
     fn new(stages: &[Stage]) -> Self {
         let mut segs = Vec::with_capacity(stages.len());
@@ -892,7 +890,7 @@ impl ArrivalSchedule {
                     return Some(seg.t0);
                 }
                 // slope/2·τ² + r0·τ = Δ in the cancellation-free form — one expression for
-                // rising, falling and flat segments. Δ ≤ area keeps the discriminant ≥ target²,
+                // rising, falling and flat segments. Δ ≤ area keeps the discriminant ≥ min(r0², target²) ≥ 0,
                 // so `max(0, ·)` only guards float noise; denominator > 0 because Δ > 0.
                 let disc = (seg.r0 * seg.r0 + 2.0 * seg.slope * delta).max(0.0);
                 let tau = 2.0 * delta / (seg.r0 + disc.sqrt());
@@ -1531,14 +1529,29 @@ pub async fn run_scenario_open_loop(
         }
     });
 
-    // Rate epsilon: below this the curve is effectively zero (a `{0, d}` hold or the
-    // ramp-down tail) — fire nothing, just poll. Low-but-positive rates (e.g. 0.5 rps
-    // = 2s interval) take the normal 1/rate path (no interval cap — capping distorts rate).
-    const RATE_EPS: f64 = 1e-9;
-    let curve = plan.stages.clone();
     // Fixed-rate interval (S-C): precomputed integer nanos → byte-identical when curve is None.
     let fixed_interval = Duration::from_nanos((1_000_000_000u64 / u64::from(target_rps)).max(1));
-    let mut next = started_at;
+    // Curve mode (§B34): the k-th arrival *attempt* fires at the absolute time Λ⁻¹(k + ½),
+    // Λ(t) = ∫rate_at(stages). 0-rate stretches are skipped by the inverse itself (no
+    // poll-step); once no attempt remains before the deadline, `next` parks at `deadline`.
+    // No empty-stages filter: `Some(vec![])` → `time_at` None → deadline, the same
+    // observable behavior as before (the worker maps empty proto stages to None anyway).
+    let mut schedule = plan.stages.as_deref().map(ArrivalSchedule::new);
+    // Attempt index including drops — NOT `arrival_counter` (fired only, = iter_id). A
+    // dropped attempt consumes its schedule slot, like the fixed path's `next += fixed_interval`;
+    // driving the schedule by fired count would pin `next` in the past and storm drops.
+    let mut tick: u64 = 0;
+    let duration_secs = plan.duration.as_secs_f64();
+    let curve_time = move |schedule: &mut ArrivalSchedule, k: u64| -> Instant {
+        match schedule.time_at(k as f64 + 0.5) {
+            Some(s) if s < duration_secs => started_at + Duration::from_secs_f64(s),
+            _ => deadline,
+        }
+    };
+    let mut next = match schedule.as_mut() {
+        None => started_at,
+        Some(s) => curve_time(s, 0),
+    };
     loop {
         if cancel.is_cancelled() || exhausted.load(Ordering::Relaxed) || Instant::now() >= deadline
         {
@@ -1546,8 +1559,8 @@ pub async fn run_scenario_open_loop(
         }
         let now = Instant::now();
         if now < next {
-            // Clamp the wait to the run deadline so curve-derived large intervals
-            // (e.g. 1/tiny_rate at the start of a ramp) don't block past deadline.
+            // Clamp the wait to the run deadline (curve mode parks `next` at `deadline`
+            // once its arrivals are exhausted, e.g. a curve ending at rate 0).
             let wait = next.min(deadline).saturating_duration_since(now);
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
@@ -1555,29 +1568,6 @@ pub async fn run_scenario_open_loop(
             }
             continue;
         }
-        // Per-iteration interval: fixed (byte-identical) or curve-derived.
-        // For curves, evaluate the rate at the *scheduled* tick time (`next`), not `now`.
-        // Using `now` causes tiny-rate intervals (e.g. 1/0.24 ≈ 4s) early in a ramp,
-        // because `now` lags behind the scheduled tick slightly. Evaluating at `next`
-        // (which is `≥ started_at`) gives the intended piecewise-linear rate.
-        let interval = match &curve {
-            None => fixed_interval,
-            Some(stages) => {
-                let next_elapsed = next.saturating_duration_since(started_at).as_secs_f64();
-                let rate = rate_at(stages, next_elapsed);
-                if rate <= RATE_EPS {
-                    // Zero-rate region: no arrival, no drop. Poll-step with the SAME
-                    // cancel-aware select so cancel/deadline stay responsive.
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-                        _ = cancel.cancelled() => break,
-                    }
-                    next = Instant::now();
-                    continue;
-                }
-                Duration::from_secs_f64(1.0 / rate)
-            }
-        };
         match slot_rx.try_recv() {
             Ok(slot) => {
                 let vu_id = vu_offset.saturating_add(slot as u32);
@@ -1640,7 +1630,13 @@ pub async fn run_scenario_open_loop(
                 tokio::task::yield_now().await;
             }
         }
-        next += interval;
+        match schedule.as_mut() {
+            None => next += fixed_interval,
+            Some(s) => {
+                tick += 1;
+                next = curve_time(s, tick);
+            }
+        }
     }
 
     while let Some(res) = set.join_next().await {
@@ -2049,6 +2045,19 @@ mod tests {
         let t = s.time_at(0.5).expect("second stage has area");
         assert!((t - 0.05).abs() < 1e-12, "{t}");
         assert_eq!(arrivals_before_end(&c), 20);
+    }
+
+    #[test]
+    fn arrival_schedule_matches_closed_form_on_falling_segment() {
+        // 10→0 over 2s (after a 0-dur jump to 10): Λ(t) = 10t − 2.5t² → Λ⁻¹(m) = 2m/(10+√(100−10m)).
+        // Locks in-segment placement on a negative slope (count tests can't see it).
+        let mut s = ArrivalSchedule::new(&[st(10, 0), st(0, 2)]);
+        for k in 0..10u64 {
+            let m = k as f64 + 0.5;
+            let want = 2.0 * m / (10.0 + (100.0 - 10.0 * m).sqrt());
+            let got = s.time_at(m).expect("within the ramp-down");
+            assert!((got - want).abs() < 1e-9, "k={k} got={got} want={want}");
+        }
     }
 
     #[test]
