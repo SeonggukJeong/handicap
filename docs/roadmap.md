@@ -573,7 +573,7 @@
 - `docs/dev/single-exe-build.md` 샘플의 `@<rust-toolchain.toml의 channel>`은 그대로 붙여넣을 수 없는 자리표시자(정합 검사 범위 밖임을 주석으로 명시).
 - **로컬 환경(이 브랜치 무관)**: 메인 클론의 `core.hooksPath`가 `.githooks`가 아니라 절대경로 `/Users/sgj/develop/handicap/.git/hooks`로 설정돼 있다(2026-10-18 리뷰 발견, 현재 그 사본은 `.githooks/pre-commit`과 byte-identical이라 게이트는 실제로 돌았다). ~~`.githooks/` 수정이 반영되지 않으니 `just install-hooks` 재실행 필요~~ ✅ 해소(2026-10-18 사용자가 `just install-hooks` 실행 → `core.hooksPath=.githooks`).
 
-### B34. open-loop 곡선 저레이트 램프 무부하 버그 (2026-10-18 재현, pick-random-tooltip 슬라이스에서 기록 — 수정은 별도 엔진 슬라이스, 사용자 결정)
+### ~~B34. open-loop 곡선 저레이트 램프 무부하 버그~~ ✅ 완료 (curve-arrival-integral 2026-10-19, 코드 `6f417fb1`..`0746631b` — 판단·연기는 §B36) (2026-10-18 재현, pick-random-tooltip 슬라이스에서 기록 — 수정은 별도 엔진 슬라이스, 사용자 결정)
 
 사용자 보고 "곡선 부하 줄 때 부하가 아예 안 나간다". **재현 / 기대 / 실측** (워크트리 바이너리·responder 50ms·`max_in_flight` 50, API 직접 생성):
 
@@ -611,6 +611,25 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 **(4) 테스트 polish (저우선)**:
 - PickArrayDialog ESC 테스트는 tip 본문 클릭을 먼저 하지 않는다 — "본문 클릭 유지"는 HelpTip 단위 테스트(실 Modal)가 커버.
 - 체크박스 줄은 heading 없는 bare `div`(spec §2 의도) — 라이브에서 행 높이 17px·`gap-4` 열 리듬 유지 확인.
+
+### B36. open-loop 곡선 누적 도착 역산 (curve-arrival-integral, 2026-10-19, 코드 `6f417fb1`..`0746631b`, spec `docs/superpowers/specs/2026-10-18-curve-arrival-integral-design.md`) 판단·연기
+
+**(1) orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다):
+- **R-a startup 워치독 회귀(최종 리뷰 I1)를 plan의 "controller 코드 0-diff" 제약을 깨고 슬라이스 안에서 수정** (`0746631b`) — 새 엔진은 0에서 출발하는 ramp의 첫 도착을 Λ⁻¹(0.5)=√(D/s)에 두는데, open-loop은 heartbeat가 없어 컨트롤러 Phase A 워치독(첫 MetricBatch, 기본 grace 90s)이 `[{2,21600}]`(첫 도착 ~104s)이나 `[{8,21600}]`+4워커를 hung으로 `failed` 처리했다(구 엔진은 poll-step 직후 1건을 쏴 우연히 피함). 그 제약은 "엔진 변경이 다른 크레이트에 영향 없음"이라는 전제였고 리뷰가 그 전제를 반증했다 + 이 슬라이스가 만든 회귀. 수정 = `api/runs.rs::curve_first_arrival_secs(p, N)` = 첫 양 stage의 `min(D₁, ⌈√(N·D₁/T₁)⌉)`를 `startup_grace_eff`에 가산, N=워커 수 *상한*(풀: `pool_worker_cap()` — guarded/force 둘 다 그 이하 예약, 비-풀: `fanout_worker_count`). **비용**: 느린 open-loop ramp의 hung 감지가 최대 그 값만큼 늦어진다(√ 상한이라 6h ramp·2rps에서 +104s). 곡선이 중간에 다시 0으로 떨어졌다 오르는 경우는 Phase A 이후라 무관. **해소(더 나은 길)**: open-loop 엔진/워커가 무도착 구간에도 빈 heartbeat(예: active-VU 샘플처럼 초당 progress)를 보내면 grace 가산이 불필요 — 워커 forwarder 빈-배치 스킵 가드·proto 변경이 필요해 연기.
+- **R-b Task 1 리뷰 minor 2건을 Task 2에 접음** — 하강 구간 해석해 테스트 부재(`slope.abs()` 변이 생존을 수치로 확인: 1.5528 vs 0.7928) + 판별식 하한 주석 오기(`≥ target²` → `≥ min(r0², target²)`). **비용**: 테스트 1개.
+- **R-c 기존 곡선 테스트 하한 `[147,151]` 유지** (최종 리뷰 M1: 마지막 도착 1.995s라 ~25ms 지연에 하한이 깨질 수 있음, 140으로 완화 권고) — plan R1이 스트레스 실측(12코어 + CPU 버너 14 + 4병렬)으로 완화를 기각했고 하한은 도착 손실 회귀를 잡는다. **비용**: 과부하 게이트에서 드문 flake. **해소**: 실측 flake 시 그 테스트만 145로.
+- **R-d `curve_drop_consumes_schedule_slot` `49..=51` 유지** (M2, 마지막 도착 1.990s·~30ms 여유) — plan 본문 "모든 통합 곡선 ≥50ms 여유" 서술은 이 곡선에서 틀렸다(10ms). R-c와 같은 처방.
+- **R-e 풀 구축 중 예정 도착은 루프 시작 시 몰아서 발사(M4, 무변경)** — 스케줄 기준이 슬롯 풀 구축 *전* `started_at`이라 그 사이 도착이 burst로 나간다. 고정 경로의 catch-up과 같은 동작이고 0에서 출발하는 곡선은 Λ(P)=T·P²/2D로 미미. **비용**: 거의 없음.
+- **R-f Task 2 커밋 trailer가 `Claude Sonnet 5.5`** (실제 작성 모델) — amend는 전체 게이트 재실행이라 유지. **비용**: 표기만.
+- **R-g 보안 게이트 N/A** — §0 grep 무매치 + 판단: 변경은 도착 시각·watchdog grace 산출뿐, 값을 새 sink로 옮기지 않는다.
+
+**(2) 보류(park) — 미수정, 비용·해소 경로**:
+- **P-a unique 데이터셋 소진 감지 지연** — 루프가 `exhausted`를 대기 *후* 루프 머리에서만 보므로 다음 예약 도착/deadline까지 종료가 늦어질 수 있다(요청 수·메트릭 동일, 종료 시각만). 0 구간이 길면 체감. **해소**: 대기 `select!`에 소진 notify 분기 추가.
+- **P-b ADR-0032 50–55행의 옛 현재형 서술** — 주석 규약상 문단 끝(54·57행)에만 해소 주석이 달려 그 줄만 읽으면 오해 가능. 규약 준수라 유지.
+
+**(3) spec §2 비목표 그대로 — 재개 신호**:
+- Poisson 도착(무작위 간격) — 수요 시 ADR-0031 재검토.
+- 컨트롤러 `insights.rs::scheduled_arrivals`와 엔진 Λ 수학 공유 — 두 구현은 각자 테스트로 의미 고정. 곡선 의미(ADR-0032 §3)를 바꿀 때 둘을 함께 고칠 것.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 

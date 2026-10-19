@@ -75,3 +75,7 @@ plan의 검산 명령 중 **변경-후 상태가 존재해야 실행 자체가 �
 - **커밋 메시지 en-dash(`–`)·두 번째 `-m`이 거부될 수 있다** — 워크트리-격리 세션의 명령 검증기가 "검증하기 너무 복잡한" 명령을 git 우회 의심으로 거부한다. implementer는 하이픈으로 바꾸고(`R3-R8`), 두 번째 `-m`을 빼서 **Co-Authored-By 트레일러가 누락**된 채 커밋했다. brief의 커밋 블록은 **단일 `-m`에 트레일러까지 개행으로 넣은 한 덩어리**(또는 `-F <파일>`)로 쓰고, 메시지에 en-dash를 쓰지 말 것.
 - **scratchpad의 이전 task 스크립트를 다음 implementer가 재실행할 수 있다** — Task 4 implementer가 Task 2가 남긴 `ins.py`를 돌려 엔진 파일을 부분 수정했다가 `git restore`로 복원했다. orchestrator는 "복원했다"를 믿지 말고 `git status --short` + `git diff <task-base> HEAD -- <건드리면 안 되는 경로>`가 **비어 있음**을 직접 확인한다. brief에 "이전 세션/task의 scratchpad 스크립트 실행 금지"를 넣는 것이 싸다.
 - **zsh에서 `echo ======`는 `=` 확장으로 실패한다**(`===== not found`) — 구분선은 `echo '----'`.
+
+## 버그 fix가 지운 부수효과에 기대던 소비자 (curve-arrival-integral, 2026-10-19)
+
+엔진-only plan(Global Constraint "controller 코드 0-diff")의 3 task가 전부 per-task clean이었지만, 최종 whole-branch 리뷰가 **크로스-크레이트 행동 의존**을 잡았다. 컨트롤러 startup 워치독은 "첫 MetricBatch가 grace(90s) 안에 온다"에 기대고, open-loop은 heartbeat가 없어 첫 *도착*이 그 신호다. 옛 엔진은 레이트 0 poll-step 직후 1건을 쏘는 **버그성 부수효과**로 이 계약을 우연히 지켰고, 버그를 고치자 느린 ramp(첫 도착 √(D/s) > 90s)가 hung으로 오판 `failed`됐다. 어느 task diff에도 워치독이 없었고, "0-diff" 제약 자체가 "의존 없음"을 가정했기에 per-task 리뷰는 그 가정 안에서만 봤다. 최종 리뷰 프롬프트에 "옛 동작에 의존하던 크로스-크레이트 소비자(호출 지점 확인)"를 명시 초점으로 줬기에 잡혔다 — 버그 fix 슬라이스에선 이 초점을 기본으로 넣을 것. "X 크레이트 0-diff"는 diff 범위 규칙이지 행동 무영향 보증이 아니며, 반증되면 그 슬라이스 안에서 고치고 ruling을 roadmap §B에 남긴다(§B36).

@@ -1,6 +1,7 @@
 # open-loop 곡선 도착 스케줄 = 누적 도착 역산 — 설계
 
 - 날짜: 2026-10-18 · 유형: **correctness-bug** · 워크트리: `curve-arrival-integral` (브랜치 `worktree-curve-arrival-integral`)
+- 상태: **완료** (2026-10-19, 코드 `6f417fb1`..`0746631b`, build-log `docs/build-log.md:769`). **§2 비목표 '컨트롤러 변경 0'에서 편차 1건**: 최종 리뷰가 적발한 startup 워치독 회귀(느린 ramp의 첫 도착 √(D/s)가 grace 90s 초과) 때문에 `api/runs.rs::curve_first_arrival_secs`를 `startup_grace_eff`에 가산(`0746631b`) — 판단·비용은 roadmap §B36.
 - 출처: `docs/roadmap.md` §B34 (2026-10-18 재현, 수정은 별도 엔진 슬라이스 — 사용자 결정). ADR-0032 §4가 "정확 적분(trapezoid 면적 역산)… v1 외 연기"로 남긴 항목을 해소한다.
 - **§B34 해소 경로 대비 편차 1건**: §B34는 "rate 0 구간 poll-step… 유지"라 적었지만 이 spec은 poll-step을 **제거**한다 — Λ⁻¹이 0 구간을 건너뛰므로 남기면 실행되지 않는 dead code다(§3.3). 설계 승인 시(2026-10-18) 이 결정을 사용자에게 명시 제시했다.
 - 새 ADR 없음: 곡선의 *의미*(0에서 시작하는 piecewise-linear 레이트 함수, ADR-0032 §3)는 그대로 두고, 그 함수를 도착 시각으로 바꾸는 *알고리즘*만 정정한다. ADR-0032는 규약(`docs/dev/root-doc-maintenance.md` §ADR 상태 갱신 규약)대로 헤더 요약 + §3.4의 6곳(§4·§결과·§연기) 괄호 주석만 덧붙인다.
