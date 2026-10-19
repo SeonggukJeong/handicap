@@ -1,6 +1,6 @@
 # 0032. 다단계 ramp (open-loop 레이트 곡선)
 
-- 상태: 채택
+- 상태: 채택 · §4 스케줄러 알고리즘 절 단위 해소 — 순간-레이트 역수(`1/rate_at(next)`) + poll-step을 누적 도착 역산 `Λ⁻¹(k+½)`로 교체(2026-10-19 `curve-arrival-integral`, spec `docs/superpowers/specs/2026-10-18-curve-arrival-integral-design.md`, BUILDLOG-PTR). 곡선의 의미(§3, 0에서 시작하는 piecewise-linear)는 불변.
 - 날짜: 2026-06-05
 
 ## 맥락
@@ -50,19 +50,19 @@ S-C 경로(`target_rps`)를 그대로 사용하고, 곡선 모드가 `stages` �
 (구간별 선형 보간, 마지막 구간 종료 후 = 마지막 target 고정). **평가 기준은 `next`(예약된
 tick의 시간)**이고 `now`가 아니다: `now` 기준이면 ramp 초반에 `now ≈ 0` → rate ≈ 0 →
 첫 interval이 수 초 → ~1회 arrival만 발사된다. `next` 기준으로 "다음 tick이 얼마나 자주
-와야 하는가"를 계산해야 ramp-up 처음부터 정확한 레이트가 나온다.
+와야 하는가"를 계산해야 ramp-up 처음부터 정확한 레이트가 나온다. (→ 2026-10-19 `curve-arrival-integral`로 대체: 이 국소 근사도 레이트 0 근처 출발에선 첫 간격이 발산했다 — 다음 도착은 이제 Λ⁻¹(k+½), `rate_at` 미사용, BUILDLOG-PTR)
 
 `rate ≤ RATE_EPS(1e-9)` 구간에서는 arrival을 발사하지 않고 100ms poll-step(cancel-aware)
 으로 대기한다. `now < next` wait은 `deadline`으로 clamp해서 곡선이 만든 큰 interval이
-run 종료를 블록하지 않는다.
+run 종료를 블록하지 않는다. (→ 2026-10-19 `curve-arrival-integral`로 poll-step 제거: 0 구간은 Λ⁻¹이 건너뛰고 소진 시 next=deadline. deadline clamp는 유지, BUILDLOG-PTR)
 
 이 스케줄러는 기존 `run_scenario_open_loop`의 **interval 계산 부분만** 교체한다. 루프
-body(슬롯 try_recv → spawn / drop+yield / next+=interval) 구조는 S-C와 동일하다.
+body(슬롯 try_recv → spawn / drop+yield / next+=interval) 구조는 S-C와 동일하다. (→ 2026-10-19 `curve-arrival-integral`: 곡선 모드는 이제 interval이 아니라 절대 시각 `next = started_at + Λ⁻¹(tick+½)`(남은 도착이 없으면 `deadline`)을 정한다 — 루프 body 구조 동일 원칙은 유지, BUILDLOG-PTR)
 `target_rps` 고정 경로와 `stages` 곡선 경로 모두 같은 루프 body를 통과하므로, S-C
 closed-loop 경로는 여전히 byte-identical이고, `stages` 없는 open-loop(고정 `target_rps`)는
 behaviorally-equivalent(deadline clamp 공유, arrival/drop/메트릭 무변경)이다.
 
-정확 적분(trapezoid 면적 역산)/Poisson 분포는 v1 외 연기.
+정확 적분(trapezoid 면적 역산)/Poisson 분포는 v1 외 연기. (→ 정확 적분은 2026-10-19 `curve-arrival-integral`로 해소, BUILDLOG-PTR. Poisson은 여전히 연기)
 
 ### 5. migration 0 (profile_json), 메트릭/proto MetricBatch 무변경
 
@@ -104,9 +104,9 @@ slicing을 낳는다.
   UI가 고정/곡선 토글로 표현 불가능하게 해결).
 - proto `Profile` `Copy` 상실 → dispatch 사이트 `.clone()` 1곳 추가(negligible).
 - `rate_at`의 "next 기준 평가"는 비직관적 — 주석 없이 보면 `now` 기준으로 바꾸기 쉽고
-  그러면 ramp-start ~1 arrival 버그가 재현된다(engine CLAUDE.md 함정으로 기록).
+  그러면 ramp-start ~1 arrival 버그가 재현된다(engine CLAUDE.md 함정으로 기록). (→ 2026-10-19 `curve-arrival-integral`로 해소: next 기준 평가 자체가 사라짐, BUILDLOG-PTR)
 - v1 순간-레이트 스케줄러는 cumulative target 보정 없음 — drop이 많은 구간 직후 구간에서
-  잠시 실제 도착률이 목표보다 낮을 수 있다(정확 적분으로 해소 가능, 연기).
+  잠시 실제 도착률이 목표보다 낮을 수 있다(정확 적분으로 해소 가능, 연기). (→ 정확 적분 도입(2026-10-19 `curve-arrival-integral`) 후에도 유지 — drop은 스케줄 슬롯을 소비한다(의도, 그 spec §3.3). 놓친 도착을 되살리지 않는다, BUILDLOG-PTR)
 - 단일 워커 v1은 stages 고RPS 총합도 ~20k RPS 천장(fan-out 연기).
 
 ## 연기
@@ -116,7 +116,7 @@ slicing을 낳는다.
 - **부하모델 모드 선택기 (UX)**: RunDialog 상단에 "고정 VU(closed) / 고정 레이트 / 레이트
   곡선" 라디오로 상호배타 400들을 표현 불가능하게 만드는 전면 리팩터. S-D 이후 별도 슬라이스.
 - **정확 적분 스케줄러**: cumulative area 계산으로 구간 경계 오차 보정(trapezoid 역산 or
-  pre-computed lookup).
+  pre-computed lookup). (→ 2026-10-19 `curve-arrival-integral`로 해소 — trapezoid 역산 + 단조 커서, BUILDLOG-PTR)
 - **graceful drain**: stages 종료 시 in-flight 요청을 소진 후 종료(현재 deadline 도달 시
   즉시 중단).
 - **per-second drop 시계열**: dropped가 어느 구간에서 터졌는지 시계열 분해(run-total만 있음).

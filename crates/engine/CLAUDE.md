@@ -70,9 +70,9 @@
 
 ## 다단계 ramp 곡선 (`runner.rs`, S-D)
 
-- **open-loop 곡선은 `run_scenario_open_loop`에 interval 산출만 주입 — 루프 body는 S-C와 동일** (S-D): `rate_at(stages, elapsed)`가 interval을 계산해 `next += interval`에만 영향을 주고, 슬롯 try_recv→spawn / drop+yield 루프 body는 무변경. closed-loop 회귀 0 구조적 보장.
-- **`rate_at`는 반드시 `next`(예약 tick) 기준으로 평가 — `now` 기준이면 ramp 초반 ~1 arrival 버그** (S-D): `now ≈ 0`이면 rate ≈ 0 → interval 수 초 → 첫 tick까지 거의 arrival 없음. `elapsed = next - start`로 "다음 tick이 몇 번째 구간에 있나"를 계산해야 ramp-start부터 정확한 레이트.
-- **`rate ≤ RATE_EPS(1e-9)` 구간 = poll-step 100ms (cancel-aware), `now < next` wait = deadline clamp** (S-D): 레이트 0 구간에서 arrival 발사 없이 100ms씩 대기. clamp 덕분에 곡선이 만든 큰 interval이 run 종료를 블록 안 함(None/고정 경로도 공유 — behaviorally-equivalent).
+- **open-loop 곡선은 `run_scenario_open_loop`에 다음 도착 시각 산출만 주입 — 루프 body는 S-C와 동일** (S-D, §B34 갱신): 곡선이 정하는 건 다음 `next`뿐이고, 슬롯 try_recv→spawn / drop+yield 루프 body는 무변경. closed-loop 회귀 0 구조적 보장.
+- **곡선 도착 = 누적 도착 역산 `t_k = Λ⁻¹(k+½)`(`ArrivalSchedule`), 순간 레이트 역수 `1/rate_at(next)` 금지** (curve-arrival-integral, §B34): 국소 근사는 레이트 0 근처에서 출발하면 첫 간격이 발산해, 완만한 곡선·fan-out으로 작아진 워커 몫에서 도착 대부분을 잃었다(0→5/10s 기대 25 → 실측 1 — S-D의 "`next` 기준 평가"는 `now` 대비 개선일 뿐 이걸 못 막았다). 절대 시각 스케줄이라 `next += interval` 부동소수 드리프트도 없다. **`tick`(drop 포함 시도 순번) ≠ `arrival_counter`(발사만, `iter_id`)** — 스케줄을 발사 수로 구동하면 drop 뒤 `next`가 과거에 머물러 drop이 폭주한다(`tests/open_loop.rs::curve_drop_consumes_schedule_slot`). 커서는 앞으로만 움직여 도착당 amortized O(1)(`#[cfg(test)] scans` 상한 테스트가 잠금). `+½` 위상을 `k+1`로 바꾸면 정수 Λ에서 마지막 도착이 deadline에 걸려 1건 손실.
+- **0-레이트 구간은 Λ⁻¹이 건너뛴다 — poll-step 없음, 도착 소진 시 `next = deadline`** (curve-arrival-integral, S-D poll-step 대체): `{0,d}` hold·0으로 끝나는 꼬리는 `time_at`이 다음 양(+) 구간 시각 또는 `None`(→deadline)을 돌려주고, 기존 `now < next` 대기(deadline clamp + cancel select)가 그대로 잔다(cancel 응답성도 그 select가 보장). 대가: unique 데이터셋 소진 감지가 다음 예약 도착/deadline까지 늦어질 수 있다(요청 수·메트릭 동일, 종료 시각만). `rate_at`은 이제 VU 곡선(`run_scenario_vu_curve`)만 쓴다.
 - **`plan.duration`은 워커가 `sum(stage.duration_seconds)`로 계산·전달 — 엔진은 stages를 직접 sum 안 함** (S-D): 엔진은 `plan.duration`에서 deadline만 파생. 워커가 stages duration을 계산하는 책임(worker `main.rs`).
 
 ## Parallel 분기 (`runner.rs`/`trace.rs`, A2)
