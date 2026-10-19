@@ -576,12 +576,38 @@ pub(crate) fn leading_idle_secs(p: &pb::Profile) -> u64 {
         .sum()
 }
 
+/// open-loop 곡선(`stages`)의 첫 도착 지연 상한(초). 엔진은 곡선 도착을 누적 역산
+/// Λ⁻¹(k+½)로 쏘므로 0→s ramp(D초)의 첫 도착은 √(D/s)로 늦을 수 있고, open-loop
+/// 엔진은 도착 0이면 MetricBatch(heartbeat)도 없어 startup 라이브니스 워치독이 먼저
+/// 터질 수 있다. 첫 양 stage(선두 target==0 run 다음)의 목표 T·길이 D에 대해, 가장 바쁜
+/// 워커의 정수 몫 s ≥ ceil(T/N) ≥ 1 이므로 √(D/s) ≤ √(N·D/T), 또한 ≤ D
+/// (stage 누적 s·D/2 ≥ 0.5). 반환 = `min(D, ceil(√(N·D/T)))`. N은 곡선을 나눠 갖는
+/// 워커 수의 **상한**(클수록 grace가 길어 안전). VU 곡선(active-VU 샘플 매초)·고정
+/// `target_rps`·closed-loop·전부 0 stage → 0.
+pub(crate) fn curve_first_arrival_secs(p: &pb::Profile, n_workers: u32) -> u64 {
+    if !p.vu_stages.is_empty() {
+        return 0;
+    }
+    let Some(s) = p.stages.iter().find(|s| s.target != 0) else {
+        return 0;
+    };
+    let d = u64::from(s.duration_seconds);
+    if d == 0 {
+        return 0;
+    }
+    let n = f64::from(n_workers.max(1));
+    let bound = (n * d as f64 / f64::from(s.target)).sqrt().ceil() as u64;
+    bound.min(d)
+}
+
 /// Effective startup grace: at least the CLI floor, but never below the run's
 /// HTTP timeout + margin (a black-hole SUT emits its first error-metric only
-/// after the timeout), plus any leading idle stages. Mirrors worker's 0→30 fallback.
+/// after the timeout), plus any leading idle stages + the first-arrival delay of
+/// a slow open-loop curve ramp. Mirrors worker's 0→30 fallback.
 pub(crate) fn startup_grace_eff(
     p: &pb::Profile,
     startup_floor: std::time::Duration,
+    n_workers: u32,
 ) -> std::time::Duration {
     let http_to = if p.http_timeout_seconds == 0 {
         30
@@ -589,7 +615,9 @@ pub(crate) fn startup_grace_eff(
         p.http_timeout_seconds
     } as u64;
     let floor = startup_floor.max(std::time::Duration::from_secs(http_to + STARTUP_MARGIN));
-    floor + std::time::Duration::from_secs(leading_idle_secs(p))
+    floor
+        + std::time::Duration::from_secs(leading_idle_secs(p))
+        + std::time::Duration::from_secs(curve_first_arrival_secs(p, n_workers))
 }
 
 /// open-loop에서 시나리오 think를 무시할 때만, 워커-전송 YAML에서 think를 제거한다.
@@ -776,11 +804,16 @@ pub(crate) async fn spawn_run(
     let startup_floor = std::time::Duration::from_secs(state.settings.run_startup_grace_seconds());
     let backstop_grace =
         std::time::Duration::from_secs(state.settings.run_backstop_grace_seconds());
-    let startup_grace = startup_grace_eff(&assignment.profile, startup_floor);
+    // N = 곡선을 나눠 갖는 워커 수의 상한 (풀: 예약 ≤ pool_worker_cap, 비-풀: fan-out N).
+    let n = if state.coord.is_pool_mode() {
+        profile.pool_worker_cap()
+    } else {
+        fanout_worker_count(profile, state.settings.worker_capacity_vus())
+    };
+    let startup_grace = startup_grace_eff(&assignment.profile, startup_floor, n);
     let backstop_total =
         std::time::Duration::from_secs(handicap_proto::run_duration_secs(&assignment.profile))
             + backstop_grace;
-    let n = fanout_worker_count(profile, state.settings.worker_capacity_vus());
     // curve의 total_vus = max(stage.target); open-loop의 total_vus = max_in_flight(슬롯 풀).
     // profile.vus(=0)를 넘기면 register의 shard_split(0,…)이 vu_count=0을 만들어 §5 와이어
     // 약속과 모순 (spec §3.3). validate가 open-loop max_in_flight=Some 보장 → unwrap_or는 방어.
@@ -1386,7 +1419,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            super::startup_grace_eff(&p, std::time::Duration::from_secs(90)),
+            super::startup_grace_eff(&p, std::time::Duration::from_secs(90), 1),
             std::time::Duration::from_secs(615)
         );
         // http_timeout 작으면(30) floor 90 채택 + leading idle 20
@@ -1405,8 +1438,52 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            super::startup_grace_eff(&p2, std::time::Duration::from_secs(90)),
-            std::time::Duration::from_secs(90 + 20)
+            super::startup_grace_eff(&p2, std::time::Duration::from_secs(90), 1),
+            // + 첫 양 stage(T=50,D=10,N=1)의 첫 도착 지연 ceil(sqrt(10/50))=1
+            std::time::Duration::from_secs(90 + 20 + 1)
+        );
+    }
+
+    #[test]
+    fn curve_first_arrival_bounds_slow_ramps() {
+        let st = |t: u32, d: u32| pb::Stage {
+            target: t,
+            duration_seconds: d,
+        };
+        // (open-loop stages, vu_stages, target_rps, N) -> expected secs
+        type Case = (Vec<pb::Stage>, Vec<pb::Stage>, Option<u32>, u32, u64);
+        let cases: Vec<Case> = vec![
+            (vec![st(2, 21600)], vec![], None, 1, 104), // §B34 회귀 케이스
+            (vec![st(8, 21600)], vec![], None, 4, 104), // fan-out: 워커당 2 rps
+            (vec![st(0, 30), st(2, 21600)], vec![], None, 1, 104), // 선두 idle 제외
+            (vec![st(1, 5)], vec![], None, 3, 4),       // min(5, ceil(sqrt(15)))
+            (vec![st(1, 2)], vec![], None, 10, 2),      // D로 cap
+            (vec![st(100, 10)], vec![], None, 1, 1),    // ceil(sqrt(0.1))
+            (vec![st(0, 10)], vec![], None, 1, 0),      // 전부 0
+            (vec![], vec![], None, 1, 0),               // fixed/closed
+            (vec![], vec![st(2, 21600)], None, 1, 0),   // VU 곡선
+        ];
+        for (stages, vu_stages, rps, n, want) in cases {
+            let p = pb::Profile {
+                stages: stages.clone(),
+                vu_stages: vu_stages.clone(),
+                target_rps: rps,
+                ..Default::default()
+            };
+            assert_eq!(
+                super::curve_first_arrival_secs(&p, n),
+                want,
+                "stages={stages:?} vu_stages={vu_stages:?} n={n}"
+            );
+        }
+        let p = pb::Profile {
+            http_timeout_seconds: 30,
+            stages: vec![st(2, 21600)],
+            ..Default::default()
+        };
+        assert_eq!(
+            super::startup_grace_eff(&p, std::time::Duration::from_secs(90), 1),
+            std::time::Duration::from_secs(90 + 104)
         );
     }
 
