@@ -13,12 +13,12 @@ notes_file="docs/release-notes/${tag}.md"
 assets=()
 while IFS= read -r f; do
   assets+=("$f")
-done < <(find "$assets_dir" -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \) | sort)
+done < <(find "$assets_dir" -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) | sort)
 
 [ "${#assets[@]}" -gt 0 ] || { echo "게시할 에셋이 없습니다: $assets_dir" >&2; exit 1; }
 echo "에셋 ${#assets[@]}개:"
 printf '  %s\n' "${assets[@]}"
-for want in x64-setup.exe x64_en-US.msi x64-portable.exe aarch64.dmg x64.dmg; do
+for want in x64-setup.exe x64_en-US.msi x64-portable.exe aarch64.dmg x64.dmg .deb .AppImage; do
   printf '%s\n' "${assets[@]}" | grep -q -- "$want" || echo "  (누락: *$want)"
 done
 

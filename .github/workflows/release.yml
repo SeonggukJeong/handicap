@@ -1,7 +1,7 @@
 name: release
 
-# Windows Tauri 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe(README §B, --features bundle) +
-# macOS .dmg(arch별 네이티브 2개)를 빌드해 GitHub Release에 첨부.
+# Windows Tauri 인스톨러(NSIS .exe + MSI) + 포터블 단일 exe + macOS .dmg +
+# Ubuntu GUI용 .deb/.AppImage를 빌드해 GitHub Release에 첨부.
 # 트리거: v* 태그 푸시(예: v0.1.0) 또는 수동 실행(태그 입력).
 #
 # 구조(spec R8): preflight(버전 정합, 수 초) → windows-installer / macos-dmg(둘 다 **빌드만**
@@ -217,11 +217,70 @@ jobs:
           path: desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
+  ubuntu-gui:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9
+
+      - name: Install Tauri Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential curl file libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libwebkit2gtk-4.1-dev
+
+      - name: Build UI (ui/dist)
+        working-directory: ui
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@1.99.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Build Ubuntu GUI packages
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: desktop
+          args: --bundles deb,appimage
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          find desktop/src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -exec cp {} staging/ \;
+          find staging -maxdepth 1 -name '*.deb' -print -quit | grep -q .
+          find staging -maxdepth 1 -name '*.AppImage' -print -quit | grep -q .
+          ls -lh staging
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-ubuntu
+          path: staging/
+          if-no-files-found: error
+
   # 게시 전담. 재실행 시 이 잡만 다시 돌면 artifact를 재사용해 수십 초에 끝난다.
-  # macOS가 양쪽 다 실패해도 Windows 3종으로 발행한다(에셋 이름은 불변, 완전성은 불변식이 아니다).
+  # macOS 실패 시에도 Windows와 Ubuntu 패키지로 발행한다.
   publish:
-    needs: [windows-installer, macos-dmg]
-    if: always() && needs.windows-installer.result == 'success'
+    needs: [windows-installer, macos-dmg, ubuntu-gui]
+    if: always() && needs.windows-installer.result == 'success' && needs.ubuntu-gui.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45 # CI 게이트 대기 상한 30분 + 게시 여유
     # job-level permissions는 top-level을 통째로 대체한다 → contents: write도 다시 적는다.

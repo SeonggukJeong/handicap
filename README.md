@@ -59,7 +59,7 @@ Handicap의 핵심 설계입니다. 시나리오는 하나의 모델이고, 두 
 
 ### 2. 설치 장벽이 사실상 없음
 
-- **Windows / macOS**: [릴리즈 페이지](https://github.com/SeonggukJeong/handicap/releases/latest)에서 인스톨러(`.exe`/`.msi`) 또는 `.dmg`를 받아 설치하면 끝. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
+- **Windows / macOS / Ubuntu 데스크톱**: [릴리즈 페이지](https://github.com/SeonggukJeong/handicap/releases/latest)에서 설치 파일을 받아 실행하면 됩니다. 네이티브 앱 하나가 컨트롤러·워커·UI·DB를 전부 품고 있습니다.
 - **서버(Linux)**: 바이너리 2개 + 정적 UI 폴더 1개. JVM도, Node도, 외부 DB도, 에이전트 설치도 필요 없습니다. DB는 SQLite가 내장되어 첫 실행 시 자동 생성·마이그레이션됩니다.
 - 단일 실행 파일(portable exe)로도 빌드할 수 있어 **USB에 담아 옮기는 것**도 가능합니다.
 
@@ -223,10 +223,11 @@ flowchart LR
 | Windows PC에서 바로 써보고 싶다 (QA 담당자) | [A. Windows 데스크톱 앱](#a-windows--데스크톱-앱-권장) |
 | 설치 없이 USB로 들고 다니고 싶다 | [B. 단일 실행 파일](#b-windows--단일-실행-파일-포터블) |
 | macOS에서 쓰고 싶다 | [C. macOS](#c-macos) |
-| 부서 공용 서버(Linux)에 상주시키고 싶다 | [D. Linux 서버](#d-linux-rhel-계열-서버) |
-| 인터넷이 안 되는 폐쇄망에 설치해야 한다 | [E. 폐쇄망](#e-폐쇄망air-gapped) |
-| PC 한 대로는 부하가 부족하다 | [F. LAN 분산 워커 풀](#f-lan-분산-워커-풀) |
-| K8s 클러스터가 있다 | [G. Kubernetes](#g-kubernetes-helm) |
+| Ubuntu 데스크톱에서 GUI 앱으로 쓰고 싶다 | [D. Ubuntu 데스크톱 앱](#d-ubuntu-데스크톱-앱) |
+| 부서 공용 서버(Linux)에 상주시키고 싶다 | [E. Linux 서버](#e-linux-rhel-계열-서버) |
+| 인터넷이 안 되는 폐쇄망에 설치해야 한다 | [F. 폐쇄망](#f-폐쇄망air-gapped) |
+| PC 한 대로는 부하가 부족하다 | [G. LAN 분산 워커 풀](#g-lan-분산-워커-풀) |
+| K8s 클러스터가 있다 | [H. Kubernetes](#h-kubernetes-helm) |
 
 ### A. Windows — 데스크톱 앱 (권장)
 
@@ -290,7 +291,18 @@ cargo build --release --features bundle
 
 - 네이티브 앱(`.app`)을 직접 빌드하려면: `cargo install tauri-cli --version "^2" --locked` 후 `cd desktop && cargo tauri build --bundles app` → [Tauri 빌드 런북](docs/dev/tauri-desktop-build.md)
 
-### D. Linux (RHEL 계열) 서버
+### D. Ubuntu — 데스크톱 앱
+
+Ubuntu에서 브라우저 대신 네이티브 창으로 실행하는 패키지입니다(v0.10.1부터 제공).
+
+1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 `Handicap_<버전>_amd64.deb`를 내려받습니다.
+2. 파일을 더블클릭해 App Center에서 설치한 뒤 앱 목록에서 **Handicap**을 실행합니다. 터미널 설치는 `sudo apt install ./Handicap_<버전>_amd64.deb`를 사용합니다.
+3. 설치 파일 없이 쓰려면 `Handicap_<버전>_amd64.AppImage`를 내려받아 실행 권한을 켠 뒤 더블클릭합니다. AppImage 실행에 필요한 FUSE가 없다면 `sudo apt install libfuse2`(Ubuntu 24.04에서는 `libfuse2t64`)를 설치하세요.
+
+- 요구사항: Ubuntu 22.04 이상, 64비트 x86. `.deb`는 WebKitGTK 런타임 의존성을 설치 과정에서 처리합니다.
+- 데이터 위치: `~/.local/share/handicap/handicap.db` — 이 파일 하나가 전부입니다 (백업 = 복사).
+
+### E. Linux (RHEL 계열) 서버
 
 부서 공용 서버에 상주시키는 구성입니다. RHEL 10 기준 전체 절차(패키지 설치 → 빌드 → systemd 등록)는 **[RHEL 설치 매뉴얼](docs/dev/install-rhel.md)**에 있습니다. 요약:
 
@@ -318,7 +330,7 @@ cd ui && pnpm install --frozen-lockfile && pnpm build && cd ..
 ssh -L 8080:127.0.0.1:8080 user@server   # 이후 브라우저에서 http://127.0.0.1:8080
 ```
 
-### E. 폐쇄망(air-gapped)
+### F. 폐쇄망(air-gapped)
 
 핵심: **연결된 머신에서 빌드하고, 산출물 3개만 반입**합니다. 폐쇄망 안에는 Rust도 Node도 필요 없습니다.
 
@@ -339,7 +351,7 @@ ui/dist/                     # 정적 UI
 
 빌드 머신은 타겟과 같은 OS major·CPU 아키텍처를 권장합니다(glibc 호환). 사내 미러(Nexus/Artifactory)로 폐쇄망 내 빌드, 완전 오프라인 vendor 빌드, K8s 이미지 반입까지 포함한 전체 절차: **[폐쇄망 설치 매뉴얼](docs/dev/install-rhel-airgapped.md)**
 
-### F. LAN 분산 워커 풀
+### G. LAN 분산 워커 풀
 
 사무실의 유휴 PC 여러 대를 부하 생성기로 묶습니다. 각 워커 PC에는 `worker` 바이너리 **한 개**만 있으면 됩니다.
 
@@ -363,7 +375,7 @@ run을 발사하면 컨트롤러가 유휴 워커 전원에 부하를 자동 분
 
 > 참고: 워커 인증 토큰은 현재 평문 gRPC로 전송됩니다(접근 통제용). **신뢰할 수 있는 LAN 내부 전용**으로 운영하세요. mTLS는 로드맵에 있습니다.
 
-### G. Kubernetes (Helm)
+### H. Kubernetes (Helm)
 
 ```bash
 # 로컬 검증 (kind)
