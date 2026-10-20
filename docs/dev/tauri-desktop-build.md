@@ -44,13 +44,13 @@ cd desktop && cargo tauri build --bundles nsis,msi
 
 ## CI 릴리즈 (Windows 인스톨러 + 포터블 exe + macOS dmg)
 
-`.github/workflows/release.yml`이 **Windows NSIS `.exe` + MSI 인스톨러, 포터블 단일 exe, macOS `.dmg`(아키텍처별 2개), Ubuntu `.deb`/`.AppImage`**를 빌드해 GitHub Release에 첨부한다. 5잡 그래프: `preflight`가 정합을 게이트하고, `windows-installer`/`macos-dmg`/`ubuntu-gui`는 **빌드만**(릴리즈를 만들지 않는다), `publish`가 유일한 게시 지점이다.
+`.github/workflows/release.yml`이 **Windows NSIS `.exe` + MSI 인스톨러, 포터블 단일 exe, Apple Silicon용 macOS `.dmg`, Ubuntu `.deb`/`.AppImage`**를 빌드해 GitHub Release에 첨부한다. 5잡 그래프: `preflight`가 정합을 게이트하고, `windows-installer`/`macos-dmg`/`ubuntu-gui`는 **빌드만**(릴리즈를 만들지 않는다), `publish`가 유일한 게시 지점이다.
 
 - **트리거**: `v*` 태그 푸시(예: `git tag v0.1.0 && git push origin v0.1.0`) 또는 Actions UI의 수동 실행(`workflow_dispatch` — 태그 입력).
 - **잡 그래프**:
   - **`preflight`**(ubuntu, 수 초): `scripts/check-release-versions.sh "<태그>"`로 태그↔버전 문자열(3개 매니페스트 + 생성 락 2개, 총 14항목 — 아래 "버전 bump" 참조) 정합을 검사한다. 실패하면 뒤따르는 18분짜리 빌드 잡들이 **시작조차 안 한다**.
   - **`windows-installer`**(windows-latest, `needs: preflight`): `pnpm --dir ui build` → `protoc` 설치 → rust(MSVC) → `tauri-apps/tauri-action`(`projectPath: desktop`, `--bundles nsis,msi`, **`tagName` 없음 — 릴리즈를 만들지 않는다**) → 같은 잡에서 루트 워크스페이스 `cargo build --release -p handicap-controller --bin controller --features bundle`로 포터블 단일 exe도 빌드 → 인스톨러 3종을 `staging/`에 모아 artifact `release-assets-windows`로 업로드.
-  - **`macos-dmg`**(macos-latest, `needs: preflight`, matrix `target ∈ {aarch64-apple-darwin, x86_64-apple-darwin}`, `fail-fast: false` — 한쪽이 실패해도 다른 쪽 dmg는 빌드된다): 아키텍처별 네이티브로 `tauri-action`을 **`tagName` 없이** `--bundles app,dmg` 호출(빌드만) → artifact 2종 업로드 — 발행용 `release-assets-macos-<target>`(dmg만, `if-no-files-found: error`) + 회수용 `macos-bundle-<target>`(`.app` 포함, `if: always()` — dmg 변환이 GUI 세션 요구로 실패해도 `.app`은 남는다). **`universal-apple-darwin`(lipo)을 쓰지 않는 이유**: lipo 합본은 링커가 붙인 ad-hoc 서명이 날아가 arm64에서 실행이 거부될 수 있다. 서명·공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C에 우클릭-열기/`xattr -dr com.apple.quarantine` 안내).
+  - **`macos-dmg`**(macos-latest, `needs: preflight`, target `aarch64-apple-darwin`): Apple Silicon 네이티브로 `tauri-action`을 **`tagName` 없이** `--bundles app,dmg` 호출(빌드만) → 발행용 `release-assets-macos-aarch64-apple-darwin`(dmg)과 회수용 `macos-bundle-aarch64-apple-darwin`(`.app` 포함) artifact를 업로드한다. Intel 빌드는 v0.10.1 이후 릴리즈부터 제공하지 않는다. 서명·공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C에 우클릭-열기/`xattr -dr com.apple.quarantine` 안내).
   - **`ubuntu-gui`**(ubuntu-24.04, `needs: preflight`): WebKitGTK 빌드 의존성을 설치하고 `tauri-action`을 `--bundles deb,appimage`로 호출해 `.deb`와 `.AppImage`를 발행용 `release-assets-ubuntu` artifact로 업로드한다.
   - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg, ubuntu-gui]`, Windows와 Ubuntu 빌드 성공 시 실행): 먼저 **CI 녹색 게이트**(`scripts/check-ci-green.sh "$(git rev-parse HEAD)"`)를 통과한 뒤 `release-assets-*` artifact들을 병합해 `scripts/publish-release.sh "<태그>" staging`을 실행한다. macOS 빌드 실패는 허용하지만 Windows와 Ubuntu 빌드 실패 시 게시하지 않는다.
 - **구 30분 폴링이 사라진 이유**: 이전엔 windows/macos 두 잡이 각자 릴리즈를 만들려 해 동시-create 레이스가 있었고, macos 잡은 windows 잡이 릴리즈를 먼저 만들 때까지 20초 간격 최대 30분 폴링한 뒤에야 업로드했다. 이제 릴리즈 생성(및 첫 업로드)이 `publish` 한 곳으로 모여 애초에 레이스가 없다 — 폴링이 통째로 삭제됐다.

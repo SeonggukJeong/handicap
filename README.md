@@ -262,17 +262,16 @@ copy target\release\controller.exe handicap.exe
 
 ### C. macOS
 
-**데스크톱 앱 (`.dmg`, v0.7.0부터 제공)** — Windows의 A와 같은 네이티브 앱입니다.
+**Apple Silicon 데스크톱 앱 (`.dmg`, v0.7.0부터 제공)** — Windows의 A와 같은 네이티브 앱입니다.
 
 1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 칩에 맞는 dmg를 내려받습니다.
    - Apple Silicon(M1~): `Handicap_<버전>_aarch64.dmg`
-   - Intel Mac: `Handicap_<버전>_x64.dmg`
 2. dmg를 열어 **Handicap.app**을 `/Applications`로 드래그합니다.
 3. **"확인되지 않은 개발자" / "손상되었기 때문에 열 수 없습니다" 경고가 뜨면**: 코드 서명·공증(notarization)이 없는 배포라 Gatekeeper가 막는 정상 경고입니다. 아래 중 하나로 해제하세요.
    - 앱 아이콘 **우클릭 → "열기"** → 대화상자에서 다시 "열기" (첫 실행 1회만)
    - 또는 터미널에서 격리 속성 제거: `xattr -dr com.apple.quarantine /Applications/Handicap.app`
 
-- 요구사항: macOS 10.15+ (Tauri v2 기준. 앱 번들이 선언하는 최소 버전은 10.13이지만 실사용 검증은 최신 macOS에서만 했습니다.) WebView는 시스템 WebKit을 쓰므로 별도 설치가 필요 없습니다.
+- 요구사항: Apple Silicon Mac, macOS 10.15+ (Tauri v2 기준. 앱 번들이 선언하는 최소 버전은 10.13이지만 실사용 검증은 최신 macOS에서만 했습니다.) WebView는 시스템 WebKit을 쓰므로 별도 설치가 필요 없습니다. Intel Mac용 빌드는 v0.10.1까지 제공하며 이후 릴리즈는 지원하지 않습니다.
 - 데이터 위치: `~/Library/Application Support/handicap/handicap.db` — 이 파일 하나가 전부입니다 (백업 = 복사)
 
 **직접 빌드 (단일 바이너리 / 브라우저 모드)**

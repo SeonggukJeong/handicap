@@ -146,17 +146,15 @@ jobs:
           path: staging/
           if-no-files-found: error
 
-  # macOS 네이티브 앱 번들(.app) + .dmg. universal(lipo) 대신 **아키텍처별 네이티브 2개**:
-  # lipo로 합친 바이너리는 서명이 날아가 arm64에서 실행이 거부될 수 있다.
+  # macOS Apple Silicon 네이티브 앱 번들(.app) + .dmg.
   # 서명/공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C).
   macos-dmg:
     needs: preflight
     runs-on: macos-latest
     timeout-minutes: 90
     strategy:
-      fail-fast: false # 한쪽 아키텍처가 실패해도 다른 쪽 dmg는 출하한다.
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        target: [aarch64-apple-darwin]
     steps:
       - uses: actions/checkout@v5
         with:
