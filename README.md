@@ -2,14 +2,14 @@
 
 # 🏇 Handicap
 
-**QA는 드래그-드롭으로, 개발자는 YAML로 — 같은 시나리오를 함께 만드는 부하 테스트 도구**
+**QA는 드래그-드롭으로, 개발자는 YAML로 — 팀이 함께 만드는 오픈소스 부하 테스트 도구**
 
-경마에서 *핸디캡*은 강한 말에 중량을 더 얹어 진짜 실력을 가늠하는 제도입니다.
-Handicap은 여러분의 시스템에 중량(부하)을 얹어, 장애가 나기 전에 한계를 알려줍니다.
+경마에서 *핸디캡*은 말마다 부담을 조정해 실력을 겨루게 하는 제도입니다.
+Handicap도 시스템에 부하를 더해, 성능의 한계와 장애 징후를 확인합니다.
 
 [![Release](https://img.shields.io/github/v/release/SeonggukJeong/handicap)](https://github.com/SeonggukJeong/handicap/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Kubernetes-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20ARM64%20%7C%20Ubuntu%20GUI%20%7C%20Linux%20%7C%20K8s-blue)
 ![Engine](https://img.shields.io/badge/engine-Rust-orange)
 ![UI](https://img.shields.io/badge/UI-TypeScript%20%2B%20React-3178c6)
 
@@ -21,16 +21,14 @@ Handicap은 여러분의 시스템에 중량(부하)을 얹어, 장애가 나기
 
 </div>
 
-![시나리오 에디터 — 변수 패널(생성 변수·추출 변수), 드래그-드롭 아웃라인(반복 포함), 스텝 편집 폼, 실행 전 신뢰도 칩](docs/images/editor.png)
+![시나리오 목록 — 가을 대상경주 관전 부하 시나리오](docs/images/home.png)
 
 ---
 
 ## 왜 만들었나
 
-부하 테스트는 시스템 오픈 전 반드시 거쳐야 하는 관문인데, 정작 도구가 관문이 되곤 합니다.
-상용 도구는 라이선스 비용이 부담스럽고 스크립트 작성법을 익히는 데만 몇 주가 걸리며,
-오픈소스 대안은 대부분 **코드를 작성할 수 있는 사람**을 전제로 합니다.
-그 사이에서 부하 테스트 담당자 혼자 모든 부담을 떠안는 모습을 보고 이 도구를 만들었습니다.
+부하 테스트는 시스템 오픈 전 반드시 거쳐야 하지만, 도구의 비용과 학습 곡선이 또 다른 장벽이 되곤 합니다.
+Handicap은 경마에서 출발한 이름처럼, 실제 트래픽에 가까운 부하를 얹어 시스템이 감당할 수 있는 범위를 확인하도록 만들었습니다.
 
 Handicap의 목표는 하나입니다 — **부하 테스트를 담당자 한 사람의 고통에서, 팀 전체의 일상적인 업무로 바꾸는 것.**
 
@@ -39,6 +37,10 @@ Handicap의 목표는 하나입니다 — **부하 테스트를 담당자 한 �
 - **기관**은 라이선스 비용 없이, 폐쇄망 안에서, PC 한 대로 시작해 필요한 만큼 확장합니다.
 
 같은 고민을 하는 다른 조직·공공기관에도 도움이 되길 바라며 공개합니다.
+
+> 최신 안정판은 [v0.10.1](https://github.com/SeonggukJeong/handicap/releases/tag/v0.10.1)입니다. Ubuntu 데스크톱용 `.deb`·`.AppImage`를 포함하며, macOS 데스크톱은 Apple Silicon만 지원합니다.
+
+v0.10.1에서는 Ubuntu 데스크톱 패키지와 함께 open-loop 곡선 부하의 저레이트 도착 누락, 시작 지연 감지, 선택 배열의 새로 뽑기 설정, 도움말 팝오버 위치 오류를 수정했습니다.
 
 ---
 
@@ -53,7 +55,9 @@ Handicap의 핵심 설계입니다. 시나리오는 하나의 모델이고, 두 
 
 두 뷰는 **실시간 양방향 동기화**됩니다. QA가 화면에서 스텝을 추가하면 YAML에 반영되고, 개발자가 YAML을 고치면 화면이 갱신됩니다. "QA용 도구 따로, 개발자용 도구 따로"가 아니라 **한 팀이 한 시나리오를 공유**합니다.
 
-![같은 시나리오의 YAML 뷰 — 에디터에서 클릭 한 번으로 열리고, 고치면 화면에 바로 반영됩니다](docs/images/yaml-view.png)
+![경주 편성·출전마·배당률 조회를 구성한 시나리오 에디터](docs/images/editor.png)
+
+![경마 시나리오 YAML — 경주 편성, 출전마·기수, 배당률 API 스텝](docs/images/yaml-view.png)
 
 > 기존 도구와 비교하면 — 상용 도구의 스크립트 언어는 학습 장벽이 높고, JMeter는 GUI가 있지만 산출물(XML)을 사람이 읽기 어렵고, k6·Locust·Gatling은 처음부터 코드 작성이 기본입니다. GUI와 코드가 **같은 파일을 두고 왕복**하는 도구는 드뭅니다.
 
@@ -65,13 +69,13 @@ Handicap의 핵심 설계입니다. 시나리오는 하나의 모델이고, 두 
 
 ### 3. 처음부터 한국어
 
-UI 전체가 한국어입니다. 번역기를 돌린 게 아니라 **한국어 사용자를 1차 사용자로 설계**했습니다(메시지 카탈로그 일원화, 입력 검증 오류까지 한국어 매핑, 전문 용어는 원어 병기 + 도움말 툴팁). 부하 테스트를 처음 맡은 담당자도 매뉴얼 없이 화면을 따라갈 수 있게 하는 것이 목표입니다.
+UI 기본 언어는 한국어입니다. 번역기를 돌린 게 아니라 **한국어 사용자를 1차 사용자로 설계**했습니다(메시지 카탈로그 일원화, 입력 검증 오류까지 한국어 매핑, 전문 용어는 원어 병기 + 도움말 툴팁). 지표명·프로토콜명은 국제 표기를 유지해 부하 테스트를 처음 맡은 담당자도 문맥을 따라갈 수 있게 합니다.
 
 ### 4. Rust 엔진 — 가볍고, 정확하게 잰다
 
 부하 생성 엔진은 Rust + 비동기 런타임(tokio)으로 작성됐습니다. 가상 사용자(VU)마다 OS 스레드를 만들지 않아 메모리 사용이 낮고, 레이턴시는 HDR 히스토그램으로 정밀 집계합니다.
 
-실측 예 (Apple Silicon macOS, 1 KB JSON 응답, 200 VU, 릴리즈 빌드 — [측정 절차](docs/dev/perf-bench.md)):
+실측 예 (Apple Silicon macOS, 1 KB JSON 응답, 200 VU, 릴리즈 빌드 — [측정 절차와 조건](docs/dev/perf-bench.md)):
 
 | 항목 | 수치 |
 |---|---|
@@ -87,12 +91,12 @@ UI 전체가 한국어입니다. 번역기를 돌린 게 아니라 **한국어 �
 "동시 사용자 N명"만으로는 표현할 수 없는 시험을 GUI에서 설정합니다.
 
 - **Closed-loop (VU 모델)** — 동시 사용자 수 고정 + ramp-up. 여기에 **VU 곡선(단계별 증감)**으로 점진 증가·피크·감소를 설계할 수 있습니다.
-- **Open-loop (도착률 모델)** — 목표 RPS를 지정하면 서버가 느려져도 도착률을 유지합니다. 서버가 느려지면 부하도 같이 줄어드는 closed-loop의 왜곡(coordinated omission)을 피해 **실제 트래픽에 가까운 시험**이 가능합니다. 다단계 램프(stages), 동시 in-flight 상한, 드롭 카운터 포함.
+- **Open-loop (도착률 모델)** — 목표 RPS 또는 단계별 도착률 곡선을 지정합니다. 누적 도착 시각으로 요청을 스케줄링해 저레이트 램프도 실제 도착률에 맞게 유지하며, 동시 in-flight 상한과 드롭 수를 함께 확인합니다.
 - **Think time** — 사용자 사고 시간을 run 전체 또는 스텝별로, 고정값/범위(시드 고정 재현 가능)로 부여.
 - **타임아웃** — run 전역 + 스텝별 오버라이드, 연결(connect) 단계 전용 타임아웃 별도 설정.
 - **VU 사이징 도우미** — "목표 RPS를 내려면 VU가 몇 개 필요한가"를 직전 실행의 실측 RPS 기준으로 다이얼로그가 직접 권장합니다. 감이 아니라 측정으로 크기를 정합니다.
 
-![실행 설정(상세 모드) — 부하 모델 선택 타일, 직전 실행 기준 크기 칩, 실측 RPS 기반 VU 사이징 도우미, 데이터셋 바인딩](docs/images/run-dialog.png)
+![실행 설정 — 간단 모드, 동시 사용자·도착률 모델, 직전 실행 기준 크기와 VU 사이징 도우미](docs/images/run-dialog.png)
 
 ### 6. 실무 시나리오를 그대로 옮기는 표현력
 
@@ -121,7 +125,7 @@ UI 전체가 한국어입니다. 번역기를 돌린 게 아니라 **한국어 �
 
 시험이 *도는 동안*에는 라이브 궤적(초당 요청·에러 흐름)으로 진행 상황을 확인합니다:
 
-![실행 중 화면 — 라이브 RPS·에러 궤적 차트, 진행 중 집계 카드](docs/images/live-run.png)
+![경주 API 부하 테스트 실행 중 — VU·요청 수·RPS와 라이브 요청·에러 궤적](docs/images/live-run.png)
 
 시험 종료 후 브라우저에서 바로 보는 리포트에 담기는 것:
 
@@ -133,11 +137,13 @@ UI 전체가 한국어입니다. 번역기를 돌린 게 아니라 **한국어 �
 - **CSV/XLSX 내보내기** — 비교 결과까지 엑셀(조건부 서식 포함)로 받아 보고서에 첨부
 - 전 기능이 **JSON API**로도 제공 — CI 파이프라인에서 판정 결과로 배포 게이트를 걸 수 있습니다
 
-![실행 리포트 — 합격 판정 배지, 한국어 핵심 인사이트, SLO 표, 시계열 차트](docs/images/report.png)
+> 아래 라이브·리포트·비교 화면은 경주 API 예시를 로컬 mock 서버에 실행한 기능 소개용 캡처입니다. 처리량 벤치마크는 [별도 측정 절차](docs/dev/perf-bench.md)를 참고하세요.
+
+![경주 API 실행 리포트 — SLO 합격 판정, 핵심 인사이트, 시계열과 레이턴시 통계](docs/images/report.png)
 
 서버를 튜닝한 뒤 같은 시험을 다시 돌리면, 비교 화면이 개선 폭을 색으로 보여줍니다:
 
-![런 비교 — 두 run의 p50/p95/p99·RPS·에러율 차이를 색으로 강조, 시계열 오버레이](docs/images/compare.png)
+![경주 API run 비교 — 두 실행의 p50/p95/p99·RPS·에러율 차이와 시계열 오버레이](docs/images/compare.png)
 
 > 본격 실시간 분석 대시보드는 의도적으로 뺐습니다 — 시험 *중* 깊은 관찰은 이미 쓰고 계신 APM이 더 잘합니다. Handicap은 실행 중엔 가벼운 라이브 궤적까지만 보여주고, 시험 *후* 판정과 보고에 집중합니다.
 
@@ -245,7 +251,7 @@ flowchart LR
 
 exe **한 파일**로 설치 없이 쓰는 방식입니다.
 
-1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 `Handicap_<버전>_x64-portable.exe`를 내려받습니다 (v0.4.0부터 제공).
+1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 `Handicap_<버전>_x64-portable.exe`를 내려받습니다.
 2. 아무 PC에나 복사해 더블클릭하면 브라우저가 자동으로 열립니다(포트 사용 중이면 빈 포트 자동 배정, `--no-open`으로 자동 열기 해제). SmartScreen 경고는 A와 동일하게 "추가 정보" → "실행".
 
 직접 빌드하려면 (Visual Studio Build Tools + Rust + protoc + Node 필요):
@@ -262,7 +268,7 @@ copy target\release\controller.exe handicap.exe
 
 ### C. macOS
 
-**Apple Silicon 데스크톱 앱 (`.dmg`, v0.7.0부터 제공)** — Windows의 A와 같은 네이티브 앱입니다.
+**Apple Silicon 데스크톱 앱 (`.dmg`)** — Windows의 A와 같은 네이티브 앱입니다.
 
 1. [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest)에서 칩에 맞는 dmg를 내려받습니다.
    - Apple Silicon(M1~): `Handicap_<버전>_aarch64.dmg`
@@ -392,7 +398,7 @@ just kind-down
 
 ## ⏱ 5분 튜토리얼 — 첫 부하 테스트
 
-1. **시나리오 만들기** — 좌측 메뉴에서 시나리오를 새로 만들고, 에디터에서 HTTP 스텝을 추가합니다. 메서드/URL/헤더/바디를 폼으로 입력하고, 응답에서 검증할 상태코드를 지정합니다.
+1. **시나리오 만들기** — 시나리오를 새로 만들고 HTTP 스텝을 추가합니다. 예를 들어 경마 서비스라면 경주 편성 조회 → 출전마·기수 조회 → 배당률 조회 순으로 API 흐름을 구성합니다.
 2. **미리 확인** — **단발 테스트 실행**으로 부하 없이 1회 실행해 봅니다. 실제 요청과 응답 본문, 추출된 변수 값이 그대로 보이므로 시나리오가 맞는지 즉시 확인됩니다.
 3. **부하 발사** — 실행 버튼을 누르면 Run 다이얼로그가 열립니다. 간단 모드에서 크기 칩(직전 실행 대비 0.5×/1×/2×)과 시간만 고르면 되고, 상세 모드에서 ramp-up·VU 곡선·목표 RPS·think time·SLO 기준까지 조정할 수 있습니다. 실행이 시작되면 라이브 궤적 차트로 진행 상황이 보입니다.
 4. **리포트 확인** — 종료되면 리포트가 생성됩니다. 시계열 그래프, 스텝별 p95/p99, 상태코드 분포, SLO 합격/불합격 배지, 핵심 인사이트를 확인하고, 필요하면 CSV/XLSX로 내보냅니다.
@@ -400,39 +406,44 @@ just kind-down
 
 ### 시나리오 YAML 맛보기
 
-GUI에서 만든 시나리오는 이런 YAML이 됩니다 (반대로 이 YAML을 붙여 넣으면 GUI에 나타납니다):
+GUI에서 만든 시나리오는 이런 YAML이 됩니다 (반대로 이 YAML을 붙여 넣으면 GUI에 나타납니다). 예시는 경주 편성에서 경주 ID를 추출해 출전마와 배당률 조회에 재사용합니다:
 
 ```yaml
 version: 1
-name: 로그인 후 주문 조회
+name: 가을 대상경주 관전 부하 시나리오
 variables:
-  base: ${BASE_URL}          # 환경(dev/스테이징/운영)에서 주입
-  trace_id: {gen: uuid}      # 생성 변수 — 반복마다 새 값 (날짜·랜덤 정수·문자열도 가능)
+  base: ${BASE_URL}           # 환경(dev/스테이징/운영)에서 주입
+  race_date: '2026-11-01'
+  trace_id: {gen: uuid}       # 반복마다 새 값
 steps:
-  - id: 01HX0000000000000000000001   # 에디터가 자동 발급 (ULID)
-    name: 로그인
-    type: http
-    request:
-      method: POST
-      url: "{{base}}/api/login"
-      body:
-        json:
-          username: "{{user}}"        # 데이터셋(CSV/XLSX)에서 행 단위 주입
-          password: "{{pass}}"
-    extract:
-      - from: body
-        var: token
-        path: $.access_token          # JSONPath로 토큰 추출
-    assert:
-      - status: 200
-  - id: 01HX0000000000000000000002
-    name: 내 주문 목록
+  - id: 01HX0000000000000000000001
+    name: 오늘의 경주 편성 조회
     type: http
     request:
       method: GET
-      url: "{{base}}/api/orders?page=1"
+      url: "{{base}}/api/races?date={{race_date}}"
       headers:
-        Authorization: "Bearer {{token}}"   # 앞 스텝에서 추출한 변수 사용
+        X-Trace-Id: "{{trace_id}}"
+    extract:
+      - from: body
+        var: race_id
+        path: $.races[0].id
+    assert:
+      - status: 200
+  - id: 01HX0000000000000000000002
+    name: 출전마·기수 정보 조회
+    type: http
+    request:
+      method: GET
+      url: "{{base}}/api/races/{{race_id}}/entrants"
+    assert:
+      - status: 200
+  - id: 01HX0000000000000000000003
+    name: 실시간 배당률 조회
+    type: http
+    request:
+      method: GET
+      url: "{{base}}/api/races/{{race_id}}/odds"
     assert:
       - status: 200
 ```
@@ -445,7 +456,7 @@ steps:
 # run 생성 (SLO 기준 포함) → 종료 후 판정 조회
 curl -X POST http://127.0.0.1:8080/api/runs \
   -H "Content-Type: application/json" \
-  -d '{"scenario_id":"<id>","profile":{"vus":50,"duration_seconds":300},"env":{}}'
+  -d '{"scenario_id":"<id>","profile":{"vus":50,"duration_seconds":300,"criteria":{"max_p95_ms":300,"max_error_rate":0.01}},"env":{}}'
 
 curl http://127.0.0.1:8080/api/runs/<run_id>    # status·summary(p50/p95/p99·rps·errors)·SLO verdict
 ```
