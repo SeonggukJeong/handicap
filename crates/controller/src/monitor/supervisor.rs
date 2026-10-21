@@ -29,6 +29,9 @@ use crate::store::{self, Db};
 /// 칸별 링버퍼 최대 길이.
 pub const BUFFER_CAP: usize = 300;
 
+/// 감독자 전체에서 동시에 도는 점검 수 상한 — 칸이 많아도 컨트롤러·대상 서버에 점검이 몰리지 않게.
+pub const MAX_CONCURRENT_CHECKS: usize = 32;
+
 /// 정지 시 task가 취소에 응하기를 기다리는 상한 — 넘으면 `abort` 백스톱.
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
@@ -134,6 +137,17 @@ pub(crate) async fn panel_loop<F, Fut>(
     }
 }
 
+/// 허가(permit)를 얻은 뒤 `fut`를 실행하고 끝나면(또는 drop되면) 반납한다.
+/// 허가 대기도 이 future 안이라, `panel_loop`의 취소 select가 대기 중인 루프도 즉시 끝낸다.
+pub(crate) async fn with_permit<Fut: Future>(
+    sem: Arc<tokio::sync::Semaphore>,
+    fut: Fut,
+) -> Fut::Output {
+    // 세마포어는 닫지 않으므로 acquire는 실패하지 않는다.
+    let _permit = sem.acquire_owned().await.ok();
+    fut.await
+}
+
 /// 살아 있는 루프 수 — 루프 task 진입 시 +1, 종료(정상·취소·abort) 시 −1.
 struct LiveGuard(Arc<AtomicUsize>);
 
@@ -196,6 +210,7 @@ impl BoardSlot {
 
 struct Inner {
     root: CancellationToken,
+    checks: Arc<tokio::sync::Semaphore>,
     boards: std::sync::Mutex<BoardSlots>,
 }
 
@@ -217,6 +232,7 @@ impl MonitorSupervisor {
         Self {
             inner: Arc::new(Inner {
                 root,
+                checks: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CHECKS)),
                 boards: std::sync::Mutex::new(HashMap::new()),
             }),
         }
@@ -236,9 +252,10 @@ impl MonitorSupervisor {
     /// DB 행을 다시 읽어 실제 실행 상태를 맞춘다 — 없음/꺼짐이면 정지·버퍼 폐기, 켜짐이면
     /// 기존 task를 완전히 정지한 뒤 행의 설정으로 재시작(남은 칸 id 버퍼 유지).
     ///
-    /// 본문은 별도 task에서 돈다: 호출자 future가 중간에 drop돼도(예: 클라이언트 연결 끊김으로
-    /// axum 핸들러 취소) "기존 task 꺼냄 → 정지 대기" 사이에서 끊겨 루프가 고아가 되거나 DB
-    /// `enabled`와 실제 실행이 어긋나지 않게.
+    /// 본문은 별도 task에서 돈다: reconcile이 시작된 뒤 호출자 future가 drop돼도(예: 클라이언트
+    /// 연결 끊김으로 axum 핸들러 취소) "기존 task 꺼냄 → 정지 대기" 사이에서 끊겨 루프가
+    /// 고아가 되지 않게. DB 쓰기가 커밋된 뒤 reconcile이 호출되기 전에 핸들러가 drop되면
+    /// DB `enabled`와 실제 실행이 잠시 어긋나며, 다음 쓰기나 재시작 때 수렴한다.
     pub async fn reconcile(&self, db: &Db, board_id: &str) -> anyhow::Result<()> {
         let (this, db, board_id) = (self.clone(), db.clone(), board_id.to_string());
         tokio::spawn(async move {
@@ -279,6 +296,7 @@ impl MonitorSupervisor {
                 buf,
                 token.clone(),
                 slot.live.clone(),
+                self.inner.checks.clone(),
             ));
         }
         *lock(&slot.view) = Some(BoardView {
@@ -340,13 +358,15 @@ fn spawn_panel(
     buf: SharedBuf,
     token: CancellationToken,
     live: Arc<AtomicUsize>,
+    checks: Arc<tokio::sync::Semaphore>,
 ) -> JoinHandle<()> {
     let interval = Duration::from_secs(u64::from(panel.interval_seconds.max(1)));
     tokio::spawn(async move {
         let _live = LiveGuard::enter(&live);
         let check = || {
-            let (db, panel) = (db.clone(), panel.clone());
-            async move { run_check(&db, &panel).await.1 }
+            let (db, panel, checks) = (db.clone(), panel.clone(), checks.clone());
+            // `at_ms`는 run_check 안에서 찍히므로 허가를 얻은 뒤의 실제 시작 시각이다.
+            with_permit(checks, async move { run_check(&db, &panel).await.1 })
         };
         panel_loop(interval, check, buf, token).await;
     })
@@ -548,6 +568,52 @@ mod tests {
         assert!(buf_results(&buf).is_empty());
         tokio::time::sleep(Duration::from_secs(20)).await;
         assert_eq!(finished.load(Ordering::SeqCst), 0);
+    }
+
+    // ---- 동시 점검 상한 (paused time, fake check, no SQLite) ----
+
+    #[tokio::test(start_paused = true)]
+    async fn permit_gate_caps_concurrent_checks_and_cancel_frees_waiters() {
+        let sem = Arc::new(tokio::sync::Semaphore::new(2));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let token = CancellationToken::new();
+        let bufs: Vec<SharedBuf> = (0..5).map(|_| new_buf()).collect();
+        let mut handles = Vec::new();
+        for buf in &bufs {
+            let (sem, a, m) = (sem.clone(), active.clone(), max_active.clone());
+            let check = move || {
+                let (sem, a, m) = (sem.clone(), a.clone(), m.clone());
+                with_permit(sem, async move {
+                    let now = a.fetch_add(1, Ordering::SeqCst) + 1;
+                    m.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    a.fetch_sub(1, Ordering::SeqCst);
+                    res(0, Verdict::Ok)
+                })
+            };
+            handles.push(tokio::spawn(panel_loop(
+                Duration::from_secs(1),
+                check,
+                buf.clone(),
+                token.clone(),
+            )));
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(max_active.load(Ordering::SeqCst), 2, "never above the cap");
+        assert_eq!(active.load(Ordering::SeqCst), 2);
+        assert_eq!(sem.available_permits(), 0);
+        // 3 loops are parked on the permit; cancelling must end every loop promptly
+        // and give all permits back.
+        token.cancel();
+        for h in handles {
+            tokio::time::timeout(Duration::from_secs(1), h)
+                .await
+                .expect("loop exits promptly")
+                .unwrap();
+        }
+        assert_eq!(sem.available_permits(), 2);
+        assert!(max_active.load(Ordering::SeqCst) <= 2);
     }
 
     // ---- consecutive_fail (pure) ----

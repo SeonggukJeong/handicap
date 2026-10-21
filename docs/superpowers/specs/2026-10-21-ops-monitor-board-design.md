@@ -139,7 +139,7 @@ JSON 한 컬럼(`[Claude]`): 칸·기준선은 항상 보드와 함께 읽고 �
 ### 6.2 판정 (위에서부터 첫 해당)
 1. 시나리오/환경 없음, 시나리오 파싱 실패, `latency_source.step_id`가 시나리오 http 스텝이 아님 → `config_error`. 사유 고정 문구: "시나리오를 찾을 수 없음" / "환경을 찾을 수 없음" / "시나리오 오류" / "응답 시간 기준 스텝 없음".
 2. 바깥 timeout → `fail` "시간 초과(N초)". trace `truncated`이면 → `fail`: 요청 수가 상한에 닿았으면 "요청 수 상한(50) 초과", 아니면 "시간 초과(N초)"(r2 #20). trace `error`(setup 실패) → `fail` "시나리오 실행 오류".
-3. 실행된 스텝 중 첫 `error` 스텝 → `fail`. **사유는 원문 error 문자열을 쓰지 않고 구조로 분류**(r2 E2·#13, F3·F5 — 벽 화면에 응답 조각·URL이 나가지 않게):
+3. 실행된 스텝 중 첫 `error` 스텝에 치환되지 않은 변수(`unbound_vars` 비어 있지 않음 — 예: "환경 없음" 칸에서 `${BASE_URL}`)가 있으면 → `config_error` "변수 미설정"(설정 문제는 깜빡이지 않게 — §7.5; 최종 리뷰 반영 2026-10-22). 그 외 첫 `error` 스텝 → `fail`. **사유는 원문 error 문자열을 쓰지 않고 구조로 분류**(r2 E2·#13, F3·F5 — 벽 화면에 응답 조각·URL이 나가지 않게):
    - 응답 있음 + 그 스텝의 `assert: status` 중 응답 status와 다른 값이 있음 → `HTTP {status}`.
    - 응답 있음 + error가 `invalid header`로 시작(헤더 이름/값이 잘못돼 그 헤더 없이 전송됨 — `executor.rs`의 `build_error`, status assert 생략) → "요청 구성 오류"(r3 R3).
    - 응답 있음 + error가 `read body:`로 시작 → "응답 본문 읽기 실패".

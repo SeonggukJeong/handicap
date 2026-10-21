@@ -28,6 +28,7 @@ pub const REASON_BAD_REQUEST_BUILD: &str = "요청 구성 오류";
 pub const REASON_READ_BODY: &str = "응답 본문 읽기 실패";
 pub const REASON_EXTRACT: &str = "값 추출 실패";
 pub const REASON_REQUEST_FAILED: &str = "요청 실패";
+pub const REASON_UNBOUND_VAR: &str = "변수 미설정";
 
 fn reason_timeout(secs: u32) -> String {
     format!("시간 초과({secs}초)")
@@ -163,13 +164,18 @@ pub fn judge(
         .find_map(|s| s.error.as_deref().map(|e| (s, e)))
     {
         let http = all.iter().copied().find(|h| h.id == st.step_id);
-        let mut reason = classify(http, st, err);
+        // 치환 안 된 변수는 시스템 장애가 아니라 설정 오류 — 빨강(Fail)이 아니라 설정 오류로.
+        let (verdict, mut reason) = if st.unbound_vars.is_empty() {
+            (Verdict::Fail, classify(http, st, err))
+        } else {
+            (Verdict::ConfigError, REASON_UNBOUND_VAR.to_string())
+        };
         if all.len() >= 2
             && let Some(h) = http
         {
             reason = format!("{reason} · {}", h.name);
         }
-        return CheckResult::with_reason(at_ms, Verdict::Fail, reason);
+        return CheckResult::with_reason(at_ms, verdict, reason);
     }
 
     let latency_ms = match &panel.latency_source {
@@ -496,6 +502,48 @@ steps:
         }
     }
 
+    fn st_unbound(id: &str, response: Option<TracedResponse>, error: Option<&str>) -> StepTrace {
+        let mut s = st(id, response, error);
+        s.unbound_vars = vec!["BASE_URL".into()];
+        s
+    }
+
+    #[test]
+    fn unbound_on_failing_step_without_response_is_config_error() {
+        let t = tr(vec![st_unbound(A, None, Some("builder error"))]);
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("변수 미설정"));
+        assert_eq!(r.latency_ms, None);
+    }
+
+    #[test]
+    fn unbound_on_failing_step_with_response_is_config_error() {
+        let t = tr(vec![st_unbound(
+            A,
+            Some(resp(401, 10)),
+            Some("status 401 != 200"),
+        )]);
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("변수 미설정"));
+    }
+
+    #[test]
+    fn unbound_reason_gets_step_suffix_with_multiple_steps() {
+        let t = tr(vec![st_unbound(A, None, Some("builder error"))]);
+        let r = judge(&two_steps(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("변수 미설정 · 인증"));
+    }
+
+    #[test]
+    fn unbound_only_on_passing_step_stays_ok() {
+        let t = tr(vec![st_unbound(A, Some(resp(200, 10)), None)]);
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.verdict, Verdict::Ok);
+    }
+
     async fn db_with(yaml: &str) -> (Db, String) {
         let db = store::connect("sqlite::memory:").await.unwrap();
         let sc = Scenario::from_yaml(yaml).unwrap();
@@ -627,5 +675,23 @@ steps:
         };
         let (_, r) = run_check(&db, &p).await;
         assert_eq!(r.verdict, Verdict::Ok);
+    }
+
+    #[tokio::test]
+    async fn unbound_env_var_is_config_error_via_run_check() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for("${BASE_URL}/a")).await;
+        let p = PanelConfig {
+            scenario_id: id,
+            environment_id: None,
+            ..PanelConfig::default()
+        };
+        let (_, r) = run_check(&db, &p).await;
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("변수 미설정"));
     }
 }

@@ -19,10 +19,14 @@ pub struct MonitorBoardRow {
 const COLS: &str = "id,name,config_json,enabled,created_at,updated_at";
 
 fn row_from(r: &SqliteRow) -> MonitorBoardRow {
-    let config: BoardConfig =
-        serde_json::from_str(r.get::<String, _>("config_json").as_str()).unwrap_or_default();
+    let id: String = r.get("id");
+    let config: BoardConfig = serde_json::from_str(r.get::<String, _>("config_json").as_str())
+        .unwrap_or_else(|e| {
+            tracing::warn!(board_id = %id, error = %e, "monitor board config_json unparseable; using default");
+            BoardConfig::default()
+        });
     MonitorBoardRow {
-        id: r.get("id"),
+        id,
         name: r.get("name"),
         config,
         enabled: r.get::<i64, _>("enabled") != 0,

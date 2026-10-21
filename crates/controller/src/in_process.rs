@@ -186,6 +186,8 @@ impl RunningController {
     /// graceful 종료. 절대 무한 hang하지 않는다(스펙 §6): 활성 run abort(R4a) →
     /// 토큰 취소(axum/tonic graceful drain·scheduler/heartbeat 정지) → bounded drain
     /// (초과 시 serve 태스크 hard-stop).
+    /// 모니터 정지는 보드별로 `STOP_GRACE` 안에서 끝나므로(초과 시 abort) 최악의 합은
+    /// 보드 수 × `STOP_GRACE`다.
     pub async fn shutdown(&self) {
         match abort_all(&self.coord, &self.db).await {
             Ok(n) => info!(aborted = n, "shutdown: aborted active runs"),
