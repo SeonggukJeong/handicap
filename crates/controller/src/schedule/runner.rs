@@ -295,6 +295,7 @@ mod tests {
             ui_dir: None,
             settings: SettingsState::seeded_for_test(),
             scheduler_tz: chrono_tz::UTC,
+            monitor: crate::monitor::MonitorSupervisor::default(),
         }
     }
 

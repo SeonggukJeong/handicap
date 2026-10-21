@@ -67,6 +67,7 @@ async fn boot_pool(
             &[("worker_capacity_vus", 2000i64)],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
     let rest_handle = tokio::spawn(async move {
         axum::serve(rest_listener, app).await.unwrap();

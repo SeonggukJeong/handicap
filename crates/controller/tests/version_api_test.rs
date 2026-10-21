@@ -24,6 +24,7 @@ async fn build_state() -> app::AppState {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     }
 }
 

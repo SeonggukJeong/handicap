@@ -21,6 +21,7 @@ fn make_app(db: handicap_controller::store::Db) -> axum::Router {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     })
 }
 
@@ -199,6 +200,7 @@ async fn pool_run_with_empty_pool_fails_fast() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     let yaml = "version: 1\nname: pool-test\nsteps:\n  - id: a\n    name: a\n    type: http\n    request:\n      method: GET\n      url: http://x\n";
@@ -245,6 +247,7 @@ async fn create_and_get_scenario() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     let body = json!({
@@ -287,6 +290,7 @@ async fn rejects_invalid_yaml() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
     let body = json!({ "yaml": "not: valid: yaml: -" });
     let req = Request::builder()
@@ -313,6 +317,7 @@ async fn create_run_for_scenario() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     // 1. create scenario
@@ -367,6 +372,7 @@ async fn list_scenarios_returns_what_was_created() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     // empty initially
@@ -424,6 +430,7 @@ async fn update_scenario_bumps_version_and_rejects_stale() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     let create_body = json!({
@@ -555,6 +562,7 @@ async fn list_runs_by_scenario() {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     });
 
     let create_body = json!({

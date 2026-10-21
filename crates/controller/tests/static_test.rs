@@ -35,6 +35,7 @@ async fn build_state(ui_dir: Option<PathBuf>) -> app::AppState {
             &[],
         ),
         scheduler_tz: chrono_tz::UTC,
+        monitor: handicap_controller::monitor::MonitorSupervisor::default(),
     }
 }
 

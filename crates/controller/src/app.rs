@@ -29,6 +29,8 @@ pub struct AppState {
     /// `--scheduler-timezone` once and injects it so the scheduler loop AND the
     /// REST handlers (next_run_at calc, preview-next) share one source of truth.
     pub scheduler_tz: chrono_tz::Tz,
+    /// 운영실 모니터 감독자 (ops-monitor ①a).
+    pub monitor: crate::monitor::MonitorSupervisor,
 }
 
 /// 데이터셋 업로드 본문 상한(8b). 행 수 제한은 run-create 게이트(8c)에서 — 여기선 넉넉한 메모리 천장만.

@@ -1502,6 +1502,7 @@ mod tests {
                 capacity as i64,
             )]),
             scheduler_tz: chrono_tz::UTC,
+            monitor: crate::monitor::MonitorSupervisor::default(),
         }
     }
 

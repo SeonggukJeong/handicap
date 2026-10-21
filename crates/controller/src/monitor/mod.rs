@@ -1,5 +1,8 @@
 pub mod check;
 pub mod config;
+pub mod supervisor;
+
+pub use supervisor::MonitorSupervisor;
 
 #[cfg(test)]
 mod tests {

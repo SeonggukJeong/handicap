@@ -292,6 +292,7 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         ui_dir: None,
         settings: settings.clone(),
         scheduler_tz,
+        monitor: crate::monitor::MonitorSupervisor::default(),
     };
 
     // 7) graceful 종료 토큰.

@@ -282,6 +282,7 @@ async fn main() -> anyhow::Result<()> {
             ui_dir: args.ui_dir.clone(),
             settings,
             scheduler_tz,
+            monitor: handicap_controller::monitor::MonitorSupervisor::default(),
         };
         if !args.scheduler_disabled {
             let sched_state = state.clone();
