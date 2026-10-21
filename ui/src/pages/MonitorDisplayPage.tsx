@@ -40,9 +40,10 @@ export function MonitorDisplayPage() {
 
   const statusQ = useQuery({
     queryKey: ["monitorStatus", id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
-        const s = await getBoardStatus(id);
+        // bounded by STATUS_TIMEOUT_MS: a timed-out poll counts as a failure
+        const s = await getBoardStatus(id, signal);
         setFailedPolls(0);
         return s;
       } catch (e) {

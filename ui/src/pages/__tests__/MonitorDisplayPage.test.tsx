@@ -76,6 +76,9 @@ let boardHandler: () => Response;
 let statusHandler: () => Response;
 let boardCalls = 0;
 let statusCalls = 0;
+/** When true, status requests never answer; they reject only when aborted. */
+let statusHang = false;
+let statusAborts = 0;
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -85,13 +88,23 @@ beforeEach(() => {
   vi.setSystemTime(T + 1000);
   boardCalls = 0;
   statusCalls = 0;
+  statusHang = false;
+  statusAborts = 0;
   boardHandler = () => res(board());
   statusHandler = () => res(status([panelStatus(P1, [okResult(413)])]));
   fetchMock.mockReset();
-  fetchMock.mockImplementation((url: string) => {
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     const u = String(url);
     if (u === `/api/monitor-boards/${BID}/status`) {
       statusCalls += 1;
+      if (statusHang) {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            statusAborts += 1;
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+      }
       return Promise.resolve(statusHandler());
     }
     if (u === `/api/monitor-boards/${BID}`) {
@@ -257,6 +270,24 @@ describe("MonitorDisplayPage", () => {
       res(status([panelStatus(P1, [okResult(413)]), panelStatus(P2, [okResult(500)])]));
     await tick(1000);
     expect(screen.queryByText(ko.monitor.serverDown)).toBeNull();
+  });
+
+  it("hung_status_requests_time_out_and_reach_server_down", async () => {
+    await renderPage();
+    expect(screen.getByText(ko.monitor.stateOk)).toBeInTheDocument();
+    statusHang = true;
+    // next poll at ~1s hangs; it is aborted at its 3s timeout (fail 1, ~4s)
+    await tick(7500);
+    expect(statusAborts).toBe(1);
+    expect(screen.queryByText(ko.monitor.serverDown)).toBeNull();
+    // fail 2 (~8s), fail 3 (~12s) -> server down, panels no longer green
+    await tick(5000);
+    expect(statusAborts).toBe(3);
+    expect(screen.getByText(ko.monitor.serverDown)).toBeInTheDocument();
+    expect(within(panelEl("결제")).getByText(ko.monitor.stateStale)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.stateOk)).toBeNull();
+    // a hung request never stacks polls: one in flight at a time
+    expect(statusCalls).toBeLessThanOrEqual(5);
   });
 
   it("status_query_no_retry", async () => {

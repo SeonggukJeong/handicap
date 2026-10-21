@@ -76,6 +76,8 @@ describe("LatencyBars", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].style.bottom).toBe("35%");
     expect(lines[1].style.bottom).toBe("60%");
+    // the dashed stroke is centred on its height (labels are centred there too)
+    expect(lines[0].style.transform).toBe("translateY(50%)");
   });
 
   it("bar_color_from_current_thresholds", () => {
@@ -152,6 +154,99 @@ describe("LatencyBars", () => {
       });
       // 35px / 40px would overlap 20px-tall labels -> second pushed to 35 + 20
       expect(offsets()).toEqual(["35px", "55px"]);
+    } finally {
+      rect.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("label_stack_clamped_to_column_top", () => {
+    type Entry = { target: Element; contentRect: { height: number } };
+    const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
+    class MockRO {
+      els: Element[] = [];
+      constructor(cb: (e: Entry[]) => void) {
+        observers.push({ cb, els: this.els });
+      }
+      observe(el: Element) {
+        this.els.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockRO);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 20 } as DOMRect);
+    try {
+      renderBars([ok(100)], {
+        thresholds: [1600, 1700, 1800, 1900, 2000].map((ms) => ({ ms, color: "#fb923c" })),
+      });
+      act(() => {
+        for (const o of observers) {
+          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: 100 } })));
+        }
+      });
+      // pushed-up stack 80/100/120/140/160 would leave the 100px column; the top
+      // label's centre is capped at 100 - 20/2 and the rest stack down from it.
+      expect(screen.getAllByTestId("threshold-label-offset").map((el) => el.style.height)).toEqual([
+        "10px",
+        "30px",
+        "50px",
+        "70px",
+        "90px",
+      ]);
+    } finally {
+      rect.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("label_column_baseline_matches_bars_area_border", () => {
+    renderBars([ok(100)]);
+    // the lines' bottom:% is measured inside the bars area's bottom border; the
+    // label column carries the same (transparent) border so both share a baseline
+    const area = screen.getByTestId("bars-area");
+    const labels = screen.getByTestId("threshold-labels");
+    // (jsdom drops `cqw` widths, so the shared width constant is verified live by
+    // measuring label centre vs line centre in Chromium — see task-9 report.)
+    expect(area.style.borderBottomStyle).toBe("solid");
+    expect(labels.style.borderBottomStyle).toBe("solid");
+    expect(labels.style.borderBottomColor).toBe("transparent");
+  });
+
+  it("label_stack_that_cannot_fit_stays_inside_column", () => {
+    type Entry = { target: Element; contentRect: { height: number } };
+    const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
+    class MockRO {
+      els: Element[] = [];
+      constructor(cb: (e: Entry[]) => void) {
+        observers.push({ cb, els: this.els });
+      }
+      observe(el: Element) {
+        this.els.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", MockRO);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 20 } as DOMRect);
+    try {
+      renderBars([ok(100)], {
+        thresholds: [1600, 1700, 1800, 1900, 2000].map((ms) => ({ ms, color: "#fb923c" })),
+      });
+      act(() => {
+        for (const o of observers) {
+          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: 60 } })));
+        }
+      });
+      // 5 x 20px labels cannot fit a 60px column: spread evenly between
+      // 20/2 and 60 - 20/2 (never negative, never above the column)
+      expect(
+        screen.getAllByTestId("threshold-label-offset").map((el) => el.style.height),
+      ).toEqual(["10px", "20px", "30px", "40px", "50px"]);
     } finally {
       rect.mockRestore();
       vi.unstubAllGlobals();

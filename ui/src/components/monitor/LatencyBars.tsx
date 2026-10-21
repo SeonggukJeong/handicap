@@ -20,6 +20,13 @@ function pct(value: number, max: number): number {
 const fmtPct = (n: number) => `${+n.toFixed(2)}%`;
 
 /**
+ * Axis line under the bars. The label column carries the same bottom border
+ * (transparent) so its content box — where label offsets are measured — shares
+ * the bars area's content-box baseline, where the dashed lines' `bottom:%` is.
+ */
+const AXIS_BORDER_WIDTH = "0.4cqw";
+
+/**
  * Bars-area height and threshold-label height, measured with ResizeObserver;
  * null until measured (first paint, jsdom without a mock).
  */
@@ -52,9 +59,12 @@ function useLabelMetrics(
 }
 
 /**
- * Label offsets from the bottom of the column. Unmeasured: the line's height in
- * %. Measured: px, pushed up so close thresholds' numbers never overlap
- * (thresholds are ascending).
+ * Label (centre) offsets from the bottom of the column. Unmeasured: the line's
+ * height in %. Measured: px, pushed up so close thresholds' numbers never
+ * overlap (thresholds are ascending), then capped so the top label stays inside
+ * the column — the stack is pushed back down from the top. When the stack is
+ * taller than the column (tiny panels), labels are spread evenly inside it
+ * instead (overlap is unavoidable then; leaving the column is not).
  */
 function labelOffsets(
   thresholds: Threshold[],
@@ -62,14 +72,26 @@ function labelOffsets(
   m: { areaH: number; labelH: number } | null,
 ): string[] {
   if (m === null || m.labelH <= 0) return thresholds.map((t) => fmtPct(pct(t.ms, graphMaxMs)));
-  const out: string[] = [];
+  const n = thresholds.length;
+  if (n * m.labelH > m.areaH) {
+    const lo = m.labelH / 2;
+    const hi = m.areaH - m.labelH / 2;
+    const step = n > 1 && hi > lo ? (hi - lo) / (n - 1) : 0;
+    const base = hi > lo ? lo : Math.max(0, m.areaH / 2);
+    return thresholds.map((_, i) => `${+(base + i * step).toFixed(2)}px`);
+  }
+  const px: number[] = [];
   let prev = -Infinity;
   for (const t of thresholds) {
-    const px = Math.max((pct(t.ms, graphMaxMs) / 100) * m.areaH, prev + m.labelH);
-    out.push(`${+px.toFixed(2)}px`);
-    prev = px;
+    prev = Math.max((pct(t.ms, graphMaxMs) / 100) * m.areaH, prev + m.labelH);
+    px.push(prev);
   }
-  return out;
+  let cap = m.areaH - m.labelH / 2;
+  for (let i = px.length - 1; i >= 0; i--) {
+    px[i] = Math.min(px[i], cap);
+    cap = px[i] - m.labelH;
+  }
+  return px.map((v) => `${+v.toFixed(2)}px`);
 }
 
 export function LatencyBars({
@@ -92,7 +114,11 @@ export function LatencyBars({
 }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
-  const offsets = labelOffsets(thresholds, graphMaxMs, useLabelMetrics(areaRef, labelsRef, thresholds.length));
+  const offsets = labelOffsets(
+    thresholds,
+    graphMaxMs,
+    useLabelMetrics(areaRef, labelsRef, thresholds.length),
+  );
   const slots = barSlots(results, barCount);
   const slotPad = `0 ${+(GAP_SHARE / 2 / Math.max(1, barCount)).toFixed(4)}%`;
   const axisFont = panelFont(PANEL_TEXT.axis, fontScale);
@@ -113,7 +139,11 @@ export function LatencyBars({
         ref={areaRef}
         data-testid="bars-area"
         className="relative min-h-0"
-        style={{ borderBottom: "0.4cqw solid #334155" }}
+        style={{
+          borderBottomWidth: AXIS_BORDER_WIDTH,
+          borderBottomStyle: "solid",
+          borderBottomColor: "#334155",
+        }}
       >
         <div className="absolute inset-0 flex items-end">
           {slots.map((r, i) => {
@@ -192,6 +222,8 @@ export function LatencyBars({
             style={{
               bottom: fmtPct(pct(t.ms, graphMaxMs)),
               borderTop: `0.55cqw dashed ${t.color}`,
+              // centre the stroke on its height, where the label is centred too
+              transform: "translateY(50%)",
               zIndex: 2,
             }}
           />
@@ -204,7 +236,13 @@ export function LatencyBars({
         ref={labelsRef}
         data-testid="threshold-labels"
         className="min-h-0"
-        style={{ display: "grid", gridTemplate: "minmax(0, 1fr) / auto" }}
+        style={{
+          display: "grid",
+          gridTemplate: "minmax(0, 1fr) / auto",
+          borderBottomWidth: AXIS_BORDER_WIDTH,
+          borderBottomStyle: "solid",
+          borderBottomColor: "transparent",
+        }}
       >
         {thresholds.map((t, i) => (
           <div

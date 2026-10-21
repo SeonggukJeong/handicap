@@ -169,10 +169,33 @@ export async function stopBoard(id: string): Promise<Board> {
   return BoardSchema.parse(await res.json());
 }
 
-export async function getBoardStatus(id: string): Promise<BoardStatus> {
-  const res = await fetch(`${idUrl(id)}/status`);
-  if (!res.ok) return fail(res);
-  return StatusSchema.parse(await res.json());
+/** Per-request bound for status polls: a hung request must count as a failure. */
+export const STATUS_TIMEOUT_MS = 3000;
+
+/**
+ * `signal` (React Query's) cancels on unmount; the request is additionally
+ * aborted after `timeoutMs`, because an interval refetch re-uses an in-flight
+ * promise — one request that never settles would otherwise stop all polling
+ * and freeze the wall on its last (possibly green) state (US5).
+ */
+export async function getBoardStatus(
+  id: string,
+  signal?: AbortSignal,
+  timeoutMs: number = STATUS_TIMEOUT_MS,
+): Promise<BoardStatus> {
+  const ctrl = new AbortController();
+  const forward = () => ctrl.abort();
+  if (signal?.aborted) ctrl.abort();
+  else signal?.addEventListener("abort", forward, { once: true });
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${idUrl(id)}/status`, { signal: ctrl.signal });
+    if (!res.ok) return await fail(res);
+    return StatusSchema.parse(await res.json());
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
+  }
 }
 
 export async function previewCheck(panel: PanelConfig): Promise<PreviewResult> {
