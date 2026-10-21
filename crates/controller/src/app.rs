@@ -6,10 +6,10 @@ use axum::routing::{get, post, put};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
-    datasets as datasets_api, environments as environments_api, pool as pool_api,
-    presets as presets_api, runs as runs_api, scenarios as scenarios_api,
-    schedules as schedules_api, settings as settings_api, step_templates as step_templates_api,
-    test_runs as test_runs_api,
+    datasets as datasets_api, environments as environments_api,
+    monitor_boards as monitor_boards_api, pool as pool_api, presets as presets_api,
+    runs as runs_api, scenarios as scenarios_api, schedules as schedules_api,
+    settings as settings_api, step_templates as step_templates_api, test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -109,6 +109,29 @@ pub fn router(state: AppState) -> Router {
             get(environments_api::get)
                 .put(environments_api::update)
                 .delete(environments_api::delete),
+        )
+        .route(
+            "/monitor-boards",
+            post(monitor_boards_api::create).get(monitor_boards_api::list),
+        )
+        .route(
+            "/monitor-boards/preview-check",
+            post(monitor_boards_api::preview_check),
+        )
+        .route(
+            "/monitor-boards/{id}",
+            get(monitor_boards_api::get)
+                .put(monitor_boards_api::update)
+                .delete(monitor_boards_api::delete),
+        )
+        .route(
+            "/monitor-boards/{id}/start",
+            post(monitor_boards_api::start),
+        )
+        .route("/monitor-boards/{id}/stop", post(monitor_boards_api::stop))
+        .route(
+            "/monitor-boards/{id}/status",
+            get(monitor_boards_api::status),
         )
         .route(
             "/schedules",

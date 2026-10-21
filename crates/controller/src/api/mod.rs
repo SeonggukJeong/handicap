@@ -1,5 +1,6 @@
 pub mod datasets;
 pub mod environments;
+pub mod monitor_boards;
 pub mod pool;
 pub mod presets;
 pub mod runs;
