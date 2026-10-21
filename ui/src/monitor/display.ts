@@ -69,9 +69,38 @@ export function freeBelowText(w: number, h: number, textH: number): number {
   return h - (PANEL_BOX.border + PANEL_BOX.padTop) * (w / 100) - textH;
 }
 
-/** Spec §7.3 "글자 우선": no graph (bars, axis, labels) when < 15% is left below the text. */
-export function graphFits(a: { w: number; h: number; textH: number }): boolean {
-  return freeBelowText(a.w, a.h, a.textH) >= a.h * GRAPH_MIN_SHARE;
+/** No graph when its bars area itself would be under this share of the panel height. */
+export const BARS_MIN_SHARE = 0.08;
+
+/**
+ * Height the bars area would get: the space below the text minus the bottom
+ * padding/border, the graph's margins/axis border and the axis row. Graph text
+ * is not scaled by the board scale (LatencyBars sets --fit: 1).
+ */
+export function barsAreaHeight(w: number, h: number, textH: number, fontScale: number): number {
+  const cqw = w / 100;
+  const axisPx = Math.min(
+    (PANEL_TEXT.axis * fontScale * w) / 100,
+    (PANEL_TEXT.axis * fontScale * WIDE_CAP * h) / 100,
+  );
+  return (
+    freeBelowText(w, h, textH) -
+    (PANEL_BOX.padBottom + PANEL_BOX.border) * cqw -
+    (GRAPH_CHROME.marginTop + GRAPH_CHROME.axisBorder + GRAPH_CHROME.axisMarginTop) * cqw -
+    axisPx * AXIS_LINE_HEIGHT
+  );
+}
+
+/**
+ * Spec §7.3 "글자 우선": no graph (bars, axis, labels) when < 15% of the panel
+ * height is left below the text, or when the bars themselves would get < 8%
+ * (a few-pixel graph is unreadable).
+ */
+export function graphFits(a: { w: number; h: number; textH: number; fontScale: number }): boolean {
+  return (
+    freeBelowText(a.w, a.h, a.textH) >= a.h * GRAPH_MIN_SHARE &&
+    barsAreaHeight(a.w, a.h, a.textH, a.fontScale) >= a.h * BARS_MIN_SHARE
+  );
 }
 
 /**

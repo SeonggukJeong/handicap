@@ -167,9 +167,10 @@ function BigValueLine({
 
 /**
  * Invisible stand-in that sizes the board scale from settings only (spec §7.3
- * 축소 비율은 설정으로 고정): the panel's title, the longest state label
- * (`– 확인 불가 · 점검 꺼짐`, wrapped below the title when it doesn't fit beside
- * it) and a one-line value at the widest the panel can show (its timeout in ms).
+ * 축소 비율은 설정으로 고정): the panel's title, the longest state label that
+ * can appear while checking runs (`⚠ 설정 오류`, wrapped below the title when
+ * it doesn't fit beside it; the stopped-only `점검 꺼짐` label instead takes
+ * room from the graph like the live lines) and a one-line value at the widest the panel can show (its timeout in ms).
  * Live lines (reason, step name, consecutive fails) never reach it, so the scale
  * never moves during an incident; they take room from that panel's graph.
  */
@@ -202,7 +203,7 @@ export function PanelProbe({
         <div ref={textRef} data-testid="probe-text" className="shrink-0">
           <TitleStateRow
             title={panel.title}
-            stateLabel={ko.monitor.stateStaleOff}
+            stateLabel={ko.monitor.stateConfigError}
             stateColor="transparent"
             fontScale={fontScale}
             heading={false}
@@ -220,13 +221,15 @@ export function PanelProbe({
 
 /**
  * Graph-hide rule (spec §7.3 "글자 우선"): the panel's own text (including live
- * lines) is measured; no graph when < 15% of the panel height is left below it.
+ * lines) is measured; no graph when < 15% of the panel height is left below it,
+ * or when the bars area itself would be < 8% (see `graphFits`).
  * Unmeasured (jsdom, first paint) -> graph shown.
  */
 function useGraphShown(
   panelRef: React.RefObject<HTMLElement>,
   textRef: React.RefObject<HTMLElement>,
   fit: number,
+  fontScale: number,
 ): boolean {
   const [dims, setDims] = useState<{ w: number; h: number; textH: number } | null>(null);
   useBoxMeasure(panelRef, textRef, fit, (m) =>
@@ -237,7 +240,7 @@ function useGraphShown(
     ),
   );
   if (dims === null) return true;
-  return graphFits(dims);
+  return graphFits({ ...dims, fontScale });
 }
 
 export function MonitorPanel({
@@ -289,7 +292,7 @@ export function MonitorPanel({
       ? ko.monitor.consecutive(status.consecutive_fail, formatHms(status.fail_since_ms))
       : null;
 
-  const graph = useGraphShown(panelRef, textRef, fit);
+  const graph = useGraphShown(panelRef, textRef, fit, fontScale);
 
   return (
     <article

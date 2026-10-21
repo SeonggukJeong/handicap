@@ -386,6 +386,19 @@ describe("MonitorDisplayPage", () => {
     }
   });
 
+  it("graph_hidden_when_bars_area_would_be_under_8_percent", async () => {
+    // live text 240: free 49.8 (>= 15%) but the bars area would be ~20px
+    // (< 8% = 24px) once the axis row and margins are placed -> hidden
+    const spy = stubLayout(() => 240);
+    try {
+      await renderPage();
+      await tick(10);
+      expect(screen.queryByTestId("bars-area")).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("graph_hidden_below_15_percent", async () => {
     // live text 260: free = 29.8 (< 45) -> hidden; the axis goes too
     const spy = stubLayout(() => 260);
@@ -480,8 +493,10 @@ describe("MonitorDisplayPage", () => {
     const probe = screen.getByTestId("panel-probe");
     expect(probe.closest("article")).toBeNull();
     expect(probe.closest('[aria-hidden="true"]')).not.toBeNull();
-    // worst-case inputs: the longest state label and a one-line value
-    expect(within(probe).getByText(ko.monitor.stateStaleOff)).toBeInTheDocument();
+    // worst-case inputs: the longest state label that can appear while checking
+    // runs (stopped-only "점검 꺼짐" takes graph room instead) and a one-line value
+    expect(within(probe).getByText(ko.monitor.stateConfigError)).toBeInTheDocument();
+    expect(within(probe).queryByText(ko.monitor.stateStaleOff)).toBeNull();
   });
 
   it("fail_reason_split_fixed_part_big_step_name_small", async () => {

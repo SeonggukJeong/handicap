@@ -27,9 +27,19 @@ describe("display sizing", () => {
   });
 
   it("graph_fits_while_free_space_is_at_least_15_percent", () => {
-    // 15% of 300 = 45: the axis and margins live inside that space
-    expect(graphFits({ w: 300, h: 300, textH: 244 })).toBe(true); // 45.8
-    expect(graphFits({ w: 300, h: 300, textH: 245 })).toBe(false); // 44.8
+    // a narrow panel (100x300, chrome is small): the 15% rule decides
+    // 15% of 300 = 45; free = 300 - 3.4 - textH
+    expect(graphFits({ w: 100, h: 300, textH: 251, fontScale: 1 })).toBe(true); // 45.6
+    expect(graphFits({ w: 100, h: 300, textH: 252, fontScale: 1 })).toBe(false); // 44.6
+  });
+
+  it("graph_hidden_when_bars_area_under_8_percent", () => {
+    // 300x300: bars = free - bottom pad/border (9) - graph margins (6)
+    //   - axis line (11.1px x 1.3 = 14.43) = free - 29.43; 8% of 300 = 24
+    // textH 240: free 49.8 passes 15% (45) but bars 20.4 < 24 -> hidden
+    expect(graphFits({ w: 300, h: 300, textH: 236, fontScale: 1 })).toBe(true); // bars 24.37
+    expect(graphFits({ w: 300, h: 300, textH: 237, fontScale: 1 })).toBe(false); // bars 23.37
+    expect(graphFits({ w: 300, h: 300, textH: 240, fontScale: 1 })).toBe(false);
   });
 
   it("required_fit_targets_text_plus_30_percent_graph", () => {
