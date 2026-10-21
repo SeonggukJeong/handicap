@@ -13,7 +13,7 @@
 
 **Handicap 안에 별도 기능 영역 "운영 모니터"를 신설한다 — 주기 점검 보드(`monitor_boards`) + 엔진 1패스 trace 재사용 + 결과 메모리 링버퍼 + 느림 판정은 화면.**
 
-- **점검 = 엔진 단발 trace 재사용**: 에디터 test-run과 같은 in-process 1패스(`trace_scenario`)를 칸(시나리오)마다 주기 호출. 바깥 `timeout`(기본 5초, 1–120)으로 강제하고 요청 수 상한 50 고정. think time 미적용.
+- **점검 = 엔진 단발 trace 재사용**: 에디터 test-run과 같은 in-process 1패스(`trace_scenario`)를 칸(시나리오)마다 주기 호출. 바깥 `timeout`(기본 5초, 1–30 — 엔진 요청 타임아웃 30초와 정합)으로 강제하고 요청 수 상한 50 고정. think time 미적용.
 - **run/리포트/스케줄러와 분리**: 점검은 `runs`·메트릭 테이블에 기록을 남기지 않는다. 부하 run 파이프라인 불변.
 - **감독자**: 컨트롤러 내장 `MonitorSupervisor`가 루트 `CancellationToken`의 child 토큰을 보드 세대마다 하나 만들고, 칸마다 그 토큰을 공유하는 task를 띄운다. 켜진(`enabled=1`) 보드는 **기동 시 자동 재개** — standalone(`main.rs`)과 in-process(데스크톱 `in_process.rs`, 종료 토큰의 child + `shutdown()`에서 `stop_all`) 두 시작 경로 모두.
 - **결과 저장 = 칸별 메모리 링버퍼(최대 300)**: 재시작 시 비어 있고 다시 채운다. 영속·외부 알림은 비목표.

@@ -197,6 +197,14 @@ describe("MonitorEditPage", () => {
     expect(screen.getByLabelText(ko.monitor.barCount)).toHaveValue(100);
   });
 
+  it("timeout_input_max_is_30", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) }));
+    expect(screen.getByLabelText(ko.monitor.timeout)).toHaveAttribute("max", "30");
+  });
+
   it("advanced_hint_absent_at_defaults", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");

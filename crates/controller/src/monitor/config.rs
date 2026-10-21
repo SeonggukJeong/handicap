@@ -123,8 +123,8 @@ pub fn validate_panel(p: &mut PanelConfig) -> Result<(), String> {
     if !in_range(p.interval_seconds, 1, 3600) {
         return Err("점검 주기는 1~3600초여야 합니다".into());
     }
-    if !in_range(p.timeout_seconds, 1, 120) {
-        return Err("제한 시간은 1~120초여야 합니다".into());
+    if !in_range(p.timeout_seconds, 1, 30) {
+        return Err("제한 시간은 1~30초여야 합니다".into());
     }
     if p.thresholds.len() > MAX_THRESHOLDS {
         return Err(format!(
@@ -266,7 +266,7 @@ mod tests {
             ("interval 0", Box::new(|p| p.interval_seconds = 0)),
             ("interval 3601", Box::new(|p| p.interval_seconds = 3601)),
             ("timeout 0", Box::new(|p| p.timeout_seconds = 0)),
-            ("timeout 121", Box::new(|p| p.timeout_seconds = 121)),
+            ("timeout 31", Box::new(|p| p.timeout_seconds = 31)),
             (
                 "6 thresholds",
                 Box::new(|p| p.thresholds = (1..=6).map(|i| th(i * 100, "#aabbcc")).collect()),
@@ -337,7 +337,7 @@ mod tests {
         b.panels = (0..9).map(|_| panel()).collect();
         let p = &mut b.panels[0];
         p.interval_seconds = 3600;
-        p.timeout_seconds = 120;
+        p.timeout_seconds = 30;
         p.bar_count = 300;
         p.graph_max_ms = 600_000;
         p.thresholds = vec![

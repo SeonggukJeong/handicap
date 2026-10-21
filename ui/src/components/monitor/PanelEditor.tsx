@@ -258,7 +258,7 @@ export function PanelEditor({
                 type="number"
                 numeric
                 min={1}
-                max={120}
+                max={30}
                 value={panel.timeout_seconds}
                 onChange={(e) => set({ timeout_seconds: toNum(e.target.value) })}
               />
