@@ -328,8 +328,10 @@ describe("MonitorDisplayPage", () => {
     expect(within(panelEl("결제")).getByText(ko.monitor.stateStaleOff)).toBeInTheDocument();
   });
 
-  it("graph_hidden_when_too_short", async () => {
-    type Entry = { target: Element; contentRect: { height: number } };
+  /** ResizeObserver mock delivering a panel size and a text-block height. */
+  function installRO() {
+    type Rect = { width: number; height: number };
+    type Entry = { target: Element; contentRect: Rect };
     const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
     class MockRO {
       els: Element[] = [];
@@ -343,26 +345,101 @@ describe("MonitorDisplayPage", () => {
       disconnect() {}
     }
     vi.stubGlobal("ResizeObserver", MockRO);
-    const fire = (panelH: number, textH: number) =>
+    const fire = (panel: Rect, textH: number) =>
       act(() => {
         for (const o of observers) {
           o.cb(
-            o.els.map((el) => ({
-              target: el,
-              contentRect: {
-                height: el.getAttribute("data-testid") === "panel-box" ? panelH : textH,
-              },
-            })),
+            o.els.map((el) => {
+              const id = el.getAttribute("data-testid");
+              const contentRect =
+                id === "monitor-panel"
+                  ? panel
+                  : id === "panel-text"
+                    ? { width: panel.width, height: textH }
+                    : { width: 100, height: 100 };
+              return { target: el, contentRect };
+            }),
           );
         }
       });
+    return { observers, fire };
+  }
+
+  it("graph_hidden_when_too_short", async () => {
+    const { observers, fire } = installRO();
     await renderPage();
     expect(observers.length).toBeGreaterThan(0);
-    fire(300, 270);
+    const panel = { width: 300, height: 300 };
+    // 300x300 panel: box content 300 - 6.4cqw = 280.8; axis chrome ~20.4px;
+    // bars need >= 15% of 300 = 45px -> text up to ~215px keeps the graph
+    fire(panel, 150);
+    expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+    // 220px of text leaves ~40px for the bars (< 45): hidden. (The old rule
+    // compared box height minus text only, ignoring the axis rows -> kept it.)
+    fire(panel, 220);
     expect(screen.queryByTestId("bars-area")).toBeNull();
+    expect(screen.queryByText(ko.monitor.axisNow)).toBeNull();
     // text stays
     expect(within(panelEl("결제")).getByText("413 ms")).toBeInTheDocument();
-    fire(300, 150);
+    fire(panel, 270);
+    expect(screen.queryByTestId("bars-area")).toBeNull();
+    fire(panel, 150);
     expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+  });
+
+  it("text_shrinks_to_fit_when_taller_than_panel", async () => {
+    const { fire } = installRO();
+    await renderPage();
+    const box = screen.getByTestId("panel-box");
+    expect(box.style.getPropertyValue("--fit")).toBe("1");
+    // text block 400px in a box with 280.8px of content -> shrink factor < 1
+    fire({ width: 300, height: 300 }, 400);
+    const fit = Number(box.style.getPropertyValue("--fit"));
+    expect(fit).toBeGreaterThan(0);
+    expect(fit).toBeLessThan(0.75);
+    expect(screen.queryByTestId("bars-area")).toBeNull();
+  });
+
+  it("fail_reason_split_fixed_part_big_step_name_small", async () => {
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(
+            P1,
+            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503 · 회원 인증 단계" }],
+            { consecutive_fail: 1, fail_since_ms: T },
+          ),
+        ]),
+      );
+    await renderPage();
+    const a = panelEl("결제");
+    const fixed = within(a).getByText("HTTP 503");
+    const step = within(a).getByText("회원 인증 단계");
+    expect(fixed).not.toBe(step);
+    expect(fixed.className).toContain("whitespace-nowrap");
+    expect(step.className).toContain("truncate");
+    expect(within(a).queryByText("HTTP 503 · 회원 인증 단계")).toBeNull();
+  });
+
+  it("title_and_state_share_a_wrapping_row", async () => {
+    await renderPage();
+    const a = panelEl("결제");
+    const title = within(a).getByRole("heading", { name: "결제" });
+    const row = title.parentElement as HTMLElement;
+    // fits -> one row (mockup); too wide -> the state wraps below and the title
+    // takes the full width, at most 2 lines
+    expect(row.className).toContain("flex-wrap");
+    expect(title.className).toContain("line-clamp-2");
+    const state = within(a).getByText(ko.monitor.stateOk);
+    expect(state.parentElement).toBe(row);
+    expect(state.className).toContain("ml-auto");
+  });
+
+  it("toolbar_in_flow_below_panels_not_fixed", async () => {
+    await renderPage();
+    const bar = screen.getByTestId("monitor-toolbar");
+    expect(bar.className).not.toContain("fixed");
+    // a strip of the page's flex column after the grid -> never over a panel
+    expect(bar.previousElementSibling?.tagName).toBe("MAIN");
   });
 });

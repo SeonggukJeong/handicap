@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CheckResult, Threshold } from "../../api/monitors";
 import { axisAgoLabel, barColor, barSlots } from "../../monitor/logic";
-import { COLOR, PANEL_TEXT, panelFont } from "../../monitor/display";
+import {
+  AXIS_LINE_HEIGHT,
+  COLOR,
+  GRAPH_CHROME,
+  PANEL_TEXT,
+  panelFont,
+} from "../../monitor/display";
 import { ko } from "../../i18n/ko";
 
 const FAIL_BASE = "#7f1d1d";
@@ -24,7 +30,7 @@ const fmtPct = (n: number) => `${+n.toFixed(2)}%`;
  * (transparent) so its content box — where label offsets are measured — shares
  * the bars area's content-box baseline, where the dashed lines' `bottom:%` is.
  */
-const AXIS_BORDER_WIDTH = "0.4cqw";
+const AXIS_BORDER_WIDTH = `${GRAPH_CHROME.axisBorder}cqw`;
 
 /**
  * Bars-area height and threshold-label height, measured with ResizeObserver;
@@ -41,11 +47,14 @@ function useLabelMetrics(
     const labels = labelsRef.current;
     if (!area || !labels || typeof ResizeObserver === "undefined") return;
     let areaH: number | null = null;
+    let labelH: number | null = null;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) if (e.target === area) areaH = e.contentRect.height;
+      // When every number is dropped there is no span; keep the last height.
       const label = labels.querySelector("span");
-      if (areaH === null || !label) return;
-      const next = { areaH, labelH: label.getBoundingClientRect().height };
+      if (label) labelH = label.getBoundingClientRect().height;
+      if (areaH === null || labelH === null) return;
+      const next = { areaH, labelH };
       setM((prev) =>
         prev && prev.areaH === next.areaH && prev.labelH === next.labelH ? prev : next,
       );
@@ -59,39 +68,35 @@ function useLabelMetrics(
 }
 
 /**
- * Label (centre) offsets from the bottom of the column. Unmeasured: the line's
- * height in %. Measured: px, pushed up so close thresholds' numbers never
- * overlap (thresholds are ascending), then capped so the top label stays inside
- * the column — the stack is pushed back down from the top. When the stack is
- * taller than the column (tiny panels), labels are spread evenly inside it
- * instead (overlap is unavoidable then; leaving the column is not).
+ * Which threshold numbers to show and where (centre offset from the column
+ * bottom). Unmeasured: all, at their line's %. Measured (spec §7.3 극단값 표시
+ * 정책): each number sits at its line, held inside the column (never into the
+ * `(ms)` row below or the text above); walking from the highest (most severe)
+ * threshold down, a number that would overlap one already placed is dropped.
+ * The dashed lines are always drawn.
  */
-function labelOffsets(
+function placeLabels(
   thresholds: Threshold[],
   graphMaxMs: number,
   m: { areaH: number; labelH: number } | null,
-): string[] {
-  if (m === null || m.labelH <= 0) return thresholds.map((t) => fmtPct(pct(t.ms, graphMaxMs)));
-  const n = thresholds.length;
-  if (n * m.labelH > m.areaH) {
-    const lo = m.labelH / 2;
-    const hi = m.areaH - m.labelH / 2;
-    const step = n > 1 && hi > lo ? (hi - lo) / (n - 1) : 0;
-    const base = hi > lo ? lo : Math.max(0, m.areaH / 2);
-    return thresholds.map((_, i) => `${+(base + i * step).toFixed(2)}px`);
+): { index: number; offset: string }[] {
+  if (m === null || m.labelH <= 0) {
+    return thresholds.map((t, index) => ({ index, offset: fmtPct(pct(t.ms, graphMaxMs)) }));
   }
-  const px: number[] = [];
-  let prev = -Infinity;
-  for (const t of thresholds) {
-    prev = Math.max((pct(t.ms, graphMaxMs) / 100) * m.areaH, prev + m.labelH);
-    px.push(prev);
+  const lo = m.labelH / 2;
+  const hi = m.areaH - m.labelH / 2;
+  if (hi < lo) return [];
+  const placed: { index: number; offset: string }[] = [];
+  let lastCentre = Infinity;
+  for (let index = thresholds.length - 1; index >= 0; index--) {
+    const raw = (pct(thresholds[index].ms, graphMaxMs) / 100) * m.areaH;
+    const centre = Math.min(hi, Math.max(lo, raw));
+    if (lastCentre - centre >= m.labelH - 0.01) {
+      placed.push({ index, offset: `${+centre.toFixed(2)}px` });
+      lastCentre = centre;
+    }
   }
-  let cap = m.areaH - m.labelH / 2;
-  for (let i = px.length - 1; i >= 0; i--) {
-    px[i] = Math.min(px[i], cap);
-    cap = px[i] - m.labelH;
-  }
-  return px.map((v) => `${+v.toFixed(2)}px`);
+  return placed.reverse();
 }
 
 export function LatencyBars({
@@ -114,7 +119,7 @@ export function LatencyBars({
 }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
-  const offsets = labelOffsets(
+  const placed = placeLabels(
     thresholds,
     graphMaxMs,
     useLabelMetrics(areaRef, labelsRef, thresholds.length),
@@ -132,7 +137,7 @@ export function LatencyBars({
         gridTemplateColumns: "minmax(0, 1fr) auto",
         gridTemplateRows: "minmax(0, 1fr) auto",
         columnGap: "1.6cqw",
-        marginTop: "2cqw",
+        marginTop: `${GRAPH_CHROME.marginTop}cqw`,
       }}
     >
       <div
@@ -145,7 +150,7 @@ export function LatencyBars({
           borderBottomColor: "#334155",
         }}
       >
-        <div className="absolute inset-0 flex items-end">
+        <div className="absolute inset-0 flex items-end" style={{ overflow: "hidden" }}>
           {slots.map((r, i) => {
             const base: CSSProperties = {
               flex: "1 1 0",
@@ -244,42 +249,56 @@ export function LatencyBars({
           borderBottomColor: "transparent",
         }}
       >
-        {thresholds.map((t, i) => (
-          <div
-            key={`${t.ms}-${t.color}`}
-            className="flex min-h-0 flex-col justify-end"
-            style={{ gridArea: "1 / 1" }}
-          >
-            <span
-              className="whitespace-nowrap font-extrabold leading-none"
-              style={{
-                color: t.color,
-                fontSize: panelFont(PANEL_TEXT.threshold, fontScale),
-                transform: "translateY(50%)",
-              }}
-            >
-              {t.ms.toLocaleString("en-US")}
-            </span>
+        {placed.map(({ index, offset }) => {
+          const t = thresholds[index];
+          return (
             <div
-              data-testid="threshold-label-offset"
-              style={{ height: offsets[i], flexShrink: 0 }}
-            />
-          </div>
-        ))}
+              key={`${t.ms}-${t.color}`}
+              data-testid="threshold-label"
+              className="flex min-h-0 flex-col justify-end"
+              style={{ gridArea: "1 / 1" }}
+            >
+              <span
+                className="whitespace-nowrap font-extrabold"
+                style={{
+                  color: t.color,
+                  fontSize: panelFont(PANEL_TEXT.threshold, fontScale),
+                  // >= the glyph box (~1.18em), so the measured height that
+                  // spaces numbers apart covers what is actually painted
+                  lineHeight: 1.2,
+                  transform: "translateY(50%)",
+                }}
+              >
+                {t.ms.toLocaleString("en-US")}
+              </span>
+              <div data-testid="threshold-label-offset" style={{ height: offset, flexShrink: 0 }} />
+            </div>
+          );
+        })}
       </div>
 
       <div
         className="flex justify-between gap-[2cqw] whitespace-nowrap"
-        style={{ fontSize: axisFont, color: COLOR.axis, marginTop: "0.6cqw" }}
+        style={{
+          fontSize: axisFont,
+          lineHeight: AXIS_LINE_HEIGHT,
+          color: COLOR.axis,
+          marginTop: `${GRAPH_CHROME.axisMarginTop}cqw`,
+        }}
       >
         <span>{showInterval ? `${ago} · ${ko.monitor.everyN(intervalSec)}` : ago}</span>
         <span>{ko.monitor.axisNow}</span>
       </div>
       <div
         className="whitespace-nowrap"
-        style={{ fontSize: axisFont, color: COLOR.axis, marginTop: "0.6cqw" }}
+        style={{
+          fontSize: axisFont,
+          lineHeight: AXIS_LINE_HEIGHT,
+          color: COLOR.axis,
+          marginTop: `${GRAPH_CHROME.axisMarginTop}cqw`,
+        }}
       >
-        {thresholds.length > 0 ? ko.monitor.axisUnit : null}
+        {placed.length > 0 ? ko.monitor.axisUnit : null}
       </div>
     </div>
   );

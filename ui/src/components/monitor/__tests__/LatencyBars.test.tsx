@@ -118,7 +118,8 @@ describe("LatencyBars", () => {
     expect(slots()[1].style.height).toBe("50%");
   });
 
-  it("close_threshold_labels_pushed_apart_when_measured", () => {
+  /** Render, then deliver one measurement: bars area `areaH`, labels 20px tall. */
+  function renderMeasured(ms: number[], areaH: number) {
     type Entry = { target: Element; contentRect: { height: number } };
     const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
     class MockRO {
@@ -137,69 +138,78 @@ describe("LatencyBars", () => {
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue({ height: 20 } as DOMRect);
     try {
-      renderBars([ok(100)], {
-        thresholds: [
-          { ms: 700, color: "#facc15" },
-          { ms: 800, color: "#fb923c" },
-        ],
-      });
-      const offsets = () =>
-        screen.getAllByTestId("threshold-label-offset").map((el) => el.style.height);
-      // unmeasured: plain percentages
-      expect(offsets()).toEqual(["35%", "40%"]);
+      renderBars([ok(100)], { thresholds: ms.map((v) => ({ ms: v, color: "#fb923c" })) });
       act(() => {
         for (const o of observers) {
-          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: 100 } })));
+          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: areaH } })));
         }
       });
-      // 35px / 40px would overlap 20px-tall labels -> second pushed to 35 + 20
-      expect(offsets()).toEqual(["35px", "55px"]);
     } finally {
       rect.mockRestore();
       vi.unstubAllGlobals();
     }
+  }
+  /** [number text, centre offset] for every label actually rendered. */
+  const shownLabels = () =>
+    within(screen.getByTestId("threshold-labels"))
+      .queryAllByTestId("threshold-label")
+      .map((el) => [
+        el.querySelector("span")?.textContent,
+        el.querySelector<HTMLElement>('[data-testid="threshold-label-offset"]')?.style.height,
+      ]);
+
+  it("labels_unmeasured_render_all_at_line_percent", () => {
+    renderBars([ok(100)], {
+      thresholds: [
+        { ms: 700, color: "#facc15" },
+        { ms: 800, color: "#fb923c" },
+      ],
+    });
+    expect(shownLabels()).toEqual([
+      ["700", "35%"],
+      ["800", "40%"],
+    ]);
   });
 
-  it("label_stack_clamped_to_column_top", () => {
-    type Entry = { target: Element; contentRect: { height: number } };
-    const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
-    class MockRO {
-      els: Element[] = [];
-      constructor(cb: (e: Entry[]) => void) {
-        observers.push({ cb, els: this.els });
-      }
-      observe(el: Element) {
-        this.els.push(el);
-      }
-      unobserve() {}
-      disconnect() {}
-    }
-    vi.stubGlobal("ResizeObserver", MockRO);
-    const rect = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({ height: 20 } as DOMRect);
-    try {
-      renderBars([ok(100)], {
-        thresholds: [1600, 1700, 1800, 1900, 2000].map((ms) => ({ ms, color: "#fb923c" })),
-      });
-      act(() => {
-        for (const o of observers) {
-          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: 100 } })));
-        }
-      });
-      // pushed-up stack 80/100/120/140/160 would leave the 100px column; the top
-      // label's centre is capped at 100 - 20/2 and the rest stack down from it.
-      expect(screen.getAllByTestId("threshold-label-offset").map((el) => el.style.height)).toEqual([
-        "10px",
-        "30px",
-        "50px",
-        "70px",
-        "90px",
-      ]);
-    } finally {
-      rect.mockRestore();
-      vi.unstubAllGlobals();
-    }
+  it("labels_apart_keep_their_line_height", () => {
+    renderMeasured([700, 1200], 100);
+    expect(shownLabels()).toEqual([
+      ["700", "35px"],
+      ["1,200", "60px"],
+    ]);
+    expect(screen.getAllByText(ko.monitor.axisUnit)).toHaveLength(1);
+  });
+
+  it("overlapping_labels_drop_lower_keep_higher_lines_stay", () => {
+    renderMeasured([700, 800], 100);
+    // 35px vs 40px with 20px-tall numbers would overlap -> the lower is dropped
+    expect(shownLabels()).toEqual([["800", "40px"]]);
+    expect(screen.getAllByTestId("threshold-line")).toHaveLength(2);
+  });
+
+  it("crowded_labels_keep_non_overlapping_highest_first", () => {
+    renderMeasured([1000, 1600, 1700, 1800, 1900, 2000], 100);
+    // 2,000 clamped to 100 - 20/2 = 90; 1,900..1,600 (95..80) collide with it;
+    // 1,000 at 50 is clear of 90 by >= 20 -> kept
+    expect(shownLabels()).toEqual([
+      ["1,000", "50px"],
+      ["2,000", "90px"],
+    ]);
+    expect(screen.getAllByTestId("threshold-line")).toHaveLength(6);
+  });
+
+  it("label_kept_clear_of_unit_row", () => {
+    // 100 ms of 2000 -> line at 5px; the number's lower half would reach the
+    // (ms) row below the column, so its centre is held at 20/2
+    renderMeasured([100], 100);
+    expect(shownLabels()).toEqual([["100", "10px"]]);
+  });
+
+  it("no_label_fits_tiny_column_hides_numbers_and_unit", () => {
+    renderMeasured([700, 1200], 15);
+    expect(shownLabels()).toEqual([]);
+    expect(screen.queryByText(ko.monitor.axisUnit)).toBeNull();
+    expect(screen.getAllByTestId("threshold-line")).toHaveLength(2);
   });
 
   it("label_column_baseline_matches_bars_area_border", () => {
@@ -215,42 +225,11 @@ describe("LatencyBars", () => {
     expect(labels.style.borderBottomColor).toBe("transparent");
   });
 
-  it("label_stack_that_cannot_fit_stays_inside_column", () => {
-    type Entry = { target: Element; contentRect: { height: number } };
-    const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
-    class MockRO {
-      els: Element[] = [];
-      constructor(cb: (e: Entry[]) => void) {
-        observers.push({ cb, els: this.els });
-      }
-      observe(el: Element) {
-        this.els.push(el);
-      }
-      unobserve() {}
-      disconnect() {}
-    }
-    vi.stubGlobal("ResizeObserver", MockRO);
-    const rect = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({ height: 20 } as DOMRect);
-    try {
-      renderBars([ok(100)], {
-        thresholds: [1600, 1700, 1800, 1900, 2000].map((ms) => ({ ms, color: "#fb923c" })),
-      });
-      act(() => {
-        for (const o of observers) {
-          o.cb(o.els.map((el) => ({ target: el, contentRect: { height: 60 } })));
-        }
-      });
-      // 5 x 20px labels cannot fit a 60px column: spread evenly between
-      // 20/2 and 60 - 20/2 (never negative, never above the column)
-      expect(
-        screen.getAllByTestId("threshold-label-offset").map((el) => el.style.height),
-      ).toEqual(["10px", "20px", "30px", "40px", "50px"]);
-    } finally {
-      rect.mockRestore();
-      vi.unstubAllGlobals();
-    }
+  it("fail_glyph_clipped_to_bars_area", () => {
+    renderBars([{ at_ms: 2, verdict: "fail", latency_ms: null, reason: "HTTP 503" }]);
+    // the slots container clips: a ✖ never draws over the axis text below
+    const container = slots()[0].parentElement as HTMLElement;
+    expect(container.style.overflow).toBe("hidden");
   });
 
   it("axis_labels", () => {

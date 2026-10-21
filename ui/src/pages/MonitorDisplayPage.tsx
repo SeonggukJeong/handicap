@@ -276,8 +276,14 @@ export function MonitorDisplayPage() {
           );
         })}
       </main>
+      {/* Windowed only: its own strip below the grid (in flow), so it never
+          covers a panel; fullscreen has no toolbar and the grid takes it all. */}
       {!full && (
-        <div className="fixed bottom-4 right-4 flex gap-2 text-sm">
+        <div
+          data-testid="monitor-toolbar"
+          className="flex shrink-0 items-center justify-end gap-2 text-sm"
+          style={{ padding: "0 1vw 1vw" }}
+        >
           <ToolButton onClick={() => enterFullscreen()}>{ko.monitor.toolbarFullscreen}</ToolButton>
           <ToolButton onClick={() => navigate(`/monitors/${id}`)}>
             {ko.monitor.toolbarSettings}
