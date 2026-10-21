@@ -223,6 +223,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0050** transport 에러 taxonomy: send-실패 8종 kind 와이어 계약(snake_case verbatim) + counts-only 델타 운반 + 최상위 reqwest Display 금지
 - **0051** 실행 중 진행 차트: 이미 폴링 중인 1s windows의 클라 표시 허용 (ADR-0009 후속-한도 supersede, 라이브 대시보드는 비목표)
 - **0052** run 라벨: 단일 TEXT 컬럼 + 표시 폴백 `label ?? #끝6자` + 스케줄 자동 라벨 (장문 메모·`schedule_id` 컬럼 기각)
+- **0053** 운영 모니터 모드: 엔진 1패스 trace 재사용 주기 점검 보드 + 메모리 링버퍼 + 느림은 화면 계산 (ADR-0009 범위=부하 실행 중 대시보드)
 
 ## 코딩 컨벤션
 

@@ -284,6 +284,10 @@ async fn main() -> anyhow::Result<()> {
             scheduler_tz,
             monitor: handicap_controller::monitor::MonitorSupervisor::default(),
         };
+        match handicap_controller::monitor::resume_enabled(&state).await {
+            Ok(n) => info!(resumed = n, "monitor boards resumed"),
+            Err(e) => tracing::warn!(error = ?e, "monitor resume failed (continuing)"),
+        }
         if !args.scheduler_disabled {
             let sched_state = state.clone();
             let tick = std::time::Duration::from_secs(args.scheduler_tick_seconds);

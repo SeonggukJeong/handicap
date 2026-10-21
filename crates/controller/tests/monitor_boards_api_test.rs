@@ -376,3 +376,39 @@ async fn concurrent_stop_and_put_end_consistent() {
     }
     send(&app, Method::POST, &url(&id, "/stop"), None).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_enabled_restarts_enabled_boards() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db.clone());
+    let on = new_board(&app, "on", "S1", 10).await;
+    let off = new_board(&app, "off", "S1", 10).await;
+    let on_id = on["id"].as_str().unwrap().to_string();
+    let off_id = off["id"].as_str().unwrap().to_string();
+    store::monitor_boards::set_enabled(&db, &on_id, true)
+        .await
+        .unwrap();
+
+    // 새 감독자 = 컨트롤러 재시작 직후 상태(아무 루프도 안 돎).
+    let monitor = MonitorSupervisor::default();
+    let state = app::AppState {
+        db: db.clone(),
+        coord: CoordinatorState::new(db.clone()),
+        dispatcher: Arc::new(NoopDispatcher),
+        ui_dir: None,
+        settings: handicap_controller::settings::SettingsState::build(
+            &std::collections::HashMap::new(),
+            &[],
+        ),
+        scheduler_tz: chrono_tz::UTC,
+        monitor: monitor.clone(),
+    };
+    assert!(monitor.snapshot(&on_id).await.is_none());
+    let n = handicap_controller::monitor::resume_enabled(&state)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    assert!(monitor.snapshot(&on_id).await.is_some());
+    assert!(monitor.snapshot(&off_id).await.is_none());
+    monitor.stop_all().await;
+}

@@ -172,6 +172,7 @@ pub struct RunningController {
     heartbeat: Mutex<Option<tokio::task::JoinHandle<()>>>,
     coord: CoordinatorState,
     db: Db,
+    monitor: crate::monitor::MonitorSupervisor,
 }
 
 impl RunningController {
@@ -191,6 +192,7 @@ impl RunningController {
             Err(e) => warn!(error = ?e, "shutdown: abort_all failed (continuing)"),
         }
         self.token.cancel();
+        self.monitor.stop_all().await;
         let serve = self.serve.lock().unwrap().take();
         if let Some(handle) = serve {
             if !bounded_drain(handle, GRACEFUL_DRAIN_TIMEOUT).await {
@@ -284,6 +286,10 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
     }
     let settings = SettingsState::build(&overrides, &seeds.to_seed_array());
 
+    // 7) graceful 종료 토큰 (모니터 감독자 루트가 child_token으로 물려받는다).
+    let token = CancellationToken::new();
+    let monitor = crate::monitor::MonitorSupervisor::with_root(token.child_token());
+
     // 6) AppState (ui_dir 고정 None — bundle은 rust-embed로 임베드 UI 서빙).
     let state = AppState {
         db: db.clone(),
@@ -292,11 +298,14 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         ui_dir: None,
         settings: settings.clone(),
         scheduler_tz,
-        monitor: crate::monitor::MonitorSupervisor::default(),
+        monitor: monitor.clone(),
     };
 
-    // 7) graceful 종료 토큰.
-    let token = CancellationToken::new();
+    // 켜진 모니터 보드 자동 재개 (실패는 경고 후 계속).
+    match crate::monitor::resume_enabled(&state).await {
+        Ok(n) => info!(resumed = n, "monitor boards resumed"),
+        Err(e) => warn!(error = ?e, "monitor resume failed (continuing)"),
+    }
 
     // 8) scheduler 루프(토큰 취소 시 종료).
     let scheduler_handle = if !cfg.scheduler_disabled {
@@ -386,6 +395,7 @@ pub async fn run_in_process(cfg: InProcessConfig) -> anyhow::Result<RunningContr
         heartbeat: Mutex::new(heartbeat_handle),
         coord: coord_state,
         db,
+        monitor,
     })
 }
 
