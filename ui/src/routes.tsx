@@ -14,6 +14,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { MonitorListPage } from "./pages/MonitorListPage";
 import { MonitorEditPage } from "./pages/MonitorEditPage";
+import { MonitorDisplayPage } from "./pages/MonitorDisplayPage";
 import { WorkerDashboardPage } from "./pages/WorkerDashboardPage";
 
 const router = createBrowserRouter([
@@ -39,6 +40,8 @@ const router = createBrowserRouter([
       { path: "workers", element: <WorkerDashboardPage /> },
     ],
   },
+  // Wall display: outside Layout (no app header / max-width) — spec §7.1.
+  { path: "/monitors/:id/display", element: <MonitorDisplayPage /> },
 ]);
 
 export function AppRouter() {
