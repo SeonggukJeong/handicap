@@ -193,7 +193,7 @@ export function PanelEditor({
             <li key={i} className="flex items-center gap-2">
               <div className="w-32">
                 <Input
-                  aria-label={ko.monitor.thresholdMs}
+                  aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.thresholdMs}`}
                   type="number"
                   numeric
                   min={1}
@@ -212,7 +212,7 @@ export function PanelEditor({
               <Button
                 variant="secondary"
                 type="button"
-                aria-label={ko.monitor.removeThreshold}
+                aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.removeThreshold}`}
                 onClick={() => set({ thresholds: panel.thresholds.filter((_, k) => k !== i) })}
               >
                 {ko.monitor.removeThreshold}

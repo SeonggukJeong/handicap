@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEnvironments, useScenarios } from "../api/hooks";
 import {
@@ -16,6 +16,7 @@ import {
   type FontScale,
   type PanelConfig,
 } from "../api/monitors";
+import { ApiError } from "../api/client";
 import { Button } from "../components/Button";
 import { PanelEditor } from "../components/monitor/PanelEditor";
 import { Callout } from "../components/ui/Callout";
@@ -40,6 +41,9 @@ export function MonitorEditPage() {
   if (!id) return <BoardForm key="new" initial={null} />;
   if (query.isLoading) return <p className="text-sm text-slate-500">{ko.monitor.loading}</p>;
   if (query.error) {
+    if (query.error instanceof ApiError && query.error.status === 404) {
+      return <p className="text-sm text-slate-500">{ko.monitor.notFound}</p>;
+    }
     const msg = (query.error as Error).message;
     return (
       <Callout variant="error" role="alert">
@@ -55,6 +59,7 @@ const snapshot = (name: string, config: BoardConfig) => JSON.stringify({ name, c
 
 function BoardForm({ initial }: { initial: Board | null }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   const scenarios = useScenarios();
   const environments = useEnvironments();
@@ -67,7 +72,9 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const [baseline, setBaseline] = useState(() =>
     initial ? snapshot(initial.name, initial.config) : "",
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    () => (location.state as { startError?: string } | null)?.startError ?? null,
+  );
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [scenarioErr, setScenarioErr] = useState(false);
@@ -119,24 +126,33 @@ function BoardForm({ initial }: { initial: Board | null }) {
   };
 
   const onStart = async () => {
-    // Gesture-bound: must run before the first await.
-    enterFullscreen();
     setError(null);
     setSaved(false);
-    if (!valid()) {
-      exitFullscreen();
-      return;
-    }
+    // Validate first (sync) so a rejected click never requests fullscreen; the
+    // request is still made before the first await, so the gesture stays valid.
+    if (!valid()) return;
+    enterFullscreen();
     setBusy(true);
+    let createdId: string | null = null;
     try {
+      const wasNew = !board;
       const b = await persist(false);
       adopt(b);
+      if (wasNew) createdId = b.id;
       const started = await startBoard(b.id);
       adopt(started);
+      // Back from the display page must not reopen an empty "new" form.
+      if (wasNew) navigate(`/monitors/${b.id}`, { replace: true });
       navigate(`/monitors/${started.id}/display`);
     } catch (e) {
       exitFullscreen();
-      setError((e as Error).message);
+      const msg = (e as Error).message;
+      setError(msg);
+      // Leave the "new" route (a retry must not re-create); the remounted form
+      // reads the error from location state.
+      if (createdId) {
+        navigate(`/monitors/${createdId}`, { replace: true, state: { startError: msg } });
+      }
     } finally {
       setBusy(false);
     }
@@ -266,6 +282,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
             variant="danger"
             type="button"
             className="ml-auto"
+            disabled={busy}
             onClick={() => setConfirmDelete(true)}
           >
             {ko.monitor.deleteBoard}

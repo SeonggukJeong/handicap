@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { MonitorEditPage } from "../MonitorEditPage";
 import { ko } from "../../i18n/ko";
 
@@ -60,6 +60,7 @@ function board(over: Record<string, unknown> = {}) {
 }
 
 const fetchMock = vi.fn();
+const MS_LABEL = new RegExp(`${ko.monitor.thresholdMs}$`);
 type Call = { method: string; path: string; body: unknown };
 let calls: Call[] = [];
 let handlers: Record<string, (body: unknown) => Response | Promise<Response>> = {};
@@ -89,14 +90,20 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => {
+  cleanFullscreen();
   vi.unstubAllGlobals();
 });
+
+function LocationProbe() {
+  return <span data-testid="loc">{useLocation().pathname}</span>;
+}
 
 function renderAt(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
+        <LocationProbe />
         <Routes>
           <Route path="/monitors" element={<div>LIST</div>} />
           <Route path="/monitors/new" element={<MonitorEditPage />} />
@@ -129,7 +136,7 @@ describe("MonitorEditPage", () => {
     expect(screen.getByLabelText(ko.monitor.blink)).toHaveDisplayValue(
       ko.monitor.blinkOptions.fail,
     );
-    expect(screen.queryByLabelText(ko.monitor.thresholdMs)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(MS_LABEL)).not.toBeInTheDocument();
   });
 
   it("interval_is_editable", async () => {
@@ -157,10 +164,10 @@ describe("MonitorEditPage", () => {
     renderAt("/monitors/new");
     const add = await screen.findByRole("button", { name: ko.monitor.addThreshold });
     for (let i = 0; i < 5; i++) await user.click(add);
-    expect(screen.getAllByLabelText(ko.monitor.thresholdMs)).toHaveLength(5);
+    expect(screen.getAllByLabelText(MS_LABEL)).toHaveLength(5);
     expect(add).toBeDisabled();
-    await user.click(screen.getAllByRole("button", { name: ko.monitor.removeThreshold })[0]);
-    expect(screen.getAllByLabelText(ko.monitor.thresholdMs)).toHaveLength(4);
+    await user.click(screen.getByRole("button", { name: `${ko.monitor.thresholds} 1 ${ko.monitor.removeThreshold}` }));
+    expect(screen.getAllByLabelText(MS_LABEL)).toHaveLength(4);
     expect(add).toBeEnabled();
   });
 
@@ -305,7 +312,6 @@ describe("MonitorEditPage", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("DISPLAY")).toBeInTheDocument();
     expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1);
-    cleanFullscreen();
   });
 
   it("start_failure_exits_fullscreen_and_shows_error", async () => {
@@ -327,7 +333,6 @@ describe("MonitorEditPage", () => {
     expect(await screen.findByText("시작 실패 사유")).toBeInTheDocument();
     expect(exit).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("DISPLAY")).not.toBeInTheDocument();
-    cleanFullscreen();
   });
 
   it("resave_keeps_panel_ids", async () => {
@@ -406,5 +411,119 @@ describe("MonitorEditPage", () => {
     await waitFor(() => expect(sent("DELETE", "/api/monitor-boards/B1")).toHaveLength(1));
     expect(await screen.findByText("LIST")).toBeInTheDocument();
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+  it("validation_failure_never_requests_fullscreen", async () => {
+    const spy = vi.fn(() => Promise.resolve());
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: spy,
+    });
+    const user = userEvent.setup();
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+    expect(await screen.findByText(ko.monitor.scenarioRequired)).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("server_failure_exits_fullscreen_after_pending_request_settles", async () => {
+    let resolveReq!: () => void;
+    const req = new Promise<void>((r) => {
+      resolveReq = r;
+    });
+    let fs: Element | null = null;
+    const exit = vi.fn(() => Promise.resolve());
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn(() => req),
+    });
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => fs });
+    Object.defineProperty(document, "exitFullscreen", { configurable: true, value: exit });
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json({ error: "빠른 실패" }, 400);
+    const user = userEvent.setup();
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.start }));
+    expect(await screen.findByText("빠른 실패")).toBeInTheDocument();
+    // fullscreenElement is still null here: the exit must wait for the request.
+    expect(exit).not.toHaveBeenCalled();
+    fs = document.documentElement;
+    resolveReq();
+    await waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
+  });
+
+  it("start_failure_after_create_keeps_board_url_and_error", async () => {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = () => json(board());
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json({ error: "시작 불가" }, 400);
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.type(screen.getByLabelText(ko.monitor.panelTitle), "결제");
+    await user.selectOptions(await screen.findByLabelText(ko.monitor.scenario), SID);
+    await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+    expect(await screen.findByText("시작 불가")).toBeInTheDocument();
+    expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/B1");
+    // A retry must update the created board, not create a duplicate.
+    handlers["PUT /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json(board({ enabled: true }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+    expect(await screen.findByText("DISPLAY")).toBeInTheDocument();
+    expect(sent("POST", "/api/monitor-boards")).toHaveLength(1);
+  });
+
+  it("start_success_replaces_new_url_before_display", async () => {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json(board({ enabled: true }));
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.type(screen.getByLabelText(ko.monitor.panelTitle), "결제");
+    await user.selectOptions(await screen.findByLabelText(ko.monitor.scenario), SID);
+    await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+    expect(await screen.findByText("DISPLAY")).toBeInTheDocument();
+    expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/B1/display");
+  });
+
+  it("missing_board_shows_not_found", async () => {
+    handlers["GET /api/monitor-boards/NOPE"] = () => json({ error: "없음" }, 404);
+    renderAt("/monitors/NOPE");
+    expect(await screen.findByText(ko.monitor.notFound)).toBeInTheDocument();
+  });
+
+  it("threshold_rows_have_distinct_accessible_names", async () => {
+    const user = userEvent.setup();
+    renderAt("/monitors/new");
+    const add = await screen.findByRole("button", { name: ko.monitor.addThreshold });
+    await user.click(add);
+    await user.click(add);
+    for (const n of [1, 2]) {
+      expect(
+        screen.getByLabelText(`${ko.monitor.thresholds} ${n} ${ko.monitor.thresholdMs}`),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: `${ko.monitor.thresholds} ${n} ${ko.monitor.removeThreshold}` }),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("delete_button_disabled_while_busy", async () => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = async () => {
+      await gate;
+      return json(board());
+    };
+    renderAt("/monitors/B1");
+    const del = await screen.findByRole("button", { name: ko.monitor.deleteBoard });
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(del).toBeDisabled());
+    release();
+    await waitFor(() => expect(del).toBeEnabled());
   });
 });
