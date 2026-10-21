@@ -22,3 +22,24 @@
     background-color: rgb(148 163 184);
   }
 }
+
+/* Wall-display blink (monitor board): 1s ease-in-out brightness pulse, one flash
+   per second. Deliberately NOT gated by prefers-reduced-motion: the board blink
+   setting is explicit and wins (spec 7.5). */
+@keyframes monitor-blink {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.16;
+  }
+}
+[data-blink="on"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: #fff;
+  animation: monitor-blink 1s ease-in-out infinite;
+}

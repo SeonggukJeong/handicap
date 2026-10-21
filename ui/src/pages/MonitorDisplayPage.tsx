@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBoard, getBoardStatus } from "../api/monitors";
+import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
+import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
 import { MonitorPanel } from "../components/monitor/MonitorPanel";
 import { FONT_SCALE, gridFor, panelState, type PanelState } from "../monitor/logic";
@@ -15,7 +16,16 @@ const SERVER_DOWN_AFTER = 3;
 
 const isNotFound = (e: unknown) => e instanceof ApiError && e.status === 404;
 
+/** Mouse idle time in fullscreen before the cursor hides (spec 7.6). */
+const CURSOR_HIDE_MS = 3000;
+
 const FONT_FAMILY = '"Pretendard", "Noto Sans KR", system-ui, sans-serif';
+
+/** Which panel states blink for a board setting (spec 7.5). Config/stale never blink. */
+function blinks(mode: Blink, state: PanelState): boolean {
+  if (mode === "off") return false;
+  return state === "fail" || (mode === "slow_and_fail" && state === "slow");
+}
 
 function FullScreenMessage({ children }: { children: ReactNode }) {
   return (
@@ -28,9 +38,24 @@ function FullScreenMessage({ children }: { children: ReactNode }) {
   );
 }
 
+function ToolButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded border border-slate-600 bg-slate-800/90 px-3 py-1.5 text-slate-100 hover:bg-slate-700"
+    >
+      {children}
+    </button>
+  );
+}
+
 export function MonitorDisplayPage() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const [failedPolls, setFailedPolls] = useState(0);
+  const [full, setFull] = useState(isFullscreen);
+  const [cursorIdle, setCursorIdle] = useState(false);
 
   const boardQ = useQuery({
     queryKey: monitorKey(id),
@@ -63,6 +88,7 @@ export function MonitorDisplayPage() {
   const boardFetching = boardQ.isFetching;
   const boardNotFound = isNotFound(boardQ.error);
   const refetchBoard = boardQ.refetch;
+  const refetchStatus = statusQ.refetch;
   const statusTick = statusQ.dataUpdatedAt;
   const statusBoardUpdatedAt = status?.board_updated_at;
   const boardUpdatedAt = board?.updated_at;
@@ -80,6 +106,58 @@ export function MonitorDisplayPage() {
     boardNotFound,
     refetchBoard,
   ]);
+
+  // Fullscreen state follows the browser (ESC is handled natively).
+  useEffect(() => {
+    const sync = () => setFull(isFullscreen());
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  // F toggles; any mouse button exits (never mere movement); no context menu in
+  // fullscreen. isFullscreen() is read live so a stale render can't misjudge.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "f" && e.key !== "F") return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (isFullscreen()) exitFullscreen();
+      else enterFullscreen();
+    };
+    const onDown = () => {
+      if (isFullscreen()) exitFullscreen();
+    };
+    const onContext = (e: MouseEvent) => {
+      if (isFullscreen()) e.preventDefault();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("contextmenu", onContext);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("contextmenu", onContext);
+    };
+  }, []);
+
+  // Cursor hides after CURSOR_HIDE_MS without movement while fullscreen.
+  useEffect(() => {
+    if (!full) {
+      setCursorIdle(false);
+      return;
+    }
+    let timer = setTimeout(() => setCursorIdle(true), CURSOR_HIDE_MS);
+    const onMove = () => {
+      setCursorIdle(false);
+      clearTimeout(timer);
+      timer = setTimeout(() => setCursorIdle(true), CURSOR_HIDE_MS);
+    };
+    document.addEventListener("mousemove", onMove);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousemove", onMove);
+    };
+  }, [full]);
 
   if (isNotFound(statusQ.error) || boardNotFound) {
     return <FullScreenMessage>{ko.monitor.notFound}</FullScreenMessage>;
@@ -114,8 +192,14 @@ export function MonitorDisplayPage() {
 
   return (
     <div
+      data-testid="monitor-display"
       className="fixed inset-0 flex flex-col overflow-hidden"
-      style={{ background: COLOR.bg, color: COLOR.text, fontFamily: FONT_FAMILY }}
+      style={{
+        background: COLOR.bg,
+        color: COLOR.text,
+        fontFamily: FONT_FAMILY,
+        cursor: full && cursorIdle ? "none" : undefined,
+      }}
     >
       <header
         className="flex shrink-0 items-baseline justify-between gap-[2vw] whitespace-nowrap"
@@ -173,12 +257,30 @@ export function MonitorDisplayPage() {
               status={ps}
               state={state}
               fontScale={fontScale}
-              blinkOn={false}
+              blinkOn={blinks(board.config.blink, state)}
               showInterval={!sameInterval}
             />
           );
         })}
       </main>
+      {!full && (
+        <div className="fixed bottom-4 right-4 flex gap-2 text-sm">
+          <ToolButton onClick={() => enterFullscreen()}>{ko.monitor.toolbarFullscreen}</ToolButton>
+          <ToolButton onClick={() => navigate(`/monitors/${id}`)}>
+            {ko.monitor.toolbarSettings}
+          </ToolButton>
+          <ToolButton
+            onClick={() => {
+              // Polling continues after the stop; the next status shows stale_off.
+              void stopBoard(id)
+                .catch(() => {})
+                .then(() => refetchStatus());
+            }}
+          >
+            {ko.monitor.stop}
+          </ToolButton>
+        </div>
+      )}
     </div>
   );
 }
