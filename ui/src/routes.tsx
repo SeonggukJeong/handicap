@@ -12,6 +12,8 @@ import { EnvironmentsPage } from "./pages/EnvironmentsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
+import { MonitorListPage } from "./pages/MonitorListPage";
+import { MonitorEditPage } from "./pages/MonitorEditPage";
 import { WorkerDashboardPage } from "./pages/WorkerDashboardPage";
 
 const router = createBrowserRouter([
@@ -31,6 +33,9 @@ const router = createBrowserRouter([
       { path: "templates", element: <TemplatesPage /> },
       { path: "schedules", element: <SchedulesPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "monitors", element: <MonitorListPage /> },
+      { path: "monitors/new", element: <MonitorEditPage /> },
+      { path: "monitors/:id", element: <MonitorEditPage /> },
       { path: "workers", element: <WorkerDashboardPage /> },
     ],
   },
