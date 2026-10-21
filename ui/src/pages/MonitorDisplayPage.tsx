@@ -38,12 +38,21 @@ function FullScreenMessage({ children }: { children: ReactNode }) {
   );
 }
 
-function ToolButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function ToolButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded border border-slate-600 bg-slate-800/90 px-3 py-1.5 text-slate-100 hover:bg-slate-700"
+      disabled={disabled}
+      className="rounded border border-slate-600 bg-slate-800/90 px-3 py-1.5 text-slate-100 hover:bg-slate-700 disabled:opacity-50"
     >
       {children}
     </button>
@@ -56,6 +65,8 @@ export function MonitorDisplayPage() {
   const [failedPolls, setFailedPolls] = useState(0);
   const [full, setFull] = useState(isFullscreen);
   const [cursorIdle, setCursorIdle] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
 
   const boardQ = useQuery({
     queryKey: monitorKey(id),
@@ -119,7 +130,8 @@ export function MonitorDisplayPage() {
   // fullscreen. isFullscreen() is read live so a stale render can't misjudge.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "f" && e.key !== "F") return;
+      // e.code covers Korean IME, where e.key is "ㄹ"/"Process".
+      if (e.key !== "f" && e.key !== "F" && e.code !== "KeyF") return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
       if (isFullscreen()) exitFullscreen();
       else enterFullscreen();
@@ -269,16 +281,29 @@ export function MonitorDisplayPage() {
           <ToolButton onClick={() => navigate(`/monitors/${id}`)}>
             {ko.monitor.toolbarSettings}
           </ToolButton>
-          <ToolButton
-            onClick={() => {
-              // Polling continues after the stop; the next status shows stale_off.
-              void stopBoard(id)
-                .catch(() => {})
-                .then(() => refetchStatus());
-            }}
-          >
-            {ko.monitor.stop}
-          </ToolButton>
+          {status?.enabled !== false && (
+            <ToolButton
+              disabled={stopBusy}
+              onClick={() => {
+                // Polling continues after the stop; the next status shows stale_off.
+                setStopError(null);
+                setStopBusy(true);
+                void stopBoard(id)
+                  .then(
+                    () => refetchStatus(),
+                    (e: unknown) => setStopError(e instanceof Error ? e.message : String(e)),
+                  )
+                  .finally(() => setStopBusy(false));
+              }}
+            >
+              {ko.monitor.stop}
+            </ToolButton>
+          )}
+          {stopError && (
+            <span role="alert" className="self-center text-red-300">
+              {ko.monitor.stopError(stopError)}
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -43,6 +43,9 @@ function res(body: unknown, code = 200): Response {
 let blink = "fail";
 let statusCalls = 0;
 let stopCalls = 0;
+let stopFail = false;
+let stopHang = false;
+let boardEnabled = true;
 // 1 fail, 2 slow, 3 config_error, 4 stale (old result), 5 pending, 6 ok
 const PANELS = [1, 2, 3, 4, 5, 6].map((n) => panelCfg(n));
 const STATUS_PANELS = [
@@ -66,6 +69,9 @@ beforeEach(() => {
   blink = "fail";
   statusCalls = 0;
   stopCalls = 0;
+  stopFail = false;
+  stopHang = false;
+  boardEnabled = true;
   fsEl = null;
   Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => fsEl });
   requestFs.mockReset();
@@ -92,7 +98,7 @@ beforeEach(() => {
           res({
             now_ms: T + 1000,
             board_updated_at: 1,
-            enabled: true,
+            enabled: boardEnabled,
             started_at_ms: T - 5000,
             panels: STATUS_PANELS,
           }),
@@ -100,6 +106,8 @@ beforeEach(() => {
       }
       if (u === `/api/monitor-boards/${BID}/stop` && init?.method === "POST") {
         stopCalls += 1;
+        if (stopHang) return new Promise<Response>(() => {});
+        if (stopFail) return Promise.resolve(res({ error: "boom" }, 500));
         return Promise.resolve(res({ id: BID }));
       }
       if (u === `/api/monitor-boards/${BID}`) {
@@ -239,12 +247,58 @@ describe("MonitorDisplayPage fullscreen", () => {
     expect(screen.getByText(ko.monitor.toolbarFullscreen)).toBeInTheDocument();
   });
 
+  it("f_key_works_with_korean_ime", async () => {
+    await renderPage();
+    await pressF({ key: "ㄹ", code: "KeyF" });
+    expect(requestFs).toHaveBeenCalledTimes(1);
+    await tick(0);
+    await pressF({ key: "Process", code: "KeyF" });
+    await tick(0);
+    expect(exitFs).toHaveBeenCalledTimes(1);
+  });
+
+  it("stop_failure_shows_alert_and_busy_guard", async () => {
+    stopFail = true;
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    await tick(0);
+    expect(screen.getByRole("alert")).toHaveTextContent(/^점검을 멈추지 못했습니다: /);
+    expect(screen.getByRole("alert").textContent).toContain("boom");
+    expect(screen.getByText(ko.monitor.stop)).not.toBeDisabled();
+  });
+
+  it("stop_button_disabled_while_pending", async () => {
+    stopHang = true;
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    expect(screen.getByText(ko.monitor.stop)).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    expect(stopCalls).toBe(1);
+  });
+
+  it("stop_button_hidden_when_board_already_stopped", async () => {
+    boardEnabled = false;
+    await renderPage();
+    expect(screen.getByText(ko.monitor.toolbarFullscreen)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.stop)).toBeNull();
+  });
+
   it("toolbar_buttons_work", async () => {
     await renderPage();
     await act(async () => {
-      fireEvent.click(screen.getByText(ko.monitor.toolbarFullscreen));
+      const b = screen.getByText(ko.monitor.toolbarFullscreen);
+      fireEvent.mouseDown(b);
+      fireEvent.click(b);
     });
+    await tick(0);
     expect(requestFs).toHaveBeenCalledTimes(1);
+    expect(exitFs).not.toHaveBeenCalled();
     await setFs(false);
     await act(async () => {
       fireEvent.click(screen.getByText(ko.monitor.stop));

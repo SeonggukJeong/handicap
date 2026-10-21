@@ -1799,6 +1799,7 @@ export const ko = {
     stop: "점검 정지",
     toolbarFullscreen: "전체화면",
     toolbarSettings: "설정으로",
+    stopError: (msg: string) => `점검을 멈추지 못했습니다: ${msg}`,
     lastCheck: (hms: string) => `마지막 점검 ${hms}`,
     everyN: (n: number) => `${n}초 주기`,
     serverDown: "서버 응답 없음",
