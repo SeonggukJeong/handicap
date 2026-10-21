@@ -1,0 +1,65 @@
+<h2>수정본 3 — 기준값을 그래프 밖으로 + 깜빡임</h2>
+<p class="subtitle">기준선 숫자는 그래프 오른쪽 전용 칸으로 빼고 단위 <b>(ms)</b>는 한 번만 표시 — 기준선은 그래프 안에서 끝납니다. 더비온 2.0 칸은 <b>깜빡임 대상 = 느림+실패</b>로 켰을 때 모습(1초에 한 번, 배경이 천천히 밝아졌다 어두워짐).<br><span style="opacity:.7">① 막대가 칸 좌우를 꽉 채움(왼쪽부터 쌓이고, 꽉 차면 왼쪽이 밀려 사라짐) ② 기준선 개수·색·값 직접 설정, 선 옆에 값 표시 ③ 막대를 위아래로 크게 — 제목/상태는 위 한 줄로 모았습니다.<br>
+더비온 1.0 = <b>방금 시작해서 왼쪽부터 채워지는 중</b>, 더비온 2.0 = <b>꽉 찬 상태에서 점점 느려지는 중</b>(중간 빨간 ✖ 1개는 실패 1회).</span></p>
+
+<style>
+  .scr { container-type:inline-size; width:100%; aspect-ratio:16/9; background:#0b0f14; border-radius:8px; overflow:hidden; font-family:"Pretendard","Noto Sans KR",system-ui,sans-serif; color:#f2f5f8; display:flex; flex-direction:column; }
+  .hdr { display:flex; justify-content:space-between; padding:.8cqw 1.6cqw; font-size:2.4cqw; color:#9aa7b4; border-bottom:0.15cqw solid #1f2a36; }
+  .hdr b { color:#f2f5f8; }
+  .row { flex:1; display:flex; gap:1cqw; padding:1cqw; min-height:0; }
+  .p { flex:1; border-radius:1cqw; background:#111a23; display:flex; flex-direction:column; padding:1.2cqw 1.2cqw 1cqw; min-width:0; }
+  .top { display:flex; justify-content:space-between; align-items:baseline; gap:1cqw; }
+  .t { font-size:5.2cqw; font-weight:800; white-space:nowrap; }
+  .st { text-align:right; white-space:nowrap; }
+  .st .s { font-size:5.2cqw; font-weight:900; }
+  .st .m { font-size:4.6cqw; font-weight:900; line-height:1; }
+  .big { font-size:9cqw; font-weight:900; line-height:1; text-align:right; margin-top:.4cqw; letter-spacing:-0.02em; }
+  .chart { flex:1; position:relative; margin-top:1cqw; margin-right:8cqw; border-bottom:0.2cqw solid #334155; }
+  .bars { position:absolute; inset:0; display:flex; align-items:flex-end; gap:0.15cqw; }
+  .bars i { flex:1; border-radius:.15cqw .15cqw 0 0; position:relative; }
+  .bars i.empty { background:transparent; }
+  .bars i.fail { background:repeating-linear-gradient(45deg,#ef4444 0 .5cqw,#7f1d1d .5cqw 1cqw); }
+  .bars i.fail b { position:absolute; top:.3cqw; left:50%; transform:translateX(-50%); font-size:1.6cqw; color:#fff; }
+  .th { position:absolute; left:0; right:0; border-top:0.28cqw dashed; z-index:2; }
+  .th em { position:absolute; left:100%; top:-1.5cqw; margin-left:.8cqw; font-style:normal; font-weight:800; font-size:2.4cqw; white-space:nowrap; }
+  .unit { position:absolute; left:100%; bottom:-2.6cqw; margin-left:.8cqw; font-size:1.8cqw; color:#7b8794; }
+  @keyframes blinkO { 0%,100% { background:#111a23; } 50% { background:#5a2a06; } }
+  .blink { animation: blinkO 1s ease-in-out infinite; }
+  .xl { display:flex; justify-content:space-between; font-size:1.8cqw; color:#7b8794; margin-right:8cqw; margin-top:.3cqw; }
+  .set { border:1px solid #2a3542; border-radius:8px; padding:16px 18px; max-width:620px; font-size:15px; }
+  .set h4 { margin:0 0 10px; }
+  .set .r { display:flex; align-items:center; gap:10px; margin:8px 0; }
+  .set input { width:90px; padding:5px 8px; border:1px solid #475569; border-radius:5px; background:transparent; color:inherit; font-size:15px; }
+  .sw { width:26px; height:26px; border-radius:5px; display:inline-block; border:1px solid #475569; }
+  .set .muted { color:#8a96a3; font-size:13px; }
+  .set button { padding:5px 10px; border-radius:5px; border:1px solid #475569; background:transparent; color:inherit; font-size:14px; }
+</style>
+
+<div class="scr">
+  <div class="hdr"><span><b>SKT 회선</b> · 로그인 모니터</span><span>마지막 점검 14:32:10 · 10초 주기</span></div>
+  <div class="row">
+    <div class="p" style="border:0.5cqw solid #22c55e;">
+      <div class="top"><div class="t">더비온 1.0</div><div class="st"><div class="s" style="color:#4ade80">✔ 정상</div></div></div><div class="big">413 ms</div>
+      <div class="chart"><div class="bars"><i style="height:20.5%;background:#22c55e"></i><i style="height:22.8%;background:#22c55e"></i><i style="height:22.4%;background:#22c55e"></i><i style="height:19.8%;background:#22c55e"></i><i style="height:21.3%;background:#22c55e"></i><i style="height:22.9%;background:#22c55e"></i><i style="height:22.0%;background:#22c55e"></i><i style="height:23.0%;background:#22c55e"></i><i style="height:22.7%;background:#22c55e"></i><i style="height:19.4%;background:#22c55e"></i><i style="height:22.9%;background:#22c55e"></i><i style="height:19.1%;background:#22c55e"></i><i style="height:22.0%;background:#22c55e"></i><i style="height:20.6%;background:#22c55e"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i><i class="empty"></i></div><span class="th" style="bottom:35.0%;border-color:#facc15"><em style="color:#facc15">700</em></span><span class="th" style="bottom:60.0%;border-color:#fb923c"><em style="color:#fb923c">1,200</em></span><span class="unit">(ms)</span></div>
+      <div class="xl"><span>10분 전</span><span>지금</span></div>
+    </div>
+    <div class="p blink" style="border:0.5cqw solid #fb923c;">
+      <div class="top"><div class="t">더비온 2.0</div><div class="st"><div class="s" style="color:#fb923c">▲ 느림</div></div></div><div class="big" style="color:#fb923c">1,407 ms</div>
+      <div class="chart"><div class="bars"><i style="height:23.0%;background:#22c55e"></i><i style="height:20.9%;background:#22c55e"></i><i style="height:20.7%;background:#22c55e"></i><i style="height:22.5%;background:#22c55e"></i><i style="height:22.9%;background:#22c55e"></i><i style="height:23.0%;background:#22c55e"></i><i style="height:22.5%;background:#22c55e"></i><i style="height:22.0%;background:#22c55e"></i><i style="height:20.4%;background:#22c55e"></i><i style="height:20.9%;background:#22c55e"></i><i style="height:20.4%;background:#22c55e"></i><i style="height:22.8%;background:#22c55e"></i><i style="height:21.9%;background:#22c55e"></i><i style="height:19.6%;background:#22c55e"></i><i style="height:19.9%;background:#22c55e"></i><i style="height:20.5%;background:#22c55e"></i><i style="height:23.2%;background:#22c55e"></i><i style="height:19.8%;background:#22c55e"></i><i style="height:21.4%;background:#22c55e"></i><i style="height:19.7%;background:#22c55e"></i><i style="height:21.2%;background:#22c55e"></i><i style="height:22.5%;background:#22c55e"></i><i style="height:23.3%;background:#22c55e"></i><i style="height:21.9%;background:#22c55e"></i><i style="height:22.2%;background:#22c55e"></i><i style="height:22.0%;background:#22c55e"></i><i style="height:23.2%;background:#22c55e"></i><i style="height:22.3%;background:#22c55e"></i><i style="height:20.3%;background:#22c55e"></i><i style="height:21.8%;background:#22c55e"></i><i style="height:19.6%;background:#22c55e"></i><i style="height:19.3%;background:#22c55e"></i><i style="height:20.3%;background:#22c55e"></i><i style="height:23.1%;background:#22c55e"></i><i style="height:21.9%;background:#22c55e"></i><i style="height:22.9%;background:#22c55e"></i><i style="height:24.9%;background:#22c55e"></i><i class="fail" style="height:100%"><b>✖</b></i><i style="height:28.3%;background:#22c55e"></i><i style="height:27.4%;background:#22c55e"></i><i style="height:29.5%;background:#22c55e"></i><i style="height:31.5%;background:#22c55e"></i><i style="height:32.2%;background:#22c55e"></i><i style="height:35.1%;background:#facc15"></i><i style="height:35.4%;background:#facc15"></i><i style="height:38.4%;background:#facc15"></i><i style="height:40.6%;background:#facc15"></i><i style="height:41.5%;background:#facc15"></i><i style="height:44.7%;background:#facc15"></i><i style="height:44.6%;background:#facc15"></i><i style="height:47.6%;background:#facc15"></i><i style="height:47.9%;background:#facc15"></i><i style="height:52.0%;background:#facc15"></i><i style="height:56.6%;background:#facc15"></i><i style="height:56.4%;background:#facc15"></i><i style="height:60.2%;background:#fb923c"></i><i style="height:64.3%;background:#fb923c"></i><i style="height:67.4%;background:#fb923c"></i><i style="height:70.3%;background:#fb923c"></i><i style="height:70.3%;background:#fb923c"></i></div><span class="th" style="bottom:35.0%;border-color:#facc15"><em style="color:#facc15">700</em></span><span class="th" style="bottom:60.0%;border-color:#fb923c"><em style="color:#fb923c">1,200</em></span><span class="unit">(ms)</span></div>
+      <div class="xl"><span>10분 전</span><span>지금</span></div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:28px">설정 화면(시스템 칸마다)</h3>
+<div class="set">
+  <h4>더비온 2.0 · 응답속도 기준선</h4>
+  <div class="r"><span>기준 1</span><input value="700"> ms 이상 <span class="sw" style="background:#facc15"></span> 노랑 <button>삭제</button></div>
+  <div class="r"><span>기준 2</span><input value="1200"> ms 이상 <span class="sw" style="background:#fb923c"></span> 주황 <button>삭제</button></div>
+  <div class="r"><button>+ 기준선 추가</button></div>
+  <div class="r"><span>기준 미만</span><span class="sw" style="background:#22c55e"></span> 초록 &nbsp; <span>실패</span><span class="sw" style="background:#ef4444"></span> 빨강(빗금)</div>
+  <div class="r"><span>막대 개수</span><input value="60"> 개 <span class="muted">= 10초 주기 × 60 = 최근 10분</span></div>
+  <div class="r"><span>깜빡임</span><input value="켜기"> <span class="muted">끄기 / 켜기</span> &nbsp; 대상 <input value="실패만" style="width:120px"> <span class="muted">실패만 / 느림+실패</span></div>
+  <div class="r"><span>글자 크기</span><input value="크게"> <span class="muted">작게 / 보통 / 크게 / 아주 크게 — 커질수록 그래프 영역이 줄어듦</span></div>
+  <div class="r"><span>그래프 최대 높이</span><input value="2000"> ms <span class="muted">(넘는 값은 맨 위에 붙음)</span></div>
+</div>

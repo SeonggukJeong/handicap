@@ -1,0 +1,75 @@
+<h2>"느려지고 있다"를 멀리서 알아보는 방법</h2>
+<p class="subtitle">상황: 더비온 2.0이 로그인은 <b>성공(200)</b>하지만, 평소 420ms이던 응답이 최근 몇 분 사이 1,350ms까지 늘었습니다. 시안 B 스타일로 그렸고, A·C에도 똑같이 들어갑니다. 쓸 만한 것을 모두 클릭해 주세요(여러 개 선택 가능).</p>
+
+<style>
+  .scr { container-type: inline-size; width: 100%; aspect-ratio: 16/9; background:#0b0f14; border-radius:8px; overflow:hidden; font-family:"Pretendard","Noto Sans KR",system-ui,sans-serif; color:#f2f5f8; display:flex; flex-direction:column; }
+  .hdr { display:flex; justify-content:space-between; padding:1.2cqw 2cqw; font-size:2.2cqw; color:#9aa7b4; border-bottom:0.15cqw solid #1f2a36; }
+  .hdr b { color:#f2f5f8; }
+  .row { flex:1; display:flex; gap:1.2cqw; padding:1.2cqw; }
+  .p { flex:1; border-radius:1cqw; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:1.5cqw; background:#111a23; }
+  .t { font-size:4.2cqw; font-weight:800; }
+  .s { font-size:7cqw; font-weight:900; line-height:1.05; margin:.8cqw 0; }
+  .m { font-size:3.4cqw; font-weight:800; }
+  .d { font-size:2.2cqw; opacity:.9; margin-top:.6cqw; }
+  .ok { border:0.6cqw solid #22c55e; } .ok .s { color:#4ade80; }
+  .slow { border:0.6cqw solid #f59e0b; } .slow .s { color:#fbbf24; }
+  .bars { display:flex; align-items:flex-end; gap:.25cqw; height:7cqw; margin-top:1.2cqw; position:relative; }
+  .bars i { width:1cqw; background:#22c55e; border-radius:.2cqw .2cqw 0 0; }
+  .bars i.w { background:#f59e0b; }
+  .bars .line { position:absolute; left:-1cqw; right:-1cqw; border-top:0.25cqw dashed #fbbf24; }
+  .opt-wrap { margin: 18px 0 28px; } .opt-wrap .option { display:block; }
+  .opt-wrap h3 { margin:0 0 4px; } .opt-wrap p.desc { margin:0 0 10px; }
+</style>
+
+<div class="options" data-multiselect>
+
+  <div class="option opt-wrap" data-choice="threshold" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>① "느림" 상태(노랑)를 따로 둔다 — 기준 ms를 넘으면</h3>
+      <p class="desc">정상(초록)·<b>느림(노랑)</b>·실패(빨강) 3단계. 시스템마다 "이 ms 넘으면 느림"을 정해 둡니다(예: 1,000ms). 멀리서는 색만 보면 됩니다.</p>
+      <div class="scr">
+        <div class="hdr"><span><b>SKT 회선</b> · 로그인 모니터</span><span>마지막 점검 14:32:10 · 10초 주기</span></div>
+        <div class="row">
+          <div class="p ok"><div class="t">더비온 1.0</div><div class="s">✔ 정상</div><div class="m">418 ms</div></div>
+          <div class="p slow"><div class="t">더비온 2.0</div><div class="s">▲ 느림</div><div class="m">1,350 ms</div><div class="d">기준 1,000 ms 초과 · 5회 연속</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option opt-wrap" data-choice="baseline" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>② "평소보다 몇 배" — 스스로 평소 속도를 기억</h3>
+      <p class="desc">최근 30분 응답속도의 중간값을 "평소"로 삼아 지금과 비교합니다. 기준 ms를 미리 몰라도 되고, 1.0과 2.0처럼 원래 속도가 다른 시스템도 공평하게 판단됩니다.</p>
+      <div class="scr">
+        <div class="hdr"><span><b>SKT 회선</b> · 로그인 모니터</span><span>마지막 점검 14:32:10 · 10초 주기</span></div>
+        <div class="row">
+          <div class="p ok"><div class="t">더비온 1.0</div><div class="s">✔ 정상</div><div class="m">418 ms</div><div class="d">평소 410 ms</div></div>
+          <div class="p slow"><div class="t">더비온 2.0</div><div class="s">▲ 평소의 3.2배</div><div class="m">1,350 ms</div><div class="d">평소 420 ms · 4분째 느림</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option opt-wrap" data-choice="bars" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>③ 최근 기록 막대의 <u>높이</u>를 응답속도로</h3>
+      <p class="desc">시안 B의 막대를 키워서, 막대 높이 = 그 회차의 응답 ms, 색 = 성공/느림/실패. "점점 올라가는 모양"이 멀리서도 보여서 아직 기준을 안 넘었어도 추세를 알 수 있습니다. 점선 = 느림 기준.</p>
+      <div class="scr">
+        <div class="hdr"><span><b>SKT 회선</b> · 로그인 모니터</span><span>마지막 점검 14:32:10 · 10초 주기</span></div>
+        <div class="row">
+          <div class="p ok"><div class="t">더비온 1.0</div><div class="s">✔ 정상</div><div class="m">418 ms</div>
+            <div class="bars"><span class="line" style="bottom:5cqw"></span><i style="height:2cqw"></i><i style="height:2.1cqw"></i><i style="height:1.9cqw"></i><i style="height:2cqw"></i><i style="height:2.2cqw"></i><i style="height:2cqw"></i><i style="height:1.9cqw"></i><i style="height:2.1cqw"></i><i style="height:2cqw"></i><i style="height:2cqw"></i><i style="height:2.3cqw"></i><i style="height:2cqw"></i><i style="height:1.9cqw"></i><i style="height:2cqw"></i><i style="height:2.1cqw"></i><i style="height:2cqw"></i><i style="height:2cqw"></i><i style="height:1.9cqw"></i><i style="height:2cqw"></i><i style="height:2.1cqw"></i></div>
+          </div>
+          <div class="p slow"><div class="t">더비온 2.0</div><div class="s">▲ 느림</div><div class="m">1,350 ms</div>
+            <div class="bars"><span class="line" style="bottom:5cqw"></span><i style="height:2cqw"></i><i style="height:2.1cqw"></i><i style="height:2cqw"></i><i style="height:2cqw"></i><i style="height:2.2cqw"></i><i style="height:2.4cqw"></i><i style="height:2.6cqw"></i><i style="height:2.8cqw"></i><i style="height:3cqw"></i><i style="height:3.3cqw"></i><i style="height:3.6cqw"></i><i style="height:3.9cqw"></i><i style="height:4.3cqw"></i><i style="height:4.6cqw"></i><i style="height:4.9cqw"></i><i class="w" style="height:5.4cqw"></i><i class="w" style="height:5.8cqw"></i><i class="w" style="height:6.1cqw"></i><i class="w" style="height:6.4cqw"></i><i class="w" style="height:6.7cqw"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
