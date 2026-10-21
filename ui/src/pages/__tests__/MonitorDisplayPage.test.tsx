@@ -336,7 +336,7 @@ describe("MonitorDisplayPage", () => {
    */
   function stubLayout(
     liveH: (title: string, el: HTMLElement) => number,
-    probeH: (title: string) => number = () => 150,
+    probeH: (title: string, el: HTMLElement) => number = () => 150,
   ) {
     return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement,
@@ -351,7 +351,7 @@ describe("MonitorDisplayPage", () => {
       }
       if (id === "probe-text") {
         const title = this.closest("[data-title]")?.getAttribute("data-title") ?? "";
-        return rect(300, probeH(title));
+        return rect(300, probeH(title, this));
       }
       return rect(0, 0);
     });
@@ -373,8 +373,9 @@ describe("MonitorDisplayPage", () => {
   });
 
   it("graph_shown_while_free_space_at_least_15_percent", async () => {
-    // live text 220: free = 300 - 10.2 - 220 = 69.8 (23%) >= 15%. The old rule
-    // (bars area after the axis chrome) hid this graph.
+    // live text 220: free = 300 - 10.2 - 220 = 69.8 (23%) >= 15%, and the bars
+    // area (free - 29.43 = 40.4) >= 8% (24) -> shown. An earlier rule compared
+    // the bars area against 15% and hid this graph.
     const spy = stubLayout(() => 220);
     try {
       await renderPage();
@@ -415,23 +416,27 @@ describe("MonitorDisplayPage", () => {
 
   it("scale_is_settings_driven_and_unaffected_by_results", async () => {
     // The live text grows when the panel fails (reason + step + consecutive
-    // lines); the settings-only probe stays 150. The scale must not move: the
-    // extra lines take room from the graph instead (spec §7.3, 축소 비율은
-    // 설정으로 고정). The old live-driven scale shrank here.
+    // lines); the settings-only probe stays 150 — unless live text leaks into
+    // it (then it reports 260 and the scale would drop). The scale must not
+    // move: the extra lines take room from the graph instead (spec §7.3, 축소
+    // 비율은 설정으로 고정). The old live-driven scale shrank here.
     const failing = {
       at_ms: T,
       verdict: "fail",
       latency_ms: null,
       reason: "HTTP 503 · 로그인 단계",
     };
-    const spy = stubLayout((_t, el) =>
-      el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150,
+    const spy = stubLayout(
+      (_t, el) => (el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150),
+      (_t, el) => (el.textContent?.includes("HTTP 503") ? 260 : 150),
     );
+    const probeText = () => screen.getByTestId("panel-probe").textContent;
     try {
       await renderPage();
       await tick(10);
       expect(fitOf("결제")).toBe("1");
       expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+      const before = probeText();
       statusHandler = () =>
         res(
           status([panelStatus(P1, [failing], { consecutive_fail: 3, fail_since_ms: T - 20_000 })]),
@@ -440,15 +445,94 @@ describe("MonitorDisplayPage", () => {
       await tick(10);
       expect(within(panelEl("결제")).getByText(ko.monitor.stateFail)).toBeInTheDocument();
       expect(fitOf("결제")).toBe("1");
-      // the incident's lines ate the graph area: under 15% -> hidden
+      // no live text reaches the probe
+      expect(
+        within(screen.getByTestId("panel-probe")).queryByText(/HTTP 503|로그인 단계/),
+      ).toBeNull();
+      expect(probeText()).toBe(before);
+      // the incident's lines ate the graph area -> hidden
       expect(screen.queryByTestId("bars-area")).toBeNull();
       // recovery: same scale, graph back
       statusHandler = () => res(status([panelStatus(P1, [okResult(413)])]));
       await tick(1000);
       await tick(10);
       expect(fitOf("결제")).toBe("1");
+      expect(probeText()).toBe(before);
       expect(screen.getByTestId("bars-area")).toBeInTheDocument();
     } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("scale_search_reruns_when_settings_change", async () => {
+    // the board is refetched (board_updated_at changed) with a much longer
+    // title; its probe no longer fits (150 -> 260) and the scale must drop
+    const LONG = "운영실 회선 상태 점검 대상 시스템";
+    const spy = stubLayout(
+      () => 150,
+      (title) => (title === LONG ? 260 : 150),
+    );
+    try {
+      await renderPage();
+      await tick(10);
+      expect(fitOf("결제")).toBe("1");
+      boardHandler = () => res(board({ updated_at: 2 }, [panelCfg({ title: LONG })]));
+      statusHandler = () =>
+        res(status([panelStatus(P1, [okResult(413)])], { board_updated_at: 2 }));
+      await tick(1000);
+      await tick(10);
+      await tick(10);
+      expect(Number(fitOf(LONG))).toBeLessThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reason_line_has_its_own_settings_scale", async () => {
+    // the widest fixed reason (at reason size) is 1100px wide in a 1000px text
+    // box -> reason-only scale 1000/1100 x 0.98; the board scale stays 1
+    const spy = stubLayout(() => 150);
+    const sw = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.hasAttribute("data-reason-probe") ? 1100 : 0;
+    });
+    const cw = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.hasAttribute("data-reason-probe") ? 1000 : 0;
+    });
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(P1, [
+            {
+              at_ms: T,
+              verdict: "config_error",
+              latency_ms: null,
+              reason: "응답 시간 기준 스텝 없음",
+            },
+          ]),
+        ]),
+      );
+    try {
+      await renderPage();
+      await tick(10);
+      await tick(10);
+      const box = within(panelEl("결제")).getByTestId("panel-box");
+      expect(box.style.getPropertyValue("--fit")).toBe("1");
+      expect(box.style.getPropertyValue("--reason-fit")).toBe("0.8909");
+      const reason = within(panelEl("결제")).getByText("응답 시간 기준 스텝 없음");
+      expect(reason.style.fontSize).toContain("var(--reason-fit");
+      // the probe renders every widest-candidate reason, nothing live
+      const probes = screen.getAllByTestId("reason-probe");
+      expect(probes.length).toBeGreaterThan(0);
+      // measured as one line, like the real reason line (found live: without
+      // nowrap the probe wrapped and never reported overflow)
+      for (const el of probes) expect(el.className).toContain("whitespace-nowrap");
+    } finally {
+      cw.mockRestore();
+      sw.mockRestore();
       spy.mockRestore();
     }
   });

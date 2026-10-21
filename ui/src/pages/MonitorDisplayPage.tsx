@@ -82,6 +82,9 @@ export function MonitorDisplayPage() {
   const searchRef = useRef(search);
   searchRef.current = search;
   const probeOk = useRef(new Map<string, boolean>());
+  // Reason line's own scale (R18), read from the probes once the search is done.
+  const [reasonFit, setReasonFit] = useState(1);
+  const reasonNeeds = useRef(new Map<string, number>());
   const probeCount = useRef(0);
   const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
   useEffect(() => {
@@ -91,7 +94,14 @@ export function MonitorDisplayPage() {
   }, []);
   const onProbe = useCallback((id: string, m: PanelMeasure) => {
     const cur = searchRef.current;
-    if (cur.done || m.fit !== cur.cand) return;
+    if (m.fit !== cur.cand) return;
+    if (cur.done) {
+      reasonNeeds.current.set(id, m.reasonNeed);
+      if (reasonNeeds.current.size < probeCount.current) return;
+      const r = Math.min(1, ...reasonNeeds.current.values());
+      setReasonFit((prev) => (Math.abs(prev - r) < 0.0001 ? prev : r));
+      return;
+    }
     probeOk.current.set(id, !Number.isFinite(requiredFit(m)));
     if (probeOk.current.size < probeCount.current) return;
     const ok = [...probeOk.current.values()].every(Boolean);
@@ -236,6 +246,7 @@ export function MonitorDisplayPage() {
   probeCount.current = board?.config.panels.length ?? 0;
   useLayoutEffect(() => {
     probeOk.current.clear();
+    reasonNeeds.current.clear();
     searchRef.current = SEARCH_START;
     setSearch(SEARCH_START);
   }, [scaleKey]);
@@ -320,6 +331,7 @@ export function MonitorDisplayPage() {
               blinkOn={blinks(board.config.blink, state)}
               showInterval={!sameInterval}
               fit={fit}
+              reasonFit={reasonFit}
             />
           );
         })}

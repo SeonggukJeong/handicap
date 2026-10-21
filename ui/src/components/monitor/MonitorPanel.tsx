@@ -18,6 +18,7 @@ import {
 } from "../../monitor/display";
 import { formatHms } from "../../monitor/time";
 import { ko } from "../../i18n/ko";
+import { WIDEST_REASON_CANDIDATES } from "../../monitor/reasons";
 import { FitLine } from "./FitLine";
 import { LatencyBars } from "./LatencyBars";
 
@@ -40,6 +41,8 @@ export type PanelMeasure = {
   fit: number;
   /** Scale at which every one-line value fits its width (Infinity = all fit). */
   widthNeed: number;
+  /** Extra scale at which every reason-probe line fits (Infinity = all fit). */
+  reasonNeed: number;
 };
 
 /** Measures `boxRef`/`textRef` after every render (passive) and on resize. */
@@ -68,12 +71,21 @@ function useBoxMeasure(
         widthNeed = Math.min(widthNeed, fitRef.current * (box / natural) * 0.98);
       }
     });
+    let reasonNeed = Infinity;
+    boxEl.querySelectorAll<HTMLElement>("[data-reason-probe]").forEach((el) => {
+      const box = el.clientWidth;
+      const natural = el.scrollWidth;
+      if (box > 0 && natural > box + 0.5) {
+        reasonNeed = Math.min(reasonNeed, (box / natural) * 0.98);
+      }
+    });
     onMeasureRef.current({
       w: r.width,
       h: r.height,
       textH: textEl.getBoundingClientRect().height,
       fit: fitRef.current,
       widthNeed,
+      reasonNeed,
     });
   }, [boxRef, textRef]);
 
@@ -144,6 +156,10 @@ function TitleStateRow({
   );
 }
 
+/** Shared by the real reason line and its probe so both measure the same. */
+const REASON_CLASS = "font-black leading-tight";
+const REASON_STYLE: React.CSSProperties = { letterSpacing: "-0.02em" };
+
 function BigValueLine({
   text,
   color,
@@ -166,13 +182,15 @@ function BigValueLine({
 }
 
 /**
- * Invisible stand-in that sizes the board scale from settings only (spec §7.3
- * 축소 비율은 설정으로 고정): the panel's title, the longest state label that
- * can appear while checking runs (`⚠ 설정 오류`, wrapped below the title when
- * it doesn't fit beside it; the stopped-only `점검 꺼짐` label instead takes
- * room from the graph like the live lines) and a one-line value at the widest the panel can show (its timeout in ms).
- * Live lines (reason, step name, consecutive fails) never reach it, so the scale
- * never moves during an incident; they take room from that panel's graph.
+ * Invisible stand-in that fixes the board scales from settings only (spec §7.3
+ * 축소 비율은 설정으로 고정). Its text block holds the panel's title, the
+ * longest state label that can appear while checking runs (`⚠ 설정 오류`,
+ * wrapped below the title when it doesn't fit beside it) and a one-line value
+ * at the widest the panel can show (its timeout in ms); that sets `--fit`.
+ * Below it, the widest fixed reasons at reason size set the reason line's own
+ * `--reason-fit` (R18). Live lines (reason, step name, consecutive fails, the
+ * stopped-only `점검 꺼짐` label) never reach it, so neither scale moves during
+ * an incident; those lines take room from that panel's graph instead.
  */
 export function PanelProbe({
   panel,
@@ -214,6 +232,17 @@ export function PanelProbe({
             fontScale={fontScale}
           />
         </div>
+        {WIDEST_REASON_CANDIDATES.map((r) => (
+          <div
+            key={r}
+            data-testid="reason-probe"
+            data-reason-probe=""
+            className={`overflow-hidden whitespace-nowrap ${REASON_CLASS}`}
+            style={{ ...REASON_STYLE, fontSize: panelFont(PANEL_TEXT.reason, fontScale) }}
+          >
+            {r}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -251,6 +280,7 @@ export function MonitorPanel({
   blinkOn,
   showInterval = false,
   fit = 1,
+  reasonFit = 1,
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -260,6 +290,8 @@ export function MonitorPanel({
   showInterval?: boolean;
   /** Board-wide text scale (1 = configured size); the same for every panel. */
   fit?: number;
+  /** Board-wide extra scale for the reason line only (R18). */
+  reasonFit?: number;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -307,7 +339,13 @@ export function MonitorPanel({
         data-state={state}
         data-blink={blinkOn ? "on" : undefined}
         className="absolute inset-0 flex flex-col overflow-hidden"
-        style={{ ...BOX_STYLE(fit, borderColor), background: COLOR.panel }}
+        style={
+          {
+            ...BOX_STYLE(fit, borderColor),
+            "--reason-fit": String(+reasonFit.toFixed(4)),
+            background: COLOR.panel,
+          } as React.CSSProperties
+        }
       >
         <div ref={textRef} data-testid="panel-text" className="shrink-0">
           <TitleStateRow
@@ -321,9 +359,11 @@ export function MonitorPanel({
             <>
               <FitLine
                 text={reason.fixed}
-                fontSize={panelFont(PANEL_TEXT.reason, fontScale)}
-                className="text-right font-black leading-tight"
-                style={{ color: bigColor, marginTop: "0.8cqw", letterSpacing: "-0.02em" }}
+                // the reason's own settings scale (R18): the widest fixed
+                // reason always fits on one line, no "…"
+                fontSize={`calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`}
+                className={`text-right ${REASON_CLASS}`}
+                style={{ ...REASON_STYLE, color: bigColor, marginTop: "0.8cqw" }}
               />
               {reason.step !== null && (
                 <div
