@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { barsSpace, boxContentHeight, graphFits, panelFont, splitReason } from "../display";
+import {
+  boxContentHeight,
+  freeBelowText,
+  graphFits,
+  panelFont,
+  requiredFit,
+  splitReason,
+} from "../display";
 
 describe("display sizing", () => {
   it("panel_font_scales_and_honours_fit_variable", () => {
@@ -12,15 +19,32 @@ describe("display sizing", () => {
     expect(boxContentHeight(300, 300)).toBeCloseTo(280.8);
   });
 
-  it("bars_space_subtracts_text_and_axis_chrome", () => {
-    // 300x300: content 280.8; chrome = 2cqw (6) + axis 11.1px x 1.3 = 20.43
-    expect(barsSpace({ w: 300, h: 300, textH: 150, fontScale: 1, fit: 1 })).toBeCloseTo(110.37);
+  it("free_below_text_is_panel_height_minus_top_chrome_and_text", () => {
+    // 300x300: top border 1cqw + top padding 2.4cqw = 10.2px
+    expect(freeBelowText(300, 300, 150)).toBeCloseTo(139.8);
   });
 
-  it("graph_fits_needs_15_percent_of_panel_height_for_the_bars", () => {
-    const base = { w: 300, h: 300, fontScale: 1, fit: 1 };
-    expect(graphFits({ ...base, textH: 215 })).toBe(true); // 45.37 >= 45
-    expect(graphFits({ ...base, textH: 216 })).toBe(false); // 44.37 < 45
+  it("graph_fits_while_free_space_is_at_least_15_percent", () => {
+    // 15% of 300 = 45: the axis and margins live inside that space
+    expect(graphFits({ w: 300, h: 300, textH: 244 })).toBe(true); // 45.8
+    expect(graphFits({ w: 300, h: 300, textH: 245 })).toBe(false); // 44.8
+  });
+
+  it("required_fit_targets_text_plus_30_percent_graph", () => {
+    // fits with >= 30% (90px) free -> nothing required
+    expect(requiredFit({ w: 300, h: 300, textH: 150, fit: 1, widthNeed: Infinity })).toBe(Infinity);
+    // text may take 300 - 10.2 - 90 = 199.8px: at fit 1 a 260px block needs 199.8/260 (x0.98)
+    expect(requiredFit({ w: 300, h: 300, textH: 260, fit: 1, widthNeed: Infinity })).toBeCloseTo(
+      0.7531,
+      3,
+    );
+    // relative to the fit it was measured at
+    expect(requiredFit({ w: 300, h: 300, textH: 260, fit: 0.5, widthNeed: Infinity })).toBeCloseTo(
+      0.3766,
+      3,
+    );
+    // a one-line value that is too wide can require more
+    expect(requiredFit({ w: 300, h: 300, textH: 150, fit: 1, widthNeed: 0.6 })).toBe(0.6);
   });
 
   it("split_reason_at_first_separator", () => {

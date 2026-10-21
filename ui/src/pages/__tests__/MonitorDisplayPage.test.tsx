@@ -328,76 +328,89 @@ describe("MonitorDisplayPage", () => {
     expect(within(panelEl("결제")).getByText(ko.monitor.stateStaleOff)).toBeInTheDocument();
   });
 
-  /** ResizeObserver mock delivering a panel size and a text-block height. */
-  function installRO() {
-    type Rect = { width: number; height: number };
-    type Entry = { target: Element; contentRect: Rect };
-    const observers: { cb: (e: Entry[]) => void; els: Element[] }[] = [];
-    class MockRO {
-      els: Element[] = [];
-      constructor(cb: (e: Entry[]) => void) {
-        observers.push({ cb, els: this.els });
+  /**
+   * Layout stub: every panel 300x300; each panel's text block height comes from
+   * `textH(title)` (panel = the article's aria-label). Measurements are read with
+   * getBoundingClientRect on every render, so the stub must be in place first.
+   */
+  function stubLayout(textH: (title: string) => number) {
+    return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const id = this.getAttribute("data-testid");
+      const rect = (w: number, h: number) =>
+        ({ width: w, height: h, top: 0, left: 0, right: w, bottom: h, x: 0, y: 0 }) as DOMRect;
+      if (id === "monitor-panel") return rect(300, 300);
+      if (id === "panel-text") {
+        const title = this.closest("article")?.getAttribute("aria-label") ?? "";
+        return rect(300, textH(title));
       }
-      observe(el: Element) {
-        this.els.push(el);
-      }
-      unobserve() {}
-      disconnect() {}
-    }
-    vi.stubGlobal("ResizeObserver", MockRO);
-    const fire = (panel: Rect, textH: number) =>
-      act(() => {
-        for (const o of observers) {
-          o.cb(
-            o.els.map((el) => {
-              const id = el.getAttribute("data-testid");
-              const contentRect =
-                id === "monitor-panel"
-                  ? panel
-                  : id === "panel-text"
-                    ? { width: panel.width, height: textH }
-                    : { width: 100, height: 100 };
-              return { target: el, contentRect };
-            }),
-          );
-        }
-      });
-    return { observers, fire };
+      return rect(0, 0);
+    });
   }
+  const fitOf = (title: string) =>
+    within(panelEl(title)).getByTestId("panel-box").style.getPropertyValue("--fit");
 
-  it("graph_hidden_when_too_short", async () => {
-    const { observers, fire } = installRO();
-    await renderPage();
-    expect(observers.length).toBeGreaterThan(0);
-    const panel = { width: 300, height: 300 };
-    // 300x300 panel: box content 300 - 6.4cqw = 280.8; axis chrome ~20.4px;
-    // bars need >= 15% of 300 = 45px -> text up to ~215px keeps the graph
-    fire(panel, 150);
-    expect(screen.getByTestId("bars-area")).toBeInTheDocument();
-    // 220px of text leaves ~40px for the bars (< 45): hidden. (The old rule
-    // compared box height minus text only, ignoring the axis rows -> kept it.)
-    fire(panel, 220);
-    expect(screen.queryByTestId("bars-area")).toBeNull();
-    expect(screen.queryByText(ko.monitor.axisNow)).toBeNull();
-    // text stays
-    expect(within(panelEl("결제")).getByText("413 ms")).toBeInTheDocument();
-    fire(panel, 270);
-    expect(screen.queryByTestId("bars-area")).toBeNull();
-    fire(panel, 150);
-    expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+  it("board_that_fits_keeps_scale_1_and_graphs", async () => {
+    // 300x300: free below text = 300 - 10.2 - 150 = 139.8 >= 30% (90): no shrink
+    const spy = stubLayout(() => 150);
+    try {
+      await renderPage();
+      await tick(10);
+      expect(fitOf("결제")).toBe("1");
+      expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
-  it("text_shrinks_to_fit_when_taller_than_panel", async () => {
-    const { fire } = installRO();
-    await renderPage();
-    const box = screen.getByTestId("panel-box");
-    expect(box.style.getPropertyValue("--fit")).toBe("1");
-    // text block 400px in a box with 280.8px of content -> shrink factor < 1
-    fire({ width: 300, height: 300 }, 400);
-    const fit = Number(box.style.getPropertyValue("--fit"));
-    expect(fit).toBeGreaterThan(0);
-    expect(fit).toBeLessThan(0.75);
-    expect(screen.queryByTestId("bars-area")).toBeNull();
+  it("graph_shown_while_free_space_at_least_15_percent", async () => {
+    // free = 300 - 10.2 - 220 = 69.8 (23%): the old rule (bars area after axis
+    // chrome) hid this graph; the spec counts the space left below the text.
+    // (Below 30% the board also shrinks; the stub keeps 220px regardless, so the
+    // shrink runs to the floor and the graph decision is made at 220px.)
+    const spy = stubLayout(() => 220);
+    try {
+      await renderPage();
+      await tick(10);
+      expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+      expect(Number(fitOf("결제"))).toBeLessThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("graph_hidden_below_15_percent_even_at_minimum_scale", async () => {
+    // free = 300 - 10.2 - 260 = 29.8 (< 45): hidden; the axis goes too
+    const spy = stubLayout(() => 260);
+    try {
+      await renderPage();
+      await tick(10);
+      expect(screen.queryByTestId("bars-area")).toBeNull();
+      expect(screen.queryByText(ko.monitor.axisNow)).toBeNull();
+      expect(within(panelEl("결제")).getByText("413 ms")).toBeInTheDocument();
+      // the shrink stops at the floor (MIN_FIT), never below
+      expect(fitOf("결제")).toBe("0.4");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("shrink_is_board_wide_from_the_most_crowded_panel", async () => {
+    boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
+    statusHandler = () =>
+      res(status([panelStatus(P1, [okResult(413)]), panelStatus(P2, [okResult(500)])]));
+    // 결제 fits (150px); 조회 is crowded (250px) -> both get the scale 조회 needs
+    const spy = stubLayout((title) => (title === "조회" ? 250 : 150));
+    try {
+      await renderPage();
+      await tick(10);
+      const a = fitOf("결제");
+      expect(Number(a)).toBeLessThan(1);
+      expect(fitOf("조회")).toBe(a);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("fail_reason_split_fixed_part_big_step_name_small", async () => {

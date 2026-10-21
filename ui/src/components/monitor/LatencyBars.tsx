@@ -133,6 +133,9 @@ export function LatencyBars({
     <div
       className="min-h-0 flex-1"
       style={{
+        // The board-wide shrink (--fit) is for panel text; axis and threshold
+        // numbers keep their configured size (already small) to stay legible.
+        ["--fit" as string]: "1",
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto",
         gridTemplateRows: "minmax(0, 1fr) auto",

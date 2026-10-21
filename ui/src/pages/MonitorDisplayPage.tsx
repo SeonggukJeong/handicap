@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
-import { MonitorPanel } from "../components/monitor/MonitorPanel";
+import { MonitorPanel, type PanelMeasure } from "../components/monitor/MonitorPanel";
 import { FONT_SCALE, gridFor, panelState, type PanelState } from "../monitor/logic";
-import { COLOR } from "../monitor/display";
+import { COLOR, MIN_FIT, requiredFit } from "../monitor/display";
 import { formatHms } from "../monitor/time";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
 import { ko } from "../i18n/ko";
@@ -68,6 +68,24 @@ export function MonitorDisplayPage() {
   const [cursorIdle, setCursorIdle] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
+  // One text scale for the whole board (spec §7.3 극단값 표시 정책): the most
+  // crowded panel decides it. Within an "epoch" (same layout/content structure)
+  // it only goes down, so wrapping changes can't make it oscillate.
+  const [fit, setFit] = useState(1);
+  const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
+  useEffect(() => {
+    const onResize = () => setViewport(`${window.innerWidth}x${window.innerHeight}`);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const onMeasure = useCallback((_id: string, m: PanelMeasure) => {
+    const need = requiredFit(m);
+    if (!Number.isFinite(need)) return;
+    setFit((f) => {
+      const next = Math.max(MIN_FIT, Math.min(f, need));
+      return next < f - 0.0005 ? next : f;
+    });
+  }, []);
 
   const boardQ = useQuery({
     queryKey: monitorKey(id),
@@ -172,6 +190,47 @@ export function MonitorDisplayPage() {
     };
   }, [full]);
 
+  const serverDown = failedPolls >= SERVER_DOWN_AFTER;
+  const fontScale = board ? FONT_SCALE[board.config.font_scale] : 1;
+  const views = (board?.config.panels ?? []).map((p) => {
+    const ps = status?.panels.find((x) => x.panel_id === p.id);
+    const latest = ps && ps.results.length > 0 ? ps.results[ps.results.length - 1] : undefined;
+    const state: PanelState = status
+      ? panelState({
+          latest,
+          nowMs: status.now_ms,
+          startedAtMs: status.started_at_ms,
+          enabled: status.enabled,
+          serverDown,
+          intervalSec: p.interval_seconds,
+          timeoutSec: p.timeout_seconds,
+          thresholds: p.thresholds,
+        })
+      : serverDown
+        ? "stale"
+        : "pending";
+    return { p, ps, latest, state };
+  });
+  // What can change the text's height: layout, titles, states, reasons, the
+  // consecutive-fail line's presence. Not per-poll digits (those only ever ask
+  // for less via onMeasure).
+  const epochKey = [
+    viewport,
+    full ? "full" : "win",
+    fontScale,
+    ...views.map(
+      ({ p, ps, latest, state }) =>
+        `${p.id}|${p.title}|${state}|${state === "fail" || state === "config_error" ? (latest?.reason ?? "") : ""}|${
+          state === "fail" && ps !== undefined && ps.consecutive_fail >= 2 ? "c" : ""
+        }`,
+    ),
+  ].join("\n");
+  // A new epoch starts from the configured size; panels then report what they
+  // need and the board shrinks to the most crowded panel's scale.
+  useLayoutEffect(() => {
+    setFit(1);
+  }, [epochKey]);
+
   if (isNotFound(statusQ.error) || boardNotFound) {
     return <FullScreenMessage>{ko.monitor.notFound}</FullScreenMessage>;
   }
@@ -183,8 +242,6 @@ export function MonitorDisplayPage() {
     );
   }
 
-  const serverDown = failedPolls >= SERVER_DOWN_AFTER;
-  const fontScale = FONT_SCALE[board.config.font_scale];
   const panels = board.config.panels;
   const intervals = new Set(panels.map((p) => p.interval_seconds));
   const sameInterval = intervals.size <= 1;
@@ -245,24 +302,7 @@ export function MonitorDisplayPage() {
           padding: "1vw",
         }}
       >
-        {panels.map((p) => {
-          const ps = status?.panels.find((x) => x.panel_id === p.id);
-          const latest =
-            ps && ps.results.length > 0 ? ps.results[ps.results.length - 1] : undefined;
-          const state: PanelState = status
-            ? panelState({
-                latest,
-                nowMs: status.now_ms,
-                startedAtMs: status.started_at_ms,
-                enabled: status.enabled,
-                serverDown,
-                intervalSec: p.interval_seconds,
-                timeoutSec: p.timeout_seconds,
-                thresholds: p.thresholds,
-              })
-            : serverDown
-              ? "stale"
-              : "pending";
+        {views.map(({ p, ps, state }) => {
           return (
             <MonitorPanel
               key={p.id}
@@ -272,6 +312,8 @@ export function MonitorDisplayPage() {
               fontScale={fontScale}
               blinkOn={blinks(board.config.blink, state)}
               showInterval={!sameInterval}
+              fit={fit}
+              onMeasure={onMeasure}
             />
           );
         })}

@@ -41,19 +41,22 @@ export function panelFont(ratio: number, scale: number): string {
   return `calc(min(${w}cqw, ${h}cqh) * var(--fit, 1))`;
 }
 
-/** The same font size in px for a panel of `w`x`h` px. */
-export function panelFontPx(ratio: number, scale: number, w: number, h: number, fit = 1): number {
-  return Math.min((ratio * scale * w) / 100, (ratio * scale * WIDE_CAP * h) / 100) * fit;
-}
-
 /** Panel box chrome in panel cqw (single source for the style and the maths). */
 export const PANEL_BOX = { border: 1, padTop: 2.4, padSide: 2.4, padBottom: 2, radius: 2 } as const;
 /** Latency graph chrome in panel cqw around the bars area. */
 export const GRAPH_CHROME = { marginTop: 1, axisBorder: 0.4, axisMarginTop: 0.6 } as const;
 export const AXIS_LINE_HEIGHT = 1.3;
 
-/** Below this share of the panel height left for the bars, the graph is hidden. */
+/** Graph hidden when less than this share of the panel height is left below the text. */
 export const GRAPH_MIN_SHARE = 0.15;
+/**
+ * Shrink target (spec §7.3 극단값 표시 정책): text plus a graph area of at least
+ * this share of the panel height (axis included) must fit before the board stops
+ * shrinking.
+ */
+export const GRAPH_TARGET_SHARE = 0.3;
+/** Board text never shrinks below this share of its configured size. */
+export const MIN_FIT = 0.4;
 
 /** Height text and graph share: the panel minus its border and padding. */
 export function boxContentHeight(w: number, h: number): number {
@@ -61,30 +64,35 @@ export function boxContentHeight(w: number, h: number): number {
   return h - (2 * PANEL_BOX.border + PANEL_BOX.padTop + PANEL_BOX.padBottom) * cqw;
 }
 
-/** Height left for the bars area once text, margins and the axis row are placed. */
-export function barsSpace(a: {
-  w: number;
-  h: number;
-  textH: number;
-  fontScale: number;
-  fit: number;
-}): number {
-  const cqw = a.w / 100;
-  const chrome =
-    (GRAPH_CHROME.marginTop + GRAPH_CHROME.axisBorder + GRAPH_CHROME.axisMarginTop) * cqw +
-    panelFontPx(PANEL_TEXT.axis, a.fontScale, a.w, a.h, a.fit) * AXIS_LINE_HEIGHT;
-  return boxContentHeight(a.w, a.h) - a.textH - chrome;
+/** Space left below the text block, down to the panel's bottom edge. */
+export function freeBelowText(w: number, h: number, textH: number): number {
+  return h - (PANEL_BOX.border + PANEL_BOX.padTop) * (w / 100) - textH;
 }
 
-/** Spec §7.3: no graph (bars, axis, labels) when the bars would get < 15% of the panel. */
-export function graphFits(a: {
+/** Spec §7.3 "글자 우선": no graph (bars, axis, labels) when < 15% is left below the text. */
+export function graphFits(a: { w: number; h: number; textH: number }): boolean {
+  return freeBelowText(a.w, a.h, a.textH) >= a.h * GRAPH_MIN_SHARE;
+}
+
+/**
+ * The board scale this panel needs (Infinity = none): its text, measured at
+ * `fit`, must leave GRAPH_TARGET_SHARE of the panel free below it, and every
+ * one-line value must fit its width (`widthNeed`, already a scale).
+ */
+export function requiredFit(m: {
   w: number;
   h: number;
   textH: number;
-  fontScale: number;
   fit: number;
-}): boolean {
-  return barsSpace(a) >= a.h * GRAPH_MIN_SHARE;
+  widthNeed: number;
+}): number {
+  const maxText =
+    m.h - (PANEL_BOX.border + PANEL_BOX.padTop) * (m.w / 100) - m.h * GRAPH_TARGET_SHARE;
+  let vertical = Infinity;
+  if (m.textH > maxText + 0.5) {
+    vertical = maxText > 0 ? m.fit * (maxText / m.textH) * 0.98 : 0;
+  }
+  return Math.min(vertical, m.widthNeed);
 }
 
 /**

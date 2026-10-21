@@ -1,12 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PanelConfig } from "../../api/monitors";
 import { barColor, bigValueText, showConsecutive, type PanelState } from "../../monitor/logic";
 import {
   COLOR,
   PANEL_BOX,
   PANEL_TEXT,
-  boxContentHeight,
-  graphFits as graphFitsFor,
+  graphFits,
   panelFont,
   splitReason,
   type PanelStatus,
@@ -26,67 +25,85 @@ const STATE_LABEL: Record<PanelState, string> = {
   pending: ko.monitor.statePending,
 };
 
-/** Never shrink text below this share of its configured size. */
-const MIN_FIT = 0.3;
+/** What a panel reports to the board for the uniform shrink (spec §7.3). */
+export type PanelMeasure = {
+  w: number;
+  h: number;
+  /** Text block height, measured at `fit`. */
+  textH: number;
+  fit: number;
+  /** Scale at which every one-line value fits its width (Infinity = all fit). */
+  widthNeed: number;
+};
 
 /**
- * Measures the panel (`w`x`h`) and the text block, and derives:
- * - `fit`: shrink factor for all panel text, < 1 only when the text block is
- *   taller than the panel's content box (reset to 1 whenever the panel size or
- *   the content changes, then shrunk once per new text measurement);
- * - `graph`: spec §7.3 "글자 우선" — the graph (bars + axis + labels) renders
- *   only when the bars area would get >= 15% of the panel height.
- * Unmeasured (first paint, or no ResizeObserver) -> fit 1, graph shown.
+ * Measures the panel and its text block after every render and on resize, and
+ * reports to the board (which picks one scale for all panels). Decides the graph
+ * locally: spec §7.3 "글자 우선" — no graph when < 15% of the panel height is
+ * left below the text. Unmeasured (jsdom, first paint) -> graph shown.
  */
-function usePanelLayout(
+function usePanelMeasure(
+  id: string,
   panelRef: React.RefObject<HTMLElement>,
   textRef: React.RefObject<HTMLElement>,
-  fontScale: number,
-  contentKey: string,
-): { fit: number; graph: boolean } {
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  const [textH, setTextH] = useState<number | null>(null);
-  const [fit, setFit] = useState(1);
-  const shrunkFor = useRef<number | null>(null);
+  fit: number,
+  onMeasure: ((id: string, m: PanelMeasure) => void) | undefined,
+): boolean {
+  const [dims, setDims] = useState<{ w: number; h: number; textH: number } | null>(null);
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+  const onMeasureRef = useRef(onMeasure);
+  onMeasureRef.current = onMeasure;
+
+  const measure = useCallback(() => {
+    const panelEl = panelRef.current;
+    const textEl = textRef.current;
+    if (!panelEl || !textEl) return;
+    const pr = panelEl.getBoundingClientRect();
+    const textH = textEl.getBoundingClientRect().height;
+    if (pr.width <= 0 || pr.height <= 0) return;
+    let widthNeed = Infinity;
+    textEl.querySelectorAll<HTMLElement>("[data-fit-line]").forEach((el) => {
+      const box = el.clientWidth;
+      const natural = el.scrollWidth;
+      if (box > 0 && natural > box + 0.5) {
+        widthNeed = Math.min(widthNeed, fitRef.current * (box / natural) * 0.98);
+      }
+    });
+    setDims((prev) =>
+      prev && prev.w === pr.width && prev.h === pr.height && prev.textH === textH
+        ? prev
+        : { w: pr.width, h: pr.height, textH },
+    );
+    onMeasureRef.current?.(id, {
+      w: pr.width,
+      h: pr.height,
+      textH,
+      fit: fitRef.current,
+      widthNeed,
+    });
+  }, [id, panelRef, textRef]);
+
+  // Every render: values change every poll (a wider number, a new reason).
+  // Passive, not layout: shrinking can take several steps (wrapping is not
+  // linear), and chained layout-effect updates would hit React's nested-update
+  // limit (#185, found live).
+  useEffect(() => {
+    measure();
+  });
 
   useEffect(() => {
     const panelEl = panelRef.current;
     const textEl = textRef.current;
     if (!panelEl || !textEl || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        if (e.target === panelEl) {
-          const { width: w, height: h } = e.contentRect;
-          setSize((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
-        } else if (e.target === textEl) {
-          setTextH(e.contentRect.height);
-        }
-      }
-    });
+    const ro = new ResizeObserver(() => measure());
     ro.observe(panelEl);
     ro.observe(textEl);
     return () => ro.disconnect();
-  }, [panelRef, textRef]);
+  }, [measure, panelRef, textRef]);
 
-  const w = size?.w;
-  const h = size?.h;
-  useLayoutEffect(() => {
-    shrunkFor.current = null;
-    setFit(1);
-  }, [w, h, contentKey]);
-
-  useEffect(() => {
-    if (w === undefined || h === undefined || textH === null) return;
-    if (shrunkFor.current === textH) return;
-    const content = boxContentHeight(w, h);
-    if (textH > content + 0.5 && fit > MIN_FIT) {
-      shrunkFor.current = textH;
-      setFit((f) => Math.max(MIN_FIT, f * (content / textH) * 0.98));
-    }
-  }, [w, h, textH, fit]);
-
-  if (w === undefined || h === undefined || textH === null) return { fit, graph: true };
-  return { fit, graph: graphFitsFor({ w, h, textH, fontScale, fit }) };
+  if (dims === null) return true;
+  return graphFits(dims);
 }
 
 export function MonitorPanel({
@@ -96,6 +113,8 @@ export function MonitorPanel({
   fontScale,
   blinkOn,
   showInterval = false,
+  fit = 1,
+  onMeasure,
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -103,6 +122,9 @@ export function MonitorPanel({
   fontScale: number;
   blinkOn: boolean;
   showInterval?: boolean;
+  /** Board-wide text scale (1 = configured size); the same for every panel. */
+  fit?: number;
+  onMeasure?: (id: string, m: PanelMeasure) => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -135,12 +157,7 @@ export function MonitorPanel({
       ? ko.monitor.consecutive(status.consecutive_fail, formatHms(status.fail_since_ms))
       : null;
 
-  const { fit, graph } = usePanelLayout(
-    panelRef,
-    textRef,
-    fontScale,
-    `${panel.title}|${state}|${bigText}|${consecutive ?? ""}|${fontScale}`,
-  );
+  const graph = usePanelMeasure(panel.id, panelRef, textRef, fit, onMeasure);
 
   return (
     <article

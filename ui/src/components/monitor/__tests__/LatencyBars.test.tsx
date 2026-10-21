@@ -232,6 +232,14 @@ describe("LatencyBars", () => {
     expect(container.style.overflow).toBe("hidden");
   });
 
+  it("graph_text_is_not_shrunk_by_the_board_scale", () => {
+    // the board-wide --fit shrinks panel text only; axis and threshold numbers
+    // keep their configured size so they stay legible on crowded boards
+    renderBars([ok(100)]);
+    const root = screen.getByTestId("bars-area").parentElement as HTMLElement;
+    expect(root.style.getPropertyValue("--fit")).toBe("1");
+  });
+
   it("axis_labels", () => {
     renderBars([], { barCount: 60 });
     expect(screen.getByText(ko.monitor.axisAgo("10분"))).toBeInTheDocument();
