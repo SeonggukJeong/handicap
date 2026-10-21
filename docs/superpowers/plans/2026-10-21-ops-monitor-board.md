@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust(axum, sqlx/SQLite, tokio, tokio-util `CancellationToken`, wiremock), React+TS(React Query, Zod, react-router, Tailwind, vitest+RTL).
 
-**Spec:** `docs/superpowers/specs/2026-10-21-ops-monitor-board-design.md` (r3, APPROVE) · 결정 원천 `docs/superpowers/specs/2026-10-21-ops-monitor-mockups/00-decisions.md` · 레이아웃 정본 `docs/superpowers/specs/2026-10-21-ops-monitor-mockups/02-latency-bars-final.html`/`.png` · 문구 정본 `docs/superpowers/plans/2026-10-21-ops-monitor-board-copy.md`(byte-exact, Task 7–10 brief에 동봉).
+**Spec:** `docs/superpowers/specs/2026-10-21-ops-monitor-board-design.md` (r3, APPROVE) · 결정 원천 `docs/superpowers/specs/2026-10-21-ops-monitor-mockups/00-decisions.md` · 레이아웃 정본 `docs/superpowers/specs/2026-10-21-ops-monitor-mockups/02-latency-bars-final.html`/`.png` · 문구 정본 `docs/superpowers/specs/2026-10-21-ops-monitor-board-copy.md`(byte-exact, Task 7–10 brief에 동봉).
 
 개정: r2 — plan 리뷰 1차(APPROVE-WITH-FIXES 21건) 반영. Task 3을 3(스텁+리터럴 churn)/4(감독자 로직)로 분할 → 총 10 task. r3 — 2차 3건(실제 live 루프 카운터·retry 판별 테스트·스텁 dead_code) 반영, spec-plan-reviewer clean APPROVE.
 
