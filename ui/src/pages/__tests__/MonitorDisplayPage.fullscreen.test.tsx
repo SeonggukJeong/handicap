@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MonitorDisplayPage } from "../MonitorDisplayPage";
 import { ko } from "../../i18n/ko";
+import { monitorKey } from "../../monitor/keys";
 
 const BID = "B1";
 const T = new Date(2026, 9, 22, 14, 32, 10).getTime();
@@ -46,6 +47,9 @@ let stopCalls = 0;
 let stopFail = false;
 let stopHang = false;
 let boardEnabled = true;
+let statusHang = false;
+let statusAborts = 0;
+let lastQc: QueryClient | null = null;
 // 1 fail, 2 slow, 3 config_error, 4 stale (old result), 5 pending, 6 ok
 const PANELS = [1, 2, 3, 4, 5, 6].map((n) => panelCfg(n));
 const STATUS_PANELS = [
@@ -72,6 +76,9 @@ beforeEach(() => {
   stopFail = false;
   stopHang = false;
   boardEnabled = true;
+  statusHang = false;
+  statusAborts = 0;
+  lastQc = null;
   fsEl = null;
   Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => fsEl });
   requestFs.mockReset();
@@ -94,6 +101,14 @@ beforeEach(() => {
       const u = String(url);
       if (u === `/api/monitor-boards/${BID}/status`) {
         statusCalls += 1;
+        if (statusHang) {
+          return new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              statusAborts += 1;
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          });
+        }
         return Promise.resolve(
           res({
             now_ms: T + 1000,
@@ -108,7 +123,16 @@ beforeEach(() => {
         stopCalls += 1;
         if (stopHang) return new Promise<Response>(() => {});
         if (stopFail) return Promise.resolve(res({ error: "boom" }, 500));
-        return Promise.resolve(res({ id: BID }));
+        return Promise.resolve(
+          res({
+            id: BID,
+            name: "운영실 화면",
+            config: { font_scale: "large", blink, panels: PANELS },
+            enabled: false,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
       }
       if (u === `/api/monitor-boards/${BID}`) {
         return Promise.resolve(
@@ -143,6 +167,7 @@ async function tick(ms: number) {
 
 async function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 10 } } });
+  lastQc = qc;
   const view = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/monitors/${BID}/display`]}>
@@ -280,6 +305,31 @@ describe("MonitorDisplayPage fullscreen", () => {
       fireEvent.click(screen.getByText(ko.monitor.stop));
     });
     expect(stopCalls).toBe(1);
+  });
+
+  it("stop_success_updates_board_cache_for_settings_page", async () => {
+    await renderPage();
+    expect(lastQc!.getQueryData<{ enabled: boolean }>(monitorKey(BID))?.enabled).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    await tick(0);
+    expect(stopCalls).toBe(1);
+    expect(lastQc!.getQueryData<{ enabled: boolean }>(monitorKey(BID))?.enabled).toBe(false);
+  });
+
+  it("stop_refetch_does_not_abort_in_flight_poll", async () => {
+    await renderPage();
+    statusHang = true;
+    await tick(1000); // a poll is now in flight and never answers
+    const before = statusCalls;
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    await tick(0);
+    expect(stopCalls).toBe(1);
+    expect(statusAborts).toBe(0);
+    expect(statusCalls).toBe(before);
   });
 
   it("stop_button_hidden_when_board_already_stopped", async () => {

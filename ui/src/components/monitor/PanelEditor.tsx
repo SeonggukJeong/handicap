@@ -102,7 +102,9 @@ export function PanelEditor({
     setLocalScenarioErr(false);
     setPreviewing(true);
     try {
-      setPreview(await previewCheck(panel));
+      // The server requires a 1–40 char title; a blank form title must not fail the preview.
+      const payload = panel.title.trim() ? panel : { ...panel, title: ko.monitor.preview };
+      setPreview(await previewCheck(payload));
     } catch (e) {
       setPreviewErr((e as Error).message);
     } finally {

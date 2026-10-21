@@ -166,7 +166,11 @@ describe("MonitorEditPage", () => {
     for (let i = 0; i < 5; i++) await user.click(add);
     expect(screen.getAllByLabelText(MS_LABEL)).toHaveLength(5);
     expect(add).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: `${ko.monitor.thresholds} 1 ${ko.monitor.removeThreshold}` }));
+    await user.click(
+      screen.getByRole("button", {
+        name: `${ko.monitor.thresholds} 1 ${ko.monitor.removeThreshold}`,
+      }),
+    );
     expect(screen.getAllByLabelText(MS_LABEL)).toHaveLength(4);
     expect(add).toBeEnabled();
   });
@@ -275,6 +279,25 @@ describe("MonitorEditPage", () => {
     expect(screen.getByText('{"msg":"down"}')).toBeInTheDocument();
     expect(screen.getByText(ko.monitor.stateFail)).toBeInTheDocument();
     expect(screen.getByText("HTTP 503")).toBeInTheDocument();
+  });
+
+  it("preview_with_blank_title_sends_placeholder_title_without_changing_form", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({ config: { font_scale: "large", blink: "fail", panels: [panel({ title: "  " })] } }),
+      );
+    handlers["POST /api/monitor-boards/preview-check"] = () =>
+      json({
+        trace: null,
+        result: { at_ms: 1, verdict: "ok", latency_ms: 5, reason: null },
+      });
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
+    await waitFor(() => expect(sent("POST", "/api/monitor-boards/preview-check")).toHaveLength(1));
+    const body = sent("POST", "/api/monitor-boards/preview-check")[0].body as { title: string };
+    expect(body.title).toBe(ko.monitor.preview);
+    expect(screen.getByLabelText(ko.monitor.panelTitle)).toHaveValue("  ");
   });
 
   it("preview_without_trace_shows_notice", async () => {
@@ -503,7 +526,9 @@ describe("MonitorEditPage", () => {
         screen.getByLabelText(`${ko.monitor.thresholds} ${n} ${ko.monitor.thresholdMs}`),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: `${ko.monitor.thresholds} ${n} ${ko.monitor.removeThreshold}` }),
+        screen.getByRole("button", {
+          name: `${ko.monitor.thresholds} ${n} ${ko.monitor.removeThreshold}`,
+        }),
       ).toBeInTheDocument();
     }
   });

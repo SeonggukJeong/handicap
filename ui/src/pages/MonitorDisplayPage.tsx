@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
@@ -8,7 +8,7 @@ import { MonitorPanel } from "../components/monitor/MonitorPanel";
 import { FONT_SCALE, gridFor, panelState, type PanelState } from "../monitor/logic";
 import { COLOR } from "../monitor/display";
 import { formatHms } from "../monitor/time";
-import { monitorKey } from "../monitor/keys";
+import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
 import { ko } from "../i18n/ko";
 
 /** Consecutive failed status polls after which the server counts as down. */
@@ -62,6 +62,7 @@ function ToolButton({
 export function MonitorDisplayPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [failedPolls, setFailedPolls] = useState(0);
   const [full, setFull] = useState(isFullscreen);
   const [cursorIdle, setCursorIdle] = useState(false);
@@ -290,7 +291,13 @@ export function MonitorDisplayPage() {
                 setStopBusy(true);
                 void stopBoard(id)
                   .then(
-                    () => refetchStatus(),
+                    (b) => {
+                      // Keep the settings page (same cache entry) from showing a stale "on".
+                      qc.setQueryData(monitorKey(id), b);
+                      void qc.invalidateQueries({ queryKey: MONITOR_LIST_KEY });
+                      // Don't abort an in-flight poll (it would count as a failed poll).
+                      return refetchStatus({ cancelRefetch: false });
+                    },
                     (e: unknown) => setStopError(e instanceof Error ? e.message : String(e)),
                   )
                   .finally(() => setStopBusy(false));
