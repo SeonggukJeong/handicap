@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
-import { MonitorPanel, type PanelMeasure } from "../components/monitor/MonitorPanel";
+import { MonitorPanel, PanelProbe, type PanelMeasure } from "../components/monitor/MonitorPanel";
 import { FONT_SCALE, gridFor, panelState, type PanelState } from "../monitor/logic";
-import { COLOR, MIN_FIT, requiredFit } from "../monitor/display";
+import { COLOR, MIN_FIT, nextSearch, requiredFit, type ScaleSearch } from "../monitor/display";
 import { formatHms } from "../monitor/time";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
 import { ko } from "../i18n/ko";
+
+const SEARCH_START: ScaleSearch = { lo: MIN_FIT, hi: 1, cand: 1, done: false };
 
 /** Consecutive failed status polls after which the server counts as down. */
 const SERVER_DOWN_AFTER = 3;
@@ -68,23 +70,36 @@ export function MonitorDisplayPage() {
   const [cursorIdle, setCursorIdle] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
-  // One text scale for the whole board (spec §7.3 극단값 표시 정책): the most
-  // crowded panel decides it. Within an "epoch" (same layout/content structure)
-  // it only goes down, so wrapping changes can't make it oscillate.
+  // One text scale for the whole board (spec §7.3 극단값 표시 정책), fixed by the
+  // settings and the viewport only (축소 비율은 설정으로 고정). Invisible size
+  // probes lay out each panel's worst-case settings text; when settings or the
+  // viewport change, a binary search over [MIN_FIT, 1] finds the largest scale
+  // at which every probe fits (wrapping makes the need non-linear, so a single
+  // proportional step can overshoot). Live results never feed it, and the panels
+  // only take the result once the search is done.
   const [fit, setFit] = useState(1);
+  const [search, setSearch] = useState<ScaleSearch>(SEARCH_START);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  const probeOk = useRef(new Map<string, boolean>());
+  const probeCount = useRef(0);
   const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
   useEffect(() => {
     const onResize = () => setViewport(`${window.innerWidth}x${window.innerHeight}`);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const onMeasure = useCallback((_id: string, m: PanelMeasure) => {
-    const need = requiredFit(m);
-    if (!Number.isFinite(need)) return;
-    setFit((f) => {
-      const next = Math.max(MIN_FIT, Math.min(f, need));
-      return next < f - 0.0005 ? next : f;
-    });
+  const onProbe = useCallback((id: string, m: PanelMeasure) => {
+    const cur = searchRef.current;
+    if (cur.done || m.fit !== cur.cand) return;
+    probeOk.current.set(id, !Number.isFinite(requiredFit(m)));
+    if (probeOk.current.size < probeCount.current) return;
+    const ok = [...probeOk.current.values()].every(Boolean);
+    probeOk.current.clear();
+    const next = nextSearch(cur, ok);
+    searchRef.current = next;
+    setSearch(next);
+    if (next.done) setFit(next.lo);
   }, []);
 
   const boardQ = useQuery({
@@ -211,25 +226,19 @@ export function MonitorDisplayPage() {
         : "pending";
     return { p, ps, latest, state };
   });
-  // What can change the text's height: layout, titles, states, reasons, the
-  // consecutive-fail line's presence. Not per-poll digits (those only ever ask
-  // for less via onMeasure).
-  const epochKey = [
+  // Settings + viewport only — never live results (spec §7.3).
+  const scaleKey = [
     viewport,
     full ? "full" : "win",
     fontScale,
-    ...views.map(
-      ({ p, ps, latest, state }) =>
-        `${p.id}|${p.title}|${state}|${state === "fail" || state === "config_error" ? (latest?.reason ?? "") : ""}|${
-          state === "fail" && ps !== undefined && ps.consecutive_fail >= 2 ? "c" : ""
-        }`,
-    ),
+    ...(board?.config.panels ?? []).map((p) => `${p.id}|${p.title}|${p.timeout_seconds}`),
   ].join("\n");
-  // A new epoch starts from the configured size; panels then report what they
-  // need and the board shrinks to the most crowded panel's scale.
+  probeCount.current = board?.config.panels.length ?? 0;
   useLayoutEffect(() => {
-    setFit(1);
-  }, [epochKey]);
+    probeOk.current.clear();
+    searchRef.current = SEARCH_START;
+    setSearch(SEARCH_START);
+  }, [scaleKey]);
 
   if (isNotFound(statusQ.error) || boardNotFound) {
     return <FullScreenMessage>{ko.monitor.notFound}</FullScreenMessage>;
@@ -259,6 +268,13 @@ export function MonitorDisplayPage() {
       : lastCheck;
 
   const { cols, rows } = gridFor(panels.length);
+  const gridStyle: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+    gap: "1vw",
+    padding: "1vw",
+  };
 
   return (
     <div
@@ -292,16 +308,7 @@ export function MonitorDisplayPage() {
           <span>{headerRight}</span>
         </span>
       </header>
-      <main
-        className="min-h-0 flex-1"
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-          gap: "1vw",
-          padding: "1vw",
-        }}
-      >
+      <main className="relative min-h-0 flex-1" style={gridStyle}>
         {views.map(({ p, ps, state }) => {
           return (
             <MonitorPanel
@@ -313,10 +320,25 @@ export function MonitorDisplayPage() {
               blinkOn={blinks(board.config.blink, state)}
               showInterval={!sameInterval}
               fit={fit}
-              onMeasure={onMeasure}
             />
           );
         })}
+        {/* Size probes: the same grid, invisible, outside the panels. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none invisible absolute inset-0"
+          style={gridStyle}
+        >
+          {panels.map((p) => (
+            <PanelProbe
+              key={p.id}
+              panel={p}
+              fontScale={fontScale}
+              fit={search.cand}
+              onMeasure={onProbe}
+            />
+          ))}
+        </div>
       </main>
       {/* Windowed only: its own strip below the grid (in flow), so it never
           covers a panel; fullscreen has no toolbar and the grid takes it all. */}

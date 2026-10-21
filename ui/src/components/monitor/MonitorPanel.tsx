@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PanelConfig } from "../../api/monitors";
-import { barColor, bigValueText, showConsecutive, type PanelState } from "../../monitor/logic";
+import {
+  barColor,
+  bigValueText,
+  formatMs,
+  showConsecutive,
+  type PanelState,
+} from "../../monitor/logic";
 import {
   COLOR,
   PANEL_BOX,
@@ -25,7 +31,7 @@ const STATE_LABEL: Record<PanelState, string> = {
   pending: ko.monitor.statePending,
 };
 
-/** What a panel reports to the board for the uniform shrink (spec §7.3). */
+/** What a size probe reports to the board for the uniform scale (spec §7.3). */
 export type PanelMeasure = {
   w: number;
   h: number;
@@ -36,32 +42,24 @@ export type PanelMeasure = {
   widthNeed: number;
 };
 
-/**
- * Measures the panel and its text block after every render and on resize, and
- * reports to the board (which picks one scale for all panels). Decides the graph
- * locally: spec §7.3 "글자 우선" — no graph when < 15% of the panel height is
- * left below the text. Unmeasured (jsdom, first paint) -> graph shown.
- */
-function usePanelMeasure(
-  id: string,
-  panelRef: React.RefObject<HTMLElement>,
+/** Measures `boxRef`/`textRef` after every render (passive) and on resize. */
+function useBoxMeasure(
+  boxRef: React.RefObject<HTMLElement>,
   textRef: React.RefObject<HTMLElement>,
   fit: number,
-  onMeasure: ((id: string, m: PanelMeasure) => void) | undefined,
-): boolean {
-  const [dims, setDims] = useState<{ w: number; h: number; textH: number } | null>(null);
+  onMeasure: (m: PanelMeasure) => void,
+): void {
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const onMeasureRef = useRef(onMeasure);
   onMeasureRef.current = onMeasure;
 
   const measure = useCallback(() => {
-    const panelEl = panelRef.current;
+    const boxEl = boxRef.current;
     const textEl = textRef.current;
-    if (!panelEl || !textEl) return;
-    const pr = panelEl.getBoundingClientRect();
-    const textH = textEl.getBoundingClientRect().height;
-    if (pr.width <= 0 || pr.height <= 0) return;
+    if (!boxEl || !textEl) return;
+    const r = boxEl.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
     let widthNeed = Infinity;
     textEl.querySelectorAll<HTMLElement>("[data-fit-line]").forEach((el) => {
       const box = el.clientWidth;
@@ -70,38 +68,174 @@ function usePanelMeasure(
         widthNeed = Math.min(widthNeed, fitRef.current * (box / natural) * 0.98);
       }
     });
-    setDims((prev) =>
-      prev && prev.w === pr.width && prev.h === pr.height && prev.textH === textH
-        ? prev
-        : { w: pr.width, h: pr.height, textH },
-    );
-    onMeasureRef.current?.(id, {
-      w: pr.width,
-      h: pr.height,
-      textH,
+    onMeasureRef.current({
+      w: r.width,
+      h: r.height,
+      textH: textEl.getBoundingClientRect().height,
       fit: fitRef.current,
       widthNeed,
     });
-  }, [id, panelRef, textRef]);
+  }, [boxRef, textRef]);
 
-  // Every render: values change every poll (a wider number, a new reason).
-  // Passive, not layout: shrinking can take several steps (wrapping is not
-  // linear), and chained layout-effect updates would hit React's nested-update
-  // limit (#185, found live).
+  // Passive, not layout: the board's step-down can take several updates, and
+  // chained layout-effect updates hit React's nested-update limit (#185, live).
   useEffect(() => {
     measure();
   });
 
   useEffect(() => {
-    const panelEl = panelRef.current;
+    const boxEl = boxRef.current;
     const textEl = textRef.current;
-    if (!panelEl || !textEl || typeof ResizeObserver === "undefined") return;
+    if (!boxEl || !textEl || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => measure());
-    ro.observe(panelEl);
+    ro.observe(boxEl);
     ro.observe(textEl);
     return () => ro.disconnect();
-  }, [measure, panelRef, textRef]);
+  }, [measure, boxRef, textRef]);
+}
 
+const BOX_STYLE = (fit: number, borderColor: string): React.CSSProperties =>
+  ({
+    "--fit": String(+fit.toFixed(4)),
+    border: `${PANEL_BOX.border}cqw solid ${borderColor}`,
+    borderRadius: `${PANEL_BOX.radius}cqw`,
+    padding: `${PANEL_BOX.padTop}cqw ${PANEL_BOX.padSide}cqw ${PANEL_BOX.padBottom}cqw`,
+  }) as React.CSSProperties;
+
+/**
+ * Title + state: one row when they fit (mockup); otherwise the state wraps below
+ * and the title takes the full width, at most 2 lines. Shared by the panel and
+ * its size probe so both lay out identically.
+ */
+function TitleStateRow({
+  title,
+  stateLabel,
+  stateColor,
+  fontScale,
+  heading,
+}: {
+  title: string;
+  stateLabel: string;
+  stateColor: string;
+  fontScale: number;
+  heading: boolean;
+}) {
+  const titleClass =
+    "line-clamp-2 min-w-0 break-keep font-extrabold leading-tight [overflow-wrap:anywhere]";
+  const titleStyle = { fontSize: panelFont(PANEL_TEXT.title, fontScale) };
+  return (
+    <div className="flex flex-wrap items-baseline" style={{ columnGap: "2cqw" }}>
+      {heading ? (
+        <h2 className={titleClass} style={titleStyle}>
+          {title}
+        </h2>
+      ) : (
+        <div className={titleClass} style={titleStyle}>
+          {title}
+        </div>
+      )}
+      <div
+        className="ml-auto max-w-full break-keep text-right font-black leading-tight"
+        style={{ fontSize: panelFont(PANEL_TEXT.state, fontScale), color: stateColor }}
+      >
+        {stateLabel}
+      </div>
+    </div>
+  );
+}
+
+function BigValueLine({
+  text,
+  color,
+  fontScale,
+}: {
+  text: string;
+  color: string;
+  fontScale: number;
+}) {
+  return (
+    <FitLine
+      text={text}
+      fontSize={panelFont(PANEL_TEXT.big, fontScale)}
+      className="text-right font-black"
+      // = the font's content area (~1.18em): the glyph box never pokes into the
+      // state row above or the line below.
+      style={{ color, lineHeight: 1.18, letterSpacing: "-0.02em" }}
+    />
+  );
+}
+
+/**
+ * Invisible stand-in that sizes the board scale from settings only (spec §7.3
+ * 축소 비율은 설정으로 고정): the panel's title, the longest state label
+ * (`– 확인 불가 · 점검 꺼짐`, wrapped below the title when it doesn't fit beside
+ * it) and a one-line value at the widest the panel can show (its timeout in ms).
+ * Live lines (reason, step name, consecutive fails) never reach it, so the scale
+ * never moves during an incident; they take room from that panel's graph.
+ */
+export function PanelProbe({
+  panel,
+  fontScale,
+  fit,
+  onMeasure,
+}: {
+  panel: PanelConfig;
+  fontScale: number;
+  fit: number;
+  onMeasure: (id: string, m: PanelMeasure) => void;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  useBoxMeasure(boxRef, textRef, fit, (m) => onMeasure(panel.id, m));
+  return (
+    <div
+      ref={boxRef}
+      data-testid="panel-probe"
+      data-title={panel.title}
+      className="relative min-h-0 min-w-0"
+      style={{ containerType: "size" }}
+    >
+      <div
+        className="absolute inset-0 flex flex-col overflow-hidden"
+        style={BOX_STYLE(fit, "transparent")}
+      >
+        <div ref={textRef} data-testid="probe-text" className="shrink-0">
+          <TitleStateRow
+            title={panel.title}
+            stateLabel={ko.monitor.stateStaleOff}
+            stateColor="transparent"
+            fontScale={fontScale}
+            heading={false}
+          />
+          <BigValueLine
+            text={formatMs(panel.timeout_seconds * 1000)}
+            color="transparent"
+            fontScale={fontScale}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Graph-hide rule (spec §7.3 "글자 우선"): the panel's own text (including live
+ * lines) is measured; no graph when < 15% of the panel height is left below it.
+ * Unmeasured (jsdom, first paint) -> graph shown.
+ */
+function useGraphShown(
+  panelRef: React.RefObject<HTMLElement>,
+  textRef: React.RefObject<HTMLElement>,
+  fit: number,
+): boolean {
+  const [dims, setDims] = useState<{ w: number; h: number; textH: number } | null>(null);
+  useBoxMeasure(panelRef, textRef, fit, (m) =>
+    setDims((prev) =>
+      prev && prev.w === m.w && prev.h === m.h && prev.textH === m.textH
+        ? prev
+        : { w: m.w, h: m.h, textH: m.textH },
+    ),
+  );
   if (dims === null) return true;
   return graphFits(dims);
 }
@@ -114,7 +248,6 @@ export function MonitorPanel({
   blinkOn,
   showInterval = false,
   fit = 1,
-  onMeasure,
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -124,7 +257,6 @@ export function MonitorPanel({
   showInterval?: boolean;
   /** Board-wide text scale (1 = configured size); the same for every panel. */
   fit?: number;
-  onMeasure?: (id: string, m: PanelMeasure) => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -157,7 +289,7 @@ export function MonitorPanel({
       ? ko.monitor.consecutive(status.consecutive_fail, formatHms(status.fail_since_ms))
       : null;
 
-  const graph = usePanelMeasure(panel.id, panelRef, textRef, fit, onMeasure);
+  const graph = useGraphShown(panelRef, textRef, fit);
 
   return (
     <article
@@ -172,36 +304,16 @@ export function MonitorPanel({
         data-state={state}
         data-blink={blinkOn ? "on" : undefined}
         className="absolute inset-0 flex flex-col overflow-hidden"
-        style={
-          {
-            "--fit": String(+fit.toFixed(4)),
-            background: COLOR.panel,
-            border: `${PANEL_BOX.border}cqw solid ${borderColor}`,
-            borderRadius: `${PANEL_BOX.radius}cqw`,
-            padding: `${PANEL_BOX.padTop}cqw ${PANEL_BOX.padSide}cqw ${PANEL_BOX.padBottom}cqw`,
-          } as React.CSSProperties
-        }
+        style={{ ...BOX_STYLE(fit, borderColor), background: COLOR.panel }}
       >
         <div ref={textRef} data-testid="panel-text" className="shrink-0">
-          {/* One row when title + state fit (mockup); otherwise the state wraps
-              below and the title takes the full width, at most 2 lines. */}
-          <div className="flex flex-wrap items-baseline" style={{ columnGap: "2cqw" }}>
-            <h2
-              className="line-clamp-2 min-w-0 break-keep font-extrabold leading-tight [overflow-wrap:anywhere]"
-              style={{ fontSize: panelFont(PANEL_TEXT.title, fontScale) }}
-            >
-              {panel.title}
-            </h2>
-            <div
-              className="ml-auto max-w-full break-keep text-right font-black leading-tight"
-              style={{
-                fontSize: panelFont(PANEL_TEXT.state, fontScale),
-                color: stateColor,
-              }}
-            >
-              {STATE_LABEL[state]}
-            </div>
-          </div>
+          <TitleStateRow
+            title={panel.title}
+            stateLabel={STATE_LABEL[state]}
+            stateColor={stateColor}
+            fontScale={fontScale}
+            heading
+          />
           {reason ? (
             <>
               <FitLine
@@ -224,14 +336,7 @@ export function MonitorPanel({
               )}
             </>
           ) : (
-            <FitLine
-              text={bigText}
-              fontSize={panelFont(PANEL_TEXT.big, fontScale)}
-              className="text-right font-black"
-              // = the font's content area (~1.18em): the glyph box never pokes
-              // into the state row above or the line below.
-              style={{ color: bigColor, lineHeight: 1.18, letterSpacing: "-0.02em" }}
-            />
+            <BigValueLine text={bigText} color={bigColor} fontScale={fontScale} />
           )}
           {consecutive && (
             <div

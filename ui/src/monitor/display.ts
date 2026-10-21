@@ -95,6 +95,20 @@ export function requiredFit(m: {
   return Math.min(vertical, m.widthNeed);
 }
 
+/** Binary search state for the board scale (candidate under test, bounds). */
+export type ScaleSearch = { lo: number; hi: number; cand: number; done: boolean };
+/** Stop when the bracket is narrower than this. */
+const SEARCH_STEP = 0.01;
+
+/** Next search state after every probe reported for `cur.cand` (`ok` = all fit). */
+export function nextSearch(cur: ScaleSearch, ok: boolean): ScaleSearch {
+  if (ok && cur.cand >= 1) return { lo: 1, hi: 1, cand: 1, done: true };
+  const lo = ok ? cur.cand : cur.lo;
+  const hi = ok ? cur.hi : cur.cand;
+  if (hi - lo < SEARCH_STEP) return { lo, hi, cand: lo, done: true };
+  return { lo, hi, cand: +((lo + hi) / 2).toFixed(4), done: false };
+}
+
 /**
  * A fail reason is a fixed reason optionally followed by ` · {step name}`; fixed
  * reasons never contain ` · ` (spec §7.3 극단값 표시 정책), so split at the first.

@@ -3,6 +3,8 @@ import {
   boxContentHeight,
   freeBelowText,
   graphFits,
+  MIN_FIT,
+  nextSearch,
   panelFont,
   requiredFit,
   splitReason,
@@ -45,6 +47,30 @@ describe("display sizing", () => {
     );
     // a one-line value that is too wide can require more
     expect(requiredFit({ w: 300, h: 300, textH: 150, fit: 1, widthNeed: 0.6 })).toBe(0.6);
+  });
+
+  it("scale_search_finds_largest_fitting_scale", () => {
+    // feasibility is non-linear in practice (wrapping); here: fits iff s <= 0.93
+    const fits = (s: number) => s <= 0.93;
+    let st = nextSearch({ lo: MIN_FIT, hi: 1, cand: 1, done: false }, fits(1));
+    let rounds = 0;
+    while (!st.done && rounds < 20) {
+      st = nextSearch(st, fits(st.cand));
+      rounds += 1;
+    }
+    expect(st.done).toBe(true);
+    expect(st.lo).toBeGreaterThan(0.92);
+    expect(st.lo).toBeLessThanOrEqual(0.93);
+    expect(rounds).toBeLessThan(10);
+  });
+
+  it("scale_search_stops_at_1_when_settings_fit", () => {
+    expect(nextSearch({ lo: MIN_FIT, hi: 1, cand: 1, done: false }, true)).toEqual({
+      lo: 1,
+      hi: 1,
+      cand: 1,
+      done: true,
+    });
   });
 
   it("split_reason_at_first_separator", () => {

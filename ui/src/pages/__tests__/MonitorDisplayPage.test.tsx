@@ -329,21 +329,29 @@ describe("MonitorDisplayPage", () => {
   });
 
   /**
-   * Layout stub: every panel 300x300; each panel's text block height comes from
-   * `textH(title)` (panel = the article's aria-label). Measurements are read with
-   * getBoundingClientRect on every render, so the stub must be in place first.
+   * Layout stub: every panel and every size probe is 300x300. `liveH(title, el)`
+   * gives a real panel's text-block height (it may depend on what is shown);
+   * `probeH(title)` gives that panel's settings-only probe height (worst-case
+   * state + one-line value). Read via getBoundingClientRect after each render.
    */
-  function stubLayout(textH: (title: string) => number) {
+  function stubLayout(
+    liveH: (title: string, el: HTMLElement) => number,
+    probeH: (title: string) => number = () => 150,
+  ) {
     return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement,
     ) {
       const id = this.getAttribute("data-testid");
       const rect = (w: number, h: number) =>
         ({ width: w, height: h, top: 0, left: 0, right: w, bottom: h, x: 0, y: 0 }) as DOMRect;
-      if (id === "monitor-panel") return rect(300, 300);
+      if (id === "monitor-panel" || id === "panel-probe") return rect(300, 300);
       if (id === "panel-text") {
         const title = this.closest("article")?.getAttribute("aria-label") ?? "";
-        return rect(300, textH(title));
+        return rect(300, liveH(title, this));
+      }
+      if (id === "probe-text") {
+        const title = this.closest("[data-title]")?.getAttribute("data-title") ?? "";
+        return rect(300, probeH(title));
       }
       return rect(0, 0);
     });
@@ -365,23 +373,21 @@ describe("MonitorDisplayPage", () => {
   });
 
   it("graph_shown_while_free_space_at_least_15_percent", async () => {
-    // free = 300 - 10.2 - 220 = 69.8 (23%): the old rule (bars area after axis
-    // chrome) hid this graph; the spec counts the space left below the text.
-    // (Below 30% the board also shrinks; the stub keeps 220px regardless, so the
-    // shrink runs to the floor and the graph decision is made at 220px.)
+    // live text 220: free = 300 - 10.2 - 220 = 69.8 (23%) >= 15%. The old rule
+    // (bars area after the axis chrome) hid this graph.
     const spy = stubLayout(() => 220);
     try {
       await renderPage();
       await tick(10);
       expect(screen.getByTestId("bars-area")).toBeInTheDocument();
-      expect(Number(fitOf("결제"))).toBeLessThan(1);
+      expect(fitOf("결제")).toBe("1");
     } finally {
       spy.mockRestore();
     }
   });
 
-  it("graph_hidden_below_15_percent_even_at_minimum_scale", async () => {
-    // free = 300 - 10.2 - 260 = 29.8 (< 45): hidden; the axis goes too
+  it("graph_hidden_below_15_percent", async () => {
+    // live text 260: free = 29.8 (< 45) -> hidden; the axis goes too
     const spy = stubLayout(() => 260);
     try {
       await renderPage();
@@ -389,7 +395,60 @@ describe("MonitorDisplayPage", () => {
       expect(screen.queryByTestId("bars-area")).toBeNull();
       expect(screen.queryByText(ko.monitor.axisNow)).toBeNull();
       expect(within(panelEl("결제")).getByText("413 ms")).toBeInTheDocument();
-      // the shrink stops at the floor (MIN_FIT), never below
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("scale_is_settings_driven_and_unaffected_by_results", async () => {
+    // The live text grows when the panel fails (reason + step + consecutive
+    // lines); the settings-only probe stays 150. The scale must not move: the
+    // extra lines take room from the graph instead (spec §7.3, 축소 비율은
+    // 설정으로 고정). The old live-driven scale shrank here.
+    const failing = {
+      at_ms: T,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "HTTP 503 · 로그인 단계",
+    };
+    const spy = stubLayout((_t, el) =>
+      el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150,
+    );
+    try {
+      await renderPage();
+      await tick(10);
+      expect(fitOf("결제")).toBe("1");
+      expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+      statusHandler = () =>
+        res(
+          status([panelStatus(P1, [failing], { consecutive_fail: 3, fail_since_ms: T - 20_000 })]),
+        );
+      await tick(1000);
+      await tick(10);
+      expect(within(panelEl("결제")).getByText(ko.monitor.stateFail)).toBeInTheDocument();
+      expect(fitOf("결제")).toBe("1");
+      // the incident's lines ate the graph area: under 15% -> hidden
+      expect(screen.queryByTestId("bars-area")).toBeNull();
+      // recovery: same scale, graph back
+      statusHandler = () => res(status([panelStatus(P1, [okResult(413)])]));
+      await tick(1000);
+      await tick(10);
+      expect(fitOf("결제")).toBe("1");
+      expect(screen.getByTestId("bars-area")).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("crowded_settings_shrink_to_the_floor_at_most", async () => {
+    // probe 260 (e.g. a very long title): free 29.8 < 30% at any scale -> floor
+    const spy = stubLayout(
+      () => 150,
+      () => 260,
+    );
+    try {
+      await renderPage();
+      await tick(10);
       expect(fitOf("결제")).toBe("0.4");
     } finally {
       spy.mockRestore();
@@ -400,8 +459,11 @@ describe("MonitorDisplayPage", () => {
     boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
     statusHandler = () =>
       res(status([panelStatus(P1, [okResult(413)]), panelStatus(P2, [okResult(500)])]));
-    // 결제 fits (150px); 조회 is crowded (250px) -> both get the scale 조회 needs
-    const spy = stubLayout((title) => (title === "조회" ? 250 : 150));
+    // 결제's settings fit (150px); 조회's are crowded (250px) -> both get 조회's scale
+    const spy = stubLayout(
+      () => 150,
+      (title) => (title === "조회" ? 250 : 150),
+    );
     try {
       await renderPage();
       await tick(10);
@@ -411,6 +473,15 @@ describe("MonitorDisplayPage", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("size_probes_are_hidden_and_outside_panels", async () => {
+    await renderPage();
+    const probe = screen.getByTestId("panel-probe");
+    expect(probe.closest("article")).toBeNull();
+    expect(probe.closest('[aria-hidden="true"]')).not.toBeNull();
+    // worst-case inputs: the longest state label and a one-line value
+    expect(within(probe).getByText(ko.monitor.stateStaleOff)).toBeInTheDocument();
   });
 
   it("fail_reason_split_fixed_part_big_step_name_small", async () => {
