@@ -18,6 +18,7 @@ type Props = {
   mode: "create" | "edit";
   volatileHint?: boolean;
   blockedReason?: string;
+  submitAriaLabel?: string;
   onSubmit: (c: Condition) => void;
   onCancel: () => void;
 };
@@ -30,6 +31,7 @@ export function ConditionRow({
   mode,
   volatileHint,
   blockedReason,
+  submitAriaLabel,
   onSubmit,
   onCancel,
 }: Props) {
@@ -105,6 +107,7 @@ export function ConditionRow({
         variant="secondary"
         type="button"
         disabled={error !== null}
+        aria-label={submitAriaLabel}
         aria-describedby={error ? errId : undefined}
         onClick={() => onSubmit(normalizeCondition(draft))}
       >

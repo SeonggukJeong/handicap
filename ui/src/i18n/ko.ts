@@ -1848,6 +1848,7 @@ export const ko = {
     condStepGone: "⚠ 스텝 없음",
     condEdit: (n: number) => `조건 ${n} 편집`,
     condRemove: (n: number) => `조건 ${n} 삭제`,
+    condSaveAria: (n: number) => `조건 ${n} 저장`,
     condMax: "조건은 최대 10개까지 추가할 수 있습니다",
     condErrValue: "비교값을 입력하세요",
     condErrNumber: "숫자를 입력하세요",

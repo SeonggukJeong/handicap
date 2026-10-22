@@ -119,6 +119,11 @@ export function PanelEditor({
   const setCondAt = (i: number, c: Condition) =>
     set({ conditions: panel.conditions.map((x, k) => (k === i ? c : x)) });
 
+  const addCondition = (c: Condition) => {
+    set({ conditions: [...panel.conditions, c] });
+    setCondOpen(true);
+  };
+
   const showScenarioErr = (scenarioError || localScenarioErr) && !panel.scenario_id;
 
   return (
@@ -329,7 +334,14 @@ export function PanelEditor({
           {previewErr}
         </Callout>
       )}
-      {preview && <PreviewResult preview={preview} stepNames={stepNames} />}
+      {preview && (
+        <PreviewResult
+          preview={preview}
+          stepNames={stepNames}
+          onAddCondition={addCondition}
+          conditionCount={panel.conditions.length}
+        />
+      )}
 
       <fieldset className="mt-3 min-w-0">
         <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -360,6 +372,7 @@ export function PanelEditor({
                       <ConditionRow
                         initial={c}
                         mode="edit"
+                        submitAriaLabel={ko.monitor.condSaveAria(i + 1)}
                         onSubmit={(next) => {
                           setCondAt(i, next);
                           setEditingCond(null);

@@ -314,7 +314,7 @@ describe("MonitorEditPage", () => {
     expect(screen.getByText("503")).toBeInTheDocument();
     expect(screen.getByText("1,350 ms")).toBeInTheDocument();
     expect(screen.getByText("로그인 호출")).toBeInTheDocument();
-    expect(screen.getByText('{"msg":"down"}')).toBeInTheDocument();
+    expect(screen.getByText('msg: "down"')).toBeInTheDocument();
     expect(screen.getByText(ko.monitor.stateFail)).toBeInTheDocument();
     expect(screen.getByText("HTTP 503")).toBeInTheDocument();
   });
@@ -647,7 +647,7 @@ describe("MonitorEditPage", () => {
     );
     expect(screen.queryByLabelText(ko.monitor.condValue)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(ko.monitor.condIgnoreCase)).not.toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: ko.monitor.condSave })[0]);
+    await user.click(screen.getByRole("button", { name: ko.monitor.condSaveAria(1) }));
     expect(screen.getByText("로그인 호출 · 본문 resultCode 값이 있음")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
@@ -667,7 +667,7 @@ describe("MonitorEditPage", () => {
     await user.clear(v);
     await user.type(v, "abc");
     expect(screen.getByText(ko.monitor.condErrNumber)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: ko.monitor.condSave })[0]).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.monitor.condSaveAria(1) })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: ko.monitor.condCancel }));
     expect(screen.getByText(SUMMARY_B)).toBeInTheDocument();
   });
@@ -708,5 +708,181 @@ describe("MonitorEditPage", () => {
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
     expect(putConds()).toEqual([COND_A, COND_B]);
+  });
+});
+
+const PREVIEW_URL = "/api/monitor-boards/preview-check";
+function previewWith(
+  resp: { status?: number; headers?: Record<string, string>; body: string; truncated?: boolean },
+  result: Record<string, unknown> = {},
+) {
+  handlers["POST " + PREVIEW_URL] = () =>
+    json({
+      trace: {
+        ok: true,
+        total_ms: 10,
+        steps: [
+          {
+            step_id: STEP_A,
+            kind: "http",
+            loop_index: null,
+            branch: null,
+            request: null,
+            response: {
+              status: resp.status ?? 200,
+              latency_ms: 10,
+              download_ms: null,
+              headers: resp.headers ?? {},
+              set_cookies: [],
+              body: resp.body,
+              body_truncated: resp.truncated ?? false,
+            },
+            extracted: {},
+            unbound_vars: [],
+            error: null,
+          },
+        ],
+        final_vars: {},
+        truncated: false,
+        error: null,
+      },
+      result: { at_ms: 1, verdict: "ok", latency_ms: 10, reason: null, detail: null, ...result },
+    });
+}
+async function runPreviewUi(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
+}
+const addBtn = (target: string) =>
+  screen.findByRole("button", { name: ko.monitor.condAddAria(target) });
+const confirmedConds = (n: number) =>
+  (sent("POST", PREVIEW_URL)[n].body as { conditions: unknown[] }).conditions;
+
+describe("MonitorEditPage preview conditions", () => {
+  beforeEach(() => {
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+  });
+
+  it("preview_tree_click_creates_eq_condition", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: '{"resultCode":"0000"}' });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 resultCode"));
+    expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("eq");
+    expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("0000");
+    expect(screen.getByLabelText(ko.monitor.condIgnoreCase)).not.toBeChecked();
+    expect(screen.getByLabelText(ko.monitor.condTrim)).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
+    expect(screen.getByText("로그인 호출 · 본문 resultCode 같음 0000")).toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.conditionsIntro)).toBeInTheDocument();
+  });
+
+  it("preview_long_string_defaults_not_empty_with_hint", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: JSON.stringify({ token: "x".repeat(41) }) });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 token"));
+    expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("not_empty");
+    expect(screen.queryByLabelText(ko.monitor.condValue)).not.toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.condVolatileHint)).toBeInTheDocument();
+  });
+
+  it("preview_null_defaults_exists", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: '{"err":null}' });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 err"));
+    expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("exists");
+  });
+
+  it("preview_status_click_eq_200", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn(ko.monitor.condTargetStatus));
+    expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("eq");
+    expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("200");
+    await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
+    expect(screen.getByText("로그인 호출 · 상태코드 같음 200")).toBeInTheDocument();
+  });
+
+  it("preview_header_click", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: "", headers: { "x-trace": "abc" } });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    expect(await screen.findByText(ko.monitor.previewHeaders)).toBeInTheDocument();
+    await user.click(await addBtn("헤더 x-trace"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
+    expect(screen.getByText("로그인 호출 · 헤더 x-trace 같음 abc")).toBeInTheDocument();
+  });
+
+  it("preview_non_json_body_offers_body_text_contains", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: "pong" });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await screen.findByRole("button", { name: ko.monitor.condAddBodyText }));
+    const add = screen.getByRole("button", { name: ko.monitor.condConfirm });
+    expect(add).toBeDisabled();
+    await user.type(screen.getByLabelText(ko.monitor.condValue), "OK");
+    expect(add).toBeEnabled();
+  });
+
+  it("preview_gt_non_number_disables_add", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: '{"n":5}' });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 n"));
+    await user.selectOptions(screen.getByLabelText(ko.monitor.condOp), ko.monitor.condOpOptions.gt);
+    const v = screen.getByLabelText(ko.monitor.condValue);
+    await user.clear(v);
+    await user.type(v, "abc");
+    expect(screen.getByRole("button", { name: ko.monitor.condConfirm })).toBeDisabled();
+    expect(screen.getByText(ko.monitor.condErrNumber)).toBeInTheDocument();
+  });
+
+  it("preview_verdict_shows_detail", async () => {
+    const user = userEvent.setup();
+    previewWith(
+      { body: "{}" },
+      { verdict: "fail", reason: "E1023", detail: "resultCode · 같음 0000" },
+    );
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    expect(await screen.findByText("E1023")).toBeInTheDocument();
+    expect(screen.getByText("resultCode · 같음 0000")).toBeInTheDocument();
+  });
+
+  it("preview_add_blocked_at_10_conditions", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds(Array(10).fill(COND_B)));
+    previewWith({ body: '{"a":1}' });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 a"));
+    expect(screen.getByRole("button", { name: ko.monitor.condConfirm })).toBeDisabled();
+    expect(screen.getByText(ko.monitor.condMax)).toBeInTheDocument();
+  });
+
+  it("preview_rerun_sends_conditions", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: '{"resultCode":"0000"}' });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await user.click(await addBtn("본문 resultCode"));
+    // Unfinished confirm row: a re-run must not send anything from it.
+    await runPreviewUi(user);
+    await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(2));
+    expect(confirmedConds(1)).toHaveLength(0);
+    await user.click(await addBtn("본문 resultCode"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
+    await runPreviewUi(user);
+    await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(3));
+    expect(confirmedConds(2)).toHaveLength(1);
   });
 });
