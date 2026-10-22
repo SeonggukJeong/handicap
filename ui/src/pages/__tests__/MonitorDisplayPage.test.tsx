@@ -1116,6 +1116,46 @@ describe("MonitorDisplayPage", () => {
         spy.mockRestore();
       }
     });
+
+    it("strip_cards_share_card_fit_from_status_line_width", async () => {
+      // heights fit everywhere; only in the bottom:2 strip (f=2) is the status
+      // line (state + ms, one line) wider than the card: 500px at scale 1 in a
+      // 380px line box -> fits once 500c <= 380.5
+      const spy = stubLayout(() => 150);
+      const cardScale = (el: HTMLElement) =>
+        Number(
+          (
+            el.closest('[data-testid="card-probe"]')?.firstElementChild as HTMLElement | null
+          )?.style.getPropertyValue("--card-fit") || "1",
+        );
+      const isStatus = (el: HTMLElement) =>
+        el.getAttribute("data-testid") === "card-probe-status" &&
+        el.closest("[data-geometry]")?.getAttribute("data-geometry") === "bottom:2";
+      const sw = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return isStatus(this) ? 500 * cardScale(this) : 0;
+      });
+      const cw = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return isStatus(this) ? 380 : 0;
+      });
+      try {
+        boardHandler = () => res(styledBoard("focus", 4));
+        statusHandler = () => res(failing(4, [1]));
+        await renderPage();
+        await settleSearch();
+        const want = settle((c) => 500 * c <= 380.5);
+        expect(Number(want)).toBeLessThan(1);
+        expect(screen.getAllByTestId("strip-card")).toHaveLength(3);
+        for (const t of ["가", "다", "라"]) expect(cardFitOf(t)).toBe(want);
+      } finally {
+        cw.mockRestore();
+        sw.mockRestore();
+        spy.mockRestore();
+      }
+    });
   });
 
   it("toolbar_in_flow_below_panels_not_fixed", async () => {
