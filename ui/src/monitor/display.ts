@@ -149,6 +149,35 @@ export function splitReason(reason: string): { fixed: string; step: string | nul
     : { fixed: reason.slice(0, i), step: reason.slice(i + 3) };
 }
 
+export type ReasonParts =
+  | { kind: "split"; fixed: string; step: string | null }
+  | { kind: "detail"; big: string; small: string }
+  | { kind: "not_contained"; needle: string; small: string };
+
+const NOT_CONTAINED_HEAD = "본문 전체 · 포함 ";
+const NOT_CONTAINED_TAIL = '" 포함 안 됨';
+
+/**
+ * Condition results carry `detail` (path · rule · step): the reason is then the
+ * actual value and is never split (values may contain " · "). A body_text
+ * "contains" failure is rendered with its tail kept visible.
+ */
+export function reasonParts(reason: string, detail: string | null): ReasonParts {
+  if (detail === null) return { kind: "split", ...splitReason(reason) };
+  if (
+    detail.startsWith(NOT_CONTAINED_HEAD) &&
+    reason.length >= 1 + NOT_CONTAINED_TAIL.length &&
+    reason.startsWith('"') &&
+    reason.endsWith(NOT_CONTAINED_TAIL)
+  )
+    return {
+      kind: "not_contained",
+      needle: reason.slice(1, -NOT_CONTAINED_TAIL.length),
+      small: detail,
+    };
+  return { kind: "detail", big: reason, small: detail };
+}
+
 export const COLOR = {
   bg: "#0b0f14",
   panel: "#111a23",

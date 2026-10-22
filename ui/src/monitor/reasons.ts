@@ -18,4 +18,10 @@ export const WIDEST_REASON_CANDIDATES: readonly string[] = [
   "요청 실패",
   "변수 미설정",
   "시간 초과(30초)",
+  "조건 기준 스텝 없음",
+  "조건 스텝 미실행",
+  "본문이 JSON 아님",
+  "응답 본문이 너무 큼",
+  "값 없음",
+  "비어 있음",
 ];

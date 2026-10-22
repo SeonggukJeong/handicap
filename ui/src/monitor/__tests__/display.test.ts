@@ -6,6 +6,7 @@ import {
   MIN_FIT,
   nextSearch,
   panelFont,
+  reasonParts,
   requiredFit,
   splitReason,
 } from "../display";
@@ -89,5 +90,33 @@ describe("display sizing", () => {
       step: "회원 인증 · 2단계",
     });
     expect(splitReason("시간 초과(5초)")).toEqual({ fixed: "시간 초과(5초)", step: null });
+  });
+});
+
+describe("reasonParts", () => {
+  it("reason_parts_without_detail_splits_as_before", () => {
+    expect(reasonParts("HTTP 503 · 인증", null)).toEqual({
+      kind: "split",
+      fixed: "HTTP 503",
+      step: "인증",
+    });
+  });
+  it("reason_parts_detail_never_splits", () => {
+    expect(reasonParts("a · b", "x · 같음 y")).toEqual({
+      kind: "detail",
+      big: "a · b",
+      small: "x · 같음 y",
+    });
+  });
+  it("reason_parts_not_contained_three_conditions", () => {
+    expect(reasonParts('"OK" 포함 안 됨', "본문 전체 · 포함 OK")).toEqual({
+      kind: "not_contained",
+      needle: "OK",
+      small: "본문 전체 · 포함 OK",
+    });
+    expect(reasonParts("비어 있음", "본문 전체 · 비어 있지 않음").kind).toBe("detail");
+    expect(reasonParts("응답 본문이 너무 큼", "본문 전체 · 포함 OK").kind).toBe("detail");
+    expect(reasonParts('"OK" 포함 안 됨', "본문 · 포함 OK").kind).toBe("detail");
+    expect(reasonParts('"OK', "본문 전체 · 포함 OK").kind).toBe("detail");
   });
 });

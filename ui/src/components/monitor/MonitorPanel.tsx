@@ -13,7 +13,7 @@ import {
   PANEL_TEXT,
   graphFits,
   panelFont,
-  splitReason,
+  reasonParts,
   type PanelStatus,
 } from "../../monitor/display";
 import { formatHms } from "../../monitor/time";
@@ -314,7 +314,8 @@ export function MonitorPanel({
   const isReason = state === "fail" || state === "config_error";
   const bigText = bigValueText(state, latest);
   // Fail reason: fixed part big on one line, step-name part small below.
-  const reason = isReason ? splitReason(bigText) : null;
+  const reason = isReason ? reasonParts(bigText, latest?.detail ?? null) : null;
+  const smallLine = reason === null ? null : reason.kind === "split" ? reason.step : reason.small;
 
   const consecutive =
     state === "fail" &&
@@ -357,15 +358,32 @@ export function MonitorPanel({
           />
           {reason ? (
             <>
-              <FitLine
-                text={reason.fixed}
-                // the reason's own settings scale (R18): the widest fixed
-                // reason always fits on one line, no "…"
-                fontSize={`calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`}
-                className={`text-right ${REASON_CLASS}`}
-                style={{ ...REASON_STYLE, color: bigColor, marginTop: "0.8cqw" }}
-              />
-              {reason.step !== null && (
+              {reason.kind === "not_contained" ? (
+                <div
+                  data-testid="reason-not-contained"
+                  className={`flex justify-end whitespace-nowrap ${REASON_CLASS}`}
+                  style={{
+                    ...REASON_STYLE,
+                    color: bigColor,
+                    marginTop: "0.8cqw",
+                    fontSize: `calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`,
+                  }}
+                >
+                  <span className="shrink-0">&quot;</span>
+                  <span className="min-w-0 truncate">{reason.needle}</span>
+                  <span className="shrink-0 whitespace-nowrap">&quot; 포함 안 됨</span>
+                </div>
+              ) : (
+                <FitLine
+                  text={reason.kind === "detail" ? reason.big : reason.fixed}
+                  // the reason's own settings scale (R18): the widest fixed
+                  // reason always fits on one line, no "…"
+                  fontSize={`calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`}
+                  className={`text-right ${REASON_CLASS}`}
+                  style={{ ...REASON_STYLE, color: bigColor, marginTop: "0.8cqw" }}
+                />
+              )}
+              {smallLine !== null && (
                 <div
                   className="truncate text-right font-bold leading-tight"
                   style={{
@@ -374,7 +392,7 @@ export function MonitorPanel({
                     marginTop: "0.4cqw",
                   }}
                 >
-                  {reason.step}
+                  {smallLine}
                 </div>
               )}
             </>

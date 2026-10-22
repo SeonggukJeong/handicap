@@ -181,10 +181,14 @@ describe("MonitorDisplayPage", () => {
     statusHandler = () =>
       res(
         status([
-          panelStatus(P1, [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null }], {
-            consecutive_fail: 3,
-            fail_since_ms: T - 20_000,
-          }),
+          panelStatus(
+            P1,
+            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null }],
+            {
+              consecutive_fail: 3,
+              fail_since_ms: T - 20_000,
+            },
+          ),
         ]),
       );
     await renderPage();
@@ -425,7 +429,8 @@ describe("MonitorDisplayPage", () => {
       at_ms: T,
       verdict: "fail",
       latency_ms: null,
-      reason: "HTTP 503 · 로그인 단계", detail: null,
+      reason: "HTTP 503 · 로그인 단계",
+      detail: null,
     };
     const spy = stubLayout(
       (_t, el) => (el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150),
@@ -511,7 +516,8 @@ describe("MonitorDisplayPage", () => {
               at_ms: T,
               verdict: "config_error",
               latency_ms: null,
-              reason: "응답 시간 기준 스텝 없음", detail: null,
+              reason: "응답 시간 기준 스텝 없음",
+              detail: null,
             },
           ]),
         ]),
@@ -590,7 +596,15 @@ describe("MonitorDisplayPage", () => {
         status([
           panelStatus(
             P1,
-            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503 · 회원 인증 단계", detail: null }],
+            [
+              {
+                at_ms: T,
+                verdict: "fail",
+                latency_ms: null,
+                reason: "HTTP 503 · 회원 인증 단계",
+                detail: null,
+              },
+            ],
             { consecutive_fail: 1, fail_since_ms: T },
           ),
         ]),
@@ -603,6 +617,64 @@ describe("MonitorDisplayPage", () => {
     expect(fixed.className).toContain("whitespace-nowrap");
     expect(step.className).toContain("truncate");
     expect(within(a).queryByText("HTTP 503 · 회원 인증 단계")).toBeNull();
+  });
+
+  function failStatus(reason: string, detail: string, verdict = "fail") {
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(P1, [{ at_ms: T, verdict, latency_ms: null, reason, detail }], {
+            consecutive_fail: 1,
+            fail_since_ms: T,
+          }),
+        ]),
+      );
+  }
+
+  it("condition_fail_shows_value_big_and_detail_small", async () => {
+    failStatus("a · b", "resultCode · 같음 0000 · 로그인");
+    await renderPage();
+    const a = panelEl("결제");
+    const big = within(a).getByText("a · b");
+    expect(big.className).toContain("whitespace-nowrap");
+    const small = within(a).getByText("resultCode · 같음 0000 · 로그인");
+    expect(small.className).toContain("truncate");
+    expect(small).not.toBe(big);
+  });
+
+  it("not_contained_reason_keeps_tail_span", async () => {
+    failStatus('"OK" 포함 안 됨', "본문 전체 · 포함 OK");
+    await renderPage();
+    const row = within(panelEl("결제")).getByTestId("reason-not-contained");
+    const needle = within(row).getByText("OK");
+    const tail = within(row).getByText('" 포함 안 됨');
+    expect(needle).not.toBe(tail);
+    expect(tail.className).toContain("shrink-0");
+    expect(needle.className).toContain("truncate");
+    expect(within(panelEl("결제")).getByText("본문 전체 · 포함 OK")).toBeInTheDocument();
+  });
+
+  it("condition_config_error_shows_detail", async () => {
+    failStatus("조건 기준 스텝 없음", "status · 같음 200", "config_error");
+    await renderPage();
+    const a = panelEl("결제");
+    expect(within(a).getByText(ko.monitor.stateConfigError)).toBeInTheDocument();
+    expect(within(a).getByText("조건 기준 스텝 없음")).toBeInTheDocument();
+    expect(within(a).getByText("status · 같음 200")).toBeInTheDocument();
+  });
+
+  it("reason_probes_include_condition_fixed_reasons", async () => {
+    await renderPage();
+    const text = screen.getAllByTestId("reason-probe").map((e) => e.textContent);
+    for (const r of [
+      "조건 기준 스텝 없음",
+      "조건 스텝 미실행",
+      "본문이 JSON 아님",
+      "응답 본문이 너무 큼",
+      "값 없음",
+      "비어 있음",
+    ])
+      expect(text).toContain(r);
   });
 
   it("title_and_state_share_a_wrapping_row", async () => {
