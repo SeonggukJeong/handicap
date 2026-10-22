@@ -105,9 +105,16 @@ pub fn build_panel_status(cfg: &PanelConfig, snap: Option<&PanelSnapshot>) -> Pa
     };
     let (consecutive_fail, fail_since_ms) = consecutive_fail(&snap.results);
     let skip = snap.results.len().saturating_sub(cfg.bar_count as usize);
+    // 사유·detail은 최신 결과에만 싣는다(ADR-0053 ①b 보완) — 나머지는 막대용 verdict/지연만.
+    let mut results = snap.results[skip..].to_vec();
+    let last = results.len().saturating_sub(1);
+    for r in results.iter_mut().take(last) {
+        r.reason = None;
+        r.detail = None;
+    }
     PanelStatus {
         panel_id: cfg.id.clone(),
-        results: snap.results[skip..].to_vec(),
+        results,
         consecutive_fail,
         fail_since_ms,
         running: snap.running,
@@ -288,6 +295,29 @@ mod tests {
         assert_eq!(s.fail_since_ms, None);
         assert!(!s.running);
         assert_eq!(s.panel_id, "P");
+    }
+
+    #[test]
+    fn status_reasons_only_on_latest_result() {
+        let results: Vec<_> = (0..5)
+            .map(|i| {
+                let mut r = res(i, Verdict::Fail);
+                r.reason = Some("x".into());
+                r.detail = Some("d".into());
+                r
+            })
+            .collect();
+        let snap = PanelSnapshot {
+            results,
+            running: true,
+        };
+        let s = build_panel_status(&cfg(10), Some(&snap));
+        for r in &s.results[..4] {
+            assert!(r.reason.is_none() && r.detail.is_none());
+        }
+        assert_eq!(s.results[4].reason.as_deref(), Some("x"));
+        assert_eq!(s.results[4].detail.as_deref(), Some("d"));
+        assert_eq!(s.consecutive_fail, 5);
     }
 
     #[test]

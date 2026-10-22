@@ -412,3 +412,126 @@ async fn resume_enabled_restarts_enabled_boards() {
     assert!(monitor.snapshot(&off_id).await.is_none());
     monitor.stop_all().await;
 }
+
+async fn json_mock(body: &str) -> MockServer {
+    let s = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body.to_string(), "application/json"))
+        .mount(&s)
+        .await;
+    s
+}
+
+fn cond(op: &str, value: &str) -> Value {
+    json!({"step_id": STEP_ID, "source": "body", "path": "$.resultCode", "op": op, "value": value})
+}
+
+#[tokio::test]
+async fn preview_check_condition_fail_reports_value_and_detail() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = json_mock(r#"{"resultCode":"E1023"}"#).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let (st, v) = send(
+        &app,
+        Method::POST,
+        "/api/monitor-boards/preview-check",
+        Some(json!({"title":"t","scenario_id":sid,"conditions":[cond("eq","0000")]})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["result"]["verdict"], "fail");
+    assert_eq!(v["result"]["reason"], "E1023");
+    assert_eq!(v["result"]["detail"], "resultCode · 같음 0000");
+}
+
+#[tokio::test]
+async fn preview_check_400_on_invalid_condition() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let (st, v) = send(
+        &app,
+        Method::POST,
+        "/api/monitor-boards/preview-check",
+        Some(json!({"title":"t","scenario_id":"S","conditions":[cond("gt","abc")]})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+    assert_eq!(v["error"], "크다·작다 조건의 비교값은 숫자여야 합니다");
+}
+
+#[tokio::test]
+async fn board_roundtrip_keeps_conditions_and_display_style() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let mut body = board_body("rt", &sid, 10);
+    body["config"]["display_style"] = json!("focus");
+    body["config"]["panels"][0]["conditions"] = json!([cond("eq", "0000")]);
+    let (st, v) = send(&app, Method::POST, "/api/monitor-boards", Some(body)).await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let id = v["id"].as_str().unwrap();
+    let (st, g) = send(
+        &app,
+        Method::GET,
+        &format!("/api/monitor-boards/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{g}");
+    assert_eq!(g["config"]["display_style"], "focus");
+    let c = &g["config"]["panels"][0]["conditions"];
+    assert_eq!(c.as_array().unwrap().len(), 1, "{g}");
+    assert_eq!(c[0]["step_id"], STEP_ID);
+    assert_eq!(c[0]["path"], "$.resultCode");
+    assert_eq!(c[0]["op"], "eq");
+    assert_eq!(c[0]["value"], "0000");
+}
+
+#[tokio::test]
+async fn legacy_board_row_loads_with_defaults() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db.clone());
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "legacy", &sid, 10).await;
+    let id = b["id"].as_str().unwrap();
+    let legacy = json!({"panels": [{
+        "id": "P1", "title": "p1", "scenario_id": sid,
+        "interval_seconds": 10, "timeout_seconds": 5
+    }]})
+    .to_string();
+    sqlx::query("UPDATE monitor_boards SET config_json = ? WHERE id = ?")
+        .bind(legacy)
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let (st, g) = send(
+        &app,
+        Method::GET,
+        &format!("/api/monitor-boards/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{g}");
+    assert_eq!(g["config"]["display_style"], "border");
+    assert_eq!(g["config"]["panels"][0]["conditions"], json!([]));
+}
+
+#[tokio::test]
+async fn status_detail_is_serialized_as_null() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "d", &sid, 1).await;
+    let id = b["id"].as_str().unwrap();
+    send(&app, Method::POST, &url(id, "/start"), None).await;
+    let st = wait_results(&app, id, 1).await;
+    let r = st["panels"][0]["results"][0].as_object().unwrap();
+    assert!(r.contains_key("detail"), "{r:?}");
+    assert!(r["detail"].is_null());
+    send(&app, Method::POST, &url(id, "/stop"), None).await;
+}
