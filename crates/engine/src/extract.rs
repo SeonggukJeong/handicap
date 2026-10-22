@@ -104,85 +104,111 @@ pub fn jsonpath_is_valid(path: &str) -> bool {
     serde_json_path::JsonPath::parse(path).is_ok()
 }
 
-/// Number of descendant (`..`) segments in `path`, counted lexically: `..` inside a
-/// quoted name selector or string literal (`'…'`/`"…"`, backslash escapes honoured)
-/// is ignored, `..` inside a filter expression counts. `serde_json_path` evaluates
-/// each descendant segment over every node the previous one produced without
-/// deduplication, so chaining them multiplies the result list (≈C(depth, k) entries
-/// on a deeply nested body). Callers that evaluate a path repeatedly and unattended
-/// cap this count. Its AST is private (`JsonPath(Query)`), hence the lexical scan.
-pub fn jsonpath_descendant_segments(path: &str) -> usize {
-    let mut count = 0;
-    scan_unquoted(path, |c, rest| {
-        if c == '.' && rest.peek() == Some(&'.') {
-            rest.next();
-            count += 1;
-        }
-    });
-    count
-}
-
-/// Number of root identifiers (`$`) in `path`, counted lexically outside quoted name
-/// selectors and string literals (same quote/escape rules as
-/// [`jsonpath_descendant_segments`]). Outside a string, `$` can only be a root
-/// identifier, so any valid path counts ≥1 and >1 means a root query inside a filter
-/// (`$[?$[*]]`). `serde_json_path` re-evaluates such a query in full for every node
-/// the filter tests, without caching, so each nesting level multiplies the work
-/// (`$[?$[?$[*]]]` is O(n³) on an n-element array) — and does so synchronously, past
-/// any `async` timeout. Callers that evaluate a path repeatedly and unattended reject
-/// counts above 1.
-pub fn jsonpath_root_refs(path: &str) -> usize {
-    let mut count = 0;
-    scan_unquoted(path, |c, _| {
-        if c == '$' {
-            count += 1;
-        }
-    });
-    count
-}
-
-/// Number of filter selectors (`[?…]`) in `path`, counted lexically as `?` outside
-/// quoted name selectors and string literals (same rules as
-/// [`jsonpath_descendant_segments`]); outside a string, `?` only opens a filter.
-/// Every filter costs per tested node, with nothing cached between nodes: a root
-/// query is re-evaluated in full (see [`jsonpath_root_refs`]), `match()`/`search()`
-/// compile their regex anew (up to a ~500-char pattern per string in a 1 MiB body),
-/// and nested filters multiply. Callers that evaluate a path repeatedly and
-/// unattended reject any filter, which closes this whole cost class at once.
-pub fn jsonpath_filter_selectors(path: &str) -> usize {
-    let mut count = 0;
-    scan_unquoted(path, |c, _| {
-        if c == '?' {
-            count += 1;
-        }
-    });
-    count
-}
-
-/// Calls `f` for each char of `path` outside a `'…'`/`"…"` string (backslash escapes
-/// honoured; the quote chars themselves are not passed). `f` may consume further
-/// chars from `rest`, which then are not scanned.
-fn scan_unquoted(path: &str, mut f: impl FnMut(char, &mut Peekable<Chars<'_>>)) {
-    let mut quote: Option<char> = None;
-    let mut chars = path.chars().peekable();
-    while let Some(c) = chars.next() {
-        match quote {
-            Some(q) => {
-                if c == '\\' {
-                    chars.next();
-                } else if c == q {
-                    quote = None;
+/// True when `path` is in the small JSONPath subset that is safe to evaluate
+/// repeatedly and unattended. The grammar admits no whitespace:
+///
+/// ```text
+/// path    := '$' segment*            (at most one '..' in the whole path)
+/// segment := '.' name | '.*' | '[' bracket ']' | '..' (name | '*' | '[' bracket ']')
+/// bracket := quoted | '-'? digit+ | '*'
+/// quoted  := one '…' or "…" string, backslash escapes (no selector lists)
+/// name    := (ALPHA | '_' | >= U+0080) (ALPHA | '_' | DIGIT | >= U+0080)*
+/// ```
+///
+/// This is an allowlist, not a blacklist. `serde_json_path` evaluates a query without
+/// caching or deduplication: a filter re-runs per tested node (root re-queries,
+/// `match()`/`search()` regex compiles), a selector list such as `[0,0]` duplicates
+/// every node it selects (2^k refs after k segments), and chained `..` repeat
+/// overlapping subtrees. Three blacklist rounds were each bypassed by another of
+/// these. In the subset, every segment maps distinct nodes to distinct nodes (one
+/// `..` starts from same-depth, disjoint subtrees), so cost is O(n × segments) on a
+/// body of n nodes (≤1 MiB). It covers every path the UI click flow `segmentsToPath`
+/// (`ui/src/scenario/jsonPath.ts`) emits, plus wildcards and one `..`. It is lexical
+/// only: callers still require [`jsonpath_is_valid`] (e.g. for escape validity).
+pub fn jsonpath_is_simple(path: &str) -> bool {
+    let mut it = path.chars().peekable();
+    if it.next() != Some('$') {
+        return false;
+    }
+    let mut descended = false;
+    while let Some(c) = it.next() {
+        let ok = match c {
+            '.' if it.peek() == Some(&'.') => {
+                it.next();
+                if descended {
+                    return false;
+                }
+                descended = true;
+                match it.next() {
+                    Some('*') => true,
+                    Some('[') => simple_bracket(&mut it),
+                    Some(c) => simple_name(c, &mut it),
+                    None => false,
                 }
             }
-            None => {
-                if c == '\'' || c == '"' {
-                    quote = Some(c);
-                } else {
-                    f(c, &mut chars);
-                }
-            }
+            '.' => match it.next() {
+                Some('*') => true,
+                Some(c) => simple_name(c, &mut it),
+                None => false,
+            },
+            '[' => simple_bracket(&mut it),
+            _ => false,
+        };
+        if !ok {
+            return false;
         }
     }
+    true
+}
+
+fn is_name_first(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_' || c >= '\u{80}'
+}
+
+/// Member-name shorthand starting with `first`; consumes the rest of the name.
+fn simple_name(first: char, it: &mut Peekable<Chars<'_>>) -> bool {
+    if !is_name_first(first) {
+        return false;
+    }
+    while it
+        .peek()
+        .is_some_and(|&c| is_name_first(c) || c.is_ascii_digit())
+    {
+        it.next();
+    }
+    true
+}
+
+/// Bracket body after `[` through the closing `]`: one quoted name, one integer
+/// index, or `*`.
+fn simple_bracket(it: &mut Peekable<Chars<'_>>) -> bool {
+    match it.next() {
+        Some('*') => {}
+        Some(q @ ('\'' | '"')) => loop {
+            match it.next() {
+                Some('\\') => {
+                    if it.next().is_none() {
+                        return false;
+                    }
+                }
+                Some(c) if c == q => break,
+                Some(_) => {}
+                None => return false,
+            }
+        },
+        Some(c) if c == '-' || c.is_ascii_digit() => {
+            let mut digits = usize::from(c != '-');
+            while it.peek().is_some_and(char::is_ascii_digit) {
+                it.next();
+                digits += 1;
+            }
+            if digits == 0 {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    it.next() == Some(']')
 }
 
 pub fn stringify(v: &serde_json::Value) -> String {
@@ -311,59 +337,65 @@ mod tests {
     }
 
     #[test]
-    fn jsonpath_descendant_segments_counts_outside_quotes() {
-        for (path, n) in [
-            ("$.a", 0),
-            ("$", 0),
-            ("$..a", 1),
-            ("$..*", 1),
-            ("$..a..b", 2),
-            ("$..*..*..*", 3),
-            ("$['x..y']", 0),
-            ("$[\"x..y\"]", 0),
-            ("$['it\\'s..y']", 0),
-            ("$[\"a\\\"..b\"]..c", 1),
-            // `..` inside a filter expression is a real descendant query, so it counts.
-            ("$.a[?@..b]", 1),
-            ("$..a[?@..b]", 2),
-            ("$.a[?@.b == 'x..y']", 0),
+    fn jsonpath_is_simple_allowlist() {
+        for path in [
+            "$",
+            "$.a",
+            "$.a.b[0]",
+            "$['a b'][0]",
+            "$[\"x\\\"y\"]",
+            "$.data.items[-1].code",
+            "$.*",
+            "$[*]",
+            "$..a",
+            "$..*",
+            "$..['k']",
+            "$..[0]",
+            "$.가나",
+            "$['a?$b']",
+            "$['a,b']",
+            // Every shape the UI click flow `segmentsToPath` (ui/src/scenario/jsonPath.ts)
+            // emits: `$`, `.ident`, `[index]`, and `['…']` with `\\`/`\'`/`\uXXXX` escapes.
+            "$.data.token",
+            "$.items[0].sku",
+            "$['weird.key']",
+            "$['has space']",
+            "$['it\\'s']",
+            "$['a\\\\b']",
+            "$['a\\u0009b']",
+            "$['a\\u000ab']",
+            "$['']",
+            "$['가나']",
+            "$['0abc']",
+            "$[2147483647]",
         ] {
             assert!(jsonpath_is_valid(path), "{path} must parse");
-            assert_eq!(jsonpath_descendant_segments(path), n, "{path}");
+            assert!(jsonpath_is_simple(path), "{path} must be simple");
         }
-    }
-
-    #[test]
-    fn jsonpath_root_refs_counts_outside_quotes() {
-        for (path, n) in [
-            ("$", 1),
-            ("$.a", 1),
-            ("$['$x']", 1),
-            ("$[\"a\\\"$\"]", 1),
-            ("$[?@.a]", 1),
-            ("$[?$[*]]", 2),
-            ("$[?$[?$[*]]]", 3),
+        for path in [
+            "$..a..b",
+            "$[?@.a]",
+            "$..[?match(@,'x')]",
+            "$[?$[*]]",
+            "$[0,0]",
+            "$[*,*]",
+            "$['a','b']",
+            "$[0:2]",
+            "$.a ",
+            "$ .a",
+            "a.b",
+            "$[",
+            "$.",
+            "$[a]",
+            "$...a",
+            "$..",
+            "$['a'",
+            "$[-]",
+            "$['a']x",
+            "$[0]]",
+            "",
         ] {
-            assert!(jsonpath_is_valid(path), "{path} must parse");
-            assert_eq!(jsonpath_root_refs(path), n, "{path}");
-        }
-    }
-
-    #[test]
-    fn jsonpath_filter_selectors_counts_outside_quotes() {
-        for (path, n) in [
-            ("$.a", 0),
-            ("$['a?b']", 0),
-            ("$[\"?\"]", 0),
-            ("$[\"a\\\"?\"]", 0),
-            ("$[?@.a]", 1),
-            ("$..[?match(@,'x')]", 1),
-            ("$[?@.a == '?']", 1),
-            ("$[?@[?@.b]]", 2),
-            ("$[?$[?$[*]]]", 2),
-        ] {
-            assert!(jsonpath_is_valid(path), "{path} must parse");
-            assert_eq!(jsonpath_filter_selectors(path), n, "{path}");
+            assert!(!jsonpath_is_simple(path), "{path} must not be simple");
         }
     }
 
