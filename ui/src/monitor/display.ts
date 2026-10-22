@@ -1,6 +1,7 @@
 import type { BoardStatus, Threshold } from "../api/monitors";
 import { ko } from "../i18n/ko";
-import { barColor, type PanelState } from "./logic";
+import type { CSSProperties } from "react";
+import { barColor, gridFor, type PanelState } from "./logic";
 
 export type PanelStatus = BoardStatus["panels"][number];
 
@@ -281,9 +282,75 @@ export function borderColorOf(state: PanelState, stateColor: string): string {
   return state === "ok" || state === "slow" || state === "fail" ? stateColor : COLOR.grayBorder;
 }
 
+// Board layout grids — shared by the real panels and the invisible size probes
+// so both lay out identically.
+
+/** `gridFor(n)` equal cells with the board gap (no padding). */
+export function panelGridStyle(n: number): CSSProperties {
+  const { cols, rows } = gridFor(n);
+  return {
+    display: "grid",
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+    gap: "1vw",
+  };
+}
+
+/** C board area: big area (3) + strip (1), strip right (f=1) or below (f>=2). */
+export function focusMainStyle(side: "right" | "bottom"): CSSProperties {
+  return {
+    display: "grid",
+    gap: "1vw",
+    padding: "1vw",
+    ...(side === "right"
+      ? { gridTemplateColumns: "3fr 1fr", gridTemplateRows: "minmax(0, 1fr)" }
+      : { gridTemplateRows: "3fr 1fr", gridTemplateColumns: "minmax(0, 1fr)" }),
+  };
+}
+
+/** C strip: `count` equal cards in one column (right) or one row (bottom). */
+export function stripGridStyle(side: "right" | "bottom", count: number): CSSProperties {
+  return {
+    display: "grid",
+    gap: "1vw",
+    ...(side === "right"
+      ? {
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gridTemplateRows: `repeat(${count}, minmax(0, 1fr))`,
+        }
+      : {
+          gridTemplateRows: "minmax(0, 1fr)",
+          gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))`,
+        }),
+  };
+}
+
 /** C strip card text ratios (card container units) and box chrome (cqmin). */
 export const CARD_TEXT = { title: { cqh: 22, cqw: 10 }, state: { cqh: 20, cqw: 9 } } as const;
 export const CARD_BOX = { border: 2, pad: 6, radius: 4 } as const;
+
+/**
+ * The card scale a strip card probe needs (Infinity = it fits), measured at
+ * `fit`: its text block must fit the card's content height, and its status
+ * line (state + ms, one line) its width. The title may end in "…".
+ */
+export function cardNeed(m: {
+  fit: number;
+  contentH: number;
+  textH: number;
+  lineClientW: number;
+  lineScrollW: number;
+}): number {
+  let vertical = Infinity;
+  if (m.textH > m.contentH + 0.5) {
+    vertical = m.contentH > 0 ? m.fit * (m.contentH / m.textH) * 0.98 : 0;
+  }
+  let horizontal = Infinity;
+  if (m.lineClientW > 0 && m.lineScrollW > m.lineClientW + 0.5) {
+    horizontal = m.fit * (m.lineClientW / m.lineScrollW) * 0.98;
+  }
+  return Math.min(vertical, horizontal);
+}
 
 export function cardFont(r: { cqh: number; cqw: number }, scale: number): string {
   return `calc(min(${+(r.cqh * scale).toFixed(3)}cqh, ${+(r.cqw * scale).toFixed(3)}cqw) * var(--card-fit, 1))`;

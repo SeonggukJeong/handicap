@@ -5,6 +5,7 @@ import {
   barColor,
   barSlots,
   bigValueText,
+  focusGeometries,
   focusLayout,
   formatMs,
   FONT_SCALE,
@@ -165,5 +166,45 @@ describe("focusLayout", () => {
       strip: [0],
       side: "right",
     });
+  });
+});
+
+describe("focusGeometries", () => {
+  it("focus_geometries_dedup", () => {
+    const g9 = focusGeometries(9);
+    expect(g9.big.map((g) => g.key)).toEqual([
+      "right:1x1",
+      "bottom:2x1",
+      "bottom:3x1",
+      "bottom:2x2",
+      "bottom:3x2",
+      "bottom:3x3",
+    ]);
+    // first f of each geometry wins (f=5,6 -> 3x2; f=7,8 -> 3x3)
+    expect(g9.big.map((g) => g.f)).toEqual([1, 2, 3, 4, 5, 7]);
+    expect(g9.strip.map((g) => g.key)).toEqual([
+      "right:8",
+      "bottom:7",
+      "bottom:6",
+      "bottom:5",
+      "bottom:4",
+      "bottom:3",
+      "bottom:2",
+      "bottom:1",
+    ]);
+    expect(g9.strip.map((g) => g.f)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const g4 = focusGeometries(4);
+    expect(g4.big).toEqual([
+      { key: "right:1x1", f: 1 },
+      { key: "bottom:2x1", f: 2 },
+      { key: "bottom:3x1", f: 3 },
+    ]);
+    expect(g4.strip).toEqual([
+      { key: "right:3", f: 1 },
+      { key: "bottom:2", f: 2 },
+      { key: "bottom:1", f: 3 },
+    ]);
+    expect(focusGeometries(1)).toEqual({ big: [], strip: [] });
+    expect(focusGeometries(0)).toEqual({ big: [], strip: [] });
   });
 });

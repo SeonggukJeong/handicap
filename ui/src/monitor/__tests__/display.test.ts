@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   barsAreaHeight,
+  cardNeed,
   boxContentHeight,
   contrastText,
   fillBackground,
@@ -155,5 +156,34 @@ describe("A (fill) display helpers", () => {
     expect(barsAreaHeight(w, 300, 80, 1, false)).toBe(base);
     const inset = barsAreaHeight(w, 300, 80, 1, true);
     expect(base - inset).toBeCloseTo(2 * GRAPH_CHROME.insetPad * (w / 100), 9);
+  });
+});
+
+describe("cardNeed", () => {
+  it("card_need_cases", () => {
+    // everything fits
+    expect(cardNeed({ fit: 1, contentH: 100, textH: 80, lineClientW: 300, lineScrollW: 300 })).toBe(
+      Infinity,
+    );
+    // jsdom-like unmeasured widths (0) count as fitting
+    expect(cardNeed({ fit: 1, contentH: 100, textH: 80, lineClientW: 0, lineScrollW: 0 })).toBe(
+      Infinity,
+    );
+    // twice too tall -> about half (x0.98) of the measured fit
+    expect(
+      cardNeed({ fit: 0.8, contentH: 100, textH: 200, lineClientW: 300, lineScrollW: 300 }),
+    ).toBeCloseTo(0.8 * 0.5 * 0.98, 6);
+    // status line wider than the card
+    expect(
+      cardNeed({ fit: 1, contentH: 100, textH: 80, lineClientW: 300, lineScrollW: 400 }),
+    ).toBeCloseTo(0.75 * 0.98, 6);
+    // both: the smaller wins
+    expect(
+      cardNeed({ fit: 1, contentH: 100, textH: 200, lineClientW: 300, lineScrollW: 400 }),
+    ).toBeCloseTo(0.5 * 0.98, 6);
+    // no content room at all
+    expect(cardNeed({ fit: 1, contentH: 0, textH: 50, lineClientW: 300, lineScrollW: 300 })).toBe(
+      0,
+    );
   });
 });

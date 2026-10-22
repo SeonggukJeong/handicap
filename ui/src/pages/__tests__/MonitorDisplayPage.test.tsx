@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MonitorDisplayPage } from "../MonitorDisplayPage";
 import { ko } from "../../i18n/ko";
+import { MIN_FIT, nextSearch } from "../../monitor/display";
+import { focusGeometries } from "../../monitor/logic";
 
 const BID = "B1";
 const P1 = "01HZZZZZZZZZZZZZZZZZZZZZP1";
@@ -531,12 +533,16 @@ describe("MonitorDisplayPage", () => {
   /**
    * Layout stub: every panel and every size probe is 300x300. `liveH(title, el)`
    * gives a real panel's text-block height (it may depend on what is shown);
-   * `probeH(title)` gives that panel's settings-only probe height (worst-case
-   * state + one-line value). Read via getBoundingClientRect after each render.
+   * `probeH(title, el, geometry)` gives that panel's settings-only probe height
+   * (worst-case state + one-line value) — `geometry` is the probe layout's
+   * `data-geometry` (C incident probes) or "grid" (the board grid probes).
+   * Strip card probes are 400x120 with a `cardH(geometry, el)` text block.
+   * Read via getBoundingClientRect after each render.
    */
   function stubLayout(
     liveH: (title: string, el: HTMLElement) => number,
-    probeH: (title: string, el: HTMLElement) => number = () => 150,
+    probeH: (title: string, el: HTMLElement, geometry: string) => number = () => 150,
+    cardH: (geometry: string, el: HTMLElement) => number = () => 40,
   ) {
     return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement,
@@ -544,6 +550,7 @@ describe("MonitorDisplayPage", () => {
       const id = this.getAttribute("data-testid");
       const rect = (w: number, h: number) =>
         ({ width: w, height: h, top: 0, left: 0, right: w, bottom: h, x: 0, y: 0 }) as DOMRect;
+      const geometry = this.closest("[data-geometry]")?.getAttribute("data-geometry") ?? "grid";
       if (id === "monitor-panel" || id === "panel-probe") return rect(300, 300);
       if (id === "panel-text") {
         const title = this.closest("article")?.getAttribute("aria-label") ?? "";
@@ -551,8 +558,10 @@ describe("MonitorDisplayPage", () => {
       }
       if (id === "probe-text") {
         const title = this.closest("[data-title]")?.getAttribute("data-title") ?? "";
-        return rect(300, probeH(title, this));
+        return rect(300, probeH(title, this, geometry));
       }
+      if (id === "card-probe") return rect(400, 120);
+      if (id === "card-probe-text") return rect(400, cardH(geometry, this));
       return rect(0, 0);
     });
   }
@@ -884,6 +893,229 @@ describe("MonitorDisplayPage", () => {
     const state = within(a).getByText(ko.monitor.stateOk);
     expect(state.parentElement).toBe(row);
     expect(state.className).toContain("ml-auto");
+  });
+
+  describe("C (focus) text scales", () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => `01HZZZZZZZZZZZZZZZZZZZZZQ${i + 1}`);
+    const TITLES = ["가", "나", "다", "라", "마", "바", "사", "아", "자"];
+    const cfgsN = (n: number): Json[] => ids(n).map((id, i) => panelCfg({ id, title: TITLES[i] }));
+    const styledBoard = (style: string, n: number) =>
+      board(
+        { config: { font_scale: "large", display_style: style, blink: "off", panels: cfgsN(n) } },
+        cfgsN(n),
+      );
+    const failRes = {
+      at_ms: T,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "HTTP 503",
+      detail: null,
+    };
+    /** Status for an n-panel board; panels at `failIdx` fail. */
+    const failing = (n: number, failIdx: number[]) =>
+      status(
+        ids(n).map((id, i) => panelStatus(id, [failIdx.includes(i) ? failRes : okResult(200)])),
+      );
+    /** The scale the board search settles on when `fits(c)` says whether scale c fits. */
+    const settle = (fits: (c: number) => boolean): string => {
+      let st = nextSearch({ lo: MIN_FIT, hi: 1, cand: 1, done: false }, fits(1));
+      while (!st.done) st = nextSearch(st, fits(st.cand));
+      return String(+st.lo.toFixed(4));
+    };
+    /** The scale a probe is measured at (`--fit`/`--card-fit` on its box). */
+    const scaleOf = (el: HTMLElement, v: string) =>
+      Number(el.parentElement?.style.getPropertyValue(v) || "1");
+    // 300x300 probe: text may take 300 - 10.2 - 90 = 199.8px (+0.5 tolerance)
+    const fitsH = (h: number) => (c: number) => h * c <= 200.3;
+    // 400x120 card: content 120 - 2*(2+6)*1.2 = 100.8px (+0.5 tolerance)
+    const cardFitsH = (h: number) => (c: number) => h * c <= 101.3;
+    const cardFitOf = (title: string) =>
+      within(screen.getByRole("article", { name: title }))
+        .getByTestId("card-box")
+        .style.getPropertyValue("--card-fit");
+    async function settleSearch() {
+      await tick(10);
+      await tick(10);
+      await tick(10);
+    }
+
+    it("border_board_has_no_focus_probes", async () => {
+      for (const style of ["border", "fill"]) {
+        boardHandler = () => res(styledBoard(style, 4));
+        statusHandler = () => res(failing(4, [1]));
+        const view = await renderPage();
+        expect(screen.queryAllByTestId("incident-probe-layout")).toHaveLength(0);
+        expect(screen.queryAllByTestId("card-probe-layout")).toHaveLength(0);
+        expect(screen.queryAllByTestId("card-probe")).toHaveLength(0);
+        expect(screen.getAllByTestId("panel-probe")).toHaveLength(4);
+        view.unmount();
+      }
+    });
+
+    it("focus_probe_counts", async () => {
+      boardHandler = () => res(styledBoard("focus", 9));
+      statusHandler = () => res(failing(9, []));
+      await renderPage();
+      const layouts = screen.getAllByTestId("incident-probe-layout");
+      expect(layouts.map((l) => l.getAttribute("data-geometry"))).toEqual(
+        focusGeometries(9).big.map((g) => g.key),
+      );
+      expect(layouts.map((l) => within(l).getAllByTestId("panel-probe").length)).toEqual([
+        9, 9, 9, 9, 9, 9,
+      ]);
+      // 9 board-grid probes + 6 geometries x 9 panels
+      expect(screen.getAllByTestId("panel-probe")).toHaveLength(63);
+      const cards = screen.getAllByTestId("card-probe-layout");
+      expect(cards.map((l) => l.getAttribute("data-geometry"))).toEqual(
+        focusGeometries(9).strip.map((g) => g.key),
+      );
+      expect(screen.getAllByTestId("card-probe")).toHaveLength(8);
+      // probes are invisible and carry no live state
+      for (const l of [...layouts, ...cards]) {
+        expect(l.closest('[aria-hidden="true"]')).not.toBeNull();
+        expect(l.textContent).not.toContain(ko.monitor.stateOk);
+      }
+    });
+
+    it("normal_fit_equals_border_board", async () => {
+      // grid probes fit; every C big-area geometry is crowded (needs ~0.5)
+      const spy = stubLayout(
+        () => 150,
+        (_t, el, g) => (g === "grid" ? 150 : 400 * scaleOf(el, "--fit")),
+      );
+      try {
+        boardHandler = () => res(styledBoard("border", 4));
+        statusHandler = () => res(failing(4, []));
+        const view = await renderPage();
+        await settleSearch();
+        const borderFit = fitOf("가");
+        expect(borderFit).toBe("1");
+        view.unmount();
+
+        boardHandler = () => res(styledBoard("focus", 4));
+        await renderPage();
+        await settleSearch();
+        // calm C board (f=0): the same scale as the B board
+        for (const t of ["가", "나", "다", "라"]) expect(fitOf(t)).toBe(borderFit);
+        // incident (f=1): the big panel takes the incident scale
+        statusHandler = () => res(failing(4, [1]));
+        await tick(1000);
+        await settleSearch();
+        expect(screen.getAllByTestId("monitor-panel")).toHaveLength(1);
+        expect(Number(fitOf("나"))).toBeLessThan(1);
+        expect(fitOf("나")).toBe(settle(fitsH(400)));
+        // recovery: back to the calm scale
+        statusHandler = () => res(failing(4, []));
+        await tick(1000);
+        await settleSearch();
+        for (const t of ["가", "나", "다", "라"]) expect(fitOf(t)).toBe(borderFit);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    /** right:1x1 (f=1) fits; bottom:2x1 (f=2) is the most crowded; bottom:3x1 mildly. */
+    const incidentStub = () =>
+      stubLayout(
+        () => 150,
+        (_t, el, g) =>
+          g === "bottom:2x1"
+            ? 400 * scaleOf(el, "--fit")
+            : g === "bottom:3x1"
+              ? 250 * scaleOf(el, "--fit")
+              : 150,
+      );
+
+    it("incident_fit_is_min_over_geometries", async () => {
+      const spy = incidentStub();
+      try {
+        boardHandler = () => res(styledBoard("focus", 4));
+        statusHandler = () => res(failing(4, [1]));
+        await renderPage();
+        await settleSearch();
+        expect(screen.getAllByTestId("monitor-panel")).toHaveLength(1);
+        // f=1's own geometry fits at 1; the scale comes from bottom:2x1
+        expect(fitOf("나")).toBe(settle(fitsH(400)));
+        expect(Number(fitOf("나"))).toBeLessThan(Number(settle(fitsH(250))));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("incident_fit_unchanged_when_fail_count_changes", async () => {
+      const spy = incidentStub();
+      try {
+        boardHandler = () => res(styledBoard("focus", 4));
+        statusHandler = () => res(failing(4, [1]));
+        await renderPage();
+        await settleSearch();
+        const atOne = fitOf("나");
+        expect(Number(atOne)).toBeLessThan(1);
+        statusHandler = () => res(failing(4, [0, 2]));
+        await tick(1000);
+        await settleSearch();
+        expect(screen.getAllByTestId("monitor-panel")).toHaveLength(2);
+        expect(fitOf("가")).toBe(atOne);
+        expect(fitOf("다")).toBe(atOne);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("scale_not_keyed_by_results", async () => {
+      const spy = incidentStub();
+      const incidentProbeReads = () =>
+        (spy.mock.contexts as HTMLElement[]).filter(
+          (el) =>
+            el.getAttribute("data-testid") === "probe-text" &&
+            el.closest('[data-testid="incident-probe-layout"]') !== null,
+        ).length;
+      try {
+        boardHandler = () => res(styledBoard("focus", 4));
+        statusHandler = () => res(failing(4, [1]));
+        await renderPage();
+        await settleSearch();
+        // the search did measure the incident probes (the count below is not vacuous)
+        expect(incidentProbeReads()).toBeGreaterThan(0);
+        spy.mockClear();
+        // results only: f=1 -> f=2, same titles and settings
+        statusHandler = () => res(failing(4, [0, 2]));
+        await tick(1000);
+        await settleSearch();
+        expect(screen.getAllByTestId("monitor-panel")).toHaveLength(2);
+        expect(incidentProbeReads()).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("strip_cards_share_card_fit", async () => {
+      // only the bottom:2 strip (f=2) is too tight for the card text
+      const spy = stubLayout(
+        () => 150,
+        () => 150,
+        (g, el) => (g === "bottom:2" ? 200 * scaleOf(el, "--card-fit") : 40),
+      );
+      try {
+        boardHandler = () => res(styledBoard("focus", 4));
+        statusHandler = () => res(failing(4, [1]));
+        await renderPage();
+        await settleSearch();
+        const want = settle(cardFitsH(200));
+        expect(Number(want)).toBeLessThan(1);
+        expect(screen.getAllByTestId("strip-card")).toHaveLength(3);
+        for (const t of ["가", "다", "라"]) expect(cardFitOf(t)).toBe(want);
+        // another fail count: the remaining cards keep the same card scale
+        statusHandler = () => res(failing(4, [0, 2]));
+        await tick(1000);
+        await settleSearch();
+        expect(screen.getAllByTestId("strip-card")).toHaveLength(2);
+        for (const t of ["나", "라"]) expect(cardFitOf(t)).toBe(want);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   it("toolbar_in_flow_below_panels_not_fixed", async () => {

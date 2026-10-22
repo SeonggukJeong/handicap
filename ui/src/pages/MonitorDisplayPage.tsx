@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
@@ -6,20 +6,27 @@ import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullsc
 import { ApiError } from "../api/client";
 import { MonitorPanel, PanelProbe, type PanelMeasure } from "../components/monitor/MonitorPanel";
 import { StripCard } from "../components/monitor/StripCard";
+import { FocusProbes } from "../components/monitor/FocusProbes";
 import {
   FONT_SCALE,
+  focusGeometries,
   focusLayout,
-  gridFor,
+  formatMs,
   panelState,
   type FocusLayout,
   type PanelState,
 } from "../monitor/logic";
-import { COLOR, MIN_FIT, nextSearch, requiredFit, type ScaleSearch } from "../monitor/display";
+import {
+  COLOR,
+  focusMainStyle,
+  panelGridStyle,
+  requiredFit,
+  stripGridStyle,
+} from "../monitor/display";
+import { useScaleSearch, type ProbeReport } from "../monitor/useScaleSearch";
 import { formatHms } from "../monitor/time";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
 import { ko } from "../i18n/ko";
-
-const SEARCH_START: ScaleSearch = { lo: MIN_FIT, hi: 1, cand: 1, done: false };
 
 /** Consecutive failed status polls after which the server counts as down. */
 const SERVER_DOWN_AFTER = 3;
@@ -30,6 +37,13 @@ const isNotFound = (e: unknown) => e instanceof ApiError && e.status === 404;
 const CURSOR_HIDE_MS = 3000;
 
 const FONT_FAMILY = '"Pretendard", "Noto Sans KR", system-ui, sans-serif';
+
+/** A panel probe's measurement as a scale-search report. */
+const probeReport = (m: PanelMeasure): ProbeReport => ({
+  fit: m.fit,
+  need: requiredFit(m),
+  reasonNeed: m.reasonNeed,
+});
 
 /** Which panel states blink for a board setting (spec 7.5). Config/stale never blink. */
 function blinks(mode: Blink, state: PanelState): boolean {
@@ -78,48 +92,12 @@ export function MonitorDisplayPage() {
   const [cursorIdle, setCursorIdle] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
-  // One text scale for the whole board (spec §7.3 극단값 표시 정책), fixed by the
-  // settings and the viewport only (축소 비율은 설정으로 고정). Invisible size
-  // probes lay out each panel's worst-case settings text; when settings or the
-  // viewport change, a binary search over [MIN_FIT, 1] finds the largest scale
-  // at which every probe fits (wrapping makes the need non-linear, so a single
-  // proportional step can overshoot). Live results never feed it, and the panels
-  // only take the result once the search is done.
-  const [fit, setFit] = useState(1);
-  const [search, setSearch] = useState<ScaleSearch>(SEARCH_START);
-  const searchRef = useRef(search);
-  searchRef.current = search;
-  const probeOk = useRef(new Map<string, boolean>());
-  // Reason line's own scale (R18), read from the probes once the search is done.
-  const [reasonFit, setReasonFit] = useState(1);
-  const reasonNeeds = useRef(new Map<string, number>());
-  const probeCount = useRef(0);
   const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
   useEffect(() => {
     const onResize = () => setViewport(`${window.innerWidth}x${window.innerHeight}`);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const onProbe = useCallback((id: string, m: PanelMeasure) => {
-    const cur = searchRef.current;
-    if (m.fit !== cur.cand) return;
-    if (cur.done) {
-      reasonNeeds.current.set(id, m.reasonNeed);
-      if (reasonNeeds.current.size < probeCount.current) return;
-      const r = Math.min(1, ...reasonNeeds.current.values());
-      setReasonFit((prev) => (Math.abs(prev - r) < 0.0001 ? prev : r));
-      return;
-    }
-    probeOk.current.set(id, !Number.isFinite(requiredFit(m)));
-    if (probeOk.current.size < probeCount.current) return;
-    const ok = [...probeOk.current.values()].every(Boolean);
-    probeOk.current.clear();
-    const next = nextSearch(cur, ok);
-    searchRef.current = next;
-    setSearch(next);
-    if (next.done) setFit(next.lo);
-  }, []);
-
   const boardQ = useQuery({
     queryKey: monitorKey(id),
     queryFn: () => getBoard(id),
@@ -244,20 +222,37 @@ export function MonitorDisplayPage() {
         : "pending";
     return { p, ps, latest, state };
   });
-  // Settings + viewport only — never live results (spec §7.3).
+  // Settings + viewport only — never live results (spec §7.3): not the states,
+  // not the fail count, not the C layout of the moment.
+  const displayStyle = board?.config.display_style;
   const scaleKey = [
     viewport,
     full ? "full" : "win",
     fontScale,
+    displayStyle ?? "",
     ...(board?.config.panels ?? []).map((p) => `${p.id}|${p.title}|${p.timeout_seconds}`),
   ].join("\n");
-  probeCount.current = board?.config.panels.length ?? 0;
-  useLayoutEffect(() => {
-    probeOk.current.clear();
-    reasonNeeds.current.clear();
-    searchRef.current = SEARCH_START;
-    setSearch(SEARCH_START);
-  }, [scaleKey]);
+  // Text scales, each one per board and fixed by settings (spec §7.3 극단값 표시
+  // 정책, §6.3 C 글자 크기), see useScaleSearch:
+  // - normal: the board grid (B, A, and C with no or every panel failing);
+  // - incident: C's big panels, the min over every big-area geometry (f=1..n-1);
+  // - card: C's strip cards, the min over every strip geometry.
+  const panelCount = board?.config.panels.length ?? 0;
+  const isFocus = displayStyle === "focus";
+  const geometries = isFocus ? focusGeometries(panelCount) : null;
+  const normal = useScaleSearch(scaleKey, panelCount);
+  const incident = useScaleSearch(scaleKey, (geometries?.big.length ?? 0) * panelCount);
+  const card = useScaleSearch(scaleKey, geometries?.strip.length ?? 0);
+  const normalReport = normal.report;
+  const incidentReport = incident.report;
+  const onProbe = useCallback(
+    (id: string, m: PanelMeasure) => normalReport(id, probeReport(m)),
+    [normalReport],
+  );
+  const onIncidentProbe = useCallback(
+    (id: string, m: PanelMeasure) => incidentReport(id, probeReport(m)),
+    [incidentReport],
+  );
 
   if (isNotFound(statusQ.error) || boardNotFound) {
     return <FullScreenMessage>{ko.monitor.notFound}</FullScreenMessage>;
@@ -286,32 +281,12 @@ export function MonitorDisplayPage() {
       ? `${lastCheck} · ${ko.monitor.everyN(panels[0].interval_seconds)}`
       : lastCheck;
 
-  const gridOf = (n: number): React.CSSProperties => {
-    const { cols, rows } = gridFor(n);
-    return {
-      display: "grid",
-      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-      gap: "1vw",
-    };
-  };
-  const gridStyle: React.CSSProperties = { ...gridOf(panels.length), padding: "1vw" };
-  const layout: FocusLayout =
-    board.config.display_style === "focus"
-      ? focusLayout(views.map((v) => v.state))
-      : { kind: "grid" };
+  const gridStyle: React.CSSProperties = { ...panelGridStyle(panels.length), padding: "1vw" };
+  const layout: FocusLayout = isFocus ? focusLayout(views.map((v) => v.state)) : { kind: "grid" };
   const mainStyle: React.CSSProperties =
-    layout.kind === "focus"
-      ? {
-          display: "grid",
-          gap: "1vw",
-          padding: "1vw",
-          ...(layout.side === "right"
-            ? { gridTemplateColumns: "3fr 1fr", gridTemplateRows: "minmax(0, 1fr)" }
-            : { gridTemplateRows: "3fr 1fr", gridTemplateColumns: "minmax(0, 1fr)" }),
-        }
-      : gridStyle;
-  const renderPanel = (v: (typeof views)[number]) => (
+    layout.kind === "focus" ? focusMainStyle(layout.side) : gridStyle;
+  // Big C panels take the incident scale; every grid panel the normal one.
+  const renderPanel = (v: (typeof views)[number], scale: { fit: number; reasonFit: number }) => (
     <MonitorPanel
       key={v.p.id}
       panel={v.p}
@@ -320,11 +295,12 @@ export function MonitorDisplayPage() {
       fontScale={fontScale}
       blinkOn={blinks(board.config.blink, v.state)}
       showInterval={!sameInterval}
-      fit={fit}
-      reasonFit={reasonFit}
+      fit={scale.fit}
+      reasonFit={scale.reasonFit}
       displayStyle={board.config.display_style}
     />
   );
+  const cardMs = formatMs(Math.max(0, ...panels.map((p) => p.timeout_seconds)) * 1000);
 
   return (
     <div
@@ -361,24 +337,12 @@ export function MonitorDisplayPage() {
       <main className="relative min-h-0 flex-1" style={mainStyle}>
         {layout.kind === "focus" ? (
           <>
-            <div className="min-h-0 min-w-0" style={gridOf(layout.big.length)}>
-              {layout.big.map((i) => renderPanel(views[i]))}
+            <div className="min-h-0 min-w-0" style={panelGridStyle(layout.big.length)}>
+              {layout.big.map((i) => renderPanel(views[i], incident))}
             </div>
             <div
               className="min-h-0 min-w-0"
-              style={{
-                display: "grid",
-                gap: "1vw",
-                ...(layout.side === "right"
-                  ? {
-                      gridTemplateColumns: "minmax(0, 1fr)",
-                      gridTemplateRows: `repeat(${layout.strip.length}, minmax(0, 1fr))`,
-                    }
-                  : {
-                      gridTemplateRows: "minmax(0, 1fr)",
-                      gridTemplateColumns: `repeat(${layout.strip.length}, minmax(0, 1fr))`,
-                    }),
-              }}
+              style={stripGridStyle(layout.side, layout.strip.length)}
             >
               {layout.strip.map((i) => (
                 <StripCard
@@ -388,12 +352,13 @@ export function MonitorDisplayPage() {
                   latest={views[i].latest}
                   fontScale={fontScale}
                   blinkOn={blinks(board.config.blink, views[i].state)}
+                  cardFit={card.fit}
                 />
               ))}
             </div>
           </>
         ) : (
-          views.map(renderPanel)
+          views.map((v) => renderPanel(v, normal))
         )}
         {/* Size probes: the same grid, invisible, outside the panels. */}
         <div
@@ -406,11 +371,25 @@ export function MonitorDisplayPage() {
               key={p.id}
               panel={p}
               fontScale={fontScale}
-              fit={search.cand}
+              fit={normal.cand}
+              searchDone={normal.done}
               onMeasure={onProbe}
             />
           ))}
         </div>
+        {isFocus && (
+          <FocusProbes
+            panels={panels}
+            fontScale={fontScale}
+            cardMs={cardMs}
+            incidentFit={incident.cand}
+            incidentDone={incident.done}
+            onIncidentMeasure={onIncidentProbe}
+            cardFit={card.cand}
+            cardDone={card.done}
+            onCardMeasure={card.report}
+          />
+        )}
       </main>
       {/* Windowed only: its own strip below the grid (in flow), so it never
           covers a panel; fullscreen has no toolbar and the grid takes it all. */}

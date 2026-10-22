@@ -91,6 +91,27 @@ export function focusLayout(states: PanelState[]): FocusLayout {
   return { kind: "focus", big, strip, side: big.length === 1 ? "right" : "bottom" };
 }
 
+/**
+ * Every C layout geometry an n-panel board can take (f = 1..n-1 failing),
+ * each once (first f wins): the big area's grid and the strip's card count.
+ * Keys are stable ids for the size probes (`data-geometry`).
+ */
+export function focusGeometries(n: number): {
+  big: { key: string; f: number }[];
+  strip: { key: string; f: number }[];
+} {
+  const big: { key: string; f: number }[] = [];
+  const strip: { key: string; f: number }[] = [];
+  for (let f = 1; f < n; f++) {
+    const { cols, rows } = gridFor(f);
+    const bigKey = f === 1 ? "right:1x1" : `bottom:${cols}x${rows}`;
+    const stripKey = f === 1 ? `right:${n - 1}` : `bottom:${n - f}`;
+    if (!big.some((g) => g.key === bigKey)) big.push({ key: bigKey, f });
+    if (!strip.some((g) => g.key === stripKey)) strip.push({ key: stripKey, f });
+  }
+  return { big, strip };
+}
+
 /** Inner label of the time axis ("10분"); the " 전" suffix comes from the copy key. */
 export function axisAgoLabel(barCount: number, intervalSec: number): string {
   const total = barCount * intervalSec;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { DisplayStyle, PanelConfig } from "../../api/monitors";
 import { bigValueText, formatMs, showConsecutive, type PanelState } from "../../monitor/logic";
 import {
@@ -185,28 +185,44 @@ function BigValueLine({
  * `--reason-fit` (R18). Live lines (reason, step name, consecutive fails, the
  * stopped-only `점검 꺼짐` label) never reach it, so neither scale moves during
  * an incident; those lines take room from that panel's graph instead.
+ *
+ * Memoized: the board re-renders every status poll, and a probe re-measures on
+ * every render it gets. Props are settings and search state only; `searchDone`
+ * forces the one re-measure on the render where the search completes (that
+ * measurement sets the reason scale, and `fit` may not change on that render).
  */
-export function PanelProbe({
+export const PanelProbe = memo(function PanelProbe({
   panel,
   fontScale,
   fit,
   onMeasure,
+  reportId,
+  cell,
 }: {
   panel: PanelConfig;
   fontScale: number;
   fit: number;
+  /** Changes when the board's scale search completes (re-measure trigger). */
+  searchDone: boolean;
   onMeasure: (id: string, m: PanelMeasure) => void;
+  /** Id reported with each measurement (default: the panel id). */
+  reportId?: string;
+  /** Grid cell to occupy (C incident probes stack every panel in one cell). */
+  cell?: string;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
-  useBoxMeasure(boxRef, textRef, fit, (m) => onMeasure(panel.id, m));
+  const id = reportId ?? panel.id;
+  useBoxMeasure(boxRef, textRef, fit, (m) => onMeasure(id, m));
   return (
     <div
       ref={boxRef}
       data-testid="panel-probe"
       data-title={panel.title}
       className="relative min-h-0 min-w-0"
-      style={{ containerType: "size" }}
+      style={
+        cell === undefined ? { containerType: "size" } : { containerType: "size", gridArea: cell }
+      }
     >
       <div
         className="absolute inset-0 flex flex-col overflow-hidden"
@@ -240,7 +256,7 @@ export function PanelProbe({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Graph-hide rule (spec §7.3 "글자 우선"): the panel's own text (including live
