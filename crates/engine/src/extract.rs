@@ -102,6 +102,39 @@ pub fn jsonpath_is_valid(path: &str) -> bool {
     serde_json_path::JsonPath::parse(path).is_ok()
 }
 
+/// Number of descendant (`..`) segments in `path`, counted lexically: `..` inside a
+/// quoted name selector or string literal (`'…'`/`"…"`, backslash escapes honoured)
+/// is ignored, `..` inside a filter expression counts. `serde_json_path` evaluates
+/// each descendant segment over every node the previous one produced without
+/// deduplication, so chaining them multiplies the result list (≈C(depth, k) entries
+/// on a deeply nested body). Callers that evaluate a path repeatedly and unattended
+/// cap this count. Its AST is private (`JsonPath(Query)`), hence the lexical scan.
+pub fn jsonpath_descendant_segments(path: &str) -> usize {
+    let mut count = 0;
+    let mut quote: Option<char> = None;
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                if c == '\\' {
+                    chars.next();
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None => {
+                if c == '\'' || c == '"' {
+                    quote = Some(c);
+                } else if c == '.' && chars.peek() == Some(&'.') {
+                    chars.next();
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
 pub fn stringify(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::String(s) => s.clone(),
@@ -224,6 +257,29 @@ mod tests {
         }
         for bad in ["a.b", "$.[", ""] {
             assert!(!jsonpath_is_valid(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn jsonpath_descendant_segments_counts_outside_quotes() {
+        for (path, n) in [
+            ("$.a", 0),
+            ("$", 0),
+            ("$..a", 1),
+            ("$..*", 1),
+            ("$..a..b", 2),
+            ("$..*..*..*", 3),
+            ("$['x..y']", 0),
+            ("$[\"x..y\"]", 0),
+            ("$['it\\'s..y']", 0),
+            ("$[\"a\\\"..b\"]..c", 1),
+            // `..` inside a filter expression is a real descendant query, so it counts.
+            ("$.a[?@..b]", 1),
+            ("$..a[?@..b]", 2),
+            ("$.a[?@.b == 'x..y']", 0),
+        ] {
+            assert!(jsonpath_is_valid(path), "{path} must parse");
+            assert_eq!(jsonpath_descendant_segments(path), n, "{path}");
         }
     }
 
