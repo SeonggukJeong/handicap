@@ -91,13 +91,18 @@ pub fn evaluate(
     Ok(out)
 }
 
-fn jsonpath_first(json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+pub fn jsonpath_first(json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
     use serde_json_path::JsonPath;
     let p = JsonPath::parse(path).ok()?;
     p.query(json).first().cloned()
 }
 
-fn stringify(v: &serde_json::Value) -> String {
+/// True when `path` parses as a JSONPath (RFC 9535).
+pub fn jsonpath_is_valid(path: &str) -> bool {
+    serde_json_path::JsonPath::parse(path).is_ok()
+}
+
+pub fn stringify(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Null => String::new(),
@@ -211,6 +216,16 @@ mod tests {
     use super::*;
     use crate::scenario::Decode;
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+
+    #[test]
+    fn jsonpath_is_valid_accepts_and_rejects() {
+        for ok in ["$.a", "$['a b'][0]", "$"] {
+            assert!(jsonpath_is_valid(ok), "{ok}");
+        }
+        for bad in ["a.b", "$.[", ""] {
+            assert!(!jsonpath_is_valid(bad), "{bad}");
+        }
+    }
 
     fn body_facts(body: &str) -> ResponseFacts<'_> {
         ResponseFacts {

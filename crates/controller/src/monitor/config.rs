@@ -8,6 +8,7 @@ use ulid::Ulid;
 
 pub const MAX_PANELS: usize = 9;
 pub const MAX_THRESHOLDS: usize = 5;
+pub const MAX_CONDITIONS: usize = 10;
 const NAME_MAX_CHARS: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +27,90 @@ pub enum Blink {
     Off,
     Fail,
     SlowAndFail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DisplayStyle {
+    Fill,
+    Border,
+    Focus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionSource {
+    Body,
+    Header,
+    Status,
+    BodyText,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionOp {
+    Exists,
+    NotEmpty,
+    Eq,
+    Ne,
+    Contains,
+    Gt,
+    Lt,
+}
+
+impl ConditionOp {
+    pub fn needs_value(self) -> bool {
+        matches!(
+            self,
+            Self::Eq | Self::Ne | Self::Contains | Self::Gt | Self::Lt
+        )
+    }
+
+    pub fn has_flags(self) -> bool {
+        matches!(self, Self::Eq | Self::Ne | Self::Contains)
+    }
+}
+
+impl ConditionSource {
+    pub fn allows(self, op: ConditionOp) -> bool {
+        use ConditionOp as O;
+        match self {
+            Self::Body | Self::Header => true,
+            Self::Status => matches!(op, O::Eq | O::Ne | O::Gt | O::Lt),
+            Self::BodyText => matches!(op, O::Contains | O::NotEmpty),
+        }
+    }
+}
+
+/// `s.trim().parse::<f64>()`, finite only.
+pub fn parse_finite(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Condition {
+    pub step_id: String,
+    pub source: ConditionSource,
+    pub path: String,
+    pub op: ConditionOp,
+    pub value: String,
+    pub ignore_case: bool,
+    pub trim: bool,
+}
+
+impl Default for Condition {
+    fn default() -> Self {
+        Self {
+            step_id: String::new(),
+            source: ConditionSource::Body,
+            path: String::new(),
+            op: ConditionOp::Exists,
+            value: String::new(),
+            ignore_case: false,
+            trim: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +139,7 @@ pub struct PanelConfig {
     pub thresholds: Vec<Threshold>,
     pub bar_count: u32,
     pub graph_max_ms: u32,
+    pub conditions: Vec<Condition>,
 }
 
 impl Default for PanelConfig {
@@ -69,6 +155,7 @@ impl Default for PanelConfig {
             thresholds: Vec::new(),
             bar_count: 60,
             graph_max_ms: 2000,
+            conditions: Vec::new(),
         }
     }
 }
@@ -78,6 +165,7 @@ impl Default for PanelConfig {
 pub struct BoardConfig {
     pub font_scale: FontScale,
     pub blink: Blink,
+    pub display_style: DisplayStyle,
     pub panels: Vec<PanelConfig>,
 }
 
@@ -86,6 +174,7 @@ impl Default for BoardConfig {
         Self {
             font_scale: FontScale::Large,
             blink: Blink::Fail,
+            display_style: DisplayStyle::Border,
             panels: Vec::new(),
         }
     }
@@ -150,6 +239,56 @@ pub fn validate_panel(p: &mut PanelConfig) -> Result<(), String> {
     if !in_range(p.graph_max_ms, 100, 600_000) {
         return Err("그래프 최대값은 100~600000ms여야 합니다".into());
     }
+    validate_conditions(&mut p.conditions)
+}
+
+fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
+    if conds.len() > MAX_CONDITIONS {
+        return Err(format!(
+            "성공 조건은 최대 {MAX_CONDITIONS}개까지 설정할 수 있습니다"
+        ));
+    }
+    for c in conds {
+        if Ulid::from_string(&c.step_id).is_err() {
+            return Err("조건 스텝 id가 올바른 ULID 형식이 아닙니다".into());
+        }
+        if !c.source.allows(c.op) {
+            return Err("이 대상에 쓸 수 없는 조건 규칙입니다".into());
+        }
+        match c.source {
+            ConditionSource::Body => {
+                if !(1..=500).contains(&c.path.chars().count()) {
+                    return Err("본문 경로는 1~500자여야 합니다".into());
+                }
+                if !handicap_engine::extract::jsonpath_is_valid(&c.path) {
+                    return Err("본문 경로(JSONPath)가 올바르지 않습니다".into());
+                }
+            }
+            ConditionSource::Header => {
+                c.path = c.path.trim().to_string();
+                if !(1..=200).contains(&c.path.chars().count()) {
+                    return Err("헤더 이름은 1~200자여야 합니다".into());
+                }
+            }
+            ConditionSource::Status | ConditionSource::BodyText => c.path.clear(),
+        }
+        if !c.op.needs_value() {
+            c.value.clear();
+        }
+        if !c.op.has_flags() {
+            c.ignore_case = false;
+            c.trim = false;
+        }
+        if c.value.chars().count() > 200 {
+            return Err("비교값은 200자 이하여야 합니다".into());
+        }
+        if c.op == ConditionOp::Contains && c.value.is_empty() {
+            return Err("포함 조건의 비교값을 입력해야 합니다".into());
+        }
+        if matches!(c.op, ConditionOp::Gt | ConditionOp::Lt) && parse_finite(&c.value).is_none() {
+            return Err("크다·작다 조건의 비교값은 숫자여야 합니다".into());
+        }
+    }
     Ok(())
 }
 
@@ -208,6 +347,12 @@ mod tests {
         assert_eq!(p.latency_source, LatencySource::Total);
         assert_eq!(p.environment_id, None);
         assert_eq!(p.id, "");
+        assert_eq!(c.display_style, DisplayStyle::Border);
+        assert!(p.conditions.is_empty());
+        let cd: Condition = serde_json::from_str(r#"{"step_id":"S"}"#).unwrap();
+        assert_eq!(cd.source, ConditionSource::Body);
+        assert_eq!(cd.op, ConditionOp::Exists);
+        assert!(!cd.ignore_case && !cd.trim);
     }
 
     #[test]
@@ -232,6 +377,44 @@ mod tests {
             assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
             assert_eq!(
                 serde_json::from_str::<Blink>(&format!("\"{s}\"")).unwrap(),
+                v
+            );
+        }
+        for (v, s) in [
+            (DisplayStyle::Fill, "fill"),
+            (DisplayStyle::Border, "border"),
+            (DisplayStyle::Focus, "focus"),
+        ] {
+            assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
+            assert_eq!(
+                serde_json::from_str::<DisplayStyle>(&format!("\"{s}\"")).unwrap(),
+                v
+            );
+        }
+        for (v, s) in [
+            (ConditionSource::Body, "body"),
+            (ConditionSource::Header, "header"),
+            (ConditionSource::Status, "status"),
+            (ConditionSource::BodyText, "body_text"),
+        ] {
+            assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
+            assert_eq!(
+                serde_json::from_str::<ConditionSource>(&format!("\"{s}\"")).unwrap(),
+                v
+            );
+        }
+        for (v, s) in [
+            (ConditionOp::Exists, "exists"),
+            (ConditionOp::NotEmpty, "not_empty"),
+            (ConditionOp::Eq, "eq"),
+            (ConditionOp::Ne, "ne"),
+            (ConditionOp::Contains, "contains"),
+            (ConditionOp::Gt, "gt"),
+            (ConditionOp::Lt, "lt"),
+        ] {
+            assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
+            assert_eq!(
+                serde_json::from_str::<ConditionOp>(&format!("\"{s}\"")).unwrap(),
                 v
             );
         }
@@ -369,5 +552,158 @@ mod tests {
         let mut p = panel();
         assert!(validate_panel(&mut p).is_ok());
         assert!(!p.id.is_empty());
+    }
+
+    fn cond(source: ConditionSource, op: ConditionOp, path: &str, value: &str) -> Condition {
+        Condition {
+            step_id: ULID_A.into(),
+            source,
+            path: path.into(),
+            op,
+            value: value.into(),
+            ..Condition::default()
+        }
+    }
+
+    fn with(c: Condition) -> PanelConfig {
+        PanelConfig {
+            conditions: vec![c],
+            ..panel()
+        }
+    }
+
+    #[test]
+    fn conditions_validate_rejects() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        let mut bad_step = cond(S::Body, O::Exists, "$.a", "");
+        bad_step.step_id = "x".into();
+        let cases: Vec<(PanelConfig, &str)> = vec![
+            (
+                PanelConfig {
+                    conditions: (0..11)
+                        .map(|_| cond(S::Body, O::Exists, "$.a", ""))
+                        .collect(),
+                    ..panel()
+                },
+                "성공 조건은 최대 10개까지 설정할 수 있습니다",
+            ),
+            (with(bad_step), "조건 스텝 id가 올바른 ULID 형식이 아닙니다"),
+            (
+                with(cond(S::Status, O::Exists, "", "")),
+                "이 대상에 쓸 수 없는 조건 규칙입니다",
+            ),
+            (
+                with(cond(S::BodyText, O::Eq, "", "a")),
+                "이 대상에 쓸 수 없는 조건 규칙입니다",
+            ),
+            (
+                with(cond(S::Body, O::Exists, "", "")),
+                "본문 경로는 1~500자여야 합니다",
+            ),
+            (
+                with(cond(
+                    S::Body,
+                    O::Exists,
+                    &format!("$.{}", "a".repeat(499)),
+                    "",
+                )),
+                "본문 경로는 1~500자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Exists, "a.b", "")),
+                "본문 경로(JSONPath)가 올바르지 않습니다",
+            ),
+            (
+                with(cond(S::Header, O::Exists, "   ", "")),
+                "헤더 이름은 1~200자여야 합니다",
+            ),
+            (
+                with(cond(S::Header, O::Exists, &"h".repeat(201), "")),
+                "헤더 이름은 1~200자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Eq, "$.a", &"v".repeat(201))),
+                "비교값은 200자 이하여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Contains, "$.a", "")),
+                "포함 조건의 비교값을 입력해야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Gt, "$.a", "abc")),
+                "크다·작다 조건의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Gt, "$.a", "inf")),
+                "크다·작다 조건의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Lt, "$.a", "")),
+                "크다·작다 조건의 비교값은 숫자여야 합니다",
+            ),
+        ];
+        for (mut p, msg) in cases {
+            assert_eq!(validate_panel(&mut p), Err(msg.to_string()), "{msg}");
+        }
+    }
+
+    #[test]
+    fn conditions_validate_normalizes() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        let mut p = with(cond(S::Status, O::Eq, "$.x", "200"));
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.conditions[0].path, "");
+        assert_eq!(p.conditions[0].value, "200");
+
+        let mut p = with(cond(S::BodyText, O::Contains, "$.x", "ok"));
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.conditions[0].path, "");
+
+        let mut p = with(cond(S::Body, O::Exists, "$.a", "z"));
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.conditions[0].value, "");
+
+        let mut p = with(cond(S::Body, O::Exists, "$.a", &"v".repeat(201)));
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.conditions[0].value, "");
+
+        let mut c = cond(S::Body, O::Gt, "$.a", "1");
+        c.ignore_case = true;
+        c.trim = true;
+        let mut p = with(c);
+        validate_panel(&mut p).unwrap();
+        assert!(!p.conditions[0].ignore_case && !p.conditions[0].trim);
+
+        let mut p = with(cond(S::Header, O::Exists, "  X-A ", ""));
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.conditions[0].path, "X-A");
+
+        let mut c = cond(S::Body, O::Eq, "$.a", "v");
+        c.ignore_case = true;
+        let mut p = with(c);
+        validate_panel(&mut p).unwrap();
+        assert!(p.conditions[0].ignore_case);
+    }
+
+    #[test]
+    fn conditions_validate_accepts_boundaries() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        let mut p = PanelConfig {
+            conditions: (0..10)
+                .map(|_| cond(S::Body, O::Exists, "$.a", ""))
+                .collect(),
+            ..panel()
+        };
+        assert!(validate_panel(&mut p).is_ok());
+        let long = format!("$.{}", "a".repeat(498));
+        assert_eq!(long.chars().count(), 500);
+        assert!(validate_panel(&mut with(cond(S::Body, O::Exists, &long, ""))).is_ok());
+        assert!(validate_panel(&mut with(cond(S::Body, O::Eq, "$.a", &"v".repeat(200)))).is_ok());
+        assert!(validate_panel(&mut with(cond(S::Body, O::Gt, "$.a", " 12.5 "))).is_ok());
+        assert_eq!(parse_finite(" 12.5 "), Some(12.5));
+        assert_eq!(parse_finite("inf"), None);
     }
 }
