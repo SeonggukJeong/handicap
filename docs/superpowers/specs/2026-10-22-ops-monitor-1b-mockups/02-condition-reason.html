@@ -1,0 +1,34 @@
+<h2>조건 실패 사유 — 큰 줄 = 값, 작은 줄 = 무엇을 봤는지 (확정)</h2>
+<p class="subtitle">[사용자 2026-10-22] 공간이 모자랄 때 더 중요한 건 <b>값</b>("어떤 조건을 걸었는지는 아니까"). 넘치면 각 줄 끝을 <code>…</code>(프론트). 글자 크기는 ①a대로 설정·화면 크기로만 고정 — 장애 중 불변(A·B). 서버는 값을 저장 상한(약 200자)으로만 자름(메모리·1초 폴링 크기 보호 — 표시용 아님).</p>
+
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;background:#0b1220;padding:14px;border-radius:8px">
+  <div style="border:4px solid #ef4444;border-radius:10px;padding:14px;color:#fff;font-family:sans-serif;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:22px;font-weight:700"><span>더비온 1.0</span><span style="color:#ef4444">✖ 실패</span></div>
+    <div style="font-size:34px;font-weight:800;color:#ef4444;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">E1023</div>
+    <div style="font-size:15px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">resultCode · 같음 0000 · 로그인</div>
+    <div style="font-size:16px;color:#fca5a5;margin-top:4px">3회 연속 · 14:31:50부터</div>
+    <div style="height:60px;margin-top:10px;background:repeating-linear-gradient(90deg,#22c55e 0 10px,transparent 10px 14px);opacity:.8"></div>
+    <div style="color:#94a3b8;font-size:12px;margin-top:6px">① 짧은 값</div>
+  </div>
+  <div style="border:4px solid #ef4444;border-radius:10px;padding:14px;color:#fff;font-family:sans-serif;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:22px;font-weight:700"><span>더비온 2.0</span><span style="color:#ef4444">✖ 실패</span></div>
+    <div style="font-size:34px;font-weight:800;color:#ef4444;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">일시적인 시스템 점검으로 로그인이 불가합니다. 잠시 후 다시 시도해 주세요</div>
+    <div style="font-size:15px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">data.result.detail.message · 같음 정상 처리되었습니다 · 로그인</div>
+    <div style="font-size:16px;color:#fca5a5;margin-top:4px">3회 연속 · 14:31:50부터</div>
+    <div style="height:60px;margin-top:10px;background:repeating-linear-gradient(90deg,#22c55e 0 10px,transparent 10px 14px);opacity:.8"></div>
+    <div style="color:#94a3b8;font-size:12px;margin-top:6px">② 긴 값·긴 경로 — 두 줄 모두 끝을 …, 줄 수·글자 크기 불변</div>
+  </div>
+  <div style="border:4px solid #ef4444;border-radius:10px;padding:14px;color:#fff;font-family:sans-serif;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:22px;font-weight:700"><span>회원 조회</span><span style="color:#ef4444">✖ 실패</span></div>
+    <div style="font-size:34px;font-weight:800;color:#ef4444;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">비어 있음</div>
+    <div style="font-size:15px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">data.accessToken · 비어 있지 않음 · 로그인</div>
+    <div style="color:#94a3b8;font-size:12px;margin-top:6px">③ 값이 빈 문자열/null → "비어 있음", 경로 자체가 없으면 "값 없음"</div>
+  </div>
+  <div style="border:4px solid #ef4444;border-radius:10px;padding:14px;color:#fff;font-family:sans-serif;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:22px;font-weight:700"><span>결제 확인</span><span style="color:#ef4444">✖ 실패</span></div>
+    <div style="font-size:34px;font-weight:800;color:#ef4444;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"OK" 포함 안 됨</div>
+    <div style="font-size:15px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">본문 전체 · 포함 OK · 결제 상태</div>
+    <div style="color:#94a3b8;font-size:12px;margin-top:6px">④ "본문 전체 · 포함" 조건 — 본문을 보여주지 않고 <b>찾던 문자열</b>을 큰 줄에 [사용자 승인]</div>
+  </div>
+</div>
+<p style="margin-top:10px;font-size:13px">상태코드·시간 초과 등 시나리오 자체 판정 사유(<code>HTTP 503</code>)는 ①a 그대로. A·B·C 모든 방식에서 같은 사유 규칙.</p>

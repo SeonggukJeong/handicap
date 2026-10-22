@@ -1,0 +1,34 @@
+<style>
+  .scr{background:#0b1220;border-radius:8px;padding:8px;aspect-ratio:16/9;display:flex;flex-direction:column;gap:6px;font-family:sans-serif;color:#fff}
+  .hd{font-size:12px;color:#94a3b8;display:flex;justify-content:space-between}
+  .row{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;min-height:0}
+  .p{border-radius:8px;padding:10px;display:flex;flex-direction:column;min-width:0;min-height:0}
+  .top{display:flex;justify-content:space-between;font-weight:800;font-size:16px}
+  .v{font-size:26px;font-weight:800;margin-top:4px}
+  .inset{flex:1;margin-top:8px;background:#0b1220;border-radius:5px;padding:4px;display:flex;align-items:flex-end;gap:2px}
+  .bare{flex:1;margin-top:8px;display:flex;align-items:flex-end;gap:2px}
+  .inset i,.bare i{flex:1;display:block}
+</style>
+<h2>A 방식(신호등) — 칸 배경 = 상태 색, 그래프는 어두운 상자 안 (확정)</h2>
+<p class="subtitle">초록 배경 위 초록 막대는 안 보이므로 그래프만 어두운 상자에 넣고 B 방식과 같은 색 규칙(초록·기준선 색·실패 빨강 빗금)을 유지. 느림 칸 배경 = 넘은 기준선 색.</p>
+
+<div class="options">
+  <div class="option" data-choice="a1" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content" style="width:100%">
+      <h3>그래프만 어두운 상자 안에</h3>
+      <p>칸 배경은 상태 색, 그래프는 B 방식과 똑같은 색(초록·기준선 색·빨강 빗금)을 어두운 상자 안에서 유지.</p>
+      <div class="scr"><div class="hd"><b>SKT 회선</b><span>마지막 점검 14:32:10</span></div>
+        <div class="row">
+          <div class="p" style="background:#15803d"><div class="top"><span>더비온 1.0</span><span>✔ 정상</span></div><div class="v">412 ms</div>
+            <div class="inset"><i style="height:30%;background:#22c55e"></i><i style="height:35%;background:#22c55e"></i><i style="height:28%;background:#22c55e"></i><i style="height:60%;background:#facc15"></i><i style="height:33%;background:#22c55e"></i><i style="height:31%;background:#22c55e"></i><i style="height:29%;background:#22c55e"></i><i style="height:34%;background:#22c55e"></i></div></div>
+          <div class="p" style="background:#ca8a04"><div class="top"><span>더비온 2.0</span><span>▲ 느림</span></div><div class="v">1,350 ms</div>
+            <div class="inset"><i style="height:30%;background:#22c55e"></i><i style="height:40%;background:#22c55e"></i><i style="height:55%;background:#facc15"></i><i style="height:62%;background:#facc15"></i><i style="height:70%;background:#facc15"></i><i style="height:66%;background:#facc15"></i><i style="height:72%;background:#facc15"></i><i style="height:75%;background:#facc15"></i></div></div>
+          <div class="p" style="background:#b91c1c"><div class="top"><span>결제 확인</span><span>✖ 실패</span></div><div class="v">HTTP 503</div>
+            <div class="inset"><i style="height:30%;background:#22c55e"></i><i style="height:32%;background:#22c55e"></i><i style="height:29%;background:#22c55e"></i><i style="height:31%;background:#22c55e"></i><i style="height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 3px,#7f1d1d 3px 6px)"></i><i style="height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 3px,#7f1d1d 3px 6px)"></i><i style="height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 3px,#7f1d1d 3px 6px)"></i><i style="height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 3px,#7f1d1d 3px 6px)"></i></div></div>
+        </div></div>
+    </div>
+  </div>
+
+</div>
+<p style="margin-top:10px;font-size:13px">[사용자 2026-10-22] <b>1안 채택</b>("시인성이 더 낫네"). 기각: 흰색 반투명 막대를 칸 위에 직접(기준선 색 정보 소실). 설정 오류·확인 불가 칸 = 회색 배경, 글자 = 흰색 [Claude].</p>

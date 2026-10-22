@@ -1,0 +1,51 @@
+<h2>성공 조건 만들기 — 미리 실행 결과에서 클릭</h2>
+<p class="subtitle">왼쪽 = 설정 화면의 칸 하나(미리 실행 후), 오른쪽 = 조건이 깨졌을 때 벽 화면의 그 칸. 예시 응답은 가상입니다. 본문 값뿐 아니라 상태코드·헤더 값에도 "+ 조건", JSON이 아닌 본문은 "본문 전체 · 포함". 조건 줄의 기본 = 지금 값 + "같음".</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">설정 화면 · 칸 "더비온 1.0" · 미리 실행 결과</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.6">
+      <div style="margin-bottom:8px"><b>판정</b> ✔ 정상 · 412 ms</div>
+
+      <div style="border:1px solid #cbd5e1;border-radius:6px;padding:8px;background:#fff">
+        <div><b>스텝</b> 로그인 &nbsp; <b>상태</b> 200 <span style="color:#4f46e5;cursor:pointer;margin-left:6px">+ 조건</span> &nbsp; <b>응답</b> 412 ms</div>
+        <div style="margin-top:6px;color:#64748b;font-size:12px">응답 본문 — 값을 누르면 조건을 만듭니다</div>
+        <pre style="margin:4px 0 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:6px;font-size:12px;white-space:pre">{
+  "resultCode": <span style="background:#e0e7ff;outline:2px solid #6366f1;border-radius:3px;padding:0 2px">"0000"</span>,
+  "message": <span style="text-decoration:underline dotted;color:#0f172a">"OK"</span>,
+  "data": {
+    "accessToken": <span style="text-decoration:underline dotted">"eyJhbGciOi…"</span>,
+    "expiresIn": <span style="text-decoration:underline dotted">3600</span>
+  }
+}</pre>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#eef2ff;border-radius:4px;padding:6px;font-size:12px">
+          <code style="background:#fff;padding:1px 4px;border-radius:3px">resultCode</code>
+          <select style="font-size:12px"><option>같음</option><option>같지 않음</option><option>값이 있음</option><option>비어 있지 않음</option><option>포함</option><option>숫자 크다</option><option>숫자 작다</option></select>
+          <input value="0000" style="width:70px;font-size:12px">
+          <button style="background:#4f46e5;color:#fff;border:0;border-radius:3px;padding:2px 8px">추가</button>
+          <button style="border:0;border-radius:3px;padding:2px 8px">취소</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px"><b>성공 조건</b> <span style="color:#64748b">(모두 만족해야 정상 · 시나리오 자체 판정에 더해서)</span></div>
+      <ul style="margin:4px 0 0;padding-left:18px">
+        <li>로그인 · 본문 <code>data.accessToken</code> <b>비어 있지 않음</b> <span style="color:#94a3b8">✎ 🗑</span></li>
+        <li>로그인 · 본문 <code>resultCode</code> <b>같음</b> <code>0000</code> <span style="color:#94a3b8">✎ 🗑</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">벽 화면 · 조건이 깨진 칸 (B 방식)</div>
+    <div class="mockup-body" style="background:#0b1220;padding:14px">
+      <div style="border:4px solid #ef4444;border-radius:10px;padding:14px;color:#fff;font-family:sans-serif">
+        <div style="display:flex;justify-content:space-between;font-size:22px;font-weight:700"><span>더비온 1.0</span><span style="color:#ef4444">✖ 실패</span></div>
+        <div style="font-size:36px;font-weight:800;color:#ef4444;margin-top:6px">E1023</div>
+        <div style="font-size:15px;color:#cbd5e1">resultCode · 같음 0000 · 로그인</div>
+        <div style="font-size:16px;color:#fca5a5;margin-top:4px">3회 연속 · 14:31:50부터</div>
+        <div style="height:70px;margin-top:10px;background:repeating-linear-gradient(90deg,#22c55e 0 10px,transparent 10px 14px);opacity:.8"></div>
+      </div>
+      <div style="color:#94a3b8;font-size:12px;margin-top:8px">사유 표시 규칙 정본 → <code>02-condition-reason.html</code> (큰 줄 = 값, 작은 줄 = 경로·규칙 비교값·스텝)</div>
+    </div>
+  </div>
+</div>

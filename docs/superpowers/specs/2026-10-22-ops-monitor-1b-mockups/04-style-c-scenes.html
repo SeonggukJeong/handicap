@@ -1,0 +1,57 @@
+<style>
+  .scr{background:#0b1220;border-radius:8px;padding:8px;aspect-ratio:16/9;display:flex;flex-direction:column;gap:6px;font-family:sans-serif;color:#fff}
+  .hd{font-size:11px;color:#94a3b8;display:flex;justify-content:space-between}
+  .ok{background:#111a23;border:2px solid #1f6f3f;border-radius:6px;padding:6px;min-width:0;min-height:0}
+  .bad{background:#2a0d0d;border:4px solid #ef4444;border-radius:8px;padding:8px;min-width:0;min-height:0;display:flex;flex-direction:column}
+  .t{font-weight:700}.g{color:#4ade80}.r{color:#ef4444}
+  .bars{flex:1;margin-top:6px;background:repeating-linear-gradient(90deg,#22c55e 0 6px,transparent 6px 9px);opacity:.7;min-height:10px}
+  .scenes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .cap{font-size:13px;margin:6px 0 0}
+</style>
+<h2>C 방식 — "평소엔 조용히, 실패만 크게"를 칸 4개로 그려 보면</h2>
+<p class="subtitle">세 장면은 같은 보드(칸 4개)가 시간에 따라 변하는 모습. [사용자 2026-10-22] "맞아" — 이 세 장면이 C의 정본. 확대 대상 = <b>✖ 실패만</b>([사용자]: "색상으로 충분히 인지할 수 있으니까, 실패한 칸만 키우자" — 느림·설정 오류·확인 불가는 색만). 모든 칸이 실패면 확대 대상이 없으므로 평소처럼 같은 크기 [Claude]. 복구되면 원래 배치.</p>
+
+<div class="scenes">
+  <!-- all ok -->
+  <div>
+    <div class="scr">
+      <div class="hd"><b>SKT 회선</b><span>14:32:10</span></div>
+      <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px">
+        <div class="ok"><div class="t" style="font-size:13px">더비온 1.0</div><div class="g" style="font-size:12px">✔ 정상 · 412 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:13px">더비온 2.0</div><div class="g" style="font-size:12px">✔ 정상 · 388 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:13px">회원 조회</div><div class="g" style="font-size:12px">✔ 정상 · 120 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:13px">결제 확인</div><div class="g" style="font-size:12px">✔ 정상 · 95 ms</div></div>
+      </div>
+    </div>
+    <p class="cap">① 모두 정상 — 어둡고 차분한 같은 크기 칸</p>
+  </div>
+
+  <!-- one fail -->
+  <div>
+    <div class="scr">
+      <div class="hd"><b>SKT 회선</b><span>14:32:20</span></div>
+      <div style="flex:1;display:grid;grid-template-columns:3fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:6px;min-height:0">
+        <div class="bad" style="grid-row:1/4"><div style="display:flex;justify-content:space-between;font-size:15px" class="t"><span>더비온 2.0</span><span class="r">✖ 실패</span></div><div class="r" style="font-size:26px;font-weight:800">HTTP 503</div><div style="font-size:11px;color:#fca5a5">3회 연속 · 14:31:50부터</div><div class="bars"></div></div>
+        <div class="ok"><div class="t" style="font-size:10px">더비온 1.0</div><div class="g" style="font-size:10px">✔ 412 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:10px">회원 조회</div><div class="g" style="font-size:10px">✔ 120 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:10px">결제 확인</div><div class="g" style="font-size:10px">✔ 95 ms</div></div>
+      </div>
+    </div>
+    <p class="cap">② 1개 실패 — 실패 칸이 화면 대부분, 나머지는 옆에 작게</p>
+  </div>
+
+  <!-- two fail -->
+  <div>
+    <div class="scr">
+      <div class="hd"><b>SKT 회선</b><span>14:32:30</span></div>
+      <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:3fr 1fr;gap:6px;min-height:0">
+        <div class="bad"><div class="t" style="font-size:13px">더비온 2.0</div><div class="r t" style="font-size:12px">✖ 실패</div><div class="r" style="font-size:20px;font-weight:800">HTTP 503</div><div class="bars"></div></div>
+        <div class="bad"><div class="t" style="font-size:13px">결제 확인</div><div class="r t" style="font-size:12px">✖ 실패</div><div class="r" style="font-size:20px;font-weight:800">시간 초과(5초)</div><div class="bars"></div></div>
+        <div class="ok"><div class="t" style="font-size:10px">더비온 1.0</div><div class="g" style="font-size:10px">✔ 412 ms</div></div>
+        <div class="ok"><div class="t" style="font-size:10px">회원 조회</div><div class="g" style="font-size:10px">✔ 120 ms</div></div>
+      </div>
+    </div>
+    <p class="cap">③ 2개 실패 — 실패 칸 둘이 큰 자리를 나눠 쓰고, 정상 칸은 아래 띠로</p>
+  </div>
+</div>
+<p style="margin-top:12px;font-size:13px;color:#64748b">작게 줄어든 정상 칸에는 막대 그래프를 빼고 제목·상태·ms만 둡니다(제 제안).</p>
