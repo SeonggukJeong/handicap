@@ -24,6 +24,30 @@ export type LatencySource = z.infer<typeof LatencySourceSchema>;
 export const ThresholdSchema = z.object({ ms: z.number().int(), color: z.string() });
 export type Threshold = z.infer<typeof ThresholdSchema>;
 
+export const ConditionSourceSchema = z.enum(["body", "header", "status", "body_text"]);
+export type ConditionSource = z.infer<typeof ConditionSourceSchema>;
+export const ConditionOpSchema = z.enum([
+  "exists",
+  "not_empty",
+  "eq",
+  "ne",
+  "contains",
+  "gt",
+  "lt",
+]);
+export type ConditionOp = z.infer<typeof ConditionOpSchema>;
+
+export const ConditionSchema = z.object({
+  step_id: z.string(),
+  source: ConditionSourceSchema,
+  path: z.string(),
+  op: ConditionOpSchema,
+  value: z.string(),
+  ignore_case: z.boolean(),
+  trim: z.boolean(),
+});
+export type Condition = z.infer<typeof ConditionSchema>;
+
 export const PanelConfigSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -35,6 +59,7 @@ export const PanelConfigSchema = z.object({
   thresholds: z.array(ThresholdSchema),
   bar_count: z.number().int(),
   graph_max_ms: z.number().int(),
+  conditions: z.array(ConditionSchema),
 });
 export type PanelConfig = z.infer<typeof PanelConfigSchema>;
 
@@ -50,6 +75,7 @@ export const CheckResultSchema = z.object({
   verdict: z.enum(["ok", "fail", "config_error"]),
   latency_ms: z.number().nullable(),
   reason: z.string().nullable(),
+  detail: z.string().nullable(),
 });
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 
@@ -103,6 +129,7 @@ export function newPanel(): PanelConfig {
     thresholds: [],
     bar_count: 60,
     graph_max_ms: 2000,
+    conditions: [],
   };
 }
 

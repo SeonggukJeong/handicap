@@ -25,6 +25,7 @@ function panelCfg(over: Json = {}): Json {
     thresholds: [],
     bar_count: 60,
     graph_max_ms: 2000,
+    conditions: [],
     ...over,
   };
 }
@@ -40,7 +41,7 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
   };
 }
 function okResult(latency: number, at = T): Json {
-  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null };
+  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null };
 }
 function panelStatus(panelId: string, results: Json[], over: Json = {}): Json {
   return {
@@ -180,7 +181,7 @@ describe("MonitorDisplayPage", () => {
     statusHandler = () =>
       res(
         status([
-          panelStatus(P1, [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503" }], {
+          panelStatus(P1, [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null }], {
             consecutive_fail: 3,
             fail_since_ms: T - 20_000,
           }),
@@ -211,7 +212,7 @@ describe("MonitorDisplayPage", () => {
   });
 
   it("fail_shows_reason_and_consecutive", async () => {
-    const fail = { at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503" };
+    const fail = { at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null };
     boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
     statusHandler = () =>
       res(
@@ -424,7 +425,7 @@ describe("MonitorDisplayPage", () => {
       at_ms: T,
       verdict: "fail",
       latency_ms: null,
-      reason: "HTTP 503 · 로그인 단계",
+      reason: "HTTP 503 · 로그인 단계", detail: null,
     };
     const spy = stubLayout(
       (_t, el) => (el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150),
@@ -510,7 +511,7 @@ describe("MonitorDisplayPage", () => {
               at_ms: T,
               verdict: "config_error",
               latency_ms: null,
-              reason: "응답 시간 기준 스텝 없음",
+              reason: "응답 시간 기준 스텝 없음", detail: null,
             },
           ]),
         ]),
@@ -589,7 +590,7 @@ describe("MonitorDisplayPage", () => {
         status([
           panelStatus(
             P1,
-            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503 · 회원 인증 단계" }],
+            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503 · 회원 인증 단계", detail: null }],
             { consecutive_fail: 1, fail_since_ms: T },
           ),
         ]),

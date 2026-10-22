@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { previewCheck, newPanel } from "../../api/monitors";
-import type { PanelConfig, PreviewResult as Preview } from "../../api/monitors";
+import type { Condition, PanelConfig, PreviewResult as Preview } from "../../api/monitors";
 import type { Scenario } from "../../api/schemas";
 import type { EnvironmentSummary } from "../../api/environments";
 import { Button } from "../Button";
@@ -12,6 +12,8 @@ import { ko } from "../../i18n/ko";
 import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps } from "../../scenario/model";
 import { PreviewResult } from "./PreviewResult";
+import { ConditionRow } from "./ConditionRow";
+import { conditionSummary } from "../../monitor/conditions";
 
 const MAX_THRESHOLDS = 5;
 const THRESHOLD_COLORS = ["#f59e0b", "#ef4444", "#a855f7", "#3b82f6", "#14b8a6"];
@@ -52,6 +54,8 @@ export function PanelEditor({
 }: Props) {
   const pid = panel.id;
   const [advOpen, setAdvOpen] = useState(false);
+  const [condOpen, setCondOpen] = useState(panel.conditions.length > 0);
+  const [editingCond, setEditingCond] = useState<number | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
@@ -111,6 +115,9 @@ export function PanelEditor({
       setPreviewing(false);
     }
   };
+
+  const setCondAt = (i: number, c: Condition) =>
+    set({ conditions: panel.conditions.map((x, k) => (k === i ? c : x)) });
 
   const showScenarioErr = (scenarioError || localScenarioErr) && !panel.scenario_id;
 
@@ -323,6 +330,78 @@ export function PanelEditor({
         </Callout>
       )}
       {preview && <PreviewResult preview={preview} stepNames={stepNames} />}
+
+      <fieldset className="mt-3 min-w-0">
+        <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <button
+            type="button"
+            aria-expanded={condOpen}
+            onClick={() => setCondOpen((v) => !v)}
+            className="hover:underline"
+          >
+            {condOpen ? "▾" : "▸"} {ko.monitor.conditions}
+          </button>
+          {!condOpen && panel.conditions.length > 0 && (
+            <span className="text-xs font-normal text-slate-500">
+              {ko.monitor.advancedSet(panel.conditions.length)}
+            </span>
+          )}
+        </legend>
+        {condOpen && (
+          <div className="mt-2">
+            <p className="mb-2 text-xs text-slate-500">{ko.monitor.conditionsIntro}</p>
+            {panel.conditions.length === 0 ? (
+              <p className="text-sm text-slate-500">{ko.monitor.conditionsEmpty}</p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {panel.conditions.map((c, i) =>
+                  editingCond === i ? (
+                    <li key={i}>
+                      <ConditionRow
+                        initial={c}
+                        mode="edit"
+                        onSubmit={(next) => {
+                          setCondAt(i, next);
+                          setEditingCond(null);
+                        }}
+                        onCancel={() => setEditingCond(null)}
+                      />
+                    </li>
+                  ) : (
+                    <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
+                      <span className="min-w-0 break-words">
+                        {conditionSummary(c, stepNames[c.step_id])}
+                      </span>
+                      {scenario && steps.length > 0 && !(c.step_id in stepNames) && (
+                        <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={ko.monitor.condEdit(i + 1)}
+                        onClick={() => setEditingCond(i)}
+                        className="rounded px-1 hover:bg-slate-100"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={ko.monitor.condRemove(i + 1)}
+                        onClick={() => {
+                          set({ conditions: panel.conditions.filter((_, k) => k !== i) });
+                          setEditingCond(null);
+                        }}
+                        className="rounded px-1 hover:bg-slate-100"
+                      >
+                        🗑
+                      </button>
+                    </li>
+                  ),
+                )}
+              </ul>
+            )}
+          </div>
+        )}
+      </fieldset>
     </section>
   );
 }

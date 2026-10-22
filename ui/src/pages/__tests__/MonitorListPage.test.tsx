@@ -45,6 +45,7 @@ const mkBoard = (id: string, name: string, enabled: boolean, n: number) => ({
       thresholds: [],
       bar_count: 60,
       graph_max_ms: 2000,
+      conditions: [],
     })),
   },
   enabled,

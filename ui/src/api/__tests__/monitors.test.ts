@@ -11,7 +11,7 @@ describe("monitors schemas", () => {
       panels: [
         {
           panel_id: "p",
-          results: [{ at_ms: 1, verdict: "ok", latency_ms: null, reason: null }],
+          results: [{ at_ms: 1, verdict: "ok", latency_ms: null, reason: null, detail: null }],
           consecutive_fail: 0,
           fail_since_ms: null,
           running: false,
@@ -23,7 +23,7 @@ describe("monitors schemas", () => {
   it("preview payload with null trace parses", () => {
     const p = PreviewSchema.parse({
       trace: null,
-      result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "x" },
+      result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "x", detail: null },
     });
     expect(p.trace).toBeNull();
   });

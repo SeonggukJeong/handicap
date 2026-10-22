@@ -44,6 +44,7 @@ function panel(over: Record<string, unknown> = {}) {
     thresholds: [],
     bar_count: 60,
     graph_max_ms: 2000,
+    conditions: [],
     ...over,
   };
 }
@@ -123,6 +124,35 @@ function cleanFullscreen() {
   delete d.fullscreenElement;
   delete d.exitFullscreen;
 }
+
+const COND_A = {
+  step_id: STEP_A,
+  source: "body",
+  path: "$.resultCode",
+  op: "eq",
+  value: "0000",
+  ignore_case: true,
+  trim: false,
+};
+const COND_B = {
+  step_id: STEP_B,
+  source: "status",
+  path: "",
+  op: "eq",
+  value: "200",
+  ignore_case: false,
+  trim: false,
+};
+const withConds = (conds: unknown[]) =>
+  board({ config: { font_scale: "large", blink: "fail", panels: [panel({ conditions: conds })] } });
+const SUMMARY_A = "로그인 호출 · 본문 resultCode 같음 0000 · 대소문자 무시";
+const SUMMARY_B = "조회 호출 · 상태코드 같음 200";
+const putConds = () =>
+  (
+    sent("PUT", "/api/monitor-boards/B1")[0].body as {
+      config: { panels: { conditions: Record<string, unknown>[] }[] };
+    }
+  ).config.panels[0].conditions;
 
 describe("MonitorEditPage", () => {
   it("renders_board_fields_and_default_panel", async () => {
@@ -276,7 +306,7 @@ describe("MonitorEditPage", () => {
           truncated: false,
           error: null,
         },
-        result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "HTTP 503" },
+        result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null },
       });
     renderAt("/monitors/B1");
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
@@ -298,7 +328,7 @@ describe("MonitorEditPage", () => {
     handlers["POST /api/monitor-boards/preview-check"] = () =>
       json({
         trace: null,
-        result: { at_ms: 1, verdict: "ok", latency_ms: 5, reason: null },
+        result: { at_ms: 1, verdict: "ok", latency_ms: 5, reason: null, detail: null },
       });
     renderAt("/monitors/B1");
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
@@ -314,7 +344,13 @@ describe("MonitorEditPage", () => {
     handlers["POST /api/monitor-boards/preview-check"] = () =>
       json({
         trace: null,
-        result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "시간 초과(5초)" },
+        result: {
+          at_ms: 1,
+          verdict: "fail",
+          latency_ms: null,
+          reason: "시간 초과(5초)",
+          detail: null,
+        },
       });
     renderAt("/monitors/B1");
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
@@ -558,5 +594,119 @@ describe("MonitorEditPage", () => {
     await waitFor(() => expect(del).toBeDisabled());
     release();
     await waitFor(() => expect(del).toBeEnabled());
+  });
+
+  it("conditions_section_collapsed_with_count_when_none_open", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    const toggle = await screen.findByRole("button", { name: new RegExp(ko.monitor.conditions) });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(ko.monitor.conditionsIntro)).not.toBeInTheDocument();
+    expect(screen.queryByText(/개 설정됨/)).not.toBeInTheDocument();
+  });
+
+  it("conditions_section_auto_open_when_present", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    renderAt("/monitors/B1");
+    expect(await screen.findByText(SUMMARY_A)).toBeInTheDocument();
+    expect(screen.getByText(SUMMARY_B)).toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.conditionsIntro)).toBeInTheDocument();
+  });
+
+  it("conditions_section_collapsed_hint", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    renderAt("/monitors/B1");
+    await screen.findByText(SUMMARY_A);
+    await user.click(screen.getByRole("button", { name: new RegExp(ko.monitor.conditions) }));
+    expect(screen.queryByText(SUMMARY_A)).not.toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.advancedSet(2))).toBeInTheDocument();
+  });
+
+  it("conditions_empty_message_when_opened_with_none", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.monitor.conditions) }),
+    );
+    expect(screen.getByText(ko.monitor.conditionsEmpty)).toBeInTheDocument();
+  });
+
+  it("condition_row_edit_changes_op_and_clears_value", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    renderAt("/monitors/B1");
+    await screen.findByText(SUMMARY_A);
+    await user.click(screen.getByRole("button", { name: ko.monitor.condEdit(1) }));
+    expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("0000");
+    await user.selectOptions(
+      screen.getByLabelText(ko.monitor.condOp),
+      ko.monitor.condOpOptions.exists,
+    );
+    expect(screen.queryByLabelText(ko.monitor.condValue)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(ko.monitor.condIgnoreCase)).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: ko.monitor.condSave })[0]);
+    expect(screen.getByText("로그인 호출 · 본문 resultCode 값이 있음")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    const conds = putConds();
+    expect(conds[0]).toMatchObject({ op: "exists", value: "", ignore_case: false, trim: false });
+    expect(conds[1]).toEqual(COND_B);
+  });
+
+  it("condition_row_edit_blocks_invalid_and_cancel_keeps", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_B]));
+    renderAt("/monitors/B1");
+    await screen.findByText(SUMMARY_B);
+    await user.click(screen.getByRole("button", { name: ko.monitor.condEdit(1) }));
+    await user.selectOptions(screen.getByLabelText(ko.monitor.condOp), ko.monitor.condOpOptions.gt);
+    const v = screen.getByLabelText(ko.monitor.condValue);
+    await user.clear(v);
+    await user.type(v, "abc");
+    expect(screen.getByText(ko.monitor.condErrNumber)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: ko.monitor.condSave })[0]).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: ko.monitor.condCancel }));
+    expect(screen.getByText(SUMMARY_B)).toBeInTheDocument();
+  });
+
+  it("condition_row_delete", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_B]));
+    renderAt("/monitors/B1");
+    await screen.findByText(SUMMARY_A);
+    await user.click(screen.getByRole("button", { name: ko.monitor.condRemove(1) }));
+    expect(screen.queryByText(SUMMARY_A)).not.toBeInTheDocument();
+    expect(screen.getByText(SUMMARY_B)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putConds()).toEqual([COND_B]);
+  });
+
+  it("condition_row_marks_missing_step", async () => {
+    const GONE = "01HZZZZZZZZZZZZZZZZZZZZZG1";
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([{ ...COND_B, step_id: GONE }]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(board());
+    const user = userEvent.setup();
+    renderAt("/monitors/B1");
+    expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${GONE} · 상태코드`))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.monitor.save })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+  });
+
+  it("resave_keeps_conditions", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
+    renderAt("/monitors/B1");
+    await screen.findByText(SUMMARY_A);
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putConds()).toEqual([COND_A, COND_B]);
   });
 });

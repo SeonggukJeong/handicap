@@ -24,11 +24,12 @@ function panelCfg(n: number, over: Json = {}): Json {
     thresholds: [{ ms: 300, color: "#f90" }],
     bar_count: 60,
     graph_max_ms: 2000,
+    conditions: [],
     ...over,
   };
 }
 function result(verdict: string, latency: number | null, at = T): Json {
-  return { at_ms: at, verdict, latency_ms: latency, reason: null };
+  return { at_ms: at, verdict, latency_ms: latency, reason: null, detail: null };
 }
 function ps(n: number, results: Json[]): Json {
   return { panel_id: pid(n), results, consecutive_fail: 0, fail_since_ms: null, running: false };
