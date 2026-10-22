@@ -5,7 +5,15 @@ import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
 import { MonitorPanel, PanelProbe, type PanelMeasure } from "../components/monitor/MonitorPanel";
-import { FONT_SCALE, gridFor, panelState, type PanelState } from "../monitor/logic";
+import { StripCard } from "../components/monitor/StripCard";
+import {
+  FONT_SCALE,
+  focusLayout,
+  gridFor,
+  panelState,
+  type FocusLayout,
+  type PanelState,
+} from "../monitor/logic";
 import { COLOR, MIN_FIT, nextSearch, requiredFit, type ScaleSearch } from "../monitor/display";
 import { formatHms } from "../monitor/time";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
@@ -278,14 +286,45 @@ export function MonitorDisplayPage() {
       ? `${lastCheck} · ${ko.monitor.everyN(panels[0].interval_seconds)}`
       : lastCheck;
 
-  const { cols, rows } = gridFor(panels.length);
-  const gridStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-    gap: "1vw",
-    padding: "1vw",
+  const gridOf = (n: number): React.CSSProperties => {
+    const { cols, rows } = gridFor(n);
+    return {
+      display: "grid",
+      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+      gap: "1vw",
+    };
   };
+  const gridStyle: React.CSSProperties = { ...gridOf(panels.length), padding: "1vw" };
+  const layout: FocusLayout =
+    board.config.display_style === "focus"
+      ? focusLayout(views.map((v) => v.state))
+      : { kind: "grid" };
+  const mainStyle: React.CSSProperties =
+    layout.kind === "focus"
+      ? {
+          display: "grid",
+          gap: "1vw",
+          padding: "1vw",
+          ...(layout.side === "right"
+            ? { gridTemplateColumns: "3fr 1fr", gridTemplateRows: "minmax(0, 1fr)" }
+            : { gridTemplateRows: "3fr 1fr", gridTemplateColumns: "minmax(0, 1fr)" }),
+        }
+      : gridStyle;
+  const renderPanel = (v: (typeof views)[number]) => (
+    <MonitorPanel
+      key={v.p.id}
+      panel={v.p}
+      status={v.ps}
+      state={v.state}
+      fontScale={fontScale}
+      blinkOn={blinks(board.config.blink, v.state)}
+      showInterval={!sameInterval}
+      fit={fit}
+      reasonFit={reasonFit}
+      displayStyle={board.config.display_style}
+    />
+  );
 
   return (
     <div
@@ -319,23 +358,43 @@ export function MonitorDisplayPage() {
           <span>{headerRight}</span>
         </span>
       </header>
-      <main className="relative min-h-0 flex-1" style={gridStyle}>
-        {views.map(({ p, ps, state }) => {
-          return (
-            <MonitorPanel
-              key={p.id}
-              panel={p}
-              status={ps}
-              state={state}
-              fontScale={fontScale}
-              blinkOn={blinks(board.config.blink, state)}
-              showInterval={!sameInterval}
-              fit={fit}
-              reasonFit={reasonFit}
-              displayStyle={board.config.display_style}
-            />
-          );
-        })}
+      <main className="relative min-h-0 flex-1" style={mainStyle}>
+        {layout.kind === "focus" ? (
+          <>
+            <div className="min-h-0 min-w-0" style={gridOf(layout.big.length)}>
+              {layout.big.map((i) => renderPanel(views[i]))}
+            </div>
+            <div
+              className="min-h-0 min-w-0"
+              style={{
+                display: "grid",
+                gap: "1vw",
+                ...(layout.side === "right"
+                  ? {
+                      gridTemplateColumns: "minmax(0, 1fr)",
+                      gridTemplateRows: `repeat(${layout.strip.length}, minmax(0, 1fr))`,
+                    }
+                  : {
+                      gridTemplateRows: "minmax(0, 1fr)",
+                      gridTemplateColumns: `repeat(${layout.strip.length}, minmax(0, 1fr))`,
+                    }),
+              }}
+            >
+              {layout.strip.map((i) => (
+                <StripCard
+                  key={views[i].p.id}
+                  panel={views[i].p}
+                  state={views[i].state}
+                  latest={views[i].latest}
+                  fontScale={fontScale}
+                  blinkOn={blinks(board.config.blink, views[i].state)}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          views.map(renderPanel)
+        )}
         {/* Size probes: the same grid, invisible, outside the panels. */}
         <div
           aria-hidden="true"

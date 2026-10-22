@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DisplayStyle, PanelConfig } from "../../api/monitors";
-import {
-  barColor,
-  bigValueText,
-  formatMs,
-  showConsecutive,
-  type PanelState,
-} from "../../monitor/logic";
+import { bigValueText, formatMs, showConsecutive, type PanelState } from "../../monitor/logic";
 import {
   COLOR,
   PANEL_BOX,
+  STATE_LABEL,
+  borderColorOf,
+  stateColorOf,
   PANEL_TEXT,
   fillBackground,
   graphFits,
@@ -23,16 +20,6 @@ import { ko } from "../../i18n/ko";
 import { WIDEST_REASON_CANDIDATES } from "../../monitor/reasons";
 import { FitLine } from "./FitLine";
 import { LatencyBars } from "./LatencyBars";
-
-const STATE_LABEL: Record<PanelState, string> = {
-  ok: ko.monitor.stateOk,
-  slow: ko.monitor.stateSlow,
-  fail: ko.monitor.stateFail,
-  config_error: ko.monitor.stateConfigError,
-  stale: ko.monitor.stateStale,
-  stale_off: ko.monitor.stateStaleOff,
-  pending: ko.monitor.statePending,
-};
 
 /** What a size probe reports to the board for the uniform scale (spec §7.3). */
 export type PanelMeasure = {
@@ -310,16 +297,8 @@ export function MonitorPanel({
   const results = status?.results ?? [];
   const latest = results.length > 0 ? results[results.length - 1] : undefined;
 
-  const stateColor =
-    state === "ok"
-      ? COLOR.ok
-      : state === "slow"
-        ? barColor(latest?.latency_ms ?? 0, panel.thresholds)
-        : state === "fail"
-          ? COLOR.fail
-          : COLOR.gray;
-  const borderColor =
-    state === "ok" || state === "slow" || state === "fail" ? stateColor : COLOR.grayBorder;
+  const stateColor = stateColorOf(state, latest?.latency_ms ?? null, panel.thresholds);
+  const borderColor = borderColorOf(state, stateColor);
   // Mockup v4: a healthy value reads white; slow/fail take the state color.
   const fillBg =
     displayStyle === "fill"

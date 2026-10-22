@@ -1,4 +1,5 @@
 import type { BoardStatus, Threshold } from "../api/monitors";
+import { ko } from "../i18n/ko";
 import { barColor, type PanelState } from "./logic";
 
 export type PanelStatus = BoardStatus["panels"][number];
@@ -252,4 +253,38 @@ export function contrastText(bg: string): "#ffffff" | "#0b0f14" {
   const white = 1.05 / (l + 0.05);
   const dark = (l + 0.05) / (luminance("#0b0f14") + 0.05);
   return dark > white ? "#0b0f14" : "#ffffff";
+}
+
+export const STATE_LABEL: Record<PanelState, string> = {
+  ok: ko.monitor.stateOk,
+  slow: ko.monitor.stateSlow,
+  fail: ko.monitor.stateFail,
+  config_error: ko.monitor.stateConfigError,
+  stale: ko.monitor.stateStale,
+  stale_off: ko.monitor.stateStaleOff,
+  pending: ko.monitor.statePending,
+};
+
+/** B state colour (ok/slow/fail carry colour, everything else is gray). */
+export function stateColorOf(
+  state: PanelState,
+  latencyMs: number | null,
+  thresholds: Threshold[],
+): string {
+  if (state === "ok") return COLOR.ok;
+  if (state === "slow") return barColor(latencyMs ?? 0, thresholds);
+  if (state === "fail") return COLOR.fail;
+  return COLOR.gray;
+}
+
+export function borderColorOf(state: PanelState, stateColor: string): string {
+  return state === "ok" || state === "slow" || state === "fail" ? stateColor : COLOR.grayBorder;
+}
+
+/** C strip card text ratios (card container units) and box chrome (cqmin). */
+export const CARD_TEXT = { title: { cqh: 22, cqw: 10 }, state: { cqh: 20, cqw: 9 } } as const;
+export const CARD_BOX = { border: 2, pad: 6, radius: 4 } as const;
+
+export function cardFont(r: { cqh: number; cqw: number }, scale: number): string {
+  return `calc(min(${+(r.cqh * scale).toFixed(3)}cqh, ${+(r.cqw * scale).toFixed(3)}cqw) * var(--card-fit, 1))`;
 }

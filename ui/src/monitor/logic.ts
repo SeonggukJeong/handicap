@@ -78,6 +78,19 @@ export function gridFor(n: number): { cols: number; rows: number } {
   return { cols: 3, rows: 3 };
 }
 
+export type FocusLayout =
+  | { kind: "grid" }
+  | { kind: "focus"; big: number[]; strip: number[]; side: "right" | "bottom" };
+
+/** C layout: failing panels big, the rest in a strip (indices = panel add order). */
+export function focusLayout(states: PanelState[]): FocusLayout {
+  const big: number[] = [];
+  const strip: number[] = [];
+  states.forEach((s, i) => (s === "fail" ? big : strip).push(i));
+  if (big.length === 0 || strip.length === 0) return { kind: "grid" };
+  return { kind: "focus", big, strip, side: big.length === 1 ? "right" : "bottom" };
+}
+
 /** Inner label of the time axis ("10분"); the " 전" suffix comes from the copy key. */
 export function axisAgoLabel(barCount: number, intervalSec: number): string {
   const total = barCount * intervalSec;

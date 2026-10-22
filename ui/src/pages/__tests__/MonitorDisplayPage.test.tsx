@@ -325,6 +325,128 @@ describe("MonitorDisplayPage", () => {
     });
   });
 
+  describe("C (focus) layout", () => {
+    const P3 = "01HZZZZZZZZZZZZZZZZZZZZZP3";
+    const P4 = "01HZZZZZZZZZZZZZZZZZZZZZP4";
+    const failRes = (at = T) => ({
+      at_ms: at,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "HTTP 503",
+      detail: null,
+    });
+    const cfgs = (): Json[] => [
+      panelCfg({ id: P1, title: "가", thresholds: [{ ms: 1000, color: "#facc15" }] }),
+      panelCfg({ id: P2, title: "나" }),
+      panelCfg({ id: P3, title: "다" }),
+      panelCfg({ id: P4, title: "라" }),
+    ];
+    const focusBoard = (style = "focus", blink = "off") =>
+      board(
+        { config: { font_scale: "large", display_style: style, blink, panels: cfgs() } },
+        cfgs(),
+      );
+    const withResults = (r: Record<string, Json>) =>
+      status([P1, P2, P3, P4].map((id) => panelStatus(id, [r[id] ?? okResult(200)])));
+    const mainEl = () => screen.getByTestId("monitor-display").querySelector("main") as HTMLElement;
+
+    it("focus_no_fail_renders_plain_grid", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () => res(withResults({}));
+      await renderPage();
+      expect(screen.getAllByTestId("monitor-panel")).toHaveLength(4);
+      expect(screen.queryAllByTestId("strip-card")).toHaveLength(0);
+    });
+
+    it("focus_one_fail_big_plus_right_strip", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () => res(withResults({ [P2]: failRes() }));
+      await renderPage();
+      const big = screen.getAllByTestId("monitor-panel");
+      expect(big).toHaveLength(1);
+      expect(big[0].getAttribute("aria-label")).toBe("나");
+      expect(screen.getAllByTestId("strip-card").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "가",
+        "다",
+        "라",
+      ]);
+      expect(mainEl().style.gridTemplateColumns).toBe("3fr 1fr");
+    });
+
+    it("focus_two_fail_bottom_strip", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () => res(withResults({ [P1]: failRes(), [P3]: failRes() }));
+      await renderPage();
+      expect(screen.getAllByTestId("monitor-panel")).toHaveLength(2);
+      expect(screen.getAllByTestId("strip-card")).toHaveLength(2);
+      expect(mainEl().style.gridTemplateRows).toBe("3fr 1fr");
+    });
+
+    it("focus_all_fail_plain_grid", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () =>
+        res(withResults({ [P1]: failRes(), [P2]: failRes(), [P3]: failRes(), [P4]: failRes() }));
+      await renderPage();
+      expect(screen.getAllByTestId("monitor-panel")).toHaveLength(4);
+      expect(screen.queryAllByTestId("strip-card")).toHaveLength(0);
+    });
+
+    it("focus_recovers_to_grid", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () => res(withResults({ [P2]: failRes() }));
+      await renderPage();
+      expect(screen.getAllByTestId("strip-card")).toHaveLength(3);
+      statusHandler = () => res(withResults({}));
+      await tick(1100);
+      expect(screen.queryAllByTestId("strip-card")).toHaveLength(0);
+      expect(screen.getAllByTestId("monitor-panel")).toHaveLength(4);
+    });
+
+    it("strip_card_shows_state_and_ms", async () => {
+      boardHandler = () => res(focusBoard());
+      statusHandler = () =>
+        res(
+          withResults({
+            [P1]: okResult(1350),
+            [P2]: failRes(),
+            [P3]: {
+              at_ms: T,
+              verdict: "config_error",
+              latency_ms: null,
+              reason: "조건 기준 스텝 없음",
+              detail: "x",
+            },
+          }),
+        );
+      await renderPage();
+      const slow = screen.getByRole("article", { name: "가" });
+      expect(within(slow).getByTestId("strip-status").textContent).toContain("▲ 느림");
+      expect(within(slow).getByTestId("strip-status").textContent).toContain("1,350 ms");
+      const cfg = screen.getByRole("article", { name: "다" });
+      expect(within(cfg).getByTestId("strip-status").textContent).toContain("—");
+      expect(within(cfg).queryByText("조건 기준 스텝 없음")).toBeNull();
+    });
+
+    it("strip_slow_card_blinks_with_slow_and_fail", async () => {
+      boardHandler = () => res(focusBoard("focus", "slow_and_fail"));
+      statusHandler = () => res(withResults({ [P1]: okResult(1350), [P2]: failRes() }));
+      await renderPage();
+      const slow = screen.getByRole("article", { name: "가" });
+      expect(slow.getAttribute("data-testid")).toBe("strip-card");
+      expect(slow.querySelector("[data-blink='on']")).not.toBeNull();
+      const ok = screen.getByRole("article", { name: "라" });
+      expect(ok.querySelector("[data-blink='on']")).toBeNull();
+    });
+
+    it("border_board_never_focus_layout", async () => {
+      boardHandler = () => res(focusBoard("border"));
+      statusHandler = () => res(withResults({ [P2]: failRes() }));
+      await renderPage();
+      expect(screen.queryAllByTestId("strip-card")).toHaveLength(0);
+      expect(screen.getAllByTestId("monitor-panel")).toHaveLength(4);
+    });
+  });
+
   it("server_down_after_3_failed_polls", async () => {
     boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
     statusHandler = () =>

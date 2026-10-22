@@ -5,6 +5,7 @@ import {
   barColor,
   barSlots,
   bigValueText,
+  focusLayout,
   formatMs,
   FONT_SCALE,
   gridFor,
@@ -138,5 +139,31 @@ describe("logic", () => {
   });
   it("font_scale", () => {
     expect(FONT_SCALE).toEqual({ small: 0.7, medium: 0.85, large: 1, xlarge: 1.2 });
+  });
+});
+
+describe("focusLayout", () => {
+  it("focus_layout_cases", () => {
+    expect(focusLayout([])).toEqual({ kind: "grid" });
+    expect(focusLayout(["ok", "ok"])).toEqual({ kind: "grid" });
+    expect(focusLayout(["fail", "fail"])).toEqual({ kind: "grid" });
+    expect(focusLayout(["ok", "fail", "slow", "ok"])).toEqual({
+      kind: "focus",
+      big: [1],
+      strip: [0, 2, 3],
+      side: "right",
+    });
+    expect(focusLayout(["fail", "ok", "fail", "config_error"])).toEqual({
+      kind: "focus",
+      big: [0, 2],
+      strip: [1, 3],
+      side: "bottom",
+    });
+    expect(focusLayout(["stale", "fail"])).toEqual({
+      kind: "focus",
+      big: [1],
+      strip: [0],
+      side: "right",
+    });
   });
 });
