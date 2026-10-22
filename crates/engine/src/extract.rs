@@ -3,6 +3,8 @@
 //! per-iteration `iter_vars` map consumed by subsequent steps.
 
 use std::collections::BTreeMap;
+use std::iter::Peekable;
+use std::str::Chars;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
@@ -111,6 +113,38 @@ pub fn jsonpath_is_valid(path: &str) -> bool {
 /// cap this count. Its AST is private (`JsonPath(Query)`), hence the lexical scan.
 pub fn jsonpath_descendant_segments(path: &str) -> usize {
     let mut count = 0;
+    scan_unquoted(path, |c, rest| {
+        if c == '.' && rest.peek() == Some(&'.') {
+            rest.next();
+            count += 1;
+        }
+    });
+    count
+}
+
+/// Number of root identifiers (`$`) in `path`, counted lexically outside quoted name
+/// selectors and string literals (same quote/escape rules as
+/// [`jsonpath_descendant_segments`]). Outside a string, `$` can only be a root
+/// identifier, so any valid path counts ≥1 and >1 means a root query inside a filter
+/// (`$[?$[*]]`). `serde_json_path` re-evaluates such a query in full for every node
+/// the filter tests, without caching, so each nesting level multiplies the work
+/// (`$[?$[?$[*]]]` is O(n³) on an n-element array) — and does so synchronously, past
+/// any `async` timeout. Callers that evaluate a path repeatedly and unattended reject
+/// counts above 1.
+pub fn jsonpath_root_refs(path: &str) -> usize {
+    let mut count = 0;
+    scan_unquoted(path, |c, _| {
+        if c == '$' {
+            count += 1;
+        }
+    });
+    count
+}
+
+/// Calls `f` for each char of `path` outside a `'…'`/`"…"` string (backslash escapes
+/// honoured; the quote chars themselves are not passed). `f` may consume further
+/// chars from `rest`, which then are not scanned.
+fn scan_unquoted(path: &str, mut f: impl FnMut(char, &mut Peekable<Chars<'_>>)) {
     let mut quote: Option<char> = None;
     let mut chars = path.chars().peekable();
     while let Some(c) = chars.next() {
@@ -125,14 +159,12 @@ pub fn jsonpath_descendant_segments(path: &str) -> usize {
             None => {
                 if c == '\'' || c == '"' {
                     quote = Some(c);
-                } else if c == '.' && chars.peek() == Some(&'.') {
-                    chars.next();
-                    count += 1;
+                } else {
+                    f(c, &mut chars);
                 }
             }
         }
     }
-    count
 }
 
 pub fn stringify(v: &serde_json::Value) -> String {
@@ -280,6 +312,22 @@ mod tests {
         ] {
             assert!(jsonpath_is_valid(path), "{path} must parse");
             assert_eq!(jsonpath_descendant_segments(path), n, "{path}");
+        }
+    }
+
+    #[test]
+    fn jsonpath_root_refs_counts_outside_quotes() {
+        for (path, n) in [
+            ("$", 1),
+            ("$.a", 1),
+            ("$['$x']", 1),
+            ("$[\"a\\\"$\"]", 1),
+            ("$[?@.a]", 1),
+            ("$[?$[*]]", 2),
+            ("$[?$[?$[*]]]", 3),
+        ] {
+            assert!(jsonpath_is_valid(path), "{path} must parse");
+            assert_eq!(jsonpath_root_refs(path), n, "{path}");
         }
     }
 
