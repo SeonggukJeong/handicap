@@ -123,3 +123,4 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 - **커스텀 python `ThreadingHTTPServer` responder는 listen backlog 기본 5** — 동시 클라이언트가 많으면(모니터 24칸 등) 연결이 reset돼 **가짜 '요청 실패'**(컨트롤러 로그 `tcp set_nodelay error: Invalid argument`). `ThreadingHTTPServer.request_queue_size = 256`. 상태·지연을 실행 중 바꾸는 토글 responder(`/__set/<key>?status=&delay=`)가 US 재현에 유용하나 **페이지 안 `fetch`로 토글하면 CSP로 막힌다** — 셸 `curl`로.
 - **`browser_run_code_unsafe` 안 `page.screenshot({path})`는 MCP 서버 cwd 기준이라 워크트리에 파일이 안 생긴다** — `browser_take_screenshot`(`filename: .playwright-mcp/x.png`) 후 Read. subagent가 뷰포트를 바꿔둘 수 있으니(1200×695로 남은 사례) **측정 전 `browser_resize` 재설정**.
 - 겹침 판정은 텍스트 노드 `Range.getClientRects()` 합집합 rect 교차 + `scrollWidth>clientWidth`로 — 단 2줄 clamp·`…` 텍스트는 Range가 전체 글리프 박스를 보고해 거짓 양성, 스크린샷으로 대조.
+- **한 메시지의 여러 tool 호출은 순차 실행** — "PUT하면서 동시에 browser_evaluate로 폴링"은 측정이 안 된다(폴링이 먼저 끝남). 지연 PUT(`sleep 3; curl …`)을 `run_in_background`로 띄운 뒤 폴링 evaluate를 시작(ops-monitor-1b US3).

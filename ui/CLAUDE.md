@@ -197,3 +197,4 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **측정 기반 반복 레이아웃(배율 이진 탐색 등)을 `useLayoutEffect`의 setState 연쇄로 돌리면 React #185(Maximum update depth)** — 측정은 paint 후, 탐색 상태는 ref로. 배율은 **설정·뷰포트로만** 키를 잡을 것(live 결과가 키/probe에 새면 장애 중 글자 크기가 바뀐다 — 사용자 결정).
 - **Fullscreen: `requestFullscreen()` 직후 `document.fullscreenElement`는 아직 null**(비동기) — 즉시 `exitFullscreen`의 존재 검사는 no-op이라 실패 경로에서 전체화면이 남는다. pending promise를 보관하고 settle 뒤 exit. request는 사용자 제스처 유효성 때문에 첫 `await` 전 동기 호출; 동기 검증(`valid()`)은 그보다 먼저.
 - **jsdom은 layout 0 → 겹침·잘림·그래프 숨김 규칙은 RTL로 증명 불가**(클래스명/스텁 수치만) — 극단값 매트릭스(최대 칸·긴 문자열·큰 숫자·최대 글자 크기)를 라이브에서 rect 교차로 실측해야 한다. 키 판정은 `e.code`도 볼 것(한국어 IME는 `e.key`가 `"ㄹ"`/`"Process"`).
+- **배율 고정 검증은 글자 px가 아니라 `--fit`/`--reason-fit`/`--card-fit` 변수값으로** (ops-monitor-1b): 글자는 칸 기준 cq 단위라 C에서 칸 크기가 바뀌면 px도 바뀐다(f=1 96.9px ↔ f=2 64.6px인데 `--fit` 0.5407 동일). 띠 카드 배율은 모든 띠 기하의 최소 하나라 가장 좁은 기하가 정한다.

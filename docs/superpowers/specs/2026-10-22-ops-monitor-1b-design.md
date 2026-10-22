@@ -3,7 +3,7 @@
 - 날짜: 2026-10-22 · 유형: `user-path` · 슬라이스 **①b** — 전체 순서 ①a(완료) → **①b** → ② 내보내기/가져오기 → ③ 자동 시작+부팅 전체화면
 - **결정 원천**(우선순위 순): ① 이 슬라이스 브레인스토밍 결정(아래 §0, `[사용자]` 표시) ② [`2026-10-21-ops-monitor-mockups/00-decisions.md`](2026-10-21-ops-monitor-mockups/00-decisions.md) §① ③ ①a spec [`2026-10-21-ops-monitor-board-design.md`](2026-10-21-ops-monitor-board-design.md)(§7.3 극단값 표시 정책 포함 — ①b는 이를 **유지**한다).
 - **목업 정본**: [`2026-10-22-ops-monitor-1b-mockups/`](2026-10-22-ops-monitor-1b-mockups/) — `01-condition-flow.html`(설정 화면 조건 만들기), `02-condition-reason.html`(벽 화면 조건 실패 사유), `03-style-a-signal.html`(A 방식), `04-style-c-scenes.html`(C 방식 세 장면). **목업에 없는 화면을 새로 만들지 않는다**(`[사용자]` "엄한 화면 만들지 않게"). 목업은 축소 시안이므로 글자 크기·간격은 ①a 전시 화면 규칙(§7.3)이 정본이고, 목업은 **배치·정보 구성**의 정본이다.
-- **상태: spec `spec-plan-reviewer` clean APPROVE (4라운드, 2026-10-22) — 다음 = plan 작성**(§10 끝 권장 순서: 조건 → A → C).
+- **상태: 구현·머지 완료 (2026-10-23, 코드 `83cf82eb`..`b1411e2c`)** — 라이브 US1~US4+극단값 PROVEN(`docs/build-log.md`). **§3 본문 경로 검증은 허용 문법(`jsonpath_is_simple`)으로 좁혀짐** — 정본은 roadmap §B38 R3. 판단·연기 → roadmap §B38.
 - ADR: 새 ADR 없음. **ADR-0053에 보완 절 추가**(§9) — ①a의 "벽 화면엔 고정 문구만" 원칙에 조건 실패 값 예외가 생기므로.
 
 ## 사용자 스토리 (US)
