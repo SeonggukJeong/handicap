@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { previewCheck, newPanel } from "../../api/monitors";
 import type { Condition, PanelConfig, PreviewResult as Preview } from "../../api/monitors";
 import type { Scenario } from "../../api/schemas";
@@ -60,6 +60,9 @@ export function PanelEditor({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [localScenarioErr, setLocalScenarioErr] = useState(false);
+  // Bumped whenever the preview's inputs (scenario/environment) change or a new preview
+  // starts, so a stale result — whose step ids/values belong to the old scenario — is dropped.
+  const previewSeq = useRef(0);
 
   const scenario = scenarios.find((s) => s.id === panel.scenario_id);
   const steps = useMemo(() => {
@@ -96,23 +99,31 @@ export function PanelEditor({
     });
   };
 
-  const runPreview = async () => {
+  const clearPreview = () => {
+    previewSeq.current++;
     setPreview(null);
     setPreviewErr(null);
+    setPreviewing(false);
+  };
+
+  const runPreview = async () => {
+    clearPreview();
     if (!panel.scenario_id) {
       setLocalScenarioErr(true);
       return;
     }
     setLocalScenarioErr(false);
+    const seq = previewSeq.current;
     setPreviewing(true);
     try {
       // The server requires a 1–40 char title; a blank form title must not fail the preview.
       const payload = panel.title.trim() ? panel : { ...panel, title: ko.monitor.preview };
-      setPreview(await previewCheck(payload));
+      const res = await previewCheck(payload);
+      if (seq === previewSeq.current) setPreview(res);
     } catch (e) {
-      setPreviewErr((e as Error).message);
+      if (seq === previewSeq.current) setPreviewErr((e as Error).message);
     } finally {
-      setPreviewing(false);
+      if (seq === previewSeq.current) setPreviewing(false);
     }
   };
 
@@ -172,9 +183,10 @@ export function PanelEditor({
             value={panel.scenario_id}
             aria-invalid={showScenarioErr || undefined}
             aria-describedby={showScenarioErr ? `${pid}-scenario-err` : undefined}
-            onChange={(e) =>
-              set({ scenario_id: e.target.value, latency_source: { kind: "total" } })
-            }
+            onChange={(e) => {
+              clearPreview();
+              set({ scenario_id: e.target.value, latency_source: { kind: "total" } });
+            }}
           >
             <option value="">{ko.monitor.noValue}</option>
             {scenarios.map((s) => (
@@ -188,7 +200,10 @@ export function PanelEditor({
           <Select
             id={`${pid}-env`}
             value={panel.environment_id ?? ""}
-            onChange={(e) => set({ environment_id: e.target.value === "" ? null : e.target.value })}
+            onChange={(e) => {
+              clearPreview();
+              set({ environment_id: e.target.value === "" ? null : e.target.value });
+            }}
           >
             <option value="">{ko.monitor.environmentNone}</option>
             {environments.map((e) => (

@@ -927,6 +927,73 @@ describe("MonitorEditPage preview conditions", () => {
     expect(screen.getByText(ko.monitor.condMax)).toBeInTheDocument();
   });
 
+  it("preview_cleared_when_scenario_changes", async () => {
+    const user = userEvent.setup();
+    const SID2 = "01HZZZZZZZZZZZZZZZZZZZZZZ2";
+    handlers["GET /api/scenarios"] = () =>
+      json({
+        scenarios: [
+          ...scenarios.scenarios,
+          { id: SID2, name: "다른 점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 },
+        ],
+      });
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    expect(await addBtn(ko.monitor.condTargetStatus)).toBeInTheDocument();
+    await user.click(await addBtn(ko.monitor.condTargetStatus));
+    await user.selectOptions(screen.getByLabelText(ko.monitor.scenario), SID2);
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.condAddAria(ko.monitor.condTargetStatus) }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ko.monitor.condConfirm })).not.toBeInTheDocument();
+  });
+
+  it("in_flight_preview_dropped_when_scenario_changes", async () => {
+    const user = userEvent.setup();
+    const SID2 = "01HZZZZZZZZZZZZZZZZZZZZZZ2";
+    handlers["GET /api/scenarios"] = () =>
+      json({
+        scenarios: [
+          ...scenarios.scenarios,
+          { id: SID2, name: "다른 점검", yaml: YAML, version: 1, created_at: 1, updated_at: 1 },
+        ],
+      });
+    previewWith({ body: "" });
+    const respond = handlers["POST " + PREVIEW_URL];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    handlers["POST " + PREVIEW_URL] = async (b) => {
+      await gate;
+      return respond(b);
+    };
+    renderAt("/monitors/B1");
+    await screen.findByRole("option", { name: "다른 점검" });
+    await runPreviewUi(user);
+    await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(1));
+    await user.selectOptions(screen.getByLabelText(ko.monitor.scenario), SID2);
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: ko.monitor.preview })).toBeEnabled(),
+    );
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.condAddAria(ko.monitor.condTargetStatus) }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preview_cleared_when_environment_changes", async () => {
+    const user = userEvent.setup();
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    expect(await addBtn(ko.monitor.condTargetStatus)).toBeInTheDocument();
+    await screen.findByRole("option", { name: "staging" });
+    await user.selectOptions(screen.getByLabelText(ko.monitor.environment), "E1");
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.condAddAria(ko.monitor.condTargetStatus) }),
+    ).not.toBeInTheDocument();
+  });
+
   it("preview_rerun_sends_conditions", async () => {
     const user = userEvent.setup();
     previewWith({ body: '{"resultCode":"0000"}' });
