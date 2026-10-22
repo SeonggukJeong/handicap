@@ -192,3 +192,8 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **`tdd-guard`의 '주석만 바꿨으면 통과' 예외는 JSX `{/* … */}` 줄을 인식하지 못한다 — JSX 주석 한 줄만 고치는 편집도 차단된다** (E3 최종 fix wave, 구현자가 실측 확인): 훅은 `//`·`/*`·`*`로 *시작하는* 줄만 주석으로 특례 처리하는데 JSX 주석은 `{`로 시작한다. **우회하지 말 것**(훅 비활성화·`--no-verify` 금지) — 같은 웨이브에 진짜 테스트 편집이 있으면 훅이 워크트리 전역에서 pending test를 보므로 자연히 통과하고, 없으면 `it.todo` stub로 unblock 후 커밋 전 제거하는 기존 이디엄을 쓴다.
 
 - **`Field` 프리미티브 grep은 동명 로컬 shadow 2곳이 오염시킨다 — 소비처 판정은 import(`from ".../ui/Field"`) 기준으로** (rundialog-hint-sr 최종리뷰): `Inspector.tsx:1436`·`ScenarioDefaults.tsx:10`이 자체 `function Field({label,children})`를 정의하므로 `<Field`/prop 텍스트 grep은 프리미티브 소비처 카운트를 부풀린다. 프리미티브 계약은 `ui/src/components/ui/CLAUDE.md`.
+
+## 운영 모니터 전시 화면 (`MonitorDisplayPage`·`MonitorPanel`·`LatencyBars`) (ops-monitor-board)
+- **측정 기반 반복 레이아웃(배율 이진 탐색 등)을 `useLayoutEffect`의 setState 연쇄로 돌리면 React #185(Maximum update depth)** — 측정은 paint 후, 탐색 상태는 ref로. 배율은 **설정·뷰포트로만** 키를 잡을 것(live 결과가 키/probe에 새면 장애 중 글자 크기가 바뀐다 — 사용자 결정).
+- **Fullscreen: `requestFullscreen()` 직후 `document.fullscreenElement`는 아직 null**(비동기) — 즉시 `exitFullscreen`의 존재 검사는 no-op이라 실패 경로에서 전체화면이 남는다. pending promise를 보관하고 settle 뒤 exit. request는 사용자 제스처 유효성 때문에 첫 `await` 전 동기 호출; 동기 검증(`valid()`)은 그보다 먼저.
+- **jsdom은 layout 0 → 겹침·잘림·그래프 숨김 규칙은 RTL로 증명 불가**(클래스명/스텁 수치만) — 극단값 매트릭스(최대 칸·긴 문자열·큰 숫자·최대 글자 크기)를 라이브에서 rect 교차로 실측해야 한다. 키 판정은 `e.code`도 볼 것(한국어 IME는 `e.key`가 `"ㄹ"`/`"Process"`).

@@ -631,6 +631,34 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - Poisson 도착(무작위 간격) — 수요 시 ADR-0031 재검토.
 - 컨트롤러 `insights.rs::scheduled_arrivals`와 엔진 Λ 수학 공유 — 두 구현은 각자 테스트로 의미 고정. 곡선 의미(ADR-0032 §3)를 바꿀 때 둘을 함께 고칠 것.
 
+### B37. 운영실 모니터 ①a (ops-monitor-board, 2026-10-22, 코드 `045231a3`..`ea23969e`, ADR-0053, spec `docs/superpowers/specs/2026-10-21-ops-monitor-board-design.md`) 판단·연기
+
+**(1) orchestrator 판단(ruling) — 틀렸을 때의 비용과 해소 방법** (SDD ledger는 gitignore라 여기 남긴다; `[사용자]` 결정은 spec §7.3 "극단값 표시 정책"에 기록):
+- **R1 사유 분류 순서 = `invalid header` → HTTP 상태 → `read body:` → 값 추출 → 응답 없음** (spec §6.2 나열 순서와 다름 — 엔진이 build_error 시 assert를 건너뛰어서). 비용: 벽 사유 문구 하나가 달라짐. 해소: `check.rs::classify` 순서 변경 + 테스트.
+- **R4 확인 불가 경계 `>=`**(경과 = `interval×3+timeout+5s`이면 이미 확인 불가). 비용: 1폴링(1s) 일찍 회색. 해소: `logic.ts::panelState` 비교 연산자.
+- **R10 전역 동시 점검 세마포어 32**(보안 S1 — 보드 수 무제한 × 9칸 × 50요청 × ≥1s + 자동 재개 = 무상한 백그라운드 부하). 포화 시 점검이 대기 → 칸이 정직하게 확인 불가. 비용: 매우 큰 설치에서 부하 대신 회색 칸. 해소: 설정 레지스트리 `monitor_max_concurrent_checks` 노브로 승격.
+- **R12/R14 미치환 변수(`unbound_vars` 비어 있지 않음)가 있는 첫 실패 스텝 → `config_error` "변수 미설정"**(새 칸 기본 "환경 없음" + `${BASE_URL}`이 빨간 깜빡임 "요청 실패"로 보이던 것). 비용: 서버가 무시하는 미치환 `{{var}}`가 있는 스텝에서 **실제 장애가 회색 비깜빡임**으로 강등. 해소: 규칙을 "요청이 아예 안 나갔거나(응답 없음) status assert가 실패했을 때만"으로 좁힘(`check.rs` judge).
+- **R15 점검 제한 시간 1..=120 → 1..=30**(라이브: 엔진 trace 클라이언트 요청 타임아웃 30s 고정이라 30 초과는 도달 불가, "요청 실패"로 표시). 비용: 총 30s 넘게 걸리는 다단계 시나리오는 더 긴 예산으로 점검 불가. 해소: `TraceOptions`에 요청 타임아웃을 넣어 엔진 30s 고정을 패널 제한 시간으로 대체(엔진 슬라이스). **기존에 30 초과로 저장된 보드**는 로드는 되지만(검증은 저장 시만) 실행 시 여전히 30s에 "요청 실패" — 재저장하면 400으로 고치게 됨.
+- **R16 배율 계산의 최장 상태 문구 = `⚠ 설정 오류`**(점검 중 나올 수 있는 최장) — `– 확인 불가 · 점검 꺼짐`(보드 정지 시)은 그래프 공간을 씀. 비용: 정지한 보드는 그래프가 짧거나 숨겨짐. 해소: 배율 probe 문구를 최장 상태로 교체.
+- **R17 막대 영역 < 칸 높이 8%면 그래프 숨김**(15% 규칙만으로 2px 막대가 남던 것). 비용: 빽빽한 칸에서 그래프가 조금 더 자주 숨음. 해소: `display.ts` 상수.
+- **R18 실패 사유 줄 전용 보드 배율 `--reason-fit`**(가장 긴 고정 사유 상수 probe, 설정·화면 크기로만). 비용: 좁은 레이아웃에서 사유가 값보다 작아짐. 해소: 사유 2줄 허용 등 표시 정책 재결정(사용자).
+
+**(2) 리뷰 finding 미수정(연기) — 비용 + 해소**:
+- **사유 폭 후보 목록 수동 동기화** — UI `WIDEST_REASON_CANDIDATES`(reasons.ts)가 `check.rs` REASON_* 상수를 손으로 복사, 동기화 테스트 없음. 비용: 더 긴 사유를 추가하면 좁은 보드에서 다시 `…`. 해소: 컨트롤러 측 테스트로 최장 REASON_*가 목록에 있음을 단언(또는 status/preview 응답에 사유 목록 노출).
+- **보안 N1** — 엔진이 본문 전체를 읽은 뒤 1 MiB로 자름(`executor.rs` `resp.bytes()`), 모니터는 이를 주기적으로 반복하고 trace는 판정 후 버림. 비용: 거대 응답 대상이면 점검마다 메모리 스파이크. 해소: 청크 읽기 `MAX_TRACE_BODY_BYTES+1`에서 중단 또는 `TraceOptions` 본문 캡처 skip 플래그.
+- **보안 N2 / 리뷰 Minor** — 감독자 맵 슬롯은 삭제되지 않음(삭제된 보드 id마다 1슬롯 수백 B, 404-before-reconcile로 실제 id에 한정). 비용: create→delete 수백만 번 루프 시만 의미. 해소: disabled reconcile 후 `op` 잠금 안에서 슬롯 제거(동시 reconcile 분열 재검토 필요).
+- **설정 화면 빈 숫자 입력 → 0** — 서버 400 메시지로 막히지만 어느 칸인지 안 알려줌. 해소: 원문 문자열 상태 + 칸별 클라 범위 검증.
+- **배율 탐색 N1/N2** — probe가 매 폴링 재측정(가벼움; 단 `React.memo(PanelProbe)` 도입 시 탐색이 멈출 수 있어 `searchEpoch` prop 선행 필요) / 탐색 완료 후 `scaleKey` 밖 레이아웃 변화(예: 긴 정지 오류로 도구 줄 줄바꿈)는 재탐색 안 함. 해소: probe w/h가 완료 시점과 달라지면 재탐색.
+- 테스트 polish(전부 정확성 영향 없음): http 스텝 walk의 `elif` 분기 미검증 · ②(HTTP 상태)>③(본문 읽기) 우선순위 테스트 없음 · 빈 스텝 이름이면 사유 끝 ` · ` · sqlx 오류도 "찾을 수 없음" · reconcile 테스트 2건 타이밍 의존·약한 단언 · REST `unknown_id_404` 본문 단언 없음 · 실행 중 PUT 재구성 REST 미검증 · resume 부분 실패 분기 · `axisAgoLabel` 70s→"1분" 절삭 · `barColor` 오름차순 가정 · `startError` history state가 새로고침 후 잔존 · 외부 RQ signal abort ≠ serverDown 테스트 · `widthNeed` 측정 jsdom 미검증.
+- **설정 lowercase ULID 미정규화·`Threshold`/`Step` 필드 serde default 없음·`environment_id: Some("")` 허용** — UI는 항상 대문자 ULID·null을 보냄. ②(내보내기/가져오기)에서 손편집 JSON을 받기 시작하면 정규화·기본값 필요.
+
+**(3) 미검증 / 재개 신호**:
+- **전체화면 웹뷰 엔진별 실측**: Chromium(Playwright) ✅. **macOS 데스크톱 WKWebView 미검증**, **Ubuntu WebKitGTK(실제 운영 PC) 미검증** — 거부되면 대체는 헤더 없는 전시 화면을 창 최대화, 근본 해소는 ③(Tauri 창 `fullscreen` 옵션).
+- **데스크톱 `RunningController::shutdown()` 감독자 정지 라이브 미검증** — CLI bundle 바이너리는 signal에 즉사(`rc.join()`만), shutdown은 데스크톱 창 닫기에서만 호출. bundle 단위 테스트(`run_in_process_serves_health_then_shuts_down`)로만 커버. 자동 재개(in-process)는 라이브 ✅.
+- **시나리오/환경 삭제 가드에 보드 참조 미반영**(spec §8) — 비용: 경고 없이 보드를 깨뜨리는 삭제 가능(다음 점검 `config_error`로 드러남). 해소: ADR-0045 soft 409 카운트에 `monitor_boards.config_json` 스캔 추가.
+- **긴 이름 + 3×3 + 아주 크게**는 보드 배율이 ~0.52까지 내려가 원거리 판독성이 떨어짐 — 수용(사용자 결정: 실제 사용과 같은 모양 유지). 재개 신호: 운영 PC에서 실제 보드로 판독 불가 보고.
+- frontier: ①b(클릭으로 성공 조건 + 화면 방식 A·C) → ② 내보내기/가져오기 → ③ 자동 시작+부팅 전체화면 — 결정 원천 `docs/superpowers/specs/2026-10-21-ops-monitor-mockups/00-decisions.md`.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

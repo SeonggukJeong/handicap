@@ -118,3 +118,8 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 - **시나리오에 status assert가 없으면 5xx 응답이 `error_count`에 안 잡힌다** — 500을 섞는 responder로 run을 돌려도 에러 카드·에러 차트가 전부 0이라 "에러 표시가 안 붙었다"로 오진하기 쉽다(리포트의 시험 유효성 배너 "응답 검증(status assert)과 SLO 기준이 없어…"가 그 신호). 에러 경로를 검증하는 시나리오엔 http 스텝에 `assert:`+`- status: 200`을 넣을 것.
 - **Playwright MCP는 호출 1회당 ~5–15s 지연** — "실행 중 특정 시점"을 잡아야 하는 검증(라이브 차트 성장 2점 비교·[중단] 직후 상태)은 run duration을 60s+로 설계해야 관찰 창이 남는다. 툴 왕복보다 짧게 지나가는 중간 상태(예: terminal인데 리포트 도착 전)는 라이브 정지화면으로 못 잡으니 RTL로 핀하고 그 근거를 기록 — 워커를 SIGTERM(graceful flush)·SIGKILL 어느 쪽으로 죽여도 컨트롤러가 저장된 windows로 report 200을 만들어 "리포트 없는 terminal" 정지화면은 만들 수 없다.
 - **recharts monotone 라인의 path `d`는 `C`(curve) 커맨드라 `split('L')` 점 카운트가 안 된다** — 숫자 전량 추출(`d.match(/-?\d+(\.\d+)?/g)`) 후 좌표쌍으로 접어 형상(onset x·성장)을 수치 판정. x축 우단 tick 텍스트가 성장 판정엔 더 결정적.
+
+## 다수 칸·전시 화면 라이브 (ops-monitor-board 2026-10-22)
+- **커스텀 python `ThreadingHTTPServer` responder는 listen backlog 기본 5** — 동시 클라이언트가 많으면(모니터 24칸 등) 연결이 reset돼 **가짜 '요청 실패'**(컨트롤러 로그 `tcp set_nodelay error: Invalid argument`). `ThreadingHTTPServer.request_queue_size = 256`. 상태·지연을 실행 중 바꾸는 토글 responder(`/__set/<key>?status=&delay=`)가 US 재현에 유용하나 **페이지 안 `fetch`로 토글하면 CSP로 막힌다** — 셸 `curl`로.
+- **`browser_run_code_unsafe` 안 `page.screenshot({path})`는 MCP 서버 cwd 기준이라 워크트리에 파일이 안 생긴다** — `browser_take_screenshot`(`filename: .playwright-mcp/x.png`) 후 Read. subagent가 뷰포트를 바꿔둘 수 있으니(1200×695로 남은 사례) **측정 전 `browser_resize` 재설정**.
+- 겹침 판정은 텍스트 노드 `Range.getClientRects()` 합집합 rect 교차 + `scrollWidth>clientWidth`로 — 단 2줄 clamp·`…` 텍스트는 Range가 전체 글리프 박스를 보고해 거짓 양성, 스크린샷으로 대조.
