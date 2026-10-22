@@ -275,6 +275,12 @@ fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
                 if handicap_engine::extract::jsonpath_root_refs(&c.path) > 1 {
                     return Err("본문 경로(JSONPath)가 올바르지 않습니다".into());
                 }
+                // Any filter costs per tested node with no caching (root re-query,
+                // per-node regex compile in match()/search(), nesting) — reject all
+                // filters; the two checks above stay as defense in depth.
+                if handicap_engine::extract::jsonpath_filter_selectors(&c.path) > 0 {
+                    return Err("본문 경로(JSONPath)가 올바르지 않습니다".into());
+                }
             }
             ConditionSource::Header => {
                 c.path = c.path.trim().to_string();
@@ -639,6 +645,14 @@ mod tests {
                 "본문 경로(JSONPath)가 올바르지 않습니다",
             ),
             (
+                with(cond(S::Body, O::Exists, "$..[?match(@, 'a')]", "")),
+                "본문 경로(JSONPath)가 올바르지 않습니다",
+            ),
+            (
+                with(cond(S::Body, O::Exists, "$[?@.code == 'E1']", "")),
+                "본문 경로(JSONPath)가 올바르지 않습니다",
+            ),
+            (
                 with(cond(S::Header, O::Exists, "   ", "")),
                 "헤더 이름은 1~200자여야 합니다",
             ),
@@ -727,15 +741,8 @@ mod tests {
         assert!(validate_panel(&mut with(cond(S::Body, O::Exists, &long, ""))).is_ok());
         assert!(validate_panel(&mut with(cond(S::Body, O::Eq, "$.a", &"v".repeat(200)))).is_ok());
         assert!(validate_panel(&mut with(cond(S::Body, O::Exists, "$..resultCode", ""))).is_ok());
-        assert!(
-            validate_panel(&mut with(cond(
-                S::Body,
-                O::Exists,
-                "$[?@.code == 'E1']",
-                ""
-            )))
-            .is_ok()
-        );
+        assert!(handicap_engine::extract::jsonpath_is_valid("$['a?$b']"));
+        assert!(validate_panel(&mut with(cond(S::Body, O::Exists, "$['a?$b']", ""))).is_ok());
         assert!(validate_panel(&mut with(cond(S::Body, O::Gt, "$.a", " 12.5 "))).is_ok());
         assert_eq!(parse_finite(" 12.5 "), Some(12.5));
         assert_eq!(parse_finite("inf"), None);

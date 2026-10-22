@@ -141,6 +141,24 @@ pub fn jsonpath_root_refs(path: &str) -> usize {
     count
 }
 
+/// Number of filter selectors (`[?…]`) in `path`, counted lexically as `?` outside
+/// quoted name selectors and string literals (same rules as
+/// [`jsonpath_descendant_segments`]); outside a string, `?` only opens a filter.
+/// Every filter costs per tested node, with nothing cached between nodes: a root
+/// query is re-evaluated in full (see [`jsonpath_root_refs`]), `match()`/`search()`
+/// compile their regex anew (up to a ~500-char pattern per string in a 1 MiB body),
+/// and nested filters multiply. Callers that evaluate a path repeatedly and
+/// unattended reject any filter, which closes this whole cost class at once.
+pub fn jsonpath_filter_selectors(path: &str) -> usize {
+    let mut count = 0;
+    scan_unquoted(path, |c, _| {
+        if c == '?' {
+            count += 1;
+        }
+    });
+    count
+}
+
 /// Calls `f` for each char of `path` outside a `'…'`/`"…"` string (backslash escapes
 /// honoured; the quote chars themselves are not passed). `f` may consume further
 /// chars from `rest`, which then are not scanned.
@@ -328,6 +346,24 @@ mod tests {
         ] {
             assert!(jsonpath_is_valid(path), "{path} must parse");
             assert_eq!(jsonpath_root_refs(path), n, "{path}");
+        }
+    }
+
+    #[test]
+    fn jsonpath_filter_selectors_counts_outside_quotes() {
+        for (path, n) in [
+            ("$.a", 0),
+            ("$['a?b']", 0),
+            ("$[\"?\"]", 0),
+            ("$[\"a\\\"?\"]", 0),
+            ("$[?@.a]", 1),
+            ("$..[?match(@,'x')]", 1),
+            ("$[?@.a == '?']", 1),
+            ("$[?@[?@.b]]", 2),
+            ("$[?$[?$[*]]]", 2),
+        ] {
+            assert!(jsonpath_is_valid(path), "{path} must parse");
+            assert_eq!(jsonpath_filter_selectors(path), n, "{path}");
         }
     }
 
