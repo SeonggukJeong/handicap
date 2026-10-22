@@ -36,6 +36,7 @@ describe("monitors schemas", () => {
       updated_at: 2,
       config: {
         font_scale: "xlarge",
+        display_style: "border",
         blink: "slow_and_fail",
         panels: [{ ...newPanel(), latency_source: { kind: "step", step_id: "S" } }],
       },

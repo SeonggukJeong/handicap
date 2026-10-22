@@ -13,6 +13,7 @@ import {
   type Blink,
   type Board,
   type BoardConfig,
+  type DisplayStyle,
   type FontScale,
   type PanelConfig,
 } from "../api/monitors";
@@ -67,7 +68,13 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const [board, setBoard] = useState<Board | null>(initial);
   const [name, setName] = useState(initial?.name ?? "");
   const [config, setConfig] = useState<BoardConfig>(
-    () => initial?.config ?? { font_scale: "large", blink: "fail", panels: [newPanel()] },
+    () =>
+      initial?.config ?? {
+        font_scale: "large",
+        display_style: "border",
+        blink: "fail",
+        panels: [newPanel()],
+      },
   );
   const [baseline, setBaseline] = useState(() =>
     initial ? snapshot(initial.name, initial.config) : "",
@@ -194,7 +201,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
     <div>
       <h2 className="mb-6 text-lg font-semibold">{name.trim() || ko.monitor.newBoard}</h2>
 
-      <div className="mb-6 grid gap-x-4 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-x-4 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field label={ko.monitor.boardName} htmlFor="monitor-name">
           <Input id="monitor-name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -205,6 +212,21 @@ function BoardForm({ initial }: { initial: Board | null }) {
             onChange={(e) => setConfig({ ...config, font_scale: e.target.value as FontScale })}
           >
             {Object.entries(ko.monitor.fontScaleOptions).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={ko.monitor.displayStyle} htmlFor="monitor-style">
+          <Select
+            id="monitor-style"
+            value={config.display_style}
+            onChange={(e) =>
+              setConfig({ ...config, display_style: e.target.value as DisplayStyle })
+            }
+          >
+            {Object.entries(ko.monitor.displayStyleOptions).map(([v, label]) => (
               <option key={v} value={v}>
                 {label}
               </option>

@@ -128,7 +128,7 @@ beforeEach(() => {
           res({
             id: BID,
             name: "운영실 화면",
-            config: { font_scale: "large", blink, panels: PANELS },
+            config: { font_scale: "large", display_style: "border", blink, panels: PANELS },
             enabled: false,
             created_at: 1,
             updated_at: 1,
@@ -140,7 +140,7 @@ beforeEach(() => {
           res({
             id: BID,
             name: "운영실 화면",
-            config: { font_scale: "large", blink, panels: PANELS },
+            config: { font_scale: "large", display_style: "border", blink, panels: PANELS },
             enabled: true,
             created_at: 1,
             updated_at: 1,

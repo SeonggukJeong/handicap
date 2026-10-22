@@ -52,7 +52,7 @@ function board(over: Record<string, unknown> = {}) {
   return {
     id: "B1",
     name: "운영실",
-    config: { font_scale: "large", blink: "fail", panels: [panel()] },
+    config: { font_scale: "large", display_style: "border", blink: "fail", panels: [panel()] },
     enabled: false,
     created_at: 1,
     updated_at: 1,
@@ -144,7 +144,14 @@ const COND_B = {
   trim: false,
 };
 const withConds = (conds: unknown[]) =>
-  board({ config: { font_scale: "large", blink: "fail", panels: [panel({ conditions: conds })] } });
+  board({
+    config: {
+      font_scale: "large",
+      display_style: "border",
+      blink: "fail",
+      panels: [panel({ conditions: conds })],
+    },
+  });
 const SUMMARY_A = "로그인 호출 · 본문 resultCode 같음 0000 · 대소문자 무시";
 const SUMMARY_B = "조회 호출 · 상태코드 같음 200";
 const putConds = () =>
@@ -167,6 +174,49 @@ describe("MonitorEditPage", () => {
       ko.monitor.blinkOptions.fail,
     );
     expect(screen.queryByLabelText(MS_LABEL)).not.toBeInTheDocument();
+  });
+
+  it("display_style_select_saves", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ config: (b as { config: unknown }).config }));
+    renderAt("/monitors/B1");
+    const sel = await screen.findByLabelText(ko.monitor.displayStyle);
+    expect(sel).toHaveDisplayValue(ko.monitor.displayStyleOptions.border);
+    await user.selectOptions(sel, ko.monitor.displayStyleOptions.fill);
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    const body = sent("PUT", "/api/monitor-boards/B1")[0].body as {
+      config: { display_style: string };
+    };
+    expect(body.config.display_style).toBe("fill");
+  });
+
+  it("resave_keeps_conditions_and_display_style", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            font_scale: "large",
+            display_style: "focus",
+            blink: "fail",
+            panels: [panel({ conditions: [COND_A] })],
+          },
+        }),
+      );
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ config: (b as { config: unknown }).config }));
+    renderAt("/monitors/B1");
+    await screen.findByLabelText(ko.monitor.displayStyle);
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    const body = sent("PUT", "/api/monitor-boards/B1")[0].body as {
+      config: { display_style: string; panels: { conditions: unknown[] }[] };
+    };
+    expect(body.config.display_style).toBe("focus");
+    expect(body.config.panels[0].conditions).toEqual([COND_A]);
   });
 
   it("interval_is_editable", async () => {
@@ -212,6 +262,7 @@ describe("MonitorEditPage", () => {
         board({
           config: {
             font_scale: "large",
+            display_style: "border",
             blink: "fail",
             panels: [panel({ timeout_seconds: 9, bar_count: 100 })],
           },
@@ -323,7 +374,14 @@ describe("MonitorEditPage", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () =>
       json(
-        board({ config: { font_scale: "large", blink: "fail", panels: [panel({ title: "  " })] } }),
+        board({
+          config: {
+            font_scale: "large",
+            display_style: "border",
+            blink: "fail",
+            panels: [panel({ title: "  " })],
+          },
+        }),
       );
     handlers["POST /api/monitor-boards/preview-check"] = () =>
       json({

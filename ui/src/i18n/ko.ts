@@ -1770,6 +1770,12 @@ export const ko = {
     boardName: "이름",
     fontScale: "글자 크기",
     fontScaleOptions: { small: "작게", medium: "보통", large: "크게", xlarge: "아주 크게" },
+    displayStyle: "화면 방식",
+    displayStyleOptions: {
+      fill: "신호등 (칸 전체 색)",
+      border: "테두리 (기본)",
+      focus: "실패만 크게",
+    },
     blink: "깜빡임",
     blinkOptions: { off: "끄기", fail: "실패만", slow_and_fail: "느림+실패" },
     panels: "칸",

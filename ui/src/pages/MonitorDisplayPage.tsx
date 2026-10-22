@@ -332,6 +332,7 @@ export function MonitorDisplayPage() {
               showInterval={!sameInterval}
               fit={fit}
               reasonFit={reasonFit}
+              displayStyle={board.config.display_style}
             />
           );
         })}

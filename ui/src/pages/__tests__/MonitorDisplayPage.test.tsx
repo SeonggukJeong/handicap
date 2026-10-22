@@ -33,7 +33,7 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
   return {
     id: BID,
     name: "운영실 화면",
-    config: { font_scale: "large", blink: "fail", panels },
+    config: { font_scale: "large", display_style: "border", blink: "fail", panels },
     enabled: true,
     created_at: 1,
     updated_at: 1,
@@ -250,6 +250,79 @@ describe("MonitorDisplayPage", () => {
     expect(screen.getByText("새 이름")).toBeInTheDocument();
     await tick(3000);
     expect(boardCalls).toBe(2);
+  });
+
+  describe("A (fill) style", () => {
+    const failRes = {
+      at_ms: T,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "HTTP 503",
+      detail: null,
+    };
+    const fillBoard = (style: string, panels: Json[] = [panelCfg()], over: Json = {}) =>
+      board(
+        {
+          ...over,
+          config: { font_scale: "large", display_style: style, blink: "off", panels },
+        },
+        panels,
+      );
+    const boxOf = (title: string) => within(panelEl(title)).getByTestId("panel-box");
+
+    it("fill_panel_background_is_state_color", async () => {
+      boardHandler = () => res(fillBoard("fill"));
+      statusHandler = () => res(status([panelStatus(P1, [failRes])]));
+      await renderPage();
+      expect(boxOf("결제").style.background).toBe("rgb(185, 28, 28)");
+      expect(within(panelEl("결제")).getByRole("heading", { name: "결제" }).style.color).toBe(
+        "rgb(255, 255, 255)",
+      );
+    });
+
+    it("fill_slow_yellow_threshold_uses_dark_text", async () => {
+      boardHandler = () =>
+        res(fillBoard("fill", [panelCfg({ thresholds: [{ ms: 1000, color: "#facc15" }] })]));
+      statusHandler = () => res(status([panelStatus(P1, [okResult(1500)])]));
+      await renderPage();
+      expect(boxOf("결제").style.background).toBe("rgb(250, 204, 21)");
+      expect(within(panelEl("결제")).getByText("1,500 ms").style.color).toBe("rgb(11, 15, 20)");
+    });
+
+    it("fill_pending_matches_border", async () => {
+      statusHandler = () => res(status([panelStatus(P1, [])], { started_at_ms: T - 5000 }));
+      boardHandler = () => res(fillBoard("fill"));
+      await renderPage();
+      expect(boxOf("결제").getAttribute("data-state")).toBe("pending");
+      expect(boxOf("결제").style.background).toBe("rgb(17, 26, 35)");
+    });
+
+    it("fill_graph_inside_dark_box", async () => {
+      boardHandler = () => res(fillBoard("fill"));
+      await renderPage();
+      expect(within(panelEl("결제")).getByTestId("latency-bars").style.background).toBe(
+        "rgb(11, 15, 20)",
+      );
+    });
+
+    it("border_board_unchanged", async () => {
+      boardHandler = () => res(fillBoard("border"));
+      await renderPage();
+      expect(within(panelEl("결제")).getByTestId("latency-bars").style.background).toBe("");
+      expect(boxOf("결제").style.background).toBe("rgb(17, 26, 35)");
+    });
+
+    it("display_style_change_applies_after_board_refetch", async () => {
+      boardHandler = () => res(fillBoard("border"));
+      statusHandler = () => res(status([panelStatus(P1, [failRes])]));
+      await renderPage();
+      expect(boxOf("결제").style.background).toBe("rgb(17, 26, 35)");
+      boardHandler = () => res(fillBoard("fill", [panelCfg()], { updated_at: 2 }));
+      statusHandler = () => res(status([panelStatus(P1, [failRes])], { board_updated_at: 2 }));
+      await tick(1000);
+      await tick(10);
+      expect(boxOf("결제").style.background).toBe("rgb(185, 28, 28)");
+    });
   });
 
   it("server_down_after_3_failed_polls", async () => {

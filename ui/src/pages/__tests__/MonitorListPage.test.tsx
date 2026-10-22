@@ -33,6 +33,7 @@ const mkBoard = (id: string, name: string, enabled: boolean, n: number) => ({
   name,
   config: {
     font_scale: "large",
+    display_style: "border",
     blink: "fail",
     panels: Array.from({ length: n }, (_, i) => ({
       id: `P${i}`,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PanelConfig } from "../../api/monitors";
+import type { DisplayStyle, PanelConfig } from "../../api/monitors";
 import {
   barColor,
   bigValueText,
@@ -11,7 +11,9 @@ import {
   COLOR,
   PANEL_BOX,
   PANEL_TEXT,
+  fillBackground,
   graphFits,
+  contrastText,
   panelFont,
   reasonParts,
   type PanelStatus,
@@ -125,16 +127,21 @@ function TitleStateRow({
   stateColor,
   fontScale,
   heading,
+  titleColor,
 }: {
   title: string;
   stateLabel: string;
   stateColor: string;
   fontScale: number;
   heading: boolean;
+  titleColor?: string;
 }) {
   const titleClass =
     "line-clamp-2 min-w-0 break-keep font-extrabold leading-tight [overflow-wrap:anywhere]";
-  const titleStyle = { fontSize: panelFont(PANEL_TEXT.title, fontScale) };
+  const titleStyle = {
+    fontSize: panelFont(PANEL_TEXT.title, fontScale),
+    ...(titleColor ? { color: titleColor } : {}),
+  };
   return (
     <div className="flex flex-wrap items-baseline" style={{ columnGap: "2cqw" }}>
       {heading ? (
@@ -259,6 +266,7 @@ function useGraphShown(
   textRef: React.RefObject<HTMLElement>,
   fit: number,
   fontScale: number,
+  inset: boolean,
 ): boolean {
   const [dims, setDims] = useState<{ w: number; h: number; textH: number } | null>(null);
   useBoxMeasure(panelRef, textRef, fit, (m) =>
@@ -269,7 +277,7 @@ function useGraphShown(
     ),
   );
   if (dims === null) return true;
-  return graphFits({ ...dims, fontScale });
+  return graphFits({ ...dims, fontScale, inset });
 }
 
 export function MonitorPanel({
@@ -281,6 +289,7 @@ export function MonitorPanel({
   showInterval = false,
   fit = 1,
   reasonFit = 1,
+  displayStyle = "border",
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -292,6 +301,8 @@ export function MonitorPanel({
   fit?: number;
   /** Board-wide extra scale for the reason line only (R18). */
   reasonFit?: number;
+  /** Board display style; `focus` renders like `border` here (C layout is the board's). */
+  displayStyle?: DisplayStyle;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -310,7 +321,13 @@ export function MonitorPanel({
   const borderColor =
     state === "ok" || state === "slow" || state === "fail" ? stateColor : COLOR.grayBorder;
   // Mockup v4: a healthy value reads white; slow/fail take the state color.
-  const bigColor = state === "ok" ? COLOR.text : stateColor;
+  const fillBg =
+    displayStyle === "fill"
+      ? fillBackground(state, latest?.latency_ms ?? null, panel.thresholds)
+      : null;
+  // A: the background is the state; every text uses one contrast colour.
+  const ink = fillBg === null ? null : contrastText(fillBg);
+  const bigColor = ink ?? (state === "ok" ? COLOR.text : stateColor);
   const isReason = state === "fail" || state === "config_error";
   const bigText = bigValueText(state, latest);
   // Fail reason: fixed part big on one line, step-name part small below.
@@ -325,7 +342,7 @@ export function MonitorPanel({
       ? ko.monitor.consecutive(status.consecutive_fail, formatHms(status.fail_since_ms))
       : null;
 
-  const graph = useGraphShown(panelRef, textRef, fit, fontScale);
+  const graph = useGraphShown(panelRef, textRef, fit, fontScale, fillBg !== null);
 
   return (
     <article
@@ -342,9 +359,9 @@ export function MonitorPanel({
         className="absolute inset-0 flex flex-col overflow-hidden"
         style={
           {
-            ...BOX_STYLE(fit, borderColor),
+            ...BOX_STYLE(fit, fillBg ?? borderColor),
             "--reason-fit": String(+reasonFit.toFixed(4)),
-            background: COLOR.panel,
+            background: fillBg ?? COLOR.panel,
           } as React.CSSProperties
         }
       >
@@ -352,8 +369,9 @@ export function MonitorPanel({
           <TitleStateRow
             title={panel.title}
             stateLabel={STATE_LABEL[state]}
-            stateColor={stateColor}
+            stateColor={ink ?? stateColor}
             fontScale={fontScale}
+            titleColor={ink ?? undefined}
             heading
           />
           {reason ? (
@@ -404,7 +422,7 @@ export function MonitorPanel({
               className="truncate text-right font-bold"
               style={{
                 fontSize: panelFont(PANEL_TEXT.consecutive, fontScale),
-                color: COLOR.fail,
+                color: ink ?? COLOR.fail,
                 marginTop: "0.6cqw",
               }}
             >
@@ -421,6 +439,7 @@ export function MonitorPanel({
             intervalSec={panel.interval_seconds}
             fontScale={fontScale}
             showInterval={showInterval}
+            inset={fillBg !== null}
           />
         )}
       </div>

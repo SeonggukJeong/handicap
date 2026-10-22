@@ -107,6 +107,7 @@ export function LatencyBars({
   intervalSec,
   fontScale = 1,
   showInterval = false,
+  inset = false,
 }: {
   results: CheckResult[];
   barCount: number;
@@ -116,6 +117,8 @@ export function LatencyBars({
   fontScale?: number;
   /** Panel intervals differ across the board -> show this panel's interval on its axis. */
   showInterval?: boolean;
+  /** A (fill): the graph sits in a dark box (padding + COLOR.bg). */
+  inset?: boolean;
 }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
@@ -131,8 +134,16 @@ export function LatencyBars({
 
   return (
     <div
+      data-testid="latency-bars"
       className="min-h-0 flex-1"
       style={{
+        ...(inset
+          ? {
+              background: COLOR.bg,
+              padding: `${GRAPH_CHROME.insetPad}cqw`,
+              borderRadius: `${GRAPH_CHROME.insetRadius}cqw`,
+            }
+          : {}),
         // The board-wide shrink (--fit) is for panel text; axis and threshold
         // numbers keep their configured size (already small) to stay legible.
         ["--fit" as string]: "1",

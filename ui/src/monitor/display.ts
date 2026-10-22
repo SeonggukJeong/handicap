@@ -1,4 +1,5 @@
-import type { BoardStatus } from "../api/monitors";
+import type { BoardStatus, Threshold } from "../api/monitors";
+import { barColor, type PanelState } from "./logic";
 
 export type PanelStatus = BoardStatus["panels"][number];
 
@@ -44,7 +45,14 @@ export function panelFont(ratio: number, scale: number): string {
 /** Panel box chrome in panel cqw (single source for the style and the maths). */
 export const PANEL_BOX = { border: 1, padTop: 2.4, padSide: 2.4, padBottom: 2, radius: 2 } as const;
 /** Latency graph chrome in panel cqw around the bars area. */
-export const GRAPH_CHROME = { marginTop: 1, axisBorder: 0.4, axisMarginTop: 0.6 } as const;
+export const GRAPH_CHROME = {
+  marginTop: 1,
+  axisBorder: 0.4,
+  axisMarginTop: 0.6,
+  /** A (fill) only: padding / radius of the dark box around the graph. */
+  insetPad: 1,
+  insetRadius: 1.2,
+} as const;
 export const AXIS_LINE_HEIGHT = 1.3;
 
 /** Graph hidden when less than this share of the panel height is left below the text. */
@@ -77,7 +85,13 @@ export const BARS_MIN_SHARE = 0.08;
  * padding/border, the graph's margins/axis border and the axis row. Graph text
  * is not scaled by the board scale (LatencyBars sets --fit: 1).
  */
-export function barsAreaHeight(w: number, h: number, textH: number, fontScale: number): number {
+export function barsAreaHeight(
+  w: number,
+  h: number,
+  textH: number,
+  fontScale: number,
+  inset = false,
+): number {
   const cqw = w / 100;
   const axisPx = Math.min(
     (PANEL_TEXT.axis * fontScale * w) / 100,
@@ -87,7 +101,8 @@ export function barsAreaHeight(w: number, h: number, textH: number, fontScale: n
     freeBelowText(w, h, textH) -
     (PANEL_BOX.padBottom + PANEL_BOX.border) * cqw -
     (GRAPH_CHROME.marginTop + GRAPH_CHROME.axisBorder + GRAPH_CHROME.axisMarginTop) * cqw -
-    axisPx * AXIS_LINE_HEIGHT
+    axisPx * AXIS_LINE_HEIGHT -
+    (inset ? 2 * GRAPH_CHROME.insetPad * cqw : 0)
   );
 }
 
@@ -96,10 +111,16 @@ export function barsAreaHeight(w: number, h: number, textH: number, fontScale: n
  * height is left below the text, or when the bars themselves would get < 8%
  * (a few-pixel graph is unreadable).
  */
-export function graphFits(a: { w: number; h: number; textH: number; fontScale: number }): boolean {
+export function graphFits(a: {
+  w: number;
+  h: number;
+  textH: number;
+  fontScale: number;
+  inset?: boolean;
+}): boolean {
   return (
     freeBelowText(a.w, a.h, a.textH) >= a.h * GRAPH_MIN_SHARE &&
-    barsAreaHeight(a.w, a.h, a.textH, a.fontScale) >= a.h * BARS_MIN_SHARE
+    barsAreaHeight(a.w, a.h, a.textH, a.fontScale, a.inset ?? false) >= a.h * BARS_MIN_SHARE
   );
 }
 
@@ -189,3 +210,46 @@ export const COLOR = {
   gray: "#94a3b8",
   grayBorder: "#64748b",
 } as const;
+
+/** A (fill) panel backgrounds (spec 6.2); slow takes the crossed threshold's colour. */
+export const FILL = { ok: "#15803d", fail: "#b91c1c", gray: "#475569" } as const;
+
+/** Panel background in A; null = pending (rendered like B). */
+export function fillBackground(
+  state: PanelState,
+  latencyMs: number | null,
+  thresholds: Threshold[],
+): string | null {
+  switch (state) {
+    case "ok":
+      return FILL.ok;
+    case "slow":
+      return barColor(latencyMs ?? 0, thresholds);
+    case "fail":
+      return FILL.fail;
+    case "config_error":
+    case "stale":
+    case "stale_off":
+      return FILL.gray;
+    case "pending":
+      return null;
+  }
+}
+
+function luminance(hex: string): number {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return 0;
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => {
+    const c = parseInt(x, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** White or near-black, whichever has the higher WCAG contrast on `bg` (tie -> white). */
+export function contrastText(bg: string): "#ffffff" | "#0b0f14" {
+  const l = luminance(bg);
+  const white = 1.05 / (l + 0.05);
+  const dark = (l + 0.05) / (luminance("#0b0f14") + 0.05);
+  return dark > white ? "#0b0f14" : "#ffffff";
+}

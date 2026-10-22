@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  barsAreaHeight,
   boxContentHeight,
+  contrastText,
+  fillBackground,
+  FILL,
+  GRAPH_CHROME,
   freeBelowText,
   graphFits,
   MIN_FIT,
@@ -118,5 +123,37 @@ describe("reasonParts", () => {
     expect(reasonParts("응답 본문이 너무 큼", "본문 전체 · 포함 OK").kind).toBe("detail");
     expect(reasonParts('"OK" 포함 안 됨', "본문 · 포함 OK").kind).toBe("detail");
     expect(reasonParts('"OK', "본문 전체 · 포함 OK").kind).toBe("detail");
+  });
+});
+
+describe("A (fill) display helpers", () => {
+  it("contrast_text_picks_readable", () => {
+    expect(contrastText("#facc15")).toBe("#0b0f14");
+    expect(contrastText("#f59e0b")).toBe("#0b0f14");
+    expect(contrastText("#15803d")).toBe("#ffffff");
+    expect(contrastText("#b91c1c")).toBe("#ffffff");
+    expect(contrastText("#475569")).toBe("#ffffff");
+  });
+
+  it("fill_background_by_state", () => {
+    const th = [
+      { ms: 1000, color: "#facc15" },
+      { ms: 3000, color: "#ef4444" },
+    ];
+    expect(fillBackground("ok", 400, th)).toBe(FILL.ok);
+    expect(fillBackground("slow", 1500, th)).toBe("#facc15");
+    expect(fillBackground("fail", null, th)).toBe(FILL.fail);
+    expect(fillBackground("config_error", null, th)).toBe(FILL.gray);
+    expect(fillBackground("stale", null, th)).toBe(FILL.gray);
+    expect(fillBackground("stale_off", null, th)).toBe(FILL.gray);
+    expect(fillBackground("pending", null, th)).toBeNull();
+  });
+
+  it("bars_area_height_subtracts_inset_only_when_inset", () => {
+    const w = 400;
+    const base = barsAreaHeight(w, 300, 80, 1);
+    expect(barsAreaHeight(w, 300, 80, 1, false)).toBe(base);
+    const inset = barsAreaHeight(w, 300, 80, 1, true);
+    expect(base - inset).toBeCloseTo(2 * GRAPH_CHROME.insetPad * (w / 100), 9);
   });
 });

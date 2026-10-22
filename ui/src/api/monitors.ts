@@ -63,8 +63,12 @@ export const PanelConfigSchema = z.object({
 });
 export type PanelConfig = z.infer<typeof PanelConfigSchema>;
 
+export const DisplayStyleSchema = z.enum(["fill", "border", "focus"]);
+export type DisplayStyle = z.infer<typeof DisplayStyleSchema>;
+
 export const BoardConfigSchema = z.object({
   font_scale: FontScaleSchema,
+  display_style: DisplayStyleSchema,
   blink: BlinkSchema,
   panels: z.array(PanelConfigSchema),
 });
