@@ -394,6 +394,7 @@ mod tests {
             verdict,
             latency_ms: None,
             reason: None,
+            detail: None,
         }
     }
 

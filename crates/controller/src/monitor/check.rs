@@ -2,17 +2,22 @@
 //!
 //! 벽 화면에 나가는 `reason`은 이 파일의 고정 문구 + 시나리오 작성자의 스텝 이름뿐이다.
 //! 엔진 error 원문은 `starts_with` 분류에만 쓰고 절대 `reason`에 싣지 않는다.
+//! 단 조건 판정 결과일 때만 사용자가 고른 경로의 실제 값·비교값이 `reason`/`detail`에 나간다
+//! (`shown`으로 제어·서식 문자를 공백으로 바꾸고 200자로 자른 뒤).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use handicap_engine::extract::{jsonpath_first, stringify};
 use handicap_engine::{
     Assertion, HttpStep, Scenario, ScenarioTrace, Step, StepKind, StepTrace, TraceOptions,
-    trace_scenario,
+    TracedResponse, trace_scenario,
 };
 use serde::{Deserialize, Serialize};
 
-use super::config::{LatencySource, PanelConfig};
+use super::config::{
+    Condition, ConditionOp, ConditionSource, LatencySource, PanelConfig, parse_finite,
+};
 use crate::store::{self, Db};
 
 /// 점검 1회 요청 상한 — 설정 `max_test_run_requests`와 무관(spec §6.1).
@@ -29,6 +34,81 @@ pub const REASON_READ_BODY: &str = "응답 본문 읽기 실패";
 pub const REASON_EXTRACT: &str = "값 추출 실패";
 pub const REASON_REQUEST_FAILED: &str = "요청 실패";
 pub const REASON_UNBOUND_VAR: &str = "변수 미설정";
+pub const REASON_COND_STEP_MISSING: &str = "조건 기준 스텝 없음";
+pub const REASON_COND_STEP_NOT_RUN: &str = "조건 스텝 미실행";
+pub const REASON_BODY_NOT_JSON: &str = "본문이 JSON 아님";
+pub const REASON_BODY_TOO_LARGE: &str = "응답 본문이 너무 큼";
+pub const REASON_NO_VALUE: &str = "값 없음";
+pub const REASON_EMPTY: &str = "비어 있음";
+const REASON_NOT_CONTAINED_TAIL: &str = "\" 포함 안 됨";
+
+/// 조건 결과 `reason`·`detail`의 문자 수 상한.
+pub const SHOWN_MAX_CHARS: usize = 200;
+
+/// Unicode 서식 문자(Cf) 코드포인트 — 새 의존성 없이 하드코딩.
+fn is_format_char(c: char) -> bool {
+    matches!(c as u32,
+        0x00AD
+        | 0x0600..=0x0605
+        | 0x061C
+        | 0x06DD
+        | 0x070F
+        | 0x0890..=0x0891
+        | 0x08E2
+        | 0x180E
+        | 0x200B..=0x200F
+        | 0x202A..=0x202E
+        | 0x2060..=0x2064
+        | 0x2066..=0x206F
+        | 0xFEFF
+        | 0xFFF9..=0xFFFB
+        | 0x110BD
+        | 0x110CD
+        | 0x13430..=0x1343F
+        | 0x1BCA0..=0x1BCA3
+        | 0x1D173..=0x1D17A
+        | 0xE0001
+        | 0xE0020..=0xE007F)
+}
+
+/// 제어·서식·줄/문단 구분 문자를 공백 하나로 바꾼다.
+fn normalize_chars(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' || is_format_char(c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// 벽 화면에 나가는 사용자 값의 정규화 + 200자(문자 경계) 상한(`…`).
+pub(crate) fn shown(s: &str) -> String {
+    let n = normalize_chars(s);
+    if n.chars().count() <= SHOWN_MAX_CHARS {
+        return n;
+    }
+    let mut out: String = n.chars().take(SHOWN_MAX_CHARS - 1).collect();
+    out.push('…');
+    out
+}
+
+/// `"{비교값}" 포함 안 됨` — 비교값을 먼저 줄여 꼬리가 항상 남는다.
+fn reason_not_contained(needle: &str) -> String {
+    let n = normalize_chars(needle);
+    let overhead = 1 + REASON_NOT_CONTAINED_TAIL.chars().count();
+    let max = SHOWN_MAX_CHARS - overhead;
+    let body = if n.chars().count() > max {
+        let mut t: String = n.chars().take(max - 1).collect();
+        t.push('…');
+        t
+    } else {
+        n
+    };
+    format!("\"{body}{REASON_NOT_CONTAINED_TAIL}")
+}
 
 fn reason_timeout(secs: u32) -> String {
     format!("시간 초과({secs}초)")
@@ -53,6 +133,8 @@ pub struct CheckResult {
     pub verdict: Verdict,
     pub latency_ms: Option<u64>,
     pub reason: Option<String>,
+    /// 작은 줄 — 조건 판정 결과에만 `Some`(항상 직렬화, null 포함).
+    pub detail: Option<String>,
 }
 
 impl CheckResult {
@@ -62,8 +144,238 @@ impl CheckResult {
             verdict,
             latency_ms: None,
             reason: Some(reason.into()),
+            detail: None,
         }
     }
+
+    /// 조건 판정 결과 — `reason`·`detail` 둘 다 `shown`을 통과한다.
+    fn cond_result(at_ms: i64, verdict: Verdict, reason: &str, detail: &str) -> Self {
+        Self {
+            at_ms,
+            verdict,
+            latency_ms: None,
+            reason: Some(shown(reason)),
+            detail: Some(shown(detail)),
+        }
+    }
+}
+
+fn target_label(c: &Condition) -> String {
+    match c.source {
+        ConditionSource::Body => {
+            if c.path == "$" {
+                "본문".to_string()
+            } else if let Some(rest) = c.path.strip_prefix("$.") {
+                rest.to_string()
+            } else if c.path.starts_with("$[") {
+                c.path[1..].to_string()
+            } else {
+                c.path.clone()
+            }
+        }
+        ConditionSource::Header => format!("헤더 {}", c.path),
+        ConditionSource::Status => "상태코드".to_string(),
+        ConditionSource::BodyText => "본문 전체".to_string(),
+    }
+}
+
+fn rule_label(op: ConditionOp) -> &'static str {
+    match op {
+        ConditionOp::Exists => "값이 있음",
+        ConditionOp::NotEmpty => "비어 있지 않음",
+        ConditionOp::Eq => "같음",
+        ConditionOp::Ne => "같지 않음",
+        ConditionOp::Contains => "포함",
+        ConditionOp::Gt => "보다 큼",
+        ConditionOp::Lt => "보다 작음",
+    }
+}
+
+/// `{대상} · {규칙}[ {비교값}][ · {스텝 이름}]` — 정규화 전 원문(호출부가 `shown`).
+fn condition_detail(c: &Condition, step_name: Option<&str>) -> String {
+    let mut s = format!("{} · {}", target_label(c), rule_label(c.op));
+    if c.op.needs_value() {
+        s.push(' ');
+        if c.value.is_empty() {
+            s.push_str("\"\"");
+        } else {
+            s.push_str(&c.value);
+        }
+    }
+    if let Some(n) = step_name {
+        s.push_str(" · ");
+        s.push_str(n);
+    }
+    s
+}
+
+/// 조건 스텝이 시나리오 http 스텝이 아니면 설정 오류(요청 전·judge 공유).
+fn condition_step_missing(
+    scenario: &Scenario,
+    panel: &PanelConfig,
+    at_ms: i64,
+) -> Option<CheckResult> {
+    if panel.conditions.is_empty() {
+        return None;
+    }
+    let mut all = Vec::new();
+    collect_http_steps(&scenario.steps, &mut all);
+    let c = panel
+        .conditions
+        .iter()
+        .find(|c| !all.iter().any(|h| h.id == c.step_id))?;
+    Some(CheckResult::cond_result(
+        at_ms,
+        Verdict::ConfigError,
+        REASON_COND_STEP_MISSING,
+        &condition_detail(c, None),
+    ))
+}
+
+enum Actual {
+    Fixed(&'static str),
+    Missing,
+    Val { text: String, num: Option<f64> },
+}
+
+fn actual_value(c: &Condition, resp: &TracedResponse) -> Actual {
+    match c.source {
+        ConditionSource::Body => {
+            if resp.body_truncated {
+                return Actual::Fixed(REASON_BODY_TOO_LARGE);
+            }
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body) else {
+                return Actual::Fixed(REASON_BODY_NOT_JSON);
+            };
+            match jsonpath_first(&json, &c.path) {
+                None => Actual::Missing,
+                Some(v) => Actual::Val {
+                    text: stringify(&v),
+                    num: match &v {
+                        serde_json::Value::Number(n) => n.as_f64(),
+                        _ => None,
+                    },
+                },
+            }
+        }
+        ConditionSource::Header => {
+            let name = c.path.trim();
+            match resp
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            {
+                Some((_, v)) => Actual::Val {
+                    text: v.clone(),
+                    num: None,
+                },
+                None => Actual::Missing,
+            }
+        }
+        ConditionSource::Status => Actual::Val {
+            text: resp.status.to_string(),
+            num: None,
+        },
+        ConditionSource::BodyText => {
+            if resp.body_truncated {
+                Actual::Fixed(REASON_BODY_TOO_LARGE)
+            } else {
+                Actual::Val {
+                    text: resp.body.clone(),
+                    num: None,
+                }
+            }
+        }
+    }
+}
+
+fn normalize_cmp(s: &str, c: &Condition) -> String {
+    let s = if c.trim { s.trim() } else { s };
+    if c.ignore_case {
+        s.to_lowercase()
+    } else {
+        s.to_string()
+    }
+}
+
+fn op_passes(c: &Condition, text: &str, num: Option<f64>) -> bool {
+    match c.op {
+        ConditionOp::Exists => true,
+        ConditionOp::NotEmpty => !text.is_empty(),
+        ConditionOp::Eq | ConditionOp::Ne => {
+            let eq = if let Some(n) = num
+                && let Some(v) = parse_finite(&c.value)
+            {
+                n == v
+            } else {
+                normalize_cmp(text, c) == normalize_cmp(&c.value, c)
+            };
+            if c.op == ConditionOp::Eq { eq } else { !eq }
+        }
+        ConditionOp::Contains => normalize_cmp(text, c).contains(&normalize_cmp(&c.value, c)),
+        ConditionOp::Gt | ConditionOp::Lt => match (parse_finite(text), parse_finite(&c.value)) {
+            (Some(a), Some(b)) => {
+                if c.op == ConditionOp::Gt {
+                    a > b
+                } else {
+                    a < b
+                }
+            }
+            _ => false,
+        },
+    }
+}
+
+/// 조건을 위에서부터 평가 — 처음 깨진 하나만. 전부 통과면 `None`.
+fn eval_conditions(
+    all: &[&HttpStep],
+    panel: &PanelConfig,
+    trace: &ScenarioTrace,
+    at_ms: i64,
+) -> Option<CheckResult> {
+    for c in &panel.conditions {
+        let name = (all.len() >= 2)
+            .then(|| {
+                all.iter()
+                    .find(|h| h.id == c.step_id)
+                    .map(|h| h.name.as_str())
+            })
+            .flatten();
+        let detail = condition_detail(c, name);
+        let fail = |reason: &str| {
+            Some(CheckResult::cond_result(
+                at_ms,
+                Verdict::Fail,
+                reason,
+                &detail,
+            ))
+        };
+        let Some(resp) = trace
+            .steps
+            .iter()
+            .rfind(|s| s.kind == StepKind::Http && s.step_id == c.step_id)
+            .and_then(|s| s.response.as_ref())
+        else {
+            return fail(REASON_COND_STEP_NOT_RUN);
+        };
+        match actual_value(c, resp) {
+            Actual::Fixed(r) => return fail(r),
+            Actual::Missing => return fail(REASON_NO_VALUE),
+            Actual::Val { text, num } => {
+                if op_passes(c, &text, num) {
+                    continue;
+                }
+                if c.source == ConditionSource::BodyText && c.op == ConditionOp::Contains {
+                    return fail(&reason_not_contained(&c.value));
+                }
+                if text.is_empty() {
+                    return fail(REASON_EMPTY);
+                }
+                return fail(&text);
+            }
+        }
+    }
+    None
 }
 
 /// 시나리오 정의의 http 스텝 전부(loop/if/parallel 재귀).
@@ -137,6 +449,9 @@ pub fn judge(
     if !latency_step_exists(scenario, panel) {
         return CheckResult::with_reason(at_ms, Verdict::ConfigError, REASON_LATENCY_STEP_MISSING);
     }
+    if let Some(r) = condition_step_missing(scenario, panel, at_ms) {
+        return r;
+    }
     if trace.truncated {
         let http_rows = trace
             .steps
@@ -178,6 +493,10 @@ pub fn judge(
         return CheckResult::with_reason(at_ms, verdict, reason);
     }
 
+    if let Some(r) = eval_conditions(&all, panel, trace, at_ms) {
+        return r;
+    }
+
     let latency_ms = match &panel.latency_source {
         LatencySource::Total => Some(trace.total_ms),
         LatencySource::Step { step_id } => trace
@@ -192,6 +511,7 @@ pub fn judge(
         verdict: Verdict::Ok,
         latency_ms,
         reason: None,
+        detail: None,
     }
 }
 
@@ -221,6 +541,9 @@ pub async fn run_check(db: &Db, panel: &PanelConfig) -> (Option<ScenarioTrace>, 
     // 요청을 내보내기 전에 기준 스텝부터 확인 — 설정 오류에 부하를 쓰지 않는다.
     if !latency_step_exists(&scenario, panel) {
         return cfg_err(REASON_LATENCY_STEP_MISSING);
+    }
+    if let Some(r) = condition_step_missing(&scenario, panel, at_ms) {
+        return (None, r);
     }
 
     let timeout = Duration::from_secs(u64::from(panel.timeout_seconds));
@@ -381,7 +704,8 @@ steps:
                 at_ms: 42,
                 verdict: Verdict::Ok,
                 latency_ms: Some(777),
-                reason: None
+                reason: None,
+                detail: None
             }
         );
     }
@@ -693,5 +1017,421 @@ steps:
         let (_, r) = run_check(&db, &p).await;
         assert_eq!(r.verdict, Verdict::ConfigError);
         assert_eq!(r.reason.as_deref(), Some("변수 미설정"));
+    }
+
+    // ---- 성공 조건 (①b Task 2) ----
+
+    use super::super::config::{Condition, ConditionOp as Op, ConditionSource as Src};
+
+    fn resp_with(status: u16, body: &str, headers: &[(&str, &str)]) -> TracedResponse {
+        TracedResponse {
+            status,
+            latency_ms: 5,
+            download_ms: None,
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            set_cookies: vec![],
+            body: body.into(),
+            body_truncated: false,
+        }
+    }
+
+    fn cond(step: &str, source: Src, path: &str, op: Op, value: &str) -> Condition {
+        Condition {
+            step_id: step.into(),
+            source,
+            path: path.into(),
+            op,
+            value: value.into(),
+            ..Condition::default()
+        }
+    }
+
+    fn judge_c(sc: &Scenario, conds: Vec<Condition>, t: &ScenarioTrace) -> CheckResult {
+        let p = PanelConfig {
+            conditions: conds,
+            ..panel(LatencySource::Total)
+        };
+        judge(sc, &p, t, 1)
+    }
+
+    fn t_body(body: &str) -> ScenarioTrace {
+        tr(vec![st(A, Some(resp_with(200, body, &[])), None)])
+    }
+
+    #[test]
+    fn cond_eq_pass_and_fail_detail_one_step() {
+        let c = cond(A, Src::Body, "$.resultCode", Op::Eq, "0000");
+        let r = judge_c(
+            &one_step(),
+            vec![c.clone()],
+            &t_body(r#"{"resultCode":"E1023"}"#),
+        );
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("E1023"));
+        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000"));
+        assert_eq!(r.latency_ms, None);
+        let r = judge_c(&one_step(), vec![c], &t_body(r#"{"resultCode":"0000"}"#));
+        assert_eq!(r.verdict, Verdict::Ok);
+        assert_eq!(r.detail, None);
+        assert_eq!(r.latency_ms, Some(777));
+    }
+
+    #[test]
+    fn cond_detail_has_step_name_with_two_steps() {
+        let c = cond(A, Src::Body, "$.resultCode", Op::Eq, "0000");
+        let r = judge_c(&two_steps(), vec![c], &t_body(r#"{"resultCode":"E1"}"#));
+        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000 · 인증"));
+        assert_eq!(r.reason.as_deref(), Some("E1"));
+    }
+
+    #[test]
+    fn cond_ops_table() {
+        // (본문, op, 비교값, 기대: None=통과 / Some(사유))
+        let rows: Vec<(&str, Op, &str, Option<&str>)> = vec![
+            (r#"{"v":null}"#, Op::Exists, "", None),
+            (r#"{}"#, Op::Exists, "", Some("값 없음")),
+            (r#"{"v":null}"#, Op::NotEmpty, "", Some("비어 있음")),
+            (r#"{"v":""}"#, Op::NotEmpty, "", Some("비어 있음")),
+            (r#"{}"#, Op::NotEmpty, "", Some("값 없음")),
+            (r#"{"v":"x"}"#, Op::NotEmpty, "", None),
+            (r#"{"v":"0000"}"#, Op::Ne, "0000", Some("0000")),
+            (r#"{"v":"ALL OK"}"#, Op::Contains, "OK", None),
+            (r#"{"v":5}"#, Op::Gt, "3", None),
+            (r#"{"v":2}"#, Op::Lt, "3", None),
+            (r#"{"v":"abc"}"#, Op::Gt, "3", Some("abc")),
+            (r#"{"v":"inf"}"#, Op::Gt, "3", Some("inf")),
+            (r#"{"v":"NaN"}"#, Op::Lt, "3", Some("NaN")),
+            (r#"{"v":5}"#, Op::Gt, "abc", Some("5")),
+            (r#"{"v":{"a":1}}"#, Op::Eq, "x", Some(r#"{"a":1}"#)),
+            (r#"{}"#, Op::Eq, "x", Some("값 없음")),
+        ];
+        for (body, op, val, want) in rows {
+            let r = judge_c(
+                &one_step(),
+                vec![cond(A, Src::Body, "$.v", op, val)],
+                &t_body(body),
+            );
+            match want {
+                None => assert_eq!(r.verdict, Verdict::Ok, "{body} {op:?} {val}"),
+                Some(reason) => {
+                    assert_eq!(r.verdict, Verdict::Fail, "{body} {op:?} {val}");
+                    assert_eq!(r.reason.as_deref(), Some(reason), "{body} {op:?} {val}");
+                }
+            }
+        }
+    }
+
+    fn flagged(op: Op, val: &str, ic: bool, tm: bool) -> Condition {
+        Condition {
+            ignore_case: ic,
+            trim: tm,
+            ..cond(A, Src::Body, "$.v", op, val)
+        }
+    }
+
+    #[test]
+    fn cond_flags() {
+        let run = |body: &str, c: Condition| judge_c(&one_step(), vec![c], &t_body(body));
+        // eq: 실제 "OK ", 비교 "ok"
+        let b = r#"{"v":"OK "}"#;
+        let r = run(b, flagged(Op::Eq, "ok", false, false));
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("OK "));
+        assert_eq!(
+            run(b, flagged(Op::Eq, "ok", false, true)).verdict,
+            Verdict::Fail
+        );
+        assert_eq!(
+            run(b, flagged(Op::Eq, "ok", true, false)).verdict,
+            Verdict::Fail
+        );
+        assert_eq!(
+            run(b, flagged(Op::Eq, "ok", true, true)).verdict,
+            Verdict::Ok
+        );
+        // ne
+        assert_eq!(
+            run(b, flagged(Op::Ne, "ok", false, false)).verdict,
+            Verdict::Ok
+        );
+        assert_eq!(
+            run(b, flagged(Op::Ne, "ok", true, true)).verdict,
+            Verdict::Fail
+        );
+        // contains: 비교 "Ok " (뒤 공백)
+        let b = r#"{"v":"ALL OK"}"#;
+        assert_eq!(
+            run(b, flagged(Op::Contains, "Ok ", true, false)).verdict,
+            Verdict::Fail
+        );
+        assert_eq!(
+            run(b, flagged(Op::Contains, "Ok ", true, true)).verdict,
+            Verdict::Ok
+        );
+        // gt는 플래그 무관
+        let b = r#"{"v":" 5 "}"#;
+        assert_eq!(
+            run(b, flagged(Op::Gt, "3", false, false)).verdict,
+            Verdict::Ok
+        );
+        assert_eq!(
+            run(b, flagged(Op::Gt, "3", true, true)).verdict,
+            Verdict::Ok
+        );
+    }
+
+    #[test]
+    fn cond_json_number_compare() {
+        let c = cond(A, Src::Body, "$.v", Op::Eq, "1");
+        assert_eq!(
+            judge_c(&one_step(), vec![c], &t_body(r#"{"v":1.0}"#)).verdict,
+            Verdict::Ok
+        );
+        let c = cond(A, Src::Body, "$.v", Op::Eq, "0");
+        let r = judge_c(&one_step(), vec![c], &t_body(r#"{"v":"0000"}"#));
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("0000"));
+    }
+
+    #[test]
+    fn cond_body_text_not_contained() {
+        let c = cond(A, Src::BodyText, "", Op::Contains, "OK");
+        let r = judge_c(&one_step(), vec![c], &t_body("fail"));
+        assert_eq!(r.reason.as_deref(), Some("\"OK\" 포함 안 됨"));
+        assert_eq!(r.detail.as_deref(), Some("본문 전체 · 포함 OK"));
+        let c = cond(A, Src::BodyText, "", Op::Contains, &"x".repeat(200));
+        let r = judge_c(&one_step(), vec![c], &t_body("fail"));
+        let reason = r.reason.unwrap();
+        assert!(reason.chars().count() <= 200);
+        assert!(reason.ends_with("\" 포함 안 됨"));
+        assert!(reason.contains('…'));
+        // 비교값이 한글이어도 문자 경계 안전
+        let c = cond(A, Src::BodyText, "", Op::Contains, &"가".repeat(300));
+        let reason = judge_c(&one_step(), vec![c], &t_body("fail"))
+            .reason
+            .unwrap();
+        assert!(reason.chars().count() <= 200);
+        assert!(reason.ends_with("\" 포함 안 됨"));
+    }
+
+    #[test]
+    fn cond_body_truncated_and_not_json() {
+        let mut resp = resp_with(200, "{}", &[]);
+        resp.body_truncated = true;
+        let t = tr(vec![st(A, Some(resp), None)]);
+        for c in [
+            cond(A, Src::Body, "$.v", Op::Exists, ""),
+            cond(A, Src::BodyText, "", Op::Contains, "x"),
+        ] {
+            let r = judge_c(&one_step(), vec![c], &t);
+            assert_eq!(r.verdict, Verdict::Fail);
+            assert_eq!(r.reason.as_deref(), Some("응답 본문이 너무 큼"));
+        }
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$.v", Op::Exists, "")],
+            &t_body("not json"),
+        );
+        assert_eq!(r.reason.as_deref(), Some("본문이 JSON 아님"));
+        assert!(r.detail.is_some());
+    }
+
+    #[test]
+    fn header_lookup_ignores_case() {
+        let t = tr(vec![st(
+            A,
+            Some(resp_with(200, "", &[("content-type", "application/json")])),
+            None,
+        )]);
+        let ok = cond(A, Src::Header, "Content-Type", Op::Contains, "json");
+        assert_eq!(judge_c(&one_step(), vec![ok], &t).verdict, Verdict::Ok);
+        let none = cond(A, Src::Header, "X-None", Op::Exists, "");
+        let r = judge_c(&one_step(), vec![none], &t);
+        assert_eq!(r.reason.as_deref(), Some("값 없음"));
+        assert_eq!(r.detail.as_deref(), Some("헤더 X-None · 값이 있음"));
+    }
+
+    #[test]
+    fn cond_status() {
+        let t = t_body("");
+        let ok = cond(A, Src::Status, "", Op::Eq, "200");
+        assert_eq!(judge_c(&one_step(), vec![ok], &t).verdict, Verdict::Ok);
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Status, "", Op::Gt, "300")],
+            &t,
+        );
+        assert_eq!(r.reason.as_deref(), Some("200"));
+        assert_eq!(r.detail.as_deref(), Some("상태코드 · 보다 큼 300"));
+    }
+
+    #[test]
+    fn cond_uses_last_execution() {
+        let t = tr(vec![
+            st(A, Some(resp_with(200, r#"{"v":"0000"}"#, &[])), None),
+            st(A, Some(resp_with(200, r#"{"v":"E1"}"#, &[])), None),
+        ]);
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$.v", Op::Eq, "0000")],
+            &t,
+        );
+        assert_eq!(r.reason.as_deref(), Some("E1"));
+    }
+
+    #[test]
+    fn cond_step_not_run() {
+        let t = t_body("{}");
+        let c = cond(B, Src::Body, "$.v", Op::Exists, "");
+        let r = judge_c(&two_steps(), vec![c], &t);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("조건 스텝 미실행"));
+        assert_eq!(r.detail.as_deref(), Some("v · 값이 있음 · 조회"));
+    }
+
+    #[test]
+    fn cond_first_failing_only() {
+        let t = t_body(r#"{"a":"1","b":"2"}"#);
+        let r = judge_c(
+            &one_step(),
+            vec![
+                cond(A, Src::Body, "$.a", Op::Eq, "x"),
+                cond(A, Src::Body, "$.b", Op::Eq, "y"),
+            ],
+            &t,
+        );
+        assert_eq!(r.reason.as_deref(), Some("1"));
+        assert_eq!(r.detail.as_deref(), Some("a · 같음 x"));
+    }
+
+    #[test]
+    fn scenario_failure_beats_conditions() {
+        let t = tr(vec![st(
+            A,
+            Some(resp_with(503, "{}", &[])),
+            Some("status 503 != 200"),
+        )]);
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$.v", Op::Eq, "x")],
+            &t,
+        );
+        assert_eq!(r.reason.as_deref(), Some("HTTP 503"));
+        assert_eq!(r.detail, None);
+    }
+
+    #[test]
+    fn cond_step_missing_is_config_error_before_truncation() {
+        let mut t = t_body("{}");
+        t.truncated = true;
+        let c = cond(
+            "01HX0000000000000000000009",
+            Src::Body,
+            "$.resultCode",
+            Op::Eq,
+            "0000",
+        );
+        let r = judge_c(&two_steps(), vec![c], &t);
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("조건 기준 스텝 없음"));
+        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000"));
+    }
+
+    #[test]
+    fn body_root_and_bracket_target_labels() {
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$", Op::NotEmpty, "")],
+            &t_body(""),
+        );
+        assert_eq!(r.detail.as_deref(), Some("본문 · 비어 있지 않음"));
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$['a b'][0]", Op::Exists, "")],
+            &t_body("{}"),
+        );
+        assert_eq!(r.detail.as_deref(), Some("['a b'][0] · 값이 있음"));
+    }
+
+    #[test]
+    fn shown_cuts_at_char_boundary_with_ellipsis() {
+        let s = shown(&"가".repeat(300));
+        assert_eq!(s.chars().count(), 200);
+        assert!(s.ends_with('…'));
+        let s = shown(&"😀".repeat(300));
+        assert_eq!(s.chars().count(), 200);
+        assert!(s.ends_with('…'));
+        let exact = "가".repeat(200);
+        assert_eq!(shown(&exact), exact);
+    }
+
+    #[test]
+    fn shown_replaces_cf_and_controls() {
+        assert_eq!(
+            shown("a\u{202E}b\u{200B}c\u{FEFF}d\ne\tf\u{2028}g\u{2029}h"),
+            "a b c d e f g h"
+        );
+    }
+
+    #[test]
+    fn no_condition_results_have_null_detail() {
+        let t = tr(vec![st(A, Some(resp(503, 10)), Some("status"))]);
+        let r = judge(&one_step(), &panel(LatencySource::Total), &t, 1);
+        assert_eq!(r.detail, None);
+        let r = judge(
+            &one_step(),
+            &panel(LatencySource::Step { step_id: B.into() }),
+            &t,
+            1,
+        );
+        assert_eq!(r.detail, None);
+    }
+
+    #[tokio::test]
+    async fn run_check_condition_step_missing_sends_nothing() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for(&format!("{}/a", server.uri()))).await;
+        let p = PanelConfig {
+            scenario_id: id,
+            conditions: vec![cond(
+                "01HX0000000000000000000009",
+                Src::Body,
+                "$.v",
+                Op::Eq,
+                "x",
+            )],
+            ..PanelConfig::default()
+        };
+        let (trace, r) = run_check(&db, &p).await;
+        assert!(trace.is_none());
+        assert_eq!(r.verdict, Verdict::ConfigError);
+        assert_eq!(r.reason.as_deref(), Some("조건 기준 스텝 없음"));
+    }
+
+    #[tokio::test]
+    async fn run_check_condition_fail_against_wiremock() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"resultCode":"E1023"}"#))
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for(&format!("{}/a", server.uri()))).await;
+        let p = PanelConfig {
+            scenario_id: id,
+            conditions: vec![cond(A, Src::Body, "$.resultCode", Op::Eq, "0000")],
+            ..PanelConfig::default()
+        };
+        let (trace, r) = run_check(&db, &p).await;
+        assert!(trace.is_some());
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("E1023"));
     }
 }

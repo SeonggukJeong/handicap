@@ -239,6 +239,7 @@ mod tests {
             verdict: v,
             latency_ms: None,
             reason: None,
+            detail: None,
         }
     }
 
