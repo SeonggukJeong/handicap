@@ -38,9 +38,7 @@ Handicap의 목표는 하나입니다 — **부하 테스트를 담당자 한 �
 
 같은 고민을 하는 다른 조직·공공기관에도 도움이 되길 바라며 공개합니다.
 
-> 최신 안정판은 [v0.10.1](https://github.com/SeonggukJeong/handicap/releases/tag/v0.10.1)입니다. Ubuntu 데스크톱용 `.deb`·`.AppImage`를 포함하며, macOS 데스크톱은 Apple Silicon만 지원합니다.
-
-v0.10.1에서는 Ubuntu 데스크톱 패키지와 함께 open-loop 곡선 부하의 저레이트 도착 누락, 시작 지연 감지, 선택 배열의 새로 뽑기 설정, 도움말 팝오버 위치 오류를 수정했습니다.
+> 설치 파일과 버전별 변경 내역은 [최신 릴리즈](https://github.com/SeonggukJeong/handicap/releases/latest) 페이지에 있습니다.
 
 ---
 
