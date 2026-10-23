@@ -9,7 +9,7 @@ model: sonnet
 
 > **모델: Sonnet 고정** (frontmatter `model: sonnet` — 해당 턴만 적용). 순수 curl + JSON 키 파싱이라 브라우저·vision 없이 가장 기계적 → Sonnet으로 충분(판정 품질만 살짝 양보하면 Haiku도 가능). user-only(`disable-model-invocation`)라 모델이 못 부르고 `/curl-verify` 호출 시 이 frontmatter가 그 턴을 Sonnet으로 내린다.
 
-전체 스택 기동은 `/live-verify`. **이미 controller가 떠 있을 때**(예: `just run-controller-with-ui`, 또는 live-verify가 띄운 백엔드) 시나리오 생성→run→폴링→report를 curl로 빠르게 도는 가벼운 버전. CLAUDE.md "로컬에서 curl로 직접 구동" 절의 footgun을 레시피에 박아 매번 다시 밟지 않게 한다.
+전체 스택 기동은 `/live-verify`. **이미 controller가 떠 있을 때**(예: `just run-controller-with-ui`, 또는 live-verify가 띄운 백엔드) 시나리오 생성→run→폴링→report를 curl로 빠르게 도는 가벼운 버전. `docs/dev/live-verify-backend.md` §curl로 직접 구동(root CLAUDE.md에서 이관한 정본)의 footgun을 레시피에 박아 매번 다시 밟지 않게 한다.
 
 기본값: REST `http://127.0.0.1:8080`. 번들된 `parse.py`로 응답에서 키를 안전하게 뽑는다(stdin 직결 — 셸 변수 경유 금지).
 

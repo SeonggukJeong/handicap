@@ -161,3 +161,15 @@ root 상태줄(line 7)과 `docs/roadmap.md` 불릿은 둘 다 단일 초장문 �
   - **splice 정합성은 bracket-balance가 아니라 imbalance-vs-HEAD로 검증** (XLSX Δ 2026-06-26): 상태줄·roadmap 불릿은 한국어 `[...]` 다용으로 **이미 불균형**일 수 있어 `count('[')==count(']')`는 무의미 — `git show HEAD:<파일>`의 해당 라인 imbalance와 *같은지* 비교(naive balance 검사는 false-positive). (line 7을 `·feature[detail]`로 append하던 close-앵커 `])까지 구현·머지 완료.` 규칙은 2026-06-28 카탈로그 압축으로 폐지 — 카탈로그는 더 이상 append 대상 아님, 위 규칙 참조.)
   - **splice 앵커의 구분자 char-identity 함정** (json-cast-extend 2026-06-29, line-7 splice 2회 substring-not-found): 상태줄은 `·`(U+00B7 MIDDLE DOT)·`—`(U+2014)·`→`(U+2192)를 쓰는데 ① `.py` heredoc에 *타이핑한* 리터럴이 다른 코드포인트(`•` U+2022 등)일 수 있고 ② **Read 툴 렌더가 raw 바이트와 다를 수 있다**(이번에 Read가 `상세·함정 출처`를 `상세`로 누락 렌더) → `s.index()`가 0매치로 터진다. 앵커는 `python repr`/`xxd`로 **실 바이트 확인** 후 구분자를 `·`/`—`/`→`로 **명시**(또는 파일에서 추출). `assert count==1`은 0매치를 못 거르니(예외로 떨어짐) 앵커 정확도가 선결.
   - **end_anchor가 old-span 꼬리 내용을 포함하면 `assert count==1`이 통과해도 결과가 깨진다** (scenario-clone-error-fixes 2026-07-09): 새 문장 뒤에 `new_sentence + " " + end_anchor`로 이어붙이는 패턴에서, `end_anchor`를 "구 문장의 마지막 조각 + 뒤따르는 boilerplate 포인터"로 잡으면(예: `"...실측). 완료 슬라이스..."`) 그 마지막 조각(`"...실측)."`)이 **새 문장에도 그대로 이식**된다 — replace 자체는 `count==1`로 성공하고 예외도 안 나서 겉보기엔 정상 완료다. old_span 재구성이 바이트 단위로 원본과 일치하는지가 아니라, **new_span에 old 전용 내용이 안 섞였는지**를 별도로 확인해야 한다: end_anchor는 순수 boilerplate(다음 문장·포인터)만으로 최소화해서 잡고, splice 직후 `Read offset=<line> limit=1`(또는 python으로 해당 줄 전체 print)로 **새 문장 전체를 육안 재독**하는 걸 완료 조건에 넣는다.
+
+## root 원문 — `슬라이스/기능을 완료하면` 섹션 (2026-10-24 이관)
+
+> root `CLAUDE.md`에서 **원문 그대로** 옮겨 온 것(2026-10-24 claude-md-optimize — root는 매 프롬프트 로드라 규칙 한 줄만 남기고 서사·레시피·사례는 여기로). root에 남은 규칙 줄과 충돌하면 root가 우선한다.
+
+이 root 파일은 **매 프롬프트에 통째로 로드**되므로 "매 세션 필요한 것"(전역 규칙·현재상태 한 줄·크로스커팅 함정·인덱스)만 남기고, "가끔 필요한 것"(과거 이력·결정 근거·도메인 함정)은 *포인터 + on-demand 파일*로 뺀다. 따라서 기능 완료 시:
+
+- 구현 결과 요약(파이프라인·함정 출처·라이브 검증)은 root가 아니라 **`docs/build-log.md`에 한 단락 append**.
+- root **상태 줄은 한 줄로 *교체*(append 금지)** — "어디까지 됐나"만. 디테일은 build-log/ADR/메모리가 들고 있다. **`후속 다수(…)` 인라인 카탈로그도 append 대상이 아니다** — 짧은 스코프 나열 + `최신 =` 한 줄만 교체하고, 새 기능의 전체 설명·함정 출처는 build-log가 단일 소스다(2026-06-28: 이 카탈로그가 슬라이스마다 append-누적되어 22KB까지 비대 → line 7을 build-log 포인터로 압축. 새 슬라이스는 카탈로그에 기능명 한 마디만 더하거나 그대로 두고, `최신 =`만 갱신).
+- 상태줄(line 7)·roadmap 불릿은 **Python 스플라이스**로 — splice 앵커 함정·이관 기준·ADR 상태 규약 → [docs/dev/root-doc-maintenance.md](docs/dev/root-doc-maintenance.md).
+- 새 ADR는 인덱스에 **한 줄만**(위 규칙), 기능별 상세 작업 메모는 자동메모리 `MEMORY.md` 항목.
+- 신호: root가 다시 ~50 KB를 넘으면 같은 기준으로 build-log/ADR/도메인 CLAUDE.md로 재분배.

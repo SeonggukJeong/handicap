@@ -33,7 +33,7 @@ sleep 2
 curl -s -o /dev/null -w 'responder %{http_code}\n' http://127.0.0.1:9999/
 curl -s -o /dev/null -w 'controller %{http_code}\n' http://127.0.0.1:8080/api/scenarios
 ```
-> 포트가 안 비었으면 `lsof -ti :8080` → `ps -o cwd= -p <PID>`로 어느 워크트리인지 보고 죽인다(`dev-doctor` 참조).
+> 포트가 안 비었으면 `lsof -nP -iTCP:8080 -sTCP:LISTEN`으로 리스너 PID → `lsof -a -p <PID> -d cwd -Fn`으로 어느 워크트리인지 본다(**macOS는 `ps -o cwd=` 미지원** — 조용히 오판). 이 repo 것이 아니면(예: 사용자의 `llama-server`) 죽이지 말고 `--rest 127.0.0.1:8099 --grpc 127.0.0.1:8098`로 옮긴다(`dev-doctor` 참조). 백엔드 검증 함정 전체(curl 응답 파싱·echo 타깃·RPS 판독·포트 고갈) → `docs/dev/live-verify-backend.md`.
 
 ## 2) 시나리오 + 완료 run 준비 (앵커·리포트가 필요하면)
 ```bash
@@ -55,7 +55,7 @@ curl -s "http://127.0.0.1:8080/api/runs/$RID/report" | python3 -c 'import sys,js
 
 ## 4) 정리 (머지 전 필수)
 ```bash
-kill $(lsof -ti :8080) 2>/dev/null; kill $(lsof -ti :9999) 2>/dev/null
+pkill -f "target/debug/controller --db /tmp/<slug>.db"; pkill -f "live-verify/responder.py 9999"   # 내가 띄운 것만 — `kill $(lsof -ti …)`는 클라이언트·브라우저 탭까지 죽인다
 rm -f /tmp/<slug>.db /tmp/<slug>-*.log /tmp/<slug>-scn.yaml
 rm -rf "$WT/.playwright-mcp"; rm -f "$WT"/*.png 2>/dev/null
 git -C "$WT" status --porcelain   # 잔류 untracked 0 확인

@@ -11,9 +11,10 @@ description: Diagnose and correctly start the handicap local dev stack (controll
 ```bash
 for p in 5173 8080 9001; do echo "== :$p =="; lsof -nP -iTCP:$p -sTCP:LISTEN; done
 # 점유 PID의 작업 디렉터리(어느 worktree/checkout인지) 확인:
-ps -o pid=,cwd=,command= -p <PID>
+lsof -a -p <PID> -d cwd -Fn          # macOS는 `ps -o cwd=` 미지원(키워드 목록만 출력 → 조용히 오판)
+ps -o pid=,command= -p <PID>
 ```
-다른 worktree(또는 master)에서 띄운 vite(5173)/controller(8080)가 살아 있으면 그쪽 번들·DB를 서빙해 "변경이 안 보인다". 잘못된 것만 죽인다: `kill <PID>`. 브라우저는 hard reload.
+다른 worktree(또는 master)에서 띄운 vite(5173)/controller(8080)가 살아 있으면 그쪽 번들·DB를 서빙해 "변경이 안 보인다". 잘못된 것만 죽인다: `kill <PID>`(리스너 PID 하나만 — `kill $(lsof -ti …)`는 클라이언트·브라우저 탭까지 섞인다). **점유자가 이 repo 것이 아니면(예: 사용자의 `llama-server`) 죽이지 말고** 컨트롤러를 `--rest 127.0.0.1:8099 --grpc 127.0.0.1:8098`로 옮긴다. 브라우저는 hard reload. 서사·사례 → `docs/dev/live-verify-backend.md`.
 
 ## 2) 엔진/proto를 고쳤다면 워커부터 재빌드
 ```bash
