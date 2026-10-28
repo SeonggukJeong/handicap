@@ -229,6 +229,9 @@ describe("latencyStats", () => {
     });
     expect(latencyStats([mk("ok", 1), mk("ok", 2)])).toEqual({ avg: 2, max: 2 });
   });
+  it("includes a slow result (ok verdict with high latency)", () => {
+    expect(latencyStats([mk("ok", 100), mk("ok", 99_000)])).toEqual({ avg: 49_550, max: 99_000 });
+  });
   it("excludes fail, config_error and null latency", () => {
     expect(
       latencyStats([mk("fail", null), mk("config_error", null), mk("ok", null), mk("ok", 50)]),

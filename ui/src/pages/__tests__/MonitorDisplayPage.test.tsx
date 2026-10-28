@@ -1285,6 +1285,17 @@ describe("MonitorDisplayPage latency stats", () => {
     );
   });
 
+  it("stats line is normal weight, only the numbers are bold", async () => {
+    await renderPage();
+    const line = within(panelEl("결제")).getByTestId("latency-stats");
+    expect(line.className).not.toContain("font-bold");
+    const nums = [...line.querySelectorAll("b")];
+    expect(nums).toHaveLength(2);
+    const labels = [...line.querySelectorAll("span")];
+    expect(labels).toHaveLength(2);
+    labels.forEach((l) => expect(l.closest("b")).toBeNull());
+  });
+
   it("fail panel keeps the line, failures excluded", async () => {
     statusHandler = () =>
       res(

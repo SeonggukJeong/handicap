@@ -214,7 +214,7 @@ export function StatsLine({
   return (
     <div
       {...probeAttrs}
-      className={`overflow-hidden whitespace-nowrap text-right font-bold leading-tight ${
+      className={`overflow-hidden whitespace-nowrap text-right ${
         probe === undefined ? "text-ellipsis" : ""
       }`}
       style={{ fontSize, marginTop: "0.6cqw" }}
