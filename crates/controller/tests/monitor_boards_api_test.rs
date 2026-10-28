@@ -538,6 +538,7 @@ async fn status_detail_is_serialized_as_null() {
     assert!(r["detail"].is_null());
     send(&app, Method::POST, &url(id, "/stop"), None).await;
 }
+
 fn ls_url(id: &str) -> String {
     format!("/api/monitor-boards/{id}/latency-stats")
 }
@@ -637,7 +638,7 @@ async fn latency_stats_inserts_key_into_legacy_row() {
 async fn latency_stats_unknown_board_404() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let (app, _) = make_app(db);
-    let (s, _) = send(
+    let (s, r) = send(
         &app,
         Method::PUT,
         &ls_url("01J000000000000000000000ZZ"),
@@ -645,4 +646,6 @@ async fn latency_stats_unknown_board_404() {
     )
     .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
+    // 라우트 부재의 맨 404(본문 없음)와 구별 — 핸들러의 NotFound 본문.
+    assert_eq!(r["error"], "not found");
 }
