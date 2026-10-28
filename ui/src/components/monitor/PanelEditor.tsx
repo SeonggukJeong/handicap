@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { previewCheck, newPanel } from "../../api/monitors";
-import type { Condition, DisplayItem, PanelConfig, PreviewResult as Preview } from "../../api/monitors";
+import type {
+  Condition,
+  DisplayItem,
+  PanelConfig,
+  PreviewResult as Preview,
+} from "../../api/monitors";
 import type { Scenario } from "../../api/schemas";
 import type { EnvironmentSummary } from "../../api/environments";
 import { Button } from "../Button";
@@ -14,6 +19,7 @@ import { flattenHttpSteps } from "../../scenario/model";
 import { PreviewResult } from "./PreviewResult";
 import { ConditionRow } from "./ConditionRow";
 import { conditionSummary, targetLabel } from "../../monitor/conditions";
+import { panelSummary } from "../../monitor/panelSummary";
 
 const MAX_THRESHOLDS = 5;
 const THRESHOLD_COLORS = ["#f59e0b", "#ef4444", "#a855f7", "#3b82f6", "#14b8a6"];
@@ -25,6 +31,8 @@ type Props = {
   environments: EnvironmentSummary[];
   scenarioError: boolean;
   canRemove: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   onChange: (next: PanelConfig) => void;
   onRemove: () => void;
 };
@@ -49,6 +57,8 @@ export function PanelEditor({
   environments,
   scenarioError,
   canRemove,
+  expanded,
+  onToggle,
   onChange,
   onRemove,
 }: Props) {
@@ -146,355 +156,377 @@ export function PanelEditor({
 
   return (
     <section
+      id={`panel-${panel.id}`}
       aria-label={`${ko.monitor.panels} ${index + 1}`}
-      className="rounded-md border border-slate-200 bg-white p-4"
+      className={
+        expanded
+          ? "rounded-md border border-accent-500 bg-white p-4"
+          : "rounded-md border border-slate-200 bg-white px-4 py-2"
+      }
     >
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">
-          {ko.monitor.panels} {index + 1}
-        </h3>
-        {canRemove && (
+      <div className={`flex items-center justify-between gap-2 ${expanded ? "mb-3" : ""}`}>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-baseline gap-2 text-left text-sm"
+        >
+          <span className="font-semibold text-slate-700">
+            {expanded ? "▾" : "▸"} {ko.monitor.panels} {index + 1}
+          </span>
+          <span className="truncate font-medium text-slate-900">
+            {panel.title.trim() || ko.monitor.noTitle}
+          </span>
+          {!expanded && (
+            <span className="truncate text-xs text-slate-500">
+              {panelSummary(panel, scenario?.name)}
+            </span>
+          )}
+        </button>
+        {expanded && canRemove && (
           <Button variant="secondary" type="button" onClick={onRemove}>
             {ko.monitor.removePanel}
           </Button>
         )}
       </div>
 
-      <div className="grid gap-x-4 sm:grid-cols-2">
-        <Field label={ko.monitor.panelTitle} htmlFor={`${pid}-title`}>
-          <Input
-            id={`${pid}-title`}
-            value={panel.title}
-            onChange={(e) => set({ title: e.target.value })}
-          />
-        </Field>
-        <Field label={ko.monitor.interval} htmlFor={`${pid}-interval`}>
-          <Input
-            id={`${pid}-interval`}
-            type="number"
-            numeric
-            min={1}
-            max={3600}
-            value={panel.interval_seconds}
-            onChange={(e) => set({ interval_seconds: toNum(e.target.value) })}
-          />
-        </Field>
-        <Field
-          label={ko.monitor.scenario}
-          htmlFor={`${pid}-scenario`}
-          error={showScenarioErr ? ko.monitor.scenarioRequired : undefined}
-          errorId={`${pid}-scenario-err`}
-        >
-          <Select
-            id={`${pid}-scenario`}
-            value={panel.scenario_id}
-            aria-invalid={showScenarioErr || undefined}
-            aria-describedby={showScenarioErr ? `${pid}-scenario-err` : undefined}
-            onChange={(e) => {
-              clearPreview();
-              set({ scenario_id: e.target.value, latency_source: { kind: "total" } });
-            }}
+      <div hidden={!expanded}>
+        <div className="grid gap-x-4 sm:grid-cols-2">
+          <Field label={ko.monitor.panelTitle} htmlFor={`${pid}-title`}>
+            <Input
+              id={`${pid}-title`}
+              value={panel.title}
+              onChange={(e) => set({ title: e.target.value })}
+            />
+          </Field>
+          <Field label={ko.monitor.interval} htmlFor={`${pid}-interval`}>
+            <Input
+              id={`${pid}-interval`}
+              type="number"
+              numeric
+              min={1}
+              max={3600}
+              value={panel.interval_seconds}
+              onChange={(e) => set({ interval_seconds: toNum(e.target.value) })}
+            />
+          </Field>
+          <Field
+            label={ko.monitor.scenario}
+            htmlFor={`${pid}-scenario`}
+            error={showScenarioErr ? ko.monitor.scenarioRequired : undefined}
+            errorId={`${pid}-scenario-err`}
           >
-            <option value="">{ko.monitor.noValue}</option>
-            {scenarios.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={ko.monitor.environment} htmlFor={`${pid}-env`}>
-          <Select
-            id={`${pid}-env`}
-            value={panel.environment_id ?? ""}
-            onChange={(e) => {
-              clearPreview();
-              set({ environment_id: e.target.value === "" ? null : e.target.value });
-            }}
-          >
-            <option value="">{ko.monitor.environmentNone}</option>
-            {environments.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+            <Select
+              id={`${pid}-scenario`}
+              value={panel.scenario_id}
+              aria-invalid={showScenarioErr || undefined}
+              aria-describedby={showScenarioErr ? `${pid}-scenario-err` : undefined}
+              onChange={(e) => {
+                clearPreview();
+                set({ scenario_id: e.target.value, latency_source: { kind: "total" } });
+              }}
+            >
+              <option value="">{ko.monitor.noValue}</option>
+              {scenarios.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={ko.monitor.environment} htmlFor={`${pid}-env`}>
+            <Select
+              id={`${pid}-env`}
+              value={panel.environment_id ?? ""}
+              onChange={(e) => {
+                clearPreview();
+                set({ environment_id: e.target.value === "" ? null : e.target.value });
+              }}
+            >
+              <option value="">{ko.monitor.environmentNone}</option>
+              {environments.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
 
-      <fieldset className="mb-3 min-w-0">
-        <legend className="mb-1 text-sm text-slate-700">{ko.monitor.thresholds}</legend>
-        <ul className="flex flex-col gap-2">
-          {panel.thresholds.map((t, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <div className="w-32">
+        <fieldset className="mb-3 min-w-0">
+          <legend className="mb-1 text-sm text-slate-700">{ko.monitor.thresholds}</legend>
+          <ul className="flex flex-col gap-2">
+            {panel.thresholds.map((t, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <div className="w-32">
+                  <Input
+                    aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.thresholdMs}`}
+                    type="number"
+                    numeric
+                    min={1}
+                    value={t.ms}
+                    onChange={(e) => setThreshold(i, { ms: toNum(e.target.value) })}
+                  />
+                </div>
+                <span className="text-sm text-slate-500">{ko.monitor.thresholdMs}</span>
+                <input
+                  type="color"
+                  aria-label={`${ko.monitor.thresholds} ${i + 1}`}
+                  value={t.color}
+                  onChange={(e) => setThreshold(i, { color: e.target.value })}
+                  className="h-8 w-10 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                />
+                <Button
+                  variant="secondary"
+                  type="button"
+                  aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.removeThreshold}`}
+                  onClick={() => set({ thresholds: panel.thresholds.filter((_, k) => k !== i) })}
+                >
+                  {ko.monitor.removeThreshold}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2">
+            <Button
+              variant="secondary"
+              type="button"
+              disabled={panel.thresholds.length >= MAX_THRESHOLDS}
+              onClick={addThreshold}
+            >
+              {ko.monitor.addThreshold}
+            </Button>
+          </div>
+        </fieldset>
+
+        <fieldset className="mb-3 min-w-0">
+          <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              aria-expanded={advOpen}
+              onClick={() => setAdvOpen((v) => !v)}
+              className="hover:underline"
+            >
+              {advOpen ? "▾" : "▸"} {ko.monitor.advanced}
+            </button>
+            {!advOpen && advN > 0 && (
+              <span className="text-xs font-normal text-slate-500">
+                {ko.monitor.advancedSet(advN)}
+              </span>
+            )}
+          </legend>
+          {advOpen && (
+            <div className="mt-2 grid gap-x-4 sm:grid-cols-2">
+              <Field label={ko.monitor.timeout} htmlFor={`${pid}-timeout`}>
                 <Input
-                  aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.thresholdMs}`}
+                  id={`${pid}-timeout`}
                   type="number"
                   numeric
                   min={1}
-                  value={t.ms}
-                  onChange={(e) => setThreshold(i, { ms: toNum(e.target.value) })}
+                  max={30}
+                  value={panel.timeout_seconds}
+                  onChange={(e) => set({ timeout_seconds: toNum(e.target.value) })}
                 />
-              </div>
-              <span className="text-sm text-slate-500">{ko.monitor.thresholdMs}</span>
-              <input
-                type="color"
-                aria-label={`${ko.monitor.thresholds} ${i + 1}`}
-                value={t.color}
-                onChange={(e) => setThreshold(i, { color: e.target.value })}
-                className="h-8 w-10 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
-              />
-              <Button
-                variant="secondary"
-                type="button"
-                aria-label={`${ko.monitor.thresholds} ${i + 1} ${ko.monitor.removeThreshold}`}
-                onClick={() => set({ thresholds: panel.thresholds.filter((_, k) => k !== i) })}
-              >
-                {ko.monitor.removeThreshold}
-              </Button>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-2">
-          <Button
-            variant="secondary"
-            type="button"
-            disabled={panel.thresholds.length >= MAX_THRESHOLDS}
-            onClick={addThreshold}
-          >
-            {ko.monitor.addThreshold}
+              </Field>
+              <Field label={ko.monitor.latencySource} htmlFor={`${pid}-latency`}>
+                <Select
+                  id={`${pid}-latency`}
+                  value={latencyValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    set({
+                      latency_source:
+                        v === "total" ? { kind: "total" } : { kind: "step", step_id: v.slice(5) },
+                    });
+                  }}
+                >
+                  <option value="total">{ko.monitor.latencyTotal}</option>
+                  {stepGone && panel.latency_source.kind === "step" && (
+                    <option value={latencyValue}>{panel.latency_source.step_id}</option>
+                  )}
+                  {steps.map((s) => (
+                    <option key={s.id} value={`step:${s.id}`}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={ko.monitor.barCount} htmlFor={`${pid}-bars`}>
+                <Input
+                  id={`${pid}-bars`}
+                  type="number"
+                  numeric
+                  min={10}
+                  max={300}
+                  value={panel.bar_count}
+                  onChange={(e) => set({ bar_count: toNum(e.target.value) })}
+                />
+              </Field>
+              <Field label={ko.monitor.graphMax} htmlFor={`${pid}-gmax`}>
+                <Input
+                  id={`${pid}-gmax`}
+                  type="number"
+                  numeric
+                  min={100}
+                  max={600000}
+                  value={panel.graph_max_ms}
+                  onChange={(e) => set({ graph_max_ms: toNum(e.target.value) })}
+                />
+              </Field>
+            </div>
+          )}
+        </fieldset>
+
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" type="button" disabled={previewing} onClick={runPreview}>
+            {previewing ? ko.monitor.previewRunning : ko.monitor.preview}
           </Button>
         </div>
-      </fieldset>
-
-      <fieldset className="mb-3 min-w-0">
-        <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <button
-            type="button"
-            aria-expanded={advOpen}
-            onClick={() => setAdvOpen((v) => !v)}
-            className="hover:underline"
-          >
-            {advOpen ? "▾" : "▸"} {ko.monitor.advanced}
-          </button>
-          {!advOpen && advN > 0 && (
-            <span className="text-xs font-normal text-slate-500">
-              {ko.monitor.advancedSet(advN)}
-            </span>
-          )}
-        </legend>
-        {advOpen && (
-          <div className="mt-2 grid gap-x-4 sm:grid-cols-2">
-            <Field label={ko.monitor.timeout} htmlFor={`${pid}-timeout`}>
-              <Input
-                id={`${pid}-timeout`}
-                type="number"
-                numeric
-                min={1}
-                max={30}
-                value={panel.timeout_seconds}
-                onChange={(e) => set({ timeout_seconds: toNum(e.target.value) })}
-              />
-            </Field>
-            <Field label={ko.monitor.latencySource} htmlFor={`${pid}-latency`}>
-              <Select
-                id={`${pid}-latency`}
-                value={latencyValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  set({
-                    latency_source:
-                      v === "total" ? { kind: "total" } : { kind: "step", step_id: v.slice(5) },
-                  });
-                }}
-              >
-                <option value="total">{ko.monitor.latencyTotal}</option>
-                {stepGone && panel.latency_source.kind === "step" && (
-                  <option value={latencyValue}>{panel.latency_source.step_id}</option>
-                )}
-                {steps.map((s) => (
-                  <option key={s.id} value={`step:${s.id}`}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={ko.monitor.barCount} htmlFor={`${pid}-bars`}>
-              <Input
-                id={`${pid}-bars`}
-                type="number"
-                numeric
-                min={10}
-                max={300}
-                value={panel.bar_count}
-                onChange={(e) => set({ bar_count: toNum(e.target.value) })}
-              />
-            </Field>
-            <Field label={ko.monitor.graphMax} htmlFor={`${pid}-gmax`}>
-              <Input
-                id={`${pid}-gmax`}
-                type="number"
-                numeric
-                min={100}
-                max={600000}
-                value={panel.graph_max_ms}
-                onChange={(e) => set({ graph_max_ms: toNum(e.target.value) })}
-              />
-            </Field>
-          </div>
+        {previewErr && (
+          <Callout variant="error" role="alert" className="mt-2">
+            {previewErr}
+          </Callout>
         )}
-      </fieldset>
+        {preview && (
+          <PreviewResult
+            preview={preview}
+            stepNames={stepNames}
+            onAddCondition={addCondition}
+            conditionCount={panel.conditions.length}
+            displayItems={panel.display_items}
+            onAddDisplay={addDisplay}
+          />
+        )}
 
-      <div className="flex items-center gap-3">
-        <Button variant="secondary" type="button" disabled={previewing} onClick={runPreview}>
-          {previewing ? ko.monitor.previewRunning : ko.monitor.preview}
-        </Button>
-      </div>
-      {previewErr && (
-        <Callout variant="error" role="alert" className="mt-2">
-          {previewErr}
-        </Callout>
-      )}
-      {preview && (
-        <PreviewResult
-          preview={preview}
-          stepNames={stepNames}
-          onAddCondition={addCondition}
-          conditionCount={panel.conditions.length}
-          displayItems={panel.display_items}
-          onAddDisplay={addDisplay}
-        />
-      )}
-
-      <fieldset className="mt-3 min-w-0">
-        <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <button
-            type="button"
-            aria-expanded={condOpen}
-            onClick={() => setCondOpen((v) => !v)}
-            className="hover:underline"
-          >
-            {condOpen ? "▾" : "▸"} {ko.monitor.conditions}
-          </button>
-          {!condOpen && panel.conditions.length > 0 && (
-            <span className="text-xs font-normal text-slate-500">
-              {ko.monitor.advancedSet(panel.conditions.length)}
-            </span>
+        <fieldset className="mt-3 min-w-0">
+          <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              aria-expanded={condOpen}
+              onClick={() => setCondOpen((v) => !v)}
+              className="hover:underline"
+            >
+              {condOpen ? "▾" : "▸"} {ko.monitor.conditions}
+            </button>
+            {!condOpen && panel.conditions.length > 0 && (
+              <span className="text-xs font-normal text-slate-500">
+                {ko.monitor.advancedSet(panel.conditions.length)}
+              </span>
+            )}
+          </legend>
+          {condOpen && (
+            <div className="mt-2">
+              <p className="mb-2 text-xs text-slate-500">{ko.monitor.conditionsIntro}</p>
+              {panel.conditions.length === 0 ? (
+                <p className="text-sm text-slate-500">{ko.monitor.conditionsEmpty}</p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {panel.conditions.map((c, i) =>
+                    editingCond === i ? (
+                      <li key={i}>
+                        <ConditionRow
+                          initial={c}
+                          mode="edit"
+                          submitAriaLabel={ko.monitor.condSaveAria(i + 1)}
+                          onSubmit={(next) => {
+                            setCondAt(i, next);
+                            setEditingCond(null);
+                          }}
+                          onCancel={() => setEditingCond(null)}
+                        />
+                      </li>
+                    ) : (
+                      <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
+                        <span className="min-w-0 break-words">
+                          {conditionSummary(c, stepNames[c.step_id])}
+                        </span>
+                        {scenario && steps.length > 0 && !(c.step_id in stepNames) && (
+                          <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={ko.monitor.condEdit(i + 1)}
+                          onClick={() => setEditingCond(i)}
+                          className="rounded px-1 hover:bg-slate-100"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={ko.monitor.condRemove(i + 1)}
+                          onClick={() => {
+                            set({ conditions: panel.conditions.filter((_, k) => k !== i) });
+                            setEditingCond(null);
+                          }}
+                          className="rounded px-1 hover:bg-slate-100"
+                        >
+                          🗑
+                        </button>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              )}
+            </div>
           )}
-        </legend>
-        {condOpen && (
-          <div className="mt-2">
-            <p className="mb-2 text-xs text-slate-500">{ko.monitor.conditionsIntro}</p>
-            {panel.conditions.length === 0 ? (
-              <p className="text-sm text-slate-500">{ko.monitor.conditionsEmpty}</p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {panel.conditions.map((c, i) =>
-                  editingCond === i ? (
-                    <li key={i}>
-                      <ConditionRow
-                        initial={c}
-                        mode="edit"
-                        submitAriaLabel={ko.monitor.condSaveAria(i + 1)}
-                        onSubmit={(next) => {
-                          setCondAt(i, next);
-                          setEditingCond(null);
-                        }}
-                        onCancel={() => setEditingCond(null)}
-                      />
-                    </li>
-                  ) : (
+        </fieldset>
+
+        <fieldset className="mt-3 min-w-0">
+          <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              aria-expanded={dispOpen}
+              onClick={() => setDispOpen((v) => !v)}
+              className="hover:underline"
+            >
+              {dispOpen ? "▾" : "▸"} {ko.monitor.displayTitle}
+            </button>
+            {!dispOpen && panel.display_items.length > 0 && (
+              <span className="text-xs font-normal text-slate-500">
+                {ko.monitor.advancedSet(panel.display_items.length)}
+              </span>
+            )}
+          </legend>
+          {dispOpen && (
+            <div className="mt-2">
+              <p className="mb-2 text-xs text-slate-500">{ko.monitor.displayIntro}</p>
+              {panel.display_items.length === 0 ? (
+                <p className="text-sm text-slate-500">{ko.monitor.displayEmpty}</p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {panel.display_items.map((d, i) => (
                     <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
                       <span className="min-w-0 break-words">
-                        {conditionSummary(c, stepNames[c.step_id])}
+                        {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
                       </span>
-                      {scenario && steps.length > 0 && !(c.step_id in stepNames) && (
+                      {scenario && steps.length > 0 && !(d.step_id in stepNames) && (
                         <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
                       )}
                       <button
                         type="button"
-                        aria-label={ko.monitor.condEdit(i + 1)}
-                        onClick={() => setEditingCond(i)}
-                        className="rounded px-1 hover:bg-slate-100"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={ko.monitor.condRemove(i + 1)}
-                        onClick={() => {
-                          set({ conditions: panel.conditions.filter((_, k) => k !== i) });
-                          setEditingCond(null);
-                        }}
+                        aria-label={ko.monitor.displayRemove(i + 1)}
+                        onClick={() =>
+                          set({ display_items: panel.display_items.filter((_, k) => k !== i) })
+                        }
                         className="rounded px-1 hover:bg-slate-100"
                       >
                         🗑
                       </button>
                     </li>
-                  ),
-                )}
-              </ul>
-            )}
-          </div>
-        )}
-      </fieldset>
-
-      <fieldset className="mt-3 min-w-0">
-        <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <button
-            type="button"
-            aria-expanded={dispOpen}
-            onClick={() => setDispOpen((v) => !v)}
-            className="hover:underline"
-          >
-            {dispOpen ? "▾" : "▸"} {ko.monitor.displayTitle}
-          </button>
-          {!dispOpen && panel.display_items.length > 0 && (
-            <span className="text-xs font-normal text-slate-500">
-              {ko.monitor.advancedSet(panel.display_items.length)}
-            </span>
+                  ))}
+                </ul>
+              )}
+              {panel.display_items.length === 2 && (
+                <div className="mt-2">
+                  <Button variant="secondary" type="button" onClick={swapDisplay}>
+                    {ko.monitor.displaySwap}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
-        </legend>
-        {dispOpen && (
-          <div className="mt-2">
-            <p className="mb-2 text-xs text-slate-500">{ko.monitor.displayIntro}</p>
-            {panel.display_items.length === 0 ? (
-              <p className="text-sm text-slate-500">{ko.monitor.displayEmpty}</p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {panel.display_items.map((d, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
-                    <span className="min-w-0 break-words">
-                      {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
-                    </span>
-                    {scenario && steps.length > 0 && !(d.step_id in stepNames) && (
-                      <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={ko.monitor.displayRemove(i + 1)}
-                      onClick={() =>
-                        set({ display_items: panel.display_items.filter((_, k) => k !== i) })
-                      }
-                      className="rounded px-1 hover:bg-slate-100"
-                    >
-                      🗑
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {panel.display_items.length === 2 && (
-              <div className="mt-2">
-                <Button variant="secondary" type="button" onClick={swapDisplay}>
-                  {ko.monitor.displaySwap}
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </fieldset>
+        </fieldset>
+      </div>
     </section>
   );
 }

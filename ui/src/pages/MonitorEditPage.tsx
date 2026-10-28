@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEnvironments, useScenarios } from "../api/hooks";
@@ -56,6 +56,8 @@ export function MonitorEditPage() {
   return <BoardForm key={query.data.id} initial={query.data} />;
 }
 
+type NavState = { startError?: string; expanded?: string[] };
+
 const snapshot = (name: string, config: BoardConfig) => JSON.stringify({ name, config });
 
 function BoardForm({ initial }: { initial: Board | null }) {
@@ -81,8 +83,26 @@ function BoardForm({ initial }: { initial: Board | null }) {
     initial ? snapshot(initial.name, initial.config) : "",
   );
   const [error, setError] = useState<string | null>(
-    () => (location.state as { startError?: string } | null)?.startError ?? null,
+    () => (location.state as NavState | null)?.startError ?? null,
   );
+  // Expanded panel cards. An existing board opens fully collapsed; a new board opens
+  // its default panel. A remount after the first save carries the set via router state.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const carried = (location.state as NavState | null)?.expanded;
+    if (carried) return new Set(carried);
+    return initial ? new Set() : new Set([config.panels[0].id]);
+  });
+  // Router state is only a one-shot hand-off; clear it so a reload falls back to the defaults.
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only hand-off
+  }, []);
+  const togglePanel = (pid: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (!next.delete(pid)) next.add(pid);
+      return next;
+    });
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [scenarioErr, setScenarioErr] = useState(false);
@@ -125,7 +145,12 @@ function BoardForm({ initial }: { initial: Board | null }) {
       const b = await persist(true);
       adopt(b);
       setSaved(true);
-      if (wasNew) navigate(`/monitors/${b.id}`, { replace: true });
+      if (wasNew) {
+        navigate(`/monitors/${b.id}`, {
+          replace: true,
+          state: { expanded: [...expanded] } satisfies NavState,
+        });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -159,7 +184,10 @@ function BoardForm({ initial }: { initial: Board | null }) {
       // Leave the "new" route (a retry must not re-create); the remounted form
       // reads the error from location state.
       if (createdId) {
-        navigate(`/monitors/${createdId}`, { replace: true, state: { startError: msg } });
+        navigate(`/monitors/${createdId}`, {
+          replace: true,
+          state: { startError: msg, expanded: [...expanded] } satisfies NavState,
+        });
       }
     } finally {
       setBusy(false);
@@ -249,7 +277,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
         </Field>
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
         {config.panels.map((p, i) => (
           <PanelEditor
             key={p.id}
@@ -259,21 +287,42 @@ function BoardForm({ initial }: { initial: Board | null }) {
             environments={environments.data ?? []}
             scenarioError={scenarioErr}
             canRemove={config.panels.length > 1}
+            expanded={expanded.has(p.id)}
+            onToggle={() => togglePanel(p.id)}
             onChange={(next) => setPanel(i, next)}
-            onRemove={() =>
-              setConfig((c) => ({ ...c, panels: c.panels.filter((_, k) => k !== i) }))
-            }
+            onRemove={() => {
+              setConfig((c) => ({ ...c, panels: c.panels.filter((_, k) => k !== i) }));
+              setExpanded((s) => {
+                const next = new Set(s);
+                next.delete(p.id);
+                return next;
+              });
+            }}
           />
         ))}
       </div>
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button
           variant="secondary"
           type="button"
           disabled={config.panels.length >= MAX_PANELS}
-          onClick={() => setConfig((c) => ({ ...c, panels: [...c.panels, newPanel()] }))}
+          onClick={() => {
+            const np = newPanel();
+            setConfig((c) => ({ ...c, panels: [...c.panels, np] }));
+            setExpanded((s) => new Set(s).add(np.id));
+          }}
         >
           {ko.monitor.addPanel}
+        </Button>
+        <Button
+          variant="secondary"
+          type="button"
+          onClick={() => setExpanded(new Set(config.panels.map((p) => p.id)))}
+        >
+          {ko.monitor.expandAll}
+        </Button>
+        <Button variant="secondary" type="button" onClick={() => setExpanded(new Set())}>
+          {ko.monitor.collapseAll}
         </Button>
       </div>
 

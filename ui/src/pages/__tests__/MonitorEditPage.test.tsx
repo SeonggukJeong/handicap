@@ -103,8 +103,20 @@ afterEach(() => {
 });
 
 function LocationProbe() {
-  return <span data-testid="loc">{useLocation().pathname}</span>;
+  const loc = useLocation();
+  return (
+    <>
+      <span data-testid="loc">{loc.pathname}</span>
+      <span data-testid="location-state">{JSON.stringify(loc.state)}</span>
+    </>
+  );
 }
+
+async function expandAll() {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: ko.monitor.expandAll }));
+}
+const toggles = () => screen.getAllByRole("button", { name: /^[▸▾] 칸 \d/ });
 
 function renderAt(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -190,6 +202,7 @@ describe("MonitorEditPage", () => {
     handlers["PUT /api/monitor-boards/B1"] = (b) =>
       json(board({ config: (b as { config: unknown }).config }));
     renderAt("/monitors/B1");
+    await expandAll();
     const sel = await screen.findByLabelText(ko.monitor.displayStyle);
     expect(sel).toHaveDisplayValue(ko.monitor.displayStyleOptions.border);
     await user.selectOptions(sel, ko.monitor.displayStyleOptions.fill);
@@ -218,6 +231,7 @@ describe("MonitorEditPage", () => {
     handlers["PUT /api/monitor-boards/B1"] = (b) =>
       json(board({ config: (b as { config: unknown }).config }));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByLabelText(ko.monitor.displayStyle);
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
@@ -279,6 +293,7 @@ describe("MonitorEditPage", () => {
         }),
       );
     renderAt("/monitors/B1");
+    await expandAll();
     const toggle = await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText(ko.monitor.advancedSet(2))).toBeInTheDocument();
@@ -292,6 +307,7 @@ describe("MonitorEditPage", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) }));
     expect(screen.getByLabelText(ko.monitor.timeout)).toHaveAttribute("max", "30");
   });
@@ -299,6 +315,7 @@ describe("MonitorEditPage", () => {
   it("advanced_hint_absent_at_defaults", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) });
     expect(screen.queryByText(/개 설정됨/)).not.toBeInTheDocument();
   });
@@ -309,6 +326,7 @@ describe("MonitorEditPage", () => {
     handlers["PUT /api/monitor-boards/B1"] = (b) =>
       json(board({ config: (b as { config: unknown }).config }));
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: new RegExp(ko.monitor.advanced) }));
     const sel = await screen.findByLabelText(ko.monitor.latencySource);
     await waitFor(() =>
@@ -377,6 +395,7 @@ describe("MonitorEditPage", () => {
         },
       });
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
     expect(await screen.findByText("connection reset by peer")).toBeInTheDocument();
     expect(screen.getByText("503")).toBeInTheDocument();
@@ -407,6 +426,7 @@ describe("MonitorEditPage", () => {
         result: { at_ms: 1, verdict: "ok", latency_ms: 5, reason: null, detail: null, display: [] },
       });
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
     await waitFor(() => expect(sent("POST", "/api/monitor-boards/preview-check")).toHaveLength(1));
     const body = sent("POST", "/api/monitor-boards/preview-check")[0].body as { title: string };
@@ -430,6 +450,7 @@ describe("MonitorEditPage", () => {
         },
       });
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.preview }));
     expect(await screen.findByText(ko.monitor.previewNoTrace)).toBeInTheDocument();
     expect(screen.getByText("시간 초과(5초)")).toBeInTheDocument();
@@ -450,6 +471,7 @@ describe("MonitorEditPage", () => {
     handlers["POST /api/monitor-boards/B1/start"] = () => json(board({ enabled: true }));
     const user = userEvent.setup();
     renderAt("/monitors/B1");
+    await expandAll();
     await user.type(await screen.findByLabelText(ko.monitor.boardName), "2");
     fireEvent.click(screen.getByRole("button", { name: ko.monitor.start }));
     // No await / waitFor: the gesture-bound call must already have happened.
@@ -473,6 +495,7 @@ describe("MonitorEditPage", () => {
     handlers["POST /api/monitor-boards/B1/start"] = () => json({ error: "시작 실패 사유" }, 400);
     const user = userEvent.setup();
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.start }));
     expect(await screen.findByText("시작 실패 사유")).toBeInTheDocument();
     expect(exit).toHaveBeenCalledTimes(1);
@@ -490,6 +513,7 @@ describe("MonitorEditPage", () => {
       );
     };
     renderAt("/monitors/B1");
+    await expandAll();
     const save = await screen.findByRole("button", { name: ko.monitor.save });
     await user.click(save);
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
@@ -523,6 +547,7 @@ describe("MonitorEditPage", () => {
     handlers["PUT /api/monitor-boards/B1"] = () =>
       json({ error: "칸 제목은 1~40자여야 합니다" }, 400);
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.save }));
     expect(await screen.findByText("칸 제목은 1~40자여야 합니다")).toBeInTheDocument();
   });
@@ -532,6 +557,7 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board({ enabled: true }));
     handlers["POST /api/monitor-boards/B1/stop"] = () => json(board({ enabled: false }));
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.stop }));
     await waitFor(() => expect(sent("POST", "/api/monitor-boards/B1/stop")).toHaveLength(1));
     await waitFor(() =>
@@ -545,6 +571,7 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     handlers["DELETE /api/monitor-boards/B1"] = () => new Response(null, { status: 204 });
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.deleteBoard }));
     expect(screen.getByText(ko.monitor.deleteConfirm("운영실"))).toBeInTheDocument();
     expect(sent("DELETE", "/api/monitor-boards/B1")).toHaveLength(0);
@@ -588,6 +615,7 @@ describe("MonitorEditPage", () => {
     handlers["POST /api/monitor-boards/B1/start"] = () => json({ error: "빠른 실패" }, 400);
     const user = userEvent.setup();
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(await screen.findByRole("button", { name: ko.monitor.start }));
     expect(await screen.findByText("빠른 실패")).toBeInTheDocument();
     // fullscreenElement is still null here: the exit must wait for the request.
@@ -666,6 +694,7 @@ describe("MonitorEditPage", () => {
       return json(board());
     };
     renderAt("/monitors/B1");
+    await expandAll();
     const del = await screen.findByRole("button", { name: ko.monitor.deleteBoard });
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(del).toBeDisabled());
@@ -676,6 +705,7 @@ describe("MonitorEditPage", () => {
   it("conditions_section_collapsed_with_count_when_none_open", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");
+    await expandAll();
     const toggle = await screen.findByRole("button", { name: new RegExp(ko.monitor.conditions) });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(ko.monitor.conditionsIntro)).not.toBeInTheDocument();
@@ -685,6 +715,7 @@ describe("MonitorEditPage", () => {
   it("conditions_section_auto_open_when_present", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     expect(await screen.findByText(SUMMARY_A)).toBeInTheDocument();
     expect(screen.getByText(SUMMARY_B)).toBeInTheDocument();
     expect(screen.getByText(ko.monitor.conditionsIntro)).toBeInTheDocument();
@@ -694,6 +725,7 @@ describe("MonitorEditPage", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(SUMMARY_A);
     await user.click(screen.getByRole("button", { name: new RegExp(ko.monitor.conditions) }));
     expect(screen.queryByText(SUMMARY_A)).not.toBeInTheDocument();
@@ -704,6 +736,7 @@ describe("MonitorEditPage", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");
+    await expandAll();
     await user.click(
       await screen.findByRole("button", { name: new RegExp(ko.monitor.conditions) }),
     );
@@ -715,6 +748,7 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(SUMMARY_A);
     await user.click(screen.getByRole("button", { name: ko.monitor.condEdit(1) }));
     expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("0000");
@@ -734,6 +768,7 @@ describe("MonitorEditPage", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(SUMMARY_B);
     await user.click(screen.getByRole("button", { name: ko.monitor.condEdit(1) }));
     await user.selectOptions(screen.getByLabelText(ko.monitor.condOp), "gt");
@@ -751,6 +786,7 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(SUMMARY_A);
     await user.click(screen.getByRole("button", { name: ko.monitor.condRemove(1) }));
     expect(screen.queryByText(SUMMARY_A)).not.toBeInTheDocument();
@@ -766,6 +802,7 @@ describe("MonitorEditPage", () => {
     handlers["PUT /api/monitor-boards/B1"] = () => json(board());
     const user = userEvent.setup();
     renderAt("/monitors/B1");
+    await expandAll();
     expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`상태코드 = 200 · ${GONE}`))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: ko.monitor.save })).toBeEnabled();
@@ -778,6 +815,7 @@ describe("MonitorEditPage", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     handlers["PUT /api/monitor-boards/B1"] = () => json(withConds([COND_A, COND_B]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(SUMMARY_A);
     await user.click(screen.getByRole("button", { name: ko.monitor.save }));
     await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
@@ -848,6 +886,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: '{"resultCode":"0000"}' });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("resultCode"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -864,6 +903,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: JSON.stringify({ token: "x".repeat(41) }) });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("token"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -876,6 +916,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: '{"err":null}' });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("err"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -886,6 +927,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: "" });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn(ko.monitor.condTargetStatus));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -899,6 +941,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: "", headers: { "x-trace": "abc" } });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     expect(await screen.findByText(ko.monitor.previewHeaders)).toBeInTheDocument();
     await user.click(await addBtn("헤더 x-trace"));
@@ -911,6 +954,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: "pong" });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await screen.findByRole("button", { name: ko.monitor.condAddBodyText }));
     const add = screen.getByRole("button", { name: ko.monitor.condConfirm });
@@ -923,6 +967,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: '{"n":5}' });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("n"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -941,6 +986,7 @@ describe("MonitorEditPage preview conditions", () => {
       { verdict: "fail", reason: "E1023", detail: "resultCode = 0000", display: [] },
     );
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     expect(await screen.findByText("E1023")).toBeInTheDocument();
     expect(screen.getByText("resultCode = 0000")).toBeInTheDocument();
@@ -951,6 +997,7 @@ describe("MonitorEditPage preview conditions", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds(Array(10).fill(COND_B)));
     previewWith({ body: '{"a":1}' });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("a"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -970,6 +1017,7 @@ describe("MonitorEditPage preview conditions", () => {
       });
     previewWith({ body: "" });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     expect(await addBtn(ko.monitor.condTargetStatus)).toBeInTheDocument();
     await user.click(await addBtn(ko.monitor.condTargetStatus));
@@ -1000,6 +1048,7 @@ describe("MonitorEditPage preview conditions", () => {
       return respond(b);
     };
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByRole("option", { name: "다른 점검" });
     await runPreviewUi(user);
     await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(1));
@@ -1017,6 +1066,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: "" });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     expect(await addBtn(ko.monitor.condTargetStatus)).toBeInTheDocument();
     await screen.findByRole("option", { name: "staging" });
@@ -1030,6 +1080,7 @@ describe("MonitorEditPage preview conditions", () => {
     const user = userEvent.setup();
     previewWith({ body: '{"resultCode":"0000"}' });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await user.click(await addBtn("resultCode"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
@@ -1074,6 +1125,7 @@ describe("MonitorEditPage display items", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
     renderAt("/monitors/B1");
+    await expandAll();
     const toggle = await displayToggle();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(ko.monitor.displayIntro)).not.toBeInTheDocument();
@@ -1086,6 +1138,7 @@ describe("MonitorEditPage display items", () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
     renderAt("/monitors/B1");
+    await expandAll();
     const toggle = await displayToggle();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText(ROW0_STATUS)).toBeInTheDocument();
@@ -1101,6 +1154,7 @@ describe("MonitorEditPage display items", () => {
     handlers["PUT /api/monitor-boards/B1"] = () => json(board());
     previewWith({ body: '{"code":1}' });
     renderAt("/monitors/B1");
+    await expandAll();
     expect(await displayToggle()).toHaveAttribute("aria-expanded", "false");
     await runPreviewUi(user);
     await user.click(await addBtn("code"));
@@ -1118,6 +1172,7 @@ describe("MonitorEditPage display items", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS]));
     previewWith({ body: "" });
     renderAt("/monitors/B1");
+    await expandAll();
     await runPreviewUi(user);
     await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(1));
     const sentBody = sent("POST", PREVIEW_URL)[0].body as { display_items: unknown[] };
@@ -1129,6 +1184,7 @@ describe("MonitorEditPage display items", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
     handlers["PUT /api/monitor-boards/B1"] = () => json(withDisplay([DISP_BODY, DISP_STATUS]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(ROW0_STATUS);
     await user.click(screen.getByRole("button", { name: ko.monitor.displaySwap }));
     expect(screen.getByText(ROW0_BODY)).toBeInTheDocument();
@@ -1140,6 +1196,7 @@ describe("MonitorEditPage display items", () => {
   it("display_swap_button_only_with_two_items", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(ROW0_STATUS);
     expect(screen.queryByRole("button", { name: ko.monitor.displaySwap })).not.toBeInTheDocument();
   });
@@ -1149,6 +1206,7 @@ describe("MonitorEditPage display items", () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
     handlers["PUT /api/monitor-boards/B1"] = () => json(withDisplay([DISP_BODY]));
     renderAt("/monitors/B1");
+    await expandAll();
     await screen.findByText(ROW0_STATUS);
     await user.click(screen.getByRole("button", { name: ko.monitor.displayRemove(1) }));
     expect(screen.getByText(ROW0_BODY)).toBeInTheDocument();
@@ -1162,6 +1220,7 @@ describe("MonitorEditPage display items", () => {
     handlers["GET /api/monitor-boards/B1"] = () =>
       json(withDisplay([{ ...DISP_BODY, step_id: GONE }]));
     renderAt("/monitors/B1");
+    await expandAll();
     expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`code · ${GONE}`))).toBeInTheDocument();
   });
@@ -1169,6 +1228,138 @@ describe("MonitorEditPage display items", () => {
   it("condition_list_heading_says_and", async () => {
     handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A]));
     renderAt("/monitors/B1");
+    await expandAll();
     expect(await screen.findByText(/^아래 조건을 모두 만족하면 정상 \(AND\)/)).toBeInTheDocument();
+  });
+
+  it("existing_board_opens_all_collapsed", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [panel(), panel({ id: "01HZZZZZZZZZZZZZZZZZZZZZP2", title: "조회" })],
+          },
+        }),
+      );
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    expect(toggles()).toHaveLength(2);
+    for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: ko.monitor.panelTitle })).not.toBeInTheDocument();
+  });
+
+  it("collapsed_header_shows_summary", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [
+              panel(),
+              panel({ id: "01HZZZZZZZZZZZZZZZZZZZZZP2", title: "" }),
+              panel({ id: "01HZZZZZZZZZZZZZZZZZZZZZP3", title: "고아", scenario_id: "" }),
+            ],
+          },
+        }),
+      );
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    const t = toggles();
+    expect(t[0]).toHaveTextContent("칸 1");
+    expect(t[0]).toHaveTextContent("결제");
+    await waitFor(() => expect(t[0]).toHaveTextContent("점검 · 10초 · 조건 0 · 표시 0"));
+    expect(t[1]).toHaveTextContent("(제목 없음)");
+    expect(t[2]).toHaveTextContent("시나리오 — · 10초 · 조건 0 · 표시 0");
+  });
+
+  it("new_board_opens_default_panel_expanded", async () => {
+    renderAt("/monitors/new");
+    await screen.findByLabelText(ko.monitor.boardName);
+    expect(toggles()).toHaveLength(1);
+    expect(toggles()[0]).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("textbox", { name: ko.monitor.panelTitle })).toBeInTheDocument();
+  });
+
+  it("added_panel_is_expanded", async () => {
+    const user = userEvent.setup();
+    renderAt("/monitors/new");
+    await screen.findByLabelText(ko.monitor.boardName);
+    await user.click(screen.getByRole("button", { name: ko.monitor.collapseAll }));
+    expect(toggles()[0]).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
+    expect(toggles()).toHaveLength(2);
+    expect(toggles()[0]).toHaveAttribute("aria-expanded", "false");
+    expect(toggles()[1]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("expand_all_and_collapse_all", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(
+        board({
+          config: {
+            ...board().config,
+            panels: [panel(), panel({ id: "01HZZZZZZZZZZZZZZZZZZZZZP2", title: "조회" })],
+          },
+        }),
+      );
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.expandAll }));
+    for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByRole("textbox", { name: ko.monitor.panelTitle })).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: ko.monitor.collapseAll }));
+    for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: ko.monitor.panelTitle })).not.toBeInTheDocument();
+  });
+
+  it("collapse_keeps_body_state", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A]));
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    await user.click(toggles()[0]);
+    await user.click(screen.getByRole("button", { name: ko.monitor.condEdit(1) }));
+    const val = screen.getByRole("textbox", { name: ko.monitor.condValue });
+    await user.clear(val);
+    await user.type(val, "XYZ");
+    await user.click(toggles()[0]);
+    expect(toggles()[0]).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggles()[0]);
+    expect(screen.getByRole("textbox", { name: ko.monitor.condValue })).toHaveValue("XYZ");
+  });
+
+  async function firstSaveWithThreePanels() {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = (b) => {
+      const cfg = (b as { config: { panels: unknown[] } }).config;
+      return json(board({ config: { ...board().config, panels: cfg.panels } }));
+    };
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
+    await waitFor(() => expect(toggles()).toHaveLength(3));
+    for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "true");
+    for (const s of screen.getAllByLabelText(ko.monitor.scenario)) {
+      await user.selectOptions(s, SID);
+    }
+    for (const t of screen.getAllByLabelText(ko.monitor.panelTitle)) {
+      await user.type(t, "x");
+    }
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("POST", "/api/monitor-boards")).toHaveLength(1));
+    await waitFor(() => expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/B1"));
+  }
+
+  it("first_save_of_new_board_keeps_expanded", async () => {
+    await firstSaveWithThreePanels();
+    await waitFor(() => expect(toggles()).toHaveLength(3));
+    for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("reload_after_first_save_collapses_all", async () => {
+    await firstSaveWithThreePanels();
+    await waitFor(() => expect(screen.getByTestId("location-state")).toHaveTextContent(/^null$/));
   });
 });
