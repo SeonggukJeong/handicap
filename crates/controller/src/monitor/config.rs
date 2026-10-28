@@ -56,18 +56,37 @@ pub enum ConditionOp {
     Contains,
     Gt,
     Lt,
+    Gte,
+    Lte,
+    OneOf,
+}
+
+/// `one_of` 후보값 분해 — `split(',')` → `trim` → 빈 것 제외.
+pub fn one_of_candidates(value: &str) -> Vec<&str> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 impl ConditionOp {
     pub fn needs_value(self) -> bool {
         matches!(
             self,
-            Self::Eq | Self::Ne | Self::Contains | Self::Gt | Self::Lt
+            Self::Eq
+                | Self::Ne
+                | Self::Contains
+                | Self::Gt
+                | Self::Lt
+                | Self::Gte
+                | Self::Lte
+                | Self::OneOf
         )
     }
 
     pub fn has_flags(self) -> bool {
-        matches!(self, Self::Eq | Self::Ne | Self::Contains)
+        matches!(self, Self::Eq | Self::Ne | Self::Contains | Self::OneOf)
     }
 }
 
@@ -76,7 +95,10 @@ impl ConditionSource {
         use ConditionOp as O;
         match self {
             Self::Body | Self::Header => true,
-            Self::Status => matches!(op, O::Eq | O::Ne | O::Gt | O::Lt),
+            Self::Status => matches!(
+                op,
+                O::Eq | O::Ne | O::Gt | O::Lt | O::Gte | O::Lte | O::OneOf
+            ),
             Self::BodyText => matches!(op, O::Contains | O::NotEmpty),
         }
     }
@@ -291,8 +313,15 @@ fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
         if c.op == ConditionOp::Contains && c.value.is_empty() {
             return Err("포함 조건의 비교값을 입력해야 합니다".into());
         }
-        if matches!(c.op, ConditionOp::Gt | ConditionOp::Lt) && parse_finite(&c.value).is_none() {
-            return Err("크다·작다 조건의 비교값은 숫자여야 합니다".into());
+        if matches!(
+            c.op,
+            ConditionOp::Gt | ConditionOp::Lt | ConditionOp::Gte | ConditionOp::Lte
+        ) && parse_finite(&c.value).is_none()
+        {
+            return Err("크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다".into());
+        }
+        if c.op == ConditionOp::OneOf && one_of_candidates(&c.value).is_empty() {
+            return Err("여러 값 중 하나(∈) 조건의 후보값을 하나 이상 입력해야 합니다".into());
         }
     }
     Ok(())
@@ -417,6 +446,9 @@ mod tests {
             (ConditionOp::Contains, "contains"),
             (ConditionOp::Gt, "gt"),
             (ConditionOp::Lt, "lt"),
+            (ConditionOp::Gte, "gte"),
+            (ConditionOp::Lte, "lte"),
+            (ConditionOp::OneOf, "one_of"),
         ] {
             assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
             assert_eq!(
@@ -666,15 +698,31 @@ mod tests {
             ),
             (
                 with(cond(S::Body, O::Gt, "$.a", "abc")),
-                "크다·작다 조건의 비교값은 숫자여야 합니다",
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
             ),
             (
                 with(cond(S::Body, O::Gt, "$.a", "inf")),
-                "크다·작다 조건의 비교값은 숫자여야 합니다",
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
             ),
             (
                 with(cond(S::Body, O::Lt, "$.a", "")),
-                "크다·작다 조건의 비교값은 숫자여야 합니다",
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Gt, "$.a", "abc")),
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Gte, "$.a", "abc")),
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::Lte, "$.a", "")),
+                "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다",
+            ),
+            (
+                with(cond(S::Body, O::OneOf, "$.a", " , ,")),
+                "여러 값 중 하나(∈) 조건의 후보값을 하나 이상 입력해야 합니다",
             ),
         ];
         for (mut p, msg) in cases {
@@ -710,6 +758,18 @@ mod tests {
         validate_panel(&mut p).unwrap();
         assert!(!p.conditions[0].ignore_case && !p.conditions[0].trim);
 
+        let mut c = cond(S::Body, O::Gte, "$.a", "1");
+        c.ignore_case = true;
+        let mut p = with(c);
+        validate_panel(&mut p).unwrap();
+        assert!(!p.conditions[0].ignore_case);
+
+        let mut c = cond(S::Body, O::OneOf, "$.a", "a,b");
+        c.ignore_case = true;
+        let mut p = with(c);
+        validate_panel(&mut p).unwrap();
+        assert!(p.conditions[0].ignore_case);
+
         let mut p = with(cond(S::Header, O::Exists, "  X-A ", ""));
         validate_panel(&mut p).unwrap();
         assert_eq!(p.conditions[0].path, "X-A");
@@ -719,6 +779,29 @@ mod tests {
         let mut p = with(c);
         validate_panel(&mut p).unwrap();
         assert!(p.conditions[0].ignore_case);
+    }
+
+    #[test]
+    fn allows_table_new_ops() {
+        use ConditionOp as O;
+        use ConditionSource as S;
+        for op in [O::Gte, O::Lte, O::OneOf] {
+            assert!(S::Status.allows(op), "{op:?}");
+        }
+        for op in [O::Gte, O::OneOf] {
+            let mut p = with(cond(S::BodyText, op, "", "1"));
+            assert_eq!(
+                validate_panel(&mut p),
+                Err("이 대상에 쓸 수 없는 조건 규칙입니다".to_string()),
+                "{op:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_of_candidates_splits_trims_skips_empty() {
+        assert_eq!(one_of_candidates(" 0000 ,, ok "), vec!["0000", "ok"]);
+        assert!(one_of_candidates(" , ,").is_empty());
     }
 
     #[test]

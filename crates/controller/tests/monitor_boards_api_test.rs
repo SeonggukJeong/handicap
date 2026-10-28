@@ -457,7 +457,10 @@ async fn preview_check_400_on_invalid_condition() {
     )
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
-    assert_eq!(v["error"], "크다·작다 조건의 비교값은 숫자여야 합니다");
+    assert_eq!(
+        v["error"],
+        "크기 비교 조건(>, <, ≥, ≤)의 비교값은 숫자여야 합니다"
+    );
 }
 
 #[tokio::test]

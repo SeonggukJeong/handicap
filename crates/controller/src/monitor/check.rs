@@ -16,7 +16,8 @@ use handicap_engine::{
 use serde::{Deserialize, Serialize};
 
 use super::config::{
-    Condition, ConditionOp, ConditionSource, LatencySource, PanelConfig, parse_finite,
+    Condition, ConditionOp, ConditionSource, LatencySource, PanelConfig, one_of_candidates,
+    parse_finite,
 };
 use crate::store::{self, Db};
 
@@ -188,6 +189,9 @@ fn rule_label(op: ConditionOp) -> &'static str {
         ConditionOp::Contains => "포함",
         ConditionOp::Gt => "보다 큼",
         ConditionOp::Lt => "보다 작음",
+        ConditionOp::Gte => "≥",
+        ConditionOp::Lte => "≤",
+        ConditionOp::OneOf => "∈",
     }
 }
 
@@ -313,16 +317,26 @@ fn op_passes(c: &Condition, text: &str, num: Option<f64>) -> bool {
             if c.op == ConditionOp::Eq { eq } else { !eq }
         }
         ConditionOp::Contains => normalize_cmp(text, c).contains(&normalize_cmp(&c.value, c)),
-        ConditionOp::Gt | ConditionOp::Lt => match (parse_finite(text), parse_finite(&c.value)) {
-            (Some(a), Some(b)) => {
-                if c.op == ConditionOp::Gt {
-                    a > b
-                } else {
-                    a < b
-                }
+        ConditionOp::Gt | ConditionOp::Lt | ConditionOp::Gte | ConditionOp::Lte => {
+            match (parse_finite(text), parse_finite(&c.value)) {
+                (Some(a), Some(b)) => match c.op {
+                    ConditionOp::Gt => a > b,
+                    ConditionOp::Lt => a < b,
+                    ConditionOp::Gte => a >= b,
+                    _ => a <= b,
+                },
+                _ => false,
             }
-            _ => false,
-        },
+        }
+        ConditionOp::OneOf => one_of_candidates(&c.value).into_iter().any(|cand| {
+            if let Some(n) = num
+                && let Some(v) = parse_finite(cand)
+            {
+                n == v
+            } else {
+                normalize_cmp(text, c) == normalize_cmp(cand, c)
+            }
+        }),
     }
 }
 
@@ -1107,6 +1121,16 @@ steps:
             (r#"{"v":5}"#, Op::Gt, "abc", Some("5")),
             (r#"{"v":{"a":1}}"#, Op::Eq, "x", Some(r#"{"a":1}"#)),
             (r#"{}"#, Op::Eq, "x", Some("값 없음")),
+            (r#"{"v":5}"#, Op::Gte, "5", None),
+            (r#"{"v":4}"#, Op::Gte, "5", Some("4")),
+            (r#"{"v":5}"#, Op::Lte, "5", None),
+            (r#"{"v":"abc"}"#, Op::Gte, "5", Some("abc")),
+            (r#"{"v":1}"#, Op::OneOf, "1, 20", None),
+            (r#"{"v":20}"#, Op::OneOf, "1, 20", None),
+            (r#"{"v":2}"#, Op::OneOf, "1, 20", Some("2")),
+            (r#"{"v":1.0}"#, Op::OneOf, "1", None),
+            (r#"{"v":"0020"}"#, Op::OneOf, "0000, 0020", None),
+            (r#"{"v":"20"}"#, Op::OneOf, "020", Some("20")),
         ];
         for (body, op, val, want) in rows {
             let r = judge_c(
@@ -1181,6 +1205,31 @@ steps:
             run(b, flagged(Op::Gt, "3", true, true)).verdict,
             Verdict::Ok
         );
+    }
+
+    #[test]
+    fn one_of_candidates_trim_skip_empty_and_flags() {
+        assert_eq!(one_of_candidates(" 0000 ,, ok "), vec!["0000", "ok"]);
+        let run = |c: Condition| judge_c(&one_step(), vec![c], &t_body(r#"{"v":"OK"}"#));
+        assert_eq!(
+            run(flagged(Op::OneOf, " 0000 ,, ok ", true, false)).verdict,
+            Verdict::Ok
+        );
+        assert_eq!(
+            run(flagged(Op::OneOf, " 0000 ,, ok ", false, false)).verdict,
+            Verdict::Fail
+        );
+    }
+
+    #[test]
+    fn cond_status_one_of() {
+        let t = tr(vec![st(A, Some(resp_with(204, "", &[])), None)]);
+        let c = cond(A, Src::Status, "", Op::OneOf, "200, 204");
+        assert_eq!(judge_c(&one_step(), vec![c], &t).verdict, Verdict::Ok);
+        let c = cond(A, Src::Status, "", Op::OneOf, "200, 201");
+        let r = judge_c(&one_step(), vec![c], &t);
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.reason.as_deref(), Some("204"));
     }
 
     #[test]
