@@ -283,7 +283,11 @@ function BoardForm({ initial }: { initial: Board | null }) {
     }
   };
 
-  const limitInvalid = !(config.record_limit_kb >= 16 && config.record_limit_kb <= 1024);
+  const limitInvalid = !(
+    Number.isInteger(config.record_limit_kb) &&
+    config.record_limit_kb >= 16 &&
+    config.record_limit_kb <= 1024
+  );
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_14rem] lg:gap-6">
@@ -338,8 +342,14 @@ function BoardForm({ initial }: { initial: Board | null }) {
           <Field
             label={ko.monitor.recordLimit}
             htmlFor="monitor-record-limit"
-            hint={ko.monitor.recordLimitHint(worstCaseMb(config.panels, config.record_limit_kb))}
+            hint={
+              limitInvalid
+                ? undefined
+                : ko.monitor.recordLimitHint(worstCaseMb(config.panels, config.record_limit_kb))
+            }
+            hintId="monitor-record-limit-hint"
             error={limitInvalid ? ko.monitor.recordLimitRange : undefined}
+            errorId="monitor-record-limit-err"
           >
             <Input
               id="monitor-record-limit"
@@ -348,6 +358,10 @@ function BoardForm({ initial }: { initial: Board | null }) {
               min={16}
               max={1024}
               value={config.record_limit_kb}
+              aria-invalid={limitInvalid}
+              aria-describedby={
+                limitInvalid ? "monitor-record-limit-err" : "monitor-record-limit-hint"
+              }
               onChange={(e) => setConfig({ ...config, record_limit_kb: Number(e.target.value) })}
             />
           </Field>

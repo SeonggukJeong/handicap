@@ -204,8 +204,15 @@ describe("MonitorEditPage", () => {
     expect(input).toHaveValue(128);
     expect(screen.getByText(ko.monitor.recordLimitHint("7.5"))).toBeInTheDocument();
     expect(screen.queryByText(ko.monitor.recordLimitRange)).not.toBeInTheDocument();
-    fireEvent.change(input, { target: { value: "2000" } });
-    expect(screen.getByText(ko.monitor.recordLimitRange)).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(input).toHaveAccessibleDescription(ko.monitor.recordLimitHint("7.5"));
+    for (const bad of ["2000", "16.5"]) {
+      fireEvent.change(input, { target: { value: bad } });
+      expect(screen.getByText(ko.monitor.recordLimitRange)).toBeInTheDocument();
+      expect(screen.queryByText(/이 보드 최대 약/)).not.toBeInTheDocument();
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(input).toHaveAccessibleDescription(ko.monitor.recordLimitRange);
+    }
     fireEvent.change(input, { target: { value: "512" } });
     expect(screen.queryByText(ko.monitor.recordLimitRange)).not.toBeInTheDocument();
     expect(screen.getByText(ko.monitor.recordLimitHint("30"))).toBeInTheDocument();
