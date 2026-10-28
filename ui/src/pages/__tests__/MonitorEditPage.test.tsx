@@ -1293,6 +1293,16 @@ describe("MonitorEditPage display items", () => {
     expect(toggles()[1]).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("expanded_header_keeps_summary", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    await user.click(toggles()[0]);
+    expect(toggles()[0]).toHaveAttribute("aria-expanded", "true");
+    expect(toggles()[0]).toHaveTextContent("· 조건 0 · 표시 0");
+  });
+
   it("expand_all_and_collapse_all", async () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () =>

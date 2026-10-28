@@ -177,11 +177,9 @@ export function PanelEditor({
           <span className="truncate font-medium text-slate-900">
             {panel.title.trim() || ko.monitor.noTitle}
           </span>
-          {!expanded && (
-            <span className="truncate text-xs text-slate-500">
-              {panelSummary(panel, scenario?.name)}
-            </span>
-          )}
+          <span className="min-w-0 truncate text-xs text-slate-500">
+            {panelSummary(panel, scenario?.name)}
+          </span>
         </button>
         {expanded && canRemove && (
           <Button variant="secondary" type="button" onClick={onRemove}>
