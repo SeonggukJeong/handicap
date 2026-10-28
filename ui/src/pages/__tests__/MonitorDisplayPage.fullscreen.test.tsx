@@ -132,6 +132,7 @@ beforeEach(() => {
             config: {
               font_scale: "large",
               show_latency_stats: true,
+              record_limit_kb: 128,
               display_style: "border",
               blink,
               panels: PANELS,
@@ -150,6 +151,7 @@ beforeEach(() => {
             config: {
               font_scale: "large",
               show_latency_stats: true,
+              record_limit_kb: 128,
               display_style: "border",
               blink,
               panels: PANELS,

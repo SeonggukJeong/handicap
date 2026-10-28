@@ -84,6 +84,7 @@ export const BoardConfigSchema = z.object({
   display_style: DisplayStyleSchema,
   blink: BlinkSchema,
   show_latency_stats: z.boolean(),
+  record_limit_kb: z.number(),
   panels: z.array(PanelConfigSchema),
 });
 export type BoardConfig = z.infer<typeof BoardConfigSchema>;

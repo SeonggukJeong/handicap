@@ -43,6 +43,7 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
     config: {
       font_scale: "large",
       show_latency_stats: true,
+      record_limit_kb: 128,
       display_style: "border",
       blink: "fail",
       panels,
@@ -306,6 +307,7 @@ describe("MonitorDisplayPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: style,
             blink: "off",
             panels,
@@ -393,6 +395,7 @@ describe("MonitorDisplayPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: style,
             blink,
             panels: cfgs(),
@@ -808,6 +811,7 @@ describe("MonitorDisplayPage", () => {
             config: {
               ...(board().config as Json),
               show_latency_stats: false,
+              record_limit_kb: 128,
               panels: [panelCfg({ display_items: [ITEM1] })],
             },
           }),
@@ -1089,6 +1093,7 @@ describe("MonitorDisplayPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: style,
             blink: "off",
             panels: cfgsN(n),
@@ -1710,6 +1715,7 @@ describe("MonitorDisplayPage display items", () => {
           config: {
             ...(board().config as Json),
             show_latency_stats: false,
+            record_limit_kb: 128,
             panels: [panelCfg({ display_items: [ITEM1] })],
           },
         }),

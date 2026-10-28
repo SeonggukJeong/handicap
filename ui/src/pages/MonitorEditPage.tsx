@@ -29,6 +29,7 @@ import { ko } from "../i18n/ko";
 import { enterFullscreen, exitFullscreen } from "../monitor/fullscreen";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
 import { parsePanelError } from "../monitor/panelErrors";
+import { worstCaseMb } from "../monitor/recordLimit";
 
 const MAX_PANELS = 9;
 
@@ -76,6 +77,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
       initial?.config ?? {
         font_scale: "large",
         show_latency_stats: true,
+        record_limit_kb: 128,
         display_style: "border",
         blink: "fail",
         panels: [newPanel()],
@@ -281,6 +283,8 @@ function BoardForm({ initial }: { initial: Board | null }) {
     }
   };
 
+  const limitInvalid = !(config.record_limit_kb >= 16 && config.record_limit_kb <= 1024);
+
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_14rem] lg:gap-6">
       <div className="min-w-0">
@@ -330,6 +334,22 @@ function BoardForm({ initial }: { initial: Board | null }) {
                 </option>
               ))}
             </Select>
+          </Field>
+          <Field
+            label={ko.monitor.recordLimit}
+            htmlFor="monitor-record-limit"
+            hint={ko.monitor.recordLimitHint(worstCaseMb(config.panels, config.record_limit_kb))}
+            error={limitInvalid ? ko.monitor.recordLimitRange : undefined}
+          >
+            <Input
+              id="monitor-record-limit"
+              type="number"
+              numeric
+              min={16}
+              max={1024}
+              value={config.record_limit_kb}
+              onChange={(e) => setConfig({ ...config, record_limit_kb: Number(e.target.value) })}
+            />
           </Field>
         </div>
 

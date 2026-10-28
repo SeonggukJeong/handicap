@@ -56,6 +56,7 @@ function board(over: Record<string, unknown> = {}) {
     config: {
       font_scale: "large",
       show_latency_stats: true,
+      record_limit_kb: 128,
       display_style: "border",
       blink: "fail",
       panels: [panel()],
@@ -167,6 +168,7 @@ const withConds = (conds: unknown[]) =>
     config: {
       font_scale: "large",
       show_latency_stats: true,
+      record_limit_kb: 128,
       display_style: "border",
       blink: "fail",
       panels: [panel({ conditions: conds })],
@@ -196,6 +198,36 @@ describe("MonitorEditPage", () => {
     expect(screen.queryByLabelText(MS_LABEL)).not.toBeInTheDocument();
   });
 
+  it("record_limit_field_shows_hint_and_range_error", async () => {
+    renderAt("/monitors/new");
+    const input = await screen.findByLabelText(ko.monitor.recordLimit);
+    expect(input).toHaveValue(128);
+    expect(screen.getByText(ko.monitor.recordLimitHint("7.5"))).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.recordLimitRange)).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "2000" } });
+    expect(screen.getByText(ko.monitor.recordLimitRange)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "512" } });
+    expect(screen.queryByText(ko.monitor.recordLimitRange)).not.toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.recordLimitHint("30"))).toBeInTheDocument();
+  });
+
+  it("record_limit_saved_in_put", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ config: (b as { config: unknown }).config }));
+    renderAt("/monitors/B1");
+    const input = await screen.findByLabelText(ko.monitor.recordLimit);
+    expect(input).toHaveValue(128);
+    fireEvent.change(input, { target: { value: "512" } });
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    const body = sent("PUT", "/api/monitor-boards/B1")[0].body as {
+      config: { record_limit_kb: number };
+    };
+    expect(body.config.record_limit_kb).toBe(512);
+  });
+
   it("display_style_select_saves", async () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
@@ -222,6 +254,7 @@ describe("MonitorEditPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: "focus",
             blink: "fail",
             panels: [panel({ conditions: [COND_A] })],
@@ -286,6 +319,7 @@ describe("MonitorEditPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: "border",
             blink: "fail",
             panels: [panel({ timeout_seconds: 9, bar_count: 100 })],
@@ -414,6 +448,7 @@ describe("MonitorEditPage", () => {
           config: {
             font_scale: "large",
             show_latency_stats: true,
+            record_limit_kb: 128,
             display_style: "border",
             blink: "fail",
             panels: [panel({ title: "  " })],
@@ -885,6 +920,7 @@ const threePanels = (over: Record<string, Record<string, unknown>> = {}) =>
     config: {
       font_scale: "large",
       show_latency_stats: true,
+      record_limit_kb: 128,
       display_style: "border",
       blink: "fail",
       panels: [
@@ -1185,6 +1221,7 @@ const withDisplay = (items: unknown[]) =>
     config: {
       font_scale: "large",
       show_latency_stats: true,
+      record_limit_kb: 128,
       display_style: "border",
       blink: "fail",
       panels: [panel({ display_items: items })],

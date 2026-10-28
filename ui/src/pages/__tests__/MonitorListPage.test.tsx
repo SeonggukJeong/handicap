@@ -34,6 +34,7 @@ const mkBoard = (id: string, name: string, enabled: boolean, n: number) => ({
   config: {
     font_scale: "large",
     show_latency_stats: true,
+    record_limit_kb: 128,
     display_style: "border",
     blink: "fail",
     panels: Array.from({ length: n }, (_, i) => ({

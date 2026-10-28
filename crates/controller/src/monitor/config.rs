@@ -221,12 +221,18 @@ pub struct BoardConfig {
     pub panels: Vec<PanelConfig>,
     /// 벽의 평균·최대 줄 표시 여부(표시 전용 — 점검 동작 무관).
     pub show_latency_stats: bool,
+    /// 점검 하나의 기록 본문 예산(KB) — 보드 단위.
+    pub record_limit_kb: u32,
 }
+
+pub const RECORD_LIMIT_KB_DEFAULT: u32 = 128;
+pub const RECORD_LIMIT_KB_RANGE: std::ops::RangeInclusive<u32> = 16..=1024;
 
 impl Default for BoardConfig {
     fn default() -> Self {
         Self {
             show_latency_stats: true,
+            record_limit_kb: RECORD_LIMIT_KB_DEFAULT,
             font_scale: FontScale::Large,
             blink: Blink::Fail,
             display_style: DisplayStyle::Border,
@@ -422,6 +428,9 @@ pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<Strin
             return Err("칸 id가 중복되었습니다".into());
         }
     }
+    if !RECORD_LIMIT_KB_RANGE.contains(&cfg.record_limit_kb) {
+        return Err("점검 기록 상한은 16~1024KB여야 합니다".into());
+    }
     Ok(name)
 }
 
@@ -444,6 +453,32 @@ mod tests {
         BoardConfig {
             panels: vec![panel()],
             ..BoardConfig::default()
+        }
+    }
+
+    #[test]
+    fn record_limit_default_128() {
+        assert_eq!(BoardConfig::default().record_limit_kb, 128);
+        let c: BoardConfig = serde_json::from_str(r#"{"panels":[{"scenario_id":"S"}]}"#).unwrap();
+        assert_eq!(c.record_limit_kb, RECORD_LIMIT_KB_DEFAULT);
+        assert_eq!(c.record_limit_kb, 128);
+    }
+
+    #[test]
+    fn record_limit_range() {
+        for (kb, ok) in [(15u32, false), (16, true), (1024, true), (1025, false)] {
+            let mut b = board();
+            b.record_limit_kb = kb;
+            let r = validate_and_normalize("보드", &mut b);
+            if ok {
+                assert!(r.is_ok(), "{kb}");
+            } else {
+                assert_eq!(
+                    r.unwrap_err(),
+                    "점검 기록 상한은 16~1024KB여야 합니다",
+                    "{kb}"
+                );
+            }
         }
     }
 

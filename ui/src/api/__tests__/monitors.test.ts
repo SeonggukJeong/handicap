@@ -18,7 +18,9 @@ describe("monitors schemas", () => {
       panels: [
         {
           panel_id: "p",
-          results: [{ at_ms: 1, verdict: "ok", latency_ms: null, reason: null, detail: null, display: [] }],
+          results: [
+            { at_ms: 1, verdict: "ok", latency_ms: null, reason: null, detail: null, display: [] },
+          ],
           consecutive_fail: 0,
           fail_since_ms: null,
           running: false,
@@ -30,7 +32,14 @@ describe("monitors schemas", () => {
   it("preview payload with null trace parses", () => {
     const p = PreviewSchema.parse({
       trace: null,
-      result: { at_ms: 1, verdict: "fail", latency_ms: null, reason: "x", detail: null, display: [] },
+      result: {
+        at_ms: 1,
+        verdict: "fail",
+        latency_ms: null,
+        reason: "x",
+        detail: null,
+        display: [],
+      },
     });
     expect(p.trace).toBeNull();
   });
@@ -46,6 +55,7 @@ describe("monitors schemas", () => {
         display_style: "border",
         blink: "slow_and_fail",
         show_latency_stats: true,
+        record_limit_kb: 128,
         panels: [{ ...newPanel(), latency_source: { kind: "step", step_id: "S" } }],
       },
     });
@@ -73,7 +83,13 @@ describe("polish wire fields", () => {
       ...newPanel(),
       display_items: [{ step_id: "S", source: "body", path: "$.a" }],
     };
-    const cfg = { font_scale: "large", display_style: "fill", blink: "off", panels: [panel] };
+    const cfg = {
+      font_scale: "large",
+      display_style: "fill",
+      blink: "off",
+      record_limit_kb: 128,
+      panels: [panel],
+    };
     const mk = (config: unknown) => ({
       id: "b",
       name: "n",
@@ -93,6 +109,27 @@ describe("polish wire fields", () => {
     ).toThrow();
     expect(newPanel().display_items).toEqual([]);
   });
+  it("board requires record_limit_kb", () => {
+    const base = {
+      font_scale: "large",
+      display_style: "fill",
+      blink: "off",
+      show_latency_stats: true,
+      panels: [],
+    };
+    const mk = (config: unknown) => ({
+      id: "b",
+      name: "n",
+      enabled: false,
+      created_at: 1,
+      updated_at: 1,
+      config,
+    });
+    expect(BoardSchema.parse(mk({ ...base, record_limit_kb: 256 })).config.record_limit_kb).toBe(
+      256,
+    );
+    expect(() => BoardSchema.parse(mk(base))).toThrow();
+  });
   describe("setLatencyStats", () => {
     afterEach(() => vi.unstubAllGlobals());
     it("PUTs {show} to latency-stats", async () => {
@@ -107,6 +144,7 @@ describe("polish wire fields", () => {
           display_style: "fill",
           blink: "off",
           show_latency_stats: false,
+          record_limit_kb: 128,
           panels: [],
         },
       };
