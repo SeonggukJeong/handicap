@@ -104,8 +104,11 @@ fn mask_response(resp: &mut TracedResponse) {
     }
 }
 
-/// 이름이 인증 헤더 4종(대소문자 무시)이면 그 규칙으로 값을 가린다. 그 외 헤더는 원문.
+/// 이름이 인증 헤더 4종(앞뒤 공백 무시·대소문자 무시)이면 그 규칙으로 값을 가린다.
+/// 그 외 헤더는 원문. 엔진은 `HeaderName`이 거부한 저작 이름(`"Authorization "`)도
+/// 렌더된 값과 함께 trace에 싣으므로 trim이 필요하다(`PreviewResult.tsx`와 같은 규칙).
 fn mask_header(name: &str, value: &mut String) {
+    let name = name.trim();
     let Some(h) = AUTH_HEADERS.iter().find(|h| name.eq_ignore_ascii_case(h)) else {
         return;
     };
@@ -168,7 +171,9 @@ fn mask_set_cookie(v: &str) -> String {
                 format!("{}{MASK}", &head[..=eq])
             }
         }
-        None if head.trim().is_empty() => v.to_string(),
+        // 값 전체가 비었을 때만 그대로. 머리만 빈 경우(`; sid=x`)도 속성은 버린다.
+        None if v.trim().is_empty() => v.to_string(),
+        None if head.trim().is_empty() => head.to_string(),
         None => MASK.to_string(),
     }
 }
@@ -332,6 +337,16 @@ mod tests {
             ("set-cookie", "abc; Path=/", "••••"),
             ("Set-Cookie", "sid=x; Path=/", "sid=••••"),
             ("set-cookie", "", ""),
+            ("set-cookie", "   ", "   "),
+            // 첫 `;` 앞이 비어도 속성(뒤쪽 비밀)은 버린다 — 머리만 남김.
+            ("set-cookie", "; sid=x", ""),
+            ("set-cookie", " ; Path=/", " "),
+            ("set-cookie", " ; token=abc", " "),
+            // 이름 앞뒤 공백(엔진은 HeaderName 거부 시에도 저작 이름 그대로 trace에 싣는다).
+            ("Authorization ", "Bearer x", "Bearer ••••"),
+            (" authorization", "x", "••••"),
+            (" cookie", "a=1", "a=••••"),
+            ("set-cookie\t", "sid=x; Path=/", "sid=••••"),
             ("x-api-key", "k", "k"),
             ("content-type", "application/json", "application/json"),
         ];
@@ -343,13 +358,21 @@ mod tests {
                 "response {name}: {value:?}"
             );
         }
-        // set_cookies 항목도 set-cookie 규칙.
+    }
+
+    /// `set_cookies` 항목도 set-cookie 규칙 — 헤더 표와 독립적으로 RED가 나도록 분리.
+    #[test]
+    fn mask_table_set_cookies_items() {
         let items: &[(&str, &str)] = &[
             ("sid=x; Path=/", "sid=••••"),
             ("sid=; Max-Age=0", "sid="),
             ("abc; Path=/", "••••"),
             ("sid=x", "sid=••••"),
             ("", ""),
+            ("   ", "   "),
+            ("; sid=x", ""),
+            (" ; Path=/", " "),
+            (" ; token=abc", " "),
         ];
         for (value, want) in items {
             assert_eq!(&set_cookie_item(value), want, "set_cookies {value:?}");
