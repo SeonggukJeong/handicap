@@ -27,6 +27,7 @@ const addButtonCls = "rounded bg-slate-200 px-1.5 py-0.5 text-[11px] hover:bg-sl
 
 const MAX_DISPLAY = 2;
 // Credential-bearing headers: the server rejects them as display items too.
+// Keep in sync with AUTH_HEADERS in crates/controller/src/monitor/config.rs.
 const AUTH_HEADERS = new Set(["set-cookie", "cookie", "authorization", "proxy-authorization"]);
 
 function displayItemOf(stepId: string, c: ConditionClick): DisplayItem | null {

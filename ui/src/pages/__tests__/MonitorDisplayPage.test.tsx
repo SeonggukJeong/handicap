@@ -1534,6 +1534,8 @@ describe("MonitorDisplayPage display items", () => {
     expect(right.getByTestId("latency-stats")).toHaveTextContent("평균 132 최대 132");
     // the latency is drawn once, inside the split row (no full-width line)
     expect(panel().getAllByText("132 ms")).toHaveLength(1);
+    // the avg/max stats line is drawn exactly once (split row owns it; no second full-width line)
+    expect(panel().getAllByTestId("latency-stats")).toHaveLength(1);
   });
 
   it("one_item_left_has_one_line", async () => {

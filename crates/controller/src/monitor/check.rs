@@ -87,7 +87,11 @@ fn normalize_chars(s: &str) -> String {
 
 /// 벽 화면에 나가는 사용자 값의 정규화 + 200자(문자 경계) 상한(`…`).
 pub(crate) fn shown(s: &str) -> String {
-    let n = normalize_chars(s);
+    // normalize_chars is 1:1 per char, so cutting first is identical but avoids
+    // allocating full-size copies of a huge body: SHOWN_MAX_CHARS + 1 chars are
+    // enough to tell whether the `…` is needed.
+    let head: String = s.chars().take(SHOWN_MAX_CHARS + 1).collect();
+    let n = normalize_chars(&head);
     if n.chars().count() <= SHOWN_MAX_CHARS {
         return n;
     }
@@ -1596,6 +1600,32 @@ steps:
         assert!(s.ends_with('…'));
         let exact = "가".repeat(200);
         assert_eq!(shown(&exact), exact);
+    }
+
+    #[test]
+    fn shown_prefix_cut_matches_full_normalize_when_controls_straddle_cut() {
+        // reference = the old algorithm (normalize whole string, then cut)
+        fn old(s: &str) -> String {
+            let n = normalize_chars(s);
+            if n.chars().count() <= SHOWN_MAX_CHARS {
+                return n;
+            }
+            let mut out: String = n.chars().take(SHOWN_MAX_CHARS - 1).collect();
+            out.push('…');
+            out
+        }
+        for pos in [197usize, 198, 199, 200, 201, 202] {
+            for c in ['\n', '\u{202E}', '\u{200B}', '\u{2028}', 'x'] {
+                let mut s: String = "가".repeat(pos);
+                s.push(c);
+                s.push_str(&"😀\t".repeat(300));
+                assert_eq!(shown(&s), old(&s), "pos={pos} c={c:?}");
+            }
+        }
+        let exact: String = "a\n".repeat(100);
+        assert_eq!(shown(&exact), old(&exact));
+        let over: String = "a\n".repeat(100) + "\u{200B}";
+        assert_eq!(shown(&over), old(&over));
     }
 
     #[test]

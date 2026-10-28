@@ -361,6 +361,7 @@ fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
     Ok(())
 }
 
+// Keep in sync with AUTH_HEADERS in ui/src/components/monitor/PreviewResult.tsx.
 const AUTH_HEADERS: [&str; 4] = [
     "set-cookie",
     "cookie",
