@@ -43,6 +43,7 @@ const probeReport = (m: PanelMeasure): ProbeReport => ({
   fit: m.fit,
   need: requiredFit(m),
   reasonNeed: m.reasonNeed,
+  splitNeed: m.splitNeed,
 });
 
 /** Which panel states blink for a board setting (spec 7.5). Config/stale never blink. */
@@ -237,7 +238,9 @@ export function MonitorDisplayPage() {
     fontScale,
     displayStyle ?? "",
     `stats:${board?.config.show_latency_stats}`,
-    ...(board?.config.panels ?? []).map((p) => `${p.id}|${p.title}|${p.timeout_seconds}`),
+    ...(board?.config.panels ?? []).map(
+      (p) => `${p.id}|${p.title}|${p.timeout_seconds}|${p.display_items.length}`,
+    ),
   ].join("\n");
   // Text scales, each one per board and fixed by settings (spec §7.3 극단값 표시
   // 정책, §6.3 C 글자 크기), see useScaleSearch:
@@ -293,7 +296,10 @@ export function MonitorDisplayPage() {
   const mainStyle: React.CSSProperties =
     layout.kind === "focus" ? focusMainStyle(layout.side) : gridStyle;
   // Big C panels take the incident scale; every grid panel the normal one.
-  const renderPanel = (v: (typeof views)[number], scale: { fit: number; reasonFit: number }) => (
+  const renderPanel = (
+    v: (typeof views)[number],
+    scale: { fit: number; reasonFit: number; splitFit: number },
+  ) => (
     <MonitorPanel
       key={v.p.id}
       panel={v.p}
@@ -304,6 +310,7 @@ export function MonitorDisplayPage() {
       showInterval={!sameInterval}
       fit={scale.fit}
       reasonFit={scale.reasonFit}
+      splitFit={scale.splitFit}
       displayStyle={board.config.display_style}
       showStats={board.config.show_latency_stats}
     />

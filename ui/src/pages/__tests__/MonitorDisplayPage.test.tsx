@@ -15,6 +15,10 @@ const T = new Date(2026, 9, 22, 14, 32, 10).getTime();
 
 type Json = Record<string, unknown>;
 
+// Wall display items (spec §2.2): the first is drawn big, the second small.
+const ITEM1: Json = { step_id: "01HZZZZZZZZZZZZZZZZZZZZZS1", source: "body", path: "$.code" };
+const ITEM2: Json = { step_id: "01HZZZZZZZZZZZZZZZZZZZZZS1", source: "body", path: "$.message" };
+
 function panelCfg(over: Json = {}): Json {
   return {
     id: P1,
@@ -774,6 +778,107 @@ describe("MonitorDisplayPage", () => {
     }
   });
 
+  it("scale_key_changes_with_display_items_and_stats_flag", async () => {
+    // An item panel's probe carries the split grid. Here the grid with its
+    // avg/max split line makes the probe taller (150 -> 260): adding an item
+    // through a board refetch must re-run the scale search (spec §6.2 키 규칙),
+    // and so must turning the avg/max line off again (grid without it -> 150).
+    const spy = stubLayout(
+      () => 150,
+      (_t, el) =>
+        el.querySelector('[data-testid="probe-split"] [data-testid="stats-probe"]') ? 260 : 150,
+    );
+    try {
+      await renderPage();
+      await tick(10);
+      expect(screen.queryByTestId("probe-split")).toBeNull();
+      expect(fitOf("결제")).toBe("1");
+      boardHandler = () => res(board({ updated_at: 2 }, [panelCfg({ display_items: [ITEM1] })]));
+      statusHandler = () =>
+        res(status([panelStatus(P1, [okResult(413)])], { board_updated_at: 2 }));
+      await tick(1000);
+      await tick(10);
+      await tick(10);
+      expect(screen.getByTestId("probe-split")).toBeInTheDocument();
+      expect(Number(fitOf("결제"))).toBeLessThan(1);
+      boardHandler = () =>
+        res(
+          board({
+            updated_at: 3,
+            config: {
+              ...(board().config as Json),
+              show_latency_stats: false,
+              panels: [panelCfg({ display_items: [ITEM1] })],
+            },
+          }),
+        );
+      statusHandler = () =>
+        res(status([panelStatus(P1, [okResult(413)])], { board_updated_at: 3 }));
+      await tick(1000);
+      await tick(10);
+      await tick(10);
+      expect(screen.getByTestId("probe-split")).toBeInTheDocument();
+      expect(fitOf("결제")).toBe("1");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("split_row_has_its_own_settings_scale", async () => {
+    // the split probe's right lines (timeout ms, worst avg/max) are 1100px wide
+    // in a 1000px half -> split-only scale 1000/1100 x 0.98; the board scale
+    // (and so every other panel's text) stays 1 (D2.17)
+    const spy = stubLayout(() => 150);
+    const sw = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.hasAttribute("data-split-probe") ? 1100 : 0;
+    });
+    const cw = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.hasAttribute("data-split-probe") ? 1000 : 0;
+    });
+    boardHandler = () =>
+      res(
+        board({}, [
+          panelCfg({ display_items: [ITEM1, ITEM2] }),
+          panelCfg({ id: P2, title: "조회" }),
+        ]),
+      );
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(P1, [{ ...okResult(132), display: ["0000", "정상"] }]),
+          panelStatus(P2, [okResult(413)]),
+        ]),
+      );
+    try {
+      await renderPage();
+      await tick(10);
+      await tick(10);
+      const box = within(panelEl("결제")).getByTestId("panel-box");
+      expect(box.style.getPropertyValue("--fit")).toBe("1");
+      expect(box.style.getPropertyValue("--split-fit")).toBe("0.8909");
+      expect(fitOf("조회")).toBe("1");
+      const row = within(panelEl("결제")).getByTestId("split-row");
+      for (const text of ["0000", "정상", "132 ms"]) {
+        expect(within(row).getByText(text).style.fontSize).toContain("var(--split-fit");
+      }
+      expect(within(row).getByTestId("latency-stats").style.fontSize).toContain("var(--split-fit");
+      for (const el of screen.getAllByTestId("panel-probe")) {
+        el.querySelectorAll<HTMLElement>("[data-split-probe]").forEach((p) => {
+          expect(p.className).toContain("whitespace-nowrap");
+          expect(p.className).toContain("overflow-hidden");
+        });
+      }
+    } finally {
+      cw.mockRestore();
+      sw.mockRestore();
+      spy.mockRestore();
+    }
+  });
+
   it("reason_line_has_its_own_settings_scale", async () => {
     // the widest fixed reason (at reason size) is 1100px wide in a 1000px text
     // box -> reason-only scale 1000/1100 x 0.98; the board scale stays 1
@@ -1382,5 +1487,245 @@ describe("MonitorDisplayPage latency stats", () => {
     const parts = [...line.querySelectorAll<HTMLElement>("span, b")];
     expect(parts.length).toBe(4);
     parts.forEach((el) => expect(el.style.color).toBe(ink));
+  });
+});
+
+describe("MonitorDisplayPage display items", () => {
+  const TEXT = "rgb(242, 245, 248)"; // COLOR.text
+  const SOFT = "rgb(203, 213, 225)"; // COLOR.soft
+  const okWith = (latency: number, display: (string | null)[]): Json => ({
+    ...okResult(latency),
+    display,
+  });
+  const failWith = (display: (string | null)[]): Json => ({
+    at_ms: T,
+    verdict: "fail",
+    latency_ms: null,
+    reason: "HTTP 503",
+    detail: null,
+    display,
+  });
+  function setup(items: Json[], results: Json[], over: Json = {}, cfg: Json = {}) {
+    boardHandler = () => res(board({}, [panelCfg({ display_items: items, ...cfg })]));
+    statusHandler = () => res(status([panelStatus(P1, results, over)]));
+  }
+  const failOver = { consecutive_fail: 3, fail_since_ms: T - 20_000 };
+  const panel = () => within(panelEl("결제"));
+  const left = () => within(panel().getByTestId("split-left"));
+
+  it("two_items_ok_panel_splits_values_left_latency_right", async () => {
+    setup([ITEM1, ITEM2], [okWith(132, ["0000", "정상 처리되었습니다"])]);
+    await renderPage();
+    const row = panel().getByTestId("split-row");
+    expect(row.style.display).toBe("grid");
+    expect(row.style.gridTemplateColumns).toBe("minmax(0,1fr) minmax(0,1fr)");
+    const big = left().getByText("0000");
+    const small = left().getByText("정상 처리되었습니다");
+    expect(big.className).toContain("truncate");
+    expect(big.className).toContain("text-left");
+    expect(big.className).toContain("font-black");
+    expect(big.style.color).toBe(TEXT);
+    expect(small.className).toContain("truncate");
+    expect(small.className).toContain("text-left");
+    expect(small.style.color).toBe(SOFT);
+    const right = within(panel().getByTestId("split-right"));
+    const ms = right.getByText("132 ms");
+    expect(ms.className).toContain("text-right");
+    expect(right.getByTestId("latency-stats")).toHaveTextContent("평균 132 최대 132");
+    // the latency is drawn once, inside the split row (no full-width line)
+    expect(panel().getAllByText("132 ms")).toHaveLength(1);
+  });
+
+  it("one_item_left_has_one_line", async () => {
+    setup([ITEM1], [okWith(132, ["0000"])]);
+    await renderPage();
+    expect(panel().getByTestId("split-left").children).toHaveLength(1);
+    expect(left().getByText("0000")).toBeInTheDocument();
+  });
+
+  it("missing_display_index_renders_dash", async () => {
+    // items were just added in the settings: the latest result predates them
+    setup([ITEM1, ITEM2], [okWith(132, [])]);
+    await renderPage();
+    expect(left().getAllByText(ko.monitor.noValue)).toHaveLength(2);
+  });
+
+  it("null_and_empty_values_render_dash", async () => {
+    setup([ITEM1, ITEM2], [okWith(132, [null, ""])]);
+    await renderPage();
+    expect(left().getAllByText(ko.monitor.noValue)).toHaveLength(2);
+  });
+
+  it("slow_panel_left_value_keeps_text_colour", async () => {
+    setup(
+      [ITEM1, ITEM2],
+      [okWith(1407, ["0000", "정상"])],
+      {},
+      { thresholds: [{ ms: 1200, color: "#fb923c" }] },
+    );
+    await renderPage();
+    expect(panel().getByText(ko.monitor.stateSlow)).toBeInTheDocument();
+    expect(panel().getByText("1,407 ms").style.color).toBe("rgb(251, 146, 60)");
+    expect(left().getByText("0000").style.color).toBe(TEXT);
+    expect(left().getByText("정상").style.color).toBe(SOFT);
+  });
+
+  it("no_items_panel_has_no_split_row", async () => {
+    await renderPage();
+    expect(panel().queryByTestId("split-row")).toBeNull();
+    expect(panel().getByText("413 ms")).toBeInTheDocument();
+  });
+
+  it("fail_item_panel_shows_display_line_under_consecutive", async () => {
+    setup([ITEM1, ITEM2], [failWith(["E1023", "세션이 만료되었습니다"])], failOver);
+    await renderPage();
+    expect(panel().queryByTestId("split-row")).toBeNull();
+    expect(panel().getByText("HTTP 503")).toBeInTheDocument();
+    const line = panel().getByTestId("display-line");
+    expect(line).toHaveTextContent(/^E1023 세션이 만료되었습니다$/);
+    expect(line.className).toContain("truncate");
+    expect(line.className).toContain("text-left");
+    const v0 = line.querySelector("b");
+    expect(v0?.textContent).toBe("E1023");
+    expect(v0?.style.color).toBe(TEXT);
+    expect(line.querySelector("span")?.style.color).toBe(SOFT);
+    const consecutive = panel().getByText(ko.monitor.consecutive(3, "14:31:50"));
+    expect(
+      consecutive.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("fail_one_item_shows_v0_only", async () => {
+    setup([ITEM1], [failWith(["E1023"])], failOver);
+    await renderPage();
+    expect(panel().getByTestId("display-line")).toHaveTextContent(/^E1023$/);
+  });
+
+  it("fail_no_drawable_value_omits_display_line", async () => {
+    setup([ITEM1, ITEM2], [failWith([null, ""])], failOver);
+    await renderPage();
+    expect(panel().getByText("HTTP 503")).toBeInTheDocument();
+    expect(panel().queryByTestId("display-line")).toBeNull();
+  });
+
+  it("fail_empty_display_omits_display_line", async () => {
+    setup([ITEM1, ITEM2], [failWith([])], failOver);
+    await renderPage();
+    expect(panel().queryByTestId("display-line")).toBeNull();
+  });
+
+  it("fail_partly_missing_values_show_dash_in_their_slot", async () => {
+    setup([ITEM1, ITEM2], [failWith([null, "세션이 만료되었습니다"])], failOver);
+    await renderPage();
+    expect(panel().getByTestId("display-line")).toHaveTextContent(/^— 세션이 만료되었습니다$/);
+  });
+
+  it("fail_second_value_missing_shows_dash_after_first", async () => {
+    setup([ITEM1, ITEM2], [failWith(["E1023", null])], failOver);
+    await renderPage();
+    expect(panel().getByTestId("display-line")).toHaveTextContent(/^E1023 —$/);
+  });
+
+  it("config_error_item_panel_has_no_values", async () => {
+    setup(
+      [ITEM1, ITEM2],
+      [
+        {
+          at_ms: T,
+          verdict: "config_error",
+          latency_ms: null,
+          reason: "시나리오 오류",
+          detail: null,
+          display: ["X-CODE", "X-MSG"],
+        },
+      ],
+    );
+    await renderPage();
+    expect(panel().queryByTestId("split-row")).toBeNull();
+    expect(panel().queryByTestId("display-line")).toBeNull();
+    expect(panel().queryByText("X-CODE")).toBeNull();
+  });
+
+  it("item_panel_probe_has_no_fit_line", async () => {
+    // D2.17: an item panel's probe never reaches the board-wide `--fit` with
+    // a full-width big value or stats line — only title/state + the split grid
+    setup([ITEM1, ITEM2], [okWith(132, ["0000", "정상"])]);
+    await renderPage();
+    const text = screen.getByTestId("probe-text");
+    expect(text.querySelectorAll("[data-fit-line]")).toHaveLength(0);
+    expect(text.querySelectorAll("[data-split-probe]")).toHaveLength(2);
+    const split = within(text).getByTestId("probe-split");
+    const fillers = [...within(split).getByTestId("probe-split-left").children];
+    expect(fillers).toHaveLength(2);
+    fillers.forEach((el) => {
+      expect(el.textContent).toBe(" ");
+      expect((el as HTMLElement).style.color).toBe("transparent");
+    });
+    // no live value reaches the probe
+    expect(within(text).queryByText("0000")).toBeNull();
+  });
+
+  it("item_panel_probe_split_lines_follow_stats_flag", async () => {
+    boardHandler = () =>
+      res(
+        board({
+          config: {
+            ...(board().config as Json),
+            show_latency_stats: false,
+            panels: [panelCfg({ display_items: [ITEM1] })],
+          },
+        }),
+      );
+    await renderPage();
+    const text = screen.getByTestId("probe-text");
+    expect(text.querySelectorAll("[data-split-probe]")).toHaveLength(1);
+    expect(within(text).getByTestId("probe-split-left").children).toHaveLength(1);
+    expect(text.querySelectorAll("[data-fit-line]")).toHaveLength(0);
+  });
+
+  it("no_items_probe_keeps_full_width_lines", async () => {
+    await renderPage();
+    const text = screen.getByTestId("probe-text");
+    expect(within(text).queryByTestId("probe-split")).toBeNull();
+    expect(text.querySelectorAll("[data-split-probe]")).toHaveLength(0);
+    expect(text.querySelectorAll("[data-fit-line]").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("fill_style_split_row_and_display_line_use_ink", async () => {
+    boardHandler = () =>
+      res(
+        board({
+          config: {
+            ...(board().config as Json),
+            display_style: "fill",
+            panels: [panelCfg({ display_items: [ITEM1, ITEM2] })],
+          },
+        }),
+      );
+    statusHandler = () => res(status([panelStatus(P1, [okWith(132, ["0000", "정상"])])]));
+    await renderPage();
+    const ink = panel().getByRole("heading", { name: "결제" }).style.color;
+    expect(left().getByText("0000").style.color).toBe(ink);
+    expect(left().getByText("정상").style.color).toBe(ink);
+    expect(panel().getByText("132 ms").style.color).toBe(ink);
+  });
+
+  it("fill_style_fail_display_line_uses_ink", async () => {
+    boardHandler = () =>
+      res(
+        board({
+          config: {
+            ...(board().config as Json),
+            display_style: "fill",
+            panels: [panelCfg({ display_items: [ITEM1, ITEM2] })],
+          },
+        }),
+      );
+    statusHandler = () => res(status([panelStatus(P1, [failWith(["E1023", "만료"])], failOver)]));
+    await renderPage();
+    const ink = panel().getByRole("heading", { name: "결제" }).style.color;
+    const line = panel().getByTestId("display-line");
+    expect(line.querySelector("b")?.style.color).toBe(ink);
+    expect(line.querySelector("span")?.style.color).toBe(ink);
   });
 });

@@ -8,6 +8,8 @@ export type ProbeReport = {
   need: number;
   /** Extra scale the reason lines need (Infinity = all fit). */
   reasonNeed: number;
+  /** Extra scale the split-row probe lines need (Infinity = all fit). */
+  splitNeed: number;
 };
 
 const SEARCH_START: ScaleSearch = { lo: MIN_FIT, hi: 1, cand: 1, done: false };
@@ -24,6 +26,8 @@ const SEARCH_START: ScaleSearch = { lo: MIN_FIT, hi: 1, cand: 1, done: false };
  * The reason line's own scale (`reasonFit`, R18) is read from the probes'
  * measurements after the search is done — so probes must re-measure on the
  * render where `done` turns true (pass it to memoized probes as a prop).
+ * The split row's scale (`splitFit`, spec §6.2 `--split-fit`) is read the same
+ * way, so one item panel never shrinks the other panels' text (D2.17).
  *
  * Search state lives in refs: measuring happens after paint, and chaining
  * layout-effect updates hits React's nested-update limit (#185).
@@ -34,6 +38,7 @@ export function useScaleSearch(
 ): {
   fit: number;
   reasonFit: number;
+  splitFit: number;
   cand: number;
   done: boolean;
   report: (id: string, r: ProbeReport) => void;
@@ -45,6 +50,8 @@ export function useScaleSearch(
   const probeOk = useRef(new Map<string, boolean>());
   const [reasonFit, setReasonFit] = useState(1);
   const reasonNeeds = useRef(new Map<string, number>());
+  const [splitFit, setSplitFit] = useState(1);
+  const splitNeeds = useRef(new Map<string, number>());
   const countRef = useRef(probeCount);
   countRef.current = probeCount;
 
@@ -53,9 +60,15 @@ export function useScaleSearch(
     if (r.fit !== cur.cand) return;
     if (cur.done) {
       reasonNeeds.current.set(id, r.reasonNeed);
-      if (reasonNeeds.current.size < countRef.current) return;
-      const next = Math.min(1, ...reasonNeeds.current.values());
-      setReasonFit((prev) => (Math.abs(prev - next) < 0.0001 ? prev : next));
+      splitNeeds.current.set(id, r.splitNeed);
+      if (reasonNeeds.current.size >= countRef.current) {
+        const next = Math.min(1, ...reasonNeeds.current.values());
+        setReasonFit((prev) => (Math.abs(prev - next) < 0.0001 ? prev : next));
+      }
+      if (splitNeeds.current.size >= countRef.current) {
+        const next = Math.min(1, ...splitNeeds.current.values());
+        setSplitFit((prev) => (Math.abs(prev - next) < 0.0001 ? prev : next));
+      }
       return;
     }
     probeOk.current.set(id, !Number.isFinite(r.need));
@@ -71,9 +84,10 @@ export function useScaleSearch(
   useLayoutEffect(() => {
     probeOk.current.clear();
     reasonNeeds.current.clear();
+    splitNeeds.current.clear();
     searchRef.current = SEARCH_START;
     setSearch(SEARCH_START);
   }, [scaleKey]);
 
-  return { fit, reasonFit, cand: search.cand, done: search.done, report };
+  return { fit, reasonFit, splitFit, cand: search.cand, done: search.done, report };
 }

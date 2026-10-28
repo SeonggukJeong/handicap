@@ -39,6 +39,8 @@ export type PanelMeasure = {
   widthNeed: number;
   /** Extra scale at which every reason-probe line fits (Infinity = all fit). */
   reasonNeed: number;
+  /** Extra scale at which every split-row probe line fits (Infinity = all fit). */
+  splitNeed: number;
 };
 
 /** Measures `boxRef`/`textRef` after every render (passive) and on resize. */
@@ -75,6 +77,14 @@ function useBoxMeasure(
         reasonNeed = Math.min(reasonNeed, (box / natural) * 0.98);
       }
     });
+    let splitNeed = Infinity;
+    boxEl.querySelectorAll<HTMLElement>("[data-split-probe]").forEach((el) => {
+      const box = el.clientWidth;
+      const natural = el.scrollWidth;
+      if (box > 0 && natural > box + 0.5) {
+        splitNeed = Math.min(splitNeed, (box / natural) * 0.98);
+      }
+    });
     onMeasureRef.current({
       w: r.width,
       h: r.height,
@@ -82,6 +92,7 @@ function useBoxMeasure(
       fit: fitRef.current,
       widthNeed,
       reasonNeed,
+      splitNeed,
     });
   }, [boxRef, textRef]);
 
@@ -182,6 +193,15 @@ function BigValueLine({
   );
 }
 
+/** Half-and-half row of an item panel (spec §6.1, mockup 02 board 1). */
+const SPLIT_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
+  columnGap: "3cqw",
+};
+/** Split row big lines (left first value, right latency): the BigValueLine box. */
+const SPLIT_BIG_STYLE: React.CSSProperties = { lineHeight: 1.18, letterSpacing: "-0.02em" };
+
 /**
  * `평균 N 최대 M` line. Shared by the real line and the size probes so bold
  * digits and the 3cqw gap measure the same. A probe (`probe` set) is
@@ -233,6 +253,10 @@ export function StatsLine({
  * longest state label that can appear while checking runs (`⚠ 설정 오류`,
  * wrapped below the title when it doesn't fit beside it) and a one-line value
  * at the widest the panel can show (its timeout in ms); that sets `--fit`.
+ * A panel with display items holds the half-and-half row instead (spec §6.2):
+ * left, transparent placeholder lines (height only); right, the timeout ms and
+ * the worst avg/max line as `data-split-probe` lines, which set the split row's
+ * own `--split-fit` and never the board-wide `--fit` (D2.17).
  * Below it, the widest fixed reasons at reason size set the reason line's own
  * `--reason-fit` (R18). Live lines (reason, step name, consecutive fails, the
  * stopped-only `점검 꺼짐` label) never reach it, so neither scale moves during
@@ -269,6 +293,8 @@ export const PanelProbe = memo(function PanelProbe({
   const textRef = useRef<HTMLDivElement>(null);
   const id = reportId ?? panel.id;
   useBoxMeasure(boxRef, textRef, fit, (m) => onMeasure(id, m));
+  const itemCount = Math.min(panel.display_items.length, 2);
+  const worstMs = panel.timeout_seconds * 1000;
   return (
     <div
       ref={boxRef}
@@ -291,20 +317,68 @@ export const PanelProbe = memo(function PanelProbe({
             fontScale={fontScale}
             heading={false}
           />
-          <BigValueLine
-            text={formatMs(panel.timeout_seconds * 1000)}
-            color="transparent"
-            fontScale={fontScale}
-          />
-          {showStats && (
-            <StatsLine
-              avg={panel.timeout_seconds * 1000}
-              max={panel.timeout_seconds * 1000}
-              fontSize={panelFont(PANEL_TEXT.stats, fontScale)}
-              labelColor="transparent"
-              numColor="transparent"
-              probe="fit"
-            />
+          {itemCount > 0 ? (
+            <div data-testid="probe-split" style={SPLIT_GRID}>
+              <div data-testid="probe-split-left" className="min-w-0">
+                <div
+                  className="font-black"
+                  style={{
+                    ...SPLIT_BIG_STYLE,
+                    fontSize: panelFont(PANEL_TEXT.splitBig, fontScale),
+                    color: "transparent",
+                  }}
+                >
+                  {"\u00a0"}
+                </div>
+                {itemCount > 1 && (
+                  <div
+                    style={{
+                      fontSize: panelFont(PANEL_TEXT.step, fontScale),
+                      color: "transparent",
+                    }}
+                  >
+                    {"\u00a0"}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div
+                  data-split-probe=""
+                  className="overflow-hidden whitespace-nowrap text-right font-black"
+                  style={{
+                    ...SPLIT_BIG_STYLE,
+                    fontSize: panelFont(PANEL_TEXT.splitBig, fontScale),
+                    color: "transparent",
+                  }}
+                >
+                  {formatMs(worstMs)}
+                </div>
+                {showStats && (
+                  <StatsLine
+                    avg={worstMs}
+                    max={worstMs}
+                    fontSize={panelFont(PANEL_TEXT.stats, fontScale)}
+                    labelColor="transparent"
+                    numColor="transparent"
+                    probe="split"
+                  />
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <BigValueLine text={formatMs(worstMs)} color="transparent" fontScale={fontScale} />
+              {showStats && (
+                <StatsLine
+                  avg={worstMs}
+                  max={worstMs}
+                  fontSize={panelFont(PANEL_TEXT.stats, fontScale)}
+                  labelColor="transparent"
+                  numColor="transparent"
+                  probe="fit"
+                />
+              )}
+            </>
           )}
         </div>
         {WIDEST_REASON_CANDIDATES.map((r) => (
@@ -357,6 +431,7 @@ export function MonitorPanel({
   showInterval = false,
   fit = 1,
   reasonFit = 1,
+  splitFit = 1,
   displayStyle = "border",
   showStats = false,
 }: {
@@ -370,6 +445,8 @@ export function MonitorPanel({
   fit?: number;
   /** Board-wide extra scale for the reason line only (R18). */
   reasonFit?: number;
+  /** Board-wide extra scale for item panels' split row only (spec §6.2, D2.17). */
+  splitFit?: number;
   /** Board display style; `focus` renders like `border` here (C layout is the board's). */
   displayStyle?: DisplayStyle;
   /** Board setting `show_latency_stats`: draw `평균 N 최대 M` under the big value. */
@@ -410,6 +487,23 @@ export function MonitorPanel({
       ? latencyStats(results)
       : null;
 
+  // Display-only values (spec §6.1): the latest result's, for the items set now;
+  // a missing index (settings changed since that check), null or "" -> null.
+  const itemCount = Math.min(panel.display_items.length, 2);
+  const display = latest?.display ?? [];
+  const valueAt = (i: number): string | null => {
+    const v = display[i];
+    return v === undefined || v === null || v === "" ? null : v;
+  };
+  const shownAt = (i: number) => valueAt(i) ?? ko.monitor.noValue;
+  const split = itemCount > 0 && (state === "ok" || state === "slow");
+  // Fail: one line under the consecutive line, omitted when nothing is drawable.
+  const displayLine =
+    itemCount > 0 &&
+    state === "fail" &&
+    Array.from({ length: itemCount }, (_, i) => valueAt(i)).some((v) => v !== null);
+  const splitFont = (ratio: number) => `calc(${panelFont(ratio, fontScale)} * var(--split-fit, 1))`;
+
   const graph = useGraphShown(panelRef, textRef, fit, fontScale, fillBg !== null);
 
   return (
@@ -429,6 +523,7 @@ export function MonitorPanel({
           {
             ...BOX_STYLE(fit, fillBg ?? borderColor),
             "--reason-fit": String(+reasonFit.toFixed(4)),
+            "--split-fit": String(+splitFit.toFixed(4)),
             background: fillBg ?? COLOR.panel,
           } as React.CSSProperties
         }
@@ -482,6 +577,50 @@ export function MonitorPanel({
                 </div>
               )}
             </>
+          ) : split ? (
+            <div data-testid="split-row" style={SPLIT_GRID}>
+              <div data-testid="split-left" className="min-w-0">
+                <div
+                  className="truncate text-left font-black"
+                  style={{
+                    ...SPLIT_BIG_STYLE,
+                    fontSize: splitFont(PANEL_TEXT.splitBig),
+                    color: ink ?? COLOR.text,
+                  }}
+                >
+                  {shownAt(0)}
+                </div>
+                {itemCount > 1 && (
+                  <div
+                    className="truncate text-left"
+                    style={{ fontSize: splitFont(PANEL_TEXT.step), color: ink ?? COLOR.soft }}
+                  >
+                    {shownAt(1)}
+                  </div>
+                )}
+              </div>
+              <div data-testid="split-right" className="min-w-0">
+                <div
+                  className="truncate text-right font-black"
+                  style={{
+                    ...SPLIT_BIG_STYLE,
+                    fontSize: splitFont(PANEL_TEXT.splitBig),
+                    color: bigColor,
+                  }}
+                >
+                  {bigText}
+                </div>
+                {stats && (
+                  <StatsLine
+                    avg={stats.avg}
+                    max={stats.max}
+                    fontSize={splitFont(PANEL_TEXT.stats)}
+                    labelColor={ink ?? COLOR.muted}
+                    numColor={ink ?? COLOR.text}
+                  />
+                )}
+              </div>
+            </div>
           ) : (
             <BigValueLine text={bigText} color={bigColor} fontScale={fontScale} />
           )}
@@ -497,7 +636,26 @@ export function MonitorPanel({
               {consecutive}
             </div>
           )}
-          {stats && (
+          {displayLine && (
+            <div
+              data-testid="display-line"
+              className="truncate text-left"
+              style={{
+                fontSize: panelFont(PANEL_TEXT.step, fontScale),
+                color: ink ?? COLOR.soft,
+                marginTop: "0.6cqw",
+              }}
+            >
+              <b style={{ color: ink ?? COLOR.text }}>{shownAt(0)}</b>
+              {itemCount > 1 && (
+                <>
+                  {" "}
+                  <span style={{ color: ink ?? COLOR.soft }}>{shownAt(1)}</span>
+                </>
+              )}
+            </div>
+          )}
+          {stats && !split && (
             <StatsLine
               avg={stats.avg}
               max={stats.max}

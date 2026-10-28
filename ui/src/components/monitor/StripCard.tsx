@@ -77,6 +77,7 @@ export const StripCardProbe = memo(function StripCardProbe({
         lineScrollW: status.scrollWidth,
       }),
       reasonNeed: Infinity,
+      splitNeed: Infinity,
     });
   }, [reportId]);
 

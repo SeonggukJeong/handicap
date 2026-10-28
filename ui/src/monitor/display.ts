@@ -22,6 +22,8 @@ export const PANEL_TEXT = {
   title: 10.7,
   state: 10.7,
   big: 18.6,
+  /** Split row (item panels): left first value and right latency (D2.6 ≈ 60% of big). */
+  splitBig: 11.2,
   reason: 11.2,
   /** Step-name part of a fail reason (after the first " · "), below the reason. */
   step: 6.4,
@@ -207,6 +209,8 @@ export const COLOR = {
   panel: "#111a23",
   text: "#f2f5f8",
   muted: "#9aa7b4",
+  /** Second display value and a failing panel's display values after the first. */
+  soft: "#cbd5e1",
   axis: "#7b8794",
   ok: "#22c55e",
   fail: "#ef4444",
