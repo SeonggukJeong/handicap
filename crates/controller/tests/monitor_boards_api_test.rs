@@ -664,3 +664,130 @@ async fn latency_stats_unknown_board_404() {
     // 라우트 부재의 맨 404(본문 없음)와 구별 — 핸들러의 NotFound 본문.
     assert_eq!(r["error"], "not found");
 }
+
+// ---- 점검 기록 조회 (spec §2.4) ----
+
+/// `create_scenario`의 요청 헤더 변형 — 헤더 이름 대소문자는 엔진이 그대로 보존한다.
+async fn create_scenario_with_headers(
+    app: &axum::Router,
+    url: &str,
+    headers: &[(&str, &str)],
+) -> String {
+    let mut hs = String::from("      headers:\n");
+    for (k, v) in headers {
+        hs.push_str(&format!("        {k}: \"{v}\"\n"));
+    }
+    let yaml = format!(
+        "version: 1\nname: mon-{}\nsteps:\n  - id: {STEP_ID}\n    name: ping\n    type: http\n    request:\n      method: GET\n      url: {url}\n{hs}    assert:\n      - status: 200\n",
+        ulid::Ulid::new()
+    );
+    let (st, v) = send(
+        app,
+        Method::POST,
+        "/api/scenarios",
+        Some(json!({"yaml": yaml})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+fn record_url(id: &str, panel_id: &str, at_ms: i64) -> String {
+    url(id, &format!("/panels/{panel_id}/records/{at_ms}"))
+}
+
+/// 보드를 시작하고 첫 결과의 (칸 id, at_ms)를 돌려준다.
+async fn start_and_first_at(app: &axum::Router, id: &str) -> (String, i64) {
+    let (s, _) = send(app, Method::POST, &url(id, "/start"), None).await;
+    assert_eq!(s, StatusCode::OK);
+    let st = wait_results(app, id, 1).await;
+    let pid = st["panels"][0]["panel_id"].as_str().unwrap().to_string();
+    let at = st["panels"][0]["results"][0]["at_ms"].as_i64().unwrap();
+    (pid, at)
+}
+
+/// 핸들러의 NotFound(본문 `{"error":"not found"}`) — 라우트 부재의 맨 404와 구별.
+async fn assert_record_404(app: &axum::Router, uri: &str) {
+    let (s, r) = send(app, Method::GET, uri, None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{uri}");
+    assert_eq!(r["error"], "not found", "{uri}");
+}
+
+#[tokio::test]
+async fn record_endpoint_returns_masked_record() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, monitor) = make_app(db);
+    let srv = json_mock(r#"{"ok":true}"#).await;
+    let sid =
+        create_scenario_with_headers(&app, &srv.uri(), &[("Authorization", "Bearer s3cret")]).await;
+    let b = new_board(&app, "b", &sid, 60).await;
+    let id = b["id"].as_str().unwrap();
+    let (pid, at) = start_and_first_at(&app, id).await;
+
+    let req = Request::builder()
+        .uri(record_url(id, &pid, at))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()["content-type"].to_str().unwrap(),
+        "application/json"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rec: Value = serde_json::from_slice(&bytes).unwrap();
+    let step = &rec["trace"]["steps"][0];
+    assert_eq!(step["request"]["headers"]["Authorization"], "Bearer ••••");
+    assert_eq!(step["response"]["body"], "{\"ok\":true}");
+    assert_eq!(rec["clipped"], json!([]));
+    assert_eq!(rec["limit_kb"], 128);
+    assert_eq!(rec["at_ms"], at);
+    assert_eq!(rec["result"]["at_ms"], at);
+    assert_eq!(rec["result"]["verdict"], "ok");
+    assert!(!String::from_utf8_lossy(&bytes).contains("s3cret"));
+    monitor.stop_all().await;
+}
+
+#[tokio::test]
+async fn record_endpoint_404s() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "b", &sid, 60).await;
+    let id = b["id"].as_str().unwrap();
+    let (pid, at) = start_and_first_at(&app, id).await;
+
+    let (s, _) = send(&app, Method::GET, &record_url(id, &pid, at), None).await;
+    assert_eq!(s, StatusCode::OK, "sanity: the record exists");
+    // 없는 at_ms · 없는 칸 · 없는 보드
+    assert_record_404(&app, &record_url(id, &pid, at - 1)).await;
+    assert_record_404(&app, &record_url(id, "nope", at)).await;
+    assert_record_404(&app, &record_url("01J000000000000000000000ZZ", &pid, at)).await;
+    // 꺼진 보드
+    let (s, _) = send(&app, Method::POST, &url(id, "/stop"), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_record_404(&app, &record_url(id, &pid, at)).await;
+}
+
+#[tokio::test]
+async fn record_uses_board_limit() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, monitor) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let mut body = board_body("b", &sid, 60);
+    body["config"]["record_limit_kb"] = json!(512);
+    let (st, b) = send(&app, Method::POST, "/api/monitor-boards", Some(body)).await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert_eq!(b["config"]["record_limit_kb"], 512);
+    let id = b["id"].as_str().unwrap();
+    let (pid, at) = start_and_first_at(&app, id).await;
+
+    let (s, rec) = send(&app, Method::GET, &record_url(id, &pid, at), None).await;
+    assert_eq!(s, StatusCode::OK, "{rec}");
+    assert_eq!(rec["limit_kb"], 512);
+    monitor.stop_all().await;
+}

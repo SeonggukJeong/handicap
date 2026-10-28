@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::check::{CheckResult, Verdict, run_check};
 use super::config::PanelConfig;
+use super::record::{CheckRecord, build_record};
 use crate::store::{self, Db};
 
 /// 칸별 링버퍼 최대 길이.
@@ -36,9 +37,13 @@ pub const MAX_CONCURRENT_CHECKS: usize = 32;
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
 /// 칸 하나의 점검 결과 버퍼. `std::sync::Mutex`로 감싸 보관하고 `.await` 넘어 잡지 않는다.
+///
+/// `records`는 `results`와 별도(최대 그 칸의 `bar_count`) — `snapshot()`(매 1초 `/status`)이
+/// 기록을 복제하지 않게. 기록은 수 MB일 수 있어 `Arc`로 들고 조회 시 `Arc`만 복제한다.
 #[derive(Debug, Default)]
 pub struct PanelBuf {
     results: VecDeque<CheckResult>,
+    records: VecDeque<Arc<CheckRecord>>,
     running: bool,
 }
 
@@ -85,15 +90,27 @@ impl<'a> RunningGuard<'a> {
         Self { buf }
     }
 
-    /// 결과 기록과 `running` 해제를 한 번의 락 안에서.
-    fn finish(self, result: CheckResult) {
+    /// 결과·기록 추가와 `running` 해제를 한 번의 락 안에서.
+    ///
+    /// 기록은 `bar_count`까지 **`while`**로 줄인다 — 막대 개수를 줄여 저장하면 다음 점검 한 번에
+    /// 줄어야 한다. 버린 기록(수백 MB일 수 있음)은 락을 푼 **뒤** drop한다 — `snapshot()`이
+    /// 같은 락을 잡으므로 해제 비용을 그 안에서 치르지 않게.
+    fn finish(self, result: CheckResult, record: Arc<CheckRecord>, bar_count: usize) {
+        let mut evicted = Vec::new();
         let mut b = lock(self.buf);
         if b.results.len() >= BUFFER_CAP {
             b.results.pop_front();
         }
         b.results.push_back(result);
+        b.records.push_back(record);
+        while b.records.len() > bar_count {
+            if let Some(old) = b.records.pop_front() {
+                evicted.push(old);
+            }
+        }
         b.running = false;
         drop(b);
+        drop(evicted);
         std::mem::forget(self);
     }
 }
@@ -110,25 +127,26 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// 점검 루프 코어 — 시작-시작 간격, 첫 점검 즉시, 겹침 없음(점검이 길면 끝나자마자 다음).
-/// 취소되면 진행 중 점검도 drop한다(결과 미기록).
+/// 취소되면 진행 중 점검도 drop한다(결과·기록 미기록). 기록은 최근 `bar_count`개만 보관.
 pub(crate) async fn panel_loop<F, Fut>(
     interval: Duration,
+    bar_count: usize,
     check: F,
     buf: SharedBuf,
     token: CancellationToken,
 ) where
     F: Fn() -> Fut,
-    Fut: Future<Output = CheckResult>,
+    Fut: Future<Output = (CheckResult, Arc<CheckRecord>)>,
 {
     loop {
         let started = tokio::time::Instant::now();
         let guard = RunningGuard::start(&buf);
-        let result = tokio::select! {
+        let (result, record) = tokio::select! {
             biased;
             _ = token.cancelled() => return,
             r = check() => r,
         };
-        guard.finish(result);
+        guard.finish(result, record, bar_count);
         tokio::select! {
             biased;
             _ = token.cancelled() => return,
@@ -293,6 +311,7 @@ impl MonitorSupervisor {
             handles.push(spawn_panel(
                 db.clone(),
                 panel,
+                row.config.record_limit_kb,
                 buf,
                 token.clone(),
                 slot.live.clone(),
@@ -332,6 +351,23 @@ impl MonitorSupervisor {
         })
     }
 
+    /// 켜진 보드의 칸 기록 하나(`at_ms` = 그 점검의 `CheckResult.at_ms`). 꺼진/없는 보드·칸·
+    /// 이미 밀려난 기록은 `None`. **`existing_slot`만** — 미지의 id로 슬롯을 만들지 않는다
+    /// (슬롯은 지우지 않으므로 메모리 무한 증가).
+    pub async fn record(
+        &self,
+        board_id: &str,
+        panel_id: &str,
+        at_ms: i64,
+    ) -> Option<Arc<CheckRecord>> {
+        let slot = self.existing_slot(board_id)?;
+        let view = lock(&slot.view);
+        let buf = view.as_ref()?.bufs.get(panel_id)?.clone();
+        drop(view);
+        let b = lock(&buf);
+        b.records.iter().rev().find(|r| r.at_ms == at_ms).cloned()
+    }
+
     /// 데스크톱 종료용 — 루트 취소 + 모든 보드 task 완료 대기(abort 백스톱).
     pub async fn stop_all(&self) {
         self.inner.root.cancel();
@@ -355,20 +391,26 @@ impl MonitorSupervisor {
 fn spawn_panel(
     db: Db,
     panel: PanelConfig,
+    record_limit_kb: u32,
     buf: SharedBuf,
     token: CancellationToken,
     live: Arc<AtomicUsize>,
     checks: Arc<tokio::sync::Semaphore>,
 ) -> JoinHandle<()> {
     let interval = Duration::from_secs(u64::from(panel.interval_seconds.max(1)));
+    let bar_count = panel.bar_count as usize;
     tokio::spawn(async move {
         let _live = LiveGuard::enter(&live);
         let check = || {
             let (db, panel, checks) = (db.clone(), panel.clone(), checks.clone());
             // `at_ms`는 run_check 안에서 찍히므로 허가를 얻은 뒤의 실제 시작 시각이다.
-            with_permit(checks, async move { run_check(&db, &panel).await.1 })
+            with_permit(checks, async move {
+                let (trace, result) = run_check(&db, &panel).await;
+                let rec = Arc::new(build_record(&result, trace, record_limit_kb));
+                (result, rec)
+            })
         };
-        panel_loop(interval, check, buf, token).await;
+        panel_loop(interval, bar_count, check, buf, token).await;
     })
 }
 
@@ -407,6 +449,85 @@ mod tests {
         buf.lock().unwrap().results.iter().cloned().collect()
     }
 
+    /// 가짜 점검이 내는 (결과, 기록) 쌍 — 실제 `spawn_panel` 클로저와 같은 모양.
+    fn pair(r: CheckResult) -> (CheckResult, Arc<CheckRecord>) {
+        let rec = Arc::new(build_record(&r, None, 128));
+        (r, rec)
+    }
+
+    fn buf_record_ats(buf: &SharedBuf) -> Vec<i64> {
+        buf.lock()
+            .unwrap()
+            .records
+            .iter()
+            .map(|r| r.at_ms)
+            .collect()
+    }
+
+    // ---- 기록 보관 (spec §3.1) ----
+
+    #[test]
+    fn records_trim_to_bar_count_at_once() {
+        let buf = new_buf();
+        for k in 1..=5 {
+            let (r, rec) = pair(res(k, Verdict::Ok));
+            RunningGuard::start(&buf).finish(r, rec, 5);
+        }
+        assert_eq!(buf_record_ats(&buf), vec![1, 2, 3, 4, 5]);
+        // 막대 개수를 줄여 저장한 뒤의 첫 점검 — 한 번에 bar_count까지 줄어야 한다.
+        let (r, rec) = pair(res(6, Verdict::Ok));
+        RunningGuard::start(&buf).finish(r, rec, 2);
+        assert_eq!(buf_record_ats(&buf), vec![5, 6]);
+        // 결과 버퍼는 기록 상한과 무관(BUFFER_CAP)하게 그대로 쌓인다.
+        assert_eq!(buf_results(&buf).len(), 6);
+        assert!(!buf.lock().unwrap().running);
+    }
+
+    #[tokio::test]
+    async fn record_lookup_hit_and_miss() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let id = enabled_board(&db, "b", &[P1]).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        let snap = wait_results(&sup, &id, &[P1]).await;
+        let first = snap.panels[P1].results[0].clone();
+
+        let rec = sup.record(&id, P1, first.at_ms).await.expect("hit");
+        assert_eq!(rec.at_ms, first.at_ms);
+        assert_eq!(rec.result, first);
+        assert_eq!(rec.limit_kb, 128);
+        // 설정 오류(시나리오 없음)는 요청 전에 멈춰 trace가 없다.
+        assert!(rec.trace.is_none());
+
+        assert!(sup.record(&id, P1, first.at_ms - 1).await.is_none());
+        assert!(sup.record(&id, P2, first.at_ms).await.is_none());
+        sup.stop_all().await;
+    }
+
+    #[tokio::test]
+    async fn record_on_unknown_board_creates_no_slot() {
+        let sup = MonitorSupervisor::default();
+        let before = lock(&sup.inner.boards).len();
+        assert!(sup.record("nope", P1, 1).await.is_none());
+        assert_eq!(lock(&sup.inner.boards).len(), before);
+        assert!(!lock(&sup.inner.boards).contains_key("nope"));
+    }
+
+    #[tokio::test]
+    async fn record_none_after_board_disabled() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let id = enabled_board(&db, "b", &[P1]).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        let snap = wait_results(&sup, &id, &[P1]).await;
+        let at = snap.panels[P1].results[0].at_ms;
+        assert!(sup.record(&id, P1, at).await.is_some());
+
+        monitor_boards::set_enabled(&db, &id, false).await.unwrap();
+        sup.reconcile(&db, &id).await.unwrap();
+        assert!(sup.record(&id, P1, at).await.is_none());
+    }
+
     type Starts = Arc<std::sync::Mutex<Vec<Duration>>>;
 
     // ---- panel_loop (paused time, fake check, no SQLite) ----
@@ -421,12 +542,13 @@ mod tests {
             async move {
                 s.lock().unwrap().push(t0.elapsed());
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                res(0, Verdict::Ok)
+                pair(res(0, Verdict::Ok))
             }
         };
         let token = CancellationToken::new();
         let h = tokio::spawn(panel_loop(
             Duration::from_secs(10),
+            BUFFER_CAP,
             check,
             new_buf(),
             token.clone(),
@@ -460,12 +582,13 @@ mod tests {
                 m.fetch_max(now, Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 a.fetch_sub(1, Ordering::SeqCst);
-                res(0, Verdict::Ok)
+                pair(res(0, Verdict::Ok))
             }
         };
         let token = CancellationToken::new();
         let h = tokio::spawn(panel_loop(
             Duration::from_secs(2),
+            BUFFER_CAP,
             check,
             new_buf(),
             token.clone(),
@@ -492,13 +615,14 @@ mod tests {
             let n = n2.clone();
             async move {
                 let k = n.fetch_add(1, Ordering::SeqCst) + 1;
-                res(k as i64, Verdict::Ok)
+                pair(res(k as i64, Verdict::Ok))
             }
         };
         let buf = new_buf();
         let token = CancellationToken::new();
         let h = tokio::spawn(panel_loop(
             Duration::from_secs(1),
+            BUFFER_CAP,
             check,
             buf.clone(),
             token.clone(),
@@ -524,12 +648,13 @@ mod tests {
             let n = n2.clone();
             async move {
                 n.fetch_add(1, Ordering::SeqCst);
-                res(0, Verdict::Ok)
+                pair(res(0, Verdict::Ok))
             }
         };
         let token = CancellationToken::new();
         let h = tokio::spawn(panel_loop(
             Duration::from_secs(1),
+            BUFFER_CAP,
             check,
             new_buf(),
             token.clone(),
@@ -551,13 +676,14 @@ mod tests {
             async move {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 f.fetch_add(1, Ordering::SeqCst);
-                res(0, Verdict::Ok)
+                pair(res(0, Verdict::Ok))
             }
         };
         let buf = new_buf();
         let token = CancellationToken::new();
         let h = tokio::spawn(panel_loop(
             Duration::from_secs(1),
+            BUFFER_CAP,
             slow,
             buf.clone(),
             token.clone(),
@@ -591,11 +717,12 @@ mod tests {
                     m.fetch_max(now, Ordering::SeqCst);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     a.fetch_sub(1, Ordering::SeqCst);
-                    res(0, Verdict::Ok)
+                    pair(res(0, Verdict::Ok))
                 })
             };
             handles.push(tokio::spawn(panel_loop(
                 Duration::from_secs(1),
+                BUFFER_CAP,
                 check,
                 buf.clone(),
                 token.clone(),

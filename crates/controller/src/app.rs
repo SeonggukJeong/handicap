@@ -138,6 +138,10 @@ pub fn router(state: AppState) -> Router {
             get(monitor_boards_api::status),
         )
         .route(
+            "/monitor-boards/{id}/panels/{panel_id}/records/{at_ms}",
+            get(monitor_boards_api::record),
+        )
+        .route(
             "/schedules",
             post(schedules_api::create).get(schedules_api::list),
         )

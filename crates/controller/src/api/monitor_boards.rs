@@ -6,10 +6,13 @@
 //! (칸 목록·점검 설정 필드엔 이 경로 금지 — 감독자와 DB가 어긋난다).
 //! 없는 id는 reconcile 전에 404 — reconcile은 id마다 슬롯을 만들고 지우지 않으므로
 //! 미지의 id로 부르면 메모리가 무한히 자란다.
+//! `GET /{id}/panels/{panel_id}/records/{at_ms}` — 점검 기록(요청·응답, 가림·상한 적용본)
+//! 조회. 감독자 메모리만 읽고(`existing_slot` 전용 — 슬롯 생성 없음) 없으면 구분 없이 404.
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
@@ -244,6 +247,24 @@ pub async fn status(
         started_at_ms: snap.as_ref().map(|s| s.started_at_ms),
         panels,
     }))
+}
+
+/// 점검 기록 하나 — 보드 없음/꺼짐·칸 없음·기록 없음은 모두 404(구분 없음).
+///
+/// 워크스페이스 serde에 `rc` feature가 없어 `Json(Arc<_>)`는 안 되므로 `&*rec`를 직접
+/// 직렬화한다(수 MB 기록을 복제하지 않기 위해).
+pub async fn record(
+    State(state): State<AppState>,
+    Path((id, panel_id, at_ms)): Path<(String, String, i64)>,
+) -> Result<Response, ApiError> {
+    let rec = state
+        .monitor
+        .record(&id, &panel_id, at_ms)
+        .await
+        .ok_or(ApiError::NotFound)?;
+    let bytes = serde_json::to_vec(&*rec)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("record serialization failed: {e}")))?;
+    Ok(([(header::CONTENT_TYPE, "application/json")], bytes).into_response())
 }
 
 pub async fn preview_check(
