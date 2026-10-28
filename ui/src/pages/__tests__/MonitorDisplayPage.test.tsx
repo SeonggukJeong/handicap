@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MonitorDisplayPage } from "../MonitorDisplayPage";
 import { ko } from "../../i18n/ko";
-import { MIN_FIT, nextSearch } from "../../monitor/display";
+import { MIN_FIT, nextSearch, PANEL_TEXT, panelFont } from "../../monitor/display";
 import { focusGeometries } from "../../monitor/logic";
 
 const BID = "B1";
@@ -1665,6 +1665,18 @@ describe("MonitorDisplayPage display items", () => {
     });
     // no live value reaches the probe
     expect(within(text).queryByText("0000")).toBeNull();
+  });
+
+  it("item_panel_probe_reserves_big_line_height", async () => {
+    // stale/pending/config_error draw the full-width big line in an item panel;
+    // the probe must reserve its box height (width stays out of data-fit-line).
+    setup([ITEM1, ITEM2], [okWith(132, ["0000", "정상"])]);
+    await renderPage();
+    const text = screen.getByTestId("probe-text");
+    const split = within(text).getByTestId("probe-split");
+    expect(split.style.minHeight).toContain("* 1.18");
+    expect(split.style.minHeight).toContain(panelFont(PANEL_TEXT.big, 1));
+    expect(text.querySelectorAll("[data-fit-line]")).toHaveLength(0);
   });
 
   it("split_stats_gap_shrinks_with_split_fit", async () => {

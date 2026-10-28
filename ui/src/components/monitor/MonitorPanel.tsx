@@ -323,7 +323,16 @@ export const PanelProbe = memo(function PanelProbe({
             heading={false}
           />
           {itemCount > 0 ? (
-            <div data-testid="probe-split" style={SPLIT_GRID}>
+            <div
+              data-testid="probe-split"
+              // stale/pending/config_error draw the full-width big line in an
+              // item panel; reserve its box height (height only — widths stay
+              // out of [data-fit-line], D2.17).
+              style={{
+                ...SPLIT_GRID,
+                minHeight: `calc(${panelFont(PANEL_TEXT.big, fontScale)} * 1.18)`,
+              }}
+            >
               <div data-testid="probe-split-left" className="min-w-0">
                 <div
                   className="font-black"
