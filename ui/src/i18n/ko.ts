@@ -1790,6 +1790,7 @@ export const ko = {
     summaryDisplays: (n: number) => `표시 ${n}`,
     navTitle: "칸 목록",
     navJumpActions: "저장 · 모니터 시작 ↓",
+    navPanelError: "오류 있음",
     panelTitle: "제목",
     scenario: "시나리오",
     scenarioRequired: "시나리오를 선택하세요",

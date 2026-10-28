@@ -42,9 +42,12 @@ export function PanelNav({
                   {p.title.trim() || ko.monitor.noTitle}
                 </span>
                 {err && (
-                  <span className="shrink-0 text-red-700" aria-hidden="true">
-                    ⚠
-                  </span>
+                  <>
+                    <span className="shrink-0 text-red-700" aria-hidden="true">
+                      ⚠
+                    </span>
+                    <span className="sr-only"> {ko.monitor.navPanelError}</span>
+                  </>
                 )}
               </button>
             </li>

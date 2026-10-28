@@ -1476,6 +1476,25 @@ describe("MonitorEditPage panel nav", () => {
     expect(scroll.mock.contexts[0]).toBe(document.getElementById(`panel-${P3}`));
   });
 
+  it("nav_jump_on_already_expanded_panel_still_scrolls_and_focuses", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    handlers["GET /api/monitor-boards/B1"] = () => json(threePanels());
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    await user.click(toggleOf(3));
+    expect(toggleOf(3)).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggleOf(1)); // move focus elsewhere
+    expect(toggleOf(3)).not.toHaveFocus();
+    scroll.mockClear();
+    await user.click(screen.getByRole("button", { name: "3 셋" }));
+    expect(toggleOf(3)).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(toggleOf(3)).toHaveFocus());
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(document.getElementById(`panel-${P3}`));
+  });
+
   it("nav_jump_actions_scrolls_to_buttons", async () => {
     const user = userEvent.setup();
     const scroll = vi.fn();

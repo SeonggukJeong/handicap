@@ -27,6 +27,12 @@ describe("PanelNav", () => {
     const second = screen.getByRole("button", { name: /^2 \(제목 없음\)/ });
     expect(second).toHaveTextContent("⚠");
     expect(screen.getByRole("button", { name: "3 셋" })).not.toHaveTextContent("⚠");
+    // textContent includes aria-hidden nodes, so assert the accessible name too.
+    expect(second).toHaveAccessibleName(new RegExp(ko.monitor.navPanelError));
+    expect(screen.getByRole("button", { name: "3 셋" })).toHaveAccessibleName("3 셋");
+    expect(screen.getByRole("button", { name: "1 제목" })).not.toHaveAccessibleName(
+      new RegExp(ko.monitor.navPanelError),
+    );
   });
 
   it("marks expanded panels with aria-current", () => {
