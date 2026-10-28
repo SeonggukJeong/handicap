@@ -177,7 +177,7 @@ export type ReasonParts =
   | { kind: "detail"; big: string; small: string }
   | { kind: "not_contained"; needle: string; small: string };
 
-const NOT_CONTAINED_HEAD = "본문 전체 · 포함 ";
+const NOT_CONTAINED_HEAD = "본문 전체 글자 포함 ";
 const NOT_CONTAINED_TAIL = '" 포함 안 됨';
 
 /**

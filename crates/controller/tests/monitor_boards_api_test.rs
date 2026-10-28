@@ -442,7 +442,7 @@ async fn preview_check_condition_fail_reports_value_and_detail() {
     assert_eq!(st, StatusCode::OK, "{v}");
     assert_eq!(v["result"]["verdict"], "fail");
     assert_eq!(v["result"]["reason"], "E1023");
-    assert_eq!(v["result"]["detail"], "resultCode · 같음 0000");
+    assert_eq!(v["result"]["detail"], "resultCode = 0000");
 }
 
 #[tokio::test]

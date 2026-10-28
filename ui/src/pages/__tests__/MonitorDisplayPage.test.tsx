@@ -836,18 +836,18 @@ describe("MonitorDisplayPage", () => {
   }
 
   it("condition_fail_shows_value_big_and_detail_small", async () => {
-    failStatus("a · b", "resultCode · 같음 0000 · 로그인");
+    failStatus("a · b", "resultCode = 0000 · 로그인");
     await renderPage();
     const a = panelEl("결제");
     const big = within(a).getByText("a · b");
     expect(big.className).toContain("whitespace-nowrap");
-    const small = within(a).getByText("resultCode · 같음 0000 · 로그인");
+    const small = within(a).getByText("resultCode = 0000 · 로그인");
     expect(small.className).toContain("truncate");
     expect(small).not.toBe(big);
   });
 
   it("not_contained_reason_keeps_tail_span", async () => {
-    failStatus('"OK" 포함 안 됨', "본문 전체 · 포함 OK");
+    failStatus('"OK" 포함 안 됨', "본문 전체 글자 포함 OK");
     await renderPage();
     const row = within(panelEl("결제")).getByTestId("reason-not-contained");
     const needle = within(row).getByText("OK");
@@ -855,16 +855,16 @@ describe("MonitorDisplayPage", () => {
     expect(needle).not.toBe(tail);
     expect(tail.className).toContain("shrink-0");
     expect(needle.className).toContain("truncate");
-    expect(within(panelEl("결제")).getByText("본문 전체 · 포함 OK")).toBeInTheDocument();
+    expect(within(panelEl("결제")).getByText("본문 전체 글자 포함 OK")).toBeInTheDocument();
   });
 
   it("condition_config_error_shows_detail", async () => {
-    failStatus("조건 기준 스텝 없음", "status · 같음 200", "config_error");
+    failStatus("조건 기준 스텝 없음", "status = 200", "config_error");
     await renderPage();
     const a = panelEl("결제");
     expect(within(a).getByText(ko.monitor.stateConfigError)).toBeInTheDocument();
     expect(within(a).getByText("조건 기준 스텝 없음")).toBeInTheDocument();
-    expect(within(a).getByText("status · 같음 200")).toBeInTheDocument();
+    expect(within(a).getByText("status = 200")).toBeInTheDocument();
   });
 
   it("reason_probes_include_condition_fixed_reasons", async () => {

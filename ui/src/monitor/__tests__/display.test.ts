@@ -108,22 +108,23 @@ describe("reasonParts", () => {
     });
   });
   it("reason_parts_detail_never_splits", () => {
-    expect(reasonParts("a · b", "x · 같음 y")).toEqual({
+    expect(reasonParts("a · b", "x = y")).toEqual({
       kind: "detail",
       big: "a · b",
-      small: "x · 같음 y",
+      small: "x = y",
     });
   });
   it("reason_parts_not_contained_three_conditions", () => {
-    expect(reasonParts('"OK" 포함 안 됨', "본문 전체 · 포함 OK")).toEqual({
+    expect(reasonParts('"OK" 포함 안 됨', "본문 전체 글자 포함 OK")).toEqual({
       kind: "not_contained",
       needle: "OK",
-      small: "본문 전체 · 포함 OK",
+      small: "본문 전체 글자 포함 OK",
     });
-    expect(reasonParts("비어 있음", "본문 전체 · 비어 있지 않음").kind).toBe("detail");
-    expect(reasonParts("응답 본문이 너무 큼", "본문 전체 · 포함 OK").kind).toBe("detail");
+    expect(reasonParts("비어 있음", "본문 전체 값 있음").kind).toBe("detail");
+    expect(reasonParts("응답 본문이 너무 큼", "본문 전체 글자 포함 OK").kind).toBe("detail");
     expect(reasonParts('"OK" 포함 안 됨', "본문 · 포함 OK").kind).toBe("detail");
-    expect(reasonParts('"OK', "본문 전체 · 포함 OK").kind).toBe("detail");
+    expect(reasonParts('"OK', "본문 전체 글자 포함 OK").kind).toBe("detail");
+    expect(reasonParts('"OK" 포함 안 됨', "본문 전체 · 포함 OK").kind).toBe("detail");
   });
 });
 

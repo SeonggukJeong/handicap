@@ -182,25 +182,29 @@ fn target_label(c: &Condition) -> String {
 
 fn rule_label(op: ConditionOp) -> &'static str {
     match op {
-        ConditionOp::Exists => "값이 있음",
-        ConditionOp::NotEmpty => "비어 있지 않음",
-        ConditionOp::Eq => "같음",
-        ConditionOp::Ne => "같지 않음",
-        ConditionOp::Contains => "포함",
-        ConditionOp::Gt => "보다 큼",
-        ConditionOp::Lt => "보다 작음",
+        ConditionOp::Exists => "키 있음",
+        ConditionOp::NotEmpty => "값 있음",
+        ConditionOp::Eq => "=",
+        ConditionOp::Ne => "≠",
+        ConditionOp::Contains => "글자 포함",
+        ConditionOp::Gt => ">",
+        ConditionOp::Lt => "<",
         ConditionOp::Gte => "≥",
         ConditionOp::Lte => "≤",
         ConditionOp::OneOf => "∈",
     }
 }
 
-/// `{대상} · {규칙}[ {비교값}][ · {스텝 이름}]` — 정규화 전 원문(호출부가 `shown`).
+/// `{대상} {기호}[ {비교값}][ · {스텝 이름}]` — 정규화 전 원문(호출부가 `shown`).
 fn condition_detail(c: &Condition, step_name: Option<&str>) -> String {
-    let mut s = format!("{} · {}", target_label(c), rule_label(c.op));
+    let mut s = format!("{} {}", target_label(c), rule_label(c.op));
     if c.op.needs_value() {
         s.push(' ');
-        if c.value.is_empty() {
+        if c.op == ConditionOp::OneOf {
+            s.push('{');
+            s.push_str(&one_of_candidates(&c.value).join(", "));
+            s.push('}');
+        } else if c.value.is_empty() {
             s.push_str("\"\"");
         } else {
             s.push_str(&c.value);
@@ -323,7 +327,8 @@ fn op_passes(c: &Condition, text: &str, num: Option<f64>) -> bool {
                     ConditionOp::Gt => a > b,
                     ConditionOp::Lt => a < b,
                     ConditionOp::Gte => a >= b,
-                    _ => a <= b,
+                    ConditionOp::Lte => a <= b,
+                    _ => unreachable!("outer arm limits c.op to Gt/Lt/Gte/Lte"),
                 },
                 _ => false,
             }
@@ -1085,7 +1090,7 @@ steps:
         );
         assert_eq!(r.verdict, Verdict::Fail);
         assert_eq!(r.reason.as_deref(), Some("E1023"));
-        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000"));
+        assert_eq!(r.detail.as_deref(), Some("resultCode = 0000"));
         assert_eq!(r.latency_ms, None);
         let r = judge_c(&one_step(), vec![c], &t_body(r#"{"resultCode":"0000"}"#));
         assert_eq!(r.verdict, Verdict::Ok);
@@ -1097,8 +1102,64 @@ steps:
     fn cond_detail_has_step_name_with_two_steps() {
         let c = cond(A, Src::Body, "$.resultCode", Op::Eq, "0000");
         let r = judge_c(&two_steps(), vec![c], &t_body(r#"{"resultCode":"E1"}"#));
-        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000 · 인증"));
+        assert_eq!(r.detail.as_deref(), Some("resultCode = 0000 · 인증"));
         assert_eq!(r.reason.as_deref(), Some("E1"));
+    }
+
+    #[test]
+    fn detail_symbols_table() {
+        let rows: Vec<(Src, &str, Op, &str, &str)> = vec![
+            (
+                Src::Body,
+                "$.resultCode",
+                Op::Eq,
+                "0000",
+                "resultCode = 0000",
+            ),
+            (
+                Src::Body,
+                "$.resultCode",
+                Op::Ne,
+                "0000",
+                "resultCode ≠ 0000",
+            ),
+            (Src::Body, "$.data.count", Op::Gte, "1", "data.count ≥ 1"),
+            (Src::Body, "$.n", Op::Lte, "9", "n ≤ 9"),
+            (
+                Src::Body,
+                "$.resultCode",
+                Op::OneOf,
+                " 0000,0020 ",
+                "resultCode ∈ {0000, 0020}",
+            ),
+            (
+                Src::BodyText,
+                "",
+                Op::Contains,
+                "OK",
+                "본문 전체 글자 포함 OK",
+            ),
+            (
+                Src::Body,
+                "$.data.token",
+                Op::Exists,
+                "",
+                "data.token 키 있음",
+            ),
+            (
+                Src::Body,
+                "$.data.token",
+                Op::NotEmpty,
+                "",
+                "data.token 값 있음",
+            ),
+            (Src::Status, "", Op::Gt, "300", "상태코드 > 300"),
+            (Src::Status, "", Op::Lt, "300", "상태코드 < 300"),
+            (Src::Body, "$.resultCode", Op::Eq, "", "resultCode = \"\""),
+        ];
+        for (src, path, op, val, want) in rows {
+            assert_eq!(condition_detail(&cond(A, src, path, op, val), None), want);
+        }
     }
 
     #[test]
@@ -1125,6 +1186,7 @@ steps:
             (r#"{"v":4}"#, Op::Gte, "5", Some("4")),
             (r#"{"v":5}"#, Op::Lte, "5", None),
             (r#"{"v":"abc"}"#, Op::Gte, "5", Some("abc")),
+            (r#"{"v":6}"#, Op::Lte, "5", Some("6")),
             (r#"{"v":1}"#, Op::OneOf, "1, 20", None),
             (r#"{"v":20}"#, Op::OneOf, "1, 20", None),
             (r#"{"v":2}"#, Op::OneOf, "1, 20", Some("2")),
@@ -1250,7 +1312,7 @@ steps:
         let c = cond(A, Src::BodyText, "", Op::Contains, "OK");
         let r = judge_c(&one_step(), vec![c], &t_body("fail"));
         assert_eq!(r.reason.as_deref(), Some("\"OK\" 포함 안 됨"));
-        assert_eq!(r.detail.as_deref(), Some("본문 전체 · 포함 OK"));
+        assert_eq!(r.detail.as_deref(), Some("본문 전체 글자 포함 OK"));
         let c = cond(A, Src::BodyText, "", Op::Contains, &"x".repeat(200));
         let r = judge_c(&one_step(), vec![c], &t_body("fail"));
         let reason = r.reason.unwrap();
@@ -1300,7 +1362,7 @@ steps:
         let none = cond(A, Src::Header, "X-None", Op::Exists, "");
         let r = judge_c(&one_step(), vec![none], &t);
         assert_eq!(r.reason.as_deref(), Some("값 없음"));
-        assert_eq!(r.detail.as_deref(), Some("헤더 X-None · 값이 있음"));
+        assert_eq!(r.detail.as_deref(), Some("헤더 X-None 키 있음"));
     }
 
     #[test]
@@ -1314,7 +1376,7 @@ steps:
             &t,
         );
         assert_eq!(r.reason.as_deref(), Some("200"));
-        assert_eq!(r.detail.as_deref(), Some("상태코드 · 보다 큼 300"));
+        assert_eq!(r.detail.as_deref(), Some("상태코드 > 300"));
     }
 
     #[test]
@@ -1338,7 +1400,7 @@ steps:
         let r = judge_c(&two_steps(), vec![c], &t);
         assert_eq!(r.verdict, Verdict::Fail);
         assert_eq!(r.reason.as_deref(), Some("조건 스텝 미실행"));
-        assert_eq!(r.detail.as_deref(), Some("v · 값이 있음 · 조회"));
+        assert_eq!(r.detail.as_deref(), Some("v 키 있음 · 조회"));
     }
 
     #[test]
@@ -1353,7 +1415,7 @@ steps:
             &t,
         );
         assert_eq!(r.reason.as_deref(), Some("1"));
-        assert_eq!(r.detail.as_deref(), Some("a · 같음 x"));
+        assert_eq!(r.detail.as_deref(), Some("a = x"));
     }
 
     #[test]
@@ -1386,7 +1448,7 @@ steps:
         let r = judge_c(&two_steps(), vec![c], &t);
         assert_eq!(r.verdict, Verdict::ConfigError);
         assert_eq!(r.reason.as_deref(), Some("조건 기준 스텝 없음"));
-        assert_eq!(r.detail.as_deref(), Some("resultCode · 같음 0000"));
+        assert_eq!(r.detail.as_deref(), Some("resultCode = 0000"));
     }
 
     #[test]
@@ -1396,13 +1458,13 @@ steps:
             vec![cond(A, Src::Body, "$", Op::NotEmpty, "")],
             &t_body(""),
         );
-        assert_eq!(r.detail.as_deref(), Some("본문 · 비어 있지 않음"));
+        assert_eq!(r.detail.as_deref(), Some("본문 값 있음"));
         let r = judge_c(
             &one_step(),
             vec![cond(A, Src::Body, "$['a b'][0]", Op::Exists, "")],
             &t_body("{}"),
         );
-        assert_eq!(r.detail.as_deref(), Some("['a b'][0] · 값이 있음"));
+        assert_eq!(r.detail.as_deref(), Some("['a b'][0] 키 있음"));
     }
 
     #[test]
