@@ -219,11 +219,14 @@ pub struct BoardConfig {
     pub blink: Blink,
     pub display_style: DisplayStyle,
     pub panels: Vec<PanelConfig>,
+    /// 벽의 평균·최대 줄 표시 여부(표시 전용 — 점검 동작 무관).
+    pub show_latency_stats: bool,
 }
 
 impl Default for BoardConfig {
     fn default() -> Self {
         Self {
+            show_latency_stats: true,
             font_scale: FontScale::Large,
             blink: Blink::Fail,
             display_style: DisplayStyle::Border,
@@ -458,6 +461,8 @@ mod tests {
         assert_eq!(p.environment_id, None);
         assert_eq!(p.id, "");
         assert_eq!(c.display_style, DisplayStyle::Border);
+        assert!(c.show_latency_stats);
+        assert!(BoardConfig::default().show_latency_stats);
         assert!(p.conditions.is_empty());
         assert!(p.display_items.is_empty());
         let cd: Condition = serde_json::from_str(r#"{"step_id":"S"}"#).unwrap();

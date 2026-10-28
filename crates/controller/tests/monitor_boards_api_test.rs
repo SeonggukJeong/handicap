@@ -538,3 +538,111 @@ async fn status_detail_is_serialized_as_null() {
     assert!(r["detail"].is_null());
     send(&app, Method::POST, &url(id, "/stop"), None).await;
 }
+fn ls_url(id: &str) -> String {
+    format!("/api/monitor-boards/{id}/latency-stats")
+}
+
+#[tokio::test]
+async fn latency_stats_toggle_does_not_restart_checks() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "ls", &sid, 1).await;
+    let id = b["id"].as_str().unwrap();
+    assert_eq!(b["config"]["show_latency_stats"], true);
+    let before_updated = b["updated_at"].as_i64().unwrap();
+
+    let (s, _) = send(&app, Method::POST, &url(id, "/start"), None).await;
+    assert_eq!(s, StatusCode::OK);
+    let st = wait_results(&app, id, 1).await;
+    let started = st["started_at_ms"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let (s, r) = send(&app, Method::PUT, &ls_url(id), Some(json!({"show": false}))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["config"]["show_latency_stats"], false);
+    assert!(r["updated_at"].as_i64().unwrap() > before_updated);
+
+    let (_, st) = send(&app, Method::GET, &url(id, "/status"), None).await;
+    assert_eq!(st["started_at_ms"].as_i64().unwrap(), started);
+}
+
+#[tokio::test]
+async fn latency_stats_toggle_after_full_save_keeps_new_panels() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "ls2", &sid, 10).await;
+    let id = b["id"].as_str().unwrap();
+    let mut body = board_body("ls2", &sid, 10);
+    body["config"]["panels"][0]["title"] = json!("바뀐 제목");
+    let (s, r) = send(&app, Method::PUT, &url(id, ""), Some(body)).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let (s, _) = send(&app, Method::PUT, &ls_url(id), Some(json!({"show": false}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, g) = send(&app, Method::GET, &url(id, ""), None).await;
+    assert_eq!(g["config"]["panels"][0]["title"], "바뀐 제목");
+    assert_eq!(g["config"]["show_latency_stats"], false);
+}
+
+#[tokio::test]
+async fn latency_stats_toggle_preserves_unknown_config_keys() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db.clone());
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "ls3", &sid, 10).await;
+    let id = b["id"].as_str().unwrap();
+    sqlx::query("UPDATE monitor_boards SET config_json = ? WHERE id = ?")
+        .bind(json!({"panels": [], "zz_probe": 1}).to_string())
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let (s, _) = send(&app, Method::PUT, &ls_url(id), Some(json!({"show": false}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let raw: String = sqlx::query_scalar("SELECT config_json FROM monitor_boards WHERE id = ?")
+        .bind(id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(v["zz_probe"], 1, "{raw}");
+    assert_eq!(v["show_latency_stats"], false, "{raw}");
+}
+
+#[tokio::test]
+async fn latency_stats_inserts_key_into_legacy_row() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db.clone());
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "ls4", &sid, 10).await;
+    let id = b["id"].as_str().unwrap();
+    sqlx::query("UPDATE monitor_boards SET config_json = ? WHERE id = ?")
+        .bind(json!({"panels": []}).to_string())
+        .bind(id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let (s, _) = send(&app, Method::PUT, &ls_url(id), Some(json!({"show": false}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, g) = send(&app, Method::GET, &url(id, ""), None).await;
+    assert_eq!(g["config"]["show_latency_stats"], false);
+}
+
+#[tokio::test]
+async fn latency_stats_unknown_board_404() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let (s, _) = send(
+        &app,
+        Method::PUT,
+        &ls_url("01J000000000000000000000ZZ"),
+        Some(json!({"show": true})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}

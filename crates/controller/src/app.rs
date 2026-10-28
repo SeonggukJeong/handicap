@@ -130,6 +130,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/monitor-boards/{id}/stop", post(monitor_boards_api::stop))
         .route(
+            "/monitor-boards/{id}/latency-stats",
+            put(monitor_boards_api::set_latency_stats),
+        )
+        .route(
             "/monitor-boards/{id}/status",
             get(monitor_boards_api::status),
         )

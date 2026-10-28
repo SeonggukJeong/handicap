@@ -107,6 +107,28 @@ pub async fn update(
     get(db, id).await
 }
 
+/// 표시 전용 플래그 `show_latency_stats`를 **단일 문** `json_set`으로 원자 갱신한다.
+/// 읽고-고쳐-쓰기 금지 — 동시 PUT(칸 저장)을 덮어쓰거나 모르는 키를 떨어뜨린다.
+/// `reconcile`은 부르지 않는다(호출자 책임 아님 — 점검 설정이 안 바뀐다).
+pub async fn set_latency_stats(
+    db: &Db,
+    id: &str,
+    show: bool,
+) -> sqlx::Result<Option<MonitorBoardRow>> {
+    let res = sqlx::query(
+        "UPDATE monitor_boards SET config_json = json_set(config_json, '$.show_latency_stats', json(?)), updated_at = ? WHERE id = ?",
+    )
+    .bind(if show { "true" } else { "false" })
+    .bind(super::now_ms())
+    .bind(id)
+    .execute(db)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Ok(None);
+    }
+    get(db, id).await
+}
+
 /// Toggles `enabled` only — `updated_at` is deliberately untouched (the screen
 /// re-fetches on config changes, not on start/stop).
 pub async fn set_enabled(

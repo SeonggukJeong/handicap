@@ -2,6 +2,8 @@
 //!
 //! 쓰기 핸들러는 항상 "DB 쓰기 → `reconcile`"이며 둘 사이에 다른 `.await`를 두지 않는다
 //! (reconcile이 직렬화 락 안에서 DB 행을 다시 읽어 마지막 상태로 수렴).
+//! **예외**: 표시 전용 `PUT /{id}/latency-stats`는 reconcile 없이 원자 `json_set`만 한다
+//! (칸 목록·점검 설정 필드엔 이 경로 금지 — 감독자와 DB가 어긋난다).
 //! 없는 id는 reconcile 전에 404 — reconcile은 id마다 슬롯을 만들고 지우지 않으므로
 //! 미지의 id로 부르면 메모리가 무한히 자란다.
 
@@ -195,6 +197,23 @@ pub async fn start(
     Path(id): Path<String>,
 ) -> Result<Json<BoardResponse>, ApiError> {
     set_enabled(state, id, true).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LatencyStatsBody {
+    pub show: bool,
+}
+
+/// 표시 전용 토글 — 예외적으로 reconcile 없음(점검 설정 불변, 실행 중 점검을 재시작하지 않는다).
+pub async fn set_latency_stats(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<LatencyStatsBody>,
+) -> Result<Json<BoardResponse>, ApiError> {
+    let row = monitor_boards::set_latency_stats(&state.db, &id, body.show)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(to_response(row)))
 }
 
 pub async fn stop(
