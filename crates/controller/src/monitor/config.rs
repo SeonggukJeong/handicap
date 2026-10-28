@@ -372,32 +372,32 @@ const AUTH_HEADERS: [&str; 4] = [
 fn validate_display_items(items: &mut [DisplayItem]) -> Result<(), String> {
     if items.len() > MAX_DISPLAY_ITEMS {
         return Err(format!(
-            "벽 표시 항목은 최대 {MAX_DISPLAY_ITEMS}개까지 설정할 수 있습니다"
+            "화면 표시 항목은 최대 {MAX_DISPLAY_ITEMS}개까지 설정할 수 있습니다"
         ));
     }
     for it in items {
         if Ulid::from_string(&it.step_id).is_err() {
-            return Err("벽 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다".into());
+            return Err("화면 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다".into());
         }
         match it.source {
             DisplaySource::Body => {
                 if !(1..=500).contains(&it.path.chars().count()) {
-                    return Err("벽 표시 항목 본문 경로는 1~500자여야 합니다".into());
+                    return Err("화면 표시 항목 본문 경로는 1~500자여야 합니다".into());
                 }
                 // Same unattended-evaluation cost argument as conditions: simple subset only.
                 if !handicap_engine::extract::jsonpath_is_valid(&it.path)
                     || !handicap_engine::extract::jsonpath_is_simple(&it.path)
                 {
-                    return Err("벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다".into());
+                    return Err("화면 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다".into());
                 }
             }
             DisplaySource::Header => {
                 it.path = it.path.trim().to_string();
                 if !(1..=200).contains(&it.path.chars().count()) {
-                    return Err("벽 표시 항목 헤더 이름은 1~200자여야 합니다".into());
+                    return Err("화면 표시 항목 헤더 이름은 1~200자여야 합니다".into());
                 }
                 if AUTH_HEADERS.iter().any(|h| it.path.eq_ignore_ascii_case(h)) {
-                    return Err("벽 표시 항목에는 인증 헤더를 쓸 수 없습니다".into());
+                    return Err("화면 표시 항목에는 인증 헤더를 쓸 수 없습니다".into());
                 }
             }
             DisplaySource::Status => it.path.clear(),
@@ -934,47 +934,47 @@ mod tests {
         let cases: Vec<(PanelConfig, &str)> = vec![
             (
                 with_items(vec![ditem(D::Status, ""); 3]),
-                "벽 표시 항목은 최대 2개까지 설정할 수 있습니다",
+                "화면 표시 항목은 최대 2개까지 설정할 수 있습니다",
             ),
             (
                 with_items(vec![bad_step]),
-                "벽 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다",
+                "화면 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다",
             ),
             (
                 with_items(vec![ditem(D::Body, "")]),
-                "벽 표시 항목 본문 경로는 1~500자여야 합니다",
+                "화면 표시 항목 본문 경로는 1~500자여야 합니다",
             ),
             (
                 with_items(vec![ditem(D::Body, "$..*..*")]),
-                "벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
+                "화면 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
             ),
             (
                 with_items(vec![ditem(D::Body, "a.b")]),
-                "벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
+                "화면 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
             ),
             (
                 with_items(vec![ditem(D::Header, &"h".repeat(201))]),
-                "벽 표시 항목 헤더 이름은 1~200자여야 합니다",
+                "화면 표시 항목 헤더 이름은 1~200자여야 합니다",
             ),
             (
                 with_items(vec![ditem(D::Header, "  ")]),
-                "벽 표시 항목 헤더 이름은 1~200자여야 합니다",
+                "화면 표시 항목 헤더 이름은 1~200자여야 합니다",
             ),
             (
                 with_items(vec![ditem(D::Header, "Set-Cookie")]),
-                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+                "화면 표시 항목에는 인증 헤더를 쓸 수 없습니다",
             ),
             (
                 with_items(vec![ditem(D::Header, "cookie")]),
-                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+                "화면 표시 항목에는 인증 헤더를 쓸 수 없습니다",
             ),
             (
                 with_items(vec![ditem(D::Header, "Authorization")]),
-                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+                "화면 표시 항목에는 인증 헤더를 쓸 수 없습니다",
             ),
             (
                 with_items(vec![ditem(D::Header, " proxy-authorization ")]),
-                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+                "화면 표시 항목에는 인증 헤더를 쓸 수 없습니다",
             ),
         ];
         for (mut p, msg) in cases {

@@ -246,3 +246,14 @@ describe("Task 7+8 신규 키 (closed+curve / ramp_down)", () => {
     expect(result).toContain("12,345회 요청");
   });
 });
+
+describe("ko.monitor 화면 문구", () => {
+  it("dw_copy_has_no_wall_word", () => {
+    const withWall = Object.entries(ko.monitor).filter(
+      ([, v]) => typeof v === "string" && v.includes("벽"),
+    );
+    expect(withWall).toEqual([]);
+    expect(ko.monitor.condChooseDisplay).toBe("화면에 추가");
+    expect(ko.monitor.displayTitle).toBe("화면에 표시");
+  });
+});
