@@ -1,0 +1,55 @@
+<h2>⑥ 모니터 설정 화면 — 칸 접기 + 오른쪽 따라다니는 칸 목록</h2>
+<p class="subtitle">칸이 7개인 보드를 편집하는 모습. 접힌 칸은 한 줄 요약(이름 · 시나리오 · 주기 · 조건 수 · 표시 항목 수). 오른쪽 목록은 스크롤해도 화면에 붙어 있고, 누르면 그 칸으로 이동하며 펼쳐짐. 저장 시 오류가 있는 칸은 목록에 ⚠ + 자동으로 펼침.</p>
+
+<div class="options">
+<div class="option" data-choice="nav" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content" style="width:100%">
+<h3>접기 + 오른쪽 칸 목록</h3>
+<div style="display:flex;gap:16px;background:#f8fafc;padding:16px;border-radius:8px;font-family:sans-serif;font-size:13px;color:#334155;margin-top:8px">
+  <div style="flex:1;min-width:0">
+    <div style="font-size:17px;font-weight:600;margin-bottom:10px">운영실 1번 벽</div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:12px;color:#64748b">보드 이름 · 글자 크기 · 화면 방식 · 깜빡임 (지금과 같음)</div>
+
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:40px">칸 1</b><b>더비온 1.0</b><span style="color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">로그인 점검 · 10초 · 조건 2 · 표시 2</span></div>
+    </div>
+    <div style="background:#fff;border:2px solid #6366f1;border-radius:6px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #e2e8f0"><span>▾</span><b style="min-width:40px">칸 2</b><b>더비온 2.0</b><span style="color:#64748b">로그인 점검 v2 · 10초 · 조건 3 · 표시 2</span><span style="margin-left:auto;color:#ef4444">칸 삭제</span></div>
+      <div style="padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div class="placeholder" style="padding:10px">칸 이름</div><div class="placeholder" style="padding:10px">점검 주기</div><div class="placeholder" style="padding:10px">시나리오 · 환경</div>
+        <div class="placeholder" style="grid-column:span 3;padding:10px">느림 기준 · 그래프 설정</div>
+        <div style="grid-column:span 3;border:1px solid #e2e8f0;border-radius:6px;padding:10px">
+          <b>성공 조건</b> <span style="color:#64748b">— 아래 조건을 <b>모두</b> 만족하면 정상 (AND)</span>
+          <div style="font-family:monospace;margin-top:6px">resultCode&nbsp; <span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">∈ ▾</span> &nbsp;<span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">0000, 0020</span></div>
+          <div style="font-family:monospace;margin-top:4px">data.count&nbsp; <span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">≥ ▾</span> &nbsp;<span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">1</span></div>
+          <div style="font-family:monospace;margin-top:4px">token&nbsp; <span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">값 있음 (null·빈값 아님) ▾</span> &nbsp;<span style="border:1px solid #e2e8f0;background:#f1f5f9;color:#94a3b8;padding:1px 6px;border-radius:4px">—</span></div>
+          <div style="margin-top:10px"><b>벽에 표시</b> <span style="color:#64748b">— 판정과 무관, 최대 2개</span></div>
+          <div style="margin-top:4px">① 큰 글자: <code>resultCode</code> &nbsp; ② 작은 줄: <code>message</code> &nbsp;<span style="color:#6366f1">↕ 순서 바꾸기</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #fca5a5;border-radius:6px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:40px">칸 3</b><b>회원 조회</b><span style="color:#ef4444">⚠ 시나리오를 고르세요</span></div>
+    </div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px"><div style="display:flex;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:40px">칸 4</b><b>마권 발매</b><span style="color:#64748b">발매 점검 · 30초 · 조건 0 · 표시 0</span></div></div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px"><div style="display:flex;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:40px">칸 5</b><b>경주 결과 조회 API (외부 연계)</b><span style="color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">결과 조회 · 60초 · 조건 1 · 표시 1</span></div></div>
+    <div style="color:#94a3b8;padding:4px 12px">… 칸 6, 칸 7</div>
+    <div style="margin-top:8px"><span class="mock-button" style="font-size:12px">+ 칸 추가</span> &nbsp; <span style="color:#6366f1">모두 펼치기 / 모두 접기</span></div>
+  </div>
+
+  <div style="width:170px;flex-shrink:0">
+    <div style="position:sticky;top:16px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px">칸 목록 (화면에 고정)</div>
+      <div style="padding:4px 6px">1 더비온 1.0</div>
+      <div style="padding:4px 6px;background:#eef2ff;border-left:3px solid #6366f1;font-weight:600">2 더비온 2.0</div>
+      <div style="padding:4px 6px;color:#ef4444">3 회원 조회 ⚠</div>
+      <div style="padding:4px 6px">4 마권 발매</div>
+      <div style="padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">5 경주 결과 조회 API (외부…</div>
+      <div style="padding:4px 6px">6 배당률</div>
+      <div style="padding:4px 6px">7 입금 확인</div>
+      <div style="border-top:1px solid #e2e8f0;margin-top:6px;padding-top:6px;color:#6366f1">저장 · 모니터 시작 ↓</div>
+    </div>
+  </div>
+</div>
+</div></div>
+</div>
+<p class="subtitle" style="margin-top:12px">제 판단: 기존 보드를 열면 전부 접힌 상태 · 새로 추가한 칸은 펼친 상태 · 저장 시 오류 칸은 자동 펼침 · 화면이 좁으면(태블릿 폭 이하) 오른쪽 목록은 숨기고 접기만.</p>
