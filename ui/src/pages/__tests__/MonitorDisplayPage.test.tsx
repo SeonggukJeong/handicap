@@ -1658,11 +1658,35 @@ describe("MonitorDisplayPage display items", () => {
     const fillers = [...within(split).getByTestId("probe-split-left").children];
     expect(fillers).toHaveLength(2);
     fillers.forEach((el) => {
-      expect(el.textContent).toBe(" ");
+      expect(el.textContent).toBe("\u00a0");
       expect((el as HTMLElement).style.color).toBe("transparent");
     });
     // no live value reaches the probe
     expect(within(text).queryByText("0000")).toBeNull();
+  });
+
+  it("split_stats_gap_shrinks_with_split_fit", async () => {
+    // The 평균 N → 최대 gap must scale with --split-fit like the text: the split
+    // scale is measured on the full-size probe (text + 3cqw), so a fixed gap
+    // overflows the half at any scale < 1 (xlarge × 30 s -> "최대 30,0…").
+    boardHandler = () =>
+      res(board({}, [panelCfg({ display_items: [ITEM1] }), panelCfg({ id: P2, title: "조회" })]));
+    statusHandler = () =>
+      res(status([panelStatus(P1, [okWith(132, ["0000"])]), panelStatus(P2, [okResult(413)])]));
+    await renderPage();
+    const gapOf = (line: Element) => line.querySelectorAll("span")[1].style.marginLeft;
+    const split = within(panel().getByTestId("split-right")).getByTestId("latency-stats");
+    expect(gapOf(split)).toBe("calc(3cqw * var(--split-fit, 1))");
+    // jsdom's CSS parser drops a plain `3cqw` margin (unknown unit) but keeps a
+    // calc() with var(), so the plain-gap lines are pinned as "no --split-fit":
+    // the full-width line (measured for --fit) and the split probe (measured at
+    // full size, where --split-fit is not applied) must not take the scaled gap
+    expect(gapOf(within(panelEl("조회")).getByTestId("latency-stats"))).not.toContain(
+      "--split-fit",
+    );
+    const probe = document.querySelector('[data-split-probe][data-testid="stats-probe"]');
+    expect(probe).not.toBeNull();
+    expect(gapOf(probe!)).not.toContain("--split-fit");
   });
 
   it("item_panel_probe_split_lines_follow_stats_flag", async () => {

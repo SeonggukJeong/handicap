@@ -199,13 +199,16 @@ const SPLIT_GRID: React.CSSProperties = {
   gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
   columnGap: "3cqw",
 };
-/** Split row big lines (left first value, right latency): the BigValueLine box. */
-const SPLIT_BIG_STYLE: React.CSSProperties = { lineHeight: 1.18, letterSpacing: "-0.02em" };
+/** Split row big lines (left first value, right latency): the BigValueLine line box. */
+const SPLIT_BIG_STYLE: React.CSSProperties = { lineHeight: 1.18 };
 
 /**
  * `평균 N 최대 M` line. Shared by the real line and the size probes so bold
  * digits and the 3cqw gap measure the same. A probe (`probe` set) is
  * transparent; "fit" joins the width-need measure, "split" is the split probe's.
+ * `gap` (default 3cqw) separates the two pairs; the real split-row line passes
+ * one scaled by `--split-fit` like its text, since the split scale is measured
+ * on the full-size probe (text + plain 3cqw).
  */
 export function StatsLine({
   avg,
@@ -214,6 +217,7 @@ export function StatsLine({
   labelColor,
   numColor,
   probe,
+  gap = "3cqw",
 }: {
   avg: number;
   max: number;
@@ -221,6 +225,7 @@ export function StatsLine({
   labelColor: string;
   numColor: string;
   probe?: "fit" | "split";
+  gap?: string;
 }) {
   const probeAttrs =
     probe === undefined
@@ -241,7 +246,7 @@ export function StatsLine({
     >
       <span style={{ color: label }}>{ko.monitor.statsAvg}</span>{" "}
       <b style={{ color: num }}>{formatStatNum(avg)}</b>{" "}
-      <span style={{ marginLeft: "3cqw", color: label }}>{ko.monitor.statsMax}</span>{" "}
+      <span style={{ marginLeft: gap, color: label }}>{ko.monitor.statsMax}</span>{" "}
       <b style={{ color: num }}>{formatStatNum(max)}</b>
     </div>
   );
@@ -617,6 +622,7 @@ export function MonitorPanel({
                     fontSize={splitFont(PANEL_TEXT.stats)}
                     labelColor={ink ?? COLOR.muted}
                     numColor={ink ?? COLOR.text}
+                    gap="calc(3cqw * var(--split-fit, 1))"
                   />
                 )}
               </div>
