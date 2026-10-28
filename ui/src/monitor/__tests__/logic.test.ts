@@ -21,6 +21,7 @@ const ok = (at: number, ms: number | null): CheckResult => ({
   latency_ms: ms,
   reason: null,
   detail: null,
+  display: [],
 });
 const th: Threshold[] = [
   { ms: 1000, color: "#f59e0b" },
@@ -74,6 +75,7 @@ describe("logic", () => {
       latency_ms: null,
       reason: "x",
       detail: null,
+      display: [],
     };
     const c: CheckResult = { ...f, verdict: "config_error" };
     expect(panelState({ ...base, latest: f })).toBe("fail");
@@ -127,9 +129,12 @@ describe("logic", () => {
       latency_ms: null,
       reason: "시간 초과(5초)",
       detail: null,
+      display: [],
     };
     expect(bigValueText("fail", f)).toBe("시간 초과(5초)");
-    expect(bigValueText("config_error", { ...f, reason: "r", detail: null })).toBe("r");
+    expect(bigValueText("config_error", { ...f, reason: "r", detail: null, display: [] })).toBe(
+      "r",
+    );
     expect(bigValueText("stale", f)).toBe("—");
     expect(bigValueText("stale_off", undefined)).toBe("—");
     expect(bigValueText("pending", undefined)).toBe("—");

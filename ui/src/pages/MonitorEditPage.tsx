@@ -71,6 +71,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
     () =>
       initial?.config ?? {
         font_scale: "large",
+        show_latency_stats: true,
         display_style: "border",
         blink: "fail",
         panels: [newPanel()],

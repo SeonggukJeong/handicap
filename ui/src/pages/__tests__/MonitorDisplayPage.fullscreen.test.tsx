@@ -25,11 +25,12 @@ function panelCfg(n: number, over: Json = {}): Json {
     bar_count: 60,
     graph_max_ms: 2000,
     conditions: [],
+    display_items: [],
     ...over,
   };
 }
 function result(verdict: string, latency: number | null, at = T): Json {
-  return { at_ms: at, verdict, latency_ms: latency, reason: null, detail: null };
+  return { at_ms: at, verdict, latency_ms: latency, reason: null, detail: null, display: [] };
 }
 function ps(n: number, results: Json[]): Json {
   return { panel_id: pid(n), results, consecutive_fail: 0, fail_since_ms: null, running: false };
@@ -128,7 +129,13 @@ beforeEach(() => {
           res({
             id: BID,
             name: "운영실 화면",
-            config: { font_scale: "large", display_style: "border", blink, panels: PANELS },
+            config: {
+              font_scale: "large",
+              show_latency_stats: true,
+              display_style: "border",
+              blink,
+              panels: PANELS,
+            },
             enabled: false,
             created_at: 1,
             updated_at: 1,
@@ -140,7 +147,13 @@ beforeEach(() => {
           res({
             id: BID,
             name: "운영실 화면",
-            config: { font_scale: "large", display_style: "border", blink, panels: PANELS },
+            config: {
+              font_scale: "large",
+              show_latency_stats: true,
+              display_style: "border",
+              blink,
+              panels: PANELS,
+            },
             enabled: true,
             created_at: 1,
             updated_at: 1,

@@ -34,6 +34,9 @@ export const ConditionOpSchema = z.enum([
   "contains",
   "gt",
   "lt",
+  "gte",
+  "lte",
+  "one_of",
 ]);
 export type ConditionOp = z.infer<typeof ConditionOpSchema>;
 
@@ -48,6 +51,15 @@ export const ConditionSchema = z.object({
 });
 export type Condition = z.infer<typeof ConditionSchema>;
 
+export const DisplaySourceSchema = z.enum(["body", "header", "status"]);
+export type DisplaySource = z.infer<typeof DisplaySourceSchema>;
+export const DisplayItemSchema = z.object({
+  step_id: z.string(),
+  source: DisplaySourceSchema,
+  path: z.string(),
+});
+export type DisplayItem = z.infer<typeof DisplayItemSchema>;
+
 export const PanelConfigSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -60,6 +72,7 @@ export const PanelConfigSchema = z.object({
   bar_count: z.number().int(),
   graph_max_ms: z.number().int(),
   conditions: z.array(ConditionSchema),
+  display_items: z.array(DisplayItemSchema),
 });
 export type PanelConfig = z.infer<typeof PanelConfigSchema>;
 
@@ -70,6 +83,7 @@ export const BoardConfigSchema = z.object({
   font_scale: FontScaleSchema,
   display_style: DisplayStyleSchema,
   blink: BlinkSchema,
+  show_latency_stats: z.boolean(),
   panels: z.array(PanelConfigSchema),
 });
 export type BoardConfig = z.infer<typeof BoardConfigSchema>;
@@ -80,6 +94,7 @@ export const CheckResultSchema = z.object({
   latency_ms: z.number().nullable(),
   reason: z.string().nullable(),
   detail: z.string().nullable(),
+  display: z.array(z.string().nullable()),
 });
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 
@@ -134,6 +149,7 @@ export function newPanel(): PanelConfig {
     bar_count: 60,
     graph_max_ms: 2000,
     conditions: [],
+    display_items: [],
   };
 }
 
@@ -196,6 +212,12 @@ export async function startBoard(id: string): Promise<Board> {
 
 export async function stopBoard(id: string): Promise<Board> {
   const res = await fetch(`${idUrl(id)}/stop`, { method: "POST" });
+  if (!res.ok) return fail(res);
+  return BoardSchema.parse(await res.json());
+}
+
+export async function setLatencyStats(id: string, show: boolean): Promise<Board> {
+  const res = await fetch(`${idUrl(id)}/latency-stats`, jsonInit("PUT", { show }));
   if (!res.ok) return fail(res);
   return BoardSchema.parse(await res.json());
 }

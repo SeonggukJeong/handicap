@@ -58,7 +58,7 @@ export function ConditionRow({
       ) : (
         <span className="font-medium">{targetLabel(draft)}</span>
       )}
-      <div className="w-36">
+      <div className="w-52">
         <Select
           aria-label={k.condOp}
           size="sm"
@@ -66,23 +66,29 @@ export function ConditionRow({
           onChange={(e) => patch({ op: e.target.value as ConditionOp })}
         >
           {OPS_BY_SOURCE[draft.source].map((op) => (
-            <option key={op} value={op}>
+            <option key={op} value={op} aria-label={k.condOpSpoken[op]}>
               {k.condOpOptions[op]}
             </option>
           ))}
         </Select>
       </div>
-      {needsValue(draft.op) && (
-        <div className="w-40">
-          <Input
-            aria-label={k.condValue}
-            size="sm"
-            value={draft.value}
-            aria-describedby={error ? errId : undefined}
-            onChange={(e) => patch({ value: e.target.value })}
-          />
-        </div>
-      )}
+      <div className="w-40">
+        <Input
+          aria-label={k.condValue}
+          size="sm"
+          value={needsValue(draft.op) ? draft.value : ""}
+          disabled={!needsValue(draft.op)}
+          placeholder={
+            !needsValue(draft.op)
+              ? "—"
+              : draft.op === "one_of"
+                ? k.condValueOneOfPlaceholder
+                : undefined
+          }
+          aria-describedby={error ? errId : undefined}
+          onChange={(e) => patch({ value: e.target.value })}
+        />
+      </div>
       {hasFlags(draft.op) && (
         <>
           <label className="flex items-center gap-1">

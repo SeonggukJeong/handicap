@@ -33,6 +33,7 @@ const mkBoard = (id: string, name: string, enabled: boolean, n: number) => ({
   name,
   config: {
     font_scale: "large",
+    show_latency_stats: true,
     display_style: "border",
     blink: "fail",
     panels: Array.from({ length: n }, (_, i) => ({
@@ -47,6 +48,7 @@ const mkBoard = (id: string, name: string, enabled: boolean, n: number) => ({
       bar_count: 60,
       graph_max_ms: 2000,
       conditions: [],
+      display_items: [],
     })),
   },
   enabled,

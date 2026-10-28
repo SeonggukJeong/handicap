@@ -28,6 +28,7 @@ function panelCfg(over: Json = {}): Json {
     bar_count: 60,
     graph_max_ms: 2000,
     conditions: [],
+    display_items: [],
     ...over,
   };
 }
@@ -35,7 +36,13 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
   return {
     id: BID,
     name: "운영실 화면",
-    config: { font_scale: "large", display_style: "border", blink: "fail", panels },
+    config: {
+      font_scale: "large",
+      show_latency_stats: true,
+      display_style: "border",
+      blink: "fail",
+      panels,
+    },
     enabled: true,
     created_at: 1,
     updated_at: 1,
@@ -43,7 +50,7 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
   };
 }
 function okResult(latency: number, at = T): Json {
-  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null };
+  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null, display: [] };
 }
 function panelStatus(panelId: string, results: Json[], over: Json = {}): Json {
   return {
@@ -185,7 +192,16 @@ describe("MonitorDisplayPage", () => {
         status([
           panelStatus(
             P1,
-            [{ at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null }],
+            [
+              {
+                at_ms: T,
+                verdict: "fail",
+                latency_ms: null,
+                reason: "HTTP 503",
+                detail: null,
+                display: [],
+              },
+            ],
             {
               consecutive_fail: 3,
               fail_since_ms: T - 20_000,
@@ -218,7 +234,14 @@ describe("MonitorDisplayPage", () => {
   });
 
   it("fail_shows_reason_and_consecutive", async () => {
-    const fail = { at_ms: T, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null };
+    const fail = {
+      at_ms: T,
+      verdict: "fail",
+      latency_ms: null,
+      reason: "HTTP 503",
+      detail: null,
+      display: [],
+    };
     boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
     statusHandler = () =>
       res(
@@ -261,12 +284,19 @@ describe("MonitorDisplayPage", () => {
       latency_ms: null,
       reason: "HTTP 503",
       detail: null,
+      display: [],
     };
     const fillBoard = (style: string, panels: Json[] = [panelCfg()], over: Json = {}) =>
       board(
         {
           ...over,
-          config: { font_scale: "large", display_style: style, blink: "off", panels },
+          config: {
+            font_scale: "large",
+            show_latency_stats: true,
+            display_style: style,
+            blink: "off",
+            panels,
+          },
         },
         panels,
       );
@@ -336,6 +366,7 @@ describe("MonitorDisplayPage", () => {
       latency_ms: null,
       reason: "HTTP 503",
       detail: null,
+      display: [],
     });
     const cfgs = (): Json[] => [
       panelCfg({ id: P1, title: "가", thresholds: [{ ms: 1000, color: "#facc15" }] }),
@@ -345,7 +376,15 @@ describe("MonitorDisplayPage", () => {
     ];
     const focusBoard = (style = "focus", blink = "off") =>
       board(
-        { config: { font_scale: "large", display_style: style, blink, panels: cfgs() } },
+        {
+          config: {
+            font_scale: "large",
+            show_latency_stats: true,
+            display_style: style,
+            blink,
+            panels: cfgs(),
+          },
+        },
         cfgs(),
       );
     const withResults = (r: Record<string, Json>) =>
@@ -417,6 +456,7 @@ describe("MonitorDisplayPage", () => {
               latency_ms: null,
               reason: "조건 기준 스텝 없음",
               detail: "x",
+              display: [],
             },
           }),
         );
@@ -635,6 +675,7 @@ describe("MonitorDisplayPage", () => {
       latency_ms: null,
       reason: "HTTP 503 · 로그인 단계",
       detail: null,
+      display: [],
     };
     const spy = stubLayout(
       (_t, el) => (el.textContent?.includes(ko.monitor.stateFail) ? 260 : 150),
@@ -722,6 +763,7 @@ describe("MonitorDisplayPage", () => {
               latency_ms: null,
               reason: "응답 시간 기준 스텝 없음",
               detail: null,
+              display: [],
             },
           ]),
         ]),
@@ -807,6 +849,7 @@ describe("MonitorDisplayPage", () => {
                 latency_ms: null,
                 reason: "HTTP 503 · 회원 인증 단계",
                 detail: null,
+                display: [],
               },
             ],
             { consecutive_fail: 1, fail_since_ms: T },
@@ -827,7 +870,7 @@ describe("MonitorDisplayPage", () => {
     statusHandler = () =>
       res(
         status([
-          panelStatus(P1, [{ at_ms: T, verdict, latency_ms: null, reason, detail }], {
+          panelStatus(P1, [{ at_ms: T, verdict, latency_ms: null, reason, detail, display: [] }], {
             consecutive_fail: 1,
             fail_since_ms: T,
           }),
@@ -902,7 +945,15 @@ describe("MonitorDisplayPage", () => {
     const cfgsN = (n: number): Json[] => ids(n).map((id, i) => panelCfg({ id, title: TITLES[i] }));
     const styledBoard = (style: string, n: number) =>
       board(
-        { config: { font_scale: "large", display_style: style, blink: "off", panels: cfgsN(n) } },
+        {
+          config: {
+            font_scale: "large",
+            show_latency_stats: true,
+            display_style: style,
+            blink: "off",
+            panels: cfgsN(n),
+          },
+        },
         cfgsN(n),
       );
     const failRes = {
@@ -911,6 +962,7 @@ describe("MonitorDisplayPage", () => {
       latency_ms: null,
       reason: "HTTP 503",
       detail: null,
+      display: [],
     };
     /** Status for an n-panel board; panels at `failIdx` fail. */
     const failing = (n: number, failIdx: number[]) =>

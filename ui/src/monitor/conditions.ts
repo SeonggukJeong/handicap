@@ -2,19 +2,68 @@ import type { Condition, ConditionOp, ConditionSource } from "../api/monitors";
 import { ko } from "../i18n/ko";
 
 /** Mirrors crates/controller/src/monitor/config.rs `validate_conditions` (minus JSONPath parsing). */
-const SEVEN: readonly ConditionOp[] = ["eq", "ne", "exists", "not_empty", "contains", "gt", "lt"];
+const TEN: readonly ConditionOp[] = [
+  "eq",
+  "ne",
+  "exists",
+  "not_empty",
+  "contains",
+  "gt",
+  "lt",
+  "gte",
+  "lte",
+  "one_of",
+];
 
 export const OPS_BY_SOURCE: Record<ConditionSource, readonly ConditionOp[]> = {
-  body: SEVEN,
-  header: SEVEN,
-  status: ["eq", "ne", "gt", "lt"],
+  body: TEN,
+  header: TEN,
+  status: ["eq", "ne", "gt", "lt", "gte", "lte", "one_of"],
   body_text: ["contains", "not_empty"],
 };
 
 export const needsValue = (op: ConditionOp): boolean =>
-  op === "eq" || op === "ne" || op === "contains" || op === "gt" || op === "lt";
+  op === "eq" ||
+  op === "ne" ||
+  op === "contains" ||
+  op === "gt" ||
+  op === "lt" ||
+  op === "gte" ||
+  op === "lte" ||
+  op === "one_of";
 export const hasFlags = (op: ConditionOp): boolean =>
-  op === "eq" || op === "ne" || op === "contains";
+  op === "eq" || op === "ne" || op === "contains" || op === "one_of";
+
+/** Mirrors the server: split(',') -> trim -> drop empty. */
+export function oneOfCandidates(value: string): string[] {
+  return value
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x !== "");
+}
+
+const MAX_JSON_UNWRAP = 3;
+/** Mirrors Rust `parse_body_json`: unwrap JSON-in-string up to 3 layers; not an
+ *  object/array by then -> the first parsed value. Not JSON -> null. */
+export function parseBodyJson(body: string): { value: unknown; unwrapped: number } | null {
+  let first: unknown;
+  try {
+    first = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  let cur = first;
+  for (let i = 1; i <= MAX_JSON_UNWRAP; i++) {
+    if (typeof cur !== "string") break;
+    try {
+      cur = JSON.parse(cur);
+    } catch {
+      return { value: first, unwrapped: 0 };
+    }
+    if (typeof cur === "object" && cur !== null) return { value: cur, unwrapped: i };
+  }
+  return { value: first, unwrapped: 0 };
+}
 
 const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 /** Same answer as Rust `parse_finite` (JS `Number("")===0`, `Number("0x10")===16` are excluded). */
@@ -48,7 +97,12 @@ export function conditionError(c: Condition): string | null {
   }
   if (len(c.value) > 200) return k.condErrTooLong;
   if (c.op === "contains" && c.value === "") return k.condErrValue;
-  if ((c.op === "gt" || c.op === "lt") && !isFiniteNumberText(c.value)) return k.condErrNumber;
+  if (
+    (c.op === "gt" || c.op === "lt" || c.op === "gte" || c.op === "lte") &&
+    !isFiniteNumberText(c.value)
+  )
+    return k.condErrNumber;
+  if (c.op === "one_of" && oneOfCandidates(c.value).length === 0) return k.condErrOneOf;
   return null;
 }
 
@@ -74,8 +128,10 @@ export function targetLabel(c: Pick<Condition, "source" | "path">): string {
 }
 
 export function conditionSummary(c: Condition, stepName: string | undefined): string {
-  let s = `${stepName ?? c.step_id} · ${targetLabel(c)} ${ko.monitor.condOpLabel[c.op]}`;
-  if (needsValue(c.op)) s += c.value === "" ? ` ""` : ` ${c.value}`;
+  let s = `${targetLabel(c)} ${ko.monitor.condOpLabel[c.op]}`;
+  if (c.op === "one_of") s += ` {${oneOfCandidates(c.value).join(", ")}}`;
+  else if (needsValue(c.op)) s += c.value === "" ? ` ""` : ` ${c.value}`;
+  s += ` · ${stepName ?? c.step_id}`;
   if (c.ignore_case) s += ` · ${ko.monitor.condIgnoreCase}`;
   if (c.trim) s += ` · ${ko.monitor.condTrim}`;
   return s;

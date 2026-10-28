@@ -6,6 +6,8 @@ import {
   defaultCondition,
   isFiniteNumberText,
   normalizeCondition,
+  oneOfCandidates,
+  parseBodyJson,
   targetLabel,
 } from "../conditions";
 import type { Condition } from "../../api/monitors";
@@ -25,10 +27,10 @@ const c = (over: Partial<Condition>): Condition => ({ ...base, ...over });
 
 describe("conditions", () => {
   it("ops_by_source_matches_server", () => {
-    const seven = ["eq", "ne", "exists", "not_empty", "contains", "gt", "lt"];
-    expect(OPS_BY_SOURCE.body).toEqual(seven);
-    expect(OPS_BY_SOURCE.header).toEqual(seven);
-    expect(OPS_BY_SOURCE.status).toEqual(["eq", "ne", "gt", "lt"]);
+    const ten = ["eq", "ne", "exists", "not_empty", "contains", "gt", "lt", "gte", "lte", "one_of"];
+    expect(OPS_BY_SOURCE.body).toEqual(ten);
+    expect(OPS_BY_SOURCE.header).toEqual(ten);
+    expect(OPS_BY_SOURCE.status).toEqual(["eq", "ne", "gt", "lt", "gte", "lte", "one_of"]);
     expect(OPS_BY_SOURCE.body_text).toEqual(["contains", "not_empty"]);
   });
 
@@ -100,20 +102,83 @@ describe("conditions", () => {
 
   it("target_and_summary_labels", () => {
     expect(targetLabel({ source: "body", path: "$.data.items[0].code" })).toBe(
-      "본문 data.items[0].code",
+      "data.items[0].code",
     );
+    expect(targetLabel({ source: "body", path: "$.resultCode" })).toBe("resultCode");
     expect(targetLabel({ source: "body", path: "$" })).toBe("본문");
-    expect(targetLabel({ source: "body", path: "$['a b']" })).toBe("본문 ['a b']");
+    expect(targetLabel({ source: "body", path: "$['a b']" })).toBe("['a b']");
     expect(targetLabel({ source: "header", path: "X-A" })).toBe("헤더 X-A");
     expect(targetLabel({ source: "status", path: "" })).toBe("상태코드");
     expect(targetLabel({ source: "body_text", path: "" })).toBe("본문 전체");
     expect(
       conditionSummary(c({ path: "$.resultCode", value: "0000", ignore_case: true }), "로그인"),
-    ).toBe("로그인 · 본문 resultCode 같음 0000 · 대소문자 무시");
-    expect(conditionSummary(c({ op: "exists", value: "" }), "로그인")).toBe(
-      "로그인 · 본문 a 값이 있음",
+    ).toBe("resultCode = 0000 · 로그인 · 대소문자 무시");
+    expect(conditionSummary(c({ op: "exists", value: "" }), "로그인")).toBe("a 키 있음 · 로그인");
+    expect(conditionSummary(c({ value: "" }), undefined)).toBe(`a = "" · ${SID}`);
+    expect(conditionSummary(c({ trim: true }), "s")).toBe("a = v · s · 앞뒤 공백 무시");
+  });
+
+  it("condition_summary_symbols_table", () => {
+    const sum = (over: Partial<Condition>) =>
+      conditionSummary(c({ path: "$.n", ...over }), "로그인");
+    expect(sum({ op: "ne", value: "1" })).toBe("n ≠ 1 · 로그인");
+    expect(sum({ op: "gt", value: "1" })).toBe("n > 1 · 로그인");
+    expect(sum({ op: "lt", value: "1" })).toBe("n < 1 · 로그인");
+    expect(sum({ op: "gte", value: "1" })).toBe("n ≥ 1 · 로그인");
+    expect(sum({ op: "lte", value: "1" })).toBe("n ≤ 1 · 로그인");
+    expect(sum({ op: "contains", value: "x" })).toBe("n 글자 포함 x · 로그인");
+    expect(sum({ op: "not_empty", value: "" })).toBe("n 값 있음 · 로그인");
+    expect(sum({ op: "one_of", value: "0000, 0020" })).toBe("n ∈ {0000, 0020} · 로그인");
+    expect(sum({ op: "one_of", value: " 0000 ,, ok ", ignore_case: true })).toBe(
+      "n ∈ {0000, ok} · 로그인 · 대소문자 무시",
     );
-    expect(conditionSummary(c({ value: "" }), undefined)).toBe(`${SID} · 본문 a 같음 ""`);
-    expect(conditionSummary(c({ trim: true }), "s")).toBe("s · 본문 a 같음 v · 앞뒤 공백 무시");
+    expect(
+      conditionSummary(c({ source: "status", path: "", op: "gte", value: "200" }), "로그인"),
+    ).toBe("상태코드 ≥ 200 · 로그인");
+  });
+
+  it("one_of_candidates_table", () => {
+    expect(oneOfCandidates("0000, 0020")).toEqual(["0000", "0020"]);
+    expect(oneOfCandidates(" 0000 ,, ok ")).toEqual(["0000", "ok"]);
+    expect(oneOfCandidates(" , ")).toEqual([]);
+    expect(oneOfCandidates("")).toEqual([]);
+    expect(oneOfCandidates("a")).toEqual(["a"]);
+  });
+
+  it("condition_error_one_of_and_gte_lte", () => {
+    expect(conditionError(c({ op: "one_of", value: " , " }))).toBe(ko.monitor.condErrOneOf);
+    expect(conditionError(c({ op: "one_of", value: "a, b" }))).toBeNull();
+    expect(conditionError(c({ op: "gte", value: "x" }))).toBe(ko.monitor.condErrNumber);
+    expect(conditionError(c({ op: "lte", value: "" }))).toBe(ko.monitor.condErrNumber);
+    expect(conditionError(c({ op: "gte", value: "1" }))).toBeNull();
+  });
+
+  it("normalize_gte_drops_flags_one_of_keeps", () => {
+    let n = normalizeCondition(c({ op: "gte", value: "1", ignore_case: true, trim: true }));
+    expect(n.ignore_case).toBe(false);
+    expect(n.trim).toBe(false);
+    n = normalizeCondition(c({ op: "one_of", value: "a,b", ignore_case: true, trim: true }));
+    expect(n.ignore_case).toBe(true);
+    expect(n.trim).toBe(true);
+  });
+
+  it("parse_body_json_table", () => {
+    expect(parseBodyJson('{"a":1}')).toEqual({ value: { a: 1 }, unwrapped: 0 });
+    expect(parseBodyJson(JSON.stringify('{"code":1}'))).toEqual({
+      value: { code: 1 },
+      unwrapped: 1,
+    });
+    const two = JSON.stringify(JSON.stringify('{"code":1}'));
+    expect(parseBodyJson(two)).toEqual({ value: { code: 1 }, unwrapped: 2 });
+    const three = JSON.stringify(JSON.stringify(JSON.stringify('{"code":1}')));
+    expect(parseBodyJson(three)).toEqual({ value: { code: 1 }, unwrapped: 3 });
+    const four = JSON.stringify(JSON.stringify(JSON.stringify(JSON.stringify('{"code":1}'))));
+    const r4 = parseBodyJson(four);
+    expect(r4?.unwrapped).toBe(0);
+    expect(typeof r4?.value).toBe("string");
+    expect(parseBodyJson('"hello"')).toEqual({ value: "hello", unwrapped: 0 });
+    expect(parseBodyJson('"12"')).toEqual({ value: "12", unwrapped: 0 });
+    expect(parseBodyJson('"[1,2]"')).toEqual({ value: [1, 2], unwrapped: 1 });
+    expect(parseBodyJson("not json")).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ const YELLOW = "rgb(250, 204, 21)";
 const ORANGE = "rgb(251, 146, 60)";
 
 function ok(latency: number, at = 1): CheckResult {
-  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null };
+  return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null, display: [] };
 }
 
 function renderBars(
@@ -98,7 +98,14 @@ describe("LatencyBars", () => {
   it("fail_bar_full_height", () => {
     renderBars([
       ok(100),
-      { at_ms: 2, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null },
+      {
+        at_ms: 2,
+        verdict: "fail",
+        latency_ms: null,
+        reason: "HTTP 503",
+        detail: null,
+        display: [],
+      },
     ]);
     const fail = slots()[1];
     expect(fail).toHaveAttribute("data-verdict", "fail");
@@ -114,6 +121,7 @@ describe("LatencyBars", () => {
         latency_ms: null,
         reason: "시나리오 오류",
         detail: null,
+        display: [],
       },
     ]);
     const bar = slots()[0];
@@ -237,7 +245,16 @@ describe("LatencyBars", () => {
   });
 
   it("fail_glyph_clipped_to_bars_area", () => {
-    renderBars([{ at_ms: 2, verdict: "fail", latency_ms: null, reason: "HTTP 503", detail: null }]);
+    renderBars([
+      {
+        at_ms: 2,
+        verdict: "fail",
+        latency_ms: null,
+        reason: "HTTP 503",
+        detail: null,
+        display: [],
+      },
+    ]);
     // the slots container clips: a ✖ never draws over the axis text below
     const container = slots()[0].parentElement as HTMLElement;
     expect(container.style.overflow).toBe("hidden");
