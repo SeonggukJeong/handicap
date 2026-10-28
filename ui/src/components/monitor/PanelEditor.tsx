@@ -32,6 +32,8 @@ type Props = {
   scenarioError: boolean;
   canRemove: boolean;
   expanded: boolean;
+  /** Server/client validation reason for this panel; shown in the header. */
+  error?: string;
   onToggle: () => void;
   onChange: (next: PanelConfig) => void;
   onRemove: () => void;
@@ -58,6 +60,7 @@ export function PanelEditor({
   scenarioError,
   canRemove,
   expanded,
+  error,
   onToggle,
   onChange,
   onRemove,
@@ -158,11 +161,9 @@ export function PanelEditor({
     <section
       id={`panel-${panel.id}`}
       aria-label={`${ko.monitor.panels} ${index + 1}`}
-      className={
-        expanded
-          ? "rounded-md border border-accent-500 bg-white p-4"
-          : "rounded-md border border-slate-200 bg-white px-4 py-2"
-      }
+      className={`rounded-md border bg-white ${expanded ? "p-4" : "px-4 py-2"} ${
+        error ? "border-red-500" : expanded ? "border-accent-500" : "border-slate-200"
+      }`}
     >
       <div className={`flex items-center justify-between gap-2 ${expanded ? "mb-3" : ""}`}>
         <button
@@ -177,9 +178,13 @@ export function PanelEditor({
           <span className="truncate font-medium text-slate-900">
             {panel.title.trim() || ko.monitor.noTitle}
           </span>
-          <span className="min-w-0 truncate text-xs text-slate-500">
-            {panelSummary(panel, scenario?.name)}
-          </span>
+          {error ? (
+            <span className="min-w-0 truncate text-xs font-medium text-red-700">{`⚠ ${error}`}</span>
+          ) : (
+            <span className="min-w-0 truncate text-xs text-slate-500">
+              {panelSummary(panel, scenario?.name)}
+            </span>
+          )}
         </button>
         {expanded && canRemove && (
           <Button variant="secondary" type="button" onClick={onRemove}>

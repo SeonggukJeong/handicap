@@ -173,6 +173,21 @@ async fn create_400_on_invalid_config() {
 }
 
 #[tokio::test]
+async fn save_400_message_has_panel_prefix() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let (st, v) = send(
+        &app,
+        Method::POST,
+        "/api/monitor-boards",
+        Some(board_body("x", "", 10)),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(v["error"].as_str().unwrap().starts_with("칸 1: "));
+}
+
+#[tokio::test]
 async fn duplicate_name_409() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let (app, _) = make_app(db);

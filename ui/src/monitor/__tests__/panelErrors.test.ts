@@ -1,0 +1,17 @@
+import { describe, it, expect } from "vitest";
+import { parsePanelError } from "../panelErrors";
+
+describe("parsePanelError", () => {
+  it("parses_panel_prefix", () => {
+    expect(parsePanelError("칸 3: 시나리오를 선택해야 합니다")).toEqual({
+      index: 2,
+      reason: "시나리오를 선택해야 합니다",
+    });
+  });
+  it("board_level_message_is_null", () => {
+    expect(parsePanelError("칸은 1~9개여야 합니다")).toBeNull();
+  });
+  it("keeps_multiline_reason", () => {
+    expect(parsePanelError("칸 1: a\nb")).toEqual({ index: 0, reason: "a\nb" });
+  });
+});

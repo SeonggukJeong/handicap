@@ -27,6 +27,7 @@ import { Select } from "../components/ui/Select";
 import { ko } from "../i18n/ko";
 import { enterFullscreen, exitFullscreen } from "../monitor/fullscreen";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
+import { parsePanelError } from "../monitor/panelErrors";
 
 const MAX_PANELS = 9;
 
@@ -85,11 +86,18 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const [error, setError] = useState<string | null>(
     () => (location.state as NavState | null)?.startError ?? null,
   );
+  // Per-panel error reasons keyed by panel id. A remount after a failed first start
+  // restores the panel mark from the carried `startError`.
+  const [panelErrors, setPanelErrors] = useState<Record<string, string>>(() => {
+    const pe = parsePanelError((location.state as NavState | null)?.startError ?? "");
+    const pid = pe ? config.panels[pe.index]?.id : undefined;
+    return pe && pid ? { [pid]: pe.reason } : {};
+  });
   // Expanded panel cards. An existing board opens fully collapsed; a new board opens
   // its default panel. A remount after the first save carries the set via router state.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const carried = (location.state as NavState | null)?.expanded;
-    if (carried) return new Set(carried);
+    if (carried) return new Set([...carried, ...Object.keys(panelErrors)]);
     return initial ? new Set() : new Set([config.panels[0].id]);
   });
   // Router state is only a one-shot hand-off; clear it so a reload falls back to the defaults.
@@ -119,12 +127,38 @@ function BoardForm({ initial }: { initial: Board | null }) {
     void qc.invalidateQueries({ queryKey: MONITOR_LIST_KEY });
   };
 
-  const setPanel = (i: number, next: PanelConfig) =>
+  const setPanel = (i: number, next: PanelConfig) => {
+    const pid = config.panels[i]?.id;
+    if (pid)
+      setPanelErrors((m) => {
+        if (!(pid in m)) return m;
+        const rest = { ...m };
+        delete rest[pid];
+        return rest;
+      });
     setConfig((c) => ({ ...c, panels: c.panels.map((p, k) => (k === i ? next : p)) }));
+  };
+
+  // Marks panels with errors and opens them so the reason is visible.
+  const markPanels = (errs: Record<string, string>) => {
+    setPanelErrors(errs);
+    const ids = Object.keys(errs);
+    if (ids.length) setExpanded((s) => new Set([...s, ...ids]));
+  };
+
+  // A server 400 whose message names a panel (`칸 N: …`) marks that panel.
+  const markFromServer = (e: unknown) => {
+    if (!(e instanceof ApiError) || e.status !== 400) return;
+    const pe = parsePanelError(e.message);
+    const pid = pe ? config.panels[pe.index]?.id : undefined;
+    if (pe && pid) markPanels({ [pid]: pe.reason });
+  };
 
   const valid = (): boolean => {
-    const ok = config.panels.every((p) => p.scenario_id !== "");
+    const missing = config.panels.filter((p) => p.scenario_id === "");
+    const ok = missing.length === 0;
     setScenarioErr(!ok);
+    markPanels(Object.fromEntries(missing.map((p) => [p.id, ko.monitor.scenarioRequired])));
     return ok;
   };
 
@@ -137,6 +171,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
 
   const onSave = async () => {
     setError(null);
+    setPanelErrors({});
     setSaved(false);
     if (!valid()) return;
     setBusy(true);
@@ -153,6 +188,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
       }
     } catch (e) {
       setError((e as Error).message);
+      markFromServer(e);
     } finally {
       setBusy(false);
     }
@@ -160,6 +196,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
 
   const onStart = async () => {
     setError(null);
+    setPanelErrors({});
     setSaved(false);
     // Validate first (sync) so a rejected click never requests fullscreen; the
     // request is still made before the first await, so the gesture stays valid.
@@ -181,6 +218,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
       exitFullscreen();
       const msg = (e as Error).message;
       setError(msg);
+      markFromServer(e);
       // Leave the "new" route (a retry must not re-create); the remounted form
       // reads the error from location state.
       if (createdId) {
@@ -288,6 +326,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
             scenarioError={scenarioErr}
             canRemove={config.panels.length > 1}
             expanded={expanded.has(p.id)}
+            error={panelErrors[p.id]}
             onToggle={() => togglePanel(p.id)}
             onChange={(next) => setPanel(i, next)}
             onRemove={() => {

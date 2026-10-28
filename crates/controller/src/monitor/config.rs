@@ -413,8 +413,8 @@ pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<Strin
     if !(1..=MAX_PANELS).contains(&cfg.panels.len()) {
         return Err(format!("칸은 1~{MAX_PANELS}개여야 합니다"));
     }
-    for p in &mut cfg.panels {
-        validate_panel(p)?;
+    for (i, p) in cfg.panels.iter_mut().enumerate() {
+        validate_panel(p).map_err(|e| format!("칸 {}: {e}", i + 1))?;
     }
     let mut seen = std::collections::HashSet::new();
     for p in &cfg.panels {
@@ -672,6 +672,37 @@ mod tests {
         let mut p = panel();
         assert!(validate_panel(&mut p).is_ok());
         assert!(!p.id.is_empty());
+    }
+
+    #[test]
+    fn panel_error_prefixed_with_index() {
+        let mut b = board();
+        b.panels = vec![panel(), panel()];
+        b.panels[1].interval_seconds = 0;
+        assert_eq!(
+            validate_and_normalize("보드", &mut b),
+            Err("칸 2: 점검 주기는 1~3600초여야 합니다".to_string())
+        );
+    }
+
+    #[test]
+    fn board_level_error_has_no_prefix() {
+        let mut b = board();
+        b.panels.clear();
+        assert_eq!(
+            validate_and_normalize("보드", &mut b),
+            Err("칸은 1~9개여야 합니다".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_panel_alone_has_no_prefix() {
+        let mut p = panel();
+        p.interval_seconds = 0;
+        assert_eq!(
+            validate_panel(&mut p),
+            Err("점검 주기는 1~3600초여야 합니다".to_string())
+        );
     }
 
     fn cond(source: ConditionSource, op: ConditionOp, path: &str, value: &str) -> Condition {

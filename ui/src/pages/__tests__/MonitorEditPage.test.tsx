@@ -877,6 +877,87 @@ const addBtn = (target: string) =>
 const confirmedConds = (n: number) =>
   (sent("POST", PREVIEW_URL)[n].body as { conditions: unknown[] }).conditions;
 
+const P1 = "01HZZZZZZZZZZZZZZZZZZZZZP1";
+const P2 = "01HZZZZZZZZZZZZZZZZZZZZZP2";
+const P3 = "01HZZZZZZZZZZZZZZZZZZZZZP3";
+const threePanels = (over: Record<string, Record<string, unknown>> = {}) =>
+  board({
+    config: {
+      font_scale: "large",
+      show_latency_stats: true,
+      display_style: "border",
+      blink: "fail",
+      panels: [
+        panel({ id: P1, title: "하나", ...over[P1] }),
+        panel({ id: P2, title: "둘", ...over[P2] }),
+        panel({ id: P3, title: "셋", ...over[P3] }),
+      ],
+    },
+  });
+const toggleOf = (n: number) =>
+  screen.getByRole("button", { name: new RegExp(`^[▸▾] 칸 ${n}\\b`) });
+const regionOf = (n: number) => screen.getByRole("region", { name: `칸 ${n}` });
+
+describe("MonitorEditPage panel errors", () => {
+  it("server_panel_error_expands_and_marks_panel", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(threePanels());
+    handlers["PUT /api/monitor-boards/B1"] = () => json({ error: "칸 3: X" }, 400);
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await waitFor(() => expect(toggleOf(3)).toHaveAttribute("aria-expanded", "false"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(toggleOf(3)).toHaveAttribute("aria-expanded", "true"));
+    expect(toggleOf(1)).toHaveAttribute("aria-expanded", "false");
+    expect(within(regionOf(3)).getByText("⚠ X")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("칸 3: X");
+  });
+
+  it("missing_scenario_marks_every_such_panel", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(threePanels({ [P1]: { scenario_id: "" }, [P3]: { scenario_id: "" } }));
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(toggleOf(1)).toHaveAttribute("aria-expanded", "true"));
+    expect(toggleOf(3)).toHaveAttribute("aria-expanded", "true");
+    expect(toggleOf(2)).toHaveAttribute("aria-expanded", "false");
+    const msg = `⚠ ${ko.monitor.scenarioRequired}`;
+    expect(within(regionOf(1)).getByText(msg)).toBeInTheDocument();
+    expect(within(regionOf(3)).getByText(msg)).toBeInTheDocument();
+    expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(0);
+  });
+
+  it("editing_panel_clears_only_its_error", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(threePanels({ [P1]: { scenario_id: "" }, [P3]: { scenario_id: "" } }));
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    const msg = `⚠ ${ko.monitor.scenarioRequired}`;
+    await waitFor(() => expect(within(regionOf(1)).getByText(msg)).toBeInTheDocument());
+    await user.type(within(regionOf(1)).getByLabelText(ko.monitor.panelTitle), "x");
+    expect(within(regionOf(1)).queryByText(msg)).not.toBeInTheDocument();
+    expect(within(regionOf(3)).getByText(msg)).toBeInTheDocument();
+  });
+
+  it("start_failure_error_survives_remount", async () => {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = () => json(board());
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json({ error: "칸 1: X" }, 400);
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.selectOptions(await screen.findByLabelText(ko.monitor.scenario), SID);
+    await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+    await waitFor(() => expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/B1"));
+    await waitFor(() => expect(within(regionOf(1)).getByText("⚠ X")).toBeInTheDocument());
+    expect(toggleOf(1)).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
 describe("MonitorEditPage preview conditions", () => {
   beforeEach(() => {
     handlers["GET /api/monitor-boards/B1"] = () => json(board());
