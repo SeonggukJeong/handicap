@@ -9,6 +9,7 @@ use ulid::Ulid;
 pub const MAX_PANELS: usize = 9;
 pub const MAX_THRESHOLDS: usize = 5;
 pub const MAX_CONDITIONS: usize = 10;
+pub const MAX_DISPLAY_ITEMS: usize = 2;
 const NAME_MAX_CHARS: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +136,33 @@ impl Default for Condition {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DisplaySource {
+    Body,
+    Header,
+    Status,
+}
+
+/// 벽에 판정과 무관하게 보여 줄 값 1개(칸당 최대 `MAX_DISPLAY_ITEMS`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DisplayItem {
+    pub step_id: String,
+    pub source: DisplaySource,
+    pub path: String,
+}
+
+impl Default for DisplayItem {
+    fn default() -> Self {
+        Self {
+            step_id: String::new(),
+            source: DisplaySource::Body,
+            path: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LatencySource {
@@ -162,6 +190,7 @@ pub struct PanelConfig {
     pub bar_count: u32,
     pub graph_max_ms: u32,
     pub conditions: Vec<Condition>,
+    pub display_items: Vec<DisplayItem>,
 }
 
 impl Default for PanelConfig {
@@ -178,6 +207,7 @@ impl Default for PanelConfig {
             bar_count: 60,
             graph_max_ms: 2000,
             conditions: Vec::new(),
+            display_items: Vec::new(),
         }
     }
 }
@@ -261,7 +291,8 @@ pub fn validate_panel(p: &mut PanelConfig) -> Result<(), String> {
     if !in_range(p.graph_max_ms, 100, 600_000) {
         return Err("그래프 최대값은 100~600000ms여야 합니다".into());
     }
-    validate_conditions(&mut p.conditions)
+    validate_conditions(&mut p.conditions)?;
+    validate_display_items(&mut p.display_items)
 }
 
 fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
@@ -327,6 +358,50 @@ fn validate_conditions(conds: &mut [Condition]) -> Result<(), String> {
     Ok(())
 }
 
+const AUTH_HEADERS: [&str; 4] = [
+    "set-cookie",
+    "cookie",
+    "authorization",
+    "proxy-authorization",
+];
+
+fn validate_display_items(items: &mut [DisplayItem]) -> Result<(), String> {
+    if items.len() > MAX_DISPLAY_ITEMS {
+        return Err(format!(
+            "벽 표시 항목은 최대 {MAX_DISPLAY_ITEMS}개까지 설정할 수 있습니다"
+        ));
+    }
+    for it in items {
+        if Ulid::from_string(&it.step_id).is_err() {
+            return Err("벽 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다".into());
+        }
+        match it.source {
+            DisplaySource::Body => {
+                if !(1..=500).contains(&it.path.chars().count()) {
+                    return Err("벽 표시 항목 본문 경로는 1~500자여야 합니다".into());
+                }
+                // Same unattended-evaluation cost argument as conditions: simple subset only.
+                if !handicap_engine::extract::jsonpath_is_valid(&it.path)
+                    || !handicap_engine::extract::jsonpath_is_simple(&it.path)
+                {
+                    return Err("벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다".into());
+                }
+            }
+            DisplaySource::Header => {
+                it.path = it.path.trim().to_string();
+                if !(1..=200).contains(&it.path.chars().count()) {
+                    return Err("벽 표시 항목 헤더 이름은 1~200자여야 합니다".into());
+                }
+                if AUTH_HEADERS.iter().any(|h| it.path.eq_ignore_ascii_case(h)) {
+                    return Err("벽 표시 항목에는 인증 헤더를 쓸 수 없습니다".into());
+                }
+            }
+            DisplaySource::Status => it.path.clear(),
+        }
+    }
+    Ok(())
+}
+
 /// Validates a whole board in place; returns the trimmed board name.
 pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<String, String> {
     let name = name.trim().to_string();
@@ -384,6 +459,7 @@ mod tests {
         assert_eq!(p.id, "");
         assert_eq!(c.display_style, DisplayStyle::Border);
         assert!(p.conditions.is_empty());
+        assert!(p.display_items.is_empty());
         let cd: Condition = serde_json::from_str(r#"{"step_id":"S"}"#).unwrap();
         assert_eq!(cd.source, ConditionSource::Body);
         assert_eq!(cd.op, ConditionOp::Exists);
@@ -827,5 +903,96 @@ mod tests {
         assert!(validate_panel(&mut with(cond(S::Body, O::Gt, "$.a", " 12.5 "))).is_ok());
         assert_eq!(parse_finite(" 12.5 "), Some(12.5));
         assert_eq!(parse_finite("inf"), None);
+    }
+
+    fn ditem(source: DisplaySource, path: &str) -> DisplayItem {
+        DisplayItem {
+            step_id: ULID_A.into(),
+            source,
+            path: path.into(),
+        }
+    }
+
+    fn with_items(items: Vec<DisplayItem>) -> PanelConfig {
+        PanelConfig {
+            display_items: items,
+            ..panel()
+        }
+    }
+
+    #[test]
+    fn display_items_validate_rejects() {
+        use DisplaySource as D;
+        let mut bad_step = ditem(D::Body, "$.a");
+        bad_step.step_id = "x".into();
+        let cases: Vec<(PanelConfig, &str)> = vec![
+            (
+                with_items(vec![ditem(D::Status, ""); 3]),
+                "벽 표시 항목은 최대 2개까지 설정할 수 있습니다",
+            ),
+            (
+                with_items(vec![bad_step]),
+                "벽 표시 항목 스텝 id가 올바른 ULID 형식이 아닙니다",
+            ),
+            (
+                with_items(vec![ditem(D::Body, "")]),
+                "벽 표시 항목 본문 경로는 1~500자여야 합니다",
+            ),
+            (
+                with_items(vec![ditem(D::Body, "$..*..*")]),
+                "벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
+            ),
+            (
+                with_items(vec![ditem(D::Body, "a.b")]),
+                "벽 표시 항목 본문 경로(JSONPath)가 올바르지 않습니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, &"h".repeat(201))]),
+                "벽 표시 항목 헤더 이름은 1~200자여야 합니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, "  ")]),
+                "벽 표시 항목 헤더 이름은 1~200자여야 합니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, "Set-Cookie")]),
+                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, "cookie")]),
+                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, "Authorization")]),
+                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+            ),
+            (
+                with_items(vec![ditem(D::Header, " proxy-authorization ")]),
+                "벽 표시 항목에는 인증 헤더를 쓸 수 없습니다",
+            ),
+        ];
+        for (mut p, msg) in cases {
+            assert_eq!(validate_panel(&mut p).unwrap_err(), msg);
+        }
+    }
+
+    #[test]
+    fn display_items_validate_normalizes() {
+        use DisplaySource as D;
+        let mut p = with_items(vec![ditem(D::Status, "$.x"), ditem(D::Header, " X-Trace ")]);
+        validate_panel(&mut p).unwrap();
+        assert_eq!(p.display_items[0].path, "");
+        assert_eq!(p.display_items[1].path, "X-Trace");
+    }
+
+    #[test]
+    fn display_items_validate_accepts_boundaries() {
+        use DisplaySource as D;
+        let long = format!("$.{}", "a".repeat(498));
+        assert_eq!(long.chars().count(), 500);
+        let mut p = with_items(vec![ditem(D::Body, &long), ditem(D::Header, "X-Trace")]);
+        assert!(validate_panel(&mut p).is_ok());
+        let mut p = with_items(vec![ditem(D::Header, &"h".repeat(200))]);
+        assert!(validate_panel(&mut p).is_ok());
     }
 }

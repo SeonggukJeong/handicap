@@ -395,6 +395,7 @@ mod tests {
             latency_ms: None,
             reason: None,
             detail: None,
+            display: vec![],
         }
     }
 

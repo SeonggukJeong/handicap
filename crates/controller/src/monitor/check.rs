@@ -16,8 +16,8 @@ use handicap_engine::{
 use serde::{Deserialize, Serialize};
 
 use super::config::{
-    Condition, ConditionOp, ConditionSource, LatencySource, PanelConfig, one_of_candidates,
-    parse_finite,
+    Condition, ConditionOp, ConditionSource, DisplaySource, LatencySource, PanelConfig,
+    one_of_candidates, parse_finite,
 };
 use crate::store::{self, Db};
 
@@ -136,6 +136,8 @@ pub struct CheckResult {
     pub reason: Option<String>,
     /// 작은 줄 — 조건 판정 결과에만 `Some`(항상 직렬화, null 포함).
     pub detail: Option<String>,
+    /// 벽 표시 전용 값 — `display_items`와 같은 길이·순서(trace 없으면 빈 배열). 항상 직렬화.
+    pub display: Vec<Option<String>>,
 }
 
 impl CheckResult {
@@ -146,6 +148,7 @@ impl CheckResult {
             latency_ms: None,
             reason: Some(reason.into()),
             detail: None,
+            display: Vec::new(),
         }
     }
 
@@ -157,6 +160,7 @@ impl CheckResult {
             latency_ms: None,
             reason: Some(shown(reason)),
             detail: Some(shown(detail)),
+            display: Vec::new(),
         }
     }
 }
@@ -245,15 +249,16 @@ pub(crate) const MAX_JSON_UNWRAP: usize = 3;
 
 pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
     let first: serde_json::Value = serde_json::from_str(body).ok()?;
-    let mut cur = first.clone();
+    // 평범한 객체/배열(대부분)은 복제 없이 그대로 — 문자열일 때만 풀기 시도.
+    let serde_json::Value::String(s0) = &first else {
+        return Some(first);
+    };
+    let mut cur = s0.clone();
     for _ in 0..MAX_JSON_UNWRAP {
-        let serde_json::Value::String(inner) = &cur else {
-            break;
-        };
-        match serde_json::from_str::<serde_json::Value>(inner) {
+        match serde_json::from_str::<serde_json::Value>(&cur) {
             Ok(v) if v.is_object() || v.is_array() => return Some(v),
-            Ok(v) => cur = v,
-            Err(_) => break,
+            Ok(serde_json::Value::String(next)) => cur = next,
+            _ => break,
         }
     }
     Some(first)
@@ -562,7 +567,44 @@ pub fn judge(
         latency_ms,
         reason: None,
         detail: None,
+        display: Vec::new(),
     }
+}
+
+/// 표시 전용 항목 값 추출 — 조건과 같은 "마지막 http 실행" 응답에서. 없으면 `None`.
+pub(crate) fn display_values(panel: &PanelConfig, trace: &ScenarioTrace) -> Vec<Option<String>> {
+    let mut json_cache: std::collections::HashMap<usize, Option<serde_json::Value>> =
+        std::collections::HashMap::new();
+    panel
+        .display_items
+        .iter()
+        .map(|it| {
+            let (idx, resp) = trace
+                .steps
+                .iter()
+                .enumerate()
+                .rfind(|(_, s)| s.kind == StepKind::Http && s.step_id == it.step_id)
+                .and_then(|(i, s)| s.response.as_ref().map(|r| (i, r)))?;
+            match it.source {
+                DisplaySource::Body => {
+                    if resp.body_truncated {
+                        return None;
+                    }
+                    let json = json_cache
+                        .entry(idx)
+                        .or_insert_with(|| parse_body_json(&resp.body))
+                        .as_ref()?;
+                    jsonpath_first(json, &it.path).map(|v| shown(&stringify(&v)))
+                }
+                DisplaySource::Header => resp
+                    .headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(it.path.trim()))
+                    .map(|(_, v)| shown(v)),
+                DisplaySource::Status => Some(resp.status.to_string()),
+            }
+        })
+        .collect()
 }
 
 /// 점검 1회 — spec §6.1. 매번 DB에서 시나리오·환경을 다시 읽는다.
@@ -609,7 +651,8 @@ pub async fn run_check(db: &Db, panel: &PanelConfig) -> (Option<ScenarioTrace>, 
             CheckResult::with_reason(at_ms, Verdict::Fail, reason_timeout(panel.timeout_seconds)),
         ),
         Ok(trace) => {
-            let result = judge(&scenario, panel, &trace, at_ms);
+            let mut result = judge(&scenario, panel, &trace, at_ms);
+            result.display = display_values(panel, &trace);
             (Some(trace), result)
         }
     }
@@ -755,7 +798,8 @@ steps:
                 verdict: Verdict::Ok,
                 latency_ms: Some(777),
                 reason: None,
-                detail: None
+                detail: None,
+                display: vec![]
             }
         );
     }
@@ -1619,5 +1663,156 @@ steps:
         assert!(trace.is_some());
         assert_eq!(r.verdict, Verdict::Fail);
         assert_eq!(r.reason.as_deref(), Some("E1023"));
+    }
+
+    // ---- 표시 전용 항목 (polish Task 4) ----
+
+    use super::super::config::{DisplayItem, DisplaySource as Dsp};
+
+    fn ditem(step: &str, source: Dsp, path: &str) -> DisplayItem {
+        DisplayItem {
+            step_id: step.into(),
+            source,
+            path: path.into(),
+        }
+    }
+
+    fn dpanel(items: Vec<DisplayItem>) -> PanelConfig {
+        PanelConfig {
+            display_items: items,
+            ..panel(LatencySource::Total)
+        }
+    }
+
+    #[test]
+    fn display_values_table() {
+        let two = dpanel(vec![
+            ditem(A, Dsp::Body, "$.resultCode"),
+            ditem(A, Dsp::Body, "$.message"),
+        ]);
+        let t = t_body(r#"{"resultCode":"0000","message":"정상"}"#);
+        assert_eq!(
+            display_values(&two, &t),
+            vec![Some("0000".to_string()), Some("정상".to_string())]
+        );
+        // 경로 없음
+        let t = t_body(r#"{"resultCode":"0000"}"#);
+        assert_eq!(
+            display_values(&two, &t),
+            vec![Some("0000".to_string()), None]
+        );
+        // 스텝 미실행
+        let other = dpanel(vec![ditem(B, Dsp::Status, "")]);
+        assert_eq!(display_values(&other, &t), vec![None]);
+        // 응답 없음(전송 실패)
+        let noresp = tr(vec![st(A, None, Some("boom"))]);
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Status, "")]), &noresp),
+            vec![None]
+        );
+        // 잘림
+        let mut r = resp_with(200, r#"{"a":1}"#, &[]);
+        r.body_truncated = true;
+        let tt = tr(vec![st(A, Some(r), None)]);
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Body, "$.a")]), &tt),
+            vec![None]
+        );
+        // 비JSON
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Body, "$.a")]), &t_body("nope")),
+            vec![None]
+        );
+        // 감싼 JSON 풀림
+        let wrapped = serde_json::to_string(&r#"{"a":"v"}"#).unwrap();
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Body, "$.a")]), &t_body(&wrapped)),
+            vec![Some("v".to_string())]
+        );
+        // 헤더 대소문자 무시
+        let th = tr(vec![st(
+            A,
+            Some(resp_with(200, "", &[("X-Trace", "t1")])),
+            None,
+        )]);
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Header, "x-trace")]), &th),
+            vec![Some("t1".to_string())]
+        );
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Header, "x-none")]), &th),
+            vec![None]
+        );
+        // 상태
+        assert_eq!(
+            display_values(&dpanel(vec![ditem(A, Dsp::Status, "")]), &th),
+            vec![Some("200".to_string())]
+        );
+        // 300자 → 200자 …
+        let long = format!(r#"{{"a":"{}"}}"#, "x".repeat(300));
+        let v = display_values(&dpanel(vec![ditem(A, Dsp::Body, "$.a")]), &t_body(&long));
+        let v = v[0].clone().unwrap();
+        assert_eq!(v.chars().count(), 200);
+        assert!(v.ends_with('…'));
+        // JSON null → Some("")
+        assert_eq!(
+            display_values(
+                &dpanel(vec![ditem(A, Dsp::Body, "$.a")]),
+                &t_body(r#"{"a":null}"#)
+            ),
+            vec![Some(String::new())]
+        );
+    }
+
+    fn yaml_run_panel(id: String, items: Vec<DisplayItem>) -> PanelConfig {
+        PanelConfig {
+            scenario_id: id,
+            display_items: items,
+            ..PanelConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn display_step_missing_is_not_config_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for(&format!("{}/a", server.uri()))).await;
+        let p = yaml_run_panel(id, vec![ditem(B, Dsp::Status, "")]);
+        let (_, r) = run_check(&db, &p).await;
+        assert_eq!(r.verdict, Verdict::Ok);
+        assert_eq!(r.display, vec![None]);
+    }
+
+    #[tokio::test]
+    async fn display_filled_on_fail_verdict() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"resultCode":"E1"}"#))
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for(&format!("{}/a", server.uri()))).await;
+        let mut p = yaml_run_panel(id, vec![ditem(A, Dsp::Body, "$.resultCode")]);
+        p.conditions = vec![cond(A, Src::Body, "$.resultCode", Op::Eq, "0000")];
+        let (_, r) = run_check(&db, &p).await;
+        assert_eq!(r.verdict, Verdict::Fail);
+        assert_eq!(r.display, vec![Some("E1".to_string())]);
+    }
+
+    #[tokio::test]
+    async fn display_empty_without_trace() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(3)))
+            .mount(&server)
+            .await;
+        let (db, id) = db_with(&yaml_for(&format!("{}/slow", server.uri()))).await;
+        let mut p = yaml_run_panel(id, vec![ditem(A, Dsp::Status, "")]);
+        p.timeout_seconds = 1;
+        let (trace, r) = run_check(&db, &p).await;
+        assert!(trace.is_none());
+        assert!(r.display.is_empty());
     }
 }

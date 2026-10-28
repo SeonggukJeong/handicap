@@ -111,6 +111,7 @@ pub fn build_panel_status(cfg: &PanelConfig, snap: Option<&PanelSnapshot>) -> Pa
     for r in results.iter_mut().take(last) {
         r.reason = None;
         r.detail = None;
+        r.display = Vec::new();
     }
     PanelStatus {
         panel_id: cfg.id.clone(),
@@ -247,6 +248,7 @@ mod tests {
             latency_ms: None,
             reason: None,
             detail: None,
+            display: vec![],
         }
     }
 
@@ -327,5 +329,25 @@ mod tests {
             running: false,
         };
         assert_eq!(build_panel_status(&cfg(60), Some(&snap)).results.len(), 1);
+    }
+
+    #[test]
+    fn status_strips_display_except_latest() {
+        let results: Vec<_> = (0..5)
+            .map(|i| {
+                let mut r = res(i, Verdict::Ok);
+                r.display = vec![Some("x".into())];
+                r
+            })
+            .collect();
+        let snap = PanelSnapshot {
+            results,
+            running: true,
+        };
+        let s = build_panel_status(&cfg(10), Some(&snap));
+        for r in &s.results[..4] {
+            assert!(r.display.is_empty());
+        }
+        assert_eq!(s.results[4].display, vec![Some("x".to_string())]);
     }
 }
