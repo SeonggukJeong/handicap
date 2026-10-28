@@ -1454,3 +1454,36 @@ describe("MonitorEditPage display items", () => {
     await waitFor(() => expect(screen.getByTestId("location-state")).toHaveTextContent(/^null$/));
   });
 });
+
+describe("MonitorEditPage panel nav", () => {
+  const original = Element.prototype.scrollIntoView;
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+  });
+
+  it("nav_jump_expands_scrolls_and_focuses", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    handlers["GET /api/monitor-boards/B1"] = () => json(threePanels());
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.expandAll });
+    expect(toggleOf(3)).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: "3 셋" }));
+    expect(toggleOf(3)).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(toggleOf(3)).toHaveFocus());
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+    expect(scroll.mock.contexts[0]).toBe(document.getElementById(`panel-${P3}`));
+  });
+
+  it("nav_jump_actions_scrolls_to_buttons", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    handlers["GET /api/monitor-boards/B1"] = () => json(threePanels());
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.navJumpActions }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(document.getElementById("monitor-actions"));
+  });
+});

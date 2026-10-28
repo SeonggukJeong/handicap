@@ -1788,6 +1788,8 @@ export const ko = {
     summaryInterval: (n: number) => `${n}초`,
     summaryConds: (n: number) => `조건 ${n}`,
     summaryDisplays: (n: number) => `표시 ${n}`,
+    navTitle: "칸 목록",
+    navJumpActions: "저장 · 모니터 시작 ↓",
     panelTitle: "제목",
     scenario: "시나리오",
     scenarioRequired: "시나리오를 선택하세요",
