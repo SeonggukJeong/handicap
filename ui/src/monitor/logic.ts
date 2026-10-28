@@ -61,12 +61,32 @@ export function panelState(args: {
   return "ok";
 }
 
-/** `barCount` slots filled from the left; oldest results evicted when over. */
+/**
+ * `barCount` slots, filled from the right: the newest result is always the last
+ * slot, empties come first; oldest results evicted when over.
+ */
 export function barSlots(results: CheckResult[], barCount: number): (CheckResult | null)[] {
   const kept = results.length > barCount ? results.slice(results.length - barCount) : results;
   const slots: (CheckResult | null)[] = kept.slice();
-  while (slots.length < barCount) slots.push(null);
+  while (slots.length < barCount) slots.unshift(null);
   return slots;
+}
+
+/**
+ * Avg (rounded) and max latency over the visible results that answered ok
+ * (slow included; fail / config_error / null latency excluded). null = none.
+ */
+export function latencyStats(results: CheckResult[]): { avg: number; max: number } | null {
+  const ms = results
+    .filter((r) => r.verdict === "ok" && r.latency_ms !== null)
+    .map((r) => r.latency_ms as number);
+  if (ms.length === 0) return null;
+  return { avg: Math.round(ms.reduce((a, b) => a + b, 0) / ms.length), max: Math.max(...ms) };
+}
+
+/** Stats number: integer ms with thousands separators, no unit. */
+export function formatStatNum(ms: number): string {
+  return Math.round(ms).toLocaleString("en-US");
 }
 
 export function gridFor(n: number): { cols: number; rows: number } {

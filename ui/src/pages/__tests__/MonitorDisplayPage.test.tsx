@@ -49,6 +49,12 @@ function board(over: Json = {}, panels: Json[] = [panelCfg()]): Json {
     ...over,
   };
 }
+function boardStats(show: boolean, updatedAt = 1, style = "border"): Json {
+  return board({
+    updated_at: updatedAt,
+    config: { ...(board().config as Json), show_latency_stats: show, display_style: style },
+  });
+}
 function okResult(latency: number, at = T): Json {
   return { at_ms: at, verdict: "ok", latency_ms: latency, reason: null, detail: null, display: [] };
 }
@@ -84,6 +90,7 @@ function res(body: unknown, code = 200): Response {
 
 let boardHandler: () => Response;
 let statusHandler: () => Response;
+let statsHandler: (init?: RequestInit) => Promise<Response>;
 let boardCalls = 0;
 let statusCalls = 0;
 /** When true, status requests never answer; they reject only when aborted. */
@@ -102,6 +109,7 @@ beforeEach(() => {
   statusAborts = 0;
   boardHandler = () => res(board());
   statusHandler = () => res(status([panelStatus(P1, [okResult(413)])]));
+  statsHandler = () => Promise.resolve(res({ error: "unexpected" }, 500));
   fetchMock.mockReset();
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     const u = String(url);
@@ -117,6 +125,7 @@ beforeEach(() => {
       }
       return Promise.resolve(statusHandler());
     }
+    if (u === `/api/monitor-boards/${BID}/latency-stats`) return statsHandler(init);
     if (u === `/api/monitor-boards/${BID}`) {
       boardCalls += 1;
       return Promise.resolve(boardHandler());
@@ -739,6 +748,32 @@ describe("MonitorDisplayPage", () => {
     }
   });
 
+  it("stats_flag_in_scale_key", async () => {
+    // a probe that carries the avg/max line is taller (150 -> 260): flipping
+    // show_latency_stats via a board refetch must re-run the scale search
+    const spy = stubLayout(
+      () => 150,
+      (_title, el) => (el.querySelector('[data-testid="stats-probe"]') ? 260 : 150),
+    );
+    try {
+      boardHandler = () => res(boardStats(false));
+      await renderPage();
+      await tick(10);
+      expect(screen.queryByTestId("stats-probe")).toBeNull();
+      expect(fitOf("결제")).toBe("1");
+      boardHandler = () => res(boardStats(true, 2));
+      statusHandler = () =>
+        res(status([panelStatus(P1, [okResult(413)])], { board_updated_at: 2 }));
+      await tick(1000);
+      await tick(10);
+      await tick(10);
+      expect(screen.getByTestId("stats-probe")).toBeInTheDocument();
+      expect(Number(fitOf("결제"))).toBeLessThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("reason_line_has_its_own_settings_scale", async () => {
     // the widest fixed reason (at reason size) is 1100px wide in a 1000px text
     // box -> reason-only scale 1000/1100 x 0.98; the board scale stays 1
@@ -1216,5 +1251,125 @@ describe("MonitorDisplayPage", () => {
     expect(bar.className).not.toContain("fixed");
     // a strip of the page's flex column after the grid -> never over a panel
     expect(bar.previousElementSibling?.tagName).toBe("MAIN");
+  });
+});
+
+describe("MonitorDisplayPage latency stats", () => {
+  const failRes: Json = {
+    at_ms: T,
+    verdict: "fail",
+    latency_ms: null,
+    reason: "HTTP 503",
+    detail: null,
+    display: [],
+  };
+  const cfgErr: Json = {
+    at_ms: T,
+    verdict: "config_error",
+    latency_ms: null,
+    reason: "시나리오 오류",
+    detail: null,
+    display: [],
+  };
+
+  it("ok panel shows avg and max of visible results", async () => {
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(P1, [okResult(2410, T - 2000), okResult(100, T - 1000), okResult(113)]),
+        ]),
+      );
+    await renderPage();
+    expect(within(panelEl("결제")).getByTestId("latency-stats")).toHaveTextContent(
+      "평균 874 최대 2,410",
+    );
+  });
+
+  it("fail panel keeps the line, failures excluded", async () => {
+    statusHandler = () =>
+      res(
+        status([
+          panelStatus(P1, [okResult(100, T - 2000), okResult(200, T - 1000), failRes], {
+            consecutive_fail: 3,
+            fail_since_ms: T - 20_000,
+          }),
+        ]),
+      );
+    await renderPage();
+    expect(within(panelEl("결제")).getByTestId("latency-stats")).toHaveTextContent(
+      "평균 150 최대 200",
+    );
+  });
+
+  it("config_error and pending panels have no line", async () => {
+    boardHandler = () => res(board({}, [panelCfg(), panelCfg({ id: P2, title: "조회" })]));
+    statusHandler = () =>
+      res(status([panelStatus(P1, [cfgErr]), panelStatus(P2, [])], { started_at_ms: T - 5000 }));
+    await renderPage();
+    expect(within(panelEl("결제")).queryByTestId("latency-stats")).toBeNull();
+    expect(within(panelEl("조회")).queryByTestId("latency-stats")).toBeNull();
+  });
+
+  it("off board draws neither the line nor the probe line", async () => {
+    boardHandler = () => res(boardStats(false));
+    await renderPage();
+    expect(screen.queryByTestId("latency-stats")).toBeNull();
+    expect(screen.queryByTestId("stats-probe")).toBeNull();
+  });
+
+  it("on board has the probe line too", async () => {
+    await renderPage();
+    expect(screen.getByTestId("latency-stats")).toBeInTheDocument();
+    expect(screen.getByTestId("stats-probe")).toBeInTheDocument();
+  });
+
+  it("toggle sends PUT, reflects aria-pressed, disabled while busy", async () => {
+    let resolve!: (r: Response) => void;
+    let sent: unknown = null;
+    statsHandler = (init) => {
+      sent = JSON.parse(String(init?.body));
+      return new Promise<Response>((r) => {
+        resolve = r;
+      });
+    };
+    await renderPage();
+    const btn = screen.getByRole("button", { name: ko.monitor.toolbarStats });
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+    await act(async () => {
+      btn.click();
+    });
+    expect(sent).toEqual({ show: false });
+    expect(btn).toBeDisabled();
+    // the server bumped updated_at; polls and re-reads now agree with the answer
+    boardHandler = () => res(boardStats(false, 2));
+    statusHandler = () => res(status([panelStatus(P1, [okResult(413)])], { board_updated_at: 2 }));
+    await act(async () => {
+      resolve(res(boardStats(false, 2)));
+    });
+    await tick(10);
+    const after = screen.getByRole("button", { name: ko.monitor.toolbarStats });
+    expect(after).toHaveAttribute("aria-pressed", "false");
+    expect(after).not.toBeDisabled();
+    expect(screen.queryByTestId("latency-stats")).toBeNull();
+  });
+
+  it("toggle failure shows statsError", async () => {
+    statsHandler = () => Promise.resolve(res({ error: "boom" }, 500));
+    await renderPage();
+    await act(async () => {
+      screen.getByRole("button", { name: ko.monitor.toolbarStats }).click();
+    });
+    await tick(10);
+    expect(screen.getByRole("alert").textContent).toContain("평균·최대 표시를 바꾸지 못했습니다");
+  });
+
+  it("fill style: stats text uses the ink colour", async () => {
+    boardHandler = () => res(boardStats(true, 1, "fill"));
+    await renderPage();
+    const ink = within(panelEl("결제")).getByRole("heading", { name: "결제" }).style.color;
+    const line = within(panelEl("결제")).getByTestId("latency-stats");
+    const parts = [...line.querySelectorAll<HTMLElement>("span, b")];
+    expect(parts.length).toBe(4);
+    parts.forEach((el) => expect(el.style.color).toBe(ink));
   });
 });

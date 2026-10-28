@@ -4,6 +4,7 @@ import {
   axisAgoLabel,
   barColor,
   barSlots,
+  latencyStats,
   bigValueText,
   focusGeometries,
   focusLayout,
@@ -48,12 +49,10 @@ describe("logic", () => {
     expect(barColor(5000, th)).toBe("#ef4444");
     expect(barColor(5000, [])).toBe("#22c55e");
   });
-  it("slots_left_fill", () => {
-    const s = barSlots([ok(1, 1), ok(2, 2)], 10);
-    expect(s).toHaveLength(10);
-    expect(s[0]?.at_ms).toBe(1);
-    expect(s[1]?.at_ms).toBe(2);
-    expect(s[2]).toBeNull();
+  it("slots_right_fill", () => {
+    const r1 = ok(1, 1);
+    const r2 = ok(2, 2);
+    expect(barSlots([r1, r2], 5)).toEqual([null, null, null, r1, r2]);
   });
   it("slots_evict_oldest", () => {
     const rs = Array.from({ length: 12 }, (_, i) => ok(i, i));
@@ -211,5 +210,32 @@ describe("focusGeometries", () => {
     ]);
     expect(focusGeometries(1)).toEqual({ big: [], strip: [] });
     expect(focusGeometries(0)).toEqual({ big: [], strip: [] });
+  });
+});
+
+describe("latencyStats", () => {
+  const mk = (verdict: CheckResult["verdict"], latency: number | null): CheckResult => ({
+    at_ms: 1,
+    verdict,
+    latency_ms: latency,
+    reason: null,
+    detail: null,
+    display: [],
+  });
+  it("averages and maxes ok results, rounding the mean", () => {
+    expect(latencyStats([mk("ok", 100), mk("ok", 201), mk("ok", 300)])).toEqual({
+      avg: 200,
+      max: 300,
+    });
+    expect(latencyStats([mk("ok", 1), mk("ok", 2)])).toEqual({ avg: 2, max: 2 });
+  });
+  it("excludes fail, config_error and null latency", () => {
+    expect(
+      latencyStats([mk("fail", null), mk("config_error", null), mk("ok", null), mk("ok", 50)]),
+    ).toEqual({ avg: 50, max: 50 });
+  });
+  it("is null when nothing counts", () => {
+    expect(latencyStats([])).toBeNull();
+    expect(latencyStats([mk("fail", null), mk("config_error", null)])).toBeNull();
   });
 });

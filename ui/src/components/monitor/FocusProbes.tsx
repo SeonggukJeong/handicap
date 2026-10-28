@@ -28,8 +28,10 @@ export function FocusProbes({
   cardFit,
   cardDone,
   onCardMeasure,
+  showStats,
 }: {
   panels: PanelConfig[];
+  showStats: boolean;
   fontScale: number;
   /** The widest ms value a card can show (largest timeout). */
   cardMs: string;
@@ -63,6 +65,7 @@ export function FocusProbes({
                 fontScale={fontScale}
                 fit={incidentFit}
                 searchDone={incidentDone}
+                showStats={showStats}
                 onMeasure={onIncidentMeasure}
               />
             ))}

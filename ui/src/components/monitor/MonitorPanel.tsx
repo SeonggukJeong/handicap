@@ -1,6 +1,13 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { DisplayStyle, PanelConfig } from "../../api/monitors";
-import { bigValueText, formatMs, showConsecutive, type PanelState } from "../../monitor/logic";
+import {
+  bigValueText,
+  formatMs,
+  formatStatNum,
+  latencyStats,
+  showConsecutive,
+  type PanelState,
+} from "../../monitor/logic";
 import {
   COLOR,
   PANEL_BOX,
@@ -176,6 +183,51 @@ function BigValueLine({
 }
 
 /**
+ * `평균 N 최대 M` line. Shared by the real line and the size probes so bold
+ * digits and the 3cqw gap measure the same. A probe (`probe` set) is
+ * transparent; "fit" joins the width-need measure, "split" is the split probe's.
+ */
+export function StatsLine({
+  avg,
+  max,
+  fontSize,
+  labelColor,
+  numColor,
+  probe,
+}: {
+  avg: number;
+  max: number;
+  fontSize: string;
+  labelColor: string;
+  numColor: string;
+  probe?: "fit" | "split";
+}) {
+  const probeAttrs =
+    probe === undefined
+      ? { "data-testid": "latency-stats" }
+      : {
+          "data-testid": "stats-probe",
+          ...(probe === "fit" ? { "data-fit-line": "" } : { "data-split-probe": "" }),
+        };
+  const label = probe ? "transparent" : labelColor;
+  const num = probe ? "transparent" : numColor;
+  return (
+    <div
+      {...probeAttrs}
+      className={`overflow-hidden whitespace-nowrap text-right font-bold leading-tight ${
+        probe === undefined ? "text-ellipsis" : ""
+      }`}
+      style={{ fontSize, marginTop: "0.6cqw" }}
+    >
+      <span style={{ color: label }}>{ko.monitor.statsAvg}</span>{" "}
+      <b style={{ color: num }}>{formatStatNum(avg)}</b>{" "}
+      <span style={{ marginLeft: "3cqw", color: label }}>{ko.monitor.statsMax}</span>{" "}
+      <b style={{ color: num }}>{formatStatNum(max)}</b>
+    </div>
+  );
+}
+
+/**
  * Invisible stand-in that fixes the board scales from settings only (spec §7.3
  * 축소 비율은 설정으로 고정). Its text block holds the panel's title, the
  * longest state label that can appear while checking runs (`⚠ 설정 오류`,
@@ -198,10 +250,13 @@ export const PanelProbe = memo(function PanelProbe({
   onMeasure,
   reportId,
   cell,
+  showStats,
 }: {
   panel: PanelConfig;
   fontScale: number;
   fit: number;
+  /** Board shows the avg/max line: the probe measures it too (required so no caller forgets). */
+  showStats: boolean;
   /** Changes when the board's scale search completes (re-measure trigger). */
   searchDone: boolean;
   onMeasure: (id: string, m: PanelMeasure) => void;
@@ -241,6 +296,16 @@ export const PanelProbe = memo(function PanelProbe({
             color="transparent"
             fontScale={fontScale}
           />
+          {showStats && (
+            <StatsLine
+              avg={panel.timeout_seconds * 1000}
+              max={panel.timeout_seconds * 1000}
+              fontSize={panelFont(PANEL_TEXT.stats, fontScale)}
+              labelColor="transparent"
+              numColor="transparent"
+              probe="fit"
+            />
+          )}
         </div>
         {WIDEST_REASON_CANDIDATES.map((r) => (
           <div
@@ -293,6 +358,7 @@ export function MonitorPanel({
   fit = 1,
   reasonFit = 1,
   displayStyle = "border",
+  showStats = false,
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -306,6 +372,8 @@ export function MonitorPanel({
   reasonFit?: number;
   /** Board display style; `focus` renders like `border` here (C layout is the board's). */
   displayStyle?: DisplayStyle;
+  /** Board setting `show_latency_stats`: draw `평균 N 최대 M` under the big value. */
+  showStats?: boolean;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -335,6 +403,11 @@ export function MonitorPanel({
     showConsecutive(status.consecutive_fail) &&
     status.fail_since_ms !== null
       ? ko.monitor.consecutive(status.consecutive_fail, formatHms(status.fail_since_ms))
+      : null;
+
+  const stats =
+    showStats && (state === "ok" || state === "slow" || state === "fail")
+      ? latencyStats(results)
       : null;
 
   const graph = useGraphShown(panelRef, textRef, fit, fontScale, fillBg !== null);
@@ -423,6 +496,15 @@ export function MonitorPanel({
             >
               {consecutive}
             </div>
+          )}
+          {stats && (
+            <StatsLine
+              avg={stats.avg}
+              max={stats.max}
+              fontSize={panelFont(PANEL_TEXT.stats, fontScale)}
+              labelColor={ink ?? COLOR.muted}
+              numColor={ink ?? COLOR.text}
+            />
           )}
         </div>
         {graph && (

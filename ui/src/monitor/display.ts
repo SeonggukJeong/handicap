@@ -26,6 +26,7 @@ export const PANEL_TEXT = {
   /** Step-name part of a fail reason (after the first " · "), below the reason. */
   step: 6.4,
   consecutive: 5.4,
+  stats: 5.4,
   threshold: 4.9,
   axis: 3.7,
   failMark: 3.3,

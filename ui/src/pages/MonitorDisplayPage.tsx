@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getBoard, getBoardStatus, stopBoard, type Blink } from "../api/monitors";
+import { getBoard, getBoardStatus, setLatencyStats, stopBoard, type Blink } from "../api/monitors";
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
 import { MonitorPanel, PanelProbe, type PanelMeasure } from "../components/monitor/MonitorPanel";
@@ -65,10 +65,13 @@ function FullScreenMessage({ children }: { children: ReactNode }) {
 function ToolButton({
   onClick,
   disabled,
+  pressed,
   children,
 }: {
   onClick: () => void;
   disabled?: boolean;
+  /** Toggle state (`aria-pressed`); omit for a plain button. */
+  pressed?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -76,6 +79,7 @@ function ToolButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={pressed}
       className="rounded border border-slate-600 bg-slate-800/90 px-3 py-1.5 text-slate-100 hover:bg-slate-700 disabled:opacity-50"
     >
       {children}
@@ -92,6 +96,8 @@ export function MonitorDisplayPage() {
   const [cursorIdle, setCursorIdle] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
+  const [statsBusy, setStatsBusy] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
   useEffect(() => {
     const onResize = () => setViewport(`${window.innerWidth}x${window.innerHeight}`);
@@ -230,6 +236,7 @@ export function MonitorDisplayPage() {
     full ? "full" : "win",
     fontScale,
     displayStyle ?? "",
+    `stats:${board?.config.show_latency_stats}`,
     ...(board?.config.panels ?? []).map((p) => `${p.id}|${p.title}|${p.timeout_seconds}`),
   ].join("\n");
   // Text scales, each one per board and fixed by settings (spec §7.3 극단값 표시
@@ -298,6 +305,7 @@ export function MonitorDisplayPage() {
       fit={scale.fit}
       reasonFit={scale.reasonFit}
       displayStyle={board.config.display_style}
+      showStats={board.config.show_latency_stats}
     />
   );
   const cardMs = formatMs(Math.max(0, ...panels.map((p) => p.timeout_seconds)) * 1000);
@@ -374,6 +382,7 @@ export function MonitorDisplayPage() {
               fit={normal.cand}
               searchDone={normal.done}
               onMeasure={onProbe}
+              showStats={board.config.show_latency_stats}
             />
           ))}
         </div>
@@ -388,6 +397,7 @@ export function MonitorDisplayPage() {
             cardFit={card.cand}
             cardDone={card.done}
             onCardMeasure={card.report}
+            showStats={board.config.show_latency_stats}
           />
         )}
       </main>
@@ -402,6 +412,23 @@ export function MonitorDisplayPage() {
           <ToolButton onClick={() => enterFullscreen()}>{ko.monitor.toolbarFullscreen}</ToolButton>
           <ToolButton onClick={() => navigate(`/monitors/${id}`)}>
             {ko.monitor.toolbarSettings}
+          </ToolButton>
+          <ToolButton
+            pressed={board.config.show_latency_stats}
+            disabled={statsBusy}
+            onClick={() => {
+              setStatsError(null);
+              setStatsBusy(true);
+              void setLatencyStats(id, !board.config.show_latency_stats)
+                .then(
+                  // The server doesn't restart checks; the board re-reads on its own.
+                  (b) => qc.setQueryData(monitorKey(id), b),
+                  (e: unknown) => setStatsError(e instanceof Error ? e.message : String(e)),
+                )
+                .finally(() => setStatsBusy(false));
+            }}
+          >
+            {ko.monitor.toolbarStats}
           </ToolButton>
           {status?.enabled !== false && (
             <ToolButton
@@ -426,6 +453,11 @@ export function MonitorDisplayPage() {
             >
               {ko.monitor.stop}
             </ToolButton>
+          )}
+          {statsError && (
+            <span role="alert" className="self-center text-red-300">
+              {ko.monitor.statsError(statsError)}
+            </span>
           )}
           {stopError && (
             <span role="alert" className="self-center text-red-300">

@@ -32,17 +32,27 @@ function renderBars(
 }
 
 const slots = () => screen.getAllByTestId("bar-slot");
+/** The result bars only (empties are left of them: filled from the right). */
+const filled = () => slots().filter((el) => !el.hasAttribute("data-empty"));
 
 describe("LatencyBars", () => {
-  it("slot_count_equals_bar_count_left_filled", () => {
+  it("slot_count_equals_bar_count_right_filled", () => {
     renderBars([ok(100), ok(200), ok(300)], { barCount: 10 });
     const s = slots();
     expect(s).toHaveLength(10);
-    s.slice(0, 3).forEach((el) => expect(el).not.toHaveAttribute("data-empty"));
-    s.slice(3).forEach((el) => expect(el).toHaveAttribute("data-empty"));
-    // oldest on the left, newest right after it
-    expect(s[0].style.height).toBe("5%");
-    expect(s[2].style.height).toBe("15%");
+    s.slice(0, 7).forEach((el) => expect(el).toHaveAttribute("data-empty"));
+    s.slice(7).forEach((el) => expect(el).not.toHaveAttribute("data-empty"));
+    // oldest first, newest at the right end
+    expect(s[7].style.height).toBe("5%");
+    expect(s[9].style.height).toBe("15%");
+  });
+
+  it("two_results_in_five_slots_fill_the_last_two", () => {
+    renderBars([ok(100), ok(200)], { barCount: 5 });
+    const s = slots();
+    expect(s).toHaveLength(5);
+    s.slice(0, 3).forEach((el) => expect(el).toHaveAttribute("data-empty"));
+    s.slice(3).forEach((el) => expect(el).not.toHaveAttribute("data-empty"));
   });
 
   it("slot_count_capped_and_oldest_evicted_when_over", () => {
@@ -82,7 +92,7 @@ describe("LatencyBars", () => {
 
   it("bar_color_from_current_thresholds", () => {
     renderBars([ok(500), ok(700), ok(800), ok(1300)]);
-    const s = slots();
+    const s = filled();
     expect(s[0].style.backgroundColor).toBe(GREEN);
     expect(s[1].style.backgroundColor).toBe(YELLOW);
     expect(s[2].style.backgroundColor).toBe(YELLOW);
@@ -92,7 +102,7 @@ describe("LatencyBars", () => {
   it("bar_color_follows_current_thresholds_not_history", () => {
     // same results, thresholds changed -> colors recomputed
     renderBars([ok(800)], { thresholds: [{ ms: 500, color: "#fb923c" }] });
-    expect(slots()[0].style.backgroundColor).toBe(ORANGE);
+    expect(filled()[0].style.backgroundColor).toBe(ORANGE);
   });
 
   it("fail_bar_full_height", () => {
@@ -107,7 +117,7 @@ describe("LatencyBars", () => {
         display: [],
       },
     ]);
-    const fail = slots()[1];
+    const fail = filled()[1];
     expect(fail).toHaveAttribute("data-verdict", "fail");
     expect(fail.style.height).toBe("100%");
     expect(fail.textContent).toContain("✖");
@@ -124,7 +134,7 @@ describe("LatencyBars", () => {
         display: [],
       },
     ]);
-    const bar = slots()[0];
+    const bar = filled()[0];
     expect(bar).toHaveAttribute("data-verdict", "config_error");
     expect(bar.style.height).toBe("100%");
     expect(bar.textContent).not.toContain("✖");
@@ -133,8 +143,8 @@ describe("LatencyBars", () => {
 
   it("overflow_clamped_to_100", () => {
     renderBars([ok(5000), ok(1000)], { graphMaxMs: 2000 });
-    expect(slots()[0].style.height).toBe("100%");
-    expect(slots()[1].style.height).toBe("50%");
+    expect(filled()[0].style.height).toBe("100%");
+    expect(filled()[1].style.height).toBe("50%");
   });
 
   /** Render, then deliver one measurement: bars area `areaH`, labels 20px tall. */
@@ -256,7 +266,7 @@ describe("LatencyBars", () => {
       },
     ]);
     // the slots container clips: a ✖ never draws over the axis text below
-    const container = slots()[0].parentElement as HTMLElement;
+    const container = filled()[0].parentElement as HTMLElement;
     expect(container.style.overflow).toBe("hidden");
   });
 
