@@ -1,5 +1,6 @@
 pub mod check;
 pub mod config;
+pub mod record;
 pub mod supervisor;
 
 pub use supervisor::MonitorSupervisor;
