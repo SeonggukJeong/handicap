@@ -80,7 +80,7 @@ export function ConditionRow({
           disabled={!needsValue(draft.op)}
           placeholder={
             !needsValue(draft.op)
-              ? "—"
+              ? k.noValue
               : draft.op === "one_of"
                 ? k.condValueOneOfPlaceholder
                 : undefined

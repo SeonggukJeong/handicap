@@ -850,6 +850,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("resultCode"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("eq");
     expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("0000");
     expect(screen.getByLabelText(ko.monitor.condIgnoreCase)).not.toBeChecked();
@@ -865,6 +866,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("token"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("not_empty");
     expect(screen.getByLabelText(ko.monitor.condValue)).toBeDisabled();
     expect(screen.getByText(ko.monitor.condVolatileHint)).toBeInTheDocument();
@@ -876,6 +878,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("err"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("exists");
   });
 
@@ -885,6 +888,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn(ko.monitor.condTargetStatus));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByLabelText(ko.monitor.condOp)).toHaveValue("eq");
     expect(screen.getByLabelText(ko.monitor.condValue)).toHaveValue("200");
     await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
@@ -898,6 +902,7 @@ describe("MonitorEditPage preview conditions", () => {
     await runPreviewUi(user);
     expect(await screen.findByText(ko.monitor.previewHeaders)).toBeInTheDocument();
     await user.click(await addBtn("헤더 x-trace"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
     expect(screen.getByText("헤더 x-trace = abc · 로그인 호출")).toBeInTheDocument();
   });
@@ -920,6 +925,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("n"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     await user.selectOptions(screen.getByLabelText(ko.monitor.condOp), "gt");
     const v = screen.getByLabelText(ko.monitor.condValue);
     await user.clear(v);
@@ -947,6 +953,7 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("a"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     expect(screen.getByRole("button", { name: ko.monitor.condConfirm })).toBeDisabled();
     expect(screen.getByText(ko.monitor.condMax)).toBeInTheDocument();
   });
@@ -966,6 +973,7 @@ describe("MonitorEditPage preview conditions", () => {
     await runPreviewUi(user);
     expect(await addBtn(ko.monitor.condTargetStatus)).toBeInTheDocument();
     await user.click(await addBtn(ko.monitor.condTargetStatus));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     await user.selectOptions(screen.getByLabelText(ko.monitor.scenario), SID2);
     expect(
       screen.queryByRole("button", { name: ko.monitor.condAddAria(ko.monitor.condTargetStatus) }),
@@ -1024,14 +1032,143 @@ describe("MonitorEditPage preview conditions", () => {
     renderAt("/monitors/B1");
     await runPreviewUi(user);
     await user.click(await addBtn("resultCode"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     // Unfinished confirm row: a re-run must not send anything from it.
     await runPreviewUi(user);
     await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(2));
     expect(confirmedConds(1)).toHaveLength(0);
     await user.click(await addBtn("resultCode"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseCondition }));
     await user.click(screen.getByRole("button", { name: ko.monitor.condConfirm }));
     await runPreviewUi(user);
     await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(3));
     expect(confirmedConds(2)).toHaveLength(1);
+  });
+});
+
+const DISP_STATUS = { step_id: STEP_A, source: "status", path: "" };
+const DISP_BODY = { step_id: STEP_B, source: "body", path: "$.code" };
+const withDisplay = (items: unknown[]) =>
+  board({
+    config: {
+      font_scale: "large",
+      show_latency_stats: true,
+      display_style: "border",
+      blink: "fail",
+      panels: [panel({ display_items: items })],
+    },
+  });
+const putDisplay = () =>
+  (
+    sent("PUT", "/api/monitor-boards/B1")[0].body as {
+      config: { panels: { display_items: Record<string, unknown>[] }[] };
+    }
+  ).config.panels[0].display_items;
+const displayToggle = () =>
+  screen.findByRole("button", { name: new RegExp(`^[▸▾] ${ko.monitor.displayTitle}$`) });
+const ROW0_STATUS = `${ko.monitor.displayRank[0]} 상태코드 · 로그인 호출`;
+const ROW0_BODY = `${ko.monitor.displayRank[0]} code · 조회 호출`;
+
+describe("MonitorEditPage display items", () => {
+  it("display_section_collapsed_when_empty_and_expands_with_empty_hint", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    const toggle = await displayToggle();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(ko.monitor.displayIntro)).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.getByText(ko.monitor.displayIntro)).toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.displayEmpty)).toBeInTheDocument();
+  });
+
+  it("display_section_open_with_ranks_and_collapsed_hint", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
+    renderAt("/monitors/B1");
+    const toggle = await displayToggle();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText(ROW0_STATUS)).toBeInTheDocument();
+    expect(screen.getByText(`${ko.monitor.displayRank[1]} code · 조회 호출`)).toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.queryByText(ko.monitor.displayIntro)).not.toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.advancedSet(2))).toBeInTheDocument();
+  });
+
+  it("preview_display_choice_adds_item_and_opens_section", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = () => json(board());
+    previewWith({ body: '{"code":1}' });
+    renderAt("/monitors/B1");
+    expect(await displayToggle()).toHaveAttribute("aria-expanded", "false");
+    await runPreviewUi(user);
+    await user.click(await addBtn("code"));
+    await user.click(screen.getByRole("button", { name: ko.monitor.condChooseDisplay }));
+    expect(await displayToggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(`${ko.monitor.displayRank[0]} code · 로그인 호출`)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.displayEmpty)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putDisplay()).toEqual([{ step_id: STEP_A, source: "body", path: "$.code" }]);
+  });
+
+  it("preview_rerun_sends_display_items", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS]));
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await runPreviewUi(user);
+    await waitFor(() => expect(sent("POST", PREVIEW_URL)).toHaveLength(1));
+    const sentBody = sent("POST", PREVIEW_URL)[0].body as { display_items: unknown[] };
+    expect(sentBody.display_items).toEqual([DISP_STATUS]);
+  });
+
+  it("display_swap_reverses_order_in_saved_body", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(withDisplay([DISP_BODY, DISP_STATUS]));
+    renderAt("/monitors/B1");
+    await screen.findByText(ROW0_STATUS);
+    await user.click(screen.getByRole("button", { name: ko.monitor.displaySwap }));
+    expect(screen.getByText(ROW0_BODY)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putDisplay()).toEqual([DISP_BODY, DISP_STATUS]);
+  });
+
+  it("display_swap_button_only_with_two_items", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS]));
+    renderAt("/monitors/B1");
+    await screen.findByText(ROW0_STATUS);
+    expect(screen.queryByRole("button", { name: ko.monitor.displaySwap })).not.toBeInTheDocument();
+  });
+
+  it("display_item_delete", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(withDisplay([DISP_STATUS, DISP_BODY]));
+    handlers["PUT /api/monitor-boards/B1"] = () => json(withDisplay([DISP_BODY]));
+    renderAt("/monitors/B1");
+    await screen.findByText(ROW0_STATUS);
+    await user.click(screen.getByRole("button", { name: ko.monitor.displayRemove(1) }));
+    expect(screen.getByText(ROW0_BODY)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putDisplay()).toEqual([DISP_BODY]);
+  });
+
+  it("display_item_marks_missing_step", async () => {
+    const GONE = "01HZZZZZZZZZZZZZZZZZZZZZG1";
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(withDisplay([{ ...DISP_BODY, step_id: GONE }]));
+    renderAt("/monitors/B1");
+    expect(await screen.findByText(ko.monitor.condStepGone)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`code · ${GONE}`))).toBeInTheDocument();
+  });
+
+  it("condition_list_heading_says_and", async () => {
+    handlers["GET /api/monitor-boards/B1"] = () => json(withConds([COND_A]));
+    renderAt("/monitors/B1");
+    expect(await screen.findByText(/^아래 조건을 모두 만족하면 정상 \(AND\)/)).toBeInTheDocument();
   });
 });

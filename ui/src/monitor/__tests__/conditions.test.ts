@@ -173,9 +173,7 @@ describe("conditions", () => {
     const three = JSON.stringify(JSON.stringify(JSON.stringify('{"code":1}')));
     expect(parseBodyJson(three)).toEqual({ value: { code: 1 }, unwrapped: 3 });
     const four = JSON.stringify(JSON.stringify(JSON.stringify(JSON.stringify('{"code":1}'))));
-    const r4 = parseBodyJson(four);
-    expect(r4?.unwrapped).toBe(0);
-    expect(typeof r4?.value).toBe("string");
+    expect(parseBodyJson(four)).toEqual({ value: JSON.parse(four), unwrapped: 0 });
     expect(parseBodyJson('"hello"')).toEqual({ value: "hello", unwrapped: 0 });
     expect(parseBodyJson('"12"')).toEqual({ value: "12", unwrapped: 0 });
     expect(parseBodyJson('"[1,2]"')).toEqual({ value: [1, 2], unwrapped: 1 });

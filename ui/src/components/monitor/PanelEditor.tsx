@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { previewCheck, newPanel } from "../../api/monitors";
-import type { Condition, PanelConfig, PreviewResult as Preview } from "../../api/monitors";
+import type { Condition, DisplayItem, PanelConfig, PreviewResult as Preview } from "../../api/monitors";
 import type { Scenario } from "../../api/schemas";
 import type { EnvironmentSummary } from "../../api/environments";
 import { Button } from "../Button";
@@ -13,7 +13,7 @@ import { parseScenarioDoc } from "../../scenario/yamlDoc";
 import { flattenHttpSteps } from "../../scenario/model";
 import { PreviewResult } from "./PreviewResult";
 import { ConditionRow } from "./ConditionRow";
-import { conditionSummary } from "../../monitor/conditions";
+import { conditionSummary, targetLabel } from "../../monitor/conditions";
 
 const MAX_THRESHOLDS = 5;
 const THRESHOLD_COLORS = ["#f59e0b", "#ef4444", "#a855f7", "#3b82f6", "#14b8a6"];
@@ -55,6 +55,7 @@ export function PanelEditor({
   const pid = panel.id;
   const [advOpen, setAdvOpen] = useState(false);
   const [condOpen, setCondOpen] = useState(panel.conditions.length > 0);
+  const [dispOpen, setDispOpen] = useState(panel.display_items.length > 0);
   const [editingCond, setEditingCond] = useState<number | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -134,6 +135,12 @@ export function PanelEditor({
     set({ conditions: [...panel.conditions, c] });
     setCondOpen(true);
   };
+
+  const addDisplay = (d: DisplayItem) => {
+    set({ display_items: [...panel.display_items, d] });
+    setDispOpen(true);
+  };
+  const swapDisplay = () => set({ display_items: [...panel.display_items].reverse() });
 
   const showScenarioErr = (scenarioError || localScenarioErr) && !panel.scenario_id;
 
@@ -355,6 +362,8 @@ export function PanelEditor({
           stepNames={stepNames}
           onAddCondition={addCondition}
           conditionCount={panel.conditions.length}
+          displayItems={panel.display_items}
+          onAddDisplay={addDisplay}
         />
       )}
 
@@ -426,6 +435,62 @@ export function PanelEditor({
                   ),
                 )}
               </ul>
+            )}
+          </div>
+        )}
+      </fieldset>
+
+      <fieldset className="mt-3 min-w-0">
+        <legend className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <button
+            type="button"
+            aria-expanded={dispOpen}
+            onClick={() => setDispOpen((v) => !v)}
+            className="hover:underline"
+          >
+            {dispOpen ? "▾" : "▸"} {ko.monitor.displayTitle}
+          </button>
+          {!dispOpen && panel.display_items.length > 0 && (
+            <span className="text-xs font-normal text-slate-500">
+              {ko.monitor.advancedSet(panel.display_items.length)}
+            </span>
+          )}
+        </legend>
+        {dispOpen && (
+          <div className="mt-2">
+            <p className="mb-2 text-xs text-slate-500">{ko.monitor.displayIntro}</p>
+            {panel.display_items.length === 0 ? (
+              <p className="text-sm text-slate-500">{ko.monitor.displayEmpty}</p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {panel.display_items.map((d, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="min-w-0 break-words">
+                      {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
+                    </span>
+                    {scenario && steps.length > 0 && !(d.step_id in stepNames) && (
+                      <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={ko.monitor.displayRemove(i + 1)}
+                      onClick={() =>
+                        set({ display_items: panel.display_items.filter((_, k) => k !== i) })
+                      }
+                      className="rounded px-1 hover:bg-slate-100"
+                    >
+                      🗑
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {panel.display_items.length === 2 && (
+              <div className="mt-2">
+                <Button variant="secondary" type="button" onClick={swapDisplay}>
+                  {ko.monitor.displaySwap}
+                </Button>
+              </div>
             )}
           </div>
         )}

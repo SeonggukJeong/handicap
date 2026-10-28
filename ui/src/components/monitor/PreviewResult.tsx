@@ -1,8 +1,13 @@
-import { useState } from "react";
-import type { Condition, PreviewResult as Preview } from "../../api/monitors";
+import { useId, useState, type ReactNode } from "react";
+import type { Condition, DisplayItem, PreviewResult as Preview } from "../../api/monitors";
 import { ko } from "../../i18n/ko";
 import { formatMs } from "../../monitor/logic";
-import { defaultCondition, targetLabel, type ConditionClick } from "../../monitor/conditions";
+import {
+  defaultCondition,
+  parseBodyJson,
+  targetLabel,
+  type ConditionClick,
+} from "../../monitor/conditions";
 import { BodyBlock } from "../response/BodyBlock";
 import { HeaderTable } from "../response/HeaderTable";
 import { JsonValueTree } from "../response/JsonValueTree";
@@ -20,14 +25,82 @@ type TraceStep = NonNullable<Preview["trace"]>["steps"][number];
 
 const addButtonCls = "rounded bg-slate-200 px-1.5 py-0.5 text-[11px] hover:bg-slate-300";
 
-function isJsonBody(body: string, truncated: boolean): boolean {
-  if (truncated) return false;
-  try {
-    JSON.parse(body);
-    return true;
-  } catch {
-    return false;
+const MAX_DISPLAY = 2;
+// Credential-bearing headers: the server rejects them as display items too.
+const AUTH_HEADERS = new Set(["set-cookie", "cookie", "authorization", "proxy-authorization"]);
+
+function displayItemOf(stepId: string, c: ConditionClick): DisplayItem | null {
+  switch (c.kind) {
+    case "body":
+      return { step_id: stepId, source: "body", path: c.path };
+    case "header":
+      return { step_id: stepId, source: "header", path: c.name };
+    case "status":
+      return { step_id: stepId, source: "status", path: "" };
+    default:
+      return null;
   }
+}
+
+/** The popup after clicking `+ 추가`: condition or wall display. Whole-body text
+ *  (`body_text`) has no display form, so it skips straight to the condition row. */
+function AddChoice({
+  item,
+  existing,
+  onAddDisplay,
+  confirmRow,
+  close,
+  startAtCondition,
+}: {
+  item: DisplayItem | null;
+  existing: DisplayItem[];
+  onAddDisplay?: (d: DisplayItem) => void;
+  confirmRow: (close: () => void) => ReactNode;
+  close: () => void;
+  startAtCondition: boolean;
+}) {
+  const k = ko.monitor;
+  const [stage, setStage] = useState<"choose" | "condition">(
+    startAtCondition || item === null || onAddDisplay === undefined ? "condition" : "choose",
+  );
+  const reasonId = useId();
+  if (stage === "condition") return <>{confirmRow(close)}</>;
+  let reason: string | undefined;
+  if (item !== null) {
+    if (existing.length >= MAX_DISPLAY) reason = k.displayMax;
+    else if (
+      existing.some(
+        (d) => d.step_id === item.step_id && d.source === item.source && d.path === item.path,
+      )
+    )
+      reason = k.displayDup;
+    else if (item.source === "header" && AUTH_HEADERS.has(item.path.trim().toLowerCase()))
+      reason = k.displayAuthHeader;
+  }
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <button type="button" onClick={() => setStage("condition")} className={addButtonCls}>
+        {k.condChooseCondition}
+      </button>
+      <button
+        type="button"
+        disabled={reason !== undefined}
+        aria-describedby={reason !== undefined ? reasonId : undefined}
+        onClick={() => {
+          if (item !== null) onAddDisplay?.(item);
+          close();
+        }}
+        className={`${addButtonCls} disabled:cursor-not-allowed disabled:opacity-50`}
+      >
+        {k.condChooseDisplay}
+      </button>
+      {reason !== undefined && (
+        <span id={reasonId} className="text-xs text-slate-500">
+          {reason}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function StepRow({
@@ -35,17 +108,31 @@ function StepRow({
   name,
   onAddCondition,
   conditionCount,
+  displayItems,
+  onAddDisplay,
 }: {
   step: TraceStep;
   name: string;
   onAddCondition?: (c: Condition) => void;
   conditionCount: number;
+  displayItems: DisplayItem[];
+  onAddDisplay?: (d: DisplayItem) => void;
 }) {
   const k = ko.monitor;
   const [click, setClick] = useState<ConditionClick | null>(null);
   const resp = s.response;
   const interactive = s.kind === "http" && resp != null && onAddCondition !== undefined;
   const blockedReason = conditionCount >= MAX_CONDITIONS ? k.condMax : undefined;
+  const choice = (c: ConditionClick, close: () => void) => (
+    <AddChoice
+      item={displayItemOf(s.step_id, c)}
+      existing={displayItems}
+      onAddDisplay={onAddDisplay}
+      startAtCondition={c.kind === "body_text"}
+      close={close}
+      confirmRow={(done) => confirmRow(c, done)}
+    />
+  );
   const confirmRow = (c: ConditionClick, close: () => void) => {
     const { condition, volatileHint } = defaultCondition(s.step_id, c);
     return (
@@ -62,7 +149,10 @@ function StepRow({
       />
     );
   };
-  const treeBody = interactive && resp.body !== "" && isJsonBody(resp.body, resp.body_truncated);
+  // BodyBlock hands the raw single-layer parse to `render`; the tree uses the unwrapped one.
+  const parsedBody =
+    interactive && resp.body !== "" && !resp.body_truncated ? parseBodyJson(resp.body) : null;
+  const treeBody = parsedBody !== null;
 
   return (
     <li className="rounded border border-slate-200 bg-white p-2">
@@ -103,13 +193,18 @@ function StepRow({
               onClick: (key) => setClick({ kind: "header", name: key, value: resp.headers[key] }),
             }}
           />
-          {click !== null && confirmRow(click, () => setClick(null))}
+          {click !== null && (
+            <div key={JSON.stringify(click)}>{choice(click, () => setClick(null))}</div>
+          )}
         </div>
       )}
       {resp && resp.body !== "" && (
         <>
           <p className="mt-2 text-xs font-medium text-slate-500">
             {treeBody ? k.previewBodyClickHint : k.previewBody}
+            {parsedBody !== null && parsedBody.unwrapped >= 1 && (
+              <span className="ml-2 font-normal text-slate-600">{k.previewUnwrapped}</span>
+            )}
           </p>
           {interactive && !treeBody && (
             <div className="mb-1 mt-1">
@@ -131,15 +226,15 @@ function StepRow({
                 treeBody
                   ? {
                       openLabel: k.previewOpenFullCondition,
-                      render: (v) => (
+                      render: () => (
                         <JsonValueTree
-                          value={v}
+                          value={parsedBody.value}
                           actionLabel={k.condAdd}
                           actionAriaLabel={(l) =>
                             k.condAddAria(targetLabel({ source: "body", path: l.path }))
                           }
                           renderConfirm={(l, close) =>
-                            confirmRow({ kind: "body", path: l.path, value: l.value }, close)
+                            choice({ kind: "body", path: l.path, value: l.value }, close)
                           }
                         />
                       ),
@@ -161,11 +256,15 @@ export function PreviewResult({
   stepNames,
   onAddCondition,
   conditionCount = 0,
+  displayItems = [],
+  onAddDisplay,
 }: {
   preview: Preview;
   stepNames: Record<string, string>;
   onAddCondition?: (c: Condition) => void;
   conditionCount?: number;
+  displayItems?: DisplayItem[];
+  onAddDisplay?: (d: DisplayItem) => void;
 }) {
   const { trace, result } = preview;
   return (
@@ -190,6 +289,8 @@ export function PreviewResult({
               name={stepNames[s.step_id] ?? s.step_id}
               onAddCondition={onAddCondition}
               conditionCount={conditionCount}
+              displayItems={displayItems}
+              onAddDisplay={onAddDisplay}
             />
           ))}
         </ol>
