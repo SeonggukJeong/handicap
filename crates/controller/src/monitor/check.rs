@@ -240,22 +240,41 @@ fn condition_step_missing(
     ))
 }
 
+/// 본문 JSON 읽기 — 문자열로 감싼 JSON은 최대 `MAX_JSON_UNWRAP`번 풀어 객체/배열을 낸다.
+pub(crate) const MAX_JSON_UNWRAP: usize = 3;
+
+pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
+    let first: serde_json::Value = serde_json::from_str(body).ok()?;
+    let mut cur = first.clone();
+    for _ in 0..MAX_JSON_UNWRAP {
+        let serde_json::Value::String(inner) = &cur else {
+            break;
+        };
+        match serde_json::from_str::<serde_json::Value>(inner) {
+            Ok(v) if v.is_object() || v.is_array() => return Some(v),
+            Ok(v) => cur = v,
+            Err(_) => break,
+        }
+    }
+    Some(first)
+}
+
 enum Actual {
     Fixed(&'static str),
     Missing,
     Val { text: String, num: Option<f64> },
 }
 
-fn actual_value(c: &Condition, resp: &TracedResponse) -> Actual {
+fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::Value>) -> Actual {
     match c.source {
         ConditionSource::Body => {
             if resp.body_truncated {
                 return Actual::Fixed(REASON_BODY_TOO_LARGE);
             }
-            let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body) else {
+            let Some(json) = json else {
                 return Actual::Fixed(REASON_BODY_NOT_JSON);
             };
-            match jsonpath_first(&json, &c.path) {
+            match jsonpath_first(json, &c.path) {
                 None => Actual::Missing,
                 Some(v) => Actual::Val {
                     text: stringify(&v),
@@ -352,6 +371,9 @@ fn eval_conditions(
     trace: &ScenarioTrace,
     at_ms: i64,
 ) -> Option<CheckResult> {
+    // 스텝 trace 인덱스 → 본문 JSON(한 판정 안에서 한 번만 파싱).
+    let mut json_cache: std::collections::HashMap<usize, Option<serde_json::Value>> =
+        std::collections::HashMap::new();
     for c in &panel.conditions {
         let name = (all.len() >= 2)
             .then(|| {
@@ -369,15 +391,24 @@ fn eval_conditions(
                 &detail,
             ))
         };
-        let Some(resp) = trace
+        let Some((idx, resp)) = trace
             .steps
             .iter()
-            .rfind(|s| s.kind == StepKind::Http && s.step_id == c.step_id)
-            .and_then(|s| s.response.as_ref())
+            .enumerate()
+            .rfind(|(_, s)| s.kind == StepKind::Http && s.step_id == c.step_id)
+            .and_then(|(i, s)| s.response.as_ref().map(|r| (i, r)))
         else {
             return fail(REASON_COND_STEP_NOT_RUN);
         };
-        match actual_value(c, resp) {
+        let json = if c.source == ConditionSource::Body && !resp.body_truncated {
+            json_cache
+                .entry(idx)
+                .or_insert_with(|| parse_body_json(&resp.body))
+                .as_ref()
+        } else {
+            None
+        };
+        match actual_value(c, resp, json) {
             Actual::Fixed(r) => return fail(r),
             Actual::Missing => return fail(REASON_NO_VALUE),
             Actual::Val { text, num } => {
@@ -1281,6 +1312,50 @@ steps:
             run(flagged(Op::OneOf, " 0000 ,, ok ", false, false)).verdict,
             Verdict::Fail
         );
+    }
+
+    #[test]
+    fn parse_body_json_table() {
+        use serde_json::{Value, json};
+        let wrap = |v: &Value| serde_json::to_string(v).unwrap();
+        let o = json!({"code":1});
+        let l1 = wrap(&Value::String(wrap(&o)));
+        let l2 = wrap(&Value::String(l1.clone()));
+        let l3 = wrap(&Value::String(l2.clone()));
+        let l4 = wrap(&Value::String(l3.clone()));
+        assert_eq!(parse_body_json(r#"{"a":1}"#), Some(json!({"a":1})));
+        assert_eq!(parse_body_json(&l1), Some(o.clone()));
+        assert_eq!(parse_body_json(&l2), Some(o.clone()));
+        assert_eq!(parse_body_json(&l3), Some(o));
+        // 4겹: 풀기 한도 초과 → 처음 읽은 문자열 그대로
+        assert_eq!(parse_body_json(&l4), Some(Value::String(l3)));
+        assert_eq!(parse_body_json(r#""hello""#), Some(json!("hello")));
+        assert_eq!(parse_body_json(r#""12""#), Some(json!("12")));
+        assert_eq!(parse_body_json(r#""[1,2]""#), Some(json!([1, 2])));
+        assert_eq!(parse_body_json("not json"), None);
+    }
+
+    #[test]
+    fn wrapped_json_condition_passes() {
+        let c = cond(A, Src::Body, "$.code", Op::Eq, "1");
+        let r = judge_c(&one_step(), vec![c], &t_body(r#""{\"code\":1}""#));
+        assert_eq!(r.verdict, Verdict::Ok);
+    }
+
+    #[test]
+    fn body_text_contains_uses_raw_wrapped_body() {
+        let t = t_body(r#""{\"code\":1}""#);
+        let c = cond(A, Src::BodyText, "", Op::Contains, r#"\"code\""#);
+        assert_eq!(judge_c(&one_step(), vec![c], &t).verdict, Verdict::Ok);
+        let c = cond(A, Src::BodyText, "", Op::Contains, r#""code":1"#);
+        assert_eq!(judge_c(&one_step(), vec![c], &t).verdict, Verdict::Fail);
+    }
+
+    #[test]
+    fn string_body_not_unwrapped() {
+        let c = cond(A, Src::Body, "$", Op::Eq, "hello");
+        let r = judge_c(&one_step(), vec![c], &t_body(r#""hello""#));
+        assert_eq!(r.verdict, Verdict::Ok);
     }
 
     #[test]
