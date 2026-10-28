@@ -30,6 +30,8 @@
 
 - **게이트 출력을 고정 `/tmp/x.log`로 리다이렉트하면 *이전 세션·다른 워크트리*의 stale 로그를 읽어 거짓 'FAIL'** (사이징 헬퍼): Bash 툴 cwd는 호출 간 유지돼 `cd ui && … > /tmp/lint.log`가 (이미 ui 안이면) `cd` 실패→`&&` 단락→직전 `tail /tmp/lint.log`가 *다른 워크트리 경로*의 옛 출력을 보여준다. 로그 헤더에 다른 브랜치/워크트리명이 보이면 stale(=실패 아님). 절대경로 `cd /Users/.../<worktree>/ui` + 워크트리-스코프 로그명(`/tmp/<slug>-lint.log`)으로 회피.
 
+- **Python `ThreadingHTTPServer` 기본 listen backlog = 5** (ops-monitor-polish): 동시 연결 >5면 연결 거부(`요청 실패`/status 0 — 제품 결함 아님). 자체 응답기는 serve 전에 `ThreadingHTTPServer.request_queue_size = 256`.
+
 ## `just run-controller-with-ui` stale `ui/dist`
 
 - **`just run-controller-with-ui`는 `ui/dist`가 *없을 때만* UI를 빌드한다**(`if [ ! -f ui/dist/index.html ]`) — UI 변경/머지 후 dist가 stale이어도 재빌드 안 하고 옛 번들을 단일-포트(8080)로 서빙한다(위 포트 선점과 다른 별개 함정). 새 UI 기능이 안 보이면 `just ui-build` 수동 실행(+브라우저 hard reload). vite dev 5173은 HMR이라 무관.

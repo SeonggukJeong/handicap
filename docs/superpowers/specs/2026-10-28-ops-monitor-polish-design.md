@@ -3,6 +3,7 @@
 - 날짜: 2026-10-28 · 유형: `user-path` (+ ③은 `correctness-bug`) · 1차 = 사용자 요청 ①③⑤②④, 2차(별도 슬라이스) = ⑥⑦
 - **결정 원천(최우선)**: [`2026-10-28-ops-monitor-polish-mockups/00-decisions.md`](2026-10-28-ops-monitor-polish-mockups/00-decisions.md) — 이 spec의 `D…` 번호는 그 파일의 번호다. **이 spec이 결정 원천과 다르면 결정 원천이 이긴다**(사용자 지시: "목업에서 결정한거 잘 기록해서 구현할때 다르게 구현하는 일 없도록"). 그다음 원천: ①b spec [`2026-10-22-ops-monitor-1b-design.md`](2026-10-22-ops-monitor-1b-design.md), ①a spec [`2026-10-21-ops-monitor-board-design.md`](2026-10-21-ops-monitor-board-design.md) §7.3 극단값 표시 정책(**유지**).
 - **목업 정본**: [`02-split-stats-chosen.html`](2026-10-28-ops-monitor-polish-mockups/02-split-stats-chosen.html) **1번 보드**(벽 화면 배치·정보 구성). `01-shown-values-ABC.html`은 C 채택 근거, 2번 보드는 비교용. 목업은 **배치·정보 구성**의 정본이고 글자 크기·간격 정본은 이 spec §6의 비율 상수와 ①a §7.3 규칙이다. **목업에 없는 화면을 새로 만들지 않는다**(①b D9 유지).
+- **상태: 구현·머지 완료 (2026-10-29, 코드 `cec16f48`..`9993098d`)** — 라이브 US1~US5+극단값 PROVEN(`docs/build-log.md`). 라이브가 항목 칸 프로브 높이 결함(확인 불가 상태 넘침)을 적발해 수정(`9993098d`). 판단·연기·보안 잔여 위험 → roadmap §B39. 2차(⑥⑦)는 별도 슬라이스.
 - ADR: 새 ADR 없음. **ADR-0053에 보완 절 `## 보완 — ops-monitor-polish (2026-10-28)` 추가**(§9) — 정상일 때도 사용자 값이 벽에 나가는 두 번째 예외.
 
 ## 사용자 스토리 (US)
