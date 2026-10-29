@@ -1797,6 +1797,8 @@ export const ko = {
     recordReqBodyHidden: "요청 본문은 가려져 있습니다",
     recordReveal: "보기",
     recordHide: "가리기",
+    recordRevealAria: (step: string) => `${step} 요청 본문 보기`,
+    recordHideAria: (step: string) => `${step} 요청 본문 가리기`,
     recordClipped: (kb: number) => `기록 상한 ${kb}KB에서 잘림`,
     recordEngineTruncated: "1 MiB에서 잘림 — 실제 응답은 더 큼",
     recordTreeTooLarge: "64KB를 넘는 본문은 원문으로 표시합니다",

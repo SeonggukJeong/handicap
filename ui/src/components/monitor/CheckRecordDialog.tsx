@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../../api/client";
 import { getRecord } from "../../api/monitors";
@@ -160,6 +160,7 @@ function StepRow({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [reveal, setReveal] = useState(false);
+  const bodyId = useId();
   const req = step.request;
   const resp = step.response;
   const summary = [
@@ -198,26 +199,35 @@ function StepRow({
                 {ko.monitor.recordReqBody}
                 <button
                   type="button"
+                  aria-expanded={reveal}
+                  aria-controls={bodyId}
+                  aria-label={
+                    reveal ? ko.monitor.recordHideAria(name) : ko.monitor.recordRevealAria(name)
+                  }
                   onClick={() => setReveal((v) => !v)}
                   className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-normal hover:bg-slate-300"
                 >
                   {reveal ? ko.monitor.recordHide : ko.monitor.recordReveal}
                 </button>
               </div>
-              {reveal ? (
-                <RecordBody
-                  body={req.body}
-                  clippedKb={clippedReq ? limitKb : null}
-                  engineTruncated={false}
-                />
-              ) : (
-                <div className="text-xs text-slate-500">
-                  {ko.monitor.recordReqBodyHidden}
-                  {clippedReq && (
-                    <span className="ml-2 text-amber-700">{ko.monitor.recordClipped(limitKb)}</span>
-                  )}
-                </div>
-              )}
+              <div id={bodyId}>
+                {reveal ? (
+                  <RecordBody
+                    body={req.body}
+                    clippedKb={clippedReq ? limitKb : null}
+                    engineTruncated={false}
+                  />
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    {ko.monitor.recordReqBodyHidden}
+                    {clippedReq && (
+                      <span className="ml-2 text-amber-700">
+                        {ko.monitor.recordClipped(limitKb)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           {resp && (

@@ -199,7 +199,7 @@ describe("CheckRecordDialog", () => {
       ...http(),
       step_id: "IF1",
       kind: "if",
-      branch: "then",
+      branch: "none",
       request: null,
       response: null,
     };
@@ -217,7 +217,9 @@ describe("CheckRecordDialog", () => {
     expect(
       await screen.findByRole("button", { name: "로그인 · GET https://h/x · 200 · 12 ms" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(ko.monitor.recordIfRow("then"))).toBeInTheDocument();
+    // branchText("none") is non-identity: the raw "none" must not leak.
+    expect(screen.getByText("조건 분기 → (미매치)")).toBeInTheDocument();
+    expect(screen.queryByText(/→ none/)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "UNKNOWN · GET https://h/x · 200 · 12 ms" }),
     ).toBeInTheDocument();
@@ -252,9 +254,16 @@ describe("CheckRecordDialog", () => {
     expect(await screen.findByText(ko.monitor.recordReqBodyHidden)).toBeInTheDocument();
     expect(screen.queryByText(/pw/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"p"/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: ko.monitor.recordReveal }));
+    const revealBtn = screen.getByRole("button", { name: "로그인 요청 본문 보기" });
+    expect(revealBtn).toHaveAttribute("aria-expanded", "false");
+    expect(revealBtn).toHaveTextContent(ko.monitor.recordReveal);
+    await user.click(revealBtn);
     expect(screen.getByText(/"p"/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: ko.monitor.recordHide })).toBeInTheDocument();
+    const hideBtn = screen.getByRole("button", { name: "로그인 요청 본문 가리기" });
+    expect(hideBtn).toHaveAttribute("aria-expanded", "true");
+    expect(hideBtn).toHaveTextContent(ko.monitor.recordHide);
+    const region = document.getElementById(hideBtn.getAttribute("aria-controls")!);
+    expect(region).toContainElement(screen.getByText(/"p"/));
     expect(screen.queryByText(ko.monitor.recordReqBodyHidden)).not.toBeInTheDocument();
     a.unmount();
     wrap(dlg());
@@ -271,6 +280,77 @@ describe("CheckRecordDialog", () => {
     wrap(dlg());
     expect(await screen.findByText(ko.monitor.recordClipped(128))).toBeInTheDocument();
     expect(screen.getByText('{"a":"cut').tagName).toBe("PRE");
+  });
+
+  it("clipped_valid_json_body_is_raw_without_tree", async () => {
+    // Valid JSON that is still flagged clipped must NOT become a tree.
+    getRecord.mockResolvedValue(
+      rec({ clipped: [{ step: 0, side: "response" }], limit_kb: 128 }, [http({ body: '{"a":1}' })]),
+    );
+    wrap(dlg());
+    expect(await screen.findByText(ko.monitor.recordClipped(128))).toBeInTheDocument();
+    expect(screen.getByText('{"a":1}').tagName).toBe("PRE");
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.recordViewRaw }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.recordViewTree }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clipped_step_index_maps_to_trace_steps_not_http_only", async () => {
+    const ifRow: StepTrace = {
+      ...http(),
+      step_id: "IF1",
+      kind: "if",
+      branch: "then",
+      request: null,
+      response: null,
+    };
+    getRecord.mockResolvedValue(
+      rec({ clipped: [{ step: 1, side: "response" }], limit_kb: 128 }, [
+        ifRow,
+        http({ body: "plain-body" }),
+      ]),
+    );
+    const user = userEvent.setup();
+    wrap(dlg());
+    const row = await screen.findByRole("button", { expanded: false });
+    expect(screen.queryByText(ko.monitor.recordClipped(128))).not.toBeInTheDocument();
+    await user.click(row);
+    expect(screen.getAllByText(ko.monitor.recordClipped(128))).toHaveLength(1);
+    const pre = screen.getByText("plain-body");
+    expect(
+      within(pre.closest("div")!.parentElement as HTMLElement).getByText(
+        ko.monitor.recordClipped(128),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("clipped_request_notice_visible_while_body_hidden", async () => {
+    getRecord.mockResolvedValue(
+      rec({ clipped: [{ step: 0, side: "request" }], limit_kb: 128 }, [
+        http({ reqBody: '{"pw":"p"}' }),
+      ]),
+    );
+    wrap(dlg());
+    expect(await screen.findByText(ko.monitor.recordReqBodyHidden)).toBeInTheDocument();
+    expect(screen.getByText(ko.monitor.recordClipped(128))).toBeInTheDocument();
+    expect(screen.queryByText(/pw/)).not.toBeInTheDocument();
+  });
+
+  it("reveal_buttons_have_distinct_names_per_step", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [http({ reqBody: "a" }), http({ step_id: S2, reqBody: "b" })]),
+    );
+    const user = userEvent.setup();
+    wrap(dlg());
+    const rows = await screen.findAllByRole("button", { expanded: false });
+    for (const r of rows) await user.click(r);
+    const names = screen
+      .getAllByRole("button", { name: /요청 본문 보기$/ })
+      .map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual(["로그인 요청 본문 보기", "조회 요청 본문 보기"]);
   });
 
   it("engine_truncated_notice", async () => {
