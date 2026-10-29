@@ -61,7 +61,8 @@ export function MonitorEditPage() {
   return <BoardForm key={query.data.id} initial={query.data} />;
 }
 
-type NavState = { startError?: string; expanded?: string[] };
+// `notice`: a non-panel error (e.g. export failure) carried across the new-board remount.
+type NavState = { startError?: string; notice?: string; expanded?: string[] };
 
 const snapshot = (name: string, config: BoardConfig) => JSON.stringify({ name, config });
 
@@ -89,7 +90,10 @@ function BoardForm({ initial }: { initial: Board | null }) {
     initial ? snapshot(initial.name, initial.config) : "",
   );
   const [error, setError] = useState<string | null>(
-    () => (location.state as NavState | null)?.startError ?? null,
+    () =>
+      (location.state as NavState | null)?.startError ??
+      (location.state as NavState | null)?.notice ??
+      null,
   );
   // Per-panel error reasons keyed by panel id. A remount after a failed first start
   // restores the panel mark from the carried `startError`.
@@ -201,7 +205,9 @@ function BoardForm({ initial }: { initial: Board | null }) {
   };
 
   // Shared save path; resolves to the saved board, or null when validation or the server rejected it.
-  const saveBoard = async (): Promise<Board | null> => {
+  // `deferNavigate` leaves the new-board URL switch to the caller (which would otherwise
+  // remount the form mid-export and lose the export result).
+  const saveBoard = async (deferNavigate = false): Promise<Board | null> => {
     setError(null);
     setPanelErrors({});
     setSaved(false);
@@ -212,7 +218,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
       const b = await persist(true);
       adopt(b);
       setSaved(true);
-      if (wasNew) {
+      if (wasNew && !deferNavigate) {
         navigate(`/monitors/${b.id}`, {
           replace: true,
           state: { expanded: [...expanded] } satisfies NavState,
@@ -230,13 +236,17 @@ function BoardForm({ initial }: { initial: Board | null }) {
 
   const onSave = () => void saveBoard();
 
-  const exportOne = async (b: Board) => {
+  // Resolves to the failure message (also shown here), or null on success.
+  const exportOne = async (b: Board): Promise<string | null> => {
     setBusy(true);
     try {
       const text = await exportBoards([b.id]);
       await downloadBoardFile(exportFileName([b.name]), text);
+      return null;
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as Error).message;
+      setError(msg);
+      return msg;
     } finally {
       setBusy(false);
     }
@@ -245,6 +255,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
   // Unsaved edits (or a board that was never saved) are exported only after saving them.
   const onExport = () => {
     setError(null);
+    setSaved(false);
     if (!board || dirty) {
       setConfirmExport(true);
       return;
@@ -254,8 +265,20 @@ function BoardForm({ initial }: { initial: Board | null }) {
 
   const onSaveAndExport = async () => {
     setConfirmExport(false);
-    const b = await saveBoard();
-    if (b) await exportOne(b);
+    const wasNew = !board;
+    const b = await saveBoard(true);
+    if (!b) return;
+    const failure = await exportOne(b);
+    // A new board's URL switch remounts the form; do it last and carry any export failure across.
+    if (wasNew) {
+      navigate(`/monitors/${b.id}`, {
+        replace: true,
+        state: {
+          expanded: [...expanded],
+          ...(failure ? { notice: failure } : {}),
+        } satisfies NavState,
+      });
+    }
   };
 
   const onStart = async () => {

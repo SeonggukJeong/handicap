@@ -1651,6 +1651,12 @@ describe("export from settings", () => {
     await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
     expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1);
     expect(sent("POST", "/api/monitor-boards/export")[0].body).toEqual({ board_ids: ["B1"] });
+    // Save first, then export: file name carries the edited (saved) name; PUT precedes export.
+    expect(downloadBoardFile).toHaveBeenCalledWith("운영실x.handicap-board.json", '{"file":1}');
+    const iPut = calls.findIndex((c) => c.method === "PUT");
+    const iExp = calls.findIndex((c) => c.path === "/api/monitor-boards/export");
+    expect(iPut).toBeGreaterThanOrEqual(0);
+    expect(iPut).toBeLessThan(iExp);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -1686,6 +1692,24 @@ describe("export from settings", () => {
     await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
     expect(sent("POST", "/api/monitor-boards/export")[0].body).toEqual({ board_ids: ["NEW1"] });
     expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/NEW1");
+  });
+
+  it("new_board_save_then_export_failure_is_shown", async () => {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = () => json(board({ id: "NEW1" }));
+    handlers["GET /api/monitor-boards/NEW1"] = () => json(board({ id: "NEW1" }));
+    handlers["POST /api/monitor-boards/export"] = () =>
+      json({ error: "보드 '운영실' 칸 1: 시나리오가 없습니다" }, 400);
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.type(screen.getByLabelText(ko.monitor.panelTitle), "결제");
+    await user.selectOptions(await screen.findByLabelText(ko.monitor.scenario), SID);
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    await user.click(within(dlg).getByRole("button", { name: T.saveAndExport }));
+    expect(await screen.findByText("보드 '운영실' 칸 1: 시나리오가 없습니다")).toBeInTheDocument();
+    expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/NEW1");
+    expect(downloadBoardFile).not.toHaveBeenCalled();
   });
 
   it("export_error_is_shown_and_no_download", async () => {
