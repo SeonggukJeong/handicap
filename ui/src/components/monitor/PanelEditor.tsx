@@ -172,7 +172,7 @@ export function PanelEditor({
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-baseline gap-2 text-left text-sm"
         >
-          <span className="font-semibold text-slate-700">
+          <span className="shrink-0 whitespace-nowrap font-semibold text-slate-700">
             {expanded ? "▾" : "▸"} {ko.monitor.panels} {index + 1}
           </span>
           <span className="truncate font-medium text-slate-900">

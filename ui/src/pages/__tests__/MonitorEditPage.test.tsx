@@ -184,6 +184,18 @@ const putConds = () =>
   ).config.panels[0].conditions;
 
 describe("MonitorEditPage", () => {
+  it("panel_header_label_never_shrinks_or_wraps", async () => {
+    // jsdom has no layout: this is a class-level guard only. The real one-line
+    // collapsed card height is verified live (long scenario name wrapped "칸 N" to 2 lines).
+    renderAt("/monitors/new");
+    const toggle = (await screen.findAllByRole("button", { expanded: true }))
+      .concat(screen.queryAllByRole("button", { expanded: false }))
+      .find((b) => b.textContent?.includes(`${ko.monitor.panels} 1`));
+    const label = toggle!.querySelector("span")!;
+    expect(label.textContent).toContain(`${ko.monitor.panels} 1`);
+    expect(label).toHaveClass("shrink-0", "whitespace-nowrap");
+  });
+
   it("renders_board_fields_and_default_panel", async () => {
     renderAt("/monitors/new");
     expect(await screen.findByLabelText(ko.monitor.boardName)).toBeInTheDocument();
