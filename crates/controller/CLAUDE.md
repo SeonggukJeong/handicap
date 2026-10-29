@@ -185,3 +185,5 @@
 - **사용자 JSONPath를 무인 반복 평가에 넣을 땐 허용 문법 `jsonpath_is_simple`로** (ops-monitor-1b): serde_json_path는 선택자 목록 중복 미제거(`[0,0]` 지수)·filter 안 `$` 노드마다 재평가·`match()` 노드마다 정규식 컴파일·`..` 연쇄 조합 폭발 — 블랙리스트는 3연속 우회됐다. 가져오기 등 새 입력 경로도 `validate_and_normalize` 경유 필수(`judge`는 실행 시 재검사 안 함).
 - **표시 전용 보드 필드(`show_latency_stats`)는 reconcile 없이 `json_set` 원자 갱신 — 칸 목록·점검 설정 필드엔 이 경로 금지(감독자와 DB 어긋남)** (ops-monitor-polish)
 - **`monitor_boards` 행을 DB에서 직접 고치면 실행 중 보드엔 반영 안 됨** — 감독자가 설정을 메모리에 들고 있어 stop/start(또는 API PUT=reconcile) 후에야 적용(라이브 검증 시 행 조작 뒤 재시작) (ops-monitor-1b).
+- **URL 사용자정보 가림은 `://` 문자열 스캔만으론 새다 — 가린 뒤 `reqwest::Url`로 재파싱해 남은 자격 증명 확인** (ops-monitor-polish-2): `url` 2.5가 http(s)에 대해 `http:user:SECRET@h`·`http:/…`·`http:\\…`·스킴 안 탭·대문자 스킴도 사용자정보로 파싱하고 reqwest는 이를 Basic 인증으로 전송한다. 쿼리 속 `://`도 1차 스캔을 속인다. 재스플라이스는 정규화 URL에 리터럴 `••••`(`set_password`는 `%E2%80%A2…`로 인코딩). 빈 비밀번호(`tok:@`)면 사용자명이 자격 증명.
+- **`Json(Arc<T>)`는 워크스페이스 serde에 `rc` feature가 없어 컴파일 불가** — 큰 공유 값은 `serde_json::to_vec(&*arc)` + `content-type: application/json`으로 직접 응답(복제 회피) (ops-monitor-polish-2)
