@@ -1,8 +1,8 @@
 # Slice 7 — UI 수동 점검 (Loop 노드)
 
 Slice 4·5의 점검 환경(`docs/dev/ui-slice-4-manual-check.md`)을 그대로 사용 —
-**로컬 dev (subprocess)**: wiremock + `cargo run --bin controller` +
-`cargo run --bin worker` + `cd ui && pnpm dev`. K8s 띄우지 않음(로컬 dev에서는
+**로컬 dev (subprocess)**: wiremock + `cargo run --bin controller`(워커는 컨트롤러가
+spawn) + `cd ui && pnpm dev`. K8s 띄우지 않음(로컬 dev에서는
 worker가 호스트 프로세스라 wiremock을 `localhost`로 바로 친다 — Slice 6 kind
 점검의 cluster-DNS 두-주소 함정이 여기엔 없다).
 

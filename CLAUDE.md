@@ -14,7 +14,7 @@ Rust 엔진(컨트롤러 + 워커, K8s Pod로 배포) + TypeScript/React 웹 UI.
 
 | 모드 | 언제 | 방법 |
 |---|---|---|
-| **로컬 dev** (빠른 반복) | 일상 코딩 | 별도 터미널에서 `cargo run --bin controller` 와 `cargo run --bin worker`. UI: `cd ui && pnpm dev`. K8s 띄우지 않음. |
+| **로컬 dev** (빠른 반복) | 일상 코딩 | `cargo build -p handicap-worker` 후 `just run-controller` — 컨트롤러가 `target/debug/worker`를 subprocess로 spawn하므로 워커를 따로 띄우지 않는다. UI: `cd ui && pnpm dev`. K8s 띄우지 않음. |
 | **kind 통합 테스트** | 매니페스트·배포 형상 변경 시 | `kind create cluster` → `just deploy-kind` (Helm chart) |
 | **프로덕션** | 사내 K8s 도입 후 | upstream Kubernetes에 Helm 배포 |
 
@@ -57,7 +57,7 @@ just build && just lint && just test
 
 > **전체 디테일·이력·엣지케이스** → **[`docs/dev/commit-gates-and-git-workflow.md`](docs/dev/commit-gates-and-git-workflow.md)** (게이트 명령 전체·단독 커밋 불가 2종+커밋 folding·cold-build flake S-A/S-D·tdd-guard 내용기반 예외·C-1 keepalive·git-guard 정밀화 이력·worktree rebase/docs-충돌 해소/`ExitWorktree` subagent-cwd-override 엣지). "예전엔 왜 이랬나" 디버깅 참조는 거기.
 
-## 디렉토리 (MVP 계획)
+## 디렉토리
 
 ```
 crates/
@@ -70,6 +70,7 @@ ui/              TypeScript/React 웹앱 (Vite + Monaco + dnd-kit; 에디터=Flo
 deploy/
   helm/          K8s 배포용 Helm chart                — 함정: deploy/CLAUDE.md
   kind/          로컬 kind cluster 설정
+desktop/         Tauri v2 데스크톱 셸 (컨트롤러 in-process 임베드, ADR-0042) — 함정: desktop/CLAUDE.md
 docs/
   superpowers/specs/   설계 문서
   superpowers/plans/   구현 계획
