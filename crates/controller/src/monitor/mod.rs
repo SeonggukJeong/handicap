@@ -3,6 +3,7 @@ pub mod check;
 pub mod config;
 pub mod record;
 pub mod supervisor;
+pub mod transfer;
 
 pub use supervisor::MonitorSupervisor;
 
