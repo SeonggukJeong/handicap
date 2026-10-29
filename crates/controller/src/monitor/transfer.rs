@@ -86,6 +86,10 @@ pub struct BoardResult {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Counts {
     pub added: usize,
+    /// ②a에서는 항상 0 (와이어 계약상 키만 존재).
+    pub updated: usize,
+    /// ②a에서는 항상 0.
+    pub copied: usize,
     pub unchanged: usize,
 }
 
@@ -302,10 +306,14 @@ pub fn plan_add(
         boards: result_boards,
         scenarios: Counts {
             added: scenarios.len(),
+            updated: 0,
+            copied: 0,
             unchanged: scen_same,
         },
         environments: Counts {
             added: environments.len(),
+            updated: 0,
+            copied: 0,
             unchanged: env_same,
         },
         renamed,
@@ -556,6 +564,8 @@ mod tests {
             plan.result.scenarios,
             Counts {
                 added: 0,
+                updated: 0,
+                copied: 0,
                 unchanged: 1
             }
         );
@@ -563,6 +573,8 @@ mod tests {
             plan.result.environments,
             Counts {
                 added: 0,
+                updated: 0,
+                copied: 0,
                 unchanged: 1
             }
         );
@@ -656,6 +668,36 @@ mod tests {
         let plan = plan_for(&three(), &PcSnapshot::default());
         assert_eq!(plan.result.boards.len(), 3);
         assert!(plan.result.boards.iter().all(|b| b.action == "added"));
+    }
+
+    #[test]
+    fn result_counts_serialize_exactly_four_keys() {
+        let plan = plan_for(&one(), &PcSnapshot::default());
+        let v = serde_json::to_value(&plan.result).unwrap();
+        for k in ["scenarios", "environments"] {
+            let mut keys: Vec<_> = v[k].as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            assert_eq!(keys, vec!["added", "copied", "unchanged", "updated"], "{k}");
+        }
+    }
+
+    #[test]
+    fn two_envs_same_name_in_file() {
+        let bundle = ValidBundle {
+            boards: vec![board(
+                B1,
+                "a",
+                vec![panel(S1, Some(E1)), panel(S1, Some(E2))],
+            )],
+            scenarios: vec![scen(S1, "s", "y")],
+            environments: vec![env(E1, "운영", &[]), env(E2, "운영", &[("A", "1")])],
+        };
+        let plan = plan_for(&bundle, &PcSnapshot::default());
+        let names: Vec<_> = plan.environments.iter().map(|e| e.1.as_str()).collect();
+        assert_eq!(names, vec!["운영", "운영 (2)"]);
+        assert_eq!(plan.result.renamed.len(), 1);
+        assert_eq!(plan.result.renamed[0].kind, "environment");
+        assert_eq!(plan.result.renamed[0].to, "운영 (2)");
     }
 
     #[test]
