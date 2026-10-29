@@ -639,7 +639,7 @@ async fn rich_board_config_survives_import_round_trip() {
     let eid = create_env(&a.app, "운영").await;
     let cfg = json!({
         "show_latency_stats": false, "record_limit_kb": 512,
-        "font_scale": "large", "blink": "fail", "display_style": "border",
+        "font_scale": "xlarge", "blink": "slow_and_fail", "display_style": "focus",
         "panels": [{
             "title": "p1", "scenario_id": sid, "environment_id": eid,
             "latency_source": {"kind": "step", "step_id": STEP_ID},
@@ -662,9 +662,9 @@ async fn rich_board_config_survives_import_round_trip() {
     let c = &va["config"];
     assert_eq!(c["show_latency_stats"], false);
     assert_eq!(c["record_limit_kb"], 512);
-    assert_eq!(c["font_scale"], "large");
-    assert_eq!(c["blink"], "fail");
-    assert_eq!(c["display_style"], "border");
+    assert_eq!(c["font_scale"], "xlarge");
+    assert_eq!(c["blink"], "slow_and_fail");
+    assert_eq!(c["display_style"], "focus");
     assert_eq!(c["panels"][0]["latency_source"]["kind"], "step");
     assert_eq!(c["panels"][0]["thresholds"].as_array().unwrap().len(), 1);
     assert_eq!(c["panels"][0]["conditions"].as_array().unwrap().len(), 1);
