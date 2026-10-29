@@ -64,6 +64,7 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 
 > 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narratives.md` §폼·입력 UX / 진단 표시 (RunDialog, RunDetail) (키워드: 새 옵션 RunDialog 누락 · 한 칸 add row · step_id 진단 · `KeyValueGrid` 2-맵 · 간단/상세 prefill 갭 · Segmented teeth · `LoadShapePreview` R10 · 번호 `Section` 갭 · HelpTip 57px · `VarUsagePopover` 클립 · 프리셋 state 클리어 · stretched-label 선례 0 · native radio sweep · aria-label 2요소 공유)
 
+- **새 리소스 첫 저장 → `navigate('/x/{id}', {replace})`가 `key` 변경 재마운트를 일으켜, 저장 뒤 이어지는 비동기 작업(예: 내보내기)의 `setError`/`setBusy`가 언마운트된 인스턴스에 가서 조용히 사라진다** (ops-monitor-export T7, `MonitorEditPage`): 후속 작업이 있으면 주소 이동을 작업 *뒤*로 미루고(`saveBoard(deferNavigate)`), 실패 사유는 `navigate(…, {state:{notice}})`로 넘겨 새 인스턴스가 첫 렌더에 읽게 한다(`onStart`의 `startError` 선례). RTL은 `MemoryRouter` 재마운트를 그대로 재현하니 "새 보드 저장 후 X 실패 → 사유 보임" 테스트로 RED 확인.
 - **plan에 있던 UI 갭이 manual check에서 처음 드러나는 패턴** (Slice 4 M1): **새 런타임 옵션은 RunDialog 입력 + 페이로드까지 같은 task 단위로 묶을 것.**
 - **key-value 입력 폼은 한 칸짜리 add row를 만들지 말 것** (Slice 4 M5): 두 칸 동시 입력 + key 비어있으면 Add disabled가 표준(`VariablesPanel` 패턴).
 - **Run 상세 화면의 step_id 진단성** (Slice 4 M2): 시나리오 YAML을 같이 fetch해서 `step.id → {name, method, url}`로 매핑하고 URL은 `resolveForDisplay`로 풀어 표시하면 status 0 같은 비정상 상태에서 root cause(시나리오 설정 vs connectivity) 분간이 한 화면에서 가능.

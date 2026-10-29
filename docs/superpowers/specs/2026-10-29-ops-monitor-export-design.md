@@ -1,7 +1,7 @@
 # 운영실 모니터 ② — 보드 설정 내보내기/가져오기 (ops-monitor-export)
 
 - 날짜: 2026-10-29 · 유형: **user-path** · 선행: ops-monitor-board(①a)·1b·polish·polish-2 (ADR-0053)
-- 상태: 설계(brainstorming 승인 2026-10-29, spec 리뷰 APPROVE 4라운드) · **사용자 결정으로 ②a(이번 슬라이스)·②b(다음 슬라이스)로 분할 — §0**
+- 상태: **②a 구현 완료**(ops-monitor-export 2026-10-29, 코드 `9b0245f8`..`6bb993c0`, ADR-0054 — 판단·연기 roadmap §B41) · ②b(겹침 질문 흐름) 미착수 · 설계(brainstorming 승인 2026-10-29, spec 리뷰 APPROVE 4라운드) · **사용자 결정으로 ②a·②b로 분할 — §0**
 - 연기 전달 원천: roadmap §B38 (3) "가져온 보드 설정은 반드시 `validate_and_normalize` 통과" · §B39·§B40 frontier("새 필드 `display_items`·`show_latency_stats`·`record_limit_kb`도 실림")
 
 ## 사용자 스토리 (US)
