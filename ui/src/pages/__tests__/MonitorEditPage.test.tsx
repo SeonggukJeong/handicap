@@ -5,6 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { MonitorEditPage } from "../MonitorEditPage";
 import { ko } from "../../i18n/ko";
+import { downloadBoardFile } from "../../api/monitorTransfer";
+
+vi.mock("../../api/monitorTransfer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/monitorTransfer")>()),
+  downloadBoardFile: vi.fn(),
+}));
 
 const SID = "01HZZZZZZZZZZZZZZZZZZZZZZ1";
 const STEP_A = "01HZZZZZZZZZZZZZZZZZZZZZA1";
@@ -82,6 +88,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 beforeEach(() => {
+  vi.mocked(downloadBoardFile).mockReset();
   calls = [];
   handlers = {
     "GET /api/scenarios": () => json(scenarios),
@@ -1583,5 +1590,112 @@ describe("MonitorEditPage panel nav", () => {
     await user.click(await screen.findByRole("button", { name: ko.monitor.navJumpActions }));
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll.mock.contexts[0]).toBe(document.getElementById("monitor-actions"));
+  });
+});
+
+describe("export from settings", () => {
+  const T = ko.monitor.transfer;
+  const exportBtn = () => screen.findByRole("button", { name: T.exportFromSettings });
+  const exportText = () => new Response('{"file":1}', { status: 200 });
+
+  it("export_without_changes_downloads_immediately", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/export"] = exportText;
+    renderAt("/monitors/B1");
+    await user.click(await exportBtn());
+    await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
+    expect(downloadBoardFile).toHaveBeenCalledWith("운영실.handicap-board.json", '{"file":1}');
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(sent("POST", "/api/monitor-boards/export")[0].body).toEqual({ board_ids: ["B1"] });
+    expect(screen.getByText(T.plaintextNotice)).toBeInTheDocument();
+  });
+
+  it("export_with_changes_opens_dialog", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "x");
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    expect(within(dlg).getByText(T.unsavedBody)).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: T.cancel })).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: T.saveAndExport })).toBeInTheDocument();
+    expect(downloadBoardFile).not.toHaveBeenCalled();
+  });
+
+  it("dialog_cancel_does_nothing", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "x");
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    await user.click(within(dlg).getByRole("button", { name: T.cancel }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+    expect(downloadBoardFile).not.toHaveBeenCalled();
+  });
+
+  it("save_then_export_saves_and_downloads", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ name: (b as { name: string }).name }));
+    handlers["POST /api/monitor-boards/export"] = exportText;
+    renderAt("/monitors/B1");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "x");
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    await user.click(within(dlg).getByRole("button", { name: T.saveAndExport }));
+    await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
+    expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1);
+    expect(sent("POST", "/api/monitor-boards/export")[0].body).toEqual({ board_ids: ["B1"] });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("save_failure_closes_dialog_and_no_download", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = () =>
+      json({ error: "칸 1: 본문 경로가 올바르지 않습니다" }, 400);
+    handlers["POST /api/monitor-boards/export"] = exportText;
+    renderAt("/monitors/B1");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "x");
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    await user.click(within(dlg).getByRole("button", { name: T.saveAndExport }));
+    expect(await screen.findByText("칸 1: 본문 경로가 올바르지 않습니다")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(sent("POST", "/api/monitor-boards/export")).toHaveLength(0);
+    expect(downloadBoardFile).not.toHaveBeenCalled();
+  });
+
+  it("new_board_save_then_export_uses_created_id", async () => {
+    const user = userEvent.setup();
+    handlers["POST /api/monitor-boards"] = () => json(board({ id: "NEW1" }));
+    handlers["GET /api/monitor-boards/NEW1"] = () => json(board({ id: "NEW1" }));
+    handlers["POST /api/monitor-boards/export"] = exportText;
+    renderAt("/monitors/new");
+    await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
+    await user.type(screen.getByLabelText(ko.monitor.panelTitle), "결제");
+    await user.selectOptions(await screen.findByLabelText(ko.monitor.scenario), SID);
+    await user.click(await exportBtn());
+    const dlg = await screen.findByRole("dialog", { name: T.unsavedTitle });
+    await user.click(within(dlg).getByRole("button", { name: T.saveAndExport }));
+    await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
+    expect(sent("POST", "/api/monitor-boards/export")[0].body).toEqual({ board_ids: ["NEW1"] });
+    expect(screen.getByTestId("loc")).toHaveTextContent("/monitors/NEW1");
+  });
+
+  it("export_error_is_shown_and_no_download", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/export"] = () =>
+      json({ error: "보드 '운영실' 칸 1: 시나리오가 없습니다" }, 400);
+    renderAt("/monitors/B1");
+    await user.click(await exportBtn());
+    expect(await screen.findByText("보드 '운영실' 칸 1: 시나리오가 없습니다")).toBeInTheDocument();
+    expect(downloadBoardFile).not.toHaveBeenCalled();
   });
 });

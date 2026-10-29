@@ -18,7 +18,9 @@ import {
   type PanelConfig,
 } from "../api/monitors";
 import { ApiError } from "../api/client";
+import { downloadBoardFile, exportBoards, exportFileName } from "../api/monitorTransfer";
 import { Button } from "../components/Button";
+import { Modal } from "../components/Modal";
 import { PanelEditor } from "../components/monitor/PanelEditor";
 import { PanelNav } from "../components/monitor/PanelNav";
 import { Callout } from "../components/ui/Callout";
@@ -134,6 +136,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const [busy, setBusy] = useState(false);
   const [scenarioErr, setScenarioErr] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmExport, setConfirmExport] = useState(false);
 
   const dirty = snapshot(name, config) !== baseline;
 
@@ -197,11 +200,12 @@ function BoardForm({ initial }: { initial: Board | null }) {
     return board;
   };
 
-  const onSave = async () => {
+  // Shared save path; resolves to the saved board, or null when validation or the server rejected it.
+  const saveBoard = async (): Promise<Board | null> => {
     setError(null);
     setPanelErrors({});
     setSaved(false);
-    if (!valid()) return;
+    if (!valid()) return null;
     setBusy(true);
     try {
       const wasNew = !board;
@@ -214,12 +218,44 @@ function BoardForm({ initial }: { initial: Board | null }) {
           state: { expanded: [...expanded] } satisfies NavState,
         });
       }
+      return b;
     } catch (e) {
       setError((e as Error).message);
       markFromServer(e);
+      return null;
     } finally {
       setBusy(false);
     }
+  };
+
+  const onSave = () => void saveBoard();
+
+  const exportOne = async (b: Board) => {
+    setBusy(true);
+    try {
+      const text = await exportBoards([b.id]);
+      await downloadBoardFile(exportFileName([b.name]), text);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Unsaved edits (or a board that was never saved) are exported only after saving them.
+  const onExport = () => {
+    setError(null);
+    if (!board || dirty) {
+      setConfirmExport(true);
+      return;
+    }
+    void exportOne(board);
+  };
+
+  const onSaveAndExport = async () => {
+    setConfirmExport(false);
+    const b = await saveBoard();
+    if (b) await exportOne(b);
   };
 
   const onStart = async () => {
@@ -443,6 +479,9 @@ function BoardForm({ initial }: { initial: Board | null }) {
               {ko.monitor.stop}
             </Button>
           )}
+          <Button variant="secondary" type="button" disabled={busy} onClick={onExport}>
+            {ko.monitor.transfer.exportFromSettings}
+          </Button>
           {board && !confirmDelete && (
             <Button
               variant="danger"
@@ -455,6 +494,24 @@ function BoardForm({ initial }: { initial: Board | null }) {
             </Button>
           )}
         </div>
+
+        <p className="mt-2 text-xs text-slate-500">{ko.monitor.transfer.plaintextNotice}</p>
+
+        <Modal
+          open={confirmExport}
+          onClose={() => setConfirmExport(false)}
+          title={ko.monitor.transfer.unsavedTitle}
+        >
+          <p className="text-sm text-slate-700">{ko.monitor.transfer.unsavedBody}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="secondary" type="button" onClick={() => setConfirmExport(false)}>
+              {ko.monitor.transfer.cancel}
+            </Button>
+            <Button type="button" onClick={() => void onSaveAndExport()}>
+              {ko.monitor.transfer.saveAndExport}
+            </Button>
+          </div>
+        </Modal>
 
         {board && confirmDelete && (
           <div
