@@ -173,7 +173,10 @@ function StepRow({
     .join(" · ");
   const reqHeaders = Object.entries(req?.headers ?? {});
   const respHeaders = Object.entries(resp?.headers ?? {});
-  const masked = [...reqHeaders, ...respHeaders].some(([, v]) => v.includes(MASK));
+  // The server masks URL userinfo too (`https://u:••••@h`), shown in the summary line.
+  const masked =
+    (req?.url.includes(MASK) ?? false) ||
+    [...reqHeaders, ...respHeaders].some(([, v]) => v.includes(MASK));
 
   return (
     <div className="rounded border border-slate-200">

@@ -460,6 +460,27 @@ describe("MonitorDisplayPage fullscreen", () => {
       expect(exitFs).not.toHaveBeenCalled();
     });
 
+    it("f_key_ignored_while_dialog_open", async () => {
+      await renderPage();
+      await setFs(true);
+      await act(async () => {
+        fireEvent.click(hit());
+      });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      await pressF();
+      expect(exitFs).not.toHaveBeenCalled();
+      await setFs(false);
+      await pressF();
+      expect(requestFs).not.toHaveBeenCalled();
+      // Closed again → F toggles as before.
+      await act(async () => {
+        fireEvent.keyDown(document.body, { key: "Escape" });
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await pressF();
+      expect(requestFs).toHaveBeenCalledTimes(1);
+    });
+
     it("mousedown_elsewhere_still_exits", async () => {
       await renderPage();
       await setFs(true);

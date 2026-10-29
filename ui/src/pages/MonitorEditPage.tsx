@@ -173,12 +173,21 @@ function BoardForm({ initial }: { initial: Board | null }) {
     if (pe && pid) markPanels({ [pid]: pe.reason });
   };
 
+  const limitInvalid = !(
+    Number.isInteger(config.record_limit_kb) &&
+    config.record_limit_kb >= 16 &&
+    config.record_limit_kb <= 1024
+  );
+
+  // The record-limit field already shows its own error while invalid, so a
+  // rejected click needs no extra message — it just must not save, start or
+  // request fullscreen.
   const valid = (): boolean => {
     const missing = config.panels.filter((p) => p.scenario_id === "");
     const ok = missing.length === 0;
     setScenarioErr(!ok);
     markPanels(Object.fromEntries(missing.map((p) => [p.id, ko.monitor.scenarioRequired])));
-    return ok;
+    return ok && !limitInvalid;
   };
 
   const persist = async (always: boolean): Promise<Board> => {
@@ -282,12 +291,6 @@ function BoardForm({ initial }: { initial: Board | null }) {
       setBusy(false);
     }
   };
-
-  const limitInvalid = !(
-    Number.isInteger(config.record_limit_kb) &&
-    config.record_limit_kb >= 16 &&
-    config.record_limit_kb <= 1024
-  );
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_14rem] lg:gap-6">

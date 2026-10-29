@@ -5,6 +5,21 @@ import { ko } from "../../i18n/ko";
 
 /** JsonValueTree draws every node at once — above this UTF-8 size show raw text only. */
 const TREE_MAX_BYTES = 64 * 1024;
+/** JsonValueTree recurses once per level; a 64KB `[[[…]]]` is ~32K levels deep. */
+const TREE_MAX_DEPTH = 64;
+
+/** Nesting depth of a parsed JSON value, iteratively (the input may be too deep to recurse).
+ *  Stops as soon as `limit` is exceeded. */
+function jsonDepthExceeds(value: unknown, limit: number): boolean {
+  const stack: [unknown, number][] = [[value, 1]];
+  while (stack.length > 0) {
+    const [v, d] = stack.pop()!;
+    if (v === null || typeof v !== "object") continue;
+    if (d > limit) return true;
+    for (const child of Object.values(v)) stack.push([child, d + 1]);
+  }
+  return false;
+}
 
 /** Inline body block (NOT BodyBlock: its "full view" would nest a Modal inside the
  *  record Modal and ESC would close both). Max height + internal scroll. */
@@ -23,16 +38,19 @@ export function RecordBody({
     if (clippedKb !== null) return null;
     const bytes = new TextEncoder().encode(body).length;
     if (bytes > TREE_MAX_BYTES) return "too_large" as const;
-    return parseBodyJson(body);
+    const json = parseBodyJson(body);
+    if (json !== null && jsonDepthExceeds(json.value, TREE_MAX_DEPTH)) return "too_deep" as const;
+    return json;
   }, [body, clippedKb]);
 
   const tooLarge = parsed === "too_large";
-  const tree = parsed !== null && !tooLarge ? parsed : null;
+  const tooDeep = parsed === "too_deep";
+  const tree = parsed !== null && !tooLarge && !tooDeep ? parsed : null;
   const showTree = tree !== null && !raw;
 
   return (
     <div>
-      {(clippedKb !== null || engineTruncated || tooLarge || tree !== null) && (
+      {(clippedKb !== null || engineTruncated || tooLarge || tooDeep || tree !== null) && (
         <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
           {clippedKb !== null && (
             <span className="text-amber-700">{ko.monitor.recordClipped(clippedKb)}</span>
@@ -41,6 +59,7 @@ export function RecordBody({
             <span className="text-amber-700">{ko.monitor.recordEngineTruncated}</span>
           )}
           {tooLarge && <span>{ko.monitor.recordTreeTooLarge}</span>}
+          {tooDeep && <span>{ko.monitor.recordTreeTooDeep}</span>}
           {tree !== null && tree.unwrapped > 0 && <span>{ko.monitor.previewUnwrapped}</span>}
           {tree !== null && (
             <button

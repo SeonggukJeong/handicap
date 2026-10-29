@@ -247,6 +247,24 @@ describe("CheckRecordDialog", () => {
     expect(screen.queryByText(ko.monitor.recordMaskedHint)).not.toBeInTheDocument();
   });
 
+  it("masked_hint_when_only_url_userinfo_masked", async () => {
+    getRecord.mockResolvedValue(
+      rec({}, [
+        http({
+          request: {
+            method: "GET",
+            url: "https://u:••••@h/x",
+            headers: { "X-Req": "r1" },
+            body: null,
+          },
+        }),
+      ]),
+    );
+    wrap(dlg());
+    await screen.findByText(ko.monitor.recordRespHeaders);
+    expect(screen.getByText(ko.monitor.recordMaskedHint)).toBeInTheDocument();
+  });
+
   it("request_body_hidden_until_reveal_and_rehidden_on_reopen", async () => {
     const user = userEvent.setup();
     getRecord.mockResolvedValue(rec({}, [http({ reqBody: '{"pw":"p"}' })]));
@@ -382,6 +400,29 @@ describe("CheckRecordDialog", () => {
     const toggle = screen.getByRole("button", { name: ko.monitor.recordViewRaw });
     await userEvent.setup().click(toggle);
     expect(screen.getByText('{"k":"v"}').tagName).toBe("PRE");
+  });
+
+  it("deeply_nested_json_body_shows_raw_not_tree", async () => {
+    const deep = "[".repeat(200) + "]".repeat(200);
+    getRecord.mockResolvedValue(rec({}, [http({ body: deep })]));
+    const a = wrap(dlg());
+    expect(await screen.findByText(ko.monitor.recordTreeTooDeep)).toBeInTheDocument();
+    expect(screen.getByText(deep).tagName).toBe("PRE");
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.recordViewTree }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: ko.monitor.recordViewRaw }),
+    ).not.toBeInTheDocument();
+    a.unmount();
+
+    // 3단계 중첩은 그대로 트리.
+    getRecord.mockResolvedValue(rec({}, [http({ body: '{"a":{"b":{"c":1}}}' })]));
+    wrap(dlg({ ...clicked, at_ms: AT + 1 }));
+    expect(
+      await screen.findByRole("button", { name: ko.monitor.recordViewRaw }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.recordTreeTooDeep)).not.toBeInTheDocument();
   });
 
   it("multibyte_body_counts_utf8_bytes", async () => {

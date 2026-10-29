@@ -640,6 +640,29 @@ describe("MonitorEditPage", () => {
     expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
   });
 
+  it("invalid_record_limit_blocks_start_and_save_without_fullscreen", async () => {
+    const spy = vi.fn(() => Promise.resolve());
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: spy,
+    });
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["PUT /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/B1/start"] = () => json(board({ enabled: true }));
+    const user = userEvent.setup();
+    renderAt("/monitors/B1");
+    const input = await screen.findByLabelText(ko.monitor.recordLimit);
+    for (const bad of ["0", "2000"]) {
+      fireEvent.change(input, { target: { value: bad } });
+      await user.click(screen.getByRole("button", { name: ko.monitor.start }));
+      await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+      expect(screen.getByText(ko.monitor.recordLimitRange)).toBeInTheDocument();
+      expect(spy).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+      expect(screen.queryByText("DISPLAY")).not.toBeInTheDocument();
+    }
+  });
+
   it("server_failure_exits_fullscreen_after_pending_request_settles", async () => {
     let resolveReq!: () => void;
     const req = new Promise<void>((r) => {

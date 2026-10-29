@@ -182,6 +182,8 @@ export function MonitorDisplayPage() {
   // fullscreen. isFullscreen() is read live so a stale render can't misjudge.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The record dialog is read with the keyboard too; F must not leave fullscreen under it.
+      if (recordOpenRef.current) return;
       // e.code covers Korean IME, where e.key is "ㄹ"/"Process".
       if (e.key !== "f" && e.key !== "F" && e.code !== "KeyF") return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;

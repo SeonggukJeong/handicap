@@ -1802,6 +1802,7 @@ export const ko = {
     recordClipped: (kb: number) => `기록 상한 ${kb}KB에서 잘림`,
     recordEngineTruncated: "1 MiB에서 잘림 — 실제 응답은 더 큼",
     recordTreeTooLarge: "64KB를 넘는 본문은 원문으로 표시합니다",
+    recordTreeTooDeep: "너무 깊게 중첩된 본문은 원문으로 표시합니다",
     recordViewTree: "트리",
     recordViewRaw: "원문",
     panels: "칸",
