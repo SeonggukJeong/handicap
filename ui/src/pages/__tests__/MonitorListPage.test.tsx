@@ -99,6 +99,26 @@ describe("MonitorListPage", () => {
     expect(screen.getByRole("checkbox", { name: t.selectBoard("운영실") })).toBeInTheDocument();
   });
 
+  it("select_all_indeterminate_when_partial", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({ boards: [mkBoard("B1", "첫째", true, 1), mkBoard("B2", "둘째", true, 1)] }),
+    );
+    renderPage();
+    const all = (await screen.findByRole("checkbox", {
+      name: ko.monitor.transfer.selectAll,
+    })) as HTMLInputElement;
+    expect(all.indeterminate).toBe(false);
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: ko.monitor.transfer.selectBoard("첫째") }),
+    );
+    expect(all.indeterminate).toBe(true);
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: ko.monitor.transfer.selectBoard("둘째") }),
+    );
+    expect(all.indeterminate).toBe(false);
+    expect(all.checked).toBe(true);
+  });
+
   it("export_button_disabled_when_none_selected", async () => {
     fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
     renderPage();

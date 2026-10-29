@@ -16,7 +16,12 @@ export function ImportResultCallout({ result }: { result: ImportResult }) {
   const en = result.environments;
   return (
     <Callout variant="info" role="status" className="mb-4 space-y-1">
-      <p className="font-medium">{t.resultHead(result.boards.length, t.resultAdded(added))}</p>
+      <p className="font-medium">
+        {t.resultHead(
+          result.boards.length,
+          [added > 0 ? t.resultAdded(added) : ""].filter(Boolean).join(" · "),
+        )}
+      </p>
       {(sc.added > 0 || sc.unchanged > 0) && <p>{t.resultScenarios(sc.added, sc.unchanged)}</p>}
       {(en.added > 0 || en.unchanged > 0) && <p>{t.resultEnvs(en.added, en.unchanged)}</p>}
       {result.renamed.map((r, i) => (

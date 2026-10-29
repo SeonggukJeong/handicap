@@ -142,6 +142,16 @@ describe("ImportBoards", () => {
     expect(await screen.findByText(t.conflictBoard("야간 결제 점검"))).toBeInTheDocument();
     expect(screen.getByText(t.conflictScenario("결제 흐름", "야간 결제 점검"))).toBeInTheDocument();
     expect(screen.getByText(t.conflictEnv("운영", "야간 결제 점검"))).toBeInTheDocument();
+    // literal copy, independent of the ko formatters
+    expect(screen.getByText("보드 '야간 결제 점검': 이 PC에 이미 있음")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "시나리오 '결제 흐름': 이 PC의 것과 내용이 다름(보드 '야간 결제 점검'이(가) 사용)",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("환경 '운영': 이 PC의 것과 내용이 다름(보드 '야간 결제 점검'이(가) 사용)"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/무관/)).toBeNull();
     expect(screen.queryByText(/동일환경/)).toBeNull();
     expect(screen.getByRole("dialog", { name: t.conflictTitle })).toBeInTheDocument();
@@ -197,6 +207,12 @@ describe("ImportResultCallout", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(ko.monitor.transfer.warningHead("가"))).toBeInTheDocument();
     expect(screen.getByText("칸 1: 경고문")).toBeInTheDocument();
+  });
+
+  it("result_head_omits_parenthetical_when_no_parts", () => {
+    renderCallout(result({ boards: [{ id: "B1", name: "가", action: "skipped", warnings: [] }] }));
+    expect(screen.getByText("보드 1개 가져옴")).toBeInTheDocument();
+    expect(screen.queryByText(/새로 0/)).toBeNull();
   });
 
   it("result_omits_zero_parts", () => {

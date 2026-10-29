@@ -1786,7 +1786,7 @@ export const ko = {
         `시나리오 '${name}': 이 PC의 것과 내용이 다름(보드 '${board}'이(가) 사용)`,
       conflictEnv: (name: string, board: string) =>
         `환경 '${name}': 이 PC의 것과 내용이 다름(보드 '${board}'이(가) 사용)`,
-      resultHead: (n: number, parts: string) => `보드 ${n}개 가져옴(${parts})`,
+      resultHead: (n: number, parts: string) => `보드 ${n}개 가져옴${parts ? `(${parts})` : ""}`,
       resultAdded: (a: number) => `새로 ${a}`,
       resultScenarios: (added: number, used: number) =>
         `시나리오: ${[added ? `새로 ${added}` : "", used ? `기존 것 사용 ${used}` : ""].filter(Boolean).join(" · ")}`,

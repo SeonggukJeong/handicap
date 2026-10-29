@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBoards } from "../api/monitors";
@@ -35,6 +35,14 @@ export function MonitorListPage() {
   const chosen = (data ?? []).filter((b) => selected.has(b.id));
   const allSelected = !!data && data.length > 0 && chosen.length === data.length;
   const tooMany = chosen.length > MAX_EXPORT;
+
+  // Partial selection -> indeterminate (DOM property, not a JSX attribute).
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = chosen.length > 0 && !allSelected;
+    }
+  }, [chosen.length, allSelected]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -110,6 +118,7 @@ export function MonitorListPage() {
                 <input
                   type="checkbox"
                   aria-label={t.selectAll}
+                  ref={selectAllRef}
                   checked={allSelected}
                   onChange={() =>
                     setSelected(allSelected ? new Set() : new Set(data.map((b) => b.id)))
