@@ -1,3 +1,4 @@
+pub mod board_file;
 pub mod check;
 pub mod config;
 pub mod record;

@@ -10,7 +10,7 @@ pub const MAX_PANELS: usize = 9;
 pub const MAX_THRESHOLDS: usize = 5;
 pub const MAX_CONDITIONS: usize = 10;
 pub const MAX_DISPLAY_ITEMS: usize = 2;
-const NAME_MAX_CHARS: usize = 40;
+pub(crate) const NAME_MAX_CHARS: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

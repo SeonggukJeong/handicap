@@ -448,7 +448,7 @@ fn eval_conditions(
 }
 
 /// 시나리오 정의의 http 스텝 전부(loop/if/parallel 재귀).
-fn collect_http_steps<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
+pub(crate) fn collect_http_steps<'a>(steps: &'a [Step], out: &mut Vec<&'a HttpStep>) {
     for s in steps {
         match s {
             Step::Http(h) => out.push(h),

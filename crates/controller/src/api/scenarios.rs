@@ -16,7 +16,7 @@ use crate::store::scenarios;
 /// exact-match uniqueness) so UI-authored scenarios can never be rejected
 /// here. Recurses because the engine model allows free nesting even though
 /// the UI gate keeps parallel top-level.
-fn validate_parallel_branch_names(steps: &[Step]) -> Result<(), String> {
+pub(crate) fn validate_parallel_branch_names(steps: &[Step]) -> Result<(), String> {
     for step in steps {
         match step {
             Step::Http(_) => {}

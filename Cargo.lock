@@ -1224,6 +1224,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "serde_yaml",
  "sqlx",
  "tempfile",

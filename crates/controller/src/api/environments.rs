@@ -70,23 +70,29 @@ fn map_db_err(e: sqlx::Error) -> ApiError {
 /// (vu_id/iter_id/loop_index) are NOT rejected here — the engine resolves them to
 /// system values regardless, so the UI surfaces a soft warning instead.
 fn validate_env(name: &str, vars: &BTreeMap<String, String>) -> Result<(), ApiError> {
+    match env_problem(name, vars) {
+        Some(msg) => Err(ApiError::BadRequest(msg)),
+        None => Ok(()),
+    }
+}
+
+/// `validate_env`의 검사 본문 — 사유 문자열만 돌려준다(보드 가져오기 R5'가 재사용).
+pub(crate) fn env_problem(name: &str, vars: &BTreeMap<String, String>) -> Option<String> {
     if name.trim().is_empty() {
-        return Err(ApiError::BadRequest("이름은 비어 있을 수 없습니다".into()));
+        return Some("이름은 비어 있을 수 없습니다".into());
     }
     for key in vars.keys() {
         let k = key.trim();
         if k.is_empty() {
-            return Err(ApiError::BadRequest(
-                "변수 이름은 비어 있을 수 없습니다".into(),
-            ));
+            return Some("변수 이름은 비어 있을 수 없습니다".into());
         }
         if k.chars().any(|c| c.is_whitespace() || c == '}' || c == ':') {
-            return Err(ApiError::BadRequest(format!(
+            return Some(format!(
                 "변수 이름 '{key}'에 공백·중괄호·콜론은 쓸 수 없습니다"
-            )));
+            ));
         }
     }
-    Ok(())
+    None
 }
 
 pub async fn create(
