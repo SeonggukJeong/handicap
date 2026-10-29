@@ -6,6 +6,16 @@ import { MonitorDisplayPage } from "../MonitorDisplayPage";
 import { ko } from "../../i18n/ko";
 import { monitorKey } from "../../monitor/keys";
 
+const getRecord = vi.fn();
+vi.mock("../../api/monitors", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/monitors")>()),
+  getRecord: (...a: unknown[]) => getRecord(...a),
+}));
+vi.mock("../../api/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/hooks")>()),
+  useScenarios: () => ({ data: { scenarios: [] } }),
+}));
+
 const BID = "B1";
 const T = new Date(2026, 9, 22, 14, 32, 10).getTime();
 const pid = (n: number) => `01HZZZZZZZZZZZZZZZZZZZZZP${n}`;
@@ -419,5 +429,44 @@ describe("MonitorDisplayPage fullscreen", () => {
     const before = statusCalls;
     await tick(3000);
     expect(statusCalls).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  describe("record dialog vs fullscreen", () => {
+    beforeEach(() => {
+      getRecord.mockReset();
+      getRecord.mockReturnValue(new Promise(() => {}));
+    });
+    const hit = () => screen.getAllByTestId("bar-hit-layer")[0].querySelector("[data-bar-hit]")!;
+
+    it("mousedown_on_bar_keeps_fullscreen", async () => {
+      await renderPage();
+      await setFs(true);
+      await act(async () => {
+        fireEvent.mouseDown(hit(), { button: 0 });
+      });
+      expect(exitFs).not.toHaveBeenCalled();
+    });
+
+    it("mousedown_while_dialog_open_keeps_fullscreen", async () => {
+      await renderPage();
+      await setFs(true);
+      await act(async () => {
+        fireEvent.click(hit());
+      });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.mouseDown(document.body, { button: 0 });
+      });
+      expect(exitFs).not.toHaveBeenCalled();
+    });
+
+    it("mousedown_elsewhere_still_exits", async () => {
+      await renderPage();
+      await setFs(true);
+      await act(async () => {
+        fireEvent.mouseDown(document.body, { button: 0 });
+      });
+      expect(exitFs).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getBoard, getBoardStatus, setLatencyStats, stopBoard, type Blink } from "../api/monitors";
+import {
+  getBoard,
+  getBoardStatus,
+  setLatencyStats,
+  stopBoard,
+  type Blink,
+  type CheckResult,
+  type PanelConfig,
+} from "../api/monitors";
 import { enterFullscreen, exitFullscreen, isFullscreen } from "../monitor/fullscreen";
 import { ApiError } from "../api/client";
 import { MonitorPanel, PanelProbe, type PanelMeasure } from "../components/monitor/MonitorPanel";
+import { CheckRecordDialog } from "../components/monitor/CheckRecordDialog";
 import { StripCard } from "../components/monitor/StripCard";
 import { FocusProbes } from "../components/monitor/FocusProbes";
 import {
@@ -95,6 +104,12 @@ export function MonitorDisplayPage() {
   const [failedPolls, setFailedPolls] = useState(0);
   const [full, setFull] = useState(isFullscreen);
   const [cursorIdle, setCursorIdle] = useState(false);
+  const [selected, setSelected] = useState<{ panel: PanelConfig; result: CheckResult } | null>(
+    null,
+  );
+  // The fullscreen mousedown listener is registered once -> it reads this ref.
+  const recordOpenRef = useRef(false);
+  recordOpenRef.current = selected !== null;
   const [stopBusy, setStopBusy] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const [statsBusy, setStatsBusy] = useState(false);
@@ -173,7 +188,10 @@ export function MonitorDisplayPage() {
       if (isFullscreen()) exitFullscreen();
       else enterFullscreen();
     };
-    const onDown = () => {
+    const onDown = (e: MouseEvent) => {
+      // A press on a bar (opens the record) or while the record is open keeps fullscreen.
+      if (recordOpenRef.current) return;
+      if ((e.target as Element | null)?.closest?.("[data-bar-hit]")) return;
       if (isFullscreen()) exitFullscreen();
     };
     const onContext = (e: MouseEvent) => {
@@ -313,6 +331,7 @@ export function MonitorDisplayPage() {
       splitFit={scale.splitFit}
       displayStyle={board.config.display_style}
       showStats={board.config.show_latency_stats}
+      onSelectResult={(result) => setSelected({ panel: v.p, result })}
     />
   );
   const cardMs = formatMs(Math.max(0, ...panels.map((p) => p.timeout_seconds)) * 1000);
@@ -472,6 +491,14 @@ export function MonitorDisplayPage() {
             </span>
           )}
         </div>
+      )}
+      {selected && (
+        <CheckRecordDialog
+          boardId={id}
+          panel={selected.panel}
+          clicked={selected.result}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

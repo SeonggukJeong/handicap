@@ -9,6 +9,7 @@ import {
   panelFont,
 } from "../../monitor/display";
 import { ko } from "../../i18n/ko";
+import { formatHms } from "../../monitor/time";
 
 const FAIL_BASE = "#7f1d1d";
 const CONFIG_BASE = "#334155";
@@ -108,6 +109,7 @@ export function LatencyBars({
   fontScale = 1,
   showInterval = false,
   inset = false,
+  onSelect,
 }: {
   results: CheckResult[];
   barCount: number;
@@ -119,7 +121,10 @@ export function LatencyBars({
   showInterval?: boolean;
   /** A (fill): the graph sits in a dark box (padding + COLOR.bg). */
   inset?: boolean;
+  /** When set, columns with a result are clickable (transparent overlay above the bars). */
+  onSelect?: (r: CheckResult) => void;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
   const areaRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const placed = placeLabels(
@@ -233,6 +238,67 @@ export function LatencyBars({
             );
           })}
         </div>
+        {onSelect && (
+          <div
+            data-testid="bar-hit-layer"
+            className="absolute inset-0 flex"
+            style={{ zIndex: 3 }}
+            onMouseLeave={() => setHover(null)}
+          >
+            {slots.map((r, i) =>
+              r === null ? (
+                <div key={i} style={{ flex: "1 1 0", minWidth: 0 }} />
+              ) : (
+                <div
+                  key={i}
+                  data-bar-hit=""
+                  onClick={() => onSelect(r)}
+                  onMouseEnter={() => setHover(i)}
+                  onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+                  style={{
+                    flex: "1 1 0",
+                    minWidth: 0,
+                    padding: slotPad,
+                    backgroundClip: "content-box",
+                    cursor: "pointer",
+                    boxSizing: "border-box",
+                    ...(hover === i
+                      ? {
+                          backgroundColor: "rgba(255,255,255,0.28)",
+                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.9)",
+                        }
+                      : {}),
+                  }}
+                />
+              ),
+            )}
+          </div>
+        )}
+        {onSelect && hover !== null && slots[hover] && (
+          <span
+            data-testid="bar-hover-time"
+            className="pointer-events-none absolute leading-none"
+            style={{
+              top: 0,
+              zIndex: 4,
+              padding: "0.2em 0.5em",
+              borderRadius: "0.3em",
+              background: "rgba(15,23,42,0.92)",
+              color: COLOR.text,
+              fontSize: axisFont,
+              ...(hover < barCount * 0.15
+                ? { left: 0 }
+                : hover > barCount * 0.85
+                  ? { right: 0 }
+                  : {
+                      left: `${((hover + 0.5) / barCount) * 100}%`,
+                      transform: "translateX(-50%)",
+                    }),
+            }}
+          >
+            {formatHms(slots[hover]!.at_ms)}
+          </span>
+        )}
         {thresholds.map((t) => (
           <span
             key={`${t.ms}-${t.color}`}

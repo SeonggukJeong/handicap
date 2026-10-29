@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within, act } from "@testing-library/react";
+import { render, screen, within, act, fireEvent } from "@testing-library/react";
 import { LatencyBars } from "../LatencyBars";
 import type { CheckResult, Threshold } from "../../../api/monitors";
 import { ko } from "../../../i18n/ko";
+import { formatHms } from "../../../monitor/time";
 
 const TH: Threshold[] = [
   { ms: 700, color: "#facc15" },
@@ -282,5 +283,74 @@ describe("LatencyBars", () => {
     renderBars([], { barCount: 60 });
     expect(screen.getByText(ko.monitor.axisAgo("10분"))).toBeInTheDocument();
     expect(screen.getByText(ko.monitor.axisNow)).toBeInTheDocument();
+  });
+
+  describe("click overlay", () => {
+    const AT = new Date(2026, 9, 29, 10, 11, 12).getTime();
+    const three = () => [ok(100, AT - 2000), ok(200, AT - 1000), ok(300, AT)];
+    function renderSel(onSelect?: (r: CheckResult) => void, results = three()) {
+      return render(
+        <LatencyBars
+          results={results}
+          barCount={5}
+          graphMaxMs={2000}
+          thresholds={TH}
+          intervalSec={10}
+          onSelect={onSelect}
+        />,
+      );
+    }
+    const hits = () => Array.from(document.querySelectorAll("[data-bar-hit]")) as HTMLElement[];
+
+    it("overlay_click_selects_result", () => {
+      const onSelect = vi.fn();
+      renderSel(onSelect);
+      expect(hits()).toHaveLength(3);
+      fireEvent.click(hits()[2]);
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect.mock.calls[0][0].at_ms).toBe(AT);
+    });
+
+    it("empty_column_not_clickable", () => {
+      renderSel(vi.fn());
+      const layer = screen.getByTestId("bar-hit-layer");
+      expect(layer.children).toHaveLength(5);
+      expect(layer.children[0]).not.toHaveAttribute("data-bar-hit");
+      expect(layer.children[1]).not.toHaveAttribute("data-bar-hit");
+      expect(layer.children[2]).toHaveAttribute("data-bar-hit");
+    });
+
+    it("no_overlay_without_onSelect", () => {
+      renderSel(undefined);
+      expect(hits()).toHaveLength(0);
+      expect(screen.queryByTestId("bar-hit-layer")).toBeNull();
+    });
+
+    it("hover_shows_time", () => {
+      renderSel(vi.fn());
+      expect(screen.queryByTestId("bar-hover-time")).toBeNull();
+      fireEvent.mouseEnter(hits()[2]);
+      expect(screen.getByTestId("bar-hover-time")).toHaveTextContent(formatHms(AT));
+      fireEvent.mouseLeave(hits()[2]);
+      expect(screen.queryByTestId("bar-hover-time")).toBeNull();
+    });
+
+    it("overlay_stays_inside_bars_area", () => {
+      renderSel(vi.fn());
+      expect(screen.getByTestId("bars-area").contains(screen.getByTestId("bar-hit-layer"))).toBe(
+        true,
+      );
+      expect(screen.getByTestId("threshold-labels").contains(hits()[0])).toBe(false);
+    });
+
+    it("bar_layer_unchanged_with_overlay", () => {
+      const a = renderSel(undefined);
+      const without = slots().map((el) => el.getAttribute("style"));
+      a.unmount();
+      renderSel(vi.fn());
+      const withOv = slots().map((el) => el.getAttribute("style"));
+      expect(withOv).toEqual(without);
+      expect(withOv).toHaveLength(5);
+    });
   });
 });

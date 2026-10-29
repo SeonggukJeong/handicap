@@ -4,8 +4,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { MonitorDisplayPage } from "../MonitorDisplayPage";
 import { ko } from "../../i18n/ko";
+import { formatDateHms } from "../../monitor/time";
+import { fireEvent } from "@testing-library/react";
 import { MIN_FIT, nextSearch, PANEL_TEXT, panelFont } from "../../monitor/display";
 import { focusGeometries } from "../../monitor/logic";
+
+const getRecord = vi.fn();
+vi.mock("../../api/monitors", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/monitors")>()),
+  getRecord: (...a: unknown[]) => getRecord(...a),
+}));
+vi.mock("../../api/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/hooks")>()),
+  useScenarios: () => ({ data: { scenarios: [] } }),
+}));
 
 const BID = "B1";
 const P1 = "01HZZZZZZZZZZZZZZZZZZZZZP1";
@@ -1771,5 +1783,34 @@ describe("MonitorDisplayPage display items", () => {
     const line = panel().getByTestId("display-line");
     expect(line.querySelector("b")?.style.color).toBe(ink);
     expect(line.querySelector("span")?.style.color).toBe(ink);
+  });
+
+  describe("record dialog", () => {
+    beforeEach(() => {
+      getRecord.mockReset();
+      getRecord.mockReturnValue(new Promise(() => {}));
+    });
+
+    it("bar_click_opens_record_dialog", async () => {
+      await renderPage();
+      const hit = panelEl("결제").querySelector("[data-bar-hit]")!;
+      await act(async () => {
+        fireEvent.click(hit);
+      });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText(ko.monitor.recordTitle("결제", formatDateHms(T)))).toBeInTheDocument();
+      expect(getRecord).toHaveBeenCalledWith(BID, P1, T);
+    });
+
+    it("dialog_open_keeps_polling", async () => {
+      await renderPage();
+      await act(async () => {
+        fireEvent.click(panelEl("결제").querySelector("[data-bar-hit]")!);
+      });
+      await tick(0);
+      const before = statusCalls;
+      await tick(3000);
+      expect(statusCalls).toBeGreaterThanOrEqual(before + 2);
+    });
   });
 });

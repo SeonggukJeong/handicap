@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { DisplayStyle, PanelConfig } from "../../api/monitors";
+import type { CheckResult, DisplayStyle, PanelConfig } from "../../api/monitors";
 import {
   bigValueText,
   formatMs,
@@ -448,6 +448,7 @@ export function MonitorPanel({
   splitFit = 1,
   displayStyle = "border",
   showStats = false,
+  onSelectResult,
 }: {
   panel: PanelConfig;
   status: PanelStatus | undefined;
@@ -465,6 +466,8 @@ export function MonitorPanel({
   displayStyle?: DisplayStyle;
   /** Board setting `show_latency_stats`: draw `평균 N 최대 M` under the big value. */
   showStats?: boolean;
+  /** A bar was clicked: open that check's record. */
+  onSelectResult?: (r: CheckResult) => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -690,6 +693,7 @@ export function MonitorPanel({
             fontScale={fontScale}
             showInterval={showInterval}
             inset={fillBg !== null}
+            onSelect={onSelectResult}
           />
         )}
       </div>
