@@ -1,12 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { MonitorListPage } from "../MonitorListPage";
 import { ko } from "../../i18n/ko";
+import { downloadBoardFile } from "../../api/monitorTransfer";
+
+vi.mock("../../api/monitorTransfer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/monitorTransfer")>()),
+  downloadBoardFile: vi.fn(),
+}));
 
 const fetchMock = vi.fn();
 beforeEach(() => {
+  vi.mocked(downloadBoardFile).mockReset();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -82,5 +89,82 @@ describe("MonitorListPage", () => {
     fetchMock.mockResolvedValueOnce(json({ boards: [] }));
     renderPage();
     expect(await screen.findByText(ko.monitor.emptyList)).toBeInTheDocument();
+  });
+
+  it("select_all_and_row_checkboxes_have_names", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
+    renderPage();
+    const t = ko.monitor.transfer;
+    expect(await screen.findByRole("checkbox", { name: t.selectAll })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: t.selectBoard("운영실") })).toBeInTheDocument();
+  });
+
+  it("export_button_disabled_when_none_selected", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
+    renderPage();
+    const btn = await screen.findByRole("button", { name: ko.monitor.transfer.exportSelected(0) });
+    expect(btn).toBeDisabled();
+  });
+
+  it("export_button_disabled_over_50_with_message", async () => {
+    const boards = Array.from({ length: 51 }, (_, i) => mkBoard(`B${i}`, `보드${i}`, false, 1));
+    fetchMock.mockResolvedValueOnce(json({ boards }));
+    renderPage();
+    fireEvent.click(await screen.findByRole("checkbox", { name: ko.monitor.transfer.selectAll }));
+    const btn = screen.getByRole("button", { name: ko.monitor.transfer.exportSelected(51) });
+    expect(btn).toBeDisabled();
+    expect(screen.getByText(ko.monitor.transfer.tooManyToExport)).toBeInTheDocument();
+  });
+
+  it("export_downloads_selected_in_list_order", async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({ boards: [mkBoard("B1", "첫째", true, 1), mkBoard("B2", "둘째", true, 1)] }),
+    );
+    renderPage();
+    const t = ko.monitor.transfer;
+    fireEvent.click(await screen.findByRole("checkbox", { name: t.selectBoard("둘째") }));
+    fireEvent.click(screen.getByRole("checkbox", { name: t.selectBoard("첫째") }));
+    fetchMock.mockResolvedValueOnce(new Response('{"file":1}', { status: 200 }));
+    fireEvent.click(screen.getByRole("button", { name: t.exportSelected(2) }));
+    await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[1];
+    expect(JSON.parse(init.body)).toEqual({ board_ids: ["B1", "B2"] });
+    expect(downloadBoardFile).toHaveBeenCalledWith(
+      "monitor-boards-2.handicap-board.json",
+      '{"file":1}',
+    );
+  });
+
+  it("export_error_is_shown_and_no_download", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
+    renderPage();
+    const t = ko.monitor.transfer;
+    fireEvent.click(await screen.findByRole("checkbox", { name: t.selectBoard("운영실") }));
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "보드 '운영실' 칸 1: 시나리오가 없습니다" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: t.exportSelected(1) }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "보드 '운영실' 칸 1: 시나리오가 없습니다",
+    );
+    expect(downloadBoardFile).not.toHaveBeenCalled();
+  });
+
+  it("import_button_visible_on_empty_list", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [] }));
+    renderPage();
+    expect(await screen.findByText(ko.monitor.emptyList)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: ko.monitor.transfer.importFromFile }),
+    ).toBeInTheDocument();
+  });
+
+  it("plaintext_notice_visible", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
+    renderPage();
+    expect(await screen.findByText(ko.monitor.transfer.plaintextNotice)).toBeInTheDocument();
   });
 });
