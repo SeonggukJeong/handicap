@@ -39,7 +39,9 @@ function saveViaBlobUrl(filename: string, text: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-const JSON_TYPES: SaveTypes = [{ description: "JSON", accept: { "application/json": [".json"] } }];
+export const JSON_TYPES: SaveTypes = [
+  { description: "JSON", accept: { "application/json": [".json"] } },
+];
 const YAML_TYPES: SaveTypes = [
   { description: "YAML", accept: { "application/yaml": [".yaml", ".yml"] } },
 ];

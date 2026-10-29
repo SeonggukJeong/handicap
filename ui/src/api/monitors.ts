@@ -165,7 +165,7 @@ export function newPanel(): PanelConfig {
   };
 }
 
-async function errorMessage(res: Response): Promise<string> {
+export async function errorMessage(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as unknown;
     if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {

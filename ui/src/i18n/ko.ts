@@ -1761,6 +1761,46 @@ export const ko = {
     runDialogLink: "에디터에서 보기",
   },
   monitor: {
+    /** 보드 내보내기/가져오기(ops-monitor-export) — 문구 정본: 슬라이스 global-constraints 표 */
+    transfer: {
+      exportSelected: (n: number) => `선택한 보드 내보내기 (${n})`,
+      importFromFile: "파일에서 가져오기",
+      tooManyToExport: "한 번에 50개까지 내보낼 수 있습니다",
+      selectAll: "모든 보드 선택",
+      selectBoard: (name: string) => `'${name}' 선택`,
+      plaintextNotice:
+        "환경 값(비밀번호·토큰 포함)이 그대로 파일에 담깁니다. 파일 보관에 주의하세요.",
+      exportFromSettings: "파일로 내보내기",
+      unsavedTitle: "저장되지 않은 내용",
+      unsavedBody: "저장되지 않은 내용이 있습니다. 저장 후 내보내시겠습니까?",
+      cancel: "취소",
+      saveAndExport: "저장 후 내보내기",
+      tooLarge: "파일이 너무 큽니다(최대 32MB).",
+      errorTitle: "가져올 수 없습니다",
+      close: "닫기",
+      conflictTitle: "이 PC에 이미 있는 항목과 겹칩니다",
+      conflictLead: "아무것도 가져오지 않았습니다. 겹치는 항목:",
+      conflictNote: "겹치는 보드를 덮어쓰거나 새 보드로 추가하는 기능은 아직 없습니다.",
+      conflictBoard: (name: string) => `보드 '${name}': 이 PC에 이미 있음`,
+      conflictScenario: (name: string, board: string) =>
+        `시나리오 '${name}': 이 PC의 것과 내용이 다름(보드 '${board}'이(가) 사용)`,
+      conflictEnv: (name: string, board: string) =>
+        `환경 '${name}': 이 PC의 것과 내용이 다름(보드 '${board}'이(가) 사용)`,
+      resultHead: (n: number, parts: string) => `보드 ${n}개 가져옴(${parts})`,
+      resultAdded: (a: number) => `새로 ${a}`,
+      resultScenarios: (added: number, used: number) =>
+        `시나리오: ${[added ? `새로 ${added}` : "", used ? `기존 것 사용 ${used}` : ""].filter(Boolean).join(" · ")}`,
+      resultEnvs: (added: number, used: number) =>
+        `환경: ${[added ? `새로 ${added}` : "", used ? `기존 것 사용 ${used}` : ""].filter(Boolean).join(" · ")}`,
+      renamed: (to: string, kind: string, from: string) =>
+        `이름이 겹쳐 '${to}'(으)로 추가: ${kind} '${from}'`,
+      kindBoard: "보드",
+      kindEnv: "환경",
+      kindScenario: "시나리오",
+      warningHead: (name: string) => `보드 '${name}' 확인 필요:`,
+      defaultFileSingle: (safe: string) => `${safe || "monitor-board"}.handicap-board.json`,
+      defaultFileMulti: (n: number) => `monitor-boards-${n}.handicap-board.json`,
+    },
     listTitle: "모니터",
     newBoard: "새 모니터",
     openDisplay: "화면 열기",
