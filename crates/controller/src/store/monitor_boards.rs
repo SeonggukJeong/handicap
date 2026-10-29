@@ -60,6 +60,42 @@ pub async fn insert(db: &Db, name: &str, config: &BoardConfig) -> sqlx::Result<M
     })
 }
 
+/// 가져오기용: 주어진 ID로 그대로 추가(enabled=0). 호출자가 트랜잭션 연결을 넘긴다.
+pub async fn insert_with_id(
+    conn: &mut sqlx::SqliteConnection,
+    id: &str,
+    name: &str,
+    config: &BoardConfig,
+) -> sqlx::Result<()> {
+    let now = super::now_ms();
+    let json = serde_json::to_string(config).expect("serialize board config");
+    sqlx::query(
+        "INSERT INTO monitor_boards(id,name,config_json,enabled,created_at,updated_at) \
+         VALUES(?,?,?,0,?,?)",
+    )
+    .bind(id)
+    .bind(name)
+    .bind(&json)
+    .bind(now)
+    .bind(now)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// `(id, name, enabled)` 목록(이름순) — 가져오기 겹침 판정용, 트랜잭션 안에서 읽는다.
+pub async fn list_names_enabled(
+    conn: &mut sqlx::SqliteConnection,
+) -> sqlx::Result<Vec<(String, String, bool)>> {
+    let rows = sqlx::query("SELECT id,name,enabled FROM monitor_boards ORDER BY name")
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.get("id"), r.get("name"), r.get::<i64, _>("enabled") != 0))
+        .collect())
+}
+
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<MonitorBoardRow>> {
     let row = sqlx::query(&format!("SELECT {COLS} FROM monitor_boards WHERE id = ?"))
         .bind(id)
@@ -208,6 +244,27 @@ mod tests {
 
         delete(&db, &row.id).await.unwrap();
         assert!(get(&db, &row.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_with_id_keeps_id() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let mut conn = db.acquire().await.unwrap();
+        insert_with_id(&mut conn, "01J00000000000000000000001", "가져옴", &cfg("S"))
+            .await
+            .unwrap();
+        let names = list_names_enabled(&mut conn).await.unwrap();
+        assert_eq!(
+            names,
+            vec![("01J00000000000000000000001".into(), "가져옴".into(), false)]
+        );
+        drop(conn);
+        let got = get(&db, "01J00000000000000000000001")
+            .await
+            .unwrap()
+            .expect("row");
+        assert_eq!(got.config, cfg("S"));
+        assert!(!got.enabled);
     }
 
     #[tokio::test]

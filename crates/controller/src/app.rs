@@ -7,9 +7,10 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{
     datasets as datasets_api, environments as environments_api,
-    monitor_boards as monitor_boards_api, pool as pool_api, presets as presets_api,
-    runs as runs_api, scenarios as scenarios_api, schedules as schedules_api,
-    settings as settings_api, step_templates as step_templates_api, test_runs as test_runs_api,
+    monitor_boards as monitor_boards_api, monitor_transfer as monitor_transfer_api,
+    pool as pool_api, presets as presets_api, runs as runs_api, scenarios as scenarios_api,
+    schedules as schedules_api, settings as settings_api, step_templates as step_templates_api,
+    test_runs as test_runs_api,
 };
 use crate::dispatcher::SharedDispatcher;
 use crate::grpc::coordinator::CoordinatorState;
@@ -114,6 +115,7 @@ pub fn router(state: AppState) -> Router {
             "/monitor-boards",
             post(monitor_boards_api::create).get(monitor_boards_api::list),
         )
+        .route("/monitor-boards/export", post(monitor_transfer_api::export))
         .route(
             "/monitor-boards/preview-check",
             post(monitor_boards_api::preview_check),

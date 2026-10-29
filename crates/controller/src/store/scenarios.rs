@@ -36,6 +36,48 @@ pub async fn insert(db: &Db, scenario: &Scenario, yaml: &str) -> sqlx::Result<Sc
     })
 }
 
+/// 가져오기용: 주어진 ID로 그대로 추가(version=1). 호출자가 트랜잭션 연결을 넘긴다.
+pub async fn insert_with_id(
+    conn: &mut sqlx::SqliteConnection,
+    id: &str,
+    name: &str,
+    yaml: &str,
+) -> sqlx::Result<()> {
+    let now = super::now_ms();
+    sqlx::query(
+        "INSERT INTO scenarios(id,name,yaml,created_at,updated_at,version) VALUES(?,?,?,?,?,1)",
+    )
+    .bind(id)
+    .bind(name)
+    .bind(yaml)
+    .bind(now)
+    .bind(now)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// 주어진 ID들의 YAML을 `{id: yaml}`로(없는 ID는 빠진다).
+pub async fn yaml_by_ids(
+    conn: &mut sqlx::SqliteConnection,
+    ids: &[String],
+) -> sqlx::Result<std::collections::BTreeMap<String, String>> {
+    let mut out = std::collections::BTreeMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let marks = vec!["?"; ids.len()].join(",");
+    let sql = format!("SELECT id,yaml FROM scenarios WHERE id IN ({marks})");
+    let mut q = sqlx::query(&sql);
+    for id in ids {
+        q = q.bind(id);
+    }
+    for r in q.fetch_all(&mut *conn).await? {
+        out.insert(r.get::<String, _>("id"), r.get::<String, _>("yaml"));
+    }
+    Ok(out)
+}
+
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<ScenarioRow>> {
     let row = sqlx::query_as::<_, (String, String, String, i64, i64, i64)>(
         "SELECT id,name,yaml,created_at,updated_at,version FROM scenarios WHERE id = ?",
@@ -189,4 +231,34 @@ pub async fn delete_cascade(db: &Db, id: &str) -> sqlx::Result<DeleteOutcome> {
         .await?;
     tx.commit().await?;
     Ok(DeleteOutcome::Deleted)
+}
+
+#[cfg(test)]
+mod transfer_tests {
+    use super::*;
+    use crate::store;
+
+    #[tokio::test]
+    async fn insert_with_id_keeps_id() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let mut conn = db.acquire().await.unwrap();
+        insert_with_id(&mut conn, "01J00000000000000000000001", "이름", "y: 1")
+            .await
+            .unwrap();
+        drop(conn);
+        let got = get(&db, "01J00000000000000000000001")
+            .await
+            .unwrap()
+            .expect("row");
+        assert_eq!(
+            (got.name.as_str(), got.yaml.as_str(), got.version),
+            ("이름", "y: 1", 1)
+        );
+        let mut conn = db.acquire().await.unwrap();
+        let ids = vec!["01J00000000000000000000001".to_string(), "nope".to_string()];
+        let m = yaml_by_ids(&mut conn, &ids).await.unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m["01J00000000000000000000001"], "y: 1");
+        assert!(yaml_by_ids(&mut conn, &[]).await.unwrap().is_empty());
+    }
 }

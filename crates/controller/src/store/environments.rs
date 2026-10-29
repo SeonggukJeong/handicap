@@ -45,6 +45,48 @@ pub async fn insert(
     })
 }
 
+/// 가져오기용: 주어진 ID로 그대로 추가. 호출자가 트랜잭션 연결을 넘긴다.
+pub async fn insert_with_id(
+    conn: &mut sqlx::SqliteConnection,
+    id: &str,
+    name: &str,
+    vars: &BTreeMap<String, String>,
+) -> sqlx::Result<()> {
+    let now = super::now_ms();
+    let vars_json = serde_json::to_string(vars).expect("serialize env vars");
+    sqlx::query(
+        "INSERT INTO environments(id,name,vars_json,created_at,updated_at) VALUES(?,?,?,?,?)",
+    )
+    .bind(id)
+    .bind(name)
+    .bind(&vars_json)
+    .bind(now)
+    .bind(now)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// `list`의 연결 버전(트랜잭션 안에서 읽을 때).
+pub async fn list_all_conn(conn: &mut sqlx::SqliteConnection) -> sqlx::Result<Vec<EnvironmentRow>> {
+    let rows = sqlx::query(
+        "SELECT id,name,vars_json,created_at,updated_at FROM environments ORDER BY name",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| EnvironmentRow {
+            vars: serde_json::from_str(r.get::<String, _>("vars_json").as_str())
+                .unwrap_or_default(),
+            id: r.get("id"),
+            name: r.get("name"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        })
+        .collect())
+}
+
 pub async fn get(db: &Db, id: &str) -> sqlx::Result<Option<EnvironmentRow>> {
     let row = sqlx::query(
         "SELECT id,name,vars_json,created_at,updated_at FROM environments WHERE id = ?",
@@ -153,6 +195,21 @@ mod tests {
 
         delete(&db, &row.id).await.unwrap();
         assert!(get(&db, &row.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_with_id_keeps_id() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let v = vars(&[("A", "1")]);
+        let mut conn = db.acquire().await.unwrap();
+        insert_with_id(&mut conn, "01J00000000000000000000001", "운영", &v)
+            .await
+            .unwrap();
+        let all = list_all_conn(&mut conn).await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "01J00000000000000000000001");
+        assert_eq!(all[0].name, "운영");
+        assert_eq!(all[0].vars, v);
     }
 
     #[tokio::test]
