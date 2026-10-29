@@ -560,3 +560,120 @@ async fn import_routes_do_not_hit_board_id_route() {
     assert_ne!(st, StatusCode::NOT_FOUND);
     assert_ne!(st, StatusCode::METHOD_NOT_ALLOWED);
 }
+
+async fn post_with_ct(
+    app: &axum::Router,
+    uri: &str,
+    ct: &str,
+    body: Vec<u8>,
+) -> (StatusCode, Vec<u8>) {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("content-type", ct)
+        .body(Body::from(body))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let st = resp.status();
+    let b = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (st, b.to_vec())
+}
+
+fn splice(file: &[u8]) -> Vec<u8> {
+    [&b"{\"bundle\":"[..], file, &b"}"[..]].concat()
+}
+
+#[tokio::test]
+async fn analyze_text_plain_is_415() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, body) = post_with_ct(&b.app, ANALYZE, "text/plain", file.clone()).await;
+    assert_eq!(st, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(
+        as_json(&body)["error"],
+        "요청 형식이 올바르지 않습니다(Content-Type: application/json 필요)"
+    );
+    let (st, _) = post_with_ct(&b.app, ANALYZE, "Application/JSON; charset=utf-8", file).await;
+    assert_eq!(st, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn import_text_plain_is_415_and_no_rows() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let before = counts(&b.db).await;
+    let (st, _) = post_with_ct(&b.app, IMPORT, "text/plain", splice(&file)).await;
+    assert_eq!(st, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(counts(&b.db).await, before);
+}
+
+#[tokio::test]
+async fn import_accepts_raw_spliced_body() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, resp) = post_bytes(&b.app, IMPORT, splice(&file)).await;
+    assert_eq!(st, StatusCode::OK, "{}", String::from_utf8_lossy(&resp));
+    assert_eq!(counts(&b.db).await, (1, 1, 2));
+}
+
+#[tokio::test]
+async fn import_3mib_is_not_413() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let mut body = splice(&file);
+    body.extend(vec![b' '; 3 * 1024 * 1024]);
+    let (st, _) = post_bytes(&b.app, IMPORT, body).await;
+    assert_eq!(st, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn rich_board_config_survives_import_round_trip() {
+    let a = new_pc().await;
+    let sid = create_scenario(&a.app, "s").await;
+    let eid = create_env(&a.app, "운영").await;
+    let cfg = json!({
+        "show_latency_stats": false, "record_limit_kb": 512,
+        "font_scale": "large", "blink": "fail", "display_style": "border",
+        "panels": [{
+            "title": "p1", "scenario_id": sid, "environment_id": eid,
+            "latency_source": {"kind": "step", "step_id": STEP_ID},
+            "thresholds": [{"ms": 100, "color": "#00ff00"}],
+            "conditions": [{"step_id": STEP_ID, "source": "body", "path": "$.ok", "op": "eq", "value": "true"}],
+            "display_items": [{"step_id": STEP_ID, "source": "status"}]
+        }]
+    });
+    let bid = create_board(&a.app, "리치", cfg).await;
+    let (st, file) = send_raw(
+        &a.app,
+        Method::POST,
+        EXPORT,
+        Some(json!({"board_ids": [bid]})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let uri = format!("/api/monitor-boards/{bid}");
+    let (_, va) = send(&a.app, Method::GET, &uri, None).await;
+    let c = &va["config"];
+    assert_eq!(c["show_latency_stats"], false);
+    assert_eq!(c["record_limit_kb"], 512);
+    assert_eq!(c["font_scale"], "large");
+    assert_eq!(c["blink"], "fail");
+    assert_eq!(c["display_style"], "border");
+    assert_eq!(c["panels"][0]["latency_source"]["kind"], "step");
+    assert_eq!(c["panels"][0]["thresholds"].as_array().unwrap().len(), 1);
+    assert_eq!(c["panels"][0]["conditions"].as_array().unwrap().len(), 1);
+    assert_eq!(c["panels"][0]["conditions"][0]["source"], "body");
+    assert_eq!(c["panels"][0]["display_items"].as_array().unwrap().len(), 1);
+    let b = new_pc().await;
+    let (st, v) = import_file(&b.app, &file).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let (st, vb) = send(&b.app, Method::GET, &uri, None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(va["config"], vb["config"]);
+}

@@ -10,7 +10,7 @@ use serde_json::Value;
 use ulid::Ulid;
 
 use super::check::collect_http_steps;
-use super::config::{BoardConfig, LatencySource, validate_and_normalize};
+use super::config::{BoardConfig, LatencySource, MAX_PANELS, validate_and_normalize};
 use crate::api::environments::env_problem;
 use crate::api::scenarios::{validate_parallel_branch_names, validate_scenario_think_times};
 
@@ -276,6 +276,28 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
                 return Err(format!("ID가 중복되었습니다: {group}[{i}].id"));
             }
         }
+    }
+    // R4b 비용 상한 — 비싼 파싱(R5) 전에.
+    const MAX_ITEM_BYTES: usize = 2 * 1024 * 1024;
+    for s in &input.scenarios {
+        if s.yaml.len() > MAX_ITEM_BYTES {
+            return Err(format!("시나리오 '{}': 내용이 너무 큽니다(최대 2MB)", s.id));
+        }
+    }
+    for e in &input.environments {
+        let total: usize = e.vars.iter().map(|(k, v)| k.len() + v.len()).sum();
+        if total > MAX_ITEM_BYTES {
+            return Err(format!(
+                "환경 '{}': 값이 너무 큽니다(최대 2MB)",
+                e.name.trim()
+            ));
+        }
+    }
+    let max_refs = input.boards.len() * MAX_PANELS;
+    if input.scenarios.len() > max_refs || input.environments.len() > max_refs {
+        return Err(
+            "파일 내용이 서로 맞지 않습니다(시나리오·환경이 보드 칸 수보다 많습니다)".into(),
+        );
     }
     // R5 시나리오
     let mut scenarios = Vec::with_capacity(input.scenarios.len());
@@ -628,6 +650,38 @@ mod tests {
         let s = v["scenarios"][0].clone();
         v["scenarios"].as_array_mut().unwrap().push(s);
         assert_eq!(err_of(v), "ID가 중복되었습니다: scenarios[1].id");
+    }
+
+    #[test]
+    fn scenario_over_2mib_rejected_before_parse() {
+        let mut v = ok_file();
+        // 2MiB 초과 + YAML로도 잘못된 내용 — 크기 검사가 파싱보다 먼저여야 이 문구가 나온다.
+        v["scenarios"][0]["yaml"] = json!(format!("name: [{}", "x".repeat(2 * 1024 * 1024 + 1)));
+        assert_eq!(
+            err_of(v),
+            format!("시나리오 '{SCEN}': 내용이 너무 큽니다(최대 2MB)")
+        );
+    }
+
+    #[test]
+    fn env_vars_over_2mib_rejected() {
+        let mut v = ok_file();
+        v["environments"][0]["vars"] = json!({"K": "x".repeat(2 * 1024 * 1024)});
+        assert_eq!(err_of(v), "환경 '운영': 값이 너무 큽니다(최대 2MB)");
+    }
+
+    #[test]
+    fn too_many_scenarios_for_panels_rejected() {
+        let mut v = ok_file();
+        // 보드 1개 × MAX_PANELS(9) = 9 초과 → 10개
+        let list: Vec<Value> = (0..10)
+            .map(|i| json!({"id": format!("01J000000000000000000001{i:02}"), "yaml": "not parsed"}))
+            .collect();
+        v["scenarios"] = Value::Array(list);
+        assert_eq!(
+            err_of(v),
+            "파일 내용이 서로 맞지 않습니다(시나리오·환경이 보드 칸 수보다 많습니다)"
+        );
     }
 
     #[test]

@@ -14,6 +14,9 @@ pub enum ApiError {
     BadRequest(String),
     #[error("unprocessable: {0}")]
     Unprocessable(String),
+    /// 415 — body-taking routes that read raw bytes must still require `application/json`.
+    #[error("unsupported media type: {0}")]
+    UnsupportedMediaType(String),
     /// A 409 carrying a structured JSON body (returned verbatim, not wrapped in
     /// {error}). Used by the dataset-delete soft guard to list referencing presets.
     #[error("conflict")]
@@ -37,6 +40,7 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             ApiError::Unprocessable(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone()),
+            ApiError::UnsupportedMediaType(m) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, m.clone()),
             ApiError::Scenario(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             ApiError::Db(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashSet};
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -193,43 +193,55 @@ pub async fn apply(conn: &mut SqliteConnection, plan: &AddPlan) -> sqlx::Result<
     Ok(())
 }
 
+/// 교차 사이트 `text/plain` 폼 전송(프리플라이트 없음)을 막는다 — 다른 쓰기 라우트의 `Json` 추출기와 같은 효과.
+fn require_json(headers: &HeaderMap) -> Result<(), ApiError> {
+    let ok = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"));
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::UnsupportedMediaType(
+            "요청 형식이 올바르지 않습니다(Content-Type: application/json 필요)".into(),
+        ))
+    }
+}
+
 /// POST /monitor-boards/import/analyze — 본문은 파일 바이트 그대로.
 pub async fn analyze_import(
     State(state): State<AppState>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Analysis>, ApiError> {
+    require_json(&headers)?;
     let bundle = parse_bundle_bytes(&body).map_err(ApiError::BadRequest)?;
     let mut conn = state.db.acquire().await?;
     let pc = load_snapshot(&mut conn, &bundle).await?;
     Ok(Json(analyze(&bundle, &pc)))
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ImportRequest {
-    bundle: Value,
-}
-
 /// 요청 본문 `{"bundle": <파일>}` → 파일 값. 오류 문구에는 키 이름만 넣는다(값 금지).
 fn parse_import_request(body: &[u8]) -> Result<Value, String> {
     let v = parse_json_bytes(body)?;
-    match serde_json::from_value::<ImportRequest>(v.clone()) {
-        Ok(r) => Ok(r.bundle),
-        Err(_) => Err(match v.as_object() {
-            Some(o) => match o.keys().find(|k| k.as_str() != "bundle") {
-                Some(k) => unknown_key(k),
-                None => type_error("bundle"),
-            },
-            None => type_error("(본문)"),
-        }),
+    let mut v = v;
+    let Some(o) = v.as_object_mut() else {
+        return Err(type_error("(본문)"));
+    };
+    if let Some(k) = o.keys().find(|k| k.as_str() != "bundle") {
+        return Err(unknown_key(k));
     }
+    o.remove("bundle").ok_or_else(|| type_error("bundle"))
 }
 
 /// POST /monitor-boards/import — 겹침이 있으면 409(아무것도 추가 안 함), 없으면 한 트랜잭션으로 추가.
 pub async fn import(
     State(state): State<AppState>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<ImportResult>, ApiError> {
+    require_json(&headers)?;
     let value = parse_import_request(&body).map_err(ApiError::BadRequest)?;
     let bundle = parse_bundle_value(value).map_err(ApiError::BadRequest)?;
     // 분석과 추가 사이에 다른 쓰기가 끼지 않도록 쓰기 잠금을 먼저 잡는다.
