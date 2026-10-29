@@ -80,12 +80,22 @@ describe("monitorTransfer", () => {
   it("exportBoards returns raw text and fails with server message", async () => {
     mockFetch(200, '{\n  "x": 1\n}');
     expect(await exportBoards(["a"])).toBe('{\n  "x": 1\n}');
-    mockFetch(404, JSON.stringify({ error: "없음" }));
+    mockFetch(400, JSON.stringify({ error: "없음" }));
     const err = await exportBoards(["a"]).catch((e: unknown) => e);
     expect((err as ApiError).message).toBe("없음");
     mockFetch(422, "plain text");
     const err2 = await exportBoards(["a"]).catch((e: unknown) => e);
     expect((err2 as ApiError).message).toBe("HTTP 422");
+  });
+
+  it("exportBoards_404_message", async () => {
+    mockFetch(404, JSON.stringify({ error: "not found" }));
+    const err = await exportBoards(["a"]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(404);
+    expect((err as ApiError).message).toBe(
+      "내보낼 보드 중 이미 지워진 것이 있습니다. 목록을 새로 고친 뒤 다시 고르세요.",
+    );
   });
 
   it("exportFileName_single_sanitized", () => {

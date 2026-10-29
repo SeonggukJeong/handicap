@@ -96,6 +96,7 @@ export async function exportBoards(ids: string[]): Promise<string> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ board_ids: ids }),
   });
+  if (res.status === 404) throw new ApiError(404, ko.monitor.transfer.exportGone);
   if (!res.ok) return fail(res);
   return res.text();
 }

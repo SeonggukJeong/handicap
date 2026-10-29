@@ -1769,7 +1769,8 @@ export const ko = {
       selectAll: "모든 보드 선택",
       selectBoard: (name: string) => `'${name}' 선택`,
       plaintextNotice:
-        "환경 값(비밀번호·토큰 포함)이 그대로 파일에 담깁니다. 파일 보관에 주의하세요.",
+        "환경 값과 시나리오·성공 조건에 직접 적은 값(비밀번호·토큰 포함)이 그대로 파일에 담깁니다. 파일 보관에 주의하세요.",
+      exportGone: "내보낼 보드 중 이미 지워진 것이 있습니다. 목록을 새로 고친 뒤 다시 고르세요.",
       exportFromSettings: "파일로 내보내기",
       unsavedTitle: "저장되지 않은 내용",
       unsavedBody: "저장되지 않은 내용이 있습니다. 저장 후 내보내시겠습니까?",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBoards } from "../api/monitors";
+import { ApiError } from "../api/client";
 import {
   downloadBoardFile,
   exportBoards,
@@ -60,6 +61,9 @@ export function MonitorListPage() {
       await downloadBoardFile(exportFileName(chosen.map((b) => b.name)), text);
     } catch (err) {
       setExportError((err as Error).message);
+      if (err instanceof ApiError && err.status === 404) {
+        void qc.invalidateQueries({ queryKey: MONITOR_LIST_KEY });
+      }
     } finally {
       setExporting(false);
     }

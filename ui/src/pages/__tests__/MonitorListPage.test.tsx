@@ -185,6 +185,31 @@ describe("MonitorListPage", () => {
   it("plaintext_notice_visible", async () => {
     fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
     renderPage();
-    expect(await screen.findByText(ko.monitor.transfer.plaintextNotice)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "환경 값과 시나리오·성공 조건에 직접 적은 값(비밀번호·토큰 포함)이 그대로 파일에 담깁니다. 파일 보관에 주의하세요.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("export_404_shows_korean_and_refetches_list", async () => {
+    fetchMock.mockResolvedValueOnce(json({ boards: [mkBoard("B1", "운영실", true, 1)] }));
+    renderPage();
+    const t = ko.monitor.transfer;
+    fireEvent.click(await screen.findByRole("checkbox", { name: t.selectBoard("운영실") }));
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(json({ boards: [] }));
+    fireEvent.click(screen.getByRole("button", { name: t.exportSelected(1) }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "내보낼 보드 중 이미 지워진 것이 있습니다. 목록을 새로 고친 뒤 다시 고르세요.",
+    );
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(3));
+    expect(String(fetchMock.mock.calls[2][0])).toContain("/api/monitor-boards");
+    expect(downloadBoardFile).not.toHaveBeenCalled();
   });
 });
