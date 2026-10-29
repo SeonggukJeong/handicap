@@ -16,8 +16,8 @@ use handicap_engine::{
 use serde::{Deserialize, Serialize};
 
 use super::config::{
-    Condition, ConditionOp, ConditionSource, DisplaySource, LatencySource, PanelConfig,
-    one_of_candidates, parse_finite,
+    AUTH_HEADERS, Condition, ConditionOp, ConditionSource, DisplaySource, LatencySource,
+    PanelConfig, one_of_candidates, parse_finite,
 };
 use crate::store::{self, Db};
 
@@ -41,6 +41,7 @@ pub const REASON_BODY_NOT_JSON: &str = "본문이 JSON 아님";
 pub const REASON_BODY_TOO_LARGE: &str = "응답 본문이 너무 큼";
 pub const REASON_NO_VALUE: &str = "값 없음";
 pub const REASON_EMPTY: &str = "비어 있음";
+pub const REASON_VALUE_DIFFERS: &str = "값 다름";
 const REASON_NOT_CONTAINED_TAIL: &str = "\" 포함 안 됨";
 
 /// 조건 결과 `reason`·`detail`의 문자 수 상한.
@@ -429,6 +430,15 @@ fn eval_conditions(
                 }
                 if text.is_empty() {
                     return fail(REASON_EMPTY);
+                }
+                // 인증 헤더의 실제 값은 사유(벽 큰 줄·보관 기록·REST)에 싣지 않는다.
+                // 조건 자체는 허용(`set-cookie 키 있음`은 정당) — 값 대신 고정 문구만.
+                if c.source == ConditionSource::Header
+                    && AUTH_HEADERS
+                        .iter()
+                        .any(|h| c.path.trim().eq_ignore_ascii_case(h))
+                {
+                    return fail(REASON_VALUE_DIFFERS);
                 }
                 return fail(&text);
             }
@@ -1486,6 +1496,41 @@ steps:
         let r = judge_c(&one_step(), vec![none], &t);
         assert_eq!(r.reason.as_deref(), Some("값 없음"));
         assert_eq!(r.detail.as_deref(), Some("헤더 X-None 키 있음"));
+    }
+
+    #[test]
+    fn auth_header_condition_failure_hides_actual_value() {
+        let t = tr(vec![st(
+            A,
+            Some(resp_with(
+                200,
+                "",
+                &[
+                    ("Set-Cookie", "sid=SECRETV; Path=/"),
+                    ("authorization", "Bearer SECRETV"),
+                    ("x-trace", "trace-123"),
+                ],
+            )),
+            None,
+        )]);
+        for name in ["set-cookie", " AUTHORIZATION "] {
+            for op in [Op::Eq, Op::Contains, Op::OneOf, Op::Gt] {
+                let c = cond(A, Src::Header, name, op, "other");
+                let r = judge_c(&one_step(), vec![c], &t);
+                assert_eq!(r.verdict, Verdict::Fail, "{name} {op:?}");
+                let reason = r.reason.unwrap();
+                let detail = r.detail.unwrap();
+                assert_eq!(reason, "값 다름", "{name} {op:?}");
+                assert!(!detail.contains("SECRETV"), "{name} {op:?}: {detail}");
+            }
+        }
+        // 조건 자체는 허용 — 키 있음은 그대로 통과.
+        let ok = cond(A, Src::Header, "set-cookie", Op::Exists, "");
+        assert_eq!(judge_c(&one_step(), vec![ok], &t).verdict, Verdict::Ok);
+        // 인증 헤더가 아니면 실제 값을 그대로 보여준다.
+        let c = cond(A, Src::Header, "x-trace", Op::Eq, "other");
+        let r = judge_c(&one_step(), vec![c], &t);
+        assert_eq!(r.reason.as_deref(), Some("trace-123"));
     }
 
     #[test]

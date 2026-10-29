@@ -264,7 +264,15 @@ pub async fn record(
         .ok_or(ApiError::NotFound)?;
     let bytes = serde_json::to_vec(&*rec)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("record serialization failed: {e}")))?;
-    Ok(([(header::CONTENT_TYPE, "application/json")], bytes).into_response())
+    // 응답 본문(마스킹 후에도 업무 데이터)이 담긴다 — 브라우저/프록시 캐시에 남기지 않는다.
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 pub async fn preview_check(

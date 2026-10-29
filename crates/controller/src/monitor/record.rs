@@ -178,10 +178,46 @@ fn mask_set_cookie(v: &str) -> String {
     }
 }
 
-/// URL 사용자정보(`scheme://` 뒤 첫 `/`·`?`·`#` 전의 마지막 `@` 앞)만 원문 문자열에서 바꾼다.
-/// `user:pass@` → `user:••••@`(비밀번호가 비면 그대로), `token@` → `••••@`.
-/// `Url`로 다시 직렬화하지 않는다(경로·쿼리 정규화 방지).
+/// `MASK`가 `Url` 사용자정보에 들어가면 보이는 모양(퍼센트 인코딩).
+const MASK_URL_ENCODED: &str = "%E2%80%A2%E2%80%A2%E2%80%A2%E2%80%A2";
+
+/// URL 사용자정보를 가린다. 평소엔 원문 문자열만 고친다(`splice_url_userinfo` — 경로·쿼리
+/// 정규화 방지). 그 결과를 `Url`(= reqwest가 실제로 보내는 해석)로 다시 읽어 아직 살아 있는
+/// 자격 증명이 있으면 — `http:user:pw@h`·`http:\\user:pw@h`처럼 `://`가 없는 관대한 형태,
+/// 또는 쿼리 속 `://`가 문자열 경로를 속인 경우 — 정규화된 직렬화 위에서 다시 가린다.
+/// 그래도 남으면 URL 전체를 가린다.
 fn mask_url_userinfo(url: &str) -> String {
+    let spliced = splice_url_userinfo(url);
+    let Ok(parsed) = reqwest::Url::parse(&spliced) else {
+        return spliced;
+    };
+    if !has_live_credentials(&parsed) {
+        return spliced;
+    }
+    // 정규화된 직렬화는 `scheme://userinfo@host…` 꼴이고 사용자정보 안의 `/?#@:`는 인코딩돼
+    // 있어 문자열 경로가 정확하다.
+    let again = splice_url_userinfo(parsed.as_str());
+    match reqwest::Url::parse(&again) {
+        Ok(u) if !has_live_credentials(&u) => again,
+        _ => MASK.to_string(),
+    }
+}
+
+/// `Url`의 사용자정보에 가려지지 않은 자격 증명이 있나. 비밀번호가 있으면 비밀번호가,
+/// 비밀번호가 비면 사용자 이름이 자격 증명이다(`splice_url_userinfo`와 같은 규칙).
+fn has_live_credentials(u: &reqwest::Url) -> bool {
+    match u.password() {
+        Some(p) if !p.is_empty() => p != MASK_URL_ENCODED,
+        _ => !u.username().is_empty() && u.username() != MASK_URL_ENCODED,
+    }
+}
+
+/// URL 사용자정보(`scheme://` 뒤 첫 `/`·`?`·`#` 전의 마지막 `@` 앞)만 원문 문자열에서 바꾼다.
+/// `user:pass@` → `user:••••@`, `token@` → `••••@`.
+/// 비밀번호가 빈 `user:@`는 `••••:@` — reqwest가 사용자 이름을 Basic 인증으로 보내므로
+/// 이때는 사용자 이름이 자격 증명이다(보안 리뷰 판정: spec §3.2의 "비면 그대로"를 대체, `tok@`와 같은 취급).
+/// `Url`로 다시 직렬화하지 않는다(경로·쿼리 정규화 방지).
+fn splice_url_userinfo(url: &str) -> String {
     let Some(sep) = url.find("://") else {
         return url.to_string();
     };
@@ -194,7 +230,8 @@ fn mask_url_userinfo(url: &str) -> String {
     let userinfo = &rest[..at];
     let masked = match userinfo.find(':') {
         Some(colon) if colon + 1 < userinfo.len() => format!("{}{MASK}", &userinfo[..=colon]),
-        Some(_) => return url.to_string(),
+        Some(0) => return url.to_string(),
+        Some(_) => format!("{MASK}:"),
         None if userinfo.is_empty() => return url.to_string(),
         None => MASK.to_string(),
     };
@@ -394,7 +431,10 @@ mod tests {
         let rows: &[(&str, &str)] = &[
             ("https://u:p@h/x", "https://u:••••@h/x"),
             ("https://tok@h", "https://••••@h"),
-            ("https://u:@h", "https://u:@h"),
+            // 비밀번호가 비면 사용자 이름이 자격 증명(reqwest가 Basic으로 보냄) — 가린다.
+            ("https://u:@h", "https://••••:@h"),
+            ("https://sk_live_SECRET:@h/x", "https://••••:@h/x"),
+            ("https://:@h/x", "https://:@h/x"),
             ("https://h/a@b", "https://h/a@b"),
             ("https://h/경로?q=한글", "https://h/경로?q=한글"),
             ("https://h?x=a@b", "https://h?x=a@b"),
@@ -406,6 +446,31 @@ mod tests {
         for (url, want) in rows {
             assert_eq!(&masked_url(url), want, "url {url:?}");
         }
+    }
+
+    /// `://` 없이도 `url` 크레이트(=reqwest)가 사용자정보로 읽는 형태 — 원문 비밀이 남으면 안 된다.
+    #[test]
+    fn url_userinfo_lenient_forms_masked() {
+        let rows = [
+            "http:user:SECRET@host/x",
+            "http:/user:SECRET@host/x",
+            "http:\\\\user:SECRET@host/x",
+            "http:/\t/user:SECRET@host/x",
+            "HTTP:user:SECRET@host/x",
+            // 쿼리 속 `://`가 문자열 경로를 속여도 진짜 사용자정보는 가린다.
+            "http:user:SECRET@host/x?next=http://a@b",
+            "http:SECRET@host/x",
+            "http:SECRET:@host/x",
+        ];
+        for url in rows {
+            let out = masked_url(url);
+            assert!(!out.contains("SECRET"), "url {url:?} → {out:?}");
+            assert!(out.contains(MASK), "url {url:?} → {out:?}");
+        }
+        assert_eq!(
+            masked_url("http:user:SECRET@host/x"),
+            "http://user:••••@host/x"
+        );
     }
 
     #[test]

@@ -734,6 +734,13 @@ async fn record_endpoint_returns_masked_record() {
         resp.headers()["content-type"].to_str().unwrap(),
         "application/json"
     );
+    // 응답 본문이 담긴 기록 — 브라우저/프록시 캐시에 남기지 않는다.
+    assert_eq!(
+        resp.headers()
+            .get("cache-control")
+            .map(|v| v.to_str().unwrap()),
+        Some("no-store")
+    );
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
