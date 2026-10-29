@@ -5,6 +5,8 @@ import {
   StatusSchema,
   BoardSchema,
   CheckResultSchema,
+  CheckRecordSchema,
+  getRecord,
   setLatencyStats,
 } from "../monitors";
 
@@ -164,5 +166,56 @@ describe("polish wire fields", () => {
       );
       await expect(setLatencyStats("b1", true)).rejects.toMatchObject({ status: 404 });
     });
+  });
+});
+
+describe("CheckRecordSchema", () => {
+  const result = {
+    at_ms: 1,
+    verdict: "ok",
+    latency_ms: 5,
+    reason: null,
+    detail: null,
+    display: [],
+  };
+  it("record_schema_parses_server_shape", () => {
+    const r = CheckRecordSchema.parse({
+      at_ms: 1,
+      limit_kb: 128,
+      result,
+      trace: null,
+      clipped: [],
+    });
+    expect(r.trace).toBeNull();
+    expect(r.clipped).toEqual([]);
+    expect(() =>
+      CheckRecordSchema.parse({ at_ms: 1, limit_kb: 128, result, trace: null }),
+    ).toThrow();
+    expect(() =>
+      CheckRecordSchema.parse({
+        at_ms: 1,
+        limit_kb: 128,
+        result,
+        trace: null,
+        clipped: [{ step: 0, side: "both" }],
+      }),
+    ).toThrow();
+  });
+
+  it("getRecord_fetches_record_url_and_404_is_ApiError", async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ at_ms: 7, limit_kb: 128, result, trace: null, clipped: [] }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not found" }), { status: 404 }));
+    vi.stubGlobal("fetch", f);
+    const out = await getRecord("b1", "p1", 7);
+    expect(out.at_ms).toBe(7);
+    expect(f.mock.calls[0][0]).toBe("/api/monitor-boards/b1/panels/p1/records/7");
+    await expect(getRecord("b1", "p1", 7)).rejects.toMatchObject({ status: 404 });
   });
 });

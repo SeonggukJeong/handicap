@@ -22,9 +22,10 @@ function lastKey(segments: ReadonlyArray<Segment>): string {
 }
 
 interface TreeProps {
-  actionLabel: string;
+  /** Leaf buttons render only when both `actionLabel` and `renderConfirm` are given. */
+  actionLabel?: string;
   actionAriaLabel?: (leaf: JsonLeaf) => string;
-  renderConfirm: (leaf: JsonLeaf, close: () => void) => ReactNode;
+  renderConfirm?: (leaf: JsonLeaf, close: () => void) => ReactNode;
 }
 
 /** Renders parsed JSON as a tree; scalar leaves expose an action button that opens
@@ -66,16 +67,18 @@ function TreeNode({
             {prefix}
             {typeof value === "string" ? `"${value}"` : String(value)}
           </span>
-          <button
-            type="button"
-            aria-label={actionAriaLabel ? actionAriaLabel(leaf) : undefined}
-            onClick={() => setConfirming(true)}
-            className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] text-white"
-          >
-            {actionLabel}
-          </button>
+          {actionLabel !== undefined && renderConfirm && (
+            <button
+              type="button"
+              aria-label={actionAriaLabel ? actionAriaLabel(leaf) : undefined}
+              onClick={() => setConfirming(true)}
+              className="shrink-0 rounded bg-accent-600 px-1.5 py-0.5 text-[11px] text-white"
+            >
+              {actionLabel}
+            </button>
+          )}
         </div>
-        {confirming && renderConfirm(leaf, () => setConfirming(false))}
+        {confirming && renderConfirm && renderConfirm(leaf, () => setConfirming(false))}
       </div>
     );
   }

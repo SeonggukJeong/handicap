@@ -44,6 +44,19 @@ describe("JsonValueTree", () => {
   });
 });
 
+describe("JsonValueTree read-only", () => {
+  it("json_value_tree_no_action_renders_no_buttons", () => {
+    render(<JsonValueTree value={{ a: 1, b: { c: "x" } }} />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByText(/"x"/)).toBeInTheDocument();
+  });
+
+  it("json_value_tree_label_without_confirm_renders_no_buttons", () => {
+    render(<JsonValueTree value={{ a: 1 }} actionLabel="+추출" />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+});
+
 describe("HeaderTable", () => {
   it("header_table_custom_action", async () => {
     const user = userEvent.setup();

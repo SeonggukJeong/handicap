@@ -99,6 +99,17 @@ export const CheckResultSchema = z.object({
 });
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 
+// GET /api/monitor-boards/{id}/panels/{panel_id}/records/{at_ms} — every field always
+// emitted by the server (trace null when no trace was kept) -> no .optional()/.default().
+export const CheckRecordSchema = z.object({
+  at_ms: z.number(),
+  limit_kb: z.number(),
+  result: CheckResultSchema,
+  trace: ScenarioTraceSchema.nullable(),
+  clipped: z.array(z.object({ step: z.number().int(), side: z.enum(["request", "response"]) })),
+});
+export type CheckRecord = z.infer<typeof CheckRecordSchema>;
+
 export const BoardSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -186,6 +197,18 @@ export async function getBoard(id: string): Promise<Board> {
   const res = await fetch(idUrl(id));
   if (!res.ok) return fail(res);
   return BoardSchema.parse(await res.json());
+}
+
+export async function getRecord(
+  boardId: string,
+  panelId: string,
+  atMs: number,
+): Promise<CheckRecord> {
+  const res = await fetch(
+    `${idUrl(boardId)}/panels/${encodeURIComponent(panelId)}/records/${atMs}`,
+  );
+  if (!res.ok) return fail(res);
+  return CheckRecordSchema.parse(await res.json());
 }
 
 export async function createBoard(input: BoardInput): Promise<Board> {
