@@ -6,16 +6,22 @@
 use std::collections::{BTreeMap, HashSet};
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use serde_json::{Value, json};
+use sqlx::SqliteConnection;
 
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::monitor::board_file::{
-    BoardOut, BundleOut, EnvOut, FORMAT, FORMAT_VERSION, MAX_BOARDS, ScenarioOut,
-    parse_bundle_bytes,
+    BoardOut, BundleOut, EnvOut, FORMAT, FORMAT_VERSION, MAX_BOARDS, ScenarioOut, ValidBundle,
+    parse_bundle_bytes, parse_bundle_value, parse_json_bytes, type_error, unknown_key,
+};
+use crate::monitor::transfer::{
+    AddPlan, Analysis, ImportResult, PcBoard, PcEnv, PcSnapshot, analyze, plan_add,
 };
 use crate::store;
 use crate::store::monitor_boards;
@@ -143,4 +149,102 @@ pub async fn export(
         bytes,
     )
         .into_response())
+}
+
+/// 이 PC의 현재 상태를 가져온다(겹침 판정용). 파일의 시나리오 ID만 조회한다.
+pub async fn load_snapshot(
+    conn: &mut SqliteConnection,
+    b: &ValidBundle,
+) -> sqlx::Result<PcSnapshot> {
+    let boards = monitor_boards::list_names_enabled(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|(id, name, enabled)| PcBoard { id, name, enabled })
+        .collect();
+    let ids: Vec<String> = b.scenarios.iter().map(|s| s.id.clone()).collect();
+    let scenarios = store::scenarios::yaml_by_ids(&mut *conn, &ids).await?;
+    let environments = store::environments::list_all_conn(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|e| PcEnv {
+            id: e.id,
+            name: e.name,
+            vars: e.vars,
+        })
+        .collect();
+    Ok(PcSnapshot {
+        boards,
+        scenarios,
+        environments,
+    })
+}
+
+/// 시나리오 → 환경 → 보드 순으로 원래 ID로 추가한다.
+pub async fn apply(conn: &mut SqliteConnection, plan: &AddPlan) -> sqlx::Result<()> {
+    for (id, name, yaml) in &plan.scenarios {
+        store::scenarios::insert_with_id(&mut *conn, id, name, yaml).await?;
+    }
+    for (id, name, vars) in &plan.environments {
+        store::environments::insert_with_id(&mut *conn, id, name, vars).await?;
+    }
+    for (id, name, config) in &plan.boards {
+        monitor_boards::insert_with_id(&mut *conn, id, name, config).await?;
+    }
+    Ok(())
+}
+
+/// POST /monitor-boards/import/analyze — 본문은 파일 바이트 그대로.
+pub async fn analyze_import(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Result<Json<Analysis>, ApiError> {
+    let bundle = parse_bundle_bytes(&body).map_err(ApiError::BadRequest)?;
+    let mut conn = state.db.acquire().await?;
+    let pc = load_snapshot(&mut conn, &bundle).await?;
+    Ok(Json(analyze(&bundle, &pc)))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportRequest {
+    bundle: Value,
+}
+
+/// 요청 본문 `{"bundle": <파일>}` → 파일 값. 오류 문구에는 키 이름만 넣는다(값 금지).
+fn parse_import_request(body: &[u8]) -> Result<Value, String> {
+    let v = parse_json_bytes(body)?;
+    match serde_json::from_value::<ImportRequest>(v.clone()) {
+        Ok(r) => Ok(r.bundle),
+        Err(_) => Err(match v.as_object() {
+            Some(o) => match o.keys().find(|k| k.as_str() != "bundle") {
+                Some(k) => unknown_key(k),
+                None => type_error("bundle"),
+            },
+            None => type_error("(본문)"),
+        }),
+    }
+}
+
+/// POST /monitor-boards/import — 겹침이 있으면 409(아무것도 추가 안 함), 없으면 한 트랜잭션으로 추가.
+pub async fn import(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Result<Json<ImportResult>, ApiError> {
+    let value = parse_import_request(&body).map_err(ApiError::BadRequest)?;
+    let bundle = parse_bundle_value(value).map_err(ApiError::BadRequest)?;
+    // 분석과 추가 사이에 다른 쓰기가 끼지 않도록 쓰기 잠금을 먼저 잡는다.
+    let mut tx = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let pc = load_snapshot(&mut tx, &bundle).await?;
+    let a = analyze(&bundle, &pc);
+    let plan = match plan_add(&bundle, &pc, &a) {
+        Ok(p) => p,
+        Err(boards) => {
+            return Err(ApiError::ConflictJson(
+                json!({"error": "conflicts", "boards": boards}),
+            ));
+        }
+    };
+    apply(&mut tx, &plan).await?;
+    tx.commit().await?;
+    Ok(Json(plan.result))
 }

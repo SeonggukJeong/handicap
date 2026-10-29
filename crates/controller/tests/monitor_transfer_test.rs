@@ -171,12 +171,13 @@ async fn export_duplicate_ids_is_400() {
     let db = store::connect("sqlite::memory:").await.unwrap();
     let app = make_app(db);
     let sid = create_scenario(&app, "s").await;
-    let b = create_board(&app, "보드", simple_config(&sid, None)).await;
+    let _ = create_board(&app, "보드", simple_config(&sid, None)).await;
+    let ghost = ulid::Ulid::new().to_string();
     let (st, v) = send(
         &app,
         Method::POST,
         EXPORT,
-        Some(json!({"board_ids": [b, b]})),
+        Some(json!({"board_ids": [ghost, ghost]})),
     )
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
@@ -256,7 +257,11 @@ async fn export_self_validation_rejects_bad_saved_board() {
     assert_eq!(n, 1);
     let (st, v) = send(&app, Method::POST, EXPORT, Some(json!({"board_ids": [b]}))).await;
     assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
-    assert!(v["error"].as_str().unwrap().starts_with("보드 '"), "{v}");
+    assert_eq!(
+        v["error"].as_str().unwrap(),
+        "보드 '나쁜보드' 칸 1: 본문 경로(JSONPath)가 올바르지 않습니다",
+        "{v}"
+    );
 }
 
 #[tokio::test]
@@ -277,9 +282,281 @@ async fn export_output_parses_back() {
     let (_, saved) = send(&app, Method::GET, &format!("/api/monitor-boards/{b}"), None).await;
     let original: BoardConfig = serde_json::from_value(saved["config"].clone()).unwrap();
     assert!(!original.show_latency_stats);
+    assert_eq!(original.record_limit_kb, 512);
+    assert!(matches!(
+        original.panels[0].latency_source,
+        handicap_controller::monitor::config::LatencySource::Step { .. }
+    ));
+    assert_eq!(original.panels[0].display_items.len(), 1);
     let (st, bytes) = send_raw(&app, Method::POST, EXPORT, Some(json!({"board_ids": [b]}))).await;
     assert_eq!(st, StatusCode::OK);
     let parsed = parse_bundle_bytes(&bytes).expect("export must parse back");
     assert_eq!(parsed.boards[0].config, original);
     assert_eq!(parsed.boards[0].id, b);
+}
+// ---------------- import ----------------
+
+const ANALYZE: &str = "/api/monitor-boards/import/analyze";
+const IMPORT: &str = "/api/monitor-boards/import";
+
+struct Pc {
+    app: axum::Router,
+    db: store::Db,
+}
+
+async fn new_pc() -> Pc {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    Pc {
+        app: make_app(db.clone()),
+        db,
+    }
+}
+
+/// A PC에 보드 2개(시나리오 공유·환경 1개)를 만들고 export 바이트와 [b1,b2,sid,eid]를 돌려준다.
+async fn make_export(a: &Pc) -> (Vec<u8>, Vec<String>) {
+    let sid = create_scenario(&a.app, "s").await;
+    let eid = create_env(&a.app, "운영").await;
+    let b1 = create_board(&a.app, "보드1", simple_config(&sid, Some(&eid))).await;
+    let b2 = create_board(&a.app, "보드2", simple_config(&sid, None)).await;
+    let (st, bytes) = send_raw(
+        &a.app,
+        Method::POST,
+        EXPORT,
+        Some(json!({"board_ids": [b1, b2]})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    (bytes, vec![b1, b2, sid, eid])
+}
+
+async fn post_bytes(app: &axum::Router, uri: &str, body: Vec<u8>) -> (StatusCode, Vec<u8>) {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(Body::from(body))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let st = resp.status();
+    let b = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (st, b.to_vec())
+}
+
+fn as_json(b: &[u8]) -> Value {
+    serde_json::from_slice(b).unwrap_or(Value::Null)
+}
+
+async fn import_file(app: &axum::Router, file: &[u8]) -> (StatusCode, Value) {
+    let bundle: Value = serde_json::from_slice(file).unwrap();
+    send(app, Method::POST, IMPORT, Some(json!({"bundle": bundle}))).await
+}
+
+async fn count(db: &store::Db, t: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {t}"))
+        .fetch_one(db)
+        .await
+        .unwrap()
+}
+
+async fn counts(db: &store::Db) -> (i64, i64, i64) {
+    (
+        count(db, "scenarios").await,
+        count(db, "environments").await,
+        count(db, "monitor_boards").await,
+    )
+}
+
+#[tokio::test]
+async fn analyze_on_empty_pc_has_no_conflicts() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, body) = post_bytes(&b.app, ANALYZE, file).await;
+    assert_eq!(st, StatusCode::OK);
+    let v = as_json(&body);
+    assert_eq!(v["summary"]["boards"], 2);
+    assert_eq!(v["summary"]["conflicts"], 0);
+    assert_eq!(v["boards"][0]["conflict"], false);
+}
+
+#[tokio::test]
+async fn import_round_trip_creates_rows_with_original_ids() {
+    let a = new_pc().await;
+    let (file, ids) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, v) = import_file(&b.app, &file).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let boards = v["boards"].as_array().unwrap();
+    assert_eq!(boards.len(), 2);
+    assert!(boards.iter().all(|x| x["action"] == "added"));
+    assert_eq!(counts(&b.db).await, (1, 1, 2));
+    let enabled: Vec<i64> = sqlx::query_scalar("SELECT enabled FROM monitor_boards")
+        .fetch_all(&b.db)
+        .await
+        .unwrap();
+    assert!(enabled.iter().all(|e| *e == 0));
+    for (t, id) in [
+        ("monitor_boards", &ids[0]),
+        ("monitor_boards", &ids[1]),
+        ("scenarios", &ids[2]),
+        ("environments", &ids[3]),
+    ] {
+        let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {t} WHERE id = ?"))
+            .bind(id)
+            .fetch_one(&b.db)
+            .await
+            .unwrap();
+        assert_eq!(n, 1, "{t} {id}");
+    }
+}
+
+#[tokio::test]
+async fn imported_board_config_equals_exported() {
+    let a = new_pc().await;
+    let (file, ids) = make_export(&a).await;
+    let b = new_pc().await;
+    import_file(&b.app, &file).await;
+    let uri = format!("/api/monitor-boards/{}", ids[0]);
+    let (_, va) = send(&a.app, Method::GET, &uri, None).await;
+    let (st, vb) = send(&b.app, Method::GET, &uri, None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(va["config"], vb["config"]);
+}
+
+#[tokio::test]
+async fn second_import_of_same_file_is_rejected_unchanged() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, _) = import_file(&b.app, &file).await;
+    assert_eq!(st, StatusCode::OK);
+    let before = counts(&b.db).await;
+    let (st, v) = import_file(&b.app, &file).await;
+    assert_eq!(st, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"], "conflicts");
+    assert_eq!(v["boards"][0]["exists"], true);
+    assert_eq!(counts(&b.db).await, before);
+}
+
+#[tokio::test]
+async fn analyze_reports_scenario_different() {
+    let a = new_pc().await;
+    let (file, ids) = make_export(&a).await;
+    let b = new_pc().await;
+    import_file(&b.app, &file).await;
+    sqlx::query("DELETE FROM monitor_boards")
+        .execute(&b.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE scenarios SET yaml = yaml || '# changed\n' WHERE id = ?")
+        .bind(&ids[2])
+        .execute(&b.db)
+        .await
+        .unwrap();
+    let (st, body) = post_bytes(&b.app, ANALYZE, file).await;
+    assert_eq!(st, StatusCode::OK);
+    let v = as_json(&body);
+    assert_eq!(v["boards"][0]["conflict"], true);
+    assert_eq!(v["boards"][0]["scenarios"][0]["state"], "different");
+}
+
+#[tokio::test]
+async fn import_rejects_when_conflict_appears_after_analyze() {
+    let a = new_pc().await;
+    let (file, ids) = make_export(&a).await;
+    let b = new_pc().await;
+    let (st, body) = post_bytes(&b.app, ANALYZE, file.clone()).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(as_json(&body)["summary"]["conflicts"], 0);
+    let sid = create_scenario(&b.app, "other").await;
+    sqlx::query(
+        "INSERT INTO monitor_boards(id,name,config_json,enabled,created_at,updated_at) VALUES(?,?,?,0,0,0)",
+    )
+    .bind(&ids[0])
+    .bind("선점")
+    .bind(simple_config(&sid, None).to_string())
+    .execute(&b.db)
+    .await
+    .unwrap();
+    let (st, v) = import_file(&b.app, &file).await;
+    assert_eq!(st, StatusCode::CONFLICT, "{v}");
+}
+
+#[tokio::test]
+async fn import_failure_rolls_back_all_tables() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let b = new_pc().await;
+    sqlx::query(
+        "CREATE TRIGGER t BEFORE INSERT ON monitor_boards BEGIN SELECT RAISE(ABORT,'x'); END",
+    )
+    .execute(&b.db)
+    .await
+    .unwrap();
+    let before = counts(&b.db).await;
+    let (st, _) = import_file(&b.app, &file).await;
+    assert!(st.is_server_error(), "{st}");
+    assert_eq!(counts(&b.db).await, before);
+}
+
+#[tokio::test]
+async fn analyze_400_has_reason() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let mut v: Value = serde_json::from_slice(&file).unwrap();
+    v["format_version"] = json!(2);
+    let (st, body) = post_bytes(&a.app, ANALYZE, serde_json::to_vec(&v).unwrap()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(
+        as_json(&body)["error"]
+            .as_str()
+            .unwrap()
+            .contains("더 새 버전의 핸디캡에서 만든 파일입니다(파일 형식 2")
+    );
+}
+
+#[tokio::test]
+async fn import_body_with_extra_key_is_400() {
+    let a = new_pc().await;
+    let (file, _) = make_export(&a).await;
+    let bundle: Value = serde_json::from_slice(&file).unwrap();
+    let (st, v) = send(
+        &a.app,
+        Method::POST,
+        IMPORT,
+        Some(json!({"bundle": bundle, "extra": 1})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(
+        v["error"].as_str().unwrap().contains("모르는 항목(extra)"),
+        "{v}"
+    );
+}
+
+#[tokio::test]
+async fn analyze_over_32mib_is_413() {
+    let a = new_pc().await;
+    let (st, _) = post_bytes(&a.app, ANALYZE, vec![b' '; 33 * 1024 * 1024]).await;
+    assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn analyze_3mib_is_not_413() {
+    let a = new_pc().await;
+    let (mut file, _) = make_export(&a).await;
+    file.extend(vec![b' '; 3 * 1024 * 1024]);
+    let b = new_pc().await;
+    let (st, _) = post_bytes(&b.app, ANALYZE, file).await;
+    assert_eq!(st, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn import_routes_do_not_hit_board_id_route() {
+    let a = new_pc().await;
+    let (st, _) = post_bytes(&a.app, ANALYZE, b"{}".to_vec()).await;
+    assert_ne!(st, StatusCode::NOT_FOUND);
+    assert_ne!(st, StatusCode::METHOD_NOT_ALLOWED);
 }

@@ -117,6 +117,15 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/monitor-boards/export", post(monitor_transfer_api::export))
         .route(
+            "/monitor-boards/import/analyze",
+            post(monitor_transfer_api::analyze_import)
+                .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route(
+            "/monitor-boards/import",
+            post(monitor_transfer_api::import).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route(
             "/monitor-boards/preview-check",
             post(monitor_boards_api::preview_check),
         )

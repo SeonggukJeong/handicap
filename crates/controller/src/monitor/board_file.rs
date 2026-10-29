@@ -130,26 +130,30 @@ pub struct ValidBundle {
 
 const MSG_NOT_BUNDLE: &str = "핸디캡 보드 파일이 아닙니다";
 
-fn type_error(path: &str) -> String {
+pub fn type_error(path: &str) -> String {
     format!("파일 형식이 올바르지 않습니다: {path}")
 }
 
-fn unknown_key(path: &str) -> String {
+pub fn unknown_key(path: &str) -> String {
     format!(
         "이 파일에는 이 버전의 핸디캡이 모르는 항목({path})이 있습니다. 핸디캡을 업데이트하세요."
     )
 }
 
-/// R0: BOM 제거 → JSON 파싱(오류는 줄 번호만) → `parse_bundle_value`.
-pub fn parse_bundle_bytes(bytes: &[u8]) -> Result<ValidBundle, String> {
+/// R0: BOM 제거 → JSON 파싱(오류는 줄 번호만).
+pub fn parse_json_bytes(bytes: &[u8]) -> Result<Value, String> {
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
-    let v: Value = serde_json::from_slice(bytes).map_err(|e| {
+    serde_json::from_slice(bytes).map_err(|e| {
         format!(
             "파일을 읽을 수 없습니다(JSON 형식 오류, {}번째 줄)",
             e.line()
         )
-    })?;
-    parse_bundle_value(v)
+    })
+}
+
+/// R0 → `parse_bundle_value`.
+pub fn parse_bundle_bytes(bytes: &[u8]) -> Result<ValidBundle, String> {
+    parse_bundle_value(parse_json_bytes(bytes)?)
 }
 
 /// 정규형 ULID(대문자) 여부.
