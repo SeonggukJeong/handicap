@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { worstCaseMb } from "./recordLimit";
-import { newPanel } from "../api/monitors";
+import { worstCaseMb } from "../recordLimit";
+import { newPanel } from "../../api/monitors";
 
 const p = (bar_count: number) => ({ ...newPanel(), bar_count });
 
