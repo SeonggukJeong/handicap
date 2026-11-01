@@ -200,51 +200,54 @@ function StepRow({
         </div>
       )}
       {resp && resp.body !== "" && (
-        <>
-          <p className="mt-2 text-xs font-medium text-slate-500">
-            {treeBody ? k.previewBodyClickHint : k.previewBody}
-            {parsedBody !== null && parsedBody.unwrapped >= 1 && (
-              <span className="ml-2 font-normal text-slate-600">{k.previewUnwrapped}</span>
-            )}
-          </p>
-          {interactive && !treeBody && (
-            <div className="mb-1 mt-1">
-              <button
-                type="button"
-                onClick={() => setClick({ kind: "body_text" })}
-                className={addButtonCls}
-              >
-                {k.condAddBodyText}
-              </button>
-            </div>
-          )}
-          <div className="mt-1">
-            <BodyBlock
-              body={resp.body}
-              truncated={resp.body_truncated}
-              label={treeBody ? k.previewBodyClickHint : k.previewBody}
-              tree={
-                treeBody
-                  ? {
-                      openLabel: k.previewOpenFullCondition,
-                      render: () => (
-                        <JsonValueTree
-                          value={parsedBody.value}
-                          actionLabel={k.condAdd}
-                          actionAriaLabel={(l) =>
-                            k.condAddAria(targetLabel({ source: "body", path: l.path }))
-                          }
-                          renderConfirm={(l, close) =>
-                            choice({ kind: "body", path: l.path, value: l.value }, close)
-                          }
-                        />
-                      ),
-                    }
-                  : undefined
-              }
-            />
-          </div>
-        </>
+        <div className="mt-2">
+          <BodyBlock
+            body={resp.body}
+            truncated={resp.body_truncated}
+            label={treeBody ? k.previewBodyClickHint : k.previewBody}
+            heading={
+              <>
+                {treeBody ? k.previewBodyClickHint : k.previewBody}
+                {parsedBody !== null && parsedBody.unwrapped >= 1 && (
+                  <span className="ml-2 font-normal text-slate-600">{k.previewUnwrapped}</span>
+                )}
+              </>
+            }
+            belowHeading={
+              interactive &&
+              !treeBody && (
+                <div className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setClick({ kind: "body_text" })}
+                    className={addButtonCls}
+                  >
+                    {k.condAddBodyText}
+                  </button>
+                </div>
+              )
+            }
+            tree={
+              treeBody
+                ? {
+                    openLabel: k.previewOpenFullCondition,
+                    render: () => (
+                      <JsonValueTree
+                        value={parsedBody.value}
+                        actionLabel={k.condAdd}
+                        actionAriaLabel={(l) =>
+                          k.condAddAria(targetLabel({ source: "body", path: l.path }))
+                        }
+                        renderConfirm={(l, close) =>
+                          choice({ kind: "body", path: l.path, value: l.value }, close)
+                        }
+                      />
+                    ),
+                  }
+                : undefined
+            }
+          />
+        </div>
       )}
     </li>
   );

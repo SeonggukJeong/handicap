@@ -177,6 +177,44 @@ describe("PreviewResult", () => {
     expect(screen.getByText(ko.monitor.condMax)).toBeInTheDocument();
   });
 
+  // Long bodies (> 500 chars) used to repeat the heading on a second line with the
+  // char count appended; the count and open button now join the one heading line.
+  const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
+
+  it("long_json_body_heading_appears_once_with_count_and_open_button", () => {
+    const body = JSON.stringify({ k: "v".repeat(600) });
+    const { container } = render(
+      <PreviewResult preview={preview(body)} stepNames={{}} onAddCondition={vi.fn()} />,
+    );
+    expect(occurrences(container.textContent ?? "", ko.monitor.previewBodyClickHint)).toBe(1);
+    const row = screen.getByRole("button", { name: ko.monitor.previewOpenFullCondition })
+      .parentElement as HTMLElement;
+    expect(row.textContent).toContain(ko.monitor.previewBodyClickHint);
+    expect(row.textContent).toContain(`${body.length.toLocaleString()}자`);
+  });
+
+  it("long_text_body_heading_appears_once_above_body_text_button", () => {
+    const body = "x".repeat(700);
+    const { container } = render(
+      <PreviewResult preview={preview(body)} stepNames={{}} onAddCondition={vi.fn()} />,
+    );
+    expect(occurrences(container.textContent ?? "", ko.monitor.previewBody)).toBe(1);
+    const open = screen.getByRole("button", { name: "전체 보기" });
+    const row = open.parentElement as HTMLElement;
+    expect(row.textContent).toContain(ko.monitor.previewBody);
+    expect(row.textContent).toContain("700자");
+    const bodyText = screen.getByRole("button", { name: ko.monitor.condAddBodyText });
+    expect(row.compareDocumentPosition(bodyText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("short_body_heading_has_no_count", () => {
+    const { container } = render(
+      <PreviewResult preview={preview('{"code":1}')} stepNames={{}} onAddCondition={vi.fn()} />,
+    );
+    expect(occurrences(container.textContent ?? "", ko.monitor.previewBodyClickHint)).toBe(1);
+    expect(container.textContent).not.toMatch(/\d자/);
+  });
+
   it("body_text_goes_straight_to_condition", async () => {
     const { user } = setup(preview("pong"));
     await user.click(screen.getByRole("button", { name: ko.monitor.condAddBodyText }));

@@ -116,17 +116,24 @@ export function BodyViewer({
 /** Request/response body block: inline-full when short, else a 500-char preview
  *  with a "전체 보기" button that opens the full body in a modal.
  *  When `tree` is passed (response side) and the body is valid JSON & not
- *  truncated, renders `tree.render(parsed)` instead of raw text. */
+ *  truncated, renders `tree.render(parsed)` instead of raw text.
+ *  `heading` replaces the label line for callers that always show their own heading:
+ *  it renders in every mode, and a long body's char count and open button join it
+ *  (instead of repeating the label on a second line). `belowHeading` sits between. */
 export function BodyBlock({
   body,
   truncated = false,
   label,
   tree,
+  heading,
+  belowHeading,
 }: {
   body: string;
   truncated?: boolean;
   label: string;
   tree?: BodyTreeBinding;
+  heading?: ReactNode;
+  belowHeading?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   // Depend on the boolean, never the `tree` object (fresh literal each render).
@@ -142,26 +149,59 @@ export function BodyBlock({
 
   if (!body) return null;
 
+  const count = `${body.length.toLocaleString()}자`;
+  // Label line + open button. Without `heading` it only exists for long bodies; with
+  // `heading` it is the caller's one heading line in every mode, and a long body's
+  // count + open button join it instead of repeating the label on a second line.
+  const labelRow = (meta: string | null, openText: string) => {
+    const openButton = (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
+      >
+        {openText}
+      </button>
+    );
+    if (heading === undefined) {
+      if (meta === null) return null;
+      return (
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-xs text-slate-500">
+            {label} · {meta}
+          </span>
+          {openButton}
+        </div>
+      );
+    }
+    return (
+      <>
+        <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+          <span>
+            <span className="font-medium">{heading}</span>
+            {meta !== null && ` · ${meta}`}
+          </span>
+          {meta !== null && openButton}
+        </div>
+        {belowHeading}
+      </>
+    );
+  };
+
   // Response body, valid JSON, not truncated → interactive tree.
   if (parsed && tree) {
     const isLong = body.length > INLINE_PREVIEW_CHARS;
     if (!isLong) {
-      return <div className="mb-2">{tree.render(parsed.value)}</div>;
+      return (
+        <div className="mb-2">
+          {labelRow(null, tree.openLabel)}
+          {tree.render(parsed.value)}
+        </div>
+      );
     }
     return (
       <div className="mb-2">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs text-slate-500">
-            {label} · {body.length.toLocaleString()}자
-          </span>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
-          >
-            {tree.openLabel}
-          </button>
-        </div>
+        {labelRow(count, tree.openLabel)}
         <Modal open={open} onClose={() => setOpen(false)} title={label}>
           <BodyViewer
             body={body}
@@ -181,6 +221,7 @@ export function BodyBlock({
     return (
       <div className="mb-2">
         {notice}
+        {labelRow(null, "전체 보기")}
         <pre className="whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">{body}</pre>
       </div>
     );
@@ -188,18 +229,7 @@ export function BodyBlock({
   return (
     <div className="mb-2">
       {notice}
-      <div className="mb-1 flex items-center gap-2">
-        <span className="text-xs text-slate-500">
-          {label} · {body.length.toLocaleString()}자{truncated ? " (잘림)" : ""}
-        </span>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded bg-slate-200 px-2 py-0.5 text-xs hover:bg-slate-300"
-        >
-          전체 보기
-        </button>
-      </div>
+      {labelRow(`${count}${truncated ? " (잘림)" : ""}`, "전체 보기")}
       <pre className="whitespace-pre-wrap break-all rounded bg-white p-2 text-xs">
         {body.slice(0, INLINE_PREVIEW_CHARS)}…
       </pre>
