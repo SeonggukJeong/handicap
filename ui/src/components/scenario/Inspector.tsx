@@ -28,6 +28,7 @@ import type { BranchSel } from "../../scenario/yamlDoc";
 import { KeyValueGrid } from "./KeyValueGrid";
 import { VarCheatSheet } from "./VarCheatSheet";
 import { HelpTip } from "../HelpTip";
+import { bareVarMatch, knownVarNames } from "../../scenario/condVarHint";
 import { COMMON_HEADERS } from "../../scenario/commonHeaders";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
@@ -1189,6 +1190,8 @@ function ConditionEditor({
     onCommit(next);
   };
   const commitText = () => onCommit(draftRef.current);
+  const model = useScenarioEditor((s) => s.model);
+  const knownVars = useMemo(() => knownVarNames(model), [model]);
 
   const isGroup = "all" in draft || "any" in draft;
 
@@ -1201,6 +1204,7 @@ function ConditionEditor({
         editCommit={editCommit}
         removeChild={removeChild}
         commitText={commitText}
+        knownVars={knownVars}
       />
       {!isGroup && (
         <button
@@ -1226,6 +1230,7 @@ function ConditionNode({
   editCommit,
   removeChild,
   commitText,
+  knownVars,
 }: {
   value: Condition;
   path: number[];
@@ -1233,6 +1238,7 @@ function ConditionNode({
   editCommit: (path: number[], sub: Condition) => void;
   removeChild: (path: number[]) => void;
   commitText: () => void;
+  knownVars: ReadonlySet<string>;
 }) {
   if ("all" in value || "any" in value) {
     const kind: "all" | "any" = "all" in value ? "all" : "any";
@@ -1263,6 +1269,7 @@ function ConditionNode({
               editCommit={editCommit}
               removeChild={removeChild}
               commitText={commitText}
+              knownVars={knownVars}
             />
             {/* Only offer removal when >1 child: a group must never reach zero
                 children (engine reads empty `all` as vacuous-true / empty `any`
@@ -1304,6 +1311,14 @@ function ConditionNode({
   const leaf = value as { left: string; op: CompareOp; right?: string };
   const noRight = leaf.op === "exists" || leaf.op === "empty";
   const regexBad = leaf.op === "matches" && !isValidRegex(leaf.right ?? "");
+  // {{ }} 없이 변수명만 쓴 칸 — 엔진은 글자 그대로 비교하므로 안내 + 한 번에 고치기.
+  const bareLeft = bareVarMatch(leaf.left, knownVars);
+  const bareRight = noRight ? null : bareVarMatch(leaf.right ?? "", knownVars);
+  const bareHints: { side: string; name: string; fix: Condition }[] = [];
+  if (bareLeft)
+    bareHints.push({ side: ko.editor.condLeftPlaceholder, name: bareLeft, fix: { ...leaf, left: `{{${bareLeft}}}` } });
+  if (bareRight)
+    bareHints.push({ side: ko.editor.condRightPlaceholder, name: bareRight, fix: { ...leaf, right: `{{${bareRight}}}` } });
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-1 items-center">
@@ -1354,6 +1369,19 @@ function ConditionNode({
         )}
       </div>
       {regexBad && <span className="text-[11px] text-amber-600">⚠ invalid regex</span>}
+      {bareHints.map((h) => (
+        <div key={h.side} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span className="min-w-0 break-words text-amber-700">{ko.editor.condBareVarHint(h.name)}</span>
+          <button
+            type="button"
+            aria-label={ko.editor.condBareVarFixAria(h.side, h.name)}
+            className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-slate-700 hover:bg-slate-100"
+            onClick={() => editCommit(path, h.fix)}
+          >
+            {ko.editor.condBareVarFix}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

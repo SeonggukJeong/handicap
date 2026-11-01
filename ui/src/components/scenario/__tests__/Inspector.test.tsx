@@ -561,6 +561,124 @@ describe("Inspector — IfInspector (builder)", () => {
   });
 });
 
+// 조건 칸에 `{{ }}` 없이 변수명만 쓰면 엔진은 글자 그대로 비교한다 → 안내 + [수정].
+const BARE_VAR_YAML = `version: 1
+name: "demo"
+cookie_jar: auto
+variables:
+  expected: "true"
+steps:
+  - id: "01HX0000000000000000000001"
+    name: "get"
+    type: http
+    request:
+      method: GET
+      url: "/flag"
+    extract:
+      - var: flag
+        from: body
+        path: "$.ok"
+  - id: "01HX0000000000000000000010"
+    name: "branch"
+    type: if
+    cond:
+      left: "flag"
+      op: eq
+      right: "true"
+    then:
+      - id: "01HX0000000000000000000011"
+        name: "ok"
+        type: http
+        request:
+          method: GET
+          url: "/ok"
+`;
+
+function ifCond() {
+  const s = useScenarioEditor.getState().model!.steps[1];
+  if (s.type !== "if") throw new Error("expected if step");
+  return s.cond;
+}
+
+describe("Inspector — 조건 칸 중괄호 빠뜨림 안내", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useScenarioEditor.setState(useScenarioEditor.getInitialState());
+    useScenarioEditor.getState().loadFromString(BARE_VAR_YAML);
+    useScenarioEditor.getState().select("01HX0000000000000000000010");
+  });
+
+  it("왼쪽 칸이 변수명과 같으면 안내하고, [수정]이 {{변수}}로 바꾼다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const hint = screen.getByText(ko.editor.condBareVarHint("flag"));
+    expect(hint.textContent).toContain("{{flag}}");
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.condBareVarFixAria("왼쪽", "flag") }),
+    );
+    expect(ifCond()).toEqual({ left: "{{flag}}", op: "eq", right: "true" });
+    expect((screen.getByLabelText("조건 왼쪽 값") as HTMLInputElement).value).toBe("{{flag}}");
+    expect(screen.queryByText(ko.editor.condBareVarHint("flag"))).toBeNull();
+  });
+
+  it("오른쪽 칸도 같은 규칙으로 안내·수정한다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const right = screen.getByLabelText("조건 오른쪽 값");
+    await user.clear(right);
+    await user.type(right, "expected");
+    // 입력 중(커밋 전)에도 안내가 보인다.
+    expect(screen.getByText(ko.editor.condBareVarHint("expected"))).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.condBareVarFixAria("오른쪽", "expected") }),
+    );
+    expect(ifCond()).toEqual({ left: "flag", op: "eq", right: "{{expected}}" });
+  });
+
+  it("중괄호가 있거나 변수명이 아닌 값에는 안내하지 않는다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    const left = screen.getByLabelText("조건 왼쪽 값");
+    await user.clear(left);
+    await user.type(left, "{{{{flag}}");
+    await user.tab();
+    // 오른쪽 "true"는 변수가 아니다 → 안내 0개.
+    expect(screen.queryByRole("button", { name: /로 수정$/ })).toBeNull();
+    expect(screen.queryByText(/같은 이름의 변수가 있습니다/)).toBeNull();
+  });
+
+  it("exists처럼 오른쪽 칸이 없는 연산자에서는 오른쪽 안내가 없다", async () => {
+    const user = userEvent.setup();
+    useScenarioEditor
+      .getState()
+      .loadFromString(
+        BARE_VAR_YAML.replace('left: "flag"', 'left: "{{flag}}"').replace(
+          'right: "true"',
+          'right: "expected"',
+        ),
+      );
+    useScenarioEditor.getState().select("01HX0000000000000000000010");
+    render(<Inspector />);
+    expect(screen.getByText(ko.editor.condBareVarHint("expected"))).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("조건 연산자"), "exists");
+    expect(screen.queryByText(ko.editor.condBareVarHint("expected"))).toBeNull();
+  });
+
+  it("그룹 안의 조건은 그 조건만 수정한다", async () => {
+    const user = userEvent.setup();
+    render(<Inspector />);
+    await user.click(screen.getByRole("button", { name: /그룹으로 묶기/i }));
+    await user.click(screen.getByRole("button", { name: /\+ 조건/i }));
+    await user.click(
+      screen.getByRole("button", { name: ko.editor.condBareVarFixAria("왼쪽", "flag") }),
+    );
+    const c = ifCond();
+    if (!("all" in c)) throw new Error("expected all group");
+    expect(c.all[0]).toEqual({ left: "{{flag}}", op: "eq", right: "true" });
+    expect(c.all[1]).toEqual({ left: "", op: "eq", right: "" });
+  });
+});
+
 describe("Inspector — mutual nesting (9c)", () => {
   beforeEach(() => {
     window.localStorage.clear();

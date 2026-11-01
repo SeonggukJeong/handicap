@@ -862,6 +862,11 @@ export const ko = {
     condOpAria: "조건 연산자",
     condRightAria: "조건 오른쪽 값",
     condRightPlaceholder: "오른쪽",
+    // 조건 칸에 {{ }} 없이 변수명만 쓴 경우 — 엔진은 글자 그대로 비교한다.
+    condBareVarHint: (name: string) =>
+      `같은 이름의 변수가 있습니다. {{${name}}}(으)로 수정하시겠습니까?`,
+    condBareVarFix: "수정",
+    condBareVarFixAria: (side: string, name: string) => `${side} 칸을 {{${name}}}(으)로 수정`,
     branchNameAria: (n: number) => `분기 ${n} 이름`,
     extractFromAria: (n: number) => `추출 ${n} 종류`,
     extractDecodeAria: (n: number) => `추출 ${n} 디코딩`,
