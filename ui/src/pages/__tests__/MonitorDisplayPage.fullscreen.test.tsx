@@ -58,6 +58,9 @@ let statusCalls = 0;
 let stopCalls = 0;
 let stopFail = false;
 let stopHang = false;
+let startCalls = 0;
+let startFail = false;
+let startHang = false;
 let boardEnabled = true;
 let statusHang = false;
 let statusAborts = 0;
@@ -87,6 +90,9 @@ beforeEach(() => {
   stopCalls = 0;
   stopFail = false;
   stopHang = false;
+  startCalls = 0;
+  startFail = false;
+  startHang = false;
   boardEnabled = true;
   statusHang = false;
   statusAborts = 0;
@@ -131,10 +137,34 @@ beforeEach(() => {
           }),
         );
       }
+      if (u === `/api/monitor-boards/${BID}/start` && init?.method === "POST") {
+        startCalls += 1;
+        if (startHang) return new Promise<Response>(() => {});
+        if (startFail) return Promise.resolve(res({ error: "boom" }, 500));
+        boardEnabled = true;
+        return Promise.resolve(
+          res({
+            id: BID,
+            name: "운영실 화면",
+            config: {
+              font_scale: "large",
+              show_latency_stats: true,
+              record_limit_kb: 128,
+              display_style: "border",
+              blink,
+              panels: PANELS,
+            },
+            enabled: true,
+            created_at: 1,
+            updated_at: 1,
+          }),
+        );
+      }
       if (u === `/api/monitor-boards/${BID}/stop` && init?.method === "POST") {
         stopCalls += 1;
         if (stopHang) return new Promise<Response>(() => {});
         if (stopFail) return Promise.resolve(res({ error: "boom" }, 500));
+        boardEnabled = false;
         return Promise.resolve(
           res({
             id: BID,
@@ -363,6 +393,60 @@ describe("MonitorDisplayPage fullscreen", () => {
     await renderPage();
     expect(screen.getByText(ko.monitor.toolbarFullscreen)).toBeInTheDocument();
     expect(screen.queryByText(ko.monitor.stop)).toBeNull();
+    expect(screen.getByText(ko.monitor.resume)).toBeInTheDocument();
+  });
+
+  it("start_button_hidden_while_board_running", async () => {
+    await renderPage();
+    expect(screen.getByText(ko.monitor.stop)).toBeInTheDocument();
+    expect(screen.queryByText(ko.monitor.resume)).toBeNull();
+  });
+
+  it("stop_then_start_on_same_screen", async () => {
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.stop));
+    });
+    await tick(0);
+    expect(screen.queryByText(ko.monitor.stop)).toBeNull();
+    expect(screen.getByText(ko.monitor.resume)).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.resume));
+    });
+    await tick(0);
+    expect(startCalls).toBe(1);
+    expect(screen.queryByText(ko.monitor.resume)).toBeNull();
+    expect(screen.getByText(ko.monitor.stop)).toBeInTheDocument();
+    // Still on the display screen, and the settings page cache says "on".
+    expect(screen.getByTestId("monitor-display")).toBeInTheDocument();
+    expect(lastQc!.getQueryData<{ enabled: boolean }>(monitorKey(BID))?.enabled).toBe(true);
+  });
+
+  it("start_failure_shows_alert_and_keeps_button", async () => {
+    boardEnabled = false;
+    startFail = true;
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.resume));
+    });
+    await tick(0);
+    expect(screen.getByRole("alert")).toHaveTextContent(/^점검을 시작하지 못했습니다: /);
+    expect(screen.getByRole("alert").textContent).toContain("boom");
+    expect(screen.getByText(ko.monitor.resume)).not.toBeDisabled();
+  });
+
+  it("start_button_disabled_while_pending", async () => {
+    boardEnabled = false;
+    startHang = true;
+    await renderPage();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.resume));
+    });
+    expect(screen.getByText(ko.monitor.resume)).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByText(ko.monitor.resume));
+    });
+    expect(startCalls).toBe(1);
   });
 
   it("toolbar_buttons_work", async () => {

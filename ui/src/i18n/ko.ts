@@ -1884,6 +1884,8 @@ export const ko = {
     toolbarFullscreen: "전체화면",
     toolbarSettings: "설정으로",
     stopError: (msg: string) => `점검을 멈추지 못했습니다: ${msg}`,
+    resume: "점검 시작",
+    resumeError: (msg: string) => `점검을 시작하지 못했습니다: ${msg}`,
     statsAvg: "평균",
     statsMax: "최대",
     toolbarStats: "평균·최대",

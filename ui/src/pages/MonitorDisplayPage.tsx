@@ -5,8 +5,10 @@ import {
   getBoard,
   getBoardStatus,
   setLatencyStats,
+  startBoard,
   stopBoard,
   type Blink,
+  type Board,
   type CheckResult,
   type PanelConfig,
 } from "../api/monitors";
@@ -110,8 +112,9 @@ export function MonitorDisplayPage() {
   // The fullscreen mousedown listener is registered once -> it reads this ref.
   const recordOpenRef = useRef(false);
   recordOpenRef.current = selected !== null;
-  const [stopBusy, setStopBusy] = useState(false);
-  const [stopError, setStopError] = useState<string | null>(null);
+  // Stop and start share one busy flag so the two can never overlap.
+  const [runBusy, setRunBusy] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const [statsBusy, setStatsBusy] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
@@ -152,6 +155,26 @@ export function MonitorDisplayPage() {
   const boardNotFound = isNotFound(boardQ.error);
   const refetchBoard = boardQ.refetch;
   const refetchStatus = statusQ.refetch;
+  // Polling continues either way; the next status shows stale_off / pending.
+  const toggleChecks = (
+    action: (boardId: string) => Promise<Board>,
+    errorText: (msg: string) => string,
+  ) => {
+    setRunError(null);
+    setRunBusy(true);
+    void action(id)
+      .then(
+        (b) => {
+          // Keep the settings page (same cache entry) from showing a stale on/off.
+          qc.setQueryData(monitorKey(id), b);
+          void qc.invalidateQueries({ queryKey: MONITOR_LIST_KEY });
+          // Don't abort an in-flight poll (it would count as a failed poll).
+          return refetchStatus({ cancelRefetch: false });
+        },
+        (e: unknown) => setRunError(errorText(e instanceof Error ? e.message : String(e))),
+      )
+      .finally(() => setRunBusy(false));
+  };
   const statusTick = statusQ.dataUpdatedAt;
   const statusBoardUpdatedAt = status?.board_updated_at;
   const boardUpdatedAt = board?.updated_at;
@@ -458,26 +481,17 @@ export function MonitorDisplayPage() {
           >
             {ko.monitor.toolbarStats}
           </ToolButton>
-          {status?.enabled !== false && (
+          {status?.enabled === false ? (
             <ToolButton
-              disabled={stopBusy}
-              onClick={() => {
-                // Polling continues after the stop; the next status shows stale_off.
-                setStopError(null);
-                setStopBusy(true);
-                void stopBoard(id)
-                  .then(
-                    (b) => {
-                      // Keep the settings page (same cache entry) from showing a stale "on".
-                      qc.setQueryData(monitorKey(id), b);
-                      void qc.invalidateQueries({ queryKey: MONITOR_LIST_KEY });
-                      // Don't abort an in-flight poll (it would count as a failed poll).
-                      return refetchStatus({ cancelRefetch: false });
-                    },
-                    (e: unknown) => setStopError(e instanceof Error ? e.message : String(e)),
-                  )
-                  .finally(() => setStopBusy(false));
-              }}
+              disabled={runBusy}
+              onClick={() => toggleChecks(startBoard, ko.monitor.resumeError)}
+            >
+              {ko.monitor.resume}
+            </ToolButton>
+          ) : (
+            <ToolButton
+              disabled={runBusy}
+              onClick={() => toggleChecks(stopBoard, ko.monitor.stopError)}
             >
               {ko.monitor.stop}
             </ToolButton>
@@ -487,9 +501,9 @@ export function MonitorDisplayPage() {
               {ko.monitor.statsError(statsError)}
             </span>
           )}
-          {stopError && (
+          {runError && (
             <span role="alert" className="self-center text-red-300">
-              {ko.monitor.stopError(stopError)}
+              {runError}
             </span>
           )}
         </div>
