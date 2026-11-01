@@ -89,6 +89,15 @@ function EmptyBandDrop({ parentId, band }: { parentId: string; band: string }) {
 // 분기가 non-wide로 접혀 R9 byte-identical이 유지된다.
 type RowView = { wide: boolean; onActivate?: (id: string) => void };
 
+// 조건 요약은 변수명이 길면 한없이 길어진다 — 이름과 함께 줄어들며 말줄임, 전체는 툴팁.
+function CondSummary({ text }: { text: string }) {
+  return (
+    <span className="min-w-0 truncate text-xs text-slate-500" title={text}>
+      {text}
+    </span>
+  );
+}
+
 // 한 행 헤더의 "드래그 핸들 이후" 내용. 대화형 OutlineRow와 오버레이용
 // OutlineRowPreview가 공유 — 시각 드리프트 방지(spec §3.3).
 function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
@@ -110,7 +119,7 @@ function RowContent({ step, wide = false }: { step: Step; wide?: boolean }) {
         <span className="min-w-0 truncate font-medium" title={step.name}>
           {step.name}
         </span>
-        <span className="shrink-0 text-xs text-slate-500">{summarizeCondition(step.cond)}</span>
+        <CondSummary text={summarizeCondition(step.cond)} />
       </>
     );
   }

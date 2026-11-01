@@ -98,6 +98,17 @@ describe("FlowOutline render (full nesting)", () => {
     expect(screen.getByText("get-feed")).toBeInTheDocument();
   });
 
+  it("긴 조건 요약은 행 안에서 말줄임되고 전체는 툴팁으로 보인다", () => {
+    render(<FlowOutline />);
+    const summary = screen.getByText(/\{\{code\}\} eq 200/);
+    // 레이아웃은 jsdom이 못 재므로 클래스 계약으로 고정(실제 넘침 여부는 라이브 rect 실측).
+    const tokens = summary.className.split(/\s+/);
+    expect(tokens).toContain("truncate");
+    expect(tokens).toContain("min-w-0");
+    expect(tokens).not.toContain("shrink-0");
+    expect(summary).toHaveAttribute("title", summary.textContent);
+  });
+
   it("indents nested rows deeper than top-level rows", () => {
     render(<FlowOutline />);
     const top = screen.getByRole("option", { name: /login/ });
