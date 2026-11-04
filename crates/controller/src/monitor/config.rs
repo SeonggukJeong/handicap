@@ -302,6 +302,17 @@ pub fn normalize_step_panel(p: &mut PanelConfig) {
     }
 }
 
+/// 칸 `step_id`(있으면)의 ULID 형식 검사 — `normalize_step_panel` **전에** 부른다
+/// (정규화가 잘못된 id를 조건·표시 항목에 복사해 다른 문구로 바뀌지 않게). 존재 여부는 실행 시 판정.
+pub fn check_step_id(p: &PanelConfig) -> Result<(), String> {
+    match &p.step_id {
+        Some(s) if Ulid::from_string(s).is_err() => {
+            Err("스텝 id가 올바른 ULID 형식이 아닙니다".into())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn validate_groups(cfg: &mut BoardConfig) -> Result<(), String> {
     // panels 첫 등장 순으로 정렬(칸 없는 묶음은 원래 순서대로 뒤 — 안정 정렬).
     let first = |g: &CheckGroup| {
@@ -547,14 +558,7 @@ pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<Strin
     }
     validate_groups(cfg)?;
     for (i, p) in cfg.panels.iter().enumerate() {
-        if let Some(s) = &p.step_id {
-            if Ulid::from_string(s).is_err() {
-                return Err(format!(
-                    "칸 {}: 스텝 id가 올바른 ULID 형식이 아닙니다",
-                    i + 1
-                ));
-            }
-        }
+        check_step_id(p).map_err(|e| format!("칸 {}: {e}", i + 1))?;
     }
     apply_group_mirror(cfg);
     for p in &mut cfg.panels {

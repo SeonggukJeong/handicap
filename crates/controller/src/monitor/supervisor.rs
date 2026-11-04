@@ -1,6 +1,8 @@
 //! 운영실 모니터 감독자 — spec §6.3.
 //!
-//! 보드마다 칸 수만큼 점검 루프(tokio task)를 띄우고, 결과를 칸별 메모리 링버퍼에 쌓는다.
+//! 보드마다 **실행 단위**(점검 묶음 하나·단독 스텝 칸 하나·흐름 전체 칸 하나)마다 점검 루프
+//! (tokio task)를 띄우고, 결과를 칸별 메모리 링버퍼에 쌓는다. 묶음은 회차마다 trace 1회를
+//! 소속 칸들이 공유한다(기록 본문 `Arc` 1벌, 판정은 칸별).
 //! 모든 상태 변경은 [`MonitorSupervisor::reconcile`] 하나로만 들어온다(REST 쓰기·기동 재개).
 //!
 //! 락 순서(교착 방지):
@@ -24,7 +26,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::check::{CheckResult, Verdict, run_check};
 use super::config::PanelConfig;
-use super::record::{CheckRecord, build_record};
+use super::record::{CheckRecord, build_record, build_record_body};
+use super::unit::{CheckUnit, INITIAL_STEP_BUDGET_SECS, UnitPlan, plan_units, run_unit_check};
 use crate::store::{self, Db};
 
 /// 칸별 링버퍼 최대 길이.
@@ -45,6 +48,8 @@ pub struct PanelBuf {
     results: VecDeque<CheckResult>,
     records: VecDeque<Arc<CheckRecord>>,
     running: bool,
+    /// 이 칸 실행 단위의 바깥 제한(초) — 회차마다 갱신, reconcile 때 초기값으로 재설정.
+    budget_secs: u32,
 }
 
 type SharedBuf = Arc<std::sync::Mutex<PanelBuf>>;
@@ -63,6 +68,18 @@ pub struct PanelSnapshot {
     /// 오래된 것 → 최신, 버퍼 전체.
     pub results: Vec<CheckResult>,
     pub running: bool,
+    /// 이 칸 실행 단위의 바깥 제한(초) — `/status`의 `check_budget_seconds`.
+    pub budget_secs: u32,
+}
+
+/// 첫 회차 전(·reconcile 직후)의 예산 — 스텝 칸은 152초(흐름 상한 최대 + 여유),
+/// 흐름 전체 칸은 `timeout_seconds`(그 칸 점검의 바깥 제한 그대로).
+pub fn initial_budget_secs(p: &PanelConfig) -> u32 {
+    if p.step_id.is_some() {
+        INITIAL_STEP_BUDGET_SECS
+    } else {
+        p.timeout_seconds
+    }
 }
 
 /// 최신 결과부터 거꾸로 연속된 `Fail`/`ConfigError` 수와, 그 연속 구간의 가장 오래된 결과 시각.
@@ -90,12 +107,23 @@ impl<'a> RunningGuard<'a> {
         Self { buf }
     }
 
-    /// 결과·기록 추가와 `running` 해제를 한 번의 락 안에서.
+    #[cfg(test)]
+    fn finish(self, result: CheckResult, record: Arc<CheckRecord>, bar_count: usize) {
+        self.finish_round(result, record, bar_count, None);
+    }
+
+    /// 결과·기록 추가·예산 저장(`Some`일 때)과 `running` 해제를 한 번의 락 안에서.
     ///
     /// 기록은 `bar_count`까지 **`while`**로 줄인다 — 막대 개수를 줄여 저장하면 다음 점검 한 번에
     /// 줄어야 한다. 버린 기록(수백 MB일 수 있음)은 락을 푼 **뒤** drop한다 — `snapshot()`이
     /// 같은 락을 잡으므로 해제 비용을 그 안에서 치르지 않게.
-    fn finish(self, result: CheckResult, record: Arc<CheckRecord>, bar_count: usize) {
+    fn finish_round(
+        self,
+        result: CheckResult,
+        record: Arc<CheckRecord>,
+        bar_count: usize,
+        budget_secs: Option<u32>,
+    ) {
         let mut evicted = Vec::new();
         let mut b = lock(self.buf);
         if b.results.len() >= BUFFER_CAP {
@@ -107,6 +135,9 @@ impl<'a> RunningGuard<'a> {
             if let Some(old) = b.records.pop_front() {
                 evicted.push(old);
             }
+        }
+        if let Some(v) = budget_secs {
+            b.budget_secs = v;
         }
         b.running = false;
         drop(b);
@@ -126,8 +157,46 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// 점검 루프 코어 — 시작-시작 간격, 첫 점검 즉시, 겹침 없음(점검이 길면 끝나자마자 다음).
-/// 취소되면 진행 중 점검도 drop한다(결과·기록 미기록). 기록은 최근 `bar_count`개만 보관.
+/// 실행 단위 점검 루프 코어 — 시작-시작 간격, 첫 점검 즉시, 겹침 없음(점검이 길면 끝나자마자
+/// 다음). `members`(칸 버퍼, 그 칸 `bar_count`)는 `check` 결과와 **같은 순서**다: 회차마다 모든
+/// 칸의 `running`을 켜고, 결과를 각 칸 버퍼에 push하며 예산(초)을 저장한다. 취소되면 진행 중
+/// 점검도 drop한다(결과·기록 미기록, `running`은 가드가 끈다). 기록은 칸마다 최근 `bar_count`개.
+pub(crate) async fn unit_loop<F, Fut>(
+    interval: Duration,
+    members: Vec<(SharedBuf, usize)>,
+    check: F,
+    token: CancellationToken,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = (Vec<(CheckResult, Arc<CheckRecord>)>, u32)>,
+{
+    loop {
+        let started = tokio::time::Instant::now();
+        let guards: Vec<RunningGuard<'_>> = members
+            .iter()
+            .map(|(buf, _)| RunningGuard::start(buf))
+            .collect();
+        let (pairs, budget_secs) = tokio::select! {
+            biased;
+            _ = token.cancelled() => return,
+            r = check() => r,
+        };
+        // 결과가 모자라면 남은 가드는 drop되며 `running`만 끈다(실제로는 칸 수와 같다).
+        for ((guard, (_, bar_count)), (result, record)) in
+            guards.into_iter().zip(&members).zip(pairs)
+        {
+            guard.finish_round(result, record, *bar_count, Some(budget_secs));
+        }
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => return,
+            _ = tokio::time::sleep_until(started + interval) => {}
+        }
+    }
+}
+
+/// 칸 1개짜리 [`unit_loop`] — 기존 루프 테스트용(예산은 0으로 붙인다).
+#[cfg(test)]
 pub(crate) async fn panel_loop<F, Fut>(
     interval: Duration,
     bar_count: usize,
@@ -138,25 +207,18 @@ pub(crate) async fn panel_loop<F, Fut>(
     F: Fn() -> Fut,
     Fut: Future<Output = (CheckResult, Arc<CheckRecord>)>,
 {
-    loop {
-        let started = tokio::time::Instant::now();
-        let guard = RunningGuard::start(&buf);
-        let (result, record) = tokio::select! {
-            biased;
-            _ = token.cancelled() => return,
-            r = check() => r,
-        };
-        guard.finish(result, record, bar_count);
-        tokio::select! {
-            biased;
-            _ = token.cancelled() => return,
-            _ = tokio::time::sleep_until(started + interval) => {}
+    let wrapped = || {
+        let fut = check();
+        async move {
+            let (result, record) = fut.await;
+            (vec![(result, record)], 0)
         }
-    }
+    };
+    unit_loop(interval, vec![(buf, bar_count)], wrapped, token).await;
 }
 
 /// 허가(permit)를 얻은 뒤 `fut`를 실행하고 끝나면(또는 drop되면) 반납한다.
-/// 허가 대기도 이 future 안이라, `panel_loop`의 취소 select가 대기 중인 루프도 즉시 끝낸다.
+/// 허가 대기도 이 future 안이라, `unit_loop`의 취소 select가 대기 중인 루프도 즉시 끝낸다.
 pub(crate) async fn with_permit<Fut: Future>(
     sem: Arc<tokio::sync::Semaphore>,
     fut: Fut,
@@ -304,15 +366,29 @@ impl MonitorSupervisor {
         let mut old = lock(&slot.view).take().map(|v| v.bufs).unwrap_or_default();
         let token = self.inner.root.child_token();
         let mut bufs = PanelBufs::new();
-        let mut handles = Vec::with_capacity(row.config.panels.len());
-        for panel in row.config.panels {
-            let buf = old.remove(&panel.id).unwrap_or_default();
-            bufs.insert(panel.id.clone(), buf.clone());
-            handles.push(spawn_panel(
+        let plans = plan_units(&row.config);
+        let mut handles = Vec::with_capacity(plans.len());
+        for plan in plans {
+            let panels: &[PanelConfig] = match &plan {
+                UnitPlan::Whole(p) => std::slice::from_ref(p),
+                UnitPlan::Steps(u) => &u.panels,
+            };
+            let members = panels
+                .iter()
+                .map(|p| {
+                    // 살아남은 칸은 결과 버퍼를 유지하되 예산은 초기값으로 — 편집 전의 작은 예산이
+                    // 첫 긴 회차에 "확인 불가"를 내지 않게(spec §4).
+                    let buf = old.remove(&p.id).unwrap_or_default();
+                    lock(&buf).budget_secs = initial_budget_secs(p);
+                    bufs.insert(p.id.clone(), buf.clone());
+                    (buf, p.bar_count as usize)
+                })
+                .collect();
+            handles.push(spawn_unit(
                 db.clone(),
-                panel,
+                plan,
                 row.config.record_limit_kb,
-                buf,
+                members,
                 token.clone(),
                 slot.live.clone(),
                 self.inner.checks.clone(),
@@ -341,6 +417,7 @@ impl MonitorSupervisor {
                     PanelSnapshot {
                         results: b.results.iter().cloned().collect(),
                         running: b.running,
+                        budget_secs: b.budget_secs,
                     },
                 )
             })
@@ -388,29 +465,74 @@ impl MonitorSupervisor {
     }
 }
 
-fn spawn_panel(
+/// 실행 단위 하나의 루프 task. 세마포어 허가는 단위당 1개(회차 전체를 감싼다).
+/// `members`는 단위의 칸 순서(= `run_unit_check` 결과 순서).
+fn spawn_unit(
     db: Db,
-    panel: PanelConfig,
+    plan: UnitPlan,
     record_limit_kb: u32,
-    buf: SharedBuf,
+    members: Vec<(SharedBuf, usize)>,
     token: CancellationToken,
     live: Arc<AtomicUsize>,
     checks: Arc<tokio::sync::Semaphore>,
 ) -> JoinHandle<()> {
-    let interval = Duration::from_secs(u64::from(panel.interval_seconds.max(1)));
-    let bar_count = panel.bar_count as usize;
+    match plan {
+        UnitPlan::Whole(panel) => {
+            let interval = Duration::from_secs(u64::from(panel.interval_seconds.max(1)));
+            let check = move || {
+                let (db, panel, checks) = (db.clone(), panel.clone(), checks.clone());
+                // `at_ms`는 run_check 안에서 찍히므로 허가를 얻은 뒤의 실제 시작 시각이다.
+                with_permit(checks, async move {
+                    let (trace, result) = run_check(&db, &panel).await;
+                    let rec = Arc::new(build_record(&result, trace, record_limit_kb));
+                    (vec![(result, rec)], panel.timeout_seconds)
+                })
+            };
+            spawn_loop(interval, members, check, token, live)
+        }
+        UnitPlan::Steps(unit) => {
+            let interval = Duration::from_secs(u64::from(unit.interval_seconds.max(1)));
+            let unit: Arc<CheckUnit> = Arc::new(unit);
+            let check = move || {
+                let (db, unit, checks) = (db.clone(), unit.clone(), checks.clone());
+                // `at_ms`는 run_unit_check 안에서 한 번 찍혀 소속 칸 모두 같다(기록 조회 키).
+                with_permit(checks, async move {
+                    let out = run_unit_check(&db, &unit).await;
+                    let body = Arc::new(build_record_body(out.trace, record_limit_kb));
+                    let pairs = out
+                        .results
+                        .into_iter()
+                        .map(|result| {
+                            let rec = Arc::new(CheckRecord {
+                                at_ms: result.at_ms,
+                                result: result.clone(),
+                                body: Arc::clone(&body),
+                            });
+                            (result, rec)
+                        })
+                        .collect();
+                    (pairs, out.budget_secs)
+                })
+            };
+            spawn_loop(interval, members, check, token, live)
+        }
+    }
+}
+
+fn spawn_loop<F, Fut>(
+    interval: Duration,
+    members: Vec<(SharedBuf, usize)>,
+    check: F,
+    token: CancellationToken,
+    live: Arc<AtomicUsize>,
+) -> JoinHandle<()>
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: Future<Output = (Vec<(CheckResult, Arc<CheckRecord>)>, u32)> + Send + 'static,
+{
     tokio::spawn(async move {
         let _live = LiveGuard::enter(&live);
-        let check = || {
-            let (db, panel, checks) = (db.clone(), panel.clone(), checks.clone());
-            // `at_ms`는 run_check 안에서 찍히므로 허가를 얻은 뒤의 실제 시작 시각이다.
-            with_permit(checks, async move {
-                let (trace, result) = run_check(&db, &panel).await;
-                let rec = Arc::new(build_record(&result, trace, record_limit_kb));
-                (result, rec)
-            })
-        };
-        panel_loop(interval, bar_count, check, buf, token).await;
+        unit_loop(interval, members, check, token).await;
     })
 }
 
@@ -1023,5 +1145,189 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(sup.live_task_count(&a), 0);
         assert!(sup.snapshot(&a).await.is_none());
+    }
+
+    // ---- 실행 단위 (점검 묶음 spec §4) ----
+
+    const G1: &str = "01J000000000000000000000G1";
+    const S1: &str = "01J000000000000000000000S1";
+    const S2: &str = "01J000000000000000000000S2";
+
+    fn group(id: &str, scenario_id: &str) -> crate::monitor::config::CheckGroup {
+        crate::monitor::config::CheckGroup {
+            id: id.into(),
+            scenario_id: scenario_id.into(),
+            environment_id: None,
+            interval_seconds: 1,
+        }
+    }
+
+    fn step_panel(id: &str, scenario_id: &str, group_id: Option<&str>, step: &str) -> PanelConfig {
+        PanelConfig {
+            id: id.into(),
+            title: "t".into(),
+            scenario_id: scenario_id.into(),
+            interval_seconds: 1,
+            group_id: group_id.map(Into::into),
+            step_id: Some(step.into()),
+            ..PanelConfig::default()
+        }
+    }
+
+    async fn enabled_cfg(db: &Db, cfg: &BoardConfig) -> String {
+        let row = monitor_boards::insert(db, "b", cfg).await.unwrap();
+        monitor_boards::set_enabled(db, &row.id, true)
+            .await
+            .unwrap();
+        row.id
+    }
+
+    /// `url`로 GET하는 스텝 하나(`S1`)짜리 시나리오를 DB에 넣는다.
+    async fn insert_scenario(db: &Db, url: &str) -> String {
+        let yaml = format!(
+            "version: 1\nname: s\nsteps:\n  - id: \"{S1}\"\n    name: s1\n    type: http\n    request: {{ method: GET, url: \"{url}\" }}\n"
+        );
+        let sc = handicap_engine::Scenario::from_yaml(&yaml).unwrap();
+        store::scenarios::insert(db, &sc, &yaml).await.unwrap().id
+    }
+
+    fn view_buf(sup: &MonitorSupervisor, board_id: &str, panel_id: &str) -> SharedBuf {
+        let slot = sup.existing_slot(board_id).unwrap();
+        let view = lock(&slot.view);
+        view.as_ref().unwrap().bufs[panel_id].clone()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unit_loop_pushes_all_members_same_at() {
+        let n = Arc::new(AtomicU64::new(0));
+        let n2 = n.clone();
+        let check = move || {
+            let n = n2.clone();
+            async move {
+                let k = n.fetch_add(1, Ordering::SeqCst) as i64 + 1;
+                let a = pair(res(k * 1000, Verdict::Ok));
+                let b = pair(res(k * 1000, Verdict::Fail));
+                (vec![a, b], 41)
+            }
+        };
+        let (b1, b2) = (new_buf(), new_buf());
+        let token = CancellationToken::new();
+        let h = tokio::spawn(unit_loop(
+            Duration::from_secs(10),
+            vec![(b1.clone(), 5), (b2.clone(), 5)],
+            check,
+            token.clone(),
+        ));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        token.cancel();
+        h.await.unwrap();
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+        let (r1, r2) = (buf_results(&b1), buf_results(&b2));
+        assert_eq!((r1.len(), r2.len()), (1, 1));
+        assert_eq!(r1[0].at_ms, r2[0].at_ms);
+        // members 순서대로 결과가 들어간다.
+        assert_eq!(r1[0].verdict, Verdict::Ok);
+        assert_eq!(r2[0].verdict, Verdict::Fail);
+        for b in [&b1, &b2] {
+            let g = b.lock().unwrap();
+            assert_eq!(g.budget_secs, 41);
+            assert_eq!(g.records.len(), 1);
+            assert!(!g.running);
+        }
+    }
+
+    #[tokio::test]
+    async fn mixed_board_runs_whole_and_unit() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let cfg = BoardConfig {
+            groups: vec![group(G1, "no-such-scenario")],
+            panels: vec![
+                step_panel(P1, "no-such-scenario", Some(G1), S1),
+                step_panel(P2, "no-such-scenario", Some(G1), S2),
+                panel(P3),
+            ],
+            ..BoardConfig::default()
+        };
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        let snap = wait_results(&sup, &id, &[P1, P2, P3]).await;
+        // 묶음 1개 + 흐름 전체 칸 1개 = task 2개(칸별이면 3).
+        assert_eq!(sup.live_task_count(&id), 2);
+        assert_eq!(snap.panels[P1].budget_secs, 152);
+        assert_eq!(snap.panels[P2].budget_secs, 152);
+        assert_eq!(snap.panels[P3].budget_secs, panel(P3).timeout_seconds);
+        assert_eq!(snap.panels[P3].results[0].verdict, Verdict::ConfigError);
+        sup.stop_all().await;
+    }
+
+    #[tokio::test]
+    async fn reconcile_resets_budget() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_delay(Duration::from_millis(1500)),
+            )
+            .mount(&server)
+            .await;
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sid = insert_scenario(&db, &server.uri()).await;
+        let sup = MonitorSupervisor::default();
+        let cfg = BoardConfig {
+            panels: vec![step_panel(P1, &sid, None, S1)],
+            ..BoardConfig::default()
+        };
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        let first = wait_results(&sup, &id, &[P1]).await;
+        // 실제 회차가 계산한 예산 = 흐름 상한(칸 5초) + 32.
+        assert_eq!(first.panels[P1].budget_secs, 37);
+        view_buf(&sup, &id, P1).lock().unwrap().budget_secs = 41;
+
+        // 다음 회차(1.5초 지연)가 끝나기 전에 스냅샷 — reconcile이 초기값으로 되돌렸어야 한다.
+        sup.reconcile(&db, &id).await.unwrap();
+        let snap = sup.snapshot(&id).await.unwrap();
+        assert_eq!(snap.panels[P1].budget_secs, 152);
+        assert!(!snap.panels[P1].results.is_empty(), "results kept");
+        sup.stop_all().await;
+    }
+
+    #[tokio::test]
+    async fn record_lookup_group_member() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sid = insert_scenario(&db, &server.uri()).await;
+        let sup = MonitorSupervisor::default();
+        // P2의 스텝(S2)은 시나리오에 없다 → 그 칸만 설정 오류, P1은 정상 판정(칸마다 다른 결과).
+        let cfg = BoardConfig {
+            groups: vec![group(G1, &sid)],
+            panels: vec![
+                step_panel(P1, &sid, Some(G1), S1),
+                step_panel(P2, &sid, Some(G1), S2),
+            ],
+            ..BoardConfig::default()
+        };
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        let snap = wait_results(&sup, &id, &[P1, P2]).await;
+        let at = snap.panels[P1].results[0].at_ms;
+        assert_eq!(
+            snap.panels[P2].results[0].at_ms, at,
+            "same round, same at_ms"
+        );
+
+        let a = sup.record(&id, P1, at).await.expect("P1 record");
+        let b = sup.record(&id, P2, at).await.expect("P2 record");
+        assert_eq!(a.result, snap.panels[P1].results[0]);
+        assert_eq!(b.result, snap.panels[P2].results[0]);
+        assert_ne!(a.result.verdict, Verdict::ConfigError);
+        assert_eq!(b.result.verdict, Verdict::ConfigError);
+        assert!(Arc::ptr_eq(&a.body, &b.body), "trace body shared");
+        assert!(a.body.trace.is_some());
+        sup.stop_all().await;
     }
 }

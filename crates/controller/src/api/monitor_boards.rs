@@ -18,8 +18,12 @@ use serde::{Deserialize, Serialize};
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::monitor::check::{CheckResult, run_check};
-use crate::monitor::config::{BoardConfig, PanelConfig, validate_and_normalize, validate_panel};
-use crate::monitor::supervisor::{PanelSnapshot, consecutive_fail};
+use crate::monitor::config::{
+    BoardConfig, PanelConfig, check_step_id, normalize_step_panel, validate_and_normalize,
+    validate_panel,
+};
+use crate::monitor::supervisor::{PanelSnapshot, consecutive_fail, initial_budget_secs};
+use crate::monitor::unit::{CheckUnit, run_unit_check};
 use crate::store;
 use crate::store::monitor_boards::{self, MonitorBoardRow};
 use handicap_engine::ScenarioTrace;
@@ -53,6 +57,8 @@ pub struct PanelStatus {
     pub consecutive_fail: u32,
     pub fail_since_ms: Option<i64>,
     pub running: bool,
+    /// 이 칸 실행 단위의 바깥 제한(초) — 화면 stale 기준. 스냅샷 없으면 초기값.
+    pub check_budget_seconds: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +112,7 @@ pub fn build_panel_status(cfg: &PanelConfig, snap: Option<&PanelSnapshot>) -> Pa
             consecutive_fail: 0,
             fail_since_ms: None,
             running: false,
+            check_budget_seconds: initial_budget_secs(cfg),
         };
     };
     let (consecutive_fail, fail_since_ms) = consecutive_fail(&snap.results);
@@ -124,6 +131,7 @@ pub fn build_panel_status(cfg: &PanelConfig, snap: Option<&PanelSnapshot>) -> Pa
         consecutive_fail,
         fail_since_ms,
         running: snap.running,
+        check_budget_seconds: snap.budget_secs,
     }
 }
 
@@ -279,9 +287,31 @@ pub async fn preview_check(
     State(state): State<AppState>,
     Json(mut panel): Json<PanelConfig>,
 ) -> Result<Json<PreviewResponse>, ApiError> {
+    // 스텝 id 형식 → 정규화 → 검증 순서(정규화가 조건의 빈 step_id를 칸 스텝으로 채운다).
+    check_step_id(&panel).map_err(ApiError::BadRequest)?;
+    normalize_step_panel(&mut panel);
     validate_panel(&mut panel).map_err(ApiError::BadRequest)?;
-    let (trace, result) = run_check(&state.db, &panel).await;
-    Ok(Json(PreviewResponse { trace, result }))
+    if panel.step_id.is_none() {
+        let (trace, result) = run_check(&state.db, &panel).await;
+        return Ok(Json(PreviewResponse { trace, result }));
+    }
+    // 스텝 칸 = 칸 1개짜리 묶음 경로(다른 칸의 스텝 제한은 반영 안 됨 — spec §8.3).
+    let unit = CheckUnit {
+        scenario_id: panel.scenario_id.clone(),
+        environment_id: panel.environment_id.clone(),
+        interval_seconds: panel.interval_seconds,
+        panels: vec![panel],
+    };
+    let out = run_unit_check(&state.db, &unit).await;
+    let result = out
+        .results
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("unit check returned no result")))?;
+    Ok(Json(PreviewResponse {
+        trace: out.trace,
+        result,
+    }))
 }
 
 #[cfg(test)]
@@ -314,6 +344,7 @@ mod tests {
         let snap = PanelSnapshot {
             results,
             running: true,
+            budget_secs: 0,
         };
         let s = build_panel_status(&cfg(10), Some(&snap));
         assert_eq!(s.results.len(), 10);
@@ -330,6 +361,7 @@ mod tests {
         let snap = PanelSnapshot {
             results,
             running: false,
+            budget_secs: 0,
         };
         let s = build_panel_status(&cfg(10), Some(&snap));
         assert_eq!(s.results.len(), 10);
@@ -360,6 +392,7 @@ mod tests {
         let snap = PanelSnapshot {
             results,
             running: true,
+            budget_secs: 0,
         };
         let s = build_panel_status(&cfg(10), Some(&snap));
         for r in &s.results[..4] {
@@ -375,6 +408,7 @@ mod tests {
         let snap = PanelSnapshot {
             results: vec![res(1, Verdict::Ok)],
             running: false,
+            budget_secs: 0,
         };
         assert_eq!(build_panel_status(&cfg(60), Some(&snap)).results.len(), 1);
     }
@@ -391,11 +425,41 @@ mod tests {
         let snap = PanelSnapshot {
             results,
             running: true,
+            budget_secs: 0,
         };
         let s = build_panel_status(&cfg(10), Some(&snap));
         for r in &s.results[..4] {
             assert!(r.display.is_empty());
         }
         assert_eq!(s.results[4].display, vec![Some("x".to_string())]);
+    }
+
+    #[test]
+    fn status_check_budget_seconds() {
+        let mut step = cfg(10);
+        step.step_id = Some("01J0000000000000000000000A".into());
+        step.timeout_seconds = 7;
+        let mut whole = cfg(10);
+        whole.timeout_seconds = 7;
+        // 스냅샷 없음(꺼짐·미시작) → 초기값: 스텝 칸 152(120+30+2), 흐름 칸 timeout_seconds.
+        assert_eq!(build_panel_status(&step, None).check_budget_seconds, 152);
+        assert_eq!(build_panel_status(&whole, None).check_budget_seconds, 7);
+        // 스냅샷이 있으면 감독자가 저장한 값.
+        let snap = PanelSnapshot {
+            results: vec![res(1, Verdict::Ok)],
+            running: false,
+            budget_secs: 41,
+        };
+        assert_eq!(
+            build_panel_status(&step, Some(&snap)).check_budget_seconds,
+            41
+        );
+        assert_eq!(
+            build_panel_status(&whole, Some(&snap)).check_budget_seconds,
+            41
+        );
+        // 와이어 키 이름.
+        let v = serde_json::to_value(build_panel_status(&step, Some(&snap))).unwrap();
+        assert_eq!(v["check_budget_seconds"], 41);
     }
 }

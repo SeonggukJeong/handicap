@@ -798,3 +798,91 @@ async fn record_uses_board_limit() {
     assert_eq!(rec["limit_kb"], 512);
     monitor.stop_all().await;
 }
+
+// ---- 스텝 칸 미리 실행 (점검 묶음 spec §8.3) ----
+
+const L1_ID: &str = "01J0000000000000000000000B";
+const L2_ID: &str = "01J0000000000000000000000C";
+
+/// L1(`l1_url`, status 200 단언) → L2(`l2_url`) 2스텝 시나리오.
+async fn create_two_step_scenario(app: &axum::Router, l1_url: &str, l2_url: &str) -> String {
+    let yaml = format!(
+        "version: 1\nname: mon2-{}\nsteps:\n  - id: {L1_ID}\n    name: L1\n    type: http\n    request:\n      method: GET\n      url: {l1_url}\n    assert:\n      - status: 200\n  - id: {L2_ID}\n    name: L2\n    type: http\n    request:\n      method: GET\n      url: {l2_url}\n    assert:\n      - status: 200\n",
+        ulid::Ulid::new()
+    );
+    let (st, v) = send(
+        app,
+        Method::POST,
+        "/api/scenarios",
+        Some(json!({"yaml": yaml})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    v["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn preview_step_panel_uses_unit_path() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let bad = mock(503).await;
+    let good = mock(200).await;
+    let sid = create_two_step_scenario(&app, &bad.uri(), &good.uri()).await;
+    // 칸은 L2만 본다(L1 칸 없음) — 묶음 경로면 L2 칸이 L1의 대리 원인 칸이 된다.
+    // 옛 경로(흐름 전체 판정)로는 L1 이름이 붙은 이 문구가 나올 수 없다.
+    let (st, v) = send(
+        &app,
+        Method::POST,
+        "/api/monitor-boards/preview-check",
+        Some(json!({"title":"t","scenario_id":sid,"step_id":L2_ID})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["result"]["verdict"], "fail", "{v}");
+    assert_eq!(v["result"]["reason"], "앞 단계 실패", "{v}");
+    let detail = v["result"]["detail"].as_str().unwrap_or_default();
+    assert!(detail.starts_with("L1 · "), "{v}");
+    assert!(v["trace"].is_object());
+}
+
+#[tokio::test]
+async fn preview_step_panel_with_condition_ok() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = json_mock(r#"{"resultCode":"0000"}"#).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    // 조건의 step_id가 빈 문자열 — 정규화가 검증보다 앞이면 칸 스텝으로 채워져 통과한다.
+    let c = json!({"step_id": "", "source": "body", "path": "$.resultCode", "op": "eq", "value": "0000"});
+    let (st, v) = send(
+        &app,
+        Method::POST,
+        "/api/monitor-boards/preview-check",
+        Some(json!({"title":"t","scenario_id":sid,"step_id":STEP_ID,"conditions":[c]})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_ne!(v["result"]["verdict"], "config_error", "{v}");
+}
+
+#[tokio::test]
+async fn preview_bad_step_id_reports_step_error() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let c = json!({"step_id": "", "source": "body", "path": "$.resultCode", "op": "eq", "value": "0000"});
+    for body in [
+        // 조건이 있으면 정규화가 잘못된 id를 조건에 복사해 조건 문구가 나오면 안 된다.
+        json!({"title":"t","scenario_id":"S","step_id":"x","conditions":[c]}),
+        // 조건이 없어도 조용히 통과하면 안 된다.
+        json!({"title":"t","scenario_id":"S","step_id":"x"}),
+    ] {
+        let (st, v) = send(
+            &app,
+            Method::POST,
+            "/api/monitor-boards/preview-check",
+            Some(body),
+        )
+        .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+        assert_eq!(v["error"], "스텝 id가 올바른 ULID 형식이 아닙니다");
+    }
+}
