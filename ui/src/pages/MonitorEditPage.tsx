@@ -273,9 +273,15 @@ function BoardForm({ initial }: { initial: Board | null }) {
     const missingGroups = (config.groups ?? []).filter(
       (g) => g.scenario_id === "" && config.panels.some((p) => p.group_id === g.id),
     );
-    const ok = missing.length === 0 && missingGroups.length === 0;
-    setScenarioErr(!ok);
-    markPanels(Object.fromEntries(missing.map((p) => [p.id, ko.monitor.scenarioRequired])));
+    // A group panel must name its step (the server rejects it otherwise — check before fullscreen).
+    const noStep = config.panels.filter((p) => p.group_id && !p.step_id);
+    const scenarioOk = missing.length === 0 && missingGroups.length === 0;
+    const ok = scenarioOk && noStep.length === 0;
+    setScenarioErr(!scenarioOk);
+    markPanels({
+      ...Object.fromEntries(noStep.map((p) => [p.id, ko.monitor.stepRequired])),
+      ...Object.fromEntries(missing.map((p) => [p.id, ko.monitor.scenarioRequired])),
+    });
     markGroups(Object.fromEntries(missingGroups.map((g) => [g.id, ko.monitor.scenarioRequired])));
     return ok && !limitInvalid;
   };

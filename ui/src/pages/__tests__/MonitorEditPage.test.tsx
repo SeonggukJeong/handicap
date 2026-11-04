@@ -1911,6 +1911,32 @@ describe("MonitorEditPage check groups", () => {
     expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(0);
   });
 
+  it("group_panel_without_step_blocks_save_and_start", async () => {
+    const spy = vi.fn(() => Promise.resolve());
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: spy,
+    });
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(screen.getByRole("button", { name: ko.monitor.addGroup }));
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), FLOW_SID);
+    if (toggleOf(2).getAttribute("aria-expanded") === "true") await user.click(toggleOf(2));
+    expect(toggleOf(2)).toHaveAttribute("aria-expanded", "false");
+    const msg = `⚠ ${ko.monitor.stepRequired}`;
+    for (const name of [ko.monitor.start, ko.monitor.save]) {
+      await user.click(screen.getByRole("button", { name }));
+      await waitFor(() => expect(toggleOf(2)).toHaveAttribute("aria-expanded", "true"));
+      expect(within(regionOf(2)).getByText(msg)).toBeInTheDocument();
+      expect(within(regionOf(1)).queryByText(msg)).toBeNull();
+      expect(spy).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+      await user.click(toggleOf(2));
+    }
+  });
+
   it("group_error_expands_box", async () => {
     const user = userEvent.setup();
     handlers["GET /api/monitor-boards/B1"] = () =>
