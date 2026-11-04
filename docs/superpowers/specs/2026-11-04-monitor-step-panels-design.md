@@ -128,7 +128,7 @@ PanelConfig {
 ### 6.1 분기 판정 근거
 - IF 결정 행에 필드 `branch_eval: Vec<BranchEval>`(`#[serde(default, skip_serializing_if = "Vec::is_empty")]` — http 행·기존 소비자 바이트 동일). 평가한 분기 조건마다(`if`, 그다음 평가된 `elif`들 — 참이 나온 데서 멈춤, `select_branch`와 같은 순서) 하나:
   `BranchEval { branch: "then"|"elif_{j}", passed: bool, leaf: Option<LeafEval> }`,
-  `LeafEval { left: 원문, op, right: Option<원문>, left_value: 렌더 값(200자 상한), right_value: Option<렌더 값>, left_unbound: bool }`.
+  `LeafEval { left: 원문, op, right: Option<원문>, left_value: Option<렌더 값(200자 상한)>, right_value: Option<렌더 값>, left_unbound: bool }` — 원문에 `${`가 있는 쪽은 렌더 값을 **저장하지 않는다**(`None`; 시험 실행·미리 실행 응답에도 환경 값이 새지 않게, plan 리뷰).
 - *결정 잎*: `Compare`면 그 잎. `all`: 거짓이면 처음 거짓인 잎, 참이면 첫 잎. `any`: 참이면 처음 참인 잎, 거짓이면 첫 잎. 하위가 그룹이면 같은 규칙으로 재귀. 빈 `all`/`any`면 `leaf: None`(표기 = `조건 = 참`/`조건 = 거짓`).
 - 계산은 trace 전용 함수(같은 `eval_condition` 의미론 재사용). **`passed`와 고른 분기가 `select_branch`와 반드시 일치** — 표 테스트로 잠금(then/elif/else/none × all/any/중첩/빈 그룹).
 - 기록 보관(`record.rs`)은 "흐름 변수 폐기" 원칙대로 이 필드를 지운다.
