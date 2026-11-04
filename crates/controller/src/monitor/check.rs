@@ -272,7 +272,12 @@ pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
 enum Actual {
     Fixed(&'static str),
     Missing,
-    Val { text: String, num: Option<f64> },
+    Val {
+        text: String,
+        num: Option<f64>,
+        /// 본문 값이 빈 배열·빈 객체(`[]`·`{}`) — "값 있음"은 이를 비어 있음으로 본다.
+        empty_container: bool,
+    },
 }
 
 fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::Value>) -> Actual {
@@ -287,6 +292,11 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::
             match jsonpath_first(json, &c.path) {
                 None => Actual::Missing,
                 Some(v) => Actual::Val {
+                    empty_container: match &v {
+                        serde_json::Value::Array(a) => a.is_empty(),
+                        serde_json::Value::Object(o) => o.is_empty(),
+                        _ => false,
+                    },
                     text: stringify(&v),
                     num: match &v {
                         serde_json::Value::Number(n) => n.as_f64(),
@@ -305,6 +315,7 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::
                 Some((_, v)) => Actual::Val {
                     text: v.clone(),
                     num: None,
+                    empty_container: false,
                 },
                 None => Actual::Missing,
             }
@@ -312,6 +323,7 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::
         ConditionSource::Status => Actual::Val {
             text: resp.status.to_string(),
             num: None,
+            empty_container: false,
         },
         ConditionSource::BodyText => {
             if resp.body_truncated {
@@ -320,6 +332,7 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::
                 Actual::Val {
                     text: resp.body.clone(),
                     num: None,
+                    empty_container: false,
                 }
             }
         }
@@ -335,10 +348,10 @@ fn normalize_cmp(s: &str, c: &Condition) -> String {
     }
 }
 
-fn op_passes(c: &Condition, text: &str, num: Option<f64>) -> bool {
+fn op_passes(c: &Condition, text: &str, num: Option<f64>, empty_container: bool) -> bool {
     match c.op {
         ConditionOp::Exists => true,
-        ConditionOp::NotEmpty => !text.is_empty(),
+        ConditionOp::NotEmpty => !text.is_empty() && !empty_container,
         ConditionOp::Eq | ConditionOp::Ne => {
             let eq = if let Some(n) = num
                 && let Some(v) = parse_finite(&c.value)
@@ -421,14 +434,18 @@ fn eval_conditions(
         match actual_value(c, resp, json) {
             Actual::Fixed(r) => return fail(r),
             Actual::Missing => return fail(REASON_NO_VALUE),
-            Actual::Val { text, num } => {
-                if op_passes(c, &text, num) {
+            Actual::Val {
+                text,
+                num,
+                empty_container,
+            } => {
+                if op_passes(c, &text, num, empty_container) {
                     continue;
                 }
                 if c.source == ConditionSource::BodyText && c.op == ConditionOp::Contains {
                     return fail(&reason_not_contained(&c.value));
                 }
-                if text.is_empty() {
+                if text.is_empty() || empty_container {
                     return fail(REASON_EMPTY);
                 }
                 // 인증 헤더의 실제 값은 사유(벽 큰 줄·보관 기록·REST)에 싣지 않는다.
@@ -1249,6 +1266,34 @@ steps:
         for (src, path, op, val, want) in rows {
             assert_eq!(condition_detail(&cond(A, src, path, op, val), None), want);
         }
+    }
+
+    #[test]
+    fn cond_not_empty_rejects_empty_containers() {
+        let body = r#"{"list":[],"obj":{},"one":[0],"m":{"a":1}}"#;
+        for path in ["$.list", "$.obj"] {
+            let r = judge_c(
+                &one_step(),
+                vec![cond(A, Src::Body, path, Op::NotEmpty, "")],
+                &t_body(body),
+            );
+            assert_eq!(r.verdict, Verdict::Fail, "{path}");
+            assert_eq!(r.reason.as_deref(), Some("비어 있음"), "{path}");
+        }
+        for path in ["$.one", "$.m"] {
+            let r = judge_c(
+                &one_step(),
+                vec![cond(A, Src::Body, path, Op::NotEmpty, "")],
+                &t_body(body),
+            );
+            assert_eq!(r.verdict, Verdict::Ok, "{path}");
+        }
+        let r = judge_c(
+            &one_step(),
+            vec![cond(A, Src::Body, "$.list", Op::Exists, "")],
+            &t_body(body),
+        );
+        assert_eq!(r.verdict, Verdict::Ok);
     }
 
     #[test]
