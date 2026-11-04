@@ -305,13 +305,14 @@ fn branch_result(
     let value = match l.left_value.as_deref() {
         Some(_) if l.left.contains("${") => ENV_VALUE_TEXT.to_string(),
         None => ENV_VALUE_TEXT.to_string(),
-        Some(_) if refs_any(&l.left, auth_vars) => AUTH_VALUE_TEXT.to_string(),
+        // 값 있음/비어 있음은 비밀을 드러내지 않으므로 인증 출처보다 먼저(spec §6.3).
         Some(v) if presence_op => if v.is_empty() {
             "비어 있음"
         } else {
             "값 있음"
         }
         .to_string(),
+        Some(_) if refs_any(&l.left, auth_vars) => AUTH_VALUE_TEXT.to_string(),
         Some("") => EMPTY_TEXT.to_string(),
         Some(v) => v.to_string(),
     };
@@ -1331,6 +1332,26 @@ mod tests {
             Some("Bearer {{ isRaceDay }} = (인증 값)")
         );
         assert_no_secret(&r);
+    }
+
+    #[test]
+    fn auth_var_presence_op_shows_presence_not_mask() {
+        // 값 있음/비어 있음은 비밀을 드러내지 않는다(spec §6.3) — 인증 출처여도 그대로.
+        let sc = extract_scn("{ from: cookie, var: isRaceDay, name: SESSION }");
+        for (lv, want) in [
+            ("SECRET-SID-123", "isRaceDay = 값 있음"),
+            ("", "isRaceDay = 비어 있음"),
+        ] {
+            let l = leaf("{{isRaceDay}}", CompareOp::Exists, None, Some(lv));
+            let t = tr(vec![
+                ok(BB, 1),
+                if_row("none", vec![be("then", false, Some(l))]),
+            ]);
+            let r = run(&sc, &panels(&[H]), &t);
+            assert_eq!(r[0].verdict, Verdict::BranchSkipped, "{:?}", r[0]);
+            assert_eq!(r[0].reason.as_deref(), Some(want));
+            assert_no_secret(&r[0]);
+        }
     }
 
     #[test]
