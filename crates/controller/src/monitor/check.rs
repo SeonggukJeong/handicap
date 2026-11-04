@@ -645,6 +645,28 @@ pub(crate) fn display_values(panel: &PanelConfig, trace: &ScenarioTrace) -> Vec<
         .collect()
 }
 
+/// 점검 실행 전 DB에서 시나리오·환경을 다시 읽는다. 실패 시 고정 설정 오류 사유.
+pub(crate) async fn load_scenario_env(
+    db: &Db,
+    scenario_id: &str,
+    environment_id: Option<&str>,
+) -> Result<(Scenario, BTreeMap<String, String>), &'static str> {
+    let Ok(Some(row)) = store::scenarios::get(db, scenario_id).await else {
+        return Err(REASON_SCENARIO_MISSING);
+    };
+    let Ok(scenario) = Scenario::from_yaml(&row.yaml) else {
+        return Err(REASON_SCENARIO_INVALID);
+    };
+    let env: BTreeMap<String, String> = match environment_id {
+        None => BTreeMap::new(),
+        Some(id) => match store::environments::get(db, id).await {
+            Ok(Some(e)) => e.vars,
+            _ => return Err(REASON_ENV_MISSING),
+        },
+    };
+    Ok((scenario, env))
+}
+
 /// 점검 1회 — spec §6.1. 매번 DB에서 시나리오·환경을 다시 읽는다.
 pub async fn run_check(db: &Db, panel: &PanelConfig) -> (Option<ScenarioTrace>, CheckResult) {
     let at_ms = store::now_ms();
@@ -655,19 +677,11 @@ pub async fn run_check(db: &Db, panel: &PanelConfig) -> (Option<ScenarioTrace>, 
         )
     };
 
-    let Ok(Some(row)) = store::scenarios::get(db, &panel.scenario_id).await else {
-        return cfg_err(REASON_SCENARIO_MISSING);
-    };
-    let Ok(scenario) = Scenario::from_yaml(&row.yaml) else {
-        return cfg_err(REASON_SCENARIO_INVALID);
-    };
-    let env: BTreeMap<String, String> = match &panel.environment_id {
-        None => BTreeMap::new(),
-        Some(id) => match store::environments::get(db, id).await {
-            Ok(Some(e)) => e.vars,
-            _ => return cfg_err(REASON_ENV_MISSING),
-        },
-    };
+    let (scenario, env) =
+        match load_scenario_env(db, &panel.scenario_id, panel.environment_id.as_deref()).await {
+            Ok(v) => v,
+            Err(reason) => return cfg_err(reason),
+        };
     // 요청을 내보내기 전에 기준 스텝부터 확인 — 설정 오류에 부하를 쓰지 않는다.
     if !latency_step_exists(&scenario, panel) {
         return cfg_err(REASON_LATENCY_STEP_MISSING);

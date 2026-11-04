@@ -5,6 +5,7 @@ pub mod record;
 pub mod step_judge;
 pub mod supervisor;
 pub mod transfer;
+pub mod unit;
 
 pub use supervisor::MonitorSupervisor;
 
