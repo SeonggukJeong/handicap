@@ -200,6 +200,29 @@ const skippedRes: Json = {
   display: [],
 };
 
+describe("MonitorDisplayPage stale budget", () => {
+  const stateOf = () => within(panelEl("결제")).getByTestId("panel-box").getAttribute("data-state");
+  // now = T + 1000; interval 10 s. Old formula (timeout 3) = 38 s grace; budget 53 = 88 s.
+  const cfg = () => res(board({}, [panelCfg({ timeout_seconds: 3 })]));
+
+  it("stale_threshold_uses_status_check_budget", async () => {
+    boardHandler = cfg;
+    statusHandler = () =>
+      res(
+        status([panelStatus(P1, [okResult(100, T + 1000 - 46_000)], { check_budget_seconds: 53 })]),
+      );
+    await renderPage();
+    expect(stateOf()).toBe("ok");
+  });
+
+  it("stale_threshold_falls_back_to_panel_timeout_without_status_item", async () => {
+    boardHandler = cfg;
+    statusHandler = () => res(status([], { started_at_ms: T + 1000 - 46_000 }));
+    await renderPage();
+    expect(stateOf()).toBe("stale");
+  });
+});
+
 describe("MonitorDisplayPage new states", () => {
   it("blocked_panel_no_blink_no_consecutive", async () => {
     statusHandler = () =>

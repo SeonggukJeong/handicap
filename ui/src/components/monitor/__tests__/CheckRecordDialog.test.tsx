@@ -205,14 +205,14 @@ describe("CheckRecordDialog", () => {
         onClose={() => {}}
       />,
     );
-    const closed = await screen.findAllByRole("button", { expanded: false });
-    expect(closed).toHaveLength(2);
-    const open = screen.getAllByRole("button", { expanded: true });
-    expect(open).toHaveLength(1);
-    const rows = screen
-      .getAllByRole("button")
-      .filter((b) => b.hasAttribute("aria-expanded") && b.textContent?.includes("·"));
-    expect(rows[rows.length - 1]).toHaveAttribute("aria-expanded", "true");
+    // step names come from the scenario YAML: S1 = 로그인, S2 = 조회 (twice; the last opens)
+    const s1 = await screen.findAllByRole("button", { name: /^로그인/ });
+    const s2 = screen.getAllByRole("button", { name: /^조회/ });
+    expect(s1).toHaveLength(1);
+    expect(s2).toHaveLength(2);
+    expect(s1[0]).toHaveAttribute("aria-expanded", "false");
+    expect(s2[0]).toHaveAttribute("aria-expanded", "false");
+    expect(s2[1]).toHaveAttribute("aria-expanded", "true");
   });
 
   it("step_row_summary", async () => {

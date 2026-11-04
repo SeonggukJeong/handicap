@@ -494,6 +494,7 @@ export function MonitorPanel({
   const bigColor =
     ink ?? (state === "ok" ? COLOR.text : state === "skipped" ? COLOR.bright : stateColor);
   const smallColor = ink ?? (state === "blocked" ? COLOR.grayBorder : bigColor);
+  const borderStyle = state === "skipped" ? "dashed" : "solid";
   const titleInk = ink ?? (quiet ? COLOR.soft : undefined);
   const isReason = state === "fail" || state === "config_error" || quiet;
   const bigText = bigValueText(state, latest);
@@ -544,12 +545,12 @@ export function MonitorPanel({
       <div
         data-testid="panel-box"
         data-state={state}
-        data-border-style={state === "skipped" ? "dashed" : "solid"}
+        data-border-style={borderStyle}
         data-blink={blinkOn ? "on" : undefined}
         className="absolute inset-0 flex flex-col overflow-hidden"
         style={
           {
-            ...BOX_STYLE(fit, fillBg ?? borderColor, state === "skipped" ? "dashed" : "solid"),
+            ...BOX_STYLE(fit, fillBg ?? borderColor, borderStyle),
             "--reason-fit": String(+reasonFit.toFixed(4)),
             "--split-fit": String(+splitFit.toFixed(4)),
             background: fillBg ?? COLOR.panel,

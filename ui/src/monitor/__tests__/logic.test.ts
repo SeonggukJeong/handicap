@@ -98,13 +98,38 @@ describe("logic", () => {
     expect(panelState({ ...base, latest: mk("upstream_failed") })).toBe("blocked");
     expect(panelState({ ...base, latest: mk("branch_skipped") })).toBe("skipped");
   });
+  it("stale_outranks_new_states", () => {
+    for (const verdict of ["upstream_failed", "branch_skipped"] as const) {
+      const latest: CheckResult = {
+        at_ms: 1_000,
+        verdict,
+        latency_ms: null,
+        reason: "r",
+        detail: null,
+        display: [],
+      };
+      expect(panelState({ ...base, latest, nowMs: 1_000_000 })).toBe("stale");
+    }
+  });
   it("stale_uses_budget", () => {
     // interval 10, budget 53 -> 88s grace; 46s ago is fine (old formula with timeout 3 = 38s)
     expect(
-      panelState({ ...base, latest: ok(54_000, 5), intervalSec: 10, budgetSec: 53, nowMs: 100_000 }),
+      panelState({
+        ...base,
+        latest: ok(54_000, 5),
+        intervalSec: 10,
+        budgetSec: 53,
+        nowMs: 100_000,
+      }),
     ).toBe("ok");
     expect(
-      panelState({ ...base, latest: ok(11_000, 5), intervalSec: 10, budgetSec: 53, nowMs: 100_000 }),
+      panelState({
+        ...base,
+        latest: ok(11_000, 5),
+        intervalSec: 10,
+        budgetSec: 53,
+        nowMs: 100_000,
+      }),
     ).toBe("stale");
   });
   it("pending_until_grace_after_start", () => {
