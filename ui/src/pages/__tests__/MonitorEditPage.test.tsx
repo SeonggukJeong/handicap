@@ -1454,7 +1454,7 @@ describe("MonitorEditPage display items", () => {
     await screen.findByLabelText(ko.monitor.boardName);
     await user.click(screen.getByRole("button", { name: ko.monitor.collapseAll }));
     expect(toggles()[0]).toHaveAttribute("aria-expanded", "false");
-    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.addSoloPanel }));
     expect(toggles()).toHaveLength(2);
     expect(toggles()[0]).toHaveAttribute("aria-expanded", "false");
     expect(toggles()[1]).toHaveAttribute("aria-expanded", "true");
@@ -1514,8 +1514,8 @@ describe("MonitorEditPage display items", () => {
     };
     renderAt("/monitors/new");
     await user.type(await screen.findByLabelText(ko.monitor.boardName), "운영실");
-    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
-    await user.click(screen.getByRole("button", { name: ko.monitor.addPanel }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.addSoloPanel }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.addSoloPanel }));
     await waitFor(() => expect(toggles()).toHaveLength(3));
     for (const t of toggles()) expect(t).toHaveAttribute("aria-expanded", "true");
     for (const s of screen.getAllByLabelText(ko.monitor.scenario)) {
@@ -1721,5 +1721,343 @@ describe("export from settings", () => {
     await user.click(await exportBtn());
     expect(await screen.findByText("보드 '운영실' 칸 1: 시나리오가 없습니다")).toBeInTheDocument();
     expect(downloadBoardFile).not.toHaveBeenCalled();
+  });
+});
+
+const FLOW_SID = "S2";
+const STEP_C = "01HZZZZZZZZZZZZZZZZZZZZZC1";
+const IF_ID = "01HZZZZZZZZZZZZZZZZZZZZZD1";
+const GID = "01HZZZZZZZZZZZZZZZZZZZZZG1";
+const FLOW_YAML = `version: 1
+name: 더비온 흐름
+steps:
+  - id: ${STEP_A}
+    name: 로그인 호출
+    type: http
+    request:
+      method: GET
+      url: http://x/a
+  - id: ${IF_ID}
+    name: 경마일
+    type: if
+    cond:
+      left: "flag"
+      op: eq
+      right: "true"
+    then:
+      - id: ${STEP_C}
+        name: 경주 헤더
+        type: http
+        request:
+          method: GET
+          url: http://x/c
+`;
+const flowScenarios = {
+  scenarios: [
+    scenarios.scenarios[0],
+    {
+      id: FLOW_SID,
+      name: "더비온 흐름",
+      yaml: FLOW_YAML,
+      version: 1,
+      created_at: 1,
+      updated_at: 1,
+    },
+  ],
+};
+const GROUP = { id: GID, scenario_id: FLOW_SID, environment_id: null, interval_seconds: 10 };
+const groupPanel = (id: string, title: string) =>
+  panel({
+    id,
+    title,
+    scenario_id: FLOW_SID,
+    group_id: GID,
+    step_id: STEP_C,
+    latency_source: { kind: "step", step_id: STEP_C },
+  });
+function groupedBoard(panels: unknown[]) {
+  return board({
+    config: {
+      font_scale: "large",
+      show_latency_stats: true,
+      record_limit_kb: 128,
+      display_style: "border",
+      blink: "fail",
+      groups: [GROUP],
+      panels,
+    },
+  });
+}
+const groupRegion = (n: number) => screen.getByRole("region", { name: ko.monitor.groupTitle(n) });
+const groupToggle = (n: number) =>
+  screen.getByRole("button", { name: new RegExp(`^[▸▾] ${ko.monitor.groupTitle(n)}(\\s|$)`) });
+type PutBody = {
+  config: {
+    groups?: Record<string, unknown>[];
+    panels: (Record<string, unknown> & { conditions: Record<string, unknown>[] })[];
+  };
+};
+const putBody = () => sent("PUT", "/api/monitor-boards/B1")[0].body as PutBody;
+
+describe("MonitorEditPage check groups", () => {
+  beforeEach(() => {
+    handlers["GET /api/scenarios"] = () => json(flowScenarios);
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ config: (b as { config: unknown }).config }));
+  });
+
+  it("add_then_remove_group_not_dirty", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    handlers["POST /api/monitor-boards/export"] = () => new Response('{"file":1}', { status: 200 });
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
+    await user.click(within(groupRegion(1)).getByRole("button", { name: ko.monitor.removeGroup }));
+    expect(
+      screen.queryByRole("region", { name: ko.monitor.groupTitle(1) }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.transfer.exportFromSettings }));
+    await waitFor(() => expect(downloadBoardFile).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("add_group_shows_box_and_buttons", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
+    const g = groupRegion(1);
+    expect(groupToggle(1)).toHaveAttribute("aria-expanded", "true");
+    expect(groupToggle(1)).toHaveTextContent(ko.monitor.groupRunsEvery(10));
+    expect(groupToggle(1)).toHaveTextContent(ko.monitor.groupPanelCount(1));
+    expect(within(g).getByLabelText(ko.monitor.scenario).tagName).toBe("SELECT");
+    expect(within(g).getByLabelText(ko.monitor.environment)).toBeInTheDocument();
+    expect(within(g).getByLabelText(ko.monitor.interval)).toBeInTheDocument();
+    expect(within(g).getByRole("button", { name: ko.monitor.groupAddPanel })).toBeEnabled();
+    expect(within(g).getByRole("button", { name: ko.monitor.removeGroup })).toBeEnabled();
+    const p2 = within(g).getByRole("region", { name: "칸 2" });
+    expect(toggleOf(2)).toHaveAttribute("aria-expanded", "true");
+    expect(within(p2).queryByLabelText(ko.monitor.interval)).not.toBeInTheDocument();
+    expect(within(p2).queryByLabelText(ko.monitor.scenario)).not.toBeInTheDocument();
+    expect(within(p2).queryByLabelText(ko.monitor.environment)).not.toBeInTheDocument();
+    expect(within(p2).getByLabelText(ko.monitor.stepPick)).toBeInTheDocument();
+    // The solo panel stays outside the box.
+    expect(within(g).queryByRole("region", { name: "칸 1" })).not.toBeInTheDocument();
+  });
+
+  it("group_add_panel_appends_inside_box", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
+    await user.click(
+      within(groupRegion(1)).getByRole("button", { name: ko.monitor.groupAddPanel }),
+    );
+    expect(within(groupRegion(1)).getByRole("region", { name: "칸 3" })).toBeInTheDocument();
+    expect(groupToggle(1)).toHaveTextContent(ko.monitor.groupPanelCount(2));
+  });
+
+  it("step_select_marks_branch_steps", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(screen.getByRole("button", { name: ko.monitor.addGroup }));
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), FLOW_SID);
+    const sel = within(regionOf(2)).getByLabelText(ko.monitor.stepPick);
+    expect(
+      within(sel).getByRole("option", { name: "경주 헤더 (경마일 분기 안)" }),
+    ).toBeInTheDocument();
+    expect(within(sel).getByRole("option", { name: "로그인 호출" })).toBeInTheDocument();
+  });
+
+  it("save_group_board_payload", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(screen.getByRole("button", { name: ko.monitor.addGroup }));
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), FLOW_SID);
+    await user.selectOptions(within(regionOf(2)).getByLabelText(ko.monitor.stepPick), STEP_C);
+    await user.type(within(regionOf(2)).getByLabelText(ko.monitor.panelTitle), "헤더");
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(screen.queryByText(ko.monitor.scenarioRequired)).not.toBeInTheDocument();
+    const cfg = putBody().config;
+    expect(cfg.groups).toHaveLength(1);
+    const gid = cfg.groups![0].id;
+    expect(cfg.groups![0].scenario_id).toBe(FLOW_SID);
+    expect(cfg.panels[1].group_id).toBe(gid);
+    expect(cfg.panels[1].step_id).toBe(STEP_C);
+    expect(cfg.panels[1].scenario_id).toBe(FLOW_SID);
+    expect(cfg.panels[1].latency_source).toEqual({ kind: "step", step_id: STEP_C });
+    expect("group_id" in cfg.panels[0]).toBe(false);
+    expect("step_id" in cfg.panels[0]).toBe(false);
+  });
+
+  it("group_without_scenario_blocks_save", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await user.click(await screen.findByRole("button", { name: ko.monitor.addGroup }));
+    await user.click(groupToggle(1));
+    expect(groupToggle(1)).toHaveAttribute("aria-expanded", "false");
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(groupToggle(1)).toHaveAttribute("aria-expanded", "true"));
+    const g = groupRegion(1);
+    expect(within(g).getByText(`⚠ ${ko.monitor.scenarioRequired}`)).toBeInTheDocument();
+    expect(within(g).getByText(ko.monitor.scenarioRequired)).toBeInTheDocument();
+    expect(within(regionOf(1)).queryByText(`⚠ ${ko.monitor.scenarioRequired}`)).toBeNull();
+    expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(0);
+  });
+
+  it("group_error_expands_box", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), groupPanel(P2, "헤더")]));
+    handlers["PUT /api/monitor-boards/B1"] = () =>
+      json({ error: "점검 묶음 1: 칸이 없는 점검 묶음입니다" }, 400);
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await waitFor(() => expect(groupToggle(1)).toHaveAttribute("aria-expanded", "false"));
+    // A board with a group marks its solo panels.
+    expect(toggleOf(1)).toHaveTextContent(`${ko.monitor.soloPrefix} ·`);
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(groupToggle(1)).toHaveAttribute("aria-expanded", "true"));
+    expect(within(groupRegion(1)).getByText("⚠ 칸이 없는 점검 묶음입니다")).toBeInTheDocument();
+  });
+
+  it("remove_group_disabled_when_last", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([groupPanel(P2, "하나"), groupPanel(P3, "둘")]));
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await user.click(groupToggle(1));
+    expect(
+      within(groupRegion(1)).getByRole("button", { name: ko.monitor.removeGroup }),
+    ).toBeDisabled();
+  });
+
+  it("condition_added_on_step_panel_uses_panel_step", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), groupPanel(P2, "헤더")]));
+    const step = (id: string) => ({
+      step_id: id,
+      kind: "http",
+      loop_index: null,
+      branch: null,
+      request: null,
+      response: {
+        status: 200,
+        latency_ms: 10,
+        download_ms: null,
+        headers: {},
+        set_cookies: [],
+        body: "",
+        body_truncated: false,
+      },
+      extracted: {},
+      unbound_vars: [],
+      error: null,
+    });
+    handlers["POST " + PREVIEW_URL] = () =>
+      json({
+        trace: {
+          ok: true,
+          total_ms: 10,
+          steps: [step(STEP_A), step(STEP_C)],
+          final_vars: {},
+          truncated: false,
+          error: null,
+        },
+        result: {
+          at_ms: 1,
+          verdict: "ok",
+          latency_ms: 10,
+          reason: null,
+          detail: null,
+          display: [],
+        },
+      });
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await expandAll();
+    const p2 = regionOf(2);
+    await user.click(within(p2).getByRole("button", { name: ko.monitor.preview }));
+    const statusAdd = ko.monitor.condAddAria(ko.monitor.condTargetStatus);
+    expect(await within(p2).findAllByRole("button", { name: statusAdd })).toHaveLength(1);
+    const req = sent("POST", PREVIEW_URL)[0].body as Record<string, unknown>;
+    expect(req.step_id).toBe(STEP_C);
+    expect(req.scenario_id).toBe(FLOW_SID);
+    expect(req.interval_seconds).toBe(10);
+    expect("group_id" in req).toBe(false);
+    await user.click(within(p2).getByRole("button", { name: statusAdd }));
+    await user.click(within(p2).getByRole("button", { name: ko.monitor.condChooseCondition }));
+    await user.click(within(p2).getByRole("button", { name: ko.monitor.condConfirm }));
+    handlers["PUT /api/monitor-boards/B1"] = (b) =>
+      json(board({ config: (b as { config: unknown }).config }));
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putBody().config.panels[1].conditions[0].step_id).toBe(STEP_C);
+  });
+
+  it("step_missing_after_group_scenario_change_warns", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), groupPanel(P2, "헤더")]));
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(groupToggle(1));
+    await waitFor(() =>
+      expect(toggleOf(2)).toHaveTextContent(
+        `${ko.monitor.summaryStep("경주 헤더")} ${ko.monitor.stepBranchHint("경마일")} · ${ko.monitor.summaryLimit(5)}`,
+      ),
+    );
+    expect(screen.queryByText(ko.monitor.stepMissingInScenario)).not.toBeInTheDocument();
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), SID);
+    expect(within(regionOf(2)).getByText(ko.monitor.stepMissingInScenario)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.monitor.save }));
+    await waitFor(() => expect(sent("PUT", "/api/monitor-boards/B1")).toHaveLength(1));
+    expect(putBody().config.panels[1].step_id).toBe(STEP_C);
+  });
+
+  it("step_panel_preview_cleared_when_group_scenario_changes", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), groupPanel(P2, "헤더")]));
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await expandAll();
+    await user.click(within(regionOf(2)).getByRole("button", { name: ko.monitor.preview }));
+    expect(await within(regionOf(2)).findByText(ko.monitor.previewVerdict)).toBeInTheDocument();
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), SID);
+    expect(within(regionOf(2)).queryByText(ko.monitor.previewVerdict)).not.toBeInTheDocument();
+  });
+
+  it("step_panel_preview_without_step_explains", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(screen.getByRole("button", { name: ko.monitor.addGroup }));
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), FLOW_SID);
+    await user.click(within(regionOf(2)).getByRole("button", { name: ko.monitor.preview }));
+    expect(within(regionOf(2)).getByRole("alert")).toHaveTextContent(ko.monitor.stepRequired);
+    expect(sent("POST", PREVIEW_URL)).toHaveLength(0);
+  });
+
+  it("help_line_for_branch_steps", async () => {
+    expect(ko.monitor.branchStepsHelp).toBe("분기에 따라 달라지는 스텝은 점검 묶음 칸으로 보세요");
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(board());
+    renderAt("/monitors/B1");
+    await expandAll();
+    await user.click(
+      await screen.findByRole("button", { name: new RegExp(ko.monitor.conditions) }),
+    );
+    expect(within(regionOf(1)).getByText(ko.monitor.branchStepsHelp)).toBeInTheDocument();
   });
 });

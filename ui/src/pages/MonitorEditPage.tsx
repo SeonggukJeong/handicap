@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEnvironments, useScenarios } from "../api/hooks";
@@ -13,6 +13,7 @@ import {
   type Blink,
   type Board,
   type BoardConfig,
+  type CheckGroup,
   type DisplayStyle,
   type FontScale,
   type PanelConfig,
@@ -21,6 +22,7 @@ import { ApiError } from "../api/client";
 import { downloadBoardFile, exportBoards, exportFileName } from "../api/monitorTransfer";
 import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
+import { GroupBox } from "../components/monitor/GroupBox";
 import { PanelEditor } from "../components/monitor/PanelEditor";
 import { PanelNav } from "../components/monitor/PanelNav";
 import { Callout } from "../components/ui/Callout";
@@ -30,8 +32,21 @@ import { Select } from "../components/ui/Select";
 import { ko } from "../i18n/ko";
 import { enterFullscreen, exitFullscreen } from "../monitor/fullscreen";
 import { MONITOR_LIST_KEY, monitorKey } from "../monitor/keys";
-import { parsePanelError } from "../monitor/panelErrors";
+import {
+  addGroup,
+  addPanelToGroup,
+  groupNumber,
+  navSegments,
+  normalizeForCompare,
+  removeGroup,
+  removePanel,
+  stepOptionsFor,
+  updateGroup,
+  type StepOption,
+} from "../monitor/groups";
+import { parseGroupError, parsePanelError } from "../monitor/panelErrors";
 import { worstCaseMb } from "../monitor/recordLimit";
+import { parseScenarioDoc } from "../scenario/yamlDoc";
 
 const MAX_PANELS = 9;
 
@@ -64,7 +79,21 @@ export function MonitorEditPage() {
 // `notice`: a non-panel error (e.g. export failure) carried across the new-board remount.
 type NavState = { startError?: string; notice?: string; expanded?: string[] };
 
-const snapshot = (name: string, config: BoardConfig) => JSON.stringify({ name, config });
+// Baseline and current state go through the same normalization, so an added-then-removed
+// group (`groups: []`) or an absent optional key never reads as an unsaved change.
+const snapshot = (name: string, config: BoardConfig) =>
+  JSON.stringify({ name, config: normalizeForCompare(config) });
+
+// The group whose 1-based first-appearance number is `n`.
+const groupIdByNumber = (config: BoardConfig, n: number): string | undefined =>
+  (config.groups ?? []).find((g) => groupNumber(config, g.id) === n)?.id;
+
+// Group-level error (`점검 묶음 N: …`) as `{ groupId: reason }`.
+const groupErrorOf = (config: BoardConfig, message: string): Record<string, string> => {
+  const ge = parseGroupError(message);
+  const gid = ge ? groupIdByNumber(config, ge.groupNumber) : undefined;
+  return ge && gid ? { [gid]: ge.reason } : {};
+};
 
 function BoardForm({ initial }: { initial: Board | null }) {
   const navigate = useNavigate();
@@ -102,11 +131,21 @@ function BoardForm({ initial }: { initial: Board | null }) {
     const pid = pe ? config.panels[pe.index]?.id : undefined;
     return pe && pid ? { [pid]: pe.reason } : {};
   });
-  // Expanded panel cards. An existing board opens fully collapsed; a new board opens
-  // its default panel. A remount after the first save carries the set via router state.
+  // Per-group error reasons keyed by group id (`점검 묶음 N: …`, or a missing group scenario).
+  const [groupErrors, setGroupErrors] = useState<Record<string, string>>(() =>
+    groupErrorOf(config, (location.state as NavState | null)?.startError ?? ""),
+  );
+  // Groups holding the given panels — opened along with them so the panel is visible.
+  const groupsOf = (pids: string[]): string[] =>
+    config.panels.filter((p) => pids.includes(p.id) && p.group_id).map((p) => p.group_id!);
+  // Expanded panel cards and group boxes (both keyed by id). An existing board opens fully
+  // collapsed; a new board opens its default panel. A remount after the first save carries
+  // the set via router state.
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const carried = (location.state as NavState | null)?.expanded;
-    if (carried) return new Set([...carried, ...Object.keys(panelErrors)]);
+    const errIds = Object.keys(panelErrors);
+    if (carried)
+      return new Set([...carried, ...errIds, ...groupsOf(errIds), ...Object.keys(groupErrors)]);
     return initial ? new Set() : new Set([config.panels[0].id]);
   });
   // Router state is only a one-shot hand-off; clear it so a reload falls back to the defaults.
@@ -124,7 +163,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const pendingJump = useRef<string | null>(null);
   const jumpToPanel = (pid: string) => {
     pendingJump.current = pid;
-    setExpanded((s) => new Set(s).add(pid));
+    setExpanded((s) => new Set([...s, pid, ...groupsOf([pid])]));
   };
   useEffect(() => {
     const pid = pendingJump.current;
@@ -143,6 +182,26 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const [confirmExport, setConfirmExport] = useState(false);
 
   const dirty = snapshot(name, config) !== baseline;
+
+  const scenarioList = useMemo(() => scenarios.data?.scenarios ?? [], [scenarios.data]);
+  const envList = environments.data ?? [];
+  const groups = config.groups ?? [];
+  // Step choices per group scenario, from the same scenario YAML the panel editor reads.
+  const groupScenarioKey = groups.map((g) => g.scenario_id).join("\n");
+  const stepOptionsByScenario = useMemo(() => {
+    const out: Record<string, StepOption[]> = {};
+    for (const sid of new Set(groupScenarioKey.split("\n"))) {
+      const s = scenarioList.find((x) => x.id === sid);
+      if (!s) continue;
+      const parsed = parseScenarioDoc(s.yaml);
+      out[sid] = "error" in parsed ? [] : stepOptionsFor(parsed.model.steps);
+    }
+    return out;
+  }, [scenarioList, groupScenarioKey]);
+  const scenarioNames = useMemo(
+    () => Object.fromEntries(scenarioList.map((s) => [s.id, s.name])) as Record<string, string>,
+    [scenarioList],
+  );
 
   const adopt = (b: Board) => {
     setBoard(b);
@@ -165,19 +224,38 @@ function BoardForm({ initial }: { initial: Board | null }) {
     setConfig((c) => ({ ...c, panels: c.panels.map((p, k) => (k === i ? next : p)) }));
   };
 
-  // Marks panels with errors and opens them so the reason is visible.
+  const setGroup = (next: CheckGroup) => {
+    setGroupErrors((m) => {
+      if (!(next.id in m)) return m;
+      const rest = { ...m };
+      delete rest[next.id];
+      return rest;
+    });
+    setConfig((c) => updateGroup(c, next));
+  };
+
+  // Marks panels with errors and opens them (and their group boxes) so the reason is visible.
   const markPanels = (errs: Record<string, string>) => {
     setPanelErrors(errs);
+    const ids = Object.keys(errs);
+    if (ids.length) setExpanded((s) => new Set([...s, ...ids, ...groupsOf(ids)]));
+  };
+
+  // Marks group boxes with errors and opens them.
+  const markGroups = (errs: Record<string, string>) => {
+    setGroupErrors(errs);
     const ids = Object.keys(errs);
     if (ids.length) setExpanded((s) => new Set([...s, ...ids]));
   };
 
-  // A server 400 whose message names a panel (`칸 N: …`) marks that panel.
+  // A server 400 whose message names a panel (`칸 N: …`) or a group (`점검 묶음 N: …`)
+  // marks that panel or group box.
   const markFromServer = (e: unknown) => {
     if (!(e instanceof ApiError) || e.status !== 400) return;
     const pe = parsePanelError(e.message);
     const pid = pe ? config.panels[pe.index]?.id : undefined;
     if (pe && pid) markPanels({ [pid]: pe.reason });
+    markGroups(groupErrorOf(config, e.message));
   };
 
   const limitInvalid = !(
@@ -189,16 +267,21 @@ function BoardForm({ initial }: { initial: Board | null }) {
   // The record-limit field already shows its own error while invalid, so a
   // rejected click needs no extra message — it just must not save, start or
   // request fullscreen.
+  // A group panel's scenario is the group's: check the group (and open its box), not the panel.
   const valid = (): boolean => {
-    const missing = config.panels.filter((p) => p.scenario_id === "");
-    const ok = missing.length === 0;
+    const missing = config.panels.filter((p) => !p.group_id && p.scenario_id === "");
+    const missingGroups = (config.groups ?? []).filter(
+      (g) => g.scenario_id === "" && config.panels.some((p) => p.group_id === g.id),
+    );
+    const ok = missing.length === 0 && missingGroups.length === 0;
     setScenarioErr(!ok);
     markPanels(Object.fromEntries(missing.map((p) => [p.id, ko.monitor.scenarioRequired])));
+    markGroups(Object.fromEntries(missingGroups.map((g) => [g.id, ko.monitor.scenarioRequired])));
     return ok && !limitInvalid;
   };
 
   const persist = async (always: boolean): Promise<Board> => {
-    const input = { name, config };
+    const input = { name, config: normalizeForCompare(config) };
     if (!board) return createBoard(input);
     if (always || dirty) return updateBoard(board.id, input);
     return board;
@@ -210,6 +293,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const saveBoard = async (deferNavigate = false): Promise<Board | null> => {
     setError(null);
     setPanelErrors({});
+    setGroupErrors({});
     setSaved(false);
     if (!valid()) return null;
     setBusy(true);
@@ -284,6 +368,7 @@ function BoardForm({ initial }: { initial: Board | null }) {
   const onStart = async () => {
     setError(null);
     setPanelErrors({});
+    setGroupErrors({});
     setSaved(false);
     // Validate first (sync) so a rejected click never requests fullscreen; the
     // request is still made before the first await, so the gesture stays valid.
@@ -349,6 +434,40 @@ function BoardForm({ initial }: { initial: Board | null }) {
       setConfirmDelete(false);
       setBusy(false);
     }
+  };
+
+  // The 9-panel cap counts group panels too.
+  const full = config.panels.length >= MAX_PANELS;
+
+  const renderPanel = (i: number, g?: CheckGroup) => {
+    const p = config.panels[i];
+    return (
+      <PanelEditor
+        key={p.id}
+        panel={p}
+        index={i}
+        scenarios={scenarioList}
+        environments={envList}
+        scenarioError={scenarioErr}
+        canRemove={config.panels.length > 1}
+        expanded={expanded.has(p.id)}
+        error={panelErrors[p.id]}
+        onToggle={() => togglePanel(p.id)}
+        onChange={(next) => setPanel(i, next)}
+        onRemove={() => {
+          // Removing a group's last panel removes the group too.
+          setConfig((c) => removePanel(c, i));
+          setExpanded((s) => {
+            const next = new Set(s);
+            next.delete(p.id);
+            return next;
+          });
+        }}
+        group={g}
+        stepOptions={g ? stepOptionsByScenario[g.scenario_id] : undefined}
+        solo={!g && groups.length > 0}
+      />
+    );
   };
 
   return (
@@ -430,47 +549,73 @@ function BoardForm({ initial }: { initial: Board | null }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          {config.panels.map((p, i) => (
-            <PanelEditor
-              key={p.id}
-              panel={p}
-              index={i}
-              scenarios={scenarios.data?.scenarios ?? []}
-              environments={environments.data ?? []}
-              scenarioError={scenarioErr}
-              canRemove={config.panels.length > 1}
-              expanded={expanded.has(p.id)}
-              error={panelErrors[p.id]}
-              onToggle={() => togglePanel(p.id)}
-              onChange={(next) => setPanel(i, next)}
-              onRemove={() => {
-                setConfig((c) => ({ ...c, panels: c.panels.filter((_, k) => k !== i) }));
-                setExpanded((s) => {
-                  const next = new Set(s);
-                  next.delete(p.id);
-                  return next;
-                });
-              }}
-            />
-          ))}
+          {navSegments(config.panels).map((seg) => {
+            const g = seg.groupId === null ? undefined : groups.find((x) => x.id === seg.groupId);
+            if (!g) return seg.indices.map((i) => renderPanel(i));
+            return (
+              <GroupBox
+                key={`${g.id}-${seg.indices[0]}`}
+                group={g}
+                number={groupNumber(config, g.id)}
+                scenarios={scenarioList}
+                environments={envList}
+                expanded={expanded.has(g.id)}
+                error={groupErrors[g.id]}
+                canRemove={config.panels.some((p) => p.group_id !== g.id)}
+                canAddPanel={!full}
+                onToggle={() => togglePanel(g.id)}
+                onChange={setGroup}
+                onAddPanel={() => {
+                  const r = addPanelToGroup(config, g.id);
+                  setConfig(r.cfg);
+                  setExpanded((s) => new Set(s).add(r.panelId));
+                }}
+                onRemove={() => {
+                  const gone = config.panels.filter((p) => p.group_id === g.id).map((p) => p.id);
+                  setConfig((c) => removeGroup(c, g.id));
+                  setExpanded((s) => {
+                    const next = new Set(s);
+                    for (const id of [g.id, ...gone]) next.delete(id);
+                    return next;
+                  });
+                }}
+              >
+                {seg.indices.map((i) => renderPanel(i, g))}
+              </GroupBox>
+            );
+          })}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             type="button"
-            disabled={config.panels.length >= MAX_PANELS}
+            disabled={full}
             onClick={() => {
               const np = newPanel();
               setConfig((c) => ({ ...c, panels: [...c.panels, np] }));
               setExpanded((s) => new Set(s).add(np.id));
             }}
           >
-            {ko.monitor.addPanel}
+            {ko.monitor.addSoloPanel}
           </Button>
           <Button
             variant="secondary"
             type="button"
-            onClick={() => setExpanded(new Set(config.panels.map((p) => p.id)))}
+            disabled={full}
+            onClick={() => {
+              const r = addGroup(config);
+              setConfig(r.cfg);
+              setExpanded((s) => new Set(s).add(r.groupId).add(r.panelId));
+            }}
+          >
+            {ko.monitor.addGroup}
+          </Button>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() =>
+              setExpanded(new Set([...config.panels.map((p) => p.id), ...groups.map((g) => g.id)]))
+            }
           >
             {ko.monitor.expandAll}
           </Button>
@@ -556,6 +701,8 @@ function BoardForm({ initial }: { initial: Board | null }) {
         <div className="sticky top-4 self-start">
           <PanelNav
             panels={config.panels}
+            groups={groups}
+            scenarioNames={scenarioNames}
             expanded={expanded}
             errors={panelErrors}
             onJump={jumpToPanel}

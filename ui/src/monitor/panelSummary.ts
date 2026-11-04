@@ -7,19 +7,20 @@ export function panelSummary(
   scenarioName: string | undefined,
   opts?: { solo?: boolean; stepName?: string },
 ): string {
+  const m = ko.monitor;
   if (opts?.stepName !== undefined) {
     return [
-      `스텝: ${opts.stepName}`,
-      `제한 ${p.timeout_seconds}초`,
-      ko.monitor.summaryConds(p.conditions.length),
+      m.summaryStep(opts.stepName),
+      m.summaryLimit(p.timeout_seconds),
+      m.summaryConds(p.conditions.length),
     ].join(" · ");
   }
   const base = [
-    scenarioName ?? ko.monitor.noScenario,
-    ko.monitor.summaryInterval(p.interval_seconds),
-    ko.monitor.summaryConds(p.conditions.length),
-    ko.monitor.summaryDisplays(p.display_items.length),
+    scenarioName ?? m.noScenario,
+    m.summaryInterval(p.interval_seconds),
+    m.summaryConds(p.conditions.length),
+    m.summaryDisplays(p.display_items.length),
   ];
-  if (opts?.solo) return ["단독 실행", ...base, "시나리오 전체"].join(" · ");
+  if (opts?.solo) return [m.soloPrefix, ...base, m.wholeScenario].join(" · ");
   return base.join(" · ");
 }

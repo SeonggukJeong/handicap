@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreviewResult } from "../PreviewResult";
 import type { DisplayItem, PreviewResult as Preview } from "../../../api/monitors";
@@ -229,5 +229,28 @@ describe("PreviewResult", () => {
     expect(
       screen.queryByRole("button", { name: ko.monitor.condChooseDisplay }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("PreviewResult onlyStepId", () => {
+  const STEP2 = "01HZZZZZZZZZZZZZZZZZZZZZB1";
+  it("only_step_id_limits_add_buttons", () => {
+    const p = preview("");
+    const first = p.trace!.steps[0];
+    p.trace!.steps = [first, { ...first, step_id: STEP2 }];
+    render(
+      <PreviewResult
+        preview={p}
+        stepNames={{ [STEP]: "로그인", [STEP2]: "조회" }}
+        onAddCondition={vi.fn()}
+        onAddDisplay={vi.fn()}
+        onlyStepId={STEP2}
+      />,
+    );
+    const statusAdd = ko.monitor.condAddAria(ko.monitor.condTargetStatus);
+    expect(screen.getAllByRole("button", { name: statusAdd })).toHaveLength(1);
+    const rows = screen.getAllByRole("listitem");
+    expect(within(rows[0]).queryByRole("button", { name: statusAdd })).not.toBeInTheDocument();
+    expect(within(rows[1]).getByRole("button", { name: statusAdd })).toBeInTheDocument();
   });
 });

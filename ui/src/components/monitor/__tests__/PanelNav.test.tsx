@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PanelNav } from "../PanelNav";
 import { ko } from "../../../i18n/ko";
@@ -66,5 +66,30 @@ describe("PanelNav", () => {
     expect(onJump).toHaveBeenCalledWith("C");
     await user.click(screen.getByRole("button", { name: ko.monitor.navJumpActions }));
     expect(onJumpActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("nav_boxes_group_with_continuous_numbers", () => {
+    const grouped = [
+      { ...p("A", "1.0 로그인"), group_id: "g1" },
+      { ...p("B", "2.0 로그인"), group_id: "g1" },
+      p("C", "마권 발매"),
+    ];
+    render(
+      <PanelNav
+        panels={grouped}
+        groups={[{ id: "g1", scenario_id: "s1", environment_id: null, interval_seconds: 10 }]}
+        scenarioNames={{ s1: "더비온 흐름" }}
+        expanded={new Set()}
+        errors={{}}
+        onJump={vi.fn()}
+        onJumpActions={vi.fn()}
+      />,
+    );
+    const box = screen.getByRole("group", { name: "더비온 흐름 · 10초" });
+    expect(within(box).getByText("더비온 흐름 · 10초")).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "1 1.0 로그인" })).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "2 2.0 로그인" })).toBeInTheDocument();
+    expect(within(box).queryByRole("button", { name: "3 마권 발매" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "3 마권 발매" })).toBeInTheDocument();
   });
 });

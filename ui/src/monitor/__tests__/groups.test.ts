@@ -175,4 +175,70 @@ describe("monitor groups helpers", () => {
       { id: "B", name: "inside", branchHint: "분기" },
     ]);
   });
+
+  const h = (id: string, name: string) => ({ id, name, type: "http" }) as unknown as Step;
+
+  it("stepOptionsFor_parallel_branch_has_no_hint", () => {
+    const steps = [
+      {
+        id: "P",
+        name: "동시",
+        type: "parallel",
+        branches: [
+          { name: "a", steps: [h("A", "가")] },
+          { name: "b", steps: [h("B", "나")] },
+        ],
+      },
+    ] as unknown as Step[];
+    expect(stepOptionsFor(steps)).toEqual([
+      { id: "A", name: "가", branchHint: null },
+      { id: "B", name: "나", branchHint: null },
+    ]);
+  });
+
+  it("stepOptionsFor_elif_and_else_hint_is_that_if", () => {
+    const steps = [
+      {
+        id: "I",
+        name: "경마일",
+        type: "if",
+        then: [h("T", "then")],
+        elif: [{ then: [h("E", "elif")] }],
+        else: [h("X", "else")],
+      },
+    ] as unknown as Step[];
+    expect(stepOptionsFor(steps)).toEqual([
+      { id: "T", name: "then", branchHint: "경마일" },
+      { id: "E", name: "elif", branchHint: "경마일" },
+      { id: "X", name: "else", branchHint: "경마일" },
+    ]);
+  });
+
+  it("stepOptionsFor_nested_if_uses_innermost_name", () => {
+    const steps = [
+      {
+        id: "O",
+        name: "바깥",
+        type: "if",
+        then: [
+          h("A", "outer-then"),
+          {
+            id: "N",
+            name: "안쪽",
+            type: "if",
+            then: [h("B", "inner-then")],
+            elif: [],
+            else: [h("C", "inner-else")],
+          },
+        ],
+        elif: [],
+        else: [],
+      },
+    ] as unknown as Step[];
+    expect(stepOptionsFor(steps)).toEqual([
+      { id: "A", name: "outer-then", branchHint: "바깥" },
+      { id: "B", name: "inner-then", branchHint: "안쪽" },
+      { id: "C", name: "inner-else", branchHint: "안쪽" },
+    ]);
+  });
 });

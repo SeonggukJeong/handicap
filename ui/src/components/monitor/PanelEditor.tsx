@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { previewCheck, newPanel } from "../../api/monitors";
 import type {
+  CheckGroup,
   Condition,
   DisplayItem,
   PanelConfig,
@@ -20,6 +21,7 @@ import { PreviewResult } from "./PreviewResult";
 import { ConditionRow } from "./ConditionRow";
 import { conditionSummary, targetLabel } from "../../monitor/conditions";
 import { panelSummary } from "../../monitor/panelSummary";
+import { setPanelStep, withMirror, type StepOption } from "../../monitor/groups";
 
 const MAX_THRESHOLDS = 5;
 const THRESHOLD_COLORS = ["#f59e0b", "#ef4444", "#a855f7", "#3b82f6", "#14b8a6"];
@@ -37,19 +39,52 @@ type Props = {
   onToggle: () => void;
   onChange: (next: PanelConfig) => void;
   onRemove: () => void;
+  /** Set for a panel inside a check group: the panel watches one step of the group's run. */
+  group?: CheckGroup;
+  /** The group scenario's http steps (only used with `group`). */
+  stepOptions?: StepOption[];
+  /** A solo panel on a board that also has groups (summary gets the solo prefix/suffix). */
+  solo?: boolean;
 };
 
 const toNum = (v: string): number => (v === "" ? 0 : Number(v));
 
-/** Number of advanced settings that differ from a fresh panel's defaults. */
-function advancedCount(p: PanelConfig): number {
+/** Number of advanced settings that differ from a fresh panel's defaults. A step panel's
+ *  latency source is always its step, so it is not counted there. */
+function advancedCount(p: PanelConfig, stepPanel: boolean): number {
   const d = newPanel();
   let n = 0;
   if (p.timeout_seconds !== d.timeout_seconds) n++;
-  if (p.latency_source.kind !== "total") n++;
+  if (!stepPanel && p.latency_source.kind !== "total") n++;
   if (p.bar_count !== d.bar_count) n++;
   if (p.graph_max_ms !== d.graph_max_ms) n++;
   return n;
+}
+
+/** Collapsed-header summary of a step panel; the IF-branch hint is set off in violet (mockup 01). */
+function StepSummary({
+  panel,
+  stepName,
+  branchHint,
+}: {
+  panel: PanelConfig;
+  stepName: string;
+  branchHint: string | null;
+}) {
+  const full = panelSummary(panel, undefined, { stepName });
+  const head = ko.monitor.summaryStep(stepName);
+  return (
+    <span className="min-w-0 truncate text-xs text-slate-500">
+      {head}
+      {branchHint !== null && (
+        <>
+          {" "}
+          <span className="text-violet-600">{ko.monitor.stepBranchHint(branchHint)}</span>
+        </>
+      )}
+      {full.slice(head.length)}
+    </span>
+  );
 }
 
 export function PanelEditor({
@@ -64,6 +99,9 @@ export function PanelEditor({
   onToggle,
   onChange,
   onRemove,
+  group,
+  stepOptions = [],
+  solo = false,
 }: Props) {
   const pid = panel.id;
   const [advOpen, setAdvOpen] = useState(false);
@@ -78,7 +116,7 @@ export function PanelEditor({
   // starts, so a stale result — whose step ids/values belong to the old scenario — is dropped.
   const previewSeq = useRef(0);
 
-  const scenario = scenarios.find((s) => s.id === panel.scenario_id);
+  const scenario = scenarios.find((s) => s.id === (group?.scenario_id ?? panel.scenario_id));
   const steps = useMemo(() => {
     if (!scenario) return [];
     const parsed = parseScenarioDoc(scenario.yaml);
@@ -91,7 +129,12 @@ export function PanelEditor({
   );
 
   const set = (patch: Partial<PanelConfig>) => onChange({ ...panel, ...patch });
-  const advN = advancedCount(panel);
+  const advN = advancedCount(panel, group !== undefined);
+  const stepOpt = group ? stepOptions.find((o) => o.id === panel.step_id) : undefined;
+  // The group's scenario no longer has this panel's step: warn, but never block saving.
+  const stepMissing = group !== undefined && !!panel.step_id && !!scenario && !stepOpt;
+  const stepLabel = (o: StepOption) =>
+    o.branchHint === null ? o.name : `${o.name} ${ko.monitor.stepBranchHint(o.branchHint)}`;
   const latencyValue =
     panel.latency_source.kind === "step" ? `step:${panel.latency_source.step_id}` : "total";
   const stepGone =
@@ -120,9 +163,26 @@ export function PanelEditor({
     setPreviewing(false);
   };
 
+  // A step panel's preview inputs live on its group: changing them drops a stale result.
+  const groupScenario = group?.scenario_id;
+  const groupEnv = group?.environment_id;
+  useEffect(() => {
+    if (groupScenario !== undefined) clearPreview();
+  }, [groupScenario, groupEnv]);
+
   const runPreview = async () => {
     clearPreview();
-    if (!panel.scenario_id) {
+    if (group) {
+      // Group inputs are edited in the box above; say what is missing here instead.
+      if (!group.scenario_id) {
+        setPreviewErr(ko.monitor.scenarioRequired);
+        return;
+      }
+      if (!panel.step_id) {
+        setPreviewErr(ko.monitor.stepRequired);
+        return;
+      }
+    } else if (!panel.scenario_id) {
       setLocalScenarioErr(true);
       return;
     }
@@ -130,8 +190,11 @@ export function PanelEditor({
     const seq = previewSeq.current;
     setPreviewing(true);
     try {
+      // A step panel is previewed alone: the group's scenario/env/interval mirrored in,
+      // group_id omitted, step_id kept (the server runs it as a one-panel group).
+      const base = group ? withMirror(panel, group) : panel;
       // The server requires a 1–40 char title; a blank form title must not fail the preview.
-      const payload = panel.title.trim() ? panel : { ...panel, title: ko.monitor.preview };
+      const payload = base.title.trim() ? base : { ...base, title: ko.monitor.preview };
       const res = await previewCheck(payload);
       if (seq === previewSeq.current) setPreview(res);
     } catch (e) {
@@ -144,13 +207,16 @@ export function PanelEditor({
   const setCondAt = (i: number, c: Condition) =>
     set({ conditions: panel.conditions.map((x, k) => (k === i ? c : x)) });
 
+  // A step panel's conditions/display values always target its own step.
+  const ownStep = group ? panel.step_id : undefined;
+
   const addCondition = (c: Condition) => {
-    set({ conditions: [...panel.conditions, c] });
+    set({ conditions: [...panel.conditions, ownStep ? { ...c, step_id: ownStep } : c] });
     setCondOpen(true);
   };
 
   const addDisplay = (d: DisplayItem) => {
-    set({ display_items: [...panel.display_items, d] });
+    set({ display_items: [...panel.display_items, ownStep ? { ...d, step_id: ownStep } : d] });
     setDispOpen(true);
   };
   const swapDisplay = () => set({ display_items: [...panel.display_items].reverse() });
@@ -180,9 +246,15 @@ export function PanelEditor({
           </span>
           {error ? (
             <span className="min-w-0 truncate text-xs font-medium text-red-700">{`⚠ ${error}`}</span>
+          ) : group ? (
+            <StepSummary
+              panel={panel}
+              stepName={stepOpt?.name ?? panel.step_id ?? ko.monitor.noValue}
+              branchHint={stepOpt?.branchHint ?? null}
+            />
           ) : (
             <span className="min-w-0 truncate text-xs text-slate-500">
-              {panelSummary(panel, scenario?.name)}
+              {panelSummary(panel, scenario?.name, { solo })}
             </span>
           )}
         </button>
@@ -202,58 +274,90 @@ export function PanelEditor({
               onChange={(e) => set({ title: e.target.value })}
             />
           </Field>
-          <Field label={ko.monitor.interval} htmlFor={`${pid}-interval`}>
-            <Input
-              id={`${pid}-interval`}
-              type="number"
-              numeric
-              min={1}
-              max={3600}
-              value={panel.interval_seconds}
-              onChange={(e) => set({ interval_seconds: toNum(e.target.value) })}
-            />
-          </Field>
-          <Field
-            label={ko.monitor.scenario}
-            htmlFor={`${pid}-scenario`}
-            error={showScenarioErr ? ko.monitor.scenarioRequired : undefined}
-            errorId={`${pid}-scenario-err`}
-          >
-            <Select
-              id={`${pid}-scenario`}
-              value={panel.scenario_id}
-              aria-invalid={showScenarioErr || undefined}
-              aria-describedby={showScenarioErr ? `${pid}-scenario-err` : undefined}
-              onChange={(e) => {
-                clearPreview();
-                set({ scenario_id: e.target.value, latency_source: { kind: "total" } });
-              }}
-            >
-              <option value="">{ko.monitor.noValue}</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={ko.monitor.environment} htmlFor={`${pid}-env`}>
-            <Select
-              id={`${pid}-env`}
-              value={panel.environment_id ?? ""}
-              onChange={(e) => {
-                clearPreview();
-                set({ environment_id: e.target.value === "" ? null : e.target.value });
-              }}
-            >
-              <option value="">{ko.monitor.environmentNone}</option>
-              {environments.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          {group ? (
+            <Field label={ko.monitor.stepPick} htmlFor={`${pid}-step`}>
+              <Select
+                id={`${pid}-step`}
+                value={panel.step_id ?? ""}
+                aria-describedby={stepMissing ? `${pid}-step-missing` : undefined}
+                onChange={(e) => {
+                  if (e.target.value === "") return;
+                  clearPreview();
+                  onChange(setPanelStep(panel, e.target.value));
+                }}
+              >
+                {!panel.step_id && <option value="">{ko.monitor.noValue}</option>}
+                {stepMissing && panel.step_id && (
+                  <option value={panel.step_id}>{panel.step_id}</option>
+                )}
+                {stepOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {stepLabel(o)}
+                  </option>
+                ))}
+              </Select>
+              {stepMissing && (
+                <p id={`${pid}-step-missing`} className="mt-1 text-xs text-amber-700">
+                  {ko.monitor.stepMissingInScenario}
+                </p>
+              )}
+            </Field>
+          ) : (
+            <>
+              <Field label={ko.monitor.interval} htmlFor={`${pid}-interval`}>
+                <Input
+                  id={`${pid}-interval`}
+                  type="number"
+                  numeric
+                  min={1}
+                  max={3600}
+                  value={panel.interval_seconds}
+                  onChange={(e) => set({ interval_seconds: toNum(e.target.value) })}
+                />
+              </Field>
+              <Field
+                label={ko.monitor.scenario}
+                htmlFor={`${pid}-scenario`}
+                error={showScenarioErr ? ko.monitor.scenarioRequired : undefined}
+                errorId={`${pid}-scenario-err`}
+              >
+                <Select
+                  id={`${pid}-scenario`}
+                  value={panel.scenario_id}
+                  aria-invalid={showScenarioErr || undefined}
+                  aria-describedby={showScenarioErr ? `${pid}-scenario-err` : undefined}
+                  onChange={(e) => {
+                    clearPreview();
+                    set({ scenario_id: e.target.value, latency_source: { kind: "total" } });
+                  }}
+                >
+                  <option value="">{ko.monitor.noValue}</option>
+                  {scenarios.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={ko.monitor.environment} htmlFor={`${pid}-env`}>
+                <Select
+                  id={`${pid}-env`}
+                  value={panel.environment_id ?? ""}
+                  onChange={(e) => {
+                    clearPreview();
+                    set({ environment_id: e.target.value === "" ? null : e.target.value });
+                  }}
+                >
+                  <option value="">{ko.monitor.environmentNone}</option>
+                  {environments.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          )}
         </div>
 
         <fieldset className="mb-3 min-w-0">
@@ -331,29 +435,31 @@ export function PanelEditor({
                   onChange={(e) => set({ timeout_seconds: toNum(e.target.value) })}
                 />
               </Field>
-              <Field label={ko.monitor.latencySource} htmlFor={`${pid}-latency`}>
-                <Select
-                  id={`${pid}-latency`}
-                  value={latencyValue}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    set({
-                      latency_source:
-                        v === "total" ? { kind: "total" } : { kind: "step", step_id: v.slice(5) },
-                    });
-                  }}
-                >
-                  <option value="total">{ko.monitor.latencyTotal}</option>
-                  {stepGone && panel.latency_source.kind === "step" && (
-                    <option value={latencyValue}>{panel.latency_source.step_id}</option>
-                  )}
-                  {steps.map((s) => (
-                    <option key={s.id} value={`step:${s.id}`}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {!group && (
+                <Field label={ko.monitor.latencySource} htmlFor={`${pid}-latency`}>
+                  <Select
+                    id={`${pid}-latency`}
+                    value={latencyValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      set({
+                        latency_source:
+                          v === "total" ? { kind: "total" } : { kind: "step", step_id: v.slice(5) },
+                      });
+                    }}
+                  >
+                    <option value="total">{ko.monitor.latencyTotal}</option>
+                    {stepGone && panel.latency_source.kind === "step" && (
+                      <option value={latencyValue}>{panel.latency_source.step_id}</option>
+                    )}
+                    {steps.map((s) => (
+                      <option key={s.id} value={`step:${s.id}`}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label={ko.monitor.barCount} htmlFor={`${pid}-bars`}>
                 <Input
                   id={`${pid}-bars`}
@@ -398,6 +504,7 @@ export function PanelEditor({
             conditionCount={panel.conditions.length}
             displayItems={panel.display_items}
             onAddDisplay={addDisplay}
+            onlyStepId={ownStep}
           />
         )}
 
@@ -419,7 +526,10 @@ export function PanelEditor({
           </legend>
           {condOpen && (
             <div className="mt-2">
-              <p className="mb-2 text-xs text-slate-500">{ko.monitor.conditionsIntro}</p>
+              <div className="mb-2 text-xs text-slate-500">
+                <p>{ko.monitor.conditionsIntro}</p>
+                {!group && <p>{ko.monitor.branchStepsHelp}</p>}
+              </div>
               {panel.conditions.length === 0 ? (
                 <p className="text-sm text-slate-500">{ko.monitor.conditionsEmpty}</p>
               ) : (
@@ -443,7 +553,7 @@ export function PanelEditor({
                         <span className="min-w-0 break-words">
                           {conditionSummary(c, stepNames[c.step_id])}
                         </span>
-                        {scenario && steps.length > 0 && !(c.step_id in stepNames) && (
+                        {!group && scenario && steps.length > 0 && !(c.step_id in stepNames) && (
                           <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
                         )}
                         <button
@@ -502,7 +612,7 @@ export function PanelEditor({
                       <span className="min-w-0 break-words">
                         {`${ko.monitor.displayRank[i]} ${targetLabel(d)} · ${stepNames[d.step_id] ?? d.step_id}`}
                       </span>
-                      {scenario && steps.length > 0 && !(d.step_id in stepNames) && (
+                      {!group && scenario && steps.length > 0 && !(d.step_id in stepNames) && (
                         <span className="text-xs text-amber-700">{ko.monitor.condStepGone}</span>
                       )}
                       <button

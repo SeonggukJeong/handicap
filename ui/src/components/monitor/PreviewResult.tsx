@@ -264,6 +264,7 @@ export function PreviewResult({
   conditionCount = 0,
   displayItems = [],
   onAddDisplay,
+  onlyStepId,
 }: {
   preview: Preview;
   stepNames: Record<string, string>;
@@ -271,6 +272,8 @@ export function PreviewResult({
   conditionCount?: number;
   displayItems?: DisplayItem[];
   onAddDisplay?: (d: DisplayItem) => void;
+  /** A step panel: only this step's row offers condition/display add buttons. */
+  onlyStepId?: string;
 }) {
   const { trace, result } = preview;
   return (
@@ -288,17 +291,20 @@ export function PreviewResult({
         <p className="mt-2 text-slate-600">{ko.monitor.previewNoTrace}</p>
       ) : (
         <ol className="mt-2 flex flex-col gap-2">
-          {trace.steps.map((s, i) => (
-            <StepRow
-              key={`${s.step_id}-${i}`}
-              step={s}
-              name={stepNames[s.step_id] ?? s.step_id}
-              onAddCondition={onAddCondition}
-              conditionCount={conditionCount}
-              displayItems={displayItems}
-              onAddDisplay={onAddDisplay}
-            />
-          ))}
+          {trace.steps.map((s, i) => {
+            const addable = onlyStepId === undefined || s.step_id === onlyStepId;
+            return (
+              <StepRow
+                key={`${s.step_id}-${i}`}
+                step={s}
+                name={stepNames[s.step_id] ?? s.step_id}
+                onAddCondition={addable ? onAddCondition : undefined}
+                conditionCount={conditionCount}
+                displayItems={displayItems}
+                onAddDisplay={addable ? onAddDisplay : undefined}
+              />
+            );
+          })}
         </ol>
       )}
     </div>
