@@ -70,7 +70,7 @@ pub fn consecutive_fail(results: &[CheckResult]) -> (u32, Option<i64>) {
     let mut count = 0u32;
     let mut since = None;
     for r in results.iter().rev() {
-        if r.verdict == Verdict::Ok {
+        if !matches!(r.verdict, Verdict::Fail | Verdict::ConfigError) {
             break;
         }
         count += 1;
@@ -495,9 +495,9 @@ mod tests {
         let rec = sup.record(&id, P1, first.at_ms).await.expect("hit");
         assert_eq!(rec.at_ms, first.at_ms);
         assert_eq!(rec.result, first);
-        assert_eq!(rec.limit_kb, 128);
+        assert_eq!(rec.body.limit_kb, 128);
         // 설정 오류(시나리오 없음)는 요청 전에 멈춰 trace가 없다.
-        assert!(rec.trace.is_none());
+        assert!(rec.body.trace.is_none());
 
         assert!(sup.record(&id, P1, first.at_ms - 1).await.is_none());
         assert!(sup.record(&id, P2, first.at_ms).await.is_none());
@@ -769,6 +769,22 @@ mod tests {
         // whole buffer failing counts all of it (not capped by bar_count etc.)
         let all: Vec<CheckResult> = (0..300).map(|i| res(i, Verdict::Fail)).collect();
         assert_eq!(consecutive_fail(&all), (300, Some(0)));
+    }
+
+    #[test]
+    fn consecutive_fail_stops_at_new_states() {
+        let v = vec![
+            res(0, Verdict::Fail),
+            res(1, Verdict::Fail),
+            res(2, Verdict::UpstreamFailed),
+        ];
+        assert_eq!(consecutive_fail(&v), (0, None));
+        let v = vec![
+            res(0, Verdict::BranchSkipped),
+            res(1, Verdict::Fail),
+            res(2, Verdict::ConfigError),
+        ];
+        assert_eq!(consecutive_fail(&v), (2, Some(1)));
     }
 
     // ---- reconcile (real time, in-memory DB) ----

@@ -116,9 +116,12 @@ fn reason_not_contained(needle: &str) -> String {
     format!("\"{body}{REASON_NOT_CONTAINED_TAIL}")
 }
 
-fn reason_timeout(secs: u32) -> String {
+pub(crate) fn reason_timeout(secs: u32) -> String {
     format!("시간 초과({secs}초)")
 }
+
+pub const REASON_UPSTREAM: &str = "앞 단계 실패";
+pub const REASON_BRANCH_VALUE_MISSING: &str = "분기 값 없음";
 
 fn reason_http(status: u16) -> String {
     format!("HTTP {status}")
@@ -130,6 +133,10 @@ pub enum Verdict {
     Ok,
     Fail,
     ConfigError,
+    /// 앞 단계 실패로 이 칸을 확인하지 못함.
+    UpstreamFailed,
+    /// 분기가 이 칸을 지나치지 않아 제외됨.
+    BranchSkipped,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -388,7 +395,7 @@ fn op_passes(c: &Condition, text: &str, num: Option<f64>, empty_container: bool)
 }
 
 /// 조건을 위에서부터 평가 — 처음 깨진 하나만. 전부 통과면 `None`.
-fn eval_conditions(
+pub(crate) fn eval_conditions(
     all: &[&HttpStep],
     panel: &PanelConfig,
     trace: &ScenarioTrace,
@@ -509,7 +516,7 @@ fn status_mismatch(http: Option<&HttpStep>, st: &StepTrace) -> Option<u16> {
 
 /// 실패한 스텝 한 개의 사유(접미 제외). 분류 순서는 task-2 brief 정본:
 /// ① invalid header ② status assert 불일치 ③ read body ④ 그 외(응답 있음) ⑤ 응답 없음.
-fn classify(http: Option<&HttpStep>, st: &StepTrace, err: &str) -> String {
+pub(crate) fn classify(http: Option<&HttpStep>, st: &StepTrace, err: &str) -> String {
     if err.starts_with("invalid header") {
         return REASON_BAD_REQUEST_BUILD.to_string();
     }
@@ -818,6 +825,18 @@ steps:
         assert_eq!(r.verdict, Verdict::Fail);
         assert_eq!(r.latency_ms, None);
         r.reason.unwrap()
+    }
+
+    #[test]
+    fn verdict_wire_strings() {
+        assert_eq!(
+            serde_json::to_string(&Verdict::UpstreamFailed).unwrap(),
+            "\"upstream_failed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Verdict::BranchSkipped).unwrap(),
+            "\"branch_skipped\""
+        );
     }
 
     #[test]

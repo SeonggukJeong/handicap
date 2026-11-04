@@ -5,7 +5,10 @@
 //! 흐름 변수를 비우고 본문을 상한으로 자른다.
 
 use handicap_engine::{ScenarioTrace, TracedRequest, TracedResponse};
-use serde::Serialize;
+use std::sync::Arc;
+
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 
 use super::check::CheckResult;
 use super::config::AUTH_HEADERS;
@@ -27,15 +30,34 @@ pub struct Clipped {
     pub side: ClipSide,
 }
 
-/// 점검 1회의 기록 — 와이어(spec §2.4)와 1:1, 모든 필드 항상 직렬화.
-#[derive(Debug, Clone, Serialize)]
-pub struct CheckRecord {
-    pub at_ms: i64,
+/// 기록 본문 — 한 번의 점검에서 여러 칸이 `Arc`로 공유한다.
+#[derive(Debug, Clone)]
+pub struct RecordBody {
     /// 이 기록을 만들 때 적용된 상한(KB).
     pub limit_kb: u32,
-    pub result: CheckResult,
     pub trace: Option<ScenarioTrace>,
     pub clipped: Vec<Clipped>,
+}
+
+/// 점검 1회의 기록 — 와이어(spec §2.4)와 1:1, 모든 필드 항상 직렬화.
+#[derive(Debug, Clone)]
+pub struct CheckRecord {
+    pub at_ms: i64,
+    pub result: CheckResult,
+    pub body: Arc<RecordBody>,
+}
+
+// serde `rc` feature가 없어 `Arc<T>`는 Serialize가 아니다 — 손으로 평탄화한다.
+impl Serialize for CheckRecord {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        let mut st = ser.serialize_struct("CheckRecord", 5)?;
+        st.serialize_field("at_ms", &self.at_ms)?;
+        st.serialize_field("limit_kb", &self.body.limit_kb)?;
+        st.serialize_field("result", &self.result)?;
+        st.serialize_field("trace", &self.body.trace)?;
+        st.serialize_field("clipped", &self.body.clipped)?;
+        st.end()
+    }
 }
 
 /// 점검 결과와 (있으면) trace로 보관용 기록을 만든다 — spec §3.2 1–7.
@@ -49,6 +71,15 @@ pub fn build_record(
     trace: Option<ScenarioTrace>,
     limit_kb: u32,
 ) -> CheckRecord {
+    CheckRecord {
+        at_ms: result.at_ms,
+        result: result.clone(),
+        body: Arc::new(build_record_body(trace, limit_kb)),
+    }
+}
+
+/// 가림·자르기·흐름 변수/`branch_eval` 폐기를 마친 공유용 본문.
+pub fn build_record_body(trace: Option<ScenarioTrace>, limit_kb: u32) -> RecordBody {
     let mut clipped = Vec::new();
     let trace = trace.map(|mut t| {
         let mut budget = limit_kb as usize * 1024;
@@ -80,10 +111,8 @@ pub fn build_record(
         }
         t
     });
-    CheckRecord {
-        at_ms: result.at_ms,
+    RecordBody {
         limit_kb,
-        result: result.clone(),
         trace,
         clipped,
     }
@@ -335,7 +364,14 @@ mod tests {
 
     fn one(s: StepTrace) -> StepTrace {
         let rec = build_record(&result(), Some(trace(vec![s])), BIG);
-        rec.trace.unwrap().steps.into_iter().next().unwrap()
+        rec.body
+            .trace
+            .clone()
+            .unwrap()
+            .steps
+            .into_iter()
+            .next()
+            .unwrap()
     }
 
     fn req_header(name: &str, value: &str) -> String {
@@ -487,7 +523,7 @@ mod tests {
         t.truncated = true;
         t.error = Some("setup".into());
         let rec = build_record(&result(), Some(t), BIG);
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         assert!(t.final_vars.is_empty());
         assert!(t.steps[0].extracted.is_empty());
         assert_eq!(t.steps[0].unbound_vars, vec!["missing".to_string()]);
@@ -504,8 +540,8 @@ mod tests {
             Some(trace(vec![step(None, Some(resp(&[], &[], &body)))])),
             16,
         );
-        assert!(rec.clipped.is_empty());
-        let t = rec.trace.unwrap();
+        assert!(rec.body.clipped.is_empty());
+        let t = rec.body.trace.clone().unwrap();
         assert_eq!(t.steps[0].response.as_ref().unwrap().body.len(), 16384);
     }
 
@@ -518,13 +554,13 @@ mod tests {
             16,
         );
         assert_eq!(
-            rec.clipped,
+            rec.body.clipped,
             vec![Clipped {
                 step: 0,
                 side: ClipSide::Response
             }]
         );
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         assert_eq!(t.steps[0].response.as_ref().unwrap().body.len(), 16384);
     }
 
@@ -537,11 +573,11 @@ mod tests {
             Some(trace(vec![step(None, Some(resp(&[], &[], &body)))])),
             16,
         );
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         let got = &t.steps[0].response.as_ref().unwrap().body;
         assert!(got.len() <= 16384);
         assert_eq!(got, &"a".repeat(16383));
-        assert_eq!(rec.clipped.len(), 1);
+        assert_eq!(rec.body.clipped.len(), 1);
         // 경계 앞 문자까지 남는 경우: 16381 ASCII + "가"(→16384) + "나".
         let body = format!("{}가나", "a".repeat(16381));
         let rec = build_record(
@@ -549,7 +585,7 @@ mod tests {
             Some(trace(vec![step(None, Some(resp(&[], &[], &body)))])),
             16,
         );
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         let got = &t.steps[0].response.as_ref().unwrap().body;
         assert_eq!(got, &format!("{}가", "a".repeat(16381)));
         assert_eq!(got.len(), 16384);
@@ -566,7 +602,7 @@ mod tests {
         };
         let rec = build_record(&result(), Some(trace(vec![mk(), mk()])), 16);
         assert_eq!(
-            rec.clipped,
+            rec.body.clipped,
             vec![
                 Clipped {
                     step: 0,
@@ -582,7 +618,7 @@ mod tests {
                 },
             ]
         );
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         assert_eq!(
             t.steps[0].request.as_ref().unwrap().body.as_deref(),
             Some(b.as_str())
@@ -633,13 +669,13 @@ mod tests {
             16,
         );
         assert_eq!(
-            rec.clipped,
+            rec.body.clipped,
             vec![Clipped {
                 step: 0,
                 side: ClipSide::Response
             }]
         );
-        let t = rec.trace.unwrap();
+        let t = rec.body.trace.clone().unwrap();
         assert_eq!(t.steps[1].request.as_ref().unwrap().body, None);
         assert_eq!(
             t.steps[2].request.as_ref().unwrap().body.as_deref(),
@@ -660,11 +696,11 @@ mod tests {
     #[test]
     fn none_trace_passes_through() {
         let rec = build_record(&result(), None, 128);
-        assert!(rec.trace.is_none());
-        assert!(rec.clipped.is_empty());
+        assert!(rec.body.trace.is_none());
+        assert!(rec.body.clipped.is_empty());
         assert_eq!(rec.result, result());
         assert_eq!(rec.at_ms, result().at_ms);
-        assert_eq!(rec.limit_kb, 128);
+        assert_eq!(rec.body.limit_kb, 128);
     }
 
     #[test]
@@ -675,8 +711,8 @@ mod tests {
         );
         let t = trace(vec![s.clone()]);
         let rec = build_record(&result(), Some(t.clone()), BIG);
-        assert!(rec.clipped.is_empty());
-        assert_eq!(rec.trace.unwrap(), t);
+        assert!(rec.body.clipped.is_empty());
+        assert_eq!(rec.body.trace.clone().unwrap(), t);
     }
 
     #[test]
@@ -711,5 +747,33 @@ mod tests {
             ])
         );
         assert!(v["trace"].is_object());
+    }
+
+    #[test]
+    fn shared_body_serializes_per_panel_result() {
+        let body = Arc::new(build_record_body(
+            Some(trace(vec![step(None, Some(resp(&[], &[], "x")))])),
+            16,
+        ));
+        let mut r2 = result();
+        r2.verdict = Verdict::UpstreamFailed;
+        let a = CheckRecord {
+            at_ms: 1,
+            result: result(),
+            body: Arc::clone(&body),
+        };
+        let b = CheckRecord {
+            at_ms: 1,
+            result: r2,
+            body,
+        };
+        let (va, vb) = (
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap(),
+        );
+        assert_ne!(va["result"]["verdict"], vb["result"]["verdict"]);
+        assert_eq!(vb["result"]["verdict"], "upstream_failed");
+        assert!(va["trace"].is_object());
+        assert_eq!(va["trace"], vb["trace"]);
     }
 }
