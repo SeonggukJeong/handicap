@@ -13,13 +13,17 @@ use handicap_engine::{
 
 use super::check::{
     CheckResult, MONITOR_MAX_REQUESTS, REASON_BRANCH_VALUE_MISSING, REASON_COND_STEP_NOT_RUN,
-    REASON_LATENCY_STEP_MISSING, REASON_REQUEST_CAP, REASON_UNBOUND_VAR, REASON_UPSTREAM, Verdict,
-    classify, collect_http_steps, display_values, eval_conditions, reason_timeout, shown,
+    REASON_LATENCY_STEP_MISSING, REASON_REQUEST_CAP, REASON_TRACE_ERROR, REASON_UNBOUND_VAR,
+    REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values, eval_conditions,
+    reason_timeout, shown,
 };
 use super::config::PanelConfig;
 
 /// 칸 없는 스텝의 기본 요청 제한(초) — `step_limits`에 없을 때만 쓰는 방어값.
 const DEFAULT_STEP_LIMIT_SECS: u32 = 5;
+
+/// 빈 문자열 표기(대상 값·기대 값 공통).
+const EMPTY_TEXT: &str = "\"\"";
 
 /// IF 조건 연산 기호(성공 조건 라벨과 별개 — spec §6.3).
 pub(crate) fn if_op_symbol(op: CompareOp) -> &'static str {
@@ -224,6 +228,7 @@ fn branch_result(at_ms: i64, row: &StepTrace, if_step: &IfStep, label: &str) -> 
             "값 있음"
         }
         .to_string(),
+        Some("") => EMPTY_TEXT.to_string(),
         Some(v) => v.to_string(),
     };
     let sym = if_op_symbol(l.op);
@@ -234,7 +239,7 @@ fn branch_result(at_ms: i64, row: &StepTrace, if_step: &IfStep, label: &str) -> 
             .right
             .as_deref()
             .filter(|r| !r.is_empty())
-            .unwrap_or("\"\"");
+            .unwrap_or(EMPTY_TEXT);
         format!("조건 {target} {sym} {right}")
     };
     result(
@@ -262,6 +267,22 @@ pub fn judge_unit(
     flow_cap_secs: u32,
     step_limits: &HashMap<String, u32>,
 ) -> Vec<CheckResult> {
+    // 설정 단계 실패(HTTP 클라이언트 생성 등 — 행 0개)는 흐름 전체 판정과 같게 모든 칸 실패.
+    if trace.error.is_some() {
+        return panels
+            .iter()
+            .map(|p| {
+                let mut r = result(
+                    at_ms,
+                    Verdict::Fail,
+                    Some(REASON_TRACE_ERROR.to_string()),
+                    None,
+                );
+                r.display = display_values(p, trace);
+                r
+            })
+            .collect();
+    }
     let mut all = Vec::new();
     collect_http_steps(&scenario.steps, &mut all);
     let find_http = |id: &str| all.iter().copied().find(|h| h.id == id);
@@ -432,7 +453,7 @@ fn own_result(
 mod tests {
     use super::super::check::{
         CheckResult, MONITOR_MAX_REQUESTS, REASON_LATENCY_STEP_MISSING, REASON_REQUEST_CAP,
-        SHOWN_MAX_CHARS, Verdict,
+        REASON_TRACE_ERROR, SHOWN_MAX_CHARS, Verdict,
     };
     use super::super::config::{
         Condition, ConditionOp as Op, ConditionSource as Src, LatencySource, PanelConfig,
@@ -456,6 +477,8 @@ mod tests {
     const EA: &str = "01HX000000000000000000000A";
     const EB: &str = "01HX000000000000000000000B";
     const X: &str = "01HX000000000000000000000C";
+    const FA: &str = "01HX000000000000000000000D";
+    const FB: &str = "01HX000000000000000000000E";
     const GHOST: &str = "01HX00000000000000000000ZZ";
 
     fn http_yaml(id: &str, name: &str, indent: usize) -> String {
@@ -1043,6 +1066,108 @@ mod tests {
         );
         let d = r[0].detail.as_deref().unwrap();
         assert!(!d.contains('\u{202E}') && d.chars().count() <= SHOWN_MAX_CHARS);
+    }
+
+    /// parallel { a: [Ea, Fa], b: [Eb, Fb] }
+    fn par2_scn() -> Scenario {
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &format!("  - id: \"{PAR}\"\n    name: 동시\n    type: parallel\n    branches:\n");
+        y += "      - name: a\n        steps:\n";
+        y += &http_yaml(EA, "Ea", 10);
+        y += &http_yaml(FA, "Fa", 10);
+        y += "      - name: b\n        steps:\n";
+        y += &http_yaml(EB, "Eb", 10);
+        y += &http_yaml(FB, "Fb", 10);
+        Scenario::from_yaml(&y).unwrap()
+    }
+
+    #[test]
+    fn earliest_cause_row_wins() {
+        // 실제 trace는 첫 에러에서 멈추지 않는다 — 앞 구간에 에러 행이 여럿.
+        let t = tr(vec![
+            st(L1, None, Some("send: refused")),
+            st(L2, Some(resp(503, 5)), Some("assertion failed: status")),
+            ok(BB, 1),
+            race_then(),
+            ok(H, 1),
+            ok(P, 1),
+            ok(Z, 1),
+        ]);
+        let r = run(&base(), &panels(&[L1, L2, H]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail);
+        assert_eq!(r[0].reason.as_deref(), Some("요청 실패"));
+        assert_up(&r[1], "L1");
+        assert_up(&r[2], "L1");
+    }
+
+    #[test]
+    fn panel_order_differs_from_trace_order() {
+        // 칸 배열 [H, L2](trace 순서와 반대) — L2 칸이 빨강이므로 H는 대리 칸이 아니라 확인 못 함.
+        let t = tr(vec![
+            ok(L1, 1),
+            st(L2, Some(resp(503, 5)), Some("assertion failed: status")),
+            ok(BB, 1),
+            race_then(),
+            ok(H, 1),
+            ok(P, 1),
+        ]);
+        let r = run(&base(), &panels(&[H, L2]), &t);
+        assert_up(&r[0], "L2");
+        assert_eq!(r[1].verdict, Verdict::Fail);
+        assert_eq!(r[1].reason.as_deref(), Some("HTTP 503"));
+        // 원인 L1에 칸 없음, 칸 배열 [P, H] — H의 앞 구간이 먼저 끝나도 대리 칸은 배열 맨 앞 P.
+        let t = tr(vec![
+            st(L1, None, Some("send: refused")),
+            ok(L2, 1),
+            ok(BB, 1),
+            race_then(),
+            ok(H, 1),
+            ok(P, 1),
+        ]);
+        let r = run(&base(), &panels(&[P, H]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("L1 · 요청 실패"));
+        assert_up(&r[1], "L1");
+    }
+
+    #[test]
+    fn trace_error_all_panels_fail() {
+        let mut t = tr(vec![]);
+        t.error = Some("http client build: boom".into());
+        let r = run(&base(), &panels(&[L1, H, GHOST]), &t);
+        assert_eq!(r.len(), 3);
+        for x in &r {
+            assert_eq!(x.verdict, Verdict::Fail, "{x:?}");
+            assert_eq!(x.reason.as_deref(), Some(REASON_TRACE_ERROR));
+            assert_eq!(x.detail, None);
+            assert_eq!(x.latency_ms, None);
+        }
+    }
+
+    #[test]
+    fn empty_left_value_shown_as_quotes() {
+        let t = tr(vec![race_none("")]);
+        let r = run(&base(), &panels(&[H]), &t);
+        assert_eq!(r[0].verdict, Verdict::BranchSkipped);
+        assert_eq!(r[0].reason.as_deref(), Some("isRaceDay = \"\""));
+    }
+
+    #[test]
+    fn one_stand_in_per_cause() {
+        let t = tr(vec![
+            st(EA, None, Some("send: refused")),
+            ok(FA, 1),
+            st(EB, Some(resp(503, 2)), Some("assertion failed: status")),
+            ok(FB, 1),
+        ]);
+        let r = run(&par2_scn(), &panels(&[FA, FB]), &t);
+        assert_eq!(r[0].verdict, Verdict::Fail);
+        assert_eq!(r[0].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[0].detail.as_deref(), Some("Ea · 요청 실패"));
+        assert_eq!(r[1].verdict, Verdict::Fail);
+        assert_eq!(r[1].reason.as_deref(), Some("앞 단계 실패"));
+        assert_eq!(r[1].detail.as_deref(), Some("Eb · HTTP 503"));
     }
 
     #[test]
