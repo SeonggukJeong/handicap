@@ -257,3 +257,10 @@ describe("ko.monitor 화면 문구", () => {
     expect(ko.monitor.displayTitle).toBe("화면에 표시");
   });
 });
+
+describe("ko.monitor.stepBranchHint", () => {
+  it("이름이 '분기'로 끝나면 '분기'를 또 붙이지 않는다", () => {
+    expect(ko.monitor.stepBranchHint("경마일 분기")).toBe("(경마일 분기 안)");
+    expect(ko.monitor.stepBranchHint("경마일")).toBe("(경마일 분기 안)");
+  });
+});

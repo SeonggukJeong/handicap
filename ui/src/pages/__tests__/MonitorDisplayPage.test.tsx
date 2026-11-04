@@ -249,8 +249,33 @@ describe("MonitorDisplayPage new states", () => {
     expect(box.getAttribute("data-state")).toBe("skipped");
     expect(box.getAttribute("data-border-style")).toBe("dashed");
     expect(within(p).getByText("○ 분기 제외")).toBeInTheDocument();
-    expect(within(p).getByText("isRaceDay = false")).toBeInTheDocument();
+    expect(within(p).getByText("isRaceDay")).toBeInTheDocument();
+    expect(within(p).getByText("= false")).toBeInTheDocument();
     expect(within(p).getByText("조건 isRaceDay = true · 경마일 분기")).toBeInTheDocument();
+  });
+
+  it("skipped_reason_splits_target_and_value_so_value_stays_visible", async () => {
+    const target = "isRaceDayFlagFromBasicRaceInformationResponse";
+    statusHandler = () =>
+      res(status([panelStatus(P1, [{ ...skippedRes, reason: `${target} = false` }])]));
+    await renderPage();
+    const p = panelEl("결제");
+    const t = within(p).getByText(target);
+    expect(t.className).toContain("truncate");
+    expect(t.className).toContain("min-w-0");
+    const v = within(p).getByText("= false");
+    expect(v.className).toContain("shrink-0");
+    expect(v.className).toContain("truncate");
+    expect(v).not.toBe(t);
+    expect(t.parentElement).toBe(v.parentElement);
+    expect(t.parentElement?.getAttribute("title")).toBe(`${target} = false`);
+  });
+
+  it("skipped_reason_without_equals_renders_as_one_element", async () => {
+    statusHandler = () => res(status([panelStatus(P1, [{ ...skippedRes, reason: "조건 불명" }])]));
+    await renderPage();
+    const p = panelEl("결제");
+    expect(within(p).getByText("조건 불명").className).toContain("text-ellipsis");
   });
 
   it("blocked_and_skipped_long_text_truncates", async () => {

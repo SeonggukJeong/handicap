@@ -583,6 +583,26 @@ export function MonitorPanel({
                   <span className="min-w-0 truncate">{reason.needle}</span>
                   <span className="shrink-0 whitespace-nowrap">&quot; 포함 안 됨</span>
                 </div>
+              ) : state === "skipped" && reason.kind === "detail" && reason.big.includes(" = ") ? (
+                // target shrinks first so the value (`= false`) stays readable
+                <div
+                  data-testid="reason-skipped-split"
+                  title={reason.big}
+                  className={`flex min-w-0 justify-end overflow-hidden whitespace-nowrap ${REASON_CLASS}`}
+                  style={{
+                    ...REASON_STYLE,
+                    color: bigColor,
+                    marginTop: "0.8cqw",
+                    fontSize: `calc(${panelFont(PANEL_TEXT.reason, fontScale)} * var(--reason-fit, 1))`,
+                  }}
+                >
+                  <span className="min-w-0 truncate">
+                    {reason.big.slice(0, reason.big.indexOf(" = "))}
+                  </span>
+                  <span className="ml-[0.3em] max-w-[70%] shrink-0 truncate">
+                    {reason.big.slice(reason.big.indexOf(" = ") + 1)}
+                  </span>
+                </div>
               ) : (
                 <FitLine
                   text={reason.kind === "detail" ? reason.big : reason.fixed}

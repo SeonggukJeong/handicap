@@ -1862,7 +1862,8 @@ export const ko = {
     groupAddPanel: "+ 이 묶음에 칸 추가",
     removeGroup: "묶음 삭제",
     stepPick: "볼 스텝",
-    stepBranchHint: (name: string) => `(${name} 분기 안)`,
+    stepBranchHint: (name: string) =>
+      name.trimEnd().endsWith("분기") ? `(${name} 안)` : `(${name} 분기 안)`,
     stepRequired: "볼 스텝을 선택하세요",
     stepMissingInScenario: "이 스텝이 시나리오에 없습니다",
     branchStepsHelp: "분기에 따라 달라지는 스텝은 점검 묶음 칸으로 보세요",
