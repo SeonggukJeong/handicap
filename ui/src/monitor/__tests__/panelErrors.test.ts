@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { parsePanelError } from "../panelErrors";
+import { parseGroupError, parsePanelError } from "../panelErrors";
+
+describe("parseGroupError", () => {
+  it("parses_group_prefix", () => {
+    expect(parseGroupError("점검 묶음 2: 칸이 없는 점검 묶음입니다")).toEqual({
+      groupNumber: 2,
+      reason: "칸이 없는 점검 묶음입니다",
+    });
+  });
+  it("panel_prefix_is_null", () => {
+    expect(parseGroupError("칸 1: x")).toBeNull();
+  });
+});
 
 describe("parsePanelError", () => {
   it("parses_panel_prefix", () => {
