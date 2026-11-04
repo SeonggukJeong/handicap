@@ -55,6 +55,7 @@ pub fn build_record(
         t.final_vars.clear();
         for (i, s) in t.steps.iter_mut().enumerate() {
             s.extracted.clear();
+            s.branch_eval.clear();
             let step = u32::try_from(i).unwrap_or(u32::MAX);
             if let Some(req) = s.request.as_mut() {
                 mask_request(req);
@@ -313,6 +314,8 @@ mod tests {
             extracted: BTreeMap::new(),
             unbound_vars: Vec::new(),
             error: None,
+            branch_eval: Vec::new(),
+            timed_out: false,
         }
     }
 
@@ -590,6 +593,25 @@ mod tests {
             Some("")
         );
         assert_eq!(t.steps[1].response.as_ref().unwrap().body, "");
+    }
+
+    #[test]
+    fn record_clears_branch_eval() {
+        use handicap_engine::BranchEval;
+        let row = StepTrace {
+            kind: StepKind::If,
+            branch: Some("then".into()),
+            branch_eval: vec![BranchEval {
+                branch: "then".into(),
+                passed: true,
+                leaf: None,
+            }],
+            ..step(None, None)
+        };
+        assert!(!row.branch_eval.is_empty());
+        let got = one(row);
+        assert!(got.branch_eval.is_empty());
+        assert_eq!(got.branch.as_deref(), Some("then"));
     }
 
     #[test]

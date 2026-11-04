@@ -20,7 +20,7 @@ pub use aggregator::{
     ActiveVuSample, Aggregator, BranchStat, ErrorKindStat, GroupStat, LoopStat, PhaseStat,
     StepWindow,
 };
-pub use condition::eval_condition;
+pub use condition::{BranchEval, LeafEval, eval_condition, explain_branches};
 pub use dataset::{BindingPolicy, DataSet};
 pub use error::{EngineError, Result};
 pub use error_kind::{ErrorKind, classify_send_error};

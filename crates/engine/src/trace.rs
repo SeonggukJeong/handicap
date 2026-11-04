@@ -10,6 +10,8 @@ use std::time::Duration;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
+use crate::condition::BranchEval;
+
 /// Knobs supplied by the controller per test-run.
 #[derive(Debug, Clone)]
 pub struct TraceOptions {
@@ -62,6 +64,8 @@ pub struct HttpTrace {
     pub extracted: BTreeMap<String, String>,
     pub unbound_vars: Vec<String>,
     pub error: Option<String>,
+    /// send/body-read 에러가 요청 시간 초과(`reqwest::Error::is_timeout`)였는가.
+    pub timed_out: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,6 +83,12 @@ pub struct StepTrace {
     #[serde(default)]
     pub unbound_vars: Vec<String>,
     pub error: Option<String>,
+    /// `if` 결정 행 전용: 평가한 분기 조건별 판정 근거(없으면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branch_eval: Vec<BranchEval>,
+    /// http 행 전용: 요청 시간 초과로 실패했는가(false면 직렬화 생략).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub timed_out: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -399,6 +409,8 @@ async fn trace_steps(
                     extracted: t.extracted,
                     unbound_vars: t.unbound_vars,
                     error: t.error,
+                    branch_eval: Vec::new(),
+                    timed_out: t.timed_out,
                 });
                 if opts.apply_think_time {
                     if let Some(tt) = http.think_time.or(default_think) {
@@ -441,7 +453,12 @@ async fn trace_steps(
                 }
             }
             Step::If(if_step) => {
-                let (taken, branch, cond_unbound): (&[Step], String, Vec<String>) = {
+                let (taken, branch, cond_unbound, branch_eval): (
+                    &[Step],
+                    String,
+                    Vec<String>,
+                    Vec<BranchEval>,
+                ) = {
                     let ctx = TemplateContext {
                         vars: iter_vars,
                         env,
@@ -451,7 +468,12 @@ async fn trace_steps(
                     };
                     let unbound = collect_if_condition_unbound(if_step, &ctx);
                     let (taken, branch) = select_branch(if_step, &ctx);
-                    (taken, branch, unbound)
+                    (
+                        taken,
+                        branch,
+                        unbound,
+                        crate::condition::explain_branches(if_step, &ctx),
+                    )
                 };
                 state.steps.push(StepTrace {
                     step_id: if_step.id.clone(),
@@ -463,6 +485,8 @@ async fn trace_steps(
                     extracted: BTreeMap::new(),
                     unbound_vars: cond_unbound,
                     error: None,
+                    branch_eval,
+                    timed_out: false,
                 });
                 Box::pin(trace_steps(
                     client,
@@ -567,6 +591,8 @@ mod tests {
                 extracted: BTreeMap::new(),
                 unbound_vars: vec!["missing".into()],
                 error: None,
+                branch_eval: vec![],
+                timed_out: false,
             }],
             final_vars: BTreeMap::new(),
             truncated: false,

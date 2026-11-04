@@ -3,8 +3,9 @@
 //! evaluation can never kill a run. Numeric comparisons parse both sides as f64;
 //! an unparseable side → false. A bad regex compiles to a lenient `false`.
 
-use crate::scenario::{CompareOp, Condition};
-use crate::template::{TemplateContext, render_lenient};
+use crate::scenario::{CompareOp, Condition, IfStep};
+use crate::template::{TemplateContext, render_collecting, render_lenient};
+use serde::{Deserialize, Serialize};
 
 /// Evaluate a condition tree to a boolean.
 /// - `All` over an empty group → `true` (vacuous); `Any` over empty → `false`.
@@ -14,6 +15,100 @@ pub fn eval_condition(cond: &Condition, ctx: &TemplateContext) -> bool {
         Condition::Any(v) => v.iter().any(|c| eval_condition(c, ctx)),
         Condition::Compare { left, op, right } => eval_compare(left, *op, right.as_deref(), ctx),
     }
+}
+
+/// 한 비교 잎의 판정 근거(trace 전용). 원문에 `${`가 있는 쪽은 렌더 값을 저장하지 않는다
+/// (환경 값이 시험 실행·기록 응답으로 새지 않게).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LeafEval {
+    pub left: String,
+    pub op: CompareOp,
+    pub right: Option<String>,
+    pub left_value: Option<String>,
+    pub right_value: Option<String>,
+    pub left_unbound: bool,
+}
+
+/// 평가한 분기 조건 하나(`then`/`elif_{j}`)의 결과와 결정 잎.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BranchEval {
+    pub branch: String,
+    pub passed: bool,
+    pub leaf: Option<LeafEval>,
+}
+
+const EVAL_VALUE_CAP: usize = 200;
+
+fn captured(raw: &str, ctx: &TemplateContext) -> Option<String> {
+    if raw.contains("${") {
+        None
+    } else {
+        Some(
+            render_lenient(raw, ctx)
+                .chars()
+                .take(EVAL_VALUE_CAP)
+                .collect(),
+        )
+    }
+}
+
+fn leaf_eval(left: &str, op: CompareOp, right: Option<&str>, ctx: &TemplateContext) -> LeafEval {
+    let mut unbound = Vec::new();
+    let _ = render_collecting(left, ctx, &mut unbound);
+    let uses_right = !matches!(op, CompareOp::Exists | CompareOp::Empty);
+    LeafEval {
+        left: left.to_string(),
+        op,
+        right: right.map(str::to_string),
+        left_value: captured(left, ctx),
+        right_value: if uses_right {
+            right.and_then(|r| captured(r, ctx))
+        } else {
+            None
+        },
+        left_unbound: !unbound.is_empty(),
+    }
+}
+
+/// 결정 잎: Compare=그 잎 / all 거짓→처음 거짓 잎, 참→첫 잎 / any 참→처음 참 잎,
+/// 거짓→첫 잎 / 하위 그룹 재귀 / 빈 그룹→None.
+fn deciding_leaf(cond: &Condition, ctx: &TemplateContext) -> Option<LeafEval> {
+    match cond {
+        Condition::Compare { left, op, right } => Some(leaf_eval(left, *op, right.as_deref(), ctx)),
+        Condition::All(v) => {
+            let pick = v.iter().find(|c| !eval_condition(c, ctx)).or(v.first())?;
+            deciding_leaf(pick, ctx)
+        }
+        Condition::Any(v) => {
+            let pick = v.iter().find(|c| eval_condition(c, ctx)).or(v.first())?;
+            deciding_leaf(pick, ctx)
+        }
+    }
+}
+
+/// trace 전용: `if`, 그다음 `elif`를 순서대로 평가해 참이 나온 데서 멈춘다
+/// (`runner::select_branch`와 같은 순서·같은 `eval_condition` 의미론).
+pub fn explain_branches(if_step: &IfStep, ctx: &TemplateContext) -> Vec<BranchEval> {
+    let mut out = Vec::new();
+    let conds = std::iter::once(("then".to_string(), &if_step.cond)).chain(
+        if_step
+            .elif
+            .iter()
+            .enumerate()
+            .map(|(j, e)| (format!("elif_{j}"), &e.cond)),
+    );
+    for (branch, cond) in conds {
+        let passed = eval_condition(cond, ctx);
+        out.push(BranchEval {
+            branch,
+            passed,
+            leaf: deciding_leaf(cond, ctx),
+        });
+        if passed {
+            break;
+        }
+    }
+    out
 }
 
 fn eval_compare(left: &str, op: CompareOp, right: Option<&str>, ctx: &TemplateContext) -> bool {
@@ -312,5 +407,208 @@ mod tests {
             &cmp("{{s}}", CompareOp::Eq, Some("${WANT}")),
             &ctx2
         ));
+    }
+    // ---- explain_branches (trace 전용 판정 근거) ----
+
+    use crate::scenario::{ElifBranch, IfStep};
+
+    fn if_step(cond: Condition, elif: Vec<Condition>, has_else: bool) -> IfStep {
+        let body = |id: &str| {
+            vec![crate::scenario::Step::Http(crate::scenario::HttpStep {
+                id: id.into(),
+                name: "x".into(),
+                request: crate::scenario::Request {
+                    method: crate::scenario::HttpMethod::Get,
+                    url: "http://x".into(),
+                    headers: BTreeMap::new(),
+                    body: None,
+                    disabled: Default::default(),
+                },
+                assert: vec![],
+                extract: vec![],
+                timeout_seconds: None,
+                think_time: None,
+            })]
+        };
+        IfStep {
+            id: "01HX0000000000000000000009".into(),
+            name: "br".into(),
+            cond,
+            then_: body("01HX0000000000000000000010"),
+            elif: elif
+                .into_iter()
+                .map(|c| ElifBranch {
+                    cond: c,
+                    then_: body("01HX0000000000000000000011"),
+                })
+                .collect(),
+            else_: if has_else {
+                body("01HX0000000000000000000012")
+            } else {
+                vec![]
+            },
+        }
+    }
+
+    fn eq(left: &str, right: &str) -> Condition {
+        cmp(left, CompareOp::Eq, Some(right))
+    }
+
+    #[test]
+    fn explain_matches_select_branch_table() {
+        let v = vars(&[("a", "1"), ("b", "2")]);
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let t = || eq("{{a}}", "1");
+        let f = || eq("{{a}}", "9");
+        let cases: Vec<IfStep> = vec![
+            if_step(t(), vec![], false),
+            if_step(t(), vec![t()], true),
+            if_step(f(), vec![t(), t()], true),
+            if_step(f(), vec![f(), t()], false),
+            if_step(f(), vec![f(), f()], true),
+            if_step(f(), vec![f()], false),
+            if_step(Condition::All(vec![t(), f()]), vec![], true),
+            if_step(Condition::Any(vec![f(), t()]), vec![], true),
+            if_step(Condition::All(vec![]), vec![], true),
+            if_step(Condition::Any(vec![]), vec![t()], true),
+            if_step(
+                Condition::All(vec![Condition::Any(vec![f(), t()]), t()]),
+                vec![],
+                false,
+            ),
+            if_step(
+                Condition::All(vec![Condition::Any(vec![f(), f()]), t()]),
+                vec![t()],
+                false,
+            ),
+        ];
+        for (n, c) in cases.iter().enumerate() {
+            let ev = super::explain_branches(c, &ctx);
+            let got = ev
+                .iter()
+                .find(|b| b.passed)
+                .map(|b| b.branch.clone())
+                .unwrap_or_else(|| if c.else_.is_empty() { "none" } else { "else" }.to_string());
+            let want = crate::runner::select_branch(c, &ctx).1;
+            assert_eq!(got, want, "case {n}");
+            // 참이 나온 데서 멈춘다: 마지막 원소만 passed 가능
+            let passed_count = ev.iter().filter(|b| b.passed).count();
+            assert!(passed_count <= 1, "case {n}");
+            if passed_count == 1 {
+                assert!(ev.last().unwrap().passed, "case {n}");
+            }
+        }
+    }
+
+    fn leaf_left(cond: Condition, v: &BTreeMap<String, String>) -> Option<String> {
+        let e = BTreeMap::new();
+        let ctx = ctx_with(v, &e);
+        let ev = super::explain_branches(&if_step(cond, vec![], false), &ctx);
+        ev[0].leaf.as_ref().map(|l| l.left.clone())
+    }
+
+    fn abc() -> BTreeMap<String, String> {
+        vars(&[("a", "1"), ("b", "0"), ("c", "0")])
+    }
+
+    #[test]
+    fn deciding_leaf_all_false_is_first_false() {
+        let c = Condition::All(vec![eq("{{a}}", "1"), eq("{{b}}", "2"), eq("{{c}}", "3")]);
+        assert_eq!(leaf_left(c, &abc()).as_deref(), Some("{{b}}"));
+    }
+
+    #[test]
+    fn deciding_leaf_all_true_is_first() {
+        let c = Condition::All(vec![eq("{{a}}", "1"), eq("{{b}}", "0")]);
+        assert_eq!(leaf_left(c, &abc()).as_deref(), Some("{{a}}"));
+    }
+
+    #[test]
+    fn deciding_leaf_any_true_is_first_true() {
+        let c = Condition::Any(vec![eq("{{a}}", "9"), eq("{{b}}", "0"), eq("{{c}}", "0")]);
+        assert_eq!(leaf_left(c, &abc()).as_deref(), Some("{{b}}"));
+    }
+
+    #[test]
+    fn deciding_leaf_any_false_is_first() {
+        let c = Condition::Any(vec![eq("{{a}}", "9"), eq("{{b}}", "9")]);
+        assert_eq!(leaf_left(c, &abc()).as_deref(), Some("{{a}}"));
+    }
+
+    #[test]
+    fn deciding_leaf_recurses_into_nested_group() {
+        let c = Condition::All(vec![
+            eq("{{a}}", "1"),
+            Condition::Any(vec![eq("{{b}}", "9"), eq("{{c}}", "9")]),
+        ]);
+        // all 거짓 → 처음 거짓 잎 = 하위 any(거짓) → 그 첫 잎 {{b}}
+        assert_eq!(leaf_left(c, &abc()).as_deref(), Some("{{b}}"));
+    }
+
+    #[test]
+    fn empty_group_has_no_leaf() {
+        let v = BTreeMap::new();
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let ev = super::explain_branches(&if_step(Condition::All(vec![]), vec![], false), &ctx);
+        assert_eq!(ev.len(), 1);
+        assert!(ev[0].passed);
+        assert_eq!(ev[0].leaf, None);
+        assert_eq!(ev[0].branch, "then");
+    }
+
+    #[test]
+    fn left_unbound_flag() {
+        let e = BTreeMap::new();
+        let v = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let ev = super::explain_branches(&if_step(eq("{{missing}}", "x"), vec![], false), &ctx);
+        let l = ev[0].leaf.as_ref().unwrap();
+        assert!(l.left_unbound);
+        assert_eq!(l.left_value.as_deref(), Some(""));
+        assert_eq!(l.right_value.as_deref(), Some("x"));
+
+        let v2 = vars(&[("missing", "x")]);
+        let ctx2 = ctx_with(&v2, &e);
+        let ev = super::explain_branches(&if_step(eq("{{missing}}", "x"), vec![], false), &ctx2);
+        assert!(!ev[0].leaf.as_ref().unwrap().left_unbound);
+    }
+
+    #[test]
+    fn env_values_not_stored() {
+        let v = BTreeMap::new();
+        let e = vars(&[("RACE", "secret"), ("X", "other")]);
+        let ctx = ctx_with(&v, &e);
+        let ev = super::explain_branches(&if_step(eq("${RACE}", "true"), vec![], false), &ctx);
+        let l = ev[0].leaf.as_ref().unwrap();
+        assert_eq!(l.left_value, None);
+        assert_eq!(l.right_value.as_deref(), Some("true"));
+        let ev = super::explain_branches(&if_step(eq("{{a}}", "${X}"), vec![], false), &ctx);
+        let l = ev[0].leaf.as_ref().unwrap();
+        assert_eq!(l.right_value, None);
+        assert_eq!(l.right.as_deref(), Some("${X}"));
+    }
+
+    #[test]
+    fn exists_and_empty_have_no_right_value() {
+        let v = vars(&[("a", "1")]);
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let c = cmp("{{a}}", CompareOp::Exists, Some("ignored"));
+        let ev = super::explain_branches(&if_step(c, vec![], false), &ctx);
+        assert_eq!(ev[0].leaf.as_ref().unwrap().right_value, None);
+    }
+
+    #[test]
+    fn values_capped_at_200_chars() {
+        let long = "가".repeat(300);
+        let v = vars(&[("a", long.as_str())]);
+        let e = BTreeMap::new();
+        let ctx = ctx_with(&v, &e);
+        let ev = super::explain_branches(&if_step(eq("{{a}}", &long), vec![], false), &ctx);
+        let l = ev[0].leaf.as_ref().unwrap();
+        assert_eq!(l.left_value.as_ref().unwrap().chars().count(), 200);
+        assert_eq!(l.right_value.as_ref().unwrap().chars().count(), 200);
     }
 }

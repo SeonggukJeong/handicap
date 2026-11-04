@@ -471,3 +471,131 @@ steps:
     assert_eq!(plain.final_vars, seeded.final_vars);
     assert_eq!(plain.truncated, seeded.truncated);
 }
+// ---- monitor-step-panels Task 2: branch_eval / timed_out ----
+
+fn http_yaml(url: &str, timeout: Option<u32>) -> String {
+    let t = timeout
+        .map(|s| format!("\n    timeout_seconds: {s}"))
+        .unwrap_or_default();
+    format!(
+        r#"
+version: 1
+name: t
+steps:
+  - type: http
+    id: 01HX0000000000000000000050
+    name: h
+    request: {{ method: GET, url: "{url}" }}{t}
+"#
+    )
+}
+
+#[tokio::test]
+async fn if_row_carries_branch_eval() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/elif"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let yaml = format!(
+        r#"
+version: 1
+name: branch
+variables: {{ go: "b" }}
+steps:
+  - type: if
+    id: 01HX0000000000000000000030
+    name: maybe
+    cond: {{ left: "{{{{go}}}}", op: eq, right: "a" }}
+    then: []
+    elif:
+      - cond: {{ left: "{{{{go}}}}", op: eq, right: "b" }}
+        then:
+          - type: http
+            id: 01HX0000000000000000000031
+            name: t
+            request: {{ method: GET, url: "{base}/elif" }}
+"#,
+        base = server.uri()
+    );
+    let scenario = Scenario::from_yaml(&yaml).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let row = &trace.steps[0];
+    assert_eq!(row.branch.as_deref(), Some("elif_0"));
+    assert_eq!(row.branch_eval.len(), 2);
+    assert_eq!(row.branch_eval[0].branch, "then");
+    assert!(!row.branch_eval[0].passed);
+    let last = row.branch_eval.last().unwrap();
+    assert!(last.passed);
+    assert_eq!(last.branch, "elif_0");
+    assert_eq!(last.leaf.as_ref().unwrap().left_value.as_deref(), Some("b"));
+    // http 행에는 branch_eval이 없다
+    assert!(trace.steps[1].branch_eval.is_empty());
+}
+
+#[tokio::test]
+async fn http_row_json_has_no_new_keys() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let scenario = Scenario::from_yaml(&http_yaml(&server.uri(), None)).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let v = serde_json::to_value(&trace.steps[0]).unwrap();
+    let obj = v.as_object().unwrap();
+    assert!(!obj.contains_key("branch_eval"));
+    assert!(!obj.contains_key("timed_out"));
+}
+
+#[tokio::test]
+async fn timed_out_on_send_timeout() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
+        .mount(&server)
+        .await;
+    let scenario = Scenario::from_yaml(&http_yaml(&server.uri(), Some(1))).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let row = &trace.steps[0];
+    assert!(row.timed_out, "{row:?}");
+    assert!(row.error.is_some());
+    let v = serde_json::to_value(row).unwrap();
+    assert_eq!(v["timed_out"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn timed_out_on_body_read_timeout() {
+    use tokio::io::AsyncWriteExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let _ = sock
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+            .await;
+        // 본문을 보내지 않고 연결을 유지한다.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    });
+    let scenario = Scenario::from_yaml(&http_yaml(&format!("http://{addr}/"), Some(1))).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let row = &trace.steps[0];
+    assert!(row.timed_out, "{row:?}");
+    assert!(
+        row.error.as_deref().unwrap().starts_with("read body:"),
+        "{row:?}"
+    );
+}
+
+#[tokio::test]
+async fn not_timed_out_on_refused() {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    drop(l);
+    let scenario = Scenario::from_yaml(&http_yaml(&format!("http://{addr}/"), Some(1))).unwrap();
+    let trace = trace_scenario(&scenario, &opts(BTreeMap::new(), 50)).await;
+    let row = &trace.steps[0];
+    assert!(row.error.is_some());
+    assert!(!row.timed_out);
+}

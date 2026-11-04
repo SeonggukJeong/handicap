@@ -514,6 +514,7 @@ pub async fn execute_step_traced(
         Ok(r) => r,
         // 분류는 부하 경로 전용(ExecOutcome.error_kind) — trace 비대상, spec 2026-08-01 §2.
         Err(e) => {
+            let timed_out = e.is_timeout();
             return HttpTrace {
                 request,
                 response: None,
@@ -526,6 +527,7 @@ pub async fn execute_step_traced(
                 // 그대로 담고 TestRunPanel이 이를 렌더한다(의도된 동작 — "무엇을 보냈나"를
                 // 보여주는 패널이다). 화면 노출은 §B27에 열린 채로 남는다.
                 error: Some(build_error.unwrap_or_else(|| e.without_url().to_string())),
+                timed_out,
             };
         }
     };
@@ -550,6 +552,7 @@ pub async fn execute_step_traced(
     let body_bytes = match resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
+            let timed_out = e.is_timeout();
             return HttpTrace {
                 request,
                 response: Some(TracedResponse {
@@ -564,6 +567,7 @@ pub async fn execute_step_traced(
                 extracted: BTreeMap::new(),
                 unbound_vars: unbound,
                 error: Some(format!("read body: {}", e.without_url())),
+                timed_out,
             };
         }
     };
@@ -615,6 +619,7 @@ pub async fn execute_step_traced(
         extracted,
         unbound_vars: unbound,
         error,
+        timed_out: false,
     }
 }
 
