@@ -14,6 +14,8 @@ export type PanelState =
   | "slow"
   | "fail"
   | "config_error"
+  | "blocked"
+  | "skipped"
   | "stale"
   | "stale_off"
   | "pending";
@@ -32,8 +34,8 @@ export function barColor(latencyMs: number, thresholds: Threshold[]): string {
   return color;
 }
 
-export function staleAfterMs(intervalSec: number, timeoutSec: number): number {
-  return (intervalSec * 3 + timeoutSec + 5) * 1000;
+export function staleAfterMs(intervalSec: number, budgetSec: number): number {
+  return (intervalSec * 3 + budgetSec + 5) * 1000;
 }
 
 export function panelState(args: {
@@ -43,18 +45,20 @@ export function panelState(args: {
   enabled: boolean;
   serverDown: boolean;
   intervalSec: number;
-  timeoutSec: number;
+  budgetSec: number;
   thresholds: Threshold[];
 }): PanelState {
-  const { latest, nowMs, startedAtMs, enabled, serverDown, intervalSec, timeoutSec, thresholds } =
+  const { latest, nowMs, startedAtMs, enabled, serverDown, intervalSec, budgetSec, thresholds } =
     args;
   if (serverDown) return "stale";
   if (!enabled) return "stale_off";
   const ref = latest ? latest.at_ms : startedAtMs;
-  if (ref !== null && nowMs - ref >= staleAfterMs(intervalSec, timeoutSec)) return "stale";
+  if (ref !== null && nowMs - ref >= staleAfterMs(intervalSec, budgetSec)) return "stale";
   if (!latest) return "pending";
   if (latest.verdict === "fail") return "fail";
   if (latest.verdict === "config_error") return "config_error";
+  if (latest.verdict === "upstream_failed") return "blocked";
+  if (latest.verdict === "branch_skipped") return "skipped";
   if (latest.latency_ms !== null && thresholds.some((t) => latest.latency_ms! >= t.ms)) {
     return "slow";
   }
@@ -149,6 +153,8 @@ export function bigValueText(state: PanelState, latest?: CheckResult): string {
   if (state === "ok" || state === "slow") {
     return latest && latest.latency_ms !== null ? formatMs(latest.latency_ms) : "—";
   }
-  if (state === "fail" || state === "config_error") return latest?.reason ?? "—";
+  if (state === "fail" || state === "config_error" || state === "blocked" || state === "skipped") {
+    return latest?.reason ?? "—";
+  }
   return "—";
 }

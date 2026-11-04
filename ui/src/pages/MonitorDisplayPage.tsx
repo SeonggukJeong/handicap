@@ -264,7 +264,7 @@ export function MonitorDisplayPage() {
           enabled: status.enabled,
           serverDown,
           intervalSec: p.interval_seconds,
-          timeoutSec: p.timeout_seconds,
+          budgetSec: ps?.check_budget_seconds ?? p.timeout_seconds,
           thresholds: p.thresholds,
         })
       : serverDown
@@ -513,6 +513,7 @@ export function MonitorDisplayPage() {
           boardId={id}
           panel={selected.panel}
           clicked={selected.result}
+          focusStepId={selected.panel.step_id}
           onClose={() => setSelected(null)}
         />
       )}

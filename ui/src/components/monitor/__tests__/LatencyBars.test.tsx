@@ -142,6 +142,23 @@ describe("LatencyBars", () => {
     expect(bar.style.backgroundColor).toBe("rgb(51, 65, 85)");
   });
 
+  it("blocked_and_skipped_bars", () => {
+    const mk = (verdict: CheckResult["verdict"], at: number): CheckResult => ({
+      at_ms: at,
+      verdict,
+      latency_ms: null,
+      reason: "r",
+      detail: null,
+      display: [],
+    });
+    renderBars([mk("upstream_failed", 1), mk("branch_skipped", 2)], { barCount: 4 });
+    const blocked = filled().filter((el) => el.getAttribute("data-verdict") === "upstream_failed");
+    const skipped = filled().filter((el) => el.getAttribute("data-verdict") === "branch_skipped");
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].style.height).toBe("12%");
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].querySelector("[data-skipped-mark]")).not.toBeNull();
+  });
   it("overflow_clamped_to_100", () => {
     renderBars([ok(5000), ok(1000)], { graphMaxMs: 2000 });
     expect(filled()[0].style.height).toBe("100%");

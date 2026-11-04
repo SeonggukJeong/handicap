@@ -80,6 +80,7 @@ function panelStatus(panelId: string, results: Json[], over: Json = {}): Json {
     panel_id: panelId,
     results,
     consecutive_fail: 0,
+    check_budget_seconds: 5,
     fail_since_ms: null,
     running: false,
     ...over,
@@ -181,6 +182,70 @@ async function renderPage() {
 }
 
 const panelEl = (title: string) => screen.getByRole("article", { name: title });
+
+const blockedRes: Json = {
+  at_ms: T,
+  verdict: "upstream_failed",
+  latency_ms: null,
+  reason: "앞 단계 실패",
+  detail: "2.0 로그인에서 멈춤",
+  display: [],
+};
+const skippedRes: Json = {
+  at_ms: T,
+  verdict: "branch_skipped",
+  latency_ms: null,
+  reason: "isRaceDay = false",
+  detail: "조건 isRaceDay = true · 경마일 분기",
+  display: [],
+};
+
+describe("MonitorDisplayPage new states", () => {
+  it("blocked_panel_no_blink_no_consecutive", async () => {
+    statusHandler = () =>
+      res(
+        status([panelStatus(P1, [blockedRes], { consecutive_fail: 3, fail_since_ms: T - 20_000 })]),
+      );
+    await renderPage();
+    const p = panelEl("결제");
+    const box = within(p).getByTestId("panel-box");
+    expect(box.getAttribute("data-state")).toBe("blocked");
+    expect(box.getAttribute("data-blink")).toBeNull();
+    expect(within(p).getByText("― 확인 못 함")).toBeInTheDocument();
+    expect(within(p).getByText("앞 단계 실패")).toBeInTheDocument();
+    expect(within(p).getByText("2.0 로그인에서 멈춤")).toBeInTheDocument();
+    expect(p.textContent).not.toContain("연속");
+    expect(box.getAttribute("data-border-style")).toBe("solid");
+  });
+
+  it("skipped_panel_shows_value_lines", async () => {
+    statusHandler = () => res(status([panelStatus(P1, [skippedRes])]));
+    await renderPage();
+    const p = panelEl("결제");
+    const box = within(p).getByTestId("panel-box");
+    expect(box.getAttribute("data-state")).toBe("skipped");
+    expect(box.getAttribute("data-border-style")).toBe("dashed");
+    expect(within(p).getByText("○ 분기 제외")).toBeInTheDocument();
+    expect(within(p).getByText("isRaceDay = false")).toBeInTheDocument();
+    expect(within(p).getByText("조건 isRaceDay = true · 경마일 분기")).toBeInTheDocument();
+  });
+
+  it("blocked_and_skipped_long_text_truncates", async () => {
+    const long = "가".repeat(200);
+    for (const base of [blockedRes, skippedRes]) {
+      statusHandler = () =>
+        res(status([panelStatus(P1, [{ ...base, reason: long, detail: long }])]));
+      const view = await renderPage();
+      const p = panelEl("결제");
+      const lines = within(p).getAllByText(long);
+      // big line (FitLine, nowrap ellipsis) + small line (truncate) — same classes as fail lines
+      expect(lines).toHaveLength(2);
+      expect(lines[0].className).toContain("text-ellipsis");
+      expect(lines[1].className).toContain("truncate");
+      view.unmount();
+    }
+  });
+});
 
 describe("MonitorDisplayPage", () => {
   it("header_board_name_and_last_check", async () => {
@@ -354,6 +419,14 @@ describe("MonitorDisplayPage", () => {
       await renderPage();
       expect(boxOf("결제").getAttribute("data-state")).toBe("pending");
       expect(boxOf("결제").style.background).toBe("rgb(17, 26, 35)");
+    });
+
+    it("fill_style_blocked_gray", async () => {
+      boardHandler = () => res(fillBoard("fill"));
+      statusHandler = () => res(status([panelStatus(P1, [blockedRes])]));
+      await renderPage();
+      expect(boxOf("결제").getAttribute("data-state")).toBe("blocked");
+      expect(boxOf("결제").style.background).toBe("rgb(71, 85, 105)");
     });
 
     it("fill_graph_inside_dark_box", async () => {
@@ -988,7 +1061,7 @@ describe("MonitorDisplayPage", () => {
     expect(probe.closest('[aria-hidden="true"]')).not.toBeNull();
     // worst-case inputs: the longest state label that can appear while checking
     // runs (stopped-only "점검 꺼짐" takes graph room instead) and a one-line value
-    expect(within(probe).getByText(ko.monitor.stateConfigError)).toBeInTheDocument();
+    expect(within(probe).getByText(ko.monitor.stateBlocked)).toBeInTheDocument();
     expect(within(probe).queryByText(ko.monitor.stateStaleOff)).toBeNull();
   });
 
@@ -1798,7 +1871,9 @@ describe("MonitorDisplayPage display items", () => {
         fireEvent.click(hit);
       });
       expect(screen.getByRole("dialog")).toBeInTheDocument();
-      expect(screen.getByText(ko.monitor.recordTitle("결제", formatDateHms(T)))).toBeInTheDocument();
+      expect(
+        screen.getByText(ko.monitor.recordTitle("결제", formatDateHms(T))),
+      ).toBeInTheDocument();
       expect(getRecord).toHaveBeenCalledWith(BID, P1, T);
     });
 

@@ -5,6 +5,7 @@ import {
   CARD_BOX,
   CARD_TEXT,
   COLOR,
+  LONGEST_LIVE_STATE_LABEL,
   STATE_LABEL,
   borderColorOf,
   cardFont,
@@ -31,7 +32,7 @@ const PROBE_TITLE = "가";
 /**
  * Invisible stand-in that fixes the strip card scale from settings only: a
  * one-line title (it may end in "…" anyway), the longest strip state label
- * (`⚠ 설정 오류`) and the board's widest ms value (`msText`, from the largest
+ * (`― 확인 못 함`) and the board's widest ms value (`msText`, from the largest
  * timeout). Reports `{ fit, need }` for the card scale search; never sees
  * results. Memoized like `PanelProbe` (`searchDone` = completion re-measure).
  */
@@ -119,7 +120,7 @@ export const StripCardProbe = memo(function StripCardProbe({
             className={CARD_STATUS_CLASS}
             style={{ fontSize: cardFont(CARD_TEXT.state, fontScale) }}
           >
-            <span>{STATE_LABEL.config_error}</span>
+            <span>{LONGEST_LIVE_STATE_LABEL}</span>
             <span>{msText}</span>
           </div>
         </div>

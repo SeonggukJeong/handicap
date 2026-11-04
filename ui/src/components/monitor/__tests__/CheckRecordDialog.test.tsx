@@ -194,6 +194,27 @@ describe("CheckRecordDialog", () => {
     expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
   });
 
+  it("focus_step_open", async () => {
+    getRecord.mockResolvedValue(rec({}, [http(), http({ step_id: S2 }), http({ step_id: S2 })]));
+    wrap(
+      <CheckRecordDialog
+        boardId="B1"
+        panel={panel}
+        clicked={clicked}
+        focusStepId={S2}
+        onClose={() => {}}
+      />,
+    );
+    const closed = await screen.findAllByRole("button", { expanded: false });
+    expect(closed).toHaveLength(2);
+    const open = screen.getAllByRole("button", { expanded: true });
+    expect(open).toHaveLength(1);
+    const rows = screen
+      .getAllByRole("button")
+      .filter((b) => b.hasAttribute("aria-expanded") && b.textContent?.includes("·"));
+    expect(rows[rows.length - 1]).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("step_row_summary", async () => {
     const ifRow: StepTrace = {
       ...http(),

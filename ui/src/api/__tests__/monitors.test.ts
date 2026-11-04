@@ -24,6 +24,7 @@ describe("monitors schemas", () => {
             { at_ms: 1, verdict: "ok", latency_ms: null, reason: null, detail: null, display: [] },
           ],
           consecutive_fail: 0,
+          check_budget_seconds: 5,
           fail_since_ms: null,
           running: false,
         },
@@ -62,6 +63,56 @@ describe("monitors schemas", () => {
       },
     });
     expect(b.config.panels[0]?.environment_id).toBeNull();
+  });
+  it("schema_optional_group_fields", () => {
+    const cfg = {
+      font_scale: "large",
+      display_style: "border",
+      blink: "fail",
+      show_latency_stats: false,
+      record_limit_kb: 128,
+    };
+    const mkBoard = (config: object) => ({
+      id: "b",
+      name: "n",
+      enabled: true,
+      created_at: 1,
+      updated_at: 2,
+      config,
+    });
+    const plain = BoardSchema.parse(mkBoard({ ...cfg, panels: [newPanel()] }));
+    expect(plain.config.groups).toBeUndefined();
+    expect(plain.config.panels[0]?.group_id).toBeUndefined();
+    expect(plain.config.panels[0]?.step_id).toBeUndefined();
+    const grp = { id: "G", scenario_id: "S", environment_id: null, interval_seconds: 10 };
+    const full = BoardSchema.parse(
+      mkBoard({ ...cfg, groups: [grp], panels: [{ ...newPanel(), group_id: "G", step_id: "T" }] }),
+    );
+    expect(full.config.groups).toEqual([grp]);
+    expect(full.config.panels[0]?.group_id).toBe("G");
+    expect(full.config.panels[0]?.step_id).toBe("T");
+    const st = {
+      now_ms: 1,
+      board_updated_at: 2,
+      enabled: true,
+      started_at_ms: null,
+      panels: [
+        { panel_id: "p", results: [], consecutive_fail: 0, fail_since_ms: null, running: false },
+      ],
+    };
+    expect(StatusSchema.safeParse(st).success).toBe(false);
+    for (const v of ["upstream_failed", "branch_skipped"]) {
+      expect(
+        CheckResultSchema.safeParse({
+          at_ms: 1,
+          verdict: v,
+          latency_ms: null,
+          reason: "x",
+          detail: null,
+          display: [],
+        }).success,
+      ).toBe(true);
+    }
   });
   it("new_panel_ids_unique", () => {
     const a = newPanel();

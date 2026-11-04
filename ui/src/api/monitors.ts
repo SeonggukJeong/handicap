@@ -8,6 +8,8 @@ const BASE = "/api/monitor-boards";
 // Wire contract mirrors crates/controller/src/monitor/{config,check}.rs and
 // api/monitor_boards.rs 1:1. Option fields serialize as JSON null (never
 // omitted) -> .nullable(). No .default() anywhere (ui/CLAUDE.md leak trap).
+// Exception: groups / group_id / step_id are omitted by the server when empty/None
+// (never sent as null) -> .optional().
 
 export const FontScaleSchema = z.enum(["small", "medium", "large", "xlarge"]);
 export type FontScale = z.infer<typeof FontScaleSchema>;
@@ -60,6 +62,14 @@ export const DisplayItemSchema = z.object({
 });
 export type DisplayItem = z.infer<typeof DisplayItemSchema>;
 
+export const CheckGroupSchema = z.object({
+  id: z.string(),
+  scenario_id: z.string(),
+  environment_id: z.string().nullable(),
+  interval_seconds: z.number().int(),
+});
+export type CheckGroup = z.infer<typeof CheckGroupSchema>;
+
 export const PanelConfigSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -73,6 +83,8 @@ export const PanelConfigSchema = z.object({
   graph_max_ms: z.number().int(),
   conditions: z.array(ConditionSchema),
   display_items: z.array(DisplayItemSchema),
+  group_id: z.string().optional(),
+  step_id: z.string().optional(),
 });
 export type PanelConfig = z.infer<typeof PanelConfigSchema>;
 
@@ -85,13 +97,14 @@ export const BoardConfigSchema = z.object({
   blink: BlinkSchema,
   show_latency_stats: z.boolean(),
   record_limit_kb: z.number(),
+  groups: z.array(CheckGroupSchema).optional(),
   panels: z.array(PanelConfigSchema),
 });
 export type BoardConfig = z.infer<typeof BoardConfigSchema>;
 
 export const CheckResultSchema = z.object({
   at_ms: z.number(),
-  verdict: z.enum(["ok", "fail", "config_error"]),
+  verdict: z.enum(["ok", "fail", "config_error", "upstream_failed", "branch_skipped"]),
   latency_ms: z.number().nullable(),
   reason: z.string().nullable(),
   detail: z.string().nullable(),
@@ -126,6 +139,7 @@ export const PanelStatusSchema = z.object({
   panel_id: z.string(),
   results: z.array(CheckResultSchema),
   consecutive_fail: z.number().int(),
+  check_budget_seconds: z.number().int(),
   fail_since_ms: z.number().nullable(),
   running: z.boolean(),
 });

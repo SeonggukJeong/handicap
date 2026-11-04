@@ -216,6 +216,8 @@ export const COLOR = {
   fail: "#ef4444",
   gray: "#94a3b8",
   grayBorder: "#64748b",
+  /** "분기 제외" big value (a normal situation, so it reads brighter than gray). */
+  bright: "#e2e8f0",
 } as const;
 
 /** A (fill) panel backgrounds (spec 6.2); slow takes the crossed threshold's colour. */
@@ -235,6 +237,8 @@ export function fillBackground(
     case "fail":
       return FILL.fail;
     case "config_error":
+    case "blocked":
+    case "skipped":
     case "stale":
     case "stale_off":
       return FILL.gray;
@@ -266,10 +270,22 @@ export const STATE_LABEL: Record<PanelState, string> = {
   slow: ko.monitor.stateSlow,
   fail: ko.monitor.stateFail,
   config_error: ko.monitor.stateConfigError,
+  blocked: ko.monitor.stateBlocked,
+  skipped: ko.monitor.stateSkipped,
   stale: ko.monitor.stateStale,
   stale_off: ko.monitor.stateStaleOff,
   pending: ko.monitor.statePending,
 };
+
+/**
+ * Longest label a panel/card shows while checking runs (the size probes measure it):
+ * `― 확인 못 함` > `⚠ 설정 오류`. (Stopped-only labels never reach the probes.)
+ */
+export const LONGEST_LIVE_STATE_LABEL = [
+  STATE_LABEL.config_error,
+  STATE_LABEL.blocked,
+  STATE_LABEL.skipped,
+].reduce((a, b) => (b.length > a.length ? b : a));
 
 /** B state colour (ok/slow/fail carry colour, everything else is gray). */
 export function stateColorOf(
@@ -284,6 +300,8 @@ export function stateColorOf(
 }
 
 export function borderColorOf(state: PanelState, stateColor: string): string {
+  // mockup 03: "확인 못 함" border is the darker slate; "분기 제외" keeps the usual gray border.
+  if (state === "blocked") return FILL.gray;
   return state === "ok" || state === "slow" || state === "fail" ? stateColor : COLOR.grayBorder;
 }
 

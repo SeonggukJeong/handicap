@@ -69,6 +69,13 @@ const chooseCond = () => screen.getByRole("button", { name: ko.monitor.condChoos
 const confirmBtn = () => screen.getByRole("button", { name: ko.monitor.condConfirm });
 
 describe("PreviewResult", () => {
+  it("branch_skipped_label", () => {
+    const p = preview("{}");
+    p.result = { ...p.result, verdict: "branch_skipped", reason: "x = false" };
+    setup(p);
+    expect(screen.getByText("분기 제외")).toBeInTheDocument();
+  });
+
   it("wrapped_json_shows_tree_and_notice", () => {
     setup(preview(JSON.stringify('{"code":1}')));
     expect(add("code")).toBeInTheDocument();

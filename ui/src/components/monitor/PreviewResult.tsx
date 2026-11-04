@@ -17,6 +17,8 @@ const VERDICT_LABEL = {
   ok: ko.monitor.stateOk,
   fail: ko.monitor.stateFail,
   config_error: ko.monitor.stateConfigError,
+  upstream_failed: ko.monitor.verdictUpstreamFailed,
+  branch_skipped: ko.monitor.verdictBranchSkipped,
 } as const;
 
 const MAX_CONDITIONS = 10;

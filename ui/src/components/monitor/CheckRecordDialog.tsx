@@ -20,11 +20,15 @@ const VERDICT_LABEL: Record<CheckResult["verdict"], string> = {
   ok: ko.monitor.stateOk,
   fail: ko.monitor.stateFail,
   config_error: ko.monitor.stateConfigError,
+  upstream_failed: ko.monitor.verdictUpstreamFailed,
+  branch_skipped: ko.monitor.verdictBranchSkipped,
 };
 const VERDICT_CLASS: Record<CheckResult["verdict"], string> = {
   ok: "text-emerald-700",
   fail: "text-red-600",
   config_error: "text-amber-700",
+  upstream_failed: "text-slate-500",
+  branch_skipped: "text-slate-500",
 };
 
 /** Always rendered open — the parent mounts it conditionally, so closing unmounts it
@@ -33,11 +37,14 @@ export function CheckRecordDialog({
   boardId,
   panel,
   clicked,
+  focusStepId,
   onClose,
 }: {
   boardId: string;
   panel: PanelConfig;
   clicked: CheckResult;
+  /** Step panel: open that step's (last) request row instead of the default rule. */
+  focusStepId?: string;
   onClose: () => void;
 }) {
   const q = useQuery({
@@ -87,7 +94,14 @@ export function CheckRecordDialog({
                 )}
           </div>
         )}
-        {q.data && <RecordSteps record={q.data} clicked={clicked} stepNames={stepNames} />}
+        {q.data && (
+          <RecordSteps
+            record={q.data}
+            clicked={clicked}
+            stepNames={stepNames}
+            focusStepId={focusStepId}
+          />
+        )}
       </div>
     </Modal>
   );
@@ -97,10 +111,12 @@ function RecordSteps({
   record,
   clicked,
   stepNames,
+  focusStepId,
 }: {
   record: CheckRecord;
   clicked: CheckResult;
   stepNames: Record<string, string>;
+  focusStepId?: string;
 }) {
   const trace = record.trace;
   if (trace === null) {
@@ -113,6 +129,13 @@ function RecordSteps({
     );
   }
   const only = trace.steps.length === 1;
+  // Step panel: only the last http row of that step opens (a loop repeats it).
+  let focusIdx = -1;
+  if (focusStepId !== undefined) {
+    trace.steps.forEach((s, i) => {
+      if (s.kind !== "if" && s.step_id === focusStepId) focusIdx = i;
+    });
+  }
   return (
     <div className="space-y-2">
       {trace.error && (
@@ -132,7 +155,7 @@ function RecordSteps({
             key={i}
             step={st}
             name={stepNames[st.step_id] ?? st.step_id}
-            defaultOpen={only}
+            defaultOpen={focusIdx >= 0 ? i === focusIdx : only}
             clippedReq={record.clipped.some((c) => c.step === i && c.side === "request")}
             clippedResp={record.clipped.some((c) => c.step === i && c.side === "response")}
             limitKb={record.limit_kb}

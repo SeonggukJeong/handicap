@@ -4,6 +4,7 @@ import { axisAgoLabel, barColor, barSlots } from "../../monitor/logic";
 import {
   AXIS_LINE_HEIGHT,
   COLOR,
+  FILL,
   GRAPH_CHROME,
   PANEL_TEXT,
   panelFont,
@@ -221,6 +222,41 @@ export function LatencyBars({
                     backgroundImage: CONFIG_STRIPES,
                   }}
                 />
+              );
+            }
+            if (r.verdict === "upstream_failed") {
+              // mockup 03: low gray bar — nothing could be checked behind a failed step
+              return (
+                <div
+                  key={i}
+                  data-testid="bar-slot"
+                  data-verdict="upstream_failed"
+                  style={{ ...base, height: "12%", backgroundColor: FILL.gray }}
+                />
+              );
+            }
+            if (r.verdict === "branch_skipped") {
+              // mockup 03: no bar, a small hollow circle on the baseline
+              return (
+                <div
+                  key={i}
+                  data-testid="bar-slot"
+                  data-verdict="branch_skipped"
+                  className="flex items-end justify-center"
+                  style={base}
+                >
+                  <span
+                    aria-hidden
+                    data-skipped-mark=""
+                    style={{
+                      width: "1.4cqw",
+                      height: "1.4cqw",
+                      border: `0.4cqw solid ${COLOR.grayBorder}`,
+                      borderRadius: "50%",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
               );
             }
             const latency = r.latency_ms ?? 0;

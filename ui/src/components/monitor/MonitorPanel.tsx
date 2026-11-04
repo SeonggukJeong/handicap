@@ -12,6 +12,7 @@ import {
   COLOR,
   PANEL_BOX,
   STATE_LABEL,
+  LONGEST_LIVE_STATE_LABEL,
   borderColorOf,
   stateColorOf,
   PANEL_TEXT,
@@ -113,10 +114,14 @@ function useBoxMeasure(
   }, [measure, boxRef, textRef]);
 }
 
-const BOX_STYLE = (fit: number, borderColor: string): React.CSSProperties =>
+const BOX_STYLE = (
+  fit: number,
+  borderColor: string,
+  borderStyle: "solid" | "dashed" = "solid",
+): React.CSSProperties =>
   ({
     "--fit": String(+fit.toFixed(4)),
-    border: `${PANEL_BOX.border}cqw solid ${borderColor}`,
+    border: `${PANEL_BOX.border}cqw ${borderStyle} ${borderColor}`,
     borderRadius: `${PANEL_BOX.radius}cqw`,
     padding: `${PANEL_BOX.padTop}cqw ${PANEL_BOX.padSide}cqw ${PANEL_BOX.padBottom}cqw`,
   }) as React.CSSProperties;
@@ -317,7 +322,7 @@ export const PanelProbe = memo(function PanelProbe({
         <div ref={textRef} data-testid="probe-text" className="shrink-0">
           <TitleStateRow
             title={panel.title}
-            stateLabel={ko.monitor.stateConfigError}
+            stateLabel={LONGEST_LIVE_STATE_LABEL}
             stateColor="transparent"
             fontScale={fontScale}
             heading={false}
@@ -484,8 +489,13 @@ export function MonitorPanel({
       : null;
   // A: the background is the state; every text uses one contrast colour.
   const ink = fillBg === null ? null : contrastText(fillBg);
-  const bigColor = ink ?? (state === "ok" ? COLOR.text : stateColor);
-  const isReason = state === "fail" || state === "config_error";
+  // 확인 못 함 / 분기 제외 (mockup 03): quiet gray states — dim text vs a brighter value.
+  const quiet = state === "blocked" || state === "skipped";
+  const bigColor =
+    ink ?? (state === "ok" ? COLOR.text : state === "skipped" ? COLOR.bright : stateColor);
+  const smallColor = ink ?? (state === "blocked" ? COLOR.grayBorder : bigColor);
+  const titleInk = ink ?? (quiet ? COLOR.soft : undefined);
+  const isReason = state === "fail" || state === "config_error" || quiet;
   const bigText = bigValueText(state, latest);
   // Fail reason: fixed part big on one line, step-name part small below.
   const reason = isReason ? reasonParts(bigText, latest?.detail ?? null) : null;
@@ -534,11 +544,12 @@ export function MonitorPanel({
       <div
         data-testid="panel-box"
         data-state={state}
+        data-border-style={state === "skipped" ? "dashed" : "solid"}
         data-blink={blinkOn ? "on" : undefined}
         className="absolute inset-0 flex flex-col overflow-hidden"
         style={
           {
-            ...BOX_STYLE(fit, fillBg ?? borderColor),
+            ...BOX_STYLE(fit, fillBg ?? borderColor, state === "skipped" ? "dashed" : "solid"),
             "--reason-fit": String(+reasonFit.toFixed(4)),
             "--split-fit": String(+splitFit.toFixed(4)),
             background: fillBg ?? COLOR.panel,
@@ -551,7 +562,7 @@ export function MonitorPanel({
             stateLabel={STATE_LABEL[state]}
             stateColor={ink ?? stateColor}
             fontScale={fontScale}
-            titleColor={ink ?? undefined}
+            titleColor={titleInk}
             heading
           />
           {reason ? (
@@ -586,7 +597,7 @@ export function MonitorPanel({
                   className="truncate text-right font-bold leading-tight"
                   style={{
                     fontSize: panelFont(PANEL_TEXT.step, fontScale),
-                    color: bigColor,
+                    color: smallColor,
                     marginTop: "0.4cqw",
                   }}
                 >

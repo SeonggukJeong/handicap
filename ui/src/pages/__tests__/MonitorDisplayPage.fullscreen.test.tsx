@@ -43,7 +43,14 @@ function result(verdict: string, latency: number | null, at = T): Json {
   return { at_ms: at, verdict, latency_ms: latency, reason: null, detail: null, display: [] };
 }
 function ps(n: number, results: Json[]): Json {
-  return { panel_id: pid(n), results, consecutive_fail: 0, fail_since_ms: null, running: false };
+  return {
+    panel_id: pid(n),
+    results,
+    consecutive_fail: 0,
+    check_budget_seconds: 5,
+    fail_since_ms: null,
+    running: false,
+  };
 }
 function res(body: unknown, code = 200): Response {
   return {
