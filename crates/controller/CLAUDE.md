@@ -188,3 +188,6 @@
 - **`monitor_boards` 행을 DB에서 직접 고치면 실행 중 보드엔 반영 안 됨** — 감독자가 설정을 메모리에 들고 있어 stop/start(또는 API PUT=reconcile) 후에야 적용(라이브 검증 시 행 조작 뒤 재시작) (ops-monitor-1b).
 - **URL 사용자정보 가림은 `://` 문자열 스캔만으론 새다 — 가린 뒤 `reqwest::Url`로 재파싱해 남은 자격 증명 확인** (ops-monitor-polish-2): `url` 2.5가 http(s)에 대해 `http:user:SECRET@h`·`http:/…`·`http:\\…`·스킴 안 탭·대문자 스킴도 사용자정보로 파싱하고 reqwest는 이를 Basic 인증으로 전송한다. 쿼리 속 `://`도 1차 스캔을 속인다. 재스플라이스는 정규화 URL에 리터럴 `••••`(`set_password`는 `%E2%80%A2…`로 인코딩). 빈 비밀번호(`tok:@`)면 사용자명이 자격 증명.
 - **`Json(Arc<T>)`는 워크스페이스 serde에 `rc` feature가 없어 컴파일 불가** — 큰 공유 값은 `serde_json::to_vec(&*arc)` + `content-type: application/json`으로 직접 응답(복제 회피) (ops-monitor-polish-2)
+- **스텝 칸 판정은 실행 단위 전체를 한 번에(`step_judge::judge_unit`)** — 대리 원인 칸이 원인 칸의 *최종* 판정을 봐야 해서 앞 구간 끝 순으로 계산(칸 배열 순서 아님). trace는 http 에러 뒤에도 계속 돌아 앞 구간에 에러 행이 여럿이므로 "가장 앞 원인 행"·계산 순서 테스트는 에러 2개 이상·칸 순서≠trace 순서 픽스처로 (monitor-step-panels).
+- **흐름 변수 값을 사유 문자열(벽·`/status`·기록 `result.reason`)로 옮기면 `build_record_body`의 `branch_eval.clear()`로는 못 막는다** — 쿠키·`AUTH_HEADERS` 헤더 추출 변수는 출처 기준 `(인증 값)`(존재 연산은 제외) (monitor-step-panels 보안).
+- **보드 파일 가져오기에서 R7 개수 상한 전에 도는 단계(거울 덮어쓰기 등)는 칸×묶음 이차** — `check_counts` 선검사 뒤에만, 조회는 `HashMap` (monitor-step-panels 보안).

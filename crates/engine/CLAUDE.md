@@ -40,6 +40,7 @@
 - **`template.rs`의 세 번째 진입점 `render_collecting`** (C-1): lenient 렌더 + 미해결 토큰명 수집. hot-path `render`/`render_lenient`는 시그니처 불변(공통 `render_inner`에 `&mut Option<&mut Vec<String>>` 컬렉터를 `&mut None`으로 넘기는 no-op). trace만 사용. **새 토큰/문법을 `render_inner`에 추가하면 세 진입점 모두 + UI `resolveForDisplay`까지** 일관 유지(기존 "엔진/UI 두 번 구현" 함정의 연장).
 - **`execute_step_traced`는 `execute_step`의 *의도된 중복*** (C-1): strict-`render`+`Result` (hot) vs lenient-`render_collecting`+캡처 (trace). `execute_step`은 byte-identical로 보존해야 하므로 공유 대신 복제 — **둘을 같이 유지**(method 매핑·body 처리·extract 호출이 어긋나면 trace가 거짓). 응답 body는 `MAX_TRACE_BODY_BYTES`(1 MiB)에서 절단(`from_utf8_lossy`라 멀티바이트 경계서 U+FFFD 가능, display용이라 허용). 수집한 `unbound_vars`는 url→headers→body 누적이라 **비연속 중복**이 생김 → `Vec::dedup`(인접만) 말고 `HashSet` retain으로 order-preserving 전역 dedup.
 - **조건 미바인딩은 trace 전용으로 따로 수집** (C-1 follow-up): `if`/`elif` 조건은 `eval_condition`이 `render_lenient`로 평가해 미해결 토큰을 버린다(부하 평가기 무변경). trace는 `trace.rs::collect_if_condition_unbound`로 if 노드의 `cond` + 모든 `elif.cond`를 walk하며 `render_collecting`으로 미바인딩 토큰을 결정 행 `unbound_vars`에 채운다 — `eval_compare`의 렌더 지점 미러(left 항상, right는 exists/empty 외). 명세 §3-2는 `unbound_vars`를 요청 렌더로 한정했으나 "조건 미바인딩 → 의도와 다른 분기"가 안 보여서 확장한 것. **부하 경로엔 없는 정보**(부하 메트릭엔 조건 미바인딩 표시 없음).
+- **IF 결정 행 `branch_eval`(trace 전용 `explain_branches`)은 `select_branch`와 별도 구현** — 분기 순서·`passed` 일치는 표 테스트 `explain_matches_select_branch_table`가 유일한 잠금; `${`가 든 쪽 값은 미저장, `timed_out`은 `without_url()`이 `e`를 소비하기 전에 `is_timeout()` (monitor-step-panels).
 
 ## 메트릭 / 집계 / 퍼센타일 (`aggregator.rs`, `percentiles.rs`)
 

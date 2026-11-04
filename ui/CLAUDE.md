@@ -204,3 +204,6 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **극단값 라이브는 폭 제약·높이 제약 보드를 따로** (ops-monitor-polish): 긴 제목 9칸은 폭이 배율을 정해 높이 결함을 가린다 → 짧은 제목 + 9칸 전부 같은 종류 변형 추가(한 칸이라도 다르면 그 프로브가 배율을 잡아 가림). 기능 끈 대조 보드로 선재/회귀 판정. 응답기 지연은 stale 기준 `(주기×3+제한+5)s` 미만으로(넘으면 전 칸 `확인 불가`).
 - **flex 머리 줄의 고정 라벨 조각(`▸ 칸 N`)은 `shrink-0 whitespace-nowrap` — 형제가 `truncate`여도 라벨 조각이 수축해 두 줄로 접힌다** (ops-monitor-polish-2 라이브): 긴 시나리오 이름 칸만 접힌 높이 38→58px(US1 ≤48px). jsdom 무력 — 최악 길이 값을 넣고 rect 높이로 실측.
 - **vitest `include`(`__tests__/` 전용) 밖 테스트는 리뷰 5회를 통과한다** (ops-monitor-polish-2): plan의 "(+ 테스트)"만 보고 구현자가 `ui/src/monitor/recordLimit.test.ts`로 동거시켜 한 번도 안 돌았다(diff엔 정상 테스트로 보임). 마무리 전 `find ui/src -name '*.test.ts*' | grep -v __tests__` → 출력 0.
+- **칸 목록을 구획별로 그릴 때 `segments.map(seg => seg.indices.map(…))` 중첩 배열은 React가 위치로 맞춰 칸 삭제 시 뒤 칸이 전부 재마운트된다**(미리 실행 결과·펼침 상태 소실, 묶음 없는 보드도) — `flatMap`으로 각 칸을 직계 자식 `key={p.id}`, 묶음 상자 key는 `g.id`만 (monitor-step-panels).
+- **`이름 = 값`을 한 `FitLine`으로 그리면 긴 이름이 값을 `…` 뒤로 밀어낸다** — 이름 `min-w-0 truncate` + 값 `shrink-0 max-w-[70%] truncate` 분할(`포함 안 됨` 선례), 라이브에서 값 span `scrollWidth<=clientWidth` 실측 (monitor-step-panels).
+- **화면 stale 기준은 칸 `timeout_seconds`가 아니라 `/status` `check_budget_seconds`**(묶음 칸 = 흐름 상한+32초) — 페이지 테스트 픽스처에서 둘을 같게 두면 배선을 되돌려도 green (monitor-step-panels).

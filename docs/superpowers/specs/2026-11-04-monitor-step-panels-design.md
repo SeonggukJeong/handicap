@@ -1,6 +1,7 @@
 # 운영 모니터 — 점검 묶음(스텝별 칸) + 분기 판정 + 빈 컨테이너 수정 (설계)
 
 - 날짜: 2026-11-04 · 유형: `user-path` (+ `correctness-bug` 1건) · 브랜치 `worktree-monitor-step-panels`
+- 상태: **완료** (2026-11-05, 코드 `c7e4268c`..`6a0d40be`) — 판단·연기는 `docs/roadmap.md` §B42
 - 결정 원천(단일 소스): `docs/superpowers/specs/2026-11-04-monitor-step-panels-mockups/00-decisions.md` + 같은 폴더 목업 3장(`01-editor-grouping.html` A안, `02-nav-numbering.html` 1안, `03-wall-states.html`). **목업 밖 화면을 만들지 않는다**(사용자 지시) — 기능상 불가피한 예외는 §8.1에 명시하고 사용자에게 보고한다.
 - 선행: ADR-0053(운영 모니터)·ADR-0054(보드 파일). 이 설계는 ADR-0053에 "보완" 절로 기록한다(새 ADR 아님 — 같은 결정의 확장, [Claude]). 보완 절에 §4의 시간 상한 변경(묶음 흐름 상한 > 30초 가능)을 명시한다.
 

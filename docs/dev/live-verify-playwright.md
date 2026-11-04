@@ -125,3 +125,4 @@ kill <그 Chrome PID>                        # 헬퍼 프로세스는 따라 죽
 - **`browser_run_code_unsafe` 안 `page.screenshot({path})`는 MCP 서버 cwd 기준이라 워크트리에 파일이 안 생긴다** — `browser_take_screenshot`(`filename: .playwright-mcp/x.png`) 후 Read. subagent가 뷰포트를 바꿔둘 수 있으니(1200×695로 남은 사례) **측정 전 `browser_resize` 재설정**.
 - 겹침 판정은 텍스트 노드 `Range.getClientRects()` 합집합 rect 교차 + `scrollWidth>clientWidth`로 — 단 2줄 clamp·`…` 텍스트는 Range가 전체 글리프 박스를 보고해 거짓 양성, 스크린샷으로 대조.
 - **한 메시지의 여러 tool 호출은 순차 실행** — "PUT하면서 동시에 browser_evaluate로 폴링"은 측정이 안 된다(폴링이 먼저 끝남). 지연 PUT(`sleep 3; curl …`)을 `run_in_background`로 띄운 뒤 폴링 evaluate를 시작(ops-monitor-1b US3).
+- **`ui/dist`를 다시 빌드한 뒤 같은 탭에서 `browser_navigate`만 하면 캐시된 옛 `index.html`(옛 해시 번들)이 뜬다** — `document.querySelector('script[src*=assets]').src` 해시를 `ui/dist/index.html`과 대조, 다르면 `location.reload()` 후 측정 (monitor-step-panels).
