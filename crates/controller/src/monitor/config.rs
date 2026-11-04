@@ -191,6 +191,12 @@ pub struct PanelConfig {
     pub graph_max_ms: u32,
     pub conditions: Vec<Condition>,
     pub display_items: Vec<DisplayItem>,
+    /// 소속 점검 묶음 id. None = 단독 실행(직렬화 생략).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// 볼 스텝 id. None = 흐름 전체(직렬화 생략).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_id: Option<String>,
 }
 
 impl Default for PanelConfig {
@@ -208,6 +214,29 @@ impl Default for PanelConfig {
             graph_max_ms: 2000,
             conditions: Vec::new(),
             display_items: Vec::new(),
+            group_id: None,
+            step_id: None,
+        }
+    }
+}
+
+/// 점검 묶음 — 한 번의 실행(시나리오·환경·주기)을 여러 스텝 칸이 공유한다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CheckGroup {
+    pub id: String,
+    pub scenario_id: String,
+    pub environment_id: Option<String>,
+    pub interval_seconds: u32,
+}
+
+impl Default for CheckGroup {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            scenario_id: String::new(),
+            environment_id: None,
+            interval_seconds: 10,
         }
     }
 }
@@ -223,6 +252,9 @@ pub struct BoardConfig {
     pub show_latency_stats: bool,
     /// 점검 하나의 기록 본문 예산(KB) — 보드 단위.
     pub record_limit_kb: u32,
+    /// 점검 묶음(없으면 직렬화 생략 — 묶음 없는 보드는 바이트 동일).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<CheckGroup>,
 }
 
 pub const RECORD_LIMIT_KB_DEFAULT: u32 = 128;
@@ -237,8 +269,102 @@ impl Default for BoardConfig {
             blink: Blink::Fail,
             display_style: DisplayStyle::Border,
             panels: Vec::new(),
+            groups: Vec::new(),
         }
     }
+}
+
+/// 묶음 칸의 시나리오·환경·주기를 소속 묶음 값으로 덮어쓴다(묶음 값이 권위).
+pub fn apply_group_mirror(cfg: &mut BoardConfig) {
+    for p in &mut cfg.panels {
+        let Some(gid) = &p.group_id else { continue };
+        if let Some(g) = cfg.groups.iter().find(|g| &g.id == gid) {
+            p.scenario_id.clone_from(&g.scenario_id);
+            p.environment_id.clone_from(&g.environment_id);
+            p.interval_seconds = g.interval_seconds;
+        }
+    }
+}
+
+/// 스텝 칸(`step_id: Some`)의 응답 시간 기준·조건·표시 값을 칸의 스텝으로 맞춘다.
+pub fn normalize_step_panel(p: &mut PanelConfig) {
+    let Some(step) = p.step_id.clone() else {
+        return;
+    };
+    p.latency_source = LatencySource::Step {
+        step_id: step.clone(),
+    };
+    for c in &mut p.conditions {
+        c.step_id.clone_from(&step);
+    }
+    for d in &mut p.display_items {
+        d.step_id.clone_from(&step);
+    }
+}
+
+fn validate_groups(cfg: &mut BoardConfig) -> Result<(), String> {
+    // panels 첫 등장 순으로 정렬(칸 없는 묶음은 원래 순서대로 뒤 — 안정 정렬).
+    let first = |g: &CheckGroup| {
+        cfg.panels
+            .iter()
+            .position(|p| p.group_id.as_deref() == Some(g.id.as_str()))
+            .unwrap_or(usize::MAX)
+    };
+    let mut keyed: Vec<(usize, CheckGroup)> =
+        cfg.groups.drain(..).map(|g| (first(&g), g)).collect();
+    keyed.sort_by_key(|(k, _)| *k);
+    cfg.groups = keyed.into_iter().map(|(_, g)| g).collect();
+
+    let mut seen = std::collections::HashSet::new();
+    for (i, g) in cfg.groups.iter().enumerate() {
+        let n = i + 1;
+        if Ulid::from_string(&g.id).is_err() {
+            return Err(format!(
+                "점검 묶음 {n}: 묶음 id가 올바른 ULID 형식이 아닙니다"
+            ));
+        }
+        if !seen.insert(g.id.as_str()) {
+            return Err(format!("점검 묶음 {n}: 묶음 id가 중복됩니다"));
+        }
+        if g.scenario_id.trim().is_empty() {
+            return Err(format!("점검 묶음 {n}: 시나리오를 선택해야 합니다"));
+        }
+        if !in_range(g.interval_seconds, 1, 3600) {
+            return Err(format!("점검 묶음 {n}: 점검 주기는 1~3600초여야 합니다"));
+        }
+        if !cfg
+            .panels
+            .iter()
+            .any(|p| p.group_id.as_deref() == Some(g.id.as_str()))
+        {
+            return Err(format!("점검 묶음 {n}: 칸이 없는 점검 묶음입니다"));
+        }
+    }
+    // 칸 배치: 존재 · 연속 · 묶음 칸은 스텝 필수.
+    let mut closed: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut prev: Option<&str> = None;
+    for (i, p) in cfg.panels.iter().enumerate() {
+        let n = i + 1;
+        let cur = p.group_id.as_deref();
+        if let Some(gid) = cur {
+            if !cfg.groups.iter().any(|g| g.id == gid) {
+                return Err(format!("칸 {n}: 없는 점검 묶음을 가리킵니다"));
+            }
+            if prev != Some(gid) && closed.contains(gid) {
+                return Err(format!("칸 {n}: 같은 점검 묶음의 칸은 붙어 있어야 합니다"));
+            }
+            if p.step_id.is_none() {
+                return Err(format!("칸 {n}: 점검 묶음 칸은 볼 스텝을 골라야 합니다"));
+            }
+        }
+        if prev != cur {
+            if let Some(pg) = prev {
+                closed.insert(pg);
+            }
+        }
+        prev = cur;
+    }
+    Ok(())
 }
 
 fn in_range(v: u32, lo: u32, hi: u32) -> bool {
@@ -418,6 +544,21 @@ pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<Strin
     check_name("보드 이름", &name)?;
     if !(1..=MAX_PANELS).contains(&cfg.panels.len()) {
         return Err(format!("칸은 1~{MAX_PANELS}개여야 합니다"));
+    }
+    validate_groups(cfg)?;
+    for (i, p) in cfg.panels.iter().enumerate() {
+        if let Some(s) = &p.step_id {
+            if Ulid::from_string(s).is_err() {
+                return Err(format!(
+                    "칸 {}: 스텝 id가 올바른 ULID 형식이 아닙니다",
+                    i + 1
+                ));
+            }
+        }
+    }
+    apply_group_mirror(cfg);
+    for p in &mut cfg.panels {
+        normalize_step_panel(p);
     }
     for (i, p) in cfg.panels.iter_mut().enumerate() {
         validate_panel(p).map_err(|e| format!("칸 {}: {e}", i + 1))?;
@@ -1066,5 +1207,188 @@ mod tests {
         assert!(validate_panel(&mut p).is_ok());
         let mut p = with_items(vec![ditem(D::Header, &"h".repeat(200))]);
         assert!(validate_panel(&mut p).is_ok());
+    }
+}
+#[cfg(test)]
+mod group_tests {
+    use super::*;
+
+    fn u(n: u32) -> String {
+        format!("01J{n:023}")
+    }
+
+    fn solo(title: &str) -> PanelConfig {
+        PanelConfig {
+            scenario_id: "S".into(),
+            title: title.into(),
+            ..PanelConfig::default()
+        }
+    }
+
+    fn group(n: u32) -> CheckGroup {
+        CheckGroup {
+            id: u(n),
+            scenario_id: "S".into(),
+            environment_id: None,
+            interval_seconds: 10,
+        }
+    }
+
+    fn member(gid: u32, step: Option<u32>) -> PanelConfig {
+        PanelConfig {
+            group_id: Some(u(gid)),
+            step_id: step.map(u),
+            ..solo("m")
+        }
+    }
+
+    fn cfg(groups: Vec<CheckGroup>, panels: Vec<PanelConfig>) -> BoardConfig {
+        BoardConfig {
+            groups,
+            panels,
+            ..BoardConfig::default()
+        }
+    }
+
+    fn err(mut c: BoardConfig) -> String {
+        validate_and_normalize("보드", &mut c).unwrap_err()
+    }
+
+    fn cond(step: &str) -> Condition {
+        serde_json::from_str(&format!(r#"{{"step_id":"{step}"}}"#)).unwrap()
+    }
+
+    #[test]
+    fn legacy_config_serializes_without_new_keys() {
+        let c = cfg(vec![], vec![solo("t")]);
+        let s = serde_json::to_string(&c).unwrap();
+        assert!(!s.contains("groups"), "{s}");
+        assert!(!s.contains("group_id"), "{s}");
+        assert!(!s.contains("step_id"), "{s}");
+    }
+
+    #[test]
+    fn mixed_board_solo_panel_serializes_without_new_keys() {
+        let c = cfg(vec![group(1)], vec![member(1, Some(9)), solo("s")]);
+        let v = serde_json::to_value(&c).unwrap();
+        assert!(v["groups"].is_array());
+        let solo_p = v["panels"][1].as_object().unwrap();
+        assert!(!solo_p.contains_key("group_id"));
+        assert!(!solo_p.contains_key("step_id"));
+        assert!(v["panels"][0].as_object().unwrap().contains_key("group_id"));
+    }
+
+    #[test]
+    fn groups_sorted_by_first_appearance() {
+        let mut c = cfg(
+            vec![group(2), group(1)],
+            vec![member(1, Some(9)), member(2, Some(9))],
+        );
+        validate_and_normalize("보드", &mut c).unwrap();
+        assert_eq!(c.groups[0].id, u(1));
+        assert_eq!(c.groups[1].id, u(2));
+    }
+
+    #[test]
+    fn mirror_overwrites_member_fields() {
+        let mut g = group(1);
+        g.interval_seconds = 30;
+        g.environment_id = Some("E".into());
+        let mut p = member(1, Some(9));
+        p.scenario_id = "x".into();
+        p.interval_seconds = 99;
+        p.environment_id = Some("y".into());
+        let mut c = cfg(vec![g], vec![p]);
+        apply_group_mirror(&mut c);
+        assert_eq!(c.panels[0].scenario_id, "S");
+        assert_eq!(c.panels[0].interval_seconds, 30);
+        assert_eq!(c.panels[0].environment_id.as_deref(), Some("E"));
+    }
+
+    #[test]
+    fn step_panel_normalizes_latency_condition_display_steps() {
+        let mut p = solo("t");
+        p.step_id = Some(u(7));
+        p.conditions = vec![cond("old")];
+        p.display_items = vec![DisplayItem {
+            step_id: "old".into(),
+            ..DisplayItem::default()
+        }];
+        normalize_step_panel(&mut p);
+        assert_eq!(p.latency_source, LatencySource::Step { step_id: u(7) });
+        assert_eq!(p.conditions[0].step_id, u(7));
+        assert_eq!(p.display_items[0].step_id, u(7));
+        let mut q = solo("t");
+        q.conditions = vec![cond("old")];
+        normalize_step_panel(&mut q);
+        assert_eq!(q.conditions[0].step_id, "old");
+    }
+
+    #[test]
+    fn validate_applies_mirror_and_step_normalization() {
+        let mut g = group(1);
+        g.interval_seconds = 30;
+        let mut c = cfg(vec![g], vec![member(1, Some(9))]);
+        validate_and_normalize("보드", &mut c).unwrap();
+        assert_eq!(c.panels[0].interval_seconds, 30);
+        assert_eq!(
+            c.panels[0].latency_source,
+            LatencySource::Step { step_id: u(9) }
+        );
+    }
+
+    #[test]
+    fn error_table() {
+        assert_eq!(
+            err(cfg(vec![group(1)], vec![solo("a")])),
+            "점검 묶음 1: 칸이 없는 점검 묶음입니다"
+        );
+        assert_eq!(
+            err(cfg(
+                vec![group(1)],
+                vec![member(1, Some(9)), solo("s"), member(1, Some(9))]
+            )),
+            "칸 3: 같은 점검 묶음의 칸은 붙어 있어야 합니다"
+        );
+        assert_eq!(
+            err(cfg(vec![group(1)], vec![member(1, None)])),
+            "칸 1: 점검 묶음 칸은 볼 스텝을 골라야 합니다"
+        );
+        assert_eq!(
+            err(cfg(vec![], vec![member(1, Some(9))])),
+            "칸 1: 없는 점검 묶음을 가리킵니다"
+        );
+        let mut g = group(1);
+        g.interval_seconds = 0;
+        assert_eq!(
+            err(cfg(vec![g], vec![member(1, Some(9))])),
+            "점검 묶음 1: 점검 주기는 1~3600초여야 합니다"
+        );
+        assert_eq!(
+            err(cfg(
+                vec![group(1), group(1)],
+                vec![member(1, Some(9)), solo("s")]
+            )),
+            "점검 묶음 2: 묶음 id가 중복됩니다"
+        );
+        let mut bad_id = group(1);
+        bad_id.id = "nope".into();
+        assert_eq!(
+            err(cfg(vec![bad_id], vec![solo("s")])),
+            "점검 묶음 1: 묶음 id가 올바른 ULID 형식이 아닙니다"
+        );
+        let mut no_scn = group(1);
+        no_scn.scenario_id = " ".into();
+        assert_eq!(
+            err(cfg(vec![no_scn], vec![member(1, Some(9))])),
+            "점검 묶음 1: 시나리오를 선택해야 합니다"
+        );
+        let mut p = solo("t");
+        p.step_id = Some("bad".into());
+        p.conditions = vec![cond("x")];
+        assert_eq!(
+            err(cfg(vec![], vec![p])),
+            "칸 1: 스텝 id가 올바른 ULID 형식이 아닙니다"
+        );
     }
 }

@@ -10,7 +10,9 @@ use serde_json::Value;
 use ulid::Ulid;
 
 use super::check::collect_http_steps;
-use super::config::{BoardConfig, LatencySource, MAX_PANELS, validate_and_normalize};
+use super::config::{
+    BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, validate_and_normalize,
+};
 use crate::api::environments::env_problem;
 use crate::api::scenarios::{validate_parallel_branch_names, validate_scenario_think_times};
 
@@ -161,6 +163,22 @@ fn is_canonical_ulid(s: &str) -> bool {
     Ulid::from_string(s).is_ok_and(|u| u.to_string() == s)
 }
 
+/// 새 필드의 명시적 기본값만 허용하는 정확히 세 경로: `groups: []`(config 바로 아래),
+/// `panels[i].group_id`·`panels[i].step_id`의 `null`. 일반 "null·[] 무시"가 아니다.
+fn is_explicit_default(parent: &str, key: &str, v: &Value) -> bool {
+    match key {
+        "groups" => parent.is_empty() && v.as_array().is_some_and(Vec::is_empty),
+        "group_id" | "step_id" => {
+            v.is_null()
+                && parent
+                    .strip_prefix("panels[")
+                    .and_then(|r| r.strip_suffix(']'))
+                    .is_some_and(|i| !i.is_empty() && i.bytes().all(|b| b.is_ascii_digit()))
+        }
+        _ => false,
+    }
+}
+
 /// 원본 `config`에는 있고 재직렬화본에는 없는 첫 키의 경로(배열은 인덱스별).
 fn first_unknown_key(orig: &Value, reser: &Value, path: &str) -> Option<String> {
     match (orig, reser) {
@@ -172,6 +190,7 @@ fn first_unknown_key(orig: &Value, reser: &Value, path: &str) -> Option<String> 
                     format!("{path}.{k}")
                 };
                 match r.get(k) {
+                    None if is_explicit_default(path, k, v) => {}
                     None => return Some(p),
                     Some(rv) => {
                         if let Some(found) = first_unknown_key(v, rv, &p) {
@@ -343,7 +362,10 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
             vars: e.vars.clone(),
         });
     }
-    // R6 참조 정합
+    // R6 참조 정합 — 묶음 칸의 사본 값은 묶음 값으로 먼저 덮어쓴다.
+    for cfg in &mut configs {
+        apply_group_mirror(cfg);
+    }
     let scenario_ids: HashSet<&str> = scenarios.iter().map(|s| s.id.as_str()).collect();
     let env_ids: HashSet<&str> = environments.iter().map(|e| e.id.as_str()).collect();
     let mut used_scenarios: HashSet<&str> = HashSet::new();
@@ -414,6 +436,14 @@ fn board_warnings(cfg: &BoardConfig, http_steps: &HashMap<String, HashSet<String
     for (i, p) in cfg.panels.iter().enumerate() {
         let n = i + 1;
         let steps = http_steps.get(&p.scenario_id).unwrap_or(&empty);
+        if let Some(step_id) = &p.step_id {
+            if !steps.contains(step_id) {
+                out.push(format!(
+                    "칸 {n}: 볼 스텝이 시나리오에 없습니다(점검이 설정 오류로 표시됩니다)"
+                ));
+            }
+            continue;
+        }
         if let LatencySource::Step { step_id } = &p.latency_source {
             if !steps.contains(step_id) {
                 out.push(format!(
@@ -814,5 +844,136 @@ mod tests {
         v["environments"][0]["name"] = json!("  운영 ");
         let b = parse_bundle_value(v).unwrap();
         assert_eq!(b.environments[0].name, "운영");
+    }
+}
+#[cfg(test)]
+mod group_tests {
+    use super::super::config::{CheckGroup, PanelConfig};
+    use super::*;
+    use serde_json::json;
+
+    const BOARD: &str = "01J00000000000000000000001";
+    const SCEN: &str = "01J00000000000000000000002";
+    const ENV: &str = "01J00000000000000000000003";
+    const PANEL: &str = "01J00000000000000000000004";
+    const STEP: &str = "01J00000000000000000000005";
+    const GROUP: &str = "01J0000000000000000000000G";
+    const MISSING: &str = "01J00000000000000000000008";
+
+    fn yaml() -> String {
+        format!(
+            "version: 1\nname: 결제 흐름\nsteps:\n  - id: \"{STEP}\"\n    name: 조회\n    type: http\n    request: {{ method: GET, url: \"http://x/ping\" }}\n"
+        )
+    }
+
+    fn file(config: Value) -> Value {
+        json!({
+            "format": "handicap-bundle",
+            "format_version": 1,
+            "exported_at": 1761700000000i64,
+            "app_version": "0.9.0",
+            "boards": [{"id": BOARD, "name": "보드", "config": config}],
+            "scenarios": [{"id": SCEN, "yaml": yaml()}],
+            "environments": [{"id": ENV, "name": "운영", "vars": {}}]
+        })
+    }
+
+    fn plain_config() -> Value {
+        json!({
+            "panels": [{
+                "id": PANEL, "title": "결제", "scenario_id": SCEN, "environment_id": ENV
+            }]
+        })
+    }
+
+    fn group_cfg(step: &str) -> BoardConfig {
+        BoardConfig {
+            groups: vec![CheckGroup {
+                id: GROUP.into(),
+                scenario_id: SCEN.into(),
+                environment_id: Some(ENV.into()),
+                interval_seconds: 45,
+            }],
+            panels: vec![PanelConfig {
+                id: PANEL.into(),
+                title: "결제".into(),
+                scenario_id: SCEN.into(),
+                environment_id: Some(ENV.into()),
+                interval_seconds: 45,
+                timeout_seconds: 7,
+                group_id: Some(GROUP.into()),
+                step_id: Some(step.into()),
+                latency_source: LatencySource::Step {
+                    step_id: step.into(),
+                },
+                ..PanelConfig::default()
+            }],
+            ..BoardConfig::default()
+        }
+    }
+
+    #[test]
+    fn import_mirror_applied_before_reference_check() {
+        // 칸 사본의 시나리오·환경이 파일에 없는 값이어도 묶음 값 기준으로 통과.
+        let mut cfg = group_cfg(STEP);
+        cfg.panels[0].scenario_id = MISSING.into();
+        cfg.panels[0].environment_id = Some(MISSING.into());
+        cfg.panels[0].interval_seconds = 99;
+        let v = file(serde_json::to_value(&cfg).unwrap());
+        let b = parse_bundle_value(v).unwrap();
+        let p = &b.boards[0].config.panels[0];
+        assert_eq!(p.scenario_id, SCEN);
+        assert_eq!(p.environment_id.as_deref(), Some(ENV));
+        assert_eq!(p.interval_seconds, 45);
+    }
+
+    #[test]
+    fn explicit_new_defaults_tolerated() {
+        let mut c = plain_config();
+        c["groups"] = json!([]);
+        c["panels"][0]["group_id"] = Value::Null;
+        c["panels"][0]["step_id"] = Value::Null;
+        assert!(parse_bundle_value(file(c)).is_ok());
+    }
+
+    #[test]
+    fn other_null_unknown_key_still_rejected() {
+        let mut c = plain_config();
+        c["panels"][0]["foo"] = Value::Null;
+        assert!(parse_bundle_value(file(c)).unwrap_err().contains("foo"));
+        let mut c = plain_config();
+        c["foo"] = json!([]);
+        assert!(parse_bundle_value(file(c)).unwrap_err().contains("foo"));
+        // 허용 경로라도 값이 기본값이 아니면(비어 있지 않은 groups 는 알려진 키라 통과)
+        // — 다른 위치의 group_id: null 은 거부(예: 보드 config 바로 아래)
+        let mut c = plain_config();
+        c["group_id"] = Value::Null;
+        assert!(
+            parse_bundle_value(file(c))
+                .unwrap_err()
+                .contains("group_id")
+        );
+    }
+
+    #[test]
+    fn bundle_round_trip_with_groups() {
+        let cfg = group_cfg(STEP);
+        let orig = serde_json::to_value(&cfg).unwrap();
+        let b = parse_bundle_value(file(orig.clone())).unwrap();
+        assert_eq!(serde_json::to_value(&b.boards[0].config).unwrap(), orig);
+        let p = &b.boards[0].config.panels[0];
+        assert_eq!(p.interval_seconds, 45);
+        assert_eq!(p.timeout_seconds, 7);
+        assert!(b.boards[0].warnings.is_empty());
+    }
+
+    #[test]
+    fn step_panel_single_warning() {
+        let cfg = group_cfg(MISSING);
+        let b = parse_bundle_value(file(serde_json::to_value(&cfg).unwrap())).unwrap();
+        assert_eq!(
+            b.boards[0].warnings,
+            vec!["칸 1: 볼 스텝이 시나리오에 없습니다(점검이 설정 오류로 표시됩니다)".to_string()]
+        );
     }
 }
