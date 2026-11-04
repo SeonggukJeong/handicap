@@ -11,7 +11,8 @@ use ulid::Ulid;
 
 use super::check::collect_http_steps;
 use super::config::{
-    BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, validate_and_normalize,
+    BoardConfig, LatencySource, MAX_PANELS, apply_group_mirror, check_counts,
+    validate_and_normalize,
 };
 use crate::api::environments::env_problem;
 use crate::api::scenarios::{validate_parallel_branch_names, validate_scenario_think_times};
@@ -362,8 +363,10 @@ pub fn parse_bundle_value(v: Value) -> Result<ValidBundle, String> {
             vars: e.vars.clone(),
         });
     }
-    // R6 참조 정합 — 묶음 칸의 사본 값은 묶음 값으로 먼저 덮어쓴다.
-    for cfg in &mut configs {
+    // R6 참조 정합 — 묶음 칸의 사본 값은 묶음 값으로 먼저 덮어쓴다. 칸·묶음 개수 상한(R7과 같은
+    // 문구)은 묶음 반영 전에 — 거대한 칸·묶음 목록이 아래 처리에 닿지 않게.
+    for (b, cfg) in input.boards.iter().zip(&mut configs) {
+        check_counts(cfg).map_err(|r| format!("보드 '{}' {r}", b.name.trim()))?;
         apply_group_mirror(cfg);
     }
     let scenario_ids: HashSet<&str> = scenarios.iter().map(|s| s.id.as_str()).collect();
@@ -944,8 +947,7 @@ mod group_tests {
         let mut c = plain_config();
         c["foo"] = json!([]);
         assert!(parse_bundle_value(file(c)).unwrap_err().contains("foo"));
-        // 허용 경로라도 값이 기본값이 아니면(비어 있지 않은 groups 는 알려진 키라 통과)
-        // — 다른 위치의 group_id: null 은 거부(예: 보드 config 바로 아래)
+        // 허용 키라도 허용 경로 밖(config 바로 아래)의 group_id: null 은 거부
         let mut c = plain_config();
         c["group_id"] = Value::Null;
         assert!(
@@ -975,5 +977,37 @@ mod group_tests {
             b.boards[0].warnings,
             vec!["칸 1: 볼 스텝이 시나리오에 없습니다(점검이 설정 오류로 표시됩니다)".to_string()]
         );
+    }
+
+    fn ulid_n(i: usize) -> String {
+        format!("01J{:023}", 100 + i)
+    }
+
+    #[test]
+    fn too_many_panels_rejected_before_mirror() {
+        // 10칸이 모두 파일에 없는 시나리오를 가리킨다 — 개수 검사가 묶음 반영·참조 정합(R6)보다
+        // 먼저면 칸 개수 문구, 아니면 R6 문구가 나온다.
+        let panels: Vec<Value> = (0..10)
+            .map(|i| json!({"id": ulid_n(i), "title": "t", "scenario_id": MISSING}))
+            .collect();
+        let v = file(json!({ "panels": panels }));
+        assert_eq!(err_of_group(v), "보드 '보드' 칸은 1~9개여야 합니다");
+    }
+
+    #[test]
+    fn too_many_groups_rejected_before_mirror() {
+        let groups: Vec<Value> = (0..10)
+            .map(|i| json!({"id": ulid_n(i), "scenario_id": SCEN, "interval_seconds": 10}))
+            .collect();
+        let mut c = plain_config();
+        c["groups"] = Value::Array(groups);
+        assert_eq!(
+            err_of_group(file(c)),
+            "보드 '보드' 점검 묶음은 9개 이하여야 합니다"
+        );
+    }
+
+    fn err_of_group(v: Value) -> String {
+        parse_bundle_value(v).unwrap_err()
     }
 }

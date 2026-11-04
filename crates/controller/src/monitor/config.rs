@@ -275,10 +275,17 @@ impl Default for BoardConfig {
 }
 
 /// 묶음 칸의 시나리오·환경·주기를 소속 묶음 값으로 덮어쓴다(묶음 값이 권위).
+/// 묶음 조회 표를 한 번 만들어 칸×묶음 선형 — 개수 상한(`check_counts`) 전 입력에도 이차가 아니다.
 pub fn apply_group_mirror(cfg: &mut BoardConfig) {
+    let by_id: std::collections::HashMap<&str, &CheckGroup> = cfg
+        .groups
+        .iter()
+        .rev() // 중복 id면 앞 묶음이 이긴다(예전 `find`와 같은 결과)
+        .map(|g| (g.id.as_str(), g))
+        .collect();
     for p in &mut cfg.panels {
         let Some(gid) = &p.group_id else { continue };
-        if let Some(g) = cfg.groups.iter().find(|g| &g.id == gid) {
+        if let Some(g) = by_id.get(gid.as_str()) {
             p.scenario_id.clone_from(&g.scenario_id);
             p.environment_id.clone_from(&g.environment_id);
             p.interval_seconds = g.interval_seconds;
@@ -549,13 +556,23 @@ fn validate_display_items(items: &mut [DisplayItem]) -> Result<(), String> {
     Ok(())
 }
 
+/// 칸·묶음 개수 상한 — 칸×묶음을 훑는 어떤 처리(묶음 반영·묶음 검사)보다 먼저 부른다.
+/// 묶음마다 칸이 하나 이상 있어야 하므로 묶음 상한도 `MAX_PANELS`.
+pub fn check_counts(cfg: &BoardConfig) -> Result<(), String> {
+    if !(1..=MAX_PANELS).contains(&cfg.panels.len()) {
+        return Err(format!("칸은 1~{MAX_PANELS}개여야 합니다"));
+    }
+    if cfg.groups.len() > MAX_PANELS {
+        return Err(format!("점검 묶음은 {MAX_PANELS}개 이하여야 합니다"));
+    }
+    Ok(())
+}
+
 /// Validates a whole board in place; returns the trimmed board name.
 pub fn validate_and_normalize(name: &str, cfg: &mut BoardConfig) -> Result<String, String> {
     let name = name.trim().to_string();
     check_name("보드 이름", &name)?;
-    if !(1..=MAX_PANELS).contains(&cfg.panels.len()) {
-        return Err(format!("칸은 1~{MAX_PANELS}개여야 합니다"));
-    }
+    check_counts(cfg)?;
     validate_groups(cfg)?;
     for (i, p) in cfg.panels.iter().enumerate() {
         check_step_id(p).map_err(|e| format!("칸 {}: {e}", i + 1))?;

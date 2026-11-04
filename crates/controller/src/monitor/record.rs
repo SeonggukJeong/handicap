@@ -60,12 +60,7 @@ impl Serialize for CheckRecord {
     }
 }
 
-/// 점검 결과와 (있으면) trace로 보관용 기록을 만든다 — spec §3.2 1–7.
-///
-/// 인증 헤더 4종(요청·응답)·`set_cookies`·URL 사용자정보의 비어 있지 않은 비밀 부분을
-/// `MASK`로 가리고, 흐름 변수(`final_vars`·`extracted`)를 비우고, 본문을
-/// `limit_kb × 1024`바이트 예산 안으로 자른다(스텝 순서, 스텝마다 요청 → 응답).
-/// 요청 본문은 가리지 않는다(화면에서 기본 가림 — spec §5.3).
+/// 점검 결과 + [`build_record_body`]로 만든 본문을 묶는 얇은 래퍼.
 pub fn build_record(
     result: &CheckResult,
     trace: Option<ScenarioTrace>,
@@ -78,7 +73,12 @@ pub fn build_record(
     }
 }
 
-/// 가림·자르기·흐름 변수/`branch_eval` 폐기를 마친 공유용 본문.
+/// (있으면) trace로 보관용 기록 본문을 만든다 — spec §3.2 1–7. 여러 칸이 공유한다.
+///
+/// 인증 헤더 4종(요청·응답)·`set_cookies`·URL 사용자정보의 비어 있지 않은 비밀 부분을
+/// `MASK`로 가리고, 흐름 변수(`final_vars`·`extracted`)와 `branch_eval`을 비우고, 본문을
+/// `limit_kb × 1024`바이트 예산 안으로 자른다(스텝 순서, 스텝마다 요청 → 응답).
+/// 요청 본문은 가리지 않는다(화면에서 기본 가림 — spec §5.3).
 pub fn build_record_body(trace: Option<ScenarioTrace>, limit_kb: u32) -> RecordBody {
     let mut clipped = Vec::new();
     let trace = trace.map(|mut t| {

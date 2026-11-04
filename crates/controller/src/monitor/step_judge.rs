@@ -5,10 +5,11 @@
 //! 대리 원인 칸 때문에 칸별 순수 함수가 아니라 실행 단위 전체를 한 번에 계산한다.
 //! 새 reason·detail은 전부 `shown()`을 거친다(서식 문자 정리 + 200자 `…`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use handicap_engine::{
     BranchEval, CompareOp, HttpStep, IfStep, Scenario, ScenarioTrace, Step, StepKind, StepTrace,
+    scenario::Extract,
 };
 
 use super::check::{
@@ -17,13 +18,88 @@ use super::check::{
     REASON_UPSTREAM, Verdict, classify, collect_http_steps, display_values, eval_conditions,
     reason_timeout, shown,
 };
-use super::config::PanelConfig;
+use super::config::{AUTH_HEADERS, PanelConfig};
 
 /// 칸 없는 스텝의 기본 요청 제한(초) — `step_limits`에 없을 때만 쓰는 방어값.
 const DEFAULT_STEP_LIMIT_SECS: u32 = 5;
 
 /// 빈 문자열 표기(대상 값·기대 값 공통).
 const EMPTY_TEXT: &str = "\"\"";
+
+/// 환경 값(`${…}`) 대신 보이는 문구.
+const ENV_VALUE_TEXT: &str = "(환경 값)";
+
+/// 인증 출처(쿠키·인증 헤더 추출) 흐름 변수 값 대신 보이는 문구.
+const AUTH_VALUE_TEXT: &str = "(인증 값)";
+
+/// 인증 출처 흐름 변수 이름 — 쿠키 추출 전부와 인증 헤더(`AUTH_HEADERS`) 추출의 `var`,
+/// parallel 분기 안이면 merge 이름 `{분기}.{var}`까지. 내용으로 비밀을 추측하지 않고
+/// **출처**로만 가린다(①b 인증 헤더 가드가 추출 경유로 우회되는 것을 막는다).
+fn auth_var_names(scenario: &Scenario) -> HashSet<String> {
+    fn is_auth(e: &Extract) -> bool {
+        match e {
+            Extract::Cookie { .. } => true,
+            Extract::Header { name, .. } => AUTH_HEADERS
+                .iter()
+                .any(|h| name.trim().eq_ignore_ascii_case(h)),
+            Extract::Body { .. } | Extract::Status { .. } => false,
+        }
+    }
+    /// `steps` 서브트리의 인증 출처 이름(중첩 parallel 안까지 — 과하게 가리는 쪽이 안전).
+    fn walk(steps: &[Step], out: &mut HashSet<String>) {
+        for s in steps {
+            match s {
+                Step::Http(h) => out.extend(
+                    h.extract
+                        .iter()
+                        .filter(|e| is_auth(e))
+                        .map(|e| e.var().to_string()),
+                ),
+                Step::Loop(l) => walk(&l.do_, out),
+                Step::If(i) => {
+                    walk(&i.then_, out);
+                    for e in &i.elif {
+                        walk(&e.then_, out);
+                    }
+                    walk(&i.else_, out);
+                }
+                Step::Parallel(p) => {
+                    for b in &p.branches {
+                        let mut inner = HashSet::new();
+                        walk(&b.steps, &mut inner);
+                        out.extend(inner.iter().map(|v| format!("{}.{v}", b.name)));
+                        out.extend(inner);
+                    }
+                }
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    walk(&scenario.steps, &mut out);
+    out
+}
+
+/// 원문 안의 `{{이름}}` 토큰 중 하나라도 `names`에 있으면 참(엔진 토큰 규칙: 안쪽 trim).
+fn refs_any(raw: &str, names: &HashSet<String>) -> bool {
+    if names.is_empty() {
+        return false;
+    }
+    let mut rest = raw;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return false;
+        };
+        let name = after[..end].trim();
+        // 캐스트 접미(`:num` 등)가 붙은 꼴도 같은 변수로 본다.
+        let bare = name.rsplit_once(':').map_or(name, |(n, _)| n.trim());
+        if names.contains(name) || names.contains(bare) {
+            return true;
+        }
+        rest = &after[end + 2..];
+    }
+    false
+}
 
 /// IF 조건 연산 기호(성공 조건 라벨과 별개 — spec §6.3).
 pub(crate) fn if_op_symbol(op: CompareOp) -> &'static str {
@@ -184,7 +260,13 @@ fn result(
 }
 
 /// 규칙 4 — 제외 결정 행의 판정 근거로 분기 제외(또는 분기 값 없음) 결과.
-fn branch_result(at_ms: i64, row: &StepTrace, if_step: &IfStep, label: &str) -> CheckResult {
+fn branch_result(
+    at_ms: i64,
+    row: &StepTrace,
+    if_step: &IfStep,
+    label: &str,
+    auth_vars: &HashSet<String>,
+) -> CheckResult {
     let name = if_name(if_step);
     // 이 스텝 분기의 조건이 평가돼 거짓이면 그 조건, 아니면 앞 분기가 참이라 선점한 조건.
     let blocking: Option<&BranchEval> = row
@@ -219,9 +301,11 @@ fn branch_result(at_ms: i64, row: &StepTrace, if_step: &IfStep, label: &str) -> 
     }
     let target = target_label(&l.left);
     // 보안: 환경 값 참조는 엔진이 값을 싣지 않지만, 원문으로도 한 번 더 막는다.
+    // 인증 출처 흐름 변수(쿠키·인증 헤더 추출)는 값 대신 고정 문구 — 출처 기반.
     let value = match l.left_value.as_deref() {
-        Some(_) if l.left.contains("${") => "(환경 값)".to_string(),
-        None => "(환경 값)".to_string(),
+        Some(_) if l.left.contains("${") => ENV_VALUE_TEXT.to_string(),
+        None => ENV_VALUE_TEXT.to_string(),
+        Some(_) if refs_any(&l.left, auth_vars) => AUTH_VALUE_TEXT.to_string(),
         Some(v) if presence_op => if v.is_empty() {
             "비어 있음"
         } else {
@@ -287,6 +371,7 @@ pub fn judge_unit(
     collect_http_steps(&scenario.steps, &mut all);
     let find_http = |id: &str| all.iter().copied().find(|h| h.id == id);
     let anc = ancestors(scenario);
+    let auth_vars = auth_var_names(scenario);
     let limit = |id: &str, fallback: u32| step_limits.get(id).copied().unwrap_or(fallback);
     let rows = &trace.steps;
     let empty: Vec<Anc<'_>> = Vec::new();
@@ -377,6 +462,7 @@ pub fn judge_unit(
                 flow_cap_secs,
                 limit(sid, p.timeout_seconds),
                 anc.get(sid).unwrap_or(&empty),
+                &auth_vars,
             ),
         };
         out[i] = Some(r);
@@ -403,6 +489,7 @@ fn own_result(
     flow_cap_secs: u32,
     limit_secs: u32,
     chain: &[Anc<'_>],
+    auth_vars: &HashSet<String>,
 ) -> CheckResult {
     // 규칙 3: 실행됨 — 마지막 행 기준.
     if let Some(row) = trace
@@ -429,7 +516,7 @@ fn own_result(
     }
     // 규칙 4: 분기 제외(truncated와 무관하게 우선).
     if let Some((idx, if_step, label)) = exclusion_row(chain, trace) {
-        return branch_result(at_ms, &trace.steps[idx], if_step, &label);
+        return branch_result(at_ms, &trace.steps[idx], if_step, &label, auth_vars);
     }
     // 규칙 5: 그 외 미실행.
     let reason = if trace.truncated {
@@ -1200,5 +1287,91 @@ mod tests {
         for (op, sym) in cases {
             assert_eq!(if_op_symbol(op), sym, "{op:?}");
         }
+    }
+
+    /// `B({extract}) → IF "경마일 분기"({{isRaceDay}} ne "") { H }` — B가 `extract` 줄을 가진다.
+    fn extract_scn(extract: &str) -> Scenario {
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &http_yaml(BB, "B", 2);
+        y += &format!("    extract:\n      - {extract}\n");
+        y += &format!(
+            "  - id: \"{IF}\"\n    name: 경마일 분기\n    type: if\n    cond: {{ left: \"{{{{isRaceDay}}}}\", op: ne, right: \"\" }}\n    then:\n"
+        );
+        y += &http_yaml(H, "H", 6);
+        Scenario::from_yaml(&y).unwrap()
+    }
+
+    fn skipped_reason(sc: &Scenario, left: &str) -> CheckResult {
+        let l = leaf(left, CompareOp::Ne, Some(""), Some("SECRET-SID-123"));
+        let t = tr(vec![
+            ok(BB, 1),
+            if_row("none", vec![be("then", false, Some(l))]),
+        ]);
+        let r = run(sc, &panels(&[H]), &t);
+        assert_eq!(r[0].verdict, Verdict::BranchSkipped, "{:?}", r[0]);
+        r.into_iter().next().unwrap()
+    }
+
+    fn assert_no_secret(r: &CheckResult) {
+        for s in [&r.reason, &r.detail].into_iter().flatten() {
+            assert!(!s.contains("SECRET-SID-123"), "값 노출: {r:?}");
+        }
+    }
+
+    #[test]
+    fn cookie_extract_value_masked() {
+        let sc = extract_scn("{ from: cookie, var: isRaceDay, name: SESSION }");
+        let r = skipped_reason(&sc, "{{isRaceDay}}");
+        assert_eq!(r.reason.as_deref(), Some("isRaceDay = (인증 값)"));
+        assert_no_secret(&r);
+        // 토큰이 원문 안 어디에 있든(공백 포함) 같은 출처면 가린다.
+        let r = skipped_reason(&sc, "Bearer {{ isRaceDay }}");
+        assert_eq!(
+            r.reason.as_deref(),
+            Some("Bearer {{ isRaceDay }} = (인증 값)")
+        );
+        assert_no_secret(&r);
+    }
+
+    #[test]
+    fn auth_header_extract_value_masked() {
+        let sc = extract_scn("{ from: header, var: isRaceDay, name: AUTHORIZATION }");
+        let r = skipped_reason(&sc, "{{isRaceDay}}");
+        assert_eq!(r.reason.as_deref(), Some("isRaceDay = (인증 값)"));
+        assert_no_secret(&r);
+    }
+
+    #[test]
+    fn non_auth_header_extract_value_shown() {
+        let sc = extract_scn("{ from: header, var: isRaceDay, name: X-Race-Day }");
+        let r = skipped_reason(&sc, "{{isRaceDay}}");
+        assert_eq!(r.reason.as_deref(), Some("isRaceDay = SECRET-SID-123"));
+    }
+
+    #[test]
+    fn parallel_merged_auth_name_masked() {
+        // parallel { a: [Ea(cookie → sid)], b: [Eb] } → IF({{a.sid}} ne "") { H }
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &format!("  - id: \"{PAR}\"\n    name: 동시\n    type: parallel\n    branches:\n");
+        y += "      - name: a\n        steps:\n";
+        y += &http_yaml(EA, "Ea", 10);
+        y += "            extract:\n              - { from: cookie, var: sid, name: SESSION }\n";
+        y += "      - name: b\n        steps:\n";
+        y += &http_yaml(EB, "Eb", 10);
+        y += &format!(
+            "  - id: \"{IF}\"\n    name: 경마일 분기\n    type: if\n    cond: {{ left: \"{{{{a.sid}}}}\", op: ne, right: \"\" }}\n    then:\n"
+        );
+        y += &http_yaml(H, "H", 6);
+        let sc = Scenario::from_yaml(&y).unwrap();
+        let l = leaf("{{a.sid}}", CompareOp::Ne, Some(""), Some("SECRET-SID-123"));
+        let t = tr(vec![
+            ok(EA, 1),
+            ok(EB, 1),
+            if_row("none", vec![be("then", false, Some(l))]),
+        ]);
+        let r = run(&sc, &panels(&[H]), &t);
+        assert_eq!(r[0].verdict, Verdict::BranchSkipped, "{:?}", r[0]);
+        assert_eq!(r[0].reason.as_deref(), Some("a.sid = (인증 값)"));
+        assert_no_secret(&r[0]);
     }
 }

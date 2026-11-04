@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use handicap_engine::{Scenario, ScenarioTrace, Step, TraceOptions, trace_scenario};
 
-use super::check::{CheckResult, MONITOR_MAX_REQUESTS, Verdict, load_scenario_env, reason_timeout};
+use super::check::{
+    CheckResult, MONITOR_MAX_REQUESTS, REASON_LATENCY_STEP_MISSING, Verdict, collect_http_steps,
+    load_scenario_env, reason_timeout,
+};
 use super::config::{BoardConfig, PanelConfig};
 use super::step_judge::judge_unit;
 use crate::store::{self, Db};
@@ -163,6 +166,32 @@ pub async fn run_unit_check(db: &Db, unit: &CheckUnit) -> UnitOutcome {
                 };
             }
         };
+    // 모든 칸의 스텝이 시나리오에 없으면 요청을 보내지 않는다(설정 오류에 부하를 쓰지 않음 —
+    // 흐름 전체 칸과 같은 원칙). 판정은 `judge_unit`의 스텝 없음과 같다.
+    let mut all = Vec::new();
+    collect_http_steps(&scenario.steps, &mut all);
+    let missing = |p: &PanelConfig| {
+        let sid = p.step_id.as_deref().unwrap_or_default();
+        !all.iter().any(|h| h.id == sid)
+    };
+    if !unit.panels.is_empty() && unit.panels.iter().all(missing) {
+        return UnitOutcome {
+            trace: None,
+            results: unit
+                .panels
+                .iter()
+                .map(|_| CheckResult {
+                    at_ms,
+                    verdict: Verdict::ConfigError,
+                    latency_ms: None,
+                    reason: Some(REASON_LATENCY_STEP_MISSING.to_string()),
+                    detail: None,
+                    display: Vec::new(),
+                })
+                .collect(),
+            budget_secs: INITIAL_STEP_BUDGET_SECS,
+        };
+    }
     let (flow_cap, limits) = apply_step_limits(&mut scenario, unit);
     let opts = TraceOptions {
         env,
@@ -395,5 +424,122 @@ mod tests {
             assert_eq!(r.verdict, Verdict::ConfigError);
             assert_eq!(r.reason.as_deref(), Some("시나리오를 찾을 수 없음"));
         }
+    }
+
+    fn ind(s: &str, k: usize) -> String {
+        let pad = " ".repeat(k);
+        s.lines().map(|l| format!("{pad}{l}\n")).collect()
+    }
+
+    /// loop { s1, IF { then: [s2], elif: [s3], else: [s4, parallel { x: [s5], y: [s6] }] } }
+    fn nested_scenario() -> Scenario {
+        let mut y = String::from("version: 1\nname: s\nsteps:\n");
+        y += &format!(
+            "  - id: \"{}\"\n    name: 반복\n    type: loop\n    repeat: 1\n    do:\n",
+            id(90)
+        );
+        y += &ind(&step_yaml(1, "http://x/1", None), 4);
+        y += &format!(
+            "      - id: \"{}\"\n        name: 분기\n        type: if\n        cond: {{ left: \"{{{{a}}}}\", op: eq, right: \"1\" }}\n        then:\n",
+            id(91)
+        );
+        y += &ind(&step_yaml(2, "http://x/2", None), 8);
+        y += "        elif:\n          - cond: { left: \"{{a}}\", op: eq, right: \"2\" }\n            then:\n";
+        y += &ind(&step_yaml(3, "http://x/3", Some(600)), 12);
+        y += "        else:\n";
+        y += &ind(&step_yaml(4, "http://x/4", None), 8);
+        y += &format!(
+            "          - id: \"{}\"\n            name: 동시\n            type: parallel\n            branches:\n              - name: x\n                steps:\n",
+            id(92)
+        );
+        y += &ind(&step_yaml(5, "http://x/5", None), 16);
+        y += "              - name: y\n                steps:\n";
+        y += &ind(&step_yaml(6, "http://x/6", None), 16);
+        Scenario::from_yaml(&y).unwrap()
+    }
+
+    #[test]
+    fn step_limits_nested_walk() {
+        let mut sc = nested_scenario();
+        // 칸: 1(3초)·2(4초)·5(6초) / 칸 없음: 3(시나리오 600 → 30)·4·6(값 없음 → 5)
+        let u = unit(vec![sp("a", 1, 3), sp("b", 2, 4), sp("c", 5, 6)]);
+        let (cap, limits) = apply_step_limits(&mut sc, &u);
+        let want = [(1, 3), (2, 4), (3, 30), (4, 5), (5, 6), (6, 5)];
+        assert_eq!(limits.len(), want.len(), "{limits:?}");
+        let mut all = Vec::new();
+        crate::monitor::check::collect_http_steps(&sc.steps, &mut all);
+        assert_eq!(all.len(), want.len());
+        for (n, secs) in want {
+            assert_eq!(limits.get(&id(n)), Some(&secs), "limits step {n}");
+            let h = all.iter().find(|h| h.id == id(n)).unwrap();
+            assert_eq!(h.timeout_seconds, Some(secs), "scenario step {n}");
+        }
+        // 각 스텝 한 번씩: 3+4+30+5+6+5
+        assert_eq!(cap, 53);
+    }
+
+    #[tokio::test]
+    async fn run_unit_check_all_steps_missing_sends_nothing() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let yaml = format!(
+            "version: 1\nname: s\nsteps:\n{}",
+            step_yaml(1, &format!("{}/x", server.uri()), None)
+        );
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let row = store::scenarios::insert(&db, &sc, &yaml).await.unwrap();
+        let mut panels = vec![sp("a", 98, 5), sp("b", 99, 5)];
+        for p in &mut panels {
+            p.scenario_id = row.id.clone();
+        }
+        let mut u = unit(panels);
+        u.scenario_id = row.id;
+        let out = run_unit_check(&db, &u).await;
+        assert!(out.trace.is_none());
+        assert_eq!(out.budget_secs, INITIAL_STEP_BUDGET_SECS);
+        assert_eq!(out.results.len(), 2);
+        for r in &out.results {
+            assert_eq!(r.verdict, Verdict::ConfigError, "{r:?}");
+            assert_eq!(
+                r.reason.as_deref(),
+                Some(crate::monitor::check::REASON_LATENCY_STEP_MISSING)
+            );
+        }
+        drop(server); // expect(0) 검증
+    }
+
+    #[tokio::test]
+    async fn run_unit_check_some_steps_missing_still_runs() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let yaml = format!(
+            "version: 1\nname: s\nsteps:\n{}",
+            step_yaml(1, &format!("{}/x", server.uri()), None)
+        );
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sc = Scenario::from_yaml(&yaml).unwrap();
+        let row = store::scenarios::insert(&db, &sc, &yaml).await.unwrap();
+        let mut panels = vec![sp("a", 1, 5), sp("b", 99, 5)];
+        for p in &mut panels {
+            p.scenario_id = row.id.clone();
+        }
+        let mut u = unit(panels);
+        u.scenario_id = row.id;
+        let out = run_unit_check(&db, &u).await;
+        assert!(out.trace.is_some());
+        assert_eq!(out.results[0].verdict, Verdict::Ok);
+        assert_eq!(out.results[1].verdict, Verdict::ConfigError);
+        drop(server); // expect(1) 검증
     }
 }
