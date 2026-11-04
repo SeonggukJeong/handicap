@@ -1,0 +1,79 @@
+<h2>설정 화면 — 한 번 실행을 여러 칸이 나눠 보는 방식</h2>
+<p class="subtitle">같은 보드에 "더비온 흐름"(로그인 1회 → 5단계)을 스텝별 칸 5개로 만든 모습. 두 안 모두 기존 보드(칸마다 혼자 실행)는 그대로 열림. 마음에 드는 쪽을 눌러 주세요.</p>
+
+<div class="options">
+
+<div class="option" data-choice="A-group" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content" style="width:100%">
+<h3>점검 묶음 상자 안에 칸들</h3>
+<p>시나리오·환경·점검 주기는 <b>묶음</b>에 한 번만. 칸은 묶음 안에서 "어느 스텝을 볼지"만 고른다. 칸 목록(오른쪽)도 묶음 단위로 들여쓰기.</p>
+<div style="display:flex;gap:16px;background:#f8fafc;padding:16px;border-radius:8px;font-family:sans-serif;font-size:13px;color:#334155;margin-top:8px">
+  <div style="flex:1;min-width:0">
+    <div style="background:#fff;border:2px solid #6366f1;border-radius:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #e2e8f0;background:#eef2ff;border-radius:6px 6px 0 0">
+        <span>▾</span><b>점검 묶음 1</b><b>더비온 흐름</b>
+        <span style="color:#64748b">· 운영 환경 · 10초마다 한 번 실행 · 칸 5</span>
+      </div>
+      <div style="padding:10px 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-bottom:1px dashed #cbd5e1">
+        <div class="placeholder" style="padding:8px">시나리오: 더비온 흐름</div><div class="placeholder" style="padding:8px">환경: 운영</div><div class="placeholder" style="padding:8px">점검 주기: 10초</div>
+      </div>
+      <div style="padding:8px 12px 10px 28px">
+        <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;gap:10px"><span>▸</span><b style="min-width:36px">칸 1</b><b>1.0 로그인</b><span style="color:#64748b">스텝: 더비온 1.0 로그인 · 제한 3초 · 조건 1</span></div>
+        <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;gap:10px"><span>▸</span><b style="min-width:36px">칸 2</b><b>2.0 로그인</b><span style="color:#64748b">스텝: 더비온 2.0 로그인 · 제한 3초 · 조건 2</span></div>
+        <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;gap:10px"><span>▸</span><b style="min-width:36px">칸 3</b><b>경주 기초</b><span style="color:#64748b">스텝: 경주 기초 정보 조회 · 제한 5초 · 조건 1</span></div>
+        <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;gap:10px"><span>▸</span><b style="min-width:36px">칸 4</b><b>경주 헤더</b><span style="color:#64748b">스텝: 경주 헤더 정보 조회 <span style="color:#7c3aed">(경마일 분기 안)</span> · 제한 5초</span></div>
+        <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;gap:10px"><span>▸</span><b style="min-width:36px">칸 5</b><b>구매가능</b><span style="color:#64748b">스텝: 구매가능여부 체크 <span style="color:#7c3aed">(경마일 분기 안)</span> · 제한 5초</span></div>
+        <span class="mock-button" style="font-size:12px">+ 이 묶음에 칸 추가</span>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px"><span>▸</span><b>칸 6</b><b>마권 발매</b><span style="color:#64748b">혼자 실행 · 발매 점검 · 30초 · 시나리오 전체</span></div>
+    </div>
+    <span class="mock-button" style="font-size:12px">+ 칸 추가 (혼자 실행)</span> &nbsp; <span class="mock-button" style="font-size:12px">+ 점검 묶음 추가 (스텝 골라 칸 여러 개)</span>
+  </div>
+  <div style="width:170px;flex-shrink:0">
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px">칸 목록</div>
+      <div style="padding:3px 6px;color:#6366f1;font-weight:600">묶음 · 더비온 흐름</div>
+      <div style="padding:3px 6px 3px 18px">1 1.0 로그인</div>
+      <div style="padding:3px 6px 3px 18px">2 2.0 로그인</div>
+      <div style="padding:3px 6px 3px 18px">3 경주 기초</div>
+      <div style="padding:3px 6px 3px 18px">4 경주 헤더</div>
+      <div style="padding:3px 6px 3px 18px">5 구매가능</div>
+      <div style="padding:3px 6px">6 마권 발매</div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+<div class="option" data-choice="B-link" onclick="toggleSelect(this)"><div class="letter">B</div><div class="content" style="width:100%">
+<h3>칸 목록은 지금처럼 평평하게 + 칸마다 "누구의 실행을 쓸지"</h3>
+<p>첫 칸이 실행을 맡고(시나리오·환경·주기), 나머지 칸은 "칸 1과 같은 실행 사용"을 골라 스텝만 정한다. 화면 구조 변화가 적다.</p>
+<div style="display:flex;gap:16px;background:#f8fafc;padding:16px;border-radius:8px;font-family:sans-serif;font-size:13px;color:#334155;margin-top:8px">
+  <div style="flex:1;min-width:0">
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px"><div style="display:flex;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:36px">칸 1</b><b>1.0 로그인</b><span style="color:#64748b">더비온 흐름 · 10초 · 스텝: 1.0 로그인 · <b style="color:#0f766e">실행 담당</b></span></div></div>
+    <div style="background:#fff;border:2px solid #6366f1;border-radius:6px;margin-bottom:8px">
+      <div style="display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid #e2e8f0"><span>▾</span><b style="min-width:36px">칸 2</b><b>2.0 로그인</b><span style="color:#64748b">칸 1의 실행 사용 · 스텝: 2.0 로그인</span></div>
+      <div style="padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div class="placeholder" style="padding:8px">칸 이름</div>
+        <div style="grid-column:span 2;border:1px solid #cbd5e1;border-radius:6px;padding:8px">실행: <span style="border:1px solid #cbd5e1;padding:1px 6px;border-radius:4px">칸 1과 같은 실행 사용 ▾</span> <span style="color:#94a3b8">(시나리오·환경·주기는 칸 1을 따름)</span></div>
+        <div class="placeholder" style="padding:8px">볼 스텝: 2.0 로그인 ▾</div>
+        <div class="placeholder" style="padding:8px">제한 시간 3초</div>
+        <div class="placeholder" style="padding:8px">느림 기준 · 성공 조건</div>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px"><div style="display:flex;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:36px">칸 3</b><b>경주 기초</b><span style="color:#64748b">칸 1의 실행 사용 · 스텝: 경주 기초 정보 조회</span></div></div>
+    <div style="color:#94a3b8;padding:4px 12px">… 칸 4, 5 (칸 1의 실행 사용)</div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px"><div style="display:flex;gap:10px;padding:10px 12px"><span>▸</span><b style="min-width:36px">칸 6</b><b>마권 발매</b><span style="color:#64748b">발매 점검 · 30초 · 시나리오 전체</span></div></div>
+    <span class="mock-button" style="font-size:12px">+ 칸 추가</span>
+  </div>
+  <div style="width:170px;flex-shrink:0">
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px">칸 목록</div>
+      <div style="padding:3px 6px">1 1.0 로그인</div><div style="padding:3px 6px">2 2.0 로그인 ↖1</div><div style="padding:3px 6px">3 경주 기초 ↖1</div><div style="padding:3px 6px">4 경주 헤더 ↖1</div><div style="padding:3px 6px">5 구매가능 ↖1</div><div style="padding:3px 6px">6 마권 발매</div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+</div>
+<p class="subtitle" style="margin-top:12px">제 추천은 <b>A</b>: "로그인 한 번 = 묶음 하나"가 화면에 그대로 보이고, 칸 1을 지우면 나머지가 어떻게 되나 같은 B의 애매함이 없음. 단점은 설정 화면 구조가 지금보다 한 단계 깊어짐. 어느 안이든 칸 1개짜리 묶음 = 지금의 "혼자 실행" 칸과 같음.</p>

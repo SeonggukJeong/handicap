@@ -1,0 +1,65 @@
+<h2>전시 화면 — 스텝별 칸의 새 상태 두 가지 (B 방식: 어두운 칸 + 색 테두리)</h2>
+<p class="subtitle">"더비온 흐름" 묶음 칸 5개. 위 = 경마일에 2.0 로그인이 터진 순간, 아래 = 비경마일 평상시. 막대: 초록 = 정상 ms, 빨강 빗금 = 실패(지금 규칙 그대로), <b>회색 낮은 막대 = 앞 단계 실패로 확인 못 함</b>, <b>빈 자리 + 작은 ○ = 분기 조건 불충족</b>.</p>
+
+<h3>장면 1 — 경마일, 2.0 로그인 HTTP 503</h3>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;background:#0b1220;padding:12px;border-radius:8px;font-family:sans-serif">
+
+  <div style="border:4px solid #22c55e;border-radius:10px;padding:12px;color:#fff;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span>1.0 로그인</span><span style="color:#22c55e">✔ 정상</span></div>
+    <div style="font-size:34px;font-weight:800;margin-top:4px">182<span style="font-size:18px">ms</span></div>
+    <div style="height:56px;margin-top:8px;display:flex;align-items:flex-end;gap:3px">
+      <div style="flex:1;height:30%;background:#22c55e"></div><div style="flex:1;height:34%;background:#22c55e"></div><div style="flex:1;height:28%;background:#22c55e"></div><div style="flex:1;height:31%;background:#22c55e"></div><div style="flex:1;height:36%;background:#22c55e"></div><div style="flex:1;height:30%;background:#22c55e"></div><div style="flex:1;height:33%;background:#22c55e"></div><div style="flex:1;height:29%;background:#22c55e"></div>
+    </div>
+  </div>
+
+  <div style="border:4px solid #ef4444;border-radius:10px;padding:12px;color:#fff;min-width:0;box-shadow:0 0 18px #ef444488">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span>2.0 로그인</span><span style="color:#ef4444">✖ 실패</span></div>
+    <div style="font-size:34px;font-weight:800;color:#ef4444;margin-top:4px">HTTP 503</div>
+    <div style="font-size:15px;color:#fca5a5">3회 연속 · 14:31:50부터</div>
+    <div style="height:40px;margin-top:8px;display:flex;align-items:flex-end;gap:3px">
+      <div style="flex:1;height:30%;background:#22c55e"></div><div style="flex:1;height:32%;background:#22c55e"></div><div style="flex:1;height:30%;background:#22c55e"></div><div style="flex:1;height:34%;background:#22c55e"></div><div style="flex:1;height:31%;background:#22c55e"></div><div style="flex:1;height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 4px,#7f1d1d 4px 8px)"></div><div style="flex:1;height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 4px,#7f1d1d 4px 8px)"></div><div style="flex:1;height:100%;background:repeating-linear-gradient(45deg,#ef4444 0 4px,#7f1d1d 4px 8px)"></div>
+    </div>
+  </div>
+
+  <div style="border:4px solid #475569;border-radius:10px;padding:12px;color:#94a3b8;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span style="color:#cbd5e1">경주 기초</span><span>― 확인 못 함</span></div>
+    <div style="font-size:30px;font-weight:800;margin-top:4px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">앞 단계 실패</div>
+    <div style="font-size:15px;color:#64748b">2.0 로그인에서 멈춤</div>
+    <div style="height:40px;margin-top:8px;display:flex;align-items:flex-end;gap:3px">
+      <div style="flex:1;height:40%;background:#22c55e"></div><div style="flex:1;height:44%;background:#22c55e"></div><div style="flex:1;height:38%;background:#22c55e"></div><div style="flex:1;height:42%;background:#22c55e"></div><div style="flex:1;height:40%;background:#22c55e"></div><div style="flex:1;height:12%;background:#475569"></div><div style="flex:1;height:12%;background:#475569"></div><div style="flex:1;height:12%;background:#475569"></div>
+    </div>
+  </div>
+
+  <div style="border:4px solid #475569;border-radius:10px;padding:12px;color:#94a3b8;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span style="color:#cbd5e1">경주 헤더</span><span>― 확인 못 함</span></div>
+    <div style="font-size:30px;font-weight:800;margin-top:4px">앞 단계 실패</div>
+    <div style="font-size:15px;color:#64748b">2.0 로그인에서 멈춤</div>
+  </div>
+  <div style="border:4px solid #475569;border-radius:10px;padding:12px;color:#94a3b8;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span style="color:#cbd5e1">구매가능</span><span>― 확인 못 함</span></div>
+    <div style="font-size:30px;font-weight:800;margin-top:4px">앞 단계 실패</div>
+    <div style="font-size:15px;color:#64748b">2.0 로그인에서 멈춤</div>
+  </div>
+  <div style="color:#64748b;font-size:13px;align-self:center;padding:8px">회색 칸은 깜빡이지 않고, "N회 연속" 줄도 없음 — 눈은 빨간 칸 하나로.</div>
+</div>
+
+<h3 style="margin-top:18px">장면 2 — 비경마일 평상시 (분기 값 isRaceDay = false)</h3>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;background:#0b1220;padding:12px;border-radius:8px;font-family:sans-serif">
+  <div style="border:4px solid #22c55e;border-radius:10px;padding:12px;color:#fff"><div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span>경주 기초</span><span style="color:#22c55e">✔ 정상</span></div><div style="font-size:34px;font-weight:800;margin-top:4px">96<span style="font-size:18px">ms</span></div></div>
+
+  <div style="border:4px dashed #64748b;border-radius:10px;padding:12px;color:#cbd5e1;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span>경주 헤더</span><span style="color:#94a3b8">○ 분기 제외</span></div>
+    <div style="font-size:30px;font-weight:800;margin-top:4px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">isRaceDay = false</div>
+    <div style="font-size:15px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">조건 isRaceDay = true · 경마일 분기</div>
+    <div style="height:40px;margin-top:8px;display:flex;align-items:flex-end;gap:3px">
+      <div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div><div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div><div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div><div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div><div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div><div style="flex:1;display:flex;justify-content:center;align-items:flex-end"><span style="width:7px;height:7px;border:2px solid #64748b;border-radius:50%"></span></div>
+    </div>
+  </div>
+
+  <div style="border:4px dashed #64748b;border-radius:10px;padding:12px;color:#cbd5e1;min-width:0">
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:700"><span>구매가능</span><span style="color:#94a3b8">○ 분기 제외</span></div>
+    <div style="font-size:30px;font-weight:800;margin-top:4px;color:#e2e8f0">isRaceDay = false</div>
+    <div style="font-size:15px;color:#94a3b8">조건 isRaceDay = true · 경마일 분기</div>
+  </div>
+</div>
+<p class="subtitle" style="margin-top:10px">제 판단: "확인 못 함"(앞 단계 실패) = 실선 회색 테두리 + 흐린 글자, "분기 제외" = 점선 회색 테두리 + 값은 밝게(정상적인 상황이므로 읽히게). 둘 다 깜빡임·연속 횟수 없음. 기존 "확인 불가"(점검 자체가 멈춤)와는 문구를 다르게 둠. 화면 방식 A(배경색)·C(실패만 크게)도 같은 규칙 — A는 회색 배경, C는 작은 칸에 머묾.</p>
