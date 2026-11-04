@@ -549,12 +549,14 @@ function BoardForm({ initial }: { initial: Board | null }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          {navSegments(config.panels).map((seg) => {
+          {/* Flat keyed children (flatMap, not nested arrays): React matches nested arrays by
+              position, so removing a panel would remount every later panel and lose its state. */}
+          {navSegments(config.panels).flatMap((seg) => {
             const g = seg.groupId === null ? undefined : groups.find((x) => x.id === seg.groupId);
             if (!g) return seg.indices.map((i) => renderPanel(i));
-            return (
+            return [
               <GroupBox
-                key={`${g.id}-${seg.indices[0]}`}
+                key={g.id}
                 group={g}
                 number={groupNumber(config, g.id)}
                 scenarios={scenarioList}
@@ -581,8 +583,8 @@ function BoardForm({ initial }: { initial: Board | null }) {
                 }}
               >
                 {seg.indices.map((i) => renderPanel(i, g))}
-              </GroupBox>
-            );
+              </GroupBox>,
+            ];
           })}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">

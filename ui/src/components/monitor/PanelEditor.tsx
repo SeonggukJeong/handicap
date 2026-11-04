@@ -247,11 +247,16 @@ export function PanelEditor({
           {error ? (
             <span className="min-w-0 truncate text-xs font-medium text-red-700">{`⚠ ${error}`}</span>
           ) : group ? (
-            <StepSummary
-              panel={panel}
-              stepName={stepOpt?.name ?? panel.step_id ?? ko.monitor.noValue}
-              branchHint={stepOpt?.branchHint ?? null}
-            />
+            <>
+              <StepSummary
+                panel={panel}
+                stepName={stepOpt?.name ?? ko.monitor.noValue}
+                branchHint={stepOpt?.branchHint ?? null}
+              />
+              {stepMissing && (
+                <span className="shrink-0 text-xs text-amber-700">{ko.monitor.condStepGone}</span>
+              )}
+            </>
           ) : (
             <span className="min-w-0 truncate text-xs text-slate-500">
               {panelSummary(panel, scenario?.name, { solo })}

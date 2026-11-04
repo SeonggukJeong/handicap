@@ -54,7 +54,8 @@ export function GroupBox({
     m.groupRunsEvery(group.interval_seconds),
     m.groupPanelCount(Children.count(children)),
   ].join(" · ");
-  const scenarioErr = error !== undefined && !group.scenario_id;
+  // Only the client's scenario-required check marks the field; other group errors stay in the header.
+  const scenarioErr = error === m.scenarioRequired && !group.scenario_id;
 
   return (
     <section

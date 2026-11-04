@@ -2049,6 +2049,52 @@ describe("MonitorEditPage check groups", () => {
     expect(sent("POST", PREVIEW_URL)).toHaveLength(0);
   });
 
+  it("deleting_a_panel_keeps_later_panels_state", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () => json(threePanels());
+    previewWith({ body: "" });
+    renderAt("/monitors/B1");
+    await expandAll();
+    const adv = (n: number) =>
+      within(regionOf(n)).getByRole("button", { name: new RegExp(ko.monitor.advanced) });
+    await user.click(adv(3));
+    await user.click(within(regionOf(3)).getByRole("button", { name: ko.monitor.preview }));
+    expect(await within(regionOf(3)).findByText(ko.monitor.previewVerdict)).toBeInTheDocument();
+    await user.click(within(regionOf(1)).getByRole("button", { name: ko.monitor.removePanel }));
+    // Old panel 3 is now panel 2: its open advanced section and preview result survive.
+    expect(within(regionOf(2)).getByLabelText(ko.monitor.panelTitle)).toHaveValue("셋");
+    expect(adv(2)).toHaveAttribute("aria-expanded", "true");
+    expect(within(regionOf(2)).getByText(ko.monitor.previewVerdict)).toBeInTheDocument();
+  });
+
+  it("nine_panels_disable_every_add_button", async () => {
+    const user = userEvent.setup();
+    const ids = ["P4", "P5", "P6", "P7", "P8", "P9", "PA", "PB"];
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), ...ids.map((id) => groupPanel(id, id))]));
+    renderAt("/monitors/B1");
+    await screen.findByRole("button", { name: ko.monitor.save });
+    await user.click(groupToggle(1));
+    expect(screen.getByRole("button", { name: ko.monitor.addSoloPanel })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.monitor.addGroup })).toBeDisabled();
+    expect(
+      within(groupRegion(1)).getByRole("button", { name: ko.monitor.groupAddPanel }),
+    ).toBeDisabled();
+  });
+
+  it("missing_step_header_shows_readable_label_and_mark", async () => {
+    const user = userEvent.setup();
+    handlers["GET /api/monitor-boards/B1"] = () =>
+      json(groupedBoard([panel(), groupPanel(P2, "헤더")]));
+    renderAt("/monitors/B1");
+    await screen.findAllByRole("option", { name: "더비온 흐름", hidden: true });
+    await user.click(groupToggle(1));
+    await user.selectOptions(within(groupRegion(1)).getByLabelText(ko.monitor.scenario), SID);
+    expect(toggleOf(2)).not.toHaveTextContent(STEP_C);
+    expect(toggleOf(2)).toHaveTextContent(ko.monitor.summaryStep(ko.monitor.noValue));
+    expect(within(toggleOf(2)).getByText(ko.monitor.condStepGone)).toHaveClass("text-amber-700");
+  });
+
   it("help_line_for_branch_steps", async () => {
     expect(ko.monitor.branchStepsHelp).toBe("분기에 따라 달라지는 스텝은 점검 묶음 칸으로 보세요");
     const user = userEvent.setup();
