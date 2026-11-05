@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>측정결과 보고서 시안 v3 (1쪽)</title>
+<style>
+  :root{--ink:#1a1d24;--sub:#5b6170;--line:#c9ccd3;--faint:#eef0f3;--ok:#1f7a4d;--warn:#a15c00;--warnbg:#fff3df;--bad:#b42318;--badbg:#fdecea;--accent:#3b4bc8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:#8a8f99;font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;color:var(--ink);}
+  .guide{max-width:210mm;margin:16px auto 8px;background:#fff;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.65}
+  .guide b{color:var(--accent)}
+  .page{width:210mm;min-height:297mm;margin:12px auto;background:#fff;padding:14mm 15mm 12mm;box-shadow:0 2px 12px rgba(0,0,0,.25);position:relative;font-size:9.5pt;line-height:1.45}
+  .foot{position:absolute;bottom:7mm;left:15mm;right:15mm;display:flex;justify-content:space-between;font-size:7.5pt;color:var(--sub);border-top:1px solid var(--line);padding-top:2mm}
+  h1{font-size:17pt;margin:0 0 1mm}
+  h2{font-size:11pt;margin:6mm 0 2mm;padding-bottom:1mm;border-bottom:1.5px solid var(--ink)}
+  h2 .no{color:var(--accent);margin-right:2mm}
+  .meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);font-size:8.5pt;margin-top:3mm}
+  .meta div{padding:1.5mm 2mm;border-right:1px solid var(--line)} .meta div:last-child{border-right:0}
+  .meta span{display:block;color:var(--sub);font-size:7.5pt}
+  .verdict{display:flex;gap:4mm;margin-top:4mm}
+  .vbox{flex:0 0 42mm;border:2px solid var(--bad);background:var(--badbg);color:var(--bad);text-align:center;padding:3mm 2mm;border-radius:2mm}
+  .vbox .big{font-size:20pt;font-weight:800;line-height:1.1}
+  .summary{flex:1;border:1px solid var(--line);padding:3mm 4mm;border-radius:2mm}
+  .summary .t{font-weight:700;font-size:9pt;margin-bottom:1mm;color:var(--sub)}
+  .summary ol{margin:0;padding-left:5mm} .summary li{margin:.8mm 0}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:3mm;margin-top:4mm}
+  .kpi{border:1px solid var(--line);border-radius:2mm;padding:2.5mm 3mm}
+  .kpi .l{font-size:8pt;color:var(--sub);font-weight:600}
+  .kpi .v{font-size:16pt;font-weight:800;margin:.5mm 0} .kpi .v small{font-size:9pt;font-weight:600}
+  .kpi .tg{margin-top:1.5mm;padding-top:1.2mm;border-top:1px dashed var(--line);font-size:7.8pt}
+  .kpi .e{font-size:7.5pt;color:var(--sub);line-height:1.35}
+  .kpi.bad{border-color:var(--bad);background:var(--badbg)} .kpi.bad .v{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:8.3pt}
+  th,td{border:1px solid var(--line);padding:1.3mm 1.6mm;text-align:center}
+  th{background:var(--faint);font-weight:700}
+  th small{display:block;font-weight:400;font-size:6.8pt;color:var(--sub)}
+  td.l,th.l{text-align:left}
+  td small{display:block;color:var(--sub);font-size:6.8pt}
+  .ok{color:var(--ok);font-weight:700} .warn{color:var(--warn);font-weight:700} .bad{color:var(--bad);font-weight:700}
+  tr.rowbad td{background:var(--badbg)} tr.rowwarn td{background:var(--warnbg)}
+  .e-strong{background:var(--bad)!important;color:#fff;font-weight:700}
+  .e-light{background:#f6c9c4!important;color:var(--bad);font-weight:700}
+  .uncounted{background:repeating-linear-gradient(135deg,#fff 0 3px,#f3d9a8 3px 5px)!important;color:var(--warn);font-weight:700;outline:1.5px dashed var(--warn);outline-offset:-2px}
+  .muted{color:#b4b9c3}
+  .legend{display:flex;flex-wrap:wrap;gap:2mm 5mm;font-size:7.5pt;color:var(--sub);margin-top:1.5mm;align-items:center}
+  .sw{display:inline-block;width:4mm;height:3mm;vertical-align:middle;margin-right:1mm;border:1px solid var(--line)}
+  .callout{margin-top:2.5mm;border:1.5px solid var(--warn);background:var(--warnbg);border-radius:2mm;padding:2mm 3mm;font-size:8.2pt}
+  .callout b{color:var(--warn)}
+  .pin{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:5mm;height:5mm;font-size:7pt;line-height:5mm;text-align:center;font-weight:700;margin-left:1.5mm;vertical-align:middle}
+  .chg{background:#fff6b3;padding:0 1mm;border-radius:1mm}
+</style>
+</head>
+<body>
+<div class="guide">
+  <b>시안 v3 — 1쪽만 다시</b> (2쪽은 v1과 동일). 바뀐 곳은 <span class="chg">노란 형광</span>.<br>
+  <span class="pin" style="margin:0">A</span> 오류율 풀이 문구 교체 ·
+  <span class="pin" style="margin:0">B</span> <b>응답 코드 열은 그 측정에서 실제로 나온 코드만</b> (이번 예: 404·429·502·503·504·연결 실패) ·
+  <span class="pin" style="margin:0">C</span> 색 = "오류로 센 것", <b>빗금 = 오류로 안 센 것(검사 없음)</b> ·
+  <span class="pin" style="margin:0">D</span> 검사가 빠져 오류가 숨은 곳은 경고 상자로 · <span class="pin" style="margin:0">E</span> A4를 넘쳐서 <b>"목표 대비 결과" 표를 지표 칸 안으로 합침</b> (목표·판정 줄)
+</div>
+
+<div class="page">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end">
+    <div><div style="font-size:8pt;color:var(--sub)">성능 측정 결과 보고서</div><h1>민원 신청 흐름 부하 측정</h1></div>
+    <div style="font-size:8pt;color:var(--sub);text-align:right">문서번호: ____________<br>작성일 2026-11-05</div>
+  </div>
+  <div class="meta">
+    <div><span>대상 시스템</span>민원포털 (stg 환경)</div>
+    <div><span>측정 일시</span>2026-11-04 14:00–14:10</div>
+    <div><span>부하 조건</span>동시 사용자 200명 · 10분</div>
+    <div><span>측정 식별</span>#a91f3c · "릴리즈 2.4 전"</div>
+  </div>
+
+  <h2><span class="no">1.</span>종합 결과</h2>
+  <div class="verdict">
+    <div class="vbox"><div style="font-size:9pt;font-weight:700">종합 판정</div><div class="big">✕ 부적합</div><div style="font-size:8pt;margin-top:1mm">기준 3개 중 1개 미달</div></div>
+    <div class="summary">
+      <div class="t">요약 (자동 작성 · 수정 가능)</div>
+      <ol>
+        <li><b>오류율이 기준을 넘었습니다</b> (2.6%, 기준 1% 이하). 오류의 <b>87%가 '신청 제출' 단계</b>에서 났습니다.</li>
+        <li>그 오류는 대부분 <b>503(서버가 바빠서 요청을 거절함)</b>이며, <b>시작 4분 뒤</b>부터 계속 났습니다.</li>
+        <li><span class="chg">'첨부 업로드'에서 <b>502 응답 600건</b>이 있었지만 응답 코드 검사가 없어 <b>오류로 세지 않았습니다</b>. 실제 실패일 가능성이 높습니다.</span></li>
+        <li>'첨부 업로드'는 <b>느립니다</b> (95% 응답 4.8초, 기준 3초).</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">처리량</div><div class="v">240 <small>건/초</small></div><div class="e">1초에 처리한 요청 수. 클수록 많이 감당합니다.</div><div class="tg"><span class="chg">목표 200건/초 이상</span> <b class="ok">● 달성</b></div></div>
+    <div class="kpi"><div class="l">평균 응답시간</div><div class="v">0.84 <small>초</small></div><div class="e">요청을 보내고 답을 받기까지 걸린 시간의 평균.</div><div class="tg" style="color:var(--sub)">목표 없음 (참고값)</div></div>
+    <div class="kpi"><div class="l">95% 응답시간</div><div class="v">2.4 <small>초</small></div><div class="e">100번 중 95번은 이 시간 안에 답을 받았습니다.</div><div class="tg"><span class="chg">목표 3초 이하</span> <b class="ok">● 달성</b></div></div>
+    <div class="kpi bad"><div class="l">오류율 <span class="pin">A</span><span class="pin">E</span></div><div class="v">✕ 2.6 <small>%</small></div><div class="e"><span class="chg">전체 요청 중 실패한 비율.<br>실패 3,720건 / 전체 144,000건</span></div><div class="tg"><span class="chg">목표 1% 이하</span> <b class="bad">✕ 미달</b></div></div>
+  </div>
+
+  <h2><span class="no">2.</span>어디가 문제인가 — 단계별 결과 <span class="pin">B</span><span class="pin">C</span></h2>
+  <table>
+    <tr>
+      <th class="l" rowspan="2" style="width:36mm">단계</th><th rowspan="2">요청 수</th><th rowspan="2">95%<br>응답</th>
+      <th colspan="7">응답 코드별 건수 <span style="font-weight:400">(이번 측정에서 나온 코드만)</span></th><th rowspan="2" style="width:18mm">상태</th>
+    </tr>
+    <tr>
+      <th>정상<small>2xx</small></th>
+      <th>404<small>없는 주소</small></th>
+      <th>429<small>요청 너무 많음</small></th>
+      <th>502<small>중계 서버 오류</small></th>
+      <th>503<small>서버 바쁨</small></th>
+      <th>504<small>시간 초과</small></th>
+      <th>연결<br>실패<small>코드 없음</small></th>
+    </tr>
+    <tr><td class="l">① 로그인<small>POST /auth/login</small></td><td>24,000</td><td>0.6초</td><td>24,000</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상</td></tr>
+    <tr><td class="l">② 민원 목록<small>GET /petitions</small></td><td>48,000</td><td>1.1초</td><td>47,640</td><td class="muted">–</td><td class="e-light">360</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상<small>오류 0.75%</small></td></tr>
+    <tr><td class="l">③ 민원 상세<small>GET /petitions/{id}</small></td><td>48,000</td><td>1.4초</td><td>47,880</td><td class="e-light">120</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상<small>오류 0.25%</small></td></tr>
+    <tr class="rowwarn"><td class="l">④ 첨부 업로드<small>POST /files · <b class="warn">코드 검사 없음</b></small></td><td>12,000</td><td class="warn">4.8초</td><td>11,400</td><td class="muted">–</td><td class="muted">–</td><td class="uncounted">600</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="warn">▲ 느림<small>▲ 검사 없음</small></td></tr>
+    <tr class="rowbad"><td class="l">⑤ 신청 제출<small>POST /petitions</small></td><td>12,000</td><td>2.1초</td><td>8,760</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="e-strong">2,880</td><td class="e-light">312</td><td class="e-light">48</td><td class="bad">✕ 오류<small>오류 27.0%</small></td></tr>
+  </table>
+  <div class="legend">
+    <span><b class="ok">●</b> 정상</span><span><b class="warn">▲</b> 느림 / 검사 없음</span><span><b class="bad">✕</b> 단계 오류율 1% 초과</span>
+    <span><i class="sw" style="background:#f6c9c4"></i>오류로 센 응답</span>
+    <span><i class="sw" style="background:var(--bad)"></i>그중 가장 많은 것</span>
+    <span><i class="sw" style="background:repeating-linear-gradient(135deg,#fff 0 2px,#f3d9a8 2px 4px)"></i>오류로 <b>안</b> 센 응답 (검사 없음)</span>
+  </div>
+  <div class="callout"><span class="pin" style="margin:0 1.5mm 0 0">D</span><b>확인 필요:</b> ④ 첨부 업로드의 502 응답 600건은 시나리오에 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%가 됩니다. 다음 측정 전 이 단계에 "응답 코드 = 200" 검사를 추가하길 권합니다.</div>
+  <div style="font-size:7.3pt;color:var(--sub);margin-top:2mm">※ 응답 코드 종류가 많으면(7개 초과) 건수가 적은 코드부터 "기타 4xx" / "기타 5xx"로 묶습니다. 2xx·3xx는 각각 한 열로 묶습니다.</div>
+
+  <div class="foot"><span>민원 신청 흐름 부하 측정 · #a91f3c</span><span>Handicap 부하 테스트 도구로 생성</span><span>1 / 2</span></div>
+</div>
+</body>
+</html>

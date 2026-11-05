@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>측정결과 보고서 시안 v1</title>
+<style>
+  :root{
+    --ink:#1a1d24; --sub:#5b6170; --line:#c9ccd3; --faint:#eef0f3;
+    --ok:#1f7a4d; --okbg:#e6f4ec; --warn:#a15c00; --warnbg:#fff3df; --bad:#b42318; --badbg:#fdecea;
+    --accent:#3b4bc8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#8a8f99;font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;color:var(--ink);}
+  .guide{max-width:210mm;margin:16px auto 8px;background:#fff;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.6}
+  .guide b{color:var(--accent)}
+  .page{width:210mm;min-height:297mm;margin:12px auto;background:#fff;padding:14mm 15mm 12mm;box-shadow:0 2px 12px rgba(0,0,0,.25);position:relative;font-size:9.5pt;line-height:1.45}
+  .foot{position:absolute;bottom:7mm;left:15mm;right:15mm;display:flex;justify-content:space-between;font-size:7.5pt;color:var(--sub);border-top:1px solid var(--line);padding-top:2mm}
+  h1{font-size:17pt;margin:0 0 1mm;letter-spacing:-.3px}
+  h2{font-size:11pt;margin:6mm 0 2mm;padding-bottom:1mm;border-bottom:1.5px solid var(--ink)}
+  h2 .no{color:var(--accent);margin-right:2mm}
+  .meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);font-size:8.5pt;margin-top:3mm}
+  .meta div{padding:1.5mm 2mm;border-right:1px solid var(--line)}
+  .meta div:last-child{border-right:0}
+  .meta span{display:block;color:var(--sub);font-size:7.5pt}
+  .verdict{display:flex;gap:4mm;align-items:stretch;margin-top:4mm}
+  .vbox{flex:0 0 42mm;border:2px solid var(--bad);background:var(--badbg);color:var(--bad);text-align:center;padding:3mm 2mm;border-radius:2mm}
+  .vbox .big{font-size:20pt;font-weight:800;line-height:1.1}
+  .vbox .small{font-size:8pt;margin-top:1mm}
+  .summary{flex:1;border:1px solid var(--line);padding:3mm 4mm;border-radius:2mm}
+  .summary .t{font-weight:700;font-size:9pt;margin-bottom:1mm;color:var(--sub)}
+  .summary ol{margin:0;padding-left:5mm}
+  .summary li{margin:.8mm 0}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:3mm;margin-top:4mm}
+  .kpi{border:1px solid var(--line);border-radius:2mm;padding:2.5mm 3mm}
+  .kpi .l{font-size:8pt;color:var(--sub);font-weight:600}
+  .kpi .v{font-size:16pt;font-weight:800;margin:.5mm 0}
+  .kpi .v small{font-size:9pt;font-weight:600}
+  .kpi .e{font-size:7.5pt;color:var(--sub);line-height:1.35}
+  .kpi.bad{border-color:var(--bad);background:var(--badbg)}
+  .kpi.bad .v{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:8.5pt}
+  th,td{border:1px solid var(--line);padding:1.4mm 2mm;text-align:center}
+  th{background:var(--faint);font-weight:700}
+  td.l,th.l{text-align:left}
+  .ok{color:var(--ok);font-weight:700}
+  .warn{color:var(--warn);font-weight:700}
+  .bad{color:var(--bad);font-weight:700}
+  tr.rowbad td{background:var(--badbg)}
+  tr.rowwarn td{background:var(--warnbg)}
+  .cell-bad{background:var(--bad)!important;color:#fff;font-weight:700}
+  .cell-badl{background:#f6c9c4!important;color:var(--bad);font-weight:700}
+  .muted{color:#aab0bb}
+  .note{font-size:7.5pt;color:var(--sub);margin-top:1.5mm}
+  .legend{display:flex;gap:5mm;font-size:7.5pt;color:var(--sub);margin-top:1.5mm}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:4mm}
+  .box{border:1px solid var(--line);border-radius:2mm;padding:2.5mm 3mm;font-size:8.3pt}
+  .box h3{font-size:8.8pt;margin:0 0 1.5mm}
+  .box ul{margin:0;padding-left:4.5mm}
+  .box li{margin:.6mm 0}
+  .bar{display:flex;height:4.2mm;border-radius:1mm;overflow:hidden;border:1px solid var(--line)}
+  .bar i{display:block;height:100%}
+  .sign{display:grid;grid-template-columns:repeat(3,1fr);margin-top:4mm;font-size:8.5pt}
+  .sign div{border:1px solid var(--line);margin-left:-1px;height:18mm;padding:1.5mm 2mm;color:var(--sub)}
+  .pin{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:5mm;height:5mm;font-size:7pt;line-height:5mm;text-align:center;font-weight:700;margin-left:1.5mm;vertical-align:middle}
+  .glos{display:grid;grid-template-columns:28mm 1fr;gap:.8mm 3mm;font-size:8pt}
+  .glos b{font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="guide">
+  <b>측정결과 보고서 시안 v1</b> — A4 세로 2쪽, 예시 데이터. 파란 동그라미 번호는 시안 설명용이고 실제 출력엔 없습니다.<br>
+  <span class="pin" style="margin:0">1</span> 1쪽만 봐도 결론 · <span class="pin" style="margin:0">2</span> 지표마다 쉬운 말 풀이 · <span class="pin" style="margin:0">3</span> <b>스텝 × 응답코드 표 — "어느 스텝에서 503이 났나"</b> · <span class="pin" style="margin:0">4</span> 오류가 <b>언제부터</b> 났나 · <span class="pin" style="margin:0">5</span> 흑백 출력해도 ●▲✕로 구분
+</div>
+
+<!-- ============ PAGE 1 ============ -->
+<div class="page">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end">
+    <div>
+      <div style="font-size:8pt;color:var(--sub)">성능 측정 결과 보고서</div>
+      <h1>민원 신청 흐름 부하 측정</h1>
+    </div>
+    <div style="font-size:8pt;color:var(--sub);text-align:right">문서번호: ____________<br>작성일 2026-11-05</div>
+  </div>
+  <div class="meta">
+    <div><span>대상 시스템</span>민원포털 (stg 환경)</div>
+    <div><span>측정 일시</span>2026-11-04 14:00–14:10</div>
+    <div><span>부하 조건</span>동시 사용자 200명 · 10분</div>
+    <div><span>측정 식별</span>#a91f3c · "릴리즈 2.4 전"</div>
+  </div>
+
+  <h2><span class="no">1.</span>종합 결과 <span class="pin">1</span></h2>
+  <div class="verdict">
+    <div class="vbox">
+      <div style="font-size:9pt;font-weight:700">종합 판정</div>
+      <div class="big">✕ 부적합</div>
+      <div class="small">기준 3개 중 1개 미달</div>
+    </div>
+    <div class="summary">
+      <div class="t">요약 (자동 작성 · 수정 가능)</div>
+      <ol>
+        <li><b>오류율이 기준을 넘었습니다</b> (2.3%, 기준 1% 이하). 오류의 <b>96%가 '민원 신청 제출' 단계</b>에서 났습니다.</li>
+        <li>그 오류는 대부분 <b>503(서버가 바빠서 요청을 거절함)</b>이며, <b>시작 4분 뒤</b>부터 계속 났습니다.</li>
+        <li>'첨부파일 업로드'는 오류는 없지만 <b>느립니다</b> (95% 응답 4.8초, 기준 3초).</li>
+        <li>나머지 3개 단계는 빠르고 오류가 거의 없습니다.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="l">처리량</div>
+      <div class="v">240 <small>건/초</small></div>
+      <div class="e">1초에 처리한 요청 수. 클수록 많이 감당합니다.</div>
+    </div>
+    <div class="kpi">
+      <div class="l">평균 응답시간</div>
+      <div class="v">0.84 <small>초</small></div>
+      <div class="e">요청을 보내고 답을 받기까지 걸린 시간의 평균.</div>
+    </div>
+    <div class="kpi">
+      <div class="l">95% 응답시간 <span class="pin">2</span></div>
+      <div class="v">2.4 <small>초</small></div>
+      <div class="e">100번 중 95번은 이 시간 안에 답을 받았습니다.</div>
+    </div>
+    <div class="kpi bad">
+      <div class="l">오류율</div>
+      <div class="v">✕ 2.3 <small>%</small></div>
+      <div class="e">요청 100건 중 실패한 건수. 3,312건 / 144,000건.</div>
+    </div>
+  </div>
+
+  <h2><span class="no">2.</span>목표 대비 결과</h2>
+  <table>
+    <tr><th class="l">기준</th><th>목표</th><th>측정값</th><th>판정</th><th class="l">한 줄 해석</th></tr>
+    <tr><td class="l">95% 응답시간</td><td>3초 이하</td><td>2.4초</td><td class="ok">● 달성</td><td class="l">전체 평균으로는 기준 안. 단, 업로드 단계는 초과 (3절 참조)</td></tr>
+    <tr class="rowbad"><td class="l">오류율</td><td>1% 이하</td><td>2.3%</td><td class="bad">✕ 미달</td><td class="l">'민원 신청 제출' 단계의 503이 원인</td></tr>
+    <tr><td class="l">처리량</td><td>200건/초 이상</td><td>240건/초</td><td class="ok">● 달성</td><td class="l">목표보다 20% 많이 처리</td></tr>
+  </table>
+
+  <h2><span class="no">3.</span>어디가 문제인가 — 단계별 결과 <span class="pin">3</span></h2>
+  <table>
+    <tr>
+      <th class="l" rowspan="2">단계 (요청)</th><th rowspan="2">요청 수</th><th rowspan="2">95% 응답</th>
+      <th colspan="5">응답 코드별 건수</th><th rowspan="2">상태</th>
+    </tr>
+    <tr><th>정상<br>200</th><th>500<br><span style="font-weight:400">서버 오류</span></th><th>503<br><span style="font-weight:400">서버 바쁨</span></th><th>504<br><span style="font-weight:400">시간 초과</span></th><th>연결<br><span style="font-weight:400">실패</span></th></tr>
+    <tr><td class="l">① 로그인 <span class="muted">POST /auth/login</span></td><td>24,000</td><td>0.6초</td><td>24,000</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상</td></tr>
+    <tr><td class="l">② 민원 목록 <span class="muted">GET /petitions</span></td><td>48,000</td><td>1.1초</td><td>48,000</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상</td></tr>
+    <tr><td class="l">③ 민원 상세 <span class="muted">GET /petitions/{id}</span></td><td>48,000</td><td>1.4초</td><td>47,880</td><td class="cell-badl">120</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="ok">● 정상<br><span style="font-weight:400;font-size:7pt">(0.25%)</span></td></tr>
+    <tr class="rowwarn"><td class="l">④ 첨부 업로드 <span class="muted">POST /files</span></td><td>12,000</td><td class="warn">4.8초</td><td>12,000</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="muted">–</td><td class="warn">▲ 느림</td></tr>
+    <tr class="rowbad"><td class="l">⑤ 신청 제출 <span class="muted">POST /petitions</span></td><td>12,000</td><td>2.1초</td><td>8,808</td><td class="muted">–</td><td class="cell-bad">2,880</td><td class="cell-badl">312</td><td class="muted">–</td><td class="bad">✕ 오류<br><span style="font-weight:400;font-size:7pt">(26.6%)</span></td></tr>
+  </table>
+  <div class="legend"><span><b class="ok">●</b> 정상</span><span><b class="warn">▲</b> 느림 (95% 응답이 기준 초과)</span><span><b class="bad">✕</b> 오류 (단계 오류율 1% 초과)</span><span>진한 칸 = 그 단계 오류의 대부분</span></div>
+
+  <div class="foot"><span>민원 신청 흐름 부하 측정 · #a91f3c</span><span>Handicap 부하 테스트 도구로 생성</span><span>1 / 2</span></div>
+</div>
+
+<!-- ============ PAGE 2 ============ -->
+<div class="page">
+  <h2 style="margin-top:0"><span class="no">4.</span>시간에 따른 변화 <span class="pin">4</span></h2>
+  <div class="box" style="padding:2mm 3mm">
+    <svg id="chart" viewBox="0 0 600 210" width="100%"></svg>
+    <div class="legend" style="margin-top:0">
+      <span><b style="color:var(--accent)">━</b> 처리량 (건/초, 왼쪽 축)</span>
+      <span><b style="color:var(--bad)">▮</b> ⑤ 신청 제출 503 (건/초, 오른쪽 축)</span>
+      <span><b style="color:#e8968c">▮</b> 그 밖의 오류</span>
+    </div>
+    <div class="note">읽는 법: 4분 지점부터 빨간 막대(오류)가 생기고, 같은 시점에 처리량 선이 살짝 내려갑니다 → 부하가 일정 수준을 넘자 '신청 제출' 서버가 요청을 거절하기 시작했습니다.</div>
+  </div>
+
+  <h2><span class="no">5.</span>단계별 응답 속도 분포</h2>
+  <table>
+    <tr><th class="l" style="width:34mm">단계</th><th>요청 결과 비율</th></tr>
+    <tr><td class="l">① 로그인</td><td><div class="bar"><i style="width:96%;background:#4caf7d"></i><i style="width:4%;background:#f0c36b"></i></div></td></tr>
+    <tr><td class="l">② 민원 목록</td><td><div class="bar"><i style="width:82%;background:#4caf7d"></i><i style="width:18%;background:#f0c36b"></i></div></td></tr>
+    <tr><td class="l">③ 민원 상세</td><td><div class="bar"><i style="width:74%;background:#4caf7d"></i><i style="width:25.75%;background:#f0c36b"></i><i style="width:.25%;background:var(--bad)"></i></div></td></tr>
+    <tr><td class="l">④ 첨부 업로드</td><td><div class="bar"><i style="width:22%;background:#4caf7d"></i><i style="width:46%;background:#f0c36b"></i><i style="width:32%;background:#d9822b"></i></div></td></tr>
+    <tr><td class="l">⑤ 신청 제출</td><td><div class="bar"><i style="width:40%;background:#4caf7d"></i><i style="width:33.4%;background:#f0c36b"></i><i style="width:26.6%;background:var(--bad)"></i></div></td></tr>
+  </table>
+  <div class="legend"><span><b style="color:#4caf7d">■</b> 1초 미만</span><span><b style="color:#f0c36b">■</b> 1–3초</span><span><b style="color:#d9822b">■</b> 3초 초과 (느림)</span><span><b style="color:var(--bad)">■</b> 실패</span></div>
+
+  <div class="two" style="margin-top:5mm">
+    <div class="box">
+      <h3>측정 조건</h3>
+      <ul>
+        <li>동시 사용자 200명, 30초에 걸쳐 늘림, 10분 유지</li>
+        <li>사용자마다 단계 사이 1–3초 쉼 (실제 사용 흉내)</li>
+        <li>요청 제한 시간 30초 · 워커 2대</li>
+        <li>환경: stg (BASE_URL = https://stg.minwon…)</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>이 결과로 말할 수 있는 것 / 없는 것</h3>
+      <ul>
+        <li class="ok" style="font-weight:400">● 200명 동시 사용 시 '신청 제출'이 버티지 못한다</li>
+        <li class="ok" style="font-weight:400">● 나머지 단계는 200명에서 기준 안이다</li>
+        <li class="bad" style="font-weight:400">✕ 운영 환경에서도 같다고 단정할 수 없다 (stg 측정)</li>
+        <li class="bad" style="font-weight:400">✕ 200명을 넘는 경우는 측정하지 않았다</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2><span class="no">6.</span>용어 풀이</h2>
+  <div class="glos">
+    <b>처리량 (TPS)</b><span>1초 동안 서버가 처리한 요청 수.</span>
+    <b>95% 응답시간</b><span>요청을 빠른 순으로 줄 세웠을 때 95번째. "대부분의 사용자가 겪는 최악에 가까운 대기 시간".</span>
+    <b>503</b><span>서버가 바빠서 지금은 받을 수 없다고 거절한 응답. 용량 부족의 신호.</span>
+    <b>504</b><span>서버 뒤쪽 시스템이 제때 답하지 않아 시간 초과된 응답.</span>
+    <b>연결 실패</b><span>서버에 닿기 전에 실패 (주소 오류, 연결 거부 등). 응답 코드가 없습니다.</span>
+  </div>
+
+  <div class="sign">
+    <div>시험자</div><div>검토자</div><div>확인자</div>
+  </div>
+
+  <div class="foot"><span>민원 신청 흐름 부하 측정 · #a91f3c</span><span>Handicap 부하 테스트 도구로 생성</span><span>2 / 2</span></div>
+</div>
+
+<script>
+(function(){
+  const svg=document.getElementById('chart');
+  const W=600,H=210,L=40,R=40,T=12,B=28,pw=W-L-R,ph=H-T-B;
+  const n=60; // 10s buckets over 10 min
+  let s='';
+  // grid + axes
+  for(let i=0;i<=4;i++){const y=T+ph*i/4;s+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#e4e6ea"/>`;
+    s+=`<text x="${L-6}" y="${y+3}" font-size="9" text-anchor="end" fill="#5b6170">${300-75*i}</text>`;
+    s+=`<text x="${W-R+6}" y="${y+3}" font-size="9" fill="#b42318">${20-5*i}</text>`;}
+  for(let m=0;m<=10;m+=2){const x=L+pw*m/10;s+=`<text x="${x}" y="${H-12}" font-size="9" text-anchor="middle" fill="#5b6170">${m}분</text>`;}
+  // error bars
+  const bw=pw/n*0.7;
+  for(let i=0;i<n;i++){
+    const t=i/6; let e503=0,eo=0;
+    if(t>=4){e503=7+Math.sin(i*1.7)*1.5+(t-4)*0.6; eo=0.6+Math.cos(i)*0.3;}
+    else if(i%9==4){eo=0.4;}
+    const x=L+pw*i/n+(pw/n-bw)/2;
+    const h1=ph*e503/20,h2=ph*eo/20;
+    if(h1>0)s+=`<rect x="${x}" y="${T+ph-h1}" width="${bw}" height="${h1}" fill="#b42318"/>`;
+    if(h2>0)s+=`<rect x="${x}" y="${T+ph-h1-h2}" width="${bw}" height="${h2}" fill="#e8968c"/>`;
+  }
+  // tps line
+  let p='';
+  for(let i=0;i<n;i++){const t=i/6;let v= i<3? 80*i+40 : (t<4?250+Math.sin(i)*6:228+Math.sin(i*1.3)*7);
+    const x=L+pw*(i+0.5)/n,y=T+ph*(1-v/300);p+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);}
+  s+=`<path d="${p}" fill="none" stroke="#3b4bc8" stroke-width="2"/>`;
+  // annotation
+  const xa=L+pw*0.4;
+  s+=`<line x1="${xa}" x2="${xa}" y1="${T}" y2="${T+ph}" stroke="#b42318" stroke-dasharray="3 3"/>`;
+  s+=`<text x="${xa+5}" y="${T+10}" font-size="9.5" fill="#b42318" font-weight="700">4분: 503 시작</text>`;
+  s+=`<text x="${L-6}" y="${T-3}" font-size="8" text-anchor="end" fill="#5b6170">건/초</text>`;
+  svg.innerHTML=s;
+})();
+</script>
+</body>
+</html>

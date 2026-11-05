@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>비교 보고서 시안 v1</title>
+<style>
+  :root{--ink:#1a1d24;--sub:#5b6170;--line:#c9ccd3;--faint:#eef0f3;--ok:#1f7a4d;--okbg:#e6f4ec;--warn:#a15c00;--warnbg:#fff3df;--bad:#b42318;--badbg:#fdecea;--accent:#3b4bc8;--before:#9aa1ad;--after:#3b4bc8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:#8a8f99;font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;color:var(--ink);}
+  .guide{max-width:210mm;margin:16px auto 8px;background:#fff;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.65}
+  .guide b{color:var(--accent)}
+  .page{width:210mm;height:297mm;margin:12px auto;background:#fff;padding:14mm 15mm 12mm;box-shadow:0 2px 12px rgba(0,0,0,.25);position:relative;font-size:9.5pt;line-height:1.45;overflow:hidden}
+  .foot{position:absolute;bottom:7mm;left:15mm;right:15mm;display:flex;justify-content:space-between;font-size:7.5pt;color:var(--sub);border-top:1px solid var(--line);padding-top:2mm}
+  h1{font-size:17pt;margin:0 0 1mm}
+  h2{font-size:11pt;margin:5mm 0 2mm;padding-bottom:1mm;border-bottom:1.5px solid var(--ink)}
+  h2 .no{color:var(--accent);margin-right:2mm}
+  .pin{display:inline-block;background:var(--accent);color:#fff;border-radius:50%;width:5mm;height:5mm;font-size:7pt;line-height:5mm;text-align:center;font-weight:700;margin-left:1.5mm;vertical-align:middle}
+  .pair{display:grid;grid-template-columns:1fr 8mm 1fr;margin-top:3mm;align-items:stretch}
+  .run{border:1px solid var(--line);padding:2mm 3mm;font-size:8.3pt;border-radius:2mm}
+  .run .tag{font-size:7.5pt;font-weight:700;color:#fff;background:var(--before);display:inline-block;padding:0 2mm;border-radius:1mm}
+  .run.after{border-color:var(--after)} .run.after .tag{background:var(--after)}
+  .run b{font-size:9.5pt}
+  .arrow{display:flex;align-items:center;justify-content:center;font-size:14pt;color:var(--sub)}
+  .verdict{display:flex;gap:4mm;margin-top:3mm}
+  .vbox{flex:0 0 42mm;border:2px solid var(--ok);background:var(--okbg);color:var(--ok);text-align:center;padding:3mm 2mm;border-radius:2mm}
+  .vbox .big{font-size:20pt;font-weight:800;line-height:1.1}
+  .vbox .small{font-size:8pt;margin-top:1.5mm;color:var(--ink)}
+  .summary{flex:1;border:1px solid var(--line);padding:2.5mm 4mm;border-radius:2mm}
+  .summary .t{font-weight:700;font-size:9pt;margin-bottom:1mm;color:var(--sub)}
+  .summary ol{margin:0;padding-left:5mm} .summary li{margin:.6mm 0}
+  .fair{display:grid;grid-template-columns:repeat(4,1fr);gap:2mm;margin-top:3mm;font-size:7.8pt}
+  .fair div{border:1px solid var(--line);border-radius:1.5mm;padding:1.3mm 2mm}
+  .fair .w{border-color:var(--warn);background:var(--warnbg)}
+  table{width:100%;border-collapse:collapse;font-size:8.3pt}
+  th,td{border:1px solid var(--line);padding:1.3mm 1.8mm;text-align:center;vertical-align:middle}
+  th{background:var(--faint);font-weight:700}
+  td.l,th.l{text-align:left}
+  td small,th small{display:block;color:var(--sub);font-size:6.8pt;font-weight:400}
+  .ok{color:var(--ok);font-weight:700}.warn{color:var(--warn);font-weight:700}.bad{color:var(--bad);font-weight:700}.same{color:var(--sub);font-weight:700}
+  .bars{display:flex;flex-direction:column;gap:.7mm;min-width:40mm}
+  .bars i{display:block;height:2.3mm;border-radius:.5mm}
+  .legend{display:flex;flex-wrap:wrap;gap:2mm 5mm;font-size:7.5pt;color:var(--sub);margin-top:1.5mm;align-items:center}
+  .sw{display:inline-block;width:4mm;height:3mm;vertical-align:middle;margin-right:1mm}
+  .box{border:1px solid var(--line);border-radius:2mm;padding:2mm 3mm;font-size:8.3pt}
+  .box h3{font-size:8.8pt;margin:0 0 1.5mm}
+  .box ul{margin:0;padding-left:4.5mm} .box li{margin:.5mm 0}
+  .cellchg{white-space:nowrap}
+  .cellchg s{color:var(--sub);text-decoration:none}
+  .down{background:var(--okbg)} .up{background:var(--badbg)} .flat{background:#f4f5f7}
+  .note{font-size:7.5pt;color:var(--sub);margin-top:1.5mm}
+  .sign{display:grid;grid-template-columns:repeat(3,1fr);margin-top:3mm;font-size:8.5pt}
+  .sign div{border:1px solid var(--line);margin-left:-1px;height:10mm;padding:1.5mm 2mm;color:var(--sub)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:4mm}
+  .dist{display:flex;height:4.5mm;border:1px solid var(--line);border-radius:1mm;overflow:hidden}
+  .dist i{display:block;height:100%;font-style:normal;font-size:6.5pt;color:#fff;text-align:center;line-height:4.5mm;overflow:hidden}
+</style>
+</head>
+<body>
+<div class="guide">
+  <b>비교 보고서 시안 v1</b> — A4 세로 2쪽, 예시 데이터 (측정 시안의 "#a91f3c 릴리즈 2.4 전"을 고친 뒤 다시 잰 상황).<br>
+  <span class="pin" style="margin:0">1</span> 1쪽 맨 위에 <b>"나아졌나?"</b>의 답과 판정 변화 ·
+  <span class="pin" style="margin:0">2</span> <b>공정한 비교인지</b> 먼저 확인 (조건이 다르면 경고) ·
+  <span class="pin" style="margin:0">3</span> 지표마다 <b>이전 → 이후 · 변화율 · 좋아짐/비슷/나빠짐</b> (방향은 지표마다 다름: 응답시간은 낮을수록, 처리량은 높을수록 좋음) ·
+  <span class="pin" style="margin:0">4</span> 단계별 <b>점-화살표 차트</b>로 개선 폭을 한눈에 ·
+  <span class="pin" style="margin:0">5</span> 응답 코드 표는 <b>"2,880 → 0"</b> 식으로 ·
+  <span class="pin" style="margin:0">6</span> <b>남은 문제</b>도 숨기지 않음
+</div>
+
+<!-- ================= PAGE 1 ================= -->
+<div class="page">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end">
+    <div><div style="font-size:8pt;color:var(--sub)">성능 비교 보고서</div><h1>민원 신청 흐름 — 개선 전후 비교</h1></div>
+    <div style="font-size:8pt;color:var(--sub);text-align:right">문서번호: ____________<br>작성일 2026-11-06</div>
+  </div>
+  <div class="pair">
+    <div class="run"><span class="tag">이전</span> <b>"릴리즈 2.4 전"</b> #a91f3c<br>2026-11-04 14:00 · 판정 <span class="bad">✕ 부적합</span></div>
+    <div class="arrow">→</div>
+    <div class="run after"><span class="tag">이후</span> <b>"릴리즈 2.4 후"</b> #c27d10<br>2026-11-05 14:00 · 판정 <span class="ok">● 적합</span></div>
+  </div>
+
+  <h2><span class="no">1.</span>종합 <span class="pin">1</span></h2>
+  <div class="verdict">
+    <div class="vbox">
+      <div style="font-size:9pt;font-weight:700">비교 결과</div>
+      <div class="big">▼ 개선</div>
+      <div class="small">지표 6개 중<br><b class="ok">5개 좋아짐</b> · <b class="same">1개 비슷</b><br><b class="bad">0개 나빠짐</b></div>
+    </div>
+    <div class="summary">
+      <div class="t">요약 (자동 작성 · 수정 가능)</div>
+      <ol>
+        <li>판정이 <b class="bad">✕ 부적합</b> → <b class="ok">● 적합</b>으로 바뀌었습니다. 기준 3개를 모두 지켰습니다.</li>
+        <li><b>오류율 2.6% → 0.3%</b> (약 9분의 1). '신청 제출'의 <b>503 오류 2,880건이 0건</b>이 되었습니다.</li>
+        <li><b>가장 느린 응답 12.4초 → 3.1초</b> (75% 단축). '첨부 업로드'가 기준(3초) 안으로 들어왔습니다.</li>
+        <li>처리량은 240 → 252건/초로 <b>5% 늘었습니다</b>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="fair">
+    <div><span class="ok">●</span> 같은 시나리오<br><small style="color:var(--sub)">민원 신청 흐름</small></div>
+    <div><span class="ok">●</span> 같은 부하 조건<br><small style="color:var(--sub)">200명 · 10분 · 쉼 1–3초</small></div>
+    <div><span class="ok">●</span> 같은 환경<br><small style="color:var(--sub)">stg</small></div>
+    <div class="w"><span class="warn">▲</span> 시나리오 내용 1곳 다름 <span class="pin">2</span><br><small style="color:var(--warn)">④에 응답 코드 검사 추가됨</small></div>
+  </div>
+
+  <h2><span class="no">2.</span>핵심 지표 비교 <span class="pin">3</span></h2>
+  <table>
+    <tr><th class="l" style="width:34mm">지표</th><th style="width:20mm">이전</th><th style="width:20mm">이후</th><th style="width:26mm">변화</th><th>한눈에 보기 <small>회색 = 이전 · 파랑 = 이후</small></th></tr>
+    <tr><td class="l">오류율<small>전체 요청 중 실패한 비율</small></td><td>2.6%</td><td><b>0.3%</b></td><td class="down"><span class="ok">▼ 88% 감소</span><br><small>좋아짐</small></td>
+      <td><div class="bars"><i style="width:100%;background:var(--before)"></i><i style="width:11.5%;background:var(--after)"></i></div></td></tr>
+    <tr><td class="l">가장 느린 응답<small>측정 중 최댓값</small></td><td>12.4초</td><td><b>3.1초</b></td><td class="down"><span class="ok">▼ 75% 단축</span><br><small>좋아짐</small></td>
+      <td><div class="bars"><i style="width:100%;background:var(--before)"></i><i style="width:25%;background:var(--after)"></i></div></td></tr>
+    <tr><td class="l">95% 응답시간<small>100번 중 95번은 이 시간 안</small></td><td>2.4초</td><td><b>1.6초</b></td><td class="down"><span class="ok">▼ 33% 단축</span><br><small>좋아짐</small></td>
+      <td><div class="bars"><i style="width:100%;background:var(--before)"></i><i style="width:66.7%;background:var(--after)"></i></div></td></tr>
+    <tr><td class="l">평균 응답시간</td><td>0.84초</td><td><b>0.62초</b></td><td class="down"><span class="ok">▼ 26% 단축</span><br><small>좋아짐</small></td>
+      <td><div class="bars"><i style="width:100%;background:var(--before)"></i><i style="width:73.8%;background:var(--after)"></i></div></td></tr>
+    <tr><td class="l">처리량<small>1초에 처리한 요청 수</small></td><td>240건/초</td><td><b>252건/초</b></td><td class="down"><span class="ok">▲ 5% 증가</span><br><small>좋아짐</small></td>
+      <td><div class="bars"><i style="width:95.2%;background:var(--before)"></i><i style="width:100%;background:var(--after)"></i></div></td></tr>
+    <tr><td class="l">전체 요청 수</td><td>144,000</td><td>144,900</td><td class="flat"><span class="same">= 비슷</span><br><small>±5% 이내</small></td>
+      <td><div class="bars"><i style="width:99.4%;background:var(--before)"></i><i style="width:100%;background:var(--after)"></i></div></td></tr>
+  </table>
+  <div class="note">변화가 ±5% 이내면 "비슷"으로 표시합니다. 응답시간·오류율은 <b>낮아지면</b>, 처리량은 <b>높아지면</b> 좋아진 것입니다.</div>
+
+  <h2><span class="no">3.</span>단계별 95% 응답시간 변화 <span class="pin">4</span></h2>
+  <div class="box" style="padding:1.5mm 3mm">
+    <svg id="dumbbell" viewBox="0 0 600 168" width="100%"></svg>
+    <div class="legend" style="margin-top:0"><span><i class="sw" style="background:var(--before);border-radius:50%"></i>이전</span><span><i class="sw" style="background:var(--after);border-radius:50%"></i>이후</span><span><b style="color:var(--bad)">┊</b> 기준 3초</span><span>화살표가 왼쪽 = 빨라짐</span></div>
+  </div>
+
+  <div class="foot"><span>민원 신청 흐름 개선 전후 비교 · #a91f3c → #c27d10</span><span>Handicap 부하 테스트 도구로 생성</span><span>1 / 2</span></div>
+</div>
+
+<!-- ================= PAGE 2 ================= -->
+<div class="page">
+  <h2 style="margin-top:0"><span class="no">4.</span>단계별 오류 변화 <span class="pin">5</span></h2>
+  <table>
+    <tr><th class="l" rowspan="2" style="width:34mm">단계</th><th rowspan="2">오류율<small>이전 → 이후</small></th><th colspan="5">응답 코드별 건수 <small style="display:inline">(이전 → 이후, 둘 중 한쪽이라도 나온 코드만)</small></th><th rowspan="2" style="width:17mm">변화</th></tr>
+    <tr><th>404<small>없는 주소</small></th><th>429<small>요청 너무 많음</small></th><th>502<small>중계 서버 오류</small></th><th>503<small>서버 바쁨</small></th><th>504<small>시간 초과</small></th></tr>
+    <tr><td class="l">① 로그인</td><td class="cellchg">0% → 0%</td><td>–</td><td>–</td><td>–</td><td>–</td><td>–</td><td class="same">= 비슷</td></tr>
+    <tr><td class="l">② 민원 목록</td><td class="cellchg">0.75% → 0.75%</td><td>–</td><td class="flat cellchg">360 → 360</td><td>–</td><td>–</td><td>–</td><td class="same">= 비슷<small>남은 문제</small></td></tr>
+    <tr><td class="l">③ 민원 상세</td><td class="cellchg">0.25% → 0.1%</td><td class="down cellchg">120 → <b>48</b></td><td>–</td><td>–</td><td>–</td><td>–</td><td class="ok">▼ 좋아짐</td></tr>
+    <tr><td class="l">④ 첨부 업로드<small>이후에 코드 검사 추가</small></td><td class="cellchg">0%* → 0%</td><td>–</td><td>–</td><td class="down cellchg">600* → <b>0</b></td><td>–</td><td>–</td><td class="ok">▼ 좋아짐</td></tr>
+    <tr><td class="l">⑤ 신청 제출</td><td class="cellchg">27.0% → 0.2%</td><td>–</td><td>–</td><td>–</td><td class="down cellchg">2,880 → <b>0</b></td><td class="down cellchg">312 → <b>24</b></td><td class="ok">▼ 좋아짐</td></tr>
+  </table>
+  <div class="note">* 이전 측정의 ④ 502 600건은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 이후 측정에는 검사가 있으므로, ④의 오류율 비교는 참고용입니다. 연결 실패: 이전 48건 → 이후 0건.</div>
+
+  <h2><span class="no">5.</span>시간에 따른 변화 — 겹쳐 보기</h2>
+  <div class="box" style="padding:1.5mm 3mm">
+    <svg id="overlay" viewBox="0 0 600 175" width="100%"></svg>
+    <div class="legend" style="margin-top:0">
+      <span><b style="color:var(--before)">━</b> 이전 처리량</span><span><b style="color:var(--after)">━</b> 이후 처리량</span>
+      <span><i class="sw" style="background:#f0a49b"></i>이전 오류 (건/초)</span><span><i class="sw" style="background:var(--bad)"></i>이후 오류 (건/초)</span>
+    </div>
+    <div class="note" style="margin-top:.5mm">읽는 법: 이전에는 4분 지점부터 오류(연한 빨강)가 쌓였지만, 이후에는 10분 내내 거의 없습니다. 처리량(선)도 4분 이후 떨어지지 않습니다.</div>
+  </div>
+
+  <h2><span class="no">6.</span>응답 속도 구간 비교 (전체 요청)</h2>
+  <table>
+    <tr><th class="l" style="width:20mm"></th><th>요청 결과 비율</th></tr>
+    <tr><td class="l">이전</td><td><div class="dist"><i style="width:58%;background:#4caf7d">1초 미만 58%</i><i style="width:33%;background:#e0b04a">1–3초 33%</i><i style="width:6.4%;background:#d9822b">3초+</i><i style="width:2.6%;background:var(--bad)"></i></div></td></tr>
+    <tr><td class="l">이후</td><td><div class="dist"><i style="width:71%;background:#4caf7d">1초 미만 71%</i><i style="width:27.5%;background:#e0b04a">1–3초 27.5%</i><i style="width:1.2%;background:#d9822b"></i><i style="width:.3%;background:var(--bad)"></i></div></td></tr>
+  </table>
+  <div class="legend"><span><i class="sw" style="background:#4caf7d"></i>1초 미만</span><span><i class="sw" style="background:#e0b04a"></i>1–3초</span><span><i class="sw" style="background:#d9822b"></i>3초 초과</span><span><i class="sw" style="background:var(--bad)"></i>실패</span></div>
+
+  <div class="two" style="margin-top:3mm">
+    <div class="box">
+      <h3>측정 조건 대조</h3>
+      <table style="font-size:7.6pt">
+        <tr><th class="l"></th><th>이전</th><th>이후</th></tr>
+        <tr><td class="l">동시 사용자</td><td>200명</td><td>200명</td></tr>
+        <tr><td class="l">시간</td><td>10분</td><td>10분</td></tr>
+        <tr><td class="l">환경</td><td>stg</td><td>stg</td></tr>
+        <tr><td class="l">워커</td><td>2대</td><td>2대</td></tr>
+        <tr style="background:var(--warnbg)"><td class="l">④ 코드 검사</td><td>없음</td><td class="warn">있음</td></tr>
+      </table>
+    </div>
+    <div class="box" style="border-color:var(--warn)">
+      <h3><span class="warn">▲</span> 남은 문제 <span class="pin">6</span></h3>
+      <ul>
+        <li><b>② 민원 목록의 429(요청 너무 많음) 360건</b>은 그대로입니다. 요청 수 제한 설정을 확인할 필요가 있습니다.</li>
+        <li>이번 비교는 <b>200명</b>까지만 확인했습니다. 더 많은 사용자에서는 측정하지 않았습니다.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="sign"><div>시험자</div><div>검토자</div><div>확인자</div></div>
+  <div class="foot"><span>민원 신청 흐름 개선 전후 비교 · #a91f3c → #c27d10</span><span>Handicap 부하 테스트 도구로 생성</span><span>2 / 2</span></div>
+</div>
+
+<script>
+(function(){
+  // dumbbell
+  const steps=[['① 로그인',0.6,0.6],['② 민원 목록',1.1,0.9],['③ 민원 상세',1.4,1.0],['④ 첨부 업로드',4.8,2.7],['⑤ 신청 제출',2.1,1.5]];
+  const W=600,L=110,R=170,T=14,rowH=28,max=5,pw=W-L-R,LX=W-R+14;
+  const X=v=>L+pw*v/max;
+  let s='';
+  for(let v=0;v<=5;v++){s+=`<line x1="${X(v)}" x2="${X(v)}" y1="${T-4}" y2="${T+rowH*steps.length-6}" stroke="#eceef1"/><text x="${X(v)}" y="${T+rowH*steps.length+6}" font-size="9" text-anchor="middle" fill="#5b6170">${v}초</text>`;}
+  s+=`<line x1="${X(3)}" x2="${X(3)}" y1="${T-8}" y2="${T+rowH*steps.length-6}" stroke="#b42318" stroke-dasharray="3 3"/><text x="${X(3)+4}" y="${T-1}" font-size="8.5" fill="#b42318">기준 3초</text>`;
+  s+=`<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#3b4bc8"/></marker></defs>`;
+  steps.forEach((r,i)=>{const y=T+rowH*i+8;const [n,a,b]=r;
+    s+=`<text x="${L-8}" y="${y+3.5}" font-size="10" text-anchor="end" fill="#1a1d24">${n}</text>`;
+    if(Math.abs(a-b)/a<0.05){s+=`<circle cx="${X(a)}" cy="${y}" r="5" fill="#3b4bc8" stroke="#9aa1ad" stroke-width="3"/><text x="${LX}" y="${y+3.5}" font-size="9" fill="#5b6170">${a}초 → ${b}초 <tspan font-weight="700">= 비슷</tspan></text>`;}
+    else{s+=`<line x1="${X(a)-6}" x2="${X(b)+8}" y1="${y}" y2="${y}" stroke="#3b4bc8" stroke-width="2" marker-end="url(#ah)"/>`;
+      s+=`<circle cx="${X(a)}" cy="${y}" r="5" fill="#9aa1ad"/><circle cx="${X(b)}" cy="${y}" r="5" fill="#3b4bc8"/>`;
+      const pct=Math.round((1-b/a)*100);
+      s+=`<text x="${LX}" y="${y+3.5}" font-size="9" fill="#5b6170">${a}초 → <tspan font-weight="700" fill="#1f7a4d">${b}초 (−${pct}%)</tspan>${a>3&&b<=3?' <tspan fill="#1f7a4d" font-weight="700">기준 통과</tspan>':''}</text>`;}
+  });
+  document.getElementById('dumbbell').innerHTML=s;
+
+  // overlay
+  const o=document.getElementById('overlay');const H=175,LL=40,RR=40,TT=10,BB=24,ow=600-LL-RR,oh=H-TT-BB,n=60;
+  let t='';
+  for(let i=0;i<=4;i++){const y=TT+oh*i/4;t+=`<line x1="${LL}" x2="${600-RR}" y1="${y}" y2="${y}" stroke="#e4e6ea"/><text x="${LL-6}" y="${y+3}" font-size="9" text-anchor="end" fill="#5b6170">${300-75*i}</text><text x="${600-RR+6}" y="${y+3}" font-size="9" fill="#b42318">${20-5*i}</text>`;}
+  for(let m=0;m<=10;m+=2){t+=`<text x="${LL+ow*m/10}" y="${H-8}" font-size="9" text-anchor="middle" fill="#5b6170">${m}분</text>`;}
+  const bw=ow/n*0.38;
+  for(let i=0;i<n;i++){const tm=i/6;const eb=tm>=4?8+Math.sin(i*1.7)*1.5+(tm-4)*.6:(i%9==4?.4:0);const ea=(i%7==3)?.9:(i%5==1?.5:.15);
+    const x=LL+ow*i/n+ow/n*0.1;
+    if(eb>0)t+=`<rect x="${x}" y="${TT+oh-oh*eb/20}" width="${bw}" height="${oh*eb/20}" fill="#f0a49b"/>`;
+    t+=`<rect x="${x+bw+1}" y="${TT+oh-oh*ea/20}" width="${bw}" height="${oh*ea/20}" fill="#b42318"/>`;}
+  const line=(f,c)=>{let p='';for(let i=0;i<n;i++){const v=f(i);p+=(i?'L':'M')+(LL+ow*(i+.5)/n).toFixed(1)+' '+(TT+oh*(1-v/300)).toFixed(1);}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2"/>`;};
+  t+=line(i=>i<3?80*i+40:(i/6<4?250+Math.sin(i)*6:228+Math.sin(i*1.3)*7),'#9aa1ad');
+  t+=line(i=>i<3?84*i+42:252+Math.sin(i*.9)*5,'#3b4bc8');
+  o.innerHTML=t;
+})();
+</script>
+</body>
+</html>
