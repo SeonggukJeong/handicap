@@ -64,6 +64,7 @@
 - **A4a (run-level SLO / pass-fail criteria) ✅ 완료 (2026-06-03, subagent-driven 8 task)**: 종료된 run 리포트에 run-level criteria(p50/p95/p99·error_rate·min_rps) pass/fail verdict. profile_json 스냅샷 저장(무마이그레이션) + completed-only on-demand `build_report` verdict(B2) + `validate_run_config` 검증 + RunDialog SLO 입력(%↔분수, 프리셋 포함) + 리포트 `VerdictPanel`. ADR-0028. spec `docs/superpowers/specs/2026-06-03-a4a-slo-pass-fail-criteria-design.md`, plan `docs/superpowers/plans/2026-06-03-a4a-slo-pass-fail-criteria.md`. A4b(run 비교)·A4c(요약)는 후속.
 - **A4b (run 비교 + 리포트 CSV/XLSX export) ✅ 완료 (2026-06-03, subagent-driven 15 task 2-phase)**: 같은 시나리오 종료 run 2–5개 화면 비교(baseline 대비 Δ) + 단일/비교 CSV·XLSX export. **하이브리드** — 비교는 클라(기존 `/report` N-fetch + `compareReports` 순수 변환 → `CompareMatrix`), export는 컨트롤러(`build_report` 재사용 + `csv`/`rust_xlsxwriter`, 4 라우트). same-scenario terminal-only, N≤5 화면·>5 export(상한 50). 델타 공식은 spec §4.3 권위 정의 + `testdata/compare_golden.json` 골든 fixture로 TS↔Rust 패리티 교차검증. `build_report_for_run` 공유 헬퍼, `downloadFile`(fetch→blob, 4xx 배너). **엔진·워커·proto·마이그레이션 무변경.** ADR-0030. spec `docs/superpowers/specs/2026-06-03-run-comparison-report-export-design.md`, plan `docs/superpowers/plans/2026-06-03-run-comparison-report-export.md`. 연기 → §B7.
 - **A4c (actionable 리포트 요약) ✅ 완료 (2026-06-03, subagent-driven 10 task, master `6c77401`→`3530c30`)**: 종료 run 리포트 최상단에 결정론적 인사이트 패널. 백엔드 `build_report`가 신규 순수 `insights.rs::derive_insights` → `ReportJson.insights: Vec<Insight>`(구조화 emit, UI 한국어 렌더). v1 6종: `slowest_step`·`error_hotspot`·`no_request_step`(시나리오 walk, 무조건-도달 스텝만, if 분기 제외)·`slo_failure`/`slo_pass`·`status_class`(4xx/5xx, status-0 분모 제외)·`status_temporal`(후반 5xx). 신호 있을 때만 emit(패딩 없음, run_health 의도적 미채택), `order_rank` stable-sort. 단일-run XLSX **Insights 시트** 추가, CSV/compare/엔진/워커/proto/마이그레이션 무변경. **`#[serde(default)]`**(골든 fixture 호환) + strict `ReportSchema`에 `.optional()` 키 추가. 최종 handicap-reviewer READY-TO-MERGE(wire 1:1), 게이트 green(controller 105 pass+clippy / UI 393 pass+tsc-b). spec `docs/superpowers/specs/2026-06-03-a4c-actionable-report-summary-design.md`, plan `docs/superpowers/plans/2026-06-03-a4c-actionable-report-summary.md`(10 task). **연기**: baseline 회귀(A4b 연계)·status-class verdict 기준(A4a')·CSV/compare 인사이트 → §B7. **→ A4 영역(A4a+A4b+A4c) 완결.**
+- **A4d 인쇄 보고서 슬라이스 1 — 측정결과 보고서 ✅ 완료 (2026-11-06, a4-print-report, 코드 `4f077d1f`..`17ca5799`)**: 종료 run 리포트의 [보고서 인쇄] → `/runs/:id/print`에서 A4 세로 표준판(여러 쪽)·요약판(1장) 미리보기 + 브라우저 인쇄/PDF. 단계 × 응답 코드 표(실제 나온 코드만·7열 접기·오류로 셈/안 셈/확인 불가 3단 정직 표기·잔차 "응답 받은 뒤 실패"), 판정 상자 5상태, 결정론적 요약 문장, 인라인 SVG 시간 차트, 측정→배치 순수 함수 쪽 나누기(머리줄 반복·요약판 축소 사다리 8단). UI만(컨트롤러·엔진 0-diff). spec `docs/superpowers/specs/2026-11-05-a4-print-report-design.md`. 판단·연기 → §B43. **다음**: 슬라이스 2 = 비교 보고서 + 응답 속도 구간(spec §14), 그 다음 섹션·문구 편집 + 팀 공유 저장.
 
 ### A5. Run 설정 재사용 — Run 프리셋 + Retry (영역 A) — **✅ 완료 (A1 + A2 머지, ADR-0024)**
 - **성격**: QoL/UX 슬라이스(§4.5 메뉴 밖, 사용자 요청 발). run 을 한 번 돌린 뒤 같은 설정을 매번 손으로 재입력하는 통증 해소.
@@ -803,6 +804,30 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - 업그레이드 전에 열어 둔 전시 화면 탭은 새 판정 상태를 모르는 옛 Zod로 `/status` 파싱 실패(새로고침으로 해소).
 - 테스트 polish: 본문 읽기 비시간초과 에러의 `timed_out=false` 음성 테스트 없음 · `CheckRecord` JSON 키 순서 고정 테스트 없음 · `unit_loop` 같은 `at_ms` 테스트가 가짜 점검을 검사 · 묶음 `running` 칸별 토글로 µs 단위 반쯤 실행 표시 · `addCondition`의 `ownStep` 덮어쓰기 미검증.
 - 다음: **②b 겹침 질문 흐름** → ③ 자동 시작+부팅 전체화면(사용자 계획 순서 유지).
+
+### B43. A4 인쇄 보고서 슬라이스 1 (a4-print-report, 2026-11-06, 코드 `4f077d1f`..`17ca5799`, spec `docs/superpowers/specs/2026-11-05-a4-print-report-design.md`) 판단·연기
+
+(1) **사용자 결정 (2026-11-06, 라이브 검토 후) — 후속 슬라이스가 흡수**
+- **기준·측정값 표시 정밀도**: spec §5.3이 기준 목표에도 같은 표시 함수(`fmtMs`·`fmtPct`)를 쓰게 해서, 측정 3040ms·기준 3000ms가 "측정 3.0초, 기준 3.0초 이하 … 넘었습니다"처럼 앞뒤가 안 맞게 찍힌다(판정 문장·지표 칸 목표 줄·그 밖의 기준 표·느림 문장, 오류율 분수도 같음). **사용자 방향: 기준과 측정값은 자릿수를 늘리거나 원값 그대로**. 해소: 판정에 쓰이는 기준·측정값 쌍만 별도 포맷(예: ms 정수 `3,040ms` / 기준 `3,000ms`, 비율 소수 2자리 이상)으로 — 나머지 표시 단위(§5.3)는 유지. 손댈 곳: `ui/src/print/verdict.ts`(`criterionValue`·`kpiCards`·`otherCriteriaRows`), `sentences.ts`(판정·느림 줄).
+- **인쇄 보고서의 성격 = 내부 공유 문서**: spec은 "외부로 나가는 문서"로 보고 가림을 설계했지만 **사용자 판단: 외부 제출용이라기보다 내부 공유용이라 정보가 있는 편이 낫다**. 이번 슬라이스는 그대로 출하(run `message` "사유: …" 그대로 출력 — `sentences.ts`에 sink 주석, 엔진 `safe_cause` 허용목록에 의존). 비용: 앞으로 워커 실패 경로가 URL·userinfo가 든 에러를 `message`로 보내면 인쇄물에 그대로 실린다. 후속에서 가림 정책을 재검토할 때 **과잉 가림 완화 방향**(예: 요청 줄의 쿼리 `?…` 축약·대상 시스템 호스트-only를 옵션화)으로 — 단 env 값·자격증명 비출력은 유지가 기본.
+
+(2) **orchestrator 판단(틀렸을 때 비용 · 해소 경로)**
+- 요약 문장 생성 입력(`SummaryInput`)에 `criteria` 필드 추가 — 느림 문장의 단계 기준값(`stepThresholds`)을 넘기려고(plan 인터페이스엔 없었음). 비용: 내부 타입 필드 1개.
+- 경고 상자 "외 N곳"은 **칸 수가 아니라 단계 수**(단계마다 가장 큰 칸 1개로 대표, 상위 2단계 이름). 비용: 문구.
+- 차트 "읽는 법" 문장은 **시간상 가장 이른** 시작 표시선 기준. 비용: 다른 분을 가리킬 수 있음.
+- 요약판 "1장"은 **1쪽이면서 넘치는 블록 없음**(`chooseSummaryLevel.fits`). 비용: 단일 거대 블록에서 필요 이상 축소.
+- 오류 흩어짐 판정은 **표시된 반올림 %** 기준(49.6% → "50%" 집중 문장).
+- 요청 줄·대상 시스템의 자격증명 차단 규칙: 첫 `/?#`(자리표시자 밖) 앞 권한부에서만 `@`를 찾고, 권한부가 호스트 모양이면 표준 분할, 아니면 뒤의 `@`는 모호 → 호스트 `""`·경로 `/`. 출력 호스트에서 `:-기본값` 제거, URL 파싱 호스트는 템플릿 분할 호스트와 같을 때만 채택. 비용: 점 없는 호스트 + 쿼리 `@`(`https://svc/x?e=a@b`)는 경로가 `/`로 숨음, 잘못된 형식의 드문 URL에서 호스트 조각 표시 가능.
+- 보안 게이트는 SDD 스킬의 "최종 수정 1회"를 넘어 clean APPROVE까지 반복(CLAUDE.md 보안 게이트 규칙) — 1차 수정이 쿼리 `@` 뒤 텍스트(비밀번호)를 "대상 시스템"에 찍는 새 누출을 열어 2차에서 막음.
+
+(3) **연기·후속**
+- 보안 2차 리뷰 nit(비밀값 비출력, 잘못된 형식 입력): 백슬래시가 든 호스트(`https://h.example\x@other.example/` → `other.example` 표시, 실제 요청은 `h.example`) · `@` 없는 `https://admin:secret{{x}}/p`를 host:port로 표시 · 기본값의 호스트 표시. 해소: `redact.ts` `maskPlaceholders`에서 특수 스킴의 `\`를 구분자로.
+- 경로에 직접 쓴 비밀값(웹훅 토큰 경로 등)은 그대로 인쇄(spec §6.5 수용) — 도움말 한 줄 후보.
+- 요약판 축소 범례(`✕ 오류 · ▲ 주의 · ● 정상` 한 문자열)는 기호가 회색(표준판 범례·표는 상태 색). 해소: 문자열 분할.
+- 열 머리 `word-break: keep-all` 적용(라이브 발견) — 아주 긴 단일 단어 머리는 `overflow-wrap: anywhere`로 꺾임.
+- 시안과의 차이(사용자 고지): 해석 상자는 기존 `narrative` 일반 문장 · 측정 일시 구분자 ` ~ ` · 시간 소수 1자리 `3.0초` · 2xx 묶음 칸에 기대·불일치 코드가 섞이면 칸 전체 "오류로 셈" 색(각주로 코드별 건수).
+- 사소: `PrintDocument.tsx` 275줄(분할 후보 `AtomicContent`/`PageView`) · `hostOf` 스킴 없는 리터럴 호스트 `api.local:8080/x` → `""` · `statusCodeOf`가 `"0x1F4"`·`"1e2"` 허용 · `criterionName` 평범 객체 조회(`constructor` 키) · 차트 표시선 라벨이 표에 없는 40자+ 원시 id면 넘침 · `copyState` 미초기화 · 요약판 사다리 테스트는 `PrintDocument` 모킹(실제 배선은 `PrintDocument.test.tsx`가 커버).
+- 다음: **슬라이스 2** = 비교 보고서 표준/요약판 + 응답 속도 구간(spec §14 이월 사항 그대로), 위 (1) 두 사용자 결정을 함께 흡수 권장.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 

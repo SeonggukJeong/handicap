@@ -207,3 +207,9 @@ Vite + React + TS + Tailwind. React Flow 캔버스 + Monaco YAML 에디터 + Zus
 - **칸 목록을 구획별로 그릴 때 `segments.map(seg => seg.indices.map(…))` 중첩 배열은 React가 위치로 맞춰 칸 삭제 시 뒤 칸이 전부 재마운트된다**(미리 실행 결과·펼침 상태 소실, 묶음 없는 보드도) — `flatMap`으로 각 칸을 직계 자식 `key={p.id}`, 묶음 상자 key는 `g.id`만 (monitor-step-panels).
 - **`이름 = 값`을 한 `FitLine`으로 그리면 긴 이름이 값을 `…` 뒤로 밀어낸다** — 이름 `min-w-0 truncate` + 값 `shrink-0 max-w-[70%] truncate` 분할(`포함 안 됨` 선례), 라이브에서 값 span `scrollWidth<=clientWidth` 실측 (monitor-step-panels).
 - **화면 stale 기준은 칸 `timeout_seconds`가 아니라 `/status` `check_budget_seconds`**(묶음 칸 = 흐름 상한+32초) — 페이지 테스트 픽스처에서 둘을 같게 두면 배선을 되돌려도 green (monitor-step-panels).
+
+## 인쇄 보고서 (`ui/src/print/`) (a4-print-report)
+
+- **URL 가림은 `@`를 권한부 안에서만 찾을 것**: 첫 `/?#`(자리표시자 밖) 앞까지가 권한부 — 전체 문자열 `lastIndexOf("@")`는 쿼리 `?email=a@b&password=…`의 `@`를 userinfo 끝으로 오인해 쿼리 텍스트를 "대상 시스템"에 찍는다(1차 보안 수정이 연 누출). WHATWG `new URL`은 `{{h}}`·`${HOST}` 호스트를 통과시키고 소문자화한다 → "파싱 성공 = 해석된 호스트"로 믿지 말 것.
+- **렌더/`useMemo` 경로에서 `normalizeProfile` 금지**(=`ProfileSchema.parse`, throw → 오류 경계 없는 화면 통째 공백). 프로필이 필요하면 `safeParse`, Zod default 누출 타입 에러는 소비 함수 파라미터를 `Pick<Run, …>`로 좁혀 해결(§다단계 ramp UI의 `Pick<Profile,…>` 패턴).
+- **인쇄 레이아웃은 jsdom이 못 본다**(측정 시트 높이·`line-clamp`·`border-collapse` 행 합·PDF 쪽 수) → 라이브에서 쪽별 rect(본문 한계 273mm) + 헤드리스 Chrome `--print-to-pdf` + `pdfinfo` Pages == 화면 `.p-page` 수. 좁은 표 머리 칸은 `word-break: keep-all`(이름 칸 `break-all` clamp와 분리 — 같은 규칙을 공유하면 둘 중 하나가 깨진다).
