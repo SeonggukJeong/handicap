@@ -1,0 +1,491 @@
+/* 측정결과 보고서(A4) — 시안 v3/v1 이식. 모든 규칙은 .p-root 하위로만(앱 다른 화면 무영향).
+   @page 규칙은 여기 두지 않는다(인쇄 화면 컴포넌트가 <style>로 렌더). */
+
+.p-root {
+  --ink: #1a1d24;
+  --sub: #5b6170;
+  --line: #c9ccd3;
+  --faint: #eef0f3;
+  --ok: #1f7a4d;
+  --okbg: #e6f4ec;
+  --warn: #a15c00;
+  --warnbg: #fff3df;
+  --bad: #b42318;
+  --badbg: #fdecea;
+  --accent: #3b4bc8;
+  --hatch: #c77700;
+  background: #8a8f99;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+.p-root *,
+.p-root *::before,
+.p-root *::after {
+  box-sizing: border-box;
+}
+
+/* 쪽과 측정 시트는 같은 글자 크기·줄 높이(측정 = 미리보기) */
+.p-root .p-page,
+.p-root .p-sheet {
+  font-size: 9.5pt;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.p-root .p-page {
+  width: 210mm;
+  height: 297mm;
+  margin: 12px auto;
+  padding: 14mm 15mm 12mm;
+  position: relative;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  overflow: visible;
+}
+.p-root .p-foot {
+  position: absolute;
+  bottom: 7mm;
+  left: 15mm;
+  right: 15mm;
+  display: flex;
+  justify-content: space-between;
+  gap: 4mm;
+  font-size: 7.5pt;
+  color: var(--sub);
+  border-top: 1px solid var(--line);
+  padding-top: 2mm;
+}
+
+/* 블록: 위 간격은 margin이 아니라 padding(측정값에 포함), flow-root로 자식 margin 가둠 */
+.p-root .p-block {
+  display: flow-root;
+  padding-top: 4mm;
+}
+.p-root .p-block--header {
+  padding-top: 0;
+}
+.p-root .p-block--title {
+  padding-top: 5mm;
+}
+.p-root .p-block--legend,
+.p-root .p-block--notes {
+  padding-top: 1.5mm;
+}
+.p-root .p-block--callouts {
+  padding-top: 2.5mm;
+}
+
+/* 머리 */
+.p-root .p-head-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 4mm;
+}
+.p-root .p-kicker {
+  font-size: 8pt;
+  color: var(--sub);
+}
+.p-root .p-h1 {
+  font-size: 17pt;
+  font-weight: 800;
+  margin: 0 0 1mm;
+  word-break: break-all;
+}
+.p-root .p-head-right {
+  font-size: 8pt;
+  color: var(--sub);
+  text-align: right;
+  white-space: nowrap;
+}
+.p-root .p-meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line);
+  font-size: 8.5pt;
+  margin-top: 3mm;
+}
+.p-root .p-meta > div {
+  padding: 1.5mm 2mm;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.p-root .p-meta > div:last-child {
+  border-right: 0;
+}
+.p-root .p-meta span {
+  display: block;
+  color: var(--sub);
+  font-size: 7.5pt;
+}
+
+/* 절 제목 */
+.p-root .p-h2 {
+  font-size: 11pt;
+  font-weight: 700;
+  margin: 0 0 2mm;
+  padding-bottom: 1mm;
+  border-bottom: 1.5px solid var(--ink);
+}
+.p-root .p-h3 {
+  font-size: 8.8pt;
+  font-weight: 700;
+  margin: 0 0 1.5mm;
+}
+
+/* 판정 상자 + 요약 */
+.p-root .p-verdict {
+  display: flex;
+  gap: 4mm;
+  align-items: stretch;
+}
+.p-root .p-vbox {
+  flex: 0 0 42mm;
+  border: 2px solid var(--sub);
+  background: var(--faint);
+  color: var(--sub);
+  text-align: center;
+  padding: 3mm 2mm;
+  border-radius: 2mm;
+}
+.p-root .p-vbox--bad {
+  border-color: var(--bad);
+  background: var(--badbg);
+  color: var(--bad);
+}
+.p-root .p-vbox--ok {
+  border-color: var(--ok);
+  background: var(--okbg);
+  color: var(--ok);
+}
+.p-root .p-vbox-title {
+  font-size: 9pt;
+  font-weight: 700;
+}
+.p-root .p-vbox-big {
+  font-size: 20pt;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.p-root .p-vbox-sub {
+  font-size: 8pt;
+  margin-top: 1mm;
+}
+.p-root .p-summary {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  padding: 3mm 4mm;
+  border-radius: 2mm;
+}
+.p-root .p-summary-title {
+  font-weight: 700;
+  font-size: 9pt;
+  margin-bottom: 1mm;
+  color: var(--sub);
+}
+.p-root .p-summary ol {
+  margin: 0;
+  padding-left: 5mm;
+  list-style: decimal;
+}
+.p-root .p-summary li {
+  margin: 0.8mm 0;
+  overflow-wrap: anywhere;
+}
+
+/* 지표 4칸 */
+.p-root .p-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3mm;
+}
+.p-root .p-kpi {
+  border: 1px solid var(--line);
+  border-radius: 2mm;
+  padding: 2.5mm 3mm;
+  min-width: 0;
+}
+.p-root .p-kpi--bad {
+  border: 1.5px solid var(--bad);
+  background: var(--badbg);
+}
+.p-root .p-kpi-label {
+  font-size: 8pt;
+  color: var(--sub);
+  font-weight: 600;
+}
+.p-root .p-kpi-value {
+  font-size: 16pt;
+  font-weight: 800;
+  margin: 0.5mm 0;
+}
+.p-root .p-kpi--bad .p-kpi-value {
+  color: var(--bad);
+}
+.p-root .p-kpi-value small {
+  font-size: 9pt;
+  font-weight: 600;
+}
+.p-root .p-kpi-explain {
+  font-size: 7.5pt;
+  color: var(--sub);
+  line-height: 1.35;
+}
+.p-root .p-kpi-target {
+  margin-top: 1.5mm;
+  padding-top: 1.2mm;
+  border-top: 1px dashed var(--line);
+  font-size: 7.8pt;
+}
+
+/* 표 */
+.p-root .p-table {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.3pt;
+}
+.p-root .p-table th,
+.p-root .p-table td {
+  border: 1px solid var(--line);
+  padding: 1.3mm 1.2mm;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.p-root .p-table th {
+  background: var(--faint);
+  font-weight: 700;
+}
+.p-root .p-table th small,
+.p-root .p-table td small {
+  display: block;
+  font-weight: 400;
+  font-size: 6.8pt;
+  color: var(--sub);
+}
+.p-root .p-table .p-l {
+  text-align: left;
+}
+.p-root .p-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+.p-root .p-req {
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 6.8pt;
+  color: var(--sub);
+}
+.p-root .p-status {
+  font-weight: 700;
+}
+.p-root .p-row--bad td {
+  background: var(--badbg);
+}
+.p-root .p-row--warn td {
+  background: var(--warnbg);
+}
+.p-root .p-col-residual {
+  border-left: 2px solid var(--ink) !important;
+}
+.p-root .p-remainder td {
+  color: var(--sub);
+  font-size: 8pt;
+}
+
+/* 칸 분류 — 배경 없이도 테두리·글자로 남는다(흑백 생존) */
+.p-root .p-cell--counted {
+  background: #f6c9c4 !important;
+  color: var(--bad);
+  font-weight: 700;
+}
+.p-root .p-cell--strongest {
+  background: var(--bad) !important;
+  color: #fff;
+  font-weight: 800;
+  outline: 1.5px solid var(--ink);
+  outline-offset: -2px;
+}
+.p-root .p-cell--uncounted {
+  background: repeating-linear-gradient(135deg, #fff 0 3px, #f3d9a8 3px 5px) !important;
+  color: var(--warn);
+  font-weight: 700;
+  outline: 2px dashed var(--hatch);
+  outline-offset: -3px;
+}
+.p-root .p-cell--unknown {
+  color: var(--warn);
+  font-weight: 700;
+  outline: 2px dashed var(--hatch);
+  outline-offset: -3px;
+}
+.p-root .p-table td.p-cell--uncounted .p-cell-tag,
+.p-root .p-table td.p-cell--unknown .p-cell-tag {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.p-root .p-ok {
+  color: var(--ok);
+  font-weight: 700;
+}
+.p-root .p-warn {
+  color: var(--warn);
+  font-weight: 700;
+}
+.p-root .p-bad {
+  color: var(--bad);
+  font-weight: 700;
+}
+.p-root .p-muted {
+  color: #aab0bb;
+}
+
+/* 범례·경고·각주 */
+.p-root .p-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5mm 5mm;
+  font-size: 7.5pt;
+  color: var(--sub);
+  align-items: center;
+}
+.p-root .p-sw {
+  display: inline-block;
+  width: 4mm;
+  height: 3mm;
+  vertical-align: middle;
+  margin-right: 1mm;
+  border: 1px solid var(--line);
+}
+.p-root .p-sw--line {
+  height: 0;
+  border: 0;
+  border-top: 2px solid var(--accent);
+}
+.p-root .p-sw--top {
+  background: var(--bad);
+}
+.p-root .p-sw--other {
+  background: #f6c9c4;
+}
+.p-root .p-callout {
+  border: 1.5px solid var(--warn);
+  background: var(--warnbg);
+  border-radius: 2mm;
+  padding: 2mm 3mm;
+  font-size: 8.2pt;
+  overflow-wrap: anywhere;
+}
+.p-root .p-callout + .p-callout {
+  margin-top: 1.5mm;
+}
+.p-root .p-note {
+  font-size: 7.5pt;
+  color: var(--sub);
+  margin-top: 1.5mm;
+  overflow-wrap: anywhere;
+}
+
+/* 차트 */
+.p-root .p-chart svg {
+  display: block;
+  font-family: inherit;
+}
+.p-root .p-chart .p-legend {
+  margin-top: 1mm;
+}
+
+/* 측정 조건·해석 상자 */
+.p-root .p-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4mm;
+}
+.p-root .p-box {
+  border: 1px solid var(--line);
+  border-radius: 2mm;
+  padding: 2.5mm 3mm;
+  font-size: 8.3pt;
+  min-width: 0;
+}
+.p-root .p-box-sub {
+  font-weight: 700;
+  color: var(--sub);
+  margin-top: 1mm;
+}
+.p-root .p-box ul {
+  margin: 0;
+  padding-left: 4.5mm;
+  list-style: disc;
+}
+.p-root .p-box li {
+  margin: 0.6mm 0;
+}
+.p-root .p-cond {
+  margin: 0;
+}
+.p-root .p-cond > div {
+  display: flex;
+  gap: 2mm;
+}
+.p-root .p-cond dt {
+  flex: 0 0 22mm;
+  color: var(--sub);
+}
+.p-root .p-cond dd {
+  margin: 0;
+}
+
+/* 용어 풀이 */
+.p-root .p-gloss {
+  margin: 0;
+  padding-left: 4.5mm;
+  list-style: disc;
+  font-size: 8pt;
+}
+.p-root .p-gloss li {
+  margin: 0.5mm 0;
+}
+
+/* 서명 */
+.p-root .p-sign {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  font-size: 8.5pt;
+}
+.p-root .p-sign > div {
+  border: 1px solid var(--line);
+  margin-left: -1px;
+  height: 18mm;
+  padding: 1.5mm 2mm;
+  color: var(--sub);
+}
+
+@media print {
+  .p-root {
+    background: #fff;
+    min-height: 0;
+  }
+  .p-root .p-page {
+    margin: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+  .p-root .p-page--last {
+    break-after: auto;
+  }
+  .p-root .p-noprint {
+    display: none;
+  }
+  .p-root * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
