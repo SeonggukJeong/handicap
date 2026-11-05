@@ -39,7 +39,7 @@ export function StepTableTitle({ continued, measure }: { continued: boolean; mea
     ? `${ko.print.section.steps}${ko.print.section.continued}`
     : ko.print.section.steps;
   return (
-    <div className="p-block p-block--title" data-measure={measure ? "table:title" : undefined}>
+    <div className="p-block p-block--title" data-measure={measure ? MEASURE_IDS.tableTitle : undefined}>
       <h2 className="p-h2">{title}</h2>
     </div>
   );
@@ -131,7 +131,7 @@ export function StepTable(props: { columns: Column[]; items: TableItem[]; measur
           <col key={i} style={{ width: `${w}mm` }} />
         ))}
       </colgroup>
-      <thead data-measure={measure ? "table:header" : undefined}>
+      <thead data-measure={measure ? MEASURE_IDS.tableHeader : undefined}>
         {columns.length > 0 ? (
           <>
             <tr>

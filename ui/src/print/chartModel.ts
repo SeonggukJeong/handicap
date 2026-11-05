@@ -13,6 +13,8 @@ export const PLOT_X0_MM = 12;
 export const PLOT_X1_MM = 168;
 /** 표시선 라벨 폭 추정(글자 수 × mm). */
 export const LABEL_CHAR_MM = 1.9;
+/** 표시선과 라벨 사이 간격(mm). */
+export const MARKER_LABEL_GAP_MM = 0.8;
 const MAX_BARS = 120;
 const MAX_MARKERS = 3;
 
@@ -65,7 +67,14 @@ export type ChartBin = {
   topErr: number;
   otherErr: number;
 };
-export type ChartMarker = { sec: number; label: string; level: 0 | 1 };
+/** `labelX` = SVG 텍스트 x(mm). `anchor`가 "end"면 라벨은 표시선 왼쪽에 끝을 맞춘다. */
+export type ChartMarker = {
+  sec: number;
+  label: string;
+  level: 0 | 1;
+  anchor: "start" | "end";
+  labelX: number;
+};
 export type ChartModel = {
   durationSec: number;
   binSeconds: number;
@@ -87,6 +96,20 @@ export function runT0(startedMs: number | null, windows: Report["windows"]): num
 
 export function markerX(sec: number, durationSec: number): number {
   return PLOT_X0_MM + (sec / Math.max(durationSec, 1)) * (PLOT_X1_MM - PLOT_X0_MM);
+}
+
+/** 라벨의 실제 가로 구간: 오른쪽으로 그림 영역을 넘으면 표시선 왼쪽에 끝 맞춤(end)으로 뒤집는다. */
+export function markerLabelSpan(
+  x: number,
+  label: string,
+): { anchor: "start" | "end"; labelX: number; left: number; right: number } {
+  const w = [...label].length * LABEL_CHAR_MM;
+  if (x + MARKER_LABEL_GAP_MM + w > PLOT_X1_MM) {
+    const labelX = x - MARKER_LABEL_GAP_MM;
+    return { anchor: "end", labelX, left: labelX - w, right: labelX };
+  }
+  const labelX = x + MARKER_LABEL_GAP_MM;
+  return { anchor: "start", labelX, left: labelX, right: labelX + w };
 }
 
 export function buildChartModel(
@@ -172,16 +195,13 @@ export function buildChartModel(
   cands.sort((a, b) => a.sec - b.sec || a.prio - b.prio);
   const ends: [number, number] = [-Infinity, -Infinity];
   const markers: ChartMarker[] = [];
+  // 겹침 판정은 뒤집기까지 반영한 실제 구간으로(렌더러는 이 결과를 그대로 그린다).
   for (const c of cands) {
-    const x = markerX(c.sec, durationSec);
-    const w = [...c.label].length * LABEL_CHAR_MM;
-    if (x >= ends[0]) {
-      ends[0] = x + w;
-      markers.push({ sec: c.sec, label: c.label, level: 0 });
-    } else if (x >= ends[1]) {
-      ends[1] = x + w;
-      markers.push({ sec: c.sec, label: c.label, level: 1 });
-    }
+    const { anchor, labelX, left, right } = markerLabelSpan(markerX(c.sec, durationSec), c.label);
+    const level = left >= ends[0] ? 0 : left >= ends[1] ? 1 : null;
+    if (level === null) continue;
+    ends[level] = right;
+    markers.push({ sec: c.sec, label: c.label, level, anchor, labelX });
   }
 
   return {

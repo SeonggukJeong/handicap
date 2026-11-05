@@ -2,7 +2,6 @@ import { ko } from "../../i18n/ko";
 import {
   CHART_H_MM,
   CHART_W_MM,
-  LABEL_CHAR_MM,
   PLOT_X0_MM,
   PLOT_X1_MM,
   fmtElapsed,
@@ -17,7 +16,6 @@ const PLOT_TOP = 8;
 const PLOT_BOTTOM = 47;
 const TIME_LABEL_Y = 51.5;
 const FONT = 2.3;
-const LABEL_GAP = 0.8;
 const LABEL_Y = [2.8, 5.6];
 
 const COLOR_LINE = "#3b4bc8";
@@ -28,13 +26,6 @@ const COLOR_SUB = "#5b6170";
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 const tickText = (v: number): string => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
-
-/** 표시선 라벨 배치: 오른쪽 끝을 넘으면 표시선에 끝을 맞춘다(그림 영역 안에 머문다). */
-function markerLabelPos(x: number, label: string): { x: number; anchor: "start" | "end" } {
-  const w = [...label].length * LABEL_CHAR_MM;
-  if (x + LABEL_GAP + w > PLOT_X1_MM) return { x: r2(x - LABEL_GAP), anchor: "end" };
-  return { x: r2(x + LABEL_GAP), anchor: "start" };
-}
 
 function ChartSvg({ doc }: { doc: PrintDoc }) {
   const c = doc.chart;
@@ -126,7 +117,6 @@ function ChartSvg({ doc }: { doc: PrintDoc }) {
       />
       {c.markers.map((m) => {
         const x = r2(markerX(m.sec, d));
-        const pos = markerLabelPos(x, m.label);
         return (
           <g key={`m${m.sec}:${m.label}`}>
             <line
@@ -140,9 +130,9 @@ function ChartSvg({ doc }: { doc: PrintDoc }) {
             />
             <text
               className="p-chart-marker-label"
-              x={pos.x}
+              x={r2(m.labelX)}
               y={LABEL_Y[m.level]}
-              textAnchor={pos.anchor}
+              textAnchor={m.anchor}
               fill={COLOR_TOP}
               fontWeight={700}
             >
@@ -173,7 +163,7 @@ export function ErrorChart({ doc }: { doc: PrintDoc }) {
             <>
               <span>
                 <i className="p-sw p-sw--top" aria-hidden="true" />
-                {K.legendTop(top ? top.no : "", top ? top.name : (c.topStepId ?? ""))}
+                {top ? K.legendTop(top.no, top.name) : K.legendTop(c.topStepId ?? "", "").trimEnd()}
               </span>
               {hasOther && (
                 <span>

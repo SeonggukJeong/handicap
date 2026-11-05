@@ -171,6 +171,10 @@ export function buildPrintDoc(a: {
 export type Heights = Map<string, number>;
 
 export const MEASURE_IDS = {
+  tableTitle: "table:title",
+  tableHeader: "table:header",
+  appendixTitle: "appendix:title",
+  appendixHeader: "appendix:header",
   rowId: (stepId: string): string => `row:${stepId}`,
   remainderId: (n: number): string => `table:remainder:${n}`,
   appendixRowId: (i: number): string => `appendix:row:${i}`,
@@ -191,8 +195,8 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
   out.push({
     kind: "table",
     id: "table",
-    titleMm: h.get("table:title") ?? 0,
-    headerMm: h.get("table:header") ?? 0,
+    titleMm: h.get(MEASURE_IDS.tableTitle) ?? 0,
+    headerMm: h.get(MEASURE_IDS.tableHeader) ?? 0,
     rowsMm: doc.table.rows.map((r) => h.get(MEASURE_IDS.rowId(r.stepId)) ?? 0),
   });
   out.push(atom(h, "legend:full"));
@@ -204,8 +208,8 @@ export function standardBlocks(doc: PrintDoc, h: Heights): Block[] {
     out.push({
       kind: "table",
       id: "appendix",
-      titleMm: h.get("appendix:title") ?? 0,
-      headerMm: h.get("appendix:header") ?? 0,
+      titleMm: h.get(MEASURE_IDS.appendixTitle) ?? 0,
+      headerMm: h.get(MEASURE_IDS.appendixHeader) ?? 0,
       rowsMm: doc.otherRows.map((_, i) => h.get(MEASURE_IDS.appendixRowId(i)) ?? 0),
     });
   }
@@ -237,8 +241,8 @@ export function summaryBlocks(doc: PrintDoc, h: Heights, level: LadderLevel): Bl
   out.push({
     kind: "table",
     id: "table",
-    titleMm: h.get("table:title") ?? 0,
-    headerMm: h.get("table:header") ?? 0,
+    titleMm: h.get(MEASURE_IDS.tableTitle) ?? 0,
+    headerMm: h.get(MEASURE_IDS.tableHeader) ?? 0,
     rowsMm,
   });
   out.push(atom(h, level >= 2 ? "legend:short" : "legend:full"));

@@ -10,13 +10,13 @@ export function VerdictSection({ doc, short }: { doc: PrintDoc; short: boolean }
       ? "p-vbox--bad"
       : doc.box.kind === "pass"
         ? "p-vbox--ok"
-        : "p-vbox--muted";
+        : "";
   const lines = short ? shortSummary(doc.lines) : doc.lines;
   return (
     <section>
       <h2 className="p-h2">{ko.print.section.overview}</h2>
       <div className="p-verdict">
-        <div className={`p-vbox ${tone}`}>
+        <div className={tone ? `p-vbox ${tone}` : "p-vbox"}>
           <div className="p-vbox-title">{V.title}</div>
           <div className="p-vbox-big">{doc.boxText.big}</div>
           <div className="p-vbox-sub">{doc.boxText.sub}</div>

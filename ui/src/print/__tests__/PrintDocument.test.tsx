@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { PrintDocument } from "../PrintDocument";
-import { buildPrintDoc, type PrintDoc, type PrintKind } from "../buildPrintDoc";
-import { PX_PER_MM } from "../paginate";
+import {
+  buildPrintDoc,
+  standardBlocks,
+  summaryBlocks,
+  type PrintDoc,
+  type PrintKind,
+} from "../buildPrintDoc";
+import { PX_PER_MM, type LadderLevel } from "../paginate";
 import { requestLineBudget } from "../redact";
 import { LABEL_CHAR_MM, PLOT_X1_MM } from "../chartModel";
 import type { Report, Run } from "../../api/schemas";
@@ -488,5 +494,146 @@ describe("PrintDocument", () => {
     expect(anchor).toBe("end");
     expect(right).toBeLessThanOrEqual(PLOT_X1_MM);
     expect(x - w).toBeGreaterThanOrEqual(0);
+  });
+
+  it("chart_two_markers_same_level_never_intersect", async () => {
+    // ⑤ 첫 오류 180초, ② 270초 → ②는 오른쪽 끝을 넘어 끝 맞춤(end)으로 뒤집히고, 뒤집힌 폭이 ⑤와 겹쳐 아래 줄로 간다
+    const doc = makeDoc({
+      ...coreFixture,
+      windows: [
+        win(0, "s0", 100, 0, { "200": 100 }),
+        win(180, "s4", 100, 80, { "200": 20, "503": 80 }),
+        win(270, "s1", 50, 10, { "200": 40, "404": 10 }),
+        win(299, "s0", 100, 0, { "200": 100 }),
+      ],
+    });
+    expect(doc.chart.markers.length).toBe(2);
+    const { root, container } = renderDoc(doc);
+    await ready(root);
+    const labels = [...container.querySelectorAll<SVGTextElement>("svg .p-chart-marker-label")];
+    expect(labels.length).toBe(2);
+    const spans = labels.map((el) => {
+      const x = Number(el.getAttribute("x"));
+      const w = [...(el.textContent ?? "")].length * LABEL_CHAR_MM;
+      const anchor = el.getAttribute("text-anchor");
+      return { y: el.getAttribute("y"), l: anchor === "end" ? x - w : x, r: anchor === "end" ? x : x + w };
+    });
+    expect(spans[0].y).not.toBe(spans[1].y);
+    for (const sp of spans) expect(sp.r).toBeLessThanOrEqual(PLOT_X1_MM);
+    for (const a of spans)
+      for (const b of spans) {
+        if (a === b || a.y !== b.y) continue;
+        expect(a.r <= b.l || b.r <= a.l).toBe(true);
+      }
+  });
+
+  it("measure_sheet_covers_every_id_the_placer_reads", () => {
+    // 그 밖의 기준 7행(>6 → 부록) · 미달 있음 · 2xx 두 코드(묶음 각주) · 안 셈(경고) · 단계 10개(나머지 줄)
+    const steps: StepSpec[] = [
+      ...coreSteps.map((s, i) => (i === 0 ? { ...s, counts: { "200": 900, "201": 100 } } : s)),
+      ...manySteps(5).map((s, i) => ({ ...s, id: `x${i}`, name: `추가${i}` })),
+    ];
+    const criteria = {
+      max_p50_ms: 100,
+      max_p99_ms: 5000,
+      max_4xx_rate: 0.5,
+      max_5xx_rate: 0.5,
+      max_4xx_count: 100000,
+      max_5xx_count: 100000,
+      min_window_rps: 1,
+    };
+    const rich = makeDoc({
+      steps,
+      profile: { ...baseProfile, criteria },
+      verdict: {
+        passed: false,
+        criteria: [{ metric: "p50_ms", direction: "max", threshold: 100, actual: 500, passed: false }],
+      },
+    });
+    const broken = makeDoc({ steps: [], yaml: "a: [unclosed" });
+    expect(rich.otherRows.length).toBe(7);
+    expect(rich.table.foldNotes.length).toBeGreaterThan(0);
+    expect(rich.callouts.uncounted).not.toBeNull();
+    expect(broken.table.scenarioUnreadable).toBe(true);
+
+    const readIds = (doc: PrintDoc, kind: PrintKind): Set<string> => {
+      const seen = new Set<string>();
+      class Recording extends Map<string, number> {
+        get(k: string) {
+          seen.add(k);
+          return super.get(k);
+        }
+      }
+      if (kind === "standard") standardBlocks(doc, new Recording());
+      else
+        for (let l = 0; l <= 8; l++) summaryBlocks(doc, new Recording(), l as LadderLevel);
+      return seen;
+    };
+    for (const doc of [rich, broken]) {
+      for (const kind of ["standard", "summary"] as PrintKind[]) {
+        const { container, unmount } = renderDoc(doc, kind);
+        const inSheet = new Set(
+          [...container.querySelectorAll("[data-measure]")].map((el) => el.getAttribute("data-measure")),
+        );
+        const want = readIds(doc, kind);
+        expect(want.size).toBeGreaterThan(5);
+        for (const id of want) expect(inSheet.has(id), `${kind}: ${id}`).toBe(true);
+        unmount();
+      }
+    }
+  });
+
+  it("warns_when_standard_block_oversized", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const spy = spyHeights((id) => (id === "chart" ? 300 : 5));
+    try {
+      const { root } = renderDoc(makeDoc(coreFixture));
+      await ready(root);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("chart");
+    } finally {
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("warns_when_summary_cannot_fit_one_page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const spy = spyHeights(() => 100);
+    try {
+      const onLadder = vi.fn();
+      const { root, container } = renderDoc(makeDoc(coreFixture), "summary", onLadder);
+      await ready(root);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("summary");
+      expect(container.querySelectorAll(".p-page").length).toBeGreaterThan(1);
+      await waitFor(() => expect(onLadder).toHaveBeenLastCalledWith(8));
+    } finally {
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("no_warn_when_layout_fits", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { root } = renderDoc(makeDoc(coreFixture), "summary");
+      await ready(root);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("chart_legend_fallback_for_step_missing_from_table", async () => {
+    const doc = makeDoc({
+      ...coreFixture,
+      windows: [win(0, "s0", 100, 0, { "200": 100 }), win(100, "ghost", 10, 5, { "500": 5 })],
+    });
+    expect(doc.chart.topStepId).toBe("ghost");
+    const { root } = renderDoc(doc);
+    await ready(root);
+    // 기본 normalizer는 공백을 접어 이중 공백을 숨긴다 → 원문 그대로 비교
+    expect(screen.getByText("오류/초 — ghost", { normalizer: (t) => t })).toBeInTheDocument();
   });
 });

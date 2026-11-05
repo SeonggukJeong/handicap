@@ -4,6 +4,7 @@ import {
   CHART_H_MM,
   CHART_W_MM,
   LABEL_CHAR_MM,
+  MARKER_LABEL_GAP_MM,
   PLOT_X0_MM,
   PLOT_X1_MM,
   buildChartModel,
@@ -153,7 +154,15 @@ describe("markers_cap_and_stack", () => {
   });
   it("marker label for 4 minutes", () => {
     const m = mk([["E", 240, 9]]);
-    expect(m.markers).toEqual([{ sec: 240, label: "4분: ⑤ 오류 시작", level: 0 }]);
+    expect(m.markers).toEqual([
+      {
+        sec: 240,
+        label: "4분: ⑤ 오류 시작",
+        level: 0,
+        anchor: "start",
+        labelX: markerX(240, 600) + MARKER_LABEL_GAP_MM,
+      },
+    ]);
   });
   it("close markers stack on level 1, a third overlapping one is dropped", () => {
     const m = mk([
@@ -166,6 +175,34 @@ describe("markers_cap_and_stack", () => {
       ["1분 45초: ② 오류 시작", 1],
     ]);
     expect(LABEL_CHAR_MM).toBe(1.9);
+  });
+  it("right-edge label flips to end anchor and the flipped span is used for collision", () => {
+    // 300 s run: A at 180 s spans ~106.4–127.3 start-anchored; B at 270 s (15 glyphs ≈ 28.5mm)
+    // overflows PLOT_X1, flips to end anchor (~123.1–151.6) → overlaps A on level 0 → level 1.
+    const ws: W[] = [win(0, "Z", 1), win(299, "Z", 1)];
+    ws.push(win(180, "A", 10, 9), win(270, "B", 10, 5));
+    const m = buildChartModel(ws, 0, rows);
+    expect(m.durationSec).toBe(300);
+    const span = (mk: ChartModel["markers"][number]) => {
+      const w = [...mk.label].length * LABEL_CHAR_MM;
+      return mk.anchor === "end" ? [mk.labelX - w, mk.labelX] : [mk.labelX, mk.labelX + w];
+    };
+    expect(m.markers.map((x) => [x.label, x.level, x.anchor])).toEqual([
+      ["3분: ① 오류 시작", 0, "start"],
+      ["4분 30초: ② 오류 시작", 1, "end"],
+    ]);
+    for (const mk of m.markers) {
+      const [l, r] = span(mk);
+      expect(l).toBeGreaterThanOrEqual(PLOT_X0_MM);
+      expect(r).toBeLessThanOrEqual(PLOT_X1_MM);
+    }
+    for (const a of m.markers)
+      for (const b of m.markers) {
+        if (a === b || a.level !== b.level) continue;
+        const [al, ar] = span(a);
+        const [bl, br] = span(b);
+        expect(ar <= bl || br <= al).toBe(true);
+      }
   });
 });
 
@@ -232,7 +269,7 @@ describe("reading_line", () => {
       rpsTicks: [0],
       errTicks: [0, 1],
       timeTicks: [0],
-      markers: [{ sec: errAtBin * 10, label: "x", level: 0 }],
+      markers: [{ sec: errAtBin * 10, label: "x", level: 0, anchor: "start", labelX: 0 }],
     };
   };
   it("error start without drop", () => {
