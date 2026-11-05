@@ -3,63 +3,97 @@ import { resolveForDisplay } from "../scenario/template";
 import type { StepFacts } from "./scenarioFacts";
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
+const TOK = "\uE000";
+const OPEN = "\uE001";
 
 /**
- * 선두 `${…}`(첫 `}`까지 — 엔진·`resolveForDisplay`와 같은 닫힘 규칙)·`{{…}}`(첫 `}}`까지) 토큰 길이.
- * 토큰이 없으면 0, 닫히지 않았으면 -1(모호 — 호출부는 아무 조각도 내보내지 않는다).
+ * 자리표시자 `${…}`(첫 `}`까지 — 엔진·`resolveForDisplay`와 같은 닫힘 규칙)·`{{…}}`(첫 `}}`까지)를
+ * 같은 길이의 TOK으로 가린다(위치 보존). 닫히지 않은 자리표시자부터 끝까지는 OPEN(모호).
+ * 가린 문자열에서 구분자·`@`를 찾으므로 자리표시자 기본값 속 `/`·`@`는 판정에 끼지 않는다.
  */
-function leadingTokenLen(s: string): number {
-  if (s.startsWith("${")) {
-    const e = s.indexOf("}", 2);
-    return e === -1 ? -1 : e + 1;
+function maskPlaceholders(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const close = s.startsWith("${", i) ? "}" : s.startsWith("{{", i) ? "}}" : null;
+    if (close === null) {
+      out += s[i];
+      i += 1;
+      continue;
+    }
+    const e = s.indexOf(close, i + 2);
+    if (e === -1) return out + OPEN.repeat(s.length - i);
+    const end = e + close.length;
+    out += TOK.repeat(end - i);
+    i = end;
   }
-  if (s.startsWith("{{")) {
-    const e = s.indexOf("}}", 2);
-    return e === -1 ? -1 : e + 2;
-  }
-  return 0;
+  return out;
 }
 
 /**
- * 스킴(또는 `//`) 뒤 문자열의 권한부: 호스트 시작과 권한부 끝(경로·`?`·`#` 시작).
- * `@`가 있으면 마지막 `@` 뒤를 호스트로 본다 — userinfo에 날 `/`·`?`·`#`가 있어도 자격증명이
- * 경로·호스트로 새지 않게(경로·쿼리 속 `@`면 경로가 덜 보일 뿐). 호스트 자리 선두 토큰은 통째로 건너뛴다.
- * null = 모호(닫히지 않은 토큰).
+ * 가린 호스트 후보가 "호스트처럼 보이나": 자리표시자만 / IPv6 `[…]` / `localhost` / `.` 든 이름,
+ * 끝에 `:숫자`·`:자리표시자` 포트 허용. 아니면 userinfo 조각일 수 있다.
+ */
+function looksLikeHost(masked: string): boolean {
+  const h = masked.replace(/:(\d+|\uE000+)$/, "");
+  if (h === "") return false;
+  if (/^\uE000+$/.test(h)) return true;
+  if (/^\[[0-9a-fA-F:.]+\]$/.test(h)) return true;
+  if (/[:@\s\uE001]/.test(h)) return false;
+  return h.toLowerCase() === "localhost" || h.includes(".");
+}
+
+/**
+ * 스킴(또는 `//`·선두 자리표시자) 뒤 문자열 `t`의 권한부: 호스트 시작과 권한부 끝.
+ * 권한부 = 자리표시자 밖 첫 `/`·`?`·`#` 앞까지, `@`는 그 안에서만 찾는다(쿼리·경로 속 `@`는 경로).
+ * 호스트가 호스트처럼 보이지 않는데 뒤에 `@`가 또 있으면 userinfo에 날 `/`·`?`·`#`가 든 경우일 수 있어
+ * 모호 → null(호출부는 아무 조각도 내보내지 않는다). 닫히지 않은 자리표시자가 권한부에 걸려도 null.
  */
 function splitAuthority(t: string): { hostStart: number; end: number } | null {
-  const at = t.lastIndexOf("@");
-  const hostStart = at === -1 ? 0 : at + 1;
-  const tok = leadingTokenLen(t.slice(hostStart));
-  if (tok < 0) return null;
-  const rel = t.slice(hostStart + tok).search(/[/?#]/);
-  return { hostStart, end: rel === -1 ? t.length : hostStart + tok + rel };
+  const m = maskPlaceholders(t);
+  const cut = m.search(/[/?#\uE001]/);
+  if (cut !== -1 && m[cut] === OPEN) return null;
+  const end = cut === -1 ? t.length : cut;
+  const auth = m.slice(0, end);
+  const hostStart = auth.lastIndexOf("@") + 1;
+  if (looksLikeHost(auth.slice(hostStart))) return { hostStart, end };
+  if (t.indexOf("@", end) !== -1) return null;
+  return { hostStart, end };
+}
+
+/** 권한부가 시작하는 문자열: 스킴 뒤 / `//` 뒤 / 자리표시자로 시작하면 전체. 그 밖 null. */
+function authorityRest(s: string): string | null {
+  const m = SCHEME.exec(s);
+  if (m) return s.slice(m[0].length);
+  if (s.startsWith("//")) return s.slice(2);
+  if (s.startsWith("${") || s.startsWith("{{")) return s;
+  return null;
+}
+
+/** 출력 호스트에서 자리표시자 기본값을 지운다(`${BASE:-…}` → `${BASE}`). */
+function stripDefaults(h: string): string {
+  return h.replace(/\$\{([^}]*?):-[^}]*\}/g, (_m, name: string) => "${" + name + "}");
 }
 
 /** 호스트(+포트)만 반환. 풀리지 않은 토큰이 호스트 자리에 있으면 원형 템플릿에서 호스트 부분만. "" = 건너뜀. */
 export function hostOf(urlTemplate: string, env: Record<string, string>): string {
   const resolved = resolveForDisplay(urlTemplate, env);
-  try {
-    const host = new URL(resolved).host;
-    if (host && !host.includes("{") && !host.includes("$")) return host;
-  } catch {
-    // fall through to template fallback
+  const rr = authorityRest(resolved);
+  const ra = rr === null ? null : splitAuthority(rr);
+  if (rr !== null && ra) {
+    try {
+      const u = new URL(resolved);
+      // URL 파서와 구조 판정이 같은 호스트를 가리킬 때만 믿는다(어긋나면 자격증명 조각일 수 있다)
+      const structural = rr.slice(ra.hostStart, ra.end).replace(/:\d*$/, "").toLowerCase();
+      if (u.host && u.hostname === structural && !/[{$]/.test(u.host)) return u.host;
+    } catch {
+      // fall through to template fallback
+    }
   }
-  let rest: string;
-  const m = SCHEME.exec(urlTemplate);
-  if (m) {
-    rest = urlTemplate.slice(m[0].length);
-  } else if (urlTemplate.startsWith("//")) {
-    // 프로토콜 상대(`//host/x`) — 스킴처럼 권한부로 취급
-    rest = urlTemplate.slice(2);
-  } else {
-    // 스킴 없이 토큰으로 시작(`${BASE_URL}/x`) — 토큰 자체가 호스트 자리. 경로·쿼리 속 `@`는 보지 않게 먼저 자른다
-    const tok = leadingTokenLen(urlTemplate);
-    if (tok <= 0) return "";
-    const cut = urlTemplate.slice(tok).search(/[/?#]/);
-    rest = cut === -1 ? urlTemplate : urlTemplate.slice(0, tok + cut);
-  }
+  const rest = authorityRest(urlTemplate);
+  if (rest === null) return "";
   const a = splitAuthority(rest);
-  return a ? rest.slice(a.hostStart, a.end) : "";
+  return a ? stripDefaults(rest.slice(a.hostStart, a.end)) : "";
 }
 
 export function targetSystems(steps: StepFacts[], env: Record<string, string>): string {
@@ -76,18 +110,11 @@ export function targetSystems(steps: StepFacts[], env: Record<string, string>): 
 /** 풀지 않은 원형 경로. 쿼리는 `?…`, 프래그먼트는 제거. 권한부(자격증명 포함)는 절대 내보내지 않는다. */
 export function displayPath(urlTemplate: string): string {
   let t = urlTemplate;
-  const m = SCHEME.exec(t);
-  if (m || t.startsWith("//")) {
-    t = t.slice(m ? m[0].length : 2);
-    const a = splitAuthority(t);
+  if (!t.startsWith("/") || t.startsWith("//")) {
+    const rest = authorityRest(t) ?? t;
+    const a = splitAuthority(rest);
     if (!a) return "/";
-    t = t.slice(a.end);
-  } else if (!t.startsWith("/")) {
-    // 선두 `${…}`/`{{…}}` 토큰(기본값에 URL·자격증명이 들 수 있다)은 통째로 건너뛴다
-    const tok = leadingTokenLen(t);
-    if (tok < 0) return "/";
-    const cut = t.slice(tok).search(/[/?#]/);
-    t = cut === -1 ? "" : t.slice(tok + cut);
+    t = rest.slice(a.end);
   }
   if (!t.startsWith("/")) return "/";
   const hash = t.indexOf("#");
