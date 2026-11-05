@@ -2264,6 +2264,11 @@ export const ko = {
       readingDrop: ", 같은 시점에 처리량 선이 내려갑니다",
       readingNone: "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
     },
+    doc: {
+      title: (name: string) => `${name} 부하 측정`,
+      titleFallbackName: "시나리오",
+      identLabeled: (id: string, label: string) => `${id} · "${label}"`,
+    },
     sentence: {
       verdictOver: (name: string, subj: string, actual: string, thr: string) =>
         `${name}${subj} 기준을 넘었습니다 (측정 ${actual}, 기준 ${thr} 이하)`,
