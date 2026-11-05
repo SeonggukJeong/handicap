@@ -2252,5 +2252,53 @@ export const ko = {
       unknown: { term: "확인 불가(?)", text: "오류로 세었는지 기록상 확정할 수 없는 응답" },
       errorKindLine: (parts: string) => `응답 없음 내역: ${parts}`,
     },
+    chart: {
+      legendRps: "처리량(건/초)",
+      legendTop: (no: string, name: string) => `오류/초 — ${no} ${name}`,
+      legendOther: "오류/초 — 그 밖의 단계",
+      legendNone: "오류 없음",
+      marker: (elapsed: string, no: string) => `${elapsed}: ${no} 오류 시작`,
+      aria: "시간에 따른 처리량과 오류 차트",
+      zeroSec: "0초",
+      readingErrors: (elapsed: string) => `${elapsed}부터 빨간 막대(오류)가 생깁니다`,
+      readingDrop: ", 같은 시점에 처리량 선이 내려갑니다",
+      readingNone: "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
+    },
+    sentence: {
+      verdictOver: (name: string, subj: string, actual: string, thr: string) =>
+        `${name}${subj} 기준을 넘었습니다 (측정 ${actual}, 기준 ${thr} 이하)`,
+      verdictUnder: (name: string, subj: string, actual: string, thr: string) =>
+        `${name}${subj} 기준에 못 미쳤습니다 (측정 ${actual}, 기준 ${thr} 이상)`,
+      more: (n: number) => ` 외 ${n}개`,
+      allMet: (n: number) => `기준 ${n}개를 모두 지켰습니다`,
+      notJudgedAborted: "측정이 중단되어 기준 판정은 하지 않았습니다",
+      notJudgedFailed: "측정이 실패해 기준 판정은 하지 않았습니다",
+      notEvaluable: "기준은 있었지만 평가할 데이터가 부족했습니다",
+      problemHead: "문제 단계: ",
+      problemItem: (no: string, name: string, tag: string) => `${no} ${name}(${tag})`,
+      identityMain: (pct: number, step: string, what: string) =>
+        `오류의 ${pct}%는 '${step}'에서 났고, ${what}`,
+      identityMostly: (code: string) => `대부분 ${code}입니다.`,
+      identityResidual: "응답은 받았지만 값을 꺼내거나 본문을 읽지 못했습니다.",
+      noneCode: "응답 없음(코드 없음)",
+      codeWithName: (code: number, name: string) => `${code}(${name})`,
+      firstSeen: (elapsed: string) => ` 시작 ${elapsed} 뒤 처음 나타났습니다.`,
+      continuing: (elapsed: string) => ` 시작 ${elapsed} 뒤부터 계속 났습니다.`,
+      scattered: (step: string, pct: number) =>
+        `오류가 여러 단계에 흩어져 있습니다(가장 많은 곳: '${step}' ${pct}%).`,
+      hiddenUncounted: (step: string, code: number, n: string) =>
+        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 응답 코드 검사가 없어 오류로 세지 않았습니다.`,
+      hiddenUnknown: (step: string, code: number, n: string) =>
+        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 오류로 세었는지 확정할 수 없습니다.`,
+      slow: (step: string, p95: string, thr: string) =>
+        `'${step}'(은)는 느립니다 (95% 응답 ${p95}, 기준 ${thr})`,
+      zero: "요청이 하나도 실행되지 않았습니다.",
+      reason: (m: string) => ` 사유: ${m}`,
+      abortedAt: (elapsed: string) => `측정이 도중에 중단되었습니다(${elapsed}까지 측정).`,
+      abortedNoElapsed: "측정이 도중에 중단되었습니다.",
+      abortedBeforeStart: "측정이 시작되기 전에 중단되었습니다.",
+      failedRun: "측정이 실패로 끝났습니다.",
+      fallback: (p95: string) => `오류 없이 끝났습니다. 95% 응답시간은 ${p95}입니다.`,
+    },
   },
 } as const;
