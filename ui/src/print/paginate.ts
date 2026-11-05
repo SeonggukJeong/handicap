@@ -1,6 +1,7 @@
 // 쪽 배치 · 요약판 사다리 선택 (순수 함수, spec §9).
 
 export const PAGE_BODY_MM = 259;
+export const EPS_MM = 1e-6;
 export const PX_PER_MM = 96 / 25.4;
 export const pxToMm = (px: number): number => px / PX_PER_MM;
 
@@ -41,7 +42,7 @@ export function paginate(
   // 새 항목 배치 전: 강제 줄바꿈 처리, 안 들어가면 (쪽이 비어있지 않을 때) 새 쪽.
   const ensureRoom = (need: number) => {
     if (forceBreak) newPage();
-    if (used + need > bodyMm && current().length > 0) newPage();
+    if (used + need > bodyMm + EPS_MM && current().length > 0) newPage();
   };
 
   for (const b of blocks) {
@@ -49,7 +50,7 @@ export function paginate(
       ensureRoom(b.heightMm);
       current().push({ kind: "atomic", id: b.id });
       used += b.heightMm;
-      if (b.heightMm > bodyMm) {
+      if (b.heightMm > bodyMm + EPS_MM) {
         oversized.push(b.id);
         forceBreak = true;
       }
@@ -60,7 +61,7 @@ export function paginate(
       ensureRoom(head);
       current().push({ kind: "tableSlice", id: b.id, from: 0, to: 0, continued: false });
       used += head;
-      if (head > bodyMm) {
+      if (head > bodyMm + EPS_MM) {
         oversized.push(b.id);
         forceBreak = true;
       }
@@ -72,11 +73,11 @@ export function paginate(
       ensureRoom(head + first);
       let to = from + 1;
       let sliceUsed = used + head + first;
-      if (head + first > bodyMm) {
+      if (head + first > bodyMm + EPS_MM) {
         oversized.push(b.id);
         // 최소 1행만 단독 조각
       } else {
-        while (to < b.rowsMm.length && sliceUsed + b.rowsMm[to]! <= bodyMm) {
+        while (to < b.rowsMm.length && sliceUsed + b.rowsMm[to]! <= bodyMm + EPS_MM) {
           sliceUsed += b.rowsMm[to]!;
           to++;
         }
@@ -86,25 +87,25 @@ export function paginate(
       from = to;
       if (from < b.rowsMm.length) {
         forceBreak = true;
-      } else if (head + first > bodyMm) {
+      } else if (head + first > bodyMm + EPS_MM) {
         forceBreak = true;
       }
     }
   }
 
   if (pages.length > 1 && current().length === 0) pages.pop();
-  return { pages, oversized };
+  return { pages, oversized: [...new Set(oversized)] };
 }
 
 export function chooseSummaryLevel(
   blocksAt: (level: LadderLevel) => Block[],
   bodyMm: number,
-): { level: LadderLevel; pages: PageItem[][]; fits: boolean } {
-  let last: { level: LadderLevel; pages: PageItem[][]; fits: boolean } | null = null;
+): { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } {
+  let last: { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } | null = null;
   for (let l = 0; l <= 8; l++) {
     const level = l as LadderLevel;
-    const { pages } = paginate(blocksAt(level), bodyMm);
-    last = { level, pages, fits: pages.length === 1 };
+    const { pages, oversized } = paginate(blocksAt(level), bodyMm);
+    last = { level, pages, fits: pages.length === 1 && oversized.length === 0, oversized };
     if (last.fits) return last;
   }
   return last!;
