@@ -151,7 +151,18 @@ describe("buildStepTable", () => {
 
   it("ignores non-integer status keys and zero counts", () => {
     const t = buildStepTable(
-      [rs("A", { "200": 4, abc: 3, "2.5": 1, "404": 0 })],
+      [
+        rs("A", {
+          "200": 4,
+          abc: 3,
+          "2.5": 1,
+          "404": 0,
+          "": 2,
+          " 200 ": 2,
+          "1e3": 2,
+          "0x10": 2,
+        }),
+      ],
       okFacts([sf("A")]),
     );
     expect(t.rows[0].perCode).toEqual([{ code: 200, count: 4, cls: "plain" }]);
@@ -186,9 +197,15 @@ describe("buildStepTable", () => {
     ]);
     // 고정 3(2xx·응답 없음·잔차) → B=4, |K|=5 → 접힘. F={500,501,404}: 4xx 는 404 하나뿐
     const out = labels(buildColumns(totals, true));
-    expect(out).toEqual(
-      ["2xx", "404", "기타 5xx", "503", "응답 없음", "그중: 응답 받은 뒤 실패"].length ? out : [],
-    );
+    expect(out).toEqual([
+      "2xx",
+      "404",
+      "502",
+      "503",
+      "기타 5xx",
+      "응답 없음",
+      "그중: 응답 받은 뒤 실패",
+    ]);
     expect(out).toContain("404");
     expect(out).not.toContain("기타 4xx");
     expect(out).toContain("기타 5xx");
@@ -243,9 +260,7 @@ describe("buildStepTable", () => {
   it("folded_cell_mixed_in_one_row", () => {
     // 한 행: 접힌 칸에 uncounted(검사 없음)가 아니라 expected + counted 가 섞이는 경우
     const facts = okFacts([sf("A", { statusCodes: [400] })]);
-    const steps = [
-      rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 }),
-    ];
+    const steps = [rs("A", { ...BIG, "400": 3, "401": 2, "403": 1 })];
     const t = buildStepTable(steps, facts);
     // 400 은 expected, 401·403 은 counted → 접힌 4xx 칸은 counted
     expect(t.rows[0].cells["f4xx"]).toMatchObject({ count: 6, cls: "counted" });

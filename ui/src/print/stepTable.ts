@@ -182,8 +182,8 @@ export function buildStepTable(steps: Report["steps"], facts: ScenarioFacts): St
     const perCode: StepRow["perCode"] = [];
     if (r) {
       for (const [k, v] of Object.entries(r.status_counts)) {
+        if (!/^\d+$/.test(k) || v <= 0) continue;
         const code = Number(k);
-        if (!Number.isInteger(code) || code < 0 || v <= 0) continue;
         perCode.push({ code, count: v, cls: classifyCell(code, f) });
       }
       perCode.sort((a, b) => a.code - b.code);
