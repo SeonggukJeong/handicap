@@ -101,7 +101,8 @@ export function chooseSummaryLevel(
   blocksAt: (level: LadderLevel) => Block[],
   bodyMm: number,
 ): { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } {
-  let last: { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } | null = null;
+  let last: { level: LadderLevel; pages: PageItem[][]; fits: boolean; oversized: string[] } | null =
+    null;
   for (let l = 0; l <= 8; l++) {
     const level = l as LadderLevel;
     const { pages, oversized } = paginate(blocksAt(level), bodyMm);

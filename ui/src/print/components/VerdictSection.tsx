@@ -6,11 +6,7 @@ const V = ko.print.verdict;
 
 export function VerdictSection({ doc, short }: { doc: PrintDoc; short: boolean }) {
   const tone =
-    doc.box.kind === "fail"
-      ? "p-vbox--bad"
-      : doc.box.kind === "pass"
-        ? "p-vbox--ok"
-        : "";
+    doc.box.kind === "fail" ? "p-vbox--bad" : doc.box.kind === "pass" ? "p-vbox--ok" : "";
   const lines = short ? shortSummary(doc.lines) : doc.lines;
   return (
     <section>

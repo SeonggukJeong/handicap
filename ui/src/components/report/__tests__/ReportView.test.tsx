@@ -4,7 +4,9 @@ if (typeof URL.createObjectURL === "undefined") {
   Object.defineProperty(URL, "revokeObjectURL", { value: () => {}, writable: true });
 }
 
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { ReportView } from "../ReportView";
@@ -105,7 +107,19 @@ const TEST_PROFILE: Profile = {
   measure_phases: false,
 };
 
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe("ReportView", () => {
+  it("report_print_link: 보고서 인쇄 링크가 인쇄 화면으로 간다", () => {
+    render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
+    expect(screen.getByRole("link", { name: "보고서 인쇄" })).toHaveAttribute(
+      "href",
+      "/runs/R1/print",
+    );
+  });
+
   it("renders summary, charts, status distribution, step table, and download", () => {
     render(<ReportView report={FIXTURE} profile={TEST_PROFILE} />);
     expect(screen.getByRole("region", { name: /리포트 요약/ })).toBeInTheDocument();

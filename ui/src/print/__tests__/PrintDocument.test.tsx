@@ -516,7 +516,11 @@ describe("PrintDocument", () => {
       const x = Number(el.getAttribute("x"));
       const w = [...(el.textContent ?? "")].length * LABEL_CHAR_MM;
       const anchor = el.getAttribute("text-anchor");
-      return { y: el.getAttribute("y"), l: anchor === "end" ? x - w : x, r: anchor === "end" ? x : x + w };
+      return {
+        y: el.getAttribute("y"),
+        l: anchor === "end" ? x - w : x,
+        r: anchor === "end" ? x : x + w,
+      };
     });
     expect(spans[0].y).not.toBe(spans[1].y);
     for (const sp of spans) expect(sp.r).toBeLessThanOrEqual(PLOT_X1_MM);
@@ -547,7 +551,9 @@ describe("PrintDocument", () => {
       profile: { ...baseProfile, criteria },
       verdict: {
         passed: false,
-        criteria: [{ metric: "p50_ms", direction: "max", threshold: 100, actual: 500, passed: false }],
+        criteria: [
+          { metric: "p50_ms", direction: "max", threshold: 100, actual: 500, passed: false },
+        ],
       },
     });
     const broken = makeDoc({ steps: [], yaml: "a: [unclosed" });
@@ -565,15 +571,16 @@ describe("PrintDocument", () => {
         }
       }
       if (kind === "standard") standardBlocks(doc, new Recording());
-      else
-        for (let l = 0; l <= 8; l++) summaryBlocks(doc, new Recording(), l as LadderLevel);
+      else for (let l = 0; l <= 8; l++) summaryBlocks(doc, new Recording(), l as LadderLevel);
       return seen;
     };
     for (const doc of [rich, broken]) {
       for (const kind of ["standard", "summary"] as PrintKind[]) {
         const { container, unmount } = renderDoc(doc, kind);
         const inSheet = new Set(
-          [...container.querySelectorAll("[data-measure]")].map((el) => el.getAttribute("data-measure")),
+          [...container.querySelectorAll("[data-measure]")].map((el) =>
+            el.getAttribute("data-measure"),
+          ),
         );
         const want = readIds(doc, kind);
         expect(want.size).toBeGreaterThan(5);

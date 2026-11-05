@@ -39,7 +39,10 @@ export function StepTableTitle({ continued, measure }: { continued: boolean; mea
     ? `${ko.print.section.steps}${ko.print.section.continued}`
     : ko.print.section.steps;
   return (
-    <div className="p-block p-block--title" data-measure={measure ? MEASURE_IDS.tableTitle : undefined}>
+    <div
+      className="p-block p-block--title"
+      data-measure={measure ? MEASURE_IDS.tableTitle : undefined}
+    >
       <h2 className="p-h2">{title}</h2>
     </div>
   );

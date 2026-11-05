@@ -1,12 +1,5 @@
 import { ko } from "../../i18n/ko";
-import {
-  CHART_H_MM,
-  CHART_W_MM,
-  PLOT_X0_MM,
-  PLOT_X1_MM,
-  fmtElapsed,
-  markerX,
-} from "../chartModel";
+import { CHART_H_MM, CHART_W_MM, PLOT_X0_MM, PLOT_X1_MM, fmtElapsed, markerX } from "../chartModel";
 import type { PrintDoc } from "../buildPrintDoc";
 
 const K = ko.print.chart;

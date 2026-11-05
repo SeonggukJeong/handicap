@@ -75,7 +75,10 @@ export function OtherCriteria({ rows, mode }: { rows: OtherRow[]; mode: OtherMod
 export function AppendixTitle({ continued, measure }: { continued: boolean; measure?: boolean }) {
   const s = ko.print.section;
   return (
-    <div className="p-block p-block--title" data-measure={measure ? MEASURE_IDS.appendixTitle : undefined}>
+    <div
+      className="p-block p-block--title"
+      data-measure={measure ? MEASURE_IDS.appendixTitle : undefined}
+    >
       <h2 className="p-h2">{continued ? `${s.appendix}${s.continued}` : s.appendix}</h2>
     </div>
   );

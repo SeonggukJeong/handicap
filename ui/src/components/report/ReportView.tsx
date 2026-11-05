@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { Profile, Report } from "../../api/schemas";
 import { downloadFile } from "../../api/download";
 import { api } from "../../api/client";
@@ -109,6 +110,12 @@ export function ReportView({ report, profile }: Props) {
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-semibold">{ko.report.reportTitle}</h3>
         <div className="flex items-center gap-1">
+          <Link
+            to={`/runs/${report.run.id}/print`}
+            className="px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-100"
+          >
+            {ko.print.page.openPrint}
+          </Link>
           <DownloadMenu
             label={ko.report.downloadMenu}
             items={[

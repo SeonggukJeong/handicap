@@ -15,6 +15,7 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { MonitorListPage } from "./pages/MonitorListPage";
 import { MonitorEditPage } from "./pages/MonitorEditPage";
 import { MonitorDisplayPage } from "./pages/MonitorDisplayPage";
+import { RunPrintPage } from "./pages/RunPrintPage";
 import { WorkerDashboardPage } from "./pages/WorkerDashboardPage";
 
 const router = createBrowserRouter([
@@ -42,6 +43,8 @@ const router = createBrowserRouter([
   },
   // Wall display: outside Layout (no app header / max-width) — spec §7.1.
   { path: "/monitors/:id/display", element: <MonitorDisplayPage /> },
+  // A4 print report: outside Layout (no app chrome) — a4-print-report spec §4.
+  { path: "/runs/:id/print", element: <RunPrintPage /> },
 ]);
 
 export function AppRouter() {

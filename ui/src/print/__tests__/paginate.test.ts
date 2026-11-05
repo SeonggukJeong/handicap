@@ -99,7 +99,13 @@ describe("paginate", () => {
     expect(EPS_MM).toBe(1e-6);
     // rows sum to 259 + 1e-9 incl. head: 200 + 14 + 45.000000001
     const r = paginate([atom("a", 200), table("t", 8, 6, [15, 15, 15.000000001, 15])], 259);
-    expect(r.pages[0]![1]).toEqual({ kind: "tableSlice", id: "t", from: 0, to: 3, continued: false });
+    expect(r.pages[0]![1]).toEqual({
+      kind: "tableSlice",
+      id: "t",
+      from: 0,
+      to: 3,
+      continued: false,
+    });
     const r2 = paginate([atom("a", 259.000000001)], 259);
     expect(r2.oversized).toEqual([]);
     // a real overflow still counts

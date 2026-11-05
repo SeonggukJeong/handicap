@@ -2035,6 +2035,21 @@ export const ko = {
     previewNoTrace: "시나리오를 실행하지 못했습니다(시간 초과 또는 설정 오류).",
   },
   print: {
+    page: {
+      openPrint: "보고서 인쇄",
+      kindGroup: "보고서 종류",
+      standard: "표준판",
+      summary: "요약판",
+      print: "인쇄 / PDF 저장",
+      back: "돌아가기",
+      urlHint: "인쇄가 안 되면 브라우저에서 이 주소를 여세요",
+      copy: "주소 복사",
+      copied: "복사했습니다",
+      ladderNotice: "1장에 맞추려고 일부를 줄였습니다(표준판에 전체)",
+      loading: "보고서를 준비하는 중…",
+      notTerminal: "측정이 끝난 뒤 출력할 수 있습니다",
+      loadFailed: (reason: string) => `보고서를 불러오지 못했습니다: ${reason}`,
+    },
     fmt: {
       msUnderOne: "1ms 미만",
       pctUnderTenth: "0.1% 미만",
