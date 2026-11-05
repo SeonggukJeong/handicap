@@ -82,7 +82,7 @@ function boxText(box: BoxState): { big: string; sub: string } {
 const claimText = (map: Record<string, string>, code: string): string => map[code] ?? code;
 
 export function buildPrintDoc(a: {
-  run: Run;
+  run: Pick<Run, "id" | "status" | "started_at" | "ended_at" | "label" | "message">;
   report: Report;
   fallbackScenarioName: string | null;
   now: number;

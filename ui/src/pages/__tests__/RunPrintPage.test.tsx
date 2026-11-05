@@ -183,6 +183,13 @@ describe("RunPrintPage", () => {
     expect(alert).toHaveTextContent("보고서를 불러오지 못했습니다:");
   });
 
+  it("run_fetch_error", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json({ error: "nf" }, 404)));
+    renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("보고서를 불러오지 못했습니다:");
+  });
+
   it("kind_toggle_via_query", async () => {
     mockApi({ scenarioName: "현재이름" });
     const user = userEvent.setup();

@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useRun, useRunReport, useScenario } from "../api/hooks";
 import type { RunStatus } from "../api/schemas";
-import { normalizeProfile } from "../api/runPrefill";
 import { ko } from "../i18n/ko";
 import { buildPrintDoc, type PrintKind } from "../print/buildPrintDoc";
 import { PrintDocument } from "../print/PrintDocument";
@@ -32,7 +31,7 @@ export function RunPrintPage() {
     () =>
       run.data && report.data
         ? buildPrintDoc({
-            run: { ...run.data, profile: normalizeProfile(run.data.profile) },
+            run: run.data,
             report: report.data,
             fallbackScenarioName: scenarioName,
             now,
@@ -69,7 +68,10 @@ export function RunPrintPage() {
     body = <PrintDocument key={kind} doc={doc} kind={kind} onLadder={setLadder} />;
   }
 
-  const setKind = (k: PrintKind) => setSearchParams({ kind: k }, { replace: true });
+  const setKind = (k: PrintKind) => {
+    setLadder(0);
+    setSearchParams({ kind: k }, { replace: true });
+  };
 
   return (
     <div className="p-root">
