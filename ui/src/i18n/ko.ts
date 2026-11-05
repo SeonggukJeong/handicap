@@ -2034,4 +2034,13 @@ export const ko = {
     previewBody: "응답 본문",
     previewNoTrace: "시나리오를 실행하지 못했습니다(시간 초과 또는 설정 오류).",
   },
+  print: {
+    fmt: {
+      msUnderOne: "1ms 미만",
+      pctUnderTenth: "0.1% 미만",
+      rpsUnit: "건/초",
+      noTarget: "–",
+      targetMore: (n: number) => ` 외 ${n}곳`,
+    },
+  },
 } as const;
