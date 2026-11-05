@@ -128,11 +128,42 @@ describe("buildPrintDoc", () => {
     const run = mkRun({ env });
     const report = mkReport(1, {
       run: { ...mkReport().run, env },
-      scenario_yaml: yamlOf(1).replace("https://api.example.com", "${BASE}"),
+      scenario_yaml: yamlOf(1).replace("https://api.example.com", "${BASE}/x?t=${TOKEN}"),
     });
     const doc = build(run, report);
     expect(doc.meta.targets).toBe("secret-host.example.com");
     expect(JSON.stringify(doc)).not.toContain("s3cr3t");
+    expect(JSON.stringify(doc)).not.toContain("secret-host.example.com/x");
+  });
+
+  it("criteria_path_flows_to_kpis_other_rows_and_box", () => {
+    const prof = { ...profile, criteria: { max_p95_ms: 100, max_p99_ms: 50 } };
+    const report = mkReport(2, {
+      run: { ...mkReport().run, profile: prof },
+      verdict: {
+        passed: false,
+        criteria: [
+          { metric: "p95_ms", direction: "max", threshold: 100, actual: 80, passed: true },
+          { metric: "p99_ms", direction: "max", threshold: 50, actual: 120, passed: false },
+        ],
+      },
+    });
+    const doc = build(mkRun({ profile: prof as Run["profile"] }), report);
+    const p95 = doc.kpis.find((k) => k.key === "p95")!;
+    expect(p95.target).toContain("목표 ");
+    expect(p95.target).not.toBe("목표 없음 (참고값)");
+    expect(doc.box.kind).toBe("fail");
+    expect(doc.otherRows.some((r) => r.name === "99% 응답시간" && r.judgement === "fail")).toBe(
+      true,
+    );
+  });
+
+  it("broken_yaml_sets_unreadable_and_note_block", () => {
+    const doc = build(mkRun(), mkReport(2, { scenario_yaml: "a: [unclosed" }));
+    expect(doc.table.scenarioUnreadable).toBe(true);
+    const got = idsOf(summaryBlocks(doc, new Map([["notes:unreadable", 5]]), 0));
+    expect(got).toContain("notes:unreadable");
+    expect(idsOf(standardBlocks(doc, new Map()))).toContain("notes:unreadable");
   });
 });
 
@@ -237,6 +268,21 @@ describe("summary ladder", () => {
       if (l >= 1) expect(got).not.toContain("notes:fold");
       else expect(got).toContain("notes:fold");
     }
+  });
+
+  it("ladder_order_pinned", () => {
+    const doc = ladderDoc();
+    const at = (l: number) => idsOf(summaryBlocks(doc, heights(doc), l as LadderLevel));
+    expect(at(1)).not.toContain("notes:fold");
+    expect(at(1)).toContain("legend:full");
+    expect(at(2)).toContain("legend:short");
+    expect(at(2)).toContain("callouts:full");
+    expect(at(3)).toContain("callouts:line");
+    expect(at(3)).toContain("other:summary3");
+    expect(at(4)).toContain("other:summary1");
+    expect(at(5)).toContain("other:line");
+    expect(at(5)).toContain("verdict:full");
+    expect(at(6)).toContain("verdict:short");
   });
 
   it("summaryRows_counts", () => {
