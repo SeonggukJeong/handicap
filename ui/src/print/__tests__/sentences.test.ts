@@ -397,6 +397,12 @@ describe("short_summary", () => {
     ];
     expect(shortSummary(ls).map((x) => x.text)).toEqual(["a", "b", "c"]);
   });
+  it("fallback-only list is kept (clean run without criteria)", () => {
+    const ls = summaryLines(base());
+    expect(shortSummary(ls)).toEqual([
+      { kind: "fallback", text: "오류 없이 끝났습니다. 95% 응답시간은 2.4초입니다." },
+    ]);
+  });
 });
 
 describe("zero_request_run_sentences", () => {

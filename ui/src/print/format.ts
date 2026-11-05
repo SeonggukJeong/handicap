@@ -5,12 +5,12 @@ const f = ko.print.fmt;
 /** 응답 시간(ms) → 사람이 읽는 표기. Math.round 기반(toFixed 반올림 오차 회피). */
 export function fmtMs(ms: number): string {
   if (ms <= 0) return f.msUnderOne;
-  if (ms < 10) return `${Math.round(ms)}ms`;
+  if (ms < 10) return f.ms(Math.round(ms));
   if (ms < 1000) {
     const v = Math.round(ms / 10) / 100;
-    if (v < 1) return `${v.toFixed(2)}초`;
+    if (v < 1) return f.sec(v.toFixed(2));
   }
-  return `${(Math.round(ms / 100) / 10).toFixed(1)}초`;
+  return f.sec((Math.round(ms / 100) / 10).toFixed(1));
 }
 
 export function fmtCount(n: number): string {

@@ -49,6 +49,58 @@ describe("hostOf", () => {
   });
 });
 
+describe("credential-safe authority parsing (F3)", () => {
+  const noSecret = (r: string, ...secrets: string[]) => {
+    for (const x of secrets) expect(r).not.toContain(x);
+  };
+  it("display_path_skips_leading_token_with_default_url", () => {
+    const r = displayPath("${BASE:-http://svc:s3cret@api.local}/orders");
+    expect(r).toBe("/orders");
+    noSecret(r, "s3cret", "svc");
+  });
+  it("display_path_unclosed_leading_token_prints_root", () => {
+    const r = displayPath("${BASE:-http://svc:s3cret@api.local/orders");
+    expect(r).toBe("/");
+    noSecret(r, "s3cret");
+  });
+  it("display_path_protocol_relative", () => {
+    const r = displayPath("//svc:hunter2@host/api/x");
+    expect(r).toBe("/api/x");
+    noSecret(r, "hunter2", "svc");
+  });
+  it("host_of_protocol_relative", () => {
+    const r = hostOf("//svc:hunter2@host/api/x", {});
+    expect(r).toBe("host");
+    noSecret(r, "hunter2", "svc");
+  });
+  it("display_path_userinfo_with_raw_slash", () => {
+    const r = displayPath("https://u:pa/ss@h/x");
+    expect(r).toBe("/x");
+    noSecret(r, "pa", "ss@");
+  });
+  it("display_path_userinfo_with_raw_question_and_hash", () => {
+    const q = displayPath("https://admin:pa?ss@{{h}}/x");
+    expect(q).toBe("/x");
+    noSecret(q, "pa", "ss@");
+    const h = displayPath("https://admin:pa#ss@{{h}}/x");
+    expect(h).toBe("/x");
+    noSecret(h, "pa", "ss@");
+  });
+  it("host_of_fallback_userinfo_with_raw_question", () => {
+    const r = hostOf("https://admin:pa?ss@{{h}}/x", {});
+    expect(r).toBe("{{h}}");
+    noSecret(r, "pa", "ss@", "admin");
+  });
+  it("host_of_fallback_userinfo_with_raw_slash", () => {
+    const r = hostOf("https://u:pa/ss@{{h}}/x", {});
+    expect(r).toBe("{{h}}");
+    noSecret(r, "pa", "ss@");
+  });
+  it("host_of_token_host_ignores_at_in_query", () => {
+    expect(hostOf("{{base}}/x?e=a@b.com", {})).toBe("{{base}}");
+  });
+});
+
 describe("targetSystems", () => {
   it("target_systems_dedupe_cap", () => {
     const u = (h: string) => `https://${h}/x`;

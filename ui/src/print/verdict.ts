@@ -194,8 +194,10 @@ export function otherCriteriaRows(
 ): OtherRow[] {
   const used = new Set(Object.values(CARD_METRIC).map((m) => cardMatchIndex(matched, m)));
   const out: OtherRow[] = [];
-  matched.forEach(({ spec, row }, i) => {
+  matched.forEach(({ spec, row: serverRow }, i) => {
     if (used.has(i)) return;
+    // 판정 안 함 상자(0건 등)에선 서버 행을 무시 — kpiCards와 같이 "–"·판정 안 함 (§5.1)
+    const row = box.kind === "notJudged" ? null : serverRow;
     const base = criterionName(spec.metric).name;
     const name = spec.target === null ? base : k.criteria.stepName(stepName(spec.target), base);
     const t = criterionValue(spec.metric, spec.threshold);

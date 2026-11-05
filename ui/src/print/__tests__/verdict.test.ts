@@ -249,6 +249,16 @@ describe("otherCriteriaRows", () => {
     );
     expect(out[0].judgement).toBe("notJudged");
   });
+  it("0건 run: 서버 verdict 행이 통과여도 판정 안 함 · 측정값 –", () => {
+    const out = otherCriteriaRows(
+      matched({ max_p99_ms: 5000 }, [vrow({ metric: "p99_ms", threshold: 5000, actual: 0 })]),
+      { kind: "notJudged", reason: "zero" },
+      name,
+    );
+    expect(out).toEqual([
+      { name: "99% 응답시간", target: "5.0초 이하", actual: "–", judgement: "notJudged" },
+    ]);
+  });
 });
 
 const orow = (judgement: OtherRow["judgement"], i: number): OtherRow => ({

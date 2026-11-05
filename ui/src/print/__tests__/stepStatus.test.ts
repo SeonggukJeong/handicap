@@ -189,7 +189,7 @@ describe("callout_text", () => {
     ];
     const c = callouts(rows, summary);
     expect(c.uncounted).toBe(
-      "확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.",
+      "확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%(이)가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.",
     );
     expect(c.unknown).toBeNull();
     expect(c.affectedSteps).toBe(3);
@@ -218,7 +218,7 @@ describe("callout_text", () => {
     const rows = [b, un(1, "C", 404, 30, "uncounted"), un(2, "D", 500, 5, "uncounted")];
     const c = callouts(rows, summary);
     expect(c.uncounted).toBe(
-      "확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.",
+      "확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%(이)가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.",
     );
     const two = callouts([b, un(1, "C", 404, 30, "uncounted")], summary);
     expect(

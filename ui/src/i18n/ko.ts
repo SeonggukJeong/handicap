@@ -2052,6 +2052,8 @@ export const ko = {
     },
     fmt: {
       msUnderOne: "1ms 미만",
+      ms: (n: number) => `${n}ms`,
+      sec: (v: string) => `${v}초`,
       pctUnderTenth: "0.1% 미만",
       rpsUnit: "건/초",
       noTarget: "–",
@@ -2115,7 +2117,7 @@ export const ko = {
     },
     callout: {
       uncounted: (items: string, a: string, b: string) =>
-        `확인 필요: ${items}은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 ${a} → ${b}가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.`,
+        `확인 필요: ${items}은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 ${a} → ${b}(이)가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.`,
       unknown: (items: string) =>
         `${items}은 오류로 세었는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 셀 수 있습니다.`,
       item: (name: string, code: number, n: string) => `'${name}'의 ${code} 응답 ${n}건`,

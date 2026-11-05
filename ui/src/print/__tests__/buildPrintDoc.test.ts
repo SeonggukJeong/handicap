@@ -8,6 +8,7 @@ import {
   type PrintDoc,
 } from "../buildPrintDoc";
 import { totalHeight, type Block, type LadderLevel } from "../paginate";
+import { shortSummary } from "../sentences";
 import type { Report, Run } from "../../api/schemas";
 
 const NOW = Date.UTC(2026, 10, 5, 3, 0, 0);
@@ -156,6 +157,20 @@ describe("buildPrintDoc", () => {
     expect(doc.otherRows.some((r) => r.name === "99% 응답시간" && r.judgement === "fail")).toBe(
       true,
     );
+  });
+
+  it("clean_no_criteria_run_short_summary_not_empty", () => {
+    const clean = mkReport(2, {
+      summary: { ...mkReport().summary, errors: 0 },
+      steps: mkReport().steps.map((s) => ({ ...s, error_count: 0, status_counts: { "200": 100 } })),
+      status_distribution: { "200": 1000 },
+    });
+    const doc = build(mkRun(), clean);
+    expect(doc.box.kind).toBe("noCriteria");
+    expect(idsOf(summaryBlocks(doc, new Map(), 6))).toContain("verdict:short");
+    expect(shortSummary(doc.lines).map((l) => l.text)).toEqual([
+      "오류 없이 끝났습니다. 95% 응답시간은 0.08초입니다.",
+    ]);
   });
 
   it("broken_yaml_sets_unreadable_and_note_block", () => {

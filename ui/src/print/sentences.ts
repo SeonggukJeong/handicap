@@ -37,6 +37,7 @@ const elapsed = (sec: number): string => formatDurationKo(Math.max(0, sec));
 
 function specialLines(i: SummaryInput): SummaryLine[] {
   const out: SummaryLine[] = [];
+  // run.message는 외부 공유 문서에 실린다 — 엔진 safe_cause 허용목록(crates/engine/src/error.rs)과 값 없는 컨트롤러 문구에 기댄다
   const reason = i.message ? S.reason(i.message) : "";
   if (i.summary.count === 0) out.push({ kind: "special", text: S.zero + reason });
   if (i.status === "aborted") {
@@ -186,7 +187,10 @@ export function summaryLines(i: SummaryInput): SummaryLine[] {
 }
 
 export function shortSummary(lines: SummaryLine[]): SummaryLine[] {
-  return lines.filter(
+  const kept = lines.filter(
     (l) => l.kind === "special" || l.kind === "verdict" || l.kind === "problemSteps",
   );
+  // 깨끗한 무기준 run은 fallback 한 줄뿐 — 걸러 비우면 "(자동 작성)" 상자가 빈다
+  if (kept.length === 0) return lines.filter((l) => l.kind === "fallback");
+  return kept;
 }
