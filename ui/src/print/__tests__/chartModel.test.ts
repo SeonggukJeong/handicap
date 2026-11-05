@@ -192,6 +192,14 @@ describe("zero_request_run_chart", () => {
       "측정 내내 오류가 없었습니다. 선은 1초에 처리한 요청 수입니다.",
     );
   });
+  it("a single window gives one finite 1 s bin", () => {
+    const m = buildChartModel([win(77, "A", 8)], 77, rows);
+    expect(m.durationSec).toBe(1);
+    expect(m.binSeconds).toBe(1);
+    expect(m.bins).toEqual([{ startSec: 0, seconds: 1, rps: 8, topErr: 0, otherErr: 0 }]);
+    expect(finiteAll(m)).toBe(true);
+    expect(m.timeTicks).toEqual([0]);
+  });
   it("finiteAll helper has teeth", () => {
     expect(finiteAll({ a: [1, NaN] })).toBe(false);
   });

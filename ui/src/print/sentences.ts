@@ -79,14 +79,18 @@ function verdictLine(i: SummaryInput): string | null {
   return head + (missed.length > 1 ? S.more(missed.length - 1) : "");
 }
 
-const TAG_LABEL: Partial<Record<StatusTag, string>> = ko.print.status.short;
+const TAG_LABEL: Record<StatusTag, string> = {
+  ...ko.print.status.short,
+  ok: ko.print.status.remainder.ok,
+  notRun: ko.print.status.remainder.notRun,
+};
 
 function problemLine(i: SummaryInput): string | null {
   const probs = rankRows(i.ranked).filter((r) => r.status.grade >= 2);
   if (probs.length === 0) return null;
   const items = probs
     .slice(0, 3)
-    .map((r) => S.problemItem(r.no, r.name, TAG_LABEL[r.status.tags[0]] ?? ""));
+    .map((r) => S.problemItem(r.no, r.name, TAG_LABEL[r.status.tags[0]]));
   return S.problemHead + items.join(", ") + (probs.length > 3 ? S.more(probs.length - 3) : "");
 }
 
@@ -99,7 +103,7 @@ function identityLine(i: SummaryInput): string | null {
   if (T === null) return null;
   const share = Math.min(1, T.errorCount / total);
   const pct = Math.round(share * 100);
-  if (share < 0.5) return S.scattered(T.name, pct);
+  if (pct < 50) return S.scattered(T.name, pct);
 
   let c: { code: number; count: number } | null = null;
   for (const p of T.perCode) if (p.cls === "counted" && (c === null || p.count > c.count)) c = p;

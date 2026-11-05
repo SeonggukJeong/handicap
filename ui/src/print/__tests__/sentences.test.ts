@@ -254,6 +254,15 @@ describe("error_identity_line", () => {
       "오류가 여러 단계에 흩어져 있습니다(가장 많은 곳: '신청 제출' 40%).",
     );
   });
+  it("boundary follows the displayed rounded percent", () => {
+    const w = [win(240, "T", 10, 5, { "503": 5 })];
+    expect(run(T({ errorCount: 496 }), w)).toBe(
+      "오류의 50%는 '신청 제출'에서 났고, 대부분 503(서버가 바쁨)입니다. 시작 4분 뒤 처음 나타났습니다.",
+    );
+    expect(run(T({ errorCount: 494 }), w)).toBe(
+      "오류가 여러 단계에 흩어져 있습니다(가장 많은 곳: '신청 제출' 49%).",
+    );
+  });
   it("no errors -> no line", () => {
     expect(run(T({ errorCount: 0, perCode: [] }), [], 0)).toBeUndefined();
   });
