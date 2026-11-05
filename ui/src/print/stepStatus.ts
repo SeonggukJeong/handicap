@@ -100,11 +100,19 @@ function collect(rows: RankedRow[], cls: "uncounted" | "unknown"): Item[] {
 }
 
 function itemsText(items: Item[]): string {
-  const head = items
+  // items are sorted count desc / scenario order: first occurrence per step = its largest cell.
+  const perStep: Item[] = [];
+  const seen = new Set<number>();
+  for (const i of items) {
+    if (seen.has(i.row.index)) continue;
+    seen.add(i.row.index);
+    perStep.push(i);
+  }
+  const head = perStep
     .slice(0, 2)
     .map((i) => C.item(i.row.name, i.code, fmtCount(i.count)))
     .join(", ");
-  return items.length > 2 ? head + C.more(items.length - 2) : head;
+  return perStep.length > 2 ? head + C.more(perStep.length - 2) : head;
 }
 
 export function callouts(

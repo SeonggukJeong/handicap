@@ -87,6 +87,11 @@ describe("status_priority", () => {
     expect(s.grade).toBe(1);
     expect(s.errorRate).toBe(0.0025);
   });
+  it("exactly at threshold is not flagged", () => {
+    const s = stepStatus(row(0, { count: 1000, errorCount: 10, p95Ms: 500 }), crit);
+    expect(s.tags).toEqual(["ok"]);
+    expect(s.grade).toBe(1);
+  });
   it("unknown tag and notRun", () => {
     expect(
       stepStatus(row(0, { perCode: [{ code: 500, count: 1, cls: "unknown" }] }), crit).tags,
@@ -130,6 +135,15 @@ describe("rank_and_select", () => {
     expect(shown).toHaveLength(8);
     expect(shown.map((r) => r.index)).toEqual([...shown.map((r) => r.index)].sort((a, b) => a - b));
     expect(remainderLine).toBe("나머지 2개 단계: 정상 1 · 실행 안 됨 1 (전체 목록은 표준판)");
+  });
+  it("errorCount breaks ties within a grade (all other keys equal)", () => {
+    const crit: Criteria = { max_error_rate: 0.01 };
+    const rows = [
+      rk(row(0, { errorCount: 20 }), crit),
+      rk(row(1, { errorCount: 90 }), crit),
+      rk(row(2, { errorCount: 50 }), crit),
+    ];
+    expect(rankRows(rows).map((r) => r.index)).toEqual([1, 2, 0]);
   });
   it("all ok remainder, zero remainder", () => {
     const rows = [1, 2, 3].map((i) => rk(row(i - 1)));
@@ -191,6 +205,50 @@ describe("callout_text", () => {
     );
     expect(c.affectedSteps).toBe(2);
   });
+  it("per-step largest cell; 외 N counts remaining steps, not cells", () => {
+    const b = rk(
+      row(0, {
+        name: "B",
+        perCode: [
+          { code: 404, count: 30, cls: "uncounted" },
+          { code: 502, count: 600, cls: "uncounted" },
+        ],
+      }),
+    );
+    const rows = [b, un(1, "C", 404, 30, "uncounted"), un(2, "D", 500, 5, "uncounted")];
+    const c = callouts(rows, summary);
+    expect(c.uncounted).toBe(
+      "확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 2.6% → 3.0%가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.",
+    );
+    const two = callouts([b, un(1, "C", 404, 30, "uncounted")], summary);
+    expect(
+      two.uncounted?.startsWith("확인 필요: 'B'의 502 응답 600건, 'C'의 404 응답 30건은 "),
+    ).toBe(true);
+    const u = (i: number, name: string, code: number, n: number) => un(i, name, code, n, "unknown");
+    const bu = rk(
+      row(0, {
+        name: "B",
+        perCode: [
+          { code: 404, count: 300, cls: "unknown" },
+          { code: 502, count: 600, cls: "unknown" },
+        ],
+      }),
+    );
+    expect(callouts([bu, u(1, "C", 404, 30), u(2, "D", 500, 5)], summary).unknown).toBe(
+      "'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 오류로 세었는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 셀 수 있습니다.",
+    );
+  });
+  it("affectedSteps counts a step with both classes once", () => {
+    const both = rk(
+      row(0, {
+        perCode: [
+          { code: 404, count: 3, cls: "uncounted" },
+          { code: 500, count: 2, cls: "unknown" },
+        ],
+      }),
+    );
+    expect(callouts([both], summary).affectedSteps).toBe(1);
+  });
   it("none", () => {
     expect(callouts([rk(row(0))], summary)).toEqual({
       uncounted: null,
@@ -248,6 +306,14 @@ describe("glossary_only_present", () => {
     expect(g.entries.find((e) => e.term === "400")?.text).toBe("잘못된 요청");
     expect(g.entries.find((e) => e.term === "401")?.text).toBe("인증 필요");
     expect(g.errorKindLine).toBe("응답 없음 내역: 요청 타임아웃 3 · 연결 거부 2");
+  });
+  it("both 2xx and 3xx present -> one combined entry", () => {
+    const m = model(
+      [col("2xx", "class2xx", "2xx", [200]), col("3xx", "class3xx", "3xx", [302])],
+      [],
+    );
+    const e = glossary(m, [], []).entries;
+    expect(e.map((x) => x.term)).toContain("2xx(성공 계열)·3xx(이동 계열)");
   });
   it("no none column -> null; unknown code fallback; 2xx/uncounted/unknown/residual", () => {
     const r = rk(
