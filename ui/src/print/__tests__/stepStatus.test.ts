@@ -383,6 +383,24 @@ describe("legend_only_present", () => {
     );
     expect(legendItems(model([], [r3]), [r3])).toContain("확인 불가(?)");
   });
+  it("secondary ▲ tag on a grade-3 row still lists ▲ 주의", () => {
+    const crit: Criteria = { max_error_rate: 0.01 };
+    const r = rk(
+      row(0, {
+        errorCount: 50,
+        perCode: [{ code: 404, count: 1, cls: "uncounted" }],
+        cells: { a: cell("uncounted") },
+      }),
+      crit,
+    );
+    expect(r.status.tags).toEqual(["error", "uncounted"]);
+    expect(r.status.grade).toBe(3);
+    expect(legendItems(model([], [r]), [r])).toEqual([
+      "✕ 오류: 단계 오류율이 기준을 넘음",
+      "▲ 주의: 느림·오류 있음·검사 확인 필요",
+      "오류로 안 센 응답(검사 없음)",
+    ]);
+  });
   it("short legend", () => {
     expect(LEGEND_SHORT).toBe("✕ 오류 · ▲ 주의 · ● 정상");
   });

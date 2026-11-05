@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { PrintDocument } from "../PrintDocument";
+import { Legend } from "../components/TableNotes";
 import {
   buildPrintDoc,
   standardBlocks,
@@ -642,5 +643,35 @@ describe("PrintDocument", () => {
     await ready(root);
     // 기본 normalizer는 공백을 접어 이중 공백을 숨긴다 → 원문 그대로 비교
     expect(screen.getByText("오류/초 — ghost", { normalizer: (t) => t })).toBeInTheDocument();
+  });
+});
+
+describe("Legend status symbols", () => {
+  it("symbols use the same tone classes as the table status", () => {
+    const { container } = render(
+      <Legend
+        items={[
+          "✕ 오류: 단계 오류율이 기준을 넘음",
+          "▲ 주의: 느림·오류 있음·검사 확인 필요",
+          "● 정상",
+          "오류로 센 응답",
+        ]}
+      />,
+    );
+    const spans = Array.from(container.querySelectorAll(".p-legend > span"));
+    expect(spans.map((s) => s.textContent)).toEqual([
+      "✕ 오류: 단계 오류율이 기준을 넘음",
+      "▲ 주의: 느림·오류 있음·검사 확인 필요",
+      "● 정상",
+      "오류로 센 응답",
+    ]);
+    const sym = (i: number) => spans[i].querySelector("b");
+    expect(sym(0)).toHaveTextContent(/^✕$/);
+    expect(sym(0)).toHaveClass("p-bad");
+    expect(sym(1)).toHaveTextContent(/^▲$/);
+    expect(sym(1)).toHaveClass("p-warn");
+    expect(sym(2)).toHaveTextContent(/^●$/);
+    expect(sym(2)).toHaveClass("p-ok");
+    expect(sym(3)).toBeNull();
   });
 });

@@ -183,7 +183,9 @@ export function glossary(
 export function legendItems(model: StepTableModel, rows: RankedRow[]): string[] {
   const out: string[] = [];
   if (rows.some((r) => r.status.grade === 3)) out.push(L.error);
-  if (rows.some((r) => r.status.grade === 2)) out.push(L.caution);
+  // ▲는 오류(grade 3) 줄의 보조 태그로만 나타나도 범례에 싣는다(§6.3 "나타난 분류만")
+  const cautionTags: StatusTag[] = ["slow", "hasErrors", "uncounted", "unknown"];
+  if (rows.some((r) => r.status.tags.some((t) => cautionTags.includes(t)))) out.push(L.caution);
   if (rows.some((r) => r.status.grade === 1)) out.push(L.ok);
   const cells = rows.flatMap((r) => Object.values(r.cells));
   if (cells.some((c) => c.cls === "counted" && c.count > 0)) out.push(L.counted);

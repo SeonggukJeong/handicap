@@ -14,13 +14,27 @@ const SWATCH: Record<string, string> = {
   [L.unknown]: "p-sw p-cell--unknown",
 };
 
+/** 상태 기호 항목 → 표 상태 칸(StepCodeTable `TONE`)과 같은 색 클래스. 기호(첫 글자)에만 입힌다. */
+const SYMBOL_TONE: Record<string, string> = {
+  [L.error]: "p-bad",
+  [L.caution]: "p-warn",
+  [L.ok]: "p-ok",
+};
+
 export function Legend({ items }: { items: string[] }) {
   return (
     <div className="p-legend">
       {items.map((item) => (
         <span key={item}>
           {SWATCH[item] && <i className={SWATCH[item]} aria-hidden="true" />}
-          {item}
+          {SYMBOL_TONE[item] ? (
+            <>
+              <b className={SYMBOL_TONE[item]}>{item.slice(0, 1)}</b>
+              {item.slice(1)}
+            </>
+          ) : (
+            item
+          )}
         </span>
       ))}
     </div>

@@ -258,6 +258,9 @@
 .p-root .p-table th {
   background: var(--faint);
   font-weight: 700;
+  /* 좁은 머리 칸은 공백에서 줄바꿈("95% 응|답" 방지), 한 단어가 칸보다 길 때만 글자 단위 */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 .p-root .p-table th small,
 .p-root .p-table td small {
