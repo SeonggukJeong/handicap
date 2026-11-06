@@ -1,6 +1,6 @@
 # 0055. 터미널(TUI) 모니터 — 컨트롤러 in-process 임베드 + 루프백 REST 클라이언트 + "json 파일이 곧 설정" + 구형 glibc 대상 빌드
 
-- Status: Proposed (spec 리뷰 통과 시 Accepted)
+- Status: Accepted (2026-11-07, spec-plan-reviewer 3라운드 APPROVE)
 - Date: 2026-11-07
 - 관련: ADR-0042(in-process 임베드), ADR-0053(운영 모니터), ADR-0054(보드 파일 형식)
 - 설계: `docs/superpowers/specs/2026-11-07-tui-monitor-design.md`

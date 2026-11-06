@@ -84,7 +84,7 @@
 
 ### 4.2 부트스트랩
 
-- **로그**: 컨트롤러는 tracing을 초기화하지 않는다(호출자 소유, `in_process.rs` `run_worker_if_invoked` 주석). TUI가 구독자를 **파일 전용**으로 초기화 — `$XDG_STATE_HOME/handicap/tui.log`(기본 `~/.local/state/handicap/tui.log`), 실행마다 새로 쓰고 직전 것은 `.1`로 하나 보존, 기본 수준 `info`, `RUST_LOG`가 있으면 따른다. stderr 출력 0을 통합 테스트로 고정.
+- **로그**: 컨트롤러는 tracing을 초기화하지 않는다(호출자 소유, `in_process.rs` `run_worker_if_invoked` 주석). TUI가 구독자를 **파일 전용**으로 초기화 — `$XDG_STATE_HOME/handicap/tui.log`(기본 `~/.local/state/handicap/tui.log`), 실행마다 새로 쓰고 직전 것은 `.1`로 하나 보존(`--check`는 돌고 있는 화면의 로그를 건드리지 않게 `tui-check.log`), 기본 수준 `info`, `RUST_LOG`가 있으면 따른다. stderr 출력 0을 통합 테스트로 고정.
 - **패닉**: 프로세스 전역 패닉 훅은 **로그 파일에만** 기록하고 stderr 기본 훅을 부르지 않는다. 터미널 복구는 **UI 스레드의 패닉일 때만**(컨트롤러 백그라운드 태스크 패닉은 tokio가 잡으므로 화면을 유지한다). 정상 종료·UI 스레드 unwind는 drop 가드가 raw mode·대체 화면을 되돌린다. UI 스레드 패닉 후엔 터미널에 "로그: <경로>" 한 줄을 남기고 종료(§3의 `read x`로 창 유지).
 - **임시 DB**: `$XDG_RUNTIME_DIR/handicap-tui-<pid>.db`(없으면 `std::env::temp_dir()`). `connect` 전에 0600으로 **먼저 생성**(`store::connect`는 `create_if_missing`). 정상 종료 시 `-wal`/`-shm`까지 삭제, 시작 시 같은 디렉토리의 죽은 pid 잔재 정리.
 
@@ -130,7 +130,7 @@
 
 - **머리 줄**: 보드 이름, 순번(여러 개일 때), 서버 시각, 점검 상태(끊김이면 원인).
 - **칸 격자**: `grid_for`. 선택된 칸은 테두리 강조.
-- **칸 내용**: 제목 · 상태 문구 + 큰 값 · 연속 실패 줄 · 막대 이력(`bar_slots`로 `bar_count` 슬롯을 만들고 칸 폭에 들어가는 최신 쪽만, 높이 = 지연/`graph_max_ms` 8단계 블록, 색 = 성공은 `bar_color`·실패/설정 오류는 빨강·확인 못 함/분기 제외는 회색) · 평균·최대 줄 · 칸 높이가 남으면 벽 표시 값(`display_items` 최대 2개, 최신 결과의 `display`).
+- **칸 내용**: 제목 · 상태 문구 + 큰 값 · 연속 실패 줄 · 막대 이력(`bar_slots`로 `bar_count` 슬롯을 만들고 칸 폭에 들어가는 최신 쪽만, 높이 = 지연/`graph_max_ms` 8단계 블록, 색 = 성공은 `bar_color`·실패는 빨강·설정 오류/확인 못 함/분기 제외는 회색 — GUI `LatencyBars.tsx`와 같게, 1a plan 리뷰에서 정정) · 평균·최대 줄 · 칸 높이가 남으면 벽 표시 값(`display_items` 최대 2개, 최신 결과의 `display`).
 - **색**: hex → 터미널 RGB(gnome-terminal 3.32 truecolor 지원 — 대상 환경 한정 판단, 256색 폴백 비목표).
 - **키 안내 줄**: 맨 아래 항상, 현재 화면에서 쓸 수 있는 키만.
 - **작은 터미널**: 칸 최소 크기를 못 채우면 "창을 키워 주세요(현재 W×H, 필요 W×H)".
