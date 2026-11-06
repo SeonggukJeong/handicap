@@ -1,0 +1,217 @@
+file	line	section	bytes	head	dest	outside_trigger	pointer_needed	narrative_bytes_est	reason
+ui/CLAUDE.md	1	(preamble)	20	# UI (`ui/`) 함정	STAY-ui	-	no	0	파일 제목
+ui/CLAUDE.md	3	(preamble)	258	이 파일은 `ui/` 파일을 건드릴 때 자동 로드되는 중첩 CLAUDE.md다. 프로젝트 전역 규칙·git 	STAY-ui	-	no	0	로드 범위 서문
+ui/CLAUDE.md	5	(preamble)	306	Vite + React + TS + Tailwind. 에디터 = `FlowOutline` 아웃라인 + dnd	STAY-ui	-	no	0	스택 개요
+ui/CLAUDE.md	7	(preamble)	700	> **하위 도메인 문서** (해당 디렉토리 작업 시 이 파일과 함께 자동 로드되는 2단계 중첩 CLAUDE	STAY-ui	-	no	250	하위 문서 인덱스 — run/·monitor·print 추가로 재작성, 'flat하게 남아 있다' 문장 삭제
+ui/CLAUDE.md	9	(preamble)	1038	> **유지 규칙**: 이 파일은 `ui/` 작업 시 통째 로드된다. 새 함정은 한 줄로, **그 함정이 위	STAY-ui	-	no	300	유지 규칙 — report-advice-noise ValidityBadge 사례는 narratives로
+ui/CLAUDE.md	11	빌드·타입 게이트	28	## 빌드·타입 게이트	STAY-ui	-	no	0	섹션 제목
+ui/CLAUDE.md	13	빌드·타입 게이트	546	> 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narrativ	STAY-ui	-	no	0	narratives 포인터 블록
+ui/CLAUDE.md	15	빌드·타입 게이트	266	- **`pnpm build`(`tsc -b && vite build`)가 최종 게이트** (코딩 컨벤션):	STAY-ui	-	no	0	pnpm build 최종 게이트 — 전역
+ui/CLAUDE.md	16	빌드·타입 게이트	910	- **ui-only 추가 슬라이스에서 plan이 src-편집 Step을 test-편집 Step보다 *앞*에	STAY-ui	-	no	450	tdd-guard 순서 — 전역 훅 규칙
+ui/CLAUDE.md	17	빌드·타입 게이트	1098	- **검증 배너 게이트-에러 한국어 매핑(`problems.ts::formatSegment`) 확장 규칙*	SCENARIO	ui/src/scenario/problems.ts,ui/src/scenario/model.ts	yes	250	problems.ts formatSegment = 검증 배너(에디터) — 단 scenario/ 형제 디렉토리라 로드 안 됨
+ui/CLAUDE.md	18	빌드·타입 게이트	448	- **ES2023+ 배열 메서드(`findLast` 등)는 `pnpm test`를 통과하고 `tsc -b`	STAY-ui	-	no	80	ES2023 tsc 게이트 — 전역
+ui/CLAUDE.md	19	빌드·타입 게이트	466	- **판별 union 내로잉은 중간 boolean 변수를 통과하지 못한다** (editor-dataset-	STAY-ui	-	no	60	union narrowing — 전역 TS
+ui/CLAUDE.md	20	빌드·타입 게이트	713	- **판별 union(discriminated union)에 `.find()`로 한 변형만 좁히려면 *타입	STAY-ui	-	no	150	find 타입가드 — 전역 TS
+ui/CLAUDE.md	21	빌드·타입 게이트	751	- **`import type ... from "상대경로"`의 잘못된 깊이는 `pnpm test`를 통과하고	STAY-ui	-	no	200	import type 깊이 — 전역 테스트
+ui/CLAUDE.md	22	빌드·타입 게이트	512	- **hoisted `function` 선언은 컴포넌트 본문의 `if (!x) return` narrowi	STAY-ui	-	no	120	hoisted function narrowing — 전역 TS
+ui/CLAUDE.md	23	빌드·타입 게이트	571	- **`pnpm test <name>`로 단일 파일 필터 — `--`를 붙이면 안 먹는다** (test-r	STAY-ui	-	no	200	pnpm test 필터 — 전역
+ui/CLAUDE.md	24	빌드·타입 게이트	727	- **vitest `include`는 `src/**/__tests__/**/*.{test,spec}.{ts	STAY-ui	-	no	250	vitest include — 전역 (+L205 중복 병합 대상)
+ui/CLAUDE.md	25	빌드·타입 게이트	297	- **targeted `pnpm test <name>` green ≠ full `pnpm test` gre	STAY-ui	-	no	80	targeted≠full — 전역
+ui/CLAUDE.md	26	빌드·타입 게이트	341	- **같은 라벨 버튼이 여럿이면 RTL은 `within(컨테이너)`로 스코프 — bare `getByRol	STAY-ui	-	no	80	RTL within 스코프 — 전역
+ui/CLAUDE.md	27	빌드·타입 게이트	970	- **필터 칩과 verdict 배지가 같은 라벨이면 toggle-속성으로 disambiguate — 카피를	STAY-ui	pages/ScenarioRunsPage.tsx,components/VerdictBadge.tsx	no	300	칩(RunListControls)+배지 다중매치 — 밟는 곳은 ScenarioRunsPage 테스트(pages)
+ui/CLAUDE.md	28	빌드·타입 게이트	609	- **상시 미러 컴포넌트(`TestFlowChips`)가 스텝명을 페이지 DOM에 복제 — 페이지-레벨 R	SCENARIO	pages/ScenarioEditPage.tsx,pages/ScenarioNewPage.tsx	yes	150	TestFlowChips 미러 — 페이지 RTL(pages/__tests__)에서 밟음
+ui/CLAUDE.md	29	빌드·타입 게이트	956	- **인스펙터 섹션을 기본-접힘 disclosure로 바꾸면 그 섹션 입력을 직접 집던 기존 RTL 테스트	SCENARIO	ui/src/scenario/editorPrefs.ts	yes	250	InspectorSection disclosure + editorPrefs localStorage
+ui/CLAUDE.md	30	빌드·타입 게이트	569	- **`<input type="number">`에 RTL `fireEvent.change`로 비숫자 문자열	STAY-ui	-	no	150	number input sanitize — 전역 테스트
+ui/CLAUDE.md	31	빌드·타입 게이트	882	- **heading 안 인터랙티브 배지는 accname 오염 폭탄 — 배지는 heading *형제*로, g	STAY-ui	-	no	250	heading 안 배지 accname — 전역 a11y(RunDetailPage·Layout 캐넌)
+ui/CLAUDE.md	32	빌드·타입 게이트	431	- **RTL `getByText(정확문자열)`은 요소의 *직계 텍스트 노드만* 이어 붙여 비교한다(`get	STAY-ui	-	no	150	getByText 직계 노드 — 전역 테스트
+ui/CLAUDE.md	33	빌드·타입 게이트	940	- **suite-wide 비결정 테스트 격리 flake — full-`pnpm test`가 런마다 *다른*	STAY-ui	-	no	550	suite-wide flake 해결 이력 — setup.ts 규칙만 남김
+ui/CLAUDE.md	34	빌드·타입 게이트	514	- **한글 하드코딩 스윕 grep `'"[가-힣]'`은 따옴표 직후가 한글이 아닌 리터럴(`"(미매치)"`	STAY-ui	-	no	150	한글 하드코딩 grep — 전역
+ui/CLAUDE.md	35	빌드·타입 게이트	656	- **run 목록 필터/정렬은 순수 `runFilterSort.ts` 단일소스 + `RunListContr	STAY-ui	ui/src/runs/runFilterSort.ts,pages/ScenarioRunsPage.tsx	no	150	runFilterSort 단일소스 — 주 파일 runs/는 run/ 밖(빌드 게이트 섹션 오배치, 섹션 이동)
+ui/CLAUDE.md	36	빌드·타입 게이트	361	- **`pnpm lint`(`eslint . --max-warnings=0`)는 `pnpm test`·`p	STAY-ui	-	no	150	pnpm lint 별도 게이트 — 전역
+ui/CLAUDE.md	37	빌드·타입 게이트	422	- **Zod 중첩 `.default()`의 input 타입 누출** (Slice 4): `ProfileSc	STAY-ui	-	no	80	Zod nested default 누출 — api/schemas 전역
+ui/CLAUDE.md	38	빌드·타입 게이트	579	- **응답(파싱) 스키마는 top-level `.default()`도 누출 — plain 타입을 쓸 것**	STAY-ui	-	no	150	top-level default 누출 — api 전역
+ui/CLAUDE.md	39	빌드·타입 게이트	826	- **응답 스키마의 optional `Option` 필드는 `.optional()`이 아니라 `.nulli	STAY-ui	-	no	200	nullish vs optional — api 전역(S-D)
+ui/CLAUDE.md	40	빌드·타입 게이트	893	- **Zod 3종 분기 — `measure_phases`/`ReportStep.download`/trace	STAY-ui	-	no	250	Zod 3종 분기 — api 전역
+ui/CLAUDE.md	41	빌드·타입 게이트	1107	- **`BodyModel.superRefine`로 JSON 캐스트 검증** (0029): `cast.ts:	SCENARIO	ui/src/scenario/cast.ts,ui/src/scenario/model.ts	yes	300	BodyModel superRefine 캐스트 — scenario/ 모델(형제 디렉토리)
+ui/CLAUDE.md	42	빌드·타입 게이트	1158	- **0029 캐스트 확장 — `${env}`/시스템 캐스트 통과 + `:json` + 발견성 HelpTi	SCENARIO	ui/src/scenario/cast.ts,components/scenario/Inspector.tsx	yes	400	0029 캐스트 확장 — cast.ts
+ui/CLAUDE.md	43	빌드·타입 게이트	249	- **Zod `.strict()` + `default()`의 조합** (Slice 3): `.strict(	STAY-ui	-	no	50	Zod strict+default — 전역
+ui/CLAUDE.md	44	빌드·타입 게이트	440	- **`ConditionModel`은 모델 최초의 `z.lazy`** (Slice 9b): 재귀 `Cond	SCENARIO	ui/src/scenario/model.ts	yes	100	ConditionModel z.lazy
+ui/CLAUDE.md	45	빌드·타입 게이트	599	- **`then`/`else`는 유효한 객체 키지만 `else`를 binding으로 destructure 	SCENARIO	ui/src/scenario/model.ts	yes	200	then/else destructure
+ui/CLAUDE.md	46	빌드·타입 게이트	629	- **두 계층 Zod 게이트(two-tier)는 `z.lazy` 자기참조 대신** (Slice 9c): 상	SCENARIO	ui/src/scenario/model.ts	yes	150	two-tier Zod 게이트
+ui/CLAUDE.md	47	빌드·타입 게이트	1026	- **`StepModel`은 이제 http|loop|if|parallel **4-way** discrimi	SCENARIO	ui/src/scenario/model.ts,ui/src/scenario/store.ts	yes	300	StepModel 4-way + superRefine
+ui/CLAUDE.md	48	빌드·타입 게이트	527	- **Zod 3 `superRefine`은 필드 refinement(`.int()`/`.max()`)가 실	STAY-ui	-	no	150	superRefine 실행 규칙 — 전역 Zod
+ui/CLAUDE.md	49	빌드·타입 게이트	545	- **`yaml`(1.2 core)은 `"0b101"`·`"+0x1F"`·`"-0x10"` 같은 문자열을 	SCENARIO	ui/src/scenario/yamlDoc.ts	yes	150	yaml 1.2 vs serde 따옴표 — yamlDoc
+ui/CLAUDE.md	50	빌드·타입 게이트	631	- **`environments.ts`의 `z.record(z.string(), z.string())`는 n	STAY-ui	-	no	150	environments.ts z.record — api
+ui/CLAUDE.md	51	빌드·타입 게이트	1002	- **`<EnvironmentPicker>`는 controlled + `resolveEnv`는 순수 함수로	RUN	components/scenario/TestRunSection.tsx,ui/src/api/envOverlay.ts	yes	350	EnvironmentPicker controlled + resolveEnv(envOverlay.ts)
+ui/CLAUDE.md	52	빌드·타입 게이트	541	- **`tsc -b`는 프로젝트 전체를 한 번에 타입체크 → 모델 widening은 나중 task 테스트 	STAY-ui	-	no	150	tsc -b 교차 widening — 전역
+ui/CLAUDE.md	54	API client / React Query / fetch	36	## API client / React Query / fetch	STAY-ui	-	no	0	섹션 제목
+ui/CLAUDE.md	56	API client / React Query / fetch	298	- **vite dev `/api` 프록시 타깃** (Slice 4): `ui/vite.config.ts`가	STAY-ui	-	no	0	vite 프록시
+ui/CLAUDE.md	57	API client / React Query / fetch	195	- **React Query v5 `refetchInterval`의 시그니처** (Slice 2): `(qu	STAY-ui	-	no	0	refetchInterval 시그니처
+ui/CLAUDE.md	58	API client / React Query / fetch	410	- **terminal 후 `/report` fetch가 silent로 실패하면 사용자는 "전환 없음"으로만	STAY-ui	pages/RunDetailPage.tsx	no	100	report fetch 에러 표시 — RunDetailPage
+ui/CLAUDE.md	59	API client / React Query / fetch	470	- **multipart 업로드 클라이언트는 content-type을 직접 설정하면 안 된다** (Slice	STAY-ui	-	no	80	multipart client
+ui/CLAUDE.md	60	API client / React Query / fetch	715	- **`useMutation`의 `error`/`isError` 상태는 호출자가 `mutateAsync` 	STAY-ui	-	no	250	useMutation error 독립
+ui/CLAUDE.md	61	API client / React Query / fetch	371	- **UploadPanel 라이브 미리보기는 요청 시퀀싱이 없다(8b 알려진 한계)** (Slice 8b)	STAY-ui	-	no	100	UploadPanel 시퀀싱 — datasets
+ui/CLAUDE.md	63	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	57	## 폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	RUN	-	no	0	섹션 제목 '폼·입력 UX (RunDialog, RunDetail)' — 분할: RunDialog부는 run/, 나머지는 '폼 UX 공통'으로 개명
+ui/CLAUDE.md	65	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	517	> 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narrativ	STAY-ui	-	no	150	narratives 포인터 — 키워드 목록을 run/·ui로 분할
+ui/CLAUDE.md	67	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	684	- **새 리소스 첫 저장 → `navigate('/x/{id}', {replace})`가 `key` 변경 	STAY-ui	pages/MonitorEditPage.tsx	no	250	navigate 재마운트 — React Router 전역(MonitorEditPage는 pages/)
+ui/CLAUDE.md	68	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	191	- **plan에 있던 UI 갭이 manual check에서 처음 드러나는 패턴** (Slice 4 M1):	RUN	-	no	0	새 런타임 옵션은 RunDialog 입력+페이로드 같은 task
+ui/CLAUDE.md	69	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	180	- **key-value 입력 폼은 한 칸짜리 add row를 만들지 말 것** (Slice 4 M5): 두	STAY-ui	-	no	0	KV 한 칸 add row — 폼 전역
+ui/CLAUDE.md	70	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	321	- **Run 상세 화면의 step_id 진단성** (Slice 4 M2): 시나리오 YAML을 같이 fet	STAY-ui	pages/RunDetailPage.tsx	no	0	RunDetail step_id 진단
+ui/CLAUDE.md	71	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	330	- **`resolveForDisplay`는 display/관대 resolver** (Slice 4 M3):	STAY-ui	ui/src/scenario/template.ts	no	0	resolveForDisplay ↔ 엔진 template.rs lockstep
+ui/CLAUDE.md	72	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	591	- **재귀 `ConditionEditor`는 ExtractEditor 커밋 패턴을 index-path 불변	SCENARIO	-	no	150	ConditionEditor(Inspector.tsx)
+ui/CLAUDE.md	73	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	376	- **조건 빌더는 빈 그룹을 절대 만들 수 없게** (Slice 9b): 엔진 `All([])`이 vacu	SCENARIO	-	no	100	조건 빌더 빈 그룹
+ui/CLAUDE.md	74	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	459	- **중첩 추가 버튼은 최상위 여부로 게이트** (Slice 9c): inspector 의 "+ Add i	SCENARIO	-	no	100	중첩 추가 버튼 게이트(inspector)
+ui/CLAUDE.md	75	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	772	- **RunDialog/DataBindingPanel prefill 은 reseed-by-key** (Ar	RUN	pages/ScenarioRunsPage.tsx,ui/src/api/runPrefill.ts	yes	250	prefill reseed-by-key — key= 는 ScenarioRunsPage가 줌
+ui/CLAUDE.md	76	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	673	- **RunDialog의 seeded `binding`은 이중 소스가 아니라 수렴** (Area A1): 	RUN	-	no	200	seeded binding 수렴
+ui/CLAUDE.md	77	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	416	- **run env 는 API 경계에서 map<string,string>** (Area A1): contr	STAY-ui	ui/src/api/runPrefill.ts,components/scenario/TestRunSection.tsx	no	100	run env 문자열 map — API 경계 계약(env 입력 경로 전반)
+ui/CLAUDE.md	78	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	565	- **`?retry=<runId>` deep-link는 `consumedRetry` ref로 1회만** (	STAY-ui	pages/ScenarioRunsPage.tsx	no	200	?retry consumedRetry — ScenarioRunsPage
+ui/CLAUDE.md	79	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	425	- **RunDialog 프리셋 load는 명시적 사용자 액션이라 imperative reseed 허용** 	RUN	-	no	100	프리셋 load imperative reseed
+ui/CLAUDE.md	80	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	382	- **`deleteDataset`은 이제 `(id, force?) → {deleted:true} | {de	STAY-ui	-	no	80	deleteDataset soft/hard 409 — api/DatasetsPage
+ui/CLAUDE.md	81	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	320	- **`presets.ts`의 `PresetInput.profile`은 `z.infer`가 아니라 stan	STAY-ui	ui/src/api/presets.ts	no	50	PresetInput.profile standalone — api/presets.ts
+ui/CLAUDE.md	82	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1315	- **`KeyValueGrid`는 Headers/Form-body 공유 KV 편집기 (2열 그리드 + Bu	SCENARIO	-	no	450	KeyValueGrid(components/scenario)
+ui/CLAUDE.md	83	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1649	- **`KeyValueGrid`는 active+disabled 2-맵 계약 — `onChange(activ	SCENARIO	ui/src/scenario/yamlDoc.ts,ui/src/scenario/model.ts	yes	700	KeyValueGrid 2-맵 + normalizeRequest passthrough
+ui/CLAUDE.md	84	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	532	- **시나리오 최상위 키 추가는 3곳 세트 — Zod 모델(`model.ts`)·yamlDoc Edit v	SCENARIO	ui/src/scenario/model.ts,ui/src/scenario/yamlDoc.ts	yes	150	최상위 키 3곳 세트 — 편집 대상은 scenario/ 형제
+ui/CLAUDE.md	85	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	933	- **선택적(optional) 폼 섹션은 접이식 disclosure로 — collapse-by-defaul	RUN	-	no	350	RunDialog SLO disclosure + RTL 펼침
+ui/CLAUDE.md	86	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1854	- **RunDialog 간단/상세 모드 = *가시성만* 게이트(폼 state는 부모 소유) → payloa	RUN	-	no	800	간단/상세 모드 + F1 이중계수 + opensDetailed
+ui/CLAUDE.md	87	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	863	- **타일·Segmented 셀렉터 teeth는 `getByRole("radio")`로 부족 — Segme	RUN	-	no	300	타일·Segmented teeth (RunDialog 테스트)
+ui/CLAUDE.md	88	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1160	- **`buildProfile` optional 필드의 byte-identical 생략은 `field:un	RUN	ui/src/api/schemas.ts,ui/src/api/runPrefill.ts	yes	450	buildProfile 조건부 spread(profileForm.ts)
+ui/CLAUDE.md	89	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	605	- **byte-identical 이빨 실증은 body 리터럴을 만드는 client.ts 층에서만 유효 — 	STAY-ui	ui/src/api/client.ts	no	250	byte-identical 이빨은 client.ts 층 — 전역 테스트
+ui/CLAUDE.md	90	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	554	- **편집-억제 escape ref 미러 이식은 원본 전 사이트 4종(선언·edit-start 리셋·ESC	STAY-ui	pages/RunDetailPage.tsx	no	200	labelEscapedRef 미러 — RunDetailPage
+ui/CLAUDE.md	91	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	737	- **footer 부하-모양 시그니처(`LoadShapePreview`)는 표시될 때 *항상* `role=	RUN	-	no	250	LoadShapePreview role=img
+ui/CLAUDE.md	92	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	634	- **번호 `Section` 재구성(분리·이동·재시퀀스)은 index `ascending`=DOM 순서가 	RUN	-	no	250	번호 Section 재구성(RunDialog)
+ui/CLAUDE.md	93	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1901	- **`<HelpTip>`(용어 도움말 popover)은 portal + `position: fixed`*	STAY-ui	-	no	900	HelpTip portal — HelpTip.tsx 이동 안 함; U1a 이력·jsdom 스파이 서사 압축
+ui/CLAUDE.md	94	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	1326	- **`overflow-auto` 열 안에 앵커된 팝오버는 `absolute`면 열 경계에서 잘린다 → `	SCENARIO	-	no	500	VarUsagePopover(components/scenario) — portal 일반론은 HelpTip 항목과 합칠 여지
+ui/CLAUDE.md	95	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	417	- **`ko.ts` 변수 치환 명사 뒤 조사는 `(으)로`/`(은)는`/`(이)가` 병기형으로** (사이징	STAY-ui	-	no	80	ko.ts 조사 병기 — 전역
+ui/CLAUDE.md	96	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	999	- **표시-전용 드롭다운/뱃지는 state 클리어 말고 render-derived divergence로**	RUN	-	no	400	프리셋 드롭다운 render-derived divergence
+ui/CLAUDE.md	97	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	812	- **stretched-label 클릭 오버레이는 `after:content-['']` 필수 (Tailwi	STAY-ui	-	no	300	stretched-label after:content — 전역 Tailwind
+ui/CLAUDE.md	98	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	880	- **`button[role=radio]`→native `<input type=radio>`+`<label	RUN	-	no	350	native radio 전환 accname sweep — RunDialog 렌더 모든 테스트
+ui/CLAUDE.md	99	폼·입력 UX / 진단 표시 (RunDialog, RunDetail)	380	- **한 aria-label을 두 요소가 공유하면 Playwright `.find`/locator가 모호*	STAY-ui	-	no	100	Playwright aria-label 공유 — 라이브 검증(live-verify-playwright.md 후보)
+ui/CLAUDE.md	101	다단계 ramp UI (RunDialog stages 편집·미리보기, S	66	## 다단계 ramp UI (RunDialog stages 편집·미리보기, S-D)	RUN	-	no	0	섹션 제목 다단계 ramp
+ui/CLAUDE.md	103	다단계 ramp UI (RunDialog stages 편집·미리보기, S	315	> 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narrativ	RUN	-	no	0	narratives 포인터
+ui/CLAUDE.md	105	다단계 ramp UI (RunDialog stages 편집·미리보기, S	468	- **stage 행은 string-draft 상태 — 제출 시 Number 변환, onBlur-commit	RUN	-	no	150	stage string-draft
+ui/CLAUDE.md	106	다단계 ramp UI (RunDialog stages 편집·미리보기, S	333	- **`StageSchema`는 `.optional()` — `.default([])` 누출 금지, 접미사	STAY-ui	ui/src/api/schemas.ts	no	80	StageSchema optional·*Schema 접미사 — api/schemas
+ui/CLAUDE.md	107	다단계 ramp UI (RunDialog stages 편집·미리보기, S	297	- **곡선 payload는 `duration_seconds: 0` + `stages`, `target_rp	RUN	-	no	0	곡선 payload 형태
+ui/CLAUDE.md	108	다단계 ramp UI (RunDialog stages 편집·미리보기, S	551	- **곡선 run은 `profile.duration_seconds=0` — 표시·도출엔 `profileDu	STAY-ui	ui/src/api/runPrefill.ts	no	100	profileDurationSeconds — 모든 run 표면(pages·print) 사용
+ui/CLAUDE.md	109	다단계 ramp UI (RunDialog stages 편집·미리보기, S	1479	- **곡선/open-loop run의 VU 표시는 `profileVuDisplay`(loadModel.ts	RUN	pages/RunDetailPage.tsx,pages/ScenarioRunsPage.tsx,ui/src/runs/profileSummary.ts	yes	500	profileVuDisplay+RunVuCell — '새 표면에서 profile.vus 직접 금지'는 pages에서 밟음
+ui/CLAUDE.md	110	다단계 ramp UI (RunDialog stages 편집·미리보기, S	1533	- **곡선 fan-out run 워커별 active-VU 분해는 `active_vu_by_worker`(컨	REPORT	ui/src/api/schemas.ts	yes	600	ActiveVuChart byWorker(components/report)
+ui/CLAUDE.md	111	다단계 ramp UI (RunDialog stages 편집·미리보기, S	606	- **Recharts 미리보기는 jsdom explicit size + stroke `#2563eb` + 	RUN	-	no	150	StageCurvePreview Recharts
+ui/CLAUDE.md	112	다단계 ramp UI (RunDialog stages 편집·미리보기, S	543	- **부하 모드 셀렉터는 2축(loadModel×rateMode) 유지 + `LoadModelFields`	RUN	-	no	100	LoadModelFields/loadModel.ts 추출
+ui/CLAUDE.md	113	다단계 ramp UI (RunDialog stages 편집·미리보기, S	3471	- **`LoadModelFields`는 `RunDialog`+`ScheduleForm` 둘 다 마운트 — 	RUN	-	no	2000	사이징 헬퍼 게이트 패턴 — 서사·라이브 팁 대량
+ui/CLAUDE.md	114	다단계 ramp UI (RunDialog stages 편집·미리보기, S	1498	- **closed+curve(VU 곡선) 활성화 — 4번째 모드 (ADR-0037, vu_stages)**	RUN	ui/src/api/schemas.ts,ui/src/api/runPrefill.ts	yes	500	closed+curve 4번째 모드(deriveLoadMode)
+ui/CLAUDE.md	116	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	61	## 변수 스코프 판정 (`scanVars.ts`, `VariablesPanel`)	SCENARIO	-	no	0	섹션 제목 변수 스코프
+ui/CLAUDE.md	118	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	745	- **`{{var}}` 정의 여부는 위치에 따라 다르다 — 전역 집합으로 판정하면 틀린다** (parall	SCENARIO	ui/src/scenario/scanVars.ts	yes	300	undefinedVarRefs 위치 인식
+ui/CLAUDE.md	119	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	231	- **"B 자신의 extract" walker는 분기 서브트리를 재귀해야 한다** — 최상위 http만 보	SCENARIO	ui/src/scenario/scanVars.ts	yes	50	분기 서브트리 재귀
+ui/CLAUDE.md	120	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	363	- **참조 수집은 `buildVarRefIndex`를 본떠라(`collectBranchInternalRef	SCENARIO	ui/src/scenario/scanVars.ts	yes	100	buildVarRefIndex 본뜨기
+ui/CLAUDE.md	121	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	777	- **"형제 분기" 판정엔 parallel 노드 identity가 필요하다 — "어떤 분기 안이냐"만 보면	SCENARIO	ui/src/scenario/scanVars.ts	yes	350	parallel 노드 identity
+ui/CLAUDE.md	122	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	461	- **`candidates >= 1`이면 "선언 추가"를 숨긴다** — 그 버튼은 `variables[na	SCENARIO	ui/src/scenario/scanVars.ts	yes	100	candidates>=1 선언 추가 숨김
+ui/CLAUDE.md	123	변수 스코프 판정 (`scanVars.ts`, `VariablesPane	261	- **의도된 false-negative(조이지 말 것)**: 같은 parallel 노드 *안*에서 `{{B	SCENARIO	ui/src/scenario/scanVars.ts	yes	50	의도된 false-negative
+ui/CLAUDE.md	125	데이터 바인딩 패널 (8c, `DataBindingPanel`)	55	## 데이터 바인딩 패널 (8c, `DataBindingPanel`)	RUN	-	no	0	섹션 제목 DataBindingPanel
+ui/CLAUDE.md	127	데이터 바인딩 패널 (8c, `DataBindingPanel`)	378	- **`BindingPolicyEnum`에 `unique` 포함 (4정책)** (unique 바인딩): `	RUN	ui/src/api/schemas.ts	yes	80	unique 정책 + RTL
+ui/CLAUDE.md	128	데이터 바인딩 패널 (8c, `DataBindingPanel`)	398	- **`scanFlowVars`는 loop `do:` 배열 안까지 재귀 스캔해야 한다** (Slice 8c	RUN	ui/src/scenario/scanVars.ts	yes	150	scanFlowVars loop 재귀 — 함수는 scanVars.ts(DataBindingPanel 소비)
+ui/CLAUDE.md	129	데이터 바인딩 패널 (8c, `DataBindingPanel`)	487	- **바인딩 검증은 extract/scenario.variables로 채워질 `{{var}}`를 false	RUN	-	no	150	바인딩 검증 false-alarm
+ui/CLAUDE.md	130	데이터 바인딩 패널 (8c, `DataBindingPanel`)	518	- **`Mapping` JSON shape은 Rust ↔ TS 양쪽이 동일해야 한다** (Slice 8c)	STAY-ui	ui/src/api/schemas.ts	no	150	Mapping JSON shape Rust↔TS — 와이어 계약(schemas)
+ui/CLAUDE.md	131	데이터 바인딩 패널 (8c, `DataBindingPanel`)	1100	- **`DataBindingPanel`은 이제 단일 바인딩이 아니라 카드 *목록*(다중 데이터셋 바인딩) 	RUN	ui/src/api/schemas.ts,ui/src/api/runPrefill.ts	yes	450	다중 데이터셋 바인딩(ScheduleForm 포함)
+ui/CLAUDE.md	132	데이터 바인딩 패널 (8c, `DataBindingPanel`)	1091	- **함정(CRITICAL, Task6 자가적발): 멀티-카드 패널의 per-card "uncovered 	RUN	-	no	450	coveredByOthers 형제 union + 루프 안전
+ui/CLAUDE.md	134	데이터 바인딩 패널 (8c, `DataBindingPanel`)	791	- **JSX는 인접 요소 사이의 개행 공백을 제거한다 → `textContent` ≠ 눈에 보이는 텍스트*	STAY-ui	-	no	350	JSX 개행 공백 textContent — 전역 테스트(실사례는 에디터 매핑)
+ui/CLAUDE.md	135	데이터 바인딩 패널 (8c, `DataBindingPanel`)	533	- **`aria ⊇ visible`을 `startsWith`로만 검사하면 가시 텍스트가 *비어도* 통과한다	STAY-ui	-	no	200	aria⊇visible startsWith 공허 — 전역 테스트
+ui/CLAUDE.md	136	데이터 바인딩 패널 (8c, `DataBindingPanel`)	549	- **arbitrary Tailwind 값(`ml-[200px]`·`w-[…]`)은 클래스-토큰 단언만으론	STAY-ui	-	no	200	arbitrary Tailwind 값 — 전역
+ui/CLAUDE.md	137	데이터 바인딩 패널 (8c, `DataBindingPanel`)	501	- **폭 상수 산술은 폰트별로 따로 하라 — mono 표를 sans 입력칸에 재사용하면 틀린다** (bin	STAY-ui	-	no	250	폭 상수 폰트별 — 전역
+ui/CLAUDE.md	138	데이터 바인딩 패널 (8c, `DataBindingPanel`)	537	- **auto-seed된 입력칸에 `scrollWidth <= clientWidth`를 재면 신호가 공허하	STAY-ui	-	no	250	auto-seed 칸 scrollWidth 공허 — 전역 라이브검증
+ui/CLAUDE.md	139	데이터 바인딩 패널 (8c, `DataBindingPanel`)	603	- **점 붙은 이름의 "오타 가드" 테스트는 접미사-매칭 구현을 통과시킬 수 있다** (binding-va	SCENARIO	ui/src/scenario/scanVars.ts	yes	250	점 이름 오타 가드 픽스처(scanVars)
+ui/CLAUDE.md	141	워커 대시보드 (`WorkerDashboardPage`, `api/poo	62	## 워커 대시보드 (`WorkerDashboardPage`, `api/pool.ts`)	STAY-ui	-	no	0	섹션 제목 워커 대시보드
+ui/CLAUDE.md	143	워커 대시보드 (`WorkerDashboardPage`, `api/poo	1038	- **stale 배지는 roleless(busy/idle 배지 컨벤션) — `role="status"`는 	STAY-ui	-	no	300	WorkerDashboardPage stale 배지 — pages
+ui/CLAUDE.md	145	오프라인(CSP) · 테스트 인프라	44	## 오프라인(CSP) · 테스트 인프라	STAY-ui	-	no	0	섹션 제목
+ui/CLAUDE.md	147	오프라인(CSP) · 테스트 인프라	828	> 이 섹션 함정들의 발견 경위·정정 이력·실측 전문 → `docs/dev/ui-gotcha-narrativ	STAY-ui	-	no	0	narratives 포인터
+ui/CLAUDE.md	149	오프라인(CSP) · 테스트 인프라	503	- **오프라인 런타임 제약** (Slice 2): 사내망/에어갭 staging에서도 UI가 떠야 한다(AD	STAY-ui	-	no	100	CSP 오프라인
+ui/CLAUDE.md	150	오프라인(CSP) · 테스트 인프라	155	- **`pnpm install --frozen-lockfile` in CI** (Slice 2): `pnp	STAY-ui	-	no	0	frozen-lockfile
+ui/CLAUDE.md	151	오프라인(CSP) · 테스트 인프라	164	- **`fast-check` + Vitest의 default `numRuns`** (Slice 4): 10	STAY-ui	-	no	0	fast-check numRuns
+ui/CLAUDE.md	152	오프라인(CSP) · 테스트 인프라	169	- **userEvent.setup()를 it마다 호출** (Slice 4): v14에서 글로벌 defaul	STAY-ui	-	no	0	userEvent.setup
+ui/CLAUDE.md	153	오프라인(CSP) · 테스트 인프라	654	- **clipboard 모킹은 `userEvent.setup()` *뒤에*** (test-run 본문 뷰어	STAY-ui	-	no	200	clipboard 모킹 순서
+ui/CLAUDE.md	154	오프라인(CSP) · 테스트 인프라	421	- **jsdom은 `Blob.text()`/`File.text()`를 구현 안 함 — `await file	STAY-ui	-	no	150	jsdom Blob.text
+ui/CLAUDE.md	155	오프라인(CSP) · 테스트 인프라	424	- **`TextDecoder(fatal:true)`의 기본 `ignoreBOM:false`는 선두 UTF-	STAY-ui	-	no	150	TextDecoder BOM — import/urlDecode
+ui/CLAUDE.md	156	오프라인(CSP) · 테스트 인프라	467	- **vitest jsdom에서 data router(`createMemoryRouter`) 실 navig	STAY-ui	-	no	150	setup.ts Request 패치
+ui/CLAUDE.md	157	오프라인(CSP) · 테스트 인프라	486	- **검증값을 trim하면 그 값을 *쓰는* 경로도 trim — 입력 onChange 단계에서 정규화** 	STAY-ui	-	no	150	검증값 trim 정규화
+ui/CLAUDE.md	158	오프라인(CSP) · 테스트 인프라	765	- **`URL.origin`은 non-special scheme(`mysql://`·`webcal://`·	STAY-ui	-	no	300	URL.origin null — import/hostEnv
+ui/CLAUDE.md	159	오프라인(CSP) · 테스트 인프라	642	- **preview/목록 전체를 스캔하는 헬퍼를 fan-out 훅 결과가 dep인 `useMemo` 안에서	STAY-ui	-	no	250	fan-out useMemo 비용
+ui/CLAUDE.md	160	오프라인(CSP) · 테스트 인프라	357	- **Playwright-MCP *도구 메커니즘*은 `docs/dev/live-verify-playwrig	STAY-ui	-	no	0	Playwright 포인터
+ui/CLAUDE.md	161	오프라인(CSP) · 테스트 인프라	350	- **`title`+텍스트를 동시에 가진 버튼의 accessible name은 텍스트 콘텐츠가 이긴다** 	STAY-ui	-	no	80	title+텍스트 accname
+ui/CLAUDE.md	162	오프라인(CSP) · 테스트 인프라	1308	- **`user.clear/type/click`의 포커스 이동 = 직전 입력에 암묵 `blur` = com	STAY-ui	components/scenario/useThinkTimePair.ts	no	800	commit-on-blur 짝 입력 — scenario L63과 중복, 테스트 규칙(실제 포커스 이동)만 남김
+ui/CLAUDE.md	163	오프라인(CSP) · 테스트 인프라	248	- **`@testing-library/user-event`의 `type()`은 `[`/`{`를 key-de	STAY-ui	-	no	0	user.type 디스크립터
+ui/CLAUDE.md	164	오프라인(CSP) · 테스트 인프라	390	- **ms 타임스탬프 표시 컴포넌트의 테스트 fixture에 `0`을 쓰면 `*1000` 단위 버그가 안 	STAY-ui	-	no	120	ms fixture 0
+ui/CLAUDE.md	165	오프라인(CSP) · 테스트 인프라	431	- **`<input list=...>`(datalist 자동완성)의 implicit ARIA role은 `	STAY-ui	-	no	100	datalist combobox role
+ui/CLAUDE.md	166	오프라인(CSP) · 테스트 인프라	685	- **커스텀 에러 클래스를 던지는 API 모듈을 모킹할 땐 bare `vi.mock(path)` auto-	STAY-ui	-	no	200	vi.mock factory-spread
+ui/CLAUDE.md	167	오프라인(CSP) · 테스트 인프라	927	- **컴포넌트에 *무조건* 발화하는 React Query 훅을 추가하면 one-shot `fetchMock	STAY-ui	-	no	400	무조건 훅 추가 vs one-shot fetchMock
+ui/CLAUDE.md	168	오프라인(CSP) · 테스트 인프라	350	- **`aria-label`도 사용자노출 문구라 `ko.ts` 경유 — 하드코딩 영어 금지** (스텝 템플	STAY-ui	-	no	100	aria-label ko.ts
+ui/CLAUDE.md	169	오프라인(CSP) · 테스트 인프라	1070	- **`ui/src` 전역 grep-0 불변식(라벨 은퇴·문구 롤업 정리)은 *은퇴한* 문자열을 참조하는 	STAY-ui	-	no	500	grep-0 음수 단언
+ui/CLAUDE.md	170	오프라인(CSP) · 테스트 인프라	588	- **no-op 콜백을 등록한 `MutationObserver`의 `takeRecords()`는 `awai	STAY-ui	-	no	200	MutationObserver takeRecords
+ui/CLAUDE.md	171	오프라인(CSP) · 테스트 인프라	783	- **jsdom/React는 포커스된 input이 조건부-렌더 unmount로 사라질 때 blur를 발화하	STAY-ui	-	no	300	unmount 시 blur 미발화 + StrictMode
+ui/CLAUDE.md	172	오프라인(CSP) · 테스트 인프라	740	- **`importOriginal` 부분모킹으로 이전에 죽어있던 훅을 살리면, *무관한* 기존 테스트에서 	STAY-ui	-	no	350	부분모킹 act 경고
+ui/CLAUDE.md	173	오프라인(CSP) · 테스트 인프라	416	- **라이브 검증 중 다른 subagent가 src를 일시 편집하면(리뷰어의 teeth-check 등) v	STAY-ui	-	no	150	HMR 리셋 오진
+ui/CLAUDE.md	174	오프라인(CSP) · 테스트 인프라	380	- **콘솔에 뜬 React 경고를 "내 변경 탓"으로 단정하기 전에 master 대조 실험을 — src 파	STAY-ui	-	no	100	master 대조 A/B
+ui/CLAUDE.md	175	오프라인(CSP) · 테스트 인프라	677	- **동일 값을 갖는 ko 키 2개가 같은 행에 렌더되면 `getAllByText(...)[0]`은 열을 	STAY-ui	-	no	250	동일 ko 값 getAllByText[0]
+ui/CLAUDE.md	176	오프라인(CSP) · 테스트 인프라	460	- **`toHaveTextContent(문자열)`은 부분문자열 매칭 — 신규 ko 값이 *기존* 값을 포함	STAY-ui	-	no	150	toHaveTextContent 부분문자열
+ui/CLAUDE.md	177	오프라인(CSP) · 테스트 인프라	651	- **에디터 버퍼의 YAML 반영을 검증할 땐 Monaco DOM이 아니라 저장 후 `GET /api/sc	SCENARIO	-	no	250	에디터 YAML 검증은 GET yaml 필드(라이브)
+ui/CLAUDE.md	178	오프라인(CSP) · 테스트 인프라	972	- **행-단위 draft를 가진 표에서 재시드 `useEffect`의 dep은 반드시 원시값 — 객체 de	SCENARIO	-	no	400	행 draft 재시드 원시값 dep(ThinkTimeBoard)
+ui/CLAUDE.md	179	오프라인(CSP) · 테스트 인프라	1043	- **다중 스텝을 한 번에 고치는 store 액션은 `dispatch` 전에 대상 id를 http leaf	SCENARIO	ui/src/scenario/store.ts,ui/src/scenario/yamlDoc.ts	yes	450	다중 스텝 store 액션 — store.ts는 scenario/ 형제
+ui/CLAUDE.md	180	오프라인(CSP) · 테스트 인프라	559	- **새 버튼의 `aria-label`은 화면에 보이는 텍스트를 포함해야 한다 (WCAG 2.5.3 Lab	STAY-ui	-	no	200	WCAG 2.5.3 aria-label
+ui/CLAUDE.md	181	오프라인(CSP) · 테스트 인프라	1215	- **CI-only 간헐 실패: 비동기 경계 직후의 *동기* `getByRole`** (pair-input	STAY-ui	-	no	550	CI flake 1차 findBy
+ui/CLAUDE.md	182	오프라인(CSP) · 테스트 인프라	967	  - **2차(2026-07-27, ci `30161620465`) — 같은 파일·다른 변종: 요소가 *존	STAY-ui	-	no	500	CI flake 2차 waitFor(하위 불릿)
+ui/CLAUDE.md	183	오프라인(CSP) · 테스트 인프라	859	  - **3차(같은 push, ci `30230957709`) — 같은 시드 경계·또 다른 증상: "시드 	STAY-ui	-	no	450	CI flake 3차 시드 신호(하위 불릿)
+ui/CLAUDE.md	184	오프라인(CSP) · 테스트 인프라	986	- **A11 validity/narrative: UI Zod `.optional()` + absent-hi	REPORT	ui/src/api/schemas.ts	yes	350	A11 validity/Headline(components/report)
+ui/CLAUDE.md	185	오프라인(CSP) · 테스트 인프라	652	- **Invalid Date를 `Intl.DateTimeFormat.formatToParts`에 넘기면 렌	STAY-ui	-	no	250	Invalid Date RangeError
+ui/CLAUDE.md	186	오프라인(CSP) · 테스트 인프라	882	- **`getByText(ko.someFormatter(n))`은 *자기참조* 단언 — 기대값과 렌더가 같	STAY-ui	-	no	400	ko 자기참조 단언
+ui/CLAUDE.md	187	오프라인(CSP) · 테스트 인프라	654	- **버튼 `aria-label`은 가시 라벨을 *포함*해야 한다(WCAG 2.5.3) — 조립식으로 만들	STAY-ui	-	no	250	aria-label 조립식
+ui/CLAUDE.md	188	오프라인(CSP) · 테스트 인프라	696	- **yaml `doc.setIn`은 맵 노드도 무조건 덮어씀 + 앵커는 `createNode` 호출마다 	SCENARIO	ui/src/scenario/yamlDoc.ts	yes	350	doc.setIn 맵 덮어쓰기·앵커 — yamlDoc
+ui/CLAUDE.md	189	오프라인(CSP) · 테스트 인프라	979	- **`Modal`을 여는 파괴적 액션은 "확정 시 트리거가 함께 언마운트"돼 포커스가 `<body>`로 	STAY-ui	-	no	400	Modal 파괴적 액션 포커스
+ui/CLAUDE.md	190	오프라인(CSP) · 테스트 인프라	901	- **`autoFocus`(layout 단계) vs `Modal`의 `panel?.focus()`(pass	STAY-ui	-	no	400	autoFocus vs Modal focus
+ui/CLAUDE.md	191	오프라인(CSP) · 테스트 인프라	669	- **`overflow-auto` 컨테이너의 자식이 전부 비대화형이면 키보드로 스크롤할 수 없다** (va	STAY-ui	-	no	250	overflow-auto 비대화형 키보드
+ui/CLAUDE.md	192	오프라인(CSP) · 테스트 인프라	640	- **`tdd-guard`의 '주석만 바꿨으면 통과' 예외는 JSX `{/* … */}` 줄을 인식하지 못	STAY-ui	-	no	250	tdd-guard JSX 주석
+ui/CLAUDE.md	194	오프라인(CSP) · 테스트 인프라	441	- **`Field` 프리미티브 grep은 동명 로컬 shadow 2곳이 오염시킨다 — 소비처 판정은 imp	UI-PRIM	-	no	100	Field grep shadow — Field 프리미티브 계약
+ui/CLAUDE.md	196	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	108	## 운영 모니터 전시 화면 (`MonitorDisplayPage`·`MonitorPanel`·`Latenc	MONITOR	-	no	0	섹션 제목 — 파일 3곳 분산(pages/·components/monitor/·monitor/)
+ui/CLAUDE.md	197	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	354	- **측정 기반 반복 레이아웃(배율 이진 탐색 등)을 `useLayoutEffect`의 setState 연	MONITOR	components/monitor/MonitorPanel.tsx,pages/MonitorDisplayPage.tsx	yes	80	배율 탐색 useLayoutEffect #185 — useScaleSearch.ts(monitor/)
+ui/CLAUDE.md	198	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	386	- **Fullscreen: `requestFullscreen()` 직후 `document.fullscree	MONITOR	pages/MonitorDisplayPage.tsx	yes	50	Fullscreen 비동기(monitor/fullscreen.ts)
+ui/CLAUDE.md	199	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	350	- **jsdom은 layout 0 → 겹침·잘림·그래프 숨김 규칙은 RTL로 증명 불가**(클래스명/스텁 	MONITOR	pages/MonitorDisplayPage.tsx,components/monitor/MonitorPanel.tsx	yes	50	jsdom layout 0 + e.code(monitor/keys.ts)
+ui/CLAUDE.md	200	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	355	- **배율 고정 검증은 글자 px가 아니라 `--fit`/`--reason-fit`/`--card-fit`	MONITOR	components/monitor/MonitorPanel.tsx	yes	150	--fit 변수 검증
+ui/CLAUDE.md	201	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	400	- **항목 칸(반반 줄) 프로브는 큰 값 줄 높이를 `minHeight`로 예약** (ops-monitor	MONITOR	components/monitor/MonitorPanel.tsx,components/monitor/FocusProbes.tsx	yes	100	항목 칸 프로브 minHeight
+ui/CLAUDE.md	202	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	309	- **1단계 비례 배율(`box/natural*0.98`)은 줄의 모든 폭 요소가 같은 변수로 줄 때만 성	MONITOR	components/monitor/MonitorPanel.tsx,components/monitor/FitLine.tsx	yes	80	비례 배율 --split-fit
+ui/CLAUDE.md	203	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	450	- **극단값 라이브는 폭 제약·높이 제약 보드를 따로** (ops-monitor-polish): 긴 제목 	MONITOR	-	no	150	극단값 라이브 보드 구성
+ui/CLAUDE.md	204	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	341	- **flex 머리 줄의 고정 라벨 조각(`▸ 칸 N`)은 `shrink-0 whitespace-nowra	MONITOR	components/monitor/MonitorPanel.tsx	yes	100	flex 라벨 shrink-0
+ui/CLAUDE.md	205	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	356	- **vitest `include`(`__tests__/` 전용) 밖 테스트는 리뷰 5회를 통과한다** (	STAY-ui	-	no	200	vitest include 밖 테스트 — L24와 중복(병합)
+ui/CLAUDE.md	206	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	365	- **칸 목록을 구획별로 그릴 때 `segments.map(seg => seg.indices.map(…))	MONITOR	pages/MonitorDisplayPage.tsx	yes	80	segments flatMap key
+ui/CLAUDE.md	207	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	284	- **`이름 = 값`을 한 `FitLine`으로 그리면 긴 이름이 값을 `…` 뒤로 밀어낸다** — 이름 	MONITOR	components/monitor/FitLine.tsx,components/monitor/MonitorPanel.tsx	yes	50	이름=값 FitLine 분할
+ui/CLAUDE.md	208	운영 모니터 전시 화면 (`MonitorDisplayPage`·`Moni	244	- **화면 stale 기준은 칸 `timeout_seconds`가 아니라 `/status` `check_b	MONITOR	pages/MonitorDisplayPage.tsx,ui/src/api/monitors.ts	yes	50	stale 기준 check_budget_seconds
+ui/CLAUDE.md	210	인쇄 보고서 (`ui/src/print/`) (a4-print-repor	56	## 인쇄 보고서 (`ui/src/print/`) (a4-print-report)	PRINT	-	no	0	섹션 제목
+ui/CLAUDE.md	212	인쇄 보고서 (`ui/src/print/`) (a4-print-repor	466	- **URL 가림은 `@`를 권한부 안에서만 찾을 것**: 첫 `/?#`(자리표시자 밖) 앞까지가 권한부 	PRINT	-	no	100	URL 가림 @ 권한부(redact.ts)
+ui/CLAUDE.md	213	인쇄 보고서 (`ui/src/print/`) (a4-print-repor	331	- **렌더/`useMemo` 경로에서 `normalizeProfile` 금지**(=`ProfileSchem	STAY-ui	pages/RunDetailPage.tsx,ui/src/api/runPrefill.ts	no	50	렌더 경로 normalizeProfile 금지 — 전역 규칙(print 외 모든 run 표면)
+ui/CLAUDE.md	214	인쇄 보고서 (`ui/src/print/`) (a4-print-repor	411	- **인쇄 레이아웃은 jsdom이 못 본다**(측정 시트 높이·`line-clamp`·`border-col	PRINT	-	no	100	인쇄 레이아웃 jsdom 불가·pdfinfo
+ui/src/compare/CLAUDE.md	15	Run 비교 + 리포트 export (A4b, `compare/`, `d	1417	- **구조화된 에러 본문(409 등)은 표준 `request()` 헬퍼 말고 bespoke fetch + 	RUN	ui/src/api/client.ts,ui/src/api/hooks.ts	yes	500	PoolCapacityError 409 다이얼로그 — RunDialog 계약(compare와 무관)
+ui/src/compare/CLAUDE.md	16	Run 비교 + 리포트 export (A4b, `compare/`, `d	1169	- **open-loop 409 clamp는 mode 분기 — open이면 `max_in_flight`를 줄	RUN	-	no	350	open-loop 409 clamp max_in_flight — RunDialog
+ui/src/compare/CLAUDE.md	17	Run 비교 + 리포트 export (A4b, `compare/`, `d	1818	- **closed+curve 409 clamp는 3-way의 첫 분기 — `isCurve`를 `vus` a	RUN	-	no	600	closed+curve 409 clamp·scaleVuStages(sizing.ts) — RunDialog
+ui/src/compare/CLAUDE.md	11	Run 비교 + 리포트 export (A4b, `compare/`, `d	553	- **`ScenarioRunsPage` 선택 게이트(terminal / 5 / 50)** (A4b): 체크	STAY-ui	pages/ScenarioRunsPage.tsx	no	150	ScenarioRunsPage 선택 게이트 — pages 소속(run-family 아님, 참고용 오배치)
+ui/src/compare/CLAUDE.md	13	Run 비교 + 리포트 export (A4b, `compare/`, `d	990	- **per-row 편집 버퍼(`drafts: Record<string,string>`)는 mutation	STAY-ui	pages/SettingsPage.tsx	no	250	SettingsPage drafts — run-family 아님(참고용 오배치)
+ui/src/compare/CLAUDE.md	14	Run 비교 + 리포트 export (A4b, `compare/`, `d	1372	- **ko.ts 한국어화 전수("잔존 0") grep 맹점 3종** (ko-common 롤업): 리터럴-p	STAY-ui	-	no	400	ko.ts sweep 맹점 — 전역(참고용 오배치)
+ui/src/compare/CLAUDE.md	18	Run 비교 + 리포트 export (A4b, `compare/`, `d	1607	- **`downloadJson`→`downloadText(filename,text,mime,types)`+	SCENARIO	ui/src/api/downloadJson.ts	yes	450	에디터 YAML 가져오기/내보내기 — 에디터 소속(참고용 오배치)
+
+# ===== SUMMARY (ui/CLAUDE.md = 113306 B, 214 lines, 184 content rows + 29 B blank lines) =====
+# bytes by dest (ui/CLAUDE.md rows): STAY-ui 60727 (109 rows) | RUN 23432 (29) | SCENARIO 21279 (29) | MONITOR 3946 (12) | REPORT 2519 (2) | PRINT 933 (3) | UI-PRIM 441 (1) | COMPARE 0
+# misfiled elsewhere: compare/CLAUDE.md L15,L16,L17 -> RUN (4404 B; PoolCapacityError 409 dialog + open/curve clamp + scaleVuStages = RunDialog/sizing.ts) ; compare L18 -> SCENARIO (1607 B, editor YAML import/export). compare L11/L13/L14 are also off-topic (ScenarioRunsPage/SettingsPage/ko sweep) but not run-family -> listed as STAY-ui. scenario/report/ui CLAUDE.md: no run-family misfiles (ui L10 Field errorId names RunDialog/LoadModelFields as consumers but is a Field contract -> stays UI-PRIM).
+# (a) after moves: 60727 + 29 blank + ~1300 grouped pointer lines (~8 lines) + index rewrite ~+200 = ~62.3 KB remaining in ui/CLAUDE.md
+# (b) + narrative compression of STAY rows (est. 19720 B movable) + dedup (L205 into L24, L162 overlaps scenario L63 useThinkTimePair) = ~41-43 KB
+# narrative est inside moved rows (compress when moving too): RUN 8730 (L113 alone ~2000), SCENARIO 7050, MONITOR 940, REPORT 950
+# MONITOR location: MonitorDisplayPage = ui/src/pages/, MonitorPanel/LatencyBars/FitLine/FocusProbes = ui/src/components/monitor/, logic (useScaleSearch/fullscreen/keys) = ui/src/monitor/. A ui/src/monitor/CLAUDE.md would NOT load for most of the 12 bullets' triggers (11/12 need pointer). Better: put it in ui/src/components/monitor/CLAUDE.md (+1 pointer line for pages/MonitorDisplayPage + monitor/), or leave the ~3.9 KB in ui/CLAUDE.md.
+# PRINT: ui/src/print/ (incl. print/components/) self-contained -> ui/src/print/CLAUDE.md loads correctly; L213 (render-path normalizeProfile ban) kept STAY-ui since it applies to RunDetailPage etc.
+# SCENARIO pointer caveat: 17 SCENARIO rows target ui/src/scenario/*.ts (model.ts/cast.ts/yamlDoc.ts/scanVars.ts/store.ts/problems.ts), a SIBLING dir that does not load components/scenario/CLAUDE.md (that file's L5 already admits this). One pointer line in ui/CLAUDE.md ("ui/src/scenario/* 모델 편집 시 components/scenario/CLAUDE.md §모델·§변수 스코프 참조"), or a ui/src/scenario/CLAUDE.md, covers rows 17,41,42,44-47,49,84,118-123,139,179,188.
+# RUN pointer rows needing a line in ui/CLAUDE.md: 75 (key= prop given by pages/ScenarioRunsPage), 109 (no raw profile.vus on new run surfaces in pages/runs), 51 (TestRunSection reuses EnvironmentPicker; scenario/CLAUDE.md L88 already names it), 88/114/127/131 (only schemas/runPrefill side — already covered by STAY Zod rules L37-40, so pointer optional).
+# UNSURE:
+#  L27 칩 vs VerdictBadge 다중매치 — chips live in RunListControls (moves) but trap bites in pages/__tests__/ScenarioRunsPage; kept STAY.
+#  L35 runFilterSort — primary file ui/src/runs/ stays outside run/; kept STAY (move out of 빌드 게이트 section). If run/CLAUDE.md is chosen, needs pointer.
+#  L77 run env string map / L108 profileDurationSeconds / L130 Mapping wire shape / L213 normalizeProfile — api/runPrefill·schemas rules used by run/ AND pages/print; kept STAY.
+#  L85 SLO disclosure — RunDialog-specific instance of a generic collapse-breaks-RTL rule; sent RUN (generic gist = auto-memory ui-optional-sections-collapsible).
+#  L94 VarUsagePopover portal — generic portal/fixed rule overlaps HelpTip L93; sent SCENARIO (file is components/scenario). Could stay as merged popover rule.
+#  L97 stretched-label after:content — incident was RunDialog tiles but rule is Tailwind-generic; kept STAY.
+#  L134-138 binding-varname test/width rules sit under DataBindingPanel section but are about editor dataset mapping + generic test rules; kept STAY, L139 -> SCENARIO.
+#  L162 pair-input commit-on-blur — test-infra half (no fireEvent.blur; real focus moves) STAY, hook half duplicates scenario L63.
+#  L178 row-draft primitive deps — generic React rule but only instance is ThinkTimeBoard; sent SCENARIO.
+#  L67 MonitorEditPage navigate remount — pages/ file, generic router lesson; kept STAY.
+#  L63/L65 section header + narrative keyword list must be split between ui/CLAUDE.md (폼 UX 공통) and run/CLAUDE.md.
+#  narrative_bytes_est values are judgment estimates (not measured).
