@@ -1,0 +1,14 @@
+# D7 판정 정본 — 키 = (base file, anchor, 매치 텍스트). 대상 = relocate·refix 줄의 패턴 적중(check-doc-refs.py 정규식).
+file	anchor	match	verdict	reason
+ui/CLAUDE.md	두 계층 Zod 게이트(two-tier)는 `z.lazy` 자기참조 대신	§5	true	spec 번호(제외 대상) — 이동 후에도 참
+ui/CLAUDE.md	시나리오 최상위 키 추가는 3곳 세트 — Zod 모델(`model.ts`	위 	subst	가리키는 :83이 ui/CLAUDE.md에 잔류 — relocate 치환으로 명시
+ui/CLAUDE.md	`buildProfile` optional 필드의 byte-identic	§B21	true	roadmap 번호
+ui/CLAUDE.md	곡선 fan-out run 워커별 active-VU 분해는 `active	§B9	true	roadmap 번호
+ui/CLAUDE.md	부하 모드 셀렉터는 2축(loadModel×rateMode) 유지 + `	§7.1/§7.2	true	spec 번호
+ui/CLAUDE.md	함정(CRITICAL, Task6 자가적발): 멀티-카드 패널의 per-	이 섹션	true	run/ 배치 규칙: :129를 같은 섹션 위에 base 순서로 둔다(Task 4 Step 4)
+ui/CLAUDE.md	함정(CRITICAL, Task6 자가적발): 멀티-카드 패널의 per-	위쪽	true	같은 배치 규칙
+ui/CLAUDE.md	DataBindingPanel`은 이제 단일 바인딩이 아니라 카드	위 	subst	refix 행(refix.tsv)
+ui/CLAUDE.md	DataBindingPanel`은 이제 단일 바인딩이 아니라 카드	§"폼	subst	refix 행(refix.tsv)
+ui/CLAUDE.md	DataBindingPanel`은 이제 단일 바인딩이 아니라 카드	§폼	subst	refix 행 — base D7 실패 해소
+ui/src/components/report/CLAUDE.md	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	"다단계 ramp UI" 섹션	subst	refix 행(refix.tsv)
+ui/src/components/report/CLAUDE.md	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	§4.3	true	spec 번호

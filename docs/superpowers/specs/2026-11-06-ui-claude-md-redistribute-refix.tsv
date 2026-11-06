@@ -1,0 +1,4 @@
+# refix 행 정본(byte-exact, final TSV # (b)에서 기계 추출). 형식 = manifest refix 행 그대로.
+# kind	anchor	file	-	0	old1	new1[	old2	new2]
+refix	DataBindingPanel`은 이제 단일 바인딩이 아니라 카드	ui/CLAUDE.md	-	0	위 §"폼·입력 UX"의 single `binding`/`initialBinding` 노트는	§"폼·입력 UX"(reseed-by-key)와 `ui/src/components/run/CLAUDE.md`(seed 수렴)의 single `binding`/`initialBinding` 노트는	(위 §폼 UX)	(위 §"폼·입력 UX"·`ui/src/components/run/CLAUDE.md`)
+refix	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	ui/src/components/report/CLAUDE.md	-	0	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	`ui/src/components/run/CLAUDE.md`의 `StageCurvePreview` 노트

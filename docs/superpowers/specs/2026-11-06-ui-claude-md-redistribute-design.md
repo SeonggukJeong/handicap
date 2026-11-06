@@ -14,10 +14,11 @@
 
 ## 사용자 스토리 (US)
 
-- **US1**: 개발자-도구가 RunDialog 계열이 아닌 `ui/` 코드를 고치는 세션을 시작할 때, 지금은 ui/CLAUDE.md **113,306 B**가 통째로 로드된다(초안 분류상 run 계열 전용 ~23 KB·에디터 모델/컴포넌트 전용 ~21 KB 포함 — 추정치). 성공하면 ui/CLAUDE.md 자체가 **≤ 86,016 B(84 KiB)**로 줄고, `just doc-budget`의 래칫 WARN이 0건이다.
+- **US1**: 개발자-도구가 RunDialog 계열이 아닌 `ui/` 코드를 고치는 세션을 시작할 때, 지금은 ui/CLAUDE.md **113,306 B**가 통째로 로드된다(초안 분류상 run 계열 전용 ~23 KB·에디터 모델/컴포넌트 전용 ~21 KB 포함 — 추정치). 성공하면 ui/CLAUDE.md 자체가 **≤ 92,160 B(90 KiB)**로 줄고, `just doc-budget`의 래칫 WARN이 0건이다.
+  - **상한 재설정(사용자 결정 2026-11-07):** plan 단계의 확정 분류 산출이 **≈ 89,369 B**로 원 상한 84 KiB를 넘어 STOP했다. 사용자가 분류 유지 + 상한 90 KiB를 택했다. 경계 5행(86·94·177·178·188)은 숫자 맞추기용 재분류를 하지 않고 잔류한다.
   - 사용자가 승인한 원 목표 60 KiB는 2차 슬라이스(압축)의 US다.
-  - 분할 결정 때 제시한 "약 65 KB"는 초안 분류를 그대로 쓴 수치였다. §3.2를 엄격히 적용하면(경계에 걸친 RUN 8행·SCENARIO 2행·REPORT 2행 잔류, compare-15·머리 목록 추가) 리뷰 R2 추정은 **약 80 KB**다. 그래서 84 KiB를 상한으로 둔다.
-  - **우선순위: no-forget·§3.2 > 수치.** plan 첫 스텝이 확정 `mistake_sites`로 크기를 사전 산출한다. 84 KiB를 넘으면 STOP하고 사용자에게 묻는다. 수치를 맞추려고 분류를 바꾸지 않는다.
+  - 분할 결정 때 제시한 "약 65 KB"는 초안 분류를 그대로 쓴 수치였다. §3.2를 엄격히 적용하면(경계에 걸친 RUN 8행·SCENARIO 2행·REPORT 2행 잔류, compare-15·머리 목록 추가) 리뷰 R2 추정은 **약 80 KB**다. 그래서 처음엔 84 KiB를 상한으로 뒀다(위 재설정으로 대체).
+  - **우선순위: no-forget·§3.2 > 수치.** plan 첫 스텝이 확정 `mistake_sites`로 크기를 사전 산출한다. 상한을 넘으면 STOP하고 사용자에게 묻는다. 수치를 맞추려고 분류를 바꾸지 않는다.
   - 에디터 세션은 여전히 ui/CLAUDE.md + 해당 하위 문서를 함께 로드한다. US1은 ui/CLAUDE.md 크기에 대한 약속이다.
 - **US2**: 개발자-도구가 RunDialog·스케줄·사이징 파일을 고치는 세션에서, 성공하면 그 계열 함정 전부가 `ui/src/components/run/CLAUDE.md`로 함께 로드된다. 옮긴 함정 중 사라진 것은 **0건**이고 `just doc-coverage`와 독립 보존 검사(§5.2 D3)로 기계 증명된다.
 - **US3**: 개발자-도구가 `run/` 밖(pages·`ui/src/scenario/` 모델·print·runs)에서 run 계열 모듈을 쓰는 코드를 고치는 세션에서, 성공하면 그 편집에서 밟는 함정이 **그 세션에 로드되는 파일 안에 규칙 줄로** 있다. 이 기준이 성립하지 않는 함정은 ui/CLAUDE.md에 남는다(§3.2).
@@ -201,7 +202,7 @@ kind 4종(move·merge·relocate·refix), 보조 manifest 인자·이름 규약, 
   - 기대: 미귀속 0, 중복 0.
   - 1차엔 압축이 없으므로 모든 불릿이 byte 단위로 추적된다. 스크립트는 `scripts/check-bullet-conservation.py`다.
 - **D4 실수 지점 기계 검사**: 확정 bullet-map의 이동 행마다 `mistake_sites` 전 경로가 목적지 디렉토리 하위인지 확인한다. 기대 위반 0.
-- **D5** `just doc-budget` → FAIL 0 / **WARN 0**. ui/CLAUDE.md ≤ 86,016 B(US1).
+- **D5** `just doc-budget` → FAIL 0 / **WARN 0**. ui/CLAUDE.md ≤ 92,160 B(US1).
 - **D6 분류 표본 검토**: 이동 행 무작위 5개·잔류 행 무작위 5개에 대해 리뷰어가 실수 지점을 코드에서 재판정한다.
 - **D7 미선언 참조 탐지**: 이동 후 ui 문서 6개(`ui/CLAUDE.md` + `ui/src/**/CLAUDE.md`)의 모든 줄에서 상대 참조 패턴을 추출한다. 패턴은 `위 `·`아래 `·`이 섹션`·`위쪽`·`아래쪽`·`§`·`"…" 섹션`이다.
   - base 6개 상태(신규 파일 제외)와 이동 후 상태 둘 다 실행한다.
@@ -243,7 +244,7 @@ kind 4종(move·merge·relocate·refix), 보조 manifest 인자·이름 규약, 
   2. Part A 소스 이동(V1–V6)
   3. Part B relocate·refix + 하위 문서 2개 신설·머리말
   4. 배선·budget·roadmap(§3.4·§4.2·§4.3, roadmap §B17 해소 표기·현황판에 2차 등록)
-- 분류 확정(bullet-map `mistake_sites`)과 그에 따른 **크기 사전 산출**(US1 84 KiB 판정)은 plan 작성 단계에서 한다. 구현 중 재분류는 STOP 사유다. per-task 리뷰는 `model: opus`로 받는다.
+- 분류 확정(bullet-map `mistake_sites`)과 그에 따른 **크기 사전 산출**(US1 상한 판정 — 완료: ≈ 89,369 B, 상한 90 KiB로 재설정)은 plan 작성 단계에서 한다. 구현 중 재분류는 STOP 사유다. per-task 리뷰는 `model: opus`로 받는다.
 - Part A(소스·테스트 이동 + 소비처 경로 수정)는 **단일 커밋**이다. tdd-guard pending 상태와 UI 게이트가 갈라지지 않게 한다.
 - 최종 `handicap-reviewer` + 라이브(§5.3).
 - 보안 표면: production 의미 변경 0. 단 `finish-slice` §0 grep이 지배하므로 직접 돌린다.
@@ -255,4 +256,5 @@ kind 4종(move·merge·relocate·refix), 보조 manifest 인자·이름 규약, 
 - 하위 문서로 옮긴 불릿의 압축.
 - `components/monitor/`·`ui/src/print/`·`ui/src/monitor/`·`pages/` 하위 문서(§3.1).
 - 코드 리팩터(이름 변경·barrel·별칭·의존 정리) — §2.2 금지.
+- 코드 주석 속 "(ui/CLAUDE.md …)" 포인터 갱신 → 2차. 예: `report/PercentileCurveChart.tsx:42` — StageCurvePreview 함정이 run/으로 가므로 낡는다. 주석의 함정명은 grep으로 여전히 찾힌다.
 - `compare/CLAUDE.md`의 기타 오배치 11·13·14·18. 관찰만 기록한다(18은 `api/download*.ts`·에디터 두 경계에 걸쳐 §3.2상 이동 대상이 아님).
