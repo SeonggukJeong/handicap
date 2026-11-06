@@ -310,6 +310,7 @@
     - 병합 2건(205→24·162↔useThinkTimePair)
     - 코드 주석 포인터(`grep -rn 'ui/CLAUDE.md' ui/src`, 예 `PercentileCurveChart.tsx:42`)
     - compare 11·13·14·18 오배치
+    - **2차 안전 방침 정본 포인터**: `docs/superpowers/specs/2026-11-07-ui-claude-md-phase2-policy.md`(2a 서사 이관 / 2b 추상화 승격 분리, 승격 조건 ≥3 사례 + 사용자 승인, S1–S6 안전장치). §B44 본문에 이 경로를 그대로 적는다.
   - `docs/roadmap-status.md` 문서·기록 시스템 행: `**[대기 중] ui/CLAUDE.md 래칫 WARN**`부터 `manifest 절차 슬라이스로.`까지(양끝 포함, 한 줄 안 연속 구간)를 `**ui/CLAUDE.md 재분배 1차 완료**(ui-claude-md-redistribute — §B17 \`components/run/\` 이동·불릿 38 원문 이동·relocate/refix 게이트) · 다음 = **2차 압축**(roadmap §B44, 목표 ≤ 60 KiB).`로 교체한다(python 스플라이스: 시작·끝 마커 각 `count==1`, 시작 < 끝).
 - [ ] **Step 7: 게이트**
   - `just doc-budget; echo "exit=$?"` → `FAIL 0 / WARN 0`, ui/CLAUDE.md ≤ 92,160
