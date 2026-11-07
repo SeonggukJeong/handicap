@@ -10,4 +10,5 @@ pub mod poll;
 pub mod session;
 pub mod tempdb;
 pub mod text;
+pub mod view;
 pub mod wire;
