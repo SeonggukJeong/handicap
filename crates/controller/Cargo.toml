@@ -60,7 +60,9 @@ open = { version = "5", optional = true }
 [features]
 slice6-k8s = []
 # 단일 self-contained 바이너리 모드(ADR-0039 옵션 A). off=현행 byte-identical.
-bundle = ["dep:handicap-worker", "dep:rust-embed", "rust-embed/mime-guess", "rust-embed/interpolate-folder-path", "dep:dirs", "dep:open"]
+# in_process 모듈만 켜는 기능(웹 UI 임베드 없음) — handicap-tui가 사용. bundle이 포함한다.
+in-process = ["dep:handicap-worker", "dep:dirs"]
+bundle = ["in-process", "dep:rust-embed", "rust-embed/mime-guess", "rust-embed/interpolate-folder-path", "dep:open"]
 
 [dev-dependencies]
 serde_json.workspace = true
