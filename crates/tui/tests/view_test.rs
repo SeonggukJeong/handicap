@@ -1257,4 +1257,18 @@ fn label_width_rules() {
     assert_eq!(label_width(&[t(700)], 40, false), 0);
     assert_eq!(label_width(&[], 40, true), 0);
     assert_eq!(label_width(&[t(700), t(1200)], 16, true), 0);
+    // 막대 폭 = inner_w - (열 + 구분 1칸): 17 → 11 < 12, 18 → 12
+    assert_eq!(label_width(&[t(700), t(1200)], 17, true), 0);
+    assert_eq!(label_width(&[t(700), t(1200)], 18, true), 5);
+}
+
+#[test]
+fn build_panels_display_count_capped_and_stats_flag() {
+    let mut p = panel("p1", "x");
+    p.display_items = vec![DisplayItem::default(); 3];
+    let b = board(vec![p], false);
+    let s = snap(vec![pstatus("p1", vec![ok(1000, 100)], 0, None)], 1500);
+    let v = &build_panels(&b, &s)[0];
+    assert_eq!(v.n_display_items, 2);
+    assert!(!v.show_stats);
 }

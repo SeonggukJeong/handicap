@@ -77,7 +77,7 @@ pub fn threshold_rows(
     out
 }
 
-/// 숫자 열 폭(0 = 열 없음). `draw=false`거나 기준선 없음 → 0. 열을 두면 막대 폭 < `MIN_BAR_W`일 때 0.
+/// 숫자 열 폭(0 = 열 없음). `draw=false`거나 기준선 없음 → 0. 열을 두면 막대 폭(`inner_w - (열 + 구분 1칸)`) < `MIN_BAR_W`일 때 0.
 pub fn label_width(th: &[ThresholdView], inner_w: u16, draw: bool) -> u16 {
     if !draw || th.is_empty() {
         return 0;
@@ -88,7 +88,7 @@ pub fn label_width(th: &[ThresholdView], inner_w: u16, draw: bool) -> u16 {
         .max()
         .unwrap_or(0);
     let w = u16::try_from(widest).unwrap_or(u16::MAX).max(4);
-    if inner_w.saturating_sub(w) < MIN_BAR_W {
+    if inner_w.saturating_sub(w + 1) < MIN_BAR_W {
         0
     } else {
         w
