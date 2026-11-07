@@ -73,12 +73,13 @@ pub fn install(rt: &Runtime) -> Arc<AtomicBool> {
 }
 
 fn force_exit() {
-    tracing::error!(
-        "정상 종료가 {}초 안에 끝나지 않아 강제 정리합니다",
-        GRACE.as_secs()
-    );
+    // 비밀(환경 값)이 든 DB 삭제가 먼저 — 막힌 로그 쓰기가 삭제를 늦추면 안 된다.
     crate::tempdb::remove_active();
     crate::terminal::restore();
+    tracing::error!(
+        "정상 종료가 {}초 안에 끝나지 않아 강제 정리했습니다",
+        GRACE.as_secs()
+    );
     std::process::exit(1);
 }
 

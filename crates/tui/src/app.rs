@@ -2,7 +2,7 @@
 //! 키·마우스 해석과 격자 이동은 순수 함수로 분리했다.
 
 use std::cell::Cell;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -502,7 +502,12 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
     drop(guard);
     if let Err(e) = result {
         tracing::error!("UI 루프 오류: {e}");
-        eprintln!("{} {}", text::PANIC_EXIT, text::log_line(&app.log));
+        let _ = writeln!(
+            io::stderr(),
+            "{} {}",
+            text::PANIC_EXIT,
+            text::log_line(&app.log)
+        );
     }
     code
 }

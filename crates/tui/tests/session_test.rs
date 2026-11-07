@@ -206,3 +206,35 @@ fn db_dir_has_no_predictable_sidecar_names() {
     rt.block_on(s.shutdown());
     assert_eq!(db_files(dbdir.path()), 0);
 }
+
+#[cfg(unix)]
+#[test]
+fn fifo_and_directory_paths_are_rejected_promptly_without_temp_dir() {
+    use std::os::unix::ffi::OsStrExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let fifo = tmp.path().join("pipe.json");
+    let c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: 유효한 NUL 종료 경로.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let dir_path = tmp.path().join("adir");
+    std::fs::create_dir(&dir_path).unwrap();
+    let dbdir = tempfile::tempdir().unwrap();
+    let db = dbdir.path().to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        for p in [fifo, dir_path] {
+            let r = rt.block_on(Session::start(&p, &db));
+            let _ = tx.send(r.err().map(|e| (e.stage, e.message)));
+        }
+    });
+    for _ in 0..2 {
+        let got = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("start must not block on a non-regular file");
+        let (stage, msg) = got.expect("must fail");
+        assert_eq!(stage, Stage::ReadFile);
+        assert!(msg.contains("일반 파일이 아닙니다"), "{msg}");
+    }
+    assert_eq!(db_files(dbdir.path()), 0);
+}

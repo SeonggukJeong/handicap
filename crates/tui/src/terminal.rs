@@ -1,6 +1,6 @@
 //! 터미널 수명(raw mode·대체 화면·마우스)과 패닉 훅.
 
-use std::io;
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, ThreadId};
 
@@ -87,7 +87,7 @@ pub fn install_panic_hook(ui_thread: ThreadId, log: LogLoc) {
         if panic_action(thread::current().id(), ui_thread) == PanicAction::RestoreAndPrint {
             restore();
             let cause = info.to_string().replace('\n', " ");
-            eprintln!("{}", panic_line(&log, &cause));
+            let _ = writeln!(io::stderr(), "{}", panic_line(&log, &cause));
         }
     }));
 }
@@ -99,7 +99,7 @@ pub fn install_log_only_panic_hook(main_thread: ThreadId, log: LogLoc) {
         tracing::error!("panic: {info}");
         if thread::current().id() == main_thread {
             let cause = info.to_string().replace('\n', " ");
-            eprintln!("{}", panic_line(&log, &cause));
+            let _ = writeln!(io::stderr(), "{}", panic_line(&log, &cause));
         }
     }));
 }

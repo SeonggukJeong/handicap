@@ -11,6 +11,7 @@ use crate::tempdb::TempDb;
 
 /// 보드 파일 크기 상한 — 이보다 크면 읽지 않고 거절한다.
 pub const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const NOT_A_FILE: &str = "일반 파일이 아닙니다";
 const FILE_TOO_BIG: &str = "파일이 너무 큽니다(최대 32 MB)";
 
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
@@ -64,8 +65,12 @@ fn read_error_message(e: &std::io::Error) -> &'static str {
 }
 
 /// 크기를 먼저 보고, 읽기도 상한+1바이트에서 끊는다(메타데이터와 실제 길이가 어긋나도 안전).
-fn read_capped(file: &Path) -> Result<Vec<u8>, (Stage, String)> {
+pub(crate) fn read_capped(file: &Path) -> Result<Vec<u8>, (Stage, String)> {
     let err = |e: &std::io::Error| (Stage::ReadFile, read_error_message(e).to_string());
+    // FIFO·장치는 열기/읽기에서 영원히 막힐 수 있다 — 열기 전에 종류부터 본다(링크는 따라간다).
+    if !std::fs::metadata(file).map_err(|e| err(&e))?.is_file() {
+        return Err((Stage::ReadFile, NOT_A_FILE.to_string()));
+    }
     let f = std::fs::File::open(file).map_err(|e| err(&e))?;
     let len = f.metadata().map_err(|e| err(&e))?.len();
     if len > MAX_FILE_BYTES {
@@ -83,6 +88,12 @@ fn read_capped(file: &Path) -> Result<Vec<u8>, (Stage, String)> {
 
 impl Session {
     pub async fn start(file: &Path, db_dir: &Path) -> Result<Session, StartError> {
+        // 파일 종류·크기 검사와 읽기를 임시 디렉터리·컨트롤러보다 먼저 — 막히는 경로에서 아무것도 남기지 않는다.
+        let bytes = read_capped(file).map_err(|(stage, message)| StartError {
+            stage,
+            message,
+            rest_addr: None,
+        })?;
         let db = TempDb::create(db_dir).map_err(|e| StartError {
             stage: Stage::Controller,
             message: format!("점검 엔진을 시작하지 못했습니다: {e}"),
@@ -101,7 +112,7 @@ impl Session {
         let rest_addr = controller.rest_addr();
         let api = Api::new(rest_addr);
 
-        match Self::bootstrap(&api, file).await {
+        match Self::bootstrap(&api, &bytes).await {
             Ok(boards) => Ok(Session {
                 api,
                 boards,
@@ -123,10 +134,9 @@ impl Session {
         }
     }
 
-    async fn bootstrap(api: &Api, file: &Path) -> Result<Vec<BoardRef>, (Stage, String)> {
-        let bytes = read_capped(file)?;
+    async fn bootstrap(api: &Api, bytes: &[u8]) -> Result<Vec<BoardRef>, (Stage, String)> {
         let result = api
-            .import(import_body(&bytes))
+            .import(import_body(bytes))
             .await
             .map_err(|e| (Stage::Import, e.message))?;
         let boards: Vec<BoardRef> = result

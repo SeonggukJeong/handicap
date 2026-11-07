@@ -305,7 +305,9 @@ fn termination_signals_set_quit_flag() {
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let flag = handicap_tui::shutdown::install(&rt);
+    // 진짜 `install`은 5초 뒤 `process::exit(1)`하는 감시견을 건다 — 테스트 바이너리 전체가 죽지 않게
+    // 사실상 영원한 유예와 빈 동작을 주입한다.
+    let flag = handicap_tui::shutdown::install_with(&rt, Duration::from_secs(3600), || {});
     assert!(!flag.load(Ordering::SeqCst));
     // SAFETY: 핸들러가 설치된 뒤 자기 프로세스에 SIGTERM을 보낸다(기본 동작=종료는 대체됐다).
     unsafe { libc::raise(libc::SIGTERM) };
