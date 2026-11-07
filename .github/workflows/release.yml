@@ -274,10 +274,69 @@ jobs:
           path: staging/
           if-no-files-found: error
 
+  # Ubuntu 19.04(glibc 2.27) 모니터 PC용 터미널 모니터. zigbuild로 glibc 상한을 고정하고
+  # 심볼·NEEDED 게이트 + 19.04 컨테이너 --check 스모크를 통과해야 에셋이 생긴다.
+  # 선택 에셋: publish.needs에는 있지만 if:에는 없다(zig 툴체인 문제로 Windows 릴리즈가 멈추지 않게).
+  linux-tui:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      # zig·cargo-zigbuild 버전은 scripts/tui-linux-build.sh 머리의 검증 버전과 같아야 한다.
+      - name: Install zig + cargo-zigbuild
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user ziglang==0.17.1
+          cargo install cargo-zigbuild --version 0.24.1 --locked
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build handicap-tui (glibc 2.27)
+        run: scripts/tui-linux-build.sh
+
+      - name: Gate - glibc symbols and NEEDED
+        run: scripts/tui-linux-gates.sh target/x86_64-unknown-linux-gnu/release/handicap-tui
+
+      - name: Smoke - ubuntu:19.04 --check
+        run: scripts/tui-linux-smoke.sh target/x86_64-unknown-linux-gnu/release/handicap-tui crates/tui/tests/fixtures/smoke_bundle.json
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.tag || github.ref_name }}'
+          ver="${tag#v}"
+          pkg="handicap-tui_${ver}_linux-x86_64"
+          mkdir -p "staging-src/${pkg}" staging
+          cp target/x86_64-unknown-linux-gnu/release/handicap-tui "staging-src/${pkg}/"
+          cp docs/dev/tui-monitor.md "staging-src/${pkg}/"
+          chmod +x "staging-src/${pkg}/handicap-tui"
+          tar -czf "staging/${pkg}.tar.gz" -C staging-src "${pkg}"
+          tar -tzf "staging/${pkg}.tar.gz"
+          ls -lh staging
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-linux-tui
+          path: staging/
+          if-no-files-found: error
+
   # 게시 전담. 재실행 시 이 잡만 다시 돌면 artifact를 재사용해 수십 초에 끝난다.
-  # macOS 실패 시에도 Windows와 Ubuntu 패키지로 발행한다.
+  # macOS·linux-tui 실패 시에도 Windows와 Ubuntu 패키지로 발행한다.
   publish:
-    needs: [windows-installer, macos-dmg, ubuntu-gui]
+    needs: [windows-installer, macos-dmg, ubuntu-gui, linux-tui]
     if: always() && needs.windows-installer.result == 'success' && needs.ubuntu-gui.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45 # CI 게이트 대기 상한 30분 + 게시 여유
