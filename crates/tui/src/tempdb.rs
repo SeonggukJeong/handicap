@@ -70,6 +70,13 @@ impl Drop for TempDb {
     }
 }
 
+/// 살아 있는 임시 디렉터리를 지금 지운다 — 정상 종료 경로가 막혔을 때 감시견이 부르는 마지막 수단.
+pub fn remove_active() {
+    for d in active().iter() {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 #[cfg(test)]
 fn sidecars(db: &Path) -> [PathBuf; 3] {
     let s = db.as_os_str().to_os_string();
@@ -216,5 +223,16 @@ mod tests {
         assert_eq!(sweep_stale(tmp.path()), 1);
         assert!(!leftover.exists());
         assert!(active.path().exists());
+    }
+
+    /// 감시견이 부르는 강제 정리 — 살아 있는 TempDb 디렉터리도 지운다.
+    #[test]
+    fn remove_active_deletes_live_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = TempDb::create(tmp.path()).unwrap();
+        let dir = db.path().parent().unwrap().to_path_buf();
+        remove_active();
+        assert!(!dir.exists());
+        drop(db); // 이미 지워졌어도 Drop은 패닉하지 않는다.
     }
 }

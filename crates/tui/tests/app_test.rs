@@ -315,3 +315,25 @@ fn termination_signals_set_quit_flag() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// 종료 신호 뒤 메인 루프가 정상 종료하지 못하면(예: 터미널 읽기에서 막힘) 감시견이 강제 정리를 부른다.
+#[cfg(unix)]
+#[test]
+fn watchdog_fires_when_main_does_not_exit() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let fired = Arc::new(AtomicBool::new(false));
+    let f = fired.clone();
+    let _flag = handicap_tui::shutdown::install_with(&rt, Duration::from_millis(200), move || {
+        f.store(true, Ordering::SeqCst)
+    });
+    // SAFETY: 핸들러가 설치된 뒤 자기 프로세스에 SIGHUP을 보낸다(기본 동작=종료는 대체됐다).
+    unsafe { libc::raise(libc::SIGHUP) };
+    let t = Instant::now();
+    while !fired.load(Ordering::SeqCst) {
+        assert!(t.elapsed() < Duration::from_secs(3), "watchdog never fired");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

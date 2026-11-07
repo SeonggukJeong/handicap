@@ -18,7 +18,8 @@ use crate::text;
 /// stderr의 "로그:" 줄을 덮어쓰는 일을 막는다.
 static RESTORED: AtomicBool = AtomicBool::new(false);
 
-fn restore() {
+/// 터미널을 되돌린다(여러 번 불러도 한 번만 동작). 종료 감시견도 쓴다.
+pub fn restore() {
     if RESTORED.swap(true, Ordering::SeqCst) {
         return;
     }

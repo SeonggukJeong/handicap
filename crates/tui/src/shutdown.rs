@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use tokio::runtime::Runtime;
 
@@ -61,8 +62,32 @@ impl Default for Signals {
     }
 }
 
+/// 신호 뒤 정상 종료에 줄 시간 — 넘기면 감시견이 강제 정리한다.
+pub const GRACE: Duration = Duration::from_secs(5);
+
 /// 신호를 받으면 `true`가 되는 플래그. 핸들러는 이 함수가 돌아오기 전에 이미 걸려 있다.
+/// 메인 루프가 신호 뒤 `GRACE` 안에 끝나지 못하면(터미널 읽기에서 막히는 등) 임시 DB를 지우고
+/// 터미널을 되돌린 뒤 exit 1로 강제 종료한다.
 pub fn install(rt: &Runtime) -> Arc<AtomicBool> {
+    install_with(rt, GRACE, force_exit)
+}
+
+fn force_exit() {
+    tracing::error!(
+        "정상 종료가 {}초 안에 끝나지 않아 강제 정리합니다",
+        GRACE.as_secs()
+    );
+    crate::tempdb::remove_active();
+    crate::terminal::restore();
+    std::process::exit(1);
+}
+
+/// `install`의 시간·동작 주입판(테스트용).
+pub fn install_with(
+    rt: &Runtime,
+    grace: Duration,
+    on_timeout: impl FnOnce() + Send + 'static,
+) -> Arc<AtomicBool> {
     let flag = Arc::new(AtomicBool::new(false));
     let f = flag.clone();
     let mut sigs = {
@@ -73,6 +98,11 @@ pub fn install(rt: &Runtime) -> Arc<AtomicBool> {
         sigs.recv().await;
         tracing::info!("종료 신호를 받았습니다 — 정상 종료합니다");
         f.store(true, Ordering::SeqCst);
+        // 런타임이 막혀도 동작하도록 별도 스레드. 정상 종료하면 프로세스째 사라진다.
+        std::thread::spawn(move || {
+            std::thread::sleep(grace);
+            on_timeout();
+        });
     });
     flag
 }
