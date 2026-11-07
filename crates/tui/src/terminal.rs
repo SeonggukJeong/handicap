@@ -91,9 +91,14 @@ pub fn install_panic_hook(ui_thread: ThreadId, log: LogLoc) {
     }));
 }
 
-/// 터미널이 없는 모드(`--check`) — 모든 패닉을 로그에만 남긴다.
-pub fn install_log_only_panic_hook() {
-    std::panic::set_hook(Box::new(|info| {
+/// 터미널이 없는 모드(`--check`) — 모든 패닉을 로그에 남긴다. 메인 스레드 패닉은 프로세스가 exit 101로
+/// 죽으므로(CI 컨테이너 로그에 원인이 없으면 진단 불가) stderr에도 한 줄 남기고, 다른 스레드 패닉은 로그에만.
+pub fn install_log_only_panic_hook(main_thread: ThreadId, log: LogLoc) {
+    std::panic::set_hook(Box::new(move |info| {
         tracing::error!("panic: {info}");
+        if thread::current().id() == main_thread {
+            let cause = info.to_string().replace('\n', " ");
+            eprintln!("{}", panic_line(&log, &cause));
+        }
     }));
 }

@@ -260,3 +260,58 @@ fn panic_line_includes_cause_only_when_log_unavailable() {
     assert!(!empty.contains("로그 없음: "), "{empty}");
     assert!(empty.contains("boom"), "{empty}");
 }
+#[test]
+fn closing_frame_shows_shutting_down_text() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut term = Terminal::new(TestBackend::new(40, 5)).unwrap();
+    handicap_tui::app::draw_closing(&mut term);
+    let text: String = term
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    // 넓은 글자 뒤엔 빈 칸이 끼므로 공백을 지우고 본다.
+    let squeezed: String = text.split_whitespace().collect();
+    assert!(squeezed.contains("종료중…"), "{text}");
+}
+
+#[test]
+fn panic_in_check_main_thread_prints_one_stderr_line_and_logs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = tmp.path().join("state");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_handicap-tui"))
+        .env("HANDICAP_TUI_PANIC_SELFTEST", "check-main")
+        .env("HOME", tmp.path())
+        .env("XDG_STATE_HOME", &state)
+        .env("XDG_RUNTIME_DIR", tmp.path())
+        .env_remove("RUST_LOG")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(101));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(err.lines().count(), 1, "stderr={err}");
+    assert!(err.contains("핸디캡 모니터 오류로 종료합니다."), "{err}");
+    assert!(err.contains("tui-check.log"), "{err}");
+    let log = std::fs::read_to_string(state.join("handicap/tui-check.log")).unwrap();
+    assert!(log.contains("selftest-check-main-marker"), "log={log}");
+}
+
+#[cfg(unix)]
+#[test]
+fn termination_signals_set_quit_flag() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let flag = handicap_tui::shutdown::install(&rt);
+    assert!(!flag.load(Ordering::SeqCst));
+    // SAFETY: 핸들러가 설치된 뒤 자기 프로세스에 SIGTERM을 보낸다(기본 동작=종료는 대체됐다).
+    unsafe { libc::raise(libc::SIGTERM) };
+    let t = Instant::now();
+    while !flag.load(Ordering::SeqCst) {
+        assert!(t.elapsed() < Duration::from_secs(3), "flag never set");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

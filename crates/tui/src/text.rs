@@ -68,6 +68,12 @@ pub const NO_BOARDS: &str = "파일에 보드가 없습니다";
 
 pub const STARTING: &str = "점검 엔진을 시작하는 중…";
 
+/// `y` 종료 확인 뒤·종료 신호 뒤 세션을 내리는 동안 보여 주는 한 줄.
+pub const CLOSING: &str = "종료 중…";
+
+/// `--check` 중 종료 신호를 받았을 때.
+pub const CHECK_INTERRUPTED: &str = "종료 신호를 받아 점검을 중단했습니다";
+
 pub const USAGE: &str = "사용법: handicap-tui <보드 파일.json>";
 pub const USAGE_MANUAL: &str = "자세한 사용법은 함께 받은 tui-monitor.md를 보세요.";
 

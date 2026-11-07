@@ -169,3 +169,40 @@ fn start_writes_nothing_to_stderr() {
     assert!(!dir.join("tui.log").exists());
     drop(rt);
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn oversized_file_is_read_stage_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("big.json");
+    // 희소 파일 — 실제 디스크는 거의 쓰지 않는다.
+    let f = std::fs::File::create(&file).unwrap();
+    f.set_len(32 * 1024 * 1024 + 1).unwrap();
+    drop(f);
+    let dbdir = tempfile::tempdir().unwrap();
+    let err = match Session::start(&file, dbdir.path()).await {
+        Ok(_) => panic!("must fail"),
+        Err(e) => e,
+    };
+    assert_eq!(err.stage, Stage::ReadFile);
+    assert!(err.message.contains("너무 큽니다"), "{}", err.message);
+    assert_eq!(db_files(dbdir.path()), 0);
+}
+
+#[test]
+fn db_dir_has_no_predictable_sidecar_names() {
+    // 공유 디렉터리 바로 아래에는 무작위 이름의 전용 디렉터리만 생긴다(S1).
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let srv = rt.block_on(target());
+    let tmp = tempfile::tempdir().unwrap();
+    let file = write(tmp.path(), "b.json", bundle_for(&srv).as_bytes());
+    let dbdir = tempfile::tempdir().unwrap();
+    let s = rt.block_on(Session::start(&file, dbdir.path())).unwrap();
+    let entries: Vec<_> = std::fs::read_dir(dbdir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].file_type().unwrap().is_dir());
+    assert!(s.db_path().starts_with(entries[0].path()));
+    rt.block_on(s.shutdown());
+    assert_eq!(db_files(dbdir.path()), 0);
+}

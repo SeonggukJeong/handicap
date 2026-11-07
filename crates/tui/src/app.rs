@@ -4,10 +4,11 @@
 use std::cell::Cell;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
     MouseEventKind,
@@ -268,7 +269,11 @@ impl App<'_> {
 
     fn stop_session(&mut self) {
         if let Some(r) = self.running.take() {
-            r.poller.abort();
+            // 중단을 기다린 뒤 세션을 내린다 — 폴러가 지워지는 DB를 읽는 일이 없게.
+            self.rt.block_on(async {
+                r.poller.abort();
+                let _ = r.poller.await;
+            });
             self.rt.block_on(r.session.shutdown());
         }
     }
@@ -374,11 +379,25 @@ impl App<'_> {
     }
 }
 
-fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+/// 세션을 내리는 동안(수 초 걸릴 수 있다) 마지막 화면이 얼어붙어 보이지 않게 한 줄을 그린다.
+pub fn draw_closing<B: Backend>(term: &mut Terminal<B>) {
+    let _ = term.draw(|f| f.render_widget(Paragraph::new(Line::from(text::CLOSING)), f.area()));
+}
+
+fn event_loop(
+    app: &mut App,
+    term: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    quit_signal: &AtomicBool,
+) -> io::Result<()> {
     let mut first = matches!(app.screen, Screen::Starting);
     let mut dirty = true;
     let mut last_draw = Instant::now();
     loop {
+        // 종료 신호(창 닫기·로그아웃) — 확인 없이 정상 종료 경로로.
+        if quit_signal.load(Ordering::SeqCst) {
+            draw_closing(term);
+            return Ok(());
+        }
         // 바뀐 것이 있을 때(입력·새 스냅샷·크기 변경)와 시계용으로 1초에 한 번만 그린다.
         if dirty || app.snap_rx.has_changed().unwrap_or(false) || last_draw.elapsed() >= REDRAW_MAX
         {
@@ -418,6 +437,7 @@ fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) 
             dirty = true;
         }
         if app.apply(action) {
+            draw_closing(term);
             return Ok(());
         }
     }
@@ -464,7 +484,8 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         snap_rx,
         poller_dead_logged: Cell::new(false),
     };
-    let result = event_loop(&mut app, &mut term);
+    let quit_signal = crate::shutdown::install(rt);
+    let result = event_loop(&mut app, &mut term, &quit_signal);
     let code = match (&app.screen, &result) {
         (_, Err(_)) => 1,
         (Screen::Usage, _) => 2,
@@ -481,10 +502,7 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
     drop(guard);
     if let Err(e) = result {
         tracing::error!("UI 루프 오류: {e}");
-        eprintln!(
-            "핸디캡 모니터 오류로 종료합니다. {}",
-            text::log_line(&app.log)
-        );
+        eprintln!("{} {}", text::PANIC_EXIT, text::log_line(&app.log));
     }
     code
 }

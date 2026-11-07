@@ -9,12 +9,27 @@ use handicap_controller::monitor::config::BoardConfig;
 
 use crate::judge::{PanelStateInput, big_value_text, panel_state};
 use crate::session::{Session, Stage};
+use crate::shutdown::Signals;
 use crate::wire::StatusResponse;
 use crate::{tempdb, text};
 
 /// 컨트롤러 전역 동시 점검 상한(`supervisor.rs` `MAX_CONCURRENT_CHECKS`).
 const CONCURRENT_CHECKS: usize = 32;
 const POLL_EVERY: Duration = Duration::from_secs(1);
+
+/// 출력에 나가는 외부 유래 문자열(보드·칸 이름, 사유, 서버 오류)의 제어 문자를 공백으로 바꾼다 —
+/// 터미널 이스케이프 주입(CI 로그·터미널 화면)을 막는다.
+pub fn sanitize(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
 
 pub fn stage_label(s: Stage) -> &'static str {
     match s {
@@ -90,10 +105,11 @@ fn summary(
                 thresholds: &p.thresholds,
             });
             out.push_str(&format!(
-                "{name} / {}  {}  {}\n",
-                p.title,
+                "{} / {}  {}  {}\n",
+                sanitize(name),
+                sanitize(&p.title),
                 text::state_label(state),
-                big_value_text(state, latest)
+                sanitize(&big_value_text(state, latest))
             ));
         }
     }
@@ -104,7 +120,12 @@ fn summary(
 pub async fn run_with_cap(file: &Path, db_dir: &Path, cap: Option<Duration>) -> (i32, String) {
     let session = match Session::start(file, db_dir).await {
         Ok(s) => s,
-        Err(e) => return (1, format!("{}: {}\n", stage_label(e.stage), e.message)),
+        Err(e) => {
+            return (
+                1,
+                format!("{}: {}\n", stage_label(e.stage), sanitize(&e.message)),
+            );
+        }
     };
     let started = Instant::now();
     let names: Vec<String> = session.boards.iter().map(|b| b.name.clone()).collect();
@@ -115,7 +136,7 @@ pub async fn run_with_cap(file: &Path, db_dir: &Path, cap: Option<Duration>) -> 
             Ok(r) => configs.push(r.config),
             Err(e) => {
                 session.shutdown().await;
-                return (1, format!("보드 읽기: {}\n", e.message));
+                return (1, format!("보드 읽기: {}\n", sanitize(&e.message)));
             }
         }
     }
@@ -165,8 +186,18 @@ pub fn run(file: &Path) -> i32 {
             return 1;
         }
     };
-    let (code, out) = rt.block_on(run_with_cap(file, &tempdb::runtime_dir(), None));
+    // 종료 신호(창 닫기·kill)는 세션을 정리한 뒤 exit 1로 끝낸다 — 임시 DB가 남지 않게 한다.
+    let (code, out) = rt.block_on(async {
+        let mut sigs = Signals::new();
+        let db_dir = tempdb::runtime_dir();
+        tokio::select! {
+            r = run_with_cap(file, &db_dir, None) => r,
+            () = sigs.recv() => (1, format!("{}\n", text::CHECK_INTERRUPTED)),
+        }
+    });
     print!("{out}");
+    // 멈춘 비동기 작업이 있어도 종료가 길어지지 않게 상한을 둔다(main.rs와 같은 값).
+    rt.shutdown_timeout(Duration::from_secs(2));
     code
 }
 

@@ -9,6 +9,7 @@ pub mod judge;
 pub mod logging;
 pub mod poll;
 pub mod session;
+pub mod shutdown;
 pub mod tempdb;
 pub mod terminal;
 pub mod text;

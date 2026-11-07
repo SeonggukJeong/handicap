@@ -1,6 +1,6 @@
 //! 세션 = 임시 DB + in-process 컨트롤러 + 번들 가져오기 + 모든 보드 시작.
 
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +8,10 @@ use handicap_controller::in_process::{InProcessConfig, RunningController, run_in
 
 use crate::api::Api;
 use crate::tempdb::TempDb;
+
+/// 보드 파일 크기 상한 — 이보다 크면 읽지 않고 거절한다.
+pub const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const FILE_TOO_BIG: &str = "파일이 너무 큽니다(최대 32 MB)";
 
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
@@ -59,6 +63,24 @@ fn read_error_message(e: &std::io::Error) -> &'static str {
     }
 }
 
+/// 크기를 먼저 보고, 읽기도 상한+1바이트에서 끊는다(메타데이터와 실제 길이가 어긋나도 안전).
+fn read_capped(file: &Path) -> Result<Vec<u8>, (Stage, String)> {
+    let err = |e: &std::io::Error| (Stage::ReadFile, read_error_message(e).to_string());
+    let f = std::fs::File::open(file).map_err(|e| err(&e))?;
+    let len = f.metadata().map_err(|e| err(&e))?.len();
+    if len > MAX_FILE_BYTES {
+        return Err((Stage::ReadFile, FILE_TOO_BIG.to_string()));
+    }
+    let mut buf = Vec::new();
+    f.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| err(&e))?;
+    if buf.len() as u64 > MAX_FILE_BYTES {
+        return Err((Stage::ReadFile, FILE_TOO_BIG.to_string()));
+    }
+    Ok(buf)
+}
+
 impl Session {
     pub async fn start(file: &Path, db_dir: &Path) -> Result<Session, StartError> {
         let db = TempDb::create(db_dir).map_err(|e| StartError {
@@ -102,8 +124,7 @@ impl Session {
     }
 
     async fn bootstrap(api: &Api, file: &Path) -> Result<Vec<BoardRef>, (Stage, String)> {
-        let bytes = std::fs::read(file)
-            .map_err(|e| (Stage::ReadFile, read_error_message(&e).to_string()))?;
+        let bytes = read_capped(file)?;
         let result = api
             .import(import_body(&bytes))
             .await
