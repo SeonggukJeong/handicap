@@ -4,7 +4,7 @@ use chrono::{Local, TimeZone};
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_controller::monitor::config::Threshold;
 
-use crate::text::NO_VALUE;
+use crate::text::{NO_VALUE, NOT_CONTAINED_TAIL};
 
 pub const DEFAULT_BAR_COLOR: &str = "#22c55e";
 
@@ -179,7 +179,6 @@ pub enum ReasonParts {
 }
 
 const NOT_CONTAINED_HEAD: &str = "본문 전체 글자 포함 ";
-const NOT_CONTAINED_TAIL: &str = "\" 포함 안 됨";
 
 pub fn reason_parts(reason: &str, detail: Option<&str>) -> ReasonParts {
     let Some(detail) = detail else {

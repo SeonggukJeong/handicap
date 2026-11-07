@@ -745,7 +745,10 @@ fn render_min_panel_keeps_axis() {
     let panels = build_panels(&b, &s);
     assert_eq!(panels[0].state, PanelState::Fail);
     assert!(panels[0].stats.is_some());
-    let sc = screen(panels, (1, 1), 0);
+    let mut sc = screen(panels, (1, 1), 0);
+    // 머리 줄 시계가 결과 시각과 같은 글자를 만들지 않게 한다.
+    sc.server_time = Some(base + 3 * 3_600_000 + 7 * 60_000 + 9_000);
+    assert_ne!(clock_hms(sc.server_time.unwrap()), format_hms(base));
     let mut t = Terminal::new(TestBackend::new(24, 8)).unwrap();
     t.draw(|f| render(f, &sc)).unwrap();
     let text = buffer_text(t.backend().buffer());
@@ -753,7 +756,276 @@ fn render_min_panel_keeps_axis() {
     assert!(text.contains("✖ 실패"), "{text}");
     assert!(text.contains("3회 연속"), "{text}");
     assert!(text.contains('█'), "{text}");
-    assert!(text.contains(&format_hms(base)), "{text}");
+    // 시각 줄 = 막대 줄 바로 다음 줄이어야 한다.
+    let lines: Vec<&str> = text.lines().collect();
+    let bar_row = lines.iter().position(|l| l.contains('█')).unwrap();
+    assert!(
+        lines[bar_row + 1].contains(&format_hms(base)),
+        "시각 줄\n{text}"
+    );
     assert!(!text.contains("로그인 단계"), "{text}");
     assert!(!text.contains("평균"), "{text}");
+}
+
+fn clock_hms(ms: i64) -> String {
+    format_hms(ms)
+}
+
+fn col_of_last_nonblank(buf: &Buffer, y: u16) -> u16 {
+    (0..buf.area.width)
+        .rev()
+        .find(|&x| {
+            buf[(x, y)].symbol() != " "
+                && buf[(x, y)].symbol() != "┃"
+                && buf[(x, y)].symbol() != "│"
+        })
+        .unwrap()
+}
+
+fn render_buf(w: u16, h: u16, sc: &MonitorScreen) -> Buffer {
+    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+    t.draw(|f| render(f, sc)).unwrap();
+    t.backend().buffer().clone()
+}
+
+// ---------- fix round 1 ----------
+
+fn header_of(w: u16, down: bool) -> String {
+    let mut sc = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    sc.server_down = down;
+    let t = draw(w, 8, |f| render(f, &sc));
+    println!("{t}");
+    t.lines().next().unwrap().to_string()
+}
+
+#[test]
+fn header_degrades_by_whole_parts() {
+    let h80 = header_of(80, false);
+    assert!(
+        h80.contains("Handicap 모니터 · 운영 API 보드 (1/2)"),
+        "{h80}"
+    );
+    assert!(h80.contains("2023-11-15"), "{h80}");
+    assert!(h80.contains("점검 중"), "{h80}");
+
+    let h48 = header_of(48, false);
+    assert!(h48.contains("운영 API 보드 (1/2)"), "{h48}");
+    assert!(!h48.contains("Handicap"), "{h48}");
+    assert!(h48.contains("점검 중"), "{h48}");
+
+    let h24 = header_of(24, false);
+    assert!(h24.contains("점검 중"), "{h24}");
+    assert!(h24.contains("(1/2)"), "{h24}");
+    assert!(h24.contains('…'), "{h24}");
+    assert!(!h24.contains("2023"), "{h24}");
+
+    for w in [24u16, 48, 80] {
+        let d = header_of(w, true);
+        assert!(d.contains("서버 응답 없음"), "w={w} {d}");
+        assert!(d.contains("(1/2)"), "w={w} {d}");
+    }
+}
+
+#[test]
+fn key_bar_drops_whole_segments() {
+    let s = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 2), 0);
+    let t = draw(24, 8, |f| render(f, &s));
+    let last = t.lines().last().unwrap();
+    assert!(last.contains("? 도움말  q 종료"), "{t}");
+    assert!(!last.contains("Tab"), "{t}");
+    assert!(!last.contains("칸 이동"), "{t}");
+    let s1 = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    let t = draw(24, 8, |f| render(f, &s1));
+    let last = t.lines().last().unwrap();
+    assert!(last.contains("? 도움말  q 종료"), "{t}");
+    assert!(!last.contains("칸 이동"), "{t}");
+    let t = draw(10, 8, |f| render(f, &s1));
+    assert!(t.lines().last().unwrap().contains("q 종료"), "{t}");
+}
+
+fn consecutive_line(n: u32) -> String {
+    let mut p = panel("p1", "로그인");
+    p.bar_count = 40;
+    let b = board(vec![p], true);
+    let base = 1_700_000_000_000i64;
+    let rs = vec![fail(base, "HTTP 503")];
+    let s = snap(vec![pstatus("p1", rs, n, Some(base))], base + 1000);
+    let sc = screen(build_panels(&b, &s), (1, 1), 0);
+    let t = draw(24, 8, |f| render(f, &sc));
+    println!("{t}");
+    t.lines()
+        .find(|l| l.contains("회 연속"))
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn consecutive_degrades_to_short_form() {
+    for n in [3u32, 123] {
+        let l = consecutive_line(n);
+        assert!(l.contains(&format!("{n}회 연속")), "{l}");
+        assert!(!l.contains('부'), "조각난 글자 없음 {l}");
+        assert!(!l.contains('·'), "{l}");
+    }
+    // 넓으면 전체 문구.
+    let mut p = panel("p1", "x");
+    p.bar_count = 40;
+    let b = board(vec![p], true);
+    let base = 1_700_000_000_000i64;
+    let s = snap(
+        vec![pstatus("p1", vec![fail(base, "e")], 3, Some(base))],
+        base + 1000,
+    );
+    let sc = screen(build_panels(&b, &s), (1, 1), 0);
+    let t = draw(60, 10, |f| render(f, &sc));
+    assert!(t.contains("3회 연속 · ") && t.contains("부터"), "{t}");
+}
+
+fn not_contained_view() -> PanelView {
+    let mut v = view("체크", PanelState::Fail, "✖ 실패", "");
+    v.big = BigValue::Reason(handicap_tui::judge::ReasonParts::NotContained {
+        needle: "success".into(),
+        small: "본문 전체 글자 포함 ok".into(),
+    });
+    v
+}
+
+#[test]
+fn not_contained_keeps_quote_and_tail() {
+    let sc = screen(vec![not_contained_view()], (1, 1), 0);
+    let t = draw(24, 8, |f| render(f, &sc));
+    println!("{t}");
+    let row = t.lines().find(|l| l.contains("실패")).unwrap();
+    assert!(row.contains("\"s…\" 포함 안 됨"), "{row}");
+    let t = draw(80, 12, |f| render(f, &sc));
+    assert!(t.contains("\"success\" 포함 안 됨"), "{t}");
+}
+
+#[test]
+fn long_title_gets_ellipsis() {
+    let sc = screen(
+        vec![view(
+            "아주아주아주아주 긴 칸 제목입니다",
+            PanelState::Ok,
+            "✔ 정상",
+            "1 ms",
+        )],
+        (1, 1),
+        0,
+    );
+    let t = draw(24, 8, |f| render(f, &sc));
+    assert!(t.lines().nth(1).unwrap().contains('…'), "{t}");
+}
+
+#[test]
+fn too_small_shows_quit_key() {
+    let panels: Vec<PanelView> = (0..9)
+        .map(|i| view(&format!("p{i}"), PanelState::Ok, "✔ 정상", "1 ms"))
+        .collect();
+    let s = screen(panels, (1, 1), 0);
+    let text = draw(60, 15, |f| render(f, &s));
+    assert!(text.lines().last().unwrap().contains("q 종료"), "{text}");
+}
+
+#[test]
+fn help_short_terminal_keeps_esc_row_and_aligns() {
+    let text = draw(80, 12, |f| {
+        render_help(
+            f,
+            Path::new("/tmp/b.json"),
+            &LogLoc::Unavailable("권한 없음".into()),
+        )
+    });
+    println!("{text}");
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[10].contains("Esc 닫기"), "{text}");
+    assert!(text.contains("로그 없음: 권한 없음"), "{text}");
+    assert!(!text.contains("로그: 로그"), "{text}");
+    let col = |needle: &str| {
+        let l = lines.iter().find(|l| l.contains(needle)).unwrap();
+        let idx = l.find(needle).unwrap();
+        Span::raw(l[..idx].to_string()).width()
+    };
+    assert_eq!(col("칸 선택 이동"), col("다음 / 이전 보드"));
+    assert_eq!(col("칸 선택 이동"), col("그 칸 선택"));
+}
+
+#[test]
+fn error_screen_key_bar_stays_on_last_row() {
+    let e = StartError {
+        stage: Stage::Import,
+        message: "아주 긴 오류 문구 ".repeat(40),
+        rest_addr: None,
+    };
+    let text = draw(40, 10, |f| {
+        render_error(
+            f,
+            &e,
+            Path::new("/tmp/b.json"),
+            &LogLoc::Path("/tmp/tui.log".into()),
+        )
+    });
+    println!("{text}");
+    assert!(
+        text.lines().last().unwrap().contains("r 다시 시도  q 종료"),
+        "{text}"
+    );
+    let text = draw(8, 10, |f| {
+        render_error(
+            f,
+            &e,
+            Path::new("/tmp/b.json"),
+            &LogLoc::Path("/tmp/tui.log".into()),
+        )
+    });
+    assert!(text.lines().last().unwrap().contains("q 종료"), "{text}");
+}
+
+#[test]
+fn colors_match_gui() {
+    let rgb = |h: u32| Color::Rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
+    // (state, border, big, small)
+    let cases = [
+        (
+            PanelState::Blocked,
+            0x475569u32,
+            0x94a3b8u32,
+            Some(0x64748bu32),
+        ),
+        (PanelState::Skipped, 0x64748b, 0xe2e8f0, Some(0xe2e8f0)),
+        (PanelState::ConfigError, 0x64748b, 0x94a3b8, Some(0x94a3b8)),
+        (PanelState::Stale, 0x64748b, 0x94a3b8, None),
+        (PanelState::Fail, 0xef4444, 0xef4444, Some(0xef4444)),
+        (PanelState::Ok, 0x22c55e, 0xf2f5f8, None),
+    ];
+    for (state, border, big, small) in cases {
+        let mut v = view("t", state, "L", "abc");
+        if small.is_some() {
+            v.big = BigValue::Reason(handicap_tui::judge::ReasonParts::Split {
+                fixed: "abc".into(),
+                step: Some("xyz".into()),
+            });
+        }
+        let sc = screen(vec![v], (1, 1), 0);
+        let buf = render_buf(80, 24, &sc);
+        assert_eq!(buf[(0, 1)].fg, rgb(border), "{state:?} border");
+        let x = col_of_last_nonblank(&buf, 2);
+        assert_eq!(buf[(x, 2)].fg, rgb(big), "{state:?} big");
+        if let Some(sm) = small {
+            let x = col_of_last_nonblank(&buf, 3);
+            assert_eq!(buf[(x, 3)].fg, rgb(sm), "{state:?} small");
+        }
+    }
+}
+
+#[test]
+fn render_nine_panels_at_minimum() {
+    let panels: Vec<PanelView> = (0..9)
+        .map(|i| view(&format!("칸 {i}"), PanelState::Ok, "✔ 정상", "182 ms"))
+        .collect();
+    let s = screen(panels, (1, 1), 4);
+    let t = draw(72, 20, |f| render(f, &s));
+    println!("{t}");
+    assert_eq!(t.matches("✔ 정상").count(), 9, "{t}");
+    assert!(!t.contains("창을 키워"), "{t}");
 }

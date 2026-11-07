@@ -30,9 +30,12 @@ pub fn consecutive(n: u32, hms: &str) -> String {
 pub const MONITOR_RUNNING: &str = "점검 중";
 pub const MONITOR_TITLE: &str = "Handicap 모니터";
 
-pub const KEYS_MONITOR: &str = "←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료";
-pub const KEYS_MONITOR_SINGLE: &str = "←↑↓→ 칸 이동  ? 도움말  q 종료";
-pub const KEYS_ERROR: &str = "r 다시 시도  q 종료";
+/// 키 안내 줄 조각 — 좁으면 앞에서부터 통째로 뺀다(마지막 `q 종료`는 끝까지 남는다).
+pub const KEYS_MOVE: &str = "←↑↓→ 칸 이동";
+pub const KEYS_NEXT_BOARD: &str = "Tab 다음 보드";
+pub const KEYS_HELP_OPEN: &str = "? 도움말";
+pub const KEYS_QUIT: &str = "q 종료";
+pub const KEYS_RETRY: &str = "r 다시 시도";
 pub const KEYS_HELP: &str = "Esc 닫기";
 
 pub const HELP_TITLE: &str = "도움말";
@@ -49,6 +52,14 @@ pub const HELP_FILE: &str = "보드 파일";
 pub const HELP_LOG: &str = "로그";
 
 pub const QUIT_CONFIRM: &str = "종료할까요? y 종료 · 다른 키 취소";
+
+/// 도움말·오류 화면의 로그 줄.
+pub fn log_line(loc: &crate::logging::LogLoc) -> String {
+    match loc {
+        crate::logging::LogLoc::Path(p) => format!("{HELP_LOG}: {}", p.display()),
+        crate::logging::LogLoc::Unavailable(cause) => log_unavailable(cause),
+    }
+}
 
 pub const USAGE: &str = "사용법: handicap-tui <보드 파일.json>";
 pub const USAGE_MANUAL: &str = "자세한 사용법은 함께 받은 tui-monitor.md를 보세요.";
@@ -67,9 +78,12 @@ pub fn log_unavailable(cause: &str) -> String {
     format!("로그 없음: {cause}")
 }
 
-/// 조건 판정 "본문 전체 글자 포함" 실패의 큰 값.
-pub fn not_contained(needle: &str) -> String {
-    format!("\"{needle}\" 포함 안 됨")
+/// 조건 판정 "본문 전체 글자 포함" 실패의 큰 값 꼬리(`"{needle}" 포함 안 됨`의 `" 포함 안 됨`).
+pub const NOT_CONTAINED_TAIL: &str = "\" 포함 안 됨";
+
+/// `N회 연속 · HH:MM:SS부터`에서 `N회 연속`만.
+pub fn consecutive_short(full: &str) -> &str {
+    full.split_once(" · ").map_or(full, |(head, _)| head)
 }
 
 pub fn board_pos(pos: usize, total: usize) -> String {

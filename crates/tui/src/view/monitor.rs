@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use super::axis::{axis_line, axis_uses_seconds};
 use super::model::{BigValue, PanelView, Row, panel_rows, parse_hex};
-use super::{fit, text_width};
+use super::{fit, key_bar, text_width};
 use crate::judge::ReasonParts;
 use crate::judge::{PanelState, format_hm, format_hms, grid_for};
 use crate::text;
@@ -25,6 +25,9 @@ const C_OK: &str = "#22c55e";
 const C_FAIL: &str = "#ef4444";
 const C_GRAY: &str = "#94a3b8";
 const C_SLOW: &str = "#f59e0b";
+const C_GRAY_BORDER: &str = "#64748b";
+const C_BLOCKED_BORDER: &str = "#475569";
+const C_BRIGHT: &str = "#e2e8f0";
 
 fn color(hex: &str) -> Color {
     parse_hex(hex).unwrap_or(Color::Reset)
@@ -109,20 +112,51 @@ fn state_color(v: &PanelView) -> Color {
     }
 }
 
-fn big_color(v: &PanelView) -> Color {
-    if v.state == PanelState::Ok {
-        color(C_TEXT)
-    } else {
-        state_color(v)
+/// GUI `borderColorOf`.
+fn border_color(v: &PanelView) -> Color {
+    match v.state {
+        PanelState::Blocked => color(C_BLOCKED_BORDER),
+        PanelState::Ok | PanelState::Slow | PanelState::Fail => state_color(v),
+        _ => color(C_GRAY_BORDER),
     }
 }
 
-fn big_text(v: &PanelView) -> String {
+/// GUI `bigColor`.
+fn big_color(v: &PanelView) -> Color {
+    match v.state {
+        PanelState::Ok => color(C_TEXT),
+        PanelState::Skipped => color(C_BRIGHT),
+        _ => state_color(v),
+    }
+}
+
+/// GUI `smallColor`.
+fn small_color(v: &PanelView) -> Color {
+    if v.state == PanelState::Blocked {
+        color(C_GRAY_BORDER)
+    } else {
+        big_color(v)
+    }
+}
+
+/// 큰 값을 `avail`칸에 맞춘다. 포함 안 됨은 따옴표·꼬리를 지키고 찾는 글자만 줄인다(뜻이 뒤집히지 않게).
+fn big_fit(v: &PanelView, avail: usize) -> String {
     match &v.big {
-        BigValue::Text(t) => t.clone(),
-        BigValue::Reason(ReasonParts::Split { fixed, .. }) => fixed.clone(),
-        BigValue::Reason(ReasonParts::Detail { big, .. }) => big.clone(),
-        BigValue::Reason(ReasonParts::NotContained { needle, .. }) => text::not_contained(needle),
+        BigValue::Text(t) => fit(t, avail),
+        BigValue::Reason(ReasonParts::Split { fixed, .. }) => fit(fixed, avail),
+        BigValue::Reason(ReasonParts::Detail { big, .. }) => fit(big, avail),
+        BigValue::Reason(ReasonParts::NotContained { needle, .. }) => {
+            let overhead = 1 + text_width(text::NOT_CONTAINED_TAIL);
+            if avail > overhead {
+                format!(
+                    "\"{}{}",
+                    fit(needle, avail - overhead),
+                    text::NOT_CONTAINED_TAIL
+                )
+            } else {
+                String::new()
+            }
+        }
     }
 }
 
@@ -141,13 +175,19 @@ fn put(f: &mut Frame, area: Rect, line: Line) {
 
 fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
     let sc = state_color(v);
+    let bc = border_color(v);
     let (border_type, style) = if selected {
         (
             BorderType::Thick,
-            Style::default().fg(sc).add_modifier(Modifier::BOLD),
+            Style::default().fg(bc).add_modifier(Modifier::BOLD),
         )
     } else {
-        (BorderType::Plain, Style::default().fg(sc))
+        (BorderType::Plain, Style::default().fg(bc))
+    };
+    let title_color = if matches!(v.state, PanelState::Blocked | PanelState::Skipped) {
+        color(C_SOFT)
+    } else {
+        color(C_TEXT)
     };
     let title = format!(
         " {} ",
@@ -157,7 +197,7 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
         .borders(Borders::ALL)
         .border_type(border_type)
         .border_style(style)
-        .title(Span::styled(title, Style::default().fg(color(C_TEXT))));
+        .title(Span::styled(title, Style::default().fg(title_color)));
     let inner = block.inner(rect);
     f.render_widget(block, rect);
     if inner.width == 0 {
@@ -181,7 +221,7 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
                 let label = fit(v.label, w);
                 let lw = text_width(&label);
                 let big = if w > lw + 1 {
-                    fit(&big_text(v), w - lw - 1)
+                    big_fit(v, w - lw - 1)
                 } else {
                     String::new()
                 };
@@ -202,13 +242,22 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
                 let pad = w - text_width(&t);
                 Line::from(vec![
                     Span::raw(" ".repeat(pad)),
-                    Span::styled(t, Style::default().fg(big_color(v))),
+                    Span::styled(t, Style::default().fg(small_color(v))),
                 ])
             }
-            Row::Consecutive => Line::from(Span::styled(
-                fit(v.consecutive.as_deref().unwrap_or_default(), w),
-                Style::default().fg(color(C_FAIL)),
-            )),
+            Row::Consecutive => {
+                let full = v.consecutive.as_deref().unwrap_or_default();
+                // 통째로 안 들어가면 `N회 연속`만(꼬리를 단어 중간에서 자르지 않는다).
+                let shown = if text_width(full) <= w {
+                    full
+                } else {
+                    text::consecutive_short(full)
+                };
+                Line::from(Span::styled(
+                    fit(shown, w),
+                    Style::default().fg(color(C_FAIL)),
+                ))
+            }
             Row::Bars => Line::from(
                 bars.iter()
                     .map(|b| Span::styled(b.glyph.to_string(), Style::default().fg(b.color)))
@@ -236,33 +285,80 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
     }
 }
 
-fn clock(ms: i64) -> String {
+fn clock(ms: i64, with_date: bool) -> String {
+    let fmt = if with_date {
+        "%Y-%m-%d %H:%M:%S"
+    } else {
+        "%H:%M:%S"
+    };
     Local
         .timestamp_millis_opt(ms)
         .single()
-        .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|t| t.format(fmt).to_string())
         .unwrap_or_default()
 }
 
+/// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
+/// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
 fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
-    let mut left = format!(" {} · {}", text::MONITOR_TITLE, s.board_name);
-    if s.board_pos.1 > 1 {
-        left.push(' ');
-        left.push_str(&text::board_pos(s.board_pos.0, s.board_pos.1));
-    }
+    let w = usize::from(area.width);
     let status = if s.server_down {
         text::SERVER_DOWN
     } else {
         text::MONITOR_RUNNING
     };
-    let right = match s.server_time {
-        Some(ms) => format!("{}  {} ", clock(ms), status),
-        None => format!("{status} "),
+    let pos = if s.board_pos.1 > 1 {
+        format!(" {}", text::board_pos(s.board_pos.0, s.board_pos.1))
+    } else {
+        String::new()
     };
-    let w = usize::from(area.width);
-    let rw = text_width(&right).min(w);
-    let left = fit(&left, w.saturating_sub(rw + 1));
-    let pad = w.saturating_sub(text_width(&left) + rw);
+    // (접두 표시, 시계 형식)
+    let steps: [(bool, Option<bool>); 4] = [
+        (true, Some(true)),
+        (true, Some(false)),
+        (false, Some(false)),
+        (false, None),
+    ];
+    let mut chosen = None;
+    for (i, (prefix, date)) in steps.iter().enumerate() {
+        let right = match (s.server_time, date) {
+            (Some(ms), Some(d)) => format!("{}  {} ", clock(ms, *d), status),
+            _ => format!("{status} "),
+        };
+        let head = if *prefix {
+            format!(" {} · ", text::MONITOR_TITLE)
+        } else {
+            " ".to_string()
+        };
+        let fixed = text_width(&head) + text_width(&pos) + text_width(&right) + 1;
+        let name_w = text_width(&s.board_name);
+        let last = i == steps.len() - 1;
+        if fixed + name_w <= w || last {
+            let room = w.saturating_sub(fixed);
+            let name = if room >= 2 || fixed + name_w <= w {
+                fit(&s.board_name, room)
+            } else {
+                String::new()
+            };
+            chosen = Some((head, name, right));
+            break;
+        }
+    }
+    let (head, name, right) = chosen.unwrap_or_default();
+    let (head, name, pos) = if text_width(&right) >= w {
+        // 상태만으로도 넘치면 `…`로 줄인다.
+        (String::new(), String::new(), String::new())
+    } else {
+        (head, name, pos)
+    };
+    let left = if text_width(&head) + text_width(&name) + text_width(&pos) + text_width(&right) > w
+    {
+        String::new()
+    } else {
+        format!("{head}{name}{pos}")
+    };
+    let right = fit(&right, w);
+    let pad = w.saturating_sub(text_width(&left) + text_width(&right));
     let status_color = if s.server_down { C_FAIL } else { C_MUTED };
     put(
         f,
@@ -275,8 +371,22 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(pad)),
-            Span::styled(fit(&right, rw), Style::default().fg(color(status_color))),
+            Span::styled(right, Style::default().fg(color(status_color))),
         ]),
+    );
+}
+
+fn render_key_bar(f: &mut Frame, area: Rect, segments: &[&str]) {
+    if area.height == 0 {
+        return;
+    }
+    put(
+        f,
+        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+        Line::from(Span::styled(
+            key_bar(segments, area.width),
+            Style::default().fg(color(C_MUTED)),
+        )),
     );
 }
 
@@ -285,11 +395,13 @@ pub fn render(f: &mut Frame, s: &MonitorScreen) {
     let lay = match layout(area, s.panels.len()) {
         Ok(l) => l,
         Err(e) => {
-            let msg = text::too_small(e.have, e.need);
+            let body = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
             f.render_widget(
-                Paragraph::new(msg).wrap(ratatui::widgets::Wrap { trim: false }),
-                area,
+                Paragraph::new(text::too_small(e.have, e.need))
+                    .wrap(ratatui::widgets::Wrap { trim: false }),
+                body,
             );
+            render_key_bar(f, area, &[text::KEYS_QUIT]);
             return;
         }
     };
@@ -297,22 +409,10 @@ pub fn render(f: &mut Frame, s: &MonitorScreen) {
     for (i, (rect, v)) in lay.panels.iter().zip(&s.panels).enumerate() {
         render_panel(f, *rect, v, i == s.selected);
     }
-    let keys = if s.board_pos.1 > 1 {
-        text::KEYS_MONITOR
-    } else {
-        text::KEYS_MONITOR_SINGLE
-    };
-    put(
-        f,
-        Rect::new(
-            area.x,
-            area.y + area.height.saturating_sub(1),
-            area.width,
-            1,
-        ),
-        Line::from(Span::styled(
-            format!(" {keys}"),
-            Style::default().fg(color(C_MUTED)),
-        )),
-    );
+    let mut keys = vec![text::KEYS_MOVE];
+    if s.board_pos.1 > 1 {
+        keys.push(text::KEYS_NEXT_BOARD);
+    }
+    keys.extend([text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+    render_key_bar(f, area, &keys);
 }
