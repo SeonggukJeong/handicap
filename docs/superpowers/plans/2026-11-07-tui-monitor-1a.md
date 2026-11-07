@@ -33,12 +33,13 @@ REVIEW-GATE: APPROVED
 3. **컨트롤러 백그라운드 태스크 패닉** → 화면 유지·stderr 출력 0(로그 파일에만). → Task 7 `panic_hook_non_ui_thread_keeps_terminal`.
 4. **아주 좁거나 낮은 터미널(80×24 미만, 9칸)** → 겹침 없이 "창을 키워 주세요" 안내. → Task 6 `render_too_small`.
 5. **서버 폴링이 한두 번만 실패** → 상태가 즉시 `확인 불가`로 바뀌지 않음(3회 연속에서만). → Task 5 `server_down_after_three`.
+6. **자리를 비운 사이 잠깐 실패했다 회복(US6)** → 빨간 막대 아래 시각 줄로 대략 몇 시 몇 분인지 읽힘. 가장 좁은 칸(24폭)·짧은 구간(`HH:MM:SS` 8자)·결과가 몇 개뿐인 시작 직후에도 눈금이 겹치거나 잘리지 않음, 칸 안쪽 4줄이어도 시각 줄 유지. → Task 6 `axis_invariants_sweep`·`panel_rows_priority`·`render_min_panel_keeps_axis`.
 
 ---
 
 ### Task 0: 착수 전 게이트 (코드 변경 없음)
 
-- [ ] 사용자에게 대상 19.04 PC의 `uname -m` 결과를 묻는다(spec §10, 사용자 결정 2026-11-07 "구현 시작 전에 확인"). `x86_64`가 아니면 **STOP** — 대상 triple·Task 3·8이 바뀐다. 사용자가 확인을 다시 미루면 그 답을 build-log 메모로 남기고 진행.
+- [x] **해소됨(2026-11-07)** — 사용자: "CPU 아키텍처는 굳이 확인 안 해도 됨. 동일한 모델의 PC에 Windows도 설치해서 사용 중" → x86_64 확정, `uname -m` 확인 생략(spec §10). 이 답을 finish-slice 때 build-log 메모로 남긴다. 구현은 Task 1부터.
 
 ### Task 1: 컨트롤러 `in-process` 기능 분리
 
@@ -133,7 +134,7 @@ REVIEW-GATE: APPROVED
   - `fn big_value_text(state: PanelState, latest: Option<&CheckResult>) -> String`
   - `fn grid_for(n: usize) -> (usize, usize)` (cols, rows)
   - `fn split_reason(reason: &str) -> (String, Option<String>)`; `enum ReasonParts { Split { fixed: String, step: Option<String> }, Detail { big: String, small: String }, NotContained { needle: String, small: String } }`; `fn reason_parts(reason: &str, detail: Option<&str>) -> ReasonParts` — 의미는 `ui/src/monitor/display.ts`의 `splitReason`/`reasonParts` 그대로.
-  - `fn format_hms(ms: i64) -> String` (로컬 시각 `HH:MM:SS`, chrono `Local`)
+  - `fn format_hms(ms: i64) -> String` (로컬 시각 `HH:MM:SS`, chrono `Local`), `fn format_hm(ms: i64) -> String` (로컬 시각 `HH:MM`, 시각 줄용 — spec §5.1 US6)
 - Produces (`text`): `fn state_label(s: PanelState) -> &'static str`, `fn consecutive(n: u32, hms: &str) -> String`, `const STATS_AVG`, `const STATS_MAX`, `const SERVER_DOWN`, `const NO_VALUE: &str = "—"`(`ko.monitor.noValue`).
 
 - [ ] **Step 1: 실패 테스트(1:1 대조표)** — `tests/judge_parity_test.rs`에 공개 API로 작성. TS 원본을 열어 같은 입력·기대값으로 옮긴다. 테스트 이름 = TS 이름의 snake_case:
@@ -147,6 +148,7 @@ REVIEW-GATE: APPROVED
   | logic `grid_table`·`big_value_text_cases`·`consecutive_threshold` | 동명 |
   | logic latencyStats 4케이스 | `latency_stats_avg_max_rounded`·`latency_stats_includes_slow`·`latency_stats_excludes_fail_config_null`·`latency_stats_none_when_empty` |
   | display `split_reason_at_first_separator`·`reason_parts_without_detail_splits_as_before`·`reason_parts_detail_never_splits`·`reason_parts_not_contained_three_conditions` | 동명 |
+  | (시각 형식, TUI 전용 — US6) | `format_hm_shape`: 임의 ms 몇 개에 대해 `format_hm(ms).len() == 5`·`format_hm(ms) == format_hms(ms)[..5]`·`format_hms(ms)`가 `dd:dd:dd` 모양(TZ 무관) |
   | (ko.ts 값) | `text_labels_match_ko`: 9개 상태 문구·`consecutive(4,"09:39:51") == "4회 연속 · 09:39:51부터"`·`STATS_AVG == "평균"`·`STATS_MAX == "최대"`·`SERVER_DOWN == "서버 응답 없음"`·`NO_VALUE == "—"` |
 
   (TS의 `axis_labels`·`font_scale`·focus 계열은 GUI 전용이라 제외.)
@@ -179,17 +181,19 @@ REVIEW-GATE: APPROVED
 ### Task 6: 화면 렌더링 (`view/`)
 
 **Files:**
-- Create: `crates/tui/tests/view_test.rs` (**첫 편집 — tdd-guard**, 공개 API + ratatui `TestBackend`), `crates/tui/src/view/{mod.rs, model.rs, monitor.rs, overlay.rs, error.rs}`
+- Create: `crates/tui/tests/view_test.rs` (**첫 편집 — tdd-guard**, 공개 API + ratatui `TestBackend`), `crates/tui/src/view/{mod.rs, model.rs, axis.rs, monitor.rs, overlay.rs, error.rs}`
 - Modify: `crates/tui/src/lib.rs` (`pub mod view;`)
 - 테스트 헬퍼 `buffer_text(buf: &Buffer) -> String`(행마다 셀 심볼을 잇되 넓은 문자 뒤 빈 채움 셀은 건너뜀 — 그냥 이으면 `창을 키워 주세요`가 매치되지 않는다)
 
 **Interfaces:**
 - Consumes: Task 4 `judge`·`text`, Task 5 `PollSnapshot`, Task 2 `StartError`·`BoardResponse`.
 - Produces:
-  - `model::PanelView { title, state: PanelState, label: &'static str, big: BigValue, consecutive: Option<String>, bars: Vec<Bar>, stats: Option<String>, display: Vec<String> }`; `enum BigValue { Text(String), Reason(ReasonParts) }`; `struct Bar { glyph: char, color: Color }`.
+  - `model::PanelView { title, state: PanelState, label: &'static str, big: BigValue, consecutive: Option<String>, bars: Vec<Bar>, stats: Option<String>, display: Vec<String> }`; `enum BigValue { Text(String), Reason(ReasonParts) }`; `struct Bar { glyph: char, color: Color, at_ms: Option<i64> }`(`at_ms` = 그 슬롯 결과의 `CheckResult.at_ms`, 빈 슬롯 `None` — 시각 줄 재료).
   - `model::build_panels(board: &BoardResponse, snap: &PollSnapshot) -> Vec<PanelView>` — `started_at_ms`·`now_ms`·`enabled`는 `snap.last`(status)에서. 호출부 규칙(spec §4.4): 첫 status 전은 `server_down ? Stale : Pending`, 연속 줄은 `state == Fail && show_consecutive && fail_since_ms.is_some()`, 평균·최대 줄은 `show_latency_stats && state ∈ {Ok, Slow, Fail}`, 실패류 큰 값은 `reason_parts(reason, detail)`. `display` = `display_items` 개수(최대 2)만큼, 최신 결과의 `display[i]`가 `None`·빈 문자열이면 `text::NO_VALUE`(`—`)로 채운다(GUI `MonitorPanel.tsx` `shownAt`). 실패류 칸에서만 전부 비어 있으면 줄을 생략(GUI와 같음 — ok/slow 칸은 `—`를 그대로 보임), 칸 높이가 남을 때만 그린다.
   - 막대: `bar_slots(results, bar_count)`의 최신 쪽 `width`개. ok/slow = 높이 `clamp(round(latency/graph_max_ms*8), 1, 8)`의 블록 문자(`▁▂▃▄▅▆▇█`) + `bar_color` 색, fail = `█` 빨강 `#ef4444`(GUI `LatencyBars.tsx` 줄무늬의 밝은 색을 단색으로), config_error·upstream_failed·branch_skipped = `·` 회색 `#475569`(GUI도 config_error 막대는 회색 — spec §5.1도 같이 정정됨), 빈 슬롯 = 공백.
   - `fn parse_hex(s: &str) -> Option<Color>` (`#rrggbb` → `Color::Rgb`).
+  - **시각 줄(spec §5.1 US6)** — `axis::Mark { start: u16, text: String }`; `fn axis::axis_marks(times: &[Option<i64>], label: &dyn Fn(i64) -> String) -> Vec<Mark>` (순수, `times` = 화면에 보이는 막대 슬롯의 `at_ms` 왼→오, 폭 = `times.len()`; 시각 → 글자는 인자로 받아 TZ와 무관하게 테스트). 규칙: 결과(`Some`)가 없거나 폭 < 라벨 길이면 빈 vec · 빈 슬롯은 왼쪽에만 있다(`bar_slots` 앞 채움 → 마지막 슬롯 `w−1`이 최신) · **왼쪽 끝** = 첫 `Some` 슬롯 `f`의 시각, `start = min(f, w − len)`(폭을 넘으면 끝에 붙임 — 결과 1개면 이것이 곧 오른쪽 정렬) · **오른쪽 끝** = 마지막 슬롯 `w−1`의 시각, `start = w − len` — 왼쪽 눈금 끝과 2칸 이상 못 띄우거나 글자가 같으면 생략(왼쪽 유지) · **중간** = 그 사이 `Some` 슬롯을 중심으로 한 눈금을 왼→오 탐욕 배치(앞 눈금 끝과 2칸 이상, 바로 앞 눈금과 글자 다름, 오른쪽 끝 눈금이 있으면 그 시작과 2칸 이상·**그 글자와도 다름**, 없으면 끝 ≤ `w`; 간격 선택은 구현 재량) · 모든 눈금은 `[0, len(times))` 안. `fn axis::axis_uses_seconds(visible_slots: usize, interval_sec: u32) -> bool` (명목 구간 `visible_slots.saturating_sub(1) × interval_sec < 600`초, 곱은 `u64`로 — 실측 `at_ms` 차이를 쓰지 않는다: 10분 근처 ms 흔들림으로 매초 형식이 바뀌는 깜박임 방지, spec §5.1). `fn axis::axis_line(times, label) -> String`(폭만큼 공백 위에 눈금을 얹은 한 줄). **보이는 막대 잘라내기는 `monitor::render`에서**(`build_panels`는 폭을 모른다 — `PanelView.bars`는 `bar_slots` 전체): `visible = min(bars.len(), 안쪽 폭)`개의 최신 쪽을 칸 안쪽 **왼쪽부터** 막대 줄에 그리고, 시각 줄도 같은 x 범위에 `axis_line(그 visible의 at_ms…)`. 렌더는 `label = if axis_uses_seconds(visible, panel.interval_seconds) { format_hms } else { format_hm }`(Task 4; `visible` = 위의 `min(bars.len(), 안쪽 폭)`, 빈 슬롯 포함 — spec "보이는 막대 칸 수"), 색은 GUI 축 글자색 `#7b8794`(`ui/src/monitor/display.ts` `COLOR.axis`).
+  - **줄 우선순위** — `model::Row { Status, ReasonSmall, Consecutive, Bars, Axis, Stats, Display(usize) }`; `fn model::panel_rows(inner_h: u16, has_reason_small: bool, has_consecutive: bool, has_stats: bool, n_display: usize) -> Vec<Row>` (순수): 우선순위 Status > Bars > Axis > Consecutive > ReasonSmall > Stats > Display(0) > Display(1)(spec §5.1 — 사용자 승인 순서에 ReasonSmall을 Consecutive 다음에 끼움)로 `inner_h`줄만 고르고 **화면 순서**(Status, ReasonSmall, Consecutive, Bars, Axis, Stats, Display…)로 반환. `ReasonSmall` = `BigValue::Reason`의 작은 부분(`Split.step`이 `Some`일 때 그것, `Detail`/`NotContained`의 `small`) — GUI `MonitorPanel.tsx` `smallLine`처럼 큰 값 아래 별도 줄, 안쪽 폭에서 잘림. 렌더는 이 결과대로만 그린다(위 `display` "칸 높이가 남을 때만"은 이 함수가 결정).
   - `monitor::Layout { panels: Vec<Rect> }`; `fn layout(area: Rect, n: usize) -> Result<Layout, TooSmall>` — `grid_for` 격자, 머리 줄 1행·키 안내 줄 1행 제외, 칸 최소 24×6(미달 → `TooSmall { have: (u16,u16), need: (u16,u16) }`).
   - `fn panel_at(layout: &Layout, x: u16, y: u16) -> Option<usize>` (테두리 포함 칸 사각형 기준).
   - `monitor::render(f: &mut Frame, s: &MonitorScreen)` — `MonitorScreen { board_name, board_pos: (usize, usize), server_time: Option<i64>, server_down: bool, panels: Vec<PanelView>, selected: usize }`. 선택 칸은 굵은 테두리(`BorderType::Thick`).
@@ -197,8 +201,8 @@ REVIEW-GATE: APPROVED
   - `error::render_error(f, e: &StartError, file: &Path, log: &LogLoc)`(단계별 제목 + 메시지 + 경로 + `r 다시 시도  q 종료`), `error::render_usage(f)`(사용법 `handicap-tui <보드 파일.json>` + 매뉴얼 위치 "함께 받은 tui-monitor.md").
   - 키 안내 줄 문구(정확히): 모니터 `←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료`(보드 1개면 `Tab 다음 보드` 생략), 오류 화면 `r 다시 시도  q 종료`, 도움말 `Esc 닫기`.
 
-- [ ] **Step 1: 실패 테스트** — `build_panels_*`: ok 칸(큰 값 `182 ms`·평균 줄), fail 칸 연속 4회(`4회 연속 · …부터` 포함·평균 줄 있음), stale 칸(평균 줄 없음), 첫 status 전 pending/stale 분기, `show_latency_stats=false` → 평균 줄 없음. `layout_grid_3_is_3x1`, `render_too_small`(9칸·60×15 → 버퍼에 `창을 키워 주세요` 포함, 칸 테두리 문자 없음), `panel_at_hits_and_misses`(칸 내부·테두리·머리 줄·칸 사이 경계), `render_monitor_contains`(80×24·3칸 → 상태 문구 3종·키 안내 줄 정확 문구·선택 칸 Thick 테두리 문자 `┏`), `render_key_bar_single_board_omits_tab`, `render_error_import`(StartError Import → 서버 문구·`r 다시 시도  q 종료`), `render_help_has_paths`, `render_quit_confirm_text`, `display_missing_value_shows_dash`, `parse_hex_cases`.
-- [ ] **Step 2: RED** → **Step 3: 구현** → **Step 4: GREEN** (`cargo test -p handicap-tui --test view_test` + `cargo test -p handicap-tui --lib`, clippy).
+- [ ] **Step 1: 실패 테스트** — `build_panels_*`: ok 칸(큰 값 `182 ms`·평균 줄), fail 칸 연속 4회(`4회 연속 · …부터` 포함·평균 줄 있음), stale 칸(평균 줄 없음), 첫 status 전 pending/stale 분기, `show_latency_stats=false` → 평균 줄 없음. `layout_grid_3_is_3x1`, `render_too_small`(9칸·60×15 → 버퍼에 `창을 키워 주세요` 포함, 칸 테두리 문자 없음), `panel_at_hits_and_misses`(칸 내부·테두리·머리 줄·칸 사이 경계), `render_monitor_contains`(80×24·3칸 → 상태 문구 3종·키 안내 줄 정확 문구·선택 칸 Thick 테두리 문자 `┏`), `render_key_bar_single_board_omits_tab`, `render_error_import`(StartError Import → 서버 문구·`r 다시 시도  q 종료`), `render_help_has_paths`, `render_quit_confirm_text`, `display_missing_value_shows_dash`, `parse_hex_cases`. 시각 줄·줄 우선순위(라벨 함수는 테스트 내 고정 클로저, 예: `|ms| format!("{:02}:{:02}", ms / 3_600_000 % 24, ms / 60_000 % 60)`): `axis_empty_when_no_results`(전부 `None` → 빈 vec), `axis_single_result_right_aligned`(폭 10, 마지막만 `Some`, 라벨 5자 → 눈금 1개 `start == 5`), `axis_few_results_clamped`(폭 26, 마지막 3개만 `Some`, 라벨 5자 → 첫 눈금 `start == 21`, 글자 == 가장 오래된 결과), `axis_ends_and_middle`(폭 26, 전부 `Some`·60 s 간격 → 첫 눈금 `start == 0`, 마지막 눈금 끝 == 26, 중간 눈금 ≥ 1), `axis_too_narrow_keeps_left`(폭 12, 전부 `Some`(첫 `Some` = 0), 8자 라벨 → 눈금 1개 `start == 0`), `axis_duplicate_text_skipped`(폭 26, 모든 시각이 같은 분 → 눈금 1개), `axis_middle_differs_from_right`(폭 60, 1 s 간격, `HH:MM` 라벨, **앞 3슬롯만 분 M·나머지 57슬롯은 M+1** → 중간 후보는 왼쪽(M)과 다르고 오른쪽(M+1)과 같으므로 눈금은 정확히 2개 — "오른쪽 끝 글자와도 다름" 규칙 없이는 3개 이상), **`axis_invariants_sweep`**(폭 1..=60 × 앞쪽 `None` 개수 0..=폭 × 라벨 5자·8자 × 시각 간격 {1 s, 5 s, 60 s, 고르지 않음(예: 1·1·47·1·120 s 반복)} 전수: 눈금끼리 겹침 없음·간격 ≥ 2·전부 폭 안·각 눈금 범위 안에 `label(times[k]) == text`인 `Some` 슬롯 `k` 존재·이웃 눈금 글자 다름·`Some`이 있고 폭 ≥ 라벨 길이면 눈금 ≥ 1이고 첫 눈금 `start == min(첫 Some, 폭 − 라벨 길이)`·첫 눈금 글자 == `label(첫 Some 시각)`·`첫 Some + 2×길이 + 2 ≤ 폭`이고 양 끝 시각 글자가 다르면 마지막 눈금 끝 == 폭), `axis_seconds_threshold`(`(21, 30) → false`(600 s), `(20, 30) → true`(570 s), `(2, 599) → true`, `(2, 600) → false`, `(0, 30)`·`(1, 30) → true`(패닉 없음)), `panel_rows_priority`(인자 `(inner_h, reason_small, consecutive, stats, n_display)`: `(1, t, t, t, 2)` → `[Status]`, `(2, t, t, t, 2)` → `[Status, Bars]`, `(3, t, t, t, 2)` → `[Status, Bars, Axis]`, `(4, t, t, t, 2)` → `[Status, Consecutive, Bars, Axis]`, `(4, t, f, t, 2)` → `[Status, ReasonSmall, Bars, Axis]`, `(5, t, t, t, 2)` → `[Status, ReasonSmall, Consecutive, Bars, Axis]`, `(5, f, f, t, 2)` → `[Status, Bars, Axis, Stats, Display(0)]`, `(6, f, t, t, 2)` → `Display(1)` 없음, `(9, t, t, t, 2)` → 8줄 전부 화면 순서), `render_axis_shows_bar_times`(80×24·3칸, `bar_count`·`interval_seconds`로 명목 구간 ≥ 10분과 < 10분 두 경우 → 버퍼에 **가장 오래된 보이는 결과**의 `judge::format_hm` / `format_hms` 문자열(왼쪽 끝 눈금은 항상 그려진다) — `format_hm` 모양 자체는 Task 4 `format_hm_shape`가 고정), `render_min_panel_keeps_axis`(칸 1개가 최소 24×6이 되는 터미널, **실패 칸**: 연속 실패 ≥ 2·사유에 스텝부·`show_latency_stats = true` → 상태 문구·`N회 연속` 줄·막대·시각 문자열이 버퍼에 있고 사유 작은 줄(스텝부)·평균 줄은 없음).
+- [ ] **Step 2: RED** → **Step 3: 구현** → **Step 4: GREEN** (`cargo test -p handicap-tui --test view_test` + `cargo test -p handicap-tui --lib`, clippy). **이빨 1건 실증**: `axis_marks`의 **오른쪽 끝** 눈금 간격 검사(왼쪽 눈금 끝과 2칸 이상)를 1칸으로 바꾸면 `w = f + 2L + 1`에서 간격 1인 눈금이 생겨 `axis_invariants_sweep` RED(결정적 — 중간 눈금 간격은 구현 재량이라 그쪽 약화는 RED가 보장되지 않는다) → 원복 → GREEN. 그리고 중간 눈금의 "오른쪽 끝 글자와도 다름" 검사를 빼면 `axis_middle_differs_from_right` RED → 원복 → GREEN. 두 결과를 커밋 메시지 본문에 한 줄씩.
 - [ ] **Step 5: 커밋** — `feat(tui): 모니터·오류·도움말 화면 렌더링`.
 
 ### Task 7: 앱 루프·키/마우스·터미널 수명·패닉 훅
@@ -221,7 +225,7 @@ REVIEW-GATE: APPROVED
 
 - [ ] **Step 1: 실패 테스트** (`tests/app_test.rs`) — `move_sel_stops_at_edges`(3×3, 칸 2에서 오른쪽 → 2), `move_sel_partial_grid`(5칸 3×2, 칸 2에서 아래 → 2 그대로(칸 5 없음), 칸 1에서 아래 → 4), `q_asks_then_y_quits`(Monitor `q` → AskQuit, QuitConfirm `y` → Quit, `n` → Back), `ctrl_c_asks`, `tab_ignored_single_board`, `error_screen_r_retries`, `usage_q_quits_without_confirm`, `screen_after_start_maps_err_to_error`, `mouse_left_click_selects`(Down Left at 칸 2 내부 → Select(2)), `mouse_other_events_ignored`(Moved/Right/Up → None), `panic_action_ui_thread_restores`·`panic_action_other_thread_logs_only`(순수 판정), **`panic_hook_non_ui_thread_keeps_terminal`(서브프로세스)**: `CARGO_BIN_EXE_handicap-tui`를 숨은 환경변수 `HANDICAP_TUI_PANIC_SELFTEST=1`로 실행 → `main`이 그 변수일 때만 훅 설치 후 별도 스레드에서 패닉·join하고 exit 0 → stderr 0바이트 + 로그 파일에 패닉 메시지(훅 설치·기본 훅 미호출·로그 기록을 함께 증명).
 - [ ] **Step 2: RED** → **Step 3: 구현** → **Step 4: GREEN** (`cargo test -p handicap-tui`, clippy, `cargo test --workspace --no-run`).
-- [ ] **Step 5: 수동 스모크(macOS 실제 터미널)** — wiremock 대신 `python3 -m http.server`를 대상으로 하는 fixture로 `cargo run -p handicap-tui -- <file>`: 칸 이동·클릭 선택·`?`·`q`→`n`·`q`→`y` 종료 후 터미널 정상 복구, `tui.log` 생성, 터미널에 로그 줄 0. 결과를 커밋 메시지 본문에.
+- [ ] **Step 5: 수동 스모크(macOS 실제 터미널)** — wiremock 대신 `python3 -m http.server`를 대상으로 하는 fixture로 `cargo run -p handicap-tui -- <file>`: 칸 이동·클릭 선택·`?`·`q`→`n`·`q`→`y` 종료 후 터미널 정상 복구, 막대 아래 시각 줄이 보이고 오른쪽 끝 눈금(있으면)이 머리 줄 서버 시각보다 `주기 + 1초` 안쪽으로 이름(`at_ms`는 점검 시작 시각 + 폴링 지연), `tui.log` 생성, 터미널에 로그 줄 0. 결과를 커밋 메시지 본문에.
 - [ ] **Step 6: 커밋** — `feat(tui): 앱 루프·키/마우스·터미널 복구·패닉 훅`.
 
 ### Task 8: 릴리즈 잡·게시 스크립트·19.04 `--check` 게이트·매뉴얼
@@ -242,14 +246,14 @@ REVIEW-GATE: APPROVED
 - [ ] **Step 2: release.yml `linux-tui` 잡** — `runs-on: ubuntu-24.04`, `needs: preflight`, checkout(`ref: ${{ inputs.tag || github.ref }}`), `arduino/setup-protoc@v3`, `dtolnay/rust-toolchain@1.99.1`(+ target `x86_64-unknown-linux-gnu`), zig·cargo-zigbuild(Task 3 고정 버전), `Swatinem/rust-cache@v2`, `scripts/tui-linux-build.sh` → `scripts/tui-linux-gates.sh` → `scripts/tui-linux-smoke.sh` → tar.gz 스테이징 → `actions/upload-artifact`(이름 `release-assets-linux-tui`, 기존 잡 패턴과 동일). `publish` 잡의 `actions/download-artifact`는 `pattern: release-assets-*` + `merge-multiple: true`라 이 이름이면 자동 수집된다(`grep -n "pattern: release-assets" .github/workflows/release.yml`).
 - [ ] **Step 3: 워크플로 검증** — `actionlint .github/workflows/release.yml`(없으면 `brew install actionlint`) 통과, `bash -n scripts/*.sh`.
 - [ ] **Step 4: publish-release.sh** — `find` 필터와 누락 목록 수정. 검증(스크립트에 dry-run이 없고 실제 `gh`를 부르므로 **가짜 `gh`**로): 스크래치 디렉토리에 인자를 파일에 기록하고 `release view`엔 exit 1(→ create 분기)·그 외엔 exit 0인 `gh` 스크립트를 두고, 에셋 디렉토리에 더미 `handicap-tui_0.0.0_linux-x86_64.tar.gz`·`x.deb`를 둔 뒤 `env PATH=/<스크래치 절대경로>/bin:/usr/bin:/bin GITHUB_REPOSITORY=o/r PUBLISH_RETRY_DELAYS=0 scripts/publish-release.sh v0.0.0 /<에셋 절대경로>; echo exit=$?`(PATH는 **리터럴** — `$PATH` 확장은 워크트리 가드가 거부). 출력의 "에셋 N개" 목록과 가짜 `gh` 기록에 tar.gz가 있어야 함. `docs/release-notes/v0.0.0.md` 부재 경로가 스크립트를 막으면 그 분기를 따라가는 대신 스크래치 노트 파일을 두는 방법을 스크립트 본문에서 확인해 쓴다. 이 검증은 커밋하지 않는다.
-- [ ] **Step 5: 매뉴얼 `docs/dev/tui-monitor.md`** — spec §7 매뉴얼 항목 전부: 설치(복사·`chmod +x`), 자동 시작 `.desktop` 전문(spec §3 그대로: `gnome-terminal --full-screen -- sh -c '…; read x'`, `--maximize` 대안, `X-GNOME-Autostart-Delay`/`sleep` 지연, `read x` 이유), 키 표, 파일 교체(US5), 로그 위치(`tui.log`·`tui.log.1`·`--check`용 `tui-check.log`), `--check` 사용법·exit 코드, 보드 수·`record_limit_kb`와 PC 부담, 보안 전제(전용 단일 사용자 PC, 루프백 무인증).
+- [ ] **Step 5: 매뉴얼 `docs/dev/tui-monitor.md`** — spec §7 매뉴얼 항목 전부: 설치(복사·`chmod +x`), 자동 시작 `.desktop` 전문(spec §3 그대로: `gnome-terminal --full-screen -- sh -c '…; read x'`, `--maximize` 대안, `X-GNOME-Autostart-Delay`/`sleep` 지연, `read x` 이유), 키 표, 파일 교체(US5), 로그 위치(`tui.log`·`tui.log.1`·`--check`용 `tui-check.log`), `--check` 사용법·exit 코드, 보드 수·`record_limit_kb`와 PC 부담, 보안 전제(전용 단일 사용자 PC, 루프백 무인증), 화면 읽는 법(막대 아래 시각 줄 — 10분 미만 구간은 초까지), 문제 해결 한 줄(실행 시 `exec format error`면 32비트 사용자 공간 설치본 — spec §10).
 - [ ] **Step 6: 커밋** — `build(release): Linux TUI 에셋 + 19.04 --check 게이트 + 매뉴얼`.
 
 ---
 
 ## 슬라이스 마감 전 (finish-slice가 확인)
 
-- 라이브(spec §8): macOS 실제 터미널 + `ubuntu:19.04` 컨테이너 `--check` + tmux로 TUI 화면 캡처 1장(`docker run -it` 안 `tmux new -d` → `tmux capture-pane -p`), US1·2·5 통과 신호 표.
+- 라이브(spec §8): macOS 실제 터미널 + `ubuntu:19.04` 컨테이너 `--check` + tmux로 TUI 화면 캡처 1장(이미지에 tmux가 없고 19.04는 EOL이라 `sed -i "s/archive.ubuntu.com\|security.ubuntu.com/old-releases.ubuntu.com/g" /etc/apt/sources.list && apt-get update && apt-get install -y tmux` 후 `tmux new -d -x 80 -y 24` → `tmux capture-pane -p`), US1·2·5·6 통과 신호 표. US6(macOS, `brew install tmux` — 이 Mac엔 tmux 없음 확인): 9칸 fixture(주기 5 s·`bar_count` 60 → `HH:MM:SS` 구간, 응답기 `python3 -m http.server`)를 `tmux new -d -x 80 -y 24 "cargo run -p handicap-tui -- <file>"`로 띄우고 1분쯤 뒤 응답기를 멈춰 30초 뒤 다시 띄운다(멈춘·다시 띄운 시각을 `date +%T`로 기록 — 전송 실패도 실패 막대) → 1분 뒤 `tmux capture-pane -p` 캡처에서 실패 막대 `█`(성공은 낮은 지연이라 `▁`) 근처 눈금 시각이 기록 구간과 맞는지 + 9칸 모두 눈금 겹침·잘림 없음. 극단값: 띄운 직후(결과 몇 개뿐) 캡처 1장, `interval_seconds` 60 fixture(`HH:MM` 구간)로 1장 더. 색은 `capture-pane -p -e`로 필요 시 확인. 컨테이너 캡처는 배치 확인용.
 - 보안 grep(finish-slice §0)으로 `security-reviewer` 필요 여부 판정. 로그 파일에 본문·환경 값이 tracing 필드로 나가지 않는지: `grep -rn "tracing::\(info\|debug\|warn\|error\)!" crates/controller/src/monitor crates/tui/src | grep -i "body\|vars\|header"` 결과 검토.
-- 사용자(머지 후): 실제 19.04 PC 자동 시작·`--full-screen`·모호 폭 문자 확인. (`uname -m`은 Task 0에서 착수 전.)
+- 사용자(머지 후): 실제 19.04 PC 자동 시작·`--full-screen`·모호 폭 문자 확인. (`uname -m`은 사용자 답으로 생략 — Task 0.)
 - 라이브에서 패닉 경로 1회: `HANDICAP_TUI_PANIC_SELFTEST`류가 아니라 실제 UI 스레드 패닉은 재현 수단이 없으므로, 터미널 복구 후 "로그:" 줄이 덮이지 않는지(`RESTORED` 플래그)는 코드 리뷰로 갈음(한계로 build-log에 기록).
