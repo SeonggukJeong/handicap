@@ -1,0 +1,36 @@
+[package]
+name = "handicap-tui"
+version.workspace = true
+edition.workspace = true
+# ratatui 0.30.2 요구치 — workspace(1.85)를 상속하지 않는다.
+rust-version = "1.88"
+license.workspace = true
+publish = false
+
+[lib]
+name = "handicap_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "handicap-tui"
+path = "src/main.rs"
+
+[dependencies]
+handicap-controller = { path = "../controller", features = ["in-process"] }
+ratatui = "0.30"
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock.workspace = true

@@ -1,0 +1,37 @@
+{
+  "format": "handicap-bundle",
+  "format_version": 1,
+  "exported_at": 0,
+  "app_version": "test",
+  "boards": [
+    {
+      "id": "01J0000000000000000000BD01",
+      "name": "테스트 보드",
+      "config": {
+        "panels": [
+          {
+            "id": "01J0000000000000000000PN01",
+            "title": "핑",
+            "scenario_id": "01J0000000000000000000SC01",
+            "environment_id": "01J0000000000000000000EN01",
+            "interval_seconds": 1,
+            "timeout_seconds": 5
+          }
+        ]
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "01J0000000000000000000SC01",
+      "yaml": "version: 1\nname: tui-fixture\nsteps:\n  - id: 01J0000000000000000000ST01\n    name: ping\n    type: http\n    request:\n      method: GET\n      url: ${BASE_URL}/\n    assert:\n      - status: 200\n"
+    }
+  ],
+  "environments": [
+    {
+      "id": "01J0000000000000000000EN01",
+      "name": "대상",
+      "vars": { "BASE_URL": "__BASE__" }
+    }
+  ]
+}
