@@ -1068,3 +1068,41 @@ fn render_nine_panels_at_minimum() {
     assert_eq!(t.matches("✔ 정상").count(), 9, "{t}");
     assert!(!t.contains("창을 키워"), "{t}");
 }
+
+#[test]
+fn stats_degrade_by_whole_segments() {
+    use handicap_tui::text::stats_for_width;
+    let full = "평균 1,409 · 최대 1,413 ms";
+    // 넓으면 전체(단위 포함).
+    assert_eq!(stats_for_width(full, 40), full);
+    assert_eq!(stats_for_width(full, 26), full);
+    // 25~23칸: 단위만 뺀다(23칸 = 두 수가 온전한 최소 폭) — 숫자는 온전히.
+    assert_eq!(stats_for_width(full, 25), "평균 1,409 · 최대 1,413");
+    assert_eq!(stats_for_width(full, 24), "평균 1,409 · 최대 1,413");
+    assert_eq!(stats_for_width(full, 23), "평균 1,409 · 최대 1,413");
+    // 22칸: 평균을 통째로 빼고 `최대 M`(숫자를 자르지 않는다).
+    assert_eq!(stats_for_width(full, 22), "최대 1,413");
+    // 큰 숫자도 두 수가 온전하다.
+    let big = "평균 12,345 · 최대 29,999 ms";
+    let got = stats_for_width(big, 25);
+    assert_eq!(got, "평균 12,345 · 최대 29,999");
+    // 22칸에선 최대만 — 수가 잘리지 않는다.
+    assert_eq!(stats_for_width(big, 22), "최대 29,999");
+    // 평균까지 못 담으면 `최대 M`만.
+    assert_eq!(stats_for_width(full, 11), "최대 1,413");
+    assert_eq!(stats_for_width(full, 14), "최대 1,413");
+    // 최대조차 못 담으면 마지막 수단으로 말줄임.
+    assert!(stats_for_width(full, 6).contains('…'));
+}
+
+#[test]
+fn narrow_three_column_panel_keeps_max_number() {
+    let mut a = view("A", PanelState::Ok, "✔ 정상", "182 ms");
+    a.stats = Some("평균 1,409 · 최대 1,413 ms".into());
+    let s = screen(vec![a.clone(), a.clone(), a], (1, 1), 0);
+    let mut t = Terminal::new(TestBackend::new(72, 24)).unwrap();
+    t.draw(|f| render(f, &s)).unwrap();
+    let text = buffer_text(t.backend().buffer());
+    assert!(text.contains("최대 1,413"), "{text}");
+    assert!(!text.contains("1,4…"), "{text}");
+}

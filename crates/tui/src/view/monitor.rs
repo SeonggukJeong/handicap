@@ -273,7 +273,7 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
                 ))
             }
             Row::Stats => Line::from(Span::styled(
-                fit(v.stats.as_deref().unwrap_or_default(), w),
+                text::stats_for_width(v.stats.as_deref().unwrap_or_default(), w),
                 Style::default().fg(color(C_MUTED)),
             )),
             Row::Display(k) => Line::from(Span::styled(

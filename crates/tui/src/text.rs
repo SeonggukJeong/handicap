@@ -102,3 +102,18 @@ pub fn consecutive_short(full: &str) -> &str {
 pub fn board_pos(pos: usize, total: usize) -> String {
     format!("({pos}/{total})")
 }
+
+/// 평균·최대 줄을 칸 폭 `w`에 맞춘다 — 통째 구간 단위로 줄인다:
+/// `평균 N · 최대 M ms` → 단위 뺀 `평균 N · 최대 M` → `최대 M` → (마지막 수단) 말줄임.
+/// `full`은 `STATS_AVG N · STATS_MAX M ms` 꼴(model.rs가 만든다).
+pub fn stats_for_width(full: &str, w: usize) -> String {
+    use crate::view::{fit, text_width};
+    let no_unit = full.strip_suffix(" ms").unwrap_or(full);
+    let max_only = no_unit.split_once(" · ").map_or(no_unit, |(_, m)| m);
+    for v in [full, no_unit, max_only] {
+        if text_width(v) <= w {
+            return v.to_string();
+        }
+    }
+    fit(max_only, w)
+}
