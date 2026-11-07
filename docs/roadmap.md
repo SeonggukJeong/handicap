@@ -830,18 +830,18 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - 사소: `PrintDocument.tsx` 275줄(분할 후보 `AtomicContent`/`PageView`) · `hostOf` 스킴 없는 리터럴 호스트 `api.local:8080/x` → `""` · `statusCodeOf`가 `"0x1F4"`·`"1e2"` 허용 · `criterionName` 평범 객체 조회(`constructor` 키) · 차트 표시선 라벨이 표에 없는 40자+ 원시 id면 넘침 · `copyState` 미초기화 · 요약판 사다리 테스트는 `PrintDocument` 모킹(실제 배선은 `PrintDocument.test.tsx`가 커버).
 - 다음: **슬라이스 2** = 비교 보고서 표준/요약판 + 응답 속도 구간(spec §14 이월 사항 그대로), 위 (1) 두 사용자 결정을 함께 흡수 권장.
 
-## 사용법 (다음 세션이 봐야 할 곳)
-
-1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
-2. 슬라이스 정하면 → `superpowers:brainstorming` 으로 시작 → spec(`docs/superpowers/specs/`) → plan(`docs/superpowers/plans/`).
-3. plan 작성 중 → 이 문서 §B에서 그 슬라이스가 흡수할 연기 항목을 체크(특히 control-flow면 Slice 7 ADR-0020/0021 패턴 재사용). §A13 항목을 끌어올릴 땐 §A11 범위와 안 섞이게 경계를 못 박을 것.
-4. 슬라이스 끝나면 → 이 문서 §A에서 "완료"로, 새 연기 항목은 §B에 추가, 새 ADR 번호 + CLAUDE.md 인덱스 갱신. 현황판은 `roadmap-status.md` frontier/추천 갱신.
-
 ### B44. ui/CLAUDE.md 재분배 2차 — 잔류 불릿 서사 압축 (2026-11-07) 연기 항목
-출처: ui-claude-md-redistribute 1차(§B17 해소 + 불릿 38 원문 이동, `ui/CLAUDE.md` 102,395 → 88,617 B). 1차는 "원문 그대로 이동"만 했고 압축은 하지 않았다. **2차 안전 방침 정본: `docs/superpowers/specs/2026-11-07-ui-claude-md-phase2-policy.md`**(2a 서사 이관 / 2b 추상화 승격 분리, 승격 조건 ≥3 사례 + 사용자 승인, S1–S6 안전장치).
+출처: ui-claude-md-redistribute 1차(§B17 해소 + 불릿 38 원문 이동, `ui/CLAUDE.md` 113,306 → 88,617 B(BASELINES 102,395 → 88,617)). 1차는 "원문 그대로 이동"만 했고 압축은 하지 않았다. **2차 안전 방침 정본: `docs/superpowers/specs/2026-11-07-ui-claude-md-phase2-policy.md`**(2a 서사 이관 / 2b 추상화 승격 분리, 승격 조건 ≥3 사례 + 사용자 승인, S1–S6 안전장치). 줄번호 = base `57830b90` 기준(현재 파일 줄번호 아님) — 대응표 `docs/superpowers/specs/2026-11-06-ui-claude-md-redistribute-bullet-map-final.tsv`(base 줄번호 키).
 - **잔류 압축(목표 ≤ 60 KiB)**: `ui/CLAUDE.md`에 남은 불릿의 사고 서사·사례를 `docs/dev/ui-gotcha-narratives.md`로 이관하고 규칙 한 줄만 남긴다. cost-if-wrong: 압축 없이 두면 `ui/` 작업마다 ~88 KB가 통째 로드(`ABS_WARN` 97,280 B 근접 시 WARN)되고, 서사를 잘못 깎으면 함정의 *이유*가 사라져 같은 실수가 재발한다. 해소: 정본 방침 2a 절차(불릿별 서사 이관 + D3/coverage 게이트)로 별도 슬라이스.
 - **경계 5행(86·94·177·178·188)**: 1차는 사용자 결정(상한 90 KiB 재설정)으로 숫자 맞추기용 재분류 없이 `ui/CLAUDE.md`에 잔류. cost-if-wrong: 실수 지점이 있는 하위 디렉토리 문서만 열면 그 함정이 로드되지 않아 놓친다. 해소: 2차에서 실수 지점을 코드로 재판정해 relocate 행으로 이동(크기 때문에 옮기지 않는다 — 정본 방침).
 - **병합 2건(205→24 · 162↔`useThinkTimePair`)**: 섹션·파일을 넘나드는 병합이라 현 게이트로 검증할 수 없어 1차 금지. cost-if-wrong: 같은 함정이 두 곳에 갈라져 한쪽만 고쳐지면 서술이 어긋난다. 해소: 2차에서 병합 검증 가능한 게이트 형태(선언 병합 + D3 귀속)를 갖춘 뒤 재검토.
 - **코드 주석 포인터**: `grep -rn 'ui/CLAUDE.md' ui/src`가 가리키는 주석(예 `PercentileCurveChart.tsx:42`)은 불릿이 이동·압축돼도 옛 위치를 가리킬 수 있다. cost-if-wrong: 주석을 따라간 독자가 불릿을 못 찾는다(오도·무해). 해소: 2차 마지막에 grep으로 전수 점검해 새 위치로 고친다(코드 주석 편집 = UI 게이트 필요).
 - **compare 11·13·14·18 오배치**: `ui/src/compare/CLAUDE.md`의 기타 오배치 11·13·14·18은 1차에서 관찰만 기록(15–17만 relocate; 18은 `api/download*.ts`·에디터 두 경계에 걸쳐 이동 대상 아님). cost-if-wrong: 실수 지점 파일 작업 시 로드되지 않고 compare 작업엔 무관한 맥락이 섞인다. 해소: 2차에서 불릿별 실수 지점을 grep으로 재판정해 relocate.
 - **옮긴 ui 194 불릿의 자기 참조**: `ui/src/components/ui/CLAUDE.md` 마지막 섹션의 옮긴 불릿이 끝에서 자기 파일을 가리킨다("프리미티브 계약은 `ui/src/components/ui/CLAUDE.md`."). cost-if-wrong: 없음(무해·참) — 다만 문서 안에서 자기 자신을 가리키는 군더더기. 해소: byte-identical 규칙상 1차 미수정, 2차 압축 때 declared substitution(refix/relocate의 치환 쌍)으로 제거.
+
+## 사용법 (다음 세션이 봐야 할 곳)
+
+1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
+2. 슬라이스 정하면 → `superpowers:brainstorming` 으로 시작 → spec(`docs/superpowers/specs/`) → plan(`docs/superpowers/plans/`).
+3. plan 작성 중 → 이 문서 §B에서 그 슬라이스가 흡수할 연기 항목을 체크(특히 control-flow면 Slice 7 ADR-0020/0021 패턴 재사용). §A13 항목을 끌어올릴 땐 §A11 범위와 안 섞이게 경계를 못 박을 것.
+4. 슬라이스 끝나면 → 이 문서 §A에서 "완료"로, 새 연기 항목은 §B에 추가, 새 ADR 번호 + CLAUDE.md 인덱스 갱신. 현황판은 `roadmap-status.md` frontier/추천 갱신.
