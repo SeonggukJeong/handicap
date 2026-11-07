@@ -21,12 +21,18 @@ ROOT = "CLAUDE.md"
 # flat dict 리터럴 — R18 의 parse_baselines() 가 ast 로 이 노드를 읽는다.
 # 단 R18 은 base ref 에 이 파일이 있을 때만 무장된다(→ root-doc-maintenance.md).
 BASELINES = {
-    "ui/CLAUDE.md": 102395,
+    "ui/CLAUDE.md": 88617,
     "crates/controller/CLAUDE.md": 82481,
     "crates/engine/CLAUDE.md": 37057,
     "crates/worker-core/CLAUDE.md": 11388,
     "deploy/CLAUDE.md": 8594,
     "desktop/CLAUDE.md": 8101,
+    "ui/src/components/run/CLAUDE.md": 17685,
+    "ui/src/scenario/CLAUDE.md": 10172,
+    "ui/src/components/scenario/CLAUDE.md": 48912,
+    "ui/src/components/report/CLAUDE.md": 11293,
+    "ui/src/components/ui/CLAUDE.md": 11609,
+    "ui/src/compare/CLAUDE.md": 7192,
 }
 
 ROOT_MAX = 51200        # 50 KiB — 초과 시 FAIL
@@ -51,13 +57,13 @@ BULLET_SECTIONS = {
 # --- "검사 불능 = FAIL" 하한 ------------------------------------------------
 # 래칫 WARN 을 없애는 가장 싼 방법은 dict 를 비우는 것이고, 250 B 검사를 없애는 가장 싼
 # 방법은 불릿 마커를 바꾸는 것이다 — 둘 다 R18 이 잡는 "baseline 인상"보다 싸다.
-BASELINES_MIN = 6       # 도메인 CLAUDE.md 개수. 파일을 실제로 지웠을 때만 내린다.
+BASELINES_MIN = 12      # 도메인 CLAUDE.md 개수. 파일을 실제로 지웠을 때만 내린다.
 L1_MIN_REFS = 21        # L1 이 검사해야 할 최소 참조 수. 포인터가 진짜 사라졌을 때만 내린다.
 
-# 문서화 절대-임계값(파일 상단 유지 규칙 노트에 숫자가 있는 파일만 — ui/CLAUDE.md:9 "~120KB",
+# 문서화 절대-임계값(파일 상단 유지 규칙 노트에 숫자가 있는 파일만 — ui/CLAUDE.md 유지 규칙 문단 "~95KB",
 # crates/engine/CLAUDE.md:7 "~60KB". controller 등 문서화된 *임계값*이 없는 파일은 의도적 제외:
 # 래칫이 커버하고, 절대값 결정은 그 도메인 큐레이션 슬라이스의 몫).
-ABS_WARN = {"ui/CLAUDE.md": 122880, "crates/engine/CLAUDE.md": 61440}
+ABS_WARN = {"ui/CLAUDE.md": 97280, "crates/engine/CLAUDE.md": 61440}
 ABS_WARN_MIN = 2        # 하한 — dict 비우기로 검사를 증발시키는 경로 차단(BASELINES_MIN 동형)
 
 # L1 사전 선언 예외. None = 존재 검사 제외, str = 그 경로로 해석해 존재 검사.

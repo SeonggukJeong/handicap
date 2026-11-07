@@ -2,7 +2,7 @@
 
 이 파일은 `ui/src/components/scenario/` 파일을 건드릴 때 자동 로드되는 2단계 중첩 CLAUDE.md다. 전역 규칙은 루트 `CLAUDE.md`, UI 공통(빌드 게이트·오프라인·테스트 인프라·API client)은 `ui/CLAUDE.md` 참고.
 
-> FlowOutline(아웃라인 트리)·Monaco YAML 뷰·YAML 양방향 sync(`yamlDoc.ts`)·Zustand `useScenarioEditor` store·test-run 패널을 다룬다. **모델 로직(`ui/src/scenario/model.ts`/`cast.ts`/`scanVars.ts` 등)도 이 도메인이지만 그 디렉토리는 `components/scenario/`의 형제(자식 아님)라 그 파일만 단독으로 건드리면 이 문서가 자동 로드되지 않는다** — 에디터 슬라이스는 거의 항상 모델+컴포넌트 계층을 같이 건드리므로 실무 영향은 적지만, 순수 모델-only 편집 시엔 이 파일을 수동 참고할 것. `ui/CLAUDE.md` 분할(2026-07-07, 당시 ~143KB)에서 분리.
+> FlowOutline(아웃라인 트리)·Monaco YAML 뷰·YAML 양방향 sync(`yamlDoc.ts`)·Zustand `useScenarioEditor` store·test-run 패널을 다룬다. **모델 로직(`ui/src/scenario/model.ts`/`cast.ts`/`scanVars.ts` 등)도 이 도메인이지만 그 디렉토리는 `components/scenario/`의 형제(자식 아님)라 그 파일만 단독으로 건드리면 이 문서가 자동 로드되지 않는다** — 에디터 슬라이스는 거의 항상 모델+컴포넌트 계층을 같이 건드리므로 실무 영향은 적지만, 순수 모델-only 편집 시엔 `ui/src/scenario/CLAUDE.md`(모델 계층 함정)가 대신 로드되니 이 파일은 수동 참고할 것. `ui/CLAUDE.md` 분할(2026-07-07, 당시 ~143KB)에서 분리.
 
 ## 에디터 아웃라인 (`FlowOutline`, ADR-0044) · 구 React Flow 캔버스(제거됨)
 

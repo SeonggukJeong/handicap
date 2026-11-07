@@ -19,6 +19,8 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 재분배는 아래 5단계를 **이 순서로** 밟는다. 이 순서(이관을 압축보다 먼저)는 의도적이다 — 중간에 끊겨도 이미 목적지에 쓴 내용과 소스 원본이 공존하는 상태이지 지식이 사라진 상태가 아니다.
 
 1. **manifest 작성** — **새 재분배는 새 manifest에 쓴다. 기존 파일에 append 금지.** 절차: ① 지금 있는 `scripts/doc-move-manifest.tsv`를 `scripts/doc-move-manifest-<직전-슬라이스-slug>.tsv`로 **rename**해 이력으로 남기고(지우지 말 것) ② 활성 경로 `scripts/doc-move-manifest.tsv`에 **이번 슬라이스 행만** 새로 쓴다(탭 5컬럼: `kind`·`source_anchor`·`dest_file`·`required_marker`·`min_dest_gain_bytes`) ③ 4단계를 **이번 슬라이스의 base**로 돌린다. `check-doc-coverage.py`의 `rows()`는 활성 경로 **하나만** 읽으므로, 이름을 바꾼 옛 파일은 검사에서 빠지고 이력으로만 남는다. 아직 아무것도 옮기지 않는다 — "무엇을 어디로, 무엇으로 증명할지"만 선언한다. 이 단계는 검사 대상이 없으므로 RED가 나지 않는다. **단, ①만 하고 ②(새 파일 작성)를 잊으면 활성 manifest가 비거나 없어져 4단계에서 즉시 `FAIL [manifest] 활성 manifest 0행 — 검사 불능`이 뜬다**(`MANIFEST_MIN` 하한 — 아래 §"검사 불능=FAIL" 표).
+   - **kind 4종과 컬럼 형식**(TAB 구분; 정본 = `scripts/check-doc-coverage.py` 헤더): `move`·`merge` = 5컬럼 고정(`kind anchor dest_file marker gain`). `relocate` = 5+2k컬럼(`relocate anchor dest_file - 0 [old new]*`) — 단일 줄 `- ` 불릿을 **원문 그대로** 다른 문서로 옮기고 `[old new]` 쌍으로 선언된 치환만 허용(R17 바닥은 relocate마다 1 낮아지고, 섹션이 relocate로 0이 된 경우만 floor-0 면제). `refix` = 5+2k컬럼(k≥1, `refix anchor file - 0 (old new)+`) — 남는 줄(어느 문서든)의 참조를 선언 치환으로 고친다. 불릿 보존은 `python3 scripts/check-bullet-conservation.py <base> --map <map.tsv>`(D3·D4), 문서 속 `§`/경로 참조는 `python3 scripts/check-doc-refs.py <base> <판정.tsv>`(D7)가 따로 본다.
+   - **보조 manifest와 이름 규약**: `just doc-coverage BASE FILE MANIFEST`(셋째 인자 = manifest 경로, 비우면 활성 `scripts/doc-move-manifest.tsv`). 소스 파일이 둘 이상이면 소스별로 manifest를 나눠 각각 돌린다. **점 접미**(`doc-move-manifest.compare.tsv`) = 활성 보조 manifest, **대시 slug**(`doc-move-manifest-<slug>.tsv`) = 이력(검사에서 빠진다). 게이트 스크립트 자체의 회귀 시험은 `just doc-gates-selftest`.
    - **왜 append가 안 되나 — 행은 자기 base에서만 참이다.** 모든 `move` 행은 `source_anchor ∈ base:<소스>`(coverage 스크립트의 `base 소스에 anchor` 검사)와 `required_marker ∉ base:<dest_file>`(같은 스크립트의 `marker 신규성` 검사)를 주장하는데, 재분배가 끝나면 그 두 조건은 **뒤집힌다**(anchor는 소스에서 이미 지워졌고 marker는 목적지에 이미 있다). 그래서 옛 행을 더 새로운 base로 돌리면 **전건 FAIL**한다 — 실측: 이 슬라이스의 14행 manifest를 `python3 scripts/check-doc-coverage.py 6ebf587e`(이 슬라이스 직후 커밋)로 돌리면 **29 FAIL**.
    - **옛 행을 삭제하지 말 것.** 삭제는 R17 `merged_floor` 회계(병합 선언이 바닥을 1 내려주는 그 행)와 "무엇을 어디로 옮겼다"는 이력 주장을 **조용히** 함께 없앤다. rename은 둘 다 보존한다. 새 base에서는 base 불릿 수가 이미 '병합 후' 값이라 옛 merge 행 없이도 R17 바닥이 맞다.
    - **R17의 보호력은 base 고정 때문에 시간이 갈수록 감쇠한다.** 바닥 = base 불릿 수라서 slack(현재 − 바닥)이 단조 증가하고, slack만큼은 불릿이 조용히 사라져도 안 걸린다. 오늘 실측 slack은 `Subagent dispatch 노하우` **1**, `알아둘 결정들` **0**. 새 슬라이스가 위 절차대로 **자기 base로 새 manifest**를 돌리면 slack이 0으로 리셋된다 — rename 절차는 이것도 같이 고친다.
@@ -49,9 +51,11 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 | 불릿 상한 | `## 알아둘 결정들`(ADR 인덱스)의 각 불릿 | ≤ **170 B** | **FAIL** |
 | 불릿 존재 | **두 섹션 각각**의 `- ` 불릿 수 | ≥ 1 | **FAIL** |
 | 섹션 총합 | `## Subagent dispatch 노하우` 전체 | ≤ **6,144 B**(6 KiB) | WARN |
-| 도메인 래칫 | `BASELINES`의 6개 도메인 `CLAUDE.md` | 성장 ≤ **10,240 B**(10 KiB) | WARN |
-| 래칫 대상 하한 | `len(BASELINES)` | ≥ **`BASELINES_MIN`**(6) | **FAIL** |
-| 절대-임계값 | `ABS_WARN` 2개 파일 | 문서화 상한 초과 | WARN |
+| 도메인 래칫 | `BASELINES`의 **12개** 도메인 `CLAUDE.md`(`ui/` 하위 문서 6개 포함 — 로드 조건은 아래) | 성장 ≤ **10,240 B**(10 KiB) | WARN |
+| 래칫 대상 하한 | `len(BASELINES)` | ≥ **`BASELINES_MIN`**(12) | **FAIL** |
+| 절대-임계값 | `ABS_WARN` 2개 파일(`ui/CLAUDE.md` **97,280 B**(~95KB — ui 유지 규칙 문단과 같은 수), `crates/engine/CLAUDE.md` 61,440 B) | 문서화 상한 초과 | WARN |
+
+**`ui/` 하위 문서 6개(2026-11 ui-claude-md-redistribute)**: `ui/src/components/{run,scenario,report,ui}/CLAUDE.md`·`ui/src/scenario/CLAUDE.md`·`ui/src/compare/CLAUDE.md`. 중첩 CLAUDE.md는 그 디렉토리 파일을 **Read 도구로 열 때** 로드된다(Bash `grep`/`cat`으론 로드되지 않는다). 목록의 정본은 `ui/CLAUDE.md` 머리 문단이고 root 인덱스 행이 그걸 가리킨다. `ABS_WARN` 값은 `ui/CLAUDE.md` 크기 + 8 KiB를 KiB로 올림한 수이며, 그 문단 속 `~NNKB` 표기를 고치면 크기가 바뀌므로 재실측해 수렴시킨다.
 
 ### 왜 비대칭인가 — 성장은 경고, 거짓 보고는 오류
 
@@ -65,7 +69,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 |---|---|
 | 캡 대상 섹션(`## Subagent dispatch 노하우`·`## 알아둘 결정들`) | 섹션 실종 = FAIL(**각각**) |
 | 그 섹션들의 `- ` 불릿 | ≥ 1개(**각각**) |
-| `BASELINES` 항목 | ≥ `BASELINES_MIN`(6) |
+| `BASELINES` 항목 | ≥ `BASELINES_MIN`(12) |
 | L1이 검사한 참조 | ≥ `L1_MIN_REFS`(21) |
 | 활성 manifest(`scripts/doc-move-manifest.tsv`)의 데이터 행 | ≥ `MANIFEST_MIN`(1, `check-doc-coverage.py`) |
 | `ABS_WARN` 항목 | ≥ `ABS_WARN_MIN`(2) |
@@ -93,7 +97,7 @@ root에서 무언가를 빼는 건 **auto-load → manual-load 다운그레이�
 
 R18이 무장됐을 때의 형식 제약은 알아 둬야 한다 — `ast`로 `BASELINES` **대입문**을 읽으므로 **모듈 최상위 대입문 · flat dict 리터럴**이어야 한다. `dict(...)`·컴프리헨션·중첩 dict·빈 dict·구문 오류는 전부 `FAIL [R18] budget 소스에서 BASELINES를 읽지 못했다`가 된다(무음 통과를 막으려고 일부러 넣은 동작이다). `BASELINES: dict[str, int] = {...}` 형태는 지원된다.
 
-**그래서 "줄이기"는 예산 게이트 자신이 막는다.** R18이 잡는 건 *인상*뿐인데, 래칫 WARN을 없애는 더 싼 방법은 **dict를 비우거나 줄이는 것**이다(항목이 없으면 루프가 0회 돌고 `래칫 0개`를 찍으며 통과한다). 그래서 `BASELINES_MIN = 6` 하한을 `check-doc-budget.py` 안에 뒀다 — 도메인 파일을 **실제로 지웠을 때만** 내린다.
+**그래서 "줄이기"는 예산 게이트 자신이 막는다.** R18이 잡는 건 *인상*뿐인데, 래칫 WARN을 없애는 더 싼 방법은 **dict를 비우거나 줄이는 것**이다(항목이 없으면 루프가 0회 돌고 `래칫 0개`를 찍으며 통과한다). 그래서 `BASELINES_MIN = 12` 하한을 `check-doc-budget.py` 안에 뒀다 — 도메인 파일을 **실제로 지웠을 때만** 내린다.
 
 ### 불릿 상한 — 250 B/170 B는 "규칙만 말한다"의 기계적 대리 지표
 
