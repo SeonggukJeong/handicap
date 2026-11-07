@@ -3,7 +3,9 @@
 
 pub mod api;
 pub mod cli;
+pub mod judge;
 pub mod logging;
 pub mod session;
 pub mod tempdb;
+pub mod text;
 pub mod wire;
