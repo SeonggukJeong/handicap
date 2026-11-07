@@ -166,9 +166,15 @@ bump-rust ver:
     echo "다음: 승급 커밋 → pre-commit이 새 clippy로 전체 cargo 게이트를 돈다(새 lint는 같은 커밋에서 수정)."
     echo "에어갭 빌드 머신은 반입 아카이브를 새 버전으로 다시 만들 것(docs/dev/install-rhel-airgapped.md §4.3)."
 
-# 문서 이동 검증(R6·R16·R17·R18) — 소스 파라미터화 <base> [source]: manifest 선언 대비 실제 이동·불릿 비감소·토큰 차분(corpus는 소스 제외).
-doc-coverage BASE="f870cfd9" FILE="ui/CLAUDE.md":
-    python3 scripts/check-doc-coverage.py {{BASE}} {{FILE}}
+# 문서 이동 검증(R6·R16·R17·R18) — <base> [source] [manifest]: manifest(move·merge·relocate·refix) 선언 대비 실제 이동·불릿 비감소·토큰 차분(corpus는 소스 제외).
+# MANIFEST 빈 값 = 활성 scripts/doc-move-manifest.tsv(스크립트가 처리). 점 접미(.compare.tsv) = 활성 보조 manifest, 대시 slug = 이력.
+# 예: just doc-coverage 57830b90 ui/src/compare/CLAUDE.md scripts/doc-move-manifest.compare.tsv
+doc-coverage BASE="57830b90" FILE="ui/CLAUDE.md" MANIFEST="":
+    python3 scripts/check-doc-coverage.py {{BASE}} {{FILE}} "{{MANIFEST}}"
+
+# 문서 이동 게이트 자체 테스트(check-doc-coverage·check-bullet-conservation(D3·D4)·check-doc-refs(D7)) — 임시 git fixture 15케이스.
+doc-gates-selftest:
+    python3 scripts/test_doc_gates.py
 
 # 문서 예산(R5·R8·R9): root 절대 예산·상태줄·L1 참조/앵커는 FAIL, 도메인 성장 래칫은 WARN.
 doc-budget:

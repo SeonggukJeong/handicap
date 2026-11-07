@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
-"""이동 검증: manifest(+merge) + 불릿 개수 비감소(R17 — 섹션은 base 소스의 `## ` 헤딩에서
-동적 도출) + baseline 조건(R18) + 토큰 차분."""
+"""이동 검증: manifest(move·merge·relocate·refix) + 불릿 개수 비감소(R17 — 섹션은 base 소스의
+`## ` 헤딩에서 동적 도출) + baseline 조건(R18) + 토큰 차분.
+
+사용: check-doc-coverage.py <base> [source] [manifest]
+  manifest를 생략하거나 빈 문자열이면 활성 `scripts/doc-move-manifest.tsv`(Justfile 빈 MANIFEST 통과).
+  이름 규약: 점 접미(`doc-move-manifest.compare.tsv`) = 활성 보조 manifest, 대시 slug = 이력.
+
+kind별 컬럼(TAB 구분):
+  move·merge  : 5컬럼 고정 `kind anchor dest_file marker gain`
+  relocate    : 5+2k(k≥0) `relocate anchor dest_file - 0 [old new]*` — 단일 줄 `- ` 불릿 통째 이동
+  refix       : 5+2k(k≥1) `refix anchor file - 0 (old new)+` — 남는 줄(어느 문서든)의 참조 치환
+"""
 import re, subprocess, sys, pathlib, glob, ast
 from collections import defaultdict
 
 ROOT = "CLAUDE.md"
 BUDGET = "scripts/check-doc-budget.py"
+DEFAULT_MANIFEST = "scripts/doc-move-manifest.tsv"
 
 # --- "검사 불능 = FAIL" 하한 (check-doc-budget.py의 BASELINES_MIN·L1_MIN_REFS와 자매 규약) ---
 MANIFEST_MIN = 1        # 활성 manifest 최소 행 수. rename 후 새 파일 생성을 잊으면 0행이 된다.
@@ -86,11 +97,13 @@ def corpus_paths():
     lits = ["docs/build-log.md", "ui/CLAUDE.md", "deploy/CLAUDE.md", "desktop/CLAUDE.md"]
     return ([p for p in lits if pathlib.Path(p).exists()]
             + sorted(glob.glob("docs/dev/*.md")) + sorted(glob.glob("docs/adr/*.md"))
-            + sorted(glob.glob("crates/*/CLAUDE.md")))
+            + sorted(glob.glob("crates/*/CLAUDE.md"))
+            # recursive=True 필수 — 없으면 `**`가 한 단계만 매치해 components/* 하위 문서를 놓친다.
+            + sorted(glob.glob("ui/src/**/CLAUDE.md", recursive=True)))
 
-def rows():
+def rows(path=DEFAULT_MANIFEST):
     """manifest 데이터 행을 탭 분할해 반환(컬럼 수 검증은 호출부). CRLF의 '\\r'은 벗긴다."""
-    p = pathlib.Path("scripts/doc-move-manifest.tsv")
+    p = pathlib.Path(path)
     if not p.exists():
         return []
     out = []
@@ -100,7 +113,35 @@ def rows():
             out.append(l.split("\t"))
     return out
 
-def main(base, src=ROOT):
+def column_rule(kind, n):
+    """kind별 컬럼 규칙을 어기면 기대 형식 문자열, 지키면 None(알 수 없는 kind는 호출부 몫)."""
+    if kind in ("move", "merge"):
+        return None if n == 5 else "5"
+    if kind == "relocate":
+        return None if n >= 5 and (n - 5) % 2 == 0 else "5+2k"
+    if kind == "refix":
+        return None if n >= 7 and (n - 5) % 2 == 0 else "5+2k, k≥1"
+    return None
+
+def apply_subs(line, pairs, tag, fails):
+    """치환 (old, new)를 순서대로 적용. 각 old는 '적용 시점의 줄'에 정확히 1회여야 한다 —
+    아니면 FAIL을 기록하고 None(호출부는 목적지 대조를 건너뛴다: 같은 원인의 중복 FAIL 방지)."""
+    for old, new in pairs:
+        n = line.count(old)          # 빈 old는 len+1회로 잡혀 FAIL — 의도된 동작
+        if n != 1:
+            fails.append(f"FAIL [{tag}] 치환 old {n}회(1이어야 함): {old[:50]}")
+            return None
+        line = line.replace(old, new, 1)
+    return line
+
+def section_of(text, line, secs):
+    """line(불릿 원문)이 속한 base 섹션 — 없으면 None(첫 `## ` 앞 머리말)."""
+    for s in secs:
+        if line in bullets(text, s):
+            return s
+    return None
+
+def main(base, src=ROOT, manifest_path=""):
     fails = []
     base_src = at(base, src)
     if base_src is None:
@@ -113,18 +154,70 @@ def main(base, src=ROOT):
         fails.append(f"FAIL [R17] {base}:{src}에 '## ' 헤딩 0개 — 검사 불능")
 
     gain_need, merged_floor = defaultdict(int), defaultdict(int)
-    manifest = rows()
+    relocated_floor = defaultdict(int)     # relocate ④ — base 섹션별 R17 바닥 인하량
+    base_lines, cur_lines = base_src.split("\n"), cur_src.split("\n")
+    manifest = rows(manifest_path or DEFAULT_MANIFEST)
     if len(manifest) < MANIFEST_MIN:
         fails.append("FAIL [manifest] 활성 manifest 0행 — 검사 불능"
                      "(rename 후 새 파일을 만들었나?)")
 
     for cols in manifest:
-        if len(cols) != 5:     # 언패킹 ValueError(traceback)를 진단으로 승격 — traceback은 RED가 아니다
+        # 컬럼 규칙 위반을 진단으로 승격 — 언패킹 ValueError(traceback)는 RED가 아니다
+        rule = column_rule(cols[0], len(cols))
+        if rule is not None:
             raw = "\t".join(cols)
-            fails.append(f"FAIL [manifest] 컬럼 {len(cols)}개(5여야 함): {raw[:60]}")
+            fails.append(f"FAIL [manifest] 컬럼 {len(cols)}개({cols[0]}: {rule}): {raw[:60]}")
             continue
-        kind, anchor, dest, marker, gain = cols
-        if kind == "move":
+        if cols[0] in ("relocate", "refix"):
+            kind, anchor, target = cols[0], cols[1], cols[2]
+            pairs = list(zip(cols[5::2], cols[6::2]))
+        else:
+            if len(cols) != 5:   # 알 수 없는 kind도 언패킹 전에 거른다
+                fails.append(f"FAIL [manifest] 알 수 없는 kind: {cols[0]}"); continue
+            kind, anchor, dest, marker, gain = cols
+        if kind == "relocate":
+            # ① anchor를 포함한 base 소스의 `- ` 줄이 정확히 1개 + 다음 줄이 들여쓴 연속 줄이 아니다
+            hits = [i for i, l in enumerate(base_lines) if l.startswith("- ") and anchor in l]
+            if len(hits) != 1:
+                fails.append(f"FAIL [relocate] base 불릿 {len(hits)}개(1이어야 함): {anchor[:50]}")
+                continue
+            i = hits[0]
+            bl = base_lines[i]
+            nxt = base_lines[i + 1] if i + 1 < len(base_lines) else ""
+            if nxt[:1] in (" ", "\t") and nxt.strip():
+                fails.append(f"FAIL [relocate] 연속 줄 가진 불릿 — relocate는 단일 줄만: {anchor[:50]}")
+                continue
+            # ② 선언된 치환을 순서대로 적용한 결과가 현재 dest_file의 한 줄과 byte-identical
+            moved = apply_subs(bl, pairs, "relocate", fails)
+            if moved is not None:
+                dp = pathlib.Path(target)
+                if not dp.exists() or moved not in dp.read_text().split("\n"):
+                    why = "" if dp.exists() else " (dest_file 없음)"
+                    fails.append(f"FAIL [relocate] 목적지에 치환 적용 줄 없음{why}: "
+                                 f"{target} ← {anchor[:50]}")
+            # ③ 현재 소스에 base 줄이 없다
+            if bl in cur_lines:
+                fails.append(f"FAIL [relocate] 소스에 원 줄 잔존: {anchor[:50]}")
+            # ④ base 섹션 R17 바닥 1 인하
+            sec = section_of(base_src, bl, secs_dyn)
+            if sec is not None:
+                relocated_floor[sec] += 1
+        elif kind == "refix":
+            # base:<file>의 anchor 포함 줄 정확히 1개 → 치환 결과가 현재 <file>에 있고 원 줄은 없다.
+            # R17 영향 없음(R17은 검사 대상 소스의 불릿 수만 본다).
+            btext = at(base, target)
+            hits = [l for l in (btext.split("\n") if btext is not None else []) if anchor in l]
+            if len(hits) != 1:
+                fails.append(f"FAIL [refix] base 줄 {len(hits)}개(1이어야 함): {target} ← {anchor[:50]}")
+                continue
+            fp = pathlib.Path(target)
+            cur_f = fp.read_text().split("\n") if fp.exists() else []
+            fixed = apply_subs(hits[0], pairs, "refix", fails)
+            if fixed is not None and fixed not in cur_f:
+                fails.append(f"FAIL [refix] 치환 결과 줄 없음: {target} ← {anchor[:50]}")
+            if hits[0] in cur_f:
+                fails.append(f"FAIL [refix] 원 줄 잔존: {target} ← {anchor[:50]}")
+        elif kind == "move":
             if anchor not in base_src:
                 fails.append(f"FAIL [move] base 소스에 anchor 없음: {anchor[:50]}")
             if anchor in cur_src:
@@ -176,10 +269,15 @@ def main(base, src=ROOT):
             fails.append(f"FAIL [move] {dest} 증가 {got} B < 선언 합계 {need} B")
 
     for sec in secs_dyn:                                       # R17
+        b = len(bullets(base_src, sec))
+        floor = b - merged_floor[sec] - relocated_floor[sec]
         if section_span(cur_src, sec) is None:
+            # relocate가 바닥을 0으로 '만든' 섹션만 면제(헤딩 삭제 허용). 원래 불릿 0인 섹션
+            # (바닥이 처음부터 0)의 실종은 relocate 이전과 같이 FAIL — 기존 동작 불변.
+            if relocated_floor[sec] > 0 and floor <= 0:
+                continue
             fails.append(f"FAIL [R17] '## {sec}' 섹션이 작업트리에서 실종(rename 비목표)"); continue
-        b, c = len(bullets(base_src, sec)), len(bullets(cur_src, sec))
-        floor = b - merged_floor[sec]
+        c = len(bullets(cur_src, sec))
         if c < floor:
             fails.append(f"FAIL [R17] '{sec}' 불릿 {b}→{c} (허용 바닥 {floor})")
 
@@ -224,4 +322,5 @@ def main(base, src=ROOT):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "17369d32",
-                  sys.argv[2] if len(sys.argv) > 2 else ROOT))
+                  sys.argv[2] if len(sys.argv) > 2 else ROOT,
+                  sys.argv[3] if len(sys.argv) > 3 else ""))
