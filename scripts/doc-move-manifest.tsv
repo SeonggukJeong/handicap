@@ -1,0 +1,39 @@
+# ui/CLAUDE.md 재분배(ui-claude-md-redistribute 2026-11) — base 57830b90. relocate/refix 행 형식·검사 의미는
+# scripts/check-doc-coverage.py 헤더 참조. 검사: just doc-coverage
+relocate	검증 배너 게이트-에러 한국어 매핑(`problems.ts::format	ui/src/scenario/CLAUDE.md	-	0
+relocate	`BodyModel.superRefine`로 JSON 캐스트 검증	ui/src/scenario/CLAUDE.md	-	0
+relocate	`ConditionModel`은 모델 최초의 `z.lazy`	ui/src/scenario/CLAUDE.md	-	0
+relocate	두 계층 Zod 게이트(two-tier)는 `z.lazy` 자기참조 대신	ui/src/scenario/CLAUDE.md	-	0
+relocate	`StepModel`은 이제 http|loop|if|parallel	ui/src/scenario/CLAUDE.md	-	0
+relocate	`yaml`(1.2 core)은 `"0b101"`·`"+0x1F"`·`"	ui/src/scenario/CLAUDE.md	-	0
+relocate	재귀 `ConditionEditor`는 ExtractEditor 커밋 패	ui/src/components/scenario/CLAUDE.md	-	0
+relocate	**조건 빌더는 빈 그룹을 절대 만들 수 없게** (Slice 9b):	ui/src/components/scenario/CLAUDE.md	-	0
+relocate	**중첩 추가 버튼은 최상위 여부로 게이트** (Slice 9c): in	ui/src/components/scenario/CLAUDE.md	-	0
+relocate	RunDialog의 seeded `binding`은 이중 소스가 아니라	ui/src/components/run/CLAUDE.md	-	0
+relocate	RunDialog 프리셋 load는 명시적 사용자 액션이라 imperat	ui/src/components/run/CLAUDE.md	-	0
+relocate	시나리오 최상위 키 추가는 3곳 세트 — Zod 모델(`model.ts`	ui/src/scenario/CLAUDE.md	-	0	위 `normalizeRequest` passthrough	`ui/CLAUDE.md` §폼·입력 UX의 `normalizeRequest` passthrough(`KeyValueGrid` 2-맵 항목)
+relocate	선택적(optional) 폼 섹션은 접이식 disclosure로 — co	ui/src/components/run/CLAUDE.md	-	0
+relocate	타일·Segmented 셀렉터 teeth는 `getByRole("radi	ui/src/components/run/CLAUDE.md	-	0
+relocate	`buildProfile` optional 필드의 byte-identic	ui/src/components/run/CLAUDE.md	-	0
+relocate	footer 부하-모양 시그니처(`LoadShapePreview`)는 표	ui/src/components/run/CLAUDE.md	-	0
+relocate	번호 `Section` 재구성(분리·이동·재시퀀스)은 index `asc	ui/src/components/run/CLAUDE.md	-	0
+relocate	표시-전용 드롭다운/뱃지는 state 클리어 말고 render-deriv	ui/src/components/run/CLAUDE.md	-	0
+relocate	stage 행은 string-draft 상태 — 제출 시 Number 변	ui/src/components/run/CLAUDE.md	-	0
+relocate	곡선 payload는 `duration_seconds: 0` + `sta	ui/src/components/run/CLAUDE.md	-	0
+relocate	곡선 fan-out run 워커별 active-VU 분해는 `active	ui/src/components/report/CLAUDE.md	-	0
+relocate	Recharts 미리보기는 jsdom explicit size + str	ui/src/components/run/CLAUDE.md	-	0
+relocate	부하 모드 셀렉터는 2축(loadModel×rateMode) 유지 + `	ui/src/components/run/CLAUDE.md	-	0
+relocate	`LoadModelFields`는 `RunDialog`+`Schedule	ui/src/components/run/CLAUDE.md	-	0
+relocate	`{{var}}` 정의 여부는 위치에 따라 다르다 — 전역 집합으로 판정	ui/src/scenario/CLAUDE.md	-	0
+relocate	"B 자신의 extract" walker는 분기 서브트리를 재귀해야 한다	ui/src/scenario/CLAUDE.md	-	0
+relocate	참조 수집은 `buildVarRefIndex`를 본떠라(`collectB	ui/src/scenario/CLAUDE.md	-	0
+relocate	"형제 분기" 판정엔 parallel 노드 identity가 필요하다 —	ui/src/scenario/CLAUDE.md	-	0
+relocate	의도된 false-negative(조이지 말 것)	ui/src/scenario/CLAUDE.md	-	0
+relocate	`BindingPolicyEnum`에 `unique` 포함 (4정책)	ui/src/components/run/CLAUDE.md	-	0
+relocate	`scanFlowVars`는 loop `do:` 배열 안까지 재귀 스캔해	ui/src/scenario/CLAUDE.md	-	0
+relocate	바인딩 검증은 extract/scenario.variables로 채워질	ui/src/components/run/CLAUDE.md	-	0
+relocate	함정(CRITICAL, Task6 자가적발): 멀티-카드 패널의 per-	ui/src/components/run/CLAUDE.md	-	0
+relocate	다중 스텝을 한 번에 고치는 store 액션은 `dispatch` 전에	ui/src/scenario/CLAUDE.md	-	0
+relocate	`Field` 프리미티브 grep은 동명 로컬 shadow 2곳이 오염시	ui/src/components/ui/CLAUDE.md	-	0
+refix	DataBindingPanel`은 이제 단일 바인딩이 아니라 카드	ui/CLAUDE.md	-	0	위 §"폼·입력 UX"의 single `binding`/`initialBinding` 노트는	§"폼·입력 UX"(reseed-by-key)와 `ui/src/components/run/CLAUDE.md`(seed 수렴)의 single `binding`/`initialBinding` 노트는	(위 §폼 UX)	(위 §"폼·입력 UX"·`ui/src/components/run/CLAUDE.md`)
+refix	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	ui/src/components/report/CLAUDE.md	-	0	"다단계 ramp UI" 섹션의 `StageCurvePreview` 노트	`ui/src/components/run/CLAUDE.md`의 `StageCurvePreview` 노트

@@ -1,0 +1,5 @@
+# ui/CLAUDE.md 재분배(ui-claude-md-redistribute 2026-11) — base 57830b90. relocate/refix 행 형식·검사 의미는
+# scripts/check-doc-coverage.py 헤더 참조. 검사: just doc-coverage (compare 소스: python3 scripts/check-doc-coverage.py 57830b90 ui/src/compare/CLAUDE.md scripts/doc-move-manifest.compare.tsv)
+relocate	구조화된 에러 본문(409 등)은 표준 `request()` 헬퍼 말고	ui/CLAUDE.md	-	0
+relocate	open-loop 409 clamp는 mode 분기 — open이면 `m	ui/src/components/run/CLAUDE.md	-	0
+relocate	closed+curve 409 clamp는 3-way의 첫 분기 — `i	ui/src/components/run/CLAUDE.md	-	0
