@@ -4,7 +4,7 @@
 
 > 도메인 함정은 각 디렉토리의 중첩 `CLAUDE.md`(그 디렉토리 작업 시 자동 로드) — [도메인별 함정 인덱스](#도메인별-함정-인덱스). 이 root엔 전역 규칙·상태·크로스커팅 함정만.
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = ui-claude-md-redistribute 1차 (2026-11-07, 코드 06065f74..50591319 — RunDialog 계열 46파일 `components/run/` 이동(경로 문자열만) + ui/CLAUDE.md 불릿 38 원문 이동·하위 문서 2개 신설 + relocate/refix 문서 게이트; 113→88.6 KB). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-monitor 1a (2026-11-08, 코드 `0b2bb1a5`..`9eddb984` — Ubuntu 19.04 모니터 PC용 터미널 운영 모니터 `handicap-tui`: 새 crate `crates/tui`가 컨트롤러를 in-process로 품는 얇은 클라이언트, 컨트롤러는 `in-process` 기능 분리만, ADR-0055). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
 
 ## 한 줄 아키텍처
 
@@ -65,6 +65,7 @@ crates/
   controller/    Rust 바이너리, 워커 오케스트레이션, HTTP API 서빙 — 함정: crates/controller/CLAUDE.md
   worker/        Rust 바이너리, 컨트롤러 지시로 시나리오 실행
   worker-core/   Rust 라이브러리, 재연결/backoff/시그널 (단위 테스트용) — 함정: crates/worker-core/CLAUDE.md
+  tui/           Rust 바이너리 `handicap-tui`, 터미널 운영 모니터 (컨트롤러 in-process, ADR-0055)
   proto/         gRPC 정의 (controller↔worker)
 ui/              TypeScript/React 웹앱 (Vite + Monaco + dnd-kit; 에디터=FlowOutline 아웃라인, ADR-0044) — 함정: ui/CLAUDE.md
 deploy/
@@ -90,6 +91,7 @@ docs/
 | `ui/CLAUDE.md` | pnpm build 게이트·Zod default 누출, FlowOutline 아웃라인·dnd-kit 드래그(구 React Flow 제거 ADR-0044)·Monaco/Zustand, yaml Document API 양방향 sync·dirty-flag, React Query·multipart client, jsdom·blob 다운로드, 폼 UX·resolveForDisplay, CSP 오프라인; 하위 6개 문서 목록은 ui/CLAUDE.md 머리 |
 | `deploy/CLAUDE.md` | Helm fullname/PVC/snapshot, Dockerfile no-CMD·Node OOM, port-forward 함정 4종, K8s 테스트 격리 |
 | `desktop/CLAUDE.md` | Tauri v2 셸: 자체 빈 `[workspace]`(cargo 중첩 패키지), `externalBin`이 `cargo build`도 바이너리 요구, `NO_COLOR` 파이프 무력→`parse_rest_port` ANSI strip, `.dmg` GUI 세션 필요·`.app` headless, desktop 테스트 게이트 밖, lib명 `desktop_lib`·창 label "main"=capability |
+| `crates/tui/CLAUDE.md` | 좁은 화면 통째 축약, SIGHUP tty 막힘·감시견, 테스트 신호 처리기 격리, tmux 라이브 검증, 와이어 거울 `deny_unknown_fields` |
 
 ## 로컬 dev 실행 함정 (크로스커팅)
 
@@ -220,6 +222,7 @@ worktree 슬라이스의 고정 순서. **어느 단계도 "작아서/dogfood라
 - **0052** run 라벨: 단일 TEXT 컬럼 + 표시 폴백 `label ?? #끝6자` + 스케줄 자동 라벨 (장문 메모·`schedule_id` 컬럼 기각)
 - **0053** 운영 모니터 모드: trace 재사용 주기 점검 보드 + 메모리 링버퍼 + 느림은 화면 계산 (0009 번복 아님)
 - **0054** 보드 파일 형식: `handicap-bundle` v1(보드·시나리오·환경) + ID 보존·내용 비교 + 모르는 키 거부
+- **0055** 터미널 운영 모니터 `handicap-tui`: 컨트롤러 in-process 임베드 + 루프백 REST 클라이언트 + glibc 2.27 zigbuild
 
 ## 코딩 컨벤션
 
