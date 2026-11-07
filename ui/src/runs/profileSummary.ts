@@ -1,5 +1,5 @@
 import type { Profile } from "../api/schemas";
-import { deriveLoadMode } from "../components/loadModel";
+import { deriveLoadMode } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 import { ko } from "../i18n/ko";
 

@@ -9,9 +9,9 @@ import {
   useDeleteSchedule,
 } from "../api/hooks";
 import { getSchedule, type ScheduleInput } from "../api/schedules";
-import { describeTrigger } from "../components/triggerCron";
-import { ScheduleForm, type ScenarioOption } from "../components/ScheduleForm";
-import { ScheduleEventTimeline } from "../components/ScheduleEventTimeline";
+import { describeTrigger } from "../components/run/triggerCron";
+import { ScheduleForm, type ScenarioOption } from "../components/run/ScheduleForm";
+import { ScheduleEventTimeline } from "../components/run/ScheduleEventTimeline";
 import { Button } from "../components/Button";
 import { Callout } from "../components/ui/Callout";
 import { EmptyState } from "../components/EmptyState";

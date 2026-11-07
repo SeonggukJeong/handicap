@@ -10,7 +10,7 @@ import { DRAFT_KEY, fingerprintHash, recordVerified } from "../../scenario/trust
 import { Button } from "../Button";
 import { Callout } from "../ui/Callout";
 import { Input } from "../ui/Input";
-import { EnvironmentPicker } from "../EnvironmentPicker";
+import { EnvironmentPicker } from "../run/EnvironmentPicker";
 import { TestFlowChips } from "./TestFlowChips";
 import { TestRunPanel } from "./TestRunPanel";
 import { SequentialRunPanel, defaultExpandedRow } from "./SequentialRunPanel";

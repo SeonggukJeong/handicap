@@ -1,5 +1,5 @@
 import type { Profile, Run, Verdict } from "../api/schemas";
-import { deriveLoadMode } from "../components/loadModel";
+import { deriveLoadMode } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 
 export type VerdictKey = "pass" | "fail" | "none";

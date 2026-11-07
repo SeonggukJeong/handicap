@@ -31,7 +31,7 @@ import { markReportViewed } from "../onboarding/state";
 import { parseScenarioDoc } from "../scenario/yamlDoc";
 import { flattenHttpSteps } from "../scenario/model";
 import { resolveForDisplay } from "../scenario/template";
-import { RunVuCell } from "../components/RunVuCell";
+import { RunVuCell } from "../components/run/RunVuCell";
 import { Callout } from "../components/ui/Callout";
 import { PageSection } from "../components/ui/PageSection";
 import { Input } from "../components/ui/Input";

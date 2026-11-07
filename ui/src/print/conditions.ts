@@ -1,7 +1,7 @@
 import { ko } from "../i18n/ko";
 import { formatDurationKo } from "../i18n/duration";
 import { ProfileSchema, type Profile } from "../api/schemas";
-import { deriveLoadMode } from "../components/loadModel";
+import { deriveLoadMode } from "../components/run/loadModel";
 import { profileDurationSeconds } from "../api/runPrefill";
 import { fmtDate, fmtDateTime, fmtMs, fmtTime } from "./format";
 
