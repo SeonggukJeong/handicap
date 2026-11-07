@@ -1,0 +1,434 @@
+//! 앱 루프 — 메인 스레드의 동기 UI 루프(`event::poll`)가 tokio 런타임을 `block_on`으로 부린다.
+//! 키·마우스 해석과 격자 이동은 순수 함수로 분리했다.
+
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
+use ratatui::layout::Rect;
+use ratatui::text::Line;
+use ratatui::widgets::Paragraph;
+use tokio::runtime::Runtime;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
+use crate::judge::grid_for;
+use crate::logging::LogLoc;
+use crate::poll::{PollSnapshot, spawn_poller};
+use crate::session::{Session, Stage, StartError};
+use crate::terminal::TerminalGuard;
+use crate::text;
+use crate::view::error::{render_error, render_usage};
+use crate::view::model::build_panels;
+use crate::view::monitor::{Layout, MonitorScreen, layout, panel_at, render};
+use crate::view::overlay::{render_help, render_quit_confirm};
+use crate::wire::BoardResponse;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Screen {
+    Starting,
+    Monitor,
+    Help,
+    QuitConfirm(Box<Screen>),
+    Error(StartError),
+    Usage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    None,
+    Move(Dir),
+    Select(usize),
+    NextBoard,
+    PrevBoard,
+    OpenHelp,
+    Back,
+    AskQuit,
+    Quit,
+    Retry,
+}
+
+fn is_ctrl_c(k: &KeyEvent) -> bool {
+    k.modifiers.contains(KeyModifiers::CONTROL) && matches!(k.code, KeyCode::Char('c' | 'C'))
+}
+
+pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
+    let quit_key = is_ctrl_c(&k) || matches!(k.code, KeyCode::Char('q'));
+    match screen {
+        Screen::Starting => Action::None,
+        Screen::Monitor => {
+            if quit_key {
+                return Action::AskQuit;
+            }
+            match k.code {
+                KeyCode::Left | KeyCode::Char('h') => Action::Move(Dir::Left),
+                KeyCode::Right | KeyCode::Char('l') => Action::Move(Dir::Right),
+                KeyCode::Up | KeyCode::Char('k') => Action::Move(Dir::Up),
+                KeyCode::Down | KeyCode::Char('j') => Action::Move(Dir::Down),
+                KeyCode::Tab if n_boards > 1 => Action::NextBoard,
+                KeyCode::BackTab if n_boards > 1 => Action::PrevBoard,
+                KeyCode::Char('?') => Action::OpenHelp,
+                _ => Action::None,
+            }
+        }
+        Screen::Help => {
+            if quit_key {
+                Action::AskQuit
+            } else if matches!(k.code, KeyCode::Esc | KeyCode::Char('?')) {
+                Action::Back
+            } else {
+                Action::None
+            }
+        }
+        Screen::QuitConfirm(_) => {
+            if is_ctrl_c(&k) || matches!(k.code, KeyCode::Char('y')) {
+                Action::Quit
+            } else {
+                Action::Back
+            }
+        }
+        Screen::Error(_) => {
+            if quit_key {
+                Action::Quit
+            } else if matches!(k.code, KeyCode::Char('r')) {
+                Action::Retry
+            } else {
+                Action::None
+            }
+        }
+        Screen::Usage => {
+            if quit_key || matches!(k.code, KeyCode::Esc) {
+                Action::Quit
+            } else {
+                Action::None
+            }
+        }
+    }
+}
+
+/// 격자 `(cols, rows)`에서 한 칸 이동. 가장자리·비어 있는 칸 앞에서는 제자리.
+pub fn move_sel(sel: usize, dir: Dir, grid: (usize, usize), n_panels: usize) -> usize {
+    let cols = grid.0.max(1);
+    let (r, c) = (sel / cols, sel % cols);
+    let next = match dir {
+        Dir::Left if c > 0 => sel - 1,
+        Dir::Right if c + 1 < cols => sel + 1,
+        Dir::Up if r > 0 => sel - cols,
+        Dir::Down => sel + cols,
+        _ => sel,
+    };
+    if next < n_panels { next } else { sel }
+}
+
+pub fn handle_mouse(screen: &Screen, m: MouseEvent, layout: &Layout) -> Action {
+    if !matches!(screen, Screen::Monitor) {
+        return Action::None;
+    }
+    match m.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            panel_at(layout, m.column, m.row).map_or(Action::None, Action::Select)
+        }
+        _ => Action::None,
+    }
+}
+
+pub fn screen_after_start(r: &Result<(), StartError>) -> Screen {
+    match r {
+        Ok(()) => Screen::Monitor,
+        Err(e) => Screen::Error(e.clone()),
+    }
+}
+
+struct Running {
+    session: Session,
+    boards: Vec<BoardResponse>,
+    poller: JoinHandle<()>,
+}
+
+struct App<'a> {
+    rt: &'a Runtime,
+    file: PathBuf,
+    log: LogLoc,
+    screen: Screen,
+    running: Option<Running>,
+    idx: usize,
+    selected: usize,
+    board_tx: watch::Sender<String>,
+    snap_tx: watch::Sender<PollSnapshot>,
+    snap_rx: watch::Receiver<PollSnapshot>,
+}
+
+impl App<'_> {
+    async fn start_inner(
+        &mut self,
+    ) -> Result<(Session, Vec<BoardResponse>), Box<(StartError, Option<Session>)>> {
+        let session = Session::start(&self.file, &crate::tempdb::runtime_dir())
+            .await
+            .map_err(|e| Box::new((e, None)))?;
+        let mut boards = Vec::new();
+        for b in &session.boards {
+            match session.api.board(&b.id).await {
+                Ok(r) => boards.push(r),
+                Err(e) => {
+                    let err = StartError {
+                        stage: Stage::Import,
+                        message: e.message,
+                        rest_addr: None,
+                    };
+                    return Err(Box::new((err, Some(session))));
+                }
+            }
+        }
+        if boards.is_empty() {
+            let err = StartError {
+                stage: Stage::Import,
+                message: text::NO_BOARDS.to_string(),
+                rest_addr: None,
+            };
+            return Err(Box::new((err, Some(session))));
+        }
+        Ok((session, boards))
+    }
+
+    /// 세션을 (다시) 띄운다. 기존 세션이 있으면 먼저 내린다. 로그는 다시 초기화하지 않는다.
+    fn start_session(&mut self) {
+        self.stop_session();
+        self.idx = 0;
+        self.selected = 0;
+        let rt = self.rt;
+        match rt.block_on(self.start_inner()) {
+            Ok((session, boards)) => {
+                let _guard = rt.enter();
+                self.board_tx.send_replace(boards[0].id.clone());
+                self.snap_tx.send_replace(PollSnapshot::default());
+                let poller = spawn_poller(
+                    session.api.clone(),
+                    self.board_tx.subscribe(),
+                    self.snap_tx.clone(),
+                );
+                self.running = Some(Running {
+                    session,
+                    boards,
+                    poller,
+                });
+                self.screen = screen_after_start(&Ok(()));
+            }
+            Err(boxed) => {
+                let (e, session) = *boxed;
+                if let Some(s) = session {
+                    rt.block_on(s.shutdown());
+                }
+                self.screen = screen_after_start(&Err(e));
+            }
+        }
+    }
+
+    fn stop_session(&mut self) {
+        if let Some(r) = self.running.take() {
+            r.poller.abort();
+            self.rt.block_on(r.session.shutdown());
+        }
+    }
+
+    fn n_panels(&self) -> usize {
+        self.running
+            .as_ref()
+            .map_or(0, |r| r.boards[self.idx].config.panels.len())
+    }
+
+    fn monitor_screen(&self) -> Option<MonitorScreen> {
+        let r = self.running.as_ref()?;
+        let board = &r.boards[self.idx];
+        let snap = self.snap_rx.borrow().clone();
+        let panels = build_panels(board, &snap);
+        let server_time = snap
+            .last
+            .as_ref()
+            .filter(|_| snap.board_id == board.id)
+            .map(|s| s.now_ms);
+        let selected = self.selected.min(panels.len().saturating_sub(1));
+        Some(MonitorScreen {
+            board_name: board.name.clone(),
+            board_pos: (self.idx + 1, r.boards.len()),
+            server_time,
+            server_down: snap.server_down,
+            panels,
+            selected,
+        })
+    }
+
+    fn draw_screen(&self, f: &mut ratatui::Frame, screen: &Screen) {
+        match screen {
+            Screen::Starting => {
+                f.render_widget(Paragraph::new(Line::from(text::STARTING)), f.area());
+            }
+            Screen::Monitor => {
+                if let Some(m) = self.monitor_screen() {
+                    render(f, &m);
+                }
+            }
+            Screen::Help => {
+                self.draw_screen(f, &Screen::Monitor);
+                render_help(f, &self.file, &self.log);
+            }
+            Screen::QuitConfirm(inner) => {
+                self.draw_screen(f, inner);
+                render_quit_confirm(f);
+            }
+            Screen::Error(e) => render_error(f, e, &self.file, &self.log),
+            Screen::Usage => render_usage(f),
+        }
+    }
+
+    fn current_layout(&self, size: Rect) -> Layout {
+        layout(size, self.n_panels()).unwrap_or(Layout { panels: vec![] })
+    }
+
+    /// 종료해야 하면 `true`.
+    fn apply(&mut self, a: Action) -> bool {
+        match a {
+            Action::None => {}
+            Action::Move(d) => {
+                let n = self.n_panels();
+                self.selected = move_sel(self.selected, d, grid_for(n), n);
+            }
+            Action::Select(i) => self.selected = i,
+            Action::NextBoard | Action::PrevBoard => {
+                if let Some(r) = &self.running {
+                    let n = r.boards.len();
+                    self.idx = if a == Action::NextBoard {
+                        (self.idx + 1) % n
+                    } else {
+                        (self.idx + n - 1) % n
+                    };
+                    self.selected = 0;
+                    self.board_tx.send_replace(r.boards[self.idx].id.clone());
+                }
+            }
+            Action::OpenHelp => self.screen = Screen::Help,
+            Action::Back => {
+                if let Screen::QuitConfirm(inner) = &self.screen {
+                    self.screen = (**inner).clone();
+                } else if matches!(self.screen, Screen::Help) {
+                    self.screen = Screen::Monitor;
+                }
+            }
+            Action::AskQuit => {
+                self.screen = Screen::QuitConfirm(Box::new(self.screen.clone()));
+            }
+            Action::Quit => return true,
+            Action::Retry => {
+                self.screen = Screen::Starting;
+                return false;
+            }
+        }
+        false
+    }
+}
+
+fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    let mut first = matches!(app.screen, Screen::Starting);
+    loop {
+        term.draw(|f| app.draw_screen(f, &app.screen))?;
+        if first || matches!(app.screen, Screen::Starting) {
+            first = false;
+            app.start_session();
+            continue;
+        }
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+        let n_boards = app.running.as_ref().map_or(0, |r| r.boards.len());
+        let action = match event::read()? {
+            Event::Key(k) if k.kind == KeyEventKind::Press => handle_key(&app.screen, k, n_boards),
+            Event::Mouse(m) => {
+                let size = term.size()?;
+                let lay = app.current_layout(Rect::new(0, 0, size.width, size.height));
+                handle_mouse(&app.screen, m, &lay)
+            }
+            _ => Action::None,
+        };
+        if app.apply(action) {
+            return Ok(());
+        }
+    }
+}
+
+/// 풀스크린 앱을 돌리고 종료 코드를 돌려준다. `file`이 `None`이면 사용법 화면.
+pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
+    let guard = match TerminalGuard::enter() {
+        Ok(g) => g,
+        Err(e) => {
+            if file.is_none() {
+                println!("{}", text::USAGE);
+                return 2;
+            }
+            eprintln!("터미널을 열 수 없습니다: {e}");
+            return 1;
+        }
+    };
+    let backend = CrosstermBackend::new(io::stdout());
+    let mut term = match Terminal::new(backend) {
+        Ok(t) => t,
+        Err(e) => {
+            drop(guard);
+            eprintln!("터미널을 열 수 없습니다: {e}");
+            return 1;
+        }
+    };
+    let (board_tx, _) = watch::channel(String::new());
+    let (snap_tx, snap_rx) = watch::channel(PollSnapshot::default());
+    let mut app = App {
+        rt,
+        file: file.map(Path::to_path_buf).unwrap_or_default(),
+        log,
+        screen: if file.is_some() {
+            Screen::Starting
+        } else {
+            Screen::Usage
+        },
+        running: None,
+        idx: 0,
+        selected: 0,
+        board_tx,
+        snap_tx,
+        snap_rx,
+    };
+    let result = event_loop(&mut app, &mut term);
+    let code = match (&app.screen, &result) {
+        (_, Err(_)) => 1,
+        (Screen::Usage, _) => 2,
+        (Screen::Error(_), _) => 1,
+        (Screen::QuitConfirm(inner), _) => match **inner {
+            Screen::Error(_) => 1,
+            _ => 0,
+        },
+        _ => 0,
+    };
+    // 폴러 중지 → 세션 종료 → (guard drop) 터미널 복구. 어느 단계가 실패해도 복구는 한다.
+    app.stop_session();
+    drop(term);
+    drop(guard);
+    if let Err(e) = result {
+        tracing::error!("UI 루프 오류: {e}");
+        eprintln!(
+            "핸디캡 모니터 오류로 종료합니다. {}",
+            text::log_line(&app.log)
+        );
+    }
+    code
+}

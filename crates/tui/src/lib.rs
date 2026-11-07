@@ -2,6 +2,7 @@
 //! 루프백 REST로 보드를 가져와 시작한다.
 
 pub mod api;
+pub mod app;
 pub mod check_mode;
 pub mod cli;
 pub mod judge;
@@ -9,6 +10,7 @@ pub mod logging;
 pub mod poll;
 pub mod session;
 pub mod tempdb;
+pub mod terminal;
 pub mod text;
 pub mod view;
 pub mod wire;

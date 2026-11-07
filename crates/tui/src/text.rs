@@ -61,6 +61,13 @@ pub fn log_line(loc: &crate::logging::LogLoc) -> String {
     }
 }
 
+/// UI 스레드 패닉 시 stderr 한 줄의 머리(뒤에 `log_line`이 붙는다).
+pub const PANIC_EXIT: &str = "핸디캡 모니터 오류로 종료합니다.";
+
+pub const NO_BOARDS: &str = "파일에 보드가 없습니다";
+
+pub const STARTING: &str = "점검 엔진을 시작하는 중…";
+
 pub const USAGE: &str = "사용법: handicap-tui <보드 파일.json>";
 pub const USAGE_MANUAL: &str = "자세한 사용법은 함께 받은 tui-monitor.md를 보세요.";
 
