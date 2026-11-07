@@ -1,7 +1,7 @@
 # ui/CLAUDE.md 함정 서사 아카이브 (on-demand)
 
 > `ui/CLAUDE.md`의 함정 불릿에서 이관된 **발견 경위·정정 이력·실측 전문**. 규칙 자체는
-> ui/CLAUDE.md에 남아 있다(그쪽이 정본) — 이 파일은 "왜 그 규칙이 생겼나"가 필요할 때만
+> `ui/CLAUDE.md` 또는 그 하위 문서(목록은 ui/CLAUDE.md 머리)에 있다(그쪽이 정본) — 이 파일은 "왜 그 규칙이 생겼나"가 필요할 때만
 > 읽는다. 유래: ui-claude-md-curation 슬라이스(2026-08-03, spec
 > `docs/superpowers/specs/2026-08-03-ui-claude-md-curation-design.md`).
 

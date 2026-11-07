@@ -368,6 +368,7 @@
 
 ### B17. ui/CLAUDE.md 도메인 분할 후속 — RunDialog 계열 전용 디렉토리 (2026-07-07) 연기 항목
 - ✅ 해소(2026-11, ui-claude-md-redistribute) — `components/run/` 이동 + `run/CLAUDE.md` 신설.
+
 출처: `ui/CLAUDE.md`(143KB) 도메인별 2단계 중첩 분할(scenario/report/ui/compare 4개 신규 CLAUDE.md, `e2a214a`). 남은 의도적 연기:
 - `RunDialog.tsx`·`DataBindingPanel.tsx`·`LoadModelFields.tsx`·`StageCurvePreview.tsx`·`SlotSizingHelper.tsx`/`VuSizingHelper.tsx`/`WorkerSizingHelper.tsx`·`ScheduleForm.tsx`·`ScheduleEventTimeline.tsx`·`TriggerBuilder.tsx`·`EnvironmentPicker.tsx`·`CriteriaFields.tsx`/`StepCriteriaFields.tsx`·`RunVuCell.tsx`·`RunListControls.tsx`·`LoadShapePreview.tsx`(~15개 파일, ~38KB 상당 함정 노트)가 `ui/src/components/`에 flat하게 있어 전용 하위디렉토리(예: `components/run/`)가 없다 — 그래서 이 도메인 함정은 여전히 `ui/CLAUDE.md` 루트에 남아 있다.
 - 옮기려면: ① 새 디렉토리로 파일 이동 + 전 레포 import 경로 갱신(다수 소비처 — `pages/*.tsx` 등) ② `ui/src/components/run/CLAUDE.md` 신규 + 루트에서 해당 함정 노트 이주 ③ 라이브 게이트(lint/test/build) 재확인. 문서 정리보다 큰 소스 리팩터라 별도 슬라이스로 스코프(사용자 지시로 백로그 등록, 이번 분할엔 미포함).
@@ -833,11 +834,19 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 ### B44. ui/CLAUDE.md 재분배 2차 — 잔류 불릿 서사 압축 (2026-11-07) 연기 항목
 출처: ui-claude-md-redistribute 1차(§B17 해소 + 불릿 38 원문 이동, `ui/CLAUDE.md` 113,306 → 88,636 B(BASELINES 102,395 → 88,636)). 1차는 "원문 그대로 이동"만 했고 압축은 하지 않았다. **2차 안전 방침 정본: `docs/superpowers/specs/2026-11-07-ui-claude-md-phase2-policy.md`**(2a 서사 이관 / 2b 추상화 승격 분리, 승격 조건 ≥3 사례 + 사용자 승인, S1–S6 안전장치). 줄번호 = base `57830b90` 기준(현재 파일 줄번호 아님) — 대응표 `docs/superpowers/specs/2026-11-06-ui-claude-md-redistribute-bullet-map-final.tsv`(base 줄번호 키).
 - **잔류 압축(목표 ≤ 60 KiB)**: `ui/CLAUDE.md`에 남은 불릿의 사고 서사·사례를 `docs/dev/ui-gotcha-narratives.md`로 이관하고 규칙 한 줄만 남긴다. cost-if-wrong: 압축 없이 두면 `ui/` 작업마다 ~88 KB가 통째 로드(`ABS_WARN` 97,280 B 근접 시 WARN)되고, 서사를 잘못 깎으면 함정의 *이유*가 사라져 같은 실수가 재발한다. 해소: 정본 방침 2a 절차(불릿별 서사 이관 + D3/coverage 게이트)로 별도 슬라이스.
-- **경계 5행(86·94·177·178·188)**: 1차는 사용자 결정(상한 90 KiB 재설정)으로 숫자 맞추기용 재분류 없이 `ui/CLAUDE.md`에 잔류. cost-if-wrong: 실수 지점이 있는 하위 디렉토리 문서만 열면 그 함정이 로드되지 않아 놓친다. 해소: 2차에서 실수 지점을 코드로 재판정해 relocate 행으로 이동(크기 때문에 옮기지 않는다 — 정본 방침).
+- **경계 5행(86·94·177·178·188)**: 1차는 사용자 결정(상한 90 KiB 재설정)으로 숫자 맞추기용 재분류 없이 `ui/CLAUDE.md`에 잔류. cost-if-wrong: 실수 지점이 있는 하위 디렉토리 문서만 열면 그 함정이 로드되지 않아 놓친다. 해소: 2차에서 실수 지점을 코드로 재판정해 relocate 행으로 이동(크기 때문에 옮기지 않는다 — 정본 방침). 2차에서 재판정할 경계 이동·잔류 행은 최종 TSV `docs/superpowers/specs/2026-11-06-ui-claude-md-redistribute-bullet-map-final.tsv`의 `# (e)` 절에 있다(base 줄번호 ui 110·127·128·47·17 이동, 82·68 잔류 등) — 예: ui 110은 `components/report/CLAUDE.md`로 갔지만 그 규칙은 `api/schemas.ts` Zod 누출도 다룬다.
 - **병합 2건(205→24 · 162↔`useThinkTimePair`)**: 섹션·파일을 넘나드는 병합이라 현 게이트로 검증할 수 없어 1차 금지. cost-if-wrong: 같은 함정이 두 곳에 갈라져 한쪽만 고쳐지면 서술이 어긋난다. 해소: 2차에서 병합 검증 가능한 게이트 형태(선언 병합 + D3 귀속)를 갖춘 뒤 재검토.
 - **코드 주석 포인터**: `grep -rn 'ui/CLAUDE.md' ui/src`가 가리키는 주석(예 `PercentileCurveChart.tsx:42`)은 불릿이 이동·압축돼도 옛 위치를 가리킬 수 있다. cost-if-wrong: 주석을 따라간 독자가 불릿을 못 찾는다(오도·무해). 해소: 2차 마지막에 grep으로 전수 점검해 새 위치로 고친다(코드 주석 편집 = UI 게이트 필요).
 - **compare 11·13·14·18 오배치**: `ui/src/compare/CLAUDE.md`의 기타 오배치 11·13·14·18은 1차에서 관찰만 기록(15–17만 relocate; 18은 `api/download*.ts`·에디터 두 경계에 걸쳐 이동 대상 아님). cost-if-wrong: 실수 지점 파일 작업 시 로드되지 않고 compare 작업엔 무관한 맥락이 섞인다. 해소: 2차에서 불릿별 실수 지점을 grep으로 재판정해 relocate.
 - **옮긴 ui 194 불릿의 자기 참조**: `ui/src/components/ui/CLAUDE.md` 마지막 섹션의 옮긴 불릿이 끝에서 자기 파일을 가리킨다("프리미티브 계약은 `ui/src/components/ui/CLAUDE.md`."). cost-if-wrong: 없음(무해·참) — 다만 문서 안에서 자기 자신을 가리키는 군더더기. 해소: byte-identical 규칙상 1차 미수정, 2차 압축 때 declared substitution(refix/relocate의 치환 쌍)으로 제거.
+
+- **이미 옮긴 하위 문서 불릿은 압축하지 않았다(spec §7 비목표)**: `ui/src/components/run/CLAUDE.md`(17.7 KB)·`ui/src/scenario/CLAUDE.md`(10.2 KB)·`components/scenario/CLAUDE.md`에 더한 2026-11 절(+1.4 KB)은 원문 그대로 옮겨 서사가 전부 남아 있다. 첫 §B44 불릿은 `ui/CLAUDE.md`에 남은 불릿만 다룬다. cost-if-wrong: 래칫은 기준선 초과 성장만 잡으므로 이 하위 문서들이 눈치채지 못하게 커진다. 해소: 2차에서 같은 2a 서사 이관 방침(`docs/superpowers/specs/2026-11-07-ui-claude-md-phase2-policy.md`)을 하위 문서에도 적용.
+- **`components/monitor/`·`ui/src/print/`·`ui/src/monitor/`·`pages/` 하위 문서 없음(spec §3.1/§7 비목표)**: cost-if-wrong: 모니터·인쇄 불릿이 그 파일을 거의 안 건드리는 `ui/` 세션에서도 매번 로드된다. 해소: 2차에서 후보별 실수 지점 집합을 재측정해 이동 바이트가 §3.2를 통과하고 값어치가 있을 때만 하위 문서를 만든다(spec §3.1 추정 monitor ≈1.5 KB).
+- **`ABS_WARN` 추가 하향(spec §4.2/§7)**: 지금은 97,280 B(= ceil((88,636+8,192)/1024) KiB) 그대로다. cost-if-wrong: 절대 상한이 2차 목표 60 KiB보다 한참 위라 ~95 KiB까지 재성장해도 경고가 없다. 해소: 2차에서 압축 후 크기로 같은 공식을 다시 계산하고 `ui/CLAUDE.md` 유지 규칙 문단의 `~N KB` 문구를 맞춘다.
+- **불릿 분할(spec §3.2/§7, 1차 금지)**: 분할 = 규칙은 두고 세부만 옮기는 것. cost-if-wrong: 불릿 통째 이동만 하면 규칙은 한 곳·세부는 다른 곳인 경계 불릿이 전부 `ui/CLAUDE.md`에 남는다. 해소: 2차에서 정본 방침 S1–S6 안전장치 아래, D3가 한 줄 통째 동일성을 전제하므로 새 게이트 kind 또는 수동 1:1 대조와 함께.
+- **`scripts/check-ui-specifiers.py`: 스냅샷은 줄 단위·마스크는 전체 텍스트 스캔**: 키워드와 문자열이 다른 줄에 있는 지정자(예 `vi.mock(\n  "../x"`)는 V2가 마스킹하지만 V1은 기록하지 못한다. 오늘은 0건(리뷰어 전수 스캔). cost-if-wrong: 이후 소스 이동에 이 스크립트를 재사용하다 prettier가 그런 호출을 줄바꿈하면 틀린 경로가 V1·V2를 모두 통과한다. 해소: 스팬을 전체 텍스트에서 한 번 계산하고 줄 번호는 오프셋에서 유도(`text.count("\n", 0, start) + 1`).
+- **`scripts/test_doc_gates.py`: `귀속 <m>` 값에 실패 케이스 단언 없음**: "n을 귀속으로 출력"·"n>=1로 셈" 변이가 둘 다 살아남는다. cost-if-wrong: 훗날 리팩터가 `귀속`을 base 수로 찍어도 어떤 테스트도 못 알아챈다. 해소: c13의 미귀속 하위 케이스에서 정확한 `귀속 <n-1>` 값을 단언.
+- **`scripts/check-bullet-conservation.py` OK 줄의 `치환 행 <k>개`는 행이 아니라 치환 쌍 수**: 실데이터에서 3행에 4쌍이라 4로 찍힌다. cost-if-wrong: 표시만 오해(무해). 해소: 라벨을 `치환 쌍`으로 바꾸되 `OK: base 불릿 <n> · 귀속 <m>` 접두는 그대로.
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 
