@@ -49,6 +49,7 @@ if [ "${NO_RESPONDER:-0}" != "1" ]; then
   done
 fi
 
+# 참고: ubuntu:19.04는 EOL로 보관(archived)된 Docker Hub 태그다 — pull이 실패하기 시작하면 그것이 원인이다.
 echo "대상: $base (NO_RESPONDER=${NO_RESPONDER:-0})"
 out="$(docker run --rm --platform linux/amd64 ${net[@]+"${net[@]}"} -v "$work/b:/b" ubuntu:19.04 /b/handicap-tui --check /b/board.json 2>&1)"
 rc=$?

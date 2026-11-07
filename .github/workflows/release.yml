@@ -298,9 +298,13 @@ jobs:
       - name: Install zig + cargo-zigbuild
         run: |
           set -euo pipefail
-          python3 -m pip install --user ziglang==0.17.1
+          # ubuntu-24.04의 시스템 python은 PEP 668(externally-managed)이라 pip --user가 거부될 수 있어 venv를 쓴다.
+          python3 -m venv "$RUNNER_TEMP/zig-venv"
+          "$RUNNER_TEMP/zig-venv/bin/pip" install ziglang==0.17.1
           cargo install cargo-zigbuild --version 0.24.1 --locked
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # venv에는 zig 실행 파일이 없고 python3 -m ziglang만 있다. cargo-zigbuild가 PATH에 zig가 없으면
+          # `python3 -m ziglang`으로 폴백하므로, 이후 스텝의 python3가 이 venv의 것이 되게 PATH 앞에 둔다.
+          echo "$RUNNER_TEMP/zig-venv/bin" >> "$GITHUB_PATH"
 
       - uses: Swatinem/rust-cache@v2
 
