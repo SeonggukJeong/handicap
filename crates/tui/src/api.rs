@@ -36,7 +36,29 @@ pub struct Api {
     base: String,
 }
 
+/// 실패 종류만 로그에 남긴다 — URL·본문·헤더 값은 절대 남기지 않는다(reqwest Display는 URL 포함).
+fn error_kind(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() {
+        "connect"
+    } else if e.is_decode() {
+        "decode"
+    } else if e.is_body() {
+        "body"
+    } else if e.is_request() {
+        "request"
+    } else {
+        "other"
+    }
+}
+
 fn transport(e: reqwest::Error) -> ApiError {
+    tracing::warn!(
+        kind = error_kind(&e),
+        http_status = e.status().map(|s| s.as_u16()),
+        "api call failed"
+    );
     // reqwest Display(URL 포함)를 그대로 노출하지 않는다.
     let message = if e.is_timeout() {
         "응답 시간이 초과되었습니다"
@@ -68,9 +90,17 @@ async fn parse<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, ApiErr
     if !resp.status().is_success() {
         return Err(error_of(resp).await);
     }
-    resp.json::<T>().await.map_err(|_| ApiError {
-        status: None,
-        message: "점검 엔진의 응답을 해석하지 못했습니다".to_string(),
+    let http_status = resp.status().as_u16();
+    resp.json::<T>().await.map_err(|e| {
+        tracing::warn!(
+            kind = error_kind(&e),
+            http_status,
+            "api response decode failed"
+        );
+        ApiError {
+            status: None,
+            message: "점검 엔진의 응답을 해석하지 못했습니다".to_string(),
+        }
     })
 }
 
