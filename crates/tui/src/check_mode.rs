@@ -39,6 +39,22 @@ pub fn wait_cap_secs(units: usize, max_budget: u32) -> u64 {
     units.div_ceil(CONCURRENT_CHECKS) as u64 * u64::from(max_budget) + 10
 }
 
+/// 칸들의 점검 예산 최댓값 — 상태가 없는 칸은 칸 설정의 `timeout_seconds`로 폴백.
+pub fn max_budget(configs: &[BoardConfig], statuses: &[Option<StatusResponse>]) -> u32 {
+    configs
+        .iter()
+        .zip(statuses)
+        .flat_map(|(cfg, st)| {
+            cfg.panels.iter().map(move |p| {
+                st.as_ref()
+                    .and_then(|s| s.panels.iter().find(|s| s.panel_id == p.id))
+                    .map_or(p.timeout_seconds, |s| s.check_budget_seconds)
+            })
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 fn all_have_results(configs: &[BoardConfig], statuses: &[Option<StatusResponse>]) -> bool {
     configs.iter().zip(statuses).all(|(cfg, st)| {
         let Some(st) = st else { return false };
@@ -117,13 +133,8 @@ pub async fn run_with_cap(file: &Path, db_dir: &Path, cap: Option<Duration>) -> 
             first_round = false;
             if deadline.is_none() {
                 let units: usize = configs.iter().map(count_units).sum();
-                let max_budget = statuses
-                    .iter()
-                    .flatten()
-                    .flat_map(|s| s.panels.iter().map(|p| p.check_budget_seconds))
-                    .max()
-                    .unwrap_or(0);
-                deadline = Some(started + Duration::from_secs(wait_cap_secs(units, max_budget)));
+                let budget = max_budget(&configs, &statuses);
+                deadline = Some(started + Duration::from_secs(wait_cap_secs(units, budget)));
             }
         }
         if all_have_results(&configs, &statuses) {
@@ -185,6 +196,26 @@ mod tests {
             ..BoardConfig::default()
         };
         assert_eq!(count_units(&cfg), 4);
+    }
+
+    #[test]
+    fn max_budget_falls_back_to_timeout_when_status_missing() {
+        let mut p = panel("a", None);
+        p.timeout_seconds = 7;
+        let cfg = BoardConfig {
+            panels: vec![p],
+            ..BoardConfig::default()
+        };
+        assert_eq!(max_budget(std::slice::from_ref(&cfg), &[None]), 7);
+        let st = StatusResponse {
+            now_ms: 0,
+            board_updated_at: 0,
+            enabled: true,
+            started_at_ms: None,
+            panels: vec![],
+        };
+        // 상태는 있으나 그 칸이 없을 때도 폴백.
+        assert_eq!(max_budget(&[cfg], &[Some(st)]), 7);
     }
 
     #[test]

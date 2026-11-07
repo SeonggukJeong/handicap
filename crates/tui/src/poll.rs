@@ -115,6 +115,16 @@ mod tests {
     }
 
     #[test]
+    fn not_found_neither_counts_nor_resets() {
+        let mut t = ServerDownTracker::default();
+        t.record(&PollOutcome::Failed);
+        t.record(&PollOutcome::Failed);
+        t.record(&PollOutcome::NotFound);
+        t.record(&PollOutcome::Failed);
+        assert!(t.is_down());
+    }
+
+    #[test]
     fn ok_resets() {
         let mut t = ServerDownTracker::default();
         for _ in 0..3 {

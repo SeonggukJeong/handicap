@@ -53,9 +53,22 @@ fn error_kind(e: &reqwest::Error) -> &'static str {
     }
 }
 
+/// 원인 체인에서 첫 `std::io::Error`의 종류(`ConnectionRefused` 등)만 — 메시지는 절대 남기지 않는다.
+fn io_kind(e: &reqwest::Error) -> Option<std::io::ErrorKind> {
+    let mut src = std::error::Error::source(e);
+    while let Some(s) = src {
+        if let Some(io) = s.downcast_ref::<std::io::Error>() {
+            return Some(io.kind());
+        }
+        src = s.source();
+    }
+    None
+}
+
 fn transport(e: reqwest::Error) -> ApiError {
     tracing::warn!(
         kind = error_kind(&e),
+        io_kind = ?io_kind(&e),
         http_status = e.status().map(|s| s.as_u16()),
         "api call failed"
     );
@@ -94,6 +107,7 @@ async fn parse<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, ApiErr
     resp.json::<T>().await.map_err(|e| {
         tracing::warn!(
             kind = error_kind(&e),
+            io_kind = ?io_kind(&e),
             http_status,
             "api response decode failed"
         );
@@ -165,5 +179,24 @@ impl Api {
             .await
             .map_err(transport)?;
         parse(resp).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn io_kind_reports_connection_refused() {
+        // 곧바로 닫은 리스너 포트 → 연결 거부.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        let e = reqwest::Client::new()
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert_eq!(io_kind(&e), Some(std::io::ErrorKind::ConnectionRefused));
     }
 }
