@@ -1,9 +1,10 @@
 //! 앱 루프 — 메인 스레드의 동기 UI 루프(`event::poll`)가 tokio 런타임을 `block_on`으로 부린다.
 //! 키·마우스 해석과 격자 이동은 순수 함수로 분리했다.
 
+use std::cell::Cell;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -62,12 +63,29 @@ pub enum Action {
     Retry,
 }
 
-fn is_ctrl_c(k: &KeyEvent) -> bool {
-    k.modifiers.contains(KeyModifiers::CONTROL) && matches!(k.code, KeyCode::Char('c' | 'C'))
+/// 대문자(Caps Lock)와 한글 2벌식 자모(같은 물리 키)를 소문자 영문 키로 맞춘다.
+fn normalize_char(c: char) -> char {
+    match c {
+        'ㅂ' => 'q',
+        'ㅛ' => 'y',
+        'ㅗ' => 'h',
+        'ㅓ' => 'j',
+        'ㅏ' => 'k',
+        'ㅣ' => 'l',
+        'ㄱ' => 'r',
+        c => c.to_ascii_lowercase(),
+    }
 }
 
 pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
-    let quit_key = is_ctrl_c(&k) || matches!(k.code, KeyCode::Char('q'));
+    let code = match k.code {
+        KeyCode::Char(c) => KeyCode::Char(normalize_char(c)),
+        other => other,
+    };
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    let ctrl_c = ctrl && code == KeyCode::Char('c');
+    let quit_key = ctrl_c || code == KeyCode::Char('q');
+    let k = KeyEvent::new(code, k.modifiers);
     match screen {
         Screen::Starting => Action::None,
         Screen::Monitor => {
@@ -95,7 +113,8 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
             }
         }
         Screen::QuitConfirm(_) => {
-            if is_ctrl_c(&k) || matches!(k.code, KeyCode::Char('y')) {
+            // `y`만 종료 — Ctrl+C 연타 같은 실수 한 키로 꺼지지 않게 나머지는 모두 취소.
+            if !ctrl && matches!(k.code, KeyCode::Char('y')) {
                 Action::Quit
             } else {
                 Action::Back
@@ -153,6 +172,14 @@ pub fn screen_after_start(r: &Result<(), StartError>) -> Screen {
     }
 }
 
+/// 시계 갱신용 최대 재그리기 간격.
+const REDRAW_MAX: Duration = Duration::from_secs(1);
+
+/// 폴러 태스크가 끝났다면(패닉 등) 마지막 결과가 영영 갱신되지 않으니 서버 끊김으로 본다.
+pub fn effective_server_down(snapshot_down: bool, poller_finished: bool) -> bool {
+    snapshot_down || poller_finished
+}
+
 struct Running {
     session: Session,
     boards: Vec<BoardResponse>,
@@ -170,6 +197,7 @@ struct App<'a> {
     board_tx: watch::Sender<String>,
     snap_tx: watch::Sender<PollSnapshot>,
     snap_rx: watch::Receiver<PollSnapshot>,
+    poller_dead_logged: Cell<bool>,
 }
 
 impl App<'_> {
@@ -207,6 +235,7 @@ impl App<'_> {
     /// 세션을 (다시) 띄운다. 기존 세션이 있으면 먼저 내린다. 로그는 다시 초기화하지 않는다.
     fn start_session(&mut self) {
         self.stop_session();
+        self.poller_dead_logged.set(false);
         self.idx = 0;
         self.selected = 0;
         let rt = self.rt;
@@ -253,7 +282,12 @@ impl App<'_> {
     fn monitor_screen(&self) -> Option<MonitorScreen> {
         let r = self.running.as_ref()?;
         let board = &r.boards[self.idx];
-        let snap = self.snap_rx.borrow().clone();
+        let mut snap = self.snap_rx.borrow().clone();
+        let stalled = r.poller.is_finished();
+        if stalled && !self.poller_dead_logged.replace(true) {
+            tracing::error!("상태 폴러가 멈췄습니다 — 서버 응답 없음으로 표시합니다");
+        }
+        snap.server_down = effective_server_down(snap.server_down, stalled);
         let panels = build_panels(board, &snap);
         let server_time = snap
             .last
@@ -342,11 +376,25 @@ impl App<'_> {
 
 fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let mut first = matches!(app.screen, Screen::Starting);
+    let mut dirty = true;
+    let mut last_draw = Instant::now();
     loop {
-        term.draw(|f| app.draw_screen(f, &app.screen))?;
+        // 바뀐 것이 있을 때(입력·새 스냅샷·크기 변경)와 시계용으로 1초에 한 번만 그린다.
+        if dirty || app.snap_rx.has_changed().unwrap_or(false) || last_draw.elapsed() >= REDRAW_MAX
+        {
+            app.snap_rx.borrow_and_update();
+            term.draw(|f| app.draw_screen(f, &app.screen))?;
+            dirty = false;
+            last_draw = Instant::now();
+        }
         if first || matches!(app.screen, Screen::Starting) {
             first = false;
             app.start_session();
+            // 시작하는 동안 눌린 키가 뒤늦게 실행되지 않게 버린다.
+            while event::poll(Duration::ZERO)? {
+                event::read()?;
+            }
+            dirty = true;
             continue;
         }
         if !event::poll(Duration::from_millis(100))? {
@@ -360,8 +408,15 @@ fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) 
                 let lay = app.current_layout(Rect::new(0, 0, size.width, size.height));
                 handle_mouse(&app.screen, m, &lay)
             }
+            Event::Resize(..) => {
+                dirty = true;
+                Action::None
+            }
             _ => Action::None,
         };
+        if action != Action::None {
+            dirty = true;
+        }
         if app.apply(action) {
             return Ok(());
         }
@@ -407,6 +462,7 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         board_tx,
         snap_tx,
         snap_rx,
+        poller_dead_logged: Cell::new(false),
     };
     let result = event_loop(&mut app, &mut term);
     let code = match (&app.screen, &result) {

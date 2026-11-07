@@ -5,7 +5,7 @@ use handicap_tui::check_mode;
 use handicap_tui::cli::{self, Command};
 use handicap_tui::logging::{self, LogLoc};
 use handicap_tui::tempdb;
-use handicap_tui::terminal::install_panic_hook;
+use handicap_tui::terminal::{install_log_only_panic_hook, install_panic_hook};
 
 /// 테스트 전용 — 다른 스레드의 패닉이 로그에만 남고 터미널·stderr을 건드리지 않음을 증명한다.
 fn panic_selftest() -> ExitCode {
@@ -48,6 +48,8 @@ fn main() -> ExitCode {
     }
 
     if let (true, Some(f)) = (check, &file) {
+        // 복구할 터미널이 없다 — 모든 스레드 패닉을 로그에만 남긴다.
+        install_log_only_panic_hook();
         return ExitCode::from(check_mode::run(f) as u8);
     }
 
@@ -63,5 +65,8 @@ fn main() -> ExitCode {
     };
     // 모든 패닉은 로그 파일로. UI 스레드(=이 메인 스레드) 패닉일 때만 터미널을 복구한다.
     install_panic_hook(std::thread::current().id(), log_loc.clone());
-    ExitCode::from(app::run(&rt, file.as_deref(), log_loc) as u8)
+    let code = app::run(&rt, file.as_deref(), log_loc);
+    // 멈춘 비동기 작업이 있어도 종료가 길어지지 않게 상한을 둔다.
+    rt.shutdown_timeout(std::time::Duration::from_secs(2));
+    ExitCode::from(code as u8)
 }

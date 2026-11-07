@@ -951,6 +951,45 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
 }
 
 #[test]
+fn help_long_path_keeps_log_and_copy_rows() {
+    let path = format!("/{}", "Z".repeat(150));
+    let text = draw(80, 24, |f| {
+        render_help(f, Path::new(&path), &LogLoc::Path("/tmp/tui.log".into()))
+    });
+    println!("{text}");
+    assert_eq!(text.matches('Z').count(), 150, "{text}");
+    assert!(text.contains("로그: /tmp/tui.log"), "{text}");
+    assert!(text.contains("Shift+드래그"), "{text}");
+    assert!(text.contains("방향키"), "{text}");
+    assert!(text.contains("Esc 닫기"), "{text}");
+}
+
+#[test]
+fn help_tiny_height_drops_key_rows_before_paths() {
+    let path = format!("/{}", "Z".repeat(150));
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    // 높이 9: 본문 6행 = 경로 3 + 로그 1 + 복사 1 + 키 1
+    let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
+    println!("{text}");
+    assert_eq!(text.matches('Z').count(), 150, "{text}");
+    assert!(text.contains("로그: /tmp/tui.log"), "{text}");
+    assert!(text.contains("Shift+드래그"), "{text}");
+    assert!(!text.contains("마우스 왼쪽 클릭"), "{text}");
+    // 높이 7: 본문 4행 — 복사 안내가 먼저 빠지지만 경로·로그는 남는다.
+    let text = draw(80, 7, |f| render_help(f, Path::new(&path), &log));
+    println!("{text}");
+    assert_eq!(text.matches('Z').count(), 150, "{text}");
+    assert!(text.contains("로그: /tmp/tui.log"), "{text}");
+    assert!(text.contains("Esc 닫기"), "{text}");
+}
+
+#[test]
+fn usage_screen_has_key_bar() {
+    let text = draw(80, 24, render_usage);
+    assert!(text.lines().last().unwrap().contains("q 종료"), "{text}");
+}
+
+#[test]
 fn error_screen_key_bar_stays_on_last_row() {
     let e = StartError {
         stage: Stage::Import,

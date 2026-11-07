@@ -52,5 +52,6 @@ pub fn render_usage(f: &mut Frame) {
         Line::from(""),
         Line::from(text::USAGE_MANUAL),
     ];
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), f.area());
+    let body = split_key_bar(f, &[text::KEYS_QUIT]);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
 }
