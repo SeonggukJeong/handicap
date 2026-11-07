@@ -7,8 +7,8 @@
    - 참조 범위: `§` 바로 뒤가 `"`면 닫는 `"`까지(따옴표 제거), 아니면 첫 `(`·`)`·`,` 또는
      줄 끝까지를 trim.
    - 범위가 숫자 또는 `[A-Z]\\d`로 시작하면(spec·roadmap 번호) 기계 대조에서 제외.
-   - 대상 헤딩: `§` 앞에 `.md` 경로가 있으면(사이 backtick·공백 허용) 그 파일의 헤딩,
-     아니면 ui 문서 전부의 헤딩.
+   - 대상 헤딩(`##` 이상, h1 제외): `§` 앞에 `.md` 경로가 있으면(사이 backtick·공백 허용) 그
+     파일의 헤딩, 아니면 ui 문서 전부의 헤딩.
    - 일치: (a) 헤딩 짧은 제목(첫 ` (`·` /` 앞)이 범위의 접두사(조사 꼬리 허용) 또는
      (b) 범위가 헤딩 전체의 접두사. 실패 = `FAIL [D7] § 해석 실패: <file>:<line> <범위>`.
 ② 판정 커버리지 — 두 manifest(활성 = 소스 `ui/CLAUDE.md`, `.compare` = `ui/src/compare/CLAUDE.md`)의
@@ -31,7 +31,9 @@ MANIFESTS = [
     ("scripts/doc-move-manifest.compare.tsv", "ui/src/compare/CLAUDE.md"),
 ]
 PATTERN = re.compile(r'(?<![\w가-힣])(위 |아래 |이 섹션|위쪽|아래쪽)|§[^\s,)·(]+|"[^"]+" 섹션')
-HEADING = re.compile(r"(?m)^#{1,6}[ \t]+(.+?)[ \t]*$")
+# `##` 이상만 — h1(문서 제목, 예 `# UI (`ui/`) 함정`)은 짧은 제목이 `UI`처럼 퇴화해
+# "UI"로 시작하는 모든 범위를 (a)로 공허하게 해석시키므로 대조 대상에서 뺀다.
+HEADING = re.compile(r"(?m)^#{2,6}[ \t]+(.+?)[ \t]*$")
 MD_BEFORE = re.compile(r"([A-Za-z0-9_./-]+\.md)[`\s]*$")
 EXCLUDED = re.compile(r"\d|[A-Z]\d")
 
@@ -152,9 +154,10 @@ def main(argv):
 
     for f in fails:
         print(f)
-    print(f"\n{'FAIL' if fails else 'OK'}: § 해석 {n_resolved}건 · 번호 제외 {n_excluded}건 · "
-          f"대상 행 {n_rows}개 · 패턴 적중 {n_matches}건 · 판정 {len(used)}건"
-          f"(미사용 {len(adj) - len(used)}행)")
+    # 접두 `OK: § 해석 <N> · 판정 <J>`(숫자 뒤 단위 없음)는 plan Task 4 기대 문구 — 바꾸지 말 것
+    print(f"\n{'FAIL' if fails else 'OK'}: § 해석 {n_resolved} · 판정 {len(used)} · "
+          f"번호 제외 {n_excluded}건 · 대상 행 {n_rows}개 · 패턴 적중 {n_matches}건 · "
+          f"미사용 판정 {len(adj) - len(used)}행")
     return 1 if fails else 0
 
 

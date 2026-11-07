@@ -18,6 +18,7 @@ D4 — final TSV의 이동 행(dest_file ∉ {STAY, DELETE-IF-EMPTY})마다 `mis
   각 경로가 `dirname(dest_file)` 하위(`ui/CLAUDE.md`면 `ui/`)여야 한다.
 TSV는 전부 `split('\\t')` — csv 모듈은 `"`로 시작하는 필드를 벗겨 anchor를 망가뜨린다.
 """
+import argparse
 import glob
 import os
 import pathlib
@@ -54,17 +55,12 @@ def is_bullet(l):
 
 
 def main(argv):
-    if len(argv) < 2:
-        print("사용: check-bullet-conservation.py <base> [--map <final.tsv>]")
-        return 2
-    base = argv[1]
-    map_path = None
-    if "--map" in argv:
-        k = argv.index("--map")
-        if k + 1 >= len(argv):
-            print("사용: --map <final.tsv>")
-            return 2
-        map_path = argv[k + 1]
+    # 순서 무관 파싱 — `<base> --map x`와 `--map x <base>` 둘 다 받는다.
+    ap = argparse.ArgumentParser(prog="check-bullet-conservation.py")
+    ap.add_argument("base")
+    ap.add_argument("--map", dest="map_path", default=None, metavar="<final.tsv>")
+    args = ap.parse_args(argv[1:])          # 사용 오류는 argparse가 exit 2
+    base, map_path = args.base, args.map_path
 
     fails = []
 
@@ -95,7 +91,7 @@ def main(argv):
 
     # --- manifest 치환 키 ((file, 1-based 줄) → [(manifest, kind, pairs)]) ------------------
     keyed = defaultdict(list)
-    n_rows = 0
+    n_rows = n_pairs = 0
     for mpath, src in MANIFESTS:
         for cols in read_rows(mpath):
             kind = cols[0]
@@ -104,6 +100,7 @@ def main(argv):
             n_rows += 1
             anchor = cols[1]
             pairs = list(zip(cols[5::2], cols[6::2]))
+            n_pairs += len(pairs)
             if kind == "relocate":
                 f = src
                 lines = base_text.get(f)
@@ -137,7 +134,8 @@ def main(argv):
         cur_count.update(pathlib.Path(d).read_text().split("\n"))
 
     n_bullets = sum(len(v) for v in seen.values())
-    if not dups:                 # 중복이 있으면 '정확히 1회'가 정의되지 않는다 — 사전조건 FAIL로 끝
+    n_attributed = 0             # 치환 적용 후 현재 집합에서 정확히 1회 = 귀속(성공 시 = n_bullets)
+    if not dups:                # 중복이 있으면 '정확히 1회'가 정의되지 않는다 — 사전조건 FAIL로 끝
         for d in base_docs:
             for i, l in enumerate(base_text[d], 1):
                 if not is_bullet(l):
@@ -149,7 +147,9 @@ def main(argv):
                     for old, new in pairs:
                         want = want.replace(old, new, 1)
                 n = cur_count[want]
-                if n == 0:
+                if n == 1:
+                    n_attributed += 1
+                elif n == 0:
                     fails.append(f"FAIL [D3] 미귀속: {d}:{i} {l[:50]}")
                 elif n > 1:
                     fails.append(f"FAIL [D3] 중복 귀속({n}회): {d}:{i} {l[:50]}")
@@ -187,8 +187,10 @@ def main(argv):
     for f in fails:
         print(f)
     d4 = f" · D4 이동 행 {n_moves}개" if map_path is not None else ""
-    print(f"\n{'FAIL' if fails else 'OK'}: base 불릿 {n_bullets}줄(문서 {len(base_docs)}개 → 현재 "
-          f"{len(cur_docs)}개) · 치환 행 {n_rows}개{d4}")
+    # 접두 `OK: base 불릿 <n> · 귀속 <m>`은 plan Task 4 기대 문구 — 바꾸지 말 것
+    print(f"\n{'FAIL' if fails else 'OK'}: base 불릿 {n_bullets} · 귀속 {n_attributed} · "
+          f"문서 base {len(base_docs)}개→현재 {len(cur_docs)}개 · "
+          f"relocate·refix 행 {n_rows}개 · 치환 행 {n_pairs}개{d4}")
     return 1 if fails else 0
 
 

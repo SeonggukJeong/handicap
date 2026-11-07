@@ -26,7 +26,7 @@ T = "\t"
 # --- base fixture ---------------------------------------------------------------------------
 # 줄 번호(1-based)를 케이스가 단언에 쓴다: a1=5, a2=6(연속 줄 7), b1=11, b2=12, r1=16, 마지막 줄=20.
 BASE_UI = "\n".join([
-    "# UI 함정",                                   # 1
+    "# UI (`ui/`) 함정",                           # 1 — 실물과 같은 h1(짧은 제목 'UI'로 퇴화)
     "",                                            # 2
     "## 빌드 게이트",                               # 3
     "",                                            # 4
@@ -220,7 +220,13 @@ def c08(tmp, k):
     code, out = cov(tmp)
     k.exit(code, 1)
     k.has(out, "FAIL [manifest] 컬럼 6개(relocate:")
-    return out
+    # refix는 치환 1개 이상(5+2k, k≥1) — 치환 0개(5컬럼) refix는 컬럼 FAIL
+    manifest(tmp, ROW_A1, ROW_B1,
+             T.join(["refix", "a2 `tokB`", "ui/CLAUDE.md", "-", "0"]))
+    code2, out2 = cov(tmp)
+    k.exit(code2, 1)
+    k.has(out2, "FAIL [manifest] 컬럼 5개(refix:")
+    return out + "\n---\n" + out2
 
 
 def c09(tmp, k):
@@ -230,7 +236,12 @@ def c09(tmp, k):
     code, out = cov(tmp)
     k.exit(code, 1)
     k.has(out, "FAIL [relocate] 치환 old 0회")
-    return out
+    # old가 줄에 2회 이상(b1 줄의 backtick은 2개) → 모호 치환 FAIL
+    manifest(tmp, ROW_A1, T.join(["relocate", "b1 `tokD`", RUN, "-", "0", "`", "'"]))
+    code2, out2 = cov(tmp)
+    k.exit(code2, 1)
+    k.has(out2, "FAIL [relocate] 치환 old 2회")
+    return out + "\n---\n" + out2
 
 
 def c10(tmp, k):
@@ -263,7 +274,12 @@ def c11(tmp, k):
     code2, out2 = cov(tmp)
     k.exit(code2, 1)
     k.has(out2, "FAIL [refix] 원 줄 잔존")
-    return out1 + "\n---\n" + out2
+    drop_lines(tmp, cmp, fixed, C2)                                       # 치환 결과 줄 부재
+    code3, out3 = cov(tmp)
+    k.exit(code3, 1)
+    k.has(out3, "FAIL [refix] 치환 결과 줄 없음")
+    k.lacks(out3, "FAIL [refix] 원 줄 잔존")
+    return out1 + "\n---\n" + out2 + "\n---\n" + out3
 
 
 def c12(tmp, k):
@@ -291,6 +307,8 @@ def c13(tmp, k):
     code, out = run(tmp, CONSERVE, "HEAD")                         # 정상 → OK
     k.exit(code, 0)
     k.lacks(out, "FAIL")
+    # base 불릿 = ui 6(a1·a2·a2하위·b1·b2·r1) + compare 2 — 전부 정확히 1회 귀속
+    k.has(out, "OK: base 불릿 8 · 귀속 8")
     outs.append(out)
     # 미귀속: 목적지에서 a1 줄 삭제
     write(tmp, RUN, read(tmp, RUN).replace(A1 + "\n", ""))
@@ -313,6 +331,16 @@ def c13(tmp, k):
     k.exit(code, 1)
     k.has(out, "FAIL [D3] 한 줄에 치환 행 2개")
     outs.append(out)
+    # 사전조건: base에 중복 불릿(compare에 ui의 a2 줄 복제) → 새 base 커밋으로 실행
+    cmp = "ui/src/compare/CLAUDE.md"
+    write(tmp, cmp, read(tmp, cmp) + A2 + "\n")
+    git(tmp, "add", cmp)
+    git(tmp, "-c", "user.name=t", "-c", "user.email=t", "-c", "commit.gpgsign=false",
+        "commit", "-q", "-m", "dup base")
+    code, out = run(tmp, CONSERVE, "HEAD")
+    k.exit(code, 1)
+    k.has(out, "FAIL [D3] base 불릿 중복(사전조건)")
+    outs.append(out)
     return "\n---\n".join(outs)
 
 
@@ -333,6 +361,12 @@ def c14(tmp, k):
     code1, out1 = run(tmp, CONSERVE, "HEAD", "--map", "map.tsv")
     k.exit(code1, 0)
     k.lacks(out1, "FAIL")
+    k.has(out1, "OK: base 불릿 8 · 귀속 8")
+    k.has(out1, "D4 이동 행 2개")
+    # 인자 순서 무관: `--map x <base>`도 같은 결과
+    code1b, out1b = run(tmp, CONSERVE, "--map", "map.tsv", "HEAD")
+    k.exit(code1b, 0)
+    k.true(out1b == out1, f"--map 선행 순서 출력 불일치: {out1b!r}")
     bad = good + [T.join(["ui/CLAUDE.md", "11", "bullet", "1", "b1", RUN,
                           "ui/src/components/run/RunDialog.tsx,ui/src/pages/X.tsx", "-", "r"])]
     write(tmp, "map.tsv", "\n".join(bad) + "\n")
@@ -352,6 +386,7 @@ def c15(tmp, k):
         "- z5 파일 지정 `x.md` §헤딩 하나의 내용",            # 25 → x.md 대조 일치
         "- z6 파일 지정 오대조 `x.md` §빌드 게이트 항목",      # 26 → x.md엔 없음 → 실패
         "- z7 번호 제외 §4.1 · §B12 참조",                   # 27 → 제외
+        "- z8 h1 퇴화 §UI 아무거나",                         # 28 → h1 `# UI (...)` 제외라 실패
     ]
     write(tmp, "ui/CLAUDE.md", read(tmp, "ui/CLAUDE.md") + "\n".join(extra) + "\n")
     write(tmp, "x.md", "# X 문서\n\n## 헤딩 하나 (설명)\n\n본문\n")
@@ -367,12 +402,20 @@ def c15(tmp, k):
     k.exit(code, 1)
     fails = [l for l in out.split("\n") if l.startswith("FAIL [D7] § 해석 실패")]
     want = ["FAIL [D7] § 해석 실패: ui/CLAUDE.md:21 폼 UX",
-            "FAIL [D7] § 해석 실패: ui/CLAUDE.md:26 빌드 게이트 항목"]
+            "FAIL [D7] § 해석 실패: ui/CLAUDE.md:26 빌드 게이트 항목",
+            "FAIL [D7] § 해석 실패: ui/CLAUDE.md:28 UI 아무거나"]
     k.true(fails == want, f"§ 해석 실패 줄 {fails} (기대 {want})")
     miss = [l for l in out.split("\n") if l.startswith("FAIL [D7] 미판정")]
     k.true(len(miss) == 1 and miss[0].startswith("FAIL [D7] 미판정: ui/CLAUDE.md:11 위"),
            f"미판정 줄 {miss} (기대 ui/CLAUDE.md:11 위 1건)")
-    return out
+    # OK 문구: 실패 줄 제거 + b1 `위 ` 판정 추가 → § 해석 4(z2–z5) · 판정 2(사용 행만)
+    drop_lines(tmp, "ui/CLAUDE.md", extra[0], extra[5], extra[7])
+    write(tmp, "adj.tsv", "\n".join(adj + [T.join(["ui/CLAUDE.md", "b1 `tokD`", "위 ",
+                                                   "subst", "치환 선언"])]) + "\n")
+    code2, out2 = run(tmp, REFS, "HEAD", "adj.tsv")
+    k.exit(code2, 0)
+    k.has(out2, "OK: § 해석 4 · 판정 2")
+    return out + "\n---\n" + out2
 
 
 CASES = [c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, c11, c12, c13, c14, c15]
