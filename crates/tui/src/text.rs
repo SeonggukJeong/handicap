@@ -37,6 +37,8 @@ pub const KEYS_HELP_OPEN: &str = "? 도움말";
 pub const KEYS_QUIT: &str = "q 종료";
 pub const KEYS_RETRY: &str = "r 다시 시도";
 pub const KEYS_HELP: &str = "Esc 닫기";
+pub const KEYS_CONFIRM_YES: &str = "y 종료";
+pub const KEYS_CONFIRM_CANCEL: &str = "다른 키 취소";
 
 pub const HELP_TITLE: &str = "도움말";
 pub const HELP_KEYS: [(&str, &str); 6] = [

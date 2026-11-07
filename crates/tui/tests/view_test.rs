@@ -13,7 +13,9 @@ use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::model::{
     Bar, BigValue, PanelView, Row, build_panels, panel_rows, parse_hex,
 };
-use handicap_tui::view::monitor::{MonitorScreen, layout, panel_at, render};
+use handicap_tui::view::monitor::{
+    KeyBar, MonitorScreen, layout, panel_at, render, render_with_keys,
+};
 use handicap_tui::view::overlay::{render_help, render_quit_confirm};
 use handicap_tui::wire::{BoardResponse, PanelStatus, StatusResponse};
 use ratatui::Terminal;
@@ -1105,4 +1107,44 @@ fn narrow_three_column_panel_keeps_max_number() {
     let text = buffer_text(t.backend().buffer());
     assert!(text.contains("최대 1,413"), "{text}");
     assert!(!text.contains("1,4…"), "{text}");
+}
+
+fn last_row(buf: &Buffer) -> String {
+    let area = buf.area;
+    let mut sub = Buffer::empty(Rect::new(0, 0, area.width, 1));
+    for x in 0..area.width {
+        sub[(x, 0)] = buf[(x, area.height - 1)].clone();
+    }
+    buffer_text(&sub).trim().to_string()
+}
+
+fn key_bar_row(bar: KeyBar) -> String {
+    let s = screen(
+        vec![view("로그인", PanelState::Ok, "✔ 정상", "182 ms")],
+        (1, 2),
+        0,
+    );
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| render_with_keys(f, &s, bar)).unwrap();
+    last_row(t.backend().buffer())
+}
+
+#[test]
+fn bottom_key_bar_shows_only_keys_of_the_open_screen() {
+    // 모니터 단독: 기존 그대로(보드 2개라 Tab 포함).
+    let monitor = key_bar_row(KeyBar::Monitor);
+    assert_eq!(monitor, "←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료");
+    // 도움말: 닫기 키만.
+    assert_eq!(key_bar_row(KeyBar::Help), "Esc 닫기");
+    // 종료 확인: 확인 키만.
+    assert_eq!(key_bar_row(KeyBar::QuitConfirm), "y 종료  다른 키 취소");
+    // `render`는 Monitor와 같다.
+    let s = screen(
+        vec![view("로그인", PanelState::Ok, "✔ 정상", "182 ms")],
+        (1, 2),
+        0,
+    );
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    t.draw(|f| render(f, &s)).unwrap();
+    assert_eq!(last_row(t.backend().buffer()), monitor);
 }

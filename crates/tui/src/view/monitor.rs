@@ -390,7 +390,19 @@ fn render_key_bar(f: &mut Frame, area: Rect, segments: &[&str]) {
     );
 }
 
+/// 맨 아래 키 줄이 안내할 화면 — 열려 있는 화면에서 쓸 수 있는 키만 보인다(spec §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyBar {
+    Monitor,
+    Help,
+    QuitConfirm,
+}
+
 pub fn render(f: &mut Frame, s: &MonitorScreen) {
+    render_with_keys(f, s, KeyBar::Monitor);
+}
+
+pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) {
     let area = f.area();
     let lay = match layout(area, s.panels.len()) {
         Ok(l) => l,
@@ -401,7 +413,12 @@ pub fn render(f: &mut Frame, s: &MonitorScreen) {
                     .wrap(ratatui::widgets::Wrap { trim: false }),
                 body,
             );
-            render_key_bar(f, area, &[text::KEYS_QUIT]);
+            let keys: &[&str] = match bar {
+                KeyBar::Monitor => &[text::KEYS_QUIT],
+                KeyBar::Help => &[text::KEYS_HELP],
+                KeyBar::QuitConfirm => &[text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
+            };
+            render_key_bar(f, area, keys);
             return;
         }
     };
@@ -409,10 +426,17 @@ pub fn render(f: &mut Frame, s: &MonitorScreen) {
     for (i, (rect, v)) in lay.panels.iter().zip(&s.panels).enumerate() {
         render_panel(f, *rect, v, i == s.selected);
     }
-    let mut keys = vec![text::KEYS_MOVE];
-    if s.board_pos.1 > 1 {
-        keys.push(text::KEYS_NEXT_BOARD);
-    }
-    keys.extend([text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+    let keys = match bar {
+        KeyBar::Monitor => {
+            let mut keys = vec![text::KEYS_MOVE];
+            if s.board_pos.1 > 1 {
+                keys.push(text::KEYS_NEXT_BOARD);
+            }
+            keys.extend([text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+            keys
+        }
+        KeyBar::Help => vec![text::KEYS_HELP],
+        KeyBar::QuitConfirm => vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
+    };
     render_key_bar(f, area, &keys);
 }

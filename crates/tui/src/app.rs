@@ -28,7 +28,7 @@ use crate::terminal::TerminalGuard;
 use crate::text;
 use crate::view::error::{render_error, render_usage};
 use crate::view::model::build_panels;
-use crate::view::monitor::{Layout, MonitorScreen, layout, panel_at, render};
+use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
 use crate::wire::BoardResponse;
 
@@ -311,21 +311,31 @@ impl App<'_> {
     }
 
     fn draw_screen(&self, f: &mut ratatui::Frame, screen: &Screen) {
+        self.draw_with(f, screen, KeyBar::Monitor);
+    }
+
+    /// `bar` = 맨 아래 키 줄이 안내할 화면(도움말·종료 확인이 열려 있으면 그 화면의 키만).
+    fn draw_with(&self, f: &mut ratatui::Frame, screen: &Screen, bar: KeyBar) {
         match screen {
             Screen::Starting => {
                 f.render_widget(Paragraph::new(Line::from(text::STARTING)), f.area());
             }
             Screen::Monitor => {
                 if let Some(m) = self.monitor_screen() {
-                    render(f, &m);
+                    render_with_keys(f, &m, bar);
                 }
             }
             Screen::Help => {
-                self.draw_screen(f, &Screen::Monitor);
+                let b = if bar == KeyBar::QuitConfirm {
+                    bar
+                } else {
+                    KeyBar::Help
+                };
+                self.draw_with(f, &Screen::Monitor, b);
                 render_help(f, &self.file, &self.log);
             }
             Screen::QuitConfirm(inner) => {
-                self.draw_screen(f, inner);
+                self.draw_with(f, inner, KeyBar::QuitConfirm);
                 render_quit_confirm(f);
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
