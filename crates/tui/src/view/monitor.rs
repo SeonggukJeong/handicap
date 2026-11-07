@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use super::axis::{axis_line, axis_uses_seconds};
+use super::graph;
 use super::model::{BigValue, PanelView, Row, panel_rows, parse_hex};
 use super::{fit, key_bar, text_width};
 use crate::judge::ReasonParts;
@@ -17,17 +18,17 @@ use crate::text;
 pub const MIN_PANEL_W: u16 = 24;
 pub const MIN_PANEL_H: u16 = 6;
 
-const C_TEXT: &str = "#f2f5f8";
-const C_MUTED: &str = "#9aa7b4";
-const C_SOFT: &str = "#cbd5e1";
-const C_AXIS: &str = "#7b8794";
-const C_OK: &str = "#22c55e";
-const C_FAIL: &str = "#ef4444";
-const C_GRAY: &str = "#94a3b8";
-const C_SLOW: &str = "#f59e0b";
-const C_GRAY_BORDER: &str = "#64748b";
-const C_BLOCKED_BORDER: &str = "#475569";
-const C_BRIGHT: &str = "#e2e8f0";
+pub(crate) const C_TEXT: &str = "#f2f5f8";
+pub(crate) const C_MUTED: &str = "#9aa7b4";
+pub(crate) const C_SOFT: &str = "#cbd5e1";
+pub(crate) const C_AXIS: &str = "#7b8794";
+pub(crate) const C_OK: &str = "#22c55e";
+pub(crate) const C_FAIL: &str = "#ef4444";
+pub(crate) const C_GRAY: &str = "#94a3b8";
+pub(crate) const C_SLOW: &str = "#f59e0b";
+pub(crate) const C_GRAY_BORDER: &str = "#64748b";
+pub(crate) const C_BLOCKED_BORDER: &str = "#475569";
+pub(crate) const C_BRIGHT: &str = "#e2e8f0";
 
 fn color(hex: &str) -> Color {
     parse_hex(hex).unwrap_or(Color::Reset)
@@ -260,7 +261,11 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
             }
             Row::Bars => Line::from(
                 bars.iter()
-                    .map(|b| Span::styled(b.glyph.to_string(), Style::default().fg(b.color)))
+                    .enumerate()
+                    .map(|(i, b)| {
+                        let ch = graph::column(b, 1, v.graph_max_ms, i)[0].unwrap_or(' ');
+                        Span::styled(ch.to_string(), Style::default().fg(b.color))
+                    })
                     .collect::<Vec<_>>(),
             ),
             Row::Axis => {

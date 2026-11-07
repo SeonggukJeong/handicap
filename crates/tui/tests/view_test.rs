@@ -10,8 +10,9 @@ use handicap_tui::poll::PollSnapshot;
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
+use handicap_tui::view::graph::{column, label_width, threshold_rows};
 use handicap_tui::view::model::{
-    Bar, BigValue, PanelView, Row, build_panels, panel_rows, parse_hex,
+    Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows, parse_hex,
 };
 use handicap_tui::view::monitor::{
     KeyBar, MonitorScreen, layout, panel_at, render, render_with_keys,
@@ -128,6 +129,11 @@ fn view(title: &str, state: PanelState, label: &'static str, big: &str) -> Panel
         stats: None,
         display: vec![],
         interval_seconds: 10,
+        timeout_seconds: 5,
+        graph_max_ms: 2000,
+        thresholds: vec![],
+        show_stats: true,
+        n_display_items: 0,
     }
 }
 fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> MonitorScreen {
@@ -235,7 +241,7 @@ fn build_panels_stats_off() {
 }
 
 #[test]
-fn build_panels_bars_glyphs_and_colors() {
+fn build_panels_bars_kinds_and_colors() {
     let mut p = panel("p1", "x");
     p.bar_count = 10;
     p.graph_max_ms = 800;
@@ -260,19 +266,31 @@ fn build_panels_bars_glyphs_and_colors() {
     );
     let bars = &build_panels(&b, &s)[0].bars;
     assert_eq!(bars.len(), 10);
-    assert_eq!(bars[0].glyph, ' ');
+    assert_eq!(bars[0].kind, BarKind::Empty);
     assert_eq!(bars[0].at_ms, None);
     // 100/800*8 = 1 → ▁, 기본 초록
-    assert_eq!(bars[6].glyph, '▁');
+    assert_eq!(bars[6].kind, BarKind::Ok { latency_ms: 100 });
     assert_eq!(bars[6].color, Color::Rgb(0x22, 0xc5, 0x5e));
     assert_eq!(bars[6].at_ms, Some(1000));
     // 700/800*8 = 7 → ▇, 임계값 색
-    assert_eq!(bars[7].glyph, '▇');
+    assert_eq!(bars[7].kind, BarKind::Ok { latency_ms: 700 });
     assert_eq!(bars[7].color, Color::Rgb(0xf5, 0x9e, 0x0b));
-    assert_eq!(bars[8].glyph, '█');
+    assert_eq!(bars[8].kind, BarKind::Fail);
     assert_eq!(bars[8].color, Color::Rgb(0xef, 0x44, 0x44));
-    assert_eq!(bars[9].glyph, '·');
+    assert_eq!(bars[9].kind, BarKind::ConfigError);
     assert_eq!(bars[9].color, Color::Rgb(0x47, 0x55, 0x69));
+    let v = &build_panels(&b, &s)[0];
+    assert_eq!(v.graph_max_ms, 800);
+    assert_eq!(
+        v.thresholds,
+        vec![ThresholdView {
+            ms: 500,
+            color: Color::Rgb(0xf5, 0x9e, 0x0b)
+        }]
+    );
+    assert_eq!(v.timeout_seconds, panel("p1", "x").timeout_seconds);
+    assert_eq!(v.n_display_items, 0);
+    assert!(v.show_stats);
 }
 
 #[test]
@@ -366,12 +384,12 @@ fn render_monitor_contains() {
     p2.consecutive = Some("4회 연속 · 09:39:51부터".into());
     p2.bars = vec![
         Bar {
-            glyph: '▂',
+            kind: BarKind::Ok { latency_ms: 400 },
             color: Color::Green,
             at_ms: Some(1_700_000_000_000),
         },
         Bar {
-            glyph: '█',
+            kind: BarKind::Fail,
             color: Color::Red,
             at_ms: Some(1_700_000_010_000),
         },
@@ -1147,4 +1165,96 @@ fn bottom_key_bar_shows_only_keys_of_the_open_screen() {
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
     t.draw(|f| render(f, &s)).unwrap();
     assert_eq!(last_row(t.backend().buffer()), monitor);
+}
+
+fn okbar(ms: u64) -> Bar {
+    Bar {
+        kind: BarKind::Ok { latency_ms: ms },
+        color: Color::Green,
+        at_ms: Some(0),
+    }
+}
+fn kbar(kind: BarKind) -> Bar {
+    Bar {
+        kind,
+        color: Color::Green,
+        at_ms: Some(0),
+    }
+}
+
+#[test]
+fn column_heights_scale_with_latency() {
+    let b = okbar;
+    assert_eq!(column(&b(1), 4, 1000, 0), vec![Some('▁'), None, None, None]);
+    assert_eq!(
+        column(&b(500), 4, 1000, 0),
+        vec![Some('█'), Some('█'), None, None]
+    );
+    assert_eq!(
+        column(&b(531), 4, 1000, 0),
+        vec![Some('█'), Some('█'), Some('▁'), None]
+    );
+    assert_eq!(column(&b(9999), 4, 1000, 0), vec![Some('█'); 4]);
+    // graph_max 0 → 패닉 없음
+    assert_eq!(column(&b(5), 2, 0, 0), vec![Some('█'); 2]);
+}
+
+#[test]
+fn column_fail_full_height_stripes_no_mark() {
+    let c0 = column(&kbar(BarKind::Fail), 6, 1000, 0);
+    assert_eq!(c0.len(), 6);
+    for (r, ch) in c0.iter().enumerate() {
+        assert_eq!(*ch, Some(if r % 3 == 0 { '▒' } else { '█' }), "row {r}");
+    }
+    let c1 = column(&kbar(BarKind::Fail), 6, 1000, 1);
+    assert_eq!(c1[0], Some('█'));
+    assert_eq!(c1[2], Some('▒'));
+    assert!(c1.iter().all(|c| matches!(c, Some('█') | Some('▒'))));
+    assert_eq!(column(&kbar(BarKind::ConfigError), 6, 1000, 0), c0);
+}
+
+#[test]
+fn column_upstream_low_and_skipped_mark() {
+    assert_eq!(
+        column(&kbar(BarKind::Upstream), 5, 1000, 0),
+        vec![Some('▅'), None, None, None, None]
+    );
+    assert_eq!(
+        column(&kbar(BarKind::Skipped), 3, 1000, 0),
+        vec![Some('·'), None, None]
+    );
+    assert_eq!(
+        column(&kbar(BarKind::Empty), 3, 1000, 0),
+        vec![None, None, None]
+    );
+}
+
+#[test]
+fn threshold_rows_clamp_and_dedupe() {
+    let t = |ms, c| ThresholdView { ms, color: c };
+    let r = threshold_rows(
+        &[t(700, Color::Red), t(1200, Color::Blue), t(1, Color::Green)],
+        1000,
+        5,
+    );
+    let rows: Vec<u16> = r.iter().map(|(row, _)| *row).collect();
+    assert_eq!(rows, vec![0, 3, 4]);
+    let r = threshold_rows(&[t(700, Color::Red), t(750, Color::Blue)], 1000, 3);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].0, 2);
+    assert_eq!(r[0].1.ms, 750);
+    assert!(threshold_rows(&[t(700, Color::Red)], 1000, 0).is_empty());
+}
+
+#[test]
+fn label_width_rules() {
+    let t = |ms| ThresholdView {
+        ms,
+        color: Color::Red,
+    };
+    assert_eq!(label_width(&[t(700)], 40, true), 4);
+    assert_eq!(label_width(&[t(700), t(1200)], 40, true), 5);
+    assert_eq!(label_width(&[t(700)], 40, false), 0);
+    assert_eq!(label_width(&[], 40, true), 0);
+    assert_eq!(label_width(&[t(700), t(1200)], 16, true), 0);
 }

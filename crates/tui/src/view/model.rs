@@ -15,7 +15,6 @@ use crate::wire::{BoardResponse, PanelStatus, StatusResponse};
 
 pub const COLOR_FAIL: &str = "#ef4444";
 pub const COLOR_GRAY_BAR: &str = "#475569";
-const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BigValue {
@@ -23,12 +22,28 @@ pub enum BigValue {
     Reason(ReasonParts),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarKind {
+    Empty,
+    Ok { latency_ms: u64 },
+    Fail,
+    ConfigError,
+    Upstream,
+    Skipped,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bar {
-    pub glyph: char,
+    pub kind: BarKind,
     pub color: Color,
     /// 그 슬롯 결과의 `CheckResult.at_ms`, 빈 슬롯 `None`.
     pub at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThresholdView {
+    pub ms: u32,
+    pub color: Color,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +58,12 @@ pub struct PanelView {
     pub stats: Option<String>,
     pub display: Vec<String>,
     pub interval_seconds: u32,
+    pub timeout_seconds: u32,
+    pub graph_max_ms: u32,
+    pub thresholds: Vec<ThresholdView>,
+    /// 설정 기준 표시 항목 수(최대 2).
+    pub n_display_items: usize,
+    pub show_stats: bool,
 }
 
 /// 줄 종류. 파생 순서 = 화면 순서.
@@ -103,21 +124,29 @@ fn bar_of(r: &CheckResult, p: &PanelConfig) -> Bar {
     match r.verdict {
         Verdict::Ok => {
             let ms = r.latency_ms.unwrap_or(0);
-            let max = f64::from(p.graph_max_ms.max(1));
-            let level = ((ms as f64 / max * 8.0).round() as i64).clamp(1, 8) as usize;
             Bar {
-                glyph: BLOCKS[level - 1],
+                kind: BarKind::Ok { latency_ms: ms },
                 color: rgb(bar_color(ms, &p.thresholds)),
                 at_ms,
             }
         }
         Verdict::Fail => Bar {
-            glyph: '█',
+            kind: BarKind::Fail,
             color: rgb(COLOR_FAIL),
             at_ms,
         },
-        Verdict::ConfigError | Verdict::UpstreamFailed | Verdict::BranchSkipped => Bar {
-            glyph: '·',
+        Verdict::ConfigError => Bar {
+            kind: BarKind::ConfigError,
+            color: rgb(COLOR_GRAY_BAR),
+            at_ms,
+        },
+        Verdict::UpstreamFailed => Bar {
+            kind: BarKind::Upstream,
+            color: rgb(COLOR_GRAY_BAR),
+            at_ms,
+        },
+        Verdict::BranchSkipped => Bar {
+            kind: BarKind::Skipped,
             color: rgb(COLOR_GRAY_BAR),
             at_ms,
         },
@@ -201,7 +230,7 @@ fn panel_view(
         .map(|slot| match slot {
             Some(r) => bar_of(r, p),
             None => Bar {
-                glyph: ' ',
+                kind: BarKind::Empty,
                 color: Color::Reset,
                 at_ms: None,
             },
@@ -217,6 +246,18 @@ fn panel_view(
         stats,
         display: display_values(p, state, latest),
         interval_seconds: p.interval_seconds,
+        timeout_seconds: p.timeout_seconds,
+        graph_max_ms: p.graph_max_ms,
+        thresholds: p
+            .thresholds
+            .iter()
+            .map(|t| ThresholdView {
+                ms: t.ms,
+                color: rgb(&t.color),
+            })
+            .collect(),
+        n_display_items: p.display_items.len().min(2),
+        show_stats,
     }
 }
 

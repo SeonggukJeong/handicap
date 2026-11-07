@@ -2,6 +2,7 @@
 
 pub mod axis;
 pub mod error;
+pub mod graph;
 pub mod model;
 pub mod monitor;
 pub mod overlay;
