@@ -737,14 +737,22 @@ fn render_axis_shows_bar_times() {
             now,
         );
         let sc = screen(build_panels(&b, &s), (1, 1), 0);
-        let text = draw(80, 24, |f| render(f, &sc));
-        // 안쪽 폭 24(칸 폭 26) → 보이는 막대 24개 → 가장 오래된 보이는 결과는 30-24 = 6번.
-        let oldest = rs[6].at_ms;
-        if secs {
-            assert!(text.contains(&format_hms(oldest)), "{text}");
-        } else {
-            assert!(text.contains(&format_hm(oldest)), "{text}");
-            assert!(!text.contains(&format_hms(oldest)), "{text}");
+        let buf = render_buf(80, 24, &sc);
+        let text = buffer_text(&buf);
+        let lay = layout(Rect::new(0, 0, 80, 24), 3).unwrap();
+        let fmt: fn(i64) -> String = if secs { format_hms } else { format_hm };
+        for r in &lay.panels {
+            // L·M(80×24 3칸 = M): 사용 폭 = 칸 폭 − 4(테두리·여백) → 보이는 막대 = 사용 폭(26 → 22, 27 → 23).
+            // 통계 끔 → 시각 줄 = 안쪽 맨 아랫줄.
+            let usable = r.width - 4;
+            let oldest = rs[30 - usize::from(usable)].at_ms;
+            let newest = rs[29].at_ms;
+            let axis = text_at(&buf, r.y + r.height - 2, r.x + 2, r.x + r.width - 3);
+            assert!(axis.starts_with(&fmt(oldest)), "{axis}\n{text}");
+            assert!(axis.trim_end().ends_with(&fmt(newest)), "{axis}\n{text}");
+            if !secs {
+                assert!(!axis.contains(&format_hms(oldest)), "{axis}\n{text}");
+            }
         }
     }
 }
@@ -1046,21 +1054,40 @@ fn error_screen_key_bar_stays_on_last_row() {
 #[test]
 fn colors_match_gui() {
     let rgb = |h: u32| Color::Rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
-    // (state, border, big, small)
+    // (state, border, label, big, small)
     let cases = [
         (
             PanelState::Blocked,
             0x475569u32,
             0x94a3b8u32,
+            0x94a3b8u32,
             Some(0x64748bu32),
         ),
-        (PanelState::Skipped, 0x64748b, 0xe2e8f0, Some(0xe2e8f0)),
-        (PanelState::ConfigError, 0x64748b, 0x94a3b8, Some(0x94a3b8)),
-        (PanelState::Stale, 0x64748b, 0x94a3b8, None),
-        (PanelState::Fail, 0xef4444, 0xef4444, Some(0xef4444)),
-        (PanelState::Ok, 0x22c55e, 0xf2f5f8, None),
+        (
+            PanelState::Skipped,
+            0x64748b,
+            0x94a3b8,
+            0xe2e8f0,
+            Some(0xe2e8f0),
+        ),
+        (
+            PanelState::ConfigError,
+            0x64748b,
+            0x94a3b8,
+            0x94a3b8,
+            Some(0x94a3b8),
+        ),
+        (PanelState::Stale, 0x64748b, 0x94a3b8, 0x94a3b8, None),
+        (
+            PanelState::Fail,
+            0xef4444,
+            0xef4444,
+            0xef4444,
+            Some(0xef4444),
+        ),
+        (PanelState::Ok, 0x22c55e, 0x22c55e, 0xf2f5f8, None),
     ];
-    for (state, border, big, small) in cases {
+    for (state, border, label, big, small) in cases {
         let mut v = view("t", state, "L", "abc");
         if small.is_some() {
             v.big = BigValue::Reason(handicap_tui::judge::ReasonParts::Split {
@@ -1069,13 +1096,20 @@ fn colors_match_gui() {
             });
         }
         let sc = screen(vec![v], (1, 1), 0);
+        // 80×24 1칸 → L: 머리 줄 y2, 블록 y3..=7(소문자는 가운데 줄 y5에 일반 글자), 사유 작은 줄 y8.
         let buf = render_buf(80, 24, &sc);
+        let t = buffer_text(&buf);
         assert_eq!(buf[(0, 1)].fg, rgb(border), "{state:?} border");
         let x = col_of_last_nonblank(&buf, 2);
-        assert_eq!(buf[(x, 2)].fg, rgb(big), "{state:?} big");
+        assert_eq!(buf[(x, 2)].symbol(), "L", "{state:?} label\n{t}");
+        assert_eq!(buf[(x, 2)].fg, rgb(label), "{state:?} label");
+        let x = col_of_last_nonblank(&buf, 5);
+        assert_eq!(buf[(x, 5)].symbol(), "c", "{state:?} big\n{t}");
+        assert_eq!(buf[(x, 5)].fg, rgb(big), "{state:?} big");
         if let Some(sm) = small {
-            let x = col_of_last_nonblank(&buf, 3);
-            assert_eq!(buf[(x, 3)].fg, rgb(sm), "{state:?} small");
+            let x = col_of_last_nonblank(&buf, 8);
+            assert_eq!(buf[(x, 8)].symbol(), "z", "{state:?} small\n{t}");
+            assert_eq!(buf[(x, 8)].fg, rgb(sm), "{state:?} small");
         }
     }
 }
@@ -1510,4 +1544,480 @@ fn s_display_rows_reserved_by_config() {
     assert_s_title(&b);
     assert_eq!(blocks_in_col(&a, 78), 2, "{}", buffer_text(&a));
     assert_eq!(blocks_in_col(&b, 78), 2, "{}", buffer_text(&b));
+}
+
+// ---------- L·M 단계 칸 배치 (Task 4) ----------
+
+const T0: i64 = 1_700_000_000_000;
+
+fn lm_bars(n: usize, ms: u64) -> Vec<Bar> {
+    (0..n).map(|i| s_ok(ms, T0 + i as i64 * 10_000)).collect()
+}
+fn is_big_glyph(sym: &str) -> bool {
+    matches!(sym, "▀" | "▄" | "█")
+}
+fn row_has_big(buf: &Buffer, y: u16, x0: u16, x1: u16) -> bool {
+    (x0..=x1).any(|x| is_big_glyph(buf[(x, y)].symbol()))
+}
+/// `x0..=x1` 글자 칸을 잇되 넓은 문자 뒤 채움 칸은 건너뛴다.
+fn text_at(buf: &Buffer, y: u16, x0: u16, x1: u16) -> String {
+    let mut out = String::new();
+    let mut x = x0;
+    while x <= x1 {
+        let sym = buf[(x, y)].symbol();
+        out.push_str(sym);
+        x += Span::raw(sym.to_string()).width().max(1) as u16;
+    }
+    out
+}
+fn reason_view(
+    title: &str,
+    label: &'static str,
+    parts: handicap_tui::judge::ReasonParts,
+) -> PanelView {
+    let mut v = view(title, PanelState::Fail, label, "");
+    v.big = BigValue::Reason(parts);
+    v
+}
+fn detail(big: &str, small: &str) -> handicap_tui::judge::ReasonParts {
+    handicap_tui::judge::ReasonParts::Detail {
+        big: big.into(),
+        small: small.into(),
+    }
+}
+fn split(fixed: &str, step: Option<&str>) -> handicap_tui::judge::ReasonParts {
+    handicap_tui::judge::ReasonParts::Split {
+        fixed: fixed.into(),
+        step: step.map(Into::into),
+    }
+}
+fn inner_of(r: Rect) -> Rect {
+    Rect::new(r.x + 1, r.y + 1, r.width - 2, r.height - 2)
+}
+
+fn six_mixed() -> Vec<PanelView> {
+    let ths = vec![th(700, "#facc15"), th(1200, "#f97316")];
+    let stats = Some("평균 312 · 최대 498 ms".to_string());
+    let ok_panel = |title: &str, big: &str, ms: u64| {
+        let mut v = view(title, PanelState::Ok, "✔ 정상", big);
+        v.bars = lm_bars(30, ms);
+        v.stats = stats.clone();
+        v.thresholds = ths.clone();
+        v.graph_max_ms = 1500;
+        v
+    };
+    let mut slow = ok_panel("결제 승인", "1,407 ms", 1407);
+    slow.state = PanelState::Slow;
+    slow.label = "▲ 느림";
+    let mut f503 = reason_view("주문 조회", "✖ 실패", detail("HTTP 503", "주문 단계"));
+    f503.consecutive = Some("22회 연속 · 04:33:14부터".into());
+    f503.bars = lm_bars(30, 300);
+    f503.stats = stats.clone();
+    f503.thresholds = ths.clone();
+    let mut fko = reason_view("외부 연동", "✖ 실패", split("요청 실패", None));
+    fko.consecutive = Some("22회 연속 · 04:33:14부터".into());
+    fko.bars = lm_bars(30, 300);
+    fko.thresholds = ths.clone();
+    vec![
+        ok_panel("로그인", "413 ms", 413),
+        slow,
+        f503,
+        fko,
+        ok_panel("회원 등급 조회", "1,086 ms", 1086),
+        ok_panel("재고 조회", "152 ms", 152),
+    ]
+}
+
+#[test]
+fn lm_six_panels_112x31_big_digits_and_few_blank_rows() {
+    let sc = screen(six_mixed(), (1, 1), 0);
+    let buf = render_buf(112, 31, &sc);
+    let t = buffer_text(&buf);
+    println!("{t}");
+    let lay = layout(Rect::new(0, 0, 112, 31), 6).unwrap();
+    for i in [0usize, 1, 4, 5] {
+        let inn = inner_of(lay.panels[i]);
+        let (x0, x1) = (inn.x + 1, inn.x + inn.width - 2);
+        let y0 = inn.y;
+        let last = inn.y + inn.height - 1;
+        // 머리 줄 다음 3줄 = 큰 글꼴(M).
+        for y in y0 + 1..=y0 + 3 {
+            assert!(row_has_big(&buf, y, x0, x1), "칸 {i} y{y}\n{t}");
+        }
+        // 막대 영역 밖(머리·블록·시각·평균) 빈 줄 ≤ 1.
+        let outside = [y0, y0 + 1, y0 + 2, y0 + 3, last - 1, last];
+        let blank = outside
+            .iter()
+            .filter(|&&y| {
+                text_at(&buf, y, inn.x, inn.x + inn.width - 1)
+                    .trim()
+                    .is_empty()
+            })
+            .count();
+        assert!(blank <= 1, "칸 {i} 빈 줄 {blank}\n{t}");
+        // 막대 영역 맨 아랫줄(시각 줄 바로 위)에 막대가 있다.
+        assert!(
+            !text_at(&buf, last - 2, x0, x1).trim().is_empty(),
+            "칸 {i} 막대\n{t}"
+        );
+    }
+}
+
+#[test]
+fn lm_tier_same_for_small_and_large_latency() {
+    for (big, ms) in [("2 ms", 2u64), ("29,871 ms", 29_871)] {
+        let mut v = view("로그인", PanelState::Ok, "✔ 정상", big);
+        v.timeout_seconds = 30;
+        v.graph_max_ms = 60_000;
+        v.bars = lm_bars(5, ms);
+        // 34×17 → 칸 (0,1,34,15), 안쪽 (1,2) 32×13: 머리 y2, 블록 y3..=5, 그다음 y6.
+        let buf = render_buf(34, 17, &screen(vec![v], (1, 1), 0));
+        let t = buffer_text(&buf);
+        assert!(text_at(&buf, 2, 2, 31).contains("✔ 정상"), "{t}");
+        for y in 3..=5 {
+            assert!(row_has_big(&buf, y, 2, 31), "{big} y{y}\n{t}");
+        }
+        assert!(!row_has_big(&buf, 6, 2, 31), "{big} M이어야 함\n{t}");
+    }
+}
+
+#[test]
+fn lm_fail_rows_do_not_change_tier() {
+    // 34×17(안쪽 32×13) — 그리고 54×16(안쪽 52×12): 폭은 L이 들어가지만 실패 줄 예약 때문에 M.
+    for (w, h) in [(34u16, 17u16), (54, 16)] {
+        let mut normal = view("로그인", PanelState::Ok, "✔ 정상", "413 ms");
+        normal.timeout_seconds = 30;
+        normal.bars = lm_bars(5, 413);
+        let mut failing = reason_view("로그인", "✖ 실패", detail("HTTP 503", "로그인 단계"));
+        failing.timeout_seconds = 30;
+        failing.consecutive = Some("3회 연속 · 00:00:10부터".into());
+        failing.bars = lm_bars(5, 413);
+        let x1 = w - 3;
+        for (name, v, label) in [("정상", normal, "✔ 정상"), ("실패", failing, "✖ 실패")]
+        {
+            let buf = render_buf(w, h, &screen(vec![v], (1, 1), 0));
+            let t = buffer_text(&buf);
+            assert!(
+                text_at(&buf, 2, 2, x1).contains(label),
+                "{name} {w}x{h}\n{t}"
+            );
+            for y in 3..=5 {
+                assert!(row_has_big(&buf, y, 2, x1), "{name} {w}x{h} y{y}\n{t}");
+            }
+            assert!(!row_has_big(&buf, 6, 2, x1), "{name} {w}x{h} M\n{t}");
+        }
+    }
+}
+
+#[test]
+fn lm_stats_row_blank_when_no_stats() {
+    let mut a = view("로그인", PanelState::Ok, "✔ 정상", "413 ms");
+    a.timeout_seconds = 30;
+    a.bars = lm_bars(20, 413);
+    a.stats = Some("평균 312 · 최대 498 ms".into());
+    let mut b = view("로그인", PanelState::Blocked, "― 확인 못 함", "");
+    b.big = BigValue::Reason(split("—", None));
+    b.timeout_seconds = 30;
+    b.bars = (0..20)
+        .map(|i| s_bar(BarKind::Upstream, T0 + i * 10_000))
+        .collect();
+    b.stats = None;
+    let ba = render_buf(34, 17, &screen(vec![a], (1, 1), 0));
+    let bb = render_buf(34, 17, &screen(vec![b], (1, 1), 0));
+    let (ta, tb) = (buffer_text(&ba), buffer_text(&bb));
+    // 안쪽 y2..=14: 평균 줄 y14, 시각 줄 y13, 막대 y6..=12.
+    assert!(text_at(&ba, 14, 1, 32).contains("평균"), "{ta}");
+    assert!(text_at(&bb, 14, 1, 32).trim().is_empty(), "{tb}");
+    for (buf, t) in [(&ba, &ta), (&bb, &tb)] {
+        assert!(text_at(buf, 13, 1, 32).contains(':'), "시각 줄 y13\n{t}");
+        assert!(
+            !text_at(buf, 12, 2, 31).trim().is_empty(),
+            "막대 바닥 y12\n{t}"
+        );
+    }
+}
+
+/// 36×17 → 칸 (0,1,36,15), 안쪽 (1,2) 34×13, 사용 x2..=33(폭 32), timeout 5 → M.
+fn m36(v: PanelView) -> Buffer {
+    render_buf(36, 17, &screen(vec![v], (1, 1), 0))
+}
+
+#[test]
+fn lm_http_503_big_without_display_items() {
+    use handicap_tui::view::bigfont::{Tier, rows};
+    let v = reason_view("주문 조회", "✖ 실패", detail("HTTP 503", "주문 단계"));
+    let buf = m36(v);
+    let t = buffer_text(&buf);
+    let want = rows("HTTP 503", Tier::M);
+    assert_eq!(want.len(), 3);
+    for (i, row) in want.iter().enumerate() {
+        // 폭 30 → x4..=33(오른쪽 끝까지).
+        let y = 3 + i as u16;
+        assert_eq!(&text_at(&buf, y, 4, 33), row, "y{y}\n{t}");
+    }
+    assert!(text_at(&buf, 3, 2, 3).trim().is_empty(), "{t}");
+    // 사유 작은 줄은 블록 바로 아래.
+    assert!(text_at(&buf, 6, 2, 33).ends_with("주문 단계"), "{t}");
+}
+
+#[test]
+fn lm_reason_over_reference_is_plain_with_display_items() {
+    let mut v = reason_view("주문 조회", "✖ 실패", detail("HTTP 503", "주문 단계"));
+    v.n_display_items = 1;
+    v.display = vec!["VIP".into()];
+    let buf = m36(v);
+    let t = buffer_text(&buf);
+    for y in 3..=5 {
+        assert!(!row_has_big(&buf, y, 2, 33), "y{y}\n{t}");
+    }
+    assert_eq!(text_at(&buf, 4, 26, 33), "HTTP 503", "{t}");
+    assert_eq!(text_at(&buf, 3, 2, 4), "VIP", "{t}");
+}
+
+#[test]
+fn lm_korean_reason_and_dash_plain_on_middle_row() {
+    let mut bars = lm_bars(19, 413);
+    bars.push(s_bar(BarKind::Fail, T0 + 190_000));
+    let mut normal = view("로그인", PanelState::Ok, "✔ 정상", "413 ms");
+    normal.bars = bars.clone();
+    let mut ko = reason_view("외부 연동", "✖ 실패", split("요청 실패", None));
+    ko.bars = bars.clone();
+    let mut dash = view("재고", PanelState::Pending, "… 확인 중", "—");
+    dash.bars = bars;
+    let nb = m36(normal);
+    for (v, want, label) in [(ko, "요청 실패", "✖ 실패"), (dash, "—", "… 확인 중")] {
+        let buf = m36(v);
+        let t = buffer_text(&buf);
+        assert!(text_at(&buf, 2, 2, 33).ends_with(label), "{t}");
+        assert!(text_at(&buf, 4, 2, 33).ends_with(want), "가운데 줄\n{t}");
+        assert!(text_at(&buf, 3, 2, 33).trim().is_empty(), "{t}");
+        assert!(text_at(&buf, 5, 2, 33).trim().is_empty(), "{t}");
+        // 막대 시작(y6)·끝(y12)·시각 줄(y13)이 정상 칸과 같다 — 최신 막대(실패) x33은 전체 높이.
+        for b in [&buf, &nb] {
+            assert!(matches!(b[(33, 6)].symbol(), "█" | "▒"), "{t}");
+            assert!(matches!(b[(33, 12)].symbol(), "█" | "▒"), "{t}");
+            assert!(!matches!(b[(33, 5)].symbol(), "█" | "▒"), "{t}");
+            assert!(text_at(b, 13, 2, 33).contains(':'), "{t}");
+        }
+    }
+}
+
+#[test]
+fn lm_display_values_left_area_fixed() {
+    for (big, state, label) in [
+        ("2 ms", PanelState::Ok, "✔ 정상"),
+        ("1,407 ms", PanelState::Slow, "▲ 느림"),
+    ] {
+        let panels: Vec<PanelView> = (0..6)
+            .map(|i| {
+                let mut v = if i == 0 {
+                    view("로그인", state, label, big)
+                } else {
+                    view(&format!("칸 {i}"), PanelState::Ok, "✔ 정상", "100 ms")
+                };
+                v.timeout_seconds = 30;
+                v.n_display_items = 1;
+                v.display = vec!["정상 영업".into()];
+                v.bars = lm_bars(30, 100);
+                v
+            })
+            .collect();
+        let buf = render_buf(112, 31, &screen(panels, (1, 1), 3));
+        let t = buffer_text(&buf);
+        // 칸 0: 안쪽 (1,2) 35×12, 사용 33, 왼쪽 자리 33 − 24 − 1 = 8 → x2..=9.
+        assert!(row_has_big(&buf, 3, 2, 34), "M\n{t}");
+        assert_eq!(text_at(&buf, 3, 2, 10), "정상 영… ", "{big}\n{t}");
+    }
+}
+
+#[test]
+fn lm_latency_over_reference_is_plain() {
+    let mut v = view("로그인", PanelState::Ok, "✔ 정상", "12,345 ms");
+    v.bars = lm_bars(3, 12_345);
+    let buf = m36(v);
+    let t = buffer_text(&buf);
+    for y in 3..=5 {
+        assert!(!row_has_big(&buf, y, 2, 33), "y{y}\n{t}");
+    }
+    assert_eq!(text_at(&buf, 4, 24, 33), " 12,345 ms", "{t}");
+}
+
+#[test]
+fn lm_long_title_selected_keeps_state_label() {
+    // 24×17 → 안쪽 22×13, 사용 20, timeout 5 → M(기준 폭 20).
+    let title = "아주아주아주아주 긴 칸 제목입니다";
+    let mut v = view(title, PanelState::Ok, "✔ 정상", "413 ms");
+    v.bars = lm_bars(5, 413);
+    let buf = render_buf(24, 17, &screen(vec![v], (1, 1), 0));
+    let t = buffer_text(&buf);
+    assert!(row_has_big(&buf, 3, 2, 21), "M\n{t}");
+    let head = text_at(&buf, 2, 2, 21);
+    assert!(head.ends_with("✔ 정상"), "{head}\n{t}");
+    assert!(head.starts_with("아주"), "{head}\n{t}");
+    assert!(head.contains('…'), "{head}\n{t}");
+    // 제목 칸 ≤ 20 − 6(상태) − 1 − 2(선택 표시 자리) = 11.
+    let title_part = head.trim_end_matches("✔ 정상").trim_end();
+    assert!(Span::raw(title_part.to_string()).width() <= 11, "{head}");
+    // 위 테두리에 제목 없음, 좌우 테두리 그대로.
+    assert!(!text_at(&buf, 1, 0, 23).contains("아주"), "{t}");
+    assert_eq!(buf[(0, 2)].symbol(), "┃", "{t}");
+    assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
+    // 상태 문구 + 1이 사용 폭보다 넓으면 제목 없이 상태 문구만.
+    let mut v = view(title, PanelState::StaleOff, "– 확인 불가 · 점검 꺼짐", "—");
+    v.bars = lm_bars(5, 413);
+    let buf = render_buf(24, 17, &screen(vec![v], (1, 1), 0));
+    let t = buffer_text(&buf);
+    let head = text_at(&buf, 2, 2, 21);
+    assert!(!head.contains("아주"), "{head}\n{t}");
+    assert!(head.starts_with("– 확인 불가 · 점검"), "{head}\n{t}");
+    assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
+}
+
+fn sweep_panel(i: usize) -> PanelView {
+    let ths = vec![th(300, "#facc15"), th(700, "#f97316"), th(1200, "#ef4444")];
+    let mut v = match i % 9 {
+        0 => {
+            let mut v = view(
+                "아주아주아주아주 긴 칸 제목입니다 정말로",
+                PanelState::Ok,
+                "✔ 정상",
+                "1,086 ms",
+            );
+            v.n_display_items = 2;
+            v.display = vec![
+                "아주 긴 화면 표시 값 첫째".into(),
+                "둘째 값 VIP 등급".into(),
+            ];
+            v
+        }
+        1 => {
+            let mut v = reason_view(
+                "외부 연동",
+                "✖ 실패",
+                split(
+                    "요청 실패: 아주 긴 한글 사유 문구가 계속 이어집니다",
+                    Some("로그인 단계 이름이 아주 김"),
+                ),
+            );
+            v.consecutive = Some("123회 연속 · 04:33:14부터".into());
+            v
+        }
+        2 => view(
+            "점검 꺼짐",
+            PanelState::StaleOff,
+            "– 확인 불가 · 점검 꺼짐",
+            "—",
+        ),
+        3 => {
+            let mut v = view("결제", PanelState::Slow, "▲ 느림", "29,871 ms");
+            v.timeout_seconds = 30;
+            v
+        }
+        4 => {
+            let mut v = reason_view("주문", "✖ 실패", detail("HTTP 503", "주문 단계"));
+            v.consecutive = Some("3회 연속 · 00:00:10부터".into());
+            v
+        }
+        5 => {
+            let mut v = not_contained_view();
+            v.n_display_items = 1;
+            v.display = vec!["x".into()];
+            v
+        }
+        6 => view("대기", PanelState::Pending, "… 확인 중", "—"),
+        7 => {
+            let mut v = view("막힘", PanelState::Blocked, "― 확인 못 함", "");
+            v.big = BigValue::Reason(split("—", None));
+            v
+        }
+        _ => {
+            let mut v = view("제외", PanelState::Skipped, "○ 분기 제외", "");
+            v.big = BigValue::Reason(split("분기 제외", None));
+            v
+        }
+    };
+    v.bars = (0..40i64)
+        .map(|k| {
+            if k % 7 == 3 {
+                s_bar(BarKind::Fail, T0 + k * 10_000)
+            } else {
+                s_ok(500 + (k as u64 * 97) % 2500, T0 + k * 10_000)
+            }
+        })
+        .collect();
+    v.thresholds = ths;
+    v.graph_max_ms = 2000;
+    v.stats = Some("평균 12,345 · 최대 29,999 ms".into());
+    v
+}
+
+#[test]
+fn lm_resize_sweep_no_overflow() {
+    use handicap_tui::view::bigfont::Tier;
+    use handicap_tui::view::tier::{TierInput, board_tier};
+    let is = |s: &str, set: [&str; 2]| set.contains(&s);
+    for n in 1..=9usize {
+        let (cols, rows) = handicap_tui::judge::grid_for(n);
+        let min = (24 * cols as u16, 6 * rows as u16 + 2);
+        for (w, h) in [min, (80, 24), (112, 31), (140, 40), (180, 50), (200, 60)] {
+            let panels: Vec<PanelView> = (0..n).map(sweep_panel).collect();
+            let sc = screen(panels.clone(), (1, 1), 0);
+            let buf = render_buf(w, h, &sc);
+            let t = buffer_text(&buf);
+            let ctx = format!("n={n} {w}x{h}\n{t}");
+            assert!(!t.contains("창을 키워"), "{ctx}");
+            let lay = layout(Rect::new(0, 0, w, h), n).unwrap();
+            let inners: Vec<(u16, u16)> = lay
+                .panels
+                .iter()
+                .map(|r| (r.width - 2, r.height - 2))
+                .collect();
+            let inputs: Vec<TierInput> = panels
+                .iter()
+                .map(|v| TierInput {
+                    timeout_seconds: v.timeout_seconds,
+                    has_display_items: v.n_display_items > 0,
+                    show_stats: v.show_stats,
+                })
+                .collect();
+            let tier = board_tier(&inners, &inputs);
+            for (i, (r, v)) in lay.panels.iter().zip(&panels).enumerate() {
+                let (x1, y1) = (r.x + r.width - 1, r.y + r.height - 1);
+                let ctx = format!("칸 {i} {tier:?} {ctx}");
+                assert!(is(buf[(r.x, r.y)].symbol(), ["┌", "┏"]), "{ctx}");
+                assert!(is(buf[(x1, r.y)].symbol(), ["┐", "┓"]), "{ctx}");
+                assert!(is(buf[(r.x, y1)].symbol(), ["└", "┗"]), "{ctx}");
+                assert!(is(buf[(x1, y1)].symbol(), ["┘", "┛"]), "{ctx}");
+                for y in r.y + 1..y1 {
+                    assert!(is(buf[(r.x, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
+                    assert!(is(buf[(x1, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
+                }
+                for x in r.x + 1..x1 {
+                    assert!(is(buf[(x, y1)].symbol(), ["─", "━"]), "x{x} {ctx}");
+                    // S는 위 테두리에 제목을 쓴다.
+                    if tier != Tier::S {
+                        assert!(is(buf[(x, r.y)].symbol(), ["─", "━"]), "x{x} {ctx}");
+                    }
+                }
+                let head = text_at(&buf, r.y + 1, r.x + 1, x1 - 1);
+                let avail = if tier == Tier::S {
+                    r.width - 2
+                } else {
+                    r.width - 4
+                };
+                let lw = Span::raw(v.label.to_string()).width() as u16;
+                if !head.contains(v.label) {
+                    let prefix: String = v.label.chars().take(3).collect();
+                    assert!(
+                        lw + 1 > avail && head.trim_end().ends_with('…') && head.contains(&prefix),
+                        "상태 문구 {} {ctx}",
+                        v.label
+                    );
+                }
+            }
+            let lines: Vec<&str> = t.lines().collect();
+            assert!(lines[0].contains("점검 중"), "{ctx}");
+            assert!(lines[lines.len() - 1].contains("q 종료"), "{ctx}");
+        }
+    }
 }

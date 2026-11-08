@@ -5,6 +5,8 @@ use crate::judge::PanelState;
 pub const STATS_AVG: &str = "평균";
 /// 시각 줄의 기준선 숫자 열 아래 단위 표시.
 pub const AXIS_UNIT: &str = "(ms)";
+/// L·M 큰 응답 시간 블록 맨 아래 줄 오른쪽 끝의 단위(`format_ms`의 꼬리와 같다).
+pub const LATENCY_UNIT: &str = "ms";
 pub const STATS_MAX: &str = "최대";
 pub const SERVER_DOWN: &str = "서버 응답 없음";
 /// `ko.monitor.noValue`
