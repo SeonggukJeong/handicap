@@ -26,10 +26,11 @@ sudo chmod +x /opt/handicap/handicap-tui
 [Desktop Entry]
 Type=Application
 Name=Handicap 모니터
-Exec=gnome-terminal --full-screen -- sh -c '/opt/handicap/handicap-tui /home/ops/board.json; echo; echo "핸디캡 모니터가 종료됐습니다. Enter를 누르면 창이 닫힙니다."; read x'
+Exec=gnome-terminal --full-screen --zoom=1.6 -- sh -c '/opt/handicap/handicap-tui /home/ops/board.json; echo; echo "핸디캡 모니터가 종료됐습니다. Enter를 누르면 창이 닫힙니다."; read x'
 X-GNOME-Autostart-enabled=true
 ```
 
+- **글자 크기 고르기**: 전체화면에서 `Ctrl`+`+`/`Ctrl`+`−`(원래대로 `Ctrl`+`0`)로 보기 좋은 크기를 찾고 그 배율을 `--zoom=`에 적는다(터미널은 확대 값을 기억하지 않는다). 6칸이면 1920×1080에서 1.6 안팎.
 - `--full-screen`은 상단 바와 Ubuntu Dock까지 가린다(F11로 해제). 상단 바를 남기려면 `--maximize`로 바꾼다.
 - `sh -c '…; read x'`로 감싸는 이유: glibc 로더 오류·크래시처럼 **프로그램 밖에서 프로세스가 죽어도** 터미널 창이 남아 원인이 보이게 하려는 것이다. 빼면 오류와 함께 창이 즉시 닫힌다.
 - 네트워크가 늦게 올라오면 지연을 준다. Xorg 세션: `X-GNOME-Autostart-Delay=20`(초) 줄을 추가. Wayland 세션: `Exec=` 명령 앞에 `sleep 20;`을 붙인다(`sh -c 'sleep 20; /opt/handicap/handicap-tui …'`).
@@ -41,6 +42,7 @@ X-GNOME-Autostart-enabled=true
 | 방향키 / `h` `j` `k` `l` | 칸 선택 이동 |
 | `Tab` / `Shift+Tab` | 다음/이전 보드(보드가 2개 이상일 때) |
 | `?` | 도움말(모든 키·파일 경로·로그 경로) |
+| `b` | 테두리 모양 전환(굵은 선 ↔ 반 칸 블록, 저장됨 — §3-1) |
 | `q` / `Ctrl+C` | 종료 확인창. **`y`만 종료**, 그 외 키는 취소(확인창에서의 `Ctrl+C`도 취소) |
 | `Esc` | 한 단계 뒤로 |
 | 마우스 왼쪽 클릭 | 그 칸 선택(칸 격자에서만) |
@@ -48,6 +50,12 @@ X-GNOME-Autostart-enabled=true
 
 - 마우스 모드를 켜 두므로 텍스트를 복사하려면 **Shift+드래그**를 쓴다.
 - Caps Lock이 켜져 있거나 한글 입력기(두벌식)가 켜져 있어도 같은 키로 동작한다(ㅂ=`q`, ㅛ=`y`, ㅗ ㅓ ㅏ ㅣ=`h` `j` `k` `l`, ㄱ=`r`).
+
+### 3-1. 테두리 모양
+
+- `b`를 누르면 칸 테두리가 **굵은 선**(기본)과 **반 칸 블록**으로 바뀐다. 즉시 바뀐다. 화면이 너무 작아 "창을 키워 주세요"가 뜬 상태에서는 `b`가 무시되어 모양도 저장도 바뀌지 않는다.
+- 선택은 `~/.config/handicap/tui.json`에 저장되어 종료·재시작 뒤에도 유지된다. `XDG_CONFIG_HOME`이 있으면 그 아래 `handicap/tui.json`을 쓴다.
+- 파일을 지우면 기본(굵은 선)으로 돌아간다. 파일을 읽지 못하면 로그(§6)에 경고를 남기고 기본(굵은 선)으로 시작한다.
 
 ## 4. 화면 읽는 법
 
@@ -98,6 +106,7 @@ GUI에서 칸을 추가한 뒤 보드를 다시 내보내 **같은 경로의 파
 ## 10. 문제 해결
 
 - 실행하자마자 `exec format error` → 대상 PC가 32비트 사용자 공간으로 설치된 경우다(이 바이너리는 x86_64 전용). `uname -m`·`getconf LONG_BIT`로 확인.
+- 실기 확인 항목: 전체화면에서 `Ctrl`+`+`/`Ctrl`+`−`와 `--zoom=` 값이 글자 크기에 실제로 반영되는지(머지 후 실기 PC에서 한 번 확인).
 - 터미널 창이 바로 닫힘 → 자동 시작 `Exec=`를 위 `sh -c '…; read x'` 형태로 감싸 원인을 남긴다.
 - 화면 가운데에 오류가 뜨고 안 닫힘 → 파일 경로·json 내용 문제다. 원인이 화면에 적혀 있고 `r`로 다시 시도할 수 있다.
 - 막대(`▂…█`)·테두리 문자 폭이 어긋남 → 터미널의 "모호 폭 문자" 설정과 로케일(ko_KR) 문제일 수 있다. 실기 확인 결과는 build-log 참고.
