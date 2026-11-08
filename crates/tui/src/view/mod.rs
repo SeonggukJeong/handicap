@@ -1,11 +1,13 @@
 //! 화면 렌더링 — 뷰 모델(`model`)·시각 줄(`axis`)·모니터(`monitor`)·팝업(`overlay`)·오류(`error`).
 
 pub mod axis;
+pub mod bigfont;
 pub mod error;
 pub mod graph;
 pub mod model;
 pub mod monitor;
 pub mod overlay;
+pub mod tier;
 
 use ratatui::layout::Rect;
 use ratatui::text::Span;
