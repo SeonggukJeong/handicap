@@ -343,10 +343,60 @@ jobs:
           path: staging/
           if-no-files-found: error
 
+  # Windows 콘솔(Windows Terminal·PowerShell)용 터미널 모니터. MSVC 네이티브 빌드 + 러너 호스트에서
+  # --check 스모크(python 응답기 — docker 없음). 선택 에셋: linux-tui와 같은 이유로 publish.if에는 없다.
+  windows-tui:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Effective toolchain
+        run: rustc --version && cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build handicap-tui
+        run: cargo build --release -p handicap-tui --bin handicap-tui
+
+      - name: Smoke - --check
+        run: python scripts/tui-check-smoke.py target/release/handicap-tui.exe crates/tui/tests/fixtures/smoke_bundle.json
+
+      - name: Stage release assets
+        shell: pwsh
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = $env:TAG -replace '^v', ''
+          $pkg = "handicap-tui_${ver}_windows-x86_64"
+          New-Item -ItemType Directory -Force -Path "staging-src/$pkg", staging | Out-Null
+          Copy-Item target/release/handicap-tui.exe "staging-src/$pkg/"
+          Copy-Item docs/dev/tui-monitor.md "staging-src/$pkg/"
+          Compress-Archive -Path "staging-src/$pkg" -DestinationPath "staging/$pkg.zip"
+          Get-ChildItem staging | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-windows-tui
+          path: staging/
+          if-no-files-found: error
+
   # 게시 전담. 재실행 시 이 잡만 다시 돌면 artifact를 재사용해 수십 초에 끝난다.
-  # macOS·linux-tui 실패 시에도 Windows와 Ubuntu 패키지로 발행한다.
+  # macOS·linux-tui·windows-tui 실패 시에도 Windows와 Ubuntu 패키지로 발행한다.
   publish:
-    needs: [windows-installer, macos-dmg, ubuntu-gui, linux-tui]
+    needs: [windows-installer, macos-dmg, ubuntu-gui, linux-tui, windows-tui]
     if: always() && needs.windows-installer.result == 'success' && needs.ubuntu-gui.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45 # CI 게이트 대기 상한 30분 + 게시 여유

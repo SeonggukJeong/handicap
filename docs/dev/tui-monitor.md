@@ -4,7 +4,7 @@ Ubuntu 19.04 같은 저사양 모니터 PC에서 Handicap GUI의 "운영 모니�
 
 ## 1. 설치
 
-릴리즈 에셋 `handicap-tui_<ver>_linux-x86_64.tar.gz`를 받아 푼다(바이너리 + 이 매뉴얼). 추가 라이브러리 설치는 필요 없다(glibc 2.27 이하 심볼만 사용).
+Linux(Ubuntu): 릴리즈 에셋 `handicap-tui_<ver>_linux-x86_64.tar.gz`를 받아 푼다(바이너리 + 이 매뉴얼). 추가 라이브러리 설치는 필요 없다(glibc 2.27 이하 심볼만 사용).
 
 ```sh
 tar xzf handicap-tui_<ver>_linux-x86_64.tar.gz
@@ -18,7 +18,27 @@ sudo chmod +x /opt/handicap/handicap-tui
 
 실행: `handicap-tui /home/ops/board.json`
 
-## 2. 자동 시작 (로그인하면 바로 점검 화면)
+### 1-1. Windows (v0.13.0부터)
+
+릴리즈 에셋 `handicap-tui_<ver>_windows-x86_64.zip`을 받아 원하는 폴더(예: `C:\handicap\`)에 푼다(`handicap-tui.exe` + 이 매뉴얼). 코드 서명이 없어 SmartScreen이 경고하면 **"추가 정보" → "실행"**.
+
+```powershell
+C:\handicap\handicap-tui.exe --version
+C:\handicap\handicap-tui.exe C:\handicap\board.json
+```
+
+- **Windows Terminal에서 실행한다**(Windows 11 기본). 옛 콘솔 창(conhost)은 막대·테두리 블록 문자와 한글 폭이 어긋날 수 있다. 전체화면 바로가기: 대상 `wt.exe -F C:\handicap\handicap-tui.exe C:\handicap\board.json`, 로그인 시 자동 시작은 그 바로가기를 `shell:startup` 폴더에 둔다.
+- exe를 더블클릭하면 파일 인자가 없어 사용법만 찍고 창이 바로 닫힌다 — 위처럼 보드 파일 경로를 붙여 실행한다.
+- 키·화면·`--check`는 Linux와 같다. 종료 신호는 `Ctrl+C`뿐이다(Linux의 SIGHUP/SIGTERM 처리는 없다).
+
+**Windows의 알려진 제한 (v0.13.0)** — 실제 Windows PC에서는 아직 확인 전이다(CI의 Windows 러너에서 빌드와 `--check` 스모크만 통과).
+
+- **로그와 `b` 테두리 기억이 기본으로 꺼진다**: 둘 다 `HOME`(또는 `XDG_STATE_HOME`·`XDG_CONFIG_HOME`) 환경 변수로 위치를 찾는데 Windows에는 기본으로 `HOME`이 없다. 쓰려면 사용자 환경 변수를 한 번 만든다: `setx HOME "%USERPROFILE%"`(새 창부터 적용). 그러면 로그는 `%USERPROFILE%\.local\state\handicap\`, 설정은 `%USERPROFILE%\.config\handicap\tui.json`에 생긴다.
+- **창의 X 버튼으로 닫으면 임시 DB가 남을 수 있다**: 임시 DB(환경 값 포함)는 `%TEMP%\handicap-tui-<pid>-<무작위>\`에 둔다. `q`→`y` 정상 종료(와 `--check` 중의 `Ctrl+C`)는 지우지만, 창 닫기는 처리하지 않는다. 또 Linux와 달리 **다음 시작 때 남은 디렉터리를 지우지 않으므로**, 창을 닫아 끝냈다면 `%TEMP%`의 `handicap-tui-*` 폴더를 직접 지운다.
+- 위 두 제한은 후속 수정 예정이다(roadmap §B48).
+- 0600/0700 권한 지정은 Linux 전용이다(Windows는 사용자별 `%TEMP%` 폴더 권한을 따른다). §9의 "전용 단일 사용자 PC" 전제는 그대로다.
+
+## 2. 자동 시작 (로그인하면 바로 점검 화면, Linux)
 
 자동 로그인 전제다. `~/.config/autostart/handicap-tui.desktop`:
 

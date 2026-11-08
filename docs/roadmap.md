@@ -896,6 +896,17 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 
 (2) 연기 — 없음.
 
+### B48. Windows용 터미널 모니터 첫 배포 (v0.13.0 릴리즈, 2026-11-08, `release.yml` `windows-tui` 잡 + `scripts/tui-check-smoke.py`, crates/tui 0-diff) 판단·연기
+
+(1) 판단(cost-if-wrong · 해소)
+- **코드 수정 없이 그대로 배포**(사용자 결정 2026-11-08 "지금 그대로 추가"): spec(2026-11-07) §비목표였던 Windows TUI를 릴리즈 잡만 붙여 낸다. 검증 = Windows 러너 MSVC 빌드 + 호스트 `--check` 스모크뿐, 실 Windows PC 화면·키·마우스·한글 폭은 미확인. cost-if-wrong: Windows 실기에서 화면이 깨지면 그 에셋은 쓸 수 없다(GUI·Linux 에셋 무영향). 해소: 실기 1회 확인 후 결과를 build-log에.
+- **선택 에셋**: `publish.if`에 넣지 않았다(linux-tui와 같은 이유). 실패한 채 발행되면 "Re-run failed jobs".
+
+(2) 연기 — 알려진 제한 3건(매뉴얼 §1-1에 사용자 우회 기재). 묶어서 소형 슬라이스 하나(`crates/tui` `logging.rs`·`prefs.rs`·`shutdown.rs`·`tempdb.rs`):
+- **`HOME` 부재 → 로그·`b` 테두리 기억 꺼짐**: `state_dir_from`/`config_dir_from`이 `XDG_*`·`HOME`만 본다. 해소: Windows는 `%LOCALAPPDATA%\handicap`(로그)·`%APPDATA%\handicap`(설정) 폴백. 우회: `setx HOME "%USERPROFILE%"`.
+- **콘솔 창 X 닫기 → 임시 DB(환경 값) 잔류**: `Signals`의 non-unix 경로가 `ctrl_c()`만 듣는다. 해소: `tokio::signal::windows::ctrl_close`(+`ctrl_shutdown`·`ctrl_logoff`)를 같이 듣기 — 단 close 이벤트는 OS가 약 5초 뒤 강제 종료하므로 삭제를 감시견보다 먼저.
+- **시작 시 남은 임시 디렉터리 정리 없음**: `tempdb::pid_alive`의 non-unix 구현이 항상 `true`. 해소: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`로 생존 판정(`windows-sys` 의존 추가).
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.

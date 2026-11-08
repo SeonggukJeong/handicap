@@ -44,7 +44,7 @@ cd desktop && cargo tauri build --bundles nsis,msi
 
 ## CI 릴리즈 (Windows 인스톨러 + 포터블 exe + macOS dmg)
 
-`.github/workflows/release.yml`이 **Windows NSIS `.exe` + MSI 인스톨러, 포터블 단일 exe, Apple Silicon용 macOS `.dmg`, Ubuntu `.deb`/`.AppImage`, Linux 터미널 모니터 `handicap-tui_<ver>_linux-x86_64.tar.gz`(선택 에셋)**를 빌드해 GitHub Release에 첨부한다. 6잡 그래프: `preflight`가 정합을 게이트하고, `windows-installer`/`macos-dmg`/`ubuntu-gui`/`linux-tui`는 **빌드만**(릴리즈를 만들지 않는다), `publish`가 유일한 게시 지점이다.
+`.github/workflows/release.yml`이 **Windows NSIS `.exe` + MSI 인스톨러, 포터블 단일 exe, Apple Silicon용 macOS `.dmg`, Ubuntu `.deb`/`.AppImage`, 터미널 모니터 `handicap-tui_<ver>_linux-x86_64.tar.gz`·`handicap-tui_<ver>_windows-x86_64.zip`(둘 다 선택 에셋)**을 빌드해 GitHub Release에 첨부한다. 7잡 그래프: `preflight`가 정합을 게이트하고, `windows-installer`/`macos-dmg`/`ubuntu-gui`/`linux-tui`/`windows-tui`는 **빌드만**(릴리즈를 만들지 않는다), `publish`가 유일한 게시 지점이다.
 
 - **트리거**: `v*` 태그 푸시(예: `git tag v0.1.0 && git push origin v0.1.0`) 또는 Actions UI의 수동 실행(`workflow_dispatch` — 태그 입력).
 - **잡 그래프**:
@@ -53,7 +53,8 @@ cd desktop && cargo tauri build --bundles nsis,msi
   - **`macos-dmg`**(macos-latest, `needs: preflight`, target `aarch64-apple-darwin`): Apple Silicon 네이티브로 `tauri-action`을 **`tagName` 없이** `--bundles app,dmg` 호출(빌드만) → 발행용 `release-assets-macos-aarch64-apple-darwin`(dmg)과 회수용 `macos-bundle-aarch64-apple-darwin`(`.app` 포함) artifact를 업로드한다. Intel 빌드는 v0.10.1 이후 릴리즈부터 제공하지 않는다. 서명·공증 없음 → 사용자는 Gatekeeper 우회 필요(README §C에 우클릭-열기/`xattr -dr com.apple.quarantine` 안내).
   - **`ubuntu-gui`**(ubuntu-24.04, `needs: preflight`): WebKitGTK 빌드 의존성을 설치하고 `tauri-action`을 `--bundles deb,appimage`로 호출해 `.deb`와 `.AppImage`를 발행용 `release-assets-ubuntu` artifact로 업로드한다.
   - **`linux-tui`**(ubuntu-24.04, `needs: preflight`): `scripts/tui-linux-build.sh`(zig 0.17.1 + cargo-zigbuild 0.24.1, `x86_64-unknown-linux-gnu.2.27`) → `scripts/tui-linux-gates.sh`(glibc 심볼 ≤ 2.27·NEEDED 집합) → `scripts/tui-linux-smoke.sh`(호스트 python 응답기 + `ubuntu:19.04` amd64 컨테이너 `--check`) → 바이너리 + `docs/dev/tui-monitor.md`를 `handicap-tui_<ver>_linux-x86_64.tar.gz`로 묶어 artifact `release-assets-linux-tui`로 업로드. **선택 에셋**: `publish.needs`에는 있지만 `if:` 조건에는 없어 이 잡이 실패해도 게시는 진행된다(zig 툴체인 문제로 Windows 릴리즈가 멈추지 않게). 실패한 채 발행되면 "Re-run failed jobs"로 재빌드 후 `publish` 재실행이 `--clobber`로 채운다. 운영 절차는 `docs/dev/tui-monitor.md`.
-  - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg, ubuntu-gui, linux-tui]`, Windows와 Ubuntu 빌드 성공 시 실행): 먼저 **CI 녹색 게이트**(`scripts/check-ci-green.sh "$(git rev-parse HEAD)"`)를 통과한 뒤 `release-assets-*` artifact들을 병합해 `scripts/publish-release.sh "<태그>" staging`을 실행한다. macOS·linux-tui 빌드 실패는 허용하지만 Windows와 Ubuntu 빌드 실패 시 게시하지 않는다.
+  - **`windows-tui`**(windows-latest, `needs: preflight`, v0.13.0~): `cargo build --release -p handicap-tui`(MSVC 네이티브) → `python scripts/tui-check-smoke.py`(러너 호스트에서 python 응답기 + `--check`, docker 없음 — macOS/Linux 로컬에서도 돈다, `NO_RESPONDER=1`이면 exit 1이 정상) → exe + 매뉴얼을 `handicap-tui_<ver>_windows-x86_64.zip`으로 묶어 artifact `release-assets-windows-tui`. linux-tui와 같은 **선택 에셋**. Windows 쪽 알려진 제한(HOME 부재로 로그·설정 꺼짐·창 닫기 임시 DB 잔류·시작 시 정리 없음)은 `docs/dev/tui-monitor.md` §1-1, 후속은 roadmap §B48.
+  - **`publish`**(ubuntu, `needs: [windows-installer, macos-dmg, ubuntu-gui, linux-tui, windows-tui]`, Windows와 Ubuntu 빌드 성공 시 실행): 먼저 **CI 녹색 게이트**(`scripts/check-ci-green.sh "$(git rev-parse HEAD)"`)를 통과한 뒤 `release-assets-*` artifact들을 병합해 `scripts/publish-release.sh "<태그>" staging`을 실행한다. macOS·linux-tui·windows-tui 빌드 실패는 허용하지만 Windows와 Ubuntu 빌드 실패 시 게시하지 않는다.
 - **구 30분 폴링이 사라진 이유**: 이전엔 windows/macos 두 잡이 각자 릴리즈를 만들려 해 동시-create 레이스가 있었고, macos 잡은 windows 잡이 릴리즈를 먼저 만들 때까지 20초 간격 최대 30분 폴링한 뒤에야 업로드했다. 이제 릴리즈 생성(및 첫 업로드)이 `publish` 한 곳으로 모여 애초에 레이스가 없다 — 폴링이 통째로 삭제됐다.
 
 ### 버전 bump
