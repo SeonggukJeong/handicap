@@ -841,7 +841,17 @@ fn header_degrades_by_whole_parts() {
         h80.contains("Handicap 모니터 · 운영 API 보드 (1/2)"),
         "{h80}"
     );
-    assert!(h80.contains("2023-11-15"), "{h80}");
+    // 머리 줄 날짜는 이 PC의 로컬 시각이다 — 기대값도 로컬로 구해야 CI(UTC)·개발기(KST) 둘 다 맞는다.
+    let date = {
+        use chrono::TimeZone;
+        chrono::Local
+            .timestamp_millis_opt(1_700_000_000_000)
+            .single()
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    assert!(h80.contains(&date), "{date} / {h80}");
     assert!(h80.contains("점검 중"), "{h80}");
 
     let h48 = header_of(48, false);
