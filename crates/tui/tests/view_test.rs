@@ -1922,17 +1922,64 @@ fn lm_long_title_selected_keeps_state_label() {
     assert!(!text_at(&buf, 1, 0, 23).contains("아주"), "{t}");
     assert_eq!(buf[(0, 2)].symbol(), "┃", "{t}");
     assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
-    // 상태 문구 + 1이 사용 폭보다 넓으면 제목 없이 상태 문구만 — 뒤 조각을 통째로 뺀 꼴, 오른쪽 정렬.
-    let mut v = view(title, PanelState::StaleOff, "– 확인 불가 · 점검 꺼짐", "—");
-    v.bars = lm_bars(5, 413);
-    let buf = render_buf(24, 17, &screen(vec![v], (1, 1), 0));
+    // 선택 안 된 칸: 상태 문구 + 1이 사용 폭보다 넓으면 제목 없이 상태 문구만 — 뒤 조각을 통째로
+    // 뺀 꼴, 오른쪽 정렬. (두 칸 48×17 → 칸마다 24×17, 칸 1을 선택해 칸 0은 선택 안 됨.)
+    let stale = || {
+        let mut v = view(title, PanelState::StaleOff, "– 확인 불가 · 점검 꺼짐", "—");
+        v.bars = lm_bars(5, 413);
+        v
+    };
+    let buf = render_buf(48, 17, &screen(vec![stale(), stale()], (1, 1), 1));
     let t = buffer_text(&buf);
     let head = text_at(&buf, 2, 2, 21);
     assert!(!head.contains("아주"), "{head}\n{t}");
     assert!(!head.contains("점검"), "{head}\n{t}");
+    assert!(!head.contains('▶'), "{head}\n{t}");
     assert!(head.ends_with("– 확인 불가"), "{head}\n{t}");
     assert_eq!(head.trim(), "– 확인 불가", "{head}\n{t}");
     assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
+    // 선택된 칸(같은 폭): `▶`는 늘 보이고(흰 바탕) 상태 문구는 그 뒤 남은 자리에 통째 조각으로.
+    let buf = render_buf(24, 17, &screen(vec![stale()], (1, 1), 0));
+    let t = buffer_text(&buf);
+    let head = text_at(&buf, 2, 2, 21);
+    assert_eq!(buf[(2, 2)].symbol(), "▶", "{head}\n{t}");
+    assert_eq!(buf[(2, 2)].bg, rgb("#f2f5f8"), "{head}\n{t}");
+    assert_eq!(buf[(2, 2)].fg, rgb("#0b0f14"), "{head}\n{t}");
+    assert!(head.ends_with("– 확인 불가"), "{head}\n{t}");
+    assert!(!head.contains("점검"), "{head}\n{t}");
+    assert_eq!(buf[(0, 2)].symbol(), "┃", "{t}");
+    assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
+}
+
+#[test]
+fn lm_selected_stale_off_label_fills_row_no_panic() {
+    // 28×15 → 칸 28×13, 안쪽 26×11, 사용 24. 상태 문구(23칸) + 1 = 사용 폭 — 예전엔 선택 표시 2칸을
+    // 더해 머리 줄 여백 계산이 음수가 되어 패닉했다.
+    let mut v = view(
+        "결제 승인 확인",
+        PanelState::StaleOff,
+        "– 확인 불가 · 점검 꺼짐",
+        "—",
+    );
+    v.bars = lm_bars(5, 413);
+    let buf = render_buf(28, 15, &screen(vec![v], (1, 1), 0));
+    let t = buffer_text(&buf);
+    // L·M 표지: S는 위 테두리에 제목을 쓴다.
+    assert!(!text_at(&buf, 1, 0, 27).contains("결제"), "L/M\n{t}");
+    let head = text_at(&buf, 2, 2, 25);
+    assert_eq!(buf[(2, 2)].symbol(), "▶", "{head}\n{t}");
+    assert_eq!(buf[(2, 2)].bg, rgb("#f2f5f8"), "{head}\n{t}");
+    let whole = head.ends_with("– 확인 불가 · 점검 꺼짐");
+    let seg = head.ends_with("– 확인 불가") && !head.contains("점검");
+    assert!(whole || seg, "{head}\n{t}");
+    assert!(
+        !head.contains('…') || head.contains("결제"),
+        "상태 문구는 말줄임 없이 {head}\n{t}"
+    );
+    for y in 2..13 {
+        assert_eq!(buf[(0, y)].symbol(), "┃", "y{y}\n{t}");
+        assert_eq!(buf[(27, y)].symbol(), "┃", "y{y}\n{t}");
+    }
 }
 
 fn sweep_panel(i: usize) -> PanelView {
@@ -2013,11 +2060,118 @@ fn sweep_panel(i: usize) -> PanelView {
     v
 }
 
+/// 처음 표시할 때 만드는 문구.
+struct Lazy<F: Fn() -> String>(F);
+impl<F: Fn() -> String> std::fmt::Display for Lazy<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&(self.0)())
+    }
+}
+
+/// 칸 하나의 테두리·머리 줄 불변식: 테두리 온전, 상태 문구는 통째 또는 통째 조각 단위로만 줄고,
+/// 선택 칸은 `▶`(흰 바탕)를 늘 보이며 다른 칸엔 `▶`가 없다.
+fn assert_panel_frame(
+    buf: &Buffer,
+    r: &Rect,
+    v: &PanelView,
+    tier: handicap_tui::view::bigfont::Tier,
+    selected: bool,
+    ctx: &dyn Fn() -> String,
+) {
+    use handicap_tui::view::bigfont::Tier;
+    let is = |s: &str, set: [&str; 2]| set.contains(&s);
+    let (x1, y1) = (r.x + r.width - 1, r.y + r.height - 1);
+    // 실패 메시지(화면 전체 글자)는 실패할 때만 만든다 — 스윕이 수천 번 그린다.
+    let ctx = Lazy(|| format!("{tier:?} 선택={selected} {}", ctx()));
+    assert!(is(buf[(r.x, r.y)].symbol(), ["┌", "┏"]), "{ctx}");
+    assert!(is(buf[(x1, r.y)].symbol(), ["┐", "┓"]), "{ctx}");
+    assert!(is(buf[(r.x, y1)].symbol(), ["└", "┗"]), "{ctx}");
+    assert!(is(buf[(x1, y1)].symbol(), ["┘", "┛"]), "{ctx}");
+    for y in r.y + 1..y1 {
+        assert!(is(buf[(r.x, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
+        assert!(is(buf[(x1, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
+    }
+    for x in r.x + 1..x1 {
+        assert!(is(buf[(x, y1)].symbol(), ["─", "━"]), "x{x} {ctx}");
+        // S는 위 테두리에 제목을 쓴다.
+        if tier != Tier::S {
+            assert!(is(buf[(x, r.y)].symbol(), ["─", "━"]), "x{x} {ctx}");
+        }
+    }
+    // 선택 표시: L·M은 머리 줄 첫 칸, S는 위 테두리 제목.
+    let (mark_y, mark_x0) = if tier == Tier::S {
+        (r.y, r.x + 1)
+    } else {
+        (r.y + 1, r.x + 2)
+    };
+    let marks: Vec<u16> = (mark_x0..x1)
+        .filter(|&x| buf[(x, mark_y)].symbol() == "▶")
+        .collect();
+    if selected {
+        assert_eq!(marks.len(), 1, "선택 표시 {ctx}");
+        if tier != Tier::S {
+            assert_eq!(marks[0], r.x + 2, "선택 표시 위치 {ctx}");
+        }
+        assert_eq!(
+            buf[(marks[0], mark_y)].bg,
+            rgb("#f2f5f8"),
+            "선택 바탕 {ctx}"
+        );
+    } else {
+        assert!(marks.is_empty(), "선택 안 된 칸에 ▶ {ctx}");
+    }
+    let head = text_at(buf, r.y + 1, r.x + 1, x1 - 1);
+    let width = |s: &str| Span::raw(s.to_string()).width() as u16;
+    // 상태 문구에 쓸 수 있는 폭: S = 안쪽 전체, L·M = 사용 폭(선택이면 `▶ ` + 사이 1칸을 뺀다).
+    let avail = match (tier, selected) {
+        (Tier::S, _) => r.width - 2,
+        (_, false) => r.width - 4,
+        (_, true) => r.width - 4 - 3,
+    };
+    if !head.contains(v.label) {
+        assert!(width(v.label) + 1 > avail, "상태 문구 {} {ctx}", v.label);
+        // 통째 조각 단위: ` · `로 나눈 앞 조각들 중 들어가는 가장 긴 것이 보이고,
+        // 다음 조각의 일부(단어 중간 자르기)는 없다.
+        let segs: Vec<&str> = v.label.split(" · ").collect();
+        let fitting = (1..=segs.len())
+            .rev()
+            .map(|k| segs[..k].join(" · "))
+            .find(|p| width(p) <= avail);
+        match fitting {
+            Some(p) => {
+                assert!(head.contains(&p), "상태 문구 조각 {p} {ctx}");
+                assert!(
+                    !head.contains(&format!("{p} · ")),
+                    "상태 문구 중간 자르기 {} {ctx}",
+                    v.label
+                );
+            }
+            None => assert!(head.contains('…'), "상태 문구 {} {ctx}", v.label),
+        }
+    }
+}
+
+fn sweep_tier(w: u16, h: u16, panels: &[PanelView]) -> handicap_tui::view::bigfont::Tier {
+    use handicap_tui::view::tier::{TierInput, board_tier};
+    let lay = layout(Rect::new(0, 0, w, h), panels.len()).unwrap();
+    let inners: Vec<(u16, u16)> = lay
+        .panels
+        .iter()
+        .map(|r| (r.width - 2, r.height - 2))
+        .collect();
+    let inputs: Vec<TierInput> = panels
+        .iter()
+        .map(|v| TierInput {
+            timeout_seconds: v.timeout_seconds,
+            has_display_items: v.n_display_items > 0,
+            show_stats: v.show_stats,
+        })
+        .collect();
+    board_tier(&inners, &inputs)
+}
+
 #[test]
 fn lm_resize_sweep_no_overflow() {
-    use handicap_tui::view::bigfont::Tier;
-    use handicap_tui::view::tier::{TierInput, board_tier};
-    let is = |s: &str, set: [&str; 2]| set.contains(&s);
     for n in 1..=9usize {
         let (cols, rows) = handicap_tui::judge::grid_for(n);
         let min = (24 * cols as u16, 6 * rows as u16 + 2);
@@ -2029,72 +2183,71 @@ fn lm_resize_sweep_no_overflow() {
             let ctx = format!("n={n} {w}x{h}\n{t}");
             assert!(!t.contains("창을 키워"), "{ctx}");
             let lay = layout(Rect::new(0, 0, w, h), n).unwrap();
-            let inners: Vec<(u16, u16)> = lay
-                .panels
-                .iter()
-                .map(|r| (r.width - 2, r.height - 2))
-                .collect();
-            let inputs: Vec<TierInput> = panels
-                .iter()
-                .map(|v| TierInput {
-                    timeout_seconds: v.timeout_seconds,
-                    has_display_items: v.n_display_items > 0,
-                    show_stats: v.show_stats,
-                })
-                .collect();
-            let tier = board_tier(&inners, &inputs);
+            let tier = sweep_tier(w, h, &panels);
             for (i, (r, v)) in lay.panels.iter().zip(&panels).enumerate() {
-                let (x1, y1) = (r.x + r.width - 1, r.y + r.height - 1);
-                let ctx = format!("칸 {i} {tier:?} {ctx}");
-                assert!(is(buf[(r.x, r.y)].symbol(), ["┌", "┏"]), "{ctx}");
-                assert!(is(buf[(x1, r.y)].symbol(), ["┐", "┓"]), "{ctx}");
-                assert!(is(buf[(r.x, y1)].symbol(), ["└", "┗"]), "{ctx}");
-                assert!(is(buf[(x1, y1)].symbol(), ["┘", "┛"]), "{ctx}");
-                for y in r.y + 1..y1 {
-                    assert!(is(buf[(r.x, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
-                    assert!(is(buf[(x1, y)].symbol(), ["│", "┃"]), "y{y} {ctx}");
-                }
-                for x in r.x + 1..x1 {
-                    assert!(is(buf[(x, y1)].symbol(), ["─", "━"]), "x{x} {ctx}");
-                    // S는 위 테두리에 제목을 쓴다.
-                    if tier != Tier::S {
-                        assert!(is(buf[(x, r.y)].symbol(), ["─", "━"]), "x{x} {ctx}");
-                    }
-                }
-                let head = text_at(&buf, r.y + 1, r.x + 1, x1 - 1);
-                let avail = if tier == Tier::S {
-                    r.width - 2
-                } else {
-                    r.width - 4
-                };
-                let width = |s: &str| Span::raw(s.to_string()).width() as u16;
-                if !head.contains(v.label) {
-                    assert!(width(v.label) + 1 > avail, "상태 문구 {} {ctx}", v.label);
-                    // 통째 조각 단위: ` · `로 나눈 앞 조각들 중 들어가는 가장 긴 것이 보이고,
-                    // 다음 조각의 일부(단어 중간 자르기)는 없다.
-                    let segs: Vec<&str> = v.label.split(" · ").collect();
-                    let fitting = (1..=segs.len())
-                        .rev()
-                        .map(|k| segs[..k].join(" · "))
-                        .find(|p| width(p) <= avail);
-                    match fitting {
-                        Some(p) => {
-                            assert!(head.contains(&p), "상태 문구 조각 {p} {ctx}");
-                            assert!(
-                                !head.contains(&format!("{p} · ")),
-                                "상태 문구 중간 자르기 {} {ctx}",
-                                v.label
-                            );
-                        }
-                        None => assert!(head.contains('…'), "상태 문구 {} {ctx}", v.label),
-                    }
-                }
+                assert_panel_frame(&buf, r, v, tier, i == 0, &|| format!("칸 {i} {ctx}"));
             }
             let lines: Vec<&str> = t.lines().collect();
             assert!(lines[0].contains("점검 중"), "{ctx}");
             assert!(lines[lines.len() - 1].contains("q 종료"), "{ctx}");
         }
     }
+}
+
+/// 선택 칸을 모든 칸 번호로 돌리고 폭은 1칸씩 — 선택 칸이 `점검 꺼짐`(가장 긴 상태 문구)인 경우를
+/// 포함한다. 타임아웃·표시 항목을 가볍게 해 좁은 폭에서도 L·M 머리 줄을 지나게 한다.
+#[test]
+fn selected_panel_sweep_every_index_and_width() {
+    use handicap_tui::view::bigfont::Tier;
+    let (mut s, mut m, mut l) = (0usize, 0usize, 0usize);
+    for n in 1..=9usize {
+        let (cols, rows) = handicap_tui::judge::grid_for(n);
+        // 칸 높이: S 최소 6 · M 문턱 13(안쪽 11) · L 문턱 15(안쪽 13).
+        for ph in [6u16, 13, 15] {
+            let h = rows as u16 * ph + 2;
+            for w in 24 * cols as u16..=90 {
+                for sel in 0..n {
+                    // 0: 변형 그대로, 그다음: 선택 칸이 점검 꺼짐(변형 2)이 되게 돌린다.
+                    let stale_at_sel = (2 + 9 - sel % 9) % 9;
+                    let offsets: &[usize] = if stale_at_sel == 0 {
+                        &[0]
+                    } else {
+                        &[0, stale_at_sel]
+                    };
+                    for &offset in offsets {
+                        let panels: Vec<PanelView> = (0..n)
+                            .map(|i| {
+                                let mut v = sweep_panel(i + offset);
+                                v.timeout_seconds = 5;
+                                v.n_display_items = 0;
+                                v.display.clear();
+                                v
+                            })
+                            .collect();
+                        let buf = render_buf(w, h, &screen(panels.clone(), (1, 1), sel));
+                        let tier = sweep_tier(w, h, &panels);
+                        match tier {
+                            Tier::S => s += 1,
+                            Tier::M => m += 1,
+                            Tier::L => l += 1,
+                        }
+                        let lay = layout(Rect::new(0, 0, w, h), n).unwrap();
+                        for (i, (r, v)) in lay.panels.iter().zip(&panels).enumerate() {
+                            let ctx = || {
+                                format!(
+                                    "n={n} {w}x{h} 선택 {sel} 칸 {i} offset {offset}\n{}",
+                                    buffer_text(&buf)
+                                )
+                            };
+                            assert_panel_frame(&buf, r, v, tier, i == sel, &ctx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // L·M·S를 모두 지났는지(한 단계에만 머물면 머리 줄 경로를 못 본다).
+    assert!(s > 0 && m > 0 && l > 0, "S {s} M {m} L {l}");
 }
 
 // ---------- 테두리 모양·선택 제목·바탕 (Task 5) ----------
@@ -2299,17 +2452,44 @@ fn key_bar_has_border_key() {
 }
 
 #[test]
+fn help_zoom_row_whole_from_50_columns() {
+    // US3: 고정 방법(`--zoom=1.6`)이 좁은 터미널에서도 단어 중간에서 잘리지 않는다(도움말은 줄바꿈 안 함).
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    for w in 50..=80u16 {
+        let text = draw(w, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+        let line = text.lines().find(|l| l.contains("Ctrl + + / -")).unwrap();
+        assert!(line.contains("--zoom=1.6"), "w{w}\n{text}");
+        assert!(line.contains("글자 크기"), "w{w}\n{text}");
+    }
+    // 80칸에서는 키 줄 전부가 통째로 보인다.
+    let text = draw(80, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    for (k, d) in handicap_tui::text::HELP_KEYS {
+        let line = text
+            .lines()
+            .find(|l| l.contains(&format!("│{k} ")))
+            .unwrap();
+        assert!(line.contains(d), "{k} {text}");
+    }
+    // 폭이 모호한 글자(− U+2212, ↔) 없이 — 터미널마다 1칸/2칸이 달라 줄이 밀린다.
+    for (k, d) in handicap_tui::text::HELP_KEYS {
+        for c in ['−', '↔'] {
+            assert!(!k.contains(c) && !d.contains(c), "{k} {d}");
+        }
+    }
+}
+
+#[test]
 fn help_zoom_row_first_and_survives_small_height() {
     let log = LogLoc::Path("/tmp/tui.log".into());
     let text = draw(80, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
-    let line = text.lines().find(|l| l.contains("Ctrl + + / −")).unwrap();
+    let line = text.lines().find(|l| l.contains("Ctrl + + / -")).unwrap();
     assert!(line.contains("--zoom=1.6"), "{text}");
-    let zoom_at = text.find("Ctrl + + / −").unwrap();
+    let zoom_at = text.find("Ctrl + + / -").unwrap();
     for other in ["방향키", "테두리 모양 바꾸기", "마우스 왼쪽 클릭"] {
         assert!(zoom_at < text.find(other).unwrap(), "{other} {text}");
     }
     let path = format!("/{}", "Z".repeat(150));
     let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
-    assert!(text.contains("Ctrl + + / −"), "{text}");
+    assert!(text.contains("Ctrl + + / -"), "{text}");
     assert!(!text.contains("방향키"), "{text}");
 }

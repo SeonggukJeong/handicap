@@ -305,22 +305,26 @@ fn render_axis_row(
 const SELECT_MARK_W: usize = 2;
 
 /// L·M 머리 줄 — 왼쪽 제목(굵게) · 오른쪽 상태 문구(굵게, 상태 색). 사이 1칸 이상, 모자라면 제목만 줄인다.
-/// 상태 문구 + 1이 폭보다 넓으면 제목을 빼고 상태 문구만 줄여 쓴다.
+/// 선택 칸은 제목 앞 `▶ `(흰 바탕)를 늘 보인다 — 상태 문구가 `▶ ` + 1칸 뒤 자리에 안 들어가면
+/// 상태 문구를 통째 조각 단위로 줄인다(제목은 남는 자리가 있을 때만).
+/// 선택 안 된 칸은 상태 문구 + 1이 폭보다 넓으면 제목을 빼고 상태 문구만 줄여 쓴다.
 fn header_line(v: &PanelView, w: usize, selected: bool) -> Line<'static> {
     let label_style = Style::default()
         .fg(state_color(v))
         .add_modifier(Modifier::BOLD);
-    let lw = text_width(v.label);
-    if lw + 1 > w {
+    if !selected && text_width(v.label) + 1 > w {
         let label = text::label_for_width(v.label, w);
-        let pad = w - text_width(&label);
+        let pad = w.saturating_sub(text_width(&label));
         return Line::from(vec![
             Span::raw(" ".repeat(pad)),
             Span::styled(label, label_style),
         ]);
     }
     let reserve = if selected { SELECT_MARK_W } else { 0 };
-    let fitted = fit(&v.title, (w - lw - 1).saturating_sub(reserve));
+    // 선택 칸: `▶ ` + 사이 1칸을 뺀 자리에 상태 문구를 맞춘다(선택 안 된 칸은 위에서 걸러져 그대로).
+    let label = text::label_for_width(v.label, w.saturating_sub(reserve + 1));
+    let lw = text_width(&label);
+    let fitted = fit(&v.title, w.saturating_sub(lw + 1 + reserve));
     let (title, title_style) = if selected {
         (format!("▶ {fitted}"), selected_title_style())
     } else {
@@ -331,11 +335,12 @@ fn header_line(v: &PanelView, w: usize, selected: bool) -> Line<'static> {
                 .add_modifier(Modifier::BOLD),
         )
     };
-    let pad = w - lw - text_width(&title);
+    // 위 맞춤으로 늘 1 이상(사용 폭 ≥ 20) — 뺄셈만 넘치지 않게 둔다.
+    let pad = w.saturating_sub(lw + text_width(&title));
     Line::from(vec![
         Span::styled(title, title_style),
         Span::raw(" ".repeat(pad)),
-        Span::styled(v.label, label_style),
+        Span::styled(label, label_style),
     ])
 }
 
@@ -479,7 +484,7 @@ fn render_panel_lm(
     let tail = 1 + u16::from(v.show_stats);
     let bar_h = bottom.saturating_sub(y).saturating_sub(tail);
     let label_w = graph::label_width(&v.thresholds, usable, true);
-    let range = graph::render_graph(f, Rect::new(x0, y, usable, bar_h), v, true, label_w, bg);
+    let range = graph::render_graph(f, Rect::new(x0, y, usable, bar_h), v, true, label_w);
     y += bar_h;
     if y < bottom {
         render_axis_row(f, y, v, range, x0 + usable, label_w);
@@ -560,7 +565,7 @@ fn render_panel_s(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool, bord
             Row::ReasonSmall => reason_small_line(v, small.unwrap_or_default(), w),
             Row::Consecutive => consecutive_line(v, w),
             Row::Bars => {
-                bars_range = graph::render_graph(f, area, v, draw_thresholds, label_w, bg);
+                bars_range = graph::render_graph(f, area, v, draw_thresholds, label_w);
                 continue;
             }
             Row::Axis => {

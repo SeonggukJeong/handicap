@@ -2,7 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 
 use super::model::{Bar, BarKind, PanelView, ThresholdView};
 use super::text_width;
@@ -108,7 +108,6 @@ pub fn render_graph(
     v: &PanelView,
     draw_thresholds: bool,
     label_w: u16,
-    bg: Option<Color>,
 ) -> Rect {
     let w = if label_w > 0 {
         area.width.saturating_sub(label_w + 1)
@@ -133,15 +132,10 @@ pub fn render_graph(
         .enumerate()
         .map(|(i, b)| column(b, rows, v.graph_max_ms, i))
         .collect();
+    // 바탕(느림·실패 물들이기)은 칸 테두리 `Block::style`이 칸 전체에 이미 칠했다 — 여기선 글자·
+    // 글자색만 바꾸므로(`set_char`·`set_fg`·bg 없는 `set_string`) 그 바탕이 그대로 남는다.
     let buf = f.buffer_mut();
     let y_of = |r: u16| area.y + rows - 1 - r;
-    if let Some(c) = bg {
-        for y in area.y..area.y + rows {
-            for x in area.x..area.x + area.width {
-                buf[(x, y)].set_bg(c);
-            }
-        }
-    }
     for r in 0..rows {
         let y = y_of(r);
         let dash = th_rows
