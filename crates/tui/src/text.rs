@@ -109,6 +109,22 @@ pub fn board_pos(pos: usize, total: usize) -> String {
     format!("({pos}/{total})")
 }
 
+/// 상태 문구를 폭 `w`에 맞춘다 — ` · `로 나뉜 뒤 조각부터 통째로 뺀다
+/// (`– 확인 불가 · 점검 꺼짐` → `– 확인 불가`). 첫 조각조차 안 들어가면 마지막 수단으로 말줄임.
+pub fn label_for_width(label: &str, w: usize) -> String {
+    use crate::view::{fit, text_width};
+    let mut shown = label;
+    loop {
+        if text_width(shown) <= w {
+            return shown.to_string();
+        }
+        match shown.rsplit_once(" · ") {
+            Some((head, _)) => shown = head,
+            None => return fit(shown, w),
+        }
+    }
+}
+
 /// 평균·최대 줄을 칸 폭 `w`에 맞춘다 — 통째 구간 단위로 줄인다:
 /// `평균 N · 최대 M ms` → 단위 뺀 `평균 N · 최대 M` → `최대 M` → (마지막 수단) 말줄임.
 /// `full`은 `STATS_AVG N · STATS_MAX M ms` 꼴(model.rs가 만든다).

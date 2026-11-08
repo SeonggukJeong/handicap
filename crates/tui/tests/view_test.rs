@@ -1153,6 +1153,21 @@ fn stats_degrade_by_whole_segments() {
 }
 
 #[test]
+fn label_degrades_by_whole_segments() {
+    use handicap_tui::text::label_for_width;
+    let off = "– 확인 불가 · 점검 꺼짐"; // 23칸
+    assert_eq!(label_for_width(off, 23), off);
+    assert_eq!(label_for_width(off, 40), off);
+    // 22칸: 뒤 조각을 통째로 뺀다(`점검 꺼…` 같은 중간 자르기 없음).
+    assert_eq!(label_for_width(off, 22), "– 확인 불가");
+    assert_eq!(label_for_width(off, 11), "– 확인 불가");
+    // 첫 조각조차 안 들어가면 마지막 수단으로 말줄임.
+    assert_eq!(label_for_width(off, 6), "– 확…");
+    assert_eq!(label_for_width("✔ 정상", 6), "✔ 정상");
+    assert_eq!(label_for_width("✔ 정상", 4), "✔ …");
+}
+
+#[test]
 fn narrow_three_column_panel_keeps_max_number() {
     let mut a = view("A", PanelState::Ok, "✔ 정상", "182 ms");
     a.stats = Some("평균 1,409 · 최대 1,413 ms".into());
@@ -1633,7 +1648,6 @@ fn lm_six_panels_112x31_big_digits_and_few_blank_rows() {
     let sc = screen(six_mixed(), (1, 1), 0);
     let buf = render_buf(112, 31, &sc);
     let t = buffer_text(&buf);
-    println!("{t}");
     let lay = layout(Rect::new(0, 0, 112, 31), 6).unwrap();
     for i in [0usize, 1, 4, 5] {
         let inn = inner_of(lay.panels[i]);
@@ -1763,15 +1777,49 @@ fn lm_http_503_big_without_display_items() {
 #[test]
 fn lm_reason_over_reference_is_plain_with_display_items() {
     let mut v = reason_view("주문 조회", "✖ 실패", detail("HTTP 503", "주문 단계"));
-    v.n_display_items = 1;
-    v.display = vec!["VIP".into()];
+    v.n_display_items = 2;
+    v.display = vec!["VIP".into(), "등급".into()];
     let buf = m36(v);
     let t = buffer_text(&buf);
     for y in 3..=5 {
         assert!(!row_has_big(&buf, y, 2, 33), "y{y}\n{t}");
     }
     assert_eq!(text_at(&buf, 4, 26, 33), "HTTP 503", "{t}");
+    // 표시 값: 블록 첫 줄 = 첫 값(흰색 굵게), 둘째 줄 = 둘째 값(연한색).
     assert_eq!(text_at(&buf, 3, 2, 4), "VIP", "{t}");
+    assert_eq!(buf[(2, 3)].fg, parse_hex("#f2f5f8").unwrap());
+    assert!(
+        buf[(2, 3)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(text_at(&buf, 4, 2, 4), "등급", "{t}");
+    assert_eq!(buf[(2, 4)].fg, parse_hex("#cbd5e1").unwrap());
+    assert!(
+        !buf[(2, 4)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+}
+
+#[test]
+fn lm_latency_unit_on_last_block_row_right_edge() {
+    // 36×17 M: 블록 y3..=5, 사용 x2..=33. `ms`는 맨 아래 블록 줄 오른쪽 끝 두 칸, 숫자와 1칸 띄움.
+    let mut v = view("로그인", PanelState::Ok, "✔ 정상", "413 ms");
+    v.bars = lm_bars(5, 413);
+    let buf = m36(v);
+    let t = buffer_text(&buf);
+    assert_eq!(text_at(&buf, 5, 32, 33), "ms", "{t}");
+    assert!(
+        buf[(32, 5)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(buf[(31, 5)].symbol(), " ", "{t}");
+    assert!(is_big_glyph(buf[(30, 5)].symbol()), "숫자 끝 x30\n{t}");
+    for y in 3..=4 {
+        assert_eq!(text_at(&buf, y, 31, 33), "   ", "단위는 맨 아래 줄만\n{t}");
+    }
 }
 
 #[test]
@@ -1862,14 +1910,16 @@ fn lm_long_title_selected_keeps_state_label() {
     assert!(!text_at(&buf, 1, 0, 23).contains("아주"), "{t}");
     assert_eq!(buf[(0, 2)].symbol(), "┃", "{t}");
     assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
-    // 상태 문구 + 1이 사용 폭보다 넓으면 제목 없이 상태 문구만.
+    // 상태 문구 + 1이 사용 폭보다 넓으면 제목 없이 상태 문구만 — 뒤 조각을 통째로 뺀 꼴, 오른쪽 정렬.
     let mut v = view(title, PanelState::StaleOff, "– 확인 불가 · 점검 꺼짐", "—");
     v.bars = lm_bars(5, 413);
     let buf = render_buf(24, 17, &screen(vec![v], (1, 1), 0));
     let t = buffer_text(&buf);
     let head = text_at(&buf, 2, 2, 21);
     assert!(!head.contains("아주"), "{head}\n{t}");
-    assert!(head.starts_with("– 확인 불가 · 점검"), "{head}\n{t}");
+    assert!(!head.contains("점검"), "{head}\n{t}");
+    assert!(head.ends_with("– 확인 불가"), "{head}\n{t}");
+    assert_eq!(head.trim(), "– 확인 불가", "{head}\n{t}");
     assert_eq!(buf[(23, 2)].symbol(), "┃", "{t}");
 }
 
@@ -2005,14 +2055,27 @@ fn lm_resize_sweep_no_overflow() {
                 } else {
                     r.width - 4
                 };
-                let lw = Span::raw(v.label.to_string()).width() as u16;
+                let width = |s: &str| Span::raw(s.to_string()).width() as u16;
                 if !head.contains(v.label) {
-                    let prefix: String = v.label.chars().take(3).collect();
-                    assert!(
-                        lw + 1 > avail && head.trim_end().ends_with('…') && head.contains(&prefix),
-                        "상태 문구 {} {ctx}",
-                        v.label
-                    );
+                    assert!(width(v.label) + 1 > avail, "상태 문구 {} {ctx}", v.label);
+                    // 통째 조각 단위: ` · `로 나눈 앞 조각들 중 들어가는 가장 긴 것이 보이고,
+                    // 다음 조각의 일부(단어 중간 자르기)는 없다.
+                    let segs: Vec<&str> = v.label.split(" · ").collect();
+                    let fitting = (1..=segs.len())
+                        .rev()
+                        .map(|k| segs[..k].join(" · "))
+                        .find(|p| width(p) <= avail);
+                    match fitting {
+                        Some(p) => {
+                            assert!(head.contains(&p), "상태 문구 조각 {p} {ctx}");
+                            assert!(
+                                !head.contains(&format!("{p} · ")),
+                                "상태 문구 중간 자르기 {} {ctx}",
+                                v.label
+                            );
+                        }
+                        None => assert!(head.contains('…'), "상태 문구 {} {ctx}", v.label),
+                    }
                 }
             }
             let lines: Vec<&str> = t.lines().collect();

@@ -279,7 +279,7 @@ fn header_line(v: &PanelView, w: usize, selected: bool) -> Line<'static> {
         .add_modifier(Modifier::BOLD);
     let lw = text_width(v.label);
     if lw + 1 > w {
-        let label = fit(v.label, w);
+        let label = text::label_for_width(v.label, w);
         let pad = w - text_width(&label);
         return Line::from(vec![
             Span::raw(" ".repeat(pad)),
@@ -329,13 +329,20 @@ fn render_big_lm(f: &mut Frame, area: Rect, v: &PanelView, tier: Tier, ref_w: u1
         }
         _ => None,
     };
-    if let Some((s, allowed, unit)) = glyph
-        && bigfont::supported(s)
-        && bigfont::width(s, tier) <= usize::from(allowed)
-    {
+    if area.height == 0 {
+        return;
+    }
+    // 블록 줄 수보다 글꼴 줄이 많으면(단계 규칙상 없지만) 칸 밖에 쓰지 않게 일반 글자로.
+    let big_rows = glyph
+        .filter(|&(s, allowed, _)| {
+            bigfont::supported(s) && bigfont::width(s, tier) <= usize::from(allowed)
+        })
+        .map(|(s, _, unit)| (bigfont::rows(s, tier), unit))
+        .filter(|(rows, _)| rows.len() <= usize::from(area.height));
+    if let Some((rows, unit)) = big_rows {
         let right = area.x + area.width - if unit { UNIT_W } else { 0 };
         let buf = f.buffer_mut();
-        for (i, row) in bigfont::rows(s, tier).iter().enumerate() {
+        for (i, row) in rows.iter().enumerate() {
             let rw = row.chars().count() as u16;
             buf.set_string(right - rw, area.y + i as u16, row, style);
         }
@@ -472,7 +479,7 @@ fn render_panel_s(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
         y += h;
         let line = match row {
             Row::Status => {
-                let label = fit(v.label, w);
+                let label = text::label_for_width(v.label, w);
                 let lw = text_width(&label);
                 let big = if w > lw + 1 {
                     big_fit(v, w - lw - 1)
