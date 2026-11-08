@@ -8,6 +8,7 @@ pub mod cli;
 pub mod judge;
 pub mod logging;
 pub mod poll;
+pub mod prefs;
 pub mod session;
 pub mod shutdown;
 pub mod tempdb;

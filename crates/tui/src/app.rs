@@ -23,6 +23,7 @@ use tokio::task::JoinHandle;
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
 use crate::poll::{PollSnapshot, spawn_poller};
+use crate::prefs::BorderStyle;
 use crate::session::{Session, Stage, StartError};
 use crate::terminal::TerminalGuard;
 use crate::text;
@@ -307,6 +308,7 @@ impl App<'_> {
             server_down: snap.server_down,
             panels,
             selected,
+            border: BorderStyle::default(),
         })
     }
 

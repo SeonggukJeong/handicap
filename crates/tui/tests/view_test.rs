@@ -7,6 +7,7 @@ use handicap_controller::monitor::config::{BoardConfig, DisplayItem, PanelConfig
 use handicap_tui::judge::{PanelState, format_hm, format_hms};
 use handicap_tui::logging::LogLoc;
 use handicap_tui::poll::PollSnapshot;
+use handicap_tui::prefs::BorderStyle;
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
@@ -144,6 +145,7 @@ fn screen(panels: Vec<PanelView>, pos: (usize, usize), selected: usize) -> Monit
         server_down: false,
         panels,
         selected,
+        border: BorderStyle::Heavy,
     }
 }
 
@@ -423,10 +425,10 @@ fn render_monitor_contains() {
         text.contains("←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료"),
         "{text}"
     );
-    assert!(text.contains('┏'), "선택 칸 굵은 테두리\n{text}");
-    assert!(text.contains('┌'), "비선택 칸 일반 테두리\n{text}");
-    // 선택 칸이 하나뿐이어야 한다.
-    assert_eq!(text.matches('┏').count(), 1, "{text}");
+    // 모든 칸이 같은 굵은 테두리, 선택은 `▶` 제목으로 구분한다.
+    assert_eq!(text.matches('┏').count(), 3, "{text}");
+    assert!(!text.contains('┌'), "{text}");
+    assert!(text.contains("▶ 로그인"), "{text}");
 }
 
 #[test]
@@ -1901,11 +1903,11 @@ fn lm_long_title_selected_keeps_state_label() {
     assert!(row_has_big(&buf, 3, 2, 21), "M\n{t}");
     let head = text_at(&buf, 2, 2, 21);
     assert!(head.ends_with("✔ 정상"), "{head}\n{t}");
-    assert!(head.starts_with("아주"), "{head}\n{t}");
+    assert!(head.starts_with("▶ 아주"), "{head}\n{t}");
     assert!(head.contains('…'), "{head}\n{t}");
-    // 제목 칸 ≤ 20 − 6(상태) − 1 − 2(선택 표시 자리) = 11.
+    // `▶ ` + 제목 칸 ≤ 20 − 6(상태) − 1 = 13 (제목 자체는 선택 표시 2칸을 뺀 11).
     let title_part = head.trim_end_matches("✔ 정상").trim_end();
-    assert!(Span::raw(title_part.to_string()).width() <= 11, "{head}");
+    assert!(Span::raw(title_part.to_string()).width() <= 13, "{head}");
     // 위 테두리에 제목 없음, 좌우 테두리 그대로.
     assert!(!text_at(&buf, 1, 0, 23).contains("아주"), "{t}");
     assert_eq!(buf[(0, 2)].symbol(), "┃", "{t}");
@@ -2081,6 +2083,176 @@ fn lm_resize_sweep_no_overflow() {
             let lines: Vec<&str> = t.lines().collect();
             assert!(lines[0].contains("점검 중"), "{ctx}");
             assert!(lines[lines.len() - 1].contains("q 종료"), "{ctx}");
+        }
+    }
+}
+
+// ---------- 테두리 모양·선택 제목·바탕 (Task 5) ----------
+
+fn rgb(hex: &str) -> Color {
+    parse_hex(hex).unwrap()
+}
+/// 넓은 글자 뒤 채움 칸 — ratatui가 바탕을 다시 쓰지 않고(터미널이 앞 칸 바탕으로 칠한다) 비워 둔다.
+fn is_wide_tail(buf: &Buffer, x: u16, y: u16) -> bool {
+    x > 0 && Span::raw(buf[(x - 1, y)].symbol().to_string()).width() == 2
+}
+
+#[test]
+fn border_styles_heavy_and_block() {
+    let panels = || {
+        vec![
+            view("로그인", PanelState::Ok, "✔ 정상", "182 ms"),
+            view("주문 조회", PanelState::Ok, "✔ 정상", "99 ms"),
+            view("결제", PanelState::Ok, "✔ 정상", "10 ms"),
+        ]
+    };
+    let mut sc = screen(panels(), (1, 1), 1);
+    let heavy = buffer_text(&render_buf(80, 24, &sc));
+    assert_eq!(heavy.matches('┏').count(), 3, "{heavy}");
+    assert!(!heavy.contains('┌') && !heavy.contains('▛'), "{heavy}");
+    sc.border = BorderStyle::Block;
+    let block = buffer_text(&render_buf(80, 24, &sc));
+    assert_eq!(block.matches('▛').count(), 3, "{block}");
+    assert!(!block.contains('┌') && !block.contains('┏'), "{block}");
+    assert_eq!(BorderStyle::Heavy.toggled(), BorderStyle::Block);
+    assert_eq!(BorderStyle::Block.toggled(), BorderStyle::Heavy);
+    assert_eq!(BorderStyle::default(), BorderStyle::Heavy);
+}
+
+#[test]
+fn selected_panel_is_inverted_title_not_border() {
+    let inv = rgb("#f2f5f8");
+    // L/M: 112×31 여섯 칸, 칸 0 선택.
+    let sc = screen(six_mixed(), (1, 1), 0);
+    let buf = render_buf(112, 31, &sc);
+    let t = buffer_text(&buf);
+    let lay = layout(Rect::new(0, 0, 112, 31), 6).unwrap();
+    let head = |i: usize| {
+        let inn = inner_of(lay.panels[i]);
+        (inn.x + 1, inn.y)
+    };
+    let (x0, y) = head(0);
+    assert!(text_at(&buf, y, x0, x0 + 7).starts_with("▶ 로그인"), "{t}");
+    for x in (x0..x0 + 8).filter(|&x| !is_wide_tail(&buf, x, y)) {
+        assert_eq!(buf[(x, y)].bg, inv, "x{x}\n{t}");
+        assert_eq!(buf[(x, y)].fg, rgb("#0b0f14"), "x{x}");
+    }
+    let (ux, uy) = head(4);
+    assert!(
+        text_at(&buf, uy, ux, ux + 13).starts_with("회원 등급"),
+        "{t}"
+    );
+    assert!(!text_at(&buf, uy, ux, ux + 13).contains('▶'), "{t}");
+    for x in (ux..ux + 14).filter(|&x| !is_wide_tail(&buf, x, uy)) {
+        assert_ne!(buf[(x, uy)].bg, inv, "x{x}\n{t}");
+    }
+    for r in &lay.panels {
+        assert_eq!(buf[(r.x, r.y)].symbol(), "┏", "{t}");
+    }
+    // S: 위 테두리 제목.
+    let sv = |title: &str| s_view(lm_bars(3, 100), 2000).tap_title(title);
+    let sc = screen(vec![sv("로그인"), sv("주문")], (1, 1), 0);
+    let buf = render_buf(60, 12, &sc);
+    let t = buffer_text(&buf);
+    let top = text_at(&buf, 1, 0, 59);
+    let col = top.find("▶ 로그인").map(|b| top[..b].chars().count());
+    let col = col.expect(&t) as u16;
+    // `▶ 로그인`은 모두 한 칸 폭(▶) + 공백 + 넓은 글자라 열 번호는 글자 수와 같다.
+    for x in (col..col + 8).filter(|&x| !is_wide_tail(&buf, x, 1)) {
+        assert_eq!(buf[(x, 1)].bg, inv, "x{x}\n{t}");
+    }
+    assert_eq!(buf[(0, 1)].symbol(), "┏", "{t}");
+    let other = text_at(&buf, 1, 30, 59);
+    assert!(other.contains("주문") && !other.contains('▶'), "{t}");
+}
+
+trait TapTitle {
+    fn tap_title(self, t: &str) -> Self;
+}
+impl TapTitle for PanelView {
+    fn tap_title(mut self, t: &str) -> Self {
+        self.title = t.into();
+        self
+    }
+}
+
+#[test]
+fn tint_slow_and_fail_only() {
+    let mut views = six_mixed();
+    views[1]
+        .bars
+        .iter_mut()
+        .for_each(|b| b.color = rgb("#f59e0b"));
+    views[2]
+        .bars
+        .iter_mut()
+        .for_each(|b| b.color = rgb("#ef4444"));
+    let sc = screen(views, (1, 1), 0);
+    let buf = render_buf(112, 31, &sc);
+    let t = buffer_text(&buf);
+    let lay = layout(Rect::new(0, 0, 112, 31), 6).unwrap();
+    let inside = |i: usize| {
+        let inn = inner_of(lay.panels[i]);
+        (inn.y..inn.y + inn.height)
+            .flat_map(move |y| (inn.x..inn.x + inn.width).map(move |x| (x, y)))
+            .collect::<Vec<_>>()
+    };
+    let bg_of = |i: usize| buf[(inner_of(lay.panels[i]).x, inner_of(lay.panels[i]).y)].bg;
+    let (slow, fail) = (bg_of(1), bg_of(2));
+    assert!(
+        matches!(slow, Color::Rgb(..)) && matches!(fail, Color::Rgb(..)),
+        "{t}"
+    );
+    assert_ne!(slow, fail);
+    assert_ne!(slow, rgb("#f59e0b"));
+    assert_ne!(fail, rgb("#ef4444"));
+    assert_eq!(bg_of(3), fail, "실패 칸 둘은 같은 바탕");
+    for i in [1usize, 2, 3] {
+        let want = bg_of(i);
+        for (x, y) in inside(i)
+            .into_iter()
+            .filter(|&(x, y)| !is_wide_tail(&buf, x, y))
+        {
+            assert_eq!(
+                buf[(x, y)].bg,
+                want,
+                "칸 {i} ({x},{y}) {:?}\n{t}",
+                buf[(x, y)].symbol()
+            );
+        }
+    }
+    // 실패 칸 안: 막대·점선·기준선 숫자가 실제로 있고 모두 바탕을 유지한다.
+    let cells: Vec<(u16, u16)> = inside(2);
+    let has = |pred: &dyn Fn(&str) -> bool| cells.iter().any(|&(x, y)| pred(buf[(x, y)].symbol()));
+    assert!(has(&|s| s == "█"), "{t}");
+    assert!(has(&|s| s == "╌"), "{t}");
+    assert!(has(&|s| s == "7"), "기준선 숫자\n{t}");
+    for i in [4usize, 5] {
+        for (x, y) in inside(i) {
+            assert_eq!(buf[(x, y)].bg, Color::Reset, "정상 칸 {i} ({x},{y})");
+        }
+    }
+    // S 단계도 같은 규칙.
+    let mut f = s_fail_view(
+        vec![s_ok(100, 0), s_bar(BarKind::Fail, 10_000)],
+        2000,
+        vec![th(700, "#facc15")],
+    );
+    f.bars[1].color = rgb("#ef4444");
+    let ok = s_view(vec![s_ok(100, 0)], 2000);
+    let sc = screen(vec![f, ok], (1, 1), 0);
+    let buf = render_buf(60, 12, &sc);
+    let lay = layout(Rect::new(0, 0, 60, 12), 2).unwrap();
+    let (a, b) = (inner_of(lay.panels[0]), inner_of(lay.panels[1]));
+    let t = buffer_text(&buf);
+    for y in a.y..a.y + a.height {
+        for x in (a.x..a.x + a.width).filter(|&x| !is_wide_tail(&buf, x, y)) {
+            assert_eq!(buf[(x, y)].bg, fail, "S 실패 ({x},{y})\n{t}");
+        }
+    }
+    for y in b.y..b.y + b.height {
+        for x in b.x..b.x + b.width {
+            assert_eq!(buf[(x, y)].bg, Color::Reset, "S 정상 ({x},{y})");
         }
     }
 }

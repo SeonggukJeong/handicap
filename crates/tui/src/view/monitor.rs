@@ -15,6 +15,7 @@ use super::tier::{self, TierInput, UNIT_W};
 use super::{fit, key_bar, text_width};
 use crate::judge::ReasonParts;
 use crate::judge::{PanelState, format_hm, format_hms, grid_for};
+use crate::prefs::BorderStyle;
 use crate::text;
 
 pub const MIN_PANEL_W: u16 = 24;
@@ -31,6 +32,10 @@ pub(crate) const C_SLOW: &str = "#f59e0b";
 pub(crate) const C_GRAY_BORDER: &str = "#64748b";
 pub(crate) const C_BLOCKED_BORDER: &str = "#475569";
 pub(crate) const C_BRIGHT: &str = "#e2e8f0";
+/// 칸 바탕(어두운 터미널 기준) — 느림·실패 칸 바탕을 물들일 때 섞는 기준.
+const C_BG: &str = "#0b0f14";
+/// 상태 색을 칸 바탕에 섞는 비율.
+const TINT_RATIO: f32 = 0.15;
 
 fn color(hex: &str) -> Color {
     parse_hex(hex).unwrap_or(Color::Reset)
@@ -56,6 +61,7 @@ pub struct MonitorScreen {
     pub server_down: bool,
     pub panels: Vec<PanelView>,
     pub selected: usize,
+    pub border: BorderStyle,
 }
 
 /// 머리 줄 1행·키 안내 줄 1행을 뺀 영역을 `grid_for` 격자로 나눈다. 칸 최소 24×6.
@@ -176,21 +182,47 @@ fn put(f: &mut Frame, area: Rect, line: Line) {
     f.render_widget(Paragraph::new(line), area);
 }
 
-/// 칸 테두리(1a — 선택 칸은 굵은 선). 제목은 호출자가 붙인다.
-fn panel_block(v: &PanelView, selected: bool) -> Block<'static> {
-    let bc = border_color(v);
-    let (border_type, style) = if selected {
-        (
-            BorderType::Thick,
-            Style::default().fg(bc).add_modifier(Modifier::BOLD),
-        )
-    } else {
-        (BorderType::Plain, Style::default().fg(bc))
+/// 느림·실패 칸 바탕 — 상태 색을 칸 바탕에 `TINT_RATIO`만큼 섞은 어두운 색. 다른 상태는 None.
+fn tint_bg(v: &PanelView) -> Option<Color> {
+    let base = match v.state {
+        PanelState::Slow => match state_color(v) {
+            c @ Color::Rgb(..) => c,
+            _ => color(C_SLOW),
+        },
+        PanelState::Fail => color(C_FAIL),
+        _ => return None,
     };
-    Block::default()
+    let (Color::Rgb(br, bg, bb), Color::Rgb(sr, sg, sb)) = (color(C_BG), base) else {
+        return None;
+    };
+    let mix =
+        |b: u8, s: u8| (f32::from(b) + (f32::from(s) - f32::from(b)) * TINT_RATIO).round() as u8;
+    Some(Color::Rgb(mix(br, sr), mix(bg, sg), mix(bb, sb)))
+}
+
+/// 칸 테두리 — 모든 칸 같은 모양(선택은 제목으로 구분), 색은 상태 색, 안쪽 전체에 `bg`.
+/// 제목은 호출자가 붙인다.
+fn panel_block(v: &PanelView, border: BorderStyle, bg: Option<Color>) -> Block<'static> {
+    let border_type = match border {
+        BorderStyle::Heavy => BorderType::Thick,
+        BorderStyle::Block => BorderType::QuadrantOutside,
+    };
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(border_type)
-        .border_style(style)
+        .border_style(Style::default().fg(border_color(v)));
+    if let Some(c) = bg {
+        block = block.style(Style::default().bg(c));
+    }
+    block
+}
+
+/// 선택 칸 제목 — 어두운 글자 + 흰 바탕, 굵게.
+fn selected_title_style() -> Style {
+    Style::default()
+        .fg(color(C_BG))
+        .bg(color(C_TEXT))
+        .add_modifier(Modifier::BOLD)
 }
 
 fn title_color(v: &PanelView) -> Color {
@@ -268,7 +300,7 @@ fn render_axis_row(
     }
 }
 
-/// 선택 칸 머리 줄 제목 앞 `▶ ` 자리(Task 5가 그린다).
+/// 선택 칸 머리 줄 제목 앞 `▶ ` 자리.
 const SELECT_MARK_W: usize = 2;
 
 /// L·M 머리 줄 — 왼쪽 제목(굵게) · 오른쪽 상태 문구(굵게, 상태 색). 사이 1칸 이상, 모자라면 제목만 줄인다.
@@ -287,15 +319,20 @@ fn header_line(v: &PanelView, w: usize, selected: bool) -> Line<'static> {
         ]);
     }
     let reserve = if selected { SELECT_MARK_W } else { 0 };
-    let title = fit(&v.title, (w - lw - 1).saturating_sub(reserve));
-    let pad = w - lw - text_width(&title);
-    Line::from(vec![
-        Span::styled(
-            title,
+    let fitted = fit(&v.title, (w - lw - 1).saturating_sub(reserve));
+    let (title, title_style) = if selected {
+        (format!("▶ {fitted}"), selected_title_style())
+    } else {
+        (
+            fitted,
             Style::default()
                 .fg(title_color(v))
                 .add_modifier(Modifier::BOLD),
-        ),
+        )
+    };
+    let pad = w - lw - text_width(&title);
+    Line::from(vec![
+        Span::styled(title, title_style),
         Span::raw(" ".repeat(pad)),
         Span::styled(v.label, label_style),
     ])
@@ -373,8 +410,16 @@ fn render_big_lm(f: &mut Frame, area: Rect, v: &PanelView, tier: Tier, ref_w: u1
 
 /// L·M 단계 칸(spec §4.2): 좌우 여백 1, 머리 줄 → 큰 값 블록(표시 값 왼쪽) → 사유 작은 줄 →
 /// 연속 실패 줄 → 막대 영역 → 시각 줄 → 평균·최대 줄.
-fn render_panel_lm(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool, tier: Tier) {
-    let block = panel_block(v, selected);
+fn render_panel_lm(
+    f: &mut Frame,
+    rect: Rect,
+    v: &PanelView,
+    selected: bool,
+    tier: Tier,
+    border: BorderStyle,
+) {
+    let bg = tint_bg(v);
+    let block = panel_block(v, border, bg);
     let inner = block.inner(rect);
     f.render_widget(block, rect);
     if inner.width < 3 || inner.height == 0 {
@@ -433,7 +478,7 @@ fn render_panel_lm(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool, tie
     let tail = 1 + u16::from(v.show_stats);
     let bar_h = bottom.saturating_sub(y).saturating_sub(tail);
     let label_w = graph::label_width(&v.thresholds, usable, true);
-    let range = graph::render_graph(f, Rect::new(x0, y, usable, bar_h), v, true, label_w, None);
+    let range = graph::render_graph(f, Rect::new(x0, y, usable, bar_h), v, true, label_w, bg);
     y += bar_h;
     if y < bottom {
         render_axis_row(f, y, v, range, x0 + usable, label_w);
@@ -445,14 +490,27 @@ fn render_panel_lm(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool, tie
 }
 
 /// S 단계 칸(1a 배치 기반, spec §4.3).
-fn render_panel_s(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
+fn render_panel_s(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool, border: BorderStyle) {
     let sc = state_color(v);
-    let title = format!(
-        " {} ",
-        fit(&v.title, usize::from(rect.width).saturating_sub(4))
-    );
-    let block =
-        panel_block(v, selected).title(Span::styled(title, Style::default().fg(title_color(v))));
+    let bg = tint_bg(v);
+    let (title, title_style) = if selected {
+        (
+            format!(
+                " ▶ {} ",
+                fit(&v.title, usize::from(rect.width).saturating_sub(6))
+            ),
+            selected_title_style(),
+        )
+    } else {
+        (
+            format!(
+                " {} ",
+                fit(&v.title, usize::from(rect.width).saturating_sub(4))
+            ),
+            Style::default().fg(title_color(v)),
+        )
+    };
+    let block = panel_block(v, border, bg).title(Span::styled(title, title_style));
     let inner = block.inner(rect);
     f.render_widget(block, rect);
     if inner.width == 0 {
@@ -501,7 +559,7 @@ fn render_panel_s(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
             Row::ReasonSmall => reason_small_line(v, small.unwrap_or_default(), w),
             Row::Consecutive => consecutive_line(v, w),
             Row::Bars => {
-                bars_range = graph::render_graph(f, area, v, draw_thresholds, label_w, None);
+                bars_range = graph::render_graph(f, area, v, draw_thresholds, label_w, bg);
                 continue;
             }
             Row::Axis => {
@@ -674,9 +732,9 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) {
     let tier = tier::board_tier(&inners, &inputs);
     for (i, (rect, v)) in lay.panels.iter().zip(&s.panels).enumerate() {
         if tier == Tier::S {
-            render_panel_s(f, *rect, v, i == s.selected);
+            render_panel_s(f, *rect, v, i == s.selected, s.border);
         } else {
-            render_panel_lm(f, *rect, v, i == s.selected, tier);
+            render_panel_lm(f, *rect, v, i == s.selected, tier, s.border);
         }
     }
     let keys = match bar {
