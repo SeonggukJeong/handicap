@@ -3,6 +3,7 @@
 - 날짜: 2026-11-08 · 유형: `user-path` · 상위 설계: [tui-monitor 설계](2026-11-07-tui-monitor-design.md) §5.1(모니터 화면)을 이 문서가 **개정**한다 · 결정 기록: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 목업: [`2026-11-08-tui-readability-mockups/`](2026-11-08-tui-readability-mockups/) — **`00-final-agreed.png`가 합의된 모습**(나머지는 비교 과정). 목업은 실제 터미널 문자로 그릴 수 있는 것만 썼다.
 - 순서: tui-monitor 1a 다음, 1b(오류 보기)보다 먼저(사용자 지시 2026-11-08).
+- 상태: **완료**(2026-11-08, 코드 `d42fba9a`..`0673ccfd`, plan `docs/superpowers/plans/2026-11-08-tui-readability.md`) — 판단·연기 → `docs/roadmap.md` §B46, 결과 → `docs/build-log.md` tui-readability 단락.
 
 ## 사용자 스토리 (US)
 

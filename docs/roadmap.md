@@ -856,17 +856,36 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **DNS 리바인딩 Host 검사 연기(보안 S3)**: 루프백 REST에 Host 헤더 검사가 없어, 모니터 PC 브라우저로 연 악성 페이지가 자기 도메인을 127.0.0.1로 리바인딩해 `GET /api/environments`로 환경 값 평문을 읽을 수 있다(데스크톱 앱 ADR-0042에도 선재). 이 슬라이스는 "컨트롤러 0-diff" 제약이라 코드 수정 없이 매뉴얼에 "TUI 실행 중 이 PC에서 웹 탐색 금지"만 넣었다. cost-if-wrong: 운영자가 그 PC에서 웹을 열면 환경 값 유출 가능. 해소: in-process 라우터(데스크톱·TUI 공용)에 `Host`가 `127.0.0.1:<port>`/`localhost:<port>`/`[::1]:<port>`가 아니면 거절하는 미들웨어 — 별도 컨트롤러 슬라이스(데스크톱도 함께 보호).
 - **SIGHUP 뒤 tty 읽기 막힘은 원인 미규명 — 5 s 감시견으로 덮음** (`shutdown.rs`): 창 닫기/로그아웃 시 메인 스레드가 crossterm tty 읽기에서 돌아오지 않아 종료 플래그를 못 봤다. 감시견이 5 s 뒤 임시 디렉터리 삭제 → 터미널 복구 → 로그 → `exit(1)`. cost-if-wrong: 신호 종료가 항상 exit 1·컨트롤러 정상 종료 생략(비밀은 삭제됨). 해소: crossterm 이벤트 읽기를 별도 스레드로 옮기거나 `event::poll`이 HUP을 반환하는지 조사.
 - **평균·최대 줄 안쪽 22칸에선 `최대 M`만** (라이브 수정 `e0fe890c`): 단위 없는 `평균 N · 최대 M`도 23칸이라 72열 3×3 최소 배치에서 평균이 빠진다(80열에선 둘 다). cost-if-wrong: 최소 크기에서 평균 미표시. 해소: 필요하면 `평균 N·최대 M`(공백 없는 구분) 단계 추가.
-- **막대·시각 줄은 칸 안쪽 왼쪽부터 `min(bar_count, 안쪽 폭)`칸**(spec §5.1 그대로): 넓은 칸(1칸 보드 80열)에선 오른쪽에 빈 칸이 남는다. cost-if-wrong: 보기에 치우침. 해소: 원하면 막대 영역을 오른쪽 정렬(spec 개정).
+- ~~**막대·시각 줄은 칸 안쪽 왼쪽부터 `min(bar_count, 안쪽 폭)`칸**(spec §5.1 그대로): 넓은 칸(1칸 보드 80열)에선 오른쪽에 빈 칸이 남는다. cost-if-wrong: 보기에 치우침. 해소: 원하면 막대 영역을 오른쪽 정렬(spec 개정).~~ ✅ 해소(tui-readability `a0007ef4` — 막대 영역 오른쪽 정렬, §B46)
 - **임시 DB 이름 `<pid>-<seq>`→`mkdtemp` 전용 디렉터리**(spec §4.2는 `<pid>.db`): 재시도마다 새 경로·WAL/SHM 보호. spec 문구는 그대로 두고 매뉴얼에 실제 위치를 적었다.
 - **`pool_capacity_guard_test::pool_clamp_resubmit_succeeds` 1회 실패 = 부하 flake 판정**: workspace feature(`in-process` 통합) 아래 `--stress-count 20` 20/20 통과, 최종 리뷰도 동의. cost-if-wrong: 진짜 간헐 버그 미발견. 해소: CI에서 재발하면 워커 유휴 대기 15 s 여유를 재검토.
 - **Task 6 커밋 트레일러가 `Claude Sonnet 5.5`**(구현 모델 그대로): 기록 재작성 없이 둠(표시만).
 
 (2) 연기(nit·테스트 polish — 재개 신호 = 1b에서 그 파일을 만질 때)
 - 테스트: 신호 테스트 2개(`termination_signals_set_quit_flag`·`watchdog_fires_when_main_does_not_exit`)가 같은 `cargo test` 프로세스에서 전역 신호 처리기를 공유 → 드문 flake 가능(해소: 정적 Mutex로 직렬화 또는 하나를 서브프로세스로) · `App::draw_with` 화면→키 줄 매핑 테스트 없음 · `poll_once` 404·폴러 주기·보드 전환·수신자 drop 테스트 없음 · `reason_parts` 멀티바이트 needle 테스트 없음 · `text_labels_match_ko`가 ko.ts가 아닌 리터럴 대조(드리프트 감시는 수동) · io_kind 테스트 클라이언트 `.no_proxy()` 없음 · Task 1 테스트 실패 시 shutdown 생략·타임아웃 없음.
-- 화면: 이름이 빠진 머리 줄 앞 이중 공백·~25열 끊김 시 외톨이 `…` · 긴 라벨+좁은 칸에서 `포함 안 됨` 큰 값이 줄임 대신 빈칸 · 키 줄 그리기 함수 2개(DIM vs muted) · `확인 불가 · 점검 꺼짐`(23칸) 안쪽 22에서 `…` · 평균·최대 숫자 색(GUI `#f2f5f8`) · 연속 줄 왼쪽 정렬(GUI 오른쪽) · 머리 줄 `점검 중`이 `enabled=false` 보드에도 표시 · 18열 미만에서 종료 확인 키 줄이 `y 종료`부터 탈락 · 도움말 극소 높이에서 로그 줄이 파일 줄보다 먼저 탈락.
+- 화면: 이름이 빠진 머리 줄 앞 이중 공백·~25열 끊김 시 외톨이 `…` · 긴 라벨+좁은 칸에서 `포함 안 됨` 큰 값이 줄임 대신 빈칸 · 키 줄 그리기 함수 2개(DIM vs muted) · ~~`확인 불가 · 점검 꺼짐`(23칸) 안쪽 22에서 `…`~~ ✅ 해소(tui-readability `bf431009` — ` · ` 조각 통째로 줄임 `label_for_width`) · 평균·최대 숫자 색(GUI `#f2f5f8`) · 연속 줄 왼쪽 정렬(GUI 오른쪽) · 머리 줄 `점검 중`이 `enabled=false` 보드에도 표시 · 18열 미만에서 종료 확인 키 줄이 `y 종료`부터 탈락 · 도움말 극소 높이에서 로그 줄이 파일 줄보다 먼저 탈락.
 - 런타임: 보드 전환 후 폴러가 최대 1 s 늦게 새 보드 조회 · 404 후에도 폴링 계속(GUI는 멈춤) · `error_of` 본문 읽기 오류 로그 없음 · post-start `api.board` 실패가 `Stage::Import`로 표시 · in-process 컨트롤러가 SQLite 풀을 닫지 않고 디렉터리 삭제(~2 s 창, 비밀 쓰기 없음) · run 모드 패닉 훅이 `sweep_stale`·런타임 생성 뒤 설치(터미널 진입 전이라 화면 무해).
 - 보안(선재·범위 밖): 엔진 `condition.rs:135`가 렌더된 정규식 패턴(`${ENV}`/`{{var}}` 값 포함 가능)을 warn 로그로 — TUI에선 `tui.log`(0600)에 남는다. 해소: 패턴 대신 길이만 로그(엔진 슬라이스).
 - 릴리즈: ubuntu-24.04 러너의 `python3-venv`·cargo-zigbuild `python3 -m ziglang` 폴백은 로컬에서만 확인 → 첫 태그 전에 release.yml `workflow_dispatch` 1회 권장 · 게이트 스크립트의 비동적 바이너리 메시지 문구.
+
+### B46. 터미널 모니터 원거리 가독성 (tui-readability, 2026-11-08, 코드 `d42fba9a`..`0673ccfd`, ADR-0055 덧붙임, spec `docs/superpowers/specs/2026-11-08-tui-readability-design.md`) 판단·연기
+
+**다음 슬라이스**: TUI 1b(오류 보기·칸 설정 보기, §B45). 사용자 실기 확인(머지 후): Ubuntu 19.04 gnome-terminal 3.32에서 `--zoom=1.6`·전체화면 `Ctrl`+`+`/`−` 동작, ko_KR에서 새 모호 폭 문자(`▀▄▌▐▛▜▙▟`, `┏━┃`, `╌`, `▒`, `▶`) 정렬 → 결과를 build-log에.
+
+(1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
+- **느림·실패 바탕은 테두리 칸까지 칠한다**(`Block::style` 전체 사각형, spec 문구는 "안쪽 전체"): 반 칸 블록(`QuadrantOutside`)은 글자 칸의 빈 반쪽이 안쪽을 향해 테두리 칸을 안 칠하면 기본 바탕 반 칸 띠가 생긴다. cost-if-wrong: 테두리 칸 bg만 다름(가독성 무영향). 해소: 원하면 `panel_block` 스타일을 안쪽 Rect에만.
+- **안쪽 글자·막대·점선·기준선 숫자는 물든 바탕을 그대로 쓴다(fg만 바꿈)**: plan "bg는 칸 바탕 유지"를 물든 색으로 해석. cost-if-wrong: 테스트 1개+스타일 1줄.
+- **L/M 머리 줄 제목 색은 1a `title_color` 유지**(확인 못 함·분기 제외 = `C_SOFT`, brief 글자 그대로는 항상 `C_TEXT`): spec이 색을 정하지 않음, S와 일관. cost-if-wrong: 한 줄.
+- **상태 문구 단어 중간 잘림(1a부터)을 이 슬라이스에서 고침**(plan은 `fit(상태 문구)` 지시): `text::label_for_width`가 ` · ` 조각을 통째로 뺀다(`– 확인 불가 · 점검 꺼짐` → `– 확인 불가`), S·L/M 공용. spec §2 반목표가 근거.
+- **선택한 칸은 좁아도 `▶` 흰 바탕 표시를 지킨다**(최종 리뷰 fix `0673ccfd`): 그 대가로 사용 폭 24–25의 선택한 `점검 꺼짐` 칸은 `– 확인 불가`로 줄고, 선택을 옮기면 전체 문구로 돌아온다(커서 이동에 따라 문구 길이가 달라짐). cost-if-wrong: 보기 차이뿐. 해소: 칸 최소 폭을 늘리거나 선택 표시를 테두리 쪽으로.
+- **180×50(L)에서 `HTTP 503` 같은 실패 사유는 L 글꼴 폭(60) > 사용 폭(56)이라 일반 글자**(spec 규칙 그대로 — 112×31 M에선 큰 글꼴). cost-if-wrong: 넓은 화면·적은 칸에서 실패 사유가 작게. 해소: 넘치면 한 단계 작은 글꼴(M 글리프)로 그리는 폴백(spec 개정).
+- **Task 7 커밋 트레일러 `Claude Haiku 5.5`**(구현 모델 그대로, plan 규칙): 기록 재작성 없이 둠.
+
+(2) 연기(nit·테스트 polish — 재개 신호 = 그 파일을 만질 때)
+- **CI 노출 flake 2건(이 브랜치 무수정 파일)**: `tempdb::tests::sweep_removes_own_pid_leftovers_but_not_active_tempdb`(다른 테스트의 전역 `remove_active()`와 경합, plain `cargo test`에서 약 2/9)·`app_test::termination_signals_set_quit_flag`(감시견 테스트의 SIGHUP 누출 추정, §B45 (2)와 같은 뿌리). CI는 plain `cargo test --workspace`(`.github/workflows/ci.yml`)라 노출, pre-commit nextest는 프로세스 격리라 무관. 해소: 정적 Mutex로 직렬화 또는 서브프로세스 분리.
+- 테스트: 숫자 글리프 서로 다름 단언 없음(`0`=`O`, `5`=`S`는 3×5 한계) · `board_tier` zip 길이 `debug_assert` 없음 · `reserved_rows(Tier::S)` 의미 없는 값 · `reference_text`가 항상 `supported`인지 단언 없음 · 6칸 "빈 줄 ≤1" 테스트 단독으로는 약함(실질 가드는 한글 사유 테스트) · 테두리 테스트가 `▛` 개수만 · `apply(ToggleBorder)` 끝-끝 테스트 없음(라이브 US4가 덮음) · S 점선이 짧은 막대 옆에 그려지는 칸 단언 없음.
+- 화면: `TINT_RATIO` 0.15에서 느림 바탕 위 빨강 기준선 숫자 4.05:1·시각 줄 4.16:1(0.12로 낮추면 개선) · `Ctrl`+`B`도 테두리 전환(수식 키 미검사) · 칸 수가 같아도 행마다 안쪽 높이가 1 차이나 S 단계에서 기준선이 어떤 행엔 있고 어떤 행엔 없음(칸별 최악 경우 판정 그대로) · 2폭 한글 뒤 꼬리 칸 bg는 버퍼상 Reset(터미널은 머리 칸 bg로 칠함 — tmux `-e` 확인).
+- 문서: 매뉴얼에 설정 디렉터리 없음(메모리만) 경우 미기재 · spec/plan이 옛 도움말 문구(`−`·`↔`·긴 zoom 문구)를 인용(설계 기록이라 둠).
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 
