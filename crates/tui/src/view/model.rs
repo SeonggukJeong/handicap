@@ -79,14 +79,15 @@ pub enum Row {
 }
 
 /// 우선순위 Status > Bars > Axis > Consecutive > ReasonSmall > Stats > Display(0) > Display(1)로
-/// `inner_h`줄만 고르고 화면 순서로 돌려준다.
-pub fn panel_rows(
+/// `inner_h`줄만 고르되 막대는 1줄로 세고, 남는 줄을 모두 막대 높이에 더한다.
+/// 반환 = (화면 순서 줄들(`Row::Bars`는 한 번), 막대 줄 수 — 막대가 없으면 0).
+pub fn panel_rows_s(
     inner_h: u16,
     has_reason_small: bool,
     has_consecutive: bool,
-    has_stats: bool,
+    stats_row: bool,
     n_display: usize,
-) -> Vec<Row> {
+) -> (Vec<Row>, u16) {
     let mut order = vec![Row::Status, Row::Bars, Row::Axis];
     if has_consecutive {
         order.push(Row::Consecutive);
@@ -94,13 +95,20 @@ pub fn panel_rows(
     if has_reason_small {
         order.push(Row::ReasonSmall);
     }
-    if has_stats {
+    if stats_row {
         order.push(Row::Stats);
     }
     order.extend((0..n_display).map(Row::Display));
-    order.truncate(usize::from(inner_h));
+    let h = usize::from(inner_h);
+    let leftover = h.saturating_sub(order.len());
+    order.truncate(h);
     order.sort();
-    order
+    let bar_h = if order.contains(&Row::Bars) {
+        (1 + leftover) as u16
+    } else {
+        0
+    };
+    (order, bar_h)
 }
 
 /// `#rrggbb` → `Color::Rgb`.

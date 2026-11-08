@@ -1,6 +1,10 @@
 //! 막대 그래프 순수 함수 — 열 글리프·기준선 줄·숫자 열 폭(spec §5.1·§5.3·§5.4).
 
-use super::model::{Bar, BarKind, ThresholdView};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+
+use super::model::{Bar, BarKind, PanelView, ThresholdView};
 use super::text_width;
 use crate::judge::format_stat_num;
 
@@ -93,4 +97,89 @@ pub fn label_width(th: &[ThresholdView], inner_w: u16, draw: bool) -> u16 {
     } else {
         w
     }
+}
+
+/// 막대 영역(`area` = 숫자 열 포함 폭 × 막대 줄 수)을 그린다. 막대는 숫자 열을 뺀 폭 `W`의
+/// 오른쪽 끝에 붙이고, 기준선은 막대 글리프가 없는 글자 칸에만 점선으로 긋는다.
+/// 반환 = 막대들이 놓인 가로 범위(시각 줄이 같은 범위에 그린다).
+pub fn render_graph(
+    f: &mut Frame,
+    area: Rect,
+    v: &PanelView,
+    draw_thresholds: bool,
+    label_w: u16,
+    bg: Option<Color>,
+) -> Rect {
+    let w = if label_w > 0 {
+        area.width.saturating_sub(label_w + 1)
+    } else {
+        area.width
+    };
+    let rows = area.height;
+    let visible = v.bars.len().min(usize::from(w));
+    let bars = &v.bars[v.bars.len() - visible..];
+    let x0 = area.x + w - visible as u16;
+    let range = Rect::new(x0, area.y, visible as u16, rows);
+    if rows == 0 || w == 0 {
+        return range;
+    }
+    let th_rows = if draw_thresholds {
+        threshold_rows(&v.thresholds, v.graph_max_ms, rows)
+    } else {
+        Vec::new()
+    };
+    let cols: Vec<Vec<Option<char>>> = bars
+        .iter()
+        .enumerate()
+        .map(|(i, b)| column(b, rows, v.graph_max_ms, i))
+        .collect();
+    let buf = f.buffer_mut();
+    let y_of = |r: u16| area.y + rows - 1 - r;
+    if let Some(c) = bg {
+        for y in area.y..area.y + rows {
+            for x in area.x..area.x + area.width {
+                buf[(x, y)].set_bg(c);
+            }
+        }
+    }
+    for r in 0..rows {
+        let y = y_of(r);
+        let dash = th_rows
+            .iter()
+            .find(|(tr, _)| *tr == r)
+            .map(|(_, t)| t.color);
+        for x in 0..w {
+            let cell = &mut buf[(area.x + x, y)];
+            let glyph = x.checked_sub(w - visible as u16).and_then(|j| {
+                let j = usize::from(j);
+                cols[j][usize::from(r)].map(|ch| (ch, bars[j].color))
+            });
+            match (glyph, dash) {
+                (Some((ch, c)), _) => {
+                    cell.set_char(ch).set_fg(c);
+                }
+                (None, Some(c)) => {
+                    cell.set_char('╌').set_fg(c);
+                }
+                _ => {}
+            }
+        }
+    }
+    if label_w > 0 && draw_thresholds {
+        let lx = area.x + w + 1;
+        for (r, t) in &th_rows {
+            let text = format_stat_num(f64::from(t.ms));
+            let tw = text_width(&text) as u16;
+            if tw > label_w {
+                continue;
+            }
+            buf.set_string(
+                lx + label_w - tw,
+                y_of(*r),
+                &text,
+                Style::default().fg(t.color).add_modifier(Modifier::BOLD),
+            );
+        }
+    }
+    range
 }

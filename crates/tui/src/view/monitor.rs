@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use super::axis::{axis_line, axis_uses_seconds};
 use super::graph;
-use super::model::{BigValue, PanelView, Row, panel_rows, parse_hex};
+use super::model::{BigValue, PanelView, Row, panel_rows_s, parse_hex};
 use super::{fit, key_bar, text_width};
 use crate::judge::ReasonParts;
 use crate::judge::{PanelState, format_hm, format_hms, grid_for};
@@ -206,17 +206,23 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
     }
     let w = usize::from(inner.width);
     let small = reason_small(v);
-    let rows = panel_rows(
+    let (rows, bar_h) = panel_rows_s(
         inner.height,
         small.is_some(),
         v.consecutive.is_some(),
-        v.stats.is_some(),
-        v.display.len(),
+        v.show_stats,
+        v.n_display_items,
     );
-    let visible = v.bars.len().min(w);
-    let bars = &v.bars[v.bars.len() - visible..];
-    for (i, row) in rows.into_iter().enumerate() {
-        let area = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
+    // 기준선·숫자 열은 최악 경우 막대 줄 수로 정해 상태가 바뀌어도 막대가 밀리지 않는다.
+    let worst_bar_h = panel_rows_s(inner.height, true, true, v.show_stats, v.n_display_items).1;
+    let draw_thresholds = worst_bar_h >= graph::MIN_THRESHOLD_ROWS;
+    let label_w = graph::label_width(&v.thresholds, inner.width, draw_thresholds);
+    let mut bars_range = Rect::new(inner.x, inner.y, 0, 0);
+    let mut y = inner.y;
+    for row in rows {
+        let h = if row == Row::Bars { bar_h } else { 1 };
+        let area = Rect::new(inner.x, y, inner.width, h);
+        y += h;
         let line = match row {
             Row::Status => {
                 let label = fit(v.label, w);
@@ -259,23 +265,36 @@ fn render_panel(f: &mut Frame, rect: Rect, v: &PanelView, selected: bool) {
                     Style::default().fg(color(C_FAIL)),
                 ))
             }
-            Row::Bars => Line::from(
-                bars.iter()
-                    .enumerate()
-                    .map(|(i, b)| {
-                        let ch = graph::column(b, 1, v.graph_max_ms, i)[0].unwrap_or(' ');
-                        Span::styled(ch.to_string(), Style::default().fg(b.color))
-                    })
-                    .collect::<Vec<_>>(),
-            ),
+            Row::Bars => {
+                bars_range = graph::render_graph(f, area, v, draw_thresholds, label_w, None);
+                continue;
+            }
             Row::Axis => {
+                let n = usize::from(bars_range.width);
+                let bars = &v.bars[v.bars.len() - n..];
                 let times: Vec<Option<i64>> = bars.iter().map(|b| b.at_ms).collect();
-                let secs = axis_uses_seconds(visible, v.interval_seconds);
+                let secs = axis_uses_seconds(n, v.interval_seconds);
                 let label: &dyn Fn(i64) -> String = if secs { &format_hms } else { &format_hm };
-                Line::from(Span::styled(
-                    axis_line(&times, label),
-                    Style::default().fg(color(C_AXIS)),
-                ))
+                put(
+                    f,
+                    Rect::new(bars_range.x, area.y, bars_range.width, 1),
+                    Line::from(Span::styled(
+                        axis_line(&times, label),
+                        Style::default().fg(color(C_AXIS)),
+                    )),
+                );
+                if label_w > 0 {
+                    let lx = inner.x + inner.width - label_w;
+                    put(
+                        f,
+                        Rect::new(lx, area.y, label_w, 1),
+                        Line::from(Span::styled(
+                            format!("{:>w$}", text::AXIS_UNIT, w = usize::from(label_w)),
+                            Style::default().fg(color(C_AXIS)),
+                        )),
+                    );
+                }
+                continue;
             }
             Row::Stats => Line::from(Span::styled(
                 text::stats_for_width(v.stats.as_deref().unwrap_or_default(), w),

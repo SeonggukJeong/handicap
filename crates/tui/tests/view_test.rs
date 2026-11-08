@@ -12,7 +12,7 @@ use handicap_tui::view::axis::{Mark, axis_marks, axis_uses_seconds};
 use handicap_tui::view::error::{render_error, render_usage};
 use handicap_tui::view::graph::{column, label_width, threshold_rows};
 use handicap_tui::view::model::{
-    Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows, parse_hex,
+    Bar, BarKind, BigValue, PanelView, Row, ThresholdView, build_panels, panel_rows_s, parse_hex,
 };
 use handicap_tui::view::monitor::{
     KeyBar, MonitorScreen, layout, panel_at, render, render_with_keys,
@@ -669,30 +669,33 @@ fn axis_seconds_threshold() {
 #[test]
 fn panel_rows_priority() {
     use Row::*;
-    assert_eq!(panel_rows(1, true, true, true, 2), vec![Status]);
-    assert_eq!(panel_rows(2, true, true, true, 2), vec![Status, Bars]);
-    assert_eq!(panel_rows(3, true, true, true, 2), vec![Status, Bars, Axis]);
+    assert_eq!(panel_rows_s(1, true, true, true, 2).0, vec![Status]);
+    assert_eq!(panel_rows_s(2, true, true, true, 2).0, vec![Status, Bars]);
     assert_eq!(
-        panel_rows(4, true, true, true, 2),
+        panel_rows_s(3, true, true, true, 2).0,
+        vec![Status, Bars, Axis]
+    );
+    assert_eq!(
+        panel_rows_s(4, true, true, true, 2).0,
         vec![Status, Consecutive, Bars, Axis]
     );
     assert_eq!(
-        panel_rows(4, true, false, true, 2),
+        panel_rows_s(4, true, false, true, 2).0,
         vec![Status, ReasonSmall, Bars, Axis]
     );
     assert_eq!(
-        panel_rows(5, true, true, true, 2),
+        panel_rows_s(5, true, true, true, 2).0,
         vec![Status, ReasonSmall, Consecutive, Bars, Axis]
     );
     assert_eq!(
-        panel_rows(5, false, false, true, 2),
+        panel_rows_s(5, false, false, true, 2).0,
         vec![Status, Bars, Axis, Stats, Display(0)]
     );
-    let six = panel_rows(6, false, true, true, 2);
+    let six = panel_rows_s(6, false, true, true, 2).0;
     assert!(!six.contains(&Display(1)));
     assert_eq!(six.len(), 6);
     assert_eq!(
-        panel_rows(9, true, true, true, 2),
+        panel_rows_s(9, true, true, true, 2).0,
         vec![
             Status,
             ReasonSmall,
@@ -704,7 +707,7 @@ fn panel_rows_priority() {
             Display(1)
         ]
     );
-    assert!(panel_rows(0, true, true, true, 2).is_empty());
+    assert!(panel_rows_s(0, true, true, true, 2).0.is_empty());
 }
 
 // ---------- 막대·시각 줄 렌더 ----------
@@ -1271,4 +1274,240 @@ fn build_panels_display_count_capped_and_stats_flag() {
     let v = &build_panels(&b, &s)[0];
     assert_eq!(v.n_display_items, 2);
     assert!(!v.show_stats);
+}
+
+// ---------- tui-readability Task 2: S 단계 여러 줄 막대 ----------
+
+#[test]
+fn panel_rows_s_gives_leftover_to_bars() {
+    use Row::*;
+    assert_eq!(
+        panel_rows_s(10, false, false, true, 0),
+        (vec![Status, Bars, Axis, Stats], 7)
+    );
+    assert_eq!(
+        panel_rows_s(4, false, true, true, 2),
+        (vec![Status, Consecutive, Bars, Axis], 1)
+    );
+    assert_eq!(
+        panel_rows_s(6, false, false, true, 2),
+        (vec![Status, Bars, Axis, Stats, Display(0), Display(1)], 1)
+    );
+    assert_eq!(
+        panel_rows_s(5, false, false, true, 2),
+        (vec![Status, Bars, Axis, Stats, Display(0)], 1)
+    );
+    assert_eq!(panel_rows_s(1, true, true, true, 2), (vec![Row::Status], 0));
+    assert_eq!(panel_rows_s(0, true, true, true, 2), (vec![], 0));
+}
+
+fn s_bar(kind: BarKind, at: i64) -> Bar {
+    Bar {
+        kind,
+        color: Color::Green,
+        at_ms: Some(at),
+    }
+}
+fn s_ok(ms: u64, at: i64) -> Bar {
+    s_bar(BarKind::Ok { latency_ms: ms }, at)
+}
+fn s_view(bars: Vec<Bar>, max: u32) -> PanelView {
+    let mut v = view("S칸", PanelState::Ok, "✔ 정상", "100 ms");
+    v.bars = bars;
+    v.graph_max_ms = max;
+    v
+}
+fn th(ms: u32, hex: &str) -> ThresholdView {
+    ThresholdView {
+        ms,
+        color: parse_hex(hex).unwrap(),
+    }
+}
+fn blocks_in_col(buf: &Buffer, x: u16) -> usize {
+    (0..buf.area.height)
+        .filter(|&y| buf[(x, y)].symbol() == "█")
+        .count()
+}
+fn row_text(buf: &Buffer, y: u16, x0: u16, x1: u16) -> String {
+    (x0..=x1)
+        .map(|x| buf[(x, y)].symbol().to_string())
+        .collect()
+}
+fn assert_s_title(buf: &Buffer) {
+    assert!(
+        row_text(buf, 1, 0, 79).contains("S칸"),
+        "S 배치 표지(위 테두리 제목)"
+    );
+}
+fn rightmost_block(buf: &Buffer) -> u16 {
+    (0..buf.area.width)
+        .rev()
+        .find(|&x| blocks_in_col(buf, x) > 0)
+        .unwrap()
+}
+
+#[test]
+fn s_bars_have_height_variation() {
+    let v = s_view(
+        vec![s_ok(100, 0), s_ok(500, 10_000), s_ok(1000, 20_000)],
+        1000,
+    );
+    let buf = render_buf(80, 11, &screen(vec![v], (1, 1), 0));
+    assert_s_title(&buf);
+    let c: Vec<usize> = (76..=78).map(|x| blocks_in_col(&buf, x)).collect();
+    assert_eq!(c, vec![0, 2, 4], "{}", buffer_text(&buf));
+}
+
+#[test]
+fn s_threshold_line_and_label_column() {
+    let mut v = s_view(vec![s_ok(100, 0), s_ok(1500, 10_000)], 1500);
+    v.thresholds = vec![th(700, "#facc15"), th(1200, "#f97316")];
+    let buf = render_buf(80, 13, &screen(vec![v], (1, 1), 0));
+    assert_s_title(&buf);
+    let t = buffer_text(&buf);
+    // 안쪽 9줄 → 막대 6줄(y 3..=8), 기준선 700 = 아래에서 2번째 줄 y6, 1200 = y4.
+    assert_eq!(buf[(10, 6)].symbol(), "╌", "{t}");
+    assert_eq!(buf[(10, 6)].fg, Color::Rgb(250, 204, 21));
+    assert_eq!(buf[(10, 4)].symbol(), "╌", "{t}");
+    assert_eq!(buf[(10, 4)].fg, Color::Rgb(249, 115, 22));
+    // 막대가 있는 글자 칸(x72, 전체 높이)에는 점선 없음.
+    assert_eq!(buf[(72, 6)].symbol(), "█", "{t}");
+    assert_eq!(buf[(72, 4)].symbol(), "█", "{t}");
+    // 숫자 열(x74..=78): 굵게 + 기준선 색 + 오른쪽 정렬.
+    assert_eq!(row_text(&buf, 6, 74, 78), "  700", "{t}");
+    assert_eq!(row_text(&buf, 4, 74, 78), "1,200", "{t}");
+    assert!(
+        buf[(78, 6)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(buf[(78, 6)].fg, Color::Rgb(250, 204, 21));
+    assert_eq!(buf[(78, 4)].fg, Color::Rgb(249, 115, 22));
+    // 시각 줄(y9) 오른쪽에 (ms).
+    assert_eq!(row_text(&buf, 9, 74, 78), " (ms)", "{t}");
+}
+
+#[test]
+fn s_no_thresholds_when_worst_case_rows_below_3() {
+    // 안쪽 7: 정상 막대 4줄(>=3)이지만 최악(사유·연속 실패 다) 2줄 → 정상에서도 기준선 없음.
+    let mut v = s_view(vec![s_ok(100, 0), s_ok(1500, 10_000)], 1500);
+    v.thresholds = vec![th(700, "#facc15"), th(1200, "#f97316")];
+    let buf = render_buf(80, 11, &screen(vec![v], (1, 1), 0));
+    assert_s_title(&buf);
+    let t = buffer_text(&buf);
+    assert!(!t.contains('╌'), "{t}");
+    assert!(!t.contains("(ms)"), "{t}");
+    assert!(!t.contains("1,200"), "{t}");
+    assert_eq!(rightmost_block(&buf), 78, "{t}");
+}
+
+fn s_fail_view(bars: Vec<Bar>, max: u32, th: Vec<ThresholdView>) -> PanelView {
+    let mut v = s_view(bars, max);
+    v.state = PanelState::Fail;
+    v.label = "✖ 실패";
+    v.big = BigValue::Reason(handicap_tui::judge::ReasonParts::Detail {
+        big: "HTTP 503".into(),
+        small: "로그인 단계".into(),
+    });
+    v.consecutive = Some("3회 연속 · 00:00:10부터".into());
+    v.thresholds = th;
+    v
+}
+
+#[test]
+fn s_state_change_keeps_label_column() {
+    let ths = vec![th(700, "#facc15"), th(1200, "#f97316")];
+    let bars = vec![s_ok(1500, 0), s_ok(1500, 10_000)];
+    // 안쪽 8: 최악 3줄 → 정상·실패 둘 다 숫자 열, 최신 막대 x 같음.
+    for h in [12u16, 11] {
+        let normal = {
+            let mut v = s_view(bars.clone(), 1500);
+            v.thresholds = ths.clone();
+            render_buf(80, h, &screen(vec![v], (1, 1), 0))
+        };
+        let failing = render_buf(
+            80,
+            h,
+            &screen(
+                vec![s_fail_view(bars.clone(), 1500, ths.clone())],
+                (1, 1),
+                0,
+            ),
+        );
+        let (tn, tf) = (buffer_text(&normal), buffer_text(&failing));
+        assert_eq!(tn.contains("(ms)"), h == 12, "{tn}");
+        assert_eq!(tf.contains("(ms)"), h == 12, "{tf}");
+        assert_eq!(
+            rightmost_block(&normal),
+            rightmost_block(&failing),
+            "{tn}\n{tf}"
+        );
+        if h == 12 {
+            assert_eq!(rightmost_block(&normal), 72, "{tn}");
+        } else {
+            assert_eq!(rightmost_block(&normal), 78, "{tn}");
+        }
+    }
+}
+
+#[test]
+fn s_bars_right_aligned_with_axis() {
+    let t0 = 1_700_000_000_000i64;
+    let mut bars: Vec<Bar> = (0..9).map(|_| s_bar(BarKind::Empty, 0)).collect();
+    bars[..].iter_mut().for_each(|b| b.at_ms = None);
+    bars.push(s_ok(1000, t0));
+    let buf = render_buf(80, 11, &screen(vec![s_view(bars, 1000)], (1, 1), 0));
+    assert_s_title(&buf);
+    let t = buffer_text(&buf);
+    assert_eq!(blocks_in_col(&buf, 78), 4, "{t}");
+    assert_eq!(blocks_in_col(&buf, 77), 0, "{t}");
+    // 안쪽 y2 상태, 막대 y3..=6, 시각 y7.
+    assert_eq!(col_of_last_nonblank_in(&buf, 7), 78, "{t}");
+    assert!(row_text(&buf, 7, 1, 78).contains(&format_hms(t0)), "{t}");
+    // 슬롯 300 > W(78).
+    let many: Vec<Bar> = (0..300).map(|i| s_ok(1000, t0 + i * 10_000)).collect();
+    let buf = render_buf(80, 11, &screen(vec![s_view(many, 1000)], (1, 1), 0));
+    let t = buffer_text(&buf);
+    assert_eq!(blocks_in_col(&buf, 1), 4, "{t}");
+    assert_eq!(blocks_in_col(&buf, 78), 4, "{t}");
+    assert_eq!(col_of_last_nonblank_in(&buf, 7), 78, "{t}");
+    assert!(
+        row_text(&buf, 7, 1, 78).contains(&format_hm(t0 + 299 * 10_000)),
+        "{t}"
+    );
+}
+
+fn col_of_last_nonblank_in(buf: &Buffer, y: u16) -> u16 {
+    (1..buf.area.width - 1)
+        .rev()
+        .find(|&x| buf[(x, y)].symbol() != " ")
+        .unwrap()
+}
+
+#[test]
+fn s_stats_row_kept_blank_when_no_stats() {
+    let bars = vec![s_ok(1000, 0)];
+    let mut with = s_view(bars.clone(), 1000);
+    with.stats = Some("평균 1 · 최대 2 ms".into());
+    let without = s_view(bars, 1000);
+    let a = render_buf(80, 11, &screen(vec![with], (1, 1), 0));
+    let b = render_buf(80, 11, &screen(vec![without], (1, 1), 0));
+    assert_s_title(&b);
+    assert_eq!(blocks_in_col(&a, 78), 4);
+    assert_eq!(blocks_in_col(&b, 78), 4, "{}", buffer_text(&b));
+}
+
+#[test]
+fn s_display_rows_reserved_by_config() {
+    let bars = vec![s_ok(1000, 0)];
+    let mut with = s_view(bars.clone(), 1000);
+    with.n_display_items = 2;
+    with.display = vec!["a".into(), "b".into()];
+    let mut without = s_view(bars, 1000);
+    without.n_display_items = 2;
+    let a = render_buf(80, 11, &screen(vec![with], (1, 1), 0));
+    let b = render_buf(80, 11, &screen(vec![without], (1, 1), 0));
+    assert_s_title(&b);
+    assert_eq!(blocks_in_col(&a, 78), 2, "{}", buffer_text(&a));
+    assert_eq!(blocks_in_col(&b, 78), 2, "{}", buffer_text(&b));
 }
