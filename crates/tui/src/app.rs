@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
 use crate::poll::{PollSnapshot, spawn_poller};
-use crate::prefs::BorderStyle;
+use crate::prefs::{self, BorderStyle, Loaded, Prefs};
 use crate::session::{Session, Stage, StartError};
 use crate::terminal::TerminalGuard;
 use crate::text;
@@ -63,6 +63,7 @@ pub enum Action {
     AskQuit,
     Quit,
     Retry,
+    ToggleBorder,
 }
 
 /// 대문자(Caps Lock)와 한글 2벌식 자모(같은 물리 키)를 소문자 영문 키로 맞춘다.
@@ -75,6 +76,7 @@ fn normalize_char(c: char) -> char {
         'ㅏ' => 'k',
         'ㅣ' => 'l',
         'ㄱ' => 'r',
+        'ㅠ' => 'b',
         c => c.to_ascii_lowercase(),
     }
 }
@@ -101,6 +103,7 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 KeyCode::Down | KeyCode::Char('j') => Action::Move(Dir::Down),
                 KeyCode::Tab if n_boards > 1 => Action::NextBoard,
                 KeyCode::BackTab if n_boards > 1 => Action::PrevBoard,
+                KeyCode::Char('b') => Action::ToggleBorder,
                 KeyCode::Char('?') => Action::OpenHelp,
                 _ => Action::None,
             }
@@ -139,6 +142,11 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
             }
         }
     }
+}
+
+/// 테두리 전환은 칸이 실제로 그려진 모니터 화면에서만(보이지 않는 변경을 저장하지 않게).
+pub fn toggle_allowed(screen: &Screen, panels_drawn: bool) -> bool {
+    matches!(screen, Screen::Monitor) && panels_drawn
 }
 
 /// 격자 `(cols, rows)`에서 한 칸 이동. 가장자리·비어 있는 칸 앞에서는 제자리.
@@ -200,6 +208,9 @@ struct App<'a> {
     snap_tx: watch::Sender<PollSnapshot>,
     snap_rx: watch::Receiver<PollSnapshot>,
     poller_dead_logged: Cell<bool>,
+    border: BorderStyle,
+    prefs_path: Option<PathBuf>,
+    panels_drawn: Cell<bool>,
 }
 
 impl App<'_> {
@@ -308,7 +319,7 @@ impl App<'_> {
             server_down: snap.server_down,
             panels,
             selected,
-            border: BorderStyle::default(),
+            border: self.border,
         })
     }
 
@@ -323,9 +334,10 @@ impl App<'_> {
                 f.render_widget(Paragraph::new(Line::from(text::STARTING)), f.area());
             }
             Screen::Monitor => {
-                if let Some(m) = self.monitor_screen() {
-                    render_with_keys(f, &m, bar);
-                }
+                let drawn = self
+                    .monitor_screen()
+                    .is_some_and(|m| render_with_keys(f, &m, bar));
+                self.panels_drawn.set(drawn);
             }
             Screen::Help => {
                 let b = if bar == KeyBar::QuitConfirm {
@@ -368,6 +380,21 @@ impl App<'_> {
                     };
                     self.selected = 0;
                     self.board_tx.send_replace(r.boards[self.idx].id.clone());
+                }
+            }
+            Action::ToggleBorder => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get()) {
+                    self.border = self.border.toggled();
+                    if let Some(p) = &self.prefs_path
+                        && let Err(e) = prefs::save(
+                            p,
+                            &Prefs {
+                                border: self.border,
+                            },
+                        )
+                    {
+                        tracing::warn!("설정 파일 저장 실패({}): {e}", p.display());
+                    }
                 }
             }
             Action::OpenHelp => self.screen = Screen::Help,
@@ -479,6 +506,23 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
     };
     let (board_tx, _) = watch::channel(String::new());
     let (snap_tx, snap_rx) = watch::channel(PollSnapshot::default());
+    let prefs_path = prefs::prefs_path();
+    let border = match &prefs_path {
+        Some(p) => match prefs::load(p) {
+            Loaded::Ok(pr) => pr.border,
+            Loaded::Missing => BorderStyle::default(),
+            Loaded::Invalid(m) => {
+                tracing::warn!("설정 파일을 쓸 수 없어 기본값으로 시작합니다: {m}");
+                BorderStyle::default()
+            }
+        },
+        None => {
+            tracing::info!(
+                "설정 파일 위치를 알 수 없어(XDG_CONFIG_HOME·HOME 없음) 테두리 선택을 이번 실행에만 둡니다"
+            );
+            BorderStyle::default()
+        }
+    };
     let mut app = App {
         rt,
         file: file.map(Path::to_path_buf).unwrap_or_default(),
@@ -495,6 +539,9 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         snap_tx,
         snap_rx,
         poller_dead_logged: Cell::new(false),
+        border,
+        prefs_path,
+        panels_drawn: Cell::new(false),
     };
     let quit_signal = crate::shutdown::install(rt);
     let result = event_loop(&mut app, &mut term, &quit_signal);

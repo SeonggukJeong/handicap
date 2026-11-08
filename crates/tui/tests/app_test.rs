@@ -4,7 +4,7 @@ use std::thread;
 
 use handicap_tui::app::{
     Action, Dir, Screen, effective_server_down, handle_key, handle_mouse, move_sel,
-    screen_after_start,
+    screen_after_start, toggle_allowed,
 };
 use handicap_tui::session::{Stage, StartError};
 use handicap_tui::terminal::{PanicAction, panic_action, panic_line};
@@ -338,4 +338,35 @@ fn watchdog_fires_when_main_does_not_exit() {
         assert!(t.elapsed() < Duration::from_secs(3), "watchdog never fired");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+#[test]
+fn b_and_hangul_toggle_border_on_monitor_only() {
+    for c in ['b', 'ㅠ', 'B'] {
+        assert_eq!(
+            handle_key(&Screen::Monitor, key(KeyCode::Char(c)), 1),
+            Action::ToggleBorder,
+            "{c}"
+        );
+    }
+    let others = [
+        Screen::Help,
+        Screen::QuitConfirm(Box::new(Screen::Monitor)),
+        Screen::Error(err()),
+        Screen::Usage,
+    ];
+    for s in &others {
+        assert_ne!(
+            handle_key(s, key(KeyCode::Char('b')), 1),
+            Action::ToggleBorder,
+            "{s:?}"
+        );
+    }
+}
+
+#[test]
+fn toggle_allowed_only_when_panels_drawn() {
+    assert!(toggle_allowed(&Screen::Monitor, true));
+    assert!(!toggle_allowed(&Screen::Monitor, false));
+    assert!(!toggle_allowed(&Screen::Help, true));
 }

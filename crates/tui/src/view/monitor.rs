@@ -201,7 +201,8 @@ fn tint_bg(v: &PanelView) -> Option<Color> {
 }
 
 /// 칸 테두리 — 모든 칸 같은 모양(선택은 제목으로 구분), 색은 상태 색, 안쪽 전체에 `bg`.
-/// 제목은 호출자가 붙인다.
+/// 제목은 호출자가 붙인다. 바탕 물들이기가 테두리 칸까지 덮는 것은 일부러다 —
+/// `QuadrantOutside`의 빈 반쪽이 안쪽을 향해 있어 물든 사각형이 끊기지 않는다.
 fn panel_block(v: &PanelView, border: BorderStyle, bg: Option<Color>) -> Block<'static> {
     let border_type = match border {
         BorderStyle::Heavy => BorderType::Thick,
@@ -690,10 +691,11 @@ pub enum KeyBar {
 }
 
 pub fn render(f: &mut Frame, s: &MonitorScreen) {
-    render_with_keys(f, s, KeyBar::Monitor);
+    let _ = render_with_keys(f, s, KeyBar::Monitor);
 }
 
-pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) {
+/// 칸을 그렸으면 `true`(창이 작아 안내만 그렸으면 `false`).
+pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) -> bool {
     let area = f.area();
     let lay = match layout(area, s.panels.len()) {
         Ok(l) => l,
@@ -710,7 +712,7 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) {
                 KeyBar::QuitConfirm => &[text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
             };
             render_key_bar(f, area, keys);
-            return;
+            return false;
         }
     };
     render_header(f, Rect::new(area.x, area.y, area.width, 1), s);
@@ -743,11 +745,12 @@ pub fn render_with_keys(f: &mut Frame, s: &MonitorScreen, bar: KeyBar) {
             if s.board_pos.1 > 1 {
                 keys.push(text::KEYS_NEXT_BOARD);
             }
-            keys.extend([text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
+            keys.extend([text::KEYS_BORDER, text::KEYS_HELP_OPEN, text::KEYS_QUIT]);
             keys
         }
         KeyBar::Help => vec![text::KEYS_HELP],
         KeyBar::QuitConfirm => vec![text::KEYS_CONFIRM_YES, text::KEYS_CONFIRM_CANCEL],
     };
     render_key_bar(f, area, &keys);
+    true
 }

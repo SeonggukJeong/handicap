@@ -37,6 +37,7 @@ pub const MONITOR_TITLE: &str = "Handicap 모니터";
 /// 키 안내 줄 조각 — 좁으면 앞에서부터 통째로 뺀다(마지막 `q 종료`는 끝까지 남는다).
 pub const KEYS_MOVE: &str = "←↑↓→ 칸 이동";
 pub const KEYS_NEXT_BOARD: &str = "Tab 다음 보드";
+pub const KEYS_BORDER: &str = "b 테두리";
 pub const KEYS_HELP_OPEN: &str = "? 도움말";
 pub const KEYS_QUIT: &str = "q 종료";
 pub const KEYS_RETRY: &str = "r 다시 시도";
@@ -45,9 +46,14 @@ pub const KEYS_CONFIRM_YES: &str = "y 종료";
 pub const KEYS_CONFIRM_CANCEL: &str = "다른 키 취소";
 
 pub const HELP_TITLE: &str = "도움말";
-pub const HELP_KEYS: [(&str, &str); 6] = [
+pub const HELP_KEYS: [(&str, &str); 8] = [
+    (
+        "Ctrl + + / −",
+        "글자 크기(터미널 기능) · 고정은 자동 시작 줄 --zoom=1.6",
+    ),
     ("방향키 / h j k l", "칸 선택 이동"),
     ("Tab / Shift+Tab", "다음 / 이전 보드"),
+    ("b", "테두리 모양 바꾸기(굵은 선 ↔ 반 칸 블록, 기억됨)"),
     ("?", "도움말"),
     ("q / Ctrl+C", "종료 확인창"),
     ("Esc", "한 단계 뒤로"),

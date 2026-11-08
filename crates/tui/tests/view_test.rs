@@ -422,7 +422,7 @@ fn render_monitor_contains() {
         assert!(text.contains(want), "{want}\n{text}");
     }
     assert!(
-        text.contains("←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료"),
+        text.contains("←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"),
         "{text}"
     );
     // 모든 칸이 같은 굵은 테두리, 선택은 `▶` 제목으로 구분한다.
@@ -439,7 +439,10 @@ fn render_key_bar_single_board_omits_tab() {
         0,
     );
     let text = draw(80, 24, |f| render(f, &s));
-    assert!(text.contains("←↑↓→ 칸 이동  ? 도움말  q 종료"), "{text}");
+    assert!(
+        text.contains("←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"),
+        "{text}"
+    );
     assert!(!text.contains("Tab 다음 보드"), "{text}");
     assert!(!text.contains("(1/1)"), "{text}");
 }
@@ -980,7 +983,8 @@ fn help_short_terminal_keeps_esc_row_and_aligns() {
         Span::raw(l[..idx].to_string()).width()
     };
     assert_eq!(col("칸 선택 이동"), col("다음 / 이전 보드"));
-    assert_eq!(col("칸 선택 이동"), col("그 칸 선택"));
+    assert_eq!(col("칸 선택 이동"), col("테두리 모양 바꾸기"));
+    assert_eq!(col("칸 선택 이동"), col("글자 크기"));
 }
 
 #[test]
@@ -1197,7 +1201,10 @@ fn key_bar_row(bar: KeyBar) -> String {
         0,
     );
     let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
-    t.draw(|f| render_with_keys(f, &s, bar)).unwrap();
+    t.draw(|f| {
+        let _ = render_with_keys(f, &s, bar);
+    })
+    .unwrap();
     last_row(t.backend().buffer())
 }
 
@@ -1205,7 +1212,10 @@ fn key_bar_row(bar: KeyBar) -> String {
 fn bottom_key_bar_shows_only_keys_of_the_open_screen() {
     // 모니터 단독: 기존 그대로(보드 2개라 Tab 포함).
     let monitor = key_bar_row(KeyBar::Monitor);
-    assert_eq!(monitor, "←↑↓→ 칸 이동  Tab 다음 보드  ? 도움말  q 종료");
+    assert_eq!(
+        monitor,
+        "←↑↓→ 칸 이동  Tab 다음 보드  b 테두리  ? 도움말  q 종료"
+    );
     // 도움말: 닫기 키만.
     assert_eq!(key_bar_row(KeyBar::Help), "Esc 닫기");
     // 종료 확인: 확인 키만.
@@ -2255,4 +2265,51 @@ fn tint_slow_and_fail_only() {
             assert_eq!(buf[(x, y)].bg, Color::Reset, "S 정상 ({x},{y})");
         }
     }
+}
+
+#[test]
+fn render_with_keys_reports_panels_drawn() {
+    let s = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let mut drawn = false;
+    t.draw(|f| drawn = render_with_keys(f, &s, KeyBar::Monitor))
+        .unwrap();
+    assert!(drawn);
+    let mut t = Terminal::new(TestBackend::new(10, 4)).unwrap();
+    t.draw(|f| drawn = render_with_keys(f, &s, KeyBar::Monitor))
+        .unwrap();
+    assert!(!drawn);
+}
+
+#[test]
+fn key_bar_has_border_key() {
+    let s = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
+    let t = draw(80, 12, |f| render(f, &s));
+    assert_eq!(
+        t.lines().last().unwrap().trim(),
+        "←↑↓→ 칸 이동  b 테두리  ? 도움말  q 종료"
+    );
+    let t = draw(24, 8, |f| render(f, &s));
+    let last = t.lines().last().unwrap();
+    assert!(!last.contains("칸 이동"), "{t}");
+    assert!(last.contains("q 종료"), "{t}");
+    let t = draw(30, 8, |f| render(f, &s));
+    let last = t.lines().last().unwrap();
+    assert!(last.contains("b 테두리  ? 도움말  q 종료"), "{t}");
+}
+
+#[test]
+fn help_zoom_row_first_and_survives_small_height() {
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let text = draw(80, 24, |f| render_help(f, Path::new("/tmp/b.json"), &log));
+    let line = text.lines().find(|l| l.contains("Ctrl + + / −")).unwrap();
+    assert!(line.contains("--zoom=1.6"), "{text}");
+    let zoom_at = text.find("Ctrl + + / −").unwrap();
+    for other in ["방향키", "테두리 모양 바꾸기", "마우스 왼쪽 클릭"] {
+        assert!(zoom_at < text.find(other).unwrap(), "{other} {text}");
+    }
+    let path = format!("/{}", "Z".repeat(150));
+    let text = draw(80, 9, |f| render_help(f, Path::new(&path), &log));
+    assert!(text.contains("Ctrl + + / −"), "{text}");
+    assert!(!text.contains("방향키"), "{text}");
 }
