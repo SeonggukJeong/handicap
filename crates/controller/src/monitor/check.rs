@@ -259,21 +259,81 @@ fn condition_step_missing(
 /// 본문 JSON 읽기 — 문자열로 감싼 JSON은 최대 `MAX_JSON_UNWRAP`번 풀어 객체/배열을 낸다.
 pub(crate) const MAX_JSON_UNWRAP: usize = 3;
 
-pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
-    let first: serde_json::Value = serde_json::from_str(body).ok()?;
-    // 평범한 객체/배열(대부분)은 복제 없이 그대로 — 문자열일 때만 풀기 시도.
-    let serde_json::Value::String(s0) = &first else {
-        return Some(first);
-    };
-    let mut cur = s0.clone();
+/// 문자열 하나를 최대 `MAX_JSON_UNWRAP`겹 풀어 객체/배열이 되면 그 값. 아니면 `None`.
+fn unwrap_json_str(s: &str) -> Option<serde_json::Value> {
+    // 객체·배열·감싼 문자열만 후보 — 평범한 문자열은 파싱 시도도 안 한다(JSON 공백 4종만 건너뜀).
+    let head = s.trim_start_matches([' ', '\t', '\n', '\r']);
+    if !head.starts_with(['{', '[', '"']) {
+        return None;
+    }
+    let mut cur = s.to_owned();
     for _ in 0..MAX_JSON_UNWRAP {
         match serde_json::from_str::<serde_json::Value>(&cur) {
             Ok(v) if v.is_object() || v.is_array() => return Some(v),
             Ok(serde_json::Value::String(next)) => cur = next,
-            _ => break,
+            _ => return None,
         }
     }
+    None
+}
+
+pub(crate) fn parse_body_json(body: &str) -> Option<serde_json::Value> {
+    let first: serde_json::Value = serde_json::from_str(body).ok()?;
+    // 평범한 객체/배열(대부분)은 복제 없이 그대로 — 문자열일 때만 풀기 시도.
+    if let serde_json::Value::String(s0) = &first
+        && let Some(v) = unwrap_json_str(s0)
+    {
+        return Some(v);
+    }
     Some(first)
+}
+
+/// 안쪽 필드의 감싼 JSON까지 푼 사본. 바뀐 곳이 없으면 `None`(경로 재조회 불필요).
+/// 깊은 본문에서도 스택이 넘치지 않게 직접 쌓아 가며 훑는다.
+fn unwrap_nested(root: &serde_json::Value) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    let mut out = root.clone();
+    let mut changed = false;
+    let mut stack: Vec<&mut Value> = vec![&mut out];
+    while let Some(node) = stack.pop() {
+        if let Value::String(s) = node
+            && let Some(inner) = unwrap_json_str(s)
+        {
+            *node = inner;
+            changed = true;
+        }
+        match node {
+            Value::Array(a) => stack.extend(a.iter_mut()),
+            Value::Object(o) => stack.extend(o.values_mut()),
+            _ => {}
+        }
+    }
+    changed.then_some(out)
+}
+
+/// 조건·표시 값이 읽는 본문 JSON. 경로는 원래 본문(바깥만 푼 것)에서 먼저 찾고,
+/// 없을 때만 안쪽 필드의 감싼 JSON까지 푼 본문에서 다시 찾는다 — 기존에 찾히던 경로의 값은 그대로.
+pub(crate) struct BodyJson {
+    shallow: serde_json::Value,
+    nested: std::cell::OnceCell<Option<serde_json::Value>>,
+}
+
+impl BodyJson {
+    pub(crate) fn parse(body: &str) -> Option<Self> {
+        parse_body_json(body).map(|shallow| Self {
+            shallow,
+            nested: std::cell::OnceCell::new(),
+        })
+    }
+
+    pub(crate) fn path_first(&self, path: &str) -> Option<serde_json::Value> {
+        jsonpath_first(&self.shallow, path).or_else(|| {
+            self.nested
+                .get_or_init(|| unwrap_nested(&self.shallow))
+                .as_ref()
+                .and_then(|n| jsonpath_first(n, path))
+        })
+    }
 }
 
 enum Actual {
@@ -287,7 +347,7 @@ enum Actual {
     },
 }
 
-fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::Value>) -> Actual {
+fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&BodyJson>) -> Actual {
     match c.source {
         ConditionSource::Body => {
             if resp.body_truncated {
@@ -296,12 +356,17 @@ fn actual_value(c: &Condition, resp: &TracedResponse, json: Option<&serde_json::
             let Some(json) = json else {
                 return Actual::Fixed(REASON_BODY_NOT_JSON);
             };
-            match jsonpath_first(json, &c.path) {
+            match json.path_first(&c.path) {
                 None => Actual::Missing,
                 Some(v) => Actual::Val {
                     empty_container: match &v {
                         serde_json::Value::Array(a) => a.is_empty(),
                         serde_json::Value::Object(o) => o.is_empty(),
+                        // `"[]"`·`"{}"`처럼 문자열로 감싼 빈 배열·객체도 비어 있음("값 있음" 전용).
+                        serde_json::Value::String(s) => unwrap_json_str(s).is_some_and(|u| {
+                            u.as_array().is_some_and(Vec::is_empty)
+                                || u.as_object().is_some_and(serde_json::Map::is_empty)
+                        }),
                         _ => false,
                     },
                     text: stringify(&v),
@@ -402,7 +467,7 @@ pub(crate) fn eval_conditions(
     at_ms: i64,
 ) -> Option<CheckResult> {
     // 스텝 trace 인덱스 → 본문 JSON(한 판정 안에서 한 번만 파싱).
-    let mut json_cache: std::collections::HashMap<usize, Option<serde_json::Value>> =
+    let mut json_cache: std::collections::HashMap<usize, Option<BodyJson>> =
         std::collections::HashMap::new();
     for c in &panel.conditions {
         let name = (all.len() >= 2)
@@ -433,7 +498,7 @@ pub(crate) fn eval_conditions(
         let json = if c.source == ConditionSource::Body && !resp.body_truncated {
             json_cache
                 .entry(idx)
-                .or_insert_with(|| parse_body_json(&resp.body))
+                .or_insert_with(|| BodyJson::parse(&resp.body))
                 .as_ref()
         } else {
             None
@@ -611,7 +676,7 @@ pub fn judge(
 
 /// 표시 전용 항목 값 추출 — 조건과 같은 "마지막 http 실행" 응답에서. 없으면 `None`.
 pub(crate) fn display_values(panel: &PanelConfig, trace: &ScenarioTrace) -> Vec<Option<String>> {
-    let mut json_cache: std::collections::HashMap<usize, Option<serde_json::Value>> =
+    let mut json_cache: std::collections::HashMap<usize, Option<BodyJson>> =
         std::collections::HashMap::new();
     panel
         .display_items
@@ -630,9 +695,9 @@ pub(crate) fn display_values(panel: &PanelConfig, trace: &ScenarioTrace) -> Vec<
                     }
                     let json = json_cache
                         .entry(idx)
-                        .or_insert_with(|| parse_body_json(&resp.body))
+                        .or_insert_with(|| BodyJson::parse(&resp.body))
                         .as_ref()?;
-                    jsonpath_first(json, &it.path).map(|v| shown(&stringify(&v)))
+                    json.path_first(&it.path).map(|v| shown(&stringify(&v)))
                 }
                 DisplaySource::Header => resp
                     .headers
@@ -1489,6 +1554,74 @@ steps:
         assert_eq!(judge_c(&one_step(), vec![c], &t).verdict, Verdict::Fail);
     }
 
+    /// 안쪽 필드가 문자열로 감싼 JSON — 원래 본문에서 못 찾는 경로만 풀어서 찾는다.
+    #[test]
+    fn nested_wrapped_json_field_path_found() {
+        use serde_json::json;
+        let v = |c: Condition, t: &ScenarioTrace| judge_c(&one_step(), vec![c], t).verdict;
+        let inner = json!({"id":7,"items":[],"deep":json!({"k":"x"}).to_string()}).to_string();
+        let outer =
+            json!({"code":1,"data": inner, "empty":"[]", "eobj":" {} ", "full":"[0]", "n":"007"})
+                .to_string();
+        let root_wrapped = serde_json::to_string(&outer).unwrap();
+        for body in [outer.as_str(), root_wrapped.as_str()] {
+            let t = t_body(body);
+            assert_eq!(
+                v(cond(A, Src::Body, "$.data.id", Op::Eq, "7"), &t),
+                Verdict::Ok
+            );
+            // 풀린 문자열 안의 또 다른 감싼 필드도
+            assert_eq!(
+                v(cond(A, Src::Body, "$.data.deep.k", Op::Eq, "x"), &t),
+                Verdict::Ok
+            );
+            // 배열: 값 있음 = 빈 배열이면 실패
+            let c = cond(A, Src::Body, "$.data.items", Op::NotEmpty, "");
+            assert_eq!(v(c, &t), Verdict::Fail);
+            // 원래 본문에서 찾히는 경로는 그대로 문자열로 판정
+            let c = cond(A, Src::Body, "$.data", Op::Contains, r#""id":7"#);
+            assert_eq!(v(c, &t), Verdict::Ok);
+            assert_eq!(v(cond(A, Src::Body, "$.n", Op::Eq, "007"), &t), Verdict::Ok);
+            // "값 있음"만은 감싼 빈 배열·객체를 비어 있음으로 본다
+            let ne = |p: &str| v(cond(A, Src::Body, p, Op::NotEmpty, ""), &t);
+            assert_eq!(ne("$.empty"), Verdict::Fail);
+            assert_eq!(ne("$.eobj"), Verdict::Fail);
+            assert_eq!(ne("$.full"), Verdict::Ok);
+            // 다른 규칙은 원래 문자열로
+            assert_eq!(
+                v(cond(A, Src::Body, "$.empty", Op::Eq, "[]"), &t),
+                Verdict::Ok
+            );
+            // 없는 경로는 여전히 값 없음
+            let c = cond(A, Src::Body, "$.data.nope", Op::Exists, "");
+            assert_eq!(v(c, &t), Verdict::Fail);
+        }
+    }
+
+    #[test]
+    fn nested_unwrap_table() {
+        use serde_json::{Value, json};
+        let wrap = |v: &Value| serde_json::to_string(v).unwrap();
+        let o = json!({"k":1});
+        let l1 = Value::String(wrap(&o));
+        let l3 = Value::String(wrap(&Value::String(wrap(&l1))));
+        let l4 = Value::String(wrap(&l3));
+        let bj = |v: Value| BodyJson::parse(&wrap(&v)).unwrap();
+        // 필드 하나당 최대 3겹
+        assert_eq!(bj(json!({"a": l3})).path_first("$.a.k"), Some(json!(1)));
+        assert_eq!(bj(json!({"a": l4})).path_first("$.a.k"), None);
+        // 배열 안 / 앞뒤 공백
+        assert_eq!(
+            bj(json!([" \n[1,2] "])).path_first("$[0][1]"),
+            Some(json!(2))
+        );
+        // 객체/배열이 아니게 풀리는 문자열은 안 건드림
+        assert_eq!(unwrap_nested(&json!({"a":"\"12\"","b":"7"})), None);
+        assert_eq!(bj(json!({"a":"{oops"})).path_first("$.a.oops"), None);
+        // 원래 경로 우선
+        assert_eq!(bj(json!({"a":"[]"})).path_first("$.a"), Some(json!("[]")));
+    }
+
     #[test]
     fn string_body_not_unwrapped() {
         let c = cond(A, Src::Body, "$", Op::Eq, "hello");
@@ -1883,6 +2016,15 @@ steps:
         assert_eq!(
             display_values(&dpanel(vec![ditem(A, Dsp::Body, "$.a")]), &t_body(&wrapped)),
             vec![Some("v".to_string())]
+        );
+        // 안쪽 필드의 감싼 JSON도 풀림
+        let nested = r#"{"data":"{\"a\":\"w\"}"}"#;
+        assert_eq!(
+            display_values(
+                &dpanel(vec![ditem(A, Dsp::Body, "$.data.a")]),
+                &t_body(nested)
+            ),
+            vec![Some("w".to_string())]
         );
         // 헤더 대소문자 무시
         let th = tr(vec![st(
