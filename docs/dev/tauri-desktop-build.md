@@ -83,6 +83,7 @@ git push origin v<ver>
 ### 장애 시 재실행
 
 - **게시(`publish`)만 실패**(예: GitHub API 일시 장애) → Actions에서 해당 워크플로 실행을 열고 **"Re-run failed jobs"**. `windows-installer`/`macos-dmg`가 남긴 artifact를 그대로 재사용하므로 **수십 초**에 끝난다(18분 빌드를 다시 돌리지 않는다). 이 개선의 동기는 v0.5.0 사고: 18분 빌드 후 게시가 503으로 실패했고, 당시 구조는 재실행이 곧 전체 재실행이라 `setup-protoc` 단계에서 2분 만에 재실패했다(빌드가 통째로 다시 돌았기 때문).
+- **TUI 잡의 일시 장애 2종 (v0.13.0 실전)**: ① linux-tui `Install zig + cargo-zigbuild`에서 `error: failed to install component: 'rustfmt-preview-…', detected conflict: 'bin/cargo-fmt'` — 첫 `cargo` 호출 때 rustup(1.29.2)이 `rust-toolchain.toml`의 rustfmt·clippy를 자동 설치하다 난 간헐 실패(같은 설정 재현 probe 2회 통과). ② windows-tui `setup-protoc`의 `Error: Server Error`(GitHub API). 둘 다 선택 에셋이라 게시는 GUI 6종으로 먼저 나갔고, 런 종료 후 "Re-run failed jobs" 한 번에 두 TUI 에셋이 `--clobber`로 채워졌다. 같은 증상이 연속 재발하면 그때 dtolnay `components:` 명시 등 설정 변경을 검토.
 - **워크플로 자체가 못 뜨는 경우**(예: Actions 장애로 `publish`조차 스케줄 안 됨) → `windows-installer`/`macos-dmg`가 남긴 artifact를 각 잡 페이지에서 내려받아 로컬에서 수동 `gh release create v<ver> <파일들...>`(이미 릴리즈가 있으면 `gh release upload v<ver> <파일들...> --clobber`).
 - **소급 적용 안 됨**: 모든 잡이 `ref: <태그>`로 그 태그 시점의 트리를 체크아웃한다. **이 4-잡 구조 도입 이전에 자른 태그**(예: v0.7.0)를 `workflow_dispatch`로 재발행하려 하면 그 태그 트리엔 `scripts/check-release-versions.sh`가 없어 `preflight`에서 즉시 실패한다(파괴적이지는 않다) — "게시만 재실행" 혜택은 이 변경 **이후에 자른 태그에만** 적용된다. 같은 이유로 CI 녹색 게이트(`scripts/check-ci-green.sh`) 도입 이전 태그를 재발행하면 그 트리엔 스크립트가 없어 **18분 빌드 뒤 `publish`에서** 실패한다(preflight가 아니라 게시 직전이라 늦게 실패).
 
