@@ -894,7 +894,8 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **"값 있음"만 감싼 빈 배열·객체(`"[]"`·`"{}"`)를 비어 있음으로**(사용자 결정): 기존에 그런 필드에 "값 있음"을 걸어 둔 칸은 정상→실패로 바뀔 수 있다(의도대로 고쳐지는 쪽). cost-if-wrong: 빈 배열 문자열 자체를 "값"으로 보던 칸의 오탐. 해소: 그 칸은 `≠ ""` 조건으로.
 - **풀기 한도는 필드당 3겹(누적 아님)**: 경로 전체 누적 한도를 두지 않았다 — 겹마다 이스케이프가 배로 늘어 본문 1 MiB 상한 안에서 깊이가 자연히 작다. cost-if-wrong: 없음(성능 실측 불필요 수준).
 
-(2) 연기 — 없음.
+(2) 연기 — ~~없음~~ **정정(2026-11-09, 사용자 지적)**: 시나리오 쪽 미적용을 빠뜨린 기록이었다.
+- **시나리오 엔진 값 추출·에디터 test-run 본문 트리에는 감싼 JSON 풀기가 아예 없다(바깥 1겹도)** — ops-monitor-polish 1차 spec 비목표(`docs/superpowers/specs/2026-10-28-ops-monitor-polish-design.md:26` "모니터 경로만")로 뺐는데, 결정 표(`…-mockups/00-decisions.md` D3.x)에 사용자 질문으로 올리지 않았고 §B에 연기로 남기지 않아 유실 → 이 슬라이스도 모니터 함수만 고침. 현재: 에디터 트리 `BodyBlock`(`ui/src/components/response/BodyBlock.tsx`)은 `JSON.parse`만 → `"{\"id\":7}"`는 문자열 잎 하나(`+추출`은 `$` 통째), 엔진 `extract.rs` body 추출은 `serde_json::from_slice`만 → `$.data.id`는 런타임 추출 실패. cost-if-wrong(방치): 감싼 JSON API에서 QA가 토큰·ID를 추출하지 못해 시나리오를 못 짠다(모니터에선 되는데 시나리오에선 안 되는 불일치). **해소 = 정식 슬라이스**(엔진 경로라 소형 UI 경로 금지): ① 엔진 body 추출에 모니터와 같은 규칙(원래 값 먼저·없을 때만 바깥/안쪽 감싼 객체·배열 풀기, 필드당 3겹) — 기존 시나리오 추출 값 불변 ② 에디터 test-run 트리가 같은 규칙으로 풀어 보여 주고 안내 문구(`previewUnwrapped` 재사용 검토) ③ Rust↔TS 풀기 규칙 공유 골든 fixture(모니터 `check.rs`·`conditions.ts`와 3중 일치) ④ 라이브: 감싼 JSON 응답기로 test-run `+추출` → 부하 run에서 추출 성공. 판단거리: `BodyBlock` 공용 컴포넌트를 풀린 값으로 바꿀지(모니터 `PreviewResult`처럼 호출자 `render`에서 할지).
 
 ### B48. Windows용 터미널 모니터 첫 배포 (v0.13.0 릴리즈, 2026-11-08, `release.yml` `windows-tui` 잡 + `scripts/tui-check-smoke.py`, crates/tui 0-diff) 판단·연기
 
