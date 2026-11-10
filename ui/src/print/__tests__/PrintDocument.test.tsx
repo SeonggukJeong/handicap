@@ -348,6 +348,38 @@ describe("PrintDocument", () => {
     expect(firstCol.style.width).toBe(`${nameMm}mm`);
   });
 
+  it("code_group_min_width_when_few_codes", async () => {
+    // 코드 열이 1·2개뿐이면 묶음 제목("응답 코드별 건수 …")이 12mm 칸에 갇혀 머리 줄이 길어졌다
+    const widthsOf = async (counts: Record<string, number>, errors: number) => {
+      const doc = makeDoc({
+        steps: [{ id: "s0", name: "조회", assert: [200], counts, errors }],
+      });
+      const { root, container, unmount } = renderDoc(doc);
+      await ready(root);
+      const mm = [...container.querySelectorAll(".p-steps colgroup col")].map((c) =>
+        Number.parseFloat((c as HTMLElement).style.width),
+      );
+      unmount();
+      return { n: doc.table.columns.length, mm };
+    };
+    const codeMm = (r: { n: number; mm: number[] }) => r.mm.slice(3, 3 + r.n);
+
+    const one = await widthsOf({ "200": 100 }, 0);
+    expect(one.n).toBe(1);
+    expect(codeMm(one)).toEqual([36]);
+    expect(one.mm[0]).toBe(180 - (15 + 13 + 36 + 20));
+
+    const two = await widthsOf({ "200": 90, "500": 10 }, 10);
+    expect(two.n).toBe(2);
+    expect(codeMm(two)).toEqual([18, 18]);
+    expect(two.mm.reduce((a, b) => a + b, 0)).toBe(180);
+
+    // 세 칸 이상은 그대로 12mm
+    const three = await widthsOf({ "200": 80, "404": 10, "500": 10 }, 20);
+    expect(three.n).toBe(3);
+    expect(codeMm(three)).toEqual([12, 12, 12]);
+  });
+
   it("no_code_columns", async () => {
     const doc = makeDoc({ steps: [], yaml: "a: [unclosed" });
     const { root, container } = renderDoc(doc);

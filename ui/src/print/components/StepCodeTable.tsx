@@ -12,9 +12,17 @@ const DASH = ko.print.fmt.noTarget;
 /** 본문 폭 180mm 안의 열 폭(mm). 숫자 열은 고정, 이름 열이 나머지. */
 const COL_MM = { count: 15, p95: 13, code: 12, residual: 16, status: 20 } as const;
 const BODY_W_MM = 180;
+/** 묶음 제목("응답 코드별 건수 …")이 걸치는 코드 열 폭 합의 하한. 코드 열이 1·2개뿐일 때
+ *  12mm 칸에 제목이 갇혀 머리 줄이 7줄로 늘어나지 않도록, 모자란 폭을 코드 열에 고르게 나눈다
+ *  (세 칸 = 흔한 2xx·4xx·5xx 표의 폭 = 제목 두 줄). */
+const GROUP_MIN_MM = 36;
 
 function columnWidths(columns: Column[]): { nameMm: number; widths: number[] } {
-  const codeMm = columns.map((c) => (c.kind === "residual" ? COL_MM.residual : COL_MM.code));
+  const baseMm = columns.map((c) => (c.kind === "residual" ? COL_MM.residual : COL_MM.code));
+  const groupMm = baseMm.reduce((a, b) => a + b, 0);
+  const extra =
+    columns.length > 0 && groupMm < GROUP_MIN_MM ? (GROUP_MIN_MM - groupMm) / columns.length : 0;
+  const codeMm = baseMm.map((w) => w + extra);
   const fixed = COL_MM.count + COL_MM.p95 + COL_MM.status + codeMm.reduce((a, b) => a + b, 0);
   const nameMm = BODY_W_MM - fixed;
   return { nameMm, widths: [nameMm, COL_MM.count, COL_MM.p95, ...codeMm, COL_MM.status] };
