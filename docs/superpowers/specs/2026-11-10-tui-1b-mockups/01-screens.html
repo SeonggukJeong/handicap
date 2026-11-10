@@ -1,0 +1,277 @@
+<title>TUI 1b 화면 목업</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Gothic+Coding:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;600&display=swap">
+<style>
+/* 레이아웃: 위에서 아래로 화면 흐름(모니터 → 목록 → 상세 → 본문, 따로 칸 설정). 각 화면 = 터미널 판 + 옆 설명 */
+:root {
+  --page: #e9ecef; --ink: #1d2733; --muted: #5b6875; --line: #c9d0d7; --card: #f7f8fa;
+  --term-bg: #0f141a; --term-fg: #d7dee6; --term-dim: #7d8a97; --term-head: #1d2631;
+  --ok: #34d399; --fail: #f87171; --warn: #fbbf24; --gray: #94a3b8; --sel-bg: #f2f5f8; --sel-fg: #0f141a;
+  --accent: #4f46e5;
+  --mono: "Nanum Gothic Coding", "D2Coding", ui-monospace, monospace;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #14191f; --ink: #e3e8ee; --muted: #9aa6b2; --line: #2b3540; --card: #1a2028; --accent: #a5b4fc; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #14191f; --ink: #e3e8ee; --muted: #9aa6b2; --line: #2b3540; --card: #1a2028; --accent: #a5b4fc; color-scheme: dark }
+body { background: var(--page); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.15rem; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lead { color: var(--muted); }
+section { display: grid; gap: 12px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .row { grid-template-columns: minmax(0, 1fr); } }
+.term-box { overflow-x: auto; border-radius: 6px; background: var(--term-bg); box-shadow: 0 1px 0 var(--line); }
+.term { font-family: var(--mono); font-size: 14px; line-height: 1.45; color: var(--term-fg); white-space: pre; padding: 8px 0; min-width: max-content; }
+.term > div { padding: 0 10px; }
+.head { background: var(--term-head); }
+.keys { color: var(--term-dim); }
+.keys b { color: var(--term-fg); font-weight: 700; }
+.d { color: var(--term-dim); } .ok { color: var(--ok); } .fail { color: var(--fail); } .warn { color: var(--warn); } .gray { color: var(--gray); }
+.b { font-weight: 700; color: #fff; }
+.sel { background: var(--sel-bg); color: var(--sel-fg); }
+.sel .d, .sel .fail, .sel .ok, .sel .warn, .sel .gray { color: inherit; }
+.mark { color: var(--warn); }
+.notes { display: grid; gap: 8px; font-size: 0.92rem; }
+.notes ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.tag { display: inline-block; font-size: 0.75rem; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 3px; background: var(--card); border: 1px solid var(--line); color: var(--muted); }
+.flow { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); }
+.qs { display: grid; gap: 10px; }
+.q { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 4px; }
+.q strong { color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.cap { font-size: 0.85rem; color: var(--muted); }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:8px">
+  <h1>TUI 1b 화면 목업 — 오류 보기 · 칸 설정 보기</h1>
+  <p class="lead">터미널 글자 칸으로 그렸습니다(한글 2칸). 데이터는 가짜입니다. 문구 중 GUI와 같은 것(상태·기록 안내)은 GUI 문구 그대로입니다. 글자 배치는 바뀔 수 있고, 아래 "정할 것"에 고르실 부분이 있습니다.</p>
+  <p class="flow">모니터 ─e→ 오류 목록 ─Enter→ 자세히 ─Enter→ 요청·응답 &nbsp;·&nbsp; 모니터 ─Enter→ 칸 설정 보기 &nbsp;·&nbsp; Esc = 한 단계 뒤로</p>
+</header>
+
+<section>
+  <h2>0. 모니터 화면 — 키 안내 줄만 바뀜</h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="keys"> 1a: <b>←↑↓→</b> 칸 이동  <b>Tab</b> 다음 보드  <b>b</b> 테두리  <b>?</b> 도움말  <b>q</b> 종료</div>
+<div class="keys"> 1b: <b>←↑↓→</b> 칸 이동  <b>e</b> 오류 보기  <b>Enter</b> 칸 설정  <b>Tab</b> 다음 보드  <b>?</b> 도움말  <b>q</b> 종료</div>
+    </div></div>
+    <div class="notes"><ul><li>칸 그리기·막대는 그대로입니다.</li><li>좁으면 지금처럼 덜 중요한 키(<b>b</b>·<b>Tab</b>)부터 뺍니다.</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>1. 오류 목록 <span class="tag">e</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-10 09:41:07  점검 중</div>
+<div> </div>
+<div> <span class="b">오류 보기 · 주문 조회</span>                              <span class="d">실패 6회 · 최근 300회(약 25분) 중</span></div>
+<div> </div>
+<div class="d">   시각       상태           사유</div>
+<div class="sel"> ▶ 09:41:03   ✖ 실패         주문 상세: HTTP 503                                    </div>
+<div>   09:40:58   <span class="fail">✖ 실패</span>         주문 상세: HTTP 503</div>
+<div>   09:40:53   <span class="fail">✖ 실패</span>         시간 초과(10초)</div>
+<div>   09:22:15   <span class="fail">✖ 실패</span>         "OK" 포함 안 됨</div>
+<div>   09:18:40   <span class="gray">― 확인 못 함</span>   앞 단계 실패</div>
+<div>   09:16:02   <span class="warn">⚠ 설정 오류</span>    <span class="d">불러오는 중…</span></div>
+<div> </div>
+<div> </div>
+<div class="keys"> <b>↑↓</b> 고르기  <b>Enter</b> 자세히  <b>a</b> 전체 회차  <b>Esc</b> 모니터로</div>
+    </div></div>
+    <div class="notes">
+      <ul>
+        <li>선택한 칸의 <b>지금 막대 구간</b> 결과 중 실패·설정 오류·확인 못 함만, 최신이 위.</li>
+        <li>사유는 화면에 보이는 줄만 기록에서 불러옵니다(그동안 "불러오는 중…").</li>
+        <li>지워진 기록은 사유 칸에 "기록 지남".</li>
+        <li>실패가 0회면 "이 구간에 실패가 없습니다" 한 줄.</li>
+        <li>머리 줄은 모니터와 같아서 다른 보드 상태(끊김 등)는 계속 보입니다.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div> <span class="b">오류 보기 · 주문 조회</span>                                     <span class="d">전체 300회</span></div>
+<div class="d">   시각       상태           사유</div>
+<div>   09:41:07   <span class="ok">✔ 정상</span>         <span class="d">612 ms</span></div>
+<div class="sel"> ▶ 09:41:03   ✖ 실패         주문 상세: HTTP 503                                    </div>
+<div>   09:40:58   <span class="fail">✖ 실패</span>         주문 상세: HTTP 503</div>
+<div>   09:40:53   <span class="fail">✖ 실패</span>         시간 초과(10초)</div>
+<div>   09:40:48   <span class="ok">✔ 정상</span>         <span class="d">588 ms</span></div>
+<div>   09:40:43   <span class="warn">▲ 느림</span>         <span class="d">1,620 ms</span></div>
+<div class="keys"> <b>↑↓ PgUp PgDn</b> 고르기  <b>Enter</b> 자세히  <b>a</b> 실패만  <b>Esc</b> 모니터로</div>
+    </div></div>
+    <div class="notes"><span class="cap"><b>a</b>를 누른 뒤</span><ul><li>정상·느림 회차도 보입니다. 정상 줄의 사유 칸엔 응답 시간을 씁니다.</li><li>정상 회차도 Enter로 요청·응답을 볼 수 있습니다(기록이 남아 있으면).</li></ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>2. 자세히 <span class="tag">Enter</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-10 09:41:09  점검 중</div>
+<div> </div>
+<div> <span class="b">주문 조회 · 2026-11-10 09:41:03</span></div>
+<div> </div>
+<div> <span class="fail">✖ 실패</span>    1,203 ms</div>
+<div> <span class="d">사유</span>       주문 상세: HTTP 503</div>
+<div> <span class="d">판정 상세</span>  기대 200</div>
+<div> <span class="d">시나리오</span>   주문 흐름   <span class="d">환경</span> 운영</div>
+<div> </div>
+<div class="d">    #  스텝        요청                                         응답    지연</div>
+<div>    1  로그인      POST https://api.example.com/auth/login       200   182 ms</div>
+<div>    2  주문 목록   GET  https://api.example.com/orders           200   240 ms</div>
+<div class="d">       조건 분기 → elif 1</div>
+<div class="sel"> ▶  3  주문 상세   GET  https://api.example.com/orders/1042      503   781 ms   ◀ 이 칸</div>
+<div>    4  재고 확인   GET  https://api.example.com/stock/1042        <span class="fail">—   시간 초과</span></div>
+<div class="fail">          error sending request: operation timed out</div>
+<div> </div>
+<div class="keys"> <b>↑↓</b> 스텝 고르기  <b>Enter</b> 요청·응답 보기  <b>Esc</b> 목록으로</div>
+    </div></div>
+    <div class="notes">
+      <ul>
+        <li>위: 상태·응답 시간·<b>사유</b>·<b>판정 상세</b>(조건에서 받은 값).</li>
+        <li>아래: 스텝 표. 스텝 이름은 보드 파일 안 시나리오에서 읽습니다.</li>
+        <li>스텝 칸이면 그 스텝 줄에 <span class="mark">◀ 이 칸</span>을 붙이고 처음부터 그 줄을 고릅니다.</li>
+        <li>스텝 오류는 그 줄 바로 아래 빨간 줄(엔진 오류 문장 그대로).</li>
+        <li>조건 분기 줄은 GUI처럼 흐린 한 줄.</li>
+        <li>반복 안의 스텝은 <code>#2</code>처럼 회차 표시.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="b">결제 · 2026-11-10 09:16:02</span></div>
+<div> <span class="warn">⚠ 설정 오류</span></div>
+<div> <span class="d">사유</span>  환경 변수 PAY_KEY 없음</div>
+<div> </div>
+<div class="d"> 요청을 보내기 전에 멈췄습니다(설정 오류) — 요청·응답 기록 없음</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">결제 · 2026-11-10 09:40:53</span></div>
+<div> <span class="fail">✖ 실패</span></div>
+<div> <span class="d">사유</span>  시간 초과(10초)</div>
+<div> </div>
+<div class="d"> 응답이 오기 전에 시간 초과 — 요청·응답 기록 없음</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">주문 조회 · 2026-11-10 08:50:11</span></div>
+<div> <span class="fail">✖ 실패</span>    940 ms</div>
+<div> </div>
+<div class="warn"> 점검이 중간에 끊겨 그 전 스텝까지만 기록됐습니다</div>
+<div class="d">    #  스텝        요청 …</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">주문 조회 · 2026-11-10 09:02:44</span></div>
+<div> <span class="fail">✖ 실패</span></div>
+<div> </div>
+<div class="fail"> 이 점검의 기록이 없습니다 — 기록은 막대 구간만큼만 보관되어 이미 지워졌습니다</div>
+    </div></div>
+  </div>
+  <p class="cap">특수 기록 4가지: 설정 오류 · 바깥 시간 초과 · 중간에 끊김 · 기록 지남. 문구는 GUI 기록 창과 같습니다("점검 준비 중 오류: …"도 같은 자리).</p>
+</section>
+
+<section>
+  <h2>3. 요청·응답 <span class="tag">Enter</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-10 09:41:12  점검 중</div>
+<div> </div>
+<div> <span class="b">주문 조회 · 09:41:03 · 3 주문 상세</span></div>
+<div> GET https://api.example.com/orders/1042   →   <span class="fail">503</span>   781 ms</div>
+<div> </div>
+<div> <span class="d">요청 헤더</span></div>
+<div>   authorization    Bearer ••••</div>
+<div>   accept           application/json</div>
+<div> <span class="d">응답 헤더</span></div>
+<div>   content-type     application/json</div>
+<div>   retry-after      30</div>
+<div> <span class="d">응답 본문</span>                                          <span class="warn">기록 상한 64KB에서 잘림</span></div>
+<div>   {</div>
+<div>     "error": "service_unavailable",</div>
+<div>     "message": "upstream db pool exhausted",</div>
+<div>     "trace_id": "9f2c1e7a4b"</div>
+<div>   }</div>
+<div class="d"> 인증 값은 ••••로 가렸습니다                                              12/40줄</div>
+<div class="keys"> <b>↑↓ PgUp PgDn</b> 스크롤  <b>←→</b> 이전·다음 스텝  <b>Esc</b> 자세히로</div>
+    </div></div>
+    <div class="notes">
+      <ul>
+        <li>한 스텝의 요청·응답을 한 화면에 위아래로. 길면 스크롤.</li>
+        <li>JSON 본문은 들여쓰기해서 보여 줍니다(GUI "원문"/"트리" 전환 대신 들여쓴 원문 한 가지).</li>
+        <li>가린 값(••••)은 서버가 가린 그대로.</li>
+        <li><b>←→</b>로 자세히로 돌아가지 않고 옆 스텝으로.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="term-box"><div class="term">
+<div> <span class="b">주문 조회 · 09:41:03 · 1 로그인</span></div>
+<div> POST https://api.example.com/auth/login   →   <span class="ok">200</span>   182 ms</div>
+<div> <span class="d">요청 본문</span>   <span class="d">요청 본문은 가려져 있습니다</span></div>
+<div class="keys"> <b>v</b> 요청 본문 보기  <b>↑↓</b> 스크롤  <b>Esc</b> 자세히로</div>
+    </div></div>
+    <div class="term-box"><div class="term">
+<div> <span class="b">주문 조회 · 09:41:03 · 1 로그인</span></div>
+<div> POST https://api.example.com/auth/login   →   <span class="ok">200</span>   182 ms</div>
+<div> <span class="d">요청 본문</span></div>
+<div>   { "user": "qa-monitor", "password": "s3cr3t!" }</div>
+<div class="keys"> <b>v</b> 가리기  <b>↑↓</b> 스크롤  <b>Esc</b> 자세히로</div>
+    </div></div>
+  </div>
+  <p class="cap">요청 본문은 처음엔 가려져 있고 <b>v</b>로 보기/가리기. 화면을 나가면 다시 가려집니다(GUI와 같음).</p>
+</section>
+
+<section>
+  <h2>4. 칸 설정 보기 <span class="tag">Enter (모니터에서)</span></h2>
+  <div class="row">
+    <div class="term-box"><div class="term">
+<div class="head"> Handicap 모니터 · 운영 API 보드                                    2026-11-10 09:41:20  점검 중</div>
+<div> </div>
+<div> <span class="b">칸 설정 · 주문 조회</span>                                <span class="d">보기 전용 — 수정은 다음 버전</span></div>
+<div> </div>
+<div>   1  <span class="d">제목</span>               주문 조회</div>
+<div>   2  <span class="d">시나리오</span>           주문 흐름                       <span class="d">(묶음)</span></div>
+<div>   3  <span class="d">환경</span>               운영                            <span class="d">(묶음)</span></div>
+<div>   4  <span class="d">볼 스텝</span>            3 주문 상세  GET /orders/{{order_id}}</div>
+<div>   5  <span class="d">점검 주기</span>          5초                             <span class="d">(묶음)</span></div>
+<div>   6  <span class="d">제한 시간</span>          10초</div>
+<div>   7  <span class="d">표시할 응답 시간</span>   이 스텝</div>
+<div>   8  <span class="d">응답속도 기준선</span>    <span class="warn">800 ms 이상</span> · <span class="fail">1,500 ms 이상</span></div>
+<div>   9  <span class="d">막대 개수</span>          300</div>
+<div>  10  <span class="d">그래프 최대 높이</span>   2,000 ms</div>
+<div>  11  <span class="d">성공 조건</span>          상태코드 = 200</div>
+<div>                          status = "OK"</div>
+<div>  12  <span class="d">화면 표시 값</span>       재고  stock.count</div>
+<div> </div>
+<div class="d"> (묶음) = 점검 묶음 "주문 흐름 묶음"의 값 — 칸마다 따로 못 바꿉니다</div>
+<div class="keys"> <b>↑↓</b> 스크롤  <b>Esc</b> 모니터로</div>
+    </div></div>
+    <div class="notes">
+      <ul>
+        <li>번호 목록 — 다음 슬라이스(수정)에서 이 번호로 항목을 고릅니다.</li>
+        <li>항목 이름은 GUI 칸 편집기와 같은 말.</li>
+        <li>기준선·조건·표시 값처럼 여러 개인 항목은 한 줄에 하나씩 펼쳐서.</li>
+        <li>안 정한 값은 GUI 기본값으로 표시("환경 없음", "시나리오 전체").</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>정할 것</h2>
+  <div class="qs">
+    <div class="q"><strong>Q1. 오류 보기는 화면 전체를 바꿀까, 모니터 위에 창으로 띄울까?</strong><span>목업은 <b>화면 전체</b>(머리 줄만 모니터와 같음). 창으로 띄우면 뒤에 칸이 보이지만 저사양·작은 화면에서 표·본문이 좁아집니다. 추천: 화면 전체.</span></div>
+    <div class="q"><strong>Q2. 오류 보기에 둔 채 자리를 비우면?</strong><span>벽 모니터가 목록 화면에 멈춰 있으면 지금 상태가 안 보입니다. 추천: 키 입력 없이 <b>5분</b> 지나면 모니터 화면으로 자동 복귀(spec에 없는 새 규칙).</span></div>
+    <div class="q"><strong>Q3. 목록을 열어 둔 동안 새 실패가 생기면?</strong><span>추천: 위에 새 줄을 더하되, 고른 줄은 그대로 유지(커서가 튀지 않게). 대안: 연 순간 목록 고정 + <b>r</b>로 새로 고침.</span></div>
+    <div class="q"><strong>Q4. 칸 설정 보기에서 볼 스텝·URL의 <code>{{변수}}</code></strong><span>시나리오에 적힌 그대로 보여 줍니다(값을 채우지 않음). 실제 값은 오류 보기 요청·응답에서.</span></div>
+  </div>
+</section>
+</div>
