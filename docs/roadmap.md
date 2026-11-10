@@ -908,6 +908,18 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **콘솔 창 X 닫기 → 임시 DB(환경 값) 잔류**: `Signals`의 non-unix 경로가 `ctrl_c()`만 듣는다. 해소: `tokio::signal::windows::ctrl_close`(+`ctrl_shutdown`·`ctrl_logoff`)를 같이 듣기 — 단 close 이벤트는 OS가 약 5초 뒤 강제 종료하므로 삭제를 감시견보다 먼저.
 - **시작 시 남은 임시 디렉터리 정리 없음**: `tempdb::pid_alive`의 non-unix 구현이 항상 `true`. 해소: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`로 생존 판정(`windows-sys` 의존 추가).
 
+### B49. 터미널 모니터 시각 줄 중간 눈금 (tui-axis-ticks, 2026-11-10, 코드 `4fc1bfbc`..`891023a4`, spec `docs/superpowers/specs/2026-11-10-tui-axis-ticks-design.md`) 판단·연기
+
+(1) 판단(cost-if-wrong · 해소)
+- **sweep ⑥ 최대성 단언은 초 형식·1초/5초 간격(이웃 글자가 늘 다른 경우)에서만 돈다**(per-task·최종 리뷰 Minor, 미수정): 분 형식 개수 축소 경로는 고정 시작 열 테스트(폭 120·200)·⑦ 간격 고름·이빨 실증(b)만 가드. cost-if-wrong: 분 형식에서 "자리가 있는데 하나 덜 놓는" 회귀가 그 두 폭 밖에서만 생기면 못 잡는다. 해소: ⑥ 조건을 `len == 8 || kind == 2`로 넓히고 `9 + 2` → `len + 1 + 2`(최종 리뷰 M2 제안).
+- **sweep 눈금 분류가 "마지막 눈금이 폭 끝에서 끝나면 오른쪽"으로 위치 추론**(Minor, 미수정): 중간 눈금이 폭 끝에서 끝나는 버그는 오른쪽으로 오분류될 수 있으나 "양 끝에 ▲ 없음" 단언이 그 경우를 잡는다. cost-if-wrong: 거의 없음. 해소: 불필요.
+- **렌더 테스트 `render_axis_middle_tick_points_at_bar`가 120×30 6칸의 막대 8줄을 하드코딩**(M1 수정 후 남은 Minor): 기준선 점선 위치(y−6·y−4) 단언이 가드라 배치가 바뀌면 크게 실패한다. 해소: 배치 변경 시 상수 갱신.
+
+(2) 연기·선재
+- 비목표 둘(세로 눈금 `graph_max_ms` 상시 표시·딱 떨어지는 시각 :00/:30 맞춤)은 사용자가 이번에 뺀 것 — 재개 신호가 오면 새 요청으로(spec §1·§7).
+- **선재 flake 재확인**: `tempdb::tests::remove_active_deletes_live_dirs`가 전역 `ACTIVE` 목록을 통째 지워 같은 프로세스의 다른 tempdb 테스트 디렉터리를 삭제한다(최종 리뷰가 plain `cargo test`에서 2회 관측, `tempdb.rs:74`·`:230`). §B46 "CI 노출 flake 2건"과 같은 뿌리 — 해소는 그쪽(테스트 전용 정적 Mutex 직렬화 또는 `remove_active`가 목록을 인자로).
+- M1 수정 첫 커밋 시도에서 pre-commit 게이트가 exit 1(출력 잘려 원인 미확인) → 직후 workspace nextest 1595/1595 green·재시도 통과. cost-if-wrong: 숨은 flake가 하나 더 있을 수 있음. 해소: 재발 시 출력 전체를 파일로 남겨 확인.
+
 ## 사용법 (다음 세션이 봐야 할 곳)
 
 1. **"다음 뭐 하지?"** → [roadmap-status.md](roadmap-status.md) 1순위 + 이 문서 §A. **제품 우선 베팅 = §A11 속지 않는 오픈 시험**(거짓 초록+해석). 주차 차별 아이디어 = §A13.
