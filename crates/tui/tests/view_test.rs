@@ -600,10 +600,64 @@ fn axis_middle_differs_from_right() {
     assert_ne!(m[0].text, m[1].text);
 }
 
+fn starts(m: &[Mark]) -> Vec<u16> {
+    m.iter().map(|k| k.start).collect()
+}
+
+#[test]
+fn axis_middle_appears_at_30_cols() {
+    // 재현: 6칸 배치 막대 30칸, 초 형식, 1초 간격.
+    let m = axis_marks(&series(30, 0, 1000), &lab8);
+    assert_eq!(starts(&m), vec![0, 11, 22], "{m:?}");
+    assert_eq!(m[1].text, format!("▲{}", lab8(BASE + 11_000)));
+}
+
+#[test]
+fn axis_middle_even_at_60_cols() {
+    let m = axis_marks(&series(60, 0, 1000), &lab8);
+    assert_eq!(starts(&m), vec![0, 13, 26, 39, 52], "{m:?}");
+}
+
+#[test]
+fn axis_middle_with_leading_empty_slots() {
+    // US3: 앞 30슬롯 빈칸.
+    let m = axis_marks(&series(60, 30, 1000), &lab8);
+    assert_eq!(starts(&m), vec![30, 41, 52], "{m:?}");
+    assert_eq!(m[1].text, format!("▲{}", lab8(BASE + 11_000)));
+}
+
+#[test]
+fn axis_minute_dense_reduces_evenly() {
+    // 순수 함수 — lab5 주입으로 분 형식 강제. n_max 13 → 8, n_max 23 → 15.
+    let m = axis_marks(&series(120, 0, 5000), &lab5);
+    assert_eq!(
+        starts(&m),
+        vec![0, 12, 25, 38, 51, 64, 77, 90, 103, 115],
+        "{m:?}"
+    );
+    let texts: Vec<&str> = m.iter().map(|k| k.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        vec![
+            "10:00", "▲10:01", "▲10:02", "▲10:03", "▲10:04", "▲10:05", "▲10:06", "▲10:07",
+            "▲10:08", "10:09"
+        ]
+    );
+    // 개별 제외(고르게 놓은 23개에서 같은 분만 빼기)도 15개를 남기므로 개수만으론 못 잡는다 — 시작 열을 고정.
+    let m = axis_marks(&series(200, 0, 5000), &lab5);
+    assert_eq!(
+        starts(&m),
+        vec![
+            0, 12, 25, 38, 51, 63, 75, 87, 99, 111, 123, 135, 147, 159, 171, 183, 195
+        ],
+        "{m:?}"
+    );
+}
+
 #[test]
 fn axis_invariants_sweep() {
     let irregular = [1_000i64, 1_000, 47_000, 1_000, 120_000];
-    for w in 1..=60usize {
+    for w in 1..=120usize {
         for none in 0..=w {
             for (label, len) in [(&lab5 as &dyn Fn(i64) -> String, 5usize), (&lab8, 8)] {
                 for kind in 0..4 {
@@ -633,19 +687,59 @@ fn axis_invariants_sweep() {
                     }
                     let f = first.unwrap();
                     assert!(!m.is_empty(), "{ctx}");
+                    let has_right = m.len() >= 2 && {
+                        let l = m.last().unwrap();
+                        l.start as usize + l.text.chars().count() == w
+                    };
                     for (i, k) in m.iter().enumerate() {
                         let s = k.start as usize;
                         let e = s + k.text.chars().count();
                         assert!(e <= w, "{ctx} 폭 밖 {m:?}");
-                        assert!(
-                            (s..e).any(|j| t[j].is_some_and(|ms| label(ms) == k.text)),
-                            "{ctx} 자기 막대 없음 {m:?}"
-                        );
+                        let is_end = i == 0 || (has_right && i == m.len() - 1);
+                        let plain = k.text.strip_prefix('▲').unwrap_or(&k.text);
+                        if is_end {
+                            assert!(!k.text.starts_with('▲'), "{ctx} 양 끝에 ▲ {m:?}");
+                            assert!(
+                                (s..e).any(|j| t[j].is_some_and(|ms| label(ms) == k.text)),
+                                "{ctx} 자기 막대 없음 {m:?}"
+                            );
+                        } else {
+                            assert!(k.text.starts_with('▲'), "{ctx} 중간에 ▲ 없음 {m:?}");
+                            assert!(
+                                t[s].is_some_and(|ms| label(ms) == plain),
+                                "{ctx} ▲ 열 막대 시각 불일치 {m:?}"
+                            );
+                        }
                         if i > 0 {
                             let p: &Mark = &m[i - 1];
                             let pe = p.start as usize + p.text.chars().count();
                             assert!(s >= pe + 2, "{ctx} 간격 {m:?}");
-                            assert_ne!(p.text, k.text, "{ctx} 이웃 글자 같음 {m:?}");
+                            let pp = p.text.strip_prefix('▲').unwrap_or(&p.text);
+                            assert_ne!(pp, plain, "{ctx} 이웃 글자 같음 {m:?}");
+                        }
+                    }
+                    if !has_right {
+                        assert_eq!(m.len(), 1, "{ctx} 오른쪽 없이 중간 {m:?}");
+                    } else {
+                        let mids = m.len() - 2;
+                        let l0 = &m[0];
+                        let left_end = l0.start as usize + l0.text.chars().count();
+                        let free = m.last().unwrap().start as usize - left_end;
+                        if len == 8 && kind <= 1 {
+                            // ⑥ 최대성: 자리가 있는데 안 나오는 회귀.
+                            assert_eq!(mids, (free - 2) / (9 + 2), "{ctx} 최대성 {m:?}");
+                        }
+                        if mids >= 1 {
+                            // ⑦ 이웃 간격이 고르다.
+                            let gaps: Vec<usize> = (1..m.len())
+                                .map(|i| {
+                                    let p = &m[i - 1];
+                                    m[i].start as usize
+                                        - (p.start as usize + p.text.chars().count())
+                                })
+                                .collect();
+                            let (mn, mx) = (gaps.iter().min().unwrap(), gaps.iter().max().unwrap());
+                            assert!(mx - mn <= 1, "{ctx} 간격 불균등 {gaps:?} {m:?}");
                         }
                     }
                     assert_eq!(m[0].start as usize, f.min(w - len), "{ctx} {m:?}");
@@ -759,6 +853,75 @@ fn render_axis_shows_bar_times() {
                 assert!(!axis.contains(&format_hms(oldest)), "{axis}\n{text}");
             }
         }
+    }
+}
+
+#[test]
+fn render_axis_middle_tick_points_at_bar() {
+    let mk = |id: &str| {
+        let mut p = panel(id, "a");
+        p.bar_count = 60;
+        p.interval_seconds = 1;
+        p.thresholds = vec![
+            Threshold {
+                ms: 1000,
+                color: "#f59e0b".into(),
+            },
+            Threshold {
+                ms: 1500,
+                color: "#ef4444".into(),
+            },
+        ];
+        p
+    };
+    let ids = ["p1", "p2", "p3", "p4", "p5", "p6"];
+    let b = board(ids.iter().map(|i| mk(i)).collect(), false);
+    let base = 1_700_000_000_000i64;
+    let rs: Vec<CheckResult> = (0..60).map(|i| ok(base + i * 1000, 100)).collect();
+    let newest = rs.last().unwrap().at_ms;
+    let s = snap(
+        ids.iter()
+            .map(|i| pstatus(i, rs.clone(), 0, None))
+            .collect(),
+        newest + 1000,
+    );
+    let sc = screen(build_panels(&b, &s), (1, 1), 0);
+    let buf = render_buf(120, 30, &sc);
+    let lay = layout(Rect::new(0, 0, 120, 30), 6).unwrap();
+    for r in &lay.panels {
+        let y = r.y + r.height - 2;
+        let row: Vec<String> = (r.x..r.x + r.width)
+            .map(|x| buf[(x, y)].symbol().to_string())
+            .collect();
+        let line = row.concat();
+        let ctx = format!("{line}\n{}", buffer_text(&buf));
+        assert!(line.contains('▲'), "{ctx}");
+        // 최신 시각 글자가 끝나는 열 = 막대 범위 오른쪽 끝.
+        let newest_txt = format_hms(newest);
+        let nchars: Vec<char> = newest_txt.chars().collect();
+        let cells: Vec<&str> = row.iter().map(String::as_str).collect();
+        let mut re = None;
+        for x in 0..cells.len().saturating_sub(nchars.len() - 1) {
+            if (0..nchars.len()).all(|i| cells[x + i] == nchars[i].to_string()) {
+                re = Some(x + nchars.len());
+            }
+        }
+        let re = re.unwrap_or_else(|| panic!("{ctx}"));
+        let mut last_tick_end = 0usize;
+        for (x, c) in cells.iter().enumerate() {
+            if *c == "▲" {
+                let t = newest - (re as i64 - 1 - x as i64) * 1000;
+                let want = format_hms(t);
+                let got: String = cells[x + 1..x + 9].concat();
+                assert_eq!(got, want, "{ctx}");
+                last_tick_end = x + 9;
+            }
+        }
+        let ms_col = line.find("(ms)").unwrap_or_else(|| panic!("{ctx}"));
+        let ms_x = line[..ms_col].chars().count();
+        let right_start = re - nchars.len();
+        assert!(last_tick_end + 2 <= right_start, "{ctx}");
+        assert!(ms_x >= re, "{ctx}");
     }
 }
 

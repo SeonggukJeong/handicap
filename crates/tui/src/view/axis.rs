@@ -1,4 +1,5 @@
 //! 막대 아래 시각 줄(spec §5.1 US6) — 순수 함수.
+//! 중간 눈금 = `▲` + 시각, `▲`가 그 막대 열(tui-axis-ticks 스펙 §2).
 
 /// 시각 줄의 눈금 1개: 막대 슬롯 `start`부터 `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,7 +8,7 @@ pub struct Mark {
     pub text: String,
 }
 
-/// 눈금끼리 최소 간격(칸).
+/// 눈금끼리 최소 간격(칸) — 모든 이웃에 같게.
 const MIN_GAP: usize = 2;
 
 fn len(s: &str) -> usize {
@@ -45,34 +46,45 @@ pub fn axis_marks(times: &[Option<i64>], label: &dyn Fn(i64) -> String) -> Vec<M
         }
     }
 
-    // 중간: 왼→오 탐욕 배치(앞 눈금과 글자 길이만큼 띄워 듬성듬성).
-    let limit = match &right {
-        Some(r) => (r.start as usize).saturating_sub(MIN_GAP),
-        None => w,
-    };
-    let mut prev_end = left_end;
-    let mut prev_text = marks[0].text.clone();
-    for (k, t) in times.iter().enumerate().skip(f + 1) {
-        let Some(ms) = *t else { continue };
-        let text = label(ms);
-        let tl = len(&text);
-        if text == prev_text || right.as_ref().is_some_and(|r| r.text == text) {
-            continue;
-        }
-        if limit < tl {
+    // 중간(tui-axis-ticks 스펙 §2): 오른쪽 끝이 있을 때만. 빈 구간에 고르게 놓고,
+    // 이웃 글자가 같으면 개수를 줄여 다시 고르게 놓는다.
+    if let Some(r) = &right {
+        let right_start = r.start as usize;
+        let free = right_start - left_end;
+        let m = 1 + ll;
+        let n_max = free.saturating_sub(MIN_GAP) / (m + MIN_GAP);
+        'count: for n in (0..=n_max).rev() {
+            let rem = free - n * m;
+            let (base, extra) = (rem / (n + 1), rem % (n + 1));
+            let mut cols = Vec::with_capacity(n);
+            let mut pos = left_end;
+            for k in 0..n {
+                pos += base + usize::from(k < extra);
+                cols.push(pos);
+                pos += m;
+            }
+            let mut mids = Vec::with_capacity(n);
+            let mut prev_text = marks[0].text.clone();
+            for &col in &cols {
+                let Some(Some(ms)) = times.get(col) else {
+                    continue 'count;
+                };
+                let text = label(*ms);
+                if text == prev_text {
+                    continue 'count;
+                }
+                prev_text.clone_from(&text);
+                mids.push(Mark {
+                    start: col as u16,
+                    text: format!("▲{text}"),
+                });
+            }
+            if prev_text == r.text {
+                continue;
+            }
+            marks.extend(mids);
             break;
         }
-        let lo = prev_end + tl.max(MIN_GAP);
-        let s = k.saturating_sub(tl / 2).max(lo).min(limit - tl);
-        if s < lo || s > k || k >= s + tl {
-            continue;
-        }
-        prev_end = s + tl;
-        prev_text.clone_from(&text);
-        marks.push(Mark {
-            start: s as u16,
-            text,
-        });
     }
     marks.extend(right);
     marks
