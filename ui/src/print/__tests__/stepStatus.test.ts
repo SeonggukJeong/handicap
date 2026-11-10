@@ -201,7 +201,7 @@ describe("callout_text", () => {
       true,
     );
     expect(c.unknown).toBe(
-      "'E'의 503 응답 7건은 오류로 세었는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 셀 수 있습니다.",
+      "'E'의 503 응답 7건은 오류에 포함됐는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 판정할 수 있습니다.",
     );
     expect(c.affectedSteps).toBe(2);
   });
@@ -235,7 +235,7 @@ describe("callout_text", () => {
       }),
     );
     expect(callouts([bu, u(1, "C", 404, 30), u(2, "D", 500, 5)], summary).unknown).toBe(
-      "'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 오류로 세었는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 셀 수 있습니다.",
+      "'B'의 502 응답 600건, 'C'의 404 응답 30건 외 1곳은 오류에 포함됐는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 판정할 수 있습니다.",
     );
   });
   it("affectedSteps counts a step with both classes once", () => {
@@ -339,7 +339,7 @@ describe("glossary_only_present", () => {
     expect(terms).not.toContain("2xx(성공 계열)·3xx(이동 계열)");
     expect(g.entries.find((e) => e.term === "599")?.text).toBe("표준 HTTP 응답 코드");
     expect(terms).toEqual(
-      expect.arrayContaining(["응답 받은 뒤 실패", "검사 없음(안 셈)", "확인 불가(?)"]),
+      expect.arrayContaining(["응답 받은 뒤 실패", "검사 없음(제외)", "확인 불가(?)"]),
     );
     const plain = glossary(model([], []), [], []);
     expect(plain.entries.map((e) => e.term)).toEqual([
@@ -359,7 +359,7 @@ describe("legend_only_present", () => {
     const m = model([col("a", "code", "503", [503])], [r]);
     expect(legendItems(m, [r])).toEqual([
       "✕ 오류: 단계 오류율이 기준을 넘음",
-      "오류로 센 응답",
+      "오류에 포함된 응답",
       "그중 가장 많은 것",
     ]);
   });
@@ -375,7 +375,7 @@ describe("legend_only_present", () => {
     expect(legendItems(m, [r1, r2])).toEqual([
       "▲ 주의: 느림·오류 있음·검사 확인 필요",
       "● 정상",
-      "오류로 안 센 응답(검사 없음)",
+      "오류에서 제외된 응답(검사 없음)",
       "‘그중’ 열은 앞 칸들에 이미 포함된 건수입니다(더하지 마세요)",
     ]);
     const r3 = rk(
@@ -398,7 +398,7 @@ describe("legend_only_present", () => {
     expect(legendItems(model([], [r]), [r])).toEqual([
       "✕ 오류: 단계 오류율이 기준을 넘음",
       "▲ 주의: 느림·오류 있음·검사 확인 필요",
-      "오류로 안 센 응답(검사 없음)",
+      "오류에서 제외된 응답(검사 없음)",
     ]);
   });
   it("short legend", () => {

@@ -2094,7 +2094,7 @@ export const ko = {
       error: "✕ 오류",
       slow: "▲ 느림",
       hasErrors: "▲ 오류 있음",
-      uncounted: "▲ 안 센 응답",
+      uncounted: "▲ 오류 제외",
       unknown: "▲ 확인 불가",
       ok: "● 정상",
       notRun: "– 실행 안 됨",
@@ -2103,7 +2103,7 @@ export const ko = {
         error: "오류",
         slow: "느림",
         hasErrors: "오류 있음",
-        uncounted: "안 센 응답",
+        uncounted: "오류 제외",
         unknown: "확인 불가",
       },
       remainder: {
@@ -2119,7 +2119,7 @@ export const ko = {
       uncounted: (items: string, a: string, b: string) =>
         `확인 필요: ${items}은 응답 코드 검사가 없어 오류율에 포함되지 않았습니다. 포함하면 오류율은 ${a} → ${b}(이)가 됩니다. 이 단계에 응답 코드 검사를 추가하길 권합니다.`,
       unknown: (items: string) =>
-        `${items}은 오류로 세었는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 셀 수 있습니다.`,
+        `${items}은 오류에 포함됐는지 확정할 수 없습니다(응답 코드 검사 없이 값을 꺼내는 단계). 응답 코드 검사를 추가하면 정확히 판정할 수 있습니다.`,
       item: (name: string, code: number, n: string) => `'${name}'의 ${code} 응답 ${n}건`,
       more: (n: number) => ` 외 ${n}곳`,
       oneLine: (n: number) => `확인 필요: 응답 코드 검사가 없는 단계 ${n}곳 — 표준판 참조`,
@@ -2128,9 +2128,9 @@ export const ko = {
       error: "✕ 오류: 단계 오류율이 기준을 넘음",
       caution: "▲ 주의: 느림·오류 있음·검사 확인 필요",
       ok: "● 정상",
-      counted: "오류로 센 응답",
+      counted: "오류에 포함된 응답",
       strongest: "그중 가장 많은 것",
-      uncounted: "오류로 안 센 응답(검사 없음)",
+      uncounted: "오류에서 제외된 응답(검사 없음)",
       unknown: "확인 불가(?)",
       residual: "‘그중’ 열은 앞 칸들에 이미 포함된 건수입니다(더하지 마세요)",
       short: "✕ 오류 · ▲ 주의 · ● 정상",
@@ -2255,7 +2255,7 @@ export const ko = {
       throughput: { term: "처리량", text: "1초에 처리한 요청 수" },
       mean: { term: "평균 응답시간", text: "응답까지 걸린 시간의 평균" },
       p95: { term: "95% 응답시간", text: "전체 요청의 95%가 이 시간 안에 응답한 기준선" },
-      errorRate: { term: "오류율", text: "도구가 오류로 센 요청의 비율" },
+      errorRate: { term: "오류율", text: "도구가 오류로 판정한 요청의 비율" },
       class2xx: "2xx(성공 계열)",
       class3xx: "3xx(이동 계열)",
       classText: "서버가 처리했다는 응답. 검사가 다른 코드를 기대하면 오류일 수 있음",
@@ -2265,8 +2265,8 @@ export const ko = {
         term: "응답 받은 뒤 실패",
         text: "응답은 받았지만 값 꺼내기나 본문 읽기에 실패함",
       },
-      uncounted: { term: "검사 없음(안 셈)", text: "응답 코드 검사가 없어 오류로 세지 않은 응답" },
-      unknown: { term: "확인 불가(?)", text: "오류로 세었는지 기록상 확정할 수 없는 응답" },
+      uncounted: { term: "검사 없음(제외)", text: "응답 코드 검사가 없어 오류에서 제외된 응답" },
+      unknown: { term: "확인 불가(?)", text: "오류에 포함됐는지 기록상 확정할 수 없는 응답" },
       errorKindLine: (parts: string) => `응답 없음 내역: ${parts}`,
     },
     chart: {
@@ -2315,7 +2315,7 @@ export const ko = {
       p95: "95% 응답",
       group: "응답 코드별 건수 (이번 측정에서 나온 코드만)",
       status: "상태",
-      cellUncounted: "안 셈",
+      cellUncounted: "제외",
       cellUnknown: "?",
       residualUncertain: "(일부는 ? 칸과 같은 응답)",
       foldNote: (label: string, parts: string) => `※ ${label}: ${parts}`,
@@ -2350,9 +2350,9 @@ export const ko = {
       scattered: (step: string, pct: number) =>
         `오류가 여러 단계에 흩어져 있습니다(가장 많은 곳: '${step}' ${pct}%).`,
       hiddenUncounted: (step: string, code: number, n: string) =>
-        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 응답 코드 검사가 없어 오류로 세지 않았습니다.`,
+        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 응답 코드 검사가 없어 오류에서 제외됐습니다.`,
       hiddenUnknown: (step: string, code: number, n: string) =>
-        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 오류로 세었는지 확정할 수 없습니다.`,
+        `'${step}'에서 ${code} 응답 ${n}건이 있었지만 오류에 포함됐는지 확정할 수 없습니다.`,
       slow: (step: string, p95: string, thr: string) =>
         `'${step}'(은)는 느립니다 (95% 응답 ${p95}, 기준 ${thr})`,
       zero: "요청이 하나도 실행되지 않았습니다.",

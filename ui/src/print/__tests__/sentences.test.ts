@@ -280,13 +280,13 @@ describe("hidden_line", () => {
       }),
     ];
     expect(kindLine(summaryLines(base({ rows, ranked: rows })), "hidden")).toBe(
-      "'B'에서 502 응답 600건이 있었지만 응답 코드 검사가 없어 오류로 세지 않았습니다.",
+      "'B'에서 502 응답 600건이 있었지만 응답 코드 검사가 없어 오류에서 제외됐습니다.",
     );
   });
   it("unknown only", () => {
     const rows = [mkRow(1, "B", { perCode: [{ code: 502, count: 600, cls: "unknown" }] })];
     expect(kindLine(summaryLines(base({ rows, ranked: rows })), "hidden")).toBe(
-      "'B'에서 502 응답 600건이 있었지만 오류로 세었는지 확정할 수 없습니다.",
+      "'B'에서 502 응답 600건이 있었지만 오류에 포함됐는지 확정할 수 없습니다.",
     );
   });
 });

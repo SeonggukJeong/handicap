@@ -272,7 +272,10 @@ describe("PrintDocument", () => {
     const th503 = screen.getByText("503").closest("th");
     expect(th503).not.toBeNull();
     expect(within(th503 as HTMLElement).getByText("서버가 바쁨")).toBeInTheDocument();
-    expect(screen.getByText("안 셈")).toBeInTheDocument();
+    expect(screen.getByText("제외")).toBeInTheDocument();
+    expect(screen.getAllByText("▲ 오류 제외").length).toBeGreaterThan(0);
+    // '세다'(count) 직역 문구는 '포함/제외'로 통일 — 보고서 어디에도 남지 않는다
+    expect(container.textContent).not.toMatch(/안 셈|안 센|오류로 센|세지 않|세었는지|셀 수/);
     const callout = container.querySelector(".p-callout");
     expect(callout?.textContent?.startsWith("확인 필요:")).toBe(true);
     expect(screen.getByRole("img", { name: "시간에 따른 처리량과 오류 차트" })).toBeInTheDocument();
@@ -486,7 +489,7 @@ describe("PrintDocument", () => {
     expect(s4?.classList.contains("p-cell--counted")).toBe(true);
     const uncounted = container.querySelector(".p-cell--uncounted");
     expect(uncounted?.textContent).toContain("600");
-    expect(uncounted?.textContent).toContain("안 셈");
+    expect(uncounted?.textContent).toContain("제외");
     const unknown = container.querySelector(".p-cell--unknown");
     expect(unknown?.textContent).toContain("10");
     expect(unknown?.textContent).toContain("?");
@@ -565,7 +568,7 @@ describe("PrintDocument", () => {
   });
 
   it("measure_sheet_covers_every_id_the_placer_reads", () => {
-    // 그 밖의 기준 7행(>6 → 부록) · 미달 있음 · 2xx 두 코드(묶음 각주) · 안 셈(경고) · 단계 10개(나머지 줄)
+    // 그 밖의 기준 7행(>6 → 부록) · 미달 있음 · 2xx 두 코드(묶음 각주) · 제외(경고) · 단계 10개(나머지 줄)
     const steps: StepSpec[] = [
       ...coreSteps.map((s, i) => (i === 0 ? { ...s, counts: { "200": 900, "201": 100 } } : s)),
       ...manySteps(5).map((s, i) => ({ ...s, id: `x${i}`, name: `추가${i}` })),
@@ -686,7 +689,7 @@ describe("Legend status symbols", () => {
           "✕ 오류: 단계 오류율이 기준을 넘음",
           "▲ 주의: 느림·오류 있음·검사 확인 필요",
           "● 정상",
-          "오류로 센 응답",
+          "오류에 포함된 응답",
         ]}
       />,
     );
@@ -695,7 +698,7 @@ describe("Legend status symbols", () => {
       "✕ 오류: 단계 오류율이 기준을 넘음",
       "▲ 주의: 느림·오류 있음·검사 확인 필요",
       "● 정상",
-      "오류로 센 응답",
+      "오류에 포함된 응답",
     ]);
     const sym = (i: number) => spans[i].querySelector("b");
     expect(sym(0)).toHaveTextContent(/^✕$/);
