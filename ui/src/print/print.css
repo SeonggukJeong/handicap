@@ -140,8 +140,10 @@
   gap: 4mm;
   align-items: stretch;
 }
+/* 46mm: 한글 한 자가 1em인 글꼴(Windows 맑은 고딕 굵게 등)에서도 가장 긴 판정 문구
+   "기준 미설정"(20pt ≈ 37.4mm)이 안쪽 41mm에 한 줄로 들어간다(42mm=안쪽 37mm에선 "기준 미설/정") */
 .p-root .p-vbox {
-  flex: 0 0 42mm;
+  flex: 0 0 46mm;
   border: 2px solid var(--sub);
   background: var(--faint);
   color: var(--sub);
@@ -167,6 +169,12 @@
   font-size: 20pt;
   font-weight: 800;
   line-height: 1.1;
+}
+/* 판정 상자 문구는 띄어쓰기에서만 줄바꿈("않았습니/다"·"미설/정" 방지), 한 단어가 칸보다 길 때만 글자 단위 */
+.p-root .p-vbox-big,
+.p-root .p-vbox-sub {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 .p-root .p-vbox-sub {
   font-size: 8pt;
