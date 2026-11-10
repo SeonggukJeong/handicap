@@ -877,7 +877,11 @@ fn render_axis_middle_tick_points_at_bar() {
     let ids = ["p1", "p2", "p3", "p4", "p5", "p6"];
     let b = board(ids.iter().map(|i| mk(i)).collect(), false);
     let base = 1_700_000_000_000i64;
-    let rs: Vec<CheckResult> = (0..60).map(|i| ok(base + i * 1000, 100)).collect();
+    // 막대 높이가 열마다 달라지게 인접 값이 다른 5가지 지연을 돌린다(graph_max_ms 2000 안).
+    let lats = [200u64, 700, 1200, 1800, 400];
+    let rs: Vec<CheckResult> = (0..60)
+        .map(|i| ok(base + i * 1000, lats[i as usize % lats.len()]))
+        .collect();
     let newest = rs.last().unwrap().at_ms;
     let s = snap(
         ids.iter()
@@ -907,13 +911,68 @@ fn render_axis_middle_tick_points_at_bar() {
             }
         }
         let re = re.unwrap_or_else(|| panic!("{ctx}"));
+        // 막대 열 지문 = 막대 줄(시각 줄 바로 위 8줄; 그 위는 큰 응답 시간 글자)의 블록 글리프 세로 나열.
+        // 시각 줄과 무관. 기준선 점선(1000/1500)이 8줄 안에만 있음으로 막대 줄 수를 고정한다.
+        const BAR_ROWS: u16 = 8;
+        let dash_rows: Vec<u16> = (r.y + 1..y)
+            .filter(|&yy| (r.x..r.x + r.width).any(|x| buf[(x, yy)].symbol() == "╌"))
+            .collect();
+        assert_eq!(dash_rows, vec![y - 6, y - 4], "{ctx}");
+        let is_block = |s: &str| matches!(s, "▁" | "▂" | "▃" | "▄" | "▅" | "▆" | "▇" | "█");
+        let sig = |x: u16| -> String {
+            (y - BAR_ROWS..y)
+                .map(|yy| {
+                    let sym = buf[(x, yy)].symbol();
+                    if is_block(sym) {
+                        sym.to_string()
+                    } else {
+                        " ".into()
+                    }
+                })
+                .collect()
+        };
+        // 가장 오른쪽 막대 열 = 최신 결과(모든 막대가 맨 아랫줄에 글리프를 가진다).
+        let xr = (r.x..r.x + r.width)
+            .rev()
+            .find(|&x| is_block(buf[(x, y - 1)].symbol()))
+            .unwrap_or_else(|| panic!("{ctx}"));
+        let xl = (r.x..=xr)
+            .find(|&x| is_block(buf[(x, y - 1)].symbol()))
+            .unwrap();
+        assert_eq!(xr - xl + 1, 30, "막대 폭\n{ctx}");
+        // 열 → 결과 인덱스는 막대 열 자체에서만 구한다(시각 줄 글자 위치를 쓰지 않는다).
+        let idx_of = |x: u16| 59 - usize::from(xr - x);
+        // 지연 → 지문 대응: 같은 지연은 같은 지문, 다른 지연은 다른 지문이어야 한다.
+        let mut by_lat: std::collections::BTreeMap<u64, String> = Default::default();
+        for x in xl..=xr {
+            let lat = lats[idx_of(x) % lats.len()];
+            let sg = sig(x);
+            assert_eq!(
+                by_lat.entry(lat).or_insert_with(|| sg.clone()),
+                &sg,
+                "{ctx}"
+            );
+        }
+        let uniq: std::collections::BTreeSet<&String> = by_lat.values().collect();
+        assert_eq!(uniq.len(), lats.len(), "{by_lat:?}\n{ctx}");
         let mut last_tick_end = 0usize;
         for (x, c) in cells.iter().enumerate() {
             if *c == "▲" {
-                let t = newest - (re as i64 - 1 - x as i64) * 1000;
-                let want = format_hms(t);
+                let bx = r.x + x as u16;
+                assert!((xl..=xr).contains(&bx), "▲ 가 막대 밖\n{ctx}");
+                let idx = idx_of(bx);
+                let want = format_hms(rs[idx].at_ms);
                 let got: String = cells[x + 1..x + 9].concat();
                 assert_eq!(got, want, "{ctx}");
+                // ▲ 바로 위 막대가 그 결과의 지연 막대이고, 이웃 열 막대와는 다르다.
+                let here = sig(bx);
+                assert_eq!(here, by_lat[&lats[idx % lats.len()]], "{ctx}");
+                if bx > xl {
+                    assert_ne!(sig(bx - 1), here, "{ctx}");
+                }
+                if bx < xr {
+                    assert_ne!(sig(bx + 1), here, "{ctx}");
+                }
                 last_tick_end = x + 9;
             }
         }
