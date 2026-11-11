@@ -886,3 +886,55 @@ async fn preview_bad_step_id_reports_step_error() {
         assert_eq!(v["error"], "스텝 id가 올바른 ULID 형식이 아닙니다");
     }
 }
+
+#[tokio::test]
+async fn check_now_404_409_200() {
+    let db = store::connect("sqlite::memory:").await.unwrap();
+    let (app, _) = make_app(db);
+    let srv = mock(200).await;
+    let sid = create_scenario(&app, &srv.uri()).await;
+    let b = new_board(&app, "b", &sid, 3600).await;
+    let id = b["id"].as_str().unwrap();
+    let pid = b["config"]["panels"][0]["id"].as_str().unwrap();
+    let path =
+        |board: &str, panel: &str| format!("/api/monitor-boards/{board}/panels/{panel}/check-now");
+
+    // 없는 보드 → 404.
+    let (st, _) = send(
+        &app,
+        Method::POST,
+        &path("01J00000000000000000000000", pid),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // 꺼진 보드 → 409 + 문구.
+    let (st, v) = send(&app, Method::POST, &path(id, pid), None).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    assert_eq!(v["error"], "점검이 꺼져 있습니다");
+
+    let (st, _) = send(&app, Method::POST, &url(id, "/start"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    // 순서 전제: 첫 결과 뒤에 요청.
+    let first = wait_results(&app, id, 1).await;
+    let last = first["panels"][0]["results"][0]["at_ms"].as_i64().unwrap();
+    // 켜진 보드의 없는 칸 → 404.
+    let (st, _) = send(
+        &app,
+        Method::POST,
+        &path(id, "01J00000000000000000000000"),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // 200: 키가 항상 있다(값은 그 칸의 마지막 결과 시각).
+    let (st, v) = send(&app, Method::POST, &path(id, pid), None).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert!(v.as_object().unwrap().contains_key("last_at_ms"), "{v}");
+    assert_eq!(v["last_at_ms"].as_i64(), Some(last));
+    // 주기 3600초인데 2초 안에 결과 1 → 2.
+    let st2 = tokio::time::timeout(Duration::from_secs(2), wait_results(&app, id, 2))
+        .await
+        .expect("지금 점검 회차가 2초 안에 와야 한다");
+    assert!(st2["panels"][0]["results"][1]["at_ms"].as_i64().unwrap() > last);
+}

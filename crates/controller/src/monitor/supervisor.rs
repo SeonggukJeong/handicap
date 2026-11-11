@@ -166,7 +166,8 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// 칸의 `running`을 켜고, 결과를 각 칸 버퍼에 push하며 예산(초)을 저장한다. 취소되면 진행 중
 /// 점검도 drop한다(결과·기록 미기록, `running`은 가드가 끈다). 기록은 칸마다 최근 `bar_count`개.
 /// 지금 점검으로 깨우면(`kick.notify_waiters()`) 주기를 기다리지 않는다(바닥 1초, 점검 중 요청은
-/// 버린다 — 허가를 저장하지 않으므로).
+/// 버린다 — 허가를 저장하지 않으므로). 깨우는 쪽은 `notify_waiters()`만 써야 한다:
+/// `notify_one()`은 허가를 저장해 점검 중 요청이 다음 회차를 예약한다(규칙 3 위반).
 pub(crate) async fn unit_loop<F, Fut>(
     interval: Duration,
     members: Vec<(SharedBuf, usize)>,
@@ -308,10 +309,23 @@ impl Running {
     }
 }
 
+/// `check_now` 결과.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckNow {
+    /// 깨움 신호를 보냈다(점검 중이면 버려진다). `last_at_ms` = 요청 직전 그 칸의 마지막 결과 시각.
+    Requested { last_at_ms: Option<i64> },
+    /// 보드가 없거나 꺼져 있다.
+    Off,
+    /// 켜진 보드에 그 칸이 없다.
+    NoPanel,
+}
+
 /// 화면에 보이는 상태(스냅샷 원천). 꺼진 보드는 `None`.
 struct BoardView {
     started_at_ms: i64,
     bufs: PanelBufs,
+    /// 칸 id → 그 칸이 속한 실행 단위의 깨우기 신호(묶음 칸들은 같은 `Arc`).
+    kicks: HashMap<String, Arc<tokio::sync::Notify>>,
 }
 
 struct BoardSlot {
@@ -409,6 +423,7 @@ impl MonitorSupervisor {
         let mut old = lock(&slot.view).take().map(|v| v.bufs).unwrap_or_default();
         let token = self.inner.root.child_token();
         let mut bufs = PanelBufs::new();
+        let mut kicks: HashMap<String, Arc<tokio::sync::Notify>> = HashMap::new();
         let plans = plan_units(&row.config);
         let mut handles = Vec::with_capacity(plans.len());
         for plan in plans {
@@ -416,9 +431,12 @@ impl MonitorSupervisor {
                 UnitPlan::Whole(p) => std::slice::from_ref(p),
                 UnitPlan::Steps(u) => &u.panels,
             };
+            // 실행 단위마다 깨우기 신호 하나 — 그 단위의 모든 칸 id가 같은 신호를 가리킨다.
+            let kick = Arc::new(tokio::sync::Notify::new());
             let members = panels
                 .iter()
                 .map(|p| {
+                    kicks.insert(p.id.clone(), kick.clone());
                     // 살아남은 칸은 결과 버퍼를 유지하되 예산은 초기값으로 — 편집 전의 작은 예산이
                     // 첫 긴 회차에 "확인 불가"를 내지 않게(spec §4).
                     let buf = old.remove(&p.id).unwrap_or_default();
@@ -427,8 +445,6 @@ impl MonitorSupervisor {
                     (buf, p.bar_count as usize)
                 })
                 .collect();
-            // 실행 단위마다 깨우기 신호 하나(보관은 다음 task).
-            let kick = Arc::new(tokio::sync::Notify::new());
             handles.push(spawn_unit(
                 db.clone(),
                 plan,
@@ -443,6 +459,7 @@ impl MonitorSupervisor {
         *lock(&slot.view) = Some(BoardView {
             started_at_ms: store::now_ms(),
             bufs,
+            kicks,
         });
         *running = Some(Running { token, handles });
         Ok(())
@@ -489,6 +506,34 @@ impl MonitorSupervisor {
         drop(view);
         let b = lock(&buf);
         b.records.iter().rev().find(|r| r.at_ms == at_ms).cloned()
+    }
+
+    /// 지금 점검 — 그 칸이 속한 실행 단위를 깨운다(spec tui-check-now §3.2). **`existing_slot`만**
+    /// (미지의 id로 슬롯을 만들지 않는다).
+    ///
+    /// 순서가 load-bearing: ① 락은 겹쳐 잡지 않는다(view 락에서 버퍼·신호 `Arc`만 복제하고 해제,
+    /// 그다음 버퍼 락) ② 마지막 결과 시각 `last_at_ms`를 **깨우기 전에** 서버가 읽어 돌려준다 —
+    /// 클라이언트가 따로 읽으면 요청과 읽기 사이에 새 결과가 끼어 "요청 뒤 결과"를 구별 못 한다.
+    /// 버퍼를 읽은 **뒤에** 깨워야 `last_at_ms`가 깨움으로 생긴 회차를 포함하지 않는다.
+    /// 깨우기는 `notify_waiters()`만 쓴다 — `notify_one()`은 허가를 저장해 점검 중 요청이 다음
+    /// 회차를 예약한다(규칙 3 위반).
+    pub fn check_now(&self, board_id: &str, panel_id: &str) -> CheckNow {
+        let Some(slot) = self.existing_slot(board_id) else {
+            return CheckNow::Off;
+        };
+        let (buf, kick) = {
+            let view = lock(&slot.view);
+            let Some(v) = view.as_ref() else {
+                return CheckNow::Off;
+            };
+            match (v.bufs.get(panel_id), v.kicks.get(panel_id)) {
+                (Some(b), Some(k)) => (b.clone(), k.clone()),
+                _ => return CheckNow::NoPanel,
+            }
+        };
+        let last_at_ms = lock(&buf).results.back().map(|r| r.at_ms);
+        kick.notify_waiters();
+        CheckNow::Requested { last_at_ms }
     }
 
     /// 데스크톱 종료용 — 루트 취소 + 모든 보드 task 완료 대기(abort 백스톱).
@@ -1508,5 +1553,126 @@ mod tests {
         assert!(Arc::ptr_eq(&a.body, &b.body), "trace body shared");
         assert!(a.body.trace.is_some());
         sup.stop_all().await;
+    }
+
+    // ---- check_now ----
+
+    #[tokio::test]
+    async fn check_now_off_and_no_panel() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        // 모르는 보드: Off, 슬롯을 만들지 않는다.
+        assert_eq!(sup.check_now("nope", P1), CheckNow::Off);
+        assert!(sup.existing_slot("nope").is_none());
+        // 꺼진 보드(reconcile 전 = 실행 중 아님): Off.
+        let row = monitor_boards::insert(&db, "off", &board(&[P1]))
+            .await
+            .unwrap();
+        assert_eq!(sup.check_now(&row.id, P1), CheckNow::Off);
+        // 켜진 보드의 없는 칸: NoPanel.
+        let id = enabled_board(&db, "on", &[P1]).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        wait_results(&sup, &id, &[P1]).await;
+        assert_eq!(sup.check_now(&id, P2), CheckNow::NoPanel);
+    }
+
+    #[tokio::test]
+    async fn check_now_runs_long_interval_panel_early() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let mut cfg = board(&[P1]);
+        cfg.panels[0].interval_seconds = 3600;
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        // 순서 전제: 첫 결과가 들어온 뒤에 요청한다(점검 중 요청은 버려진다 — 규칙 3).
+        let first = wait_results(&sup, &id, &[P1]).await;
+        let last = first.panels[P1].results.last().unwrap().at_ms;
+        assert_eq!(
+            sup.check_now(&id, P1),
+            CheckNow::Requested {
+                last_at_ms: Some(last)
+            }
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let s = sup.snapshot(&id).await.unwrap();
+            if s.panels[P1].results.len() == 2 {
+                assert!(s.panels[P1].results[1].at_ms > last);
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "지금 점검 회차가 오지 않음"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn check_now_group_runs_all_members_once() {
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let mut g = group(G1, "no-such-scenario");
+        g.interval_seconds = 3600;
+        let cfg = BoardConfig {
+            groups: vec![g],
+            panels: vec![
+                step_panel(P1, "no-such-scenario", Some(G1), S1),
+                step_panel(P2, "no-such-scenario", Some(G1), S2),
+            ],
+            ..BoardConfig::default()
+        };
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        wait_results(&sup, &id, &[P1, P2]).await;
+        assert!(matches!(sup.check_now(&id, P2), CheckNow::Requested { .. }));
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let s = sup.snapshot(&id).await.unwrap();
+            let (a, b) = (&s.panels[P1].results, &s.panels[P2].results);
+            if a.len() == 2 && b.len() == 2 {
+                assert_eq!(a[1].at_ms, b[1].at_ms, "묶음은 한 회차를 나눠 쓴다");
+                break;
+            }
+            assert!(a.len() <= 2 && b.len() <= 2, "한 번만 돌아야 한다");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "묶음 회차가 오지 않음"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn check_now_during_running_check_adds_no_round() {
+        // 규칙 3의 **실제 호출 경로** 가드: `check_now`가 `notify_one`(허가 저장)을 쓰면 점검이 끝난 뒤 한 번 더 돈다.
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_delay(Duration::from_millis(1500)),
+            )
+            .mount(&server)
+            .await;
+        let db = store::connect("sqlite::memory:").await.unwrap();
+        let sup = MonitorSupervisor::default();
+        let sid = insert_scenario(&db, &server.uri()).await;
+        let mut cfg = board(&[P1]);
+        cfg.panels[0].scenario_id = sid;
+        cfg.panels[0].interval_seconds = 3600;
+        let id = enabled_cfg(&db, &cfg).await;
+        sup.reconcile(&db, &id).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await; // 첫 점검(1.5초)이 도는 중
+        assert!(sup.snapshot(&id).await.unwrap().panels[P1].running);
+        assert_eq!(
+            sup.check_now(&id, P1),
+            CheckNow::Requested { last_at_ms: None }
+        );
+        wait_results(&sup, &id, &[P1]).await;
+        tokio::time::sleep(Duration::from_millis(2500)).await; // 바닥 1초가 지나고도 남는 시간
+        assert_eq!(
+            sup.snapshot(&id).await.unwrap().panels[P1].results.len(),
+            1,
+            "점검 중 요청은 회차를 예약하지 않는다"
+        );
     }
 }

@@ -22,7 +22,7 @@ use crate::monitor::config::{
     BoardConfig, PanelConfig, check_step_id, normalize_step_panel, validate_and_normalize,
     validate_panel,
 };
-use crate::monitor::supervisor::{PanelSnapshot, consecutive_fail, initial_budget_secs};
+use crate::monitor::supervisor::{CheckNow, PanelSnapshot, consecutive_fail, initial_budget_secs};
 use crate::monitor::unit::{CheckUnit, run_unit_check};
 use crate::store;
 use crate::store::monitor_boards::{self, MonitorBoardRow};
@@ -281,6 +281,32 @@ pub async fn record(
         bytes,
     )
         .into_response())
+}
+
+const CHECK_OFF: &str = "점검이 꺼져 있습니다";
+
+#[derive(Debug, Serialize)]
+pub struct CheckNowResponse {
+    /// 요청 직전 그 칸의 마지막 결과 시각(없으면 `null` — 키는 항상 직렬화된다).
+    pub last_at_ms: Option<i64>,
+}
+
+/// 지금 점검 — 그 칸이 속한 실행 단위를 깨운다(spec tui-check-now §3.3). 본문 없음.
+pub async fn check_now(
+    State(state): State<AppState>,
+    Path((id, panel_id)): Path<(String, String)>,
+) -> Result<Json<CheckNowResponse>, ApiError> {
+    let row = monitor_boards::get(&state.db, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    if !row.enabled {
+        return Err(ApiError::Conflict(CHECK_OFF.into()));
+    }
+    match state.monitor.check_now(&id, &panel_id) {
+        CheckNow::Requested { last_at_ms } => Ok(Json(CheckNowResponse { last_at_ms })),
+        CheckNow::Off => Err(ApiError::Conflict(CHECK_OFF.into())),
+        CheckNow::NoPanel => Err(ApiError::NotFound),
+    }
 }
 
 pub async fn preview_check(
