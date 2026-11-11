@@ -97,9 +97,62 @@ struct ScenarioLite {
 struct EnvLite {
     id: String,
     name: String,
-    /// 키만 남고 값은 버려진다(IgnoredAny).
+    /// 키만 남고 값은 버려진다.
     #[serde(default)]
-    vars: BTreeMap<String, IgnoredAny>,
+    vars: VarKeys,
+}
+
+/// 환경 `vars`의 키 이름만(키 순). 값은 `IgnoredAny`로 버려 메모리에 들지 않는다.
+/// 객체가 아닌 모양(null·문자열·배열·숫자)이면 빈 목록 — 이 모듈은 절대 실패하지 않는다(fail-soft).
+#[derive(Default)]
+struct VarKeys(Vec<String>);
+
+impl<'de> Deserialize<'de> for VarKeys {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = VarKeys;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("anything")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut m: A,
+            ) -> Result<VarKeys, A::Error> {
+                let mut keys = BTreeMap::new();
+                while let Some((k, _)) = m.next_entry::<String, IgnoredAny>()? {
+                    keys.insert(k, ());
+                }
+                Ok(VarKeys(keys.into_keys().collect()))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut a: A,
+            ) -> Result<VarKeys, A::Error> {
+                while a.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(VarKeys::default())
+            }
+            fn visit_unit<E>(self) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+            fn visit_str<E>(self, _: &str) -> Result<VarKeys, E> {
+                Ok(VarKeys::default())
+            }
+        }
+        d.deserialize_any(V)
+    }
 }
 
 fn method_str(h: &HttpStep) -> String {
@@ -156,7 +209,7 @@ impl Names {
         let mut env_keys = HashMap::new();
         for e in lite.environments {
             environments.insert(e.id.clone(), e.name.clone());
-            env_keys.insert(e.id.clone(), e.vars.into_keys().collect());
+            env_keys.insert(e.id.clone(), e.vars.0);
             env_order.push((e.id, e.name));
         }
         Names {

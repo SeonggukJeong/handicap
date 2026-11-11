@@ -173,3 +173,28 @@ fn scenario_vars_keys_and_kinds() {
     assert_eq!(names.scenario_vars("BAD"), None);
     assert_eq!(names.scenario_vars("NOPE"), None);
 }
+
+#[test]
+fn malformed_env_vars_do_not_drop_names() {
+    // fail-soft: 환경 하나의 `vars`가 객체가 아니어도 다른 이름 해석은 그대로다(그 환경의 키만 비어 있다).
+    for bad in [
+        serde_json::json!(null),
+        serde_json::json!("x"),
+        serde_json::json!([1, "a"]),
+        serde_json::json!(7),
+    ] {
+        let file = serde_json::to_vec(&serde_json::json!({
+            "scenarios": [{ "id": "S1", "yaml": WITH_VARS }],
+            "environments": [
+                { "id": "E1", "name": "운영", "vars": bad },
+                { "id": "E2", "name": "스테이징", "vars": { "K": { "nested": 1 } } }
+            ]
+        }))
+        .unwrap();
+        let names = Names::from_bundle(&file);
+        assert_eq!(names.scenario_name("S1"), Some("변수"), "{bad}");
+        assert_eq!(names.env_name("E1"), Some("운영"), "{bad}");
+        assert_eq!(names.env_keys("E1"), Some(&[][..]), "{bad}");
+        assert_eq!(names.env_keys("E2"), Some(&["K".to_string()][..]), "{bad}");
+    }
+}
