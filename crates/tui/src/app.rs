@@ -2,9 +2,11 @@
 //! 키·마우스 해석과 격자 이동은 순수 함수로 분리했다.
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
@@ -16,27 +18,37 @@ use ratatui::crossterm::event::{
 use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use handicap_controller::monitor::check::CheckResult;
+use handicap_controller::monitor::config::PanelConfig;
 
+use crate::api::Api;
 use crate::inspect::{
-    BodyState, ErrorsState, Reason, RecordLoad, RecordState, StepLine, neighbor_http,
+    BodyInput, BodyState, ErrorsInput, ErrorsState, Reason, RecordLoad, RecordState, StepLine,
+    clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
+    neighbor_http, reason_of, record_view, step_lines, visible_results,
 };
 use crate::judge::grid_for;
 use crate::logging::LogLoc;
+use crate::panel_settings::{group_note, settings_items, settings_lines};
 use crate::poll::{PollSnapshot, spawn_poller};
 use crate::prefs::{self, BorderStyle, Loaded, Prefs};
 use crate::session::{Session, Stage, StartError};
 use crate::terminal::TerminalGuard;
 use crate::text;
 use crate::view::error::{render_error, render_usage};
+use crate::view::inspect::{
+    body_height, errors_list_height, render_body, render_errors, render_record, sub_layout,
+};
 use crate::view::model::build_panels;
 use crate::view::monitor::{KeyBar, Layout, MonitorScreen, layout, panel_at, render_with_keys};
 use crate::view::overlay::{render_help, render_quit_confirm};
-use crate::wire::BoardResponse;
+use crate::view::settings::{render_settings, settings_height};
+use crate::wire::{BoardResponse, CheckRecord};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -277,7 +289,7 @@ pub fn idle_expired(screen: &Screen, last_input: Instant, now: Instant) -> bool 
     target && now.saturating_duration_since(last_input) >= IDLE_RETURN
 }
 
-/// 기록 조회 요청(작업자는 Task 8).
+/// 기록 조회 요청(`spawn_fetch_worker`가 차례로 처리).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FetchReq {
     /// 목록 사유 칸용(응답에서 reason·detail만 남긴다)
@@ -309,6 +321,54 @@ pub enum Fetched {
         at_ms: i64,
         load: RecordLoad,
     },
+}
+
+/// 기록 조회 작업자 — 요청을 **하나씩 차례로** 처리한다(동시에 기록 둘을 메모리에 들지 않는다 —
+/// 한 기록이 최대 1 MiB 본문 × 스텝 수). `Reason` 요청은 응답에서 reason·detail만 남기고 기록을 버린다.
+/// 돌려받은 Sender를 버리면 작업자가 끝난다. 결과 수신자가 사라져도 끝난다.
+/// 로그를 남기지 않는다(URL·본문·사유가 로그로 새지 않게).
+pub fn spawn_fetch_worker(
+    handle: &Handle,
+    api: Api,
+    out: mpsc::Sender<Fetched>,
+) -> UnboundedSender<FetchReq> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<FetchReq>();
+    handle.spawn(async move {
+        while let Some(req) = rx.recv().await {
+            let msg = match req {
+                FetchReq::Reason {
+                    board_id,
+                    panel_id,
+                    at_ms,
+                } => {
+                    let reason = reason_of(api.record(&board_id, &panel_id, at_ms).await);
+                    Fetched::Reason {
+                        board_id,
+                        panel_id,
+                        at_ms,
+                        reason,
+                    }
+                }
+                FetchReq::Record {
+                    board_id,
+                    panel_id,
+                    at_ms,
+                } => {
+                    let load = load_of(api.record(&board_id, &panel_id, at_ms).await);
+                    Fetched::Record {
+                        board_id,
+                        panel_id,
+                        at_ms,
+                        load,
+                    }
+                }
+            };
+            if out.send(msg).is_err() {
+                return;
+            }
+        }
+    });
+    tx
 }
 
 /// 새 화면 상태 묶음 + 화면 전환(순수). App은 이 메서드만 부른다.
@@ -343,6 +403,25 @@ impl SubViews {
     pub fn open_settings(&mut self) -> Screen {
         self.settings_scroll = 0;
         Screen::Settings
+    }
+
+    /// 칸 설정 보기 스크롤: `Up`/`Down` ±1, `PageUp`/`PageDown` ±`height`, `Home`/`End` 처음/끝,
+    /// 그 밖(`None` 등)은 가두기만. 상한 = `n_lines − height`(끝까지 내려도 빈 화면이 되지 않게 —
+    /// 화면 크기가 바뀌면 다음 호출이 다시 가둔다).
+    pub fn scroll_settings(&mut self, a: Action, n_lines: usize, height: usize) {
+        let max = n_lines.saturating_sub(height) as isize;
+        let page = height.max(1) as isize;
+        let cur = (self.settings_scroll as isize).min(max);
+        let next = match a {
+            Action::Up => cur.saturating_sub(1),
+            Action::Down => cur.saturating_add(1),
+            Action::PageUp => cur.saturating_sub(page),
+            Action::PageDown => cur.saturating_add(page),
+            Action::Home => 0,
+            Action::End => max,
+            _ => cur,
+        };
+        self.settings_scroll = next.clamp(0, max) as usize;
     }
 
     /// 목록 → 자세히. errors가 없으면 None.
@@ -450,7 +529,8 @@ impl SubViews {
     }
 }
 
-/// 테두리 전환은 칸이 실제로 그려진 모니터 화면에서만(보이지 않는 변경을 저장하지 않게).
+/// 칸 대상 동작(테두리·오류 보기·칸 설정)은 칸이 실제로 그려진 모니터 화면에서만 — 보이지 않는
+/// 변경을 저장하지 않고, 칸이 안 그려진 작은 화면에서 어느 칸인지 모르는 채 열리지 않게.
 pub fn toggle_allowed(screen: &Screen, panels_drawn: bool) -> bool {
     matches!(screen, Screen::Monitor) && panels_drawn
 }
@@ -517,6 +597,46 @@ struct App<'a> {
     border: BorderStyle,
     prefs_path: Option<PathBuf>,
     panels_drawn: Cell<bool>,
+    /// 새 화면 넷의 상태
+    views: SubViews,
+    /// 조회 결과 통로(작업자 → UI 루프)
+    fetch_out: (mpsc::Sender<Fetched>, mpsc::Receiver<Fetched>),
+    /// 세션마다 새 조회 작업자(세션이 없으면 None)
+    fetch_req: Option<UnboundedSender<FetchReq>>,
+    /// 마지막으로 잰 터미널 크기
+    size: Rect,
+    /// 마지막 키·마우스 입력 시각(5분 자동 복귀)
+    last_input: Instant,
+}
+
+/// 기록의 `line` 줄(Http) 본문 입력. Http가 아니거나 trace에 그 스텝이 없으면 None.
+fn body_input<'a>(
+    panel_title: &'a str,
+    rec: &'a CheckRecord,
+    line: Option<&'a StepLine>,
+) -> Option<BodyInput<'a>> {
+    let Some(StepLine::Http {
+        trace_idx,
+        no,
+        name,
+        ..
+    }) = line
+    else {
+        return None;
+    };
+    let step = rec.trace.as_ref()?.steps.get(*trace_idx)?;
+    let (clipped_req, clipped_resp) = clip_flags(&rec.clipped, *trace_idx);
+    Some(BodyInput {
+        panel_title,
+        at_ms: rec.at_ms,
+        no: *no,
+        name,
+        step,
+        clipped_req,
+        clipped_resp,
+        limit_kb: rec.limit_kb,
+        reveal: false,
+    })
 }
 
 impl App<'_> {
@@ -554,6 +674,7 @@ impl App<'_> {
     /// 세션을 (다시) 띄운다. 기존 세션이 있으면 먼저 내린다. 로그는 다시 초기화하지 않는다.
     fn start_session(&mut self) {
         self.stop_session();
+        self.views.clear();
         self.poller_dead_logged.set(false);
         self.idx = 0;
         self.selected = 0;
@@ -568,6 +689,11 @@ impl App<'_> {
                     self.board_tx.subscribe(),
                     self.snap_tx.clone(),
                 );
+                self.fetch_req = Some(spawn_fetch_worker(
+                    rt.handle(),
+                    session.api.clone(),
+                    self.fetch_out.0.clone(),
+                ));
                 self.running = Some(Running {
                     session,
                     boards,
@@ -586,6 +712,8 @@ impl App<'_> {
     }
 
     fn stop_session(&mut self) {
+        // 요청 통로를 닫으면 작업자는 처리 중인 요청 하나를 마치고 끝난다.
+        self.fetch_req = None;
         if let Some(r) = self.running.take() {
             // 중단을 기다린 뒤 세션을 내린다 — 폴러가 지워지는 DB를 읽는 일이 없게.
             self.rt.block_on(async {
@@ -600,6 +728,175 @@ impl App<'_> {
         self.running
             .as_ref()
             .map_or(0, |r| r.boards[self.idx].config.panels.len())
+    }
+
+    fn board(&self) -> Option<&BoardResponse> {
+        self.running.as_ref().map(|r| &r.boards[self.idx])
+    }
+
+    /// 지금 보드에서 선택된 칸(모니터 화면과 같은 가둠).
+    fn selected_panel(&self) -> Option<&PanelConfig> {
+        let panels = &self.board()?.config.panels;
+        panels.get(self.selected.min(panels.len().saturating_sub(1)))
+    }
+
+    fn panel(&self, board_id: &str, panel_id: &str) -> Option<&PanelConfig> {
+        let b = self.board().filter(|b| b.id == board_id)?;
+        b.config.panels.iter().find(|p| p.id == panel_id)
+    }
+
+    /// 그 칸의 현재 막대 구간 결과(오래된 → 최신). 스냅샷이 다른 보드 것이면 빈 목록.
+    fn panel_results(&self, board_id: &str, panel_id: &str) -> Vec<CheckResult> {
+        let snap = self.snap_rx.borrow();
+        snap.last
+            .as_ref()
+            .filter(|_| snap.board_id == board_id)
+            .and_then(|s| s.panels.iter().find(|p| p.panel_id == panel_id))
+            .map(|p| p.results.clone())
+            .unwrap_or_default()
+    }
+
+    /// 자세히 화면의 스텝 줄(기록이 아직 없으면 빈 목록).
+    fn record_lines(&self) -> Vec<StepLine> {
+        let Some(st) = &self.views.record else {
+            return vec![];
+        };
+        let RecordLoad::Loaded(rec) = &st.load else {
+            return vec![];
+        };
+        let (Some(panel), Some(r)) = (self.panel(&st.board_id, &st.panel_id), &self.running) else {
+            return vec![];
+        };
+        rec.trace
+            .as_ref()
+            .map(|t| {
+                step_lines(
+                    t,
+                    &r.session.names,
+                    &panel.scenario_id,
+                    panel.step_id.as_deref(),
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    /// 칸 설정 보기의 (제목, 줄, 각주) — 선택 칸 기준, 줄은 `width`에 맞춘다.
+    fn settings_view(&self, width: usize) -> Option<(String, Vec<String>, Option<String>)> {
+        let r = self.running.as_ref()?;
+        let board = self.board()?;
+        let panel = self.selected_panel()?;
+        let lines = settings_lines(&settings_items(panel, &r.session.names), width);
+        Some((panel.title.clone(), lines, group_note(&board.config, panel)))
+    }
+
+    /// 칸 설정 보기의 (줄 수, 보이는 줄 수) — 지금 크기 기준.
+    fn settings_dims(&self) -> (usize, usize) {
+        let body = sub_layout(self.size).body;
+        self.settings_view(usize::from(body.width))
+            .map_or((0, 0), |(_, lines, note)| {
+                (lines.len(), settings_height(body, note.is_some()))
+            })
+    }
+
+    fn send_fetch(&self, req: FetchReq) {
+        if let Some(tx) = &self.fetch_req {
+            let _ = tx.send(req);
+        }
+    }
+
+    /// 조회 결과를 받아들이고, 보이는 목록 줄의 사유를 요청하고, 본문 줄을 만든다.
+    /// 이벤트 루프가 그리기 전에 부른다. 화면이 바뀌었으면 true.
+    fn pump(&mut self) -> bool {
+        let mut changed = false;
+        let mut record_arrived = false;
+        while let Ok(msg) = self.fetch_out.1.try_recv() {
+            let is_record = matches!(msg, Fetched::Record { .. });
+            if self.views.accept(msg) {
+                changed = true;
+                record_arrived |= is_record;
+            }
+        }
+        if record_arrived {
+            let lines = self.record_lines();
+            if let Some(r) = self.views.record.as_mut()
+                && matches!(r.load, RecordLoad::Loaded(_))
+            {
+                r.cursor = initial_step_cursor(&lines);
+            }
+        }
+        let inner = match &self.screen {
+            Screen::QuitConfirm(inner) => (**inner).clone(),
+            s => s.clone(),
+        };
+        match inner {
+            Screen::Errors => changed |= self.pump_errors(),
+            Screen::Body => self.pump_body(),
+            Screen::Settings => {
+                let (n, h) = self.settings_dims();
+                self.views.scroll_settings(Action::None, n, h);
+            }
+            _ => {}
+        }
+        changed
+    }
+
+    fn pump_errors(&mut self) -> bool {
+        let Some((board_id, panel_id)) = self
+            .views
+            .errors
+            .as_ref()
+            .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+        else {
+            return false;
+        };
+        let results = self.panel_results(&board_id, &panel_id);
+        let height = errors_list_height(sub_layout(self.size).body);
+        let Some(e) = self.views.errors.as_mut() else {
+            return false;
+        };
+        let rows_at: Vec<i64> = error_results(&results, e.show_all)
+            .iter()
+            .map(|r| r.at_ms)
+            .collect();
+        e.pin_cursor(&rows_at);
+        let alive: HashSet<i64> = results.iter().map(|r| r.at_ms).collect();
+        e.cache.retain(&alive);
+        let visible = visible_results(&results, e, height);
+        let want = e.cache.wanted(&visible, results.last().map(|r| r.at_ms));
+        if want.is_empty() {
+            return false;
+        }
+        e.cache.mark_loading(&want);
+        for at_ms in want {
+            self.send_fetch(FetchReq::Reason {
+                board_id: board_id.clone(),
+                panel_id: panel_id.clone(),
+                at_ms,
+            });
+        }
+        true
+    }
+
+    fn pump_body(&mut self) {
+        let lines = self.record_lines();
+        let width = usize::from(sub_layout(self.size).body.width);
+        let title = self
+            .views
+            .record
+            .as_ref()
+            .and_then(|st| self.panel(&st.board_id, &st.panel_id))
+            .map(|p| p.title.clone())
+            .unwrap_or_default();
+        let SubViews { record, body, .. } = &mut self.views;
+        let (Some(st), Some(body)) = (record.as_ref(), body.as_mut()) else {
+            return;
+        };
+        let RecordLoad::Loaded(rec) = &st.load else {
+            return;
+        };
+        if let Some(input) = body_input(&title, rec, lines.get(body.line_idx)) {
+            body.ensure(&input, width);
+        }
     }
 
     fn monitor_screen(&self) -> Option<MonitorScreen> {
@@ -660,8 +957,93 @@ impl App<'_> {
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
             Screen::Usage => render_usage(f),
-            // Task 8이 채운다.
-            Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {}
+            Screen::Errors | Screen::Record | Screen::Body | Screen::Settings => {
+                self.panels_drawn.set(false);
+                self.draw_sub(f, screen, bar == KeyBar::QuitConfirm);
+            }
+        }
+    }
+
+    /// 새 화면 넷 — 맨 윗줄은 모니터와 같은 머리 줄(끊김 표시 포함).
+    fn draw_sub(&self, f: &mut ratatui::Frame, screen: &Screen, quit_confirm: bool) {
+        let Some(head) = self.monitor_screen().map(|m| m.header()) else {
+            return;
+        };
+        let Some(r) = self.running.as_ref() else {
+            return;
+        };
+        let mut ctx = KeyCtx {
+            quit_confirm,
+            show_all: self.views.errors.as_ref().is_some_and(|e| e.show_all),
+            reveal: self.views.body.as_ref().is_some_and(|b| b.reveal),
+            has_req_body: false,
+        };
+        match screen {
+            Screen::Errors => {
+                let Some(st) = &self.views.errors else {
+                    return;
+                };
+                let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
+                    return;
+                };
+                let results = self.panel_results(&st.board_id, &st.panel_id);
+                let input = ErrorsInput {
+                    title: &panel.title,
+                    results: &results,
+                    thresholds: &panel.thresholds,
+                    interval_seconds: panel.interval_seconds,
+                };
+                let height = errors_list_height(sub_layout(f.area()).body);
+                let v = errors_view(&input, st, height);
+                render_errors(f, &head, &v, &sub_keys(screen, ctx));
+            }
+            Screen::Record => {
+                let Some(st) = &self.views.record else {
+                    return;
+                };
+                let Some(panel) = self.panel(&st.board_id, &st.panel_id) else {
+                    return;
+                };
+                let v = record_view(panel, st, &r.session.names);
+                render_record(f, &head, &v, &sub_keys(screen, ctx));
+            }
+            Screen::Body => {
+                let Some(body) = &self.views.body else {
+                    return;
+                };
+                let lines = self.record_lines();
+                if let Some(StepLine::Http { trace_idx, .. }) = lines.get(body.line_idx)
+                    && let Some(RecordState {
+                        load: RecordLoad::Loaded(rec),
+                        ..
+                    }) = &self.views.record
+                {
+                    ctx.has_req_body = rec
+                        .trace
+                        .as_ref()
+                        .and_then(|t| t.steps.get(*trace_idx))
+                        .and_then(|s| s.request.as_ref())
+                        .and_then(|q| q.body.as_deref())
+                        .is_some_and(|b| !b.is_empty());
+                }
+                render_body(f, &head, body.lines(), body.scroll, &sub_keys(screen, ctx));
+            }
+            Screen::Settings => {
+                let width = usize::from(sub_layout(f.area()).body.width);
+                let Some((title, lines, note)) = self.settings_view(width) else {
+                    return;
+                };
+                render_settings(
+                    f,
+                    &head,
+                    &title,
+                    &lines,
+                    note.as_deref(),
+                    self.views.settings_scroll,
+                    &sub_keys(screen, ctx),
+                );
+            }
+            _ => {}
         }
     }
 
@@ -688,6 +1070,7 @@ impl App<'_> {
                     };
                     self.selected = 0;
                     self.board_tx.send_replace(r.boards[self.idx].id.clone());
+                    self.views.clear();
                 }
             }
             Action::ToggleBorder => {
@@ -709,8 +1092,8 @@ impl App<'_> {
             Action::Back => {
                 if let Screen::QuitConfirm(inner) = &self.screen {
                     self.screen = (**inner).clone();
-                } else if matches!(self.screen, Screen::Help) {
-                    self.screen = Screen::Monitor;
+                } else if let Some(s) = self.views.back(&self.screen) {
+                    self.screen = s;
                 }
             }
             Action::AskQuit => {
@@ -721,22 +1104,168 @@ impl App<'_> {
                 self.screen = Screen::Starting;
                 return false;
             }
-            // Task 8이 연결한다.
-            Action::OpenErrors
-            | Action::OpenSettings
-            | Action::Activate
-            | Action::ToggleAll
-            | Action::ToggleReveal
-            | Action::PrevStep
-            | Action::NextStep
-            | Action::Up
+            Action::OpenErrors => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get())
+                    && let (Some(board), Some(panel)) = (self.board(), self.selected_panel())
+                {
+                    let (board_id, panel_id) = (board.id.clone(), panel.id.clone());
+                    let rows_at: Vec<i64> =
+                        error_results(&self.panel_results(&board_id, &panel_id), false)
+                            .iter()
+                            .map(|r| r.at_ms)
+                            .collect();
+                    self.screen = self.views.open_errors(&board_id, &panel_id, &rows_at);
+                }
+            }
+            Action::OpenSettings => {
+                if toggle_allowed(&self.screen, self.panels_drawn.get())
+                    && self.selected_panel().is_some()
+                {
+                    self.screen = self.views.open_settings();
+                }
+            }
+            Action::Activate => self.activate(),
+            Action::ToggleAll => {
+                if matches!(self.screen, Screen::Errors)
+                    && let Some((b, p)) = self
+                        .views
+                        .errors
+                        .as_ref()
+                        .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+                {
+                    let results = self.panel_results(&b, &p);
+                    if let Some(e) = self.views.errors.as_mut() {
+                        e.show_all = !e.show_all;
+                        let rows_at: Vec<i64> = error_results(&results, e.show_all)
+                            .iter()
+                            .map(|r| r.at_ms)
+                            .collect();
+                        e.pin_cursor(&rows_at);
+                    }
+                }
+            }
+            Action::ToggleReveal => {
+                if matches!(self.screen, Screen::Body)
+                    && let Some(b) = self.views.body.as_mut()
+                {
+                    b.reveal = !b.reveal;
+                }
+            }
+            Action::PrevStep | Action::NextStep => {
+                if matches!(self.screen, Screen::Body) {
+                    let lines = self.record_lines();
+                    let dir = if a == Action::PrevStep { -1 } else { 1 };
+                    self.views.step_body(&lines, dir);
+                }
+            }
+            Action::Up
             | Action::Down
             | Action::PageUp
             | Action::PageDown
             | Action::Home
-            | Action::End => {}
+            | Action::End => self.scroll(a),
         }
         false
+    }
+
+    /// `Enter` — 목록 → 자세히(정상 회차도), 자세히 → 본문.
+    fn activate(&mut self) {
+        match self.screen {
+            Screen::Errors => {
+                let Some(e) = &self.views.errors else {
+                    return;
+                };
+                let results = self.panel_results(&e.board_id, &e.panel_id);
+                let list = error_results(&results, e.show_all);
+                let rows_at: Vec<i64> = list.iter().map(|r| r.at_ms).collect();
+                let Some(clicked) = (!list.is_empty())
+                    .then(|| list[crate::inspect::cursor_index(&rows_at, e.cursor_at)].clone())
+                else {
+                    return;
+                };
+                // open_record는 본문 상태를 비운다 — 다른 회차를 열면 가림·캐시가 새로 시작한다.
+                if let Some((s, req)) = self.views.open_record(clicked) {
+                    self.screen = s;
+                    self.send_fetch(req);
+                }
+            }
+            Screen::Record => {
+                let lines = self.record_lines();
+                if let Some(s) = self.views.open_body(&lines) {
+                    self.screen = s;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 새 화면의 위·아래·쪽·처음·끝.
+    fn scroll(&mut self, a: Action) {
+        let body = sub_layout(self.size).body;
+        match self.screen {
+            Screen::Errors => {
+                let Some((b, p)) = self
+                    .views
+                    .errors
+                    .as_ref()
+                    .map(|e| (e.board_id.clone(), e.panel_id.clone()))
+                else {
+                    return;
+                };
+                let results = self.panel_results(&b, &p);
+                let page = errors_list_height(body).max(1) as isize;
+                let delta = match a {
+                    Action::Up => -1,
+                    Action::Down => 1,
+                    Action::PageUp => -page,
+                    Action::PageDown => page,
+                    Action::Home => isize::MIN,
+                    _ => isize::MAX,
+                };
+                if let Some(e) = self.views.errors.as_mut() {
+                    let rows_at: Vec<i64> = error_results(&results, e.show_all)
+                        .iter()
+                        .map(|r| r.at_ms)
+                        .collect();
+                    e.cursor_at = move_cursor(&rows_at, e.cursor_at, delta);
+                }
+            }
+            Screen::Record => {
+                let len = self.record_lines().len();
+                if let Some(r) = self.views.record.as_mut() {
+                    let last = len.saturating_sub(1) as isize;
+                    let cur = r.cursor as isize;
+                    let next = match a {
+                        Action::Up => cur - 1,
+                        Action::Down => cur + 1,
+                        Action::PageUp => cur - 10,
+                        Action::PageDown => cur + 10,
+                        Action::Home => 0,
+                        _ => last,
+                    };
+                    r.cursor = next.clamp(0, last) as usize;
+                }
+            }
+            Screen::Body => {
+                let h = body_height(self.size);
+                if let Some(b) = self.views.body.as_mut() {
+                    let page = h.max(1) as isize;
+                    match a {
+                        Action::Up => b.scroll_by(-1, h),
+                        Action::Down => b.scroll_by(1, h),
+                        Action::PageUp => b.scroll_by(-page, h),
+                        Action::PageDown => b.scroll_by(page, h),
+                        Action::Home => b.scroll = 0,
+                        _ => b.scroll_to_end(h),
+                    }
+                }
+            }
+            Screen::Settings => {
+                let (n, h) = self.settings_dims();
+                self.views.scroll_settings(a, n, h);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -758,6 +1287,16 @@ fn event_loop(
         if quit_signal.load(Ordering::SeqCst) {
             draw_closing(term);
             return Ok(());
+        }
+        let s = term.size()?;
+        app.size = Rect::new(0, 0, s.width, s.height);
+        if idle_expired(&app.screen, app.last_input, Instant::now()) {
+            app.screen = Screen::Monitor;
+            app.views.clear();
+            dirty = true;
+        }
+        if app.pump() {
+            dirty = true;
         }
         // 바뀐 것이 있을 때(입력·새 스냅샷·크기 변경)와 시계용으로 1초에 한 번만 그린다.
         if dirty || app.snap_rx.has_changed().unwrap_or(false) || last_draw.elapsed() >= REDRAW_MAX
@@ -781,7 +1320,11 @@ fn event_loop(
             continue;
         }
         let n_boards = app.running.as_ref().map_or(0, |r| r.boards.len());
-        let action = match event::read()? {
+        let ev = event::read()?;
+        if matches!(ev, Event::Key(_) | Event::Mouse(_)) {
+            app.last_input = Instant::now();
+        }
+        let action = match ev {
             Event::Key(k) if k.kind == KeyEventKind::Press => handle_key(&app.screen, k, n_boards),
             Event::Mouse(m) => {
                 let size = term.size()?;
@@ -864,6 +1407,11 @@ pub fn run(rt: &Runtime, file: Option<&Path>, log: LogLoc) -> i32 {
         border,
         prefs_path,
         panels_drawn: Cell::new(false),
+        views: SubViews::default(),
+        fetch_out: mpsc::channel(),
+        fetch_req: None,
+        size: Rect::default(),
+        last_input: Instant::now(),
     };
     let quit_signal = crate::shutdown::install(rt);
     let result = event_loop(&mut app, &mut term, &quit_signal);

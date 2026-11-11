@@ -783,3 +783,32 @@ fn fetched_for_other_panel_is_dropped() {
     assert!(v.accept(record("B", "P1", 7)));
     assert!(matches!(v.record.as_ref().unwrap().load, RecordLoad::Gone));
 }
+
+#[test]
+fn settings_scroll_is_capped_to_last_page() {
+    // 줄 12개·보이는 줄 5개 → 상한 7. 끝까지 내려도 빈 화면이 되지 않는다.
+    let mut v = SubViews::default();
+    v.open_settings();
+    for _ in 0..20 {
+        v.scroll_settings(Action::Down, 12, 5);
+    }
+    assert_eq!(v.settings_scroll, 7);
+    v.scroll_settings(Action::PageDown, 12, 5);
+    assert_eq!(v.settings_scroll, 7);
+    v.scroll_settings(Action::PageUp, 12, 5);
+    assert_eq!(v.settings_scroll, 2);
+    v.scroll_settings(Action::Up, 12, 5);
+    v.scroll_settings(Action::Up, 12, 5);
+    v.scroll_settings(Action::Up, 12, 5);
+    assert_eq!(v.settings_scroll, 0);
+    v.scroll_settings(Action::End, 12, 5);
+    assert_eq!(v.settings_scroll, 7);
+    // 화면이 커지면(보이는 줄 10) 다음 가둠에서 상한 2로.
+    v.scroll_settings(Action::None, 12, 10);
+    assert_eq!(v.settings_scroll, 2);
+    v.scroll_settings(Action::Home, 12, 10);
+    assert_eq!(v.settings_scroll, 0);
+    // 다 보이면 0에 머문다.
+    v.scroll_settings(Action::PageDown, 3, 10);
+    assert_eq!(v.settings_scroll, 0);
+}
