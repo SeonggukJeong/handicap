@@ -934,12 +934,12 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **아주 좁은 폭에서 본문 줄 조각 폭증**(보안 N3, 서버 `limit_kb`가 상한이라 무시 가능) · `check_mode.rs`의 다른 `sanitize`와 이름 충돌 여지 · 바깥 거울 둘만 `deny_unknown_fields`(안쪽 `CheckResult`·`ScenarioTrace`는 재사용 타입이라 컨트롤러가 필드를 더해도 거울 테스트가 못 잡음).
 - **plan 체크박스 미갱신**(커밋이 진실의 원천).
 
-### B49. 터미널 모니터 2a-1 칸 설정 수정·변수 값 수정·파일 저장 (tui-2a-1, 2026-11-11, 코드 `94bae76`..`83f46b8`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §6, plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md`) 판단·연기
+### B49. 터미널 모니터 2a-1 칸 설정 수정·변수 값 수정·파일 저장 (tui-2a-1, 2026-11-11, 코드 `94bae76`..`8b2e86a`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §6, plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md`) 판단·연기
 
 **다음 슬라이스**: TUI 2a-2 미리 실행(메뉴 `p`, 목업 §6, 묶음 칸은 그 칸의 스텝만 — US4 나머지 문장) → 2b 조건·표시 값 추가. **머지 전 사용자 확인**: 이 브랜치(`ccr-7683ac09-t7d25q`)는 cloud 세션이 push만 했다 — 맥 메인 체크아웃에서 ff-merge + `cargo test -p handicap-tui` 1회(유닉스 권한·`mkfifo` 테스트는 Linux에서만 실측). 실기: Ubuntu 19.04 gnome-terminal에서 편집 흐름과 모호 폭 문자 `▶ ■ • ①② [x] ‹ ›`.
 
 (1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
-- **조건 규칙 목록 순서 = `ConditionOp` 정의 순서**(plan 지시), GUI 드롭다운(`OPS_BY_SOURCE`: eq, ne, exists, …)과 다르다. 집합은 같다. cost-if-wrong: GUI에 익은 운영자가 `←→`로 한두 번 더 누름. 해소: `edit::ops_for`를 GUI 순서 표로. **사용자 판단 후보.**
+- ~~**조건 규칙 목록 순서 = `ConditionOp` 정의 순서**(plan 지시), GUI 드롭다운과 다름~~ ✅ **GUI 순서로 맞춤**(사용자 결정 2026-11-11, `8b2e86a` — `edit::ops_for`가 `OPS_BY_SOURCE` 순서, 집합은 서버 허용 표 그대로. `ops_order_matches_gui_dropdown`이 `ui/src/monitor/conditions.ts`를 읽어 대조하므로 GUI가 순서를 바꾸면 TUI 테스트가 알려 준다).
 - **`static_vars`의 "고칠 수 있음" 표시는 위치 찾기만으로**(보안 F1 수정): 검증 ⑦만이 잡는 드문 모양(일반 스칼라가 다음 줄로 이어짐)은 목록에선 고칠 수 있어 보이다가 저장 때 `이 값의 모양은 …` 사유가 뜬다(저장은 안 됨 — fail-closed 유지). cost-if-wrong: 한 번 헛입력. 해소: 편집 작업자에서 미리 검증.
 - **조건 수정 칸은 고른 줄 아래가 아니라 body 맨 아래**(목업 §4와 다름), 목록은 그 위 영역에 그려 고른 줄이 보인다. `대상 … (바꾸기는 GUI·2b)` 괄호 안내는 생략. 화면에 표시 줄에도 번호.
 - **입력줄·확인 줄은 무입력 안내 줄 위**(목업은 키 줄 바로 위) — 기존 `render_frame` 배치를 따름.
