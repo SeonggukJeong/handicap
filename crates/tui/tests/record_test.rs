@@ -202,3 +202,59 @@ async fn fetch_worker_answers_in_order_and_stops() {
         .unwrap();
     s.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_worker_check_now_reports_status_only() {
+    use handicap_tui::app::{FetchReq, Fetched, spawn_fetch_worker};
+    use std::sync::mpsc::channel;
+
+    let srv = target().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = write(tmp.path(), "b.json", bundle_for(&srv).as_bytes());
+    let dbdir = tempfile::tempdir().unwrap();
+    let s = Session::start(&file, dbdir.path()).await.unwrap();
+    let board = s.boards[0].id.clone();
+    let st = wait_for_result(&s, &board).await;
+    let panel = st.panels[0].panel_id.clone();
+
+    let (tx, rx) = channel();
+    let (req, worker) = spawn_fetch_worker(&tokio::runtime::Handle::current(), s.api.clone(), tx);
+    req.send(FetchReq::CheckNow {
+        board_id: board.clone(),
+        panel_id: panel.clone(),
+        wait: Some(7),
+    })
+    .unwrap();
+    req.send(FetchReq::CheckNow {
+        board_id: board.clone(),
+        panel_id: "01J0000000000000000000PN99".to_string(),
+        wait: None,
+    })
+    .unwrap();
+
+    let got: Vec<Fetched> = tokio::task::spawn_blocking(move || {
+        (0..2)
+            .map(|_| rx.recv_timeout(Duration::from_secs(5)).unwrap())
+            .collect()
+    })
+    .await
+    .unwrap();
+    match &got[0] {
+        Fetched::CheckNow {
+            wait: Some(7),
+            result: Ok(Some(_)),
+            ..
+        } => {}
+        other => panic!("{other:?}"),
+    }
+    match &got[1] {
+        Fetched::CheckNow {
+            wait: None,
+            result: Err(Some(404)),
+            ..
+        } => {}
+        other => panic!("{other:?}"),
+    }
+    worker.abort();
+    s.shutdown().await;
+}

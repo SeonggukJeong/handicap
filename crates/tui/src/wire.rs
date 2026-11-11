@@ -39,6 +39,13 @@ pub struct StatusResponse {
     pub panels: Vec<PanelStatus>,
 }
 
+/// 컨트롤러 `POST …/panels/{panel_id}/check-now` 응답의 거울.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckNowResponse {
+    pub last_at_ms: Option<i64>,
+}
+
 /// 컨트롤러 `monitor/record.rs` `ClipSide`의 거울.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

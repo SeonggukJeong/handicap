@@ -55,6 +55,31 @@ async fn env_and_scenario_round_trip_real_controller() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn check_now_round_trip_real_controller() {
+    let srv = target().await;
+    let (s, _t, _d) = start(&srv).await;
+    let board = s.boards[0].id.clone();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let (panel, last_at) = loop {
+        let st = s.api.status(&board).await.unwrap();
+        if let Some(r) = st.panels[0].results.last() {
+            break (st.panels[0].panel_id.clone(), r.at_ms);
+        }
+        assert!(std::time::Instant::now() < deadline, "no result within 5s");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    };
+    let out = s.api.check_now(&board, &panel).await.unwrap();
+    assert!(out.last_at_ms.unwrap() >= last_at);
+    let e = s
+        .api
+        .check_now(&board, "01J0000000000000000000PN99")
+        .await
+        .unwrap_err();
+    assert_eq!(e.status, Some(404));
+    s.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn put_board_returns_normalized_board() {
     let srv = target().await;
     let (s, _t, _d) = start(&srv).await;

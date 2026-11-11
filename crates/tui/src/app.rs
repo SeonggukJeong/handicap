@@ -750,7 +750,16 @@ pub enum FetchReq {
         panel_id: String,
         at_ms: i64,
     },
+    /// 지금 점검 깨우기(`wait`은 호출 쪽이 결과와 짝 지을 표지)
+    CheckNow {
+        board_id: String,
+        panel_id: String,
+        wait: Option<u64>,
+    },
 }
+
+/// 지금 점검 응답 — 성공 = 호출 시점 마지막 결과 시각, 실패 = HTTP 상태만(서버 문구는 싣지 않는다).
+pub type CheckReply = Result<Option<i64>, Option<u16>>;
 
 /// 기록 조회 결과.
 #[derive(Debug)]
@@ -766,6 +775,12 @@ pub enum Fetched {
         panel_id: String,
         at_ms: i64,
         load: RecordLoad,
+    },
+    CheckNow {
+        board_id: String,
+        panel_id: String,
+        wait: Option<u64>,
+        result: CheckReply,
     },
 }
 
@@ -807,6 +822,23 @@ pub fn spawn_fetch_worker(
                         panel_id,
                         at_ms,
                         load,
+                    }
+                }
+                FetchReq::CheckNow {
+                    board_id,
+                    panel_id,
+                    wait,
+                } => {
+                    let result = api
+                        .check_now(&board_id, &panel_id)
+                        .await
+                        .map(|r| r.last_at_ms)
+                        .map_err(|e| e.status);
+                    Fetched::CheckNow {
+                        board_id,
+                        panel_id,
+                        wait,
+                        result,
                     }
                 }
             };
@@ -998,6 +1030,8 @@ impl SubViews {
                 }
                 _ => false,
             },
+            // 이 결과는 `App`이 `accept` 전에 가로챈다(Task 4·5) — 여기로 오면 받아들이지 않는다.
+            Fetched::CheckNow { .. } => false,
         }
     }
 }

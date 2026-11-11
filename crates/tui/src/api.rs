@@ -10,7 +10,8 @@ use serde::de::DeserializeOwned;
 use handicap_controller::monitor::config::BoardConfig;
 
 use crate::wire::{
-    BoardResponse, CheckRecord, EnvironmentResponse, ScenarioResponse, StatusResponse,
+    BoardResponse, CheckNowResponse, CheckRecord, EnvironmentResponse, ScenarioResponse,
+    StatusResponse,
 };
 
 /// 폴링 요청 제한(ms).
@@ -162,6 +163,25 @@ impl Api {
         } else {
             Err(error_of(resp).await)
         }
+    }
+
+    /// 칸 하나를 지금 점검하게 깨운다. 응답 `last_at_ms`는 호출 시점의 마지막 결과 시각.
+    pub async fn check_now(
+        &self,
+        board_id: &str,
+        panel_id: &str,
+    ) -> Result<CheckNowResponse, ApiError> {
+        let resp = self
+            .client
+            .post(format!(
+                "{}/monitor-boards/{board_id}/panels/{panel_id}/check-now",
+                self.base
+            ))
+            .timeout(POLL_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport)?;
+        parse(resp).await
     }
 
     pub async fn board(&self, id: &str) -> Result<BoardResponse, ApiError> {
