@@ -2685,7 +2685,8 @@ fn render_with_keys_reports_panels_drawn() {
 #[test]
 fn key_bar_has_border_key() {
     let s = screen(vec![view("a", PanelState::Ok, "✔ 정상", "1 ms")], (1, 1), 0);
-    // 테두리 안내는 90칸부터 보인다(80칸·보드 1개에선 `r 지금 점검`을 남기고 `b 테두리`가 빠진다).
+    // 테두리 안내는 보드 1개일 때 82칸부터 보인다(7조각 81칸 + 왼쪽 여백 1) — 여기서는 90칸으로 확인한다.
+    // 80칸·보드 1개에선 `r 지금 점검`을 남기고 `b 테두리`가 빠진다.
     let t = draw(90, 12, |f| render(f, &s));
     assert_eq!(
         t.lines().last().unwrap().trim(),

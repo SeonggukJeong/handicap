@@ -3143,6 +3143,16 @@ impl App<'_> {
         let Some(ui) = self.views.edit.as_ref() else {
             return false;
         };
+        // 새 결과를 기다리는 대기 창이 있을 때만 결과 목록을 복제한다(이 함수는 매 갱신마다 불린다).
+        if !matches!(
+            ui.overlay,
+            Some(Overlay::Checking {
+                wait: CheckWait::After(_),
+                ..
+            })
+        ) {
+            return false;
+        }
         let Some(clicked) = check_ready(ui, &self.panel_results(&ui.board_id, &ui.panel_id)) else {
             return false;
         };
@@ -3804,7 +3814,8 @@ impl App<'_> {
         match a {
             EditAction::Back => self.apply(Action::Back),
             EditAction::AskQuit => self.apply(Action::AskQuit),
-            // 조회 작업자가 있을 때만 대기 창을 띄운다(없으면 결과가 영영 안 와 창에 갇힌다).
+            // 세션(조회 작업자)이 없으면 요청이 갈 곳이 없으니 대기 창을 띄우지 않는다. 작업자가 죽어 결과가
+            // 안 오는 경우에도 대기 창은 `Esc`로 닫힌다.
             EditAction::CheckNow => {
                 if self.fetch_req.is_some()
                     && let Some(ui) = self.views.edit.as_mut()
