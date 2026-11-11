@@ -64,9 +64,11 @@ pub const KEYS_TO_MONITOR: &str = "Esc 모니터로";
 pub const KEYS_TO_LIST: &str = "Esc 목록으로";
 pub const KEYS_TO_SETTINGS: &str = "Esc 칸 설정으로";
 pub const KEYS_TO_DETAIL: &str = "Esc 자세히로";
+/// 요청·응답 화면의 `a` — 값 목록(tui-2b §3.3). `Esc 자세히로` 바로 앞.
+pub const KEYS_ADD_VALUE: &str = "a 조건·표시 추가";
 
 pub const HELP_TITLE: &str = "도움말";
-pub const HELP_KEYS: [(&str, &str); 11] = [
+pub const HELP_KEYS: [(&str, &str); 12] = [
     (
         "Ctrl + + / -",
         // 터미널 글꼴 크기 — 고정은 자동 시작 줄의 `--zoom=` (50칸 터미널에서도 통째로 보이게 짧게).
@@ -78,6 +80,8 @@ pub const HELP_KEYS: [(&str, &str); 11] = [
     ("r", "선택 칸 지금 점검(주기 전에)"),
     ("e", "선택 칸 오류 보기(실패 목록)"),
     ("Enter", "선택 칸 설정 보기·수정"),
+    // 50칸 도움말 상자(설명 칸 30열)에 통째로 들어가게(28칸).
+    ("a", "요청·응답에서 조건·표시 추가"),
     ("b", "테두리 모양 바꾸기(굵은 선 / 반 칸 블록, 기억됨)"),
     ("?", "도움말"),
     ("q / Ctrl+C", "종료 확인창"),

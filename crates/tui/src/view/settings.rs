@@ -322,9 +322,10 @@ pub(crate) fn overlay_rows(
                 })
                 .collect();
             // 높이가 모자라면 머리 줄 → 안 고른 줄 순으로 뺀다(고른 줄이 마지막까지 남는다).
-            if bh >= 3 {
-                // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄을 남기되 최소 1줄. 넘치면 마지막 머리 줄 끝을 `…`로.
-                let cap = bh.saturating_sub(4).max(1);
+            if bh >= 5 {
+                // 머리는 줄바꿈 — 제목 줄 + 고른 목록 줄 + 두 선택 줄을 남긴다(본문 높이 5 이상일 때 최소 1줄, 4 이하면
+                // 머리 없음 — 높이 4에서 머리를 넣으면 목록이 0줄이 된다). 넘치면 마지막 머리 줄 끝을 `…`로.
+                let cap = bh - 4;
                 // 머리는 최대 64KB 값일 수 있다 — 보일 줄 수를 넉넉히 덮는 만큼만 잘라 줄바꿈한다(매 프레임 전체를 훑지 않게).
                 let budget = (cap + 1).saturating_mul(w.max(1)).saturating_mul(4);
                 let mut it = head.chars();
@@ -345,7 +346,7 @@ pub(crate) fn overlay_rows(
                     )));
                 }
                 ov_rows.extend(opt_rows);
-            } else if bh == 2 {
+            } else if bh >= 2 {
                 ov_rows.extend(opt_rows);
             } else {
                 let i = (*cursor).min(opt_rows.len().saturating_sub(1));

@@ -37,7 +37,7 @@ use crate::inspect::{
     StepLine, clip_flags, error_results, errors_view, initial_step_cursor, load_of, move_cursor,
     neighbor_http, reason_of, record_view, step_lines, visible_results,
 };
-use crate::judge::grid_for;
+use crate::judge::{format_hms, grid_for};
 use crate::logging::LogLoc;
 use crate::names::Names;
 use crate::panel_settings::{
@@ -65,6 +65,7 @@ use crate::view::overlay::{render_help, render_quit_confirm};
 use crate::view::settings::{
     EditMenuView, OverlayView, overlay_rows, render_edit_menu, settings_height,
 };
+use crate::view::values::{ValuesView, render_values};
 use crate::wire::{BoardResponse, CheckRecord, EnvironmentResponse, ScenarioResponse};
 use crate::yaml_var;
 use handicap_controller::monitor::config::ConditionOp;
@@ -122,6 +123,8 @@ pub enum Action {
     Activate,
     ToggleAll,
     ToggleReveal,
+    /// 요청·응답 화면의 `a` — 값 목록 열기(tui-2b §3.3).
+    AddValue,
     PrevStep,
     NextStep,
     Up,
@@ -272,6 +275,7 @@ fn sub_screen_key(screen: &Screen, code: KeyCode) -> Action {
         (Screen::Body, KeyCode::Left | KeyCode::Char('h')) => Action::PrevStep,
         (Screen::Body, KeyCode::Right | KeyCode::Char('l')) => Action::NextStep,
         (Screen::Body, KeyCode::Char('v')) => Action::ToggleReveal,
+        (Screen::Body, KeyCode::Char('a')) => Action::AddValue,
         _ => Action::None,
     }
 }
@@ -323,6 +327,8 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
                     text::KEYS_REVEAL
                 });
             }
+            // `a`는 `Esc` 다음으로 오래 남는다(앞 조각부터 빠진다).
+            keys.push(text::KEYS_ADD_VALUE);
             keys.push(text::KEYS_TO_DETAIL);
             keys
         }
@@ -1104,6 +1110,49 @@ impl SubViews {
         Some(Screen::Body)
     }
 
+    /// 값 목록을 열 수 있는 자리인가(tui-2b §2.2): 화면이 정확히 요청·응답 · 기록을 받았음 · 보던 줄이 HTTP 스텝 →
+    /// 그 스텝의 `trace` 인덱스. 아니면 None.
+    pub fn value_target(&self, screen: &Screen, lines: &[StepLine]) -> Option<usize> {
+        if !matches!(screen, Screen::Body) {
+            return None;
+        }
+        let record = self.record.as_ref()?;
+        if !matches!(record.load, RecordLoad::Loaded(_)) {
+            return None;
+        }
+        match lines.get(self.body.as_ref()?.line_idx) {
+            Some(StepLine::Http { trace_idx, .. }) => Some(*trace_idx),
+            _ => None,
+        }
+    }
+
+    /// 요청·응답 → 값 목록(tui-2b §4.2 "`EditUi`가 누구 것인가"). `edit`가 없거나 기록의 보드·칸 것이 아니면 그 기록의
+    /// 보드·칸으로 새로 만든다(남아 있던 다른 칸의 것은 버린다 — 5분 복귀 뒤 저장이 끝나 남은 `EditUi`로 다른 칸의 값을
+    /// 저장하지 않게). 진행 중 저장은 `OpenSettings`와 같은 규칙(`overlay_for_ticket`). 기록이 없으면 None.
+    pub fn enter_values(
+        &mut self,
+        state: pick::ValuesState,
+        ticket: Option<&SaveTicket>,
+    ) -> Option<Screen> {
+        let r = self.record.as_ref()?;
+        let same = self
+            .edit
+            .as_ref()
+            .is_some_and(|e| e.board_id == r.board_id && e.panel_id == r.panel_id);
+        if !same {
+            self.edit = Some(EditUi {
+                board_id: r.board_id.clone(),
+                panel_id: r.panel_id.clone(),
+                overlay: overlay_for_ticket(ticket, &r.board_id, &r.panel_id),
+                ..EditUi::default()
+            });
+        }
+        if let Some(e) = &mut self.edit {
+            e.values = Some(state);
+        }
+        Some(Screen::Values)
+    }
+
     /// 본문에서 옆 HTTP 스텝으로(사용자 확정 6). 옮겼으면 true — `BodyState`를 새로 만든다
     /// (캐시 키에 스텝이 없어 그대로 두면 이전 스텝의 줄이 남는다).
     pub fn step_body(&mut self, lines: &[StepLine], dir: isize) -> bool {
@@ -1126,6 +1175,14 @@ impl SubViews {
             // 값 목록 → 요청·응답(스크롤·가림 그대로). 오류 보기에서 연 기록이면 `EditUi`째 버리고(그 경로엔 원래
             // 없다), 칸 설정에서 열었으면 값만 버리고 메뉴 커서는 둔다(tui-2b §4.2).
             Screen::Values => {
+                // 저장 중엔 무시 — 진행 중 저장의 `EditUi`를 버리지 않는다(키 길이 어긋나도).
+                if self
+                    .edit
+                    .as_ref()
+                    .is_some_and(|e| matches!(e.overlay, Some(Overlay::Saving { .. })))
+                {
+                    return None;
+                }
                 let from_errors = self
                     .record
                     .as_ref()
@@ -1394,6 +1451,35 @@ impl std::fmt::Debug for EditDone {
                 .finish(),
         }
     }
+}
+
+/// 편집 상태를 새로 만들 때의 창: 진행 중 저장이 그 칸이면 `저장 중…`(결과가 오면 닫힌다), 다른 칸이면 안내 한 번,
+/// 없으면 창 없음. `OpenSettings`·`SubViews::enter_values`가 함께 쓴다.
+fn overlay_for_ticket(
+    ticket: Option<&SaveTicket>,
+    board_id: &str,
+    panel_id: &str,
+) -> Option<Overlay> {
+    ticket.map(|t| {
+        if t.board_id == board_id && t.panel_id == panel_id {
+            Overlay::Saving { restore: None }
+        } else {
+            Overlay::Notice(text::SAVING.to_string())
+        }
+    })
+}
+
+/// 편집 화면(메뉴·하위 목록·변수 화면·값 목록)인가 — 편집 상태가 있으면 키는 `edit_key`가 먼저 받는다.
+/// 값 목록이 빠지면 그 화면의 `Esc`가 `Action::Back`으로 흘러 저장 중 `Esc` 무시를 건너뛴다.
+pub fn is_edit_screen(screen: &Screen) -> bool {
+    matches!(
+        screen,
+        Screen::Settings
+            | Screen::EditList
+            | Screen::EnvVars
+            | Screen::ScenarioVars
+            | Screen::Values
+    )
 }
 
 /// 진행 중인 저장 하나(App이 든다 — 보드 전환·5분 복귀 뒤에도 남는다).
@@ -2730,6 +2816,97 @@ fn pick_labels(ui: &EditUi) -> Vec<String> {
     }
 }
 
+/// 조건 칸 그리기 재료(소유) — 하위 목록(기존 조건)·값 목록(새 조건)이 함께 쓴다.
+struct CondParts<'a> {
+    labels: Vec<&'static str>,
+    target: String,
+    op: usize,
+    value: Option<(String, usize)>,
+    flags: Option<(bool, bool)>,
+    focus: CondFocus,
+    error: Option<&'a str>,
+    received: Option<&'a str>,
+    hint: Option<&'static str>,
+}
+
+impl CondParts<'_> {
+    fn view(&self) -> CondFormView<'_> {
+        CondFormView {
+            target: &self.target,
+            ops: &self.labels,
+            op: self.op,
+            value: self.value.clone(),
+            flags: self.flags,
+            focus: self.focus,
+            error: self.error,
+            received: self.received,
+            hint: self.hint,
+        }
+    }
+}
+
+/// `CondForm` 창 → 그리기 재료. 기존 조건 = 대상 줄만(그 조건이 사라졌으면 None), 새 조건 = 대상
+/// `"{대상} · {스텝 이름}"` + `받은 값`·안내 줄(tui-2b §3.2). `body_w` = 값 칸 폭 계산용 본문 폭.
+fn cond_parts<'a>(
+    o: &'a Overlay,
+    p: &PanelConfig,
+    names: &Names,
+    body_w: u16,
+) -> Option<CondParts<'a>> {
+    let Overlay::CondForm {
+        target,
+        ops,
+        op,
+        value,
+        ignore_case,
+        trim,
+        focus,
+        error,
+    } = o
+    else {
+        return None;
+    };
+    let (target, fallback, received, hint) = match target {
+        CondTarget::Existing(i) => {
+            let c = p.conditions.get(*i)?;
+            (condition_target(c), c.op, None, None)
+        }
+        CondTarget::New {
+            step_id,
+            source,
+            path,
+            shown,
+            hint,
+        } => {
+            let c = Condition {
+                source: *source,
+                path: path.clone(),
+                ..Condition::default()
+            };
+            let step = names.step_name(&p.scenario_id, step_id).unwrap_or(step_id);
+            (
+                format!("{} · {step}", condition_target(&c)),
+                ConditionOp::Eq,
+                Some(shown.as_str()),
+                hint.as_ref().map(pick::Hint::text),
+            )
+        }
+    };
+    let cur = ops.get(*op).copied().unwrap_or(fallback);
+    let fw = cond_form_value_width(body_w);
+    Some(CondParts {
+        labels: ops.iter().map(|o| text::cond_op_label(*o)).collect(),
+        target,
+        op: *op,
+        value: cur.needs_value().then(|| value.view(fw)),
+        flags: cur.has_flags().then_some((*ignore_case, *trim)),
+        focus: *focus,
+        error: error.as_deref(),
+        received,
+        hint,
+    })
+}
+
 /// overlay → 그리기 모델(조건 수정 칸은 따로 그린다 — None). `w` = 입력줄 가로 창 계산 폭.
 /// `values` = 값 목록(선택 창 머리 = 고른 줄의 대상·받은 값 — 없으면 창도 없다).
 fn overlay_view<'a>(
@@ -3655,8 +3832,71 @@ impl App<'_> {
             Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars => {
                 self.draw_edit(f, screen, &head, quit_confirm)
             }
+            Screen::Values => self.draw_values(f, screen, &head, quit_confirm),
             _ => {}
         }
+    }
+
+    /// 값 목록(tui-2b §3.1·§3.2): 줄 글자·대상 폭은 `values`에서 빌리고, 표지만 지금 칸 설정으로 보이는 줄에 계산한다.
+    fn draw_values(&self, f: &mut ratatui::Frame, screen: &Screen, head: &HeaderView, quit: bool) {
+        let (Some(r), Some(ui)) = (self.running.as_ref(), self.views.edit.as_ref()) else {
+            return;
+        };
+        let Some(values) = ui.values.as_ref() else {
+            return;
+        };
+        let Some((_, p)) = self.edit_target() else {
+            return;
+        };
+        let names = &r.session.names;
+        let body = sub_layout(f.area()).body;
+        let w = usize::from(body.width);
+        // 제목 = 요청·응답 화면 제목(`{칸 제목} · {시각} · {순번} {스텝 이름}`) — 뷰가 ` — 값 고르기`를 붙인다.
+        let lines = self.record_lines();
+        let at_ms = match &self.views.record {
+            Some(RecordState {
+                load: RecordLoad::Loaded(rec),
+                ..
+            }) => Some(rec.at_ms),
+            _ => None,
+        };
+        let step = self.views.body.as_ref().and_then(|b| lines.get(b.line_idx));
+        let title = match (at_ms, step) {
+            (Some(at), Some(StepLine::Http { no, name, .. })) => {
+                format!("{} · {} · {no} {name}", p.title, format_hms(at))
+            }
+            _ => p.title.clone(),
+        };
+        let marks = |i: usize| {
+            values
+                .list
+                .rows
+                .get(i)
+                .map_or((0, false), |row| pick::marks(p, &values.step_id, row))
+        };
+        let cond = match &ui.overlay {
+            Some(o @ Overlay::CondForm { .. }) => cond_parts(o, p, names, body.width),
+            _ => None,
+        };
+        let form = cond.as_ref().map(CondParts::view);
+        let picks = pick_labels(ui);
+        let overlay = ui
+            .overlay
+            .as_ref()
+            .and_then(|o| overlay_view(o, &picks, Some(values), w));
+        let view = ValuesView {
+            title: &title,
+            notes: values.list.notes.iter().map(|n| n.text()).collect(),
+            blocked: values.blocked.as_ref().map(|b| b.text()),
+            rows: &values.texts,
+            target_width: values.target_width,
+            marks: &marks,
+            cursor: values.cursor,
+            overlay,
+            form: form.as_ref(),
+        };
+        let keys = fit_keys(&edit_keys(screen, ui, None, quit), f.area().width);
+        render_values(f, head, &view, &keys);
     }
 
     /// 편집 메뉴·하위 목록·변수 화면(편집 상태가 없으면 고른 항목 없는 메뉴).
@@ -3738,48 +3978,16 @@ impl App<'_> {
                     overlay,
                 };
                 let cond = match &ui.overlay {
-                    // 새 조건(`New`)의 그리기는 값 목록 화면(tui-2b Task 5) — 하위 목록에는 기존 조건만.
-                    Some(Overlay::CondForm {
-                        target: CondTarget::Existing(index),
-                        ops,
-                        op,
-                        value,
-                        ignore_case,
-                        trim,
-                        focus,
-                        error,
-                    }) => p.conditions.get(*index).map(|c| {
-                        let labels: Vec<&'static str> =
-                            ops.iter().map(|o| text::cond_op_label(*o)).collect();
-                        let cur = ops.get(*op).copied().unwrap_or(c.op);
-                        let fw = cond_form_value_width(body.width);
-                        (
-                            labels,
-                            condition_target(c),
-                            *op,
-                            cur.needs_value().then(|| value.view(fw)),
-                            cur.has_flags().then_some((*ignore_case, *trim)),
-                            *focus,
-                            error.as_deref(),
-                        )
-                    }),
+                    // 새 조건(`New`)은 값 목록 화면(`draw_values`)이 그린다 — 하위 목록에는 기존 조건만.
+                    Some(
+                        o @ Overlay::CondForm {
+                            target: CondTarget::Existing(_),
+                            ..
+                        },
+                    ) => cond_parts(o, p, names, body.width),
                     _ => None,
                 };
-                let form = cond
-                    .as_ref()
-                    .map(
-                        |(labels, target, op, value, flags, focus, error)| CondFormView {
-                            target,
-                            ops: labels,
-                            op: *op,
-                            value: value.clone(),
-                            flags: *flags,
-                            focus: *focus,
-                            error: *error,
-                            received: None,
-                            hint: None,
-                        },
-                    );
+                let form = cond.as_ref().map(CondParts::view);
                 render_list_with_form(f, head, &view, &keys, form.as_ref());
             }
             Screen::EnvVars => {
@@ -3932,13 +4140,8 @@ impl App<'_> {
                 {
                     let (board_id, panel_id) = (board.id.clone(), panel.id.clone());
                     // 저장 중이면: 그 칸이면 `저장 중…`(결과가 오면 닫힌다), 다른 칸이면 안내 한 번.
-                    let overlay = self.save_in_flight.as_ref().map(|t| {
-                        if t.board_id == board_id && t.panel_id == panel_id {
-                            Overlay::Saving { restore: None }
-                        } else {
-                            Overlay::Notice(text::SAVING.to_string())
-                        }
-                    });
+                    let overlay =
+                        overlay_for_ticket(self.save_in_flight.as_ref(), &board_id, &panel_id);
                     self.screen = self.views.open_settings();
                     self.views.edit = Some(EditUi {
                         board_id,
@@ -3949,6 +4152,9 @@ impl App<'_> {
                 }
             }
             Action::Activate => self.activate(),
+            Action::AddValue => {
+                self.open_values_here();
+            }
             Action::ToggleAll => {
                 if matches!(self.screen, Screen::Errors)
                     && let Some((b, p)) = self
@@ -3994,10 +4200,7 @@ impl App<'_> {
 
     /// 편집 화면(메뉴·하위 목록·변수 화면)이고 편집 상태가 있는가 — 그러면 키는 `edit_key`가 먼저.
     fn on_edit_screen(&self) -> bool {
-        matches!(
-            self.screen,
-            Screen::Settings | Screen::EditList | Screen::EnvVars | Screen::ScenarioVars
-        ) && self.views.edit.is_some()
+        is_edit_screen(&self.screen) && self.views.edit.is_some()
     }
 
     /// 편집 화면의 키. 종료해야 하면 `true`.
@@ -4072,6 +4275,42 @@ impl App<'_> {
                 }
                 false
             }
+        }
+    }
+
+    /// 요청·응답의 `a` — 값 목록을 열었으면 true. 판단은 `value_target`·`enter_values`(순수), 여기는 잇기만.
+    fn open_values_here(&mut self) -> bool {
+        let lines = self.record_lines();
+        let Some(trace_idx) = self.views.value_target(&self.screen, &lines) else {
+            return false;
+        };
+        let state = {
+            let (Some(r), Some(st)) = (self.running.as_ref(), self.views.record.as_ref()) else {
+                return false;
+            };
+            let RecordLoad::Loaded(rec) = &st.load else {
+                return false;
+            };
+            let (Some(panel), Some(trace)) =
+                (self.panel(&st.board_id, &st.panel_id), rec.trace.as_ref())
+            else {
+                return false;
+            };
+            pick::open_values(
+                panel,
+                trace,
+                trace_idx,
+                clip_flags(&rec.clipped, trace_idx).1,
+                rec.limit_kb,
+                &r.session.names,
+            )
+        };
+        match self.views.enter_values(state, self.save_in_flight.as_ref()) {
+            Some(s) => {
+                self.screen = s;
+                true
+            }
+            None => false,
         }
     }
 

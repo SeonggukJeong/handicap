@@ -576,7 +576,7 @@ fn choice_head_wraps() {
         txt.lines().any(|l| l.contains("▶ status")),
         "고른 줄이 안 보인다\n{txt}"
     );
-    for h in 7..=14u16 {
+    for h in 6..=14u16 {
         let (_, txt) = draw(80, h, &v, &[]);
         assert!(
             txt.lines().any(|l| l.contains("▶ status")),

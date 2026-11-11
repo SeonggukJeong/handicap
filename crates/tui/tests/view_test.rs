@@ -2833,7 +2833,18 @@ fn key_bar_has_errors_and_settings_keys() {
 #[test]
 fn help_lists_new_keys_and_idle_rule() {
     let log = LogLoc::Path("/tmp/tui.log".into());
-    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 11);
+    assert_eq!(handicap_tui::text::HELP_KEYS.len(), 12);
+    // `a`(요청·응답에서 조건·표시 추가) 줄은 `Enter` 줄 바로 뒤.
+    let keys: Vec<&str> = handicap_tui::text::HELP_KEYS
+        .iter()
+        .map(|(k, _)| *k)
+        .collect();
+    let enter = keys.iter().position(|k| *k == "Enter").unwrap();
+    assert_eq!(keys[enter + 1], "a", "{keys:?}");
+    assert_eq!(
+        handicap_tui::text::HELP_KEYS[enter + 1].1,
+        "요청·응답에서 조건·표시 추가"
+    );
     let text = draw(80, 30, |f| {
         render_help(f, Path::new("/tmp/b.json"), None, &log)
     });
@@ -2876,9 +2887,9 @@ fn help_lists_new_keys_and_idle_rule() {
 
 #[test]
 fn help_errors_row_whole_at_50_columns() {
-    // r·e 줄 설명이 50칸 도움말 상자 안에서 잘리지 않는다(말줄임 없이 통째로).
+    // r·e·a 줄 설명이 50칸 도움말 상자 안에서 잘리지 않는다(말줄임 없이 통째로).
     let log = LogLoc::Path("/tmp/tui.log".into());
-    for key in ["r", "e"] {
+    for key in ["r", "e", "a"] {
         let (_, d) = handicap_tui::text::HELP_KEYS
             .iter()
             .find(|(k, _)| *k == key)
@@ -3077,16 +3088,16 @@ fn help_lists_backup_and_warning() {
     assert!(!text.contains("백업:"), "{text}");
     assert!(text.contains("새 파일로 바꾸면"), "{text}");
     // 높이가 모자라면 새 두 줄부터(백업 → 경고) 빠지고 키 줄은 그다음.
-    // 높이 19: 본문 16 = 키 11 + 보드 1 + 로그 1 + 무입력 1 + 복사 1 + 1 → 경고만 남고 백업이 빠진다.
-    let text = draw(80, 19, |f| {
+    // 높이 20: 본문 17 = 키 12 + 보드 1 + 로그 1 + 무입력 1 + 복사 1 + 1 → 경고만 남고 백업이 빠진다.
+    let text = draw(80, 20, |f| {
         render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
     });
     println!("{text}");
     assert!(!text.contains("백업:"), "{text}");
     assert!(text.contains("새 파일로 바꾸면"), "{text}");
     assert!(text.contains("마우스 왼쪽 클릭"), "{text}");
-    // 높이 18: 본문 15 = 키 11 + 고정 4 → 경고도 빠지고 키 줄은 전부.
-    let text = draw(80, 18, |f| {
+    // 높이 19: 본문 16 = 키 12 + 고정 4 → 경고도 빠지고 키 줄은 전부.
+    let text = draw(80, 19, |f| {
         render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
     });
     println!("{text}");
