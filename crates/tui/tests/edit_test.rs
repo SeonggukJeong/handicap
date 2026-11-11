@@ -140,6 +140,15 @@ fn edit_kind_table() {
         ro(edit_kind(11, &g, &n)),
         "조건 추가는 GUI에서(다음 버전에서 TUI 지원)"
     );
+    // 단독 스텝 칸(묶음 아님·step_id 있음): 7은 읽기 전용, 4는 묶음 칸만 고른다
+    let mut solo = panel();
+    solo.step_id = Some(A.into());
+    solo.latency_source = LatencySource::Step { step_id: A.into() };
+    assert_eq!(
+        ro(edit_kind(7, &solo, &n)),
+        "스텝 칸은 그 스텝의 응답 시간을 씁니다"
+    );
+    assert_eq!(ro(edit_kind(4, &solo, &n)), "볼 스텝은 GUI에서 바꿉니다");
     // 묶음 칸의 환경이 키 0개
     g.environment_id = Some("E2".into());
     assert_eq!(ro(edit_kind(13, &g, &n)), "이 환경에는 변수가 없습니다");
@@ -289,12 +298,9 @@ fn remove_and_swap() {
         remove_at(&cfg, 0, ListKind::Thresholds, 0).panels[0].thresholds[0].ms,
         2
     );
-    assert_eq!(
-        remove_at(&cfg, 0, ListKind::Conditions, 1).panels[0]
-            .conditions
-            .len(),
-        1
-    );
+    let removed = remove_at(&cfg, 0, ListKind::Conditions, 1);
+    assert_eq!(removed.panels[0].conditions.len(), 1);
+    assert_eq!(removed.panels[0].conditions[0].step_id, A);
     assert_eq!(
         remove_at(&cfg, 0, ListKind::Display, 0).panels[0].display_items[0].step_id,
         C

@@ -302,7 +302,8 @@ pub fn strip_panel_prefix(msg: &str, panel_no: usize) -> &str {
     msg.strip_prefix(&format!("칸 {panel_no}: ")).unwrap_or(msg)
 }
 
-/// 볼 스텝 목록 줄(spec §6.1 4번).
+/// 볼 스텝 목록 줄(spec §6.1 4번). 이름·URL은 번들에서 온 원문 그대로다(미-sanitize) — 그리는 쪽이
+/// 폭 계산 전에 `inspect::sanitize`를 건다.
 pub fn step_options(names: &Names, scenario_id: &str) -> Vec<(String, String)> {
     names
         .step_infos(scenario_id)

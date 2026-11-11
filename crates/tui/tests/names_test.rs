@@ -89,7 +89,7 @@ fn names_from_bundle_resolves() {
         .iter()
         .map(|s| s.branch_hint.as_deref())
         .collect();
-    // a, b(loop 밖 IF 아님), c·d·e(IF 분기), f·g(parallel, IF 밖)
+    // a(바깥), b(loop 안 — IF 밖), c·d·e(IF 분기), f·g(parallel — IF 밖)
     assert_eq!(
         hints,
         [
@@ -217,4 +217,42 @@ fn malformed_env_vars_do_not_drop_names() {
         assert_eq!(names.env_keys("E1"), Some(&[][..]), "{bad}");
         assert_eq!(names.env_keys("E2"), Some(&["K".to_string()][..]), "{bad}");
     }
+}
+
+#[test]
+fn branch_hint_is_inherited_through_loop_and_parallel_inside_if() {
+    // IF 안의 loop·parallel은 힌트를 물려받는다(GUI stepOptionsFor와 같은 걷기) — 안에서 None으로 되돌리면 실패.
+    const Y: &str = r#"
+version: 1
+name: 안쪽
+steps:
+  - id: "01J00000000000000000000I01"
+    name: 바깥분기
+    type: if
+    cond: { left: "{{code}}", op: eq, right: "200" }
+    then:
+      - id: "01J00000000000000000000L01"
+        name: 반복
+        type: loop
+        repeat: 2
+        do:
+          - { id: "01J00000000000000000000A01", name: a, type: http, request: { method: GET, url: "/a" }, assert: [] }
+      - id: "01J00000000000000000000P01"
+        name: 동시
+        type: parallel
+        branches:
+          - name: x
+            steps:
+              - { id: "01J00000000000000000000A02", name: b, type: http, request: { method: GET, url: "/b" }, assert: [] }
+  - { id: "01J00000000000000000000A03", name: c, type: http, request: { method: GET, url: "/c" }, assert: [] }
+"#;
+    assert!(Scenario::from_yaml(Y).is_ok());
+    let names = Names::from_bundle(&bundle(serde_json::json!([{ "id": "S1", "yaml": Y }])));
+    let hints: Vec<Option<&str>> = names
+        .step_infos("S1")
+        .unwrap()
+        .iter()
+        .map(|s| s.branch_hint.as_deref())
+        .collect();
+    assert_eq!(hints, [Some("바깥분기"), Some("바깥분기"), None]);
 }
