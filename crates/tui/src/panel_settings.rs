@@ -386,9 +386,15 @@ pub fn edit_menu_lines(items: &[SettingItem], width: usize) -> Vec<(String, Opti
     out
 }
 
-/// 커서 항목의 줄이 `height`줄 창에 다 보이도록 하는 위쪽 줄 번호(0부터) — 맨 위부터 보이면 0, 아니면
-/// 그 항목 마지막 줄이 창 맨 아래에 닿게(항목이 창보다 길면 첫 줄이 맨 위). 항목이 없으면 0.
-pub fn ensure_visible(lines: &[(String, Option<usize>)], cursor: usize, height: usize) -> usize {
+/// 커서 항목의 줄이 `height`줄 창에 다 보이도록 하는 위쪽 줄 번호(0부터). 지금 스크롤(`scroll`)에서 이미 다
+/// 보이면 그대로 둔다(↑↓마다 목록이 밀리지 않게). 창 위로 벗어났으면 그 항목 첫 줄이 맨 위, 아래로 벗어났으면
+/// 마지막 줄이 맨 아래(항목이 창보다 길면 첫 줄이 맨 위). 항목이 없으면 0.
+pub fn ensure_visible(
+    lines: &[(String, Option<usize>)],
+    cursor: usize,
+    height: usize,
+    scroll: usize,
+) -> usize {
     let mut rows = lines
         .iter()
         .enumerate()
@@ -398,8 +404,16 @@ pub fn ensure_visible(lines: &[(String, Option<usize>)], cursor: usize, height: 
         return 0;
     };
     let last = rows.next_back().unwrap_or(first);
-    if height == 0 || last < height {
+    if height == 0 {
         return 0;
     }
-    (last + 1 - height).min(first)
+    // 지난 스크롤이 줄 끝을 넘었으면(창 크기가 바뀐 뒤) 마지막 쪽으로 당긴다.
+    let scroll = scroll.min(lines.len().saturating_sub(height));
+    if first >= scroll && last < scroll.saturating_add(height) {
+        return scroll;
+    }
+    if first < scroll {
+        return first;
+    }
+    (last + 1).saturating_sub(height).min(first)
 }

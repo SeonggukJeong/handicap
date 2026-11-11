@@ -698,28 +698,36 @@ fn edit_menu_values_are_sanitized() {
 }
 
 #[test]
-fn ensure_visible_scrolls_minimally() {
+fn ensure_visible_keeps_scroll_when_visible() {
     let lines: Vec<(String, Option<usize>)> = (0..10)
         .map(|i| (format!("l{i}"), Some(i)))
         .chain([("div".to_string(), None)])
         .collect();
-    assert_eq!(ensure_visible(&lines, 0, 5), 0);
-    assert_eq!(ensure_visible(&lines, 4, 5), 0);
+    assert_eq!(ensure_visible(&lines, 0, 5, 0), 0);
+    assert_eq!(ensure_visible(&lines, 4, 5, 0), 0);
     // 5번 항목(줄 5)을 보이려면 맨 아래에 맞춘다.
-    assert_eq!(ensure_visible(&lines, 5, 5), 1);
-    assert_eq!(ensure_visible(&lines, 9, 5), 5);
+    assert_eq!(ensure_visible(&lines, 5, 5, 0), 1);
+    assert_eq!(ensure_visible(&lines, 9, 5, 0), 5);
+    // 이미 보이면 지금 스크롤을 그대로 둔다(↑마다 목록이 한 줄씩 밀리지 않게).
+    assert_eq!(ensure_visible(&lines, 8, 5, 5), 5);
+    assert_eq!(ensure_visible(&lines, 5, 5, 5), 5);
+    // 창 위로 벗어나면 그 항목 첫 줄이 맨 위.
+    assert_eq!(ensure_visible(&lines, 4, 5, 5), 4);
+    // 지금 스크롤이 줄 수를 넘어도(창 크기가 바뀐 뒤) 패닉 없이 맞춘다.
+    assert_eq!(ensure_visible(&lines, 9, 5, 99), 6);
+    assert_eq!(ensure_visible(&lines, 2, 5, 99), 2);
     // 높이 0·항목 없음 — 패닉 없이 0.
-    assert_eq!(ensure_visible(&lines, 3, 0), 0);
-    assert_eq!(ensure_visible(&[], 3, 5), 0);
-    assert_eq!(ensure_visible(&lines, 99, 5), 0);
+    assert_eq!(ensure_visible(&lines, 3, 0, 0), 0);
+    assert_eq!(ensure_visible(&[], 3, 5, 0), 0);
+    assert_eq!(ensure_visible(&lines, 99, 5, 0), 0);
     // 여러 줄 항목은 그 줄 전부가 보이게(다 못 넣으면 첫 줄이 맨 위).
     let multi: Vec<(String, Option<usize>)> = [0, 1, 1, 1, 2]
         .iter()
         .map(|n| (format!("m{n}"), Some(*n)))
         .collect();
-    assert_eq!(ensure_visible(&multi, 1, 3), 1);
-    assert_eq!(ensure_visible(&multi, 1, 2), 1);
-    assert_eq!(ensure_visible(&multi, 2, 3), 2);
+    assert_eq!(ensure_visible(&multi, 1, 3, 0), 1);
+    assert_eq!(ensure_visible(&multi, 1, 2, 0), 1);
+    assert_eq!(ensure_visible(&multi, 2, 3, 0), 2);
 }
 
 fn menu_view<'a>(
@@ -1040,33 +1048,60 @@ fn pick_and_title_are_sanitized() {
     assert!(t.contains("t\u{FFFD}x"), "{t}");
     assert!(t.contains("p\u{FFFD}q"), "{t}");
     assert!(!t.contains('\u{202E}'));
-    // 입력줄·확인·안내도.
-    for ov in [
-        OverlayView::Input {
-            label: "l\u{202E}1",
-            text: "v\u{202E}2".into(),
-            cursor_x: 0,
-            hint: None,
-            error: Some("e\u{202E}3"),
-            share: Some("s\u{202E}4"),
-        },
-        OverlayView::Confirm("c\u{202E}5"),
-        OverlayView::Notice("n\u{202E}6"),
-    ] {
+    // 입력줄·확인·안내도 — 문구마다 따로 단언한다(하나만 거쳐도 통과하지 않게).
+    let cases: [(OverlayView, &[&str]); 3] = [
+        (
+            OverlayView::Input {
+                label: "l\u{202E}1",
+                text: "v\u{202E}2".into(),
+                cursor_x: 0,
+                hint: None,
+                error: Some("e\u{202E}3"),
+                share: Some("s\u{202E}4"),
+            },
+            &["l\u{FFFD}1", "v\u{FFFD}2", "e\u{FFFD}3", "s\u{FFFD}4"],
+        ),
+        (OverlayView::Confirm("c\u{202E}5"), &["c\u{FFFD}5"]),
+        (OverlayView::Notice("n\u{202E}6"), &["n\u{FFFD}6"]),
+    ];
+    for (ov, want) in cases {
         let v = menu_view(&lines, 3, None, Some(ov));
         let (_, _, t) = draw_menu(100, 30, &v, &["x"]);
         assert!(!t.contains('\u{202E}'), "{t}");
-        for k in [
-            "l\u{FFFD}1",
-            "v\u{FFFD}2",
-            "e\u{FFFD}3",
-            "s\u{FFFD}4",
-            "c\u{FFFD}5",
-            "n\u{FFFD}6",
-        ] {
-            let _ = k;
+        for k in want {
+            assert!(t.contains(k), "{k:?} 없음:\n{t}");
         }
-        assert!(t.contains('\u{FFFD}'), "{t}");
+    }
+    // 각주도.
+    let v = menu_view(&lines, 3, Some("n\u{202E}m"), None);
+    let (_, _, t) = draw_menu(100, 30, &v, &["x"]);
+    assert!(t.contains("n\u{FFFD}m"), "{t}");
+}
+
+#[test]
+fn env_and_scenario_names_keys_are_sanitized() {
+    // 13·14번 값(환경 이름·키, 시나리오 이름·변수 키)은 번들 파일에서 온다.
+    let yaml = "version: 1\nname: \"시\\u202E나\"\nvariables:\n  \"k\\u202Ev\": \"1\"\nsteps:\n  - { id: \"01J00000000000000000000A01\", name: a, type: http, request: { method: GET, url: \"/a\" }, assert: [] }\n";
+    let names = Names::from_bundle(
+        &serde_json::to_vec(&serde_json::json!({
+            "scenarios": [{ "id": "S9", "yaml": yaml }],
+            "environments": [{ "id": "E9", "name": "운\u{202E}영", "vars": { "A\u{202E}B": "x" } }]
+        }))
+        .unwrap(),
+    );
+    let p = PanelConfig {
+        scenario_id: "S9".into(),
+        environment_id: Some("E9".into()),
+        ..edit_panel()
+    };
+    let items = settings_items_edit(&p, &names, 100);
+    let all: String = edit_menu_lines(&items, 100)
+        .into_iter()
+        .map(|(l, _)| l + "\n")
+        .collect();
+    assert!(!all.contains('\u{202E}'), "{all}");
+    for k in ["운\u{FFFD}영", "A\u{FFFD}B", "시\u{FFFD}나", "k\u{FFFD}v"] {
+        assert!(all.contains(k), "{k:?} 없음:\n{all}");
     }
 }
 

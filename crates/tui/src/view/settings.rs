@@ -224,7 +224,10 @@ fn render_pick(
     };
     let rows = usize::from(inner.height);
     if rows > 0 && inner.width > 0 {
-        let start = (cursor + 1).saturating_sub(rows).min(opts.len());
+        let start = cursor
+            .saturating_add(1)
+            .saturating_sub(rows)
+            .min(opts.len());
         for (i, o) in opts[start..].iter().take(rows).enumerate() {
             put(
                 f,

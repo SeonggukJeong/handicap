@@ -638,7 +638,7 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
 /// 머리 줄. 점검 상태는 절대 자르지 않고, 좁으면 날짜 → `Handicap 모니터 · ` → 시계 순으로 뺀다.
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
 /// 알림: `Saved`는 초록 `저장됨 HH:MM:SS`를 시계 앞에 두고 접두 다음·시계 앞에 빠진다. 경고(`FileFailed`·
-/// `ChangedOutside`)는 접두 자리에 빨갛게 — 날짜 → 시계 → 보드 이름 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
+/// `ChangedOutside`)는 접두 자리에 빨갛게 — 날짜 → 보드 이름 → 시계 순으로 뺀 뒤에도 안 들어가면 경고를 `fit`한다.
 pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
     // 보드 이름은 파일에서 온 문자열 — 탭·제어 문자가 폭 계산을 어긋내지 않게.
@@ -772,7 +772,7 @@ fn render_warn_header(
     status: &str,
 ) {
     let w = usize::from(area.width);
-    // (시계 형식, 보드 이름 표시) — 날짜 → 시계 → 보드 이름 순으로 뺀다.
+    // (시계 형식, 보드 이름 표시) — 날짜 → 보드 이름 → 시계 순으로 뺀다.
     let steps: [(Option<bool>, bool); 4] = [
         (Some(true), true),
         (Some(false), true),
