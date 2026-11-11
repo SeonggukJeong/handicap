@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-11 · 유형: `user-path` · 상위 설계: [tui-monitor 설계](2026-11-07-tui-monitor-design.md)의 슬라이스 **2b**(US9)를 이 문서가 구체화한다 · 결정 기록: [ADR-0053](../../adr/0053-ops-monitor-mode.md)·[ADR-0055](../../adr/0055-tui-monitor.md)(새 ADR 없음 — §11)
 - 범위: `crates/tui`(새 화면 하나 + 키·저장 연결) + 문서. **컨트롤러·엔진·proto·DB·GUI(`ui/`) 0-diff** — 저장은 2a의 보드 PUT, 점검은 tui-check-now의 `check-now`를 그대로 쓴다.
-- 상태: 설계 승인(spec 리뷰 2라운드 APPROVE, 2026-11-11) → plan 대기
+- 상태: 설계·계획 승인(spec·plan 리뷰 각 2라운드 APPROVE, 2026-11-11) → 구현 대기 · plan `docs/superpowers/plans/2026-11-11-tui-2b-add-from-response.md`
 
 ## 사용자 스토리 (US)
 

@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-11-tui-2b-add-from-response-design.md` — **§2 동작 규칙·§3 화면·§4 구조가 정본**. 구현자는 자기 task가 가리키는 절을 반드시 읽는다. 이 plan과 spec이 다르면 **STOP**하고 보고(임의로 한쪽을 고르지 말 것).
 
-spec은 `spec-plan-reviewer` clean APPROVE(2라운드, 2026-11-11). plan은 리뷰 중.
+spec·plan 모두 `spec-plan-reviewer` clean APPROVE(spec 2라운드, plan 2라운드 — 2026-11-11).
+
+REVIEW-GATE: APPROVED
 
 **US 블록(매 brief 첨부):** spec의 `## 사용자 스토리 (US)` 헤딩부터 다음 `## ` 헤딩 앞까지.
 
