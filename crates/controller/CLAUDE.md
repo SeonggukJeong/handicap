@@ -192,3 +192,4 @@
 - **스텝 칸 판정은 실행 단위 전체를 한 번에(`step_judge::judge_unit`)** — 대리 원인 칸이 원인 칸의 *최종* 판정을 봐야 해서 앞 구간 끝 순으로 계산(칸 배열 순서 아님). trace는 http 에러 뒤에도 계속 돌아 앞 구간에 에러 행이 여럿이므로 "가장 앞 원인 행"·계산 순서 테스트는 에러 2개 이상·칸 순서≠trace 순서 픽스처로 (monitor-step-panels).
 - **흐름 변수 값을 사유 문자열(벽·`/status`·기록 `result.reason`)로 옮기면 `build_record_body`의 `branch_eval.clear()`로는 못 막는다** — 쿠키·`AUTH_HEADERS` 헤더 추출 변수는 출처 기준 `(인증 값)`(존재 연산은 제외) (monitor-step-panels 보안).
 - **보드 파일 가져오기에서 R7 개수 상한 전에 도는 단계(거울 덮어쓰기 등)는 칸×묶음 이차** — `check_counts` 선검사 뒤에만, 조회는 `HashMap` (monitor-step-panels 보안).
+- **지금 점검 깨우기 = `notify_waiters`(허가 저장 없음), `Notified`는 결과 push *전에* 생성** — 순서를 바꾸면 깨우기가 사라지는 틈(테스트로 못 잡음). `check_now`는 버퍼 읽은 *뒤* 깨움 (tui-check-now)

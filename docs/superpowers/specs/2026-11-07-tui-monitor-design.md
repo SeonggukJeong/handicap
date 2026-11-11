@@ -2,17 +2,17 @@
 
 - 날짜: 2026-11-07 · 유형: `user-path` + `platform` · 결정: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 범위: 설계는 세 슬라이스 전체(§0), **구현 계획은 슬라이스마다 따로**(1a·1b·2a-1·2a-2·2b 각각 별도 plan).
-- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), **2a-1 완료**(2026-11-11, 코드 `94bae76`..`8b2e86a`; plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md` — 칸 설정 수정·환경/시나리오 변수 값 수정·파일 저장, 판단·연기 roadmap §B49; 미리 실행은 2a-2), 2b 미착수.
+- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), **2a 설계 확정**(2026-11-11, §6 — 목업 `2026-11-11-tui-2a-mockups/`), **2a-1 완료**(2026-11-11, 코드 `94bae76`..`8b2e86a`; plan `docs/superpowers/plans/2026-11-11-tui-2a-1-edit-save.md` — 칸 설정 수정·환경/시나리오 변수 값 수정·파일 저장, 판단·연기 roadmap §B49; 미리 실행(2a-2)은 [tui-check-now 설계](2026-11-11-tui-check-now-design.md)의 `r` 지금 점검으로 대체), 2b 미착수.
 
 ## 사용자 스토리 (US)
 
 - **US1** *(1a)*: 도입담당이 Ubuntu 19.04 저사양 PC에 릴리즈에서 받은 handicap TUI 바이너리 파일 하나를 복사해 실행한다 — 성공하면 추가 라이브러리 설치 없이, glibc 버전 오류 없이 화면이 뜬다.
 - **US2** *(1a)*: 운영자가 자동 시작 설정(`~/.config/autostart`)에 TUI 실행 줄과 보드 json 경로를 넣어 둔다 — 성공하면 PC를 켜고 로그인되는 즉시 점검 화면이 뜨고 점검이 시작된다. 칸별 상태·최근 응답 시간·막대 이력과 화면 맨 아래 키 안내 줄이 보인다. json에 문제가 있으면 창이 닫히지 않고 원인이 화면에 남는다.
 - **US3** *(1b)*: 운영자가 지나가 버린 실패를 확인하려 한다 — 방향키로 칸을 고르고 오류 보기 키를 누르면 최근 실패 목록에서 고른 회차의 **사유(HTTP 코드·전송 실패 내용)·판정에서 받은 값**이 보이고, 한 단계 더 들어가면 요청·응답 기록이 보인다.
-- **US4** *(2a)*: 운영자가 칸 설정을 고쳐야 한다 — 칸에서 Enter → 번호로 항목 선택 → 값 수정하면 바로 점검에 반영되고 TUI를 재시작해도 유지된다(json에 저장, 백업 남김). 묶음 칸에서 미리 실행하면 **그 칸의 스텝만** 결과로 보인다. 도움말은 "새 파일로 바꾸면 이 PC에서 고친 값은 사라진다"를 알린다.
+- **US4** *(2a)*: 운영자가 칸 설정을 고쳐야 한다 — 칸에서 Enter → 번호로 항목 선택 → 값 수정하면 바로 점검에 반영되고 TUI를 재시작해도 유지된다(json에 저장, 백업 남김). 칸 설정에서 `r`(지금 점검)을 누르면 그 회차의 자세히가 열린다(묶음 칸은 스텝 전부 + 그 칸 스텝에 `◀ 이 칸`) — tui-check-now. 도움말은 "새 파일로 바꾸면 이 PC에서 고친 값은 사라진다"를 알린다.
 - **US7** *(2a, 사용자 추가 2026-11-11)*: 운영자가 서버 주소나 토큰이 바뀌어 점검이 실패하기 시작했다 — 칸 설정에서 그 칸이 쓰는 환경 변수 값을 고치면(같은 환경을 쓰는 칸이 여럿이면 그 수를 보고 확인) 다음 점검부터 새 값으로 돌고 TUI를 재시작해도 유지된다. 값은 화면에 기본으로 가려져 있다.
 - **US8** *(2a, 사용자 추가 2026-11-11)*: 운영자가 시나리오 변수(`variables:`의 고정 값, 예: 조회할 주문 번호)를 바꿔야 한다 — 칸 설정에서 값만 고치면 다음 점검부터 반영되고, 저장된 파일의 그 시나리오 YAML은 그 값 한 줄 말고는(주석 포함) 글자 그대로다. 고칠 수 없는 모양의 값이면 저장하지 않고 "GUI에서" 안내가 보인다.
-- **US9** *(2b)*: 운영자가 칸 설정에서 미리 실행한 뒤 응답의 값을 골라 성공 조건·화면 표시 값을 추가한다(2b 계획에서 구체화).
+- **US9** *(2b)*: 운영자가 칸 설정에서 요청·응답 기록 화면을 연 뒤 응답에서 값을 골라 성공 조건·화면 표시 값을 추가한다(2b 계획에서 구체화).
 - **US5** *(1a)*: 운영자가 GUI에서 칸을 추가한 새 json을 받았다 — 파일을 교체하고 TUI를 다시 띄우면 새 칸을 포함해 점검이 시작된다.
 - **US6** *(1a, 사용자 추가 요청 2026-11-07)*: 운영자가 자리를 비운 사이 오류가 잠시 발생했다가 지나갔다 — 막대 아래 시각 눈금(예: `09:15 … 09:41`)을 보고 그 실패 막대가 대략 몇 시 몇 분쯤이었는지 키를 누르거나 막대 수를 세지 않고 바로 읽는다. (회차별 정확한 시각은 1b 오류 보기 목록.)
 
@@ -22,9 +22,9 @@
 |---|---|---|
 | **1a** | 컨트롤러 `in-process` 기능 분리 · TUI 부트스트랩(로그·임시 DB·터미널 복구·워커 가드) · 모니터 화면(키보드·마우스 칸 선택) · 오류 화면 · `--check` · zigbuild 릴리즈 잡·게시 스크립트 · 매뉴얼 · 막대 시각 줄 | US1·2·5·6 |
 | **1b** | 오류 보기(목록→상세→본문) · 칸 설정 보기(읽기 전용) · 이름 해석(번들 시나리오 파싱) | US3 |
-| **2a-1** | 설정 수정·환경/시나리오 변수 값 수정·파일 되쓰기(백업) · 1b 연기(꺼진 보드 빈 문구) | US4(미리 실행 제외)·US7·US8 |
-| **2a-2** | 미리 실행(그 칸 스텝만) | US4(미리 실행) |
-| **2b** | 미리 실행 결과에서 조건·표시 값 추가 | US9 |
+| **2a-1** | 설정 수정·환경/시나리오 변수 값 수정·파일 되쓰기(백업) · 1b 연기(꺼진 보드 빈 문구) | US4(지금 점검 제외)·US7·US8 |
+| **2a-2** | 지금 점검(`r`) — [tui-check-now 설계](2026-11-11-tui-check-now-design.md)로 대체(옛 "미리 실행") | US4(칸 설정 `r` → 자세히) |
+| **2b** | 요청·응답 기록 화면에서 조건·표시 값 추가(진입점이 옛 "미리 실행 결과"에서 바뀜 — tui-check-now) | US9 |
 
 1a만으로 지금의 bash 모니터를 대체할 수 있다. 1b는 1a 직후 이어서 한다(오류 보기는 사용자가 "당장 필요"로 꼽은 기능).
 
@@ -164,6 +164,7 @@
 | 마우스 왼쪽 클릭 | 그 칸 선택(모니터 화면 칸 격자에서만) | 1a |
 | `e` | 선택 칸 오류 보기 | 1b |
 | `Enter` | 선택 칸 설정(1b 읽기 전용, 2a 수정 — 편집 키는 §6.7) | 1b |
+| `r` | 선택 칸 지금 점검(주기를 기다리지 않고 실제 점검 — 막대·기록에 남는다). 칸 설정 메뉴에서는 점검 뒤 그 회차 자세히. [tui-check-now 설계](2026-11-11-tui-check-now-design.md) | 2a-2 |
 
 마우스(사용자 결정 2026-11-07: "작업량 차이가 없다면 지원"): 렌더 때 계산한 칸 사각형에 클릭 좌표를 대조하는 수준이라 1a에 포함. crossterm 마우스 이벤트 받기 모드를 켜므로 평범한 드래그 복사는 막히고 Shift+드래그로 복사한다(사용자: 복사할 일 거의 없음 — 도움말에 한 줄 안내). 종료·패닉 복구 때 마우스 모드도 끈다. 목록·메뉴 클릭은 비목표(예외: 2a 편집 메뉴의 줄 클릭 — §6.1).
 
@@ -201,9 +202,9 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 - `볼 스텝`의 URL 등 `{{변수}}`·`${ENV}`는 **시나리오에 적힌 그대로** 보여 준다(값을 채우지 않는다 — 실제 값은 오류 보기의 요청·응답에서).
 - 묶음 칸의 시나리오·환경·주기에는 `(묶음)`을 붙이고 맨 아래에 각주(`(묶음) = 점검 묶음 N의 값 — 칸마다 따로 못 바꿉니다`) — N은 GUI와 같은 번호(칸 목록에서 그 묶음이 처음 나오는 순서)). 항목 이름은 GUI 칸 편집기 문구(`ko.ts`) 그대로.
 
-## 6. 슬라이스 2 — 설정 수정·변수 값 수정·미리 실행·파일 저장 (US4·US7·US8)
+## 6. 슬라이스 2 — 설정 수정·변수 값 수정·~~미리 실행~~(→ tui-check-now)·파일 저장 (US4·US7·US8)
 
-**나눔 (사용자 2026-11-11)**: 설계는 2a 전체를 이 절 하나로, **구현은 둘로** — **2a-1** = §6.1–6.4·§6.6·§6.7(편집 메뉴·저장·백업·환경/시나리오 변수·그 밖·키) / **2a-2** = §6.5(미리 실행). 각각 별도 plan·리뷰·머지. **2b** = 미리 실행 결과의 응답에서 값을 골라 성공 조건·화면 표시 값을 **추가**(GUI ①b의 응답 트리 클릭 대응) — 2a에선 이미 있는 조건·표시 값의 수정·삭제만. 화면 배치의 기준 = 목업 [2026-11-11-tui-2a-mockups/01-screens.html](2026-11-11-tui-2a-mockups/01-screens.html)(사용자 승인 2026-11-11, "정할 것" Q1–Q4 추천안 채택). **목업과 이 절이 다르면 이 절이 우선** — 목업과 다른 점: ① 볼 스텝 목록에 `흐름 전체` 없음(서버가 스텝 없는 묶음 칸을 거부 — `점검 묶음 칸은 볼 스텝을 골라야 합니다`, GUI도 `""`를 거부) ② 13·14는 값이 없어도 줄을 두고 `없음` + `Enter` 안내(§6.1 표) ③ 서버 거절 문구의 `칸 N: ` 접두는 뗀다(§6.1).
+**나눔 (사용자 2026-11-11)**: 설계는 2a 전체를 이 절 하나로, **구현은 둘로** — **2a-1** = §6.1–6.4·§6.6·§6.7(편집 메뉴·저장·백업·환경/시나리오 변수·그 밖·키) / **2a-2** = ~~§6.5(미리 실행)~~ → [tui-check-now 설계](2026-11-11-tui-check-now-design.md)의 `r` 지금 점검으로 대체(2026-11-11). 각각 별도 plan·리뷰·머지. **2b** = 요청·응답 기록 화면의 응답에서 값을 골라 성공 조건·화면 표시 값을 **추가**(GUI ①b의 응답 트리 클릭 대응) — 2a에선 이미 있는 조건·표시 값의 수정·삭제만. 화면 배치의 기준 = 목업 [2026-11-11-tui-2a-mockups/01-screens.html](2026-11-11-tui-2a-mockups/01-screens.html)(사용자 승인 2026-11-11, "정할 것" Q1–Q4 추천안 채택). **목업과 이 절이 다르면 이 절이 우선** — 목업과 다른 점: ① 볼 스텝 목록에 `흐름 전체` 없음(서버가 스텝 없는 묶음 칸을 거부 — `점검 묶음 칸은 볼 스텝을 골라야 합니다`, GUI도 `""`를 거부) ② 13·14는 값이 없어도 줄을 두고 `없음` + `Enter` 안내(§6.1 표) ③ 서버 거절 문구의 `칸 N: ` 접두는 뗀다(§6.1).
 
 ### 6.1 편집 메뉴 (목업 §1)
 
@@ -271,20 +272,17 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 - 저장 = `PUT /api/scenarios/{id}` `{yaml: 교체본, version}`. 409(버전 어긋남)면 `다른 곳에서 시나리오가 바뀌었습니다 — 다시 열어 주세요`. 성공 응답의 `yaml`·`version`을 화면 상태에 들여 다음 수정에 쓴다.
 - 시나리오 이름·스텝은 안 바뀌므로 `Names`는 다시 읽지 않는다.
 
-### 6.5 미리 실행 (2a-2, US4 — 목업 §6)
+### 6.5 ~~미리 실행~~ → 지금 점검 (2a-2, US4 — tui-check-now로 대체)
 
-- 칸 설정 메뉴에서 `p` → `POST /api/monitor-boards/preview-check`. 본문 = 캐시된 칸 설정(저장된 지금 값)에서 **`group_id`를 뺀 것**(GUI `withMirror`처럼 — 묶음 값은 캐시에 이미 미러돼 있다). 실행 중 `실행 중…`(`ko.monitor.previewRunning`).
-- **전용 태스크 하나·한 번에 하나**: 미리 실행은 저장·조회 작업자와 따로 `tokio::spawn`하고 `JoinHandle`을 든다. 실행 중 `p`는 무시(문구 유지). `Esc` = 그 태스크를 **abort**하고 메뉴로. 결과에는 세대 번호를 붙여, 지금 세대가 아니면 버린다(5분 복귀·보드 전환·세션 재시작 뒤 도착한 결과 포함 — GUI `previewSeq`와 같은 뜻).
-- 응답 `{trace, result}`(새 거울 `wire::PreviewResponse`)는 받자마자 컨트롤러 `monitor::record::build_record_body(trace, 보드 record_limit_kb)`로 **가리고 자른 뒤** 든다 — 미리 실행 응답은 서버가 가리지 않으므로(기록 API만 가림) 1b 요청·응답 화면의 "인증 값 가림"을 같게 유지.
-- 화면 = 1b 자세히(§5.3-2)와 같은 구성(결과·응답 시간·사유·판정 상세·스텝 표). **스텝 칸이면 그 칸 스텝 줄만**, 흐름 전체 칸이면 전체. 생략한 스텝이 있으면 `이 칸의 스텝만 보여 줍니다(다른 스텝 생략 N개)`. `Enter` → 1b 요청·응답 화면(요청 본문 기본 가림), `p` 다시 실행, `Esc` 칸 설정으로. 미리 실행은 점검 기록·막대에 들어가지 않는다(서버 그대로).
+**tui-check-now 설계로 대체**([2026-11-11-tui-check-now-design.md](2026-11-11-tui-check-now-design.md)) — 메뉴 `p`·`preview-check` 호출·`PreviewResponse` 거울은 만들지 않는다. 칸 설정 메뉴의 `r`은 실제 점검을 깨워 그 회차의 자세히를 연다(서버가 가린 기록을 그대로 읽으므로 TUI가 trace를 직접 가릴 일이 없다).
 
 ### 6.6 그 밖 (목업 §7)
 
 - 도움말에 `Enter 칸 설정 보기·수정`, `새 파일로 바꾸면 이 PC에서 고친 값은 사라집니다`(노랑), `보드 파일: <받은 경로>` + `백업: <실제 경로>.bak · 원본: <실제 경로>.orig.bak`.
-- 자리 비움 5분(1b 규칙)은 2a의 새 화면(편집 메뉴·입력줄·목록 창·하위 목록·변수 화면·미리 실행)에도 적용 — `is_sub`에 새 화면을 더한다. 입력 중이던 값은 **버린다**(Q3). 이미 저장한 값·진행 중 저장은 그대로(§6.2).
+- 자리 비움 5분(1b 규칙)은 2a의 새 화면(편집 메뉴·입력줄·목록 창·하위 목록·변수 화면·~~미리 실행~~[tui-check-now로 대체: 대기 창이 같은 규칙])에도 적용 — `is_sub`에 새 화면을 더한다. 입력 중이던 값은 **버린다**(Q3). 이미 저장한 값·진행 중 저장은 그대로(§6.2).
 - **1b 연기 접음**(roadmap §B48 (2)): 꺼진 보드(`/status` `enabled: false`)의 오류 목록 빈 문구 = `점검이 꺼져 있어 결과가 없습니다`.
 - 문구는 `text.rs` 한 곳, GUI와 같은 뜻이면 `ko.ts` 값 그대로(`mirrored_text_exists_in_ko_ts`).
-- 새 루프백 메서드(`api.rs`): `put_board`·`export`(바이트)·`environment`/`put_environment`·`scenario`/`put_scenario`·(2a-2) `preview`. 새 거울(`wire.rs`, `deny_unknown_fields` + in-process 실응답 역직렬화 테스트): `EnvironmentResponse{id,name,vars,created_at,updated_at}`·`ScenarioResponse{id,name,yaml,version,created_at,updated_at}`·(2a-2) `PreviewResponse{trace,result}`.
+- 새 루프백 메서드(`api.rs`): `put_board`·`export`(바이트)·`environment`/`put_environment`·`scenario`/`put_scenario`·~~(2a-2) `preview`~~(tui-check-now로 대체 — `check_now`). 새 거울(`wire.rs`, `deny_unknown_fields` + in-process 실응답 역직렬화 테스트): `EnvironmentResponse{id,name,vars,created_at,updated_at}`·`ScenarioResponse{id,name,yaml,version,created_at,updated_at}`·~~(2a-2) `PreviewResponse{trace,result}`~~(만들지 않는다 — tui-check-now는 `CheckNowResponse{last_at_ms}`).
 
 ### 6.7 키 (편집 모드)
 
@@ -292,7 +290,7 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 
 | 모드 | 키 |
 |---|---|
-| 편집 메뉴 | `↑↓`(`j`/`k`) 고르기 · `PgUp`/`PgDn`/`Home`/`End` · `1`–`9` 즉시, `1` 뒤 1초 안에 `0`–`4`면 10–14(1초 지나면 1) · `Enter` 수정 · (2a-2) `p` 미리 실행 · `Esc` 모니터로 · `q`/`Ctrl+C` 종료 확인 · `?` 무동작 |
+| 편집 메뉴 | `↑↓`(`j`/`k`) 고르기 · `PgUp`/`PgDn`/`Home`/`End` · `1`–`9` 즉시, `1` 뒤 1초 안에 `0`–`4`면 10–14(1초 지나면 1) · `Enter` 수정 · ~~(2a-2) `p` 미리 실행~~(tui-check-now: 메뉴 `r` 지금 점검) · `Esc` 모니터로 · `q`/`Ctrl+C` 종료 확인 · `?` 무동작 |
 | 입력줄 | 글자 = 그대로(정규화 없음 — `q`·`j`·`?`·한글 모두 글자) · `Enter` 저장 · `Esc` 취소 · `←→`·`Home`·`End`·`Backspace`·`Delete` · `Ctrl+U` 지우기 · `Ctrl+C` 종료 확인(입력 유지) · 붙여넣기(아래). 숫자 칸은 ASCII 숫자만(최대 6자리), 글자 칸은 최대 2000자 — 제어 문자와 `inspect::sanitize`가 바꾸는 글자(U+2028/2029·bidi 제어 등)·U+0085는 받지 않는다(YAML 줄바꿈으로 읽히는 글자 — §6.4-4가 엉뚱한 "모양" 사유로 거절하지 않게). 폭을 넘으면 커서가 보이게 가로로 민다 |
 | 목록 창 | `↑↓`(`j`/`k`) · `Enter` 저장 · `Esc` 취소 · `q`/`Ctrl+C` 종료 확인 |
 | 하위 목록·변수 화면 | `↑↓`(`j`/`k`) · `Enter` 수정 · `a`/`d`/`s`/`v`(그 화면에 있는 것만) · `Esc` 뒤로 · `q`/`Ctrl+C` 종료 확인 — 자모 정규화 유지(`ㅁ`→`a` 등, 새로 `ㅇ`→`d`·`ㄴ`→`s`) |
@@ -316,7 +314,7 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 - **라이브(머지 전 필수)**: ① macOS 실제 터미널(키·리사이즈·한글 폭·종료 확인) ② `ubuntu:19.04` amd64 컨테이너에서 zigbuild 산출물 `--check` + tmux로 TUI 화면 캡처 ③ US1·2·5·6 통과 신호 표(US6: macOS에서 응답기를 30초쯤 멈췄다 다시 띄우고 `date +%T`로 그 시각을 적은 뒤, 화면 캡처에서 실패 막대(`█`, 성공 막대는 낮은 지연이라 `▁`) 근처 눈금 시각이 적은 구간과 맞는지 + 9칸 배치(80×24)에서도 눈금이 겹치거나 잘리지 않는지).
 - **2a 단위**: `splice_static_var` — 성공(일반·`'…'`·`"…"`·뒤 주석·CRLF·`#`이 붙은 일반 값·`''`/`\"` 든 값) + **잘못 자를 법한 입력에서 검증이 거절**(`notes: |` 블록 안의 `key:` 모양 줄, 들여쓰기만 다른 같은 키, 흐름 표기, 앵커/별칭, 여러 줄 값, 생성 변수, 키 없음) + 결과 diff가 정확히 그 한 줄. 편집 순수 함수(항목별 고칠 수 있음 표·`setPanelStep`·기준선 추가 색·조건 규칙 목록·`칸 N:` 접두 떼기·공유 칸 수·빠지는 환경 판정). 입력줄(정규화 없음·거부 글자·붙여넣기 정리·가로 밀기). 키 표(§6.7) 모드별.
 - **2a 파일 쓰기**(임시 디렉터리): 첫 저장에 `.orig.bak`(밖에서 온 파일) / 지난 TUI 기록과 같으면 유지 / 상태 디렉터리 없음 → 씀, `.bak` = 직전, 권한 비트 보존, 링크 → 실제 파일 교체·링크 유지, 쓰기 실패 시 원본 그대로·임시 파일 없음, **밖에서 바뀐 파일 → 쓰지 않음**. 통합(in-process): 제한 시간 수정 → 파일 재가져오기 시 새 값 · 환경 값 수정 → 다음 점검 요청에 새 값 · 시나리오 변수 수정 → 파일 속 YAML diff 한 줄.
-- **2a 라이브**(tmux, 머지 전): US4(칸 값 수정 → 재시작 후 유지·`.bak`/`.orig.bak` 생김), US7(로깅 응답기에 오는 헤더/URL이 다음 점검부터 새 환경 값), US8(파일의 시나리오 YAML diff = 그 한 줄), 공유 확인 문구, 붙여넣기(`tmux paste-buffer -p`), 밖에서 파일 교체 후 저장 → 경고·파일 불변. (2a-2) 미리 실행 스텝 칸 = 그 스텝만·인증 헤더 가림.
+- **2a 라이브**(tmux, 머지 전): US4(칸 값 수정 → 재시작 후 유지·`.bak`/`.orig.bak` 생김), US7(로깅 응답기에 오는 헤더/URL이 다음 점검부터 새 환경 값), US8(파일의 시나리오 YAML diff = 그 한 줄), 공유 확인 문구, 붙여넣기(`tmux paste-buffer -p`), 밖에서 파일 교체 후 저장 → 경고·파일 불변. ~~(2a-2) 미리 실행 스텝 칸 = 그 스텝만·인증 헤더 가림.~~ (tui-check-now로 대체 — 라이브는 그 설계 §8)
 - **실기(사용자, 머지 후)**: 19.04 PC 자동 시작·`--full-screen`·ko_KR 로케일에서 모호 폭 문자(`▂…█`, `┌─│`, `▲ ○ – ― …`) 정렬. 결과를 build-log에.
 
 ## 9. 보안 표면
@@ -324,7 +322,7 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 - **보안 경계를 정직하게**: 컨트롤러 REST는 루프백 바인드지만 **인증이 없다** — 같은 PC의 다른 사용자·프로세스는 `GET /api/environments`로 환경 값 평문까지 읽을 수 있다. 데스크톱 앱(ADR-0042)과 같은 자세이며 **전용 단일 사용자 모니터 PC**를 전제한다(매뉴얼에 명시). 임시 DB 0600은 이 전제 아래의 위생일 뿐 경계가 아니다.
 - 요청·응답 본문 표시는 서버가 가린 기록 그대로(1b). 대체 화면이라 스크롤백에 남지 않는다.
 - 로그 파일: 컨트롤러·엔진에 비테스트 `println!`/`eprintln!` 없음(리뷰 확인). 요청/응답 본문·환경 값이 tracing 필드로 나가지 않는지 1a 계획에서 grep으로 확정.
-- 2a 파일 되쓰기: `.bak`·`.orig.bak`·임시 파일은 원본과 같은 권한으로 만든다(환경 값 평문이 들어 있다 — 원본 파일과 같은 수준). 미리 실행 trace는 받자마자 `build_record_body`로 가린다(§6.5). 시나리오 변수 교체는 검증(§6.4-4) 통과분만 저장.
+- 2a 파일 되쓰기: `.bak`·`.orig.bak`·임시 파일은 원본과 같은 권한으로 만든다(환경 값 평문이 들어 있다 — 원본 파일과 같은 수준). ~~미리 실행 trace는 받자마자 `build_record_body`로 가린다(§6.5).~~ (tui-check-now로 대체 — 서버가 가린 기록을 그대로 읽는다.) 시나리오 변수 교체는 검증(§6.4-4) 통과분만 저장.
 - 1b·2의 기록 뷰어·파일 되쓰기는 `finish-slice` §0 보안 grep으로 `security-reviewer` 필요 여부 확정.
 - 기록 메모리 최악치(9칸 × 300막대 × 기록 상한)는 GUI와 같다 — 저사양 PC에서는 `record_limit_kb`를 낮게 잡으라고 매뉴얼에 안내.
 
@@ -389,14 +387,14 @@ Enter → 번호 목록(제목·시나리오·환경·스텝·주기·요청 제
 | (2a) 점검은 매번 DB에서 시나리오를 읽는다 | `grep -n "store::scenarios::get" crates/controller/src/monitor/check.rs` |
 | (2a) 고정 변수는 YAML 문자열만(`visit_str`) | `grep -n "impl<'de> Deserialize<'de> for VarDecl" -A12 crates/engine/src/genvars.rs` |
 | (2a) export 본문 `{board_ids}` | `grep -n "pub struct ExportRequest" -A3 crates/controller/src/api/monitor_transfer.rs` |
-| (2a) preview 응답 `{trace, result}`, 가림 없음 / `build_record_body` pub·가림+자르기 | `grep -n "pub struct PreviewResponse" -A3 crates/controller/src/api/monitor_boards.rs; grep -n "pub fn build_record_body" -B6 crates/controller/src/monitor/record.rs` |
+| (대체됨 — tui-check-now, 이력용) (2a) preview 응답 `{trace, result}`, 가림 없음 / `build_record_body` pub·가림+자르기 | `grep -n "pub struct PreviewResponse" -A3 crates/controller/src/api/monitor_boards.rs; grep -n "pub fn build_record_body" -B6 crates/controller/src/monitor/record.rs` |
 | (2a) GUI 볼 스텝 고르기는 묶음 칸만, 응답 시간 기준은 `!group`만, 기준선 색 팔레트 | `grep -n "group ? (\|{!group && (\|THRESHOLD_COLORS =" ui/src/components/monitor/PanelEditor.tsx` |
 | (2a) 조건 규칙 허용 표·체크 표시 규칙 | `grep -n "pub fn allows" -A10 crates/controller/src/monitor/config.rs; grep -n "hasFlags" ui/src/components/monitor/ConditionRow.tsx` |
 | (2a) 꺼진 보드 `/status` `enabled` 필드 | `grep -n "pub enabled" crates/tui/src/wire.rs` |
 | (2a) 내보내기는 칸이 쓰는 환경만 담는다 | `grep -n "쓰는 시나리오·환경 ID를 처음 등장 순서로" -A14 crates/controller/src/api/monitor_transfer.rs` |
 | (2a) 보드 PUT 오류 `칸 {n}: ` 접두 | `grep -n 'format!("칸 {}: {e}"' crates/controller/src/monitor/config.rs` |
 | (2a) 묶음 칸은 볼 스텝 필수 | `grep -n "볼 스텝을 골라야" crates/controller/src/monitor/config.rs` |
-| (2a) GUI 스텝 목록 IF 분기 힌트·미리 실행 `group_id` 제외·`previewSeq` | `grep -n "branchHint\|export function withMirror" ui/src/monitor/groups.ts; grep -n "previewSeq" ui/src/components/monitor/PanelEditor.tsx` |
+| (2a) GUI 스텝 목록 IF 분기 힌트·미리 실행 `group_id` 제외·`previewSeq`(미리 실행 부분은 tui-check-now로 대체 — 이력용) | `grep -n "branchHint\|export function withMirror" ui/src/monitor/groups.ts; grep -n "previewSeq" ui/src/components/monitor/PanelEditor.tsx` |
 | (2a) 번들 환경 목록이 `HashMap`(순서 없음), 키 이름 미보관 | `grep -n "environments: HashMap\|environments: Vec<EnvLite>" crates/tui/src/names.rs` |
 | (2a) 입력 정규화·`q` 종료·Ctrl+문자 무동작 | `grep -n "fn normalize_char\|ctrl_letter\|quit_key" crates/tui/src/app.rs` |
 | (2a) `tempfile` 이미 의존, `serde_yaml` 미의존 | `grep -n "tempfile\|serde_yaml" crates/tui/Cargo.toml` |
