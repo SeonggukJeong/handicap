@@ -181,3 +181,47 @@ fn view_sweep() {
         }
     }
 }
+
+/// `view`의 핵심 불변식 — 커서가 늘 보이고, 보이는 글은 버퍼의 이어진 한 구간이며, 커서 x는 그 구간에서
+/// 커서 왼쪽 글자들의 폭이다. (폭·범위만 보는 스윕은 "늘 처음부터 보이기" 같은 고장을 통과시킨다.)
+#[test]
+fn view_window_invariants() {
+    // 글자가 전부 달라 보이는 구간의 시작 위치가 하나로 정해진다.
+    let text = "ab가나cd다e라마f";
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
+    let cw = |c: char| w(&c.to_string());
+    for width in 1..=12usize {
+        for pos in 0..=n {
+            let mut li = LineInput::new(text, text_mode());
+            li.key(k(KeyCode::Home));
+            for _ in 0..pos {
+                li.key(k(KeyCode::Right));
+            }
+            let (s, x) = li.view(width);
+            let shown: Vec<char> = s.chars().collect();
+            let ctx = format!("w={width} pos={pos} s={s:?} x={x}");
+            // 이어진 한 구간: start = 첫 글자의 버퍼 위치(빈 글이면 커서 위치).
+            let start = match shown.first() {
+                Some(first) => chars.iter().position(|c| c == first).unwrap(),
+                None => pos,
+            };
+            assert_eq!(&chars[start..start + shown.len()], &shown[..], "{ctx}");
+            // 커서는 보이는 구간 안이거나 바로 뒤.
+            assert!(start <= pos && pos <= start + shown.len(), "{ctx}");
+            // 커서 x = 구간에서 커서 왼쪽 글자들의 폭.
+            let left: usize = chars[start..pos].iter().map(|&c| cw(c)).sum();
+            assert_eq!(x, left, "{ctx}");
+            assert!(x < width, "{ctx}");
+            // 필요 이상으로 밀지 않는다: 한 글자 덜 밀면 커서가 칸을 벗어난다.
+            if start > 0 {
+                let wider: usize = chars[start - 1..pos].iter().map(|&c| cw(c)).sum();
+                assert!(wider > width - 1, "{ctx}");
+            }
+            // 오른쪽은 들어가는 데까지 채운다.
+            if let Some(&next) = chars.get(start + shown.len()) {
+                assert!(w(&s) + cw(next) > width, "{ctx}");
+            }
+        }
+    }
+}
