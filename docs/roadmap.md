@@ -862,7 +862,7 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **Task 6 커밋 트레일러가 `Claude Sonnet 5.5`**(구현 모델 그대로): 기록 재작성 없이 둠(표시만).
 
 (2) 연기(nit·테스트 polish — 재개 신호 = 1b에서 그 파일을 만질 때)
-- 테스트: 신호 테스트 2개(`termination_signals_set_quit_flag`·`watchdog_fires_when_main_does_not_exit`)가 같은 `cargo test` 프로세스에서 전역 신호 처리기를 공유 → 드문 flake 가능(해소: 정적 Mutex로 직렬화 또는 하나를 서브프로세스로) · `App::draw_with` 화면→키 줄 매핑 테스트 없음 · `poll_once` 404·폴러 주기·보드 전환·수신자 drop 테스트 없음 · `reason_parts` 멀티바이트 needle 테스트 없음 · `text_labels_match_ko`가 ko.ts가 아닌 리터럴 대조(드리프트 감시는 수동) · io_kind 테스트 클라이언트 `.no_proxy()` 없음 · Task 1 테스트 실패 시 shutdown 생략·타임아웃 없음.
+- 테스트: 신호 테스트 2개(`termination_signals_set_quit_flag`·`watchdog_fires_when_main_does_not_exit`)가 같은 `cargo test` 프로세스에서 전역 신호 처리기를 공유 → 드문 flake 가능(해소: 정적 Mutex로 직렬화 또는 하나를 서브프로세스로 — **1b `4a580d5`에서 `SIGNAL_TESTS` Mutex 직렬화 = 완화만, 효과 미증명·CI 관찰 중**) · `App::draw_with` 화면→키 줄 매핑 테스트 없음 · `poll_once` 404·폴러 주기·보드 전환·수신자 drop 테스트 없음 · ~~`reason_parts` 멀티바이트 needle 테스트 없음~~ ✅ 1b `c63e4f6` · `text_labels_match_ko`가 ko.ts가 아닌 리터럴 대조(드리프트 감시는 수동 — 1b 새 문구는 `mirrored_text_exists_in_ko_ts`가 ko.ts 파일을 읽어 대조) · ~~io_kind 테스트 클라이언트 `.no_proxy()` 없음~~ ✅ 1b `98b2f6c` · Task 1 테스트 실패 시 shutdown 생략·타임아웃 없음.
 - 화면: 이름이 빠진 머리 줄 앞 이중 공백·~25열 끊김 시 외톨이 `…` · 긴 라벨+좁은 칸에서 `포함 안 됨` 큰 값이 줄임 대신 빈칸 · 키 줄 그리기 함수 2개(DIM vs muted) · ~~`확인 불가 · 점검 꺼짐`(23칸) 안쪽 22에서 `…`~~ ✅ 해소(tui-readability `bf431009` — ` · ` 조각 통째로 줄임 `label_for_width`) · 평균·최대 숫자 색(GUI `#f2f5f8`) · 연속 줄 왼쪽 정렬(GUI 오른쪽) · 머리 줄 `점검 중`이 `enabled=false` 보드에도 표시 · 18열 미만에서 종료 확인 키 줄이 `y 종료`부터 탈락 · 도움말 극소 높이에서 로그 줄이 파일 줄보다 먼저 탈락.
 - 런타임: 보드 전환 후 폴러가 최대 1 s 늦게 새 보드 조회 · 404 후에도 폴링 계속(GUI는 멈춤) · `error_of` 본문 읽기 오류 로그 없음 · post-start `api.board` 실패가 `Stage::Import`로 표시 · in-process 컨트롤러가 SQLite 풀을 닫지 않고 디렉터리 삭제(~2 s 창, 비밀 쓰기 없음) · run 모드 패닉 훅이 `sweep_stale`·런타임 생성 뒤 설치(터미널 진입 전이라 화면 무해).
 - 보안(선재·범위 밖): 엔진 `condition.rs:135`가 렌더된 정규식 패턴(`${ENV}`/`{{var}}` 값 포함 가능)을 warn 로그로 — TUI에선 `tui.log`(0600)에 남는다. 해소: 패턴 대신 길이만 로그(엔진 슬라이스).
@@ -882,9 +882,9 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **Task 7 커밋 트레일러 `Claude Haiku 5.5`**(구현 모델 그대로, plan 규칙): 기록 재작성 없이 둠.
 
 (2) 연기(nit·테스트 polish — 재개 신호 = 그 파일을 만질 때)
-- **CI 노출 flake 2건(이 브랜치 무수정 파일)**: `tempdb::tests::sweep_removes_own_pid_leftovers_but_not_active_tempdb`(다른 테스트의 전역 `remove_active()`와 경합, plain `cargo test`에서 약 2/9)·`app_test::termination_signals_set_quit_flag`(감시견 테스트의 SIGHUP 누출 추정, §B45 (2)와 같은 뿌리). CI는 plain `cargo test --workspace`(`.github/workflows/ci.yml`)라 노출, pre-commit nextest는 프로세스 격리라 무관. 해소: 정적 Mutex로 직렬화 또는 서브프로세스 분리.
+- **CI 노출 flake 2건(이 브랜치 무수정 파일)**: ~~`tempdb::tests::sweep_removes_own_pid_leftovers_but_not_active_tempdb`(다른 테스트의 전역 `remove_active()`와 경합, plain `cargo test`에서 약 2/9)~~ ✅ 1b `644ad11`(원인 확정 — TempDb 만드는 테스트를 모듈 잠금으로 직렬화; 이 컨테이너에선 pre-commit도 plain `cargo test`라 실제로 막혔다)·`app_test::termination_signals_set_quit_flag`(감시견 테스트의 SIGHUP 누출 추정, §B45 (2)와 같은 뿌리 — 1b Mutex 완화만). CI는 plain `cargo test --workspace`(`.github/workflows/ci.yml`)라 노출, pre-commit nextest는 프로세스 격리라 무관. 해소: 정적 Mutex로 직렬화 또는 서브프로세스 분리.
 - 테스트: 숫자 글리프 서로 다름 단언 없음(`0`=`O`, `5`=`S`는 3×5 한계) · `board_tier` zip 길이 `debug_assert` 없음 · `reserved_rows(Tier::S)` 의미 없는 값 · `reference_text`가 항상 `supported`인지 단언 없음 · 6칸 "빈 줄 ≤1" 테스트 단독으로는 약함(실질 가드는 한글 사유 테스트) · 테두리 테스트가 `▛` 개수만 · `apply(ToggleBorder)` 끝-끝 테스트 없음(라이브 US4가 덮음) · S 점선이 짧은 막대 옆에 그려지는 칸 단언 없음.
-- 화면: `TINT_RATIO` 0.15에서 느림 바탕 위 빨강 기준선 숫자 4.05:1·시각 줄 4.16:1(0.12로 낮추면 개선) · `Ctrl`+`B`도 테두리 전환(수식 키 미검사) · 칸 수가 같아도 행마다 안쪽 높이가 1 차이나 S 단계에서 기준선이 어떤 행엔 있고 어떤 행엔 없음(칸별 최악 경우 판정 그대로) · 2폭 한글 뒤 꼬리 칸 bg는 버퍼상 Reset(터미널은 머리 칸 bg로 칠함 — tmux `-e` 확인).
+- 화면: `TINT_RATIO` 0.15에서 느림 바탕 위 빨강 기준선 숫자 4.05:1·시각 줄 4.16:1(0.12로 낮추면 개선) · ~~`Ctrl`+`B`도 테두리 전환(수식 키 미검사)~~ ✅ 1b `4a580d5`(Monitor·새 화면 넷에서 `c`·`q` 외 Ctrl+글자 무동작) · 칸 수가 같아도 행마다 안쪽 높이가 1 차이나 S 단계에서 기준선이 어떤 행엔 있고 어떤 행엔 없음(칸별 최악 경우 판정 그대로) · 2폭 한글 뒤 꼬리 칸 bg는 버퍼상 Reset(터미널은 머리 칸 bg로 칠함 — tmux `-e` 확인).
 - 문서: 매뉴얼에 설정 디렉터리 없음(메모리만) 경우 미기재 · spec/plan이 옛 도움말 문구(`−`·`↔`·긴 zoom 문구)를 인용(설계 기록이라 둠).
 
 ### B47. 모니터 안쪽 감싼 JSON 풀기 (monitor-nested-json, 2026-11-08, 코드 `98772573`, 사용자 요청 소형 수정) 판단·연기
@@ -907,6 +907,32 @@ closed-loop VU 곡선(`vu_stages`, UI·API 둘 다)은 정상(0→5 VU/6s = 265 
 - **`HOME` 부재 → 로그·`b` 테두리 기억 꺼짐**: `state_dir_from`/`config_dir_from`이 `XDG_*`·`HOME`만 본다. 해소: Windows는 `%LOCALAPPDATA%\handicap`(로그)·`%APPDATA%\handicap`(설정) 폴백. 우회: `setx HOME "%USERPROFILE%"`.
 - **콘솔 창 X 닫기 → 임시 DB(환경 값) 잔류**: `Signals`의 non-unix 경로가 `ctrl_c()`만 듣는다. 해소: `tokio::signal::windows::ctrl_close`(+`ctrl_shutdown`·`ctrl_logoff`)를 같이 듣기 — 단 close 이벤트는 OS가 약 5초 뒤 강제 종료하므로 삭제를 감시견보다 먼저.
 - **시작 시 남은 임시 디렉터리 정리 없음**: `tempdb::pid_alive`의 non-unix 구현이 항상 `true`. 해소: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`로 생존 판정(`windows-sys` 의존 추가).
+
+### B48. 터미널 모니터 1b 오류 보기·칸 설정 보기 (tui-monitor-1b, 2026-11-11, 코드 `98b2f6c`..`cbc053c`, spec `docs/superpowers/specs/2026-11-07-tui-monitor-design.md` §5.3·§5.4, plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`) 판단·연기
+
+**다음 슬라이스**: TUI 2 설정 수정·미리 실행·파일 저장(US4, spec §6) 또는 ②b 겹침 질문 흐름. **머지 전 사용자 확인**: 맥 메인 체크아웃에서 `cargo test -p handicap-engine --test connect_timeout_knob --test error_kind` 1회(`6e5fd7e`의 backlog-포화 픽스처는 Linux에서만 실측 — macOS가 가득 찬 대기열에 SYN-ACK을 주면 채움 루프가 16개 후 패닉). 실기: Ubuntu 19.04에서 `e`/`Enter` 흐름.
+
+(1) 판단(orchestrator ruling — 틀렸을 때의 비용·해소)
+- **엔진 테스트 픽스처 교체(`6e5fd7e`)를 이 슬라이스에서 함**(plan 범위 밖, 사용자 승인): 클라우드 샌드박스가 `10.255.255.1:81`을 즉시 거부해 pre-commit이 모든 cargo 커밋을 막았다. cost-if-wrong: macOS에서 채움 루프 패닉 → 맥 pre-commit 차단. 해소: `cfg(target_os = "macos")` 폴백 또는 채움 상한 초과 시 다른 정체 수단.
+- **tempdb 테스트 경쟁 수정(`644ad11`)도 범위 밖이지만 함**: plan 연기 표는 "안 접음"이었으나 같은 프로세스의 결정적 경쟁이고 게이트를 실제로 막았다. cost-if-wrong: 없음(테스트-only).
+- **목업의 구획 사이 빈 줄을 넣지 않음**(네 화면 모두): plan 높이 공식에 빈 줄 자리가 없고 낮은 화면에서 목록·스텝 줄을 지킨다. cost-if-wrong: 보기 밀도. 해소: 높이 ≥ N일 때만 빈 줄.
+- **스텝 표 4xx/5xx 코드에 실패색 없음**(구현자 추가 색을 리뷰가 되돌림 `bd877ec`): 판정은 칸 조건이 한다. 응답 없음 `—`·시간 초과만 빨강.
+- **줄 위치 표시(`N/M줄`)는 본문 첫 줄 오른쪽**(목업은 맨 아래, plan 규칙 우선).
+- **도움말 `e` 줄을 `선택 칸 오류 보기(실패 목록)`로 축약**(plan 표 문구는 50열 상자 30칸을 넘음).
+- **새 화면에 `r` 키 없음**: 재시도는 1a 오류 화면의 세션 재시도뿐이라 `views.clear()`·새 작업자를 거친다.
+- **5분 무입력 판정에서 마우스 단순 이동 제외**(`77229be`, 최종 리뷰 nit 채택): 마우스 캡처가 움직임 보고까지 켜서 스치기만 해도 복귀가 미뤄졌다.
+- **task별 리뷰를 spec+quality 한 번에 묶음**(루트 규칙은 2단계): 리뷰어 한 명이 두 verdict를 따로 냄. cost-if-wrong: 자기 확증 위험 — 최종·보안 리뷰가 보완.
+- **구현 subagent·리뷰어 모델**: 전부 opus.
+
+(2) 연기(재개 신호 = 그 파일을 만질 때 / TUI 2)
+- **꺼진 보드의 오류 보기가 `이 구간에 실패가 없습니다`**(라이브 발견): 보드 `stop` 후 `/status`가 `results: []`라 목록이 비고, 실패가 없었다고 읽힌다. 해소: 칸/보드가 꺼졌으면 빈 목록 문구를 `점검이 꺼져 있어 결과가 없습니다` 류로(모니터의 `점검 꺼짐` 상태 재사용).
+- **조회 큐 순서**(최종 리뷰 N4·보안 N2): 작업자 하나가 차례로 처리해 서버가 느리면 `Enter`(Record) 요청이 보이는 줄 수만큼의 사유 요청 뒤에서 기다린다(줄 수 × 3 s). `e`/Esc 반복 시 큐에 남은 사유 요청이 다시 쌓인다(무한 큐, 운영자 조작으로만). 해소: Record 우선 큐 또는 세대 번호로 닫힌 보기의 요청 건너뛰기.
+- **`Reason::Failed`는 목록을 열어 둔 동안 다시 요청하지 않음**(Esc 후 `e`로 회복).
+- **자세히 화면 `PgUp`/`PgDn`이 화면 높이가 아니라 10줄 고정.**
+- **40열 본문에서 숫자 중간 줄바꿈**(`→ 50`/`3 1 ms`) — 글자를 자르지 않는 대신 꺾임.
+- **`a` 전체 회차에서 창이 커서 중심이라 최신 몇 줄이 위로 가려짐**(설계대로, 혼동 시 재검토).
+- **아주 좁은 폭에서 본문 줄 조각 폭증**(보안 N3, 서버 `limit_kb`가 상한이라 무시 가능) · `check_mode.rs`의 다른 `sanitize`와 이름 충돌 여지 · 바깥 거울 둘만 `deny_unknown_fields`(안쪽 `CheckResult`·`ScenarioTrace`는 재사용 타입이라 컨트롤러가 필드를 더해도 거울 테스트가 못 잡음).
+- **plan 체크박스 미갱신**(커밋이 진실의 원천).
 
 ## 사용법 (다음 세션이 봐야 할 곳)
 

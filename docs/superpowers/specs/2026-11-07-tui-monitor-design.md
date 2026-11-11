@@ -2,7 +2,7 @@
 
 - 날짜: 2026-11-07 · 유형: `user-path` + `platform` · 결정: [ADR-0055](../../adr/0055-tui-monitor.md)
 - 범위: 설계는 세 슬라이스 전체(§0), **구현 계획은 슬라이스 1a만**(1b·2는 각각 별도 계획).
-- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 구현**(plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`), 2 미착수.
+- 상태: **1a 완료**(2026-11-08, 코드 `0b2bb1a5`..`9eddb984`; 판단·연기 roadmap §B45 — 임시 DB는 §4.2의 `<pid>.db` 대신 `mkdtemp` 전용 디렉터리). **1b 완료**(2026-11-11, 코드 `98b2f6c`..`cbc053c`; plan `docs/superpowers/plans/2026-11-10-tui-monitor-1b.md`, 판단·연기 roadmap §B48), 2 미착수.
 
 ## 사용자 스토리 (US)
 
@@ -165,7 +165,7 @@
 ### 5.3 오류 보기 (1b, US3)
 
 1. **목록**: 선택 칸의 현재 막대 구간 결과 중 verdict ∈ {`fail`, `config_error`, `upstream_failed`}, 최신 순. 줄 = 시각 · 상태 문구 · 사유. `a`로 전체 회차 토글. `/status`는 최신 결과에만 사유를 싣기 때문에(`api/monitor_boards.rs` "사유·detail은 최신 결과에만") 사유는 **화면에 보이는 줄만 기록 API로 지연 조회**(404면 "기록이 지났습니다").
-2. **상세**: 시각 · 상태 · **사유** · **판정 상세**(`result.detail` — 조건에서 받은 값) · 지연 · 스텝 표(스텝 이름 · 메서드 · URL · HTTP 상태 · 지연 · **오류 내용**(`StepTrace.error` 문자열) · 시간 초과 표시(`timed_out`)). 스텝 칸이면 그 스텝 행 강조. `StepTrace`엔 구조화된 전송 실패 종류·스텝 이름이 없다(`crates/engine/src/trace.rs`) — 이름은 아래 이름 해석으로.
+2. **상세**: 시각 · 상태 · **사유** · **판정 상세**(`result.detail` — 컨트롤러가 주는 판정 근거: 조건 칸이면 조건식, 받은 값은 `사유`에 실린다 — 라이브 2026-11-11 확인) · 지연 · 스텝 표(스텝 이름 · 메서드 · URL · HTTP 상태 · 지연 · **오류 내용**(`StepTrace.error` 문자열) · 시간 초과 표시(`timed_out`)). 스텝 칸이면 그 스텝 행 강조. `StepTrace`엔 구조화된 전송 실패 종류·스텝 이름이 없다(`crates/engine/src/trace.rs`) — 이름은 아래 이름 해석으로.
 3. **trace 없는/특수 기록**: `trace: null`(설정 오류·바깥 시간 초과), `if` 행, `trace.error`, `truncated`를 GUI `CheckRecordDialog.tsx`와 같은 구분으로 문구 표시(문구는 `ko.ts` 해당 키 값 그대로).
 4. **본문**: 요청/응답 헤더·본문, PgUp/PgDn·↑↓ 스크롤. 서버가 가린 값 그대로. **요청 본문은 기본 가림 + `v`로 보기**. `clipped`면 "기록 상한(N KB)에서 잘림"(화면 문구는 `ko.monitor.recordClipped` 그대로 `기록 상한 NKB에서 잘림`).
 - **이름 해석**: 시나리오·스텝·환경 이름은 TUI가 이미 가진 **번들 파일**의 `scenarios[].yaml`을 엔진 시나리오 모델로 파싱하고 `environments[].name`을 읽어 얻는다(추가 엔드포인트 없음). loop/parallel/if 안의 HTTP 스텝까지 GUI `flattenHttpSteps`와 같은 순서로 평탄화 — 1b 계획에서 엔진 쪽 대응 함수를 확정(없으면 TUI에 이식). → 1b 계획 확정: 공개된 엔진 대응 함수 없음(`reqgen::collect_http` 비공개·컨트롤러 `collect_http_steps` `pub(crate)`), TUI `names.rs`에 같은 순서로 이식.

@@ -4,7 +4,7 @@
 
 > 도메인 함정은 각 디렉토리의 중첩 `CLAUDE.md`(그 디렉토리 작업 시 자동 로드) — [도메인별 함정 인덱스](#도메인별-함정-인덱스). 이 root엔 전역 규칙·상태·크로스커팅 함정만.
 
-**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-readability (2026-11-08, 코드 `d42fba9a`..`0673ccfd` — 터미널 모니터 `handicap-tui` 원거리 가독성: 칸을 채우는 여러 줄 막대·기준선, 블록 문자 큰 응답 시간 L/M/S 단계[설정·화면 크기로만], `b` 키 테두리 전환·`~/.config/handicap/tui.json`, crates/tui만 변경, ADR-0055 덧붙임). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
+**상태: MVP 1단계(슬라이스 1–9) 완료 + post-MVP1 영역 A(프리셋·멀티워커 fan-out·Parallel·리포트 export/insights)·B(환경·SLO criteria·리포트 깊이)·C(에디터 test-run)·D(부하모델·페이싱: 타임아웃/think-time/open-loop/stages/VU 곡선) + Run 스케줄러 + 영역 U(UX, ADR-0035) + 운영 모니터 모드 ①a·①b(ADR-0053) + 후속 다수까지 구현·머지 완료. 최신 = tui-monitor-1b (2026-11-11, 코드 `98b2f6c`..`cbc053c` — 터미널 모니터 `handicap-tui` 오류 보기·칸 설정 보기: `e` 실패 목록→`Enter` 자세히[사유·판정 상세·스텝 표]→`Enter` 요청·응답[JSON 들여쓰기·요청 본문 기본 가림], 모니터 `Enter` 칸 설정 읽기 전용, 5분 무입력 복귀, crates/tui만 변경 + 엔진 connect 정체 테스트 픽스처 교체). 완료 이력·구현 결과·함정 출처 → `docs/build-log.md`(단일 소스), 다음 작업 → `docs/roadmap-status.md`(현황판), 후보·연기 상세 → `docs/roadmap.md`, 결정 → [알아둘 결정들](#알아둘-결정들)·`docs/adr/`, 설계 → `docs/superpowers/specs/`(MVP1 = `2026-05-27-handicap-mvp1-design.md`), 계획 → `docs/superpowers/plans/`.**
 
 ## 한 줄 아키텍처
 
