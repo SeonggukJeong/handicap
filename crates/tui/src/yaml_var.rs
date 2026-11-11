@@ -211,7 +211,11 @@ fn value_span(body: &str, start: usize) -> Option<(usize, usize)> {
             None
         }
         _ => {
-            let end = v.find(" #").unwrap_or(v.len());
+            // 주석 = 공백 **또는 탭** 뒤의 `#`. 주석은 ⑦의 구조 비교에 안 잡히므로 여기서 놓치면 조용히 지워진다.
+            let end = bytes
+                .windows(2)
+                .position(|w| matches!(w[0], b' ' | b'\t') && w[1] == b'#')
+                .unwrap_or(v.len());
             let trimmed = v[..end].trim_end_matches([' ', '\t']);
             if trimmed.is_empty() {
                 None

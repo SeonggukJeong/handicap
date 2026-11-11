@@ -253,15 +253,43 @@ fn static_vars_unreadable_yaml_is_empty() {
 }
 
 #[test]
+fn key_lookalike_after_real_line_is_shape() {
+    // 진짜 줄이 먼저, 닮은 줄(따옴표 값 `b`의 이어진 줄)이 뒤 — ④의 "정확히 1개"만이 막는다
+    // (첫 줄만 보고 바꾸면 ⑦도 통과한다). 실증: ④의 두 번째 히트 검사를 지우면 이 케이스가 Ok.
+    let y = fixture("variables:\n  a: x\n  b: \"q\n  a: y\"\n");
+    assert_eq!(read_var(&y, "b"), "q a: y");
+    assert_eq!(splice_static_var(&y, "a", "Z"), Err(NotEditable::Shape));
+}
+
+#[test]
+fn header_lookalike_after_real_header_is_shape() {
+    // 진짜 `variables:`가 먼저, 열 0 닮은 줄(따옴표 `notes` 값의 이어진 줄)이 뒤 — ②의 "정확히 1개"만이 막는다.
+    let y =
+        format!("version: 1\nname: s\nvariables:\n  a: y\nnotes: \"x\nvariables:\n  y\"\n{STEP}");
+    assert!(Scenario::from_yaml(&y).is_ok(), "{y}");
+    assert_eq!(splice_static_var(&y, "a", "Z"), Err(NotEditable::Shape));
+}
+
+#[test]
+fn tab_before_hash_comment_is_never_deleted() {
+    // 탭 + `#`도 YAML 주석이다. 주석은 구조 비교(⑦)에 안 잡히므로 값 구간이 주석을 삼키면 조용히 지워진다.
+    let y = fixture("variables:\n  order_id: A-1\t# 주문\n");
+    assert_eq!(read_var(&y, "order_id"), "A-1");
+    let out = splice_static_var(&y, "order_id", "Z").unwrap();
+    assert!(out.contains("  order_id: \"Z\"\t# 주문\n"), "{out:?}");
+    assert_eq!(changed_lines(&y, &out), vec![line_no(&y, "order_id")]);
+}
+
+#[test]
 fn key_lookalike_inside_multiline_quoted_value_is_shape() {
-    // 유효 YAML(따옴표 값이 다음 줄로 이어짐)이라 ④의 "정확히 1개"가 실제로 막는다.
+    // 닮은 줄이 진짜 줄과 같은 값 안에 있는 경우 — 어느 경로로든 거절(④의 이빨은 `key_lookalike_after_real_line_is_shape`).
     let y = fixture("variables:\n  a: \"x\n  a: y\"\n  b: z\n");
     assert_eq!(splice_static_var(&y, "a", "Z"), Err(NotEditable::Shape));
 }
 
 #[test]
 fn header_lookalike_at_column_zero_in_quoted_notes_is_shape() {
-    // 유효 YAML(따옴표 값 이어짐)이라 ②의 "정확히 1개"가 실제로 막는다.
+    // 닮은 머리 줄이 진짜보다 앞인 경우 — 어느 경로로든 거절(②의 이빨은 `header_lookalike_after_real_header_is_shape`).
     let y = scenario("notes: \"x\nvariables:\n  y\"\n", "variables:\n  a: y\n");
     assert_eq!(splice_static_var(&y, "a", "Z"), Err(NotEditable::Shape));
 }
