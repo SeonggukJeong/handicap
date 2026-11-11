@@ -196,7 +196,7 @@ Tab 다음 칸 · Space 켜기·끄기 · Enter 저장 · Esc 취소
 
 ### 4.1 값 목록 만들기 (새 순수 모듈 `crates/tui/src/pick.rs`)
 
-- `value_list(resp: &TracedResponse, clipped_resp: bool, limit_kb: u32) -> ValueList { rows, notes }` — §2.1(응답 하나만 본다). 값 목록을 **열 때 한 번** 만들어 화면 상태에 둔다(그릴 때마다 파싱하지 않는다 — `crates/tui/CLAUDE.md` "목록을 그릴 때 항목마다 전체 파싱 금지").
+- `value_list(resp: &TracedResponse, clipped_resp: bool, limit_kb: u32) -> ValueList { rows, notes }` — §2.1(응답 하나만 본다). 값 목록을 **열 때 한 번** 만들어 화면 상태에 둔다(그릴 때마다 파싱하지 않는다 — `crates/tui/CLAUDE.md` "목록을 그릴 때 항목마다 전체 파싱 금지"). 화면에 쓸 글자(`sanitize`를 마친 대상·받은 값)와 대상 칸 폭도 열 때 한 번 만들어 상태에 두고, 그릴 때는 보이는 줄만 다룬다(줄이 3만 개까지 될 수 있다 — 구현 중 리뷰로 추가).
 - `open_values(panel: &PanelConfig, trace: &ScenarioTrace, trace_idx: usize, clipped_resp: bool, limit_kb: u32, names: &Names) -> ValuesState` — §2.2를 얹는다: 스텝 칸 제한·응답 없음이면 이유 한 줄짜리 상태, 아니면 `value_list` + 반복 안내(같은 `step_id`의 HTTP 실행이 `trace_idx` 뒤에 또 있는가). 조건·표시 값에 쓸 `step_id`(스텝 칸 = 칸의 스텝)도 여기서 정해 상태에 싣는다.
 - 키 순서를 지키려고 `serde_json::Value`(이 워크스페이스에선 키가 정렬된다) 대신 **순서를 지키는 작은 트리**로 읽는다(객체 = `Vec<(String, Node)>`, `serde::Deserialize` 손 구현). 워크스페이스 `serde_json`에 `preserve_order`를 켜지 않는다(기능 통합으로 컨트롤러·엔진의 직렬화 순서가 바뀐다).
 - 깊이는 직접 센다(풀기 포함, 64 초과면 그 자리에서 멈추고 "너무 깊음"). 한 번의 파싱은 `serde_json` 재귀 상한(128)이 스택을 지킨다.

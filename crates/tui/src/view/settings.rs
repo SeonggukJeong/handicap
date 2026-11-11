@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use super::inspect::render_frame;
 use super::model::parse_hex;
 use super::monitor::{C_BG, C_FAIL, C_MUTED, C_SLOW, C_TEXT, HeaderView};
-use super::{fit, text_width};
+use super::{fit, text_width, wrap_width};
 use crate::inspect::sanitize;
 use crate::text;
 
@@ -294,6 +294,7 @@ pub(crate) fn overlay_rows(
             cursor,
         }) => {
             let sel = Style::default().fg(color(C_BG)).bg(color(C_TEXT));
+            let cursor = &(*cursor).min(1);
             let mut opt_rows: Vec<Line<'static>> = options
                 .iter()
                 .enumerate()
@@ -306,7 +307,13 @@ pub(crate) fn overlay_rows(
                     let s = fit(&format!("{mark}{}{reason}", sanitize(name)), w);
                     if selected {
                         let pad = " ".repeat(w.saturating_sub(text_width(&s)));
-                        Line::from(Span::styled(format!("{s}{pad}"), sel))
+                        // 막힌 줄 위의 커서 — 선택 바탕은 두고 흐림을 같이 준다.
+                        let st = if why.is_some() {
+                            sel.add_modifier(Modifier::DIM)
+                        } else {
+                            sel
+                        };
+                        Line::from(Span::styled(format!("{s}{pad}"), st))
                     } else if why.is_some() {
                         Line::from(Span::styled(s, muted))
                     } else {
@@ -316,10 +323,22 @@ pub(crate) fn overlay_rows(
                 .collect();
             // 높이가 모자라면 머리 줄 → 안 고른 줄 순으로 뺀다(고른 줄이 마지막까지 남는다).
             if bh >= 3 {
-                ov_rows.push(Line::from(Span::styled(
-                    fit(&format!("  {}", sanitize(head)), w),
-                    text_style,
-                )));
+                // 머리는 줄바꿈 — 두 선택 줄 + 목록 1줄을 남기되 최소 1줄. 넘치면 마지막 머리 줄 끝을 `…`로.
+                let wrapped = wrap_width(&sanitize(head), w.saturating_sub(2));
+                let cap = bh.saturating_sub(3).max(1);
+                let cut = wrapped.len() > cap;
+                let n = wrapped.len().min(cap);
+                for (i, l) in wrapped.into_iter().take(n).enumerate() {
+                    let l = if cut && i + 1 == n {
+                        fit(&format!("{l}…"), w.saturating_sub(2))
+                    } else {
+                        l
+                    };
+                    ov_rows.push(Line::from(Span::styled(
+                        fit(&format!("  {l}"), w),
+                        text_style,
+                    )));
+                }
                 ov_rows.extend(opt_rows);
             } else if bh == 2 {
                 ov_rows.extend(opt_rows);

@@ -15,10 +15,11 @@ use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
 
 use crate::input::{InputMode, LineInput};
-use crate::inspect::{PRETTY_MAX_BYTES, PRETTY_MAX_DEPTH};
+use crate::inspect::{PRETTY_MAX_BYTES, PRETTY_MAX_DEPTH, sanitize};
 use crate::names::Names;
 use crate::panel_settings::condition_target;
 use crate::text;
+use crate::view::text_width;
 
 /// 서버 `check.rs` `MAX_JSON_UNWRAP`과 같다.
 const MAX_JSON_UNWRAP: usize = 3;
@@ -676,16 +677,56 @@ pub struct ValuesState {
     pub list: ValueList,
     pub blocked: Option<Blocked>,
     pub cursor: usize,
+    /// 줄마다 `sanitize`를 마친 글자 — 열 때 한 번 만든다(막힘이면 비어 있다).
+    pub texts: Vec<RowText>,
+    /// 모든 줄의 대상 표시 폭 중 최대.
+    pub target_width: usize,
+}
+
+/// 화면에 쓸 한 줄의 글자(`inspect::sanitize`를 마친 대상·받은 값). 값이 들어 있어 `Debug`를 달지 않는다.
+#[derive(Clone)]
+pub struct RowText {
+    pub target: String,
+    pub shown: String,
+}
+
+impl ValuesState {
+    /// 커서 0. `texts`·`target_width`를 `list.rows`에서 한 번 만든다(막힘이면 줄을 그리지 않으니 비운다).
+    pub fn new(step_id: String, list: ValueList, blocked: Option<Blocked>) -> ValuesState {
+        let mut texts = Vec::new();
+        let mut target_width = 0;
+        if blocked.is_none() {
+            texts.reserve(list.rows.len());
+            for r in &list.rows {
+                let target = sanitize(&r.target());
+                target_width = target_width.max(text_width(&target));
+                texts.push(RowText {
+                    target,
+                    shown: sanitize(&r.shown()),
+                });
+            }
+        }
+        ValuesState {
+            step_id,
+            list,
+            blocked,
+            cursor: 0,
+            texts,
+            target_width,
+        }
+    }
 }
 
 impl fmt::Debug for ValuesState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ValuesState {{ list: {:?}, blocked: {}, cursor: {} }}",
+            "ValuesState {{ list: {:?}, blocked: {}, cursor: {}, texts: {}, target_width: {} }}",
             self.list,
             self.blocked.is_some(),
-            self.cursor
+            self.cursor,
+            self.texts.len(),
+            self.target_width
         )
     }
 }
@@ -704,12 +745,7 @@ pub fn open_values(
         notes: Vec::new(),
     };
     let Some(step) = trace.steps.get(trace_idx) else {
-        return ValuesState {
-            step_id: String::new(),
-            list: empty,
-            blocked: Some(Blocked::NoResponse),
-            cursor: 0,
-        };
+        return ValuesState::new(String::new(), empty, Some(Blocked::NoResponse));
     };
     if let Some(own) = &panel.step_id
         && own != &step.step_id
@@ -718,20 +754,10 @@ pub fn open_values(
             .step_name(&panel.scenario_id, own)
             .unwrap_or(own)
             .to_string();
-        return ValuesState {
-            step_id: own.clone(),
-            list: empty,
-            blocked: Some(Blocked::OtherStep { name }),
-            cursor: 0,
-        };
+        return ValuesState::new(own.clone(), empty, Some(Blocked::OtherStep { name }));
     }
     let Some(resp) = &step.response else {
-        return ValuesState {
-            step_id: step.step_id.clone(),
-            list: empty,
-            blocked: Some(Blocked::NoResponse),
-            cursor: 0,
-        };
+        return ValuesState::new(step.step_id.clone(), empty, Some(Blocked::NoResponse));
     };
     let mut list = value_list(resp, clipped_resp, limit_kb);
     let later = trace.steps[trace_idx + 1..]
@@ -740,10 +766,5 @@ pub fn open_values(
     if later {
         list.notes.insert(0, ListNote::LaterRun);
     }
-    ValuesState {
-        step_id: step.step_id.clone(),
-        list,
-        blocked: None,
-        cursor: 0,
-    }
+    ValuesState::new(step.step_id.clone(), list, None)
 }

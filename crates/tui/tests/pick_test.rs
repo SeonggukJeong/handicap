@@ -7,10 +7,11 @@ use handicap_controller::monitor::config::{
 };
 use handicap_engine::extract::{jsonpath_first, jsonpath_is_simple, jsonpath_is_valid, stringify};
 use handicap_engine::{ScenarioTrace, StepKind, StepTrace, TracedResponse};
+use handicap_tui::inspect::sanitize;
 use handicap_tui::names::Names;
 use handicap_tui::pick::{
     AUTH_HEADERS, Blocked, Draft, Hint, ListNote, MAX_PATH_BYTES, PickValue, RowKind, Seg,
-    ValueList, ValueRow, cond_block, default_condition, display_block, display_item,
+    ValueList, ValueRow, ValuesState, cond_block, default_condition, display_block, display_item,
     is_auth_header, marks, open_values, segments_to_path, value_list,
 };
 use handicap_tui::text;
@@ -909,4 +910,44 @@ fn auth_headers_match_controller() {
     assert_eq!(found, mine);
     assert!(is_auth_header("  Set-Cookie "));
     assert!(!is_auth_header("x-id"));
+}
+
+fn list_of(rows: Vec<ValueRow>) -> ValueList {
+    ValueList {
+        rows,
+        notes: Vec::new(),
+    }
+}
+
+#[test]
+fn values_state_texts() {
+    let rows = vec![
+        row(RowKind::Status, PickValue::Status(200)),
+        hdr("한글한글한글", "a\u{1b}[31mb"),
+        body("data.k", st("v\u{202e}w")),
+    ];
+    let state = ValuesState::new("S".into(), list_of(rows.clone()), None);
+    assert_eq!(state.cursor, 0);
+    assert_eq!(state.texts.len(), rows.len());
+    for (t, r) in state.texts.iter().zip(&rows) {
+        assert_eq!(t.target, sanitize(&r.target()));
+        assert_eq!(t.shown, sanitize(&r.shown()));
+    }
+    assert!(state.texts[1].shown.contains('\u{FFFD}'));
+    // 가장 넓은 대상 = `헤더 한글한글한글`(4 + 1 + 12 = 17칸) — 손 계산.
+    assert_eq!(state.texts[1].target, "헤더 한글한글한글");
+    assert_eq!(state.target_width, 17);
+    // 화면 폭 함수와 같은 결과.
+    let by_view = state
+        .texts
+        .iter()
+        .map(|t| ratatui::text::Span::raw(t.target.clone()).width())
+        .max();
+    assert_eq!(Some(state.target_width), by_view);
+    // 막힘 — 줄 없음.
+    let blocked = ValuesState::new("S".into(), list_of(Vec::new()), Some(Blocked::NoResponse));
+    assert!(blocked.texts.is_empty());
+    assert_eq!(blocked.target_width, 0);
+    let ro = ValuesState::new("S".into(), list_of(rows), Some(Blocked::NoResponse));
+    assert!(ro.texts.is_empty() && ro.target_width == 0);
 }

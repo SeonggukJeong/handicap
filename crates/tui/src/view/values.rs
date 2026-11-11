@@ -13,20 +13,8 @@ use super::monitor::{C_BG, C_MUTED, C_SLOW, C_TEXT, HeaderView};
 use super::settings::{OverlayView, color, overlay_rows, put};
 use super::{fit, text_width, wrap_width};
 use crate::inspect::sanitize;
+use crate::pick;
 use crate::text;
-
-/// 값 목록 한 줄(응답 값은 `app.rs`가 그릴 때마다 뷰 모델로 옮긴다 — `Debug`는 달지 않는다, `Clone`만).
-#[derive(Clone)]
-pub struct ValueRowView {
-    /// 대상(`상태코드`·`헤더 x`·본문 경로 — 원격 글자, 그릴 때 `sanitize`)
-    pub target: String,
-    /// 받은 값(원격 글자)
-    pub shown: String,
-    /// 이 줄을 대상으로 한 조건 수
-    pub cond_marks: usize,
-    /// 이 줄이 화면 표시 값으로 이미 달려 있는가
-    pub display_mark: bool,
-}
 
 pub struct ValuesView<'a> {
     /// `{칸 제목} · {시각} · {순번} {스텝 이름}` — 그릴 때 ` — 값 고르기`를 붙인다.
@@ -35,7 +23,12 @@ pub struct ValuesView<'a> {
     pub notes: Vec<String>,
     /// 값을 못 고르는 이유 — 있으면 표 머리·줄 없이 이 문구만(줄바꿈).
     pub blocked: Option<String>,
-    pub rows: Vec<ValueRowView>,
+    /// 줄 글자 — 호출 쪽이 `sanitize`를 마친 글자를 넘긴다(`pick::ValuesState::new`). 여기서 다시 `sanitize`하지 않는다.
+    pub rows: &'a [pick::RowText],
+    /// 모든 줄의 대상 표시 폭 중 최대(`ValuesState::target_width`).
+    pub target_width: usize,
+    /// 줄 번호 → (그 줄을 대상으로 한 조건 수, 화면 표시 값 있음). **화면에 보이는 줄에만** 부른다.
+    pub marks: &'a dyn Fn(usize) -> (usize, bool),
     pub cursor: usize,
     pub overlay: Option<OverlayView<'a>>,
     pub form: Option<&'a CondFormView<'a>>,
@@ -73,6 +66,13 @@ pub fn fit_head(s: &str, w: usize) -> String {
         used += cw;
         tail.push(c);
     }
+    // 잘린 경계 바로 뒤의 폭 0 글자(결합 문자 등)는 `…` 위에 얹히니 버린다.
+    while tail
+        .last()
+        .is_some_and(|c| text_width(c.encode_utf8(&mut [0; 4])) == 0)
+    {
+        tail.pop();
+    }
     tail.push('…');
     tail.iter().rev().collect()
 }
@@ -84,22 +84,28 @@ fn pad_to(s: &str, w: usize) -> String {
 /// 표지가 그 줄에 들어갈 최소 받은 값 칸.
 const MIN_VALUE: usize = 4;
 
-fn row_line(r: &ValueRowView, selected: bool, tw: usize, w: usize) -> Line<'static> {
+fn row_line(
+    r: &pick::RowText,
+    marks: (usize, bool),
+    selected: bool,
+    tw: usize,
+    w: usize,
+) -> Line<'static> {
     let sel = Style::default().fg(color(C_BG)).bg(color(C_TEXT));
     let text_style = Style::default().fg(color(C_TEXT));
     let muted = Style::default().fg(color(C_MUTED));
     let prefix = if selected { "▶ " } else { "  " };
-    let target = pad_to(&fit_head(&sanitize(&r.target), tw), tw);
-    let shown = sanitize(&r.shown);
-    let mark = mark_text(r.cond_marks, r.display_mark);
+    let target = pad_to(&fit_head(&r.target, tw), tw);
+    let shown = &r.shown;
+    let mark = mark_text(marks.0, marks.1);
     let left_w = 2 + tw + 2;
     let mw = text_width(&mark);
     let show_mark = !mark.is_empty() && left_w + MIN_VALUE + 2 + mw <= w;
     let (value, mut tail) = if show_mark {
         let vw = w.saturating_sub(left_w + 2 + mw);
-        (pad_to(&fit(&shown, vw), vw), Some(format!("  {mark}")))
+        (pad_to(&fit(shown, vw), vw), Some(format!("  {mark}")))
     } else {
-        (fit(&shown, w.saturating_sub(left_w)), None)
+        (fit(shown, w.saturating_sub(left_w)), None)
     };
     let mut left = format!("{prefix}{target}  {value}");
     if text_width(&left) + tail.as_ref().map_or(0, |t| text_width(t)) > w {
@@ -201,13 +207,7 @@ pub fn render_values(f: &mut Frame, head: &HeaderView, v: &ValuesView, keys: &[&
                 );
                 y += 1;
             }
-            let max_tw = v
-                .rows
-                .iter()
-                .map(|r| text_width(&sanitize(&r.target)))
-                .max()
-                .unwrap_or(0);
-            let tw = max_tw.min(w / 2).min(w.saturating_sub(2));
+            let tw = v.target_width.min(w / 2).min(w.saturating_sub(2));
             if head_n > 0 {
                 let line = fit(
                     &format!(
@@ -223,7 +223,12 @@ pub fn render_values(f: &mut Frame, head: &HeaderView, v: &ValuesView, keys: &[&
             let lh = rest.saturating_sub(notes_n + head_n);
             let start = (cursor + 1).saturating_sub(lh).min(n);
             for (i, r) in v.rows[start..].iter().take(lh).enumerate() {
-                put(f, row(y + i), row_line(r, start + i == cursor, tw, w));
+                let idx = start + i;
+                put(
+                    f,
+                    row(y + i),
+                    row_line(r, (v.marks)(idx), idx == cursor, tw, w),
+                );
             }
         }
     }
