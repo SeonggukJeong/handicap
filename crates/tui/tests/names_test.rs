@@ -1,5 +1,5 @@
 use handicap_engine::Scenario;
-use handicap_tui::names::{Names, StepInfo, flatten_http_steps};
+use handicap_tui::names::{Names, StepInfo, VarKind, flatten_http_steps};
 
 const NESTED: &str = r#"
 version: 1
@@ -107,4 +107,69 @@ fn names_tolerates_bad_input() {
     assert_eq!(Names::from_bundle(&bom).scenario_name("S1"), Some("중첩"));
 
     assert_eq!(Names::from_bundle(b"{}"), Names::default());
+}
+
+const WITH_VARS: &str = r#"
+version: 1
+name: 변수
+variables:
+  zeta: "고정"
+  alpha: "1"
+  mid: { gen: uuid }
+steps:
+  - { id: "01J00000000000000000000A01", name: a, type: http, request: { method: GET, url: "/a" }, assert: [] }
+"#;
+
+fn bundle2(scenarios: serde_json::Value) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "format": "handicap-bundle",
+        "format_version": 1,
+        "boards": [],
+        "scenarios": scenarios,
+        "environments": [
+            { "id": "E2", "name": "스테이징" },
+            { "id": "E1", "name": "운영", "vars": { "BASE_URL": "비밀1", "API_TOKEN": "비밀2" } }
+        ]
+    }))
+    .unwrap()
+}
+
+#[test]
+fn env_order_and_keys() {
+    let names = Names::from_bundle(&bundle2(serde_json::json!([])));
+    assert_eq!(
+        names.env_order(),
+        [
+            ("E2".to_string(), "스테이징".to_string()),
+            ("E1".to_string(), "운영".to_string())
+        ]
+    );
+    assert_eq!(
+        names.env_keys("E1"),
+        Some(&["API_TOKEN".to_string(), "BASE_URL".to_string()][..])
+    );
+    assert_eq!(names.env_keys("E2"), Some(&[][..]));
+    assert_eq!(names.env_keys("NOPE"), None);
+    let dbg = format!("{names:?}");
+    assert!(!dbg.contains("비밀1") && !dbg.contains("비밀2"));
+}
+
+#[test]
+fn scenario_vars_keys_and_kinds() {
+    let names = Names::from_bundle(&bundle2(serde_json::json!([
+        { "id": "S1", "yaml": WITH_VARS },
+        { "id": "BAD", "yaml": "::" }
+    ])));
+    assert_eq!(
+        names.scenario_vars("S1"),
+        Some(
+            &[
+                ("alpha".to_string(), VarKind::Static),
+                ("mid".to_string(), VarKind::Generated),
+                ("zeta".to_string(), VarKind::Static),
+            ][..]
+        )
+    );
+    assert_eq!(names.scenario_vars("BAD"), None);
+    assert_eq!(names.scenario_vars("NOPE"), None);
 }

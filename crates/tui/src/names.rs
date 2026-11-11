@@ -2,13 +2,14 @@
 //!
 //! wire.rs의 `deny_unknown_fields`를 일부러 따르지 않는다 — 이름 표시용이고, 형식 검증은
 //! 서버 가져오기가 이미 했다. 필요한 키(`scenarios[].{id,yaml}`, `environments[].{id,name}`)만
-//! 읽고, 환경 `vars`는 역직렬화하지 않는다(값을 메모리에 들지 않는다). 실패해도 이름이 id로
+//! 읽고, 환경 `vars`는 키 이름만 읽는다(값은 `IgnoredAny`로 버려 메모리에 들지 않는다). 실패해도 이름이 id로
 //! 보일 뿐이라 절대 실패하지 않는다(fail-soft).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use handicap_engine::{HttpStep, Scenario, Step};
+use handicap_engine::{HttpStep, Scenario, Step, VarDecl};
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 
 use crate::session::strip_bom;
 
@@ -57,12 +58,25 @@ struct ScenarioNames {
     name: String,
     /// 평탄화 순서. YAML을 못 읽은 시나리오는 맵에 없다(맵에 없음 = 못 읽음).
     steps: Vec<StepInfo>,
+    /// `variables`의 (키, 종류), 키 순.
+    vars: Vec<(String, VarKind)>,
+}
+
+/// 시나리오 변수 종류 — 엔진 `VarDecl`의 고정/생성 구분.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VarKind {
+    Static,
+    Generated,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Names {
     scenarios: HashMap<String, ScenarioNames>,
     environments: HashMap<String, String>,
+    /// 번들 `environments[]` 순서의 (id, 이름).
+    env_order: Vec<(String, String)>,
+    /// 환경 id → 변수 키(키 순). 값은 들지 않는다.
+    env_keys: HashMap<String, Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +97,9 @@ struct ScenarioLite {
 struct EnvLite {
     id: String,
     name: String,
+    /// 키만 남고 값은 버려진다(IgnoredAny).
+    #[serde(default)]
+    vars: BTreeMap<String, IgnoredAny>,
 }
 
 fn method_str(h: &HttpStep) -> String {
@@ -113,23 +130,40 @@ impl Names {
                         url: h.request.url.clone(),
                     })
                     .collect();
+                let vars = sc
+                    .variables
+                    .iter()
+                    .map(|(k, d)| {
+                        let kind = match d {
+                            VarDecl::Static(_) => VarKind::Static,
+                            VarDecl::Gen { .. } => VarKind::Generated,
+                        };
+                        (k.clone(), kind)
+                    })
+                    .collect();
                 Some((
                     s.id,
                     ScenarioNames {
                         name: sc.name,
                         steps,
+                        vars,
                     },
                 ))
             })
             .collect();
-        let environments = lite
-            .environments
-            .into_iter()
-            .map(|e| (e.id, e.name))
-            .collect();
+        let mut environments = HashMap::new();
+        let mut env_order = Vec::new();
+        let mut env_keys = HashMap::new();
+        for e in lite.environments {
+            environments.insert(e.id.clone(), e.name.clone());
+            env_keys.insert(e.id.clone(), e.vars.into_keys().collect());
+            env_order.push((e.id, e.name));
+        }
         Names {
             scenarios,
             environments,
+            env_order,
+            env_keys,
         }
     }
 
@@ -158,5 +192,20 @@ impl Names {
 
     pub fn env_name(&self, environment_id: &str) -> Option<&str> {
         self.environments.get(environment_id).map(String::as_str)
+    }
+
+    /// 번들 `environments[]` 순서의 (id, 이름).
+    pub fn env_order(&self) -> &[(String, String)] {
+        &self.env_order
+    }
+
+    /// 그 환경의 변수 키(키 순). 모르는 환경이면 None.
+    pub fn env_keys(&self, environment_id: &str) -> Option<&[String]> {
+        self.env_keys.get(environment_id).map(Vec::as_slice)
+    }
+
+    /// 그 시나리오 `variables`의 (키, 종류), 키 순. 못 읽은 시나리오면 None.
+    pub fn scenario_vars(&self, scenario_id: &str) -> Option<&[(String, VarKind)]> {
+        self.scenarios.get(scenario_id).map(|s| s.vars.as_slice())
     }
 }
