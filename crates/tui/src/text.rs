@@ -497,6 +497,10 @@ pub const KEYS_ADD: &str = "a 추가";
 pub const KEYS_DELETE: &str = "d 삭제";
 pub const KEYS_SWAP: &str = "s 자리 바꾸기";
 pub const KEYS_SHOW_VALUE: &str = "v 값 보기";
+/// 값 목록·선택 창 키 줄 조각(tui-2b §3.3, TUI 전용).
+pub const KEYS_ADD_ENTER: &str = "Enter 추가";
+pub const KEYS_TO_BODY: &str = "Esc 요청·응답으로";
+pub const KEYS_CHOOSE: &str = "Enter 선택";
 pub const KEYS_NEXT_FIELD: &str = "Tab 다음 칸";
 pub const KEYS_TOGGLE: &str = "Space 켜기·끄기";
 

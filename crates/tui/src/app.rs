@@ -24,7 +24,9 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use handicap_controller::monitor::check::CheckResult;
-use handicap_controller::monitor::config::{BoardConfig, LatencySource, PanelConfig};
+use handicap_controller::monitor::config::{
+    BoardConfig, Condition, ConditionSource, DisplayItem, LatencySource, PanelConfig,
+};
 
 use crate::api::Api;
 use crate::edit;
@@ -42,6 +44,7 @@ use crate::panel_settings::{
     condition_summary, condition_target, display_target, edit_menu_lines, ensure_visible,
     group_note, settings_items_edit,
 };
+use crate::pick;
 use crate::poll::{PollSnapshot, spawn_poller};
 use crate::prefs::{self, BorderStyle, Loaded, Prefs};
 use crate::session::{Session, Stage, StartError};
@@ -88,6 +91,8 @@ pub enum Screen {
     EnvVars,
     /// 시나리오 변수 화면(§6.4, 14)
     ScenarioVars,
+    /// 값 목록(tui-2b §3.1) — 요청·응답의 응답 값을 골라 조건·표시 값으로. 상태는 `EditUi.values`.
+    Values,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +193,8 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
         | Screen::Settings
         | Screen::EditList
         | Screen::EnvVars
-        | Screen::ScenarioVars => {
+        | Screen::ScenarioVars
+        | Screen::Values => {
             if quit_key {
                 return Action::AskQuit;
             }
@@ -241,6 +247,7 @@ fn is_sub(screen: &Screen) -> bool {
             | Screen::EditList
             | Screen::EnvVars
             | Screen::ScenarioVars
+            | Screen::Values
     )
 }
 
@@ -357,7 +364,7 @@ pub enum Overlay {
         cursor: usize,
     },
     CondForm {
-        index: usize,
+        target: CondTarget,
         ops: Vec<ConditionOp>,
         op: usize,
         value: LineInput,
@@ -378,6 +385,37 @@ pub enum Overlay {
     Checking { seq: u64, wait: CheckWait },
     /// ReadOnly 안내·서버 거절 — 다음 키 하나로 닫힘(그 키는 메뉴로 넘어가지 않는다).
     Notice(String),
+    /// 값 목록에서 고른 뒤의 창(tui-2b §2.3) — 0 = `조건으로 추가`, 1 = `화면에 추가`. 고른 줄은 `EditUi.values`의
+    /// 커서가 가리킨다(창이 값을 품지 않는다). 막힌 줄은 이유를 들고 `Enter`를 받지 않는다.
+    AddChoice {
+        cursor: usize,
+        cond_block: Option<&'static str>,
+        display_block: Option<&'static str>,
+    },
+}
+
+/// 조건 칸이 고치는 것 — 2a의 기존 조건(목록 위치) 또는 값 목록에서 새로 더할 조건(tui-2b §2.4).
+/// `New`는 응답 값을 품는다(`shown`·`path`) — `Debug`는 종류만.
+#[derive(Clone, PartialEq, Eq)]
+pub enum CondTarget {
+    Existing(usize),
+    New {
+        step_id: String,
+        source: ConditionSource,
+        path: String,
+        /// 받은 값 글자(원격 — 그릴 때 `sanitize`)
+        shown: String,
+        hint: Option<pick::Hint>,
+    },
+}
+
+impl std::fmt::Debug for CondTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CondTarget::Existing(i) => write!(f, "Existing({i})"),
+            CondTarget::New { .. } => f.write_str("New"),
+        }
+    }
 }
 
 impl std::fmt::Debug for Overlay {
@@ -397,6 +435,7 @@ impl Overlay {
             Overlay::Saving { .. } => "Saving",
             Overlay::Checking { .. } => "Checking",
             Overlay::Notice(_) => "Notice",
+            Overlay::AddChoice { .. } => "AddChoice",
         }
     }
 }
@@ -463,6 +502,8 @@ pub struct EditUi {
     pub reveal: bool,
     pub env: Option<EnvLoad>,
     pub scen: Option<ScenLoad>,
+    /// 값 목록(tui-2b §4.2) — 줄·안내·이유·스텝·**자기 커서**(`list_cursor`가 아님). 응답 값을 품는다.
+    pub values: Option<pick::ValuesState>,
 }
 
 /// 값이 로그로 새지 않게 손으로 쓴 `Debug` — `env`·`scen`은 있는지만, overlay는 종류만(입력줄·서버 문구 가림).
@@ -478,6 +519,7 @@ impl std::fmt::Debug for EditUi {
             .field("reveal", &self.reveal)
             .field("env", &self.env.as_ref().map(|_| "<가림>"))
             .field("scen", &self.scen.as_ref().map(|_| "<가림>"))
+            .field("values", &self.values.is_some())
             .finish()
     }
 }
@@ -583,6 +625,7 @@ pub fn idle_drop(ui: &mut EditUi) {
     ui.leave_env();
     ui.leave_scen();
     ui.digit = None;
+    ui.values = None;
 }
 
 /// 칸 설정 메뉴의 `r` — 대기 번호를 하나 올리고(`*seq` = `App.check_seq`: 프로세스 안에서 줄지 않는다) 대기 창을 띄운 뒤,
@@ -678,7 +721,7 @@ pub fn edit_key(screen: &Screen, ui: &EditUi, k: KeyEvent, now: Instant) -> Edit
     let menu = matches!(screen, Screen::Settings);
     let sub = matches!(
         screen,
-        Screen::EditList | Screen::EnvVars | Screen::ScenarioVars
+        Screen::EditList | Screen::EnvVars | Screen::ScenarioVars | Screen::Values
     );
     if !menu && !sub {
         return EditAction::None;
@@ -758,7 +801,8 @@ fn overlay_key(
                 EditAction::None
             }
         }
-        Overlay::Pick { .. } => {
+        // 값 목록의 선택 창도 목록 창과 같은 키 — `edit_apply`가 창 종류로 갈라 처리한다.
+        Overlay::Pick { .. } | Overlay::AddChoice { .. } => {
             if quit_key {
                 return EditAction::AskQuit;
             }
@@ -1079,6 +1123,20 @@ impl SubViews {
     /// `Esc` 한 단계 뒤. 그 외 화면은 None(상태 불변).
     pub fn back(&mut self, screen: &Screen) -> Option<Screen> {
         match screen {
+            // 값 목록 → 요청·응답(스크롤·가림 그대로). 오류 보기에서 연 기록이면 `EditUi`째 버리고(그 경로엔 원래
+            // 없다), 칸 설정에서 열었으면 값만 버리고 메뉴 커서는 둔다(tui-2b §4.2).
+            Screen::Values => {
+                let from_errors = self
+                    .record
+                    .as_ref()
+                    .is_some_and(|r| r.origin == RecordOrigin::Errors);
+                if from_errors {
+                    self.edit = None;
+                } else if let Some(e) = &mut self.edit {
+                    e.values = None;
+                }
+                Some(Screen::Body)
+            }
             Screen::Body => {
                 self.body = None;
                 Some(Screen::Record)
@@ -1529,6 +1587,10 @@ pub enum Change {
         ignore_case: bool,
         trim: bool,
     },
+    /// 값 목록에서 새 조건(끝에 붙임, tui-2b §2.4)
+    AddCondition(Condition),
+    /// 값 목록에서 새 표시 값(끝에 붙임, §2.5)
+    AddDisplay(DisplayItem),
 }
 
 impl std::fmt::Debug for Change {
@@ -1543,6 +1605,8 @@ impl std::fmt::Debug for Change {
             Change::Remove(kind, i) => return write!(f, "Remove({kind:?}, {i})"),
             Change::Swap => "Swap",
             Change::Condition { index, .. } => return write!(f, "Condition({index})"),
+            Change::AddCondition(_) => "AddCondition",
+            Change::AddDisplay(_) => "AddDisplay",
         };
         f.write_str(k)
     }
@@ -1566,6 +1630,8 @@ pub fn apply_change(cfg: &BoardConfig, panel_idx: usize, c: &Change) -> BoardCon
             ignore_case,
             trim,
         } => edit::set_condition(cfg, panel_idx, *index, *op, value, *ignore_case, *trim),
+        Change::AddCondition(c) => edit::add_condition(cfg, panel_idx, c.clone()),
+        Change::AddDisplay(d) => edit::add_display(cfg, panel_idx, d.clone()),
     }
 }
 
@@ -1631,7 +1697,7 @@ fn with_error(o: Overlay, m: String) -> Overlay {
             share,
         },
         Overlay::CondForm {
-            index,
+            target,
             ops,
             op,
             value,
@@ -1640,7 +1706,7 @@ fn with_error(o: Overlay, m: String) -> Overlay {
             focus,
             ..
         } => Overlay::CondForm {
-            index,
+            target,
             ops,
             op,
             value,
@@ -1954,6 +2020,7 @@ fn rows_on(screen: &Screen, ui: &EditUi, p: &PanelConfig) -> usize {
             Some(ScenLoad::Loaded { vars, .. }) => vars.len(),
             _ => 0,
         },
+        Screen::Values => ui.values.as_ref().map_or(0, |v| v.list.rows.len()),
         _ => 0,
     }
 }
@@ -2150,18 +2217,21 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
         }
         EditAction::MoveCursor(d) => {
             let n = rows_on(screen, ui, p);
-            if matches!(screen, Screen::Settings) {
-                ui.cursor = clamp_move(ui.cursor, d, n);
-            } else {
-                ui.list_cursor = clamp_move(ui.list_cursor, d, n);
+            match (screen, &mut ui.values) {
+                (Screen::Settings, _) => ui.cursor = clamp_move(ui.cursor, d, n),
+                // 값 목록은 자기 커서 — `list_cursor`는 저장 뒤 하위 목록 길이로 잘린다(§4.2).
+                (Screen::Values, Some(v)) => v.cursor = clamp_move(v.cursor, d, n),
+                (Screen::Values, None) => {}
+                _ => ui.list_cursor = clamp_move(ui.list_cursor, d, n),
             }
         }
         EditAction::Jump(i) => {
             let last = rows_on(screen, ui, p).saturating_sub(1);
-            if matches!(screen, Screen::Settings) {
-                ui.cursor = i.min(last);
-            } else {
-                ui.list_cursor = i.min(last);
+            match (screen, &mut ui.values) {
+                (Screen::Settings, _) => ui.cursor = i.min(last),
+                (Screen::Values, Some(v)) => v.cursor = i.min(last),
+                (Screen::Values, None) => {}
+                _ => ui.list_cursor = i.min(last),
             }
         }
         EditAction::DigitJump { no, .. } => {
@@ -2173,6 +2243,7 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
             Screen::Settings => activate_menu(ui, cx, p, &mut out),
             Screen::EditList => activate_list(ui, p),
             Screen::EnvVars | Screen::ScenarioVars => activate_var(screen, ui, cx, p),
+            Screen::Values => activate_value(ui, p),
             _ => {}
         },
         EditAction::Add => {
@@ -2253,13 +2324,15 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
                 InputOutcome::Edited | InputOutcome::Ignored => {}
             }
         }
-        EditAction::PickMove(d) => {
-            if let Some(Overlay::Pick {
+        EditAction::PickMove(d) => match &mut ui.overlay {
+            Some(Overlay::Pick {
                 options, cursor, ..
-            }) = &mut ui.overlay
-            {
-                *cursor = clamp_move(*cursor, d, options.len());
-            }
+            }) => *cursor = clamp_move(*cursor, d, options.len()),
+            Some(Overlay::AddChoice { cursor, .. }) => *cursor = clamp_move(*cursor, d, 2),
+            _ => {}
+        },
+        EditAction::PickChoose if matches!(ui.overlay, Some(Overlay::AddChoice { .. })) => {
+            out.req = choose_add(ui, cx, bi, pi);
         }
         EditAction::PickChoose => {
             if let Some(Overlay::Pick {
@@ -2287,6 +2360,94 @@ pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAct
         }
     }
     out
+}
+
+/// 값 목록의 `Enter`(tui-2b §2.3): 막힌 목록·빈 목록이면 무동작. `본문 전체` 줄은 바로 조건 칸(조건 10개면 이유만).
+/// 그 밖은 선택 창 — 둘 다 막혔으면 두 이유를 안내 한 번으로, 아니면 커서를 고를 수 있는 첫 줄에.
+fn activate_value(ui: &mut EditUi, p: &PanelConfig) {
+    let Some(v) = &ui.values else {
+        return;
+    };
+    if v.blocked.is_some() {
+        return;
+    }
+    let Some(row) = v.list.rows.get(v.cursor) else {
+        return;
+    };
+    let cond_block = pick::cond_block(p);
+    if matches!(row.kind, pick::RowKind::BodyText) {
+        ui.overlay = Some(match cond_block {
+            Some(m) => Overlay::Notice(m.to_string()),
+            None => new_cond_form(&v.step_id, row),
+        });
+        return;
+    }
+    let display_block =
+        pick::display_item(&v.step_id, row).and_then(|d| pick::display_block(p, &d));
+    ui.overlay = Some(match (cond_block, display_block) {
+        (Some(c), Some(d)) => Overlay::Notice(format!("{c} · {d}")),
+        _ => Overlay::AddChoice {
+            cursor: usize::from(cond_block.is_some()),
+            cond_block,
+            display_block,
+        },
+    });
+}
+
+/// 값 목록에서 고른 줄로 새 조건 칸(§2.4) — 기본 규칙·값·시작 칸은 `pick::default_condition`.
+fn new_cond_form(step_id: &str, row: &pick::ValueRow) -> Overlay {
+    let d = pick::default_condition(step_id, row);
+    let ops = edit::ops_for(d.cond.source);
+    let op = ops.iter().position(|o| *o == d.cond.op).unwrap_or(0);
+    Overlay::CondForm {
+        target: CondTarget::New {
+            step_id: d.cond.step_id,
+            source: d.cond.source,
+            path: d.cond.path,
+            shown: row.shown(),
+            hint: d.hint,
+        },
+        ops,
+        op,
+        value: LineInput::new(
+            &d.cond.value,
+            InputMode::Text {
+                max_chars: TEXT_MAX,
+            },
+        ),
+        ignore_case: d.cond.ignore_case,
+        trim: d.cond.trim,
+        focus: if d.focus_value {
+            CondFocus::Value
+        } else {
+            CondFocus::Op
+        },
+        error: None,
+    }
+}
+
+/// 선택 창의 `Enter`: 막힌 줄이면 무동작, 0 = 조건 칸, 1 = 표시 값 바로 저장(되살릴 창 없음 — 거절은 안내).
+fn choose_add(ui: &mut EditUi, cx: &mut EditCtx, bi: usize, pi: usize) -> Option<EditReq> {
+    let Some(Overlay::AddChoice {
+        cursor,
+        cond_block,
+        display_block,
+    }) = &ui.overlay
+    else {
+        return None;
+    };
+    let cursor = *cursor;
+    if (cursor == 0 && cond_block.is_some()) || (cursor != 0 && display_block.is_some()) {
+        return None;
+    }
+    let v = ui.values.as_ref()?;
+    let row = v.list.rows.get(v.cursor)?;
+    if cursor == 0 {
+        ui.overlay = Some(new_cond_form(&v.step_id, row));
+        return None;
+    }
+    let item = pick::display_item(&v.step_id, row)?;
+    commit(ui, cx, bi, pi, Change::AddDisplay(item), None, false)
 }
 
 fn activate_menu(ui: &mut EditUi, cx: &EditCtx, p: &PanelConfig, out: &mut EditOut) {
@@ -2366,7 +2527,7 @@ fn activate_list(ui: &mut EditUi, p: &PanelConfig) {
                         max_chars: TEXT_MAX,
                     },
                     |value| Overlay::CondForm {
-                        index: i,
+                        target: CondTarget::Existing(i),
                         ops,
                         op,
                         value,
@@ -2392,7 +2553,7 @@ fn cond_key(
     out: &mut EditOut,
 ) {
     let Some(Overlay::CondForm {
-        index,
+        target,
         ops,
         op,
         value,
@@ -2422,21 +2583,38 @@ fn cond_key(
         KeyCode::Char(' ') if *focus == CondFocus::Trim => *trim = !*trim,
         KeyCode::Esc => ui.overlay = None,
         KeyCode::Enter => {
-            let change = Change::Condition {
-                index: *index,
-                op: cur_op,
-                // 값이 필요 없는 규칙이면 비워 보낸다(서버도 비운다).
-                value: if cur_op.needs_value() {
-                    value.text()
-                } else {
-                    String::new()
+            // 값이 필요 없는 규칙이면 비워 보낸다(서버도 비운다).
+            let value = if cur_op.needs_value() {
+                value.text()
+            } else {
+                String::new()
+            };
+            let change = match target {
+                CondTarget::Existing(index) => Change::Condition {
+                    index: *index,
+                    op: cur_op,
+                    value,
+                    ignore_case: *ignore_case,
+                    trim: *trim,
                 },
-                ignore_case: *ignore_case,
-                trim: *trim,
+                CondTarget::New {
+                    step_id,
+                    source,
+                    path,
+                    ..
+                } => Change::AddCondition(Condition {
+                    step_id: step_id.clone(),
+                    source: *source,
+                    path: path.clone(),
+                    op: cur_op,
+                    value,
+                    ignore_case: *ignore_case,
+                    trim: *trim,
+                }),
             };
             let restore = ui.overlay.clone().map(|o| match o {
                 Overlay::CondForm {
-                    index,
+                    target,
                     ops,
                     op,
                     value,
@@ -2445,7 +2623,7 @@ fn cond_key(
                     focus,
                     ..
                 } => Overlay::CondForm {
-                    index,
+                    target,
                     ops,
                     op,
                     value,
@@ -2489,7 +2667,16 @@ pub fn edit_keys(
         Some(Overlay::CondForm { .. }) => crate::view::edit::cond_form_keys(),
         Some(Overlay::Confirm { .. } | Overlay::Saving { .. } | Overlay::Notice(_)) => vec![],
         Some(Overlay::Checking { .. }) => vec![text::KEYS_BACK],
+        Some(Overlay::AddChoice { .. }) => {
+            vec![text::KEYS_PICK, text::KEYS_CHOOSE, text::KEYS_CANCEL]
+        }
         None => match screen {
+            Screen::Values => match &ui.values {
+                Some(v) if v.blocked.is_none() && !v.list.rows.is_empty() => {
+                    vec![text::KEYS_PICK, text::KEYS_ADD_ENTER, text::KEYS_TO_BODY]
+                }
+                _ => vec![text::KEYS_TO_BODY],
+            },
             Screen::Settings => vec![
                 text::KEYS_PICK,
                 text::KEYS_NUMBER,
@@ -2544,7 +2731,13 @@ fn pick_labels(ui: &EditUi) -> Vec<String> {
 }
 
 /// overlay → 그리기 모델(조건 수정 칸은 따로 그린다 — None). `w` = 입력줄 가로 창 계산 폭.
-fn overlay_view<'a>(o: &'a Overlay, picks: &'a [String], w: usize) -> Option<OverlayView<'a>> {
+/// `values` = 값 목록(선택 창 머리 = 고른 줄의 대상·받은 값 — 없으면 창도 없다).
+fn overlay_view<'a>(
+    o: &'a Overlay,
+    picks: &'a [String],
+    values: Option<&pick::ValuesState>,
+    w: usize,
+) -> Option<OverlayView<'a>> {
     Some(match o {
         Overlay::Input {
             target,
@@ -2586,6 +2779,21 @@ fn overlay_view<'a>(o: &'a Overlay, picks: &'a [String], w: usize) -> Option<Ove
         Overlay::Saving { .. } => OverlayView::Saving,
         Overlay::Checking { .. } => OverlayView::Checking,
         Overlay::Notice(m) => OverlayView::Notice(m),
+        Overlay::AddChoice {
+            cursor,
+            cond_block,
+            display_block,
+        } => {
+            let t = values.and_then(|v| v.texts.get(v.cursor))?;
+            OverlayView::Choice {
+                head: format!("{}  =  {}", t.target(), t.shown()),
+                options: [
+                    (text::COND_ADD_CHOICE, *cond_block),
+                    (text::DISPLAY_ADD_CHOICE, *display_block),
+                ],
+                cursor: *cursor,
+            }
+        }
     })
 }
 
@@ -3215,7 +3423,10 @@ impl App<'_> {
             return;
         };
         let picks = pick_labels(ui);
-        let ov = ui.overlay.as_ref().and_then(|o| overlay_view(o, &picks, w));
+        let ov = ui
+            .overlay
+            .as_ref()
+            .and_then(|o| overlay_view(o, &picks, ui.values.as_ref(), w));
         let oh = overlay_rows(ov.as_ref(), w, bh).len().min(bh);
         let h = if oh > 0 {
             bh.saturating_sub(1).saturating_sub(oh)
@@ -3355,7 +3566,8 @@ impl App<'_> {
             | Screen::Settings
             | Screen::EditList
             | Screen::EnvVars
-            | Screen::ScenarioVars => {
+            | Screen::ScenarioVars
+            | Screen::Values => {
                 self.panels_drawn.set(false);
                 self.draw_sub(f, screen, bar == KeyBar::QuitConfirm);
             }
@@ -3486,7 +3698,10 @@ impl App<'_> {
             return;
         };
         let picks = pick_labels(ui);
-        let overlay = ui.overlay.as_ref().and_then(|o| overlay_view(o, &picks, w));
+        let overlay = ui
+            .overlay
+            .as_ref()
+            .and_then(|o| overlay_view(o, &picks, ui.values.as_ref(), w));
         match screen {
             Screen::Settings => {
                 let Some((title, lines, note)) = self.settings_view(w) else {
@@ -3523,8 +3738,9 @@ impl App<'_> {
                     overlay,
                 };
                 let cond = match &ui.overlay {
+                    // 새 조건(`New`)의 그리기는 값 목록 화면(tui-2b Task 5) — 하위 목록에는 기존 조건만.
                     Some(Overlay::CondForm {
-                        index,
+                        target: CondTarget::Existing(index),
                         ops,
                         op,
                         value,

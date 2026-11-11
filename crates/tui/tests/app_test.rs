@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
 use handicap_tui::app::{
-    Action, CheckWait, CondFocus, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched, IDLE_RETURN,
-    InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen, SubViews, digit_jump, edit_key,
-    effective_server_down, handle_key, handle_mouse, idle_drop, idle_expired, is_user_input,
-    move_sel, screen_after_start, start_check, sub_keys, toggle_allowed,
+    Action, CheckWait, CondFocus, CondTarget, Dir, EditAction, EditUi, EnvLoad, FetchReq, Fetched,
+    IDLE_RETURN, InputTarget, KeyCtx, Overlay, Pending, ScenLoad, Screen, SubViews, digit_jump,
+    edit_key, effective_server_down, handle_key, handle_mouse, idle_drop, idle_expired,
+    is_user_input, move_sel, screen_after_start, start_check, sub_keys, toggle_allowed,
 };
 use handicap_tui::app::{check_open_allowed, check_ready, check_reply};
 use handicap_tui::edit::{Field, ListKind, Pick};
@@ -1120,7 +1120,7 @@ fn list_screen_keys_normalize() {
 #[test]
 fn cond_form_keys() {
     let form = |focus| Overlay::CondForm {
-        index: 0,
+        target: CondTarget::Existing(0),
         ops: vec![],
         op: 0,
         value: text_input("x"),
@@ -2136,7 +2136,7 @@ mod save {
             "B1",
             "P1",
             Some(Overlay::CondForm {
-                index: 0,
+                target: CondTarget::Existing(0),
                 ops: vec![ConditionOp::Eq],
                 op: 0,
                 value: text_input("a"),
@@ -2820,7 +2820,7 @@ mod save {
         assert_eq!(u.overlay, Some(timeout_input("123", None)));
         // 조건 수정 칸은 값 칸에 포커스일 때만.
         let form = |focus| Overlay::CondForm {
-            index: 0,
+            target: CondTarget::Existing(0),
             ops: vec![ConditionOp::Eq],
             op: 0,
             value: text_input("a"),
@@ -2926,6 +2926,794 @@ mod save {
             fit_keys(&menu, w(&menu) - 1),
             ["1–14 번호", "Enter 수정", "Esc 모니터로"]
         );
+    }
+
+    // ---------- tui-2b Task 4: 값 목록 편집 상태·선택 창·새 조건 칸·저장 ----------
+
+    mod values {
+        use super::*;
+        use handicap_controller::monitor::config::{ConditionSource, DisplaySource};
+        use handicap_tui::app::edit_keys;
+        use handicap_tui::pick::{
+            Blocked, Hint, PickValue, RowKind, ValueList, ValueRow, ValuesState, marks,
+        };
+        use handicap_tui::text;
+
+        fn body_str(path: &str, v: &str) -> ValueRow {
+            ValueRow {
+                kind: RowKind::Body { path: path.into() },
+                value: PickValue::Str(v.into()),
+            }
+        }
+
+        fn body_text_row() -> ValueRow {
+            ValueRow {
+                kind: RowKind::BodyText,
+                value: PickValue::BodyText,
+            }
+        }
+
+        fn state(rows: Vec<ValueRow>) -> ValuesState {
+            ValuesState::new(
+                ST.into(),
+                ValueList {
+                    rows,
+                    notes: vec![],
+                },
+                None,
+            )
+        }
+
+        /// 보드 B1·칸 P1의 `EditUi` + 값 목록(`pick::ValuesState::new`로).
+        fn values_ui(rows: Vec<ValueRow>) -> EditUi {
+            let mut u = ui("B1", "P1", None);
+            u.values = Some(state(rows));
+            u
+        }
+
+        fn cond(i: usize) -> Condition {
+            Condition {
+                step_id: ST.into(),
+                source: ConditionSource::Status,
+                op: ConditionOp::Eq,
+                value: format!("{}", 200 + i),
+                ..Condition::default()
+            }
+        }
+
+        fn ten_conds(bs: &mut [BoardResponse]) {
+            bs[0].config.panels[0].conditions = (0..10).map(cond).collect();
+        }
+
+        fn two_displays(bs: &mut [BoardResponse]) {
+            bs[0].config.panels[0].display_items = vec![
+                DisplayItem {
+                    step_id: ST.into(),
+                    source: DisplaySource::Status,
+                    path: String::new(),
+                },
+                DisplayItem {
+                    step_id: ST.into(),
+                    source: DisplaySource::Header,
+                    path: "x-a".into(),
+                },
+            ];
+        }
+
+        fn choice(cursor: usize, c: Option<&'static str>, d: Option<&'static str>) -> Overlay {
+            Overlay::AddChoice {
+                cursor,
+                cond_block: c,
+                display_block: d,
+            }
+        }
+
+        fn ck(c: KeyCode) -> EditAction {
+            EditAction::CondKey(KeyEvent::new(c, KeyModifiers::NONE))
+        }
+
+        fn eight_rows() -> Vec<ValueRow> {
+            (0..8)
+                .map(|i| body_str(&format!("$.k{i}"), &format!("v{i}")))
+                .collect()
+        }
+
+        #[test]
+        fn values_keys() {
+            let s = Screen::Values;
+            let u = values_ui(eight_rows());
+            for (k, want) in [
+                (key(KeyCode::Down), EditAction::MoveCursor(1)),
+                (ch('j'), EditAction::MoveCursor(1)),
+                (key(KeyCode::Up), EditAction::MoveCursor(-1)),
+                (ch('k'), EditAction::MoveCursor(-1)),
+                (key(KeyCode::PageDown), EditAction::MoveCursor(10)),
+                (key(KeyCode::PageUp), EditAction::MoveCursor(-10)),
+                (key(KeyCode::Home), EditAction::Jump(0)),
+                (key(KeyCode::End), EditAction::Jump(usize::MAX)),
+                (key(KeyCode::Enter), EditAction::Activate),
+                (key(KeyCode::Esc), EditAction::Back),
+                (ch('q'), EditAction::AskQuit),
+                (ctrl('c'), EditAction::AskQuit),
+                (ctrl('b'), EditAction::None),
+                (ch('1'), EditAction::None),
+                (ch('r'), EditAction::None),
+                (ch('a'), EditAction::None),
+                (ch('d'), EditAction::None),
+                (ch('s'), EditAction::None),
+                (ch('v'), EditAction::None),
+            ] {
+                assert_eq!(ek(&s, &u, k), want, "{k:?}");
+            }
+        }
+
+        #[test]
+        fn values_cursor_is_separate() {
+            let bs = boards();
+            let mut t = None;
+            let mut u = values_ui(eight_rows());
+            u.cursor = 10;
+            u.list_cursor = 3;
+            let s = Screen::Values;
+            run(&s, &mut u, &bs, &mut t, EditAction::MoveCursor(1));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 1);
+            run(&s, &mut u, &bs, &mut t, EditAction::MoveCursor(10));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 7, "끝에서 가둠");
+            run(&s, &mut u, &bs, &mut t, EditAction::Jump(0));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 0);
+            run(&s, &mut u, &bs, &mut t, EditAction::Jump(usize::MAX));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 7);
+            run(&s, &mut u, &bs, &mut t, EditAction::MoveCursor(-20));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 0, "처음에서 가둠");
+            assert_eq!((u.cursor, u.list_cursor), (10, 3), "메뉴·목록 커서 불변");
+        }
+
+        #[test]
+        fn activate_opens_choice() {
+            let s = Screen::Values;
+            let row = || vec![body_str("$.status", "OK")];
+            // 보통 줄 → 선택 창(둘 다 열림, 커서 0).
+            let bs = boards();
+            let mut t = None;
+            let mut u = values_ui(row());
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, Some(choice(0, None, None)));
+            // 조건 10개 → 커서 1, 조건 줄 막힘.
+            let mut bs10 = boards();
+            ten_conds(&mut bs10);
+            let mut u = values_ui(row());
+            run(&s, &mut u, &bs10, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, Some(choice(1, Some(text::COND_MAX), None)));
+            // 표시 값 2개 → 커서 0, 표시 줄 막힘.
+            let mut bs2 = boards();
+            two_displays(&mut bs2);
+            let mut u = values_ui(row());
+            run(&s, &mut u, &bs2, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, Some(choice(0, None, Some(text::DISPLAY_MAX))));
+            // 둘 다 막힘 → 안내 한 번에 두 이유.
+            let mut both = boards();
+            ten_conds(&mut both);
+            two_displays(&mut both);
+            let mut u = values_ui(row());
+            let out = run(&s, &mut u, &both, &mut t, EditAction::Activate);
+            assert!(out.req.is_none());
+            assert_eq!(
+                u.overlay,
+                Some(Overlay::Notice(format!(
+                    "{} · {}",
+                    text::COND_MAX,
+                    text::DISPLAY_MAX
+                )))
+            );
+            // `본문 전체` 줄 → 바로 조건 칸(글자 포함, 값 칸에서 시작).
+            let mut u = values_ui(vec![body_text_row()]);
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            let Some(Overlay::CondForm {
+                target,
+                ops,
+                op,
+                focus,
+                value,
+                ..
+            }) = &u.overlay
+            else {
+                panic!("{:?}", u.overlay);
+            };
+            assert!(
+                matches!(
+                    target,
+                    CondTarget::New {
+                        source: ConditionSource::BodyText,
+                        ..
+                    }
+                ),
+                "{target:?}"
+            );
+            assert_eq!(ops[*op], ConditionOp::Contains);
+            assert_eq!(*focus, CondFocus::Value);
+            assert_eq!(value.text(), "");
+            // `본문 전체` + 조건 10개 → 이유 안내만.
+            let mut u = values_ui(vec![body_text_row()]);
+            run(&s, &mut u, &bs10, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, Some(Overlay::Notice(text::COND_MAX.into())));
+            // 막힌 상태·줄 0개 → 창 없음.
+            let mut u = ui("B1", "P1", None);
+            u.values = Some(ValuesState::new(
+                ST.into(),
+                ValueList {
+                    rows: vec![],
+                    notes: vec![],
+                },
+                Some(Blocked::NoResponse),
+            ));
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, None);
+            let mut u = values_ui(vec![]);
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            assert_eq!(u.overlay, None);
+            assert_eq!(t, None, "요청 없음");
+        }
+
+        #[test]
+        fn choice_keys_and_blocked_rows() {
+            let s = Screen::Values;
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(0, None, None));
+            assert_eq!(ek(&s, &u, key(KeyCode::Down)), EditAction::PickMove(1));
+            assert_eq!(ek(&s, &u, ch('j')), EditAction::PickMove(1));
+            assert_eq!(ek(&s, &u, key(KeyCode::Up)), EditAction::PickMove(-1));
+            assert_eq!(ek(&s, &u, key(KeyCode::Enter)), EditAction::PickChoose);
+            assert_eq!(ek(&s, &u, key(KeyCode::Esc)), EditAction::PickCancel);
+            assert_eq!(ek(&s, &u, ch('q')), EditAction::AskQuit);
+            assert_eq!(ek(&s, &u, ctrl('b')), EditAction::None);
+            // 커서는 0/1에 가둔다.
+            let bs = boards();
+            let mut t = None;
+            for _ in 0..3 {
+                run(&s, &mut u, &bs, &mut t, EditAction::PickMove(1));
+            }
+            assert_eq!(u.overlay, Some(choice(1, None, None)));
+            run(&s, &mut u, &bs, &mut t, EditAction::PickMove(-5));
+            assert_eq!(u.overlay, Some(choice(0, None, None)));
+            run(&s, &mut u, &bs, &mut t, EditAction::PickCancel);
+            assert_eq!(u.overlay, None);
+            // 막힌 줄에서 Enter → 창 그대로·요청 없음.
+            let mut bs10 = boards();
+            ten_conds(&mut bs10);
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(0, Some(text::COND_MAX), None));
+            let out = run(&s, &mut u, &bs10, &mut t, EditAction::PickChoose);
+            assert!(out.req.is_none());
+            assert_eq!(u.overlay, Some(choice(0, Some(text::COND_MAX), None)));
+            let mut bs2 = boards();
+            two_displays(&mut bs2);
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(1, None, Some(text::DISPLAY_MAX)));
+            let out = run(&s, &mut u, &bs2, &mut t, EditAction::PickChoose);
+            assert!(out.req.is_none());
+            assert_eq!(u.overlay, Some(choice(1, None, Some(text::DISPLAY_MAX))));
+            assert_eq!(t, None);
+        }
+
+        /// 줄 하나로 값 목록 → Enter → `조건으로 추가` → 조건 칸.
+        fn open_form(row: ValueRow, bs: &[BoardResponse]) -> EditUi {
+            let mut t = None;
+            let mut u = values_ui(vec![row]);
+            run(&Screen::Values, &mut u, bs, &mut t, EditAction::Activate);
+            run(&Screen::Values, &mut u, bs, &mut t, EditAction::PickChoose);
+            u
+        }
+
+        #[test]
+        fn choose_condition_opens_prefilled_form() {
+            let bs = boards();
+            let u = open_form(body_str("$.status", "OK"), &bs);
+            let Some(Overlay::CondForm {
+                target,
+                ops,
+                op,
+                value,
+                focus,
+                error,
+                ..
+            }) = &u.overlay
+            else {
+                panic!("{:?}", u.overlay);
+            };
+            assert_eq!(
+                *target,
+                CondTarget::New {
+                    step_id: ST.into(),
+                    source: ConditionSource::Body,
+                    path: "$.status".into(),
+                    shown: "\"OK\"".into(),
+                    hint: None,
+                }
+            );
+            assert_eq!(ops[*op], ConditionOp::Eq);
+            assert_eq!(value.text(), "OK");
+            assert_eq!(*focus, CondFocus::Op);
+            assert_eq!(*error, None);
+            // 41자 → 값 있음 + 매번 바뀌는 값 안내.
+            let long = "x".repeat(41);
+            let u = open_form(body_str("$.token", &long), &bs);
+            let Some(Overlay::CondForm {
+                target, ops, op, ..
+            }) = &u.overlay
+            else {
+                panic!("{:?}", u.overlay);
+            };
+            assert_eq!(ops[*op], ConditionOp::NotEmpty);
+            assert!(
+                matches!(
+                    target,
+                    CondTarget::New {
+                        hint: Some(Hint::Volatile),
+                        ..
+                    }
+                ),
+                "{target:?}"
+            );
+            // 인증 헤더 → 가린 값 안내.
+            let u = open_form(
+                ValueRow {
+                    kind: RowKind::Header {
+                        name: "authorization".into(),
+                    },
+                    value: PickValue::Header("••••".into()),
+                },
+                &bs,
+            );
+            let Some(Overlay::CondForm {
+                target,
+                ops,
+                op,
+                value,
+                ..
+            }) = &u.overlay
+            else {
+                panic!("{:?}", u.overlay);
+            };
+            assert_eq!(ops[*op], ConditionOp::NotEmpty);
+            assert_eq!(value.text(), "", "가린 값이 비교값으로 들어가지 않는다");
+            assert!(
+                matches!(
+                    target,
+                    CondTarget::New {
+                        source: ConditionSource::Header,
+                        hint: Some(Hint::Masked),
+                        ..
+                    }
+                ),
+                "{target:?}"
+            );
+        }
+
+        #[test]
+        fn save_new_condition_request() {
+            let mut bs = boards();
+            bs[0].config.panels[0].conditions = vec![cond(0)];
+            let mut u = open_form(body_str("$.status", "OK"), &bs);
+            let form = u.overlay.clone().unwrap();
+            let mut t = None;
+            let out = run(&Screen::Values, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let Some(EditReq::SaveBoard {
+                panel_id, config, ..
+            }) = out.req
+            else {
+                panic!("no save request");
+            };
+            assert_eq!(panel_id, u.panel_id);
+            assert_eq!(panel_id, "P1");
+            let cs = &config.panels[0].conditions;
+            assert_eq!(cs.len(), 2);
+            assert_eq!(cs[0], cond(0), "기존 조건 그대로");
+            assert_eq!(
+                cs[1],
+                Condition {
+                    step_id: ST.into(),
+                    source: ConditionSource::Body,
+                    path: "$.status".into(),
+                    op: ConditionOp::Eq,
+                    value: "OK".into(),
+                    ignore_case: false,
+                    trim: false,
+                }
+            );
+            assert_eq!(config.panels[1], bs[0].config.panels[1]);
+            assert_eq!(u.overlay, Some(saving(Some(form))));
+            // 규칙을 `키 있음`으로 바꾸고 저장 → 값 빈 글자.
+            let mut u = open_form(body_str("$.status", "OK"), &bs);
+            run(&Screen::Values, &mut u, &bs, &mut t, ck(KeyCode::Right));
+            run(&Screen::Values, &mut u, &bs, &mut t, ck(KeyCode::Right));
+            let Some(Overlay::CondForm { ops, op, .. }) = &u.overlay else {
+                panic!("{:?}", u.overlay);
+            };
+            assert_eq!(ops[*op], ConditionOp::Exists);
+            let mut t = None;
+            let out = run(&Screen::Values, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let Some(EditReq::SaveBoard { config, .. }) = out.req else {
+                panic!("no save request");
+            };
+            let c = config.panels[0].conditions.last().unwrap();
+            assert_eq!((c.op, c.value.as_str()), (ConditionOp::Exists, ""));
+            // 스텝 칸 → step_id = 칸의 스텝.
+            let mut bs = boards();
+            bs[0].config.panels[0].step_id = Some("STEP-OWN".into());
+            let mut u = open_form(body_str("$.status", "OK"), &bs);
+            let mut t = None;
+            let out = run(&Screen::Values, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let Some(EditReq::SaveBoard { config, .. }) = out.req else {
+                panic!("no save request");
+            };
+            assert_eq!(config.panels[0].conditions[0].step_id, "STEP-OWN");
+        }
+
+        #[test]
+        fn save_new_display_request() {
+            let bs = boards();
+            let mut t = None;
+            let mut u = values_ui(vec![body_str("$.status", "OK")]);
+            run(&Screen::Values, &mut u, &bs, &mut t, EditAction::Activate);
+            run(
+                &Screen::Values,
+                &mut u,
+                &bs,
+                &mut t,
+                EditAction::PickMove(1),
+            );
+            let out = run(&Screen::Values, &mut u, &bs, &mut t, EditAction::PickChoose);
+            let Some(EditReq::SaveBoard {
+                panel_id, config, ..
+            }) = out.req
+            else {
+                panic!("no save request");
+            };
+            assert_eq!(panel_id, "P1");
+            assert_eq!(
+                config.panels[0].display_items,
+                vec![DisplayItem {
+                    step_id: ST.into(),
+                    source: DisplaySource::Body,
+                    path: "$.status".into(),
+                }]
+            );
+            assert!(config.panels[0].conditions.is_empty());
+            assert_eq!(u.overlay, Some(saving(None)));
+        }
+
+        #[test]
+        fn save_results() {
+            let bs0 = boards();
+            let mut bs = bs0.clone();
+            let mut t = None;
+            let s = Screen::Values;
+            let mut u = values_ui(eight_rows());
+            u.cursor = 10; // 메뉴 11번(성공 조건) — `apply_done`이 `list_cursor`를 그 목록 길이로 자른다.
+            u.list_cursor = 0;
+            run(&s, &mut u, &bs, &mut t, EditAction::Jump(5));
+            assert_eq!(u.values.as_ref().unwrap().cursor, 5);
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            run(&s, &mut u, &bs, &mut t, EditAction::PickChoose);
+            let form = u.overlay.clone().unwrap();
+            let out = run(&s, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let Some(EditReq::SaveBoard { seq, config, .. }) = out.req else {
+                panic!("no save request");
+            };
+            assert_eq!(
+                config.panels[0].conditions[0].path, "$.k5",
+                "고른 줄의 조건"
+            );
+            // 서버 성공 → 창 닫힘·값 목록 그대로·커서 그대로·표지 1.
+            let mut saved = bs0[0].clone();
+            saved.config = config.clone();
+            let n = apply_done(
+                Some(&mut u),
+                &mut bs,
+                &mut t,
+                saved_board(seq, saved, Some(Ok(()))),
+                7,
+            );
+            assert_eq!(n, Some(HeaderNotice::Saved(7)));
+            assert_eq!(u.overlay, None);
+            let v = u.values.as_ref().expect("값 목록 그대로");
+            assert_eq!(v.list.rows.len(), 8);
+            assert_eq!(v.cursor, 5, "저장 뒤 값 목록 커서가 튀지 않는다");
+            assert_eq!(u.list_cursor, 0);
+            let p = &bs[0].config.panels[0];
+            assert_eq!(marks(p, &v.step_id, &v.list.rows[5]), (1, false));
+            assert_eq!(marks(p, &v.step_id, &v.list.rows[0]), (0, false));
+            // 그 뒤 Enter도 같은 줄(5)을 고른다.
+            run(&s, &mut u, &bs, &mut t, EditAction::Activate);
+            run(&s, &mut u, &bs, &mut t, EditAction::PickChoose);
+            assert!(
+                matches!(&u.overlay, Some(Overlay::CondForm { target: CondTarget::New { path, .. }, .. }) if path == "$.k5"),
+                "{:?}",
+                u.overlay
+            );
+            // 서버 거절(조건) → 조건 칸이 오류 줄을 달고 되살아나며 대상은 New 그대로.
+            let mut bs = bs0.clone();
+            let mut t = None;
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(form.clone());
+            let out = run(&s, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let seq = match out.req {
+                Some(EditReq::SaveBoard { seq, .. }) => seq,
+                r => panic!("{r:?}"),
+            };
+            apply_done(
+                Some(&mut u),
+                &mut bs,
+                &mut t,
+                rejected(seq, "B1", "거절-사유"),
+                0,
+            );
+            let Some(Overlay::CondForm { target, error, .. }) = &u.overlay else {
+                panic!("{:?}", u.overlay);
+            };
+            assert_eq!(error.as_deref(), Some("거절-사유"));
+            let Overlay::CondForm { target: want, .. } = &form else {
+                unreachable!()
+            };
+            assert_eq!(target, want, "거절 뒤에도 대상·받은 값 그대로");
+            assert!(matches!(target, CondTarget::New { .. }));
+            // 서버 거절(표시) → 안내.
+            let mut t = None;
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(1, None, None));
+            let out = run(&s, &mut u, &bs, &mut t, EditAction::PickChoose);
+            let seq = match out.req {
+                Some(EditReq::SaveBoard { seq, .. }) => seq,
+                r => panic!("{r:?}"),
+            };
+            apply_done(
+                Some(&mut u),
+                &mut bs,
+                &mut t,
+                rejected(seq, "B1", "표시-거절"),
+                0,
+            );
+            assert_eq!(u.overlay, Some(Overlay::Notice("표시-거절".into())));
+            assert!(u.values.is_some());
+        }
+
+        #[test]
+        fn saving_in_flight() {
+            let bs = boards();
+            let s = Screen::Values;
+            let busy = || ticket(1, "B1", "P2");
+            // 화면에 추가.
+            let mut t = busy();
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(1, None, None));
+            let out = run(&s, &mut u, &bs, &mut t, EditAction::PickChoose);
+            assert!(out.req.is_none());
+            assert_eq!(u.overlay, Some(Overlay::Notice(text::SAVING.into())));
+            assert_eq!(t, busy());
+            // 조건 칸 저장.
+            let mut u = open_form(body_str("$.status", "OK"), &bs);
+            let out = run(&s, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            assert!(out.req.is_none());
+            assert_eq!(u.overlay, Some(Overlay::Notice(text::SAVING.into())));
+            assert_eq!(t, busy());
+        }
+
+        #[test]
+        fn esc_ignored_while_saving() {
+            let s = Screen::Values;
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(saving(None));
+            for k in [key(KeyCode::Esc), key(KeyCode::Enter), key(KeyCode::Down)] {
+                assert_eq!(ek(&s, &u, k), EditAction::None, "{k:?}");
+            }
+            assert_eq!(ek(&s, &u, ch('q')), EditAction::AskQuit);
+        }
+
+        #[test]
+        fn back_from_values() {
+            let lines = vec![http_line(0)];
+            // 오류 보기 경로 → 값 목록을 나가면 `EditUi` 없음.
+            let mut v = SubViews::default();
+            v.open_errors("B1", "P1", &[7]);
+            v.open_record(result(7)).unwrap();
+            assert_eq!(v.open_body(&lines), Some(Screen::Body));
+            v.body.as_mut().unwrap().scroll = 3;
+            v.edit = Some(values_ui(eight_rows()));
+            assert_eq!(v.back(&Screen::Values), Some(Screen::Body));
+            assert!(v.edit.is_none(), "오류 보기 경로는 EditUi를 남기지 않는다");
+            assert_eq!(v.body.as_ref().unwrap().scroll, 3, "요청·응답 상태 그대로");
+            assert!(v.record.is_some());
+            // 칸 설정 경로 → `values`만 비우고 메뉴 커서는 둔다.
+            let mut v = SubViews::default();
+            let mut e = ui("B1", "P1", None);
+            e.cursor = 6;
+            v.edit = Some(e);
+            v.open_record_from_settings(result(11)).unwrap();
+            assert_eq!(v.open_body(&lines), Some(Screen::Body));
+            v.edit.as_mut().unwrap().values = Some(state(eight_rows()));
+            assert_eq!(v.back(&Screen::Values), Some(Screen::Body));
+            let e = v.edit.as_ref().expect("칸 설정 경로는 EditUi를 남긴다");
+            assert!(e.values.is_none());
+            assert_eq!(e.cursor, 6);
+            assert!(v.body.is_some() && v.record.is_some());
+        }
+
+        #[test]
+        fn idle_drops_values() {
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(choice(0, None, None));
+            idle_drop(&mut u);
+            assert!(u.values.is_none());
+            assert!(u.overlay.is_none());
+            // 저장 중이면 `Saving`은 남고 되살릴 조건 칸·값 목록은 버린다.
+            let bs = boards();
+            let form = open_form(body_str("$.status", "OK"), &bs).overlay.unwrap();
+            let mut u = values_ui(eight_rows());
+            u.overlay = Some(saving(Some(form)));
+            idle_drop(&mut u);
+            assert_eq!(u.overlay, Some(saving(None)));
+            assert!(u.values.is_none());
+            let t0 = Instant::now();
+            assert!(!idle_expired(
+                &Screen::Values,
+                t0,
+                t0 + IDLE_RETURN - Duration::from_secs(1)
+            ));
+            assert!(idle_expired(&Screen::Values, t0, t0 + IDLE_RETURN));
+            assert!(idle_expired(
+                &Screen::QuitConfirm(Box::new(Screen::Values)),
+                t0,
+                t0 + IDLE_RETURN
+            ));
+        }
+
+        #[test]
+        fn existing_condition_edit_unchanged() {
+            let mut bs = boards();
+            bs[0].config.panels[0].conditions = vec![cond(0), cond(1)];
+            let mut t = None;
+            let mut u = ui("B1", "P1", None);
+            u.cursor = 10;
+            u.list_cursor = 1;
+            run(&Screen::EditList, &mut u, &bs, &mut t, EditAction::Activate);
+            assert!(
+                matches!(
+                    &u.overlay,
+                    Some(Overlay::CondForm {
+                        target: CondTarget::Existing(1),
+                        ..
+                    })
+                ),
+                "{:?}",
+                u.overlay
+            );
+            let form = u.overlay.clone().unwrap();
+            run(&Screen::EditList, &mut u, &bs, &mut t, ck(KeyCode::Tab));
+            run(
+                &Screen::EditList,
+                &mut u,
+                &bs,
+                &mut t,
+                EditAction::Input(InputOutcome::Edited, text_input("404")),
+            );
+            let out = run(&Screen::EditList, &mut u, &bs, &mut t, ck(KeyCode::Enter));
+            let Some(EditReq::SaveBoard { seq, config, .. }) = out.req else {
+                panic!("no save request");
+            };
+            let cs = &config.panels[0].conditions;
+            assert_eq!(cs.len(), 2, "추가가 아니라 수정");
+            assert_eq!(cs[0], cond(0));
+            assert_eq!(cs[1].value, "404");
+            // 거절 → 같은 줄(Existing(1))의 조건 칸이 되살아난다.
+            apply_done(Some(&mut u), &mut bs, &mut t, rejected(seq, "B1", "x"), 0);
+            assert!(
+                matches!(
+                    &u.overlay,
+                    Some(Overlay::CondForm {
+                        target: CondTarget::Existing(1),
+                        error: Some(_),
+                        ..
+                    })
+                ),
+                "{:?}",
+                u.overlay
+            );
+            let _ = form;
+        }
+
+        #[test]
+        fn keys_bar_on_values() {
+            let mut u = values_ui(eight_rows());
+            assert_eq!(
+                edit_keys(&Screen::Values, &u, None, false),
+                [text::KEYS_PICK, text::KEYS_ADD_ENTER, text::KEYS_TO_BODY]
+            );
+            assert_eq!(text::KEYS_ADD_ENTER, "Enter 추가");
+            assert_eq!(text::KEYS_TO_BODY, "Esc 요청·응답으로");
+            assert_eq!(text::KEYS_CHOOSE, "Enter 선택");
+            u.overlay = Some(choice(0, None, None));
+            assert_eq!(
+                edit_keys(&Screen::Values, &u, None, false),
+                [text::KEYS_PICK, text::KEYS_CHOOSE, text::KEYS_CANCEL]
+            );
+            let u = values_ui(vec![]);
+            assert_eq!(
+                edit_keys(&Screen::Values, &u, None, false),
+                [text::KEYS_TO_BODY]
+            );
+            let mut u = ui("B1", "P1", None);
+            u.values = Some(ValuesState::new(
+                ST.into(),
+                ValueList {
+                    rows: vec![body_str("$.a", "b")],
+                    notes: vec![],
+                },
+                Some(Blocked::NoResponse),
+            ));
+            assert_eq!(
+                edit_keys(&Screen::Values, &u, None, false),
+                [text::KEYS_TO_BODY]
+            );
+        }
+
+        #[test]
+        fn debug_hides_values() {
+            let form = Overlay::CondForm {
+                target: CondTarget::New {
+                    step_id: "STEPSECRET".into(),
+                    source: ConditionSource::Body,
+                    path: "$.secretpath".into(),
+                    shown: "SECRETVALUE".into(),
+                    hint: None,
+                },
+                ops: vec![ConditionOp::Eq],
+                op: 0,
+                value: text_input("TYPEDVALUE"),
+                ignore_case: false,
+                trim: false,
+                focus: CondFocus::Op,
+                error: None,
+            };
+            let mut u = values_ui(vec![body_str("$.secretpath", "SECRETVALUE")]);
+            u.overlay = Some(form.clone());
+            let target = CondTarget::New {
+                step_id: "STEPSECRET".into(),
+                source: ConditionSource::Body,
+                path: "$.secretpath".into(),
+                shown: "SECRETVALUE".into(),
+                hint: Some(Hint::Masked),
+            };
+            let change = Change::AddCondition(Condition {
+                step_id: "STEPSECRET".into(),
+                source: ConditionSource::Body,
+                path: "$.secretpath".into(),
+                op: ConditionOp::Eq,
+                value: "SECRETVALUE".into(),
+                ..Condition::default()
+            });
+            let display = Change::AddDisplay(DisplayItem {
+                step_id: "STEPSECRET".into(),
+                source: DisplaySource::Body,
+                path: "$.secretpath".into(),
+            });
+            let ds = [
+                format!("{form:?}"),
+                format!("{u:?}"),
+                format!("{target:?}"),
+                format!("{change:?}"),
+                format!("{display:?}"),
+                format!("{:?}", saving(Some(form.clone()))),
+                format!("{:?}", choice(0, Some(text::COND_MAX), None)),
+            ];
+            for d in &ds {
+                for leak in ["SECRETVALUE", "secretpath", "STEPSECRET", "TYPEDVALUE"] {
+                    assert!(!d.contains(leak), "{leak} leaked: {d}");
+                }
+            }
+            assert_eq!(ds[3], "AddCondition");
+            assert_eq!(ds[4], "AddDisplay");
+            assert!(ds[1].contains("values"), "{}", ds[1]);
+        }
     }
 }
 
