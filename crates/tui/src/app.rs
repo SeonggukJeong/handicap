@@ -178,6 +178,8 @@ pub fn handle_key(screen: &Screen, k: KeyEvent, n_boards: usize) -> Action {
                 _ => Action::None,
             }
         }
+        // 편집 화면 넷(Settings·EditList·EnvVars·ScenarioVars)은 `edit` 상태가 있으면 `edit_key`로 간다 — 여기 오는 건
+        // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다).
         Screen::Errors
         | Screen::Record
         | Screen::Body
@@ -305,7 +307,8 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
             keys.push(text::KEYS_TO_DETAIL);
             keys
         }
-        // 편집 메뉴(overlay 없음). overlay·하위 목록·변수 화면의 키 줄은 `edit_keys`.
+        // 편집 메뉴(overlay 없음). overlay·하위 목록·변수 화면의 키 줄은 `edit_keys`. `edit` 상태 없는 Settings용 —
+        // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다).
         Screen::Settings => vec![
             text::KEYS_PICK,
             text::KEYS_NUMBER,
@@ -316,7 +319,7 @@ pub fn sub_keys(screen: &Screen, c: KeyCtx) -> Vec<&'static str> {
     }
 }
 
-// ---- 편집 모드 상태·키 판정(tui-2a-1 Task 7, spec §6.7) — 순수. App 연결은 Task 10·11 ----
+// ---- 편집 모드 상태·키 판정(tui-2a-1, spec §6.7) — 순수. App 연결은 `App::edit_key_event`·`run_edit` ----
 
 /// 편집 화면 위에 뜨는 입력줄·목록 창·조건 수정·확인·저장 중·안내.
 /// `Debug`는 손으로 — 종류 이름만(입력값·서버 문구·환경 키 이름이 `{:?}`로 새지 않게).
@@ -822,7 +825,7 @@ pub struct SubViews {
     pub record: Option<RecordState>,
     pub body: Option<BodyState>,
     pub settings_scroll: usize,
-    /// 편집 모드 상태(Task 10이 연다). `clear()`는 이것도 비우므로, 진행 중 저장(`Overlay::Saving`)이
+    /// 편집 모드 상태(`Action::OpenSettings`가 연다). `clear()`는 이것도 비우므로, 진행 중 저장(`Overlay::Saving`)이
     /// 있을 때의 5분 복귀는 호출 쪽이 `idle_drop` 뒤 `edit`를 남겨야 한다.
     pub edit: Option<EditUi>,
 }
@@ -999,7 +1002,7 @@ impl SubViews {
     }
 }
 
-// ---- 편집 작업자·저장 연결(tui-2a-1 Task 10, spec §6.2) ----
+// ---- 편집 작업자·저장 연결(tui-2a-1, spec §6.2) ----
 
 /// 편집 작업자 요청. `Debug`는 손으로 — 종류·id·길이만(환경 값·YAML·이름이 `{:?}`로 새지 않게).
 pub enum EditReq {
@@ -1501,7 +1504,8 @@ fn list_len(p: &PanelConfig, k: edit::ListKind) -> usize {
     }
 }
 
-/// 받은 시나리오 → 화면 상태(고정 변수 줄은 `static_vars`로 — 줄마다 지금 값으로 한 번 교체해 본 결과 포함).
+/// 받은 시나리오 → 화면 상태(고정 변수 줄은 `static_vars`로 — 줄마다 한 줄 모양으로 고칠 수 있어 보이는지 포함.
+/// ⑦ 검증만 잡는 모양은 저장 때 `submit_var`의 `splice_static_var`가 입력줄 오류 줄로 거절한다).
 fn scen_loaded(r: ScenarioResponse) -> ScenLoad {
     let vars = yaml_var::static_vars(&r.yaml);
     ScenLoad::Loaded {
@@ -1538,7 +1542,8 @@ pub fn worker_gone(edit: Option<&mut EditUi>, ticket: &mut Option<SaveTicket>) -
     changed
 }
 
-/// 저장 결과 반영(순수). 표와 seq가 다른 `Saved`는 버린다. 캐시·알림은 **항상** 반영하고, overlay 복원·`Notice`는
+/// 저장 결과 반영(순수). 표와 seq가 다른 `Saved`는 버린다. 캐시·알림은 **항상** 반영하고(`Notice(저장 중…)`도
+/// 어느 칸 화면이든 닫는다), overlay 복원·`Notice`는
 /// `edit`가 표의 보드·칸일 때만. 돌려주는 알림: 파일 Ok → `Saved(now_ms)`, 밖에서 바뀜 → `ChangedOutside`,
 /// 그 밖 파일 실패 → `FileFailed`, 서버 거절 → None(지금 알림 유지).
 /// 환경·시나리오 조회 결과(`Env`·`Scenario`)는 지금 그 id를 `Loading`으로 기다릴 때만 받는다 — 화면을 나갔거나
@@ -1587,6 +1592,14 @@ pub fn apply_done(
             return None;
         }
     };
+    let mut edit = edit;
+    // `저장 중…` 안내(표가 있을 때 저장·다른 칸 열기)는 "지금 저장 중"이라는 뜻뿐 — 표의 칸과 화면 칸이 달라도
+    // 그 저장이 끝났으니 닫는다.
+    if let Some(e) = edit.as_deref_mut()
+        && matches!(&e.overlay, Some(Overlay::Notice(s)) if s == text::SAVING)
+    {
+        e.overlay = None;
+    }
     let here = edit.filter(|e| e.board_id == t.board_id && e.panel_id == t.panel_id);
     match server {
         Err(m) => {
@@ -1789,7 +1802,7 @@ fn commit(
     confirmed: bool,
 ) -> Option<EditReq> {
     if cx.ticket.is_some() {
-        // 표 확인이 확인 줄보다 먼저(Task 10 결정 5) — 확인 뒤 거절되는 저장이 없게.
+        // 표 확인이 확인 줄보다 먼저 — 확인 뒤 거절되는 저장이 없게.
         ui.overlay = Some(Overlay::Notice(text::SAVING.to_string()));
         return None;
     }
@@ -1951,7 +1964,7 @@ fn activate_var(screen: &Screen, ui: &mut EditUi, cx: &EditCtx, p: &PanelConfig)
 }
 
 /// 편집 동작 하나를 화면 상태에 적용(순수 — 서버 호출은 돌려준 요청으로). `Back`·`AskQuit`은 App이 먼저 처리한다
-/// (`SubViews::back`·종료 확인창). 13·14의 조회 결과·저장은 Task 11.
+/// (`SubViews::back`·종료 확인창). 13·14의 조회 결과·저장 결과 반영은 `apply_done`.
 pub fn edit_apply(screen: &Screen, ui: &mut EditUi, cx: &mut EditCtx, a: EditAction) -> EditOut {
     let mut out = EditOut::default();
     let Some((bi, pi)) = locate(cx.boards, ui) else {
@@ -3078,7 +3091,7 @@ impl App<'_> {
             }
             Screen::Error(e) => render_error(f, e, &self.file, &self.log),
             Screen::Usage => render_usage(f),
-            // 스텁(Task 8·9가 편집 화면 그리기로 교체): 새 편집 화면은 칸 설정 보기처럼 그린다.
+            // 편집 화면 넷은 `draw_sub` → `draw_edit`.
             Screen::Errors
             | Screen::Record
             | Screen::Body
@@ -3183,6 +3196,7 @@ impl App<'_> {
         let body = sub_layout(f.area()).body;
         let w = usize::from(body.width);
         let Some(ui) = self.views.edit.as_ref() else {
+            // 닿지 않는 방어 경로(`OpenSettings`가 늘 `EditUi`를 만든다) — 고른 항목 없는 메뉴(`cursor: usize::MAX`).
             if let Some((title, lines, note)) = self.settings_view(w) {
                 let view = EditMenuView {
                     title: &title,

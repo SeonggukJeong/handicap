@@ -1662,6 +1662,49 @@ mod save {
     }
 
     #[test]
+    fn apply_done_closes_saving_notice_on_any_panel() {
+        // `저장 중…` 안내(표가 있을 때 저장·다른 칸 열기)는 "지금 저장 중"이라는 뜻뿐 — 그 저장이 끝나면
+        // 표의 칸과 화면 칸이 달라도 닫는다. 표와 다른 seq는 안 닫고, 다른 안내는 그대로.
+        let saving_notice = || Some(Overlay::Notice(handicap_tui::text::SAVING.to_string()));
+        let mut bs = boards();
+        let mut u = ui("B1", "P2", saving_notice());
+        let mut t = ticket(2, "B1", "P1");
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(1, changed_b1(), None),
+            0,
+        );
+        assert_eq!(u.overlay, saving_notice());
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(2, changed_b1(), Some(Ok(()))),
+            0,
+        );
+        assert_eq!(u.overlay, None);
+        // 같은 칸 + 거절도 닫힌다.
+        let mut u = ui("B1", "P1", saving_notice());
+        let mut t = ticket(3, "B1", "P1");
+        apply_done(Some(&mut u), &mut bs, &mut t, rejected(3, "B1", "거절"), 0);
+        assert_eq!(u.overlay, None);
+        // 다른 안내는 그대로.
+        let other = Some(Overlay::Notice("다른 안내".into()));
+        let mut u = ui("B1", "P2", other.clone());
+        let mut t = ticket(4, "B1", "P1");
+        apply_done(
+            Some(&mut u),
+            &mut bs,
+            &mut t,
+            saved_board(4, changed_b1(), None),
+            0,
+        );
+        assert_eq!(u.overlay, other);
+    }
+
+    #[test]
     fn apply_done_after_idle_keeps_notice() {
         let mut bs = boards();
         let mut t = ticket(4, "B1", "P1");
@@ -2596,6 +2639,35 @@ mod save {
         });
         let mut t = None;
         let out = run(&Screen::ScenarioVars, &mut u, &bs, &mut t, submit("x"));
+        assert!(out.req.is_none());
+        assert!(t.is_none());
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Input { error: Some(e), .. })
+                if e == "이 값의 모양은 TUI에서 못 고칩니다 — GUI에서"
+        ));
+    }
+
+    #[test]
+    fn scenario_multiline_plain_opens_input_then_shows_reason() {
+        // 목록의 `editable`은 ⑦ 검증을 안 돈다 — 줄 이어짐 값은 입력줄이 열리고, 확정 때 저장 없이 사유.
+        let y = "version: 1\nname: s\nvariables:\n  order_id: A-1\n    B-2\nsteps:\n  - { id: \"01J00000000000000000000A01\", name: a, type: http, request: { method: GET, url: \"/a\" }, assert: [] }\n";
+        let bs = only_board();
+        let mut t = None;
+        let mut u = scen_ui(y);
+        u.list_cursor = 0;
+        run(
+            &Screen::ScenarioVars,
+            &mut u,
+            &bs,
+            &mut t,
+            EditAction::Activate,
+        );
+        assert!(matches!(
+            &u.overlay,
+            Some(Overlay::Input { error: None, .. })
+        ));
+        let out = run(&Screen::ScenarioVars, &mut u, &bs, &mut t, submit("Z"));
         assert!(out.req.is_none());
         assert!(t.is_none());
         assert!(matches!(

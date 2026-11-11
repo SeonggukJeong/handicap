@@ -293,3 +293,37 @@ fn header_lookalike_at_column_zero_in_quoted_notes_is_shape() {
     let y = scenario("notes: \"x\nvariables:\n  y\"\n", "variables:\n  a: y\n");
     assert_eq!(splice_static_var(&y, "a", "Z"), Err(NotEditable::Shape));
 }
+
+#[test]
+fn static_vars_does_not_reparse_per_variable() {
+    // 변수마다 YAML 전체를 다시 파싱하면 O(변수 수 × YAML 크기) — UI 스레드에서 분 단위로 멈춘다.
+    const N: usize = 3000;
+    let mut block = String::from("variables:\n");
+    for i in 0..N {
+        block.push_str(&format!("  v{i:05}: \"x{i}\"\n"));
+    }
+    let y = fixture(&block);
+    let t = std::time::Instant::now();
+    let got = static_vars(&y);
+    let took = t.elapsed();
+    assert_eq!(got.len(), N);
+    assert!(got.iter().all(|v| v.editable == Ok(())));
+    assert!(
+        took < std::time::Duration::from_secs(5),
+        "static_vars took {took:?} for {N} vars"
+    );
+}
+
+#[test]
+fn multiline_plain_listed_editable_but_rejected_on_save() {
+    // 목록의 `editable`은 "한 줄 모양으로 보인다"까지만 — ⑦ 검증은 저장 때만 돈다.
+    let y = fixture("variables:\n  order_id: A-1\n    B-2\n");
+    let got = static_vars(&y);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].value, "A-1 B-2");
+    assert_eq!(got[0].editable, Ok(()));
+    assert_eq!(
+        splice_static_var(&y, "order_id", "Z"),
+        Err(NotEditable::Shape)
+    );
+}

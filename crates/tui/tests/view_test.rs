@@ -2761,6 +2761,17 @@ fn help_long_backup_paths_wrap_and_show_both() {
 }
 
 #[test]
+fn help_board_file_path_is_sanitized() {
+    // 보드 파일 경로도 파일 시스템 유래 — 백업 경로처럼 그리기 전에 sanitize.
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let text = draw(80, 30, |f| {
+        render_help(f, Path::new("/tmp/a\u{202E}b.json"), None, &log)
+    });
+    assert!(text.contains("보드 파일: /tmp/a\u{FFFD}b.json"), "{text}");
+    assert!(!text.contains('\u{202E}'), "{text}");
+}
+
+#[test]
 fn help_lists_backup_and_warning() {
     use handicap_tui::filesave::FileTarget;
     let log = LogLoc::Path("/tmp/tui.log".into());

@@ -32,7 +32,14 @@ pub fn render_help(f: &mut Frame, file: &Path, backups: Option<&FileTarget>, log
     let width = area.width.min(78);
     let inner_w = usize::from(width.saturating_sub(2)).max(1);
     // 경로는 줄바꿈 뒤의 행 수로 센다(공백 없는 긴 경로가 상자 밖으로 밀리지 않게 직접 자른다).
-    let file_rows = wrap_width(&format!("{}: {}", text::HELP_FILE, file.display()), inner_w);
+    let file_rows = wrap_width(
+        &format!(
+            "{}: {}",
+            text::HELP_FILE,
+            sanitize(&file.display().to_string())
+        ),
+        inner_w,
+    );
     let mut tail: Vec<String> = wrap_width(&text::log_line(log), inner_w);
     tail.extend(wrap_width(text::HELP_IDLE, inner_w));
     tail.push(text::HELP_COPY.to_string());
