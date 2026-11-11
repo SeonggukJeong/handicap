@@ -3,10 +3,13 @@
 use std::collections::{HashMap, HashSet};
 
 use handicap_controller::monitor::check::{CheckResult, Verdict};
-use handicap_controller::monitor::config::Threshold;
+use handicap_controller::monitor::config::{PanelConfig, Threshold};
+use handicap_engine::{ScenarioTrace, StepKind};
 
 use crate::api::ApiError;
-use crate::judge::PanelState;
+use crate::judge::{PanelState, format_date_hms};
+use crate::names::Names;
+use crate::text;
 use crate::wire::CheckRecord;
 
 /// 목록 한 줄의 사유 칸.
@@ -240,7 +243,7 @@ pub fn errors_view(i: &ErrorsInput, st: &ErrorsState, height: usize) -> ErrorsVi
         cursor,
         failures: i.results.iter().filter(|r| is_failure(r.verdict)).count(),
         total: i.results.len(),
-        span_secs: i.results.len() as u64 * u64::from(i.interval_seconds),
+        span_secs: (i.results.len() as u64).saturating_mul(u64::from(i.interval_seconds)),
         show_all: st.show_all,
     }
 }
@@ -253,4 +256,245 @@ pub fn visible_results<'a>(
 ) -> Vec<&'a CheckResult> {
     let (list, start, end, _) = window(results, st, height);
     list[start..end].to_vec()
+}
+
+// ---------- 기록 상세 (spec §5.3-2·§5.3-3, 목업 §2) ----------
+
+/// 기록 하나의 조회 상태.
+#[derive(Debug, Clone)]
+pub enum RecordLoad {
+    Loading,
+    Loaded(Box<CheckRecord>),
+    /// 404 — 기록이 이미 지워짐.
+    Gone,
+    /// `ApiError.message`
+    Failed(String),
+}
+
+/// 기록 조회 결과 → 조회 상태. 404 → Gone, 그 밖의 오류 → Failed(message).
+pub fn load_of(r: Result<CheckRecord, ApiError>) -> RecordLoad {
+    match r {
+        Ok(rec) => RecordLoad::Loaded(Box::new(rec)),
+        Err(e) if e.status == Some(404) => RecordLoad::Gone,
+        Err(e) => RecordLoad::Failed(e.message),
+    }
+}
+
+/// 자세히 화면 상태 — 보드·칸·회차(셋 다로 늦게 온 응답을 거른다)·누른 회차·조회 상태·스텝 커서.
+#[derive(Debug, Clone)]
+pub struct RecordState {
+    pub board_id: String,
+    pub panel_id: String,
+    pub at_ms: i64,
+    pub clicked: CheckResult,
+    pub load: RecordLoad,
+    pub cursor: usize,
+}
+
+/// GUI `branchText`: "none" → "(미매치)", "then"/"else" 그대로, "elif_3" → "elif 3", 그 외 원문.
+pub fn branch_text(branch: &str) -> String {
+    if branch == "none" {
+        return text::BRANCH_NONE.to_string();
+    }
+    if let Some(n) = branch.strip_prefix("elif_")
+        && !n.is_empty()
+        && n.bytes().all(|b| b.is_ascii_digit())
+    {
+        return format!("elif {n}");
+    }
+    branch.to_string()
+}
+
+/// 자세히 화면 스텝 표의 한 줄.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepLine {
+    /// `branch_text` 적용본
+    If { branch: String },
+    Http {
+        /// trace.steps 인덱스(= `Clipped.step`)
+        trace_idx: usize,
+        /// 이 기록의 http 줄 순번(1부터, if 줄은 세지 않는다)
+        no: usize,
+        loop_index: Option<u32>,
+        /// Names에서, 없으면 step_id
+        name: String,
+        method: Option<String>,
+        url: Option<String>,
+        status: Option<u16>,
+        latency_ms: Option<u64>,
+        error: Option<String>,
+        timed_out: bool,
+        /// 스텝 칸의 그 스텝(마지막 http 행 하나만)
+        focus: bool,
+    },
+}
+
+/// `method`·`url`·`status`·`latency_ms`·`error`는 **trace에서**(`step.request`/`step.response` — 실제로
+/// 보낸 값, URL은 서버가 가린 그대로). `Names`는 이름만 준다(시나리오에 적힌 템플릿 URL은 여기서
+/// 쓰지 않는다 — 그것은 칸 설정 보기).
+pub fn step_lines(
+    trace: &ScenarioTrace,
+    names: &Names,
+    scenario_id: &str,
+    focus_step_id: Option<&str>,
+) -> Vec<StepLine> {
+    // GUI `RecordSteps`: 같은 스텝이 loop로 여러 번 돌면 마지막 http 행, if 행은 대상 아님.
+    let focus_idx = focus_step_id.and_then(|id| {
+        trace
+            .steps
+            .iter()
+            .rposition(|s| s.kind == StepKind::Http && s.step_id == id)
+    });
+    let mut no = 0usize;
+    trace
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| match s.kind {
+            StepKind::If => StepLine::If {
+                branch: branch_text(s.branch.as_deref().unwrap_or("none")),
+            },
+            StepKind::Http => {
+                no += 1;
+                StepLine::Http {
+                    trace_idx: i,
+                    no,
+                    loop_index: s.loop_index,
+                    name: names
+                        .step_name(scenario_id, &s.step_id)
+                        .unwrap_or(&s.step_id)
+                        .to_string(),
+                    method: s.request.as_ref().map(|r| r.method.clone()),
+                    url: s.request.as_ref().map(|r| r.url.clone()),
+                    status: s.response.as_ref().map(|r| r.status),
+                    latency_ms: s.response.as_ref().map(|r| r.latency_ms),
+                    error: s.error.clone(),
+                    timed_out: s.timed_out,
+                    focus: focus_idx == Some(i),
+                }
+            }
+        })
+        .collect()
+}
+
+/// 처음 커서: focus 줄(스텝 칸 — 사용자 확정 9) → 없으면 error가 있는 첫 Http → 첫 Http → 0.
+pub fn initial_step_cursor(lines: &[StepLine]) -> usize {
+    let find = |pred: &dyn Fn(&StepLine) -> bool| lines.iter().position(pred);
+    find(&|l| matches!(l, StepLine::Http { focus: true, .. }))
+        .or_else(|| find(&|l| matches!(l, StepLine::Http { error: Some(_), .. })))
+        .or_else(|| find(&|l| matches!(l, StepLine::Http { .. })))
+        .unwrap_or(0)
+}
+
+/// `from`에서 `dir`(−1/+1) 쪽으로 가장 가까운 Http 줄 번호(If 줄 건너뜀). 없으면 None.
+pub fn neighbor_http(lines: &[StepLine], from: usize, dir: isize) -> Option<usize> {
+    let is_http = |i: &usize| matches!(lines.get(*i), Some(StepLine::Http { .. }));
+    if dir < 0 {
+        (0..from.min(lines.len())).rev().find(is_http)
+    } else if dir > 0 {
+        (from.saturating_add(1)..lines.len()).find(is_http)
+    } else {
+        None
+    }
+}
+
+/// 스텝 표 위 안내 줄.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Note {
+    NoTraceConfig,
+    NoTraceTimeout,
+    TraceError(String),
+    TraceCut,
+}
+
+/// GUI `RecordSteps`와 같은 구분: trace null → (clicked가 config_error면 NoTraceConfig, 아니면
+/// NoTraceTimeout) 하나만. trace 있음 → error가 있으면 TraceError, truncated면 TraceCut(둘 다면 그 순서로).
+pub fn record_notes(rec: &CheckRecord, clicked: Verdict) -> Vec<Note> {
+    let Some(t) = &rec.trace else {
+        return vec![if clicked == Verdict::ConfigError {
+            Note::NoTraceConfig
+        } else {
+            Note::NoTraceTimeout
+        }];
+    };
+    let mut out = Vec::new();
+    if let Some(e) = &t.error {
+        out.push(Note::TraceError(e.clone()));
+    }
+    if t.truncated {
+        out.push(Note::TraceCut);
+    }
+    out
+}
+
+/// 자세히 화면 뷰 모델.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordView {
+    /// `text::record_title(칸 제목, format_date_hms(clicked.at_ms))`
+    pub title: String,
+    /// `row_state(clicked, 칸 기준선)`
+    pub state: PanelState,
+    /// clicked 기준
+    pub latency_ms: Option<u64>,
+    /// 기록이 왔으면 rec.result, 아니면 clicked (GUI `q.data?.result ?? clicked`)
+    pub reason: Option<String>,
+    pub detail: Option<String>,
+    /// 이름 또는 id
+    pub scenario: String,
+    /// 이름 또는 id, 환경 없음이면 None
+    pub environment: Option<String>,
+    pub body: RecordBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordBody {
+    Loading,
+    Gone,
+    Failed(String),
+    Loaded {
+        notes: Vec<Note>,
+        lines: Vec<StepLine>,
+        cursor: usize,
+    },
+}
+
+/// focus = `panel.step_id`.
+pub fn record_view(panel: &PanelConfig, st: &RecordState, names: &Names) -> RecordView {
+    let result = match &st.load {
+        RecordLoad::Loaded(rec) => &rec.result,
+        _ => &st.clicked,
+    };
+    let body = match &st.load {
+        RecordLoad::Loading => RecordBody::Loading,
+        RecordLoad::Gone => RecordBody::Gone,
+        RecordLoad::Failed(m) => RecordBody::Failed(m.clone()),
+        RecordLoad::Loaded(rec) => {
+            let lines = rec
+                .trace
+                .as_ref()
+                .map(|t| step_lines(t, names, &panel.scenario_id, panel.step_id.as_deref()))
+                .unwrap_or_default();
+            RecordBody::Loaded {
+                notes: record_notes(rec, st.clicked.verdict),
+                cursor: st.cursor.min(lines.len().saturating_sub(1)),
+                lines,
+            }
+        }
+    };
+    RecordView {
+        title: text::record_title(&panel.title, &format_date_hms(st.clicked.at_ms)),
+        state: row_state(&st.clicked, &panel.thresholds),
+        latency_ms: st.clicked.latency_ms,
+        reason: result.reason.clone(),
+        detail: result.detail.clone(),
+        scenario: names
+            .scenario_name(&panel.scenario_id)
+            .unwrap_or(&panel.scenario_id)
+            .to_string(),
+        environment: panel
+            .environment_id
+            .as_deref()
+            .map(|e| names.env_name(e).unwrap_or(e).to_string()),
+        body,
+    }
 }

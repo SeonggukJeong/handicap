@@ -149,6 +149,8 @@ fn render_errors_sanitizes_reason() {
     v.rows[0].reason = known("a\x1bb\tc");
     v.title = "주문\x1b조회".into();
     let t = render_view(100, 14, &v);
+    // ratatui가 그릴 때 제어 문자 grapheme을 이미 걸러 이 단언만으론 공허하다 —
+    // 회귀 가드는 아래 `a\u{FFFD}b    c` 긍정 단언.
     assert!(!t.contains('\x1b'), "{t}");
     assert!(t.contains("a\u{FFFD}b    c"), "{t}");
     assert!(t.contains("주문\u{FFFD}조회"), "{t}");
@@ -613,4 +615,619 @@ fn errors_size_sweep_no_panic() {
             let _ = render_view(w, h, &empty);
         }
     }
+}
+
+// ---------- 기록 상세 (Task 4, 목업 §2) ----------
+
+use std::collections::BTreeMap;
+
+use handicap_controller::monitor::config::PanelConfig;
+use handicap_engine::{ScenarioTrace, StepKind, StepTrace, TracedRequest, TracedResponse};
+use handicap_tui::inspect::{
+    Note, RecordBody, RecordLoad, RecordState, RecordView, StepLine, branch_text,
+    initial_step_cursor, load_of, neighbor_http, record_notes, record_view, step_lines,
+};
+use handicap_tui::judge::format_date_hms;
+use handicap_tui::names::Names;
+use handicap_tui::view::inspect::render_record;
+
+/// `names_test.rs`의 `NESTED` 그대로.
+const NESTED: &str = r#"
+version: 1
+name: 중첩
+steps:
+  - { id: "01J00000000000000000000A01", name: a, type: http, request: { method: GET, url: "/a" }, assert: [] }
+  - id: "01J00000000000000000000L01"
+    name: 반복
+    type: loop
+    repeat: 2
+    do:
+      - { id: "01J00000000000000000000A02", name: b, type: http, request: { method: GET, url: "/b" }, assert: [] }
+  - id: "01J00000000000000000000I01"
+    name: 분기
+    type: if
+    cond: { left: "{{code}}", op: eq, right: "200" }
+    then:
+      - { id: "01J00000000000000000000A03", name: c, type: http, request: { method: GET, url: "/c" }, assert: [] }
+    elif:
+      - cond: { left: "{{code}}", op: eq, right: "404" }
+        then:
+          - { id: "01J00000000000000000000A04", name: d, type: http, request: { method: GET, url: "/d" }, assert: [] }
+    else:
+      - { id: "01J00000000000000000000A05", name: e, type: http, request: { method: GET, url: "/e" }, assert: [] }
+  - id: "01J00000000000000000000P01"
+    name: 동시
+    type: parallel
+    branches:
+      - name: x
+        steps:
+          - { id: "01J00000000000000000000A06", name: f, type: http, request: { method: GET, url: "/f" }, assert: [] }
+      - name: y
+        steps:
+          - { id: "01J00000000000000000000A07", name: g, type: http, request: { method: GET, url: "/g" }, assert: [] }
+"#;
+
+/// `names_test.rs` `names_from_bundle_resolves`의 번들(S1·E1) 그대로.
+fn names() -> Names {
+    let file = serde_json::to_vec(&serde_json::json!({
+        "format": "handicap-bundle",
+        "format_version": 1,
+        "boards": [],
+        "scenarios": [{ "id": "S1", "yaml": NESTED }],
+        "environments": [
+            { "id": "E1", "name": "운영", "vars": { "K": "비밀" } }
+        ]
+    }))
+    .unwrap();
+    Names::from_bundle(&file)
+}
+
+fn sid(tail: &str) -> String {
+    format!("01J00000000000000000000{tail}")
+}
+
+fn http(
+    step: &str,
+    loop_index: Option<u32>,
+    status: Option<u16>,
+    error: Option<&str>,
+) -> StepTrace {
+    StepTrace {
+        step_id: sid(step),
+        kind: StepKind::Http,
+        loop_index,
+        branch: None,
+        request: Some(TracedRequest {
+            method: "GET".into(),
+            url: format!("http://h/{}", step.to_lowercase()),
+            headers: BTreeMap::new(),
+            body: None,
+        }),
+        response: status.map(|s| TracedResponse {
+            status: s,
+            latency_ms: 12,
+            download_ms: None,
+            headers: BTreeMap::new(),
+            set_cookies: vec![],
+            body: String::new(),
+            body_truncated: false,
+        }),
+        extracted: BTreeMap::new(),
+        unbound_vars: vec![],
+        error: error.map(str::to_string),
+        branch_eval: vec![],
+        timed_out: false,
+    }
+}
+
+fn if_row(step: &str, branch: &str) -> StepTrace {
+    StepTrace {
+        step_id: sid(step),
+        kind: StepKind::If,
+        loop_index: None,
+        branch: Some(branch.into()),
+        request: None,
+        response: None,
+        extracted: BTreeMap::new(),
+        unbound_vars: vec![],
+        error: None,
+        branch_eval: vec![],
+        timed_out: false,
+    }
+}
+
+fn trace(steps: Vec<StepTrace>) -> ScenarioTrace {
+    ScenarioTrace {
+        ok: false,
+        total_ms: 0,
+        steps,
+        final_vars: BTreeMap::new(),
+        truncated: false,
+        error: None,
+    }
+}
+
+fn http_line(l: &StepLine) -> (usize, usize, &str, bool) {
+    match l {
+        StepLine::Http {
+            trace_idx,
+            no,
+            name,
+            focus,
+            ..
+        } => (*trace_idx, *no, name.as_str(), *focus),
+        StepLine::If { .. } => panic!("if 줄: {l:?}"),
+    }
+}
+
+#[test]
+fn branch_text_cases() {
+    assert_eq!(branch_text("none"), "(미매치)");
+    assert_eq!(branch_text("then"), "then");
+    assert_eq!(branch_text("else"), "else");
+    assert_eq!(branch_text("elif_2"), "elif 2");
+    assert_eq!(branch_text("elif_"), "elif_");
+    assert_eq!(branch_text("elif_x"), "elif_x");
+    assert_eq!(branch_text("x"), "x");
+}
+
+#[test]
+fn step_lines_names_and_fields() {
+    let mut t4 = http("A04", None, Some(503), Some("boom"));
+    t4.timed_out = true;
+    let tr = trace(vec![
+        http("A01", None, Some(200), None),
+        if_row("I01", "elif_0"),
+        t4,
+        http("Z99", Some(3), None, None),
+    ]);
+    let lines = step_lines(&tr, &names(), "S1", None);
+    assert_eq!(lines.len(), 4);
+    assert_eq!(
+        lines[0],
+        StepLine::Http {
+            trace_idx: 0,
+            no: 1,
+            loop_index: None,
+            name: "a".into(),
+            method: Some("GET".into()),
+            url: Some("http://h/a01".into()),
+            status: Some(200),
+            latency_ms: Some(12),
+            error: None,
+            timed_out: false,
+            focus: false,
+        }
+    );
+    assert_eq!(
+        lines[1],
+        StepLine::If {
+            branch: "elif 0".into()
+        }
+    );
+    assert_eq!(
+        lines[2],
+        StepLine::Http {
+            trace_idx: 2,
+            no: 2,
+            loop_index: None,
+            name: "d".into(),
+            method: Some("GET".into()),
+            url: Some("http://h/a04".into()),
+            status: Some(503),
+            latency_ms: Some(12),
+            error: Some("boom".into()),
+            timed_out: true,
+            focus: false,
+        }
+    );
+    // Names에 없는 step_id → 이름 = step_id, 응답 없음 → status/latency None.
+    match &lines[3] {
+        StepLine::Http {
+            no,
+            name,
+            loop_index,
+            status,
+            latency_ms,
+            ..
+        } => {
+            assert_eq!(*no, 3);
+            assert_eq!(name, &sid("Z99"));
+            assert_eq!(*loop_index, Some(3));
+            assert_eq!(*status, None);
+            assert_eq!(*latency_ms, None);
+        }
+        other => panic!("{other:?}"),
+    }
+    // 시나리오를 못 읽으면 이름 = step_id.
+    let other = step_lines(&tr, &names(), "S2", None);
+    assert_eq!(http_line(&other[0]).2, sid("A01"));
+}
+
+#[test]
+fn focus_is_last_http_row_of_step() {
+    let tr = trace(vec![
+        http("A02", Some(0), Some(200), None),
+        http("A02", Some(1), Some(200), None),
+        if_row("A02", "then"),
+        http("A03", None, Some(200), None),
+    ]);
+    let a02 = sid("A02");
+    let lines = step_lines(&tr, &names(), "S1", Some(&a02));
+    let focus: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| matches!(l, StepLine::Http { focus: true, .. }))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(focus, vec![1]);
+    let none = step_lines(&tr, &names(), "S1", None);
+    assert!(
+        none.iter()
+            .all(|l| !matches!(l, StepLine::Http { focus: true, .. }))
+    );
+}
+
+#[test]
+fn initial_cursor_rules() {
+    let a03 = sid("A03");
+    let tr = trace(vec![
+        if_row("I01", "then"),
+        http("A01", None, Some(200), None),
+        http("A02", None, None, Some("e")),
+        http("A03", None, Some(200), None),
+    ]);
+    // focus 줄
+    assert_eq!(
+        initial_step_cursor(&step_lines(&tr, &names(), "S1", Some(&a03))),
+        3
+    );
+    // focus 없음 → error 있는 첫 Http
+    assert_eq!(
+        initial_step_cursor(&step_lines(&tr, &names(), "S1", None)),
+        2
+    );
+    // 둘 다 없음 → 첫 Http
+    let plain = trace(vec![
+        if_row("I01", "then"),
+        http("A01", None, Some(200), None),
+    ]);
+    assert_eq!(
+        initial_step_cursor(&step_lines(&plain, &names(), "S1", None)),
+        1
+    );
+    assert_eq!(initial_step_cursor(&[]), 0);
+}
+
+#[test]
+fn neighbor_http_skips_if_rows() {
+    let tr = trace(vec![
+        http("A01", None, Some(200), None),
+        if_row("I01", "then"),
+        http("A02", None, Some(200), None),
+        http("A03", None, Some(200), None),
+    ]);
+    let l = step_lines(&tr, &names(), "S1", None);
+    assert_eq!(neighbor_http(&l, 0, 1), Some(2));
+    assert_eq!(neighbor_http(&l, 2, -1), Some(0));
+    assert_eq!(neighbor_http(&l, 2, 1), Some(3));
+    assert_eq!(neighbor_http(&l, 3, 1), None);
+    assert_eq!(neighbor_http(&l, 0, -1), None);
+    assert_eq!(neighbor_http(&[], 0, 1), None);
+}
+
+fn record(trace: Option<ScenarioTrace>, reason: Option<&str>, detail: Option<&str>) -> CheckRecord {
+    let mut result = res(NOW, Verdict::Fail, Some(1204));
+    result.reason = reason.map(str::to_string);
+    result.detail = detail.map(str::to_string);
+    CheckRecord {
+        at_ms: NOW,
+        limit_kb: 16,
+        result,
+        trace,
+        clipped: vec![],
+    }
+}
+
+#[test]
+fn record_notes_match_gui_branches() {
+    let none = record(None, None, None);
+    assert_eq!(
+        record_notes(&none, Verdict::ConfigError),
+        vec![Note::NoTraceConfig]
+    );
+    assert_eq!(
+        record_notes(&none, Verdict::Fail),
+        vec![Note::NoTraceTimeout]
+    );
+    let mut t = trace(vec![]);
+    t.error = Some("e".into());
+    t.truncated = true;
+    assert_eq!(
+        record_notes(&record(Some(t), None, None), Verdict::Fail),
+        vec![Note::TraceError("e".into()), Note::TraceCut]
+    );
+    assert_eq!(
+        record_notes(&record(Some(trace(vec![])), None, None), Verdict::Fail),
+        vec![]
+    );
+}
+
+#[test]
+fn load_of_maps_errors() {
+    assert!(matches!(
+        load_of(Ok(record(None, None, None))),
+        RecordLoad::Loaded(_)
+    ));
+    assert!(matches!(
+        load_of(Err(ApiError {
+            status: Some(404),
+            message: "x".into()
+        })),
+        RecordLoad::Gone
+    ));
+    match load_of(Err(ApiError {
+        status: None,
+        message: "m".into(),
+    })) {
+        RecordLoad::Failed(m) => assert_eq!(m, "m"),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn panel(env: Option<&str>, step: Option<&str>) -> PanelConfig {
+    PanelConfig {
+        id: "P1".into(),
+        title: "주문 조회".into(),
+        scenario_id: "S1".into(),
+        environment_id: env.map(str::to_string),
+        thresholds: vec![th(800)],
+        step_id: step.map(str::to_string),
+        ..PanelConfig::default()
+    }
+}
+
+fn rstate(load: RecordLoad, cursor: usize) -> RecordState {
+    RecordState {
+        board_id: "B1".into(),
+        panel_id: "P1".into(),
+        at_ms: NOW,
+        clicked: res(NOW, Verdict::Fail, Some(1204)),
+        load,
+        cursor,
+    }
+}
+
+#[test]
+fn record_view_prefers_record_reason() {
+    let rec = record(Some(trace(vec![])), Some("HTTP 503"), Some("d"));
+    let st = rstate(RecordLoad::Loaded(Box::new(rec)), 0);
+    let v = record_view(&panel(Some("E1"), None), &st, &names());
+    assert_eq!(v.reason.as_deref(), Some("HTTP 503"));
+    assert_eq!(v.detail.as_deref(), Some("d"));
+    assert_eq!(v.state, PanelState::Fail);
+    assert_eq!(v.latency_ms, Some(1204));
+    assert_eq!(v.scenario, "중첩");
+    assert_eq!(v.environment.as_deref(), Some("운영"));
+    assert_eq!(
+        v.title,
+        text::record_title("주문 조회", &format_date_hms(NOW))
+    );
+
+    let loading = record_view(
+        &panel(None, None),
+        &rstate(RecordLoad::Loading, 0),
+        &names(),
+    );
+    assert_eq!(loading.reason, None);
+    assert_eq!(loading.detail, None);
+    assert_eq!(loading.environment, None);
+    assert_eq!(loading.body, RecordBody::Loading);
+
+    // 이름이 없으면 id.
+    let mut p = panel(Some("E9"), None);
+    p.scenario_id = "S9".into();
+    let v = record_view(&p, &rstate(RecordLoad::Gone, 0), &names());
+    assert_eq!(v.scenario, "S9");
+    assert_eq!(v.environment.as_deref(), Some("E9"));
+    assert_eq!(v.body, RecordBody::Gone);
+}
+
+fn loaded_view() -> RecordView {
+    let mut login = http("A01", None, Some(200), None);
+    login.request.as_mut().unwrap().method = "POST".into();
+    login.request.as_mut().unwrap().url = "http://h/login".into();
+    let mut d = http("A04", None, Some(503), None);
+    d.response.as_mut().unwrap().latency_ms = 781;
+    let mut e = http("A05", None, None, Some("boom"));
+    e.timed_out = true;
+    let rec = record(
+        Some(trace(vec![login, if_row("I01", "elif_0"), d, e])),
+        Some("HTTP 503"),
+        Some("기대 200"),
+    );
+    let a04 = sid("A04");
+    let p = panel(Some("E1"), Some(&a04));
+    let mut st = rstate(RecordLoad::Loaded(Box::new(rec)), 0);
+    let v0 = record_view(&p, &st, &names());
+    let RecordBody::Loaded { lines, .. } = &v0.body else {
+        panic!()
+    };
+    st.cursor = initial_step_cursor(lines);
+    record_view(&p, &st, &names())
+}
+
+fn rkeys() -> Vec<&'static str> {
+    vec!["↑↓ 스텝 고르기", "Enter 요청·응답 보기", "Esc 목록으로"]
+}
+
+fn render_rec(w: u16, h: u16, v: &RecordView) -> String {
+    let k = rkeys();
+    draw(w, h, |f| render_record(f, &head(), v, &k))
+}
+
+#[test]
+fn render_record_loaded() {
+    let v = loaded_view();
+    let t = render_rec(110, 22, &v);
+    assert!(
+        t.lines().next().unwrap().contains(text::MONITOR_TITLE),
+        "{t}"
+    );
+    assert!(
+        t.contains(&format!("주문 조회 · {}", format_date_hms(NOW))),
+        "{t}"
+    );
+    for s in [
+        "✖ 실패",
+        "1,204 ms",
+        "사유",
+        "HTTP 503",
+        "판정 상세",
+        "기대 200",
+        "시나리오",
+        "중첩",
+        "환경 운영",
+        "스텝",
+        "요청",
+        "응답",
+        "지연",
+        "POST http://h/login",
+        "503",
+        "781 ms",
+        "boom",
+        "조건 분기 → elif 0",
+        text::IDLE_NOTICE,
+    ] {
+        assert!(t.contains(s), "{s} 없음:\n{t}");
+    }
+    let focus: Vec<&str> = t.lines().filter(|l| l.contains("◀ 이 칸")).collect();
+    assert_eq!(focus.len(), 1, "{t}");
+    assert!(focus[0].trim_start().starts_with("▶ "), "{t}");
+    assert!(focus[0].contains(" d "), "{t}");
+    let timeout = t.lines().find(|l| l.contains(" e ")).unwrap();
+    assert!(
+        timeout.contains("—") && timeout.contains("시간 초과"),
+        "{t}"
+    );
+    // 오류 줄은 그 스텝 다음 줄.
+    let lines: Vec<&str> = t.lines().collect();
+    let i = lines.iter().position(|l| l.contains(" e ")).unwrap();
+    assert!(lines[i + 1].contains("boom"), "{t}");
+}
+
+#[test]
+fn render_record_no_env_omits_env_part() {
+    let mut v = loaded_view();
+    v.environment = None;
+    let t = render_rec(110, 22, &v);
+    assert!(t.contains("중첩"), "{t}");
+    assert!(!t.contains("환경"), "{t}");
+}
+
+#[test]
+fn render_record_sanitizes_remote_text() {
+    let mut v = loaded_view();
+    v.reason = Some("a\x1bb\tc".into());
+    if let RecordBody::Loaded { lines, .. } = &mut v.body {
+        for l in lines.iter_mut() {
+            if let StepLine::Http { url, error, .. } = l {
+                if let Some(u) = url {
+                    *u = "http://h/x\x1by".into();
+                }
+                if error.is_some() {
+                    *error = Some("bo\x1bom".into());
+                }
+            }
+        }
+    }
+    let t = render_rec(110, 22, &v);
+    // ratatui가 제어 문자 grapheme을 이미 걸러 이 단언만으론 공허하다 — 회귀 가드는 아래 긍정 단언.
+    assert!(!t.contains('\x1b'), "{t}");
+    assert!(t.contains("a\u{FFFD}b    c"), "{t}");
+    assert!(t.contains("http://h/x\u{FFFD}y"), "{t}");
+    assert!(t.contains("bo\u{FFFD}om"), "{t}");
+}
+
+#[test]
+fn render_record_states() {
+    let base = loaded_view();
+    let with = |body: RecordBody| {
+        let mut v = base.clone();
+        v.body = body;
+        render_rec(110, 22, &v)
+    };
+    assert!(with(RecordBody::Loading).contains(text::LOADING));
+    assert!(with(RecordBody::Gone).contains(text::RECORD_MISSING));
+    let mut narrow = base.clone();
+    narrow.body = RecordBody::Gone;
+    assert!(render_rec(40, 22, &narrow).contains("이 점검의 기록이 없습니다"));
+    assert!(with(RecordBody::Failed("m".into())).contains("기록을 불러오지 못했습니다: m"));
+    let note = |n: Note| {
+        with(RecordBody::Loaded {
+            notes: vec![n],
+            lines: vec![],
+            cursor: 0,
+        })
+    };
+    let t = note(Note::NoTraceConfig);
+    assert!(t.contains(text::RECORD_NO_TRACE_CONFIG), "{t}");
+    assert!(!t.contains("지연"), "스텝 줄 없으면 표 머리 없음: {t}");
+    assert!(note(Note::NoTraceTimeout).contains(text::RECORD_NO_TRACE_TIMEOUT));
+    assert!(note(Note::TraceError("x".into())).contains("점검 준비 중 오류: x"));
+    assert!(note(Note::TraceCut).contains(text::RECORD_TRACE_CUT));
+}
+
+#[test]
+fn render_record_short_height_keeps_a_step_row() {
+    let v = loaded_view();
+    let t = render_rec(110, 8, &v);
+    assert!(t.contains("✖ 실패"), "{t}");
+    assert!(t.contains("HTTP 503"), "{t}");
+    assert!(t.contains("▶ "), "{t}");
+    assert!(!t.contains("시나리오"), "{t}");
+}
+
+#[test]
+fn record_size_sweep_no_panic() {
+    let rows: Vec<StepTrace> = (0..30)
+        .map(|i| {
+            if i % 7 == 3 {
+                if_row("I01", "none")
+            } else {
+                http("A01", Some(i), Some(200), (i % 5 == 0).then_some("err"))
+            }
+        })
+        .collect();
+    let rec = record(Some(trace(rows)), Some("HTTP 503"), Some("d"));
+    let p = panel(Some("E1"), Some("01J00000000000000000000A01"));
+    for cursor in [0usize, 15, 29] {
+        let st = rstate(RecordLoad::Loaded(Box::new(rec.clone())), cursor);
+        let v = record_view(&p, &st, &names());
+        for w in 1..=60u16 {
+            for h in 1..=12u16 {
+                let _ = render_rec(w, h, &v);
+            }
+        }
+    }
+}
+
+#[test]
+fn header_sanitizes_board_name() {
+    let mut hv = head();
+    hv.board_name = "운영\t보드\x1b이름".into();
+    for w in [20u16, 40, 60, 100] {
+        let t = draw(w, 3, |f| {
+            handicap_tui::view::monitor::render_header_view(f, Rect::new(0, 0, w, 1), &hv)
+        });
+        let first = t.lines().next().unwrap();
+        assert!(
+            Span::raw(first.to_string()).width() <= usize::from(w),
+            "{t}"
+        );
+    }
+    let t = draw(100, 3, |f| {
+        handicap_tui::view::monitor::render_header_view(f, Rect::new(0, 0, 100, 1), &hv)
+    });
+    assert!(t.contains("운영    보드\u{FFFD}이름"), "{t}");
 }

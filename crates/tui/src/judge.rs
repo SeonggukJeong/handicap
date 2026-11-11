@@ -206,6 +206,9 @@ fn local_fmt(ms: i64, fmt: &str) -> String {
     match Local.timestamp_millis_opt(ms).single() {
         Some(t) => t.format(fmt).to_string(),
         None => fmt
+            .replace("%Y", "0000")
+            .replace("%m", "00")
+            .replace("%d", "00")
             .replace("%H", "00")
             .replace("%M", "00")
             .replace("%S", "00"),
@@ -220,4 +223,9 @@ pub fn format_hms(ms: i64) -> String {
 /// 로컬 시각 `HH:MM`
 pub fn format_hm(ms: i64) -> String {
     local_fmt(ms, "%H:%M")
+}
+
+/// 로컬 `YYYY-MM-DD HH:MM:SS`(GUI `formatDateHms`).
+pub fn format_date_hms(ms: i64) -> String {
+    local_fmt(ms, "%Y-%m-%d %H:%M:%S")
 }

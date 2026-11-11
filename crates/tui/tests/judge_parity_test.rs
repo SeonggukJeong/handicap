@@ -396,6 +396,63 @@ fn mirrored_text_exists_in_ko_ts() {
         ko.contains(&format!("recordLoadError: (msg: string) => `{tmpl}`")),
         "ko.monitor.recordLoadError"
     );
+    for (key, val) in [
+        ("recordMissing", text::RECORD_MISSING),
+        ("recordNoTraceConfig", text::RECORD_NO_TRACE_CONFIG),
+        ("recordNoTraceTimeout", text::RECORD_NO_TRACE_TIMEOUT),
+        ("recordTraceCut", text::RECORD_TRACE_CUT),
+        ("scenario", text::SET_SCENARIO),
+        ("environment", text::SET_ENV),
+    ] {
+        assert!(
+            ko.contains(&format!("{key}: \"{val}\"")),
+            "ko.monitor.{key}"
+        );
+    }
+    let e = text::record_trace_error("${e}");
+    assert!(
+        ko.contains(&format!("recordTraceError: (e: string) => `{e}`")),
+        "ko.monitor.recordTraceError"
+    );
+    let b = text::record_if_row("${branch}");
+    assert!(
+        ko.contains(&format!("recordIfRow: (branch: string) => `{b}`")),
+        "ko.monitor.recordIfRow"
+    );
+    let t = text::record_title("${title}", "${when}");
+    assert!(
+        ko.contains(&format!(
+            "recordTitle: (title: string, when: string) => `{t}`"
+        )),
+        "ko.monitor.recordTitle"
+    );
+    let chip = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/src/scenario/chipResults.ts"
+    ))
+    .unwrap();
+    assert!(
+        chip.contains(&format!("none: \"{}\"", text::BRANCH_NONE)),
+        "BRANCH_LABEL.none"
+    );
+}
+
+#[test]
+fn format_date_hms_shape() {
+    let ms = 1_700_000_000_123;
+    let s = handicap_tui::judge::format_date_hms(ms);
+    let b = s.as_bytes();
+    assert_eq!(s.len(), 19, "{s}");
+    assert_eq!(b[4], b'-');
+    assert_eq!(b[7], b'-');
+    assert_eq!(b[10], b' ');
+    assert_eq!(b[13], b':');
+    let want = chrono::TimeZone::timestamp_millis_opt(&chrono::Local, ms)
+        .unwrap()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    assert_eq!(s, want);
+    assert!(s.ends_with(&handicap_tui::judge::format_hms(ms)));
 }
 
 #[test]

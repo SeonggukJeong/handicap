@@ -624,6 +624,8 @@ fn render_header(f: &mut Frame, area: Rect, s: &MonitorScreen) {
 /// 보드 이름은 마지막에야 `…`로 줄이고 `(i/n)`은 통째로 남긴다.
 pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
     let w = usize::from(area.width);
+    // 보드 이름은 파일에서 온 문자열 — 탭·제어 문자가 폭 계산을 어긋내지 않게.
+    let board_name = crate::inspect::sanitize(&s.board_name);
     let status = if s.server_down {
         text::SERVER_DOWN
     } else {
@@ -653,12 +655,12 @@ pub fn render_header_view(f: &mut Frame, area: Rect, s: &HeaderView) {
             " ".to_string()
         };
         let fixed = text_width(&head) + text_width(&pos) + text_width(&right) + 1;
-        let name_w = text_width(&s.board_name);
+        let name_w = text_width(&board_name);
         let last = i == steps.len() - 1;
         if fixed + name_w <= w || last {
             let room = w.saturating_sub(fixed);
             let name = if room >= 2 || fixed + name_w <= w {
-                fit(&s.board_name, room)
+                fit(&board_name, room)
             } else {
                 String::new()
             };

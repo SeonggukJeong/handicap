@@ -187,3 +187,48 @@ pub const ERRORS_EMPTY_ALL: &str = "아직 점검 결과가 없습니다";
 
 /// 새 화면(오류 보기·칸 설정)의 무입력 자동 복귀 안내 줄.
 pub const IDLE_NOTICE: &str = "5분 동안 입력이 없으면 모니터로 돌아갑니다";
+
+// ---------- 기록 상세 (1b) ----------
+
+/// `ko.monitor.recordTitle`
+pub fn record_title(title: &str, when: &str) -> String {
+    format!("{title} · {when}")
+}
+
+/// `ko.monitor.recordMissing`
+pub const RECORD_MISSING: &str =
+    "이 점검의 기록이 없습니다 — 기록은 막대 구간만큼만 보관되어 이미 지워졌습니다";
+/// `ko.monitor.recordNoTraceConfig`
+pub const RECORD_NO_TRACE_CONFIG: &str =
+    "요청을 보내기 전에 멈췄습니다(설정 오류) — 요청·응답 기록 없음";
+/// `ko.monitor.recordNoTraceTimeout`
+pub const RECORD_NO_TRACE_TIMEOUT: &str = "응답이 오기 전에 시간 초과 — 요청·응답 기록 없음";
+
+/// `ko.monitor.recordTraceError`
+pub fn record_trace_error(e: &str) -> String {
+    format!("점검 준비 중 오류: {e}")
+}
+
+/// `ko.monitor.recordTraceCut`
+pub const RECORD_TRACE_CUT: &str = "점검이 중간에 끊겨 그 전 스텝까지만 기록됐습니다";
+
+/// `ko.monitor.recordIfRow`
+pub fn record_if_row(branch: &str) -> String {
+    format!("조건 분기 → {branch}")
+}
+
+/// `ui/src/scenario/chipResults.ts` `BRANCH_LABEL.none`
+pub const BRANCH_NONE: &str = "(미매치)";
+/// 기록 상세의 사유·판정 상세 칸 이름(TUI 전용, spec §5.3-2 용어).
+pub const REASON_LABEL: &str = "사유";
+pub const JUDGE_DETAIL: &str = "판정 상세";
+/// `ko.monitor.scenario`
+pub const SET_SCENARIO: &str = "시나리오";
+/// `ko.monitor.environment`
+pub const SET_ENV: &str = "환경";
+/// 기록 상세 스텝 표 열 이름(#, 스텝, 요청, 응답, 지연).
+pub const RECORD_COLS: (&str, &str, &str, &str, &str) = ("#", "스텝", "요청", "응답", "지연");
+/// 스텝이 요청 시간 초과로 실패(지연 자리).
+pub const TIMED_OUT: &str = "시간 초과";
+/// 스텝 칸이 보는 그 스텝 줄 표시(사용자 확정 9).
+pub const THIS_PANEL: &str = "◀ 이 칸";
