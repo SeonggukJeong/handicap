@@ -89,7 +89,14 @@ pub const HELP_REPLACE_WARN: &str = "새 파일로 바꾸면 이 PC에서 고친
 
 /// 도움말 백업 줄(spec §6.6) — 실제 경로 기준.
 pub fn help_backups(bak: &str, orig: &str) -> String {
-    format!("백업: {bak} · 원본: {orig}")
+    format!("{} · {}", help_backup(bak), help_orig(orig))
+}
+/// 백업 줄을 한 줄에 못 넣을 때 따로 쓰는 두 조각.
+pub fn help_backup(bak: &str) -> String {
+    format!("백업: {bak}")
+}
+pub fn help_orig(orig: &str) -> String {
+    format!("원본: {orig}")
 }
 pub const HELP_LOG: &str = "로그";
 

@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use super::{centered, fit, key_bar, text_width, wrap_width};
+use super::{centered, key_bar, text_width, wrap_width};
 use crate::filesave::FileTarget;
 use crate::inspect::sanitize;
 use crate::logging::LogLoc;
@@ -37,25 +37,35 @@ pub fn render_help(f: &mut Frame, file: &Path, backups: Option<&FileTarget>, log
     tail.extend(wrap_width(text::HELP_IDLE, inner_w));
     tail.push(text::HELP_COPY.to_string());
     let warn_rows = wrap_width(text::HELP_REPLACE_WARN, inner_w);
-    // 실제 경로는 파일 시스템 유래 — 그리기 전에 sanitize, 한 줄에 맞춰 자른다.
-    let backup_row = backups.map(|t| {
-        let line = text::help_backups(
-            &sanitize(&t.bak().display().to_string()),
-            &sanitize(&t.orig_bak().display().to_string()),
-        );
-        fit(&line, inner_w)
-    });
+    // 실제 경로는 파일 시스템 유래 — 그리기 전에 sanitize. 한 줄에 들어가면 한 줄, 아니면 두 경로를 따로
+    // 줄바꿈한다(한 줄로 자르면 `원본:` 쪽이 통째로 사라진다).
+    let backup_rows: Vec<String> = backups
+        .map(|t| {
+            let bak = sanitize(&t.bak().display().to_string());
+            let orig = sanitize(&t.orig_bak().display().to_string());
+            let one = text::help_backups(&bak, &orig);
+            if text_width(&one) <= inner_w {
+                vec![one]
+            } else {
+                let mut rows = wrap_width(&text::help_backup(&bak), inner_w);
+                rows.extend(wrap_width(&text::help_orig(&orig), inner_w));
+                rows
+            }
+        })
+        .unwrap_or_default();
     let base = key_rows.len() + file_rows.len() + tail.len();
     let room = usize::from(area.height.saturating_sub(3));
-    let show_backup = backup_row.is_some() && base + warn_rows.len() < room;
+    // 백업 줄은 통째로 넣거나 통째로 뺀다.
+    let show_backup = !backup_rows.is_empty() && base + warn_rows.len() + backup_rows.len() <= room;
     let show_warn = base + warn_rows.len() <= room;
     let n_warn = if show_warn { warn_rows.len() } else { 0 };
-    let want = (base + n_warn + usize::from(show_backup)) as u16 + 3;
+    let n_backup = if show_backup { backup_rows.len() } else { 0 };
+    let want = (base + n_warn + n_backup) as u16 + 3;
     let rect = centered(area, width, want.min(area.height));
     let cap = usize::from(rect.height.saturating_sub(3));
     let mut fixed: Vec<String> = file_rows;
-    if show_backup && let Some(b) = backup_row {
-        fixed.push(b);
+    if show_backup {
+        fixed.extend(backup_rows);
     }
     fixed.extend(tail);
     let keys_shown = cap.saturating_sub(fixed.len() + n_warn).min(key_rows.len());

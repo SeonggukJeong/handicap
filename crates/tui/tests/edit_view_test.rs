@@ -428,7 +428,11 @@ fn key_fragments() {
         list_keys(ListKind::Thresholds, 0),
         vec!["↑↓ 고르기", "a 추가", "Esc 뒤로"]
     );
-    assert!(cond_form_keys().contains(&"Enter 저장"));
+    // 조건 수정 칸에는 `d 삭제`가 없다(spec §6.7 — 그 칸의 키가 아니다).
+    assert_eq!(
+        cond_form_keys(),
+        vec!["Tab 다음 칸", "Space 켜기·끄기", "Enter 저장", "Esc 취소"]
+    );
 }
 
 #[test]

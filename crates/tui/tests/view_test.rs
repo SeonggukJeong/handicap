@@ -2739,6 +2739,28 @@ fn header_notice_flows_through_monitor_screen() {
 // ---------- tui-2a-1 Task 11: 도움말 새 줄 ----------
 
 #[test]
+fn help_long_backup_paths_wrap_and_show_both() {
+    // 실제 경로는 길다 — 한 줄로 자르면 `원본:` 쪽이 통째로 사라진다. 길면 두 경로를 따로 줄바꿈해 둘 다 보인다.
+    use handicap_tui::filesave::FileTarget;
+    let log = LogLoc::Path("/tmp/tui.log".into());
+    let real = format!("/home/operator/{}/board.json", "monitor-boards".repeat(5));
+    let target = FileTarget {
+        given: "/tmp/link.json".into(),
+        real: real.clone().into(),
+    };
+    let text = draw(80, 40, |f| {
+        render_help(f, Path::new("/tmp/link.json"), Some(&target), &log)
+    });
+    let flat: String = text
+        .lines()
+        .map(|l| l.trim_matches(|c: char| c == '│' || c.is_whitespace()))
+        .collect();
+    assert!(flat.contains(&format!("백업: {real}.bak")), "{text}");
+    assert!(flat.contains(&format!("원본: {real}.orig.bak")), "{text}");
+    assert!(!text.contains('…'), "경로를 자르지 않는다: {text}");
+}
+
+#[test]
 fn help_lists_backup_and_warning() {
     use handicap_tui::filesave::FileTarget;
     let log = LogLoc::Path("/tmp/tui.log".into());
@@ -2801,7 +2823,7 @@ fn help_lists_backup_and_warning() {
         "{text}"
     );
     assert!(text.contains("마우스 왼쪽 클릭"), "{text}");
-    // 긴 실제 경로는 한 줄에 맞춰 자른다(상자 밖으로 안 나감).
+    // 긴 실제 경로는 줄바꿈한다(자르지 않고, 상자 밖으로도 안 나감).
     let long = FileTarget {
         given: "/tmp/b.json".into(),
         real: format!("/{}", "Z".repeat(120)).into(),
@@ -2810,8 +2832,14 @@ fn help_lists_backup_and_warning() {
         render_help(f, Path::new("/tmp/b.json"), Some(&long), &log)
     });
     let line = text.lines().find(|l| l.contains("백업:")).unwrap();
-    assert!(line.contains('…'), "{line}");
+    assert!(!line.contains('…'), "{line}");
     assert!(line.trim_end().ends_with('│'), "{line}");
+    assert!(text.contains("원본:"), "{text}");
+    assert_eq!(
+        text.matches('Z').count(),
+        240,
+        "두 경로의 글자가 전부 보인다: {text}"
+    );
     // 원격 유래가 아닌 경로라도 제어 문자는 가린다.
     let odd = FileTarget {
         given: "/tmp/b.json".into(),
